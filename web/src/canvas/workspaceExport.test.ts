@@ -25,19 +25,23 @@ describe("reading a workspace file", () => {
     expect(read).toEqual(document());
   });
 
-  it("lifts a layout written before the scanner grew its control wire", () => {
+  it("lifts a layout written before the scanner drove a decoder", () => {
     const older = document();
-    older.snapshot.graph.nodes.push({ id: "scan", kind: "scanner", position: { x: 0, y: 400 } });
-    older.snapshot.graph.edges?.push({
-      from: { node: "dev", port: "iq" },
-      to: { node: "scan", port: "iq" },
-    });
+    older.snapshot.graph.nodes.push(
+      { id: "nfm", kind: "channel", data: { channel_type: "nfm" }, position: { x: 0, y: 200 } },
+      { id: "scan", kind: "scanner", position: { x: 0, y: 400 } },
+    );
+    older.snapshot.graph.edges?.push(
+      { from: { node: "dev", port: "iq" }, to: { node: "nfm", port: "iq" } },
+      { from: { node: "dev", port: "iq" }, to: { node: "scan", port: "iq" } },
+    );
 
     const read = parseWorkspaceExport(JSON.stringify(older));
 
     expect(read.snapshot.graph.edges).toEqual([
       { from: { node: "dev", port: "iq" }, to: { node: "scope", port: "iq" } },
-      { from: { node: "scan", port: "control" }, to: { node: "dev", port: "control" } },
+      { from: { node: "dev", port: "iq" }, to: { node: "nfm", port: "iq" } },
+      { from: { node: "scan", port: "control" }, to: { node: "nfm", port: "control" } },
     ]);
   });
 

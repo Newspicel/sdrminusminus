@@ -46,7 +46,6 @@ export function App() {
   const { applyPatch, cachedSettings } = useDevicePatch();
   const { applyEdit } = useChannelPatch();
   const deviceSets = useMemo(() => state.data?.device_sets ?? [], [state.data?.device_sets]);
-  const scanSession = state.data?.scan_session ?? null;
   const trunks = useMemo(() => state.data?.trunk_systems ?? [], [state.data?.trunk_systems]);
 
   const { socket, retrySocket } = useSdrSocket(queryClient, workspace.error);
@@ -162,7 +161,6 @@ export function App() {
               settings,
               context,
               deviceSets,
-              scanSession,
               trunks,
               devices,
               channels,

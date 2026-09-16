@@ -19,8 +19,8 @@ pub(crate) mod session;
 mod sweep;
 
 use close_call::CloseCall;
+pub(crate) use plan::ScanPlan;
 use plan::Tuning;
-pub(crate) use plan::{ScanPlan, partition};
 
 const USABLE_SPAN_FRACTION: f64 = 0.8;
 const RETUNE_SETTLE: Duration = Duration::from_millis(30);
@@ -32,6 +32,7 @@ const UPDATE_INTERVAL: Duration = Duration::from_millis(200);
 
 pub(crate) struct ScannerState {
     stop: Arc<AtomicBool>,
+    release: Arc<AtomicBool>,
     status: Arc<Mutex<ScannerStatus>>,
     thread: Option<JoinHandle<()>>,
 }
@@ -39,6 +40,21 @@ pub(crate) struct ScannerState {
 impl ScannerState {
     pub(crate) fn status(&self) -> ScannerStatus {
         lock_status(&self.status).clone()
+    }
+
+    pub(crate) fn skip(&self) -> Result<ScannerStatus, EngineError> {
+        let mut status = lock_status(&self.status);
+        if status.state != ScanState::Holding {
+            return Err(EngineError::Scan(
+                "the scan is not holding on anything to skip".to_string(),
+            ));
+        }
+        let hz = status.current_hz;
+        if !status.settings.skip.contains(&hz) {
+            status.settings.skip.push(hz);
+        }
+        self.release.store(true, Ordering::Release);
+        Ok(status.clone())
     }
 
     pub(crate) fn stop_and_join(mut self) -> ScannerStatus {
@@ -63,8 +79,12 @@ pub(crate) fn spawn(
     ds: u32,
     plan: ScanPlan,
     settings: ScanSettings,
+    decoder: Option<u32>,
 ) -> Result<ScannerState, EngineError> {
     let hardware = settings.hardware_sweep && engine.sweeps_in_firmware(ds);
+    let bw_hz = settings
+        .measure_bw_hz
+        .ok_or_else(|| EngineError::Scan("a scan needs a measurement bandwidth".to_string()))?;
     let status = Arc::new(Mutex::new(ScannerStatus {
         state: ScanState::Scanning,
         settings: settings.clone(),
@@ -79,9 +99,11 @@ pub(crate) fn spawn(
         error: None,
     }));
     let stop = Arc::new(AtomicBool::new(false));
+    let release = Arc::new(AtomicBool::new(false));
     let thread = {
         let weak = Arc::downgrade(engine);
         let stop = stop.clone();
+        let release = release.clone();
         let status = status.clone();
         std::thread::Builder::new()
             .name(format!("sdrmm-scan-{ds}"))
@@ -91,7 +113,12 @@ pub(crate) fn spawn(
                     ds,
                     plan,
                     settings,
+                    decoder,
+                    followed: None,
+                    last_follow: None,
+                    bw_hz,
                     stop,
+                    release,
                     status,
                     last_update: None,
                     hardware,
@@ -104,6 +131,7 @@ pub(crate) fn spawn(
     };
     Ok(ScannerState {
         stop,
+        release,
         status,
         thread: Some(thread),
     })
@@ -114,7 +142,12 @@ struct Scan {
     ds: u32,
     plan: ScanPlan,
     settings: ScanSettings,
+    decoder: Option<u32>,
+    followed: Option<f64>,
+    last_follow: Option<Instant>,
+    bw_hz: f64,
     stop: Arc<AtomicBool>,
+    release: Arc<AtomicBool>,
     status: Arc<Mutex<ScannerStatus>>,
     last_update: Option<Instant>,
     hardware: bool,
@@ -144,6 +177,11 @@ impl Scan {
         {
             tracing::error!(ds = self.ds, error = %e, "could not put the receive stream back");
         }
+        if let Some(engine) = self.engine.upgrade()
+            && let Err(Halt::Failed(error)) = self.follow(&engine, true)
+        {
+            tracing::warn!(ds = self.ds, %error, "the decoder was not left where the scan stopped");
+        }
         match outcome {
             Ok(()) | Err(Halt::Stopped) => {}
             Err(Halt::Failed(error)) => {
@@ -167,11 +205,11 @@ impl Scan {
                 self.firmware_pass(&engine, rate)?;
                 continue;
             }
-            let usable = rate * USABLE_SPAN_FRACTION - self.settings.measure_bw_hz;
+            let usable = rate * USABLE_SPAN_FRACTION - self.bw_hz;
             if usable <= 0.0 {
                 return Err(Halt::Failed(format!(
                     "a {} Hz measurement bandwidth does not fit in a {rate} Hz device passband",
-                    self.settings.measure_bw_hz
+                    self.bw_hz
                 )));
             }
             let tunings = self.plan.tunings(usable);
@@ -185,10 +223,7 @@ impl Scan {
 
     fn firmware_pass(&mut self, engine: &Arc<Engine>, rate: f64) -> Result<(), Halt> {
         if !self.in_sweep {
-            let plan = SweepPlan::new(
-                sweep::bands(&self.plan.targets, rate, self.settings.measure_bw_hz),
-                rate,
-            );
+            let plan = SweepPlan::new(sweep::bands(&self.plan.targets, rate, self.bw_hz), rate);
             if let Err(error) = sweep::enter(engine, self.ds, &plan) {
                 tracing::warn!(ds = self.ds, %error, "no firmware sweep; retuning instead");
                 self.hardware = false;
@@ -219,6 +254,7 @@ impl Scan {
                         self.hit(engine, call, snapshot.center_hz)?;
                         return Ok(());
                     }
+                    self.follow(engine, false)?;
                 }
                 Err(TryRecvError::Empty) => {
                     if heard.elapsed() >= SPECTRUM_TIMEOUT {
@@ -241,12 +277,12 @@ impl Scan {
             return Some(call);
         }
         let mut seen = None;
-        for &target in covered(&self.plan.targets, snapshot, self.settings.measure_bw_hz) {
-            let Some(db) = measure(snapshot, target, self.settings.measure_bw_hz) else {
+        for &target in covered(&self.plan.targets, snapshot, self.bw_hz) {
+            let Some(db) = measure(snapshot, target, self.bw_hz) else {
                 continue;
             };
             seen = Some((target, db));
-            if db >= self.settings.threshold_db {
+            if db >= self.settings.threshold_db && !self.skipped(target) {
                 let call = Call {
                     hz: target,
                     db,
@@ -269,11 +305,23 @@ impl Scan {
     fn call_in(&mut self, snapshot: &SpectrumSnapshot) -> Option<Call> {
         let margin = self.settings.margin_db;
         let peak = self.close_call.strongest(snapshot, margin)?;
+        if self.skipped(peak.hz) {
+            return None;
+        }
         Some(Call {
             hz: peak.hz,
             db: peak.db,
             keep_db: peak.floor_db + margin,
         })
+    }
+
+    fn skipped(&self, hz: f64) -> bool {
+        let half = self.bw_hz / 2.0;
+        lock_status(&self.status)
+            .settings
+            .skip
+            .iter()
+            .any(|&skipped| (skipped - hz).abs() <= half)
     }
 
     fn note_hit(&self, call: Call) {
@@ -313,9 +361,25 @@ impl Scan {
         }
         let targets: Vec<f64> = self.plan.targets[tuning.first..=tuning.last].to_vec();
         let mut peaks = vec![f32::NEG_INFINITY; targets.len()];
-        self.listen(&mut rx, &targets, &mut peaks, dwell)?;
+        let mut from = 0;
+        while from < targets.len() {
+            self.listen(&mut rx, &targets[from..], &mut peaks[from..], dwell)?;
+            let Some(hit) = self.first_call(engine, &targets[from..], &peaks[from..])? else {
+                return Ok(());
+            };
+            self.hold(engine, &mut rx, hit.1)?;
+            from += hit.0 + 1;
+        }
+        Ok(())
+    }
 
-        for (&target, &level) in targets.iter().zip(&peaks) {
+    fn first_call(
+        &mut self,
+        engine: &Arc<Engine>,
+        targets: &[f64],
+        peaks: &[f32],
+    ) -> Result<Option<(usize, Call)>, Halt> {
+        for (index, (&target, &level)) in targets.iter().zip(peaks).enumerate() {
             self.check_stop()?;
             {
                 let mut status = lock_status(&self.status);
@@ -323,18 +387,18 @@ impl Scan {
                 status.current_db = level.is_finite().then_some(level);
             }
             self.push_update(engine, false);
-            if level >= self.settings.threshold_db {
+            self.follow(engine, false)?;
+            if level >= self.settings.threshold_db && !self.skipped(target) {
                 let call = Call {
                     hz: target,
                     db: level,
                     keep_db: self.settings.threshold_db,
                 };
                 lock_status(&self.status).hits += 1;
-                self.hold(engine, &mut rx, call)?;
-                return Ok(());
+                return Ok(Some((index, call)));
             }
         }
-        Ok(())
+        Ok(None)
     }
 
     fn watch(
@@ -357,6 +421,7 @@ impl Scan {
                     }
                     lock_status(&self.status).current_hz = center_hz;
                     self.push_update(engine, false);
+                    self.follow(engine, false)?;
                     if Instant::now() >= deadline {
                         return Ok(());
                     }
@@ -382,24 +447,22 @@ impl Scan {
         call: Call,
     ) -> Result<(), Halt> {
         let target = call.hz;
-        if let Some(channel) = self.settings.hold_channel
-            && let Err(e) = engine.scan_park_channel(self.ds, channel, target)
-        {
-            tracing::warn!(ds = self.ds, channel, error = %e, "scan hold channel unusable");
-            self.settings.hold_channel = None;
-            lock_status(&self.status).settings.hold_channel = None;
-        }
+        self.release.store(false, Ordering::Release);
         {
             let mut status = lock_status(&self.status);
             status.state = ScanState::Holding;
             status.current_hz = target;
         }
+        self.follow(engine, true)?;
         self.push_update(engine, true);
 
         let resume = Duration::from_millis(u64::from(self.settings.resume_ms));
         let mut quiet_since: Option<Instant> = None;
         loop {
             self.check_stop()?;
+            if self.release.swap(false, Ordering::AcqRel) {
+                break;
+            }
             let mut peak = f32::NEG_INFINITY;
             self.listen(
                 rx,
@@ -450,7 +513,7 @@ impl Scan {
                 Ok(snapshot) => {
                     frames += 1;
                     for (peak, &target) in peaks.iter_mut().zip(targets) {
-                        if let Some(db) = measure(&snapshot, target, self.settings.measure_bw_hz) {
+                        if let Some(db) = measure(&snapshot, target, self.bw_hz) {
                             *peak = peak.max(db);
                         }
                     }
@@ -466,6 +529,29 @@ impl Scan {
         if self.stop.load(Ordering::Acquire) {
             return Err(Halt::Stopped);
         }
+        Ok(())
+    }
+
+    fn follow(&mut self, engine: &Engine, force: bool) -> Result<(), Halt> {
+        let Some(channel) = self.decoder else {
+            return Ok(());
+        };
+        let now = Instant::now();
+        if !force && self.last_follow.is_some_and(|t| now - t < UPDATE_INTERVAL) {
+            return Ok(());
+        }
+        let hz = lock_status(&self.status).current_hz;
+        if self.followed == Some(hz) {
+            return Ok(());
+        }
+        self.last_follow = Some(now);
+        engine
+            .scan_tune_channel(self.ds, channel, hz)
+            .map_err(|e| match e {
+                EngineError::DeviceSetNotFound(_) => Halt::Stopped,
+                other => Halt::Failed(format!("the decoder could not follow the scan: {other}")),
+            })?;
+        self.followed = Some(hz);
         Ok(())
     }
 
@@ -577,7 +663,7 @@ mod tests {
     }
 
     fn listener() -> Scan {
-        let settings = ScanSettings::default();
+        let settings = ScanSettings::for_channel(1);
         Scan {
             engine: Weak::new(),
             ds: 0,
@@ -598,12 +684,50 @@ mod tests {
                 error: None,
             })),
             settings,
+            decoder: Some(1),
+            followed: None,
+            last_follow: None,
+            bw_hz: 12_500.0,
             stop: Arc::new(AtomicBool::new(false)),
+            release: Arc::new(AtomicBool::new(false)),
             last_update: None,
             hardware: false,
             in_sweep: false,
             close_call: CloseCall::default(),
         }
+    }
+
+    #[test]
+    fn a_skipped_frequency_is_stepped_over_and_a_neighbour_within_the_slice_with_it() {
+        let scan = listener();
+        assert!(!scan.skipped(100_000_000.0));
+        lock_status(&scan.status).settings.skip.push(100_000_000.0);
+        assert!(scan.skipped(100_000_000.0));
+        assert!(scan.skipped(100_005_000.0), "inside the measured slice");
+        assert!(
+            !scan.skipped(100_025_000.0),
+            "the next channel over is still scanned"
+        );
+    }
+
+    #[test]
+    fn skipping_is_only_offered_while_holding() {
+        let scan = listener();
+        let state = ScannerState {
+            stop: scan.stop.clone(),
+            release: scan.release.clone(),
+            status: scan.status.clone(),
+            thread: None,
+        };
+        assert!(state.skip().is_err(), "nothing to skip while sweeping");
+        assert!(!scan.release.load(Ordering::Acquire));
+
+        lock_status(&scan.status).state = ScanState::Holding;
+        let status = state.skip().expect("a held frequency can be skipped");
+        assert_eq!(status.settings.skip, vec![100_000_000.0]);
+        assert!(scan.release.load(Ordering::Acquire), "the hold is released");
+        let again = state.skip().expect("skipping twice is harmless");
+        assert_eq!(again.settings.skip.len(), 1, "no duplicate entries");
     }
 
     fn carrier_at_125_khz() -> SpectrumSnapshot {

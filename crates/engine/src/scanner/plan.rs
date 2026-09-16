@@ -12,11 +12,10 @@ impl ScanPlan {
         if !settings.threshold_db.is_finite() {
             return Err(bad("threshold_db must be finite".to_string()));
         }
-        if !settings.measure_bw_hz.is_finite() || settings.measure_bw_hz <= 0.0 {
-            return Err(bad(format!(
-                "measure_bw_hz must be positive, got {}",
-                settings.measure_bw_hz
-            )));
+        if let Some(bw_hz) = settings.measure_bw_hz
+            && (!bw_hz.is_finite() || bw_hz <= 0.0)
+        {
+            return Err(bad(format!("measure_bw_hz must be positive, got {bw_hz}")));
         }
         let mut targets: Vec<f64> = Vec::new();
         for range in &settings.ranges {
@@ -103,73 +102,19 @@ pub(crate) struct Tuning {
     pub(crate) last: usize,
 }
 
-fn reachable(ranges: &[Range], hz: f64) -> bool {
-    ranges.is_empty() || ranges.iter().any(|r| hz >= r.min && hz <= r.max)
-}
-
-/// Hands each device set a share of the sweep.
-///
-/// Contiguous shares are what a set wants: every retune inside a share is a short hop, and the
-/// operator reads one band per radio. When the radios do not all reach the same frequencies the
-/// split falls back to placing the most constrained targets first and then filling by load, which
-/// scatters shares but leaves nothing unswept and no radio carrying the sweep alone.
-pub(crate) fn partition(
-    targets: &[f64],
-    reach: &[Vec<Range>],
-) -> Result<Vec<Vec<f64>>, EngineError> {
-    let members = reach.len();
-    if members == 0 {
-        return Err(EngineError::Scan(
-            "a scan needs at least one device set".to_string(),
-        ));
-    }
-    if let Some(&hz) = targets
-        .iter()
-        .find(|&&hz| !reach.iter().any(|ranges| reachable(ranges, hz)))
-    {
-        return Err(EngineError::Scan(format!(
-            "{hz} Hz is outside the tuning range of every device set in the scan"
-        )));
-    }
-    let universal = reach
-        .iter()
-        .all(|ranges| targets.iter().all(|&hz| reachable(ranges, hz)));
-    if universal {
-        return Ok(contiguous(targets, members));
-    }
-    let mut order: Vec<usize> = (0..targets.len()).collect();
-    order.sort_by_key(|&i| {
-        reach
+impl ScanPlan {
+    pub(crate) fn check_reach(&self, ranges: &[Range]) -> Result<(), EngineError> {
+        match self
+            .targets
             .iter()
-            .filter(|ranges| reachable(ranges, targets[i]))
-            .count()
-    });
-    let mut shares: Vec<Vec<f64>> = vec![Vec::new(); members];
-    for i in order {
-        let hz = targets[i];
-        let pick = (0..members)
-            .filter(|&m| reachable(&reach[m], hz))
-            .min_by_key(|&m| (shares[m].len(), m))
-            .ok_or_else(|| EngineError::Scan(format!("{hz} Hz is unreachable")))?;
-        shares[pick].push(hz);
+            .find(|&&hz| !ranges.is_empty() && !ranges.iter().any(|r| r.holds(hz)))
+        {
+            Some(hz) => Err(EngineError::Scan(format!(
+                "{hz} Hz is outside the tuning range of this radio"
+            ))),
+            None => Ok(()),
+        }
     }
-    for share in &mut shares {
-        share.sort_by(f64::total_cmp);
-    }
-    Ok(shares)
-}
-
-fn contiguous(targets: &[f64], members: usize) -> Vec<Vec<f64>> {
-    let base = targets.len() / members;
-    let extra = targets.len() % members;
-    let mut shares = Vec::with_capacity(members);
-    let mut cut = 0;
-    for i in 0..members {
-        let take = base + usize::from(i < extra);
-        shares.push(targets[cut..cut + take].to_vec());
-        cut += take;
-    }
-    shares
 }
 
 #[cfg(test)]
@@ -182,7 +127,7 @@ mod tests {
         ScanSettings {
             ranges,
             frequencies,
-            ..ScanSettings::default()
+            ..ScanSettings::for_channel(1)
         }
     }
 
@@ -299,14 +244,6 @@ mod tests {
         assert_eq!(covered, plan.targets.len(), "every target scanned once");
     }
 
-    fn wide() -> Vec<Range> {
-        vec![Range {
-            min: 0.0,
-            max: 6e9,
-            step: None,
-        }]
-    }
-
     fn band(min: f64, max: f64) -> Vec<Range> {
         vec![Range {
             min,
@@ -316,42 +253,17 @@ mod tests {
     }
 
     #[test]
-    fn matched_radios_each_take_one_contiguous_band() {
-        let targets: Vec<f64> = (0..7).map(|i| 100e6 + f64::from(i) * 25e3).collect();
-        let shares = partition(&targets, &[wide(), wide()]).expect("split");
-        assert_eq!(shares[0], targets[..4]);
-        assert_eq!(shares[1], targets[4..]);
-    }
-
-    #[test]
-    fn a_narrow_radio_only_gets_what_it_can_reach() {
-        let targets = vec![100e6, 101e6, 400e6, 401e6];
-        let shares = partition(&targets, &[band(90e6, 200e6), wide()]).expect("split");
-        assert_eq!(shares[0], vec![100e6, 101e6]);
-        assert_eq!(shares[1], vec![400e6, 401e6]);
-    }
-
-    #[test]
-    fn a_target_no_radio_reaches_is_refused_by_name() {
-        let err = partition(&[2.4e9], &[band(90e6, 200e6)]).expect_err("out of reach");
+    fn a_target_the_radio_cannot_reach_is_refused_by_name() {
+        let plan = ScanPlan::build(&settings(Vec::new(), vec![100e6, 2.4e9])).expect("plan");
+        let err = plan
+            .check_reach(&band(90e6, 200e6))
+            .expect_err("out of reach");
         assert!(
             err.to_string().contains("2400000000"),
             "unhelpful message: {err}"
         );
-    }
-
-    #[test]
-    fn every_target_lands_in_exactly_one_share() {
-        let targets: Vec<f64> = (0..13).map(|i| 100e6 + f64::from(i) * 25e3).collect();
-        for members in 1..=5 {
-            let reach = vec![wide(); members];
-            let shares = partition(&targets, &reach).expect("split");
-            let mut seen: Vec<f64> = shares.iter().flatten().copied().collect();
-            seen.sort_by(f64::total_cmp);
-            assert_eq!(seen, targets, "{members} sets lost or duplicated a target");
-            let sizes: Vec<usize> = shares.iter().map(Vec::len).collect();
-            let spread = sizes.iter().max().unwrap_or(&0) - sizes.iter().min().unwrap_or(&0);
-            assert!(spread <= 1, "{members} sets got lopsided shares: {sizes:?}");
-        }
+        plan.check_reach(&[])
+            .expect("a radio that declares no range is taken at its word");
+        plan.check_reach(&band(1e6, 6e9)).expect("in reach");
     }
 }

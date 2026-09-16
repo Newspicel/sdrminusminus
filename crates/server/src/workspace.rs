@@ -197,7 +197,7 @@ pub(crate) fn capture(
         else {
             continue;
         };
-        if set.scanner.is_some() || set.hunt.is_some() || unrestored.contains(&binding.node) {
+        if set.scanner.is_some() || unrestored.contains(&binding.node) {
             continue;
         }
         for (node, id) in binding.channels {

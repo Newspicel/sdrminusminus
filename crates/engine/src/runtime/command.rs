@@ -23,6 +23,10 @@ pub(crate) enum DspCommand {
     RemoveChannel {
         id: u32,
     },
+    RetuneChannel {
+        id: u32,
+        frequency_hz: f64,
+    },
     PositionChanged {
         id: u32,
         fix: Option<PositionFix>,

@@ -15,7 +15,6 @@ use crate::{DeviceSetStatus, Engine, EngineError};
 /// How much of the previous reading survives into the next one. A hunt is walked with, and a
 /// meter that jumps on every fade tells the operator about the multipath, not about the distance.
 const SMOOTHING: f32 = 0.25;
-const SETTLE: Duration = Duration::from_millis(60);
 const SPECTRUM_TIMEOUT: Duration = Duration::from_secs(2);
 const POLL: Duration = Duration::from_millis(2);
 const MIN_INTERVAL: Duration = Duration::from_millis(20);
@@ -53,31 +52,13 @@ fn lock_status(status: &Mutex<HuntStatus>) -> std::sync::MutexGuard<'_, HuntStat
         .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
-pub(crate) fn check(settings: &HuntSettings) -> Result<(), EngineError> {
-    let bad = |msg: String| EngineError::Scan(msg);
-    if !settings.freq_hz.is_finite() || settings.freq_hz <= 0.0 {
-        return Err(bad(format!(
-            "hunt frequency {} is not a usable Hz value",
-            settings.freq_hz
-        )));
-    }
-    if !settings.bw_hz.is_finite() || settings.bw_hz <= 0.0 {
-        return Err(bad(format!(
-            "hunt bandwidth must be positive, got {}",
-            settings.bw_hz
-        )));
-    }
-    Ok(())
-}
-
 pub(crate) fn start(
     engine: &Arc<Engine>,
     ds: u32,
     settings: HuntSettings,
 ) -> Result<HuntStatus, EngineError> {
-    check(&settings)?;
-    admits_a_hunt(engine, ds, &settings)?;
-    let hunt = spawn(engine, ds, settings)?;
+    let decoder = admits_a_hunt(engine, ds, &settings)?;
+    let hunt = spawn(engine, ds, settings, decoder)?;
     let status = hunt.status();
     {
         let mut inner = engine.lock();
@@ -100,7 +81,11 @@ pub(crate) fn start(
     Ok(status)
 }
 
-fn admits_a_hunt(engine: &Engine, ds: u32, settings: &HuntSettings) -> Result<(), EngineError> {
+fn admits_a_hunt(
+    engine: &Engine,
+    ds: u32,
+    settings: &HuntSettings,
+) -> Result<Decoder, EngineError> {
     let inner = engine.lock();
     let state = inner
         .device_sets
@@ -111,7 +96,7 @@ fn admits_a_hunt(engine: &Engine, ds: u32, settings: &HuntSettings) -> Result<()
     }
     if state.scanner.is_some() {
         return Err(EngineError::Scan(
-            "this radio is scanning; a hunt needs the dial parked".to_string(),
+            "this radio is scanning; a hunt needs the radio over its decoder".to_string(),
         ));
     }
     if state.status != DeviceSetStatus::Running {
@@ -119,18 +104,30 @@ fn admits_a_hunt(engine: &Engine, ds: u32, settings: &HuntSettings) -> Result<()
             "the device set is not running".to_string(),
         ));
     }
-    let ranges = &state.capabilities.freq_ranges;
-    if !ranges.is_empty()
-        && !ranges
-            .iter()
-            .any(|r| settings.freq_hz >= r.min && settings.freq_hz <= r.max)
-    {
-        return Err(EngineError::Scan(format!(
-            "{} Hz is outside this device's tuning range",
-            settings.freq_hz
-        )));
+    state
+        .channels
+        .iter()
+        .find(|channel| channel.id == settings.channel)
+        .map(Decoder::of)
+        .ok_or(EngineError::ChannelNotFound(settings.channel, ds))
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct Decoder {
+    pub(crate) stream: u32,
+    pub(crate) freq_hz: f64,
+    pub(crate) bw_hz: f64,
+}
+
+impl Decoder {
+    pub(crate) fn of(channel: &sdrmm_wire::ChannelInfo) -> Self {
+        let (low, high) = sdrmm_channels::occupied_band(&channel.settings.params);
+        Self {
+            stream: channel.stream,
+            freq_hz: channel.settings.frequency_hz,
+            bw_hz: high - low,
+        }
     }
-    Ok(())
 }
 
 pub(crate) fn stop(engine: &Engine, ds: u32) -> Result<HuntStatus, EngineError> {
@@ -159,10 +156,12 @@ pub(crate) fn spawn(
     engine: &Arc<Engine>,
     ds: u32,
     settings: HuntSettings,
+    decoder: Decoder,
 ) -> Result<HuntState, EngineError> {
-    check(&settings)?;
     let status = Arc::new(Mutex::new(HuntStatus {
         settings,
+        freq_hz: decoder.freq_hz,
+        bw_hz: decoder.bw_hz,
         level_db: None,
         smooth_db: None,
         floor_db: None,
@@ -184,6 +183,7 @@ pub(crate) fn spawn(
                     engine: weak,
                     ds,
                     settings,
+                    decoder,
                     stop,
                     status,
                     smooth: None,
@@ -203,6 +203,7 @@ struct Hunt {
     engine: Weak<Engine>,
     ds: u32,
     settings: HuntSettings,
+    decoder: Decoder,
     stop: Arc<AtomicBool>,
     status: Arc<Mutex<HuntStatus>>,
     smooth: Option<f32>,
@@ -232,18 +233,17 @@ impl Hunt {
 
     fn listen(&mut self) -> Result<(), Halt> {
         let engine = self.engine.upgrade().ok_or(Halt::Stopped)?;
-        let rate = engine.scan_sample_rate(self.ds).ok_or(Halt::Stopped)?;
         let mut rx = engine
-            .scan_retune(self.ds, park_at(self.settings.freq_hz, rate))
+            .subscribe_spectrum(self.ds, self.decoder.stream)
             .map_err(|e| match e {
                 EngineError::DeviceSetNotFound(_) => Halt::Stopped,
                 other => Halt::Failed(other.to_string()),
             })?;
-        std::thread::sleep(SETTLE);
 
         let interval = Duration::from_millis(u64::from(self.settings.interval_ms))
             .clamp(MIN_INTERVAL, MAX_INTERVAL);
         let mut heard = Instant::now();
+        let mut measured = Instant::now();
         let mut window_end = Instant::now() + interval;
         let mut peak = f32::NEG_INFINITY;
         loop {
@@ -253,12 +253,17 @@ impl Hunt {
             match rx.try_recv() {
                 Ok(snapshot) => {
                     heard = Instant::now();
-                    if let Some(db) = crate::scanner::measure(
-                        &snapshot,
-                        self.settings.freq_hz,
-                        self.settings.bw_hz,
-                    ) {
+                    if let Some(db) =
+                        crate::scanner::measure(&snapshot, self.decoder.freq_hz, self.decoder.bw_hz)
+                    {
+                        measured = heard;
                         peak = peak.max(db);
+                    } else if measured.elapsed() >= SPECTRUM_TIMEOUT {
+                        return Err(Halt::Failed(format!(
+                            "the radio is not tuned over the decoder's {} Hz; unlock its tuning \
+                             or move it there",
+                            self.decoder.freq_hz
+                        )));
                     }
                 }
                 Err(TryRecvError::Empty) => {
@@ -276,12 +281,27 @@ impl Hunt {
                 continue;
             }
             window_end = Instant::now() + interval;
+            self.follow_decoder(&engine)?;
             if peak.is_finite() {
                 self.record(peak);
                 self.publish(&engine);
             }
             peak = f32::NEG_INFINITY;
         }
+    }
+
+    fn follow_decoder(&mut self, engine: &Engine) -> Result<(), Halt> {
+        let decoder = engine
+            .decoder_of(self.ds, self.settings.channel)
+            .ok_or_else(|| Halt::Failed("the decoder being hunted was removed".to_string()))?;
+        if decoder == self.decoder {
+            return Ok(());
+        }
+        self.decoder = decoder;
+        let mut status = lock_status(&self.status);
+        status.freq_hz = decoder.freq_hz;
+        status.bw_hz = decoder.bw_hz;
+        Ok(())
     }
 
     fn record(&mut self, level_db: f32) {
@@ -307,11 +327,6 @@ impl Hunt {
     }
 }
 
-/// Where to park the dial so the hunted frequency is not sitting under the front end's own spike.
-fn park_at(freq_hz: f64, sample_rate: f64) -> f64 {
-    (freq_hz - sample_rate / 4.0).max(1.0)
-}
-
 fn strength(smooth: f32, floor: Option<f32>, best: Option<f32>) -> f32 {
     let (Some(floor), Some(best)) = (floor, best) else {
         return 0.0;
@@ -323,20 +338,6 @@ fn strength(smooth: f32, floor: Option<f32>, best: Option<f32>) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn the_dial_parks_clear_of_the_frequency_being_hunted() {
-        let parked = park_at(433_920_000.0, 2_048_000.0);
-        assert!(
-            (433_920_000.0 - parked) > 100_000.0,
-            "the hunted carrier would sit on the receiver's own spike"
-        );
-        assert!(
-            (433_920_000.0 - parked) < 2_048_000.0 / 2.0,
-            "the hunted carrier fell outside the passband"
-        );
-        assert_eq!(park_at(1_000.0, 2_048_000.0), 1.0, "a dial below zero");
-    }
 
     #[test]
     fn a_meter_has_a_range_before_the_ground_has_been_walked() {
@@ -362,30 +363,32 @@ mod tests {
     }
 
     #[test]
-    fn hunt_settings_that_cannot_be_measured_are_refused() {
-        for bad in [
-            HuntSettings {
-                freq_hz: 0.0,
-                ..HuntSettings::default()
+    fn a_decoder_is_measured_over_the_band_it_occupies() {
+        let channel = sdrmm_wire::ChannelInfo {
+            id: 3,
+            stream: 1,
+            node: None,
+            settings: sdrmm_wire::ChannelSettings {
+                frequency_hz: 433_920_000.0,
+                squelch: sdrmm_wire::Squelch::Off,
+                params: sdrmm_wire::ChannelParams::Nfm(sdrmm_wire::NfmParams {
+                    bandwidth_hz: 25_000.0,
+                    ..sdrmm_wire::NfmParams::default()
+                }),
+                audio: sdrmm_wire::AudioProcessing::default(),
             },
-            HuntSettings {
-                freq_hz: f64::NAN,
-                ..HuntSettings::default()
-            },
-            HuntSettings {
-                freq_hz: 433e6,
-                bw_hz: 0.0,
-                ..HuntSettings::default()
-            },
-        ] {
-            assert!(check(&bad).is_err(), "accepted {bad:?}");
-        }
-        assert!(
-            check(&HuntSettings {
-                freq_hz: 433e6,
-                ..HuntSettings::default()
-            })
-            .is_ok()
+            out_of_band: false,
+            audio_recording: None,
+            baseband_recording: None,
+            network_export: None,
+        };
+        assert_eq!(
+            Decoder::of(&channel),
+            Decoder {
+                stream: 1,
+                freq_hz: 433_920_000.0,
+                bw_hz: 25_000.0,
+            }
         );
     }
 }

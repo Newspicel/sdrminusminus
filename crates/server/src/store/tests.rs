@@ -963,6 +963,92 @@ fn a_stored_call_buffer_is_folded_into_its_dmr_system() {
 }
 
 #[test]
+fn a_stored_scanner_wired_into_a_radio_now_drives_that_radios_decoder() {
+    let mut value = serde_json::to_value(WorkspaceSnapshot::starter()).expect("snapshot");
+    let graph = value
+        .get_mut("graph")
+        .and_then(serde_json::Value::as_object_mut)
+        .expect("graph");
+    let nodes = graph
+        .get_mut("nodes")
+        .and_then(serde_json::Value::as_array_mut)
+        .expect("nodes");
+    nodes.extend([
+        serde_json::json!({
+            "id": "nfm",
+            "position": { "x": 0.0, "y": 0.0 },
+            "kind": "channel",
+            "data": { "channel_type": "nfm" }
+        }),
+        serde_json::json!({
+            "id": "scan",
+            "position": { "x": 100.0, "y": 0.0 },
+            "kind": "scanner"
+        }),
+        serde_json::json!({
+            "id": "walk",
+            "position": { "x": 200.0, "y": 0.0 },
+            "kind": "hunt",
+            "data": { "settings": { "freq_hz": 433920000.0, "bw_hz": 12500.0 }, "clicks": false }
+        }),
+        serde_json::json!({
+            "id": "spare",
+            "position": { "x": 300.0, "y": 0.0 },
+            "kind": "device",
+            "data": {}
+        }),
+        serde_json::json!({
+            "id": "lost",
+            "position": { "x": 400.0, "y": 0.0 },
+            "kind": "scanner"
+        }),
+    ]);
+    let edges = graph
+        .get_mut("edges")
+        .and_then(serde_json::Value::as_array_mut)
+        .expect("edges");
+    edges.extend([
+        serde_json::json!({
+            "from": { "node": "device", "port": "iq" },
+            "to": { "node": "nfm", "port": "iq" }
+        }),
+        serde_json::json!({
+            "from": { "node": "scan", "port": "control" },
+            "to": { "node": "device", "port": "control" }
+        }),
+        serde_json::json!({
+            "from": { "node": "walk", "port": "control" },
+            "to": { "node": "device", "port": "control" }
+        }),
+        serde_json::json!({
+            "from": { "node": "lost", "port": "control" },
+            "to": { "node": "spare", "port": "control" }
+        }),
+    ]);
+
+    let migrated = parse_workspace_snapshot(&value.to_string()).expect("migrated");
+    migrated.validate().expect("valid");
+    let controls: Vec<(&str, &str)> = migrated
+        .graph
+        .edges
+        .iter()
+        .filter(|edge| edge.to.port == "control")
+        .map(|edge| (edge.from.node.as_str(), edge.to.node.as_str()))
+        .collect();
+    assert_eq!(
+        controls,
+        vec![("scan", "nfm")],
+        "the first tool moves onto the decoder, a second tool and a radio feeding no decoder \
+         are left unwired"
+    );
+    let walk = migrated.graph.node("walk").expect("hunt");
+    let sdrmm_wire::NodeBody::Hunt(settings) = &walk.body else {
+        panic!("hunt");
+    };
+    assert!(!settings.clicks, "a hunt keeps its click setting");
+}
+
+#[test]
 fn workspace_crud_roundtrip() {
     let store = Store::open(None).expect("open");
     let seeded = store.list_workspaces().expect("list").workspaces[0].id;

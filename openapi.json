@@ -2382,7 +2382,7 @@
             }
           },
           "400": {
-            "description": "Unusable hunt settings, set not running, scanning, already hunting, or not hunting",
+            "description": "Set not running, scanning, already hunting, or not hunting",
             "content": {
               "application/json": {
                 "schema": {
@@ -2392,7 +2392,7 @@
             }
           },
           "404": {
-            "description": "Device set not found",
+            "description": "Device set or decoder not found",
             "content": {
               "application/json": {
                 "schema": {
@@ -2642,7 +2642,7 @@
         },
         "responses": {
           "200": {
-            "description": "Scanner status: the initial state after `start`, the final state after `stop`. Live progress arrives as the `ScannerUpdate` WS event, not as one state change per step",
+            "description": "Scanner status: the initial state after `start`, the final state after `stop`, the state after `skip` lets go of a held frequency. Live progress arrives as the `ScannerUpdate` WS event, not as one state change per step",
             "content": {
               "application/json": {
                 "schema": {
@@ -2652,7 +2652,7 @@
             }
           },
           "400": {
-            "description": "Unusable scan settings, set not running, already scanning, or not scanning",
+            "description": "Unusable scan settings, set not running, already scanning, not scanning, or nothing held to skip",
             "content": {
               "application/json": {
                 "schema": {
@@ -2662,7 +2662,7 @@
             }
           },
           "404": {
-            "description": "Device set or hold channel not found",
+            "description": "Device set or decoder not found",
             "content": {
               "application/json": {
                 "schema": {
@@ -3372,63 +3372,6 @@
           },
           "503": {
             "description": "No routing backend is configured",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/scanner": {
-      "post": {
-        "operationId": "scan_session",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ScanSessionRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Every device set in the scan and the state it started or ended in.                            Live progress arrives as one `ScannerUpdate` WS event per set",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ScanSessionStatus"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Unusable scan settings, a set that is not running,                                       already scanning, or no scan to stop",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Device set or hold channel not found",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Malformed request body",
             "content": {
               "application/json": {
                 "schema": {
@@ -13085,13 +13028,10 @@
       },
       "HuntNode": {
         "type": "object",
-        "description": "What a hunt node remembers between sessions: where it was last pointed and how loud a click\ntrack the operator wanted.",
+        "description": "What a hunt node remembers between sessions: whether the operator wanted a click track.",
         "properties": {
           "clicks": {
             "type": "boolean"
-          },
-          "settings": {
-            "$ref": "#/components/schemas/HuntSettings"
           }
         }
       },
@@ -13119,16 +13059,14 @@
       "HuntSettings": {
         "type": "object",
         "required": [
-          "freq_hz"
+          "channel"
         ],
         "properties": {
-          "bw_hz": {
-            "type": "number",
-            "format": "double"
-          },
-          "freq_hz": {
-            "type": "number",
-            "format": "double"
+          "channel": {
+            "type": "integer",
+            "format": "int32",
+            "description": "The decoder being hunted. Its frequency and bandwidth are what the readings measure, so\nretuning it retunes the hunt.",
+            "minimum": 0
           },
           "interval_ms": {
             "type": "integer",
@@ -13152,6 +13090,10 @@
             ],
             "format": "float"
           },
+          "bw_hz": {
+            "type": "number",
+            "format": "double"
+          },
           "closing": {
             "type": "boolean",
             "description": "Whether the last few readings are climbing: the answer to \"warmer or colder\"."
@@ -13169,6 +13111,11 @@
             ],
             "format": "float",
             "description": "The quietest and loudest this hunt has seen, so a meter can scale itself to the ground\nactually covered instead of to a guess about how loud the transmitter is."
+          },
+          "freq_hz": {
+            "type": "number",
+            "format": "double",
+            "description": "The frequency the readings are taken on: the decoder's, as of the last reading."
           },
           "level_db": {
             "type": [
@@ -17256,7 +17203,8 @@
         "type": "string",
         "enum": [
           "start",
-          "stop"
+          "stop",
+          "skip"
         ]
       },
       "ScanList": {
@@ -17312,23 +17260,6 @@
                 "$ref": "#/components/schemas/ScanTarget"
               }
             ]
-          }
-        }
-      },
-      "ScanMember": {
-        "type": "object",
-        "required": [
-          "device_set",
-          "status"
-        ],
-        "properties": {
-          "device_set": {
-            "type": "integer",
-            "format": "int32",
-            "minimum": 0
-          },
-          "status": {
-            "$ref": "#/components/schemas/ScannerStatus"
           }
         }
       },
@@ -17393,77 +17324,18 @@
           "secondary"
         ]
       },
-      "ScanSession": {
-        "type": "object",
-        "description": "The device sets sweeping one plan together, so a client can tell a ganged scan from several\nunrelated ones.",
-        "required": [
-          "device_sets",
-          "settings"
-        ],
-        "properties": {
-          "device_sets": {
-            "type": "array",
-            "items": {
-              "type": "integer",
-              "format": "int32",
-              "minimum": 0
-            }
-          },
-          "settings": {
-            "$ref": "#/components/schemas/ScanSettings"
-          }
-        }
-      },
-      "ScanSessionRequest": {
-        "type": "object",
-        "required": [
-          "action"
-        ],
-        "properties": {
-          "action": {
-            "$ref": "#/components/schemas/ScanAction"
-          },
-          "device_sets": {
-            "type": "array",
-            "items": {
-              "type": "integer",
-              "format": "int32",
-              "minimum": 0
-            }
-          },
-          "settings": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/ScanSettings"
-              }
-            ]
-          }
-        }
-      },
-      "ScanSessionStatus": {
-        "type": "object",
-        "required": [
-          "settings",
-          "members"
-        ],
-        "properties": {
-          "members": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/ScanMember"
-            }
-          },
-          "settings": {
-            "$ref": "#/components/schemas/ScanSettings"
-          }
-        }
-      },
       "ScanSettings": {
         "type": "object",
+        "required": [
+          "channel"
+        ],
         "properties": {
+          "channel": {
+            "type": "integer",
+            "format": "int32",
+            "description": "The decoder the scan feeds. It is parked on every hit, and the radio carrying it follows.",
+            "minimum": 0
+          },
           "dwell_ms": {
             "type": "integer",
             "format": "int32",
@@ -17480,22 +17352,18 @@
             "type": "boolean",
             "description": "Whether to let a radio that sweeps in its own firmware do the sweeping. Radios without one\nretune for every step either way."
           },
-          "hold_channel": {
-            "type": [
-              "integer",
-              "null"
-            ],
-            "format": "int32",
-            "minimum": 0
-          },
           "margin_db": {
             "type": "number",
             "format": "float",
             "description": "How far over the noise floor a carrier has to stand to be called, in close-call mode."
           },
           "measure_bw_hz": {
-            "type": "number",
-            "format": "double"
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double",
+            "description": "The slice measured around each target. Left out, the decoder's own bandwidth is used."
           },
           "mode": {
             "$ref": "#/components/schemas/ScanMode"
@@ -17510,6 +17378,14 @@
             "type": "integer",
             "format": "int32",
             "minimum": 0
+          },
+          "skip": {
+            "type": "array",
+            "items": {
+              "type": "number",
+              "format": "double"
+            },
+            "description": "Frequencies the scan steps over without ever holding on them."
           },
           "threshold_db": {
             "type": "number",
@@ -18789,16 +18665,6 @@
             "type": "integer",
             "format": "int64",
             "minimum": 0
-          },
-          "scan_session": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/ScanSession"
-              }
-            ]
           },
           "trunk_systems": {
             "type": "array",

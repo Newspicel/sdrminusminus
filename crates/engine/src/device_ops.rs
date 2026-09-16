@@ -591,7 +591,6 @@ impl Engine {
             let mut inner = self.lock();
             let removed = inner.device_sets.remove(&ds);
             if removed.is_some() {
-                inner.leave_scan_session(ds);
                 inner.revision += 1;
             }
             removed
@@ -618,7 +617,6 @@ impl Engine {
                 return;
             }
             inner.revision += 1;
-            inner.scan_session = None;
             std::mem::take(&mut inner.device_sets)
                 .into_values()
                 .collect()
@@ -687,7 +685,6 @@ impl Engine {
         if !state.settings.tunes_itself()
             || state.array.is_some()
             || state.scanner.is_some()
-            || state.hunt.is_some()
             || state.recording.is_some()
         {
             return None;
@@ -923,7 +920,7 @@ impl DeviceSetState {
         delta: &DeviceSettings,
         origin: PatchOrigin,
     ) -> Result<(DeviceSettings, FrontEndPlan, bool), EngineError> {
-        if origin == PatchOrigin::Client && (self.scanner.is_some() || self.hunt.is_some()) {
+        if origin == PatchOrigin::Client && self.scanner.is_some() {
             return Err(EngineError::Scan(
                 "the device is being tuned by a running scan; stop the scan first".to_string(),
             ));

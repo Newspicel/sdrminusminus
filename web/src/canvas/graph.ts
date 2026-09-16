@@ -242,7 +242,7 @@ export function connectionRefusal(
     return "already wired";
   }
   if (!input.multi && landing.length > 0) {
-    return nodeOf(graph, to.node)?.kind === "channel"
+    return nodeOf(graph, to.node)?.kind === "channel" && input.port_type === "iq"
       ? "a channel takes one device; two would need a coherent array"
       : "that input takes one wire";
   }
@@ -412,6 +412,10 @@ export function migrateSnapshot(snapshot: WorkspaceSnapshot): WorkspaceSnapshot 
 const port = (reference: PortRef): string => `${reference.node}.${reference.port}`;
 
 function migrateGraph(graph: PatchGraph): PatchGraph {
+  return repointControlWires(flipScannerInputs(graph));
+}
+
+function flipScannerInputs(graph: PatchGraph): PatchGraph {
   const scanners = new Set(
     graph.nodes.filter((node) => node.kind === "scanner").map((node) => node.id),
   );
@@ -444,6 +448,48 @@ function migrateGraph(graph: PatchGraph): PatchGraph {
       owned.add(end);
     }
     migrated.push(flipped);
+  }
+  return { ...graph, edges: migrated };
+}
+
+function decodersFedBy(graph: PatchGraph, device: string): string[] {
+  return (graph.edges ?? [])
+    .filter(
+      (edge) =>
+        edge.from.node === device &&
+        portStream("iq", edge.from.port) !== null &&
+        edge.to.port === "iq" &&
+        nodeOf(graph, edge.to.node)?.kind === "channel",
+    )
+    .map((edge) => edge.to.node);
+}
+
+/// A control wire used to land on a radio. It lands on a decoder now, so a wire into a radio
+/// moves onto the one decoder that radio feeds, or goes when there is no single one.
+function repointControlWires(graph: PatchGraph): PatchGraph {
+  const radios = new Set(graph.nodes.filter((node) => node.kind === "device").map((n) => n.id));
+  const edges = graph.edges ?? [];
+  const stale = (edge: PatchEdge): boolean =>
+    edge.to.port === "control" && radios.has(edge.to.node);
+  if (!edges.some(stale)) {
+    return graph;
+  }
+  const taken = new Set(
+    edges.filter((edge) => edge.to.port === "control" && !stale(edge)).map((edge) => edge.to.node),
+  );
+  const migrated: PatchEdge[] = [];
+  for (const edge of edges) {
+    if (!stale(edge)) {
+      migrated.push(edge);
+      continue;
+    }
+    const fed = decodersFedBy(graph, edge.to.node);
+    const decoder = fed.length === 1 ? fed[0] : undefined;
+    if (decoder === undefined || taken.has(decoder)) {
+      continue;
+    }
+    taken.add(decoder);
+    migrated.push({ from: edge.from, to: { node: decoder, port: "control" } });
   }
   return { ...graph, edges: migrated };
 }

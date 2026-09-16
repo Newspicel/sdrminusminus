@@ -80,6 +80,11 @@ export function ChannelFace({ node }: { node: PatchNode }) {
     frequencyHz !== null &&
     (channel?.out_of_band ?? !reachesHz(frequencyHz, window));
   const locked = node.data.tuning_locked ?? false;
+  const driven =
+    channel !== null &&
+    set?.scanner != null &&
+    set.scanner.error == null &&
+    set.scanner.settings.channel === channel.id;
   const editNode = (next: Partial<ChannelNodeData>): void =>
     workspace.edit((snapshot) => ({
       ...snapshot,
@@ -93,6 +98,7 @@ export function ChannelFace({ node }: { node: PatchNode }) {
     binding,
     unreachable,
     wrongRate: wantedRate !== null,
+    driven,
   });
   const action = live === null ? channelBindingAction(binding) : null;
 
@@ -112,7 +118,7 @@ export function ChannelFace({ node }: { node: PatchNode }) {
               range={set === null ? ANY_FREQUENCY : tuningRange(set.capabilities)}
               dialId={dialId(node.id)}
               wheelTunes={workspace.selected === node.id}
-              locked={locked}
+              locked={locked || driven}
               onTune={(frequency_hz) => onEdit({ frequency_hz })}
               onLock={(tuning_locked) => editNode({ tuning_locked })}
             />
@@ -169,17 +175,22 @@ function faceStatus({
   binding,
   unreachable,
   wrongRate,
+  driven,
 }: {
   live: boolean;
   binding: ChannelBinding;
   unreachable: boolean;
   wrongRate: boolean;
+  driven: boolean;
 }) {
   if (wrongRate) {
     return <span className="text-danger">wrong rate</span>;
   }
   if (!live) {
     return <span title={channelBindingHint(binding)}>{channelBindingStatus(binding)}</span>;
+  }
+  if (driven) {
+    return <span title="A scanner is tuning this decoder">scanning</span>;
   }
   if (unreachable) {
     return <span className="text-warn">out of band</span>;

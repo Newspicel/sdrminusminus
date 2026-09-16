@@ -39,7 +39,7 @@ function deviceSet(overrides: Partial<DeviceSet> = {}): DeviceSet {
 
 const SCANNING: ScannerStatus = {
   state: "scanning",
-  settings: { ranges: [], dwell_ms: 100, threshold_db: -60 },
+  settings: { channel: 1, ranges: [], dwell_ms: 100, threshold_db: -60 },
   current_hz: 145_500_000,
   sweeps: 0,
   hits: 0,

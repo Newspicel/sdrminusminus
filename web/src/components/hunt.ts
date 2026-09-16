@@ -1,26 +1,27 @@
-import { bindDevices, deviceNodeOf } from "../canvas/binding";
-import type { DeviceSet, HuntSettings, HuntStatus, PatchGraph } from "../lib/types";
+import { bindChannels, bindDevices, controlledNodeOf, deviceNodeOf } from "../canvas/binding";
+import type { ChannelInfo, DeviceSet, HuntStatus, PatchGraph } from "../lib/types";
 
-export const DEFAULT_HUNT_SETTINGS: HuntSettings = {
-  freq_hz: 433_920_000,
-  bw_hz: 12_500,
-  interval_ms: 50,
-};
+export const HUNT_INTERVAL_MS = 50;
 
-export function huntSettingsOf(graph: PatchGraph, node: string): HuntSettings {
-  const found = graph.nodes.find((candidate) => candidate.id === node);
-  return found?.kind === "hunt"
-    ? (found.data.settings ?? DEFAULT_HUNT_SETTINGS)
-    : DEFAULT_HUNT_SETTINGS;
+export interface HuntTarget {
+  set: DeviceSet;
+  channel: ChannelInfo;
 }
 
-export function huntDeviceSet(
+export function huntTarget(
   graph: PatchGraph,
   sets: readonly DeviceSet[],
   node: string,
-): DeviceSet | null {
+): HuntTarget | null {
+  const decoder = controlledNodeOf(graph, node);
   const device = deviceNodeOf(graph, node);
-  return device === null ? null : (bindDevices(graph, sets).get(device) ?? null);
+  if (decoder === null || device === null) {
+    return null;
+  }
+  const devices = bindDevices(graph, sets);
+  const set = devices.get(device);
+  const channel = bindChannels(graph, devices).get(decoder);
+  return set === undefined || channel === undefined ? null : { set, channel };
 }
 
 export function liveHunt(set: DeviceSet | null, pushed: HuntStatus | undefined): HuntStatus | null {
@@ -30,18 +31,24 @@ export function liveHunt(set: DeviceSet | null, pushed: HuntStatus | undefined):
   return pushed ?? set.hunt;
 }
 
-export function huntRefusal(set: DeviceSet | null, freqHz: number): string | null {
-  if (set === null) {
+export function huntRefusal(target: HuntTarget | null): string | null {
+  if (target === null) {
     return null;
   }
-  if (set.scanner != null) {
+  if (target.set.scanner != null) {
     return "This radio is scanning. Stop the scan to hunt on one frequency.";
   }
-  const ranges = set.capabilities.freq_ranges;
-  if (ranges.length > 0 && !ranges.some((r) => freqHz >= r.min && freqHz <= r.max)) {
-    return "That frequency is outside this radio's tuning range.";
+  if (target.channel.out_of_band) {
+    return "The radio is tuned away from this decoder. Unlock its tuning or move it there.";
   }
   return null;
+}
+
+export function huntedHz(status: HuntStatus | null, channel: ChannelInfo | null): number | null {
+  if (status !== null && (status.freq_hz ?? 0) > 0) {
+    return status.freq_hz ?? null;
+  }
+  return channel?.settings.frequency_hz ?? null;
 }
 
 /// What the operator is told about which way to walk. A hunt without a reading yet says so

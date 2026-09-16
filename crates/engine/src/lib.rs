@@ -76,7 +76,7 @@ use crate::{
     runtime::{
         CaptureRuntime, ChannelSinks, DecodedSink, DeviceRuntime, DspCommand, RawDecoded, RawImage,
     },
-    scanner::{ScannerState, session::SessionState},
+    scanner::ScannerState,
     sinks::ChannelBasebandRecording,
 };
 
@@ -680,23 +680,10 @@ impl Drop for RatePatchGuard<'_> {
 #[derive(Default)]
 struct Inner {
     device_sets: BTreeMap<u32, DeviceSetState>,
-    scan_session: Option<SessionState>,
     creating: HashSet<u32>,
     pending_faults: HashMap<u32, DeviceError>,
     next_ds_id: u32,
     revision: u64,
-}
-
-impl Inner {
-    fn leave_scan_session(&mut self, ds: u32) {
-        let Some(session) = self.scan_session.as_mut() else {
-            return;
-        };
-        session.device_sets.retain(|&id| id != ds);
-        if session.device_sets.is_empty() {
-            self.scan_session = None;
-        }
-    }
 }
 
 pub struct Engine {
@@ -942,7 +929,6 @@ impl Engine {
             let scanner = state.scanner.take();
             let hunt = state.hunt.take();
             let runtime = state.runtime.clone();
-            inner.leave_scan_session(ds);
             inner.revision += 1;
             drop(inner);
             if let Some(scanner) = scanner {
@@ -1222,7 +1208,6 @@ impl Engine {
                 .iter()
                 .map(|(id, s)| s.project(*id))
                 .collect(),
-            scan_session: inner.scan_session.as_ref().map(SessionState::project),
             trunk_systems,
             revision: inner.revision,
         }

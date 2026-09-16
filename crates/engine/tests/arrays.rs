@@ -298,21 +298,14 @@ fn scans_cannot_break_an_active_arrays_tuning() {
     for id in [one, two, array] {
         assert!(
             engine
-                .start_scan(id, Default::default())
+                .start_scan(id, sdrmm_wire::ScanSettings::for_channel(1))
                 .expect_err("array scan refused")
                 .to_string()
                 .contains("disconnect the array")
         );
         assert!(
             engine
-                .start_scan_session(&[id], Default::default())
-                .expect_err("array session refused")
-                .to_string()
-                .contains("disconnect the array")
-        );
-        assert!(
-            engine
-                .start_hunt(id, Default::default())
+                .start_hunt(id, sdrmm_wire::HuntSettings::for_channel(1))
                 .expect_err("array hunt refused")
                 .to_string()
                 .contains("disconnect the array")

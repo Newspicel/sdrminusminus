@@ -161,10 +161,10 @@ struct ChannelRef {
 #[derive(Debug, Deserialize, JsonSchema)]
 struct StartScanRequest {
     device_set: u32,
+    channel: u32,
     ranges: Vec<[f64; 3]>,
     frequencies: Option<Vec<f64>>,
     threshold_db: Option<f32>,
-    hold_channel: Option<u32>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -460,8 +460,9 @@ impl SdrMcp {
     }
 
     #[tool(
-        description = "Sweep a device set across frequency ranges and park on anything above \
-                       the threshold. While a scan runs it owns the device's tuning.",
+        description = "Sweep a device set across frequency ranges and park the named decoder on \
+                       anything above the threshold. While a scan runs it owns the device's \
+                       tuning.",
         annotations(title = "Start scan")
     )]
     async fn start_scan(
@@ -479,8 +480,7 @@ impl SdrMcp {
                 })
                 .collect(),
             frequencies: req.frequencies.unwrap_or_default(),
-            hold_channel: req.hold_channel,
-            ..ScanSettings::default()
+            ..ScanSettings::for_channel(req.channel)
         };
         let settings = match req.threshold_db {
             Some(threshold_db) => ScanSettings {

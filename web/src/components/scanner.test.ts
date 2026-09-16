@@ -4,8 +4,6 @@ import { rankDevices } from "./devices";
 import {
   formatDb,
   formatMhz,
-  gangCandidates,
-  ganged,
   liveStatus,
   newRange,
   parseRanges,
@@ -72,12 +70,12 @@ describe("targetCount", () => {
 const STATUS: ScannerStatus = {
   state: "scanning",
   settings: {
+    channel: 1,
     ranges: [],
     frequencies: [],
     threshold_db: -55,
     dwell_ms: 250,
     resume_ms: 1500,
-    measure_bw_hz: 12_500,
   },
   targets: 10,
   current_hz: 145_500_000,
@@ -206,59 +204,6 @@ describe("formatMhz", () => {
     expect(formatMhz(undefined)).toBe("—");
     expect(formatMhz(Number.NaN)).toBe("—");
     expect(formatMhz(145_500_000)).toBe("145.5000 MHz");
-  });
-});
-
-describe("gangCandidates", () => {
-  const base = {
-    settings: {},
-    channels: [],
-    capabilities: {
-      freq_ranges: [],
-      sample_rates: [],
-      gains: [],
-      antennas: [],
-      bandwidths: [],
-      rx_streams: 1,
-      tx_streams: 0,
-      duplex: "rx_only",
-    },
-  } as unknown as DeviceSet;
-  const set = (over: Partial<DeviceSet>): DeviceSet =>
-    ({ ...base, status: "running", ...over }) as unknown as DeviceSet;
-
-  it("offers only radios that are free to join the sweep", () => {
-    const active = set({ id: 1 });
-    const sets = [
-      active,
-      set({ id: 2 }),
-      set({ id: 3, status: "idle" }),
-      set({ id: 4, scanner: {} as never }),
-      set({ id: 5, hunt: {} as never }),
-      set({
-        id: 6,
-        capabilities: { ...base.capabilities, per_stream: { tuning: true } },
-      }),
-    ];
-    expect(gangCandidates(sets, active).map((s) => s.id)).toEqual([2]);
-  });
-
-  it("offers nothing when no radio is driving the scan", () => {
-    expect(gangCandidates([set({ id: 1 })], null)).toEqual([]);
-  });
-});
-
-describe("ganged", () => {
-  const active = { id: 1 } as DeviceSet;
-  it("names the other radios sweeping the same plan", () => {
-    const session = { device_sets: [1, 2, 3], settings: {} };
-    expect(ganged(session, active)).toEqual([2, 3]);
-  });
-
-  it("says nothing when this radio is not in the scan", () => {
-    expect(ganged(null, active)).toEqual([]);
-    expect(ganged({ device_sets: [2], settings: {} }, active)).toEqual([]);
-    expect(ganged({ device_sets: [1, 2], settings: {} }, null)).toEqual([]);
   });
 });
 

@@ -422,20 +422,22 @@ async fn a_bad_streams_entry_is_a_clean_bad_request_naming_the_problem() {
 #[tokio::test]
 async fn a_scan_is_refused_where_tuning_is_per_stream() {
     let engine = engine();
-    let scan = ScanSettings {
+    let scan = |channel: u32| ScanSettings {
         frequencies: vec![100_000_000.0],
-        ..ScanSettings::default()
+        ..ScanSettings::for_channel(channel)
     };
 
     let ds = engine.create_device_set(TRANSCEIVER).unwrap();
-    let err = engine.start_scan(ds, scan.clone()).unwrap_err();
+    let ch = engine.add_channel(ds, 0, nfm(0.0, None)).unwrap();
+    let err = engine.start_scan(ds, scan(ch)).unwrap_err();
     assert!(err.is_bad_request(), "expected bad request, got {err}");
     assert!(err.to_string().contains("stream"), "unhelpful: {err}");
     assert!(engine.snapshot().device_sets[0].scanner.is_none());
     engine.remove_device_set(ds).unwrap();
 
     let ds = engine.create_device_set(ARRAY).unwrap();
-    engine.start_scan(ds, scan).unwrap();
+    let ch = engine.add_channel(ds, 0, nfm(0.0, None)).unwrap();
+    engine.start_scan(ds, scan(ch)).unwrap();
     engine.stop_scan(ds).unwrap();
     engine.remove_device_set(ds).unwrap();
 }

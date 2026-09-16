@@ -29,11 +29,10 @@ use sdrmm_wire::{
     PatchRefusal, PlaybackRequest, PlaybackStatus, PresetDevice, PresetInfo, PresetSnapshot,
     RecordAction, RecordRequest, RecordingAnnotation, RecordingDownloadQuery, RecordingFormat,
     RecordingInfo, RecordingStatus, RecordingUpload, RecordingsResponse, Route, RouteRequest,
-    ScanAction, ScanRequest, ScanSessionRequest, ScanSessionStatus, ScannerStatus, ServerEvent,
-    StateScope, StateSnapshot, TemplateInfo, TemplatesResponse, TimeMachineAction,
-    TimeMachineRequest, TimeMachineStatus, ToolRequest, ToolResponse, ToolsResponse,
-    UpdateWorkspaceRequest, VoiceCallsResponse, WorkspaceDetail, WorkspaceExport, WorkspaceInfo,
-    WorkspaceSnapshot, WorkspaceState, WorkspacesResponse,
+    ScanAction, ScanRequest, ScannerStatus, ServerEvent, StateScope, StateSnapshot, TemplateInfo,
+    TemplatesResponse, TimeMachineAction, TimeMachineRequest, TimeMachineStatus, ToolRequest,
+    ToolResponse, ToolsResponse, UpdateWorkspaceRequest, VoiceCallsResponse, WorkspaceDetail,
+    WorkspaceExport, WorkspaceInfo, WorkspaceSnapshot, WorkspaceState, WorkspacesResponse,
 };
 use utoipa::OpenApi;
 use utoipa_axum::{router::OpenApiRouter, routes};
@@ -364,7 +363,6 @@ pub(crate) fn openapi_router() -> OpenApiRouter<AppState> {
         .routes(routes!(list_decoder_log, clear_decoder_log))
         .routes(routes!(export_decoder_log))
         .routes(routes!(scan_device_set))
-        .routes(routes!(scan_session))
         .routes(routes!(hunt_device_set))
         .routes(routes!(list_templates))
         .routes(routes!(apply_template))

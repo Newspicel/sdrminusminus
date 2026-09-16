@@ -1,18 +1,19 @@
 import { describe, expect, it } from "vitest";
-import type { DeviceSet, HuntStatus, PatchGraph } from "../lib/types";
+import type { ChannelInfo, DeviceSet, HuntStatus, PatchGraph } from "../lib/types";
 import {
   bearing,
-  DEFAULT_HUNT_SETTINGS,
   formatHuntDb,
   formatStrength,
-  huntDeviceSet,
+  huntedHz,
   huntRefusal,
-  huntSettingsOf,
+  huntTarget,
   liveHunt,
 } from "./hunt";
 
 const HUNT: HuntStatus = {
-  settings: { freq_hz: 433_920_000, bw_hz: 12_500, interval_ms: 50 },
+  settings: { channel: 9, interval_ms: 50 },
+  freq_hz: 433_920_000,
+  bw_hz: 12_500,
   level_db: -60,
   smooth_db: -61,
   floor_db: -90,
@@ -57,10 +58,19 @@ describe("liveHunt", () => {
   });
 });
 
+const CHANNEL: ChannelInfo = {
+  id: 9,
+  stream: 0,
+  settings: { frequency_hz: 433_920_000, params: { type: "nfm", settings: {} } as never },
+};
+
 describe("huntRefusal", () => {
   it("says why a hunt cannot start rather than failing at the server", () => {
-    expect(huntRefusal(deviceSet(), 433_920_000)).toBeNull();
-    expect(huntRefusal(deviceSet(), 9e9)).toMatch(/tuning range/);
+    expect(huntRefusal(null)).toBeNull();
+    expect(huntRefusal({ set: deviceSet(), channel: CHANNEL })).toBeNull();
+    expect(huntRefusal({ set: deviceSet(), channel: { ...CHANNEL, out_of_band: true } })).toMatch(
+      /tuned away/,
+    );
     const scanning = deviceSet({
       scanner: {
         state: "scanning",
@@ -73,7 +83,16 @@ describe("huntRefusal", () => {
         hits: 0,
       } as never,
     });
-    expect(huntRefusal(scanning, 433_920_000)).toMatch(/scanning/);
+    expect(huntRefusal({ set: scanning, channel: CHANNEL })).toMatch(/scanning/);
+  });
+});
+
+describe("huntedHz", () => {
+  it("shows the decoder's frequency until a reading says otherwise", () => {
+    expect(huntedHz(null, null)).toBeNull();
+    expect(huntedHz(null, CHANNEL)).toBe(433_920_000);
+    expect(huntedHz({ ...HUNT, freq_hz: 145_500_000 }, CHANNEL)).toBe(145_500_000);
+    expect(huntedHz({ ...HUNT, freq_hz: 0 }, CHANNEL)).toBe(433_920_000);
   });
 });
 
@@ -102,8 +121,7 @@ describe("formatting", () => {
   });
 });
 
-describe("a hunt node's own settings and radio", () => {
-  const settings = { freq_hz: 145_500_000, bw_hz: 25_000, interval_ms: 50 };
+describe("the decoder a hunt drives", () => {
   const graph: PatchGraph = {
     nodes: [
       {
@@ -112,22 +130,24 @@ describe("a hunt node's own settings and radio", () => {
         position: { x: 0, y: 0 },
         data: { device: { backend: "virtual", key: "siggen" } },
       },
-      { id: "hunt", kind: "hunt", position: { x: 0, y: 0 }, data: { settings } },
+      { id: "nfm", kind: "channel", position: { x: 0, y: 0 }, data: { channel_type: "nfm" } },
+      { id: "hunt", kind: "hunt", position: { x: 0, y: 0 }, data: { clicks: false } },
       { id: "bare", kind: "hunt", position: { x: 0, y: 0 }, data: {} },
     ],
-    edges: [{ from: { node: "hunt", port: "control" }, to: { node: "dev", port: "control" } }],
+    edges: [
+      { from: { node: "dev", port: "iq" }, to: { node: "nfm", port: "iq" } },
+      { from: { node: "hunt", port: "control" }, to: { node: "nfm", port: "control" } },
+    ],
   };
 
-  it("reads the frequency the node was left on, or the default", () => {
-    expect(huntSettingsOf(graph, "hunt")).toEqual(settings);
-    expect(huntSettingsOf(graph, "bare")).toEqual(DEFAULT_HUNT_SETTINGS);
-    expect(huntSettingsOf(graph, "dev")).toEqual(DEFAULT_HUNT_SETTINGS);
+  it("finds the decoder and its radio, and nothing for a hunt wired to none", () => {
+    const set = deviceSet({ channels: [CHANNEL] });
+    expect(huntTarget(graph, [set], "hunt")).toEqual({ set, channel: CHANNEL });
+    expect(huntTarget(graph, [set], "bare")).toBeNull();
+    expect(huntTarget(graph, [], "hunt")).toBeNull();
   });
 
-  it("finds the radio the hunt drives, and nothing for one wired to none", () => {
-    const set = deviceSet();
-    expect(huntDeviceSet(graph, [set], "hunt")).toBe(set);
-    expect(huntDeviceSet(graph, [set], "bare")).toBeNull();
-    expect(huntDeviceSet(graph, [], "hunt")).toBeNull();
+  it("waits for the decoder to be open before offering a target", () => {
+    expect(huntTarget(graph, [deviceSet()], "hunt")).toBeNull();
   });
 });

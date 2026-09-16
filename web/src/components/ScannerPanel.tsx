@@ -2,10 +2,10 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { X } from "lucide-react";
 import { useState } from "react";
 import { FaceBody, FaceFooter } from "../canvas/nodes/NodeShell";
-import { STATE_KEY, startScan, startScanSession, stopScan, stopScanSession } from "../lib/api";
+import { STATE_KEY, skipScan, startScan, stopScan } from "../lib/api";
 import { useScannerStore } from "../lib/scanner";
 import { pushToast } from "../lib/toasts";
-import type { DeviceSet, ScanMode, ScanSession } from "../lib/types";
+import type { ChannelInfo, DeviceSet, ScanMode } from "../lib/types";
 import { Button } from "./BaseControls";
 import { Checkbox } from "./Checkbox";
 import { BTN, BTN_DANGER, BTN_PRIMARY, ICON_BTN_SM } from "./controls";
@@ -17,9 +17,6 @@ import { SettingGroup, SettingRow, Settings } from "./Settings";
 import {
   formatDb,
   formatMhz,
-  gangCandidates,
-  ganged,
-  holdCandidates,
   liveStatus,
   MIN_STEP_KHZ,
   newRange,
@@ -35,14 +32,12 @@ const DEFAULT_MARGIN_DB = 12;
 
 export function ScannerPanel({
   active,
+  channel,
   hint,
-  others = [],
-  session = null,
 }: {
   active: DeviceSet | null;
+  channel: ChannelInfo | null;
   hint: string;
-  others?: readonly DeviceSet[];
-  session?: ScanSession | null;
 }) {
   const queryClient = useQueryClient();
   const pushed = useScannerStore((s) => (active ? s.byDeviceSet[active.id] : undefined));
@@ -52,22 +47,18 @@ export function ScannerPanel({
   const [thresholdDb, setThresholdDb] = useState(DEFAULT_THRESHOLD_DB);
   const [marginDb, setMarginDb] = useState(DEFAULT_MARGIN_DB);
   const [hardwareSweep, setHardwareSweep] = useState(true);
-  const [holdChannel, setHoldChannel] = useState("");
-  const [gang, setGang] = useState<readonly number[]>([]);
 
   const status = liveStatus(active, pushed);
-  const candidates = gangCandidates(others, active);
-  const partners = ganged(session, active);
   const invalidate = (): void => void queryClient.invalidateQueries({ queryKey: STATE_KEY });
 
   const startMut = useMutation({
-    mutationFn: async (deviceSet: number) => {
+    mutationFn: async (target: { deviceSet: number; channel: number }) => {
       const parsed = parseRanges(ranges);
       if (typeof parsed === "string") {
         throw new Error(parsed);
       }
-      const hold = holdChannel === "" ? undefined : Number(holdChannel);
       const settings = {
+        channel: target.channel,
         mode,
         ranges: parsed.ranges,
         frequencies: [],
@@ -75,29 +66,16 @@ export function ScannerPanel({
         margin_db: marginDb,
         dwell_ms: 250,
         resume_ms: 1500,
-        measure_bw_hz: 12_500,
         hardware_sweep: hardwareSweep,
-        ...(hold === undefined ? {} : { hold_channel: hold }),
       };
-      const joining = gang.filter((id) => candidates.some((set) => set.id === id));
-      if (joining.length === 0) {
-        return startScan(deviceSet, settings);
-      }
-      await startScanSession([deviceSet, ...joining], settings);
-      return undefined;
+      return startScan(target.deviceSet, settings);
     },
     onError: (e) => pushToast(e.message),
     onSettled: invalidate,
   });
 
   const stopMut = useMutation({
-    mutationFn: async (deviceSet: number) => {
-      if (partners.length > 0) {
-        await stopScanSession();
-        return;
-      }
-      await stopScan(deviceSet);
-    },
+    mutationFn: stopScan,
     onSuccess: (_status, deviceSet) => {
       clearLive(deviceSet);
     },
@@ -105,9 +83,16 @@ export function ScannerPanel({
     onSettled: invalidate,
   });
 
+  const skipMut = useMutation({
+    mutationFn: skipScan,
+    onError: (e) => pushToast(e.message),
+    onSettled: invalidate,
+  });
+
   const parsed = parseRanges(ranges);
-  const busy = startMut.isPending || stopMut.isPending;
+  const busy = startMut.isPending || stopMut.isPending || skipMut.isPending;
   const refusal = scanRefusal(active);
+  const holding = status?.state === "holding";
   const patchRange = (id: string, patch: Partial<RangeInput>): void =>
     setRanges((current) => current.map((r) => (r.id === id ? { ...r, ...patch } : r)));
 
@@ -128,20 +113,15 @@ export function ScannerPanel({
                 : "the listed frequencies"}
             </ReadoutRow>
             <ReadoutRow label="Sweep">{sweepKind(active, status)}</ReadoutRow>
-            {partners.length > 0 && (
-              <ReadoutRow label="Ganged with">
-                {partners.length === 1 ? "1 other radio" : `${partners.length} other radios`}
-              </ReadoutRow>
-            )}
-            <ReadoutRow label="Share">
-              {formatMhz(status.first_hz)} – {formatMhz(status.last_hz)}
+            <ReadoutRow label="Span">
+              {formatMhz(status.first_hz)} to {formatMhz(status.last_hz)}
             </ReadoutRow>
             <ReadoutRow label="Level">{formatDb(status.current_db)}</ReadoutRow>
             <ReadoutRow label="Targets">{status.targets}</ReadoutRow>
             <ReadoutRow label="Sweeps">{status.sweeps}</ReadoutRow>
             <ReadoutRow label="Hits">{status.hits}</ReadoutRow>
-            {status.settings.hold_channel != null && (
-              <ReadoutRow label="Listening on">channel {status.settings.hold_channel}</ReadoutRow>
+            {(status.settings.skip?.length ?? 0) > 0 && (
+              <ReadoutRow label="Skipped">{status.settings.skip?.length}</ReadoutRow>
             )}
             {status.error != null && (
               <ReadoutRow label="Fault">
@@ -256,49 +236,21 @@ export function ScannerPanel({
                     />
                   </SettingRow>
                 )}
-                <SettingRow label="Listen on">
-                  <Select
-                    label="Hold channel"
-                    value={holdChannel}
-                    options={[
-                      { value: "", label: "nothing" },
-                      ...holdCandidates(active).map((channel) => ({
-                        value: String(channel.id),
-                        label: `channel ${channel.id} (${channel.settings.params.type})`,
-                      })),
-                    ]}
-                    onChange={setHoldChannel}
-                  />
-                </SettingRow>
               </SettingGroup>
-              {candidates.length > 0 && (
-                <SettingGroup label="Also sweep with">
-                  {candidates.map((set) => (
-                    <SettingRow key={set.id} label={set.device.label}>
-                      <Checkbox
-                        label={`Include ${set.device.label} in the sweep`}
-                        checked={gang.includes(set.id)}
-                        onChange={(on) =>
-                          setGang((current) =>
-                            on ? [...current, set.id] : current.filter((id) => id !== set.id),
-                          )
-                        }
-                      />
-                    </SettingRow>
-                  ))}
-                </SettingGroup>
-              )}
             </Settings>
 
             <Readout>
+              {channel !== null && (
+                <ReadoutRow label="Feeds">
+                  {channel.settings.params.type} at {formatMhz(channel.settings.frequency_hz)}
+                </ReadoutRow>
+              )}
               <ReadoutRow label="Sweep">{sweepKind(active, null)}</ReadoutRow>
               <ReadoutRow label="Targets">
                 {typeof parsed === "string" ? (
                   <span className="text-danger">{parsed}</span>
                 ) : (
-                  `${targetCount(parsed.ranges)} per sweep${
-                    gang.length > 0 ? ` across ${gang.length + 1} radios` : ""
-                  }`
+                  `${targetCount(parsed.ranges)} per sweep`
                 )}
               </ReadoutRow>
               {refusal !== null && (
@@ -313,14 +265,25 @@ export function ScannerPanel({
 
       <FaceFooter>
         {status !== null && active !== null ? (
-          <Button
-            type="button"
-            className={BTN_DANGER}
-            disabled={busy}
-            onClick={() => stopMut.mutate(active.id)}
-          >
-            Stop scan
-          </Button>
+          <>
+            <Button
+              type="button"
+              className={BTN}
+              disabled={busy || !holding}
+              title="Leave this frequency and never hold on it again this scan"
+              onClick={() => skipMut.mutate(active.id)}
+            >
+              Skip
+            </Button>
+            <Button
+              type="button"
+              className={BTN_DANGER}
+              disabled={busy}
+              onClick={() => stopMut.mutate(active.id)}
+            >
+              Stop scan
+            </Button>
+          </>
         ) : (
           <>
             <Button
@@ -333,8 +296,18 @@ export function ScannerPanel({
             <Button
               type="button"
               className={BTN_PRIMARY}
-              disabled={active === null || busy || typeof parsed === "string" || refusal !== null}
-              onClick={() => active !== null && startMut.mutate(active.id)}
+              disabled={
+                active === null ||
+                channel === null ||
+                busy ||
+                typeof parsed === "string" ||
+                refusal !== null
+              }
+              onClick={() =>
+                active !== null &&
+                channel !== null &&
+                startMut.mutate({ deviceSet: active.id, channel: channel.id })
+              }
             >
               Start scan
             </Button>

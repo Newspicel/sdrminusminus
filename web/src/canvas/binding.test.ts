@@ -4,6 +4,7 @@ import {
   bindChannels,
   bindDevices,
   channelNodesOf,
+  controlledNodeOf,
   deviceNodeOf,
   deviceRefOf,
   eventPathsOf,
@@ -193,17 +194,25 @@ describe("binding", () => {
         ...graph().nodes,
         node("scan", { kind: "scanner" }),
         node("lost", { kind: "scanner" }),
+        node("orphan", { kind: "channel", data: { channel_type: "am" } }),
+        node("stranded", { kind: "scanner" }),
       ],
       edges: [
         ...(graph().edges ?? []),
-        { from: { node: "scan", port: "control" }, to: { node: "dev", port: "control" } },
+        { from: { node: "scan", port: "control" }, to: { node: "nfm", port: "control" } },
+        { from: { node: "stranded", port: "control" }, to: { node: "orphan", port: "control" } },
       ],
     };
     expect(deviceNodeOf(g, "dev")).toBe("dev");
     expect(deviceNodeOf(g, "nfm")).toBe("dev");
     expect(deviceNodeOf(g, "scan")).toBe("dev");
     expect(deviceNodeOf(g, "lost")).toBeNull();
+    expect(deviceNodeOf(g, "stranded")).toBeNull();
     expect(deviceNodeOf(g, "spk")).toBeNull();
+    expect(controlledNodeOf(g, "scan")).toBe("nfm");
+    expect(controlledNodeOf(g, "stranded")).toBe("orphan");
+    expect(controlledNodeOf(g, "lost")).toBeNull();
+    expect(controlledNodeOf(g, "nfm")).toBeNull();
   });
 
   it("walks the wires a sink consumes", () => {

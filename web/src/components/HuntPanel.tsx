@@ -5,7 +5,6 @@ import { STATE_KEY, startHunt, stopHunt } from "../lib/api";
 import { type Clicker, startClicker } from "../lib/geiger";
 import { useHuntStore } from "../lib/hunt";
 import { pushToast } from "../lib/toasts";
-import type { DeviceSet, HuntSettings } from "../lib/types";
 import { Button } from "./BaseControls";
 import { Checkbox } from "./Checkbox";
 import { BTN_DANGER, BTN_PRIMARY } from "./controls";
@@ -14,40 +13,33 @@ import {
   bearing,
   formatHuntDb,
   formatStrength,
+  HUNT_INTERVAL_MS,
+  type HuntTarget,
+  huntedHz,
   huntRefusal,
   liveHunt,
 } from "./hunt";
-import { NumberField } from "./NumberField";
 import { Readout, ReadoutRow } from "./Readout";
-import { SettingGroup, SettingRow, Settings } from "./Settings";
-
-const INTERVAL_MS = 50;
+import { SettingRow, Settings } from "./Settings";
+import { formatMhz } from "./scanner";
 
 export function HuntPanel({
-  active,
+  target,
   hint,
-  settings,
   clicks,
-  onSettings,
   onClicks,
 }: {
-  active: DeviceSet | null;
+  target: HuntTarget | null;
   hint: string;
-  settings: HuntSettings;
   clicks: boolean;
-  onSettings: (settings: HuntSettings) => void;
   onClicks: (clicks: boolean) => void;
 }) {
   const queryClient = useQueryClient();
-  const pushed = useHuntStore((s) => (active ? s.byDeviceSet[active.id] : undefined));
+  const set = target?.set ?? null;
+  const pushed = useHuntStore((s) => (set ? s.byDeviceSet[set.id] : undefined));
   const clearLive = useHuntStore((s) => s.clear);
-  const freqMhz = settings.freq_hz / 1e6;
-  const bwKhz = (settings.bw_hz ?? 12_500) / 1e3;
-  const setFreqMhz = (mhz: number): void =>
-    onSettings({ ...settings, freq_hz: Math.round(mhz * 1e6) });
-  const setBwKhz = (khz: number): void => onSettings({ ...settings, bw_hz: Math.round(khz * 1e3) });
 
-  const status = liveHunt(active, pushed);
+  const status = liveHunt(set, pushed);
   const strength = status?.strength ?? 0;
   const running = status !== null;
   const clicker = useRef<Clicker | null>(null);
@@ -72,8 +64,8 @@ export function HuntPanel({
   const invalidate = (): void => void queryClient.invalidateQueries({ queryKey: STATE_KEY });
 
   const startMut = useMutation({
-    mutationFn: async (deviceSet: number) =>
-      startHunt(deviceSet, { ...settings, interval_ms: INTERVAL_MS }),
+    mutationFn: async (hunted: HuntTarget) =>
+      startHunt(hunted.set.id, { channel: hunted.channel.id, interval_ms: HUNT_INTERVAL_MS }),
     onError: (e) => pushToast(e.message),
     onSettled: invalidate,
   });
@@ -85,13 +77,14 @@ export function HuntPanel({
     onSettled: invalidate,
   });
 
-  const refusal = active === null ? null : huntRefusal(active, Math.round(freqMhz * 1e6));
+  const refusal = huntRefusal(target);
   const busy = startMut.isPending || stopMut.isPending;
   const heading = bearing(status);
+  const hz = huntedHz(status, target?.channel ?? null);
 
   return (
     <>
-      <FaceBody title={active === null ? hint : undefined}>
+      <FaceBody title={target === null ? hint : undefined}>
         {status !== null ? (
           <>
             <div className="p-2">
@@ -113,6 +106,7 @@ export function HuntPanel({
               </div>
             </div>
             <Readout separated={false}>
+              <ReadoutRow label="Hunting">{formatMhz(hz)}</ReadoutRow>
               <ReadoutRow label="Bearing">
                 <span className={heading === "closing" ? "text-accent" : ""}>
                   {BEARING_LABEL[heading]}
@@ -139,53 +133,34 @@ export function HuntPanel({
           </>
         ) : (
           <>
-            <Settings className="p-2">
-              <SettingGroup label="Transmitter">
-                <SettingRow label="Frequency">
-                  <NumberField
-                    label="Hunt frequency (MHz)"
-                    value={freqMhz}
-                    min={0}
-                    step={0.001}
-                    onCommit={setFreqMhz}
-                    className="w-28"
-                  />
-                  <span className="legend">MHz</span>
-                </SettingRow>
-                <SettingRow label="Bandwidth">
-                  <NumberField
-                    label="Hunt bandwidth (kHz)"
-                    value={bwKhz}
-                    min={0.1}
-                    step={0.1}
-                    onCommit={setBwKhz}
-                    className="w-28"
-                  />
-                  <span className="legend">kHz</span>
-                </SettingRow>
-                <SettingRow label="Clicks">
-                  <Checkbox label="Geiger clicks" checked={clicks} onChange={onClicks} />
-                </SettingRow>
-              </SettingGroup>
-            </Settings>
-            {refusal !== null && (
-              <Readout>
+            <Readout separated={false}>
+              {target !== null && (
+                <ReadoutRow label="Hunting">
+                  {target.channel.settings.params.type} at {formatMhz(hz)}
+                </ReadoutRow>
+              )}
+              {refusal !== null && (
                 <ReadoutRow label="Refused">
                   <span className="text-danger">{refusal}</span>
                 </ReadoutRow>
-              </Readout>
-            )}
+              )}
+            </Readout>
+            <Settings className="p-2">
+              <SettingRow label="Clicks">
+                <Checkbox label="Geiger clicks" checked={clicks} onChange={onClicks} />
+              </SettingRow>
+            </Settings>
           </>
         )}
       </FaceBody>
 
       <FaceFooter>
-        {status !== null && active !== null ? (
+        {status !== null && set !== null ? (
           <Button
             type="button"
             className={BTN_DANGER}
             disabled={busy}
-            onClick={() => stopMut.mutate(active.id)}
+            onClick={() => stopMut.mutate(set.id)}
           >
             Stop hunt
           </Button>
@@ -193,8 +168,8 @@ export function HuntPanel({
           <Button
             type="button"
             className={BTN_PRIMARY}
-            disabled={active === null || busy || refusal !== null}
-            onClick={() => active !== null && startMut.mutate(active.id)}
+            disabled={target === null || busy || refusal !== null}
+            onClick={() => target !== null && startMut.mutate(target)}
           >
             Start hunt
           </Button>

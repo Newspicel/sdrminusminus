@@ -460,7 +460,21 @@ impl ChannelHost {
             return;
         }
         self.center_hz = center_hz;
-        let offset_hz = self.frequency_hz - center_hz;
+        self.place();
+    }
+
+    /// Moves the decoder to another frequency without rebuilding it, as a scan stepping through
+    /// its targets does.
+    pub(crate) fn retune(&mut self, frequency_hz: f64) {
+        if frequency_hz == self.frequency_hz {
+            return;
+        }
+        self.frequency_hz = frequency_hz;
+        self.place();
+    }
+
+    fn place(&mut self) {
+        let offset_hz = self.frequency_hz - self.center_hz;
         self.in_band = reaches(
             offset_hz,
             self.band_low_hz,
@@ -630,6 +644,32 @@ mod tests {
             );
         }
         assert!(seen > 0, "no settled blocks to judge");
+    }
+
+    #[test]
+    fn a_retune_moves_the_decoder_and_a_step_off_the_window_mutes_it() {
+        let (mut host, _rx) = host(&nfm_settings(sdrmm_wire::Squelch::Off));
+        assert!(host.in_band);
+        host.retune(CENTER + 10_000.0);
+        assert_eq!(host.offset_hz, 10_000.0);
+        assert!(
+            host.in_band,
+            "10 kHz off centre sits inside a 48 kHz window"
+        );
+
+        host.retune(CENTER + 40_000.0);
+        assert!(!host.in_band, "40 kHz off centre falls outside the window");
+        assert_eq!(
+            host.offset_hz, 10_000.0,
+            "an unreachable offset is not mixed to"
+        );
+
+        host.process_and_flush(&tone(1200.0, 0.5, BLOCK), CENTER + 40_000.0, 0.0);
+        assert!(
+            host.in_band,
+            "the radio moving over the decoder brings it back"
+        );
+        assert_eq!(host.offset_hz, 0.0);
     }
 
     #[test]

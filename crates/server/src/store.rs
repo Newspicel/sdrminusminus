@@ -1279,7 +1279,96 @@ fn parse_workspace_snapshot(json: &str) -> Result<WorkspaceSnapshot, serde_json:
     migrate_trunk_carriers(&mut value);
     migrate_event_outputs(&mut value);
     migrate_recording_devices(&mut value);
+    migrate_control_wires(&mut value);
     serde_json::from_value(value)
+}
+
+fn node_kind(node: &serde_json::Value) -> Option<&str> {
+    node.get("kind").and_then(serde_json::Value::as_str)
+}
+
+fn edge_end<'a>(edge: &'a serde_json::Value, end: &str) -> Option<(&'a str, &'a str)> {
+    let end = edge.get(end)?;
+    Some((end.get("node")?.as_str()?, end.get("port")?.as_str()?))
+}
+
+/// A scanner or hunt used to drive a radio through its control port. It drives a decoder now,
+/// and the radio follows that decoder, so a wire into a radio moves onto the one decoder the
+/// radio feeds. A radio feeding several decoders, or none, leaves the tool unwired.
+fn migrate_control_wires(snapshot: &mut serde_json::Value) {
+    let Some(graph) = snapshot.get_mut("graph") else {
+        return;
+    };
+    let nodes = graph
+        .get("nodes")
+        .and_then(serde_json::Value::as_array)
+        .into_iter()
+        .flatten();
+    let mut radios: HashSet<String> = HashSet::new();
+    let mut decoders: HashSet<String> = HashSet::new();
+    for node in nodes {
+        let Some(id) = node.get("id").and_then(serde_json::Value::as_str) else {
+            continue;
+        };
+        match node_kind(node) {
+            Some("device") => radios.insert(id.to_owned()),
+            Some("channel") => decoders.insert(id.to_owned()),
+            _ => false,
+        };
+    }
+    if radios.is_empty() {
+        return;
+    }
+    let Some(edges) = graph
+        .get_mut("edges")
+        .and_then(serde_json::Value::as_array_mut)
+    else {
+        return;
+    };
+    let mut fed: HashMap<String, Vec<String>> = HashMap::new();
+    for edge in edges.iter() {
+        let (Some((source, out)), Some((sink, input))) =
+            (edge_end(edge, "from"), edge_end(edge, "to"))
+        else {
+            continue;
+        };
+        if radios.contains(source)
+            && out.starts_with("iq")
+            && input == "iq"
+            && decoders.contains(sink)
+        {
+            fed.entry(source.to_owned())
+                .or_default()
+                .push(sink.to_owned());
+        }
+    }
+    let mut taken: HashSet<String> = HashSet::new();
+    let mut moved = Vec::with_capacity(edges.len());
+    for edge in edges.drain(..) {
+        let Some((sink, port)) = edge_end(&edge, "to").map(|(n, p)| (n.to_owned(), p.to_owned()))
+        else {
+            moved.push(edge);
+            continue;
+        };
+        if port != "control" || !radios.contains(&sink) {
+            moved.push(edge);
+            continue;
+        }
+        let Some(decoder) = fed
+            .get(&sink)
+            .filter(|found| found.len() == 1)
+            .map(|found| &found[0])
+        else {
+            continue;
+        };
+        if !taken.insert(decoder.clone()) {
+            continue;
+        }
+        let mut edge = edge;
+        edge["to"] = serde_json::json!({ "node": decoder, "port": "control" });
+        moved.push(edge);
+    }
+    *edges = moved;
 }
 
 fn migrate_recording_devices(snapshot: &mut serde_json::Value) {

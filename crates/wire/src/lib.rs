@@ -157,8 +157,7 @@ pub use rest::{
     RouteRequest, RoutingBackend, TemplateInfo, TemplatesResponse, VoiceCall, VoiceCallsResponse,
 };
 pub use scan::{
-    MAX_SCAN_DEVICE_SETS, MAX_SCAN_TARGETS, ScanAction, ScanMember, ScanMode, ScanRange,
-    ScanRequest, ScanSession, ScanSessionRequest, ScanSessionStatus, ScanSettings, ScanState,
+    MAX_SCAN_TARGETS, ScanAction, ScanMode, ScanRange, ScanRequest, ScanSettings, ScanState,
     ScannerStatus,
 };
 pub use state::{
@@ -1104,8 +1103,7 @@ mod contract_tests {
                     stop_hz: 146_000_000.0,
                     step_hz: 12_500.0,
                 }],
-                hold_channel: Some(2),
-                ..scan::ScanSettings::default()
+                ..scan::ScanSettings::for_channel(2)
             },
             targets: 161,
             first_hz: 144_000_000.0,
@@ -1120,7 +1118,7 @@ mod contract_tests {
         let mut json = serde_json::to_value(&set).unwrap();
         assert_eq!(json["scanner"]["state"], "holding");
         assert_eq!(json["scanner"]["current_hz"], 145_500_000.0);
-        assert_eq!(json["scanner"]["settings"]["hold_channel"], 2);
+        assert_eq!(json["scanner"]["settings"]["channel"], 2);
         assert!(json["scanner"].get("error").is_none());
         let back: DeviceSet = serde_json::from_value(json.clone()).unwrap();
         assert_eq!(back, set);
@@ -1133,29 +1131,37 @@ mod contract_tests {
     #[test]
     fn scan_settings_default_from_minimal_body() {
         let settings: scan::ScanSettings =
-            serde_json::from_str(r#"{"frequencies":[162550000.0]}"#).unwrap();
+            serde_json::from_str(r#"{"channel":3,"frequencies":[162550000.0]}"#).unwrap();
         assert_eq!(
             settings,
             scan::ScanSettings {
                 frequencies: vec![162_550_000.0],
-                ..scan::ScanSettings::default()
+                ..scan::ScanSettings::for_channel(3)
             }
         );
         assert_eq!(settings.threshold_db, -55.0);
         assert_eq!(settings.dwell_ms, 250);
         assert_eq!(settings.resume_ms, 1_500);
-        assert_eq!(settings.measure_bw_hz, 12_500.0);
-        assert_eq!(settings.hold_channel, None);
+        assert_eq!(settings.measure_bw_hz, None);
+        assert!(settings.skip.is_empty());
+        assert!(
+            serde_json::from_str::<scan::ScanSettings>(r#"{"frequencies":[162550000.0]}"#).is_err(),
+            "a scan without a decoder to feed is refused"
+        );
 
         let json = serde_json::to_value(scan::ScanRequest {
             action: scan::ScanAction::Start,
-            settings: Some(scan::ScanSettings::default()),
+            settings: Some(scan::ScanSettings::for_channel(3)),
         })
         .unwrap();
         assert_eq!(json["action"], "start");
         assert_eq!(
             serde_json::to_value(scan::ScanAction::Stop).unwrap(),
             "stop"
+        );
+        assert_eq!(
+            serde_json::to_value(scan::ScanAction::Skip).unwrap(),
+            "skip"
         );
 
         let stop: scan::ScanRequest = serde_json::from_str(r#"{"action":"stop"}"#).unwrap();
@@ -1168,10 +1174,11 @@ mod contract_tests {
             device_set: 2,
             status: Box::new(hunt::HuntStatus {
                 settings: hunt::HuntSettings {
-                    freq_hz: 433_920_000.0,
-                    bw_hz: 12_500.0,
+                    channel: 7,
                     interval_ms: 50,
                 },
+                freq_hz: 433_920_000.0,
+                bw_hz: 12_500.0,
                 level_db: Some(-58.5),
                 smooth_db: Some(-59.0),
                 floor_db: Some(-92.0),
@@ -1186,7 +1193,8 @@ mod contract_tests {
         assert_eq!(json["type"], "HuntUpdate");
         assert_eq!(json["data"]["device_set"], 2);
         assert_eq!(json["data"]["status"]["closing"], true);
-        assert_eq!(json["data"]["status"]["settings"]["freq_hz"], 433_920_000.0);
+        assert_eq!(json["data"]["status"]["settings"]["channel"], 7);
+        assert_eq!(json["data"]["status"]["freq_hz"], 433_920_000.0);
         assert!(
             json["data"]["status"].get("error").is_none(),
             "a hunt with nothing wrong must not carry a null fault"
@@ -1198,59 +1206,24 @@ mod contract_tests {
     #[test]
     fn a_hunt_status_fills_in_what_an_older_client_leaves_out() {
         let status: hunt::HuntStatus =
-            serde_json::from_str(r#"{"settings":{"freq_hz":446000000.0},"readings":0}"#).unwrap();
-        assert_eq!(status.settings.bw_hz, 12_500.0);
+            serde_json::from_str(r#"{"settings":{"channel":4},"readings":0}"#).unwrap();
         assert_eq!(status.settings.interval_ms, 50);
+        assert_eq!(status.freq_hz, 0.0);
         assert_eq!(status.strength, 0.0);
         assert!(!status.closing);
         assert_eq!(status.level_db, None);
     }
 
     #[test]
-    fn a_ganged_scan_is_listed_on_the_state_only_while_one_is_running() {
-        let quiet = StateSnapshot::default();
-        let json = serde_json::to_value(&quiet).unwrap();
-        assert!(
-            json.get("scan_session").is_none(),
-            "an idle server must not claim a scan"
-        );
-
-        let ganged = StateSnapshot {
-            scan_session: Some(scan::ScanSession {
-                device_sets: vec![1, 4],
-                settings: scan::ScanSettings {
-                    mode: scan::ScanMode::CloseCall,
-                    margin_db: 15.0,
-                    ..scan::ScanSettings::default()
-                },
-            }),
-            ..StateSnapshot::default()
-        };
-        let json = serde_json::to_value(&ganged).unwrap();
-        assert_eq!(
-            json["scan_session"]["device_sets"],
-            serde_json::json!([1, 4])
-        );
-        assert_eq!(json["scan_session"]["settings"]["mode"], "close_call");
-        let back: StateSnapshot = serde_json::from_value(json).unwrap();
-        assert_eq!(back, ganged);
-    }
-
-    #[test]
     fn a_scan_request_that_names_no_mode_still_scans_the_listed_frequencies() {
         let settings: scan::ScanSettings =
-            serde_json::from_str(r#"{"frequencies":[145500000.0]}"#).unwrap();
+            serde_json::from_str(r#"{"channel":1,"frequencies":[145500000.0]}"#).unwrap();
         assert_eq!(settings.mode, scan::ScanMode::Targets);
         assert_eq!(settings.margin_db, 12.0);
         assert!(
             settings.hardware_sweep,
             "a client that says nothing must still get the radio's own sweep"
         );
-
-        let session: scan::ScanSessionRequest =
-            serde_json::from_str(r#"{"action":"stop"}"#).unwrap();
-        assert_eq!(session.action, scan::ScanAction::Stop);
-        assert!(session.device_sets.is_empty());
     }
 
     #[test]
@@ -1259,7 +1232,7 @@ mod contract_tests {
             device_set: 3,
             status: Box::new(scan::ScannerStatus {
                 state: scan::ScanState::Scanning,
-                settings: scan::ScanSettings::default(),
+                settings: scan::ScanSettings::for_channel(1),
                 targets: 0,
                 first_hz: 446_000_000.0,
                 last_hz: 446_000_000.0,

@@ -53,7 +53,6 @@ const CATALOG: PatchCatalog = {
       name: "Device",
       category: "source",
       ports: [
-        { name: "control", port_type: "control", direction: "in", multi: false },
         {
           name: "tx",
           port_type: "tx",
@@ -73,6 +72,7 @@ const CATALOG: PatchCatalog = {
       needs_channel_type: true,
       ports: [
         { name: "iq", port_type: "iq", direction: "in", multi: false },
+        { name: "control", port_type: "control", direction: "in", multi: false },
         {
           name: "position",
           port_type: "position",
@@ -226,9 +226,18 @@ describe("ports", () => {
     const nfm = graph.nodes[2];
     const adsb = node("adsb", { kind: "channel", data: { channel_type: "adsb" } });
     const atv = node("atv", { kind: "channel", data: { channel_type: "atv" } });
-    expect(nfm && portsOf(context, graph, nfm).map((p) => p.name)).toEqual(["iq", "audio"]);
-    expect(portsOf(context, graph, adsb).map((p) => p.name)).toEqual(["iq", "position", "events"]);
-    expect(portsOf(context, graph, atv).map((p) => p.name)).toEqual(["iq", "video"]);
+    expect(nfm && portsOf(context, graph, nfm).map((p) => p.name)).toEqual([
+      "iq",
+      "control",
+      "audio",
+    ]);
+    expect(portsOf(context, graph, adsb).map((p) => p.name)).toEqual([
+      "iq",
+      "control",
+      "position",
+      "events",
+    ]);
+    expect(portsOf(context, graph, atv).map((p) => p.name)).toEqual(["iq", "control", "video"]);
   });
 
   it("leaves off a port whose condition it does not know", () => {
@@ -248,25 +257,28 @@ describe("ports", () => {
           : entry,
       ),
     };
-    expect(nfm && portsOf({ ...context, catalog }, graph, nfm).map((p) => p.name)).toEqual(["iq"]);
+    expect(nfm && portsOf({ ...context, catalog }, graph, nfm).map((p) => p.name)).toEqual([
+      "iq",
+      "control",
+    ]);
   });
 
   it("gives an unknown channel type only its input", () => {
     const graph = workspace();
     const ghost = node("x", { kind: "channel", data: { channel_type: "wefax" } });
-    expect(portsOf(context, graph, ghost).map((p) => p.name)).toEqual(["iq"]);
+    expect(portsOf(context, graph, ghost).map((p) => p.name)).toEqual(["iq", "control"]);
   });
 
   it("draws a transmit input only on a radio that has one", () => {
     const graph = workspace();
     const dev = deviceNode(graph);
     const receiver = { ...context, bound: bound("dev", { tx: false }) };
-    expect(portsOf(receiver, graph, dev).map((p) => p.name)).toEqual(["control", "iq"]);
+    expect(portsOf(receiver, graph, dev).map((p) => p.name)).toEqual(["iq"]);
 
     const transceiver = { ...context, bound: bound("dev", { tx: true }) };
-    expect(portsOf(transceiver, graph, dev).map((p) => p.name)).toEqual(["control", "tx", "iq"]);
+    expect(portsOf(transceiver, graph, dev).map((p) => p.name)).toEqual(["tx", "iq"]);
 
-    expect(portsOf(context, graph, dev).map((p) => p.name)).toEqual(["control", "iq"]);
+    expect(portsOf(context, graph, dev).map((p) => p.name)).toEqual(["iq"]);
   });
 
   it("expands the IQ family to one output per receive stream of the attached radio", () => {
@@ -274,14 +286,14 @@ describe("ports", () => {
     const dev = deviceNode(graph);
     const four = { ...context, bound: bound("dev", { rx: 4 }) };
     const ports = portsOf(four, graph, dev);
-    expect(ports.map((p) => p.name)).toEqual(["control", "iq", "iq2", "iq3", "iq4"]);
+    expect(ports.map((p) => p.name)).toEqual(["iq", "iq2", "iq3", "iq4"]);
     expect(ports.every((p) => (p.repeat ?? "once") === "once")).toBe(true);
     expect(connectionRefusal(four, graph, port("dev", "iq3"), port("spk", "audio"))).toMatch(
       /iq cannot feed a audio input/,
     );
     const withScope = { ...graph, nodes: [...graph.nodes, node("scope2", { kind: "scope" })] };
     expect(connectionRefusal(four, withScope, port("dev", "iq3"), port("scope2", "iq"))).toBeNull();
-    expect(portsOf({ ...context, bound: bound("dev", { rx: 99 }) }, graph, dev)).toHaveLength(17);
+    expect(portsOf({ ...context, bound: bound("dev", { rx: 99 }) }, graph, dev)).toHaveLength(16);
   });
 
   it("keeps the streams stored wires name while the radio is absent", () => {
@@ -290,9 +302,9 @@ describe("ports", () => {
       to: { node: "scope", port: "iq" },
     });
     const dev = deviceNode(graph);
-    expect(portsOf(context, graph, dev).map((p) => p.name)).toEqual(["control", "iq", "iq3"]);
+    expect(portsOf(context, graph, dev).map((p) => p.name)).toEqual(["iq", "iq3"]);
     const two = { ...context, bound: bound("dev", { rx: 2 }) };
-    expect(portsOf(two, graph, dev).map((p) => p.name)).toEqual(["control", "iq", "iq2", "iq3"]);
+    expect(portsOf(two, graph, dev).map((p) => p.name)).toEqual(["iq", "iq2", "iq3"]);
   });
 
   it("numbers stream ports from two and answers only canonical spellings", () => {
@@ -390,28 +402,31 @@ describe("connectionRefusal", () => {
     );
   });
 
-  it("wires a scanner into the radio it drives, and only one", () => {
+  it("wires a scanner into the decoder it drives, and only one", () => {
     const graph = {
       ...workspace(),
       nodes: [
         ...workspace().nodes,
         node("scan", { kind: "scanner" }),
-        node("dev2", { kind: "device", data: {} }),
+        node("am", { kind: "channel", data: { channel_type: "am" } }),
       ],
     };
     expect(
-      connectionRefusal(context, graph, port("scan", "control"), port("dev", "control")),
+      connectionRefusal(context, graph, port("scan", "control"), port("nfm", "control")),
     ).toBeNull();
+    expect(
+      connectionRefusal(context, graph, port("scan", "control"), port("dev", "control")),
+    ).toMatch(/does not exist/);
     const driving = addEdge(graph, {
       from: { node: "scan", port: "control" },
-      to: { node: "dev", port: "control" },
+      to: { node: "nfm", port: "control" },
     });
     expect(
-      connectionRefusal(context, driving, port("scan", "control"), port("dev2", "control")),
+      connectionRefusal(context, driving, port("scan", "control"), port("am", "control")),
     ).toMatch(/one node at a time/);
     const second = { ...driving, nodes: [...driving.nodes, node("scan2", { kind: "scanner" })] };
     expect(
-      connectionRefusal(context, second, port("scan2", "control"), port("dev", "control")),
+      connectionRefusal(context, second, port("scan2", "control"), port("nfm", "control")),
     ).toMatch(/takes one wire/);
   });
 
@@ -501,7 +516,7 @@ describe("editing", () => {
     expect(() => addNode(graph, drawn)).toThrow(/duplicate node id/);
   });
 
-  it("turns a stored scanner's IQ wire into the control wire that drives the radio", () => {
+  it("turns a stored scanner's IQ wire into the control wire that drives the radio's decoder", () => {
     const scanning = (edges: PatchGraph["edges"]): WorkspaceSnapshot => ({
       version: 1,
       graph: {
@@ -515,22 +530,68 @@ describe("editing", () => {
     });
     const stored = scanning([
       { from: { node: "dev", port: "iq" }, to: { node: "scope", port: "iq" } },
+      { from: { node: "dev", port: "iq" }, to: { node: "nfm", port: "iq" } },
       { from: { node: "dev", port: "iq" }, to: { node: "scan", port: "iq" } },
     ]);
     expect(migrateSnapshot(stored).graph.edges?.map(edgeKey)).toEqual([
       "dev.iq->scope.iq",
-      "scan.control->dev.control",
+      "dev.iq->nfm.iq",
+      "scan.control->nfm.control",
     ]);
     const migrated = migrateSnapshot(stored);
     expect(migrateSnapshot(migrated)).toBe(migrated);
 
     const fanned = scanning([
+      { from: { node: "dev", port: "iq" }, to: { node: "nfm", port: "iq" } },
       { from: { node: "dev", port: "iq" }, to: { node: "scan", port: "iq" } },
       { from: { node: "dev2", port: "iq" }, to: { node: "scan", port: "iq" } },
     ]);
     expect(migrateSnapshot(fanned).graph.edges?.map(edgeKey)).toEqual([
-      "scan.control->dev.control",
+      "dev.iq->nfm.iq",
+      "scan.control->nfm.control",
     ]);
+  });
+
+  it("moves a stored control wire off the radio onto its one decoder, or drops it", () => {
+    const driving = (edges: PatchGraph["edges"]): WorkspaceSnapshot => ({
+      version: 1,
+      graph: {
+        nodes: [
+          ...workspace().nodes,
+          node("scan", { kind: "scanner" }),
+          node("walk", { kind: "hunt", data: {} }),
+          node("am", { kind: "channel", data: { channel_type: "am" } }),
+          node("dev2", { kind: "device", data: {} }),
+        ],
+        edges,
+      },
+    });
+    const one = driving([
+      { from: { node: "dev", port: "iq" }, to: { node: "nfm", port: "iq" } },
+      { from: { node: "scan", port: "control" }, to: { node: "dev", port: "control" } },
+      { from: { node: "walk", port: "control" }, to: { node: "dev", port: "control" } },
+    ]);
+    expect(migrateSnapshot(one).graph.edges?.map(edgeKey)).toEqual([
+      "dev.iq->nfm.iq",
+      "scan.control->nfm.control",
+    ]);
+
+    const two = driving([
+      { from: { node: "dev", port: "iq" }, to: { node: "nfm", port: "iq" } },
+      { from: { node: "dev", port: "iq" }, to: { node: "am", port: "iq" } },
+      { from: { node: "scan", port: "control" }, to: { node: "dev", port: "control" } },
+      { from: { node: "walk", port: "control" }, to: { node: "dev2", port: "control" } },
+    ]);
+    expect(migrateSnapshot(two).graph.edges?.map(edgeKey)).toEqual([
+      "dev.iq->nfm.iq",
+      "dev.iq->am.iq",
+    ]);
+
+    const current = driving([
+      { from: { node: "dev", port: "iq" }, to: { node: "nfm", port: "iq" } },
+      { from: { node: "scan", port: "control" }, to: { node: "nfm", port: "control" } },
+    ]);
+    expect(migrateSnapshot(current)).toBe(current);
   });
 
   it("compares graphs structurally so an echo of our own write is not re-applied", () => {

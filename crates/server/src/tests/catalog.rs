@@ -134,8 +134,23 @@ async fn the_patch_catalog_describes_the_node_palette() {
             .unwrap_or_else(|| panic!("the device node has a {name} port"))
     };
     assert!(port("iq").multi, "one radio feeds many nodes");
-    assert!(!port("control").multi, "one sweep owns a radio");
     assert!(port("tx").note.is_some(), "the reserved port says why");
+    assert!(
+        device.ports.iter().all(|port| port.name != "control"),
+        "a radio is driven through its decoders"
+    );
+    let decoder = catalog
+        .nodes
+        .iter()
+        .find(|n| n.kind == "channel")
+        .expect("a decoder in the palette");
+    let control = decoder
+        .ports
+        .iter()
+        .find(|port| port.name == "control")
+        .expect("the decoder node has a control port");
+    assert!(!control.multi, "one sweep owns a decoder");
+    assert!(control.note.is_some(), "the port says what drives it");
 }
 
 #[tokio::test]

@@ -478,12 +478,9 @@ impl Default for DmrTrunkNode {
     }
 }
 
-/// What a hunt node remembers between sessions: where it was last pointed and how loud a click
-/// track the operator wanted.
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
+/// What a hunt node remembers between sessions: whether the operator wanted a click track.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct HuntNode {
-    #[serde(default)]
-    pub settings: crate::hunt::HuntSettings,
     #[serde(default = "default_clicks")]
     pub clicks: bool,
 }
@@ -495,7 +492,6 @@ const fn default_clicks() -> bool {
 impl Default for HuntNode {
     fn default() -> Self {
         Self {
-            settings: crate::hunt::HuntSettings::default(),
             clicks: default_clicks(),
         }
     }
@@ -799,7 +795,6 @@ fn ports_for(kind: &str) -> Vec<PortSpec> {
     use PortType::{Audio, Baseband, Control, Events, Iq, Position, Tx, Video};
     match kind {
         "device" => vec![
-            PortSpec::new(Control, In, false, Always),
             PortSpec::new(Tx, In, false, DeviceIsTxCapable)
                 .repeated(PortRepeat::PerTxStream)
                 .noted(
@@ -819,6 +814,8 @@ fn ports_for(kind: &str) -> Vec<PortSpec> {
         "gps" => vec![PortSpec::new(Position, Out, true, Always)],
         "channel" => vec![
             PortSpec::new(Iq, In, false, Always),
+            PortSpec::new(Control, In, false, Always)
+                .noted("a scanner or signal hunt drives this decoder; its radio follows"),
             PortSpec::new(Position, In, false, ChannelNeedsPosition),
             PortSpec::new(Baseband, Out, true, Always),
             PortSpec::new(Audio, Out, true, ChannelHasAudio),

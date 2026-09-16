@@ -63,7 +63,6 @@ import type {
   Route,
   RouteRequest,
   ScannerStatus,
-  ScanSessionStatus,
   ScanSettings,
   StateSnapshot,
   TemplatesResponse,
@@ -736,19 +735,13 @@ export async function stopScan(ds: number): Promise<ScannerStatus> {
   );
 }
 
-export async function startScanSession(
-  deviceSets: readonly number[],
-  settings: ScanSettings,
-): Promise<ScanSessionStatus> {
+export async function skipScan(ds: number): Promise<ScannerStatus> {
   return unwrap(
-    await client.POST("/api/scanner", {
-      body: { action: "start", device_sets: [...deviceSets], settings },
+    await client.POST("/api/devicesets/{ds}/scanner", {
+      params: { path: { ds } },
+      body: { action: "skip" },
     }),
   );
-}
-
-export async function stopScanSession(): Promise<ScanSessionStatus> {
-  return unwrap(await client.POST("/api/scanner", { body: { action: "stop" } }));
 }
 
 export async function startHunt(ds: number, settings: HuntSettings): Promise<HuntStatus> {

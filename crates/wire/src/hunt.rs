@@ -1,29 +1,26 @@
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct HuntSettings {
-    pub freq_hz: f64,
-    #[serde(default = "default_bw_hz")]
-    pub bw_hz: f64,
+    /// The decoder being hunted. Its frequency and bandwidth are what the readings measure, so
+    /// retuning it retunes the hunt.
+    pub channel: u32,
     /// How often a reading is published. A hunt is walked with, so the feedback has to keep up
     /// with the steps rather than with a status panel.
     #[serde(default = "default_interval_ms")]
     pub interval_ms: u32,
 }
 
-fn default_bw_hz() -> f64 {
-    12_500.0
-}
 const fn default_interval_ms() -> u32 {
     50
 }
 
-impl Default for HuntSettings {
-    fn default() -> Self {
+impl HuntSettings {
+    #[must_use]
+    pub const fn for_channel(channel: u32) -> Self {
         Self {
-            freq_hz: 0.0,
-            bw_hz: default_bw_hz(),
+            channel,
             interval_ms: default_interval_ms(),
         }
     }
@@ -32,6 +29,11 @@ impl Default for HuntSettings {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct HuntStatus {
     pub settings: HuntSettings,
+    /// The frequency the readings are taken on: the decoder's, as of the last reading.
+    #[serde(default)]
+    pub freq_hz: f64,
+    #[serde(default)]
+    pub bw_hz: f64,
     /// The strongest reading in the last interval.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub level_db: Option<f32>,
@@ -62,7 +64,7 @@ pub enum HuntAction {
     Stop,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct HuntRequest {
     pub action: HuntAction,
     #[serde(default, skip_serializing_if = "Option::is_none")]

@@ -15,7 +15,6 @@ import {
 } from "../../components/decoderLog";
 import { formatBytes } from "../../components/format";
 import { HuntPanel } from "../../components/HuntPanel";
-import { DEFAULT_HUNT_SETTINGS } from "../../components/hunt";
 import { Icon } from "../../components/Icon";
 import { MapPanel } from "../../components/MapPanel";
 import { Readout, ReadoutRow } from "../../components/Readout";
@@ -60,7 +59,7 @@ import { useNow } from "../../lib/useNow";
 import { type EventPath, eventPathsOf, type Input, inputsOf, iqSourceOf } from "../binding";
 import { useWorkspaceContext } from "../context";
 import { patchNode } from "../graph";
-import { deviceSetOf } from "../workspaceDevice";
+import { decoderOf, deviceSetOf } from "../workspaceDevice";
 import { AudioSpectrogramView } from "./AudioSpectrogramView";
 import { FaceBody, FaceEmpty, FaceFooter, NodeShell, useFaceActive } from "./NodeShell";
 
@@ -745,8 +744,8 @@ export function HuntFace({ node }: { node: PatchNode }) {
 
 function HuntNodeFace({ node }: { node: PatchNodeOf<"hunt"> }) {
   const workspace = useWorkspaceContext();
-  const set = deviceSetOf(workspace, node.id);
-  const hunting = set?.hunt != null;
+  const decoder = decoderOf(workspace, node.id);
+  const hunting = decoder?.set.hunt != null;
   const remember = (data: Partial<PatchNodeOf<"hunt">["data"]>): void => {
     workspace.edit((snapshot) => ({
       ...snapshot,
@@ -760,15 +759,13 @@ function HuntNodeFace({ node }: { node: PatchNodeOf<"hunt"> }) {
       node={node}
       title="Signal hunt"
       category="tool"
-      subtitle={hunting ? "owns this radio" : undefined}
+      subtitle={hunting ? "hunting" : undefined}
     >
       <HuntPanel
-        active={set}
-        settings={node.data.settings ?? DEFAULT_HUNT_SETTINGS}
+        target={decoder}
         clicks={node.data.clicks ?? true}
-        onSettings={(settings) => remember({ settings })}
         onClicks={(clicks) => remember({ clicks })}
-        hint="Wire this node's control out to a device"
+        hint="Wire this node's control out to a decoder"
       />
     </NodeShell>
   );
@@ -776,7 +773,8 @@ function HuntNodeFace({ node }: { node: PatchNodeOf<"hunt"> }) {
 
 export function ScannerFace({ node }: { node: PatchNode }) {
   const workspace = useWorkspaceContext();
-  const set = deviceSetOf(workspace, node.id);
+  const decoder = decoderOf(workspace, node.id);
+  const set = decoder?.set ?? null;
   const scanning = set?.scanner != null;
   return (
     <NodeShell
@@ -787,9 +785,8 @@ export function ScannerFace({ node }: { node: PatchNode }) {
     >
       <ScannerPanel
         active={set}
-        others={workspace.deviceSets}
-        session={workspace.scanSession}
-        hint="Wire this node's control out to a device"
+        channel={decoder?.channel ?? null}
+        hint="Wire this node's control out to a decoder"
       />
     </NodeShell>
   );

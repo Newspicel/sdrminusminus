@@ -6,30 +6,26 @@ import {
   BEARING_LABEL,
   bearing,
   formatHuntDb,
+  HUNT_INTERVAL_MS,
+  type HuntTarget,
+  huntedHz,
   huntRefusal,
-  huntSettingsOf,
   liveHunt,
 } from "../components/hunt";
 import { STATE_KEY, startHunt, stopHunt } from "../lib/api";
 import { type Clicker, startClicker } from "../lib/geiger";
 import { useHuntStore } from "../lib/hunt";
 import { toastError } from "../lib/toasts";
-import type { DeviceSet, PatchGraph } from "../lib/types";
 import type { MissionProps } from "./missions";
 
-const INTERVAL_MS = 50;
-
-export function FoxHunt({
-  node,
-  graph,
-  set,
-}: MissionProps & { graph: PatchGraph; set: DeviceSet | null }) {
+export function FoxHunt({ target }: MissionProps & { target: HuntTarget | null }) {
   const queryClient = useQueryClient();
+  const set = target?.set ?? null;
   const pushed = useHuntStore((store) => (set === null ? undefined : store.byDeviceSet[set.id]));
   const clearLive = useHuntStore((store) => store.clear);
   const status = liveHunt(set, pushed);
   const strength = status?.strength ?? 0;
-  const settings = status?.settings ?? huntSettingsOf(graph, node);
+  const hz = huntedHz(status, target?.channel ?? null);
   const [clicks, setClicks] = useState(true);
   const clicker = useRef<Clicker | null>(null);
   const running = status !== null;
@@ -53,8 +49,8 @@ export function FoxHunt({
 
   const invalidate = (): void => void queryClient.invalidateQueries({ queryKey: STATE_KEY });
   const startMut = useMutation({
-    mutationFn: async (deviceSet: number) =>
-      startHunt(deviceSet, { ...settings, interval_ms: INTERVAL_MS }),
+    mutationFn: async (hunted: HuntTarget) =>
+      startHunt(hunted.set.id, { channel: hunted.channel.id, interval_ms: HUNT_INTERVAL_MS }),
     onError: (error: Error) => toastError(error),
     onSettled: invalidate,
   });
@@ -65,13 +61,13 @@ export function FoxHunt({
     onSettled: invalidate,
   });
 
-  const refusal = set === null ? "No radio wired in." : huntRefusal(set, settings.freq_hz);
+  const refusal = target === null ? "No decoder wired in." : huntRefusal(target);
   const busy = startMut.isPending || stopMut.isPending;
 
   return (
     <div className="flex h-full flex-col justify-center">
       <div className="px-3 py-2 text-center">
-        <p className="font-mono text-3xl tabular-nums">{formatHz(settings.freq_hz)}</p>
+        <p className="font-mono text-3xl tabular-nums">{hz === null ? "—" : formatHz(hz)}</p>
         <p className="text-xs text-ink-dim">
           {status === null
             ? "not hunting"
@@ -95,15 +91,15 @@ export function FoxHunt({
       <div className="flex justify-center gap-2 px-3 py-2">
         <Button
           type="button"
-          disabled={set === null || busy || (!running && refusal !== null)}
+          disabled={target === null || busy || (!running && refusal !== null)}
           onClick={() => {
-            if (set === null) {
+            if (target === null) {
               return;
             }
             if (running) {
-              stopMut.mutate(set.id);
+              stopMut.mutate(target.set.id);
             } else {
-              startMut.mutate(set.id);
+              startMut.mutate(target);
             }
           }}
           className={`rounded px-4 py-3 text-sm ${running ? "border border-line" : "bg-accent text-bg"}`}

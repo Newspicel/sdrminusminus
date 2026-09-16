@@ -257,6 +257,13 @@ fn drain_commands(
                     retirement.retire(Retired::Channel(channels.remove(index).1));
                 }
             }
+            DspCommand::RetuneChannel { id, frequency_hz } => {
+                if let Some((_, host)) = channels.iter_mut().find(|(existing, _)| *existing == id) {
+                    host.retune(frequency_hz);
+                } else {
+                    tracing::debug!(id, "retune for a channel no longer hosted");
+                }
+            }
             DspCommand::PositionChanged { id, fix } => {
                 if let Some((_, host)) = channels.iter_mut().find(|(existing, _)| *existing == id) {
                     host.position_changed(fix.as_ref());

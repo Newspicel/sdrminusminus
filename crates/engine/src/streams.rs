@@ -3,16 +3,15 @@ use std::sync::{Arc, atomic::Ordering};
 use sdrmm_channels::ChannelError;
 use sdrmm_device::DeviceError;
 use sdrmm_wire::{
-    ChannelDescriptor, ChannelLevel, ChannelSettings, DeviceSetStatus, DeviceSettings,
-    HuntSettings, HuntStatus, PlaybackRequest, PlaybackStatus, ScanSession, ScanSessionStatus,
-    ScanSettings, ScannerStatus, ServerEvent, StateScope,
+    ChannelDescriptor, ChannelLevel, DeviceSetStatus, DeviceSettings, HuntSettings, HuntStatus,
+    PlaybackRequest, PlaybackStatus, ScanSettings, ScannerStatus, ServerEvent, StateScope,
 };
 use tokio::sync::broadcast;
 
 use crate::{
-    AudioPacket, Engine, EngineError, IqBlock, PatchOrigin, PcmBlock, SpectrumSnapshot,
+    AudioPacket, DspCommand, Engine, EngineError, IqBlock, PatchOrigin, PcmBlock, SpectrumSnapshot,
     SymbolBlock, VideoPacket, hunt, lock_runtime, planning::descriptor_for, sample_rate_of,
-    scanner, scanner::session::SessionState,
+    scanner,
 };
 
 impl Engine {
@@ -193,33 +192,15 @@ impl Engine {
     ) -> Result<ScannerStatus, EngineError> {
         let _edit = sdrmm_device::lock(&self.array_edits);
         self.check_array_scan(ds)?;
-        let mut session = scanner::session::start(self, &[ds], settings)?;
-        session
-            .members
-            .pop()
-            .map(|member| member.status)
-            .ok_or(EngineError::DeviceSetNotFound(ds))
-    }
-
-    /// Sweeps one plan with several radios at once, each taking a share of the targets.
-    pub fn start_scan_session(
-        self: &Arc<Self>,
-        device_sets: &[u32],
-        settings: ScanSettings,
-    ) -> Result<ScanSessionStatus, EngineError> {
-        let _edit = sdrmm_device::lock(&self.array_edits);
-        for &ds in device_sets {
-            self.check_array_scan(ds)?;
-        }
-        scanner::session::start(self, device_sets, settings)
+        scanner::session::start(self, ds, settings)
     }
 
     pub fn stop_scan(&self, ds: u32) -> Result<ScannerStatus, EngineError> {
-        scanner::session::stop_one(self, ds)
+        scanner::session::stop(self, ds)
     }
 
-    pub fn stop_scan_session(&self) -> Result<ScanSessionStatus, EngineError> {
-        scanner::session::stop_all(self)
+    pub fn skip_scan(&self, ds: u32) -> Result<ScannerStatus, EngineError> {
+        scanner::session::skip(self, ds)
     }
 
     /// Parks the radio on one frequency and streams how strong it is, fast enough to walk with.
@@ -235,11 +216,6 @@ impl Engine {
 
     pub fn stop_hunt(&self, ds: u32) -> Result<HuntStatus, EngineError> {
         hunt::stop(self, ds)
-    }
-
-    #[must_use]
-    pub fn scan_session(&self) -> Option<ScanSession> {
-        self.lock().scan_session.as_ref().map(SessionState::project)
     }
 
     pub fn control_playback(
@@ -301,29 +277,52 @@ impl Engine {
         self.subscribe_spectrum(ds, 0)
     }
 
-    pub(crate) fn scan_park_channel(
+    pub(crate) fn decoder_of(&self, ds: u32, ch: u32) -> Option<hunt::Decoder> {
+        let inner = self.lock();
+        inner
+            .device_sets
+            .get(&ds)?
+            .channels
+            .iter()
+            .find(|channel| channel.id == ch)
+            .map(hunt::Decoder::of)
+    }
+
+    pub(crate) fn scan_tune_channel(
         &self,
         ds: u32,
         ch: u32,
         frequency_hz: f64,
     ) -> Result<(), EngineError> {
-        let settings = {
-            let inner = self.lock();
+        {
+            let mut inner = self.lock();
             let state = inner
                 .device_sets
-                .get(&ds)
+                .get_mut(&ds)
                 .ok_or(EngineError::DeviceSetNotFound(ds))?;
             let info = state
                 .channels
-                .iter()
+                .iter_mut()
                 .find(|c| c.id == ch)
                 .ok_or(EngineError::ChannelNotFound(ch, ds))?;
-            ChannelSettings {
-                frequency_hz,
-                ..info.settings.clone()
+            if info.settings.frequency_hz == frequency_hz {
+                return Ok(());
             }
-        };
-        self.patch_channel(ds, ch, settings)
+            info.settings.frequency_hz = frequency_hz;
+            let stream = info.stream;
+            state.send_dsp(
+                stream,
+                DspCommand::RetuneChannel {
+                    id: ch,
+                    frequency_hz,
+                },
+            );
+            inner.revision += 1;
+        }
+        self.emit(ServerEvent::StateChanged {
+            scope: StateScope::DeviceSet(ds),
+        });
+        Ok(())
     }
 
     pub fn subscribe_spectrum(

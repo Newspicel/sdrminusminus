@@ -209,10 +209,23 @@ export function deviceNodeOf(graph: PatchGraph, node: string): string | null {
   if (upstream !== null && devices.has(upstream.source)) {
     return upstream.source;
   }
+  const driven = controlledNodeOf(graph, node);
+  if (driven === null) {
+    return null;
+  }
+  const behind = iqSourceOf(graph, driven);
+  return behind !== null && devices.has(behind.source) ? behind.source : null;
+}
+
+export function controlledNodeOf(graph: PatchGraph, node: string): string | null {
   const driven = (graph.edges ?? []).find(
-    (edge) => edge.from.node === node && edge.from.port === "control" && devices.has(edge.to.node),
+    (edge) => edge.from.node === node && edge.from.port === "control",
   );
-  return driven?.to.node ?? null;
+  if (driven === undefined) {
+    return null;
+  }
+  const target = graph.nodes.find((candidate) => candidate.id === driven.to.node);
+  return target?.kind === "channel" ? target.id : null;
 }
 
 export function sourcesOf(graph: PatchGraph, node: string, port: string): string[] {

@@ -7,7 +7,7 @@ use crate::{
     device::{Capabilities, DeviceInfo, DeviceSettings},
     hunt::HuntStatus,
     network::NetworkExportStatus,
-    scan::{ScanSession, ScannerStatus},
+    scan::ScannerStatus,
     timemachine::TimeMachineStatus,
 };
 
@@ -186,8 +186,6 @@ pub struct TrunkSystemStatus {
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct StateSnapshot {
     pub device_sets: Vec<DeviceSet>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub scan_session: Option<ScanSession>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub trunk_systems: Vec<TrunkSystemStatus>,
     pub revision: u64,

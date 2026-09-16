@@ -2,7 +2,6 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 pub const MAX_SCAN_TARGETS: usize = 20_000;
-pub const MAX_SCAN_DEVICE_SETS: usize = 8;
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct ScanRange {
@@ -25,22 +24,26 @@ pub enum ScanMode {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct ScanSettings {
+    /// The decoder the scan feeds. It is parked on every hit, and the radio carrying it follows.
+    pub channel: u32,
     #[serde(default)]
     pub mode: ScanMode,
     #[serde(default)]
     pub ranges: Vec<ScanRange>,
     #[serde(default)]
     pub frequencies: Vec<f64>,
+    /// Frequencies the scan steps over without ever holding on them.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub skip: Vec<f64>,
     #[serde(default = "default_threshold_db")]
     pub threshold_db: f32,
     #[serde(default = "default_dwell_ms")]
     pub dwell_ms: u32,
     #[serde(default = "default_resume_ms")]
     pub resume_ms: u32,
-    #[serde(default = "default_measure_bw_hz")]
-    pub measure_bw_hz: f64,
+    /// The slice measured around each target. Left out, the decoder's own bandwidth is used.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub hold_channel: Option<u32>,
+    pub measure_bw_hz: Option<f64>,
     /// Whether to let a radio that sweeps in its own firmware do the sweeping. Radios without one
     /// retune for every step either way.
     #[serde(default = "default_hardware_sweep")]
@@ -59,9 +62,6 @@ fn default_dwell_ms() -> u32 {
 fn default_resume_ms() -> u32 {
     1_500
 }
-fn default_measure_bw_hz() -> f64 {
-    12_500.0
-}
 const fn default_hardware_sweep() -> bool {
     true
 }
@@ -69,17 +69,19 @@ fn default_margin_db() -> f32 {
     12.0
 }
 
-impl Default for ScanSettings {
-    fn default() -> Self {
+impl ScanSettings {
+    #[must_use]
+    pub fn for_channel(channel: u32) -> Self {
         Self {
+            channel,
             mode: ScanMode::default(),
             ranges: Vec::new(),
             frequencies: Vec::new(),
+            skip: Vec::new(),
             threshold_db: default_threshold_db(),
             dwell_ms: default_dwell_ms(),
             resume_ms: default_resume_ms(),
-            measure_bw_hz: default_measure_bw_hz(),
-            hold_channel: None,
+            measure_bw_hz: None,
             hardware_sweep: default_hardware_sweep(),
             margin_db: default_margin_db(),
         }
@@ -127,33 +129,6 @@ pub struct ScanRequest {
 pub enum ScanAction {
     Start,
     Stop,
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
-pub struct ScanSessionRequest {
-    pub action: ScanAction,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub device_sets: Vec<u32>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub settings: Option<ScanSettings>,
-}
-
-/// The device sets sweeping one plan together, so a client can tell a ganged scan from several
-/// unrelated ones.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
-pub struct ScanSession {
-    pub device_sets: Vec<u32>,
-    pub settings: ScanSettings,
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
-pub struct ScanMember {
-    pub device_set: u32,
-    pub status: ScannerStatus,
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
-pub struct ScanSessionStatus {
-    pub settings: ScanSettings,
-    pub members: Vec<ScanMember>,
+    /// Leaves the frequency the scan is holding on and never holds on it again this scan.
+    Skip,
 }

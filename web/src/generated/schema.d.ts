@@ -1060,22 +1060,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/scanner": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post: operations["scan_session"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/state": {
         parameters: {
             query?: never;
@@ -3721,23 +3705,21 @@ export interface components {
         HfdlParams: Record<string, never>;
         /** @enum {string} */
         HuntAction: "start" | "stop";
-        /**
-         * @description What a hunt node remembers between sessions: where it was last pointed and how loud a click
-         *     track the operator wanted.
-         */
+        /** @description What a hunt node remembers between sessions: whether the operator wanted a click track. */
         HuntNode: {
             clicks?: boolean;
-            settings?: components["schemas"]["HuntSettings"];
         };
         HuntRequest: {
             action: components["schemas"]["HuntAction"];
             settings?: null | components["schemas"]["HuntSettings"];
         };
         HuntSettings: {
-            /** Format: double */
-            bw_hz?: number;
-            /** Format: double */
-            freq_hz: number;
+            /**
+             * Format: int32
+             * @description The decoder being hunted. Its frequency and bandwidth are what the readings measure, so
+             *     retuning it retunes the hunt.
+             */
+            channel: number;
             /**
              * Format: int32
              * @description How often a reading is published. A hunt is walked with, so the feedback has to keep up
@@ -3748,6 +3730,8 @@ export interface components {
         HuntStatus: {
             /** Format: float */
             best_db?: number | null;
+            /** Format: double */
+            bw_hz?: number;
             /** @description Whether the last few readings are climbing: the answer to "warmer or colder". */
             closing?: boolean;
             error?: string | null;
@@ -3757,6 +3741,11 @@ export interface components {
              *     actually covered instead of to a guess about how loud the transmitter is.
              */
             floor_db?: number | null;
+            /**
+             * Format: double
+             * @description The frequency the readings are taken on: the decoder's, as of the last reading.
+             */
+            freq_hz?: number;
             /**
              * Format: float
              * @description The strongest reading in the last interval.
@@ -4890,7 +4879,7 @@ export interface components {
             text: string;
         };
         /** @enum {string} */
-        ScanAction: "start" | "stop";
+        ScanAction: "start" | "stop" | "skip";
         ScanList: {
             channels?: string[];
             /** Format: int32 */
@@ -4901,11 +4890,6 @@ export interface components {
             primary?: null | components["schemas"]["ScanTarget"];
             revert?: components["schemas"]["ScanRevert"];
             secondary?: null | components["schemas"]["ScanTarget"];
-        };
-        ScanMember: {
-            /** Format: int32 */
-            device_set: number;
-            status: components["schemas"]["ScannerStatus"];
         };
         /**
          * @description What a scan is looking for.
@@ -4950,24 +4934,12 @@ export interface components {
         };
         /** @enum {string} */
         ScanRevert: "selected" | "last_called" | "last_used" | "primary" | "secondary";
-        /**
-         * @description The device sets sweeping one plan together, so a client can tell a ganged scan from several
-         *     unrelated ones.
-         */
-        ScanSession: {
-            device_sets: number[];
-            settings: components["schemas"]["ScanSettings"];
-        };
-        ScanSessionRequest: {
-            action: components["schemas"]["ScanAction"];
-            device_sets?: number[];
-            settings?: null | components["schemas"]["ScanSettings"];
-        };
-        ScanSessionStatus: {
-            members: components["schemas"]["ScanMember"][];
-            settings: components["schemas"]["ScanSettings"];
-        };
         ScanSettings: {
+            /**
+             * Format: int32
+             * @description The decoder the scan feeds. It is parked on every hit, and the radio carrying it follows.
+             */
+            channel: number;
             /** Format: int32 */
             dwell_ms?: number;
             frequencies?: number[];
@@ -4976,19 +4948,22 @@ export interface components {
              *     retune for every step either way.
              */
             hardware_sweep?: boolean;
-            /** Format: int32 */
-            hold_channel?: number | null;
             /**
              * Format: float
              * @description How far over the noise floor a carrier has to stand to be called, in close-call mode.
              */
             margin_db?: number;
-            /** Format: double */
-            measure_bw_hz?: number;
+            /**
+             * Format: double
+             * @description The slice measured around each target. Left out, the decoder's own bandwidth is used.
+             */
+            measure_bw_hz?: number | null;
             mode?: components["schemas"]["ScanMode"];
             ranges?: components["schemas"]["ScanRange"][];
             /** Format: int32 */
             resume_ms?: number;
+            /** @description Frequencies the scan steps over without ever holding on them. */
+            skip?: number[];
             /** Format: float */
             threshold_db?: number;
         };
@@ -5306,7 +5281,6 @@ export interface components {
             device_sets: components["schemas"]["DeviceSet"][];
             /** Format: int64 */
             revision: number;
-            scan_session?: null | components["schemas"]["ScanSession"];
             trunk_systems?: components["schemas"]["TrunkSystemStatus"][];
         };
         /** @enum {string} */
@@ -7663,7 +7637,7 @@ export interface operations {
                     "application/json": components["schemas"]["HuntStatus"];
                 };
             };
-            /** @description Unusable hunt settings, set not running, scanning, already hunting, or not hunting */
+            /** @description Set not running, scanning, already hunting, or not hunting */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -7672,7 +7646,7 @@ export interface operations {
                     "application/json": components["schemas"]["ApiError"];
                 };
             };
-            /** @description Device set not found */
+            /** @description Device set or decoder not found */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -7861,7 +7835,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Scanner status: the initial state after `start`, the final state after `stop`. Live progress arrives as the `ScannerUpdate` WS event, not as one state change per step */
+            /** @description Scanner status: the initial state after `start`, the final state after `stop`, the state after `skip` lets go of a held frequency. Live progress arrives as the `ScannerUpdate` WS event, not as one state change per step */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -7870,7 +7844,7 @@ export interface operations {
                     "application/json": components["schemas"]["ScannerStatus"];
                 };
             };
-            /** @description Unusable scan settings, set not running, already scanning, or not scanning */
+            /** @description Unusable scan settings, set not running, already scanning, not scanning, or nothing held to skip */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -7879,7 +7853,7 @@ export interface operations {
                     "application/json": components["schemas"]["ApiError"];
                 };
             };
-            /** @description Device set or hold channel not found */
+            /** @description Device set or decoder not found */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -8527,57 +8501,6 @@ export interface operations {
             };
             /** @description No routing backend is configured */
             503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiError"];
-                };
-            };
-        };
-    };
-    scan_session: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ScanSessionRequest"];
-            };
-        };
-        responses: {
-            /** @description Every device set in the scan and the state it started or ended in.                            Live progress arrives as one `ScannerUpdate` WS event per set */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ScanSessionStatus"];
-                };
-            };
-            /** @description Unusable scan settings, a set that is not running,                                       already scanning, or no scan to stop */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiError"];
-                };
-            };
-            /** @description Device set or hold channel not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiError"];
-                };
-            };
-            /** @description Malformed request body */
-            422: {
                 headers: {
                     [name: string]: unknown;
                 };

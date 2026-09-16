@@ -2,7 +2,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Button } from "../components/BaseControls";
-import { huntDeviceSet } from "../components/hunt";
+import { huntTarget } from "../components/hunt";
 import { Icon } from "../components/Icon";
 import { Toasts } from "../components/Toasts";
 import { TokenGate } from "../components/TokenGate";
@@ -19,7 +19,7 @@ const MISSIONS: Mission[] = [
   {
     id: "foxhunt",
     title: "Fox hunt",
-    blurb: "A radio parked on one frequency: warmer or colder, and a click track to walk to it.",
+    blurb: "A decoder's frequency, warmer or colder, and a click track to walk to it.",
     nodeKind: "hunt",
     component: () => null,
   },
@@ -108,8 +108,7 @@ export function FieldApp() {
           ) : route.mission === "foxhunt" ? (
             <FoxHunt
               node={route.node}
-              graph={graph}
-              set={huntDeviceSet(graph, state.data?.device_sets ?? [], route.node)}
+              target={huntTarget(graph, state.data?.device_sets ?? [], route.node)}
             />
           ) : (
             <p className="p-4 text-sm text-ink-dim">No mission by that name.</p>

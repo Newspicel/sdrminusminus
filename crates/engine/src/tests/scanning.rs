@@ -1,23 +1,27 @@
 use super::*;
 
+fn nfm_decoder(engine: &Engine, ds: u32, frequency_hz: f64) -> u32 {
+    engine
+        .add_channel(
+            ds,
+            0,
+            ChannelSettings {
+                frequency_hz,
+                squelch: sdrmm_wire::Squelch::Off,
+                params: ChannelParams::Nfm(NfmParams::default()),
+                audio: Default::default(),
+            },
+        )
+        .expect("a decoder to scan with")
+}
+
 #[tokio::test]
 async fn scan_finds_a_carrier_holds_and_owns_the_tuning() {
     let mut registry = DeviceRegistry::new();
     registry.register(50, Box::new(SignalDriver));
     let engine = Engine::with_registry(registry, None);
     let ds = engine.create_device_set("mock:signal").unwrap();
-    let ch = engine
-        .add_channel(
-            ds,
-            0,
-            ChannelSettings {
-                frequency_hz: TEST_CENTER_HZ,
-                squelch: sdrmm_wire::Squelch::Off,
-                params: ChannelParams::Nfm(NfmParams::default()),
-                audio: Default::default(),
-            },
-        )
-        .unwrap();
+    let ch = nfm_decoder(&engine, ds, TEST_CENTER_HZ);
 
     let settings = sdrmm_wire::ScanSettings {
         ranges: vec![sdrmm_wire::ScanRange {
@@ -28,11 +32,15 @@ async fn scan_finds_a_carrier_holds_and_owns_the_tuning() {
         threshold_db: -60.0,
         dwell_ms: 60,
         resume_ms: 60_000,
-        hold_channel: Some(ch),
-        ..sdrmm_wire::ScanSettings::default()
+        ..sdrmm_wire::ScanSettings::for_channel(ch)
     };
     let status = engine.start_scan(ds, settings).unwrap();
     assert_eq!(status.targets, 9);
+    assert_eq!(
+        status.settings.measure_bw_hz,
+        Some(NfmParams::default().bandwidth_hz),
+        "the decoder's own bandwidth is what gets measured"
+    );
 
     let err = engine
         .patch_device(
@@ -46,7 +54,7 @@ async fn scan_finds_a_carrier_holds_and_owns_the_tuning() {
     assert!(err.is_bad_request(), "expected bad request, got {err}");
     assert!(
         engine
-            .start_scan(ds, sdrmm_wire::ScanSettings::default())
+            .start_scan(ds, sdrmm_wire::ScanSettings::for_channel(ch))
             .is_err()
     );
 
@@ -66,7 +74,7 @@ async fn scan_finds_a_carrier_holds_and_owns_the_tuning() {
     assert!(scanner.hits >= 1);
     assert!(
         (parked_hz - SIGNAL_HZ).abs() < 1.0,
-        "hold channel parked at {parked_hz} Hz, carrier at {SIGNAL_HZ} Hz"
+        "the decoder parked at {parked_hz} Hz, carrier at {SIGNAL_HZ} Hz"
     );
 
     let final_status = engine.stop_scan(ds).unwrap();
@@ -75,7 +83,16 @@ async fn scan_finds_a_carrier_holds_and_owns_the_tuning() {
         engine.stop_scan(ds).is_err(),
         "double stop must be an error"
     );
-    assert!(engine.snapshot().device_sets[0].scanner.is_none());
+    let after = &engine.snapshot().device_sets[0];
+    assert!(after.scanner.is_none());
+    assert_eq!(
+        after.channels[0].settings.frequency_hz, SIGNAL_HZ,
+        "the decoder stays where the scan left it"
+    );
+    assert!(
+        !after.channels[0].out_of_band,
+        "the radio follows the decoder once the scan lets go"
+    );
     engine
         .patch_device(
             ds,
@@ -89,113 +106,121 @@ async fn scan_finds_a_carrier_holds_and_owns_the_tuning() {
 }
 
 #[tokio::test]
-async fn a_scan_spans_two_radios_and_each_sweeps_its_own_share() {
+async fn the_decoder_follows_the_sweep_and_stays_where_the_scan_stops() {
     let mut registry = DeviceRegistry::new();
     registry.register(50, Box::new(SignalDriver));
     let engine = Engine::with_registry(registry, None);
-    let a = engine.create_device_set("mock:signal").unwrap();
-    let b = engine.create_device_set("mock:signal2").unwrap();
+    let ds = engine.create_device_set("mock:signal").unwrap();
+    let ch = nfm_decoder(&engine, ds, TEST_CENTER_HZ);
+    let targets = [110_000_000.0, 110_025_000.0, 110_050_000.0];
+    engine
+        .start_scan(
+            ds,
+            sdrmm_wire::ScanSettings {
+                frequencies: targets.to_vec(),
+                threshold_db: 100.0,
+                dwell_ms: 40,
+                ..sdrmm_wire::ScanSettings::for_channel(ch)
+            },
+        )
+        .unwrap();
 
-    let settings = sdrmm_wire::ScanSettings {
-        ranges: vec![sdrmm_wire::ScanRange {
-            start_hz: 100_000_000.0,
-            stop_hz: 100_200_000.0,
-            step_hz: 25_000.0,
-        }],
-        threshold_db: -60.0,
-        dwell_ms: 60,
-        resume_ms: 60_000,
-        ..sdrmm_wire::ScanSettings::default()
-    };
-    let session = engine.start_scan_session(&[a, b], settings).unwrap();
-    assert_eq!(session.members.len(), 2);
-    let shares: Vec<u32> = session.members.iter().map(|m| m.status.targets).collect();
-    assert_eq!(shares, vec![5, 4], "nine targets split across two radios");
-    assert!(
-        session.members[0].status.last_hz < session.members[1].status.first_hz,
-        "each radio must get one contiguous band"
-    );
-
-    let listed = engine.snapshot();
-    let session_view = listed.scan_session.expect("the ganged scan is listed");
-    assert_eq!(session_view.device_sets, vec![a, b]);
-    assert!(listed.device_sets.iter().all(|set| set.scanner.is_some()));
-
-    assert!(
-        engine
-            .start_scan(a, sdrmm_wire::ScanSettings::default())
-            .is_err(),
-        "a second scan must not start while one is running"
-    );
-
-    let deadline = Instant::now() + Duration::from_secs(20);
+    let deadline = Instant::now() + Duration::from_secs(10);
     loop {
-        let holder = engine.snapshot().device_sets.into_iter().find(|set| {
-            set.scanner
-                .as_ref()
-                .is_some_and(|s| s.state == ScanState::Holding)
-        });
-        if let Some(set) = holder {
-            let scanner = set.scanner.expect("holding");
-            assert_eq!(scanner.current_hz, SIGNAL_HZ);
-            assert_eq!(set.id, a, "the carrier sits in the first radio's share");
+        let set = &engine.snapshot().device_sets[0];
+        let scanner = set.scanner.clone().expect("scan listed");
+        assert_eq!(scanner.error, None, "scan failed");
+        let decoder_hz = set.channels[0].settings.frequency_hz;
+        if targets.contains(&decoder_hz) {
+            assert!(
+                !set.channels[0].out_of_band,
+                "the decoder follows the scan into the radio's window"
+            );
             break;
         }
-        for set in engine.snapshot().device_sets {
-            assert_eq!(set.scanner.and_then(|s| s.error), None, "scan failed");
-        }
-        assert!(Instant::now() < deadline, "neither radio found the carrier");
+        assert!(
+            Instant::now() < deadline,
+            "the decoder never followed the scan, still at {decoder_hz} Hz"
+        );
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
 
-    let stopped = engine.stop_scan_session().unwrap();
-    assert_eq!(stopped.members.len(), 2);
-    assert!(engine.stop_scan_session().is_err(), "double stop must fail");
-    let after = engine.snapshot();
-    assert!(after.scan_session.is_none());
-    assert!(after.device_sets.iter().all(|set| set.scanner.is_none()));
-    engine.remove_device_set(a).unwrap();
-    engine.remove_device_set(b).unwrap();
+    let stopped = engine.stop_scan(ds).unwrap();
+    let set = &engine.snapshot().device_sets[0];
+    assert_eq!(
+        set.channels[0].settings.frequency_hz, stopped.current_hz,
+        "the decoder stays where the scan stopped"
+    );
+    engine.remove_device_set(ds).unwrap();
 }
 
 #[tokio::test]
-async fn stopping_one_radio_leaves_the_rest_of_the_scan_running() {
+async fn skipping_a_held_frequency_resumes_and_never_holds_there_again() {
     let mut registry = DeviceRegistry::new();
     registry.register(50, Box::new(SignalDriver));
     let engine = Engine::with_registry(registry, None);
-    let a = engine.create_device_set("mock:signal").unwrap();
-    let b = engine.create_device_set("mock:signal2").unwrap();
-    let settings = sdrmm_wire::ScanSettings {
-        ranges: vec![sdrmm_wire::ScanRange {
-            start_hz: 100_000_000.0,
-            stop_hz: 100_400_000.0,
-            step_hz: 25_000.0,
-        }],
-        threshold_db: 100.0,
-        dwell_ms: 40,
-        ..sdrmm_wire::ScanSettings::default()
-    };
-    engine.start_scan_session(&[a, b], settings).unwrap();
-    engine.stop_scan(a).unwrap();
-
-    let listed = engine.snapshot();
-    assert_eq!(
-        listed.scan_session.expect("still ganged").device_sets,
-        vec![b]
-    );
+    let ds = engine.create_device_set("mock:signal").unwrap();
+    let ch = nfm_decoder(&engine, ds, TEST_CENTER_HZ);
     assert!(
-        listed
-            .device_sets
-            .iter()
-            .find(|set| set.id == b)
-            .is_some_and(|set| set.scanner.is_some()),
-        "the other radio must keep sweeping"
+        engine.skip_scan(ds).is_err(),
+        "nothing to skip before a scan runs"
     );
+    engine
+        .start_scan(
+            ds,
+            sdrmm_wire::ScanSettings {
+                frequencies: vec![SIGNAL_HZ, SIGNAL_HZ + 25_000.0],
+                threshold_db: -60.0,
+                dwell_ms: 40,
+                resume_ms: 60_000,
+                ..sdrmm_wire::ScanSettings::for_channel(ch)
+            },
+        )
+        .unwrap();
 
-    engine.stop_scan(b).unwrap();
-    assert!(engine.snapshot().scan_session.is_none());
-    engine.remove_device_set(a).unwrap();
-    engine.remove_device_set(b).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(20);
+    loop {
+        let scanner = engine.snapshot().device_sets[0]
+            .scanner
+            .clone()
+            .expect("scan listed");
+        assert_eq!(scanner.error, None, "scan failed");
+        if scanner.state == ScanState::Holding {
+            break;
+        }
+        assert!(Instant::now() < deadline, "scan never found the carrier");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    let skipped = engine.skip_scan(ds).unwrap();
+    assert_eq!(skipped.settings.skip, vec![SIGNAL_HZ]);
+
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let scanner = engine.snapshot().device_sets[0]
+            .scanner
+            .clone()
+            .expect("scan listed");
+        assert_eq!(scanner.error, None, "scan failed");
+        if scanner.state == ScanState::Scanning && scanner.sweeps >= 1 {
+            break;
+        }
+        assert!(Instant::now() < deadline, "the hold never let go");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    tokio::time::sleep(Duration::from_millis(400)).await;
+    let scanner = engine.snapshot().device_sets[0]
+        .scanner
+        .clone()
+        .expect("scan listed");
+    assert_eq!(
+        scanner.state,
+        ScanState::Scanning,
+        "held on a skipped frequency"
+    );
+    assert_eq!(scanner.hits, 1, "the skipped carrier was called again");
+    assert!(engine.skip_scan(ds).is_err(), "nothing held to skip");
+    engine.stop_scan(ds).unwrap();
+    engine.remove_device_set(ds).unwrap();
 }
 
 #[tokio::test]
@@ -210,6 +235,7 @@ async fn a_firmware_sweep_finds_a_carrier_without_the_scanner_retuning() {
         .settings
         .center_hz
         .expect("a tuning");
+    let ch = nfm_decoder(&engine, ds, TEST_CENTER_HZ);
 
     let marker = sdrmm_device_virtual::SWEEP_MARKER_HZ;
     let settings = sdrmm_wire::ScanSettings {
@@ -221,8 +247,8 @@ async fn a_firmware_sweep_finds_a_carrier_without_the_scanner_retuning() {
         threshold_db: -50.0,
         dwell_ms: 40,
         resume_ms: 60_000,
-        measure_bw_hz: 25_000.0,
-        ..sdrmm_wire::ScanSettings::default()
+        measure_bw_hz: Some(25_000.0),
+        ..sdrmm_wire::ScanSettings::for_channel(ch)
     };
     let status = engine.start_scan(ds, settings).unwrap();
     assert!(
@@ -278,36 +304,36 @@ async fn a_hunt_streams_a_strength_a_walker_can_follow() {
     registry.register(50, Box::new(SignalDriver));
     let engine = Engine::with_registry(registry, None);
     let ds = engine.create_device_set("mock:signal").unwrap();
+    let ch = nfm_decoder(&engine, ds, SIGNAL_HZ);
     let mut events = engine.subscribe_events();
 
+    assert!(
+        engine
+            .start_hunt(ds, sdrmm_wire::HuntSettings::for_channel(42))
+            .unwrap_err()
+            .is_not_found(),
+        "a hunt needs a decoder that exists"
+    );
     let status = engine
         .start_hunt(
             ds,
             sdrmm_wire::HuntSettings {
-                freq_hz: SIGNAL_HZ,
-                bw_hz: 25_000.0,
+                channel: ch,
                 interval_ms: 20,
             },
         )
         .unwrap();
     assert_eq!(status.readings, 0);
+    assert_eq!(
+        status.freq_hz, SIGNAL_HZ,
+        "the hunt reads the decoder's frequency"
+    );
+    assert_eq!(status.bw_hz, NfmParams::default().bandwidth_hz);
     assert!(
         engine
-            .start_hunt(ds, sdrmm_wire::HuntSettings::default())
+            .start_hunt(ds, sdrmm_wire::HuntSettings::for_channel(ch))
             .is_err(),
         "a second hunt must not start"
-    );
-    assert!(
-        engine
-            .patch_device(
-                ds,
-                DeviceSettings {
-                    center_hz: Some(101_000_000.0),
-                    ..DeviceSettings::default()
-                },
-            )
-            .is_err(),
-        "a hunt owns the dial while it runs"
     );
 
     let deadline = Instant::now() + Duration::from_secs(20);
@@ -338,6 +364,35 @@ async fn a_hunt_streams_a_strength_a_walker_can_follow() {
         .expect("the hunt is listed on the set");
     assert!(listed.readings >= 1);
 
+    engine
+        .patch_channel(
+            ds,
+            ch,
+            ChannelSettings {
+                frequency_hz: SIGNAL_HZ + 50_000.0,
+                squelch: sdrmm_wire::Squelch::Off,
+                params: ChannelParams::Nfm(NfmParams::default()),
+                audio: Default::default(),
+            },
+        )
+        .expect("the decoder retunes under a hunt");
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        let hunt = engine.snapshot().device_sets[0]
+            .hunt
+            .clone()
+            .expect("still hunting");
+        assert_eq!(hunt.error, None, "hunt failed");
+        if hunt.freq_hz == SIGNAL_HZ + 50_000.0 {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "the hunt never followed the decoder"
+        );
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+
     let final_status = engine.stop_hunt(ds).unwrap();
     assert!(final_status.readings >= 1);
     assert!(
@@ -345,15 +400,47 @@ async fn a_hunt_streams_a_strength_a_walker_can_follow() {
         "double stop must be an error"
     );
     assert!(engine.snapshot().device_sets[0].hunt.is_none());
+    engine.remove_device_set(ds).unwrap();
+}
+
+#[tokio::test]
+async fn a_hunt_leaves_the_dial_alone_and_says_so_when_the_radio_is_off_the_decoder() {
+    let mut registry = DeviceRegistry::new();
+    registry.register(50, Box::new(SignalDriver));
+    let engine = Engine::with_registry(registry, None);
+    let ds = engine.create_device_set("mock:signal").unwrap();
+    let ch = nfm_decoder(&engine, ds, SIGNAL_HZ);
+    engine
+        .start_hunt(ds, sdrmm_wire::HuntSettings::for_channel(ch))
+        .unwrap();
     engine
         .patch_device(
             ds,
             DeviceSettings {
-                center_hz: Some(100_000_000.0),
+                center_hz: Some(110_000_000.0),
+                tuning: Some(sdrmm_wire::Tuning::Manual),
                 ..DeviceSettings::default()
             },
         )
-        .expect("the dial comes back after a hunt");
+        .expect("a hunt does not own the dial");
+
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let fault = loop {
+        let hunt = engine.snapshot().device_sets[0]
+            .hunt
+            .clone()
+            .expect("the hunt stays listed with its fault");
+        if let Some(error) = hunt.error {
+            break error;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "a hunt that cannot hear stayed silent"
+        );
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    };
+    assert!(fault.contains("not tuned over"), "unhelpful fault: {fault}");
+    engine.stop_hunt(ds).unwrap();
     engine.remove_device_set(ds).unwrap();
 }
 
@@ -363,21 +450,16 @@ async fn a_hunt_and_a_scan_do_not_share_a_dial() {
     registry.register(50, Box::new(SignalDriver));
     let engine = Engine::with_registry(registry, None);
     let ds = engine.create_device_set("mock:signal").unwrap();
+    let ch = nfm_decoder(&engine, ds, SIGNAL_HZ);
     engine
-        .start_hunt(
-            ds,
-            sdrmm_wire::HuntSettings {
-                freq_hz: SIGNAL_HZ,
-                ..sdrmm_wire::HuntSettings::default()
-            },
-        )
+        .start_hunt(ds, sdrmm_wire::HuntSettings::for_channel(ch))
         .unwrap();
     let err = engine
         .start_scan(
             ds,
             sdrmm_wire::ScanSettings {
                 frequencies: vec![SIGNAL_HZ],
-                ..sdrmm_wire::ScanSettings::default()
+                ..sdrmm_wire::ScanSettings::for_channel(ch)
             },
         )
         .unwrap_err();
@@ -390,6 +472,7 @@ async fn a_hunt_and_a_scan_do_not_share_a_dial() {
 async fn close_call_holds_on_the_loudest_carrier_nobody_named() {
     let engine = virtual_engine();
     let ds = engine.create_device_set("virtual:siggen").unwrap();
+    let ch = nfm_decoder(&engine, ds, TEST_CENTER_HZ);
     let marker = sdrmm_device_virtual::SWEEP_MARKER_HZ;
     let status = engine
         .start_scan(
@@ -404,7 +487,7 @@ async fn close_call_holds_on_the_loudest_carrier_nobody_named() {
                 margin_db: 12.0,
                 dwell_ms: 60,
                 resume_ms: 60_000,
-                ..sdrmm_wire::ScanSettings::default()
+                ..sdrmm_wire::ScanSettings::for_channel(ch)
             },
         )
         .unwrap();
@@ -439,6 +522,7 @@ async fn close_call_stays_quiet_on_an_empty_band() {
     registry.register(50, Box::new(SignalDriver));
     let engine = Engine::with_registry(registry, None);
     let ds = engine.create_device_set("mock:signal").unwrap();
+    let ch = nfm_decoder(&engine, ds, TEST_CENTER_HZ);
     engine
         .start_scan(
             ds,
@@ -451,7 +535,7 @@ async fn close_call_stays_quiet_on_an_empty_band() {
                 }],
                 margin_db: 40.0,
                 dwell_ms: 40,
-                ..sdrmm_wire::ScanSettings::default()
+                ..sdrmm_wire::ScanSettings::for_channel(ch)
             },
         )
         .unwrap();
@@ -481,6 +565,7 @@ async fn a_refused_firmware_sweep_falls_back_to_retuning_without_losing_the_radi
         engine.sweeps_in_firmware(ds),
         "this radio has to claim a firmware sweep for the fallback to be exercised"
     );
+    let ch = nfm_decoder(&engine, ds, TEST_CENTER_HZ);
 
     let status = engine
         .start_scan(
@@ -494,7 +579,7 @@ async fn a_refused_firmware_sweep_falls_back_to_retuning_without_losing_the_radi
                 threshold_db: -60.0,
                 dwell_ms: 60,
                 resume_ms: 60_000,
-                ..sdrmm_wire::ScanSettings::default()
+                ..sdrmm_wire::ScanSettings::for_channel(ch)
             },
         )
         .unwrap();
@@ -548,6 +633,7 @@ async fn a_refused_firmware_sweep_falls_back_to_retuning_without_losing_the_radi
 async fn stopping_mid_sweep_hands_the_radio_back() {
     let engine = virtual_engine();
     let ds = engine.create_device_set("virtual:siggen").unwrap();
+    let ch = nfm_decoder(&engine, ds, TEST_CENTER_HZ);
     let marker = sdrmm_device_virtual::SWEEP_MARKER_HZ;
     let status = engine
         .start_scan(
@@ -560,8 +646,8 @@ async fn stopping_mid_sweep_hands_the_radio_back() {
                 }],
                 threshold_db: 100.0,
                 dwell_ms: 40,
-                measure_bw_hz: 25_000.0,
-                ..sdrmm_wire::ScanSettings::default()
+                measure_bw_hz: Some(25_000.0),
+                ..sdrmm_wire::ScanSettings::for_channel(ch)
             },
         )
         .unwrap();
@@ -598,18 +684,7 @@ async fn stopping_mid_sweep_hands_the_radio_back() {
             },
         )
         .expect("the radio takes a tuning again after a sweep it never finished");
-    let channel = engine
-        .add_channel(
-            ds,
-            0,
-            ChannelSettings {
-                frequency_hz: TEST_CENTER_HZ,
-                squelch: sdrmm_wire::Squelch::Off,
-                params: ChannelParams::Nfm(NfmParams::default()),
-                audio: Default::default(),
-            },
-        )
-        .expect("the receive stream is back");
+    let channel = nfm_decoder(&engine, ds, TEST_CENTER_HZ);
     engine.remove_channel(ds, channel).unwrap();
     engine.remove_device_set(ds).unwrap();
 }
@@ -619,18 +694,7 @@ async fn a_sweep_hands_back_a_working_channel() {
     let engine = virtual_engine();
     let ds = engine.create_device_set("virtual:siggen").unwrap();
     let marker = sdrmm_device_virtual::SWEEP_MARKER_HZ;
-    let channel = engine
-        .add_channel(
-            ds,
-            0,
-            ChannelSettings {
-                frequency_hz: TEST_CENTER_HZ,
-                squelch: sdrmm_wire::Squelch::Off,
-                params: ChannelParams::Nfm(NfmParams::default()),
-                audio: Default::default(),
-            },
-        )
-        .unwrap();
+    let channel = nfm_decoder(&engine, ds, TEST_CENTER_HZ);
     engine
         .start_scan(
             ds,
@@ -639,9 +703,8 @@ async fn a_sweep_hands_back_a_working_channel() {
                 threshold_db: -50.0,
                 dwell_ms: 40,
                 resume_ms: 60_000,
-                measure_bw_hz: 25_000.0,
-                hold_channel: Some(channel),
-                ..sdrmm_wire::ScanSettings::default()
+                measure_bw_hz: Some(25_000.0),
+                ..sdrmm_wire::ScanSettings::for_channel(channel)
             },
         )
         .unwrap();
@@ -673,49 +736,12 @@ async fn a_sweep_hands_back_a_working_channel() {
 }
 
 #[tokio::test]
-async fn a_scan_refuses_more_radios_than_it_has_targets() {
-    let mut registry = DeviceRegistry::new();
-    registry.register(50, Box::new(SignalDriver));
-    let engine = Engine::with_registry(registry, None);
-    let a = engine.create_device_set("mock:signal").unwrap();
-    let b = engine.create_device_set("mock:signal2").unwrap();
-    let err = engine
-        .start_scan_session(
-            &[a, b],
-            sdrmm_wire::ScanSettings {
-                frequencies: vec![100_000_000.0],
-                ..sdrmm_wire::ScanSettings::default()
-            },
-        )
-        .unwrap_err();
-    assert!(err.is_bad_request(), "expected bad request, got {err}");
-    assert!(
-        err.to_string().contains("cannot be spread"),
-        "unhelpful message: {err}"
-    );
-    assert!(engine.snapshot().scan_session.is_none());
-    assert!(
-        engine
-            .start_scan_session(
-                &[a, a],
-                sdrmm_wire::ScanSettings {
-                    frequencies: vec![100_000_000.0, 100_100_000.0],
-                    ..sdrmm_wire::ScanSettings::default()
-                },
-            )
-            .is_err(),
-        "one radio listed twice must be refused"
-    );
-    engine.remove_device_set(a).unwrap();
-    engine.remove_device_set(b).unwrap();
-}
-
-#[tokio::test]
 async fn removing_a_scanning_set_tears_the_scan_down() {
     let mut registry = DeviceRegistry::new();
     registry.register(50, Box::new(SignalDriver));
     let engine = Engine::with_registry(registry, None);
     let ds = engine.create_device_set("mock:signal").unwrap();
+    let ch = nfm_decoder(&engine, ds, TEST_CENTER_HZ);
     engine
         .start_scan(
             ds,
@@ -727,7 +753,7 @@ async fn removing_a_scanning_set_tears_the_scan_down() {
                 }],
                 threshold_db: 100.0,
                 dwell_ms: 40,
-                ..sdrmm_wire::ScanSettings::default()
+                ..sdrmm_wire::ScanSettings::for_channel(ch)
             },
         )
         .unwrap();
@@ -742,12 +768,13 @@ async fn scan_rejects_targets_the_tuner_cannot_reach() {
     registry.register(50, Box::new(SignalDriver));
     let engine = Engine::with_registry(registry, None);
     let ds = engine.create_device_set("mock:signal").unwrap();
+    let ch = nfm_decoder(&engine, ds, TEST_CENTER_HZ);
     let err = engine
         .start_scan(
             ds,
             sdrmm_wire::ScanSettings {
                 frequencies: vec![2_400_000_000.0],
-                ..sdrmm_wire::ScanSettings::default()
+                ..sdrmm_wire::ScanSettings::for_channel(ch)
             },
         )
         .unwrap_err();
@@ -761,8 +788,7 @@ async fn scan_rejects_targets_the_tuner_cannot_reach() {
             ds,
             sdrmm_wire::ScanSettings {
                 frequencies: vec![100_000_000.0],
-                hold_channel: Some(42),
-                ..sdrmm_wire::ScanSettings::default()
+                ..sdrmm_wire::ScanSettings::for_channel(42)
             },
         )
         .unwrap_err();

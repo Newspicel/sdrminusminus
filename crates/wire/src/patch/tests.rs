@@ -915,33 +915,47 @@ fn only_a_radio_that_can_transmit_shows_a_transmit_input() {
 }
 
 #[test]
-fn a_scanner_owns_the_one_radio_its_wire_runs_into() {
+fn a_scanner_owns_the_one_decoder_its_wire_runs_into() {
     let mut driven = workspace();
     driven.nodes.push(node("scan", NodeBody::Scanner));
     driven
         .edges
-        .push(edge(("scan", "control"), ("dev", "control")));
-    driven.validate().expect("a scanner drives a radio");
+        .push(edge(("scan", "control"), ("ch", "control")));
+    driven.validate().expect("a scanner drives a decoder");
 
     let mut backwards = driven.clone();
-    backwards.edges = vec![edge(("dev", "control"), ("scan", "control"))];
+    backwards.edges = vec![edge(("ch", "control"), ("scan", "control"))];
     assert_eq!(
         backwards.validate(),
         Err(PatchError::Direction(PortRef {
-            node: "dev".to_owned(),
+            node: "ch".to_owned(),
             port: "control".to_owned()
         }))
     );
 
-    let mut two_radios = driven.clone();
-    two_radios
+    let mut a_radio = driven.clone();
+    a_radio
         .nodes
         .push(node("dev2", NodeBody::Device(DeviceNode::default())));
-    two_radios
+    a_radio
         .edges
         .push(edge(("scan", "control"), ("dev2", "control")));
     assert_eq!(
-        two_radios.validate(),
+        a_radio.validate(),
+        Err(PatchError::UnknownPort(PortRef {
+            node: "dev2".to_owned(),
+            port: "control".to_owned()
+        })),
+        "a radio is driven through its decoders, never directly"
+    );
+
+    let mut two_decoders = driven.clone();
+    two_decoders.nodes.push(channel("ch2", "am"));
+    two_decoders
+        .edges
+        .push(edge(("scan", "control"), ("ch2", "control")));
+    assert_eq!(
+        two_decoders.validate(),
         Err(PatchError::PortOccupied(PortRef {
             node: "scan".to_owned(),
             port: "control".to_owned()
@@ -952,11 +966,11 @@ fn a_scanner_owns_the_one_radio_its_wire_runs_into() {
     two_scanners.nodes.push(node("scan2", NodeBody::Scanner));
     two_scanners
         .edges
-        .push(edge(("scan2", "control"), ("dev", "control")));
+        .push(edge(("scan2", "control"), ("ch", "control")));
     assert_eq!(
         two_scanners.validate(),
         Err(PatchError::PortOccupied(PortRef {
-            node: "dev".to_owned(),
+            node: "ch".to_owned(),
             port: "control".to_owned()
         }))
     );
@@ -1141,15 +1155,15 @@ fn ports_with_expands_a_repeating_port_per_stream() {
 
     assert_eq!(
         names(&capabilities(Duplex::RxOnly, 4, 0)),
-        vec!["control", "iq", "iq2", "iq3", "iq4"]
+        vec!["iq", "iq2", "iq3", "iq4"]
     );
     assert_eq!(
         names(&capabilities(Duplex::Full, 2, 2)),
-        vec!["control", "tx", "tx2", "iq", "iq2"]
+        vec!["tx", "tx2", "iq", "iq2"]
     );
     assert_eq!(
         names(&capabilities(Duplex::RxOnly, 1, 0)),
-        vec!["control", "iq"],
+        vec!["iq"],
         "a single-stream radio keeps the table it always had"
     );
 
@@ -1174,7 +1188,7 @@ fn an_unbacked_node_expands_to_stream_zero_only() {
         .into_iter()
         .map(|port| port.name)
         .collect();
-    assert_eq!(names, vec!["control", "iq"]);
+    assert_eq!(names, vec!["iq"]);
 
     let body = NodeBody::Channel(ChannelNode {
         channel_type: "nfm".to_owned(),
@@ -1187,7 +1201,7 @@ fn an_unbacked_node_expands_to_stream_zero_only() {
         .into_iter()
         .map(|port| port.name)
         .collect();
-    assert_eq!(names, vec!["iq", "baseband", "audio"]);
+    assert_eq!(names, vec!["iq", "control", "baseband", "audio"]);
 }
 
 #[test]
@@ -1210,8 +1224,11 @@ fn a_channels_outputs_follow_what_its_type_produces() {
         has_video: true,
         ..ChannelDescriptor::default()
     };
-    assert_eq!(names(&atv), vec!["iq", "baseband", "video"]);
-    assert_eq!(names(&descriptors()[1]), vec!["iq", "baseband", "events"]);
+    assert_eq!(names(&atv), vec!["iq", "control", "baseband", "video"]);
+    assert_eq!(
+        names(&descriptors()[1]),
+        vec!["iq", "control", "baseband", "events"]
+    );
 
     let mut graph = workspace();
     graph.nodes.push(node("vid", NodeBody::Video));
@@ -1275,12 +1292,9 @@ fn a_zero_or_outsize_stream_count_is_clamped() {
             .map(|port| port.name)
             .collect::<Vec<_>>()
     };
-    assert_eq!(
-        names(&capabilities(Duplex::RxOnly, 0, 0)),
-        vec!["control", "iq"]
-    );
+    assert_eq!(names(&capabilities(Duplex::RxOnly, 0, 0)), vec!["iq"]);
     let outsize = names(&capabilities(Duplex::RxOnly, 100, 0));
-    assert_eq!(outsize.len() as u32, 1 + MAX_STREAMS);
+    assert_eq!(outsize.len() as u32, MAX_STREAMS);
     assert_eq!(outsize.last().map(String::as_str), Some("iq16"));
 }
 
@@ -1448,21 +1462,29 @@ fn the_catalog_describes_every_node_kind_once() {
     assert_eq!(json["nodes"][0]["name"], "Device");
     assert_eq!(json["nodes"][0]["category"], "source");
     let ports = &json["nodes"][0]["ports"];
-    assert_eq!(ports[0]["port_type"], "control");
+    assert_eq!(ports[0]["port_type"], "tx");
     assert_eq!(ports[0]["direction"], "in");
+    assert_eq!(ports[0]["condition"], "device_is_tx_capable");
+    assert_eq!(ports[0]["repeat"], "per_tx_stream");
+    assert!(ports[0]["note"].is_string(), "the reserved port says why");
+    assert_eq!(ports[1]["port_type"], "iq");
+    assert_eq!(ports[1]["direction"], "out");
+    assert_eq!(ports[1]["repeat"], "per_rx_stream");
     assert!(
-        ports[0].get("repeat").is_none(),
+        ports[1].get("condition").is_none() && ports[1].get("note").is_none(),
         "the common case stays off the wire"
     );
-    assert_eq!(ports[1]["port_type"], "tx");
-    assert_eq!(ports[1]["condition"], "device_is_tx_capable");
-    assert_eq!(ports[1]["repeat"], "per_tx_stream");
-    assert!(ports[1]["note"].is_string(), "the reserved port says why");
-    assert_eq!(ports[2]["port_type"], "iq");
-    assert_eq!(ports[2]["direction"], "out");
-    assert_eq!(ports[2]["repeat"], "per_rx_stream");
+    let decoder = json["nodes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|node| node["kind"] == "channel")
+        .unwrap();
+    let control = &decoder["ports"][1];
+    assert_eq!(control["port_type"], "control");
+    assert_eq!(control["direction"], "in");
     assert!(
-        ports[2].get("condition").is_none() && ports[2].get("note").is_none(),
+        control.get("repeat").is_none(),
         "the common case stays off the wire"
     );
 
