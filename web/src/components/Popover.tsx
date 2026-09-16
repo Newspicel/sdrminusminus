@@ -4,6 +4,8 @@ import { useState } from "react";
 import { SURFACE } from "./controls";
 import { usePortalContainer } from "./PortalContainer";
 
+const HOVER_DELAY_MS = 120;
+
 export function Popover({
   label,
   triggerClass,
@@ -11,6 +13,7 @@ export function Popover({
   width = "w-80",
   padded = true,
   disabled = false,
+  openOnHover = false,
   title,
   children,
 }: {
@@ -20,6 +23,7 @@ export function Popover({
   width?: string;
   padded?: boolean;
   disabled?: boolean;
+  openOnHover?: boolean;
   title?: string;
   children: (close: () => void) => ReactNode;
 }) {
@@ -31,6 +35,8 @@ export function Popover({
       <Primitive.Trigger
         className={triggerClass}
         disabled={disabled}
+        openOnHover={openOnHover}
+        delay={HOVER_DELAY_MS}
         title={title}
         aria-label={title}
       >

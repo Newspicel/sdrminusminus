@@ -1,11 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Info } from "lucide-react";
 import { useState } from "react";
 import { applyTemplate, STATE_KEY, templatesQuery } from "../lib/api";
 import { pushToast } from "../lib/toasts";
 import type { DeviceSet, TemplateInfo } from "../lib/types";
 import { Button } from "./BaseControls";
-import { BTN } from "./controls";
+import { BTN, ICON_BTN_SM } from "./controls";
 import { formatHz, formatSampleRate } from "./format";
+import { Icon } from "./Icon";
+import { Popover } from "./Popover";
 import { supports } from "./templates";
 
 export function TemplatesPanel({
@@ -52,7 +55,19 @@ export function TemplatesPanel({
               key={t.id}
               className="flex flex-col gap-1 rounded-[3px] border border-line bg-panel px-3 py-2"
             >
-              <div className="text-sm font-semibold text-ink">{t.name}</div>
+              <div className="flex items-start justify-between gap-2">
+                <div className="text-sm font-semibold text-ink">{t.name}</div>
+                <Popover
+                  label={<Icon glyph={Info} size={12} />}
+                  triggerClass={ICON_BTN_SM}
+                  title={`About ${t.name}`}
+                  width="w-72"
+                  align="end"
+                  openOnHover
+                >
+                  {() => <p className="text-xs text-ink-dim">{t.explainer}</p>}
+                </Popover>
+              </div>
               <div className="text-xs text-ink-dim">{t.description}</div>
               <div className="font-mono text-[10px] text-ink-dim">
                 {formatHz(t.center_hz)} · {formatSampleRate(t.sample_rate)} · {t.channels.length}{" "}

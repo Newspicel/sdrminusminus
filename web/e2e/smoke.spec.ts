@@ -1006,6 +1006,20 @@ test.describe("the workspace", () => {
     await expect(page.locator('.react-flow__node[data-id="device"]')).toBeVisible();
   });
 
+  test("recalls a template explainer on hover", async ({ page }) => {
+    await page.goto("/");
+    await page.getByRole("button", { name: "Library" }).click();
+    const explainer = page.getByText(/The wide humps across the display/);
+    await expect(explainer).toHaveCount(0);
+
+    await page.getByRole("button", { name: "About FM radio" }).hover();
+    await expect(explainer).toBeVisible();
+
+    await page.keyboard.press("Escape");
+    await expect(explainer).toHaveCount(0);
+    await expect(page.getByRole("tab", { name: "Templates" })).toBeVisible();
+  });
+
   test("hands the field client to a phone from the library", async ({ page }) => {
     await page.goto("/");
     await page.getByRole("button", { name: "Library" }).click();
