@@ -2,10 +2,11 @@ import { useMutation } from "@tanstack/react-query";
 import { Circle } from "lucide-react";
 import { Button } from "../../components/BaseControls";
 import { BTN, BTN_DANGER } from "../../components/controls";
+import { formatBytes } from "../../components/format";
 import { Icon } from "../../components/Icon";
 import { NumberField } from "../../components/NumberField";
 import { Readout, ReadoutRow } from "../../components/Readout";
-import { formatBytes, formatDuration } from "../../components/recordings";
+import { formatDuration } from "../../components/recordings";
 import { SettingRow, Settings } from "../../components/Settings";
 import {
   DEFAULT_HISTORY_SECONDS,

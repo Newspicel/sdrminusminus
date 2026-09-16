@@ -20,6 +20,7 @@ import {
   signalFrequency,
 } from "./decoderViews";
 import { DECT_CIPHER_LABELS } from "./eventFacts";
+import { formatHz } from "./format";
 import { SSTV_MODE_LABELS } from "./sstvModes";
 
 export type DetailField = readonly [label: string, value: string];
@@ -45,7 +46,7 @@ const DETAIL: {
       ["Traffic programme", flag(r.tp)],
       ["Traffic announcement", flag(r.ta)],
       ["Content", r.music == null ? undefined : r.music ? "music" : "speech"],
-      ["Alternative frequencies", (r.alt_freqs_hz ?? []).map(mhz).join(", ")],
+      ["Alternative frequencies", (r.alt_freqs_hz ?? []).map(formatHz).join(", ")],
       ["Groups", String(r.groups)],
       ["Block errors", String(r.block_errors)],
     ]),
@@ -360,7 +361,7 @@ const DETAIL: {
         "Channel frequency",
         f.channel_definition == null
           ? undefined
-          : `LCN ${f.channel_definition.channel} · TX ${(f.channel_definition.tx_hz / 1e6).toFixed(6)} MHz · RX ${(f.channel_definition.rx_hz / 1e6).toFixed(6)} MHz`,
+          : `LCN ${f.channel_definition.channel} · TX ${formatHz(f.channel_definition.tx_hz)} · RX ${formatHz(f.channel_definition.rx_hz)}`,
       ],
       ["Rest channel", f.rest_channel == null ? undefined : String(f.rest_channel)],
       ["Network ID", f.network_id == null ? undefined : String(f.network_id)],
@@ -668,7 +669,7 @@ function dectDetail(frame: DectFrame): EventDetail {
       ["Cell", id?.multicell == null ? undefined : id.multicell ? "multi-cell" : "single cell"],
       ["SARI list", flag(id?.sari_available)],
       ["Carrier", frame.carrier == null ? undefined : String(frame.carrier)],
-      ["Frequency", frame.carrier_hz == null ? undefined : mhz(frame.carrier_hz)],
+      ["Frequency", frame.carrier_hz == null ? undefined : formatHz(frame.carrier_hz)],
       ["Slot pair", frame.slot_pair == null ? undefined : String(frame.slot_pair)],
       ["Transceivers", frame.transceivers == null ? undefined : String(frame.transceivers)],
       ["Carriers available", dectCarriers(frame.rf_carriers)],
@@ -733,10 +734,6 @@ function position(
   lon: number | null | undefined,
 ): string | undefined {
   return lat == null || lon == null ? undefined : `${lat.toFixed(5)}, ${lon.toFixed(5)}`;
-}
-
-function mhz(hz: number): string {
-  return `${(hz / 1e6).toFixed(1)} MHz`;
 }
 
 function header(

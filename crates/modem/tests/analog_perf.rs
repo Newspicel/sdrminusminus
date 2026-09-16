@@ -307,7 +307,7 @@ fn write_analog_perf_baseline() {
     save_baselines(&path, &measured).unwrap();
     for row in &measured {
         println!(
-            "{}: {:.1} Msamples/s, {:.0}x real time",
+            "{}: {:.1} MS/s, {:.0}x real time",
             row.bench, row.msamples_per_s, row.realtime_factor
         );
     }
@@ -329,7 +329,7 @@ fn compare_analog_perf_baseline() {
         Ok(changes) => {
             for c in changes {
                 eprintln!(
-                    "{}: {:+.1}% vs baseline ({:.1} -> {:.1} Msamples/s)",
+                    "{}: {:+.1}% vs baseline ({:.1} -> {:.1} MS/s)",
                     c.bench,
                     100.0 * c.change_fraction,
                     c.committed_msamples_per_s,

@@ -402,11 +402,11 @@ mod tests {
     #[test]
     fn a_superframe_round_trips_its_access_units() {
         let frame_bytes = 24 * 96 / 8;
-        let builder = SuperframeBuilder::new(frame_bytes).expect("96 kbps builds superframes");
+        let builder = SuperframeBuilder::new(frame_bytes).expect("96 kbit/s builds superframes");
         let sent = payloads(3, 200);
         let frames = builder.build(format(), &sent).expect("the units fit");
         assert_eq!(frames.len(), FRAMES);
-        let mut assembler = SuperframeAssembler::new(frame_bytes).expect("96 kbps assembles");
+        let mut assembler = SuperframeAssembler::new(frame_bytes).expect("96 kbit/s assembles");
         let mut decoded = None;
         for frame in &frames {
             decoded = assembler.frame(frame).or(decoded);
@@ -423,13 +423,13 @@ mod tests {
     #[test]
     fn the_reed_solomon_lanes_repair_a_burst_of_damage() {
         let frame_bytes = 24 * 96 / 8;
-        let builder = SuperframeBuilder::new(frame_bytes).expect("96 kbps builds superframes");
+        let builder = SuperframeBuilder::new(frame_bytes).expect("96 kbit/s builds superframes");
         let sent = payloads(3, 200);
         let mut frames = builder.build(format(), &sent).expect("the units fit");
         for byte in &mut frames[2][40..80] {
             *byte ^= 0xA5;
         }
-        let mut assembler = SuperframeAssembler::new(frame_bytes).expect("96 kbps assembles");
+        let mut assembler = SuperframeAssembler::new(frame_bytes).expect("96 kbit/s assembles");
         let mut decoded = None;
         for frame in &frames {
             decoded = assembler.frame(frame).or(decoded);
@@ -443,7 +443,7 @@ mod tests {
     #[test]
     fn a_frame_that_is_not_a_superframe_head_does_not_start_one() {
         let frame_bytes = 24 * 96 / 8;
-        let mut assembler = SuperframeAssembler::new(frame_bytes).expect("96 kbps assembles");
+        let mut assembler = SuperframeAssembler::new(frame_bytes).expect("96 kbit/s assembles");
         assert!(assembler.frame(&vec![0u8; frame_bytes]).is_none());
         assert!(assembler.frame(&vec![0x5Au8; frame_bytes]).is_none());
     }
@@ -458,7 +458,7 @@ mod tests {
     #[test]
     fn an_access_unit_beyond_the_reed_solomon_reach_is_dropped_rather_than_played() {
         let frame_bytes = 24 * 96 / 8;
-        let builder = SuperframeBuilder::new(frame_bytes).expect("96 kbps builds superframes");
+        let builder = SuperframeBuilder::new(frame_bytes).expect("96 kbit/s builds superframes");
         let frames = builder
             .build(format(), &payloads(3, 200))
             .expect("the units fit");
@@ -467,7 +467,7 @@ mod tests {
         for position in 20..30 {
             superframe[position * lanes + 3] ^= 0x5A;
         }
-        let mut assembler = SuperframeAssembler::new(frame_bytes).expect("96 kbps assembles");
+        let mut assembler = SuperframeAssembler::new(frame_bytes).expect("96 kbit/s assembles");
         let mut decoded = None;
         for frame in superframe.chunks_exact(frame_bytes) {
             decoded = assembler.frame(frame).or(decoded);

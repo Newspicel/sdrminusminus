@@ -1,5 +1,5 @@
 {
-  "label": "8dpsk uncoded, differentially encoded indices -> LinearMod -> feedforward timing -> open loop -> y·conj(y₋₁) -> unique-word anchor on the differences, RRC α=0.35 span 8, 8 sps, 48 kHz 6000 baud, uncoded BER, seed 0xd8b5",
+  "label": "8dpsk uncoded, differentially encoded indices -> LinearMod -> feedforward timing -> open loop -> y·conj(y₋₁) -> unique-word anchor on the differences, RRC α=0.35 span 8, 8 S/sym, 48 kHz 6000 baud, uncoded BER, seed 0xd8b5",
   "points": [
     {
       "ebn0_db": 10.0,

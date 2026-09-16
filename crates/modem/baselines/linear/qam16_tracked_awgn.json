@@ -1,5 +1,5 @@
 {
-  "label": "16-qam uncoded, tracking timing tier: LinearMod -> SymbolSync (bw 0.005) -> decision-directed Costas -> unique-word anchor, RRC α=0.35 span 8, 8 sps, 48 kHz 6000 baud, uncoded BER, seed 0x9a17",
+  "label": "16-qam uncoded, tracking timing tier: LinearMod -> SymbolSync (bw 0.005) -> decision-directed Costas -> unique-word anchor, RRC α=0.35 span 8, 8 S/sym, 48 kHz 6000 baud, uncoded BER, seed 0x9a17",
   "points": [
     {
       "ebn0_db": 8.0,

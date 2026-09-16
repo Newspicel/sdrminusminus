@@ -1,5 +1,5 @@
 {
-  "label": "256-qam uncoded, coherent tier: LinearMod -> feedforward timing -> decision-directed Costas (bw 0.001) -> unique-word anchor, RRC α=0.35 span 8, 8 sps, 48 kHz 6000 baud, uncoded BER, seed 0x9a25",
+  "label": "256-qam uncoded, coherent tier: LinearMod -> feedforward timing -> decision-directed Costas (bw 0.001) -> unique-word anchor, RRC α=0.35 span 8, 8 S/sym, 48 kHz 6000 baud, uncoded BER, seed 0x9a25",
   "points": [
     {
       "ebn0_db": 16.0,

@@ -1938,7 +1938,7 @@
         "transponder"
       ],
       "name": "ADS-B and Mode S — 1090 MHz",
-      "notes": "Transponder replies and extended squitter, 1 Mbit/s PPM. Needs the receiver's own samples at 2 Msps or more, so the channel takes IQ rather than a narrow passband.",
+      "notes": "Transponder replies and extended squitter, 1 Mbit/s PPM. Needs the receiver's own samples at 2 MS/s or more, so the channel takes IQ rather than a narrow passband.",
       "service": "aeronautical",
       "start_hz": 1089000000.0,
       "stop_hz": 1091000000.0,

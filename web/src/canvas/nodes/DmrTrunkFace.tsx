@@ -1,6 +1,7 @@
 import { Input } from "../../components/BaseControls";
 import { Checkbox } from "../../components/Checkbox";
 import { CHIP, FIELD } from "../../components/controls";
+import { formatHz } from "../../components/format";
 import { Select } from "../../components/Select";
 import { SettingGroup, SettingRow, Settings } from "../../components/Settings";
 import type { PatchNode } from "../../lib/types";
@@ -172,7 +173,7 @@ export function DmrTrunkFace({ node }: { node: PatchNode }) {
           <ul className="flex flex-wrap gap-1 border-b border-line p-2">
             {probes.map((probe) => (
               <li key={probe.freq_hz} className={`${CHIP} text-ink-dim`}>
-                listening {(probe.freq_hz / 1e6).toFixed(4)} MHz
+                listening {formatHz(probe.freq_hz)}
               </li>
             ))}
           </ul>
@@ -181,7 +182,7 @@ export function DmrTrunkFace({ node }: { node: PatchNode }) {
           <ul className="flex flex-wrap gap-1 border-b border-line p-2">
             {followers.map((follower) => (
               <li key={`${follower.freq_hz}-${follower.slot}`} className={CHIP}>
-                {(follower.freq_hz / 1e6).toFixed(4)} MHz TS {follower.slot}
+                {formatHz(follower.freq_hz)} TS {follower.slot}
                 {follower.logical_channel == null ? "" : ` · LCN ${follower.logical_channel}`}
               </li>
             ))}
@@ -193,8 +194,7 @@ export function DmrTrunkFace({ node }: { node: PatchNode }) {
             role="alert"
             className="border-b border-line p-2 text-xs text-warning"
           >
-            Cannot follow {(problem.freq_hz / 1e6).toFixed(4)} MHz TS {problem.slot}:{" "}
-            {problem.reason}
+            Cannot follow {formatHz(problem.freq_hz)} TS {problem.slot}: {problem.reason}
           </p>
         ))}
       </FaceBody>

@@ -57,7 +57,7 @@ describe("referenceScale", () => {
 describe("formatMeasurement", () => {
   it("states the rate, the error, the margin and the offset", () => {
     const text = formatMeasurement(block());
-    expect(text).toContain("4.80 kBd");
+    expect(text).toContain("4.8 kBd");
     expect(text).toContain("12.5% EVM");
     expect(text).toContain("18.1 dB MER");
     expect(text).toContain("×2.50 margin");
@@ -131,12 +131,12 @@ describe("readout", () => {
 
   it("keeps the spectrum readout on a channel that also reports symbols", () => {
     const text = readout("spectrum", burst, block(), 10);
-    expect(text).toContain("145.8000 MHz");
+    expect(text).toContain("145.8 MHz");
     expect(text).not.toContain("EVM");
   });
 
   it("keeps the eye on its own sample-rate readout", () => {
-    expect(readout("eye", burst, block(), 10)).toContain("Sa/sym");
+    expect(readout("eye", burst, block(), 10)).toContain("S/sym");
   });
 
   it("shows the measurement on the views the symbols feed", () => {
@@ -146,7 +146,7 @@ describe("readout", () => {
   });
 
   it("falls back to the burst readout when no decoder reports symbols", () => {
-    expect(readout("constellation", burst, null, 10)).toContain("145.8000 MHz");
+    expect(readout("constellation", burst, null, 10)).toContain("145.8 MHz");
   });
 
   it("says nothing at all before anything has arrived", () => {

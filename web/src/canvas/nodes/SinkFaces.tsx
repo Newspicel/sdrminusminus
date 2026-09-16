@@ -13,6 +13,7 @@ import {
   toQuery,
   type WireScope,
 } from "../../components/decoderLog";
+import { formatBytes } from "../../components/format";
 import { HuntPanel } from "../../components/HuntPanel";
 import { DEFAULT_HUNT_SETTINGS } from "../../components/hunt";
 import { Icon } from "../../components/Icon";
@@ -20,7 +21,6 @@ import { MapPanel } from "../../components/MapPanel";
 import { Readout, ReadoutRow } from "../../components/Readout";
 import {
   deriveRecordControl,
-  formatBytes,
   formatDuration,
   recordingElapsedS,
 } from "../../components/recordings";

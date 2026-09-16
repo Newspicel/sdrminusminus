@@ -498,7 +498,7 @@ mod tests {
 
     #[test]
     fn depuncturing_restores_the_mother_length_and_marks_the_gaps() {
-        let protection = Protection::eep(64, Eep::A, 3).expect("EEP-A 3 at 64 kbps");
+        let protection = Protection::eep(64, Eep::A, 3).expect("EEP-A 3 at 64 kbit/s");
         let coded: Vec<bool> = (0..4 * protection.frame_bits() + TAIL)
             .map(|index| index % 3 == 0)
             .collect();

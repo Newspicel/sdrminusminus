@@ -261,9 +261,6 @@ mod tests {
         };
         assert_no_alloc("indexed capture", &mut transfer);
         let msps = measure_throughput(2000, samples.len() as u64, transfer);
-        assert!(
-            msps > 10.0,
-            "indexed capture fell below 10 Msamples/s: {msps}"
-        );
+        assert!(msps > 10.0, "indexed capture fell below 10 MS/s: {msps}");
     }
 }

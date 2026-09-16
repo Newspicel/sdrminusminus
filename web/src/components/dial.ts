@@ -1,4 +1,5 @@
 import type { Capabilities } from "../lib/types";
+import { formatHz } from "./format";
 
 const MIN_TOP_PLACE = 8;
 const MAX_TOP_PLACE = 11;
@@ -86,17 +87,7 @@ export function tuneTargetHz(text: string, range: Range): number | null {
 export const TUNE_STEPS_HZ = [10, 100, 1_000, 5_000, 12_500, 25_000, 100_000, 1_000_000] as const;
 
 export function formatStep(hz: number): string {
-  if (hz >= 1e6) {
-    return `${hz / 1e6} MHz`;
-  }
-  if (hz >= 1e3) {
-    return `${trimZeros(hz / 1e3)} kHz`;
-  }
-  return `${hz} Hz`;
-}
-
-function trimZeros(value: number): string {
-  return String(Number(value.toFixed(3)));
+  return formatHz(hz);
 }
 
 function clamp(hz: number, range: Range): number {

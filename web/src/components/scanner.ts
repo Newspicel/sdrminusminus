@@ -1,4 +1,5 @@
 import type { ChannelInfo, DeviceSet, ScannerStatus, ScanRange, ScanSession } from "../lib/types";
+import { formatMhz as fixedWidthMhz } from "./format";
 
 export interface RangeValues {
   startMhz: number;
@@ -99,7 +100,7 @@ export function sweepKind(set: DeviceSet | null, status: ScannerStatus | null): 
 }
 
 export function formatMhz(hz: number | null | undefined): string {
-  return hz == null || !Number.isFinite(hz) ? "—" : `${(hz / 1e6).toFixed(4)} MHz`;
+  return hz == null || !Number.isFinite(hz) ? "—" : fixedWidthMhz(hz);
 }
 
 export function formatDb(db: number | null | undefined): string {

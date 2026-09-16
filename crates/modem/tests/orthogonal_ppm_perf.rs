@@ -46,7 +46,7 @@ fn measured_mfsk() -> Vec<PerfBaseline> {
         msamples_per_s,
         realtime_factor: msamples_per_s * 1e6 / MFSK_RATE,
         config: format!(
-            "48 kHz, 4800 baud, {MFSK_SPS} sps, M=4 orthogonal tone plan (spacing 1 cycle/symbol)"
+            "48 kHz, 4800 baud, {MFSK_SPS} S/sym, M=4 orthogonal tone plan (spacing 1 cycle/symbol)"
         ),
         host: host_id(),
     }]
@@ -73,7 +73,7 @@ fn measured_ppm() -> Vec<PerfBaseline> {
             msamples_per_s,
             realtime_factor: msamples_per_s * 1e6 / PPM_RATE,
             config: format!(
-                "1 Mslot/s at 8 Msps ({SLOT_SPS} samples/slot), M=2, {}",
+                "1 Mslot/s at 8 MS/s ({SLOT_SPS} samples/slot), M=2, {}",
                 match detector {
                     SlotDetector::MatchedFilter => "matched filter",
                     SlotDetector::Envelope => "envelope",
@@ -168,7 +168,7 @@ fn write_phase5_perf_baselines() {
         save_baselines(&path, &rows).unwrap();
         for row in &rows {
             println!(
-                "{}: {:.1} Msamples/s, {:.0}x real time",
+                "{}: {:.1} MS/s, {:.0}x real time",
                 row.bench, row.msamples_per_s, row.realtime_factor
             );
         }
@@ -195,7 +195,7 @@ fn compare_phase5_perf_baselines() {
             Ok(changes) => {
                 for c in changes {
                     eprintln!(
-                        "{}: {:+.1}% vs baseline ({:.1} -> {:.1} Msamples/s)",
+                        "{}: {:+.1}% vs baseline ({:.1} -> {:.1} MS/s)",
                         c.bench,
                         100.0 * c.change_fraction,
                         c.committed_msamples_per_s,

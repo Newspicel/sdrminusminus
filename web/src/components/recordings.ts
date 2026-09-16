@@ -1,5 +1,5 @@
 import type { DeviceSet, RecordingFormat, RecordingInfo, RecordingStatus } from "../lib/types";
-import { formatMhz } from "./format";
+import { formatBytes, formatMhz, formatSampleRate } from "./format";
 
 export const MAX_RECORDING_TAGS = 32;
 export const MAX_RECORDING_TAG_LEN = 48;
@@ -91,19 +91,6 @@ export function formatDuration(seconds: number): string {
   return h > 0 ? `${h}:${pad2(m)}:${pad2(s)}` : `${m}:${pad2(s)}`;
 }
 
-export function formatBytes(bytes: number): string {
-  if (bytes < 1e3) {
-    return `${bytes} B`;
-  }
-  if (bytes < 1e6) {
-    return `${(bytes / 1e3).toFixed(1)} kB`;
-  }
-  if (bytes < 1e9) {
-    return `${(bytes / 1e6).toFixed(1)} MB`;
-  }
-  return `${(bytes / 1e9).toFixed(2)} GB`;
-}
-
 export function formatRecordedAt(createdAt: string): string | null {
   const at = Date.parse(createdAt);
   return Number.isNaN(at)
@@ -114,7 +101,7 @@ export function formatRecordedAt(createdAt: string): string | null {
 export function describeRecording(recording: RecordingInfo): string {
   return [
     formatMhz(recording.center_hz),
-    `${(recording.sample_rate / 1e6).toFixed(3)} MS/s`,
+    formatSampleRate(recording.sample_rate),
     formatDuration(recording.duration_s),
     formatBytes(recording.bytes),
   ].join(" · ");

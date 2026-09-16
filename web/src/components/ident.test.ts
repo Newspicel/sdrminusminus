@@ -58,9 +58,9 @@ describe("modulationLabel", () => {
 });
 
 describe("signalFrequency", () => {
-  it("places a signal on the dial to the hundred hertz", () => {
-    expect(signalFrequency(signal())).toBe("446.0063 MHz");
-    expect(signalFrequency(signal({ frequency_hz: 77_500 }))).toBe("77.50 kHz");
+  it("places a signal on the dial at the resolution it was measured", () => {
+    expect(signalFrequency(signal())).toBe("446.00634 MHz");
+    expect(signalFrequency(signal({ frequency_hz: 77_500 }))).toBe("77.5 kHz");
   });
 });
 
@@ -69,7 +69,7 @@ describe("identMeasurements", () => {
     const fields = Object.fromEntries(identMeasurements(signal()));
     expect(fields).toMatchObject({
       Bandwidth: "12.4 kHz",
-      "Symbol rate": "4801 Bd",
+      "Symbol rate": "4.801 kBd",
       Deviation: "±1938 Hz",
       Duty: "51%",
     });
@@ -145,7 +145,7 @@ describe("the decoder log", () => {
     const detail = eventDetail({ kind: "ident", data: report() });
     expect(Object.fromEntries(detail.fields)).toMatchObject({
       Signals: "1",
-      Frequency: "446.0063 MHz",
+      Frequency: "446.00634 MHz",
       Modulation: "4-FSK",
       Confidence: "86%",
       "Frequency levels": "4",

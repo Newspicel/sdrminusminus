@@ -911,7 +911,7 @@ mod tests {
         let factor = SECONDS / start.elapsed().as_secs_f64();
         assert!(
             factor > MIN_FACTOR,
-            "wfm at {DEVICE_RATE} Sa/s ran at {factor:.1}x realtime, under the {MIN_FACTOR}x floor"
+            "wfm at {DEVICE_RATE} S/s ran at {factor:.1}x realtime, under the {MIN_FACTOR}x floor"
         );
     }
 

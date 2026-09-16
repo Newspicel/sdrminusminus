@@ -193,7 +193,7 @@ test.describe("the workspace", () => {
     await receiver.getByRole("searchbox", { name: "Search recordings" }).fill("099");
     const capture = receiver.getByRole("button", { name: /Tower watch/i });
     await expect(capture).toBeVisible();
-    await expect(capture).toContainText("100.0000 MHz · 2.048 MS/s · 2.0 s · 32.8 MB");
+    await expect(capture).toContainText("100.0000 MHz · 2.048 MS/s · 2.0 s · 32.768 MB");
     await expect(capture).toContainText("RTL-SDR 00000001 · capture-099 · #airband");
     await expect(capture).toHaveAttribute("title", "EDDF ground");
     await expect(receiver.getByRole("button", { name: /capture-000/i })).toHaveCount(0);
@@ -443,7 +443,7 @@ test.describe("the workspace", () => {
     await page.getByRole("group", { name: "View" }).getByRole("button", { name: "Patch" }).click();
     await activate(node("device"));
     await node("device").getByRole("combobox", { name: "Sample rate" }).click();
-    await page.getByRole("option", { name: "2.000 MS/s" }).click();
+    await page.getByRole("option", { name: "2 MS/s", exact: true }).click();
 
     await page.getByRole("button", { name: "Add a node" }).click();
     await page.getByRole("button", { name: "ADS-B (1090ES)" }).click();

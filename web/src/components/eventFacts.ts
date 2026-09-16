@@ -1,5 +1,6 @@
 import type { DecoderEvent } from "../lib/types";
 import { candidateScore, dvMode, dvNetwork, dvParties, modulationLabel } from "./decoderViews";
+import { formatHz } from "./format";
 import { SSTV_MODE_LABELS } from "./sstvModes";
 
 export function hex5(address: number): string {
@@ -144,7 +145,7 @@ function identSummary(r: EventData<"ident">): string {
   return join([
     count > 1 ? `${count} signals` : null,
     modulationLabel(loudest),
-    `${(loudest.bandwidth_hz / 1000).toFixed(1)} kHz`,
+    formatHz(loudest.bandwidth_hz),
     loudest.symbol_rate_hz == null ? null : `${Math.round(loudest.symbol_rate_hz)} Bd`,
     loudest.deviation_hz == null ? null : `\u00b1${Math.round(loudest.deviation_hz)} Hz`,
     loudest.burst_ms == null ? null : `${loudest.burst_ms.toFixed(1)} ms bursts`,

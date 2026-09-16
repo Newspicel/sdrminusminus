@@ -2,6 +2,7 @@ import { useMutation } from "@tanstack/react-query";
 import { useState } from "react";
 import { Button, Input } from "../../components/BaseControls";
 import { BTN, BTN_DANGER, FIELD } from "../../components/controls";
+import { formatBytes, formatHz, formatSampleRate } from "../../components/format";
 import {
   channelExportSource,
   deriveNetworkExportControl,
@@ -10,7 +11,6 @@ import {
   networkExportControlsLocked,
   networkExportMutationOptions,
 } from "../../components/networkExport";
-import { formatBytes } from "../../components/recordings";
 import { Select } from "../../components/Select";
 import { SettingRow, Settings } from "../../components/Settings";
 import type { PatchNode, PatchNodeOf } from "../../lib/types";
@@ -131,9 +131,9 @@ function NetworkExportNodeFace({ node }: { node: PatchNodeOf<"network_export"> }
         ) : control.kind === "active" ? (
           <div className="grid grid-cols-2 gap-x-3 gap-y-1 p-2 font-mono text-xs tabular-nums">
             <span className="text-ink-dim">Rate</span>
-            <span>{control.status.sample_rate.toLocaleString()} S/s</span>
+            <span>{formatSampleRate(control.status.sample_rate)}</span>
             <span className="text-ink-dim">Center</span>
-            <span>{(control.status.center_hz / 1e6).toFixed(6)} MHz</span>
+            <span>{formatHz(control.status.center_hz)}</span>
             <span className="text-ink-dim">Sent</span>
             <span>{formatBytes(control.status.bytes)}</span>
             <span className="text-ink-dim">

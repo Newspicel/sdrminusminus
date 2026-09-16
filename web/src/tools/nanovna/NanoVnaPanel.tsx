@@ -347,10 +347,10 @@ function SweepView({ sweep }: { sweep: NanoVnaSweep }) {
             {sweep.device.calibration.applied ? "on" : "off"}
           </span>
         </span>
-        {sweep.device.bandwidth_hz !== undefined && (
+        {sweep.device.bandwidth_hz != null && (
           <span className={CHIP}>
             <span className="text-ink-faint">IF</span>
-            {sweep.device.bandwidth_hz} Hz
+            {formatHz(sweep.device.bandwidth_hz)}
           </span>
         )}
       </div>

@@ -1,5 +1,5 @@
 {
-  "label": "π/4-dqpsk uncoded, coherent tier: 4th-power Costas -> unique-word anchor -> slice -> differential decode of the indices, RRC α=0.35 span 8, 8 sps, 48 kHz 6000 baud, uncoded BER, seed 0x9144",
+  "label": "π/4-dqpsk uncoded, coherent tier: 4th-power Costas -> unique-word anchor -> slice -> differential decode of the indices, RRC α=0.35 span 8, 8 S/sym, 48 kHz 6000 baud, uncoded BER, seed 0x9144",
   "points": [
     {
       "ebn0_db": 4.0,

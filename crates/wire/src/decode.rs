@@ -1321,7 +1321,7 @@ fn ident_summary(r: &IdentReport) -> String {
         parts.push(format!("{} signals", r.signals.len()));
     }
     parts.push(loudest.modulation.label().to_owned());
-    parts.push(format!("{:.1} kHz", loudest.bandwidth_hz / 1_000.0));
+    parts.push(crate::units::hertz(loudest.bandwidth_hz));
     if let Some(baud) = loudest.symbol_rate_hz {
         parts.push(format!("{baud:.0} Bd"));
     }
@@ -1541,7 +1541,7 @@ impl DecoderEvent {
                     parts.push(format!("FEC {rate}"));
                 }
                 if let Some(kbps) = status.bitrate_kbps {
-                    parts.push(format!("{kbps} kbps"));
+                    parts.push(crate::units::bit_rate(f64::from(kbps) * 1e3));
                 }
                 if let Some(ber) = status.bit_error_rate {
                     parts.push(format!("BER {ber:.1e}"));

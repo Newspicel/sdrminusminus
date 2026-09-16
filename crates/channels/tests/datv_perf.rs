@@ -121,7 +121,7 @@ fn dvb_s2_modes_against_the_realtime_budget() {
     ];
     println!(
         "{:<26} {:>12} {:>11} {:>10}",
-        "mode", "Msamples/s", "realtime", "frames"
+        "mode", "MS/s", "realtime", "frames"
     );
     for row in &rows {
         println!(

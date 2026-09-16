@@ -219,7 +219,7 @@ mod tests {
 
     #[test]
     fn a_subchannel_logical_frame_round_trips() {
-        let protection = Protection::eep(64, Eep::A, 3).expect("EEP-A 3 at 64 kbps");
+        let protection = Protection::eep(64, Eep::A, 3).expect("EEP-A 3 at 64 kbit/s");
         assert_eq!(protection.coded_bits(), 48 * CU_BITS);
         let mut encoder = SubChannelEncoder::new(protection.clone());
         let mut decoder = SubChannelDecoder::new(protection);

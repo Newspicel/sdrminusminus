@@ -29,6 +29,7 @@ mod nixhash;
 mod replay;
 #[cfg(test)]
 mod site;
+mod units;
 mod updater;
 
 #[derive(Parser)]
@@ -516,6 +517,7 @@ mod dev_command_tests {
 
 fn check(root: &Path) -> Result<()> {
     architecture::check(root)?;
+    units::check(root)?;
     bundle::check_resources(root)?;
     nixhash::check(root)?;
     check_toolchain_pins(root)?;
@@ -1673,7 +1675,7 @@ fn aviation_and_timing_fixtures(out: &mut Vec<Fixture>) {
             ADSB_RATE,
         ),
         rate: ADSB_RATE,
-        note: "adsb channel at 0 Hz, device at 2 Msps -> 3C6444/DLH123 at FL380".to_string(),
+        note: "adsb channel at 0 Hz, device at 2 MS/s -> 3C6444/DLH123 at FL380".to_string(),
     });
 
     out.push(Fixture {
@@ -1894,10 +1896,10 @@ fn write_fixture(
         iq.len()
     );
     println!(
-        "{stem_name}: {} samples, {:.2} s @ {} Msps — {note}",
+        "{stem_name}: {} samples, {:.2} s @ {} — {note}",
         iq.len(),
         iq.len() as f64 / rate,
-        rate / 1e6,
+        sdrmm_wire::units::sample_rate(rate),
     );
     Ok(())
 }

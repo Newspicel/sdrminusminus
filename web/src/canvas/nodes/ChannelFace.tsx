@@ -13,7 +13,7 @@ import {
 import { BTN, BTN_PRIMARY } from "../../components/controls";
 import { ANY_FREQUENCY, tuningRange } from "../../components/dial";
 import { dialId } from "../../components/FrequencyDial";
-import { formatMhz } from "../../components/format";
+import { formatHz, formatMhz, formatSampleRate } from "../../components/format";
 import { LevelMeter } from "../../components/LevelMeter";
 import { SettingRow } from "../../components/Settings";
 import { devicesQuery } from "../../lib/api";
@@ -242,8 +242,8 @@ function OutOfBand({
       role="status"
       title={
         reachable
-          ? `${set.device.label} is tuned somewhere it cannot hear ${formatMhz(frequencyHz)} MHz; the decoder keeps its own frequency and stays silent until the radio comes back over it`
-          : `${set.device.label} cannot reach ${formatMhz(frequencyHz)} MHz at all, so another radio has to carry this decoder`
+          ? `${set.device.label} is tuned somewhere it cannot hear ${formatHz(frequencyHz)}; the decoder keeps its own frequency and stays silent until the radio comes back over it`
+          : `${set.device.label} cannot reach ${formatHz(frequencyHz)} at all, so another radio has to carry this decoder`
       }
       label="Radio is elsewhere"
       action={
@@ -281,10 +281,10 @@ function RateMismatch({
   const offered = nearestRate(set, wanted);
   const range =
     wanted.min === wanted.max
-      ? `exactly ${mhz(wanted.min)} MHz`
+      ? `exactly ${formatSampleRate(wanted.min)}`
       : Number.isFinite(wanted.max)
-        ? `${mhz(wanted.min)} – ${mhz(wanted.max)} MHz`
-        : `at least ${mhz(wanted.min)} MHz`;
+        ? `${formatSampleRate(wanted.min)} – ${formatSampleRate(wanted.max)}`
+        : `at least ${formatSampleRate(wanted.min)}`;
   return (
     <FaceNotice
       tone="danger"
@@ -292,7 +292,7 @@ function RateMismatch({
       title={
         offered === null
           ? `${name} reads the radio's own samples, so the radio has to run ${range}; this radio offers no rate in that range, so another one has to carry it`
-          : `${name} reads the radio's own samples, so the radio has to run ${range}; at ${mhz(set.settings.sample_rate ?? 0)} MHz it decodes nothing`
+          : `${name} reads the radio's own samples, so the radio has to run ${range}; at ${formatSampleRate(set.settings.sample_rate ?? 0)} it decodes nothing`
       }
       label={`Rate must be ${range}`}
       action={
@@ -304,7 +304,7 @@ function RateMismatch({
             className={BTN}
             onClick={() => applyPatch(set.id, { sample_rate: offered })}
           >
-            Set {mhz(offered)} MHz
+            Set {formatSampleRate(offered)}
           </Button>
         )
       }
@@ -319,8 +319,4 @@ function nearestRate(set: DeviceSet, wanted: { min: number; max: number }): numb
   }
   const inside = rates.filter((rate) => rate >= wanted.min && rate <= wanted.max);
   return inside.length === 0 ? null : Math.min(...inside);
-}
-
-function mhz(hz: number): string {
-  return (hz / 1e6).toFixed(3);
 }

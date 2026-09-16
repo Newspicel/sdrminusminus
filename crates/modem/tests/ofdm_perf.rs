@@ -159,7 +159,7 @@ fn write_ofdm_perf_baseline() {
     save_baselines(&path, &rows).unwrap();
     for row in &rows {
         println!(
-            "{}: {:.1} Msamples/s, {:.1}x real time",
+            "{}: {:.1} MS/s, {:.1}x real time",
             row.bench, row.msamples_per_s, row.realtime_factor
         );
     }
@@ -181,7 +181,7 @@ fn compare_ofdm_perf_baseline() {
         Ok(changes) => {
             for c in changes {
                 eprintln!(
-                    "{}: {:+.1}% vs baseline ({:.1} -> {:.1} Msamples/s)",
+                    "{}: {:+.1}% vs baseline ({:.1} -> {:.1} MS/s)",
                     c.bench,
                     100.0 * c.change_fraction,
                     c.committed_msamples_per_s,

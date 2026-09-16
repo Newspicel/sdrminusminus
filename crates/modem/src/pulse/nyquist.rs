@@ -78,7 +78,7 @@ mod tests {
                 let peak = cascade[centre];
                 assert!(
                     (peak - 1.0).abs() < 1e-4,
-                    "alpha={alpha} sps={sps}: matched-filter peak {peak}"
+                    "alpha={alpha} samples_per_symbol={sps}: matched-filter peak {peak}"
                 );
                 for m in 1..=2 * SPAN {
                     let off = m * sps;
@@ -88,7 +88,7 @@ mod tests {
                     for isi in [cascade[centre - off], cascade[centre + off]] {
                         assert!(
                             (isi / peak).abs() < 1e-3,
-                            "alpha={alpha} sps={sps}: ISI {isi:.2e} at symbol {m}"
+                            "alpha={alpha} samples_per_symbol={sps}: ISI {isi:.2e} at symbol {m}"
                         );
                     }
                 }

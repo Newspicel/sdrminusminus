@@ -114,18 +114,10 @@ pub fn run(root: &Path, args: &Excerpt) -> Result<()> {
         "{}: {written} samples, {:.3} s @ {} — {}",
         args.out.display(),
         written as f64 / output_rate,
-        rate_label(output_rate),
+        sdrmm_wire::units::sample_rate(output_rate),
         args.description
     );
     Ok(())
-}
-
-fn rate_label(rate: f64) -> String {
-    if rate >= 1e6 {
-        format!("{:.3} Msps", rate / 1e6)
-    } else {
-        format!("{:.0} ksps", rate / 1e3)
-    }
 }
 
 fn stamp(stem: &Path, description: &str, note: &str, samples: u64) -> Result<()> {

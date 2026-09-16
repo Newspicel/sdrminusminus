@@ -48,6 +48,7 @@ import {
   type TargetSort,
   toneLabel,
 } from "./decoderViews";
+import { formatHz } from "./format";
 import { Icon } from "./Icon";
 
 const PANE = "flex flex-col gap-2 p-3";
@@ -381,9 +382,7 @@ function CwSkimmerView({ scope = {} }: { scope?: DecoderScope }) {
             <tbody>
               {rows.map((row) => (
                 <tr key={Math.round(row.offsetHz)} className="border-b border-line/50">
-                  <td className={`${TABLE_CELL} tabular-nums`}>
-                    {(row.frequencyHz / 1e6).toFixed(6)} MHz
-                  </td>
+                  <td className={`${TABLE_CELL} tabular-nums`}>{formatHz(row.frequencyHz)}</td>
                   <td className={`${TABLE_CELL} tabular-nums`}>
                     {row.offsetHz >= 0 ? "+" : ""}
                     {row.offsetHz.toFixed(0)} Hz
@@ -554,7 +553,7 @@ function DectRow({ station }: { station: DectStation }) {
           ? "—"
           : station.carrierHz === null
             ? String(station.carrier)
-            : `${station.carrier} · ${(station.carrierHz / 1e6).toFixed(3)} MHz`}
+            : `${station.carrier} · ${formatHz(station.carrierHz)}`}
       </td>
       <td className={TABLE_CELL}>{station.slotPair === null ? "—" : String(station.slotPair)}</td>
       <td className={TABLE_CELL}>{dectSupport(station.authentication)}</td>

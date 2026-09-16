@@ -92,7 +92,7 @@ describe("busiestHour", () => {
 describe("formatting", () => {
   it("prints a bucket to the resolution it actually has", () => {
     expect(formatBucketHz(145_506_300)).toBe("145.5063 MHz");
-    expect(formatBucketHz(145_500_000)).toBe("145.5000 MHz");
+    expect(formatBucketHz(145_500_000)).toBe("145.5 MHz");
   });
 
   it("prints duty as a percentage, and absence as a dash", () => {

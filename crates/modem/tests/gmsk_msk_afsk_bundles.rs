@@ -533,7 +533,7 @@ fn measured_gmsk_perf() -> Vec<PerfBaseline> {
         bench: "gmsk_bt05_demod".into(),
         msamples_per_s: msps,
         realtime_factor: msps * 1e6 / RATE,
-        config: "GMSK BT=0.5 h=0.5, 10 sps, pulse-matched rx, timing bw 0.015".into(),
+        config: "GMSK BT=0.5 h=0.5, 10 S/sym, pulse-matched rx, timing bw 0.015".into(),
         host: perf::host_id(),
     }]
 }
@@ -567,7 +567,7 @@ fn measured_gmsk_mlse_perf() -> Vec<PerfBaseline> {
             msamples_per_s: msps,
             realtime_factor: msps * 1e6 / RATE,
             config: format!(
-                "GMSK BT={bt} h=0.5, 10 sps, pulse-matched rx, CpmDemod + MlseDetector \
+                "GMSK BT={bt} h=0.5, 10 S/sym, pulse-matched rx, CpmDemod + MlseDetector \
                  ({} trellis states)",
                 MlseDetector::new(&params, &rx).states()
             ),
@@ -593,7 +593,7 @@ fn measured_msk_perf() -> Vec<PerfBaseline> {
         bench: "msk_demod".into(),
         msamples_per_s: msps,
         realtime_factor: msps * 1e6 / RATE,
-        config: "MSK (1REC h=0.5), 10 sps, integrate-and-dump rx, timing bw 0.015".into(),
+        config: "MSK (1REC h=0.5), 10 S/sym, integrate-and-dump rx, timing bw 0.015".into(),
         host: perf::host_id(),
     }]
 }
@@ -626,7 +626,7 @@ fn measured_afsk_perf() -> Vec<PerfBaseline> {
         bench: "afsk_filterbank_12k".into(),
         msamples_per_s: msps,
         realtime_factor: msps * 1e6 / afsk::RATE,
-        config: "AFSK 1200/2200 Hz tone filterbank, 12 kHz, 10 sps, half-symbol rx rect".into(),
+        config: "AFSK 1200/2200 Hz tone filterbank, 12 kHz, 10 S/sym, half-symbol rx rect".into(),
         host: perf::host_id(),
     }]
 }
@@ -653,7 +653,7 @@ fn compare_perf(name: &str, measured: &[PerfBaseline]) {
         Ok(changes) => {
             for c in changes {
                 eprintln!(
-                    "{}: {:+.1}% vs baseline ({:.1} -> {:.1} Msamples/s)",
+                    "{}: {:+.1}% vs baseline ({:.1} -> {:.1} MS/s)",
                     c.bench,
                     100.0 * c.change_fraction,
                     c.committed_msamples_per_s,

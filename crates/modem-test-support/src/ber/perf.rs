@@ -268,7 +268,7 @@ mod tests {
         black_box(acc);
         assert!(
             msamples_per_s.is_finite() && msamples_per_s > 0.0,
-            "measured {msamples_per_s} Msamples/s"
+            "measured {msamples_per_s} MS/s"
         );
     }
 
@@ -306,7 +306,7 @@ mod tests {
             bench: "symbol_sync_8sps".into(),
             msamples_per_s: sync_msps,
             realtime_factor: sync_msps * 1e6 / SYMBOL_SYNC_RATE_HZ,
-            config: "8 sps, loop_bw 0.01, RRC α=0.35 shaped BPSK".into(),
+            config: "8 S/sym, loop_bw 0.01, RRC α=0.35 shaped BPSK".into(),
             host: host_id(),
         }]
     }
@@ -371,7 +371,7 @@ mod tests {
             Ok(changes) => {
                 for c in changes {
                     eprintln!(
-                        "{}: {:+.1}% vs baseline ({:.1} -> {:.1} Msamples/s)",
+                        "{}: {:+.1}% vs baseline ({:.1} -> {:.1} MS/s)",
                         c.bench,
                         100.0 * c.change_fraction,
                         c.committed_msamples_per_s,

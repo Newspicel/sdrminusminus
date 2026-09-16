@@ -294,7 +294,7 @@ fn write_multicarrier_perf_baseline() {
     let rows = measured_baselines();
     for row in &rows {
         println!(
-            "{}: {:.1} Msamples/s, {:.2}x real time at {} MHz",
+            "{}: {:.1} MS/s, {:.2}x real time at {} MHz",
             row.bench,
             row.msamples_per_s,
             row.realtime_factor,
@@ -320,7 +320,7 @@ fn compare_multicarrier_perf_baseline() {
         Ok(changes) => {
             for c in changes {
                 eprintln!(
-                    "{}: {:+.1}% vs baseline ({:.1} -> {:.1} Msamples/s)",
+                    "{}: {:+.1}% vs baseline ({:.1} -> {:.1} MS/s)",
                     c.bench,
                     100.0 * c.change_fraction,
                     c.committed_msamples_per_s,
@@ -351,7 +351,7 @@ fn the_cost_ordering_is_the_structural_one() {
     for pair in order.windows(2) {
         assert!(
             rate(pair[0]) < rate(pair[1]),
-            "{} at {:.1} is not below {} at {:.1} Msamples/s",
+            "{} at {:.1} is not below {} at {:.1} MS/s",
             pair[0],
             rate(pair[0]),
             pair[1],

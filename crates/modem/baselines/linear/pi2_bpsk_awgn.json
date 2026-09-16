@@ -1,5 +1,5 @@
 {
-  "label": "π/2-bpsk uncoded, rotated LinearMod -> feedforward timing -> de-rotate -> 2nd-power Costas -> unique-word anchor, RRC α=0.35 span 8, 8 sps, 48 kHz 6000 baud, uncoded BER, seed 0x9120",
+  "label": "π/2-bpsk uncoded, rotated LinearMod -> feedforward timing -> de-rotate -> 2nd-power Costas -> unique-word anchor, RRC α=0.35 span 8, 8 S/sym, 48 kHz 6000 baud, uncoded BER, seed 0x9120",
   "points": [
     {
       "ebn0_db": 4.0,
