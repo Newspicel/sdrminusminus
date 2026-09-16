@@ -1,12 +1,13 @@
 use anyhow::{Context, bail};
 use sdrmm_wire::{
+    ChannelTypesResponse, CreatedRowId, DevicesResponse,
     channel::{ChannelDescriptor, ChannelSettings},
     device::{DeviceInfo, DeviceSettings},
     patch::PatchCatalog,
     state::StateSnapshot,
     workspace::{
         CreateWorkspaceRequest, PatchApplyReport, UpdateWorkspaceRequest, WorkspaceDetail,
-        WorkspaceSnapshot, WorkspacesResponse,
+        WorkspaceInfo, WorkspaceSnapshot, WorkspacesResponse,
     },
 };
 use serde::{Serialize, de::DeserializeOwned};
@@ -68,19 +69,14 @@ impl Api {
     }
 
     pub async fn devices(&self) -> anyhow::Result<Vec<DeviceInfo>> {
-        #[derive(serde::Deserialize)]
-        struct Devices {
-            devices: Vec<DeviceInfo>,
-        }
-        Ok(self.read::<Devices>("/api/devices").await?.devices)
+        Ok(self.read::<DevicesResponse>("/api/devices").await?.devices)
     }
 
     pub async fn channel_types(&self) -> anyhow::Result<Vec<ChannelDescriptor>> {
-        #[derive(serde::Deserialize)]
-        struct Types {
-            types: Vec<ChannelDescriptor>,
-        }
-        Ok(self.read::<Types>("/api/channeltypes").await?.types)
+        Ok(self
+            .read::<ChannelTypesResponse>("/api/channeltypes")
+            .await?
+            .types)
     }
 
     pub async fn catalog(&self) -> anyhow::Result<PatchCatalog> {
@@ -96,16 +92,12 @@ impl Api {
     }
 
     pub async fn create_workspace(&self, name: &str) -> anyhow::Result<i64> {
-        #[derive(serde::Deserialize)]
-        struct Created {
-            id: i64,
-        }
         let body = CreateWorkspaceRequest {
             name: name.to_owned(),
             snapshot: None,
         };
         Ok(self
-            .write::<_, Created>(reqwest::Method::POST, "/api/workspaces", Some(&body))
+            .write::<_, CreatedRowId>(reqwest::Method::POST, "/api/workspaces", Some(&body))
             .await?
             .id)
     }
@@ -115,19 +107,18 @@ impl Api {
         id: i64,
         revision: u64,
         snapshot: WorkspaceSnapshot,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<WorkspaceInfo> {
         let body = UpdateWorkspaceRequest {
             revision,
             name: None,
             snapshot: Some(snapshot),
         };
-        self.write::<_, serde_json::Value>(
+        self.write::<_, WorkspaceInfo>(
             reqwest::Method::PUT,
             &format!("/api/workspaces/{id}"),
             Some(&body),
         )
         .await
-        .map(drop)
     }
 
     pub async fn activate_workspace(&self, id: i64) -> anyhow::Result<()> {

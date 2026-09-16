@@ -6,7 +6,7 @@ use sdrmm_wire::{
     device::{DeviceInfo, DeviceSettings},
     patch::{PatchCatalog, PatchGraph},
     state::{ChannelLevel, DeviceSet, StateSnapshot},
-    workspace::WorkspaceSnapshot,
+    workspace::WorkspaceDetail,
     ws::{ClientCommand, ServerEvent, StateScope, StreamKind},
 };
 use tokio::sync::mpsc;
@@ -17,6 +17,7 @@ use crate::{
     binding,
     socket::{Incoming, Socket, Spectrum},
     starter,
+    workspace::Session,
 };
 
 pub const SPECTRUM_BINS: u16 = 512;
@@ -50,6 +51,7 @@ pub struct Store {
     pub levels: RwSignal<Arc<HashMap<(u32, u32), ChannelLevel>>>,
     pub decoded: RwSignal<Arc<Vec<DecodedRecord>>>,
     streams: RwSignal<Arc<HashMap<u16, u32>>>,
+    editor: StoredValue<Option<Session>>,
     api: StoredValue<Api>,
     socket: StoredValue<Option<Socket>>,
 }
@@ -76,6 +78,7 @@ impl Store {
             levels: RwSignal::new(Arc::new(HashMap::new())),
             decoded: RwSignal::new(Arc::new(Vec::new())),
             streams: RwSignal::new(Arc::new(HashMap::new())),
+            editor: StoredValue::new(None),
             api: StoredValue::new(api),
             socket: StoredValue::new(None),
         }
@@ -274,6 +277,9 @@ impl Store {
                 return;
             }
         };
+        let (editor, worker) = Session::new(api.clone(), detail.clone());
+        self.editor.set_value(Some(editor));
+        zgui::task::spawn_local(worker.run());
         self.workspace.set(Some(id));
         self.revision.set(detail.info.revision);
         self.name.set(detail.info.name.clone());
@@ -284,7 +290,10 @@ impl Store {
         let graph = if seeding {
             let devices = api.devices().await.unwrap_or_default();
             let graph = starter::graph(&devices);
-            self.write_graph(graph.clone()).await;
+            if let Err(error) = self.write_graph(graph.clone()).await {
+                self.say(format!("cannot save the starter patch: {error}"));
+                return;
+            }
             graph
         } else {
             detail.snapshot.graph.clone()
@@ -347,9 +356,12 @@ impl Store {
         let mut graph = (*self.graph.get_untracked()).clone();
         edit(&mut graph);
         self.graph.set(Arc::new(graph.clone()));
+        let save = self.write_graph(graph);
         zgui::task::spawn_local(async move {
-            self.write_graph(graph).await;
-            self.apply().await;
+            match save.await {
+                Ok(()) => self.apply().await,
+                Err(error) => self.say(format!("cannot save the patch: {error}")),
+            }
         });
     }
 
@@ -363,52 +375,43 @@ impl Store {
     }
 
     pub fn commit_layout(self) {
-        let graph = (*self.graph.get_untracked()).clone();
-        zgui::task::spawn_local(async move { self.write_graph(graph).await });
+        let save = self.write_graph((*self.graph.get_untracked()).clone());
+        zgui::task::spawn_local(async move {
+            if let Err(error) = save.await {
+                self.say(format!("cannot save the layout: {error}"));
+            }
+        });
     }
 
-    async fn write_graph(self, graph: PatchGraph) {
-        let Some(id) = self.workspace.get_untracked() else {
-            return;
-        };
-        let snapshot = WorkspaceSnapshot {
-            version: sdrmm_wire::workspace::WORKSPACE_SNAPSHOT_VERSION,
-            graph,
-            rack: Default::default(),
-            settings: Default::default(),
-        };
-        let revision = self.revision.get_untracked();
-        match self.api().save_workspace(id, revision, snapshot).await {
-            Ok(()) => match self.api().workspace(id).await {
-                Ok(detail) => {
-                    self.revision.set(detail.info.revision);
-                    self.can_undo.set(detail.history.can_undo);
-                    self.can_redo.set(detail.history.can_redo);
-                }
-                Err(error) => tracing::debug!(%error, "cannot reread the workspace"),
-            },
-            Err(error) => self.say(format!("cannot save the patch: {error}")),
+    fn read_detail(self, detail: &WorkspaceDetail) {
+        self.revision.set(detail.info.revision);
+        self.can_undo.set(detail.history.can_undo);
+        self.can_redo.set(detail.history.can_redo);
+        self.name.set(detail.info.name.clone());
+    }
+
+    fn write_graph(self, graph: PatchGraph) -> impl Future<Output = anyhow::Result<()>> {
+        let pending = self.editor.get_value().map(|editor| editor.save(graph));
+        async move {
+            let pending = pending.ok_or_else(|| anyhow::anyhow!("workspace is still loading"))?;
+            self.read_detail(&pending.await?);
+            Ok(())
         }
     }
 
     pub fn step_history(self, back: bool) {
-        let Some(id) = self.workspace.get_untracked() else {
+        let Some(editor) = self.editor.get_value() else {
             return;
         };
+        let pending = editor.step(back);
         zgui::task::spawn_local(async move {
-            if let Err(error) = self.api().step_history(id, back).await {
-                self.say(format!("cannot step the history: {error}"));
-                return;
-            }
-            match self.api().workspace(id).await {
+            match pending.await {
                 Ok(detail) => {
-                    self.revision.set(detail.info.revision);
-                    self.can_undo.set(detail.history.can_undo);
-                    self.can_redo.set(detail.history.can_redo);
+                    self.read_detail(&detail);
                     self.graph.set(Arc::new(detail.snapshot.graph));
                     self.apply().await;
                 }
-                Err(error) => self.say(format!("cannot reread the workspace: {error}")),
+                Err(error) => self.say(format!("cannot step the history: {error}")),
             }
         });
     }
@@ -417,25 +420,34 @@ impl Store {
         let Some(set) = self.device_set_of(&node) else {
             return;
         };
-        let Some(current) = self.set_of(set) else {
-            return;
-        };
-        let settings = DeviceSettings {
-            center_hz: Some(hz),
-            ..DeviceSettings::default()
-        };
-        let _ = current;
-        zgui::task::spawn_local(async move {
-            if let Err(error) = self.api().patch_device(set, &settings).await {
-                self.say(format!("cannot tune: {error}"));
-            }
-        });
+        self.set_device(
+            set,
+            DeviceSettings {
+                center_hz: Some(hz),
+                ..DeviceSettings::default()
+            },
+        );
     }
 
     pub fn set_device(self, set: u32, settings: DeviceSettings) {
+        let Some(editor) = self.editor.get_value() else {
+            self.say("Workspace is still loading");
+            return;
+        };
+        self.receive_settings(editor.device(set, settings));
+    }
+
+    fn receive_settings(
+        self,
+        pending: impl Future<Output = anyhow::Result<WorkspaceDetail>> + 'static,
+    ) {
         zgui::task::spawn_local(async move {
-            if let Err(error) = self.api().patch_device(set, &settings).await {
-                self.say(format!("cannot change the radio: {error}"));
+            match pending.await {
+                Ok(detail) => self.read_detail(&detail),
+                Err(error) => {
+                    self.say(format!("cannot change settings: {error}"));
+                    self.refresh_state();
+                }
             }
         });
     }
@@ -447,10 +459,25 @@ impl Store {
         let Some(channel) = self.channel_of(&node) else {
             return;
         };
-        zgui::task::spawn_local(async move {
-            if let Err(error) = self.api().patch_channel(set, channel.id, &settings).await {
-                self.say(format!("cannot change the channel: {error}"));
-            }
-        });
+        let Some(editor) = self.editor.get_value() else {
+            self.say("Workspace is still loading");
+            return;
+        };
+        let mut state = (*self.state.get_untracked()).clone();
+        if let Some(current) = state
+            .device_sets
+            .iter_mut()
+            .find(|current| current.id == set)
+            .and_then(|current| {
+                current
+                    .channels
+                    .iter_mut()
+                    .find(|current| current.id == channel.id)
+            })
+        {
+            current.settings = settings.clone();
+        }
+        self.state.set(Arc::new(state));
+        self.receive_settings(editor.channel(set, channel.id, settings));
     }
 }

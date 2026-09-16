@@ -5,7 +5,10 @@ use sdrmm_wire::{
         AudioAgcMode, MAX_BLANKER_THRESHOLD, MAX_CLICK_THRESHOLD, MIN_BLANKER_THRESHOLD,
         MIN_CLICK_THRESHOLD,
     },
-    channel::{ChannelInfo, ChannelSettings, Squelch},
+    channel::{
+        ChannelInfo, ChannelSettings, MAX_SQUELCH_AUTO_MARGIN_DB, MIN_SQUELCH_AUTO_MARGIN_DB,
+        Squelch,
+    },
     device::{DeviceInfo, DeviceSettings},
     patch::{DeviceRef, NodeBody, PatchNode},
     state::{DeviceSet, DeviceSetStatus},
@@ -193,7 +196,35 @@ fn channel_signal(store: Store, node: String) -> Signal<Option<ChannelInfo>> {
     Signal::derive(move || store.channel_of(&node))
 }
 
+type ChannelEdit = Box<dyn FnOnce(&mut ChannelSettings)>;
+
+fn channel_writer(
+    store: Store,
+    node: String,
+    channel: Signal<Option<ChannelInfo>>,
+) -> impl Fn(ChannelEdit) + Clone {
+    move |change| {
+        if let Some(mut settings) = channel.get_untracked().map(|channel| channel.settings) {
+            change(&mut settings);
+            store.set_channel(node.clone(), settings);
+        }
+    }
+}
+
 fn channel(store: Store, node: String) -> impl IntoView {
+    let decoder_controls =
+        store
+            .graph
+            .get_untracked()
+            .node(&node)
+            .and_then(|node| match &node.body {
+                NodeBody::Channel(channel) => Some(super::params::panel(
+                    store,
+                    node.id.clone(),
+                    &channel.channel_type,
+                )),
+                _ => None,
+            });
     let channel = channel_signal(store, node.clone());
     let hz = Signal::derive(move || {
         channel
@@ -201,16 +232,7 @@ fn channel(store: Store, node: String) -> impl IntoView {
             .map(|channel| channel.settings.frequency_hz)
             .unwrap_or_default()
     });
-    let write = {
-        let node = node.clone();
-        move |change: Box<dyn FnOnce(&mut ChannelSettings)>| {
-            let Some(mut settings) = channel.get_untracked().map(|channel| channel.settings) else {
-                return;
-            };
-            change(&mut settings);
-            store.set_channel(node.clone(), settings);
-        }
-    };
+    let write = channel_writer(store, node.clone(), channel);
 
     let tune = {
         let write = write.clone();
@@ -280,6 +302,38 @@ fn channel(store: Store, node: String) -> impl IntoView {
         })
     };
 
+    view! {
+        column(class = "face") {
+            {dial(hz, tune)}
+            {level_bar(strength)}
+            {decoder_controls}
+            {row_field("Squelch", view! {
+                row(class = "field__body") {
+                    {segments(
+                        vec![
+                            (SquelchMode::Off, "Off"),
+                            (SquelchMode::Manual, "Manual"),
+                            (SquelchMode::Auto, "Auto"),
+                        ],
+                        mode,
+                        pick_mode,
+                    )}
+                    {move || (mode.get() != SquelchMode::Off).then(|| AnyView::new(
+                        slide(level, if mode.get() == SquelchMode::Auto { MIN_SQUELCH_AUTO_MARGIN_DB.into() } else { -120.0 }, if mode.get() == SquelchMode::Auto { MAX_SQUELCH_AUTO_MARGIN_DB.into() } else { 0.0 }, |value| format::decibels(value as f32), set_level.clone()),
+                    ))}
+                }
+            })}
+            {audio_controls(store, node.clone(), channel)}
+        }
+    }
+}
+
+fn audio_controls(
+    store: Store,
+    node: String,
+    channel: Signal<Option<ChannelInfo>>,
+) -> impl IntoView {
+    let write = channel_writer(store, node, channel);
     let audio_of = move |pick: fn(&sdrmm_wire::audio::AudioProcessing) -> f64| {
         Signal::derive(move || {
             channel
@@ -388,25 +442,7 @@ fn channel(store: Store, node: String) -> impl IntoView {
     };
 
     view! {
-        column(class = "face") {
-            {dial(hz, tune)}
-            {level_bar(strength)}
-            {row_field("Squelch", view! {
-                row(class = "field__body") {
-                    {segments(
-                        vec![
-                            (SquelchMode::Off, "Off"),
-                            (SquelchMode::Manual, "Manual"),
-                            (SquelchMode::Auto, "Auto"),
-                        ],
-                        mode,
-                        pick_mode,
-                    )}
-                    {move || (mode.get() != SquelchMode::Off).then(|| AnyView::new(
-                        slide(level, -110.0, 0.0, |value| format::decibels(value as f32), set_level.clone()),
-                    ))}
-                }
-            })}
+        column(class = "audio-controls") {
             box(class = "rule") {}
             row(class = "section") {
                 text(class = "legend") {"Audio"}
@@ -452,7 +488,6 @@ fn channel(store: Store, node: String) -> impl IntoView {
             {row_field("Auto notch", view! {
                 row(class = "field__body") {
                     {check(auto_notch, toggle_notch)}
-                    text(class = "hint") {"finds steady carriers by itself"}
                 }
             })}
             {row_field("Passband", view! {

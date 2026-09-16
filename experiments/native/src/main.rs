@@ -2,11 +2,13 @@ mod api;
 mod binding;
 mod format;
 mod host;
+mod params;
 mod socket;
 mod starter;
 mod store;
 mod theme;
 mod ui;
+mod workspace;
 
 use std::path::PathBuf;
 
