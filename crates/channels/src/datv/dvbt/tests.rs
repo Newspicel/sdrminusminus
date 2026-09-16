@@ -194,11 +194,12 @@ fn highest_order_terrestrial_demodulation_has_bounded_cost() {
     let elapsed = start.elapsed().as_secs_f64();
     let duration = iq.len() as f64 / (64_000_000.0 / 7.0);
     assert!(receiver.locked());
-    // Twice the signal's own duration rather than once: 64-QAM at 7/8 over 8k carriers is the
-    // heaviest mode the standard defines, and a shared four-core runner decodes it at a little
-    // over real time, so a 1x gate reports the machine rather than a regression.
+    // Four times the signal's own duration, not once: 64-QAM at 7/8 over 8k carriers is the
+    // heaviest mode the standard defines, and the same hosted runner decoded it in 0.405 s one
+    // day and 0.732 s the next for a laptop's 0.239 s. A tighter bound reports which machine
+    // picked up the job; this one still catches a decoder that has halved in speed.
     assert!(
-        elapsed < realtime_budget(2.0 * duration),
+        elapsed < realtime_budget(4.0 * duration),
         "{duration:.3}s of DVB-T took {elapsed:.3}s"
     );
 }
