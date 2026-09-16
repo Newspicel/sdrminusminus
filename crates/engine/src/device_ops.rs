@@ -5,14 +5,15 @@ use std::{
 
 use sdrmm_device::DeviceError;
 use sdrmm_wire::{
-    Capabilities, DeviceSetStatus, DeviceSettings, ServerEvent, StateScope, StreamSettings,
+    Capabilities, DeviceSetStatus, DeviceSettings, ServerEvent, StateScope, StreamSettings, Tuning,
 };
 
 use crate::{
     ChannelMedia, DEFAULT_CENTER_HZ, DeviceSetState, Engine, EngineError, FaultGate, FrontEndPlan,
     PatchOrigin, RatePatchGuard, RebuildEntry, fault_kind, hotplug, ids_of, lock_runtime,
     planning::{
-        descriptor_for, hardware_delta, plan_front_end, validate_channel, validate_streams,
+        descriptor_for, hardware_delta, plan_center, plan_front_end, validate_channel,
+        validate_streams,
     },
     runtime::{CaptureRuntime, DeviceRuntime},
     sample_rate_of, teardown_set,
@@ -27,6 +28,15 @@ struct SinkPoll {
     export: Vec<(u32, String)>,
     history: Vec<(u32, String)>,
     changed: Vec<u32>,
+}
+
+fn take_the_wheel(mut delta: DeviceSettings) -> DeviceSettings {
+    let named_a_frequency =
+        delta.center_hz.is_some() || delta.streams.iter().any(|s| s.center_hz.is_some());
+    if named_a_frequency && delta.tuning.is_none() {
+        delta.tuning = Some(Tuning::Manual);
+    }
+    delta
 }
 
 impl Engine {
@@ -471,7 +481,10 @@ impl Engine {
             return Err(already);
         }
         let capabilities = device.capabilities().clone();
-        let settings = device.settings().clone();
+        let settings = DeviceSettings {
+            tuning: Some(Tuning::default()),
+            ..device.settings().clone()
+        };
         let playback = device.playback();
 
         let id = {
@@ -635,7 +648,9 @@ impl Engine {
             return self.patch_array(ds, delta);
         }
         self.check_array_member_patch(ds, &delta)?;
-        self.patch_device_from(ds, delta, PatchOrigin::Client)
+        self.patch_device_from(ds, take_the_wheel(delta), PatchOrigin::Client)?;
+        self.settle_tuning(ds);
+        Ok(())
     }
 
     fn runtime_of(&self, ds: u32) -> Option<Arc<DeviceRuntime>> {
@@ -652,6 +667,32 @@ impl Engine {
             .device_sets
             .get(&ds)
             .map(|state| state.capabilities.clone())
+    }
+
+    pub(crate) fn settle_tuning(&self, ds: u32) {
+        if let Some(delta) = self.auto_center(ds)
+            && let Err(e) = self.patch_device_from(ds, delta, PatchOrigin::Auto)
+        {
+            tracing::warn!(ds, error = %e, "auto tuning could not move the radio");
+        }
+        self.replace_lo(ds);
+    }
+
+    fn auto_center(&self, ds: u32) -> Option<DeviceSettings> {
+        if !self.arrays_using(ds).is_empty() {
+            return None;
+        }
+        let inner = self.lock();
+        let state = inner.device_sets.get(&ds)?;
+        if !state.settings.tunes_itself()
+            || state.array.is_some()
+            || state.scanner.is_some()
+            || state.hunt.is_some()
+            || state.recording.is_some()
+        {
+            return None;
+        }
+        plan_center(&state.capabilities, &state.settings, &state.channels)
     }
 
     /// Moves the LO out from under a channel that has just been added, retuned, or reshaped.
@@ -838,7 +879,7 @@ impl Engine {
         for handle in dead {
             handle.shutdown();
         }
-        if origin == PatchOrigin::Client {
+        if origin != PatchOrigin::Scan {
             self.emit(ServerEvent::StateChanged {
                 scope: StateScope::DeviceSet(ds),
             });

@@ -371,6 +371,8 @@ pub struct PatchApplyReport {
     pub bound: Vec<PatchBinding>,
     pub opened: u32,
     pub created: u32,
+    #[serde(default)]
+    pub closed: u32,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub absent: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]

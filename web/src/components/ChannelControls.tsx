@@ -262,12 +262,7 @@ export function ChannelDial({
           disabled={locked}
           onTune={onTune}
         />
-        <TuningLock
-          locked={locked}
-          held="Frequency is held; unlock it to move this decoder again"
-          free="Hold this decoder on its frequency so tuning cannot move it by accident"
-          onLock={onLock}
-        />
+        <TuningLock locked={locked} held="Frequency locked" free="Lock frequency" onLock={onLock} />
       </span>
     </div>
   );

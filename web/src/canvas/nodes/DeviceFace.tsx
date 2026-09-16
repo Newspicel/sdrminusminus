@@ -1,14 +1,17 @@
 import { Collapsible } from "@base-ui/react/collapsible";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Radar } from "lucide-react";
 import { Button } from "../../components/BaseControls";
-import { BTN_PRIMARY, BTN_QUIET } from "../../components/controls";
+import { BTN_PRIMARY, BTN_QUIET, ICON_BTN } from "../../components/controls";
 import { deviceId } from "../../components/devices";
 import { inTuningRange, isTunable, tuningRange } from "../../components/dial";
 import { dialId, FrequencyDial } from "../../components/FrequencyDial";
 import { formatMhz } from "../../components/format";
+import { Icon } from "../../components/Icon";
 import { DeviceChoices } from "../../components/OpenRadio";
 import { RadioSettings } from "../../components/RadioSettings";
 import { Readout, ReadoutRow } from "../../components/Readout";
+import { Tip } from "../../components/Tip";
 import { TuneTo } from "../../components/TuneTo";
 import { TuningLock } from "../../components/TuningLock";
 import { createDeviceSet, devicesQuery, STATE_KEY, stateQuery } from "../../lib/api";
@@ -21,7 +24,15 @@ import { useWorkspaceContext } from "../context";
 import { patchNode } from "../graph";
 import { releaseRadio } from "../remove";
 import { arrayHolding } from "./arrayNode";
-import { faultSaid, refLabel, scannerOwnsTuning, tuneDelta, tunerDials } from "./deviceNode";
+import {
+  autoMissed,
+  autoTuning,
+  faultSaid,
+  refLabel,
+  scannerOwnsTuning,
+  tuneDelta,
+  tunerDials,
+} from "./deviceNode";
 import { FaceBody, FaceFooter, NodeShell, useFaceActive } from "./NodeShell";
 
 type DeviceNodeData = PatchNodeOf<"device">["data"];
@@ -46,6 +57,8 @@ function Tuner({
   const range = tuningRange(set.capabilities);
   const pinned = !isTunable(range);
   const held = scanning || pinned || locked || arrayTuning;
+  const auto = autoTuning(set);
+  const missed = autoMissed(set);
   const tune = (stream: number, hz: number): void =>
     applyPatch(set.id, tuneDelta(set.capabilities, stream, hz));
   return (
@@ -73,9 +86,7 @@ function Tuner({
               <span className="ml-auto flex shrink-0 items-center gap-1">
                 <TuneTo
                   title={
-                    dial.port === null
-                      ? "Type a frequency to tune to"
-                      : `Type a frequency for ${dial.port}`
+                    dial.port === null ? "Type a frequency" : `Type a frequency for ${dial.port}`
                   }
                   hz={dial.hz}
                   hint={`Reaches ${formatMhz(range.min)} – ${formatMhz(range.max)}`}
@@ -84,10 +95,29 @@ function Tuner({
                   onTune={(hz) => tune(dial.stream, hz)}
                 />
                 {index === 0 && !arrayTuning && (
+                  <Tip
+                    text={auto ? "Auto mode: following decoders" : "Auto mode: follow decoders"}
+                    render={
+                      <Button
+                        type="button"
+                        className={`${ICON_BTN} ${auto ? "bg-accent/15" : ""}`}
+                        aria-label={auto ? "Tune by hand" : "Follow the decoders"}
+                        aria-pressed={auto}
+                        disabled={scanning || arrayTuning}
+                        onClick={() => applyPatch(set.id, { tuning: auto ? "manual" : "auto" })}
+                      />
+                    }
+                  >
+                    <span className={auto ? "flex text-accent" : "flex"}>
+                      <Icon glyph={Radar} size={16} />
+                    </span>
+                  </Tip>
+                )}
+                {index === 0 && !arrayTuning && (
                   <TuningLock
                     locked={locked}
-                    held="Tuning is held; unlock it to move this radio again"
-                    free="Hold this radio where it is so tuning cannot move by accident"
+                    held="Tuning locked"
+                    free="Lock tuning"
                     onLock={onLock}
                   />
                 )}
@@ -99,6 +129,15 @@ function Tuner({
       {scanning && (
         <p className="text-xs text-ink-dim">
           The scanner is driving this radio; tuning from here is refused until it stops.
+        </p>
+      )}
+      {missed > 0 && (
+        <p
+          role="status"
+          className="text-xs text-warn"
+          title="The window cannot hold every decoder wired to this radio. Raise the sample rate, or move the ones it misses to another radio."
+        >
+          Hears {set.channels.length - missed} of {set.channels.length}
         </p>
       )}
     </div>

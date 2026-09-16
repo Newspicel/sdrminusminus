@@ -77,6 +77,7 @@ pub(super) async fn apply_template(
         let settings = DeviceSettings {
             center_hz: Some(template.center_hz),
             sample_rate: Some(rate),
+            tuning: Some(sdrmm_wire::Tuning::Auto),
             ..DeviceSettings::default()
         };
         apply_configuration(&engine, req.device_set, settings, channels, "template")?;
@@ -246,15 +247,6 @@ pub(super) fn bring_up(
     state = engine.snapshot();
 
     for binding in &report.bound {
-        if !fresh.contains(&binding.node) {
-            continue;
-        }
-        if saved
-            .device(&binding.node)
-            .is_some_and(|held| held.settings.center_hz.is_some())
-        {
-            continue;
-        }
         let Some(set) = state
             .device_sets
             .iter()
@@ -262,52 +254,12 @@ pub(super) fn bring_up(
         else {
             continue;
         };
-        let Some(rate) = set.settings.sample_rate else {
-            continue;
-        };
-        let Some(center_hz) = workspace::first_tune(
-            &snapshot.graph,
-            &binding.node,
-            saved,
-            rate,
-            &set.capabilities,
-        ) else {
-            continue;
-        };
-        let tuning = DeviceSettings {
-            center_hz: Some(center_hz),
-            ..DeviceSettings::default()
-        };
-        if let Err(err) = engine.patch_device(binding.device_set, tuning) {
-            report.refused.push(PatchRefusal {
-                node: binding.node.clone(),
-                reason: err.to_string(),
-            });
-        }
-    }
-    state = engine.snapshot();
-
-    for binding in &report.bound {
-        let Some(set) = state
-            .device_sets
-            .iter()
-            .find(|set| set.id == binding.device_set)
-        else {
-            continue;
-        };
-        let mut live: Vec<(&str, u32)> = set
-            .channels
-            .iter()
-            .map(|channel| (channel.settings.params.type_id(), channel.stream))
-            .collect();
+        let bound = workspace::bind_channels(&snapshot.graph, &binding.node, set);
         for (node, stream) in snapshot.graph.channels_of(&binding.node) {
             let NodeBody::Channel(channel) = &node.body else {
                 continue;
             };
-            if let Some(at) = live.iter().position(|(type_id, live_stream)| {
-                *type_id == channel.channel_type && *live_stream == stream
-            }) {
-                live.remove(at);
+            if bound.iter().any(|(held, _)| *held == node.id) {
                 continue;
             }
             let Some(settings) = workspace::channel_settings(
@@ -324,13 +276,24 @@ pub(super) fn bring_up(
                 });
                 continue;
             };
-            if let Err(err) = engine.add_channel(set.id, stream, settings) {
+            if let Err(err) = engine.add_channel_for(set.id, stream, settings, Some(&node.id)) {
                 report.refused.push(PatchRefusal {
                     node: node.id.clone(),
                     reason: err.to_string(),
                 });
             } else {
                 report.created += 1;
+            }
+        }
+        let cut = set.channels.iter().filter(|channel| {
+            channel.node.is_some() && !bound.iter().any(|(_, held)| *held == channel.id)
+        });
+        for channel in cut {
+            if let Err(err) = engine.remove_channel(set.id, channel.id) {
+                tracing::warn!(set = set.id, channel = channel.id, %err, "could not close an unwired decoder");
+            } else {
+                tracing::info!(set = set.id, channel = channel.id, node = ?channel.node, "closed an unwired decoder");
+                report.closed += 1;
             }
         }
     }

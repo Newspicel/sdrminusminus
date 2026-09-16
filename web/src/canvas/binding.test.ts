@@ -149,6 +149,37 @@ describe("binding", () => {
     expect(channels.get("am")?.id).toBe(7);
   });
 
+  it("binds a node to the channel opened for it, whatever the stored order", () => {
+    const g: PatchGraph = {
+      nodes: [
+        node("dev", { kind: "device", data: { device: deviceRefOf(rtl) } }),
+        node("first", { kind: "channel", data: { channel_type: "adsb" } }),
+        node("second", { kind: "channel", data: { channel_type: "adsb" } }),
+      ],
+      edges: [
+        { from: { node: "dev", port: "iq" }, to: { node: "first", port: "iq" } },
+        { from: { node: "dev", port: "iq" }, to: { node: "second", port: "iq" } },
+      ],
+    };
+    const live = set(1, rtl, [
+      { ...channel(4, "adsb"), node: "second" },
+      { ...channel(5, "adsb"), node: "first" },
+      channel(6, "adsb"),
+    ]);
+    const channels = bindChannels(g, bindDevices(g, [live]));
+    expect(channels.get("first")?.id).toBe(5);
+    expect(channels.get("second")?.id).toBe(4);
+
+    const cut: PatchGraph = { ...g, nodes: g.nodes.filter((held) => held.id !== "first") };
+    expect(bindChannels(cut, bindDevices(cut, [live])).get("second")?.id).toBe(4);
+  });
+
+  it("never hands a node a channel opened for another node", () => {
+    const live = set(1, rtl, [{ ...channel(8, "nfm"), node: "someone-else" }]);
+    const channels = bindChannels(graph(), bindDevices(graph(), [live]));
+    expect(channels.has("nfm")).toBe(false);
+  });
+
   it("leaves a node unbound when the engine has no channel of its type yet", () => {
     const devices = bindDevices(graph(), [set(1, rtl, [channel(3, "am")])]);
     const channels = bindChannels(graph(), devices);

@@ -130,6 +130,16 @@ impl Engine {
         stream: u32,
         settings: ChannelSettings,
     ) -> Result<u32, EngineError> {
+        self.add_channel_for(ds, stream, settings, None)
+    }
+
+    pub fn add_channel_for(
+        &self,
+        ds: u32,
+        stream: u32,
+        settings: ChannelSettings,
+        node: Option<&str>,
+    ) -> Result<u32, EngineError> {
         let descriptor = descriptor_for(&settings.params)?;
         let (mut device_rate, mut center_hz, id) = {
             let mut inner = self.lock();
@@ -185,6 +195,7 @@ impl Engine {
             state.channels.push(ChannelInfo {
                 id,
                 stream,
+                node: node.map(str::to_owned),
                 settings: settings.clone(),
                 out_of_band: false,
                 audio_recording: None,
@@ -208,7 +219,7 @@ impl Engine {
                 return Err(e);
             }
         };
-        self.replace_lo(ds);
+        self.settle_tuning(ds);
         self.emit(ServerEvent::StateChanged {
             scope: StateScope::DeviceSet(ds),
         });
@@ -324,7 +335,7 @@ impl Engine {
         }
         self.close_baseband_sinks(ds, ch, orphaned_baseband, "the channel was rebuilt");
         staged?;
-        self.replace_lo(ds);
+        self.settle_tuning(ds);
         self.emit(ServerEvent::StateChanged {
             scope: StateScope::DeviceSet(ds),
         });
@@ -359,7 +370,7 @@ impl Engine {
         if let Some(handle) = handle {
             handle.shutdown();
         }
-        self.replace_lo(ds);
+        self.settle_tuning(ds);
         self.emit(ServerEvent::StateChanged {
             scope: StateScope::DeviceSet(ds),
         });

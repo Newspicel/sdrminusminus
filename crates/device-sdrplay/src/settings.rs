@@ -559,6 +559,7 @@ pub fn read(target: &Target<'_>) -> DeviceSettings {
     }
     DeviceSettings {
         center_hz: Some(target.channel.tuner_params.rf_freq.rf_hz),
+        tuning: None,
         sample_rate: Some(base / f64::from(decimation)),
         ppm: Some(target.dev.ppm),
         antenna: read_antenna(target),

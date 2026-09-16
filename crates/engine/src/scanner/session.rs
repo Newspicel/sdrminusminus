@@ -223,6 +223,7 @@ pub(crate) fn stop_one(engine: &Engine, ds: u32) -> Result<ScannerStatus, Engine
     let worker =
         detach(engine, ds).ok_or_else(|| EngineError::Scan("no scan is running".to_string()))?;
     let status = worker.stop_and_join();
+    engine.settle_tuning(ds);
     engine.emit(ServerEvent::StateChanged {
         scope: StateScope::DeviceSet(ds),
     });
@@ -254,6 +255,7 @@ pub(crate) fn stop_all(engine: &Engine) -> Result<ScanSessionStatus, EngineError
             device_set: ds,
             status: worker.stop_and_join(),
         });
+        engine.settle_tuning(ds);
         engine.emit(ServerEvent::StateChanged {
             scope: StateScope::DeviceSet(ds),
         });

@@ -55,6 +55,14 @@ async fn channeltypes_lists_every_demod_exactly_once() {
 async fn channel_create_patch_and_error_mapping_over_http() {
     let app = test_router();
     let ds = create_virtual_set(&app).await;
+    let (status, _) = request(
+        app.clone(),
+        "PATCH",
+        &format!("/api/devicesets/{ds}/device"),
+        Some(r#"{"tuning":"manual"}"#),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
 
     let (status, body) = request(
         app.clone(),

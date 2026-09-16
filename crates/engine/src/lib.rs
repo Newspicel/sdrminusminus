@@ -660,6 +660,7 @@ enum FaultGate {
 enum PatchOrigin {
     Client,
     Scan,
+    Auto,
 }
 
 struct RatePatchGuard<'a> {

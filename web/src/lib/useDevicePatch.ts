@@ -9,6 +9,9 @@ export function mergeSettings(current: DeviceSettings, delta: DeviceSettings): D
   if (delta.center_hz != null) {
     next.center_hz = delta.center_hz;
   }
+  if (delta.tuning != null) {
+    next.tuning = delta.tuning;
+  }
   if (delta.sample_rate != null) {
     next.sample_rate = delta.sample_rate;
   }

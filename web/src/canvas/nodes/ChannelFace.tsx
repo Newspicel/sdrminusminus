@@ -12,7 +12,7 @@ import {
 import { BTN, BTN_PRIMARY } from "../../components/controls";
 import { ANY_FREQUENCY, tuningRange } from "../../components/dial";
 import { dialId } from "../../components/FrequencyDial";
-import { formatHz, formatMhz, formatSampleRate } from "../../components/format";
+import { formatSampleRate } from "../../components/format";
 import { LevelMeter } from "../../components/LevelMeter";
 import { SettingRow } from "../../components/Settings";
 import { devicesQuery } from "../../lib/api";
@@ -36,7 +36,6 @@ import {
   radioIsAttached,
   radioRefOf,
 } from "./channelNode";
-import { tuneDelta } from "./deviceNode";
 import { FaceBody, FaceFooter, NodeShell } from "./NodeShell";
 
 type ChannelNodeData = PatchNodeOf<"channel">["data"];
@@ -102,9 +101,6 @@ export function ChannelFace({ node }: { node: PatchNode }) {
       <FaceBody>
         {wantedRate !== null && set !== null && (
           <RateMismatch name={name} set={set} wanted={wantedRate} />
-        )}
-        {unreachable && set !== null && frequencyHz !== null && (
-          <OutOfBand set={set} stream={source?.stream ?? 0} frequencyHz={frequencyHz} />
         )}
         {settings !== null && (
           <div className="@container flex flex-col gap-1.5 border-b border-line p-2">
@@ -218,49 +214,6 @@ function FaceNotice({
       {action}
     </div>
   );
-}
-
-function OutOfBand({
-  set,
-  stream,
-  frequencyHz,
-}: {
-  set: DeviceSet;
-  stream: number;
-  frequencyHz: number;
-}) {
-  const { applyPatch } = useDevicePatch();
-  const reachable = tunerReaches(set, frequencyHz);
-  return (
-    <FaceNotice
-      tone="warn"
-      role="status"
-      title={
-        reachable
-          ? `${set.device.label} is tuned somewhere it cannot hear ${formatHz(frequencyHz)}; the decoder keeps its own frequency and stays silent until the radio comes back over it`
-          : `${set.device.label} cannot reach ${formatHz(frequencyHz)} at all, so another radio has to carry this decoder`
-      }
-      label="Radio is elsewhere"
-      action={
-        reachable ? (
-          <Button
-            type="button"
-            className={BTN}
-            onClick={() => applyPatch(set.id, tuneDelta(set.capabilities, stream, frequencyHz))}
-          >
-            Tune to {formatMhz(frequencyHz)}
-          </Button>
-        ) : (
-          <span className="text-xs">needs another radio</span>
-        )
-      }
-    />
-  );
-}
-
-function tunerReaches(set: DeviceSet, hz: number): boolean {
-  const ranges = set.capabilities.freq_ranges;
-  return ranges.length === 0 || ranges.some((range) => hz >= range.min && hz <= range.max);
 }
 
 function RateMismatch({

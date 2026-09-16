@@ -95,7 +95,7 @@ pub use device::{
     Direction, DirectionalCapabilities, Duplex, ExtraSetting, ExtraValue, GainStage, GainValue,
     MANAGED_LO_OFFSET_FRACTION, MAX_ARRAY_KEY_LEN, MAX_ARRAY_MEMBERS, MAX_LO_OFFSET_FRACTION,
     MAX_RECORDING_STEM_LEN, RECORDING_DRIVER_ID, Range, SIGGEN_DRIVER_ID, StreamScope,
-    StreamSettings, any_range_holds, lo_offset_limit_hz, managed_lo_offset_hz,
+    StreamSettings, Tuning, any_range_holds, lo_offset_limit_hz, managed_lo_offset_hz,
     recording_stem_valid,
 };
 pub use diagnostics::{DiagnosticsReport, LogLevel, LogLine, MAX_LOG_LINES, MAX_LOG_MESSAGE_LEN};

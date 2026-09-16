@@ -2,9 +2,8 @@ use std::time::Duration;
 
 use sdrmm_engine::Engine;
 use sdrmm_wire::{
-    Capabilities, ChannelSettings, DeviceSet, NodeBody, PatchGraph, ServerEvent, StateScope,
-    StateSnapshot, WorkspaceChannel, WorkspaceDevice, WorkspaceState, any_range_holds,
-    home_frequency_hz,
+    ChannelInfo, ChannelSettings, DeviceSet, NodeBody, PatchGraph, ServerEvent, StateScope,
+    StateSnapshot, WorkspaceChannel, WorkspaceDevice, WorkspaceState, home_frequency_hz,
 };
 use tokio::{sync::broadcast::error::RecvError, time::Instant};
 
@@ -123,27 +122,46 @@ fn beam_bound(graph: &PatchGraph, device_node: &str, set: &DeviceSet) -> Vec<(St
     bound
 }
 
-fn bind_channels(graph: &PatchGraph, device_node: &str, set: &DeviceSet) -> Vec<(String, u32)> {
-    let mut live: Vec<(u32, &str, u32)> = set
-        .channels
-        .iter()
-        .map(|channel| {
-            (
-                channel.id,
-                channel.settings.params.type_id(),
-                channel.stream,
-            )
+fn carries(live: &ChannelInfo, channel_type: &str, stream: u32) -> bool {
+    live.settings.params.type_id() == channel_type && live.stream == stream
+}
+
+/// Every channel node wired into a radio paired with the live decoder that is its own. A decoder
+/// opened for a node answers to that node alone; one nobody opened for a node, such as a
+/// template's, goes to the first node of its kind on its stream that is still unpaired.
+pub(crate) fn bind_channels(
+    graph: &PatchGraph,
+    device_node: &str,
+    set: &DeviceSet,
+) -> Vec<(String, u32)> {
+    let mut free: Vec<&ChannelInfo> = set.channels.iter().collect();
+    let wired: Vec<(&str, &str, u32)> = graph
+        .channels_of(device_node)
+        .filter_map(|(node, stream)| match &node.body {
+            NodeBody::Channel(channel) => {
+                Some((node.id.as_str(), channel.channel_type.as_str(), stream))
+            }
+            _ => None,
         })
         .collect();
     let mut bound = Vec::new();
-    for (node, stream) in graph.channels_of(device_node) {
-        let NodeBody::Channel(channel) = &node.body else {
+    for (node, channel_type, stream) in &wired {
+        let own = free.iter().position(|live| {
+            live.node.as_deref() == Some(*node) && carries(live, channel_type, *stream)
+        });
+        if let Some(at) = own {
+            bound.push(((*node).to_owned(), free.remove(at).id));
+        }
+    }
+    for (node, channel_type, stream) in &wired {
+        if bound.iter().any(|(held, _)| held == node) {
             continue;
-        };
-        if let Some(at) = live.iter().position(|(_, type_id, live_stream)| {
-            *type_id == channel.channel_type && *live_stream == stream
-        }) {
-            bound.push((node.id.clone(), live.remove(at).0));
+        }
+        let unclaimed = free
+            .iter()
+            .position(|live| live.node.is_none() && carries(live, channel_type, *stream));
+        if let Some(at) = unclaimed {
+            bound.push(((*node).to_owned(), free.remove(at).id));
         }
     }
     bound.extend(beam_bound(graph, device_node, set));
@@ -511,46 +529,6 @@ pub(crate) fn restore_device(
     } else {
         Restored::Partial
     })
-}
-
-/// How much of the passband the decoders may spread over before centring between them stops being
-/// worth it and the radio simply opens on the lowest one.
-const COVERED_FRACTION: f64 = 0.8;
-
-/// Where to open a radio nobody has tuned by hand: over the decoders wired into it, so a patch
-/// drawn before any hardware was attached comes up hearing what it was drawn to hear.
-pub(crate) fn first_tune(
-    graph: &PatchGraph,
-    node: &str,
-    saved: &WorkspaceState,
-    rate_hz: f64,
-    capabilities: &Capabilities,
-) -> Option<f64> {
-    let mut wanted: Vec<f64> = graph
-        .channels_of(node)
-        .filter_map(|(patch, _)| match &patch.body {
-            NodeBody::Channel(channel) => {
-                let asked = saved.channel(&patch.id).is_some()
-                    || home_frequency_hz(&channel.channel_type).is_some();
-                asked
-                    .then(|| channel_settings(&patch.id, &channel.channel_type, saved, None))
-                    .flatten()
-            }
-            _ => None,
-        })
-        .map(|settings| settings.frequency_hz)
-        .filter(|hz| hz.is_finite() && *hz > 0.0)
-        .collect();
-    wanted.sort_by(f64::total_cmp);
-    let low = *wanted.first()?;
-    let high = *wanted.last()?;
-    let center = if high - low < rate_hz * COVERED_FRACTION {
-        f64::midpoint(low, high)
-    } else {
-        low
-    };
-    (capabilities.freq_ranges.is_empty() || any_range_holds(&capabilities.freq_ranges, center))
-        .then_some(center)
 }
 
 /// What a channel node starts on. A decoder that was set keeps what it was set to; one that never

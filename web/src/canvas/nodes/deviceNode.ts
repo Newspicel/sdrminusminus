@@ -22,10 +22,18 @@ export function tunerDials(set: DeviceSet): TunerDial[] {
   }));
 }
 
+export function autoTuning(set: DeviceSet): boolean {
+  return (set.settings.tuning ?? "auto") === "auto";
+}
+
 export function tuneDelta(capabilities: Capabilities, stream: number, hz: number): DeviceSettings {
   return capabilities.per_stream?.tuning === true
-    ? { streams: [{ stream, center_hz: hz }] }
-    : { center_hz: hz };
+    ? { streams: [{ stream, center_hz: hz }], tuning: "manual" }
+    : { center_hz: hz, tuning: "manual" };
+}
+
+export function autoMissed(set: DeviceSet): number {
+  return autoTuning(set) ? set.channels.filter((channel) => channel.out_of_band).length : 0;
 }
 
 export function refLabel(reference: DeviceRef): string {

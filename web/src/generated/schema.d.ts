@@ -2027,6 +2027,11 @@ export interface components {
             id: number;
             network_export?: null | components["schemas"]["NetworkExportStatus"];
             /**
+             * @description The patch node this decoder was opened for, so a workspace finds its own decoder again
+             *     rather than the next one of the same kind.
+             */
+            node?: string | null;
+            /**
              * @description The radio carrying this decoder is tuned somewhere it cannot hear the decoder's frequency,
              *     so the channel is alive and set up but silent until the radio comes back over it.
              */
@@ -3144,6 +3149,7 @@ export interface components {
             /** Format: double */
             sample_rate?: number | null;
             streams?: components["schemas"]["StreamSettings"][];
+            tuning?: null | components["schemas"]["Tuning"];
         };
         DevicesResponse: {
             devices: components["schemas"]["DeviceInfo"][];
@@ -4422,6 +4428,8 @@ export interface components {
             absent?: string[];
             bound: components["schemas"]["PatchBinding"][];
             /** Format: int32 */
+            closed?: number;
+            /** Format: int32 */
             created: number;
             /** Format: int32 */
             opened: number;
@@ -5560,6 +5568,8 @@ export interface components {
             /** Format: int32 */
             searching?: number;
         };
+        /** @enum {string} */
+        Tuning: "auto" | "manual";
         UpdateWorkspaceRequest: {
             name?: string | null;
             /** Format: int64 */

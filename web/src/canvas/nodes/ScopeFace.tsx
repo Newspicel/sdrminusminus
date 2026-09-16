@@ -88,7 +88,7 @@ import { BandRuler } from "./BandRuler";
 import { BasebandView } from "./BasebandView";
 import { ChannelPicker } from "./ChannelPicker";
 import { lockedChannels } from "./channelNode";
-import { tuneDelta } from "./deviceNode";
+import { autoTuning, tuneDelta } from "./deviceNode";
 import { type TrunkChannelOwner, trunkChannelRoles } from "./dmrTrunk";
 import { FaceBody, NodeShell, useFaceActive, useFaceWheel } from "./NodeShell";
 import { ScopeMenu, type ScopeMenuAt } from "./ScopeMenu";
@@ -345,7 +345,8 @@ function Spectrum({
       tuneCenter(hz);
       return;
     }
-    if (meta === null || Math.abs(hz - meta.centerHz) >= meta.spanHz / 2) {
+    const held = set === null || !autoTuning(set);
+    if (held && (meta === null || Math.abs(hz - meta.centerHz) >= meta.spanHz / 2)) {
       tuneCenter(hz);
     }
     applyEdit(setId, tunableChannel, { frequency_hz: Math.round(hz), ...params });

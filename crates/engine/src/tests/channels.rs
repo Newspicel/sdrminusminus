@@ -121,6 +121,7 @@ async fn live_position_survives_a_channel_rate_rebuild() {
 async fn a_channel_the_radio_cannot_reach_opens_silent_rather_than_refused() {
     let engine = virtual_engine();
     let ds = engine.create_device_set("virtual:siggen").unwrap();
+    hold_tuning(&engine, ds);
     let ch = engine
         .add_channel(ds, 0, nfm_settings(1_100_000.0))
         .unwrap();
@@ -247,6 +248,7 @@ async fn patch_channel_rejects_missing_channel() {
 async fn narrowing_the_window_past_a_channel_mutes_it_without_moving_it() {
     let engine = virtual_engine();
     let ds = engine.create_device_set("virtual:siggen").unwrap();
+    hold_tuning(&engine, ds);
     let ch = engine.add_channel(ds, 0, nfm_settings(900_000.0)).unwrap();
     engine
         .patch_device(
@@ -408,4 +410,21 @@ async fn virtual_capture_recovers_from_a_stalled_dsp_with_an_audio_timestamp_gap
             .any(|queue| queue.stage == sdrmm_wire::PipelineStage::Capture
                 && queue.health.dropped > 0)
     );
+}
+
+#[tokio::test]
+async fn a_channel_keeps_the_node_it_was_opened_for_through_a_retune() {
+    let engine = virtual_engine();
+    let ds = engine.create_device_set("virtual:siggen").unwrap();
+    let ch = engine
+        .add_channel_for(ds, 0, nfm_settings(0.0), Some("voice"))
+        .unwrap();
+    engine
+        .patch_channel(ds, ch, nfm_settings(25_000.0))
+        .unwrap();
+    let set = &engine.snapshot().device_sets[0];
+    assert_eq!(set.channels[0].node.as_deref(), Some("voice"));
+    engine.add_channel(ds, 0, nfm_settings(0.0)).unwrap();
+    assert_eq!(engine.snapshot().device_sets[0].channels[1].node, None);
+    engine.remove_device_set(ds).unwrap();
 }

@@ -305,8 +305,10 @@ function ContextMenu({
     items.push(
       item(
         "Delete wire",
-        () =>
-          workspace.edit((snapshot) => ({ ...snapshot, graph: removeEdge(snapshot.graph, key) })),
+        () => {
+          workspace.edit((snapshot) => ({ ...snapshot, graph: removeEdge(snapshot.graph, key) }));
+          workspace.apply();
+        },
         { danger: true },
       ),
     );

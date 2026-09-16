@@ -9,6 +9,7 @@ async fn validate_honors_configured_bandwidth_and_sideband() {
             ds,
             DeviceSettings {
                 sample_rate: Some(250_000.0),
+                tuning: Some(Tuning::Manual),
                 ..Default::default()
             },
         )

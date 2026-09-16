@@ -148,6 +148,7 @@ pub(crate) fn stop(engine: &Engine, ds: u32) -> Result<HuntStatus, EngineError> 
         hunt
     };
     let status = hunt.stop_and_join();
+    engine.settle_tuning(ds);
     engine.emit(ServerEvent::StateChanged {
         scope: StateScope::DeviceSet(ds),
     });

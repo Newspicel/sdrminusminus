@@ -9,12 +9,13 @@ use sdrmm_device::{DeviceDriver, DeviceRegistry, RxSink, SdrDevice, lock, single
 use sdrmm_wire::{
     AdsbParams, AudioProcessing, ChannelParams, ChannelSettings, DcArtifact, DecoderEvent, Duplex,
     MAX_TIME_MACHINE_SECONDS, NfmParams, ScanState, Sideband, SsbParams, StreamScope,
-    TimeMachineAction, TimeMachineNode, TimeMachineStatus,
+    TimeMachineAction, TimeMachineNode, TimeMachineStatus, Tuning,
 };
 
 use super::*;
-use crate::planning::artifact_clears_channels;
+use crate::planning::{artifact_clears_channels, plan_front_end};
 
+mod auto_tuning;
 mod channel_capture;
 mod channels;
 mod device_patch;
@@ -26,6 +27,18 @@ mod hotplug;
 mod recording;
 mod scanning;
 mod time_machine;
+
+fn hold_tuning(engine: &Engine, ds: u32) {
+    engine
+        .patch_device(
+            ds,
+            DeviceSettings {
+                tuning: Some(Tuning::Manual),
+                ..DeviceSettings::default()
+            },
+        )
+        .expect("hold the radio where the test put it");
+}
 
 fn mock_info(key: &str, serial: Option<&str>) -> DeviceInfo {
     DeviceInfo {
@@ -1113,6 +1126,7 @@ fn parked(id: u32, offset_hz: f64) -> ChannelInfo {
     ChannelInfo {
         id,
         stream: 0,
+        node: None,
         settings: nfm_settings(offset_hz),
         out_of_band: false,
         audio_recording: None,

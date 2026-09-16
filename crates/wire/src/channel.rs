@@ -1698,6 +1698,10 @@ pub struct ChannelInfo {
     pub id: u32,
     #[serde(default)]
     pub stream: u32,
+    /// The patch node this decoder was opened for, so a workspace finds its own decoder again
+    /// rather than the next one of the same kind.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub node: Option<String>,
     pub settings: ChannelSettings,
     /// The radio carrying this decoder is tuned somewhere it cannot hear the decoder's frequency,
     /// so the channel is alive and set up but silent until the radio comes back over it.

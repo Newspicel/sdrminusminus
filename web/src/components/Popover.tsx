@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { useState } from "react";
 import { SURFACE } from "./controls";
 import { usePortalContainer } from "./PortalContainer";
+import { Tip } from "./Tip";
 
 const HOVER_DELAY_MS = 120;
 
@@ -29,19 +30,23 @@ export function Popover({
 }) {
   const [open, setOpen] = useState(false);
   const portalContainer = usePortalContainer();
+  const triggerProps = {
+    className: triggerClass,
+    disabled,
+    openOnHover,
+    delay: HOVER_DELAY_MS,
+    "aria-label": title,
+  };
 
   return (
     <Primitive.Root open={open} onOpenChange={setOpen}>
-      <Primitive.Trigger
-        className={triggerClass}
-        disabled={disabled}
-        openOnHover={openOnHover}
-        delay={HOVER_DELAY_MS}
-        title={title}
-        aria-label={title}
-      >
-        {label}
-      </Primitive.Trigger>
+      {title === undefined ? (
+        <Primitive.Trigger {...triggerProps}>{label}</Primitive.Trigger>
+      ) : (
+        <Tip text={title} render={<Primitive.Trigger {...triggerProps} />}>
+          {label}
+        </Tip>
+      )}
       <Primitive.Portal container={portalContainer} className="contents">
         <Primitive.Positioner className="z-30" side="bottom" align={align} sideOffset={4}>
           <Primitive.Popup

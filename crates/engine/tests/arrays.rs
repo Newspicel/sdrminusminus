@@ -5,7 +5,7 @@ use std::{sync::Arc, time::Duration};
 use sdrmm_device::DeviceRegistry;
 use sdrmm_device_virtual::VirtualDriver;
 use sdrmm_engine::Engine;
-use sdrmm_wire::{ArrayDefinition, ChannelSettings, Coherence, DeviceSettings};
+use sdrmm_wire::{ArrayDefinition, ChannelSettings, Coherence, DeviceSettings, Tuning};
 
 fn engine() -> Arc<Engine> {
     engine_at(None)
@@ -128,14 +128,26 @@ fn definition() -> ArrayDefinition {
 }
 
 fn members(engine: &Engine) -> [u32; 2] {
-    [
+    let sources = [
         engine
             .create_device_set("virtual:siggen")
             .expect("source one"),
         engine
             .create_device_set("virtual:halfduplex")
             .expect("source two"),
-    ]
+    ];
+    for ds in sources {
+        engine
+            .patch_device(
+                ds,
+                DeviceSettings {
+                    tuning: Some(Tuning::Manual),
+                    ..DeviceSettings::default()
+                },
+            )
+            .expect("an array wants its members tuned together");
+    }
+    sources
 }
 
 #[test]

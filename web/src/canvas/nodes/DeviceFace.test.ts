@@ -1,7 +1,15 @@
 import { describe, expect, it } from "vitest";
 import type { Capabilities, DeviceSet, ScannerStatus } from "../../lib/types";
 import { mergeSettings } from "../../lib/useDevicePatch";
-import { faultSaid, refLabel, scannerOwnsTuning, tuneDelta, tunerDials } from "./deviceNode";
+import {
+  autoMissed,
+  autoTuning,
+  faultSaid,
+  refLabel,
+  scannerOwnsTuning,
+  tuneDelta,
+  tunerDials,
+} from "./deviceNode";
 
 function capabilities(overrides: Partial<Capabilities> = {}): Capabilities {
   return {
@@ -93,16 +101,20 @@ describe("tunerDials", () => {
 });
 
 describe("tuneDelta", () => {
-  it("retunes the whole radio when tuning is shared", () => {
+  it("retunes the whole radio when tuning is shared, and takes the wheel", () => {
     expect(tuneDelta(capabilities({ rx_streams: 4 }), 0, 145_500_000)).toEqual({
       center_hz: 145_500_000,
+      tuning: "manual",
     });
   });
 
   it("tunes only the lane touched on a per-stream radio", () => {
     const caps = capabilities({ rx_streams: 2, per_stream: { tuning: true } });
     const delta = tuneDelta(caps, 1, 434_000_000);
-    expect(delta).toEqual({ streams: [{ stream: 1, center_hz: 434_000_000 }] });
+    expect(delta).toEqual({
+      streams: [{ stream: 1, center_hz: 434_000_000 }],
+      tuning: "manual",
+    });
 
     const set = deviceSet({
       capabilities: caps,
@@ -161,5 +173,36 @@ describe("faultSaid", () => {
   it("leaves a fault nobody can act on to its own message", () => {
     expect(faultSaid(deviceSet({ status: "error", fault: "other", error: "boom" }))).toBeNull();
     expect(faultSaid(deviceSet({ status: "error", error: "boom" }))).toBeNull();
+  });
+});
+
+describe("autoTuning", () => {
+  it("follows the decoders until the operator takes the wheel", () => {
+    expect(autoTuning(deviceSet())).toBe(true);
+    expect(autoTuning(deviceSet({ settings: { tuning: "auto" } }))).toBe(true);
+    expect(autoTuning(deviceSet({ settings: { tuning: "manual" } }))).toBe(false);
+  });
+});
+
+function carrying(out: boolean[]): DeviceSet["channels"] {
+  return out.map((out_of_band, id) => ({
+    id,
+    stream: 0,
+    out_of_band,
+    settings: {
+      frequency_hz: 100_000_000,
+      params: { type: "nfm", settings: {} },
+    } as DeviceSet["channels"][number]["settings"],
+  }));
+}
+
+describe("autoMissed", () => {
+  it("counts the decoders an auto radio cannot fit in its window", () => {
+    expect(autoMissed(deviceSet({ channels: carrying([false, true, true]) }))).toBe(2);
+  });
+
+  it("says nothing about a radio the operator is tuning by hand", () => {
+    const set = deviceSet({ settings: { tuning: "manual" }, channels: carrying([true]) });
+    expect(autoMissed(set)).toBe(0);
   });
 });

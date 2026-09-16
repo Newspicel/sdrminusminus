@@ -2,7 +2,7 @@ import { iqSourceOf } from "../canvas/binding";
 import { useWorkspaceContext, type Workspace } from "../canvas/context";
 import { descriptorOf, nodeOf } from "../canvas/graph";
 import type { ChannelTarget, TuneTarget } from "../canvas/libraryTarget";
-import { tuneDelta } from "../canvas/nodes/deviceNode";
+import { autoTuning, tuneDelta } from "../canvas/nodes/deviceNode";
 import { radioWindowHz, reachesHz } from "../components/channelSettings";
 import type { ChannelDescriptor, DeviceSet, DeviceSettings } from "./types";
 import { channelSettingsOf, useChannelEdit } from "./useChannelEdit";
@@ -51,6 +51,9 @@ export function radioPullFor(
   descriptor: ChannelDescriptor | undefined,
   hz: number,
 ): DeviceSettings | null {
+  if (autoTuning(set)) {
+    return null;
+  }
   const centerHz = forStream(set.settings, stream, set.capabilities.per_stream).center_hz ?? null;
   return reachesHz(hz, radioWindowHz(centerHz, set.settings.sample_rate, descriptor))
     ? null

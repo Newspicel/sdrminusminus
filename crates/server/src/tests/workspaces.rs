@@ -1120,3 +1120,97 @@ async fn an_open_radio_holds_its_frequency_when_a_decoder_is_wired_in() {
         "a decoder wired into a running radio may not drag it off frequency"
     );
 }
+
+#[tokio::test]
+async fn cutting_a_decoders_wire_closes_it_and_hands_the_window_to_the_rest() {
+    let app = test_router();
+    let mut snapshot = virtual_snapshot(
+        "halfduplex",
+        &[("planes", "adsb", "iq"), ("voice", "aprs", "iq")],
+    );
+    let workspace = put_active_workspace(&app, &snapshot).await;
+    let opened = apply(&app, workspace).await;
+    assert!(opened.refused.is_empty(), "{:?}", opened.refused);
+
+    let set = &get_state(&app).await.device_sets[0];
+    assert_eq!(set.channels.len(), 2);
+    assert_eq!(
+        set.channels.iter().filter(|c| c.out_of_band).count(),
+        1,
+        "one window cannot hold both of these decoders at once"
+    );
+
+    snapshot.graph.edges.retain(|edge| edge.to.node != "planes");
+    snapshot.graph.nodes.retain(|node| node.id != "planes");
+    put_workspace_revision(&app, &snapshot, 2).await;
+    let report = apply(&app, workspace).await;
+    assert_eq!(report.closed, 1, "the unwired decoder went on running");
+
+    let set = &get_state(&app).await.device_sets[0];
+    assert_eq!(set.channels.len(), 1);
+    assert!(
+        !set.channels[0].out_of_band,
+        "the radio stayed on the decoder that was cut away, at {:?}",
+        set.settings.center_hz
+    );
+}
+
+async fn retune(app: &Router, set: u32, channel: u32, frequency_hz: f64) {
+    let (status, body) = request(
+        app.clone(),
+        "PATCH",
+        &format!("/api/devicesets/{set}/channels/{channel}"),
+        Some(&format!(
+            r#"{{"frequency_hz":{frequency_hz},"params":{{"type":"nfm","settings":{{}}}}}}"#
+        )),
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::NO_CONTENT,
+        "{}",
+        String::from_utf8_lossy(&body)
+    );
+}
+
+#[tokio::test]
+async fn cutting_one_of_two_alike_decoders_leaves_the_other_where_it_was_set() {
+    let app = test_router();
+    let mut snapshot =
+        virtual_snapshot("siggen", &[("first", "nfm", "iq"), ("second", "nfm", "iq")]);
+    let workspace = put_active_workspace(&app, &snapshot).await;
+    let opened = apply(&app, workspace).await;
+    assert!(opened.refused.is_empty(), "{:?}", opened.refused);
+
+    let set = get_state(&app).await.device_sets[0].clone();
+    let by_node = |node: &str| {
+        set.channels
+            .iter()
+            .find(|channel| channel.node.as_deref() == Some(node))
+            .unwrap_or_else(|| panic!("no decoder was opened for {node}"))
+            .id
+    };
+    let center_hz = set.settings.center_hz.expect("an open radio is tuned");
+    retune(&app, set.id, by_node("first"), center_hz + 100_000.0).await;
+    retune(&app, set.id, by_node("second"), center_hz + 200_000.0).await;
+    let settled_hz = get_state(&app).await.device_sets[0].settings.center_hz;
+
+    snapshot.graph.edges.retain(|edge| edge.to.node != "first");
+    snapshot.graph.nodes.retain(|node| node.id != "first");
+    put_workspace_revision(&app, &snapshot, 2).await;
+    let report = apply(&app, workspace).await;
+    assert_eq!(report.closed, 1, "{report:?}");
+
+    let set = &get_state(&app).await.device_sets[0];
+    assert_eq!(set.channels.len(), 1);
+    assert_eq!(set.channels[0].node.as_deref(), Some("second"));
+    assert_eq!(
+        set.channels[0].settings.frequency_hz,
+        center_hz + 200_000.0,
+        "the surviving decoder was handed the cut one's frequency"
+    );
+    assert_eq!(
+        set.settings.center_hz, settled_hz,
+        "the radio moved for nothing"
+    );
+}

@@ -46,6 +46,7 @@ export function useAppHotkeys(b: AppHotkeys) {
       const wanted = current + steps * b.stepHz;
       b.applyPatch(b.selectedSet.id, {
         center_hz: Math.min(range.max, Math.max(range.min, wanted)),
+        tuning: "manual",
       });
     },
     stepBy: (direction) => {

@@ -5,7 +5,7 @@ use sdrmm_wire::{
     DeviceSettings, StreamSettings,
 };
 
-use crate::{DEFAULT_CENTER_HZ, EngineError, sample_rate_of};
+use crate::{DEFAULT_CENTER_HZ, EngineError, center_of, sample_rate_of};
 
 pub(crate) fn channel_input_rate(descriptor: &ChannelDescriptor, device_rate: f64) -> f64 {
     match descriptor.native_rate_range() {
@@ -268,4 +268,180 @@ pub(crate) fn validate_streams(
         }
     }
     Ok(())
+}
+
+const SPAN_EPSILON_HZ: f64 = 1e-6;
+
+type Span = (f64, f64);
+
+fn feasible_span(channel: &ChannelInfo, rate: f64) -> Option<Span> {
+    let (low, high) = sdrmm_channels::occupied_band(&channel.settings.params);
+    let nyquist = rate / 2.0;
+    let frequency_hz = channel.settings.frequency_hz;
+    if !frequency_hz.is_finite() {
+        return None;
+    }
+    let lowest = frequency_hz + high - nyquist;
+    let highest = frequency_hz + low + nyquist;
+    (lowest <= highest).then_some((lowest, highest))
+}
+
+fn holds(span: Span, center_hz: f64) -> bool {
+    span.0 <= center_hz + SPAN_EPSILON_HZ && center_hz <= span.1 + SPAN_EPSILON_HZ
+}
+
+fn covered_count(spans: &[Span], center_hz: f64) -> usize {
+    spans.iter().filter(|span| holds(**span, center_hz)).count()
+}
+
+fn narrowest_margin_hz(spans: &[Span], center_hz: f64) -> f64 {
+    spans
+        .iter()
+        .filter(|span| holds(**span, center_hz))
+        .map(|(low, high)| (center_hz - low).min(high - center_hz))
+        .fold(f64::INFINITY, f64::min)
+}
+
+fn with_center(
+    settings: &DeviceSettings,
+    capabilities: &Capabilities,
+    stream: u32,
+    center_hz: f64,
+) -> DeviceSettings {
+    let mut probe = settings.clone();
+    if capabilities.per_stream.tuning {
+        match probe.streams.iter_mut().find(|s| s.stream == stream) {
+            Some(existing) => existing.center_hz = Some(center_hz),
+            None => probe.streams.push(StreamSettings {
+                stream,
+                center_hz: Some(center_hz),
+                gains: Vec::new(),
+                antenna: None,
+            }),
+        }
+    } else {
+        probe.center_hz = Some(center_hz);
+    }
+    probe
+}
+
+fn engine_owns_artifact(capabilities: &Capabilities, settings: &DeviceSettings) -> bool {
+    match capabilities.dc_artifact {
+        DcArtifact::None => false,
+        DcArtifact::Managed => true,
+        DcArtifact::Operator => settings.lo_offset_hz.is_some_and(|hz| hz != 0.0),
+    }
+}
+
+fn artifact_is_clear(
+    capabilities: &Capabilities,
+    settings: &DeviceSettings,
+    stream: u32,
+    center_hz: f64,
+    channels: &[ChannelInfo],
+) -> bool {
+    if !engine_owns_artifact(capabilities, settings) {
+        return true;
+    }
+    let probe = with_center(settings, capabilities, stream, center_hz);
+    let plan = plan_front_end(capabilities, &probe, channels);
+    artifact_clears_channels(plan.lo_offset_hz, &probe, capabilities, channels)
+}
+
+fn candidate_centers(spans: &[Span], channels: &[ChannelInfo], current_hz: f64) -> Vec<f64> {
+    let mut candidates = vec![current_hz];
+    for anchor in spans {
+        let held = spans.iter().filter(|span| holds(**span, anchor.0));
+        let (low, high) = held.fold((f64::NEG_INFINITY, f64::INFINITY), |(low, high), span| {
+            (low.max(span.0), high.min(span.1))
+        });
+        if !(low.is_finite() && high.is_finite() && low <= high) {
+            continue;
+        }
+        candidates.push(f64::midpoint(low, high));
+        for channel in channels {
+            let clear_of = channel_half_width_hz(&channel.settings.params) + 1.0;
+            let frequency_hz = channel.settings.frequency_hz;
+            candidates.extend(
+                [frequency_hz - clear_of, frequency_hz + clear_of]
+                    .into_iter()
+                    .filter(|hz| (low..=high).contains(hz)),
+            );
+        }
+    }
+    candidates
+}
+
+fn best_center_hz(
+    capabilities: &Capabilities,
+    settings: &DeviceSettings,
+    stream: u32,
+    channels: &[ChannelInfo],
+    current_hz: f64,
+) -> Option<f64> {
+    let rate = sample_rate_of(settings);
+    let spans: Vec<Span> = channels
+        .iter()
+        .filter_map(|channel| feasible_span(channel, rate))
+        .collect();
+    if spans.is_empty() {
+        return None;
+    }
+    let rank = |center_hz: f64| {
+        (
+            covered_count(&spans, center_hz),
+            artifact_is_clear(capabilities, settings, stream, center_hz, channels),
+            (center_hz - current_hz).abs() <= SPAN_EPSILON_HZ,
+            narrowest_margin_hz(&spans, center_hz),
+        )
+    };
+    candidate_centers(&spans, channels, current_hz)
+        .into_iter()
+        .filter(|hz| hz.is_finite() && tuner_reaches(capabilities, *hz))
+        .max_by(|a, b| {
+            rank(*a)
+                .partial_cmp(&rank(*b))
+                .unwrap_or(std::cmp::Ordering::Equal)
+        })
+}
+
+pub(crate) fn plan_center(
+    capabilities: &Capabilities,
+    settings: &DeviceSettings,
+    channels: &[ChannelInfo],
+) -> Option<DeviceSettings> {
+    let scope = capabilities.per_stream;
+    if !scope.tuning {
+        let current_hz = center_of(settings, 0, &scope);
+        let center_hz = best_center_hz(capabilities, settings, 0, channels, current_hz)?;
+        return (center_hz != current_hz).then(|| DeviceSettings {
+            center_hz: Some(center_hz),
+            ..DeviceSettings::default()
+        });
+    }
+    let mut streams = Vec::new();
+    for stream in 0..capabilities.rx_streams {
+        let mine: Vec<ChannelInfo> = channels
+            .iter()
+            .filter(|channel| channel.stream == stream)
+            .cloned()
+            .collect();
+        let current_hz = center_of(settings, stream, &scope);
+        let Some(center_hz) = best_center_hz(capabilities, settings, stream, &mine, current_hz)
+        else {
+            continue;
+        };
+        if center_hz != current_hz {
+            streams.push(StreamSettings {
+                stream,
+                center_hz: Some(center_hz),
+                gains: Vec::new(),
+                antenna: None,
+            });
+        }
+    }
+    (!streams.is_empty()).then(|| DeviceSettings {
+        streams,
+        ..DeviceSettings::default()
+    })
 }

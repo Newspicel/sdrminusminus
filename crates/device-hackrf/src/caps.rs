@@ -201,6 +201,7 @@ pub(crate) fn validate(
 pub(crate) fn settings_from_config(config: &Config) -> DeviceSettings {
     DeviceSettings {
         center_hz: Some(config.frequency_hz as f64),
+        tuning: None,
         sample_rate: Some(f64::from(config.sample_rate_hz)),
         ppm: None,
         antenna: Some(ANTENNA.to_string()),

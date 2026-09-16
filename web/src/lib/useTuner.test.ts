@@ -14,7 +14,7 @@ function set(over: Partial<DeviceSet["settings"]> = {}): DeviceSet {
       bandwidths: [],
       duplex: "rx_only",
     },
-    settings: { center_hz: 145_000_000, sample_rate: 2_000_000, ...over },
+    settings: { center_hz: 145_000_000, sample_rate: 2_000_000, tuning: "manual", ...over },
     status: "running",
     channels: [],
     overruns: 0,
@@ -29,11 +29,18 @@ describe("radioPullFor", () => {
   });
 
   it("pulls the radio over a frequency outside its window", () => {
-    expect(radioPullFor(set(), 0, NFM, 433_500_000)).toEqual({ center_hz: 433_500_000 });
+    expect(radioPullFor(set(), 0, NFM, 433_500_000)).toEqual({
+      center_hz: 433_500_000,
+      tuning: "manual",
+    });
   });
 
   it("leaves a radio alone that has no window yet", () => {
     expect(radioPullFor(set({ sample_rate: undefined }), 0, NFM, 433_500_000)).toBeNull();
+  });
+
+  it("leaves an auto radio to the engine, which moves it over the decoder itself", () => {
+    expect(radioPullFor(set({ tuning: "auto" }), 0, NFM, 433_500_000)).toBeNull();
   });
 });
 

@@ -6749,6 +6749,13 @@
               }
             ]
           },
+          "node": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The patch node this decoder was opened for, so a workspace finds its own decoder again\nrather than the next one of the same kind."
+          },
           "out_of_band": {
             "type": "boolean",
             "description": "The radio carrying this decoder is tuned somewhere it cannot hear the decoder's frequency,\nso the channel is alive and set up but silent until the radio comes back over it."
@@ -11185,6 +11192,16 @@
             "items": {
               "$ref": "#/components/schemas/StreamSettings"
             }
+          },
+          "tuning": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/Tuning"
+              }
+            ]
           }
         }
       },
@@ -15614,6 +15631,11 @@
               "$ref": "#/components/schemas/PatchBinding"
             }
           },
+          "closed": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
           "created": {
             "type": "integer",
             "format": "int32",
@@ -19737,6 +19759,13 @@
             "minimum": 0
           }
         }
+      },
+      "Tuning": {
+        "type": "string",
+        "enum": [
+          "auto",
+          "manual"
+        ]
       },
       "UpdateWorkspaceRequest": {
         "type": "object",

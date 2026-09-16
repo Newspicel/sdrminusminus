@@ -47,13 +47,18 @@ export function useGraphChanges(
   const handleEdgesChange = useCallback(
     (changes: EdgeChange<Edge>[]) => {
       onEdgesChange(changes);
+      let cut = false;
       for (const change of changes) {
         if (change.type === "remove") {
           workspace.edit((snapshot) => ({
             ...snapshot,
             graph: removeEdge(snapshot.graph, change.id),
           }));
+          cut = true;
         }
+      }
+      if (cut) {
+        workspace.apply();
       }
     },
     [onEdgesChange, workspace],

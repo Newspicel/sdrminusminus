@@ -94,6 +94,22 @@ export function bindDevices(graph: PatchGraph, sets: readonly DeviceSet[]): Map<
   return bound;
 }
 
+function carries(channel: ChannelInfo, channelType: string, stream: number): boolean {
+  return channel.settings.params.type === channelType && (channel.stream ?? 0) === stream;
+}
+
+function claim(
+  bound: Map<string, ChannelInfo>,
+  free: ChannelInfo[],
+  node: string,
+  at: number,
+): void {
+  const [channel] = free.splice(at, 1);
+  if (channel !== undefined) {
+    bound.set(node, channel);
+  }
+}
+
 export function bindChannels(
   graph: PatchGraph,
   devices: ReadonlyMap<string, DeviceSet>,
@@ -101,17 +117,24 @@ export function bindChannels(
   const bound = new Map<string, ChannelInfo>();
   for (const [deviceNode, set] of devices) {
     const free = [...set.channels];
-    for (const { node, stream } of channelNodesOf(graph, deviceNode)) {
-      const at = free.findIndex(
-        (channel) =>
-          channel.settings.params.type === node.data.channel_type &&
-          (channel.stream ?? 0) === stream,
+    const wired = channelNodesOf(graph, deviceNode);
+    for (const { node, stream } of wired) {
+      const own = free.findIndex(
+        (channel) => channel.node === node.id && carries(channel, node.data.channel_type, stream),
       );
-      if (at >= 0) {
-        const [channel] = free.splice(at, 1);
-        if (channel !== undefined) {
-          bound.set(node.id, channel);
-        }
+      if (own >= 0) {
+        claim(bound, free, node.id, own);
+      }
+    }
+    for (const { node, stream } of wired) {
+      if (bound.has(node.id)) {
+        continue;
+      }
+      const unclaimed = free.findIndex(
+        (channel) => channel.node == null && carries(channel, node.data.channel_type, stream),
+      );
+      if (unclaimed >= 0) {
+        claim(bound, free, node.id, unclaimed);
       }
     }
   }

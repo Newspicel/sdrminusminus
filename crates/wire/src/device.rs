@@ -601,10 +601,20 @@ pub struct ExtraValue {
     pub value: serde_json::Value,
 }
 
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum Tuning {
+    #[default]
+    Auto,
+    Manual,
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct DeviceSettings {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub center_hz: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tuning: Option<Tuning>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sample_rate: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -691,6 +701,9 @@ impl DeviceSettings {
         if delta.center_hz.is_some() {
             self.center_hz = delta.center_hz;
         }
+        if delta.tuning.is_some() {
+            self.tuning = delta.tuning;
+        }
         if delta.sample_rate.is_some() {
             self.sample_rate = delta.sample_rate;
         }
@@ -737,6 +750,7 @@ impl DeviceSettings {
             center_hz: self
                 .center_hz
                 .filter(|hz| reaches(&capabilities.freq_ranges, *hz)),
+            tuning: self.tuning,
             sample_rate: self.sample_rate.filter(|rate| {
                 capabilities.sample_rates.contains(rate)
                     || any_range_holds(&capabilities.sample_rate_ranges, *rate)
@@ -787,6 +801,11 @@ impl DeviceSettings {
         }
     }
 
+    #[must_use]
+    pub fn tunes_itself(&self) -> bool {
+        self.tuning.unwrap_or_default() == Tuning::Auto
+    }
+
     /// The LO offset that is actually in force, which is not always the one that was asked for.
     ///
     /// A request survives only if it stays inside the tuner's analog passband and every centre it
@@ -825,6 +844,7 @@ impl DeviceSettings {
         let mut hardware = self.shifted(-lo_offset_hz);
         hardware.dc_block = None;
         hardware.lo_offset_hz = None;
+        hardware.tuning = None;
         hardware
     }
 
