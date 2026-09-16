@@ -47,7 +47,9 @@ commands. Cross builds use `--target <triple>` on the media script and the corre
 Windows builds require a Visual Studio developer shell, LLVM and MSYS2 Make; the CI media action
 shows the same setup. Set `MEDIA_SHELL_BIN` to the directories holding that `bash`, `make` and
 `clang-cl` — the script prepends it for the tools it spawns rather than for the whole shell, so
-MSYS2's `link.exe` never shadows the MSVC linker. Nix uses its packaged FFmpeg development libraries.
+MSYS2's `link.exe` never shadows the MSVC linker. Windows on ARM64 builds the codecs without
+assembly, because FFmpeg reaches for `armasm64` behind `gas-preprocessor.pl` there and neither
+ships with the toolchain. Nix uses its packaged FFmpeg development libraries.
 
 Open <http://localhost:8080>. Distributable builds embed `web/dist`; build the frontend first.
 Backend-only builds can compile with a placeholder interface if that directory is missing.

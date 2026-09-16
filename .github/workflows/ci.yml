@@ -401,3 +401,20 @@ jobs:
       # Node nor a browser to do it.
       - name: cargo xtask desktop
         run: cargo xtask desktop
+
+  desktop-windows-arm64:
+    name: Desktop shell (windows-arm64)
+    # The release matrix ships an ARM64 Windows installer, and this strand builds the media
+    # codecs with a different assembler and a different Visual Studio host than any other job.
+    # Without a gate here, a tag is the first thing to find out that it no longer builds.
+    runs-on: windows-11-arm
+    steps:
+      - uses: actions/checkout@v7
+      - run: rustup show
+      - uses: ./.github/actions/media-deps
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: desktop-windows-arm64
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: cargo xtask desktop
+        run: cargo xtask desktop

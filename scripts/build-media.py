@@ -82,7 +82,14 @@ def configure(source, prefix, target, env):
     if not shutil.which("nasm", path=env.get("PATH")):
         args.append("--disable-x86asm")
     if "windows-msvc" in target:
-        args.extend(["--toolchain=msvc", "--target-os=win32", "--cc=clang-cl", "--ld=lld-link", "--ar=llvm-lib"])
+        # `lib.exe` rather than `llvm-lib`: configure picks an archiver's flags by asking it who it
+        # is, and only the Microsoft banner selects `-out:`. llvm-lib answers with nothing configure
+        # recognises, so it falls back to `ar rc` syntax and llvm-lib reads `rc` as a missing input.
+        args.extend(["--toolchain=msvc", "--target-os=win32", "--cc=clang-cl", "--ld=lld-link"])
+        # FFmpeg assembles its aarch64 kernels with armasm64 behind gas-preprocessor.pl, and the
+        # Windows ARM64 runner carries neither.
+        if arch == "aarch64":
+            args.append("--disable-asm")
     elif "apple-darwin" in target:
         args.extend(["--target-os=darwin", f"--cc=clang -arch {'arm64' if arch == 'aarch64' else arch}"])
         if target != target_name():
