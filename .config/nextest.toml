@@ -3,7 +3,7 @@
 # 32APSK gate from under a second to 2.04 s of its 2.03 s budget. These take every test thread, so
 # each one times a decoder that has the runner to itself.
 [[profile.default.overrides]]
-filter = 'test(/_ahead_of_(the_channel_rate|realtime|the_audio_rate)/)'
+filter = 'test(/_ahead_of_(the_channel_rate|realtime|the_audio_rate)|bounded_cost/)'
 threads-required = "num-test-threads"
 
 # The opus encoder thread rides a bounded PCM broadcast, so a runner that starves it for longer
