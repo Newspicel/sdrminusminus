@@ -31,6 +31,7 @@ pub(crate) mod coherent;
 pub(crate) mod cps;
 mod decoderlog;
 pub(crate) mod df_fusion;
+pub mod diagnostics;
 pub mod doctor;
 mod event_output;
 mod events;
@@ -150,6 +151,9 @@ pub fn router(engine: Arc<Engine>, store: Store, options: &ServerOptions) -> Rou
 }
 
 fn router_with_state(state: AppState, options: &ServerOptions) -> (Router, Background) {
+    if let Some(token) = &options.token {
+        diagnostics::hide_secret(token);
+    }
     let background = start_background(&state);
     ws::start_decoded_encoder(&state);
     workspace::spawn_autosave(&state);

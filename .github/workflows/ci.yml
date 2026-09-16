@@ -200,8 +200,18 @@ jobs:
         run: cargo xtask desktop
 
   image:
-    name: Container image (amd64)
-    runs-on: ubuntu-24.04
+    name: Container image (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            platform: linux/amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            platform: linux/arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v7
       - uses: docker/setup-buildx-action@v4
@@ -211,13 +221,13 @@ jobs:
       # and serve neither build a hit.
       - uses: docker/build-push-action@v7
         with:
-          platforms: linux/amd64
+          platforms: ${{ matrix.platform }}
           push: false
           load: true
           tags: sdrmm:ci
           build-args: PROFILE=ci
-          cache-from: type=gha,scope=linux/amd64-ci
-          cache-to: type=gha,mode=max,scope=linux/amd64-ci
+          cache-from: type=gha,scope=${{ matrix.platform }}-ci
+          cache-to: type=gha,mode=max,scope=${{ matrix.platform }}-ci
       # The image is only as good as what it does on start: this asserts the binary runs and
       # that the UI really was embedded, which a `--version` check alone would not show.
       - name: Smoke the image

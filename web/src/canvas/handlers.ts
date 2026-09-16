@@ -9,7 +9,7 @@ import {
   type OnBeforeDelete,
 } from "@xyflow/react";
 import { useCallback } from "react";
-import { pushToast } from "../lib/toasts";
+import { pushToast, toastError } from "../lib/toasts";
 import type { PatchEdge, PortRef } from "../lib/types";
 import type { FlowData } from "./Canvas";
 import type { Workspace } from "./context";
@@ -67,7 +67,7 @@ export function useGraphChanges(
           doomed.map((node) => node.id),
         );
       } catch (error) {
-        pushToast(error instanceof Error ? error.message : String(error));
+        toastError(error);
         return false;
       }
       return { nodes: doomed, edges: cut };

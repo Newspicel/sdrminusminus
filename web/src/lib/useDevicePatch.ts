@@ -1,7 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useLayoutEffect, useRef } from "react";
 import { patchDevice, STATE_KEY } from "./api";
-import { pushToast } from "./toasts";
+import { toastError } from "./toasts";
 import type { DeviceSettings, StateSnapshot, StreamScope, StreamSettings } from "./types";
 
 export function mergeSettings(current: DeviceSettings, delta: DeviceSettings): DeviceSettings {
@@ -129,7 +129,7 @@ export function useDevicePatch(): {
   const queryClient = useQueryClient();
   const patchMut = useMutation({
     mutationFn: (v: { ds: number; settings: DeviceSettings }) => patchDevice(v.ds, v.settings),
-    onError: (error) => pushToast(error.message),
+    onError: (error) => toastError(error),
     onSettled: () => void queryClient.invalidateQueries({ queryKey: STATE_KEY }),
   });
 

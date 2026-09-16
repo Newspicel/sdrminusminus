@@ -1,0 +1,56 @@
+name: Feature request
+description: Something SDR-- should be able to do and cannot.
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do
+      description: >-
+        The operating problem, not the solution. What are you listening for, and where does the
+        app get in the way?
+      placeholder: I monitor a trunked system overnight and want to know which talkgroups were busy…
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What should it do instead
+      description: What you would like to see. A sketch of the node face or panel helps.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: scope
+    attributes:
+      label: Which part
+      options:
+        - A decoder or a mode
+        - A radio this build cannot drive
+        - The canvas, nodes or the rack
+        - Recording, playback or the decoder log
+        - Field mode
+        - The server or the API
+        - Something else
+    validations:
+      required: true
+
+  - type: textarea
+    id: references
+    attributes:
+      label: References
+      description: >-
+        A specification, a protocol document, or another receiver that already does this.
+        For a decoder or a radio, a short recording is worth more than a description.
+    validations:
+      required: false
+
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Which version you are asking about.
+      placeholder: 0.4.0
+    validations:
+      required: false

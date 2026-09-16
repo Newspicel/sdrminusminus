@@ -1,0 +1,82 @@
+name: Bug report
+description: Something in SDR-- does not work the way it says it does.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The fastest way to fill this in is from inside the app: **Help → Report a problem**
+        collects the diagnostics for you, strips the shared token, your home directory and every
+        address but the loopback, shows you exactly what it gathered, and opens this form with
+        the environment already filled in.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what you got instead.
+      placeholder: I connected an RTL-SDR, added a Device node and pressed start. The node went red and…
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: The shortest path from a fresh workspace to the problem.
+      placeholder: |
+        1. Add a Device node and pick …
+        2. Wire it to an NFM channel at …
+        3. Press start
+    validations:
+      required: false
+
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: From the title of the About dialog, or `sdrmm --version`.
+      placeholder: 0.4.0
+    validations:
+      required: true
+
+  - type: dropdown
+    id: build
+    attributes:
+      label: How are you running it
+      options:
+        - Desktop app
+        - Server plus a browser
+        - Field mode on a phone or tablet
+        - Built from source
+    validations:
+      required: true
+
+  - type: input
+    id: hardware
+    attributes:
+      label: Radio
+      description: The receiver involved, if any. Leave blank when the problem is not about one.
+      placeholder: RTL-SDR Blog V4
+    validations:
+      required: false
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Diagnostics
+      description: >-
+        Paste the bundle from Report a problem, or the output of `sdrmm --doctor`. Read it before
+        you post it — it is a public issue.
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: confirmations
+    attributes:
+      label: Before you post
+      options:
+        - label: I read what is in the Diagnostics box above and am happy for it to be public.
+          required: true
+        - label: I searched the open issues for this already.
+          required: false

@@ -1,7 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { mergeChannelSettings } from "../components/channelSettings";
 import { patchChannel, STATE_KEY } from "./api";
-import { pushToast } from "./toasts";
+import { toastError } from "./toasts";
 import type { ChannelSettings, StateSnapshot } from "./types";
 
 export type ChannelEdit =
@@ -16,7 +16,7 @@ export function useChannelPatch(): {
   const patchMut = useMutation({
     mutationFn: (v: { ds: number; ch: number; settings: ChannelSettings }) =>
       patchChannel(v.ds, v.ch, v.settings),
-    onError: (error) => pushToast(error.message),
+    onError: (error) => toastError(error),
     onSettled: () => void queryClient.invalidateQueries({ queryKey: STATE_KEY }),
   });
 

@@ -14,23 +14,17 @@ impl From<CpsJobError> for AppError {
         match err {
             CpsJobError::Store(error) => error.into(),
             CpsJobError::NotFound(_) => Self::not_found(err.to_string()),
-            CpsJobError::Busy | CpsJobError::Finished(_) => Self {
-                status: StatusCode::CONFLICT,
-                body: ApiError {
-                    error: err.to_string(),
-                    detail: None,
-                },
-            },
+            CpsJobError::Busy | CpsJobError::Finished(_) => {
+                Self::new(StatusCode::CONFLICT, ErrorCode::Conflict, err.to_string())
+            }
             CpsJobError::Unconfirmed => Self::bad_request(err.to_string()),
             CpsJobError::NoStoredImage(_) => Self::bad_request(err.to_string()),
             CpsJobError::Radio(error) if error.is_not_found() => Self::not_found(error.to_string()),
-            CpsJobError::Radio(error) => Self {
-                status: StatusCode::BAD_GATEWAY,
-                body: ApiError {
-                    error: error.to_string(),
-                    detail: None,
-                },
-            },
+            CpsJobError::Radio(error) => Self::new(
+                StatusCode::BAD_GATEWAY,
+                ErrorCode::Unavailable,
+                error.to_string(),
+            ),
         }
     }
 }

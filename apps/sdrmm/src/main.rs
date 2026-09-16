@@ -125,12 +125,7 @@ async fn main() -> anyhow::Result<()> {
     #[cfg(feature = "soapy")]
     sdrmm_device_soapy::enable_isolated_probes();
 
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "info,sdrmm=debug".into()),
-        )
-        .init();
+    sdrmm_server::diagnostics::install_tracing()?;
 
     let mut args = Args::parse();
     let db_path = resolve_db_path(args.db.take())?;

@@ -182,6 +182,40 @@ pub(super) async fn get_doctor(
 }
 
 #[utoipa::path(
+    get, path = "/api/diagnostics",
+    responses((
+        status = 200,
+        description = "Everything the server can say about a problem in one document: the \
+                       `--doctor` environment report plus the tail of this run's log. Redacted \
+                       at the point the line is recorded — the shared token, the operator's home \
+                       directory and any address that is not the loopback never enter the ring, \
+                       so what this returns is what a bug report may carry",
+        body = DiagnosticsReport,
+    )),
+)]
+pub(super) async fn get_diagnostics(
+    State(state): State<AppState>,
+) -> Result<Json<DiagnosticsReport>, AppError> {
+    let engine = state.engine.clone();
+    let db_path = state.db_path.clone();
+    let doctor = tokio::task::spawn_blocking(move || {
+        crate::doctor::report(
+            engine.registry(),
+            db_path.as_deref(),
+            engine.recordings_dir(),
+        )
+    })
+    .await?;
+    let log = crate::diagnostics::log();
+    Ok(Json(DiagnosticsReport {
+        generated_at: jiff::Timestamp::now().to_string(),
+        doctor,
+        log: log.lines(),
+        dropped: log.dropped(),
+    }))
+}
+
+#[utoipa::path(
     get, path = "/api/tools",
     responses((
         status = 200,
@@ -248,13 +282,8 @@ pub(super) async fn get_about(State(state): State<AppState>) -> Json<AboutRespon
 pub(super) async fn get_license_text(
     Path(id): Path<String>,
 ) -> Result<Json<LicenseTextResponse>, AppError> {
-    crate::notices::license_text(&id)
-        .map(Json)
-        .ok_or_else(|| AppError {
-            status: StatusCode::NOT_FOUND,
-            body: ApiError {
-                error: "unknown license text".to_string(),
-                detail: Some(format!("no component ships a license text with id `{id}`")),
-            },
-        })
+    crate::notices::license_text(&id).map(Json).ok_or_else(|| {
+        AppError::not_found("unknown license text".to_string())
+            .with_detail(format!("no component ships a license text with id `{id}`"))
+    })
 }

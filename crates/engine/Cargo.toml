@@ -28,9 +28,13 @@ airspyhf = ["dep:sdrmm-device-airspyhf"]
 # AntSDR, PlutoSDR and every other AD936x board that serves libiio, over ethernet or usb. The
 # protocol is spoken directly, so this links no vendor library either.
 ad936x = ["dep:sdrmm-device-ad936x"]
-# rtl_tcp and SpyServer clients. Pure `std::net`, so it costs a release artifact nothing and is
-# part of the minimal build.
-net-client = ["dep:sdrmm-device-rtltcp", "dep:sdrmm-device-spyserver"]
+# rtl_tcp, SpyServer and SDRconnect clients. Pure `std::net`, so it costs a release artifact
+# nothing and is part of the minimal build.
+net-client = [
+    "dep:sdrmm-device-rtltcp",
+    "dep:sdrmm-device-spyserver",
+    "dep:sdrmm-device-sdrconnect",
+]
 # Headless wgpu compute. Runtime selection still keeps small transforms on rustfft and falls
 # back to it when the host has no suitable hardware adapter.
 gpu-fft = ["dep:bytemuck", "dep:pollster", "dep:wgpu"]
@@ -51,6 +55,7 @@ sdrmm-device-airspyhf = { workspace = true, optional = true }
 sdrmm-device-ad936x = { workspace = true, optional = true }
 sdrmm-device-rtltcp = { workspace = true, optional = true }
 sdrmm-device-spyserver = { workspace = true, optional = true }
+sdrmm-device-sdrconnect = { workspace = true, optional = true }
 sdrmm-channels.workspace = true
 sdrmm-recorder.workspace = true
 opus.workspace = true

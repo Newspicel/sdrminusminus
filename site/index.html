@@ -14,149 +14,8 @@
 <meta property="og:description" content="A software-defined radio application for listening, decoding and recording.">
 <meta property="og:image" content="https://sdrmm.newspicel.dev/screens/patch.png">
 <meta name="twitter:card" content="summary_large_image">
+<link rel="stylesheet" href="/site.css">
 <style>
-:root {
-  --bg: oklch(0.178 0.004 255);
-  --panel: oklch(0.215 0.005 255);
-  --panel-2: oklch(0.255 0.006 255);
-  --panel-3: oklch(0.3 0.007 255);
-  --line: oklch(0.33 0.007 255);
-  --line-strong: oklch(0.5 0.009 255);
-  --ink: oklch(0.95 0.003 255);
-  --ink-dim: oklch(0.74 0.006 255);
-  --ink-faint: oklch(0.62 0.008 255);
-  --accent: oklch(0.74 0.13 258);
-  --accent-dim: oklch(0.58 0.115 258);
-  --danger: oklch(0.7 0.17 25);
-  --iq: oklch(0.72 0.11 228);
-  --audio: oklch(0.74 0.12 158);
-  --events: oklch(0.78 0.11 85);
-  --video: oklch(0.76 0.12 35);
-  --cat-source: oklch(0.62 0.07 228);
-  --cat-channel: oklch(0.62 0.07 300);
-  --cat-output: oklch(0.62 0.05 200);
-  --mono: ui-monospace, "SF Mono", "JetBrains Mono", "IBM Plex Mono", Menlo, monospace;
-  --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  --pad: clamp(20px, 5vw, 48px);
-  --measure: 62ch;
-}
-
-* { box-sizing: border-box; }
-
-html { -webkit-text-size-adjust: 100%; }
-
-body {
-  margin: 0;
-  background: var(--bg);
-  color: var(--ink);
-  font-family: var(--sans);
-  font-size: 17px;
-  line-height: 1.6;
-  -webkit-font-smoothing: antialiased;
-}
-
-a { color: var(--accent); text-decoration-color: color-mix(in oklab, var(--accent) 40%, transparent); text-underline-offset: 3px; }
-a:hover { text-decoration-color: currentColor; }
-
-:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
-
-::selection { background: color-mix(in oklab, var(--accent) 32%, transparent); }
-
-.skip { position: absolute; left: -9999px; }
-.skip:focus {
-  left: var(--pad);
-  top: 12px;
-  z-index: 10;
-  background: var(--panel-2);
-  border: 1px solid var(--line);
-  padding: 8px 12px;
-  color: var(--ink);
-}
-
-.wrap { max-width: 1180px; margin: 0 auto; padding-inline: var(--pad); }
-
-.legend {
-  font-family: var(--mono);
-  font-size: 10px;
-  line-height: 1.4;
-  letter-spacing: 0.09em;
-  text-transform: uppercase;
-  color: var(--ink-faint);
-}
-
-.bar {
-  position: sticky;
-  top: 0;
-  z-index: 5;
-  background: color-mix(in oklab, var(--bg) 88%, transparent);
-  backdrop-filter: blur(8px);
-  border-bottom: 1px solid var(--line);
-}
-.bar .wrap { display: flex; align-items: center; gap: 24px; height: 56px; }
-.mark {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  font-family: var(--mono);
-  font-size: 16px;
-  letter-spacing: 0.02em;
-  color: var(--ink);
-  text-decoration: none;
-  margin-right: auto;
-}
-.mark img { width: 24px; height: 24px; display: block; }
-.bar nav { display: flex; align-items: center; gap: 22px; }
-.bar nav a { font-size: 15px; color: var(--ink-dim); text-decoration: none; }
-.bar nav a:hover { color: var(--ink); }
-.bar nav a.get {
-  color: var(--ink);
-  border: 1px solid var(--line-strong);
-  border-radius: 3px;
-  padding: 5px 12px;
-}
-.bar nav a.get:hover { border-color: var(--accent); color: var(--accent); }
-
-.hero { padding-top: clamp(48px, 9vw, 92px); padding-bottom: clamp(36px, 6vw, 64px); }
-
-h1 {
-  font-family: var(--mono);
-  font-weight: 500;
-  font-size: clamp(2.1rem, 6.4vw, 3.6rem);
-  line-height: 1.04;
-  letter-spacing: -0.015em;
-  margin: 0 0 20px;
-  max-width: 16ch;
-}
-
-.lede {
-  font-size: clamp(1.05rem, 2.2vw, 1.28rem);
-  line-height: 1.55;
-  color: var(--ink-dim);
-  max-width: 54ch;
-  margin: 0 0 28px;
-}
-
-.actions { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
-
-.btn {
-  display: inline-block;
-  font-family: var(--mono);
-  font-size: 14px;
-  letter-spacing: 0.02em;
-  text-decoration: none;
-  padding: 10px 18px;
-  border-radius: 3px;
-  border: 1px solid transparent;
-}
-.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--bg); font-weight: 600; }
-.btn.primary:hover { filter: brightness(1.1); }
-.btn.ghost { border-color: var(--line-strong); color: var(--ink); }
-.btn.ghost:hover { border-color: var(--accent); color: var(--accent); }
-
-.cmd { margin: 24px 0 0; font-family: var(--mono); font-size: 14px; color: var(--ink-dim); }
-.cmd code { color: var(--ink); }
-.cmd code::before { content: "$ "; color: var(--ink-faint); }
-
 .canvas {
   border-block: 1px solid var(--line);
   background-color: color-mix(in oklab, var(--bg) 60%, black);
@@ -328,21 +187,7 @@ h1 {
 
 .stack { grid-column: 1 / -1; display: none; }
 
-.patch-note { margin: 28px 0 0; color: var(--ink-faint); font-size: 15px; max-width: var(--measure); }
-.canvas .patch-note { margin-top: 36px; }
-
-section { padding-block: clamp(56px, 9vw, 104px); }
-
-h2 {
-  font-family: var(--mono);
-  font-weight: 500;
-  font-size: clamp(1.45rem, 3.4vw, 2rem);
-  letter-spacing: -0.01em;
-  line-height: 1.2;
-  margin: 0 0 12px;
-}
-
-.section-lede { color: var(--ink-dim); max-width: var(--measure); margin: 0 0 40px; }
+.canvas .note { margin-top: 36px; }
 
 .outputs { border-top: 1px solid var(--line); }
 .output {
@@ -384,38 +229,6 @@ figcaption code { font-family: var(--mono); font-size: 0.9em; color: var(--ink);
 
 .plates-note { color: var(--ink-faint); font-size: 14px; max-width: var(--measure); }
 
-.install { display: grid; grid-template-columns: repeat(auto-fit, minmax(290px, 1fr)); gap: 20px; }
-.lane {
-  background: var(--panel);
-  border: 1px solid var(--line);
-  padding: 22px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-.lane h3 { margin: 0; font-size: 1.05rem; font-weight: 600; }
-.lane p { margin: 0; color: var(--ink-dim); font-size: 15px; }
-.lane code { font-family: var(--mono); font-size: 0.88em; color: var(--ink); }
-.lane pre {
-  margin: 0;
-  padding: 12px 14px;
-  background: var(--bg);
-  border: 1px solid var(--line);
-  overflow-x: auto;
-  font-family: var(--mono);
-  font-size: 13px;
-  line-height: 1.7;
-  color: var(--ink);
-}
-.lane pre .p { color: var(--ink-faint); }
-.lane .foot { margin-top: auto; padding-top: 4px; font-size: 14px; }
-
-footer { border-top: 1px solid var(--line); padding-block: 40px 56px; color: var(--ink-faint); font-size: 14px; }
-footer .wrap { display: flex; flex-wrap: wrap; gap: 12px 28px; align-items: baseline; }
-footer nav { display: flex; flex-wrap: wrap; gap: 12px 22px; margin-left: auto; }
-footer a { color: var(--ink-dim); text-decoration: none; }
-footer a:hover { color: var(--accent); }
-
 @media (max-width: 1020px) {
   .patch { grid-template-columns: minmax(0, 1fr); }
   .col-b, .col-c { margin-top: 0; }
@@ -434,8 +247,6 @@ footer a:hover { color: var(--accent); }
 
 @media (max-width: 720px) {
   .output { grid-template-columns: minmax(0, 1fr); gap: 6px; }
-  .bar nav { gap: 16px; }
-  .bar nav a.hardware { display: none; }
 }
 
 @media (prefers-reduced-motion: no-preference) {
@@ -456,7 +267,7 @@ footer a:hover { color: var(--accent); }
       <a href="/introduction.html">Docs</a>
       <a class="hardware" href="/hardware.html">Hardware</a>
       <a href="https://github.com/Newspicel/sdrminusminus">GitHub</a>
-      <a class="get" href="https://github.com/Newspicel/sdrminusminus/releases">Download</a>
+      <a class="get" href="/download.html">Download</a>
     </nav>
   </div>
 </div>
@@ -469,7 +280,7 @@ footer a:hover { color: var(--accent); }
     SDR-- listens, decodes and records — on the computer at your desk, or on a server out at the
     antenna.</p>
   <div class="actions">
-    <a class="btn primary" href="https://github.com/Newspicel/sdrminusminus/releases">Download for macOS, Windows, Linux</a>
+    <a class="btn primary" href="/download.html">Download for macOS, Windows, Linux</a>
     <a class="btn ghost" href="/getting-started/first-receiver.html">Build your first receiver</a>
   </div>
   <p class="cmd"><code>brew tap newspicel/tap</code><br><code>brew install --cask sdrminusminus</code></p>
@@ -583,7 +394,7 @@ footer a:hover { color: var(--accent); }
       </div>
     </div>
 
-    <p class="patch-note">Every receiver is built like this. Nodes are radios, channels, displays
+    <p class="note">Every receiver is built like this. Nodes are radios, channels, displays
       and outputs; edges carry IQ, audio, events and video. Pin the controls you actually reach
       for to Rack view and the patch keeps running behind it.</p>
   </div>
@@ -633,7 +444,7 @@ footer a:hover { color: var(--accent); }
     </div>
   </div>
 
-  <p class="patch-note">Modes range from tested on air to experimental. The
+  <p class="note">Modes range from tested on air to experimental. The
     <a href="/user-guide/channels.html#channel-catalog">channel catalog</a> says which is which,
     mode by mode.</p>
 </section>
@@ -683,8 +494,7 @@ footer a:hover { color: var(--accent); }
       <h3>Desktop app</h3>
       <p>macOS <code>.dmg</code>, Windows <code>.msi</code> or <code>.exe</code>, Linux
         <code>.deb</code> or <code>.AppImage</code>.</p>
-      <p class="foot"><a href="https://github.com/Newspicel/sdrminusminus/releases">Download the
-        latest release</a></p>
+      <p class="foot"><a href="/download.html">Pick the file for your computer</a></p>
     </div>
 
     <div class="lane">
@@ -711,7 +521,7 @@ docker compose up -d</pre>
     </div>
   </div>
 
-  <p class="patch-note">Then open <code>http://localhost:8080</code>, select your radio on a
+  <p class="note">Then open <code>http://localhost:8080</code>, select your radio on a
     Device node, and tune. The server listens on every interface without authentication by
     default — set <a href="/server/configuration.html">a token and HTTPS</a> before you put it on
     an untrusted network.</p>
@@ -734,6 +544,7 @@ docker compose up -d</pre>
   <div class="wrap">
     <span>SDR-- · GPL-3.0-or-later</span>
     <nav>
+      <a href="/download.html">Download</a>
       <a href="/introduction.html">Docs</a>
       <a href="/hardware.html">Hardware</a>
       <a href="/troubleshooting.html">Troubleshooting</a>

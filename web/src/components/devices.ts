@@ -124,6 +124,7 @@ export function deviceId(device: DeviceInfo): string {
 export const NETWORK_BACKENDS = [
   { driver: "rtltcp", label: "rtl_tcp", placeholder: "192.168.1.5:1234" },
   { driver: "spyserver", label: "SpyServer", placeholder: "192.168.1.5:5555" },
+  { driver: "sdrconnect", label: "SDRconnect", placeholder: "192.168.1.5:5454" },
   { driver: "ad936x", label: "AntSDR / Pluto", placeholder: "192.168.1.10:30431" },
 ] as const;
 

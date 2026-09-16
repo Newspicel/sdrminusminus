@@ -140,6 +140,7 @@ On Device, open **Network**, choose a protocol, and enter its address:
 |---|---:|
 | `rtl_tcp` | 1234 |
 | SpyServer | 5555 |
+| SDRconnect | 5454 |
 | AD936x / iiod | 30431 |
 
 Use a hostname, IPv4 address, or bracketed IPv6 address, with an optional port. The workspace saves

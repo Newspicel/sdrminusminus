@@ -154,6 +154,8 @@ jobs:
             runner: macos-15
           - target: x86_64-pc-windows-msvc
             runner: windows-2025
+          - target: aarch64-pc-windows-msvc
+            runner: windows-11-arm
     # Every other entry is a native runner — GitHub's hosted arm64 Linux runners remove the need
     # to cross-compile or emulate, so no sysroot, no cargo-zigbuild, no QEMU. The OS is pinned
     # rather than `-latest` because the build machine's glibc is the floor of every Linux
@@ -436,10 +438,19 @@ jobs:
             runner: ubuntu-24.04
             target: x86_64-unknown-linux-gnu
             bundles: deb,appimage
+          - label: linux-arm64
+            runner: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+            bundles: deb,appimage
           - label: windows-x86_64
             runner: windows-2025
             target: x86_64-pc-windows-msvc
             bundles: msi,nsis
+          # NSIS alone: WiX 3 emits no arm64 package, so `msi` here fails the bundle.
+          - label: windows-arm64
+            runner: windows-11-arm
+            target: aarch64-pc-windows-msvc
+            bundles: nsis
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v7

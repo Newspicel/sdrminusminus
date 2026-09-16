@@ -7,26 +7,35 @@ use crate::net::Endpoint;
 
 const MAX_ENDPOINTS: usize = 64;
 
-#[derive(Debug, Default)]
-pub struct Adopted {
-    endpoints: Mutex<BTreeSet<Endpoint>>,
+/// The network addresses a driver has been told about, since nothing announces them.
+///
+/// A backend that addresses more than a host — one tuner of a dual-tuner receiver, say — adopts
+/// its own key type rather than losing the difference between two devices at the same endpoint.
+#[derive(Debug)]
+pub struct Adopted<K = Endpoint> {
+    keys: Mutex<BTreeSet<K>>,
 }
 
-impl Adopted {
-    pub fn adopt(&self, endpoint: Endpoint) -> bool {
-        let mut endpoints = self.lock();
-        endpoints.contains(&endpoint)
-            || endpoints.len() < MAX_ENDPOINTS && endpoints.insert(endpoint)
+impl<K: Ord> Default for Adopted<K> {
+    fn default() -> Self {
+        Self {
+            keys: Mutex::new(BTreeSet::new()),
+        }
+    }
+}
+
+impl<K: Clone + Ord> Adopted<K> {
+    pub fn adopt(&self, key: K) -> bool {
+        let mut keys = self.lock();
+        keys.contains(&key) || keys.len() < MAX_ENDPOINTS && keys.insert(key)
     }
 
-    pub fn list(&self) -> Vec<Endpoint> {
+    pub fn list(&self) -> Vec<K> {
         self.lock().iter().cloned().collect()
     }
 
-    fn lock(&self) -> MutexGuard<'_, BTreeSet<Endpoint>> {
-        self.endpoints
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
+    fn lock(&self) -> MutexGuard<'_, BTreeSet<K>> {
+        self.keys.lock().unwrap_or_else(PoisonError::into_inner)
     }
 }
 
@@ -63,5 +72,13 @@ mod tests {
         assert!(!adopted.adopt(endpoint("one.too.many")));
         assert!(adopted.adopt(endpoint("host0.local")), "already held");
         assert_eq!(adopted.list().len(), MAX_ENDPOINTS);
+    }
+
+    #[test]
+    fn a_driver_that_addresses_more_than_a_host_keeps_each_key_apart() {
+        let adopted: Adopted<(Endpoint, u8)> = Adopted::default();
+        assert!(adopted.adopt((endpoint("duo.local"), 0)));
+        assert!(adopted.adopt((endpoint("duo.local"), 1)));
+        assert_eq!(adopted.list().len(), 2);
     }
 }

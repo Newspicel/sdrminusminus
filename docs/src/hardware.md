@@ -16,7 +16,7 @@ The Nix package uses SoapySDR for local hardware. Custom builds can select their
 | Airspy R2 and Mini | None; [experimental driver](#airspy) |
 | Airspy HF+ and HF+ Discovery | None; [experimental driver](#airspy) |
 | AntSDR, ADALM-Pluto, and compatible AD936x boards | None; the board must serve [iiod](#antsdr-plutosdr-and-other-ad936x-boards) |
-| SDRplay RSP1, RSP1A, RSP1B, RSP2, RSPduo, RSPdx, RSPdx-R2 | [SDRplay API](#sdrplay) 3.15 or newer |
+| SDRplay RSP1, RSP1A, RSP1B, RSP2, RSPduo, RSPdx, RSPdx-R2 | [SDRplay API](#sdrplay) 3.15 or newer, or [SDRconnect](#over-the-network-with-sdrconnect) on another machine |
 | Dragon Labs CR-8 | [Vendor CR-8 library](#dragon-labs-cr-8); requires a server build with `cr8` enabled |
 
 SoapySDR modules for receivers handled by enabled built-in drivers are skipped to avoid duplicate
@@ -106,9 +106,10 @@ Open the **Network** tab on an unbound Device node and enter the receiver's addr
 |---|---:|
 | `rtl_tcp` | 1234 |
 | SpyServer | 5555 |
+| SDRconnect | 5454 |
 | AD936x / iiod | 30431 |
 
-All three protocols are built in. A remote `SoapySDRServer` instead requires SoapyRemote and
+These protocols are built in. A remote `SoapySDRServer` instead requires SoapyRemote and
 appears through the normal device search.
 
 ## Virtual sources
@@ -261,6 +262,30 @@ analog bandwidth is capped at 1.536 MHz.
 
 Slave mode waits for a master application. The master owns the clock; a slave can change its
 own decimation but cannot apply ppm correction.
+
+### Over the network with SDRconnect
+
+Connect to a remote RSP through [SDRconnect](https://www.sdrplay.com/sdrconnect/) without a local
+SDRplay API. Enable its WebSocket API or run `SDRconnect_headless --websocket_port=5454`, then
+choose **Network → SDRconnect** on a Device node and enter `host:5454`. For an RSPduo's second
+tuner, use `host:5454/secondary`; the default is primary.
+
+Only unencrypted `ws://` is supported. Use a trusted network or an encrypted tunnel.
+
+SDR-- demodulates 16-bit IQ locally; SDRconnect's audio processing does not affect its channels.
+Frequency, sample rate and antenna use the standard Device controls. Additional settings:
+
+| Setting | Effect |
+|---|---|
+| `lna_state` | RF gain state within the receiver's range |
+| `device_vfo_frequency` | SDRconnect VFO frequency within the sampled window |
+| `filter_bandwidth` | Channel filter width, limited by `demod_max_bandwidth` |
+| `receiver` | Radio name, list slot or serial number |
+| `network_mode` | Stream quality for SDRconnect's upstream network receiver |
+| `device_profile` | Apply a saved SDRconnect device profile |
+| `recording` | Record IQ, audio or compressed audio on the SDRconnect host |
+
+SDR-- stops only sessions it started; existing sessions remain running.
 
 ### Licensing
 

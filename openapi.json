@@ -2754,6 +2754,23 @@
         }
       }
     },
+    "/api/diagnostics": {
+      "get": {
+        "operationId": "get_diagnostics",
+        "responses": {
+          "200": {
+            "description": "Everything the server can say about a problem in one document: the `--doctor` environment report plus the tail of this run's log. Redacted at the point the line is recorded — the shared token, the operator's home directory and any address that is not the loopback never enter the ring, so what this returns is what a bug report may carry",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DiagnosticsReport"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/doctor": {
       "get": {
         "operationId": "get_doctor",
@@ -4855,6 +4872,16 @@
           "error"
         ],
         "properties": {
+          "code": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ErrorCode"
+              }
+            ]
+          },
           "detail": {
             "type": [
               "string",
@@ -11424,6 +11451,36 @@
           }
         }
       },
+      "DiagnosticsReport": {
+        "type": "object",
+        "description": "What the server can say about itself when something went wrong, already redacted: the\nenvironment report `--doctor` prints, plus the tail of this run's log.",
+        "required": [
+          "generated_at",
+          "doctor",
+          "log",
+          "dropped"
+        ],
+        "properties": {
+          "doctor": {
+            "$ref": "#/components/schemas/DoctorReport"
+          },
+          "dropped": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Lines the ring dropped before anyone read it, so a truncated tail never reads as a quiet\none.",
+            "minimum": 0
+          },
+          "generated_at": {
+            "type": "string"
+          },
+          "log": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LogLine"
+            }
+          }
+        }
+      },
       "Direction": {
         "type": "string",
         "enum": [
@@ -12231,6 +12288,20 @@
             "type": "boolean"
           }
         }
+      },
+      "ErrorCode": {
+        "type": "string",
+        "description": "Which part of the server refused, independent of the wording. A client groups repeats and\ntitles a bug report by this; the prose in `error` is free to change.",
+        "enum": [
+          "request",
+          "not_found",
+          "conflict",
+          "unavailable",
+          "engine",
+          "storage",
+          "tool",
+          "internal"
+        ]
       },
       "EventAudio": {
         "type": "object",
@@ -13507,6 +13578,39 @@
             "type": "string"
           },
           "text": {
+            "type": "string"
+          }
+        }
+      },
+      "LogLevel": {
+        "type": "string",
+        "enum": [
+          "error",
+          "warn",
+          "info",
+          "debug",
+          "trace"
+        ]
+      },
+      "LogLine": {
+        "type": "object",
+        "required": [
+          "at",
+          "level",
+          "target",
+          "message"
+        ],
+        "properties": {
+          "at": {
+            "type": "string"
+          },
+          "level": {
+            "$ref": "#/components/schemas/LogLevel"
+          },
+          "message": {
+            "type": "string"
+          },
+          "target": {
             "type": "string"
           }
         }

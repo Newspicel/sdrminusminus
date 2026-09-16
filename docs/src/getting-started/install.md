@@ -13,20 +13,19 @@ receiver and interface.
 
 ## Desktop application
 
-Download your platform's installer from
-[GitHub Releases](https://github.com/Newspicel/sdrminusminus/releases), install it, and open SDR--.
-The app starts its server automatically on a private local port.
+Download your platform's installer from the [download page](/download.html), install it, and open
+SDR--. The app starts its server automatically on a private local port.
 
 | Platform | Package |
 |---|---|
 | macOS | `.dmg` for Apple silicon or Intel |
-| Linux | `.deb` or `.AppImage` |
-| Windows | `.msi` or `.exe` |
+| Linux | `.deb` or `.AppImage` for x86-64 or ARM64 |
+| Windows | `.msi` or `.exe` for x86-64, `.exe` for ARM64 |
 
 ## Portable server
 
-Download and unpack the `sdrmm` archive for your operating system and processor from
-[GitHub Releases](https://github.com/Newspicel/sdrminusminus/releases). Run the binary:
+Download and unpack the `sdrmm` archive for your operating system and processor from the
+[download page](/download.html). Run the binary:
 
 ```sh
 ./sdrmm

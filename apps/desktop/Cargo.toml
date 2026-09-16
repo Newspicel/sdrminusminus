@@ -44,4 +44,3 @@ serde_json.workspace = true
 axum = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "net"] }
 tracing.workspace = true
-tracing-subscriber.workspace = true

@@ -804,6 +804,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/diagnostics": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_diagnostics"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/doctor": {
         parameters: {
             query?: never;
@@ -1478,6 +1494,7 @@ export interface components {
         /** @enum {string} */
         AntennaSegmentRole: "driven" | "parasitic" | "radial" | "matching" | "feedline" | "structure";
         ApiError: {
+            code?: null | components["schemas"]["ErrorCode"];
             detail?: string | null;
             error: string;
         };
@@ -3261,6 +3278,21 @@ export interface components {
             lon: number;
             station_id: string;
         };
+        /**
+         * @description What the server can say about itself when something went wrong, already redacted: the
+         *     environment report `--doctor` prints, plus the tail of this run's log.
+         */
+        DiagnosticsReport: {
+            doctor: components["schemas"]["DoctorReport"];
+            /**
+             * Format: int64
+             * @description Lines the ring dropped before anyone read it, so a truncated tail never reads as a quiet
+             *     one.
+             */
+            dropped: number;
+            generated_at: string;
+            log: components["schemas"]["LogLine"][];
+        };
         /** @enum {string} */
         Direction: "rx" | "tx";
         DirectionalCapabilities: {
@@ -3485,6 +3517,12 @@ export interface components {
             bandwidth_hz?: number;
             invert?: boolean;
         };
+        /**
+         * @description Which part of the server refused, independent of the wording. A client groups repeats and
+         *     titles a bug report by this; the prose in `error` is free to change.
+         * @enum {string}
+         */
+        ErrorCode: "request" | "not_found" | "conflict" | "unavailable" | "engine" | "storage" | "tool" | "internal";
         EventAudio: {
             media_type: string;
             url: string;
@@ -3883,6 +3921,14 @@ export interface components {
         LicenseTextResponse: {
             id: string;
             text: string;
+        };
+        /** @enum {string} */
+        LogLevel: "error" | "warn" | "info" | "debug" | "trace";
+        LogLine: {
+            at: string;
+            level: components["schemas"]["LogLevel"];
+            message: string;
+            target: string;
         };
         M17Params: Record<string, never>;
         Maneuver: {
@@ -7870,6 +7916,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    get_diagnostics: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Everything the server can say about a problem in one document: the `--doctor` environment report plus the tail of this run's log. Redacted at the point the line is recorded — the shared token, the operator's home directory and any address that is not the loopback never enter the ring, so what this returns is what a bug report may carry */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DiagnosticsReport"];
                 };
             };
         };

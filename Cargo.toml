@@ -14,6 +14,7 @@ members = [
     "crates/device-airspyhf",
     "crates/device-soapy",
     "crates/device-sdrplay",
+    "crates/device-sdrconnect",
     "crates/device-rtlsdr",
     "crates/device-cr8",
     "crates/device-hackrf",
@@ -45,6 +46,7 @@ default-members = [
     "crates/device-airspyhf",
     "crates/device-soapy",
     "crates/device-sdrplay",
+    "crates/device-sdrconnect",
     "crates/device-rtlsdr",
     "crates/device-cr8",
     "crates/device-hackrf",
@@ -85,6 +87,7 @@ sdrmm-device-airspy = { path = "crates/device-airspy" }
 sdrmm-device-airspyhf = { path = "crates/device-airspyhf" }
 sdrmm-device-soapy = { path = "crates/device-soapy" }
 sdrmm-device-sdrplay = { path = "crates/device-sdrplay" }
+sdrmm-device-sdrconnect = { path = "crates/device-sdrconnect" }
 sdrmm-device-rtlsdr = { path = "crates/device-rtlsdr" }
 sdrmm-device-cr8 = { path = "crates/device-cr8" }
 sdrmm-device-hackrf = { path = "crates/device-hackrf" }
@@ -249,6 +252,9 @@ opt-level = 3
 opt-level = 3
 
 [profile.dev.package.sdrmm-device-spyserver]
+opt-level = 3
+
+[profile.dev.package.sdrmm-device-sdrconnect]
 opt-level = 3
 
 [profile.dev.package.sdrmm-usb-stream]

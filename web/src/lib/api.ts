@@ -34,7 +34,9 @@ import type {
   DeviceSettings,
   DevicesResponse,
   DfFusionState,
+  DiagnosticsReport,
   DoctorReport,
+  ErrorCode,
   ExportFormat,
   HuntSettings,
   HuntStatus,
@@ -111,6 +113,7 @@ export const DECODER_LOG_KEY = ["get", "/api/decoderlog"] as const;
 export const TEMPLATES_KEY = ["get", "/api/templates"] as const;
 export const AUTH_KEY = ["get", "/api/auth"] as const;
 export const DOCTOR_KEY = ["get", "/api/doctor"] as const;
+export const DIAGNOSTICS_KEY = ["get", "/api/diagnostics"] as const;
 export const OCCUPANCY_KEY = ["get", "/api/occupancy"] as const;
 export const IONOSONDE_KEY = ["get", "/api/ionosonde"] as const;
 export const ABOUT_KEY = ["get", "/api/about"] as const;
@@ -685,6 +688,17 @@ export function doctorQuery(enabled: boolean) {
   });
 }
 
+export function diagnosticsQuery(enabled: boolean) {
+  return queryOptions({
+    queryKey: DIAGNOSTICS_KEY,
+    queryFn: async (): Promise<DiagnosticsReport> => unwrap(await client.GET("/api/diagnostics")),
+    enabled,
+    staleTime: 0,
+    gcTime: 0,
+    refetchOnWindowFocus: false,
+  });
+}
+
 export async function startScan(ds: number, settings: ScanSettings): Promise<ScannerStatus> {
   return unwrap(
     await client.POST("/api/devicesets/{ds}/scanner", {
@@ -779,19 +793,46 @@ function normalizeFilter(filter: DecoderLogFilter): DecoderLogFilter {
   return normalized;
 }
 
+export class ApiRequestError extends Error {
+  readonly status: number;
+  readonly code: ErrorCode | undefined;
+  readonly detail: string | undefined;
+
+  constructor(
+    message: string,
+    status: number,
+    code: ErrorCode | undefined,
+    detail: string | undefined,
+  ) {
+    super(message);
+    this.name = "ApiRequestError";
+    this.status = status;
+    this.code = code;
+    this.detail = detail;
+  }
+}
+
 export function unwrap<T>(result: { data?: T; error?: unknown; response: Response }): T {
   const { data, error, response } = result;
   if (response.ok) {
     return data as T;
   }
   if (isApiError(error)) {
-    throw new Error(error.detail ? `${error.error}: ${error.detail}` : error.error);
+    throw new ApiRequestError(
+      error.detail ? `${error.error}: ${error.detail}` : error.error,
+      response.status,
+      error.code ?? undefined,
+      error.detail ?? undefined,
+    );
   }
   const body = typeof error === "string" ? error.trim().slice(0, 200) : "";
-  throw new Error(
+  throw new ApiRequestError(
     body.length > 0
       ? `HTTP ${response.status}: ${body}`
       : `HTTP ${response.status}: no response from the server`,
+    response.status,
+    undefined,
+    undefined,
   );
 }
 

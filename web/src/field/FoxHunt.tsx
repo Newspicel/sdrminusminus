@@ -13,7 +13,7 @@ import {
 import { STATE_KEY, startHunt, stopHunt } from "../lib/api";
 import { type Clicker, startClicker } from "../lib/geiger";
 import { useHuntStore } from "../lib/hunt";
-import { pushToast } from "../lib/toasts";
+import { toastError } from "../lib/toasts";
 import type { DeviceSet, PatchGraph } from "../lib/types";
 import type { MissionProps } from "./missions";
 
@@ -55,13 +55,13 @@ export function FoxHunt({
   const startMut = useMutation({
     mutationFn: async (deviceSet: number) =>
       startHunt(deviceSet, { ...settings, interval_ms: INTERVAL_MS }),
-    onError: (error: Error) => pushToast(error.message),
+    onError: (error: Error) => toastError(error),
     onSettled: invalidate,
   });
   const stopMut = useMutation({
     mutationFn: stopHunt,
     onSuccess: (_status, deviceSet) => clearLive(deviceSet),
-    onError: (error: Error) => pushToast(error.message),
+    onError: (error: Error) => toastError(error),
     onSettled: invalidate,
   });
 
