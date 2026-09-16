@@ -1,8 +1,11 @@
 use super::*;
-use crate::datv::dvbs2::{
-    frame::{ModCod, Modulation},
-    ldpc::Rate,
-    receiver::{Dvbs2Decoder, Dvbs2Encoder, Dvbs2Output},
+use crate::{
+    datv::dvbs2::{
+        frame::{ModCod, Modulation},
+        ldpc::Rate,
+        receiver::{Dvbs2Decoder, Dvbs2Encoder, Dvbs2Output},
+    },
+    testutil::realtime_budget,
 };
 
 #[test]
@@ -169,7 +172,7 @@ fn independent_superframe_recording_delivers_expected_packets_in_real_time() {
     }
     let duration = symbols.len() as f64 / crate::testgen::datv::SYMBOL_RATE;
     assert!(
-        elapsed < duration,
+        elapsed < realtime_budget(duration),
         "{duration:.3}s of IQ took {elapsed:.3}s to decode"
     );
 }

@@ -325,6 +325,7 @@ impl LayerTwoAudio {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::testutil::realtime_budget;
 
     const MONO: &[u8] = include_bytes!("../../../fixtures/broadcast_audio/tone_48k_mono.mp2");
     const STEREO: &[u8] = include_bytes!("../../../fixtures/broadcast_audio/tone_32k_stereo.mp2");
@@ -494,7 +495,7 @@ mod tests {
         for _ in 0..100 {
             decoder.decode(&encoded, &mut decoded).expect("audio frame");
         }
-        assert!(start.elapsed().as_secs_f64() < 2.4);
+        assert!(start.elapsed().as_secs_f64() < realtime_budget(2.4));
     }
 
     #[test]

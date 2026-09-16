@@ -703,7 +703,7 @@ mod tests {
             );
             assert!(status.frames_ok > 0, "{modulation:?}: {status:?}");
             assert!(
-                elapsed < 2.0,
+                elapsed < realtime_budget(2.0),
                 "{modulation:?}: {elapsed:.3}s for two seconds of IQ"
             );
         }

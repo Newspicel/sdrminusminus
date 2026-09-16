@@ -1,7 +1,7 @@
 use sdrmm_wire::DatvCodeRate;
 
 use super::*;
-use crate::testgen;
+use crate::{testgen, testutil::realtime_budget};
 
 #[test]
 fn carrier_grid_and_permutations_match_the_standard() {
@@ -195,7 +195,7 @@ fn highest_order_terrestrial_demodulation_keeps_ahead_of_realtime() {
     let duration = iq.len() as f64 / (64_000_000.0 / 7.0);
     assert!(receiver.locked());
     assert!(
-        elapsed < duration,
+        elapsed < realtime_budget(duration),
         "{duration:.3}s of DVB-T took {elapsed:.3}s"
     );
 }
