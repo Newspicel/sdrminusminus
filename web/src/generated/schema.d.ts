@@ -1852,10 +1852,6 @@ export interface components {
             bandwidth_ranges?: components["schemas"]["Range"][];
             bandwidths: number[];
             coherence?: components["schemas"]["Coherence"];
-            /**
-             * @description Whether the engine handles this front end's DC artifact itself. Managed hardware hides
-             *     `dc_block` and `lo_offset_hz`, which it overrides.
-             */
             dc_artifact?: components["schemas"]["DcArtifact"];
             directional?: null | components["schemas"]["DirectionalCapabilities"];
             duplex?: components["schemas"]["Duplex"];
@@ -2758,12 +2754,8 @@ export interface components {
         /** @enum {string} */
         DatvStandard: "dvb_s" | "dvb_s2";
         /**
-         * @description Who places and removes the receiver's own DC artifact.
-         *
-         *     A zero-IF front end lands an impulse at the tuned frequency. Moving the LO clear of every
-         *     channel is the only correction that works, because a signal genuinely at 0 Hz is
-         *     arithmetically indistinguishable from the offset, and the blocker must not run until the
-         *     artifact has somewhere harmless to sit.
+         * @description Whether a source lands its own DC term at the tuned centre, and whether the blocker that
+         *     removes it starts on.
          * @enum {string}
          */
         DcArtifact: "operator" | "managed" | "none";
@@ -3072,7 +3064,7 @@ export interface components {
         };
         DeviceNode: {
             device?: null | components["schemas"]["DeviceRef"];
-            tuning_locked?: boolean;
+            locked_streams?: number[];
         };
         DeviceProfile: {
             duplex: components["schemas"]["Duplex"];
@@ -3099,12 +3091,6 @@ export interface components {
             hunt?: null | components["schemas"]["HuntStatus"];
             /** Format: int32 */
             id: number;
-            /**
-             * Format: double
-             * @description Where the LO actually sits relative to the tuned centre, which is not always what was
-             *     asked for: the front end steps it aside when a decoder is parked on the DC artifact.
-             */
-            lo_offset_in_force_hz?: number;
             network_export?: null | components["schemas"]["NetworkExportStatus"];
             /** Format: int64 */
             overruns?: number;
@@ -3126,8 +3112,6 @@ export interface components {
             dc_block?: boolean | null;
             extra?: components["schemas"]["ExtraValue"][];
             gains?: components["schemas"]["GainValue"][];
-            /** Format: double */
-            lo_offset_hz?: number | null;
             /** Format: double */
             ppm?: number | null;
             /** Format: double */
@@ -5297,6 +5281,7 @@ export interface components {
             gains?: components["schemas"]["GainValue"][];
             /** Format: int32 */
             stream: number;
+            tuning?: null | components["schemas"]["Tuning"];
         };
         /** @enum {string} */
         SubghzEncoding: "pcm" | "pwm" | "ppm" | "manchester" | "dmc" | "raw";

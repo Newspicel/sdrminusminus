@@ -22,7 +22,6 @@ import {
   newRange,
   parseRanges,
   type RangeInput,
-  scanRefusal,
   sweepKind,
   targetCount,
 } from "./scanner";
@@ -91,7 +90,6 @@ export function ScannerPanel({
 
   const parsed = parseRanges(ranges);
   const busy = startMut.isPending || stopMut.isPending || skipMut.isPending;
-  const refusal = scanRefusal(active);
   const holding = status?.state === "holding";
   const patchRange = (id: string, patch: Partial<RangeInput>): void =>
     setRanges((current) => current.map((r) => (r.id === id ? { ...r, ...patch } : r)));
@@ -253,11 +251,6 @@ export function ScannerPanel({
                   `${targetCount(parsed.ranges)} per sweep`
                 )}
               </ReadoutRow>
-              {refusal !== null && (
-                <ReadoutRow label="Refused">
-                  <span className="text-danger">{refusal}</span>
-                </ReadoutRow>
-              )}
             </Readout>
           </>
         )}
@@ -296,13 +289,7 @@ export function ScannerPanel({
             <Button
               type="button"
               className={BTN_PRIMARY}
-              disabled={
-                active === null ||
-                channel === null ||
-                busy ||
-                typeof parsed === "string" ||
-                refusal !== null
-              }
+              disabled={active === null || channel === null || busy || typeof parsed === "string"}
               onClick={() =>
                 active !== null &&
                 channel !== null &&

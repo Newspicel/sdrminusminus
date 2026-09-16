@@ -443,6 +443,7 @@ mod tests {
                 streams: vec![StreamSettings {
                     stream: 2,
                     center_hz: None,
+                    tuning: None,
                     gains: vec![GainValue {
                         stage: "VGA".to_owned(),
                         value_db: 40.0,
@@ -545,6 +546,7 @@ mod tests {
                 streams: vec![StreamSettings {
                     stream: 9,
                     center_hz: None,
+                    tuning: None,
                     gains: vec![GainValue {
                         stage: "LNA".to_owned(),
                         value_db: 1.0,

@@ -19,12 +19,6 @@ fn admits_a_scan(state: &DeviceSetState, ds: u32) -> Result<(), EngineError> {
     if state.status != DeviceSetStatus::Running {
         return Err(EngineError::Scan(format!("device set {ds} is not running")));
     }
-    if state.capabilities.per_stream.tuning {
-        return Err(EngineError::Scan(format!(
-            "device set {ds} tunes each receive stream independently, so a sweep of the shared \
-             dial would retune every lane at once; scanning one stream is not supported yet"
-        )));
-    }
     Ok(())
 }
 
@@ -38,7 +32,7 @@ fn admit(
     ds: u32,
     settings: &mut ScanSettings,
     plan: &ScanPlan,
-) -> Result<(), EngineError> {
+) -> Result<u32, EngineError> {
     let inner = engine.lock();
     let state = inner
         .device_sets
@@ -55,7 +49,8 @@ fn admit(
             .measure_bw_hz
             .unwrap_or_else(|| decoder_bandwidth_hz(&decoder.settings)),
     );
-    plan.check_reach(&state.capabilities.freq_ranges)
+    plan.check_reach(&state.capabilities.freq_ranges)?;
+    Ok(decoder.stream)
 }
 
 pub(crate) fn start(
@@ -64,9 +59,9 @@ pub(crate) fn start(
     mut settings: ScanSettings,
 ) -> Result<ScannerStatus, EngineError> {
     let plan = ScanPlan::build(&settings)?;
-    admit(engine, ds, &mut settings, &plan)?;
+    let stream = admit(engine, ds, &mut settings, &plan)?;
     let decoder = settings.channel;
-    let worker = spawn(engine, ds, plan, settings, Some(decoder))?;
+    let worker = spawn(engine, ds, plan, settings, decoder, stream)?;
     let status = worker.status();
     {
         let mut inner = engine.lock();

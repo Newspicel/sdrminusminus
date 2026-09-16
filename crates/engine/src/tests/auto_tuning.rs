@@ -1,3 +1,5 @@
+use sdrmm_wire::StreamSettings;
+
 use super::*;
 use crate::planning::plan_center;
 
@@ -34,8 +36,7 @@ fn clears(
     settings: &DeviceSettings,
     channels: &[ChannelInfo],
 ) -> bool {
-    let plan = plan_front_end(capabilities, settings, channels);
-    artifact_clears_channels(plan.lo_offset_hz, settings, capabilities, channels)
+    centre_clears_channels(settings, capabilities, channels)
 }
 
 fn resolved(settings: &DeviceSettings, delta: Option<DeviceSettings>) -> DeviceSettings {
@@ -65,13 +66,15 @@ fn the_window_lands_over_every_decoder_that_fits_in_it() {
 }
 
 #[test]
-fn a_front_end_the_engine_does_not_know_is_not_second_guessed_for_a_spike() {
+fn any_radio_steps_its_centre_off_a_decoder_parked_on_it() {
     let alone = [parked(1, 0.0)];
-    assert_eq!(
-        settled(&tuner_caps(), &tuned(100e6), &alone),
-        TEST_CENTER_HZ,
-        "an unrecognised receiver was moved off a decoder to dodge a term it may not even have"
+    let center_hz = settled(&tuner_caps(), &tuned(100e6), &alone);
+    assert_ne!(
+        center_hz, TEST_CENTER_HZ,
+        "the decoder was left on the DC term"
     );
+    assert!(heard(center_hz, &alone[0]));
+    assert!(clears(&tuner_caps(), &tuned(center_hz), &alone));
 }
 
 #[test]
@@ -169,6 +172,118 @@ fn a_radio_that_tunes_each_stream_apart_follows_the_decoders_on_each() {
             channel.stream
         );
     }
+}
+
+#[test]
+fn a_stream_tuned_by_hand_stays_put_while_its_neighbour_follows_its_decoder() {
+    let capabilities = Capabilities {
+        rx_streams: 2,
+        per_stream: StreamScope {
+            tuning: true,
+            gain: true,
+            antenna: true,
+        },
+        ..tuner_caps()
+    };
+    let wired = [
+        parked(1, 30e6),
+        ChannelInfo {
+            stream: 1,
+            settings: nfm_settings(40e6),
+            ..parked(2, 0.0)
+        },
+    ];
+    let mut settings = tuned(100e6);
+    settings.streams = vec![StreamSettings {
+        stream: 0,
+        tuning: Some(Tuning::Manual),
+        ..StreamSettings::default()
+    }];
+    let moved = plan_center(&capabilities, &settings, &wired).expect("stream 1 moves");
+    let streams: Vec<u32> = moved.streams.iter().map(|s| s.stream).collect();
+    assert_eq!(
+        streams,
+        vec![1],
+        "only the stream left in auto follows its decoder"
+    );
+}
+
+#[test]
+fn a_decoder_too_wide_to_clear_the_spike_is_held_as_far_off_it_as_the_window_allows() {
+    let wide = ChannelInfo {
+        settings: ChannelSettings {
+            frequency_hz: ADSB_CENTER_HZ,
+            squelch: sdrmm_wire::Squelch::Off,
+            params: ChannelParams::Adsb(AdsbParams::default()),
+            audio: Default::default(),
+        },
+        ..parked(1, 0.0)
+    };
+    let settings = DeviceSettings {
+        center_hz: Some(ADSB_CENTER_HZ),
+        sample_rate: Some(4_000_000.0),
+        ..DeviceSettings::default()
+    };
+    let moved = plan_center(&tuner_caps(), &settings, std::slice::from_ref(&wide))
+        .and_then(|delta| delta.center_hz)
+        .expect("the spike was left on the carrier");
+    let off_by = (moved - ADSB_CENTER_HZ).abs();
+    assert!(
+        (300_000.0..=700_000.0).contains(&off_by),
+        "the spike sits {off_by} Hz from the carrier; half the slack is 500 kHz"
+    );
+    let (low, high) = sdrmm_channels::occupied_band(&wide.settings.params);
+    assert!(
+        ADSB_CENTER_HZ + low >= moved - 2_000_000.0 && ADSB_CENTER_HZ + high <= moved + 2_000_000.0,
+        "the decoder was pushed out of the window"
+    );
+}
+
+#[test]
+fn a_radio_tuned_by_hand_ignores_its_decoders() {
+    let wired = [parked(1, 30e6)];
+    let mut settings = tuned(100e6);
+    settings.tuning = Some(Tuning::Manual);
+    assert_eq!(plan_center(&tuner_caps(), &settings, &wired), None);
+}
+
+#[tokio::test]
+async fn tuning_one_stream_by_hand_leaves_the_other_following_its_decoders() {
+    let engine = virtual_engine();
+    let ds = engine.create_device_set("virtual:transceiver").unwrap();
+    engine
+        .patch_device(
+            ds,
+            DeviceSettings {
+                streams: vec![StreamSettings {
+                    stream: 0,
+                    center_hz: Some(TEST_CENTER_HZ - 500_000.0),
+                    ..StreamSettings::default()
+                }],
+                ..DeviceSettings::default()
+            },
+        )
+        .unwrap();
+    engine
+        .add_channel(ds, 1, nfm_settings(1_100_000.0))
+        .unwrap();
+    engine
+        .add_channel(ds, 0, nfm_settings(1_100_000.0))
+        .unwrap();
+
+    let set = &engine.snapshot().device_sets[0];
+    let scope = set.capabilities.per_stream;
+    assert_eq!(
+        set.settings.for_stream(0, &scope).center_hz,
+        Some(TEST_CENTER_HZ - 500_000.0),
+        "the stream tuned by hand moved"
+    );
+    assert!(set.channels[1].out_of_band);
+    assert!(
+        !set.channels[0].out_of_band,
+        "the stream left in auto did not follow its decoder"
+    );
+    engine.remove_device_set(ds).unwrap();
 }
 
 #[tokio::test]

@@ -163,7 +163,7 @@ pub(super) fn dsp_loop(
                 history = None;
             }
             for (_, host) in &mut channels {
-                host.process_at(slice, total, snapshot.center_hz, snapshot.lo_offset_hz);
+                host.process_at(slice, total, snapshot.center_hz);
             }
             for &s in slice {
                 hist[write_pos] = s;
@@ -182,7 +182,6 @@ pub(super) fn dsp_loop(
                         timestamp: total,
                         center_hz: snapshot.center_hz,
                         span_hz: snapshot.sample_rate as f32,
-                        lo_hz: snapshot.lo_hz(),
                     };
                     if let Some(completed) = analyzer.power_db(&window, &mut db, frame) {
                         seq = seq.wrapping_add(1);
@@ -411,7 +410,6 @@ mod tests {
             meta: Arc::new(ArcSwap::from_pointee(DspMeta {
                 center_hz: 100e6,
                 sample_rate: 48_000.0,
-                lo_offset_hz: 0.0,
                 dc_block: false,
             })),
             stop: stop.clone(),

@@ -986,24 +986,30 @@ async fn a_radio_nobody_tuned_opens_over_the_decoder_wired_into_it() {
     assert!(report.refused.is_empty(), "{:?}", report.refused);
 
     let set = &get_state(&app).await.device_sets[0];
-    assert_eq!(
-        set.settings.center_hz,
-        Some(1_090_000_000.0),
-        "the radio came up somewhere its decoder cannot be heard"
+    let center_hz = set.settings.center_hz.expect("a tuned radio");
+    assert!(
+        (center_hz - 1_090_000_000.0).abs() < 2_000_000.0,
+        "the radio came up at {center_hz} Hz, where its decoder cannot be heard"
     );
+    assert_ne!(center_hz, 1_090_000_000.0, "the decoder was left on the DC spike");
     assert!(!set.channels[0].out_of_band);
 }
 
 #[tokio::test]
-async fn a_decoder_with_no_home_of_its_own_starts_where_the_radio_listens() {
+async fn a_decoder_keeps_its_own_frequency_and_the_radio_comes_to_it() {
     let app = test_router();
     let snapshot = virtual_snapshot("siggen", &[("voice", "nfm", "iq")]);
     let workspace = put_active_workspace(&app, &snapshot).await;
     apply(&app, workspace).await;
 
     let set = &get_state(&app).await.device_sets[0];
-    let center_hz = set.settings.center_hz.expect("a tuned radio");
-    assert_eq!(set.channels[0].settings.frequency_hz, center_hz);
+    let default_hz = sdrmm_wire::ChannelSettings::default_for("nfm")
+        .expect("nfm")
+        .frequency_hz;
+    assert_eq!(
+        set.channels[0].settings.frequency_hz, default_hz,
+        "the radio moved the decoder instead of following it"
+    );
     assert!(!set.channels[0].out_of_band);
 }
 

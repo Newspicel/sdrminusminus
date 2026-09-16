@@ -1,5 +1,5 @@
 use num_complex::Complex;
-use sdrmm_dsp::{IqDcBlocker, Nco};
+use sdrmm_dsp::IqDcBlocker;
 
 use super::FFT_SIZE;
 
@@ -7,14 +7,7 @@ use super::FFT_SIZE;
 pub struct DspMeta {
     pub center_hz: f64,
     pub sample_rate: f64,
-    pub lo_offset_hz: f64,
     pub dc_block: bool,
-}
-
-impl DspMeta {
-    pub(super) fn lo_hz(&self) -> f64 {
-        self.center_hz - self.lo_offset_hz
-    }
 }
 
 fn dc_block_corner_hz(sample_rate: f64) -> f64 {
@@ -23,7 +16,6 @@ fn dc_block_corner_hz(sample_rate: f64) -> f64 {
 
 pub(super) struct Frontend {
     blocker: IqDcBlocker,
-    nco: Nco,
     scratch: Vec<Complex<f32>>,
     meta: DspMeta,
 }
@@ -32,7 +24,6 @@ impl Frontend {
     pub(super) fn new(meta: DspMeta) -> Self {
         Self {
             blocker: IqDcBlocker::new(meta.sample_rate, dc_block_corner_hz(meta.sample_rate)),
-            nco: Nco::new(-meta.lo_offset_hz as f32, meta.sample_rate as f32),
             scratch: Vec::new(),
             meta,
         }
@@ -40,7 +31,6 @@ impl Frontend {
 
     pub(super) fn reset(&mut self) {
         self.blocker.reset();
-        self.nco.reset();
     }
 
     pub(super) fn follow(&mut self, meta: DspMeta) {
@@ -50,27 +40,16 @@ impl Frontend {
         if meta.sample_rate != self.meta.sample_rate {
             self.blocker = IqDcBlocker::new(meta.sample_rate, dc_block_corner_hz(meta.sample_rate));
         }
-        if meta.lo_offset_hz != self.meta.lo_offset_hz || meta.sample_rate != self.meta.sample_rate
-        {
-            self.nco
-                .set_freq(-meta.lo_offset_hz as f32, meta.sample_rate as f32);
-        }
         self.meta = meta;
     }
 
     pub(super) fn apply<'a>(&'a mut self, input: &'a [Complex<f32>]) -> &'a [Complex<f32>] {
-        let shift = self.meta.lo_offset_hz != 0.0;
-        if !self.meta.dc_block && !shift {
+        if !self.meta.dc_block {
             return input;
         }
         self.scratch.clear();
         self.scratch.extend_from_slice(input);
-        if self.meta.dc_block {
-            self.blocker.process(&mut self.scratch);
-        }
-        if shift {
-            self.nco.mix(&mut self.scratch);
-        }
+        self.blocker.process(&mut self.scratch);
         &self.scratch
     }
 }
@@ -83,11 +62,10 @@ mod tests {
 
     const FRONTEND_RATE: f64 = 2_400_000.0;
 
-    fn frontend_meta(lo_offset_hz: f64, dc_block: bool) -> DspMeta {
+    fn frontend_meta(dc_block: bool) -> DspMeta {
         DspMeta {
             center_hz: 100_000_000.0,
             sample_rate: FRONTEND_RATE,
-            lo_offset_hz,
             dc_block,
         }
     }
@@ -116,7 +94,7 @@ mod tests {
 
     #[test]
     fn a_quiet_frontend_hands_the_capture_through_untouched() {
-        let mut frontend = Frontend::new(frontend_meta(0.0, false));
+        let mut frontend = Frontend::new(frontend_meta(false));
         let input = wideband_tone(120_000.0, 4_096);
         let out = frontend.apply(&input);
         assert_eq!(out.as_ptr(), input.as_ptr(), "the samples were copied");
@@ -124,7 +102,7 @@ mod tests {
 
     #[test]
     fn the_frontend_takes_the_dc_term_out_and_leaves_the_signal() {
-        let mut frontend = Frontend::new(frontend_meta(0.0, true));
+        let mut frontend = Frontend::new(frontend_meta(true));
         let offset = Complex::new(0.08, -0.05);
         let mut input = wideband_tone(120_000.0, 1 << 18);
         for s in &mut input {
@@ -143,40 +121,12 @@ mod tests {
     }
 
     #[test]
-    fn an_lo_offset_slides_the_capture_back_under_the_frequency_that_was_asked_for() {
-        let mut frontend = Frontend::new(frontend_meta(200_000.0, false));
-        let input = wideband_tone(320_000.0, 1 << 16);
-        let out = frontend.apply(&input).to_vec();
-        assert!(
-            (dominant_hz(&out) - 120_000.0).abs() < 600.0,
-            "a signal 320 kHz above a displaced LO landed at {} Hz, not 120 kHz",
-            dominant_hz(&out)
-        );
-    }
-
-    #[test]
-    fn the_dc_term_is_removed_before_the_offset_carries_it_away_from_centre() {
-        let mut frontend = Frontend::new(frontend_meta(200_000.0, true));
-        let mut input = wideband_tone(320_000.0, 1 << 18);
-        for s in &mut input {
-            *s += Complex::new(0.5, 0.5);
-        }
-        let out = frontend.apply(&input).to_vec();
-        let tail = &out[out.len() / 2..];
-        assert!(
-            (dominant_hz(tail) - 120_000.0).abs() < 600.0,
-            "the dc term outshouted the signal at {} Hz",
-            dominant_hz(tail)
-        );
-    }
-
-    #[test]
     fn a_rate_change_rebuilds_the_estimator_and_a_retune_does_not_disturb_it() {
-        let mut frontend = Frontend::new(frontend_meta(0.0, true));
+        let mut frontend = Frontend::new(frontend_meta(true));
         let settled = vec![Complex::new(1.0, 0.0); 1 << 18];
         frontend.apply(&settled);
 
-        let mut retuned = frontend_meta(0.0, true);
+        let mut retuned = frontend_meta(true);
         retuned.center_hz += 1_000_000.0;
         frontend.follow(retuned);
         let held = frontend.apply(&[Complex::new(1.0, 0.0); 8])[0];

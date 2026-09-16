@@ -1,5 +1,6 @@
 import { type GraphContext, isPinned, pin, tuningLocked, unpin } from "./canvas/graph";
 import { nextAnalogMode, swapDecoder } from "./canvas/nodes/decoderSwap";
+import { tuneDelta } from "./canvas/nodes/deviceNode";
 import { useHotkeys } from "./canvas/useHotkeys";
 import type { WorkspaceStore } from "./canvas/useWorkspace";
 import type { View } from "./canvas/WorkspaceBar";
@@ -8,7 +9,7 @@ import { TUNE_STEPS_HZ, tuningRange } from "./components/dial";
 import { dialId } from "./components/FrequencyDial";
 import type { ChannelInfo, DeviceSet, PatchGraph, PatchNode } from "./lib/types";
 import type { useChannelPatch } from "./lib/useChannelPatch";
-import type { useDevicePatch } from "./lib/useDevicePatch";
+import { forStream, type useDevicePatch } from "./lib/useDevicePatch";
 
 export interface AppHotkeys {
   selected: string | null;
@@ -41,13 +42,16 @@ export function useAppHotkeys(b: AppHotkeys) {
       ) {
         return;
       }
-      const range = tuningRange(b.selectedSet.capabilities);
-      const current = b.cachedSettings(b.selectedSet.id)?.center_hz ?? 0;
+      const { capabilities } = b.selectedSet;
+      const range = tuningRange(capabilities);
+      const cached = b.cachedSettings(b.selectedSet.id);
+      const current =
+        cached === undefined ? 0 : (forStream(cached, 0, capabilities.per_stream).center_hz ?? 0);
       const wanted = current + steps * b.stepHz;
-      b.applyPatch(b.selectedSet.id, {
-        center_hz: Math.min(range.max, Math.max(range.min, wanted)),
-        tuning: "manual",
-      });
+      b.applyPatch(
+        b.selectedSet.id,
+        tuneDelta(capabilities, 0, Math.min(range.max, Math.max(range.min, wanted))),
+      );
     },
     stepBy: (direction) => {
       const at = TUNE_STEPS_HZ.indexOf(b.stepHz as (typeof TUNE_STEPS_HZ)[number]);

@@ -1280,7 +1280,35 @@ fn parse_workspace_snapshot(json: &str) -> Result<WorkspaceSnapshot, serde_json:
     migrate_event_outputs(&mut value);
     migrate_recording_devices(&mut value);
     migrate_control_wires(&mut value);
+    migrate_device_locks(&mut value);
     serde_json::from_value(value)
+}
+
+fn migrate_device_locks(snapshot: &mut serde_json::Value) {
+    let Some(nodes) = snapshot
+        .get_mut("graph")
+        .and_then(|graph| graph.get_mut("nodes"))
+        .and_then(serde_json::Value::as_array_mut)
+    else {
+        return;
+    };
+    for node in nodes {
+        if node_kind(node) != Some("device") {
+            continue;
+        }
+        let Some(data) = node
+            .get_mut("data")
+            .and_then(serde_json::Value::as_object_mut)
+        else {
+            continue;
+        };
+        let Some(locked) = data.remove("tuning_locked") else {
+            continue;
+        };
+        if locked.as_bool() == Some(true) && !data.contains_key("locked_streams") {
+            data.insert("locked_streams".to_owned(), serde_json::json!([0]));
+        }
+    }
 }
 
 fn node_kind(node: &serde_json::Value) -> Option<&str> {

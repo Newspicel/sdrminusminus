@@ -270,6 +270,7 @@ impl SdrplayDevice {
                 streams.push(sdrmm_wire::StreamSettings {
                     stream,
                     center_hz: read.center_hz,
+                    tuning: None,
                     gains: read.gains,
                     antenna: None,
                 });

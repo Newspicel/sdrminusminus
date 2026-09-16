@@ -93,10 +93,8 @@ pub use device::{
     ARRAY_DRIVER_ID, ArgumentInfo, ArgumentOption, ArgumentType, ArrayDefinition, Capabilities,
     ChannelCapabilities, Coherence, DcArtifact, DeviceInfo, DeviceProfile, DeviceSettings,
     Direction, DirectionalCapabilities, Duplex, ExtraSetting, ExtraValue, GainStage, GainValue,
-    MANAGED_LO_OFFSET_FRACTION, MAX_ARRAY_KEY_LEN, MAX_ARRAY_MEMBERS, MAX_LO_OFFSET_FRACTION,
-    MAX_RECORDING_STEM_LEN, RECORDING_DRIVER_ID, Range, SIGGEN_DRIVER_ID, StreamScope,
-    StreamSettings, Tuning, any_range_holds, lo_offset_limit_hz, managed_lo_offset_hz,
-    recording_stem_valid,
+    MAX_ARRAY_KEY_LEN, MAX_ARRAY_MEMBERS, MAX_RECORDING_STEM_LEN, RECORDING_DRIVER_ID, Range,
+    SIGGEN_DRIVER_ID, StreamScope, StreamSettings, Tuning, any_range_holds, recording_stem_valid,
 };
 pub use diagnostics::{DiagnosticsReport, LogLevel, LogLine, MAX_LOG_LINES, MAX_LOG_MESSAGE_LEN};
 pub use doctor::{CheckStatus, DoctorCheck, DoctorReport};
@@ -839,7 +837,6 @@ mod contract_tests {
             },
             settings: DeviceSettings::default(),
             status: DeviceSetStatus::Running,
-            lo_offset_in_force_hz: 0.0,
             channels: Vec::new(),
             overruns: 0,
             error: None,

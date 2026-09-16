@@ -3,10 +3,9 @@ import type { GainStage } from "../lib/types";
 import {
   AGC_SETTING,
   automaticGainIsOn,
-  clampLoOffsetHz,
+  dcBlockOn,
+  hasDcArtifact,
   isSwitch,
-  loOffsetLimitHz,
-  operatorPlacesDcArtifact,
   settingIndex,
   snapToRanges,
   snapToStage,
@@ -144,40 +143,27 @@ describe("snapToRanges", () => {
   });
 });
 
-describe("loOffsetLimitHz", () => {
-  it("keeps the LO inside the tuner's flat passband", () => {
-    expect(loOffsetLimitHz(2_400_000)).toBe(960_000);
-    expect(loOffsetLimitHz(0)).toBe(0);
-    expect(loOffsetLimitHz(undefined)).toBe(0);
-    expect(loOffsetLimitHz(Number.NaN)).toBe(0);
+describe("hasDcArtifact", () => {
+  it("offers the blocker to every radio with a front end", () => {
+    expect(hasDcArtifact({ dc_artifact: "operator" })).toBe(true);
+    expect(hasDcArtifact({ dc_artifact: "managed" })).toBe(true);
+    expect(hasDcArtifact({})).toBe(true);
+  });
+
+  it("keeps it from a source with no front end at all", () => {
+    expect(hasDcArtifact({ dc_artifact: "none" })).toBe(false);
   });
 });
 
-describe("clampLoOffsetHz", () => {
-  it("holds a request to the limit in both directions", () => {
-    expect(clampLoOffsetHz(250_000, 2_400_000)).toBe(250_000);
-    expect(clampLoOffsetHz(5_000_000, 2_400_000)).toBe(960_000);
-    expect(clampLoOffsetHz(-5_000_000, 2_400_000)).toBe(-960_000);
+describe("dcBlockOn", () => {
+  it("starts on for hardware known to land a DC term, off otherwise", () => {
+    expect(dcBlockOn({ dc_artifact: "managed" }, {})).toBe(true);
+    expect(dcBlockOn({ dc_artifact: "operator" }, {})).toBe(false);
   });
 
-  it("falls back to tuning dead centre when there is no room or no number", () => {
-    expect(clampLoOffsetHz(250_000, undefined)).toBe(0);
-    expect(clampLoOffsetHz(Number.NaN, 2_400_000)).toBe(0);
-  });
-});
-
-describe("operatorPlacesDcArtifact", () => {
-  it("keeps the controls for hardware the engine does not recognise", () => {
-    expect(operatorPlacesDcArtifact({ dc_artifact: "operator" })).toBe(true);
-    expect(operatorPlacesDcArtifact({})).toBe(true);
-  });
-
-  it("drops them for a front end the engine handles itself", () => {
-    expect(operatorPlacesDcArtifact({ dc_artifact: "managed" })).toBe(false);
-  });
-
-  it("drops them for a source with no front end at all", () => {
-    expect(operatorPlacesDcArtifact({ dc_artifact: "none" })).toBe(false);
+  it("follows the operator's choice either way", () => {
+    expect(dcBlockOn({ dc_artifact: "managed" }, { dc_block: false })).toBe(false);
+    expect(dcBlockOn({ dc_artifact: "operator" }, { dc_block: true })).toBe(true);
   });
 });
 

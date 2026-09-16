@@ -7,7 +7,6 @@ import {
   liveStatus,
   newRange,
   parseRanges,
-  scanRefusal,
   sweepKind,
   targetCount,
 } from "./scanner";
@@ -115,28 +114,6 @@ describe("liveStatus", () => {
   it("reports nothing when the snapshot has no scan", () => {
     expect(liveStatus(deviceSet(), STATUS)).toBeNull();
     expect(liveStatus(null, STATUS)).toBeNull();
-  });
-});
-
-describe("scanRefusal", () => {
-  it("refuses a radio whose streams tune independently", () => {
-    const perStream = deviceSet({
-      capabilities: {
-        ...deviceSet().capabilities,
-        rx_streams: 2,
-        per_stream: { tuning: true, gain: true, antenna: true },
-      },
-    });
-    expect(scanRefusal(perStream)).toMatch(/independently/);
-  });
-
-  it("allows a single-stream radio, a shared-tuning array, and no radio at all", () => {
-    expect(scanRefusal(deviceSet())).toBeNull();
-    const array4 = deviceSet({
-      capabilities: { ...deviceSet().capabilities, rx_streams: 4, per_stream: { gain: true } },
-    });
-    expect(scanRefusal(array4)).toBeNull();
-    expect(scanRefusal(null)).toBeNull();
   });
 });
 

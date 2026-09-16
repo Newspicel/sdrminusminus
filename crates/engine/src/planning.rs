@@ -97,22 +97,15 @@ pub(crate) fn tuner_reaches(capabilities: &Capabilities, hz: f64) -> bool {
             .any(|r| hz >= r.min && hz <= r.max)
 }
 
-/// Where the front end's DC term is parked, relative to the offset that was asked for.
-///
-/// The first placement that clears every channel wins, so an operator who asks for 250 kHz keeps
-/// 250 kHz unless a decoder is sitting there.
-const LO_PLACEMENTS: [f64; 8] = [1.0, -1.0, 0.75, -0.75, 1.25, -1.25, 0.5, -0.5];
-
-/// Room left between the artifact and the edge of a channel it must not sit in.
+/// Room left between the DC term at the centre and the edge of a channel it must not sit in.
 const LO_ARTIFACT_MARGIN_HZ: f64 = 2_000.0;
 
 fn channel_half_width_hz(params: &ChannelParams) -> f64 {
     descriptor_for(params).map_or(0.0, |d| d.bandwidth_hz / 2.0) + LO_ARTIFACT_MARGIN_HZ
 }
 
-/// Whether parking the LO here would drop the DC term inside a channel being demodulated.
-pub(crate) fn artifact_clears_channels(
-    offset_hz: f64,
+/// Whether the centre, where a zero-IF front end lands its DC term, sits inside no channel.
+pub(crate) fn centre_clears_channels(
     settings: &DeviceSettings,
     capabilities: &Capabilities,
     channels: &[ChannelInfo],
@@ -122,133 +115,19 @@ pub(crate) fn artifact_clears_channels(
             .for_stream(channel.stream, &capabilities.per_stream)
             .center_hz
             .unwrap_or(DEFAULT_CENTER_HZ);
-        let artifact = center_hz - offset_hz;
-        (artifact - channel.settings.frequency_hz).abs()
+        (center_hz - channel.settings.frequency_hz).abs()
             > channel_half_width_hz(&channel.settings.params)
     })
 }
 
-/// Where the front end's DC artifact ends up, and whether it is safe to remove it there.
-///
-/// The blocker notches whatever sits at 0 Hz, so it may only run once the artifact has been
-/// parked clear of every channel. Blocking without that placement is what puts a notch through
-/// a decoder tuned to the centre.
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
-pub struct FrontEndPlan {
-    pub lo_offset_hz: f64,
-    pub dc_block: bool,
-}
-
-/// Walks the placement ladder for the first displacement the tuner can reach with no decoder
-/// sitting on it. `None` when every placement is spoken for.
-fn place_artifact(
-    wanted_hz: f64,
-    capabilities: &Capabilities,
-    settings: &DeviceSettings,
-    channels: &[ChannelInfo],
-    rate: f64,
-) -> Option<f64> {
-    if wanted_hz == 0.0 {
-        return None;
+/// Whether the front end removes its DC term: the operator's choice, starting on for hardware
+/// known to land one and never for a source without a front end.
+pub(crate) fn dc_block(capabilities: &Capabilities, settings: &DeviceSettings) -> bool {
+    match capabilities.dc_artifact {
+        DcArtifact::None => false,
+        DcArtifact::Managed => settings.dc_block.unwrap_or(true),
+        DcArtifact::Operator => settings.dc_block.unwrap_or(false),
     }
-    let limit = sdrmm_wire::lo_offset_limit_hz(rate);
-    LO_PLACEMENTS.into_iter().find_map(|scale| {
-        let candidate = (wanted_hz * scale).clamp(-limit, limit);
-        let placed = DeviceSettings {
-            lo_offset_hz: Some(candidate),
-            ..settings.clone()
-        };
-        (placed.effective_lo_offset_hz(capabilities, rate) == candidate
-            && artifact_clears_channels(candidate, settings, capabilities, channels))
-        .then_some(candidate)
-    })
-}
-
-/// Settles the front end: where the LO sits and whether the DC term is removed.
-///
-/// Moving the LO is invisible downstream because the front end mixes the displacement back out,
-/// so the placement is free to shift as channels come and go. Hardware the engine recognises
-/// gets both decided for it; anything else is left to the operator, who may have a front end
-/// that already corrects itself.
-pub(crate) fn plan_front_end(
-    capabilities: &Capabilities,
-    settings: &DeviceSettings,
-    channels: &[ChannelInfo],
-) -> FrontEndPlan {
-    if capabilities.dc_artifact == DcArtifact::None {
-        return FrontEndPlan {
-            lo_offset_hz: 0.0,
-            dc_block: false,
-        };
-    }
-    let rate = sample_rate_of(settings);
-    // A centre the radio has not reported cannot be displaced: there is nothing to subtract the
-    // offset from, and the front end would mix back a shift the hardware never took.
-    if settings.center_hz.is_none() {
-        return FrontEndPlan {
-            lo_offset_hz: 0.0,
-            dc_block: !capabilities.dc_artifact.is_managed() && settings.dc_block.unwrap_or(false),
-        };
-    }
-    if capabilities.dc_artifact.is_managed() {
-        let placed = place_artifact(
-            sdrmm_wire::managed_lo_offset_hz(rate),
-            capabilities,
-            settings,
-            channels,
-            rate,
-        );
-        return FrontEndPlan {
-            lo_offset_hz: placed.unwrap_or(0.0),
-            dc_block: placed.is_some(),
-        };
-    }
-    let asked = settings.effective_lo_offset_hz(capabilities, rate);
-    FrontEndPlan {
-        lo_offset_hz: place_artifact(asked, capabilities, settings, channels, rate)
-            .unwrap_or(asked),
-        dc_block: settings.dc_block.unwrap_or(false),
-    }
-}
-
-/// Turns an operator-frame patch into the one the driver receives.
-///
-/// Changing the offset retunes the hardware even when the patch says nothing about frequency, so
-/// a centre the patch left alone has to be restated before it is displaced.
-pub(crate) fn hardware_delta(
-    delta: &DeviceSettings,
-    wanted: &DeviceSettings,
-    offset_hz: f64,
-    previous_hz: f64,
-) -> DeviceSettings {
-    let mut restated = delta.clone();
-    if offset_hz != previous_hz {
-        if restated.center_hz.is_none() {
-            restated.center_hz = wanted.center_hz;
-        }
-        for stream in &wanted.streams {
-            let Some(center_hz) = stream.center_hz else {
-                continue;
-            };
-            match restated
-                .streams
-                .iter_mut()
-                .find(|s| s.stream == stream.stream)
-            {
-                Some(existing) if existing.center_hz.is_none() => {
-                    existing.center_hz = Some(center_hz);
-                }
-                Some(_) => {}
-                None => restated.streams.push(StreamSettings {
-                    stream: stream.stream,
-                    center_hz: Some(center_hz),
-                    gains: Vec::new(),
-                    antenna: None,
-                }),
-            }
-        }
-    }
-    restated.to_hardware(offset_hz)
 }
 
 pub(crate) fn validate_streams(
@@ -315,6 +194,7 @@ fn with_center(
             None => probe.streams.push(StreamSettings {
                 stream,
                 center_hz: Some(center_hz),
+                tuning: None,
                 gains: Vec::new(),
                 antenna: None,
             }),
@@ -325,14 +205,6 @@ fn with_center(
     probe
 }
 
-fn engine_owns_artifact(capabilities: &Capabilities, settings: &DeviceSettings) -> bool {
-    match capabilities.dc_artifact {
-        DcArtifact::None => false,
-        DcArtifact::Managed => true,
-        DcArtifact::Operator => settings.lo_offset_hz.is_some_and(|hz| hz != 0.0),
-    }
-}
-
 fn artifact_is_clear(
     capabilities: &Capabilities,
     settings: &DeviceSettings,
@@ -340,12 +212,8 @@ fn artifact_is_clear(
     center_hz: f64,
     channels: &[ChannelInfo],
 ) -> bool {
-    if !engine_owns_artifact(capabilities, settings) {
-        return true;
-    }
     let probe = with_center(settings, capabilities, stream, center_hz);
-    let plan = plan_front_end(capabilities, &probe, channels);
-    artifact_clears_channels(plan.lo_offset_hz, &probe, capabilities, channels)
+    centre_clears_channels(&probe, capabilities, channels)
 }
 
 fn candidate_centers(spans: &[Span], channels: &[ChannelInfo], current_hz: f64) -> Vec<f64> {
@@ -359,17 +227,29 @@ fn candidate_centers(spans: &[Span], channels: &[ChannelInfo], current_hz: f64) 
             continue;
         }
         candidates.push(f64::midpoint(low, high));
-        for channel in channels {
+        for (channel, span) in channels.iter().zip(spans) {
             let clear_of = channel_half_width_hz(&channel.settings.params) + 1.0;
             let frequency_hz = channel.settings.frequency_hz;
             candidates.extend(
-                [frequency_hz - clear_of, frequency_hz + clear_of]
-                    .into_iter()
-                    .filter(|hz| (low..=high).contains(hz)),
+                [
+                    frequency_hz - clear_of,
+                    frequency_hz + clear_of,
+                    f64::midpoint(span.0, frequency_hz),
+                    f64::midpoint(frequency_hz, span.1),
+                ]
+                .into_iter()
+                .filter(|hz| (low..=high).contains(hz)),
             );
         }
     }
     candidates
+}
+
+fn nearest_carrier_hz(channels: &[ChannelInfo], center_hz: f64) -> f64 {
+    channels
+        .iter()
+        .map(|channel| (channel.settings.frequency_hz - center_hz).abs())
+        .fold(f64::INFINITY, f64::min)
 }
 
 fn best_center_hz(
@@ -388,11 +268,20 @@ fn best_center_hz(
         return None;
     }
     let rank = |center_hz: f64| {
+        let clear = artifact_is_clear(capabilities, settings, stream, center_hz, channels);
+        let stays = (center_hz - current_hz).abs() <= SPAN_EPSILON_HZ;
+        let margin = narrowest_margin_hz(&spans, center_hz);
+        let room = if clear {
+            0.0
+        } else {
+            nearest_carrier_hz(channels, center_hz).min(margin)
+        };
         (
             covered_count(&spans, center_hz),
-            artifact_is_clear(capabilities, settings, stream, center_hz, channels),
-            (center_hz - current_hz).abs() <= SPAN_EPSILON_HZ,
-            narrowest_margin_hz(&spans, center_hz),
+            clear,
+            clear && stays,
+            room,
+            margin,
         )
     };
     candidate_centers(&spans, channels, current_hz)
@@ -412,6 +301,9 @@ pub(crate) fn plan_center(
 ) -> Option<DeviceSettings> {
     let scope = capabilities.per_stream;
     if !scope.tuning {
+        if !settings.tunes_itself() {
+            return None;
+        }
         let current_hz = center_of(settings, 0, &scope);
         let center_hz = best_center_hz(capabilities, settings, 0, channels, current_hz)?;
         return (center_hz != current_hz).then(|| DeviceSettings {
@@ -421,6 +313,9 @@ pub(crate) fn plan_center(
     }
     let mut streams = Vec::new();
     for stream in 0..capabilities.rx_streams {
+        if !settings.for_stream(stream, &scope).tunes_itself() {
+            continue;
+        }
         let mine: Vec<ChannelInfo> = channels
             .iter()
             .filter(|channel| channel.stream == stream)
@@ -435,6 +330,7 @@ pub(crate) fn plan_center(
             streams.push(StreamSettings {
                 stream,
                 center_hz: Some(center_hz),
+                tuning: None,
                 gains: Vec::new(),
                 antenna: None,
             });

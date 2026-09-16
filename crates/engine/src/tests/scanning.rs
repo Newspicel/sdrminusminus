@@ -16,7 +16,7 @@ fn nfm_decoder(engine: &Engine, ds: u32, frequency_hz: f64) -> u32 {
 }
 
 #[tokio::test]
-async fn scan_finds_a_carrier_holds_and_owns_the_tuning() {
+async fn scan_finds_a_carrier_and_holds() {
     let mut registry = DeviceRegistry::new();
     registry.register(50, Box::new(SignalDriver));
     let engine = Engine::with_registry(registry, None);
@@ -42,20 +42,11 @@ async fn scan_finds_a_carrier_holds_and_owns_the_tuning() {
         "the decoder's own bandwidth is what gets measured"
     );
 
-    let err = engine
-        .patch_device(
-            ds,
-            DeviceSettings {
-                center_hz: Some(101_000_000.0),
-                ..DeviceSettings::default()
-            },
-        )
-        .unwrap_err();
-    assert!(err.is_bad_request(), "expected bad request, got {err}");
     assert!(
         engine
             .start_scan(ds, sdrmm_wire::ScanSettings::for_channel(ch))
-            .is_err()
+            .is_err(),
+        "one scan per radio"
     );
 
     let deadline = Instant::now() + Duration::from_secs(20);
@@ -102,6 +93,70 @@ async fn scan_finds_a_carrier_holds_and_owns_the_tuning() {
             },
         )
         .unwrap();
+    engine.remove_device_set(ds).unwrap();
+}
+
+#[tokio::test]
+async fn a_radio_tuned_by_hand_stays_put_and_the_scan_searches_only_its_window() {
+    let mut registry = DeviceRegistry::new();
+    registry.register(50, Box::new(SignalDriver));
+    let engine = Engine::with_registry(registry, None);
+    let ds = engine.create_device_set("mock:signal").unwrap();
+    let ch = nfm_decoder(&engine, ds, TEST_CENTER_HZ);
+    hold_tuning(&engine, ds);
+    let held_hz = engine.snapshot().device_sets[0].settings.center_hz;
+    let beyond = TEST_CENTER_HZ + 10_000_000.0;
+    engine
+        .start_scan(
+            ds,
+            sdrmm_wire::ScanSettings {
+                frequencies: vec![SIGNAL_HZ, beyond],
+                threshold_db: -60.0,
+                dwell_ms: 40,
+                resume_ms: 60_000,
+                ..sdrmm_wire::ScanSettings::for_channel(ch)
+            },
+        )
+        .unwrap();
+
+    let deadline = Instant::now() + Duration::from_secs(20);
+    loop {
+        let set = &engine.snapshot().device_sets[0];
+        let scanner = set.scanner.clone().expect("scan listed");
+        assert_eq!(scanner.error, None, "scan failed");
+        assert_eq!(
+            set.settings.center_hz, held_hz,
+            "a scan moved a radio the operator tuned by hand"
+        );
+        assert_ne!(
+            set.channels[0].settings.frequency_hz, beyond,
+            "the decoder was sent where the radio cannot hear"
+        );
+        if scanner.state == ScanState::Holding {
+            break;
+        }
+        assert!(Instant::now() < deadline, "scan never found the carrier");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    engine.skip_scan(ds).unwrap();
+
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let set = &engine.snapshot().device_sets[0];
+        let scanner = set.scanner.clone().expect("scan listed");
+        assert_eq!(scanner.error, None, "scan failed");
+        assert_eq!(set.settings.center_hz, held_hz);
+        assert_ne!(set.channels[0].settings.frequency_hz, beyond);
+        if scanner.sweeps >= 2 {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "the scan never swept past the window"
+        );
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    engine.stop_scan(ds).unwrap();
     engine.remove_device_set(ds).unwrap();
 }
 
@@ -295,6 +350,56 @@ async fn a_firmware_sweep_finds_a_carrier_without_the_scanner_retuning() {
             },
         )
         .expect("the radio takes a tuning again after a sweep");
+    engine.remove_device_set(ds).unwrap();
+}
+
+#[tokio::test]
+async fn a_radio_sweeping_in_firmware_refuses_a_retune_by_name() {
+    let engine = virtual_engine();
+    let ds = engine.create_device_set("virtual:siggen").unwrap();
+    let ch = nfm_decoder(&engine, ds, TEST_CENTER_HZ);
+    let marker = sdrmm_device_virtual::SWEEP_MARKER_HZ;
+    engine
+        .start_scan(
+            ds,
+            sdrmm_wire::ScanSettings {
+                frequencies: vec![marker],
+                threshold_db: 100.0,
+                dwell_ms: 40,
+                measure_bw_hz: Some(25_000.0),
+                ..sdrmm_wire::ScanSettings::for_channel(ch)
+            },
+        )
+        .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(20);
+    loop {
+        let scanner = engine.snapshot().device_sets[0]
+            .scanner
+            .clone()
+            .expect("scan listed");
+        assert_eq!(scanner.error, None, "scan failed");
+        assert!(scanner.hardware_sweep, "the scan must sweep in firmware");
+        if scanner.sweeps >= 1 {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "the firmware sweep never completed a pass"
+        );
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    let err = engine
+        .patch_device(
+            ds,
+            DeviceSettings {
+                center_hz: Some(TEST_CENTER_HZ + 1_000_000.0),
+                ..DeviceSettings::default()
+            },
+        )
+        .unwrap_err();
+    assert!(err.is_bad_request(), "expected bad request, got {err}");
+    assert!(err.to_string().contains("firmware"), "unhelpful: {err}");
+    engine.stop_scan(ds).unwrap();
     engine.remove_device_set(ds).unwrap();
 }
 

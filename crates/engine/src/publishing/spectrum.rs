@@ -44,7 +44,6 @@ impl SpectrumPublisher {
                     timestamp: 0,
                     center_hz: 0.0,
                     span_hz: 0.0,
-                    lo_hz: 0.0,
                 },
                 db: vec![0.0; size],
             },
@@ -54,7 +53,6 @@ impl SpectrumPublisher {
                     timestamp: packet.frame.timestamp,
                     center_hz: packet.frame.center_hz,
                     span_hz: packet.frame.span_hz,
-                    lo_hz: packet.frame.lo_hz,
                     db: Arc::from(packet.db.as_slice()),
                 });
             },

@@ -23,7 +23,7 @@ use sdrmm_engine::{Engine, SpectrumSnapshot};
 use sdrmm_wire::{
     Capabilities, ChannelParams, ChannelSettings, DcArtifact, DecoderEvent, DeviceInfo,
     DeviceSettings, Duplex, GainValue, NfmParams, PocsagBaud, PocsagParams, ScanSettings,
-    StreamScope, StreamSettings,
+    StreamScope, StreamSettings, Tuning,
 };
 use tokio::sync::broadcast;
 
@@ -344,6 +344,7 @@ async fn a_per_stream_retune_moves_only_that_lanes_centre() {
         vec![StreamSettings {
             stream: 1,
             center_hz: Some(lane1),
+            tuning: Some(Tuning::Manual),
             ..StreamSettings::default()
         }],
         "the radio-wide retune must not wipe the per-stream override"
@@ -420,24 +421,83 @@ async fn a_bad_streams_entry_is_a_clean_bad_request_naming_the_problem() {
 }
 
 #[tokio::test]
-async fn a_scan_is_refused_where_tuning_is_per_stream() {
+async fn a_scan_moves_its_decoder_and_only_that_lane_follows() {
     let engine = engine();
-    let scan = |channel: u32| ScanSettings {
-        frequencies: vec![100_000_000.0],
-        ..ScanSettings::for_channel(channel)
-    };
-
     let ds = engine.create_device_set(TRANSCEIVER).unwrap();
-    let ch = engine.add_channel(ds, 0, nfm(0.0, None)).unwrap();
-    let err = engine.start_scan(ds, scan(ch)).unwrap_err();
-    assert!(err.is_bad_request(), "expected bad request, got {err}");
-    assert!(err.to_string().contains("stream"), "unhelpful: {err}");
-    assert!(engine.snapshot().device_sets[0].scanner.is_none());
-    engine.remove_device_set(ds).unwrap();
+    let scanned = engine.add_channel(ds, 1, nfm(0.0, None)).unwrap();
+    let target = DEFAULT_CENTER_HZ + 3_000_000.0;
+    engine
+        .start_scan(
+            ds,
+            ScanSettings {
+                frequencies: vec![target],
+                ..ScanSettings::for_channel(scanned)
+            },
+        )
+        .unwrap();
 
-    let ds = engine.create_device_set(ARRAY).unwrap();
-    let ch = engine.add_channel(ds, 0, nfm(0.0, None)).unwrap();
-    engine.start_scan(ds, scan(ch)).unwrap();
+    let mut rx1 = engine.subscribe_spectrum(ds, 1).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let snapshot = next_snapshot(&mut rx1).await;
+        let covers = (snapshot.center_hz - target).abs() < f64::from(snapshot.span_hz) / 2.0;
+        if covers && snapshot.center_hz != DEFAULT_CENTER_HZ {
+            break;
+        }
+        assert!(Instant::now() < deadline, "lane 2 never followed the scan");
+    }
+    let scope = engine.snapshot().device_sets[0].capabilities.per_stream;
+    let set = &engine.snapshot().device_sets[0];
+    assert_eq!(
+        set.settings.for_stream(0, &scope).center_hz,
+        Some(DEFAULT_CENTER_HZ),
+        "a scan on lane 2 moved lane 1"
+    );
+
+    let other = DEFAULT_CENTER_HZ + 50_000.0;
+    engine
+        .patch_device(
+            ds,
+            DeviceSettings {
+                streams: vec![StreamSettings {
+                    stream: 0,
+                    center_hz: Some(other),
+                    ..StreamSettings::default()
+                }],
+                ..DeviceSettings::default()
+            },
+        )
+        .expect("a scan never owns a dial");
+
+    engine.stop_scan(ds).unwrap();
+    engine.remove_device_set(ds).unwrap();
+}
+
+#[tokio::test]
+async fn the_lane_a_scan_is_not_using_keeps_following_its_decoders() {
+    let engine = engine();
+    let ds = engine.create_device_set(TRANSCEIVER).unwrap();
+    let scanned = engine.add_channel(ds, 1, nfm(0.0, None)).unwrap();
+    engine
+        .start_scan(
+            ds,
+            ScanSettings {
+                frequencies: vec![DEFAULT_CENTER_HZ],
+                ..ScanSettings::for_channel(scanned)
+            },
+        )
+        .unwrap();
+    engine.add_channel(ds, 0, nfm(1_100_000.0, None)).unwrap();
+    let set = &engine.snapshot().device_sets[0];
+    let lane1 = set
+        .channels
+        .iter()
+        .find(|c| c.stream == 0)
+        .expect("lane 1 decoder");
+    assert!(
+        !lane1.out_of_band,
+        "lane 1 stopped following its decoder during a scan on lane 2"
+    );
     engine.stop_scan(ds).unwrap();
     engine.remove_device_set(ds).unwrap();
 }

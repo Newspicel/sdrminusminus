@@ -58,8 +58,7 @@ pub mod video;
 pub use audio::{AudioPacket, PcmBlock, PcmPayload};
 pub use image::ImageCapture;
 pub use iq::{IQ_BLOCK_SAMPLES, IQ_BLOCKS_PER_SEC, IqBlock};
-pub use planning::FrontEndPlan;
-pub(crate) use planning::{channel_input_rate, descriptor_for, plan_front_end};
+pub(crate) use planning::{channel_input_rate, dc_block, descriptor_for};
 pub use recording::FinalizedRecording;
 pub use runtime::SpectrumSnapshot;
 pub use sdrmm_device_array::ArrayCatalog;
@@ -495,9 +494,6 @@ struct DeviceSetState {
     info: DeviceInfo,
     capabilities: Capabilities,
     settings: DeviceSettings,
-    /// Where the front end's DC artifact is parked and whether it is being removed there. The
-    /// displacement is mixed back out downstream, so nothing the operator sees moves with it.
-    front_end: FrontEndPlan,
     status: DeviceSetStatus,
     channels: Vec<ChannelInfo>,
     media: HashMap<u32, ChannelMedia>,
@@ -530,13 +526,17 @@ impl DeviceSetState {
     }
 
     fn hears(&self, stream: u32, settings: &ChannelSettings) -> bool {
+        self.hears_with(&self.settings, stream, settings)
+    }
+
+    fn hears_with(&self, tuning: &DeviceSettings, stream: u32, settings: &ChannelSettings) -> bool {
         let (low, high) = sdrmm_channels::occupied_band(&settings.params);
-        let center = center_of(&self.settings, stream, &self.capabilities.per_stream);
+        let center = center_of(tuning, stream, &self.capabilities.per_stream);
         runtime::reaches(
             settings.frequency_hz - center,
             low,
             high,
-            sample_rate_of(&self.settings),
+            sample_rate_of(tuning),
         )
     }
 
@@ -548,7 +548,6 @@ impl DeviceSetState {
             capabilities: self.capabilities.clone(),
             settings: self.settings.clone(),
             status: self.status,
-            lo_offset_in_force_hz: self.front_end.lo_offset_hz,
             channels: self
                 .channels
                 .iter()
@@ -654,13 +653,6 @@ impl DeviceSetState {
 enum FaultGate {
     Pending(Option<DeviceError>),
     Armed,
-}
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum PatchOrigin {
-    Client,
-    Scan,
-    Auto,
 }
 
 struct RatePatchGuard<'a> {

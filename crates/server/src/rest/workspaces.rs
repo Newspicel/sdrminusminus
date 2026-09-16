@@ -262,14 +262,9 @@ pub(super) fn bring_up(
             if bound.iter().any(|(held, _)| *held == node.id) {
                 continue;
             }
-            let Some(settings) = workspace::channel_settings(
-                &node.id,
-                &channel.channel_type,
-                saved,
-                set.settings
-                    .for_stream(stream, &set.capabilities.per_stream)
-                    .center_hz,
-            ) else {
+            let Some(settings) =
+                workspace::channel_settings(&node.id, &channel.channel_type, saved)
+            else {
                 report.refused.push(PatchRefusal {
                     node: node.id.clone(),
                     reason: format!("this build has no channel type {:?}", channel.channel_type),
@@ -326,17 +321,7 @@ pub(super) fn bring_up(
         if already {
             continue;
         }
-        let center_hz = live
-            .device_sets
-            .iter()
-            .find(|set| set.id == device_set)
-            .and_then(|set| {
-                set.settings
-                    .for_stream(stream, &set.capabilities.per_stream)
-                    .center_hz
-            });
-        let Some(settings) =
-            workspace::channel_settings(&node, &channel.channel_type, saved, center_hz)
+        let Some(settings) = workspace::channel_settings(&node, &channel.channel_type, saved)
         else {
             report.refused.push(PatchRefusal {
                 node: node.clone(),

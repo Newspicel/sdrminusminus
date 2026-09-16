@@ -28,11 +28,12 @@ export function nodeOf(graph: PatchGraph, id: string): PatchNode | undefined {
   return graph.nodes.find((node) => node.id === id);
 }
 
-export function tuningLocked(graph: PatchGraph, id: string): boolean {
+export function tuningLocked(graph: PatchGraph, id: string, stream = 0): boolean {
   const node = nodeOf(graph, id);
-  return (
-    (node?.kind === "device" || node?.kind === "channel") && (node.data.tuning_locked ?? false)
-  );
+  if (node?.kind === "device") {
+    return (node.data.locked_streams ?? []).includes(stream);
+  }
+  return node?.kind === "channel" && (node.data.tuning_locked ?? false);
 }
 
 export const MAX_STREAMS = 16;

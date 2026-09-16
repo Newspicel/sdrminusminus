@@ -202,6 +202,7 @@ impl KrakenDevice {
             .map(|(lane, settled)| StreamSettings {
                 stream: lane as u32,
                 center_hz: None,
+                tuning: None,
                 gains: settled.gains.clone(),
                 antenna: None,
             })

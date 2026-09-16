@@ -705,7 +705,7 @@ describe("the rack", () => {
 describe("tuningLocked", () => {
   const graph: PatchGraph = {
     nodes: [
-      { id: "held", kind: "device", data: { tuning_locked: true }, position: { x: 0, y: 0 } },
+      { id: "held", kind: "device", data: { locked_streams: [1] }, position: { x: 0, y: 0 } },
       { id: "free", kind: "device", data: {}, position: { x: 0, y: 0 } },
       {
         id: "pinned",
@@ -720,8 +720,13 @@ describe("tuningLocked", () => {
   };
 
   it("reads the lock off device and channel nodes alike", () => {
-    expect(tuningLocked(graph, "held")).toBe(true);
+    expect(tuningLocked(graph, "held", 1)).toBe(true);
     expect(tuningLocked(graph, "pinned")).toBe(true);
+  });
+
+  it("holds one stream of a radio without holding the others", () => {
+    expect(tuningLocked(graph, "held")).toBe(false);
+    expect(tuningLocked(graph, "held", 0)).toBe(false);
   });
 
   it("treats a missing flag, another kind, or an unknown node as unlocked", () => {

@@ -269,13 +269,7 @@ impl ChannelHost {
         self.gap_baseband = previous.gap_baseband;
     }
 
-    pub(super) fn process_at(
-        &mut self,
-        input: &[Complex<f32>],
-        index: u64,
-        center_hz: f64,
-        lo_offset_hz: f64,
-    ) {
+    pub(super) fn process_at(&mut self, input: &[Complex<f32>], index: u64, center_hz: f64) {
         if let Some(next) = self.next_input
             && next != index
         {
@@ -296,7 +290,7 @@ impl ChannelHost {
             self.lo_artifact_hz = None;
             self.recovering = false;
         }
-        self.process(input, center_hz, lo_offset_hz);
+        self.process(input, center_hz);
     }
 
     fn skip_input(&mut self, count: u64) {
@@ -313,21 +307,21 @@ impl ChannelHost {
         }
     }
 
-    pub(super) fn process(&mut self, input: &[Complex<f32>], center_hz: f64, lo_offset_hz: f64) {
+    pub(super) fn process(&mut self, input: &[Complex<f32>], center_hz: f64) {
         for block in input.chunks(DSP_BLOCK) {
-            self.process_block(block, center_hz, lo_offset_hz);
+            self.process_block(block, center_hz);
         }
     }
 
     #[cfg(test)]
-    fn process_and_flush(&mut self, input: &[Complex<f32>], center_hz: f64, lo_offset_hz: f64) {
+    fn process_and_flush(&mut self, input: &[Complex<f32>], center_hz: f64) {
         for block in input.chunks(DSP_BLOCK) {
-            self.process(block, center_hz, lo_offset_hz);
+            self.process(block, center_hz);
             self.publisher.queue.flush();
         }
     }
 
-    fn process_block(&mut self, input: &[Complex<f32>], center_hz: f64, lo_offset_hz: f64) {
+    fn process_block(&mut self, input: &[Complex<f32>], center_hz: f64) {
         self.follow_center(center_hz);
         if !self.in_band {
             self.sinks
@@ -342,7 +336,7 @@ impl ChannelHost {
             self.skip_input(input.len() as u64);
             return;
         }
-        self.follow_lo_artifact(lo_offset_hz);
+        self.follow_lo_artifact();
         self.ddc.process(input, &mut self.scratch);
         if self.scratch.is_empty() {
             return;
@@ -493,8 +487,8 @@ impl ChannelHost {
         self.lo_artifact_hz = None;
     }
 
-    fn follow_lo_artifact(&mut self, lo_offset_hz: f64) {
-        let at = -(lo_offset_hz + self.offset_hz);
+    fn follow_lo_artifact(&mut self) {
+        let at = -self.offset_hz;
         let inside = at.abs() < self.input_rate / 2.0;
         let artifact = inside.then_some(at);
         if artifact != self.lo_artifact_hz {
@@ -608,7 +602,7 @@ mod tests {
     ) -> Vec<PcmBlock> {
         let mut blocks = Vec::new();
         for chunk in input.chunks(BLOCK) {
-            host.process_and_flush(chunk, CENTER, 0.0);
+            host.process_and_flush(chunk, CENTER);
             while let Ok(block) = rx.try_recv() {
                 blocks.push(block);
             }
@@ -664,7 +658,7 @@ mod tests {
             "an unreachable offset is not mixed to"
         );
 
-        host.process_and_flush(&tone(1200.0, 0.5, BLOCK), CENTER + 40_000.0, 0.0);
+        host.process_and_flush(&tone(1200.0, 0.5, BLOCK), CENTER + 40_000.0);
         assert!(
             host.in_band,
             "the radio moving over the decoder brings it back"
@@ -676,7 +670,7 @@ mod tests {
     fn a_gap_resets_the_receiver_and_advances_pcm_and_iq_timestamps() {
         let (mut used, mut received) = host(&nfm_settings(sdrmm_wire::Squelch::Off));
         let first = tone(1200.0, 0.5, BLOCK);
-        used.process_at(&first, 0, 100e6, 0.0);
+        used.process_at(&first, 0, 100e6);
         used.publisher.queue.flush();
         let before = received.try_recv().expect("first PCM");
         let before_len = match before.payload {
@@ -684,7 +678,7 @@ mod tests {
             PcmPayload::Silence(n) => n,
         };
         let signal = tone(3400.0, 0.25, BLOCK);
-        used.process_at(&signal, BLOCK as u64 + 4800, 100e6, 0.0);
+        used.process_at(&signal, BLOCK as u64 + 4800, 100e6);
         used.publisher.queue.flush();
         let after = received.try_recv().expect("post-gap PCM");
         assert_eq!(
@@ -693,7 +687,7 @@ mod tests {
         );
         assert_eq!(used.baseband_pos, (BLOCK * 2 + 4800) as u64);
         let (mut fresh, mut fresh_pcm) = host(&nfm_settings(sdrmm_wire::Squelch::Off));
-        fresh.process_at(&signal, 0, 100e6, 0.0);
+        fresh.process_at(&signal, 0, 100e6);
         fresh.publisher.queue.flush();
         let reference = fresh_pcm.try_recv().expect("fresh PCM");
         match (after.payload, reference.payload) {
@@ -782,7 +776,7 @@ mod tests {
 
         let mut audio: Vec<f32> = Vec::new();
         for chunk in input.chunks(BLOCK) {
-            host.process_and_flush(chunk, CENTER, 0.0);
+            host.process_and_flush(chunk, CENTER);
             while let Ok(block) = rx.try_recv() {
                 if let PcmPayload::Samples(samples) = block.payload {
                     audio.extend_from_slice(&samples);
@@ -814,7 +808,7 @@ mod tests {
         .expect("host");
         let input = tone(1_000.0, 0.5, 24_000);
         for chunk in input.chunks(BLOCK) {
-            host.process_and_flush(chunk, CENTER, 0.0);
+            host.process_and_flush(chunk, CENTER);
         }
         let mut host = ChannelHost::build(
             RATE,
@@ -825,7 +819,7 @@ mod tests {
         )
         .expect("rebuilt host");
         for chunk in input.chunks(BLOCK) {
-            host.process_and_flush(chunk, CENTER, 0.0);
+            host.process_and_flush(chunk, CENTER);
         }
 
         let mut expected = 0u64;
@@ -872,7 +866,7 @@ mod tests {
             )
             .expect("host");
             for chunk in input.chunks(BLOCK) {
-                host.process_and_flush(chunk, CENTER, 0.0);
+                host.process_and_flush(chunk, CENTER);
             }
             while let Ok(block) = rx.try_recv() {
                 assert_eq!(
@@ -904,10 +898,10 @@ mod tests {
                 .expect("host");
             let input = vec![Complex::new(0.25, 0.1); DSP_BLOCK];
             for _ in 0..128 {
-                host.process_and_flush(&input, CENTER, 0.0);
+                host.process_and_flush(&input, CENTER);
             }
             for _ in 0..128 {
-                sdrmm_test_support::assert_no_alloc(kind, || host.process(&input, CENTER, 0.0));
+                sdrmm_test_support::assert_no_alloc(kind, || host.process(&input, CENTER));
                 host.publisher.queue.flush();
             }
         }
@@ -945,7 +939,7 @@ mod tests {
         let blocks = (DEVICE_RATE * SECONDS / MTU as f64) as usize;
         let start = std::time::Instant::now();
         for _ in 0..blocks {
-            host.process(&block, CENTER, 0.0);
+            host.process(&block, CENTER);
             while pcm_rx.try_recv().is_ok() {}
         }
         let factor = SECONDS / start.elapsed().as_secs_f64();
@@ -978,7 +972,7 @@ mod tests {
         };
         let run = |host: &mut ChannelHost, input: &[Complex<f32>], center_hz: f64| {
             for block in input.chunks(DSP_BLOCK) {
-                host.process_and_flush(block, center_hz, 0.0);
+                host.process_and_flush(block, center_hz);
             }
         };
 
@@ -1026,7 +1020,7 @@ mod tests {
 
         let input = tone(3_000.0, 0.5, crate::iq::IQ_BLOCK_SAMPLES * 4);
         for block in input.chunks(BLOCK) {
-            host.process_and_flush(block, CENTER, 0.0);
+            host.process_and_flush(block, CENTER);
         }
 
         let burst = rx.try_recv().expect("a subscribed tap sends bursts");
@@ -1054,7 +1048,7 @@ mod tests {
 
         let input = tone(0.0, 1e-6, crate::iq::IQ_BLOCK_SAMPLES * 4);
         for block in input.chunks(BLOCK) {
-            host.process_and_flush(block, CENTER, 0.0);
+            host.process_and_flush(block, CENTER);
         }
 
         assert!(
@@ -1073,7 +1067,7 @@ mod tests {
 
         let input = tone(0.0, 0.5, crate::iq::IQ_BLOCK_SAMPLES * 4);
         for block in input.chunks(BLOCK) {
-            host.process_and_flush(block, CENTER, 0.0);
+            host.process_and_flush(block, CENTER);
         }
         assert_eq!(host.sinks.iq_tx.receiver_count(), 0);
         assert!(host.sinks.iq_tx.subscribe().try_recv().is_err());
@@ -1146,7 +1140,7 @@ mod tests {
             let (mut host, mut rx) = tapped_host(settings);
             let mut worst = 0.0f32;
             for chunk in input.chunks(BLOCK) {
-                host.process_and_flush(chunk, CENTER, 0.0);
+                host.process_and_flush(chunk, CENTER);
                 while let Ok(block) = rx.try_recv() {
                     if block.timestamp < 8_192 {
                         continue;

@@ -21,7 +21,6 @@ use super::{
     worker::{LaneShared, dsp_loop},
 };
 use crate::{
-    FrontEndPlan,
     capture_ring::{CaptureConsumer, capture_ring},
     coherent::CoherentTaps,
     publishing::spectrum::SpectrumPublisher,
@@ -96,16 +95,16 @@ impl CaptureRuntime {
     pub fn start(
         device: Box<dyn SdrDevice>,
         settings: &DeviceSettings,
-        front_end: FrontEndPlan,
+        dc_block: bool,
         on_fatal: impl FnOnce(DeviceError) + Send + 'static,
     ) -> Result<Self, DeviceError> {
-        Self::start_with_taps(device, settings, front_end, Vec::new(), on_fatal)
+        Self::start_with_taps(device, settings, dc_block, Vec::new(), on_fatal)
     }
 
     pub fn start_with_taps(
         mut device: Box<dyn SdrDevice>,
         settings: &DeviceSettings,
-        front_end: FrontEndPlan,
+        dc_block: bool,
         taps: Vec<broadcast::Sender<SpectrumSnapshot>>,
         on_fatal: impl FnOnce(DeviceError) + Send + 'static,
     ) -> Result<Self, DeviceError> {
@@ -196,8 +195,7 @@ impl CaptureRuntime {
                 meta: Arc::new(ArcSwap::from_pointee(DspMeta {
                     center_hz,
                     sample_rate,
-                    lo_offset_hz: front_end.lo_offset_hz,
-                    dc_block: front_end.dc_block,
+                    dc_block,
                 })),
                 spectrum_tx,
                 cmd_tx,
@@ -311,7 +309,7 @@ impl CaptureRuntime {
             .collect()
     }
 
-    pub fn set_meta(&mut self, settings: &DeviceSettings, front_end: FrontEndPlan) {
+    pub fn set_meta(&mut self, settings: &DeviceSettings, dc_block: bool) {
         let sample_rate = crate::sample_rate_of(settings);
         if let Some(taps) = &mut self.coherent {
             taps.sample_rate = sample_rate;
@@ -324,16 +322,13 @@ impl CaptureRuntime {
             lane.meta.store(Arc::new(DspMeta {
                 center_hz,
                 sample_rate,
-                lo_offset_hz: front_end.lo_offset_hz,
-                dc_block: front_end.dc_block,
+                dc_block,
             }));
         }
     }
 
-    pub fn device_settings(&self, lo_offset_hz: f64) -> Option<DeviceSettings> {
-        self.device
-            .as_ref()
-            .map(|d| d.settings().to_operator(lo_offset_hz))
+    pub fn device_settings(&self) -> Option<DeviceSettings> {
+        self.device.as_ref().map(|d| d.settings().clone())
     }
 
     pub fn apply(&mut self, settings: &DeviceSettings) -> Result<(), DeviceError> {
@@ -413,7 +408,6 @@ impl CaptureRuntime {
                     meta: Arc::new(ArcSwap::from_pointee(DspMeta {
                         center_hz: crate::DEFAULT_CENTER_HZ,
                         sample_rate: plan.sample_rate_hz,
-                        lo_offset_hz: 0.0,
                         dc_block: false,
                     })),
                     spectrum_tx: spectrum_tx.clone(),
@@ -480,7 +474,6 @@ fn sweep_sink(
                     timestamp,
                     center_hz,
                     span_hz: sample_rate as f32,
-                    lo_hz: center_hz,
                 },
                 &db,
             );

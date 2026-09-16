@@ -2,7 +2,7 @@ use sdrmm_device::{DeviceError, SdrDevice};
 use sdrmm_device_array::{ArrayIngress, StreamArray};
 use sdrmm_wire::{ArrayDefinition, DeviceInfo, DeviceSetStatus, DeviceSettings, StreamSettings};
 
-use crate::{Engine, EngineError, PatchOrigin, runtime::DspCommand};
+use crate::{Engine, EngineError, runtime::DspCommand};
 
 #[derive(Clone)]
 pub(crate) struct ArrayBinding {
@@ -314,7 +314,7 @@ impl Engine {
         binding.ingress.pause();
         let result = (|| {
             for ((member, _), wanted) in binding.members.iter().zip(&changes) {
-                self.patch_device_from(*member, wanted.clone(), PatchOrigin::Client)?;
+                self.patch_device_from(*member, wanted.clone())?;
             }
             let snapshot = self.snapshot();
             let states = binding
@@ -338,14 +338,12 @@ impl Engine {
             actual.antenna = readback.settings().antenna.clone();
             actual.bandwidth = readback.settings().bandwidth;
             actual.ppm = readback.settings().ppm;
-            self.patch_device_from(ds, actual, PatchOrigin::Client)
+            self.patch_device_from(ds, actual)
         })();
         if let Err(error) = result {
             let mut restored = true;
             for ((changed, _), original) in binding.members.iter().zip(&before) {
-                if let Err(rollback) =
-                    self.patch_device_from(*changed, original.clone(), PatchOrigin::Client)
-                {
+                if let Err(rollback) = self.patch_device_from(*changed, original.clone()) {
                     restored = false;
                     self.mark_device_fault(ds, DeviceError::Io(format!("array tuning failed: {error}; restoring member {changed} failed: {rollback}")));
                 }

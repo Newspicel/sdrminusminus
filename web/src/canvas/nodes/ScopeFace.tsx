@@ -310,7 +310,7 @@ function Spectrum({
   }
   const locked = lockedChannels(workspace.graph, faces);
   const heldChannel = (channel: number): boolean => owners.has(channel) || locked.has(channel);
-  const centerHeld = deviceNode !== undefined && tuningLocked(workspace.graph, deviceNode);
+  const centerHeld = deviceNode !== undefined && tuningLocked(workspace.graph, deviceNode, stream);
 
   const workspaceChannel = [...faces].find(([, id]) => id === workspace.selected)?.[0] ?? null;
   const selectedChannel =
@@ -345,7 +345,7 @@ function Spectrum({
       tuneCenter(hz);
       return;
     }
-    const held = set === null || !autoTuning(set);
+    const held = set === null || !autoTuning(set, stream);
     if (held && (meta === null || Math.abs(hz - meta.centerHz) >= meta.spanHz / 2)) {
       tuneCenter(hz);
     }

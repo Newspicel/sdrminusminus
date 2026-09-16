@@ -13,7 +13,7 @@ use sdrmm_wire::{
 };
 
 use super::*;
-use crate::planning::{artifact_clears_channels, plan_front_end};
+use crate::planning::{centre_clears_channels, dc_block};
 
 mod auto_tuning;
 mod channel_capture;
@@ -1112,15 +1112,6 @@ fn tuner_caps() -> Capabilities {
 
 const TEST_CENTER_HZ: f64 = 100e6;
 const ADSB_CENTER_HZ: f64 = 1_090_000_000.0;
-
-fn offset_settings(lo_offset_hz: f64) -> DeviceSettings {
-    DeviceSettings {
-        center_hz: Some(100e6),
-        sample_rate: Some(2_400_000.0),
-        lo_offset_hz: Some(lo_offset_hz),
-        ..DeviceSettings::default()
-    }
-}
 
 fn parked(id: u32, offset_hz: f64) -> ChannelInfo {
     ChannelInfo {

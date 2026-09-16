@@ -265,17 +265,20 @@ fn a_device_node_saved_before_the_frequency_lock_existed_still_loads_unlocked() 
     let NodeBody::Device(device) = back.body else {
         panic!("the node is still a device");
     };
-    assert!(!device.tuning_locked);
+    assert!(!device.tuning_locked(0));
 
     let locked = NodeBody::Device(DeviceNode {
         device: device.device,
-        tuning_locked: true,
+        locked_streams: vec![1],
     });
     let json = serde_json::to_string(&locked).expect("serialize the body");
-    assert_eq!(
-        serde_json::from_str::<NodeBody>(&json).expect("the lock survives a round trip"),
-        locked
-    );
+    let NodeBody::Device(back) =
+        serde_json::from_str::<NodeBody>(&json).expect("the lock survives a round trip")
+    else {
+        panic!("the node is still a device");
+    };
+    assert!(!back.tuning_locked(0), "only the named stream is held");
+    assert!(back.tuning_locked(1));
 }
 
 #[test]

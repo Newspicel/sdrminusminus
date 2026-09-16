@@ -115,6 +115,7 @@ impl StreamArray {
                         center_hz: (!definition.shared_tuning)
                             .then_some(source.center_hz)
                             .flatten(),
+                        tuning: None,
                         gains: if capabilities.per_stream.gain {
                             source.gains
                         } else {

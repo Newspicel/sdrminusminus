@@ -43,6 +43,16 @@ async fn a_plain_dmr_channel_records_every_call_without_any_trunk_system() {
         }
     }
     let workspace = put_active_workspace(&app, &snapshot).await;
+    let mut settings = sdrmm_wire::ChannelSettings::default_for("dmr").expect("dmr is built in");
+    settings.frequency_hz = 145_000_000.0;
+    let (status, _) = request(
+        app.clone(),
+        "PUT",
+        &format!("/api/workspaces/{workspace}/channels/dmr"),
+        Some(&serde_json::to_string(&settings).expect("settings serialize")),
+    )
+    .await;
+    assert_eq!(status, 204);
     assert_eq!(apply(&app, workspace).await.created, 1);
 
     let recorded = tokio::time::timeout(Duration::from_secs(60), async {

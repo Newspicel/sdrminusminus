@@ -62,27 +62,15 @@ export function snapToRanges(ranges: Range[] | undefined, value: number): number
   return best;
 }
 
-/** Mirrors `MAX_LO_OFFSET_FRACTION` in `crates/wire`; the server has the final say. */
-export const MAX_LO_OFFSET_FRACTION = 0.4;
-
-export function loOffsetLimitHz(sampleRate: number | undefined): number {
-  if (sampleRate == null || !Number.isFinite(sampleRate) || sampleRate <= 0) return 0;
-  return sampleRate * MAX_LO_OFFSET_FRACTION;
+export function hasDcArtifact(caps: Pick<Capabilities, "dc_artifact">): boolean {
+  return (caps.dc_artifact ?? "operator") !== "none";
 }
 
-export function clampLoOffsetHz(hz: number, sampleRate: number | undefined): number {
-  const limit = loOffsetLimitHz(sampleRate);
-  if (!Number.isFinite(hz)) return 0;
-  return Math.min(Math.max(hz, -limit), limit);
-}
-
-/**
- * Whether the operator places the LO and removes the DC term for this source. Hardware the engine
- * knows decides both for itself, and a recording has no front end to decide about, so only a radio
- * the engine does not recognise carries the two controls.
- */
-export function operatorPlacesDcArtifact(caps: Pick<Capabilities, "dc_artifact">): boolean {
-  return (caps.dc_artifact ?? "operator") === "operator";
+export function dcBlockOn(
+  caps: Pick<Capabilities, "dc_artifact">,
+  settings: Pick<DeviceSettings, "dc_block">,
+): boolean {
+  return settings.dc_block ?? caps.dc_artifact === "managed";
 }
 
 export const AGC_SETTING = "gain_mode";

@@ -3,15 +3,16 @@ use std::sync::{Arc, atomic::Ordering};
 use sdrmm_channels::ChannelError;
 use sdrmm_device::DeviceError;
 use sdrmm_wire::{
-    ChannelDescriptor, ChannelLevel, DeviceSetStatus, DeviceSettings, HuntSettings, HuntStatus,
+    ChannelDescriptor, ChannelInfo, ChannelLevel, DeviceSetStatus, HuntSettings, HuntStatus,
     PlaybackRequest, PlaybackStatus, ScanSettings, ScannerStatus, ServerEvent, StateScope,
 };
 use tokio::sync::broadcast;
 
 use crate::{
-    AudioPacket, DspCommand, Engine, EngineError, IqBlock, PatchOrigin, PcmBlock, SpectrumSnapshot,
-    SymbolBlock, VideoPacket, hunt, lock_runtime, planning::descriptor_for, sample_rate_of,
-    scanner,
+    AudioPacket, DspCommand, Engine, EngineError, IqBlock, PcmBlock, SpectrumSnapshot, SymbolBlock,
+    VideoPacket, hunt, lock_runtime,
+    planning::{descriptor_for, plan_center},
+    sample_rate_of, scanner,
 };
 
 impl Engine {
@@ -261,20 +262,52 @@ impl Engine {
         (state.status == DeviceSetStatus::Running).then(|| sample_rate_of(&state.settings))
     }
 
-    pub(crate) fn scan_retune(
-        &self,
-        ds: u32,
-        center_hz: f64,
-    ) -> Result<broadcast::Receiver<SpectrumSnapshot>, EngineError> {
-        self.patch_device_from(
-            ds,
-            DeviceSettings {
-                center_hz: Some(center_hz),
-                ..DeviceSettings::default()
-            },
-            PatchOrigin::Scan,
-        )?;
-        self.subscribe_spectrum(ds, 0)
+    pub(crate) fn scan_reaches(&self, ds: u32, ch: u32, hz: f64) -> Result<bool, EngineError> {
+        let arrayed = !self.arrays_using(ds).is_empty();
+        let inner = self.lock();
+        let state = inner
+            .device_sets
+            .get(&ds)
+            .ok_or(EngineError::DeviceSetNotFound(ds))?;
+        let channel = state
+            .channels
+            .iter()
+            .find(|c| c.id == ch)
+            .ok_or(EngineError::ChannelNotFound(ch, ds))?;
+        let mut moved = channel.settings.clone();
+        moved.frequency_hz = hz;
+        if state.hears(channel.stream, &moved) {
+            return Ok(true);
+        }
+        let scope = state.capabilities.per_stream;
+        let follows = !arrayed
+            && state.tunes_freely()
+            && state
+                .settings
+                .for_stream(channel.stream, &scope)
+                .tunes_itself();
+        if !follows {
+            return Ok(false);
+        }
+        let channels: Vec<ChannelInfo> = state
+            .channels
+            .iter()
+            .map(|c| {
+                if c.id == ch {
+                    ChannelInfo {
+                        settings: moved.clone(),
+                        ..c.clone()
+                    }
+                } else {
+                    c.clone()
+                }
+            })
+            .collect();
+        let mut settled = state.settings.clone();
+        if let Some(delta) = plan_center(&state.capabilities, &settled, &channels) {
+            settled.merge_from(&delta);
+        }
+        Ok(state.hears_with(&settled, channel.stream, &moved))
     }
 
     pub(crate) fn decoder_of(&self, ds: u32, ch: u32) -> Option<hunt::Decoder> {
@@ -293,7 +326,7 @@ impl Engine {
         ds: u32,
         ch: u32,
         frequency_hz: f64,
-    ) -> Result<(), EngineError> {
+    ) -> Result<bool, EngineError> {
         {
             let mut inner = self.lock();
             let state = inner
@@ -306,7 +339,7 @@ impl Engine {
                 .find(|c| c.id == ch)
                 .ok_or(EngineError::ChannelNotFound(ch, ds))?;
             if info.settings.frequency_hz == frequency_hz {
-                return Ok(());
+                return Ok(false);
             }
             info.settings.frequency_hz = frequency_hz;
             let stream = info.stream;
@@ -319,10 +352,11 @@ impl Engine {
             );
             inner.revision += 1;
         }
+        let moved = self.settle_tuning(ds);
         self.emit(ServerEvent::StateChanged {
             scope: StateScope::DeviceSet(ds),
         });
-        Ok(())
+        Ok(moved)
     }
 
     pub fn subscribe_spectrum(

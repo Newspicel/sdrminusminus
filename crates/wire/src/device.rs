@@ -121,24 +121,18 @@ impl std::fmt::Display for Direction {
     }
 }
 
-/// Who places and removes the receiver's own DC artifact.
-///
-/// A zero-IF front end lands an impulse at the tuned frequency. Moving the LO clear of every
-/// channel is the only correction that works, because a signal genuinely at 0 Hz is
-/// arithmetically indistinguishable from the offset, and the blocker must not run until the
-/// artifact has somewhere harmless to sit.
+/// Whether a source lands its own DC term at the tuned centre, and whether the blocker that
+/// removes it starts on.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum DcArtifact {
-    /// Hardware the engine does not recognise. The operator says where the LO sits and whether
-    /// the term is removed, because only they know what the front end already does for itself.
+    /// Hardware the engine does not recognise. The blocker is offered and starts off, because
+    /// only the operator knows what the front end already does for itself.
     #[default]
     Operator,
-    /// A front end whose artifact the engine knows how to handle. It parks the LO clear of every
-    /// channel and removes the term without asking, and neither is an operator setting.
+    /// A zero-IF front end known to land an impulse at the centre. The blocker starts on.
     Managed,
-    /// A source with no analog front end, such as a recording. There is no LO to park and no
-    /// receiver term to remove, so neither is an operator setting and neither is applied.
+    /// A source with no analog front end, such as a recording. There is no term to remove.
     None,
 }
 
@@ -451,8 +445,6 @@ pub struct Capabilities {
     pub per_stream: StreamScope,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub directional: Option<DirectionalCapabilities>,
-    /// Whether the engine handles this front end's DC artifact itself. Managed hardware hides
-    /// `dc_block` and `lo_offset_hz`, which it overrides.
     #[serde(default)]
     pub dc_artifact: DcArtifact,
     /// Whether the radio sweeps in its own firmware, delivering blocks stamped with the frequency
@@ -625,8 +617,6 @@ pub struct DeviceSettings {
     pub bandwidth: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dc_block: Option<bool>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub lo_offset_hz: Option<f64>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub gains: Vec<GainValue>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -635,40 +625,13 @@ pub struct DeviceSettings {
     pub streams: Vec<StreamSettings>,
 }
 
-/// How far off centre the hardware LO may be parked, as a fraction of the sample rate.
-///
-/// Beyond this the wanted signal falls into the tuner's analog filter roll-off.
-pub const MAX_LO_OFFSET_FRACTION: f64 = 0.4;
-
-/// How far the engine parks the LO on hardware whose artifact it manages.
-///
-/// Far enough that the artifact clears a channel sitting at the tune frequency, well inside
-/// [`MAX_LO_OFFSET_FRACTION`] so the wanted signal stays out of the tuner's filter roll-off.
-pub const MANAGED_LO_OFFSET_FRACTION: f64 = 0.25;
-
-#[must_use]
-pub fn managed_lo_offset_hz(sample_rate: f64) -> f64 {
-    if sample_rate.is_finite() && sample_rate > 0.0 {
-        sample_rate * MANAGED_LO_OFFSET_FRACTION
-    } else {
-        0.0
-    }
-}
-
-#[must_use]
-pub fn lo_offset_limit_hz(sample_rate: f64) -> f64 {
-    if sample_rate.is_finite() && sample_rate > 0.0 {
-        sample_rate * MAX_LO_OFFSET_FRACTION
-    } else {
-        0.0
-    }
-}
-
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct StreamSettings {
     pub stream: u32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub center_hz: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tuning: Option<Tuning>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub gains: Vec<GainValue>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -679,6 +642,9 @@ impl StreamSettings {
     fn merge_from(&mut self, delta: &StreamSettings) {
         if delta.center_hz.is_some() {
             self.center_hz = delta.center_hz;
+        }
+        if delta.tuning.is_some() {
+            self.tuning = delta.tuning;
         }
         if delta.antenna.is_some() {
             self.antenna.clone_from(&delta.antenna);
@@ -718,9 +684,6 @@ impl DeviceSettings {
         }
         if delta.dc_block.is_some() {
             self.dc_block = delta.dc_block;
-        }
-        if delta.lo_offset_hz.is_some() {
-            self.lo_offset_hz = delta.lo_offset_hz;
         }
         merge_gains(&mut self.gains, &delta.gains);
         for extra in &delta.extra {
@@ -764,8 +727,9 @@ impl DeviceSettings {
                 capabilities.bandwidths.contains(hz)
                     || any_range_holds(&capabilities.bandwidth_ranges, *hz)
             }),
-            dc_block: self.dc_block,
-            lo_offset_hz: self.lo_offset_hz,
+            dc_block: self
+                .dc_block
+                .filter(|_| capabilities.dc_artifact != DcArtifact::None),
             gains: supported_gains(&self.gains, capabilities),
             extra: self
                 .extra
@@ -782,6 +746,7 @@ impl DeviceSettings {
                     center_hz: stream
                         .center_hz
                         .filter(|hz| scope.tuning && reaches(&capabilities.freq_ranges, *hz)),
+                    tuning: stream.tuning.filter(|_| scope.tuning),
                     gains: if scope.gain {
                         supported_gains(&stream.gains, capabilities)
                     } else {
@@ -794,6 +759,7 @@ impl DeviceSettings {
                 })
                 .filter(|stream| {
                     stream.center_hz.is_some()
+                        || stream.tuning.is_some()
                         || !stream.gains.is_empty()
                         || stream.antenna.is_some()
                 })
@@ -806,63 +772,16 @@ impl DeviceSettings {
         self.tuning.unwrap_or_default() == Tuning::Auto
     }
 
-    /// The LO offset that is actually in force, which is not always the one that was asked for.
-    ///
-    /// A request survives only if it stays inside the tuner's analog passband and every centre it
-    /// displaces is still reachable; otherwise the front end falls back to tuning dead centre.
-    /// The request itself is left untouched so it can take effect again elsewhere in the band.
+    /// The settings the driver is handed: the front end's own controls stay with the engine.
     #[must_use]
-    pub fn effective_lo_offset_hz(&self, capabilities: &Capabilities, sample_rate: f64) -> f64 {
-        let wanted = self.lo_offset_hz.unwrap_or(0.0);
-        if !wanted.is_finite() || wanted == 0.0 {
-            return 0.0;
-        }
-        let limit = lo_offset_limit_hz(sample_rate);
-        let offset = wanted.clamp(-limit, limit);
-        if offset == 0.0 {
-            return 0.0;
-        }
-        let reachable = |hz: Option<f64>| {
-            hz.is_none_or(|hz| {
-                capabilities.freq_ranges.is_empty()
-                    || any_range_holds(&capabilities.freq_ranges, hz - offset)
-            })
-        };
-        if reachable(self.center_hz) && self.streams.iter().all(|s| reachable(s.center_hz)) {
-            offset
-        } else {
-            0.0
-        }
-    }
-
-    /// Rewrites the operator's tuning into the tuning the hardware is given.
-    ///
-    /// The offset is subtracted here and added back by the front end's mixer, so every frequency
-    /// outside this function stays the one the operator asked for.
-    #[must_use]
-    pub fn to_hardware(&self, lo_offset_hz: f64) -> DeviceSettings {
-        let mut hardware = self.shifted(-lo_offset_hz);
+    pub fn to_hardware(&self) -> DeviceSettings {
+        let mut hardware = self.clone();
         hardware.dc_block = None;
-        hardware.lo_offset_hz = None;
         hardware.tuning = None;
-        hardware
-    }
-
-    /// Reads hardware tuning back in the operator's frame, undoing [`Self::to_hardware`].
-    #[must_use]
-    pub fn to_operator(&self, lo_offset_hz: f64) -> DeviceSettings {
-        self.shifted(lo_offset_hz)
-    }
-
-    fn shifted(&self, by_hz: f64) -> DeviceSettings {
-        let mut shifted = self.clone();
-        if by_hz != 0.0 {
-            shifted.center_hz = shifted.center_hz.map(|hz| hz + by_hz);
-            for stream in &mut shifted.streams {
-                stream.center_hz = stream.center_hz.map(|hz| hz + by_hz);
-            }
+        for stream in &mut hardware.streams {
+            stream.tuning = None;
         }
-        shifted
+        hardware
     }
 
     #[must_use]
@@ -876,6 +795,9 @@ impl DeviceSettings {
         };
         if scope.tuning && overrides.center_hz.is_some() {
             resolved.center_hz = overrides.center_hz;
+        }
+        if scope.tuning && overrides.tuning.is_some() {
+            resolved.tuning = overrides.tuning;
         }
         if scope.gain {
             merge_gains(&mut resolved.gains, &overrides.gains);
@@ -1184,6 +1106,7 @@ mod tests {
             streams: vec![StreamSettings {
                 stream: 0,
                 center_hz: Some(100_000_000.0),
+                tuning: None,
                 gains: vec![gain("LNA", 16.0), gain("VGA", 20.0)],
                 antenna: None,
             }],
@@ -1211,6 +1134,7 @@ mod tests {
                 StreamSettings {
                     stream: 0,
                     center_hz: Some(100_000_000.0),
+                    tuning: None,
                     gains: vec![gain("LNA", 16.0), gain("VGA", 30.0), gain("AMP", 14.0)],
                     antenna: Some("RX2".to_string()),
                 },
@@ -1229,97 +1153,31 @@ mod tests {
         caps(vec![range(min, max)], vec![RATE], Duplex::RxOnly)
     }
 
-    fn tuned(center_hz: f64, lo_offset_hz: Option<f64>) -> DeviceSettings {
+    fn tuned(center_hz: f64) -> DeviceSettings {
         DeviceSettings {
             center_hz: Some(center_hz),
             sample_rate: Some(RATE),
-            lo_offset_hz,
             ..DeviceSettings::default()
         }
     }
 
     #[test]
-    fn an_lo_offset_is_capped_at_a_fraction_of_the_sample_rate() {
-        let caps = tuner(24e6, 1_766e6);
-        let limit = lo_offset_limit_hz(RATE);
-        assert_eq!(limit, RATE * MAX_LO_OFFSET_FRACTION);
-
-        let asked = tuned(100e6, Some(limit * 4.0));
-        assert_eq!(asked.effective_lo_offset_hz(&caps, RATE), limit);
-
-        let negative = tuned(100e6, Some(-limit * 4.0));
-        assert_eq!(negative.effective_lo_offset_hz(&caps, RATE), -limit);
-    }
-
-    #[test]
-    fn an_lo_offset_that_would_leave_the_tuning_range_is_dropped() {
-        let caps = tuner(24e6, 1_766e6);
-        let at_the_edge = tuned(24_100_000.0, Some(300_000.0));
-        assert_eq!(
-            at_the_edge.effective_lo_offset_hz(&caps, RATE),
-            0.0,
-            "the front end kept an offset the tuner cannot reach"
-        );
-        let inside = tuned(100e6, Some(300_000.0));
-        assert_eq!(inside.effective_lo_offset_hz(&caps, RATE), 300_000.0);
-    }
-
-    #[test]
-    fn an_unset_or_impossible_lo_offset_is_no_offset() {
-        let caps = tuner(24e6, 1_766e6);
-        assert_eq!(tuned(100e6, None).effective_lo_offset_hz(&caps, RATE), 0.0);
-        assert_eq!(
-            tuned(100e6, Some(f64::NAN)).effective_lo_offset_hz(&caps, RATE),
-            0.0
-        );
-        assert_eq!(
-            tuned(100e6, Some(200e3)).effective_lo_offset_hz(&caps, 0.0),
-            0.0,
-            "no sample rate leaves no room to move the LO"
-        );
-    }
-
-    #[test]
-    fn a_stream_that_cannot_follow_the_offset_holds_the_whole_radio_back() {
-        let caps = tuner(24e6, 1_766e6);
-        let mut settings = tuned(100e6, Some(300_000.0));
-        settings.streams = vec![StreamSettings {
-            stream: 1,
-            center_hz: Some(24_100_000.0),
-            ..StreamSettings::default()
-        }];
-        assert_eq!(settings.effective_lo_offset_hz(&caps, RATE), 0.0);
-    }
-
-    #[test]
-    fn hardware_tuning_displaces_every_centre_and_comes_back_unchanged() {
-        let mut settings = tuned(100e6, Some(300_000.0));
+    fn hardware_never_sees_the_front_end_controls() {
+        let mut settings = tuned(100e6);
         settings.dc_block = Some(true);
+        settings.tuning = Some(Tuning::Manual);
         settings.streams = vec![StreamSettings {
             stream: 1,
             center_hz: Some(433_920_000.0),
+            tuning: Some(Tuning::Manual),
             ..StreamSettings::default()
         }];
-
-        let hardware = settings.to_hardware(300_000.0);
-        assert_eq!(hardware.center_hz, Some(99_700_000.0));
-        assert_eq!(hardware.streams[0].center_hz, Some(433_620_000.0));
-        assert_eq!(
-            (hardware.dc_block, hardware.lo_offset_hz),
-            (None, None),
-            "the front end's own settings were handed to the driver"
-        );
-
-        let back = hardware.to_operator(300_000.0);
-        assert_eq!(back.center_hz, settings.center_hz);
-        assert_eq!(back.streams[0].center_hz, settings.streams[0].center_hz);
-    }
-
-    #[test]
-    fn no_offset_leaves_the_tuning_exactly_as_it_was() {
-        let settings = tuned(100e6, None);
-        assert_eq!(settings.to_hardware(0.0).center_hz, Some(100e6));
-        assert_eq!(settings.to_operator(0.0).center_hz, Some(100e6));
+        let hardware = settings.to_hardware();
+        assert_eq!(hardware.center_hz, Some(100e6));
+        assert_eq!(hardware.streams[0].center_hz, Some(433_920_000.0));
+        assert_eq!(hardware.dc_block, None);
+        assert_eq!(hardware.tuning, None);
+        assert_eq!(hardware.streams[0].tuning, None);
     }
 
     #[test]
@@ -1331,6 +1189,7 @@ mod tests {
             streams: vec![StreamSettings {
                 stream: 1,
                 center_hz: Some(433_920_000.0),
+                tuning: None,
                 gains: vec![gain("VGA", 30.0)],
                 antenna: Some("RX2".to_string()),
             }],
@@ -1393,6 +1252,58 @@ mod tests {
         assert_eq!(lane.center_hz, Some(100_000_000.0));
         assert_eq!(lane.gains, vec![gain("LNA", 16.0)]);
         assert_eq!(lane.antenna, None);
+    }
+
+    #[test]
+    fn a_stream_held_by_hand_resolves_manual_while_the_rest_follow_the_radio() {
+        let settings = DeviceSettings {
+            tuning: Some(Tuning::Auto),
+            streams: vec![StreamSettings {
+                stream: 1,
+                tuning: Some(Tuning::Manual),
+                ..StreamSettings::default()
+            }],
+            ..DeviceSettings::default()
+        };
+        let apart = StreamScope {
+            tuning: true,
+            gain: false,
+            antenna: false,
+        };
+        assert!(settings.for_stream(0, &apart).tunes_itself());
+        assert!(!settings.for_stream(1, &apart).tunes_itself());
+        assert!(
+            settings
+                .for_stream(1, &StreamScope::default())
+                .tunes_itself(),
+            "a radio with one synthesizer has one tuning mode"
+        );
+    }
+
+    #[test]
+    fn a_stream_whose_only_override_is_its_tuning_mode_survives_replay() {
+        let mut capabilities = tuner(24e6, 1_766e6);
+        capabilities.rx_streams = 2;
+        capabilities.per_stream = StreamScope {
+            tuning: true,
+            gain: false,
+            antenna: false,
+        };
+        let stored = DeviceSettings {
+            streams: vec![StreamSettings {
+                stream: 1,
+                tuning: Some(Tuning::Manual),
+                ..StreamSettings::default()
+            }],
+            ..DeviceSettings::default()
+        };
+        assert_eq!(stored.supported_by(&capabilities).streams, stored.streams);
+
+        capabilities.per_stream = StreamScope::default();
+        assert!(
+            stored.supported_by(&capabilities).streams.is_empty(),
+            "a stream mode means nothing where tuning is shared"
+        );
     }
 
     #[test]
@@ -1510,7 +1421,6 @@ mod tests {
                 value: true.into(),
             }],
             dc_block: Some(true),
-            lo_offset_hz: Some(250_000.0),
             ..DeviceSettings::default()
         };
         assert_eq!(stored.supported_by(&receiver), stored);
@@ -1530,6 +1440,7 @@ mod tests {
                 StreamSettings {
                     stream: 1,
                     center_hz: Some(433_920_000.0),
+                    tuning: None,
                     gains: vec![GainValue {
                         stage: "TUNER".to_string(),
                         value_db: 20.0,

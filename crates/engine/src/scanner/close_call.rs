@@ -69,13 +69,12 @@ mod tests {
 
     use super::*;
 
-    fn snapshot(center_hz: f64, lo_hz: f64, db: Vec<f32>) -> SpectrumSnapshot {
+    fn snapshot(center_hz: f64, db: Vec<f32>) -> SpectrumSnapshot {
         SpectrumSnapshot {
             seq: 1,
             timestamp: 0,
             center_hz,
             span_hz: 1_024_000.0,
-            lo_hz,
             db: Arc::from(db.as_slice()),
         }
     }
@@ -84,7 +83,7 @@ mod tests {
     fn the_loudest_carrier_is_reported_at_its_own_frequency() {
         let mut db = vec![-95.0f32; 1024];
         db[640] = -40.0;
-        let snap = snapshot(100e6, 100e6 - 250e3, db);
+        let snap = snapshot(100e6, db);
         let found = CloseCall::default()
             .strongest(&snap, 12.0)
             .expect("a carrier 55 dB over the floor");
@@ -99,7 +98,7 @@ mod tests {
 
     #[test]
     fn an_empty_band_calls_nothing() {
-        let snap = snapshot(100e6, 100e6 - 250e3, vec![-95.0f32; 1024]);
+        let snap = snapshot(100e6, vec![-95.0f32; 1024]);
         assert_eq!(CloseCall::default().strongest(&snap, 12.0), None);
     }
 
@@ -107,7 +106,7 @@ mod tests {
     fn a_carrier_that_barely_clears_the_noise_is_not_a_close_call() {
         let mut db = vec![-95.0f32; 1024];
         db[300] = -89.0;
-        let snap = snapshot(100e6, 100e6 - 250e3, db);
+        let snap = snapshot(100e6, db);
         assert_eq!(
             CloseCall::default().strongest(&snap, 12.0),
             None,
@@ -120,7 +119,7 @@ mod tests {
     fn the_front_ends_own_spike_is_never_the_close_call() {
         let mut db = vec![-95.0f32; 1024];
         db[512] = 0.0;
-        let snap = snapshot(100e6, 100e6, db);
+        let snap = snapshot(100e6, db);
         assert_eq!(
             CloseCall::default().strongest(&snap, 12.0),
             None,
@@ -135,7 +134,7 @@ mod tests {
             db[bin] = -60.0;
         }
         db[900] = -30.0;
-        let snap = snapshot(100e6, 100e6 - 250e3, db);
+        let snap = snapshot(100e6, db);
         let found = CloseCall::default()
             .strongest(&snap, 12.0)
             .expect("the strongest of many");
@@ -145,9 +144,9 @@ mod tests {
 
     #[test]
     fn a_span_with_nothing_in_it_is_refused_rather_than_guessed() {
-        let mut empty = snapshot(100e6, 100e6, Vec::new());
+        let mut empty = snapshot(100e6, Vec::new());
         assert_eq!(CloseCall::default().strongest(&empty, 12.0), None);
-        empty = snapshot(100e6, 100e6, vec![-95.0; 8]);
+        empty = snapshot(100e6, vec![-95.0; 8]);
         empty.span_hz = 0.0;
         assert_eq!(CloseCall::default().strongest(&empty, 12.0), None);
     }

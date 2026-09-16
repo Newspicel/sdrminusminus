@@ -361,8 +361,7 @@ async fn a_channel_added_mid_tune_does_not_drag_the_radio_back_to_where_it_was()
     added.await.expect("join").expect("the channel opens");
 
     let set = engine.snapshot().device_sets.remove(0);
-    let asked =
-        set.settings.center_hz.expect("the radio reports a centre") - set.lo_offset_in_force_hz;
+    let asked = set.settings.center_hz.expect("the radio reports a centre");
     assert_eq!(
         lock(&tuned).last().copied(),
         Some(asked),

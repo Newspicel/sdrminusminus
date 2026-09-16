@@ -29,36 +29,58 @@ import {
   faultSaid,
   type Hearing,
   hearing,
+  lockStream,
   refLabel,
-  scannerOwnsTuning,
   tuneDelta,
   tunerDials,
+  tuningDelta,
 } from "./deviceNode";
 import { FaceBody, FaceFooter, NodeShell, useFaceActive } from "./NodeShell";
 
 type DeviceNodeData = PatchNodeOf<"device">["data"];
 
+function AutoTuning({ set, stream }: { set: DeviceSet; stream: number }) {
+  const { applyPatch } = useDevicePatch();
+  const auto = autoTuning(set, stream);
+  return (
+    <Tip
+      text={auto ? "Auto mode: following decoders" : "Auto mode: follow decoders"}
+      render={
+        <Button
+          type="button"
+          className={`${ICON_BTN} ${auto ? "bg-accent/15" : ""}`}
+          aria-label={auto ? "Tune by hand" : "Follow the decoders"}
+          aria-pressed={auto}
+          onClick={() =>
+            applyPatch(set.id, tuningDelta(set.capabilities, stream, auto ? "manual" : "auto"))
+          }
+        />
+      }
+    >
+      <span className={auto ? "flex text-accent" : "flex"}>
+        <Icon glyph={Radar} size={16} />
+      </span>
+    </Tip>
+  );
+}
+
 function Tuner({
   node,
   set,
-  scanning,
-  locked,
+  lockedStreams,
   onLock,
   arrayTuning,
 }: {
   node: string;
   set: DeviceSet;
-  scanning: boolean;
-  locked: boolean;
-  onLock: (locked: boolean) => void;
+  lockedStreams: readonly number[];
+  onLock: (stream: number, locked: boolean) => void;
   arrayTuning: boolean;
 }) {
   const { applyPatch } = useDevicePatch();
   const active = useFaceActive();
   const range = tuningRange(set.capabilities);
   const pinned = !isTunable(range);
-  const held = scanning || pinned || locked || arrayTuning;
-  const auto = autoTuning(set);
   const tune = (stream: number, hz: number): void =>
     applyPatch(set.id, tuneDelta(set.capabilities, stream, hz));
   return (
@@ -70,67 +92,48 @@ function Tuner({
           : undefined
       }
     >
-      {tunerDials(set).map((dial, index) => (
-        <div key={dial.stream} className="flex flex-col">
-          {dial.port !== null && <span className="legend">{dial.port}</span>}
-          <div className="flex min-w-0 items-center gap-1">
-            <FrequencyDial
-              id={dialId(node, dial.stream)}
-              hz={dial.hz}
-              range={range}
-              disabled={held}
-              wheelTunes={active}
-              onTune={(hz) => tune(dial.stream, hz)}
-            />
-            {!pinned && (
-              <span className="ml-auto flex shrink-0 items-center gap-1">
-                <TuneTo
-                  title={
-                    dial.port === null ? "Type a frequency" : `Type a frequency for ${dial.port}`
-                  }
-                  hz={dial.hz}
-                  hint={`Reaches ${formatMhz(range.min)} – ${formatMhz(range.max)}`}
-                  resolve={(entered) => inTuningRange(entered, range)}
-                  disabled={held}
-                  onTune={(hz) => tune(dial.stream, hz)}
-                />
-                {index === 0 && !arrayTuning && (
-                  <Tip
-                    text={auto ? "Auto mode: following decoders" : "Auto mode: follow decoders"}
-                    render={
-                      <Button
-                        type="button"
-                        className={`${ICON_BTN} ${auto ? "bg-accent/15" : ""}`}
-                        aria-label={auto ? "Tune by hand" : "Follow the decoders"}
-                        aria-pressed={auto}
-                        disabled={scanning || arrayTuning}
-                        onClick={() => applyPatch(set.id, { tuning: auto ? "manual" : "auto" })}
-                      />
+      {tunerDials(set).map((dial) => {
+        const locked = lockedStreams.includes(dial.stream);
+        const held = pinned || locked || arrayTuning;
+        return (
+          <div key={dial.stream} className="flex flex-col">
+            {dial.port !== null && <span className="legend">{dial.port}</span>}
+            <div className="flex min-w-0 items-center gap-1">
+              <FrequencyDial
+                id={dialId(node, dial.stream)}
+                hz={dial.hz}
+                range={range}
+                disabled={held}
+                wheelTunes={active}
+                onTune={(hz) => tune(dial.stream, hz)}
+              />
+              {!pinned && (
+                <span className="ml-auto flex shrink-0 items-center gap-1">
+                  <TuneTo
+                    title={
+                      dial.port === null ? "Type a frequency" : `Type a frequency for ${dial.port}`
                     }
-                  >
-                    <span className={auto ? "flex text-accent" : "flex"}>
-                      <Icon glyph={Radar} size={16} />
-                    </span>
-                  </Tip>
-                )}
-                {index === 0 && !arrayTuning && (
-                  <TuningLock
-                    locked={locked}
-                    held="Tuning locked"
-                    free="Lock tuning"
-                    onLock={onLock}
+                    hz={dial.hz}
+                    hint={`Reaches ${formatMhz(range.min)} – ${formatMhz(range.max)}`}
+                    resolve={(entered) => inTuningRange(entered, range)}
+                    disabled={held}
+                    onTune={(hz) => tune(dial.stream, hz)}
                   />
-                )}
-              </span>
-            )}
+                  {!arrayTuning && <AutoTuning set={set} stream={dial.stream} />}
+                  {!arrayTuning && (
+                    <TuningLock
+                      locked={locked}
+                      held="Tuning locked"
+                      free="Lock tuning"
+                      onLock={(next) => onLock(dial.stream, next)}
+                    />
+                  )}
+                </span>
+              )}
+            </div>
           </div>
-        </div>
-      ))}
-      {scanning && (
-        <p className="text-xs text-ink-dim">
-          The scanner is driving this radio; tuning from here is refused until it stops.
-        </p>
-      )}
+        );
+      })}
     </div>
   );
 }
@@ -183,7 +186,7 @@ export function DeviceFace({ node }: { node: PatchNode }) {
   const queryClient = useQueryClient();
   const attached = useQuery(devicesQuery());
   const reference = node.kind === "device" ? (node.data.device ?? null) : null;
-  const locked = node.kind === "device" && (node.data.tuning_locked ?? false);
+  const lockedStreams = node.kind === "device" ? (node.data.locked_streams ?? []) : [];
   const set = workspace.devices.get(node.id) ?? null;
   const onBus =
     reference !== null &&
@@ -297,7 +300,6 @@ export function DeviceFace({ node }: { node: PatchNode }) {
 
   const array = arrayHolding(workspace.graph, node.id);
   const arrayTuning = array !== null && workspace.devices.has(array);
-  const scanning = scannerOwnsTuning(set);
   const overruns = set.overruns ?? 0;
 
   return (
@@ -311,10 +313,11 @@ export function DeviceFace({ node }: { node: PatchNode }) {
         <Tuner
           node={node.id}
           set={set}
-          scanning={scanning}
           arrayTuning={arrayTuning}
-          locked={locked}
-          onLock={(next) => editNode({ tuning_locked: next })}
+          lockedStreams={lockedStreams}
+          onLock={(stream, next) =>
+            editNode({ locked_streams: lockStream(lockedStreams, stream, next) })
+          }
         />
 
         <RadioSettings active={set} className="p-2" sampleRateLocked={arrayTuning} />

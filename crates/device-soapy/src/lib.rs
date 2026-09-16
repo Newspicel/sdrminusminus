@@ -385,6 +385,7 @@ fn read_settings(device: &soapy::Device, capabilities: &Capabilities) -> DeviceS
         settings.streams.push(StreamSettings {
             stream: channel.channel,
             center_hz: channel_settings.center_hz,
+            tuning: None,
             gains: channel_settings.gains,
             antenna: channel_settings.antenna,
         });

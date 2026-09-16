@@ -15,11 +15,13 @@ pub(crate) struct DeviceRuntime {
     runtime: Mutex<CaptureRuntime>,
     waiting: Mutex<Waiting>,
     patching: Mutex<()>,
+    sweeping: bool,
 }
 
 impl DeviceRuntime {
     pub(crate) fn new(runtime: CaptureRuntime) -> Self {
         Self {
+            sweeping: runtime.is_sweeping(),
             runtime: Mutex::new(runtime),
             waiting: Mutex::new(Waiting::default()),
             patching: Mutex::new(()),
@@ -28,6 +30,10 @@ impl DeviceRuntime {
 
     pub(crate) fn lock(&self) -> MutexGuard<'_, CaptureRuntime> {
         lock(&self.runtime)
+    }
+
+    pub(crate) const fn sweeping(&self) -> bool {
+        self.sweeping
     }
 
     /// Held from reading what the radio is set to until the answer is written back, so a patch
@@ -43,7 +49,6 @@ impl DeviceRuntime {
     pub(crate) fn apply(
         &self,
         hardware: &DeviceSettings,
-        lo_offset_hz: f64,
     ) -> Result<Option<DeviceSettings>, DeviceError> {
         let batch = lock(&self.waiting).join(hardware.clone());
         let mut runtime = self.lock();
@@ -52,14 +57,14 @@ impl DeviceRuntime {
             let refusal = lock(&self.waiting).refusal(batch);
             return match refusal {
                 Some(error) => Err(error),
-                None => Ok(runtime.device_settings(lo_offset_hz)),
+                None => Ok(runtime.device_settings()),
             };
         };
         if let Err(error) = runtime.apply(&settings) {
             lock(&self.waiting).refuse(batch, error.clone());
             return Err(error);
         }
-        Ok(runtime.device_settings(lo_offset_hz))
+        Ok(runtime.device_settings())
     }
 }
 

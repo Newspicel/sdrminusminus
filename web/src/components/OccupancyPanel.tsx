@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
+import { tuneDelta } from "../canvas/nodes/deviceNode";
 import { occupancyQuery } from "../lib/api";
 import type { DeviceSet } from "../lib/types";
 import { useDevicePatch } from "../lib/useDevicePatch";
@@ -93,7 +94,7 @@ export function OccupancyPanel({ active }: { active: DeviceSet | null }) {
                 }
                 onClick={() => {
                   if (active !== null) {
-                    applyPatch(active.id, { center_hz: bucket.freq_hz });
+                    applyPatch(active.id, tuneDelta(active.capabilities, 0, bucket.freq_hz));
                   }
                 }}
               >

@@ -3,7 +3,7 @@ use std::time::Duration;
 use sdrmm_engine::Engine;
 use sdrmm_wire::{
     ChannelInfo, ChannelSettings, DeviceSet, NodeBody, PatchGraph, ServerEvent, StateScope,
-    StateSnapshot, WorkspaceChannel, WorkspaceDevice, WorkspaceState, home_frequency_hz,
+    StateSnapshot, WorkspaceChannel, WorkspaceDevice, WorkspaceState,
 };
 use tokio::{sync::broadcast::error::RecvError, time::Instant};
 
@@ -531,25 +531,16 @@ pub(crate) fn restore_device(
     })
 }
 
-/// What a channel node starts on. A decoder that was set keeps what it was set to; one that never
-/// was starts on its service's own frequency, or where the radio feeding it is already listening.
 pub(crate) fn channel_settings(
     node: &str,
     channel_type: &str,
     saved: &WorkspaceState,
-    center_hz: Option<f64>,
 ) -> Option<ChannelSettings> {
-    let stored = saved
+    saved
         .channel(node)
-        .filter(|channel| channel.settings.params.type_id() == channel_type);
-    if let Some(channel) = stored {
-        return Some(channel.settings.clone());
-    }
-    let mut settings = ChannelSettings::default_for(channel_type)?;
-    if let (None, Some(center_hz)) = (home_frequency_hz(channel_type), center_hz) {
-        settings.frequency_hz = center_hz;
-    }
-    Some(settings)
+        .filter(|channel| channel.settings.params.type_id() == channel_type)
+        .map(|channel| channel.settings.clone())
+        .or_else(|| ChannelSettings::default_for(channel_type))
 }
 
 #[cfg(test)]
@@ -626,7 +617,7 @@ mod tests {
             id: "device".to_string(),
             body: NodeBody::Device(DeviceNode {
                 device: Some(reference),
-                tuning_locked: false,
+                locked_streams: Vec::new(),
             }),
             position: Position { x: 0.0, y: 0.0 },
             size: None,

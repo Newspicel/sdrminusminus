@@ -135,6 +135,7 @@ fn a_two_by_two_radio_is_recognised_as_one() {
         vec![StreamSettings {
             stream: 1,
             center_hz: None,
+            tuning: None,
             gains: vec![GainValue {
                 stage: "RX".to_string(),
                 value_db: 40.0

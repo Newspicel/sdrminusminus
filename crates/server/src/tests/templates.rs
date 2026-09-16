@@ -87,7 +87,10 @@ async fn templates_list_and_apply_over_http() {
         String::from_utf8_lossy(&body)
     );
     let set = &get_state(&app).await.device_sets[0];
-    assert_eq!(set.settings.center_hz, Some(98_000_000.0));
+    assert!(
+        set.channels.iter().all(|channel| !channel.out_of_band),
+        "the radio did not settle over the template's channels"
+    );
     assert_eq!(
         set.settings.sample_rate,
         Some(2_400_000.0),
@@ -137,7 +140,11 @@ async fn every_template_runs_on_the_signal_generator() {
             String::from_utf8_lossy(&body)
         );
         let set = &get_state(&app).await.device_sets[0];
-        assert_eq!(set.settings.center_hz, Some(template.center_hz));
+        assert!(
+            set.channels.iter().all(|channel| !channel.out_of_band),
+            "{}: the radio did not settle over the template's channels",
+            template.id
+        );
         assert_eq!(
             set.channels.len(),
             template.channels.len(),

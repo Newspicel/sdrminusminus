@@ -565,7 +565,6 @@ pub fn read(target: &Target<'_>) -> DeviceSettings {
         antenna: read_antenna(target),
         bandwidth: Some(f64::from(target.channel.tuner_params.bw_type) * 1000.0),
         dc_block: None,
-        lo_offset_hz: None,
         gains: vec![
             GainValue {
                 stage: caps::RF_GAIN_STAGE.to_string(),

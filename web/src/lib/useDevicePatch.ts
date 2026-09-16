@@ -71,6 +71,9 @@ export function forStream(
   if (scope.tuning === true && overrides.center_hz != null) {
     resolved.center_hz = overrides.center_hz;
   }
+  if (scope.tuning === true && overrides.tuning != null) {
+    resolved.tuning = overrides.tuning;
+  }
   if (scope.gain === true && overrides.gains) {
     resolved.gains = mergeByKey(resolved.gains, overrides.gains, (g) => g.stage);
   }

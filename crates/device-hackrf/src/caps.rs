@@ -210,7 +210,6 @@ pub(crate) fn settings_from_config(config: &Config) -> DeviceSettings {
             FilterWidth::Hz(hz) => f64::from(hz),
         }),
         dc_block: None,
-        lo_offset_hz: None,
         gains: vec![
             GainValue {
                 stage: LNA_STAGE.to_string(),

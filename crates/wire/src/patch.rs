@@ -270,8 +270,15 @@ impl DeviceRef {
 pub struct DeviceNode {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub device: Option<DeviceRef>,
-    #[serde(default)]
-    pub tuning_locked: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub locked_streams: Vec<u32>,
+}
+
+impl DeviceNode {
+    #[must_use]
+    pub fn tuning_locked(&self, stream: u32) -> bool {
+        self.locked_streams.contains(&stream)
+    }
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]

@@ -1,14 +1,15 @@
 import { describe, expect, it } from "vitest";
-import type { Capabilities, DeviceSet, ScannerStatus } from "../../lib/types";
+import type { Capabilities, DeviceSet } from "../../lib/types";
 import { mergeSettings } from "../../lib/useDevicePatch";
 import {
   autoTuning,
   faultSaid,
   hearing,
+  lockStream,
   refLabel,
-  scannerOwnsTuning,
   tuneDelta,
   tunerDials,
+  tuningDelta,
 } from "./deviceNode";
 
 function capabilities(overrides: Partial<Capabilities> = {}): Capabilities {
@@ -36,15 +37,6 @@ function deviceSet(overrides: Partial<DeviceSet> = {}): DeviceSet {
     ...overrides,
   };
 }
-
-const SCANNING: ScannerStatus = {
-  state: "scanning",
-  settings: { channel: 1, ranges: [], dwell_ms: 100, threshold_db: -60 },
-  current_hz: 145_500_000,
-  sweeps: 0,
-  hits: 0,
-  targets: 1,
-};
 
 describe("refLabel", () => {
   it("names the radio by whichever identity the reference carries", () => {
@@ -112,8 +104,7 @@ describe("tuneDelta", () => {
     const caps = capabilities({ rx_streams: 2, per_stream: { tuning: true } });
     const delta = tuneDelta(caps, 1, 434_000_000);
     expect(delta).toEqual({
-      streams: [{ stream: 1, center_hz: 434_000_000 }],
-      tuning: "manual",
+      streams: [{ stream: 1, center_hz: 434_000_000, tuning: "manual" }],
     });
 
     const set = deviceSet({
@@ -131,20 +122,6 @@ describe("tuneDelta", () => {
       { stream: 0, port: "iq1", hz: 101_000_000 },
       { stream: 1, port: "iq2", hz: 434_000_000 },
     ]);
-  });
-});
-
-describe("scannerOwnsTuning", () => {
-  it("takes the dial while a scan runs", () => {
-    expect(scannerOwnsTuning(deviceSet({ scanner: SCANNING }))).toBe(true);
-    expect(scannerOwnsTuning(deviceSet({ scanner: { ...SCANNING, state: "holding" } }))).toBe(true);
-  });
-
-  it("gives it back when there is no scan, or the scan has faulted", () => {
-    expect(scannerOwnsTuning(deviceSet())).toBe(false);
-    expect(
-      scannerOwnsTuning(deviceSet({ scanner: { ...SCANNING, error: "device stopped retuning" } })),
-    ).toBe(false);
   });
 });
 
@@ -182,12 +159,51 @@ describe("autoTuning", () => {
     expect(autoTuning(deviceSet({ settings: { tuning: "auto" } }))).toBe(true);
     expect(autoTuning(deviceSet({ settings: { tuning: "manual" } }))).toBe(false);
   });
+
+  it("answers per stream where each stream tunes apart", () => {
+    const apart = deviceSet({
+      capabilities: capabilities({ rx_streams: 2, per_stream: { tuning: true } }),
+      settings: { streams: [{ stream: 1, tuning: "manual" }] },
+    });
+    expect(autoTuning(apart, 0)).toBe(true);
+    expect(autoTuning(apart, 1)).toBe(false);
+  });
+
+  it("has one answer for a radio with one synthesizer", () => {
+    const shared = deviceSet({
+      capabilities: capabilities({ rx_streams: 2 }),
+      settings: { streams: [{ stream: 1, tuning: "manual" }] },
+    });
+    expect(autoTuning(shared, 1)).toBe(true);
+  });
 });
 
-function carrying(out: boolean[]): DeviceSet["channels"] {
+describe("tuningDelta", () => {
+  it("switches the whole radio where tuning is shared", () => {
+    expect(tuningDelta(capabilities({ rx_streams: 2 }), 1, "manual")).toEqual({
+      tuning: "manual",
+    });
+  });
+
+  it("switches only the stream touched where each tunes apart", () => {
+    const caps = capabilities({ rx_streams: 2, per_stream: { tuning: true } });
+    expect(tuningDelta(caps, 1, "auto")).toEqual({ streams: [{ stream: 1, tuning: "auto" }] });
+  });
+});
+
+describe("lockStream", () => {
+  it("holds and frees one stream without touching the others", () => {
+    expect(lockStream([], 1, true)).toEqual([1]);
+    expect(lockStream([1], 0, true)).toEqual([0, 1]);
+    expect(lockStream([0, 1], 0, false)).toEqual([1]);
+    expect(lockStream([1], 1, true)).toEqual([1]);
+  });
+});
+
+function carrying(out: boolean[], stream = 0): DeviceSet["channels"] {
   return out.map((out_of_band, id) => ({
     id,
-    stream: 0,
+    stream,
     out_of_band,
     settings: {
       frequency_hz: 100_000_000,

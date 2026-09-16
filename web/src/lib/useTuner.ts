@@ -25,7 +25,7 @@ export function useTuner(target: TuneTarget | null): Tuner {
       return;
     }
     if (target.kind === "device") {
-      applyPatch(target.set.id, { center_hz: hz });
+      applyPatch(target.set.id, tuneDelta(target.set.capabilities, 0, hz));
       return;
     }
     editChannel(target.node, { frequency_hz: hz });
@@ -51,7 +51,7 @@ export function radioPullFor(
   descriptor: ChannelDescriptor | undefined,
   hz: number,
 ): DeviceSettings | null {
-  if (autoTuning(set)) {
+  if (autoTuning(set, stream)) {
     return null;
   }
   const centerHz = forStream(set.settings, stream, set.capabilities.per_stream).center_hz ?? null;
@@ -62,7 +62,7 @@ export function radioPullFor(
 
 function frequencyOf(workspace: Workspace, target: TuneTarget): number | null {
   return target.kind === "device"
-    ? (target.set.settings.center_hz ?? null)
+    ? (forStream(target.set.settings, 0, target.set.capabilities.per_stream).center_hz ?? null)
     : (channelSettingsOf(workspace, target.node)?.frequency_hz ?? null);
 }
 

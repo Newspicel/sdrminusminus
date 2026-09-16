@@ -4,8 +4,7 @@ use sdrmm_device::{SdrDevice, SweepBand, SweepPlan};
 use tokio::sync::broadcast;
 
 use crate::{
-    CaptureRuntime, DeviceSetStatus, Engine, EngineError, RebuildEntry, lock_runtime,
-    plan_front_end,
+    CaptureRuntime, DeviceSetStatus, Engine, EngineError, RebuildEntry, dc_block, lock_runtime,
     runtime::{DeviceRuntime, SpectrumSnapshot},
     sample_rate_of,
 };
@@ -88,22 +87,23 @@ fn restore_receiving(
     mut device: Box<dyn SdrDevice>,
     taps: Vec<broadcast::Sender<SpectrumSnapshot>>,
 ) -> Result<(), EngineError> {
-    let (settings, channels) = {
+    let settings = {
         let inner = engine.lock();
-        let state = inner
+        inner
             .device_sets
             .get(&ds)
-            .ok_or(EngineError::DeviceSetNotFound(ds))?;
-        (state.settings.clone(), state.channels.clone())
+            .ok_or(EngineError::DeviceSetNotFound(ds))?
+            .settings
+            .clone()
     };
-    let front_end = plan_front_end(device.capabilities(), &settings, &channels);
+    let blocking = dc_block(device.capabilities(), &settings);
     device
-        .apply(&settings.to_hardware(front_end.lo_offset_hz))
+        .apply(&settings.to_hardware())
         .map_err(EngineError::Device)?;
     let receiving = CaptureRuntime::start_with_taps(
         device,
         &settings,
-        front_end,
+        blocking,
         taps,
         fault_handler(engine, ds),
     )

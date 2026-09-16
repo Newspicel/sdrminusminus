@@ -1,8 +1,9 @@
 # Scanning
 
 Use **Scanner** to search frequency lists or ranges and hold on activity. A scanner drives one
-decoder: every hit parks that decoder on the signal, and the radio carrying it follows. While a
-scan runs it owns the radio's tuning, so stop it before retuning manually.
+decoder and never the radio. With auto tuning the radio follows the decoder from target to
+target. Tuned by hand, the radio stays put and the scan visits only the targets inside its
+window.
 
 ## Build a scanner
 
@@ -36,20 +37,20 @@ this scan. The **Skipped** readout counts them.
 
 The decoder the scanner drives follows the sweep: its dial shows the frequency being checked,
 it parks on every hit so whatever it feeds hears the signal, and when the scan stops it stays
-where the scan left it while the radio settles over it. The dial is locked while a scan drives
-it.
+where the scan left it. The decoder's dial is locked while a scan drives it.
 
 Other channels on the same radio keep their frequencies and receive only while the radio covers
 them. For continuous reception across a fixed band, use ordinary channels without a scanner.
 
 ## Sweep methods
 
-On supported hardware, the scanner can use the radio's firmware sweep. Otherwise it retunes
-through the targets. If firmware sweeping fails, it returns to retuning and reports the change.
-The **Sweep** readout shows the method in use.
+On supported hardware, the scanner can use the radio's firmware sweep. Otherwise it steps the
+decoder through the targets. If firmware sweeping fails, it returns to stepping and reports the
+change. The **Sweep** readout shows the method in use.
 
 Firmware sweeping interrupts ordinary reception while active. Channels are restored when normal
-reception resumes. Retuning sweeps need time for the radio and processing to settle.
+reception resumes. Stepping needs time for the radio and processing to settle whenever the radio
+follows the decoder.
 
 ## Signal hunt
 

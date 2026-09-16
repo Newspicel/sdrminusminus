@@ -495,6 +495,7 @@ fn read_streams(
             Some(StreamSettings {
                 stream: lane as u32,
                 center_hz: None,
+                tuning: None,
                 gains: gain
                     .map(|value_db| {
                         vec![GainValue {

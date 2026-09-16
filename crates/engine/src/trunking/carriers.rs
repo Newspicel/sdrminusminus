@@ -171,7 +171,6 @@ mod tests {
             timestamp: 0,
             center_hz: 451_000_000.0,
             span_hz: 1_024_000.0,
-            lo_hz: 451_000_000.0,
             db: db.into(),
         }
     }

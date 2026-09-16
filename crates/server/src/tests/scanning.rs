@@ -65,7 +65,7 @@ async fn scanner_start_stop_and_error_mapping_over_http() {
     );
 
     let start = format!(
-        r#"{{"action":"start","settings":{{"channel":{ch},"ranges":[{{"start_hz":99000000.0,"stop_hz":101000000.0,"step_hz":100000.0}}],"threshold_db":100.0,"dwell_ms":40}}}}"#
+        r#"{{"action":"start","settings":{{"channel":{ch},"ranges":[{{"start_hz":99000000.0,"stop_hz":101000000.0,"step_hz":100000.0}}],"threshold_db":100.0,"dwell_ms":40,"hardware_sweep":false}}}}"#
     );
     let (status, body) = request(
         app.clone(),
@@ -93,14 +93,19 @@ async fn scanner_start_stop_and_error_mapping_over_http() {
     .await;
     assert_eq!(status, StatusCode::BAD_REQUEST, "nothing held to skip");
 
-    let (status, _) = request(
+    let (status, body) = request(
         app.clone(),
         "PATCH",
         &format!("/api/devicesets/{ds}/device"),
         Some(r#"{"center_hz":88000000.0}"#),
     )
     .await;
-    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(
+        status,
+        StatusCode::NO_CONTENT,
+        "a scan never owns the dial: {}",
+        String::from_utf8_lossy(&body)
+    );
 
     let (status, _) = request(
         app.clone(),

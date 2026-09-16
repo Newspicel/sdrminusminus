@@ -1,4 +1,4 @@
-import type { Capabilities, DeviceRef, DeviceSet, DeviceSettings } from "../../lib/types";
+import type { Capabilities, DeviceRef, DeviceSet, DeviceSettings, Tuning } from "../../lib/types";
 import { forStream } from "../../lib/useDevicePatch";
 import { rxStreamCount, streamLabel } from "../graph";
 
@@ -22,14 +22,28 @@ export function tunerDials(set: DeviceSet): TunerDial[] {
   }));
 }
 
-export function autoTuning(set: DeviceSet): boolean {
-  return (set.settings.tuning ?? "auto") === "auto";
+export function autoTuning(set: DeviceSet, stream = 0): boolean {
+  const resolved = forStream(set.settings, stream, set.capabilities.per_stream);
+  return (resolved.tuning ?? "auto") === "auto";
 }
 
 export function tuneDelta(capabilities: Capabilities, stream: number, hz: number): DeviceSettings {
   return capabilities.per_stream?.tuning === true
-    ? { streams: [{ stream, center_hz: hz }], tuning: "manual" }
+    ? { streams: [{ stream, center_hz: hz, tuning: "manual" }] }
     : { center_hz: hz, tuning: "manual" };
+}
+
+export function tuningDelta(
+  capabilities: Capabilities,
+  stream: number,
+  tuning: Tuning,
+): DeviceSettings {
+  return capabilities.per_stream?.tuning === true ? { streams: [{ stream, tuning }] } : { tuning };
+}
+
+export function lockStream(locked: readonly number[], stream: number, held: boolean): number[] {
+  const others = locked.filter((candidate) => candidate !== stream);
+  return held ? [...others, stream].toSorted((a, b) => a - b) : others;
 }
 
 export interface Hearing {
@@ -48,10 +62,6 @@ export function hearing(set: DeviceSet): Hearing {
 export function refLabel(reference: DeviceRef): string {
   const identity = reference.key ?? reference.serial;
   return identity == null ? reference.backend : `${reference.backend} · ${identity}`;
-}
-
-export function scannerOwnsTuning(set: DeviceSet): boolean {
-  return set.scanner != null && set.scanner.error == null;
 }
 
 const FAULTS: Record<string, string> = {

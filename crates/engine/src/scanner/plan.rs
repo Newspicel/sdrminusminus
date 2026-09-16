@@ -75,31 +75,6 @@ impl ScanPlan {
         }
         Ok(Self { targets })
     }
-
-    pub(crate) fn tunings(&self, usable_span: f64) -> Vec<Tuning> {
-        let mut out = Vec::new();
-        let mut i = 0;
-        while i < self.targets.len() {
-            let low = self.targets[i];
-            let mut j = i + 1;
-            while j < self.targets.len() && self.targets[j] - low <= usable_span {
-                j += 1;
-            }
-            out.push(Tuning {
-                center_hz: f64::midpoint(low, self.targets[j - 1]),
-                first: i,
-                last: j - 1,
-            });
-            i = j;
-        }
-        out
-    }
-}
-
-pub(crate) struct Tuning {
-    pub(crate) center_hz: f64,
-    pub(crate) first: usize,
-    pub(crate) last: usize,
 }
 
 impl ScanPlan {
@@ -210,38 +185,6 @@ mod tests {
         ] {
             assert!(ScanPlan::build(&bad).is_err(), "accepted {bad:?}");
         }
-    }
-
-    #[test]
-    fn tunings_cover_every_target_within_the_usable_span() {
-        let plan = ScanPlan::build(&settings(
-            vec![ScanRange {
-                start_hz: 144_000_000.0,
-                stop_hz: 146_000_000.0,
-                step_hz: 12_500.0,
-            }],
-            Vec::new(),
-        ))
-        .expect("plan");
-        let usable = 1_000_000.0;
-        let tunings = plan.tunings(usable);
-        assert_eq!(
-            tunings.len(),
-            2,
-            "greedy grouping must not split needlessly"
-        );
-        let mut covered = 0;
-        for tuning in &tunings {
-            for &target in &plan.targets[tuning.first..=tuning.last] {
-                assert!(
-                    (target - tuning.center_hz).abs() <= usable / 2.0,
-                    "target {target} outside tuning at {}",
-                    tuning.center_hz
-                );
-                covered += 1;
-            }
-        }
-        assert_eq!(covered, plan.targets.len(), "every target scanned once");
     }
 
     fn band(min: f64, max: f64) -> Vec<Range> {

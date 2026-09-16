@@ -56,12 +56,6 @@ export function liveStatus(
   return pushed ?? set.scanner;
 }
 
-export function scanRefusal(set: DeviceSet | null): string | null {
-  return set?.capabilities.per_stream?.tuning === true
-    ? "This radio tunes each receive stream independently, so a sweep has no single tuning to drive."
-    : null;
-}
-
 export function sweepKind(set: DeviceSet | null, status: ScannerStatus | null): string {
   if (status !== null) {
     return status.hardware_sweep === true ? "the radio's own" : "by retuning";

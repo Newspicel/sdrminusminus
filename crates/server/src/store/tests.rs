@@ -1049,6 +1049,39 @@ fn a_stored_scanner_wired_into_a_radio_now_drives_that_radios_decoder() {
 }
 
 #[test]
+fn a_radio_locked_before_streams_were_held_apart_keeps_its_first_stream_held() {
+    let mut value = serde_json::to_value(WorkspaceSnapshot::starter()).expect("snapshot");
+    let nodes = value
+        .get_mut("graph")
+        .and_then(|graph| graph.get_mut("nodes"))
+        .and_then(serde_json::Value::as_array_mut)
+        .expect("nodes");
+    nodes.extend([
+        serde_json::json!({
+            "id": "held",
+            "position": { "x": 0.0, "y": 0.0 },
+            "kind": "device",
+            "data": { "tuning_locked": true }
+        }),
+        serde_json::json!({
+            "id": "free",
+            "position": { "x": 100.0, "y": 0.0 },
+            "kind": "device",
+            "data": { "tuning_locked": false }
+        }),
+    ]);
+
+    let migrated = parse_workspace_snapshot(&value.to_string()).expect("migrated");
+    migrated.validate().expect("valid");
+    let lock = |id: &str| match &migrated.graph.node(id).expect("device").body {
+        sdrmm_wire::NodeBody::Device(device) => device.locked_streams.clone(),
+        _ => panic!("device"),
+    };
+    assert_eq!(lock("held"), vec![0]);
+    assert!(lock("free").is_empty());
+}
+
+#[test]
 fn workspace_crud_roundtrip() {
     let store = Store::open(None).expect("open");
     let seeded = store.list_workspaces().expect("list").workspaces[0].id;

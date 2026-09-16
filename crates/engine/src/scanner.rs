@@ -20,10 +20,10 @@ mod sweep;
 
 use close_call::CloseCall;
 pub(crate) use plan::ScanPlan;
-use plan::Tuning;
 
 const USABLE_SPAN_FRACTION: f64 = 0.8;
 const RETUNE_SETTLE: Duration = Duration::from_millis(30);
+const WINDOW_WAIT: Duration = Duration::from_millis(500);
 const MIN_DWELL: Duration = Duration::from_millis(40);
 const SPECTRUM_TIMEOUT: Duration = Duration::from_secs(2);
 const HOLD_POLL: Duration = Duration::from_millis(120);
@@ -79,7 +79,8 @@ pub(crate) fn spawn(
     ds: u32,
     plan: ScanPlan,
     settings: ScanSettings,
-    decoder: Option<u32>,
+    decoder: u32,
+    stream: u32,
 ) -> Result<ScannerState, EngineError> {
     let hardware = settings.hardware_sweep && engine.sweeps_in_firmware(ds);
     let bw_hz = settings
@@ -114,6 +115,7 @@ pub(crate) fn spawn(
                     plan,
                     settings,
                     decoder,
+                    stream,
                     followed: None,
                     last_follow: None,
                     bw_hz,
@@ -142,7 +144,8 @@ struct Scan {
     ds: u32,
     plan: ScanPlan,
     settings: ScanSettings,
-    decoder: Option<u32>,
+    decoder: u32,
+    stream: u32,
     followed: Option<f64>,
     last_follow: Option<Instant>,
     bw_hz: f64,
@@ -205,19 +208,114 @@ impl Scan {
                 self.firmware_pass(&engine, rate)?;
                 continue;
             }
-            let usable = rate * USABLE_SPAN_FRACTION - self.bw_hz;
-            if usable <= 0.0 {
+            if rate * USABLE_SPAN_FRACTION <= self.bw_hz {
                 return Err(Halt::Failed(format!(
                     "a {} Hz measurement bandwidth does not fit in a {rate} Hz device passband",
                     self.bw_hz
                 )));
             }
-            let tunings = self.plan.tunings(usable);
-            for tuning in &tunings {
-                self.check_stop()?;
-                self.visit(&engine, tuning)?;
-            }
+            self.pass(&engine)?;
             lock_status(&self.status).sweeps += 1;
+        }
+    }
+
+    fn pass(&mut self, engine: &Arc<Engine>) -> Result<(), Halt> {
+        let mut rx = engine
+            .subscribe_spectrum(self.ds, self.stream)
+            .map_err(|e| Halt::Failed(e.to_string()))?;
+        let mut from = 0;
+        while from < self.plan.targets.len() {
+            self.check_stop()?;
+            let Some(window) = self.park(engine, &mut rx, self.plan.targets[from])? else {
+                from += 1;
+                continue;
+            };
+            let reach = leading_within(&self.plan.targets[from..], &window, self.bw_hz);
+            from += self.examine(engine, &mut rx, from, reach)?;
+        }
+        Ok(())
+    }
+
+    fn examine(
+        &mut self,
+        engine: &Arc<Engine>,
+        rx: &mut tokio::sync::broadcast::Receiver<SpectrumSnapshot>,
+        from: usize,
+        reach: usize,
+    ) -> Result<usize, Halt> {
+        let dwell = Duration::from_millis(u64::from(self.settings.dwell_ms)).max(MIN_DWELL);
+        if self.settings.mode == ScanMode::CloseCall {
+            self.watch(engine, rx, self.plan.targets[from], dwell)?;
+            return Ok(reach);
+        }
+        let targets: Vec<f64> = self.plan.targets[from..from + reach].to_vec();
+        let mut peaks = vec![f32::NEG_INFINITY; targets.len()];
+        self.listen(rx, &targets, &mut peaks, dwell)?;
+        match self.first_call(engine, &targets, &peaks)? {
+            Some((index, call)) => {
+                self.hold(engine, rx, call)?;
+                Ok(index + 1)
+            }
+            None => Ok(reach),
+        }
+    }
+
+    fn park(
+        &mut self,
+        engine: &Arc<Engine>,
+        rx: &mut tokio::sync::broadcast::Receiver<SpectrumSnapshot>,
+        hz: f64,
+    ) -> Result<Option<SpectrumSnapshot>, Halt> {
+        let halt = |e: EngineError| match e {
+            EngineError::DeviceSetNotFound(_) => Halt::Stopped,
+            other => Halt::Failed(format!("the decoder could not follow the scan: {other}")),
+        };
+        if !engine
+            .scan_reaches(self.ds, self.decoder, hz)
+            .map_err(halt)?
+        {
+            return Ok(None);
+        }
+        lock_status(&self.status).current_hz = hz;
+        let moved = engine
+            .scan_tune_channel(self.ds, self.decoder, hz)
+            .map_err(halt)?;
+        self.followed = Some(hz);
+        if moved {
+            std::thread::sleep(RETUNE_SETTLE);
+        }
+        drain(rx);
+        self.window_over(rx, hz)
+    }
+
+    fn window_over(
+        &self,
+        rx: &mut tokio::sync::broadcast::Receiver<SpectrumSnapshot>,
+        hz: f64,
+    ) -> Result<Option<SpectrumSnapshot>, Halt> {
+        let start = Instant::now();
+        let mut frames = 0usize;
+        loop {
+            self.check_stop()?;
+            match rx.try_recv() {
+                Ok(snapshot) => {
+                    frames += 1;
+                    if leading_within(std::slice::from_ref(&hz), &snapshot, self.bw_hz) == 1 {
+                        return Ok(Some(snapshot));
+                    }
+                }
+                Err(TryRecvError::Empty) => std::thread::sleep(POLL),
+                Err(TryRecvError::Lagged(_)) => {}
+                Err(TryRecvError::Closed) => return Err(Halt::Stopped),
+            }
+            if frames == 0 && start.elapsed() >= SPECTRUM_TIMEOUT {
+                return Err(Halt::Failed(format!(
+                    "the device produced no spectrum within {SPECTRUM_TIMEOUT:?}"
+                )));
+            }
+            if frames > 0 && start.elapsed() >= WINDOW_WAIT {
+                return Ok(None);
+            }
         }
     }
 
@@ -251,7 +349,7 @@ impl Scan {
                         Some(_) => {}
                     }
                     if let Some(call) = self.read_block(engine, &snapshot) {
-                        self.hit(engine, call, snapshot.center_hz)?;
+                        self.hit(engine, call)?;
                         return Ok(());
                     }
                     self.follow(engine, false)?;
@@ -331,46 +429,16 @@ impl Scan {
         status.hits += 1;
     }
 
-    fn hit(&mut self, engine: &Arc<Engine>, call: Call, center_hz: f64) -> Result<(), Halt> {
+    fn hit(&mut self, engine: &Arc<Engine>, call: Call) -> Result<(), Halt> {
         sweep::leave(engine, self.ds).map_err(|e| Halt::Failed(e.to_string()))?;
         self.in_sweep = false;
         let mut rx = engine
-            .scan_retune(self.ds, center_hz)
-            .map_err(|e| match e {
-                EngineError::DeviceSetNotFound(_) => Halt::Stopped,
-                other => Halt::Failed(other.to_string()),
-            })?;
-        std::thread::sleep(RETUNE_SETTLE);
-        drain(&mut rx);
+            .subscribe_spectrum(self.ds, self.stream)
+            .map_err(|e| Halt::Failed(e.to_string()))?;
+        if self.park(engine, &mut rx, call.hz)?.is_none() {
+            return Ok(());
+        }
         self.hold(engine, &mut rx, call)
-    }
-
-    fn visit(&mut self, engine: &Arc<Engine>, tuning: &Tuning) -> Result<(), Halt> {
-        let mut rx = engine
-            .scan_retune(self.ds, tuning.center_hz)
-            .map_err(|e| match e {
-                EngineError::DeviceSetNotFound(_) => Halt::Stopped,
-                other => Halt::Failed(other.to_string()),
-            })?;
-        std::thread::sleep(RETUNE_SETTLE);
-        drain(&mut rx);
-
-        let dwell = Duration::from_millis(u64::from(self.settings.dwell_ms)).max(MIN_DWELL);
-        if self.settings.mode == ScanMode::CloseCall {
-            return self.watch(engine, &mut rx, tuning.center_hz, dwell);
-        }
-        let targets: Vec<f64> = self.plan.targets[tuning.first..=tuning.last].to_vec();
-        let mut peaks = vec![f32::NEG_INFINITY; targets.len()];
-        let mut from = 0;
-        while from < targets.len() {
-            self.listen(&mut rx, &targets[from..], &mut peaks[from..], dwell)?;
-            let Some(hit) = self.first_call(engine, &targets[from..], &peaks[from..])? else {
-                return Ok(());
-            };
-            self.hold(engine, &mut rx, hit.1)?;
-            from += hit.0 + 1;
-        }
-        Ok(())
     }
 
     fn first_call(
@@ -533,9 +601,6 @@ impl Scan {
     }
 
     fn follow(&mut self, engine: &Engine, force: bool) -> Result<(), Halt> {
-        let Some(channel) = self.decoder else {
-            return Ok(());
-        };
         let now = Instant::now();
         if !force && self.last_follow.is_some_and(|t| now - t < UPDATE_INTERVAL) {
             return Ok(());
@@ -546,7 +611,7 @@ impl Scan {
         }
         self.last_follow = Some(now);
         engine
-            .scan_tune_channel(self.ds, channel, hz)
+            .scan_tune_channel(self.ds, self.decoder, hz)
             .map_err(|e| match e {
                 EngineError::DeviceSetNotFound(_) => Halt::Stopped,
                 other => Halt::Failed(format!("the decoder could not follow the scan: {other}")),
@@ -568,13 +633,24 @@ impl Scan {
     }
 }
 
-fn covered<'a>(targets: &'a [f64], snapshot: &SpectrumSnapshot, bw_hz: f64) -> &'a [f64] {
+fn window_edges(snapshot: &SpectrumSnapshot, bw_hz: f64) -> (f64, f64) {
     let half = f64::from(snapshot.span_hz) / 2.0 + bw_hz / 2.0;
-    let low = snapshot.center_hz - half;
-    let high = snapshot.center_hz + half;
+    (snapshot.center_hz - half, snapshot.center_hz + half)
+}
+
+fn covered<'a>(targets: &'a [f64], snapshot: &SpectrumSnapshot, bw_hz: f64) -> &'a [f64] {
+    let (low, high) = window_edges(snapshot, bw_hz);
     let first = targets.partition_point(|&hz| hz < low);
     let last = targets.partition_point(|&hz| hz <= high);
     &targets[first..last]
+}
+
+fn leading_within(targets: &[f64], snapshot: &SpectrumSnapshot, bw_hz: f64) -> usize {
+    let (low, high) = window_edges(snapshot, bw_hz);
+    if targets.first().is_none_or(|&hz| hz < low) {
+        return 0;
+    }
+    targets.partition_point(|&hz| hz <= high)
 }
 
 fn drain(rx: &mut tokio::sync::broadcast::Receiver<SpectrumSnapshot>) {
@@ -616,7 +692,6 @@ mod tests {
             timestamp: 0,
             center_hz,
             span_hz,
-            lo_hz: center_hz,
             db: Arc::from(db.as_slice()),
         }
     }
@@ -648,20 +723,6 @@ mod tests {
         );
     }
 
-    #[test]
-    fn moving_the_lo_off_centre_frees_the_frequency_under_it() {
-        let mut db = vec![-90.0f32; 1024];
-        db[512] = -20.0;
-        let mut snap = snapshot(100_000_000.0, 1_000_000.0, db);
-        snap.lo_hz = 100_000_000.0 - 250_000.0;
-
-        assert_eq!(
-            measure(&snap, 100_000_000.0, 10_000.0),
-            Some(-20.0),
-            "a real carrier was thrown away with the LO guard"
-        );
-    }
-
     fn listener() -> Scan {
         let settings = ScanSettings::for_channel(1);
         Scan {
@@ -684,7 +745,8 @@ mod tests {
                 error: None,
             })),
             settings,
-            decoder: Some(1),
+            decoder: 1,
+            stream: 0,
             followed: None,
             last_follow: None,
             bw_hz: 12_500.0,
