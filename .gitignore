@@ -40,3 +40,6 @@ web/.e2e-tmp/
 web/.shots-tmp/
 web/test-results/
 web/playwright-report/
+
+.media
+.media-build
