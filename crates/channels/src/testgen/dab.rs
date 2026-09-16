@@ -19,6 +19,7 @@ pub const ENSEMBLE_ID: u16 = 0x10CD;
 pub const ENSEMBLE_LABEL: &str = "SDR-- test";
 pub const MUSIC_SERVICE: u32 = 0xC1A1;
 pub const TALK_SERVICE: u32 = 0xC1A2;
+pub const DATA_SERVICE: u32 = 0xC1A3;
 pub const MUSIC_BITRATE_KBPS: u16 = 96;
 pub const TALK_BITRATE_KBPS: u16 = 64;
 
@@ -87,6 +88,19 @@ fn fib(figures: &[(u8, Vec<u8>)]) -> [u8; FIB_BYTES] {
 fn service_information() -> Vec<[u8; FIB_BYTES]> {
     vec![
         fib(&[(0, ensemble_figure()), (0, subchannel_figure())]),
+        fib(&[(
+            0,
+            vec![
+                13,
+                (MUSIC_SERVICE >> 8) as u8,
+                MUSIC_SERVICE as u8,
+                1,
+                0,
+                0x42,
+                12,
+                0x3c,
+            ],
+        )]),
         fib(&[
             (0, service_figure(MUSIC_SERVICE, MUSIC_SUBCHANNEL, true)),
             (0, service_figure(TALK_SERVICE, TALK_SUBCHANNEL, false)),
@@ -106,16 +120,16 @@ fn service_information() -> Vec<[u8; FIB_BYTES]> {
     ]
 }
 
-fn access_unit(len: usize, seed: u32) -> Vec<u8> {
-    let mut state = seed | 1;
-    (0..len)
-        .map(|_| {
-            state ^= state << 13;
-            state ^= state >> 17;
-            state ^= state << 5;
-            state as u8
-        })
-        .collect()
+fn recorded_access_units() -> Vec<Vec<u8>> {
+    let mut bytes =
+        include_bytes!("../../../../fixtures/broadcast_audio/dab_he_stereo_48k.aus").as_slice();
+    let mut units = Vec::new();
+    while bytes.len() >= 2 {
+        let length = usize::from(u16::from_be_bytes([bytes[0], bytes[1]]));
+        units.push(super::dab_pad::prepend(&bytes[2..2 + length], units.len()));
+        bytes = &bytes[2 + length..];
+    }
+    units
 }
 
 struct Music {
@@ -123,7 +137,8 @@ struct Music {
     builder: SuperframeBuilder,
     format: AudioFormat,
     queued: Vec<Vec<u8>>,
-    counter: u32,
+    counter: usize,
+    access_units: Vec<Vec<u8>>,
 }
 
 impl Music {
@@ -143,15 +158,18 @@ impl Music {
             },
             queued: Vec::new(),
             counter: 0,
+            access_units: recorded_access_units(),
         }
     }
 
     fn logical(&mut self) -> Vec<u8> {
         if self.queued.is_empty() {
-            self.counter += 1;
             let units: Vec<Vec<u8>> = (0..self.format.access_units())
-                .map(|index| access_unit(180, self.counter * 8 + index as u32))
+                .map(|index| {
+                    self.access_units[(self.counter + index) % self.access_units.len()].clone()
+                })
                 .collect();
+            self.counter += self.format.access_units();
             self.queued = self
                 .builder
                 .build(self.format, &units)
@@ -263,12 +281,52 @@ pub fn ensemble_for_mode(
     transmission_mode: DabTransmissionMode,
     frames: usize,
 ) -> Vec<Complex<f32>> {
+    generate(transmission_mode, frames, false)
+}
+
+pub fn ensemble_with_data(
+    transmission_mode: DabTransmissionMode,
+    frames: usize,
+) -> Vec<Complex<f32>> {
+    generate(transmission_mode, frames, true)
+}
+
+fn generate(
+    transmission_mode: DabTransmissionMode,
+    frames: usize,
+    with_data: bool,
+) -> Vec<Complex<f32>> {
     let mode = Mode::new(transmission_mode);
     let modulator = Modulator::new(transmission_mode);
     let mut fic = FicEncoder::for_mode(transmission_mode);
     let mut music = Music::new();
     let mut talk = Talk::new();
-    let information = service_information();
+    let mut information = service_information();
+    let mut data = super::dab_packet::Data::new();
+    if with_data {
+        information.extend([
+            fib(&[(0, vec![1, 3 << 2, 120, 0x88, 48])]),
+            fib(&[
+                (
+                    0,
+                    vec![
+                        2,
+                        (DATA_SERVICE >> 8) as u8,
+                        DATA_SERVICE as u8,
+                        1,
+                        0xc0,
+                        17 << 2 | 2,
+                    ],
+                ),
+                (0, vec![3, 1, 0x10, 60, 3 << 2, 17]),
+                (0, vec![14, 3 << 2 | 1]),
+            ]),
+            fib(&[(
+                1,
+                label_figure(1, &(DATA_SERVICE as u16).to_be_bytes(), "Rust Slides"),
+            )]),
+        ]);
+    }
     let mut fib_at = 0usize;
     let mut iq = Vec::with_capacity(frames * mode.frame());
     let mut fragment = Vec::new();
@@ -290,6 +348,10 @@ pub fn ensemble_for_mode(
             let payload = talk.logical();
             talk.encoder.frame(&payload, &mut fragment);
             place(&mut cif, TALK_START_CU, TALK_SIZE_CU, &fragment);
+            if with_data {
+                data.frame(&mut fragment);
+                place(&mut cif, 120, 48, &fragment);
+            }
             bits.extend_from_slice(&cif);
         }
         let symbols: Vec<Vec<bool>> = bits

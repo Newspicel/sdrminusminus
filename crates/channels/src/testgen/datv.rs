@@ -63,32 +63,56 @@ impl Multiplex {
     pub fn packet(&mut self) -> [u8; PACKET] {
         if self.queued.is_empty() {
             let mut batch = Vec::new();
-            if self.emitted == 0 || self.emitted >= self.tabled + TABLE_PERIOD {
-                self.tabled = self.emitted;
-                self.writer.section(0x0000, &pat(), &mut batch);
-                self.writer.section(0x0100, &pmt(), &mut batch);
-                self.writer
-                    .section(0x0011, &sdt(PROVIDER, PROGRAM_NAME), &mut batch);
+            let pts = 90_000 + u64::from(self.frame) * 43_200;
+            let video = include_bytes!("../../../../fixtures/broadcast_audio/pattern.m2v");
+            let mut starts = Vec::new();
+            let mut presentation = Vec::new();
+            let mut gop = 0u64;
+            for (at, header) in video.windows(8).enumerate() {
+                if header[..4] == [0, 0, 1, 0xb8] {
+                    let code = u32::from_be_bytes(header[4..8].try_into().expect("GOP time code"));
+                    gop = u64::from((code >> 7) & 63);
+                } else if header[..4] == [0, 0, 1, 0] {
+                    starts.push(if starts.is_empty() { 0 } else { at });
+                    let temporal = u64::from(u16::from_be_bytes([header[4], header[5]]) >> 6);
+                    presentation.push((gop + temporal) * 3600);
+                }
             }
-            let pts = 90_000 + u64::from(self.frame) * 3_600;
-            self.writer.pes(
-                0x0101,
-                0xE0,
-                pts,
-                &elementary(1_400, self.frame * 2 + 1),
-                &mut batch,
-            );
-            self.writer.pes(
-                0x0102,
-                0xC0,
-                pts,
-                include_bytes!("../../../../fixtures/broadcast_audio/tone_48k_mono.mp2")
-                    .get((self.frame as usize % 20) * 192..(self.frame as usize % 20 + 1) * 192)
-                    .expect("one MP2 frame"),
-                &mut batch,
-            );
+            starts.push(video.len());
+            let audio = include_bytes!("../../../../fixtures/broadcast_audio/tone_48k_mono.mp2");
+            let mut audio_frame = 0;
+            for (index, span) in starts.windows(2).enumerate() {
+                self.writer.pes(
+                    0x0101,
+                    0xe0,
+                    pts + presentation[index],
+                    &video[span[0]..span[1]],
+                    &mut batch,
+                );
+                while audio_frame < 20 && audio_frame * 2160 < (index + 1) * 3600 {
+                    self.writer.pes(
+                        0x0102,
+                        0xc0,
+                        pts + audio_frame as u64 * 2160,
+                        &audio[audio_frame * 192..(audio_frame + 1) * 192],
+                        &mut batch,
+                    );
+                    audio_frame += 1;
+                }
+            }
             self.frame += 1;
             self.queued.extend(batch);
+        }
+        if self.emitted == 0 || self.emitted >= self.tabled + TABLE_PERIOD {
+            self.tabled = self.emitted;
+            let mut tables = Vec::new();
+            self.writer.section(0x0000, &pat(), &mut tables);
+            self.writer.section(0x0100, &pmt(), &mut tables);
+            self.writer
+                .section(0x0011, &sdt(PROVIDER, PROGRAM_NAME), &mut tables);
+            for packet in tables.into_iter().rev() {
+                self.queued.push_front(packet);
+            }
         }
         self.emitted += 1;
         self.queued
@@ -138,7 +162,7 @@ pub fn dvbs2_mode(
     pilots: bool,
 ) -> Vec<Complex<f32>> {
     let wanted = seconds * SYMBOL_RATE as usize;
-    let modcod = ModCod::find(modulation, rate).expect("a catalogued mode");
+    let modcod = ModCod::find_for_frame(modulation, rate, short).expect("a catalogued mode");
     let mut encoder = Dvbs2Encoder::new(modcod, short, pilots).expect("a supported mode");
     let mut multiplex = Multiplex::new();
     let mut symbols = Vec::with_capacity(wanted);
@@ -149,6 +173,34 @@ pub fn dvbs2_mode(
         encoder.frame(&packets, &mut symbols);
     }
     shape(&symbols)
+}
+
+#[must_use]
+pub fn dvbs2_superframes(seconds: usize) -> Vec<Complex<f32>> {
+    use crate::datv::dvbs2::{pl, superframe};
+    let count = (seconds * SYMBOL_RATE as usize).div_ceil(superframe::LENGTH);
+    let mode = ModCod::from_index(214).expect("256APSK mode");
+    let mut encoder = Dvbs2Encoder::new(mode, false, false).expect("256APSK encoder");
+    let mut header = Vec::new();
+    pl::header(
+        pl::Signalling {
+            modcod: 214,
+            short: false,
+            pilots: true,
+        },
+        &mut header,
+    );
+    let mut multiplex = Multiplex::new();
+    let mut payload = Vec::new();
+    while payload.len() < count * superframe::LENGTH {
+        let packets: Vec<_> = (0..encoder.capacity())
+            .map(|_| multiplex.packet())
+            .collect();
+        let start = payload.len();
+        encoder.frame(&packets, &mut payload);
+        payload[start..start + pl::HEADER].copy_from_slice(&header);
+    }
+    shape(&superframe::wrap(&payload, 0, true, count))
 }
 
 #[must_use]

@@ -213,3 +213,97 @@ async fn dab_transmission_modes_round_trip_over_http() {
     .await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
 }
+
+#[tokio::test]
+async fn terrestrial_bandwidth_priority_and_service_round_trip_over_http() {
+    let dir = tempfile::TempDir::new().expect("recording directory");
+    let stem = dir.path().join("terrestrial");
+    let mut writer = sdrmm_recorder::SigmfWriter::create(
+        &stem,
+        12_000_000.0,
+        100_000_000.0,
+        "DVB-T settings test",
+    )
+    .expect("writer");
+    writer
+        .write_block(&vec![num_complex::Complex::new(0.0, 0.0); 65536])
+        .expect("IQ");
+    writer.finalize().expect("recording");
+    let app = recording_router(dir.path());
+    let body =
+        serde_json::json!({"device_id":format!("virtual:file:{}",stem.display())}).to_string();
+    let (status, body) = request(app.clone(), "POST", "/api/devicesets", Some(&body)).await;
+    assert_eq!(status, StatusCode::OK);
+    let ds = serde_json::from_slice::<CreatedId>(&body)
+        .expect("device")
+        .id;
+    let (status, body) = request(
+        app.clone(),
+        "POST",
+        &format!("/api/devicesets/{ds}/channels"),
+        Some(r#"{"settings":{"frequency_hz":100000000.0,"params":{"type":"dvbt","settings":{}}}}"#),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
+    let ch = serde_json::from_slice::<CreatedId>(&body)
+        .expect("channel")
+        .id;
+    for bandwidth in ["mhz6", "mhz7", "mhz8"] {
+        let params = serde_json::json!({"type":"dvbt","settings":{"bandwidth":bandwidth,"low_priority":true,"program":42}});
+        let body = serde_json::json!({"params":params}).to_string();
+        let (status, _) = request(
+            app.clone(),
+            "PATCH",
+            &format!("/api/devicesets/{ds}/channels/{ch}"),
+            Some(&body),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NO_CONTENT);
+        let snapshot = get_state(&app).await;
+        assert_eq!(
+            serde_json::to_value(&snapshot.device_sets[0].channels[0].settings.params)
+                .expect("params"),
+            params
+        );
+    }
+    let (status, _) = request(
+        app,
+        "PATCH",
+        &format!("/api/devicesets/{ds}/channels/{ch}"),
+        Some(r#"{"params":{"type":"dvbt","settings":{"bandwidth":"mhz5"}}}"#),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+}
+
+#[tokio::test]
+async fn satellite_superframes_and_stream_selection_round_trip_over_http() {
+    let app = test_router();
+    let ds = create_virtual_set(&app).await;
+    let (status, body) = request(app.clone(), "POST", &format!("/api/devicesets/{ds}/channels"),
+        Some(r#"{"settings":{"frequency_hz":100000000.0,"params":{"type":"datv","settings":{"standard":"dvb_s2"}}}}"#)).await;
+    assert_eq!(status, StatusCode::OK);
+    let ch = serde_json::from_slice::<CreatedId>(&body)
+        .expect("created channel")
+        .id;
+    for enabled in [true, false] {
+        let body = serde_json::json!({"params":{"type":"datv","settings":{"standard":"dvb_s2","superframes":enabled,"program":42,"input_stream":7}}}).to_string();
+        let (status, _) = request(
+            app.clone(),
+            "PATCH",
+            &format!("/api/devicesets/{ds}/channels/{ch}"),
+            Some(&body),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NO_CONTENT);
+        let snapshot = get_state(&app).await;
+        let sdrmm_wire::ChannelParams::Datv(params) =
+            snapshot.device_sets[0].channels[0].settings.params
+        else {
+            panic!("DATV params");
+        };
+        assert_eq!(params.superframes, enabled);
+        assert_eq!(params.input_stream, Some(7));
+        assert_eq!(params.program, Some(42));
+    }
+}

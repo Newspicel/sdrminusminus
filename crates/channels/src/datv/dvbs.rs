@@ -506,6 +506,30 @@ impl DvbsDecoder {
         self.drain(produced, packets);
     }
 
+    pub fn push_soft(
+        &mut self,
+        received: &[Soft],
+        rate: DatvCodeRate,
+        packets: &mut Vec<[u8; PACKET]>,
+    ) {
+        if self.lock.is_none_or(|lock| lock.rate != rate) {
+            self.reset();
+            self.depuncturer.set_pattern(puncturing(rate));
+            self.lock = Some(DvbsLock {
+                rate,
+                rotation: 0,
+                phase: 0,
+                inverted: false,
+            });
+            self.stage = Stage::Align;
+        }
+        self.mother.clear();
+        self.depuncturer.process(received, &mut self.mother);
+        let before = self.bits.len();
+        self.stream.push(&self.mother, &mut self.bits);
+        self.drain(self.bits.len() - before, packets);
+    }
+
     fn drain(&mut self, produced: usize, packets: &mut Vec<[u8; PACKET]>) {
         if matches!(self.stage, Stage::Align) {
             match sync_offset(&self.bits) {
@@ -586,7 +610,7 @@ pub fn map_qpsk(first: bool, second: bool) -> Complex<f32> {
 
 #[cfg(any(test, feature = "test-signals"))]
 pub struct DvbsEncoder {
-    code: ConvCode,
+    convolution_state: u8,
     pattern: &'static [bool],
     at: usize,
     state: Vec<bool>,
@@ -603,7 +627,7 @@ impl DvbsEncoder {
     #[must_use]
     pub fn new(rate: DatvCodeRate) -> Self {
         Self {
-            code: ConvCode::new(&GENERATORS),
+            convolution_state: 0,
             pattern: puncturing(rate),
             at: 0,
             state: Vec::new(),
@@ -629,7 +653,13 @@ impl DvbsEncoder {
             }
         }
         self.coded.clear();
-        self.code.encode(&self.state, &mut self.coded);
+        for &bit in &self.state {
+            self.convolution_state = (self.convolution_state >> 1) | (u8::from(bit) << 6);
+            for generator in GENERATORS {
+                self.coded
+                    .push((u16::from(self.convolution_state) & generator).count_ones() % 2 == 1);
+            }
+        }
         for &bit in &self.coded {
             let kept = self.pattern[self.at];
             self.at = (self.at + 1) % self.pattern.len();

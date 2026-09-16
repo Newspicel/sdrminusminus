@@ -17,6 +17,141 @@ const DEVICE_RATE: f64 = 2_400_000.0;
 const CENTER_HZ: f64 = 434_250_000.0;
 const OFFSET_HZ: f64 = 200_000.0;
 
+#[tokio::test]
+async fn dvb_satellite_video_reaches_the_color_video_stream() {
+    use sdrmm_channels::testgen::datv;
+    use sdrmm_wire::{DatvParams, DatvStandard};
+    for (standard, extended, superframes) in [
+        (DatvStandard::DvbS, false, false),
+        (DatvStandard::DvbS2, false, false),
+        (DatvStandard::DvbS2, true, false),
+        (DatvStandard::DvbS2, true, true),
+    ] {
+        let dir = TempDir::new().unwrap();
+        let mut registry = DeviceRegistry::new();
+        registry.register(
+            10,
+            Box::new(VirtualDriver::with_recordings(dir.path().to_path_buf())),
+        );
+        let engine = Engine::with_registry(registry, Some(dir.path().to_path_buf()));
+        let iq = match standard {
+            DatvStandard::DvbS => datv::dvbs(4),
+            DatvStandard::DvbS2 if superframes => datv::dvbs2_superframes(4),
+            DatvStandard::DvbS2 if extended => datv::dvbs2_mode(
+                4,
+                sdrmm_channels::Dvbs2Modulation::Apsk256,
+                sdrmm_channels::Dvbs2Rate::R135_180,
+                false,
+                true,
+            ),
+            DatvStandard::DvbS2 => datv::dvbs2(4),
+        };
+        let path = dir.path().join("dvb-video");
+        let mut writer =
+            SigmfWriter::create(&path, 2_000_000.0, CENTER_HZ, "DVB media fixture").unwrap();
+        writer.write_block(&iq).unwrap();
+        writer.finalize().unwrap();
+        let mut statuses = engine.subscribe_decoded();
+        let ds = engine
+            .create_device_set(&format!("virtual:file:{}", path.display()))
+            .unwrap();
+        let ch = engine
+            .add_channel(
+                ds,
+                0,
+                ChannelSettings {
+                    frequency_hz: CENTER_HZ,
+                    squelch: sdrmm_wire::Squelch::Off,
+                    params: ChannelParams::Datv(DatvParams {
+                        standard,
+                        superframes,
+                        symbol_rate: datv::SYMBOL_RATE,
+                        code_rate: datv::CODE_RATE,
+                        ..DatvParams::default()
+                    }),
+                    audio: Default::default(),
+                },
+            )
+            .unwrap();
+        let mut video = engine.subscribe_video(ds, ch).unwrap();
+        let picture = tokio::time::timeout(VIDEO_TIMEOUT, async {
+            loop {
+                match video.recv().await {
+                    Ok(packet) => break packet.picture,
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
+                    Err(error) => panic!("{error}"),
+                }
+            }
+        })
+        .await;
+        if picture.is_err() {
+            let mut last = None;
+            while let Ok(record) = statuses.try_recv() {
+                last = Some(record.event);
+            }
+            panic!("{standard:?}: video stalled; {last:?}");
+        }
+        let picture = picture.unwrap();
+        engine.remove_device_set(ds).unwrap();
+        assert_eq!((picture.width, picture.height), (160, 96));
+        assert_eq!(picture.rgb.len(), 160 * 96 * 3);
+        assert!(
+            picture
+                .rgb
+                .as_chunks::<3>()
+                .0
+                .iter()
+                .any(|pixel| pixel[0].abs_diff(pixel[1]) > 60)
+        );
+    }
+}
+
+#[tokio::test]
+async fn dvbt_media_crosses_a_virtual_device_and_reaches_audio_and_video() {
+    let dir = TempDir::new().unwrap();
+    let mut registry = DeviceRegistry::new();
+    registry.register(
+        10,
+        Box::new(VirtualDriver::with_recordings(dir.path().to_path_buf())),
+    );
+    let engine = Engine::with_registry(registry, Some(dir.path().to_path_buf()));
+    let iq =
+        sdrmm_channels::testgen::dvbt::waveform(sdrmm_channels::testgen::dvbt::defaults(), 544);
+    let path = dir.path().join("dvbt-video");
+    let mut writer =
+        SigmfWriter::create(&path, 64_000_000.0 / 7.0, CENTER_HZ, "DVB-T media fixture").unwrap();
+    writer.write_block(&iq).unwrap();
+    writer.finalize().unwrap();
+    let ds = engine
+        .create_device_set(&format!("virtual:file:{}", path.display()))
+        .unwrap();
+    let channel = engine
+        .add_channel(
+            ds,
+            0,
+            ChannelSettings {
+                frequency_hz: CENTER_HZ,
+                squelch: sdrmm_wire::Squelch::Off,
+                params: ChannelParams::Dvbt(sdrmm_wire::DvbtParams::default()),
+                audio: Default::default(),
+            },
+        )
+        .unwrap();
+    let mut video = engine.subscribe_video(ds, channel).unwrap();
+    let mut audio = engine.subscribe_audio(ds, channel).unwrap();
+    let picture = tokio::time::timeout(VIDEO_TIMEOUT, video.recv())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!((picture.picture.width, picture.picture.height), (160, 96));
+    let packet = tokio::time::timeout(VIDEO_TIMEOUT, audio.recv())
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(!packet.opus.is_empty());
+    engine.remove_device_set(ds).unwrap();
+}
+
 fn atv_params() -> AtvParams {
     AtvParams {
         modulation: AtvModulation::Am,

@@ -379,6 +379,17 @@ const DETAIL: {
     body: f.text ?? f.data ?? null,
   }),
 
+  broadcast_data: (data) => ({
+    fields: [
+      ["Name", data.name],
+      ["Type", data.media_type],
+      ["Size", `${data.bytes.length} bytes`],
+    ],
+    body:
+      data.media_type === "text/plain"
+        ? new TextDecoder().decode(new Uint8Array(data.bytes))
+        : null,
+  }),
   broadcast: (status) => ({
     fields: fields([
       ["System", broadcastSystem(status.system)],
@@ -403,6 +414,13 @@ const DETAIL: {
         (status.audio_frames_bad ?? 0) > 0 ? String(status.audio_frames_bad) : undefined,
       ],
       ["Audio error", status.audio_error],
+      ["Video frames", status.video_frames_ok ? String(status.video_frames_ok) : undefined],
+      ["Video failures", status.video_frames_bad ? String(status.video_frames_bad) : undefined],
+      ["Video error", status.video_error],
+      ["Data groups", status.data_groups_ok ? String(status.data_groups_ok) : undefined],
+      ["Data failures", status.data_groups_bad ? String(status.data_groups_bad) : undefined],
+      ["Data error", status.data_error],
+      ["Dynamic label", status.dynamic_label],
     ]),
     body: null,
   }),
@@ -538,6 +556,7 @@ function broadcastSystem(system: string): string {
     dab_plus: "DAB+",
     dvb_s: "DVB-S",
     dvb_s2: "DVB-S2",
+    dvb_t: "DVB-T",
     drm30: "DRM30",
     drm_plus: "DRM+",
   };

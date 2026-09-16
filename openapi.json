@@ -5810,6 +5810,54 @@
           }
         }
       },
+      "BroadcastData": {
+        "type": "object",
+        "required": [
+          "name",
+          "media_type",
+          "bytes"
+        ],
+        "properties": {
+          "bytes": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          },
+          "label": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          },
+          "media_type": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "protocol": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "service_id": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
       "BroadcastService": {
         "type": "object",
         "required": [
@@ -5902,6 +5950,28 @@
               "null"
             ]
           },
+          "data_error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "data_groups_bad": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "data_groups_ok": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "dynamic_label": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "ensemble_id": {
             "type": [
               "integer",
@@ -5972,6 +6042,22 @@
               "string",
               "null"
             ]
+          },
+          "video_error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "video_frames_bad": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "video_frames_ok": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
           }
         }
       },
@@ -5982,6 +6068,7 @@
           "dab_plus",
           "dvb_s",
           "dvb_s2",
+          "dvb_t",
           "drm30",
           "drm_plus"
         ]
@@ -7088,6 +7175,24 @@
                 "type": "string",
                 "enum": [
                   "datv"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "settings",
+              "type"
+            ],
+            "properties": {
+              "settings": {
+                "$ref": "#/components/schemas/DvbtParams"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "dvbt"
                 ]
               }
             }
@@ -9390,6 +9495,9 @@
           "standard": {
             "$ref": "#/components/schemas/DatvStandard"
           },
+          "superframes": {
+            "type": "boolean"
+          },
           "symbol_rate": {
             "type": "number",
             "format": "double"
@@ -9874,6 +9982,24 @@
                 "type": "string",
                 "enum": [
                   "broadcast"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "data",
+              "kind"
+            ],
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/BroadcastData"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "broadcast_data"
                 ]
               }
             }
@@ -11996,6 +12122,33 @@
           "tier_three"
         ]
       },
+      "DvbtBandwidth": {
+        "type": "string",
+        "enum": [
+          "mhz6",
+          "mhz7",
+          "mhz8"
+        ]
+      },
+      "DvbtParams": {
+        "type": "object",
+        "properties": {
+          "bandwidth": {
+            "$ref": "#/components/schemas/DvbtBandwidth"
+          },
+          "low_priority": {
+            "type": "boolean"
+          },
+          "program": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
       "EcaParams": {
         "type": "object",
         "properties": {
@@ -12184,6 +12337,35 @@
       },
       "EventOutputTarget": {
         "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "interface",
+              "address",
+              "prefix",
+              "service"
+            ],
+            "properties": {
+              "address": {
+                "type": "string",
+                "format": "ipv4"
+              },
+              "interface": {
+                "type": "string"
+              },
+              "prefix": {
+                "type": "integer",
+                "format": "int32",
+                "minimum": 0
+              },
+              "service": {
+                "type": "string",
+                "enum": [
+                  "tunnel"
+                ]
+              }
+            }
+          },
           {
             "type": "object",
             "required": [

@@ -19,6 +19,10 @@ function dataLink(
 describe("eventDetail", () => {
   it("answers for every decoder the wire union declares", () => {
     const sample: Record<DecoderKind, DecoderEvent> = {
+      broadcast_data: {
+        kind: "broadcast_data",
+        data: { name: "slide.png", media_type: "image/png", bytes: [] },
+      },
       rds: { kind: "rds", data: { groups: 0, blocks: 0, block_errors: 0 } },
       call: {
         kind: "call",

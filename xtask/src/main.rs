@@ -18,6 +18,7 @@ use num_complex::Complex;
 mod architecture;
 mod bandplan;
 mod ber;
+mod broadcast_fixtures;
 mod bundle;
 mod excerpt;
 mod homebrew;
@@ -64,6 +65,10 @@ enum Cmd {
     Smoke,
     Screenshots,
     Fixtures,
+    BroadcastFixtures {
+        #[arg(long)]
+        out: PathBuf,
+    },
     Excerpt(excerpt::Excerpt),
     Replay(replay::Replay),
     Bandplan {
@@ -140,6 +145,7 @@ fn main() -> Result<()> {
         Cmd::Smoke => smoke(&root()),
         Cmd::Screenshots => screenshots(&root()),
         Cmd::Fixtures => fixtures(&root()),
+        Cmd::BroadcastFixtures { out } => broadcast_fixtures::run(&out),
         Cmd::Excerpt(args) => excerpt::run(&root(), &args),
         Cmd::Replay(args) => replay::run(&args),
         Cmd::Bandplan { offline } => bandplan::run(&root(), offline),
@@ -792,7 +798,18 @@ fn dist(root: &Path, target: Option<&str>) -> Result<()> {
         args.push("--target");
         args.push(triple);
     }
-    run("cargo", &args, root)?;
+    let media_target = target.map(str::to_owned).map_or_else(host_triple, Ok)?;
+    let media = root.join("target/media").join(&media_target);
+    if media.join("sdrmm-build.txt").is_file() {
+        run_with_env(
+            "cargo",
+            &args,
+            root,
+            &[("FFMPEG_DIR", &media.to_string_lossy())],
+        )?;
+    } else {
+        run("cargo", &args, root)?;
+    }
 
     let triple = match target {
         Some(triple) => triple.to_string(),

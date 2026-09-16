@@ -47,6 +47,7 @@ jobs:
       # Its own key: clippy is a `cargo check`, so this target dir holds dependency metadata
       # where `ubuntu` below holds the linkable rlibs. Sharing one key would leave whichever
       # job saved last unable to serve the other.
+      - uses: ./.github/actions/media-deps
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: ubuntu-check
@@ -62,6 +63,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - run: rustup show
+      - uses: ./.github/actions/media-deps
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: performance
@@ -87,6 +89,7 @@ jobs:
       # Keeps the `ubuntu` key: this is the job that compiles dependencies all the way to
       # rlibs, which is what the `smoke` and `advisories` jobs here and the xtask-only jobs in
       # release.yml restore.
+      - uses: ./.github/actions/media-deps
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: ubuntu
@@ -109,6 +112,7 @@ jobs:
       - run: rustup show
       # Restore-only on the test job's cache: it compiles the same dependency graph in the same
       # profile and has nothing of its own worth storing.
+      - uses: ./.github/actions/media-deps
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: ubuntu
@@ -146,6 +150,7 @@ jobs:
       - run: rustup show
       # Restore-only on the test job's cache: it compiles the same dependency graph in the same
       # profile and has nothing of its own worth storing.
+      - uses: ./.github/actions/media-deps
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: ubuntu
@@ -179,6 +184,7 @@ jobs:
             libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev \
             libxdo-dev libssl-dev cmake file
       - run: rustup show
+      - uses: ./.github/actions/media-deps
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: desktop-ubuntu
@@ -305,6 +311,7 @@ jobs:
       - run: rustup show
       # Restore-only on the test job's cache: this job builds the same xtask binary and has
       # nothing of its own worth storing.
+      - uses: ./.github/actions/media-deps
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: ubuntu
@@ -337,6 +344,7 @@ jobs:
           cache-dependency-path: web/pnpm-lock.yaml
       - run: pnpm --dir web install --frozen-lockfile
       - run: rustup show
+      - uses: ./.github/actions/media-deps
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: macos
@@ -352,6 +360,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - run: rustup show
+      - uses: ./.github/actions/media-deps
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: desktop-macos
@@ -372,6 +381,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - run: rustup show
+      - uses: ./.github/actions/media-deps
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: desktop-windows

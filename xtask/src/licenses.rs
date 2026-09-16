@@ -62,6 +62,33 @@ struct Native {
 
 const NATIVE: &[Native] = &[
     Native {
+        name: "DVB-T, DVB-S2X and DAB packet-mode reference implementations",
+        license: "GPL-3.0-or-later",
+        url: "https://github.com/gnuradio/gnuradio/tree/main/gr-dtv/lib/dvbt",
+        note: Some(
+            "The Rust DVB-T implementation was written from ETSI EN 300 744, with constellation and convolutional-code conventions checked against GNU Radio, Copyright 2015,2016 Free Software Foundation, Inc., GPL-3.0-or-later. DAB packet-mode fields were checked against Qt-DAB, Copyright 2015-2024 Jan van Katwijk, GPL-2.0-or-later, https://github.com/JvanKatwijk/qt-dab. DVB-S2X constellation, interleaver and LDPC tables are adapted from GNU Radio gr-dtv, Copyright 2015-2019 Free Software Foundation, Inc., GPL-3.0-or-later. These reference works are compatible with this project's GPL-3.0-or-later license.",
+        ),
+        files: &[],
+    },
+    Native {
+        name: "FFmpeg 9.0.1",
+        license: "GPL-3.0-or-later",
+        url: "https://ffmpeg.org/",
+        note: Some(
+            "Broadcast AAC, AC-3, MPEG-2, H.264 and HEVC playback uses FFmpeg. Release libraries are built from the unmodified official 9.0.1 source with GPL and version3 enabled by scripts/build-media.py. The script records the source URL, checksum and complete build configuration. FFmpeg is Copyright (c) the FFmpeg developers. Its GPL-3.0 license is reproduced in this distribution's LICENSE.",
+        ),
+        files: &[],
+    },
+    Native {
+        name: "DABlin PAD and MOT reference",
+        license: "GPL-3.0-or-later",
+        url: "https://github.com/Opendigitalradio/dablin",
+        note: Some(
+            "The Rust PAD and MOT decoders in crates/channels/src/dab/pad were written using DABlin's protocol implementation as a reference. DABlin is Copyright (C) 2015-2022 Stefan Pöschel and distributed under GPL-3.0-or-later, the same license as SDR--.",
+        ),
+        files: &[],
+    },
+    Native {
         name: "SoapySDR",
         license: "BSL-1.0",
         url: "https://github.com/pothosware/SoapySDR",

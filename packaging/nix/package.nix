@@ -17,6 +17,7 @@
   gtk3,
   libayatana-appindicator,
   libopus,
+  ffmpeg,
   librsvg,
   libsoup_3,
   openssl,
@@ -53,6 +54,7 @@ rustPlatform.buildRustPackage (finalAttrs: {
 
   nativeBuildInputs = [
     cmake
+    rustPlatform.bindgenHook
     copyDesktopItems
     nodejs_26
     pkg-config
@@ -68,6 +70,7 @@ rustPlatform.buildRustPackage (finalAttrs: {
     gtk3
     libayatana-appindicator
     libopus
+    ffmpeg
     librsvg
     libsoup_3
     openssl

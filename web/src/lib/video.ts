@@ -1,5 +1,6 @@
 import type { VideoFrame } from "./frame";
 import type { Listener, Unsubscribe } from "./listeners";
+import { mediaLatencyMs } from "./mediaLatency";
 import type { ClientCommand, ServerEvent } from "./types";
 
 export interface VideoSocket {
@@ -22,6 +23,9 @@ interface Watched {
   listeners: Set<(frame: VideoFrame) => void>;
   latest: VideoFrame | null;
   release: number;
+  pending: { frame: VideoFrame; due: number }[];
+  pendingBytes: number;
+  timer: number;
 }
 
 export class VideoHub {
@@ -36,22 +40,53 @@ export class VideoHub {
     if (watched === undefined) {
       return;
     }
-    watched.latest = frame;
-    for (const listener of watched.listeners) {
-      listener(frame);
+    const delay = mediaLatencyMs(key ?? "");
+    const due = Date.now() + delay;
+    watched.pending.push({ frame, due });
+    watched.pendingBytes += frame.pixels.byteLength;
+    while (watched.pending.length > 32 || watched.pendingBytes > 64 * 1024 * 1024) {
+      const old = watched.pending.shift();
+      if (old) watched.pendingBytes -= old.frame.pixels.byteLength;
     }
+    this.present(watched);
   };
+
+  private present(watched: Watched): void {
+    clearTimeout(watched.timer);
+    while (watched.pending[0] && watched.pending[0].due <= Date.now()) {
+      const next = watched.pending.shift();
+      if (!next) break;
+      watched.pendingBytes -= next.frame.pixels.byteLength;
+      watched.latest = next.frame;
+      for (const listener of watched.listeners) listener(next.frame);
+    }
+    const next = watched.pending[0];
+    watched.timer = next
+      ? setTimeout(() => this.present(watched), Math.max(0, next.due - Date.now()))
+      : 0;
+  }
+
+  private clear(watched: Watched): void {
+    clearTimeout(watched.timer);
+    watched.pending = [];
+    watched.pendingBytes = 0;
+    watched.timer = 0;
+  }
 
   private readonly onEvent = (event: ServerEvent): void => {
     if (event.type === "VideoStreamStarted") {
       const { stream_id, device_set, channel } = event.data;
       this.ids.set(stream_id, channelKey(device_set, channel));
     } else if (event.type === "StreamStopped" && event.data.kind === "video") {
+      const key = this.ids.get(event.data.stream_id);
+      const watched = key === undefined ? undefined : this.channels.get(key);
+      if (watched) this.clear(watched);
       this.ids.delete(event.data.stream_id);
     }
   };
 
   private readonly onStatus = (connected: boolean): void => {
+    for (const watched of this.channels.values()) this.clear(watched);
     if (!connected) {
       return;
     }
@@ -80,6 +115,7 @@ export class VideoHub {
 
   detach(): void {
     this.socket = null;
+    for (const watched of this.channels.values()) this.clear(watched);
     for (const unsubscribe of this.unsubscribes) {
       unsubscribe();
     }
@@ -90,7 +126,14 @@ export class VideoHub {
     const key = channelKey(deviceSet, channel);
     let watched = this.channels.get(key);
     if (watched === undefined) {
-      watched = { listeners: new Set(), latest: null, release: 0 };
+      watched = {
+        listeners: new Set(),
+        latest: null,
+        release: 0,
+        pending: [],
+        pendingBytes: 0,
+        timer: 0,
+      };
       this.channels.set(key, watched);
       this.send({ deviceSet, channel }, true);
     } else if (watched.release !== 0) {
@@ -122,6 +165,7 @@ export class VideoHub {
       return;
     }
     watched.release = setTimeout(() => {
+      this.clear(watched);
       this.channels.delete(key);
       this.send(channel, false);
     }, RELEASE_GRACE_MS);

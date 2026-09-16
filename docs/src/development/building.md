@@ -10,19 +10,19 @@ commands.
 | Rust | Install through rustup; use `rust-toolchain.toml` |
 | Node | 26 |
 | pnpm | 11; exact version in `web/package.json` |
-| Native build tools | C/C++ compiler and CMake |
+| Native build tools | C/C++ compiler, Clang/libclang, CMake, GNU Make, Python 3.12+ |
 
 On Debian or Ubuntu:
 
 ```sh
 sudo apt-get update
-sudo apt-get install -y build-essential cmake
+sudo apt-get install -y build-essential cmake clang libclang-dev python3 nasm
 ```
 
 On macOS:
 
 ```sh
-brew install cmake
+brew install cmake python nasm
 ```
 
 Cargo installs the pinned nightly compiler and components automatically. The workspace uses
@@ -34,10 +34,18 @@ build-time development package.
 ```sh
 git clone https://github.com/Newspicel/sdrminusminus.git
 cd sdrminusminus
+python3 scripts/build-media.py
+export FFMPEG_DIR="$PWD/target/media/$(rustc -vV | sed -n 's/^host: //p')"
 pnpm --dir web install --frozen-lockfile
 pnpm --dir web build
 cargo run -p sdrmm
 ```
+
+The media build downloads the checksummed FFmpeg 9.0.1 source and builds only the required
+codec libraries. It caches the result in `target/media/<target>`. Keep `FFMPEG_DIR` set for Cargo
+commands. Cross builds use `--target <triple>` on the media script and the corresponding prefix.
+Windows builds require a Visual Studio developer shell, LLVM and MSYS2 Make; the CI media action
+shows the same setup. Nix uses its packaged FFmpeg development libraries.
 
 Open <http://localhost:8080>. Distributable builds embed `web/dist`; build the frontend first.
 Backend-only builds can compile with a placeholder interface if that directory is missing.

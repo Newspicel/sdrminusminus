@@ -22,16 +22,16 @@ const PCM_SAMPLES: usize = 6920;
 const QUEUE_FRAMES: usize = 32;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct Header {
-    length: usize,
-    rate: u32,
-    mono: bool,
-    bitrate: u32,
-    mpeg1: bool,
+pub(crate) struct Header {
+    pub(crate) length: usize,
+    pub(crate) rate: u32,
+    pub(crate) mono: bool,
+    pub(crate) bitrate: u32,
+    pub(crate) mpeg1: bool,
 }
 
 impl Header {
-    fn read(bytes: &[u8]) -> Option<Self> {
+    pub(crate) fn read(bytes: &[u8]) -> Option<Self> {
         let &[a, b, c, d, ..] = bytes else {
             return None;
         };

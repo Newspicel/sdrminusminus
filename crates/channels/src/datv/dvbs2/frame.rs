@@ -2,10 +2,14 @@ use num_complex::Complex;
 
 use super::ldpc::{NORMAL, Rate, SHORT};
 
-pub const MAX_POINTS: usize = 32;
+pub const MAX_POINTS: usize = 256;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Modulation {
+    Apsk8,
+    Apsk64,
+    Apsk128,
+    Apsk256,
     Qpsk,
     Psk8,
     Apsk16,
@@ -16,6 +20,10 @@ impl Modulation {
     #[must_use]
     pub const fn bits(self) -> usize {
         match self {
+            Self::Apsk8 => 3,
+            Self::Apsk64 => 6,
+            Self::Apsk128 => 7,
+            Self::Apsk256 => 8,
             Self::Qpsk => 2,
             Self::Psk8 => 3,
             Self::Apsk16 => 4,
@@ -26,6 +34,10 @@ impl Modulation {
     #[must_use]
     pub const fn label(self) -> &'static str {
         match self {
+            Self::Apsk8 => "8APSK",
+            Self::Apsk64 => "64APSK",
+            Self::Apsk128 => "128APSK",
+            Self::Apsk256 => "256APSK",
             Self::Qpsk => "QPSK",
             Self::Psk8 => "8PSK",
             Self::Apsk16 => "16APSK",
@@ -75,6 +87,9 @@ const CATALOGUE: [(u8, Modulation, Rate); 28] = [
 impl ModCod {
     #[must_use]
     pub fn from_index(index: u8) -> Option<Self> {
+        if let Some(mode) = super::s2x::mode(index) {
+            return Some(mode.modcod());
+        }
         CATALOGUE
             .iter()
             .find(|&&(catalogued, ..)| catalogued == index)
@@ -100,6 +115,20 @@ impl ModCod {
             })
     }
 
+    #[cfg(any(test, feature = "test-signals"))]
+    pub fn find_for_frame(modulation: Modulation, rate: Rate, short: bool) -> Option<Self> {
+        Self::find(modulation, rate)
+            .filter(|mode| mode.rate.information(super::ldpc::Frame::of(short)) > 0)
+            .or_else(|| {
+                (132..=248)
+                    .filter_map(super::s2x::mode)
+                    .find(|mode| {
+                        mode.modulation == modulation && mode.rate == rate && mode.short == short
+                    })
+                    .map(super::s2x::Mode::modcod)
+            })
+    }
+
     #[must_use]
     pub const fn length(self, short: bool) -> usize {
         if short { SHORT } else { NORMAL }
@@ -107,7 +136,8 @@ impl ModCod {
 
     #[must_use]
     pub fn symbols(self, short: bool) -> usize {
-        self.length(short) / self.modulation.bits()
+        let width = self.modulation.bits();
+        self.length(short).div_ceil(width).div_ceil(90) * 90
     }
 
     #[must_use]
@@ -132,6 +162,10 @@ impl ModCod {
 #[must_use]
 fn column_order(modulation: Modulation, rate: Rate) -> &'static [usize] {
     match (modulation, rate) {
+        (Modulation::Apsk8, _) => &[0, 1, 2],
+        (Modulation::Apsk64, _) => &[0, 1, 2, 3, 4, 5],
+        (Modulation::Apsk128, _) => &[0, 1, 2, 3, 4, 5, 6],
+        (Modulation::Apsk256, _) => &[0, 1, 2, 3, 4, 5, 6, 7],
         (Modulation::Qpsk, _) => &[],
         (Modulation::Psk8, Rate::R3_5) => &[2, 1, 0],
         (Modulation::Psk8, _) => &[0, 1, 2],
@@ -227,11 +261,30 @@ pub struct Constellation {
 }
 
 impl Constellation {
+    pub fn from_points(source: &[(f32, f32)]) -> Self {
+        let mut points = [Complex::new(0.0, 0.0); MAX_POINTS];
+        for (slot, &(real, imaginary)) in points.iter_mut().zip(source) {
+            *slot = Complex::new(real, imaginary);
+        }
+        Self {
+            points,
+            bits: source.len().ilog2() as usize,
+        }
+    }
+
     #[must_use]
     pub fn new(modulation: Modulation, rate: Rate) -> Self {
         let mut points = [Complex::new(0.0, 0.0); MAX_POINTS];
         let bits = modulation.bits();
         match modulation {
+            Modulation::Apsk8 | Modulation::Apsk64 | Modulation::Apsk128 | Modulation::Apsk256 => {
+                if let Some(mode) = (132..=248)
+                    .filter_map(super::s2x::mode)
+                    .find(|mode| mode.modulation == modulation && mode.rate == rate)
+                {
+                    return mode.constellation();
+                }
+            }
             Modulation::Qpsk => {
                 for (label, slot) in points.iter_mut().take(4).enumerate() {
                     *slot =
@@ -310,12 +363,10 @@ pub fn demodulate(
         for bit in 0..width {
             let mut zero = f32::NEG_INFINITY;
             let mut one = f32::NEG_INFINITY;
-            for (label, &metric) in metrics.iter().take(count).enumerate() {
-                if label >> (width - 1 - bit) & 1 == 0 {
-                    zero = zero.max(metric);
-                } else {
-                    one = one.max(metric);
-                }
+            let half = 1 << (width - 1 - bit);
+            for pair in metrics[..count].chunks_exact(2 * half) {
+                zero = pair[..half].iter().copied().fold(zero, f32::max);
+                one = pair[half..].iter().copied().fold(one, f32::max);
             }
             out.push(zero - one);
         }

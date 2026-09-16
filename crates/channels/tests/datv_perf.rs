@@ -30,6 +30,7 @@ fn settings(standard: DatvStandard) -> ChannelSettings {
             code_rate: DatvCodeRate::ThreeQuarters,
             program: None,
             input_stream: None,
+            superframes: false,
         }),
         audio: Default::default(),
     }

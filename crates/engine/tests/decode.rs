@@ -1627,8 +1627,9 @@ async fn a_dect_capabilities_broadcast_reaches_the_decoded_stream() {
 }
 
 #[tokio::test]
-async fn broadcast_layer_two_audio_reaches_stereo_opus_through_virtual_devices() {
+async fn broadcast_audio_reaches_stereo_opus_through_virtual_devices() {
     for system in [
+        BroadcastSystem::DabPlus,
         BroadcastSystem::Dab,
         BroadcastSystem::DvbS,
         BroadcastSystem::DvbS2,
@@ -1636,6 +1637,14 @@ async fn broadcast_layer_two_audio_reaches_stereo_opus_through_virtual_devices()
         let dir = TempDir::new().unwrap();
         let engine = engine_for(dir.path());
         let (iq, rate, params) = match system {
+            BroadcastSystem::DabPlus => (
+                testgen::dab::ensemble(30),
+                2048000.0,
+                ChannelParams::Dab(DabParams {
+                    mode: sdrmm_wire::DabMode::DabPlus,
+                    ..DabParams::default()
+                }),
+            ),
             BroadcastSystem::Dab => (
                 testgen::dab::ensemble(30),
                 2048000.0,
@@ -1664,6 +1673,7 @@ async fn broadcast_layer_two_audio_reaches_stereo_opus_through_virtual_devices()
             ),
             _ => unreachable!(),
         };
+        let mut statuses = engine.subscribe_decoded();
         let device = plant(dir.path(), "broadcast-audio", iq, rate);
         let ds = engine.create_device_set(&device).unwrap();
         let ch = engine
@@ -1679,7 +1689,20 @@ async fn broadcast_layer_two_audio_reaches_stereo_opus_through_virtual_devices()
             )
             .unwrap();
         let mut receiver = engine.subscribe_audio(ds, ch).unwrap();
-        let packets = common::collect_packets(&mut receiver, 12).await;
+        let mut packets = Vec::new();
+        for _ in 0..12 {
+            let next = tokio::time::timeout(Duration::from_secs(12), receiver.recv()).await;
+            if let Ok(Ok(packet)) = next {
+                packets.push(packet);
+            } else {
+                let mut last = None;
+                while let Ok(record) = statuses.try_recv() {
+                    last = Some(record.event);
+                }
+                panic!("{system:?}: audio stalled, last status {last:?}");
+            }
+        }
+
         assert!(
             packets.iter().all(|packet| packet.channels == 2),
             "{system:?}"
@@ -1693,7 +1716,59 @@ async fn broadcast_layer_two_audio_reaches_stereo_opus_through_virtual_devices()
                 channels[index % 2].push(*sample);
             }
         }
-        common::assert_tone_dominates(&channels);
+        if system == BroadcastSystem::DabPlus {
+            for (samples, frequency) in channels.iter().zip([700.0, 1300.0]) {
+                let power = |frequency: f64| {
+                    let sum = samples.iter().enumerate().fold(
+                        Complex::new(0.0f64, 0.0),
+                        |sum, (i, sample)| {
+                            sum + Complex::from_polar(
+                                f64::from(*sample),
+                                std::f64::consts::TAU * frequency * i as f64 / 48000.0,
+                            )
+                        },
+                    );
+                    sum.norm_sqr()
+                };
+                assert!(power(frequency) > 10.0 * power(2300.0));
+            }
+        } else {
+            common::assert_tone_dominates(&channels);
+        }
+
         engine.remove_device_set(ds).unwrap();
     }
+}
+
+#[tokio::test]
+async fn dab_pad_slideshow_crosses_the_virtual_receiver_and_decoded_event_stream() {
+    let dir = TempDir::new().unwrap();
+    let engine = engine_for(dir.path());
+    let device = plant(
+        dir.path(),
+        "dab-slideshow",
+        testgen::dab::ensemble(30),
+        2_048_000.0,
+    );
+    let record = decode_first(
+        &engine,
+        &device,
+        ChannelSettings {
+            frequency_hz: CENTER_HZ,
+            squelch: sdrmm_wire::Squelch::Off,
+            params: ChannelParams::Dab(DabParams::default()),
+            audio: Default::default(),
+        },
+        |event| matches!(event, DecoderEvent::BroadcastData(_)),
+    )
+    .await;
+    let DecoderEvent::BroadcastData(data) = record.event else {
+        unreachable!()
+    };
+    assert_eq!(data.name, "slide.png");
+    assert_eq!(data.media_type, "image/png");
+    assert_eq!(
+        data.bytes,
+        include_bytes!("../../../fixtures/broadcast_audio/slideshow.png")
+    );
 }

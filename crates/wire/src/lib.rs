@@ -43,16 +43,17 @@ pub use channel::{
     ChannelSettings, CwSkimmerParams, DECT_CARRIER_SPACING_HZ, DEFAULT_FREQUENCY_HZ, DabMode,
     DabParams, DabTransmissionMode, DatvCodeRate, DatvParams, DatvStandard, DectBand, DectParams,
     DectSides, DmrParams, DmrSlots, DpmrParams, DrmMode, DrmParams, DscParams, DstarParams,
-    ErmesParams, FlexParams, FreeDvMode, FreeDvParams, GnssParams, HfdlParams, IdentParams,
-    IlsComponent, IlsParams, InmarsatAeroParams, InmarsatStdcParams, IridiumParams, M17Params,
-    MAX_IDENT_BANDWIDTH_HZ, MAX_IDENT_INTERVAL_MS, MAX_IDENT_THRESHOLD_DB, MAX_NAVAID_REPORT_MS,
-    MAX_SQUELCH_AUTO_MARGIN_DB, MIN_IDENT_BANDWIDTH_HZ, MIN_IDENT_INTERVAL_MS,
-    MIN_IDENT_THRESHOLD_DB, MIN_NAVAID_REPORT_MS, MIN_SQUELCH_AUTO_MARGIN_DB, MorseParams,
-    NavtexParams, NfmParams, NfmScramblerMode, NfmToneMode, NxdnBandwidth, NxdnParams, P25Params,
-    ParamLimit, PocsagBaud, PocsagParams, PskBaud, PskParams, RadioClockParams, RadioClockStandard,
-    RttyParams, RttyStopBits, SelcallParams, SelcallSystem, Sideband, Squelch, SsbParams, SstvMode,
-    SstvParams, SubghzModulation, SubghzParams, Vdl2Params, VorParams, WfmParams, WsjtParams,
-    WsprParams, YsfParams, home_frequency_hz, param_limits,
+    DvbtBandwidth, DvbtParams, ErmesParams, FlexParams, FreeDvMode, FreeDvParams, GnssParams,
+    HfdlParams, IdentParams, IlsComponent, IlsParams, InmarsatAeroParams, InmarsatStdcParams,
+    IridiumParams, M17Params, MAX_IDENT_BANDWIDTH_HZ, MAX_IDENT_INTERVAL_MS,
+    MAX_IDENT_THRESHOLD_DB, MAX_NAVAID_REPORT_MS, MAX_SQUELCH_AUTO_MARGIN_DB,
+    MIN_IDENT_BANDWIDTH_HZ, MIN_IDENT_INTERVAL_MS, MIN_IDENT_THRESHOLD_DB, MIN_NAVAID_REPORT_MS,
+    MIN_SQUELCH_AUTO_MARGIN_DB, MorseParams, NavtexParams, NfmParams, NfmScramblerMode,
+    NfmToneMode, NxdnBandwidth, NxdnParams, P25Params, ParamLimit, PocsagBaud, PocsagParams,
+    PskBaud, PskParams, RadioClockParams, RadioClockStandard, RttyParams, RttyStopBits,
+    SelcallParams, SelcallSystem, Sideband, Squelch, SsbParams, SstvMode, SstvParams,
+    SubghzModulation, SubghzParams, Vdl2Params, VorParams, WfmParams, WsjtParams, WsprParams,
+    YsfParams, home_frequency_hz, param_limits,
 };
 pub use coherent::{
     ArrayElement, ArrayGeometry, CalParams, CalSource, CalState, CfarParams, CoherentParams,
@@ -76,15 +77,15 @@ pub use cps::{
     TimeSlot, Tone, UsbMatch,
 };
 pub use decode::{
-    AcarsMessage, AdsbMessage, AisMessage, AprsPacket, BroadcastService, BroadcastServiceKind,
-    BroadcastStatus, BroadcastSystem, CwSkimmerSpot, DataLinkMessage, DecodedRecord, DecoderEvent,
-    DectArc, DectCapability, DectCipherState, DectFrame, DectIdentity, DectSecurity, DectSide,
-    DectUpdate, DvChannelDefinition, DvFrame, DvFrameKind, DvMode, DvSlotActivity, DvTrunkProtocol,
-    ErmesMessage, FlexMessage, GnssFrame, IdentFeatures, IdentReport, IdentSignal, IlsReading,
-    Modulation, MorseText, NavtexMessage, PagerPayload, PocsagMessage, PocsagPayload,
-    ProtocolMatch, PskText, RadioClockFrame, RdsUpdate, RttyText, ScramblerStatus, SelcallSequence,
-    SstvPicture, SubghzEncoding, SubghzFrame, SubghzReading, ToneSquelchStatus, Vendor, VorReading,
-    WsjtMessage, WsprSpot,
+    AcarsMessage, AdsbMessage, AisMessage, AprsPacket, BroadcastData, BroadcastService,
+    BroadcastServiceKind, BroadcastStatus, BroadcastSystem, CwSkimmerSpot, DataLinkMessage,
+    DecodedRecord, DecoderEvent, DectArc, DectCapability, DectCipherState, DectFrame, DectIdentity,
+    DectSecurity, DectSide, DectUpdate, DvChannelDefinition, DvFrame, DvFrameKind, DvMode,
+    DvSlotActivity, DvTrunkProtocol, ErmesMessage, FlexMessage, GnssFrame, IdentFeatures,
+    IdentReport, IdentSignal, IlsReading, Modulation, MorseText, NavtexMessage, PagerPayload,
+    PocsagMessage, PocsagPayload, ProtocolMatch, PskText, RadioClockFrame, RdsUpdate, RttyText,
+    ScramblerStatus, SelcallSequence, SstvPicture, SubghzEncoding, SubghzFrame, SubghzReading,
+    ToneSquelchStatus, Vendor, VorReading, WsjtMessage, WsprSpot,
 };
 pub use device::{
     ARRAY_DRIVER_ID, ArgumentInfo, ArgumentOption, ArgumentType, ArrayDefinition, Capabilities,
@@ -714,6 +715,10 @@ mod contract_tests {
             (
                 r#"{"type":"datv","settings":{}}"#,
                 ChannelParams::Datv(DatvParams::default()),
+            ),
+            (
+                r#"{"type":"dvbt","settings":{}}"#,
+                ChannelParams::Dvbt(crate::DvbtParams::default()),
             ),
             (
                 r#"{"type":"drm","settings":{}}"#,

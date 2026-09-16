@@ -52,6 +52,9 @@ fn openapi_registers_paths_and_ws_schemas() {
         "ClientCommand schema missing"
     );
     for schema in [
+        "DvbtParams",
+        "DvbtBandwidth",
+        "BroadcastData",
         "ChannelParams",
         "ChannelSettings",
         "PresetSnapshot",

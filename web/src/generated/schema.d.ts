@@ -1737,6 +1737,16 @@ export interface components {
             label: string;
             mode?: string | null;
         };
+        BroadcastData: {
+            bytes: number[];
+            label?: number[];
+            media_type: string;
+            name: string;
+            /** Format: int32 */
+            protocol?: number | null;
+            /** Format: int32 */
+            service_id?: number | null;
+        };
         BroadcastService: {
             /** Format: int32 */
             bitrate_kbps?: number | null;
@@ -1760,6 +1770,12 @@ export interface components {
             /** Format: int32 */
             bitrate_kbps?: number | null;
             code_rate?: string | null;
+            data_error?: string | null;
+            /** Format: int32 */
+            data_groups_bad?: number;
+            /** Format: int32 */
+            data_groups_ok?: number;
+            dynamic_label?: string | null;
             /** Format: int32 */
             ensemble_id?: number | null;
             ensemble_label?: string | null;
@@ -1780,9 +1796,14 @@ export interface components {
             symbol_rate?: number | null;
             system: components["schemas"]["BroadcastSystem"];
             text?: string | null;
+            video_error?: string | null;
+            /** Format: int32 */
+            video_frames_bad?: number;
+            /** Format: int32 */
+            video_frames_ok?: number;
         };
         /** @enum {string} */
-        BroadcastSystem: "dab" | "dab_plus" | "dvb_s" | "dvb_s2" | "drm30" | "drm_plus";
+        BroadcastSystem: "dab" | "dab_plus" | "dvb_s" | "dvb_s2" | "dvb_t" | "drm30" | "drm_plus";
         CalParams: {
             /**
              * Format: double
@@ -2110,6 +2131,10 @@ export interface components {
             settings: components["schemas"]["DatvParams"];
             /** @enum {string} */
             type: "datv";
+        } | {
+            settings: components["schemas"]["DvbtParams"];
+            /** @enum {string} */
+            type: "dvbt";
         } | {
             settings: components["schemas"]["DrmParams"];
             /** @enum {string} */
@@ -2720,6 +2745,7 @@ export interface components {
             /** Format: int32 */
             program?: number | null;
             standard?: components["schemas"]["DatvStandard"];
+            superframes?: boolean;
             /** Format: double */
             symbol_rate?: number;
         };
@@ -2841,6 +2867,10 @@ export interface components {
             data: components["schemas"]["BroadcastStatus"];
             /** @enum {string} */
             kind: "broadcast";
+        } | {
+            data: components["schemas"]["BroadcastData"];
+            /** @enum {string} */
+            kind: "broadcast_data";
         } | {
             data: components["schemas"]["RadioClockFrame"];
             /** @enum {string} */
@@ -3322,6 +3352,14 @@ export interface components {
         DstarParams: Record<string, never>;
         /** @enum {string} */
         Duplex: "rx_only" | "tx_only" | "half" | "full";
+        /** @enum {string} */
+        DvbtBandwidth: "mhz6" | "mhz7" | "mhz8";
+        DvbtParams: {
+            bandwidth?: components["schemas"]["DvbtBandwidth"];
+            low_priority?: boolean;
+            /** Format: int32 */
+            program?: number | null;
+        };
         DvChannelDefinition: {
             /** Format: int32 */
             channel: number;
@@ -3471,6 +3509,14 @@ export interface components {
             target: components["schemas"]["EventOutputTarget"];
         };
         EventOutputTarget: {
+            /** Format: ipv4 */
+            address: string;
+            interface: string;
+            /** Format: int32 */
+            prefix: number;
+            /** @enum {string} */
+            service: "tunnel";
+        } | {
             format?: components["schemas"]["WebhookFormat"];
             /** @enum {string} */
             service: "webhook";

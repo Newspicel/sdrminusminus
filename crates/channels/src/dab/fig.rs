@@ -31,6 +31,17 @@ pub struct Service {
     pub subchannel: Option<u8>,
     pub audio: Audio,
     pub data: bool,
+    pub mot_app: Option<u8>,
+    pub packet_id: Option<u16>,
+    pub data_kind: u8,
+}
+
+#[derive(Clone, Debug)]
+struct PacketComponent {
+    subchannel: u8,
+    address: u16,
+    kind: u8,
+    data_groups: bool,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -39,6 +50,8 @@ pub struct Ensemble {
     pub label: Option<String>,
     pub services: BTreeMap<u32, Service>,
     pub subchannels: BTreeMap<u8, SubChannel>,
+    packets: BTreeMap<u16, PacketComponent>,
+    fec: BTreeMap<u8, bool>,
 }
 
 impl Ensemble {
@@ -47,11 +60,17 @@ impl Ensemble {
         self.label = None;
         self.services.clear();
         self.subchannels.clear();
+        self.packets.clear();
+        self.fec.clear();
     }
 
     pub fn playable(&self) -> impl Iterator<Item = (&Service, &SubChannel)> {
         self.services.values().filter_map(|service| {
-            let id = service.subchannel?;
+            let id = service.subchannel.or_else(|| {
+                service
+                    .packet_id
+                    .and_then(|id| self.packets.get(&id).map(|packet| packet.subchannel))
+            })?;
             Some((service, self.subchannels.get(&id)?))
         })
     }
@@ -91,7 +110,7 @@ impl Ensemble {
         let Some((&header, data)) = body.split_first() else {
             return;
         };
-        if header & 0x40 != 0 {
+        if header & 0xc0 != 0 {
             return;
         }
         let long_ids = header & 0x20 != 0;
@@ -99,7 +118,91 @@ impl Ensemble {
             0 => self.ensemble_information(data),
             1 => self.subchannel_organization(data),
             2 => self.service_organization(data, long_ids),
+            3 => self.packet_components(data),
+            14 => {
+                for &entry in data {
+                    self.fec.insert(entry >> 2, entry & 3 == 1);
+                }
+            }
+            13 => self.user_applications(data, long_ids),
             _ => {}
+        }
+    }
+
+    pub fn packet_config(&self, service: &Service) -> Option<super::packet::Config> {
+        if !service.data {
+            return None;
+        }
+        if let Some(id) = service.packet_id {
+            let packet = self.packets.get(&id)?;
+            Some(super::packet::Config {
+                address: packet.address,
+                kind: packet.kind,
+                data_groups: packet.data_groups,
+                fec: self.fec.get(&packet.subchannel).copied().unwrap_or(false),
+            })
+        } else {
+            Some(super::packet::Config {
+                address: 0,
+                kind: service.data_kind,
+                data_groups: false,
+                fec: false,
+            })
+        }
+    }
+
+    fn packet_components(&mut self, mut bytes: &[u8]) {
+        while bytes.len() >= 5 {
+            let length = if bytes[1] & 1 != 0 { 7 } else { 5 };
+            if bytes.len() < length {
+                return;
+            }
+            let id = (u16::from(bytes[0]) << 4) | u16::from(bytes[1] >> 4);
+            self.packets.insert(
+                id,
+                PacketComponent {
+                    subchannel: bytes[3] >> 2,
+                    address: (u16::from(bytes[3] & 3) << 8) | u16::from(bytes[4]),
+                    kind: bytes[2] & 63,
+                    data_groups: bytes[2] & 128 == 0,
+                },
+            );
+            bytes = &bytes[length..];
+        }
+    }
+
+    fn user_applications(&mut self, mut bytes: &[u8], long_ids: bool) {
+        let width = if long_ids { 4 } else { 2 };
+        while bytes.len() > width {
+            let id = bytes[..width]
+                .iter()
+                .fold(0u32, |id, byte| (id << 8) | u32::from(*byte));
+            let component = bytes[width] >> 4;
+            let count = bytes[width] & 15;
+            bytes = &bytes[width + 1..];
+            for _ in 0..count {
+                if bytes.len() < 2 {
+                    return;
+                }
+                let kind = (u16::from(bytes[0]) << 3) | u16::from(bytes[1] >> 5);
+                let length = usize::from(bytes[1] & 31);
+                let Some(application) = bytes.get(2..2 + length) else {
+                    return;
+                };
+                if kind == 2 && component == 0 && application.len() >= 2 {
+                    let app = application[0] & 31;
+                    if (4..=30).contains(&app) {
+                        self.services
+                            .entry(id)
+                            .or_insert_with(|| Service {
+                                id,
+                                ..Service::default()
+                            })
+                            .mot_app = Some(app);
+                    }
+                }
+                bytes = &bytes[2 + length..];
+            }
         }
     }
 
@@ -120,6 +223,9 @@ impl Ensemble {
                     return;
                 }
                 let option = data[at + 2] >> 4 & 0x07;
+                if option > 1 {
+                    return;
+                }
                 let level = (data[at + 2] >> 2 & 0x03) + 1;
                 let size = u16::from(data[at + 2] & 0x03) << 8 | u16::from(data[at + 3]);
                 let profile = if option == 0 { Eep::A } else { Eep::B };
@@ -190,10 +296,20 @@ impl Ensemble {
                             Audio::Mp2
                         };
                         service.data = false;
+                        service.packet_id = None;
                     }
                     1 => {
                         service.subchannel = Some(descriptor[1] >> 2);
                         service.data = true;
+                        service.data_kind = descriptor[0] & 63;
+                        service.packet_id = None;
+                    }
+                    3 => {
+                        service.packet_id = Some(
+                            (u16::from(descriptor[0] & 63) << 6) | u16::from(descriptor[1] >> 2),
+                        );
+                        service.data = true;
+                        service.subchannel = None;
                     }
                     _ => {}
                 }
@@ -213,13 +329,13 @@ impl Ensemble {
             0 => {
                 if data.len() >= 2 + LABEL_BYTES {
                     self.id = Some(u16::from_be_bytes([data[0], data[1]]));
-                    self.label = label(&data[2..2 + LABEL_BYTES]);
+                    self.label = decoded_label(&data[2..2 + LABEL_BYTES], header >> 4);
                 }
             }
             1 => {
                 if data.len() >= 2 + LABEL_BYTES {
                     let id = u32::from(u16::from_be_bytes([data[0], data[1]]));
-                    let text = label(&data[2..2 + LABEL_BYTES]);
+                    let text = decoded_label(&data[2..2 + LABEL_BYTES], header >> 4);
                     self.services
                         .entry(id)
                         .or_insert_with(|| Service {
@@ -231,7 +347,7 @@ impl Ensemble {
             }
             5 if data.len() >= 4 + LABEL_BYTES => {
                 let id = u32::from_be_bytes([data[0], data[1], data[2], data[3]]);
-                let text = label(&data[4..4 + LABEL_BYTES]);
+                let text = decoded_label(&data[4..4 + LABEL_BYTES], header >> 4);
                 self.services
                     .entry(id)
                     .or_insert_with(|| Service {
@@ -245,29 +361,48 @@ impl Ensemble {
     }
 }
 
+fn decoded_label(bytes: &[u8], charset: u8) -> Option<String> {
+    let text = super::pad::label::text(bytes, charset).ok()?;
+    let text = text.trim_end_matches([' ', '\0']).to_owned();
+    (!text.is_empty()).then_some(text)
+}
+
+#[cfg(test)]
 #[must_use]
 pub fn label(bytes: &[u8]) -> Option<String> {
-    let text: String = bytes
-        .iter()
-        .map(|&byte| match byte {
-            0x20..=0x7E => char::from(byte),
-            0x00..=0x1F => ' ',
-            other => ebu_latin(other),
-        })
-        .collect();
+    let text = ebu_text(bytes);
     let trimmed = text.trim().to_owned();
     (!trimmed.is_empty()).then_some(trimmed)
 }
 
-fn ebu_latin(byte: u8) -> char {
-    const HIGH: [char; 32] = [
-        'á', 'à', 'é', 'è', 'í', 'ì', 'ó', 'ò', 'ú', 'ù', 'Ñ', 'Ç', 'Ş', 'ß', '¡', 'Ĳ', 'â', 'ä',
-        'ê', 'ë', 'î', 'ï', 'ô', 'ö', 'û', 'ü', 'ñ', 'ç', 'ş', 'ǧ', 'ı', 'ĳ',
+pub fn ebu_text(bytes: &[u8]) -> String {
+    const LOW: [&str; 32] = [
+        "", "Ę", "Į", "Ų", "Ă", "Ė", "Ď", "Ș", "Ț", "Ċ", "", "", "Ġ", "Ĺ", "Ż", "Ń", "ą", "ę", "į",
+        "ų", "ă", "ė", "ď", "ș", "ț", "ċ", "Ň", "Ě", "ġ", "ĺ", "ż", "",
     ];
-    match byte {
-        0x80..=0x9F => HIGH[usize::from(byte - 0x80)],
-        _ => '·',
+    const HIGH: [&str; 133] = [
+        "«", "ů", "»", "Ľ", "Ħ", "á", "à", "é", "è", "í", "ì", "ó", "ò", "ú", "ù", "Ñ", "Ç", "Ş",
+        "ß", "¡", "Ÿ", "â", "ä", "ê", "ë", "î", "ï", "ô", "ö", "û", "ü", "ñ", "ç", "ş", "ğ", "ı",
+        "ÿ", "Ķ", "Ņ", "©", "Ģ", "Ğ", "ě", "ň", "ő", "Ő", "€", "£", "$", "Ā", "Ē", "Ī", "Ū", "ķ",
+        "ņ", "Ļ", "ģ", "ļ", "İ", "ń", "ű", "Ű", "¿", "ľ", "°", "ā", "ē", "ī", "ū", "Á", "À", "É",
+        "È", "Í", "Ì", "Ó", "Ò", "Ú", "Ù", "Ř", "Č", "Š", "Ž", "Ð", "Ŀ", "Â", "Ä", "Ê", "Ë", "Î",
+        "Ï", "Ô", "Ö", "Û", "Ü", "ř", "č", "š", "ž", "đ", "ŀ", "Ã", "Å", "Æ", "Œ", "ŷ", "Ý", "Õ",
+        "Ø", "Þ", "Ŋ", "Ŕ", "Ć", "Ś", "Ź", "Ť", "ð", "ã", "å", "æ", "œ", "ŵ", "ý", "õ", "ø", "þ",
+        "ŋ", "ŕ", "ć", "ś", "ź", "ť", "ħ",
+    ];
+    let mut text = String::with_capacity(bytes.len());
+    for &byte in bytes {
+        match byte {
+            0..=31 => text.push_str(LOW[usize::from(byte)]),
+            0x7b..=0xff => text.push_str(HIGH[usize::from(byte - 0x7b)]),
+            0x24 => text.push('ł'),
+            0x5c => text.push('Ů'),
+            0x5e => text.push('Ł'),
+            0x60 => text.push('Ą'),
+            other => text.push(char::from(other)),
+        }
     }
+    text
 }
 
 #[cfg(test)]
@@ -383,6 +518,38 @@ mod tests {
         assert_eq!(service.id, 0xC002);
         assert_eq!(subchannel.id, 2);
         assert!(ensemble.pick(Some(0xDEAD)).is_none());
+    }
+
+    #[test]
+    fn packet_components_bind_in_either_figure_order_and_expose_fec() {
+        for reversed in [false, true] {
+            let mut ensemble = Ensemble::default();
+            let mut figures = vec![
+                (0, vec![2, 0xc0, 1, 1, 0xc0, 0x46]),
+                (0, vec![3, 1, 0x10, 60, 12, 17]),
+            ];
+            if reversed {
+                figures.reverse();
+            }
+            for figure in figures {
+                ensemble.absorb(&fib(&[figure]));
+            }
+            ensemble.absorb(&fib(&[subchannel_figure(3, 120, 3, 48)]));
+            ensemble.absorb(&fib(&[(0, vec![14, 13])]));
+            let (service, subchannel) = ensemble.pick(Some(0xc001)).expect("packet service");
+            assert!(service.data);
+            assert_eq!(subchannel.id, 3);
+            assert_eq!(
+                ensemble.packet_config(service),
+                Some(super::super::packet::Config {
+                    address: 17,
+                    kind: 60,
+                    data_groups: true,
+                    fec: true
+                })
+            );
+            assert!(ensemble.pick(None).is_none());
+        }
     }
 
     #[test]

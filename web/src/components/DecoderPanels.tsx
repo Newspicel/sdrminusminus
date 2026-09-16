@@ -14,6 +14,7 @@ import { copyText } from "../lib/copyText";
 import { useDecodedKind, useDecodedStore, useStations } from "../lib/decoded";
 import type { DecodedRecordOf, DecoderKind, IdentSignal } from "../lib/types";
 import { Button } from "./BaseControls";
+import { BroadcastDataView } from "./BroadcastDataView";
 import { ALERT, BTN, CHIP, TABLE_CELL, TABLE_HEAD } from "./controls";
 import {
   ageClass,
@@ -752,6 +753,29 @@ function PicturesView({ scope = {} }: { scope?: DecoderScope }) {
   );
 }
 
+function BroadcastView({ scope }: { scope: DecoderScope }) {
+  const statuses = recordsInScope(useDecodedKind("broadcast"), scope);
+  const objects = recordsInScope(useDecodedKind("broadcast_data"), scope);
+  const status = statuses.at(0)?.event.data;
+  const object = status?.locked
+    ? objects.find(
+        (record) =>
+          record.event.data.service_id === status.service_id &&
+          record.device_set === statuses[0]?.device_set &&
+          record.channel === statuses[0]?.channel &&
+          record.freq_hz === statuses[0]?.freq_hz,
+      )?.event.data
+    : undefined;
+  return (
+    <div className={PANE}>
+      <span className="legend">{status?.label ?? "Broadcast service"}</span>
+      {status?.dynamic_label && <p className="text-sm text-ink">{status.dynamic_label}</p>}
+      {object && <BroadcastDataView data={object} />}
+      {!status && !object && <span className={EMPTY}>Waiting for a broadcast service.</span>}
+    </div>
+  );
+}
+
 const VIEWS: Record<DecoderKind, ((scope: DecoderScope) => ReactNode) | null> = {
   call: null,
   scrambler: null,
@@ -776,7 +800,8 @@ const VIEWS: Record<DecoderKind, ((scope: DecoderScope) => ReactNode) | null> = 
   ft8: null,
   ft4: null,
   wspr: null,
-  broadcast: null,
+  broadcast: (scope) => <BroadcastView scope={scope} />,
+  broadcast_data: (scope) => <BroadcastView scope={scope} />,
   radio_clock: null,
   gnss: null,
   sstv: (scope) => <PicturesView scope={scope} />,

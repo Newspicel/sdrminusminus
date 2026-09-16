@@ -1,5 +1,7 @@
 use super::conv::{ERASURE, Soft};
 
+mod butterfly;
+
 pub const STATES: usize = 64;
 const MAX_OUTPUTS: usize = 8;
 const STATE_MASK: usize = STATES - 1;
@@ -8,6 +10,7 @@ const STATE_MASK: usize = STATES - 1;
 pub struct ConvCode {
     outputs: usize,
     branch: [u8; 128],
+    pair_signs: Option<[[i32; 32]; 2]>,
 }
 
 impl ConvCode {
@@ -27,8 +30,21 @@ impl ConvCode {
             }
             *slot = mask;
         }
+        let pair_signs =
+            (polys.len() == 2 && polys.iter().all(|poly| poly & 0x41 == 0x41)).then(|| {
+                std::array::from_fn(|bit| {
+                    std::array::from_fn(|state| {
+                        if branch[2 * state] & (1 << bit) == 0 {
+                            -1
+                        } else {
+                            0
+                        }
+                    })
+                })
+            });
         Self {
             outputs: polys.len(),
+            pair_signs,
             branch,
         }
     }
@@ -127,6 +143,7 @@ impl Depuncturer {
 struct Trellis {
     metrics: [i32; STATES],
     next: [i32; STATES],
+    normalization_steps: u16,
 }
 
 impl Trellis {
@@ -137,6 +154,7 @@ impl Trellis {
         Self {
             metrics: [Self::FLOOR; STATES],
             next: [Self::FLOOR; STATES],
+            normalization_steps: 0,
         }
     }
 
@@ -150,32 +168,43 @@ impl Trellis {
     }
 
     fn step(&mut self, code: &ConvCode, symbol: &[Soft]) -> u64 {
+        if let Some(signs) = &code.pair_signs {
+            let decisions = butterfly::step(
+                &self.metrics,
+                &mut self.next,
+                signs,
+                [i32::from(symbol[0]), i32::from(symbol[1])],
+            );
+            self.metrics = self.next;
+            return decisions;
+        }
+        let mut branches = [0i32; 256];
+        branches[0] = -symbol.iter().map(|&value| i32::from(value)).sum::<i32>();
+        for (bit, &value) in symbol.iter().enumerate() {
+            for mask in 0..1 << bit {
+                branches[mask | (1 << bit)] = branches[mask] + 2 * i32::from(value);
+            }
+        }
         let mut decisions = 0u64;
         for state in 0..STATES {
-            let input = state >> 5 == 1;
-            let low = (state & 0x1F) << 1;
-            let mut best = (i32::MIN, false);
-            for lsb in [false, true] {
-                let previous = low | usize::from(lsb);
-                let mask = code.branch[ConvCode::register(previous, input)];
-                let mut branch = 0i32;
-                for (index, &value) in symbol.iter().enumerate() {
-                    let soft = i32::from(value);
-                    branch += if mask >> index & 1 == 1 { soft } else { -soft };
-                }
-                let metric = self.metrics[previous].saturating_add(branch);
-                if metric > best.0 {
-                    best = (metric, lsb);
-                }
-            }
-            self.next[state] = best.0;
-            decisions |= u64::from(best.1) << state;
+            let previous = (state & 31) * 2;
+            let first = self.metrics[previous]
+                .saturating_add(branches[usize::from(code.branch[state * 2])]);
+            let second = self.metrics[previous + 1]
+                .saturating_add(branches[usize::from(code.branch[state * 2 + 1])]);
+            self.next[state] = first.max(second);
+            decisions |= u64::from(second > first) << state;
         }
         self.metrics = self.next;
         decisions
     }
 
     fn normalize(&mut self) {
+        self.normalization_steps += 1;
+        if self.normalization_steps < 256 {
+            return;
+        }
+        self.normalization_steps = 0;
         let peak = self.metrics.iter().copied().max().unwrap_or(0);
         if peak > Self::CEILING {
             for metric in &mut self.metrics {
@@ -379,6 +408,31 @@ mod tests {
         let mut bits = message(len, seed);
         bits.extend([false; 6]);
         bits
+    }
+
+    #[test]
+    fn vector_butterflies_match_scalar_survivors_with_extreme_soft_values() {
+        let mut scalar_code = ConvCode::new(&DVB_S);
+        scalar_code.pair_signs = None;
+        let fast_code = ConvCode::new(&DVB_S);
+        let mut fast = Trellis::new();
+        fast.open();
+        let mut scalar = Trellis::new();
+        scalar.open();
+        let mut seed = 0x91ab21u32;
+        for _ in 0..4096 {
+            seed ^= seed << 13;
+            seed ^= seed >> 17;
+            seed ^= seed << 5;
+            let symbol = [seed as i16, (seed >> 16) as i16];
+            assert_eq!(
+                fast.step(&fast_code, &symbol),
+                scalar.step(&scalar_code, &symbol)
+            );
+            fast.normalize();
+            scalar.normalize();
+            assert_eq!(fast.metrics, scalar.metrics);
+        }
     }
 
     #[test]

@@ -83,6 +83,7 @@ function broadcastSystem(system: string): string {
     dab_plus: "DAB+",
     dvb_s: "DVB-S",
     dvb_s2: "DVB-S2",
+    dvb_t: "DVB-T",
     drm30: "DRM30",
     drm_plus: "DRM+",
   };
@@ -271,6 +272,8 @@ export function eventSummary(event: DecoderEvent): string {
       return dvSummary(event.data);
     case "ident":
       return identSummary(event.data);
+    case "broadcast_data":
+      return `${event.data.name} · ${event.data.bytes.length} bytes`;
     case "broadcast":
       return broadcastSummary(event.data);
     case "radio_clock": {
@@ -435,6 +438,8 @@ export function eventStation(event: DecoderEvent): string | null {
       return null;
     case "sstv":
       return SSTV_MODE_LABELS[event.data.mode];
+    case "broadcast_data":
+      return null;
     case "broadcast": {
       const status = event.data;
       const id = status.service_id ?? status.ensemble_id;

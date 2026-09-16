@@ -17,7 +17,9 @@ use super::{
 };
 use crate::{
     ChannelCtx, ChannelError, ChannelFilter, ChannelOutputs, ChannelRx,
-    broadcast_audio::LayerTwoAudio, check_input_rate,
+    broadcast_audio::LayerTwoAudio,
+    broadcast_media::{BroadcastMedia, Kind as MediaKind},
+    check_input_rate,
 };
 
 const INPUT_RATE_HZ: f64 = 2_048_000.0;
@@ -64,6 +66,7 @@ struct Selection {
     decoder: SubChannelDecoder,
     assembler: Option<SuperframeAssembler>,
     audio: Audio,
+    packet: Option<super::packet::Config>,
 }
 
 pub struct DabChannel {
@@ -81,6 +84,7 @@ pub struct DabChannel {
     logical: Vec<u8>,
     selection: Option<Selection>,
     audio: LayerTwoAudio,
+    media: BroadcastMedia,
     frames: u32,
     frequency_error_hz: f32,
     snr_db: f32,
@@ -101,6 +105,7 @@ impl DabChannel {
         self.frame_start = None;
         self.selection = None;
         self.audio.reset();
+        self.media.reset();
         self.frames = 0;
         self.frequency_error_hz = 0.0;
         self.snr_db = 0.0;
@@ -195,24 +200,33 @@ impl DabChannel {
     fn choose(&mut self) {
         let wanted = self.params.service_id;
         let chosen = self.ensemble.playable().find(|(service, _)| {
-            !service.data
-                && wanted.is_none_or(|id| id == service.id)
-                && match self.params.mode {
-                    DabMode::Auto => true,
-                    DabMode::Dab => service.audio == Audio::Mp2,
-                    DabMode::DabPlus => service.audio == Audio::AacPlus,
+            wanted.is_none_or(|id| id == service.id)
+                && if service.data {
+                    wanted.is_some()
+                } else {
+                    match self.params.mode {
+                        DabMode::Auto => true,
+                        DabMode::Dab => service.audio == Audio::Mp2,
+                        DabMode::DabPlus => service.audio == Audio::AacPlus,
+                    }
                 }
         });
         let Some((service, subchannel)) = chosen else {
             if self.selection.take().is_some() {
                 self.audio.reset();
+                self.media.reset();
             }
             return;
         };
+        let packet = self.ensemble.packet_config(service);
+        self.media.mot_app = service.mot_app;
+        self.media.service_id = Some(service.id);
+        self.media.packet_config = packet;
         if self.selection.as_ref().is_some_and(|current| {
             current.service == service.id
                 && current.subchannel == *subchannel
                 && current.audio == service.audio
+                && current.packet == packet
         }) {
             return;
         }
@@ -226,11 +240,15 @@ impl DabChannel {
                 Audio::Mp2 => None,
             },
             audio: service.audio,
+            packet,
         });
         self.superframes = 0;
         self.units = 0;
         self.last_format = None;
         self.audio.reset();
+        self.media.reset();
+        self.media.mot_app = service.mot_app;
+        self.media.service_id = Some(service.id);
     }
 
     fn read_msc(&mut self) {
@@ -255,14 +273,28 @@ impl DabChannel {
                 continue;
             }
 
+            if selection.packet.is_some() {
+                self.media
+                    .push(MediaKind::DabPacket, &self.logical, None, None);
+                continue;
+            }
             if selection.audio == Audio::Mp2 {
                 self.audio.push(&self.logical);
+                self.media
+                    .push(MediaKind::DabPad, &self.logical, None, None);
             }
             if let Some(assembler) = &mut selection.assembler
                 && let Some(units) = assembler.frame(&self.logical)
             {
                 self.superframes += 1;
                 self.units += units.units.len() as u32;
+                if units.dropped > 0 {
+                    self.media.audio_gap(units.dropped);
+                }
+                for unit in &units.units {
+                    self.media
+                        .push(MediaKind::Latm, unit, None, Some(units.format));
+                }
                 self.last_format = Some(units);
             }
         }
@@ -325,22 +357,24 @@ impl DabChannel {
             format!("{} {rates} {}ch", format.codec(), format.channels())
         });
         out.events.push(DecoderEvent::Broadcast(BroadcastStatus {
+            dynamic_label: self.media.dynamic_label.clone(),
+            data_groups_ok: self.media.data_groups,
+            data_groups_bad: self.media.data_errors,
+            data_error: self.media.data_error.clone(),
             system: self.system(),
             locked: self.locked,
             snr_db: self.snr_db,
             frequency_error_hz: self.frequency_error_hz,
-            audio_frames_ok: self.audio.frames_ok,
-            audio_frames_bad: self.audio.frames_bad,
+            audio_frames_ok: self.audio.frames_ok.saturating_add(self.media.audio_frames),
+            audio_frames_bad: self
+                .audio
+                .frames_bad
+                .saturating_add(self.media.audio_errors),
             audio_error: self
                 .audio
                 .error
-                .or_else(|| {
-                    self.selection
-                        .as_ref()
-                        .filter(|s| s.audio == Audio::AacPlus)
-                        .map(|_| "DAB+ audio decoding is unavailable")
-                })
-                .map(str::to_owned),
+                .map(str::to_owned)
+                .or_else(|| self.media.audio_error.clone()),
             symbol_rate: Some(INPUT_RATE_HZ / self.mode.useful as f64),
             ensemble_id: self.ensemble.id.map(u32::from),
             ensemble_label: self.ensemble.label.clone(),
@@ -384,6 +418,7 @@ impl ChannelRx for DabChannel {
             logical: Vec::new(),
             selection: None,
             audio: LayerTwoAudio::new()?,
+            media: BroadcastMedia::new()?,
             frames: 0,
             frequency_error_hz: 0.0,
             snr_db: 0.0,
@@ -412,6 +447,7 @@ impl ChannelRx for DabChannel {
         if changed {
             self.selection = None;
             self.audio.reset();
+            self.media.reset();
         }
         Ok(())
     }
@@ -427,6 +463,7 @@ impl ChannelRx for DabChannel {
                 self.fic.reset();
                 self.selection = None;
                 self.audio.reset();
+                self.media.reset();
                 self.snr_db = 0.0;
                 self.frequency_error_hz = 0.0;
                 self.report(out);
@@ -446,6 +483,7 @@ impl ChannelRx for DabChannel {
                 self.choose();
                 self.read_msc();
                 self.audio.drain(out);
+                self.media.drain(out);
                 self.frames += 1;
                 if self.frames >= REPORT_FRAMES {
                     self.frames = 0;
@@ -454,6 +492,7 @@ impl ChannelRx for DabChannel {
             }
         }
         self.audio.drain(out);
+        self.media.drain(out);
     }
 }
 
@@ -533,6 +572,24 @@ mod tests {
         let format = channel.last_format.as_ref().expect("an audio format");
         assert_eq!(format.format.codec(), "HE-AAC");
         assert_eq!(format.format.output_rate_hz(), 48_000);
+        let until = std::time::Instant::now() + std::time::Duration::from_secs(2);
+        while channel.media.audio_frames == 0 && std::time::Instant::now() < until {
+            channel.media.drain(&mut out);
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+        assert!(
+            channel.media.audio_frames > 0,
+            "{:?}",
+            channel.media.audio_error
+        );
+        assert_eq!(
+            channel.media.audio_errors, 0,
+            "{:?}",
+            channel.media.audio_error
+        );
+        assert_eq!(channel.media.dynamic_label.as_deref(), Some("SDR-- live"));
+        assert!(out.events.iter().any(|event| matches!(event, DecoderEvent::BroadcastData(data) if data.name == "slide.png" && data.bytes == include_bytes!("../../../../fixtures/broadcast_audio/slideshow.png"))), "{:?}", channel.media.data_error);
+        assert!(out.audio_pcm.iter().any(|sample| sample.abs() > 0.01));
     }
 
     #[test]
@@ -694,6 +751,40 @@ mod tests {
         assert!(channel.selection.is_none());
         channel.process(&testgen::dab::ensemble(8), &mut out);
         assert!(status(&out).locked);
+    }
+
+    #[test]
+    fn packet_mode_mot_crosses_fec_and_the_msc() {
+        let mut channel = channel(Some(testgen::dab::DATA_SERVICE));
+        let iq = testgen::dab::ensemble_with_data(sdrmm_wire::DabTransmissionMode::I, 24);
+        let mut out = ChannelOutputs::default();
+        for block in iq.chunks(16384) {
+            channel.process(block, &mut out);
+        }
+        let until = std::time::Instant::now() + std::time::Duration::from_secs(2);
+        while !out
+            .events
+            .iter()
+            .any(|e| matches!(e, DecoderEvent::BroadcastData(_)))
+            && std::time::Instant::now() < until
+        {
+            channel.media.drain(&mut out);
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+        let object = out
+            .events
+            .iter()
+            .find_map(|e| match e {
+                DecoderEvent::BroadcastData(object) => Some(object),
+                _ => None,
+            })
+            .expect("MOT object");
+        assert_eq!(
+            object.bytes,
+            include_bytes!("../../../../fixtures/broadcast_audio/slideshow.png")
+        );
+        assert_eq!(object.media_type, "image/png");
+        assert!(out.audio_pcm.is_empty());
     }
 
     #[test]
