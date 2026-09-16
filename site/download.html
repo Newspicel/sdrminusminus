@@ -215,6 +215,16 @@
           <span class="size"></span>
           <span class="name">SDR--_&lt;version&gt;_amd64.deb</span>
         </a></li>
+        <li><a class="row" data-file="_aarch64.AppImage" href="https://github.com/Newspicel/sdrminusminus/releases/latest">
+          <span class="what">Desktop app <em>AppImage, ARM64</em></span>
+          <span class="size"></span>
+          <span class="name">SDR--_&lt;version&gt;_aarch64.AppImage</span>
+        </a></li>
+        <li><a class="row" data-file="_arm64.deb" href="https://github.com/Newspicel/sdrminusminus/releases/latest">
+          <span class="what">Desktop app <em>Debian and Ubuntu, ARM64</em></span>
+          <span class="size"></span>
+          <span class="name">SDR--_&lt;version&gt;_arm64.deb</span>
+        </a></li>
         <li><a class="row" data-file="-x86_64-unknown-linux-gnu.tar.gz" href="https://github.com/Newspicel/sdrminusminus/releases/latest">
           <span class="what">Server <em>x86-64</em></span>
           <span class="size"></span>
@@ -365,12 +375,14 @@ const PICKS = {
   },
   linux: { who: "Linux · x86-64", file: "_amd64.AppImage", label: "Download for Linux", alts: ["linux-deb"] },
   "linux-deb": { who: "Linux · Debian and Ubuntu", file: "_amd64.deb", label: "Download for Linux", alts: ["linux"] },
-  "linux-arm": {
+  "linux-arm": { who: "Linux · ARM64", file: "_aarch64.AppImage", label: "Download for Linux", alts: ["linux-arm-deb", "linux-arm-server"] },
+  "linux-arm-deb": { who: "Linux · Debian and Ubuntu, ARM64", file: "_arm64.deb", label: "Download for Linux", alts: ["linux-arm"] },
+  "linux-arm-server": {
     who: "Linux · ARM64",
     file: "-aarch64-unknown-linux-gnu.tar.gz",
     label: "Download the server",
-    hint: "No desktop bundle for ARM Linux yet. Run this server on the Pi and open port 8080 in a browser.",
-    alts: [],
+    hint: "Run this on the Pi and open port 8080 from any browser on the network.",
+    alts: ["linux-arm"],
   },
 };
 
@@ -381,6 +393,9 @@ const ALT_LABELS = {
   "windows-msi": "MSI package instead",
   linux: "AppImage instead",
   "linux-deb": "Debian package instead",
+  "linux-arm": "AppImage instead",
+  "linux-arm-deb": "Debian package instead",
+  "linux-arm-server": "Headless server instead",
 };
 
 const el = (id) => document.getElementById(id);

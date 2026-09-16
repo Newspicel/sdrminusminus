@@ -19,7 +19,7 @@ SDR--. The app starts its server automatically on a private local port.
 | Platform | Package |
 |---|---|
 | macOS | `.dmg` for Apple silicon or Intel |
-| Linux | `.deb` or `.AppImage` |
+| Linux | `.deb` or `.AppImage` for x86-64 or ARM64 |
 | Windows | `.msi` or `.exe` |
 
 ## Portable server
