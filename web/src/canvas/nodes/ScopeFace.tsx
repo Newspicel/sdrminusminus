@@ -13,7 +13,8 @@ import {
 import { Button } from "../../components/BaseControls";
 import { identify, suggestedAt } from "../../components/bandPlan";
 import { type Options, plotButton, segment, segmentSm } from "../../components/controls";
-import { formatMhz, formatSignedKhz } from "../../components/format";
+import { clampWindow, DB_LIMIT, DB_STEP, withCeiling, withFloor } from "../../components/dbRange";
+import { formatMhz } from "../../components/format";
 import { Popover } from "../../components/Popover";
 import { Slider } from "../../components/Slider";
 import {
@@ -247,6 +248,7 @@ function Spectrum({
   const keyRef = useRef<FrameKey | null>(null);
   const hoverRef = useRef<number | null>(null);
   const listenerRef = useRef<((frame: SpectrumFrame) => void) | null>(null);
+  const reseedRef = useRef(0);
 
   const [meta, setMeta] = useState<FrameMeta | null>(() =>
     seedFrame === null ? null : metaOf(seedFrame),
@@ -255,7 +257,8 @@ function Spectrum({
   const [view, setView] = useState<SpectrumView>(FULL_VIEW);
   const [traceModes, setTraceModes] = useState<readonly TraceMode[]>([]);
   const [phosphor, setPhosphor] = useState(false);
-  const [lock, setLock] = useState<DbWindow | null>(null);
+  const [range, setRange] = useState<DbWindow | null>(null);
+  const [rangeOpen, setRangeOpen] = useState(false);
   const [frozen, setFrozen] = useState<SpectrumHistory | null>(null);
   const [scrub, setScrub] = useState(0);
   const [waterfall, setWaterfall] = useState({ top: 0, height: 0, width: 0 });
@@ -276,13 +279,13 @@ function Spectrum({
 
   const viewRef = useRef(view);
   const modesRef = useRef(traceModes);
-  const lockRef = useRef(lock);
+  const rangeRef = useRef(range);
   const frozenRef = useRef(frozen);
   const scrubRef = useRef(scrub);
   useLayoutEffect(() => {
     viewRef.current = view;
     modesRef.current = traceModes;
-    lockRef.current = lock;
+    rangeRef.current = range;
     frozenRef.current = frozen;
     scrubRef.current = scrub;
     if (!active) {
@@ -434,6 +437,10 @@ function Spectrum({
     }
     rendererRef.current = renderer;
     return () => {
+      if (reseedRef.current !== 0) {
+        cancelAnimationFrame(reseedRef.current);
+        reseedRef.current = 0;
+      }
       renderer.dispose();
       rendererRef.current = null;
     };
@@ -454,7 +461,7 @@ function Spectrum({
     const past = spectrumHub.history(setId, stream);
     if (past.count > 0) {
       rendererRef.current?.seed(
-        seedRows(past, frameRef.current, lockRef.current),
+        seedRows(past, frameRef.current, rangeRef.current),
         past.count,
         past.bins,
       );
@@ -465,7 +472,7 @@ function Spectrum({
       const action = retuneAction(keyRef.current, frameKeyOf(frame));
       keyRef.current = frameKeyOf(frame);
       frameRef.current = frame;
-      const held = lockRef.current;
+      const held = rangeRef.current;
       const window = held ?? frameWindow(frame);
       const db = dequantize(frame, liveDbRef.current);
       liveDbRef.current = db;
@@ -538,7 +545,7 @@ function Spectrum({
         scrubRef.current,
         frameRef.current,
         liveDbRef.current,
-        lockRef.current,
+        rangeRef.current,
         frozenDbRef,
       );
       drawPlot(traceRef.current, {
@@ -613,11 +620,21 @@ function Spectrum({
     if (setId === null) {
       return;
     }
-    const past = spectrumHub.history(setId, stream);
+    const past = frozenRef.current ?? spectrumHub.history(setId, stream);
     if (past.count === 0) {
       return;
     }
     rendererRef.current?.seed(seedRows(past, frameRef.current, held), past.count, past.bins);
+  };
+
+  const scheduleReseed = (): void => {
+    if (reseedRef.current !== 0) {
+      return;
+    }
+    reseedRef.current = requestAnimationFrame(() => {
+      reseedRef.current = 0;
+      reseed(rangeRef.current);
+    });
   };
 
   const toggleTrace = (mode: TraceMode): void => {
@@ -626,19 +643,22 @@ function Spectrum({
     );
   };
 
-  const toggleLock = (): void => {
-    const next = lock === null ? (meta === null ? EMPTY_WINDOW : displayWindow(meta, null)) : null;
-    lockRef.current = next;
-    setLock(next);
-    reseed(next);
+  const applyRange = (next: DbWindow | null): void => {
+    rangeRef.current = next;
+    setRange(next);
+    scheduleReseed();
     densityRef.current?.clear();
+  };
+
+  const holdRange = (): void => {
+    applyRange(clampWindow(displayWindow(meta, null)));
   };
 
   const toggleFreeze = (): void => {
     if (frozen !== null) {
       frozenRef.current = null;
       setFrozen(null);
-      reseed(lockRef.current);
+      reseed(rangeRef.current);
       return;
     }
     if (setId === null) {
@@ -650,6 +670,7 @@ function Spectrum({
     setScrub(Math.max(0, frozenLength(captured) - 1));
   };
 
+  const shownRange = displayWindow(meta, range);
   const frozenRows = frozen === null ? 0 : frozenLength(frozen);
   const cursorAt =
     frozen === null
@@ -873,8 +894,8 @@ function Spectrum({
 
       <div className="pointer-events-none absolute inset-0 flex flex-col justify-between p-1.5">
         <span className="legend self-end text-right whitespace-pre text-plot-ink-dim">
-          {meta !== null && `${formatCentre(meta, view)}${formatRange(displayWindow(meta, lock))}`}
-          {lock !== null && " · held"}
+          {meta !== null && `${formatCentre(meta, view)}${formatRange(shownRange)}`}
+          {range !== null && " · manual"}
         </span>
         <div
           data-plot-chrome
@@ -928,25 +949,26 @@ function Spectrum({
                   className={`${segment(phosphor)} justify-start`}
                   aria-pressed={phosphor}
                   onClick={() => {
-                    if (!phosphor && lock === null) {
-                      toggleLock();
+                    if (!phosphor && range === null) {
+                      holdRange();
                     }
                     setPhosphor(!phosphor);
                   }}
                 >
                   phosphor
                 </Button>
-                <Button
-                  type="button"
-                  className={`${segment(lock !== null)} justify-start`}
-                  aria-pressed={lock !== null}
-                  onClick={toggleLock}
-                >
-                  hold dB range
-                </Button>
               </div>
             )}
           </Popover>
+          <Button
+            type="button"
+            className={plotButton(rangeOpen)}
+            aria-expanded={rangeOpen}
+            title="Set the dB floor and ceiling the colours are spread across"
+            onClick={() => setRangeOpen(!rangeOpen)}
+          >
+            range
+          </Button>
           <Button
             type="button"
             className={plotButton(bandRuler)}
@@ -971,22 +993,34 @@ function Spectrum({
         </div>
       </div>
 
-      {frozen !== null && frozenRows > 0 && (
-        <div
-          data-plot-chrome
-          className="absolute inset-x-1.5 bottom-8 flex items-center gap-2 rounded-[3px] bg-plot-bg/85 px-1.5 py-1"
-        >
-          <Slider
-            label="Scrub the frozen waterfall"
-            className="min-w-0 flex-1"
-            min={0}
-            max={frozenRows - 1}
-            value={Math.min(scrub, frozenRows - 1)}
-            onChange={setScrub}
-          />
-          <span className="legend w-16 shrink-0 text-right whitespace-pre text-plot-ink-dim">
-            {frozenAge(frozen, scrub)}
-          </span>
+      {(rangeOpen || (frozen !== null && frozenRows > 0)) && (
+        <div className="absolute inset-x-1.5 bottom-8 flex flex-col gap-1">
+          {rangeOpen && (
+            <RangePanel
+              range={clampWindow(shownRange)}
+              manual={range !== null}
+              onRange={applyRange}
+              onAuto={() => applyRange(null)}
+            />
+          )}
+          {frozen !== null && frozenRows > 0 && (
+            <div
+              data-plot-chrome
+              className="flex items-center gap-2 rounded-[3px] bg-plot-bg/85 px-1.5 py-1"
+            >
+              <Slider
+                label="Scrub the frozen waterfall"
+                className="min-w-0 flex-1"
+                min={0}
+                max={frozenRows - 1}
+                value={Math.min(scrub, frozenRows - 1)}
+                onChange={setScrub}
+              />
+              <span className="legend w-16 shrink-0 text-right whitespace-pre text-plot-ink-dim">
+                {frozenAge(frozen, scrub)}
+              </span>
+            </div>
+          )}
         </div>
       )}
 
@@ -1031,6 +1065,79 @@ function Spectrum({
         </div>
       )}
     </div>
+  );
+}
+
+function RangePanel({
+  range,
+  manual,
+  onRange,
+  onAuto,
+}: {
+  range: DbWindow;
+  manual: boolean;
+  onRange: (range: DbWindow) => void;
+  onAuto: () => void;
+}) {
+  return (
+    <div
+      data-plot-chrome
+      className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-[3px] bg-plot-bg/85 px-1.5 py-1"
+    >
+      <Button
+        type="button"
+        className={plotButton(!manual)}
+        aria-pressed={!manual}
+        title="Follow the signal instead of a range you set"
+        onClick={onAuto}
+      >
+        auto
+      </Button>
+      <RangeSlider
+        name="min"
+        label="Waterfall dB floor"
+        title="Levels at or below this take the coldest colour"
+        value={range.min}
+        onChange={(db) => onRange(withFloor(range, db))}
+      />
+      <RangeSlider
+        name="max"
+        label="Waterfall dB ceiling"
+        title="Levels at or above this take the hottest colour"
+        value={range.max}
+        onChange={(db) => onRange(withCeiling(range, db))}
+      />
+    </div>
+  );
+}
+
+function RangeSlider({
+  name,
+  label,
+  title,
+  value,
+  onChange,
+}: {
+  name: string;
+  label: string;
+  title: string;
+  value: number;
+  onChange: (db: number) => void;
+}) {
+  return (
+    <span className="flex min-w-32 flex-1 items-center gap-1.5" title={title}>
+      <span className="legend shrink-0 whitespace-pre text-plot-ink-dim">{name}</span>
+      <span className="legend w-8 shrink-0 text-right tabular-nums text-plot-ink-dim">{value}</span>
+      <Slider
+        label={label}
+        className="min-w-0 flex-1"
+        min={DB_LIMIT.min}
+        max={DB_LIMIT.max}
+        step={DB_STEP}
+        value={value}
+        onChange={onChange}
+      />
+    </span>
   );
 }
 
@@ -1109,10 +1216,10 @@ function Markers({
           : channel.settings.frequency_hz - centerHz;
       return {
         channel,
-        offsetHz,
+        hz: centerHz + offsetHz,
         id: channel.id,
         at: spanToView(view, offsetToSpan(offsetHz, spanHz)),
-        width: labelWidth(markerName(channel, offsetHz, owners.get(channel.id)), widthPx),
+        width: labelWidth(markerName(channel, owners.get(channel.id)), widthPx),
       };
     })
     .filter((marker) => marker.at >= -0.02 && marker.at <= 1.02);
@@ -1127,7 +1234,7 @@ function Markers({
         const stacked = members.length > 1;
         return (
           <div key={anchor.channel.id}>
-            {members.map(({ channel, offsetHz, at }) => {
+            {members.map(({ channel, hz, at }) => {
               const active = channel.id === selected;
               const owner = owners.get(channel.id);
               const bandwidth = bandwidthHz(channel.settings.params);
@@ -1158,7 +1265,7 @@ function Markers({
                       event.stopPropagation();
                       onSelect(channel.id);
                     }}
-                    aria-label={markerHint(channel, offsetHz, owner, locked.has(channel.id))}
+                    aria-label={markerHint(channel, hz, owner, locked.has(channel.id))}
                   />
                 </Fragment>
               );
@@ -1174,31 +1281,26 @@ function Markers({
                 owned={held(shown.channel.id)}
                 title={markerHint(
                   shown.channel,
-                  shown.offsetHz,
+                  shown.hz,
                   owners.get(shown.channel.id),
                   locked.has(shown.channel.id),
                 )}
                 className={stacked ? "group-hover:hidden" : ""}
               >
-                {markerName(shown.channel, shown.offsetHz, owners.get(shown.channel.id))}
+                {markerName(shown.channel, owners.get(shown.channel.id))}
                 {stacked && <span className="ml-1 text-plot-ink-dim">×{members.length}</span>}
               </MarkerLabel>
               {stacked &&
-                members.map(({ channel, offsetHz }) => (
+                members.map(({ channel, hz }) => (
                   <MarkerLabel
                     key={channel.id}
                     active={channel.id === selected}
                     channel={channel.id}
                     owned={held(channel.id)}
-                    title={markerHint(
-                      channel,
-                      offsetHz,
-                      owners.get(channel.id),
-                      locked.has(channel.id),
-                    )}
+                    title={markerHint(channel, hz, owners.get(channel.id), locked.has(channel.id))}
                     className="hidden group-hover:block"
                   >
-                    {markerName(channel, offsetHz, owners.get(channel.id))}
+                    {markerName(channel, owners.get(channel.id))}
                   </MarkerLabel>
                 ))}
             </div>
@@ -1267,29 +1369,23 @@ function Bookmarks({
   );
 }
 
-function markerName(
-  channel: ChannelInfo,
-  offsetHz: number,
-  owner: TrunkChannelOwner | undefined,
-): string {
-  const name = owner?.role ?? channel.settings.params.type;
-  return `${name.toUpperCase()} ${formatSignedKhz(offsetHz)}`;
+function markerName(channel: ChannelInfo, owner: TrunkChannelOwner | undefined): string {
+  return (owner?.role ?? channel.settings.params.type).toUpperCase();
 }
 
 function markerHint(
   channel: ChannelInfo,
-  offsetHz: number,
+  hz: number,
   owner: TrunkChannelOwner | undefined,
   locked: boolean,
 ): string {
-  const at = `at ${formatSignedKhz(offsetHz)}`;
   if (owner !== undefined) {
-    return `trunk ${owner.role} channel ${at} — the system it belongs to tunes it`;
+    return `trunk ${owner.role} channel — ${formatMhz(hz)}; the system it belongs to tunes it`;
   }
   if (locked) {
-    return `${channel.settings.params.type} channel ${at} — held; unlock it on its node to tune`;
+    return `${channel.settings.params.type} channel — ${formatMhz(hz)}; held, unlock it on its node to tune`;
   }
-  return `${channel.settings.params.type} channel ${at} — drag to tune`;
+  return `${channel.settings.params.type} channel — ${formatMhz(hz)}`;
 }
 
 function MarkerLabel({

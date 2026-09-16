@@ -381,6 +381,26 @@ test.describe("the workspace", () => {
     await page.keyboard.press("Escape");
     await expect(tracesDialog).toBeHidden();
 
+    await scopePlot.getByRole("button", { name: /^range$/i }).click();
+    const floor = scopePlot.getByRole("slider", { name: /waterfall dB floor/i });
+    const ceiling = scopePlot.getByRole("slider", { name: /waterfall dB ceiling/i });
+    const auto = scopePlot.getByRole("button", { name: /^auto$/i });
+    await expect(auto).toHaveAttribute("aria-pressed", "true");
+    const automatic = await floor.inputValue();
+    await floor.press("ArrowUp");
+    await expect(floor).not.toHaveValue(automatic);
+    await expect(auto).toHaveAttribute("aria-pressed", "false");
+    await expect(scopePlot.getByText(/· manual/)).toBeVisible();
+
+    await ceiling.press("ArrowDown");
+    expect(Number(await ceiling.inputValue())).toBeGreaterThan(Number(await floor.inputValue()));
+
+    await auto.click();
+    await expect(auto).toHaveAttribute("aria-pressed", "true");
+    await expect(scopePlot.getByText(/· manual/)).toHaveCount(0);
+    await scopePlot.getByRole("button", { name: /^range$/i }).click();
+    await expect(floor).toHaveCount(0);
+
     await scopePlot.getByRole("button", { name: /^classic$/i }).click();
     await page.getByRole("button", { name: /^viridis$/i }).click();
     await expect(
