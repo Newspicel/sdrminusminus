@@ -17,7 +17,7 @@ import {
   stageSettings,
 } from "./capabilities";
 import { FIELD } from "./controls";
-import { formatHz } from "./format";
+import { formatHz, formatSampleRate } from "./format";
 import { NumberField } from "./NumberField";
 import { LOOP_SETTING } from "./playback";
 import { Select } from "./Select";
@@ -26,8 +26,6 @@ import { Slider } from "./Slider";
 import { withCurrent } from "./selectOptions";
 import { settingLabel } from "./settingLabel";
 import { useDebouncedCommit } from "./useDebouncedCommit";
-
-const formatMsps = (hz: number): string => `${(hz / 1e6).toFixed(3)} MS/s`;
 
 const formatFilter = (hz: number): string => (hz === 0 ? "Auto (match rate)" : formatHz(hz));
 
@@ -74,7 +72,7 @@ export function RadioSettings({
               sampleRateLocked ? "Change the sample rate on the connected Array node" : undefined
             }
           >
-            {formatMsps(sampleRate)}
+            {formatSampleRate(sampleRate)}
           </span>
         ) : caps.sample_rates.length > 0 ? (
           <Select
@@ -82,8 +80,8 @@ export function RadioSettings({
             value={sampleRate}
             options={withCurrent(
               sampleRate,
-              caps.sample_rates.map((rate) => ({ value: rate, label: formatMsps(rate) })),
-              formatMsps,
+              caps.sample_rates.map((rate) => ({ value: rate, label: formatSampleRate(rate) })),
+              formatSampleRate,
             )}
             onChange={(sample_rate) => applyPatch(active.id, { sample_rate })}
           />

@@ -264,7 +264,7 @@ mod tests {
             let ideal = fs_out as i64;
             assert!(
                 (count - ideal).abs() <= 2,
-                "{fs_in}→{fs_out}: got {count} samples/s, ideal {ideal}"
+                "{fs_in}→{fs_out}: got {count} S/s, ideal {ideal}"
             );
         }
     }

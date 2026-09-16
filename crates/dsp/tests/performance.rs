@@ -32,7 +32,7 @@ fn spectrum_processing_reuses_scratch_and_meets_the_display_budget() {
     });
     assert!(
         msps > 1.0,
-        "spectrum must handle eight 30 Hz displays: {msps} Msamples/s"
+        "spectrum must handle eight 30 Hz displays: {msps} MS/s"
     );
 }
 
@@ -50,7 +50,7 @@ fn the_local_noise_floor_reuses_scratch_and_keeps_up_with_the_skimmer() {
     });
     assert!(
         msps > 1.0,
-        "a skimmer needs a floor every 2048 samples: {msps} Msamples/s"
+        "a skimmer needs a floor every 2048 samples: {msps} MS/s"
     );
 }
 
@@ -73,7 +73,7 @@ fn fractional_resampling_reuses_storage_and_exceeds_audio_realtime() {
     });
     assert!(
         msps > 0.48,
-        "resampler must sustain twice realtime: {msps} Msamples/s"
+        "resampler must sustain twice realtime: {msps} MS/s"
     );
 }
 

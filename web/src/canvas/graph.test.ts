@@ -441,7 +441,7 @@ describe("connectionRefusal", () => {
     expect(connectionRefusal(wrong, graph, port("dev", "iq"), port("adsb", "iq"))).toBeNull();
 
     expect(edgeWarning(wrong, graph, port("dev", "iq"), port("adsb", "iq"))).toBe(
-      "needs 2.000–4.000 MHz",
+      "needs 2 MS/s–4 MS/s",
     );
 
     const right = { ...context, bound: bound("dev", { rate: 2_048_000 }) };

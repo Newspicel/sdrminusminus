@@ -738,7 +738,7 @@ mod tests {
     use super::*;
     use crate::{
         testgen::atv::{AtvSource, BAR_LEVELS, COLOR_BARS, bars, color_bars_with_tone},
-        testutil::{dominant_tone, settings},
+        testutil::{dominant_tone, realtime_budget, settings},
     };
 
     fn channel(p: AtvParams) -> AtvChannel {
@@ -1053,7 +1053,7 @@ mod tests {
         }
         let elapsed = started.elapsed().as_secs_f64();
         assert!(
-            elapsed < seconds,
+            elapsed < realtime_budget(seconds),
             "{seconds:.2} s of video took {elapsed:.2} s"
         );
     }
@@ -1077,7 +1077,7 @@ mod tests {
         }
         let elapsed = started.elapsed().as_secs_f64();
         assert!(
-            elapsed < seconds * 10.0,
+            elapsed < realtime_budget(seconds * 10.0),
             "{seconds:.2} s of colour video took {elapsed:.2} s"
         );
     }

@@ -499,7 +499,7 @@ fn measured_coherent_perf() -> Vec<PerfBaseline> {
         out.push(measure_tier(
             bench,
             &format!(
-                "{m}-QAM, 8 sps, RRC α=0.35 span 8, feedforward timing, decision-directed \
+                "{m}-QAM, 8 S/sym, RRC α=0.35 span 8, feedforward timing, decision-directed \
                  Costas (bw {loop_bw}), held power estimate"
             ),
             &params,
@@ -523,7 +523,7 @@ fn measured_coherent_perf() -> Vec<PerfBaseline> {
     let mut symbols = Vec::with_capacity(4_096);
     out.push(measure_tier(
         "linear_qam16_tracked",
-        "16-QAM, 8 sps, RRC α=0.35 span 8, SymbolSync (bw 0.015), decision-directed Costas",
+        "16-QAM, 8 S/sym, RRC α=0.35 span 8, SymbolSync (bw 0.015), decision-directed Costas",
         &params,
         |iq| {
             symbols.clear();
@@ -546,7 +546,7 @@ fn measured_envelope_perf() -> Vec<PerfBaseline> {
     let mut amplitudes = Vec::with_capacity(4_096);
     vec![measure_tier(
         "linear_ook_envelope",
-        "OOK, 8 sps, RRC α=0.35 span 8, magnitude + DC removal + tracking timing",
+        "OOK, 8 S/sym, RRC α=0.35 span 8, magnitude + DC removal + tracking timing",
         &params,
         |iq| {
             amplitudes.clear();
@@ -578,7 +578,7 @@ fn compare_perf_baseline(stem: &str, measured: &[PerfBaseline]) {
         Ok(changes) => {
             for c in changes {
                 eprintln!(
-                    "{}: {:+.1}% vs baseline ({:.1} -> {:.1} Msamples/s)",
+                    "{}: {:+.1}% vs baseline ({:.1} -> {:.1} MS/s)",
                     c.bench,
                     100.0 * c.change_fraction,
                     c.committed_msamples_per_s,

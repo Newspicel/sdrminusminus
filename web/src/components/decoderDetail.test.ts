@@ -303,7 +303,7 @@ describe("eventDetail", () => {
     expect(shown["Access rights class"]).toBe("A residential / small PBX");
     expect(shown["Manufacturer code"]).toBe("1234");
     expect(shown.Cell).toBe("multi-cell");
-    expect(shown.Frequency).toBe("1890.4 MHz");
+    expect(shown.Frequency).toBe("1.890432 GHz");
     expect(shown.Authentication).toBe("yes");
     expect(shown.Ciphering).toBe("yes");
     expect(shown.Encryption).toBe("encryption active");
@@ -653,7 +653,7 @@ describe("eventDetail", () => {
       "Programme type": "Pop Music",
       "Traffic programme": "yes",
       Content: "speech",
-      "Alternative frequencies": "98.0 MHz, 100.5 MHz",
+      "Alternative frequencies": "98 MHz, 100.5 MHz",
       Groups: "100",
       "Block errors": "2",
     });

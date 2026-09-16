@@ -1,5 +1,5 @@
 {
-  "label": "bpsk uncoded, LinearMod -> feedforward timing -> 2nd-power Costas -> unique-word anchor, RRC α=0.35 span 8, 8 sps, 48 kHz 6000 baud, 64+32+16 symbol overhead in Eb, uncoded BER, seed 0xb95",
+  "label": "bpsk uncoded, LinearMod -> feedforward timing -> 2nd-power Costas -> unique-word anchor, RRC α=0.35 span 8, 8 S/sym, 48 kHz 6000 baud, 64+32+16 symbol overhead in Eb, uncoded BER, seed 0xb95",
   "points": [
     {
       "ebn0_db": 4.0,

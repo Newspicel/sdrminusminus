@@ -19,6 +19,7 @@ import {
   Trend,
 } from "../../components/baseband";
 import { plotButton, segment } from "../../components/controls";
+import { formatBaud, formatHz, formatSampleRate } from "../../components/format";
 import { NumberField } from "../../components/NumberField";
 import { Popover } from "../../components/Popover";
 import { colormapLut } from "../../components/persistence";
@@ -311,10 +312,7 @@ export function readout(
 }
 
 export function formatMeasurement(block: SymbolFrame): string {
-  const rate =
-    block.symbolRate >= 1000
-      ? `${(block.symbolRate / 1000).toFixed(2)} kBd`
-      : `${block.symbolRate.toFixed(2)} Bd`;
+  const rate = formatBaud(block.symbolRate);
   const mer = block.merDb >= 99 ? "clean" : `${block.merDb.toFixed(1)} dB MER`;
   return `${rate}   ${(block.evm * 100).toFixed(1)}% EVM   ${mer}   ×${block.margin.toFixed(2)} margin   ${block.freqErrorHz >= 0 ? "+" : ""}${block.freqErrorHz.toFixed(0)} Hz`;
 }
@@ -334,15 +332,12 @@ export function waiting(
 }
 
 function formatReadout(frame: IqFrame, view: BasebandView, period: number): string {
-  const rate =
-    frame.sampleRate >= 1e6
-      ? `${(frame.sampleRate / 1e6).toFixed(3)} MSa/s`
-      : `${(frame.sampleRate / 1e3).toFixed(1)} kSa/s`;
-  const centre = `${(frame.centerHz / 1e6).toFixed(4)} MHz`;
+  const rate = formatSampleRate(frame.sampleRate);
+  const centre = formatHz(frame.centerHz);
   if (view === "spectrum") {
     return `${centre}   ${rate}`;
   }
-  return `${centre}   ${rate}   ${period.toFixed(2)} Sa/sym`;
+  return `${centre}   ${rate}   ${period.toFixed(2)} S/sym`;
 }
 
 interface Trends {

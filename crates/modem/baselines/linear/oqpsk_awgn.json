@@ -1,5 +1,5 @@
 {
-  "label": "oqpsk uncoded, staggered LinearMod -> unstagger -> feedforward timing -> 4th-power Costas -> unique-word anchor, RRC α=0.35 span 8, 8 sps, 48 kHz 6000 baud, uncoded BER, seed 0x952",
+  "label": "oqpsk uncoded, staggered LinearMod -> unstagger -> feedforward timing -> 4th-power Costas -> unique-word anchor, RRC α=0.35 span 8, 8 S/sym, 48 kHz 6000 baud, uncoded BER, seed 0x952",
   "points": [
     {
       "ebn0_db": 4.0,

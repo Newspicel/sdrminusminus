@@ -1,5 +1,5 @@
 {
-  "label": "ideal BPSK, RRC α=0.35 span=8 sps=8, matched filter, known timing, uncoded BER, seed 0x5eed",
+  "label": "ideal BPSK, RRC α=0.35 span=8 8 S/sym, matched filter, known timing, uncoded BER, seed 0x5eed",
   "points": [
     {
       "ebn0_db": 0.0,

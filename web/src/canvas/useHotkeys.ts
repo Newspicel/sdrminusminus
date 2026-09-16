@@ -28,7 +28,10 @@ export const BINDINGS: readonly Binding[] = [
   { keys: "[ ]", what: "Smaller / larger tune step" },
   { keys: "f", what: "Focus the dial — then Enter to type a frequency" },
   { keys: ", .", what: "Previous / next channel" },
-  { keys: "m / M", what: "Cycle the selected channel's mode" },
+  {
+    keys: "m / M",
+    what: "Cycle the selected channel's analog mode — right-click offers every decoder",
+  },
   { keys: "- / + =", what: "Squelch down / up 2 dB" },
   { keys: "s", what: "Squelch on / off" },
   { keys: "1 – 9", what: "Select the nth node" },

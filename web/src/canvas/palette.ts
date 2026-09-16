@@ -71,6 +71,14 @@ export function channelPicker(
   ];
 }
 
+export function decoderReplacements(
+  channelTypes: readonly ChannelDescriptor[],
+  current: string,
+): PaletteGroup[] {
+  const items = channelItems(channelTypes.filter((type) => type.type_id !== current));
+  return items.length === 0 ? [] : [{ id: "channel", title: "Decoders", items }];
+}
+
 export function firstPaletteItem(groups: readonly PaletteGroup[]): PaletteItem | undefined {
   return groups[0]?.items[0];
 }

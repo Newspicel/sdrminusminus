@@ -19,7 +19,7 @@ pub fn ideal_bpsk() -> Link {
     let rx_taps = tx_taps.clone();
     Link {
         label: format!(
-            "ideal BPSK, RRC α={ALPHA} span={SPAN} sps={SPS}, matched filter, known timing"
+            "ideal BPSK, RRC α={ALPHA} span={SPAN} {SPS} S/sym, matched filter, known timing"
         ),
         bits_per_trial: BITS_PER_TRIAL,
         modulate: Box::new(move |bits| modulate(&tx_taps, bits)),

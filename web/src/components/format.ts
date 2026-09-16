@@ -1,15 +1,43 @@
+const PREFIXES: ReadonlyArray<readonly [number, string]> = [
+  [1e9, "G"],
+  [1e6, "M"],
+  [1e3, "k"],
+  [1, ""],
+];
+
+const DECIMALS = 9;
+
+export function si(value: number, unit: string): string {
+  if (!Number.isFinite(value)) {
+    return `? ${unit}`;
+  }
+  const magnitude = Math.abs(value);
+  const [scale, prefix] = PREFIXES.find(([step]) => magnitude >= step) ?? [1, ""];
+  return `${trimZeros((value / scale).toFixed(DECIMALS))} ${prefix}${unit}`;
+}
+
 export function formatHz(hz: number): string {
-  return hz >= 1e6
-    ? `${trimZeros((hz / 1e6).toFixed(3))} MHz`
-    : `${trimZeros((hz / 1e3).toFixed(1))} kHz`;
+  return si(hz, "Hz");
 }
 
-export function formatKhz(hz: number): string {
-  return `${trimZeros((hz / 1e3).toFixed(3))} kHz`;
+export function formatSignedHz(hz: number): string {
+  return `${hz < 0 ? "−" : "+"}${formatHz(Math.abs(hz))}`;
 }
 
-export function formatSignedKhz(hz: number): string {
-  return `${hz < 0 ? "−" : "+"}${formatKhz(Math.abs(hz))}`;
+export function formatSampleRate(samplesPerSecond: number): string {
+  return si(samplesPerSecond, "S/s");
+}
+
+export function formatBitRate(bitsPerSecond: number): string {
+  return si(bitsPerSecond, "bit/s");
+}
+
+export function formatBaud(symbolsPerSecond: number): string {
+  return si(symbolsPerSecond, "Bd");
+}
+
+export function formatBytes(bytes: number): string {
+  return si(bytes, "B");
 }
 
 export function formatMhz(hz: number): string {
@@ -17,7 +45,7 @@ export function formatMhz(hz: number): string {
 }
 
 function trimZeros(fixed: string): string {
-  return fixed.replace(/\.?0+$/, "");
+  return fixed.includes(".") ? fixed.replace(/\.?0+$/, "") : fixed;
 }
 
 export function fractionDigits(step: number | undefined): number {

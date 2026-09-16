@@ -508,18 +508,29 @@ impl TemplateInfo {
             return Some(format!("this radio does not {}", self.direction));
         }
         if !profile.reaches(self.min_freq_hz) || !profile.reaches(self.max_freq_hz) {
-            return Some(format!(
-                "needs {:.3}–{:.3} MHz, outside this radio's tuning range",
-                self.min_freq_hz / 1e6,
-                self.max_freq_hz / 1e6
-            ));
+            let span = if self.min_freq_hz == self.max_freq_hz {
+                crate::units::hertz(self.min_freq_hz)
+            } else {
+                format!(
+                    "{}–{}",
+                    crate::units::hertz(self.min_freq_hz),
+                    crate::units::hertz(self.max_freq_hz)
+                )
+            };
+            return Some(format!("needs {span}, outside this radio's tuning range"));
         }
         if self.rate_on(profile).is_none() {
-            let floor = self.min_sample_rate.unwrap_or(self.sample_rate) / 1e6;
-            let wanted = match self.max_sample_rate.map(|max| max / 1e6) {
-                Some(max) if max <= floor => format!("exactly {floor:.3} Msps"),
-                Some(max) => format!("{floor:.3}–{max:.3} Msps"),
-                None => format!("{floor:.3} Msps or more"),
+            let floor = self.min_sample_rate.unwrap_or(self.sample_rate);
+            let wanted = match self.max_sample_rate {
+                Some(max) if max <= floor => {
+                    format!("exactly {}", crate::units::sample_rate(floor))
+                }
+                Some(max) => format!(
+                    "{}–{}",
+                    crate::units::sample_rate(floor),
+                    crate::units::sample_rate(max)
+                ),
+                None => format!("{} or more", crate::units::sample_rate(floor)),
             };
             return Some(format!("needs {wanted}, which this radio does not offer"));
         }
@@ -785,7 +796,7 @@ mod tests {
 
         let hf = profile(vec![range(0.0, 30e6)], vec![2e6], Duplex::RxOnly);
         let reason = adsb.unmet_by(&hf).expect("out of range");
-        assert!(reason.contains("1090.000"), "{reason}");
+        assert!(reason.contains("1.09 GHz"), "{reason}");
     }
 
     #[test]
@@ -822,7 +833,7 @@ mod tests {
         let mut gnss = template(1_575e6, 1_575e6, 2.048e6);
         gnss.max_sample_rate = Some(2.048e6);
         let reason = gnss.unmet_by(&transceiver).expect("pinned below the floor");
-        assert!(reason.contains("exactly 2.048"), "{reason}");
+        assert!(reason.contains("exactly 2.048 MS/s"), "{reason}");
 
         let mut adsb = template(1_090e6, 1_090e6, 2e6);
         adsb.max_sample_rate = Some(4e6);

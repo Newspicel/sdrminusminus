@@ -133,7 +133,7 @@ describe("DMR channel search", () => {
 
 describe("a site that runs more than one control channel", () => {
   it("names the frequency to fall back on", () => {
-    expect(controlChannelLabel(460_275_000)).toBe("also control 460.2750 MHz");
+    expect(controlChannelLabel(460_275_000)).toBe("also control 460.275 MHz");
   });
 });
 

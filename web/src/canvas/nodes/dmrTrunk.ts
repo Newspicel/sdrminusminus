@@ -1,3 +1,4 @@
+import { formatHz } from "../../components/format";
 import type {
   DmrChannelEntry,
   DmrSearchRange,
@@ -238,7 +239,7 @@ export function adoptable(
 }
 
 export function controlChannelLabel(freq_hz: number): string {
-  return `also control ${(freq_hz / 1e6).toFixed(4)} MHz`;
+  return `also control ${formatHz(freq_hz)}`;
 }
 
 export function searchSummary(

@@ -1,5 +1,5 @@
 {
-  "label": "orthogonal 8-FSK, spacing 1 cycle/symbol, 4800 baud at 48000 Hz (10 sps), continuous phase -> matched tone filterbank + feedforward burst timing, 16+24 symbol overhead in Eb, release, uncoded BER, seed 0xf58",
+  "label": "orthogonal 8-FSK, spacing 1 cycle/symbol, 4800 baud at 48000 Hz (10 S/sym), continuous phase -> matched tone filterbank + feedforward burst timing, 16+24 symbol overhead in Eb, release, uncoded BER, seed 0xf58",
   "points": [
     {
       "ebn0_db": 4.0,

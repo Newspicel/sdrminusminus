@@ -10,7 +10,7 @@
     "bench": "symbol_sync_8sps",
     "msamples_per_s": 466.7206573463778,
     "realtime_factor": 12154.183785061921,
-    "config": "8 sps, loop_bw 0.01, RRC α=0.35 shaped BPSK",
+    "config": "8 S/sym, loop_bw 0.01, RRC α=0.35 shaped BPSK",
     "host": "aarch64-macos"
   },
   {

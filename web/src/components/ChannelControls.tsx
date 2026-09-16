@@ -29,7 +29,7 @@ import {
 import type { Options } from "./controls";
 import { inTuningRange, type Range } from "./dial";
 import { FrequencyDial } from "./FrequencyDial";
-import { formatKhz, formatMhz } from "./format";
+import { formatHz, formatMhz } from "./format";
 import { NumberField, OptionalNumberField } from "./NumberField";
 import { Segmented } from "./Segmented";
 import { Select } from "./Select";
@@ -1534,8 +1534,8 @@ function BandwidthSelect({
 }) {
   const options = withCurrent(
     valueHz,
-    optionsHz.map((hz) => ({ value: hz, label: formatKhz(hz) })),
-    formatKhz,
+    optionsHz.map((hz) => ({ value: hz, label: formatHz(hz) })),
+    formatHz,
   );
   return <Select label="Channel bandwidth" value={valueHz} options={options} onChange={onCommit} />;
 }

@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { DeviceSet, RecordingInfo, RecordingStatus } from "../lib/types";
+import { formatBytes } from "./format";
 import {
   deriveRecordControl,
   describeRecording,
-  formatBytes,
   formatDuration,
   formatTags,
   MAX_RECORDING_TAG_LEN,
@@ -107,9 +107,9 @@ describe("formatBytes", () => {
   it("scales through B / kB / MB / GB", () => {
     expect(formatBytes(0)).toBe("0 B");
     expect(formatBytes(999)).toBe("999 B");
-    expect(formatBytes(1_000)).toBe("1.0 kB");
+    expect(formatBytes(1_000)).toBe("1 kB");
     expect(formatBytes(19_200_000)).toBe("19.2 MB");
-    expect(formatBytes(2_500_000_000)).toBe("2.50 GB");
+    expect(formatBytes(2_500_000_000)).toBe("2.5 GB");
   });
 });
 
@@ -183,7 +183,7 @@ describe("describeRecording", () => {
   } satisfies RecordingInfo;
 
   it("reads out what the capture holds", () => {
-    expect(describeRecording(recording)).toBe("100.0000 MHz · 2.048 MS/s · 2.0 s · 32.8 MB");
+    expect(describeRecording(recording)).toBe("100.0000 MHz · 2.048 MS/s · 2.0 s · 32.768 MB");
   });
 
   it("names where and when it came from, with its tags", () => {

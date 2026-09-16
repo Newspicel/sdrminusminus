@@ -1016,7 +1016,7 @@ mod tests {
         assert_eq!(
             continuous.rate_for(250e3, 250e3, f64::INFINITY),
             Some(2e6),
-            "a transceiver with a 2 Msps floor still runs a narrow template"
+            "a transceiver with a 2 MS/s floor still runs a narrow template"
         );
         assert_eq!(
             continuous.rate_for(250e3, 250e3, 1e6),

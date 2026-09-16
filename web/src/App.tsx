@@ -138,6 +138,7 @@ export function App() {
     selectedDevice,
     channelNodes,
     graph,
+    context,
     stepHz,
     setStepHz,
     workspace,

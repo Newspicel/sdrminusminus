@@ -2,29 +2,26 @@ import { Dialog } from "@base-ui/react/dialog";
 import { useState } from "react";
 import { Form, Input } from "../../components/BaseControls";
 import { BTN, FIELD, LABEL, SURFACE } from "../../components/controls";
-import { formatHz } from "../../components/format";
-import type { ChannelDescriptor } from "../../lib/types";
 import { PaletteEntry } from "../NodePalette";
-import { channelPicker, filterPalette, firstPaletteItem, type PaletteItem } from "../palette";
-import type { ScopePick } from "./scopePick";
+import { filterPalette, firstPaletteItem, type PaletteGroup, type PaletteItem } from "../palette";
 
 export function ChannelPicker({
-  pick,
-  channelTypes,
-  suggested,
+  title,
+  note,
+  groups,
   onChannel,
   onClose,
 }: {
-  pick: ScopePick;
-  channelTypes: readonly ChannelDescriptor[];
-  suggested: string;
+  title: string;
+  note: string;
+  groups: readonly PaletteGroup[];
   onChannel: (channelType: string) => void;
   onClose: () => void;
 }) {
   const [query, setQuery] = useState("");
-  const groups = filterPalette(channelPicker(channelTypes, suggested), query);
+  const shown = filterPalette(groups, query);
 
-  const create = (item: PaletteItem | undefined): void => {
+  const choose = (item: PaletteItem | undefined): void => {
     if (item?.type !== undefined) {
       onChannel(item.type.type_id);
     }
@@ -44,16 +41,16 @@ export function ChannelPicker({
         <Dialog.Popup
           className={`${SURFACE} fixed top-1/2 left-1/2 z-40 flex max-h-[80vh] w-full max-w-lg -translate-x-1/2 -translate-y-1/2 flex-col p-4`}
         >
-          <Dialog.Title className="text-base font-medium text-ink">New channel</Dialog.Title>
+          <Dialog.Title className="text-base font-medium text-ink">{title}</Dialog.Title>
           <Dialog.Description className="mt-1 font-mono text-xs tabular-nums text-ink-dim">
-            {formatHz(pick.hz)}
+            {note}
           </Dialog.Description>
 
           <Form
             className="mt-3 flex min-h-0 flex-1 flex-col"
             onSubmit={(event) => {
               event.preventDefault();
-              create(firstPaletteItem(groups));
+              choose(firstPaletteItem(shown));
             }}
           >
             <Input
@@ -67,15 +64,15 @@ export function ChannelPicker({
               onChange={(event) => setQuery(event.target.value)}
             />
             <div className="mt-2 flex min-h-0 flex-col gap-2 overflow-y-auto">
-              {groups.length === 0 && (
+              {shown.length === 0 && (
                 <p className="py-3 text-center text-sm text-ink-dim">No mode matches that.</p>
               )}
-              {groups.map((group) => (
+              {shown.map((group) => (
                 <div key={group.id} className="flex flex-col gap-1">
                   <span className={`${LABEL} px-1`}>{group.title}</span>
                   <div className="grid grid-cols-2 gap-1">
                     {group.items.map((item) => (
-                      <PaletteEntry key={item.id} item={item} onAdd={() => create(item)} />
+                      <PaletteEntry key={item.id} item={item} onAdd={() => choose(item)} />
                     ))}
                   </div>
                 </div>

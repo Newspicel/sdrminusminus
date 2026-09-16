@@ -201,10 +201,10 @@ impl VorChannel {
 
 #[cfg(test)]
 mod tests {
-    use std::time::{Duration, Instant};
+    use std::time::Instant;
 
     use super::*;
-    use crate::testutil::{run_events, settings};
+    use crate::testutil::{realtime_budget, run_events, settings};
 
     #[test]
     fn measures_the_radial_from_an_analytic_vor_signal() {
@@ -244,6 +244,6 @@ mod tests {
         let started = Instant::now();
         let events = run_events(&mut channel, &iq);
         assert!(!events.is_empty());
-        assert!(started.elapsed() < Duration::from_secs(5));
+        assert!(started.elapsed().as_secs_f64() < realtime_budget(5.0));
     }
 }

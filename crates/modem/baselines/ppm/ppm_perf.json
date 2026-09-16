@@ -3,14 +3,14 @@
     "bench": "ppm2_matched_8m",
     "msamples_per_s": 1693.400374100504,
     "realtime_factor": 211.675046762563,
-    "config": "1 Mslot/s at 8 Msps (8 samples/slot), M=2, matched filter",
+    "config": "1 Mslot/s at 8 MS/s (8 samples/slot), M=2, matched filter",
     "host": "aarch64-macos"
   },
   {
     "bench": "ppm2_envelope_8m",
     "msamples_per_s": 699.0754978283496,
     "realtime_factor": 87.3844372285437,
-    "config": "1 Mslot/s at 8 Msps (8 samples/slot), M=2, envelope",
+    "config": "1 Mslot/s at 8 MS/s (8 samples/slot), M=2, envelope",
     "host": "aarch64-macos"
   },
   {

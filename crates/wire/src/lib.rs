@@ -23,6 +23,7 @@ pub mod scan;
 pub mod state;
 pub mod timemachine;
 pub mod tools;
+pub mod units;
 pub mod workspace;
 pub mod workspace_state;
 pub mod ws;

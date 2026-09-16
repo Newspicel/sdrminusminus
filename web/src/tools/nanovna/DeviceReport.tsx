@@ -20,7 +20,7 @@ export function DeviceReport({ report }: { report: NanoVnaDeviceReport }) {
         <Group title="Measurement">
           <Entry
             label="IF bandwidth"
-            value={report.bandwidth_hz == null ? "—" : `${report.bandwidth_hz} Hz`}
+            value={report.bandwidth_hz == null ? "—" : formatHz(report.bandwidth_hz)}
           />
           <Entry label="Drive level" value={describePower(report.power)} />
           <Entry

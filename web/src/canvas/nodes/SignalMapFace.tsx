@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Button, Input } from "../../components/BaseControls";
 import { BTN, BTN_DANGER, BTN_PRIMARY, FIELD, LABEL } from "../../components/controls";
-import { formatHz, formatSignedKhz } from "../../components/format";
+import { formatHz, formatSignedHz } from "../../components/format";
 import { MapPanel } from "../../components/MapPanel";
 import { OffsetStepper } from "../../components/OffsetStepper";
 import type { SpectrumFrame } from "../../lib/frame";
@@ -42,7 +42,7 @@ export function SignalMapFace({ node }: { node: PatchNode }) {
       node={node}
       title="Signal survey"
       category="output"
-      subtitle={set === null ? undefined : formatSignedKhz(node.data.offset_hz)}
+      subtitle={set === null ? undefined : formatSignedHz(node.data.offset_hz)}
     >
       <FaceBody scroll={false}>
         <SignalSurvey

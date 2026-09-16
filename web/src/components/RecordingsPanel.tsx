@@ -15,10 +15,10 @@ import { pushToast } from "../lib/toasts";
 import type { RecordingAnnotation, RecordingInfo } from "../lib/types";
 import { Button, Form, Input, Textarea } from "./BaseControls";
 import { BTN, BTN_SM, CHIP, FIELD } from "./controls";
+import { formatBytes, formatSampleRate } from "./format";
 import {
   describeRecording,
   downloadFormats,
-  formatBytes,
   formatDuration,
   formatTags,
   MAX_RECORDING_NAME_LEN,
@@ -247,7 +247,7 @@ function AudioRecordings() {
           <div className="min-w-0 flex-1">
             <div className="truncate font-mono text-ink text-sm">{r.file}</div>
             <div className="truncate font-mono text-[10px] text-ink-dim tabular-nums">
-              {r.channels === 2 ? "stereo" : "mono"} · {(r.sample_rate / 1000).toFixed(1)} kHz ·{" "}
+              {r.channels === 2 ? "stereo" : "mono"} · {formatSampleRate(r.sample_rate)} ·{" "}
               {formatDuration(r.duration_s)} · {formatBytes(r.bytes)}
             </div>
           </div>

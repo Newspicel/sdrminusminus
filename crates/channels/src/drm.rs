@@ -302,6 +302,7 @@ impl ChannelRx for DrmChannel {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::testutil::realtime_budget;
 
     fn settings(mode: DrmMode, bandwidth_hz: f64) -> ChannelSettings {
         ChannelSettings {
@@ -510,6 +511,9 @@ mod tests {
             channel.process(block, &mut out);
         }
         let elapsed = started.elapsed().as_secs_f64();
-        assert!(elapsed < 1.0, "one second of DRM took {elapsed:.2} s");
+        assert!(
+            elapsed < realtime_budget(1.0),
+            "one second of DRM took {elapsed:.2} s"
+        );
     }
 }

@@ -1,4 +1,5 @@
 import { rateMismatch } from "../components/channelSettings";
+import { formatSampleRate } from "../components/format";
 import type {
   Capabilities,
   ChannelDescriptor,
@@ -271,12 +272,8 @@ export function edgeWarning(
     return null;
   }
   return wanted.min === wanted.max
-    ? `needs ${mhz(wanted.min)} MHz`
-    : `needs ${mhz(wanted.min)}–${mhz(wanted.max)} MHz`;
-}
-
-function mhz(hz: number): string {
-  return (hz / 1e6).toFixed(3);
+    ? `needs ${formatSampleRate(wanted.min)}`
+    : `needs ${formatSampleRate(wanted.min)}–${formatSampleRate(wanted.max)}`;
 }
 
 export interface NodeSize {

@@ -84,7 +84,7 @@ fn survey_every_channel_search_path() {
     rows.sort_by(|a, b| a.realtime_factor.total_cmp(&b.realtime_factor));
     println!(
         "{:<18} {:>12} {:>14} {:>12}",
-        "channel", "rate", "Msamples/s", "realtime"
+        "channel", "rate", "MS/s", "realtime"
     );
     for row in &rows {
         println!(
@@ -201,7 +201,7 @@ fn analog_channels_allocate_nothing_after_warmup_and_exceed_realtime() {
         let msps = measure_throughput(2, iq.len() as u64, || drive(rx.as_mut(), &iq, &mut outputs));
         assert!(
             msps * 1e6 / rate >= 2.0,
-            "{type_id} fell below twice realtime: {msps} Msamples/s"
+            "{type_id} fell below twice realtime: {msps} MS/s"
         );
     }
 }

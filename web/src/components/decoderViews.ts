@@ -11,7 +11,7 @@ import type {
   RdsUpdate,
   VorReading,
 } from "../lib/types";
-import { formatHz } from "./format";
+import { formatBaud, formatHz } from "./format";
 
 export interface DecoderScope {
   deviceSet?: number;
@@ -568,8 +568,7 @@ export function modulationLabel(signal: Pick<IdentSignal, "modulation" | "sideba
 export type IdentField = readonly [label: string, value: string];
 
 export function signalFrequency(signal: Pick<IdentSignal, "frequency_hz">): string {
-  const hz = signal.frequency_hz;
-  return hz >= 1e6 ? `${(hz / 1e6).toFixed(4)} MHz` : `${(hz / 1e3).toFixed(2)} kHz`;
+  return formatHz(signal.frequency_hz);
 }
 
 export function identOverview(report: IdentReport): IdentField[] {
@@ -581,12 +580,12 @@ export function identOverview(report: IdentReport): IdentField[] {
 
 export function identMeasurements(signal: IdentSignal): IdentField[] {
   const fields: IdentField[] = [
-    ["Bandwidth", `${(signal.bandwidth_hz / 1000).toFixed(1)} kHz`],
+    ["Bandwidth", formatHz(signal.bandwidth_hz)],
     ["Off tune", `${Math.round(signal.center_offset_hz)} Hz`],
     ["SNR", `${signal.snr_db.toFixed(1)} dB`],
   ];
   if (signal.symbol_rate_hz != null) {
-    fields.push(["Symbol rate", `${Math.round(signal.symbol_rate_hz)} Bd`]);
+    fields.push(["Symbol rate", formatBaud(signal.symbol_rate_hz)]);
   }
   if (signal.deviation_hz != null) {
     fields.push(["Deviation", `±${Math.round(signal.deviation_hz)} Hz`]);

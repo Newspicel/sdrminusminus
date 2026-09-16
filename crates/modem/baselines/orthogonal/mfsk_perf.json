@@ -3,7 +3,7 @@
     "bench": "mfsk4_filterbank_48k",
     "msamples_per_s": 426.4914772727273,
     "realtime_factor": 8885.239109848486,
-    "config": "48 kHz, 4800 baud, 10 sps, M=4 orthogonal tone plan (spacing 1 cycle/symbol)",
+    "config": "48 kHz, 4800 baud, 10 S/sym, M=4 orthogonal tone plan (spacing 1 cycle/symbol)",
     "host": "aarch64-macos"
   },
   {

@@ -2689,7 +2689,7 @@
       },
       "type": "adsb"
     },
-    "notes": "Transponder replies and extended squitter, 1 Mbit/s PPM. Needs the receiver's own samples at 2 Msps or more, so the channel takes IQ rather than a narrow passband."
+    "notes": "Transponder replies and extended squitter, 1 Mbit/s PPM. Needs the receiver's own samples at 2 MS/s or more, so the channel takes IQ rather than a narrow passband."
   },
   {
     "start_hz": 1091000000.0,

@@ -1,5 +1,5 @@
 {
-  "label": "ook uncoded, noncoherent envelope tier: matched filter -> |·| -> DC removal -> tracking timing -> fitted pedestal and scale, RRC α=0.35 span 8, 8 sps, 48 kHz 6000 baud, uncoded BER, seed 0xe5",
+  "label": "ook uncoded, noncoherent envelope tier: matched filter -> |·| -> DC removal -> tracking timing -> fitted pedestal and scale, RRC α=0.35 span 8, 8 S/sym, 48 kHz 6000 baud, uncoded BER, seed 0xe5",
   "points": [
     {
       "ebn0_db": 8.0,

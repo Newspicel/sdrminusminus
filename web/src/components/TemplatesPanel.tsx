@@ -5,6 +5,7 @@ import { pushToast } from "../lib/toasts";
 import type { DeviceSet, TemplateInfo } from "../lib/types";
 import { Button } from "./BaseControls";
 import { BTN } from "./controls";
+import { formatHz, formatSampleRate } from "./format";
 import { supports } from "./templates";
 
 export function TemplatesPanel({
@@ -54,8 +55,8 @@ export function TemplatesPanel({
               <div className="text-sm font-semibold text-ink">{t.name}</div>
               <div className="text-xs text-ink-dim">{t.description}</div>
               <div className="font-mono text-[10px] text-ink-dim">
-                {(t.center_hz / 1e6).toFixed(3)} MHz · {(t.sample_rate / 1e6).toFixed(3)} Msps ·{" "}
-                {t.channels.length} channel{t.channels.length === 1 ? "" : "s"}
+                {formatHz(t.center_hz)} · {formatSampleRate(t.sample_rate)} · {t.channels.length}{" "}
+                channel{t.channels.length === 1 ? "" : "s"}
               </div>
               <Button
                 type="button"

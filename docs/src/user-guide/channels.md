@@ -18,6 +18,12 @@ then connect the outputs you need:
 | `events` | Export | CSV or JSON of stored rows |
 | `video` | Video | ATV frames or an SSTV picture |
 
+## Change the decoder
+
+Right-click a channel node and choose **Replace with…** to swap its decoder for any other in the
+build. The node keeps its frequency and squelch; wires the new decoder has no port for are dropped.
+`m` and `M` cycle the analog modes on the selected channel.
+
 ## Channel catalog
 
 The **Decoders** palette lists modes available in the running build. Support and test coverage

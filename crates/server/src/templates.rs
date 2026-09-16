@@ -215,7 +215,7 @@ static TEMPLATES: &[Entry] = &[
         explainer: "Aircraft broadcast their identity, altitude, speed and position on \
                     1090 MHz. Reception is line-of-sight, so range depends on antenna height \
                     far more than on gain. ADS-B is handed the device's own samples, so the \
-                    radio has to run at 2 Msps or above.",
+                    radio has to run at 2 MS/s or above.",
         center_hz: 1_090_000_000.0,
         sample_rate: 2_000_000.0,
         channels: &[Channel::at(

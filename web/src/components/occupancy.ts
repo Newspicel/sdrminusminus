@@ -1,4 +1,5 @@
 import type { OccupancyBucket, OccupancyReport } from "../lib/types";
+import { formatHz } from "./format";
 
 export const HOURS = 24;
 
@@ -25,7 +26,7 @@ export function occupancyRows(
 }
 
 export function formatBucketHz(hz: number): string {
-  return `${(hz / 1e6).toFixed(4)} MHz`;
+  return formatHz(hz);
 }
 
 export function formatDuty(duty: number): string {
