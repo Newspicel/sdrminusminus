@@ -475,7 +475,7 @@ mod tests {
     }
 
     #[test]
-    fn layer_two_decoding_stays_ahead_of_real_time() {
+    fn layer_two_decoding_stays_ahead_of_realtime() {
         let mut decoder = Decoder::new().expect("decoder");
         let mut bytes = [0; FRAME_BYTES];
         bytes[..192].copy_from_slice(&MONO[..192]);

@@ -138,7 +138,7 @@ fn very_low_snr_superframes_use_ninety_symbol_pilots_and_short_frame_padding() {
 }
 
 #[test]
-fn independent_superframe_recording_delivers_expected_packets_in_real_time() {
+fn independent_superframe_recording_keeps_ahead_of_realtime() {
     let data = include_bytes!("../../../../../../fixtures/dvbs2x/superframe0.sigmf-data");
     let symbols: Vec<_> = data
         .as_chunks::<4>()
