@@ -1080,6 +1080,59 @@ test.describe("the workspace", () => {
     await page.request.delete(`/api/workspaces/${created.id}`);
   });
 
+  test("hands the frequency box its value selected so typing replaces it", async ({ page }) => {
+    await page.goto("/");
+    const list = await page.request.get("/api/workspaces").then((r) => r.json());
+    const created = await page.request
+      .post("/api/workspaces", {
+        data: {
+          name: "Typed frequency",
+          snapshot: {
+            version: 3,
+            graph: {
+              nodes: [
+                { id: "dev", kind: "device", position: { x: 0, y: 0 }, data: {} },
+                {
+                  id: "voice",
+                  kind: "channel",
+                  position: { x: 440, y: 0 },
+                  data: { channel_type: "nfm" },
+                },
+              ],
+              edges: [{ from: { node: "dev", port: "iq" }, to: { node: "voice", port: "iq" } }],
+            },
+          },
+        },
+      })
+      .then((r) => r.json());
+    await page.request.post(`/api/workspaces/${created.id}/activate`);
+    await page.goto("/");
+
+    const channel = page.locator('.react-flow__node[data-id="voice"]');
+    await expect(channel.getByRole("combobox", { name: /bandwidth/i })).toBeVisible();
+    await activate(channel);
+    await channel.getByRole("button", { name: "Type a frequency to listen on" }).click();
+
+    const entry = page.getByRole("textbox", { name: "Frequency to tune to" });
+    await expect(entry).toBeFocused();
+    const held = await entry.inputValue();
+    expect(held).not.toBe("");
+    await expect
+      .poll(async () =>
+        entry.evaluate((field) => [
+          (field as HTMLInputElement).selectionStart,
+          (field as HTMLInputElement).selectionEnd,
+        ]),
+      )
+      .toEqual([0, held.length]);
+
+    await page.keyboard.type("99.5");
+    await expect(entry).toHaveValue("99.5");
+
+    await page.request.post(`/api/workspaces/${list.active}/activate`);
+    await page.request.delete(`/api/workspaces/${created.id}`);
+  });
+
   test("names a radio that is not connected once, not again on the next edit", async ({ page }) => {
     await page.goto("/");
     const list = await page.request.get("/api/workspaces").then((r) => r.json());

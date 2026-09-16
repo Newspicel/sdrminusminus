@@ -79,6 +79,7 @@ function TuneForm({
           aria-label="Frequency to tune to"
           aria-invalid={target === null}
           onChange={(event) => setText(event.target.value)}
+          onFocus={(event) => event.currentTarget.select()}
         />
         <Button type="submit" className={BTN_PRIMARY} disabled={target === null}>
           Set
