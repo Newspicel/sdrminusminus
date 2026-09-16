@@ -1,4 +1,4 @@
-import type { Capabilities, GainStage, Range } from "../lib/types";
+import type { Capabilities, DeviceSettings, GainStage, Range } from "../lib/types";
 
 export function isSwitch(stage: GainStage): boolean {
   const values = stage.values ?? [];
@@ -83,4 +83,19 @@ export function clampLoOffsetHz(hz: number, sampleRate: number | undefined): num
  */
 export function operatorPlacesDcArtifact(caps: Pick<Capabilities, "dc_artifact">): boolean {
   return (caps.dc_artifact ?? "operator") === "operator";
+}
+
+export const AGC_SETTING = "gain_mode";
+
+/**
+ * Whether the radio is choosing its own gain. A stage written while it is only lasts until the
+ * next correction, so the controls read out what the radio picked rather than offering a value
+ * that will not survive.
+ */
+export function automaticGainIsOn(
+  caps: Pick<Capabilities, "extra">,
+  settings: Pick<DeviceSettings, "extra">,
+): boolean {
+  if (!(caps.extra ?? []).some((setting) => setting.name === AGC_SETTING)) return false;
+  return settings.extra?.find((value) => value.name === AGC_SETTING)?.value === true;
 }

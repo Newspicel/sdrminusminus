@@ -411,6 +411,28 @@ fn writes_a_gain_stage(delta: &DeviceSettings) -> bool {
     !delta.gains.is_empty() || delta.streams.iter().any(|stream| !stream.gains.is_empty())
 }
 
+/// Whether a gain the operator asked for would land on a radio that is already choosing its own.
+/// A patch that sets the mode itself is left alone: that is the caller saying which of the two
+/// wins, and [`automatic_gain_to_reassert`] puts the mode back afterwards.
+pub(crate) fn gain_needs_manual_mode(
+    delta: &DeviceSettings,
+    writes: &[(String, String)],
+    automatic: bool,
+) -> bool {
+    automatic
+        && writes_a_gain_stage(delta)
+        && !writes
+            .iter()
+            .any(|(name, _)| name == crate::GAIN_MODE_SETTING)
+}
+
+/// The settings a radio can only take with its stream torn down. A bladeRF resets the sample
+/// counter the sync worker is reading against inside its own `setSampleRate`, and reshaping the
+/// analog filter walks the same converter; both leave the capture thread reading into nothing.
+pub(crate) const fn reshapes_the_stream(delta: &DeviceSettings) -> bool {
+    delta.sample_rate.is_some() || delta.bandwidth.is_some()
+}
+
 pub(crate) fn read_back_confirms(written: &str, echoed: &str) -> bool {
     if echoed.is_empty() {
         return false;
@@ -519,6 +541,55 @@ mod tests {
         );
         assert_eq!(automatic_gain_to_reassert(&manual, &bare_gain), None);
         assert_eq!(automatic_gain_to_reassert(&[], &bare_gain), None);
+    }
+
+    #[test]
+    fn a_gain_asked_for_under_agc_is_refused_rather_than_swallowed() {
+        let bare_gain = DeviceSettings {
+            gains: vec![gain("full", 30.0)],
+            ..DeviceSettings::default()
+        };
+        assert!(gain_needs_manual_mode(&bare_gain, &[], true));
+        assert!(!gain_needs_manual_mode(&bare_gain, &[], false));
+        assert!(
+            !gain_needs_manual_mode(&DeviceSettings::default(), &[], true),
+            "a delta with no gain in it has nothing to refuse"
+        );
+    }
+
+    #[test]
+    fn a_delta_that_sets_the_mode_itself_decides_which_of_the_two_wins() {
+        let streamed = DeviceSettings {
+            streams: vec![sdrmm_wire::StreamSettings {
+                stream: 1,
+                gains: vec![gain("full", 30.0)],
+                ..sdrmm_wire::StreamSettings::default()
+            }],
+            ..DeviceSettings::default()
+        };
+        let writes = vec![(crate::GAIN_MODE_SETTING.to_string(), "false".to_string())];
+        assert!(gain_needs_manual_mode(&streamed, &[], true));
+        assert!(!gain_needs_manual_mode(&streamed, &writes, true));
+    }
+
+    #[test]
+    fn only_rate_and_filter_need_the_stream_torn_down() {
+        assert!(reshapes_the_stream(&DeviceSettings {
+            sample_rate: Some(8e6),
+            ..DeviceSettings::default()
+        }));
+        assert!(reshapes_the_stream(&DeviceSettings {
+            bandwidth: Some(5e6),
+            ..DeviceSettings::default()
+        }));
+        assert!(
+            !reshapes_the_stream(&DeviceSettings {
+                center_hz: Some(100e6),
+                gains: vec![gain("full", 30.0)],
+                ..DeviceSettings::default()
+            }),
+            "retuning and gain stay live or scanning would stutter on every step"
+        );
     }
 
     #[test]

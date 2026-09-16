@@ -5,6 +5,7 @@ import { forStream, useDevicePatch } from "../lib/useDevicePatch";
 import { Input } from "./BaseControls";
 import { Checkbox } from "./Checkbox";
 import {
+  automaticGainIsOn,
   clampLoOffsetHz,
   isSwitch,
   loOffsetLimitHz,
@@ -29,6 +30,8 @@ import { useDebouncedCommit } from "./useDebouncedCommit";
 const formatMsps = (hz: number): string => `${(hz / 1e6).toFixed(3)} MS/s`;
 
 const formatFilter = (hz: number): string => (hz === 0 ? "Auto (match rate)" : formatHz(hz));
+
+const AGC_HINT = "The radio is setting this — turn gain mode off to set it by hand";
 
 export function RadioSettings({
   active,
@@ -55,6 +58,7 @@ export function RadioSettings({
   const scope = caps.per_stream;
   const streamedAntenna = scope?.antenna === true && caps.antennas.length > 1;
   const streamedGain = scope?.gain === true && caps.gains.length > 0;
+  const automaticGain = automaticGainIsOn(caps, settings);
   const streams =
     streamedAntenna || streamedGain
       ? Array.from({ length: rxStreamCount(caps) }, (_, index) => index)
@@ -153,6 +157,7 @@ export function RadioSettings({
           <GainControl
             key={stage.name}
             stage={stage}
+            disabled={automaticGain}
             value={settings.gains?.find((g) => g.stage === stage.name)?.value_db ?? stage.range.min}
             onCommit={(db) =>
               applyPatch(active.id, { gains: [{ stage: stage.name, value_db: db }] })
@@ -181,6 +186,7 @@ export function RadioSettings({
                   key={stage.name}
                   stage={stage}
                   port={port}
+                  disabled={automaticGain}
                   value={
                     lane.gains?.find((g) => g.stage === stage.name)?.value_db ?? stage.range.min
                   }
@@ -255,22 +261,26 @@ function GainControl({
   value,
   onCommit,
   port,
+  disabled,
 }: {
   stage: GainStage;
   value: number;
   onCommit: (db: number) => void;
   port?: string;
+  disabled?: boolean;
 }) {
   const { pending, change } = useDebouncedCommit(onCommit);
   const shown = pending ?? value;
   const label = `${port === undefined ? "" : `${port} `}${stage.name} gain (dB)`;
+  const title = disabled ? AGC_HINT : stage.name;
 
   if (isSwitch(stage)) {
     return (
-      <SettingRow label={settingLabel(stage.name)} title={stage.name}>
+      <SettingRow label={settingLabel(stage.name)} title={title}>
         <Checkbox
           label={label}
           checked={shown > stage.range.min}
+          disabled={disabled}
           onChange={(on) => onCommit(on ? stage.range.max : stage.range.min)}
         />
         <span className="w-14 shrink-0 text-right font-mono text-xs text-ink">
@@ -283,7 +293,7 @@ function GainControl({
 
   const settings = stage.values?.length ? stageSettings(stage) : [];
   return (
-    <SettingRow label={settingLabel(stage.name)} title={stage.name}>
+    <SettingRow label={settingLabel(stage.name)} title={title}>
       {settings.length > 0 ? (
         <Slider
           label={label}
@@ -292,6 +302,7 @@ function GainControl({
           max={settings.length - 1}
           step={1}
           value={settingIndex(settings, shown)}
+          disabled={disabled}
           onChange={(index) => change(settings[index] ?? shown)}
         />
       ) : (
@@ -302,6 +313,7 @@ function GainControl({
           max={stage.range.max}
           step={stage.range.step ?? 0.1}
           value={shown}
+          disabled={disabled}
           onChange={(db) => change(snapToStage(stage, db))}
         />
       )}

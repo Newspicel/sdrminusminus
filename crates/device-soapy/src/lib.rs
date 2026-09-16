@@ -1,10 +1,7 @@
 use std::{
     collections::BTreeMap,
-    sync::{
-        Arc, Mutex, PoisonError,
-        atomic::{AtomicBool, Ordering},
-    },
-    time::{Duration, Instant},
+    sync::{Arc, Mutex, PoisonError},
+    time::Duration,
 };
 
 use sdrmm_device::{
@@ -17,19 +14,17 @@ use sdrmm_wire::{
 use soapy::{Direction, ErrorCode};
 
 mod caps;
+mod capture;
 mod probe;
 mod runtime;
 mod soapy;
 mod watchdog;
 
+use capture::{Quiesce, RxPlan};
 pub use probe::enable_isolated_probes;
 pub use runtime::{RuntimeInfo, runtime_info};
-use watchdog::{Watch, Watchdog};
 
 const DRIVER_ID: &str = "soapy";
-const READ_TIMEOUT_US: i64 = 100_000;
-const MIN_BLOCK: usize = 8192;
-const OVERFLOW_LOG_EVERY: u64 = 1000;
 const GAIN_MODE_SETTING: &str = "gain_mode";
 
 static ENUMERATE_LOCK: Mutex<()> = Mutex::new(());
@@ -453,30 +448,7 @@ pub struct SoapyDevice {
     identity: ProbeIdentity,
     worker: Worker,
     duplex: Arc<Mutex<DuplexState>>,
-}
-
-enum RxStreams {
-    Combined(soapy::RxStream<Sample>),
-    Split(Vec<soapy::RxStream<Sample>>),
-}
-
-impl RxStreams {
-    fn activate(&mut self) -> Result<(), soapy::Error> {
-        match self {
-            Self::Combined(stream) => stream.activate(None),
-            Self::Split(streams) => {
-                for index in 0..streams.len() {
-                    if let Err(error) = streams[index].activate(None) {
-                        for active in &mut streams[..index] {
-                            let _ = active.deactivate(None);
-                        }
-                        return Err(error);
-                    }
-                }
-                Ok(())
-            }
-        }
-    }
+    quiesce: Arc<Quiesce>,
 }
 
 impl SoapyDevice {
@@ -491,6 +463,7 @@ impl SoapyDevice {
             identity,
             worker: Worker::new(),
             duplex,
+            quiesce: Arc::new(Quiesce::default()),
         })
     }
 
@@ -598,6 +571,17 @@ impl SoapyDevice {
         self.settings = read_settings(&self.device, &self.capabilities);
     }
 
+    /// A stage written under AGC is refused by some drivers and overwritten by the next
+    /// correction on the rest, so the value that lands is never the one that was asked for.
+    fn automatic_gain_is_on(&self) -> bool {
+        self.capabilities
+            .directional
+            .as_ref()
+            .and_then(|directional| directional.rx.first())
+            .is_some_and(|channel| channel.gain_mode)
+            && self.device.gain_mode(Direction::Rx, 0).unwrap_or(false)
+    }
+
     fn apply_rx_settings(&self, delta: &DeviceSettings) -> Result<(), DeviceError> {
         let Some(directional) = &self.capabilities.directional else {
             return Ok(());
@@ -660,6 +644,9 @@ impl SdrDevice for SoapyDevice {
                 ))
             })
             .collect::<Result<_, DeviceError>>()?;
+        let _paused = caps::reshapes_the_stream(delta)
+            .then(|| self.quiesce.pause(self.worker.is_running()))
+            .flatten();
         let previous_capabilities = self.capabilities.clone();
         let originals = self.write_extras(&writes)?;
         if !writes.is_empty() {
@@ -674,6 +661,14 @@ impl SdrDevice for SoapyDevice {
         if let Err(error) = caps::validate(delta, &self.capabilities) {
             self.rollback_extras(&originals, previous_capabilities);
             return Err(error);
+        }
+        if caps::gain_needs_manual_mode(delta, &writes, self.automatic_gain_is_on()) {
+            self.rollback_extras(&originals, previous_capabilities);
+            return Err(DeviceError::Unsupported(
+                "gain: this radio sets its own while automatic gain control is on — turn \
+                 gain_mode off to set it by hand"
+                    .to_string(),
+            ));
         }
         if let Err(error) = self.apply_rx_settings(delta) {
             self.rollback_extras(&originals, previous_capabilities);
@@ -702,42 +697,19 @@ impl SdrDevice for SoapyDevice {
             )));
         }
         lock(&self.duplex).claim(WireDirection::Rx)?;
-        let mut streams = match self.device.rx_stream::<Sample>(&channels) {
-            Ok(stream) => RxStreams::Combined(stream),
-            Err(combined) if channels.len() > 1 => {
-                match channels
-                    .iter()
-                    .map(|channel| self.device.rx_stream::<Sample>(&[*channel]))
-                    .collect::<Result<Vec<_>, _>>()
-                {
-                    Ok(streams) => RxStreams::Split(streams),
-                    Err(split) => {
-                        lock(&self.duplex).release(WireDirection::Rx);
-                        return Err(DeviceError::Io(format!(
-                            "soapy multi-channel stream setup failed: combined: {combined}; \
-                             split: {split}"
-                        )));
-                    }
-                }
-            }
+        let plan = RxPlan::new(self.device.clone(), channels);
+        let armed = match plan.arm() {
+            Ok(armed) => armed,
             Err(error) => {
                 lock(&self.duplex).release(WireDirection::Rx);
-                return Err(map_err(error));
+                return Err(error);
             }
         };
-        if let Err(error) = streams.activate() {
-            lock(&self.duplex).release(WireDirection::Rx);
-            return Err(map_err(error));
-        }
         let identity = self.identity.clone();
         let duplex = self.duplex.clone();
+        let quiesce = self.quiesce.clone();
         if let Err(error) = self.worker.start("sdrmm-soapy-rx", move |running| {
-            match streams {
-                RxStreams::Combined(stream) => capture_loop(stream, &identity, running, sinks),
-                RxStreams::Split(streams) => {
-                    capture_split_loop(streams, &identity, running, sinks);
-                }
-            }
+            capture::run(&plan, armed, &identity, &quiesce, running, sinks);
             lock(&duplex).release(WireDirection::Rx);
         }) {
             lock(&self.duplex).release(WireDirection::Rx);
@@ -789,176 +761,6 @@ impl SdrDevice for SoapyDevice {
             native.len(),
             self.duplex.clone(),
         )))
-    }
-}
-
-fn capture_loop(
-    mut stream: soapy::RxStream<Sample>,
-    identity: &ProbeIdentity,
-    running: &AtomicBool,
-    mut sinks: Vec<RxSink>,
-) {
-    let block = stream.mtu().unwrap_or(MIN_BLOCK).max(MIN_BLOCK);
-    let mut buffers = vec![vec![Sample::new(0.0, 0.0); block]; sinks.len()];
-    let mut watchdog = Watchdog::new(Instant::now());
-    let mut overflows = 0u64;
-    while running.load(Ordering::Acquire) {
-        let result = {
-            let mut slices: Vec<&mut [Sample]> =
-                buffers.iter_mut().map(Vec::as_mut_slice).collect();
-            stream.read(&mut slices, READ_TIMEOUT_US)
-        };
-        match result {
-            Ok(count) => {
-                watchdog.delivered(Instant::now());
-                if count > 0 {
-                    for (sink, buffer) in sinks.iter_mut().zip(&buffers) {
-                        sink.push(&buffer[..count]);
-                    }
-                }
-            }
-            Err(error) if error.code == ErrorCode::Timeout => {
-                match watchdog.timed_out(Instant::now()) {
-                    Watch::Wait => continue,
-                    Watch::Silent => {
-                        fail_all(&mut sinks, &silent_stream(watchdog.silence()));
-                        break;
-                    }
-                    Watch::Probe => {}
-                }
-                match identity.is_present() {
-                    Ok(true) => watchdog.present(),
-                    Ok(false) => {
-                        fail_all_gone(&mut sinks, "it no longer enumerates");
-                        break;
-                    }
-                    Err(probe) => {
-                        if watchdog.probe_failed() {
-                            fail_all(
-                                &mut sinks,
-                                &format!("device lost: enumerate failed: {probe}"),
-                            );
-                            break;
-                        }
-                    }
-                }
-            }
-            Err(error) if error.code == ErrorCode::Overflow => {
-                overflows += 1;
-                if overflows == 1 || overflows.is_multiple_of(OVERFLOW_LOG_EVERY) {
-                    tracing::warn!(overflows, "soapy rx overflow");
-                }
-            }
-            Err(error) => {
-                fail_all(&mut sinks, &format!("stream read failed: {error}"));
-                break;
-            }
-        }
-    }
-    if let Err(error) = stream.deactivate(None) {
-        tracing::debug!("soapy stream deactivate failed: {error}");
-    }
-}
-
-fn capture_split_loop(
-    mut streams: Vec<soapy::RxStream<Sample>>,
-    identity: &ProbeIdentity,
-    running: &AtomicBool,
-    mut sinks: Vec<RxSink>,
-) {
-    let mut buffers: Vec<Vec<Sample>> = streams
-        .iter()
-        .map(|stream| vec![Sample::new(0.0, 0.0); stream.mtu().unwrap_or(MIN_BLOCK).max(MIN_BLOCK)])
-        .collect();
-    let mut watchdogs: Vec<Watchdog> = (0..streams.len())
-        .map(|_| Watchdog::new(Instant::now()))
-        .collect();
-    let mut overflows = vec![0u64; streams.len()];
-    'capture: while running.load(Ordering::Acquire) {
-        for channel in 0..streams.len() {
-            let result = streams[channel].read(&mut [&mut buffers[channel]], READ_TIMEOUT_US);
-            match result {
-                Ok(count) => {
-                    watchdogs[channel].delivered(Instant::now());
-                    if count > 0 {
-                        sinks[channel].push(&buffers[channel][..count]);
-                    }
-                }
-                Err(error) if error.code == ErrorCode::Timeout => {
-                    match watchdogs[channel].timed_out(Instant::now()) {
-                        Watch::Wait => continue,
-                        Watch::Silent => {
-                            let silence = watchdogs[channel].silence();
-                            fail_all(
-                                &mut sinks,
-                                &format!("stream {channel}: {}", silent_stream(silence)),
-                            );
-                            break 'capture;
-                        }
-                        Watch::Probe => {}
-                    }
-                    match identity.is_present() {
-                        Ok(true) => watchdogs[channel].present(),
-                        Ok(false) => {
-                            fail_all_gone(&mut sinks, "it no longer enumerates");
-                            break 'capture;
-                        }
-                        Err(probe) => {
-                            if watchdogs[channel].probe_failed() {
-                                fail_all(
-                                    &mut sinks,
-                                    &format!("device lost: enumerate failed: {probe}"),
-                                );
-                                break 'capture;
-                            }
-                        }
-                    }
-                }
-                Err(error) if error.code == ErrorCode::Overflow => {
-                    overflows[channel] += 1;
-                    if overflows[channel] == 1
-                        || overflows[channel].is_multiple_of(OVERFLOW_LOG_EVERY)
-                    {
-                        tracing::warn!(
-                            channel,
-                            overflows = overflows[channel],
-                            "soapy rx overflow"
-                        );
-                    }
-                }
-                Err(error) => {
-                    fail_all(
-                        &mut sinks,
-                        &format!("stream {channel} read failed: {error}"),
-                    );
-                    break 'capture;
-                }
-            }
-        }
-    }
-    for (channel, stream) in streams.iter_mut().enumerate() {
-        if let Err(error) = stream.deactivate(None) {
-            tracing::debug!(channel, "soapy stream deactivate failed: {error}");
-        }
-    }
-}
-
-fn silent_stream(silence: Duration) -> String {
-    format!(
-        "the radio stopped sending samples for {silence:?} but is still plugged in — another \
-         program may have taken it over, or it needs to be re-plugged"
-    )
-}
-
-fn fail_all(sinks: &mut [RxSink], message: &str) {
-    for sink in sinks {
-        sink.fail(DeviceError::Io(message.to_string()));
-    }
-}
-
-fn fail_all_gone(sinks: &mut [RxSink], reason: &str) {
-    for sink in sinks {
-        sink.fail(DeviceError::Disconnected(reason.to_string()));
     }
 }
 
@@ -1103,7 +905,10 @@ impl Drop for SoapyTx {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::VecDeque;
+    use std::{
+        collections::VecDeque,
+        sync::atomic::{AtomicBool, Ordering},
+    };
 
     use sdrmm_wire::Duplex;
 

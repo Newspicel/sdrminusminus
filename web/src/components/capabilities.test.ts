@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { GainStage } from "../lib/types";
 import {
+  AGC_SETTING,
+  automaticGainIsOn,
   clampLoOffsetHz,
   isSwitch,
   loOffsetLimitHz,
@@ -176,5 +178,21 @@ describe("operatorPlacesDcArtifact", () => {
 
   it("drops them for a source with no front end at all", () => {
     expect(operatorPlacesDcArtifact({ dc_artifact: "none" })).toBe(false);
+  });
+});
+
+describe("automaticGainIsOn", () => {
+  const caps = { extra: [{ kind: "bool" as const, name: AGC_SETTING, default: true }] };
+
+  it("reads the mode the radio reports", () => {
+    expect(automaticGainIsOn(caps, { extra: [{ name: AGC_SETTING, value: true }] })).toBe(true);
+    expect(automaticGainIsOn(caps, { extra: [{ name: AGC_SETTING, value: false }] })).toBe(false);
+  });
+
+  it("leaves a radio with no such control alone", () => {
+    expect(automaticGainIsOn({ extra: [] }, { extra: [{ name: AGC_SETTING, value: true }] })).toBe(
+      false,
+    );
+    expect(automaticGainIsOn(caps, {})).toBe(false);
   });
 });
