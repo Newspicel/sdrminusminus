@@ -229,6 +229,7 @@ describe("networkDeviceId", () => {
   it("strips a scheme someone pasted, but never an IPv6 literal's colons", () => {
     expect(networkDeviceId("rtltcp", "rtl_tcp://10.0.0.5:1234")).toBe("rtltcp:10.0.0.5:1234");
     expect(networkDeviceId("spyserver", "sdr://spy.local:5555")).toBe("spyserver:spy.local:5555");
+    expect(networkDeviceId("sdrconnect", "ws://rsp.local:5454")).toBe("sdrconnect:rsp.local:5454");
     expect(networkDeviceId("rtltcp", "::1")).toBe("rtltcp:::1");
   });
 
@@ -250,10 +251,16 @@ describe("networkDeviceId", () => {
 
 describe("NETWORK_BACKENDS", () => {
   it("names each protocol and shows its default port", () => {
-    expect(NETWORK_BACKENDS.map((b) => b.driver)).toEqual(["rtltcp", "spyserver", "ad936x"]);
+    expect(NETWORK_BACKENDS.map((b) => b.driver)).toEqual([
+      "rtltcp",
+      "spyserver",
+      "sdrconnect",
+      "ad936x",
+    ]);
     expect(NETWORK_BACKENDS.map((b) => b.placeholder.split(":").pop())).toEqual([
       "1234",
       "5555",
+      "5454",
       "30431",
     ]);
   });

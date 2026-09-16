@@ -27,6 +27,7 @@ Radio / network / recording → DSP engine → audio, events, spectrum, IQ
 | `sdrmm-device-sdrplay` | SDRplay RSP receivers through the vendor API, loaded at runtime |
 | `sdrmm-device-rtltcp` | Direct `rtl_tcp` client |
 | `sdrmm-device-spyserver` | Direct SpyServer client |
+| `sdrmm-device-sdrconnect` | SDRplay SDRconnect over its WebSocket API |
 | `sdrmm-device-cr8` | Dragon Labs CR-8 through the vendor SDK, loaded at runtime |
 | `sdrmm-device-array` | Already-open streams composed as logical lanes; no hardware opens |
 | `sdrmm-channels` | Analog demodulators, protocol decoders, and their descriptors |
