@@ -29,6 +29,8 @@ struct Behaviour {
     fragment: bool,
     answer_nothing: bool,
     both_tuners: bool,
+    push_readouts: bool,
+    unsolicited_audio: bool,
 }
 
 impl Default for Behaviour {
@@ -39,6 +41,8 @@ impl Default for Behaviour {
             fragment: false,
             answer_nothing: false,
             both_tuners: false,
+            push_readouts: false,
+            unsolicited_audio: false,
         }
     }
 }
@@ -62,6 +66,34 @@ fn properties(behaviour: Behaviour) -> BTreeMap<String, String> {
         ("active_antenna", "Antenna A"),
         ("valid_devices", "RSP1B 1234,RSPduo 5678"),
         ("active_device", "RSP1B 1234"),
+        ("filter_bandwidth", "12500"),
+        ("demod_max_bandwidth", "200000"),
+        ("demodulator", "NFM"),
+        ("am_lowcut_frequency", "100"),
+        ("ssb_lowcut_frequency", "100"),
+        ("nfm_lowcut_frequency", "100"),
+        ("nfm_deemphasis_enable", "true"),
+        ("wfm_stereo_enable", "true"),
+        ("wfm_stereo", "false"),
+        ("rds_enable", "true"),
+        ("rds_ps", "BBC R4"),
+        ("rds_pi", "49129"),
+        ("rds_pty", "3"),
+        ("rds_radiotext", "Now playing"),
+        ("audio_volume_percent", "80"),
+        ("audio_mute", "false"),
+        ("audio_limiters", "true"),
+        ("audio_filter", "true"),
+        ("squelch_enable", "false"),
+        ("squelch_threshold", "-70"),
+        ("agc_enable", "true"),
+        ("agc_threshold", "-30"),
+        ("noise_reduction_enable", "false"),
+        ("noise_reduction_strength", "50"),
+        ("spectrum_ref_level", "-20"),
+        ("spectrum_base", "-120"),
+        ("signal_power", "-83.5"),
+        ("signal_snr", "18.25"),
     ]
     .into_iter()
     .map(|(name, value)| (name.to_string(), value.to_string()))
@@ -129,6 +161,11 @@ fn serve(peer: &WebSocketPeer, behaviour: Behaviour, nth: usize, observed: &Obse
             }
         }
         if streaming {
+            if behaviour.unsolicited_audio
+                && peer.send_binary(&iq_message(1, PRIMARY_SENT)).is_err()
+            {
+                return;
+            }
             let primary = iq_message(2, PRIMARY_SENT);
             let sent = if behaviour.fragment {
                 peer.send_fragmented(&primary, 30)
@@ -140,6 +177,21 @@ fn serve(peer: &WebSocketPeer, behaviour: Behaviour, nth: usize, observed: &Obse
             }
             if behaviour.both_tuners && peer.send_binary(&iq_message(5, SECONDARY_SENT)).is_err() {
                 return;
+            }
+            if behaviour.push_readouts {
+                for (property, value) in [
+                    ("signal_power", "-83.5"),
+                    ("signal_snr", "18.25"),
+                    ("rds_radiotext", "Now playing"),
+                    ("overload", "true"),
+                ] {
+                    if peer
+                        .send_text(&envelope("property_changed", property, value, "primary"))
+                        .is_err()
+                    {
+                        return;
+                    }
+                }
             }
             if behaviour.drop_capture
                 && nth == CAPTURING
@@ -507,4 +559,78 @@ fn stopping_asks_the_server_for_no_more_iq_and_leaves_the_receiver_as_it_found_i
         ),
         "a receiver SDR-- started is stopped again"
     );
+}
+
+#[test]
+fn the_controls_are_the_ones_that_shape_the_iq_and_no_others() {
+    let (server, _) = fake_sdrconnect(Behaviour::default());
+    let driver = SdrConnectDriver::new();
+    let device = open(&driver, &server.endpoint()).expect("opens");
+    assert_eq!(
+        device
+            .capabilities()
+            .extra
+            .iter()
+            .map(ExtraSetting::name)
+            .collect::<Vec<_>>(),
+        vec![
+            "lna_state",
+            "device_vfo_frequency",
+            "filter_bandwidth",
+            "receiver",
+            "network_mode",
+            "device_profile",
+            "recording"
+        ],
+        "this receiver answered for its whole audio chain, and none of that is a control"
+    );
+}
+
+#[test]
+fn audio_the_server_sends_anyway_is_switched_off_and_never_read_as_samples() {
+    let (server, observed) = fake_sdrconnect(Behaviour {
+        unsolicited_audio: true,
+        ..Behaviour::default()
+    });
+    let driver = SdrConnectDriver::new();
+    let mut device = open(&driver, &server.endpoint()).expect("opens");
+    let (sink, blocks) = blocking_sink();
+    device.rx_start(vec![sink]).expect("streams");
+
+    for _ in 0..4 {
+        let block = blocks.recv_timeout(DEADLINE).expect("samples arrive");
+        assert_eq!(block.len(), 128, "demodulated audio is not a block of IQ");
+        assert!(
+            (block[0].re - PRIMARY_EXPECTED).abs() < 1e-6,
+            "demodulated audio must never be read as IQ: {:?}",
+            block[0]
+        );
+    }
+    assert!(
+        saw(
+            &observed,
+            CAPTURING,
+            r#""audio_stream_enable","property":"","value":"false""#
+        ),
+        "the capture asked for the IQ and nothing else"
+    );
+    device.rx_stop();
+}
+
+#[test]
+fn what_the_receiver_reports_back_never_disturbs_the_samples() {
+    let (server, _) = fake_sdrconnect(Behaviour {
+        push_readouts: true,
+        ..Behaviour::default()
+    });
+    let driver = SdrConnectDriver::new();
+    let mut device = open(&driver, &server.endpoint()).expect("opens");
+    let (sink, blocks) = blocking_sink();
+    device.rx_start(vec![sink]).expect("streams");
+    for _ in 0..4 {
+        let block = blocks.recv_timeout(DEADLINE).expect("samples arrive");
+        assert_eq!(block.len(), 128, "a readout is not a block");
+        assert!((block[0].re - PRIMARY_EXPECTED).abs() < 1e-6);
+    }
+    device.rx_stop();
 }

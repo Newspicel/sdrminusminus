@@ -39,13 +39,30 @@ impl SampleConverter for IqConverter {
     fn reset(&mut self) {}
 }
 
+#[derive(Debug, Default)]
+struct Noted {
+    audio: AtomicBool,
+    spectrum: AtomicBool,
+    unknown: AtomicBool,
+}
+
+impl Noted {
+    fn first(&self, kind: PayloadKind) -> bool {
+        match kind {
+            PayloadKind::Audio => !self.audio.swap(true, Ordering::Relaxed),
+            PayloadKind::Spectrum => !self.spectrum.swap(true, Ordering::Relaxed),
+            PayloadKind::Iq => false,
+        }
+    }
+}
+
 #[derive(Debug)]
 pub(crate) struct SdrConnectStream {
     socket: Arc<WebSocket>,
     tuner: Tuner,
     overloaded: AtomicBool,
     running: AtomicBool,
-    warned: AtomicBool,
+    noted: Noted,
 }
 
 impl SdrConnectStream {
@@ -55,12 +72,31 @@ impl SdrConnectStream {
             tuner,
             overloaded: AtomicBool::new(false),
             running: AtomicBool::new(false),
-            warned: AtomicBool::new(false),
+            noted: Noted::default(),
         }
     }
 
-    /// Acts on the events that say something about the samples: an ADC the operator has to hear
-    /// about, and a receiver that stopped underneath a running capture.
+    /// Reports a stream the capture asked SDRconnect to switch off and is being sent anyway, so
+    /// the link quietly carrying what nothing here reads is visible rather than invisible.
+    fn spare(&self, kind: PayloadKind, bytes: usize) -> Next<Block> {
+        if self.noted.first(kind) {
+            tracing::warn!(
+                tuner = self.tuner.name(),
+                bytes,
+                "SDRconnect is sending {} for this tuner although the stream was switched off; \
+                 SDR-- demodulates from the IQ and is discarding it",
+                match kind {
+                    PayloadKind::Audio => "demodulated audio",
+                    PayloadKind::Spectrum => "spectrum bins",
+                    PayloadKind::Iq => "IQ",
+                }
+            );
+        }
+        Next::Idle
+    }
+
+    /// Acts on the events that say something about the samples, and puts the rest where an
+    /// operator can read them.
     fn observe(&self, text: &str) -> Next<Block> {
         let Ok(notification) = decode(text) else {
             return Next::Idle;
@@ -73,9 +109,13 @@ impl SdrConnectStream {
         {
             return Next::Idle;
         }
-        match notification.property {
-            Some(Property::Overload) => {
-                let overloaded = as_bool(&notification.value).unwrap_or(false);
+        let Some(property) = notification.property else {
+            return Next::Idle;
+        };
+        let value = notification.value.as_str();
+        match property {
+            Property::Overload => {
+                let overloaded = as_bool(value).unwrap_or(false);
                 if self.overloaded.swap(overloaded, Ordering::Relaxed) != overloaded {
                     if overloaded {
                         tracing::warn!(
@@ -88,8 +128,8 @@ impl SdrConnectStream {
                 }
                 Next::Idle
             }
-            Some(Property::Started) => {
-                let started = as_bool(&notification.value).unwrap_or(false);
+            Property::Started => {
+                let started = as_bool(value).unwrap_or(false);
                 if self.running.swap(started, Ordering::Relaxed) && !started {
                     self.socket
                         .fail("SDRconnect stopped the receiver".to_string());
@@ -97,7 +137,22 @@ impl SdrConnectStream {
                 }
                 Next::Idle
             }
-            _ => Next::Idle,
+            Property::RdsPs | Property::RdsPi | Property::RdsPty | Property::RdsRadiotext => {
+                tracing::info!(property = property.name(), value, "SDRconnect RDS");
+                Next::Idle
+            }
+            Property::SignalPower | Property::SignalSnr | Property::WfmStereo => {
+                tracing::trace!(property = property.name(), value, "SDRconnect measurement");
+                Next::Idle
+            }
+            property => {
+                tracing::debug!(
+                    property = property.name(),
+                    value,
+                    "SDRconnect property changed"
+                );
+                Next::Idle
+            }
         }
     }
 }
@@ -113,14 +168,13 @@ impl CaptureStream for SdrConnectStream {
     fn next_block(&self, timeout: Duration) -> Next<Block> {
         match self.socket.next(timeout) {
             Incoming::Binary(block) => match Payload::split(&block) {
-                Some((payload, _))
-                    if payload.kind == PayloadKind::Iq && payload.tuner == self.tuner =>
-                {
-                    Next::Block(block)
-                }
+                Some((payload, body)) if payload.tuner == self.tuner => match payload.kind {
+                    PayloadKind::Iq => Next::Block(block),
+                    kind => self.spare(kind, body.len()),
+                },
                 Some(_) => Next::Idle,
                 None => {
-                    if !self.warned.swap(true, Ordering::Relaxed) {
+                    if !self.noted.unknown.swap(true, Ordering::Relaxed) {
                         tracing::warn!(
                             "SDRconnect sent a binary payload type SDR-- does not know; skipping it"
                         );
@@ -183,6 +237,19 @@ mod tests {
             converter.convert(&block).as_ptr(),
             first,
             "the capture thread must not allocate per block"
+        );
+    }
+
+    #[test]
+    fn a_payload_kind_is_reported_once_and_not_on_every_message() {
+        let noted = Noted::default();
+        assert!(noted.first(PayloadKind::Audio));
+        assert!(!noted.first(PayloadKind::Audio));
+        assert!(noted.first(PayloadKind::Spectrum));
+        assert!(!noted.first(PayloadKind::Spectrum));
+        assert!(
+            !noted.first(PayloadKind::Iq),
+            "the samples this backend is here for are never a surprise"
         );
     }
 }

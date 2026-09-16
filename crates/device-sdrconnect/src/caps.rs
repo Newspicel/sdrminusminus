@@ -9,7 +9,6 @@ use crate::{
     session::Snapshot,
 };
 
-pub(crate) const LNA_STATE: &str = "lna_state";
 pub(crate) const RECEIVER: &str = "receiver";
 pub(crate) const NETWORK_MODE: &str = "network_mode";
 pub(crate) const PROFILE: &str = "device_profile";
@@ -45,6 +44,44 @@ fn window(min: f64, max: f64) -> Vec<Range> {
     }]
 }
 
+fn choice(name: &str, off: &str, rest: impl Iterator<Item = &'static str>) -> ExtraSetting {
+    ExtraSetting::Enum {
+        name: name.to_string(),
+        options: std::iter::once(ArgumentOption::plain(off))
+            .chain(rest.map(ArgumentOption::plain))
+            .collect(),
+        default: off.to_string(),
+    }
+}
+
+fn lna_range(snapshot: &Snapshot) -> Option<(f64, f64)> {
+    let min = snapshot.count(Property::LnaStateMin).unwrap_or(0);
+    let max = snapshot.count(Property::LnaStateMax)?;
+    (max > min).then_some((min as f64, max as f64))
+}
+
+fn hz(name: &str, min: f64, max: f64) -> ExtraSetting {
+    ExtraSetting::Range {
+        name: name.to_string(),
+        range: Range {
+            min,
+            max,
+            step: Some(1.0),
+        },
+        unit: "Hz".to_string(),
+    }
+}
+
+/// A setting the receiver answered for, or nothing when this build of SDRconnect has no such
+/// thing to offer.
+fn answered(
+    snapshot: &Snapshot,
+    property: Property,
+    setting: ExtraSetting,
+) -> Option<ExtraSetting> {
+    snapshot.text(property).map(|_| setting)
+}
+
 pub(crate) fn capabilities(snapshot: &Snapshot) -> Capabilities {
     let steerable = snapshot.boolean(Property::CanControl).unwrap_or(true);
     let receivers = snapshot.list(Property::ValidDevices);
@@ -52,7 +89,7 @@ pub(crate) fn capabilities(snapshot: &Snapshot) -> Capabilities {
     let mut extra = Vec::new();
     if steerable && let Some((min, max)) = lna_range(snapshot) {
         extra.push(ExtraSetting::Range {
-            name: LNA_STATE.to_string(),
+            name: Property::LnaState.name().to_string(),
             range: Range {
                 min,
                 max,
@@ -60,6 +97,25 @@ pub(crate) fn capabilities(snapshot: &Snapshot) -> Capabilities {
             },
             unit: "state".to_string(),
         });
+    }
+    extra.extend(answered(
+        snapshot,
+        Property::DeviceVfoFrequency,
+        hz(
+            Property::DeviceVfoFrequency.name(),
+            MIN_FREQUENCY_HZ,
+            MAX_FREQUENCY_HZ,
+        ),
+    ));
+    if let Some(widest) = snapshot
+        .number(Property::DemodMaxBandwidth)
+        .filter(|w| *w > 0.0)
+    {
+        extra.extend(answered(
+            snapshot,
+            Property::FilterBandwidth,
+            hz(Property::FilterBandwidth.name(), 0.0, widest),
+        ));
     }
     if !receivers.is_empty() {
         let active = snapshot
@@ -75,33 +131,21 @@ pub(crate) fn capabilities(snapshot: &Snapshot) -> Capabilities {
                 .collect(),
             default: active,
         });
-        extra.push(ExtraSetting::Enum {
-            name: NETWORK_MODE.to_string(),
-            options: std::iter::once(ArgumentOption::plain(AUTOMATIC))
-                .chain(
-                    NetworkMode::ALL
-                        .into_iter()
-                        .map(|mode| ArgumentOption::plain(mode.name())),
-                )
-                .collect(),
-            default: AUTOMATIC.to_string(),
-        });
+        extra.push(choice(
+            NETWORK_MODE,
+            AUTOMATIC,
+            NetworkMode::ALL.into_iter().map(NetworkMode::name),
+        ));
     }
     extra.push(ExtraSetting::String {
         name: PROFILE.to_string(),
         default: String::new(),
     });
-    extra.push(ExtraSetting::Enum {
-        name: RECORDING.to_string(),
-        options: std::iter::once(ArgumentOption::plain(OFF))
-            .chain(
-                Recording::ALL
-                    .into_iter()
-                    .map(|kind| ArgumentOption::plain(kind.name())),
-            )
-            .collect(),
-        default: OFF.to_string(),
-    });
+    extra.push(choice(
+        RECORDING,
+        OFF,
+        Recording::ALL.into_iter().map(Recording::name),
+    ));
 
     Capabilities {
         freq_ranges: if steerable {
@@ -133,10 +177,50 @@ pub(crate) fn capabilities(snapshot: &Snapshot) -> Capabilities {
     }
 }
 
-fn lna_range(snapshot: &Snapshot) -> Option<(f64, f64)> {
-    let min = snapshot.count(Property::LnaStateMin).unwrap_or(0);
-    let max = snapshot.count(Property::LnaStateMax)?;
-    (max > min).then_some((min as f64, max as f64))
+/// Which of the three ways the API offers was used to name the radio on the host.
+#[derive(Clone, Debug, PartialEq)]
+enum Selection {
+    Name(String),
+    Index(u32),
+    Serial(String),
+}
+
+impl Selection {
+    /// A slot in the list the receiver published is an index; a serial number that happens to be
+    /// all digits is longer than that list and stays a serial.
+    fn of(value: &str, offered: &[ArgumentOption]) -> Self {
+        let slot = value
+            .trim()
+            .parse::<u32>()
+            .ok()
+            .filter(|index| (*index as usize) < offered.len());
+        match (offered.iter().any(|option| option.value == value), slot) {
+            (true, _) => Self::Name(value.to_string()),
+            (false, Some(index)) => Self::Index(index),
+            (false, None) => Self::Serial(value.to_string()),
+        }
+    }
+
+    fn label(&self) -> String {
+        match self {
+            Self::Name(name) | Self::Serial(name) => name.clone(),
+            Self::Index(index) => index.to_string(),
+        }
+    }
+
+    /// An index names a slot rather than a radio, so the network mode rides only on the two
+    /// forms the specification attaches it to.
+    fn command(&self, mode: Option<NetworkMode>) -> Command {
+        let with_mode = |name: &str| match mode {
+            Some(mode) => format!("{name}:{}", mode.name()),
+            None => name.to_string(),
+        };
+        match self {
+            Self::Name(name) => Command::Emit(Event::SelectedDeviceName, with_mode(name)),
+            Self::Serial(serial) => Command::Emit(Event::SelectedDeviceSerial, with_mode(serial)),
+            Self::Index(index) => Command::Emit(Event::SelectedDevice, index.to_string()),
+        }
+    }
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -144,8 +228,10 @@ pub(crate) struct Remote {
     center_hz: Option<u64>,
     sample_rate: Option<f64>,
     lna_state: Option<u64>,
+    vfo_hz: Option<u64>,
+    filter_hz: Option<u64>,
     antenna: Option<String>,
-    receiver: Option<String>,
+    receiver: Option<Selection>,
     network_mode: Option<NetworkMode>,
     profile: Option<String>,
     recording: Option<Recording>,
@@ -160,12 +246,14 @@ impl Remote {
             center_hz: snapshot.count(Property::DeviceCenterFrequency),
             sample_rate: snapshot.number(Property::DeviceSampleRate),
             lna_state: snapshot.count(Property::LnaState),
+            vfo_hz: snapshot.count(Property::DeviceVfoFrequency),
+            filter_hz: snapshot.count(Property::FilterBandwidth),
             antenna: snapshot
                 .text(Property::ActiveAntenna)
                 .map(ToString::to_string),
             receiver: snapshot
                 .text(Property::ActiveDevice)
-                .map(ToString::to_string),
+                .map(|name| Selection::Name(name.to_string())),
             network_mode: None,
             profile: None,
             recording: None,
@@ -173,19 +261,11 @@ impl Remote {
         }
     }
 
-    fn selection(&self) -> Option<String> {
-        let receiver = self.receiver.clone()?;
-        Some(match self.network_mode {
-            Some(mode) => format!("{receiver}:{}", mode.name()),
-            None => receiver,
-        })
-    }
-
     /// Everything the server has to be told again on a connection that replaced a lost one.
     pub(crate) fn replay(&self) -> Vec<Command> {
         let mut batch = Vec::new();
-        if let Some(selection) = self.selection() {
-            batch.push(Command::Emit(Event::SelectedDeviceName, selection));
+        if let Some(receiver) = &self.receiver {
+            batch.push(receiver.command(self.network_mode));
         }
         if let Some(profile) = &self.profile {
             batch.push(Command::Emit(Event::ApplyDeviceProfile, profile.clone()));
@@ -202,13 +282,19 @@ impl Remote {
         if let Some(state) = self.lna_state {
             batch.push(Command::Set(Property::LnaState, state.to_string()));
         }
+        if let Some(hz) = self.vfo_hz {
+            batch.push(Command::Set(Property::DeviceVfoFrequency, hz.to_string()));
+        }
+        if let Some(hz) = self.filter_hz {
+            batch.push(Command::Set(Property::FilterBandwidth, hz.to_string()));
+        }
         if let Some(antenna) = &self.antenna {
             batch.push(Command::Set(Property::ActiveAntenna, antenna.clone()));
         }
         batch
     }
 
-    /// Turns the IQ on, and nothing else the link would otherwise carry.
+    /// Turns the IQ on, and switches off the streams SDR-- has nowhere to put.
     pub(crate) fn start(&self) -> Vec<Command> {
         let mut batch = self.replay();
         batch.push(Command::Emit(Event::AudioStreamEnable, flag(false)));
@@ -237,36 +323,38 @@ impl Remote {
 
     pub(crate) fn wire(&self, caps: &Capabilities) -> DeviceSettings {
         let mut extra = Vec::new();
-        let offered = |name: &str| caps.extra.iter().any(|setting| setting.name() == name);
-        if let Some(state) = self.lna_state.filter(|_| offered(LNA_STATE)) {
-            extra.push(ExtraValue {
-                name: LNA_STATE.to_string(),
-                value: state.into(),
-            });
+        if let Some(state) = self
+            .lna_state
+            .filter(|_| offers(caps, Property::LnaState.name()).is_some())
+        {
+            extra.push(value(Property::LnaState.name(), state));
         }
-        if let Some(receiver) = self.receiver.clone().filter(|_| offered(RECEIVER)) {
-            extra.push(ExtraValue {
-                name: RECEIVER.to_string(),
-                value: receiver.into(),
-            });
+        for (property, reported) in [
+            (Property::DeviceVfoFrequency, self.vfo_hz),
+            (Property::FilterBandwidth, self.filter_hz),
+        ] {
+            if let Some(reported) = reported.filter(|_| offers(caps, property.name()).is_some()) {
+                extra.push(value(property.name(), reported));
+            }
         }
-        if offered(NETWORK_MODE) {
-            extra.push(ExtraValue {
-                name: NETWORK_MODE.to_string(),
-                value: self
-                    .network_mode
-                    .map_or(AUTOMATIC, NetworkMode::name)
-                    .into(),
-            });
+        if let Some(receiver) = self
+            .receiver
+            .as_ref()
+            .filter(|_| offers(caps, RECEIVER).is_some())
+        {
+            extra.push(value(RECEIVER, receiver.label()));
         }
-        extra.push(ExtraValue {
-            name: PROFILE.to_string(),
-            value: self.profile.clone().unwrap_or_default().into(),
-        });
-        extra.push(ExtraValue {
-            name: RECORDING.to_string(),
-            value: self.recording.map_or(OFF, Recording::name).into(),
-        });
+        if offers(caps, NETWORK_MODE).is_some() {
+            extra.push(value(
+                NETWORK_MODE,
+                self.network_mode.map_or(AUTOMATIC, NetworkMode::name),
+            ));
+        }
+        extra.push(value(PROFILE, self.profile.clone().unwrap_or_default()));
+        extra.push(value(
+            RECORDING,
+            self.recording.map_or(OFF, Recording::name),
+        ));
         DeviceSettings {
             center_hz: self.center_hz.map(|hz| hz as f64),
             sample_rate: self.sample_rate,
@@ -277,10 +365,19 @@ impl Remote {
     }
 }
 
+fn value(name: &str, value: impl Into<serde_json::Value>) -> ExtraValue {
+    ExtraValue {
+        name: name.to_string(),
+        value: value.into(),
+    }
+}
+
+fn offers<'a>(caps: &'a Capabilities, name: &str) -> Option<&'a ExtraSetting> {
+    caps.extra.iter().find(|setting| setting.name() == name)
+}
+
 fn within(ranges: &[Range], value: f64) -> bool {
-    ranges
-        .iter()
-        .any(|range| range.min <= value && value <= range.max)
+    ranges.iter().any(|range| range.holds(value))
 }
 
 pub(crate) fn validate(
@@ -333,15 +430,17 @@ pub(crate) fn validate(
         ));
     }
     if delta.bandwidth.is_some() {
-        return Err(DeviceError::Unsupported(
-            "bandwidth: the SDRconnect API's filter width is the VFO's, not the IQ stream's"
-                .to_string(),
-        ));
+        return Err(DeviceError::Unsupported(format!(
+            "bandwidth: this receiver's analog IF width is not in the SDRconnect API; its channel \
+             filter is offered as the `{}` setting",
+            Property::FilterBandwidth.name()
+        )));
     }
     if let Some(gain) = delta.gains.first() {
         return Err(DeviceError::Unsupported(format!(
-            "gain stage {}: this receiver's RF gain is a state, offered as the `{LNA_STATE}` setting",
-            gain.stage
+            "gain stage {}: this receiver's RF gain is a state, offered as the `{}` setting",
+            gain.stage,
+            Property::LnaState.name()
         )));
     }
 
@@ -355,59 +454,78 @@ fn apply_extra(
     next: &mut Remote,
     batch: &mut Vec<Command>,
     caps: &Capabilities,
-    value: &ExtraValue,
+    asked: &ExtraValue,
 ) -> Result<(), DeviceError> {
-    let setting = caps
-        .extra
-        .iter()
-        .find(|setting| setting.name() == value.name)
-        .ok_or_else(|| DeviceError::Unsupported(format!("extra setting {}", value.name)))?;
+    let offered = offers(caps, &asked.name)
+        .ok_or_else(|| DeviceError::Unsupported(format!("extra setting {}", asked.name)))?;
     let refuse = || {
         DeviceError::Unsupported(format!(
             "extra setting {}: {} is not one this receiver takes",
-            value.name, value.value
+            asked.name, asked.value
         ))
     };
-    match (setting, value.name.as_str()) {
-        (ExtraSetting::Range { range, .. }, LNA_STATE) => {
-            let state = value
+
+    match asked.name.as_str() {
+        name if name == Property::DeviceVfoFrequency.name()
+            || name == Property::FilterBandwidth.name() =>
+        {
+            let ExtraSetting::Range { range, .. } = offered else {
+                return Err(refuse());
+            };
+            let hz = asked
                 .value
                 .as_f64()
-                .filter(|state| state.is_finite() && (range.min..=range.max).contains(state))
+                .filter(|hz| hz.is_finite() && range.holds(*hz))
+                .ok_or_else(refuse)?
+                .round();
+            if name == Property::DeviceVfoFrequency.name() {
+                next.vfo_hz = Some(hz as u64);
+                batch.push(Command::Set(Property::DeviceVfoFrequency, hz.to_string()));
+            } else {
+                next.filter_hz = Some(hz as u64);
+                batch.push(Command::Set(Property::FilterBandwidth, hz.to_string()));
+            }
+        }
+        name if name == Property::LnaState.name() => {
+            let ExtraSetting::Range { range, .. } = offered else {
+                return Err(refuse());
+            };
+            let state = asked
+                .value
+                .as_f64()
+                .filter(|state| state.is_finite() && range.holds(*state))
                 .ok_or_else(refuse)?;
             next.lna_state = Some(state.round() as u64);
             batch.push(Command::Set(Property::LnaState, state.round().to_string()));
         }
-        (ExtraSetting::Enum { options, .. }, RECEIVER) => {
-            let receiver = value.value.as_str().ok_or_else(refuse)?;
-            if !options.iter().any(|option| option.value == receiver) {
+        RECEIVER => {
+            let ExtraSetting::Enum { options, .. } = offered else {
                 return Err(refuse());
-            }
-            next.receiver = Some(receiver.to_string());
-            if let Some(selection) = next.selection() {
-                batch.push(Command::Emit(Event::SelectedDeviceName, selection));
-            }
+            };
+            let receiver = Selection::of(asked.value.as_str().ok_or_else(refuse)?, options);
+            batch.push(receiver.command(next.network_mode));
+            next.receiver = Some(receiver);
         }
-        (ExtraSetting::Enum { .. }, NETWORK_MODE) => {
-            let name = value.value.as_str().ok_or_else(refuse)?;
+        NETWORK_MODE => {
+            let name = asked.value.as_str().ok_or_else(refuse)?;
             next.network_mode = if name == AUTOMATIC {
                 None
             } else {
                 Some(NetworkMode::parse(name).ok_or_else(refuse)?)
             };
-            if let Some(selection) = next.selection() {
-                batch.push(Command::Emit(Event::SelectedDeviceName, selection));
+            if let Some(receiver) = &next.receiver {
+                batch.push(receiver.command(next.network_mode));
             }
         }
-        (ExtraSetting::String { .. }, PROFILE) => {
-            let profile = value.value.as_str().ok_or_else(refuse)?.trim();
+        PROFILE => {
+            let profile = asked.value.as_str().ok_or_else(refuse)?.trim();
             next.profile = (!profile.is_empty()).then(|| profile.to_string());
             if let Some(profile) = &next.profile {
                 batch.push(Command::Emit(Event::ApplyDeviceProfile, profile.clone()));
             }
         }
-        (ExtraSetting::Enum { .. }, RECORDING) => {
-            let name = value.value.as_str().ok_or_else(refuse)?;
+        RECORDING => {
+            let name = asked.value.as_str().ok_or_else(refuse)?;
             next.recording = if name == OFF {
                 None
             } else {
@@ -418,12 +536,7 @@ fn apply_extra(
                 None => Command::Emit(Event::StopRecording, String::new()),
             });
         }
-        _ => {
-            return Err(DeviceError::Unsupported(format!(
-                "extra setting {}",
-                value.name
-            )));
-        }
+        name => return Err(DeviceError::Unsupported(format!("extra setting {name}"))),
     }
     Ok(())
 }
@@ -448,6 +561,11 @@ mod tests {
         put(Property::LnaState, "4");
         put(Property::LnaStateMin, "0");
         put(Property::LnaStateMax, "9");
+        put(Property::DeviceVfoFrequency, "100100000");
+        put(Property::FilterBandwidth, "12500");
+        put(Property::DemodMaxBandwidth, "200000");
+        put(Property::Demodulator, "NFM");
+        put(Property::AudioVolumePercent, "80");
         put(Property::ValidAntennas, "Antenna A,Antenna B");
         put(Property::ActiveAntenna, "Antenna A");
         put(Property::ValidDevices, "RSPduo 1234,RSP1B 5678");
@@ -479,11 +597,7 @@ mod tests {
         assert_eq!(caps.sample_rate_ranges[0].min, MIN_SAMPLE_RATE);
         assert!(caps.sample_rates.is_empty(), "the API names no rate menu");
         assert_eq!(caps.antennas, vec!["Antenna A", "Antenna B"]);
-        let lna = caps
-            .extra
-            .iter()
-            .find(|setting| setting.name() == LNA_STATE)
-            .expect("the RF gain state");
+        let lna = offers(&caps, "lna_state").expect("the RF gain state");
         let ExtraSetting::Range { range, unit, .. } = lna else {
             panic!("the gain state is a range, not {lna:?}");
         };
@@ -492,36 +606,90 @@ mod tests {
     }
 
     #[test]
+    fn the_controls_are_the_ones_that_shape_the_iq_and_no_others() {
+        let (caps, _) = opened(true);
+        assert_eq!(
+            caps.extra
+                .iter()
+                .map(ExtraSetting::name)
+                .collect::<Vec<_>>(),
+            vec![
+                "lna_state",
+                "device_vfo_frequency",
+                "filter_bandwidth",
+                RECEIVER,
+                NETWORK_MODE,
+                PROFILE,
+                RECORDING
+            ],
+            "this receiver answered for its whole audio chain, and none of that is a control"
+        );
+        let filter = offers(&caps, "filter_bandwidth").expect("the channel filter");
+        let ExtraSetting::Range { range, unit, .. } = filter else {
+            panic!("the channel filter is a range, not {filter:?}");
+        };
+        assert_eq!(
+            (range.min, range.max),
+            (0.0, 200_000.0),
+            "as wide as the receiver's own demod_max_bandwidth, no wider"
+        );
+        assert_eq!(unit, "Hz");
+    }
+
+    #[test]
+    fn a_channel_filter_with_no_published_ceiling_is_not_a_control() {
+        let mut snapshot = snapshot(true);
+        snapshot.put(Property::DemodMaxBandwidth, "");
+        assert!(
+            offers(&capabilities(&snapshot), "filter_bandwidth").is_none(),
+            "a width with no known ceiling is a control that cannot be bounded"
+        );
+    }
+
+    #[test]
+    fn the_vfo_and_the_channel_filter_become_the_properties_the_api_names() {
+        let (caps, remote) = opened(true);
+        let (tuned, batch) = validate(
+            &extra("device_vfo_frequency", 100_200_000.0),
+            &caps,
+            &remote,
+        )
+        .expect("inside the receiver's range");
+        assert_eq!(
+            batch,
+            vec![Command::Set(
+                Property::DeviceVfoFrequency,
+                "100200000".to_string()
+            )]
+        );
+        let (narrower, batch) =
+            validate(&extra("filter_bandwidth", 12_500.0), &caps, &tuned).expect("a width");
+        assert_eq!(
+            batch,
+            vec![Command::Set(Property::FilterBandwidth, "12500".to_string())]
+        );
+        assert!(
+            narrower.replay().contains(&Command::Set(
+                Property::FilterBandwidth,
+                "12500".to_string()
+            )),
+            "the channel filter comes back with the connection"
+        );
+        assert!(
+            validate(&extra("filter_bandwidth", 400_000.0), &caps, &remote).is_err(),
+            "wider than the receiver said it demodulates"
+        );
+    }
+
+    #[test]
     fn a_receiver_that_will_not_be_steered_reports_only_where_it_already_is() {
         let (caps, _) = opened(false);
         assert_eq!(caps.freq_ranges, pinned(Some(100e6)));
         assert_eq!(caps.sample_rate_ranges, pinned(Some(2e6)));
         assert!(
-            !caps.extra.iter().any(|setting| setting.name() == LNA_STATE),
+            offers(&caps, "lna_state").is_none(),
             "a gain the server will refuse is not offered"
         );
-    }
-
-    #[test]
-    fn the_receiver_list_becomes_the_choice_of_radio_on_the_host() {
-        let (caps, remote) = opened(true);
-        let receivers = caps
-            .extra
-            .iter()
-            .find(|setting| setting.name() == RECEIVER)
-            .expect("the receiver choice");
-        let ExtraSetting::Enum {
-            options, default, ..
-        } = receivers
-        else {
-            panic!("the receiver choice is an enum, not {receivers:?}");
-        };
-        assert_eq!(
-            options.iter().map(|o| o.value.as_str()).collect::<Vec<_>>(),
-            vec!["RSPduo 1234", "RSP1B 5678"]
-        );
-        assert_eq!(default, "RSP1B 5678", "the one already in use");
-        assert_eq!(remote.wire(&caps).antenna.as_deref(), Some("Antenna A"));
     }
 
     #[test]
@@ -530,13 +698,23 @@ mod tests {
         let wire = remote.wire(&caps);
         assert_eq!(wire.center_hz, Some(100e6));
         assert_eq!(wire.sample_rate, Some(2e6));
+        assert_eq!(wire.antenna.as_deref(), Some("Antenna A"));
         let value = |name: &str| {
             wire.extra
                 .iter()
                 .find(|value| value.name == name)
                 .map(|value| value.value.clone())
         };
-        assert_eq!(value(LNA_STATE), Some(serde_json::json!(4)));
+        assert_eq!(value("lna_state"), Some(serde_json::json!(4)));
+        assert_eq!(
+            value("device_vfo_frequency"),
+            Some(serde_json::json!(100_100_000u64))
+        );
+        assert_eq!(
+            value("filter_bandwidth"),
+            Some(serde_json::json!(12_500u64))
+        );
+        assert_eq!(value(RECEIVER), Some(serde_json::json!("RSP1B 5678")));
         assert_eq!(value(RECORDING), Some(serde_json::json!("off")));
         assert_eq!(value(NETWORK_MODE), Some(serde_json::json!("automatic")));
     }
@@ -563,7 +741,12 @@ mod tests {
             names
                 .iter()
                 .any(|m| m.contains(r#""audio_stream_enable","property":"","value":"false""#)),
-            "audio the engine never reads is not asked for: {names:?}"
+            "the link carries IQ and nothing SDR-- would throw away: {names:?}"
+        );
+        assert!(
+            names
+                .iter()
+                .any(|m| m.contains(r#""spectrum_enable","property":"","value":"false""#))
         );
     }
 
@@ -637,7 +820,7 @@ mod tests {
                 bandwidth: Some(200e3),
                 ..DeviceSettings::default()
             })
-            .contains("VFO")
+            .contains("filter_bandwidth")
         );
         assert!(
             refused(DeviceSettings {
@@ -661,24 +844,59 @@ mod tests {
                 }],
                 ..DeviceSettings::default()
             })
-            .contains(LNA_STATE)
+            .contains("lna_state")
         );
-        assert!(refused(extra(LNA_STATE, 99)).contains(LNA_STATE));
+        assert!(refused(extra("lna_state", 99)).contains("lna_state"));
+        assert!(
+            refused(extra("audio_volume_percent", 50)).contains("audio_volume_percent"),
+            "SDRconnect's audio chain is not a setting on a device that hands over IQ"
+        );
+        assert!(refused(extra("demodulator", "WFM")).contains("demodulator"));
         assert!(refused(extra("warp", 1)).contains("warp"));
+    }
+
+    #[test]
+    fn a_receiver_is_named_the_way_the_operator_named_it() {
+        let (caps, remote) = opened(true);
+        let select = |value: &str| {
+            validate(&extra(RECEIVER, value), &caps, &remote)
+                .expect("a radio")
+                .1
+        };
+        assert_eq!(
+            select("RSPduo 1234"),
+            vec![Command::Emit(
+                Event::SelectedDeviceName,
+                "RSPduo 1234".to_string()
+            )],
+            "a name from the list is sent as a name"
+        );
+        assert_eq!(
+            select("1"),
+            vec![Command::Emit(Event::SelectedDevice, "1".to_string())],
+            "a slot in the published list is sent as an index"
+        );
+        assert_eq!(
+            select("1801010101"),
+            vec![Command::Emit(
+                Event::SelectedDeviceSerial,
+                "1801010101".to_string()
+            )],
+            "a serial number that is all digits is longer than the list, and stays a serial"
+        );
+        assert_eq!(
+            select("2001T02AB3"),
+            vec![Command::Emit(
+                Event::SelectedDeviceSerial,
+                "2001T02AB3".to_string()
+            )]
+        );
     }
 
     #[test]
     fn choosing_a_receiver_and_a_network_mode_names_both_in_one_selection() {
         let (caps, remote) = opened(true);
-        let (next, batch) = validate(&extra(RECEIVER, "RSPduo 1234"), &caps, &remote)
-            .expect("a receiver on the host");
-        assert_eq!(
-            batch,
-            vec![Command::Emit(
-                Event::SelectedDeviceName,
-                "RSPduo 1234".to_string()
-            )]
-        );
+        let (next, _) = validate(&extra(RECEIVER, "RSPduo 1234"), &caps, &remote).expect("a radio");
         let (with_mode, batch) =
             validate(&extra(NETWORK_MODE, "IQ Lite"), &caps, &next).expect("a mode the API names");
         assert_eq!(
@@ -688,9 +906,12 @@ mod tests {
                 "RSPduo 1234:IQ Lite".to_string()
             )]
         );
-        let (back, _) = validate(&extra(NETWORK_MODE, AUTOMATIC), &caps, &with_mode)
-            .expect("back to the server's own choice");
-        assert_eq!(back.selection().as_deref(), Some("RSPduo 1234"));
+        let (by_index, _) = validate(&extra(RECEIVER, "0"), &caps, &with_mode).expect("a slot");
+        assert_eq!(
+            by_index.replay().first(),
+            Some(&Command::Emit(Event::SelectedDevice, "0".to_string())),
+            "an index names a slot, and carries no mode"
+        );
         assert!(validate(&extra(NETWORK_MODE, "Fast"), &caps, &next).is_err());
     }
 

@@ -270,17 +270,32 @@ without the SDRplay API on this one. Enable the WebSocket API in SDRconnect, or 
 `SDRconnect_headless --websocket_port=5454`, then enter `host:5454` on the Device node's
 **Network** tab.
 
-SDR-- tunes the receiver, sets its sample rate, RF gain state and antenna, and takes the 16-bit
-IQ stream; demodulation stays here. A tuner of an RSPduo is addressed by appending it to the
-address: `host:5454/secondary`, with `host:5454` meaning the primary tuner.
+SDR-- tunes the receiver, sets its sample rate and antenna, and takes the 16-bit IQ stream.
+Demodulation happens here, so the SDR-- channels are the ones that decode. A tuner of an RSPduo
+is addressed by appending it to the address: `host:5454/secondary`, with `host:5454` meaning the
+primary tuner.
+
+The centre frequency, sample rate and antenna are the usual Device controls. What the API adds
+beyond them:
 
 | Setting | Effect |
 |---|---|
 | `lna_state` | RF gain state, between the receiver's own minimum and maximum |
-| `receiver` | Which radio attached to the SDRconnect host to use |
+| `device_vfo_frequency` | Where SDRconnect's VFO sits inside the sampled window |
+| `filter_bandwidth` | Its channel filter, no wider than the receiver's `demod_max_bandwidth` |
+| `receiver` | Which radio on the host: a name from the list, a slot in it, or a serial number |
 | `network_mode` | Stream quality for a receiver SDRconnect itself reaches over the network |
 | `device_profile` | Applies a device profile saved in SDRconnect |
 | `recording` | Starts an IQ, audio, or compressed-audio recording on the SDRconnect host |
+
+Everything after the detector stays on the SDRconnect side: its demodulator mode, squelch, audio
+AGC, de-emphasis, noise reduction, RDS decoder and audio chain produce sound that SDR-- never
+reads, so changing them here would alter someone's session without changing a sample. This side
+demodulates in a channel. For the same reason the demodulated-audio and spectrum streams stay
+switched off; if one arrives anyway it is reported rather than quietly carried.
+
+What the receiver reports back and cannot be set — signal power and SNR, RDS text, the stereo
+lock, ADC overload — is written to the log, and an overload is a warning.
 
 A session someone was already running is left running when SDR-- stops; one SDR-- started is
 stopped again.
