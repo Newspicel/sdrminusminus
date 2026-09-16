@@ -1080,6 +1080,69 @@ test.describe("the workspace", () => {
     await page.request.delete(`/api/workspaces/${created.id}`);
   });
 
+  test("replaces a decoder from the node's right-click menu", async ({ page }) => {
+    await page.goto("/");
+    const list = await page.request.get("/api/workspaces").then((r) => r.json());
+    const created = await page.request
+      .post("/api/workspaces", {
+        data: {
+          name: "Replaced decoder",
+          snapshot: {
+            version: 3,
+            graph: {
+              nodes: [
+                { id: "dev", kind: "device", position: { x: 0, y: 0 }, data: {} },
+                {
+                  id: "voice",
+                  kind: "channel",
+                  position: { x: 440, y: 0 },
+                  data: { channel_type: "nfm" },
+                },
+                { id: "spk", kind: "speaker", position: { x: 900, y: 0 } },
+                { id: "log", kind: "decoder_log", position: { x: 900, y: 240 } },
+              ],
+              edges: [
+                { from: { node: "dev", port: "iq" }, to: { node: "voice", port: "iq" } },
+                { from: { node: "voice", port: "audio" }, to: { node: "spk", port: "audio" } },
+                { from: { node: "voice", port: "events" }, to: { node: "log", port: "events" } },
+              ],
+            },
+          },
+        },
+      })
+      .then((r) => r.json());
+    await page.request.post(`/api/workspaces/${created.id}/activate`);
+    await page.goto("/");
+
+    const channel = page.locator('.react-flow__node[data-id="voice"]');
+    await expect(channel).toBeVisible();
+    await channel.locator("header").click({ button: "right" });
+    await page
+      .getByRole("menu")
+      .getByRole("button", { name: /^Replace with/ })
+      .click();
+
+    const decoders = page.getByRole("dialog", { name: "Replace the decoder" });
+    await expect(decoders).toBeVisible();
+    await decoders.getByRole("searchbox", { name: "Search channel modes" }).fill("am");
+    await decoders.getByRole("button", { name: "AM", exact: true }).first().click();
+    await expect(decoders).toHaveCount(0);
+
+    await expect
+      .poll(async () => {
+        const detail: WorkspaceDetail = await page.request
+          .get(`/api/workspaces/${created.id}`)
+          .then((r) => r.json());
+        const node = detail.snapshot.graph.nodes.find((held) => held.id === "voice");
+        const ports = (detail.snapshot.graph.edges ?? []).map((edge) => edge.from.port);
+        return `${node?.kind === "channel" ? node.data.channel_type : "?"} ${ports.join(",")}`;
+      })
+      .toBe("am iq,audio");
+
+    await page.request.post(`/api/workspaces/${list.active}/activate`);
+    await page.request.delete(`/api/workspaces/${created.id}`);
+  });
+
   test("hands the frequency box its value selected so typing replaces it", async ({ page }) => {
     await page.goto("/");
     const list = await page.request.get("/api/workspaces").then((r) => r.json());

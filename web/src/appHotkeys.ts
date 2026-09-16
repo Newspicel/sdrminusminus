@@ -1,4 +1,5 @@
-import { isPinned, patchNode, pin, tuningLocked, unpin } from "./canvas/graph";
+import { type GraphContext, isPinned, pin, tuningLocked, unpin } from "./canvas/graph";
+import { nextAnalogMode, swapDecoder } from "./canvas/nodes/decoderSwap";
 import { useHotkeys } from "./canvas/useHotkeys";
 import type { WorkspaceStore } from "./canvas/useWorkspace";
 import type { View } from "./canvas/WorkspaceBar";
@@ -9,8 +10,6 @@ import type { ChannelInfo, DeviceSet, PatchGraph, PatchNode } from "./lib/types"
 import type { useChannelPatch } from "./lib/useChannelPatch";
 import type { useDevicePatch } from "./lib/useDevicePatch";
 
-const MODE_RING = ["nfm", "wfm", "am", "ssb"] as const;
-
 export interface AppHotkeys {
   selected: string | null;
   setSelected: (id: string | null) => void;
@@ -20,6 +19,7 @@ export interface AppHotkeys {
   selectedDevice: string | null;
   channelNodes: readonly PatchNode[];
   graph: PatchGraph;
+  context: GraphContext;
   stepHz: number;
   setStepHz: (hz: number) => void;
   workspace: WorkspaceStore;
@@ -59,26 +59,28 @@ export function useAppHotkeys(b: AppHotkeys) {
       }
     },
     cycleMode: (direction) => {
-      if (b.selectedSet === null || b.selectedChannel === null) {
+      const node = b.selectedNode;
+      if (node === null || node.kind !== "channel") {
         return;
       }
-      const at = MODE_RING.indexOf(
-        b.selectedChannel.settings.params.type as (typeof MODE_RING)[number],
-      );
-      const next = MODE_RING[(Math.max(0, at) + direction + MODE_RING.length) % MODE_RING.length];
-      const target = b.selected;
-      if (next === undefined || target === null) {
+      const wanted = nextAnalogMode(node.data.channel_type, direction);
+      const descriptor = b.context.channelTypes.find((type) => type.type_id === wanted);
+      if (descriptor === undefined) {
         return;
       }
-      b.applyEdit(b.selectedSet.id, b.selectedChannel.id, { params: { type: next, settings: {} } });
-      b.workspace.save((current) => ({
-        ...current,
-        graph: patchNode(current.graph, target, (node) =>
-          node.kind === "channel"
-            ? { ...node, kind: "channel" as const, data: { channel_type: next } }
-            : node,
-        ),
-      }));
+      swapDecoder({
+        context: b.context,
+        node,
+        descriptor,
+        live:
+          b.selectedSet === null || b.selectedChannel === null
+            ? null
+            : { deviceSet: b.selectedSet.id, channel: b.selectedChannel },
+        saved: b.workspace.savedChannels.get(node.id) ?? null,
+        applyEdit: b.applyEdit,
+        saveChannel: b.workspace.saveChannel,
+        edit: b.workspace.save,
+      });
     },
     adjustSquelch: (deltaDb) => {
       if (b.selectedSet === null || b.selectedChannel === null) {

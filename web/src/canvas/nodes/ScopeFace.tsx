@@ -14,7 +14,7 @@ import { Button } from "../../components/BaseControls";
 import { identify, suggestedAt } from "../../components/bandPlan";
 import { type Options, plotButton, segment, segmentSm } from "../../components/controls";
 import { clampWindow, DB_LIMIT, DB_STEP, withCeiling, withFloor } from "../../components/dbRange";
-import { formatMhz } from "../../components/format";
+import { formatHz, formatMhz } from "../../components/format";
 import { Popover } from "../../components/Popover";
 import { Slider } from "../../components/Slider";
 import {
@@ -81,6 +81,7 @@ import {
   streamPort,
   tuningLocked,
 } from "../graph";
+import { channelPicker } from "../palette";
 import { useNodePlacement } from "../placement";
 import { deviceSetOf } from "../workspaceDevice";
 import { BandRuler } from "./BandRuler";
@@ -1043,9 +1044,9 @@ function Spectrum({
 
       {openPicker !== null && (
         <ChannelPicker
-          pick={openPicker.pick}
-          channelTypes={workspace.context.channelTypes}
-          suggested={suggestedType(openPicker.pick.hz)}
+          title="New channel"
+          note={formatHz(openPicker.pick.hz)}
+          groups={channelPicker(workspace.context.channelTypes, suggestedType(openPicker.pick.hz))}
           onChannel={(channelType) => {
             addChannelAt(openPicker.pick, channelType);
             setPicker(null);

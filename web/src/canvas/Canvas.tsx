@@ -31,6 +31,7 @@ import {
 } from "./graph";
 import { useConnections, useGraphChanges } from "./handlers";
 import { NODE_TYPES } from "./nodes";
+import { ReplaceDecoder } from "./nodes/ReplaceDecoder";
 import { focusNode } from "./selection";
 import { isTyping } from "./useHotkeys";
 
@@ -133,10 +134,12 @@ export function Canvas() {
   const { isValidConnection, onConnect, onConnectEnd } = useConnections(workspace);
 
   const [menu, setMenu] = useState<Menu | null>(null);
+  const [replacing, setReplacing] = useState<string | null>(null);
   const openMenu = useCallback((event: React.MouseEvent, target: Menu["target"]) => {
     event.preventDefault();
     setMenu({ x: event.clientX, y: event.clientY, target });
   }, []);
+  const replaced = replacing === null ? undefined : nodeOf(workspace.graph, replacing);
 
   const select = workspace.select;
   const claimed = menu !== null || workspace.expanded !== null;
@@ -190,7 +193,12 @@ export function Canvas() {
       >
         <Background variant={BackgroundVariant.Dots} gap={24} size={1} className="!bg-bg" />
       </ReactFlow>
-      {menu !== null && <ContextMenu menu={menu} onClose={() => setMenu(null)} />}
+      {menu !== null && (
+        <ContextMenu menu={menu} onClose={() => setMenu(null)} onReplace={setReplacing} />
+      )}
+      {replaced !== undefined && (
+        <ReplaceDecoder node={replaced} onClose={() => setReplacing(null)} />
+      )}
     </div>
   );
 }
@@ -201,7 +209,15 @@ interface Menu {
   target: { kind: "node"; id: string } | { kind: "edge"; id: string } | { kind: "pane" };
 }
 
-function ContextMenu({ menu, onClose }: { menu: Menu; onClose: () => void }) {
+function ContextMenu({
+  menu,
+  onClose,
+  onReplace,
+}: {
+  menu: Menu;
+  onClose: () => void;
+  onReplace: (node: string) => void;
+}) {
   const workspace = useWorkspaceContext();
   const { fitView } = useReactFlow();
   const menuRef = useRef<HTMLDivElement>(null);
@@ -229,11 +245,18 @@ function ContextMenu({ menu, onClose }: { menu: Menu; onClose: () => void }) {
     };
   }, [onClose]);
 
-  const item = (label: string, act: () => void, danger = false) => (
+  const item = (
+    label: string,
+    act: () => void,
+    extra: { danger?: boolean; title?: string } = {},
+  ) => (
     <Button
       key={label}
       type="button"
-      className={`${BTN_QUIET} w-full justify-start ${danger ? "hover:text-danger" : ""}`}
+      title={extra.title}
+      className={`${BTN_QUIET} w-full justify-start ${
+        extra.danger === true ? "hover:text-danger" : ""
+      }`}
       onClick={() => {
         act();
         onClose();
@@ -246,6 +269,13 @@ function ContextMenu({ menu, onClose }: { menu: Menu; onClose: () => void }) {
   const items: ReactNode[] = [];
   if (node !== undefined) {
     const full = workspace.expanded === node.id;
+    if (node.kind === "channel") {
+      items.push(
+        item("Replace with…", () => onReplace(node.id), {
+          title: "Swap this decoder for another — m and M cycle the analog modes",
+        }),
+      );
+    }
     items.push(
       item(full ? "Leave full screen" : "Show full screen", () =>
         workspace.expand(full ? null : node.id),
@@ -277,7 +307,7 @@ function ContextMenu({ menu, onClose }: { menu: Menu; onClose: () => void }) {
         "Delete wire",
         () =>
           workspace.edit((snapshot) => ({ ...snapshot, graph: removeEdge(snapshot.graph, key) })),
-        true,
+        { danger: true },
       ),
     );
   }
