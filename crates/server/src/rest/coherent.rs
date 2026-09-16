@@ -76,17 +76,15 @@ pub(super) async fn get_route(
         .await
         .map(Json)
         .map_err(|error| {
-            let status = match error {
-                crate::routing::RoutingError::NotConfigured => StatusCode::SERVICE_UNAVAILABLE,
-                crate::routing::RoutingError::BadRequest(_) => StatusCode::BAD_REQUEST,
-                _ => StatusCode::BAD_GATEWAY,
+            let (status, code) = match error {
+                crate::routing::RoutingError::NotConfigured => {
+                    (StatusCode::SERVICE_UNAVAILABLE, ErrorCode::Unavailable)
+                }
+                crate::routing::RoutingError::BadRequest(_) => {
+                    (StatusCode::BAD_REQUEST, ErrorCode::Request)
+                }
+                _ => (StatusCode::BAD_GATEWAY, ErrorCode::Unavailable),
             };
-            AppError {
-                status,
-                body: ApiError {
-                    error: error.to_string(),
-                    detail: None,
-                },
-            }
+            AppError::new(status, code, error.to_string())
         })
 }

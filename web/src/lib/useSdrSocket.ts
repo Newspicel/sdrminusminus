@@ -16,6 +16,7 @@ import {
 import { audioEngine } from "./audio/useChannelAudio";
 import { useDecodedStore } from "./decoded";
 import { useDfStore } from "./df";
+import { recordEvent } from "./diagnostics";
 import { useHuntStore } from "./hunt";
 import { iqHub } from "./iq";
 import { useLevelStore } from "./levels";
@@ -57,7 +58,9 @@ export function useSdrSocket(queryClient: QueryClient, workspaceError: string | 
           appendImage(queryClient, event.data);
           break;
         case "Error":
-          if (!audioEngine.claimServerError(event.data.message)) {
+          if (audioEngine.claimServerError(event.data.message)) {
+            recordEvent("error", "socket", event.data.message);
+          } else {
             pushToast(event.data.message);
           }
           break;
@@ -79,6 +82,8 @@ export function useSdrSocket(queryClient: QueryClient, workspaceError: string | 
     s.on("status", (now) => {
       if (up && !now) {
         pushToast("Lost the server — reconnecting");
+      } else if (!up && now) {
+        recordEvent("info", "socket", "connected");
       }
       if (now) s.send({ type: "SubscribeDiagnostics", data: { enabled: true } });
       else usePipelineHealth.getState().reset();

@@ -15,7 +15,7 @@ import {
   workspaceQuery,
   workspacesQuery,
 } from "../lib/api";
-import { pushToast } from "../lib/toasts";
+import { toastError } from "../lib/toasts";
 import type {
   ChannelSettings,
   PatchApplyReport,
@@ -140,7 +140,7 @@ export function useWorkspace(): WorkspaceStore {
   const saveChannelMut = useMutation({
     mutationFn: (variables: { id: number; node: string; settings: ChannelSettings }) =>
       putWorkspaceChannel(variables.id, variables.node, variables.settings),
-    onError: (error: Error) => pushToast(error.message),
+    onError: (error: Error) => toastError(error),
     onSettled: (_data, _error, variables) =>
       void queryClient.invalidateQueries({ queryKey: [...WORKSPACES_KEY, variables.id] }),
   });

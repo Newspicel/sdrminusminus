@@ -2,13 +2,16 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./App";
+import { ErrorBoundary } from "./components/ErrorBoundary";
 import { FieldApp } from "./field/FieldApp";
 import { isFieldPath } from "./field/missions";
 import { adoptTokenFromUrl } from "./lib/auth";
+import { installGlobalHandlers } from "./lib/diagnostics";
 import { initTheme } from "./lib/theme";
 import "./index.css";
 
 initTheme();
+installGlobalHandlers(window);
 adoptTokenFromUrl(window.location, window.history);
 
 const queryClient = new QueryClient({
@@ -26,7 +29,9 @@ const Root = isFieldPath(window.location.pathname) ? FieldApp : App;
 createRoot(rootEl).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
-      <Root />
+      <ErrorBoundary>
+        <Root />
+      </ErrorBoundary>
     </QueryClientProvider>
   </StrictMode>,
 );

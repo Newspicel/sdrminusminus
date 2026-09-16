@@ -17,6 +17,7 @@ pub(crate) async fn static_handler(uri: Uri) -> Response {
         let body = ApiError {
             error: format!("no such endpoint: /{raw}"),
             detail: None,
+            code: Some(sdrmm_wire::ErrorCode::NotFound),
         };
         return (StatusCode::NOT_FOUND, Json(body)).into_response();
     }

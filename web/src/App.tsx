@@ -13,6 +13,7 @@ import { useWorkspace } from "./canvas/useWorkspace";
 import { type View, WorkspaceBar } from "./canvas/WorkspaceBar";
 import { WorkspaceStart } from "./canvas/WorkspaceStart";
 import { AboutPanel } from "./components/AboutPanel";
+import { ReportProblem } from "./components/ReportProblem";
 import { ServerDown } from "./components/ServerDown";
 import { Shortcuts } from "./components/Shortcuts";
 import { Toasts } from "./components/Toasts";
@@ -35,6 +36,7 @@ export function App() {
   const [stepHz, setStepHz] = useState(100_000);
   const [showShortcuts, setShowShortcuts] = useState(false);
   const [showAbout, setShowAbout] = useState(false);
+  const [showReport, setShowReport] = useState(false);
   const [openTool, setOpenTool] = useState<string | null>(null);
 
   const state = useQuery(stateQuery());
@@ -202,7 +204,11 @@ export function App() {
         )}
 
         {workspace.unreachable !== null && (
-          <ServerDown reason={workspace.unreachable} onReachable={retrySocket} />
+          <ServerDown
+            reason={workspace.unreachable}
+            onReachable={retrySocket}
+            onReport={() => setShowReport(true)}
+          />
         )}
 
         {workspace.unreachable === null && workspace.active === null && !workspace.pending && (
@@ -213,10 +219,12 @@ export function App() {
           open={showShortcuts}
           onOpenChange={setShowShortcuts}
           onShowAbout={() => setShowAbout(true)}
+          onShowReport={() => setShowReport(true)}
         />
         <AboutPanel open={showAbout} onOpenChange={setShowAbout} />
+        <ReportProblem open={showReport} onOpenChange={setShowReport} graph={graph} />
         <ToolsDialog tool={openTool} onClose={() => setOpenTool(null)} />
-        <Toasts />
+        <Toasts onReport={() => setShowReport(true)} />
       </div>
     </TokenGate>
   );

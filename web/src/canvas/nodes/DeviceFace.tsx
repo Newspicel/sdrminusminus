@@ -14,7 +14,7 @@ import { TuneTo } from "../../components/TuneTo";
 import { TuningLock } from "../../components/TuningLock";
 import { createDeviceSet, devicesQuery, STATE_KEY, stateQuery } from "../../lib/api";
 import { queueSummary, usePipelineHealth } from "../../lib/pipeline";
-import { pushToast } from "../../lib/toasts";
+import { toastError } from "../../lib/toasts";
 import type { DeviceInfo, DeviceRef, DeviceSet, PatchNode, PatchNodeOf } from "../../lib/types";
 import { useDevicePatch } from "../../lib/useDevicePatch";
 import { claimedDevices, deviceRefOf, refMatches } from "../binding";
@@ -138,7 +138,7 @@ export function DeviceFace({ node }: { node: PatchNode }) {
   const open = useMutation({
     mutationFn: createDeviceSet,
     onSuccess: () => workspace.apply(),
-    onError: (error: Error) => pushToast(error.message),
+    onError: (error: Error) => toastError(error),
     onSettled: () => void queryClient.invalidateQueries({ queryKey: STATE_KEY }),
   });
 
@@ -154,7 +154,7 @@ export function DeviceFace({ node }: { node: PatchNode }) {
 
   const forget = useMutation({
     mutationFn: () => releaseRadio(workspace, node.id, () => nameRadio(null)),
-    onError: (error: Error) => pushToast(error.message),
+    onError: (error: Error) => toastError(error),
     onSettled: () => void queryClient.invalidateQueries({ queryKey: STATE_KEY }),
   });
 
@@ -180,7 +180,7 @@ export function DeviceFace({ node }: { node: PatchNode }) {
       }
       workspace.apply();
     },
-    onError: (error: Error) => pushToast(error.message),
+    onError: (error: Error) => toastError(error),
     onSettled: () => void queryClient.invalidateQueries({ queryKey: STATE_KEY }),
   });
 

@@ -5,7 +5,7 @@ import { BTN_QUIET, FIELD, LABEL, SURFACE } from "../../components/controls";
 import { formatHz } from "../../components/format";
 import { BOOKMARKS_KEY, createBookmark } from "../../lib/api";
 import { copyText } from "../../lib/copyText";
-import { pushToast } from "../../lib/toasts";
+import { pushToast, toastError } from "../../lib/toasts";
 import { pickText, type ScopePick } from "./scopePick";
 
 export interface ScopeMenuAt {
@@ -40,7 +40,7 @@ export function ScopeMenu({
         pushToast(`${what} copied: ${value}`, "info");
         onClose();
       } catch (error) {
-        pushToast(error instanceof Error ? error.message : String(error));
+        toastError(error);
       }
     })();
   };
@@ -52,7 +52,7 @@ export function ScopeMenu({
         freq_hz: pick.hz,
         mode: draft.mode,
       }),
-    onError: (error: Error) => pushToast(error.message),
+    onError: (error: Error) => toastError(error),
     onSuccess: onClose,
     onSettled: () => void queryClient.invalidateQueries({ queryKey: BOOKMARKS_KEY }),
   });

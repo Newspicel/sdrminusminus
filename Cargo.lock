@@ -4899,7 +4899,6 @@ dependencies = [
  "sdrmm-wire",
  "tokio",
  "tracing",
- "tracing-subscriber",
 ]
 
 [[package]]
@@ -4957,7 +4956,6 @@ dependencies = [
  "tauri-plugin-updater",
  "tokio",
  "tracing",
- "tracing-subscriber",
 ]
 
 [[package]]
@@ -5271,6 +5269,7 @@ dependencies = [
  "tower",
  "tower-http 0.7.1",
  "tracing",
+ "tracing-subscriber",
  "utoipa",
  "utoipa-axum",
  "utoipa-swagger-ui",

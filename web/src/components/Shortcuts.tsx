@@ -7,10 +7,12 @@ export function Shortcuts({
   open,
   onOpenChange,
   onShowAbout,
+  onShowReport,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onShowAbout: () => void;
+  onShowReport: () => void;
 }) {
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
@@ -31,16 +33,28 @@ export function Shortcuts({
             ))}
           </dl>
           <div className="mt-4 flex items-center justify-between gap-4 border-t border-line pt-3">
-            <Button
-              type="button"
-              className={BTN_QUIET}
-              onClick={() => {
-                onOpenChange(false);
-                onShowAbout();
-              }}
-            >
-              Licenses
-            </Button>
+            <div className="flex items-center gap-1">
+              <Button
+                type="button"
+                className={BTN_QUIET}
+                onClick={() => {
+                  onOpenChange(false);
+                  onShowAbout();
+                }}
+              >
+                Licenses
+              </Button>
+              <Button
+                type="button"
+                className={BTN_QUIET}
+                onClick={() => {
+                  onOpenChange(false);
+                  onShowReport();
+                }}
+              >
+                Report a problem
+              </Button>
+            </div>
             <Dialog.Close className={BTN}>Close</Dialog.Close>
           </div>
         </Dialog.Popup>

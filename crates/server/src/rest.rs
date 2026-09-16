@@ -20,18 +20,18 @@ use sdrmm_wire::{
     ChannelTypesResponse, ClientCommand, ClientsResponse, CreateBookmarkRequest,
     CreateChannelRequest, CreateDeviceSetRequest, CreatePresetRequest, CreateWorkspaceRequest,
     CreatedId, CreatedRowId, DecoderLogEntry, DecoderLogQuery, DecoderLogResponse, DeletedCount,
-    DeviceInfo, DeviceSettings, DevicesResponse, DfFusionState, DoctorReport, ExportFormat,
-    HuntAction, HuntRequest, HuntStatus, IonosondeReport, LicenseTextResponse, LocateQuery,
-    NetworkExportAction, NetworkExportRequest, NetworkExportStatus, NmeaDevicesResponse, NodeBody,
-    OccupancyReport, PRESET_SNAPSHOT_VERSION, PatchApplyReport, PatchBinding, PatchCatalog,
-    PatchGraph, PatchRefusal, PlaybackRequest, PlaybackStatus, PresetDevice, PresetInfo,
-    PresetSnapshot, RecordAction, RecordRequest, RecordingAnnotation, RecordingDownloadQuery,
-    RecordingFormat, RecordingInfo, RecordingStatus, RecordingsResponse, Route, RouteRequest,
-    ScanAction, ScanRequest, ScanSessionRequest, ScanSessionStatus, ScannerStatus, ServerEvent,
-    StateScope, StateSnapshot, TemplateInfo, TemplatesResponse, TimeMachineAction,
-    TimeMachineRequest, TimeMachineStatus, ToolRequest, ToolResponse, ToolsResponse,
-    UpdateWorkspaceRequest, VoiceCallsResponse, WorkspaceDetail, WorkspaceExport, WorkspaceInfo,
-    WorkspaceSnapshot, WorkspaceState, WorkspacesResponse,
+    DeviceInfo, DeviceSettings, DevicesResponse, DfFusionState, DiagnosticsReport, DoctorReport,
+    ErrorCode, ExportFormat, HuntAction, HuntRequest, HuntStatus, IonosondeReport,
+    LicenseTextResponse, LocateQuery, NetworkExportAction, NetworkExportRequest,
+    NetworkExportStatus, NmeaDevicesResponse, NodeBody, OccupancyReport, PRESET_SNAPSHOT_VERSION,
+    PatchApplyReport, PatchBinding, PatchCatalog, PatchGraph, PatchRefusal, PlaybackRequest,
+    PlaybackStatus, PresetDevice, PresetInfo, PresetSnapshot, RecordAction, RecordRequest,
+    RecordingAnnotation, RecordingDownloadQuery, RecordingFormat, RecordingInfo, RecordingStatus,
+    RecordingsResponse, Route, RouteRequest, ScanAction, ScanRequest, ScanSessionRequest,
+    ScanSessionStatus, ScannerStatus, ServerEvent, StateScope, StateSnapshot, TemplateInfo,
+    TemplatesResponse, TimeMachineAction, TimeMachineRequest, TimeMachineStatus, ToolRequest,
+    ToolResponse, ToolsResponse, UpdateWorkspaceRequest, VoiceCallsResponse, WorkspaceDetail,
+    WorkspaceExport, WorkspaceInfo, WorkspaceSnapshot, WorkspaceState, WorkspacesResponse,
 };
 use utoipa::OpenApi;
 use utoipa_axum::{router::OpenApiRouter, routes};
@@ -76,39 +76,47 @@ pub(crate) struct AppError {
 }
 
 impl AppError {
-    fn bad_request(message: String) -> Self {
+    fn new(status: StatusCode, code: ErrorCode, message: String) -> Self {
         Self {
-            status: StatusCode::BAD_REQUEST,
+            status,
             body: ApiError {
                 error: message,
                 detail: None,
+                code: Some(code),
             },
         }
+    }
+
+    fn bad_request(message: String) -> Self {
+        Self::new(StatusCode::BAD_REQUEST, ErrorCode::Request, message)
     }
 
     fn not_found(message: String) -> Self {
-        Self {
-            status: StatusCode::NOT_FOUND,
-            body: ApiError {
-                error: message,
-                detail: None,
-            },
-        }
+        Self::new(StatusCode::NOT_FOUND, ErrorCode::NotFound, message)
     }
 
     fn internal(message: String) -> Self {
-        Self {
-            status: StatusCode::INTERNAL_SERVER_ERROR,
-            body: ApiError {
-                error: message,
-                detail: None,
-            },
-        }
+        Self::new(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            ErrorCode::Internal,
+            message,
+        )
     }
 
     fn with_detail(mut self, detail: String) -> Self {
         self.body.detail = Some(detail);
         self
+    }
+}
+
+fn rejection(status: StatusCode, error: &str, detail: String) -> AppError {
+    AppError {
+        status,
+        body: ApiError {
+            error: error.to_string(),
+            detail: Some(detail),
+            code: Some(ErrorCode::Request),
+        },
     }
 }
 
@@ -132,121 +140,81 @@ pub(crate) struct Query<T>(pub T);
 
 impl From<JsonRejection> for AppError {
     fn from(rej: JsonRejection) -> Self {
-        Self {
-            status: rej.status(),
-            body: ApiError {
-                error: "invalid request body".to_string(),
-                detail: Some(rej.body_text()),
-            },
-        }
+        rejection(rej.status(), "invalid request body", rej.body_text())
     }
 }
 
 impl From<PathRejection> for AppError {
     fn from(rej: PathRejection) -> Self {
-        Self {
-            status: rej.status(),
-            body: ApiError {
-                error: "invalid path parameter".to_string(),
-                detail: Some(rej.body_text()),
-            },
-        }
+        rejection(rej.status(), "invalid path parameter", rej.body_text())
     }
 }
 
 impl From<QueryRejection> for AppError {
     fn from(rej: QueryRejection) -> Self {
-        Self {
-            status: rej.status(),
-            body: ApiError {
-                error: "invalid query parameter".to_string(),
-                detail: Some(rej.body_text()),
-            },
-        }
+        rejection(rej.status(), "invalid query parameter", rej.body_text())
     }
 }
 
 impl From<EngineError> for AppError {
     fn from(err: EngineError) -> Self {
-        let status = if err.is_not_found() {
-            StatusCode::NOT_FOUND
+        let (status, code) = if err.is_not_found() {
+            (StatusCode::NOT_FOUND, ErrorCode::NotFound)
         } else if err.is_bad_request() {
-            StatusCode::BAD_REQUEST
+            (StatusCode::BAD_REQUEST, ErrorCode::Request)
         } else if err.is_conflict() {
-            StatusCode::CONFLICT
+            (StatusCode::CONFLICT, ErrorCode::Conflict)
         } else {
-            StatusCode::INTERNAL_SERVER_ERROR
+            (StatusCode::INTERNAL_SERVER_ERROR, ErrorCode::Engine)
         };
-        Self {
-            status,
-            body: ApiError {
-                error: err.to_string(),
-                detail: None,
-            },
-        }
+        Self::new(status, code, err.to_string())
     }
 }
 
 impl From<StoreError> for AppError {
     fn from(err: StoreError) -> Self {
-        let status = match err {
+        let (status, code) = match err {
             StoreError::PresetNotFound(_)
             | StoreError::BookmarkNotFound(_)
             | StoreError::RecordingNotFound(_)
             | StoreError::WorkspaceNotFound(_)
             | StoreError::CpsUserNotFound(_)
             | StoreError::CpsDeviceNotFound(_)
-            | StoreError::CpsCodeplugNotFound(_) => StatusCode::NOT_FOUND,
+            | StoreError::CpsCodeplugNotFound(_) => (StatusCode::NOT_FOUND, ErrorCode::NotFound),
             StoreError::Timestamp(_)
             | StoreError::Sources(_)
             | StoreError::WorkspaceLayout(_)
-            | StoreError::CpsField(_) => StatusCode::BAD_REQUEST,
+            | StoreError::CpsField(_) => (StatusCode::BAD_REQUEST, ErrorCode::Request),
             StoreError::WorkspaceNameTaken(_)
             | StoreError::WorkspaceConflict { .. }
             | StoreError::CpsNameTaken
-            | StoreError::WorkspaceHistoryEnd { .. } => StatusCode::CONFLICT,
-            StoreError::Db(_) | StoreError::Corrupt(_) => StatusCode::INTERNAL_SERVER_ERROR,
+            | StoreError::WorkspaceHistoryEnd { .. } => (StatusCode::CONFLICT, ErrorCode::Conflict),
+            StoreError::Db(_) | StoreError::Corrupt(_) => {
+                (StatusCode::INTERNAL_SERVER_ERROR, ErrorCode::Storage)
+            }
         };
-        Self {
-            status,
-            body: ApiError {
-                error: err.to_string(),
-                detail: None,
-            },
-        }
+        Self::new(status, code, err.to_string())
     }
 }
 
 impl From<ToolError> for AppError {
     fn from(err: ToolError) -> Self {
-        let status = if err.is_not_found() {
-            StatusCode::NOT_FOUND
+        let (status, code) = if err.is_not_found() {
+            (StatusCode::NOT_FOUND, ErrorCode::NotFound)
         } else if err.is_bad_request() {
-            StatusCode::BAD_REQUEST
+            (StatusCode::BAD_REQUEST, ErrorCode::Request)
         } else if err.is_unavailable() {
-            StatusCode::SERVICE_UNAVAILABLE
+            (StatusCode::SERVICE_UNAVAILABLE, ErrorCode::Unavailable)
         } else {
-            StatusCode::INTERNAL_SERVER_ERROR
+            (StatusCode::INTERNAL_SERVER_ERROR, ErrorCode::Tool)
         };
-        Self {
-            status,
-            body: ApiError {
-                error: err.to_string(),
-                detail: None,
-            },
-        }
+        Self::new(status, code, err.to_string())
     }
 }
 
 impl From<tokio::task::JoinError> for AppError {
     fn from(err: tokio::task::JoinError) -> Self {
-        Self {
-            status: StatusCode::INTERNAL_SERVER_ERROR,
-            body: ApiError {
-                error: "engine task failed".to_string(),
-                detail: Some(err.to_string()),
-            },
-        }
+        Self::internal("engine task failed".to_string()).with_detail(err.to_string())
     }
 }
 
@@ -392,6 +360,7 @@ pub(crate) fn openapi_router() -> OpenApiRouter<AppState> {
         .routes(routes!(get_occupancy))
         .routes(routes!(get_ionosonde))
         .routes(routes!(get_doctor))
+        .routes(routes!(get_diagnostics))
         .routes(routes!(list_radio_models))
         .routes(routes!(list_cps_ports))
         .routes(routes!(get_cps_library))

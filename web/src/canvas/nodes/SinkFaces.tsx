@@ -45,7 +45,7 @@ import {
 } from "../../lib/dfOverlay";
 import { type MapKind, mapKindsOf } from "../../lib/map/layers";
 import { positionSourcesOf, usePositionStore } from "../../lib/position";
-import { pushToast } from "../../lib/toasts";
+import { toastError } from "../../lib/toasts";
 import type {
   AudioRecordingStatus,
   DeviceSet,
@@ -481,7 +481,7 @@ function RecordControl({ set, stream }: { set: DeviceSet | null; stream: number 
       set === null
         ? Promise.reject(new Error("no radio"))
         : recordDeviceSet(set.id, action, stream),
-    onError: (error: Error) => pushToast(error.message),
+    onError: (error: Error) => toastError(error),
   });
   const control = set === null ? null : deriveRecordControl(set);
   const status = control === null || control.kind === "idle" ? null : control.status;
@@ -599,7 +599,7 @@ function AudioRecordInput({ input }: { input: Input }) {
   const record = useMutation({
     mutationFn: (action: RecordAction) =>
       recordChannelAudio(input.deviceSet, input.channel.id, action),
-    onError: (error: Error) => pushToast(error.message),
+    onError: (error: Error) => toastError(error),
   });
   return (
     <div className="flex flex-col gap-1 border-b border-line p-2 last:border-b-0">
@@ -684,7 +684,7 @@ function BasebandRecordInput({ input }: { input: Input }) {
   const record = useMutation({
     mutationFn: (action: RecordAction) =>
       recordChannelBaseband(input.deviceSet, input.channel.id, action),
-    onError: (error: Error) => pushToast(error.message),
+    onError: (error: Error) => toastError(error),
   });
   return (
     <div className="flex flex-col gap-1 border-b border-line p-2 last:border-b-0">

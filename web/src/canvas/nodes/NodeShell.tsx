@@ -14,7 +14,7 @@ import { Button } from "../../components/BaseControls";
 import { ICON_BTN_SM } from "../../components/controls";
 import { Icon } from "../../components/Icon";
 import { PortalContainerProvider } from "../../components/PortalContainer";
-import { pushToast } from "../../lib/toasts";
+import { toastError } from "../../lib/toasts";
 import type { NodeCategory, PatchNode, PortSpec, PortType } from "../../lib/types";
 import { useWorkspaceContext } from "../context";
 import {
@@ -264,7 +264,7 @@ function useRemoveNode(node: PatchNode): () => void {
         const graph = removeNode(snapshot.graph, node.id);
         return { ...snapshot, graph, rack: pruneRack(snapshot.rack ?? {}, graph) };
       }),
-    onError: (error: Error) => pushToast(error.message),
+    onError: (error: Error) => toastError(error),
   });
 
   return () => drop.mutate();

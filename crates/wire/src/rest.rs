@@ -557,11 +557,28 @@ pub struct CreatedRowId {
     pub id: i64,
 }
 
+/// Which part of the server refused, independent of the wording. A client groups repeats and
+/// titles a bug report by this; the prose in `error` is free to change.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ErrorCode {
+    Request,
+    NotFound,
+    Conflict,
+    Unavailable,
+    Engine,
+    Storage,
+    Tool,
+    Internal,
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct ApiError {
     pub error: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub detail: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub code: Option<ErrorCode>,
 }
 
 /// Which online routing service the server proxies to.

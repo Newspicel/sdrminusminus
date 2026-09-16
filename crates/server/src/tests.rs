@@ -24,6 +24,7 @@ mod coherent;
 mod cps;
 mod decoderlog;
 mod devices;
+mod diagnostics;
 mod openapi;
 mod presets;
 mod recordings;

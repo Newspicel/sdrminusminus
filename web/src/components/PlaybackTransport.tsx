@@ -2,7 +2,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Pause, Play, RotateCcw, Square } from "lucide-react";
 import { useEffect, useState } from "react";
 import { controlPlayback, STATE_KEY } from "../lib/api";
-import { pushToast } from "../lib/toasts";
+import { toastError } from "../lib/toasts";
 import type { DeviceSet, PlaybackAction, PlaybackStatus } from "../lib/types";
 import { useDevicePatch } from "../lib/useDevicePatch";
 import { Button } from "./BaseControls";
@@ -27,7 +27,7 @@ export function PlaybackTransport({ set, status }: { set: DeviceSet; status: Pla
   const drive = useMutation({
     mutationFn: ({ action, position }: { action: PlaybackAction; position?: number }) =>
       controlPlayback(set.id, action, position),
-    onError: (error: Error) => pushToast(error.message),
+    onError: (error: Error) => toastError(error),
     onSettled: () => void queryClient.invalidateQueries({ queryKey: STATE_KEY }),
   });
 

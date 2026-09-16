@@ -58,6 +58,7 @@ pub(crate) async fn require_token(
                 "pass the shared token as `Authorization: Bearer <token>` or `?token=<token>`"
                     .to_string(),
             ),
+            code: Some(sdrmm_wire::ErrorCode::Request),
         }),
     )
         .into_response()

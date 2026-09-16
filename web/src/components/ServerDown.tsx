@@ -2,12 +2,20 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect } from "react";
 import { serverReachable } from "../lib/api";
 import { Button } from "./BaseControls";
-import { BTN_PRIMARY } from "./controls";
+import { BTN, BTN_PRIMARY } from "./controls";
 import { serverDownDetail } from "./serverStatus";
 
 const PROBE_MS = 3000;
 
-export function ServerDown({ reason, onReachable }: { reason: string; onReachable: () => void }) {
+export function ServerDown({
+  reason,
+  onReachable,
+  onReport,
+}: {
+  reason: string;
+  onReachable: () => void;
+  onReport?: () => void;
+}) {
   const queryClient = useQueryClient();
   const detail = serverDownDetail(reason);
 
@@ -67,6 +75,11 @@ export function ServerDown({ reason, onReachable }: { reason: string; onReachabl
           <Button type="button" className={BTN_PRIMARY} onClick={reconnect}>
             Try again
           </Button>
+          {onReport !== undefined && (
+            <Button type="button" className={BTN} onClick={onReport}>
+              Report this
+            </Button>
+          )}
           <span className="text-xs text-ink-faint">Retrying every few seconds…</span>
         </div>
       </div>

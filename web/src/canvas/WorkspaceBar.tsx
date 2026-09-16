@@ -198,7 +198,7 @@ export function WorkspaceBar({
         <Button
           type="button"
           className={ICON_BTN}
-          aria-label="Keyboard shortcuts and licenses"
+          aria-label="Keyboard shortcuts, licenses and problem reports"
           onClick={onShowShortcuts}
         >
           <Icon glyph={CircleQuestionMark} />
