@@ -12,7 +12,8 @@
   optionally one React panel. If it needs more, reconsider the design.
 - One job, one node. Never two nodes, or a node and a device kind, that do the same thing: a radio
   is picked by a Device node and by nothing else. An abstraction over devices is a node wired to
-  Device nodes, never a second kind of device that opens radios of its own.
+  Device nodes, never a second kind of device that opens radios of its own. 
+- No hidden flows, a flow should always be a wire. No hidden checkmark. It should always be visble that there is a connection trough a wire. 
 - Hot DSP path: no locks, no allocation, no async. Settings via command queue, state via
    snapshot channels. Keep the control plane and DSP plane separated.
 - Errors: no `unwrap()`/`expect()` outside tests and startup. Use `Result` and the project's
