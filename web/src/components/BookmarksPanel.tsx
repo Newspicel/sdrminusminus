@@ -1,17 +1,18 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
+import type { TuneTarget } from "../canvas/libraryTarget";
 import { BOOKMARKS_KEY, bookmarksQuery, createBookmark, deleteBookmark } from "../lib/api";
 import { pushToast } from "../lib/toasts";
-import type { CreateBookmarkRequest, DeviceSet } from "../lib/types";
-import { useDevicePatch } from "../lib/useDevicePatch";
+import type { Bookmark, CreateBookmarkRequest } from "../lib/types";
+import { sameMode, useTuner } from "../lib/useTuner";
 import { Button, Form, Input } from "./BaseControls";
 import { BTN, FIELD } from "./controls";
 import { formatMhz } from "./format";
 
-export function BookmarksPanel({ active }: { active: DeviceSet | null }) {
+export function BookmarksPanel({ target }: { target: TuneTarget | null }) {
   const queryClient = useQueryClient();
   const bookmarks = useQuery(bookmarksQuery());
-  const { applyPatch } = useDevicePatch();
+  const { tune, frequencyHz, channelType, ready } = useTuner(target);
   const [label, setLabel] = useState("");
   const [mode, setMode] = useState("");
 
@@ -33,19 +34,31 @@ export function BookmarksPanel({ active }: { active: DeviceSet | null }) {
     onSettled: invalidate,
   });
 
-  const centerHz = active?.settings.center_hz;
   const sorted = (bookmarks.data ?? []).toSorted((a, b) => a.freq_hz - b.freq_hz);
+
+  const recall = (bookmark: Bookmark): void => {
+    tune(bookmark.freq_hz);
+    const saved = bookmark.mode;
+    if (saved != null && channelType !== null && !sameMode(saved, channelType)) {
+      pushToast(
+        `${saved.toUpperCase()} is the mode for this bookmark, not ${channelType.toUpperCase()}`,
+        "info",
+      );
+    }
+  };
 
   return (
     <div className="flex flex-col gap-2 p-3">
-      {active === null && <span className="text-sm text-ink-dim">Select a device node first.</span>}
+      {target === null && (
+        <span className="text-sm text-ink-dim">Select a Device or decoder first.</span>
+      )}
       <Form
         className="flex flex-wrap gap-2"
         onSubmit={(e) => {
           e.preventDefault();
-          if (centerHz != null && label.trim() !== "") {
+          if (frequencyHz != null && label.trim() !== "") {
             addMut.mutate({
-              freq_hz: centerHz,
+              freq_hz: frequencyHz,
               label: label.trim(),
               mode: mode.trim() === "" ? null : mode.trim(),
             });
@@ -69,19 +82,23 @@ export function BookmarksPanel({ active }: { active: DeviceSet | null }) {
         <Button
           type="submit"
           className={BTN}
-          disabled={centerHz == null || label.trim() === "" || addMut.isPending}
+          disabled={frequencyHz == null || label.trim() === "" || addMut.isPending}
         >
           Save
         </Button>
       </Form>
+
+      {target !== null && !ready && sorted.length > 0 && (
+        <span className="text-sm text-ink-dim">Tuning is locked here.</span>
+      )}
 
       {sorted.map((b) => (
         <div key={b.id} className="flex items-center gap-2">
           <Button
             type="button"
             className="min-w-0 flex-1 rounded px-1 py-1 text-left transition-colors hover:bg-panel-2 disabled:opacity-40 max-md:min-h-10"
-            disabled={!active}
-            onClick={() => active && applyPatch(active.id, { center_hz: b.freq_hz })}
+            disabled={!ready}
+            onClick={() => recall(b)}
           >
             <span className="font-mono text-sm tabular-nums text-ink">{formatMhz(b.freq_hz)}</span>
             <span className="ml-2 text-sm text-ink-dim">{b.label}</span>

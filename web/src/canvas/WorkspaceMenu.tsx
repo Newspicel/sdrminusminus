@@ -1,7 +1,6 @@
 import { Copy, Download, Pencil, X } from "lucide-react";
-import { type ReactNode, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { Button, Form, Input } from "../components/BaseControls";
-import { Checkbox } from "../components/Checkbox";
 import {
   BTN_DANGER_SM,
   BTN_QUIET,
@@ -12,12 +11,9 @@ import {
   segment,
 } from "../components/controls";
 import { Icon } from "../components/Icon";
-import { Select } from "../components/Select";
-import { SettingRow, Settings } from "../components/Settings";
 import { workspaceExportUrl } from "../lib/api";
 import { pickFile } from "../lib/pickFile";
 import type { WorkspaceInfo } from "../lib/types";
-import { useBandPlan } from "../lib/useBandPlan";
 import { MAX_NAME_LEN } from "./graph";
 import { WORKSPACE_FILE_ACCEPT } from "./workspaceExport";
 
@@ -42,65 +38,56 @@ export function WorkspaceMenu({
 }) {
   const [name, setName] = useState("");
   return (
-    <div className="flex flex-col gap-3">
-      <div className="flex flex-col gap-1">
-        <span className={LABEL}>Workspaces</span>
-        {workspaces.map((workspace) => (
-          <WorkspaceRow
-            key={workspace.id}
-            workspace={workspace}
-            active={workspace.id === activeWorkspace}
-            onActivate={onActivate}
-            onRename={onRename}
-            onClone={onClone}
-            onRemove={onRemove}
+    <div className="flex flex-col gap-1">
+      <span className={LABEL}>Workspaces</span>
+      {workspaces.map((workspace) => (
+        <WorkspaceRow
+          key={workspace.id}
+          workspace={workspace}
+          active={workspace.id === activeWorkspace}
+          onActivate={onActivate}
+          onRename={onRename}
+          onClone={onClone}
+          onRemove={onRemove}
+        />
+      ))}
+      <div className="mt-1 flex flex-col gap-1 border-t border-line pt-2">
+        <Form
+          className="flex gap-1"
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (name.trim() !== "") {
+              onCreate(name.trim());
+              setName("");
+            }
+          }}
+        >
+          <Input
+            className={`${FIELD} flex-1`}
+            aria-label="Name for a new workspace"
+            placeholder="New workspace"
+            maxLength={MAX_NAME_LEN}
+            value={name}
+            onChange={(event) => setName(event.target.value)}
           />
-        ))}
-        <div className="mt-1 flex flex-col gap-1 border-t border-line pt-2">
-          <Form
-            className="flex gap-1"
-            onSubmit={(event) => {
-              event.preventDefault();
-              if (name.trim() !== "") {
-                onCreate(name.trim());
-                setName("");
-              }
-            }}
-          >
-            <Input
-              className={`${FIELD} flex-1`}
-              aria-label="Name for a new workspace"
-              placeholder="New workspace"
-              maxLength={MAX_NAME_LEN}
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-            />
-            <Button type="submit" className={BTN_QUIET} disabled={name.trim() === ""}>
-              Add
-            </Button>
-          </Form>
-          <Button
-            type="button"
-            className={`${BTN_QUIET} justify-center`}
-            title="Read a workspace file exported here or on another machine"
-            onClick={() => {
-              void pickFile(WORKSPACE_FILE_ACCEPT).then((file) => {
-                if (file !== null) {
-                  onImport(file);
-                }
-              });
-            }}
-          >
-            Import a workspace file
+          <Button type="submit" className={BTN_QUIET} disabled={name.trim() === ""}>
+            Add
           </Button>
-        </div>
-      </div>
-
-      <div className="flex flex-col gap-2 border-t border-line pt-3">
-        <span className={LABEL}>Workspace settings</span>
-        <Setting title="Band plan">
-          <BandSettings />
-        </Setting>
+        </Form>
+        <Button
+          type="button"
+          className={`${BTN_QUIET} justify-center`}
+          title="Read a workspace file exported here or on another machine"
+          onClick={() => {
+            void pickFile(WORKSPACE_FILE_ACCEPT).then((file) => {
+              if (file !== null) {
+                onImport(file);
+              }
+            });
+          }}
+        >
+          Import a workspace file
+        </Button>
       </div>
     </div>
   );
@@ -241,35 +228,5 @@ function WorkspaceRow({
         </Button>
       </span>
     </div>
-  );
-}
-
-function Setting({ title, children }: { title: string; children: ReactNode }) {
-  return (
-    <div className="flex flex-col gap-1.5 rounded-[3px] border border-line bg-panel-2 p-2">
-      <span className="text-xs font-medium text-ink">{title}</span>
-      {children}
-    </div>
-  );
-}
-
-function BandSettings() {
-  const { region, regions, ruler, setRegion, setRuler } = useBandPlan();
-
-  return (
-    <Settings>
-      <SettingRow label="Region">
-        <Select
-          label="Band plan region"
-          value={region ?? ""}
-          options={regions.map((entry) => ({ value: entry.id, label: entry.name }))}
-          onChange={setRegion}
-        />
-      </SettingRow>
-      <SettingRow label="Ruler">
-        <Checkbox label="Draw the ruler on every scope" checked={ruler} onChange={setRuler} />
-        <span className="text-xs text-ink-dim">Draw it on every scope</span>
-      </SettingRow>
-    </Settings>
   );
 }

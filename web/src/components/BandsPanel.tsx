@@ -1,38 +1,38 @@
 import { useState } from "react";
-import { pushToast } from "../lib/toasts";
-import type { ChannelParams, DeviceSet } from "../lib/types";
+import type { TuneTarget } from "../canvas/libraryTarget";
 import { useBandPlan } from "../lib/useBandPlan";
-import { useDevicePatch } from "../lib/useDevicePatch";
+import { useBandTune } from "../lib/useBandTune";
 import { Button, Input } from "./BaseControls";
 import { searchPlan, serviceEdge, serviceLabel } from "./bandPlan";
+import { Checkbox } from "./Checkbox";
 import { CHIP, FIELD, LABEL } from "./controls";
 import { formatHz } from "./format";
+import { Select } from "./Select";
 
 const LIMIT = 30;
 
-export function BandsPanel({ active }: { active: DeviceSet | null }) {
-  const { plan } = useBandPlan();
-  const { applyPatch } = useDevicePatch();
+export function BandsPanel({ target }: { target: TuneTarget | null }) {
+  const { plan, region, regions, ruler, setRegion, setRuler } = useBandPlan();
+  const tune = useBandTune(target);
   const [query, setQuery] = useState("");
 
   const hits = plan === null ? [] : searchPlan(plan, query, LIMIT);
-
-  const tune = (startHz: number, stopHz: number, suggested: ChannelParams | null): void => {
-    if (active === null) {
-      return;
-    }
-    applyPatch(active.id, { center_hz: startHz + (stopHz - startHz) / 2 });
-    if (suggested !== null) {
-      pushToast(
-        `${suggested.type.toUpperCase()} is the mode for this band — set it on a channel`,
-        "info",
-      );
-    }
-  };
+  const tunable = target !== null && !target.locked;
 
   return (
     <div className="flex flex-col gap-2 p-3">
-      {active === null && <span className="text-sm text-ink-dim">Select a device node first.</span>}
+      <div className="flex items-center gap-2">
+        <Select
+          label="Band plan region"
+          value={region ?? ""}
+          options={regions.map((entry) => ({ value: entry.id, label: entry.name }))}
+          onChange={setRegion}
+        />
+        <label className={`${LABEL} shrink-0 gap-1.5`}>
+          <Checkbox label="Draw the ruler on every scope" checked={ruler} onChange={setRuler} />
+          Ruler
+        </label>
+      </div>
 
       <Input
         className={FIELD}
@@ -43,13 +43,13 @@ export function BandsPanel({ active }: { active: DeviceSet | null }) {
       />
 
       {plan === null && <span className="text-sm text-ink-dim">Loading the band plan…</span>}
-      {plan !== null && query.trim() === "" && (
-        <span className="text-sm text-ink-dim">
-          Search {plan.region.name} by service, band name, wavelength or frequency.
-        </span>
-      )}
       {plan !== null && query.trim() !== "" && hits.length === 0 && (
         <span className="text-sm text-ink-dim">Nothing in {plan.region.name} matches that.</span>
+      )}
+      {!tunable && hits.length > 0 && (
+        <span className="text-sm text-ink-dim">
+          {target === null ? "Select a Device or decoder to tune." : "Tuning is locked here."}
+        </span>
       )}
 
       {hits.map((hit) => {
@@ -59,10 +59,8 @@ export function BandsPanel({ active }: { active: DeviceSet | null }) {
             <Button
               type="button"
               className="min-w-0 flex-1 rounded px-1 py-1 text-left transition-colors hover:bg-panel-2 disabled:opacity-40"
-              disabled={active === null}
-              onClick={() =>
-                tune(allocation.start_hz, allocation.stop_hz, allocation.suggested ?? null)
-              }
+              disabled={!tunable}
+              onClick={() => tune(allocation)}
             >
               <span className="flex items-center gap-1.5">
                 <span

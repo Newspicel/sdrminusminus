@@ -61,9 +61,11 @@ Presets are editable and stored on the server. Templates ship with the app and a
 
 ## Bookmarks and band plans
 
-A bookmark tunes the selected Device to a saved frequency without changing the graph.
+A bookmark saves the selected Device or decoder's frequency and tunes it back without changing
+the graph.
 
-Choose a band-plan region in the workspace menu. **Bands** searches allocations for that region.
+**Bands** chooses the band-plan region and searches its allocations. A hit tunes the selected
+Device, or the selected decoder — pulling its radio over when it cannot hear that frequency.
 Enable the Scope allocation ruler to browse them: hover for details or click to tune, using the
 usual mode when available.
 

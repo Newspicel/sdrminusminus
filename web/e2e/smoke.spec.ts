@@ -701,10 +701,8 @@ test.describe("the workspace", () => {
 
   test("keeps the band plan in the workspace, not in the browser", async ({ page }) => {
     await page.goto("/");
-    await page
-      .getByRole("button", { name: /workspace/i })
-      .first()
-      .click();
+    await page.getByRole("button", { name: "Library" }).click();
+    await page.getByRole("tab", { name: "Bands" }).click();
     const ruler = page.getByRole("checkbox", { name: /draw the ruler/i });
     await expect(ruler).toBeChecked();
     await ruler.click();

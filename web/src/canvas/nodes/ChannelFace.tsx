@@ -4,7 +4,6 @@ import { Button } from "../../components/BaseControls";
 import { ChannelControls, ChannelDial } from "../../components/ChannelControls";
 import { Checkbox } from "../../components/Checkbox";
 import {
-  mergeChannelSettings,
   radioWindowHz,
   rateMismatch,
   reachesHz,
@@ -20,7 +19,8 @@ import { devicesQuery } from "../../lib/api";
 import { useDecodedKind } from "../../lib/decoded";
 import { useLevelStore } from "../../lib/levels";
 import type { DeviceSet, PatchNode, PatchNodeOf } from "../../lib/types";
-import { type ChannelEdit, useChannelPatch } from "../../lib/useChannelPatch";
+import { channelSettingsOf, liveChannelOf, useChannelEdit } from "../../lib/useChannelEdit";
+import type { ChannelEdit } from "../../lib/useChannelPatch";
 import { forStream, useDevicePatch } from "../../lib/useDevicePatch";
 import { iqSourceOf } from "../binding";
 import { useWorkspaceContext } from "../context";
@@ -46,7 +46,7 @@ export function ChannelFace({ node }: { node: PatchNode }) {
   const set = deviceSetOf(workspace, node.id);
   const levels = useLevelStore((state) => (set === null ? undefined : state.byDeviceSet[set.id]));
   const attached = useQuery(devicesQuery());
-  const { applyEdit } = useChannelPatch();
+  const editChannel = useChannelEdit();
   const broadcasts = useDecodedKind("broadcast");
   if (node.kind !== "channel") {
     return null;
@@ -70,21 +70,9 @@ export function ChannelFace({ node }: { node: PatchNode }) {
       ? null
       : (forStream(set.settings, source?.stream ?? 0, set.capabilities.per_stream).center_hz ??
         null);
-  const live = channel === null || set === null ? null : { deviceSet: set.id, id: channel.id };
-  const settings =
-    channel?.settings ?? workspace.savedChannels.get(node.id) ?? descriptor?.defaults ?? null;
-  const onEdit = (edit: ChannelEdit): void => {
-    if (live !== null) {
-      applyEdit(live.deviceSet, live.id, edit);
-      return;
-    }
-    if (settings !== null) {
-      workspace.saveChannel(
-        node.id,
-        mergeChannelSettings(settings, typeof edit === "function" ? edit(settings) : edit),
-      );
-    }
-  };
+  const live = liveChannelOf(workspace, node.id);
+  const settings = channelSettingsOf(workspace, node.id);
+  const onEdit = (edit: ChannelEdit): void => editChannel(node.id, edit);
   const frequencyHz = settings?.frequency_hz ?? null;
   const wantedRate = rateMismatch(descriptor, set?.settings.sample_rate);
   const window = radioWindowHz(centerHz, set?.settings.sample_rate, descriptor);

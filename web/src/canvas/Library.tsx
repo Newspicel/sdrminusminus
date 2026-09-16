@@ -11,6 +11,7 @@ import { ToolsPanel } from "../tools/ToolsPanel";
 import { useWorkspaceContext } from "./context";
 import { FieldPanel } from "./FieldPanel";
 import { addNode, newNodeId, nodeIds } from "./graph";
+import { libraryTarget } from "./libraryTarget";
 import { recordingNodeFor } from "./nodes/recordingNode";
 import { useNodePlacement } from "./placement";
 
@@ -33,6 +34,7 @@ export function Library({ onOpenTool }: { onOpenTool: (id: string) => void }) {
   const drawn = [...workspace.devices.values()];
   const only = drawn.length === 1 ? (drawn[0] ?? null) : null;
   const active = selected ?? only;
+  const target = libraryTarget(workspace.graph, workspace.devices, workspace.selected);
 
   const openRecording = (recording: RecordingInfo): void => {
     const id = newNodeId("recording", nodeIds(workspace.graph));
@@ -66,10 +68,10 @@ export function Library({ onOpenTool }: { onOpenTool: (id: string) => void }) {
         <PresetsPanel />
       </Tabs.Panel>
       <Tabs.Panel value="bookmarks" className="max-h-[28rem] overflow-y-auto">
-        <BookmarksPanel active={active} />
+        <BookmarksPanel target={target} />
       </Tabs.Panel>
       <Tabs.Panel value="bands" className="max-h-[28rem] overflow-y-auto">
-        <BandsPanel active={active} />
+        <BandsPanel target={target} />
       </Tabs.Panel>
       <Tabs.Panel value="occupancy" className="max-h-[28rem] overflow-y-auto">
         <OccupancyPanel active={active} />

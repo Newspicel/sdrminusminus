@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { BandAllocation, BandBlock, BandLane, BandPlan } from "../lib/types";
 import {
+  bandTuneHz,
   coveredByLayer,
   identify,
   parseFrequency,
@@ -282,5 +283,28 @@ describe("serviceLabel", () => {
   it("spells an initialism as one and everything else as a word", () => {
     expect(serviceLabel("ism")).toBe("ISM");
     expect(serviceLabel("aeronautical")).toBe("Aeronautical");
+  });
+});
+
+describe("bandTuneHz", () => {
+  it("takes the middle of an unchannelised band", () => {
+    expect(bandTuneHz(allocation({ id: "fm", start_hz: 87_500_000, stop_hz: 108_000_000 }))).toBe(
+      97_750_000,
+    );
+  });
+
+  it("snaps to the channel grid a band is laid out on", () => {
+    const marine = allocation({
+      id: "marine",
+      start_hz: 156_000_000,
+      stop_hz: 156_062_500,
+      channel_step_hz: 25_000,
+    });
+    expect(bandTuneHz(marine)).toBe(156_025_000);
+  });
+
+  it("ignores a step that carries no grid", () => {
+    const band = allocation({ id: "b", start_hz: 100, stop_hz: 200, channel_step_hz: 0 });
+    expect(bandTuneHz(band)).toBe(150);
   });
 });

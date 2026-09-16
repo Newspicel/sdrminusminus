@@ -30,6 +30,15 @@ export interface BandIdentity {
   covered: BandAllocation[];
 }
 
+export function bandTuneHz(allocation: BandAllocation): number {
+  const middle = allocation.start_hz + (allocation.stop_hz - allocation.start_hz) / 2;
+  const step = allocation.channel_step_hz;
+  if (step == null || !(step > 0)) {
+    return middle;
+  }
+  return allocation.start_hz + Math.round((middle - allocation.start_hz) / step) * step;
+}
+
 export function spansIn(
   plan: BandPlan,
   lane: BandLane,
