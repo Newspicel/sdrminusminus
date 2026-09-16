@@ -20,6 +20,15 @@ pub struct Decoder {
     video_spec: Option<(Pixel, u32, u32, u32)>,
 }
 
+// A decoder handed noise complains to stderr about every frame it cannot make sense of, which a
+// receiver tuned away from a transmitter does constantly. Every one of those is already reported
+// through the channel's own error and frame counters, so the library's copy is duplicate output
+// that the process has to write from the decode thread.
+fn silence_library_logging() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| av::util::log::set_level(av::util::log::Level::Fatal));
+}
+
 impl Decoder {
     pub fn recover(&mut self) -> Result<(), String> {
         let raw: ffi::AVCodecID = self.kind.id().into();
@@ -38,6 +47,7 @@ impl Decoder {
     }
 
     pub fn new(kind: Kind) -> Result<Self, String> {
+        silence_library_logging();
         let id = kind.id();
         let codec =
             av::decoder::find(id).ok_or_else(|| format!("Decoder unavailable: {kind:?}"))?;
