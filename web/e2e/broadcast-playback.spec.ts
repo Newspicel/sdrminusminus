@@ -24,21 +24,18 @@ for (const system of ["dab", "dvbt", "dvbs", "dvbs2", "dvbs2x", "dvbs2sf"] as co
     });
     const type = system.startsWith("dvbs") ? "datv" : system;
     const sink = system === "dab" ? "readout" : "video";
+    const key = `broadcast-${system}`;
     const inventory = await page.request.get("/api/devices").then((r) => r.json());
-    const recording = inventory.devices.find((item: { key: string }) =>
-      item.key.endsWith(`broadcast-${system}`),
-    );
-    expect(recording).toBeDefined();
-    const key: string = recording.key;
+    expect(inventory.devices.find((item: { key: string }) => item.key === key)).toBeDefined();
     const snapshot: WorkspaceSnapshot = {
       version: 3,
       graph: {
         nodes: [
           {
-            id: "radio",
-            kind: "device",
+            id: "source",
+            kind: "recording",
             position: { x: 0, y: 0 },
-            data: { device: { backend: "virtual", key } },
+            data: { recording: key },
           },
           {
             id: "broadcast",
@@ -50,7 +47,7 @@ for (const system of ["dab", "dvbt", "dvbs", "dvbs2", "dvbs2x", "dvbs2sf"] as co
           { id: "display", kind: sink, position: { x: 800, y: 300 } },
         ],
         edges: [
-          { from: { node: "radio", port: "iq" }, to: { node: "broadcast", port: "iq" } },
+          { from: { node: "source", port: "iq" }, to: { node: "broadcast", port: "iq" } },
           { from: { node: "broadcast", port: "audio" }, to: { node: "speaker", port: "audio" } },
           {
             from: { node: "broadcast", port: system === "dab" ? "events" : "video" },

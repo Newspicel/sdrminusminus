@@ -200,8 +200,7 @@ test.describe("the workspace", () => {
     const capture = library.getByRole("button", { name: /Tower watch/i });
     await expect(capture).toBeVisible();
     await expect(capture).toContainText("100.0000 MHz · 2.048 MS/s · 2.0 s · 32.768 MB");
-    await expect(capture).toContainText("RTL-SDR 00000001 · capture-099 · #airband");
-    await expect(capture).toHaveAttribute("title", "EDDF ground");
+    await expect(capture).toHaveAttribute("title", /RTL-SDR 00000001 · capture-099 · #airband$/);
     await expect(library.getByRole("button", { name: /capture-000/i })).toHaveCount(0);
     await library.getByRole("button", { name: "Remove Recording" }).click();
     await expect(library).toHaveCount(0);

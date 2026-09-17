@@ -60,7 +60,10 @@ test.describe("the source nodes", () => {
   });
 
   test("the device node no longer offers recordings", async ({ page }) => {
-    const device = page.locator('.react-flow__node[data-id="device"]');
+    await page.getByRole("button", { name: "Add a node" }).click();
+    await page.getByRole("button", { name: "Device", exact: true }).click();
+
+    const device = page.locator('.react-flow__node[data-id^="device:"]').last();
     await device.locator("header").click();
     const source = device.getByRole("group", { name: "Radio source" });
     await expect(source).toBeVisible();

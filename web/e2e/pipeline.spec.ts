@@ -83,8 +83,8 @@ for (const fallback of [false, true]) {
         )
         .toBeGreaterThan(0);
       await expect(
-        page.locator('.react-flow__node[data-id="radio"]').getByText("running", { exact: true }),
-      ).toBeVisible();
+        page.locator('.react-flow__node[data-id="radio"]').getByRole("status"),
+      ).toHaveText("1/1");
       if (fallback) expect(workers.some((url) => url.includes("opusWorker"))).toBe(true);
       await speaker.getByRole("button", { name: "Stop", exact: true }).click();
       await expect(speaker.getByRole("button", { name: "Play", exact: true })).toBeVisible();
