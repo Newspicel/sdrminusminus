@@ -77,6 +77,7 @@ RUN cargo build --profile "$PROFILE" --locked -p sdrmm --no-default-features --f
 COPY crates crates
 COPY apps apps
 COPY xtask xtask
+COPY fixtures/broadcast_audio fixtures/broadcast_audio
 COPY --from=web /web/dist web/dist
 # The touch is load-bearing: cargo decides freshness by mtime, and context files older than the
 # stub rlibs built above would leave those empty stubs in the shipped binary.

@@ -14,17 +14,21 @@ web/node_modules
 web/dist
 apps/desktop/gen
 
-# Recorded IQ test fixtures — megabytes, and no build stage reads them.
-fixtures
+# Recorded IQ test fixtures, megabytes of them. Only broadcast_audio is kept: the signal
+# generator compiles those few encoded media files into the binary.
+fixtures/*
+!fixtures/broadcast_audio
 
 # The media stage builds FFmpeg itself; a developer's local build tree and prefix are megabytes
 # of context no stage reads.
 .media
 .media-build
 
-# Plans, docs and generated specs: not inputs to any stage (the TS client is checked in under
-# web/src/generated, so the image never needs openapi.json).
+# Plans, docs and generated specs: no stage reads them, apart from the notices the runtime
+# ships (the TS client is checked in under web/src/generated, so the image never needs
+# openapi.json).
 *.md
+!THIRD_PARTY_NOTICES.md
 openapi.json
 
 Dockerfile
