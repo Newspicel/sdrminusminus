@@ -141,3 +141,150 @@ pub(super) async fn delete_audio_recording(
     .await??;
     Ok(StatusCode::NO_CONTENT)
 }
+
+#[utoipa::path(
+    get, path = "/api/audiorecordings/{file}",
+    params(
+        ("file" = String, Path, description = "Audio recording file name, extension included"),
+        ("Range" = Option<String>, Header, description = "A `bytes=` window of the file"),
+    ),
+    responses(
+        (
+            status = 200,
+            description = "The recording as a WAV to play where it is asked for, rather than a \
+                           copy to save",
+            content((String = "audio/wav")),
+        ),
+        (
+            status = 206,
+            description = "The requested window of the file, which is what a media element asks \
+                           for when it seeks",
+            content((String = "audio/wav")),
+        ),
+        (status = 404, description = "Audio recording not found", body = ApiError),
+        (status = 416, description = "The requested window is past the end of the file"),
+    ),
+)]
+pub(super) async fn play_audio_recording(
+    State(state): State<AppState>,
+    Path(file): Path<String>,
+    headers: axum::http::HeaderMap,
+) -> Result<Response, AppError> {
+    let name = file.clone();
+    let (mut handle, len) =
+        tokio::task::spawn_blocking(move || -> Result<(std::fs::File, u64), AppError> {
+            let path = audio_recording_path(&state, &file)?;
+            let handle = std::fs::File::open(&path)
+                .map_err(|err| AppError::internal(format!("open {}: {err}", path.display())))?;
+            let len = handle
+                .metadata()
+                .map_err(|err| AppError::internal(format!("stat {}: {err}", path.display())))?
+                .len();
+            Ok((handle, len))
+        })
+        .await??;
+
+    let asked = headers
+        .get(header::RANGE)
+        .and_then(|value| value.to_str().ok());
+    let window = byte_window(asked, len);
+    if window == Window::Unsatisfiable {
+        return Ok((
+            StatusCode::RANGE_NOT_SATISFIABLE,
+            [(header::CONTENT_RANGE, format!("bytes */{len}"))],
+        )
+            .into_response());
+    }
+
+    let (status, span) = match window {
+        Window::Part(first, last) => {
+            std::io::Seek::seek(&mut handle, std::io::SeekFrom::Start(first))
+                .map_err(|err| AppError::internal(format!("seek {name}: {err}")))?;
+            (StatusCode::PARTIAL_CONTENT, last - first + 1)
+        }
+        _ => (StatusCode::OK, len),
+    };
+    let mut response = Response::builder()
+        .status(status)
+        .header(header::CONTENT_TYPE, "audio/wav")
+        .header(
+            header::CONTENT_DISPOSITION,
+            format!("inline; filename=\"{name}\""),
+        )
+        .header(header::CACHE_CONTROL, "private, max-age=3600")
+        .header(header::ACCEPT_RANGES, "bytes")
+        .header(header::CONTENT_LENGTH, span);
+    if let Window::Part(first, last) = window {
+        response = response.header(header::CONTENT_RANGE, format!("bytes {first}-{last}/{len}"));
+    }
+    response
+        .body(Body::from_stream(byte_stream(std::io::Read::take(
+            handle, span,
+        ))))
+        .map_err(|err| AppError::internal(format!("serve {name}: {err}")))
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Window {
+    Whole,
+    Part(u64, u64),
+    Unsatisfiable,
+}
+
+fn byte_window(header: Option<&str>, len: u64) -> Window {
+    let Some(spec) = header.map(str::trim).and_then(|h| h.strip_prefix("bytes=")) else {
+        return Window::Whole;
+    };
+    let spec = spec.trim();
+    if spec.contains(',') {
+        return Window::Whole;
+    }
+    let Some((first, last)) = spec.split_once('-') else {
+        return Window::Whole;
+    };
+    let Some(end) = len.checked_sub(1) else {
+        return Window::Unsatisfiable;
+    };
+    match (first.trim(), last.trim()) {
+        ("", "") => Window::Whole,
+        ("", suffix) => match suffix.parse::<u64>() {
+            Ok(0) => Window::Unsatisfiable,
+            Ok(want) => Window::Part(len.saturating_sub(want), end),
+            Err(_) => Window::Whole,
+        },
+        (start, "") => match start.parse::<u64>() {
+            Ok(start) if start <= end => Window::Part(start, end),
+            Ok(_) => Window::Unsatisfiable,
+            Err(_) => Window::Whole,
+        },
+        (start, stop) => match (start.parse::<u64>(), stop.parse::<u64>()) {
+            (Ok(start), Ok(stop)) if start > stop => Window::Whole,
+            (Ok(start), Ok(stop)) if start <= end => Window::Part(start, stop.min(end)),
+            (Ok(_), Ok(_)) => Window::Unsatisfiable,
+            _ => Window::Whole,
+        },
+    }
+}
+
+#[utoipa::path(
+    post, path = "/api/audiorecordings/{file}/reveal",
+    params(("file" = String, Path, description = "Audio recording file name, extension included")),
+    responses(
+        (status = 204, description = "The file is selected in the machine's file manager"),
+        (
+            status = 404,
+            description = "Audio recording not found, or this server has no file manager",
+            body = ApiError,
+        ),
+    ),
+)]
+pub(super) async fn reveal_audio_recording(
+    State(state): State<AppState>,
+    Path(file): Path<String>,
+) -> Result<StatusCode, AppError> {
+    tokio::task::spawn_blocking(move || -> Result<StatusCode, AppError> {
+        let path = audio_recording_path(&state, &file)?;
+        reveal_path(&state, &path)
+    })
+    .await?
+}

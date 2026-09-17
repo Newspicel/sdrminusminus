@@ -109,7 +109,51 @@ fn state_over(store: Arc<Store>) -> AppState {
     state
 }
 
+#[derive(Debug, Default)]
+struct FakeShell {
+    shown: std::sync::Mutex<Vec<PathBuf>>,
+}
+
+impl FakeShell {
+    fn shown(&self) -> Vec<PathBuf> {
+        self.shown
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
+    }
+}
+
+impl NativeShell for FakeShell {
+    fn reveal(&self, path: &Path) -> std::io::Result<()> {
+        self.shown
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .push(path.to_path_buf());
+        Ok(())
+    }
+}
+
+fn recording_router_with_shell(dir: &Path) -> (Router, Arc<FakeShell>) {
+    let shell = Arc::new(FakeShell::default());
+    let state = recording_state(dir);
+    let (router, background) = router_with_state(
+        state,
+        &ServerOptions {
+            shell: Some(shell.clone()),
+            ..ServerOptions::default()
+        },
+    );
+    background.detach();
+    (router, shell)
+}
+
 fn recording_router(dir: &Path) -> Router {
+    let (router, background) = router_with_state(recording_state(dir), &ServerOptions::default());
+    background.detach();
+    router
+}
+
+fn recording_state(dir: &Path) -> AppState {
     let mut registry = sdrmm_device::DeviceRegistry::new();
     registry.register(1, Box::new(sdrmm_device_virtual::VirtualDriver::new()));
     registry.register(1, Box::new(sdrmm_device_siggen::SigGenDriver::new()));
@@ -119,13 +163,10 @@ fn recording_router(dir: &Path) -> Router {
             dir.to_path_buf(),
         ))),
     );
-    let state = AppState::new(
+    AppState::new(
         Engine::with_registry(registry, Some(dir.to_path_buf())),
         Arc::new(Store::open(None).expect("in-memory store")),
-    );
-    let (router, background) = router_with_state(state, &ServerOptions::default());
-    background.detach();
-    router
+    )
 }
 
 async fn request(app: Router, method: &str, uri: &str, body: Option<&str>) -> (StatusCode, Bytes) {

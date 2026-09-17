@@ -1,7 +1,7 @@
 use std::{
     collections::HashSet,
     net::SocketAddr,
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::{
         Arc,
         atomic::{AtomicU64, Ordering},
@@ -52,11 +52,16 @@ mod ws;
 
 pub use store::{Store, StoreError};
 
+pub trait NativeShell: Send + Sync + std::fmt::Debug {
+    fn reveal(&self, path: &Path) -> std::io::Result<()>;
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct ServerOptions {
     pub dev_cors: bool,
     pub token: Option<String>,
     pub routing: routing::RoutingOptions,
+    pub shell: Option<Arc<dyn NativeShell>>,
 }
 
 #[derive(Clone)]
@@ -82,6 +87,7 @@ pub(crate) struct AppState {
     pub(crate) cps: Arc<cps::CpsHub>,
     pub(crate) fusion: df_fusion::SharedFusion,
     pub(crate) routing: Arc<routing::RoutingOptions>,
+    pub(crate) shell: Option<Arc<dyn NativeShell>>,
 }
 
 impl AppState {
@@ -108,6 +114,7 @@ impl AppState {
             cps: Arc::new(cps::CpsHub::default()),
             fusion: Arc::new(df_fusion::FusionHub::default()),
             routing: Arc::new(routing::RoutingOptions::default()),
+            shell: None,
         }
     }
 
@@ -150,7 +157,8 @@ pub fn router(engine: Arc<Engine>, store: Store, options: &ServerOptions) -> Rou
     router
 }
 
-fn router_with_state(state: AppState, options: &ServerOptions) -> (Router, Background) {
+fn router_with_state(mut state: AppState, options: &ServerOptions) -> (Router, Background) {
+    state.shell = options.shell.clone();
     if let Some(token) = &options.token {
         diagnostics::hide_secret(token);
     }

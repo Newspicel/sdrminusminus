@@ -706,3 +706,165 @@ async fn an_upload_larger_than_a_json_body_is_still_taken_whole() {
         SAMPLES as u64 * sdrmm_recorder::BYTES_PER_SAMPLE
     );
 }
+
+#[tokio::test]
+async fn the_library_says_where_the_files_are() {
+    let dir = tempfile::TempDir::new().expect("tempdir");
+    let app = recording_router(dir.path());
+    let (status, body) = request(app, "GET", "/api/recordings", None).await;
+    assert_eq!(status, StatusCode::OK);
+    let listed: RecordingsResponse = serde_json::from_slice(&body).expect("json");
+    assert_eq!(
+        listed.dir.as_deref(),
+        Some(dir.path().display().to_string()).as_deref()
+    );
+}
+
+#[tokio::test]
+async fn a_desktop_shows_a_recording_where_it_lives() {
+    let dir = tempfile::TempDir::new().expect("tempdir");
+    let (app, shell) = recording_router_with_shell(dir.path());
+    let rec = recorded(&app).await;
+
+    let (status, _) = request(
+        app.clone(),
+        "POST",
+        &format!("/api/recordings/{}/reveal", rec.id),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+
+    let (status, _) = request(app, "POST", "/api/recordings/reveal", None).await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+
+    let shown = shell.shown();
+    assert_eq!(shown.len(), 2);
+    assert_eq!(
+        shown[0],
+        sdrmm_recorder::data_path(&dir.path().join(&rec.file))
+    );
+    assert_eq!(shown[1], dir.path());
+}
+
+#[tokio::test]
+async fn channel_audio_plays_where_it_is_listed_and_shows_in_the_folder() {
+    let dir = tempfile::TempDir::new().expect("tempdir");
+    let (app, shell) = recording_router_with_shell(dir.path());
+    let audio = dir.path().join("audio");
+    std::fs::create_dir_all(&audio).expect("audio dir");
+    let clip = audio.join("clip.wav");
+    std::fs::write(&clip, b"RIFF").expect("write clip");
+
+    let (status, headers, body) = request_parts(
+        app.clone(),
+        "GET",
+        "/api/audiorecordings/clip.wav",
+        None,
+        &[],
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(header_value(&headers, "content-type"), "audio/wav");
+    assert!(header_value(&headers, "content-disposition").starts_with("inline"));
+    assert_eq!(header_value(&headers, "accept-ranges"), "bytes");
+    assert_eq!(body.as_ref(), b"RIFF");
+
+    let (status, _) = request(
+        app.clone(),
+        "POST",
+        "/api/audiorecordings/clip.wav/reveal",
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    assert_eq!(shell.shown(), vec![clip]);
+
+    let (status, _) = request(
+        app,
+        "POST",
+        "/api/audiorecordings/..%2F..%2Fescape.wav/reveal",
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn a_server_with_no_file_manager_refuses_to_show_anything() {
+    let dir = tempfile::TempDir::new().expect("tempdir");
+    let app = recording_router(dir.path());
+    let rec = recorded(&app).await;
+
+    for uri in [
+        "/api/recordings/reveal".to_string(),
+        format!("/api/recordings/{}/reveal", rec.id),
+    ] {
+        let (status, _) = request(app.clone(), "POST", &uri, None).await;
+        assert_eq!(status, StatusCode::NOT_FOUND, "{uri}");
+    }
+
+    let (status, body) = request(app, "GET", "/api/about", None).await;
+    assert_eq!(status, StatusCode::OK);
+    let about: sdrmm_wire::AboutResponse = serde_json::from_slice(&body).expect("json");
+    assert!(!about.reveal);
+}
+
+#[tokio::test]
+async fn a_player_can_seek_into_channel_audio() {
+    let dir = tempfile::TempDir::new().expect("tempdir");
+    let app = recording_router(dir.path());
+    let audio = dir.path().join("audio");
+    std::fs::create_dir_all(&audio).expect("audio dir");
+    std::fs::write(audio.join("clip.wav"), b"0123456789").expect("write clip");
+
+    let asked = |range: &'static str| {
+        let app = app.clone();
+        async move {
+            request_parts(
+                app,
+                "GET",
+                "/api/audiorecordings/clip.wav",
+                None,
+                &[("range", range)],
+            )
+            .await
+        }
+    };
+
+    let (status, headers, body) = asked("bytes=2-5").await;
+    assert_eq!(status, StatusCode::PARTIAL_CONTENT);
+    assert_eq!(header_value(&headers, "content-range"), "bytes 2-5/10");
+    assert_eq!(header_value(&headers, "content-length"), "4");
+    assert_eq!(body.as_ref(), b"2345");
+
+    let (status, headers, body) = asked("bytes=7-").await;
+    assert_eq!(status, StatusCode::PARTIAL_CONTENT);
+    assert_eq!(header_value(&headers, "content-range"), "bytes 7-9/10");
+    assert_eq!(body.as_ref(), b"789");
+
+    let (status, _, body) = asked("bytes=-3").await;
+    assert_eq!(status, StatusCode::PARTIAL_CONTENT);
+    assert_eq!(body.as_ref(), b"789");
+
+    let (status, headers, _) = asked("bytes=20-").await;
+    assert_eq!(status, StatusCode::RANGE_NOT_SATISFIABLE);
+    assert_eq!(header_value(&headers, "content-range"), "bytes */10");
+
+    let (status, _, body) = asked("frames=1-2").await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body.as_ref(), b"0123456789");
+}
+
+#[tokio::test]
+async fn showing_the_folder_makes_it_before_a_first_recording() {
+    let dir = tempfile::TempDir::new().expect("tempdir");
+    let folder = dir.path().join("recordings");
+    let (app, shell) = recording_router_with_shell(&folder);
+    assert!(!folder.exists());
+
+    let (status, _) = request(app, "POST", "/api/recordings/reveal", None).await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    assert!(folder.is_dir());
+    assert_eq!(shell.shown(), vec![folder]);
+}

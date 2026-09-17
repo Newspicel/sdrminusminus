@@ -58,6 +58,9 @@ env:
   # are bumped by different tools and must move together.
   PNPM_VERSION: 11.15.1
   NODE_VERSION: 26
+  # The desktop updater reads this at compile time and stays off unless it is set, so a nightly,
+  # a rehearsal and a developer's own build never replace themselves with the latest release.
+  SDRMM_RELEASE: ${{ github.ref_type == 'tag' && '1' || '' }}
 
 jobs:
   version:

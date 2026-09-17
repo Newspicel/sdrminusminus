@@ -84,7 +84,7 @@ SDR-- drives the RTL2832U and its R82xx tuner itself, in Rust, over its own USB 
 
 Opened at runtime from whatever SoapySDR the host has installed, and never linked or distributed by this project. A release that finds none simply reports no SoapySDR hardware. The modules it loads, and their licenses, belong to that installation.
 
-## Rust crates (748)
+## Rust crates (773)
 
 | Component | Version | License |
 | --- | --- | --- |
@@ -107,8 +107,15 @@ Opened at runtime from whatever SoapySDR the host has installed, and never linke
 | [asn1-rs](https://github.com/rusticata/asn1-rs.git) | 0.7.2 | MIT OR Apache-2.0 |
 | [asn1-rs-derive](https://github.com/rusticata/asn1-rs.git) | 0.6.0 | MIT OR Apache-2.0 |
 | [asn1-rs-impl](https://github.com/rusticata/asn1-rs.git) | 0.2.0 | MIT/Apache-2.0 |
+| [async-broadcast](https://github.com/smol-rs/async-broadcast) | 0.7.2 | MIT OR Apache-2.0 |
 | [async-channel](https://github.com/smol-rs/async-channel) | 2.5.0 | Apache-2.0 OR MIT |
 | [async-compression](https://github.com/Nullus157/async-compression) | 0.4.44 | MIT OR Apache-2.0 |
+| [async-executor](https://github.com/smol-rs/async-executor) | 1.14.0 | Apache-2.0 OR MIT |
+| [async-io](https://github.com/smol-rs/async-io) | 2.6.0 | Apache-2.0 OR MIT |
+| [async-lock](https://github.com/smol-rs/async-lock) | 3.4.2 | Apache-2.0 OR MIT |
+| [async-process](https://github.com/smol-rs/async-process) | 2.5.0 | Apache-2.0 OR MIT |
+| [async-recursion](https://github.com/dcchut/async-recursion) | 1.1.1 | MIT OR Apache-2.0 |
+| [async-signal](https://github.com/smol-rs/async-signal) | 0.2.14 | Apache-2.0 OR MIT |
 | [async-task](https://github.com/smol-rs/async-task) | 4.7.1 | Apache-2.0 OR MIT |
 | [async-trait](https://github.com/dtolnay/async-trait) | 0.1.92 | MIT OR Apache-2.0 |
 | [async-tungstenite](https://github.com/sdroege/async-tungstenite) | 0.34.1 | MIT |
@@ -242,6 +249,9 @@ Opened at runtime from whatever SoapySDR the host has installed, and never linke
 | [embed-resource](https://github.com/nabijaczleweli/rust-embed-resource) | 3.0.11 | MIT |
 | [embed_plist](https://github.com/nvzqz/embed-plist-rs) | 1.2.2 | MIT OR Apache-2.0 |
 | [encoding_rs](https://github.com/hsivonen/encoding_rs) | 0.8.41 | (Apache-2.0 OR MIT) AND BSD-3-Clause |
+| [endi](https://github.com/zeenix/endi) | 1.1.1 | MIT |
+| [enumflags2](https://github.com/meithecatte/enumflags2) | 0.7.12 | MIT OR Apache-2.0 |
+| [enumflags2_derive](https://github.com/meithecatte/enumflags2) | 0.7.12 | MIT OR Apache-2.0 |
 | [equivalent](https://github.com/indexmap-rs/equivalent) | 1.0.2 | Apache-2.0 OR MIT |
 | [erased-serde](https://github.com/dtolnay/erased-serde) | 0.4.10 | MIT OR Apache-2.0 |
 | [errno](https://github.com/lambda-fairy/rust-errno) | 0.3.14 | MIT OR Apache-2.0 |
@@ -312,6 +322,7 @@ Opened at runtime from whatever SoapySDR the host has installed, and never linke
 | [hashlink](https://github.com/djc/hashlink) | 0.12.1 | MIT OR Apache-2.0 |
 | [heck](https://github.com/withoutboats/heck) | 0.4.1 | MIT OR Apache-2.0 |
 | [heck](https://github.com/withoutboats/heck) | 0.5.0 | MIT OR Apache-2.0 |
+| [hermit-abi](https://github.com/hermit-os/hermit-rs) | 0.5.3 | MIT OR Apache-2.0 |
 | [hex](https://github.com/KokaKiwi/rust-hex) | 0.4.3 | MIT OR Apache-2.0 |
 | [html5ever](https://github.com/servo/html5ever) | 0.38.0 | MIT OR Apache-2.0 |
 | [http](https://github.com/hyperium/http) | 1.5.0 | MIT OR Apache-2.0 |
@@ -343,6 +354,8 @@ Opened at runtime from whatever SoapySDR the host has installed, and never linke
 | [io-kit-sys](https://github.com/jtakakura/io-kit-rs) | 0.4.1 | MIT / Apache-2.0 |
 | [io-kit-sys](https://github.com/jtakakura/io-kit-rs) | 0.5.0 | MIT OR Apache-2.0 |
 | [ipnet](https://github.com/krisprice/ipnet) | 2.12.1 | MIT OR Apache-2.0 |
+| [is-docker](https://github.com/TheLarkInn/is-docker) | 0.2.0 | MIT |
+| [is-wsl](https://github.com/TheLarkInn/is-wsl) | 0.4.0 | MIT |
 | [is_terminal_polyfill](https://github.com/polyfill-rs/is_terminal_polyfill) | 1.70.2 | MIT OR Apache-2.0 |
 | [itertools](https://github.com/rust-itertools/itertools) | 0.13.0 | MIT OR Apache-2.0 |
 | [itoa](https://github.com/dtolnay/itoa) | 1.0.18 | MIT OR Apache-2.0 |
@@ -453,11 +466,13 @@ Opened at runtime from whatever SoapySDR the host has installed, and never linke
 | [oid-registry](https://github.com/rusticata/oid-registry.git) | 0.8.1 | MIT OR Apache-2.0 |
 | [once_cell](https://github.com/matklad/once_cell) | 1.21.4 | MIT OR Apache-2.0 |
 | [once_cell_polyfill](https://github.com/polyfill-rs/once_cell_polyfill) | 1.70.2 | MIT OR Apache-2.0 |
+| [open](https://github.com/Byron/open-rs) | 5.4.4 | MIT |
 | [openssl-probe](https://github.com/rustls/openssl-probe) | 0.2.1 | MIT OR Apache-2.0 |
 | [option-ext](https://github.com/soc/option-ext.git) | 0.2.0 | MPL-2.0 |
 | [opus](https://github.com/SpaceManiac/opus-rs) | 0.4.0 | MIT/Apache-2.0 |
 | [opusic-sys](https://github.com/DoumanAsh/opusic-sys) | 0.7.5 | BSD-3-Clause |
 | [ordered-float](https://github.com/reem/rust-ordered-float) | 5.5.0 | MIT |
+| [ordered-stream](https://github.com/danieldg/ordered-stream) | 0.2.0 | MIT OR Apache-2.0 |
 | [osakit](https://github.com/mdevils/rust-osakit) | 0.3.1 | MIT OR Apache-2.0 |
 | [pango](https://github.com/gtk-rs/gtk-rs-core) | 0.18.3 | MIT |
 | [pango-sys](https://github.com/gtk-rs/gtk-rs-core) | 0.18.0 | MIT |
@@ -479,6 +494,7 @@ Opened at runtime from whatever SoapySDR the host has installed, and never linke
 | [plist](https://github.com/ebarnard/rust-plist/) | 1.10.0 | MIT |
 | [png](https://github.com/image-rs/image-png) | 0.17.16 | MIT OR Apache-2.0 |
 | [png](https://github.com/image-rs/image-png) | 0.18.1 | MIT OR Apache-2.0 |
+| [polling](https://github.com/smol-rs/polling) | 3.11.0 | Apache-2.0 OR MIT |
 | [pollster](https://github.com/zesterer/pollster) | 1.0.1 | Apache-2.0/MIT |
 | [portable-atomic](https://github.com/taiki-e/portable-atomic) | 1.15.0 | Apache-2.0 OR MIT |
 | [portable-atomic-util](https://github.com/taiki-e/portable-atomic-util) | 0.2.7 | Apache-2.0 OR MIT |
@@ -631,6 +647,7 @@ Opened at runtime from whatever SoapySDR the host has installed, and never linke
 | [tauri-plugin](https://github.com/tauri-apps/tauri) | 2.6.3 | Apache-2.0 OR MIT |
 | [tauri-plugin-dialog](https://github.com/tauri-apps/plugins-workspace) | 2.7.3 | Apache-2.0 OR MIT |
 | [tauri-plugin-fs](https://github.com/tauri-apps/plugins-workspace) | 2.5.2 | Apache-2.0 OR MIT |
+| [tauri-plugin-opener](https://github.com/tauri-apps/plugins-workspace) | 2.5.5 | Apache-2.0 OR MIT |
 | [tauri-plugin-updater](https://github.com/tauri-apps/plugins-workspace) | 2.11.0 | Apache-2.0 OR MIT |
 | [tauri-runtime](https://github.com/tauri-apps/tauri) | 2.11.3 | Apache-2.0 OR MIT |
 | [tauri-runtime-wry](https://github.com/tauri-apps/tauri) | 2.11.4 | Apache-2.0 OR MIT |
@@ -684,6 +701,7 @@ Opened at runtime from whatever SoapySDR the host has installed, and never linke
 | [tungstenite](https://github.com/snapview/tungstenite-rs) | 0.29.0 | MIT OR Apache-2.0 |
 | [typeid](https://github.com/dtolnay/typeid) | 1.0.3 | MIT OR Apache-2.0 |
 | [typenum](https://github.com/paholg/typenum) | 1.20.1 | MIT OR Apache-2.0 |
+| [uds_windows](https://github.com/haraldh/rust_uds_windows) | 1.2.1 | MIT |
 | [unescaper](https://github.com/hack-ink/unescaper) | 0.1.10 | MIT OR GPL-3.0-only |
 | [unic-char-property](https://github.com/open-i18n/rust-unic/) | 0.9.0 | MIT/Apache-2.0 |
 | [unic-char-range](https://github.com/open-i18n/rust-unic/) | 0.9.0 | MIT/Apache-2.0 |
@@ -823,6 +841,10 @@ Opened at runtime from whatever SoapySDR the host has installed, and never linke
 | [yasna](https://github.com/qnighy/yasna.rs) | 0.6.0 | MIT OR Apache-2.0 |
 | [yoke](https://github.com/unicode-org/icu4x) | 0.8.3 | Unicode-3.0 |
 | [yoke-derive](https://github.com/unicode-org/icu4x) | 0.8.2 | Unicode-3.0 |
+| [zbus](https://github.com/z-galaxy/zbus/) | 5.19.0 | MIT |
+| [zbus_macros](https://github.com/z-galaxy/zbus/) | 5.19.0 | MIT |
+| [zbus_names](https://github.com/z-galaxy/zbus/) | 4.3.4 | MIT |
+| [zcheapstr](https://github.com/z-galaxy/zcheapstr/) | 1.1.0 | MIT |
 | [zerocopy](https://github.com/google/zerocopy) | 0.8.56 | BSD-2-Clause OR Apache-2.0 OR MIT |
 | [zerocopy-derive](https://github.com/google/zerocopy) | 0.8.56 | BSD-2-Clause OR Apache-2.0 OR MIT |
 | [zerofrom](https://github.com/unicode-org/icu4x) | 0.1.8 | Unicode-3.0 |
@@ -836,6 +858,9 @@ Opened at runtime from whatever SoapySDR the host has installed, and never linke
 | [zlib-rs](https://github.com/trifectatechfoundation/zlib-rs) | 0.6.7 | Zlib |
 | [zmij](https://github.com/dtolnay/zmij) | 1.0.23 | MIT |
 | [zopfli](https://github.com/zopfli-rs/zopfli) | 0.8.3 | Apache-2.0 |
+| [zvariant](https://github.com/z-galaxy/zbus/) | 5.15.0 | MIT |
+| [zvariant_derive](https://github.com/z-galaxy/zbus/) | 5.15.0 | MIT |
+| [zvariant_utils](https://github.com/z-galaxy/zbus/) | 4.2.0 | MIT |
 
 ## Web packages (69)
 

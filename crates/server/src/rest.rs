@@ -246,6 +246,22 @@ pub(crate) fn lock_gate(gate: &std::sync::Mutex<()>) -> std::sync::MutexGuard<'_
         .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
+pub(crate) fn reveal_path(
+    state: &AppState,
+    path: &std::path::Path,
+) -> Result<StatusCode, AppError> {
+    let shell = state.shell.as_ref().ok_or_else(|| {
+        AppError::not_found("this server has no file manager to show a recording in".to_string())
+            .with_detail(
+                "only the desktop app, which runs beside the recordings, can open one".to_string(),
+            )
+    })?;
+    shell
+        .reveal(path)
+        .map_err(|err| AppError::internal(format!("show {}: {err}", path.display())))?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
 pub(crate) fn reconcile_recordings(dir: &std::path::Path, store: &Store) -> Result<(), AppError> {
     let stems = scan_stems(dir)
         .map_err(|err| AppError::internal(format!("scan {}: {err}", dir.display())))?;
@@ -349,7 +365,8 @@ pub(crate) fn openapi_router() -> OpenApiRouter<AppState> {
         .routes(routes!(time_machine_device_set))
         .routes(routes!(list_audio_recordings))
         .routes(routes!(download_audio_recording))
-        .routes(routes!(delete_audio_recording))
+        .routes(routes!(play_audio_recording, delete_audio_recording))
+        .routes(routes!(reveal_audio_recording))
         .routes(routes!(network_export_device_set))
         .routes(routes!(control_playback))
         .merge(
@@ -358,6 +375,8 @@ pub(crate) fn openapi_router() -> OpenApiRouter<AppState> {
                 .layer(DefaultBodyLimit::max(upload_limit())),
         )
         .routes(routes!(delete_recording))
+        .routes(routes!(reveal_recordings_dir))
+        .routes(routes!(reveal_recording))
         .routes(routes!(annotate_recording))
         .routes(routes!(download_recording))
         .routes(routes!(list_decoder_log, clear_decoder_log))

@@ -3,8 +3,10 @@ use tauri::AppHandle;
 use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
 use tauri_plugin_updater::UpdaterExt;
 
+const RELEASE: Option<&str> = option_env!("SDRMM_RELEASE");
+
 pub fn spawn(app: &AppHandle) {
-    if let Some(reason) = unsupported() {
+    if let Some(reason) = skipped() {
         tracing::info!("update check skipped: {reason}");
         return;
     }
@@ -50,6 +52,15 @@ async fn prompt(app: &AppHandle, version: &str) -> bool {
             let _ = tx.send(install);
         });
     rx.await.unwrap_or(false)
+}
+
+fn skipped() -> Option<&'static str> {
+    if RELEASE.is_none_or(str::is_empty) {
+        return Some(
+            "not built from a release tag; dev and nightly builds never replace themselves",
+        );
+    }
+    unsupported()
 }
 
 #[cfg(target_os = "linux")]

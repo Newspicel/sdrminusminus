@@ -267,6 +267,7 @@ pub(super) async fn get_about(State(state): State<AppState>) -> Json<AboutRespon
         lan_addresses: crate::notices::lan_addresses(),
         routing: state.routing.configured(),
         offline_basemap: crate::basemap::basemap_path(&state).is_some(),
+        reveal: state.shell.is_some(),
         ..crate::notices::about()
     })
 }

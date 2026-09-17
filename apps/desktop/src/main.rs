@@ -7,6 +7,7 @@ use sdrmm_engine::Engine;
 use tauri::{Manager, RunEvent, WebviewUrl, WebviewWindowBuilder};
 
 mod graphics;
+mod reveal;
 mod update;
 
 fn main() -> anyhow::Result<()> {
@@ -35,7 +36,14 @@ fn main() -> anyhow::Result<()> {
             let store = sdrmm_server::Store::open(Some(&data_dir.join("sdrmm.db")))?;
             let router = {
                 let _entered = tauri::async_runtime::handle().inner().enter();
-                sdrmm_server::router(engine, store, &sdrmm_server::ServerOptions::default())
+                sdrmm_server::router(
+                    engine,
+                    store,
+                    &sdrmm_server::ServerOptions {
+                        shell: Some(Arc::new(reveal::Shell)),
+                        ..sdrmm_server::ServerOptions::default()
+                    },
+                )
             };
             tauri::async_runtime::spawn(async move {
                 if let Err(e) = axum::serve(listener, router).await {

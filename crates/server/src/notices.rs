@@ -31,6 +31,7 @@ pub fn about() -> AboutResponse {
         lan_addresses: Vec::new(),
         routing: false,
         offline_basemap: false,
+        reveal: false,
     }
 }
 

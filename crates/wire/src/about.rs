@@ -55,6 +55,11 @@ pub struct AboutResponse {
     /// basemap with no internet at all.
     #[serde(default)]
     pub offline_basemap: bool,
+    /// Whether this server can show a file in the machine's own file manager. Only the desktop
+    /// app, which runs on the machine holding the recordings, offers it; a browser reaching a
+    /// server elsewhere gets download links instead.
+    #[serde(default)]
+    pub reveal: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]

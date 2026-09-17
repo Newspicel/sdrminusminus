@@ -346,6 +346,18 @@ export function audioRecordingDownloadUrl(file: string): string {
   return withToken(`/api/audiorecordings/${encodeURIComponent(file)}/download`);
 }
 
+export function audioRecordingUrl(file: string): string {
+  return withToken(`/api/audiorecordings/${encodeURIComponent(file)}`);
+}
+
+export async function revealAudioRecording(file: string): Promise<void> {
+  unwrap(
+    await client.POST("/api/audiorecordings/{file}/reveal", {
+      params: { path: { file } },
+    }),
+  );
+}
+
 export async function deleteAudioRecording(file: string): Promise<void> {
   unwrap(
     await client.DELETE("/api/audiorecordings/{file}", {
@@ -467,6 +479,14 @@ export async function deleteRecording(id: number): Promise<void> {
       params: { path: { id } },
     }),
   );
+}
+
+export async function revealRecording(id: number): Promise<void> {
+  unwrap(await client.POST("/api/recordings/{id}/reveal", { params: { path: { id } } }));
+}
+
+export async function revealRecordingsDir(): Promise<void> {
+  unwrap(await client.POST("/api/recordings/reveal", {}));
 }
 
 export function templatesQuery() {

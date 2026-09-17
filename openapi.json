@@ -86,6 +86,67 @@
       }
     },
     "/api/audiorecordings/{file}": {
+      "get": {
+        "operationId": "play_audio_recording",
+        "parameters": [
+          {
+            "name": "file",
+            "in": "path",
+            "description": "Audio recording file name, extension included",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Range",
+            "in": "header",
+            "description": "A `bytes=` window of the file",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The recording as a WAV to play where it is asked for, rather than a copy to save",
+            "content": {
+              "audio/wav": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "206": {
+            "description": "The requested window of the file, which is what a media element asks for when it seeks",
+            "content": {
+              "audio/wav": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Audio recording not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "416": {
+            "description": "The requested window is past the end of the file"
+          }
+        }
+      },
       "delete": {
         "operationId": "delete_audio_recording",
         "parameters": [
@@ -143,6 +204,37 @@
           },
           "404": {
             "description": "Audio recording not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/audiorecordings/{file}/reveal": {
+      "post": {
+        "operationId": "reveal_audio_recording",
+        "parameters": [
+          {
+            "name": "file",
+            "in": "path",
+            "description": "Audio recording file name, extension included",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "The file is selected in the machine's file manager"
+          },
+          "404": {
+            "description": "Audio recording not found, or this server has no file manager",
             "content": {
               "application/json": {
                 "schema": {
@@ -3153,6 +3245,26 @@
         }
       }
     },
+    "/api/recordings/reveal": {
+      "post": {
+        "operationId": "reveal_recordings_dir",
+        "responses": {
+          "204": {
+            "description": "The recordings folder is open in the machine's file manager"
+          },
+          "404": {
+            "description": "Nothing is recorded to disk, or this server has no file manager",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/recordings/{id}": {
       "delete": {
         "operationId": "delete_recording",
@@ -3315,6 +3427,38 @@
           },
           "404": {
             "description": "Recording not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/recordings/{id}/reveal": {
+      "post": {
+        "operationId": "reveal_recording",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Recording id",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "The recording is selected in the machine's file manager"
+          },
+          "404": {
+            "description": "Recording not found, or this server has no file manager",
             "content": {
               "application/json": {
                 "schema": {
@@ -4228,6 +4372,10 @@
           },
           "repository": {
             "type": "string"
+          },
+          "reveal": {
+            "type": "boolean",
+            "description": "Whether this server can show a file in the machine's own file manager. Only the desktop\napp, which runs on the machine holding the recordings, offers it; a browser reaching a\nserver elsewhere gets download links instead."
           },
           "routing": {
             "type": "boolean",
@@ -17068,6 +17216,13 @@
           "recordings"
         ],
         "properties": {
+          "dir": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Where the files live on the machine running the server, so the library can say it rather\nthan leave the operator hunting for the folder. Absent when nothing is recorded to disk."
+          },
           "recordings": {
             "type": "array",
             "items": {

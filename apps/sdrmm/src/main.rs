@@ -173,6 +173,7 @@ async fn main() -> anyhow::Result<()> {
                 base_url: args.routing_url,
                 key: args.routing_key,
             },
+            shell: None,
         },
     };
 

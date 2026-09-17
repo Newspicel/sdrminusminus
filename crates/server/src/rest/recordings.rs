@@ -28,7 +28,69 @@ pub(super) async fn list_recordings(
         Ok(store.list_recordings()?)
     })
     .await??;
-    Ok(Json(RecordingsResponse { recordings }))
+    let dir = state
+        .engine
+        .recordings_dir()
+        .map(|dir| dir.display().to_string());
+    Ok(Json(RecordingsResponse { recordings, dir }))
+}
+
+#[utoipa::path(
+    post, path = "/api/recordings/reveal",
+    responses(
+        (status = 204, description = "The recordings folder is open in the machine's file manager"),
+        (
+            status = 404,
+            description = "Nothing is recorded to disk, or this server has no file manager",
+            body = ApiError,
+        ),
+    ),
+)]
+pub(super) async fn reveal_recordings_dir(
+    State(state): State<AppState>,
+) -> Result<StatusCode, AppError> {
+    tokio::task::spawn_blocking(move || -> Result<StatusCode, AppError> {
+        let dir = state
+            .engine
+            .recordings_dir()
+            .ok_or_else(|| AppError::not_found("no recordings directory".to_string()))?
+            .to_path_buf();
+        std::fs::create_dir_all(&dir)
+            .map_err(|err| AppError::internal(format!("create {}: {err}", dir.display())))?;
+        reveal_path(&state, &dir)
+    })
+    .await?
+}
+
+#[utoipa::path(
+    post, path = "/api/recordings/{id}/reveal",
+    params(("id" = i64, Path, description = "Recording id")),
+    responses(
+        (status = 204, description = "The recording is selected in the machine's file manager"),
+        (
+            status = 404,
+            description = "Recording not found, or this server has no file manager",
+            body = ApiError,
+        ),
+    ),
+)]
+pub(super) async fn reveal_recording(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+) -> Result<StatusCode, AppError> {
+    tokio::task::spawn_blocking(move || -> Result<StatusCode, AppError> {
+        let stem = state.store.recording_stem(id)?;
+        let dir = state
+            .engine
+            .recordings_dir()
+            .ok_or_else(|| AppError::not_found(format!("recording {id} not found")))?;
+        let path = data_path(&dir.join(&stem));
+        if !path.is_file() {
+            return Err(AppError::not_found(format!("recording {id} not found")));
+        }
+        reveal_path(&state, &path)
+    })
+    .await?
 }
 
 #[utoipa::path(

@@ -59,7 +59,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        get: operations["play_audio_recording"];
         put?: never;
         post?: never;
         delete: operations["delete_audio_recording"];
@@ -78,6 +78,22 @@ export interface paths {
         get: operations["download_audio_recording"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/audiorecordings/{file}/reveal": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["reveal_audio_recording"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1044,6 +1060,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/recordings/{id}/reveal": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["reveal_recording"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/recordings/reveal": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["reveal_recordings_dir"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/routing/route": {
         parameters: {
             query?: never;
@@ -1305,6 +1353,12 @@ export interface components {
              */
             offline_basemap?: boolean;
             repository: string;
+            /**
+             * @description Whether this server can show a file in the machine's own file manager. Only the desktop
+             *     app, which runs on the machine holding the recordings, offers it; a browser reaching a
+             *     server elsewhere gets download links instead.
+             */
+            reveal?: boolean;
             /**
              * @description Whether a routing backend is configured, so the field client knows whether to ask for a
              *     route at all or go straight to heading guidance.
@@ -4798,6 +4852,11 @@ export interface components {
             recording?: string | null;
         };
         RecordingsResponse: {
+            /**
+             * @description Where the files live on the machine running the server, so the library can say it rather
+             *     than leave the operator hunting for the folder. Absent when nothing is recorded to disk.
+             */
+            dir?: string | null;
             recordings: components["schemas"]["RecordingInfo"][];
         };
         RecordingStatus: {
@@ -5814,6 +5873,57 @@ export interface operations {
             };
         };
     };
+    play_audio_recording: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description A `bytes=` window of the file */
+                Range?: string | null;
+            };
+            path: {
+                /** @description Audio recording file name, extension included */
+                file: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The recording as a WAV to play where it is asked for, rather than a copy to save */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "audio/wav": string;
+                };
+            };
+            /** @description The requested window of the file, which is what a media element asks for when it seeks */
+            206: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "audio/wav": string;
+                };
+            };
+            /** @description Audio recording not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description The requested window is past the end of the file */
+            416: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     delete_audio_recording: {
         parameters: {
             query?: never;
@@ -5866,6 +5976,36 @@ export interface operations {
                 };
             };
             /** @description Audio recording not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    reveal_audio_recording: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Audio recording file name, extension included */
+                file: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The file is selected in the machine's file manager */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Audio recording not found, or this server has no file manager */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -8427,6 +8567,63 @@ export interface operations {
                 };
             };
             /** @description Recording not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    reveal_recording: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Recording id */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The recording is selected in the machine's file manager */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Recording not found, or this server has no file manager */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    reveal_recordings_dir: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The recordings folder is open in the machine's file manager */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Nothing is recorded to disk, or this server has no file manager */
             404: {
                 headers: {
                     [name: string]: unknown;

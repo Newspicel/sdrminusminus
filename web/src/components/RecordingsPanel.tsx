@@ -2,14 +2,19 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import {
   AUDIO_RECORDINGS_KEY,
+  aboutQuery,
   annotateRecording,
   audioRecordingDownloadUrl,
   audioRecordingsQuery,
+  audioRecordingUrl,
   deleteAudioRecording,
   deleteRecording,
   RECORDINGS_KEY,
   recordingDownloadUrl,
   recordingsQuery,
+  revealAudioRecording,
+  revealRecording,
+  revealRecordingsDir,
 } from "../lib/api";
 import { pushToast } from "../lib/toasts";
 import type { RecordingAnnotation, RecordingInfo } from "../lib/types";
@@ -32,6 +37,7 @@ import {
 export function RecordingsPanel({ onOpen }: { onOpen: (recording: RecordingInfo) => void }) {
   const queryClient = useQueryClient();
   const recordings = useQuery(recordingsQuery());
+  const reveal = useQuery(aboutQuery(true)).data?.reveal === true;
   const [search, setSearch] = useState("");
   const [editing, setEditing] = useState<number | null>(null);
 
@@ -51,8 +57,14 @@ export function RecordingsPanel({ onOpen }: { onOpen: (recording: RecordingInfo)
     onSettled: invalidate,
   });
 
+  const revealMut = useMutation({
+    mutationFn: revealRecording,
+    onError: (e) => pushToast(e.message),
+  });
+
   const listed = recordings.data?.recordings ?? [];
   const shown = listed.filter((r) => matchesRecordingSearch(r, search));
+  const dir = recordings.data?.dir;
 
   return (
     <div className="flex flex-col gap-2 p-3">
@@ -70,6 +82,7 @@ export function RecordingsPanel({ onOpen }: { onOpen: (recording: RecordingInfo)
         )}
         <RecordingUpload compact={listed.length > 0} />
       </div>
+      {dir != null && <RecordingsFolder dir={dir} reveal={reveal} />}
       {shown.map((r) => (
         <div key={r.id} className="flex flex-col gap-1">
           <div className="flex items-center gap-2">
@@ -105,6 +118,16 @@ export function RecordingsPanel({ onOpen }: { onOpen: (recording: RecordingInfo)
             >
               Annotate
             </Button>
+            {reveal && (
+              <Button
+                type="button"
+                className={BTN}
+                title="Select the file in this machine's file manager"
+                onClick={() => revealMut.mutate(r.id)}
+              >
+                Show in folder
+              </Button>
+            )}
             <Button
               type="button"
               className={`${BTN} hover:border-danger hover:text-danger`}
@@ -130,7 +153,31 @@ export function RecordingsPanel({ onOpen }: { onOpen: (recording: RecordingInfo)
       {listed.length > 0 && shown.length === 0 && (
         <span className="text-sm text-ink-dim">No recording matches “{search}”.</span>
       )}
-      <AudioRecordings />
+      <AudioRecordings reveal={reveal} />
+    </div>
+  );
+}
+
+function RecordingsFolder({ dir, reveal }: { dir: string; reveal: boolean }) {
+  const revealMut = useMutation({
+    mutationFn: revealRecordingsDir,
+    onError: (e) => pushToast(e.message),
+  });
+  return (
+    <div className="flex items-center gap-2">
+      <span className="min-w-0 flex-1 truncate font-mono text-[10px] text-ink-faint" title={dir}>
+        {dir}
+      </span>
+      {reveal && (
+        <Button
+          type="button"
+          className={BTN_SM}
+          title="Open this folder in the machine's file manager"
+          onClick={() => revealMut.mutate()}
+        >
+          Show in folder
+        </Button>
+      )}
     </div>
   );
 }
@@ -229,7 +276,7 @@ function AnnotationForm({
   );
 }
 
-function AudioRecordings() {
+function AudioRecordings({ reveal }: { reveal: boolean }) {
   const queryClient = useQueryClient();
   const recordings = useQuery(audioRecordingsQuery());
   const deleteMut = useMutation({
@@ -239,6 +286,10 @@ function AudioRecordings() {
       void queryClient.invalidateQueries({ queryKey: AUDIO_RECORDINGS_KEY });
     },
   });
+  const revealMut = useMutation({
+    mutationFn: revealAudioRecording,
+    onError: (e) => pushToast(e.message),
+  });
   const listed = recordings.data?.recordings ?? [];
   if (listed.length === 0) {
     return null;
@@ -247,30 +298,48 @@ function AudioRecordings() {
     <>
       <div className="mt-1 border-line border-t pt-2 text-xs text-ink-dim">Channel audio</div>
       {listed.map((r) => (
-        <div key={r.file} className="flex items-center gap-2">
-          <div className="min-w-0 flex-1">
-            <div className="truncate font-mono text-ink text-sm">{r.file}</div>
-            <div className="truncate font-mono text-[10px] text-ink-dim tabular-nums">
-              {r.channels === 2 ? "stereo" : "mono"} · {formatSampleRate(r.sample_rate)} ·{" "}
-              {formatDuration(r.duration_s)} · {formatBytes(r.bytes)}
+        <div key={r.file} className="flex flex-col gap-1">
+          <div className="flex items-center gap-2">
+            <div className="min-w-0 flex-1">
+              <div className="truncate font-mono text-ink text-sm">{r.file}</div>
+              <div className="truncate font-mono text-[10px] text-ink-dim tabular-nums">
+                {r.channels === 2 ? "stereo" : "mono"} · {formatSampleRate(r.sample_rate)} ·{" "}
+                {formatDuration(r.duration_s)} · {formatBytes(r.bytes)}
+              </div>
             </div>
+            {reveal && (
+              <Button
+                type="button"
+                className={BTN}
+                title="Select the file in this machine's file manager"
+                onClick={() => revealMut.mutate(r.file)}
+              >
+                Show in folder
+              </Button>
+            )}
+            <a
+              className={BTN}
+              href={audioRecordingDownloadUrl(r.file)}
+              title="Save a copy of this 16-bit PCM WAV"
+              download
+            >
+              Download
+            </a>
+            <Button
+              type="button"
+              className={`${BTN} hover:border-danger hover:text-danger`}
+              disabled={deleteMut.isPending}
+              onClick={() => deleteMut.mutate(r.file)}
+            >
+              Delete
+            </Button>
           </div>
-          <a
-            className={BTN}
-            href={audioRecordingDownloadUrl(r.file)}
-            title="16-bit PCM WAV of what the channel sounded like"
-            download
-          >
-            .wav
-          </a>
-          <Button
-            type="button"
-            className={`${BTN} hover:border-danger hover:text-danger`}
-            disabled={deleteMut.isPending}
-            onClick={() => deleteMut.mutate(r.file)}
-          >
-            Delete
-          </Button>
+          <audio
+            className="h-8 w-full min-w-0"
+            controls
+            preload="none"
+            src={audioRecordingUrl(r.file)}
+          />
         </div>
       ))}
     </>

@@ -299,6 +299,10 @@ impl RecordingAnnotation {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct RecordingsResponse {
     pub recordings: Vec<RecordingInfo>,
+    /// Where the files live on the machine running the server, so the library can say it rather
+    /// than leave the operator hunting for the folder. Absent when nothing is recorded to disk.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dir: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
