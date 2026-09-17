@@ -210,21 +210,83 @@ where
         let k = self.rev_taps.len();
         let mut pos = 0;
         while pos + k <= self.buf.len() {
-            let mut acc = T::zero();
-            for (&x, &c) in self.buf[pos..pos + k].iter().zip(&self.rev_taps) {
-                acc = acc + x * c;
-            }
-            out.push(acc);
+            out.push(dot(&self.buf[pos..pos + k], &self.rev_taps));
             pos += self.factor;
         }
         self.buf.drain(..pos);
     }
 }
 
+fn dot<T, C>(samples: &[T], taps: &[C]) -> T
+where
+    T: Sample + Mul<C, Output = T>,
+    C: Copy,
+{
+    let (samples, tail_samples) = samples.as_chunks::<4>();
+    let (taps, tail_taps) = taps.as_chunks::<4>();
+    let mut sums = [T::zero(); 4];
+    for (samples, taps) in samples.iter().zip(taps) {
+        for lane in 0..4 {
+            sums[lane] = sums[lane] + samples[lane] * taps[lane];
+        }
+    }
+    let mut sum = (sums[0] + sums[1]) + (sums[2] + sums[3]);
+    for (&sample, &tap) in tail_samples.iter().zip(tail_taps) {
+        sum = sum + sample * tap;
+    }
+    sum
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::testutil::{real_tone, rms_r};
+
+    #[test]
+    fn batched_products_match_double_precision_for_every_tail_length() {
+        for len in 1..=257 {
+            let samples: Vec<_> = (0..len)
+                .map(|index| {
+                    Complex::new(
+                        (index % 7) as f32 / 7.0 - 0.5,
+                        (index % 11) as f32 / 11.0 - 0.5,
+                    )
+                })
+                .collect();
+            let taps: Vec<_> = (0..len)
+                .map(|index| {
+                    Complex::new(
+                        (index % 13) as f32 / 13.0 - 0.5,
+                        (index % 17) as f32 / 17.0 - 0.5,
+                    )
+                })
+                .collect();
+            let reference: Complex<f64> = samples
+                .iter()
+                .zip(&taps)
+                .map(|(sample, tap)| {
+                    Complex::new(f64::from(sample.re), f64::from(sample.im))
+                        * Complex::new(f64::from(tap.re), f64::from(tap.im))
+                })
+                .sum();
+            let actual = dot(&samples, &taps);
+            let actual = Complex::new(f64::from(actual.re), f64::from(actual.im));
+            assert!(
+                (actual - reference).norm() < len as f64 * 1e-7,
+                "length={len}"
+            );
+            let real_samples: Vec<_> = samples.iter().map(|sample| sample.re).collect();
+            let real_taps: Vec<_> = taps.iter().map(|tap| tap.re).collect();
+            let reference: f64 = real_samples
+                .iter()
+                .zip(&real_taps)
+                .map(|(&sample, &tap)| f64::from(sample) * f64::from(tap))
+                .sum();
+            assert!(
+                (f64::from(dot(&real_samples, &real_taps)) - reference).abs() < len as f64 * 1e-7
+            );
+        }
+    }
 
     fn tone_gain(h: &[f32], freq: f64) -> f32 {
         let mut fir = StreamFir::<f32, f32>::new(h, 1);

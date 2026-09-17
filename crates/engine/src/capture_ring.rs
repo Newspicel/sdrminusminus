@@ -139,6 +139,8 @@ impl CaptureConsumer {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::Ordering;
+
     use sdrmm_test_support::{assert_no_alloc, measure_throughput};
 
     use super::*;
@@ -187,6 +189,30 @@ mod tests {
         assert_eq!(metrics.dropped, 4);
         producer.push(&ramp(4, 2), 4);
         assert_eq!(drain(&mut consumer, 8), expected(4..6));
+    }
+
+    #[test]
+    fn shared_drop_counter_counts_overflow_source_gaps_and_stale_samples_once() {
+        let (mut producer, mut consumer) = capture_ring(8);
+        let counter = consumer.metrics.dropped_counter();
+        assert_eq!(producer.push(&ramp(0, 10), 0), 8);
+        assert_eq!(counter.load(Ordering::Relaxed), 2);
+        assert_eq!(producer.push(&ramp(14, 2), 14), 0);
+        assert_eq!(counter.load(Ordering::Relaxed), 8);
+        let span = consumer.spans.pop().expect("span");
+        consumer.pending = Some(span);
+        while consumer.metrics.now() == span.queued {
+            std::hint::spin_loop();
+        }
+        assert_eq!(
+            consumer.consume_fresh(8, Duration::ZERO, |_, _| panic!("stale")),
+            8
+        );
+        assert_eq!(counter.load(Ordering::Relaxed), 16);
+        assert_eq!(producer.push(&ramp(16, 4), 16), 4);
+        assert_eq!(drain(&mut consumer, 8), expected(16..20));
+        assert_eq!(counter.load(Ordering::Relaxed), 16);
+        assert_eq!(consumer.metrics.snapshot().dropped, 16);
     }
 
     #[test]

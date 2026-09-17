@@ -339,6 +339,56 @@ async fn ring_overrun_surfaces_in_state_and_emits_event() {
     engine.remove_device_set(ds).unwrap();
 }
 
+#[test]
+fn device_reported_gaps_reach_the_drop_badge_without_ring_overflow() {
+    struct GappedDevice(SilentDevice);
+
+    impl SdrDevice for GappedDevice {
+        fn capabilities(&self) -> &Capabilities {
+            self.0.capabilities()
+        }
+
+        fn settings(&self) -> &DeviceSettings {
+            self.0.settings()
+        }
+
+        fn apply(&mut self, settings: &DeviceSettings) -> Result<(), DeviceError> {
+            self.0.apply(settings)
+        }
+
+        fn rx_start(&mut self, sinks: Vec<RxSink>) -> Result<(), DeviceError> {
+            let mut sink = single_rx_sink(sinks)?;
+            sink.push(&[]);
+            sink.dropped(123);
+            sink.push(&[]);
+            Ok(())
+        }
+
+        fn rx_stop(&mut self) {}
+    }
+
+    let engine = Engine::with_registry(DeviceRegistry::new(), None);
+    let ds = engine
+        .create_opened_set(
+            mock_info("gaps", None),
+            Box::new(GappedDevice(SilentDevice {
+                capabilities: empty_capabilities(),
+                settings: mock_settings(),
+            })),
+            None,
+        )
+        .expect("start gapped radio");
+    assert_eq!(engine.snapshot().device_sets[0].overruns, 123);
+    let capture = engine
+        .pipeline_health()
+        .into_iter()
+        .find(|queue| queue.stage == sdrmm_wire::PipelineStage::Capture)
+        .expect("capture queue");
+    assert_eq!(capture.health.dropped, 123);
+    assert_eq!(capture.health.queued, 0);
+    engine.remove_device_set(ds).expect("close radio");
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn virtual_capture_recovers_from_a_stalled_dsp_with_an_audio_timestamp_gap() {
     let engine = virtual_engine();

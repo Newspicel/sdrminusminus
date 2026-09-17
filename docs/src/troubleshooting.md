@@ -98,13 +98,49 @@ without AudioWorklet, which can stutter while the display is busy.
 
 ## Overruns or gaps
 
-An overrun means samples were lost because capture outpaced processing. It can affect audio,
-spectrum, recordings, and decoding.
+The dropped count includes reported device gaps, full capture queues, and discarded stale samples.
+These losses affect audio, spectrum, recordings, and decoding.
 
 - Lower the sample rate and close unused channels or displays.
 - Use a release build for regular reception.
 - Check CPU throttling and temperature on small computers.
 - Use wired Ethernet for high-rate network receivers.
+- Put high-rate USB radios on separate USB buses. HackRF at 20 MS/s nearly fills a
+  [USB 2 bus](https://hackrf.readthedocs.io/en/stable/synchronization_checklist.html).
+  A shared hub can lose samples before host-side drop counters see them.
+
+Developers can compare raw reception with capture, DSP, and publication queues:
+
+```sh
+SDRMM_CAPTURE_DRIVER=hackrf SDRMM_CAPTURE_RATE=8000000 SDRMM_CAPTURE_SECONDS=30 \
+  cargo test -p sdrmm-engine --lib --no-default-features --features rtlsdr,hackrf \
+  connected_radio_capture_health -- --ignored --nocapture
+```
+
+Use idle radios. `SDRMM_CAPTURE_DRIVER` accepts `hackrf`, `rtlsdr`, or `both`.
+Default rates are 20 MS/s for HackRF and 2.4 MS/s for RTL-SDR.
+
+| Environment variable | Effect |
+|---|---|
+| `SDRMM_CAPTURE_CHANNELS=8` | Eight channels per radio; default four |
+| `SDRMM_CAPTURE_MIXED=1` | Cycle NFM, WFM, AM, and SSB |
+| `SDRMM_CAPTURE_RETUNE=1` | Retune channels every five seconds |
+| `SDRMM_CAPTURE_CPU_THREADS=4` | Add four CPU load threads |
+| `SDRMM_CAPTURE_RECORD=1` | Record full-rate IQ to temporary files and verify sample counts |
+| `SDRMM_CAPTURE_TRANSPORT_SECONDS=5` | Raw reception duration per radio; zero skips it |
+| `SDRMM_CAPTURE_ALLOW_DROPS=1` | Measure overload without requiring zero losses |
+
+The test checks capture queues, PCM and Opus timelines, and spectrum continuity.
+It fails on losses by default. Software counters cannot detect every device-side USB loss.
+For RTL-SDR, also test the hardware byte counter:
+
+```sh
+SDRMM_RTL_TEST_RATE=3200000 SDRMM_RTL_TEST_SECONDS=60 \
+  cargo test -p sdrmm-device-rtlsdr --lib connected_rtl_counter_continuity -- --ignored --nocapture
+```
+
+This checks sequence continuity, USB transfer drops, and delivered sample rate.
+The eight-bit counter alone cannot reveal missing multiples of 256 bytes.
 
 ## Recordings do not appear
 

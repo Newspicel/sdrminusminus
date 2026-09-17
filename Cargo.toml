@@ -257,6 +257,9 @@ opt-level = 3
 [profile.dev.package.sdrmm-engine]
 opt-level = 3
 
+[profile.dev.package.sdrmm-device]
+opt-level = 3
+
 [profile.dev.package.sdrmm-device-rtltcp]
 opt-level = 3
 

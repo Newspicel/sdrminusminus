@@ -125,11 +125,24 @@ impl Ddc {
 
 fn integer_decimation(quotient: f64) -> usize {
     let rounded = quotient.round();
-    if (quotient - rounded).abs() < 1e-9 {
+    let mut candidate = if (quotient - rounded).abs() < 1e-9 {
         rounded as usize
     } else {
         quotient.floor() as usize
+    };
+    while candidate > 1 {
+        let mut remaining = candidate;
+        for factor in [2, 3, 5, 7, 11, 13] {
+            while remaining.is_multiple_of(factor) {
+                remaining /= factor;
+            }
+        }
+        if remaining == 1 {
+            return candidate;
+        }
+        candidate -= 1;
     }
+    candidate
 }
 
 fn prime_factors_desc(mut n: usize) -> Vec<usize> {
@@ -305,7 +318,12 @@ mod tests {
 
     #[test]
     fn exact_long_run_output_rate() {
-        for (fs_in, fs_out) in [(2_048_000.0f64, 48_000.0f64), (2_400_000.0, 240_000.0)] {
+        for (fs_in, fs_out) in [
+            (2_048_000.0f64, 48_000.0f64),
+            (2_400_000.0, 240_000.0),
+            (20_000_000.0, 240_000.0),
+            (19_920_000.0, 240_000.0),
+        ] {
             let mut ddc = Ddc::new(fs_in, fs_out, 0.0).unwrap();
             let total_in = fs_in as usize;
             let input = vec![Complex::new(1.0f32, 0.0); total_in];
@@ -320,6 +338,42 @@ mod tests {
                 (count - ideal).abs() <= 2,
                 "{fs_in}→{fs_out}: got {count} S/s, ideal {ideal}"
             );
+        }
+    }
+
+    #[test]
+    fn prime_ratios_keep_passband_and_reject_aliases() {
+        for input_rate in [19_920_000.0, 20_000_000.0, 8_000_000.0, 3_200_000.0] {
+            let output_rate = 240_000.0;
+            let offset = 100_000.0;
+            let intermediate = input_rate / integer_decimation(input_rate / output_rate) as f64;
+            for relative in [
+                0.0,
+                0.35 * output_rate,
+                -0.35 * output_rate,
+                0.4 * output_rate,
+                -0.4 * output_rate,
+                0.6 * output_rate,
+                -0.6 * output_rate,
+                intermediate - 0.35 * output_rate,
+                intermediate + 0.35 * output_rate,
+                input_rate / 2.0 - offset - 1000.0,
+            ] {
+                let mut ddc = Ddc::new(input_rate, output_rate, offset).expect("rates");
+                let input = tone_at_rate(offset + relative, input_rate, 262_144);
+                let output = run(&mut ddc, &input);
+                let settled = &output[512..];
+                let rms = rms_c(settled);
+                if relative.abs() <= 0.4 * output_rate {
+                    assert!(
+                        (0.97..1.03).contains(&rms),
+                        "{input_rate} {relative}: passband {rms}"
+                    );
+                    assert!((mean_freq_hz(settled, output_rate) - relative).abs() < 3.0);
+                } else {
+                    assert!(rms < 3.16e-3, "{input_rate} {relative}: alias {rms}");
+                }
+            }
         }
     }
 

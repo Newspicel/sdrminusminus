@@ -140,10 +140,9 @@ impl CaptureRuntime {
         let ring = ring_capacity(sample_rate);
         for stream in 0..total_lanes {
             let (mut producer, consumer) = capture_ring(ring);
-            let overruns = Arc::new(AtomicU64::new(0));
+            let overruns = consumer.metrics.dropped_counter();
             let stalled_us = Arc::new(AtomicU64::new(0));
             let waker = Arc::new(Waker::default());
-            let ov = overruns.clone();
             let wake = waker.clone();
             let fatal = fatal.clone();
             let mut lane_tap = lane_taps.pop();
@@ -152,7 +151,6 @@ impl CaptureRuntime {
                     taps.beam = Some(crate::coherent::BeamSink {
                         producer,
                         waker: waker.clone(),
-                        overruns: overruns.clone(),
                     });
                 }
             } else {
@@ -163,10 +161,7 @@ impl CaptureRuntime {
                             if let Some(tap) = lane_tap.as_mut() {
                                 tap.push(samples, index);
                             }
-                            let take = producer.push(samples, index);
-                            if take < samples.len() {
-                                ov.fetch_add((samples.len() - take) as u64, Ordering::Relaxed);
-                            }
+                            producer.push(samples, index);
                             wake.wake();
                         },
                         move |err| {

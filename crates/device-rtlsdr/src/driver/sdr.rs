@@ -1,5 +1,8 @@
 use nusb::MaybeFuture;
 use sdrmm_usb_stream::{NusbBulkIn, RxStream, StreamConfig};
+
+#[cfg(test)]
+mod hardware;
 use tracing::{debug, info, trace};
 
 use super::{

@@ -170,18 +170,11 @@ impl LaneFeed {
 pub(crate) struct BeamSink {
     pub(crate) producer: crate::capture_ring::CaptureProducer,
     pub(crate) waker: Arc<crate::runtime::Waker>,
-    pub(crate) overruns: Arc<std::sync::atomic::AtomicU64>,
 }
 
 impl BeamSink {
     pub(crate) fn push(&mut self, samples: &[Complex<f32>], index: u64) {
-        let take = self.producer.push(samples, index);
-        if take < samples.len() {
-            self.overruns.fetch_add(
-                (samples.len() - take) as u64,
-                std::sync::atomic::Ordering::Relaxed,
-            );
-        }
+        self.producer.push(samples, index);
         self.waker.wake();
     }
 }

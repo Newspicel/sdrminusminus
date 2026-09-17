@@ -1,5 +1,8 @@
 use std::{
-    sync::atomic::{AtomicU64, Ordering},
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+    },
     time::Instant,
 };
 
@@ -10,7 +13,7 @@ pub(crate) struct QueueMetrics {
     queued: AtomicU64,
     capacity: AtomicU64,
     oldest: AtomicU64,
-    dropped: AtomicU64,
+    dropped: Arc<AtomicU64>,
 }
 
 impl Default for QueueMetrics {
@@ -20,7 +23,7 @@ impl Default for QueueMetrics {
             queued: AtomicU64::new(0),
             capacity: AtomicU64::new(0),
             oldest: AtomicU64::new(0),
-            dropped: AtomicU64::new(0),
+            dropped: Arc::new(AtomicU64::new(0)),
         }
     }
 }
@@ -48,6 +51,9 @@ impl QueueMetrics {
     }
     pub(crate) fn dropped_total(&self) -> u64 {
         self.dropped.load(Ordering::Relaxed)
+    }
+    pub(crate) fn dropped_counter(&self) -> Arc<AtomicU64> {
+        self.dropped.clone()
     }
     pub(crate) fn snapshot(&self) -> QueueHealth {
         let queued = self.queued.load(Ordering::Relaxed);

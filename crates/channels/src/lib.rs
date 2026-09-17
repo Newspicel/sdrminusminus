@@ -625,8 +625,7 @@ const REGISTRY: &[Registration] = &[
     },
 ];
 
-#[must_use]
-pub fn descriptors() -> Vec<ChannelDescriptor> {
+static DESCRIPTORS: std::sync::LazyLock<Vec<ChannelDescriptor>> = std::sync::LazyLock::new(|| {
     REGISTRY
         .iter()
         .map(|r| {
@@ -637,6 +636,18 @@ pub fn descriptors() -> Vec<ChannelDescriptor> {
             descriptor
         })
         .collect()
+});
+
+#[must_use]
+pub fn descriptors() -> Vec<ChannelDescriptor> {
+    DESCRIPTORS.clone()
+}
+
+#[must_use]
+pub fn descriptor(type_id: &str) -> Option<&'static ChannelDescriptor> {
+    DESCRIPTORS
+        .iter()
+        .find(|descriptor| descriptor.type_id == type_id)
 }
 
 pub fn create(
@@ -756,6 +767,15 @@ mod tests {
             "dect" => ChannelParams::Dect(DectParams::default()),
             other => panic!("unexpected type id {other}"),
         }
+    }
+
+    #[test]
+    fn descriptor_lookup_matches_catalogue() {
+        let catalogue = descriptors();
+        for expected in &catalogue {
+            assert_eq!(descriptor(&expected.type_id), Some(expected));
+        }
+        assert!(descriptor("unknown").is_none());
     }
 
     #[test]

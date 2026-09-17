@@ -1,5 +1,7 @@
 use std::sync::Arc;
 
+pub(super) mod history;
+
 #[derive(Clone, Debug)]
 pub struct SpectrumSnapshot {
     pub seq: u32,

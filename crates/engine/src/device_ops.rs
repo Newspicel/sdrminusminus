@@ -178,7 +178,7 @@ impl Engine {
                 ds,
                 dropped,
                 stalled_ms,
-                "capture ring overrun: device samples dropped while the dsp thread was held off"
+                "capture loss: reported device gaps, full queues, or stale samples"
             );
         }
         for (ds, error) in poll.recording {

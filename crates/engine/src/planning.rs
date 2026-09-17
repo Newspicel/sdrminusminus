@@ -7,11 +7,11 @@ use sdrmm_wire::{
 
 use crate::{DEFAULT_CENTER_HZ, EngineError, center_of, sample_rate_of};
 
-pub(crate) fn descriptor_for(params: &ChannelParams) -> Result<ChannelDescriptor, EngineError> {
+pub(crate) fn descriptor_for(
+    params: &ChannelParams,
+) -> Result<&'static ChannelDescriptor, EngineError> {
     let type_id = params.type_id();
-    sdrmm_channels::descriptors()
-        .into_iter()
-        .find(|d| d.type_id == type_id)
+    sdrmm_channels::descriptor(type_id)
         .ok_or_else(|| ChannelError::UnknownType(type_id.to_owned()).into())
 }
 

@@ -183,9 +183,7 @@ impl ChannelHost {
         decoded: DecodedSink,
     ) -> Result<Box<Self>, ChannelError> {
         let type_id = settings.params.type_id();
-        let descriptor = sdrmm_channels::descriptors()
-            .into_iter()
-            .find(|d| d.type_id == type_id)
+        let descriptor = sdrmm_channels::descriptor(type_id)
             .ok_or_else(|| ChannelError::UnknownType(type_id.to_owned()))?;
         let input_rate = descriptor.input_rate_hz;
         let offset_hz = settings.frequency_hz - center_hz;

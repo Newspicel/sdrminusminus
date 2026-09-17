@@ -16,6 +16,8 @@ use super::*;
 use crate::planning::{centre_clears_channels, dc_block};
 
 mod auto_tuning;
+#[cfg(all(feature = "rtlsdr", feature = "hackrf"))]
+mod capture_health;
 mod channel_capture;
 mod channels;
 mod device_patch;

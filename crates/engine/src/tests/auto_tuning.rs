@@ -48,6 +48,34 @@ fn resolved(settings: &DeviceSettings, delta: Option<DeviceSettings>) -> DeviceS
 }
 
 #[test]
+fn crowded_tuning_plans_do_not_hold_control_for_audio_queue_durations() {
+    let channels: Vec<_> = (0..16)
+        .map(|index| parked(index + 1, 100_000.0 + f64::from(index) * 25_000.0))
+        .collect();
+    let capabilities = tuner_caps();
+    let settings = tuned(100e6);
+    let expected = plan_center(&capabilities, &settings, &channels);
+    sdrmm_test_support::assert_no_alloc("descriptor lookup", || {
+        for channel in &channels {
+            std::hint::black_box(
+                crate::planning::descriptor_for(&channel.settings.params).expect("descriptor"),
+            );
+        }
+    });
+    let started = Instant::now();
+    for _ in 0..10 {
+        assert_eq!(plan_center(&capabilities, &settings, &channels), expected);
+    }
+    assert!(
+        started.elapsed() < Duration::from_millis(250),
+        "ten tuning plans took {:?}",
+        started.elapsed()
+    );
+    let center = resolved(&settings, expected).center_hz.expect("center");
+    assert!(channels.iter().all(|channel| heard(center, channel)));
+}
+
+#[test]
 fn a_radio_with_nothing_wired_to_it_is_left_where_it_was() {
     assert_eq!(plan_center(&tuner_caps(), &tuned(100e6), &[]), None);
 }

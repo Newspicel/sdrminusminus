@@ -364,7 +364,7 @@ function DeviceHealth({ set }: { set: DeviceSet }) {
         <Readout>
           <ReadoutRow
             label="Drops"
-            title="Device samples dropped at the capture ring since the radio opened. The DSP thread is behind, so audio and spectrum have gaps."
+            title="Samples lost during capture since the radio opened, including reported device gaps, full queues, and stale samples."
           >
             {overruns}
           </ReadoutRow>

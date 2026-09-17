@@ -13,6 +13,7 @@ use sdrmm_device::RxSink;
 
 use super::{
     ChannelHost, DSP_BLOCK, DspCommand, DspMeta, FFT_SIZE, frontend::Frontend, retire::Reclaimer,
+    spectrum::history::SpectrumHistory,
 };
 use crate::{
     capture_ring::CaptureConsumer,
@@ -98,8 +99,7 @@ pub(super) fn dsp_loop(
         max_age,
         ..
     } = lane;
-    let mut hist = vec![Complex::new(0.0, 0.0); FFT_SIZE];
-    let mut window = vec![Complex::new(0.0, 0.0); FFT_SIZE];
+    let mut spectrum_history = SpectrumHistory::new(FFT_SIZE);
     let mut db = vec![0.0f32; FFT_SIZE];
     let mut channels: Vec<(u32, Box<ChannelHost>)> = Vec::new();
     let mut arrays: Vec<ArrayOutput> = Vec::new();
@@ -107,8 +107,6 @@ pub(super) fn dsp_loop(
     let mut recording_publisher: Option<RecordingPublisher> = None;
     let mut network_tap: Option<NetworkExportTap> = None;
     let mut history: Option<TimeMachineTap> = None;
-    let mut write_pos = 0usize;
-    let mut since_last = 0usize;
     let mut seq: u32 = 0;
     let mut next_input = None;
     let mut served = Instant::now();
@@ -130,13 +128,11 @@ pub(super) fn dsp_loop(
         let snapshot = *meta.load_full();
         let hop = ((snapshot.sample_rate / TARGET_FPS) as usize).max(FFT_SIZE / 4);
         frontend.follow(snapshot);
-        let consumed = consumer.consume_fresh(DSP_BLOCK, *max_age, |raw, mut total| {
+        let consumed = consumer.consume_fresh(DSP_BLOCK, *max_age, |raw, total| {
             record_stall(stalled_us, &mut served);
             if next_input.is_some_and(|next| next != total) {
                 frontend.reset();
-                hist.fill(Complex::new(0.0, 0.0));
-                write_pos = 0;
-                since_last = 0;
+                spectrum_history.reset();
             }
             next_input = Some(total + raw.len() as u64);
             let slice = frontend.apply(raw);
@@ -165,30 +161,17 @@ pub(super) fn dsp_loop(
             for (_, host) in &mut channels {
                 host.process_at(slice, total, snapshot.center_hz);
             }
-            for &s in slice {
-                hist[write_pos] = s;
-                write_pos += 1;
-                if write_pos == FFT_SIZE {
-                    write_pos = 0;
+            spectrum_history.push(slice, total, hop, |window, timestamp| {
+                let frame = SpectrumFrame {
+                    timestamp,
+                    center_hz: snapshot.center_hz,
+                    span_hz: snapshot.sample_rate as f32,
+                };
+                if let Some(completed) = analyzer.power_db(window, &mut db, frame) {
+                    seq = seq.wrapping_add(1);
+                    publisher.publish(seq, completed, &db);
                 }
-                total += 1;
-                since_last += 1;
-                if since_last >= hop {
-                    since_last = 0;
-                    for (i, w) in window.iter_mut().enumerate() {
-                        *w = hist[(write_pos + i) % FFT_SIZE];
-                    }
-                    let frame = SpectrumFrame {
-                        timestamp: total,
-                        center_hz: snapshot.center_hz,
-                        span_hz: snapshot.sample_rate as f32,
-                    };
-                    if let Some(completed) = analyzer.power_db(&window, &mut db, frame) {
-                        seq = seq.wrapping_add(1);
-                        publisher.publish(seq, completed, &db);
-                    }
-                }
-            }
+            });
         });
         if consumed == 0 {
             std::thread::park_timeout(IDLE_PARK);

@@ -194,7 +194,7 @@ fn write_loop(
         {
             tracing::debug!(
                 gap = block.start_sample.saturating_sub(expected),
-                "recording spans a capture ring overrun"
+                "recording spans a capture loss"
             );
         }
         next_sample = Some(block.start_sample + block.samples.len() as u64);
