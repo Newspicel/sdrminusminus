@@ -43,7 +43,7 @@ Generated pairs are ignored by Git. Commit generator and expected-output changes
 
 ## Committed fixtures
 
-These nineteen pairs are not regenerated: six are recordings, two are frozen synthetic waveforms,
+These twenty pairs are not regenerated: seven are recordings, two are frozen synthetic waveforms,
 and eleven are reference waveforms from generators that are independent of the Rust modulators.
 They retain cases that the current generators do not reproduce.
 
@@ -61,6 +61,7 @@ SHA-256 in a SigMF annotation.
 | `nxdn_addressed_48k` | 48 k | `nxdn` @ 0 Hz | RAN 17, radio 12345 to talkgroup 234 via FACCH/SACCH |
 | `adsb_offair_2m` | 2 M | `adsb` @ 0 Hz | 17 Mode S replies from four aircraft — DF4/5/11/17/20/21, FL370 and squawk 5245 from 4D2256, a TC11 position and a TC19 velocity from 3FF91D |
 | `ft8_20m_busy_12k` | 12 k | `ft8` @ 0 Hz | 19 of the 20 decodes `ft8_lib` publishes for this slot |
+| `acars_offair_48k` | 48 k | `acars` @ 0 Hz | `F-GTAE` / `AF7728` `[H1]` engine report `#DFB00000/V206,...`, then `LN-DYY` `[_d]` acknowledging block 5 |
 | `dvbt/qpsk_2k_reference` | 9.142857 M | `dvbt` @ 0 Hz | 2K QPSK, rate 1/2, guard 1/8, 1750 Hz offset; PID 0x123 packets, TPS cell 0x5a |
 | `dab/mode_ii_reference_2m048` | 2.048 M | `dab` @ 0 Hz | Mode II frame: ensemble `0x4a2c`, service `0xc201`, no failed FIB CRCs |
 | `dab/mode_iii_reference_2m048` | 2.048 M | `dab` @ 0 Hz | the same ensemble in Mode III |
@@ -167,6 +168,14 @@ was converted to `cf32_le` with zero quadrature.
 The upstream expected output contains twenty messages; this integration decodes nineteen.
 `weak_signal::tests::a_recorded_slot_reads_the_band_the_reference_decoder_published` appends a
 quiet tail to close the sliding slot window and records the missing decode explicitly.
+
+### ACARS: `acars_offair_48k`
+
+Channel 1 of acarsdec's four-channel `test.wav`, 0.5 s to 1.85 s: two real VHF bursts with the
+2400 Hz pre-key, the key-up transient and the receiver's noise floor. The LGPL-2.0 source is
+pinned by commit and SHA-256 in the SigMF annotation. Its 12.5 kHz AM-demodulated audio was
+resampled to 48 kHz and re-modulated at 80 % depth onto a 0 Hz carrier; the RF channel is not
+recorded upstream. `acars::tests::decodes_the_committed_recording` reads it directly.
 
 ### FreeDV: `freedv_1600_8k`
 

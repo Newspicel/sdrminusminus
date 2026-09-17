@@ -1,0 +1,24 @@
+{
+  "global": {
+    "core:datatype": "cf32_le",
+    "core:version": "1.2.6",
+    "core:sample_rate": 48000.0,
+    "core:recorder": "SDR--",
+    "core:hw": "acarsdec test.wav",
+    "core:description": "ACARS off air: a long engine report from F-GTAE on AF7728 (label H1) and a general response from LN-DYY, from acarsdec's reference recording"
+  },
+  "captures": [
+    {
+      "core:sample_start": 0,
+      "core:frequency": 100000000.0,
+      "core:datetime": "2018-11-23T08:43:46Z"
+    }
+  ],
+  "annotations": [
+    {
+      "core:sample_start": 0,
+      "core:sample_count": 64800,
+      "core:comment": "acarsdec test.wav channel 1 of 4 (LGPL-2.0, github.com/TLeconte/acarsdec commit 895150598d6fa762cc2a302429dc515fad125067), samples 6250..23125 at 12500 Hz; source SHA-256 752acabede3f96e8f137567e8218fe3cd9aab61130b9198d0cbce6cf2cf53b80; AM-demodulated audio resampled to 48000 Hz and re-modulated at 80 % depth onto a 0 Hz carrier, quadrature zero; the RF channel is not recorded upstream and the capture frequency is nominal"
+    }
+  ]
+}

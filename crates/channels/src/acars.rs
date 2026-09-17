@@ -2,10 +2,7 @@ use std::sync::LazyLock;
 
 use num_complex::Complex;
 use sdrmm_dsp::{DcBlocker, Decimator, crc16_ccitt, design_lowpass};
-use sdrmm_modem::{
-    cpm::{CpmDemod, CpmParams, Mapping, RealDetector, TIMING_BW_BURST},
-    pulse::{self, Norm},
-};
+use sdrmm_modem::cpm::MskDetector;
 use sdrmm_wire::{
     AcarsMessage, AcarsParams, ChannelDescriptor, ChannelParams, ChannelSettings, DecoderEvent,
 };
@@ -16,7 +13,6 @@ const CHANNEL_TAPS: usize = 129;
 
 const BAUD: f64 = 2_400.0;
 const CENTRE_HZ: f64 = 1_800.0;
-const DEVIATION_HZ: f64 = 600.0;
 
 const SYN: u8 = 0x16;
 const SOH: u8 = 0x01;
@@ -25,6 +21,7 @@ const ETX: u8 = 0x83;
 const ETB: u8 = 0x97;
 const ETB_DATA: u8 = ETB & 0x7F;
 const NAK: u8 = 0x15;
+const DEL: u8 = 0x7F;
 
 const MIN_BLOCK: usize = 13;
 const MAX_BLOCK: usize = 240;
@@ -50,9 +47,7 @@ static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescrip
 pub struct AcarsChannel {
     envelope: Vec<f32>,
     dc: DcBlocker,
-    demod: CpmDemod,
-    soft: Vec<f32>,
-    mapping: Mapping,
+    detector: MskDetector,
     framer: Framer,
 }
 
@@ -101,30 +96,10 @@ impl ChannelRx for AcarsChannel {
     fn new(ctx: ChannelCtx, settings: ChannelSettings) -> Result<Self, ChannelError> {
         check_input_rate(ctx, &DESCRIPTOR)?;
         check_params(params(&settings)?)?;
-        let rate = ctx.input_rate;
-        let sps = rate / BAUD;
-        let cpm = CpmParams::from_deviation(
-            Mapping::natural(2),
-            DEVIATION_HZ,
-            BAUD,
-            pulse::rect(sps, Norm::Area),
-            sps,
-        );
-        let demod = CpmDemod::real(
-            &cpm,
-            &pulse::rect(sps, Norm::Area),
-            TIMING_BW_BURST,
-            rate,
-            RealDetector::Discriminator {
-                centre_hz: CENTRE_HZ,
-            },
-        );
         Ok(Self {
             envelope: Vec::new(),
             dc: DcBlocker::new(),
-            demod,
-            soft: Vec::new(),
-            mapping: cpm.mapping().clone(),
+            detector: MskDetector::new(ctx.input_rate, CENTRE_HZ, BAUD),
             framer: Framer::new(),
         })
     }
@@ -135,18 +110,17 @@ impl ChannelRx for AcarsChannel {
 
     fn retuned(&mut self) {
         self.framer = Framer::new();
-        self.demod.reset();
+        self.detector.reset();
     }
 
     fn process(&mut self, iq: &[Complex<f32>], out: &mut ChannelOutputs) {
         self.envelope.clear();
         self.envelope.extend(iq.iter().map(|s| s.norm()));
         self.dc.process(&mut self.envelope);
-
-        self.soft.clear();
-        self.demod.process_real(&self.envelope, &mut self.soft);
-        for &s in &self.soft {
-            self.framer.push(self.mapping.slice(s) == 1, out);
+        for &sample in &self.envelope {
+            if let Some(bit) = self.detector.push(sample) {
+                self.framer.push(bit, out);
+            }
         }
     }
 }
@@ -288,7 +262,7 @@ impl Framer {
             mode: char::from(text[0]),
             registration: field(&text[ADDRESS]).replace('.', ""),
             ack: (text[ACK] != NAK).then(|| char::from(text[ACK])),
-            label: field(&text[LABEL]),
+            label: label(&text[LABEL]),
             block_id,
             downlink,
             seq_no,
@@ -301,6 +275,14 @@ impl Framer {
             more: terminator == ETB_DATA,
         })
     }
+}
+
+fn label(raw: &[u8]) -> String {
+    let spelled: Vec<u8> = raw
+        .iter()
+        .map(|&b| if b == DEL { b'd' } else { b })
+        .collect();
+    field(&spelled)
 }
 
 fn field(raw: &[u8]) -> String {
@@ -383,6 +365,14 @@ mod tests {
         decode_blocks(&mut channel(), iq, &BLOCKS)
     }
 
+    fn filtered(iq: &[Complex<f32>]) -> Vec<Complex<f32>> {
+        let mut narrow = Vec::new();
+        channel_filter(&AcarsParams::default())
+            .unwrap()
+            .process(iq, &mut narrow);
+        narrow
+    }
+
     fn downlink() -> Block<'static> {
         Block {
             mode: '2',
@@ -454,6 +444,17 @@ mod tests {
     }
 
     #[test]
+    fn spells_the_general_response_label_with_a_d() {
+        let block = Block {
+            label: "_\x7f",
+            ..uplink()
+        };
+        let messages = decode(&transmission(&block, RATE));
+        assert_eq!(messages.len(), 1, "{messages:?}");
+        assert_eq!(messages[0].label, "_d");
+    }
+
+    #[test]
     fn a_mirrored_spectrum_decodes_the_same() {
         let normal = transmission(&downlink(), RATE);
         let mirrored: Vec<Complex<f32>> = normal.iter().map(Complex::conj).collect();
@@ -464,13 +465,73 @@ mod tests {
     fn decodes_through_additive_noise() {
         let mut iq = transmission(&downlink(), RATE);
         testgen::add_noise(&mut iq, 0xabad_1dea, 0.15);
-        let mut filtered = Vec::new();
-        channel_filter(&AcarsParams::default())
-            .unwrap()
-            .process(&iq, &mut filtered);
-        let messages = decode(&filtered);
+        let messages = decode(&filtered(&iq));
         assert_eq!(messages.len(), 1, "{messages:?}");
         assert_eq!(messages[0].text, "REPORT ENGINE 1 OK");
+    }
+
+    #[test]
+    fn decodes_back_to_back_blocks() {
+        let mut iq = transmission(&downlink(), RATE);
+        iq.extend(std::iter::repeat_n(
+            Complex::new(0.0, 0.0),
+            (RATE * 0.05) as usize,
+        ));
+        iq.extend(transmission(&uplink(), RATE));
+        let messages = decode(&iq);
+        assert_eq!(messages.len(), 2, "{messages:?}");
+        assert_eq!(messages[0].registration, "D-AIBC");
+        assert_eq!(messages[1].registration, "N123AB");
+    }
+
+    #[test]
+    fn decodes_the_committed_recording() {
+        const FIXTURE: &[u8] = include_bytes!("../../../fixtures/acars_offair_48k.sigmf-data");
+        let iq: Vec<Complex<f32>> = FIXTURE
+            .as_chunks::<8>()
+            .0
+            .iter()
+            .map(|s| {
+                Complex::new(
+                    f32::from_le_bytes([s[0], s[1], s[2], s[3]]),
+                    f32::from_le_bytes([s[4], s[5], s[6], s[7]]),
+                )
+            })
+            .collect();
+        let messages = decode(&filtered(&iq));
+        assert_eq!(messages.len(), 2, "{messages:?}");
+
+        let report = &messages[0];
+        assert_eq!(report.mode, 'G');
+        assert_eq!(report.registration, "F-GTAE");
+        assert_eq!(report.ack, None);
+        assert_eq!(report.label, "H1");
+        assert_eq!(report.block_id, '3');
+        assert!(report.downlink);
+        assert_eq!(report.seq_no.as_deref(), Some("D65C"));
+        assert_eq!(report.flight.as_deref(), Some("AF7728"));
+        assert!(
+            report
+                .text
+                .starts_with("#DFB00000/V206,05,124,183,02,00,00000/V3XX"),
+            "{}",
+            report.text
+        );
+        assert!(
+            report.text.ends_with("/V8042,083,00061,22222222222111/"),
+            "{}",
+            report.text
+        );
+        assert!(!report.more);
+
+        let response = &messages[1];
+        assert_eq!(response.mode, 'x');
+        assert_eq!(response.registration, "LN-DYY");
+        assert_eq!(response.ack, Some('5'));
+        assert_eq!(response.label, "_d");
+        assert_eq!(response.block_id, 'A');
+        assert!(!response.downlink);
+        assert_eq!(response.text, "");
     }
 
     #[test]

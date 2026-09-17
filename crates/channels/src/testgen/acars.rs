@@ -18,6 +18,9 @@ const BSYNC: [u8; 2] = *b"+*";
 
 const PREKEY_BITS: usize = 128;
 
+const HOLD_HZ: f64 = CENTRE_HZ + DEVIATION_HZ;
+const FLIP_HZ: f64 = CENTRE_HZ - DEVIATION_HZ;
+
 const AM_DEPTH: f32 = 0.8;
 
 #[derive(Clone, Copy, Debug)]
@@ -96,18 +99,27 @@ pub fn bits(bytes: &[u8]) -> Vec<bool> {
 }
 
 #[must_use]
+pub fn tones(bits: &[bool]) -> Vec<f64> {
+    let mut last = false;
+    bits.iter()
+        .map(|&bit| {
+            let tone = if bit == last { HOLD_HZ } else { FLIP_HZ };
+            last = bit;
+            tone
+        })
+        .collect()
+}
+
+#[must_use]
 pub fn msk_audio(bits: &[bool], rate: f64) -> Vec<f32> {
     let sps = rate / BAUD;
+    let tones = tones(bits);
     let len = (bits.len() as f64 * sps) as usize;
     let mut phase = 0.0f64;
     (0..len)
         .map(|k| {
-            let idx = ((k as f64 / sps) as usize).min(bits.len().saturating_sub(1));
-            let freq = if bits.get(idx).copied().unwrap_or(false) {
-                CENTRE_HZ + DEVIATION_HZ
-            } else {
-                CENTRE_HZ - DEVIATION_HZ
-            };
+            let idx = ((k as f64 / sps) as usize).min(tones.len().saturating_sub(1));
+            let freq = tones.get(idx).copied().unwrap_or(HOLD_HZ);
             phase += TAU * freq / rate;
             if phase > TAU {
                 phase -= TAU;
@@ -119,7 +131,7 @@ pub fn msk_audio(bits: &[bool], rate: f64) -> Vec<f32> {
 
 #[must_use]
 pub fn transmission(block: &Block<'_>, rate: f64) -> Vec<Complex<f32>> {
-    let mut stream: Vec<bool> = (0..PREKEY_BITS).map(|i| i.is_multiple_of(2)).collect();
+    let mut stream = vec![false; PREKEY_BITS];
     stream.extend(bits(&BSYNC));
     stream.extend(bits(&block_bytes(block)));
     msk_audio(&stream, rate)
@@ -172,13 +184,12 @@ mod tests {
     }
 
     #[test]
-    fn the_tone_pair_is_where_msk_puts_it() {
+    fn a_repeated_bit_holds_the_upper_tone_and_a_change_sends_the_lower() {
         const BITS: usize = 40;
-        for (bit, tone_hz) in [
-            (false, CENTRE_HZ - DEVIATION_HZ),
-            (true, CENTRE_HZ + DEVIATION_HZ),
-        ] {
-            let audio = msk_audio(&[bit; BITS], 48_000.0);
+        let steady = [true; BITS];
+        let toggling: Vec<bool> = (0..BITS).map(|i| i % 2 == 0).collect();
+        for (bits, tone_hz) in [(&steady[..], HOLD_HZ), (&toggling[..], FLIP_HZ)] {
+            let audio = msk_audio(bits, 48_000.0);
             let crossings = audio
                 .windows(2)
                 .filter(|w| w[0] < 0.0 && w[1] >= 0.0)
@@ -186,8 +197,22 @@ mod tests {
             let expected = (BITS as f64 * tone_hz / BAUD).round() as usize;
             assert!(
                 crossings.abs_diff(expected) <= 1,
-                "{bit}: {crossings} cycles, expected {expected}"
+                "{crossings} cycles, expected {expected}"
             );
         }
+    }
+
+    #[test]
+    fn the_prekey_is_the_upper_tone() {
+        let prekey = &transmission(&sample(), 48_000.0)[..PREKEY_BITS * 20];
+        let crossings = prekey
+            .windows(2)
+            .filter(|w| w[0].re < 1.0 && w[1].re >= 1.0)
+            .count();
+        let expected = (PREKEY_BITS as f64 * HOLD_HZ / BAUD).round() as usize;
+        assert!(
+            crossings.abs_diff(expected) <= 2,
+            "{crossings} cycles, expected {expected}"
+        );
     }
 }
