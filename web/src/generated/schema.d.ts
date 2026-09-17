@@ -1988,15 +1988,12 @@ export interface components {
             can_transmit?: boolean;
             decoder_kind?: string | null;
             defaults?: null | components["schemas"]["ChannelSettings"];
-            exact_rate_only?: boolean;
             has_audio?: boolean;
             has_video?: boolean;
             /** Format: double */
             input_rate_hz: number;
             limits?: components["schemas"]["ParamLimit"][];
             name: string;
-            /** Format: double */
-            native_rate_max_hz?: number | null;
             needs_position?: boolean;
             type_id: string;
         };
@@ -5353,11 +5350,7 @@ export interface components {
             /** Format: double */
             max_freq_hz: number;
             /** Format: double */
-            max_sample_rate?: number | null;
-            /** Format: double */
             min_freq_hz: number;
-            /** Format: double */
-            min_sample_rate?: number | null;
             name: string;
             patch?: null | components["schemas"]["PatchGraph"];
             /** Format: double */

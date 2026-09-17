@@ -33,7 +33,7 @@ impl Engine {
         };
         loop {
             let built = descriptor_for(&settings.params)
-                .and_then(|d| validate_channel(&d, &settings, built_rate))
+                .and_then(|d| validate_channel(&d, &settings))
                 .and_then(|()| {
                     ChannelHost::build(
                         built_rate,
@@ -104,9 +104,6 @@ impl Engine {
             .device_sets
             .get(&ds)
             .ok_or(EngineError::DeviceSetNotFound(ds))?;
-        let rate = settings
-            .sample_rate
-            .unwrap_or_else(|| sample_rate_of(&state.settings));
         let caps = &state.capabilities;
         if let Some(center) = settings.center_hz
             && !tuner_reaches(caps, center)
@@ -119,7 +116,7 @@ impl Engine {
         validate_streams(caps, settings)?;
         for channel in channels {
             let descriptor = descriptor_for(&channel.params)?;
-            validate_channel(&descriptor, channel, rate)?;
+            validate_channel(&descriptor, channel)?;
         }
         Ok(())
     }
@@ -164,7 +161,7 @@ impl Engine {
         let mut media = Some(created);
 
         let staged = loop {
-            let built = validate_channel(&descriptor, &settings, device_rate).and_then(|()| {
+            let built = validate_channel(&descriptor, &settings).and_then(|()| {
                 ChannelHost::build(
                     device_rate,
                     center_hz,
@@ -262,7 +259,7 @@ impl Engine {
         let mut orphaned: Option<ChannelAudioRecording> = None;
         let mut orphaned_baseband = BasebandSinks::default();
         let staged = loop {
-            if let Err(e) = validate_channel(&descriptor, &settings, device_rate) {
+            if let Err(e) = validate_channel(&descriptor, &settings) {
                 break Err(e);
             }
             let host = if need_host {

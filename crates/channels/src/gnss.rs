@@ -21,7 +21,6 @@ static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescrip
     name: "GNSS lab (GPS L1 C/A)".to_owned(),
     bandwidth_hz: 2_046_000.0,
     input_rate_hz: RATE,
-    native_rate_max_hz: Some(RATE),
     has_audio: false,
     decoder_kind: Some("gnss".to_owned()),
     ..ChannelDescriptor::default()

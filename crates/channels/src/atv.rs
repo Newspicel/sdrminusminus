@@ -16,8 +16,8 @@ use crate::{
     check_input_rate, clamp_full_scale,
 };
 
-const INPUT_RATE_HZ: f64 = 2_000_000.0;
-const MAX_INPUT_RATE_HZ: f64 = 20_000_000.0;
+const INPUT_RATE_HZ: f64 = 16_000_000.0;
+const LUMA_RATE_HZ: f64 = 2_000_000.0;
 
 const CHANNEL_TAPS: usize = 63;
 const COLOR_BANDWIDTH_HZ: f64 = 600_000.0;
@@ -58,7 +58,6 @@ static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescrip
     input_rate_hz: INPUT_RATE_HZ,
     has_audio: true,
     has_video: true,
-    native_rate_max_hz: Some(MAX_INPUT_RATE_HZ),
     ..ChannelDescriptor::default()
 });
 
@@ -175,9 +174,9 @@ impl VideoFront {
                 input_rate,
             ))
         } else {
-            let ddc = Ddc::new(input_rate, INPUT_RATE_HZ, 0.0)
+            let ddc = Ddc::new(input_rate, LUMA_RATE_HZ, 0.0)
                 .map_err(|error| ChannelError::InvalidSettings(error.to_string()))?;
-            Ok((Self::Luma(ddc), INPUT_RATE_HZ))
+            Ok((Self::Luma(ddc), LUMA_RATE_HZ))
         }
     }
 
@@ -295,7 +294,7 @@ fn params(settings: &ChannelSettings) -> Result<&AtvParams, ChannelError> {
 }
 
 fn check_bandwidth(p: &AtvParams) -> Result<(), ChannelError> {
-    let widest = flat_bandwidth_hz(INPUT_RATE_HZ);
+    let widest = flat_bandwidth_hz(LUMA_RATE_HZ);
     if p.bandwidth_hz.is_finite() && (MIN_BANDWIDTH_HZ..=widest).contains(&p.bandwidth_hz) {
         Ok(())
     } else {
@@ -682,7 +681,7 @@ impl ChannelRx for AtvChannel {
             detector: Detector::new(p, video_rate),
             sound: None,
             polarity: 1.0,
-            levels: Levels::new(INPUT_RATE_HZ),
+            levels: Levels::new(video_rate),
             sync_level: 0.0,
             sync_coeff: 1.0,
             line: Vec::new(),
@@ -742,11 +741,13 @@ mod tests {
     };
 
     fn channel(p: AtvParams) -> AtvChannel {
-        channel_at_rate(p, INPUT_RATE_HZ)
-    }
-
-    fn channel_at_rate(p: AtvParams, input_rate: f64) -> AtvChannel {
-        AtvChannel::new(ChannelCtx { input_rate }, settings(ChannelParams::Atv(p))).unwrap()
+        AtvChannel::new(
+            ChannelCtx {
+                input_rate: INPUT_RATE_HZ,
+            },
+            settings(ChannelParams::Atv(p)),
+        )
+        .unwrap()
     }
 
     fn run(chan: &mut AtvChannel, iq: &[Complex<f32>]) -> Vec<VideoPicture> {
@@ -841,14 +842,13 @@ mod tests {
 
     #[test]
     fn decodes_pal_colour_and_the_am_sound_carrier() {
-        const RATE: f64 = 12_000_000.0;
         let p = AtvParams {
             color: AtvColor::Pal,
             sound_subcarrier_hz: Some(5_500_000.0),
             ..params_for(AtvStandard::Ccir625, AtvModulation::Am)
         };
-        let iq = color_bars_with_tone(&AtvSource::new(&p, RATE), 4);
-        let (pictures, audio) = run_media(&mut channel_at_rate(p, RATE), &iq);
+        let iq = color_bars_with_tone(&AtvSource::new(&p, INPUT_RATE_HZ), 4);
+        let (pictures, audio) = run_media(&mut channel(p), &iq);
         let picture = pictures.last().expect("a PAL picture");
         assert_eq!(
             picture.rgb.len(),
@@ -873,13 +873,12 @@ mod tests {
 
     #[test]
     fn decodes_ntsc_colour() {
-        const RATE: f64 = 12_000_000.0;
         let p = AtvParams {
             color: AtvColor::Ntsc,
             ..params_for(AtvStandard::Eia525, AtvModulation::Am)
         };
-        let iq = color_bars_with_tone(&AtvSource::new(&p, RATE), 4);
-        let pictures = run(&mut channel_at_rate(p, RATE), &iq);
+        let iq = color_bars_with_tone(&AtvSource::new(&p, INPUT_RATE_HZ), 4);
+        let pictures = run(&mut channel(p), &iq);
         let picture = pictures.last().expect("an NTSC picture");
         assert!(!picture.rgb.is_empty());
         let row = usize::from(picture.height) / 2;
@@ -1060,15 +1059,14 @@ mod tests {
 
     #[test]
     fn colour_and_sound_path_has_bounded_cost() {
-        const RATE: f64 = 12_000_000.0;
         let p = AtvParams {
             color: AtvColor::Pal,
             sound_subcarrier_hz: Some(5_500_000.0),
             ..params_for(AtvStandard::Ccir625, AtvModulation::Am)
         };
-        let iq = color_bars_with_tone(&AtvSource::new(&p, RATE), 4);
-        let seconds = iq.len() as f64 / RATE;
-        let mut chan = channel_at_rate(p, RATE);
+        let iq = color_bars_with_tone(&AtvSource::new(&p, INPUT_RATE_HZ), 4);
+        let seconds = iq.len() as f64 / INPUT_RATE_HZ;
+        let mut chan = channel(p);
         let mut out = ChannelOutputs::default();
         let started = std::time::Instant::now();
         for block in iq.chunks(16_384) {

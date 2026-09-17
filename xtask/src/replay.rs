@@ -35,10 +35,7 @@ pub fn run(args: &Replay) -> Result<()> {
         .into_iter()
         .find(|d| d.type_id == type_id)
         .with_context(|| format!("no channel called {type_id}"))?;
-    let input_rate = match descriptor.native_rate_range() {
-        Some(_) => device_rate,
-        None => descriptor.input_rate_hz,
-    };
+    let input_rate = descriptor.input_rate_hz;
     let settings = ChannelSettings {
         frequency_hz: args.offset,
         squelch: sdrmm_wire::Squelch::Off,

@@ -16,7 +16,6 @@ import {
   clampCells,
   connectionRefusal,
   edgeKey,
-  edgeWarning,
   type GraphContext,
   isPinned,
   isResizable,
@@ -131,27 +130,23 @@ const TYPES: ChannelDescriptor[] = [
     bandwidth_hz: 12_500,
     input_rate_hz: 48_000,
     has_audio: true,
-    exact_rate_only: false,
   },
   {
     type_id: "adsb",
     name: "ADS-B",
     bandwidth_hz: 2_000_000,
-    input_rate_hz: 2_000_000,
+    input_rate_hz: 2_400_000,
     has_audio: false,
     decoder_kind: "adsb",
-    exact_rate_only: false,
-    native_rate_max_hz: 4_000_000,
     needs_position: true,
   },
   {
     type_id: "atv",
     name: "ATV",
     bandwidth_hz: 6_000_000,
-    input_rate_hz: 6_000_000,
+    input_rate_hz: 16_000_000,
     has_audio: false,
     has_video: true,
-    exact_rate_only: false,
   },
 ];
 
@@ -442,27 +437,6 @@ describe("connectionRefusal", () => {
     expect(connectionRefusal(context, graph, port("dev", "iq"), port("dev2", "tx"))).toMatch(
       /does not exist/,
     );
-  });
-
-  it("allows a wideband channel on a rate outside its range and marks the wire instead", () => {
-    const graph = {
-      ...workspace(),
-      nodes: [
-        ...workspace().nodes,
-        node("adsb", { kind: "channel", data: { channel_type: "adsb" } }),
-      ],
-    };
-    const wrong = { ...context, bound: bound("dev", { rate: 10_000_000 }) };
-    expect(connectionRefusal(wrong, graph, port("dev", "iq"), port("adsb", "iq"))).toBeNull();
-
-    expect(edgeWarning(wrong, graph, port("dev", "iq"), port("adsb", "iq"))).toBe(
-      "needs 2 MS/s–4 MS/s",
-    );
-
-    const right = { ...context, bound: bound("dev", { rate: 2_048_000 }) };
-    expect(edgeWarning(right, graph, port("dev", "iq"), port("adsb", "iq"))).toBeNull();
-    expect(edgeWarning(context, graph, port("dev", "iq"), port("adsb", "iq"))).toBeNull();
-    expect(edgeWarning(wrong, graph, port("dev", "iq"), port("nfm", "iq"))).toBeNull();
   });
 });
 

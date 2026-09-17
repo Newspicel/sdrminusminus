@@ -604,14 +604,16 @@ async fn a_mode_s_identity_reply_survives_the_ddc_and_reaches_the_decoded_stream
     let engine = engine_for(dir.path());
     let icao = 0x40_621D;
 
+    const RATE: f64 = 4_800_000.0;
+
     let frames = vec![
         testgen::adsb::all_call_reply(icao, 5, 0),
         testgen::adsb::identity_reply(icao, "7421", 0),
         testgen::adsb::altitude_reply(icao, 24_000, 0),
     ];
-    let iq = testgen::adsb::transmission(&frames, 500.0, 0.8, ADSB_DEVICE_RATE);
+    let iq = testgen::adsb::transmission(&frames, 500.0, 0.8, RATE);
 
-    let device = plant(dir.path(), "modes", iq, ADSB_DEVICE_RATE);
+    let device = plant(dir.path(), "modes", iq, RATE);
     let record = decode_first(
         &engine,
         &device,
@@ -1316,35 +1318,36 @@ async fn adsb_decodes_at_an_rtl_sdr_rate_the_ddc_could_not_have_resampled() {
 }
 
 #[tokio::test]
-async fn adsb_is_rejected_above_the_rate_its_slicer_can_use() {
+async fn adsb_decodes_from_a_wideband_radio_through_the_resampler() {
     let dir = TempDir::new().unwrap();
     let engine = engine_for(dir.path());
-    let device = plant(
-        dir.path(),
-        "wideband",
-        testgen::silence(4_800),
-        10_000_000.0,
-    );
-    let ds = engine.create_device_set(&device).unwrap();
-
-    let err = engine
-        .add_channel(
-            ds,
-            0,
-            ChannelSettings {
-                frequency_hz: CENTER_HZ,
-                squelch: sdrmm_wire::Squelch::Off,
-                params: ChannelParams::Adsb(AdsbParams::default()),
-                audio: Default::default(),
-            },
-        )
-        .expect_err("a rate past the slicer's range must be refused, not silently expensive");
-    let message = err.to_string();
-    assert!(
-        message.contains("2.000") && message.contains("4.000"),
-        "the rejection must name the range that works: {message}"
-    );
-    engine.remove_device_set(ds).unwrap();
+    const RATE: f64 = 10_000_000.0;
+    let offset_hz = 1_000_000.0;
+    let icao = 0x3C_6444;
+    let frames = vec![testgen::adsb::squitter(
+        icao,
+        testgen::adsb::me_identification("DLH123"),
+    )];
+    let mut iq = testgen::adsb::transmission(&frames, 500.0, 0.8, RATE);
+    testgen::shift(&mut iq, offset_hz, RATE);
+    let device = plant(dir.path(), "wideband", iq, RATE);
+    let record = decode_first(
+        &engine,
+        &device,
+        ChannelSettings {
+            frequency_hz: CENTER_HZ + offset_hz,
+            squelch: sdrmm_wire::Squelch::Off,
+            params: ChannelParams::Adsb(AdsbParams::default()),
+            audio: Default::default(),
+        },
+        |event| matches!(event, DecoderEvent::Adsb(a) if a.callsign.is_some()),
+    )
+    .await;
+    let DecoderEvent::Adsb(message) = record.event else {
+        unreachable!("filtered above")
+    };
+    assert_eq!(message.icao, "3C6444");
+    assert_eq!(message.callsign.as_deref(), Some("DLH123"));
 }
 
 #[tokio::test]

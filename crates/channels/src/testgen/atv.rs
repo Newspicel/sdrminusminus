@@ -70,6 +70,7 @@ enum Seg {
     Equalizing,
     Broad,
     HalfBlank,
+    HalfLine,
     Line { picture: bool },
 }
 
@@ -99,24 +100,22 @@ impl AtvSource {
 
     fn field(&self, second: bool) -> Vec<Seg> {
         let l = self.layout;
+        let group = usize::from(l.pre_eq + l.broad + l.post_eq);
+        let lead = usize::from(second && l.field_half_lines % 2 == 1);
+        let rest = usize::from(l.field_half_lines) - group - lead;
         let mut segs = Vec::new();
-        if second {
-            segs.push(Seg::HalfBlank);
-        }
         segs.extend(std::iter::repeat_n(Seg::Equalizing, usize::from(l.pre_eq)));
         segs.extend(std::iter::repeat_n(Seg::Broad, usize::from(l.broad)));
         segs.extend(std::iter::repeat_n(Seg::Equalizing, usize::from(l.post_eq)));
-        let group = usize::from(second) + usize::from(l.pre_eq + l.broad + l.post_eq);
-        let remaining = usize::from(l.field_half_lines) - group;
-        let lines = remaining / 2;
-        for k in 0..lines {
+        segs.extend(std::iter::repeat_n(Seg::HalfBlank, lead));
+        for k in 0..rest / 2 {
             let first = usize::from(l.blank_after_group);
             segs.push(Seg::Line {
                 picture: k >= first && k < first + usize::from(l.active_lines),
             });
         }
-        if remaining % 2 == 1 {
-            segs.push(Seg::HalfBlank);
+        if rest % 2 == 1 {
+            segs.push(Seg::HalfLine);
         }
         segs
     }
@@ -140,6 +139,7 @@ impl AtvSource {
                 }
             }
             Seg::HalfBlank => BLANKING,
+            Seg::HalfLine => self.level(Seg::Line { picture: false }, u, line, pixel),
             Seg::Line { picture } => {
                 let sync_end = l.front_porch_s + l.sync_s;
                 let active_start = sync_end + l.back_porch_s;
@@ -337,31 +337,39 @@ mod tests {
     }
 
     #[test]
-    fn the_second_field_is_displaced_by_half_a_line() {
-        let src = source(AtvStandard::Ccir625);
-        let first: f64 = src
-            .field(false)
-            .into_iter()
-            .map(|s| src.seg_seconds(s))
-            .sum();
-        let second: f64 = src
-            .field(true)
-            .into_iter()
-            .map(|s| src.seg_seconds(s))
-            .sum();
-        assert!((first - second).abs() < 1e-12, "{first} vs {second}");
-        let group = |second: bool| {
-            src.field(second)
-                .into_iter()
-                .take_while(|s| !matches!(s, Seg::Broad))
-                .map(|s| src.seg_seconds(s))
-                .sum::<f64>()
-        };
-        let offset = group(true) - group(false);
-        assert!(
-            (offset - src.layout.line_s / 2.0).abs() < 1e-12,
-            "broad group moved by {offset} s, expected half a line"
-        );
+    fn the_second_field_lands_its_lines_half_a_line_later() {
+        for standard in [
+            AtvStandard::Ccir625,
+            AtvStandard::Eia525,
+            AtvStandard::SystemA405,
+        ] {
+            let src = source(standard);
+            let seconds =
+                |segs: Vec<Seg>| segs.into_iter().map(|s| src.seg_seconds(s)).sum::<f64>();
+            let length = |second: bool| seconds(src.field(second));
+            assert!((length(false) - length(true)).abs() < 1e-12, "{standard:?}");
+            let until = |second: bool, stop: fn(&Seg) -> bool| {
+                seconds(
+                    src.field(second)
+                        .into_iter()
+                        .take_while(|s| !stop(s))
+                        .collect(),
+                )
+            };
+            let is_line = |s: &Seg| matches!(s, Seg::Line { .. });
+            let is_broad = |s: &Seg| matches!(s, Seg::Broad);
+            let line_s = src.layout.line_s;
+            let grid = (length(false) + until(true, is_line) - until(false, is_line)) / line_s;
+            assert!(
+                (grid - grid.round()).abs() < 1e-9,
+                "{standard:?}: the second field's lines sit {grid} lines after the first's"
+            );
+            let shift = (length(false) + until(true, is_broad) - until(false, is_broad)) / line_s;
+            assert!(
+                (shift.fract() - 0.5).abs() < 1e-9,
+                "{standard:?}: broad pulses moved by {shift} lines, expected a half-line offset"
+            );
+        }
     }
 
     #[test]

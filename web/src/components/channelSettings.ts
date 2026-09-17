@@ -215,29 +215,3 @@ export function offsetForFrequencyHz(
   const offsetHz = Math.round(frequencyHz - centerHz);
   return limitHz !== null && Math.abs(offsetHz) > limitHz ? null : offsetHz;
 }
-
-export function rateMismatch(
-  descriptor: ChannelDescriptor | undefined,
-  sampleRateHz: number | null | undefined,
-): { min: number; max: number } | null {
-  if (descriptor === undefined || sampleRateHz == null) {
-    return null;
-  }
-  const wanted = rateRange(descriptor);
-  if (wanted === null || (sampleRateHz >= wanted.min && sampleRateHz <= wanted.max)) {
-    return null;
-  }
-  return wanted;
-}
-
-export function rateRange(descriptor: ChannelDescriptor): { min: number; max: number } | null {
-  if (descriptor.native_rate_max_hz != null) {
-    return { min: descriptor.input_rate_hz, max: descriptor.native_rate_max_hz };
-  }
-  if (descriptor.exact_rate_only) {
-    return { min: descriptor.input_rate_hz, max: descriptor.input_rate_hz };
-  }
-  return descriptor.input_rate_hz > 0
-    ? { min: descriptor.input_rate_hz, max: Number.POSITIVE_INFINITY }
-    : null;
-}

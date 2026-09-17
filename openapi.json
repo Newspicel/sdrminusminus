@@ -6612,9 +6612,6 @@
               }
             ]
           },
-          "exact_rate_only": {
-            "type": "boolean"
-          },
           "has_audio": {
             "type": "boolean"
           },
@@ -6633,13 +6630,6 @@
           },
           "name": {
             "type": "string"
-          },
-          "native_rate_max_hz": {
-            "type": [
-              "number",
-              "null"
-            ],
-            "format": "double"
           },
           "needs_position": {
             "type": "boolean"
@@ -18991,22 +18981,8 @@
             "type": "number",
             "format": "double"
           },
-          "max_sample_rate": {
-            "type": [
-              "number",
-              "null"
-            ],
-            "format": "double"
-          },
           "min_freq_hz": {
             "type": "number",
-            "format": "double"
-          },
-          "min_sample_rate": {
-            "type": [
-              "number",
-              "null"
-            ],
             "format": "double"
           },
           "name": {

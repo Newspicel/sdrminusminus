@@ -132,12 +132,11 @@ const TEMPLATE: TemplateInfo = {
   description: "",
   explainer: "",
   center_hz: 1_090_000_000,
-  sample_rate: 2_000_000,
+  sample_rate: 2_400_000,
   channels: [],
   min_freq_hz: 1_090_000_000,
   max_freq_hz: 1_090_000_000,
   direction: "rx",
-  max_sample_rate: 4_000_000,
   supported_devices: ["rtlsdr:00000001"],
 };
 

@@ -204,18 +204,6 @@
   stroke: var(--color-port-control);
 }
 
-.wire-fault .react-flow__edge-path {
-  stroke: var(--color-danger);
-  stroke-dasharray: 5 4;
-}
-
-.wire-fault .react-flow__edge-text {
-  fill: var(--color-danger);
-  font-family: var(--font-mono);
-  font-size: 10px;
-  transform: translateY(-12px);
-}
-
 .react-flow__edge:hover .react-flow__edge-path,
 .react-flow__edge.selected .react-flow__edge-path {
   stroke-width: 2.5;

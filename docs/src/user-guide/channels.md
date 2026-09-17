@@ -127,15 +127,9 @@ character-set setting.
 Keep the channel's full occupied bandwidth inside the Device's reception range. If it does not
 fit, retune the Device, move the channel, or increase the sample rate.
 
-Most channels resample IQ internally. These modes require a specific device rate:
-
-| Channel | Device rate |
-|---|---|
-| ADS-B | 2–4 MS/s |
-| ATV | 2–20 MS/s |
-| GNSS lab | 2.048 MS/s |
-
-The channel reports incompatible rates and offers a suitable choice. Use the lowest rate that
+Every channel runs at its own fixed rate. The engine resamples the Device's IQ to that rate, so
+any Device rate carries any channel. A Device rate equal to the channel rate skips the resampler:
+ADS-B runs at 2.4 MS/s, GNSS and DAB at 2.048 MS/s, ATV at 16 MS/s. Use the lowest rate that
 covers your signals to reduce USB traffic and CPU load.
 
 ## Tuning and squelch

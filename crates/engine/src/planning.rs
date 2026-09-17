@@ -7,13 +7,6 @@ use sdrmm_wire::{
 
 use crate::{DEFAULT_CENTER_HZ, EngineError, center_of, sample_rate_of};
 
-pub(crate) fn channel_input_rate(descriptor: &ChannelDescriptor, device_rate: f64) -> f64 {
-    match descriptor.native_rate_range() {
-        Some(_) => device_rate,
-        None => descriptor.input_rate_hz,
-    }
-}
-
 pub(crate) fn descriptor_for(params: &ChannelParams) -> Result<ChannelDescriptor, EngineError> {
     let type_id = params.type_id();
     sdrmm_channels::descriptors()
@@ -25,7 +18,6 @@ pub(crate) fn descriptor_for(params: &ChannelParams) -> Result<ChannelDescriptor
 pub(crate) fn validate_channel(
     descriptor: &ChannelDescriptor,
     settings: &ChannelSettings,
-    device_rate: f64,
 ) -> Result<(), EngineError> {
     if !settings.frequency_hz.is_finite() {
         return Err(ChannelError::InvalidSettings(format!(
@@ -46,45 +38,6 @@ pub(crate) fn validate_channel(
             descriptor.type_id
         ))
         .into());
-    }
-    if device_rate < descriptor.input_rate_hz {
-        return Err(ChannelError::InvalidSettings(format!(
-            "{} needs a device rate of at least {} Hz, device runs at {device_rate} Hz",
-            descriptor.type_id, descriptor.input_rate_hz
-        ))
-        .into());
-    }
-    let (low, high) = sdrmm_channels::occupied_band(&settings.params);
-    if let Some((low, high)) = descriptor.native_rate_range() {
-        if device_rate > high {
-            return Err(ChannelError::InvalidSettings(format!(
-                "{} reads the radio's own samples, so it runs with the receiver between \
-                 {:.3} and {:.3} MHz — above that there is nothing left for a slicer to gain \
-                 and the scan costs more than the smallest machine this has to run on can \
-                 spare. The receiver is at {:.3} MHz.",
-                descriptor.name,
-                low / 1e6,
-                high / 1e6,
-                device_rate / 1e6,
-            ))
-            .into());
-        }
-        return Ok(());
-    }
-    if device_rate != descriptor.input_rate_hz {
-        let widest = sdrmm_dsp::resamplable_bandwidth_hz(descriptor.input_rate_hz);
-        if high - low >= widest {
-            return Err(ChannelError::InvalidSettings(format!(
-                "{} fills its whole {:.3} MHz channel, so there is no guard band left for a \
-                 resampler to filter in — at {:.3} MHz the signal would arrive smeared and \
-                 decode nothing. Set the receiver to exactly {:.3} MHz.",
-                descriptor.name,
-                (high - low) / 1e6,
-                device_rate / 1e6,
-                descriptor.input_rate_hz / 1e6,
-            ))
-            .into());
-        }
     }
     Ok(())
 }

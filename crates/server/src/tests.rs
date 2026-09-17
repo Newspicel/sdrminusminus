@@ -200,11 +200,14 @@ fn preset_250k(channels: Vec<ChannelSettings>) -> PresetSnapshot {
     }
 }
 
-fn adsb_at(frequency_hz: f64) -> ChannelSettings {
+fn nfm_with_inversion_at(frequency_hz: f64, inversion_hz: f64) -> ChannelSettings {
     ChannelSettings {
         frequency_hz,
         squelch: sdrmm_wire::Squelch::Off,
-        params: ChannelParams::default_for("adsb").expect("adsb is built in"),
+        params: ChannelParams::Nfm(NfmParams {
+            inversion_hz: Some(inversion_hz),
+            ..NfmParams::default()
+        }),
         audio: Default::default(),
     }
 }

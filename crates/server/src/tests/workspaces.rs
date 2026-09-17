@@ -991,7 +991,10 @@ async fn a_radio_nobody_tuned_opens_over_the_decoder_wired_into_it() {
         (center_hz - 1_090_000_000.0).abs() < 2_000_000.0,
         "the radio came up at {center_hz} Hz, where its decoder cannot be heard"
     );
-    assert_ne!(center_hz, 1_090_000_000.0, "the decoder was left on the DC spike");
+    assert_ne!(
+        center_hz, 1_090_000_000.0,
+        "the decoder was left on the DC spike"
+    );
     assert!(!set.channels[0].out_of_band);
 }
 

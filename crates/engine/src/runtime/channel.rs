@@ -187,10 +187,7 @@ impl ChannelHost {
             .into_iter()
             .find(|d| d.type_id == type_id)
             .ok_or_else(|| ChannelError::UnknownType(type_id.to_owned()))?;
-        let input_rate = match descriptor.native_rate_range() {
-            Some(_) => device_rate,
-            None => descriptor.input_rate_hz,
-        };
+        let input_rate = descriptor.input_rate_hz;
         let offset_hz = settings.frequency_hz - center_hz;
         let (band_low_hz, band_high_hz) = sdrmm_channels::occupied_band(&settings.params);
         let ddc = Ddc::new(device_rate, input_rate, offset_hz)

@@ -263,7 +263,10 @@ async fn apply_preset_rejected_up_front_leaves_the_set_untouched() {
     assert_eq!(status, StatusCode::OK);
 
     let preset = store
-        .create_preset("broken", &preset_250k(vec![adsb_at(1_090_000_000.0)]))
+        .create_preset(
+            "broken",
+            &preset_250k(vec![nfm_with_inversion_at(100_000_000.0, 100.0)]),
+        )
         .expect("preset");
     let (status, body) = request(
         app.clone(),
@@ -275,7 +278,7 @@ async fn apply_preset_rejected_up_front_leaves_the_set_untouched() {
     assert_eq!(status, StatusCode::BAD_REQUEST);
     let err: ApiError = serde_json::from_slice(&body).expect("ApiError body");
     assert!(
-        err.error.contains("device rate"),
+        err.error.contains("inversion_hz"),
         "the rejection must name the problem: {err:?}"
     );
     assert_eq!(

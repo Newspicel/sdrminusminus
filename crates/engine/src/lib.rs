@@ -58,7 +58,7 @@ pub mod video;
 pub use audio::{AudioPacket, PcmBlock, PcmPayload};
 pub use image::ImageCapture;
 pub use iq::{IQ_BLOCK_SAMPLES, IQ_BLOCKS_PER_SEC, IqBlock};
-pub(crate) use planning::{channel_input_rate, dc_block, descriptor_for};
+pub(crate) use planning::{dc_block, descriptor_for};
 pub use recording::FinalizedRecording;
 pub use runtime::SpectrumSnapshot;
 pub use sdrmm_device_array::ArrayCatalog;

@@ -14,6 +14,7 @@ pub mod fir;
 pub mod firc;
 pub mod fm;
 pub mod iir;
+pub mod interp;
 pub mod level;
 pub mod linalg;
 pub mod music;
@@ -41,7 +42,7 @@ pub use bits::{
     hamming_distance, manchester_decode, pack_lsb, pack_msb, reverse_byte,
 };
 pub use compander::Compander;
-pub use ddc::{Ddc, DdcError, flat_bandwidth_hz, resamplable_bandwidth_hz};
+pub use ddc::{Ddc, DdcError, flat_bandwidth_hz};
 pub use decim::{Decimator, RealDecimator};
 pub use fec::{
     RdsOffset,
@@ -67,6 +68,7 @@ pub use fm::FmDemod;
 pub use iir::{
     Biquad, ComplexOnePole, DcBlocker, Deemphasis, Highpass, IqDcBlocker, one_pole_coeff,
 };
+pub use interp::CubicInterpolator;
 pub use level::{LEVEL_FLOOR_DB, LevelMeter};
 pub use nco::Nco;
 pub use noise::{AutoNotch, ClickRemover, NoiseBlanker, SpectralDenoiser};

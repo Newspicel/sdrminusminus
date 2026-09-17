@@ -78,7 +78,6 @@ fn descriptors() -> Vec<ChannelDescriptor> {
             input_rate_hz: 2_000_000.0,
             has_audio: false,
             decoder_kind: Some("adsb".to_owned()),
-            native_rate_max_hz: Some(4_000_000.0),
             ..ChannelDescriptor::default()
         },
         ChannelDescriptor {

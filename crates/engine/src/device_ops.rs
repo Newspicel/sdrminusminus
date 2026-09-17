@@ -9,7 +9,7 @@ use sdrmm_wire::{Capabilities, DeviceSetStatus, DeviceSettings, ServerEvent, Sta
 use crate::{
     ChannelMedia, DEFAULT_CENTER_HZ, DeviceSetState, Engine, EngineError, FaultGate,
     RatePatchGuard, RebuildEntry, dc_block, fault_kind, hotplug, ids_of, lock_runtime,
-    planning::{descriptor_for, plan_center, validate_channel, validate_streams},
+    planning::{plan_center, validate_streams},
     runtime::{CaptureRuntime, DeviceRuntime},
     sample_rate_of, teardown_set,
 };
@@ -875,20 +875,18 @@ impl DeviceSetState {
         &self,
         delta: &DeviceSettings,
     ) -> Result<(DeviceSettings, bool), EngineError> {
-        let mut wanted = self.settings.clone();
-        wanted.merge_from(delta);
         let hardware = delta.to_hardware();
         validate_streams(&self.capabilities, &hardware)?;
         let rate_change = delta
             .sample_rate
             .is_some_and(|rate| rate != sample_rate_of(&self.settings));
         if rate_change {
-            self.validate_rate_change(sample_rate_of(&wanted))?;
+            self.validate_rate_change()?;
         }
         Ok((hardware, rate_change))
     }
 
-    fn validate_rate_change(&self, new_rate: f64) -> Result<(), EngineError> {
+    fn validate_rate_change(&self) -> Result<(), EngineError> {
         if self.coherent.is_some() {
             return Err(EngineError::Coherent(
                 "stop coherent processors before changing the sample rate".into(),
@@ -909,10 +907,6 @@ impl DeviceSetState {
                 "sample rate is locked while the time machine holds history; disarm it first"
                     .to_string(),
             ));
-        }
-        for channel in &self.channels {
-            let descriptor = descriptor_for(&channel.settings.params)?;
-            validate_channel(&descriptor, &channel.settings, new_rate)?;
         }
         Ok(())
     }

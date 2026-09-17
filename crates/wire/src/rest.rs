@@ -495,10 +495,6 @@ pub struct TemplateInfo {
     pub patch: Option<crate::patch::PatchGraph>,
     #[serde(default = "receive")]
     pub direction: crate::device::Direction,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub min_sample_rate: Option<f64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub max_sample_rate: Option<f64>,
     #[serde(default)]
     pub supported_devices: Vec<String>,
 }
@@ -510,11 +506,7 @@ const fn receive() -> crate::device::Direction {
 impl TemplateInfo {
     #[must_use]
     pub fn rate_on(&self, profile: &crate::device::DeviceProfile) -> Option<f64> {
-        profile.rate_for(
-            self.sample_rate,
-            self.min_sample_rate.unwrap_or(self.sample_rate),
-            self.max_sample_rate.unwrap_or(f64::INFINITY),
-        )
+        profile.rate_for(self.sample_rate)
     }
 
     #[must_use]
@@ -533,21 +525,6 @@ impl TemplateInfo {
                 )
             };
             return Some(format!("needs {span}, outside this radio's tuning range"));
-        }
-        if self.rate_on(profile).is_none() {
-            let floor = self.min_sample_rate.unwrap_or(self.sample_rate);
-            let wanted = match self.max_sample_rate {
-                Some(max) if max <= floor => {
-                    format!("exactly {}", crate::units::sample_rate(floor))
-                }
-                Some(max) => format!(
-                    "{}–{}",
-                    crate::units::sample_rate(floor),
-                    crate::units::sample_rate(max)
-                ),
-                None => format!("{} or more", crate::units::sample_rate(floor)),
-            };
-            return Some(format!("needs {wanted}, which this radio does not offer"));
         }
         None
     }
@@ -797,8 +774,6 @@ mod tests {
             max_freq_hz,
             patch: None,
             direction: crate::device::Direction::Rx,
-            min_sample_rate: None,
-            max_sample_rate: None,
             supported_devices: Vec::new(),
         }
     }
@@ -815,48 +790,24 @@ mod tests {
     }
 
     #[test]
-    fn a_pinned_template_refuses_a_neighbouring_rate() {
+    fn a_template_lands_on_the_nearest_rate_the_radio_offers() {
         let dongle = profile(vec![range(24e6, 1.766e9)], vec![2.048e6], Duplex::RxOnly);
+        let gnss = template(1_575e6, 1_575e6, 2e6);
+        assert_eq!(gnss.unmet_by(&dongle), None);
+        assert_eq!(gnss.rate_on(&dongle), Some(2.048e6));
 
-        let mut gnss = template(1_575e6, 1_575e6, 2e6);
-        gnss.max_sample_rate = Some(2e6);
-        let reason = gnss.unmet_by(&dongle).expect("2.048 is not 2.000");
-        assert!(reason.contains("exactly"), "{reason}");
-
-        let mut fm = template(98e6, 98e6, 2.4e6);
-        fm.min_sample_rate = Some(256e3);
-        assert_eq!(fm.unmet_by(&dongle), None, "a nominal rate stands 2.048 in");
-        assert_eq!(
-            fm.rate_on(&dongle),
-            Some(2.048e6),
-            "and lands on what the radio has"
-        );
-    }
-
-    #[test]
-    fn a_template_narrower_than_the_radio_runs_at_the_radios_floor() {
         let transceiver = {
             let mut profile = profile(vec![range(70e6, 6e9)], Vec::new(), Duplex::Full);
             profile.sample_rate_ranges = vec![range(2.1e6, 61.44e6)];
             profile
         };
-
         let pager = template(169e6, 169e6, 250e3);
         assert_eq!(pager.unmet_by(&transceiver), None);
         assert_eq!(pager.rate_on(&transceiver), Some(2.1e6));
 
-        let mut gnss = template(1_575e6, 1_575e6, 2.048e6);
-        gnss.max_sample_rate = Some(2.048e6);
-        let reason = gnss.unmet_by(&transceiver).expect("pinned below the floor");
-        assert!(reason.contains("exactly 2.048 MS/s"), "{reason}");
-
-        let mut adsb = template(1_090e6, 1_090e6, 2e6);
-        adsb.max_sample_rate = Some(4e6);
-        assert_eq!(
-            adsb.rate_on(&transceiver),
-            Some(2.1e6),
-            "under its own ceiling"
-        );
+        let narrow = profile(vec![range(24e6, 1.766e9)], vec![250e3, 1e6], Duplex::RxOnly);
+        assert_eq!(gnss.unmet_by(&narrow), None);
+        assert_eq!(gnss.rate_on(&narrow), Some(1e6), "the widest it has");
     }
 
     #[test]
@@ -899,7 +850,6 @@ mod tests {
         )
         .expect("a template from before the direction field");
         assert_eq!(parsed.direction, crate::device::Direction::Rx);
-        assert!(parsed.max_sample_rate.is_none());
         assert!(parsed.supported_devices.is_empty());
     }
 }

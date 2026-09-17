@@ -20,10 +20,6 @@ pub struct ChannelDescriptor {
     #[serde(default)]
     pub has_video: bool,
     #[serde(default)]
-    pub exact_rate_only: bool,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub native_rate_max_hz: Option<f64>,
-    #[serde(default)]
     pub can_transmit: bool,
     #[serde(default)]
     pub needs_position: bool,
@@ -110,7 +106,7 @@ pub fn param_limits(type_id: &str) -> Vec<ParamLimit> {
         "atv" => vec![limit(
             "sound_subcarrier_hz",
             500_000.0,
-            9_000_000.0,
+            7_500_000.0,
             500_000.0,
         )],
         "datv" => vec![limit("symbol_rate", 100_000.0, 1_000_000.0, 1_000.0)],
@@ -138,13 +134,6 @@ pub fn param_limits(type_id: &str) -> Vec<ParamLimit> {
     }
 }
 
-impl ChannelDescriptor {
-    #[must_use]
-    pub fn native_rate_range(&self) -> Option<(f64, f64)> {
-        self.native_rate_max_hz.map(|max| (self.input_rate_hz, max))
-    }
-}
-
 fn default_has_audio() -> bool {
     true
 }
@@ -159,8 +148,6 @@ impl Default for ChannelDescriptor {
             has_audio: default_has_audio(),
             decoder_kind: None,
             has_video: false,
-            exact_rate_only: false,
-            native_rate_max_hz: None,
             can_transmit: false,
             needs_position: false,
             defaults: None,

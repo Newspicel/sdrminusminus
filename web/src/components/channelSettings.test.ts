@@ -13,7 +13,6 @@ import {
   offsetForFrequencyHz,
   offsetLimitHz,
   radioWindowHz,
-  rateMismatch,
   reachesHz,
   scaledLimit,
   squelchAt,
@@ -263,46 +262,6 @@ describe("clampOffsetHz", () => {
 
   it("leaves the offset alone while the span is unknown", () => {
     expect(clampOffsetHz(9_000_000, null)).toBe(9_000_000);
-  });
-});
-
-describe("rateMismatch", () => {
-  const adsb = descriptor({
-    type_id: "adsb",
-    name: "ADS-B",
-    input_rate_hz: 2_000_000,
-    native_rate_max_hz: 4_000_000,
-  });
-  const fixed = descriptor({ type_id: "x", input_rate_hz: 2_000_000, exact_rate_only: true });
-
-  it("names the range a native-rate mode runs over when the radio is outside it", () => {
-    expect(rateMismatch(adsb, 1_920_000)).toEqual({ min: 2_000_000, max: 4_000_000 });
-    expect(rateMismatch(adsb, 10_000_000)).toEqual({ min: 2_000_000, max: 4_000_000 });
-  });
-
-  it("is silent anywhere inside the range — 2.048 is what an RTL-SDR offers", () => {
-    expect(rateMismatch(adsb, 2_048_000)).toBeNull();
-    expect(rateMismatch(adsb, 2_000_000)).toBeNull();
-    expect(rateMismatch(adsb, 4_000_000)).toBeNull();
-  });
-
-  it("collapses to one rate for a mode that fills its channel", () => {
-    expect(rateMismatch(fixed, 2_400_000)).toEqual({ min: 2_000_000, max: 2_000_000 });
-    expect(rateMismatch(fixed, 2_000_000)).toBeNull();
-  });
-
-  it("is silent for a resampling mode above its input rate, and while the rate is unreported", () => {
-    expect(rateMismatch(descriptor({ input_rate_hz: 48_000 }), 2_400_000)).toBeNull();
-    expect(rateMismatch(adsb, null)).toBeNull();
-    expect(rateMismatch(undefined, 2_400_000)).toBeNull();
-  });
-
-  it("wants at least the input rate from a radio running below a resampling mode", () => {
-    expect(rateMismatch(descriptor({ input_rate_hz: 2_304_000 }), 2_048_000)).toEqual({
-      min: 2_304_000,
-      max: Number.POSITIVE_INFINITY,
-    });
-    expect(rateMismatch(descriptor({ input_rate_hz: 0 }), 2_048_000)).toBeNull();
   });
 });
 

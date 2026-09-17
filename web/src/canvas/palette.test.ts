@@ -25,16 +25,14 @@ const TYPES: ChannelDescriptor[] = [
     bandwidth_hz: 12_500,
     input_rate_hz: 48_000,
     has_audio: true,
-    exact_rate_only: false,
   },
   {
     type_id: "adsb",
     name: "ADS-B (1090ES)",
     bandwidth_hz: 2_000_000,
-    input_rate_hz: 2_000_000,
+    input_rate_hz: 2_400_000,
     has_audio: false,
     decoder_kind: "adsb",
-    exact_rate_only: false,
   },
 ];
 

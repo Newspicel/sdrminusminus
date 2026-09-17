@@ -1,27 +1,20 @@
 import { useQuery } from "@tanstack/react-query";
-import type { ReactNode } from "react";
 import { Button } from "../../components/BaseControls";
 import { ChannelControls, ChannelDial } from "../../components/ChannelControls";
 import { Checkbox } from "../../components/Checkbox";
-import {
-  radioWindowHz,
-  rateMismatch,
-  reachesHz,
-  squelchLevelDb,
-} from "../../components/channelSettings";
-import { BTN, BTN_PRIMARY } from "../../components/controls";
+import { radioWindowHz, reachesHz, squelchLevelDb } from "../../components/channelSettings";
+import { BTN_PRIMARY } from "../../components/controls";
 import { ANY_FREQUENCY, tuningRange } from "../../components/dial";
 import { dialId } from "../../components/FrequencyDial";
-import { formatSampleRate } from "../../components/format";
 import { LevelMeter } from "../../components/LevelMeter";
 import { SettingRow } from "../../components/Settings";
 import { devicesQuery } from "../../lib/api";
 import { useDecodedKind } from "../../lib/decoded";
 import { useLevelStore } from "../../lib/levels";
-import type { DeviceSet, PatchNode, PatchNodeOf } from "../../lib/types";
+import type { PatchNode, PatchNodeOf } from "../../lib/types";
 import { channelSettingsOf, liveChannelOf, useChannelEdit } from "../../lib/useChannelEdit";
 import type { ChannelEdit } from "../../lib/useChannelPatch";
-import { forStream, useDevicePatch } from "../../lib/useDevicePatch";
+import { forStream } from "../../lib/useDevicePatch";
 import { iqSourceOf } from "../binding";
 import { useWorkspaceContext } from "../context";
 import { patchNode } from "../graph";
@@ -73,7 +66,6 @@ export function ChannelFace({ node }: { node: PatchNode }) {
   const settings = channelSettingsOf(workspace, node.id);
   const onEdit = (edit: ChannelEdit): void => editChannel(node.id, edit);
   const frequencyHz = settings?.frequency_hz ?? null;
-  const wantedRate = rateMismatch(descriptor, set?.settings.sample_rate);
   const window = radioWindowHz(centerHz, set?.settings.sample_rate, descriptor);
   const unreachable =
     set !== null &&
@@ -97,7 +89,6 @@ export function ChannelFace({ node }: { node: PatchNode }) {
     live: live !== null,
     binding,
     unreachable,
-    wrongRate: wantedRate !== null,
     driven,
   });
   const action = live === null ? channelBindingAction(binding) : null;
@@ -105,9 +96,6 @@ export function ChannelFace({ node }: { node: PatchNode }) {
   return (
     <NodeShell node={node} title={name} category="channel" subtitle={status}>
       <FaceBody>
-        {wantedRate !== null && set !== null && (
-          <RateMismatch name={name} set={set} wanted={wantedRate} />
-        )}
         {settings !== null && (
           <div className="@container flex flex-col gap-1.5 border-b border-line p-2">
             <ChannelDial
@@ -174,18 +162,13 @@ function faceStatus({
   live,
   binding,
   unreachable,
-  wrongRate,
   driven,
 }: {
   live: boolean;
   binding: ChannelBinding;
   unreachable: boolean;
-  wrongRate: boolean;
   driven: boolean;
 }) {
-  if (wrongRate) {
-    return <span className="text-danger">wrong rate</span>;
-  }
   if (!live) {
     return <span title={channelBindingHint(binding)}>{channelBindingStatus(binding)}</span>;
   }
@@ -196,86 +179,4 @@ function faceStatus({
     return <span className="text-warn">out of band</span>;
   }
   return undefined;
-}
-
-function FaceNotice({
-  tone,
-  role,
-  title,
-  label,
-  action,
-}: {
-  tone: "warn" | "danger";
-  role: "status" | "alert";
-  title: string;
-  label: string;
-  action: ReactNode;
-}) {
-  return (
-    <div
-      role={role}
-      title={title}
-      className={`flex flex-wrap items-center justify-between gap-2 border-b px-2 py-1 ${
-        tone === "danger"
-          ? "border-danger/40 bg-danger/10 text-danger"
-          : "border-warn/40 bg-warn/10 text-warn"
-      }`}
-    >
-      <span className="font-mono text-[10px] tracking-[0.09em] uppercase">{label}</span>
-      {action}
-    </div>
-  );
-}
-
-function RateMismatch({
-  name,
-  set,
-  wanted,
-}: {
-  name: string;
-  set: DeviceSet;
-  wanted: { min: number; max: number };
-}) {
-  const { applyPatch } = useDevicePatch();
-  const offered = nearestRate(set, wanted);
-  const range =
-    wanted.min === wanted.max
-      ? `exactly ${formatSampleRate(wanted.min)}`
-      : Number.isFinite(wanted.max)
-        ? `${formatSampleRate(wanted.min)} – ${formatSampleRate(wanted.max)}`
-        : `at least ${formatSampleRate(wanted.min)}`;
-  return (
-    <FaceNotice
-      tone="danger"
-      role="alert"
-      title={
-        offered === null
-          ? `${name} reads the radio's own samples, so the radio has to run ${range}; this radio offers no rate in that range, so another one has to carry it`
-          : `${name} reads the radio's own samples, so the radio has to run ${range}; at ${formatSampleRate(set.settings.sample_rate ?? 0)} it decodes nothing`
-      }
-      label={`Rate must be ${range}`}
-      action={
-        offered === null ? (
-          <span className="text-xs">needs another radio</span>
-        ) : (
-          <Button
-            type="button"
-            className={BTN}
-            onClick={() => applyPatch(set.id, { sample_rate: offered })}
-          >
-            Set {formatSampleRate(offered)}
-          </Button>
-        )
-      }
-    />
-  );
-}
-
-function nearestRate(set: DeviceSet, wanted: { min: number; max: number }): number | null {
-  const rates = set.capabilities.sample_rates;
-  if (rates.length === 0) {
-    return wanted.min;
-  }
-  const inside = rates.filter((rate) => rate >= wanted.min && rate <= wanted.max);
-  return inside.length === 0 ? null : Math.min(...inside);
 }

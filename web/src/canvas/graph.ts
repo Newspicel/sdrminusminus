@@ -1,5 +1,3 @@
-import { rateMismatch } from "../components/channelSettings";
-import { formatSampleRate } from "../components/format";
 import type {
   Capabilities,
   ChannelDescriptor,
@@ -254,27 +252,6 @@ export function connectionRefusal(
     return "that output drives one node at a time";
   }
   return null;
-}
-
-export function edgeWarning(
-  context: GraphContext,
-  graph: PatchGraph,
-  from: PortRef,
-  to: PortRef,
-): string | null {
-  const channel = nodeOf(graph, to.node);
-  if (channel?.kind !== "channel") {
-    return null;
-  }
-  const descriptor = descriptorOf(context, channel);
-  const rate = context.bound?.get(from.node)?.settings.sample_rate;
-  const wanted = descriptor === undefined ? null : rateMismatch(descriptor, rate);
-  if (wanted === null) {
-    return null;
-  }
-  return wanted.min === wanted.max
-    ? `needs ${formatSampleRate(wanted.min)}`
-    : `needs ${formatSampleRate(wanted.min)}–${formatSampleRate(wanted.max)}`;
 }
 
 export interface NodeSize {

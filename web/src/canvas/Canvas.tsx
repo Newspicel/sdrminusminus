@@ -16,7 +16,6 @@ import { useClipboard } from "./clipboard";
 import { useWorkspaceContext } from "./context";
 import {
   edgeKey,
-  edgeWarning,
   type GraphContext,
   isPinned,
   isResizable,
@@ -349,7 +348,6 @@ function toFlowNodes(graph: PatchGraph): Node<FlowData>[] {
 
 function toFlowEdges(graph: PatchGraph, context: GraphContext): Edge[] {
   return (graph.edges ?? []).map((edge) => {
-    const warning = edgeWarning(context, graph, edge.from, edge.to);
     const carried = portOf(context, graph, edge.from, "out")?.port_type;
     return {
       id: edgeKey(edge),
@@ -357,8 +355,7 @@ function toFlowEdges(graph: PatchGraph, context: GraphContext): Edge[] {
       sourceHandle: edge.from.port,
       target: edge.to.node,
       targetHandle: edge.to.port,
-      className: warning === null ? `wire-${carried}` : "wire-fault",
-      ...(warning === null ? {} : { label: warning, labelShowBg: false }),
+      className: `wire-${carried}`,
     };
   });
 }

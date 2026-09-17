@@ -631,24 +631,12 @@ pub fn descriptors() -> Vec<ChannelDescriptor> {
         .iter()
         .map(|r| {
             let mut descriptor = (r.descriptor)().clone();
-            descriptor.exact_rate_only = exact_rate_only(&descriptor);
             descriptor.can_transmit = r.create_tx.is_some();
             descriptor.defaults = ChannelSettings::default_for(&descriptor.type_id);
             descriptor.limits = sdrmm_wire::param_limits(&descriptor.type_id);
             descriptor
         })
         .collect()
-}
-
-fn exact_rate_only(descriptor: &ChannelDescriptor) -> bool {
-    if descriptor.native_rate_max_hz.is_some() {
-        return false;
-    }
-    let Some(params) = ChannelParams::default_for(&descriptor.type_id) else {
-        return false;
-    };
-    let (low, high) = occupied_band(&params);
-    high - low >= sdrmm_dsp::resamplable_bandwidth_hz(descriptor.input_rate_hz)
 }
 
 pub fn create(
@@ -690,16 +678,6 @@ pub(crate) fn check_input_rate(
     ctx: ChannelCtx,
     descriptor: &ChannelDescriptor,
 ) -> Result<(), ChannelError> {
-    if let Some((low, high)) = descriptor.native_rate_range() {
-        return if (low..=high).contains(&ctx.input_rate) {
-            Ok(())
-        } else {
-            Err(ChannelError::InvalidSettings(format!(
-                "{} runs at {low}–{high} Hz, engine supplied {} Hz",
-                descriptor.type_id, ctx.input_rate
-            )))
-        };
-    }
     if ctx.input_rate == descriptor.input_rate_hz {
         Ok(())
     } else {
@@ -846,7 +824,7 @@ mod tests {
                 "wfm" => (200_000.0, 240_000.0),
                 "pocsag" => (12_500.0, 48_000.0),
                 "flex" | "ermes" => (12_500.0, 48_000.0),
-                "adsb" => (2_000_000.0, 2_000_000.0),
+                "adsb" => (2_000_000.0, 2_400_000.0),
                 "ais" => (25_000.0, 48_000.0),
                 "aprs" => (12_500.0, 48_000.0),
                 "rtty" => (1_000.0, 8_000.0),
@@ -855,7 +833,7 @@ mod tests {
                 "navtex" => (600.0, 8_000.0),
                 "acars" => (12_500.0, 48_000.0),
                 "subghz" => (150_000.0, 250_000.0),
-                "atv" => (1_500_000.0, 2_000_000.0),
+                "atv" => (1_500_000.0, 16_000_000.0),
                 "sstv" => (1_600.0, 16_000.0),
                 "dab" => (1_536_000.0, 2_048_000.0),
                 "datv" => (1_500_000.0, 2_000_000.0),
@@ -955,30 +933,6 @@ mod tests {
                 "{} produced {frames} frames of {channels}-channel audio, expected ~{expected}",
                 d.type_id
             );
-        }
-    }
-
-    #[test]
-    fn native_rate_modes_match_their_required_device_rates() {
-        for d in descriptors() {
-            let expected = match d.type_id.as_str() {
-                "adsb" => Some((2_000_000.0, 4_000_000.0)),
-                "atv" => Some((2_000_000.0, 20_000_000.0)),
-                "gnss" => Some((2_048_000.0, 2_048_000.0)),
-                _ => None,
-            };
-            assert_eq!(
-                d.native_rate_range(),
-                expected,
-                "{} native rate range",
-                d.type_id
-            );
-            assert!(
-                !(d.exact_rate_only && d.native_rate_max_hz.is_some()),
-                "{} claims both rate rules",
-                d.type_id
-            );
-            assert!(!d.exact_rate_only, "{} exact-rate flag", d.type_id);
         }
     }
 

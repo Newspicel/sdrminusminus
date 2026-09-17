@@ -92,7 +92,6 @@ without AudioWorklet, which can stutter while the display is busy.
 
 - Confirm frequency, mode, baud rate, and protocol variant.
 - Check the Scope for a signal within the channel bandwidth.
-- Resolve any sample-rate warning. ADS-B needs 2–4 MS/s.
 - Connect `events` to the right output: Decoder log for frames, Readout for current state, Map for positions.
 - Adjust gain and check for clipping or overruns.
 - Check the mode's [coverage and limitations](user-guide/channels.md#channel-catalog).

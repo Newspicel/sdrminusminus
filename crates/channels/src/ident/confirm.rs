@@ -250,11 +250,6 @@ fn start(
 ) -> Result<Live, ChannelError> {
     let descriptor =
         descriptor_of(type_id).ok_or_else(|| ChannelError::UnknownType(type_id.to_owned()))?;
-    if descriptor.native_rate_max_hz.is_some() || descriptor.input_rate_hz > rate {
-        return Err(ChannelError::InvalidSettings(format!(
-            "{type_id} cannot be fed from a {rate} Hz window"
-        )));
-    }
     let ddc = Ddc::new(rate, descriptor.input_rate_hz, band.center_hz)
         .map_err(|e| ChannelError::InvalidSettings(e.to_string()))?;
     let filter = channel_filter(&settings.params)?;

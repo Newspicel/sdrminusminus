@@ -37,16 +37,15 @@ impl DeviceProfile {
                 .any(|range| hz >= range.min && hz <= range.max)
     }
 
-    /// The rate this radio would run to cover a `want` Hz window, held between `floor` and
-    /// `ceiling`.
+    /// The rate this radio would run to cover a `want` Hz window.
     ///
     /// The lowest rate at or above `want` wins, because a window wider than asked for costs work
     /// but decimates back down while a narrower one loses signal. A radio that cannot reach
-    /// `want` at all runs the widest window it has, as long as that still clears `floor`.
+    /// `want` at all runs the widest window it has.
     #[must_use]
-    pub fn rate_for(&self, want: f64, floor: f64, ceiling: f64) -> Option<f64> {
-        self.lowest_rate_in(want, ceiling)
-            .or_else(|| self.highest_rate_in(floor, want.min(ceiling)))
+    pub fn rate_for(&self, want: f64) -> Option<f64> {
+        self.lowest_rate_in(want, f64::INFINITY)
+            .or_else(|| self.highest_rate_in(0.0, want))
     }
 
     fn lowest_rate_in(&self, min: f64, max: f64) -> Option<f64> {
@@ -939,50 +938,27 @@ mod tests {
     #[test]
     fn a_radio_that_cannot_go_narrow_enough_runs_wide_instead() {
         let menu = caps(Vec::new(), vec![1.024e6, 2.0e6, 2.4e6], Duplex::RxOnly).profile();
+        assert_eq!(menu.rate_for(2.0e6), Some(2.0e6), "offered as asked");
+        assert_eq!(menu.rate_for(2.2e6), Some(2.4e6), "the next one up");
         assert_eq!(
-            menu.rate_for(2.0e6, 2.0e6, 2.0e6),
-            Some(2.0e6),
-            "pinned and offered"
-        );
-        assert_eq!(
-            menu.rate_for(2.2e6, 2.2e6, 2.2e6),
-            None,
-            "pinned and not offered"
-        );
-        assert_eq!(menu.rate_for(2.2e6, 2.2e6, f64::INFINITY), Some(2.4e6));
-        assert_eq!(
-            menu.rate_for(250e3, 250e3, f64::INFINITY),
+            menu.rate_for(250e3),
             Some(1.024e6),
             "the slowest the radio has, decimated back down"
         );
-        assert_eq!(
-            menu.rate_for(3e6, 2.0e6, f64::INFINITY),
-            Some(2.4e6),
-            "the widest it has, still clear of the floor"
-        );
-        assert_eq!(
-            menu.rate_for(3e6, 2.5e6, f64::INFINITY),
-            None,
-            "under the floor"
-        );
+        assert_eq!(menu.rate_for(3e6), Some(2.4e6), "the widest it has");
 
         let mut continuous = caps(Vec::new(), Vec::new(), Duplex::RxOnly).profile();
         continuous.sample_rate_ranges = vec![range(2e6, 20e6)];
-        assert_eq!(continuous.rate_for(8e6, 8e6, f64::INFINITY), Some(8e6));
+        assert_eq!(continuous.rate_for(8e6), Some(8e6));
         assert_eq!(
-            continuous.rate_for(250e3, 250e3, f64::INFINITY),
+            continuous.rate_for(250e3),
             Some(2e6),
             "a transceiver with a 2 MS/s floor still runs a narrow template"
         );
-        assert_eq!(
-            continuous.rate_for(250e3, 250e3, 1e6),
-            None,
-            "the ceiling sits under everything the radio offers"
-        );
-        assert_eq!(continuous.rate_for(24e6, 2e6, f64::INFINITY), Some(20e6));
+        assert_eq!(continuous.rate_for(24e6), Some(20e6));
 
         assert_eq!(
-            DeviceProfile::default().rate_for(2.4e6, 2.4e6, f64::INFINITY),
+            DeviceProfile::default().rate_for(2.4e6),
             Some(2.4e6),
             "a radio that advertises nothing is taken at its word"
         );
@@ -997,20 +973,12 @@ mod tests {
         )
         .profile();
         windows.sample_rate_ranges = vec![range(225_001.0, 300_000.0), range(900_001.0, 3.2e6)];
+        assert_eq!(windows.rate_for(250_000.0), Some(250_000.0));
+        assert_eq!(windows.rate_for(1.8e6), Some(1.8e6));
         assert_eq!(
-            windows.rate_for(250_000.0, 250_000.0, f64::INFINITY),
-            Some(250_000.0)
-        );
-        assert_eq!(windows.rate_for(1.8e6, 1.8e6, f64::INFINITY), Some(1.8e6));
-        assert_eq!(
-            windows.rate_for(500_000.0, 500_000.0, f64::INFINITY),
+            windows.rate_for(500_000.0),
             Some(900_001.0),
             "the RTL2832U aliases between the two windows, so the next window up runs it"
-        );
-        assert_eq!(
-            windows.rate_for(500_000.0, 500_000.0, 600_000.0),
-            None,
-            "a ceiling inside the gap leaves nothing to run"
         );
         for rate in &windows.sample_rates {
             assert!(

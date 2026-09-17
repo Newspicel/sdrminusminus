@@ -1,14 +1,9 @@
 use num_complex::Complex;
 
-use crate::{Decimator, FracResampler, Nco, fir::design_lowpass};
+use crate::{CubicInterpolator, Decimator, FracResampler, Nco, fir::design_lowpass};
 
 const PASSBAND_FRAC: f64 = 0.4;
 const PROTECT_FRAC: f64 = 0.5;
-
-#[must_use]
-pub fn resamplable_bandwidth_hz(output_rate: f64) -> f64 {
-    2.0 * PROTECT_FRAC * output_rate
-}
 
 #[must_use]
 pub fn flat_bandwidth_hz(output_rate: f64) -> f64 {
@@ -19,8 +14,44 @@ pub fn flat_bandwidth_hz(output_rate: f64) -> f64 {
 pub enum DdcError {
     #[error("rates must be positive and finite (input {input} Hz, output {output} Hz)")]
     InvalidRates { input: f64, output: f64 },
-    #[error("output rate {output} Hz exceeds input rate {input} Hz")]
-    OutputAboveInput { input: f64, output: f64 },
+}
+
+#[derive(Clone, Debug)]
+enum Fraction {
+    None,
+    Down(FracResampler),
+    Up(CubicInterpolator),
+}
+
+impl Fraction {
+    fn for_ratio(ratio: f64) -> Self {
+        if (ratio - 1.0).abs() <= 1e-12 {
+            Self::None
+        } else if ratio < 1.0 {
+            Self::Down(FracResampler::new(ratio))
+        } else {
+            Self::Up(CubicInterpolator::new(ratio))
+        }
+    }
+
+    fn reset(&mut self) {
+        match self {
+            Self::None => {}
+            Self::Down(r) => r.reset(),
+            Self::Up(r) => r.reset(),
+        }
+    }
+
+    fn process(&mut self, input: &[Complex<f32>], out: &mut Vec<Complex<f32>>) {
+        match self {
+            Self::None => {
+                out.clear();
+                out.extend_from_slice(input);
+            }
+            Self::Down(r) => r.process(input, out),
+            Self::Up(r) => r.process(input, out),
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -28,7 +59,7 @@ pub struct Ddc {
     input_rate: f64,
     nco: Nco,
     stages: Vec<Decimator>,
-    resamp: Option<FracResampler>,
+    fraction: Fraction,
     work_in: Vec<Complex<f32>>,
     work_out: Vec<Complex<f32>>,
 }
@@ -45,27 +76,20 @@ impl Ddc {
                 output: output_rate,
             });
         }
-        if output_rate > input_rate {
-            return Err(DdcError::OutputAboveInput {
-                input: input_rate,
-                output: output_rate,
-            });
-        }
 
         let mut stages = Vec::new();
         let mut rate = input_rate;
-        for factor in prime_factors_desc(integer_decimation(input_rate / output_rate)) {
-            stages.push(stage(rate, factor, output_rate));
-            rate /= factor as f64;
+        if output_rate < input_rate {
+            for factor in prime_factors_desc(integer_decimation(input_rate / output_rate)) {
+                stages.push(stage(rate, factor, output_rate));
+                rate /= factor as f64;
+            }
         }
-        let ratio = output_rate / rate;
-        let resamp = ((ratio - 1.0).abs() > 1e-12).then(|| FracResampler::new(ratio));
-
         Ok(Self {
             input_rate,
             nco: Nco::new((-offset_hz) as f32, input_rate as f32),
             stages,
-            resamp,
+            fraction: Fraction::for_ratio(output_rate / rate),
             work_in: Vec::new(),
             work_out: Vec::new(),
         })
@@ -76,9 +100,7 @@ impl Ddc {
         for stage in &mut self.stages {
             stage.reset();
         }
-        if let Some(resampler) = &mut self.resamp {
-            resampler.reset();
-        }
+        self.fraction.reset();
         self.work_in.clear();
         self.work_out.clear();
     }
@@ -97,13 +119,7 @@ impl Ddc {
             stage.process(&self.work_in, &mut self.work_out);
             std::mem::swap(&mut self.work_in, &mut self.work_out);
         }
-        match &mut self.resamp {
-            Some(r) => r.process(&self.work_in, out),
-            None => {
-                out.clear();
-                out.extend_from_slice(&self.work_in);
-            }
-        }
+        self.fraction.process(&self.work_in, out);
     }
 }
 
@@ -194,15 +210,53 @@ mod tests {
     }
 
     #[test]
-    fn rejects_output_rate_above_input() {
-        assert!(matches!(
-            Ddc::new(48_000.0, 2_048_000.0, 0.0),
-            Err(DdcError::OutputAboveInput { .. })
-        ));
-        assert!(matches!(
-            Ddc::new(f64::NAN, 48_000.0, 0.0),
-            Err(DdcError::InvalidRates { .. })
-        ));
+    fn rejects_rates_that_are_not_positive_and_finite() {
+        for (input, output) in [
+            (f64::NAN, 48_000.0),
+            (48_000.0, f64::INFINITY),
+            (0.0, 48_000.0),
+            (48_000.0, -1.0),
+        ] {
+            assert!(
+                matches!(
+                    Ddc::new(input, output, 0.0),
+                    Err(DdcError::InvalidRates { .. })
+                ),
+                "{input}→{output}"
+            );
+        }
+    }
+
+    #[test]
+    fn upsampling_keeps_the_tone_and_delivers_the_output_rate() {
+        for (fs_in, fs_out) in [
+            (2_000_000.0f64, 2_400_000.0f64),
+            (2_048_000.0, 2_400_000.0),
+            (2_400_000.0, 16_000_000.0),
+        ] {
+            let offset = 0.1 * fs_in;
+            let mut ddc = Ddc::new(fs_in, fs_out, offset).unwrap();
+            let total_in = (fs_in / 8.0) as usize;
+            let collected = run(
+                &mut ddc,
+                &tone_at_rate(offset + 0.05 * fs_in, fs_in, total_in),
+            );
+            let ideal = (total_in as f64 * fs_out / fs_in) as i64;
+            assert!(
+                (collected.len() as i64 - ideal).abs() <= 2,
+                "{fs_in}→{fs_out}: got {} S, ideal {ideal}",
+                collected.len()
+            );
+            let settled = &collected[1024..];
+            let rms = rms_c(settled);
+            assert!((0.97..1.03).contains(&rms), "{fs_in}→{fs_out}: rms {rms}");
+            let freq = mean_freq_hz(settled, fs_out);
+            let want = 0.05 * fs_in;
+            assert!(
+                (freq - want).abs() < 0.001 * want,
+                "{fs_in}→{fs_out}: tone at {freq} Hz, wanted {want} Hz"
+            );
+        }
     }
 
     #[test]

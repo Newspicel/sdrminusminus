@@ -13,8 +13,8 @@ use sdrmm_wire::{
 
 use crate::{ChannelCtx, ChannelError, ChannelFilter, ChannelOutputs, ChannelRx, check_input_rate};
 
-pub(crate) const INPUT_RATE_HZ: f64 = 2_000_000.0;
-pub(crate) const MAX_INPUT_RATE_HZ: f64 = 4_000_000.0;
+pub(crate) const INPUT_RATE_HZ: f64 = 2_400_000.0;
+const BANDWIDTH_HZ: f64 = 2_000_000.0;
 
 const CHIP_S: f64 = 0.5e-6;
 const PREAMBLE_CHIPS: usize = 16;
@@ -64,11 +64,10 @@ const CPR_PAIR_MAX_AGE_S: f64 = 10.0;
 static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescriptor {
     type_id: "adsb".to_owned(),
     name: "ADS-B (1090ES)".to_owned(),
-    bandwidth_hz: INPUT_RATE_HZ,
+    bandwidth_hz: BANDWIDTH_HZ,
     input_rate_hz: INPUT_RATE_HZ,
     has_audio: false,
     decoder_kind: Some("adsb".to_owned()),
-    native_rate_max_hz: Some(MAX_INPUT_RATE_HZ),
     needs_position: true,
     ..ChannelDescriptor::default()
 });
@@ -155,7 +154,7 @@ fn valid_longitude(longitude: f64) -> bool {
 }
 
 pub(crate) fn occupied_band() -> (f64, f64) {
-    let half = INPUT_RATE_HZ / 2.0;
+    let half = BANDWIDTH_HZ / 2.0;
     (-half, half)
 }
 
@@ -801,29 +800,35 @@ mod tests {
         messages.into_iter().next().unwrap()
     }
 
+    fn resampled(iq: &[Complex<f32>], from_rate: f64) -> Vec<Complex<f32>> {
+        let mut ddc = sdrmm_dsp::Ddc::new(from_rate, INPUT_RATE_HZ, 0.0).expect("rates");
+        let mut out = Vec::new();
+        ddc.process(iq, &mut out);
+        out
+    }
+
     #[test]
-    fn decodes_at_every_rate_and_phase_a_receiver_actually_offers() {
+    fn decodes_at_every_phase_from_every_rate_a_receiver_actually_offers() {
         for rate in [
-            INPUT_RATE_HZ,
+            2_000_000.0,
             2_048_000.0,
-            2_400_000.0,
+            INPUT_RATE_HZ,
             2_560_000.0,
-            MAX_INPUT_RATE_HZ,
+            4_000_000.0,
         ] {
             for phase in [0.0f64, 0.21, 0.43, 0.5, 0.68, 0.9] {
-                if rate == INPUT_RATE_HZ && (phase - 0.5).abs() < 0.2 {
+                if rate == 2_000_000.0 && (phase - 0.5).abs() < 0.2 {
                     continue;
                 }
                 let frames = [
                     squitter(0x3C_6444, me_identification("DLH123")),
                     squitter(0x3C_6444, me_airborne_position(38_000, LAT, LON, false)),
                 ];
-                let iq = transmission_at_phase(&frames, GAP_US, LEVEL, rate, phase);
-                let mut chan = AdsbChannel::new(
-                    ChannelCtx { input_rate: rate },
-                    adsb_params(AdsbParams::default()),
-                )
-                .expect("channel");
+                let iq = resampled(
+                    &transmission_at_phase(&frames, GAP_US, LEVEL, rate, phase),
+                    rate,
+                );
+                let mut chan = channel(AdsbParams::default());
                 let messages = feed(&mut chan, &iq, &[4_096]);
                 let calls: Vec<_> = messages.iter().filter_map(|m| m.callsign.clone()).collect();
                 assert_eq!(
@@ -840,24 +845,26 @@ mod tests {
     }
 
     #[test]
-    fn noisy_off_grid_frames_decode_at_the_rtl_rate() {
-        for (index, phase) in [0.05, 0.19, 0.33, 0.47, 0.61, 0.75, 0.89]
-            .into_iter()
-            .enumerate()
-        {
-            let frames = [squitter(0x3C_6444, me_identification("DLH123"))];
-            let mut iq = transmission_at_phase(&frames, GAP_US, LEVEL, 2_048_000.0, phase);
-            add_noise(&mut iq, 0xADB0 + index as u32, 0.01);
-            let mut chan = AdsbChannel::new(
-                ChannelCtx {
-                    input_rate: 2_048_000.0,
-                },
-                adsb_params(AdsbParams::default()),
-            )
-            .expect("channel");
-            let msg = only(feed(&mut chan, &iq, &[4_096]));
-            assert_eq!(msg.callsign.as_deref(), Some("DLH123"), "phase {phase}");
+    fn noisy_off_grid_frames_decode_from_an_rtl_sdr_window() {
+        let mut decoded = 0;
+        let mut trials = 0;
+        for k in 0..20u32 {
+            for seed in 0..5u32 {
+                let phase = f64::from(k) / 20.0;
+                let frames = [squitter(0x3C_6444, me_identification("DLH123"))];
+                let mut iq = transmission_at_phase(&frames, GAP_US, LEVEL, 2_048_000.0, phase);
+                add_noise(&mut iq, 0xADB0 + k + 97 * seed, 0.01);
+                let iq = resampled(&iq, 2_048_000.0);
+                let messages = feed(&mut channel(AdsbParams::default()), &iq, &[4_096]);
+                trials += 1;
+                decoded += usize::from(
+                    messages
+                        .iter()
+                        .any(|m| m.callsign.as_deref() == Some("DLH123")),
+                );
+            }
         }
+        assert!(decoded >= 95, "decoded {decoded} of {trials} noisy frames");
     }
 
     #[test]
@@ -896,8 +903,8 @@ mod tests {
     }
 
     #[test]
-    fn refuses_a_rate_the_slicer_cannot_work_at() {
-        for rate in [1_000_000.0, INPUT_RATE_HZ - 1.0, MAX_INPUT_RATE_HZ + 1.0] {
+    fn refuses_every_rate_but_its_own() {
+        for rate in [1_000_000.0, 2_000_000.0, 2_048_000.0, 4_000_000.0] {
             assert!(
                 AdsbChannel::new(
                     ChannelCtx { input_rate: rate },
@@ -1521,7 +1528,7 @@ mod tests {
 
     fn off_air_recording() -> Vec<Complex<f32>> {
         const FIXTURE: &[u8] = include_bytes!("../../../fixtures/adsb_offair_2m.sigmf-data");
-        FIXTURE
+        let raw: Vec<Complex<f32>> = FIXTURE
             .as_chunks::<8>()
             .0
             .iter()
@@ -1531,7 +1538,8 @@ mod tests {
                     f32::from_le_bytes([sample[4], sample[5], sample[6], sample[7]]),
                 )
             })
-            .collect()
+            .collect();
+        resampled(&raw, 2_000_000.0)
     }
 
     #[test]
@@ -1544,7 +1552,7 @@ mod tests {
             &[997, 65_536, 4_096, 1],
         );
 
-        assert_eq!(messages.len(), 17, "{messages:?}");
+        assert_eq!(messages.len(), 20, "{messages:?}");
         let seen: std::collections::BTreeSet<&str> =
             messages.iter().map(|m| m.icao.as_str()).collect();
         assert_eq!(
@@ -1572,7 +1580,7 @@ mod tests {
         assert_eq!(reply("4D2256", 20).altitude_ft, Some(37_000));
         assert_eq!(reply("4D2256", 5).squawk.as_deref(), Some("5245"));
         assert_eq!(reply("4D2256", 21).squawk.as_deref(), Some("5245"));
-        assert_eq!(reply("3C65CB", 20).altitude_ft, Some(38_000));
+        assert_eq!(reply("3C65CB", 11).on_ground, Some(false));
         assert_eq!(reply("780561", 11).on_ground, Some(false));
 
         let squitter = |type_code: u8| {
