@@ -1,12 +1,13 @@
 import { useState } from "react";
 import { rxStreamCount, streamLabel } from "../canvas/graph";
-import type { DeviceSet, ExtraSetting, GainStage } from "../lib/types";
+import type { DeviceSet, ExtraSetting, GainStage, Range } from "../lib/types";
 import { forStream, useDevicePatch } from "../lib/useDevicePatch";
 import { Input } from "./BaseControls";
 import { Checkbox } from "./Checkbox";
 import {
   automaticGainIsOn,
   dcBlockOn,
+  fitsSlider,
   hasDcArtifact,
   isSwitch,
   settingIndex,
@@ -350,12 +351,24 @@ function ExtraControl({
         </SettingRow>
       );
     }
-    case "range":
+    case "range": {
+      const value = typeof raw === "number" ? raw : setting.range.min;
+      if (fitsSlider(setting.range)) {
+        return (
+          <RangeSlider
+            name={setting.name}
+            unit={setting.unit}
+            range={setting.range}
+            value={value}
+            onCommit={onCommit}
+          />
+        );
+      }
       return (
         <SettingRow label={name} title={setting.name}>
           <NumberField
             label={`${setting.name} (${setting.unit})`}
-            value={typeof raw === "number" ? raw : setting.range.min}
+            value={value}
             min={setting.range.min}
             max={setting.range.max}
             step={setting.range.step ?? undefined}
@@ -365,6 +378,7 @@ function ExtraControl({
           <span className="legend">{setting.unit}</span>
         </SettingRow>
       );
+    }
     case "string":
       return (
         <SettingRow label={name} title={setting.name}>
@@ -387,4 +401,37 @@ function ExtraControl({
         </SettingRow>
       );
   }
+}
+
+function RangeSlider({
+  name,
+  unit,
+  range,
+  value,
+  onCommit,
+}: {
+  name: string;
+  unit: string;
+  range: Range;
+  value: number;
+  onCommit: (value: number) => void;
+}) {
+  const { pending, change } = useDebouncedCommit(onCommit);
+  const shown = pending ?? value;
+  return (
+    <SettingRow label={settingLabel(name)} title={`${name}, ${range.min} to ${range.max}`}>
+      <Slider
+        label={`${name} (${unit})`}
+        className="min-w-0 flex-1"
+        min={range.min}
+        max={range.max}
+        step={range.step ?? 1}
+        value={shown}
+        onChange={change}
+      />
+      <span className="w-14 shrink-0 text-right font-mono text-xs text-ink">
+        {shown} <span className="text-ink-faint">{unit}</span>
+      </span>
+    </SettingRow>
+  );
 }

@@ -254,7 +254,7 @@ fn opening_reads_the_capability_set_off_the_properties_it_asked_for() {
     let lna = caps
         .extra
         .iter()
-        .find(|setting| setting.name() == "lna_state")
+        .find(|setting| setting.name() == "lna")
         .expect("the RF gain state");
     let ExtraSetting::Range { range, unit, .. } = lna else {
         panic!("the gain state is a range, not {lna:?}");
@@ -315,10 +315,7 @@ fn a_receiver_that_will_not_be_steered_reports_only_where_it_already_is() {
     assert_eq!(caps.freq_ranges[0].max, 100e6);
     assert_eq!(caps.sample_rate_ranges[0].min, 2e6);
     assert!(
-        !caps
-            .extra
-            .iter()
-            .any(|setting| setting.name() == "lna_state"),
+        !caps.extra.iter().any(|setting| setting.name() == "lna"),
         "a gain the server will refuse is not offered"
     );
 }
@@ -456,7 +453,7 @@ fn a_retune_while_streaming_reaches_the_server() {
             center_hz: Some(144_800_000.0),
             antenna: Some("Antenna B".to_string()),
             extra: vec![ExtraValue {
-                name: "lna_state".to_string(),
+                name: "lna".to_string(),
                 value: 2.into(),
             }],
             ..DeviceSettings::default()
@@ -574,7 +571,7 @@ fn the_controls_are_the_ones_that_shape_the_iq_and_no_others() {
             .map(ExtraSetting::name)
             .collect::<Vec<_>>(),
         vec![
-            "lna_state",
+            "lna",
             "device_vfo_frequency",
             "filter_bandwidth",
             "receiver",

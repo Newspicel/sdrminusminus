@@ -40,6 +40,14 @@ export function settingIndex(settings: number[], db: number): number {
   return best;
 }
 
+const SLIDER_STEPS = 100;
+
+export function fitsSlider(range: Range): boolean {
+  const { min, max, step } = range;
+  if (step == null || step <= 0 || max <= min) return false;
+  return (max - min) / step <= SLIDER_STEPS;
+}
+
 export function spanOf(ranges: Range[] | undefined): Range | undefined {
   if (ranges == null || ranges.length === 0) return undefined;
   const min = Math.min(...ranges.map((range) => range.min));

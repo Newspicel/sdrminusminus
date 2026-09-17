@@ -277,7 +277,7 @@ Frequency, sample rate and antenna use the standard Device controls. Additional 
 
 | Setting | Effect |
 |---|---|
-| `lna_state` | RF gain state within the receiver's range |
+| `lna` | RF gain slider over the receiver's LNA states; lower is more gain. The API has no IF gain |
 | `device_vfo_frequency` | SDRconnect VFO frequency within the sampled window |
 | `filter_bandwidth` | Channel filter width, limited by `demod_max_bandwidth` |
 | `receiver` | Radio name, list slot or serial number |

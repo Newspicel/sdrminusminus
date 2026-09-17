@@ -4,6 +4,7 @@ import {
   AGC_SETTING,
   automaticGainIsOn,
   dcBlockOn,
+  fitsSlider,
   hasDcArtifact,
   isSwitch,
   settingIndex,
@@ -180,5 +181,20 @@ describe("automaticGainIsOn", () => {
       false,
     );
     expect(automaticGainIsOn(caps, {})).toBe(false);
+  });
+});
+
+describe("fitsSlider", () => {
+  it("takes a short stepped range, like an LNA state", () => {
+    expect(fitsSlider({ min: 0, max: 9, step: 1 })).toBe(true);
+    expect(fitsSlider({ min: 0, max: 100, step: 1 })).toBe(true);
+  });
+
+  it("leaves a wide or continuous range to a number field", () => {
+    expect(fitsSlider({ min: 1e3, max: 2e9, step: 1 })).toBe(false);
+    expect(fitsSlider({ min: 0, max: 200e3, step: 1 })).toBe(false);
+    expect(fitsSlider({ min: 0, max: 10 })).toBe(false);
+    expect(fitsSlider({ min: 0, max: 10, step: 0 })).toBe(false);
+    expect(fitsSlider({ min: 5, max: 5, step: 1 })).toBe(false);
   });
 });

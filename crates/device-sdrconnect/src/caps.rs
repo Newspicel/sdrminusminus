@@ -9,6 +9,7 @@ use crate::{
     session::Snapshot,
 };
 
+pub(crate) const LNA: &str = "lna";
 pub(crate) const RECEIVER: &str = "receiver";
 pub(crate) const NETWORK_MODE: &str = "network_mode";
 pub(crate) const PROFILE: &str = "device_profile";
@@ -89,7 +90,7 @@ pub(crate) fn capabilities(snapshot: &Snapshot) -> Capabilities {
     let mut extra = Vec::new();
     if steerable && let Some((min, max)) = lna_range(snapshot) {
         extra.push(ExtraSetting::Range {
-            name: Property::LnaState.name().to_string(),
+            name: LNA.to_string(),
             range: Range {
                 min,
                 max,
@@ -323,11 +324,8 @@ impl Remote {
 
     pub(crate) fn wire(&self, caps: &Capabilities) -> DeviceSettings {
         let mut extra = Vec::new();
-        if let Some(state) = self
-            .lna_state
-            .filter(|_| offers(caps, Property::LnaState.name()).is_some())
-        {
-            extra.push(value(Property::LnaState.name(), state));
+        if let Some(state) = self.lna_state.filter(|_| offers(caps, LNA).is_some()) {
+            extra.push(value(LNA, state));
         }
         for (property, reported) in [
             (Property::DeviceVfoFrequency, self.vfo_hz),
@@ -438,9 +436,8 @@ pub(crate) fn validate(
     }
     if let Some(gain) = delta.gains.first() {
         return Err(DeviceError::Unsupported(format!(
-            "gain stage {}: this receiver's RF gain is a state, offered as the `{}` setting",
-            gain.stage,
-            Property::LnaState.name()
+            "gain stage {}: this receiver's RF gain is an LNA state, offered as the `{LNA}` setting",
+            gain.stage
         )));
     }
 
@@ -486,7 +483,7 @@ fn apply_extra(
                 batch.push(Command::Set(Property::FilterBandwidth, hz.to_string()));
             }
         }
-        name if name == Property::LnaState.name() => {
+        LNA => {
             let ExtraSetting::Range { range, .. } = offered else {
                 return Err(refuse());
             };
@@ -597,7 +594,7 @@ mod tests {
         assert_eq!(caps.sample_rate_ranges[0].min, MIN_SAMPLE_RATE);
         assert!(caps.sample_rates.is_empty(), "the API names no rate menu");
         assert_eq!(caps.antennas, vec!["Antenna A", "Antenna B"]);
-        let lna = offers(&caps, "lna_state").expect("the RF gain state");
+        let lna = offers(&caps, LNA).expect("the RF gain state");
         let ExtraSetting::Range { range, unit, .. } = lna else {
             panic!("the gain state is a range, not {lna:?}");
         };
@@ -614,7 +611,7 @@ mod tests {
                 .map(ExtraSetting::name)
                 .collect::<Vec<_>>(),
             vec![
-                "lna_state",
+                LNA,
                 "device_vfo_frequency",
                 "filter_bandwidth",
                 RECEIVER,
@@ -687,7 +684,7 @@ mod tests {
         assert_eq!(caps.freq_ranges, pinned(Some(100e6)));
         assert_eq!(caps.sample_rate_ranges, pinned(Some(2e6)));
         assert!(
-            offers(&caps, "lna_state").is_none(),
+            offers(&caps, LNA).is_none(),
             "a gain the server will refuse is not offered"
         );
     }
@@ -705,7 +702,7 @@ mod tests {
                 .find(|value| value.name == name)
                 .map(|value| value.value.clone())
         };
-        assert_eq!(value("lna_state"), Some(serde_json::json!(4)));
+        assert_eq!(value(LNA), Some(serde_json::json!(4)));
         assert_eq!(
             value("device_vfo_frequency"),
             Some(serde_json::json!(100_100_000u64))
@@ -844,9 +841,9 @@ mod tests {
                 }],
                 ..DeviceSettings::default()
             })
-            .contains("lna_state")
+            .contains(LNA)
         );
-        assert!(refused(extra("lna_state", 99)).contains("lna_state"));
+        assert!(refused(extra(LNA, 99)).contains(LNA));
         assert!(
             refused(extra("audio_volume_percent", 50)).contains("audio_volume_percent"),
             "SDRconnect's audio chain is not a setting on a device that hands over IQ"
