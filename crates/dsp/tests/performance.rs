@@ -11,6 +11,35 @@ use sdrmm_test_support::{CountingAlloc, assert_no_alloc, measure_throughput};
 static ALLOC: CountingAlloc = CountingAlloc::new();
 
 #[test]
+fn tuning_and_downconversion_reuse_storage_across_ragged_blocks_and_retunes() {
+    let mut nco = sdrmm_dsp::Nco::new(187_501.25, 20_000_000.0);
+    let mut samples = [Complex::new(1.0, 0.5); 4099];
+    assert_no_alloc("nco", || {
+        for chunk in samples.chunks_mut(17) {
+            nco.mix(chunk);
+        }
+        nco.set_freq(-311.0, 48_000.0);
+        nco.reset();
+    });
+    for output_rate in [48_000.0, 240_000.0] {
+        let mut ddc = sdrmm_dsp::Ddc::new(20_000_000.0, output_rate, 187_501.25).unwrap();
+        let mut out = Vec::new();
+        for _ in 0..8 {
+            ddc.process(&samples, &mut out);
+        }
+        assert_no_alloc("ddc", || {
+            for size in [1, 17, 2048, 4099] {
+                for chunk in samples.chunks(size) {
+                    ddc.process(chunk, &mut out);
+                }
+                ddc.set_offset(-31_251.0);
+                ddc.reset();
+            }
+        });
+    }
+}
+
+#[test]
 fn spectrum_processing_reuses_scratch_and_meets_the_display_budget() {
     let mut analyzer = SpectrumAnalyzer::new(4096);
     let input: Vec<_> = (0..4096)

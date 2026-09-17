@@ -111,10 +111,8 @@ impl Ddc {
     }
 
     pub fn process(&mut self, input: &[Complex<f32>], out: &mut Vec<Complex<f32>>) {
-        let nco = &mut self.nco;
-        self.work_in.clear();
-        self.work_in
-            .extend(input.iter().map(|&s| s * nco.next_sample()));
+        self.work_in.resize(input.len(), Complex::new(0.0, 0.0));
+        self.nco.mix_into(input, &mut self.work_in);
         for stage in &mut self.stages {
             stage.process(&self.work_in, &mut self.work_out);
             std::mem::swap(&mut self.work_in, &mut self.work_out);
@@ -130,7 +128,10 @@ fn integer_decimation(quotient: f64) -> usize {
     } else {
         quotient.floor() as usize
     };
-    while candidate > 1 {
+    let minimum = (candidate / 2).max(candidate.saturating_sub(256)).max(1);
+    let mut best = 1usize << candidate.max(1).ilog2();
+    let mut best_cost = decimation_cost(quotient, best);
+    while candidate >= minimum {
         let mut remaining = candidate;
         for factor in [2, 3, 5, 7, 11, 13] {
             while remaining.is_multiple_of(factor) {
@@ -138,11 +139,29 @@ fn integer_decimation(quotient: f64) -> usize {
             }
         }
         if remaining == 1 {
-            return candidate;
+            let cost = decimation_cost(quotient, candidate);
+            if cost < best_cost {
+                best = candidate;
+                best_cost = cost;
+            }
         }
         candidate -= 1;
     }
-    candidate
+    best
+}
+
+fn decimation_cost(quotient: f64, decimation: usize) -> f64 {
+    let mut rate = quotient;
+    let mut cost = 0.0;
+    for factor in prime_factors_desc(decimation) {
+        let (taps, _) = stage_filter(rate, factor, 1.0);
+        rate /= factor as f64;
+        cost += taps as f64 * rate / quotient;
+    }
+    if (rate - 1.0).abs() > 1e-12 {
+        cost += 2.0 * crate::resamp::taps_per_phase(rate.recip()) as f64 / quotient;
+    }
+    cost
 }
 
 fn prime_factors_desc(mut n: usize) -> Vec<usize> {
@@ -163,11 +182,16 @@ fn prime_factors_desc(mut n: usize) -> Vec<usize> {
 }
 
 fn stage(input_rate: f64, factor: usize, output_rate: f64) -> Decimator {
+    let (taps, cutoff) = stage_filter(input_rate, factor, output_rate);
+    Decimator::new(&design_lowpass(taps, cutoff), factor)
+}
+
+fn stage_filter(input_rate: f64, factor: usize, output_rate: f64) -> (usize, f64) {
     let stage_out = input_rate / factor as f64;
     let pass = PASSBAND_FRAC * output_rate / input_rate;
     let stop = (stage_out - PROTECT_FRAC * output_rate) / input_rate;
     let taps = (((5.5 / (stop - pass)).ceil() as usize) | 1).max(11);
-    Decimator::new(&design_lowpass(taps, (pass + stop) / 2.0), factor)
+    (taps, (pass + stop) / 2.0)
 }
 
 #[cfg(test)]

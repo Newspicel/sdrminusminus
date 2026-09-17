@@ -2,7 +2,7 @@ use std::{
     collections::VecDeque,
     sync::{
         Arc,
-        atomic::{AtomicBool, AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering},
         mpsc,
     },
     thread::JoinHandle,
@@ -21,6 +21,13 @@ const FEED_CAPACITY: usize = 1 << 20;
 const MARK_CAPACITY: usize = 64;
 const IDLE_SLEEP: Duration = Duration::from_millis(2);
 
+#[repr(u8)]
+enum FeedFault {
+    Overflow = 1,
+    RetuneOverflow = 2,
+    KeeperStopped = 3,
+}
+
 #[derive(Clone, Copy, Debug)]
 struct CenterMark {
     at: u64,
@@ -34,6 +41,7 @@ pub(crate) struct TimeMachineShared {
     capturing: AtomicBool,
     lost: AtomicU64,
     error: ArcSwapOption<String>,
+    feed_fault: AtomicU8,
 }
 
 impl TimeMachineShared {
@@ -59,7 +67,22 @@ impl TimeMachineShared {
     }
 
     pub(crate) fn error(&self) -> Option<String> {
-        self.error.load_full().map(|error| (*error).clone())
+        self.error
+            .load_full()
+            .map(|error| (*error).clone())
+            .or_else(|| match self.feed_fault.load(Ordering::Acquire) {
+                code if code == FeedFault::Overflow as u8 => Some(format!(
+                    "history feed overflowed: {} samples never reached the buffer",
+                    self.lost.load(Ordering::Relaxed)
+                )),
+                code if code == FeedFault::RetuneOverflow as u8 => {
+                    Some("history retune queue overflow: keeper too slow".to_owned())
+                }
+                code if code == FeedFault::KeeperStopped as u8 => {
+                    Some("the history keeper stopped".to_owned())
+                }
+                _ => None,
+            })
     }
 
     fn fail(&self, message: String) {
@@ -78,11 +101,16 @@ pub(crate) struct TimeMachineTap {
 impl TimeMachineTap {
     #[must_use]
     pub(crate) fn push(&mut self, samples: &[Complex<f32>], center_hz: f64) -> bool {
+        if self.shared.feed_fault.load(Ordering::Acquire) >= FeedFault::RetuneOverflow as u8 {
+            return false;
+        }
         if samples.is_empty() {
             return true;
         }
         if self.samples.is_abandoned() {
-            self.shared.fail("the history keeper stopped".to_owned());
+            self.shared
+                .feed_fault
+                .store(FeedFault::KeeperStopped as u8, Ordering::Release);
             return false;
         }
         if center_hz != self.center_hz {
@@ -92,7 +120,8 @@ impl TimeMachineTap {
             };
             if self.marks.push(mark).is_err() {
                 self.shared
-                    .fail("history retune queue overflow — the keeper is not draining".to_owned());
+                    .feed_fault
+                    .store(FeedFault::RetuneOverflow as u8, Ordering::Release);
                 return false;
             }
             self.center_hz = center_hz;
@@ -101,14 +130,12 @@ impl TimeMachineTap {
             self.pushed += samples.len() as u64;
             return true;
         }
-        let lost = self
-            .shared
+        self.shared
             .lost
-            .fetch_add(samples.len() as u64, Ordering::Relaxed)
-            + samples.len() as u64;
-        self.shared.fail(format!(
-            "history feed overflowed: {lost} samples never reached the buffer"
-        ));
+            .fetch_add(samples.len() as u64, Ordering::Relaxed);
+        self.shared
+            .feed_fault
+            .store(FeedFault::Overflow as u8, Ordering::Release);
         true
     }
 }
@@ -327,8 +354,7 @@ impl Keeper {
     ) {
         loop {
             self.drain_control(control);
-            self.drain_marks(marks);
-            if self.drain_samples(samples) {
+            if self.drain_samples(samples, marks) {
                 continue;
             }
             if samples.is_abandoned() {
@@ -360,7 +386,11 @@ impl Keeper {
         }
     }
 
-    fn drain_samples(&mut self, samples: &mut Consumer<Complex<f32>>) -> bool {
+    fn drain_samples(
+        &mut self,
+        samples: &mut Consumer<Complex<f32>>,
+        marks: &mut Consumer<CenterMark>,
+    ) -> bool {
         let available = samples.slots();
         if available == 0 {
             return false;
@@ -368,6 +398,7 @@ impl Keeper {
         let Ok(chunk) = samples.read_chunk(available) else {
             return false;
         };
+        self.drain_marks(marks);
         let (first, second) = chunk.as_slices();
         let mut written = Ok(());
         for slice in [first, second] {
@@ -382,12 +413,12 @@ impl Keeper {
                 &mut self.next,
                 slice,
             );
-            self.marks.trim(self.next - self.filled as u64);
             if written.is_ok()
                 && let Some(capture) = self.capture.as_mut()
             {
                 written = emit(capture, &self.marks, &self.epoch, at, slice);
             }
+            self.marks.trim(self.next - self.filled as u64);
         }
         chunk.commit_all();
         self.epoch.at = self.next;
@@ -462,10 +493,10 @@ fn append(
 ) {
     let capacity = ring.len();
     let tail = &samples[samples.len().saturating_sub(capacity)..];
-    for &sample in tail {
-        ring[*write] = sample;
-        *write = (*write + 1) % capacity;
-    }
+    let first = tail.len().min(capacity - *write);
+    ring[*write..*write + first].copy_from_slice(&tail[..first]);
+    ring[..tail.len() - first].copy_from_slice(&tail[first..]);
+    *write = (*write + tail.len()) % capacity;
     *filled = (*filled + tail.len()).min(capacity);
     *next += samples.len() as u64;
 }
@@ -514,11 +545,149 @@ fn emit(
 #[cfg(test)]
 mod tests {
     use sdrmm_recorder::SigmfReader;
+    use sdrmm_test_support::{assert_no_alloc, measure_throughput};
     use tempfile::TempDir;
 
     use super::*;
 
     const RATE: f64 = 48_000.0;
+
+    fn feed(
+        capacity: usize,
+        marks_capacity: usize,
+    ) -> (TimeMachineTap, Consumer<Complex<f32>>, Consumer<CenterMark>) {
+        let (samples, reader) = RingBuffer::new(capacity);
+        let (marks, marker) = RingBuffer::new(marks_capacity);
+        (
+            TimeMachineTap {
+                samples,
+                marks,
+                shared: Arc::new(TimeMachineShared::default()),
+                pushed: 0,
+                center_hz: 100e6,
+            },
+            reader,
+            marker,
+        )
+    }
+
+    fn keeper(capacity: usize, shared: Arc<TimeMachineShared>) -> Keeper {
+        Keeper {
+            ring: vec![Complex::new(0.0, 0.0); capacity],
+            write: 0,
+            filled: 0,
+            next: 0,
+            marks: Marks::new(100e6),
+            epoch: Epoch {
+                at: 0,
+                time: jiff::Timestamp::now(),
+                rate: RATE,
+            },
+            capture: None,
+            shared,
+            position: None,
+        }
+    }
+
+    #[test]
+    fn history_feed_failures_report_without_allocating_on_the_producer() {
+        let (mut tap, reader, _) = feed(4, 1);
+        let samples = ramp(0, 3);
+        assert!(tap.push(&samples, 100e6));
+        assert_no_alloc("history overflow", || assert!(tap.push(&samples, 100e6)));
+        assert_eq!(tap.shared.lost.load(Ordering::Relaxed), 3);
+        assert!(tap.shared.error().expect("overflow").contains("3 samples"));
+        drop(reader);
+        assert_no_alloc("history stopped", || assert!(!tap.push(&samples, 100e6)));
+        assert!(tap.shared.error().expect("stopped").contains("stopped"));
+    }
+
+    #[test]
+    fn history_retune_overflow_stops_without_allocating_or_restarting() {
+        let (mut tap, reader, mut marks) = feed(16, 1);
+        let samples = ramp(0, 3);
+        assert!(tap.push(&samples, 101e6));
+        assert_no_alloc("history retune overflow", || {
+            assert!(!tap.push(&samples, 102e6))
+        });
+        marks.pop().expect("first retune");
+        assert!(!tap.push(&samples, 103e6));
+        assert_eq!(reader.slots(), 3);
+        assert!(tap.shared.error().expect("overflow").contains("retune"));
+    }
+
+    #[test]
+    fn retunes_published_with_new_samples_reach_the_same_recording_chunk() {
+        let dir = TempDir::new().expect("tempdir");
+        let stem = dir.path().join("concurrent-retune");
+        let (mut tap, mut samples, mut marks) = feed(16, 4);
+        let mut keeper = keeper(16, tap.shared.clone());
+        keeper.begin(SigmfWriter::create(&stem, RATE, 100e6, "test").expect("writer"));
+        keeper.drain_marks(&mut marks);
+        assert!(tap.push(&ramp(0, 3), 101e6));
+        assert!(keeper.drain_samples(&mut samples, &mut marks));
+        keeper.close();
+        let reader = SigmfReader::open(&stem).expect("recording");
+        assert_eq!(reader.meta().captures[0].frequency, Some(101e6));
+        assert_eq!(reader.total_samples(), 3);
+    }
+
+    #[test]
+    fn recording_keeps_retunes_that_have_already_left_the_history_window() {
+        let dir = TempDir::new().expect("tempdir");
+        let stem = dir.path().join("short-history");
+        let (mut tap, mut samples, mut marks) = feed(16, 4);
+        let mut keeper = keeper(4, tap.shared.clone());
+        keeper.begin(SigmfWriter::create(&stem, RATE, 100e6, "test").expect("writer"));
+        assert!(tap.push(&ramp(0, 2), 100e6));
+        assert!(tap.push(&ramp(2, 6), 101e6));
+        assert!(keeper.drain_samples(&mut samples, &mut marks));
+        keeper.close();
+        let mut reader = SigmfReader::open(&stem).expect("recording");
+        let captures = &reader.meta().captures;
+        assert_eq!(captures.len(), 2);
+        assert_eq!(captures[0].frequency, Some(100e6));
+        assert_eq!(captures[1].sample_start, 2);
+        assert_eq!(captures[1].frequency, Some(101e6));
+        let mut actual = [Complex::new(0.0, 0.0); 8];
+        assert_eq!(reader.read_block(&mut actual).expect("samples"), 8);
+        assert_eq!(actual.as_slice(), ramp(0, 8));
+    }
+
+    #[test]
+    fn history_ring_copy_reuses_storage_and_meets_radio_rate() {
+        let mut ring = vec![Complex::new(0.0, 0.0); 2_000_003];
+        let samples = ramp(0, 8192);
+        let (mut write, mut filled, mut next) = (0, 0, 0);
+        let mut transfer = || {
+            append(&mut ring, &mut write, &mut filled, &mut next, &samples);
+            std::hint::black_box(&ring);
+        };
+        assert_no_alloc("history ring", &mut transfer);
+        let msps = measure_throughput(200, samples.len() as u64, transfer);
+        eprintln!("history ring {msps:.1} MS/s");
+        assert!(msps > 20.0, "history cannot sustain HackRF: {msps} MS/s");
+    }
+
+    #[test]
+    fn ragged_history_windows_match_a_sample_queue() {
+        for capacity in [1, 2, 7, 32, 127] {
+            let mut ring = vec![Complex::new(0.0, 0.0); capacity];
+            let (mut write, mut filled, mut next) = (0, 0, 0);
+            let mut expected = VecDeque::new();
+            for len in [0, 1, 3, 7, 31, 256, 0, 2, 127, 4, 17] {
+                let samples = ramp(next, len);
+                expected.extend(samples.iter().copied());
+                while expected.len() > capacity {
+                    expected.pop_front();
+                }
+                append(&mut ring, &mut write, &mut filled, &mut next, &samples);
+                let (first, second) = window(&ring, write, filled);
+                assert!(first.iter().chain(second).eq(expected.iter()));
+                assert_eq!(filled, expected.len());
+            }
+        }
+    }
 
     fn ramp(from: u64, len: usize) -> Vec<Complex<f32>> {
         (0..len)

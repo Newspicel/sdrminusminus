@@ -4,6 +4,10 @@ use crate::fir::design_lowpass;
 
 const PHASES: usize = 128;
 
+pub(crate) fn taps_per_phase(ratio: f64) -> usize {
+    (5.5 / (0.1 * ratio.min(1.0))).ceil() as usize
+}
+
 #[derive(Clone, Debug)]
 pub struct FracResampler {
     rows: Vec<f32>,
@@ -18,7 +22,7 @@ impl FracResampler {
     pub fn new(ratio: f64) -> Self {
         assert!(ratio.is_finite() && ratio > 0.0, "ratio must be positive");
         let band = 0.5 * ratio.min(1.0);
-        let taps_per_phase = (5.5 / (0.2 * band)).ceil() as usize;
+        let taps_per_phase = taps_per_phase(ratio);
         let cutoff = 0.9 * band;
         let proto = design_lowpass(PHASES * taps_per_phase + 1, cutoff / PHASES as f64);
         let mut rows = vec![0.0f32; (PHASES + 1) * taps_per_phase];

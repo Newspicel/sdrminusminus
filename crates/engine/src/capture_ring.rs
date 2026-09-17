@@ -75,6 +75,7 @@ impl CaptureProducer {
             return 0;
         };
         let Ok(chunk) = self.samples.write_chunk_uninit(len) else {
+            self.metrics.dropped(samples.len());
             return 0;
         };
         self.metrics.push(len);
@@ -128,8 +129,8 @@ impl CaptureConsumer {
             receive(b, span.start + a.len() as u64);
         }
         self.metrics.pop(len);
-        self.room.freed(len);
         chunk.commit_all();
+        self.room.freed(len);
         span.start += len as u64;
         span.len -= len;
         self.pending = (span.len > 0).then_some(span);
@@ -235,6 +236,75 @@ mod tests {
         }
         assert_eq!(consumer.consume_fresh(8, Duration::ZERO, |_, _| {}), 2);
         assert_eq!(room.free(), 8, "a discarded span gives its slots back");
+    }
+
+    #[test]
+    fn a_backpressured_source_never_loses_samples_when_the_consumer_releases_room() {
+        use std::{sync::atomic::AtomicBool, time::Instant};
+
+        let (mut producer, mut consumer) = capture_ring(1);
+        let room = producer.room();
+        let done = Arc::new(AtomicBool::new(false));
+        let consumer_done = done.clone();
+        let worker = std::thread::spawn(move || {
+            let mut received = 0;
+            let mut valid = true;
+            loop {
+                let finished = consumer_done.load(Ordering::Acquire);
+                let consumed = consumer.consume(1, |samples, start| {
+                    valid &= start == received && samples[0].re == received as f32;
+                    received += samples.len() as u64;
+                });
+                if consumed == 0 {
+                    if finished {
+                        break;
+                    }
+                    std::hint::spin_loop();
+                }
+            }
+            (received, valid)
+        });
+        let deadline = Instant::now() + Duration::from_secs(10);
+        let mut sent = 0;
+        while sent < 250_000 && Instant::now() < deadline {
+            if room.free() == 0 {
+                std::hint::spin_loop();
+                continue;
+            }
+            if producer.push(&[Complex::new(sent as f32, 0.0)], sent) != 1 {
+                break;
+            }
+            sent += 1;
+        }
+        done.store(true, Ordering::Release);
+        let (received, valid) = worker.join().expect("consumer");
+        assert!(valid, "sample contents or positions changed");
+        assert_eq!(received, sent);
+        assert_eq!(sent, 250_000, "advertised room must accept the next sample");
+        assert_eq!(room.free(), 1);
+        assert_eq!(producer.metrics.snapshot().dropped, 0);
+    }
+
+    #[test]
+    fn live_capture_can_reuse_committed_storage_before_room_is_published() {
+        let (mut producer, mut consumer) = capture_ring(8);
+        let room = producer.room();
+        assert_eq!(producer.push(&ramp(0, 8), 0), 8);
+        consumer.spans.pop().expect("span");
+        consumer.metrics.pop(8);
+        consumer
+            .samples
+            .read_chunk(8)
+            .expect("samples")
+            .commit_all();
+        assert_eq!(room.free(), 0);
+        assert_eq!(producer.push(&ramp(8, 3), 8), 3);
+        assert_eq!(room.free(), 0);
+        consumer.room.freed(8);
+        assert_eq!(room.free(), 5);
+        assert_eq!(drain(&mut consumer, 8), expected(8..11));
+        assert_eq!(room.free(), 8);
+        assert_eq!(consumer.metrics.snapshot().dropped, 0);
     }
 
     #[test]

@@ -3,6 +3,7 @@ use std::sync::atomic::AtomicU64;
 use super::*;
 
 mod control;
+mod history;
 mod monitor;
 use control::Control;
 use monitor::{AudioMonitor, SpectrumMonitor};
@@ -172,6 +173,10 @@ fn measure_pipeline(hardware: &[Hardware], seconds: u64) {
         .iter()
         .map(|radio| open_pipeline(&engine, radio, channels))
         .collect();
+    let history = enabled("SDRMM_CAPTURE_HISTORY");
+    if history {
+        history::start(&engine, &sets);
+    }
     let mut audio: Vec<_> = sets
         .iter()
         .flat_map(|(ds, ids)| {
@@ -264,6 +269,9 @@ fn measure_pipeline(hardware: &[Hardware], seconds: u64) {
                 );
             }
         }
+    }
+    if history {
+        history::finish(&engine, &sets, directory.path(), seconds, allow_drops);
     }
     let snapshot = engine.snapshot();
     engine.shutdown();

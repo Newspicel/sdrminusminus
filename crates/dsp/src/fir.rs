@@ -1,7 +1,4 @@
-use std::{
-    f64::consts::PI,
-    ops::{Add, Mul},
-};
+use std::{f64::consts::PI, ops::Add};
 
 use num_complex::Complex;
 
@@ -174,6 +171,39 @@ impl Sample for Complex<f32> {
     }
 }
 
+pub(crate) trait Accumulate<C>: Sample {
+    fn add_product(self, sample: Self, coefficient: C) -> Self;
+}
+
+fn add_product(sum: f32, sample: f32, coefficient: f32) -> f32 {
+    if cfg!(any(target_arch = "aarch64", target_feature = "fma")) {
+        sample.mul_add(coefficient, sum)
+    } else {
+        sum + sample * coefficient
+    }
+}
+
+impl Accumulate<f32> for f32 {
+    fn add_product(self, sample: Self, coefficient: f32) -> Self {
+        add_product(self, sample, coefficient)
+    }
+}
+
+impl Accumulate<f32> for Complex<f32> {
+    fn add_product(self, sample: Self, coefficient: f32) -> Self {
+        Self::new(
+            add_product(self.re, sample.re, coefficient),
+            add_product(self.im, sample.im, coefficient),
+        )
+    }
+}
+
+impl Accumulate<Complex<f32>> for Complex<f32> {
+    fn add_product(self, sample: Self, coefficient: Self) -> Self {
+        self + sample * coefficient
+    }
+}
+
 #[derive(Clone, Debug)]
 pub(crate) struct StreamFir<T, C> {
     rev_taps: Vec<C>,
@@ -183,7 +213,7 @@ pub(crate) struct StreamFir<T, C> {
 
 impl<T, C> StreamFir<T, C>
 where
-    T: Sample + Mul<C, Output = T>,
+    T: Accumulate<C>,
     C: Copy,
 {
     pub(crate) fn new(taps: &[C], factor: usize) -> Self {
@@ -219,7 +249,7 @@ where
 
 fn dot<T, C>(samples: &[T], taps: &[C]) -> T
 where
-    T: Sample + Mul<C, Output = T>,
+    T: Accumulate<C>,
     C: Copy,
 {
     let (samples, tail_samples) = samples.as_chunks::<4>();
@@ -227,12 +257,12 @@ where
     let mut sums = [T::zero(); 4];
     for (samples, taps) in samples.iter().zip(taps) {
         for lane in 0..4 {
-            sums[lane] = sums[lane] + samples[lane] * taps[lane];
+            sums[lane] = sums[lane].add_product(samples[lane], taps[lane]);
         }
     }
     let mut sum = (sums[0] + sums[1]) + (sums[2] + sums[3]);
     for (&sample, &tap) in tail_samples.iter().zip(tail_taps) {
-        sum = sum + sample * tap;
+        sum = sum.add_product(sample, tap);
     }
     sum
 }
@@ -277,6 +307,19 @@ mod tests {
             );
             let real_samples: Vec<_> = samples.iter().map(|sample| sample.re).collect();
             let real_taps: Vec<_> = taps.iter().map(|tap| tap.re).collect();
+            let reference: Complex<f64> = samples
+                .iter()
+                .zip(&real_taps)
+                .map(|(sample, &tap)| {
+                    Complex::new(f64::from(sample.re), f64::from(sample.im)) * f64::from(tap)
+                })
+                .sum();
+            let actual = dot(&samples, &real_taps);
+            let actual = Complex::new(f64::from(actual.re), f64::from(actual.im));
+            assert!(
+                (actual - reference).norm() < len as f64 * 1e-7,
+                "real taps, length={len}"
+            );
             let reference: f64 = real_samples
                 .iter()
                 .zip(&real_taps)

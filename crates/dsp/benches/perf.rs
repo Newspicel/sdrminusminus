@@ -19,6 +19,31 @@ use sdrmm_dsp::{
 const RATE: f64 = 2_000_000.0;
 const FREQ_HZ: f64 = 300e6;
 
+fn tuning(c: &mut Criterion) {
+    let input = pseudo(2_048, 0xDDC);
+    let mut out = vec![Complex::new(0.0, 0.0); input.len()];
+    let mut nco = sdrmm_dsp::Nco::new(187_500.0, 20_000_000.0);
+    let mut group = c.benchmark_group("tuning");
+    group.throughput(Throughput::Elements(input.len() as u64));
+    group.bench_function("mix", |b| {
+        b.iter(|| {
+            nco.mix_into(black_box(&input), &mut out);
+            black_box(&out);
+        });
+    });
+    for output_rate in [48_000.0, 240_000.0] {
+        let mut ddc = sdrmm_dsp::Ddc::new(20_000_000.0, output_rate, 187_500.0).expect("rates");
+        ddc.process(&input, &mut out);
+        group.bench_function(format!("ddc_{output_rate}"), |b| {
+            b.iter(|| {
+                ddc.process(black_box(&input), &mut out);
+                black_box(&out);
+            });
+        });
+    }
+    group.finish();
+}
+
 fn pseudo(len: usize, seed: u64) -> Vec<Complex<f32>> {
     let mut state = seed | 1;
     (0..len)
@@ -249,6 +274,7 @@ fn cfar_cluster(c: &mut Criterion) {
 
 criterion_group!(
     benches,
+    tuning,
     fft_4096,
     xcorr_8192,
     covariance_and_eigen,

@@ -14,6 +14,90 @@ use sdrmm_wire::{DeviceSettings, NetworkExportSettings, NetworkSampleFormat, Net
 
 const WAIT: Duration = Duration::from_secs(10);
 
+#[test]
+fn a_stalled_tcp_reader_reports_failure_while_radio_audio_stays_continuous() {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("listener");
+    let engine = engine();
+    let ds = engine.create_device_set("virtual:siggen").expect("source");
+    let channel = engine
+        .add_channel(
+            ds,
+            0,
+            sdrmm_wire::ChannelSettings {
+                frequency_hz: 100_000_000.0 + sdrmm_device_virtual::NFM_CARRIER_OFFSET_HZ,
+                squelch: sdrmm_wire::Squelch::Off,
+                params: sdrmm_wire::ChannelParams::Nfm(sdrmm_wire::NfmParams::default()),
+                audio: Default::default(),
+            },
+        )
+        .expect("channel");
+    let mut audio = engine.subscribe_pcm(ds, channel).expect("PCM");
+    engine
+        .start_network_export(
+            ds,
+            "stalled".to_owned(),
+            0,
+            NetworkExportSettings {
+                transport: NetworkTransport::Tcp,
+                format: NetworkSampleFormat::Cf32Le,
+                address: listener.local_addr().expect("address").to_string(),
+            },
+        )
+        .expect("export");
+    let (receiver, _) = listener.accept().expect("connected reader");
+    let deadline = Instant::now() + WAIT;
+    let mut failed_at = None;
+    let mut next_frame = None;
+    let mut frames = 0;
+    loop {
+        loop {
+            match audio.try_recv() {
+                Ok(block) => {
+                    if let Some(next) = next_frame {
+                        assert_eq!(block.start_frame, next, "audio gap during export failure");
+                    }
+                    let count = match block.payload {
+                        sdrmm_engine::audio::PcmPayload::Silence(frames) => frames,
+                        sdrmm_engine::audio::PcmPayload::Samples(samples) => {
+                            assert!(samples.iter().all(|sample| sample.is_finite()));
+                            samples.len() / usize::from(block.channels)
+                        }
+                    };
+                    next_frame = Some(block.start_frame + count as u64);
+                    frames += count;
+                }
+                Err(tokio::sync::broadcast::error::TryRecvError::Empty) => break,
+                Err(error) => panic!("PCM observer failed: {error}"),
+            }
+        }
+        let snapshot = engine.snapshot();
+        let set = &snapshot.device_sets[0];
+        assert_eq!(set.overruns, 0);
+        if set
+            .network_export
+            .as_ref()
+            .is_some_and(|export| export.error.is_some())
+        {
+            failed_at.get_or_insert_with(Instant::now);
+        }
+        if failed_at.is_some_and(|at| at.elapsed() >= Duration::from_millis(500)) {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "slow destination was not reported"
+        );
+        std::thread::sleep(Duration::from_millis(2));
+    }
+    assert!(frames >= 24_000);
+    drop(receiver);
+    let status = engine
+        .stop_network_export(ds, "stalled")
+        .expect("stop failed export");
+    assert!(status.error.is_some());
+    engine.remove_device_set(ds).expect("remove source");
+}
+
 fn engine() -> Arc<Engine> {
     let mut registry = DeviceRegistry::new();
     registry.register(10, Box::new(VirtualDriver::new()));

@@ -143,20 +143,25 @@ pub(super) fn dsp_loop(
                 recording_publisher
                     .as_mut()
                     .is_none_or(|publisher| !publisher.publish(t, slice, total, snapshot.center_hz))
-            }) {
-                tap = None;
+            }) && retirement.available()
+            {
+                retirement.retire(Retired::Recording(tap.take(), recording_publisher.take()));
             }
             if network_tap
                 .as_mut()
                 .is_some_and(|network| !network.push(slice))
+                && retirement.available()
+                && let Some(network) = network_tap.take()
             {
-                network_tap = None;
+                retirement.retire(Retired::Network(network));
             }
             if history
                 .as_mut()
                 .is_some_and(|keeper| !keeper.push(slice, snapshot.center_hz))
+                && retirement.available()
+                && let Some(keeper) = history.take()
             {
-                history = None;
+                retirement.retire(Retired::History(keeper));
             }
             for (_, host) in &mut channels {
                 host.process_at(slice, total, snapshot.center_hz);

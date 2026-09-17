@@ -3,7 +3,7 @@ use std::{
     net::{SocketAddr, TcpStream, ToSocketAddrs, UdpSocket},
     sync::{
         Arc, OnceLock,
-        atomic::{AtomicU64, Ordering},
+        atomic::{AtomicU8, AtomicU64, Ordering},
     },
     thread::JoinHandle,
     time::Duration,
@@ -19,12 +19,19 @@ const NETWORK_RING_CAPACITY: usize = 1 << 20;
 const UDP_PAYLOAD_BYTES: usize = 1_400;
 const NETWORK_IO_TIMEOUT: Duration = Duration::from_secs(3);
 
+#[repr(u8)]
+enum FeedFault {
+    Overflow = 1,
+    WriterStopped = 2,
+}
+
 #[derive(Debug)]
 pub(crate) struct NetworkExportShared {
     bytes_per_sample: u64,
     bytes: AtomicU64,
     packets: AtomicU64,
     error: OnceLock<String>,
+    feed_fault: AtomicU8,
 }
 
 impl NetworkExportShared {
@@ -34,6 +41,7 @@ impl NetworkExportShared {
             bytes: AtomicU64::new(0),
             packets: AtomicU64::new(0),
             error: OnceLock::new(),
+            feed_fault: AtomicU8::new(0),
         }
     }
 
@@ -50,7 +58,18 @@ impl NetworkExportShared {
     }
 
     pub(crate) fn error(&self) -> Option<String> {
-        self.error.get().cloned()
+        self.error
+            .get()
+            .cloned()
+            .or_else(|| match self.feed_fault.load(Ordering::Acquire) {
+                code if code == FeedFault::Overflow as u8 => {
+                    Some("network export queue overflow: destination too slow".to_owned())
+                }
+                code if code == FeedFault::WriterStopped as u8 => {
+                    Some("network export writer stopped".to_owned())
+                }
+                _ => None,
+            })
     }
 
     fn fail(&self, message: String) {
@@ -66,18 +85,24 @@ pub(crate) struct NetworkExportTap {
 impl NetworkExportTap {
     #[must_use]
     pub(crate) fn push(&mut self, samples: &[Complex<f32>]) -> bool {
+        if self.shared.feed_fault.load(Ordering::Acquire) != 0 {
+            return false;
+        }
+        if self.samples.is_abandoned() {
+            self.shared
+                .feed_fault
+                .store(FeedFault::WriterStopped as u8, Ordering::Release);
+            return false;
+        }
         if samples.is_empty() {
             return true;
         }
         match self.samples.push_entire_slice(samples) {
             Ok(()) => true,
-            Err(_) if !self.samples.is_abandoned() => {
-                self.shared
-                    .fail("network export queue overflow — destination too slow?".to_owned());
-                false
-            }
             Err(_) => {
-                self.shared.fail("network export writer stopped".to_owned());
+                self.shared
+                    .feed_fault
+                    .store(FeedFault::Overflow as u8, Ordering::Release);
                 false
             }
         }
@@ -286,6 +311,43 @@ mod tests {
         Complex::new(0.0, -0.5),
         Complex::new(1.5, -2.0),
     ];
+
+    #[test]
+    fn a_slow_destination_fails_without_allocating_or_resuming_after_a_gap() {
+        let (samples, mut reader) = RingBuffer::new(4);
+        let shared = Arc::new(NetworkExportShared::new(NetworkSampleFormat::Cf32Le));
+        let mut tap = NetworkExportTap {
+            samples,
+            shared: shared.clone(),
+        };
+        assert!(tap.push(&VECTOR));
+        sdrmm_test_support::assert_no_alloc("network overflow", || {
+            assert!(!tap.push(&VECTOR));
+        });
+        assert_eq!(reader.slots(), VECTOR.len());
+        reader
+            .read_chunk(VECTOR.len())
+            .expect("prefix")
+            .commit_all();
+        assert!(!tap.push(&VECTOR));
+        assert_eq!(reader.slots(), 0);
+        assert!(shared.error().expect("error").contains("overflow"));
+    }
+
+    #[test]
+    fn a_stopped_writer_rejects_samples_without_allocating() {
+        let (samples, reader) = RingBuffer::new(4);
+        let shared = Arc::new(NetworkExportShared::new(NetworkSampleFormat::Cf32Le));
+        let mut tap = NetworkExportTap {
+            samples,
+            shared: shared.clone(),
+        };
+        drop(reader);
+        sdrmm_test_support::assert_no_alloc("network stopped", || {
+            assert!(!tap.push(&VECTOR));
+        });
+        assert!(shared.error().expect("error").contains("stopped"));
+    }
 
     #[test]
     fn cf32_le_is_interleaved_ieee754() {

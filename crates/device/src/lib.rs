@@ -1,6 +1,6 @@
 use std::sync::{
     Arc, Mutex, MutexGuard, PoisonError,
-    atomic::{AtomicUsize, Ordering},
+    atomic::{AtomicIsize, Ordering},
 };
 
 use num_complex::Complex;
@@ -90,32 +90,29 @@ type FatalFn = Box<dyn FnOnce(DeviceError) + Send>;
 /// fits instead of overwriting what has not been processed yet.
 #[derive(Debug)]
 pub struct SinkRoom {
-    free: AtomicUsize,
+    free: AtomicIsize,
 }
 
 impl SinkRoom {
     #[must_use]
     pub const fn new(capacity: usize) -> Self {
+        assert!(capacity <= isize::MAX as usize);
         Self {
-            free: AtomicUsize::new(capacity),
+            free: AtomicIsize::new(capacity as isize),
         }
     }
 
     #[must_use]
     pub fn free(&self) -> usize {
-        self.free.load(Ordering::Acquire)
+        self.free.load(Ordering::Acquire).max(0) as usize
     }
 
     pub fn took(&self, samples: usize) {
-        self.free
-            .update(Ordering::AcqRel, Ordering::Acquire, |free| {
-                debug_assert!(free >= samples, "took {samples} of {free} free");
-                free.saturating_sub(samples)
-            });
+        self.free.fetch_sub(samples as isize, Ordering::AcqRel);
     }
 
     pub fn freed(&self, samples: usize) {
-        self.free.fetch_add(samples, Ordering::AcqRel);
+        self.free.fetch_add(samples as isize, Ordering::AcqRel);
     }
 }
 
@@ -343,6 +340,18 @@ mod tests {
     };
 
     use super::*;
+
+    #[test]
+    fn room_keeps_debits_when_a_live_producer_beats_a_release_notification() {
+        let room = SinkRoom::new(8);
+        room.took(8);
+        room.took(3);
+        assert_eq!(room.free(), 0);
+        room.freed(8);
+        assert_eq!(room.free(), 5);
+        room.freed(3);
+        assert_eq!(room.free(), 8);
+    }
 
     struct NoopTx;
 
