@@ -14,7 +14,7 @@ A node accepts one source. Channel baseband exports filtered IQ at the channel's
 each channel supports one export, independently of device-wide export.
 
 Sample rate is locked during export. Retuning remains available, but you must update the receiving
-program's centre frequency. The display reports sent bytes, writes, capture overruns, and errors.
+program's centre frequency. The display reports sent bytes, writes, and errors.
 
 ## Wire contract
 

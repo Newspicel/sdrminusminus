@@ -2,6 +2,7 @@ import { useMutation } from "@tanstack/react-query";
 import { useState } from "react";
 import { Button, Input } from "../../components/BaseControls";
 import { BTN, BTN_DANGER, FIELD } from "../../components/controls";
+import { DevOnly } from "../../components/DevOnly";
 import { formatBytes, formatHz, formatSampleRate } from "../../components/format";
 import {
   channelExportSource,
@@ -140,8 +141,10 @@ function NetworkExportNodeFace({ node }: { node: PatchNodeOf<"network_export"> }
               {control.status.settings.transport === "udp" ? "Datagrams" : "Writes"}
             </span>
             <span>{control.status.packets.toLocaleString()}</span>
-            <span className="text-ink-dim">Capture loss</span>
-            <span>{control.status.overruns.toLocaleString()} samples</span>
+            <DevOnly>
+              <span className="text-ink-dim">Capture loss</span>
+              <span>{control.status.overruns.toLocaleString()} samples</span>
+            </DevOnly>
             {control.status.error != null && (
               <p role="alert" className="col-span-2 text-danger">
                 {control.status.error}

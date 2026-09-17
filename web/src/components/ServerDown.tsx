@@ -3,6 +3,7 @@ import { useCallback, useEffect } from "react";
 import { serverReachable } from "../lib/api";
 import { Button } from "./BaseControls";
 import { BTN, BTN_PRIMARY } from "./controls";
+import { DevOnly } from "./DevOnly";
 import { serverDownDetail } from "./serverStatus";
 
 const PROBE_MS = 3000;
@@ -65,12 +66,12 @@ export function ServerDown({
         {detail !== null && (
           <p className="font-mono text-xs break-words text-ink-faint">{detail}</p>
         )}
-        {import.meta.env.DEV && (
+        <DevOnly>
           <p className="text-sm text-ink-dim">
             Start it with <code className="font-mono text-ink">cargo run -p sdrmm</code> — the dev
             server proxies <code className="font-mono text-ink">/api</code> to 127.0.0.1:8080.
           </p>
-        )}
+        </DevOnly>
         <div className="flex items-center gap-3">
           <Button type="button" className={BTN_PRIMARY} onClick={reconnect}>
             Try again

@@ -6,6 +6,7 @@ import { useDecodedStore } from "../lib/decoded";
 import { Button, Input } from "./BaseControls";
 import { BroadcastDataView } from "./BroadcastDataView";
 import { ALERT, BTN, FIELD, TABLE_CELL, TABLE_HEAD } from "./controls";
+import { DevOnly } from "./DevOnly";
 import { DownloadMenu } from "./DownloadMenu";
 import { eventDetail } from "./decoderDetail";
 import {
@@ -151,11 +152,13 @@ export function DecoderLogPanel({ wires }: { wires: WireScope }) {
             </div>
           )}
 
-          {dropped !== null && (
-            <div role="status" className={`${ALERT} bg-transparent tabular-nums`}>
-              {dropped}
-            </div>
-          )}
+          <DevOnly>
+            {dropped !== null && (
+              <div role="status" className={`${ALERT} bg-transparent tabular-nums`}>
+                {dropped}
+              </div>
+            )}
+          </DevOnly>
 
           <div className="flex flex-wrap items-center gap-x-3 font-mono text-[10px] tabular-nums text-ink-dim">
             <span>

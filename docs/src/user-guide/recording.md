@@ -19,7 +19,7 @@ SigMF stores samples in `.sigmf-data` and frequency, sample rate, timing, and an
 3. Press **Stop** to finish the files.
 
 For multi-lane radios, the connected port selects the lane. Connect GPS `position` to include
-location metadata. The recorder shows elapsed time, bytes, dropped samples, and write errors.
+location metadata. The recorder shows elapsed time, bytes, and write errors.
 
 A clean server shutdown finalises active recordings. Forcibly ending the process can leave an
 incomplete capture.

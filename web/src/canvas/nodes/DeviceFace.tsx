@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Radar } from "lucide-react";
 import { Button } from "../../components/BaseControls";
 import { BTN_PRIMARY, BTN_QUIET, ICON_BTN } from "../../components/controls";
+import { DevOnly } from "../../components/DevOnly";
 import { deviceId } from "../../components/devices";
 import { inTuningRange, isTunable, tuningRange } from "../../components/dial";
 import { dialId, FrequencyDial } from "../../components/FrequencyDial";
@@ -306,7 +307,6 @@ export function DeviceFace({ node }: { node: PatchNode }) {
 
   const array = arrayHolding(workspace.graph, node.id);
   const arrayTuning = array !== null && workspace.devices.has(array);
-  const overruns = set.overruns ?? 0;
 
   return (
     <NodeShell
@@ -328,17 +328,9 @@ export function DeviceFace({ node }: { node: PatchNode }) {
 
         <RadioSettings active={set} className="p-2" sampleRateLocked={arrayTuning} />
 
-        {import.meta.env.DEV && <PipelineReadout deviceSet={set.id} />}
-        {overruns > 0 && (
-          <Readout>
-            <ReadoutRow
-              label="Drops"
-              title="Device samples dropped at the capture ring since the radio opened — the DSP thread is behind, and audio and spectrum have gaps"
-            >
-              {overruns}
-            </ReadoutRow>
-          </Readout>
-        )}
+        <DevOnly>
+          <DeviceHealth set={set} />
+        </DevOnly>
 
         {set.error != null && <Fault set={set} />}
       </FaceBody>
@@ -357,13 +349,27 @@ export function DeviceFace({ node }: { node: PatchNode }) {
   );
 }
 
-function PipelineReadout({ deviceSet }: { deviceSet: number }) {
+function DeviceHealth({ set }: { set: DeviceSet }) {
   const health = usePipelineHealth((state) => state.health);
-  const summary = queueSummary(health, deviceSet);
-  if (summary === null) return null;
+  const summary = queueSummary(health, set.id);
+  const overruns = set.overruns ?? 0;
   return (
-    <span className="legend" title={summary.detail}>
-      Queue {summary.oldestMs.toFixed(0)} ms
-    </span>
+    <>
+      {summary !== null && (
+        <span className="legend" title={summary.detail}>
+          Queue {summary.oldestMs.toFixed(0)} ms
+        </span>
+      )}
+      {overruns > 0 && (
+        <Readout>
+          <ReadoutRow
+            label="Drops"
+            title="Device samples dropped at the capture ring since the radio opened. The DSP thread is behind, so audio and spectrum have gaps."
+          >
+            {overruns}
+          </ReadoutRow>
+        </Readout>
+      )}
+    </>
   );
 }

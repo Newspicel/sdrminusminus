@@ -5,6 +5,7 @@ import { Button } from "../../components/BaseControls";
 import { BTN, BTN_DANGER, CHIP } from "../../components/controls";
 import { DecoderLogPanel } from "../../components/DecoderLogPanel";
 import { DecoderView, hasDecoderView } from "../../components/DecoderPanels";
+import { DevOnly } from "../../components/DevOnly";
 import { DownloadMenu } from "../../components/DownloadMenu";
 import {
   DEFAULT_LOG_FILTER,
@@ -182,14 +183,14 @@ function AudioInput({ input }: { input: Input }) {
         channel={input.channel.id}
         playing={audio.playing}
       />
-      {import.meta.env.DEV && (
+      <DevOnly>
         <AudioHealth
           lostFrames={audio.lostFrames}
           underruns={audio.underruns}
           bufferedMs={audio.bufferedMs}
           trimmedMs={audio.trimmedMs}
         />
-      )}
+      </DevOnly>
       {audio.error !== null && (
         <p role="alert" className="text-xs text-danger">
           {audio.error}
@@ -554,7 +555,9 @@ function RecordingReadout({ status, sampleRate }: { status: RecordingStatus; sam
         {formatDuration(recordingElapsedS(status, now, sampleRate))}
       </ReadoutRow>
       <ReadoutRow label="Written">{formatBytes(status.bytes)}</ReadoutRow>
-      {status.overruns > 0 && <ReadoutRow label="Drops">{status.overruns}</ReadoutRow>}
+      <DevOnly>
+        {status.overruns > 0 && <ReadoutRow label="Drops">{status.overruns}</ReadoutRow>}
+      </DevOnly>
       <ReadoutRow label="File">
         <span className="block truncate" title={status.file}>
           {status.file}
@@ -725,7 +728,9 @@ function BasebandRecordingReadout({ status }: { status: RecordingStatus }) {
     <Readout separated={false}>
       <ReadoutRow label="Written">{formatBytes(status.bytes)}</ReadoutRow>
       <ReadoutRow label="Samples">{status.samples.toLocaleString()}</ReadoutRow>
-      {status.overruns > 0 && <ReadoutRow label="Drops">{status.overruns}</ReadoutRow>}
+      <DevOnly>
+        {status.overruns > 0 && <ReadoutRow label="Drops">{status.overruns}</ReadoutRow>}
+      </DevOnly>
       <ReadoutRow label="File">
         <span className="block truncate" title={status.file}>
           {status.file}

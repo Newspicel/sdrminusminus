@@ -335,7 +335,7 @@ For debugging, `SDRMM_SOAPY_PROBE=in-process` disables that isolation.
 Test the packaged build with your radio:
 
 1. Save the `sdrmm --doctor` report.
-2. Stream for at least 30 minutes and check overruns.
+2. Stream for at least 30 minutes and check for audio and spectrum gaps.
 3. Test tuning, gain, sample rate, and the controls you intend to use.
 4. Reconnect the radio and confirm the workspace restores it.
 5. Record a short capture and replay it.
