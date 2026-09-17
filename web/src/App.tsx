@@ -3,7 +3,7 @@ import { ReactFlowProvider } from "@xyflow/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAppHotkeys } from "./appHotkeys";
 import { applyToasts } from "./canvas/applyToasts";
-import { bindChannels, bindDevices, deviceNodeOf } from "./canvas/binding";
+import { bindChannels, bindDevices, deviceNodeOf, speakerInputsOf } from "./canvas/binding";
 import { Canvas } from "./canvas/Canvas";
 import { WorkspaceProvider } from "./canvas/context";
 import { FullFace } from "./canvas/FullFace";
@@ -100,11 +100,8 @@ export function App() {
   const channels = useMemo(() => bindChannels(graph, devices), [graph, devices]);
 
   const reachable = useMemo(
-    () =>
-      [...devices.values()].flatMap((set) =>
-        set.channels.map((channel) => ({ deviceSet: set.id, channel: channel.id })),
-      ),
-    [devices],
+    () => speakerInputsOf(graph, devices, channels, trunks),
+    [graph, devices, channels, trunks],
   );
   useEffect(() => {
     if (state.data !== undefined) {

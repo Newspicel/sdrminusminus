@@ -13,6 +13,7 @@ import {
   inputsOf,
   iqSourceOf,
   refMatches,
+  speakerInputsOf,
 } from "./binding";
 
 function info(overrides: Partial<DeviceInfo>): DeviceInfo {
@@ -120,6 +121,19 @@ describe("binding", () => {
     expect(devices.get("dev")?.id).toBe(1);
     expect(devices.get("bench:pair")?.id).toBe(2);
     expect(bindChannels(g, devices).get("voice")?.id).toBe(7);
+  });
+
+  it("speakerInputsOf lists only the channels wired into a speaker", () => {
+    const g = graph();
+    const devices = bindDevices(g, [set(1, rtl, [channel(4, "nfm"), channel(5, "am")])]);
+    const channels = bindChannels(g, devices);
+    expect(speakerInputsOf(g, devices, channels)).toEqual([{ deviceSet: 1, channel: 4 }]);
+
+    const unwired: PatchGraph = {
+      nodes: g.nodes.filter((n) => n.id !== "spk"),
+      edges: g.edges?.filter((e) => e.to.node !== "spk"),
+    };
+    expect(speakerInputsOf(unwired, devices, channels)).toEqual([]);
   });
 
   it("binds a device node to the set running its radio", () => {

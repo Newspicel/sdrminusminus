@@ -314,6 +314,18 @@ export function inputsOf(
   return out;
 }
 
+export function speakerInputsOf(
+  graph: PatchGraph,
+  devices: ReadonlyMap<string, DeviceSet>,
+  channels: ReadonlyMap<string, ChannelInfo>,
+  trunks: readonly TrunkSystemStatus[] = [],
+): { deviceSet: number; channel: number }[] {
+  return graph.nodes
+    .filter((node) => node.kind === "speaker")
+    .flatMap((node) => inputsOf(graph, node.id, "audio", devices, channels, trunks))
+    .map((input) => ({ deviceSet: input.deviceSet, channel: input.channel.id }));
+}
+
 function trunkInputs(trunk: TrunkSystemStatus, devices: ReadonlyMap<string, DeviceSet>): Input[] {
   const sets = [...devices.values()];
   const wired = (deviceSet: number, channel: number): Input[] => {
