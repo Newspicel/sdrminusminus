@@ -24,6 +24,7 @@ export function Slider({
   return (
     <Primitive.Root
       data-hotkeys="off"
+      thumbAlignment="edge"
       className={`flex ${className ?? "w-24"} ${disabled ? "opacity-45" : ""}`}
       disabled={disabled}
       value={value}
