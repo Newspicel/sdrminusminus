@@ -198,7 +198,12 @@ fn measure_pipeline(hardware: &[Hardware], seconds: u64) {
     let before = engine.pipeline_health();
     let mut control = Control::start(engine.clone(), sets.clone());
     let started = Instant::now();
+    let mut next_history_check = Duration::from_secs(1);
     while started.elapsed() < Duration::from_secs(seconds) {
+        if history && started.elapsed() >= next_history_check {
+            history::check(&engine, started.elapsed());
+            next_history_check += Duration::from_secs(1);
+        }
         for monitor in &mut audio {
             monitor.poll();
         }
@@ -219,9 +224,10 @@ fn measure_pipeline(hardware: &[Hardware], seconds: u64) {
     }
     let retunes = control.finish();
     eprintln!(
-        "pipeline radios={} channels_per_radio={channels} seconds={seconds} mixed={} recording={recording} retunes={retunes} cpu_threads={} peak_age_ms={peak_age:.2} peak_queued={peak_queued}",
+        "pipeline radios={} channels_per_radio={channels} seconds={seconds} mixed={} recording={recording} retunes={retunes} device_retune={} cpu_threads={} peak_age_ms={peak_age:.2} peak_queued={peak_queued}",
         hardware.len(),
         enabled("SDRMM_CAPTURE_MIXED"),
+        enabled("SDRMM_CAPTURE_DEVICE_RETUNE"),
         number("SDRMM_CAPTURE_CPU_THREADS", 0)
     );
     let mut losses = 0;
@@ -312,6 +318,11 @@ fn connected_radio_capture_health() {
                 "SDRMM_CAPTURE_RATE",
                 if driver.id() == "hackrf" { 20e6 } else { 2.4e6 },
             );
+            let rate = if driver.id() == "rtlsdr" {
+                number("SDRMM_CAPTURE_RTL_RATE", rate)
+            } else {
+                rate
+            };
             let info = driver.probe().into_iter().next().expect("connected radio");
             Hardware { driver, info, rate }
         })

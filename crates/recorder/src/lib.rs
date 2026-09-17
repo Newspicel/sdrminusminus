@@ -4,7 +4,7 @@ mod import;
 
 use std::{
     fs::{self, File},
-    io::{BufReader, Read, Seek, Write},
+    io::{BufReader, BufWriter, Read, Seek, Write},
     path::{Path, PathBuf},
 };
 
@@ -27,6 +27,7 @@ const RECORDER_NAME: &str = "SDR--";
 const META_SUFFIX: &str = ".sigmf-meta";
 const DATA_SUFFIX: &str = ".sigmf-data";
 const TMP_META_SUFFIX: &str = ".sigmf-meta.tmp";
+const WRITE_CHUNK_SAMPLES: usize = 65_536;
 
 #[derive(Debug, thiserror::Error)]
 pub enum SigmfError {
@@ -173,7 +174,7 @@ pub fn scan_stems(dir: &Path) -> Result<Vec<PathBuf>, SigmfError> {
 
 #[derive(Debug)]
 pub struct SigmfWriter {
-    data: File,
+    data: BufWriter<File>,
     meta: SigmfMeta,
     stem: PathBuf,
     samples: u64,
@@ -229,7 +230,7 @@ impl SigmfWriter {
             }
         };
         Ok(Self {
-            data,
+            data: BufWriter::with_capacity(WRITE_CHUNK_SAMPLES * BYTES_PER_SAMPLE as usize, data),
             meta,
             stem: stem.to_path_buf(),
             samples: 0,
@@ -238,15 +239,17 @@ impl SigmfWriter {
     }
 
     pub fn write_block(&mut self, block: &[Complex<f32>]) -> Result<(), SigmfError> {
-        self.scratch.clear();
-        self.scratch
-            .reserve(block.len() * BYTES_PER_SAMPLE as usize);
-        for sample in block {
-            self.scratch.extend_from_slice(&sample.re.to_le_bytes());
-            self.scratch.extend_from_slice(&sample.im.to_le_bytes());
+        for chunk in block.chunks(WRITE_CHUNK_SAMPLES) {
+            self.scratch
+                .resize(chunk.len() * BYTES_PER_SAMPLE as usize, 0);
+            let (encoded, _) = self.scratch.as_chunks_mut::<8>();
+            for (bytes, sample) in encoded.iter_mut().zip(chunk) {
+                bytes[..4].copy_from_slice(&sample.re.to_le_bytes());
+                bytes[4..].copy_from_slice(&sample.im.to_le_bytes());
+            }
+            self.data.write_all(&self.scratch)?;
+            self.samples += chunk.len() as u64;
         }
-        self.data.write_all(&self.scratch)?;
-        self.samples += block.len() as u64;
         Ok(())
     }
 
@@ -331,8 +334,9 @@ impl SigmfWriter {
         &self.stem
     }
 
-    pub fn finalize(self) -> Result<SigmfMeta, SigmfError> {
-        self.data.sync_all()?;
+    pub fn finalize(mut self) -> Result<SigmfMeta, SigmfError> {
+        self.data.flush()?;
+        self.data.get_ref().sync_all()?;
         let tmp = tmp_meta_path(&self.stem);
         write_meta_synced(File::create(&tmp)?, &self.meta)?;
         fs::rename(&tmp, meta_path(&self.stem))?;
@@ -478,6 +482,87 @@ mod tests {
             }
             out.extend_from_slice(&buf[..n]);
         }
+    }
+
+    #[test]
+    #[ignore = "writes a 160 MB history window to measure capture startup"]
+    fn large_history_dump_throughput() {
+        let directory = TempDir::new().expect("directory");
+        let input = vec![Complex::new(0.25, -0.5); 20_000_000];
+        for block_size in [input.len(), 2048] {
+            let stem = directory.path().join(format!("history-{block_size}"));
+            let mut writer = SigmfWriter::create(&stem, 20e6, 100e6, "test").expect("writer");
+            let started = std::time::Instant::now();
+            for block in input.chunks(block_size) {
+                writer.write_block(block).expect("history dump");
+            }
+            eprintln!(
+                "history dump blocks={block_size} {:?}, scratch {} bytes",
+                started.elapsed(),
+                writer.scratch.capacity()
+            );
+            assert_eq!(writer.samples_written(), input.len() as u64);
+            writer.finalize().expect("finalize");
+            let mut reader = SigmfReader::open(&stem).expect("reader");
+            let mut actual = [Complex::new(0.0, 0.0); 17];
+            for at in [0, 9_999_999, 19_999_983] {
+                reader.seek_to(at).expect("seek");
+                assert_eq!(reader.read_block(&mut actual).expect("read"), actual.len());
+                assert_bits_eq(&actual, &input[..actual.len()]);
+            }
+        }
+    }
+
+    #[test]
+    fn large_and_ragged_writes_preserve_every_bit_with_bounded_scratch() {
+        let directory = TempDir::new().expect("directory");
+        let stem = directory.path().join("chunked");
+        let input: Vec<_> = (0..WRITE_CHUNK_SAMPLES * 3 + 17)
+            .map(|index| {
+                Complex::new(
+                    f32::from_bits((index as u32).wrapping_mul(0x9e37_79b9)),
+                    f32::from_bits(!(index as u32).wrapping_mul(0x85eb_ca6b)),
+                )
+            })
+            .collect();
+        let mut writer = SigmfWriter::create(&stem, 20e6, 100e6, "test").expect("writer");
+        writer.write_block(&input).expect("large block");
+        writer.write_block(&[]).expect("empty block");
+        writer.write_block(&input[..3]).expect("short tail");
+        assert!(writer.scratch.capacity() <= WRITE_CHUNK_SAMPLES * BYTES_PER_SAMPLE as usize);
+        assert_eq!(writer.samples_written(), input.len() as u64 + 3);
+        writer.finalize().expect("finalize");
+        let expected: Vec<_> = input
+            .iter()
+            .chain(&input[..3])
+            .flat_map(|sample| {
+                sample
+                    .re
+                    .to_le_bytes()
+                    .into_iter()
+                    .chain(sample.im.to_le_bytes())
+            })
+            .collect();
+        assert_eq!(fs::read(data_path(&stem)).expect("raw data"), expected);
+        let mut reader = SigmfReader::open(&stem).expect("reader");
+        let actual = read_all(&mut reader);
+        assert_bits_eq(&actual[..input.len()], &input);
+        assert_bits_eq(&actual[input.len()..], &input[..3]);
+    }
+
+    #[test]
+    fn finalization_reports_buffer_flush_failure_without_publishing_metadata() {
+        let directory = TempDir::new().expect("directory");
+        let stem = directory.path().join("flush-failure");
+        let mut writer = SigmfWriter::create(&stem, 48_000.0, 100e6, "test").expect("writer");
+        writer.data = BufWriter::new(File::open(data_path(&stem)).expect("read-only file"));
+        writer
+            .write_block(&samples(3))
+            .expect("buffer accepts samples");
+        assert!(matches!(writer.finalize(), Err(SigmfError::Io(_))));
+        assert!(!meta_path(&stem).exists());
+        assert!(tmp_meta_path(&stem).exists());
+        assert_eq!(fs::metadata(data_path(&stem)).expect("data").len(), 0);
     }
 
     #[test]
@@ -744,6 +829,7 @@ mod tests {
         let stem = dir.path().join("claimed");
         let mut first = SigmfWriter::create(&stem, 48_000.0, 1_000_000.0, "hw").unwrap();
         first.write_block(&samples(8)).unwrap();
+        first.data.flush().expect("persist prefix");
 
         match SigmfWriter::create(&stem, 48_000.0, 1_000_000.0, "hw") {
             Err(SigmfError::StemTaken(taken)) => assert_eq!(taken, stem),

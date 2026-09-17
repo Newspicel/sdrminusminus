@@ -12,6 +12,8 @@ use tokio_tungstenite::tungstenite;
 
 use super::*;
 
+mod stress;
+
 const WAIT: Duration = Duration::from_secs(5);
 
 fn test_engine() -> Arc<Engine> {

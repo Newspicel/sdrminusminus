@@ -12,6 +12,18 @@ use crate::Engine;
 const NODE: &str = "capture-health-history";
 const SETTINGS: TimeMachineNode = TimeMachineNode { history_seconds: 1 };
 
+pub(super) fn check(engine: &Engine, elapsed: Duration) {
+    for set in &engine.snapshot().device_sets {
+        let history = set.time_machine.as_ref().expect("armed history");
+        assert!(
+            history.error.is_none(),
+            "history {} failed after {elapsed:?}: {:?}",
+            set.device.id(),
+            history.error
+        );
+    }
+}
+
 pub(super) fn start(engine: &Engine, sets: &[(u32, Vec<u32>)]) {
     for (ds, _) in sets {
         engine

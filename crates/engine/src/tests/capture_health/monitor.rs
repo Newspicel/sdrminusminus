@@ -37,6 +37,8 @@ pub(super) struct AudioMonitor {
     channel: u32,
     pcm: Receiver<PcmBlock>,
     opus: Receiver<AudioPacket>,
+    decoder: opus::Decoder,
+    decoded: [f32; crate::audio::OPUS_FRAME_SAMPLES * 2],
     pcm_time: Timeline,
     opus_time: Timeline,
     lagged: u64,
@@ -51,6 +53,8 @@ impl AudioMonitor {
             opus: engine
                 .subscribe_audio(ds, channel)
                 .expect("Opus subscription"),
+            decoder: opus::Decoder::new(48_000, opus::Channels::Stereo).expect("Opus decoder"),
+            decoded: [0.0; crate::audio::OPUS_FRAME_SAMPLES * 2],
             pcm_time: Timeline::default(),
             opus_time: Timeline::default(),
             lagged: 0,
@@ -75,6 +79,17 @@ impl AudioMonitor {
         drain(&mut self.opus, &mut self.lagged, |packet| {
             let frames = opus::packet::get_nb_samples(&packet.opus, 48_000).expect("valid Opus");
             assert_eq!(frames, crate::audio::OPUS_FRAME_SAMPLES);
+            assert!(matches!(packet.channels, 1 | 2));
+            let decoded = self
+                .decoder
+                .decode_float(&packet.opus, &mut self.decoded, false)
+                .expect("decode Opus payload");
+            assert_eq!(decoded, frames);
+            assert!(
+                self.decoded[..decoded * 2]
+                    .iter()
+                    .all(|sample| sample.is_finite())
+            );
             self.opus_time.push(packet.timestamp, frames as u64);
         });
     }

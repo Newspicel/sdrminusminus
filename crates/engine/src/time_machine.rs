@@ -17,9 +17,15 @@ use sdrmm_wire::PositionFix;
 
 use crate::EngineError;
 
-const FEED_CAPACITY: usize = 1 << 20;
+const FEED_SECONDS: f64 = 0.5;
+const MIN_FEED_CAPACITY: usize = 1 << 16;
+const MAX_FEED_CAPACITY: usize = 1 << 23;
 const MARK_CAPACITY: usize = 64;
 const IDLE_SLEEP: Duration = Duration::from_millis(2);
+
+fn feed_capacity(sample_rate: f64) -> usize {
+    ((sample_rate * FEED_SECONDS).ceil() as usize).clamp(MIN_FEED_CAPACITY, MAX_FEED_CAPACITY)
+}
 
 #[repr(u8)]
 enum FeedFault {
@@ -289,7 +295,7 @@ pub(crate) fn start(
     })?;
     ring.resize(held, Complex::new(0.0, 0.0));
 
-    let (samples_tx, mut samples_rx) = RingBuffer::<Complex<f32>>::new(FEED_CAPACITY);
+    let (samples_tx, mut samples_rx) = RingBuffer::<Complex<f32>>::new(feed_capacity(sample_rate));
     let (marks_tx, mut marks_rx) = RingBuffer::<CenterMark>::new(MARK_CAPACITY);
     let (control_tx, control_rx) = mpsc::channel();
     let shared = Arc::new(TimeMachineShared::default());
@@ -587,6 +593,35 @@ mod tests {
             shared,
             position: None,
         }
+    }
+
+    #[test]
+    fn a_disk_stall_keeps_two_hundred_milliseconds_of_history_at_radio_rates() {
+        for rate in [48_000.0, 2_400_000.0, 3_200_000.0, 20_000_000.0] {
+            let (mut tap, mut samples, _) = feed(feed_capacity(rate), 1);
+            let block = [Complex::new(0.25, -0.5); 2048];
+            let total = (rate * 0.2) as usize;
+            for at in (0..total).step_by(block.len()) {
+                assert!(tap.push(&block[..block.len().min(total - at)], 100e6));
+            }
+            assert_eq!(tap.shared.lost.load(Ordering::Relaxed), 0, "{rate} S/s");
+            assert!(tap.shared.error().is_none());
+            assert_eq!(samples.slots(), total);
+            let chunk = samples.read_chunk(total).expect("buffered history");
+            let (first, second) = chunk.as_slices();
+            assert!(first.iter().chain(second).all(|sample| *sample == block[0]));
+            chunk.commit_all();
+            assert!(tap.push(&block, 100e6));
+            assert_eq!(samples.slots(), block.len());
+        }
+    }
+
+    #[test]
+    fn history_feed_memory_is_bounded_at_extreme_rates() {
+        assert_eq!(feed_capacity(1.0), MIN_FEED_CAPACITY);
+        assert_eq!(feed_capacity(2_400_000.0), 1_200_000);
+        assert_eq!(feed_capacity(20_000_000.0), MAX_FEED_CAPACITY);
+        assert_eq!(feed_capacity(f64::MAX), MAX_FEED_CAPACITY);
     }
 
     #[test]
