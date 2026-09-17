@@ -20,6 +20,13 @@ export function scopeSource(chosen: ScopeSource, hasIq: boolean, hasTap: boolean
   return hasTap ? "baseband" : "iq";
 }
 
+export function streamChannels(
+  channels: readonly ChannelInfo[],
+  stream: number,
+): readonly ChannelInfo[] {
+  return channels.filter((channel) => (channel.stream ?? 0) === stream);
+}
+
 export interface ScopePick {
   hz: number;
   offsetHz: number;

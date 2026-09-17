@@ -7,6 +7,7 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -100,6 +101,7 @@ import {
   type ScopePick,
   type ScopeSource,
   scopeSource,
+  streamChannels,
   takeCreationTune,
   tuneOnCreate,
 } from "./scopePick";
@@ -224,7 +226,10 @@ function Spectrum({
 }) {
   const workspace = useWorkspaceContext();
   const setId = set?.id ?? null;
-  const channels = set?.channels ?? NO_CHANNELS;
+  const channels = useMemo(
+    () => streamChannels(set?.channels ?? NO_CHANNELS, stream),
+    [set?.channels, stream],
+  );
   const { applyPatch } = useDevicePatch();
   const { applyEdit } = useChannelPatch();
   const active = useFaceActive();
@@ -296,17 +301,20 @@ function Spectrum({
 
   const faces = new Map<number, string>();
   const deviceNode = iqSourceOf(workspace.graph, node.id)?.source;
+  const onStream = new Set(channels.map((channel) => channel.id));
   if (deviceNode !== undefined) {
-    for (const { node: channelNode } of channelNodesOf(workspace.graph, deviceNode)) {
-      const channel = workspace.channels.get(channelNode.id);
-      if (channel !== undefined) {
-        faces.set(channel.id, channelNode.id);
+    for (const wired of channelNodesOf(workspace.graph, deviceNode)) {
+      const channel = workspace.channels.get(wired.node.id);
+      if (wired.stream === stream && channel !== undefined) {
+        faces.set(channel.id, wired.node.id);
       }
     }
   }
   const owners = setId === null ? NO_OWNERS : trunkChannelRoles(workspace.trunks, setId);
   for (const [channel, owner] of owners) {
-    faces.set(channel, owner.node);
+    if (onStream.has(channel)) {
+      faces.set(channel, owner.node);
+    }
   }
   const locked = lockedChannels(workspace.graph, faces);
   const heldChannel = (channel: number): boolean => owners.has(channel) || locked.has(channel);

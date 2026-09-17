@@ -97,8 +97,10 @@ function Tuner({
         const held = pinned || locked || arrayTuning;
         return (
           <div key={dial.stream} className="flex flex-col">
-            {dial.port !== null && <span className="legend">{dial.port}</span>}
-            <div className="flex min-w-0 items-center gap-1">
+            {dial.port !== null && (
+              <span className="legend text-[8px] leading-none">{dial.port}</span>
+            )}
+            <div className="flex min-w-0 items-center gap-2">
               <FrequencyDial
                 id={dialId(node, dial.stream)}
                 hz={dial.hz}
@@ -107,29 +109,33 @@ function Tuner({
                 wheelTunes={active}
                 onTune={(hz) => tune(dial.stream, hz)}
               />
-              {!pinned && (
-                <span className="ml-auto flex shrink-0 items-center gap-1">
-                  <TuneTo
-                    title={
-                      dial.port === null ? "Type a frequency" : `Type a frequency for ${dial.port}`
-                    }
-                    hz={dial.hz}
-                    hint={`Reaches ${formatMhz(range.min)} – ${formatMhz(range.max)}`}
-                    resolve={(entered) => inTuningRange(entered, range)}
-                    disabled={held}
-                    onTune={(hz) => tune(dial.stream, hz)}
-                  />
-                  {!arrayTuning && <AutoTuning set={set} stream={dial.stream} />}
-                  {!arrayTuning && (
-                    <TuningLock
-                      locked={locked}
-                      held="Tuning locked"
-                      free="Lock tuning"
-                      onLock={(next) => onLock(dial.stream, next)}
+              <span className="ml-auto flex shrink-0 items-center gap-1">
+                {!pinned && (
+                  <>
+                    <TuneTo
+                      title={
+                        dial.port === null
+                          ? "Type a frequency"
+                          : `Type a frequency for ${dial.port}`
+                      }
+                      hz={dial.hz}
+                      hint={`Reaches ${formatMhz(range.min)} – ${formatMhz(range.max)}`}
+                      resolve={(entered) => inTuningRange(entered, range)}
+                      disabled={held}
+                      onTune={(hz) => tune(dial.stream, hz)}
                     />
-                  )}
-                </span>
-              )}
+                    {!arrayTuning && <AutoTuning set={set} stream={dial.stream} />}
+                    {!arrayTuning && (
+                      <TuningLock
+                        locked={locked}
+                        held="Tuning locked"
+                        free="Lock tuning"
+                        onLock={(next) => onLock(dial.stream, next)}
+                      />
+                    )}
+                  </>
+                )}
+              </span>
             </div>
           </div>
         );

@@ -211,13 +211,12 @@ export function RadioSettings({
       )}
 
       {hasDcArtifact(caps) && (
-        <SettingRow label="DC block">
+        <SettingRow label="DC block" title="Notches the centre bin">
           <Checkbox
             label="Remove the receiver's own DC spike"
             checked={dcBlockOn(caps, settings)}
             onChange={(dc_block) => applyPatch(active.id, { dc_block })}
           />
-          <span className="legend">notches the centre bin</span>
         </SettingRow>
       )}
 

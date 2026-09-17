@@ -8,6 +8,7 @@ import {
   pickAt,
   pickText,
   scopeSource,
+  streamChannels,
   takeCreationTune,
   tuneOnCreate,
 } from "./scopePick";
@@ -72,6 +73,26 @@ describe("scopeSource", () => {
   it("stays on the spectrum when neither wire is drawn", () => {
     expect(scopeSource("baseband", false, false)).toBe("iq");
     expect(scopeSource("iq", false, false)).toBe("iq");
+  });
+});
+
+describe("streamChannels", () => {
+  const onStream = (id: number, stream: number): ChannelInfo => ({
+    ...channel({ type: "nfm", settings: {} }),
+    id,
+    stream,
+  });
+
+  it("keeps only the decoders riding the scope's own IQ", () => {
+    const listed = [onStream(1, 0), onStream(2, 1), onStream(3, 0)];
+    expect(streamChannels(listed, 0).map((found) => found.id)).toEqual([1, 3]);
+    expect(streamChannels(listed, 1).map((found) => found.id)).toEqual([2]);
+  });
+
+  it("reads a decoder saved before streams existed as the first one", () => {
+    const { stream: _dropped, ...older } = onStream(4, 0);
+    expect(streamChannels([older], 0).map((found) => found.id)).toEqual([4]);
+    expect(streamChannels([older], 1)).toEqual([]);
   });
 });
 
