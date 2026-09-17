@@ -75,20 +75,6 @@ function handleVisibility(): void {
   }
 }
 
-function toOutputLayout(pcm: Float32Array, channels: number): Float32Array {
-  if (channels === CHANNELS) {
-    return pcm;
-  }
-  const frames = Math.floor(pcm.length / channels);
-  const out = new Float32Array(frames * CHANNELS);
-  for (let f = 0; f < frames; f++) {
-    for (let c = 0; c < CHANNELS; c++) {
-      out[f * CHANNELS + c] = pcm[f * channels + Math.min(c, channels - 1)] ?? 0;
-    }
-  }
-  return out;
-}
-
 export const createWebAudioSink: SinkFactory = async (key, volume, onError, onReport) => {
   if (ctx === null) {
     ctx = new AudioContext({ sampleRate: SAMPLE_RATE });
@@ -127,20 +113,20 @@ export const createWebAudioSink: SinkFactory = async (key, volume, onError, onRe
       1000 * (frames / SAMPLE_RATE + (context.baseLatency ?? 0) + (context.outputLatency ?? 0))
     );
   });
-  const emit = (channels: number) => (pcm: Float32Array) => {
+  const emit = (pcm: Float32Array): void => {
     if (closed) {
       return;
     }
     if (isWatched(key)) {
-      publishAudio(key, pcm, channels);
+      publishAudio(key, pcm, CHANNELS);
     }
     received = true;
-    playback.send(toOutputLayout(pcm, channels));
+    playback.send(pcm);
   };
 
   let decoder: OpusPacketDecoder;
   try {
-    decoder = await createOpusPacketDecoder(1, emit(1), onError, onDropped);
+    decoder = await createOpusPacketDecoder(CHANNELS, emit, onError, onDropped);
   } catch (err) {
     playback.send("close");
     playback.release();
@@ -149,36 +135,14 @@ export const createWebAudioSink: SinkFactory = async (key, volume, onError, onRe
     throw err;
   }
 
-  let swapping = false;
-  const useLayout = (channels: number): void => {
-    if (closed || swapping || channels === decoder.channels) {
-      return;
-    }
-    swapping = true;
-    createOpusPacketDecoder(channels, emit(channels), onError, onDropped)
-      .then((next) => {
-        swapping = false;
-        if (closed) {
-          next.close();
-          return;
-        }
-        decoder.close();
-        decoder = next;
-      })
-      .catch((err: unknown) => {
-        swapping = false;
-        onError(err);
-      });
-  };
-
   const sink: AudioSink = {
     ready: playback.ready,
     push(opus, timestampUs, channels) {
       if (closed) {
         return false;
       }
-      if (channels !== decoder.channels) {
-        useLayout(channels);
+      if (channels !== 1 && channels !== 2) {
+        onError(new Error(`Unsupported audio channel count: ${channels}`));
         return false;
       }
       return decoder.decode(opus, timestampUs);

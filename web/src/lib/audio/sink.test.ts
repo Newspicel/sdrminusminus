@@ -209,7 +209,7 @@ describe("createWebAudioSink", () => {
     expect(posted?.every((v) => v === 0)).toBe(true);
   });
 
-  it("plays a mono stream on both output channels", async () => {
+  it("requests stereo decoder output and sends it without another allocation", async () => {
     let emit: ((pcm: Float32Array) => void) | undefined;
     createDecoder.mockImplementation((channels: number, onPcm: (pcm: Float32Array) => void) => {
       emit = onPcm;
@@ -226,12 +226,15 @@ describe("createWebAudioSink", () => {
     const node = FakeWorkletNode.instances[0];
     node?.port.postMessage.mockClear();
 
-    emit?.(Float32Array.from([0.25, -0.5]));
+    expect(createDecoder.mock.calls[0]?.[0]).toBe(2);
+    const pcm = Float32Array.from([0.25, 0.25, -0.5, -0.5]);
+    emit?.(pcm);
     const posted = node?.port.postMessage.mock.calls[0]?.[0] as Float32Array | undefined;
+    expect(posted).toBe(pcm);
     expect(Array.from(posted ?? [])).toEqual([0.25, 0.25, -0.5, -0.5]);
   });
 
-  it("swaps in a decoder for the packet's layout and passes its pcm through untouched", async () => {
+  it("accepts the first stereo packet and repeated layout changes without replacing the decoder", async () => {
     const decoders: {
       channels: number;
       decode: ReturnType<typeof vi.fn>;
@@ -240,7 +243,7 @@ describe("createWebAudioSink", () => {
     let emit: ((pcm: Float32Array) => void) | undefined;
     createDecoder.mockImplementation((channels: number, onPcm: (pcm: Float32Array) => void) => {
       emit = onPcm;
-      const decoder = { channels, decode: vi.fn(), close: vi.fn() };
+      const decoder = { channels, decode: vi.fn(() => true), close: vi.fn() };
       decoders.push(decoder);
       return Promise.resolve(decoder);
     });
@@ -254,14 +257,15 @@ describe("createWebAudioSink", () => {
     );
     const packet = Uint8Array.from([1, 2, 3]);
 
-    sink.push(packet, 0, 2);
-    expect(decoders[0]?.decode).not.toHaveBeenCalled();
-    await vi.waitFor(() => expect(decoders).toHaveLength(2));
-    expect(decoders[1]?.channels).toBe(2);
-    expect(decoders[0]?.close).toHaveBeenCalled();
-
-    sink.push(packet, 20_000, 2);
-    expect(decoders[1]?.decode).toHaveBeenCalledWith(packet, 20_000);
+    for (let index = 0; index < 1000; index++) {
+      expect(sink.push(packet, index * 20_000, index % 2 === 0 ? 2 : 1)).toBe(true);
+    }
+    expect(decoders).toHaveLength(1);
+    expect(decoders[0]?.channels).toBe(2);
+    expect(decoders[0]?.close).not.toHaveBeenCalled();
+    expect(decoders[0]?.decode).toHaveBeenCalledTimes(1000);
+    expect(decoders[0]?.decode).toHaveBeenNthCalledWith(1, packet, 0);
+    expect(decoders[0]?.decode).toHaveBeenLastCalledWith(packet, 19_980_000);
 
     const node = FakeWorkletNode.instances[0];
     node?.port.postMessage.mockClear();
@@ -269,6 +273,20 @@ describe("createWebAudioSink", () => {
     const posted = node?.port.postMessage.mock.calls[0]?.[0] as Float32Array | undefined;
     expect(Array.from(posted ?? [])).toEqual([0.25, -0.5]);
   });
+
+  it("reports unsupported layouts without starting another decoder", async () => {
+    const decode = vi.fn(() => true);
+    createDecoder.mockResolvedValue({ channels: 2, decode, close: vi.fn() });
+    const { createWebAudioSink } = await importSink();
+    const error = vi.fn();
+    const sink = await createWebAudioSink("1:1", 1, error, vi.fn());
+    expect(sink.push(new Uint8Array([1]), 0, 3)).toBe(false);
+    expect(error).toHaveBeenCalledExactlyOnceWith(new Error("Unsupported audio channel count: 3"));
+    expect(decode).not.toHaveBeenCalled();
+    expect(createDecoder).toHaveBeenCalledTimes(1);
+    sink.close();
+  });
+
   it("plays through a script processor on an origin that withholds AudioWorklet", async () => {
     FakeAudioContext.worklet = false;
     vi.stubGlobal("AudioWorkletNode", undefined);

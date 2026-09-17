@@ -1,6 +1,7 @@
 import { expect, type Page, test } from "@playwright/test";
 import type { WorkletReport } from "../src/lib/audio/worklet";
-import type { StateSnapshot, WorkspaceSnapshot } from "../src/lib/types";
+import { decodeAudio } from "../src/lib/frame";
+import type { ChannelSettings, StateSnapshot, WorkspaceSnapshot } from "../src/lib/types";
 
 interface AudioProbe {
   frames: number;
@@ -134,13 +135,15 @@ async function interruptPlayback(page: Page): Promise<void> {
   expect(stopped.after).toBe(stopped.before);
 }
 
-for (const { fallback, delayOutput } of [
-  { fallback: false, delayOutput: false },
-  { fallback: true, delayOutput: false },
-  { fallback: false, delayOutput: true },
-  { fallback: true, delayOutput: true },
+for (const { fallback, delayOutput, wideband } of [
+  { fallback: false, delayOutput: false, wideband: false },
+  { fallback: true, delayOutput: false, wideband: false },
+  { fallback: false, delayOutput: true, wideband: false },
+  { fallback: true, delayOutput: true, wideband: false },
+  { fallback: false, delayOutput: false, wideband: true },
+  { fallback: true, delayOutput: false, wideband: true },
 ]) {
-  test(`plays virtual radio audio with ${fallback ? "WASM worker" : "native decoder"}${delayOutput ? " and delayed output" : ""}`, async ({
+  test(`plays virtual radio audio with ${fallback ? "WASM worker" : "native decoder"}${delayOutput ? " and delayed output" : ""}${wideband ? " and stereo changes" : ""}`, async ({
     page,
   }) => {
     test.setTimeout(60_000);
@@ -148,6 +151,14 @@ for (const { fallback, delayOutput } of [
     page.on("pageerror", (error) => errors.push(error.message));
     const workers: string[] = [];
     page.on("worker", (worker) => workers.push(worker.url()));
+    const layouts: number[] = [];
+    page.on("websocket", (socket) => {
+      socket.on("framereceived", ({ payload }) => {
+        if (typeof payload === "string") return;
+        const audio = decodeAudio(Uint8Array.from(payload).buffer);
+        if (audio && layouts.at(-1) !== audio.chLayout) layouts.push(audio.chLayout);
+      });
+    });
     if (fallback) {
       await page.addInitScript(() =>
         Object.defineProperty(globalThis, "AudioDecoder", { value: undefined, configurable: true }),
@@ -168,7 +179,7 @@ for (const { fallback, delayOutput } of [
             id: "voice",
             kind: "channel",
             position: { x: 350, y: 0 },
-            data: { channel_type: "nfm" },
+            data: { channel_type: wideband ? "wfm" : "nfm" },
           },
           { id: "speaker", kind: "speaker", position: { x: 700, y: 0 } },
         ],
@@ -223,7 +234,17 @@ for (const { fallback, delayOutput } of [
         expect(
           (
             await page.request.patch(channelUrl, {
-              data: { ...settings, frequency_hz: settings.frequency_hz + offset },
+              data: {
+                ...settings,
+                frequency_hz: settings.frequency_hz + offset,
+                params:
+                  settings.params.type === "wfm"
+                    ? {
+                        ...settings.params,
+                        settings: { ...settings.params.settings, stereo: offset === -100 },
+                      }
+                    : settings.params,
+              } satisfies ChannelSettings,
             })
           ).ok(),
         ).toBe(true);
@@ -251,8 +272,10 @@ for (const { fallback, delayOutput } of [
       await expect(
         page.locator('.react-flow__node[data-id="radio"]').getByRole("status"),
       ).toHaveText("1/1");
-      expect(workers.some((url) => url.includes("opusWorker"))).toBe(fallback);
-      await interruptPlayback(page);
+      expect(workers.filter((url) => url.includes("opusWorker"))).toHaveLength(fallback ? 1 : 0);
+      expect(layouts).toEqual(wideband ? [2, 1, 2, 1] : [1]);
+      if (wideband) await speaker.getByRole("button", { name: "Stop", exact: true }).click();
+      else await interruptPlayback(page);
       await expect(speaker.getByRole("button", { name: "Play", exact: true })).toBeVisible();
       const beforeRestart = await page.evaluate(() => {
         const restartingProbe = (globalThis as AudioScope).audioProbe;
