@@ -34,7 +34,7 @@ class PlaybackProcessor extends AudioWorkletProcessor {
     this.jitter = new JitterBuffer(targetFrames, maxFrames, channels);
     this.ended = false;
     this.reported = 0;
-    this.reportAfter = 0;
+    this.reportAfter = ${SAMPLE_RATE / 2};
     this.port.onmessage = (event) => {
       const data = event.data;
       if (data === "close") {

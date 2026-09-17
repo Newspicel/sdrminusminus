@@ -12,8 +12,51 @@ import {
 
 const FALLBACK_BLOCK_FRAMES = 2048;
 
+class OutputReadiness {
+  readonly ready: Promise<void>;
+  private begin: (() => void) | undefined;
+  private timer: ReturnType<typeof setTimeout> | undefined;
+  private closed = false;
+
+  constructor(context: AudioContext) {
+    const initial = context.currentTime;
+    const outputTime = (): number =>
+      typeof context.getOutputTimestamp === "function"
+        ? (context.getOutputTimestamp().contextTime ?? 0)
+        : context.currentTime;
+    const initialOutput = outputTime();
+    const minimumProgress = targetFrames() / SAMPLE_RATE;
+    this.ready = new Promise<void>((resolve) => {
+      const check = (): void => {
+        if (this.closed) return;
+        if (
+          context.currentTime - initial >= minimumProgress &&
+          outputTime() - initialOutput >= minimumProgress
+        ) {
+          resolve();
+        } else {
+          this.timer = setTimeout(check, 10);
+        }
+      };
+      this.begin = check;
+    });
+  }
+
+  render(): void {
+    const begin = this.begin;
+    this.begin = undefined;
+    begin?.();
+  }
+
+  close(): void {
+    this.closed = true;
+    clearTimeout(this.timer);
+  }
+}
+
 export interface Playback {
   readonly node: AudioNode;
+  readonly ready: Promise<void>;
   send(message: WorkletMessage): void;
   release(): void;
 }
@@ -33,6 +76,7 @@ export function supportsAudioWorklet(context: BaseAudioContext): boolean {
 export async function createPlayback(
   context: AudioContext,
   onReport: (report: WorkletReport) => void,
+  onError: (error: Error) => void,
 ): Promise<Playback> {
   if (!supportsAudioWorklet(context)) {
     return createScriptProcessorPlayback(context, onReport);
@@ -42,12 +86,13 @@ export async function createPlayback(
     throw err;
   });
   await workletModule;
-  return createWorkletPlayback(context, onReport);
+  return createWorkletPlayback(context, onReport, onError);
 }
 
 function createWorkletPlayback(
   context: AudioContext,
   onReport: (report: WorkletReport) => void,
+  onError: (error: Error) => void,
 ): Playback {
   const node = new AudioWorkletNode(context, PROCESSOR_NAME, {
     numberOfInputs: 0,
@@ -59,9 +104,15 @@ function createWorkletPlayback(
       channels: CHANNELS,
     },
   });
-  node.port.onmessage = (event: MessageEvent<WorkletReport>) => onReport(event.data);
+  const readiness = new OutputReadiness(context);
+  node.port.onmessage = (event: MessageEvent<WorkletReport>) => {
+    readiness.render();
+    onReport(event.data);
+  };
+  node.onprocessorerror = () => onError(new Error("Audio playback processor failed"));
   return {
     node,
+    ready: readiness.ready,
     send(message) {
       if (message instanceof Float32Array) {
         node.port.postMessage(message, [message.buffer]);
@@ -71,6 +122,8 @@ function createWorkletPlayback(
       }
     },
     release() {
+      readiness.close();
+      node.onprocessorerror = null;
       node.port.onmessage = null;
       node.disconnect();
     },
@@ -88,7 +141,9 @@ function createScriptProcessorPlayback(
   let ended = false;
   let reported = 0;
   let sinceReport = 0;
+  const readiness = new OutputReadiness(context);
   node.onaudioprocess = (event: AudioProcessingEvent) => {
+    readiness.render();
     const output = event.outputBuffer;
     lanes.length = 0;
     for (let channel = 0; channel < output.numberOfChannels; channel++) {
@@ -115,6 +170,7 @@ function createScriptProcessorPlayback(
   };
   return {
     node,
+    ready: readiness.ready,
     send(message) {
       if (message === "close") {
         ended = true;
@@ -125,6 +181,7 @@ function createScriptProcessorPlayback(
       }
     },
     release() {
+      readiness.close();
       node.onaudioprocess = null;
       node.disconnect();
     },

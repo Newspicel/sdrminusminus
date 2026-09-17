@@ -38,6 +38,10 @@ class FakeScriptProcessor {
 function insecureContext(): { context: AudioContext; nodes: FakeScriptProcessor[] } {
   const nodes: FakeScriptProcessor[] = [];
   const context = {
+    get currentTime() {
+      return performance.now() / 1000;
+    },
+    getOutputTimestamp: () => ({ contextTime: performance.now() / 1000 }),
     createScriptProcessor: vi.fn((frames: number) => {
       const node = new FakeScriptProcessor(frames);
       nodes.push(node);
@@ -47,13 +51,108 @@ function insecureContext(): { context: AudioContext; nodes: FakeScriptProcessor[
   return { context: context as unknown as AudioContext, nodes };
 }
 
+class FakeWorkletNode {
+  static instances: FakeWorkletNode[] = [];
+  port = {
+    onmessage: null as ((event: MessageEvent<WorkletReport>) => void) | null,
+    postMessage: vi.fn(),
+  };
+  onprocessorerror: (() => void) | null = null;
+  disconnect = vi.fn();
+
+  constructor() {
+    FakeWorkletNode.instances.push(this);
+  }
+}
+
+describe("createPlayback with an audio worklet", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    FakeWorkletNode.instances = [];
+    vi.stubGlobal("AudioWorkletNode", FakeWorkletNode);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+    vi.useRealTimers();
+  });
+
+  it("waits for the device clock after an initial render callback and cancels polling on release", async () => {
+    vi.useFakeTimers();
+    let outputTime = 0;
+    const timestamp = vi.fn(() => ({ contextTime: outputTime }));
+    const clock = {
+      currentTime: 0.005,
+      getOutputTimestamp: timestamp,
+      audioWorklet: { addModule: vi.fn(() => Promise.resolve()) },
+    };
+    const context = clock as unknown as AudioContext;
+    const playback = await createPlayback(context, vi.fn(), vi.fn());
+    const node = FakeWorkletNode.instances[0];
+    if (!node) throw new Error("worklet missing");
+    const ready = vi.fn();
+    void playback.ready.then(ready);
+    node.port.onmessage?.({ data: { underruns: 0 } } as MessageEvent<WorkletReport>);
+    await vi.advanceTimersByTimeAsync(750);
+    expect(ready).not.toHaveBeenCalled();
+    outputTime = 0.01;
+    clock.currentTime = 0.01;
+    await vi.advanceTimersByTimeAsync(750);
+    expect(ready).not.toHaveBeenCalled();
+    outputTime = 0.2;
+    await vi.advanceTimersByTimeAsync(10);
+    expect(ready).not.toHaveBeenCalled();
+    clock.currentTime = 0.2;
+    await vi.advanceTimersByTimeAsync(10);
+    expect(ready).toHaveBeenCalledTimes(1);
+    playback.release();
+
+    outputTime = 0;
+    const cancelled = await createPlayback(context, vi.fn(), vi.fn());
+    FakeWorkletNode.instances[1]?.port.onmessage?.({
+      data: { underruns: 0 },
+    } as MessageEvent<WorkletReport>);
+    cancelled.release();
+    const calls = timestamp.mock.calls.length;
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(timestamp).toHaveBeenCalledTimes(calls);
+  });
+
+  it.each([false, true])("reports processor failure with ready=%s", async (started) => {
+    const context = {
+      get currentTime() {
+        return performance.now() / 1000;
+      },
+      getOutputTimestamp: () => ({ contextTime: performance.now() / 1000 }),
+      audioWorklet: { addModule: vi.fn(() => Promise.resolve()) },
+    } as unknown as AudioContext;
+    const error = vi.fn();
+    const playback = await createPlayback(context, vi.fn(), error);
+    const node = FakeWorkletNode.instances[0];
+    if (!node) throw new Error("worklet missing");
+    if (started) {
+      node.port.onmessage?.({ data: { underruns: 0 } } as MessageEvent<WorkletReport>);
+      await vi.advanceTimersByTimeAsync(150);
+      await playback.ready;
+    }
+    node.onprocessorerror?.();
+    expect(error).toHaveBeenCalledExactlyOnceWith(new Error("Audio playback processor failed"));
+    playback.release();
+    expect(node.onprocessorerror).toBeNull();
+    expect(node.port.onmessage).toBeNull();
+  });
+});
+
 describe("createPlayback without a secure context", () => {
   beforeEach(() => {
+    vi.useFakeTimers();
     vi.stubGlobal("location", { hostname: "docker01" });
   });
 
   afterEach(() => {
     vi.unstubAllGlobals();
+    vi.useRealTimers();
   });
 
   it("reads audioWorklet off a plain-HTTP context without throwing", () => {
@@ -61,9 +160,27 @@ describe("createPlayback without a secure context", () => {
     expect(supportsAudioWorklet(context)).toBe(false);
   });
 
+  it.each([false, true])(
+    "waits for script processor clock progress with timestamps=%s",
+    async (timestamps) => {
+      const { context, nodes } = insecureContext();
+      if (!timestamps) Object.defineProperty(context, "getOutputTimestamp", { value: undefined });
+      const playback = await createPlayback(context, vi.fn(), vi.fn());
+      const ready = vi.fn();
+      void playback.ready.then(ready);
+      await Promise.resolve();
+      expect(ready).not.toHaveBeenCalled();
+      nodes[0]?.pull();
+      await vi.advanceTimersByTimeAsync(150);
+      await playback.ready;
+      expect(ready).toHaveBeenCalledTimes(1);
+      playback.release();
+    },
+  );
+
   it("pulls pushed samples through a script processor when no worklet is on offer", async () => {
     const { context, nodes } = insecureContext();
-    const playback = await createPlayback(context, () => {});
+    const playback = await createPlayback(context, () => {}, vi.fn());
     const node = nodes[0];
     expect(node).toBeDefined();
     expect(playback.node).toBe(node);
@@ -89,7 +206,7 @@ describe("createPlayback without a secure context", () => {
   it("reports underruns and depth the same way the worklet does", async () => {
     const { context, nodes } = insecureContext();
     const reports: WorkletReport[] = [];
-    const playback = await createPlayback(context, (report) => reports.push(report));
+    const playback = await createPlayback(context, (report) => reports.push(report), vi.fn());
     const node = nodes[0];
 
     const frames = node?.frames ?? 1;
@@ -113,7 +230,7 @@ describe("createPlayback without a secure context", () => {
 
   it("stops pulling after close and starts over after reset", async () => {
     const { context, nodes } = insecureContext();
-    const playback = await createPlayback(context, () => {});
+    const playback = await createPlayback(context, () => {}, vi.fn());
     const node = nodes[0];
     const frames = node?.frames ?? 0;
 
@@ -133,7 +250,7 @@ describe("createPlayback without a secure context", () => {
   it("holds the remote latency budget the worklet would have used", async () => {
     const { context, nodes } = insecureContext();
     const reports: WorkletReport[] = [];
-    await createPlayback(context, (report) => reports.push(report));
+    await createPlayback(context, (report) => reports.push(report), vi.fn());
     const node = nodes[0];
     const frames = node?.frames ?? 1;
     for (let pull = 0; pull * frames < SAMPLE_RATE / 2; pull++) {

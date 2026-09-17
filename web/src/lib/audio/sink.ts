@@ -105,10 +105,14 @@ export const createWebAudioSink: SinkFactory = async (key, volume, onError, onRe
     decoderDroppedFrames += frames;
     onReport({ ...lastReport, decoderDroppedFrames });
   };
-  const playback = await createPlayback(context, (report) => {
-    lastReport = report;
-    onReport({ ...lastReport, decoderDroppedFrames });
-  });
+  const playback = await createPlayback(
+    context,
+    (report) => {
+      lastReport = report;
+      onReport({ ...lastReport, decoderDroppedFrames });
+    },
+    onError,
+  );
   const gain = new GainNode(context, { gain: gainForVolume(volume) });
   playback.node.connect(gain).connect(context.destination);
 
@@ -168,6 +172,7 @@ export const createWebAudioSink: SinkFactory = async (key, volume, onError, onRe
   };
 
   const sink: AudioSink = {
+    ready: playback.ready,
     push(opus, timestampUs, channels) {
       if (closed) {
         return false;

@@ -5,6 +5,7 @@ import { LossTracker } from "./loss";
 import { MAX_GAP_FRAMES, SAMPLE_RATE, type WorkletReport } from "./worklet";
 
 export interface AudioSink {
+  readonly ready?: Promise<void>;
   push(opus: Uint8Array, timestampUs: number, channels: number): boolean;
   conceal(frames: number): void;
   setVolume(volume: number): void;
@@ -32,6 +33,7 @@ interface ChannelEntry {
   requested: boolean;
   streamId: number | null;
   sink: AudioSink | null;
+  sinkReady: boolean;
   sinkPending: boolean;
   generation: number;
   volume: number;
@@ -139,6 +141,11 @@ export class AudioEngine {
       return;
     }
     this.outputRunning = running;
+    if (running) {
+      for (const entry of this.entries.values()) {
+        if (entry.desired && !entry.requested) this.ensureSink(entry);
+      }
+    }
     this.notify();
   }
 
@@ -308,6 +315,7 @@ export class AudioEngine {
         requested: false,
         streamId: null,
         sink: null,
+        sinkReady: false,
         sinkPending: false,
         generation: 0,
         volume: 1,
@@ -371,7 +379,16 @@ export class AudioEngine {
         entry.bufferedFrames = 0;
         entry.trimmedFrames = 0;
         sink.setVolume(entry.volume);
-        this.sendSubscribe(entry);
+        void Promise.resolve(sink.ready)
+          .then(() => {
+            if (entry.sink === sink) {
+              entry.sinkReady = true;
+              this.sendSubscribe(entry);
+            }
+          })
+          .catch((err: unknown) => {
+            if (entry.sink === sink) this.fail(entry, err);
+          });
       })
       .catch((err: unknown) => {
         entry.sinkPending = false;
@@ -384,7 +401,13 @@ export class AudioEngine {
   }
 
   private sendSubscribe(entry: ChannelEntry): void {
-    if (!entry.desired || !this.socket?.isConnected()) {
+    if (
+      !entry.desired ||
+      entry.requested ||
+      !entry.sinkReady ||
+      !this.outputRunning ||
+      !this.socket?.isConnected()
+    ) {
       return;
     }
     entry.requested = true;
@@ -432,6 +455,7 @@ export class AudioEngine {
   private teardown(entry: ChannelEntry): void {
     entry.sink?.close();
     entry.sink = null;
+    entry.sinkReady = false;
     entry.bufferedFrames = 0;
   }
 

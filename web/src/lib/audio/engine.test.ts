@@ -38,6 +38,7 @@ class FakeSocket implements AudioSocket {
 }
 
 class FakeSink implements AudioSink {
+  ready?: Promise<void>;
   pushed: { opus: number[]; timestampUs: number; channels: number }[] = [];
   conceals: number[] = [];
   volume: number;
@@ -134,6 +135,93 @@ describe("AudioEngine", () => {
     socket.emit(started(1, 2, 9));
     expect(engine.isPlaying(1, 2)).toBe(true);
     expect(engine.isPending(1, 2)).toBe(false);
+  });
+
+  it("waits for audio output before subscribing and resumes each waiting channel once", async () => {
+    engine.setOutputRunning(false);
+    engine.start(1, 2);
+    engine.start(1, 3);
+    await flush();
+    expect(sinks).toHaveLength(2);
+    expect(socket.sent).toEqual([]);
+    engine.setOutputRunning(true);
+    engine.setOutputRunning(true);
+    expect(socket.sent).toEqual([
+      { type: "SubscribeAudio", data: { device_set: 1, channel: 2 } },
+      { type: "SubscribeAudio", data: { device_set: 1, channel: 3 } },
+    ]);
+    socket.emit(started(1, 2, 10));
+    socket.onAudio(audioFrame(10, 0n, [1]));
+    expect(sinks[0]?.pushed).toHaveLength(1);
+  });
+
+  it("does not subscribe a cancelled start when delayed output becomes ready", async () => {
+    engine.setOutputRunning(false);
+    engine.start(1, 2);
+    await flush();
+    engine.stop(1, 2);
+    engine.setOutputRunning(true);
+    expect(socket.sent).toEqual([]);
+    expect(sinks[0]?.closed).toBe(true);
+  });
+
+  it("waits for the first render callback even when the output state is running", async () => {
+    let activate: (() => void) | undefined;
+    const ready = new Promise<void>((resolve) => {
+      activate = resolve;
+    });
+    engine.start(1, 2);
+    const sink = sinks[0];
+    if (!sink || !activate) throw new Error("sink readiness missing");
+    sink.ready = ready;
+    await flush();
+    engine.setOutputRunning(false);
+    engine.setOutputRunning(true);
+    expect(socket.sent).toEqual([]);
+    activate();
+    await flush();
+    expect(socket.sent).toEqual([{ type: "SubscribeAudio", data: { device_set: 1, channel: 2 } }]);
+  });
+
+  it("cancels a sink waiting for rendering without delaying its replacement", async () => {
+    let activate: (() => void) | undefined;
+    const ready = new Promise<void>((resolve) => {
+      activate = resolve;
+    });
+    engine.start(1, 2);
+    const old = sinks[0];
+    if (!old || !activate) throw new Error("sink readiness missing");
+    old.ready = ready;
+    await flush();
+    engine.stop(1, 2);
+    expect(old.closed).toBe(true);
+    engine.start(1, 2);
+    await flush();
+    expect(socket.sent).toHaveLength(1);
+    activate();
+    await flush();
+    expect(socket.sent).toHaveLength(1);
+    socket.emit(started(1, 2, 11));
+    socket.onAudio(audioFrame(11, 0n, [1]));
+    expect(sinks[1]?.pushed).toHaveLength(1);
+  });
+
+  it("surfaces playback readiness failures and closes the prepared sink", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    let rejectReady: ((error: unknown) => void) | undefined;
+    const ready = new Promise<void>((_resolve, reject) => {
+      rejectReady = reject;
+    });
+    engine.start(1, 2);
+    const sink = sinks[0];
+    if (!sink || !rejectReady) throw new Error("sink readiness missing");
+    sink.ready = ready;
+    await flush();
+    rejectReady(new Error("audio output failed"));
+    await flush();
+    expect(engine.getError(1, 2)).toBe("audio output failed");
+    expect(sink.closed).toBe(true);
+    expect(socket.sent).toEqual([]);
   });
 
   it("routes frames by stream id, converting 48 kHz sample timestamps to µs", async () => {

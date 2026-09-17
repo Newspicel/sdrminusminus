@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, type Page, test } from "@playwright/test";
 import type { WorkletReport } from "../src/lib/audio/worklet";
 import type { StateSnapshot, WorkspaceSnapshot } from "../src/lib/types";
 
@@ -8,14 +8,92 @@ interface AudioProbe {
   energy: number;
   lastPacket: number;
   longestGap: number;
-  startup: { frames: number; at: number; rendered: number; state: AudioContextState }[];
+  timeline: { frames: number; at: number; rendered: number; state: AudioContextState }[];
   reports: WorkletReport[];
+  reportTimes: { at: number; rendered: number; frames: number }[];
 }
 
 type AudioScope = typeof globalThis & { audioProbe: AudioProbe; audioLoad: number };
 
-for (const fallback of [false, true]) {
-  test(`plays virtual radio audio with ${fallback ? "WASM worker" : "native decoder"}`, async ({
+async function instrumentPlayback(page: Page, delayOutput: boolean): Promise<void> {
+  await page.addInitScript((delayed) => {
+    if (delayed) {
+      const Context = globalThis.AudioContext;
+      globalThis.AudioContext = class extends Context {
+        constructor(options?: AudioContextOptions) {
+          super(options);
+          const suspended = this.suspend();
+          const resume = super.resume.bind(this);
+          this.resume = async () => {
+            await suspended;
+            await new Promise((resolve) => setTimeout(resolve, 750));
+            await resume();
+          };
+          void this.resume();
+        }
+      };
+    }
+    const scope = globalThis as AudioScope;
+    scope.audioProbe = {
+      frames: 0,
+      nonfinite: 0,
+      energy: 0,
+      lastPacket: 0,
+      longestGap: 0,
+      timeline: [],
+      reports: [],
+      reportTimes: [],
+    };
+    const Base = globalThis.AudioWorkletNode;
+    globalThis.AudioWorkletNode = class extends Base {
+      constructor(context: BaseAudioContext, name: string, options?: AudioWorkletNodeOptions) {
+        super(context, name, options);
+        this.port.addEventListener("message", (event: MessageEvent<WorkletReport>) => {
+          scope.audioProbe.reports.push(event.data);
+          scope.audioProbe.reportTimes.push({
+            at: performance.now(),
+            rendered: context.currentTime,
+            frames: scope.audioProbe.frames,
+          });
+        });
+        const port = this.port as unknown as {
+          postMessage: (message: unknown, transfer?: Transferable[]) => void;
+        };
+        const post = port.postMessage.bind(port);
+        port.postMessage = (message, transfer) => {
+          if (message instanceof Float32Array) {
+            const probe = scope.audioProbe;
+            const now = performance.now();
+            if (probe.lastPacket > 0) {
+              probe.longestGap = Math.max(probe.longestGap, now - probe.lastPacket);
+            }
+            probe.lastPacket = now;
+            probe.frames += message.length / 2;
+            probe.timeline.push({
+              frames: probe.frames,
+              at: now,
+              rendered: context.currentTime,
+              state: context.state,
+            });
+            for (const sample of message) {
+              if (!Number.isFinite(sample)) probe.nonfinite++;
+              else probe.energy += sample * sample;
+            }
+          }
+          post(message, transfer);
+        };
+      }
+    };
+  }, delayOutput);
+}
+
+for (const { fallback, delayOutput } of [
+  { fallback: false, delayOutput: false },
+  { fallback: true, delayOutput: false },
+  { fallback: false, delayOutput: true },
+  { fallback: true, delayOutput: true },
+]) {
+  test(`plays virtual radio audio with ${fallback ? "WASM worker" : "native decoder"}${delayOutput ? " and delayed output" : ""}`, async ({
     page,
   }) => {
     const errors: string[] = [];
@@ -27,55 +105,7 @@ for (const fallback of [false, true]) {
         Object.defineProperty(globalThis, "AudioDecoder", { value: undefined, configurable: true }),
       );
     }
-    await page.addInitScript(() => {
-      const scope = globalThis as AudioScope;
-      scope.audioProbe = {
-        frames: 0,
-        nonfinite: 0,
-        energy: 0,
-        lastPacket: 0,
-        longestGap: 0,
-        startup: [],
-        reports: [],
-      };
-      const Base = globalThis.AudioWorkletNode;
-      globalThis.AudioWorkletNode = class extends Base {
-        constructor(context: BaseAudioContext, name: string, options?: AudioWorkletNodeOptions) {
-          super(context, name, options);
-          this.port.addEventListener("message", (event: MessageEvent<WorkletReport>) => {
-            scope.audioProbe.reports.push(event.data);
-          });
-          const port = this.port as unknown as {
-            postMessage: (message: unknown, transfer?: Transferable[]) => void;
-          };
-          const post = port.postMessage.bind(port);
-          port.postMessage = (message, transfer) => {
-            if (message instanceof Float32Array) {
-              const probe = scope.audioProbe;
-              const now = performance.now();
-              if (probe.lastPacket > 0) {
-                probe.longestGap = Math.max(probe.longestGap, now - probe.lastPacket);
-              }
-              probe.lastPacket = now;
-              probe.frames += message.length / 2;
-              if (probe.startup.length < 100) {
-                probe.startup.push({
-                  frames: probe.frames,
-                  at: now,
-                  rendered: context.currentTime,
-                  state: context.state,
-                });
-              }
-              for (const sample of message) {
-                if (!Number.isFinite(sample)) probe.nonfinite++;
-                else probe.energy += sample * sample;
-              }
-            }
-            post(message, transfer);
-          };
-        }
-      };
-    });
+    await instrumentPlayback(page, delayOutput);
     const snapshot: WorkspaceSnapshot = {
       version: 3,
       graph: {
@@ -164,6 +194,7 @@ for (const fallback of [false, true]) {
         contentType: "application/json",
       });
       expect(probe.nonfinite).toBe(0);
+      expect(probe.timeline.every((packet) => packet.state === "running")).toBe(true);
       expect(probe.energy).toBeGreaterThan(1);
       expect(probe.longestGap).toBeLessThan(150);
       expect(probe.reports.length).toBeGreaterThanOrEqual(12);
