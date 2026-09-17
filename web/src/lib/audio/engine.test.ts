@@ -300,6 +300,56 @@ describe("AudioEngine", () => {
     expect(engine.getError(1, 2)).toBe(null);
   });
 
+  it("ignores retired sink failures and reports after playback restarts", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    engine.start(1, 2);
+    await flush();
+    socket.emit(started(1, 2, 10));
+    const retired = sinks[0];
+    if (!retired) throw new Error("first sink missing");
+    engine.stop(1, 2);
+    engine.start(1, 2);
+    await flush();
+    socket.emit(started(1, 2, 11));
+    retired.report({ underruns: 4, decoderDroppedFrames: 960, trimmedFrames: 960 });
+    retired.onError(new Error("late decoder failure"));
+    socket.onAudio(audioFrame(11, 0n, [1]));
+    expect(engine.isPlaying(1, 2)).toBe(true);
+    expect(engine.getError(1, 2)).toBeNull();
+    expect(engine.getLostFrames(1, 2)).toBe(0);
+    expect(engine.getUnderruns(1, 2)).toBe(0);
+    expect(engine.getTrimmedMs(1, 2)).toBe(0);
+    expect(sinks[1]?.pushed).toHaveLength(1);
+    expect(sinks[1]?.closed).toBe(false);
+  });
+
+  it("retries the current start when a superseded sink initialization rejects", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    let rejectFirst: ((error: unknown) => void) | undefined;
+    const first = new Promise<AudioSink>((_resolve, reject) => {
+      rejectFirst = reject;
+    });
+    const made = makeFactory();
+    let attempts = 0;
+    const restarting = new AudioEngine((...args) => {
+      attempts++;
+      return attempts === 1 ? first : made.factory(...args);
+    });
+    restarting.attach(socket);
+    restarting.start(1, 2);
+    restarting.stop(1, 2);
+    restarting.start(1, 2);
+    if (!rejectFirst) throw new Error("first initialization missing");
+    rejectFirst(new Error("old initialization failed"));
+    await flush();
+    expect(attempts).toBe(2);
+    expect(restarting.getError(1, 2)).toBeNull();
+    socket.emit(started(1, 2, 11));
+    socket.onAudio(audioFrame(11, 0n, [1]));
+    expect(restarting.isPlaying(1, 2)).toBe(true);
+    expect(made.sinks[0]?.pushed).toHaveLength(1);
+  });
+
   it("a sink factory failure surfaces to the store and clears intent", async () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
     const failing = new AudioEngine(() => Promise.reject(new Error("no audio")));

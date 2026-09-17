@@ -347,8 +347,12 @@ export class AudioEngine {
     this.createSink(
       entryKey(entry.deviceSet, entry.channel),
       entry.volume,
-      (err) => this.fail(entry, err),
-      (report) => this.observe(entry, report),
+      (err) => {
+        if (entry.desired && entry.generation === generation) this.fail(entry, err);
+      },
+      (report) => {
+        if (entry.desired && entry.generation === generation) this.observe(entry, report);
+      },
     )
       .then((sink) => {
         entry.sinkPending = false;
@@ -371,6 +375,10 @@ export class AudioEngine {
       })
       .catch((err: unknown) => {
         entry.sinkPending = false;
+        if (entry.generation !== generation) {
+          if (entry.desired) this.ensureSink(entry);
+          return;
+        }
         this.fail(entry, err);
       });
   }

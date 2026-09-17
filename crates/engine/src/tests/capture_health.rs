@@ -196,6 +196,11 @@ fn measure_pipeline(hardware: &[Hardware], seconds: u64) {
     let mut peak_age = 0.0f64;
     let mut peak_queued = 0;
     let before = engine.pipeline_health();
+    let mut capture_drops: std::collections::BTreeMap<_, _> = before
+        .iter()
+        .filter(|queue| queue.stage == sdrmm_wire::PipelineStage::Capture)
+        .map(|queue| ((queue.device_set, queue.stream), queue.health.dropped))
+        .collect();
     let mut control = Control::start(engine.clone(), sets.clone());
     let started = Instant::now();
     let mut next_history_check = Duration::from_secs(1);
@@ -215,6 +220,20 @@ fn measure_pipeline(hardware: &[Hardware], seconds: u64) {
             if queue.stage == sdrmm_wire::PipelineStage::Capture {
                 peak_age = peak_age.max(queue.health.oldest_ms);
                 peak_queued = peak_queued.max(queue.health.queued);
+                let previous = capture_drops
+                    .insert((queue.device_set, queue.stream), queue.health.dropped)
+                    .expect("capture baseline");
+                if queue.health.dropped != previous {
+                    eprintln!(
+                        "capture loss elapsed={:?} ds={} stream={} added={} queued={} age_ms={:.2}",
+                        started.elapsed(),
+                        queue.device_set,
+                        queue.stream,
+                        queue.health.dropped - previous,
+                        queue.health.queued,
+                        queue.health.oldest_ms
+                    );
+                }
             }
         }
         if health_started.elapsed() > Duration::from_millis(100) {
