@@ -1,12 +1,11 @@
 use sdrmm_device::{DeviceError, check_stream_settings};
 use sdrmm_wire::{
     ArgumentOption, Capabilities, DcArtifact, DeviceSettings, Duplex, ExtraSetting, ExtraValue,
-    Range, StreamScope,
+    GainKind, GainStage, GainUnit, GainValue, Range, StreamScope,
 };
 
 use crate::proto::{ClientSync, DeviceInfo, IqFormat, Setting, ordered};
 
-pub(crate) const GAIN: &str = "gain";
 pub(crate) const IQ_FORMAT: &str = "iq_format";
 
 const MAX_DECIMATION_STAGES: u32 = 16;
@@ -50,38 +49,47 @@ pub(crate) fn capabilities(
         Vec::new()
     };
 
-    let mut extra = Vec::with_capacity(2);
-    if sync.can_control && info.max_gain_index > 0 {
-        extra.push(ExtraSetting::Range {
-            name: GAIN.to_string(),
-            range: Range {
-                min: 0.0,
-                max: f64::from(info.max_gain_index),
-                step: Some(1.0),
-            },
-            unit: "index".to_string(),
-        });
-    }
-    if formats.len() > 1 {
-        extra.push(ExtraSetting::Enum {
-            name: IQ_FORMAT.to_string(),
-            options: formats
+    let gains = if sync.can_control && info.max_gain_index > 0 {
+        vec![
+            GainStage::new(
+                GainKind::Tuner,
+                Range {
+                    min: 0.0,
+                    max: f64::from(info.max_gain_index),
+                    step: Some(1.0),
+                },
+            )
+            .with_unit(GainUnit::Index),
+        ]
+    } else {
+        Vec::new()
+    };
+    let extra = if formats.len() > 1 {
+        vec![ExtraSetting::choice(
+            IQ_FORMAT,
+            "IQ format",
+            formats
                 .iter()
                 .map(|f| ArgumentOption::plain(f.name()))
                 .collect(),
-            default: IqFormat::default().name().to_string(),
-        });
-    }
+            IqFormat::default().name(),
+        )]
+    } else {
+        Vec::new()
+    };
 
     Capabilities {
         freq_ranges,
         sample_rates: sample_rates(info),
         sample_rate_ranges: Vec::new(),
-        gains: Vec::new(),
+        gains,
         antennas: Vec::new(),
         bandwidths: Vec::new(),
         bandwidth_ranges: Vec::new(),
         extra,
+        bandwidth_auto: false,
+        bias_tee: false,
+        agc: sdrmm_wire::Agc::None,
         ppm: false,
         duplex: Duplex::RxOnly,
         rx_streams: 1,
@@ -144,22 +152,24 @@ impl Remote {
     }
 
     pub(crate) fn wire(self, info: DeviceInfo, caps: &Capabilities) -> DeviceSettings {
-        let mut extra = Vec::with_capacity(2);
-        if caps.extra.iter().any(|setting| setting.name() == GAIN) {
-            extra.push(ExtraValue {
-                name: GAIN.to_string(),
-                value: self.gain.into(),
-            });
-        }
-        if caps.extra.iter().any(|setting| setting.name() == IQ_FORMAT) {
-            extra.push(ExtraValue {
+        let gains = caps
+            .stage(GainKind::Tuner.name())
+            .map(|_| GainValue::new(GainKind::Tuner, f64::from(self.gain)))
+            .into_iter()
+            .collect();
+        let extra = caps
+            .extra
+            .iter()
+            .filter(|setting| setting.name() == IQ_FORMAT)
+            .map(|_| ExtraValue {
                 name: IQ_FORMAT.to_string(),
                 value: self.format.name().into(),
-            });
-        }
+            })
+            .collect();
         DeviceSettings {
             center_hz: Some(f64::from(self.center_hz)),
             sample_rate: Some(self.sample_rate(info)),
+            gains,
             extra,
             ..DeviceSettings::default()
         }
@@ -215,11 +225,23 @@ pub(crate) fn validate(
             "antenna {antenna}: the SpyServer protocol has no antenna selection"
         )));
     }
-    if let Some(gain) = delta.gains.first() {
-        return Err(DeviceError::Unsupported(format!(
-            "gain stage {}: this server's gain is an index, offered as the `{GAIN}` setting",
-            gain.stage
-        )));
+    for gain in &delta.gains {
+        let stage = caps.stage(&gain.stage).ok_or_else(|| {
+            DeviceError::Unsupported(format!(
+                "gain stage {}: this server offers {}",
+                gain.stage,
+                GainKind::Tuner.name()
+            ))
+        })?;
+        if !gain.value_db.is_finite() || !stage.range.holds(gain.value_db) {
+            return Err(DeviceError::Unsupported(format!(
+                "gain stage {}: {} is not an index in {}..{}",
+                gain.stage, gain.value_db, stage.range.min, stage.range.max
+            )));
+        }
+        next.gain = gain.value_db.round() as u32;
+        batch.push((Setting::Gain, next.gain));
+        rescale = true;
     }
 
     for value in &delta.extra {
@@ -229,21 +251,6 @@ pub(crate) fn validate(
             .find(|setting| setting.name() == value.name)
             .ok_or_else(|| DeviceError::Unsupported(format!("extra setting {}", value.name)))?;
         match setting {
-            ExtraSetting::Range { range, .. } => {
-                let index = value
-                    .value
-                    .as_f64()
-                    .filter(|v| v.is_finite() && (range.min..=range.max).contains(v))
-                    .ok_or_else(|| {
-                        DeviceError::Unsupported(format!(
-                            "extra setting {}: {} is not an index in {}..{}",
-                            value.name, value.value, range.min, range.max
-                        ))
-                    })?;
-                next.gain = index.round() as u32;
-                batch.push((Setting::Gain, next.gain));
-                rescale = true;
-            }
             ExtraSetting::Enum { .. } => {
                 let format = value
                     .value
@@ -259,7 +266,9 @@ pub(crate) fn validate(
                 batch.push((Setting::IqFormat, format.code()));
                 rescale = true;
             }
-            ExtraSetting::Bool { name, .. } | ExtraSetting::String { name, .. } => {
+            ExtraSetting::Bool { name, .. }
+            | ExtraSetting::Range { name, .. }
+            | ExtraSetting::String { name, .. } => {
                 return Err(DeviceError::Unsupported(format!("extra setting {name}")));
             }
         }
@@ -273,9 +282,16 @@ pub(crate) fn validate(
 
 #[cfg(test)]
 mod tests {
-    use sdrmm_wire::GainValue;
+    use sdrmm_wire::BandwidthSetting;
 
     use super::*;
+
+    fn tuner(index: u32) -> DeviceSettings {
+        DeviceSettings {
+            gains: vec![GainValue::new(GainKind::Tuner, f64::from(index))],
+            ..DeviceSettings::default()
+        }
+    }
 
     fn info() -> DeviceInfo {
         DeviceInfo {
@@ -348,13 +364,15 @@ mod tests {
         let open = capabilities(info(), sync(true), &formats());
         assert_eq!(open.freq_ranges[0].min, 24e6);
         assert_eq!(open.freq_ranges[0].max, 1.766e9);
-        assert!(open.extra.iter().any(|setting| setting.name() == GAIN));
+        let stage = open.stage(GainKind::Tuner.name()).expect("the gain index");
+        assert_eq!(stage.unit, GainUnit::Index);
+        assert_eq!(stage.range.max, 28.0);
 
         let locked = capabilities(info(), sync(false), &formats());
         assert_eq!(locked.freq_ranges[0].min, 99e6);
         assert_eq!(locked.freq_ranges[0].max, 101e6);
         assert!(
-            !locked.extra.iter().any(|setting| setting.name() == GAIN),
+            locked.gains.is_empty(),
             "a gain control that the server will refuse is not offered"
         );
     }
@@ -365,8 +383,7 @@ mod tests {
         let wire = remote.wire(info(), &caps);
         assert_eq!(wire.center_hz, Some(100_000_000.0));
         assert_eq!(wire.sample_rate, Some(4_000_000.0), "the lowest decimation");
-        let gain = wire.extra.iter().find(|e| e.name == GAIN).expect("offered");
-        assert_eq!(gain.value, 12);
+        assert_eq!(wire.gain(GainKind::Tuner.name()), Some(12.0));
     }
 
     #[test]
@@ -414,19 +431,7 @@ mod tests {
         };
         let caps = capabilities(airspy, sync(true), &formats());
         let remote = Remote::new(airspy, sync(true), IqFormat::Int16);
-        let (_, batch) = validate(
-            &DeviceSettings {
-                extra: vec![ExtraValue {
-                    name: GAIN.to_string(),
-                    value: 20.into(),
-                }],
-                ..DeviceSettings::default()
-            },
-            &caps,
-            airspy,
-            remote,
-        )
-        .expect("a gain index");
+        let (_, batch) = validate(&tuner(20), &caps, airspy, remote).expect("a gain index");
         assert!(batch.contains(&(Setting::IqDigitalGain, 11)), "{batch:?}");
     }
 
@@ -443,7 +448,14 @@ mod tests {
             ),
             (
                 DeviceSettings {
-                    bandwidth: Some(1e6),
+                    bandwidth: Some(BandwidthSetting::Manual { hz: 1e6 }),
+                    ..DeviceSettings::default()
+                },
+                "bandwidth",
+            ),
+            (
+                DeviceSettings {
+                    bandwidth: Some(BandwidthSetting::Auto),
                     ..DeviceSettings::default()
                 },
                 "bandwidth",
@@ -457,14 +469,12 @@ mod tests {
             ),
             (
                 DeviceSettings {
-                    gains: vec![GainValue {
-                        stage: "TUNER".to_string(),
-                        value_db: 20.0,
-                    }],
+                    gains: vec![GainValue::new(GainKind::Lna, 20.0)],
                     ..DeviceSettings::default()
                 },
-                "index",
+                "gain stage LNA",
             ),
+            (tuner(99), "index in 0..28"),
             (
                 DeviceSettings {
                     sample_rate: Some(3_000_000.0),
@@ -482,12 +492,12 @@ mod tests {
             (
                 DeviceSettings {
                     extra: vec![ExtraValue {
-                        name: GAIN.to_string(),
-                        value: 99.into(),
+                        name: "gain".to_string(),
+                        value: 20.into(),
                     }],
                     ..DeviceSettings::default()
                 },
-                "index in 0..28",
+                "extra setting gain",
             ),
             (
                 DeviceSettings {

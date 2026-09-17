@@ -196,6 +196,7 @@ pub struct SdrplayDevice {
     mode: Option<DuoMode>,
     capabilities: Capabilities,
     settings: DeviceSettings,
+    bandwidth_auto: bool,
     worker: Worker,
 }
 
@@ -220,6 +221,7 @@ impl SdrplayDevice {
             mode,
             capabilities: caps::capabilities(model, mode, band),
             settings: DeviceSettings::default(),
+            bandwidth_auto: true,
             worker: Worker::new(),
         };
         let start = DeviceSettings {
@@ -262,11 +264,12 @@ impl SdrplayDevice {
     }
 
     fn read_settings(&mut self) -> Result<DeviceSettings, DeviceError> {
-        let mut settings = settings::read(&self.target(self.tuner_for(0))?);
+        let bandwidth_auto = self.bandwidth_auto;
+        let mut settings = settings::read(&self.target(self.tuner_for(0))?, bandwidth_auto);
         if self.capabilities.rx_streams > 1 {
             let mut streams = Vec::new();
             for stream in 0..self.capabilities.rx_streams {
-                let read = settings::read(&self.target(self.tuner_for(stream))?);
+                let read = settings::read(&self.target(self.tuner_for(stream))?, bandwidth_auto);
                 streams.push(sdrmm_wire::StreamSettings {
                     stream,
                     center_hz: read.center_hz,
@@ -360,6 +363,9 @@ impl SdrDevice for SdrplayDevice {
                 let mut target = self.target(tuner)?;
                 settings::apply(&mut target, &resolved, &capabilities)?
             };
+            if let Some(bandwidth) = applied.bandwidth {
+                self.bandwidth_auto = bandwidth.is_auto();
+            }
             if streaming && !applied.reasons.is_empty() {
                 self.api.update(
                     self.handle,
@@ -431,7 +437,7 @@ impl Drop for SdrplayDevice {
 mod tests {
     use std::sync::mpsc;
 
-    use sdrmm_wire::{ExtraValue, GainValue, StreamSettings};
+    use sdrmm_wire::{AgcSetting, BandwidthSetting, GainKind, GainValue, StreamSettings};
 
     use super::*;
     use crate::testing::FakeApi;
@@ -502,6 +508,86 @@ mod tests {
         assert_eq!(api.channel(ffi::TUNER_A).tuner_params.if_type, ffi::IF_ZERO);
         assert_eq!(device.capabilities().rx_streams, 1);
         assert_eq!(device.capabilities().tx_streams, 0);
+        assert_eq!(device.settings().bandwidth, Some(BandwidthSetting::Auto));
+        assert_eq!(
+            device.settings().agc,
+            Some(AgcSetting::in_mode(true, caps::AGC_50HZ))
+        );
+        assert_eq!(device.settings().bias_tee, Some(false));
+    }
+
+    #[test]
+    fn a_bandwidth_round_trip_remembers_whether_the_driver_picked_it() {
+        let api = Arc::new(FakeApi::rsp1a());
+        let mut device = open(&api, "1234567890");
+        device
+            .apply(&DeviceSettings {
+                bandwidth: Some(BandwidthSetting::Manual { hz: 600_000.0 }),
+                ..DeviceSettings::default()
+            })
+            .expect("a width on the menu");
+        assert_eq!(
+            api.channel(ffi::TUNER_A).tuner_params.bw_type,
+            ffi::BW_0_600
+        );
+        assert_eq!(
+            device.settings().bandwidth,
+            Some(BandwidthSetting::Manual { hz: 600_000.0 })
+        );
+        device
+            .apply(&DeviceSettings {
+                bandwidth: Some(BandwidthSetting::Auto),
+                ..DeviceSettings::default()
+            })
+            .expect("auto");
+        assert_eq!(
+            api.channel(ffi::TUNER_A).tuner_params.bw_type,
+            ffi::BW_1_536
+        );
+        assert_eq!(device.settings().bandwidth, Some(BandwidthSetting::Auto));
+        assert!(
+            device
+                .apply(&DeviceSettings {
+                    bandwidth: Some(BandwidthSetting::Manual { hz: 1_000_000.0 }),
+                    ..DeviceSettings::default()
+                })
+                .is_err(),
+            "a width off the menu is refused"
+        );
+        assert_eq!(device.settings().bandwidth, Some(BandwidthSetting::Auto));
+    }
+
+    #[test]
+    fn the_agc_and_bias_tee_round_trip_as_typed_settings() {
+        let api = Arc::new(FakeApi::rsp1a());
+        let mut device = open(&api, "1234567890");
+        device
+            .apply(&DeviceSettings {
+                agc: Some(AgcSetting::off()),
+                bias_tee: Some(true),
+                ..DeviceSettings::default()
+            })
+            .expect("typed settings");
+        assert_eq!(
+            api.channel(ffi::TUNER_A).ctrl_params.agc.enable,
+            ffi::AGC_DISABLE
+        );
+        assert_eq!(
+            api.channel(ffi::TUNER_A).rsp1a_tuner_params.bias_t_enable,
+            1
+        );
+        assert_eq!(device.settings().agc, Some(AgcSetting::off()));
+        assert_eq!(device.settings().bias_tee, Some(true));
+        device
+            .apply(&DeviceSettings {
+                agc: Some(AgcSetting::in_mode(true, caps::AGC_5HZ)),
+                ..DeviceSettings::default()
+            })
+            .expect("a loop rate");
+        assert_eq!(
+            device.settings().agc,
+            Some(AgcSetting::in_mode(true, caps::AGC_5HZ))
+        );
     }
 
     #[test]
@@ -756,7 +842,7 @@ mod tests {
                 .capabilities()
                 .gains
                 .iter()
-                .find(|stage| stage.name == caps::RF_GAIN_STAGE)
+                .find(|stage| stage.name == GainKind::Rf.name())
                 .expect("rf stage")
                 .range
                 .max
@@ -784,28 +870,27 @@ mod tests {
                 .settings()
                 .gains
                 .iter()
-                .any(|gain| gain.stage == caps::IF_GAIN_STAGE)
+                .any(|gain| gain.stage == GainKind::If.name())
         );
     }
 
     #[test]
-    fn an_extra_this_receiver_does_not_have_is_refused_and_changes_nothing() {
+    fn a_bias_tee_this_receiver_does_not_have_is_refused_and_changes_nothing() {
         let api = Arc::new(FakeApi::with_devices(vec![FakeApi::device(
             ffi::RSP1_ID,
             "1000000001",
         )]));
         let mut device = open(&api, "1000000001");
+        assert!(!device.capabilities().bias_tee);
         assert!(matches!(
             device.apply(&DeviceSettings {
-                extra: vec![ExtraValue {
-                    name: caps::EXTRA_BIAS_T.to_string(),
-                    value: true.into(),
-                }],
+                bias_tee: Some(true),
                 ..DeviceSettings::default()
             }),
             Err(DeviceError::Unsupported(_))
         ));
         assert!(api.updates().is_empty());
+        assert_eq!(device.settings().bias_tee, None);
     }
 
     #[test]
@@ -814,21 +899,11 @@ mod tests {
         let mut device = open(&api, "1234567890");
         device
             .apply(&DeviceSettings {
-                gains: vec![GainValue {
-                    stage: caps::IF_GAIN_STAGE.to_string(),
-                    value_db: 25.0,
-                }],
+                gains: vec![GainValue::new(GainKind::If, 25.0)],
                 ..DeviceSettings::default()
             })
             .expect("gain");
         assert_eq!(api.channel(ffi::TUNER_A).tuner_params.gain.gr_db, 34);
-        let reported = device
-            .settings()
-            .gains
-            .iter()
-            .find(|gain| gain.stage == caps::IF_GAIN_STAGE)
-            .expect("if gain")
-            .value_db;
-        assert_eq!(reported, 25.0);
+        assert_eq!(device.settings().gain(GainKind::If.name()), Some(25.0));
     }
 }

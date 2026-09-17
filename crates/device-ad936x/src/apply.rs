@@ -1,10 +1,11 @@
 use sdrmm_device::{DeviceError, check_stream_settings};
 use sdrmm_wire::{
-    Capabilities, DeviceSettings, ExtraSetting, ExtraValue, GainStage, GainValue, StreamSettings,
+    AgcSetting, BandwidthSetting, Capabilities, DeviceSettings, ExtraSetting, ExtraValue, GainKind,
+    GainStage, GainValue, StreamSettings,
 };
 
 use crate::{
-    caps::{BB_DC, FIR, Front, GAIN_MODE, QUADRATURE, RF_DC, RX_STAGE, TX_PORT, TX_STAGE},
+    caps::{BB_DC, FIR, Front, MANUAL_GAIN, QUADRATURE, RF_DC, TX_PORT},
     iio::{Client, Direction},
     layout::{
         BB_DC_TRACKING, FILTER_FIR_EN, FREQUENCY, GAIN_CONTROL_MODE, HARDWAREGAIN, Layout,
@@ -84,6 +85,7 @@ pub(crate) fn plan(
     plan_tuning(delta, capabilities, layout, &mut writes)?;
     plan_trim(delta, front, &mut writes)?;
     plan_lanes(delta, capabilities, layout, &mut writes)?;
+    plan_agc(delta, capabilities, layout, &mut writes)?;
     plan_extra(delta, capabilities, front, layout, &mut writes)?;
     settle_lanes(&mut next, delta);
     next.gains = snapped(&next.gains, capabilities);
@@ -167,8 +169,14 @@ fn plan_bandwidth(
     layout: &Layout,
     writes: &mut Vec<Write>,
 ) -> Result<(), DeviceError> {
-    let Some(hz) = delta.bandwidth else {
-        return Ok(());
+    let hz = match delta.bandwidth {
+        None => return Ok(()),
+        Some(BandwidthSetting::Auto) => {
+            return Err(DeviceError::Unsupported(
+                "bandwidth: this radio does not pick its own filter width".to_string(),
+            ));
+        }
+        Some(BandwidthSetting::Manual { hz }) => hz,
     };
     if !sdrmm_wire::any_range_holds(&capabilities.bandwidth_ranges, hz) {
         return Err(DeviceError::Unsupported(format!(
@@ -258,7 +266,7 @@ fn plan_gains(
             .ok_or_else(|| {
                 DeviceError::Unsupported(format!("this radio has no {} gain stage", gain.stage))
             })?;
-        let output = stage.name == TX_STAGE;
+        let output = stage.kind == GainKind::Tx;
         let reached = lanes(layout, output, lane);
         if reached.is_empty() {
             return Err(DeviceError::Unsupported(format!(
@@ -308,6 +316,48 @@ fn plan_antenna(
     Ok(())
 }
 
+fn plan_agc(
+    delta: &DeviceSettings,
+    capabilities: &Capabilities,
+    layout: &Layout,
+    writes: &mut Vec<Write>,
+) -> Result<(), DeviceError> {
+    let Some(agc) = &delta.agc else {
+        return Ok(());
+    };
+    let mode = gain_control_mode(agc, capabilities)?;
+    for lane in 0..layout.rx_streams() {
+        writes.push(Write::channel(
+            false,
+            rx_port(layout, lane)?,
+            GAIN_CONTROL_MODE,
+            mode.to_string(),
+        ));
+    }
+    Ok(())
+}
+
+fn gain_control_mode<'a>(
+    agc: &'a AgcSetting,
+    capabilities: &'a Capabilities,
+) -> Result<&'a str, DeviceError> {
+    if !capabilities.agc.admits(agc) {
+        return Err(DeviceError::Unsupported(match &agc.mode {
+            Some(mode) => format!("agc: this radio has no {mode} mode"),
+            None => "agc: this radio has no automatic gain".to_string(),
+        }));
+    }
+    if !agc.on {
+        return Ok(MANUAL_GAIN);
+    }
+    agc.mode
+        .as_deref()
+        .or_else(|| capabilities.agc.first_mode())
+        .ok_or_else(|| {
+            DeviceError::Unsupported("agc: this radio has no automatic gain".to_string())
+        })
+}
+
 fn plan_extra(
     delta: &DeviceSettings,
     capabilities: &Capabilities,
@@ -324,17 +374,6 @@ fn plan_extra(
                 DeviceError::Unsupported(format!("this radio has no {} setting", extra.name))
             })?;
         match extra.name.as_str() {
-            GAIN_MODE => {
-                let mode = choice(extra, declared)?;
-                for lane in 0..layout.rx_streams() {
-                    writes.push(Write::channel(
-                        false,
-                        rx_port(layout, lane)?,
-                        GAIN_CONTROL_MODE,
-                        mode.clone(),
-                    ));
-                }
-            }
             TX_PORT => {
                 let port = choice(extra, declared)?;
                 let channel = layout.port(true, 0).ok_or_else(|| {
@@ -468,9 +507,11 @@ pub(crate) fn read_settings(
             .and_then(|v| number(&v)),
         bandwidth: rx
             .and_then(|rx| read(Direction::In, rx, RF_BANDWIDTH))
-            .and_then(|v| number(&v)),
+            .and_then(|v| number(&v))
+            .map(|hz| BandwidthSetting::Manual { hz }),
         antenna: rx.and_then(|rx| read(Direction::In, rx, RF_PORT_SELECT)),
         ppm: read_ppm(client, front, phy),
+        agc: read_agc(capabilities, layout, &read),
         gains: read_gains(capabilities, layout, &read),
         extra: read_extra(capabilities, layout, &read),
         streams: read_streams(capabilities, layout, &read),
@@ -497,17 +538,29 @@ fn read_streams(
                 center_hz: None,
                 tuning: None,
                 gains: gain
-                    .map(|value_db| {
-                        vec![GainValue {
-                            stage: RX_STAGE.to_string(),
-                            value_db,
-                        }]
-                    })
+                    .map(|value_db| vec![GainValue::new(GainKind::Tuner, value_db)])
                     .unwrap_or_default(),
                 antenna: read(Direction::In, port, RF_PORT_SELECT),
             })
         })
         .collect()
+}
+
+fn read_agc(
+    capabilities: &Capabilities,
+    layout: &Layout,
+    read: &dyn Fn(Direction, &str, &str) -> Option<String>,
+) -> Option<AgcSetting> {
+    if !capabilities.agc.offered() {
+        return None;
+    }
+    let mode = read(Direction::In, layout.port(false, 0)?, GAIN_CONTROL_MODE)?;
+    let mode = mode.trim();
+    if mode == MANUAL_GAIN {
+        Some(AgcSetting::off())
+    } else {
+        Some(AgcSetting::in_mode(true, mode))
+    }
 }
 
 fn read_ppm(client: &Client, front: &Front, phy: &str) -> Option<f64> {
@@ -528,7 +581,7 @@ fn read_gains(
         .gains
         .iter()
         .filter_map(|stage| {
-            let output = stage.name == TX_STAGE;
+            let output = stage.kind == GainKind::Tx;
             let port = layout.port(output, 0)?;
             let direction = if output {
                 Direction::Out
@@ -555,7 +608,6 @@ fn read_extra(
         .filter_map(|setting| {
             let name = setting.name();
             let value = match name {
-                GAIN_MODE => serde_value(read(Direction::In, rx?, GAIN_CONTROL_MODE)?),
                 TX_PORT => {
                     serde_value(read(Direction::Out, layout.port(true, 0)?, RF_PORT_SELECT)?)
                 }
@@ -592,7 +644,10 @@ mod tests {
     use serde_json::json;
 
     use super::*;
-    use crate::caps::{RX_STAGE, capabilities, tests::front};
+    use crate::caps::{capabilities, tests::front};
+
+    const RX_STAGE: &str = "TUNER";
+    const TX_STAGE: &str = "TX";
 
     fn planned(delta: DeviceSettings) -> Vec<Write> {
         let layout = crate::layout::tests::two_by_two_layout();
@@ -633,7 +688,7 @@ mod tests {
         let writes = planned(DeviceSettings {
             center_hz: Some(433_920_000.0),
             sample_rate: Some(2_400_000.0),
-            bandwidth: Some(2_000_000.0),
+            bandwidth: Some(BandwidthSetting::Manual { hz: 2_000_000.0 }),
             ..DeviceSettings::default()
         });
         assert_eq!(
@@ -651,7 +706,7 @@ mod tests {
     #[test]
     fn a_width_the_transmitter_cannot_hold_is_clamped_for_it_alone() {
         let writes = planned(DeviceSettings {
-            bandwidth: Some(50_000_000.0),
+            bandwidth: Some(BandwidthSetting::Manual { hz: 50_000_000.0 }),
             ..DeviceSettings::default()
         });
         assert_eq!(
@@ -758,10 +813,7 @@ mod tests {
     #[test]
     fn a_gain_mode_reaches_every_receive_lane_at_once() {
         let writes = planned(DeviceSettings {
-            extra: vec![ExtraValue {
-                name: GAIN_MODE.to_string(),
-                value: json!("slow_attack"),
-            }],
+            agc: Some(AgcSetting::in_mode(true, "slow_attack")),
             ..DeviceSettings::default()
         });
         assert_eq!(
@@ -770,6 +822,31 @@ mod tests {
                 channel(false, "voltage0", GAIN_CONTROL_MODE, "slow_attack"),
                 channel(false, "voltage1", GAIN_CONTROL_MODE, "slow_attack"),
             ]
+        );
+    }
+
+    #[test]
+    fn automatic_gain_off_is_manual_and_on_without_a_mode_takes_the_first() {
+        assert_eq!(
+            planned(DeviceSettings {
+                agc: Some(AgcSetting::off()),
+                ..DeviceSettings::default()
+            })[0],
+            channel(false, "voltage0", GAIN_CONTROL_MODE, "manual")
+        );
+        assert_eq!(
+            planned(DeviceSettings {
+                agc: Some(AgcSetting::switched(true)),
+                ..DeviceSettings::default()
+            })[0],
+            channel(false, "voltage0", GAIN_CONTROL_MODE, "fast_attack")
+        );
+        assert!(
+            refused(DeviceSettings {
+                agc: Some(AgcSetting::in_mode(true, "telepathy")),
+                ..DeviceSettings::default()
+            })
+            .contains("no telepathy mode")
         );
     }
 
@@ -831,10 +908,17 @@ mod tests {
         );
         assert!(
             refused(DeviceSettings {
-                bandwidth: Some(100e6),
+                bandwidth: Some(BandwidthSetting::Manual { hz: 100e6 }),
                 ..DeviceSettings::default()
             })
             .contains("analog filter")
+        );
+        assert!(
+            refused(DeviceSettings {
+                bandwidth: Some(BandwidthSetting::Auto),
+                ..DeviceSettings::default()
+            })
+            .contains("own filter")
         );
         assert!(
             refused(DeviceSettings {
@@ -867,12 +951,12 @@ mod tests {
         assert!(
             refused(DeviceSettings {
                 extra: vec![ExtraValue {
-                    name: GAIN_MODE.to_string(),
-                    value: json!("telepathy"),
+                    name: TX_PORT.to_string(),
+                    value: json!("C"),
                 }],
                 ..DeviceSettings::default()
             })
-            .contains("slow_attack")
+            .contains("A, B")
         );
         assert!(
             refused(DeviceSettings {

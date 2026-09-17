@@ -1,6 +1,6 @@
 use sdrmm_wire::{
-    ArgumentOption, Capabilities, Coherence, DcArtifact, DeviceProfile, Duplex, ExtraSetting,
-    GainStage, Range, StreamScope,
+    Agc, ArgumentOption, Capabilities, Coherence, DcArtifact, DeviceProfile, Duplex, ExtraSetting,
+    GainKind, GainStage, GainUnit, Range, StreamScope,
 };
 
 use crate::ffi;
@@ -14,51 +14,38 @@ pub const CLOCK_SETTING: &str = "clock_source";
 pub const CLOCK_INTERNAL: &str = "internal";
 pub const CLOCK_EXTERNAL: &str = "external";
 
-/// Named for the stage each one drives, because the three add up to the overall figure the
-/// library also offers and an operator setting them by hand wants to know which is which.
+fn stage(kind: GainKind, max: f64) -> GainStage {
+    GainStage::new(
+        kind,
+        Range {
+            min: 0.0,
+            max,
+            step: Some(1.0),
+        },
+    )
+    .with_unit(GainUnit::Index)
+}
+
 #[must_use]
 pub fn gains() -> Vec<GainStage> {
     vec![
-        GainStage {
-            name: "LNA".to_owned(),
-            range: Range {
-                min: 0.0,
-                max: 14.0,
-                step: Some(1.0),
-            },
-            values: Vec::new(),
-        },
-        GainStage {
-            name: "Mixer".to_owned(),
-            range: Range {
-                min: 0.0,
-                max: 15.0,
-                step: Some(1.0),
-            },
-            values: Vec::new(),
-        },
-        GainStage {
-            name: "VGA".to_owned(),
-            range: Range {
-                min: 0.0,
-                max: 15.0,
-                step: Some(1.0),
-            },
-            values: Vec::new(),
-        },
+        stage(GainKind::Lna, 14.0),
+        stage(GainKind::Mixer, 15.0),
+        stage(GainKind::Vga, 15.0),
     ]
 }
 
 #[must_use]
 pub fn extra() -> Vec<ExtraSetting> {
-    vec![ExtraSetting::Enum {
-        name: CLOCK_SETTING.to_owned(),
-        options: vec![
+    vec![ExtraSetting::choice(
+        CLOCK_SETTING,
+        "Clock source",
+        vec![
             ArgumentOption::plain(CLOCK_INTERNAL),
             ArgumentOption::plain(CLOCK_EXTERNAL),
         ],
-        default: CLOCK_INTERNAL.to_owned(),
-    }]
+        CLOCK_INTERNAL,
+    )]
 }
 
 #[must_use]
@@ -75,6 +62,9 @@ pub fn capabilities() -> Capabilities {
         antennas: Vec::new(),
         bandwidths: Vec::new(),
         bandwidth_ranges: Vec::new(),
+        bandwidth_auto: false,
+        bias_tee: false,
+        agc: Agc::None,
         extra: extra(),
         ppm: false,
         duplex: Duplex::RxOnly,

@@ -1,15 +1,25 @@
 import { useState } from "react";
 import { rxStreamCount, streamLabel } from "../canvas/graph";
-import type { DeviceSet, ExtraSetting, GainStage, Range } from "../lib/types";
+import type { Capabilities, DeviceSet, ExtraSetting, GainStage, Range } from "../lib/types";
 import { forStream, useDevicePatch } from "../lib/useDevicePatch";
 import { Input } from "./BaseControls";
 import { Checkbox } from "./Checkbox";
 import {
+  AUTO_FILTER,
+  agcOffered,
+  agcState,
   automaticGainIsOn,
   dcBlockOn,
+  filterHz,
+  filterIsAuto,
   fitsSlider,
+  formatGain,
+  gainLabel,
+  gainUnit,
   hasDcArtifact,
+  hasFilter,
   isSwitch,
+  manualFilter,
   settingIndex,
   snapToRanges,
   snapToStage,
@@ -28,11 +38,11 @@ import { withCurrent } from "./selectOptions";
 import { settingLabel } from "./settingLabel";
 import { useDebouncedCommit } from "./useDebouncedCommit";
 
-const formatFilter = (hz: number): string => (hz === 0 ? "Auto (match rate)" : formatHz(hz));
-
-const AGC_HINT = "The radio is setting this — turn gain mode off to set it by hand";
+const AGC_HINT = "The radio is setting this. Turn AGC off to set it by hand";
 
 const SEARCHABLE_FROM = 12;
+
+const READOUT = "w-14 shrink-0 text-right font-mono text-xs text-ink";
 
 export function RadioSettings({
   active,
@@ -46,10 +56,6 @@ export function RadioSettings({
   const { applyPatch } = useDevicePatch();
   const caps = active.capabilities;
   const settings = active.settings;
-  const sampleRate = settings.sample_rate ?? 0;
-  const rateRange = spanOf(caps.sample_rate_ranges);
-  const bandwidthRange = spanOf(caps.bandwidth_ranges);
-  const bandwidth = settings.bandwidth ?? caps.bandwidths[0] ?? 0;
   const extras = (caps.extra ?? []).filter(
     (setting) => active.playback == null || setting.name !== LOOP_SETTING,
   );
@@ -61,82 +67,23 @@ export function RadioSettings({
     streamedAntenna || streamedGain
       ? Array.from({ length: rxStreamCount(caps) }, (_, index) => index)
       : [];
+  const patch = (delta: Parameters<typeof applyPatch>[1]): void => applyPatch(active.id, delta);
 
   return (
     <Settings className={className}>
       <SettingRow label="Rate">
-        {sampleRateLocked || (caps.sample_rates.length === 1 && rateRange == null) ? (
-          <span
-            className="font-mono text-xs text-ink"
-            title={
-              sampleRateLocked ? "Change the sample rate on the connected Array node" : undefined
-            }
-          >
-            {formatSampleRate(sampleRate)}
-          </span>
-        ) : caps.sample_rates.length > 0 ? (
-          <Select
-            label="Sample rate"
-            value={sampleRate}
-            options={withCurrent(
-              sampleRate,
-              caps.sample_rates.map((rate) => ({ value: rate, label: formatSampleRate(rate) })),
-              formatSampleRate,
-            )}
-            onChange={(sample_rate) => applyPatch(active.id, { sample_rate })}
-          />
-        ) : (
-          <>
-            <NumberField
-              label="Sample rate (MS/s)"
-              value={sampleRate / 1e6}
-              min={rateRange ? rateRange.min / 1e6 : undefined}
-              max={rateRange ? rateRange.max / 1e6 : undefined}
-              step={rateRange?.step != null ? rateRange.step / 1e6 : 0.001}
-              onCommit={(msps) =>
-                applyPatch(active.id, {
-                  sample_rate: snapToRanges(caps.sample_rate_ranges, Math.round(msps * 1e6)),
-                })
-              }
-              className="w-24"
-            />
-            <span className="legend">MS/s</span>
-          </>
-        )}
+        <RateControl
+          caps={caps}
+          sampleRate={settings.sample_rate ?? 0}
+          locked={sampleRateLocked}
+          onCommit={(sample_rate) => patch({ sample_rate })}
+        />
       </SettingRow>
 
-      {caps.bandwidths.length > 0 ? (
-        <SettingRow label="Filter">
-          <Select
-            label="Analog bandwidth"
-            value={bandwidth}
-            options={withCurrent(
-              bandwidth,
-              caps.bandwidths.map((hz) => ({ value: hz, label: formatFilter(hz) })),
-              formatFilter,
-            )}
-            onChange={(hz) => applyPatch(active.id, { bandwidth: hz })}
-          />
+      {hasFilter(caps) && (
+        <SettingRow label="Filter" title="Analog bandwidth before the ADC">
+          <FilterControl active={active} onCommit={(bandwidth) => patch({ bandwidth })} />
         </SettingRow>
-      ) : (
-        bandwidthRange != null && (
-          <SettingRow label="Filter">
-            <NumberField
-              label="Analog bandwidth (MHz)"
-              value={bandwidth / 1e6}
-              min={bandwidthRange.min / 1e6}
-              max={bandwidthRange.max / 1e6}
-              step={0.01}
-              onCommit={(mhz) =>
-                applyPatch(active.id, {
-                  bandwidth: snapToRanges(caps.bandwidth_ranges, Math.round(mhz * 1e6)),
-                })
-              }
-              className="w-24"
-            />
-            <span className="legend">MHz{bandwidthRange.min === 0 ? ", 0 = auto" : ""}</span>
-          </SettingRow>
-        )
       )}
 
       {caps.antennas.length > 1 && !streamedAntenna && (
@@ -145,8 +92,14 @@ export function RadioSettings({
             label="Antenna"
             value={settings.antenna ?? caps.antennas[0] ?? ""}
             options={caps.antennas.map((antenna) => ({ value: antenna, label: antenna }))}
-            onChange={(antenna) => applyPatch(active.id, { antenna })}
+            onChange={(antenna) => patch({ antenna })}
           />
+        </SettingRow>
+      )}
+
+      {agcOffered(caps) && (
+        <SettingRow label="AGC" title="The radio sets its own gain">
+          <AgcControl active={active} onCommit={(agc) => patch({ agc })} />
         </SettingRow>
       )}
 
@@ -157,9 +110,7 @@ export function RadioSettings({
             stage={stage}
             disabled={automaticGain}
             value={settings.gains?.find((g) => g.stage === stage.name)?.value_db ?? stage.range.min}
-            onCommit={(db) =>
-              applyPatch(active.id, { gains: [{ stage: stage.name, value_db: db }] })
-            }
+            onCommit={(db) => patch({ gains: [{ stage: stage.name, value_db: db }] })}
           />
         ))}
 
@@ -174,7 +125,7 @@ export function RadioSettings({
                   label={`${port} antenna`}
                   value={lane.antenna ?? caps.antennas[0] ?? ""}
                   options={caps.antennas.map((antenna) => ({ value: antenna, label: antenna }))}
-                  onChange={(antenna) => applyPatch(active.id, { streams: [{ stream, antenna }] })}
+                  onChange={(antenna) => patch({ streams: [{ stream, antenna }] })}
                 />
               </SettingRow>
             )}
@@ -189,9 +140,7 @@ export function RadioSettings({
                     lane.gains?.find((g) => g.stage === stage.name)?.value_db ?? stage.range.min
                   }
                   onCommit={(db) =>
-                    applyPatch(active.id, {
-                      streams: [{ stream, gains: [{ stage: stage.name, value_db: db }] }],
-                    })
+                    patch({ streams: [{ stream, gains: [{ stage: stage.name, value_db: db }] }] })
                   }
                 />
               ))}
@@ -199,13 +148,23 @@ export function RadioSettings({
         );
       })}
 
+      {caps.bias_tee === true && (
+        <SettingRow label="Bias tee" title="Powers an amplifier or active antenna over the coax">
+          <Checkbox
+            label="Bias tee"
+            checked={settings.bias_tee ?? false}
+            onChange={(bias_tee) => patch({ bias_tee })}
+          />
+        </SettingRow>
+      )}
+
       {caps.ppm && (
-        <SettingRow label="PPM">
+        <SettingRow label="PPM" title="Frequency correction in parts per million">
           <NumberField
             label="Frequency correction (ppm)"
             value={settings.ppm ?? 0}
             step={1}
-            onCommit={(ppm) => applyPatch(active.id, { ppm })}
+            onCommit={(ppm) => patch({ ppm })}
             className="w-20"
           />
         </SettingRow>
@@ -216,7 +175,7 @@ export function RadioSettings({
           <Checkbox
             label="Remove the receiver's own DC spike"
             checked={dcBlockOn(caps, settings)}
-            onChange={(dc_block) => applyPatch(active.id, { dc_block })}
+            onChange={(dc_block) => patch({ dc_block })}
           />
         </SettingRow>
       )}
@@ -226,10 +185,154 @@ export function RadioSettings({
           key={setting.name}
           setting={setting}
           raw={settings.extra?.find((e) => e.name === setting.name)?.value}
-          onCommit={(value) => applyPatch(active.id, { extra: [{ name: setting.name, value }] })}
+          onCommit={(value) => patch({ extra: [{ name: setting.name, value }] })}
         />
       ))}
     </Settings>
+  );
+}
+
+function RateControl({
+  caps,
+  sampleRate,
+  locked,
+  onCommit,
+}: {
+  caps: Capabilities;
+  sampleRate: number;
+  locked: boolean;
+  onCommit: (hz: number) => void;
+}) {
+  const rateRange = spanOf(caps.sample_rate_ranges);
+  if (locked || (caps.sample_rates.length === 1 && rateRange == null)) {
+    return (
+      <span
+        className="font-mono text-xs text-ink"
+        title={locked ? "Change the sample rate on the connected Array node" : undefined}
+      >
+        {formatSampleRate(sampleRate)}
+      </span>
+    );
+  }
+  if (caps.sample_rates.length > 0) {
+    return (
+      <Select
+        label="Sample rate"
+        value={sampleRate}
+        options={withCurrent(
+          sampleRate,
+          caps.sample_rates.map((rate) => ({ value: rate, label: formatSampleRate(rate) })),
+          formatSampleRate,
+        )}
+        onChange={onCommit}
+      />
+    );
+  }
+  return (
+    <>
+      <NumberField
+        label="Sample rate (MS/s)"
+        value={sampleRate / 1e6}
+        min={rateRange ? rateRange.min / 1e6 : undefined}
+        max={rateRange ? rateRange.max / 1e6 : undefined}
+        step={rateRange?.step != null ? rateRange.step / 1e6 : 0.001}
+        onCommit={(msps) => onCommit(snapToRanges(caps.sample_rate_ranges, Math.round(msps * 1e6)))}
+        className="w-24"
+      />
+      <span className="legend">MS/s</span>
+    </>
+  );
+}
+
+function FilterControl({
+  active,
+  onCommit,
+}: {
+  active: DeviceSet;
+  onCommit: (bandwidth: DeviceSet["settings"]["bandwidth"]) => void;
+}) {
+  const caps = active.capabilities;
+  const settings = active.settings;
+  const auto = filterIsAuto(settings);
+  const hz = filterHz(caps, settings);
+  const bandwidthRange = spanOf(caps.bandwidth_ranges);
+  return (
+    <>
+      {caps.bandwidth_auto === true && (
+        <label
+          className="flex items-center gap-1.5"
+          title="Let the radio match the filter to the rate"
+        >
+          <Checkbox
+            label="Automatic filter"
+            checked={auto}
+            onChange={(on) => onCommit(on ? AUTO_FILTER : manualFilter(hz))}
+          />
+          <span className="legend">Auto</span>
+        </label>
+      )}
+      {caps.bandwidths.length > 0 ? (
+        <Select
+          label="Analog bandwidth"
+          value={hz}
+          disabled={auto}
+          options={withCurrent(
+            hz,
+            caps.bandwidths.map((width) => ({ value: width, label: formatHz(width) })),
+            formatHz,
+          )}
+          onChange={(width) => onCommit(manualFilter(width))}
+        />
+      ) : (
+        bandwidthRange != null && (
+          <>
+            <NumberField
+              label="Analog bandwidth (MHz)"
+              value={hz / 1e6}
+              min={bandwidthRange.min / 1e6}
+              max={bandwidthRange.max / 1e6}
+              step={0.01}
+              disabled={auto}
+              onCommit={(mhz) =>
+                onCommit(manualFilter(snapToRanges(caps.bandwidth_ranges, Math.round(mhz * 1e6))))
+              }
+              className="w-24"
+            />
+            <span className="legend">MHz</span>
+          </>
+        )
+      )}
+    </>
+  );
+}
+
+function AgcControl({
+  active,
+  onCommit,
+}: {
+  active: DeviceSet;
+  onCommit: (agc: NonNullable<DeviceSet["settings"]["agc"]>) => void;
+}) {
+  const agc = active.capabilities.agc;
+  const state = agcState(active.capabilities, active.settings);
+  const modes = agc?.kind === "modes" ? agc.options : [];
+  return (
+    <>
+      <Checkbox
+        label="Automatic gain"
+        checked={state.on}
+        onChange={(on) => onCommit({ ...state, on })}
+      />
+      {modes.length > 0 && (
+        <Select
+          label="AGC mode"
+          value={state.mode ?? ""}
+          disabled={!state.on}
+          options={modes.map((mode) => ({ value: mode.value, label: mode.label ?? mode.value }))}
+          onChange={(mode) => onCommit({ on: true, mode })}
+        />
+      )}
+    </>
   );
 }
 
@@ -248,29 +351,31 @@ function GainControl({
 }) {
   const { pending, change } = useDebouncedCommit(onCommit);
   const shown = pending ?? value;
-  const label = `${port === undefined ? "" : `${port} `}${stage.name} gain (dB)`;
-  const title = disabled ? AGC_HINT : stage.name;
+  const name = gainLabel(stage);
+  const unit = gainUnit(stage);
+  const label = `${port === undefined ? "" : `${port} `}${name} gain`;
+  const title = disabled ? AGC_HINT : unit === "" ? `${name}, firmware step` : `${name} gain in dB`;
 
   if (isSwitch(stage)) {
+    const on = shown > stage.range.min;
     return (
-      <SettingRow label={settingLabel(stage.name)} title={title}>
+      <SettingRow label={name} title={title}>
         <Checkbox
           label={label}
-          checked={shown > stage.range.min}
+          checked={on}
           disabled={disabled}
-          onChange={(on) => onCommit(on ? stage.range.max : stage.range.min)}
+          onChange={(next) => onCommit(next ? stage.range.max : stage.range.min)}
         />
-        <span className="w-14 shrink-0 text-right font-mono text-xs text-ink">
-          {shown > stage.range.min ? `+${stage.range.max.toFixed(0)}` : "0"}{" "}
-          <span className="text-ink-faint">dB</span>
+        <span className={READOUT}>
+          {on ? `+${stage.range.max.toFixed(0)}` : "0"} <span className="text-ink-faint">dB</span>
         </span>
       </SettingRow>
     );
   }
 
-  const settings = stage.values?.length ? stageSettings(stage) : [];
+  const settings = stageSettings(stage);
   return (
-    <SettingRow label={settingLabel(stage.name)} title={title}>
+    <SettingRow label={name} title={title}>
       {settings.length > 0 ? (
         <Slider
           label={label}
@@ -288,14 +393,14 @@ function GainControl({
           className="min-w-0 flex-1"
           min={stage.range.min}
           max={stage.range.max}
-          step={stage.range.step ?? 0.1}
+          step={0.1}
           value={shown}
           disabled={disabled}
           onChange={(db) => change(snapToStage(stage, db))}
         />
       )}
-      <span className="w-14 shrink-0 text-right font-mono text-xs text-ink">
-        {shown.toFixed(1)} <span className="text-ink-faint">dB</span>
+      <span className={READOUT}>
+        {formatGain(stage, shown)} <span className="text-ink-faint">{unit}</span>
       </span>
     </SettingRow>
   );
@@ -322,13 +427,13 @@ function ExtraControl({
     setDraft(authoritative);
   }
 
-  const name = settingLabel(setting.name);
+  const name = setting.label ?? settingLabel(setting.name);
   switch (setting.kind) {
     case "bool":
       return (
         <SettingRow label={name} title={setting.name}>
           <Checkbox
-            label={setting.name}
+            label={name}
             checked={typeof raw === "boolean" ? raw : setting.default}
             onChange={onCommit}
           />
@@ -343,7 +448,7 @@ function ExtraControl({
       return (
         <SettingRow label={name} title={setting.name}>
           <Picker
-            label={setting.name}
+            label={name}
             value={typeof raw === "string" ? raw : setting.default}
             options={options}
             onChange={onCommit}
@@ -356,7 +461,8 @@ function ExtraControl({
       if (fitsSlider(setting.range)) {
         return (
           <RangeSlider
-            name={setting.name}
+            name={name}
+            title={setting.name}
             unit={setting.unit}
             range={setting.range}
             value={value}
@@ -367,7 +473,7 @@ function ExtraControl({
       return (
         <SettingRow label={name} title={setting.name}>
           <NumberField
-            label={`${setting.name} (${setting.unit})`}
+            label={`${name} (${setting.unit})`}
             value={value}
             min={setting.range.min}
             max={setting.range.max}
@@ -383,7 +489,7 @@ function ExtraControl({
       return (
         <SettingRow label={name} title={setting.name}>
           <Input
-            aria-label={setting.name}
+            aria-label={name}
             className={`${FIELD} w-full max-w-64`}
             value={draft}
             onChange={(event) => {
@@ -405,12 +511,14 @@ function ExtraControl({
 
 function RangeSlider({
   name,
+  title,
   unit,
   range,
   value,
   onCommit,
 }: {
   name: string;
+  title: string;
   unit: string;
   range: Range;
   value: number;
@@ -418,8 +526,9 @@ function RangeSlider({
 }) {
   const { pending, change } = useDebouncedCommit(onCommit);
   const shown = pending ?? value;
+  const digits = range.step != null && range.step < 1 ? 1 : 0;
   return (
-    <SettingRow label={settingLabel(name)} title={`${name}, ${range.min} to ${range.max}`}>
+    <SettingRow label={name} title={`${title}, ${range.min} to ${range.max}`}>
       <Slider
         label={`${name} (${unit})`}
         className="min-w-0 flex-1"
@@ -429,8 +538,8 @@ function RangeSlider({
         value={shown}
         onChange={change}
       />
-      <span className="w-14 shrink-0 text-right font-mono text-xs text-ink">
-        {shown} <span className="text-ink-faint">{unit}</span>
+      <span className={READOUT}>
+        {shown.toFixed(digits)} <span className="text-ink-faint">{unit}</span>
       </span>
     </SettingRow>
   );

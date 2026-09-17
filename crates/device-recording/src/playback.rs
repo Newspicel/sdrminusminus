@@ -79,10 +79,10 @@ impl FilePlayback {
             antennas: Vec::new(),
             bandwidths: Vec::new(),
             bandwidth_ranges: Vec::new(),
-            extra: vec![ExtraSetting::Bool {
-                name: LOOP_SETTING.to_string(),
-                default: true,
-            }],
+            bandwidth_auto: false,
+            bias_tee: false,
+            agc: sdrmm_wire::Agc::None,
+            extra: vec![ExtraSetting::bool(LOOP_SETTING, "Loop", true)],
             ppm: false,
             duplex: Duplex::RxOnly,
             rx_streams: 1,
@@ -211,6 +211,11 @@ impl SdrDevice for FilePlayback {
                 "center_hz {f}: a recording is pinned to its recorded center"
             )));
         }
+        if settings.agc.is_some() {
+            return Err(DeviceError::Unsupported(
+                "agc: a recording has no AGC".to_string(),
+            ));
+        }
         for extra in &settings.extra {
             if extra.name != LOOP_SETTING {
                 return Err(DeviceError::Unsupported(format!("extra `{}`", extra.name)));
@@ -332,7 +337,7 @@ mod tests {
 
     use sdrmm_device::SinkRoom;
     use sdrmm_recorder::{SigmfWriter, data_path, meta_path};
-    use sdrmm_wire::{PlaybackAction, PlaybackRequest, StreamSettings};
+    use sdrmm_wire::{AgcSetting, PlaybackAction, PlaybackRequest, StreamSettings};
     use tempfile::TempDir;
 
     use super::*;
@@ -664,7 +669,8 @@ mod tests {
         assert_eq!(caps.freq_ranges[0].max, 100_000_000.0);
         assert!(matches!(
             &caps.extra[..],
-            [ExtraSetting::Bool { name, default: true }] if name == LOOP_SETTING
+            [ExtraSetting::Bool { name, label: Some(label), default: true }]
+                if name == LOOP_SETTING && label == "Loop"
         ));
         assert_eq!(caps.freq_ranges[0].min, caps.freq_ranges[0].max);
         assert!(!caps.ppm);
@@ -688,10 +694,7 @@ mod tests {
                 ..DeviceSettings::default()
             },
             DeviceSettings {
-                extra: vec![ExtraValue {
-                    name: "agc".to_string(),
-                    value: serde_json::Value::Bool(true),
-                }],
+                agc: Some(AgcSetting::switched(true)),
                 ..DeviceSettings::default()
             },
             DeviceSettings {

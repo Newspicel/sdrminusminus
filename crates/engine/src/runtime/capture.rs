@@ -279,10 +279,10 @@ impl CaptureRuntime {
     }
 
     #[must_use]
-    pub fn coherence(&self) -> Option<Coherence> {
+    pub fn capabilities(&self) -> Option<sdrmm_wire::Capabilities> {
         self.device
             .as_ref()
-            .map(|device| device.capabilities().coherence)
+            .map(|device| device.capabilities().clone())
     }
 
     pub fn subscribe(&self, stream: u32) -> Option<broadcast::Receiver<SpectrumSnapshot>> {

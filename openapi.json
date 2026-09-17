@@ -4569,6 +4569,76 @@
           }
         }
       },
+      "Agc": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "none"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "switch"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "options",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "modes"
+                ]
+              },
+              "options": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/ArgumentOption"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "AgcSetting": {
+        "type": "object",
+        "required": [
+          "on"
+        ],
+        "properties": {
+          "mode": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "on": {
+            "type": "boolean"
+          }
+        }
+      },
       "AisChannel": {
         "type": "string",
         "enum": [
@@ -5950,6 +6020,43 @@
           "wide"
         ]
       },
+      "BandwidthSetting": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "auto"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "hz",
+              "kind"
+            ],
+            "properties": {
+              "hz": {
+                "type": "number",
+                "format": "double"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "manual"
+                ]
+              }
+            }
+          }
+        ]
+      },
       "Bookmark": {
         "type": "object",
         "required": [
@@ -6328,11 +6435,17 @@
           "bandwidths"
         ],
         "properties": {
+          "agc": {
+            "$ref": "#/components/schemas/Agc"
+          },
           "antennas": {
             "type": "array",
             "items": {
               "type": "string"
             }
+          },
+          "bandwidth_auto": {
+            "type": "boolean"
           },
           "bandwidth_ranges": {
             "type": "array",
@@ -6347,6 +6460,9 @@
               "type": "number",
               "format": "double"
             }
+          },
+          "bias_tee": {
+            "type": "boolean"
           },
           "coherence": {
             "$ref": "#/components/schemas/Coherence"
@@ -11208,6 +11324,16 @@
       "DeviceSettings": {
         "type": "object",
         "properties": {
+          "agc": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AgcSetting"
+              }
+            ]
+          },
           "antenna": {
             "type": [
               "string",
@@ -11215,11 +11341,20 @@
             ]
           },
           "bandwidth": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/BandwidthSetting"
+              }
+            ]
+          },
+          "bias_tee": {
             "type": [
-              "number",
+              "boolean",
               "null"
-            ],
-            "format": "double"
+            ]
           },
           "center_hz": {
             "type": [
@@ -12685,6 +12820,12 @@
                   "bool"
                 ]
               },
+              "label": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
               "name": {
                 "type": "string"
               }
@@ -12703,6 +12844,12 @@
                 "type": "string",
                 "enum": [
                   "range"
+                ]
+              },
+              "label": {
+                "type": [
+                  "string",
+                  "null"
                 ]
               },
               "name": {
@@ -12734,6 +12881,12 @@
                   "enum"
                 ]
               },
+              "label": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
               "name": {
                 "type": "string"
               },
@@ -12760,6 +12913,12 @@
                 "type": "string",
                 "enum": [
                   "string"
+                ]
+              },
+              "label": {
+                "type": [
+                  "string",
+                  "null"
                 ]
               },
               "name": {
@@ -12924,28 +13083,56 @@
           }
         }
       },
+      "GainKind": {
+        "type": "string",
+        "enum": [
+          "lna",
+          "mixer",
+          "vga",
+          "if",
+          "rf",
+          "tuner",
+          "amp",
+          "attenuator",
+          "tx",
+          "other"
+        ]
+      },
       "GainStage": {
         "type": "object",
         "required": [
           "name",
+          "kind",
           "range"
         ],
         "properties": {
+          "kind": {
+            "$ref": "#/components/schemas/GainKind"
+          },
           "name": {
             "type": "string"
           },
           "range": {
             "$ref": "#/components/schemas/Range"
           },
+          "unit": {
+            "$ref": "#/components/schemas/GainUnit"
+          },
           "values": {
             "type": "array",
             "items": {
               "type": "number",
               "format": "double"
-            },
-            "description": "The settings this stage can actually hold, for hardware whose gain is a table rather than\nan even step — the R82xx's 29 irregular entries, say. Empty means every value `range`\nadmits is reachable. A client renders a control that can only land on real settings, and a\ndriver still snaps whatever it is asked for."
+            }
           }
         }
+      },
+      "GainUnit": {
+        "type": "string",
+        "enum": [
+          "db",
+          "index"
+        ]
       },
       "GainValue": {
         "type": "object",

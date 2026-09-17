@@ -1,22 +1,26 @@
 use sdrmm_device::{DeviceError, check_stream_settings};
 use sdrmm_wire::{
-    Capabilities, DcArtifact, DeviceSettings, Duplex, ExtraSetting, ExtraValue, GainStage,
-    GainValue, Range, StreamScope,
+    Agc, AgcSetting, ArgumentOption, Capabilities, Coherence, DcArtifact, DeviceSettings, Duplex,
+    GainKind, GainStage, GainValue, Range, StreamScope,
 };
 
 use crate::driver::{ATTENUATION_STEP_DB, Config, MAX_ATTENUATION_STEP};
 
 pub(crate) const ANTENNA: &str = "RX";
-pub(crate) const LNA_STAGE: &str = "LNA";
-pub(crate) const ATTENUATOR_STAGE: &str = "ATT";
-pub(crate) const AGC_SETTING: &str = "agc";
-pub(crate) const AGC_THRESHOLD_SETTING: &str = "agc_high_threshold";
-pub(crate) const BIAS_TEE_SETTING: &str = "bias_tee";
+pub(crate) const AGC_LOW: &str = "low";
+pub(crate) const AGC_HIGH: &str = "high";
 
-const LNA_DB: f64 = 6.0;
+const PREAMP_DB: f64 = 6.0;
 const HF_MAX_HZ: f64 = 31e6;
 const VHF_MIN_HZ: f64 = 60e6;
 const VHF_MAX_HZ: f64 = 260e6;
+
+fn agc_mode(value: &str, label: &str) -> ArgumentOption {
+    ArgumentOption {
+        value: value.to_string(),
+        label: Some(label.to_string()),
+    }
+}
 
 pub(crate) fn capabilities(sample_rates: &[u32]) -> Capabilities {
     Capabilities {
@@ -35,46 +39,35 @@ pub(crate) fn capabilities(sample_rates: &[u32]) -> Capabilities {
         sample_rates: sample_rates.iter().copied().map(f64::from).collect(),
         sample_rate_ranges: Vec::new(),
         gains: vec![
-            // The preamp is a switch rather than a control, so it travels as the two-setting
-            // stage the wire model reserves for that.
-            GainStage {
-                name: LNA_STAGE.to_string(),
-                range: Range {
+            GainStage::new(
+                GainKind::Amp,
+                Range {
                     min: 0.0,
-                    max: LNA_DB,
-                    step: Some(LNA_DB),
+                    max: PREAMP_DB,
+                    step: Some(PREAMP_DB),
                 },
-                values: Vec::new(),
-            },
-            // The attenuator only ever takes signal away, so it is spelled as the negative gain
-            // it is rather than as a positive number that means the opposite.
-            GainStage {
-                name: ATTENUATOR_STAGE.to_string(),
-                range: Range {
+            ),
+            GainStage::new(
+                GainKind::Attenuator,
+                Range {
                     min: -f64::from(MAX_ATTENUATION_STEP) * ATTENUATION_STEP_DB,
                     max: 0.0,
                     step: Some(ATTENUATION_STEP_DB),
                 },
-                values: Vec::new(),
-            },
+            ),
         ],
         antennas: vec![ANTENNA.to_string()],
         bandwidths: Vec::new(),
         bandwidth_ranges: Vec::new(),
-        extra: vec![
-            ExtraSetting::Bool {
-                name: AGC_SETTING.to_string(),
-                default: true,
-            },
-            ExtraSetting::Bool {
-                name: AGC_THRESHOLD_SETTING.to_string(),
-                default: false,
-            },
-            ExtraSetting::Bool {
-                name: BIAS_TEE_SETTING.to_string(),
-                default: false,
-            },
-        ],
+        bandwidth_auto: false,
+        bias_tee: true,
+        agc: Agc::Modes {
+            options: vec![
+                agc_mode(AGC_LOW, "Low threshold"),
+                agc_mode(AGC_HIGH, "High threshold"),
+            ],
+        },
+        extra: Vec::new(),
         ppm: false,
         duplex: Duplex::RxOnly,
         rx_streams: 1,
@@ -83,7 +76,7 @@ pub(crate) fn capabilities(sample_rates: &[u32]) -> Capabilities {
         directional: None,
         dc_artifact: DcArtifact::Managed,
         hardware_sweep: false,
-        coherence: sdrmm_wire::Coherence::None,
+        coherence: Coherence::None,
         noise_source: false,
     }
 }
@@ -93,32 +86,47 @@ pub(crate) fn settings(config: &Config) -> DeviceSettings {
         center_hz: Some(f64::from(config.frequency_hz)),
         sample_rate: Some(f64::from(config.sample_rate_hz)),
         antenna: Some(ANTENNA.to_string()),
+        bias_tee: Some(config.bias_tee),
+        agc: Some(agc_setting(config.agc, config.agc_high_threshold)),
         gains: vec![
-            GainValue {
-                stage: LNA_STAGE.to_string(),
-                value_db: if config.lna { LNA_DB } else { 0.0 },
-            },
-            GainValue {
-                stage: ATTENUATOR_STAGE.to_string(),
-                value_db: -f64::from(config.attenuation_step) * ATTENUATION_STEP_DB,
-            },
-        ],
-        extra: vec![
-            ExtraValue {
-                name: AGC_SETTING.to_string(),
-                value: config.agc.into(),
-            },
-            ExtraValue {
-                name: AGC_THRESHOLD_SETTING.to_string(),
-                value: config.agc_high_threshold.into(),
-            },
-            ExtraValue {
-                name: BIAS_TEE_SETTING.to_string(),
-                value: config.bias_tee.into(),
-            },
+            GainValue::new(GainKind::Amp, if config.lna { PREAMP_DB } else { 0.0 }),
+            GainValue::new(
+                GainKind::Attenuator,
+                -f64::from(config.attenuation_step) * ATTENUATION_STEP_DB,
+            ),
         ],
         ..DeviceSettings::default()
     }
+}
+
+pub(crate) fn agc_setting(on: bool, high_threshold: bool) -> AgcSetting {
+    AgcSetting::in_mode(on, if high_threshold { AGC_HIGH } else { AGC_LOW })
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct AgcWrites {
+    pub(crate) on: bool,
+    pub(crate) high_threshold: Option<bool>,
+}
+
+pub(crate) fn agc_writes(setting: &AgcSetting) -> Result<AgcWrites, DeviceError> {
+    let high_threshold = match setting.mode.as_deref() {
+        None => None,
+        Some(AGC_LOW) => Some(false),
+        Some(AGC_HIGH) => Some(true),
+        Some(other) => return Err(DeviceError::Unsupported(format!("no {other} AGC mode"))),
+    };
+    Ok(AgcWrites {
+        on: setting.on,
+        high_threshold,
+    })
+}
+
+pub(crate) fn stage_kind(capabilities: &Capabilities, name: &str) -> Result<GainKind, DeviceError> {
+    capabilities
+        .stage(name)
+        .map(|stage| stage.kind)
+        .ok_or_else(|| DeviceError::Unsupported(format!("no {name} stage")))
 }
 
 pub(crate) fn validate(
@@ -150,11 +158,14 @@ pub(crate) fn validate(
             "this radio has one input, {ANTENNA}, not {antenna}"
         )));
     }
+    if delta.bandwidth.is_some() {
+        return Err(DeviceError::Unsupported(
+            "this radio has no selectable filter".to_string(),
+        ));
+    }
     for gain in &delta.gains {
         let stage = capabilities
-            .gains
-            .iter()
-            .find(|stage| stage.name == gain.stage)
+            .stage(&gain.stage)
             .ok_or_else(|| DeviceError::Unsupported(format!("no {} stage", gain.stage)))?;
         if gain.value_db < stage.range.min || gain.value_db > stage.range.max {
             return Err(DeviceError::Unsupported(format!(
@@ -162,6 +173,21 @@ pub(crate) fn validate(
                 gain.stage, stage.range.min, stage.range.max
             )));
         }
+    }
+    if let Some(agc) = &delta.agc {
+        if !capabilities.agc.admits(agc) {
+            return Err(DeviceError::Unsupported(format!(
+                "no {} AGC mode",
+                agc.mode.as_deref().unwrap_or("(none)")
+            )));
+        }
+        agc_writes(agc)?;
+    }
+    if let Some(extra) = delta.extra.first() {
+        return Err(DeviceError::Unsupported(format!(
+            "no {} setting",
+            extra.name
+        )));
     }
     Ok(())
 }
@@ -181,14 +207,10 @@ pub(crate) fn attenuation_step(value_db: f64) -> Result<u8, DeviceError> {
     Ok(step as u8)
 }
 
-pub(crate) fn extra_bool(value: &serde_json::Value, name: &str) -> Result<bool, DeviceError> {
-    value
-        .as_bool()
-        .ok_or_else(|| DeviceError::Unsupported(format!("{name} is a switch, not {value}")))
-}
-
 #[cfg(test)]
 mod tests {
+    use sdrmm_wire::ExtraValue;
+
     use super::*;
 
     fn caps() -> Capabilities {
@@ -198,6 +220,13 @@ mod tests {
     fn tuned(hz: f64) -> DeviceSettings {
         DeviceSettings {
             center_hz: Some(hz),
+            ..DeviceSettings::default()
+        }
+    }
+
+    fn with_agc(agc: AgcSetting) -> DeviceSettings {
+        DeviceSettings {
+            agc: Some(agc),
             ..DeviceSettings::default()
         }
     }
@@ -223,16 +252,29 @@ mod tests {
     }
 
     #[test]
+    fn the_preamp_is_a_switched_amp_stage() {
+        let caps = caps();
+        let amp = caps.stage(GainKind::Amp.name()).expect("preamp");
+        assert_eq!(amp.name, "AMP");
+        assert!(amp.is_switch());
+        assert_eq!(amp.setting_count(), 2);
+        assert_eq!(amp.off(), 0.0);
+        assert_eq!(amp.on(), 6.0);
+        assert!(caps.stage("LNA").is_none());
+        assert!(caps.bias_tee);
+        assert!(caps.extra.is_empty());
+    }
+
+    #[test]
     fn the_attenuator_is_spelled_as_the_negative_gain_it_is() {
         let caps = caps();
-        let stage = caps
-            .gains
-            .iter()
-            .find(|stage| stage.name == ATTENUATOR_STAGE)
-            .expect("attenuator");
+        let stage = caps.stage(GainKind::Attenuator.name()).expect("attenuator");
+        assert_eq!(stage.name, "ATT");
         assert_eq!(stage.range.max, 0.0);
         assert_eq!(stage.range.min, -48.0);
         assert_eq!(stage.range.step, Some(6.0));
+        assert_eq!(stage_kind(&caps, "ATT").expect("att"), GainKind::Attenuator);
+        assert!(stage_kind(&caps, "LNA").is_err());
     }
 
     #[test]
@@ -250,10 +292,7 @@ mod tests {
     fn a_gain_beyond_a_stage_is_refused() {
         let caps = caps();
         let delta = DeviceSettings {
-            gains: vec![GainValue {
-                stage: ATTENUATOR_STAGE.to_string(),
-                value_db: -54.0,
-            }],
+            gains: vec![GainValue::new(GainKind::Attenuator, -54.0)],
             ..DeviceSettings::default()
         };
         assert!(validate(&delta, &caps).is_err());
@@ -279,19 +318,76 @@ mod tests {
         let reported = settings(&Config {
             lna: true,
             attenuation_step: 3,
+            bias_tee: true,
             ..Config::default()
         });
-        let lna = reported
-            .gains
-            .iter()
-            .find(|gain| gain.stage == LNA_STAGE)
-            .expect("lna");
-        assert_eq!(lna.value_db, 6.0);
-        let att = reported
-            .gains
-            .iter()
-            .find(|gain| gain.stage == ATTENUATOR_STAGE)
-            .expect("att");
-        assert_eq!(att.value_db, -18.0);
+        assert_eq!(reported.gain(GainKind::Amp.name()), Some(6.0));
+        assert_eq!(reported.gain(GainKind::Attenuator.name()), Some(-18.0));
+        assert_eq!(reported.bias_tee, Some(true));
+        assert!(reported.extra.is_empty());
+    }
+
+    #[test]
+    fn agc_modes_pick_the_threshold() {
+        let caps = caps();
+        for (setting, on, high) in [
+            (AgcSetting::off(), false, None),
+            (AgcSetting::switched(true), true, None),
+            (AgcSetting::in_mode(true, AGC_LOW), true, Some(false)),
+            (AgcSetting::in_mode(true, AGC_HIGH), true, Some(true)),
+            (AgcSetting::in_mode(false, AGC_HIGH), false, Some(true)),
+        ] {
+            assert!(
+                validate(&with_agc(setting.clone()), &caps).is_ok(),
+                "{setting:?}"
+            );
+            assert_eq!(
+                agc_writes(&setting).expect("known mode"),
+                AgcWrites {
+                    on,
+                    high_threshold: high
+                },
+                "{setting:?}"
+            );
+        }
+        assert!(validate(&with_agc(AgcSetting::in_mode(true, "mid")), &caps).is_err());
+        assert!(agc_writes(&AgcSetting::in_mode(true, "mid")).is_err());
+    }
+
+    #[test]
+    fn agc_state_round_trips_through_settings() {
+        for (on, high) in [(false, false), (true, false), (false, true), (true, true)] {
+            let reported = agc_setting(on, high);
+            assert_eq!(reported.on, on);
+            assert_eq!(
+                agc_writes(&reported).expect("reported mode"),
+                AgcWrites {
+                    on,
+                    high_threshold: Some(high)
+                }
+            );
+        }
+        assert_eq!(
+            settings(&Config::default()).agc,
+            Some(AgcSetting::in_mode(true, AGC_LOW))
+        );
+    }
+
+    #[test]
+    fn extras_and_filters_are_refused() {
+        let caps = caps();
+        let extra = DeviceSettings {
+            extra: vec![ExtraValue {
+                name: "agc".to_string(),
+                value: true.into(),
+            }],
+            ..DeviceSettings::default()
+        };
+        assert!(validate(&extra, &caps).is_err());
+        let filter = DeviceSettings {
+            bandwidth: Some(sdrmm_wire::BandwidthSetting::Auto),
+            ..DeviceSettings::default()
+        };
+        assert!(validate(&filter, &caps).is_err());
     }
 }

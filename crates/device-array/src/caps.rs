@@ -1,5 +1,5 @@
 use sdrmm_wire::{
-    ArrayDefinition, Capabilities, DeviceProfile, Duplex, GainStage, Range, StreamScope,
+    Agc, ArrayDefinition, Capabilities, DeviceProfile, Duplex, GainStage, Range, StreamScope,
 };
 
 /// What every member can do, which is all a composite can promise.
@@ -54,6 +54,54 @@ fn shared_names(names: &[&[String]]) -> Vec<String> {
         .collect()
 }
 
+fn shared_gains(members: &[&Capabilities]) -> Vec<GainStage> {
+    let Some((first, rest)) = members.split_first() else {
+        return Vec::new();
+    };
+    first
+        .gains
+        .iter()
+        .filter_map(|stage| {
+            let others = rest
+                .iter()
+                .map(|member| member.stage(&stage.name))
+                .collect::<Option<Vec<_>>>()?;
+            shared_stage(stage, &others)
+        })
+        .collect()
+}
+
+fn shared_stage(stage: &GainStage, others: &[&GainStage]) -> Option<GainStage> {
+    let ranges = std::iter::once(std::slice::from_ref(&stage.range))
+        .chain(
+            others
+                .iter()
+                .map(|other| std::slice::from_ref(&other.range)),
+        )
+        .collect::<Vec<_>>();
+    let range = intersect(&ranges).into_iter().next()?;
+    let values = if others.iter().all(|other| other.values == stage.values) {
+        stage.values.clone()
+    } else {
+        Vec::new()
+    };
+    Some(GainStage {
+        name: stage.name.clone(),
+        kind: stage.kind,
+        unit: stage.unit,
+        range,
+        values,
+    })
+}
+
+fn shared_agc(members: &[&Capabilities]) -> Agc {
+    if !members.is_empty() && members.iter().all(|member| member.agc.offered()) {
+        Agc::Switch
+    } else {
+        Agc::None
+    }
+}
+
 #[must_use]
 pub fn composite(members: &[&Capabilities], definition: &ArrayDefinition) -> Capabilities {
     let freq_ranges = intersect(
@@ -92,18 +140,17 @@ pub fn composite(members: &[&Capabilities], definition: &ArrayDefinition) -> Cap
             .map(|member| member.antennas.as_slice())
             .collect::<Vec<_>>(),
     );
-    let gains: Vec<GainStage> = members
-        .first()
-        .map(|member| member.gains.clone())
-        .unwrap_or_default();
     Capabilities {
         freq_ranges,
         sample_rates,
         sample_rate_ranges,
-        gains,
+        gains: shared_gains(members),
         antennas,
         bandwidths,
         bandwidth_ranges,
+        bandwidth_auto: members.iter().all(|member| member.bandwidth_auto),
+        bias_tee: members.iter().all(|member| member.bias_tee),
+        agc: shared_agc(members),
         extra: Vec::new(),
         ppm: members.iter().all(|member| member.ppm),
         duplex: Duplex::RxOnly,

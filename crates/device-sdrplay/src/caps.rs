@@ -1,15 +1,13 @@
 use sdrmm_device::DeviceError;
 use sdrmm_wire::{
-    ArgumentOption, Capabilities, DcArtifact, ExtraSetting, GainStage, Range, StreamScope,
+    Agc, ArgumentOption, Capabilities, DcArtifact, ExtraSetting, GainKind, GainStage, Range,
+    StreamScope,
 };
 
 use crate::{
     ffi,
     model::{DuoMode, Model},
 };
-
-pub const IF_GAIN_STAGE: &str = "IF";
-pub const RF_GAIN_STAGE: &str = "RF";
 
 pub const MIN_GR_DB: i32 = ffi::NORMAL_MIN_GR;
 pub const MAX_GR_DB: i32 = ffi::MAX_BB_GR;
@@ -26,9 +24,7 @@ pub const ANTENNA_C: &str = "Antenna C";
 pub const ANTENNA_HI_Z: &str = "Hi-Z";
 pub const ANTENNA_50_OHM: &str = "50 Ohm";
 
-pub const EXTRA_AGC: &str = "agc";
 pub const EXTRA_AGC_SETPOINT: &str = "agc_setpoint_dbfs";
-pub const EXTRA_BIAS_T: &str = "bias_t";
 pub const EXTRA_RF_NOTCH: &str = "rf_notch";
 pub const EXTRA_DAB_NOTCH: &str = "dab_notch";
 pub const EXTRA_AM_NOTCH: &str = "am_notch";
@@ -38,7 +34,6 @@ pub const EXTRA_HDR_BW: &str = "hdr_bandwidth";
 pub const EXTRA_DC_CORRECTION: &str = "dc_correction";
 pub const EXTRA_IQ_BALANCE: &str = "iq_balance";
 
-pub const AGC_OFF: &str = "off";
 pub const AGC_5HZ: &str = "5 Hz";
 pub const AGC_50HZ: &str = "50 Hz";
 pub const AGC_100HZ: &str = "100 Hz";
@@ -395,69 +390,62 @@ pub fn antennas(model: Model, mode: Option<DuoMode>) -> Vec<String> {
     }
 }
 
-fn agc_setting() -> ExtraSetting {
-    ExtraSetting::Enum {
-        name: EXTRA_AGC.to_string(),
+#[must_use]
+pub fn agc() -> Agc {
+    Agc::Modes {
         options: vec![
-            ArgumentOption::plain(AGC_OFF),
             ArgumentOption::plain(AGC_5HZ),
             ArgumentOption::plain(AGC_50HZ),
             ArgumentOption::plain(AGC_100HZ),
         ],
-        default: AGC_50HZ.to_string(),
-    }
-}
-
-fn boolean(name: &str, default: bool) -> ExtraSetting {
-    ExtraSetting::Bool {
-        name: name.to_string(),
-        default,
     }
 }
 
 #[must_use]
 pub fn extras(model: Model, mode: Option<DuoMode>) -> Vec<ExtraSetting> {
     let mut extras = vec![
-        agc_setting(),
-        ExtraSetting::Range {
-            name: EXTRA_AGC_SETPOINT.to_string(),
-            range: Range {
+        ExtraSetting::range(
+            EXTRA_AGC_SETPOINT,
+            "AGC setpoint",
+            Range {
                 min: -72.0,
                 max: -20.0,
                 step: Some(1.0),
             },
-            unit: "dBFS".to_string(),
-        },
-        boolean(EXTRA_DC_CORRECTION, true),
-        boolean(EXTRA_IQ_BALANCE, true),
+            "dBFS",
+        ),
+        ExtraSetting::bool(EXTRA_DC_CORRECTION, "DC correction", true),
+        ExtraSetting::bool(EXTRA_IQ_BALANCE, "IQ balance", true),
     ];
-    if model.has_bias_t() {
-        extras.push(boolean(EXTRA_BIAS_T, false));
-    }
     if model.has_rf_notch() {
-        extras.push(boolean(EXTRA_RF_NOTCH, false));
+        extras.push(ExtraSetting::bool(EXTRA_RF_NOTCH, "RF notch", false));
     }
     if model.has_dab_notch() {
-        extras.push(boolean(EXTRA_DAB_NOTCH, false));
+        extras.push(ExtraSetting::bool(EXTRA_DAB_NOTCH, "DAB notch", false));
     }
     if model == Model::RspDuo && matches!(mode, Some(DuoMode::SingleTunerA | DuoMode::MasterA)) {
-        extras.push(boolean(EXTRA_AM_NOTCH, false));
+        extras.push(ExtraSetting::bool(EXTRA_AM_NOTCH, "AM notch", false));
     }
     if model.has_ext_ref() {
-        extras.push(boolean(EXTRA_EXT_REF, false));
+        extras.push(ExtraSetting::bool(
+            EXTRA_EXT_REF,
+            "External reference out",
+            false,
+        ));
     }
     if model.has_hdr() {
-        extras.push(boolean(EXTRA_HDR, false));
-        extras.push(ExtraSetting::Enum {
-            name: EXTRA_HDR_BW.to_string(),
-            options: vec![
+        extras.push(ExtraSetting::bool(EXTRA_HDR, "HDR mode", false));
+        extras.push(ExtraSetting::choice(
+            EXTRA_HDR_BW,
+            "HDR bandwidth",
+            vec![
                 ArgumentOption::plain("200 kHz"),
                 ArgumentOption::plain("500 kHz"),
                 ArgumentOption::plain("1.2 MHz"),
                 ArgumentOption::plain("1.7 MHz"),
             ],
-            default: "1.7 MHz".to_string(),
-        });
+            "1.7 MHz",
+        ));
     }
     extras
 }
@@ -480,28 +468,29 @@ pub fn capabilities(model: Model, mode: Option<DuoMode>, band: Band) -> Capabili
         sample_rates: rates,
         sample_rate_ranges,
         gains: vec![
-            GainStage {
-                name: RF_GAIN_STAGE.to_string(),
-                range: Range {
+            GainStage::new(
+                GainKind::Rf,
+                Range {
                     min: 0.0,
                     max: max_lna_reduction(band),
                     step: None,
                 },
-                values: Vec::new(),
-            },
-            GainStage {
-                name: IF_GAIN_STAGE.to_string(),
-                range: Range {
+            ),
+            GainStage::new(
+                GainKind::If,
+                Range {
                     min: 0.0,
                     max: IF_GAIN_SPAN_DB,
                     step: Some(1.0),
                 },
-                values: Vec::new(),
-            },
+            ),
         ],
         antennas: antennas(model, mode),
         bandwidths: bandwidths(mode),
         bandwidth_ranges: Vec::new(),
+        bandwidth_auto: true,
+        bias_tee: model.has_bias_t(),
+        agc: agc(),
         extra: extras(model, mode),
         ppm: true,
         duplex: sdrmm_wire::Duplex::RxOnly,
@@ -739,13 +728,31 @@ mod tests {
                 .collect()
         };
         let rsp1 = names(Model::Rsp1, None);
-        assert!(!rsp1.contains(&EXTRA_BIAS_T.to_string()));
         assert!(!rsp1.contains(&EXTRA_RF_NOTCH.to_string()));
         let dx = names(Model::RspDx, None);
         assert!(dx.contains(&EXTRA_HDR.to_string()));
         assert!(dx.contains(&EXTRA_DAB_NOTCH.to_string()));
         assert!(!names(Model::Rsp2, None).contains(&EXTRA_HDR.to_string()));
         assert!(names(Model::Rsp2, None).contains(&EXTRA_EXT_REF.to_string()));
+        assert!(!capabilities(Model::Rsp1, None, band(Model::Rsp1, 100e6)).bias_tee);
+        assert!(capabilities(Model::Rsp1a, None, band(Model::Rsp1a, 100e6)).bias_tee);
+    }
+
+    #[test]
+    fn every_oddity_carries_a_label_and_the_agc_offers_its_loop_rates() {
+        let caps = capabilities(Model::RspDx, None, band(Model::RspDx, 100e6));
+        assert!(caps.extra.iter().all(|extra| extra.label().is_some()));
+        assert_eq!(caps.agc.first_mode(), Some(AGC_5HZ));
+        assert!(caps.bandwidth_auto);
+        assert!(!caps.bandwidths.contains(&0.0));
+        assert_eq!(
+            caps.stage(GainKind::Rf.name()).map(|s| s.range.max),
+            Some(84.0)
+        );
+        assert_eq!(
+            caps.stage(GainKind::If.name()).map(|s| s.range.step),
+            Some(Some(1.0))
+        );
     }
 
     #[test]

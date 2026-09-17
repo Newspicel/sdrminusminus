@@ -808,8 +808,8 @@ impl Engine {
                     })
                     .collect()
             };
-            if let Some(coherence) = lock_runtime(&state.runtime).coherence() {
-                state.capabilities.coherence = coherence;
+            if let Some(current) = lock_runtime(&state.runtime).capabilities() {
+                state.capabilities = current;
             }
             let settings = state.settings.clone();
             let blocking = dc_block(&state.capabilities, &settings);

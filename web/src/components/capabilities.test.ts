@@ -1,11 +1,16 @@
 import { describe, expect, it } from "vitest";
 import type { GainStage } from "../lib/types";
 import {
-  AGC_SETTING,
+  agcState,
   automaticGainIsOn,
   dcBlockOn,
+  filterHz,
   fitsSlider,
+  formatGain,
+  gainLabel,
+  gainUnit,
   hasDcArtifact,
+  hasFilter,
   isSwitch,
   settingIndex,
   snapToRanges,
@@ -17,7 +22,8 @@ import {
 const stage = (
   range: { min: number; max: number; step?: number },
   values?: number[],
-): GainStage => ({ name: "TEST", range, ...(values == null ? {} : { values }) });
+  kind: GainStage["kind"] = "lna",
+): GainStage => ({ name: "TEST", kind, range, ...(values == null ? {} : { values }) });
 
 const TUNER = stage(
   { min: 0, max: 49.6 },
@@ -28,16 +34,26 @@ const TUNER = stage(
 );
 
 describe("isSwitch", () => {
-  it("reads a two-setting stage as a switch however it was declared", () => {
-    expect(isSwitch(stage({ min: 0, max: 14, step: 14 }))).toBe(true);
-    expect(isSwitch(stage({ min: 0, max: 14 }, [0, 14]))).toBe(true);
+  it("is an amp and nothing else", () => {
+    expect(isSwitch(stage({ min: 0, max: 14, step: 14 }, undefined, "amp"))).toBe(true);
+    expect(isSwitch(stage({ min: 0, max: 14, step: 14 }))).toBe(false);
+    expect(isSwitch(stage({ min: 0, max: 14 }, [0, 14]))).toBe(false);
+    expect(isSwitch(TUNER)).toBe(false);
+  });
+});
+
+describe("gain labels", () => {
+  it("names a stage by its kind and falls back to the hardware name", () => {
+    expect(gainLabel({ kind: "lna", name: "LNA" })).toBe("LNA");
+    expect(gainLabel({ kind: "mixer", name: "MIX" })).toBe("Mixer");
+    expect(gainLabel({ kind: "other", name: "rxvga1" })).toBe("rxvga1");
   });
 
-  it("leaves controls with room to move alone", () => {
-    expect(isSwitch(stage({ min: 0, max: 40, step: 8 }))).toBe(false);
-    expect(isSwitch(stage({ min: 0, max: 62, step: 2 }))).toBe(false);
-    expect(isSwitch(stage({ min: 0, max: 10 }))).toBe(false);
-    expect(isSwitch(TUNER)).toBe(false);
+  it("reads a firmware step without a unit", () => {
+    expect(gainUnit({ unit: "index" })).toBe("");
+    expect(gainUnit({})).toBe("dB");
+    expect(formatGain({ unit: "index" }, 7.4)).toBe("7");
+    expect(formatGain({ unit: "db" }, 7.4)).toBe("7.4");
   });
 });
 
@@ -169,18 +185,51 @@ describe("dcBlockOn", () => {
 });
 
 describe("automaticGainIsOn", () => {
-  const caps = { extra: [{ kind: "bool" as const, name: AGC_SETTING, default: true }] };
+  const modes = {
+    agc: { kind: "modes" as const, options: [{ value: "fast" }, { value: "slow" }] },
+  };
 
-  it("reads the mode the radio reports", () => {
-    expect(automaticGainIsOn(caps, { extra: [{ name: AGC_SETTING, value: true }] })).toBe(true);
-    expect(automaticGainIsOn(caps, { extra: [{ name: AGC_SETTING, value: false }] })).toBe(false);
+  it("reads the state the radio reports", () => {
+    expect(automaticGainIsOn({ agc: { kind: "switch" } }, { agc: { on: true } })).toBe(true);
+    expect(automaticGainIsOn({ agc: { kind: "switch" } }, { agc: { on: false } })).toBe(false);
   });
 
   it("leaves a radio with no such control alone", () => {
-    expect(automaticGainIsOn({ extra: [] }, { extra: [{ name: AGC_SETTING, value: true }] })).toBe(
-      false,
-    );
-    expect(automaticGainIsOn(caps, {})).toBe(false);
+    expect(automaticGainIsOn({ agc: { kind: "none" } }, { agc: { on: true } })).toBe(false);
+    expect(automaticGainIsOn({}, { agc: { on: true } })).toBe(false);
+    expect(automaticGainIsOn(modes, {})).toBe(false);
+  });
+
+  it("offers the first mode until the radio names one", () => {
+    expect(agcState(modes, {})).toEqual({ on: false, mode: "fast" });
+    expect(agcState(modes, { agc: { on: true, mode: "slow" } })).toEqual({
+      on: true,
+      mode: "slow",
+    });
+    expect(agcState({ agc: { kind: "switch" } }, { agc: { on: true } })).toEqual({ on: true });
+  });
+});
+
+describe("filter", () => {
+  const menu = { bandwidths: [1.75e6, 2.5e6, 5e6], bandwidth_ranges: [] };
+
+  it("is offered for a menu, a range or an automatic width", () => {
+    expect(hasFilter({ bandwidths: [], bandwidth_ranges: [], bandwidth_auto: true })).toBe(true);
+    expect(hasFilter({ ...menu })).toBe(true);
+    expect(hasFilter({ bandwidths: [], bandwidth_ranges: [{ min: 1e6, max: 8e6 }] })).toBe(true);
+    expect(hasFilter({ bandwidths: [], bandwidth_ranges: [] })).toBe(false);
+  });
+
+  it("shows the manual width, or the narrowest one that covers the rate under auto", () => {
+    expect(filterHz(menu, { bandwidth: { kind: "manual", hz: 5e6 } })).toBe(5e6);
+    expect(filterHz(menu, { bandwidth: { kind: "auto" }, sample_rate: 2.4e6 })).toBe(2.5e6);
+    expect(filterHz(menu, { sample_rate: 20e6 })).toBe(5e6);
+    expect(
+      filterHz(
+        { bandwidths: [], bandwidth_ranges: [{ min: 290e3, max: 8e6 }] },
+        { sample_rate: 2.4e6 },
+      ),
+    ).toBe(2.4e6);
   });
 });
 

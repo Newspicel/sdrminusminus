@@ -6,7 +6,9 @@ use std::sync::{
 use sdrmm_device::{
     CaptureConfig, DeviceDriver, DeviceError, RxSink, SdrDevice, Worker, drain_stream, lock,
 };
-use sdrmm_wire::{Capabilities, DeviceInfo, DeviceSettings, ExtraValue, StreamSettings};
+use sdrmm_wire::{
+    AgcSetting, BandwidthSetting, Capabilities, DeviceInfo, DeviceSettings, StreamSettings,
+};
 
 use crate::{
     DEFAULT_CENTER_HZ, apply_to_hardware, caps, convert,
@@ -121,10 +123,8 @@ fn settled_from(sdr: &RtlSdr) -> DeviceSettings {
         sample_rate: Some(f64::from(sdr.sample_rate())),
         ppm: Some(f64::from(sdr.freq_correction())),
         antenna: Some("RX".to_owned()),
-        extra: vec![ExtraValue {
-            name: caps::AGC.to_owned(),
-            value: true.into(),
-        }],
+        bandwidth: Some(BandwidthSetting::Auto),
+        agc: Some(AgcSetting::switched(true)),
         ..DeviceSettings::default()
     }
 }
@@ -168,10 +168,7 @@ impl KrakenDevice {
             running: Arc::new(AtomicBool::new(false)),
             workers: Vec::new(),
         };
-        device.settings.extra = vec![ExtraValue {
-            name: caps::BIAS_TEE.to_owned(),
-            value: false.into(),
-        }];
+        device.settings.bias_tee = Some(false);
         device.republish();
         Ok(device)
     }
@@ -188,13 +185,7 @@ impl KrakenDevice {
         self.settings.bandwidth = first.bandwidth;
         self.settings.antenna.clone_from(&first.antenna);
         self.settings.gains.clone_from(&first.gains);
-        let agc = first
-            .extra
-            .iter()
-            .find(|value| value.name == caps::AGC)
-            .cloned();
-        self.settings.extra.retain(|value| value.name != caps::AGC);
-        self.settings.extra.extend(agc);
+        self.settings.agc.clone_from(&first.agc);
         self.settings.streams = self
             .lane_settings
             .iter()
@@ -245,9 +236,6 @@ impl SdrDevice for KrakenDevice {
                 continue;
             }
             settled.merge_from(&lane.applied);
-            if lane.clear_bandwidth {
-                settled.bandwidth = None;
-            }
         }
         let control = lock(&self.lanes[0]);
         for (pin, on) in &plan.gpio {
@@ -257,11 +245,8 @@ impl SdrDevice for KrakenDevice {
         }
         drop(control);
         self.republish();
-        if failure.is_none() {
-            for value in plan.extra {
-                self.settings.extra.retain(|held| held.name != value.name);
-                self.settings.extra.push(value);
-            }
+        if failure.is_none() && plan.bias_tee.is_some() {
+            self.settings.bias_tee = plan.bias_tee;
         }
         failure.map_or(Ok(()), Err)
     }

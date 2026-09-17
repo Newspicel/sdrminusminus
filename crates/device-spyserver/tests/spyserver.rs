@@ -12,7 +12,7 @@ use sdrmm_device::{
     net::testing::{DEADLINE, FakeServer, eventually},
 };
 use sdrmm_device_spyserver::SpyServerDriver;
-use sdrmm_wire::{DeviceSettings, ExtraSetting, ExtraValue};
+use sdrmm_wire::{DeviceSettings, GainKind, GainUnit, GainValue};
 
 const PROTOCOL_VERSION: u32 = (2 << 24) | 1700;
 const MSG_DEVICE_INFO: u16 = 0;
@@ -218,17 +218,15 @@ fn opening_reads_the_capability_set_off_the_handshake() {
         vec![500_000.0, 1_000_000.0, 2_000_000.0, 4_000_000.0],
         "the maximum halved once per stage, and never the undecimated rate"
     );
-    assert!(caps.gains.is_empty(), "this protocol has no gain in dB");
-    let gain = caps
-        .extra
-        .iter()
-        .find(|setting| setting.name() == "gain")
-        .expect("the gain index");
-    let ExtraSetting::Range { range, unit, .. } = gain else {
-        panic!("the gain index is a range, not {gain:?}");
-    };
-    assert_eq!(range.max, 28.0);
-    assert_eq!(unit, "index");
+    let stage = caps.stage("TUNER").expect("the gain index");
+    assert_eq!(
+        stage.unit,
+        GainUnit::Index,
+        "this protocol has no gain in dB"
+    );
+    assert_eq!(stage.range.max, 28.0);
+    assert_eq!(stage.range.step, Some(1.0));
+    assert_eq!(device.settings().gain("TUNER"), Some(12.0));
 
     assert_eq!(device.settings().center_hz, Some(100_000_000.0));
     assert_eq!(server.connections(), 1, "the handshake hangs up");
@@ -245,7 +243,7 @@ fn a_server_that_will_not_be_steered_reports_only_what_it_will_move() {
     let caps = device.capabilities();
     assert_eq!(caps.freq_ranges[0].min, 99e6);
     assert_eq!(caps.freq_ranges[0].max, 101e6);
-    assert!(!caps.extra.iter().any(|setting| setting.name() == "gain"));
+    assert!(caps.gains.is_empty());
 }
 
 #[test]
@@ -317,10 +315,7 @@ fn a_retune_while_streaming_reaches_the_server() {
     device
         .apply(&DeviceSettings {
             center_hz: Some(144_800_000.0),
-            extra: vec![ExtraValue {
-                name: "gain".to_string(),
-                value: 20.into(),
-            }],
+            gains: vec![GainValue::new(GainKind::Tuner, 20.0)],
             ..DeviceSettings::default()
         })
         .expect("retunes");
@@ -332,6 +327,7 @@ fn a_retune_while_streaming_reaches_the_server() {
         (settings(&observed, CAPTURING).contains(&(SETTING_GAIN, 20))).then_some(())
     });
     assert_eq!(device.settings().center_hz, Some(144_800_000.0));
+    assert_eq!(device.settings().gain("TUNER"), Some(20.0));
     device.rx_stop();
 }
 

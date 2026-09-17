@@ -495,6 +495,9 @@ mod tests {
             antennas: Vec::new(),
             bandwidths: Vec::new(),
             bandwidth_ranges: Vec::new(),
+            bandwidth_auto: false,
+            bias_tee: false,
+            agc: sdrmm_wire::Agc::None,
             extra: Vec::new(),
             ppm: false,
             duplex: Duplex::RxOnly,
@@ -587,10 +590,7 @@ mod tests {
         refused_naming(&with_streams(vec![antenna]), &gain_only, "antenna");
 
         let mut gain = entry(1);
-        gain.gains = vec![sdrmm_wire::GainValue {
-            stage: "LNA".to_string(),
-            value_db: 12.0,
-        }];
+        gain.gains = vec![sdrmm_wire::GainValue::new(sdrmm_wire::GainKind::Lna, 12.0)];
         check_stream_settings(&with_streams(vec![gain.clone()]), &gain_only)
             .expect("gain is scoped per-stream");
 

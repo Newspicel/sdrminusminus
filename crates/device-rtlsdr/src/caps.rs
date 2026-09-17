@@ -1,7 +1,8 @@
 use sdrmm_device::{DeviceError, check_stream_settings};
 use sdrmm_wire::{
-    ArgumentOption, Capabilities, DcArtifact, DeviceInfo, DeviceSettings, Duplex, ExtraSetting,
-    ExtraValue, GainStage, GainValue, Range, StreamScope,
+    Agc, AgcSetting, ArgumentOption, BandwidthSetting, Capabilities, DcArtifact, DeviceInfo,
+    DeviceSettings, Duplex, ExtraSetting, ExtraValue, GainKind, GainStage, GainValue, Range,
+    StreamScope,
 };
 
 use crate::{
@@ -36,11 +37,9 @@ const RATE_MENU: [f64; 9] = [
 
 const PPM_MAX: f64 = 200.0;
 
+const BANDWIDTH_MIN_HZ: f64 = 290e3;
 const BANDWIDTH_MAX_HZ: f64 = 8e6;
 
-pub(crate) const TUNER_STAGE: &str = "TUNER";
-pub(crate) const BIAS_TEE: &str = "bias_tee";
-pub(crate) const AGC: &str = "agc";
 pub(crate) const DIRECT_SAMPLING: &str = "direct_sampling";
 
 #[derive(Debug, Default, PartialEq)]
@@ -49,7 +48,6 @@ pub(crate) struct Plan {
     pub(crate) ppm: Option<i32>,
     pub(crate) center_hz: Option<u32>,
     pub(crate) bandwidth: Option<u32>,
-    pub(crate) clear_bandwidth: bool,
     pub(crate) direct_sampling: Option<DirectSampling>,
     pub(crate) gain: Option<GainMode>,
     pub(crate) bias_tee: Option<bool>,
@@ -100,6 +98,20 @@ pub(crate) fn device_infos(descriptors: &[DeviceDescriptor]) -> Vec<DeviceInfo> 
         .collect()
 }
 
+fn tuner_stage(gains: &[i32]) -> Option<GainStage> {
+    let min = gains.iter().copied().min()?;
+    let max = gains.iter().copied().max()?;
+    let range = Range {
+        min: tenths_to_db(min),
+        max: tenths_to_db(max),
+        step: None,
+    };
+    Some(
+        GainStage::new(GainKind::Tuner, range)
+            .with_values(gains.iter().copied().map(tenths_to_db).collect()),
+    )
+}
+
 pub(crate) fn capabilities(board: BoardVariant, gains: &[i32]) -> Capabilities {
     let mut freq_ranges = Vec::with_capacity(2);
     if board == BoardVariant::RtlSdrBlogV4 {
@@ -117,21 +129,6 @@ pub(crate) fn capabilities(board: BoardVariant, gains: &[i32]) -> Capabilities {
         step: None,
     });
 
-    // The 29-entry R82xx table is not evenly spaced, so it travels as the table it is rather
-    // than as a step a client would have to round against and get wrong.
-    let gain_stages = match (gains.iter().copied().min(), gains.iter().copied().max()) {
-        (Some(min), Some(max)) => vec![GainStage {
-            name: TUNER_STAGE.to_string(),
-            range: Range {
-                min: tenths_to_db(min),
-                max: tenths_to_db(max),
-                step: None,
-            },
-            values: gains.iter().copied().map(tenths_to_db).collect(),
-        }],
-        _ => Vec::new(),
-    };
-
     Capabilities {
         freq_ranges,
         sample_rates: RATE_MENU.to_vec(),
@@ -143,16 +140,17 @@ pub(crate) fn capabilities(board: BoardVariant, gains: &[i32]) -> Capabilities {
                 step: None,
             })
             .collect(),
-        gains: gain_stages,
+        gains: tuner_stage(gains).into_iter().collect(),
         antennas: vec!["RX".to_string()],
         bandwidths: Vec::new(),
-        // The R82xx filter is continuous from the caller's side; only the envelope is fixed, and
-        // 0 selects the automatic width that tracks the sample rate.
         bandwidth_ranges: vec![Range {
-            min: 0.0,
+            min: BANDWIDTH_MIN_HZ,
             max: BANDWIDTH_MAX_HZ,
             step: None,
         }],
+        bandwidth_auto: true,
+        bias_tee: true,
+        agc: Agc::Switch,
         extra: extra_settings(board),
         ppm: true,
         duplex: Duplex::RxOnly,
@@ -180,16 +178,7 @@ pub(crate) fn kraken_capabilities(lanes: u32, gains: &[i32]) -> Capabilities {
             max: TUNER_MAX_HZ,
             step: None,
         }],
-        extra: vec![
-            ExtraSetting::Bool {
-                name: BIAS_TEE.to_string(),
-                default: false,
-            },
-            ExtraSetting::Bool {
-                name: AGC.to_string(),
-                default: true,
-            },
-        ],
+        extra: Vec::new(),
         noise_source: true,
         rx_streams: lanes,
         per_stream: StreamScope {
@@ -203,27 +192,18 @@ pub(crate) fn kraken_capabilities(lanes: u32, gains: &[i32]) -> Capabilities {
 }
 
 fn extra_settings(board: BoardVariant) -> Vec<ExtraSetting> {
-    let mut settings = vec![
-        ExtraSetting::Bool {
-            name: BIAS_TEE.to_string(),
-            default: false,
-        },
-        ExtraSetting::Bool {
-            name: AGC.to_string(),
-            default: true,
-        },
-    ];
-    if board != BoardVariant::RtlSdrBlogV4 {
-        settings.push(ExtraSetting::Enum {
-            name: DIRECT_SAMPLING.to_string(),
-            options: DirectSampling::all()
-                .iter()
-                .map(|mode| ArgumentOption::plain(mode.as_str()))
-                .collect(),
-            default: DirectSampling::Off.as_str().to_string(),
-        });
+    if board == BoardVariant::RtlSdrBlogV4 {
+        return Vec::new();
     }
-    settings
+    vec![ExtraSetting::choice(
+        DIRECT_SAMPLING,
+        "Direct sampling",
+        DirectSampling::all()
+            .iter()
+            .map(|mode| ArgumentOption::plain(mode.as_str()))
+            .collect(),
+        DirectSampling::Off.as_str(),
+    )]
 }
 
 fn reachable_ranges(caps: &Capabilities, mode: DirectSampling) -> Vec<Range> {
@@ -260,14 +240,6 @@ fn direct_sampling_of(settings: &DeviceSettings) -> DirectSampling {
         .unwrap_or_default()
 }
 
-fn agc_of(settings: &DeviceSettings) -> Option<bool> {
-    settings
-        .extra
-        .iter()
-        .find(|value| value.name == AGC)
-        .and_then(|value| value.value.as_bool())
-}
-
 fn tenths_to_db(tenths: i32) -> f64 {
     f64::from(tenths) / 10.0
 }
@@ -288,8 +260,7 @@ fn plan_extras(
     delta: &DeviceSettings,
     caps: &Capabilities,
     plan: &mut Plan,
-) -> Result<(Option<bool>, Option<DirectSampling>), DeviceError> {
-    let mut agc = None;
+) -> Result<Option<DirectSampling>, DeviceError> {
     let mut mode = None;
     for value in &delta.extra {
         let setting = caps
@@ -298,15 +269,6 @@ fn plan_extras(
             .find(|s| s.name() == value.name)
             .ok_or_else(|| DeviceError::Unsupported(format!("extra setting {}", value.name)))?;
         match value.name.as_str() {
-            BIAS_TEE => {
-                let on = extra_bool(setting, value)?;
-                plan.bias_tee = Some(on);
-                plan.applied.extra.push(ExtraValue {
-                    name: BIAS_TEE.to_string(),
-                    value: on.into(),
-                });
-            }
-            AGC => agc = Some(extra_bool(setting, value)?),
             DIRECT_SAMPLING => {
                 let requested = extra_direct_sampling(setting, value)?;
                 mode = Some(requested);
@@ -318,7 +280,31 @@ fn plan_extras(
             other => return Err(DeviceError::Unsupported(format!("extra setting {other}"))),
         }
     }
-    Ok((agc, mode))
+    Ok(mode)
+}
+
+fn plan_switches(
+    delta: &DeviceSettings,
+    caps: &Capabilities,
+    plan: &mut Plan,
+) -> Result<Option<bool>, DeviceError> {
+    if let Some(on) = delta.bias_tee {
+        if !caps.bias_tee {
+            return Err(DeviceError::Unsupported("bias_tee".to_string()));
+        }
+        plan.bias_tee = Some(on);
+        plan.applied.bias_tee = Some(on);
+    }
+    let Some(agc) = &delta.agc else {
+        return Ok(None);
+    };
+    if !caps.agc.admits(agc) {
+        return Err(DeviceError::Unsupported(format!(
+            "agc: the tuner's AGC is a switch, mode {:?} does not exist",
+            agc.mode
+        )));
+    }
+    Ok(Some(agc.on))
 }
 
 fn plan_center(
@@ -377,21 +363,26 @@ fn plan_bandwidth(
         })
         .or_else(|| {
             (plan.direct_sampling == Some(DirectSampling::Off))
-                .then(|| current.bandwidth.unwrap_or(0.0))
+                .then(|| current.bandwidth.unwrap_or(BandwidthSetting::Auto))
         });
-    let Some(bw) = bandwidth else {
+    let Some(bandwidth) = bandwidth else {
         return Ok(());
     };
-    if !(0.0..=BANDWIDTH_MAX_HZ).contains(&bw) {
-        return Err(DeviceError::Unsupported(format!(
-            "bandwidth {bw} outside 0..{BANDWIDTH_MAX_HZ} Hz (0 = automatic)"
-        )));
-    }
+    let hz = match bandwidth {
+        BandwidthSetting::Auto => 0,
+        BandwidthSetting::Manual { hz } => {
+            if !(BANDWIDTH_MIN_HZ..=BANDWIDTH_MAX_HZ).contains(&hz) {
+                return Err(DeviceError::Unsupported(format!(
+                    "bandwidth {hz} outside {BANDWIDTH_MIN_HZ}..{BANDWIDTH_MAX_HZ} Hz"
+                )));
+            }
+            hz.round() as u32
+        }
+    };
     if mode == DirectSampling::Off {
-        plan.bandwidth = Some(bw.round() as u32);
+        plan.bandwidth = Some(hz);
     }
-    plan.applied.bandwidth = (bw > 0.0).then_some(bw);
-    plan.clear_bandwidth = bw == 0.0;
+    plan.applied.bandwidth = Some(bandwidth);
     Ok(())
 }
 
@@ -425,9 +416,7 @@ fn requested_gain(
     let mut requested = None;
     for gain in &delta.gains {
         let stage = caps
-            .gains
-            .iter()
-            .find(|s| s.name == gain.stage)
+            .stage(&gain.stage)
             .ok_or_else(|| DeviceError::Unsupported(format!("gain stage {}", gain.stage)))?;
         if !(stage.range.min..=stage.range.max).contains(&gain.value_db) {
             return Err(DeviceError::Unsupported(format!(
@@ -452,7 +441,7 @@ fn plan_gain(
         (_, Some(tenths)) => Some(GainMode::Manual(tenths)),
         (Some(false), None) => Some(GainMode::Manual(restored_manual(current, table)?)),
         (None, None) if plan.direct_sampling == Some(DirectSampling::Off) => {
-            Some(match agc_of(current) {
+            Some(match current.agc.as_ref().map(|agc| agc.on) {
                 Some(false) => GainMode::Manual(restored_manual(current, table)?),
                 _ => GainMode::Auto,
             })
@@ -463,19 +452,12 @@ fn plan_gain(
         plan.gain = gain;
     }
     match gain {
-        Some(GainMode::Auto) => plan.applied.extra.push(ExtraValue {
-            name: AGC.to_string(),
-            value: true.into(),
-        }),
+        Some(GainMode::Auto) => plan.applied.agc = Some(AgcSetting::switched(true)),
         Some(GainMode::Manual(tenths)) => {
-            plan.applied.extra.push(ExtraValue {
-                name: AGC.to_string(),
-                value: false.into(),
-            });
-            plan.applied.gains.push(GainValue {
-                stage: TUNER_STAGE.to_string(),
-                value_db: tenths_to_db(tenths),
-            });
+            plan.applied.agc = Some(AgcSetting::switched(false));
+            plan.applied
+                .gains
+                .push(GainValue::new(GainKind::Tuner, tenths_to_db(tenths)));
         }
         None => {}
     }
@@ -491,7 +473,8 @@ pub(crate) fn validate(
     check_stream_settings(delta, caps)?;
     let mut plan = Plan::default();
 
-    let (agc, requested_mode) = plan_extras(delta, caps, &mut plan)?;
+    let requested_mode = plan_extras(delta, caps, &mut plan)?;
+    let agc = plan_switches(delta, caps, &mut plan)?;
     let current_mode = direct_sampling_of(current);
     let mode = requested_mode.unwrap_or(current_mode);
     if mode != current_mode {
@@ -538,21 +521,6 @@ fn restored_manual(current: &DeviceSettings, table: &[i32]) -> Result<i32, Devic
         .ok_or_else(|| DeviceError::Unsupported("tuner exposes no gain table".to_string()))
 }
 
-fn extra_bool(setting: &ExtraSetting, value: &ExtraValue) -> Result<bool, DeviceError> {
-    match setting {
-        ExtraSetting::Bool { .. } => value.value.as_bool().ok_or_else(|| {
-            DeviceError::Unsupported(format!(
-                "extra setting {}: bad value {}",
-                value.name, value.value
-            ))
-        }),
-        _ => Err(DeviceError::Unsupported(format!(
-            "extra setting {}: not a boolean",
-            value.name
-        ))),
-    }
-}
-
 fn extra_direct_sampling(
     setting: &ExtraSetting,
     value: &ExtraValue,
@@ -578,11 +546,9 @@ fn extra_direct_sampling(
 
 fn current_manual_tenths(current: &DeviceSettings) -> Option<i32> {
     current
-        .gains
-        .iter()
-        .find(|g| g.stage == TUNER_STAGE)
-        .filter(|g| g.value_db.is_finite())
-        .map(|g| (g.value_db * 10.0).round() as i32)
+        .gain(GainKind::Tuner.name())
+        .filter(|db| db.is_finite())
+        .map(|db| (db * 10.0).round() as i32)
 }
 
 #[cfg(test)]
@@ -612,8 +578,9 @@ mod tests {
         assert!(!caps.per_stream.tuning, "an array measures one frequency");
         assert!(caps.per_stream.gain);
         assert!(caps.noise_source, "the bank calibrates against its own");
-        let names: Vec<&str> = caps.extra.iter().map(ExtraSetting::name).collect();
-        assert_eq!(names, [BIAS_TEE, AGC]);
+        assert!(caps.extra.is_empty(), "the bank has no oddities of its own");
+        assert!(caps.bias_tee);
+        assert_eq!(caps.agc, Agc::Switch);
         assert!(
             caps.freq_ranges
                 .iter()
@@ -680,16 +647,23 @@ mod tests {
         assert_eq!(
             caps.bandwidth_ranges,
             vec![Range {
-                min: 0.0,
+                min: BANDWIDTH_MIN_HZ,
                 max: BANDWIDTH_MAX_HZ,
                 step: None
             }]
         );
+        assert!(
+            caps.bandwidth_auto,
+            "the filter tracks the sample rate by itself"
+        );
+        assert!(caps.bias_tee);
+        assert_eq!(caps.agc, Agc::Switch);
         assert_eq!(caps.duplex, Duplex::RxOnly);
         assert!(caps.ppm);
         assert_eq!(caps.rx_streams, 1);
         assert_eq!(caps.gains.len(), 1);
         assert_eq!(caps.gains[0].name, "TUNER");
+        assert_eq!(caps.gains[0].kind, GainKind::Tuner);
         assert_eq!(caps.gains[0].range.min, 0.0);
         assert_eq!(caps.gains[0].range.max, 49.6);
         assert_eq!(caps.gains[0].range.step, None);
@@ -702,8 +676,7 @@ mod tests {
         assert_eq!(caps.freq_ranges[0].min, 500e3);
         assert_eq!(caps.freq_ranges[0].max, 28.8e6);
         assert_eq!(caps.freq_ranges[1].min, 24e6);
-        let names: Vec<&str> = caps.extra.iter().map(ExtraSetting::name).collect();
-        assert_eq!(names, vec![BIAS_TEE, AGC]);
+        assert!(caps.extra.is_empty(), "a V4 never bypasses its tuner");
     }
 
     #[test]
@@ -714,11 +687,12 @@ mod tests {
         assert!(caps.profile().reaches(7.1e6));
         assert_eq!(
             caps.extra.last(),
-            Some(&ExtraSetting::Enum {
-                name: DIRECT_SAMPLING.to_string(),
-                options: ["off", "i", "q"].map(ArgumentOption::plain).to_vec(),
-                default: "off".to_string(),
-            })
+            Some(&ExtraSetting::choice(
+                DIRECT_SAMPLING,
+                "Direct sampling",
+                ["off", "i", "q"].map(ArgumentOption::plain).to_vec(),
+                "off",
+            ))
         );
     }
 
@@ -733,7 +707,7 @@ mod tests {
     fn extras_are_only_what_the_driver_can_drive() {
         let extra = capabilities(BoardVariant::Generic, GAIN_VALUES).extra;
         let names: Vec<&str> = extra.iter().map(ExtraSetting::name).collect();
-        assert_eq!(names, vec![BIAS_TEE, AGC, DIRECT_SAMPLING]);
+        assert_eq!(names, vec![DIRECT_SAMPLING]);
     }
 
     #[test]
@@ -792,6 +766,14 @@ mod tests {
 
     fn plan_for(delta: &DeviceSettings) -> Result<Plan, DeviceError> {
         validate(delta, &caps(), &DeviceSettings::default(), GAIN_VALUES)
+    }
+
+    const fn manual(hz: f64) -> BandwidthSetting {
+        BandwidthSetting::Manual { hz }
+    }
+
+    fn tuner(value_db: f64) -> GainValue {
+        GainValue::new(GainKind::Tuner, value_db)
     }
 
     #[test]
@@ -854,26 +836,26 @@ mod tests {
     }
 
     #[test]
-    fn validate_bounds_bandwidth_and_maps_zero_to_automatic() {
+    fn validate_bounds_bandwidth_and_maps_auto_to_the_tracking_filter() {
         let auto = DeviceSettings {
-            bandwidth: Some(0.0),
+            bandwidth: Some(BandwidthSetting::Auto),
             ..DeviceSettings::default()
         };
         let plan = plan_for(&auto).unwrap();
         assert_eq!(plan.bandwidth, Some(0));
-        assert_eq!(plan.applied.bandwidth, None);
+        assert_eq!(plan.applied.bandwidth, Some(BandwidthSetting::Auto));
 
         let narrow = DeviceSettings {
-            bandwidth: Some(300_000.0),
+            bandwidth: Some(manual(300_000.0)),
             ..DeviceSettings::default()
         };
         let plan = plan_for(&narrow).unwrap();
         assert_eq!(plan.bandwidth, Some(300_000));
-        assert_eq!(plan.applied.bandwidth, Some(300_000.0));
+        assert_eq!(plan.applied.bandwidth, Some(manual(300_000.0)));
 
-        for bad in [-1.0, 9e6, f64::NAN] {
+        for bad in [-1.0, 0.0, 100e3, 9e6, f64::NAN] {
             let delta = DeviceSettings {
-                bandwidth: Some(bad),
+                bandwidth: Some(manual(bad)),
                 ..DeviceSettings::default()
             };
             assert!(
@@ -886,7 +868,7 @@ mod tests {
     #[test]
     fn rate_change_re_applies_the_recorded_bandwidth() {
         let current = DeviceSettings {
-            bandwidth: Some(1_500_000.0),
+            bandwidth: Some(manual(1_500_000.0)),
             ..DeviceSettings::default()
         };
         let delta = DeviceSettings {
@@ -925,10 +907,7 @@ mod tests {
 
         for bad in [-1.0, 60.0, f64::NAN] {
             let delta = DeviceSettings {
-                gains: vec![GainValue {
-                    stage: TUNER_STAGE.to_string(),
-                    value_db: bad,
-                }],
+                gains: vec![tuner(bad)],
                 ..DeviceSettings::default()
             };
             assert!(
@@ -941,57 +920,37 @@ mod tests {
     #[test]
     fn manual_gain_snaps_to_the_table_and_reports_what_landed() {
         let delta = DeviceSettings {
-            gains: vec![GainValue {
-                stage: TUNER_STAGE.to_string(),
-                value_db: 30.0,
-            }],
+            gains: vec![tuner(30.0)],
             ..DeviceSettings::default()
         };
         let plan = plan_for(&delta).unwrap();
         assert_eq!(plan.gain, Some(GainMode::Manual(297)));
         assert_eq!(plan.applied.gains[0].value_db, 29.7);
-        assert_eq!(
-            plan.applied.extra,
-            vec![ExtraValue {
-                name: AGC.to_string(),
-                value: false.into(),
-            }]
-        );
+        assert_eq!(plan.applied.agc, Some(AgcSetting::switched(false)));
+        assert!(plan.applied.extra.is_empty());
     }
 
     #[test]
     fn agc_on_wins_over_a_manual_value_in_the_same_delta() {
         let delta = DeviceSettings {
-            gains: vec![GainValue {
-                stage: TUNER_STAGE.to_string(),
-                value_db: 30.0,
-            }],
-            extra: vec![ExtraValue {
-                name: AGC.to_string(),
-                value: true.into(),
-            }],
+            gains: vec![tuner(30.0)],
+            agc: Some(AgcSetting::switched(true)),
             ..DeviceSettings::default()
         };
         let plan = plan_for(&delta).unwrap();
         assert_eq!(plan.gain, Some(GainMode::Auto));
         assert!(plan.applied.gains.is_empty());
-        assert_eq!(plan.applied.extra[0].value.as_bool(), Some(true));
+        assert_eq!(plan.applied.agc, Some(AgcSetting::switched(true)));
     }
 
     #[test]
     fn leaving_agc_restores_the_last_manual_gain() {
         let delta = DeviceSettings {
-            extra: vec![ExtraValue {
-                name: AGC.to_string(),
-                value: false.into(),
-            }],
+            agc: Some(AgcSetting::switched(false)),
             ..DeviceSettings::default()
         };
         let current = DeviceSettings {
-            gains: vec![GainValue {
-                stage: TUNER_STAGE.to_string(),
-                value_db: 20.7,
-            }],
+            gains: vec![tuner(20.7)],
             ..DeviceSettings::default()
         };
         let plan = validate(&delta, &caps(), &current, GAIN_VALUES).unwrap();
@@ -1004,15 +963,25 @@ mod tests {
     #[test]
     fn bias_tee_is_planned_and_echoed() {
         let delta = DeviceSettings {
-            extra: vec![ExtraValue {
-                name: BIAS_TEE.to_string(),
-                value: true.into(),
-            }],
+            bias_tee: Some(true),
             ..DeviceSettings::default()
         };
         let plan = plan_for(&delta).unwrap();
         assert_eq!(plan.bias_tee, Some(true));
-        assert_eq!(plan.applied.extra[0].name, BIAS_TEE);
+        assert_eq!(plan.applied.bias_tee, Some(true));
+        assert!(plan.applied.extra.is_empty());
+    }
+
+    #[test]
+    fn an_agc_mode_is_refused_on_a_plain_switch() {
+        let delta = DeviceSettings {
+            agc: Some(AgcSetting::in_mode(true, "fast")),
+            ..DeviceSettings::default()
+        };
+        match plan_for(&delta) {
+            Err(DeviceError::Unsupported(message)) => assert!(message.contains("agc"), "{message}"),
+            other => panic!("a mode on a switch must be refused, got {other:?}"),
+        }
     }
 
     #[test]
@@ -1023,12 +992,12 @@ mod tests {
                 value: "1".into(),
             },
             ExtraValue {
-                name: BIAS_TEE.to_string(),
-                value: "yes".into(),
+                name: "bias_tee".to_string(),
+                value: true.into(),
             },
             ExtraValue {
-                name: AGC.to_string(),
-                value: 1.into(),
+                name: "agc".to_string(),
+                value: true.into(),
             },
         ] {
             let delta = DeviceSettings {
@@ -1105,16 +1074,10 @@ mod tests {
         let delta = DeviceSettings {
             center_hz: Some(433_920_000.0),
             sample_rate: Some(2_048_000.0),
-            bandwidth: Some(1_000_000.0),
+            bandwidth: Some(manual(1_000_000.0)),
             antenna: Some("RX".to_string()),
-            gains: vec![GainValue {
-                stage: TUNER_STAGE.to_string(),
-                value_db: 49.6,
-            }],
-            extra: vec![ExtraValue {
-                name: BIAS_TEE.to_string(),
-                value: true.into(),
-            }],
+            gains: vec![tuner(49.6)],
+            bias_tee: Some(true),
             ..DeviceSettings::default()
         };
         let plan = plan_for(&delta).unwrap();
@@ -1136,18 +1099,10 @@ mod tests {
         DeviceSettings {
             center_hz: Some(7_100_000.0),
             sample_rate: Some(1_024_000.0),
-            bandwidth: Some(300_000.0),
-            gains: vec![GainValue {
-                stage: TUNER_STAGE.to_string(),
-                value_db: 20.7,
-            }],
-            extra: vec![
-                ExtraValue {
-                    name: AGC.to_string(),
-                    value: false.into(),
-                },
-                mode_value(DirectSampling::QBranch),
-            ],
+            bandwidth: Some(manual(300_000.0)),
+            gains: vec![tuner(20.7)],
+            agc: Some(AgcSetting::switched(false)),
+            extra: vec![mode_value(DirectSampling::QBranch)],
             ..DeviceSettings::default()
         }
     }
@@ -1276,18 +1231,10 @@ mod tests {
         let restore = DeviceSettings {
             center_hz: Some(7_100_000.0),
             sample_rate: Some(1_024_000.0),
-            bandwidth: Some(300_000.0),
-            gains: vec![GainValue {
-                stage: TUNER_STAGE.to_string(),
-                value_db: 20.7,
-            }],
-            extra: vec![
-                ExtraValue {
-                    name: AGC.to_string(),
-                    value: false.into(),
-                },
-                mode_value(DirectSampling::QBranch),
-            ],
+            bandwidth: Some(manual(300_000.0)),
+            gains: vec![tuner(20.7)],
+            agc: Some(AgcSetting::switched(false)),
+            extra: vec![mode_value(DirectSampling::QBranch)],
             ..DeviceSettings::default()
         };
         let plan = plan_for(&restore).unwrap();
@@ -1296,7 +1243,7 @@ mod tests {
         assert_eq!(plan.sample_rate, Some(1_024_000));
         assert_eq!(plan.gain, None, "the tuner must not be driven in standby");
         assert_eq!(plan.bandwidth, None);
-        assert_eq!(plan.applied.bandwidth, Some(300_000.0));
+        assert_eq!(plan.applied.bandwidth, Some(manual(300_000.0)));
         assert_eq!(plan.applied.gains[0].value_db, 20.7);
     }
 
@@ -1313,12 +1260,11 @@ mod tests {
 
         let mut current = on_hf();
         current.bandwidth = None;
-        current.extra[0].value = true.into();
+        current.agc = Some(AgcSetting::switched(true));
         let plan = validate(&leave, &caps(), &current, GAIN_VALUES).unwrap();
         assert_eq!(plan.gain, Some(GainMode::Auto));
         assert_eq!(plan.bandwidth, Some(0));
-        assert_eq!(plan.applied.bandwidth, None);
-        assert!(plan.clear_bandwidth);
+        assert_eq!(plan.applied.bandwidth, Some(BandwidthSetting::Auto));
     }
 
     #[test]
@@ -1371,10 +1317,7 @@ mod tests {
         let delta = DeviceSettings {
             streams: vec![sdrmm_wire::StreamSettings {
                 stream: 0,
-                gains: vec![GainValue {
-                    stage: TUNER_STAGE.to_string(),
-                    value_db: 20.7,
-                }],
+                gains: vec![tuner(20.7)],
                 ..sdrmm_wire::StreamSettings::default()
             }],
             ..DeviceSettings::default()

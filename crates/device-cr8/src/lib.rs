@@ -233,7 +233,10 @@ mod tests {
     };
 
     use sdrmm_device::{DeviceError, RxSink};
-    use sdrmm_wire::{DeviceSettings, ExtraValue, GainValue, StreamSettings};
+    use sdrmm_wire::{
+        AgcSetting, BandwidthSetting, DeviceSettings, ExtraValue, GainKind, GainUnit, GainValue,
+        StreamSettings,
+    };
 
     use super::*;
     use crate::settings::{Step, plan};
@@ -642,6 +645,104 @@ mod tests {
             std::mem::align_of::<ffi::Complex>(),
             std::mem::align_of::<num_complex::Complex<f32>>()
         );
+    }
+
+    #[test]
+    fn every_stage_is_a_firmware_step_index_named_by_its_kind() {
+        let capabilities = capabilities();
+        assert_eq!(
+            capabilities
+                .gains
+                .iter()
+                .map(|stage| (stage.name.as_str(), stage.kind, stage.unit))
+                .collect::<Vec<_>>(),
+            vec![
+                ("LNA", GainKind::Lna, GainUnit::Index),
+                ("MIX", GainKind::Mixer, GainUnit::Index),
+                ("VGA", GainKind::Vga, GainUnit::Index),
+            ]
+        );
+        assert_eq!(
+            capabilities
+                .extra
+                .iter()
+                .map(|setting| (setting.name(), setting.label()))
+                .collect::<Vec<_>>(),
+            vec![(CLOCK_SETTING, Some("Clock source"))]
+        );
+    }
+
+    #[test]
+    fn the_mixer_is_driven_by_its_canonical_name_only() {
+        let capabilities = capabilities();
+        let steps = plan(
+            &DeviceSettings {
+                gains: vec![GainValue::new(GainKind::Mixer, 7.0)],
+                ..DeviceSettings::default()
+            },
+            &DeviceSettings::default(),
+            &capabilities,
+        )
+        .expect("a mixer gain");
+        assert_eq!(
+            steps,
+            vec![Step::Mixer {
+                channels: ffi::CHAN_ALL,
+                gain: 7
+            }]
+        );
+        for spelling in ["Mixer", "mix", "lna"] {
+            let refused = plan(
+                &DeviceSettings {
+                    gains: vec![GainValue {
+                        stage: spelling.to_owned(),
+                        value_db: 1.0,
+                    }],
+                    ..DeviceSettings::default()
+                },
+                &DeviceSettings::default(),
+                &capabilities,
+            );
+            assert!(
+                matches!(refused, Err(DeviceError::Unsupported(_))),
+                "{spelling} is not a stage name"
+            );
+        }
+    }
+
+    #[test]
+    fn what_the_radio_lacks_is_refused_by_name() {
+        let capabilities = capabilities();
+        for (delta, what) in [
+            (
+                DeviceSettings {
+                    bandwidth: Some(BandwidthSetting::Auto),
+                    ..DeviceSettings::default()
+                },
+                "filter",
+            ),
+            (
+                DeviceSettings {
+                    agc: Some(AgcSetting::switched(true)),
+                    ..DeviceSettings::default()
+                },
+                "automatic gain",
+            ),
+            (
+                DeviceSettings {
+                    bias_tee: Some(true),
+                    ..DeviceSettings::default()
+                },
+                "bias tee",
+            ),
+        ] {
+            let Err(DeviceError::Unsupported(message)) =
+                plan(&delta, &DeviceSettings::default(), &capabilities)
+            else {
+                panic!("{what} must be refused");
+            };
+            assert!(message.contains(what), "{message}");
+        }
     }
 
     #[test]

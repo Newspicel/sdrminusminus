@@ -14,9 +14,7 @@ use sdrmm_device_recording::RecordingDriver;
 use sdrmm_device_virtual::{NFM_CARRIER_OFFSET_HZ, VirtualDriver};
 use sdrmm_engine::{Engine, FinalizedRecording};
 use sdrmm_recorder::{BYTES_PER_SAMPLE, SigmfReader};
-use sdrmm_wire::{
-    ChannelParams, ChannelSettings, DeviceSettings, ExtraValue, GainValue, NfmParams,
-};
+use sdrmm_wire::{ChannelParams, ChannelSettings, DeviceSettings, GainKind, GainValue, NfmParams};
 use tempfile::TempDir;
 
 const TEST_RATE: f64 = 2_400_000.0;
@@ -117,14 +115,8 @@ async fn a_recording_takes_back_the_settings_a_receiver_left_on_the_node() {
     let left_by_a_receiver = DeviceSettings {
         center_hz: Some(100_000_000.0),
         sample_rate: Some(2_048_000.0),
-        gains: vec![GainValue {
-            stage: "TUNER".to_string(),
-            value_db: 30.0,
-        }],
-        extra: vec![ExtraValue {
-            name: "bias_tee".to_string(),
-            value: true.into(),
-        }],
+        gains: vec![GainValue::new(GainKind::Tuner, 30.0)],
+        bias_tee: Some(true),
         ..DeviceSettings::default()
     };
 
@@ -141,8 +133,8 @@ async fn a_recording_takes_back_the_settings_a_receiver_left_on_the_node() {
     assert_eq!(set.settings.center_hz, Some(100_000_000.0));
     assert_eq!(set.settings.sample_rate, Some(TEST_RATE));
     assert!(set.settings.gains.is_empty());
-    assert!(
-        set.settings.extra.iter().all(|e| e.name != "bias_tee"),
+    assert_eq!(
+        set.settings.bias_tee, None,
         "the receiver's bias tee followed the node onto the recording"
     );
     engine.remove_device_set(ds).unwrap();

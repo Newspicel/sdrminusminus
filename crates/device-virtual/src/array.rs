@@ -64,55 +64,57 @@ impl Default for ArrayParams {
 #[must_use]
 pub fn extra_settings() -> Vec<ExtraSetting> {
     vec![
-        ExtraSetting::Range {
-            name: BEARING_SETTING.to_string(),
-            range: Range {
+        ExtraSetting::range(
+            BEARING_SETTING,
+            "Bearing",
+            Range {
                 min: 0.0,
                 max: 360.0,
-                step: None,
+                step: Some(1.0),
             },
-            unit: "°".to_string(),
-        },
-        ExtraSetting::Range {
-            name: RADIUS_SETTING.to_string(),
-            range: Range {
+            "°",
+        ),
+        ExtraSetting::range(
+            RADIUS_SETTING,
+            "Array radius",
+            Range {
                 min: 0.0,
                 max: 10.0,
-                step: None,
+                step: Some(0.1),
             },
-            unit: "m".to_string(),
-        },
-        ExtraSetting::Bool {
-            name: SCRAMBLE_SETTING.to_string(),
-            default: false,
-        },
-        ExtraSetting::Range {
-            name: ECHO_DELAY_SETTING.to_string(),
-            range: Range {
+            "m",
+        ),
+        ExtraSetting::bool(SCRAMBLE_SETTING, "Scramble lane phase", false),
+        ExtraSetting::range(
+            ECHO_DELAY_SETTING,
+            "Echo delay",
+            Range {
                 min: 0.0,
                 max: MAX_ECHO_DELAY_SAMPLES as f64,
                 step: Some(1.0),
             },
-            unit: "samples".to_string(),
-        },
-        ExtraSetting::Range {
-            name: ECHO_DOPPLER_SETTING.to_string(),
-            range: Range {
+            "samples",
+        ),
+        ExtraSetting::range(
+            ECHO_DOPPLER_SETTING,
+            "Echo Doppler",
+            Range {
                 min: -MAX_ECHO_DOPPLER_HZ,
                 max: MAX_ECHO_DOPPLER_HZ,
-                step: None,
+                step: Some(10.0),
             },
-            unit: "Hz".to_string(),
-        },
-        ExtraSetting::Range {
-            name: ECHO_GAIN_SETTING.to_string(),
-            range: Range {
+            "Hz",
+        ),
+        ExtraSetting::range(
+            ECHO_GAIN_SETTING,
+            "Echo gain",
+            Range {
                 min: -60.0,
                 max: 0.0,
-                step: None,
+                step: Some(1.0),
             },
-            unit: "dB".to_string(),
-        },
+            "dB",
+        ),
     ]
 }
 

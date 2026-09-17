@@ -1,14 +1,11 @@
 use sdrmm_device::{DeviceError, check_stream_settings};
 use sdrmm_wire::{
-    Capabilities, DcArtifact, DeviceSettings, Duplex, ExtraSetting, ExtraValue, GainStage,
-    GainValue, Range, StreamScope,
+    Agc, AgcSetting, Capabilities, DcArtifact, DeviceSettings, Duplex, ExtraSetting, ExtraValue,
+    GainKind, GainStage, GainValue, Range, StreamScope,
 };
 
 use crate::proto::{Command, Tuner, ordered};
 
-pub(crate) const TUNER_STAGE: &str = "TUNER";
-pub(crate) const BIAS_TEE: &str = "bias_tee";
-pub(crate) const AGC: &str = "agc";
 pub(crate) const RTL_AGC: &str = "rtl_agc";
 
 const RATE_MENU: [f64; 9] = [
@@ -94,15 +91,17 @@ pub(crate) fn capabilities(tuner: Tuner, gains: &[i32]) -> Capabilities {
         freq_ranges: freq_ranges(tuner),
         sample_rates: RATE_MENU.to_vec(),
         sample_rate_ranges: Vec::new(),
-        gains: vec![GainStage {
-            name: TUNER_STAGE.to_string(),
-            range,
-            values: Vec::new(),
-        }],
+        gains: vec![
+            GainStage::new(GainKind::Tuner, range)
+                .with_values(gains.iter().copied().map(tenths_to_db).collect()),
+        ],
         antennas: vec!["RX".to_string()],
         bandwidths: Vec::new(),
         bandwidth_ranges: Vec::new(),
-        extra: extra_settings(),
+        bandwidth_auto: false,
+        bias_tee: true,
+        agc: Agc::Switch,
+        extra: vec![ExtraSetting::bool(RTL_AGC, "RTL2832 AGC", false)],
         ppm: true,
         duplex: Duplex::RxOnly,
         rx_streams: 1,
@@ -114,23 +113,6 @@ pub(crate) fn capabilities(tuner: Tuner, gains: &[i32]) -> Capabilities {
         coherence: sdrmm_wire::Coherence::None,
         noise_source: false,
     }
-}
-
-fn extra_settings() -> Vec<ExtraSetting> {
-    vec![
-        ExtraSetting::Bool {
-            name: BIAS_TEE.to_string(),
-            default: false,
-        },
-        ExtraSetting::Bool {
-            name: AGC.to_string(),
-            default: true,
-        },
-        ExtraSetting::Bool {
-            name: RTL_AGC.to_string(),
-            default: false,
-        },
-    ]
 }
 
 fn tenths_to_db(tenths: i32) -> f64 {
@@ -195,27 +177,18 @@ impl Remote {
             sample_rate: Some(f64::from(self.sample_rate)),
             ppm: Some(f64::from(self.ppm)),
             antenna: Some("RX".to_string()),
-            extra: vec![
-                ExtraValue {
-                    name: BIAS_TEE.to_string(),
-                    value: self.bias_tee.into(),
-                },
-                ExtraValue {
-                    name: AGC.to_string(),
-                    value: matches!(self.gain, GainMode::Auto).into(),
-                },
-                ExtraValue {
-                    name: RTL_AGC.to_string(),
-                    value: self.rtl_agc.into(),
-                },
-            ],
+            bias_tee: Some(self.bias_tee),
+            agc: Some(AgcSetting::switched(matches!(self.gain, GainMode::Auto))),
+            extra: vec![ExtraValue {
+                name: RTL_AGC.to_string(),
+                value: self.rtl_agc.into(),
+            }],
             ..DeviceSettings::default()
         };
         if let GainMode::Manual(tenths) = self.gain {
-            settings.gains.push(GainValue {
-                stage: TUNER_STAGE.to_string(),
-                value_db: tenths_to_db(tenths),
-            });
+            settings
+                .gains
+                .push(GainValue::new(GainKind::Tuner, tenths_to_db(tenths)));
         }
         settings
     }
@@ -296,9 +269,7 @@ pub(crate) fn validate(
     let mut requested_gain = None;
     for gain in &delta.gains {
         let stage = caps
-            .gains
-            .iter()
-            .find(|s| s.name == gain.stage)
+            .stage(&gain.stage)
             .ok_or_else(|| DeviceError::Unsupported(format!("gain stage {}", gain.stage)))?;
         if !gain.value_db.is_finite()
             || !(stage.range.min..=stage.range.max).contains(&gain.value_db)
@@ -312,7 +283,11 @@ pub(crate) fn validate(
         requested_gain = Some(nearest_gain(table, tenths).unwrap_or(tenths));
     }
 
-    let mut agc = None;
+    if let Some(on) = delta.bias_tee {
+        next.bias_tee = on;
+        batch.push((Command::BiasTee, u32::from(on)));
+    }
+
     for value in &delta.extra {
         let setting = caps
             .extra
@@ -321,18 +296,24 @@ pub(crate) fn validate(
             .ok_or_else(|| DeviceError::Unsupported(format!("extra setting {}", value.name)))?;
         let on = extra_bool(setting, value)?;
         match value.name.as_str() {
-            BIAS_TEE => {
-                next.bias_tee = on;
-                batch.push((Command::BiasTee, u32::from(on)));
-            }
             RTL_AGC => {
                 next.rtl_agc = on;
                 batch.push((Command::RtlAgc, u32::from(on)));
             }
-            AGC => agc = Some(on),
             other => return Err(DeviceError::Unsupported(format!("extra setting {other}"))),
         }
     }
+
+    let agc = match &delta.agc {
+        Some(agc) if !caps.agc.admits(agc) => {
+            return Err(DeviceError::Unsupported(format!(
+                "agc: the tuner's AGC is a switch, mode {:?} does not exist",
+                agc.mode
+            )));
+        }
+        Some(agc) => Some(agc.on),
+        None => None,
+    };
 
     let gain = match (agc, requested_gain) {
         (Some(true), _) => Some(GainMode::Auto),
@@ -368,6 +349,8 @@ fn extra_bool(setting: &ExtraSetting, value: &ExtraValue) -> Result<bool, Device
 
 #[cfg(test)]
 mod tests {
+    use sdrmm_wire::BandwidthSetting;
+
     use super::*;
 
     fn r820t() -> (Capabilities, Remote, &'static [i32]) {
@@ -377,6 +360,10 @@ mod tests {
 
     fn delta(settings: DeviceSettings) -> DeviceSettings {
         settings
+    }
+
+    fn tuner(value_db: f64) -> GainValue {
+        GainValue::new(GainKind::Tuner, value_db)
     }
 
     fn apply(settings: DeviceSettings) -> Result<(Remote, Vec<(Command, u32)>), DeviceError> {
@@ -389,10 +376,19 @@ mod tests {
         let table = gain_table(Tuner::R820T, 29);
         assert_eq!(table.len(), 29);
         let caps = capabilities(Tuner::R820T, table);
+        assert_eq!(caps.gains[0].kind, GainKind::Tuner);
         assert_eq!(caps.gains[0].range.min, 0.0);
         assert_eq!(caps.gains[0].range.max, 49.6);
+        assert_eq!(caps.gains[0].values.len(), 29);
+        assert_eq!(caps.gains[0].snap(24.0), 22.9);
         assert_eq!(caps.freq_ranges.len(), 1);
         assert_eq!(caps.freq_ranges[0].min, 24e6);
+        assert!(caps.bias_tee);
+        assert_eq!(caps.agc, Agc::Switch);
+        assert!(!caps.bandwidth_auto);
+        let names: Vec<&str> = caps.extra.iter().map(ExtraSetting::name).collect();
+        assert_eq!(names, [RTL_AGC]);
+        assert_eq!(caps.extra[0].label(), Some("RTL2832 AGC"));
     }
 
     #[test]
@@ -401,12 +397,10 @@ mod tests {
         assert!(gain_table(Tuner::Unknown, 29).is_empty());
         let caps = capabilities(Tuner::R820T, gain_table(Tuner::R820T, 28));
         assert_eq!(caps.gains[0].range.max, 50.0);
+        assert!(caps.gains[0].values.is_empty());
         let (next, batch) = validate(
             &DeviceSettings {
-                gains: vec![GainValue {
-                    stage: TUNER_STAGE.to_string(),
-                    value_db: 31.7,
-                }],
+                gains: vec![tuner(31.7)],
                 ..DeviceSettings::default()
             },
             &caps,
@@ -447,10 +441,7 @@ mod tests {
     #[test]
     fn a_gain_request_snaps_to_the_tuner_table_and_is_reported_snapped() {
         let (next, batch) = apply(delta(DeviceSettings {
-            gains: vec![GainValue {
-                stage: TUNER_STAGE.to_string(),
-                value_db: 24.0,
-            }],
+            gains: vec![tuner(24.0)],
             ..DeviceSettings::default()
         }))
         .expect("accepted");
@@ -459,10 +450,7 @@ mod tests {
         assert_eq!(next.wire().gains[0].value_db, 22.9);
 
         let (tie, _) = apply(delta(DeviceSettings {
-            gains: vec![GainValue {
-                stage: TUNER_STAGE.to_string(),
-                value_db: 36.8,
-            }],
+            gains: vec![tuner(36.8)],
             ..DeviceSettings::default()
         }))
         .expect("accepted");
@@ -473,10 +461,7 @@ mod tests {
     fn a_rate_and_gain_change_together_arrive_in_the_radios_order() {
         let (_, batch) = apply(delta(DeviceSettings {
             sample_rate: Some(2_400_000.0),
-            gains: vec![GainValue {
-                stage: TUNER_STAGE.to_string(),
-                value_db: 0.0,
-            }],
+            gains: vec![tuner(0.0)],
             center_hz: Some(433_920_000.0),
             ..DeviceSettings::default()
         }))
@@ -495,36 +480,40 @@ mod tests {
     #[test]
     fn leaving_agc_restores_the_last_manual_gain() {
         let (manual, _) = apply(delta(DeviceSettings {
-            gains: vec![GainValue {
-                stage: TUNER_STAGE.to_string(),
-                value_db: 16.6,
-            }],
+            gains: vec![tuner(16.6)],
             ..DeviceSettings::default()
         }))
         .expect("manual");
         let (caps, _, table) = r820t();
         let auto = DeviceSettings {
-            extra: vec![ExtraValue {
-                name: AGC.to_string(),
-                value: true.into(),
-            }],
+            agc: Some(AgcSetting::switched(true)),
             ..DeviceSettings::default()
         };
         let (agc_on, batch) = validate(&auto, &caps, manual, table).expect("agc on");
         assert_eq!(agc_on.gain, GainMode::Auto);
         assert_eq!(batch, vec![(Command::GainMode, 0)]);
         assert!(agc_on.wire().gains.is_empty(), "auto reports no live value");
+        assert_eq!(agc_on.wire().agc, Some(AgcSetting::switched(true)));
 
         let off = DeviceSettings {
-            extra: vec![ExtraValue {
-                name: AGC.to_string(),
-                value: false.into(),
-            }],
+            agc: Some(AgcSetting::switched(false)),
             ..DeviceSettings::default()
         };
         let (agc_off, batch) = validate(&off, &caps, agc_on, table).expect("agc off");
         assert_eq!(agc_off.gain, GainMode::Manual(166));
         assert_eq!(batch, vec![(Command::GainMode, 1), (Command::Gain, 166)]);
+        assert_eq!(agc_off.wire().agc, Some(AgcSetting::switched(false)));
+    }
+
+    #[test]
+    fn the_bias_tee_is_a_command_and_is_reported_back() {
+        let (on, batch) = apply(delta(DeviceSettings {
+            bias_tee: Some(true),
+            ..DeviceSettings::default()
+        }))
+        .expect("accepted");
+        assert_eq!(batch, vec![(Command::BiasTee, 1)]);
+        assert_eq!(on.wire().bias_tee, Some(true));
     }
 
     #[test]
@@ -553,10 +542,24 @@ mod tests {
             ),
             (
                 DeviceSettings {
-                    bandwidth: Some(1.5e6),
+                    bandwidth: Some(BandwidthSetting::Manual { hz: 1.5e6 }),
                     ..DeviceSettings::default()
                 },
                 "bandwidth",
+            ),
+            (
+                DeviceSettings {
+                    bandwidth: Some(BandwidthSetting::Auto),
+                    ..DeviceSettings::default()
+                },
+                "bandwidth",
+            ),
+            (
+                DeviceSettings {
+                    agc: Some(AgcSetting::in_mode(true, "fast")),
+                    ..DeviceSettings::default()
+                },
+                "agc",
             ),
             (
                 DeviceSettings {
@@ -588,7 +591,7 @@ mod tests {
             (
                 DeviceSettings {
                     extra: vec![ExtraValue {
-                        name: BIAS_TEE.to_string(),
+                        name: RTL_AGC.to_string(),
                         value: 1.into(),
                     }],
                     ..DeviceSettings::default()
@@ -611,14 +614,8 @@ mod tests {
             center_hz: Some(433_920_000.0),
             sample_rate: Some(2_400_000.0),
             ppm: Some(-12.0),
-            gains: vec![GainValue {
-                stage: TUNER_STAGE.to_string(),
-                value_db: 25.4,
-            }],
-            extra: vec![ExtraValue {
-                name: BIAS_TEE.to_string(),
-                value: true.into(),
-            }],
+            gains: vec![tuner(25.4)],
+            bias_tee: Some(true),
             ..DeviceSettings::default()
         }))
         .expect("accepted");

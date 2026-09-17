@@ -24,6 +24,15 @@ export function mergeSettings(current: DeviceSettings, delta: DeviceSettings): D
   if (delta.bandwidth != null) {
     next.bandwidth = delta.bandwidth;
   }
+  if (delta.dc_block != null) {
+    next.dc_block = delta.dc_block;
+  }
+  if (delta.bias_tee != null) {
+    next.bias_tee = delta.bias_tee;
+  }
+  if (delta.agc != null) {
+    next.agc = delta.agc;
+  }
   if (delta.gains) {
     next.gains = mergeByKey(current.gains, delta.gains, (g) => g.stage);
   }

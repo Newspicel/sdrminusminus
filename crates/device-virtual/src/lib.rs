@@ -167,6 +167,9 @@ fn siggen_capabilities() -> Capabilities {
         antennas: vec!["RX".to_string()],
         bandwidths: Vec::new(),
         bandwidth_ranges: Vec::new(),
+        bandwidth_auto: false,
+        bias_tee: false,
+        agc: sdrmm_wire::Agc::None,
         extra: Vec::new(),
         ppm: false,
         duplex: Duplex::RxOnly,
@@ -813,7 +816,7 @@ mod tests {
         time::Duration,
     };
 
-    use sdrmm_wire::{GainValue, StreamSettings};
+    use sdrmm_wire::{BandwidthSetting, GainKind, GainValue, StreamSettings};
 
     use super::*;
 
@@ -1151,10 +1154,7 @@ mod tests {
         dev.apply(&DeviceSettings {
             streams: vec![StreamSettings {
                 stream: 1,
-                gains: vec![GainValue {
-                    stage: "GAIN".to_string(),
-                    value_db: 12.0,
-                }],
+                gains: vec![GainValue::new(GainKind::Tuner, 12.0)],
                 ..StreamSettings::default()
             }],
             ..DeviceSettings::default()
@@ -1165,10 +1165,7 @@ mod tests {
         assert_eq!(streams[0].stream, 1);
         assert_eq!(
             streams[0].gains,
-            vec![GainValue {
-                stage: "GAIN".to_string(),
-                value_db: 12.0,
-            }]
+            vec![GainValue::new(GainKind::Tuner, 12.0)]
         );
     }
 
@@ -1594,11 +1591,8 @@ mod tests {
         dev.apply(&DeviceSettings {
             ppm: Some(1.5),
             antenna: Some("RX".to_string()),
-            bandwidth: Some(1_500_000.0),
-            gains: vec![GainValue {
-                stage: "LNA".to_string(),
-                value_db: 16.0,
-            }],
+            bandwidth: Some(BandwidthSetting::Manual { hz: 1_500_000.0 }),
+            gains: vec![GainValue::new(GainKind::Tuner, 16.0)],
             ..DeviceSettings::default()
         })
         .unwrap();
@@ -1606,7 +1600,10 @@ mod tests {
         let settings = dev.settings();
         assert_eq!(settings.ppm, Some(1.5));
         assert_eq!(settings.antenna.as_deref(), Some("RX"));
-        assert_eq!(settings.bandwidth, Some(1_500_000.0));
+        assert_eq!(
+            settings.bandwidth,
+            Some(BandwidthSetting::Manual { hz: 1_500_000.0 })
+        );
         assert_eq!(settings.gains.len(), 1);
         assert_eq!(settings.center_hz, Some(100_000_000.0));
     }

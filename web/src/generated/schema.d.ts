@@ -1414,6 +1414,21 @@ export interface components {
             /** Format: double */
             ref_lon?: number | null;
         };
+        Agc: {
+            /** @enum {string} */
+            kind: "none";
+        } | {
+            /** @enum {string} */
+            kind: "switch";
+        } | {
+            /** @enum {string} */
+            kind: "modes";
+            options: components["schemas"]["ArgumentOption"][];
+        };
+        AgcSetting: {
+            mode?: string | null;
+            on: boolean;
+        };
         /** @enum {string} */
         AisChannel: "a" | "b";
         AisMessage: {
@@ -1783,6 +1798,15 @@ export interface components {
         BandService: "amateur" | "broadcast" | "aeronautical" | "maritime" | "mobile" | "satellite" | "navigation" | "science" | "ism" | "other";
         /** @enum {string} */
         Bandwidth: "narrow" | "wide";
+        BandwidthSetting: {
+            /** @enum {string} */
+            kind: "auto";
+        } | {
+            /** Format: double */
+            hz: number;
+            /** @enum {string} */
+            kind: "manual";
+        };
         Bookmark: {
             /** Format: double */
             freq_hz: number;
@@ -1901,10 +1925,13 @@ export interface components {
             tier: components["schemas"]["Coherence"];
         };
         Capabilities: {
+            agc?: components["schemas"]["Agc"];
             antennas: string[];
+            bandwidth_auto?: boolean;
             /** @description Continuous analog filter widths, for hardware whose IF filter is not a discrete menu. */
             bandwidth_ranges?: components["schemas"]["Range"][];
             bandwidths: number[];
+            bias_tee?: boolean;
             coherence?: components["schemas"]["Coherence"];
             dc_artifact?: components["schemas"]["DcArtifact"];
             directional?: null | components["schemas"]["DirectionalCapabilities"];
@@ -3155,9 +3182,10 @@ export interface components {
         /** @enum {string} */
         DeviceSetStatus: "idle" | "running" | "error";
         DeviceSettings: {
+            agc?: null | components["schemas"]["AgcSetting"];
             antenna?: string | null;
-            /** Format: double */
-            bandwidth?: number | null;
+            bandwidth?: null | components["schemas"]["BandwidthSetting"];
+            bias_tee?: boolean | null;
             /** Format: double */
             center_hz?: number | null;
             dc_block?: boolean | null;
@@ -3604,10 +3632,12 @@ export interface components {
             default: boolean;
             /** @enum {string} */
             kind: "bool";
+            label?: string | null;
             name: string;
         } | {
             /** @enum {string} */
             kind: "range";
+            label?: string | null;
             name: string;
             range: components["schemas"]["Range"];
             unit: string;
@@ -3615,12 +3645,14 @@ export interface components {
             default: string;
             /** @enum {string} */
             kind: "enum";
+            label?: string | null;
             name: string;
             options: components["schemas"]["ArgumentOption"][];
         } | {
             default: string;
             /** @enum {string} */
             kind: "string";
+            label?: string | null;
             name: string;
         };
         ExtraValue: {
@@ -3669,17 +3701,17 @@ export interface components {
             /** Format: int64 */
             upper_hz: number;
         };
+        /** @enum {string} */
+        GainKind: "lna" | "mixer" | "vga" | "if" | "rf" | "tuner" | "amp" | "attenuator" | "tx" | "other";
         GainStage: {
+            kind: components["schemas"]["GainKind"];
             name: string;
             range: components["schemas"]["Range"];
-            /**
-             * @description The settings this stage can actually hold, for hardware whose gain is a table rather than
-             *     an even step — the R82xx's 29 irregular entries, say. Empty means every value `range`
-             *     admits is reachable. A client renders a control that can only land on real settings, and a
-             *     driver still snaps whatever it is asked for.
-             */
+            unit?: components["schemas"]["GainUnit"];
             values?: number[];
         };
+        /** @enum {string} */
+        GainUnit: "db" | "index";
         GainValue: {
             stage: string;
             /** Format: double */

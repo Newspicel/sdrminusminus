@@ -23,6 +23,21 @@ export function tuningRange(caps: Capabilities): Range {
   };
 }
 
+export function reachableHz(caps: Pick<Capabilities, "freq_ranges">, hz: number): number {
+  const ranges = caps.freq_ranges;
+  if (ranges.length === 0) {
+    return clamp(hz, ANY_FREQUENCY);
+  }
+  let best = clamp(hz, ranges[0] as Range);
+  for (const range of ranges) {
+    const held = clamp(hz, range);
+    if (Math.abs(held - hz) < Math.abs(best - hz)) {
+      best = held;
+    }
+  }
+  return best;
+}
+
 export function isTunable(range: Range): boolean {
   return range.max > range.min;
 }

@@ -1,10 +1,41 @@
-import type { Capabilities, DeviceSettings, GainStage, Range } from "../lib/types";
+import type {
+  AgcSetting,
+  BandwidthSetting,
+  Capabilities,
+  DeviceSettings,
+  GainKind,
+  GainStage,
+  Range,
+} from "../lib/types";
+import { settingLabel } from "./settingLabel";
 
-export function isSwitch(stage: GainStage): boolean {
-  const values = stage.values ?? [];
-  if (values.length > 0) return values.length === 2;
-  const { min, max, step } = stage.range;
-  return step != null && step > 0 && max - min === step;
+const GAIN_LABEL: Record<GainKind, string> = {
+  lna: "LNA",
+  mixer: "Mixer",
+  vga: "VGA",
+  if: "IF",
+  rf: "RF",
+  tuner: "Tuner",
+  amp: "Amp",
+  attenuator: "Attenuator",
+  tx: "TX",
+  other: "",
+};
+
+export function gainLabel(stage: Pick<GainStage, "kind" | "name">): string {
+  return GAIN_LABEL[stage.kind] || settingLabel(stage.name);
+}
+
+export function gainUnit(stage: Pick<GainStage, "unit">): string {
+  return (stage.unit ?? "db") === "index" ? "" : "dB";
+}
+
+export function formatGain(stage: Pick<GainStage, "unit">, value: number): string {
+  return (stage.unit ?? "db") === "index" ? String(Math.round(value)) : value.toFixed(1);
+}
+
+export function isSwitch(stage: Pick<GainStage, "kind">): boolean {
+  return stage.kind === "amp";
 }
 
 export function stageSettings(stage: GainStage): number[] {
@@ -56,10 +87,6 @@ export function spanOf(ranges: Range[] | undefined): Range | undefined {
   return { min, max, step: steps.length === ranges.length ? Math.min(...steps) : undefined };
 }
 
-/**
- * Windows can have gaps in them — the RTL2832U aliases between 300 kHz and 900 kHz — so a control
- * bounded by the outer span alone would offer rates the radio refuses.
- */
 export function snapToRanges(ranges: Range[] | undefined, value: number): number {
   if (ranges == null || ranges.length === 0) return value;
   let best = Math.min(Math.max(value, ranges[0]!.min), ranges[0]!.max);
@@ -81,17 +108,62 @@ export function dcBlockOn(
   return settings.dc_block ?? caps.dc_artifact === "managed";
 }
 
-export const AGC_SETTING = "gain_mode";
-
-/**
- * Whether the radio is choosing its own gain. A stage written while it is only lasts until the
- * next correction, so the controls read out what the radio picked rather than offering a value
- * that will not survive.
- */
-export function automaticGainIsOn(
-  caps: Pick<Capabilities, "extra">,
-  settings: Pick<DeviceSettings, "extra">,
-): boolean {
-  if (!(caps.extra ?? []).some((setting) => setting.name === AGC_SETTING)) return false;
-  return settings.extra?.find((value) => value.name === AGC_SETTING)?.value === true;
+export function agcOffered(caps: Pick<Capabilities, "agc">): boolean {
+  return (caps.agc?.kind ?? "none") !== "none";
 }
+
+export function agcState(
+  caps: Pick<Capabilities, "agc">,
+  settings: Pick<DeviceSettings, "agc">,
+): AgcSetting {
+  const modes = caps.agc?.kind === "modes" ? caps.agc.options : [];
+  const firstMode = modes[0]?.value;
+  const reported = settings.agc;
+  const mode = reported?.mode ?? firstMode;
+  return {
+    on: agcOffered(caps) && (reported?.on ?? false),
+    ...(mode == null ? {} : { mode }),
+  };
+}
+
+export function automaticGainIsOn(
+  caps: Pick<Capabilities, "agc">,
+  settings: Pick<DeviceSettings, "agc">,
+): boolean {
+  return agcState(caps, settings).on;
+}
+
+export function hasFilter(
+  caps: Pick<Capabilities, "bandwidths" | "bandwidth_ranges" | "bandwidth_auto">,
+): boolean {
+  return (
+    caps.bandwidth_auto === true ||
+    caps.bandwidths.length > 0 ||
+    (caps.bandwidth_ranges?.length ?? 0) > 0
+  );
+}
+
+export function filterIsAuto(settings: Pick<DeviceSettings, "bandwidth">): boolean {
+  return settings.bandwidth?.kind === "auto";
+}
+
+export function filterHz(
+  caps: Pick<Capabilities, "bandwidths" | "bandwidth_ranges">,
+  settings: Pick<DeviceSettings, "bandwidth" | "sample_rate">,
+): number {
+  const bandwidth = settings.bandwidth;
+  if (bandwidth?.kind === "manual") return bandwidth.hz;
+  const rate = settings.sample_rate ?? 0;
+  const menu = caps.bandwidths.toSorted((a, b) => a - b);
+  const wideEnough = menu.find((hz) => hz >= rate);
+  if (wideEnough != null) return wideEnough;
+  const widest = menu.at(-1);
+  if (widest != null) return widest;
+  return snapToRanges(caps.bandwidth_ranges, rate);
+}
+
+export function manualFilter(hz: number): BandwidthSetting {
+  return { kind: "manual", hz };
+}
+
+export const AUTO_FILTER: BandwidthSetting = { kind: "auto" };

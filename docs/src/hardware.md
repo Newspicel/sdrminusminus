@@ -120,25 +120,38 @@ array, and test transceivers. See [Build and test](development/building.md#devel
 
 ## Device controls
 
-Controls reflect the selected driver's capabilities: RX/TX lanes, tuning, sample rate, bandwidth,
-antennas, gain, AGC, clock sources, and model-specific settings. Changing a setting can change
-other available controls. For example, RTL-SDR direct sampling changes the tuning range.
+Every radio uses the same controls, so a slider means the same thing on every Device node.
+
+| Control | Widget | Meaning |
+|---|---|---|
+| Rate | Menu, or a number field when the radio resamples freely | Sample rate |
+| Filter | Auto switch plus a menu or number field | Analog bandwidth before the ADC |
+| Antenna | Menu | Input port, shown only when there is a choice |
+| AGC | Switch, plus a mode menu where the radio has modes | The radio sets its own gain; the gain sliders are held while it does |
+| LNA, Mixer, VGA, IF, RF, Tuner, Attenuator | Slider | One gain stage each, in dB, or in firmware steps where the radio counts that way |
+| Amp | Switch | A preamp that is on or off, with its gain in the readout |
+| Bias tee | Switch | Antenna-port power for an amplifier or active antenna |
+| PPM | Number field | Crystal frequency correction |
+| DC block | Switch | Notches the receiver's own DC spike |
+
+Anything a radio has beyond that list is a model-specific setting below the standard rows.
+Changing a setting can change other available controls. For example, RTL-SDR direct sampling
+changes the tuning range.
 
 The interface reports transmit capabilities, but the transmit workflow is not yet available.
 
 ## RTL-SDR
 
-| Setting | Effect |
+| Control | Effect |
 |---|---|
-| `TUNER` | Tuner gain |
-| `ppm` | Crystal frequency correction |
-| `bias_tee` | Antenna-port power |
-| `agc` | R82xx tuner AGC |
-| `direct_sampling` | `off`, `i`, or `q` |
+| Tuner | R82xx tuner gain |
+| AGC | R82xx tuner AGC |
+| Bias tee | Antenna-port power |
+| Direct sampling | `off`, `i`, or `q` |
 
 - **Gain:** uses the tuner's supported steps. An R820T request for 20 dB rounds to 19.7 dB.
 - **Sample rate:** 225–300 kHz or 900 kHz–3.2 MHz. Rates in the gap are rejected.
-- **IF filter:** 0–8 MHz on R82xx tuners; `0` selects bandwidth automatically.
+- **Filter:** 290 kHz–8 MHz on R82xx tuners, or Auto to track the sample rate.
 - **Direct sampling:** unavailable on RTL-SDR Blog V4. Its upconverter handles tuning below 28.8 MHz.
 
 ## KrakenSDR
@@ -146,12 +159,11 @@ The interface reports transmit capabilities, but the transmit workflow is not ye
 KrakenSDR opens as one Device with five lanes; KerberosSDR has four. Discovery groups the tuners
 by serial number and USB hub. The vendor Raspberry Pi image is not required.
 
-| Setting | Effect |
+| Control | Effect |
 |---|---|
-| `TUNER` | Gain per lane |
-| `ppm` | Crystal correction |
-| `bias_tee` | Power on the array's antenna ports |
-| `agc` | R82xx tuner AGC |
+| Tuner | Gain per lane |
+| AGC | R82xx tuner AGC |
+| Bias tee | Power on the array's antenna ports |
 
 All lanes tune together. Direct sampling is unavailable. The shared clock provides `time_sync`
 coherence; relative phase must be recalibrated after each retune. SDR-- controls the built-in
@@ -162,12 +174,13 @@ Incomplete units appear as individual dongles.
 
 ## HackRF
 
-| Setting | Effect |
+| Control | Effect |
 |---|---|
-| `LNA` | Gain in 8 dB steps |
-| `VGA` | Gain in 2 dB steps |
-| `AMP` | Switchable +14 dB RF amplifier; included in total gain |
-| `bias_tee` | Antenna-port power |
+| LNA | Gain in 8 dB steps |
+| VGA | Gain in 2 dB steps |
+| Amp | +14 dB RF amplifier |
+| Filter | Baseband filter, or Auto to match the sample rate |
+| Bias tee | Antenna-port power |
 
 ## Airspy
 
@@ -182,15 +195,15 @@ corresponding SoapySDR modules.
 The displayed sample rate is complex IQ output. The USB stream carries real ADC samples at twice
 that rate; SDR-- converts them to IQ.
 
-LNA, mixer, and VGA gain use firmware step numbers rather than dB. The Device also exposes
-LNA AGC, mixer AGC, and bias-tee switches.
+LNA, Mixer, and VGA gain use firmware step numbers rather than dB. AGC can run the LNA, the
+mixer, or both. A bias tee is available.
 
 ### Airspy HF+ and HF+ Discovery
 
 Tuning covers up to 31 MHz and 60–260 MHz. Frequencies in the gap are rejected.
 
-Controls include a preamp switch, attenuation from 0 to −48 dB in 6 dB steps, AGC, AGC threshold,
-and bias tee.
+Controls are an Amp switch, attenuation from 0 to −48 dB in 6 dB steps, AGC with a low or high
+threshold, and a bias tee.
 
 At zero-IF rates, the engine offsets the local oscillator and removes DC. The driver does not
 implement the vendor library's adaptive IQ balancing, so image rejection may be lower at these rates.
@@ -203,15 +216,15 @@ ADALM-Pluto, and compatible AD936x boards without a host libiio or SoapySDR inst
 Capabilities come from the board. An AD9361 typically reports 70 MHz–6 GHz; an AD9363 reports
 325 MHz–3.8 GHz. A 2×2 board exposes two RX and two TX lanes; a stock Pluto exposes one of each.
 
-| Setting | Effect |
+| Control | Effect |
 |---|---|
-| `RX` | Receive gain per lane |
-| `TX` | Transmit attenuation per lane |
-| `ppm` | Crystal correction relative to factory trim |
-| `gain_mode` | `manual`, `slow_attack`, `fast_attack`, or `hybrid` |
-| `quadrature_tracking`, `rf_dc_tracking`, `bb_dc_tracking` | Hardware corrections |
-| `fir_filter` | Programmable decimating filter |
-| `tx_port` | Transmit port |
+| Tuner | Receive gain per lane |
+| TX | Transmit attenuation per lane |
+| PPM | Crystal correction relative to factory trim |
+| AGC | Off is manual gain; modes are slow attack, fast attack, and hybrid |
+| Quadrature, RF DC, baseband DC tracking | Hardware corrections |
+| FIR filter | Programmable decimating filter |
+| TX port | Transmit port |
 | Antenna | Receive port; usually `A_BALANCED` on a single-input board |
 
 **Discovery:** USB boards appear automatically. **Search** checks `ant.local`, `192.168.1.10`,
@@ -244,8 +257,8 @@ Both sliders show gain, so increasing either raises the signal level.
 | RF | LNA gain relative to the band's weakest state; steps depend on frequency, port, and HDR mode |
 | IF | 0–39 dB, corresponding to the inverse of the API's 20–59 dB gain reduction |
 
-AGC controls IF gain. With AGC enabled, the IF slider sets the starting gain and the setpoint
-sets the target level in dBFS.
+AGC controls IF gain at 5, 50, or 100 Hz. With AGC on, the IF slider sets the starting gain and
+the setpoint sets the target level in dBFS. The filter follows the sample rate under Auto.
 
 ### Sample rates
 

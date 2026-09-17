@@ -1,7 +1,9 @@
 use std::ffi::{c_int, c_uint};
 
 use sdrmm_device::DeviceError;
-use sdrmm_wire::{Capabilities, DeviceSettings, ExtraValue, GainValue};
+use sdrmm_wire::{
+    AgcSetting, BandwidthSetting, Capabilities, DeviceSettings, ExtraValue, GainKind, GainValue,
+};
 
 use crate::{
     caps::{self, Band, RatePlan},
@@ -39,6 +41,7 @@ impl Reasons {
 #[derive(Debug)]
 pub struct Applied {
     pub reasons: Reasons,
+    pub bandwidth: Option<BandwidthSetting>,
 }
 
 pub struct Target<'a> {
@@ -72,6 +75,20 @@ impl Target<'_> {
             hdr: self.dev.rsp_dx_params.hdr_enable != 0,
         }
     }
+
+    fn output_rate_hz(&self) -> f64 {
+        let decimation = if self.channel.ctrl_params.decimation.enable == 0 {
+            1
+        } else {
+            self.channel.ctrl_params.decimation.decimation_factor.max(1)
+        };
+        let base = if self.mode.is_some_and(DuoMode::is_low_if) {
+            caps::DUO_LOW_IF_RATE_HZ
+        } else {
+            self.dev.fs_freq.fs_hz
+        };
+        base / f64::from(decimation)
+    }
 }
 
 fn flag(value: bool) -> u8 {
@@ -99,16 +116,18 @@ fn as_str(extra: &ExtraValue) -> Result<&str, DeviceError> {
         .ok_or_else(|| DeviceError::Unsupported(format!("{}: expected a name", extra.name)))
 }
 
-fn agc_mode(name: &str) -> Result<c_int, DeviceError> {
-    match name {
-        caps::AGC_OFF => Ok(ffi::AGC_DISABLE),
-        caps::AGC_5HZ => Ok(ffi::AGC_5HZ),
-        caps::AGC_50HZ => Ok(ffi::AGC_50HZ),
-        caps::AGC_100HZ => Ok(ffi::AGC_100HZ),
-        other => Err(DeviceError::Unsupported(format!(
-            "{}: {other} is not one of {}, {}, {}, {}",
-            caps::EXTRA_AGC,
-            caps::AGC_OFF,
+fn agc_mode(setting: &AgcSetting, current: c_int) -> Result<c_int, DeviceError> {
+    if !setting.on {
+        return Ok(ffi::AGC_DISABLE);
+    }
+    match setting.mode.as_deref() {
+        Some(caps::AGC_5HZ) => Ok(ffi::AGC_5HZ),
+        Some(caps::AGC_50HZ) => Ok(ffi::AGC_50HZ),
+        Some(caps::AGC_100HZ) => Ok(ffi::AGC_100HZ),
+        None if current != ffi::AGC_DISABLE => Ok(current),
+        None => Ok(ffi::AGC_50HZ),
+        Some(other) => Err(DeviceError::Unsupported(format!(
+            "agc: {other} is not one of {}, {}, {}",
             caps::AGC_5HZ,
             caps::AGC_50HZ,
             caps::AGC_100HZ
@@ -116,12 +135,12 @@ fn agc_mode(name: &str) -> Result<c_int, DeviceError> {
     }
 }
 
-fn agc_name(mode: c_int) -> &'static str {
+fn agc_setting(mode: c_int) -> AgcSetting {
     match mode {
-        ffi::AGC_5HZ => caps::AGC_5HZ,
-        ffi::AGC_50HZ => caps::AGC_50HZ,
-        ffi::AGC_100HZ => caps::AGC_100HZ,
-        _ => caps::AGC_OFF,
+        ffi::AGC_5HZ => AgcSetting::in_mode(true, caps::AGC_5HZ),
+        ffi::AGC_50HZ => AgcSetting::in_mode(true, caps::AGC_50HZ),
+        ffi::AGC_100HZ => AgcSetting::in_mode(true, caps::AGC_100HZ),
+        _ => AgcSetting::off(),
     }
 }
 
@@ -242,34 +261,33 @@ fn apply_gain(
     reasons: &mut Reasons,
     gain: &GainValue,
 ) -> Result<(), DeviceError> {
-    match gain.stage.as_str() {
-        caps::IF_GAIN_STAGE => {
-            reasons.set(
-                &mut target.channel.tuner_params.gain.gr_db,
-                caps::gr_db_for_gain(gain.value_db),
-                ffi::UPDATE_TUNER_GR,
-            );
-            reasons.set(
-                &mut target.channel.tuner_params.gain.min_gr,
-                ffi::NORMAL_MIN_GR,
-                ffi::UPDATE_TUNER_GR,
-            );
-            Ok(())
-        }
-        caps::RF_GAIN_STAGE => {
-            let state = caps::lna_state_for_gain(target.band(), gain.value_db);
-            reasons.set(
-                &mut target.channel.tuner_params.gain.lna_state,
-                state,
-                ffi::UPDATE_TUNER_GR,
-            );
-            Ok(())
-        }
-        other => Err(DeviceError::Unsupported(format!(
-            "gain stage {other}: this receiver has {} and {}",
-            caps::RF_GAIN_STAGE,
-            caps::IF_GAIN_STAGE
-        ))),
+    let stage = gain.stage.as_str();
+    if stage == GainKind::If.name() {
+        reasons.set(
+            &mut target.channel.tuner_params.gain.gr_db,
+            caps::gr_db_for_gain(gain.value_db),
+            ffi::UPDATE_TUNER_GR,
+        );
+        reasons.set(
+            &mut target.channel.tuner_params.gain.min_gr,
+            ffi::NORMAL_MIN_GR,
+            ffi::UPDATE_TUNER_GR,
+        );
+        Ok(())
+    } else if stage == GainKind::Rf.name() {
+        let state = caps::lna_state_for_gain(target.band(), gain.value_db);
+        reasons.set(
+            &mut target.channel.tuner_params.gain.lna_state,
+            state,
+            ffi::UPDATE_TUNER_GR,
+        );
+        Ok(())
+    } else {
+        Err(DeviceError::Unsupported(format!(
+            "gain stage {stage}: this receiver has {} and {}",
+            GainKind::Rf.name(),
+            GainKind::If.name()
+        )))
     }
 }
 
@@ -379,14 +397,6 @@ fn apply_extra(
         )));
     }
     match extra.name.as_str() {
-        caps::EXTRA_AGC => {
-            let mode = agc_mode(as_str(extra)?)?;
-            reasons.set(
-                &mut target.channel.ctrl_params.agc.enable,
-                mode,
-                ffi::UPDATE_CTRL_AGC,
-            );
-        }
         caps::EXTRA_AGC_SETPOINT => {
             let setpoint = as_f64(extra)?.clamp(-72.0, -20.0).round() as c_int;
             reasons.set(
@@ -405,7 +415,6 @@ fn apply_extra(
             flag(as_bool(extra)?),
             ffi::UPDATE_CTRL_DC_OFFSET_IQ_IMBALANCE,
         ),
-        caps::EXTRA_BIAS_T => apply_bias_t(target, reasons, as_bool(extra)?),
         caps::EXTRA_RF_NOTCH => apply_rf_notch(target, reasons, as_bool(extra)?),
         caps::EXTRA_DAB_NOTCH => apply_dab_notch(target, reasons, as_bool(extra)?),
         caps::EXTRA_AM_NOTCH => reasons.set(
@@ -436,6 +445,67 @@ fn apply_extra(
     Ok(())
 }
 
+fn apply_agc(
+    target: &mut Target<'_>,
+    reasons: &mut Reasons,
+    agc: &AgcSetting,
+    capabilities: &Capabilities,
+) -> Result<(), DeviceError> {
+    if !capabilities.agc.admits(agc) {
+        return Err(DeviceError::Unsupported(format!(
+            "agc: {:?} is not a loop rate this receiver offers",
+            agc.mode
+        )));
+    }
+    let mode = agc_mode(agc, target.channel.ctrl_params.agc.enable)?;
+    reasons.set(
+        &mut target.channel.ctrl_params.agc.enable,
+        mode,
+        ffi::UPDATE_CTRL_AGC,
+    );
+    Ok(())
+}
+
+fn apply_bandwidth(
+    target: &mut Target<'_>,
+    reasons: &mut Reasons,
+    asked: Option<BandwidthSetting>,
+    rate: Option<RatePlan>,
+    capabilities: &Capabilities,
+) -> Result<Option<BandwidthSetting>, DeviceError> {
+    let (khz, chosen) = match asked {
+        Some(BandwidthSetting::Manual { hz }) => {
+            if !capabilities.admits_bandwidth(BandwidthSetting::Manual { hz }) {
+                return Err(DeviceError::Unsupported(format!(
+                    "bandwidth {hz} Hz: this receiver offers {:?}",
+                    capabilities.bandwidths
+                )));
+            }
+            (caps::bandwidth_khz(hz), BandwidthSetting::Manual { hz })
+        }
+        Some(BandwidthSetting::Auto) => {
+            let output_hz = rate.map_or_else(|| target.output_rate_hz(), |plan| plan.output_hz);
+            (
+                caps::default_bandwidth_khz(output_hz, target.mode),
+                BandwidthSetting::Auto,
+            )
+        }
+        None => match rate {
+            Some(plan) => (
+                caps::default_bandwidth_khz(plan.output_hz, target.mode),
+                BandwidthSetting::Auto,
+            ),
+            None => return Ok(None),
+        },
+    };
+    reasons.set(
+        &mut target.channel.tuner_params.bw_type,
+        khz,
+        ffi::UPDATE_TUNER_BW_TYPE,
+    );
+    Ok(Some(chosen))
+}
+
 pub fn apply(
     target: &mut Target<'_>,
     delta: &DeviceSettings,
@@ -446,6 +516,17 @@ pub fn apply(
 
     for extra in &delta.extra {
         apply_extra(target, &mut reasons, extra, capabilities)?;
+    }
+    if let Some(agc) = &delta.agc {
+        apply_agc(target, &mut reasons, agc, capabilities)?;
+    }
+    if let Some(on) = delta.bias_tee {
+        if !capabilities.bias_tee {
+            return Err(DeviceError::Unsupported(
+                "bias tee: this receiver has none".to_string(),
+            ));
+        }
+        apply_bias_t(target, &mut reasons, on);
     }
     if let Some(requested) = delta.sample_rate {
         rate = Some(apply_rate(target, &mut reasons, requested)?);
@@ -483,51 +564,17 @@ pub fn apply(
         }
         reasons.set(&mut target.dev.ppm, ppm, ffi::UPDATE_DEV_PPM);
     }
-    let bandwidth_khz = match delta.bandwidth {
-        Some(bandwidth) => Some(caps::bandwidth_khz(bandwidth)),
-        None => rate.map(|plan| caps::default_bandwidth_khz(plan.output_hz, target.mode)),
-    };
-    if let Some(bandwidth_khz) = bandwidth_khz {
-        let limit = if target.mode.is_some_and(DuoMode::is_low_if) {
-            ffi::BW_1_536
-        } else {
-            ffi::BW_8_000
-        };
-        reasons.set(
-            &mut target.channel.tuner_params.bw_type,
-            bandwidth_khz.min(limit),
-            ffi::UPDATE_TUNER_BW_TYPE,
-        );
-    }
+    let bandwidth = apply_bandwidth(target, &mut reasons, delta.bandwidth, rate, capabilities)?;
     for gain in &delta.gains {
         apply_gain(target, &mut reasons, gain)?;
     }
-    Ok(Applied { reasons })
+    Ok(Applied { reasons, bandwidth })
 }
 
 #[must_use]
-pub fn read(target: &Target<'_>) -> DeviceSettings {
+pub fn read(target: &Target<'_>, bandwidth_auto: bool) -> DeviceSettings {
     let band = target.band();
-    let decimation = if target.channel.ctrl_params.decimation.enable == 0 {
-        1
-    } else {
-        target
-            .channel
-            .ctrl_params
-            .decimation
-            .decimation_factor
-            .max(1)
-    };
-    let base = if target.mode.is_some_and(DuoMode::is_low_if) {
-        caps::DUO_LOW_IF_RATE_HZ
-    } else {
-        target.dev.fs_freq.fs_hz
-    };
     let mut extra = vec![
-        ExtraValue {
-            name: caps::EXTRA_AGC.to_string(),
-            value: agc_name(target.channel.ctrl_params.agc.enable).into(),
-        },
         ExtraValue {
             name: caps::EXTRA_AGC_SETPOINT.to_string(),
             value: target.channel.ctrl_params.agc.set_point_dbfs.into(),
@@ -541,12 +588,6 @@ pub fn read(target: &Target<'_>) -> DeviceSettings {
             value: (target.channel.ctrl_params.dc_offset.iq_enable != 0).into(),
         },
     ];
-    if target.model.has_bias_t() {
-        extra.push(ExtraValue {
-            name: caps::EXTRA_BIAS_T.to_string(),
-            value: read_bias_t(target).into(),
-        });
-    }
     if target.model.has_hdr() {
         extra.push(ExtraValue {
             name: caps::EXTRA_HDR.to_string(),
@@ -560,20 +601,28 @@ pub fn read(target: &Target<'_>) -> DeviceSettings {
     DeviceSettings {
         center_hz: Some(target.channel.tuner_params.rf_freq.rf_hz),
         tuning: None,
-        sample_rate: Some(base / f64::from(decimation)),
+        sample_rate: Some(target.output_rate_hz()),
         ppm: Some(target.dev.ppm),
         antenna: read_antenna(target),
-        bandwidth: Some(f64::from(target.channel.tuner_params.bw_type) * 1000.0),
+        bandwidth: Some(if bandwidth_auto {
+            BandwidthSetting::Auto
+        } else {
+            BandwidthSetting::Manual {
+                hz: f64::from(target.channel.tuner_params.bw_type) * 1000.0,
+            }
+        }),
         dc_block: None,
+        bias_tee: target.model.has_bias_t().then(|| read_bias_t(target)),
+        agc: Some(agc_setting(target.channel.ctrl_params.agc.enable)),
         gains: vec![
-            GainValue {
-                stage: caps::RF_GAIN_STAGE.to_string(),
-                value_db: caps::rf_gain_db(band, target.channel.tuner_params.gain.lna_state),
-            },
-            GainValue {
-                stage: caps::IF_GAIN_STAGE.to_string(),
-                value_db: caps::if_gain_db(target.channel.tuner_params.gain.gr_db),
-            },
+            GainValue::new(
+                GainKind::Rf,
+                caps::rf_gain_db(band, target.channel.tuner_params.gain.lna_state),
+            ),
+            GainValue::new(
+                GainKind::If,
+                caps::if_gain_db(target.channel.tuner_params.gain.gr_db),
+            ),
         ],
         extra,
         streams: Vec::new(),
@@ -680,6 +729,24 @@ mod tests {
         }
     }
 
+    fn bias_tee(on: bool) -> DeviceSettings {
+        DeviceSettings {
+            bias_tee: Some(on),
+            ..DeviceSettings::default()
+        }
+    }
+
+    fn agc(setting: AgcSetting) -> DeviceSettings {
+        DeviceSettings {
+            agc: Some(setting),
+            ..DeviceSettings::default()
+        }
+    }
+
+    fn manual(hz: f64) -> Option<BandwidthSetting> {
+        Some(BandwidthSetting::Manual { hz })
+    }
+
     #[test]
     fn tuning_asks_the_api_only_for_the_frequency() {
         let mut params = Params::new();
@@ -729,6 +796,7 @@ mod tests {
         .expect("rate");
         assert!(applied.reasons.reason & ffi::UPDATE_CTRL_DECIMATION != 0);
         assert!(applied.reasons.reason & ffi::UPDATE_TUNER_BW_TYPE != 0);
+        assert_eq!(applied.bandwidth, Some(BandwidthSetting::Auto));
         assert_eq!(params.channel.ctrl_params.decimation.decimation_factor, 8);
         assert_eq!(params.channel.ctrl_params.decimation.enable, 1);
         assert_eq!(params.dev.fs_freq.fs_hz, 2_000_000.0);
@@ -739,28 +807,92 @@ mod tests {
     fn an_explicit_bandwidth_wins_over_the_one_the_rate_would_pick() {
         let mut params = Params::new();
         let mut target = params.target(Model::Rsp1a, None);
-        apply(
+        let applied = apply(
             &mut target,
             &DeviceSettings {
                 sample_rate: Some(2_000_000.0),
-                bandwidth: Some(600_000.0),
+                bandwidth: manual(600_000.0),
                 ..DeviceSettings::default()
             },
             &capabilities(Model::Rsp1a, None),
         )
         .expect("rate");
+        assert_eq!(applied.bandwidth, manual(600_000.0));
+        assert_eq!(
+            read(&target, false).bandwidth,
+            manual(600_000.0),
+            "a width the operator picked reads back as that width"
+        );
         assert_eq!(params.channel.tuner_params.bw_type, ffi::BW_0_600);
+    }
+
+    #[test]
+    fn auto_picks_the_filter_matching_the_rate_the_receiver_already_runs() {
+        let mut params = Params::new();
+        let mut target = params.target(Model::Rsp1a, None);
+        apply(
+            &mut target,
+            &DeviceSettings {
+                sample_rate: Some(2_000_000.0),
+                bandwidth: manual(300_000.0),
+                ..DeviceSettings::default()
+            },
+            &capabilities(Model::Rsp1a, None),
+        )
+        .expect("rate");
+        let applied = apply(
+            &mut target,
+            &DeviceSettings {
+                bandwidth: Some(BandwidthSetting::Auto),
+                ..DeviceSettings::default()
+            },
+            &capabilities(Model::Rsp1a, None),
+        )
+        .expect("auto");
+        assert_eq!(applied.bandwidth, Some(BandwidthSetting::Auto));
+        assert_eq!(params.channel.tuner_params.bw_type, ffi::BW_1_536);
+        let target = params.target(Model::Rsp1a, None);
+        assert_eq!(read(&target, true).bandwidth, Some(BandwidthSetting::Auto));
+    }
+
+    #[test]
+    fn a_width_the_hardware_has_no_filter_for_is_refused() {
+        let mut params = Params::new();
+        let mut target = params.target(Model::Rsp1a, None);
+        let error = apply(
+            &mut target,
+            &DeviceSettings {
+                bandwidth: manual(1_000_000.0),
+                ..DeviceSettings::default()
+            },
+            &capabilities(Model::Rsp1a, None),
+        )
+        .expect_err("not on the menu");
+        assert!(matches!(error, DeviceError::Unsupported(_)));
+        assert_eq!(params.channel.tuner_params.bw_type, 0);
     }
 
     #[test]
     fn a_low_if_mode_never_writes_a_filter_wider_than_the_api_allows() {
         let mut params = Params::new();
         let mut target = params.target(Model::RspDuo, Some(DuoMode::DualTuner));
+        assert!(
+            apply(
+                &mut target,
+                &DeviceSettings {
+                    bandwidth: manual(8_000_000.0),
+                    ..DeviceSettings::default()
+                },
+                &capabilities(Model::RspDuo, Some(DuoMode::DualTuner)),
+            )
+            .is_err(),
+            "8 MHz is not on this mode's menu"
+        );
         apply(
             &mut target,
             &DeviceSettings {
                 sample_rate: Some(2_000_000.0),
-                bandwidth: Some(8_000_000.0),
+                bandwidth: Some(BandwidthSetting::Auto),
                 ..DeviceSettings::default()
             },
             &capabilities(Model::RspDuo, Some(DuoMode::DualTuner)),
@@ -813,14 +945,8 @@ mod tests {
             &mut target,
             &DeviceSettings {
                 gains: vec![
-                    GainValue {
-                        stage: caps::IF_GAIN_STAGE.to_string(),
-                        value_db: 39.0,
-                    },
-                    GainValue {
-                        stage: caps::RF_GAIN_STAGE.to_string(),
-                        value_db: 62.0,
-                    },
+                    GainValue::new(GainKind::If, 39.0),
+                    GainValue::new(GainKind::Rf, 62.0),
                 ],
                 ..DeviceSettings::default()
             },
@@ -839,10 +965,7 @@ mod tests {
         let error = apply(
             &mut target,
             &DeviceSettings {
-                gains: vec![GainValue {
-                    stage: "TUNER".to_string(),
-                    value_db: 10.0,
-                }],
+                gains: vec![GainValue::new(GainKind::Tuner, 10.0)],
                 ..DeviceSettings::default()
             },
             &capabilities(Model::Rsp1a, None),
@@ -878,16 +1001,20 @@ mod tests {
         let mut params = Params::new();
         apply(
             &mut params.target(Model::Rsp1a, None),
-            &extra(caps::EXTRA_BIAS_T, true.into()),
+            &bias_tee(true),
             &capabilities(Model::Rsp1a, None),
         )
         .expect("bias t");
         assert_eq!(params.channel.rsp1a_tuner_params.bias_t_enable, 1);
+        assert_eq!(
+            read(&params.target(Model::Rsp1a, None), true).bias_tee,
+            Some(true)
+        );
 
         let mut params = Params::new();
         let applied = apply(
             &mut params.target(Model::RspDx, None),
-            &extra(caps::EXTRA_BIAS_T, true.into()),
+            &bias_tee(true),
             &capabilities(Model::RspDx, None),
         )
         .expect("bias t");
@@ -901,10 +1028,18 @@ mod tests {
         let mut params = Params::new();
         let error = apply(
             &mut params.target(Model::Rsp1, None),
-            &extra(caps::EXTRA_BIAS_T, true.into()),
+            &bias_tee(true),
             &capabilities(Model::Rsp1, None),
         )
         .expect_err("no bias t on an rsp1");
+        assert!(matches!(error, DeviceError::Unsupported(_)));
+        assert_eq!(read(&params.target(Model::Rsp1, None), true).bias_tee, None);
+        let error = apply(
+            &mut params.target(Model::Rsp1, None),
+            &extra(caps::EXTRA_HDR, true.into()),
+            &capabilities(Model::Rsp1, None),
+        )
+        .expect_err("no hdr on an rsp1");
         assert!(matches!(error, DeviceError::Unsupported(_)));
     }
 
@@ -914,7 +1049,7 @@ mod tests {
         assert!(matches!(
             apply(
                 &mut params.target(Model::Rsp1a, None),
-                &extra(caps::EXTRA_BIAS_T, "yes".into()),
+                &extra(caps::EXTRA_DC_CORRECTION, "yes".into()),
                 &capabilities(Model::Rsp1a, None),
             ),
             Err(DeviceError::Unsupported(_))
@@ -922,7 +1057,7 @@ mod tests {
         assert!(matches!(
             apply(
                 &mut params.target(Model::Rsp1a, None),
-                &extra(caps::EXTRA_AGC, 5.into()),
+                &extra(caps::EXTRA_AGC_SETPOINT, "loud".into()),
                 &capabilities(Model::Rsp1a, None),
             ),
             Err(DeviceError::Unsupported(_))
@@ -935,18 +1070,54 @@ mod tests {
         assert!(
             apply(
                 &mut params.target(Model::Rsp1a, None),
-                &extra(caps::EXTRA_AGC, "1 kHz".into()),
+                &agc(AgcSetting::in_mode(true, "1 kHz")),
                 &capabilities(Model::Rsp1a, None),
             )
             .is_err()
         );
         apply(
             &mut params.target(Model::Rsp1a, None),
-            &extra(caps::EXTRA_AGC, caps::AGC_OFF.into()),
+            &agc(AgcSetting::off()),
             &capabilities(Model::Rsp1a, None),
         )
         .expect("agc off");
         assert_eq!(params.channel.ctrl_params.agc.enable, ffi::AGC_DISABLE);
+        assert_eq!(
+            read(&params.target(Model::Rsp1a, None), true).agc,
+            Some(AgcSetting::off())
+        );
+        apply(
+            &mut params.target(Model::Rsp1a, None),
+            &agc(AgcSetting::in_mode(true, caps::AGC_100HZ)),
+            &capabilities(Model::Rsp1a, None),
+        )
+        .expect("agc 100 Hz");
+        assert_eq!(params.channel.ctrl_params.agc.enable, ffi::AGC_100HZ);
+        assert_eq!(
+            read(&params.target(Model::Rsp1a, None), true).agc,
+            Some(AgcSetting::in_mode(true, caps::AGC_100HZ))
+        );
+    }
+
+    #[test]
+    fn switching_the_agc_on_without_a_rate_keeps_or_restores_a_loop_rate() {
+        let mut params = Params::new();
+        params.channel.ctrl_params.agc.enable = ffi::AGC_5HZ;
+        apply(
+            &mut params.target(Model::Rsp1a, None),
+            &agc(AgcSetting::switched(true)),
+            &capabilities(Model::Rsp1a, None),
+        )
+        .expect("agc on");
+        assert_eq!(params.channel.ctrl_params.agc.enable, ffi::AGC_5HZ);
+        params.channel.ctrl_params.agc.enable = ffi::AGC_DISABLE;
+        apply(
+            &mut params.target(Model::Rsp1a, None),
+            &agc(AgcSetting::switched(true)),
+            &capabilities(Model::Rsp1a, None),
+        )
+        .expect("agc on");
+        assert_eq!(params.channel.ctrl_params.agc.enable, ffi::AGC_50HZ);
     }
 
     #[test]
@@ -1001,10 +1172,7 @@ mod tests {
                 center_hz: Some(14_200_000.0),
                 sample_rate: Some(500_000.0),
                 antenna: Some(caps::ANTENNA_B.to_string()),
-                gains: vec![GainValue {
-                    stage: caps::IF_GAIN_STAGE.to_string(),
-                    value_db: 30.0,
-                }],
+                gains: vec![GainValue::new(GainKind::If, 30.0)],
                 extra: vec![ExtraValue {
                     name: caps::EXTRA_HDR.to_string(),
                     value: true.into(),
@@ -1015,16 +1183,12 @@ mod tests {
         )
         .expect("apply");
         let target = params.target(Model::RspDx, None);
-        let read = read(&target);
+        let read = read(&target, true);
         assert_eq!(read.center_hz, Some(14_200_000.0));
         assert_eq!(read.sample_rate, Some(500_000.0));
         assert_eq!(read.antenna.as_deref(), Some(caps::ANTENNA_B));
-        let if_gain = read
-            .gains
-            .iter()
-            .find(|gain| gain.stage == caps::IF_GAIN_STAGE)
-            .expect("if gain");
-        assert_eq!(if_gain.value_db, 30.0);
+        assert_eq!(read.bandwidth, Some(BandwidthSetting::Auto));
+        assert_eq!(read.gain(GainKind::If.name()), Some(30.0));
         assert_eq!(
             read.extra
                 .iter()
@@ -1041,6 +1205,6 @@ mod tests {
         params.channel.ctrl_params.decimation.enable = 1;
         params.channel.ctrl_params.decimation.decimation_factor = 4;
         let target = params.target(Model::RspDuo, Some(DuoMode::Slave));
-        assert_eq!(read(&target).sample_rate, Some(500_000.0));
+        assert_eq!(read(&target, true).sample_rate, Some(500_000.0));
     }
 }

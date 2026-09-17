@@ -35,6 +35,7 @@ const DEFAULT_LEVEL_DB: f64 = -12.0;
 const DEFAULT_NOISE_DB: f64 = -60.0;
 const MAX_OFFSET_HZ: f64 = 10_000_000.0;
 const MAX_GAP_S: f64 = 10.0;
+const GAP_STEP_S: f64 = 0.1;
 
 #[derive(Default)]
 pub struct SigGenDriver {
@@ -114,48 +115,51 @@ pub fn capabilities() -> Capabilities {
         antennas: Vec::new(),
         bandwidths: Vec::new(),
         bandwidth_ranges: Vec::new(),
+        bandwidth_auto: false,
+        bias_tee: false,
+        agc: sdrmm_wire::Agc::None,
         extra: vec![
-            ExtraSetting::Enum {
-                name: SIGNAL_SETTING.to_string(),
-                options: signals::options(),
-                default: DEFAULT_SIGNAL.to_string(),
-            },
-            ExtraSetting::Range {
-                name: OFFSET_SETTING.to_string(),
-                range: Range {
+            ExtraSetting::choice(SIGNAL_SETTING, "Signal", signals::options(), DEFAULT_SIGNAL),
+            ExtraSetting::range(
+                OFFSET_SETTING,
+                "Offset",
+                Range {
                     min: -MAX_OFFSET_HZ,
                     max: MAX_OFFSET_HZ,
                     step: None,
                 },
-                unit: "Hz".to_string(),
-            },
-            ExtraSetting::Range {
-                name: LEVEL_SETTING.to_string(),
-                range: Range {
+                "Hz",
+            ),
+            ExtraSetting::range(
+                LEVEL_SETTING,
+                "Level",
+                Range {
                     min: -60.0,
                     max: 0.0,
-                    step: None,
+                    step: Some(1.0),
                 },
-                unit: "dB".to_string(),
-            },
-            ExtraSetting::Range {
-                name: NOISE_SETTING.to_string(),
-                range: Range {
+                "dB",
+            ),
+            ExtraSetting::range(
+                NOISE_SETTING,
+                "Noise",
+                Range {
                     min: NOISE_OFF_DB,
                     max: 0.0,
-                    step: None,
+                    step: Some(1.0),
                 },
-                unit: "dB".to_string(),
-            },
-            ExtraSetting::Range {
-                name: GAP_SETTING.to_string(),
-                range: Range {
+                "dB",
+            ),
+            ExtraSetting::range(
+                GAP_SETTING,
+                "Gap",
+                Range {
                     min: 0.0,
                     max: MAX_GAP_S,
-                    step: None,
+                    step: Some(GAP_STEP_S),
                 },
-                unit: "s".to_string(),
-            },
+                "s",
+            ),
         ],
         ppm: false,
         duplex: Duplex::RxOnly,
@@ -527,7 +531,6 @@ mod tests {
             extra(LEVEL_SETTING, serde_json::json!(6.0)),
             extra(NOISE_SETTING, serde_json::json!("loud")),
             extra(GAP_SETTING, serde_json::json!(-1.0)),
-            extra("agc", serde_json::json!(true)),
             DeviceSettings {
                 sample_rate: Some(3_333.0),
                 ..DeviceSettings::default()

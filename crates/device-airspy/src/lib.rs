@@ -5,7 +5,7 @@ use sdrmm_device::{
     RxSink, SdrDevice, lock, single_rx_sink,
 };
 use sdrmm_usb_stream::RxStream;
-use sdrmm_wire::{Capabilities, DeviceInfo, DeviceSettings};
+use sdrmm_wire::{Capabilities, DeviceInfo, DeviceSettings, GainKind};
 
 use crate::driver::{Airspy, DeviceDescriptor, RX_TRANSFER_SIZE};
 
@@ -167,7 +167,11 @@ impl AirspyDevice {
     }
 }
 
-fn write_to_hardware(device: &mut Airspy, delta: &DeviceSettings) -> Result<(), DeviceError> {
+fn write_to_hardware(
+    device: &mut Airspy,
+    capabilities: &Capabilities,
+    delta: &DeviceSettings,
+) -> Result<(), DeviceError> {
     if let Some(rate) = delta.sample_rate {
         let rate = u32::try_from(rate.round() as i64)
             .map_err(|_| DeviceError::Unsupported(format!("{rate} Hz is not a sample rate")))?;
@@ -180,21 +184,26 @@ fn write_to_hardware(device: &mut Airspy, delta: &DeviceSettings) -> Result<(), 
     }
     for gain in &delta.gains {
         let step = caps::gain_step(gain.value_db)?;
-        match gain.stage.as_str() {
-            caps::LNA_STAGE => device.set_lna_gain(step).map_err(map_err)?,
-            caps::MIXER_STAGE => device.set_mixer_gain(step).map_err(map_err)?,
-            caps::VGA_STAGE => device.set_vga_gain(step).map_err(map_err)?,
-            other => return Err(DeviceError::Unsupported(format!("no {other} stage"))),
+        match caps::stage_kind(capabilities, &gain.stage)? {
+            GainKind::Lna => device.set_lna_gain(step).map_err(map_err)?,
+            GainKind::Mixer => device.set_mixer_gain(step).map_err(map_err)?,
+            GainKind::Vga => device.set_vga_gain(step).map_err(map_err)?,
+            _ => return Err(DeviceError::Unsupported(format!("no {} stage", gain.stage))),
         }
     }
-    for extra in &delta.extra {
-        let enabled = caps::extra_bool(&extra.value, &extra.name)?;
-        match extra.name.as_str() {
-            caps::LNA_AGC_SETTING => device.set_lna_agc(enabled).map_err(map_err)?,
-            caps::MIXER_AGC_SETTING => device.set_mixer_agc(enabled).map_err(map_err)?,
-            caps::BIAS_TEE_SETTING => device.set_bias_tee(enabled).map_err(map_err)?,
-            other => return Err(DeviceError::Unsupported(format!("no {other} setting"))),
-        }
+    if let Some(agc) = &delta.agc {
+        let switches = caps::agc_switches(agc)?;
+        device.set_lna_agc(switches.lna).map_err(map_err)?;
+        device.set_mixer_agc(switches.mixer).map_err(map_err)?;
+    }
+    if let Some(enabled) = delta.bias_tee {
+        device.set_bias_tee(enabled).map_err(map_err)?;
+    }
+    if let Some(extra) = delta.extra.first() {
+        return Err(DeviceError::Unsupported(format!(
+            "no {} setting",
+            extra.name
+        )));
     }
     Ok(())
 }
@@ -212,7 +221,7 @@ impl SdrDevice for AirspyDevice {
         caps::validate(settings, &self.capabilities)?;
         let (result, config) = {
             let mut device = self.radio.lock();
-            let result = write_to_hardware(&mut device, settings);
+            let result = write_to_hardware(&mut device, &self.capabilities, settings);
             (result, device.config().clone())
         };
         self.settings = caps::settings(&config);

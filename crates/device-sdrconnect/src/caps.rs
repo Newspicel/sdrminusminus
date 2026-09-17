@@ -1,7 +1,7 @@
 use sdrmm_device::{DeviceError, check_stream_settings};
 use sdrmm_wire::{
-    ArgumentOption, Capabilities, Coherence, DcArtifact, DeviceSettings, Duplex, ExtraSetting,
-    ExtraValue, Range, StreamScope,
+    ArgumentOption, BandwidthSetting, Capabilities, Coherence, DcArtifact, DeviceSettings, Duplex,
+    ExtraSetting, ExtraValue, GainKind, GainStage, GainUnit, GainValue, Range, StreamScope,
 };
 
 use crate::{
@@ -9,7 +9,6 @@ use crate::{
     session::Snapshot,
 };
 
-pub(crate) const LNA: &str = "lna";
 pub(crate) const RECEIVER: &str = "receiver";
 pub(crate) const NETWORK_MODE: &str = "network_mode";
 pub(crate) const PROFILE: &str = "device_profile";
@@ -24,6 +23,8 @@ const MAX_FREQUENCY_HZ: f64 = 2_000_000_000.0;
 
 const MIN_SAMPLE_RATE: f64 = 62_500.0;
 const MAX_SAMPLE_RATE: f64 = 10_000_000.0;
+
+const MIN_FILTER_HZ: f64 = 1.0;
 
 fn pinned(value: Option<f64>) -> Vec<Range> {
     value
@@ -45,32 +46,45 @@ fn window(min: f64, max: f64) -> Vec<Range> {
     }]
 }
 
-fn choice(name: &str, off: &str, rest: impl Iterator<Item = &'static str>) -> ExtraSetting {
-    ExtraSetting::Enum {
-        name: name.to_string(),
-        options: std::iter::once(ArgumentOption::plain(off))
+fn choice(
+    name: &str,
+    label: &str,
+    off: &str,
+    rest: impl Iterator<Item = &'static str>,
+) -> ExtraSetting {
+    ExtraSetting::choice(
+        name,
+        label,
+        std::iter::once(ArgumentOption::plain(off))
             .chain(rest.map(ArgumentOption::plain))
             .collect(),
-        default: off.to_string(),
+        off,
+    )
+}
+
+fn stepped(min: f64, max: f64) -> Range {
+    Range {
+        min,
+        max,
+        step: Some(1.0),
     }
 }
 
-fn lna_range(snapshot: &Snapshot) -> Option<(f64, f64)> {
+fn lna_stage(snapshot: &Snapshot, steerable: bool) -> Option<GainStage> {
     let min = snapshot.count(Property::LnaStateMin).unwrap_or(0);
     let max = snapshot.count(Property::LnaStateMax)?;
-    (max > min).then_some((min as f64, max as f64))
+    (steerable && max > min).then(|| {
+        GainStage::new(GainKind::Lna, stepped(min as f64, max as f64)).with_unit(GainUnit::Index)
+    })
 }
 
-fn hz(name: &str, min: f64, max: f64) -> ExtraSetting {
-    ExtraSetting::Range {
-        name: name.to_string(),
-        range: Range {
-            min,
-            max,
-            step: Some(1.0),
-        },
-        unit: "Hz".to_string(),
-    }
+fn filter_range(snapshot: &Snapshot) -> Option<Range> {
+    let widest = snapshot
+        .number(Property::DemodMaxBandwidth)
+        .filter(|w| *w >= MIN_FILTER_HZ)?;
+    snapshot
+        .text(Property::FilterBandwidth)
+        .map(|_| stepped(MIN_FILTER_HZ, widest))
 }
 
 /// A setting the receiver answered for, or nothing when this build of SDRconnect has no such
@@ -88,62 +102,42 @@ pub(crate) fn capabilities(snapshot: &Snapshot) -> Capabilities {
     let receivers = snapshot.list(Property::ValidDevices);
 
     let mut extra = Vec::new();
-    if steerable && let Some((min, max)) = lna_range(snapshot) {
-        extra.push(ExtraSetting::Range {
-            name: LNA.to_string(),
-            range: Range {
-                min,
-                max,
-                step: Some(1.0),
-            },
-            unit: "state".to_string(),
-        });
-    }
     extra.extend(answered(
         snapshot,
         Property::DeviceVfoFrequency,
-        hz(
+        ExtraSetting::range(
             Property::DeviceVfoFrequency.name(),
-            MIN_FREQUENCY_HZ,
-            MAX_FREQUENCY_HZ,
+            "Device VFO",
+            stepped(MIN_FREQUENCY_HZ, MAX_FREQUENCY_HZ),
+            "Hz",
         ),
     ));
-    if let Some(widest) = snapshot
-        .number(Property::DemodMaxBandwidth)
-        .filter(|w| *w > 0.0)
-    {
-        extra.extend(answered(
-            snapshot,
-            Property::FilterBandwidth,
-            hz(Property::FilterBandwidth.name(), 0.0, widest),
-        ));
-    }
     if !receivers.is_empty() {
         let active = snapshot
             .text(Property::ActiveDevice)
             .filter(|name| receivers.iter().any(|known| known == name))
             .unwrap_or(&receivers[0])
             .to_string();
-        extra.push(ExtraSetting::Enum {
-            name: RECEIVER.to_string(),
-            options: receivers
+        extra.push(ExtraSetting::choice(
+            RECEIVER,
+            "Receiver",
+            receivers
                 .iter()
                 .map(|name| ArgumentOption::plain(name.as_str()))
                 .collect(),
-            default: active,
-        });
+            active,
+        ));
         extra.push(choice(
             NETWORK_MODE,
+            "Network mode",
             AUTOMATIC,
             NetworkMode::ALL.into_iter().map(NetworkMode::name),
         ));
     }
-    extra.push(ExtraSetting::String {
-        name: PROFILE.to_string(),
-        default: String::new(),
-    });
+    extra.push(ExtraSetting::text(PROFILE, "Device profile", ""));
     extra.push(choice(
         RECORDING,
+        "Recording",
         OFF,
         Recording::ALL.into_iter().map(Recording::name),
     ));
@@ -160,11 +154,14 @@ pub(crate) fn capabilities(snapshot: &Snapshot) -> Capabilities {
         } else {
             pinned(snapshot.number(Property::DeviceSampleRate))
         },
-        gains: Vec::new(),
+        gains: lna_stage(snapshot, steerable).into_iter().collect(),
         antennas: snapshot.list(Property::ValidAntennas),
         bandwidths: Vec::new(),
-        bandwidth_ranges: Vec::new(),
+        bandwidth_ranges: filter_range(snapshot).into_iter().collect(),
         extra,
+        bandwidth_auto: false,
+        bias_tee: false,
+        agc: sdrmm_wire::Agc::None,
         ppm: false,
         duplex: Duplex::RxOnly,
         rx_streams: 1,
@@ -323,17 +320,22 @@ impl Remote {
     }
 
     pub(crate) fn wire(&self, caps: &Capabilities) -> DeviceSettings {
+        let gains = self
+            .lna_state
+            .filter(|_| caps.stage(GainKind::Lna.name()).is_some())
+            .map(|state| GainValue::new(GainKind::Lna, state as f64))
+            .into_iter()
+            .collect();
+        let bandwidth = self
+            .filter_hz
+            .filter(|_| caps.has_filter())
+            .map(|hz| BandwidthSetting::Manual { hz: hz as f64 });
         let mut extra = Vec::new();
-        if let Some(state) = self.lna_state.filter(|_| offers(caps, LNA).is_some()) {
-            extra.push(value(LNA, state));
-        }
-        for (property, reported) in [
-            (Property::DeviceVfoFrequency, self.vfo_hz),
-            (Property::FilterBandwidth, self.filter_hz),
-        ] {
-            if let Some(reported) = reported.filter(|_| offers(caps, property.name()).is_some()) {
-                extra.push(value(property.name(), reported));
-            }
+        if let Some(vfo_hz) = self
+            .vfo_hz
+            .filter(|_| offers(caps, Property::DeviceVfoFrequency.name()).is_some())
+        {
+            extra.push(value(Property::DeviceVfoFrequency.name(), vfo_hz));
         }
         if let Some(receiver) = self
             .receiver
@@ -357,6 +359,8 @@ impl Remote {
             center_hz: self.center_hz.map(|hz| hz as f64),
             sample_rate: self.sample_rate,
             antenna: self.antenna.clone(),
+            bandwidth,
+            gains,
             extra,
             ..DeviceSettings::default()
         }
@@ -427,24 +431,64 @@ pub(crate) fn validate(
                 .to_string(),
         ));
     }
-    if delta.bandwidth.is_some() {
-        return Err(DeviceError::Unsupported(format!(
-            "bandwidth: this receiver's analog IF width is not in the SDRconnect API; its channel \
-             filter is offered as the `{}` setting",
-            Property::FilterBandwidth.name()
-        )));
+    if let Some(bandwidth) = delta.bandwidth {
+        apply_bandwidth(&mut next, &mut batch, caps, bandwidth)?;
     }
-    if let Some(gain) = delta.gains.first() {
-        return Err(DeviceError::Unsupported(format!(
-            "gain stage {}: this receiver's RF gain is an LNA state, offered as the `{LNA}` setting",
-            gain.stage
-        )));
+    for gain in &delta.gains {
+        apply_gain(&mut next, &mut batch, caps, gain)?;
     }
-
     for value in &delta.extra {
         apply_extra(&mut next, &mut batch, caps, value)?;
     }
     Ok((next, batch))
+}
+
+fn apply_bandwidth(
+    next: &mut Remote,
+    batch: &mut Vec<Command>,
+    caps: &Capabilities,
+    bandwidth: BandwidthSetting,
+) -> Result<(), DeviceError> {
+    let BandwidthSetting::Manual { hz } = bandwidth else {
+        return Err(DeviceError::Unsupported(
+            "bandwidth: the SDRconnect channel filter has no automatic width".to_string(),
+        ));
+    };
+    if !hz.is_finite() || !caps.admits_bandwidth(bandwidth) {
+        return Err(DeviceError::Unsupported(format!(
+            "bandwidth {hz}: this receiver's channel filter spans {:?}",
+            caps.bandwidth_ranges
+        )));
+    }
+    let hz = hz.round();
+    next.filter_hz = Some(hz as u64);
+    batch.push(Command::Set(Property::FilterBandwidth, hz.to_string()));
+    Ok(())
+}
+
+fn apply_gain(
+    next: &mut Remote,
+    batch: &mut Vec<Command>,
+    caps: &Capabilities,
+    gain: &GainValue,
+) -> Result<(), DeviceError> {
+    let stage = caps.stage(&gain.stage).ok_or_else(|| {
+        DeviceError::Unsupported(format!(
+            "gain stage {}: this receiver's RF gain is the {} state",
+            gain.stage,
+            GainKind::Lna.name()
+        ))
+    })?;
+    if !gain.value_db.is_finite() || !stage.range.holds(gain.value_db) {
+        return Err(DeviceError::Unsupported(format!(
+            "gain stage {}: {} is not a state in {}..{}",
+            gain.stage, gain.value_db, stage.range.min, stage.range.max
+        )));
+    }
+    let state = gain.value_db.round();
+    next.lna_state = Some(state as u64);
+    batch.push(Command::Set(Property::LnaState, state.to_string()));
+    Ok(())
 }
 
 fn apply_extra(
@@ -463,9 +507,7 @@ fn apply_extra(
     };
 
     match asked.name.as_str() {
-        name if name == Property::DeviceVfoFrequency.name()
-            || name == Property::FilterBandwidth.name() =>
-        {
+        name if name == Property::DeviceVfoFrequency.name() => {
             let ExtraSetting::Range { range, .. } = offered else {
                 return Err(refuse());
             };
@@ -475,25 +517,8 @@ fn apply_extra(
                 .filter(|hz| hz.is_finite() && range.holds(*hz))
                 .ok_or_else(refuse)?
                 .round();
-            if name == Property::DeviceVfoFrequency.name() {
-                next.vfo_hz = Some(hz as u64);
-                batch.push(Command::Set(Property::DeviceVfoFrequency, hz.to_string()));
-            } else {
-                next.filter_hz = Some(hz as u64);
-                batch.push(Command::Set(Property::FilterBandwidth, hz.to_string()));
-            }
-        }
-        LNA => {
-            let ExtraSetting::Range { range, .. } = offered else {
-                return Err(refuse());
-            };
-            let state = asked
-                .value
-                .as_f64()
-                .filter(|state| state.is_finite() && range.holds(*state))
-                .ok_or_else(refuse)?;
-            next.lna_state = Some(state.round() as u64);
-            batch.push(Command::Set(Property::LnaState, state.round().to_string()));
+            next.vfo_hz = Some(hz as u64);
+            batch.push(Command::Set(Property::DeviceVfoFrequency, hz.to_string()));
         }
         RECEIVER => {
             let ExtraSetting::Enum { options, .. } = offered else {
@@ -540,8 +565,6 @@ fn apply_extra(
 
 #[cfg(test)]
 mod tests {
-    use sdrmm_wire::GainValue;
-
     use super::*;
     use crate::proto::Tuner;
 
@@ -586,6 +609,20 @@ mod tests {
         }
     }
 
+    fn lna(state: f64) -> DeviceSettings {
+        DeviceSettings {
+            gains: vec![GainValue::new(GainKind::Lna, state)],
+            ..DeviceSettings::default()
+        }
+    }
+
+    fn filter(hz: f64) -> DeviceSettings {
+        DeviceSettings {
+            bandwidth: Some(BandwidthSetting::Manual { hz }),
+            ..DeviceSettings::default()
+        }
+    }
+
     #[test]
     fn a_steerable_receiver_offers_the_whole_rsp_range_and_its_gain_state() {
         let (caps, _) = opened(true);
@@ -594,12 +631,10 @@ mod tests {
         assert_eq!(caps.sample_rate_ranges[0].min, MIN_SAMPLE_RATE);
         assert!(caps.sample_rates.is_empty(), "the API names no rate menu");
         assert_eq!(caps.antennas, vec!["Antenna A", "Antenna B"]);
-        let lna = offers(&caps, LNA).expect("the RF gain state");
-        let ExtraSetting::Range { range, unit, .. } = lna else {
-            panic!("the gain state is a range, not {lna:?}");
-        };
-        assert_eq!((range.min, range.max), (0.0, 9.0));
-        assert_eq!(unit, "state");
+        let lna = caps.stage(GainKind::Lna.name()).expect("the RF gain state");
+        assert_eq!((lna.range.min, lna.range.max), (0.0, 9.0));
+        assert_eq!(lna.range.step, Some(1.0));
+        assert_eq!(lna.unit, GainUnit::Index);
     }
 
     #[test]
@@ -611,9 +646,7 @@ mod tests {
                 .map(ExtraSetting::name)
                 .collect::<Vec<_>>(),
             vec![
-                LNA,
                 "device_vfo_frequency",
-                "filter_bandwidth",
                 RECEIVER,
                 NETWORK_MODE,
                 PROFILE,
@@ -621,16 +654,19 @@ mod tests {
             ],
             "this receiver answered for its whole audio chain, and none of that is a control"
         );
-        let filter = offers(&caps, "filter_bandwidth").expect("the channel filter");
-        let ExtraSetting::Range { range, unit, .. } = filter else {
-            panic!("the channel filter is a range, not {filter:?}");
-        };
+        assert!(
+            caps.extra.iter().all(|setting| setting.label().is_some()),
+            "every oddity carries a label"
+        );
         assert_eq!(
-            (range.min, range.max),
-            (0.0, 200_000.0),
+            caps.bandwidth_ranges,
+            vec![stepped(MIN_FILTER_HZ, 200_000.0)],
             "as wide as the receiver's own demod_max_bandwidth, no wider"
         );
-        assert_eq!(unit, "Hz");
+        assert!(
+            !caps.bandwidth_auto,
+            "the channel filter has no automatic width"
+        );
     }
 
     #[test]
@@ -638,7 +674,7 @@ mod tests {
         let mut snapshot = snapshot(true);
         snapshot.put(Property::DemodMaxBandwidth, "");
         assert!(
-            offers(&capabilities(&snapshot), "filter_bandwidth").is_none(),
+            !capabilities(&snapshot).has_filter(),
             "a width with no known ceiling is a control that cannot be bounded"
         );
     }
@@ -659,11 +695,14 @@ mod tests {
                 "100200000".to_string()
             )]
         );
-        let (narrower, batch) =
-            validate(&extra("filter_bandwidth", 12_500.0), &caps, &tuned).expect("a width");
+        let (narrower, batch) = validate(&filter(12_500.0), &caps, &tuned).expect("a width");
         assert_eq!(
             batch,
             vec![Command::Set(Property::FilterBandwidth, "12500".to_string())]
+        );
+        assert_eq!(
+            narrower.wire(&caps).bandwidth,
+            Some(BandwidthSetting::Manual { hz: 12_500.0 })
         );
         assert!(
             narrower.replay().contains(&Command::Set(
@@ -673,8 +712,35 @@ mod tests {
             "the channel filter comes back with the connection"
         );
         assert!(
-            validate(&extra("filter_bandwidth", 400_000.0), &caps, &remote).is_err(),
+            validate(&filter(400_000.0), &caps, &remote).is_err(),
             "wider than the receiver said it demodulates"
+        );
+        assert!(
+            validate(
+                &DeviceSettings {
+                    bandwidth: Some(BandwidthSetting::Auto),
+                    ..DeviceSettings::default()
+                },
+                &caps,
+                &remote
+            )
+            .is_err(),
+            "the channel filter has no automatic width"
+        );
+    }
+
+    #[test]
+    fn the_lna_state_becomes_the_property_the_api_names() {
+        let (caps, remote) = opened(true);
+        let (next, batch) = validate(&lna(2.0), &caps, &remote).expect("a state");
+        assert_eq!(
+            batch,
+            vec![Command::Set(Property::LnaState, "2".to_string())]
+        );
+        assert_eq!(next.wire(&caps).gain(GainKind::Lna.name()), Some(2.0));
+        assert!(
+            next.replay()
+                .contains(&Command::Set(Property::LnaState, "2".to_string()))
         );
     }
 
@@ -684,7 +750,7 @@ mod tests {
         assert_eq!(caps.freq_ranges, pinned(Some(100e6)));
         assert_eq!(caps.sample_rate_ranges, pinned(Some(2e6)));
         assert!(
-            offers(&caps, LNA).is_none(),
+            caps.gains.is_empty(),
             "a gain the server will refuse is not offered"
         );
     }
@@ -702,14 +768,14 @@ mod tests {
                 .find(|value| value.name == name)
                 .map(|value| value.value.clone())
         };
-        assert_eq!(value(LNA), Some(serde_json::json!(4)));
+        assert_eq!(wire.gain(GainKind::Lna.name()), Some(4.0));
+        assert_eq!(
+            wire.bandwidth,
+            Some(BandwidthSetting::Manual { hz: 12_500.0 })
+        );
         assert_eq!(
             value("device_vfo_frequency"),
             Some(serde_json::json!(100_100_000u64))
-        );
-        assert_eq!(
-            value("filter_bandwidth"),
-            Some(serde_json::json!(12_500u64))
         );
         assert_eq!(value(RECEIVER), Some(serde_json::json!("RSP1B 5678")));
         assert_eq!(value(RECORDING), Some(serde_json::json!("off")));
@@ -812,13 +878,7 @@ mod tests {
             })
             .contains("outside what this receiver samples at")
         );
-        assert!(
-            refused(DeviceSettings {
-                bandwidth: Some(200e3),
-                ..DeviceSettings::default()
-            })
-            .contains("filter_bandwidth")
-        );
+        assert!(refused(filter(400e3)).contains("channel filter"));
         assert!(
             refused(DeviceSettings {
                 ppm: Some(2.0),
@@ -833,17 +893,9 @@ mod tests {
             })
             .contains("Antenna Z")
         );
-        assert!(
-            refused(DeviceSettings {
-                gains: vec![GainValue {
-                    stage: "LNA".to_string(),
-                    value_db: 20.0,
-                }],
-                ..DeviceSettings::default()
-            })
-            .contains(LNA)
-        );
-        assert!(refused(extra(LNA, 99)).contains(LNA));
+        assert!(refused(lna(99.0)).contains("LNA"));
+        assert!(refused(extra("lna", 2)).contains("lna"));
+        assert!(refused(extra("filter_bandwidth", 12_500)).contains("filter_bandwidth"));
         assert!(
             refused(extra("audio_volume_percent", 50)).contains("audio_volume_percent"),
             "SDRconnect's audio chain is not a setting on a device that hands over IQ"

@@ -12,7 +12,7 @@ use sdrmm_device::{
     net::testing::{DEADLINE, FakeServer, eventually},
 };
 use sdrmm_device_rtltcp::RtlTcpDriver;
-use sdrmm_wire::{DeviceSettings, ExtraValue, GainValue};
+use sdrmm_wire::{Agc, AgcSetting, DeviceSettings, GainKind, GainValue};
 
 type Observed = Arc<Mutex<HashMap<usize, Vec<(u8, u32)>>>>;
 
@@ -103,12 +103,17 @@ fn opening_reads_the_greeting_and_reports_that_tuners_capabilities() {
     assert_eq!(caps.freq_ranges[0].min, 24e6);
     assert_eq!(caps.gains[0].name, "TUNER");
     assert_eq!(caps.gains[0].range.max, 49.6, "the tuner's own table");
+    assert_eq!(caps.gains[0].values.len(), 29, "the slider snaps to it");
     assert!(caps.sample_rates.contains(&2_048_000.0));
+    assert!(caps.bias_tee);
+    assert_eq!(caps.agc, Agc::Switch);
 
     assert_eq!(server.connections(), OPENED + 1);
     let settings = device.settings();
     assert_eq!(settings.center_hz, Some(100_000_000.0));
     assert_eq!(settings.sample_rate, Some(2_048_000.0));
+    assert_eq!(settings.bias_tee, Some(false));
+    assert_eq!(settings.agc, Some(AgcSetting::switched(true)));
 }
 
 #[test]
@@ -150,17 +155,13 @@ fn capturing_replays_every_setting_before_the_first_sample_and_streams() {
         .apply(&DeviceSettings {
             center_hz: Some(433_920_000.0),
             sample_rate: Some(2_400_000.0),
-            gains: vec![GainValue {
-                stage: "TUNER".to_string(),
-                value_db: 25.4,
-            }],
-            extra: vec![ExtraValue {
-                name: "bias_tee".to_string(),
-                value: true.into(),
-            }],
+            gains: vec![GainValue::new(GainKind::Tuner, 25.4)],
+            bias_tee: Some(true),
             ..DeviceSettings::default()
         })
         .expect("accepted while not streaming");
+    assert_eq!(device.settings().bias_tee, Some(true));
+    assert_eq!(device.settings().agc, Some(AgcSetting::switched(false)));
 
     let (sink, blocks) = blocking_sink();
     device.rx_start(vec![sink]).expect("streams");

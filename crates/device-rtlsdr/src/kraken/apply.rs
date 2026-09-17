@@ -1,7 +1,7 @@
 use sdrmm_device::{DeviceError, check_stream_settings};
-use sdrmm_wire::{Capabilities, DeviceSettings, ExtraValue};
+use sdrmm_wire::{Capabilities, DeviceSettings};
 
-use crate::caps::{self, AGC, BIAS_TEE};
+use crate::caps;
 
 /// Pin 0 of the control dongle switches the calibration noise source into every lane, and pins 1
 /// and up switch the lanes' bias tees. Every one of them hangs off that one dongle rather than
@@ -15,16 +15,7 @@ pub(crate) const fn bias_tee_pin(lane: usize) -> u8 {
 pub(crate) struct Plan {
     pub(crate) lanes: Vec<caps::Plan>,
     pub(crate) gpio: Vec<(u8, bool)>,
-    pub(crate) extra: Vec<ExtraValue>,
-}
-
-fn switch(value: &ExtraValue) -> Result<bool, DeviceError> {
-    value.value.as_bool().ok_or_else(|| {
-        DeviceError::Unsupported(format!(
-            "extra setting {}: bad value {}",
-            value.name, value.value
-        ))
-    })
+    pub(crate) bias_tee: Option<bool>,
 }
 
 /// Works out what every lane and the bank's own switches have to be set to.
@@ -42,29 +33,21 @@ pub(crate) fn plan(
     let mut plan = Plan {
         lanes: Vec::with_capacity(current.len()),
         gpio: Vec::new(),
-        extra: Vec::new(),
+        bias_tee: delta.bias_tee,
     };
-    for value in &delta.extra {
-        if !capabilities
-            .extra
-            .iter()
-            .any(|setting| setting.name() == value.name)
-        {
-            return Err(DeviceError::Unsupported(format!(
-                "extra setting {}",
-                value.name
-            )));
-        }
-        if value.name == BIAS_TEE {
-            let on = switch(value)?;
-            plan.gpio
-                .extend((0..current.len()).map(|lane| (bias_tee_pin(lane), on)));
-            plan.extra.push(value.clone());
-        }
+    if let Some(value) = delta.extra.first() {
+        return Err(DeviceError::Unsupported(format!(
+            "extra setting {}",
+            value.name
+        )));
+    }
+    if let Some(on) = delta.bias_tee {
+        plan.gpio
+            .extend((0..current.len()).map(|lane| (bias_tee_pin(lane), on)));
     }
     for (lane, settled) in current.iter().enumerate() {
         let mut want = delta.for_stream(lane as u32, &capabilities.per_stream);
-        want.extra.retain(|value| value.name == AGC);
+        want.bias_tee = None;
         plan.lanes
             .push(caps::validate(&want, lane_caps, settled, table)?);
     }
@@ -73,11 +56,11 @@ pub(crate) fn plan(
 
 #[cfg(test)]
 mod tests {
-    use sdrmm_wire::{GainValue, StreamSettings};
+    use sdrmm_wire::{AgcSetting, ExtraValue, GainKind, GainValue, StreamSettings};
 
     use super::*;
     use crate::{
-        caps::{GainMode, TUNER_STAGE},
+        caps::GainMode,
         driver::{BoardVariant, GAIN_VALUES},
     };
 
@@ -90,10 +73,7 @@ mod tests {
             DeviceSettings {
                 center_hz: Some(100e6),
                 sample_rate: Some(2.4e6),
-                extra: vec![ExtraValue {
-                    name: AGC.to_owned(),
-                    value: true.into(),
-                }],
+                agc: Some(AgcSetting::switched(true)),
                 ..DeviceSettings::default()
             };
             LANES
@@ -126,10 +106,7 @@ mod tests {
         let plan = planned(&DeviceSettings {
             streams: vec![StreamSettings {
                 stream: 2,
-                gains: vec![GainValue {
-                    stage: TUNER_STAGE.to_owned(),
-                    value_db: 30.0,
-                }],
+                gains: vec![GainValue::new(GainKind::Tuner, 30.0)],
                 ..StreamSettings::default()
             }],
             ..DeviceSettings::default()
@@ -146,10 +123,7 @@ mod tests {
     #[test]
     fn every_lanes_bias_tee_is_a_pin_on_the_control_dongle() {
         let plan = planned(&DeviceSettings {
-            extra: vec![ExtraValue {
-                name: BIAS_TEE.to_owned(),
-                value: true.into(),
-            }],
+            bias_tee: Some(true),
             ..DeviceSettings::default()
         })
         .expect("plan");
@@ -157,7 +131,23 @@ mod tests {
             plan.gpio,
             [(1, true), (2, true), (3, true), (4, true), (5, true)]
         );
-        assert_eq!(plan.extra.len(), 1);
+        assert_eq!(plan.bias_tee, Some(true));
+        for lane in &plan.lanes {
+            assert_eq!(lane.bias_tee, None, "no lane switches its own feed");
+        }
+    }
+
+    #[test]
+    fn agc_reaches_every_lane_and_is_reported_back() {
+        let plan = planned(&DeviceSettings {
+            agc: Some(AgcSetting::switched(false)),
+            ..DeviceSettings::default()
+        })
+        .expect("plan");
+        for lane in &plan.lanes {
+            assert!(matches!(lane.gain, Some(GainMode::Manual(_))));
+            assert_eq!(lane.applied.agc, Some(AgcSetting::switched(false)));
+        }
     }
 
     #[test]

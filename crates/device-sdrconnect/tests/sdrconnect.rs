@@ -10,7 +10,7 @@ use sdrmm_device::{
     net::testing::{DEADLINE, FakeServer, WebSocketPeer, eventually},
 };
 use sdrmm_device_sdrconnect::SdrConnectDriver;
-use sdrmm_wire::{DeviceSettings, ExtraSetting, ExtraValue};
+use sdrmm_wire::{BandwidthSetting, DeviceSettings, ExtraSetting, GainKind, GainUnit, GainValue};
 
 const CAPTURING: usize = 1;
 const RECONNECTED: usize = 2;
@@ -251,16 +251,11 @@ fn opening_reads_the_capability_set_off_the_properties_it_asked_for() {
     assert!(caps.sample_rates.is_empty(), "the API names no rate menu");
     assert_eq!(caps.sample_rate_ranges[0].max, 10e6);
 
-    let lna = caps
-        .extra
-        .iter()
-        .find(|setting| setting.name() == "lna")
-        .expect("the RF gain state");
-    let ExtraSetting::Range { range, unit, .. } = lna else {
-        panic!("the gain state is a range, not {lna:?}");
-    };
-    assert_eq!((range.min, range.max), (0.0, 9.0));
-    assert_eq!(unit, "state");
+    let lna = caps.stage("LNA").expect("the RF gain state");
+    assert_eq!((lna.range.min, lna.range.max), (0.0, 9.0));
+    assert_eq!(lna.unit, GainUnit::Index);
+    assert_eq!(caps.bandwidth_ranges[0].max, 200e3, "the channel filter");
+    assert!(!caps.bandwidth_auto);
 
     let receivers = caps
         .extra
@@ -282,6 +277,11 @@ fn opening_reads_the_capability_set_off_the_properties_it_asked_for() {
     assert_eq!(device.settings().center_hz, Some(100e6));
     assert_eq!(device.settings().sample_rate, Some(2e6));
     assert_eq!(device.settings().antenna.as_deref(), Some("Antenna A"));
+    assert_eq!(device.settings().gain("LNA"), Some(4.0));
+    assert_eq!(
+        device.settings().bandwidth,
+        Some(BandwidthSetting::Manual { hz: 12_500.0 })
+    );
 
     assert!(
         saw(
@@ -315,7 +315,7 @@ fn a_receiver_that_will_not_be_steered_reports_only_where_it_already_is() {
     assert_eq!(caps.freq_ranges[0].max, 100e6);
     assert_eq!(caps.sample_rate_ranges[0].min, 2e6);
     assert!(
-        !caps.extra.iter().any(|setting| setting.name() == "lna"),
+        caps.gains.is_empty(),
         "a gain the server will refuse is not offered"
     );
 }
@@ -452,10 +452,8 @@ fn a_retune_while_streaming_reaches_the_server() {
         .apply(&DeviceSettings {
             center_hz: Some(144_800_000.0),
             antenna: Some("Antenna B".to_string()),
-            extra: vec![ExtraValue {
-                name: "lna".to_string(),
-                value: 2.into(),
-            }],
+            bandwidth: Some(BandwidthSetting::Manual { hz: 25_000.0 }),
+            gains: vec![GainValue::new(GainKind::Lna, 2.0)],
             ..DeviceSettings::default()
         })
         .expect("retunes");
@@ -479,7 +477,20 @@ fn a_retune_while_streaming_reaches_the_server() {
     eventually("the gain state", || {
         saw(&observed, CAPTURING, r#""lna_state","value":"2""#).then_some(())
     });
+    eventually("the channel filter", || {
+        saw(
+            &observed,
+            CAPTURING,
+            r#""filter_bandwidth","value":"25000""#,
+        )
+        .then_some(())
+    });
     assert_eq!(device.settings().center_hz, Some(144_800_000.0));
+    assert_eq!(device.settings().gain("LNA"), Some(2.0));
+    assert_eq!(
+        device.settings().bandwidth,
+        Some(BandwidthSetting::Manual { hz: 25_000.0 })
+    );
     device.rx_stop();
 }
 
@@ -571,9 +582,7 @@ fn the_controls_are_the_ones_that_shape_the_iq_and_no_others() {
             .map(ExtraSetting::name)
             .collect::<Vec<_>>(),
         vec![
-            "lna",
             "device_vfo_frequency",
-            "filter_bandwidth",
             "receiver",
             "network_mode",
             "device_profile",

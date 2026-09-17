@@ -7,7 +7,9 @@ use sdrmm_device::{
     single_rx_sink,
 };
 use sdrmm_usb_stream::RxStream;
-use sdrmm_wire::{Capabilities, DeviceInfo, DeviceSettings, ExtraValue};
+use sdrmm_wire::{
+    AgcSetting, BandwidthSetting, Capabilities, DeviceInfo, DeviceSettings, ExtraValue,
+};
 
 mod caps;
 mod convert;
@@ -143,28 +145,22 @@ impl RtlSdrDevice {
         let bias_tee = sdr.bias_t_at_startup();
         sdr.set_bias_t(bias_tee).map_err(map_err)?;
 
-        let mut extra = vec![
-            ExtraValue {
-                name: caps::BIAS_TEE.to_string(),
-                value: bias_tee.into(),
-            },
-            ExtraValue {
-                name: caps::AGC.to_string(),
-                value: true.into(),
-            },
-        ];
-        if sdr.board_variant() != BoardVariant::RtlSdrBlogV4 {
-            extra.push(ExtraValue {
+        let extra = (sdr.board_variant() != BoardVariant::RtlSdrBlogV4)
+            .then(|| ExtraValue {
                 name: caps::DIRECT_SAMPLING.to_string(),
                 value: sdr.direct_sampling().as_str().into(),
-            });
-        }
+            })
+            .into_iter()
+            .collect();
 
         let settings = DeviceSettings {
             center_hz: Some(f64::from(sdr.center_freq())),
             sample_rate: Some(f64::from(sdr.sample_rate())),
             ppm: Some(f64::from(sdr.freq_correction())),
             antenna: Some("RX".to_string()),
+            bandwidth: Some(BandwidthSetting::Auto),
+            bias_tee: Some(bias_tee),
+            agc: Some(AgcSetting::switched(true)),
             extra,
             ..DeviceSettings::default()
         };
@@ -243,9 +239,6 @@ impl SdrDevice for RtlSdrDevice {
         self.settings.ppm = Some(f64::from(ppm));
         result?;
         self.settings.merge_from(&plan.applied);
-        if plan.clear_bandwidth {
-            self.settings.bandwidth = None;
-        }
         Ok(())
     }
 

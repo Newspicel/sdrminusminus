@@ -9,7 +9,8 @@ use sdrmm_device::{
 };
 use sdrmm_device_ad936x::Ad936xDriver;
 use sdrmm_wire::{
-    Coherence, DcArtifact, DeviceSettings, Duplex, ExtraValue, GainValue, StreamSettings,
+    Agc, AgcSetting, BandwidthSetting, Coherence, DcArtifact, DeviceSettings, Duplex, GainKind,
+    GainValue, StreamSettings,
 };
 
 const SERIAL: &str = "1044734c960500111e002e0041984fc267";
@@ -58,9 +59,17 @@ fn opening_reads_the_radios_own_limits_rather_than_assuming_them() {
     assert_eq!(
         caps.gains
             .iter()
-            .map(|stage| (stage.name.as_str(), stage.range.min, stage.range.max))
+            .map(|stage| (
+                stage.name.as_str(),
+                stage.kind,
+                stage.range.min,
+                stage.range.max
+            ))
             .collect::<Vec<_>>(),
-        vec![("RX", -3.0, 71.0), ("TX", -89.75, 0.0)]
+        vec![
+            ("TUNER", GainKind::Tuner, -3.0, 71.0),
+            ("TX", GainKind::Tx, -89.75, 0.0)
+        ]
     );
     assert_eq!(
         caps.antennas,
@@ -72,12 +81,23 @@ fn opening_reads_the_radios_own_limits_rather_than_assuming_them() {
     assert_eq!(caps.coherence, Coherence::None);
     assert_eq!(caps.dc_artifact, DcArtifact::Managed);
     assert!(caps.ppm, "the crystal on this board can be trimmed");
+    assert!(!caps.bandwidth_auto);
+    assert!(!caps.bias_tee);
+    let Agc::Modes { options } = &caps.agc else {
+        panic!("the AD936x offers its attack modes: {:?}", caps.agc);
+    };
+    assert_eq!(
+        options
+            .iter()
+            .map(|option| option.value.as_str())
+            .collect::<Vec<_>>(),
+        vec!["fast_attack", "slow_attack", "hybrid"]
+    );
 
     let names: Vec<&str> = caps.extra.iter().map(|setting| setting.name()).collect();
     assert_eq!(
         names,
         vec![
-            "gain_mode",
             "quadrature_tracking",
             "rf_dc_tracking",
             "bb_dc_tracking",
@@ -94,27 +114,25 @@ fn the_settings_that_come_back_are_the_ones_the_radio_is_holding() {
     let settings = device.settings();
     assert_eq!(settings.center_hz, Some(2_400_000_000.0));
     assert_eq!(settings.sample_rate, Some(2_400_000.0));
-    assert_eq!(settings.bandwidth, Some(18_000_000.0));
+    assert_eq!(
+        settings.bandwidth,
+        Some(BandwidthSetting::Manual { hz: 18_000_000.0 })
+    );
     assert_eq!(settings.antenna.as_deref(), Some("A_BALANCED"));
     assert_eq!(settings.ppm, Some(0.0));
     assert_eq!(
         settings.gains,
         vec![
-            GainValue {
-                stage: "RX".to_string(),
-                value_db: 40.0
-            },
-            GainValue {
-                stage: "TX".to_string(),
-                value_db: -10.0
-            },
+            GainValue::new(GainKind::Tuner, 40.0),
+            GainValue::new(GainKind::Tx, -10.0),
         ]
     );
+    assert_eq!(settings.agc, Some(AgcSetting::off()));
     assert!(
         settings
             .extra
             .iter()
-            .any(|extra| extra.name == "gain_mode" && extra.value == "manual"),
+            .any(|extra| extra.name == "fir_filter"),
         "{:?}",
         settings.extra
     );
@@ -136,10 +154,7 @@ fn a_two_by_two_radio_is_recognised_as_one() {
             stream: 1,
             center_hz: None,
             tuning: None,
-            gains: vec![GainValue {
-                stage: "RX".to_string(),
-                value_db: 40.0
-            }],
+            gains: vec![GainValue::new(GainKind::Tuner, 40.0)],
             antenna: Some("A_BALANCED".to_string()),
         }],
         "the second lane reports its own state"
@@ -152,17 +167,11 @@ fn a_gain_for_the_whole_radio_reaches_both_lanes_and_a_lane_of_its_own_stays_apa
     let mut device = open(&server);
     device
         .apply(&DeviceSettings {
-            gains: vec![GainValue {
-                stage: "RX".to_string(),
-                value_db: 30.0,
-            }],
+            gains: vec![GainValue::new(GainKind::Tuner, 30.0)],
             antenna: Some("B_BALANCED".to_string()),
             streams: vec![StreamSettings {
                 stream: 1,
-                gains: vec![GainValue {
-                    stage: "RX".to_string(),
-                    value_db: 20.0,
-                }],
+                gains: vec![GainValue::new(GainKind::Tuner, 20.0)],
                 ..StreamSettings::default()
             }],
             ..DeviceSettings::default()
@@ -195,16 +204,10 @@ fn applying_settings_reaches_the_radio_as_the_attributes_it_understands() {
         .apply(&DeviceSettings {
             center_hz: Some(433_920_000.0),
             sample_rate: Some(4_000_000.0),
-            bandwidth: Some(3_000_000.0),
+            bandwidth: Some(BandwidthSetting::Manual { hz: 3_000_000.0 }),
             antenna: Some("B_BALANCED".to_string()),
-            gains: vec![GainValue {
-                stage: "RX".to_string(),
-                value_db: 30.0,
-            }],
-            extra: vec![ExtraValue {
-                name: "gain_mode".to_string(),
-                value: serde_json::json!("slow_attack"),
-            }],
+            gains: vec![GainValue::new(GainKind::Tuner, 30.0)],
+            agc: Some(AgcSetting::in_mode(true, "slow_attack")),
             ..DeviceSettings::default()
         })
         .expect("the radio took it");
@@ -242,6 +245,47 @@ fn applying_settings_reaches_the_radio_as_the_attributes_it_understands() {
     let settings = device.settings();
     assert_eq!(settings.center_hz, Some(433_920_000.0));
     assert_eq!(settings.sample_rate, Some(4_000_000.0));
+    assert_eq!(
+        settings.agc,
+        Some(AgcSetting::in_mode(true, "slow_attack")),
+        "the mode the radio holds is the one reported"
+    );
+}
+
+#[test]
+fn automatic_gain_switches_off_to_manual_and_an_automatic_filter_is_refused() {
+    let server = FakeIiod::spawn(1);
+    let mut device = open(&server);
+    device
+        .apply(&DeviceSettings {
+            agc: Some(AgcSetting::switched(true)),
+            ..DeviceSettings::default()
+        })
+        .expect("the radio took it");
+    assert_eq!(
+        server.attribute("ad9361-phy/INPUT/voltage0/gain_control_mode"),
+        Some("fast_attack".to_string()),
+        "on without a mode takes the first the radio offers"
+    );
+    device
+        .apply(&DeviceSettings {
+            agc: Some(AgcSetting::off()),
+            ..DeviceSettings::default()
+        })
+        .expect("the radio took it");
+    assert_eq!(
+        server.attribute("ad9361-phy/INPUT/voltage0/gain_control_mode"),
+        Some("manual".to_string())
+    );
+    assert_eq!(device.settings().agc, Some(AgcSetting::off()));
+
+    let error = device
+        .apply(&DeviceSettings {
+            bandwidth: Some(BandwidthSetting::Auto),
+            ..DeviceSettings::default()
+        })
+        .expect_err("this radio has no automatic filter");
+    assert!(matches!(error, DeviceError::Unsupported(_)), "{error}");
 }
 
 #[test]

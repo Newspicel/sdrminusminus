@@ -97,6 +97,8 @@ impl StreamArray {
             gains: first.gains.clone(),
             antenna: first.antenna.clone(),
             bandwidth: first.bandwidth,
+            bias_tee: first.bias_tee,
+            agc: first.agc.clone(),
             ppm: first.ppm,
             ..Default::default()
         };
@@ -231,9 +233,13 @@ mod tests {
     use num_complex::Complex;
     use sdrmm_device::{DeviceRegistry, RxSink, SinkRoom, lock};
     use sdrmm_device_virtual::VirtualDriver;
-    use sdrmm_wire::{Coherence, Range};
+    use sdrmm_wire::{Agc, Coherence, GainKind, GainStage, GainValue, Range};
 
     use super::*;
+
+    fn stage(kind: GainKind, min: f64, max: f64, step: Option<f64>) -> GainStage {
+        GainStage::new(kind, Range { min, max, step })
+    }
 
     fn definition(members: &[&str], coherence: Coherence) -> ArrayDefinition {
         ArrayDefinition {
@@ -391,30 +397,23 @@ mod tests {
         let (device, _) = pair();
         let mut caps = device.capabilities().clone();
         caps.rx_streams = 1;
-        caps.gains = vec![sdrmm_wire::GainStage {
-            name: "RF".into(),
-            range: Range {
+        caps.gains = vec![GainStage::new(
+            GainKind::Rf,
+            Range {
                 min: 0.0,
                 max: 40.0,
                 step: None,
             },
-            values: Vec::new(),
-        }];
+        )];
         caps.antennas = vec!["A".into(), "B".into()];
         caps.per_stream = Default::default();
         let first = DeviceSettings {
-            gains: vec![sdrmm_wire::GainValue {
-                stage: "RF".into(),
-                value_db: 10.0,
-            }],
+            gains: vec![GainValue::new(GainKind::Rf, 10.0)],
             antenna: Some("A".into()),
             ..device.settings().clone()
         };
         let second = DeviceSettings {
-            gains: vec![sdrmm_wire::GainValue {
-                stage: "RF".into(),
-                value_db: 20.0,
-            }],
+            gains: vec![GainValue::new(GainKind::Rf, 20.0)],
             antenna: Some("B".into()),
             ..first.clone()
         };
@@ -430,5 +429,61 @@ mod tests {
             assert_eq!(settings.gains, original.gains);
             assert_eq!(settings.antenna, original.antenna);
         }
+    }
+
+    #[test]
+    fn a_bank_of_different_radios_offers_only_what_both_share() {
+        let (device, _) = pair();
+        let mut left = device.capabilities().clone();
+        left.rx_streams = 1;
+        left.gains = vec![
+            stage(GainKind::Lna, 0.0, 40.0, Some(8.0)),
+            stage(GainKind::Vga, 0.0, 62.0, Some(2.0)).with_values(vec![0.0, 20.0, 62.0]),
+            stage(GainKind::Amp, 0.0, 14.0, Some(14.0)),
+        ];
+        left.bias_tee = true;
+        left.agc = Agc::Switch;
+        left.bandwidth_auto = true;
+        let mut right = left.clone();
+        right.gains = vec![
+            stage(GainKind::Vga, 10.0, 50.0, None).with_values(vec![10.0, 50.0]),
+            stage(GainKind::Lna, 16.0, 48.0, None),
+            stage(GainKind::Tuner, 0.0, 30.0, None),
+        ];
+        right.bias_tee = false;
+        right.agc = Agc::None;
+        right.bandwidth_auto = false;
+        let composed = composite(
+            &[&left, &right],
+            &definition(&["virtual:one", "virtual:two"], Coherence::TimeSync),
+        );
+        assert_eq!(composed.gains.len(), 2);
+        let lna = composed.stage(GainKind::Lna.name()).expect("shared LNA");
+        assert_eq!(lna.range.min, 16.0);
+        assert_eq!(lna.range.max, 40.0);
+        assert_eq!(lna.range.step, Some(8.0));
+        let vga = composed.stage(GainKind::Vga.name()).expect("shared VGA");
+        assert_eq!(vga.range.min, 10.0);
+        assert_eq!(vga.range.max, 50.0);
+        assert!(vga.values.is_empty());
+        assert!(composed.stage(GainKind::Amp.name()).is_none());
+        assert!(composed.stage(GainKind::Tuner.name()).is_none());
+        assert!(!composed.bias_tee);
+        assert_eq!(composed.agc, Agc::None);
+        assert!(!composed.bandwidth_auto);
+        assert!(composed.extra.is_empty());
+
+        right.bias_tee = true;
+        right.agc = Agc::Modes {
+            options: vec![sdrmm_wire::ArgumentOption::plain("fast")],
+        };
+        right.bandwidth_auto = true;
+        let alike = composite(
+            &[&left, &right],
+            &definition(&["virtual:one", "virtual:two"], Coherence::TimeSync),
+        );
+        assert!(alike.bias_tee);
+        assert_eq!(alike.agc, Agc::Switch);
+        assert!(alike.bandwidth_auto);
     }
 }

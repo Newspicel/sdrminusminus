@@ -1,10 +1,35 @@
 use sdrmm_device::{DeviceError, check_stream_settings};
 use sdrmm_wire::{
-    ArgumentInfo, ArgumentOption, ArgumentType, Capabilities, ChannelCapabilities, Coherence,
-    DcArtifact, DeviceSettings, DirectionalCapabilities, Duplex, ExtraSetting, Range,
+    Agc, ArgumentInfo, ArgumentOption, ArgumentType, BandwidthSetting, Capabilities,
+    ChannelCapabilities, Coherence, DcArtifact, DeviceSettings, DirectionalCapabilities, Duplex,
+    ExtraSetting, GainKind, GainStage, Range,
 };
 
 use crate::soapy::ArgType;
+
+const BIAS_TEE_KEYS: [&str; 4] = ["biastee", "bias_tee", "bias_tx", "biasT_ctrl"];
+
+pub(crate) fn bias_tee_key(capabilities: &Capabilities) -> Option<&str> {
+    capabilities
+        .directional
+        .as_ref()?
+        .device_settings
+        .iter()
+        .map(|info| info.key.as_str())
+        .find(|key| is_bias_tee_key(key))
+}
+
+fn is_bias_tee_key(key: &str) -> bool {
+    BIAS_TEE_KEYS.contains(&key)
+}
+
+pub(crate) fn gain_stage(name: &str, range: Range) -> GainStage {
+    let stage = GainStage::named(name, GainKind::from_name(name), range);
+    if stage.is_switch() && stage.setting_count() != 2 {
+        return GainStage::named(name, GainKind::Other, range);
+    }
+    stage
+}
 
 pub(crate) fn ranges(ranges: &[crate::soapy::Range]) -> Vec<Range> {
     ranges
@@ -160,6 +185,15 @@ pub(crate) fn capabilities(directional: DirectionalCapabilities) -> Capabilities
     let duplex = duplex(&directional.rx, &directional.tx);
     let extra = extra_settings_from_wire(&directional.device_settings);
     let coherence = coherence(&directional, rx_streams);
+    let bias_tee = directional
+        .device_settings
+        .iter()
+        .any(|info| is_bias_tee_key(&info.key));
+    let agc = if primary.is_some_and(|channel| channel.gain_mode) {
+        Agc::Switch
+    } else {
+        Agc::None
+    };
     Capabilities {
         freq_ranges,
         sample_rates,
@@ -168,6 +202,9 @@ pub(crate) fn capabilities(directional: DirectionalCapabilities) -> Capabilities
         antennas,
         bandwidths,
         bandwidth_ranges,
+        bandwidth_auto: false,
+        bias_tee,
+        agc,
         extra,
         ppm,
         duplex,
@@ -220,31 +257,47 @@ fn coherence(directional: &DirectionalCapabilities, rx_streams: u32) -> Coherenc
 fn extra_settings_from_wire(infos: &[ArgumentInfo]) -> Vec<ExtraSetting> {
     infos
         .iter()
-        .map(|info| {
-            if !info.options.is_empty() {
-                return ExtraSetting::Enum {
-                    name: info.key.clone(),
-                    options: info.options.clone(),
-                    default: info.default.clone(),
-                };
-            }
-            match (info.value_type, info.range) {
-                (ArgumentType::Bool, _) => ExtraSetting::Bool {
-                    name: info.key.clone(),
-                    default: matches!(info.default.to_ascii_lowercase().as_str(), "true" | "1"),
-                },
-                (ArgumentType::Float | ArgumentType::Int, Some(range)) => ExtraSetting::Range {
-                    name: info.key.clone(),
-                    range,
-                    unit: info.units.clone().unwrap_or_default(),
-                },
-                _ => ExtraSetting::String {
-                    name: info.key.clone(),
-                    default: info.default.clone(),
-                },
-            }
-        })
+        .filter(|info| !is_bias_tee_key(&info.key))
+        .map(extra_setting)
         .collect()
+}
+
+fn extra_setting(info: &ArgumentInfo) -> ExtraSetting {
+    let name = info.key.clone();
+    let label = info
+        .name
+        .clone()
+        .filter(|label| !label.is_empty() && *label != info.key);
+    if !info.options.is_empty() {
+        return ExtraSetting::Enum {
+            name,
+            label,
+            options: info.options.clone(),
+            default: info.default.clone(),
+        };
+    }
+    match (info.value_type, info.range) {
+        (ArgumentType::Bool, _) => ExtraSetting::Bool {
+            name,
+            label,
+            default: is_true(&info.default),
+        },
+        (ArgumentType::Float | ArgumentType::Int, Some(range)) => ExtraSetting::Range {
+            name,
+            label,
+            range,
+            unit: info.units.clone().unwrap_or_default(),
+        },
+        _ => ExtraSetting::String {
+            name,
+            label,
+            default: info.default.clone(),
+        },
+    }
+}
+
+pub(crate) fn is_true(value: &str) -> bool {
+    matches!(value.to_ascii_lowercase().as_str(), "true" | "1")
 }
 
 fn validates_channel(
@@ -278,7 +331,7 @@ fn validates_channel(
             )));
         }
     }
-    if let Some(bandwidth) = settings.bandwidth
+    if let Some(bandwidth) = settings.bandwidth.and_then(BandwidthSetting::hz)
         && !channel.bandwidth_ranges.is_empty()
         && !channel
             .bandwidth_ranges
@@ -315,8 +368,21 @@ fn validates_channel(
 pub(crate) fn validate(
     delta: &DeviceSettings,
     capabilities: &Capabilities,
-) -> Result<Vec<(String, String)>, DeviceError> {
+) -> Result<(), DeviceError> {
     check_stream_settings(delta, capabilities)?;
+    if delta.bandwidth.is_some_and(BandwidthSetting::is_auto) {
+        return Err(DeviceError::Unsupported(
+            "bandwidth: this radio does not pick its own filter width".to_string(),
+        ));
+    }
+    if let Some(agc) = &delta.agc
+        && !capabilities.agc.admits(agc)
+    {
+        return Err(DeviceError::Unsupported(match &agc.mode {
+            Some(mode) => format!("agc: this radio has no {mode} mode"),
+            None => "agc: this radio has no automatic gain".to_string(),
+        }));
+    }
     if capabilities
         .directional
         .as_ref()
@@ -377,34 +443,30 @@ pub(crate) fn validate(
             "ppm: tuner has no CORR frequency component".to_string(),
         ));
     }
-    delta
-        .extra
-        .iter()
-        .map(|extra| {
-            Ok((
-                extra.name.clone(),
-                extra_write_value(&capabilities.extra, &extra.name, &extra.value)?,
-            ))
-        })
-        .collect()
+    Ok(())
 }
 
-pub(crate) fn automatic_gain_to_reassert<'a>(
-    writes: &'a [(String, String)],
+pub(crate) fn setting_writes(
     delta: &DeviceSettings,
-) -> Option<&'a str> {
-    if !writes_a_gain_stage(delta) {
-        return None;
+    capabilities: &Capabilities,
+) -> Result<Vec<(String, String)>, DeviceError> {
+    let mut writes = Vec::new();
+    if let Some(on) = delta.bias_tee {
+        let key = bias_tee_key(capabilities)
+            .ok_or_else(|| DeviceError::Unsupported("bias_tee: this radio has none".to_string()))?;
+        writes.push((key.to_string(), on.to_string()));
     }
-    writes
-        .iter()
-        .find(|(name, _)| name == crate::GAIN_MODE_SETTING)
-        .map(|(_, value)| value.as_str())
-        .filter(|value| value.split(',').any(is_automatic))
+    for extra in &delta.extra {
+        writes.push((
+            extra.name.clone(),
+            extra_write_value(&capabilities.extra, &extra.name, &extra.value)?,
+        ));
+    }
+    Ok(writes)
 }
 
-fn is_automatic(value: &str) -> bool {
-    value.eq_ignore_ascii_case("true") || value == "1"
+pub(crate) fn automatic_gain_to_reassert(delta: &DeviceSettings) -> bool {
+    writes_a_gain_stage(delta) && delta.agc.as_ref().is_some_and(|agc| agc.on)
 }
 
 fn writes_a_gain_stage(delta: &DeviceSettings) -> bool {
@@ -414,16 +476,8 @@ fn writes_a_gain_stage(delta: &DeviceSettings) -> bool {
 /// Whether a gain the operator asked for would land on a radio that is already choosing its own.
 /// A patch that sets the mode itself is left alone: that is the caller saying which of the two
 /// wins, and [`automatic_gain_to_reassert`] puts the mode back afterwards.
-pub(crate) fn gain_needs_manual_mode(
-    delta: &DeviceSettings,
-    writes: &[(String, String)],
-    automatic: bool,
-) -> bool {
-    automatic
-        && writes_a_gain_stage(delta)
-        && !writes
-            .iter()
-            .any(|(name, _)| name == crate::GAIN_MODE_SETTING)
+pub(crate) fn gain_needs_manual_mode(delta: &DeviceSettings, automatic: bool) -> bool {
+    automatic && writes_a_gain_stage(delta) && delta.agc.is_none()
 }
 
 /// The settings a radio can only take with its stream torn down. A bladeRF resets the sample
@@ -445,6 +499,8 @@ pub(crate) fn read_back_confirms(written: &str, echoed: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use sdrmm_wire::AgcSetting;
+
     use super::*;
 
     fn soapy_arg(key: &str, data_type: ArgType) -> crate::soapy::ArgInfo {
@@ -505,17 +561,15 @@ mod tests {
 
     #[test]
     fn automatic_gain_is_reasserted_after_a_gain_stage_in_the_same_delta() {
-        let writes = vec![
-            ("biastee".to_string(), "false".to_string()),
-            (crate::GAIN_MODE_SETTING.to_string(), "true".to_string()),
-        ];
         let delta = DeviceSettings {
+            agc: Some(AgcSetting::switched(true)),
             gains: vec![gain("TUNER", 43.3)],
             ..DeviceSettings::default()
         };
-        assert_eq!(automatic_gain_to_reassert(&writes, &delta), Some("true"));
+        assert!(automatic_gain_to_reassert(&delta));
 
         let streamed = DeviceSettings {
+            agc: Some(AgcSetting::switched(true)),
             streams: vec![sdrmm_wire::StreamSettings {
                 stream: 1,
                 gains: vec![gain("TUNER", 43.3)],
@@ -523,24 +577,24 @@ mod tests {
             }],
             ..DeviceSettings::default()
         };
-        assert_eq!(automatic_gain_to_reassert(&writes, &streamed), Some("true"));
+        assert!(automatic_gain_to_reassert(&streamed));
     }
 
     #[test]
     fn a_single_control_delta_is_left_alone() {
-        let automatic = vec![(crate::GAIN_MODE_SETTING.to_string(), "true".to_string())];
-        let manual = vec![(crate::GAIN_MODE_SETTING.to_string(), "false".to_string())];
-        let bare_gain = DeviceSettings {
+        assert!(!automatic_gain_to_reassert(&DeviceSettings {
+            agc: Some(AgcSetting::switched(true)),
+            ..DeviceSettings::default()
+        }));
+        assert!(!automatic_gain_to_reassert(&DeviceSettings {
+            agc: Some(AgcSetting::off()),
             gains: vec![gain("TUNER", 43.3)],
             ..DeviceSettings::default()
-        };
-
-        assert_eq!(
-            automatic_gain_to_reassert(&automatic, &DeviceSettings::default()),
-            None
-        );
-        assert_eq!(automatic_gain_to_reassert(&manual, &bare_gain), None);
-        assert_eq!(automatic_gain_to_reassert(&[], &bare_gain), None);
+        }));
+        assert!(!automatic_gain_to_reassert(&DeviceSettings {
+            gains: vec![gain("TUNER", 43.3)],
+            ..DeviceSettings::default()
+        }));
     }
 
     #[test]
@@ -549,10 +603,10 @@ mod tests {
             gains: vec![gain("full", 30.0)],
             ..DeviceSettings::default()
         };
-        assert!(gain_needs_manual_mode(&bare_gain, &[], true));
-        assert!(!gain_needs_manual_mode(&bare_gain, &[], false));
+        assert!(gain_needs_manual_mode(&bare_gain, true));
+        assert!(!gain_needs_manual_mode(&bare_gain, false));
         assert!(
-            !gain_needs_manual_mode(&DeviceSettings::default(), &[], true),
+            !gain_needs_manual_mode(&DeviceSettings::default(), true),
             "a delta with no gain in it has nothing to refuse"
         );
     }
@@ -567,9 +621,181 @@ mod tests {
             }],
             ..DeviceSettings::default()
         };
-        let writes = vec![(crate::GAIN_MODE_SETTING.to_string(), "false".to_string())];
-        assert!(gain_needs_manual_mode(&streamed, &[], true));
-        assert!(!gain_needs_manual_mode(&streamed, &writes, true));
+        let decided = DeviceSettings {
+            agc: Some(AgcSetting::off()),
+            ..streamed.clone()
+        };
+        assert!(gain_needs_manual_mode(&streamed, true));
+        assert!(!gain_needs_manual_mode(&decided, true));
+    }
+
+    #[test]
+    fn a_soapy_gain_element_keeps_its_name_and_takes_the_kind_it_spells() {
+        let wide = Range {
+            min: 0.0,
+            max: 49.6,
+            step: Some(0.1),
+        };
+        let switch = Range {
+            min: 0.0,
+            max: 14.0,
+            step: Some(14.0),
+        };
+        let lna = gain_stage("LNA", wide);
+        assert_eq!(lna.name, "LNA");
+        assert_eq!(lna.kind, GainKind::Lna);
+        assert_eq!(gain_stage("TIA", wide).kind, GainKind::Mixer);
+        assert_eq!(gain_stage("PGA", wide).kind, GainKind::Vga);
+        assert_eq!(gain_stage("IFGR", wide).kind, GainKind::Vga);
+        assert_eq!(gain_stage("AMP", switch).kind, GainKind::Amp);
+        assert_eq!(
+            gain_stage("AMP", wide).kind,
+            GainKind::Other,
+            "a preamp with more than two settings is not a switch"
+        );
+        assert_eq!(gain_stage("PAD", wide).kind, GainKind::Tx);
+        assert_eq!(gain_stage("MYSTERY", wide).kind, GainKind::Other);
+        assert_eq!(gain_stage("MYSTERY", wide).name, "MYSTERY");
+    }
+
+    #[test]
+    fn a_vendor_bias_tee_argument_is_the_typed_bias_tee_and_not_an_extra() {
+        for key in ["biastee", "bias_tee", "bias_tx", "biasT_ctrl"] {
+            let caps = capabilities(DirectionalCapabilities {
+                rx: vec![channel(24e6, false)],
+                device_settings: argument_infos(&[
+                    soapy_arg(key, ArgType::Bool),
+                    soapy_arg("iq_swap", ArgType::Bool),
+                ]),
+                ..DirectionalCapabilities::default()
+            });
+            assert!(caps.bias_tee, "{key}");
+            assert_eq!(bias_tee_key(&caps), Some(key));
+            assert_eq!(
+                caps.extra
+                    .iter()
+                    .map(ExtraSetting::name)
+                    .collect::<Vec<_>>(),
+                ["iq_swap"],
+                "{key}"
+            );
+            let writes = setting_writes(
+                &DeviceSettings {
+                    bias_tee: Some(true),
+                    extra: vec![sdrmm_wire::ExtraValue {
+                        name: "iq_swap".to_string(),
+                        value: serde_json::json!(false),
+                    }],
+                    ..DeviceSettings::default()
+                },
+                &caps,
+            )
+            .unwrap();
+            assert_eq!(
+                writes,
+                vec![
+                    (key.to_string(), "true".to_string()),
+                    ("iq_swap".to_string(), "false".to_string())
+                ]
+            );
+        }
+    }
+
+    #[test]
+    fn a_radio_without_a_bias_tee_refuses_one() {
+        let caps = capabilities(DirectionalCapabilities {
+            rx: vec![channel(24e6, false)],
+            ..DirectionalCapabilities::default()
+        });
+        assert!(!caps.bias_tee);
+        assert_eq!(bias_tee_key(&caps), None);
+        assert!(
+            setting_writes(
+                &DeviceSettings {
+                    bias_tee: Some(true),
+                    ..DeviceSettings::default()
+                },
+                &caps,
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn a_channel_with_a_gain_mode_offers_a_switched_agc() {
+        let with = capabilities(DirectionalCapabilities {
+            rx: vec![ChannelCapabilities {
+                gain_mode: true,
+                ..channel(24e6, false)
+            }],
+            ..DirectionalCapabilities::default()
+        });
+        assert_eq!(with.agc, Agc::Switch);
+        assert!(
+            validate(
+                &DeviceSettings {
+                    agc: Some(AgcSetting::switched(true)),
+                    ..DeviceSettings::default()
+                },
+                &with
+            )
+            .is_ok()
+        );
+        assert!(
+            validate(
+                &DeviceSettings {
+                    agc: Some(AgcSetting::in_mode(true, "slow")),
+                    ..DeviceSettings::default()
+                },
+                &with
+            )
+            .is_err()
+        );
+
+        let without = capabilities(DirectionalCapabilities {
+            rx: vec![channel(24e6, false)],
+            ..DirectionalCapabilities::default()
+        });
+        assert_eq!(without.agc, Agc::None);
+        assert!(
+            validate(
+                &DeviceSettings {
+                    agc: Some(AgcSetting::switched(true)),
+                    ..DeviceSettings::default()
+                },
+                &without
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn an_automatic_filter_width_is_refused_and_a_manual_one_is_checked() {
+        let caps = capabilities(DirectionalCapabilities {
+            rx: vec![ChannelCapabilities {
+                bandwidth_ranges: vec![Range {
+                    min: 2e6,
+                    max: 28e6,
+                    step: None,
+                }],
+                ..channel(24e6, false)
+            }],
+            ..DirectionalCapabilities::default()
+        });
+        assert!(!caps.bandwidth_auto);
+        let auto = DeviceSettings {
+            bandwidth: Some(BandwidthSetting::Auto),
+            ..DeviceSettings::default()
+        };
+        assert!(
+            matches!(validate(&auto, &caps), Err(DeviceError::Unsupported(message)) if message.contains("bandwidth"))
+        );
+        let manual = |hz| DeviceSettings {
+            bandwidth: Some(BandwidthSetting::Manual { hz }),
+            ..DeviceSettings::default()
+        };
+        assert!(validate(&manual(5e6), &caps).is_ok());
+        assert!(validate(&manual(50e6), &caps).is_err());
     }
 
     #[test]
@@ -579,7 +805,7 @@ mod tests {
             ..DeviceSettings::default()
         }));
         assert!(reshapes_the_stream(&DeviceSettings {
-            bandwidth: Some(5e6),
+            bandwidth: Some(BandwidthSetting::Manual { hz: 5e6 }),
             ..DeviceSettings::default()
         }));
         assert!(
@@ -712,12 +938,31 @@ mod tests {
             extra_settings_from_wire(&argument_infos(&[soapy_arg("iq_swap", ArgType::Bool)]));
         assert!(matches!(
             &extras[0],
-            ExtraSetting::Bool { name, default } if name == "iq_swap" && !default
+            ExtraSetting::Bool { name, label, default }
+                if name == "iq_swap" && label.as_deref() == Some("I/Q swap") && !default
         ));
         assert_eq!(
             extra_write_value(&extras, "iq_swap", &serde_json::json!(true)).unwrap(),
             "true"
         );
+    }
+
+    #[test]
+    fn an_extra_is_labelled_only_by_a_name_that_says_more_than_its_key() {
+        let mut same = soapy_arg("buffers", ArgType::Int);
+        same.name = Some("buffers".to_string());
+        let mut empty = soapy_arg("transfers", ArgType::Int);
+        empty.name = Some(String::new());
+        let mut none = soapy_arg("timeout", ArgType::Int);
+        none.name = None;
+        let extras = extra_settings_from_wire(&argument_infos(&[
+            soapy_arg("iq_swap", ArgType::Bool),
+            same,
+            empty,
+            none,
+        ]));
+        let labels: Vec<Option<&str>> = extras.iter().map(ExtraSetting::label).collect();
+        assert_eq!(labels, vec![Some("I/Q swap"), None, None, None]);
     }
 
     #[test]

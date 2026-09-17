@@ -6,6 +6,7 @@ import {
   inTuningRange,
   isTunable,
   parseFrequency,
+  reachableHz,
   setDialDigit,
   stepDial,
   tuneTargetHz,
@@ -23,6 +24,37 @@ describe("isTunable", () => {
   it("is false for a range of one point", () => {
     expect(isTunable({ min: 100e6, max: 100e6 })).toBe(false);
     expect(isTunable({ min: 0, max: 0 })).toBe(false);
+  });
+});
+
+describe("reachableHz", () => {
+  const V4 = {
+    freq_ranges: [
+      { min: 500e3, max: 28.8e6 },
+      { min: 24e6, max: 1.766e9 },
+    ],
+  };
+
+  it("leaves a frequency a range already holds", () => {
+    expect(reachableHz(V4, 7.1e6)).toBe(7.1e6);
+    expect(reachableHz(V4, 145.5e6)).toBe(145.5e6);
+  });
+
+  it("moves a frequency in a gap to the nearest edge", () => {
+    const HF = {
+      freq_ranges: [
+        { min: 1e3, max: 31e6 },
+        { min: 60e6, max: 260e6 },
+      ],
+    };
+    expect(reachableHz(HF, 40e6)).toBe(31e6);
+    expect(reachableHz(HF, 55e6)).toBe(60e6);
+  });
+
+  it("clamps past either end and takes anything without ranges", () => {
+    expect(reachableHz(V4, 10)).toBe(500e3);
+    expect(reachableHz(V4, 9e9)).toBe(1.766e9);
+    expect(reachableHz({ freq_ranges: [] }, 1.2e9)).toBe(1.2e9);
   });
 });
 

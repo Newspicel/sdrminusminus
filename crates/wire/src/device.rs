@@ -213,31 +213,133 @@ pub fn any_range_holds(ranges: &[Range], value: f64) -> bool {
     ranges.iter().any(|range| range.holds(value))
 }
 
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum GainKind {
+    Lna,
+    Mixer,
+    Vga,
+    If,
+    Rf,
+    Tuner,
+    Amp,
+    Attenuator,
+    Tx,
+    Other,
+}
+
+impl GainKind {
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Lna => "LNA",
+            Self::Mixer => "MIX",
+            Self::Vga => "VGA",
+            Self::If => "IF",
+            Self::Rf => "RF",
+            Self::Tuner => "TUNER",
+            Self::Amp => "AMP",
+            Self::Attenuator => "ATT",
+            Self::Tx => "TX",
+            Self::Other => "GAIN",
+        }
+    }
+
+    #[must_use]
+    pub fn from_name(name: &str) -> Self {
+        let upper = name.trim().to_ascii_uppercase();
+        match upper.as_str() {
+            "LNA" => Self::Lna,
+            "MIX" | "MIXER" | "TIA" => Self::Mixer,
+            "VGA" | "PGA" | "BB" | "IFGR" => Self::Vga,
+            "IF" => Self::If,
+            "RF" | "RFGR" => Self::Rf,
+            "TUNER" | "GAIN" | "FULL" | "RX" => Self::Tuner,
+            "AMP" | "PREAMP" => Self::Amp,
+            "ATT" | "ATTENUATOR" | "ATTEN" => Self::Attenuator,
+            "TX" | "PAD" => Self::Tx,
+            _ => Self::Other,
+        }
+    }
+
+    #[must_use]
+    pub const fn is_switch(self) -> bool {
+        matches!(self, Self::Amp)
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum GainUnit {
+    #[default]
+    Db,
+    Index,
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct GainStage {
     pub name: String,
+    pub kind: GainKind,
+    #[serde(default)]
+    pub unit: GainUnit,
     pub range: Range,
-    /// The settings this stage can actually hold, for hardware whose gain is a table rather than
-    /// an even step — the R82xx's 29 irregular entries, say. Empty means every value `range`
-    /// admits is reachable. A client renders a control that can only land on real settings, and a
-    /// driver still snaps whatever it is asked for.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub values: Vec<f64>,
 }
 
 impl GainStage {
-    /// A switched amplifier — an RF amp that is on or off — rather than a continuous control.
-    /// The convention for those is a stage with exactly two settings, so they join the gain
-    /// budget the client shows instead of hiding in an unrelated boolean.
+    #[must_use]
+    pub fn new(kind: GainKind, range: Range) -> Self {
+        Self::named(kind.name(), kind, range)
+    }
+
+    #[must_use]
+    pub fn named(name: impl Into<String>, kind: GainKind, range: Range) -> Self {
+        Self {
+            name: name.into(),
+            kind,
+            unit: GainUnit::Db,
+            range,
+            values: Vec::new(),
+        }
+    }
+
+    #[must_use]
+    pub fn with_values(mut self, values: Vec<f64>) -> Self {
+        self.values = values;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_unit(mut self, unit: GainUnit) -> Self {
+        self.unit = unit;
+        self
+    }
+
+    #[must_use]
+    pub fn setting_count(&self) -> usize {
+        if !self.values.is_empty() {
+            return self.values.len();
+        }
+        match self.range.step.filter(|step| *step > 0.0) {
+            Some(step) => ((self.range.max - self.range.min) / step).round() as usize + 1,
+            None => usize::MAX,
+        }
+    }
+
     #[must_use]
     pub fn is_switch(&self) -> bool {
-        match self.values.len() {
-            0 => self
-                .range
-                .step
-                .is_some_and(|step| step > 0.0 && (self.range.max - self.range.min) == step),
-            count => count == 2,
-        }
+        self.kind.is_switch()
+    }
+
+    #[must_use]
+    pub fn off(&self) -> f64 {
+        self.range.min
+    }
+
+    #[must_use]
+    pub fn on(&self) -> f64 {
+        self.range.max
     }
 
     /// The nearest setting the hardware can hold. Ties take the lower one, so snapping never
@@ -271,20 +373,28 @@ impl GainStage {
 pub enum ExtraSetting {
     Bool {
         name: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        label: Option<String>,
         default: bool,
     },
     Range {
         name: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        label: Option<String>,
         range: Range,
         unit: String,
     },
     Enum {
         name: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        label: Option<String>,
         options: Vec<ArgumentOption>,
         default: String,
     },
     String {
         name: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        label: Option<String>,
         default: String,
     },
 }
@@ -298,6 +408,183 @@ impl ExtraSetting {
             | Self::Enum { name, .. }
             | Self::String { name, .. } => name,
         }
+    }
+
+    #[must_use]
+    pub fn label(&self) -> Option<&str> {
+        match self {
+            Self::Bool { label, .. }
+            | Self::Range { label, .. }
+            | Self::Enum { label, .. }
+            | Self::String { label, .. } => label.as_deref(),
+        }
+    }
+
+    #[must_use]
+    pub fn bool(name: impl Into<String>, label: impl Into<String>, default: bool) -> Self {
+        Self::Bool {
+            name: name.into(),
+            label: Some(label.into()),
+            default,
+        }
+    }
+
+    #[must_use]
+    pub fn range(
+        name: impl Into<String>,
+        label: impl Into<String>,
+        range: Range,
+        unit: impl Into<String>,
+    ) -> Self {
+        Self::Range {
+            name: name.into(),
+            label: Some(label.into()),
+            range,
+            unit: unit.into(),
+        }
+    }
+
+    #[must_use]
+    pub fn choice(
+        name: impl Into<String>,
+        label: impl Into<String>,
+        options: Vec<ArgumentOption>,
+        default: impl Into<String>,
+    ) -> Self {
+        Self::Enum {
+            name: name.into(),
+            label: Some(label.into()),
+            options,
+            default: default.into(),
+        }
+    }
+
+    #[must_use]
+    pub fn text(
+        name: impl Into<String>,
+        label: impl Into<String>,
+        default: impl Into<String>,
+    ) -> Self {
+        Self::String {
+            name: name.into(),
+            label: Some(label.into()),
+            default: default.into(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, ToSchema)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum Agc {
+    #[default]
+    None,
+    Switch,
+    Modes {
+        options: Vec<ArgumentOption>,
+    },
+}
+
+impl Agc {
+    #[must_use]
+    pub fn offered(&self) -> bool {
+        !matches!(self, Self::None)
+    }
+
+    #[must_use]
+    pub fn admits(&self, setting: &AgcSetting) -> bool {
+        match self {
+            Self::None => false,
+            Self::Switch => setting.mode.is_none(),
+            Self::Modes { options } => setting
+                .mode
+                .as_ref()
+                .is_none_or(|mode| options.iter().any(|option| option.value == *mode)),
+        }
+    }
+
+    #[must_use]
+    pub fn first_mode(&self) -> Option<&str> {
+        match self {
+            Self::Modes { options } => options.first().map(|option| option.value.as_str()),
+            Self::None | Self::Switch => None,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct AgcSetting {
+    pub on: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mode: Option<String>,
+}
+
+impl AgcSetting {
+    #[must_use]
+    pub const fn off() -> Self {
+        Self {
+            on: false,
+            mode: None,
+        }
+    }
+
+    #[must_use]
+    pub const fn switched(on: bool) -> Self {
+        Self { on, mode: None }
+    }
+
+    #[must_use]
+    pub fn in_mode(on: bool, mode: impl Into<String>) -> Self {
+        Self {
+            on,
+            mode: Some(mode.into()),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, ToSchema)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum BandwidthSetting {
+    Auto,
+    Manual { hz: f64 },
+}
+
+impl BandwidthSetting {
+    #[must_use]
+    pub const fn hz(self) -> Option<f64> {
+        match self {
+            Self::Auto => None,
+            Self::Manual { hz } => Some(hz),
+        }
+    }
+
+    #[must_use]
+    pub const fn is_auto(self) -> bool {
+        matches!(self, Self::Auto)
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum BandwidthWire {
+    Tagged(BandwidthTagged),
+    Hz(f64),
+}
+
+#[derive(Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+enum BandwidthTagged {
+    Auto,
+    Manual { hz: f64 },
+}
+
+impl<'de> Deserialize<'de> for BandwidthSetting {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        Ok(match BandwidthWire::deserialize(deserializer)? {
+            BandwidthWire::Tagged(BandwidthTagged::Auto) => Self::Auto,
+            BandwidthWire::Tagged(BandwidthTagged::Manual { hz }) => Self::Manual { hz },
+            BandwidthWire::Hz(hz) if hz > 0.0 => Self::Manual { hz },
+            BandwidthWire::Hz(_) => Self::Auto,
+        })
     }
 }
 
@@ -430,6 +717,12 @@ pub struct Capabilities {
     /// Continuous analog filter widths, for hardware whose IF filter is not a discrete menu.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub bandwidth_ranges: Vec<Range>,
+    #[serde(default)]
+    pub bandwidth_auto: bool,
+    #[serde(default)]
+    pub bias_tee: bool,
+    #[serde(default)]
+    pub agc: Agc,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub extra: Vec<ExtraSetting>,
     #[serde(default)]
@@ -492,6 +785,26 @@ const fn one_stream() -> u32 {
 }
 
 impl Capabilities {
+    #[must_use]
+    pub fn has_filter(&self) -> bool {
+        self.bandwidth_auto || !self.bandwidths.is_empty() || !self.bandwidth_ranges.is_empty()
+    }
+
+    #[must_use]
+    pub fn admits_bandwidth(&self, bandwidth: BandwidthSetting) -> bool {
+        match bandwidth {
+            BandwidthSetting::Auto => self.bandwidth_auto,
+            BandwidthSetting::Manual { hz } => {
+                self.bandwidths.contains(&hz) || any_range_holds(&self.bandwidth_ranges, hz)
+            }
+        }
+    }
+
+    #[must_use]
+    pub fn stage(&self, name: &str) -> Option<&GainStage> {
+        self.gains.iter().find(|stage| stage.name == name)
+    }
+
     #[must_use]
     pub fn profile(&self) -> DeviceProfile {
         DeviceProfile {
@@ -586,6 +899,16 @@ pub struct GainValue {
     pub value_db: f64,
 }
 
+impl GainValue {
+    #[must_use]
+    pub fn new(kind: GainKind, value_db: f64) -> Self {
+        Self {
+            stage: kind.name().to_string(),
+            value_db,
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct ExtraValue {
     pub name: String,
@@ -613,9 +936,13 @@ pub struct DeviceSettings {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub antenna: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub bandwidth: Option<f64>,
+    pub bandwidth: Option<BandwidthSetting>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dc_block: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bias_tee: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agc: Option<AgcSetting>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub gains: Vec<GainValue>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -684,6 +1011,12 @@ impl DeviceSettings {
         if delta.dc_block.is_some() {
             self.dc_block = delta.dc_block;
         }
+        if delta.bias_tee.is_some() {
+            self.bias_tee = delta.bias_tee;
+        }
+        if delta.agc.is_some() {
+            self.agc.clone_from(&delta.agc);
+        }
         merge_gains(&mut self.gains, &delta.gains);
         for extra in &delta.extra {
             match self.extra.iter_mut().find(|e| e.name == extra.name) {
@@ -722,13 +1055,14 @@ impl DeviceSettings {
                 .antenna
                 .clone()
                 .filter(|antenna| capabilities.antennas.contains(antenna)),
-            bandwidth: self.bandwidth.filter(|hz| {
-                capabilities.bandwidths.contains(hz)
-                    || any_range_holds(&capabilities.bandwidth_ranges, *hz)
-            }),
+            bandwidth: self
+                .bandwidth
+                .filter(|bandwidth| capabilities.admits_bandwidth(*bandwidth)),
             dc_block: self
                 .dc_block
                 .filter(|_| capabilities.dc_artifact != DcArtifact::None),
+            bias_tee: self.bias_tee.filter(|_| capabilities.bias_tee),
+            agc: self.agc.clone().filter(|agc| capabilities.agc.admits(agc)),
             gains: supported_gains(&self.gains, capabilities),
             extra: self
                 .extra
@@ -769,6 +1103,24 @@ impl DeviceSettings {
     #[must_use]
     pub fn tunes_itself(&self) -> bool {
         self.tuning.unwrap_or_default() == Tuning::Auto
+    }
+
+    #[must_use]
+    pub fn gain(&self, stage: &str) -> Option<f64> {
+        self.gains
+            .iter()
+            .find(|gain| gain.stage == stage)
+            .map(|gain| gain.value_db)
+    }
+
+    #[must_use]
+    pub fn agc_on(&self) -> bool {
+        self.agc.as_ref().is_some_and(|agc| agc.on)
+    }
+
+    #[must_use]
+    pub fn bandwidth_hz(&self) -> Option<f64> {
+        self.bandwidth.and_then(BandwidthSetting::hz)
     }
 
     /// The settings the driver is handed: the front end's own controls stay with the engine.
@@ -817,18 +1169,20 @@ mod tests {
             freq_ranges,
             sample_rates,
             sample_rate_ranges: Vec::new(),
-            gains: vec![GainStage {
-                name: "TUNER".to_string(),
-                range: Range {
+            gains: vec![GainStage::new(
+                GainKind::Tuner,
+                Range {
                     min: 0.0,
                     max: 49.6,
                     step: None,
                 },
-                values: Vec::new(),
-            }],
+            )],
             antennas: vec!["RX".to_string()],
             bandwidths: Vec::new(),
             bandwidth_ranges: Vec::new(),
+            bandwidth_auto: false,
+            bias_tee: false,
+            agc: Agc::None,
             extra: Vec::new(),
             ppm: false,
             duplex,
@@ -887,11 +1241,7 @@ mod tests {
     }
 
     fn stage(range: Range, values: Vec<f64>) -> GainStage {
-        GainStage {
-            name: "TEST".to_string(),
-            range,
-            values,
-        }
+        GainStage::new(GainKind::Lna, range).with_values(values)
     }
 
     #[test]
@@ -927,12 +1277,50 @@ mod tests {
     }
 
     #[test]
-    fn a_two_setting_stage_is_a_switch_however_it_was_declared() {
+    fn only_an_amp_is_a_switch() {
         let mut stepped = range(0.0, 14.0);
         stepped.step = Some(14.0);
-        assert!(stage(stepped, Vec::new()).is_switch());
-        assert!(stage(range(0.0, 14.0), vec![0.0, 14.0]).is_switch());
-        assert!(!stage(range(0.0, 14.0), vec![0.0, 7.0, 14.0]).is_switch());
+        assert!(GainStage::new(GainKind::Amp, stepped).is_switch());
+        assert!(!stage(stepped, Vec::new()).is_switch());
+        assert_eq!(GainStage::new(GainKind::Amp, stepped).setting_count(), 2);
+        assert_eq!(GainStage::new(GainKind::Amp, stepped).on(), 14.0);
+    }
+
+    #[test]
+    fn a_stage_name_is_its_kind() {
+        let stage = GainStage::new(GainKind::Mixer, range(0.0, 15.0));
+        assert_eq!(stage.name, "MIX");
+        assert_eq!(GainKind::from_name("Mixer"), GainKind::Mixer);
+        assert_eq!(GainKind::from_name("tuner"), GainKind::Tuner);
+        assert_eq!(GainKind::from_name("PGA"), GainKind::Vga);
+        assert_eq!(GainKind::from_name("weird"), GainKind::Other);
+        assert_eq!(GainValue::new(GainKind::Attenuator, -6.0).stage, "ATT");
+    }
+
+    #[test]
+    fn a_bandwidth_reads_a_bare_number_from_before_it_was_tagged() {
+        let manual: BandwidthSetting = serde_json::from_str("1750000.0").expect("bare hz");
+        assert_eq!(manual, BandwidthSetting::Manual { hz: 1_750_000.0 });
+        let auto: BandwidthSetting = serde_json::from_str("0").expect("bare zero");
+        assert_eq!(auto, BandwidthSetting::Auto);
+        let tagged: BandwidthSetting = serde_json::from_str(r#"{"kind":"auto"}"#).expect("tagged");
+        assert_eq!(tagged, BandwidthSetting::Auto);
+        let json = serde_json::to_string(&BandwidthSetting::Manual { hz: 5e6 }).expect("serialize");
+        assert_eq!(json, r#"{"kind":"manual","hz":5000000.0}"#);
+    }
+
+    #[test]
+    fn agc_admits_only_the_modes_it_offers() {
+        assert!(!Agc::None.admits(&AgcSetting::switched(true)));
+        assert!(Agc::Switch.admits(&AgcSetting::switched(true)));
+        assert!(!Agc::Switch.admits(&AgcSetting::in_mode(true, "fast")));
+        let modes = Agc::Modes {
+            options: vec![ArgumentOption::plain("fast"), ArgumentOption::plain("slow")],
+        };
+        assert!(modes.admits(&AgcSetting::in_mode(true, "slow")));
+        assert!(modes.admits(&AgcSetting::off()));
+        assert!(!modes.admits(&AgcSetting::in_mode(true, "hybrid")));
+        assert_eq!(modes.first_mode(), Some("fast"));
     }
 
     #[test]
@@ -1299,18 +1687,19 @@ mod tests {
     fn merge_overlays_bandwidth_and_leaves_absent_fields() {
         let mut settings = DeviceSettings {
             center_hz: Some(100_000_000.0),
-            bandwidth: Some(2_500_000.0),
+            bandwidth: Some(BandwidthSetting::Manual { hz: 2_500_000.0 }),
             ..DeviceSettings::default()
         };
         settings.merge_from(&DeviceSettings {
-            bandwidth: Some(1_750_000.0),
+            bandwidth: Some(BandwidthSetting::Auto),
             ..DeviceSettings::default()
         });
         assert_eq!(settings.center_hz, Some(100_000_000.0));
-        assert_eq!(settings.bandwidth, Some(1_750_000.0));
+        assert_eq!(settings.bandwidth, Some(BandwidthSetting::Auto));
 
         settings.merge_from(&DeviceSettings::default());
-        assert_eq!(settings.bandwidth, Some(1_750_000.0));
+        assert_eq!(settings.bandwidth, Some(BandwidthSetting::Auto));
+        assert_eq!(settings.bandwidth_hz(), None);
     }
 
     #[test]
@@ -1320,21 +1709,14 @@ mod tests {
             sample_rate: Some(2.048e6),
             ppm: Some(3.0),
             antenna: Some("RX".to_string()),
-            bandwidth: Some(1_750_000.0),
-            gains: vec![GainValue {
-                stage: "TUNER".to_string(),
-                value_db: 30.0,
+            bandwidth: Some(BandwidthSetting::Manual { hz: 1_750_000.0 }),
+            gains: vec![GainValue::new(GainKind::Tuner, 30.0)],
+            bias_tee: Some(true),
+            agc: Some(AgcSetting::switched(false)),
+            extra: vec![ExtraValue {
+                name: "loop".to_string(),
+                value: true.into(),
             }],
-            extra: vec![
-                ExtraValue {
-                    name: "bias_tee".to_string(),
-                    value: true.into(),
-                },
-                ExtraValue {
-                    name: "loop".to_string(),
-                    value: true.into(),
-                },
-            ],
             ..DeviceSettings::default()
         };
         let mut recording = caps(
@@ -1344,10 +1726,7 @@ mod tests {
         );
         recording.gains = Vec::new();
         recording.antennas = Vec::new();
-        recording.extra = vec![ExtraSetting::Bool {
-            name: "loop".to_string(),
-            default: true,
-        }];
+        recording.extra = vec![ExtraSetting::bool("loop", "Loop", true)];
         recording.dc_artifact = DcArtifact::None;
 
         let taken = stored.supported_by(&recording);
@@ -1356,6 +1735,8 @@ mod tests {
         assert_eq!(taken.ppm, None);
         assert_eq!(taken.antenna, None);
         assert_eq!(taken.bandwidth, None);
+        assert_eq!(taken.bias_tee, None);
+        assert_eq!(taken.agc, None);
         assert!(taken.gains.is_empty());
         assert_eq!(
             taken
@@ -1371,21 +1752,21 @@ mod tests {
     fn a_receiver_keeps_every_setting_it_declares() {
         let mut receiver = caps(vec![range(24e6, 1.766e9)], vec![2.048e6], Duplex::RxOnly);
         receiver.ppm = true;
-        receiver.extra = vec![ExtraSetting::Bool {
-            name: "bias_tee".to_string(),
-            default: false,
-        }];
+        receiver.bias_tee = true;
+        receiver.agc = Agc::Switch;
+        receiver.bandwidth_auto = true;
+        receiver.extra = vec![ExtraSetting::bool("offset_tuning", "Offset tuning", false)];
         let stored = DeviceSettings {
             center_hz: Some(145_500_000.0),
             sample_rate: Some(2.048e6),
             ppm: Some(3.0),
             antenna: Some("RX".to_string()),
-            gains: vec![GainValue {
-                stage: "TUNER".to_string(),
-                value_db: 30.0,
-            }],
+            bandwidth: Some(BandwidthSetting::Auto),
+            gains: vec![GainValue::new(GainKind::Tuner, 30.0)],
+            bias_tee: Some(true),
+            agc: Some(AgcSetting::switched(true)),
             extra: vec![ExtraValue {
-                name: "bias_tee".to_string(),
+                name: "offset_tuning".to_string(),
                 value: true.into(),
             }],
             dc_block: Some(true),
@@ -1409,10 +1790,7 @@ mod tests {
                     stream: 1,
                     center_hz: Some(433_920_000.0),
                     tuning: None,
-                    gains: vec![GainValue {
-                        stage: "TUNER".to_string(),
-                        value_db: 20.0,
-                    }],
+                    gains: vec![GainValue::new(GainKind::Tuner, 20.0)],
                     antenna: Some("RX".to_string()),
                 },
                 StreamSettings {

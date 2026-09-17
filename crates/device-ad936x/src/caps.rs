@@ -1,7 +1,7 @@
 use sdrmm_device::DeviceError;
 use sdrmm_wire::{
-    ArgumentOption, Capabilities, Coherence, DcArtifact, Duplex, ExtraSetting, GainStage, Range,
-    StreamScope,
+    Agc, ArgumentOption, Capabilities, Coherence, DcArtifact, Duplex, ExtraSetting, GainKind,
+    GainStage, Range, StreamScope,
 };
 
 use crate::{
@@ -13,10 +13,13 @@ use crate::{
     },
 };
 
-pub(crate) const RX_STAGE: &str = "RX";
-pub(crate) const TX_STAGE: &str = "TX";
+pub(crate) const MANUAL_GAIN: &str = "manual";
+const AGC_MODES: [(&str, &str); 3] = [
+    ("fast_attack", "Fast attack"),
+    ("slow_attack", "Slow attack"),
+    ("hybrid", "Hybrid"),
+];
 
-pub(crate) const GAIN_MODE: &str = "gain_mode";
 pub(crate) const QUADRATURE: &str = "quadrature_tracking";
 pub(crate) const RF_DC: &str = "rf_dc_tracking";
 pub(crate) const BB_DC: &str = "bb_dc_tracking";
@@ -287,6 +290,9 @@ pub(crate) fn capabilities(front: &Front, layout: &Layout) -> Capabilities {
         antennas: front.rx_ports.clone(),
         bandwidths: Vec::new(),
         bandwidth_ranges: vec![front.rx_bandwidth],
+        bandwidth_auto: false,
+        bias_tee: false,
+        agc: agc(front),
         extra: extra_settings(front),
         ppm: front.trim.is_some(),
         duplex: if tx_streams > 0 {
@@ -320,58 +326,50 @@ pub(crate) fn capabilities(front: &Front, layout: &Layout) -> Capabilities {
 }
 
 fn gain_stages(front: &Front) -> Vec<GainStage> {
-    let mut stages = vec![GainStage {
-        name: RX_STAGE.to_string(),
-        range: front.rx_gain,
-        values: Vec::new(),
-    }];
+    let mut stages = vec![GainStage::new(GainKind::Tuner, front.rx_gain)];
     if let Some(range) = front.tx_gain {
-        stages.push(GainStage {
-            name: TX_STAGE.to_string(),
-            range,
-            values: Vec::new(),
-        });
+        stages.push(GainStage::new(GainKind::Tx, range));
     }
     stages
 }
 
+fn agc(front: &Front) -> Agc {
+    let options: Vec<ArgumentOption> = AGC_MODES
+        .iter()
+        .filter(|(mode, _)| front.gain_modes.iter().any(|offered| offered == mode))
+        .map(|(mode, label)| ArgumentOption {
+            value: (*mode).to_string(),
+            label: Some((*label).to_string()),
+        })
+        .collect();
+    if options.is_empty() {
+        Agc::None
+    } else {
+        Agc::Modes { options }
+    }
+}
+
 fn extra_settings(front: &Front) -> Vec<ExtraSetting> {
     let mut extra = Vec::new();
-    if !front.gain_modes.is_empty() {
-        extra.push(ExtraSetting::Enum {
-            name: GAIN_MODE.to_string(),
-            options: front.gain_modes.iter().map(ArgumentOption::plain).collect(),
-            default: front
-                .gain_modes
-                .first()
-                .cloned()
-                .unwrap_or_else(|| "manual".to_string()),
-        });
-    }
-    for (present, name) in [
-        (front.tracking.quadrature, QUADRATURE),
-        (front.tracking.rf_dc, RF_DC),
-        (front.tracking.bb_dc, BB_DC),
+    for (present, name, label) in [
+        (front.tracking.quadrature, QUADRATURE, "Quadrature tracking"),
+        (front.tracking.rf_dc, RF_DC, "RF DC tracking"),
+        (front.tracking.bb_dc, BB_DC, "Baseband DC tracking"),
     ] {
         if present {
-            extra.push(ExtraSetting::Bool {
-                name: name.to_string(),
-                default: true,
-            });
+            extra.push(ExtraSetting::bool(name, label, true));
         }
     }
     if front.tracking.fir {
-        extra.push(ExtraSetting::Bool {
-            name: FIR.to_string(),
-            default: false,
-        });
+        extra.push(ExtraSetting::bool(FIR, "FIR filter", false));
     }
     if front.tx_ports.len() > 1 {
-        extra.push(ExtraSetting::Enum {
-            name: TX_PORT.to_string(),
-            options: front.tx_ports.iter().map(ArgumentOption::plain).collect(),
-            default: front.tx_ports[0].clone(),
-        });
+        extra.push(ExtraSetting::choice(
+            TX_PORT,
+            "TX port",
+            front.tx_ports.iter().map(ArgumentOption::plain).collect(),
+            front.tx_ports[0].clone(),
+        ));
     }
     extra
 }
@@ -510,8 +508,10 @@ pub(crate) mod tests {
     #[test]
     fn the_gain_budget_names_a_stage_for_each_direction_that_exists() {
         let caps = capabilities(&front(), &crate::layout::tests::two_by_two_layout());
-        let names: Vec<&str> = caps.gains.iter().map(|g| g.name.as_str()).collect();
-        assert_eq!(names, vec![RX_STAGE, TX_STAGE]);
+        let kinds: Vec<GainKind> = caps.gains.iter().map(|g| g.kind).collect();
+        assert_eq!(kinds, vec![GainKind::Tuner, GainKind::Tx]);
+        assert_eq!(caps.gains[0].name, "TUNER");
+        assert_eq!(caps.gains[1].name, "TX");
 
         let mut receive_only = front();
         receive_only.tx_gain = None;
@@ -530,7 +530,12 @@ pub(crate) mod tests {
         };
         assert_eq!(
             names(&front()),
-            vec![GAIN_MODE, QUADRATURE, RF_DC, BB_DC, FIR, TX_PORT]
+            vec![QUADRATURE, RF_DC, BB_DC, FIR, TX_PORT]
+        );
+        assert!(
+            extra_settings(&front())
+                .iter()
+                .all(|setting| setting.label().is_some())
         );
 
         let bare = Front {
@@ -540,6 +545,35 @@ pub(crate) mod tests {
             ..front()
         };
         assert!(names(&bare).is_empty());
+    }
+
+    #[test]
+    fn the_automatic_gain_modes_are_the_ones_this_firmware_offers() {
+        let Agc::Modes { options } = agc(&front()) else {
+            panic!("a front end with attack modes offers them");
+        };
+        let modes: Vec<&str> = options.iter().map(|option| option.value.as_str()).collect();
+        assert_eq!(modes, vec!["fast_attack", "slow_attack", "hybrid"]);
+        assert!(options.iter().all(|option| option.label.is_some()));
+
+        let slow_only = Front {
+            gain_modes: ["manual", "slow_attack"].map(str::to_string).to_vec(),
+            ..front()
+        };
+        assert_eq!(agc(&slow_only).first_mode(), Some("slow_attack"));
+
+        let manual_only = Front {
+            gain_modes: vec!["manual".to_string()],
+            ..front()
+        };
+        assert_eq!(agc(&manual_only), Agc::None);
+        assert_eq!(
+            agc(&Front {
+                gain_modes: Vec::new(),
+                ..front()
+            }),
+            Agc::None
+        );
     }
 
     #[test]

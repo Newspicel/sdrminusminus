@@ -1,16 +1,12 @@
 use sdrmm_device::{DeviceError, check_stream_settings};
 use sdrmm_wire::{
-    Capabilities, DcArtifact, DeviceSettings, Duplex, ExtraSetting, ExtraValue, GainStage,
-    GainValue, Range, StreamScope, any_range_holds,
+    Agc, BandwidthSetting, Capabilities, Coherence, DcArtifact, DeviceSettings, Duplex, GainKind,
+    GainStage, GainValue, Range, StreamScope, any_range_holds,
 };
 
 use crate::driver::{Config, FILTER_WIDTHS_HZ, FilterWidth, snap_filter_width};
 
 pub(crate) const ANTENNA: &str = "RX";
-pub(crate) const LNA_STAGE: &str = "LNA";
-pub(crate) const VGA_STAGE: &str = "VGA";
-pub(crate) const AMP_STAGE: &str = "AMP";
-pub(crate) const BIAS_TEE_SETTING: &str = "bias_tee";
 
 const FREQ_MIN_HZ: f64 = 1e6;
 const FREQ_MAX_HZ: f64 = 6e9;
@@ -20,8 +16,6 @@ const LNA_MAX_DB: f64 = 40.0;
 const LNA_STEP_DB: f64 = 8.0;
 const VGA_MAX_DB: f64 = 62.0;
 const VGA_STEP_DB: f64 = 2.0;
-/// The RF amplifier is a switch, not a control, so it travels as the two-setting gain stage the
-/// wire model reserves for that — the same shape SoapyHackRF gives the same radio.
 const AMP_DB: f64 = 14.0;
 
 pub(crate) fn capabilities() -> Capabilities {
@@ -38,43 +32,38 @@ pub(crate) fn capabilities() -> Capabilities {
             step: None,
         }],
         gains: vec![
-            GainStage {
-                name: LNA_STAGE.to_string(),
-                range: Range {
+            GainStage::new(
+                GainKind::Lna,
+                Range {
                     min: 0.0,
                     max: LNA_MAX_DB,
                     step: Some(LNA_STEP_DB),
                 },
-                values: Vec::new(),
-            },
-            GainStage {
-                name: AMP_STAGE.to_string(),
-                range: Range {
+            ),
+            GainStage::new(
+                GainKind::Amp,
+                Range {
                     min: 0.0,
                     max: AMP_DB,
                     step: Some(AMP_DB),
                 },
-                values: Vec::new(),
-            },
-            GainStage {
-                name: VGA_STAGE.to_string(),
-                range: Range {
+            ),
+            GainStage::new(
+                GainKind::Vga,
+                Range {
                     min: 0.0,
                     max: VGA_MAX_DB,
                     step: Some(VGA_STEP_DB),
                 },
-                values: Vec::new(),
-            },
+            ),
         ],
         antennas: vec![ANTENNA.to_string()],
-        bandwidths: std::iter::once(FILTER_MATCH_RATE_HZ)
-            .chain(FILTER_WIDTHS_HZ.iter().copied().map(f64::from))
-            .collect(),
+        bandwidths: FILTER_WIDTHS_HZ.iter().copied().map(f64::from).collect(),
         bandwidth_ranges: Vec::new(),
-        extra: vec![ExtraSetting::Bool {
-            name: BIAS_TEE_SETTING.to_string(),
-            default: false,
-        }],
+        bandwidth_auto: true,
+        bias_tee: true,
+        agc: Agc::None,
+        extra: Vec::new(),
         ppm: false,
         duplex: Duplex::Half,
         rx_streams: 1,
@@ -83,12 +72,10 @@ pub(crate) fn capabilities() -> Capabilities {
         directional: None,
         dc_artifact: DcArtifact::Managed,
         hardware_sweep: true,
-        coherence: sdrmm_wire::Coherence::None,
+        coherence: Coherence::None,
         noise_source: false,
     }
 }
-
-const FILTER_MATCH_RATE_HZ: f64 = 0.0;
 
 #[derive(Debug, Default, PartialEq, Eq)]
 pub(crate) struct Applied {
@@ -132,16 +119,7 @@ pub(crate) fn validate(
     }
 
     if let Some(bandwidth) = delta.bandwidth {
-        let widest = FILTER_WIDTHS_HZ[FILTER_WIDTHS_HZ.len() - 1];
-        applied.filter = Some(if bandwidth == FILTER_MATCH_RATE_HZ {
-            FilterWidth::MatchRate
-        } else if bandwidth.is_finite() && bandwidth > 0.0 && bandwidth <= f64::from(widest) {
-            FilterWidth::Hz(snap_filter_width(bandwidth.round() as u32))
-        } else {
-            return Err(DeviceError::Unsupported(format!(
-                "bandwidth {bandwidth} outside 0..{widest} Hz (0 matches sample_rate)"
-            )));
-        });
+        applied.filter = Some(filter_for(bandwidth)?);
     }
 
     if let Some(antenna) = &delta.antenna
@@ -152,9 +130,7 @@ pub(crate) fn validate(
 
     for gain in &delta.gains {
         let stage = caps
-            .gains
-            .iter()
-            .find(|s| s.name == gain.stage)
+            .stage(&gain.stage)
             .ok_or_else(|| DeviceError::Unsupported(format!("gain stage {}", gain.stage)))?;
         if !(stage.range.min..=stage.range.max).contains(&gain.value_db) {
             return Err(DeviceError::Unsupported(format!(
@@ -163,39 +139,50 @@ pub(crate) fn validate(
             )));
         }
         let snapped = stage.snap(gain.value_db);
-        match stage.name.as_str() {
-            LNA_STAGE => applied.lna_gain_db = Some(snapped.round() as u8),
-            VGA_STAGE => applied.vga_gain_db = Some(snapped.round() as u8),
-            AMP_STAGE => applied.amp = Some(snapped > 0.0),
-            other => return Err(DeviceError::Unsupported(format!("gain stage {other}"))),
+        match stage.kind {
+            GainKind::Lna => applied.lna_gain_db = Some(snapped.round() as u8),
+            GainKind::Vga => applied.vga_gain_db = Some(snapped.round() as u8),
+            GainKind::Amp => applied.amp = Some(snapped > 0.0),
+            _ => {
+                return Err(DeviceError::Unsupported(format!(
+                    "gain stage {}",
+                    gain.stage
+                )));
+            }
         }
     }
 
-    for extra in &delta.extra {
-        let setting = caps
-            .extra
-            .iter()
-            .find(|s| s.name() == extra.name)
-            .ok_or_else(|| DeviceError::Unsupported(format!("extra setting {}", extra.name)))?;
-        let enabled = match setting {
-            ExtraSetting::Bool { .. } => extra.value.as_bool(),
-            ExtraSetting::Range { .. }
-            | ExtraSetting::Enum { .. }
-            | ExtraSetting::String { .. } => None,
-        };
-        let enabled = enabled.ok_or_else(|| {
-            DeviceError::Unsupported(format!(
-                "extra setting {}: bad value {}",
-                extra.name, extra.value
-            ))
-        })?;
-        match setting.name() {
-            BIAS_TEE_SETTING => applied.bias_tee = Some(enabled),
-            other => return Err(DeviceError::Unsupported(format!("extra setting {other}"))),
-        }
+    if delta.agc.is_some() {
+        return Err(DeviceError::Unsupported(
+            "agc: HackRF has no automatic gain".to_string(),
+        ));
     }
+
+    if let Some(extra) = delta.extra.first() {
+        return Err(DeviceError::Unsupported(format!(
+            "extra setting {}",
+            extra.name
+        )));
+    }
+
+    applied.bias_tee = delta.bias_tee;
 
     Ok(applied)
+}
+
+fn filter_for(bandwidth: BandwidthSetting) -> Result<FilterWidth, DeviceError> {
+    let widest = FILTER_WIDTHS_HZ[FILTER_WIDTHS_HZ.len() - 1];
+    match bandwidth {
+        BandwidthSetting::Auto => Ok(FilterWidth::MatchRate),
+        BandwidthSetting::Manual { hz }
+            if hz.is_finite() && hz > 0.0 && hz <= f64::from(widest) =>
+        {
+            Ok(FilterWidth::Hz(snap_filter_width(hz.round() as u32)))
+        }
+        BandwidthSetting::Manual { hz } => Err(DeviceError::Unsupported(format!(
+            "bandwidth {hz} outside 0..{widest} Hz"
+        ))),
+    }
 }
 
 pub(crate) fn settings_from_config(config: &Config) -> DeviceSettings {
@@ -206,55 +193,34 @@ pub(crate) fn settings_from_config(config: &Config) -> DeviceSettings {
         ppm: None,
         antenna: Some(ANTENNA.to_string()),
         bandwidth: Some(match config.filter {
-            FilterWidth::MatchRate => FILTER_MATCH_RATE_HZ,
-            FilterWidth::Hz(hz) => f64::from(hz),
+            FilterWidth::MatchRate => BandwidthSetting::Auto,
+            FilterWidth::Hz(hz) => BandwidthSetting::Manual { hz: f64::from(hz) },
         }),
         dc_block: None,
+        bias_tee: Some(config.bias_tee_enabled),
+        agc: None,
         gains: vec![
-            GainValue {
-                stage: LNA_STAGE.to_string(),
-                value_db: f64::from(config.lna_gain_db),
-            },
-            GainValue {
-                stage: AMP_STAGE.to_string(),
-                value_db: if config.amp_enabled { AMP_DB } else { 0.0 },
-            },
-            GainValue {
-                stage: VGA_STAGE.to_string(),
-                value_db: f64::from(config.vga_gain_db),
-            },
+            GainValue::new(GainKind::Lna, f64::from(config.lna_gain_db)),
+            GainValue::new(GainKind::Amp, if config.amp_enabled { AMP_DB } else { 0.0 }),
+            GainValue::new(GainKind::Vga, f64::from(config.vga_gain_db)),
         ],
-        extra: vec![ExtraValue {
-            name: BIAS_TEE_SETTING.to_string(),
-            value: config.bias_tee_enabled.into(),
-        }],
+        extra: Vec::new(),
         streams: Vec::new(),
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use sdrmm_wire::{AgcSetting, ExtraValue};
+
     use super::*;
 
-    fn gain(stage: &str, value_db: f64) -> GainValue {
-        GainValue {
-            stage: stage.to_string(),
-            value_db,
-        }
+    fn gain(kind: GainKind, value_db: f64) -> GainValue {
+        GainValue::new(kind, value_db)
     }
 
-    fn extra_bool(name: &str, value: bool) -> ExtraValue {
-        ExtraValue {
-            name: name.to_string(),
-            value: value.into(),
-        }
-    }
-
-    fn extra_text(name: &str, value: &str) -> ExtraValue {
-        ExtraValue {
-            name: name.to_string(),
-            value: value.into(),
-        }
+    fn manual(hz: f64) -> Option<BandwidthSetting> {
+        Some(BandwidthSetting::Manual { hz })
     }
 
     #[test]
@@ -279,30 +245,29 @@ mod tests {
         );
         assert_eq!(caps.gains.len(), 3);
         assert_eq!(caps.gains[0].name, "LNA");
+        assert_eq!(caps.gains[0].kind, GainKind::Lna);
         assert_eq!(caps.gains[0].range.step, Some(8.0));
         assert_eq!(caps.gains[1].name, "AMP");
+        assert_eq!(caps.gains[1].kind, GainKind::Amp);
         assert_eq!(caps.gains[2].name, "VGA");
+        assert_eq!(caps.gains[2].kind, GainKind::Vga);
         assert_eq!(caps.gains[2].range.step, Some(2.0));
         assert_eq!(caps.antennas, vec!["RX".to_string()]);
-        assert_eq!(caps.bandwidths.len(), 17);
-        assert_eq!(caps.bandwidths.first(), Some(&0.0));
-        assert_eq!(caps.bandwidths.get(1), Some(&1.75e6));
+        assert_eq!(caps.bandwidths.len(), 16);
+        assert_eq!(caps.bandwidths.first(), Some(&1.75e6));
         assert_eq!(caps.bandwidths.last(), Some(&28e6));
         assert!(caps.bandwidths.windows(2).all(|pair| pair[0] < pair[1]));
-        assert_eq!(
-            caps.extra
-                .iter()
-                .map(ExtraSetting::name)
-                .collect::<Vec<_>>(),
-            vec!["bias_tee"]
-        );
+        assert!(caps.bandwidth_auto);
+        assert!(caps.bias_tee);
+        assert_eq!(caps.agc, Agc::None);
+        assert!(caps.extra.is_empty());
         assert_eq!(caps.duplex, Duplex::Half);
     }
 
     #[test]
     fn a_stage_quantises_to_its_own_grid() {
         let caps = capabilities();
-        let lna = stage(&caps, LNA_STAGE);
+        let lna = stage(&caps, GainKind::Lna);
         assert_eq!(lna.snap(-12.0), 0.0);
         assert_eq!(lna.snap(0.0), 0.0);
         assert_eq!(lna.snap(13.0), 16.0);
@@ -312,34 +277,30 @@ mod tests {
         assert_eq!(lna.snap(1_000.0), 40.0);
     }
 
-    fn stage<'a>(caps: &'a Capabilities, name: &str) -> &'a GainStage {
-        caps.gains
-            .iter()
-            .find(|stage| stage.name == name)
-            .expect("the stage is advertised")
+    fn stage(caps: &Capabilities, kind: GainKind) -> &GainStage {
+        caps.stage(kind.name()).expect("the stage is advertised")
     }
 
     #[test]
     fn the_rf_amp_is_a_switched_gain_stage_not_a_boolean() {
         let caps = capabilities();
-        let amp = stage(&caps, AMP_STAGE);
+        let amp = stage(&caps, GainKind::Amp);
         assert!(amp.is_switch(), "an amp that is on or off is a switch");
+        assert_eq!(amp.setting_count(), 2);
+        assert_eq!(amp.off(), 0.0);
+        assert_eq!(amp.on(), AMP_DB);
         assert_eq!(amp.snap(0.0), 0.0);
         assert_eq!(amp.snap(6.0), 0.0, "below halfway stays off");
         assert_eq!(amp.snap(8.0), AMP_DB);
         assert_eq!(amp.snap(100.0), AMP_DB);
-        assert!(
-            !caps.extra.iter().any(|setting| setting.name() == "amp"),
-            "the amp must not also be an extra"
-        );
-        assert!(!stage(&caps, LNA_STAGE).is_switch());
-        assert!(!stage(&caps, VGA_STAGE).is_switch());
+        assert!(!stage(&caps, GainKind::Lna).is_switch());
+        assert!(!stage(&caps, GainKind::Vga).is_switch());
     }
 
     #[test]
     fn a_stage_quantises_to_the_vga_grid() {
         let caps = capabilities();
-        let vga = stage(&caps, VGA_STAGE);
+        let vga = stage(&caps, GainKind::Vga);
         assert_eq!(vga.snap(-0.5), 0.0);
         assert_eq!(vga.snap(0.0), 0.0);
         assert_eq!(vga.snap(1.0), 2.0);
@@ -355,9 +316,13 @@ mod tests {
             center_hz: Some(433_920_000.0),
             sample_rate: Some(8_000_000.0),
             antenna: Some("RX".to_string()),
-            bandwidth: Some(5_000_000.0),
-            gains: vec![gain("LNA", 24.0), gain("AMP", 14.0), gain("VGA", 20.0)],
-            extra: vec![extra_bool("bias_tee", false)],
+            bandwidth: manual(5_000_000.0),
+            bias_tee: Some(false),
+            gains: vec![
+                gain(GainKind::Lna, 24.0),
+                gain(GainKind::Amp, 14.0),
+                gain(GainKind::Vga, 20.0),
+            ],
             ..DeviceSettings::default()
         };
         assert_eq!(
@@ -377,7 +342,7 @@ mod tests {
     #[test]
     fn validate_snaps_gains_to_the_hardware_grid() {
         let delta = DeviceSettings {
-            gains: vec![gain("LNA", 13.0), gain("VGA", 21.0)],
+            gains: vec![gain(GainKind::Lna, 13.0), gain(GainKind::Vga, 21.0)],
             ..DeviceSettings::default()
         };
         let applied = validate(&delta, &capabilities()).unwrap();
@@ -453,11 +418,11 @@ mod tests {
                 ..DeviceSettings::default()
             },
             DeviceSettings {
-                gains: vec![gain("LNA", f64::NAN)],
+                gains: vec![gain(GainKind::Lna, f64::NAN)],
                 ..DeviceSettings::default()
             },
             DeviceSettings {
-                gains: vec![gain("VGA", f64::INFINITY)],
+                gains: vec![gain(GainKind::Vga, f64::INFINITY)],
                 ..DeviceSettings::default()
             },
         ];
@@ -475,7 +440,7 @@ mod tests {
     #[test]
     fn validate_rejects_unknown_gain_stage() {
         let delta = DeviceSettings {
-            gains: vec![gain("MIXER", 14.0)],
+            gains: vec![gain(GainKind::Mixer, 14.0)],
             ..DeviceSettings::default()
         };
         assert!(matches!(
@@ -486,7 +451,11 @@ mod tests {
 
     #[test]
     fn validate_rejects_gain_outside_the_stage_range() {
-        for bad in [gain("LNA", 48.0), gain("LNA", -8.0), gain("VGA", 64.0)] {
+        for bad in [
+            gain(GainKind::Lna, 48.0),
+            gain(GainKind::Lna, -8.0),
+            gain(GainKind::Vga, 64.0),
+        ] {
             let delta = DeviceSettings {
                 gains: vec![bad.clone()],
                 ..DeviceSettings::default()
@@ -502,24 +471,44 @@ mod tests {
     }
 
     #[test]
-    fn validate_rejects_unknown_and_mistyped_extras() {
-        let unknown = DeviceSettings {
-            extra: vec![extra_text("direct_samp", "1")],
+    fn validate_rejects_every_extra_and_any_agc() {
+        let extra = DeviceSettings {
+            extra: vec![ExtraValue {
+                name: "bias_tee".to_string(),
+                value: true.into(),
+            }],
             ..DeviceSettings::default()
         };
         assert!(matches!(
-            validate(&unknown, &capabilities()),
+            validate(&extra, &capabilities()),
             Err(DeviceError::Unsupported(_))
         ));
 
-        let mistyped = DeviceSettings {
-            extra: vec![extra_text("bias_tee", "yes")],
+        let agc = DeviceSettings {
+            agc: Some(AgcSetting::switched(true)),
             ..DeviceSettings::default()
         };
         assert!(matches!(
-            validate(&mistyped, &capabilities()),
+            validate(&agc, &capabilities()),
             Err(DeviceError::Unsupported(_))
         ));
+    }
+
+    #[test]
+    fn the_bias_tee_is_a_typed_switch() {
+        let delta = DeviceSettings {
+            bias_tee: Some(true),
+            ..DeviceSettings::default()
+        };
+        assert_eq!(
+            validate(&delta, &capabilities()).unwrap().bias_tee,
+            Some(true)
+        );
+        let config = Config {
+            bias_tee_enabled: true,
+            ..Config::default()
+        };
+        assert_eq!(settings_from_config(&config).bias_tee, Some(true));
     }
 
     #[test]
@@ -540,7 +529,7 @@ mod tests {
         assert!(!capabilities().ppm);
     }
 
-    fn filter_of(bandwidth: f64) -> Result<Option<FilterWidth>, DeviceError> {
+    fn filter_of(bandwidth: BandwidthSetting) -> Result<Option<FilterWidth>, DeviceError> {
         let delta = DeviceSettings {
             bandwidth: Some(bandwidth),
             ..DeviceSettings::default()
@@ -548,11 +537,15 @@ mod tests {
         validate(&delta, &capabilities()).map(|applied| applied.filter)
     }
 
+    fn filter_of_hz(hz: f64) -> Result<Option<FilterWidth>, DeviceError> {
+        filter_of(BandwidthSetting::Manual { hz })
+    }
+
     #[test]
     fn validate_takes_every_listed_filter_width_as_it_is() {
         for width in FILTER_WIDTHS_HZ {
             assert_eq!(
-                filter_of(f64::from(width)).unwrap(),
+                filter_of_hz(f64::from(width)).unwrap(),
                 Some(FilterWidth::Hz(width)),
                 "{width}"
             );
@@ -561,17 +554,23 @@ mod tests {
 
     #[test]
     fn validate_snaps_a_width_between_two_register_steps() {
-        assert_eq!(filter_of(7.5e6).unwrap(), Some(FilterWidth::Hz(7e6 as u32)));
-        assert_eq!(filter_of(1.0).unwrap(), Some(FilterWidth::Hz(1_750_000)));
         assert_eq!(
-            filter_of(27_999_999.0).unwrap(),
+            filter_of_hz(7.5e6).unwrap(),
+            Some(FilterWidth::Hz(7e6 as u32))
+        );
+        assert_eq!(filter_of_hz(1.0).unwrap(), Some(FilterWidth::Hz(1_750_000)));
+        assert_eq!(
+            filter_of_hz(27_999_999.0).unwrap(),
             Some(FilterWidth::Hz(24_000_000))
         );
     }
 
     #[test]
-    fn validate_reads_zero_as_matching_the_sample_rate() {
-        assert_eq!(filter_of(0.0).unwrap(), Some(FilterWidth::MatchRate));
+    fn validate_reads_auto_as_matching_the_sample_rate() {
+        assert_eq!(
+            filter_of(BandwidthSetting::Auto).unwrap(),
+            Some(FilterWidth::MatchRate)
+        );
         assert_eq!(
             validate(&DeviceSettings::default(), &capabilities())
                 .unwrap()
@@ -582,9 +581,9 @@ mod tests {
 
     #[test]
     fn validate_rejects_a_width_no_filter_could_hold() {
-        for bad in [-1.0, 28_000_001.0, 1e9, f64::NAN, f64::INFINITY] {
+        for bad in [-1.0, 0.0, 28_000_001.0, 1e9, f64::NAN, f64::INFINITY] {
             assert!(
-                matches!(filter_of(bad), Err(DeviceError::Unsupported(_))),
+                matches!(filter_of_hz(bad), Err(DeviceError::Unsupported(_))),
                 "bandwidth {bad} must be rejected"
             );
         }
@@ -629,14 +628,15 @@ mod tests {
     }
 
     #[test]
-    fn a_matched_filter_reports_as_the_automatic_choice_and_re_applies_as_one() {
+    fn a_matched_filter_reports_as_auto_and_re_applies_as_one() {
         let settings = settings_from_config(&Config::default());
-        assert_eq!(settings.bandwidth, Some(0.0));
+        assert_eq!(settings.bandwidth, Some(BandwidthSetting::Auto));
         assert_eq!(
             validate(&settings, &capabilities()).unwrap().filter,
             Some(FilterWidth::MatchRate)
         );
-        assert!(capabilities().bandwidths.contains(&0.0));
+        assert!(capabilities().admits_bandwidth(BandwidthSetting::Auto));
+        assert!(!capabilities().bandwidths.contains(&0.0));
     }
 
     #[test]
@@ -656,15 +656,22 @@ mod tests {
         assert_eq!(settings.sample_rate, Some(2e6));
         assert_eq!(settings.antenna.as_deref(), Some("RX"));
         assert_eq!(settings.ppm, None);
-        assert_eq!(settings.bandwidth, Some(1.75e6));
+        assert_eq!(settings.bandwidth, manual(1.75e6));
         assert_eq!(
             settings.gains,
-            vec![gain("LNA", 16.0), gain("AMP", 14.0), gain("VGA", 30.0)],
+            vec![
+                gain(GainKind::Lna, 16.0),
+                gain(GainKind::Amp, 14.0),
+                gain(GainKind::Vga, 30.0)
+            ],
             "the amp reports as the stage it is, at the gain it contributes"
         );
-        assert_eq!(settings.extra, vec![extra_bool("bias_tee", false)]);
+        assert_eq!(settings.bias_tee, Some(false));
+        assert_eq!(settings.agc, None);
+        assert!(settings.extra.is_empty());
         let round_trip = validate(&settings, &capabilities()).expect("reported settings re-apply");
         assert_eq!(round_trip.sample_rate_hz, Some(2_000_000));
         assert_eq!(round_trip.filter, Some(FilterWidth::Hz(1_750_000)));
+        assert_eq!(round_trip.bias_tee, Some(false));
     }
 }

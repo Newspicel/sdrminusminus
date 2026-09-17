@@ -8,8 +8,8 @@ use sdrmm_device::{
     DeviceDriver, DeviceError, DuplexState, RxSink, Sample, SdrDevice, TxStream, Worker, lock,
 };
 use sdrmm_wire::{
-    Capabilities, ChannelCapabilities, DeviceInfo, DeviceSettings, Direction as WireDirection,
-    DirectionalCapabilities, GainStage, GainValue, StreamSettings,
+    AgcSetting, BandwidthSetting, Capabilities, ChannelCapabilities, DeviceInfo, DeviceSettings,
+    Direction as WireDirection, DirectionalCapabilities, GainValue, StreamSettings,
 };
 use soapy::{Direction, ErrorCode};
 
@@ -25,7 +25,6 @@ pub use probe::enable_isolated_probes;
 pub use runtime::{RuntimeInfo, runtime_info};
 
 const DRIVER_ID: &str = "soapy";
-const GAIN_MODE_SETTING: &str = "gain_mode";
 
 static ENUMERATE_LOCK: Mutex<()> = Mutex::new(());
 
@@ -229,11 +228,7 @@ fn query_channel(
         let range = device
             .gain_element_range(direction, channel, name.as_str())
             .map_err(map_err)?;
-        gains.push(GainStage {
-            name,
-            range: caps::ranges(&[range])[0],
-            values: Vec::new(),
-        });
+        gains.push(caps::gain_stage(&name, caps::ranges(&[range])[0]));
     }
     let frequency_components = optional(
         "frequency components",
@@ -329,24 +324,7 @@ fn query_capabilities(device: &soapy::Device) -> Result<Capabilities, DeviceErro
         master_clock_rate: device.get_master_clock_rate().ok(),
         hardware_info: args_map(&device.hardware_info().map_err(map_err)?),
     };
-    let mut capabilities = caps::capabilities(directional);
-    let gain_mode = capabilities
-        .directional
-        .as_ref()
-        .and_then(|directional| directional.rx.first())
-        .is_some_and(|channel| channel.gain_mode);
-    if gain_mode
-        && !capabilities
-            .extra
-            .iter()
-            .any(|setting| setting.name() == GAIN_MODE_SETTING)
-    {
-        capabilities.extra.push(sdrmm_wire::ExtraSetting::Bool {
-            name: GAIN_MODE_SETTING.to_string(),
-            default: device.gain_mode(Direction::Rx, 0).unwrap_or(false),
-        });
-    }
-    Ok(capabilities)
+    Ok(caps::capabilities(directional))
 }
 
 fn read_channel_settings(device: &soapy::Device, channel: &ChannelCapabilities) -> DeviceSettings {
@@ -358,7 +336,8 @@ fn read_channel_settings(device: &soapy::Device, channel: &ChannelCapabilities) 
         bandwidth: device
             .bandwidth(Direction::Rx, index)
             .ok()
-            .filter(|bandwidth| *bandwidth > 0.0),
+            .filter(|bandwidth| *bandwidth > 0.0)
+            .map(|hz| BandwidthSetting::Manual { hz }),
         ..DeviceSettings::default()
     };
     for stage in &channel.gains {
@@ -380,6 +359,13 @@ fn read_settings(device: &soapy::Device, capabilities: &Capabilities) -> DeviceS
         return DeviceSettings::default();
     };
     let mut settings = read_channel_settings(device, primary);
+    settings.agc = capabilities
+        .agc
+        .offered()
+        .then(|| AgcSetting::switched(device.gain_mode(Direction::Rx, 0).unwrap_or(false)));
+    settings.bias_tee = caps::bias_tee_key(capabilities)
+        .and_then(|key| device.read_setting(key).ok())
+        .map(|value| caps::is_true(&value));
     for channel in directional.rx.iter().skip(1) {
         let channel_settings = read_channel_settings(device, channel);
         settings.streams.push(StreamSettings {
@@ -392,19 +378,11 @@ fn read_settings(device: &soapy::Device, capabilities: &Capabilities) -> DeviceS
     }
     for extra in &capabilities.extra {
         let name = extra.name();
-        let read = if name == GAIN_MODE_SETTING {
-            device
-                .gain_mode(Direction::Rx, 0)
-                .map(|value| value.to_string())
-        } else {
-            device.read_setting(name)
-        };
-        if let Ok(value) = read {
+        if let Ok(value) = device.read_setting(name) {
             let value = match extra {
-                sdrmm_wire::ExtraSetting::Bool { .. } => serde_json::Value::Bool(matches!(
-                    value.to_ascii_lowercase().as_str(),
-                    "true" | "1"
-                )),
+                sdrmm_wire::ExtraSetting::Bool { .. } => {
+                    serde_json::Value::Bool(caps::is_true(&value))
+                }
                 sdrmm_wire::ExtraSetting::Range { .. } => value.parse::<f64>().map_or_else(
                     |_| serde_json::Value::String(value),
                     serde_json::Value::from,
@@ -442,6 +420,12 @@ fn warn_coerced_rate(requested: Option<f64>, actual: Option<f64>) {
     }
 }
 
+struct Undo {
+    extras: Vec<(String, String)>,
+    automatic_gain: Option<bool>,
+    capabilities: Capabilities,
+}
+
 pub struct SoapyDevice {
     device: soapy::Device,
     capabilities: Capabilities,
@@ -469,45 +453,28 @@ impl SoapyDevice {
     }
 
     fn read_extra(&self, key: &str) -> Result<String, DeviceError> {
-        if key != GAIN_MODE_SETTING {
-            return self.device.read_setting(key).map_err(map_err);
-        }
-        let count = self.device.num_channels(Direction::Rx).map_err(map_err)?;
-        (0..count)
-            .map(|channel| {
-                self.device
-                    .gain_mode(Direction::Rx, channel)
-                    .map(|value| value.to_string())
-                    .map_err(map_err)
-            })
-            .collect::<Result<Vec<_>, _>>()
-            .map(|values| values.join(","))
+        self.device.read_setting(key).map_err(map_err)
     }
 
     fn write_extra(&self, key: &str, value: &str) -> Result<(), DeviceError> {
-        if key != GAIN_MODE_SETTING {
-            return self.device.write_setting(key, value).map_err(map_err);
-        }
-        let values: Vec<&str> = value.split(',').collect();
+        self.device.write_setting(key, value).map_err(map_err)
+    }
+
+    fn set_automatic_gain(&self, on: bool) -> Result<(), DeviceError> {
         let count = self.device.num_channels(Direction::Rx).map_err(map_err)?;
         for channel in 0..count {
-            let text = values
-                .get(channel)
-                .copied()
-                .or_else(|| values.first().copied())
-                .ok_or_else(|| DeviceError::Unsupported("gain_mode needs a value".to_string()))?;
-            let enabled = match text.to_ascii_lowercase().as_str() {
-                "true" | "1" => true,
-                "false" | "0" => false,
-                _ => {
-                    return Err(DeviceError::Unsupported(format!(
-                        "gain_mode: expected boolean, got {text:?}"
-                    )));
-                }
-            };
             self.device
-                .set_gain_mode(Direction::Rx, channel, enabled)
+                .set_gain_mode(Direction::Rx, channel, on)
                 .map_err(map_err)?;
+            let echoed = self
+                .device
+                .gain_mode(Direction::Rx, channel)
+                .map_err(map_err)?;
+            if echoed != on {
+                return Err(DeviceError::Unsupported(format!(
+                    "agc: driver did not apply {on} on channel {channel} (reads back {echoed})"
+                )));
+            }
         }
         Ok(())
     }
@@ -537,14 +504,7 @@ impl SoapyDevice {
                     return Err(error);
                 }
             };
-            let confirmed = if key == GAIN_MODE_SETTING {
-                echoed
-                    .split(',')
-                    .all(|channel| caps::read_back_confirms(value, channel))
-            } else {
-                caps::read_back_confirms(value, &echoed)
-            };
-            if !confirmed {
+            if !caps::read_back_confirms(value, &echoed) {
                 self.restore_extras(&originals);
                 return Err(DeviceError::Unsupported(format!(
                     "extra setting {key}: driver did not apply {value:?} (reads back {echoed:?})"
@@ -562,13 +522,14 @@ impl SoapyDevice {
         }
     }
 
-    fn rollback_extras(
-        &mut self,
-        originals: &[(String, String)],
-        previous_capabilities: Capabilities,
-    ) {
-        self.restore_extras(originals);
-        self.capabilities = query_capabilities(&self.device).unwrap_or(previous_capabilities);
+    fn undo(&mut self, undo: Undo) {
+        if let Some(on) = undo.automatic_gain
+            && let Err(error) = self.set_automatic_gain(on)
+        {
+            tracing::warn!("failed to restore Soapy gain mode: {error}");
+        }
+        self.restore_extras(&undo.extras);
+        self.capabilities = query_capabilities(&self.device).unwrap_or(undo.capabilities);
         self.settings = read_settings(&self.device, &self.capabilities);
     }
 
@@ -615,7 +576,7 @@ impl SoapyDevice {
                     .set_antenna(Direction::Rx, index, antenna.as_str())
                     .map_err(map_err)?;
             }
-            if let Some(bandwidth) = settings.bandwidth {
+            if let Some(bandwidth) = settings.bandwidth.and_then(BandwidthSetting::hz) {
                 self.device
                     .set_bandwidth(Direction::Rx, index, bandwidth)
                     .map_err(map_err)?;
@@ -635,50 +596,52 @@ impl SdrDevice for SoapyDevice {
     }
 
     fn apply(&mut self, delta: &DeviceSettings) -> Result<(), DeviceError> {
-        let writes: Vec<(String, String)> = delta
-            .extra
-            .iter()
-            .map(|extra| {
-                Ok((
-                    extra.name.clone(),
-                    caps::extra_write_value(&self.capabilities.extra, &extra.name, &extra.value)?,
-                ))
-            })
-            .collect::<Result<_, DeviceError>>()?;
+        let writes = caps::setting_writes(delta, &self.capabilities)?;
         let _paused = caps::reshapes_the_stream(delta)
             .then(|| self.quiesce.pause(self.worker.is_running()))
             .flatten();
-        let previous_capabilities = self.capabilities.clone();
-        let originals = self.write_extras(&writes)?;
+        let mut undo = Undo {
+            extras: Vec::new(),
+            automatic_gain: None,
+            capabilities: self.capabilities.clone(),
+        };
+        undo.extras = self.write_extras(&writes)?;
         if !writes.is_empty() {
             match query_capabilities(&self.device) {
                 Ok(capabilities) => self.capabilities = capabilities,
                 Err(error) => {
-                    self.rollback_extras(&originals, previous_capabilities);
+                    self.undo(undo);
                     return Err(error);
                 }
             }
         }
         if let Err(error) = caps::validate(delta, &self.capabilities) {
-            self.rollback_extras(&originals, previous_capabilities);
+            self.undo(undo);
             return Err(error);
         }
-        if caps::gain_needs_manual_mode(delta, &writes, self.automatic_gain_is_on()) {
-            self.rollback_extras(&originals, previous_capabilities);
+        if let Some(agc) = &delta.agc {
+            undo.automatic_gain = Some(self.automatic_gain_is_on());
+            if let Err(error) = self.set_automatic_gain(agc.on) {
+                self.undo(undo);
+                return Err(error);
+            }
+        }
+        if caps::gain_needs_manual_mode(delta, self.automatic_gain_is_on()) {
+            self.undo(undo);
             return Err(DeviceError::Unsupported(
-                "gain: this radio sets its own while automatic gain control is on — turn \
-                 gain_mode off to set it by hand"
+                "gain: this radio sets its own while automatic gain control is on; turn \
+                 agc off to set it by hand"
                     .to_string(),
             ));
         }
         if let Err(error) = self.apply_rx_settings(delta) {
-            self.rollback_extras(&originals, previous_capabilities);
+            self.undo(undo);
             return Err(error);
         }
-        if let Some(automatic) = caps::automatic_gain_to_reassert(&writes, delta)
-            && let Err(error) = self.write_extra(GAIN_MODE_SETTING, automatic)
+        if caps::automatic_gain_to_reassert(delta)
+            && let Err(error) = self.set_automatic_gain(true)
         {
-            self.rollback_extras(&originals, previous_capabilities);
+            self.undo(undo);
             return Err(error);
         }
         self.settings.merge_from(delta);

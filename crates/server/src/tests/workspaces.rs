@@ -397,10 +397,7 @@ async fn a_partial_restore_lands_what_fits_and_keeps_remembering_the_rest() {
             settings: DeviceSettings {
                 center_hz: Some(145_500_000.0),
                 sample_rate: Some(999.0),
-                extra: vec![sdrmm_wire::ExtraValue {
-                    name: "bias_tee".to_string(),
-                    value: true.into(),
-                }],
+                bias_tee: Some(true),
                 ..DeviceSettings::default()
             },
         }],
@@ -432,7 +429,7 @@ async fn a_partial_restore_lands_what_fits_and_keeps_remembering_the_rest() {
         Some(999.0),
         "the node goes on remembering what this radio could not take"
     );
-    assert_eq!(kept.settings.extra.len(), 1);
+    assert_eq!(kept.settings.bias_tee, Some(true));
 }
 
 #[tokio::test]

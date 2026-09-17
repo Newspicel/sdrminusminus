@@ -30,11 +30,22 @@ describe("mergeSettings", () => {
   });
 
   it("overlays bandwidth and leaves absent fields", () => {
-    const current: DeviceSettings = { center_hz: 100_000_000, bandwidth: 2_500_000 };
-    const next = mergeSettings(current, { bandwidth: 1_750_000 });
+    const current: DeviceSettings = {
+      center_hz: 100_000_000,
+      bandwidth: { kind: "manual", hz: 2_500_000 },
+    };
+    const next = mergeSettings(current, { bandwidth: { kind: "auto" } });
     expect(next.center_hz).toBe(100_000_000);
-    expect(next.bandwidth).toBe(1_750_000);
-    expect(mergeSettings(next, {}).bandwidth).toBe(1_750_000);
+    expect(next.bandwidth).toEqual({ kind: "auto" });
+    expect(mergeSettings(next, {}).bandwidth).toEqual({ kind: "auto" });
+  });
+
+  it("overlays the front-end switches", () => {
+    const current: DeviceSettings = { bias_tee: false, agc: { on: false } };
+    const next = mergeSettings(current, { agc: { on: true, mode: "slow_attack" } });
+    expect(next.bias_tee).toBe(false);
+    expect(next.agc).toEqual({ on: true, mode: "slow_attack" });
+    expect(mergeSettings(next, { bias_tee: true }).bias_tee).toBe(true);
   });
 
   it("merges stream overrides by index, and each entry's gains by stage", () => {

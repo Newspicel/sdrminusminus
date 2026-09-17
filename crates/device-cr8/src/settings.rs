@@ -1,7 +1,7 @@
 use std::ffi::c_int;
 
 use sdrmm_device::DeviceError;
-use sdrmm_wire::{Capabilities, DeviceSettings, ExtraSetting, GainStage, GainValue};
+use sdrmm_wire::{Capabilities, DeviceSettings, ExtraSetting, GainKind, GainStage, GainValue};
 
 use crate::{
     api::{Cr8Api, DevHandle},
@@ -44,15 +44,21 @@ fn gain_steps(
     for wanted in gains {
         let stage = stages
             .iter()
-            .find(|stage| stage.name.eq_ignore_ascii_case(&wanted.stage))
+            .find(|stage| stage.name == wanted.stage)
             .ok_or_else(|| {
                 DeviceError::Unsupported(format!("the CR-8 has no {} gain stage", wanted.stage))
             })?;
         let gain = snapped(stage, wanted.value_db);
-        steps.push(match stage.name.as_str() {
-            "LNA" => Step::Lna { channels, gain },
-            "Mixer" => Step::Mixer { channels, gain },
-            _ => Step::Vga { channels, gain },
+        steps.push(match stage.kind {
+            GainKind::Lna => Step::Lna { channels, gain },
+            GainKind::Mixer => Step::Mixer { channels, gain },
+            GainKind::Vga => Step::Vga { channels, gain },
+            _ => {
+                return Err(DeviceError::Unsupported(format!(
+                    "the CR-8 has no {} gain stage",
+                    wanted.stage
+                )));
+            }
         });
     }
     Ok(steps)
@@ -85,6 +91,22 @@ fn clock_step(
     }
 }
 
+fn refuse_what_the_radio_lacks(settings: &DeviceSettings) -> Result<(), DeviceError> {
+    let lacking = if settings.bandwidth.is_some() {
+        Some("a selectable filter")
+    } else if settings.agc.is_some() {
+        Some("automatic gain")
+    } else if settings.bias_tee.is_some() {
+        Some("a bias tee")
+    } else {
+        None
+    };
+    match lacking {
+        Some(what) => Err(DeviceError::Unsupported(format!("the CR-8 has no {what}"))),
+        None => Ok(()),
+    }
+}
+
 /// What a settings table means for a CR-8, in the order it has to be done.
 ///
 /// Every channel is tuned in one coherent call: eight receivers on one frequency is what the
@@ -94,6 +116,7 @@ pub fn plan(
     current: &DeviceSettings,
     capabilities: &Capabilities,
 ) -> Result<Vec<Step>, DeviceError> {
+    refuse_what_the_radio_lacks(settings)?;
     let mut steps = clock_step(settings, capabilities)?;
     if let Some(rate) = settings.sample_rate
         && (rate - ffi::SAMPLE_RATE_HZ).abs() > 1.0

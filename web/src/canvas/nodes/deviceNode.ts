@@ -1,3 +1,4 @@
+import { reachableHz } from "../../components/dial";
 import type { Capabilities, DeviceRef, DeviceSet, DeviceSettings, Tuning } from "../../lib/types";
 import { forStream } from "../../lib/useDevicePatch";
 import { rxStreamCount, streamLabel } from "../graph";
@@ -28,9 +29,10 @@ export function autoTuning(set: DeviceSet, stream = 0): boolean {
 }
 
 export function tuneDelta(capabilities: Capabilities, stream: number, hz: number): DeviceSettings {
+  const center_hz = reachableHz(capabilities, hz);
   return capabilities.per_stream?.tuning === true
-    ? { streams: [{ stream, center_hz: hz, tuning: "manual" }] }
-    : { center_hz: hz, tuning: "manual" };
+    ? { streams: [{ stream, center_hz, tuning: "manual" }] }
+    : { center_hz, tuning: "manual" };
 }
 
 export function tuningDelta(
