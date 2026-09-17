@@ -41,6 +41,26 @@ fn tuning(c: &mut Criterion) {
             });
         });
     }
+    for channels in [16, 32] {
+        let mut downconverters: Vec<_> = (0..channels)
+            .map(|index| {
+                let rate = if index % 4 == 1 { 240_000.0 } else { 48_000.0 };
+                let offset = 100_000.0 + index as f64 * 25_000.0;
+                let mut ddc = sdrmm_dsp::Ddc::new(20_000_000.0, rate, offset).expect("rates");
+                ddc.process(&input, &mut out);
+                ddc
+            })
+            .collect();
+        group.throughput(Throughput::Elements(input.len() as u64));
+        group.bench_function(format!("mixed_{channels}_channels"), |b| {
+            b.iter(|| {
+                for ddc in &mut downconverters {
+                    ddc.process(black_box(&input), &mut out);
+                    black_box(&out);
+                }
+            });
+        });
+    }
     group.finish();
 }
 

@@ -81,6 +81,7 @@ impl Nco {
         )
     }
 
+    #[inline(never)]
     pub fn mix_into(&mut self, input: &[Complex<f32>], out: &mut [Complex<f32>]) {
         debug_assert_eq!(input.len(), out.len());
         for (i, o) in input.iter().zip(out.iter_mut()) {
