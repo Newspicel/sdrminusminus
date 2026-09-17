@@ -22,9 +22,9 @@
   },
   {
     "bench": "adsb",
-    "msamples_per_s": 8.26,
-    "realtime_factor": 4.13,
-    "config": "noise including deferred decode slots, 2000000 Hz, 2048 sample blocks",
+    "msamples_per_s": 7.58,
+    "realtime_factor": 3.16,
+    "config": "noise including deferred decode slots, 2400000 Hz, 2048 sample blocks",
     "host": "x86_64-linux"
   },
   {
@@ -57,9 +57,9 @@
   },
   {
     "bench": "atv",
-    "msamples_per_s": 37.73,
-    "realtime_factor": 18.865,
-    "config": "noise including deferred decode slots, 2000000 Hz, 2048 sample blocks",
+    "msamples_per_s": 39.32,
+    "realtime_factor": 2.46,
+    "config": "noise including deferred decode slots, 16000000 Hz, 2048 sample blocks",
     "host": "x86_64-linux"
   },
   {
