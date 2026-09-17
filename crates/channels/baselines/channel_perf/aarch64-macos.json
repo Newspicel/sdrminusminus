@@ -106,8 +106,8 @@
   },
   {
     "bench": "acars",
-    "msamples_per_s": 15.22732009635087,
-    "realtime_factor": 317.2358353406431,
+    "msamples_per_s": 75.25480807672228,
+    "realtime_factor": 1567.8085015983809,
     "config": "noise including deferred decode slots, 48000 Hz, 2048 sample blocks",
     "host": "aarch64-macos"
   },
