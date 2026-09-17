@@ -88,9 +88,17 @@ function createWebCodecsDecoder(
       if (decoder.state !== "configured" || inFlight.length >= MAX_DECODE_QUEUE) {
         return false;
       }
-      inFlight.push(performance.now());
-      decoder.decode(new EncodedAudioChunk({ type: "key", timestamp: timestampUs, data: packet }));
-      return true;
+      const queued = inFlight.length;
+      try {
+        const chunk = new EncodedAudioChunk({ type: "key", timestamp: timestampUs, data: packet });
+        inFlight.push(performance.now());
+        decoder.decode(chunk);
+        return true;
+      } catch (error) {
+        if (inFlight.length > queued) inFlight.pop();
+        onError(error);
+        return false;
+      }
     },
     reset() {
       if (decoder.state !== "closed") {
@@ -122,32 +130,31 @@ async function createWasmDecoder(
     worker.postMessage(message, transfer);
   };
   await new Promise<void>((resolve, reject) => {
+    let ready = false;
     const timer = setTimeout(() => {
-      worker.terminate();
-      reject(new Error("Opus decoder initialization timed out"));
+      fail(new Error("Opus decoder initialization timed out"));
     }, 10_000);
-    worker.onerror = (event) => {
+    const fail = (error: unknown): void => {
+      if (closed) return;
+      closed = true;
+      pending.clear();
       clearTimeout(timer);
       worker.terminate();
-      closed = true;
-      reject(new Error(event.message));
-      onError(new Error(event.message));
+      if (ready) onError(error);
+      else reject(error);
     };
+    worker.onerror = (event) => fail(new Error(event.message));
     worker.onmessage = (event: MessageEvent<DecoderResponse>) => {
+      if (closed) return;
       const message = event.data;
       if (message.type === "ready") {
         clearTimeout(timer);
+        ready = true;
         resolve();
         return;
       }
-      if (closed) {
-        return;
-      }
       if (message.type === "error" && message.id === undefined) {
-        clearTimeout(timer);
-        worker.terminate();
-        closed = true;
-        reject(new Error(message.message));
+        fail(new Error(message.message));
         return;
       }
       const started = message.id === undefined ? undefined : pending.get(message.id);
@@ -167,7 +174,11 @@ async function createWasmDecoder(
         }
       }
     };
-    post({ type: "init", channels });
+    try {
+      post({ type: "init", channels });
+    } catch (error) {
+      fail(error);
+    }
   });
   return {
     channels,
@@ -176,16 +187,23 @@ async function createWasmDecoder(
         return false;
       }
       const id = sequence++;
-      const owned = packet.slice();
-      pending.set(id, performance.now());
-      post({ type: "decode", id, epoch, packet: owned }, [owned.buffer]);
-      return true;
+      try {
+        const owned = packet.slice();
+        pending.set(id, performance.now());
+        post({ type: "decode", id, epoch, packet: owned }, [owned.buffer]);
+        return true;
+      } catch (error) {
+        pending.delete(id);
+        onError(error);
+        return false;
+      }
     },
     reset() {
       epoch++;
       post({ type: "reset" });
     },
     close() {
+      if (closed) return;
       closed = true;
       pending.clear();
       worker.terminate();

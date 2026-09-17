@@ -66,8 +66,93 @@ class FakeAudioDecoder {
 beforeEach(() => {
   vi.resetModules();
   FakeWorker.instances = [];
+  FakeAudioDecoder.instances = [];
   vi.stubGlobal("AudioDecoder", undefined);
   vi.stubGlobal("Worker", FakeWorker);
+});
+
+function activeWorker(): FakeWorker {
+  const worker = FakeWorker.instances[0];
+  if (!worker) throw new Error("worker was not created");
+  return worker;
+}
+
+it("cleans up a worker when initialization cannot be sent", async () => {
+  vi.spyOn(FakeWorker.prototype, "postMessage").mockImplementation(() => {
+    throw new Error("initialization failed");
+  });
+  const { createOpusPacketDecoder } = await import("./decoder");
+  const error = vi.fn();
+  await expect(createOpusPacketDecoder(1, vi.fn(), error)).rejects.toThrow("initialization failed");
+  expect(activeWorker().terminate).toHaveBeenCalledTimes(1);
+  expect(error).not.toHaveBeenCalled();
+});
+
+it("reports a fatal worker failure after initialization instead of silently losing every packet", async () => {
+  const { createOpusPacketDecoder } = await import("./decoder");
+  const pcm = vi.fn();
+  const error = vi.fn();
+  const decoder = await createOpusPacketDecoder(1, pcm, error);
+  const worker = activeWorker();
+  expect(decoder.decode(new Uint8Array([1]), 0)).toBe(true);
+  decoder.reset();
+  worker.emit({ type: "error", message: "reset failed" });
+  expect(error).toHaveBeenCalledExactlyOnceWith(new Error("reset failed"));
+  expect(worker.terminate).toHaveBeenCalledTimes(1);
+  expect(decoder.decode(new Uint8Array([1]), 1)).toBe(false);
+  worker.emit({ type: "pcm", id: 0, epoch: 0, pcm: new Float32Array(960) });
+  expect(pcm).not.toHaveBeenCalled();
+  decoder.close();
+});
+
+it("ignores a queued worker error after the listener has closed", async () => {
+  const { createOpusPacketDecoder } = await import("./decoder");
+  const error = vi.fn();
+  const decoder = await createOpusPacketDecoder(1, vi.fn(), error);
+  const worker = activeWorker();
+  decoder.close();
+  worker.onerror?.({ message: "late worker error" } as ErrorEvent);
+  expect(error).not.toHaveBeenCalled();
+});
+
+it("reports rejected worker messages without leaking queue slots", async () => {
+  const { createOpusPacketDecoder } = await import("./decoder");
+  const error = vi.fn();
+  const decoder = await createOpusPacketDecoder(1, vi.fn(), error);
+  const worker = activeWorker();
+  const post = vi.spyOn(worker, "postMessage").mockImplementation(() => {
+    throw new DOMException("could not send", "DataCloneError");
+  });
+  for (let index = 0; index < 6; index++) {
+    expect(decoder.decode(new Uint8Array([1]), index)).toBe(false);
+  }
+  expect(error).toHaveBeenCalledTimes(6);
+  post.mockRestore();
+  for (let index = 0; index < 5; index++) {
+    expect(decoder.decode(new Uint8Array([1]), index)).toBe(true);
+  }
+  expect(decoder.decode(new Uint8Array([1]), 6)).toBe(false);
+  decoder.close();
+});
+
+it("reports rejected native packets without leaking queue slots", async () => {
+  vi.stubGlobal("AudioDecoder", FakeAudioDecoder);
+  vi.stubGlobal("EncodedAudioChunk", FakeChunk);
+  const { createOpusPacketDecoder } = await import("./decoder");
+  const error = vi.fn();
+  const pcm = vi.fn();
+  const decoder = await createOpusPacketDecoder(1, pcm, error);
+  const decode = vi.spyOn(FakeAudioDecoder.prototype, "decode").mockImplementation(() => {
+    throw new DOMException("bad packet", "DataError");
+  });
+  for (let index = 0; index < 6; index++) {
+    expect(decoder.decode(new Uint8Array([1]), index)).toBe(false);
+  }
+  expect(error).toHaveBeenCalledTimes(6);
+  decode.mockRestore();
+  expect(decoder.decode(new Uint8Array([1]), 140_000)).toBe(true);
+  expect(pcm).toHaveBeenCalledTimes(1);
+  decoder.close();
 });
 afterEach(() => {
   vi.unstubAllGlobals();

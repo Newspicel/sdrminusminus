@@ -130,6 +130,7 @@ Default rates are 20 MS/s for HackRF and 2.4 MS/s for RTL-SDR.
 | `SDRMM_CAPTURE_CPU_THREADS=4` | Add four CPU load threads |
 | `SDRMM_CAPTURE_RECORD=1` | Record full-rate IQ to temporary files and verify sample counts |
 | `SDRMM_CAPTURE_HISTORY=1` | Capture one second of history, then record and verify live IQ |
+| `SDRMM_CAPTURE_HISTORY_SECONDS=6` | History window; default one second |
 | `SDRMM_CAPTURE_TRANSPORT_SECONDS=5` | Raw reception duration per radio; zero skips it |
 | `SDRMM_CAPTURE_ALLOW_DROPS=1` | Measure overload without requiring zero losses |
 

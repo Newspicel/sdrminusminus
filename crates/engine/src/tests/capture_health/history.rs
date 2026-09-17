@@ -10,7 +10,12 @@ use sdrmm_wire::{TimeMachineAction, TimeMachineNode};
 use crate::Engine;
 
 const NODE: &str = "capture-health-history";
-const SETTINGS: TimeMachineNode = TimeMachineNode { history_seconds: 1 };
+
+fn settings() -> TimeMachineNode {
+    TimeMachineNode {
+        history_seconds: super::number("SDRMM_CAPTURE_HISTORY_SECONDS", 1),
+    }
+}
 
 pub(super) fn check(engine: &Engine, elapsed: Duration) {
     for set in &engine.snapshot().device_sets {
@@ -25,12 +30,13 @@ pub(super) fn check(engine: &Engine, elapsed: Duration) {
 }
 
 pub(super) fn start(engine: &Engine, sets: &[(u32, Vec<u32>)]) {
+    let settings = settings();
     for (ds, _) in sets {
         engine
-            .control_time_machine(*ds, NODE.to_owned(), 0, TimeMachineAction::Arm, SETTINGS)
+            .control_time_machine(*ds, NODE.to_owned(), 0, TimeMachineAction::Arm, settings)
             .expect("arm history");
     }
-    let deadline = Instant::now() + Duration::from_secs(10);
+    let deadline = Instant::now() + Duration::from_secs(10 + u64::from(settings.history_seconds));
     loop {
         let snapshot = engine.snapshot();
         let ready = snapshot.device_sets.iter().all(|set| {
@@ -55,7 +61,7 @@ pub(super) fn start(engine: &Engine, sets: &[(u32, Vec<u32>)]) {
                 NODE.to_owned(),
                 0,
                 TimeMachineAction::Capture,
-                SETTINGS,
+                settings,
             )
             .expect("capture history");
     }
@@ -68,9 +74,10 @@ pub(super) fn finish(
     seconds: u64,
     allow_drops: bool,
 ) {
+    let settings = settings();
     for (ds, _) in sets {
         let status = engine
-            .control_time_machine(*ds, NODE.to_owned(), 0, TimeMachineAction::Stop, SETTINGS)
+            .control_time_machine(*ds, NODE.to_owned(), 0, TimeMachineAction::Stop, settings)
             .expect("finish history capture");
         let capture = status.capture.expect("history recording");
         eprintln!(
@@ -88,12 +95,14 @@ pub(super) fn finish(
         if !allow_drops {
             assert_eq!(capture.overruns, 0);
             assert!(
-                capture.samples >= seconds * status.sample_rate,
+                capture.samples
+                    >= (seconds + u64::from(settings.history_seconds)).saturating_sub(1)
+                        * status.sample_rate,
                 "history recording is too short"
             );
         }
         engine
-            .control_time_machine(*ds, NODE.to_owned(), 0, TimeMachineAction::Disarm, SETTINGS)
+            .control_time_machine(*ds, NODE.to_owned(), 0, TimeMachineAction::Disarm, settings)
             .expect("disarm history");
     }
 }
