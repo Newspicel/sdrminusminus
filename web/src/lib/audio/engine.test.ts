@@ -495,19 +495,78 @@ describe("AudioEngine", () => {
     expect(engine.isPlaying(1, 2)).toBe(true);
   });
 
-  it("a suspended audio output reads as suspended, not playing, until it resumes", async () => {
+  it("suspends subscriptions and waits for a new sink before resuming", async () => {
     engine.start(1, 2);
     await flush();
     socket.emit(started(1, 2, 10));
     expect(engine.isPlaying(1, 2)).toBe(true);
 
     engine.setOutputRunning(false);
+    engine.setOutputRunning(false);
     expect(engine.isPlaying(1, 2)).toBe(false);
     expect(engine.isSuspended(1, 2)).toBe(true);
+    expect(engine.isPending(1, 2)).toBe(false);
+    expect(sinks[0]?.closed).toBe(true);
+    expect(socket.sent.filter((command) => command.type === "UnsubscribeAudio")).toHaveLength(1);
+    socket.onAudio(audioFrame(10, 0n, [1]));
+    expect(sinks[0]?.pushed).toEqual([]);
 
     engine.setOutputRunning(true);
+    expect(engine.isPlaying(1, 2)).toBe(false);
+    let activate: (() => void) | undefined;
+    const resumed = sinks[1];
+    if (!resumed) throw new Error("replacement sink missing");
+    resumed.ready = new Promise<void>((resolve) => {
+      activate = resolve;
+    });
+    await flush();
+    expect(socket.sent.filter((command) => command.type === "SubscribeAudio")).toHaveLength(1);
+    if (!activate) throw new Error("replacement readiness missing");
+    activate();
+    await flush();
+    socket.emit(stopped(10));
+    socket.emit(started(1, 2, 11));
     expect(engine.isPlaying(1, 2)).toBe(true);
     expect(engine.isSuspended(1, 2)).toBe(false);
+    socket.onAudio(audioFrame(11, 48_000n, [2]));
+    expect(sinks[1]?.pushed).toHaveLength(1);
+    expect(engine.getLostFrames(1, 2)).toBe(0);
+  });
+
+  it("ignores a suspended subscription's late reply and does not resume stopped channels", async () => {
+    engine.start(1, 2);
+    engine.start(1, 3);
+    await flush();
+    engine.setOutputRunning(false);
+    socket.emit(started(1, 2, 10));
+    socket.emit(started(1, 3, 11));
+    socket.emit(stopped(10));
+    expect(engine.isSuspended(1, 2)).toBe(true);
+    engine.stop(1, 3);
+    socket.sent = [];
+    engine.setOutputRunning(true);
+    await flush();
+    expect(socket.sent).toEqual([{ type: "SubscribeAudio", data: { device_set: 1, channel: 2 } }]);
+    socket.emit(started(1, 2, 12));
+    expect(engine.isPlaying(1, 2)).toBe(true);
+    expect(engine.isPending(1, 3)).toBe(false);
+  });
+
+  it("refreshes a disconnected sink's readiness after output suspension", async () => {
+    socket.setConnected(false);
+    engine.start(1, 2);
+    await flush();
+    expect(sinks[0]?.closed).toBe(false);
+    engine.setOutputRunning(false);
+    expect(sinks[0]?.closed).toBe(true);
+    socket.setConnected(true);
+    expect(socket.sent).toEqual([]);
+    expect(sinks).toHaveLength(1);
+    engine.setOutputRunning(true);
+    await flush();
+    socket.emit(started(1, 2, 12));
+    expect(engine.isPlaying(1, 2)).toBe(true);
+    expect(sinks[1]?.closed).toBe(false);
   });
 
   it("timestamp gaps conceal the missing audio; oversized gaps reset the sink", async () => {

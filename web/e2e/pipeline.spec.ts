@@ -13,7 +13,11 @@ interface AudioProbe {
   reportTimes: { at: number; rendered: number; frames: number }[];
 }
 
-type AudioScope = typeof globalThis & { audioProbe: AudioProbe; audioLoad: number };
+type AudioScope = typeof globalThis & {
+  audioProbe: AudioProbe;
+  audioLoad: number;
+  audioContext: AudioContext;
+};
 
 async function instrumentPlayback(page: Page, delayOutput: boolean): Promise<void> {
   await page.addInitScript((delayed) => {
@@ -48,6 +52,7 @@ async function instrumentPlayback(page: Page, delayOutput: boolean): Promise<voi
     globalThis.AudioWorkletNode = class extends Base {
       constructor(context: BaseAudioContext, name: string, options?: AudioWorkletNodeOptions) {
         super(context, name, options);
+        scope.audioContext = context as AudioContext;
         this.port.addEventListener("message", (event: MessageEvent<WorkletReport>) => {
           scope.audioProbe.reports.push(event.data);
           scope.audioProbe.reportTimes.push({
@@ -87,6 +92,48 @@ async function instrumentPlayback(page: Page, delayOutput: boolean): Promise<voi
   }, delayOutput);
 }
 
+async function interruptPlayback(page: Page): Promise<void> {
+  const speaker = page.locator('.react-flow__node[data-id="speaker"]');
+  for (const duration of [750, 1500, 3000]) {
+    await page.evaluate(() => (globalThis as AudioScope).audioContext.suspend());
+    await expect(speaker.getByRole("button", { name: "Resume audio", exact: true })).toBeVisible();
+    const paused = await page.evaluate(async (milliseconds) => {
+      const probe = (globalThis as AudioScope).audioProbe;
+      const before = probe.frames;
+      await new Promise((resolve) => setTimeout(resolve, milliseconds));
+      return { before, after: probe.frames };
+    }, duration);
+    expect(paused.after).toBe(paused.before);
+    await page.evaluate(() => {
+      (globalThis as AudioScope).audioProbe.lastPacket = 0;
+    });
+    await speaker.getByRole("button", { name: "Resume audio", exact: true }).click();
+    await expect
+      .poll(() => page.evaluate(() => (globalThis as AudioScope).audioProbe.frames))
+      .toBeGreaterThan(paused.after + 96_000);
+    const probe = await page.evaluate(() => (globalThis as AudioScope).audioProbe);
+    await test.info().attach(`audio-recovery-${duration}`, {
+      body: JSON.stringify(probe),
+      contentType: "application/json",
+    });
+    expect(probe.nonfinite).toBe(0);
+    expect(probe.longestGap).toBeLessThan(150);
+    expect(Math.max(...probe.reports.map((report) => report.underruns))).toBe(0);
+    expect(Math.max(...probe.reports.map((report) => report.trimmedFrames ?? 0))).toBe(0);
+  }
+  await page.evaluate(() => (globalThis as AudioScope).audioContext.suspend());
+  await expect(speaker.getByRole("button", { name: "Resume audio", exact: true })).toBeVisible();
+  await speaker.getByRole("button", { name: "Stop", exact: true }).click();
+  await expect(speaker.getByRole("button", { name: "Play", exact: true })).toBeVisible();
+  const stopped = await page.evaluate(async () => {
+    const probe = (globalThis as AudioScope).audioProbe;
+    const before = probe.frames;
+    await new Promise((resolve) => setTimeout(resolve, 750));
+    return { before, after: probe.frames };
+  });
+  expect(stopped.after).toBe(stopped.before);
+}
+
 for (const { fallback, delayOutput } of [
   { fallback: false, delayOutput: false },
   { fallback: true, delayOutput: false },
@@ -96,6 +143,7 @@ for (const { fallback, delayOutput } of [
   test(`plays virtual radio audio with ${fallback ? "WASM worker" : "native decoder"}${delayOutput ? " and delayed output" : ""}`, async ({
     page,
   }) => {
+    test.setTimeout(60_000);
     const errors: string[] = [];
     page.on("pageerror", (error) => errors.push(error.message));
     const workers: string[] = [];
@@ -204,15 +252,17 @@ for (const { fallback, delayOutput } of [
         page.locator('.react-flow__node[data-id="radio"]').getByRole("status"),
       ).toHaveText("1/1");
       expect(workers.some((url) => url.includes("opusWorker"))).toBe(fallback);
-      await speaker.getByRole("button", { name: "Stop", exact: true }).click();
+      await interruptPlayback(page);
       await expect(speaker.getByRole("button", { name: "Play", exact: true })).toBeVisible();
-      await page.evaluate(() => {
-        (globalThis as AudioScope).audioProbe.lastPacket = 0;
+      const beforeRestart = await page.evaluate(() => {
+        const restartingProbe = (globalThis as AudioScope).audioProbe;
+        restartingProbe.lastPacket = 0;
+        return restartingProbe.frames;
       });
       await speaker.getByRole("button", { name: "Play", exact: true }).click();
       await expect
         .poll(() => page.evaluate(() => (globalThis as AudioScope).audioProbe.frames))
-        .toBeGreaterThan(probe.frames + 48_000);
+        .toBeGreaterThan(beforeRestart + 48_000);
       await speaker.getByRole("button", { name: "Stop", exact: true }).click();
       expect(errors).toEqual([]);
     } finally {

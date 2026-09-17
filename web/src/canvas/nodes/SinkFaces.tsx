@@ -143,23 +143,24 @@ export function SpeakerFace({ node }: { node: PatchNode }) {
 function AudioInput({ input }: { input: Input }) {
   const workspace = useWorkspaceContext();
   const audio = useChannelAudio(workspace.socket, input.deviceSet, input.channel.id);
+  const active = audio.playing || audio.pending || audio.suspended;
   const label = workspace.graph.nodes.find((n) => n.id === input.node)?.label;
   return (
     <div className="flex flex-col gap-1 border-b border-line p-2 last:border-b-0">
       <div className="flex items-center gap-2">
         <Button
           type="button"
-          className={audio.playing ? BTN_DANGER : BTN}
+          className={active ? BTN_DANGER : BTN}
           onClick={() => {
             audio.resumeOutput();
-            if (audio.playing) {
+            if (active) {
               audio.stop();
             } else {
               audio.start();
             }
           }}
         >
-          {audio.playing ? "Stop" : audio.pending ? "…" : "Play"}
+          {active ? "Stop" : "Play"}
         </Button>
         <span className="legend truncate">
           {label ?? input.channel.settings.params.type.toUpperCase()}
@@ -174,8 +175,13 @@ function AudioInput({ input }: { input: Input }) {
         onChange={audio.setVolume}
       />
       {audio.suspended && (
-        <Button type="button" className={BTN} onClick={audio.resumeOutput}>
-          Audio is suspended — click to resume
+        <Button
+          type="button"
+          className={BTN}
+          onClick={audio.resumeOutput}
+          title="Audio output is suspended"
+        >
+          Resume audio
         </Button>
       )}
       <AudioSpectrogramView

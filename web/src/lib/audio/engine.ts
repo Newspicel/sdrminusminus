@@ -104,12 +104,12 @@ export class AudioEngine {
 
   isPending(deviceSet: number, channel: number): boolean {
     const entry = this.entries.get(entryKey(deviceSet, channel));
-    return entry !== undefined && entry.desired && entry.streamId === null;
+    return entry !== undefined && entry.desired && entry.streamId === null && this.outputRunning;
   }
 
   isSuspended(deviceSet: number, channel: number): boolean {
     const entry = this.entries.get(entryKey(deviceSet, channel));
-    return entry !== undefined && entry.desired && entry.streamId !== null && !this.outputRunning;
+    return entry !== undefined && entry.desired && !this.outputRunning;
   }
 
   getError(deviceSet: number, channel: number): string | null {
@@ -141,9 +141,14 @@ export class AudioEngine {
       return;
     }
     this.outputRunning = running;
-    if (running) {
-      for (const entry of this.entries.values()) {
-        if (entry.desired && !entry.requested) this.ensureSink(entry);
+    for (const entry of this.entries.values()) {
+      if (!entry.desired) continue;
+      if (running) {
+        if (!entry.requested) this.ensureSink(entry);
+      } else if (entry.requested || entry.sinkReady) {
+        entry.generation += 1;
+        this.releaseSubscription(entry);
+        this.teardown(entry);
       }
     }
     this.notify();
@@ -186,6 +191,12 @@ export class AudioEngine {
     }
     entry.desired = false;
     entry.generation += 1;
+    this.releaseSubscription(entry);
+    this.teardown(entry);
+    this.notify();
+  }
+
+  private releaseSubscription(entry: ChannelEntry): void {
     entry.streamId = null;
     if (entry.requested) {
       entry.requested = false;
@@ -194,8 +205,6 @@ export class AudioEngine {
         data: { device_set: entry.deviceSet, channel: entry.channel },
       });
     }
-    this.teardown(entry);
-    this.notify();
   }
 
   retain(live: Iterable<{ deviceSet: number; channel: number }>): void {
@@ -260,7 +269,7 @@ export class AudioEngine {
   private readonly handleStatus = (connected: boolean): void => {
     if (connected) {
       for (const entry of this.entries.values()) {
-        if (entry.desired) {
+        if (entry.desired && this.outputRunning) {
           this.ensureSink(entry);
         }
       }
