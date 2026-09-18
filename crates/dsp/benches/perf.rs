@@ -94,32 +94,44 @@ struct SharedBand {
 }
 
 fn shared_tuning(c: &mut Criterion) {
-    let input = pseudo(2048, 0x5B);
-    let plan = sdrmm_dsp::subband::SubbandPlan::new(20_000_000.0).expect("rate");
+    shared_tuning_at_rate(c, 20_000_000.0, 2048, "shared_tuning");
+    shared_tuning_at_rate(c, 5_000_000.0, 4096, "shared_tuning_5msps");
+    shared_tuning_at_rate(c, 6_000_000.0, 4096, "shared_tuning_6msps");
+    shared_tuning_at_rate(c, 10_000_000.0, 8192, "shared_tuning_10msps");
+    shared_tuning_at_rate(c, 12_000_000.0, 8192, "shared_tuning_12msps");
+    shared_tuning_at_rate(c, 16_000_000.0, 8192, "shared_tuning_16msps");
+    shared_tuning_at_rate(c, 20_000_000.0, 8192, "shared_tuning_20msps");
+    shared_tuning_at_rate(c, 8_000_000.0, 4096, "shared_tuning_8msps");
+}
+
+fn shared_tuning_at_rate(c: &mut Criterion, input_rate: f64, block_len: usize, name: &str) {
+    let input = pseudo(block_len, 0x5B);
+    let plan = sdrmm_dsp::subband::SubbandPlan::new(input_rate).expect("rate");
     let mut output = Vec::new();
-    let mut group = c.benchmark_group("shared_tuning");
+    let mut group = c.benchmark_group(name);
     group.throughput(Throughput::Elements(input.len() as u64));
     for (layout, start, spread) in [
         ("clustered", 100_000.0, false),
-        ("shifted", 1_700_000.0, false),
+        ("shifted", input_rate * 0.085, false),
         ("spread", 0.0, true),
     ] {
-        for count in [1, 2, 4, 16, 32] {
+        for count in [1, 2, 4, 8, 10, 12, 16, 32] {
             let settings: Vec<_> = (0..count)
                 .map(|index| {
                     let offset = if spread && count > 1 {
-                        -8_800_000.0 + 17_600_000.0 * index as f64 / (count - 1) as f64
+                        input_rate * (0.88 * index as f64 / (count - 1) as f64 - 0.44)
                     } else {
                         start + index as f64 * 25_000.0
                     };
                     let rate = if index % 4 == 1 { 240_000.0 } else { 48_000.0 };
+                    let offset = protected_offset(plan, offset, rate);
                     (offset, rate)
                 })
                 .collect();
             let mut direct: Vec<_> = settings
                 .iter()
                 .map(|&(offset, rate)| {
-                    sdrmm_dsp::Ddc::new(20_000_000.0, rate, offset).expect("rates")
+                    sdrmm_dsp::Ddc::new(input_rate, rate, offset).expect("rates")
                 })
                 .collect();
             group.bench_function(format!("{layout}/{count}/independent"), |b| {
@@ -175,6 +187,18 @@ fn shared_tuning(c: &mut Criterion) {
         }
     }
     group.finish();
+}
+
+fn protected_offset(plan: sdrmm_dsp::subband::SubbandPlan, offset: f64, rate: f64) -> f64 {
+    if plan.select(offset, rate).is_some() {
+        return offset;
+    }
+    let center = (0..sdrmm_dsp::subband::SUBBANDS)
+        .map(|band| plan.center(band))
+        .min_by(|a, b| (a - offset).abs().total_cmp(&(b - offset).abs()))
+        .expect("subbands");
+    let margin = 0.49 * (plan.bandwidth() - rate);
+    center + (offset - center).clamp(-margin, margin)
 }
 
 fn pseudo(len: usize, seed: u64) -> Vec<Complex<f32>> {

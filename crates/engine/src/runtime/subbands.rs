@@ -4,7 +4,7 @@ use sdrmm_dsp::subband::{SUBBANDS, SubbandDecimator, SubbandFilterBank, SubbandP
 use super::{ChannelHost, dsp_block_len};
 
 const MIN_SHARED_CHANNELS: usize = 2;
-const MIN_BANK_BANDS: usize = 12;
+const MIN_BANK_BANDS: usize = 8;
 
 struct Band {
     decimator: SubbandDecimator,
@@ -188,9 +188,11 @@ mod tests {
             .collect();
         let mut expected = Vec::with_capacity(MAX_DSP_BLOCK);
         let mut index = 0;
-        for dense in [false, true, false, true, false] {
-            bank.counts.fill(usize::from(dense));
-            bank.counts[7] = 2;
+        for active in [1, 7, 8, 7, 13, 8, 1] {
+            let dense = active >= 8;
+            bank.counts.fill(0);
+            bank.counts[..active].fill(1);
+            bank.counts[0] = 2;
             for size in [MAX_DSP_BLOCK, DSP_BLOCK, 17, 0, 3, 255]
                 .into_iter()
                 .cycle()
@@ -202,7 +204,9 @@ mod tests {
                 assert_eq!(bank.use_bank, dense);
                 for (band, reference) in references.iter_mut().enumerate() {
                     reference.process(&input[..size], &mut expected);
-                    if let Some(actual) = bank.samples(band) {
+                    let actual = bank.samples(band);
+                    assert_eq!(actual.is_some(), band < active && (dense || band == 0));
+                    if let Some(actual) = actual {
                         assert_eq!(actual.len(), expected.len());
                         for (actual, expected) in actual.iter().zip(&expected) {
                             assert!(
@@ -210,8 +214,6 @@ mod tests {
                                 "band={band} index={index} dense={dense}"
                             );
                         }
-                    } else {
-                        assert!(!dense && band != 7);
                     }
                 }
                 index += size as u64;

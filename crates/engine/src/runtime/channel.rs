@@ -755,7 +755,7 @@ mod tests {
         let input = vec![Complex::new(0.5, 0.25); dsp_block_len(rate)];
         let mut index = 0;
         let mut expected = 0;
-        for (stage, count) in [1, 2, 13, 2, 13, 1, 2].into_iter().enumerate() {
+        for (stage, count) in [1, 2, 7, 8, 7, 8, 13, 2, 1].into_iter().enumerate() {
             channels.truncate(count);
             while channels.len() < count {
                 let id = channels.len() as u32 + 1;
@@ -777,7 +777,7 @@ mod tests {
             let plan = sdrmm_dsp::subband::SubbandPlan::new(rate).unwrap();
             let target = plan.select(offset, 48_000.0).unwrap();
             for (index, (_, host)) in channels.iter_mut().enumerate() {
-                let offset = if count == 13 && index > 0 {
+                let offset = if count >= 7 && index > 0 {
                     let band = index - 1 + usize::from(index > target);
                     plan.center(band) + 100_000.0
                 } else {
@@ -792,7 +792,7 @@ mod tests {
                     let selected = host
                         .subband(center, rate)
                         .and_then(|band| bank.samples(band));
-                    assert_eq!(selected.is_some(), count >= 2);
+                    assert_eq!(selected.is_some(), count == 2 || count >= 8);
                     host.process_shared_at(&input, index, center, selected);
                     host.publisher.queue.flush();
                 }
