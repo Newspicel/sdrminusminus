@@ -30,6 +30,7 @@
 # Run a server
 
 - [Configuration and security](server/configuration.md)
+- [HTTPS with Tailscale or Cloudflare Tunnel](server/tunnels.md)
 - [Containers and remote radios](server/deployment.md)
 - [API and automation](server/api.md)
 

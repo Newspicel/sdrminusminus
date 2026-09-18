@@ -97,6 +97,9 @@ Back up the volume. Configure [HTTPS and access control](configuration.md) for r
 
 ### HTTPS
 
+For HTTPS through a tunnel, follow the [Tailscale or Cloudflare Tunnel setup](tunnels.md),
+including its loopback-only Docker port mapping.
+
 Mount a certificate directory read-only and pass the certificate options:
 
 ```yaml

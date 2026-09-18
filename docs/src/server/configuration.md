@@ -85,6 +85,9 @@ There are no per-user accounts or read-only roles.
 
 ## HTTPS
 
+For managed certificates and remote access, follow
+[HTTPS with Tailscale or Cloudflare Tunnel](tunnels.md).
+
 Use a certificate chain and matching private key:
 
 ```sh

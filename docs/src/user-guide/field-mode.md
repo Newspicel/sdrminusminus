@@ -11,6 +11,9 @@ a reachable LAN address.
 
 You can also open `/field` directly from a browser that can reach the server.
 
+For remote access with browser location, set up
+[HTTPS with Tailscale or Cloudflare Tunnel](../server/tunnels.md).
+
 ## Missions
 
 Available missions depend on the active workspace. Each controls one node.
