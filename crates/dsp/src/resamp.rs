@@ -1,6 +1,6 @@
 use num_complex::Complex;
 
-use crate::fir::design_lowpass;
+use crate::fir::{design_lowpass, dot};
 
 const PHASES: usize = 128;
 
@@ -13,7 +13,8 @@ pub struct FracResampler {
     rows: Vec<f32>,
     taps_per_phase: usize,
     step: f64,
-    t: f64,
+    position: usize,
+    fraction: f64,
     buf: Vec<Complex<f32>>,
 }
 
@@ -42,13 +43,15 @@ impl FracResampler {
             rows,
             taps_per_phase,
             step: ratio.recip(),
-            t: (taps_per_phase - 1) as f64,
+            position: taps_per_phase - 1,
+            fraction: 0.0,
             buf: vec![Complex::new(0.0, 0.0); taps_per_phase - 1],
         }
     }
 
     pub fn reset(&mut self) {
-        self.t = (self.taps_per_phase - 1) as f64;
+        self.position = self.taps_per_phase - 1;
+        self.fraction = 0.0;
         self.buf.clear();
         self.buf
             .resize(self.taps_per_phase - 1, Complex::new(0.0, 0.0));
@@ -58,37 +61,79 @@ impl FracResampler {
         out.clear();
         self.buf.extend_from_slice(input);
         let tpp = self.taps_per_phase;
-        while (self.t as usize) < self.buf.len() {
-            let n = self.t as usize;
-            let phase = (self.t - n as f64) * PHASES as f64;
+        while self.position < self.buf.len() {
+            let n = self.position;
+            let phase = self.fraction * PHASES as f64;
             let p = phase as usize;
             let mu = (phase - p as f64) as f32;
             let window = &self.buf[n + 1 - tpp..=n];
-            let a = dot(&self.rows[p * tpp..(p + 1) * tpp], window);
-            let b = dot(&self.rows[(p + 1) * tpp..(p + 2) * tpp], window);
+            let a = dot(window, &self.rows[p * tpp..(p + 1) * tpp]);
+            let b = dot(window, &self.rows[(p + 1) * tpp..(p + 2) * tpp]);
             out.push(a + (b - a) * mu);
-            self.t += self.step;
+            self.fraction += self.step;
+            let advance = self.fraction as usize;
+            self.position += advance;
+            self.fraction -= advance as f64;
         }
-        let drain = (self.t as usize)
-            .saturating_sub(tpp - 1)
-            .min(self.buf.len());
+        let drain = self.position.saturating_sub(tpp - 1).min(self.buf.len());
         self.buf.drain(..drain);
-        self.t -= drain as f64;
+        self.position -= drain;
     }
-}
-
-fn dot(taps: &[f32], window: &[Complex<f32>]) -> Complex<f32> {
-    let mut acc = Complex::new(0.0, 0.0);
-    for (&c, &x) in taps.iter().zip(window) {
-        acc += x * c;
-    }
-    acc
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::testutil::{complex_tone, rms_c, tone_peak_and_snr};
+
+    #[test]
+    fn ragged_resampling_matches_double_precision_convolution() {
+        let input: Vec<_> = (0..16_381)
+            .map(|index| {
+                Complex::new(
+                    ((index * 37) % 251) as f32 / 251.0 - 0.5,
+                    ((index * 71) % 257) as f32 / 257.0 - 0.5,
+                )
+            })
+            .collect();
+        for ratio in [0.2, 0.75, 0.768, 0.96, 48_000.0 / 44_100.0, 1.2] {
+            let mut resampler = FracResampler::new(ratio);
+            let taps = resampler.taps_per_phase;
+            let mut history = vec![Complex::new(0.0, 0.0); taps - 1];
+            history.extend_from_slice(&input);
+            let mut expected = Vec::new();
+            let mut time = (taps - 1) as f64;
+            while (time as usize) < history.len() {
+                let sample = time as usize;
+                let phase = (time - sample as f64) * PHASES as f64;
+                let row = phase as usize;
+                let fraction = phase - row as f64;
+                let mut sum = Complex::new(0.0f64, 0.0);
+                for (index, value) in history[sample + 1 - taps..=sample].iter().enumerate() {
+                    let a = f64::from(resampler.rows[row * taps + index]);
+                    let b = f64::from(resampler.rows[(row + 1) * taps + index]);
+                    sum += Complex::new(f64::from(value.re), f64::from(value.im))
+                        * (a + (b - a) * fraction);
+                }
+                expected.push(sum);
+                time += ratio.recip();
+            }
+            let mut actual = Vec::new();
+            let mut block = Vec::new();
+            for input in input.chunks(997) {
+                resampler.process(input, &mut block);
+                actual.extend_from_slice(&block);
+            }
+            assert_eq!(actual.len(), expected.len(), "ratio={ratio}");
+            for (index, (actual, expected)) in actual.iter().zip(expected).enumerate() {
+                let actual = Complex::new(f64::from(actual.re), f64::from(actual.im));
+                assert!(
+                    (actual - expected).norm() < 1e-6,
+                    "ratio={ratio} sample={index}"
+                );
+            }
+        }
+    }
 
     #[test]
     fn out_of_band_tone_at_5x_downsample_suppressed_over_50_db() {
@@ -163,9 +208,9 @@ mod tests {
             got.extend_from_slice(&block);
             pos = end;
         }
-        assert!((expected.len() as i64 - got.len() as i64).abs() <= 1);
+        assert_eq!(expected.len(), got.len());
         for (i, (a, b)) in expected.iter().zip(&got).enumerate() {
-            assert!((a - b).norm() < 1e-3, "sample {i}: {a} vs {b}");
+            assert_eq!(a, b, "sample {i}");
         }
     }
 

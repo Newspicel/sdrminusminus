@@ -19,6 +19,29 @@ use sdrmm_dsp::{
 const RATE: f64 = 2_000_000.0;
 const FREQ_HZ: f64 = 300e6;
 
+fn resampling(c: &mut Criterion) {
+    let input = pseudo(2048, 0xF12);
+    let mut output = Vec::new();
+    let mut group = c.benchmark_group("resampling");
+    group.throughput(Throughput::Elements(input.len() as u64));
+    for (label, ratio) in [
+        ("62500_to_48000", 48_000.0 / 62_500.0),
+        ("250000_to_240000", 240_000.0 / 250_000.0),
+        ("240000_to_48000", 48_000.0 / 240_000.0),
+        ("44100_to_48000", 48_000.0 / 44_100.0),
+    ] {
+        let mut resampler = sdrmm_dsp::FracResampler::new(ratio);
+        resampler.process(&input, &mut output);
+        group.bench_function(label, |b| {
+            b.iter(|| {
+                resampler.process(black_box(&input), &mut output);
+                black_box(&output);
+            });
+        });
+    }
+    group.finish();
+}
+
 fn tuning(c: &mut Criterion) {
     let input = pseudo(2_048, 0xDDC);
     let mut out = vec![Complex::new(0.0, 0.0); input.len()];
@@ -384,6 +407,7 @@ fn cfar_cluster(c: &mut Criterion) {
 
 criterion_group!(
     benches,
+    resampling,
     tuning,
     shared_tuning,
     fft_4096,

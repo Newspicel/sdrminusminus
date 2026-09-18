@@ -803,7 +803,17 @@ mod tests {
     fn resampled(iq: &[Complex<f32>], from_rate: f64) -> Vec<Complex<f32>> {
         let mut ddc = sdrmm_dsp::Ddc::new(from_rate, INPUT_RATE_HZ, 0.0).expect("rates");
         let mut out = Vec::new();
-        ddc.process(iq, &mut out);
+        let mut block = Vec::new();
+        let mut start = 0;
+        for size in [1, 17, 2048, 8192, 3, 4095].into_iter().cycle() {
+            let end = (start + size).min(iq.len());
+            ddc.process(&iq[start..end], &mut block);
+            out.extend_from_slice(&block);
+            start = end;
+            if start == iq.len() {
+                break;
+            }
+        }
         out
     }
 
@@ -814,7 +824,10 @@ mod tests {
             2_048_000.0,
             INPUT_RATE_HZ,
             2_560_000.0,
+            3_200_000.0,
             4_000_000.0,
+            8_000_000.0,
+            20_000_000.0,
         ] {
             for phase in [0.0f64, 0.21, 0.43, 0.5, 0.68, 0.9] {
                 if rate == 2_000_000.0 && (phase - 0.5).abs() < 0.2 {
@@ -828,7 +841,10 @@ mod tests {
                     &transmission_at_phase(&frames, GAP_US, LEVEL, rate, phase),
                     rate,
                 );
-                let mut chan = channel(AdsbParams::default());
+                let mut chan = channel(AdsbParams {
+                    crc_fix: rate < 3_200_000.0,
+                    ..AdsbParams::default()
+                });
                 let messages = feed(&mut chan, &iq, &[4_096]);
                 let calls: Vec<_> = messages.iter().filter_map(|m| m.callsign.clone()).collect();
                 assert_eq!(
@@ -840,31 +856,53 @@ mod tests {
                     messages.iter().any(|m| m.altitude_ft == Some(38_000)),
                     "at {rate} Hz phase {phase}: {messages:?}"
                 );
+                let expected: Vec<String> = frames
+                    .iter()
+                    .map(|frame| frame.iter().map(|byte| format!("{byte:02X}")).collect())
+                    .collect();
+                let actual: Vec<_> = messages.iter().map(|message| &message.raw).collect();
+                assert_eq!(
+                    actual,
+                    expected.iter().collect::<Vec<_>>(),
+                    "{rate} Hz phase {phase}"
+                );
             }
         }
     }
 
     #[test]
-    fn noisy_off_grid_frames_decode_from_an_rtl_sdr_window() {
-        let mut decoded = 0;
-        let mut trials = 0;
-        for k in 0..20u32 {
-            for seed in 0..5u32 {
-                let phase = f64::from(k) / 20.0;
-                let frames = [squitter(0x3C_6444, me_identification("DLH123"))];
-                let mut iq = transmission_at_phase(&frames, GAP_US, LEVEL, 2_048_000.0, phase);
-                add_noise(&mut iq, 0xADB0 + k + 97 * seed, 0.01);
-                let iq = resampled(&iq, 2_048_000.0);
-                let messages = feed(&mut channel(AdsbParams::default()), &iq, &[4_096]);
-                trials += 1;
-                decoded += usize::from(
-                    messages
-                        .iter()
-                        .any(|m| m.callsign.as_deref() == Some("DLH123")),
-                );
+    fn noisy_off_grid_frames_decode_after_resampling() {
+        for rate in [2_048_000.0, 3_200_000.0, 8_000_000.0, 20_000_000.0] {
+            let mut decoded = 0;
+            let mut trials = 0;
+            for k in 0..20u32 {
+                for seed in 0..5u32 {
+                    let phase = f64::from(k) / 20.0;
+                    let frames = [squitter(0x3C_6444, me_identification("DLH123"))];
+                    let mut iq = transmission_at_phase(&frames, GAP_US, LEVEL, rate, phase);
+                    add_noise(&mut iq, 0xADB0 + k + 97 * seed, 0.01);
+                    let iq = resampled(&iq, rate);
+                    let messages = feed(
+                        &mut channel(AdsbParams {
+                            crc_fix: rate < 3_200_000.0,
+                            ..AdsbParams::default()
+                        }),
+                        &iq,
+                        &[1, 17, 4096, 3, 8192],
+                    );
+                    trials += 1;
+                    decoded += usize::from(
+                        messages
+                            .iter()
+                            .any(|m| m.callsign.as_deref() == Some("DLH123")),
+                    );
+                }
             }
+            assert!(
+                decoded >= 95,
+                "{rate} Hz decoded {decoded} of {trials} noisy frames"
+            );
         }
-        assert!(decoded >= 95, "decoded {decoded} of {trials} noisy frames");
     }
 
     #[test]

@@ -247,7 +247,7 @@ where
     }
 }
 
-fn dot<T, C>(samples: &[T], taps: &[C]) -> T
+pub(crate) fn dot<T, C>(samples: &[T], taps: &[C]) -> T
 where
     T: Accumulate<C>,
     C: Copy,
