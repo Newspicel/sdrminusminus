@@ -17,13 +17,13 @@ struct Pending<T> {
 
 impl<T> Pending<T> {
     fn wait_for_predecessor(&self) {
-        while self
-            .predecessor
-            .as_ref()
-            .is_some_and(|done| !done.load(std::sync::atomic::Ordering::Acquire))
-        {
-            std::thread::park_timeout(Duration::from_millis(1));
-        }
+        wait_for_completion(self.predecessor.as_deref());
+    }
+}
+
+fn wait_for_completion(completed: Option<&std::sync::atomic::AtomicBool>) {
+    while completed.is_some_and(|done| !done.load(std::sync::atomic::Ordering::Acquire)) {
+        std::thread::park_timeout(Duration::from_millis(1));
     }
 }
 
@@ -101,6 +101,7 @@ impl<T: Send + 'static> Publisher<T> {
                     }
                     if stop.load(std::sync::atomic::Ordering::Acquire) {
                         while let Ok(mut packet) = pending.pop() {
+                            packet.wait_for_predecessor();
                             publish(&mut packet.packet);
                             observed.pop(1);
                         }
@@ -172,6 +173,7 @@ impl<T: Send + 'static> Publisher<T> {
 
 impl<T> Drop for Publisher<T> {
     fn drop(&mut self) {
+        wait_for_completion(self.predecessor.as_deref());
         self.stopped
             .store(true, std::sync::atomic::Ordering::Release);
         if let Some(worker) = self.worker.take()
@@ -312,6 +314,54 @@ mod tests {
         }
         drop(publisher);
         assert_eq!(*values.lock().expect("values"), (0..8).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn an_empty_replacement_cannot_release_a_later_publisher_before_its_predecessor() {
+        let (entered, waiting) = mpsc::channel();
+        let (release, resume) = mpsc::channel();
+        let (sent, received) = mpsc::channel();
+        let first_sent = sent.clone();
+        let mut first = Publisher::new(
+            "first",
+            4,
+            || 0u32,
+            move |value| {
+                entered.send(()).unwrap();
+                resume.recv_timeout(Duration::from_secs(5)).unwrap();
+                first_sent.send(*value).unwrap();
+            },
+            || {},
+        )
+        .unwrap();
+        first.submit(|value| *value = 1);
+        waiting.recv_timeout(Duration::from_secs(5)).unwrap();
+        let mut empty = Publisher::new("empty", 4, || 0u32, |_| {}, || {}).unwrap();
+        empty.follow(&first);
+        let mut last = Publisher::new(
+            "last",
+            4,
+            || 0u32,
+            move |value| {
+                sent.send(*value).unwrap();
+            },
+            || {},
+        )
+        .unwrap();
+        last.follow(&empty);
+        let retire_first = std::thread::spawn(move || drop(first));
+        let retire_empty = std::thread::spawn(move || drop(empty));
+        assert!(last.submit(|value| *value = 3));
+        let premature = received.recv_timeout(Duration::from_millis(30)).ok();
+        release.send(()).unwrap();
+        retire_first.join().unwrap();
+        retire_empty.join().unwrap();
+        assert!(
+            premature.is_none(),
+            "publication overtook its predecessor: {premature:?}"
+        );
+        assert_eq!(received.recv_timeout(Duration::from_secs(5)).unwrap(), 1);
+        assert_eq!(received.recv_timeout(Duration::from_secs(5)).unwrap(), 3);
     }
 
     #[test]
