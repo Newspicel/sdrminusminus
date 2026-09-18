@@ -7,7 +7,6 @@ import {
   processorUrl,
   SAMPLE_RATE,
   TARGET_FRAMES,
-  targetFramesForHost,
 } from "./worklet";
 
 const FALLBACK_BLOCK_FRAMES = 2048;
@@ -25,7 +24,7 @@ class OutputReadiness {
         ? (context.getOutputTimestamp().contextTime ?? 0)
         : context.currentTime;
     const initialOutput = outputTime();
-    const minimumProgress = targetFrames() / SAMPLE_RATE;
+    const minimumProgress = TARGET_FRAMES / SAMPLE_RATE;
     this.ready = new Promise<void>((resolve) => {
       const check = (): void => {
         if (this.closed) return;
@@ -63,10 +62,6 @@ export interface Playback {
 
 let workletModule: Promise<void> | null = null;
 
-function targetFrames(): number {
-  return typeof location === "undefined" ? TARGET_FRAMES : targetFramesForHost(location.hostname);
-}
-
 export function supportsAudioWorklet(context: BaseAudioContext): boolean {
   return (
     typeof AudioWorkletNode === "function" && typeof context.audioWorklet?.addModule === "function"
@@ -99,7 +94,7 @@ function createWorkletPlayback(
     numberOfOutputs: 1,
     outputChannelCount: [CHANNELS],
     processorOptions: {
-      targetFrames: targetFrames(),
+      targetFrames: TARGET_FRAMES,
       maxFrames: MAX_FRAMES,
       channels: CHANNELS,
     },
@@ -134,7 +129,7 @@ function createScriptProcessorPlayback(
   context: AudioContext,
   onReport: (report: WorkletReport) => void,
 ): Playback {
-  const jitter = new JitterBuffer(targetFrames(), MAX_FRAMES, CHANNELS);
+  const jitter = new JitterBuffer(TARGET_FRAMES, MAX_FRAMES, CHANNELS);
   // oxlint-disable-next-line no-deprecated -- AudioWorklet is secure-context only, so a plain-HTTP origin has nothing else to pull samples with.
   const node = context.createScriptProcessor(FALLBACK_BLOCK_FRAMES, 0, CHANNELS);
   const lanes: Float32Array[] = [];

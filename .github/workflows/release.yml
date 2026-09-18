@@ -487,8 +487,9 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev \
-            libxdo-dev libssl-dev cmake file patchelf \
+            libxdo-dev libssl-dev cmake file patchelf xdg-utils \
             gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-alsa
+          test -x /usr/bin/xdg-open
       # tauri-action drives the bundle itself, so the UI has to be on disk before it starts —
       # the Tauri shell serves the same embedded UI through the in-process server, and needs
       # web/dist just as much as the headless binary does.

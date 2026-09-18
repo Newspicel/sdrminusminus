@@ -7,11 +7,6 @@ export const CHANNELS = 2;
 export const TARGET_FRAMES = 4_800;
 export const MAX_FRAMES = 19_200;
 
-export function targetFramesForHost(hostname: string): number {
-  return ["localhost", "127.0.0.1", "[::1]", "::1", "tauri.localhost"].includes(hostname)
-    ? 3_840
-    : TARGET_FRAMES;
-}
 export const MAX_GAP_FRAMES = 19_200;
 
 export type WorkletMessage = Float32Array | "reset" | "close";

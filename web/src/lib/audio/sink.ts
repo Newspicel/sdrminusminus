@@ -5,7 +5,7 @@ import type { AudioSink, SinkFactory } from "./engine";
 import { isWatched, publishAudio } from "./monitor";
 import { createPlayback } from "./playback";
 import type { WorkletReport } from "./worklet";
-import { CHANNELS, SAMPLE_RATE, targetFramesForHost } from "./worklet";
+import { CHANNELS, SAMPLE_RATE, TARGET_FRAMES } from "./worklet";
 
 const VOLUME_RANGE_DB = 60;
 const VOLUME_RAMP_SECONDS = 0.02;
@@ -106,9 +106,7 @@ export const createWebAudioSink: SinkFactory = async (key, volume, onError, onRe
   let received = false;
   const removeLatency = registerMediaLatency(key, () => {
     if (!received || closed || context.state !== "running") return 0;
-    const frames =
-      lastReport.bufferedFrames ??
-      targetFramesForHost(typeof location === "undefined" ? "" : location.hostname);
+    const frames = lastReport.bufferedFrames ?? TARGET_FRAMES;
     return (
       1000 * (frames / SAMPLE_RATE + (context.baseLatency ?? 0) + (context.outputLatency ?? 0))
     );
