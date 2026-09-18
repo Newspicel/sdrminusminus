@@ -12,8 +12,8 @@ use num_complex::Complex;
 use sdrmm_device::RxSink;
 
 use super::{
-    ChannelHost, DSP_BLOCK, DspCommand, DspMeta, FFT_SIZE, frontend::Frontend, retire::Reclaimer,
-    spectrum::history::SpectrumHistory, subbands::Subbands,
+    ChannelHost, DspCommand, DspMeta, FFT_SIZE, dsp_block_len, frontend::Frontend,
+    retire::Reclaimer, spectrum::history::SpectrumHistory, subbands::Subbands,
 };
 use crate::{
     capture_ring::CaptureConsumer,
@@ -133,7 +133,8 @@ pub(super) fn dsp_loop(
         let hop = ((snapshot.sample_rate / TARGET_FPS) as usize).max(FFT_SIZE / 4);
         frontend.follow(snapshot);
         subbands.prepare(&mut channels, snapshot.center_hz, snapshot.sample_rate);
-        let consumed = consumer.consume_fresh(DSP_BLOCK, *max_age, |raw, total| {
+        let block_len = dsp_block_len(snapshot.sample_rate);
+        let consumed = consumer.consume_fresh(block_len, *max_age, |raw, total| {
             record_stall(stalled_us, &mut served);
             if next_input.is_some_and(|next| next != total) {
                 frontend.reset();

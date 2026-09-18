@@ -13,7 +13,7 @@ use sdrmm_dsp::{LevelMeter, Squelch};
 use sdrmm_wire::{ChannelSettings, DecoderEvent, PositionFix};
 use tokio::sync::broadcast;
 
-use super::{DSP_BLOCK, downconvert::Downconverter};
+use super::{downconvert::Downconverter, dsp_block_len};
 use crate::{
     audio::PcmBlock,
     audio_recording::AudioRecorderTap,
@@ -328,14 +328,14 @@ impl ChannelHost {
     }
 
     pub(super) fn process(&mut self, input: &[Complex<f32>], center_hz: f64) {
-        for block in input.chunks(DSP_BLOCK) {
+        for block in input.chunks(dsp_block_len(self.device_rate)) {
             self.process_block(block, center_hz);
         }
     }
 
     #[cfg(test)]
     fn process_and_flush(&mut self, input: &[Complex<f32>], center_hz: f64) {
-        for block in input.chunks(DSP_BLOCK) {
+        for block in input.chunks(dsp_block_len(self.device_rate)) {
             self.process(block, center_hz);
             self.publisher.queue.flush();
         }
@@ -564,7 +564,7 @@ mod tests {
         SsbParams, WfmParams,
     };
 
-    use super::*;
+    use super::{super::DSP_BLOCK, *};
     use crate::audio::PcmPayload;
 
     const RATE: f64 = 48_000.0;
@@ -752,7 +752,7 @@ mod tests {
             .unwrap(),
         )];
         let mut bank = Subbands::new(rate);
-        let input = vec![Complex::new(0.5, 0.25); DSP_BLOCK];
+        let input = vec![Complex::new(0.5, 0.25); dsp_block_len(rate)];
         let mut index = 0;
         let mut expected = 0;
         for (stage, count) in [1, 2, 13, 2, 13, 1, 2].into_iter().enumerate() {
@@ -796,7 +796,7 @@ mod tests {
                     host.process_shared_at(&input, index, center, selected);
                     host.publisher.queue.flush();
                 }
-                index += DSP_BLOCK as u64;
+                index += input.len() as u64;
                 while let Ok(block) = pcm_rx.try_recv() {
                     assert_eq!(block.start_frame, expected);
                     let PcmPayload::Samples(samples) = block.payload else {
@@ -1060,21 +1060,24 @@ mod tests {
 
     #[test]
     fn analog_media_publication_does_not_allocate_on_the_dsp_thread() {
-        for kind in ["am", "nfm", "wfm", "ssb"] {
-            let settings = ChannelSettings::default_for(kind).expect("registered analog channel");
-            let rate = 240_000.0;
-            let (pcm_tx, _pcm_rx) = broadcast::channel(128);
-            let media = sinks(pcm_tx, Arc::new(AtomicU64::new(0)));
-            let _iq_rx = media.iq_tx.subscribe();
-            let mut host = ChannelHost::build(rate, CENTER, &settings, media, DecodedSink::null())
-                .expect("host");
-            let input = vec![Complex::new(0.25, 0.1); DSP_BLOCK];
-            for _ in 0..128 {
-                host.process_and_flush(&input, CENTER);
-            }
-            for _ in 0..128 {
-                sdrmm_test_support::assert_no_alloc(kind, || host.process(&input, CENTER));
-                host.publisher.queue.flush();
+        for rate in [240_000.0, 8_000_000.0, 20_000_000.0] {
+            for kind in ["am", "nfm", "wfm", "ssb"] {
+                let settings =
+                    ChannelSettings::default_for(kind).expect("registered analog channel");
+                let (pcm_tx, _pcm_rx) = broadcast::channel(128);
+                let media = sinks(pcm_tx, Arc::new(AtomicU64::new(0)));
+                let _iq_rx = media.iq_tx.subscribe();
+                let mut host =
+                    ChannelHost::build(rate, CENTER, &settings, media, DecodedSink::null())
+                        .expect("host");
+                let input = vec![Complex::new(0.25, 0.1); dsp_block_len(rate)];
+                for _ in 0..128 {
+                    host.process_and_flush(&input, CENTER);
+                }
+                for _ in 0..128 {
+                    sdrmm_test_support::assert_no_alloc(kind, || host.process(&input, CENTER));
+                    host.publisher.queue.flush();
+                }
             }
         }
     }

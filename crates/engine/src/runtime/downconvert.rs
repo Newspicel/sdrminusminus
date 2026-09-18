@@ -1,7 +1,7 @@
 use num_complex::Complex;
 use sdrmm_dsp::{Ddc, DdcError, subband::SubbandPlan};
 
-use super::DSP_BLOCK;
+use super::dsp_block_len;
 
 struct Shared {
     plan: SubbandPlan,
@@ -25,10 +25,11 @@ impl Downconverter {
                     let band = plan.select(offset, output_rate);
                     let center = band.map(|band| plan.center(band)).unwrap_or(0.0);
                     let mut ddc = Ddc::new(plan.output_rate(), output_rate, offset - center)?;
-                    let input = vec![Complex::new(0.0, 0.0); DSP_BLOCK];
+                    let block_len = dsp_block_len(input_rate);
+                    let input = vec![Complex::new(0.0, 0.0); block_len];
                     let mut output = Vec::new();
                     let shared_len =
-                        (DSP_BLOCK as f64 * plan.output_rate() / input_rate).ceil() as usize;
+                        (block_len as f64 * plan.output_rate() / input_rate).ceil() as usize;
                     for _ in 0..8 {
                         direct.process(&input, &mut output);
                         ddc.process(&input[..shared_len], &mut output);
@@ -106,7 +107,10 @@ mod tests {
     use sdrmm_dsp::Nco;
     use sdrmm_test_support::assert_no_alloc;
 
-    use super::*;
+    use super::{
+        super::{DSP_BLOCK, MAX_DSP_BLOCK},
+        *,
+    };
 
     #[test]
     fn shared_conversion_preserves_frequency_level_and_sample_count() {
@@ -153,12 +157,12 @@ mod tests {
     fn source_switches_and_retunes_reuse_prepared_storage() {
         let plan = SubbandPlan::new(20_000_000.0).unwrap();
         let mut ddc = Downconverter::new(20_000_000.0, 240_000.0, 100_000.0).unwrap();
-        let mut coarse = plan.decimator(ddc.band().unwrap(), DSP_BLOCK);
-        let input = vec![Complex::new(0.5, -0.25); DSP_BLOCK];
-        let mut selected = Vec::with_capacity(DSP_BLOCK);
-        let mut output = Vec::with_capacity(DSP_BLOCK);
+        let mut coarse = plan.decimator(ddc.band().unwrap(), MAX_DSP_BLOCK);
+        let input = vec![Complex::new(0.5, -0.25); MAX_DSP_BLOCK];
+        let mut selected = Vec::with_capacity(MAX_DSP_BLOCK);
+        let mut output = Vec::with_capacity(MAX_DSP_BLOCK);
         assert_no_alloc("shared conversion and route switches", || {
-            for size in [1, 17, 2048, 3, 409, 2047] {
+            for size in [1, 17, MAX_DSP_BLOCK, 3, 409, 2047] {
                 for shared in [true, false, true] {
                     coarse.process(&input[..size], &mut selected);
                     ddc.select_shared(shared);

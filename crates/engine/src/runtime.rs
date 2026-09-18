@@ -21,3 +21,14 @@ pub(crate) use worker::Waker;
 
 const FFT_SIZE: usize = 4096;
 pub(crate) const DSP_BLOCK: usize = 2048;
+pub(crate) const MAX_DSP_BLOCK: usize = 8192;
+
+pub(crate) fn dsp_block_len(sample_rate: f64) -> usize {
+    if sample_rate >= MAX_DSP_BLOCK as f64 * 1000.0 {
+        MAX_DSP_BLOCK
+    } else if sample_rate >= (2 * DSP_BLOCK) as f64 * 1000.0 {
+        2 * DSP_BLOCK
+    } else {
+        DSP_BLOCK
+    }
+}

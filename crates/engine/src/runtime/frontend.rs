@@ -1,7 +1,7 @@
 use num_complex::Complex;
 use sdrmm_dsp::IqDcBlocker;
 
-use super::FFT_SIZE;
+use super::{FFT_SIZE, MAX_DSP_BLOCK};
 
 #[derive(Clone, Copy, PartialEq)]
 pub struct DspMeta {
@@ -24,7 +24,7 @@ impl Frontend {
     pub(super) fn new(meta: DspMeta) -> Self {
         Self {
             blocker: IqDcBlocker::new(meta.sample_rate, dc_block_corner_hz(meta.sample_rate)),
-            scratch: Vec::new(),
+            scratch: Vec::with_capacity(MAX_DSP_BLOCK),
             meta,
         }
     }
@@ -98,6 +98,20 @@ mod tests {
         let input = wideband_tone(120_000.0, 4_096);
         let out = frontend.apply(&input);
         assert_eq!(out.as_ptr(), input.as_ptr(), "the samples were copied");
+    }
+
+    #[test]
+    fn larger_capture_blocks_and_rate_changes_do_not_allocate() {
+        let input = wideband_tone(120_000.0, MAX_DSP_BLOCK);
+        let mut frontend = Frontend::new(frontend_meta(true));
+        sdrmm_test_support::assert_no_alloc("frontend block growth", || {
+            frontend.apply(&input[..2048]);
+            frontend.follow(DspMeta {
+                sample_rate: 20_000_000.0,
+                ..frontend_meta(true)
+            });
+            assert_eq!(frontend.apply(&input).len(), MAX_DSP_BLOCK);
+        });
     }
 
     #[test]

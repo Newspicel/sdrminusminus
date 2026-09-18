@@ -17,7 +17,7 @@ use crate::{
     audio_recording::AudioRecorderTap,
     iq::IqTap,
     recording::RecorderTap,
-    runtime::{ChannelSinks, DSP_BLOCK, DecodedSink},
+    runtime::{ChannelSinks, DecodedSink, dsp_block_len},
     symbols::SymbolBatcher,
     video::VideoPacket,
 };
@@ -32,16 +32,18 @@ const BLOCK_SLACK: usize = 64;
 const OVERFLOW_REPORT_EVERY: Duration = Duration::from_secs(1);
 
 fn iq_capacity(input_rate: f64, device_rate: f64) -> usize {
-    (DSP_BLOCK as f64 * input_rate / device_rate.max(1.0)).ceil() as usize + BLOCK_SLACK
+    (dsp_block_len(device_rate) as f64 * input_rate / device_rate.max(1.0)).ceil() as usize
+        + BLOCK_SLACK
 }
 
 fn audio_capacity(device_rate: f64, channels: u8) -> usize {
-    let frames = (DSP_BLOCK as f64 * f64::from(AUDIO_RATE) / device_rate.max(1.0)).ceil() as usize;
+    let frames = (dsp_block_len(device_rate) as f64 * f64::from(AUDIO_RATE) / device_rate.max(1.0))
+        .ceil() as usize;
     (frames + BLOCK_SLACK) * usize::from(channels.max(1))
 }
 
 fn publication_depth(device_rate: f64, packet_bytes: usize) -> usize {
-    let blocks_per_second = device_rate.max(1.0) / DSP_BLOCK as f64;
+    let blocks_per_second = device_rate.max(1.0) / dsp_block_len(device_rate) as f64;
     let slack = (blocks_per_second * PUBLICATION_SLACK_S).ceil() as usize;
     let affordable = (PUBLICATION_BUDGET_BYTES / packet_bytes.max(1)).max(MIN_PUBLICATION_DEPTH);
     slack.clamp(MIN_PUBLICATION_DEPTH, affordable)
@@ -267,7 +269,7 @@ mod tests {
     use super::*;
 
     fn slack_ms(device_rate: f64, depth: usize) -> f64 {
-        depth as f64 * DSP_BLOCK as f64 / device_rate * 1000.0
+        depth as f64 * dsp_block_len(device_rate) as f64 / device_rate * 1000.0
     }
 
     fn depth_for(device_rate: f64, input_rate: f64, channels: u8) -> usize {
@@ -282,6 +284,8 @@ mod tests {
     #[test]
     fn a_fast_radio_buys_the_same_stall_slack_as_a_slow_one() {
         for (device_rate, input_rate) in [
+            (20_000_000.0, 240_000.0),
+            (8_000_000.0, 240_000.0),
             (10_000_000.0, 400_000.0),
             (2_400_000.0, 48_000.0),
             (960_000.0, 48_000.0),
@@ -305,6 +309,8 @@ mod tests {
     #[test]
     fn the_pool_stays_inside_its_memory_budget() {
         for (device_rate, input_rate, channels) in [
+            (20_000_000.0, 20_000_000.0, 2u8),
+            (8_000_000.0, 240_000.0, 2),
             (10_000_000.0, 10_000_000.0, 2u8),
             (10_000_000.0, 400_000.0, 2),
             (2_048_000.0, 2_048_000.0, 2),
@@ -323,8 +329,15 @@ mod tests {
 
     #[test]
     fn a_block_of_audio_fits_the_packet_it_is_swapped_into() {
-        for (device_rate, channels) in [(10_000_000.0, 2u8), (2_400_000.0, 2), (250_000.0, 1)] {
-            let produced = (DSP_BLOCK as f64 * f64::from(AUDIO_RATE) / device_rate).ceil() as usize
+        for (device_rate, channels) in [
+            (20_000_000.0, 2u8),
+            (10_000_000.0, 2),
+            (8_000_000.0, 2),
+            (2_400_000.0, 2),
+            (250_000.0, 1),
+        ] {
+            let produced = (dsp_block_len(device_rate) as f64 * f64::from(AUDIO_RATE) / device_rate)
+                .ceil() as usize
                 * usize::from(channels);
             assert!(audio_capacity(device_rate, channels) >= produced);
         }

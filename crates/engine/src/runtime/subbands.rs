@@ -1,7 +1,7 @@
 use num_complex::Complex;
 use sdrmm_dsp::subband::{SUBBANDS, SubbandDecimator, SubbandFilterBank, SubbandPlan};
 
-use super::{ChannelHost, DSP_BLOCK};
+use super::{ChannelHost, dsp_block_len};
 
 const MIN_SHARED_CHANNELS: usize = 2;
 const MIN_BANK_BANDS: usize = 12;
@@ -28,12 +28,13 @@ pub(crate) struct Subbands {
 impl Subbands {
     pub(super) fn new(input_rate: f64) -> Self {
         let plan = SubbandPlan::new(input_rate);
+        let block_len = dsp_block_len(input_rate);
         let bands = plan
             .map(|plan| {
                 (0..SUBBANDS)
                     .map(|band| Band {
-                        decimator: plan.decimator(band, DSP_BLOCK),
-                        output: Vec::with_capacity(DSP_BLOCK),
+                        decimator: plan.decimator(band, block_len),
+                        output: Vec::with_capacity(block_len),
                         next: None,
                     })
                     .collect()
@@ -44,7 +45,7 @@ impl Subbands {
             bands,
             counts: [0; SUBBANDS],
             center: None,
-            bank: plan.map(|plan| plan.filter_bank(DSP_BLOCK)),
+            bank: plan.map(|plan| plan.filter_bank(block_len)),
             bank_next: None,
             use_bank: false,
             history: vec![Complex::new(0.0, 0.0); plan.map_or(0, SubbandPlan::history_len)],
@@ -139,7 +140,10 @@ impl Subbands {
 mod tests {
     use sdrmm_test_support::assert_no_alloc;
 
-    use super::*;
+    use super::{
+        super::{DSP_BLOCK, MAX_DSP_BLOCK},
+        *,
+    };
 
     #[test]
     fn sparse_bands_stay_direct_and_gaps_and_retunes_reset_history() {
@@ -170,7 +174,7 @@ mod tests {
     fn switching_filter_paths_preserves_history_phase_and_sample_count_without_allocating() {
         let rate = 20_000_000.0;
         let plan = SubbandPlan::new(rate).unwrap();
-        let input: Vec<_> = (0..DSP_BLOCK)
+        let input: Vec<_> = (0..MAX_DSP_BLOCK)
             .map(|index| {
                 Complex::new(
                     (index % 17) as f32 / 17.0 - 0.5,
@@ -180,14 +184,18 @@ mod tests {
             .collect();
         let mut bank = Subbands::new(rate);
         let mut references: Vec<_> = (0..SUBBANDS)
-            .map(|band| plan.decimator(band, DSP_BLOCK))
+            .map(|band| plan.decimator(band, MAX_DSP_BLOCK))
             .collect();
-        let mut expected = Vec::with_capacity(DSP_BLOCK);
+        let mut expected = Vec::with_capacity(MAX_DSP_BLOCK);
         let mut index = 0;
         for dense in [false, true, false, true, false] {
             bank.counts.fill(usize::from(dense));
             bank.counts[7] = 2;
-            for size in [DSP_BLOCK, 17, 0, 3, 255].into_iter().cycle().take(20) {
+            for size in [MAX_DSP_BLOCK, DSP_BLOCK, 17, 0, 3, 255]
+                .into_iter()
+                .cycle()
+                .take(24)
+            {
                 assert_no_alloc("subband filter path switch", || {
                     bank.process(&input[..size], index)
                 });

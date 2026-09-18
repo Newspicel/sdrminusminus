@@ -47,16 +47,18 @@ impl RecordingPublisher {
         if !recorder.healthy() {
             return false;
         }
-        let sent = self.0.submit(|packet| {
-            packet.samples.extend_from_slice(samples);
-            packet.start = start;
-            packet.center = center;
-            packet.recorder = Some(recorder.clone());
-        });
-        if !sent {
-            recorder.publication_failed();
+        for (index, samples) in samples.chunks(DSP_BLOCK).enumerate() {
+            if !self.0.submit(|packet| {
+                packet.samples.extend_from_slice(samples);
+                packet.start = start + (index * DSP_BLOCK) as u64;
+                packet.center = center;
+                packet.recorder = Some(recorder.clone());
+            }) {
+                recorder.publication_failed();
+                return false;
+            }
         }
-        sent
+        true
     }
 }
 
@@ -159,5 +161,37 @@ mod tests {
         assert_eq!(accepted, count);
         assert!(error.unwrap().contains("publication queue overflow"));
         assert!(!tap.healthy());
+    }
+
+    #[test]
+    fn large_capture_blocks_preserve_samples_and_retune_positions_without_allocating() {
+        let rate = 20_000_000.0;
+        let directory = tempfile::tempdir().unwrap();
+        let stem = directory.path().join("batched");
+        let writer = SigmfWriter::create(&stem, rate, 100_000_000.0, "test").unwrap();
+        let (tap, position, messages, shared) = create_tap(rate);
+        let mut publisher = RecordingPublisher::new(rate).unwrap();
+        let count = crate::runtime::MAX_DSP_BLOCK + 17;
+        let samples: Vec<_> = (0..2 * count)
+            .map(|index| Complex::new(index as f32, -(index as f32)))
+            .collect();
+        assert_no_alloc("large recording blocks", || {
+            assert!(publisher.publish(&tap, &samples[..count], 0, 100_000_000.0));
+            assert!(publisher.publish(&tap, &samples[count..], count as u64, 101_000_000.0));
+        });
+        let handle = spawn_writer(writer, messages, shared.clone()).unwrap();
+        drop(publisher);
+        drop(tap);
+        drop(position);
+        handle.join().unwrap();
+        assert_eq!(shared.error(), None);
+        let mut reader = SigmfReader::open(&stem).unwrap();
+        assert_eq!(reader.total_samples(), samples.len() as u64);
+        assert_eq!(reader.meta().captures.len(), 2);
+        assert_eq!(reader.meta().captures[1].sample_start, count as u64);
+        assert_eq!(reader.meta().captures[1].frequency, Some(101_000_000.0));
+        let mut actual = vec![Complex::new(0.0, 0.0); samples.len()];
+        assert_eq!(reader.read_block(&mut actual).unwrap(), samples.len());
+        assert_eq!(actual, samples);
     }
 }
