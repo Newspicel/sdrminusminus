@@ -1,10 +1,13 @@
 use num_complex::Complex;
 
-use crate::{Decimator, Nco, design_lowpass};
+use crate::{Decimator, design_lowpass};
 
 const FACTOR: usize = 5;
 const PASSBAND: f64 = 0.3;
-const SPACING: f64 = 0.4;
+const MIXER_PERIOD: usize = 25;
+const MIXER_STEP: usize = 2;
+const MIXER_BLOCK: usize = 256;
+const SPACING: f64 = (MIXER_STEP * FACTOR) as f64 / MIXER_PERIOD as f64;
 const HALF_BANDS: usize = 6;
 pub const SUBBANDS: usize = 2 * HALF_BANDS + 1;
 
@@ -56,8 +59,7 @@ impl SubbandPlan {
     pub fn decimator(self, band: usize, block_len: usize) -> SubbandDecimator {
         let taps = ((5.5 * FACTOR as f64 / (1.0 - 2.0 * PASSBAND)).ceil() as usize) | 1;
         let mut result = SubbandDecimator {
-            mixer: (band != HALF_BANDS)
-                .then(|| Nco::new(-self.center(band) as f32, self.input_rate as f32)),
+            mixer: (band != HALF_BANDS).then(|| PeriodicMixer::new(band)),
             filter: Decimator::new(&design_lowpass(taps, 0.5 / FACTOR as f64), FACTOR),
             mixed: vec![Complex::new(0.0, 0.0); block_len],
         };
@@ -70,7 +72,7 @@ impl SubbandPlan {
 
 #[derive(Clone, Debug)]
 pub struct SubbandDecimator {
-    mixer: Option<Nco>,
+    mixer: Option<PeriodicMixer>,
     filter: Decimator,
     mixed: Vec<Complex<f32>>,
 }
@@ -78,7 +80,7 @@ pub struct SubbandDecimator {
 impl SubbandDecimator {
     pub fn reset(&mut self) {
         if let Some(mixer) = &mut self.mixer {
-            mixer.reset();
+            mixer.phase = 0;
         }
         self.filter.reset();
     }
@@ -94,10 +96,71 @@ impl SubbandDecimator {
     }
 }
 
+#[derive(Clone, Debug)]
+struct PeriodicMixer {
+    carrier: [Complex<f32>; MIXER_PERIOD + MIXER_BLOCK - 1],
+    phase: usize,
+}
+
+impl PeriodicMixer {
+    fn new(band: usize) -> Self {
+        let frequency =
+            -(band as f64 - HALF_BANDS as f64) * MIXER_STEP as f64 / MIXER_PERIOD as f64;
+        let carrier = std::array::from_fn(|index| {
+            let angle = std::f64::consts::TAU * frequency * (index % MIXER_PERIOD) as f64;
+            let (sin, cos) = angle.sin_cos();
+            Complex::new(cos as f32, sin as f32)
+        });
+        Self { carrier, phase: 0 }
+    }
+
+    fn mix_into(&mut self, input: &[Complex<f32>], output: &mut [Complex<f32>]) {
+        for (input, output) in input
+            .chunks(MIXER_BLOCK)
+            .zip(output.chunks_mut(MIXER_BLOCK))
+        {
+            let carrier = &self.carrier[self.phase..self.phase + input.len()];
+            for ((input, output), carrier) in input.iter().zip(output).zip(carrier) {
+                *output = *input * *carrier;
+            }
+            self.phase = (self.phase + input.len()) % MIXER_PERIOD;
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testutil::{complex_tone, rms_c};
+    use crate::{
+        Nco,
+        testutil::{complex_tone, rms_c},
+    };
+
+    #[test]
+    fn periodic_mixers_match_the_grid_without_losing_phase() {
+        let input = complex_tone(0.017, 4099);
+        let mut output = vec![Complex::new(0.0, 0.0); input.len()];
+        let plan = SubbandPlan::new(20_000_000.0).unwrap();
+        for band in 0..SUBBANDS {
+            let mut mixer = PeriodicMixer::new(band);
+            let mut at = 0;
+            for size in [0, 1, 24, 25, 26, 255, 256, 257, 4099]
+                .into_iter()
+                .cycle()
+                .take(90)
+            {
+                mixer.mix_into(&input[..size], &mut output[..size]);
+                for index in 0..size {
+                    let angle = -std::f64::consts::TAU * plan.center(band) / plan.input_rate
+                        * (at + index) as f64;
+                    let (sin, cos) = angle.sin_cos();
+                    let expected = input[index] * Complex::new(cos as f32, sin as f32);
+                    assert!((output[index] - expected).norm() < 2e-6);
+                }
+                at += size;
+            }
+        }
+    }
 
     #[test]
     fn selection_covers_narrow_channels_and_rejects_unprotected_bands() {

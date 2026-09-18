@@ -76,15 +76,18 @@ fn shared_tuning(c: &mut Criterion) {
     let mut output = Vec::new();
     let mut group = c.benchmark_group("shared_tuning");
     group.throughput(Throughput::Elements(input.len() as u64));
-    for spread in [false, true] {
-        let layout = if spread { "spread" } else { "clustered" };
-        for count in [1, 4, 16, 32] {
+    for (layout, start, spread) in [
+        ("clustered", 100_000.0, false),
+        ("shifted", 1_700_000.0, false),
+        ("spread", 0.0, true),
+    ] {
+        for count in [1, 2, 4, 16, 32] {
             let settings: Vec<_> = (0..count)
                 .map(|index| {
                     let offset = if spread && count > 1 {
                         -8_800_000.0 + 17_600_000.0 * index as f64 / (count - 1) as f64
                     } else {
-                        100_000.0 + index as f64 * 25_000.0
+                        start + index as f64 * 25_000.0
                     };
                     let rate = if index % 4 == 1 { 240_000.0 } else { 48_000.0 };
                     (offset, rate)

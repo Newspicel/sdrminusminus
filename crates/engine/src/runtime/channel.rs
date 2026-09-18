@@ -755,7 +755,7 @@ mod tests {
         let input = vec![Complex::new(0.5, 0.25); DSP_BLOCK];
         let mut index = 0;
         let mut expected = 0;
-        for (stage, count) in [1, 3, 2, 3].into_iter().enumerate() {
+        for (stage, count) in [1, 2, 1, 2].into_iter().enumerate() {
             channels.truncate(count);
             while channels.len() < count {
                 let id = channels.len() as u32 + 1;
@@ -784,7 +784,7 @@ mod tests {
                     let selected = host
                         .subband(center, rate)
                         .and_then(|band| bank.samples(band));
-                    assert_eq!(selected.is_some(), count >= 3);
+                    assert_eq!(selected.is_some(), count >= 2);
                     host.process_shared_at(&input, index, center, selected);
                     host.publisher.queue.flush();
                 }

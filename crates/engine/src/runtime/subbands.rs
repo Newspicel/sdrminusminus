@@ -3,7 +3,7 @@ use sdrmm_dsp::subband::{SUBBANDS, SubbandDecimator, SubbandPlan};
 
 use super::{ChannelHost, DSP_BLOCK};
 
-const MIN_SHARED_CHANNELS: usize = 3;
+const MIN_SHARED_CHANNELS: usize = 2;
 
 struct Band {
     decimator: SubbandDecimator,
@@ -94,10 +94,10 @@ mod tests {
     fn sparse_bands_stay_direct_and_gaps_restarts_and_retunes_reset_history() {
         let input = vec![Complex::new(0.5, 0.25); DSP_BLOCK];
         let mut bank = Subbands::new(20_000_000.0);
-        bank.counts[7] = 2;
+        bank.counts[7] = 1;
         bank.process(&input, 0);
         assert!(bank.samples(7).is_none());
-        bank.counts[7] = 3;
+        bank.counts[7] = 2;
         bank.process(&input, DSP_BLOCK as u64);
         let fresh = bank.samples(7).unwrap().to_vec();
         bank.process(&input, 2 * DSP_BLOCK as u64);
@@ -107,11 +107,11 @@ mod tests {
             assert_eq!(bank.samples(7).unwrap(), fresh);
             bank.counts[7] = 0;
             bank.process(&input, 11 * DSP_BLOCK as u64);
-            bank.counts[7] = 3;
+            bank.counts[7] = 2;
             bank.process(&input, 12 * DSP_BLOCK as u64);
             assert_eq!(bank.samples(7).unwrap(), fresh);
             bank.prepare(&mut [], 100_001_000.0, 20_000_000.0);
-            bank.counts[7] = 3;
+            bank.counts[7] = 2;
             bank.process(&input, 13 * DSP_BLOCK as u64);
             assert_eq!(bank.samples(7).unwrap(), fresh);
         });
