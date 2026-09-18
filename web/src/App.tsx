@@ -3,7 +3,14 @@ import { ReactFlowProvider } from "@xyflow/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAppHotkeys } from "./appHotkeys";
 import { applyToasts } from "./canvas/applyToasts";
-import { bindChannels, bindDevices, deviceNodeOf, speakerInputsOf } from "./canvas/binding";
+import {
+  bindCarriers,
+  bindDevices,
+  channelsOf,
+  deviceNodeOf,
+  ownersOf,
+  speakerInputsOf,
+} from "./canvas/binding";
 import { Canvas } from "./canvas/Canvas";
 import { WorkspaceProvider } from "./canvas/context";
 import { FullFace } from "./canvas/FullFace";
@@ -97,11 +104,13 @@ export function App() {
   );
 
   const devices = useMemo(() => bindDevices(graph, deviceSets), [graph, deviceSets]);
-  const channels = useMemo(() => bindChannels(graph, devices), [graph, devices]);
+  const carriers = useMemo(() => bindCarriers(graph, devices), [graph, devices]);
+  const channels = useMemo(() => channelsOf(carriers), [carriers]);
+  const owners = useMemo(() => ownersOf(carriers), [carriers]);
 
   const reachable = useMemo(
-    () => speakerInputsOf(graph, devices, channels, trunks),
-    [graph, devices, channels, trunks],
+    () => speakerInputsOf(graph, devices, channels, trunks, owners),
+    [graph, devices, channels, trunks, owners],
   );
   useEffect(() => {
     if (state.data !== undefined) {
@@ -120,7 +129,7 @@ export function App() {
 
   const selectedNode = graph.nodes.find((node) => node.id === selected) ?? null;
   const selectedChannel = selected === null ? null : (channels.get(selected) ?? null);
-  const selectedDevice = selected === null ? null : deviceNodeOf(graph, selected);
+  const selectedDevice = selected === null ? null : deviceNodeOf(graph, selected, owners);
   const selectedSet = selectedDevice === null ? null : (devices.get(selectedDevice) ?? null);
 
   const channelNodes = graph.nodes.filter((node) => node.kind === "channel");
@@ -161,6 +170,7 @@ export function App() {
               trunks,
               devices,
               channels,
+              owners,
               savedChannels: workspace.savedChannels,
               saveChannel: workspace.saveChannel,
               selected,

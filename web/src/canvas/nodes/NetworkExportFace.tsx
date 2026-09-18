@@ -43,7 +43,13 @@ function NetworkExportNodeFace({ node }: { node: PatchNodeOf<"network_export"> }
   const workspace = useWorkspaceContext();
   const set = deviceSetOf(workspace, node.id);
   const radio = iqSourceOf(workspace.graph, node.id);
-  const channel = basebandSourceOf(workspace.graph, node.id, workspace.devices, workspace.channels);
+  const channel = basebandSourceOf(
+    workspace.graph,
+    node.id,
+    workspace.devices,
+    workspace.channels,
+    workspace.owners,
+  );
   const [address, setAddress] = useState(node.data.address);
   const [shown, setShown] = useState(node.data.address);
   if (shown !== node.data.address) {

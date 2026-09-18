@@ -99,6 +99,7 @@ pub(super) async fn patch_device(
         if let Some(edit) = edit {
             workspace::finish_edit(&state, edit);
         }
+        crate::placement::settle_active(&state);
         Ok(())
     })
     .await??;
@@ -156,6 +157,7 @@ pub(super) async fn patch_channel(
         if let Some(edit) = edit {
             workspace::finish_edit(&state, edit);
         }
+        crate::placement::settle_active(&state);
         Ok(())
     })
     .await??;

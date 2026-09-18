@@ -1,5 +1,5 @@
 import type { DeviceInfo, DeviceRef, PatchGraph } from "../../lib/types";
-import { deviceNodeOf, nodeDeviceRef, refMatches } from "../binding";
+import { deviceNodeOf, iqLanesOf, nodeDeviceRef, refMatches } from "../binding";
 import { tuningLocked } from "../graph";
 
 export type ChannelBinding =
@@ -13,6 +13,18 @@ export function radioRefOf(graph: PatchGraph, node: string): DeviceRef | null {
   const device = deviceNodeOf(graph, node);
   const found = graph.nodes.find((candidate) => candidate.id === device);
   return found === undefined ? null : nodeDeviceRef(found);
+}
+
+export function radioRefsOf(graph: PatchGraph, node: string): DeviceRef[] {
+  const refs: DeviceRef[] = [];
+  for (const lane of iqLanesOf(graph, node)) {
+    const found = graph.nodes.find((candidate) => candidate.id === lane.source);
+    const reference = found === undefined ? null : nodeDeviceRef(found);
+    if (reference !== null) {
+      refs.push(reference);
+    }
+  }
+  return refs;
 }
 
 export function lockedChannels(
@@ -29,10 +41,10 @@ export function lockedChannels(
 }
 
 export function radioIsAttached(
-  reference: DeviceRef | null,
+  references: readonly DeviceRef[],
   attached: readonly DeviceInfo[],
 ): boolean {
-  return reference !== null && attached.some((device) => refMatches(reference, device));
+  return references.some((reference) => attached.some((device) => refMatches(reference, device)));
 }
 
 export function channelBinding(input: {

@@ -15,10 +15,10 @@ import type { PatchNode, PatchNodeOf } from "../../lib/types";
 import { channelSettingsOf, liveChannelOf, useChannelEdit } from "../../lib/useChannelEdit";
 import type { ChannelEdit } from "../../lib/useChannelPatch";
 import { forStream } from "../../lib/useDevicePatch";
-import { iqSourceOf } from "../binding";
+import { iqLanesOf } from "../binding";
 import { useWorkspaceContext } from "../context";
-import { patchNode } from "../graph";
-import { deviceSetOf } from "../workspaceDevice";
+import { nodeOf, patchNode } from "../graph";
+import { deviceSetOf, laneOf } from "../workspaceDevice";
 import { keepsCalls } from "./callRecording";
 import {
   type ChannelBinding,
@@ -27,7 +27,7 @@ import {
   channelBindingHint,
   channelBindingStatus,
   radioIsAttached,
-  radioRefOf,
+  radioRefsOf,
 } from "./channelNode";
 import { FaceBody, FaceFooter, NodeShell } from "./NodeShell";
 
@@ -48,14 +48,14 @@ export function ChannelFace({ node }: { node: PatchNode }) {
   const descriptor = workspace.context.channelTypes.find((type) => type.type_id === typeId);
   const name = descriptor?.name ?? typeId.toUpperCase();
   const channel = workspace.channels.get(node.id) ?? null;
-  const source = iqSourceOf(workspace.graph, node.id);
-  const wired = source !== null;
-  const reference = radioRefOf(workspace.graph, node.id);
+  const lanes = iqLanesOf(workspace.graph, node.id);
+  const source = laneOf(workspace, node.id);
+  const references = radioRefsOf(workspace.graph, node.id);
   const binding = channelBinding({
-    wired,
+    wired: lanes.length > 0,
     open: set !== null,
-    named: reference !== null,
-    attached: radioIsAttached(reference, attached.data?.devices ?? []),
+    named: references.length > 0,
+    attached: radioIsAttached(references, attached.data?.devices ?? []),
   });
   const centerHz =
     set === null
@@ -85,11 +85,16 @@ export function ChannelFace({ node }: { node: PatchNode }) {
       ),
     }));
 
+  const carrier =
+    lanes.length > 1 && source !== null && set !== null
+      ? (nodeOf(workspace.graph, source.source)?.label ?? set.device.label)
+      : null;
   const status = faceStatus({
     live: live !== null,
     binding,
     unreachable,
     driven,
+    carrier,
   });
   const action = live === null ? channelBindingAction(binding) : null;
 
@@ -163,11 +168,13 @@ function faceStatus({
   binding,
   unreachable,
   driven,
+  carrier,
 }: {
   live: boolean;
   binding: ChannelBinding;
   unreachable: boolean;
   driven: boolean;
+  carrier: string | null;
 }) {
   if (!live) {
     return <span title={channelBindingHint(binding)}>{channelBindingStatus(binding)}</span>;
@@ -177,6 +184,9 @@ function faceStatus({
   }
   if (unreachable) {
     return <span className="text-warn">out of band</span>;
+  }
+  if (carrier !== null) {
+    return <span title="The radio carrying this decoder now">{carrier}</span>;
   }
   return undefined;
 }

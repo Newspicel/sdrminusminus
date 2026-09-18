@@ -820,7 +820,8 @@ fn ports_for(kind: &str) -> Vec<PortSpec> {
         ],
         "gps" => vec![PortSpec::new(Position, Out, true, Always)],
         "channel" => vec![
-            PortSpec::new(Iq, In, false, Always),
+            PortSpec::new(Iq, In, true, Always)
+                .noted("every radio that may carry this decoder; it runs on the one that hears it"),
             PortSpec::new(Control, In, false, Always)
                 .noted("a scanner or signal hunt drives this decoder; its radio follows"),
             PortSpec::new(Position, In, false, ChannelNeedsPosition),
@@ -1191,6 +1192,21 @@ impl PatchGraph {
             .map(|array| array.id.as_str())
     }
 
+    #[must_use]
+    pub fn lanes_of(&self, channel_node: &str) -> Vec<(&str, u32)> {
+        self.edges
+            .iter()
+            .filter(|edge| edge.to.node == channel_node && edge.to.port == "iq")
+            .filter_map(|edge| {
+                let source = self.node(&edge.from.node)?;
+                if !source.body.opens_device() {
+                    return None;
+                }
+                Some((edge.from.node.as_str(), port_stream("iq", &edge.from.port)?))
+            })
+            .collect()
+    }
+
     pub fn sources_of<'a>(&'a self, node: &'a str, port: &'a str) -> impl Iterator<Item = &'a str> {
         self.edges
             .iter()
@@ -1209,17 +1225,20 @@ impl PatchGraph {
         &'a self,
         device_node: &'a str,
     ) -> impl Iterator<Item = (&'a PatchNode, u32)> {
-        self.nodes.iter().filter_map(move |node| {
-            if !matches!(node.body, NodeBody::Channel(_)) {
-                return None;
-            }
-            let stream = self.edges.iter().find_map(|edge| {
-                (edge.to.node == node.id && edge.to.port == "iq" && edge.from.node == device_node)
-                    .then(|| port_stream("iq", &edge.from.port))
-                    .flatten()
-            })?;
-            Some((node, stream))
-        })
+        self.nodes
+            .iter()
+            .filter(|node| matches!(node.body, NodeBody::Channel(_)))
+            .flat_map(move |node| {
+                self.edges.iter().filter_map(move |edge| {
+                    if edge.to.node != node.id
+                        || edge.to.port != "iq"
+                        || edge.from.node != device_node
+                    {
+                        return None;
+                    }
+                    port_stream("iq", &edge.from.port).map(|stream| (node, stream))
+                })
+            })
     }
 
     #[must_use]
@@ -1389,6 +1408,25 @@ impl PatchGraph {
                     from: out.port_type,
                     to: input.port_type,
                 });
+            }
+            if input.port_type == PortType::Iq
+                && self
+                    .node(&edge.to.node)
+                    .is_some_and(|node| matches!(node.body, NodeBody::Channel(_)))
+                && self
+                    .edges
+                    .iter()
+                    .any(|other| other.to == edge.to && other.from != edge.from)
+                && self
+                    .edges
+                    .iter()
+                    .filter(|other| other.to == edge.to)
+                    .any(|other| {
+                        self.node(&other.from.node)
+                            .is_some_and(|node| !node.body.opens_device())
+                    })
+            {
+                return Err(PatchError::PortOccupied(edge.to.clone()));
             }
             if landed.contains(&&edge.to) && !input.multi {
                 return Err(PatchError::PortOccupied(edge.to.clone()));

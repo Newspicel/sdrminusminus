@@ -1220,3 +1220,289 @@ async fn cutting_one_of_two_alike_decoders_leaves_the_other_where_it_was_set() {
         "the radio moved for nothing"
     );
 }
+
+fn two_radio_snapshot(taps: &[(&str, &str)]) -> sdrmm_wire::WorkspaceSnapshot {
+    let mut snapshot = virtual_snapshot("siggen", &[]);
+    snapshot.graph.nodes.push(sdrmm_wire::PatchNode {
+        id: "device2".to_string(),
+        body: sdrmm_wire::NodeBody::Device(sdrmm_wire::DeviceNode {
+            device: Some(sdrmm_wire::DeviceRef {
+                backend: "virtual".to_string(),
+                serial: None,
+                key: Some("halfduplex".to_string()),
+            }),
+            locked_streams: Vec::new(),
+        }),
+        position: sdrmm_wire::Position { x: 0.0, y: 300.0 },
+        size: None,
+        label: None,
+    });
+    for (id, channel_type) in taps {
+        snapshot.graph.nodes.push(sdrmm_wire::PatchNode {
+            id: (*id).to_string(),
+            body: sdrmm_wire::NodeBody::Channel(sdrmm_wire::ChannelNode {
+                channel_type: (*channel_type).to_string(),
+                record_calls: false,
+                tuning_locked: false,
+            }),
+            position: sdrmm_wire::Position { x: 400.0, y: 300.0 },
+            size: None,
+            label: None,
+        });
+        for device in ["device", "device2"] {
+            snapshot.graph.edges.push(sdrmm_wire::PatchEdge {
+                from: sdrmm_wire::PortRef {
+                    node: device.to_string(),
+                    port: "iq".to_string(),
+                },
+                to: sdrmm_wire::PortRef {
+                    node: (*id).to_string(),
+                    port: "iq".to_string(),
+                },
+            });
+        }
+    }
+    snapshot
+}
+
+fn carrier_of(state: &StateSnapshot, node: &str) -> Option<(u32, sdrmm_wire::ChannelInfo)> {
+    state.device_sets.iter().find_map(|set| {
+        set.channels
+            .iter()
+            .find(|channel| channel.node.as_deref() == Some(node))
+            .map(|channel| (set.id, channel.clone()))
+    })
+}
+
+async fn hold_by_hand(app: &Router, set: u32, center_hz: f64) {
+    let (status, body) = request(
+        app.clone(),
+        "PATCH",
+        &format!("/api/devicesets/{set}/device"),
+        Some(&format!(r#"{{"center_hz":{center_hz},"tuning":"manual"}}"#)),
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::NO_CONTENT,
+        "{}",
+        String::from_utf8_lossy(&body)
+    );
+}
+
+async fn hold_channel(app: &Router, workspace: i64, node: &str, frequency_hz: f64) {
+    let mut settings = sdrmm_wire::ChannelSettings::default_for("nfm").expect("nfm is built in");
+    settings.frequency_hz = frequency_hz;
+    let (status, body) = request(
+        app.clone(),
+        "PUT",
+        &format!("/api/workspaces/{workspace}/channels/{node}"),
+        Some(&serde_json::to_string(&settings).expect("settings serialize")),
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::NO_CONTENT,
+        "{}",
+        String::from_utf8_lossy(&body)
+    );
+}
+
+#[tokio::test]
+async fn a_decoder_wired_to_two_radios_opens_on_one_of_them() {
+    let app = test_router();
+    let workspace = put_active_workspace(&app, &two_radio_snapshot(&[("voice", "nfm")])).await;
+
+    let report = apply(&app, workspace).await;
+    assert_eq!(report.opened, 2);
+    assert_eq!(report.created, 1, "{report:?}");
+    assert!(report.refused.is_empty(), "{:?}", report.refused);
+
+    let state = get_state(&app).await;
+    let opened: usize = state.device_sets.iter().map(|set| set.channels.len()).sum();
+    assert_eq!(opened, 1);
+    let (_, channel) = carrier_of(&state, "voice").expect("the decoder is on a radio");
+    assert!(!channel.out_of_band);
+
+    let again = apply(&app, workspace).await;
+    assert_eq!(again.created, 0, "{again:?}");
+    assert_eq!(again.closed, 0, "{again:?}");
+}
+
+#[tokio::test]
+async fn a_decoder_moves_to_the_radio_that_can_still_hear_it() {
+    let app = test_router();
+    let workspace = put_active_workspace(&app, &two_radio_snapshot(&[("voice", "nfm")])).await;
+    apply(&app, workspace).await;
+
+    let state = get_state(&app).await;
+    let (first, channel) = carrier_of(&state, "voice").expect("the decoder is on a radio");
+    hold_by_hand(&app, first, channel.settings.frequency_hz + 300e6).await;
+
+    let state = get_state(&app).await;
+    let (second, moved) = carrier_of(&state, "voice").expect("the decoder is still on a radio");
+    assert_ne!(
+        second, first,
+        "the decoder stayed on a radio that cannot hear it"
+    );
+    assert!(!moved.out_of_band);
+    assert_eq!(moved.settings.frequency_hz, channel.settings.frequency_hz);
+    let opened: usize = state.device_sets.iter().map(|set| set.channels.len()).sum();
+    assert_eq!(opened, 1, "the decoder was copied, not moved");
+}
+
+#[tokio::test]
+async fn a_retuned_decoder_finds_the_radio_that_hears_its_new_frequency() {
+    let app = test_router();
+    let workspace = put_active_workspace(&app, &two_radio_snapshot(&[("voice", "nfm")])).await;
+    apply(&app, workspace).await;
+
+    let state = get_state(&app).await;
+    let (first, channel) = carrier_of(&state, "voice").expect("the decoder is on a radio");
+    let other = state
+        .device_sets
+        .iter()
+        .find(|set| set.id != first)
+        .expect("a second radio")
+        .id;
+    hold_by_hand(&app, first, channel.settings.frequency_hz).await;
+    hold_by_hand(&app, other, 400e6).await;
+
+    retune(&app, first, channel.id, 400.1e6).await;
+
+    let state = get_state(&app).await;
+    let (now, moved) = carrier_of(&state, "voice").expect("the decoder is still on a radio");
+    assert_eq!(now, other);
+    assert!(!moved.out_of_band);
+    assert_eq!(moved.settings.frequency_hz, 400.1e6);
+}
+
+#[tokio::test]
+async fn two_self_tuning_radios_share_a_crowd_one_window_cannot_hold() {
+    let app = test_router();
+    let taps = [("low", "nfm"), ("high", "nfm"), ("low2", "nfm")];
+    let workspace = put_active_workspace(&app, &two_radio_snapshot(&taps)).await;
+    hold_channel(&app, workspace, "low", 100e6).await;
+    hold_channel(&app, workspace, "low2", 100.5e6).await;
+    hold_channel(&app, workspace, "high", 400e6).await;
+
+    let report = apply(&app, workspace).await;
+    assert_eq!(report.created, 3, "{report:?}");
+    assert!(report.refused.is_empty(), "{:?}", report.refused);
+
+    let state = get_state(&app).await;
+    for node in ["low", "high", "low2"] {
+        let (_, channel) = carrier_of(&state, node).expect("every decoder is on a radio");
+        assert!(!channel.out_of_band, "{node} is out of band");
+    }
+    let (low, _) = carrier_of(&state, "low").expect("low");
+    let (low2, _) = carrier_of(&state, "low2").expect("low2");
+    let (high, _) = carrier_of(&state, "high").expect("high");
+    assert_eq!(low, low2);
+    assert_ne!(low, high);
+}
+
+#[tokio::test]
+async fn a_decoder_wired_to_one_radio_keeps_it_while_the_flexible_ones_move_aside() {
+    let app = test_router();
+    let mut snapshot = two_radio_snapshot(&[("flex", "nfm"), ("fixed", "nfm")]);
+    snapshot
+        .graph
+        .edges
+        .retain(|edge| !(edge.to.node == "fixed" && edge.from.node == "device2"));
+    let workspace = put_active_workspace(&app, &snapshot).await;
+    hold_channel(&app, workspace, "fixed", 400e6).await;
+    hold_channel(&app, workspace, "flex", 100e6).await;
+
+    let report = apply(&app, workspace).await;
+    assert!(report.refused.is_empty(), "{:?}", report.refused);
+
+    let state = get_state(&app).await;
+    let (fixed_on, fixed) = carrier_of(&state, "fixed").expect("fixed");
+    let (flex_on, flex) = carrier_of(&state, "flex").expect("flex");
+    let siggen = state
+        .device_sets
+        .iter()
+        .find(|set| set.device.key == "siggen")
+        .expect("the siggen radio")
+        .id;
+    assert_eq!(fixed_on, siggen);
+    assert_ne!(flex_on, siggen);
+    assert!(!fixed.out_of_band && !flex.out_of_band);
+}
+
+#[tokio::test]
+async fn applying_adopts_an_unnamed_channel_without_copying_it() {
+    let (app, state) = test_router_with_state();
+    let workspace = put_active_workspace(&app, &two_radio_snapshot(&[("voice", "nfm")])).await;
+    let set = state.engine.create_device_set("virtual:siggen").unwrap();
+    let settings = ChannelSettings::default_for("nfm").unwrap();
+    let id = state.engine.add_channel(set, 0, settings).unwrap();
+    let report = apply(&app, workspace).await;
+    assert!(report.refused.is_empty(), "{report:?}");
+    assert_eq!(report.created, 0);
+    let snapshot = state.engine.snapshot();
+    let (owner, channel) = carrier_of(&snapshot, "voice").unwrap();
+    assert_eq!((owner, channel.id), (set, id));
+    assert_eq!(
+        snapshot
+            .device_sets
+            .iter()
+            .map(|set| set.channels.len())
+            .sum::<usize>(),
+        1
+    );
+}
+
+#[tokio::test]
+async fn a_second_stream_on_the_same_radio_can_carry_a_decoder() {
+    let (app, state) = test_router_with_state();
+    let mut snapshot = virtual_snapshot("transceiver", &[("voice", "nfm", "iq")]);
+    snapshot.graph.edges.push(sdrmm_wire::PatchEdge {
+        from: sdrmm_wire::PortRef {
+            node: "device".to_owned(),
+            port: "iq2".to_owned(),
+        },
+        to: sdrmm_wire::PortRef {
+            node: "voice".to_owned(),
+            port: "iq".to_owned(),
+        },
+    });
+    let workspace = put_active_workspace(&app, &snapshot).await;
+    hold_channel(&app, workspace, "voice", 400e6).await;
+    let set = state
+        .engine
+        .create_device_set("virtual:transceiver")
+        .unwrap();
+    state
+        .engine
+        .patch_device(
+            set,
+            DeviceSettings {
+                center_hz: Some(100e6),
+                tuning: Some(sdrmm_wire::Tuning::Manual),
+                streams: vec![sdrmm_wire::StreamSettings {
+                    stream: 1,
+                    center_hz: Some(400e6),
+                    tuning: Some(sdrmm_wire::Tuning::Manual),
+                    gains: Vec::new(),
+                    antenna: None,
+                }],
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    let report = apply(&app, workspace).await;
+    assert!(report.refused.is_empty(), "{report:?}");
+    let snapshot = state.engine.snapshot();
+    assert_eq!(
+        snapshot
+            .device_sets
+            .iter()
+            .map(|set| set.channels.len())
+            .sum::<usize>(),
+        1
+    );
+    assert_eq!(carrier_of(&snapshot, "voice").unwrap().1.stream, 1);
+    assert_eq!(apply(&app, workspace).await.created, 0);
+}

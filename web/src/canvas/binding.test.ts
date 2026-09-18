@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { ChannelInfo, DeviceInfo, DeviceSet, PatchGraph, PatchNode } from "../lib/types";
 import {
+  bindCarriers,
   bindChannels,
   bindDevices,
   channelNodesOf,
@@ -11,7 +12,9 @@ import {
   eventSourcesOf,
   hasWire,
   inputsOf,
+  iqLanesOf,
   iqSourceOf,
+  ownersOf,
   refMatches,
   speakerInputsOf,
 } from "./binding";
@@ -121,6 +124,7 @@ describe("binding", () => {
     expect(devices.get("dev")?.id).toBe(1);
     expect(devices.get("bench:pair")?.id).toBe(2);
     expect(bindChannels(g, devices).get("voice")?.id).toBe(7);
+    expect(deviceNodeOf(g, "voice", ownersOf(bindCarriers(g, devices)))).toBe("bench:pair");
   });
 
   it("speakerInputsOf lists only the channels wired into a speaker", () => {
@@ -425,6 +429,99 @@ describe("binding", () => {
       );
       expect(partial.get("low")?.id).toBe(6);
       expect(partial.has("high")).toBe(false);
+    });
+
+    it("lists every radio wired into a channel, in wire order", () => {
+      const twin: PatchGraph = {
+        nodes: [
+          ...lanes().nodes,
+          node("dev2", { kind: "device", data: { device: deviceRefOf(other) } }),
+        ],
+        edges: [
+          ...(lanes().edges ?? []),
+          { from: { node: "dev2", port: "iq2" }, to: { node: "high", port: "iq" } },
+        ],
+      };
+      expect(iqLanesOf(twin, "high")).toEqual([
+        { source: "dev", stream: 2 },
+        { source: "dev2", stream: 1 },
+      ]);
+      expect(iqSourceOf(twin, "high")).toEqual({ source: "dev", stream: 2 });
+      expect(channelNodesOf(twin, "dev2").map(({ node: n, stream }) => [n.id, stream])).toEqual([
+        ["high", 1],
+      ]);
+    });
+
+    it("finds a channel on whichever wired radio carries it", () => {
+      const twin: PatchGraph = {
+        nodes: [
+          ...lanes().nodes,
+          node("dev2", { kind: "device", data: { device: deviceRefOf(other) } }),
+        ],
+        edges: [
+          ...(lanes().edges ?? []),
+          { from: { node: "dev2", port: "iq2" }, to: { node: "high", port: "iq" } },
+        ],
+      };
+      const carried = { ...channel(9, "nfm", 1), node: "high" };
+      const devices = bindDevices(twin, [
+        set(1, rtl, [channel(6, "nfm")]),
+        set(2, other, [carried]),
+      ]);
+      const carriers = bindCarriers(twin, devices);
+      expect(carriers.get("high")).toEqual({ owner: "dev2", channel: carried });
+      expect(carriers.get("low")).toEqual({ owner: "dev", channel: channel(6, "nfm") });
+      const owners = ownersOf(carriers);
+      expect(deviceNodeOf(twin, "high", owners)).toBe("dev2");
+      expect(deviceNodeOf(twin, "high")).toBe("dev");
+      const channels = bindChannels(twin, devices);
+      expect(inputsOf(twin, "spk", "audio", devices, channels, [], owners)).toEqual([
+        { node: "high", deviceSet: 2, channel: carried },
+      ]);
+      expect(speakerInputsOf(twin, devices, channels, [], owners)).toEqual([
+        { deviceSet: 2, channel: 9 },
+      ]);
+    });
+
+    it("hands a nameless decoder only to the channel whose first wire is that radio", () => {
+      const twin: PatchGraph = {
+        nodes: [
+          ...lanes().nodes,
+          node("dev2", { kind: "device", data: { device: deviceRefOf(other) } }),
+        ],
+        edges: [
+          ...(lanes().edges ?? []),
+          { from: { node: "dev2", port: "iq" }, to: { node: "high", port: "iq" } },
+        ],
+      };
+      const devices = bindDevices(twin, [set(1, rtl, []), set(2, other, [channel(4, "nfm")])]);
+      expect(bindCarriers(twin, devices).has("high")).toBe(false);
+    });
+
+    it("finds the active stream when two lanes share a radio", () => {
+      const patch = lanes();
+      patch.edges = [
+        ...(patch.edges ?? []),
+        { from: { node: "dev", port: "iq2" }, to: { node: "high", port: "iq" } },
+      ];
+      const carried = { ...channel(9, "nfm", 1), node: "high" };
+      const devices = bindDevices(patch, [set(1, rtl, [carried])]);
+      expect(bindCarriers(patch, devices).get("high")).toEqual({ owner: "dev", channel: carried });
+    });
+
+    it("prefers a named decoder on another radio over an unnamed match", () => {
+      const patch = lanes();
+      patch.nodes.push(node("dev2", { kind: "device", data: { device: deviceRefOf(other) } }));
+      patch.edges = [
+        ...(patch.edges ?? []),
+        { from: { node: "dev2", port: "iq" }, to: { node: "high", port: "iq" } },
+      ];
+      const carried = { ...channel(9, "nfm"), node: "high" };
+      const devices = bindDevices(patch, [
+        set(1, rtl, [channel(8, "nfm", 2)]),
+        set(2, other, [carried]),
+      ]);
+      expect(bindCarriers(patch, devices).get("high")).toEqual({ owner: "dev2", channel: carried });
     });
 
     it("resolves the radio behind a node wired past stream 0", () => {

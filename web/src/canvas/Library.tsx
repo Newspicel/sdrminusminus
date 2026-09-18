@@ -34,7 +34,12 @@ export function Library({ onOpenTool }: { onOpenTool: (id: string) => void }) {
   const drawn = [...workspace.devices.values()];
   const only = drawn.length === 1 ? (drawn[0] ?? null) : null;
   const active = selected ?? only;
-  const target = libraryTarget(workspace.graph, workspace.devices, workspace.selected);
+  const target = libraryTarget(
+    workspace.graph,
+    workspace.devices,
+    workspace.selected,
+    workspace.owners,
+  );
 
   const openRecording = (recording: RecordingInfo): void => {
     const id = newNodeId("recording", nodeIds(workspace.graph));

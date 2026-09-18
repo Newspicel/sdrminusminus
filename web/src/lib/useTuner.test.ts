@@ -24,6 +24,10 @@ function set(over: Partial<DeviceSet["settings"]> = {}): DeviceSet {
 const NFM = { type_id: "nfm", bandwidth_hz: 12_500 } as ChannelDescriptor;
 
 describe("radioPullFor", () => {
+  it("leaves multiple wired radios to server placement", () => {
+    expect(radioPullFor(set(), 0, NFM, 433_500_000, 2)).toBeNull();
+  });
+
   it("leaves the radio where it is when it already hears the frequency", () => {
     expect(radioPullFor(set(), 0, NFM, 145_500_000)).toBeNull();
   });

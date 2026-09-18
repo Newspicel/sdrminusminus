@@ -1,10 +1,22 @@
 import type { ChannelInfo, DeviceSet } from "../lib/types";
-import { controlledNodeOf, deviceNodeOf } from "./binding";
+import { controlledNodeOf, deviceNodeOf, iqSourceOf } from "./binding";
 import type { Workspace } from "./context";
 
 export function deviceSetOf(workspace: Workspace, node: string): DeviceSet | null {
-  const owner = deviceNodeOf(workspace.graph, node);
+  const owner = deviceNodeOf(workspace.graph, node, workspace.owners);
   return owner === null ? null : (workspace.devices.get(owner) ?? null);
+}
+
+export function laneOf(
+  workspace: Workspace,
+  node: string,
+): { source: string; stream: number } | null {
+  const owner = workspace.owners.get(node);
+  const channel = workspace.channels.get(node);
+  if (owner !== undefined && channel !== undefined) {
+    return { source: owner, stream: channel.stream ?? 0 };
+  }
+  return iqSourceOf(workspace.graph, node);
 }
 
 export interface Decoder {

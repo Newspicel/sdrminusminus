@@ -70,7 +70,7 @@ const CATALOG: PatchCatalog = {
       category: "channel",
       needs_channel_type: true,
       ports: [
-        { name: "iq", port_type: "iq", direction: "in", multi: false },
+        { name: "iq", port_type: "iq", direction: "in", multi: true },
         { name: "control", port_type: "control", direction: "in", multi: false },
         {
           name: "position",
@@ -387,13 +387,38 @@ describe("connectionRefusal", () => {
     );
   });
 
-  it("refuses a second device on a channel and names why", () => {
+  it("takes a second device on a channel", () => {
     const graph = {
       ...workspace(),
       nodes: [...workspace().nodes, node("dev2", { kind: "device", data: {} })],
     };
-    expect(connectionRefusal(context, graph, port("dev2", "iq"), port("nfm", "iq"))).toMatch(
-      /coherent array/,
+    expect(connectionRefusal(context, graph, port("dev2", "iq"), port("nfm", "iq"))).toBeNull();
+  });
+
+  it("keeps a beam exclusive in either connection order", () => {
+    const beamContext: GraphContext = {
+      ...context,
+      catalog: {
+        ...CATALOG,
+        nodes: [
+          ...CATALOG.nodes,
+          {
+            kind: "df",
+            name: "DF",
+            category: "tool",
+            ports: [{ name: "beam", port_type: "iq", direction: "out", multi: false }],
+          },
+        ],
+      },
+    };
+    const graph = workspace();
+    graph.nodes.push(node("df", { kind: "df", data: {} }));
+    expect(connectionRefusal(beamContext, graph, port("df", "beam"), port("nfm", "iq"))).toMatch(
+      /one wire/,
+    );
+    graph.edges = [{ from: port("df", "beam"), to: port("nfm", "iq") }];
+    expect(connectionRefusal(beamContext, graph, port("dev", "iq"), port("nfm", "iq"))).toMatch(
+      /one wire/,
     );
   });
 

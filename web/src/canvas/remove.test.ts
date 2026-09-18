@@ -34,6 +34,7 @@ const workspace = {
   graph,
   devices: new Map([["dev", { id: 4 } as DeviceSet]]),
   channels: new Map([["high", channelOnLane2]]),
+  owners: new Map([["high", "dev"]]),
 } as unknown as Workspace;
 
 const networkSettings = {
@@ -117,6 +118,7 @@ const basebandWorkspace = {
     ],
   ]),
   channels: new Map([["ch", basebandChannel]]),
+  owners: new Map([["ch", "dev"]]),
 } as unknown as Workspace;
 
 describe("closeEngineObjects", () => {

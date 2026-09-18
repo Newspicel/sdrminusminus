@@ -236,6 +236,35 @@ impl Engine {
         Ok(id)
     }
 
+    pub fn bind_channel_node(&self, ds: u32, ch: u32, node: &str) -> Result<(), EngineError> {
+        let mut inner = self.lock();
+        let state = inner
+            .device_sets
+            .get_mut(&ds)
+            .ok_or(EngineError::DeviceSetNotFound(ds))?;
+        let channel = state
+            .channels
+            .iter_mut()
+            .find(|channel| channel.id == ch)
+            .ok_or(EngineError::ChannelNotFound(ch, ds))?;
+        if channel.node.as_deref() == Some(node) {
+            return Ok(());
+        }
+        if channel.node.is_some() {
+            return Err(sdrmm_channels::ChannelError::InvalidSettings(
+                "channel already belongs to a node".to_owned(),
+            )
+            .into());
+        }
+        channel.node = Some(node.to_owned());
+        inner.revision += 1;
+        drop(inner);
+        self.emit(ServerEvent::StateChanged {
+            scope: StateScope::DeviceSet(ds),
+        });
+        Ok(())
+    }
+
     pub fn patch_channel(
         &self,
         ds: u32,

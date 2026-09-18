@@ -22,6 +22,7 @@ export function libraryTarget(
   graph: PatchGraph,
   devices: ReadonlyMap<string, DeviceSet>,
   selected: string | null,
+  owners: ReadonlyMap<string, string> = new Map(),
 ): TuneTarget | null {
   if (selected !== null) {
     const set = devices.get(selected);
@@ -29,7 +30,7 @@ export function libraryTarget(
       return { kind: "device", node: selected, set, locked: tuningLocked(graph, selected) };
     }
     if (nodeOf(graph, selected)?.kind === "channel") {
-      const owner = deviceNodeOf(graph, selected);
+      const owner = deviceNodeOf(graph, selected, owners);
       return {
         kind: "channel",
         node: selected,

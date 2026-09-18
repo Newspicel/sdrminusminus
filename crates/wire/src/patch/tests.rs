@@ -675,11 +675,13 @@ fn a_single_input_takes_one_wire_and_an_output_fans_out() {
     two_devices
         .nodes
         .push(node("dev2", NodeBody::Device(DeviceNode::default())));
-    two_devices.edges.push(edge(("dev2", "iq"), ("ch", "iq")));
+    two_devices
+        .edges
+        .push(edge(("dev2", "iq"), ("scope", "iq")));
     assert_eq!(
         two_devices.validate(),
         Err(PatchError::PortOccupied(PortRef {
-            node: "ch".to_owned(),
+            node: "scope".to_owned(),
             port: "iq".to_owned()
         }))
     );
@@ -1089,6 +1091,49 @@ fn device_refs_match_by_serial_then_key_then_singleton() {
         profile: None,
     }));
     assert!(!singleton.matches(&hardware));
+}
+
+#[test]
+fn a_channel_takes_every_radio_that_may_carry_it() {
+    let mut graph = workspace();
+    graph
+        .nodes
+        .push(node("dev2", NodeBody::Device(DeviceNode::default())));
+    graph.edges.push(edge(("dev2", "iq3"), ("ch", "iq")));
+    graph.validate().expect("two radios into one channel");
+    assert_eq!(graph.lanes_of("ch"), vec![("dev", 0), ("dev2", 2)]);
+    assert_eq!(graph.lanes_of("spk"), Vec::<(&str, u32)>::new());
+    let on_both: Vec<&str> = graph
+        .device_nodes()
+        .filter(|device| {
+            graph
+                .channels_of(&device.id)
+                .any(|(node, _)| node.id == "ch")
+        })
+        .map(|device| device.id.as_str())
+        .collect();
+    assert_eq!(on_both, vec!["dev", "dev2"]);
+}
+
+#[test]
+fn lanes_come_only_from_nodes_that_open_a_radio() {
+    let mut graph = workspace();
+    graph
+        .nodes
+        .push(node("df", NodeBody::Df(DfNode::default())));
+    graph.edges.push(edge(("df", DF_BEAM_PORT), ("ch", "iq")));
+    assert_eq!(
+        graph.validate(),
+        Err(PatchError::PortOccupied(PortRef {
+            node: "ch".to_owned(),
+            port: "iq".to_owned(),
+        }))
+    );
+    graph
+        .edges
+        .retain(|edge| edge.from.node != "dev" || edge.to.node != "ch");
+    graph.validate().expect("a beam feeds a channel alone");
+    assert!(graph.lanes_of("ch").is_empty());
 }
 
 #[test]
@@ -1944,4 +1989,16 @@ fn the_catalog_offers_a_recording_and_a_generator_as_sources() {
         assert!(!entry.needs_channel_type);
         assert_eq!(entry.ports.len(), 1);
     }
+}
+
+#[test]
+fn channels_of_keeps_every_wired_stream_of_the_same_radio() {
+    let mut graph = workspace();
+    graph.edges.push(edge(("dev", "iq2"), ("ch", "iq")));
+    graph.validate().unwrap();
+    let lanes: Vec<_> = graph
+        .channels_of("dev")
+        .map(|(node, stream)| (node.id.as_str(), stream))
+        .collect();
+    assert_eq!(lanes, vec![("ch", 0), ("ch", 1)]);
 }

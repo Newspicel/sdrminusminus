@@ -22,6 +22,7 @@ export interface Workspace {
   trunks: readonly TrunkSystemStatus[];
   devices: ReadonlyMap<string, DeviceSet>;
   channels: ReadonlyMap<string, ChannelInfo>;
+  owners: ReadonlyMap<string, string>;
   savedChannels: ReadonlyMap<string, ChannelSettings>;
   saveChannel: (node: string, settings: ChannelSettings) => void;
   selected: string | null;

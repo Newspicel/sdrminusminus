@@ -73,6 +73,7 @@ function useInputs(node: string, port: string): Input[] {
     workspace.devices,
     workspace.channels,
     workspace.trunks,
+    workspace.owners,
   );
 }
 

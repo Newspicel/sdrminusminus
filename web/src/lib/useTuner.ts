@@ -1,8 +1,9 @@
-import { iqSourceOf } from "../canvas/binding";
+import { iqLanesOf } from "../canvas/binding";
 import { useWorkspaceContext, type Workspace } from "../canvas/context";
 import { descriptorOf, nodeOf } from "../canvas/graph";
 import type { ChannelTarget, TuneTarget } from "../canvas/libraryTarget";
 import { autoTuning, tuneDelta } from "../canvas/nodes/deviceNode";
+import { laneOf } from "../canvas/workspaceDevice";
 import { radioWindowHz, reachesHz } from "../components/channelSettings";
 import type { ChannelDescriptor, DeviceSet, DeviceSettings } from "./types";
 import { channelSettingsOf, useChannelEdit } from "./useChannelEdit";
@@ -50,8 +51,9 @@ export function radioPullFor(
   stream: number,
   descriptor: ChannelDescriptor | undefined,
   hz: number,
+  laneCount = 1,
 ): DeviceSettings | null {
-  if (autoTuning(set, stream)) {
+  if (laneCount > 1 || autoTuning(set, stream)) {
     return null;
   }
   const centerHz = forStream(set.settings, stream, set.capabilities.per_stream).center_hz ?? null;
@@ -84,9 +86,10 @@ function reachFor(
   const patch = nodeOf(workspace.graph, target.node);
   const pull = radioPullFor(
     set,
-    iqSourceOf(workspace.graph, target.node)?.stream ?? 0,
+    laneOf(workspace, target.node)?.stream ?? 0,
     patch === undefined ? undefined : descriptorOf(workspace.context, patch),
     hz,
+    iqLanesOf(workspace.graph, target.node).length,
   );
   if (pull !== null) {
     applyPatch(set.id, pull);

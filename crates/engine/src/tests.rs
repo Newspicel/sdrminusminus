@@ -26,6 +26,7 @@ mod front_end;
 #[cfg(all(feature = "rtlsdr", feature = "hackrf", feature = "soapy"))]
 mod hardware;
 mod hotplug;
+mod placement;
 mod recording;
 mod scanning;
 mod time_machine;

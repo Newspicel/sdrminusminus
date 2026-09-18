@@ -4,6 +4,12 @@ A channel receives one frequency from a Device's IQ stream. Retuning the Device 
 frequencies. Channels outside its reception range stay configured and resume when the radio covers
 them again.
 
+Wire more than one Device into a channel and it runs on whichever radio hears it. A radio tuned by
+hand only takes channels inside its window; radios tuning themselves share the channels wired to
+them so as many as possible are heard, and a channel wired to one radio alone keeps that radio.
+The node names the radio carrying it. Scanning, hunting, recording and network export keep a
+channel on its radio until stopped.
+
 A Device tunes itself by default: it parks its window over as many of its channels as the sample
 rate holds, and keeps its own DC spike out of them. The radar button on the Device turns this off
 so you can tune by hand, and moving the dial turns it off for you. The Device header counts the

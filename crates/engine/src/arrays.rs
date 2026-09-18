@@ -11,6 +11,12 @@ pub(crate) struct ArrayBinding {
     members: Vec<(u32, u32)>,
 }
 
+impl ArrayBinding {
+    pub(crate) fn member_sets(&self) -> impl Iterator<Item = u32> + '_ {
+        self.members.iter().map(|(member, _)| *member)
+    }
+}
+
 impl Engine {
     pub fn create_array_set(&self, key: &str) -> Result<u32, EngineError> {
         let _edit = sdrmm_device::lock(&self.array_edits);

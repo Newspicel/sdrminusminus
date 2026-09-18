@@ -148,7 +148,13 @@ export function ScopeFace({ node }: { node: PatchNode }) {
   const workspace = useWorkspaceContext();
   const set = deviceSetOf(workspace, node.id);
   const source = iqSourceOf(workspace.graph, node.id);
-  const tap = basebandSourceOf(workspace.graph, node.id, workspace.devices, workspace.channels);
+  const tap = basebandSourceOf(
+    workspace.graph,
+    node.id,
+    workspace.devices,
+    workspace.channels,
+    workspace.owners,
+  );
   const [colormap] = useState<Colormap>(readColormap);
   const [chosen, setChosen] = useState<ScopeSource>("iq");
   const shown = scopeSource(chosen, source !== null, tap !== null);
@@ -185,10 +191,7 @@ export function ScopeFace({ node }: { node: PatchNode }) {
             deviceSet={tap.deviceSet}
             channel={tap.channel}
             colormap={colormap}
-            label={
-              workspace.devices.get(iqSourceOf(workspace.graph, tap.node)?.source ?? "")?.device
-                .label
-            }
+            label={workspace.deviceSets.find((radio) => radio.id === tap.deviceSet)?.device.label}
           />
         </FaceBody>
       </NodeShell>
@@ -305,7 +308,8 @@ function Spectrum({
   if (deviceNode !== undefined) {
     for (const wired of channelNodesOf(workspace.graph, deviceNode)) {
       const channel = workspace.channels.get(wired.node.id);
-      if (wired.stream === stream && channel !== undefined) {
+      const carried = (workspace.owners.get(wired.node.id) ?? deviceNode) === deviceNode;
+      if (carried && wired.stream === stream && channel !== undefined && onStream.has(channel.id)) {
         faces.set(channel.id, wired.node.id);
       }
     }

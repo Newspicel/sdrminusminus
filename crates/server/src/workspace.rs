@@ -157,6 +157,9 @@ pub(crate) fn bind_channels(
         if bound.iter().any(|(held, _)| held == node) {
             continue;
         }
+        if graph.lanes_of(node).first() != Some(&(device_node, *stream)) {
+            continue;
+        }
         let unclaimed = free
             .iter()
             .position(|live| live.node.is_none() && carries(live, channel_type, *stream));
@@ -174,7 +177,19 @@ pub(crate) fn bind(graph: &PatchGraph, state: &StateSnapshot) -> Vec<DeviceBindi
         .filter_map(|(node, device_set)| {
             let set = state.device_sets.iter().find(|set| set.id == device_set)?;
             Some(DeviceBinding {
-                channels: bind_channels(graph, &node, set),
+                channels: bind_channels(graph, &node, set)
+                    .into_iter()
+                    .filter(|(node, id)| {
+                        set.channels
+                            .iter()
+                            .any(|channel| channel.id == *id && channel.node.is_some())
+                            || !state.device_sets.iter().any(|set| {
+                                set.channels
+                                    .iter()
+                                    .any(|channel| channel.node.as_deref() == Some(node.as_str()))
+                            })
+                    })
+                    .collect(),
                 node,
                 device_set,
             })

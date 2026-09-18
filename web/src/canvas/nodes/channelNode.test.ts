@@ -37,10 +37,19 @@ describe("radioIsAttached", () => {
   const attached: DeviceInfo[] = [{ driver: "rtlsdr", key: "0", label: "RTL-SDR", serial: "A" }];
 
   it("only matches a named radio that is on the bus", () => {
-    expect(radioIsAttached({ backend: "rtlsdr", serial: "A" }, attached)).toBe(true);
-    expect(radioIsAttached({ backend: "rtlsdr", serial: "B" }, attached)).toBe(false);
-    expect(radioIsAttached({ backend: "rtlsdr", serial: "A" }, [])).toBe(false);
-    expect(radioIsAttached(null, attached)).toBe(false);
+    expect(radioIsAttached([{ backend: "rtlsdr", serial: "A" }], attached)).toBe(true);
+    expect(radioIsAttached([{ backend: "rtlsdr", serial: "B" }], attached)).toBe(false);
+    expect(radioIsAttached([{ backend: "rtlsdr", serial: "A" }], [])).toBe(false);
+    expect(radioIsAttached([], attached)).toBe(false);
+    expect(
+      radioIsAttached(
+        [
+          { backend: "rtlsdr", serial: "B" },
+          { backend: "rtlsdr", serial: "A" },
+        ],
+        attached,
+      ),
+    ).toBe(true);
   });
 });
 

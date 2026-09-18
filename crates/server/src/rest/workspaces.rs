@@ -244,8 +244,8 @@ pub(super) fn bring_up(
 
     workspace::describe_arrays(engine, &snapshot.graph);
     open_arrays(app, workspace, snapshot, saved, &mut report, &mut fresh);
+    crate::placement::settle_workspace(app, &snapshot.graph, saved, &mut report);
     state = engine.snapshot();
-
     for binding in &report.bound {
         let Some(set) = state
             .device_sets
@@ -255,31 +255,6 @@ pub(super) fn bring_up(
             continue;
         };
         let bound = workspace::bind_channels(&snapshot.graph, &binding.node, set);
-        for (node, stream) in snapshot.graph.channels_of(&binding.node) {
-            let NodeBody::Channel(channel) = &node.body else {
-                continue;
-            };
-            if bound.iter().any(|(held, _)| *held == node.id) {
-                continue;
-            }
-            let Some(settings) =
-                workspace::channel_settings(&node.id, &channel.channel_type, saved)
-            else {
-                report.refused.push(PatchRefusal {
-                    node: node.id.clone(),
-                    reason: format!("this build has no channel type {:?}", channel.channel_type),
-                });
-                continue;
-            };
-            if let Err(err) = engine.add_channel_for(set.id, stream, settings, Some(&node.id)) {
-                report.refused.push(PatchRefusal {
-                    node: node.id.clone(),
-                    reason: err.to_string(),
-                });
-            } else {
-                report.created += 1;
-            }
-        }
         let cut = set.channels.iter().filter(|channel| {
             channel.node.is_some() && !bound.iter().any(|(_, held)| *held == channel.id)
         });

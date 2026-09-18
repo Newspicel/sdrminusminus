@@ -31,13 +31,19 @@ export async function closeEngineObjects(
       }
     } else if (node?.kind === "channel") {
       const channel = workspace.channels.get(id);
-      const owner = iqSourceOf(workspace.graph, id)?.source;
+      const owner = workspace.owners.get(id) ?? iqSourceOf(workspace.graph, id)?.source;
       const set = owner === undefined ? undefined : workspace.devices.get(owner);
       if (channel !== undefined && set !== undefined) {
         await deleteChannel(set.id, channel.id);
       }
     } else if (node?.kind === "network_export") {
-      const baseband = basebandSourceOf(workspace.graph, id, workspace.devices, workspace.channels);
+      const baseband = basebandSourceOf(
+        workspace.graph,
+        id,
+        workspace.devices,
+        workspace.channels,
+        workspace.owners,
+      );
       if (baseband !== null) {
         if (baseband.channel.network_export?.node === id) {
           await networkExportChannel(

@@ -40,6 +40,7 @@ mod images;
 mod ionosonde;
 mod mcp;
 pub mod notices;
+mod placement;
 mod rest;
 pub mod routing;
 mod store;
@@ -165,6 +166,7 @@ fn router_with_state(mut state: AppState, options: &ServerOptions) -> (Router, B
     let background = start_background(&state);
     ws::start_decoded_encoder(&state);
     workspace::spawn_autosave(&state);
+    placement::spawn_settling(&state);
     state.gps.reconcile(&state);
     let (api_router, api) = rest::openapi_router().split_for_parts();
 

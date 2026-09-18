@@ -79,6 +79,7 @@ export function PropagationFace({ node }: { node: PatchNode }) {
     workspace.devices,
     workspace.channels,
     workspace.trunks,
+    workspace.owners,
   );
   const wired = inputs.filter((input) =>
     (PROPAGATION_KINDS as readonly string[]).includes(

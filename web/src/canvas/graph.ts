@@ -240,10 +240,19 @@ export function connectionRefusal(
   if (landing.some((edge) => edge.from.node === from.node && edge.from.port === from.port)) {
     return "already wired";
   }
+  if (
+    input.port_type === "iq" &&
+    nodeOf(graph, to.node)?.kind === "channel" &&
+    landing.length > 0 &&
+    [from, ...landing.map((edge) => edge.from)].some((source) => {
+      const kind = nodeOf(graph, source.node)?.kind;
+      return kind === "df" || kind === "combiner";
+    })
+  ) {
+    return "a beam input takes one wire";
+  }
   if (!input.multi && landing.length > 0) {
-    return nodeOf(graph, to.node)?.kind === "channel" && input.port_type === "iq"
-      ? "a channel takes one device; two would need a coherent array"
-      : "that input takes one wire";
+    return "that input takes one wire";
   }
   if (
     !out.multi &&

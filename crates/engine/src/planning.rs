@@ -42,6 +42,22 @@ pub(crate) fn validate_channel(
     Ok(())
 }
 
+pub(crate) fn hears(
+    capabilities: &Capabilities,
+    tuning: &DeviceSettings,
+    stream: u32,
+    settings: &ChannelSettings,
+) -> bool {
+    let (low, high) = sdrmm_channels::occupied_band(&settings.params);
+    let center = center_of(tuning, stream, &capabilities.per_stream);
+    crate::runtime::reaches(
+        settings.frequency_hz - center,
+        low,
+        high,
+        sample_rate_of(tuning),
+    )
+}
+
 pub(crate) fn tuner_reaches(capabilities: &Capabilities, hz: f64) -> bool {
     capabilities.freq_ranges.is_empty()
         || capabilities
@@ -239,6 +255,12 @@ fn best_center_hz(
     };
     candidate_centers(&spans, channels, current_hz)
         .into_iter()
+        .chain(
+            capabilities
+                .freq_ranges
+                .iter()
+                .flat_map(|range| [range.min, range.max]),
+        )
         .filter(|hz| hz.is_finite() && tuner_reaches(capabilities, *hz))
         .max_by(|a, b| {
             rank(*a)

@@ -42,6 +42,7 @@ pub mod iq;
 mod metrics;
 mod network_export;
 pub mod occupancy;
+mod placement;
 mod planning;
 mod position;
 mod publishing;
@@ -58,6 +59,7 @@ pub mod video;
 pub use audio::{AudioPacket, PcmBlock, PcmPayload};
 pub use image::ImageCapture;
 pub use iq::{IQ_BLOCK_SAMPLES, IQ_BLOCKS_PER_SEC, IqBlock};
+pub use placement::{Lane, Placeable, Placement};
 pub(crate) use planning::{dc_block, descriptor_for};
 pub use recording::FinalizedRecording;
 pub use runtime::SpectrumSnapshot;
@@ -530,14 +532,7 @@ impl DeviceSetState {
     }
 
     fn hears_with(&self, tuning: &DeviceSettings, stream: u32, settings: &ChannelSettings) -> bool {
-        let (low, high) = sdrmm_channels::occupied_band(&settings.params);
-        let center = center_of(tuning, stream, &self.capabilities.per_stream);
-        runtime::reaches(
-            settings.frequency_hz - center,
-            low,
-            high,
-            sample_rate_of(tuning),
-        )
+        planning::hears(&self.capabilities, tuning, stream, settings)
     }
 
     fn project(&self, id: u32) -> DeviceSet {

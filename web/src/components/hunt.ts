@@ -1,4 +1,4 @@
-import { bindChannels, bindDevices, controlledNodeOf, deviceNodeOf } from "../canvas/binding";
+import { bindCarriers, bindDevices, controlledNodeOf } from "../canvas/binding";
 import type { ChannelInfo, DeviceSet, HuntStatus, PatchGraph } from "../lib/types";
 
 export const HUNT_INTERVAL_MS = 50;
@@ -14,14 +14,13 @@ export function huntTarget(
   node: string,
 ): HuntTarget | null {
   const decoder = controlledNodeOf(graph, node);
-  const device = deviceNodeOf(graph, node);
-  if (decoder === null || device === null) {
+  if (decoder === null) {
     return null;
   }
   const devices = bindDevices(graph, sets);
-  const set = devices.get(device);
-  const channel = bindChannels(graph, devices).get(decoder);
-  return set === undefined || channel === undefined ? null : { set, channel };
+  const carrier = bindCarriers(graph, devices).get(decoder);
+  const set = carrier === undefined ? undefined : devices.get(carrier.owner);
+  return set === undefined || carrier === undefined ? null : { set, channel: carrier.channel };
 }
 
 export function liveHunt(set: DeviceSet | null, pushed: HuntStatus | undefined): HuntStatus | null {
