@@ -60,6 +60,7 @@ pub struct Ddc {
     nco: Nco,
     stages: Vec<Decimator>,
     fraction: Fraction,
+    mixed: Vec<Complex<f32>>,
     work_in: Vec<Complex<f32>>,
     work_out: Vec<Complex<f32>>,
 }
@@ -90,6 +91,7 @@ impl Ddc {
             nco: Nco::new((-offset_hz) as f32, input_rate as f32),
             stages,
             fraction: Fraction::for_ratio(output_rate / rate),
+            mixed: Vec::new(),
             work_in: Vec::new(),
             work_out: Vec::new(),
         })
@@ -101,6 +103,7 @@ impl Ddc {
             stage.reset();
         }
         self.fraction.reset();
+        self.mixed.clear();
         self.work_in.clear();
         self.work_out.clear();
     }
@@ -111,9 +114,14 @@ impl Ddc {
     }
 
     pub fn process(&mut self, input: &[Complex<f32>], out: &mut Vec<Complex<f32>>) {
-        self.work_in.resize(input.len(), Complex::new(0.0, 0.0));
-        self.nco.mix_into(input, &mut self.work_in);
-        for stage in &mut self.stages {
+        self.mixed.resize(input.len(), Complex::new(0.0, 0.0));
+        self.nco.mix_into(input, &mut self.mixed);
+        let Some((first, rest)) = self.stages.split_first_mut() else {
+            self.fraction.process(&self.mixed, out);
+            return;
+        };
+        first.process(&self.mixed, &mut self.work_in);
+        for stage in rest {
             stage.process(&self.work_in, &mut self.work_out);
             std::mem::swap(&mut self.work_in, &mut self.work_out);
         }
@@ -243,6 +251,40 @@ mod tests {
             let mut expected = Vec::new();
             fresh.process(&signal, &mut expected);
             assert_eq!(actual, expected);
+        }
+    }
+
+    #[test]
+    fn ragged_and_empty_blocks_preserve_output_across_all_resampling_paths() {
+        for (input_rate, output_rate) in [
+            (20_000_000.0, 48_000.0),
+            (20_000_000.0, 240_000.0),
+            (240_000.0, 48_000.0),
+            (240_000.0, 44_100.0),
+            (48_000.0, 48_000.0),
+            (48_000.0, 96_000.0),
+        ] {
+            let signal = tone_at_rate(731.0, input_rate, 16_389);
+            let mut whole = Ddc::new(input_rate, output_rate, 123.0).expect("rates");
+            let mut ragged = whole.clone();
+            let mut expected = Vec::new();
+            whole.process(&signal, &mut expected);
+            let mut actual = Vec::new();
+            let mut block = Vec::new();
+            let mut at = 0;
+            for len in [1, 17, 2048, 3, 4099, 0].into_iter().cycle() {
+                let end = (at + len).min(signal.len());
+                ragged.process(&signal[at..end], &mut block);
+                actual.extend_from_slice(&block);
+                at = end;
+                if at == signal.len() {
+                    break;
+                }
+            }
+            assert_eq!(actual, expected, "{input_rate} -> {output_rate}");
+            ragged.reset();
+            ragged.process(&signal, &mut actual);
+            assert_eq!(actual, expected, "reset {input_rate} -> {output_rate}");
         }
     }
 
