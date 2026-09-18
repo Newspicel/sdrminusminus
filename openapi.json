@@ -15910,6 +15910,16 @@
             "format": "int32",
             "minimum": 0
           },
+          "placement": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PlacementCoverage"
+              }
+            ]
+          },
           "refused": {
             "type": "array",
             "items": {
@@ -16079,6 +16089,25 @@
           "spectrum",
           "channel"
         ]
+      },
+      "PlacementCoverage": {
+        "type": "object",
+        "required": [
+          "heard",
+          "upper_bound"
+        ],
+        "properties": {
+          "heard": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "upper_bound": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
       },
       "PlaybackAction": {
         "type": "string",

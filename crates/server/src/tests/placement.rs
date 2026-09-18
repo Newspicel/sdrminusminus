@@ -72,6 +72,7 @@ fn a_failed_move_keeps_the_original_decoder() {
     settle(&app, &plan, &mut report);
     assert_eq!(report.refused.len(), 1, "{report:?}");
     assert_eq!(report.closed, 0);
+    assert!(report.placement.is_none());
     let snapshot = app.engine.snapshot();
     let original = snapshot.device_sets.iter().find(|set| set.id == a).unwrap();
     assert_eq!(original.channels.len(), 1);

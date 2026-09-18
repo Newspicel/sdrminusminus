@@ -371,3 +371,6 @@ fn a_whole_group_can_move_aside_to_free_a_radio() {
     let placed = place(&decoders, &radios);
     assert!(unheard(&radios, &decoders, &placed).is_empty());
 }
+
+#[path = "placement_comparison.rs"]
+mod comparison;

@@ -367,7 +367,22 @@ pub struct PatchBinding {
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct PlacementCoverage {
+    pub heard: u32,
+    pub upper_bound: u32,
+}
+
+impl PlacementCoverage {
+    #[must_use]
+    pub fn optimal(&self) -> bool {
+        self.heard == self.upper_bound
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct PatchApplyReport {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub placement: Option<PlacementCoverage>,
     pub bound: Vec<PatchBinding>,
     pub opened: u32,
     pub created: u32,
@@ -789,5 +804,31 @@ mod tests {
         assert_eq!(json["opened"], 1);
         assert!(json.get("absent").is_none());
         assert!(json.get("refused").is_none());
+    }
+
+    #[test]
+    fn allocation_coverage_distinguishes_a_proof_from_a_partial_search() {
+        let report = PatchApplyReport {
+            placement: Some(PlacementCoverage {
+                heard: 30,
+                upper_bound: 32,
+            }),
+            ..Default::default()
+        };
+        let json = serde_json::to_string(&report).unwrap();
+        let restored: PatchApplyReport = serde_json::from_str(&json).unwrap();
+        let coverage = restored.placement.unwrap();
+        assert_eq!(coverage.heard, 30);
+        assert!(!coverage.optimal());
+        assert!(
+            PlacementCoverage {
+                heard: 30,
+                upper_bound: 30
+            }
+            .optimal()
+        );
+        let old: PatchApplyReport =
+            serde_json::from_str(r#"{"bound":[],"opened":0,"created":0}"#).unwrap();
+        assert!(old.placement.is_none());
     }
 }

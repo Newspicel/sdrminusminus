@@ -59,7 +59,7 @@ pub mod video;
 pub use audio::{AudioPacket, PcmBlock, PcmPayload};
 pub use image::ImageCapture;
 pub use iq::{IQ_BLOCK_SAMPLES, IQ_BLOCKS_PER_SEC, IqBlock};
-pub use placement::{Lane, Placeable, Placement};
+pub use placement::{Allocation, Lane, Placeable, Placement};
 pub(crate) use planning::{dc_block, descriptor_for};
 pub use recording::FinalizedRecording;
 pub use runtime::SpectrumSnapshot;

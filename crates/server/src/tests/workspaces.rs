@@ -1317,6 +1317,9 @@ async fn a_decoder_wired_to_two_radios_opens_on_one_of_them() {
     assert_eq!(report.opened, 2);
     assert_eq!(report.created, 1, "{report:?}");
     assert!(report.refused.is_empty(), "{:?}", report.refused);
+    let coverage = report.placement.as_ref().expect("allocation quality");
+    assert_eq!(coverage.heard, 1);
+    assert!(coverage.optimal());
 
     let state = get_state(&app).await;
     let opened: usize = state.device_sets.iter().map(|set| set.channels.len()).sum();

@@ -96,6 +96,7 @@ fn openapi_registers_paths_and_ws_schemas() {
         "DeviceRef",
         "PatchCatalog",
         "PatchApplyReport",
+        "PlacementCoverage",
         "WorkspaceExport",
         "WorkspaceState",
         "ToolDescriptor",

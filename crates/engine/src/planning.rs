@@ -122,20 +122,59 @@ const SPAN_EPSILON_HZ: f64 = 1e-6;
 
 type Span = (f64, f64);
 
-fn feasible_span(channel: &ChannelInfo, rate: f64) -> Option<Span> {
-    let (low, high) = sdrmm_channels::occupied_band(&channel.settings.params);
-    let nyquist = rate / 2.0;
-    let frequency_hz = channel.settings.frequency_hz;
-    if !frequency_hz.is_finite() {
+fn frequency_key(hz: f64) -> u64 {
+    let bits = hz.to_bits();
+    if hz.is_sign_negative() {
+        !bits
+    } else {
+        bits ^ (1 << 63)
+    }
+}
+
+fn key_frequency(key: u64) -> f64 {
+    f64::from_bits(if key & (1 << 63) == 0 {
+        !key
+    } else {
+        key ^ (1 << 63)
+    })
+}
+
+fn first_frequency(mut holds: impl FnMut(f64) -> bool) -> f64 {
+    let mut low = frequency_key(-f64::MAX);
+    let mut high = frequency_key(f64::MAX);
+    while low < high {
+        let middle = low + (high - low) / 2;
+        if holds(key_frequency(middle)) {
+            high = middle;
+        } else {
+            low = middle + 1;
+        }
+    }
+    key_frequency(low)
+}
+
+pub(crate) fn tuning_span(frequency: f64, low: f64, high: f64, rate: f64) -> Option<Span> {
+    if !frequency.is_finite()
+        || !low.is_finite()
+        || !high.is_finite()
+        || !rate.is_finite()
+        || rate <= 0.0
+    {
         return None;
     }
-    let lowest = frequency_hz + high - nyquist;
-    let highest = frequency_hz + low + nyquist;
+    let lowest = first_frequency(|center| (frequency - center) + high <= rate / 2.0);
+    let highest =
+        -first_frequency(|negative_center| (frequency + negative_center) + low >= -rate / 2.0);
     (lowest <= highest).then_some((lowest, highest))
 }
 
+fn feasible_span(channel: &ChannelInfo, rate: f64) -> Option<Span> {
+    let (low, high) = sdrmm_channels::occupied_band(&channel.settings.params);
+    tuning_span(channel.settings.frequency_hz, low, high, rate)
+}
+
 fn holds(span: Span, center_hz: f64) -> bool {
-    span.0 <= center_hz + SPAN_EPSILON_HZ && center_hz <= span.1 + SPAN_EPSILON_HZ
+    span.0 <= center_hz && center_hz <= span.1
 }
 
 fn covered_count(spans: &[Span], center_hz: f64) -> usize {
@@ -211,6 +250,8 @@ fn candidate_centers(spans: &[Span], channels: &[ChannelInfo], current_hz: f64) 
             );
         }
     }
+    let mut seen = std::collections::HashSet::new();
+    candidates.retain(|hz| seen.insert(hz.to_bits()));
     candidates
 }
 

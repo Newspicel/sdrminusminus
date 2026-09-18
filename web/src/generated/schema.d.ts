@@ -4489,6 +4489,7 @@ export interface components {
             created: number;
             /** Format: int32 */
             opened: number;
+            placement?: null | components["schemas"]["PlacementCoverage"];
             refused?: components["schemas"]["PatchRefusal"][];
         };
         PatchBinding: {
@@ -4529,6 +4530,12 @@ export interface components {
         };
         /** @enum {string} */
         PipelineStage: "capture" | "spectrum" | "channel";
+        PlacementCoverage: {
+            /** Format: int32 */
+            heard: number;
+            /** Format: int32 */
+            upper_bound: number;
+        };
         /** @enum {string} */
         PlaybackAction: "play" | "pause" | "stop" | "seek";
         PlaybackRequest: {

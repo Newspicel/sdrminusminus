@@ -171,8 +171,18 @@ fn close(app: &AppState, slot: &Slot, carried: Carried, report: &mut PatchApplyR
 }
 
 pub(crate) fn settle(app: &AppState, plan: &Plan, report: &mut PatchApplyReport) {
+    report.placement = None;
     report.refused.extend(plan.refused.iter().cloned());
-    let placements = app.engine.place_channels(&plan.decoders());
+    let allocation = app.engine.place_channels(&plan.decoders());
+    let placements = &allocation.placements;
+    let refused = report.refused.len();
+    if !allocation.coverage.optimal() {
+        tracing::warn!(
+            heard = allocation.coverage.heard,
+            upper_bound = allocation.coverage.upper_bound,
+            "decoder allocation search stopped before proving optimality"
+        );
+    }
     for slot in &plan.slots {
         let target = placements
             .iter()
@@ -200,6 +210,9 @@ pub(crate) fn settle(app: &AppState, plan: &Plan, report: &mut PatchApplyReport)
                 reason: "no wired receive stream is available".to_owned(),
             }),
         }
+    }
+    if report.refused.len() == refused {
+        report.placement = Some(allocation.coverage);
     }
 }
 

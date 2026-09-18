@@ -89,6 +89,22 @@ discovered radios, restores settings, and reconciles channels and engine objects
 Saved references use backend, serial, key, and variant identity. Engine IDs are temporary and
 never stored in the graph. Disconnected radios retain their nodes and settings until reconnection.
 
+## Decoder allocation
+
+The control plane searches tuning windows with branch-and-bound. Each independently tunable
+stream gets one window; shared tuning gets one per radio. Coverage respects IQ wires, occupied
+bandwidth, tuning ranges, manual settings and pinned decoders. Existing fixed channels count too.
+
+Search keeps a feasible incumbent and stops after 50 ms or 100,000 search nodes. Preparation and
+final verification add some overhead. Apply reports include `placement.heard` and
+`placement.upper_bound`: equality proves maximum coverage for the planning snapshot. A gap means
+optimality remains unproven. Failed moves omit this result. Ties favor existing placements;
+minimum migration count is not part of the proof.
+
+The allocation tests compare an independent exhaustive oracle, the former heuristic and the
+window search. Run the larger comparison with
+`cargo test -p sdrmm-engine --lib compares_realistic_sizes -- --ignored --nocapture`.
+
 ## Failure and backpressure
 
 Queues are bounded. Overruns, dropped frames, recording faults, truncated exports, WebSocket lag,

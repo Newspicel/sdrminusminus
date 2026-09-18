@@ -359,3 +359,31 @@ async fn a_decoder_beyond_the_window_is_left_silent_rather_than_costing_the_othe
     assert!(set.channels[2].out_of_band);
     engine.remove_device_set(ds).unwrap();
 }
+
+#[test]
+fn feasible_tuning_boundaries_match_the_runtime_at_adjacent_floats() {
+    for frequency in [0.0, -100_000_000.1, 100_000_000.1, 1_000_000_000_000.3] {
+        for (low, high) in [(-6_250.0, 6_250.0), (0.0, 3_000.0), (-3_000.0, 0.0)] {
+            for rate in [12_500.0, 48_000.0, 2_400_000.0] {
+                let (first, last) =
+                    crate::planning::tuning_span(frequency, low, high, rate).unwrap();
+                assert!(crate::runtime::reaches(frequency - first, low, high, rate));
+                assert!(crate::runtime::reaches(frequency - last, low, high, rate));
+                assert!(!crate::runtime::reaches(
+                    frequency - first.next_down(),
+                    low,
+                    high,
+                    rate
+                ));
+                assert!(!crate::runtime::reaches(
+                    frequency - last.next_up(),
+                    low,
+                    high,
+                    rate
+                ));
+            }
+        }
+    }
+    assert!(crate::planning::tuning_span(100e6, -100_000.0, 100_000.0, 48_000.0).is_none());
+    assert!(crate::planning::tuning_span(f64::NAN, 0.0, 1.0, 48_000.0).is_none());
+}
