@@ -118,6 +118,26 @@ impl RecorderTap {
 
     #[must_use]
     pub(crate) fn push(&self, slice: &[Complex<f32>], start_sample: u64, center_hz: f64) -> bool {
+        self.enqueue(slice, start_sample, center_hz, false)
+    }
+
+    #[must_use]
+    pub(crate) fn push_waiting(
+        &self,
+        slice: &[Complex<f32>],
+        start_sample: u64,
+        center_hz: f64,
+    ) -> bool {
+        self.enqueue(slice, start_sample, center_hz, true)
+    }
+
+    fn enqueue(
+        &self,
+        slice: &[Complex<f32>],
+        start_sample: u64,
+        center_hz: f64,
+        wait: bool,
+    ) -> bool {
         if slice.is_empty() {
             return true;
         }
@@ -126,11 +146,18 @@ impl RecorderTap {
             center_hz,
             samples: Arc::from(slice),
         };
-        match self.tx.try_send(RecMessage::Block(block)) {
+        let message = RecMessage::Block(block);
+        let result = if wait {
+            self.tx
+                .send(message)
+                .map_err(|error| mpsc::TrySendError::Disconnected(error.0))
+        } else {
+            self.tx.try_send(message)
+        };
+        match result {
             Ok(()) => true,
             Err(mpsc::TrySendError::Full(_)) => {
-                self.shared
-                    .fail("recording queue overflow — disk too slow?".to_string());
+                self.shared.fail("recording queue overflow".to_string());
                 false
             }
             Err(mpsc::TrySendError::Disconnected(_)) => {
