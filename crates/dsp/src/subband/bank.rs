@@ -1,13 +1,14 @@
 use num_complex::Complex;
 
-use super::{FACTOR, HALF_BANDS, MIXER_PERIOD, MIXER_STEP, SUBBANDS, prototype};
-use crate::{fft::FftPair, fir::Accumulate};
+use super::{
+    FACTOR, HALF_BANDS, MIXER_PERIOD, MIXER_STEP, SUBBANDS, prototype, transform::Inverse25,
+};
+use crate::fir::Accumulate;
 
 pub struct SubbandFilterBank {
     taps: Vec<f32>,
     input: Vec<Complex<f32>>,
-    transforms: Vec<Complex<f32>>,
-    fft: FftPair,
+    fft: Inverse25,
     output: [Vec<Complex<f32>>; SUBBANDS],
     phase: usize,
 }
@@ -20,8 +21,7 @@ impl SubbandFilterBank {
         Self {
             taps,
             input,
-            transforms: Vec::with_capacity(block_len.div_ceil(FACTOR) * MIXER_PERIOD),
-            fft: FftPair::new(MIXER_PERIOD),
+            fft: Inverse25::new(),
             output: std::array::from_fn(|_| Vec::with_capacity(block_len.div_ceil(FACTOR))),
             phase: 0,
         }
@@ -31,7 +31,6 @@ impl SubbandFilterBank {
         self.input.clear();
         self.input
             .resize(self.taps.len() - 1, Complex::new(0.0, 0.0));
-        self.transforms.clear();
         for output in &mut self.output {
             output.clear();
         }
@@ -42,16 +41,11 @@ impl SubbandFilterBank {
         self.input.extend_from_slice(input);
         let samples = self.input.len().saturating_sub(self.taps.len() - 1);
         let frames = samples.div_ceil(FACTOR);
-        self.transforms
-            .resize(frames * MIXER_PERIOD, Complex::new(0.0, 0.0));
-        self.transforms.fill(Complex::new(0.0, 0.0));
-        for (frame, transform) in self
-            .transforms
-            .as_chunks_mut::<MIXER_PERIOD>()
-            .0
-            .iter_mut()
-            .enumerate()
-        {
+        for output in &mut self.output {
+            output.clear();
+        }
+        for frame in 0..frames {
+            let mut transform = [Complex::new(0.0, 0.0); MIXER_PERIOD];
             let window = &self.input[frame * FACTOR..frame * FACTOR + self.taps.len()];
             for (samples, taps) in window
                 .rchunks(MIXER_PERIOD)
@@ -64,14 +58,9 @@ impl SubbandFilterBank {
                 }
             }
             transform.rotate_left((self.phase + frame) % (MIXER_PERIOD / FACTOR) * FACTOR);
-        }
-        if !self.transforms.is_empty() {
-            self.fft.inverse(&mut self.transforms);
-        }
-        for (band, output) in self.output.iter_mut().enumerate() {
-            output.clear();
-            let bin = ((band + MIXER_PERIOD - HALF_BANDS) * MIXER_STEP) % MIXER_PERIOD;
-            for transform in self.transforms.as_chunks::<MIXER_PERIOD>().0 {
+            self.fft.process(&mut transform);
+            for (band, output) in self.output.iter_mut().enumerate() {
+                let bin = ((band + MIXER_PERIOD - HALF_BANDS) * MIXER_STEP) % MIXER_PERIOD;
                 output.push(transform[bin]);
             }
         }

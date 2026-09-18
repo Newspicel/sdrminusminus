@@ -906,6 +906,75 @@ mod tests {
     }
 
     #[test]
+    fn noisy_frames_decode_through_every_protected_shared_subband_without_crc_repair() {
+        use sdrmm_dsp::{
+            Ddc,
+            subband::{SUBBANDS, SubbandPlan},
+        };
+
+        let rate = 20_000_000.0;
+        let plan = SubbandPlan::new(rate).unwrap();
+        let frames = [
+            squitter(0x3C_6444, me_identification("DLH123")),
+            squitter(0x3C_6444, me_airborne_position(38_000, LAT, LON, false)),
+        ];
+        let expected: Vec<_> = frames.iter().map(|frame| hex_upper(frame)).collect();
+        let mut tested = 0;
+        for band in 0..SUBBANDS {
+            let offset = plan.center(band);
+            if plan.select(offset, INPUT_RATE_HZ) != Some(band) {
+                continue;
+            }
+            tested += 1;
+            let mut decoded = 0;
+            for phase in 0..20 {
+                for seed in 0..5 {
+                    let mut iq = transmission_at_phase(
+                        &frames,
+                        GAP_US,
+                        LEVEL,
+                        rate,
+                        f64::from(phase) / 20.0,
+                    );
+                    add_noise(&mut iq, 0xADB0 + phase + 97 * seed, 0.01);
+                    for (index, sample) in iq.iter_mut().enumerate() {
+                        let angle = TAU * offset / rate * index as f64;
+                        let (sin, cos) = angle.sin_cos();
+                        *sample *= Complex::new(cos as f32, sin as f32);
+                    }
+                    let mut bank = plan.filter_bank(8192);
+                    let mut ddc = Ddc::new(plan.output_rate(), INPUT_RATE_HZ, 0.0).unwrap();
+                    let mut output = Vec::new();
+                    let mut block = Vec::new();
+                    let mut start = 0;
+                    for size in [1, 17, 2048, 8192, 3, 4095].into_iter().cycle() {
+                        let end = (start + size).min(iq.len());
+                        bank.process(&iq[start..end]);
+                        ddc.process(bank.samples(band), &mut block);
+                        output.extend_from_slice(&block);
+                        start = end;
+                        if start == iq.len() {
+                            break;
+                        }
+                    }
+                    let messages = feed(
+                        &mut channel(AdsbParams {
+                            crc_fix: false,
+                            ..AdsbParams::default()
+                        }),
+                        &output,
+                        &[1, 17, 4096, 3, 8192],
+                    );
+                    let actual: Vec<_> = messages.into_iter().map(|message| message.raw).collect();
+                    decoded += usize::from(actual == expected);
+                }
+            }
+            assert_eq!(decoded, 100, "band={band}");
+        }
+        assert_eq!(tested, 11);
+    }
+
+    #[test]
     fn the_fixture_transmission_decodes_byte_for_byte() {
         let icao = 0x3C_6444;
         let frames = [

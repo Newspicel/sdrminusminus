@@ -3,6 +3,7 @@ use num_complex::Complex;
 use crate::{Decimator, design_lowpass};
 
 mod bank;
+mod transform;
 pub use bank::SubbandFilterBank;
 
 const FACTOR: usize = 5;
