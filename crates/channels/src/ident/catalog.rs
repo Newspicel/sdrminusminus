@@ -397,15 +397,15 @@ const SIGNATURES: &[Signature] = &[
         )
     },
     Signature {
-        symbol_rate_hz: Some(about(6_250.0, 0.05)),
+        symbol_rate_hz: Some(about(3_125.0, 0.05)),
         deviation_hz: Some(range(3_500.0, 6_500.0)),
         frequencies: ERMES_BAND,
         ..signature(
             "ERMES",
             Some("ermes"),
             &[Modulation::Fsk4],
-            range(15_000.0, 30_000.0),
-            "four-level keying at 6250 baud in the ERMES band",
+            range(12_500.0, 30_000.0),
+            "four-level keying at 3125 baud in the ERMES band",
         )
     },
     Signature {
@@ -809,16 +809,26 @@ pub(crate) fn candidates(
     waveform: &Waveform,
     frequency_hz: Option<f64>,
 ) -> Vec<ProtocolMatch> {
-    let mut found: Vec<ProtocolMatch> = SIGNATURES
+    let mut found: Vec<(ProtocolMatch, f64)> = SIGNATURES
         .iter()
         .copied()
         .chain(dv_signatures())
         .filter(|signature| signature.modulations.contains(&modulation))
-        .filter_map(|signature| score(&signature, band, waveform, frequency_hz))
+        .filter_map(|signature| {
+            let matched = score(&signature, band, waveform, frequency_hz)?;
+            let tolerance = signature.symbol_rate_hz.map_or(f64::INFINITY, |rate| {
+                (rate.high - rate.low) / rate.high.max(1.0)
+            });
+            Some((matched, tolerance))
+        })
         .collect();
-    found.sort_by(|a, b| b.score.total_cmp(&a.score));
+    found.sort_by(|(a, a_tolerance), (b, b_tolerance)| {
+        b.score
+            .total_cmp(&a.score)
+            .then(a_tolerance.total_cmp(b_tolerance))
+    });
     found.truncate(MAX_CANDIDATES);
-    found
+    found.into_iter().map(|(matched, _)| matched).collect()
 }
 
 fn score(
@@ -937,6 +947,18 @@ mod tests {
             None,
         );
         assert_eq!(names(&found).first(), Some(&"POCSAG (1200 bd)"));
+    }
+
+    #[test]
+    fn ermes_uses_its_symbol_rate_and_occupied_bandwidth() {
+        let found = candidates(
+            Modulation::Fsk4,
+            &band(13_125.0),
+            &keyed(3_126.0, 4_762.0),
+            Some(169_650_000.0),
+        );
+        assert_eq!(names(&found).first(), Some(&"ERMES"));
+        assert_eq!(found[0].score, 1.0);
     }
 
     #[test]

@@ -171,7 +171,7 @@ export class JitterBuffer {
     if (excess <= 0) {
       return 1;
     }
-    const correction = Math.min(1, excess / (1 - deadband)) * maxDrift;
+    const correction = Math.min(1, excess / (0.5 - deadband)) * maxDrift;
     return error > 0 ? 1 + correction : 1 - correction;
   }
 

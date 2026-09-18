@@ -9,7 +9,7 @@ export const MAX_FRAMES = 19_200;
 
 export function targetFramesForHost(hostname: string): number {
   return ["localhost", "127.0.0.1", "[::1]", "::1", "tauri.localhost"].includes(hostname)
-    ? 2_880
+    ? 3_840
     : TARGET_FRAMES;
 }
 export const MAX_GAP_FRAMES = 19_200;
