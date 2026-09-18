@@ -27,6 +27,9 @@ pub(crate) struct CaptureConsumer {
     samples: Consumer<Complex<f32>>,
     spans: Consumer<Span>,
     pending: Option<Span>,
+    recovering: bool,
+    last_stale: Option<u64>,
+    fresh_since_stale: bool,
     room: Arc<SinkRoom>,
     pub(crate) metrics: Arc<QueueMetrics>,
 }
@@ -49,6 +52,9 @@ pub(crate) fn capture_ring(capacity: usize) -> (CaptureProducer, CaptureConsumer
             samples: samples_rx,
             spans: spans_rx,
             pending: None,
+            recovering: false,
+            last_stale: None,
+            fresh_since_stale: false,
             room,
             metrics,
         },
@@ -105,6 +111,16 @@ impl CaptureConsumer {
         &mut self,
         limit: usize,
         max_age: Duration,
+        receive: impl FnMut(&[Complex<f32>], u64),
+    ) -> usize {
+        self.consume_fresh_at(limit, max_age, self.metrics.now(), receive)
+    }
+
+    fn consume_fresh_at(
+        &mut self,
+        limit: usize,
+        max_age: Duration,
+        now: u64,
         mut receive: impl FnMut(&[Complex<f32>], u64),
     ) -> usize {
         let Some(mut span) = self.pending.take().or_else(|| self.spans.pop().ok()) else {
@@ -116,8 +132,26 @@ impl CaptureConsumer {
             return 0;
         };
         self.metrics.oldest(span.queued);
-        let fresh =
-            u128::from(self.metrics.now().saturating_sub(span.queued)) <= max_age.as_micros();
+        let age = u128::from(now.saturating_sub(span.queued));
+        let max_age = max_age.as_micros();
+        if age > max_age {
+            self.recovering |= self.fresh_since_stale
+                && self
+                    .last_stale
+                    .is_some_and(|last| u128::from(now.saturating_sub(last)) <= max_age);
+            self.last_stale = Some(now);
+            self.fresh_since_stale = false;
+        }
+        let fresh = age
+            <= if self.recovering {
+                max_age / 2
+            } else {
+                max_age
+            };
+        if fresh {
+            self.recovering = false;
+            self.fresh_since_stale = true;
+        }
         if !fresh {
             self.metrics.dropped(len);
         }
@@ -168,6 +202,131 @@ mod tests {
 
     fn expected(indices: impl Iterator<Item = u64>) -> Vec<(u64, f32)> {
         indices.map(|index| (index, index as f32)).collect()
+    }
+
+    #[test]
+    fn sustained_overload_keeps_contiguous_audio_windows_available() {
+        let (mut producer, mut consumer) = capture_ring(100);
+        let mut now = 7_000;
+        let mut produced = 0;
+        let mut received = 0;
+        let mut next = 0;
+        let mut contiguous = 0;
+        let mut last_frame = 0;
+        while now < 2_000_000 {
+            while (produced + 7) * 1_000 <= now {
+                producer.push(&ramp(produced, 7), produced);
+                produced += 7;
+            }
+            if let Some(mut span) = consumer
+                .pending
+                .take()
+                .or_else(|| consumer.spans.pop().ok())
+            {
+                span.queued = (span.start / 7 + 1) * 7_000;
+                consumer.pending = Some(span);
+            }
+            let mut processed = 0;
+            consumer.consume_fresh_at(1, Duration::from_millis(100), now, |samples, start| {
+                if start != next {
+                    contiguous = 0;
+                }
+                next = start + samples.len() as u64;
+                contiguous += samples.len();
+                if contiguous >= 20 {
+                    last_frame = now;
+                    contiguous -= 20;
+                }
+                processed += samples.len();
+            });
+            received += processed as u64;
+            now += if processed > 0 { 2_000 } else { 10 };
+        }
+        let health = consumer.metrics.snapshot();
+        assert_eq!(received + health.dropped + health.queued, produced);
+        assert!(
+            health.dropped > 0,
+            "the simulated consumer must be overloaded"
+        );
+        assert!(last_frame >= 1_800_000, "audio stopped at {last_frame} us");
+    }
+
+    #[test]
+    fn repeated_stalls_recover_headroom_then_restore_the_full_age_limit() {
+        let (mut producer, mut consumer) = capture_ring(24);
+        producer.push(&ramp(0, 4), 0);
+        producer.push(&ramp(4, 4), 4);
+        producer.push(&ramp(8, 4), 8);
+        producer.push(&ramp(12, 4), 12);
+        producer.push(&ramp(16, 8), 16);
+        for queued in [0, 20_000, 30_000, 50_000, 90_000] {
+            let mut span = consumer.spans.pop().expect("span");
+            span.queued = queued;
+            producer.spans.push(span).expect("restamp");
+        }
+        let max_age = Duration::from_millis(100);
+        assert_eq!(
+            consumer.consume_fresh_at(4, max_age, 100_001, |_, _| panic!("stale")),
+            4
+        );
+        assert_eq!(
+            consumer.consume_fresh_at(4, max_age, 100_001, |samples, start| {
+                assert_eq!(start, 4);
+                assert_eq!(samples, ramp(4, 4));
+            }),
+            4
+        );
+        for _ in 0..2 {
+            assert_eq!(
+                consumer.consume_fresh_at(4, max_age, 130_001, |_, _| panic!("stale")),
+                4
+            );
+        }
+        let mut received = Vec::new();
+        for now in [130_001, 180_000] {
+            assert_eq!(
+                consumer.consume_fresh_at(4, max_age, now, |samples, start| {
+                    received.extend(
+                        samples
+                            .iter()
+                            .enumerate()
+                            .map(|(offset, sample)| (start + offset as u64, sample.re)),
+                    );
+                }),
+                4
+            );
+        }
+        assert_eq!(received, expected(16..24));
+        assert_eq!(consumer.metrics.snapshot().dropped, 12);
+        assert_eq!(consumer.metrics.snapshot().queued, 0);
+        assert_eq!(producer.room.free(), 24);
+    }
+
+    #[test]
+    fn an_isolated_stall_preserves_every_sample_within_the_age_limit() {
+        let (mut producer, mut consumer) = capture_ring(8);
+        for start in [0, 4] {
+            producer.push(&ramp(start, 4), start);
+        }
+        for queued in [0, 30_000] {
+            let mut span = consumer.spans.pop().expect("span");
+            span.queued = queued;
+            producer.spans.push(span).expect("restamp");
+        }
+        let max_age = Duration::from_millis(100);
+        assert_eq!(
+            consumer.consume_fresh_at(4, max_age, 110_000, |_, _| panic!("stale")),
+            4
+        );
+        assert_eq!(
+            consumer.consume_fresh_at(4, max_age, 110_000, |samples, start| {
+                assert_eq!(start, 4);
+                assert_eq!(samples, ramp(4, 4));
+            }),
+            4
+        );
+        assert_eq!(consumer.metrics.snapshot().dropped, 4);
+        assert_eq!(producer.room.free(), 8);
     }
 
     #[test]
