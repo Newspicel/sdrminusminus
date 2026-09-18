@@ -108,8 +108,8 @@ pub use filter::{
     MAX_FILTER_TEXT_LEN, POSITION_KINDS, VOICE_KINDS, predicates_for,
 };
 pub use frame::{
-    AudioFrame, FrameKind, HEADER_LEN, IqFrame, PROTOCOL_VERSION, RangeDopplerFrame, SpectrumFrame,
-    SymbolFrame, SymbolPlane, VideoData, VideoFrame, typescript_frames,
+    AudioFrame, FrameHeader, FrameKind, HEADER_LEN, IqFrame, PROTOCOL_VERSION, RangeDopplerFrame,
+    SpectrumFrame, SymbolFrame, SymbolPlane, VideoData, VideoFrame, typescript_frames,
 };
 pub use hunt::{HuntAction, HuntRequest, HuntSettings, HuntStatus};
 pub use network::{

@@ -34,6 +34,8 @@ members = [
     "xtask",
 ]
 
+exclude = ["experiments"]
+
 default-members = [
     "crates/test-support",
     "crates/wire",

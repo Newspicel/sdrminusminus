@@ -1,0 +1,52 @@
+[workspace]
+
+[package]
+name = "sdrmm-native"
+edition = "2024"
+version = "0.0.0"
+license = "GPL-3.0-or-later"
+authors = ["sdr-- contributors"]
+publish = false
+
+[[bin]]
+name = "sdrmm-native"
+path = "src/main.rs"
+
+[lints.clippy]
+unwrap_used = "warn"
+expect_used = "warn"
+
+[features]
+default = ["rtlsdr", "hackrf", "net-client"]
+rtlsdr = ["sdrmm-server/rtlsdr"]
+hackrf = ["sdrmm-server/hackrf"]
+net-client = ["sdrmm-server/net-client"]
+
+[dependencies]
+zgui = { git = "https://github.com/zortax/zgui", rev = "f046ccd26a5862731b94b3b3f89dbcfe8f74d551" }
+zgui-ui = { git = "https://github.com/zortax/zgui", rev = "f046ccd26a5862731b94b3b3f89dbcfe8f74d551" }
+zgui-tokio = { git = "https://github.com/zortax/zgui", rev = "f046ccd26a5862731b94b3b3f89dbcfe8f74d551" }
+
+sdrmm-wire = { path = "../../crates/wire" }
+sdrmm-engine = { path = "../../crates/engine", default-features = false }
+sdrmm-server = { path = "../../crates/server", default-features = false }
+
+anyhow = "1"
+axum = { version = "0.8", features = ["ws"] }
+clap = { version = "4", features = ["derive", "env"] }
+dirs = "6"
+futures = "0.3"
+reqwest = { version = "0.13.4", default-features = false, features = ["json", "rustls"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1.53", features = ["rt-multi-thread", "macros", "sync", "time", "net"] }
+tokio-tungstenite = "0.30"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[dev-dependencies]
+sdrmm-device = { path = "../../crates/device" }
+sdrmm-device-virtual = { path = "../../crates/device-virtual" }
+
+[profile.dev.package."*"]
+opt-level = 3
