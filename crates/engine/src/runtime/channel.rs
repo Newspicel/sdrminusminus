@@ -755,7 +755,7 @@ mod tests {
         let input = vec![Complex::new(0.5, 0.25); DSP_BLOCK];
         let mut index = 0;
         let mut expected = 0;
-        for (stage, count) in [1, 2, 1, 2].into_iter().enumerate() {
+        for (stage, count) in [1, 2, 13, 2, 13, 1, 2].into_iter().enumerate() {
             channels.truncate(count);
             while channels.len() < count {
                 let id = channels.len() as u32 + 1;
@@ -774,7 +774,15 @@ mod tests {
             }
             let center = CENTER + stage as f64 * 1000.0;
             let offset = if stage >= 2 { 1_700_000.0 } else { 100_000.0 };
-            for (_, host) in &mut channels {
+            let plan = sdrmm_dsp::subband::SubbandPlan::new(rate).unwrap();
+            let target = plan.select(offset, 48_000.0).unwrap();
+            for (index, (_, host)) in channels.iter_mut().enumerate() {
+                let offset = if count == 13 && index > 0 {
+                    let band = index - 1 + usize::from(index > target);
+                    plan.center(band) + 100_000.0
+                } else {
+                    offset
+                };
                 host.retune(center + offset);
             }
             for _ in 0..100 {

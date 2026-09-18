@@ -2,6 +2,9 @@ use num_complex::Complex;
 
 use crate::{Decimator, design_lowpass};
 
+mod bank;
+pub use bank::SubbandFilterBank;
+
 const FACTOR: usize = 5;
 const PASSBAND: f64 = 0.3;
 const MIXER_PERIOD: usize = 25;
@@ -57,10 +60,9 @@ impl SubbandPlan {
 
     #[must_use]
     pub fn decimator(self, band: usize, block_len: usize) -> SubbandDecimator {
-        let taps = ((5.5 * FACTOR as f64 / (1.0 - 2.0 * PASSBAND)).ceil() as usize) | 1;
         let mut result = SubbandDecimator {
             mixer: (band != HALF_BANDS).then(|| PeriodicMixer::new(band)),
-            filter: Decimator::new(&design_lowpass(taps, 0.5 / FACTOR as f64), FACTOR),
+            filter: Decimator::new(&prototype(), FACTOR),
             mixed: vec![Complex::new(0.0, 0.0); block_len],
         };
         let mut output = Vec::new();
@@ -68,6 +70,29 @@ impl SubbandPlan {
         result.reset();
         result
     }
+
+    #[must_use]
+    pub fn filter_bank(self, block_len: usize) -> SubbandFilterBank {
+        SubbandFilterBank::new(block_len)
+    }
+
+    #[must_use]
+    pub const fn alignment(self) -> usize {
+        MIXER_PERIOD
+    }
+
+    #[must_use]
+    pub fn history_len(self) -> usize {
+        (prototype_len().div_ceil(MIXER_PERIOD) + 1) * MIXER_PERIOD
+    }
+}
+
+fn prototype_len() -> usize {
+    ((5.5 * FACTOR as f64 / (1.0 - 2.0 * PASSBAND)).ceil() as usize) | 1
+}
+
+fn prototype() -> Vec<f32> {
+    design_lowpass(prototype_len(), 0.5 / FACTOR as f64)
 }
 
 #[derive(Clone, Debug)]
@@ -260,35 +285,48 @@ mod tests {
         let mut selected = Vec::new();
         let mut block = Vec::new();
         let mut output = Vec::new();
-        for chunk in input.chunks(2048) {
-            coarse.process(chunk, &mut selected);
-            ddc.process(&selected, &mut block);
-            output.extend_from_slice(&block);
+        let mut bank = plan.filter_bank(2048);
+        for combined in [false, true] {
+            output.clear();
+            coarse.reset();
+            ddc.reset();
+            bank.reset();
+            for chunk in input.chunks(2048) {
+                let selected = if combined {
+                    bank.process(chunk);
+                    bank.samples(band)
+                } else {
+                    coarse.process(chunk, &mut selected);
+                    &selected
+                };
+                ddc.process(selected, &mut block);
+                output.extend_from_slice(&block);
+            }
+            let mut audio = Vec::new();
+            FmDemod::new(48_000.0, 2500.0).process(&output, &mut audio);
+            let settled = &audio[480..];
+            let tone: Complex<f64> = settled
+                .iter()
+                .enumerate()
+                .map(|(index, &sample)| {
+                    Complex::from_polar(f64::from(sample), -TAU * 1000.0 * index as f64 / 48_000.0)
+                })
+                .sum();
+            let tone_power = 2.0 * tone.norm_sqr() / (settled.len() as f64).powi(2);
+            let total = settled
+                .iter()
+                .map(|&sample| f64::from(sample).powi(2))
+                .sum::<f64>()
+                / settled.len() as f64;
+            assert!(
+                (0.45..0.55).contains(&tone_power),
+                "tone power={tone_power}"
+            );
+            assert!(
+                total - tone_power < 0.001,
+                "distortion power={}",
+                total - tone_power
+            );
         }
-        let mut audio = Vec::new();
-        FmDemod::new(48_000.0, 2500.0).process(&output, &mut audio);
-        let settled = &audio[480..];
-        let tone: Complex<f64> = settled
-            .iter()
-            .enumerate()
-            .map(|(index, &sample)| {
-                Complex::from_polar(f64::from(sample), -TAU * 1000.0 * index as f64 / 48_000.0)
-            })
-            .sum();
-        let tone_power = 2.0 * tone.norm_sqr() / (settled.len() as f64).powi(2);
-        let total = settled
-            .iter()
-            .map(|&sample| f64::from(sample).powi(2))
-            .sum::<f64>()
-            / settled.len() as f64;
-        assert!(
-            (0.45..0.55).contains(&tone_power),
-            "tone power={tone_power}"
-        );
-        assert!(
-            total - tone_power < 0.001,
-            "distortion power={}",
-            total - tone_power
-        );
     }
 }

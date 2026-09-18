@@ -139,6 +139,16 @@ fn shared_tuning(c: &mut Criterion) {
                     }
                 });
             });
+            let mut bank = plan.filter_bank(input.len());
+            group.bench_function(format!("{layout}/{count}/filter_bank"), |b| {
+                b.iter(|| {
+                    bank.process(black_box(&input));
+                    for (band, ddc) in &mut channels {
+                        ddc.process(bank.samples(bands[*band].index), &mut output);
+                        black_box(&output);
+                    }
+                });
+            });
         }
     }
     group.finish();
