@@ -27,6 +27,7 @@ pub mod resamp;
 pub mod spectrum;
 pub mod squelch;
 pub mod steering;
+pub mod subband;
 pub mod sync;
 pub mod tone;
 pub mod track;

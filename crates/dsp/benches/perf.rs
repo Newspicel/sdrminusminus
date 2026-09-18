@@ -64,6 +64,83 @@ fn tuning(c: &mut Criterion) {
     group.finish();
 }
 
+struct SharedBand {
+    index: usize,
+    decimator: sdrmm_dsp::subband::SubbandDecimator,
+    output: Vec<Complex<f32>>,
+}
+
+fn shared_tuning(c: &mut Criterion) {
+    let input = pseudo(2048, 0x5B);
+    let plan = sdrmm_dsp::subband::SubbandPlan::new(20_000_000.0).expect("rate");
+    let mut output = Vec::new();
+    let mut group = c.benchmark_group("shared_tuning");
+    group.throughput(Throughput::Elements(input.len() as u64));
+    for spread in [false, true] {
+        let layout = if spread { "spread" } else { "clustered" };
+        for count in [1, 4, 16, 32] {
+            let settings: Vec<_> = (0..count)
+                .map(|index| {
+                    let offset = if spread && count > 1 {
+                        -8_800_000.0 + 17_600_000.0 * index as f64 / (count - 1) as f64
+                    } else {
+                        100_000.0 + index as f64 * 25_000.0
+                    };
+                    let rate = if index % 4 == 1 { 240_000.0 } else { 48_000.0 };
+                    (offset, rate)
+                })
+                .collect();
+            let mut direct: Vec<_> = settings
+                .iter()
+                .map(|&(offset, rate)| {
+                    sdrmm_dsp::Ddc::new(20_000_000.0, rate, offset).expect("rates")
+                })
+                .collect();
+            group.bench_function(format!("{layout}/{count}/independent"), |b| {
+                b.iter(|| {
+                    for ddc in &mut direct {
+                        ddc.process(black_box(&input), &mut output);
+                        black_box(&output);
+                    }
+                });
+            });
+            let mut bands: Vec<SharedBand> = Vec::new();
+            let mut channels = Vec::new();
+            for (offset, rate) in settings {
+                let index = plan.select(offset, rate).expect("protected subband");
+                let center = plan.center(index);
+                let band = bands
+                    .iter()
+                    .position(|band| band.index == index)
+                    .unwrap_or_else(|| {
+                        bands.push(SharedBand {
+                            index,
+                            decimator: plan.decimator(index, input.len()),
+                            output: Vec::new(),
+                        });
+                        bands.len() - 1
+                    });
+                channels.push((
+                    band,
+                    sdrmm_dsp::Ddc::new(plan.output_rate(), rate, offset - center).expect("rates"),
+                ));
+            }
+            group.bench_function(format!("{layout}/{count}/shared"), |b| {
+                b.iter(|| {
+                    for band in &mut bands {
+                        band.decimator.process(black_box(&input), &mut band.output);
+                    }
+                    for (band, ddc) in &mut channels {
+                        ddc.process(&bands[*band].output, &mut output);
+                        black_box(&output);
+                    }
+                });
+            });
+        }
+    }
+    group.finish();
+}
+
 fn pseudo(len: usize, seed: u64) -> Vec<Complex<f32>> {
     let mut state = seed | 1;
     (0..len)
@@ -295,6 +372,7 @@ fn cfar_cluster(c: &mut Criterion) {
 criterion_group!(
     benches,
     tuning,
+    shared_tuning,
     fft_4096,
     xcorr_8192,
     covariance_and_eigen,

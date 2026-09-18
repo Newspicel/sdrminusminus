@@ -310,6 +310,13 @@ impl CaptureRuntime {
             taps.sample_rate = sample_rate;
         }
         for (stream, lane) in self.lanes.iter().enumerate() {
+            if lane.meta.load().sample_rate != sample_rate {
+                let bands = super::subbands::Subbands::new(sample_rate);
+                if let Err(error) = lane.cmd_tx.send(DspCommand::SetSubbands(Box::new(bands))) {
+                    tracing::warn!(%error, "capture stopped before subband update");
+                }
+                lane.waker.wake();
+            }
             let center_hz = settings
                 .for_stream(stream as u32, &self.per_stream)
                 .center_hz

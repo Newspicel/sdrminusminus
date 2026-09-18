@@ -26,6 +26,13 @@ impl Control {
             .collect();
         let retune = enabled("SDRMM_CAPTURE_RETUNE");
         let retune_device = enabled("SDRMM_CAPTURE_DEVICE_RETUNE");
+        let alternate_rate = number("SDRMM_CAPTURE_ALTERNATE_RATE", 0.0);
+        let initial_rates: std::collections::BTreeMap<_, _> = engine
+            .snapshot()
+            .device_sets
+            .into_iter()
+            .map(|set| (set.id, set.settings.sample_rate))
+            .collect();
         let worker = std::thread::spawn(move || {
             let started = Instant::now();
             let mut retunes = 0;
@@ -39,6 +46,15 @@ impl Control {
                                 .patch_device(
                                     *ds,
                                     DeviceSettings {
+                                        sample_rate: if alternate_rate > 0.0 {
+                                            if retunes % 2 == 0 {
+                                                initial_rates[ds]
+                                            } else {
+                                                Some(alternate_rate)
+                                            }
+                                        } else {
+                                            None
+                                        },
                                         center_hz: Some(
                                             100_000_000.0
                                                 + if retunes % 2 == 0 { 0.0 } else { 1000.0 },

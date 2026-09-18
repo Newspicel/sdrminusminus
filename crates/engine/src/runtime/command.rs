@@ -1,7 +1,7 @@
 use sdrmm_device::RxSink;
 use sdrmm_wire::PositionFix;
 
-use super::ChannelHost;
+use super::{ChannelHost, subbands::Subbands};
 use crate::{
     audio_recording::AudioRecorderTap, network_export::NetworkExportTap,
     publishing::recording::RecordingPublisher, recording::RecorderTap,
@@ -9,6 +9,7 @@ use crate::{
 };
 
 pub(crate) enum DspCommand {
+    SetSubbands(Box<Subbands>),
     ConnectArray {
         id: u32,
         sink: RxSink,
@@ -19,6 +20,7 @@ pub(crate) enum DspCommand {
     AddChannel {
         id: u32,
         host: Box<ChannelHost>,
+        reset_state: bool,
     },
     RemoveChannel {
         id: u32,

@@ -68,8 +68,14 @@ impl Engine {
                     if let Some(media) = state.media.get(&id) {
                         host.position_changed(media.position.as_ref());
                     }
-                    state.send_dsp(stream, DspCommand::RemoveChannel { id });
-                    state.send_dsp(stream, DspCommand::AddChannel { id, host });
+                    state.send_dsp(
+                        stream,
+                        DspCommand::AddChannel {
+                            id,
+                            host,
+                            reset_state: false,
+                        },
+                    );
                     state.rearm_audio_recording(id, stream);
                     inner.revision += 1;
                     drop(inner);
@@ -202,7 +208,14 @@ impl Engine {
             if let Some(handle) = media.take() {
                 state.media.insert(id, handle);
             }
-            state.send_dsp(stream, DspCommand::AddChannel { id, host });
+            state.send_dsp(
+                stream,
+                DspCommand::AddChannel {
+                    id,
+                    host,
+                    reset_state: false,
+                },
+            );
             inner.revision += 1;
             break Ok(id);
         };
@@ -305,11 +318,18 @@ impl Engine {
                 if let Some(media) = state.media.get(&ch) {
                     host.position_changed(media.position.as_ref());
                 }
-                if prev.params.type_id() != settings.params.type_id() {
+                let reset_state = prev.params.type_id() != settings.params.type_id();
+                if reset_state {
                     orphaned_baseband = state.release_baseband_sinks(ch, stream);
-                    state.send_dsp(stream, DspCommand::RemoveChannel { id: ch });
                 }
-                state.send_dsp(stream, DspCommand::AddChannel { id: ch, host });
+                state.send_dsp(
+                    stream,
+                    DspCommand::AddChannel {
+                        id: ch,
+                        host,
+                        reset_state,
+                    },
+                );
                 if descriptor.has_audio {
                     state.rearm_audio_recording(ch, stream);
                 } else {

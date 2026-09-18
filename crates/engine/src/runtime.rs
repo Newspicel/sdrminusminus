@@ -1,10 +1,12 @@
 pub(crate) mod capture;
 mod channel;
 mod command;
+mod downconvert;
 mod frontend;
 mod patches;
 mod retire;
 mod spectrum;
+mod subbands;
 mod worker;
 
 pub use capture::CaptureRuntime;

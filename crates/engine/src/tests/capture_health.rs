@@ -134,8 +134,15 @@ fn channel_settings(index: usize) -> ChannelSettings {
     } else {
         ChannelParams::Nfm(NfmParams::default())
     };
+    let spread = number("SDRMM_CAPTURE_SPREAD_HZ", 0.0);
+    let count = number("SDRMM_CAPTURE_CHANNELS", 4usize);
+    let offset = if spread > 0.0 && count > 1 {
+        -spread / 2.0 + spread * index as f64 / (count - 1) as f64
+    } else {
+        100_000.0 + index as f64 * 25_000.0
+    };
     ChannelSettings {
-        frequency_hz: 100_100_000.0 + index as f64 * 25_000.0,
+        frequency_hz: 100_000_000.0 + offset,
         squelch: sdrmm_wire::Squelch::Off,
         params,
         audio: Default::default(),

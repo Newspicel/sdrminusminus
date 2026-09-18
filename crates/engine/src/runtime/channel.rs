@@ -9,11 +9,11 @@ use sdrmm_channels::{
     AUDIO_RATE, AudioChain, ChannelCtx, ChannelError, ChannelFilter, ChannelOutputs, ChannelRx,
     ClickProfile, DecodedImage,
 };
-use sdrmm_dsp::{Ddc, LevelMeter, Squelch};
+use sdrmm_dsp::{LevelMeter, Squelch};
 use sdrmm_wire::{ChannelSettings, DecoderEvent, PositionFix};
 use tokio::sync::broadcast;
 
-use super::DSP_BLOCK;
+use super::{DSP_BLOCK, downconvert::Downconverter};
 use crate::{
     audio::PcmBlock,
     audio_recording::AudioRecorderTap,
@@ -129,7 +129,7 @@ pub(crate) struct ChannelSinks {
 }
 
 pub(crate) struct ChannelHost {
-    ddc: Ddc,
+    ddc: Downconverter,
     filter: ChannelFilter,
     squelch: Squelch,
     squelched: bool,
@@ -188,7 +188,7 @@ impl ChannelHost {
         let input_rate = descriptor.input_rate_hz;
         let offset_hz = settings.frequency_hz - center_hz;
         let (band_low_hz, band_high_hz) = sdrmm_channels::occupied_band(&settings.params);
-        let ddc = Ddc::new(device_rate, input_rate, offset_hz)
+        let ddc = Downconverter::new(device_rate, input_rate, offset_hz)
             .map_err(|e| ChannelError::InvalidSettings(e.to_string()))?;
         let filter = sdrmm_channels::channel_filter(&settings.params)?;
         let rx = sdrmm_channels::create(ChannelCtx { input_rate }, settings)?;
@@ -254,17 +254,38 @@ impl ChannelHost {
     }
 
     pub(super) fn inherit(&mut self, previous: &mut Self) {
-        self.publisher.queue.follow(&previous.publisher.queue);
+        self.follow(previous);
         self.audio_rec = previous.audio_rec.take();
         self.baseband_rec = previous.baseband_rec.take();
         self.baseband_export = previous.baseband_export.take();
         self.baseband_pos = previous.baseband_pos;
-        self.next_input = previous.next_input;
         self.gap_audio = previous.gap_audio;
         self.gap_baseband = previous.gap_baseband;
     }
 
+    pub(super) fn follow(&mut self, previous: &Self) {
+        self.publisher.queue.follow(&previous.publisher.queue);
+        self.next_input = previous.next_input;
+    }
+
     pub(super) fn process_at(&mut self, input: &[Complex<f32>], index: u64, center_hz: f64) {
+        self.process_shared_at(input, index, center_hz, None);
+    }
+
+    pub(super) fn subband(&mut self, center_hz: f64, sample_rate: f64) -> Option<usize> {
+        self.follow_center(center_hz);
+        (self.in_band && self.device_rate == sample_rate)
+            .then(|| self.ddc.band())
+            .flatten()
+    }
+
+    pub(super) fn process_shared_at(
+        &mut self,
+        input: &[Complex<f32>],
+        index: u64,
+        center_hz: f64,
+        selected: Option<&[Complex<f32>]>,
+    ) {
         if let Some(next) = self.next_input
             && next != index
         {
@@ -285,7 +306,11 @@ impl ChannelHost {
             self.lo_artifact_hz = None;
             self.recovering = false;
         }
-        self.process(input, center_hz);
+        if selected.is_some() {
+            self.process_selected_block(input, center_hz, selected);
+        } else {
+            self.process(input, center_hz);
+        }
     }
 
     fn skip_input(&mut self, count: u64) {
@@ -317,6 +342,15 @@ impl ChannelHost {
     }
 
     fn process_block(&mut self, input: &[Complex<f32>], center_hz: f64) {
+        self.process_selected_block(input, center_hz, None);
+    }
+
+    fn process_selected_block(
+        &mut self,
+        input: &[Complex<f32>],
+        center_hz: f64,
+        selected: Option<&[Complex<f32>]>,
+    ) {
         self.follow_center(center_hz);
         if !self.in_band {
             self.sinks
@@ -332,7 +366,12 @@ impl ChannelHost {
             return;
         }
         self.follow_lo_artifact();
-        self.ddc.process(input, &mut self.scratch);
+        if self.ddc.select_shared(selected.is_some()) {
+            self.filter.reset();
+            self.audio.reset();
+            self.squelch.reset();
+        }
+        self.ddc.process(input, selected, &mut self.scratch);
         if self.scratch.is_empty() {
             return;
         }
@@ -694,6 +733,90 @@ mod tests {
     }
 
     #[test]
+    fn shared_bands_keep_pcm_continuous_across_membership_and_tuning_changes() {
+        use super::super::subbands::Subbands;
+
+        let rate = 20_000_000.0;
+        let mut settings = nfm_settings(sdrmm_wire::Squelch::Off);
+        settings.frequency_hz = CENTER + 100_000.0;
+        let (pcm_tx, mut pcm_rx) = broadcast::channel(4096);
+        let mut channels = vec![(
+            1,
+            ChannelHost::build(
+                rate,
+                CENTER,
+                &settings,
+                sinks(pcm_tx, Arc::new(AtomicU64::new(0))),
+                DecodedSink::null(),
+            )
+            .unwrap(),
+        )];
+        let mut bank = Subbands::new(rate);
+        let input = vec![Complex::new(0.5, 0.25); DSP_BLOCK];
+        let mut index = 0;
+        let mut expected = 0;
+        for (stage, count) in [1, 3, 2, 3].into_iter().enumerate() {
+            channels.truncate(count);
+            while channels.len() < count {
+                let id = channels.len() as u32 + 1;
+                let (pcm_tx, _) = broadcast::channel(8);
+                channels.push((
+                    id,
+                    ChannelHost::build(
+                        rate,
+                        CENTER,
+                        &settings,
+                        sinks(pcm_tx, Arc::new(AtomicU64::new(0))),
+                        DecodedSink::null(),
+                    )
+                    .unwrap(),
+                ));
+            }
+            let center = CENTER + stage as f64 * 1000.0;
+            let offset = if stage >= 2 { 1_700_000.0 } else { 100_000.0 };
+            for (_, host) in &mut channels {
+                host.retune(center + offset);
+            }
+            for _ in 0..100 {
+                bank.prepare(&mut channels, center, rate);
+                bank.process(&input, index);
+                for (_, host) in &mut channels {
+                    let selected = host
+                        .subband(center, rate)
+                        .and_then(|band| bank.samples(band));
+                    assert_eq!(selected.is_some(), count >= 3);
+                    host.process_shared_at(&input, index, center, selected);
+                    host.publisher.queue.flush();
+                }
+                index += DSP_BLOCK as u64;
+                while let Ok(block) = pcm_rx.try_recv() {
+                    assert_eq!(block.start_frame, expected);
+                    let PcmPayload::Samples(samples) = block.payload else {
+                        panic!("PCM");
+                    };
+                    assert!(samples.iter().all(|sample| sample.is_finite()));
+                    expected += samples.len() as u64;
+                }
+            }
+        }
+        let nominal = index as f64 * 48_000.0 / rate;
+        assert!(
+            (expected as f64 - nominal).abs() < 16.0,
+            "frames={expected} nominal={nominal}"
+        );
+        index += 200_000;
+        let center = CENTER + 3000.0;
+        bank.process(&input, index);
+        let host = &mut channels[0].1;
+        let selected = host
+            .subband(center, rate)
+            .and_then(|band| bank.samples(band));
+        host.process_shared_at(&input, index, center, selected);
+        host.publisher.queue.flush();
+        assert_eq!(pcm_rx.try_recv().unwrap().start_frame, expected + 480);
+    }
+
+    #[test]
     fn adjacent_tone_does_not_open_the_squelch() {
         let (mut host, mut rx) = host(&nfm_settings(sdrmm_wire::Squelch::Manual {
             level_db: -30.0,
@@ -879,6 +1002,52 @@ mod tests {
         assert_eq!(layouts.first(), Some(&2), "the stream did not start stereo");
         assert_eq!(layouts.last(), Some(&1), "the layout never followed");
         assert!(expected > 0, "no PCM to judge");
+    }
+
+    #[test]
+    fn a_decoder_change_orders_queued_pcm_without_inheriting_iq_positions() {
+        let (pcm_tx, mut received) = broadcast::channel(4096);
+        let pos = Arc::new(AtomicU64::new(0));
+        let mut settings = nfm_settings(sdrmm_wire::Squelch::Off);
+        let mut previous = ChannelHost::build(
+            RATE,
+            CENTER,
+            &settings,
+            sinks(pcm_tx.clone(), pos.clone()),
+            DecodedSink::null(),
+        )
+        .unwrap();
+        let input = tone(1000.0, 0.5, BLOCK);
+        for index in 0..5 {
+            previous.process_at(&input, (index * BLOCK) as u64, CENTER);
+        }
+        assert_eq!(previous.baseband_pos, (5 * BLOCK) as u64);
+        settings.params = ChannelParams::Am(Default::default());
+        let mut next = ChannelHost::build(
+            RATE,
+            CENTER,
+            &settings,
+            sinks(pcm_tx, pos),
+            DecodedSink::null(),
+        )
+        .unwrap();
+        next.follow(&previous);
+        assert_eq!(next.baseband_pos, 0);
+        let retirement = std::thread::spawn(move || drop(previous));
+        for index in 5..10 {
+            next.process_at(&input, (index * BLOCK) as u64, CENTER);
+        }
+        retirement.join().unwrap();
+        next.publisher.queue.flush();
+        let mut expected = 0;
+        while let Ok(block) = received.try_recv() {
+            assert_eq!(block.start_frame, expected);
+            let PcmPayload::Samples(samples) = block.payload else {
+                panic!("PCM");
+            };
+            expected += samples.len() as u64 / u64::from(block.channels);
+        }
+        assert_eq!(expected, (10 * BLOCK) as u64);
     }
 
     #[test]

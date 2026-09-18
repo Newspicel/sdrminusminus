@@ -13,7 +13,7 @@ use sdrmm_device::RxSink;
 
 use super::{
     ChannelHost, DSP_BLOCK, DspCommand, DspMeta, FFT_SIZE, frontend::Frontend, retire::Reclaimer,
-    spectrum::history::SpectrumHistory,
+    spectrum::history::SpectrumHistory, subbands::Subbands,
 };
 use crate::{
     capture_ring::CaptureConsumer,
@@ -67,6 +67,7 @@ impl ArrayOutput {
 }
 
 pub(super) enum Retired {
+    Subbands(Box<Subbands>),
     Channel(Box<ChannelHost>),
     Recording(Option<RecorderTap>, Option<RecordingPublisher>),
     Network(NetworkExportTap),
@@ -76,6 +77,7 @@ pub(super) enum Retired {
 impl Retired {
     pub(super) fn release(self) {
         match self {
+            Self::Subbands(bands) => drop(bands),
             Self::Channel(host) => drop(host),
             Self::Recording(tap, publisher) => drop((tap, publisher)),
             Self::Network(tap) => drop(tap),
@@ -111,12 +113,14 @@ pub(super) fn dsp_loop(
     let mut next_input = None;
     let mut served = Instant::now();
     let mut frontend = Frontend::new(*meta.load_full());
+    let mut subbands = Box::new(Subbands::new(meta.load().sample_rate));
 
     while !stop.load(Ordering::Acquire) {
         drain_commands(
             commands,
             &mut channels,
             &mut arrays,
+            &mut subbands,
             CommandSinks {
                 tap: &mut tap,
                 network_tap: &mut network_tap,
@@ -128,6 +132,7 @@ pub(super) fn dsp_loop(
         let snapshot = *meta.load_full();
         let hop = ((snapshot.sample_rate / TARGET_FPS) as usize).max(FFT_SIZE / 4);
         frontend.follow(snapshot);
+        subbands.prepare(&mut channels, snapshot.center_hz, snapshot.sample_rate);
         let consumed = consumer.consume_fresh(DSP_BLOCK, *max_age, |raw, total| {
             record_stall(stalled_us, &mut served);
             if next_input.is_some_and(|next| next != total) {
@@ -136,6 +141,7 @@ pub(super) fn dsp_loop(
             }
             next_input = Some(total + raw.len() as u64);
             let slice = frontend.apply(raw);
+            subbands.process(slice, total);
             for array in &mut arrays {
                 array.push(slice, total);
             }
@@ -164,7 +170,14 @@ pub(super) fn dsp_loop(
                 retirement.retire(Retired::History(keeper));
             }
             for (_, host) in &mut channels {
-                host.process_at(slice, total, snapshot.center_hz);
+                let selected = host
+                    .subband(snapshot.center_hz, snapshot.sample_rate)
+                    .and_then(|band| subbands.samples(band));
+                if selected.is_some() {
+                    host.process_shared_at(slice, total, snapshot.center_hz, selected);
+                } else {
+                    host.process_at(slice, total, snapshot.center_hz);
+                }
             }
             spectrum_history.push(slice, total, hop, |window, timestamp| {
                 let frame = SpectrumFrame {
@@ -202,6 +215,7 @@ fn drain_commands(
     commands: &mpsc::Receiver<DspCommand>,
     channels: &mut Vec<(u32, Box<ChannelHost>)>,
     arrays: &mut Vec<ArrayOutput>,
+    subbands: &mut Box<Subbands>,
     sinks: CommandSinks<'_>,
     retirement: &mut Reclaimer<Retired>,
 ) {
@@ -219,6 +233,9 @@ fn drain_commands(
             break;
         };
         match cmd {
+            DspCommand::SetSubbands(bands) => {
+                retirement.retire(Retired::Subbands(std::mem::replace(subbands, bands)));
+            }
             DspCommand::ConnectArray { id, sink } => {
                 arrays.retain(|array| array.id != id);
                 arrays.push(ArrayOutput {
@@ -228,11 +245,19 @@ fn drain_commands(
                 });
             }
             DspCommand::DisconnectArray { id } => arrays.retain(|array| array.id != id),
-            DspCommand::AddChannel { id, mut host } => {
+            DspCommand::AddChannel {
+                id,
+                mut host,
+                reset_state,
+            } => {
                 if let Some((_, previous)) =
                     channels.iter_mut().find(|(existing, _)| *existing == id)
                 {
-                    host.inherit(previous);
+                    if reset_state {
+                        host.follow(previous);
+                    } else {
+                        host.inherit(previous);
+                    }
                     std::mem::swap(previous, &mut host);
                     retirement.retire(Retired::Channel(host));
                 } else {
