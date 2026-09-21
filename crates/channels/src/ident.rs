@@ -359,6 +359,10 @@ impl ChannelRx for IdentChannel {
     }
 }
 
+pub(crate) fn in_allocation(kind: &str, frequency_hz: f64) -> bool {
+    catalog::in_allocation(kind, frequency_hz)
+}
+
 pub(crate) fn identify(
     iq: &[Complex<f32>],
     rate: f64,
@@ -405,7 +409,9 @@ pub(crate) fn identify(
         Some(signal.frequency_hz),
     );
     framing::confirm(&mut signal.candidates, iq, rate, band);
-    if looks_analog(signal.modulation)
+    if (looks_analog(signal.modulation) || signal.modulation == Modulation::Ook)
+        && band.bandwidth_hz <= PROBE_BANDWIDTH_HZ
+        && waveform.envelope_variation <= PROBE_ENVELOPE
         && let Some(probe) = framing::probe(iq, rate, band)
     {
         signal.modulation = probe.modulation;

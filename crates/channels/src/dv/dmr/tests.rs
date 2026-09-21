@@ -1312,6 +1312,7 @@ fn a_simplex_call_does_not_invent_a_timeslot() {
     let iq = tx::simplex_transmission(&call, INPUT_RATE_HZ);
     let frames = decode(&mut channel(DmrSlots::Both), &iq);
     assert!(!frames.is_empty(), "an MS-sourced call decoded to nothing");
+    assert!(frames.iter().all(|frame| frame.crc_verified == Some(true)));
     assert!(
         frames.iter().all(|frame| frame.slot.is_none()),
         "guard time was read as a CACH and became a timeslot: {:?}",

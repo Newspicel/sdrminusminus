@@ -803,6 +803,16 @@ fn dv_signatures() -> impl Iterator<Item = Signature> {
     })
 }
 
+pub(crate) fn in_allocation(kind: &str, frequency_hz: f64) -> bool {
+    SIGNATURES.iter().any(|signature| {
+        signature.type_id == Some(kind)
+            && signature
+                .frequencies
+                .iter()
+                .any(|range| (range.low..=range.high).contains(&frequency_hz))
+    })
+}
+
 pub(crate) fn candidates(
     modulation: Modulation,
     band: &Band,

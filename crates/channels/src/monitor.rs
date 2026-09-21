@@ -13,6 +13,7 @@ const MAX_TRACKS: usize = 32;
 const MAX_HISTORY_SAMPLES: usize = 8 * 1024 * 1024;
 const HANG_SECONDS: f64 = 0.3;
 const SEGMENT_SECONDS: f64 = 30.0;
+const IDENTIFY_SECONDS: f64 = 0.6;
 
 pub struct MonitorOutput {
     pub transmission: u64,
@@ -27,7 +28,6 @@ struct Track {
     segment: u64,
     last_seen: u64,
     decoders: Vec<Decoder>,
-    fallback: Option<Decoder>,
     choices: VecDeque<String>,
     trial_at: u64,
     identified_at: u64,
@@ -127,7 +127,7 @@ impl SpectrumMonitor {
                 track.signal.snr_db = band.snr_db;
                 if band.bandwidth_hz >= track.band.bandwidth_hz * 0.75 {
                     let offset = track.band.center_hz * 0.9 + band.center_hz * 0.1;
-                    for decoder in track.decoders.iter_mut().chain(track.fallback.iter_mut()) {
+                    for decoder in &mut track.decoders {
                         decoder.retune(offset);
                     }
                     track.band = ident::detect::Band {
@@ -156,7 +156,6 @@ impl SpectrumMonitor {
                 segment: start,
                 last_seen: end,
                 decoders: Vec::new(),
-                fallback: None,
                 trial_at: end,
                 identified_at: end,
                 band,
@@ -164,17 +163,6 @@ impl SpectrumMonitor {
                 error: None,
             };
             self.next_id += 1;
-            if matches!(
-                track.signal.modulation,
-                sdrmm_wire::Modulation::Fsk2
-                    | sdrmm_wire::Modulation::Fsk4
-                    | sdrmm_wire::Modulation::Fsk8
-            ) {
-                match Decoder::new("nfm", self.rate, &track.signal, self.settings.record_audio) {
-                    Ok(decoder) => track.fallback = Some(decoder),
-                    Err(error) => track.error = Some(error.to_string()),
-                }
-            }
             self.start_trials(&mut track);
             let buffered = self.history.make_contiguous();
             feed(&mut track, buffered, output);
@@ -218,20 +206,35 @@ impl SpectrumMonitor {
             return true;
         }
         if end == track.last_seen
-            && end.saturating_sub(track.identified_at) as f64 >= self.rate * 0.5
+            && end.saturating_sub(track.identified_at) as f64 >= self.rate * 0.2
         {
             track.identified_at = end;
-            let signal = ident::identify(&self.window, self.rate, &track.band, self.center);
+            let history = self.history.make_contiguous();
+            let start = history
+                .len()
+                .saturating_sub((self.rate * IDENTIFY_SECONDS) as usize);
+            let signal = ident::identify(&history[start..], self.rate, &track.band, self.center);
             if signal.confidence < self.settings.min_confidence {
                 return false;
+            }
+            let confirmed = |kind: &str| {
+                signal.candidates.iter().any(|candidate| {
+                    candidate.confirmed && candidate.type_id.as_deref() == Some(kind)
+                })
+            };
+            if signal
+                .candidates
+                .iter()
+                .any(|candidate| candidate.confirmed)
+            {
+                track.decoders.retain(|decoder| confirmed(&decoder.kind));
+                track.choices.clear();
+                track.tried.retain(|kind| !confirmed(kind));
             }
             for kind in decoder::choices(&signal) {
                 if !track.tried.contains(&kind)
                     && !track.choices.contains(&kind)
-                    && !track
-                        .fallback
-                        .as_ref()
-                        .is_some_and(|fallback| fallback.kind == kind)
+                    && !track.decoders.iter().any(|decoder| decoder.kind == kind)
                 {
                     track.choices.push_back(kind);
                 }
@@ -240,7 +243,9 @@ impl SpectrumMonitor {
         }
         if end.saturating_sub(track.trial_at) as f64 >= self.rate * 2.0 && !track.choices.is_empty()
         {
-            track.decoders.retain(|decoder| decoder.confirmed);
+            track
+                .decoders
+                .retain(|decoder| decoder.selected(&track.signal));
             track.trial_at = end;
         }
         let first = track.decoders.len();
@@ -321,12 +326,6 @@ impl SpectrumMonitor {
 }
 
 fn feed(track: &mut Track, iq: &[Complex<f32>], output: &mut Vec<MonitorOutput>) {
-    if let Some(fallback) = &mut track.fallback {
-        let (_, error) = fallback.process(iq);
-        if error.is_some() {
-            track.error = error;
-        }
-    }
     for decoder in &mut track.decoders {
         let (events, error) = decoder.process(iq);
         if error.is_some() {
@@ -346,7 +345,6 @@ fn feed(track: &mut Track, iq: &[Complex<f32>], output: &mut Vec<MonitorOutput>)
         track.decoders.clear();
         track.decoders.push(decoder);
         track.choices.clear();
-        track.fallback = None;
     }
 }
 
@@ -354,8 +352,8 @@ fn transmission(track: &mut Track, end: u64, rate: f64, state: TransmissionState
     let selected = track
         .decoders
         .iter_mut()
-        .find(|decoder| decoder.confirmed)
-        .or(track.fallback.as_mut());
+        .filter(|decoder| decoder.selected(&track.signal))
+        .max_by_key(|decoder| decoder.verified);
     let decoder_confirmed = selected.as_ref().is_some_and(|decoder| decoder.verified);
     let (decoder, audio) = selected.map_or((None, Vec::new()), |decoder| {
         (
@@ -363,7 +361,7 @@ fn transmission(track: &mut Track, end: u64, rate: f64, state: TransmissionState
             std::mem::take(&mut decoder.audio),
         )
     });
-    for decoder in track.decoders.iter_mut().chain(track.fallback.iter_mut()) {
+    for decoder in &mut track.decoders {
         decoder.audio.clear();
     }
     MonitorOutput {

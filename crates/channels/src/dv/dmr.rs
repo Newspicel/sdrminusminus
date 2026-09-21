@@ -623,7 +623,9 @@ impl Decoder {
         if rs129_parity(lc) != received {
             return None;
         }
-        Some(self.decode_lc(index, payload))
+        let mut frame = self.decode_lc(index, payload);
+        frame.crc_verified = Some(true);
+        Some(frame)
     }
 
     fn csbk(&mut self, payload: &[bool; 96], errors: u32) -> Option<DvFrame> {
@@ -845,6 +847,7 @@ impl Decoder {
             return None;
         }
         let mut frame = self.decode_lc(index, &lc);
+        frame.crc_verified = Some(true);
         frame.kind = DvFrameKind::Voice;
         frame.slot = slot;
         frame.color_code = Some(colour);

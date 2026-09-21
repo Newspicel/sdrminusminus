@@ -169,6 +169,55 @@ fn buffered_pager_decodes_the_first_message_and_retains_its_origin() {
 }
 
 #[test]
+fn simplex_dmr_at_435_125_mhz_is_confirmed() {
+    let call = testgen::dv::dmr::Call::default();
+    let mut iq = testgen::dv::dmr::simplex_transmission(&call, RATE);
+    testgen::shift(&mut iq, 125_000.0, RATE);
+    testgen::add_noise(&mut iq, 84, 0.02);
+    let mut monitor =
+        SpectrumMonitor::new(RATE, 435_000_000.0, SpectrumMonitorNode::default()).unwrap();
+    let lead = noise(0.2, 87);
+    let mut output = run(&mut monitor, &lead, 0);
+    output.extend(run(&mut monitor, &iq, lead.len() as u64));
+    output.extend(monitor.finish(TransmissionState::Completed, None));
+    assert!(
+        output.iter().any(|out| matches!(&out.event,
+            DecoderEvent::Dv(frame) if frame.mode == sdrmm_wire::DvMode::Dmr
+                && frame.crc_verified == Some(true))),
+        "{:?}",
+        transmissions(&output)
+    );
+    assert!(
+        transmissions(&output)
+            .iter()
+            .any(|t| t.decoder.as_deref() == Some("dmr") && t.decoder_confirmed)
+    );
+    assert!(
+        !output
+            .iter()
+            .any(|out| matches!(out.event, DecoderEvent::Ils(_) | DecoderEvent::Subghz(_)))
+    );
+}
+
+#[test]
+fn unrecognized_fsk_does_not_create_nfm_audio() {
+    let bits = testgen::dv::filler(720, 85);
+    let mut iq = testgen::fsk(&bits, 1200.0, 4500.0, RATE);
+    testgen::shift(&mut iq, 250_000.0, RATE);
+    testgen::add_noise(&mut iq, 86, 0.002);
+    let mut monitor = monitor();
+    let mut output = run(&mut monitor, &iq, 0);
+    output.extend(monitor.finish(TransmissionState::Completed, None));
+    assert!(!transmissions(&output).is_empty());
+    assert!(
+        transmissions(&output)
+            .iter()
+            .all(|t| t.decoder.as_deref() != Some("nfm"))
+    );
+    assert!(output.iter().all(|out| out.audio.is_empty()));
+}
+
+#[test]
 fn a_capture_gap_interrupts_instead_of_joining_unrelated_samples() {
     let mut iq = noise(0.3, 46);
     for (i, sample) in iq.iter_mut().enumerate() {

@@ -82,6 +82,7 @@ pub(crate) struct Waveform {
     pub(crate) frequency_levels: u8,
     pub(crate) deviation_hz: f64,
     pub(crate) frequency_spread_hz: f64,
+    pub(crate) frequency_noise_hz: f64,
     pub(crate) level_valley: f32,
     pub(crate) symbol_rate_hz: Option<f64>,
     pub(crate) square_line_db: f32,
@@ -166,6 +167,7 @@ impl Meter {
             frequency_levels: levels.count,
             deviation_hz: levels.deviation_hz,
             frequency_spread_hz: levels.spread_hz,
+            frequency_noise_hz: self.frequency_noise(zoom.rate),
             level_valley: levels.valley,
             symbol_rate_hz,
             square_line_db,
@@ -356,6 +358,21 @@ impl Meter {
                 0.0
             });
         }
+    }
+
+    fn frequency_noise(&self, rate: f64) -> f64 {
+        let mut power = 0.0;
+        let mut noise = 0.0;
+        for (pair, &weight) in self.amplitude.windows(2).zip(&self.weight[1..]) {
+            let mean = f64::from(pair[0] + pair[1]) * 0.5;
+            let difference = f64::from(pair[1] - pair[0]);
+            power += f64::from(weight) * mean * mean;
+            noise += f64::from(weight) * difference * difference;
+        }
+        if power <= 0.0 {
+            return 0.0;
+        }
+        (noise / power).sqrt() * rate / TAU
     }
 
     fn levels(&mut self, rate: f64) -> Levels {

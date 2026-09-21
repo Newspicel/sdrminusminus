@@ -7,9 +7,10 @@ use crate::{
     channel_filter, create, descriptor_of,
 };
 
+const MIN_ANALOG_SCORE: f32 = 0.7;
+
 pub(super) struct Decoder {
     pub(super) kind: String,
-    pub(super) confirmed: bool,
     pub(super) verified: bool,
     ddc: Ddc,
     tuning_offset_hz: f64,
@@ -24,6 +25,7 @@ pub(super) struct Decoder {
     downsampled: Vec<f32>,
     pub(super) audio: Vec<i16>,
     record: bool,
+    frequency_hz: f64,
 }
 
 pub(super) fn choices(signal: &IdentSignal) -> Vec<String> {
@@ -32,24 +34,39 @@ pub(super) fn choices(signal: &IdentSignal) -> Vec<String> {
         if let Some(kind) = &candidate.type_id
             && kind != "ident"
             && descriptor_of(kind).is_some()
+            && (!analog_decoder(kind) || analog(signal) == Some(kind.as_str()))
             && !choices.contains(kind)
         {
             choices.push(kind.clone());
         }
     }
-    let analog = match signal.modulation {
-        Modulation::Am => Some("am"),
-        Modulation::Fm if signal.bandwidth_hz > 50_000.0 => Some("wfm"),
-        Modulation::Fm => Some("nfm"),
-        Modulation::Ssb => Some("ssb"),
-        _ => None,
-    };
-    if let Some(kind) = analog
+    if let Some(kind) = analog(signal)
         && !choices.iter().any(|choice| choice == kind)
     {
         choices.push(kind.to_owned());
     }
     choices
+}
+
+fn analog_decoder(kind: &str) -> bool {
+    matches!(kind, "am" | "nfm" | "ssb" | "wfm")
+}
+
+fn analog(signal: &IdentSignal) -> Option<&'static str> {
+    let kind = match signal.modulation {
+        Modulation::Am => Some("am"),
+        Modulation::Fm if signal.bandwidth_hz > 50_000.0 => Some("wfm"),
+        Modulation::Fm => Some("nfm"),
+        Modulation::Ssb => Some("ssb"),
+        _ => None,
+    }?;
+    signal
+        .candidates
+        .iter()
+        .any(|candidate| {
+            candidate.type_id.as_deref() == Some(kind) && candidate.score >= MIN_ANALOG_SCORE
+        })
+        .then_some(kind)
 }
 
 impl Decoder {
@@ -85,7 +102,6 @@ impl Decoder {
         let input_rate = crate::input_rate(&settings.params);
         Ok(Self {
             kind: kind.to_owned(),
-            confirmed: matches!(kind, "am" | "nfm" | "ssb" | "wfm"),
             verified: false,
             tuning_offset_hz: offset - signal.center_offset_hz,
             ddc: Ddc::new(rate, input_rate, offset)
@@ -101,11 +117,16 @@ impl Decoder {
             downsampled: Vec::new(),
             audio: Vec::new(),
             record,
+            frequency_hz: signal.frequency_hz,
         })
     }
 
     pub(super) fn retune(&mut self, offset_hz: f64) {
         self.ddc.set_offset(offset_hz + self.tuning_offset_hz);
+    }
+
+    pub(super) fn selected(&self, signal: &IdentSignal) -> bool {
+        self.verified || analog(signal) == Some(self.kind.as_str())
     }
 
     pub(super) fn process(&mut self, iq: &[Complex<f32>]) -> (Vec<DecoderEvent>, Option<String>) {
@@ -117,9 +138,10 @@ impl Decoder {
         if !self.out.images.is_empty() || !self.out.video.is_empty() {
             error = Some("decoded images or video are not supported by event export".to_owned());
         }
-        self.out.events.retain(valid);
-        self.verified |= !self.out.events.is_empty();
-        self.confirmed |= self.verified;
+        self.out
+            .events
+            .retain(|event| valid(event, self.frequency_hz));
+        self.verified |= self.out.events.iter().any(verifies);
         if self.record && !self.out.audio_pcm.is_empty() {
             if self.out.audio_rate != 48_000 {
                 error = Some(format!(
@@ -151,7 +173,14 @@ impl Decoder {
     }
 }
 
-fn valid(event: &DecoderEvent) -> bool {
+fn verifies(event: &DecoderEvent) -> bool {
+    !matches!(
+        event,
+        DecoderEvent::Morse(_) | DecoderEvent::Rtty(_) | DecoderEvent::Psk(_)
+    )
+}
+
+fn valid(event: &DecoderEvent, frequency_hz: f64) -> bool {
     match event {
         DecoderEvent::Dsc(m)
         | DecoderEvent::Vdl2(m)
@@ -164,7 +193,81 @@ fn valid(event: &DecoderEvent) -> bool {
                 || matches!(frame.kind, sdrmm_wire::DvFrameKind::Voice)
                     && frame.crc_verified != Some(false)
         }
+        DecoderEvent::Subghz(frame) => {
+            frame.reading.is_some()
+                || frame.encoding != sdrmm_wire::SubghzEncoding::Raw
+                    && frame.bits > 0
+                    && frame.repeats >= 2
+        }
+        DecoderEvent::Ils(reading) => {
+            crate::ident::in_allocation("ils", frequency_hz)
+                && reading.modulation_90 >= 0.05
+                && reading.modulation_150 >= 0.05
+        }
         DecoderEvent::Tone(_) | DecoderEvent::Scrambler(_) => false,
         _ => true,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use sdrmm_wire::{IlsComponent, IlsReading, MorseText, ProtocolMatch, SubghzFrame};
+
+    use super::*;
+
+    #[test]
+    fn weak_voice_candidates_do_not_select_analog_audio() {
+        let mut signal = IdentSignal {
+            modulation: Modulation::Fm,
+            bandwidth_hz: 7_000.0,
+            confidence: 0.97,
+            candidates: vec![ProtocolMatch {
+                name: "FM voice (narrowband)".to_owned(),
+                type_id: Some("nfm".to_owned()),
+                score: 0.48,
+                confirmed: false,
+                why: String::new(),
+            }],
+            ..Default::default()
+        };
+        assert!(choices(&signal).is_empty());
+        signal.candidates[0].score = 0.95;
+        assert_eq!(choices(&signal), ["nfm"]);
+        signal.modulation = Modulation::Fsk4;
+        assert!(choices(&signal).is_empty());
+    }
+
+    #[test]
+    fn raw_pulses_do_not_confirm_a_decoder() {
+        assert!(!valid(
+            &DecoderEvent::Subghz(SubghzFrame {
+                repeats: 30,
+                timings_us: vec![100; 31],
+                ..Default::default()
+            }),
+            435_125_000.0
+        ));
+    }
+
+    #[test]
+    fn ils_measurements_outside_its_allocation_are_rejected() {
+        let event = DecoderEvent::Ils(IlsReading {
+            component: IlsComponent::Localizer,
+            modulation_90: 0.2,
+            modulation_150: 0.2,
+            ddm: 0.0,
+            deviation_dots: 0.0,
+            signal_db: -20.0,
+        });
+        assert!(!valid(&event, 435_125_000.0));
+        assert!(valid(&event, 110_300_000.0));
+    }
+
+    #[test]
+    fn unframed_text_does_not_stop_decoder_trials() {
+        assert!(!verifies(&DecoderEvent::Morse(MorseText {
+            text: "**".to_owned(),
+            wpm: 79.0,
+        })));
     }
 }

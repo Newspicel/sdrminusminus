@@ -14,6 +14,7 @@ const PHASE_LINE_DB: f32 = 10.0;
 const FLAT_SPECTRUM: f32 = 0.55;
 const FM_SPREAD_HZ: f64 = 200.0;
 const FM_SPREAD_FRACTION: f64 = 0.02;
+const FREQUENCY_NOISE_MARGIN: f64 = 1.5;
 const LEVEL_SEPARATION: f64 = 0.7;
 const MAX_SHIFT_INDEX: f64 = 12.0;
 const DWELL_VALLEY: f32 = 0.25;
@@ -69,7 +70,10 @@ fn shift_levels(band: &Band, waveform: &Waveform, modulated: f32) -> Option<u8> 
     let parted = if levels == 2 {
         waveform.level_valley <= DWELL_VALLEY
     } else {
-        waveform.symbol_rate_hz.is_some() || waveform.level_valley <= DWELL_VALLEY
+        waveform.level_valley <= DWELL_VALLEY
+            || waveform
+                .symbol_rate_hz
+                .is_some_and(|rate| rate >= 2.0 * waveform.deviation_hz)
     };
     let separated = parted
         && waveform.deviation_hz >= waveform.frequency_spread_hz * LEVEL_SEPARATION
@@ -134,7 +138,8 @@ pub(crate) fn classify(band: &Band, waveform: &Waveform) -> Verdict {
 
     if modulated <= AMPLITUDE_MODULATED {
         if band.bandwidth_hz < CARRIER_BANDWIDTH_HZ
-            && waveform.frequency_spread_hz < CARRIER_SPREAD_HZ
+            && waveform.frequency_spread_hz
+                < CARRIER_SPREAD_HZ.max(waveform.frequency_noise_hz * FREQUENCY_NOISE_MARGIN)
         {
             return settle(Modulation::Carrier, 1.0);
         }
@@ -384,6 +389,22 @@ mod tests {
             ..steady()
         };
         assert_eq!(classify(&band(400.0), &w).modulation, Modulation::Carrier);
+    }
+
+    #[test]
+    fn noisy_carriers_are_not_fm() {
+        for noise in [0.2, 0.4, 0.6] {
+            let mut iq = crate::testutil::complex_noise(83, noise, 5_000);
+            for sample in &mut iq {
+                *sample += num_complex::Complex::new(1.0, 0.0);
+            }
+            let mut b = band(1_250.0);
+            b.snr_db = 15.2;
+            b.carrier_db = 25.0;
+            let w = super::super::features::Meter::new()
+                .measure(&super::super::features::Zoom { rate: 5_000.0, iq }, &b);
+            assert_eq!(classify(&b, &w).modulation, Modulation::Carrier, "{w:?}");
+        }
     }
 
     #[test]
