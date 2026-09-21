@@ -2,7 +2,7 @@ use num_complex::Complex;
 
 use crate::iir::one_pole_coeff;
 
-const POWER_TAU_S: f64 = 1e-3;
+const POWER_TAU_S: f64 = 3e-3;
 
 const FLOOR_FALL_TAU_S: f64 = 0.3;
 const FLOOR_RISE_TAU_S: f64 = 10.0;
@@ -19,7 +19,7 @@ pub struct Squelch {
     close_lin: f32,
     hysteresis_lin: f32,
     hold_samples: u64,
-    below: u64,
+    quiet: u64,
     open: bool,
     floor: f32,
     floor_fall: f32,
@@ -45,7 +45,7 @@ impl Squelch {
             close_lin: 0.0,
             hysteresis_lin: db_to_power(-hysteresis_db),
             hold_samples: (f64::from(hold_s) * rate).round() as u64,
-            below: 0,
+            quiet: 0,
             open: false,
             floor: 0.0,
             floor_fall: one_pole_coeff(rate, FLOOR_FALL_TAU_S),
@@ -82,7 +82,7 @@ impl Squelch {
         self.power = 0.0;
         self.floor = 0.0;
         self.warmup = self.warmup_samples;
-        self.below = 0;
+        self.quiet = 0;
         self.open = false;
         self.recompute_thresholds();
     }
@@ -110,14 +110,12 @@ impl Squelch {
             }
             if self.power >= self.open_lin {
                 self.open = true;
-                self.below = 0;
-            } else if self.power < self.close_lin {
-                self.below += 1;
-                if self.below >= self.hold_samples {
+                self.quiet = 0;
+            } else {
+                self.quiet = self.quiet.saturating_add(1);
+                if self.power < self.close_lin && self.quiet >= self.hold_samples {
                     self.open = false;
                 }
-            } else {
-                self.below = 0;
             }
         }
         self.open
@@ -148,7 +146,7 @@ mod tests {
 
     const RATE: f64 = 48_000.0;
     const THRESHOLD_DB: f32 = -30.0;
-    const HYSTERESIS_DB: f32 = 6.0;
+    const HYSTERESIS_DB: f32 = 2.0;
     const HOLD_S: f32 = 0.1;
 
     fn squelch() -> Squelch {
@@ -179,20 +177,42 @@ mod tests {
         assert!(sq.process(&tone_at_db(-10.0, 480)));
     }
 
+    fn noise_at_db(db: f32, len: usize, rng: &mut XorShift32) -> Vec<Complex<f32>> {
+        let scale = (10f32.powf(db / 10.0) / (2.0 / 3.0)).sqrt();
+        (0..len)
+            .map(|_| Complex::new(rng.next_f32(), rng.next_f32()) * scale)
+            .collect()
+    }
+
     #[test]
     fn dithering_inside_hysteresis_band_never_chatters() {
         let mut sq = squelch();
         assert!(sq.process(&tone_at_db(-10.0, 480)));
         for i in 0..100 {
-            let db = if i % 2 == 0 { -33.0 } else { -35.0 };
+            let db = if i % 2 == 0 { -30.5 } else { -31.5 };
             assert!(sq.process(&tone_at_db(db, 480)), "closed at block {i}");
         }
 
         let mut sq = squelch();
         for i in 0..100 {
-            let db = if i % 2 == 0 { -33.0 } else { -35.0 };
+            let db = if i % 2 == 0 { -30.5 } else { -31.5 };
             assert!(!sq.process(&tone_at_db(db, 480)), "opened at block {i}");
         }
+    }
+
+    #[test]
+    fn a_floor_just_under_the_threshold_closes_the_gate_after_a_burst() {
+        let mut sq = squelch();
+        let mut rng = XorShift32(0xdead_beef);
+        for _ in 0..100 {
+            assert!(!sq.process(&noise_at_db(-33.0, 480, &mut rng)));
+        }
+        assert!(sq.process(&tone_at_db(-10.0, 480)));
+        let mut open = true;
+        for _ in 0..50 {
+            open = sq.process(&noise_at_db(-33.0, 480, &mut rng));
+        }
+        assert!(!open, "the gate wedged open on the noise floor");
     }
 
     #[test]

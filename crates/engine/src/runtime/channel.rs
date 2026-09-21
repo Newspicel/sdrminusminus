@@ -25,7 +25,7 @@ use crate::{
     video::VideoPacket,
 };
 
-const SQUELCH_HYSTERESIS_DB: f32 = 6.0;
+const SQUELCH_HYSTERESIS_DB: f32 = 2.0;
 const SQUELCH_HOLD_S: f32 = 0.1;
 
 pub(crate) struct RawDecoded {
@@ -560,8 +560,8 @@ mod tests {
     use std::f64::consts::TAU;
 
     use sdrmm_wire::{
-        AudioAgcMode, AudioProcessing, ChannelParams, NfmParams, NoiseBlankerSettings, Sideband,
-        SsbParams, WfmParams,
+        AmParams, AudioAgcMode, AudioProcessing, ChannelParams, NfmParams, NoiseBlankerSettings,
+        Sideband, SsbParams, WfmParams,
     };
 
     use super::{super::DSP_BLOCK, *};
@@ -862,6 +862,39 @@ mod tests {
                 Complex::new(next(), next())
             })
             .collect()
+    }
+
+    fn am_settings(squelch: sdrmm_wire::Squelch) -> ChannelSettings {
+        ChannelSettings {
+            frequency_hz: CENTER,
+            squelch,
+            params: ChannelParams::Am(AmParams::default()),
+            audio: Default::default(),
+        }
+    }
+
+    #[test]
+    fn an_am_gate_set_just_above_the_floor_closes_again_after_a_burst() {
+        let (mut probe, mut probe_rx) = host(&am_settings(sdrmm_wire::Squelch::Off));
+        let _ = run(&mut probe, &mut probe_rx, &noise(96_000));
+        let floor = f32::from_bits(probe.sinks.level_db.load(Ordering::Relaxed));
+
+        let (mut host, mut rx) = host(&am_settings(sdrmm_wire::Squelch::Manual {
+            level_db: floor + 3.0,
+        }));
+        let quiet = run(&mut host, &mut rx, &noise(48_000));
+        assert_silence_after_settle(&quiet, 24_000, "am floor");
+
+        let loud = run(&mut host, &mut rx, &tone(0.0, 0.5, 48_000));
+        assert!(
+            loud.iter()
+                .any(|b| matches!(b.payload, PcmPayload::Samples(_))),
+            "the carrier never opened the gate"
+        );
+
+        let settle = host.sinks.pcm_pos.load(Ordering::Relaxed) + 24_000;
+        let after = run(&mut host, &mut rx, &noise(96_000));
+        assert_silence_after_settle(&after, settle, "am floor after a burst");
     }
 
     #[test]
