@@ -58,7 +58,7 @@ def polynomial_product(left, right):
     return result
 
 
-def encode(message, length, rows, correct, bch_errors=()):
+def encode(message, length, rows, correct, bch_errors=(), scramble=True):
     generator = 1
     factors = SHORT_BCH if length == 16200 else NORMAL_BCH
     for factor in factors[:correct]:
@@ -69,7 +69,7 @@ def encode(message, length, rows, correct, bch_errors=()):
     for bit in message:
         prbs = (state ^ (state >> 1)) & 1
         state = (state >> 1) | (prbs << 14)
-        scrambled.append(bit ^ prbs)
+        scrambled.append(bit ^ (prbs if scramble else 0))
     remainder = 0
     for bit in scrambled:
         feedback = bit ^ (remainder >> (parity_length - 1))

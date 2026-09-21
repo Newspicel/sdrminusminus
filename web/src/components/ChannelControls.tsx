@@ -1290,29 +1290,60 @@ function ModeControls({
     case "dvbt":
       return (
         <>
+          <SettingRow label="Standard">
+            <Segmented
+              label="Terrestrial standard"
+              value={params.settings.standard ?? "dvb_t"}
+              options={[
+                { value: "dvb_t", label: "DVB-T" },
+                { value: "dvb_t2", label: "DVB-T2" },
+              ]}
+              onChange={(standard) =>
+                onParams({ type: "dvbt", settings: { ...params.settings, standard } })
+              }
+            />
+          </SettingRow>
           <SettingRow label="Bandwidth">
             <Segmented
               label="DVB-T bandwidth"
               value={params.settings.bandwidth ?? "mhz8"}
               options={[
-                { value: "mhz1_7", label: "1.7 MHz", title: "Scaled narrow DVB-T" },
+                { value: "mhz1_7", label: "1.7 MHz" },
+                { value: "mhz5", label: "5 MHz" },
                 { value: "mhz6", label: "6 MHz" },
                 { value: "mhz7", label: "7 MHz" },
                 { value: "mhz8", label: "8 MHz" },
+                { value: "mhz10", label: "10 MHz" },
               ]}
               onChange={(bandwidth) =>
                 onParams({ type: "dvbt", settings: { ...params.settings, bandwidth } })
               }
             />
           </SettingRow>
-          <Toggle
-            label="Low priority stream"
-            title="Decode the low priority transport stream of a hierarchical DVB-T multiplex"
-            checked={params.settings.low_priority ?? false}
-            onChange={(low_priority) =>
-              onParams({ type: "dvbt", settings: { ...params.settings, low_priority } })
-            }
-          />
+          {params.settings.standard === "dvb_t2" ? (
+            <SettingRow label="PLP">
+              <OptionalNumberField
+                label="PLP ID, empty for automatic selection"
+                placeholder="auto"
+                value={params.settings.plp ?? null}
+                min={0}
+                max={255}
+                step={1}
+                onCommit={(plp) =>
+                  onParams({ type: "dvbt", settings: { ...params.settings, plp } })
+                }
+              />
+            </SettingRow>
+          ) : (
+            <Toggle
+              label="Low priority stream"
+              title="Decode the low priority transport stream of a hierarchical DVB-T multiplex"
+              checked={params.settings.low_priority ?? false}
+              onChange={(low_priority) =>
+                onParams({ type: "dvbt", settings: { ...params.settings, low_priority } })
+              }
+            />
+          )}
           <BroadcastServicePicker
             status={broadcast}
             value={params.settings.program ?? null}

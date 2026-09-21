@@ -108,3 +108,95 @@ fn outer_bch_correction_uses_preallocated_scratch() {
         assert_eq!(bit, (i * 173 + i / 7) % 31 < 15);
     }
 }
+
+#[test]
+fn independent_rf_reaches_transport_packets_without_allocations() {
+    let mut receiver = sdrmm_channels::dvbt2::receiver::Receiver::new(None).unwrap();
+    let mut packets = Vec::with_capacity(4096);
+    for (bytes, expected) in [
+        (
+            include_bytes!("../../../fixtures/dvbt2/rf_2k_qpsk.f32").as_slice(),
+            include_bytes!("../../../fixtures/dvbt2/rf_2k_qpsk.ts").as_slice(),
+        ),
+        (
+            include_bytes!("../../../fixtures/dvbt2/rf_8k_qpsk.f32").as_slice(),
+            include_bytes!("../../../fixtures/dvbt2/rf_8k_qpsk.ts").as_slice(),
+        ),
+        (
+            include_bytes!("../../../fixtures/dvbt2/rf_8k_miso.f32").as_slice(),
+            include_bytes!("../../../fixtures/dvbt2/rf_8k_miso.ts").as_slice(),
+        ),
+        (
+            include_bytes!("../../../fixtures/dvbt2/rf_32k_qpsk.f32").as_slice(),
+            include_bytes!("../../../fixtures/dvbt2/rf_32k_qpsk.ts").as_slice(),
+        ),
+        (
+            include_bytes!("../../../fixtures/dvbt2/rf_2k_lite.f32").as_slice(),
+            include_bytes!("../../../fixtures/dvbt2/rf_2k_lite.ts").as_slice(),
+        ),
+        (
+            include_bytes!("../../../fixtures/dvbt2/rf_32k_media.f32").as_slice(),
+            include_bytes!("../../../fixtures/dvbt2/rf_32k_media.ts").as_slice(),
+        ),
+    ] {
+        let iq = reference(bytes);
+        receiver.reset();
+        packets.clear();
+        let previous = receiver.frames;
+        assert_no_alloc("DVB-T2 RF to TS", || {
+            for chunk in iq.chunks(1009) {
+                let before = packets.len();
+                receiver.push(chunk, &mut packets);
+                if packets.len() > before {
+                    assert!(receiver.locked());
+                }
+            }
+        });
+        assert_eq!(receiver.frames - previous, 2, "{:?}", receiver.last_error);
+        assert_eq!(receiver.errors, 0, "{:?}", receiver.last_error);
+        assert_eq!(receiver.report().errors, 0, "{:?}", receiver.report());
+        assert_eq!(packets.concat(), expected);
+    }
+}
+
+#[test]
+fn rf_acquisition_survives_noise_echoes_frequency_error_and_reacquisition() {
+    let original = reference(include_bytes!("../../../fixtures/dvbt2/rf_2k_qpsk.f32"));
+    let expected = include_bytes!("../../../fixtures/dvbt2/rf_2k_qpsk.ts");
+    let mut receiver = sdrmm_channels::dvbt2::receiver::Receiver::new(Some(7)).unwrap();
+    let mut packets = Vec::with_capacity(4096);
+    for offset in [-0.018, 0.013] {
+        let mut state = 0xdeadbeef_u32;
+        let mut noise = || {
+            state ^= state << 13;
+            state ^= state >> 17;
+            state ^= state << 5;
+            (state as f64 / u32::MAX as f64 - 0.5) as f32 * 0.04
+        };
+        let iq: Vec<_> = original
+            .iter()
+            .enumerate()
+            .map(|(i, &p)| {
+                let echo = if i >= 17 {
+                    original[i - 17] * Complex::new(0.18, -0.09)
+                } else {
+                    Complex::default()
+                };
+                (p + echo) * Complex::from_polar(0.7, offset * i as f32 + 1.1)
+                    + Complex::new(noise(), noise())
+            })
+            .collect();
+        receiver.reset();
+        packets.clear();
+        for chunk in iq.chunks(997) {
+            receiver.push(chunk, &mut packets);
+        }
+        assert_eq!(
+            packets.concat(),
+            expected,
+            "{:?} {:?}",
+            receiver.last_error,
+            receiver.report()
+        );
+    }
+}

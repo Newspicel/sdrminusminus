@@ -4,8 +4,17 @@ use super::{Coding, DecodeError};
 use crate::datv::dvbs2::ldpc::{Frame, Rate};
 
 pub fn bit_permutation(coding: Coding) -> Result<Vec<usize>, DecodeError> {
+    let mut map = vec![0; coding.frame.length()];
+    bit_permutation_into(coding, &mut map)?;
+    Ok(map)
+}
+
+pub(super) fn bit_permutation_into(coding: Coding, map: &mut [usize]) -> Result<(), DecodeError> {
     let coding = coding.validate()?;
     let length = coding.frame.length();
+    if map.len() != length {
+        return Err(DecodeError::Length);
+    }
     let bits = coding.constellation.bits();
     let parity_interleaved = bits > 2 || matches!(coding.rate, Rate::R1_3 | Rate::R2_5);
     let twist = twists(coding);
@@ -14,7 +23,6 @@ pub fn bit_permutation(coding: Coding) -> Result<Vec<usize>, DecodeError> {
     let rows = length / columns;
     let information = coding.information();
     let q = (length - information) / 360;
-    let mut map = vec![0; length];
     for di in 0..length {
         let column = di % columns;
         let row = di / columns;
@@ -31,7 +39,7 @@ pub fn bit_permutation(coding: Coding) -> Result<Vec<usize>, DecodeError> {
         };
         map[row * columns + mux[column]] = original;
     }
-    Ok(map)
+    Ok(())
 }
 
 fn twists(coding: Coding) -> &'static [usize] {
@@ -67,6 +75,13 @@ fn demux(coding: Coding) -> &'static [usize] {
 }
 
 pub fn cell_permutation(cells: usize) -> Result<Vec<usize>, DecodeError> {
+    let mut out = vec![0; cells];
+    cell_permutation_into(&mut out)?;
+    Ok(out)
+}
+
+pub(super) fn cell_permutation_into(out: &mut [usize]) -> Result<(), DecodeError> {
+    let cells = out.len();
     if ![2025, 2700, 4050, 8100, 10800, 16200, 32400].contains(&cells) {
         return Err(DecodeError::Parameters);
     }
@@ -79,7 +94,7 @@ pub fn cell_permutation(cells: usize) -> Result<Vec<usize>, DecodeError> {
         _ => &[0, 1, 2, 12],
     };
     let mut state = 0;
-    let mut out = Vec::with_capacity(cells);
+    let mut next = 0;
     for i in 0..1 << degree {
         state = match i {
             0 | 1 => 0,
@@ -91,10 +106,11 @@ pub fn cell_permutation(cells: usize) -> Result<Vec<usize>, DecodeError> {
         };
         let address = state | (i % 2) << (degree - 1);
         if address < cells {
-            out.push(address);
+            out[next] = address;
+            next += 1;
         }
     }
-    Ok(out)
+    Ok(())
 }
 
 pub fn cell_shift(cells: usize, block: usize) -> Result<usize, DecodeError> {

@@ -17,7 +17,7 @@ fn coding(frame: Frame, rate: Rate, constellation: Constellation, rotated: bool)
     }
 }
 
-fn encode(coding: Coding, message: &[bool], block: usize) -> Vec<Complex<f32>> {
+pub(super) fn encode(coding: Coding, message: &[bool], block: usize) -> Vec<Complex<f32>> {
     let mut scrambled = message.to_vec();
     bb::scramble(&mut scrambled);
     let mut bch = Vec::new();
@@ -239,3 +239,37 @@ fn terrestrial_tables_are_distinct_from_satellite_codes() {
 }
 
 mod transport_tests;
+
+#[test]
+fn axis_demapping_matches_exhaustive_maxlog_distances() {
+    for constellation in [
+        Constellation::Qpsk,
+        Constellation::Qam16,
+        Constellation::Qam64,
+        Constellation::Qam256,
+    ] {
+        let bits = constellation.bits();
+        let points: Vec<_> = (0..1 << bits)
+            .map(|word| bicm::point(word, constellation))
+            .collect();
+        for i in 0..128 {
+            let sample = Complex::new(
+                (i as f32 * 0.137).sin() * 1.8,
+                (i as f32 * 0.281).cos() * 1.8,
+            );
+            let actual = bicm::soften(sample, &points, bits, 0.15);
+            for (bit, &llr) in actual[..bits].iter().enumerate() {
+                let mut minimum = [f32::INFINITY; 2];
+                for (word, &point) in points.iter().enumerate() {
+                    let value = word >> (bits - 1 - bit) & 1;
+                    minimum[value] = minimum[value].min((sample - point).norm_sqr());
+                }
+                let expected = ((minimum[1] - minimum[0]) / 0.15).clamp(-32.0, 32.0);
+                assert!(
+                    (llr - expected).abs() < 0.0001,
+                    "{constellation:?} {sample}: {llr} {expected}"
+                );
+            }
+        }
+    }
+}

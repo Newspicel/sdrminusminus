@@ -1882,7 +1882,7 @@ export interface components {
             video_frames_ok?: number;
         };
         /** @enum {string} */
-        BroadcastSystem: "dab" | "dab_plus" | "dvb_s" | "dvb_s2" | "dvb_t" | "drm30" | "drm_plus";
+        BroadcastSystem: "dab" | "dab_plus" | "dvb_s" | "dvb_s2" | "dvb_t" | "dvb_t2" | "drm30" | "drm_plus";
         CalParams: {
             /**
              * Format: double
@@ -3453,13 +3453,18 @@ export interface components {
         /** @enum {string} */
         Duplex: "rx_only" | "tx_only" | "half" | "full";
         /** @enum {string} */
-        DvbtBandwidth: "mhz1_7" | "mhz6" | "mhz7" | "mhz8";
+        DvbtBandwidth: "mhz1_7" | "mhz5" | "mhz10" | "mhz6" | "mhz7" | "mhz8";
         DvbtParams: {
             bandwidth?: components["schemas"]["DvbtBandwidth"];
             low_priority?: boolean;
             /** Format: int32 */
+            plp?: number | null;
+            /** Format: int32 */
             program?: number | null;
+            standard?: components["schemas"]["DvbtStandard"];
         };
+        /** @enum {string} */
+        DvbtStandard: "dvb_t" | "dvb_t2";
         DvChannelDefinition: {
             /** Format: int32 */
             channel: number;

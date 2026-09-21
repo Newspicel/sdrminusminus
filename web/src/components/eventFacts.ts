@@ -85,6 +85,7 @@ function broadcastSystem(system: string): string {
     dvb_s: "DVB-S",
     dvb_s2: "DVB-S2",
     dvb_t: "DVB-T",
+    dvb_t2: "DVB-T2",
     drm30: "DRM30",
     drm_plus: "DRM+",
   };

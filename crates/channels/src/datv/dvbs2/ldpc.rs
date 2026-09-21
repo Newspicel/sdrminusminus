@@ -390,11 +390,20 @@ impl Ldpc {
     }
 
     pub fn decode(&mut self, llrs: &[f32], out: &mut Vec<bool>) -> Option<usize> {
+        self.decode_with_iterations(llrs, out, MAX_ITERATIONS)
+    }
+
+    pub(crate) fn decode_with_iterations(
+        &mut self,
+        llrs: &[f32],
+        out: &mut Vec<bool>,
+        limit: usize,
+    ) -> Option<usize> {
         if llrs.len() != self.length {
             return None;
         }
         self.check_to_variable.fill(0.0);
-        for iteration in 0..=MAX_ITERATIONS {
+        for iteration in 0..=limit {
             self.update_variables(llrs);
             for (index, total) in self.totals.iter().enumerate() {
                 self.hard[index] = *total < 0.0;
@@ -403,12 +412,16 @@ impl Ldpc {
                 out.extend_from_slice(&self.hard[..self.information]);
                 return Some(iteration);
             }
-            if iteration == MAX_ITERATIONS {
+            if iteration == limit {
                 break;
             }
             self.update_checks();
         }
         None
+    }
+
+    pub(crate) fn hard_information(&self) -> &[bool] {
+        &self.hard[..self.information]
     }
 
     fn update_variables(&mut self, llrs: &[f32]) {

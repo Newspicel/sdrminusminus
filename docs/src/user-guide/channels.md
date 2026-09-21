@@ -57,7 +57,7 @@ vary by mode:
 | Paging and telemetry | FLEX, ERMES, Selcall (CCIR/ZVEI), Sub-GHz OOK/FSK frames, ISM sensors, radio clocks (DCF77, WWVB, MSF, JJY) | fixture-only |
 | Video | ATV, SSTV | fixture-only |
 | Wideband digital | DAB / DAB+ | tested on air |
-| Wideband digital | DVB-T, DATV (DVB-S / S2), DRM30 / DRM+ | experimental |
+| Wideband digital | DVB-T/T2, DATV (DVB-S / S2), DRM30 / DRM+ | experimental |
 | Utility | Signal identifier | tested on air |
 | Utility | Iridium bursts, DECT base station survey | fixture-only |
 | Utility | GNSS lab (GPS L1 C/A) | experimental |
@@ -116,7 +116,7 @@ Pulse slicing, payload layouts, validation rules, and CRC/LFSR digest routines f
 | Mode | Available output | Missing or limited functionality |
 |---|---|---|
 | DATV | DVB-S/S2/S2X, programme tables, MPEG Layer II/AAC/AC-3/E-AC-3 audio, MPEG-2/H.264/HEVC video, GSE datagrams | Synthetic IQ validation |
-| DVB-T | 2K/8K OFDM, 1.7/6/7/8 MHz channels, all guard intervals and code rates, QPSK/16-QAM/64-QAM, hierarchical HP/LP streams, audio and video | Synthetic IQ validation |
+| DVB-T/T2 | DVB-T HP/LP; T2-Base/Lite, SISO/MISO, 1K–32K, PLP selection, audio and video | Synthetic IQ validation; no GSE or multi-RF TFS |
 | DRM30 / DRM+ | Acquisition, lock, SNR, and frequency error | No FAC, SDC, or MSC decoding; no service labels or media |
 | GNSS lab | GPS L1 C/A acquisition and NAV telemetry | No position solution |
 | VOR / ILS | Radial or difference in depth of modulation | Tested only against analytically generated signals |
@@ -344,7 +344,7 @@ Connect `audio` to a **Speaker** node. **Auto** selects the first DAB audio serv
 III or IV. All four modes use 2.048 MS/s at the channel input. Changing mode or service clears
 buffered audio and data.
 
-DAB+ supports 960-sample AAC-LC, HE-AAC and parametric stereo. DVB-T and DVB-S/S2 play the selected
+DAB+ supports 960-sample AAC-LC, HE-AAC and parametric stereo. DVB-T/T2 and DVB-S/S2 play the selected
 programme's first audio and video streams. Supported media includes MPEG Layer II, AAC/HE-AAC,
 AC-3/E-AC-3, MPEG-2 video, H.264 and HEVC. Audio is converted to stereo at 48 kHz. Connect the
 receiver’s `video` output to a **Video** node. Presentation timestamps pace DVB media output. Video follows the browser audio-buffer delay when
@@ -355,11 +355,11 @@ keeps received MOT objects with a download link to their original bytes. HTML an
 files are downloadable without being executed in the interface. Reassembly checks CRCs and
 bounds object size and segment count. The log also reports audio, video and data errors.
 
-For DVB-T choose **Bandwidth** to match the transmitter. FFT size, guard interval, constellation
-and code rate are detected from TPS signalling. **Low priority stream** selects the LP stream of
-a hierarchical multiplex. **1.7 MHz** is a scaled narrow DVB-T mode. The channel input clock
-follows bandwidth, allowing narrow reception from a 2.048 MS/s radio. Select a discovered
-service or enter its programme number manually.
+For DVB-T/T2 select **Standard** and **Bandwidth**. Transmission parameters are detected
+from signalling. **Low priority stream** selects DVB-T LP; **PLP** selects a DVB-T2 pipe
+or defaults to the first TS pipe. Select a discovered programme or enter its number.
+**1.7 MHz** uses the standard DVB-T2 clock (1.845 MS/s), or scaled narrow DVB-T
+(1.943 MS/s). Both fit a 2.048 MS/s radio. Decoder failures appear in the broadcast readout.
 
 For DVB-S and DVB-S2 set **Symbol rate** between 100 kBd and 4 MBd. The channel input rate
 follows it, so a 2 MBd carrier runs at 4 MS/s and needs a receiver that can supply it.

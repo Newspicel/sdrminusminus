@@ -970,6 +970,8 @@ impl Default for DatvParams {
 #[serde(rename_all = "snake_case")]
 pub enum DvbtBandwidth {
     Mhz1_7,
+    Mhz5,
+    Mhz10,
     Mhz6,
     Mhz7,
     #[default]
@@ -980,6 +982,8 @@ impl DvbtBandwidth {
     pub const fn hz(self) -> f64 {
         match self {
             Self::Mhz1_7 => 1_700_000.0,
+            Self::Mhz5 => 5_000_000.0,
+            Self::Mhz10 => 10_000_000.0,
             Self::Mhz6 => 6_000_000.0,
             Self::Mhz7 => 7_000_000.0,
             Self::Mhz8 => 8_000_000.0,
@@ -992,13 +996,37 @@ impl DvbtBandwidth {
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum DvbtStandard {
+    #[default]
+    DvbT,
+    DvbT2,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct DvbtParams {
+    #[serde(default)]
+    pub standard: DvbtStandard,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plp: Option<u8>,
     #[serde(default)]
     pub bandwidth: DvbtBandwidth,
     #[serde(default)]
     pub low_priority: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub program: Option<u16>,
+}
+
+impl DvbtParams {
+    pub const fn sample_rate_hz(self) -> f64 {
+        if matches!(self.standard, DvbtStandard::DvbT2)
+            && matches!(self.bandwidth, DvbtBandwidth::Mhz1_7)
+        {
+            131_000_000.0 / 71.0
+        } else {
+            self.bandwidth.sample_rate_hz()
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
@@ -1753,6 +1781,8 @@ mod dvbt_tests {
     fn dvbt_bandwidths_roundtrip_with_native_clocks() {
         for (bandwidth, json, hz) in [
             (DvbtBandwidth::Mhz1_7, "mhz1_7", 1_700_000.0),
+            (DvbtBandwidth::Mhz5, "mhz5", 5_000_000.0),
+            (DvbtBandwidth::Mhz10, "mhz10", 10_000_000.0),
             (DvbtBandwidth::Mhz6, "mhz6", 6_000_000.0),
             (DvbtBandwidth::Mhz7, "mhz7", 7_000_000.0),
             (DvbtBandwidth::Mhz8, "mhz8", 8_000_000.0),
@@ -1770,5 +1800,18 @@ mod dvbt_tests {
             serde_json::from_str::<DvbtParams>("{}").unwrap(),
             DvbtParams::default()
         );
+    }
+    #[test]
+    fn terrestrial_standard_selects_the_correct_narrow_clock() {
+        let params: DvbtParams =
+            serde_json::from_str(r#"{"standard":"dvb_t2","bandwidth":"mhz1_7","plp":255}"#)
+                .unwrap();
+        assert_eq!(params.standard, DvbtStandard::DvbT2);
+        assert_eq!(params.plp, Some(255));
+        assert_eq!(params.sample_rate_hz(), 131_000_000.0 / 71.0);
+        let legacy: DvbtParams = serde_json::from_str(r#"{"bandwidth":"mhz1_7"}"#).unwrap();
+        assert_eq!(legacy.standard, DvbtStandard::DvbT);
+        assert_eq!(legacy.sample_rate_hz(), 1_700_000.0 * 8.0 / 7.0);
+        assert!(serde_json::from_str::<DvbtParams>(r#"{"plp":256}"#).is_err());
     }
 }

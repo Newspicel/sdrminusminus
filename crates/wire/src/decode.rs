@@ -703,6 +703,7 @@ pub enum BroadcastSystem {
     DvbS,
     DvbS2,
     DvbT,
+    DvbT2,
     Drm30,
     DrmPlus,
 }
@@ -716,6 +717,7 @@ impl BroadcastSystem {
             Self::DvbS => "DVB-S",
             Self::DvbS2 => "DVB-S2",
             Self::DvbT => "DVB-T",
+            Self::DvbT2 => "DVB-T2",
             Self::Drm30 => "DRM30",
             Self::DrmPlus => "DRM+",
         }

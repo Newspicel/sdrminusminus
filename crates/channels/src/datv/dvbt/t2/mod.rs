@@ -1,7 +1,17 @@
+pub mod acquire;
 pub mod bicm;
+mod common;
+pub mod equalize;
 pub mod interleave;
+pub mod mapping;
+mod p1_tables;
+mod pilot_tables;
+pub mod receiver;
+pub mod schedule;
+pub mod signalling;
 mod tables;
 pub mod transport;
+pub mod transport_clock;
 
 pub use crate::datv::dvbs2::ldpc::{Frame, Rate};
 
@@ -9,6 +19,16 @@ pub use crate::datv::dvbs2::ldpc::{Frame, Rate};
 pub enum DecodeError {
     #[error("Invalid DVB-T2 coding parameters")]
     Parameters,
+    #[error("DVB-T2 signalling failed validation")]
+    Signalling,
+    #[error("DVB-T2 RF synchronization failed")]
+    Acquisition,
+    #[error("Selected DVB-T2 PLP is unavailable")]
+    Plp,
+    #[error("DVB-T2 stream discontinuity")]
+    Discontinuity,
+    #[error("DVB-T2 common PLP timing is unavailable")]
+    CommonPlp,
     #[error("Invalid DVB-T2 block length")]
     Length,
     #[error("Non-finite DVB-T2 sample")]
@@ -118,3 +138,6 @@ impl Coding {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod rf_tests;

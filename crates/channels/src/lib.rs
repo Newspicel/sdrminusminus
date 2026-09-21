@@ -693,7 +693,7 @@ fn find(settings: &ChannelSettings) -> Result<&'static Registration, ChannelErro
 pub fn input_rate(params: &ChannelParams) -> f64 {
     match params {
         ChannelParams::Datv(p) => datv::input_rate_hz(p),
-        ChannelParams::Dvbt(p) => p.bandwidth.sample_rate_hz(),
+        ChannelParams::Dvbt(p) => p.sample_rate_hz(),
         other => descriptor_of(other.type_id()).map_or(0.0, |d| d.input_rate_hz),
     }
 }

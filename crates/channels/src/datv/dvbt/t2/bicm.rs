@@ -31,13 +31,17 @@ impl Decoder {
         let coding = coding.validate()?;
         let bch = Bch::new(coding.frame, coding.correct(), coding.message());
         let bch_scratch = bch.scratch();
+        let mut cell_map = interleave::cell_permutation(coding.cells())?;
+        cell_map.reserve(coding.frame.length() / 2 - cell_map.len());
+        let mut points = Vec::with_capacity(256);
+        points.extend(
+            (0..1 << coding.constellation.bits()).map(|word| point(word, coding.constellation)),
+        );
         Ok(Self {
             coding,
-            cell_map: interleave::cell_permutation(coding.cells())?,
+            cell_map,
             bit_map: interleave::bit_permutation(coding)?,
-            points: (0..1 << coding.constellation.bits())
-                .map(|word| point(word, coding.constellation))
-                .collect(),
+            points,
             llrs: vec![0.0; coding.frame.length()],
             word: Vec::with_capacity(coding.information()),
             ldpc: Ldpc::with_addresses(coding.frame, coding.addresses()?)
@@ -45,6 +49,25 @@ impl Decoder {
             bch,
             bch_scratch,
         })
+    }
+
+    pub fn configure(&mut self, coding: Coding) -> Result<(), DecodeError> {
+        let coding = coding.validate()?;
+        if coding.frame != self.coding.frame || coding.rate != self.coding.rate {
+            return Err(DecodeError::Parameters);
+        }
+        if coding == self.coding {
+            return Ok(());
+        }
+        self.cell_map.resize(coding.cells(), 0);
+        interleave::cell_permutation_into(&mut self.cell_map)?;
+        interleave::bit_permutation_into(coding, &mut self.bit_map)?;
+        self.points.clear();
+        self.points.extend(
+            (0..1 << coding.constellation.bits()).map(|word| point(word, coding.constellation)),
+        );
+        self.coding = coding;
+        Ok(())
     }
 
     pub fn decode(
@@ -114,13 +137,23 @@ pub fn point(word: usize, constellation: Constellation) -> Complex<f32> {
     Complex::new(component(0), component(1)) / scale
 }
 
-fn soften(sample: Complex<f32>, points: &[Complex<f32>], bits: usize, variance: f32) -> [f32; 8] {
+pub(super) fn soften(
+    sample: Complex<f32>,
+    points: &[Complex<f32>],
+    bits: usize,
+    variance: f32,
+) -> [f32; 8] {
     let mut distances = [[f32::INFINITY; 2]; 8];
-    for (word, &point) in points.iter().enumerate() {
-        let distance = (sample - point).norm_sqr();
-        for (bit, pair) in distances[..bits].iter_mut().enumerate() {
-            let value = word >> (bits - 1 - bit) & 1;
-            pair[value] = pair[value].min(distance);
+    let dimension = bits / 2;
+    for level in 0..1 << dimension {
+        let word = (0..dimension).fold(0, |word, bit| word | ((level >> bit & 1) << (2 * bit + 1)));
+        let amplitude = points[word].re;
+        let real = (sample.re - amplitude).powi(2);
+        let imaginary = (sample.im - amplitude).powi(2);
+        for bit in 0..dimension {
+            let value = level >> (dimension - 1 - bit) & 1;
+            distances[2 * bit][value] = distances[2 * bit][value].min(real);
+            distances[2 * bit + 1][value] = distances[2 * bit + 1][value].min(imaginary);
         }
     }
     let mut soft = [0.0; 8];

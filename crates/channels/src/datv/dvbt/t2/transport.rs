@@ -1,4 +1,7 @@
-use super::DecodeError;
+use super::{
+    DecodeError,
+    transport_clock::{Clock, Sink, TimedPacket},
+};
 use crate::datv::{dvbs::PACKET, dvbs2::bb::crc8};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -9,6 +12,7 @@ pub struct Header {
     pub sync_distance: Option<usize>,
     pub packet_bytes: usize,
     pub deleted_null_packets: bool,
+    pub issy: Option<[u8; 3]>,
 }
 
 impl Header {
@@ -65,6 +69,7 @@ impl Header {
             sync_distance,
             packet_bytes,
             deleted_null_packets,
+            issy: (issy && high_efficiency).then_some([bytes[2], bytes[3], bytes[6]]),
         })
     }
 }
@@ -83,6 +88,8 @@ pub struct Transport {
     byte: u8,
     byte_bits: usize,
     synchronized: bool,
+    packet_clock: Option<Clock>,
+    origin: u64,
 }
 
 impl Default for Transport {
@@ -94,6 +101,8 @@ impl Default for Transport {
             byte: 0,
             byte_bits: 0,
             synchronized: false,
+            packet_clock: None,
+            origin: 0,
         }
     }
 }
@@ -105,12 +114,35 @@ impl Transport {
         self.byte = 0;
         self.byte_bits = 0;
         self.synchronized = false;
+        self.packet_clock = None;
     }
 
     pub fn push(
         &mut self,
         bits: &[bool],
         output: &mut Vec<[u8; PACKET]>,
+    ) -> Result<Report, DecodeError> {
+        self.push_to(bits, output)
+    }
+
+    pub fn push_timed(
+        &mut self,
+        bits: &[bool],
+        origin: u64,
+        output: &mut Vec<TimedPacket>,
+    ) -> Result<Report, DecodeError> {
+        self.origin = origin;
+        self.push_to(bits, output)
+    }
+
+    pub(super) fn set_origin(&mut self, origin: u64) {
+        self.origin = origin;
+    }
+
+    pub(super) fn push_to<S: Sink>(
+        &mut self,
+        bits: &[bool],
+        output: &mut S,
     ) -> Result<Report, DecodeError> {
         let result = self.read(bits, output);
         if result.is_err() {
@@ -119,11 +151,7 @@ impl Transport {
         result
     }
 
-    fn read(
-        &mut self,
-        bits: &[bool],
-        output: &mut Vec<[u8; PACKET]>,
-    ) -> Result<Report, DecodeError> {
+    fn read<S: Sink>(&mut self, bits: &[bool], output: &mut S) -> Result<Report, DecodeError> {
         let header = Header::parse(bits)?;
         let mut report = Report::default();
         if self.header.is_some_and(|old| {
@@ -156,7 +184,12 @@ impl Transport {
         } else {
             return Ok(report);
         };
-        for &bit in &bits[80 + start..80 + header.data_bits] {
+        for (offset, &bit) in bits[80 + start..80 + header.data_bits].iter().enumerate() {
+            if header.high_efficiency && header.sync_distance == Some(start + offset) {
+                self.packet_clock = header
+                    .issy
+                    .and_then(|bytes| Clock::parse(&bytes, self.origin));
+            }
             self.byte = self.byte << 1 | u8::from(bit);
             self.byte_bits += 1;
             if self.byte_bits != 8 {
@@ -176,15 +209,16 @@ impl Transport {
             if header.high_efficiency && self.filled == header.packet_bytes {
                 self.emit(header, output, &mut report)?;
                 self.filled = 0;
+                self.packet_clock = None;
             }
         }
         Ok(report)
     }
 
-    fn emit(
+    fn emit<S: Sink>(
         &self,
         header: Header,
-        output: &mut Vec<[u8; PACKET]>,
+        output: &mut S,
         report: &mut Report,
     ) -> Result<(), DecodeError> {
         let nulls = if header.deleted_null_packets {
@@ -192,17 +226,25 @@ impl Transport {
         } else {
             0
         };
-        if output.capacity() - output.len() < nulls + 1 {
+        if output.remaining() < nulls + 1 {
             return Err(DecodeError::Capacity);
         }
         let mut null = [0xff; PACKET];
         null[..4].copy_from_slice(&[0x47, 0x1f, 0xff, 0x10]);
-        output.extend(std::iter::repeat_n(null, nulls));
+        for _ in 0..nulls {
+            output.packet(null, None)?;
+        }
         let mut packet = [0; PACKET];
         packet[0] = 0x47;
         let start = usize::from(!header.high_efficiency);
         packet[1..].copy_from_slice(&self.packet[start..start + PACKET - 1]);
-        output.push(packet);
+        let clock = if header.high_efficiency {
+            self.packet_clock
+        } else {
+            let end = header.packet_bytes - usize::from(header.deleted_null_packets);
+            Clock::parse(&self.packet[PACKET..end], self.origin)
+        };
+        output.packet(packet, clock)?;
         report.packets += nulls + 1;
         Ok(())
     }

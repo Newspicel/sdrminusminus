@@ -3,11 +3,11 @@ use std::sync::LazyLock;
 use num_complex::Complex;
 use sdrmm_dsp::{Decimator, design_lowpass};
 use sdrmm_wire::{
-    BroadcastService, BroadcastServiceKind, BroadcastStatus, BroadcastSystem, ChannelDescriptor,
-    ChannelParams, ChannelSettings, DecoderEvent, DvbtParams,
+    BroadcastService, BroadcastServiceKind, ChannelDescriptor, ChannelParams, ChannelSettings,
+    DecoderEvent, DvbtParams,
 };
 
-use super::receiver::Receiver;
+use super::frontend::Frontend;
 use crate::{
     ChannelCtx, ChannelError, ChannelFilter, ChannelOutputs, ChannelRx,
     broadcast_media::BroadcastMedia,
@@ -22,7 +22,7 @@ use crate::{
 pub const INPUT_RATE: f64 = 64_000_000.0 / 7.0;
 static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescriptor {
     type_id: "dvbt".to_owned(),
-    name: "DVB-T".to_owned(),
+    name: "DVB-T/T2".to_owned(),
     bandwidth_hz: 8_000_000.0,
     input_rate_hz: INPUT_RATE,
     has_audio: true,
@@ -38,10 +38,7 @@ pub fn occupied_band(params: &DvbtParams) -> (f64, f64) {
 
 pub fn channel_filter(params: &DvbtParams) -> ChannelFilter {
     ChannelFilter::Symmetric(Decimator::new(
-        &design_lowpass(
-            127,
-            params.bandwidth.hz() / (2.0 * params.bandwidth.sample_rate_hz()),
-        ),
+        &design_lowpass(127, params.bandwidth.hz() / (2.0 * params.sample_rate_hz())),
         1,
     ))
 }
@@ -65,7 +62,7 @@ struct Selection {
 
 pub struct DvbtChannel {
     params: DvbtParams,
-    receiver: Receiver,
+    receiver: Frontend,
     packets: Vec<[u8; PACKET]>,
     units: Vec<PesUnit>,
     demux: TsDemux,
@@ -110,8 +107,7 @@ impl DvbtChannel {
 
     fn report(&self, out: &mut ChannelOutputs) {
         let program = self.demux.program();
-        let metrics = self.receiver.metrics();
-        let parameters = self.receiver.parameters;
+        let mut status = self.receiver.status(self.params.sample_rate_hz());
         let selected = program.map(|p| u32::from(p.number));
         let services = self
             .demux
@@ -134,48 +130,17 @@ impl DvbtChannel {
                 language: p.streams.iter().find_map(|s| s.language.clone()),
             })
             .collect();
-        out.events.push(DecoderEvent::Broadcast(BroadcastStatus {
-            system: BroadcastSystem::DvbT,
-            locked: self.receiver.locked(),
-            snr_db: self.receiver.snr,
-            frequency_error_hz: self.receiver.frequency
-                * self.params.bandwidth.sample_rate_hz() as f32
-                / std::f32::consts::TAU,
-            service_id: selected,
-            label: program.and_then(|p| p.name.clone()),
-            ensemble_label: program.and_then(|p| p.provider.clone()),
-            code_rate: parameters.map(|p| {
-                format!(
-                    "{}K {} {} 1/{}",
-                    p.fft / 1024,
-                    match p.bits {
-                        2 => "QPSK",
-                        4 => "16-QAM",
-                        _ => "64-QAM",
-                    },
-                    if p.hierarchical && self.params.low_priority {
-                        p.low_rate
-                    } else {
-                        p.high_rate
-                    }
-                    .label(),
-                    p.fft / p.guard
-                )
-            }),
-            frames_ok: metrics.packets_ok,
-            frames_bad: metrics
-                .packets_bad
-                .saturating_add(self.receiver.bad_symbols),
-            bit_error_rate: metrics.byte_error_rate(),
-            audio_frames_ok: self.media.audio_frames,
-            audio_frames_bad: self.media.audio_errors,
-            audio_error: self.media.audio_error.clone(),
-            video_frames_ok: self.media.video_frames,
-            video_frames_bad: self.media.video_errors,
-            video_error: self.media.video_error.clone(),
-            services,
-            ..BroadcastStatus::default()
-        }));
+        status.service_id = selected;
+        status.label = program.and_then(|p| p.name.clone());
+        status.ensemble_label = program.and_then(|p| p.provider.clone());
+        status.audio_frames_ok = self.media.audio_frames;
+        status.audio_frames_bad = self.media.audio_errors;
+        status.audio_error = self.media.audio_error.clone();
+        status.video_frames_ok = self.media.video_frames;
+        status.video_frames_bad = self.media.video_errors;
+        status.video_error = self.media.video_error.clone();
+        status.services = services;
+        out.events.push(DecoderEvent::Broadcast(status));
     }
 }
 
@@ -185,15 +150,15 @@ impl ChannelRx for DvbtChannel {
     }
     fn new(ctx: ChannelCtx, settings: ChannelSettings) -> Result<Self, ChannelError> {
         let params = params(&settings)?;
-        check_rate(ctx, &DESCRIPTOR, params.bandwidth.sample_rate_hz())?;
+        check_rate(ctx, &DESCRIPTOR, params.sample_rate_hz())?;
         let mut demux = TsDemux::new();
         demux.select(params.program);
         let mut media = BroadcastMedia::new()?;
         media.enable_clock();
         Ok(Self {
             params,
-            receiver: Receiver::new(params.low_priority),
-            packets: Vec::with_capacity(256),
+            receiver: Frontend::new(params)?,
+            packets: Vec::with_capacity(8192),
             units: Vec::with_capacity(32),
             demux,
             media,
@@ -204,12 +169,14 @@ impl ChannelRx for DvbtChannel {
     }
     fn apply(&mut self, settings: ChannelSettings) -> Result<(), ChannelError> {
         let wanted = params(&settings)?;
-        if wanted.bandwidth != self.params.bandwidth
+        if wanted.standard != self.params.standard
+            || wanted.plp != self.params.plp
+            || wanted.bandwidth != self.params.bandwidth
             || wanted.low_priority != self.params.low_priority
         {
             self.retuned();
-            self.receiver.low_priority = wanted.low_priority;
         }
+        self.receiver.apply(wanted)?;
         self.demux.select(wanted.program);
         self.params = wanted;
         Ok(())
@@ -223,7 +190,7 @@ impl ChannelRx for DvbtChannel {
         self.was_locked = false;
     }
     fn process(&mut self, iq: &[Complex<f32>], out: &mut ChannelOutputs) {
-        let input_rate = self.params.bandwidth.sample_rate_hz();
+        let input_rate = self.params.sample_rate_hz();
         self.media.advance(iq.len(), input_rate);
         self.packets.clear();
         self.receiver.push(iq, &mut self.packets);
@@ -369,5 +336,117 @@ mod tests {
                 Some("Rust TV")
             );
         }
+    }
+    #[test]
+    fn narrow_t2_channel_recovers_transport_from_a_two_megasample_radio() {
+        let params = DvbtParams {
+            standard: sdrmm_wire::DvbtStandard::DvbT2,
+            bandwidth: sdrmm_wire::DvbtBandwidth::Mhz1_7,
+            plp: Some(7),
+            ..Default::default()
+        };
+        let mut config = settings(params.bandwidth);
+        config.params = ChannelParams::Dvbt(params);
+        let rate = crate::input_rate(&config.params);
+        assert_eq!(rate, 131_000_000.0 / 71.0);
+        let bytes = include_bytes!("../../../../../fixtures/dvbt2/rf_2k_qpsk.f32");
+        let native: Vec<_> = bytes
+            .as_chunks::<8>()
+            .0
+            .iter()
+            .map(|&[a, b, c, d, e, f, g, h]| {
+                Complex::new(
+                    f32::from_le_bytes([a, b, c, d]),
+                    f32::from_le_bytes([e, f, g, h]),
+                )
+            })
+            .collect();
+        let iq = crate::testgen::resample(&native, rate, 2_048_000.0);
+        let mut ddc = sdrmm_dsp::Ddc::new(2_048_000.0, rate, 0.0).unwrap();
+        let mut filter = channel_filter(&params);
+        let mut channel =
+            DvbtChannel::new(ChannelCtx { input_rate: rate }, config.clone()).unwrap();
+        let mut baseband = Vec::with_capacity(8192);
+        let mut filtered = Vec::with_capacity(8192);
+        let mut out = ChannelOutputs::default();
+        for block in iq.chunks(1009) {
+            baseband.clear();
+            filtered.clear();
+            ddc.process(block, &mut baseband);
+            filter.process(&baseband, &mut filtered);
+            channel.process(&filtered, &mut out);
+        }
+        channel.report(&mut out);
+        let status = out
+            .events
+            .iter()
+            .rev()
+            .find_map(|event| {
+                if let DecoderEvent::Broadcast(status) = event {
+                    Some(status)
+                } else {
+                    None
+                }
+            })
+            .unwrap();
+        assert_eq!(status.system, sdrmm_wire::BroadcastSystem::DvbT2);
+        assert_eq!(status.frames_ok, 4, "{status:?}");
+        assert_eq!(status.frames_bad, 0, "{status:?}");
+        let mut changed = params;
+        changed.plp = Some(9);
+        config.params = ChannelParams::Dvbt(changed);
+        channel.apply(config).unwrap();
+        assert!(!channel.receiver.locked());
+    }
+
+    #[test]
+    fn t2_iq_discovers_program_and_delivers_audio_and_video() {
+        let params = DvbtParams {
+            standard: sdrmm_wire::DvbtStandard::DvbT2,
+            ..Default::default()
+        };
+        let mut config = settings(params.bandwidth);
+        config.params = ChannelParams::Dvbt(params);
+        let rate = params.sample_rate_hz();
+        let bytes = include_bytes!("../../../../../fixtures/dvbt2/rf_32k_media.f32");
+        let iq: Vec<_> = bytes
+            .as_chunks::<8>()
+            .0
+            .iter()
+            .map(|&[a, b, c, d, e, f, g, h]| {
+                Complex::new(
+                    f32::from_le_bytes([a, b, c, d]),
+                    f32::from_le_bytes([e, f, g, h]),
+                )
+            })
+            .collect();
+        let mut channel = DvbtChannel::new(ChannelCtx { input_rate: rate }, config).unwrap();
+        let mut out = ChannelOutputs::default();
+        for block in iq[..iq.len() - 8192 + 32].chunks(1009) {
+            channel.process(block, &mut out);
+        }
+        assert_eq!(channel.demux.program().map(|p| p.number), Some(1));
+        assert!(channel.receiver.locked());
+        for _ in 0..100 {
+            std::thread::sleep(std::time::Duration::from_millis(2));
+            channel.media.advance((rate / 50.0) as usize, rate);
+            channel.media.drain(&mut out);
+            if channel.media.audio_frames > 0 && channel.media.video_frames > 0 {
+                break;
+            }
+        }
+        assert_eq!(
+            channel.media.audio_errors, 0,
+            "{:?}",
+            channel.media.audio_error
+        );
+        assert_eq!(
+            channel.media.video_errors, 0,
+            "{:?}",
+            channel.media.video_error
+        );
+        assert!(channel.media.audio_frames > 0);
+        assert!(channel.media.video_frames > 0);
+        assert!(out.audio_pcm.iter().any(|&sample| sample.abs() > 0.01));
     }
 }

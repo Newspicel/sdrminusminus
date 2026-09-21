@@ -1,5 +1,6 @@
 mod acquire;
 mod channel;
+mod frontend;
 pub mod mapping;
 pub mod receiver;
 pub mod t2;

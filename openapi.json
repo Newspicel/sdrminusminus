@@ -6395,6 +6395,7 @@
           "dvb_s",
           "dvb_s2",
           "dvb_t",
+          "dvb_t2",
           "drm30",
           "drm_plus"
         ]
@@ -12574,6 +12575,8 @@
         "type": "string",
         "enum": [
           "mhz1_7",
+          "mhz5",
+          "mhz10",
           "mhz6",
           "mhz7",
           "mhz8"
@@ -12588,6 +12591,14 @@
           "low_priority": {
             "type": "boolean"
           },
+          "plp": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
           "program": {
             "type": [
               "integer",
@@ -12595,8 +12606,18 @@
             ],
             "format": "int32",
             "minimum": 0
+          },
+          "standard": {
+            "$ref": "#/components/schemas/DvbtStandard"
           }
         }
+      },
+      "DvbtStandard": {
+        "type": "string",
+        "enum": [
+          "dvb_t",
+          "dvb_t2"
+        ]
       },
       "EcaParams": {
         "type": "object",
