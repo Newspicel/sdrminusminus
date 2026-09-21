@@ -19,6 +19,8 @@ const INPUT_RATE_HZ: f64 = 8_000.0;
 const FILTER_TAPS: usize = 257;
 const TEXT_FLUSH_CHARS: usize = 64;
 const BANDWIDTH_FACTOR: f64 = 1.3;
+const LOCK_RATE: f32 = 0.01;
+const LOCK_MIN: f32 = 0.78;
 
 static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescriptor {
     type_id: "psk".to_owned(),
@@ -80,6 +82,8 @@ pub struct PskChannel {
     invert: bool,
     symbols: Vec<Complex<f32>>,
     products: Vec<Complex<f32>>,
+    lock: f32,
+    symbols_seen: u32,
 }
 
 impl ChannelRx for PskChannel {
@@ -98,6 +102,8 @@ impl ChannelRx for PskChannel {
             invert: params.invert,
             symbols: Vec::new(),
             products: Vec::new(),
+            lock: 0.0,
+            symbols_seen: 0,
         })
     }
 
@@ -116,6 +122,8 @@ impl ChannelRx for PskChannel {
         self.decoder = VaricodeDecoder::default();
         self.symbols.clear();
         self.products.clear();
+        self.lock = 0.0;
+        self.symbols_seen = 0;
     }
 
     fn process(&mut self, iq: &[Complex<f32>], out: &mut ChannelOutputs) {
@@ -131,17 +139,31 @@ impl ChannelRx for PskChannel {
         self.products.clear();
         self.differential.process(&self.symbols, &mut self.products);
         for product in &self.products {
+            self.symbols_seen = self.symbols_seen.saturating_add(1);
+            let rate = LOCK_RATE.max(1.0 / self.symbols_seen as f32);
+            self.lock += rate * (binary_phase_fit(*product) - self.lock);
             let mut bit = product.re >= 0.0;
             if self.invert {
                 bit = !bit;
             }
-            if let Some(text) = self.decoder.feed(bit) {
+            if let Some(text) = self.decoder.feed(bit)
+                && self.lock >= LOCK_MIN
+            {
                 out.events.push(DecoderEvent::Psk(PskText {
                     baud: self.baud,
                     text,
                 }));
             }
         }
+    }
+}
+
+fn binary_phase_fit(product: Complex<f32>) -> f32 {
+    let magnitude = product.norm();
+    if magnitude > 0.0 {
+        product.re.abs() / magnitude
+    } else {
+        0.0
     }
 }
 
@@ -395,6 +417,19 @@ mod tests {
                 _ => None,
             })
             .collect()
+    }
+
+    #[test]
+    fn a_quiet_band_decodes_to_nothing() {
+        for seed in [0x0c0f_fee1, 0x1234_5678, 0xdead_beef] {
+            let mut iq = testgen::silence((30.0 * INPUT_RATE_HZ) as usize);
+            testgen::add_noise(&mut iq, seed, 0.3);
+            assert_eq!(
+                decoded(PskBaud::Psk31, &iq),
+                Vec::new(),
+                "seed {seed:#x} read text out of noise"
+            );
+        }
     }
 
     #[test]

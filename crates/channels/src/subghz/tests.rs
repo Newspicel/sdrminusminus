@@ -173,13 +173,31 @@ fn decodes_through_additive_noise() {
 }
 
 #[test]
+fn a_burst_too_short_to_carry_bits_is_not_reported() {
+    let mut iq = Vec::new();
+    for _ in 0..6 {
+        iq.extend_from_slice(&keyed(&[72, 900, 72, 40_000], RATE));
+    }
+    assert_eq!(decode(SubghzParams::default(), &iq), Vec::new());
+}
+
+#[test]
 fn pure_noise_decodes_to_nothing() {
+    let fsk = SubghzParams {
+        modulation: SubghzModulation::Fsk,
+        ..SubghzParams::default()
+    };
     for seed in [0x1234_5678, 0xdead_beef, 0x0f0f_0f0f] {
         let noise = complex_noise(seed, 0.05, 1_000_000);
         assert_eq!(
             decode(SubghzParams::default(), &noise),
             Vec::new(),
-            "seed {seed:#x}"
+            "ook seed {seed:#x}"
+        );
+        assert_eq!(
+            decode(fsk.clone(), &noise),
+            Vec::new(),
+            "fsk seed {seed:#x}"
         );
     }
 }

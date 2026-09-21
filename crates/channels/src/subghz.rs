@@ -34,6 +34,8 @@ const COLLAPSE_S: f64 = 0.5;
 
 const MIN_BITS: usize = 8;
 
+const MIN_EDGES: usize = MIN_BITS;
+
 const QUANTIZE_TOLERANCE: f64 = 0.3;
 const MAX_MULTIPLE: u32 = 4;
 
@@ -331,7 +333,7 @@ impl ChannelRx for SubghzChannel {
             if !self.timing.push(key) {
                 continue;
             }
-            let frame = (!self.timing.overflowed)
+            let frame = (!self.timing.overflowed && self.timing.edges().len() >= MIN_EDGES)
                 .then(|| classify(self.timing.edges(), self.rate, modulation));
             self.timing.clear_frame();
             if let Some(frame) = frame {

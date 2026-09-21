@@ -24,6 +24,14 @@ pub const FRAME: usize = NULL + SYMBOLS * SYMBOL;
 #[cfg(test)]
 pub const SYMBOL_BITS: usize = 2 * CARRIERS;
 
+const NULL_WINDOW: usize = 64;
+
+const NULL_POWER_RATIO: f32 = 0.25;
+
+const CARRIER_AVERAGE_RATE: f32 = 0.00002;
+
+const LEVEL_RATE: f32 = 0.15;
+
 #[cfg(any(test, feature = "test-signals"))]
 const PHASE_STEPS: [(i16, i16, u8, u8); 48] = [
     (-768, -737, 0, 1),
@@ -229,6 +237,8 @@ pub struct SymbolDemod {
     previous: Vec<Complex<f32>>,
     current: Vec<Complex<f32>>,
     have_reference: bool,
+    levels: Vec<f32>,
+    have_levels: bool,
     signal: f64,
     noise: f64,
 }
@@ -254,6 +264,8 @@ impl SymbolDemod {
             previous: vec![Complex::new(0.0, 0.0); mode.useful],
             current: vec![Complex::new(0.0, 0.0); mode.useful],
             have_reference: false,
+            levels: vec![0.0; mode.carriers()],
+            have_levels: false,
             signal: 0.0,
             noise: 0.0,
         }
@@ -261,6 +273,7 @@ impl SymbolDemod {
 
     pub fn reset(&mut self) {
         self.have_reference = false;
+        self.have_levels = false;
         self.signal = 0.0;
         self.noise = 0.0;
     }
@@ -301,13 +314,22 @@ impl SymbolDemod {
         let start = out.len();
         out.resize(start + self.mode.symbol_bits(), 0);
         for (index, &bin) in self.bins.iter().enumerate() {
-            let product = self.current[bin] * self.previous[bin].conj() * scale;
-            let ideal = Complex::new(product.re.signum(), product.im.signum());
+            let differential = self.current[bin] * self.previous[bin].conj();
+            let level = &mut self.levels[index];
+            if self.have_levels {
+                *level += LEVEL_RATE * (differential.norm() - *level);
+            } else {
+                *level = differential.norm();
+            }
+            let equalized = differential * (std::f32::consts::SQRT_2 / level.max(1e-20));
+            let ideal = Complex::new(equalized.re.signum(), equalized.im.signum());
             self.signal += f64::from(ideal.norm_sqr());
-            self.noise += f64::from((product - ideal).norm_sqr());
+            self.noise += f64::from((equalized - ideal).norm_sqr());
+            let product = differential * scale;
             out[start + index] = clamp(-product.re);
             out[start + self.mode.carriers() + index] = clamp(-product.im);
         }
+        self.have_levels = true;
         true
     }
 }
@@ -348,6 +370,10 @@ pub fn map_symbol_for_mode(
 
 pub struct FrameSync {
     null: usize,
+    window: [f32; NULL_WINDOW],
+    at: usize,
+    filled: usize,
+    sum: f64,
     average: f32,
     quiet: usize,
     started: bool,
@@ -363,6 +389,10 @@ impl FrameSync {
     pub const fn for_mode(mode: DabTransmissionMode) -> Self {
         Self {
             null: Mode::new(mode).null,
+            window: [0.0; NULL_WINDOW],
+            at: 0,
+            filled: 0,
+            sum: 0.0,
             average: 0.0,
             quiet: 0,
             started: false,
@@ -370,28 +400,38 @@ impl FrameSync {
     }
 
     pub fn reset(&mut self) {
+        self.window = [0.0; NULL_WINDOW];
+        self.at = 0;
+        self.filled = 0;
+        self.sum = 0.0;
         self.average = 0.0;
         self.quiet = 0;
         self.started = false;
     }
 
-    pub fn push(&mut self, sample: Complex<f32>) -> bool {
+    pub fn push(&mut self, sample: Complex<f32>) -> Option<usize> {
         let power = sample.norm_sqr();
+        self.sum += f64::from(power) - f64::from(self.window[self.at]);
+        self.window[self.at] = power;
+        self.at = (self.at + 1) % NULL_WINDOW;
+        if self.filled < NULL_WINDOW {
+            self.filled += 1;
+            return None;
+        }
+        let smoothed = (self.sum.max(0.0) / NULL_WINDOW as f64) as f32;
         if self.average == 0.0 {
-            self.average = power.max(1e-12);
+            self.average = smoothed.max(1e-12);
         }
-        let quiet = power < self.average * 0.15;
-        if quiet {
+        if smoothed < self.average * NULL_POWER_RATIO {
             self.quiet += 1;
-        } else {
-            self.average += 0.00002 * (power - self.average);
-            let ended = self.started && (self.null / 2..2 * self.null).contains(&self.quiet);
-            self.quiet = 0;
             self.started = true;
-            return ended;
+            return None;
         }
+        self.average += CARRIER_AVERAGE_RATE * (smoothed - self.average);
+        let ended = self.started && (self.null / 2..2 * self.null).contains(&self.quiet);
+        self.quiet = 0;
         self.started = true;
-        false
+        ended.then_some(NULL_WINDOW)
     }
 }
 
@@ -556,16 +596,16 @@ mod tests {
         let mut lead = vec![Complex::new(0.4, -0.3); 4_000];
         lead.extend_from_slice(&iq);
         for (index, &sample) in lead.iter().enumerate() {
-            if sync.push(sample) {
-                starts.push(index);
+            if let Some(carrier_run) = sync.push(sample) {
+                starts.push(index + 1 - carrier_run);
             }
         }
         assert_eq!(starts.len(), 1);
+        let expected = 4_000 + NULL;
         assert!(
-            starts[0].abs_diff(4_000 + NULL) < 8,
-            "found the frame at {} rather than {}",
-            starts[0],
-            4_000 + NULL
+            (expected - NULL_WINDOW..=expected).contains(&starts[0]),
+            "found the frame at {} rather than within a window before {expected}",
+            starts[0]
         );
     }
 

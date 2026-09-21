@@ -26,6 +26,13 @@ const MAX_CHUNK_CHARS: usize = 64;
 const MAX_ELEMENTS: u8 = 8;
 const FIT_ALPHA: f32 = 0.15;
 
+/// Timing this far off the one-dot and three-dot lengths came from a slicer chewing on noise, not
+/// from a hand or a keyer.
+pub const FIT_MAX: f32 = 0.35;
+
+/// Marks that have to land before their timing says anything about who sent them.
+const FIT_MARKS: u32 = 3;
+
 static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescriptor {
     type_id: "morse".to_owned(),
     name: "Morse (CW)".to_owned(),
@@ -141,6 +148,8 @@ pub struct MorseChannel {
     started: bool,
     pending_space: bool,
     fit: f32,
+    scored: u32,
+    unproven: String,
     text: String,
 }
 
@@ -283,7 +292,9 @@ impl MorseChannel {
         let units = len / dot;
         let nearest = if units < DASH_MIN_DOTS { 1.0 } else { 3.0 };
         let error = (units - nearest).abs() / nearest;
-        self.fit += FIT_ALPHA * (error.min(1.0) - self.fit);
+        self.scored = self.scored.saturating_add(1);
+        let alpha = FIT_ALPHA.max(1.0 / self.scored as f32);
+        self.fit += alpha * (error.min(1.0) - self.fit);
     }
 
     fn track(&mut self, observed_dot: f32) {
@@ -329,10 +340,24 @@ impl MorseChannel {
         if self.text.is_empty() {
             return;
         }
+        if self.element_fit() > FIT_MAX {
+            if self.unproven.len() >= MAX_CHUNK_CHARS {
+                self.unproven.clear();
+            }
+            self.unproven.push_str(&std::mem::take(&mut self.text));
+            return;
+        }
+        let mut text = std::mem::take(&mut self.unproven);
+        text.push_str(&std::mem::take(&mut self.text));
         out.events.push(DecoderEvent::Morse(MorseText {
-            text: std::mem::take(&mut self.text),
+            text,
             wpm: self.wpm(),
         }));
+    }
+
+    #[must_use]
+    pub fn marks_scored(&self) -> u32 {
+        self.scored
     }
 
     /// How closely the marks seen so far land on the one-dot and three-dot lengths a hand or a
@@ -340,7 +365,16 @@ impl MorseChannel {
     /// from a patch of band that merely crossed the detection threshold.
     #[must_use]
     pub fn element_fit(&self) -> f32 {
-        self.fit
+        if self.scored < FIT_MARKS || self.speed_ran_into_its_limit() {
+            1.0
+        } else {
+            self.fit
+        }
+    }
+
+    fn speed_ran_into_its_limit(&self) -> bool {
+        let (fastest, slowest) = self.dot_bounds;
+        self.fixed_wpm.is_none() && self.dot.is_some_and(|dot| dot <= fastest || dot >= slowest)
     }
 
     fn wpm(&self) -> f32 {
@@ -394,6 +428,8 @@ impl ChannelRx for MorseChannel {
             started: false,
             pending_space: false,
             fit: 1.0,
+            scored: 0,
+            unproven: String::new(),
             text: String::new(),
         })
     }
@@ -577,10 +613,13 @@ mod tests {
 
     #[test]
     fn pure_noise_decodes_to_nothing() {
-        let mut iq = testgen::silence((6.0 * RATE) as usize);
+        let mut iq = testgen::silence((20.0 * RATE) as usize);
         testgen::add_noise(&mut iq, 0x0c0f_fee1, 0.3);
+        let mut channel = channel(None);
         let mut out = ChannelOutputs::default();
-        channel(None).process(&iq, &mut out);
+        for block in iq.chunks(1_024) {
+            channel.process(block, &mut out);
+        }
         assert!(out.events.is_empty(), "noise decoded to {:?}", out.events);
     }
 

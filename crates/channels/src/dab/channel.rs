@@ -469,8 +469,10 @@ impl ChannelRx for DabChannel {
                 self.report(out);
             }
             self.pending.push(sample);
-            if self.sync.push(sample) && self.frame_start.is_none() {
-                let at = self.pending.len().saturating_sub(1);
+            if let Some(carrier_run) = self.sync.push(sample)
+                && self.frame_start.is_none()
+            {
+                let at = self.pending.len().saturating_sub(carrier_run);
                 self.frame_start = Some(at.saturating_sub(SEARCH));
             }
             if self.frame_start.is_none() && self.pending.len() > 2 * self.mode.frame() {
@@ -737,6 +739,45 @@ mod tests {
                 .iter()
                 .all(|pair| pair[0] == pair[1])
         );
+    }
+
+    #[test]
+    fn an_ensemble_at_the_coverage_edge_still_locks_and_reports_its_carrier_to_noise() {
+        for (snr_db, floor_db) in [(20.0f32, 17.0f32), (12.0, 9.0), (8.0, 5.0)] {
+            let iq = crate::testutil::at_snr(&testgen::dab::ensemble(20), snr_db, 7);
+            let mut channel = channel(None);
+            let mut out = ChannelOutputs::default();
+            for block in iq.chunks(16_384) {
+                channel.process(block, &mut out);
+            }
+            let status = status(&out);
+            assert!(status.locked, "{snr_db} dB: {status:?}");
+            assert_eq!(status.ensemble_label.as_deref(), Some("SDR-- test"));
+            assert!(
+                (floor_db..=snr_db + 1.0).contains(&status.snr_db),
+                "{snr_db} dB in, {} dB reported",
+                status.snr_db
+            );
+        }
+    }
+
+    #[test]
+    fn an_echo_inside_the_guard_interval_does_not_read_as_noise() {
+        const ECHO: usize = 200;
+        let clean = testgen::dab::ensemble(20);
+        let mut echoed = clean.clone();
+        for index in ECHO..echoed.len() {
+            echoed[index] += clean[index - ECHO] * 0.7;
+        }
+        let mut channel = channel(None);
+        let mut out = ChannelOutputs::default();
+        for block in echoed.chunks(16_384) {
+            channel.process(block, &mut out);
+        }
+        let status = status(&out);
+        assert!(status.locked, "{status:?}");
+        assert_eq!(status.frames_bad, 0, "{status:?}");
+        assert!(status.snr_db > 25.0, "echo read as {} dB", status.snr_db);
     }
 
     #[test]

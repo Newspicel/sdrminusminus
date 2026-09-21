@@ -9,7 +9,7 @@ use sdrmm_wire::{
 
 use crate::{
     ChannelCtx, ChannelError, ChannelFilter, ChannelOutputs, ChannelRx, MorseChannel,
-    check_input_rate,
+    check_input_rate, morse::FIT_MAX,
 };
 
 const RATE: f64 = 48_000.0;
@@ -28,9 +28,8 @@ const INIT_HITS: u8 = 6;
 const INIT_FRAMES: u8 = 24;
 const PROVE_CHUNKS: u8 = 3;
 const PROVE_FRAMES: u16 = 240;
-/// Timing this far off the one-dot and three-dot lengths came from a slicer chewing on noise, not
-/// from a hand or a keyer.
-const FIT_MAX: f32 = 0.35;
+/// Marks a track has to put on the one-dot and three-dot lengths before it counts as an operator.
+const PROVE_MARKS: u32 = 16;
 const ECHO_MARGIN_DB: f32 = 6.0;
 /// No receiver hears a station this far under the loudest one in its passband; a peak that deep is
 /// the analysis window's own skirt, not another operator.
@@ -142,16 +141,12 @@ impl Track {
                 wpm: message.wpm,
                 snr_db: self.snr_db,
             };
-            if self.proven {
-                out.push(spot);
-                continue;
-            }
             self.chunks = self.chunks.saturating_add(1);
-            if self.morse.element_fit() <= FIT_MAX {
+            if self.morse.element_fit() <= FIT_MAX && self.morse.marks_scored() >= PROVE_MARKS {
                 self.proven = true;
                 out.append(&mut self.held);
                 out.push(spot);
-            } else if self.chunks >= PROVE_CHUNKS {
+            } else if self.proven || self.chunks >= PROVE_CHUNKS {
                 self.held.clear();
             } else {
                 self.held.push(spot);

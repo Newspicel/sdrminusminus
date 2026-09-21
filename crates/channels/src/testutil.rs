@@ -112,6 +112,31 @@ pub(crate) fn complex_noise(seed: u32, amp: f32, len: usize) -> Vec<Complex<f32>
     (0..len).map(|_| Complex::new(next(), next())).collect()
 }
 
+pub(crate) fn at_snr(signal: &[Complex<f32>], snr_db: f32, seed: u64) -> Vec<Complex<f32>> {
+    let power = signal
+        .iter()
+        .map(num_complex::Complex::norm_sqr)
+        .sum::<f32>()
+        / signal.len() as f32;
+    let sigma = (power / 10f32.powf(snr_db / 10.0) / 2.0).sqrt();
+    let mut state = seed | 1;
+    let mut gaussian = move || {
+        state = state
+            .wrapping_mul(6_364_136_223_846_793_005)
+            .wrapping_add(1);
+        let u = f64::from((state >> 40) as u32) / f64::from(1u32 << 24);
+        state = state
+            .wrapping_mul(6_364_136_223_846_793_005)
+            .wrapping_add(1);
+        let v = f64::from((state >> 40) as u32) / f64::from(1u32 << 24);
+        ((-2.0 * u.max(1e-12).ln()).sqrt() * (TAU * v).cos()) as f32
+    };
+    signal
+        .iter()
+        .map(|&sample| sample + Complex::new(gaussian() * sigma, gaussian() * sigma))
+        .collect()
+}
+
 pub(crate) fn tone_amplitude(audio: &[f32], freq_hz: f64, rate: f64) -> f32 {
     let step = TAU * freq_hz / rate;
     let (mut re, mut im) = (0.0f64, 0.0f64);
