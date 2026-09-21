@@ -130,6 +130,7 @@ class Plot implements WaterfallView {
   private map = 0;
   private ratio = 1;
   private onScreen = false;
+  private dirty = true;
 
   constructor(
     private readonly canvas: HTMLCanvasElement,
@@ -139,6 +140,7 @@ class Plot implements WaterfallView {
     this.observer = new IntersectionObserver(
       (entries) => {
         this.onScreen = entries[entries.length - 1]?.isIntersecting ?? false;
+        this.dirty ||= this.onScreen;
       },
       { rootMargin: PREROLL_MARGIN },
     );
@@ -207,6 +209,7 @@ class Plot implements WaterfallView {
       bins,
     );
     this.writeRow = nextRingRow(this.writeRow, HISTORY_ROWS);
+    this.dirty = true;
   }
 
   seed(rows: Uint8Array, count: number, bins: number): void {
@@ -244,15 +247,19 @@ class Plot implements WaterfallView {
       this.shifts[i] = (this.shifts[i] ?? 0) + delta;
     }
     this.shiftsDirty = true;
+    this.dirty = true;
   }
 
   setWindow(start: number, width: number): void {
+    this.dirty ||= this.windowStart !== start || this.windowWidth !== width;
     this.windowStart = start;
     this.windowWidth = width;
   }
 
   setColormap(name: Colormap): void {
-    this.map = COLORMAPS.indexOf(name);
+    const map = COLORMAPS.indexOf(name);
+    this.dirty ||= this.map !== map;
+    this.map = map;
   }
 
   dispose(): void {
@@ -282,7 +289,9 @@ class Plot implements WaterfallView {
       return null;
     }
     const rect = this.canvas.getBoundingClientRect();
-    this.ratio = pixelRatio(window.devicePixelRatio, zoomOf(rect.width, cssWidth));
+    const ratio = pixelRatio(window.devicePixelRatio, zoomOf(rect.width, cssWidth));
+    this.dirty ||= this.ratio !== ratio;
+    this.ratio = ratio;
     const w = backingPx(cssWidth, this.ratio);
     const h = backingPx(cssHeight, this.ratio);
     if (w === 0 || h === 0) {
@@ -291,8 +300,13 @@ class Plot implements WaterfallView {
     if (this.canvas.width !== w || this.canvas.height !== h) {
       this.canvas.width = w;
       this.canvas.height = h;
+      this.dirty = true;
     }
     return { w, h };
+  }
+
+  needsPaint(): boolean {
+    return this.dirty;
   }
 
   paint(w: number, h: number): void {
@@ -318,6 +332,7 @@ class Plot implements WaterfallView {
     gl.uniform1i(uniforms.map, this.map);
     gl.drawArrays(gl.TRIANGLES, 0, 6);
     this.ctx?.drawImage(buffer, 0, buffer.height - h, w, h, 0, 0, w, h);
+    this.dirty = false;
   }
 
   private allocate(bins: number): void {
@@ -330,6 +345,7 @@ class Plot implements WaterfallView {
     this.writeRow = 0;
     this.shifts.fill(0);
     this.shiftsDirty = true;
+    this.dirty = true;
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, live.texture);
     gl.texImage2D(
@@ -361,7 +377,9 @@ function draw(): void {
     if (size === null) {
       continue;
     }
-    pending.push({ plot, ...size });
+    if (plot.needsPaint()) {
+      pending.push({ plot, ...size });
+    }
     width = Math.max(width, size.w);
     height = Math.max(height, size.h);
   }

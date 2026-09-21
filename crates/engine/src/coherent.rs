@@ -15,6 +15,7 @@ use sdrmm_wire::{CalParams, CalState, Coherence};
 mod align;
 mod cal;
 mod host;
+mod radar;
 mod tap;
 
 pub(crate) use align::Aligner;
@@ -210,6 +211,9 @@ fn aggregate(
             sample_rate,
         );
         let Some(count) = aligner.next() else {
+            for host in &mut sinks {
+                host.poll(center, calibrator.state());
+            }
             std::thread::park_timeout(IDLE_PARK);
             continue;
         };
@@ -340,6 +344,50 @@ mod tests {
             lanes: 4,
             sample_rate: RATE,
             center_hz: 300e6,
+        }
+    }
+
+    #[test]
+    fn a_radar_surface_is_published_after_the_last_input_block() {
+        let ctx = CoherentCtx {
+            lanes: 2,
+            sample_rate: 100_000.0,
+            center_hz: 100e6,
+        };
+        let params = CoherentParams::PassiveRadar(sdrmm_wire::PassiveRadarParams {
+            cpi_ms: 10,
+            max_range_bins: 64,
+            doppler_span_hz: 2000.0,
+            ..Default::default()
+        });
+        let (sinks, _updates) = sinks();
+        let mut surfaces = sinks.surfaces.subscribe();
+        let mut host = CoherentHost::build(1, ctx, &params, sinks, vec![0, 1]).unwrap();
+        let input = vec![Complex::new(1.0, 0.0); 1000];
+        let cal = CalState::default();
+        host.process(
+            &[&input, &input],
+            AlignedContext {
+                index: 0,
+                sample_rate: ctx.sample_rate,
+                center_hz: ctx.center_hz,
+                realigned: false,
+                cal: &cal,
+            },
+        );
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        loop {
+            host.poll(ctx.center_hz, &cal);
+            if let Ok(surface) = surfaces.try_recv() {
+                assert_eq!(surface.surface.ranges, 64);
+                assert_eq!(surface.surface.dopplers, 21);
+                break;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "last radar surface was not published"
+            );
+            std::thread::sleep(Duration::from_millis(1));
         }
     }
 

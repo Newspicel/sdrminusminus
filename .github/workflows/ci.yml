@@ -101,7 +101,7 @@ jobs:
         run: cargo xtask test
 
   gpu-fft:
-    name: GPU FFT parity (ubuntu)
+    name: GPU DSP parity (ubuntu)
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
@@ -131,6 +131,11 @@ jobs:
         run: >
           cargo test -p sdrmm-engine --all-features
           --lib spectrum::tests::gpu_matches_cpu_when_a_hardware_adapter_is_available
+          -- --ignored --exact
+      - name: GPU radar parity (Lavapipe)
+        run: >
+          cargo test -p sdrmm-engine --all-features
+          --lib gpu::caf::tests::radar_matches_cpu_across_tiles_and_fractional_doppler
           -- --ignored --exact
 
   smoke:

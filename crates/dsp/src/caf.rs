@@ -67,6 +67,21 @@ impl Caf {
         self.cpi
     }
 
+    #[must_use]
+    pub const fn ranges(&self) -> usize {
+        self.ranges
+    }
+
+    #[must_use]
+    pub const fn dopplers(&self) -> usize {
+        self.dopplers
+    }
+
+    #[must_use]
+    pub fn range_step_s(&self) -> f32 {
+        (1.0 / self.sample_rate) as f32
+    }
+
     /// One Doppler bin is one over the integration time, which is the finest shift a coherent
     /// stretch of this length can tell apart.
     #[must_use]

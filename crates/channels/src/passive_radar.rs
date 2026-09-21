@@ -27,12 +27,32 @@ const SURVEILLANCE: usize = 1;
 const SURFACE_SPAN_DB: f32 = 40.0;
 const LIGHT_SPEED_KM_S: f32 = 299_792.5;
 
+pub trait RadarCorrelation: Send {
+    fn compute(
+        &mut self,
+        reference: &[Complex<f32>],
+        surveillance: &[Complex<f32>],
+        out: &mut Surface,
+    );
+}
+
+impl RadarCorrelation for Caf {
+    fn compute(
+        &mut self,
+        reference: &[Complex<f32>],
+        surveillance: &[Complex<f32>],
+        out: &mut Surface,
+    ) {
+        Caf::compute(self, reference, surveillance, out);
+    }
+}
+
 pub struct PassiveRadarProcessor {
     params: PassiveRadarParams,
     sample_rate: f64,
     cpi: usize,
     eca: Eca,
-    caf: Caf,
+    caf: Box<dyn RadarCorrelation>,
     reference: Vec<Complex<f32>>,
     surveillance: Vec<Complex<f32>>,
     residual: Vec<Complex<f32>>,
@@ -86,6 +106,31 @@ fn cfar_of(params: &PassiveRadarParams) -> CfarParams {
 }
 
 impl PassiveRadarProcessor {
+    pub fn with_correlation(
+        ctx: CoherentCtx,
+        params: &CoherentParams,
+        make: impl FnOnce(Caf) -> Box<dyn RadarCorrelation>,
+    ) -> Result<Self, ChannelError> {
+        let params = *params_of(params)?;
+        let (eca, caf, cpi) = Self::build(&params, ctx.sample_rate)?;
+        Ok(Self {
+            params,
+            sample_rate: ctx.sample_rate,
+            cpi,
+            eca,
+            caf: make(caf),
+            reference: Vec::with_capacity(cpi * 2),
+            surveillance: Vec::with_capacity(cpi * 2),
+            residual: Vec::new(),
+            surface: Surface::default(),
+            detections: Vec::new(),
+            cells: Vec::new(),
+            tracker: Tracker::new(TrackerParams::default()),
+            looks: Vec::new(),
+            named: Vec::new(),
+        })
+    }
+
     fn build(
         params: &PassiveRadarParams,
         sample_rate: f64,
@@ -181,24 +226,7 @@ impl CoherentRx for PassiveRadarProcessor {
     }
 
     fn new(ctx: CoherentCtx, params: &CoherentParams) -> Result<Self, ChannelError> {
-        let params = *params_of(params)?;
-        let (eca, caf, cpi) = Self::build(&params, ctx.sample_rate)?;
-        Ok(Self {
-            params,
-            sample_rate: ctx.sample_rate,
-            cpi,
-            eca,
-            caf,
-            reference: Vec::with_capacity(cpi * 2),
-            surveillance: Vec::with_capacity(cpi * 2),
-            residual: Vec::new(),
-            surface: Surface::default(),
-            detections: Vec::new(),
-            cells: Vec::new(),
-            tracker: Tracker::new(TrackerParams::default()),
-            looks: Vec::new(),
-            named: Vec::new(),
-        })
+        Self::with_correlation(ctx, params, |caf| Box::new(caf))
     }
 
     fn apply(&mut self, params: &CoherentParams) -> Result<(), ChannelError> {
@@ -209,11 +237,17 @@ impl CoherentRx for PassiveRadarProcessor {
         let (eca, caf, cpi) = Self::build(&params, self.sample_rate)?;
         self.params = params;
         self.eca = eca;
-        self.caf = caf;
+        self.caf = Box::new(caf);
         self.cpi = cpi;
         self.reference.clear();
         self.surveillance.clear();
         Ok(())
+    }
+
+    fn retuned(&mut self, _center_hz: f64) {
+        self.reference.clear();
+        self.surveillance.clear();
+        self.tracker = Tracker::new(TrackerParams::default());
     }
 
     fn process(&mut self, lanes: &[&[Complex<f32>]], out: &mut CoherentOutputs) {

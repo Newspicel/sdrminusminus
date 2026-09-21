@@ -74,6 +74,8 @@ pub trait CoherentRx: Send {
     fn retuned(&mut self, _center_hz: f64) {}
 
     fn process(&mut self, lanes: &[&[Complex<f32>]], out: &mut CoherentOutputs);
+
+    fn poll(&mut self, _out: &mut CoherentOutputs) {}
 }
 
 type CreateCoherent = fn(CoherentCtx, &CoherentParams) -> Result<Box<dyn CoherentRx>, ChannelError>;

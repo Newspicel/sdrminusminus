@@ -31,6 +31,7 @@ mod morse;
 mod navtex;
 mod nfm;
 mod passive_radar;
+pub use passive_radar::{PassiveRadarProcessor, RadarCorrelation};
 mod pocsag;
 mod psk;
 mod radio_clock;

@@ -82,7 +82,11 @@ impl CoherentHost {
                 ctx.lanes
             )));
         }
-        let rx = create_coherent(ctx, params)?;
+        let rx: Box<dyn CoherentRx> = if matches!(params, CoherentParams::PassiveRadar(_)) {
+            Box::new(super::radar::RadarWorker::new(ctx, params)?)
+        } else {
+            create_coherent(ctx, params)?
+        };
         let publisher = CoherentPublisher::new(node, sinks).map_err(|error| {
             ChannelError::InvalidSettings(format!("start coherent publisher: {error}"))
         })?;
@@ -100,6 +104,35 @@ impl CoherentHost {
             told: (false, false, false),
             weights: None,
         }))
+    }
+
+    pub(super) fn poll(&mut self, center_hz: f64, cal: &CalState) {
+        if center_hz != self.center_hz {
+            self.center_hz = center_hz;
+            self.freq_hz = center_hz;
+            self.rx.retuned(center_hz);
+        }
+        if cal.reference_on || (self.needs_phase && cal.phase_unknown) {
+            self.rx.retuned(center_hz);
+            return;
+        }
+        self.outputs.reset();
+        self.rx.poll(&mut self.outputs);
+        self.publish_outputs(cal);
+    }
+
+    fn publish_outputs(&mut self, cal: &CalState) {
+        let has_report = self.outputs.bearing.is_some()
+            || !self.outputs.detections.is_empty()
+            || self.outputs.surface.is_some();
+        if !has_report && self.outputs.events.is_empty() && self.outputs.weights.is_none() {
+            return;
+        }
+        if let Some(weights) = self.outputs.weights.take() {
+            self.weights = Some(reorder(&weights, &self.lanes));
+        }
+        self.publisher
+            .publish(&mut self.outputs, cal, self.freq_hz, has_report);
     }
 
     pub(crate) const fn node(&self) -> u32 {
@@ -134,7 +167,7 @@ fn reorder(weights: &[Complex<f32>], lanes: &[u32]) -> Vec<Complex<f32>> {
 
 impl super::AlignedSink for CoherentHost {
     fn process(&mut self, lanes: &[&[Complex<f32>]], ctx: AlignedContext<'_>) {
-        if ctx.center_hz != self.center_hz {
+        if ctx.center_hz != self.center_hz || ctx.realigned {
             self.center_hz = ctx.center_hz;
             self.freq_hz = ctx.center_hz;
             self.rx.retuned(ctx.center_hz);
@@ -148,6 +181,7 @@ impl super::AlignedSink for CoherentHost {
             self.told = state;
         }
         if ctx.cal.reference_on || (self.needs_phase && ctx.cal.phase_unknown) {
+            self.rx.retuned(ctx.center_hz);
             if due {
                 self.outputs.reset();
                 self.publisher
@@ -166,16 +200,6 @@ impl super::AlignedSink for CoherentHost {
             count += 1;
         }
         self.rx.process(&ordered[..count], &mut self.outputs);
-        let has_report = self.outputs.bearing.is_some()
-            || !self.outputs.detections.is_empty()
-            || self.outputs.surface.is_some();
-        if !has_report && self.outputs.events.is_empty() && self.outputs.weights.is_none() {
-            return;
-        }
-        if let Some(weights) = self.outputs.weights.take() {
-            self.weights = Some(reorder(&weights, &self.lanes));
-        }
-        self.publisher
-            .publish(&mut self.outputs, ctx.cal, self.freq_hz, has_report);
+        self.publish_outputs(ctx.cal);
     }
 }

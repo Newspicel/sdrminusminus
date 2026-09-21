@@ -155,16 +155,10 @@ impl Eca {
         let order = self.params.order();
         let count = end - start;
         self.build_basis(reference, start, end);
-        let basis = &self.basis;
-        let gram = &mut self.gram;
-        for row in 0..order {
-            let left = &basis[row * count..row * count + count];
-            for col in row..order {
-                let right = &basis[col * count..col * count + count];
-                let sum = conj_dot(left, right);
-                gram[row * order + col] = sum;
-                gram[col * order + row] = sum.conj();
-            }
+        if self.params.doppler_bins == 0 {
+            self.stationary_gram(reference, start, end);
+        } else {
+            self.full_gram(count);
         }
         let trace: f32 = (0..order).map(|i| self.gram[i * order + i].re).sum();
         let floor = (trace / order as f32) * self.params.loading;
@@ -187,6 +181,44 @@ impl Eca {
             let left = &self.basis[row * count..row * count + count];
             for (slot, a) in residual.iter_mut().zip(left) {
                 *slot -= weight * a;
+            }
+        }
+    }
+
+    fn full_gram(&mut self, count: usize) {
+        let order = self.params.order();
+        let basis = &self.basis;
+        let gram = &mut self.gram;
+        for row in 0..order {
+            let left = &basis[row * count..row * count + count];
+            for col in row..order {
+                let right = &basis[col * count..col * count + count];
+                let sum = conj_dot(left, right);
+                gram[row * order + col] = sum;
+                gram[col * order + row] = sum.conj();
+            }
+        }
+    }
+
+    fn stationary_gram(&mut self, reference: &[Complex<f32>], start: usize, end: usize) {
+        let order = self.params.order();
+        let count = end - start;
+        let sample = |index: usize, delay: usize| {
+            index
+                .checked_sub(delay)
+                .map_or(Complex::default(), |at| reference[at])
+        };
+        let first = &self.basis[..count];
+        for lag in 0..order {
+            let mut value = conj_dot(first, &self.basis[lag * count..(lag + 1) * count]);
+            self.gram[lag] = value;
+            self.gram[lag * order] = value.conj();
+            for row in 1..order - lag {
+                let col = row + lag;
+                value += sample(start, row).conj() * sample(start, col)
+                    - sample(end, row).conj() * sample(end, col);
+                self.gram[row * order + col] = value;
+                self.gram[col * order + row] = value.conj();
             }
         }
     }
@@ -246,6 +278,34 @@ mod tests {
 
     fn power(samples: &[Complex<f32>]) -> f64 {
         samples.iter().map(|s| f64::from(s.norm_sqr())).sum()
+    }
+
+    #[test]
+    fn stationary_gram_matches_direct_products_across_batches() {
+        let reference = noise(32_779, 0x51ed, 1.0);
+        for taps in [1, 8, 32, 64] {
+            let mut eca = Eca::new(
+                EcaParams {
+                    delay_taps: taps,
+                    ..EcaParams::default()
+                },
+                2e6,
+            )
+            .unwrap();
+            for (start, end) in [(0, 8192), (3, 4099), (8192, 16_384), (16_384, 32_779)] {
+                eca.build_basis(&reference, start, end);
+                eca.full_gram(end - start);
+                let expected = eca.gram.clone();
+                eca.stationary_gram(&reference, start, end);
+                let scale = expected[0].re.max(1.0);
+                for (actual, expected) in eca.gram.iter().zip(expected) {
+                    assert!(
+                        (*actual - expected).norm() < 3e-6 * scale,
+                        "taps={taps} start={start} actual={actual} expected={expected}"
+                    );
+                }
+            }
+        }
     }
 
     #[test]

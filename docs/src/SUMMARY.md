@@ -38,4 +38,5 @@
 
 - [Build and test](development/building.md)
 - [Architecture](development/architecture.md)
+- [GPU measurements](development/gpu-performance.md)
 - [Release process](development/releases.md)

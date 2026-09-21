@@ -35,6 +35,8 @@ pub mod coherent;
 mod coherent_ops;
 mod device_ops;
 mod discovery;
+#[cfg(feature = "gpu-fft")]
+mod gpu;
 mod history;
 mod hotplug;
 mod hunt;
