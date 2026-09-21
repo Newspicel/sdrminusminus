@@ -14,6 +14,7 @@ export { eventStation, eventSummary, hasPosition, hex2, hex5 };
 
 export const KIND_LABELS: Record<DecoderKind, string> = {
   call: "Call",
+  transmission: "Transmission",
   adsb: "ADS-B",
   ais: "AIS",
   aprs: "APRS",

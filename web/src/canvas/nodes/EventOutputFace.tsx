@@ -67,7 +67,7 @@ function EventOutputNodeFace({ node }: { node: PatchNodeOf<"event_output"> }) {
 
 function emptyHint(inputs: number, configured: boolean, target: EventOutputTarget) {
   if (inputs === 0) {
-    return "Wire a decoder or DMR trunk's events in";
+    return "Wire events in";
   }
   if (target.service === "tunnel") {
     return configured ? "Received IPv4 and IPv6 datagrams" : "Enter the interface name";
@@ -76,7 +76,7 @@ function emptyHint(inputs: number, configured: boolean, target: EventOutputTarge
     return "Enter the destination credentials";
   }
   return carriesAudio(target)
-    ? "One send per event; completed calls carry WAV audio"
+    ? "One send per event, with available audio"
     : "One send per event, as one JSON object";
 }
 

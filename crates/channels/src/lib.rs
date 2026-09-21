@@ -26,6 +26,7 @@ mod ils;
 mod inmarsat_aero;
 mod inmarsat_stdc;
 mod iridium;
+pub mod monitor;
 mod morse;
 mod navtex;
 mod nfm;

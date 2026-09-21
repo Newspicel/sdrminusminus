@@ -38,6 +38,26 @@ export function eventDetail(event: DecoderEvent): EventDetail {
 const DETAIL: {
   [K in DecoderKind]: (data: Extract<DecoderEvent, { kind: K }>["data"]) => EventDetail;
 } = {
+  transmission: (t) => ({
+    fields: fields([
+      ["Transmission", String(t.id)],
+      ["State", t.state],
+      ["Frequency", formatHz(t.signal.frequency_hz)],
+      ["Bandwidth", formatHz(t.signal.bandwidth_hz)],
+      ["Modulation", modulationLabel(t.signal)],
+      [
+        "Decoder",
+        t.decoder == null
+          ? undefined
+          : `${t.decoder.toUpperCase()}${t.decoder_confirmed ? " (confirmed)" : " (estimated)"}`,
+      ],
+      ["Confidence", `${Math.round(t.signal.confidence * 100)}%`],
+      ["SNR", `${t.signal.snr_db.toFixed(1)} dB`],
+      ["Duration", `${(t.duration_ms / 1000).toFixed(2)} s`],
+      ["Error", t.error],
+    ]),
+    body: null,
+  }),
   rds: (r) => ({
     fields: fields([
       ["PI", r.pi],

@@ -232,6 +232,7 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(100)).await;
 
         let record = |callsign: &str| DecodedRecord {
+            origin: None,
             device_set: set,
             channel,
             at: "2026-09-21T10:00:00Z".to_owned(),
@@ -256,6 +257,7 @@ mod tests {
         );
 
         engine.publish_decoded(DecodedRecord {
+            origin: None,
             channel: channel + 99,
             ..record("DLH123")
         });

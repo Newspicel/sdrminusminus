@@ -267,6 +267,7 @@ function stationId(event: DecoderEvent): string | null {
       return String(event.data.local_address);
     case "rds":
       return event.data.pi ?? null;
+    case "transmission":
     case "navtex":
     case "acars":
     case "subghz":

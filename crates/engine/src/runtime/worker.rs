@@ -68,6 +68,7 @@ impl ArrayOutput {
 
 pub(super) enum Retired {
     Subbands(Box<Subbands>),
+    Monitor(Box<crate::monitor::MonitorTap>),
     Channel(Box<ChannelHost>),
     Recording(Option<RecorderTap>, Option<RecordingPublisher>),
     Network(NetworkExportTap),
@@ -78,6 +79,7 @@ impl Retired {
     pub(super) fn release(self) {
         match self {
             Self::Subbands(bands) => drop(bands),
+            Self::Monitor(tap) => drop(tap),
             Self::Channel(host) => drop(host),
             Self::Recording(tap, publisher) => drop((tap, publisher)),
             Self::Network(tap) => drop(tap),
@@ -105,6 +107,7 @@ pub(super) fn dsp_loop(
     let mut db = vec![0.0f32; FFT_SIZE];
     let mut channels: Vec<(u32, Box<ChannelHost>)> = Vec::new();
     let mut arrays: Vec<ArrayOutput> = Vec::new();
+    let mut monitors = Vec::with_capacity(128);
     let mut tap: Option<RecorderTap> = None;
     let mut recording_publisher: Option<RecordingPublisher> = None;
     let mut network_tap: Option<NetworkExportTap> = None;
@@ -122,6 +125,7 @@ pub(super) fn dsp_loop(
             &mut arrays,
             &mut subbands,
             CommandSinks {
+                monitors: &mut monitors,
                 tap: &mut tap,
                 network_tap: &mut network_tap,
                 history: &mut history,
@@ -143,6 +147,9 @@ pub(super) fn dsp_loop(
             next_input = Some(total + raw.len() as u64);
             let slice = frontend.apply(raw);
             subbands.process(slice, total);
+            for (_, monitor) in &mut monitors {
+                monitor.push(slice, total, snapshot);
+            }
             for array in &mut arrays {
                 array.push(slice, total);
             }
@@ -206,6 +213,7 @@ fn record_stall(stalled_us: &AtomicU64, served: &mut Instant) {
 }
 
 struct CommandSinks<'a> {
+    monitors: &'a mut Vec<(u64, Box<crate::monitor::MonitorTap>)>,
     tap: &'a mut Option<RecorderTap>,
     network_tap: &'a mut Option<NetworkExportTap>,
     history: &'a mut Option<TimeMachineTap>,
@@ -221,6 +229,7 @@ fn drain_commands(
     retirement: &mut Reclaimer<Retired>,
 ) {
     let CommandSinks {
+        monitors,
         tap,
         network_tap,
         history,
@@ -234,6 +243,15 @@ fn drain_commands(
             break;
         };
         match cmd {
+            DspCommand::AddMonitor { id, tap } => {
+                monitors.push((id, tap));
+            }
+            DspCommand::RemoveMonitor { id } => {
+                if let Some(index) = monitors.iter().position(|(held, _)| *held == id) {
+                    let (_, tap) = monitors.remove(index);
+                    retirement.retire(Retired::Monitor(tap));
+                }
+            }
             DspCommand::SetSubbands(bands) => {
                 retirement.retire(Retired::Subbands(std::mem::replace(subbands, bands)));
             }

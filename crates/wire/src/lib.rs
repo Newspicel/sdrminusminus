@@ -1,3 +1,5 @@
+pub mod monitor;
+pub use monitor::{EventOrigin, SpectrumMonitorNode, Transmission, TransmissionState};
 pub mod about;
 pub mod audio;
 pub mod bandplan;
@@ -760,6 +762,7 @@ mod contract_tests {
     #[test]
     fn decoded_event_shape() {
         let ev = ServerEvent::Decoded(Box::new(decode::DecodedRecord {
+            origin: None,
             sinks: Vec::new(),
             device_set: 1,
             channel: 4,

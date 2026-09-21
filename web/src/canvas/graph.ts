@@ -287,6 +287,7 @@ export const NODE_SIZE: Record<NodeKind, NodeSize> = {
   readout: { w: 560, h: 320 },
   decoder_log: { w: 720, h: 380 },
   dmr_trunk: { w: 480, h: 360 },
+  spectrum_monitor: { w: 320 },
   video: { w: 380, h: 320 },
   recorder: { w: 340 },
   audio_recorder: { w: 340 },

@@ -28,6 +28,7 @@ fn artifact_bins(
     artifact_hz: Option<f64>,
     bin_hz: f64,
     center: usize,
+    size: usize,
 ) -> Option<std::ops::RangeInclusive<usize>> {
     let at = artifact_hz.filter(|hz| hz.is_finite())? / bin_hz + center as f64;
     if !at.is_finite() {
@@ -35,10 +36,10 @@ fn artifact_bins(
     }
     let lo = (at - ARTIFACT_BINS as f64).ceil();
     let hi = (at + ARTIFACT_BINS as f64).floor();
-    if hi < 0.0 || lo > (DETECT_FFT - 1) as f64 {
+    if hi < 0.0 || lo > (size - 1) as f64 {
         return None;
     }
-    Some((lo.max(0.0) as usize)..=(hi.max(0.0) as usize).min(DETECT_FFT - 1))
+    Some((lo.max(0.0) as usize)..=(hi.max(0.0) as usize).min(size - 1))
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -76,6 +77,8 @@ pub(crate) struct Survey {
 
 pub(crate) struct Detector {
     analyzer: SpectrumAnalyzer,
+    size: usize,
+    max_bands: usize,
     segment_db: Vec<f32>,
     power: Vec<f32>,
     smoothed: Vec<f32>,
@@ -95,13 +98,19 @@ struct Slice {
 
 impl Detector {
     pub(crate) fn new() -> Self {
+        Self::with_size(DETECT_FFT, MAX_BANDS)
+    }
+
+    pub(crate) fn with_size(size: usize, max_bands: usize) -> Self {
         Self {
-            analyzer: SpectrumAnalyzer::new(DETECT_FFT),
-            segment_db: vec![0.0; DETECT_FFT],
-            power: vec![0.0; DETECT_FFT],
-            smoothed: vec![0.0; DETECT_FFT],
-            scratch: vec![0.0; DETECT_FFT],
-            masked: vec![false; DETECT_FFT],
+            analyzer: SpectrumAnalyzer::new(size),
+            size,
+            max_bands,
+            segment_db: vec![0.0; size],
+            power: vec![0.0; size],
+            smoothed: vec![0.0; size],
+            scratch: vec![0.0; size],
+            masked: vec![false; size],
             covered: 0,
         }
     }
@@ -119,18 +128,18 @@ impl Detector {
             peak_db: -200.0,
             bands: Vec::new(),
         };
-        if iq.len() < DETECT_FFT || rate <= 0.0 {
+        if iq.len() < self.size || rate <= 0.0 {
             return quiet;
         }
         self.accumulate(iq);
 
-        let bin_hz = rate / DETECT_FFT as f64;
-        let center = DETECT_FFT / 2;
+        let bin_hz = rate / self.size as f64;
+        let center = self.size / 2;
         let half_bins = ((half_span_hz / bin_hz).floor() as usize).clamp(1, center);
         let lo = center - half_bins;
-        let hi = (center + half_bins).min(DETECT_FFT - 1);
+        let hi = (center + half_bins).min(self.size - 1);
         self.masked.fill(false);
-        if let Some(artifact) = artifact_bins(artifact_hz, bin_hz, center) {
+        if let Some(artifact) = artifact_bins(artifact_hz, bin_hz, center, self.size) {
             self.masked[artifact].fill(true);
         }
 
@@ -171,7 +180,7 @@ impl Detector {
     fn survey(&mut self, slice: &Slice, threshold_db: f32, first: usize, bands: &mut Vec<Band>) {
         let spill = from_db(slice.floor_db + threshold_db);
         let mut peak = first;
-        while bands.len() < MAX_BANDS {
+        while bands.len() < self.max_bands {
             let peak_db = self.db_at(peak);
             if peak_db - slice.floor_db < threshold_db {
                 break;
@@ -210,7 +219,7 @@ impl Detector {
     }
 
     fn describe(&mut self, slice: &Slice, start: usize, end: usize, peak: usize) -> Band {
-        let center = DETECT_FFT / 2;
+        let center = self.size / 2;
         let bins = end - start + 1;
         let occupied: f32 = self.smoothed[start..=end].iter().sum();
         let noise = slice.floor * bins as f32;
@@ -234,8 +243,8 @@ impl Detector {
     }
 
     fn accumulate(&mut self, iq: &[Complex<f32>]) {
-        let spare = iq.len() - DETECT_FFT;
-        let segments = (spare / (DETECT_FFT / 2) + 1).min(MAX_SEGMENTS);
+        let spare = iq.len() - self.size;
+        let segments = (spare / (self.size / 2) + 1).min(MAX_SEGMENTS);
         let hop = if segments > 1 {
             spare / (segments - 1)
         } else {
@@ -246,7 +255,7 @@ impl Detector {
         for s in 0..segments {
             let start = s * hop;
             self.analyzer
-                .power_db(&iq[start..start + DETECT_FFT], &mut self.segment_db);
+                .power_db(&iq[start..start + self.size], &mut self.segment_db);
             for (acc, &db) in self.power.iter_mut().zip(&self.segment_db) {
                 *acc += from_db(db);
             }
@@ -260,9 +269,9 @@ impl Detector {
 
     fn smooth(&mut self) {
         let half = SMOOTH_BINS / 2;
-        for i in 0..DETECT_FFT {
+        for i in 0..self.size {
             let lo = i.saturating_sub(half);
-            let hi = (i + half).min(DETECT_FFT - 1);
+            let hi = (i + half).min(self.size - 1);
             let span = &self.power[lo..=hi];
             self.smoothed[i] = span.iter().sum::<f32>() / span.len() as f32;
         }

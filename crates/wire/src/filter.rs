@@ -27,6 +27,7 @@ const FACETS: &[(&str, &[EventFacet])] = &[
     ("ais", &[EventFacet::Position]),
     ("aprs", &[EventFacet::Position]),
     ("call", &[EventFacet::Voice, EventFacet::Duration]),
+    ("transmission", &[EventFacet::Duration]),
     ("df", &[EventFacet::Position]),
     ("df_fix", &[EventFacet::Position]),
     ("dsc", &[EventFacet::Position]),
@@ -160,7 +161,12 @@ impl EventFilterNode {
             list_verdict(&self.radios, voice, |v| v.source),
             flag_verdict(self.encrypted, voice, |v| v.encrypted),
             flag_verdict(self.emergency, voice, |v| v.emergency),
-            self.duration_verdict(voice),
+            match event {
+                DecoderEvent::Transmission(transmission) if self.min_duration_ms > 0 => {
+                    Verdict::of(transmission.duration_ms >= u64::from(self.min_duration_ms))
+                }
+                _ => self.duration_verdict(voice),
+            },
         ]
     }
 

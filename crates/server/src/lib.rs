@@ -40,6 +40,7 @@ mod gps;
 mod images;
 mod ionosonde;
 mod mcp;
+mod monitor;
 pub mod notices;
 mod placement;
 mod rest;
@@ -260,6 +261,12 @@ fn start_background(state: &AppState) -> Background {
             trunking::watch_patch(engine, store, recording_tx)
         })
     };
+    let monitor = {
+        let engine = Arc::downgrade(&state.engine);
+        let store = state.store.clone();
+        let calls = state.calls.clone();
+        spawn_task("sdrmm-monitors", move || monitor::run(engine, store, calls))
+    };
     let calls = {
         let engine = Arc::downgrade(&state.engine);
         let calls = state.calls.clone();
@@ -282,7 +289,7 @@ fn start_background(state: &AppState) -> Background {
         })
     };
     Background {
-        tasks: vec![routing, log, patch, calls, images, event_output],
+        tasks: vec![routing, log, patch, calls, images, event_output, monitor],
         detached: false,
     }
 }

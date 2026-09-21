@@ -342,14 +342,15 @@ function RowDetail({ row }: { row: LogRow }) {
   const detail = eventDetail(row.event);
   return (
     <div className="flex flex-col gap-2">
-      {row.event.kind === "call" && row.event.data.audio != null && (
-        <audio
-          className="h-8 w-full min-w-0"
-          controls
-          preload="none"
-          src={callAudioUrl(row.event.data.audio.url)}
-        />
-      )}
+      {(row.event.kind === "call" || row.event.kind === "transmission") &&
+        row.event.data.audio != null && (
+          <audio
+            className="h-8 w-full min-w-0"
+            controls
+            preload="none"
+            src={callAudioUrl(row.event.data.audio.url)}
+          />
+        )}
       {row.event.kind === "broadcast_data" && <BroadcastDataView data={row.event.data} />}
       {detail.fields.length > 0 && (
         <dl className="grid grid-cols-[max-content_1fr] gap-x-3 gap-y-0.5">

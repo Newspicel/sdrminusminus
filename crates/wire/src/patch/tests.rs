@@ -793,6 +793,7 @@ fn default_body(kind: &str) -> NodeBody {
         "readout" => NodeBody::Readout,
         "decoder_log" => NodeBody::DecoderLog,
         "dmr_trunk" => NodeBody::DmrTrunk(DmrTrunkNode::default()),
+        "spectrum_monitor" => NodeBody::SpectrumMonitor(crate::SpectrumMonitorNode::default()),
         "event_filter" => NodeBody::EventFilter(EventFilterNode::default()),
         "event_output" => NodeBody::EventOutput(EventOutputNode::default()),
         "video" => NodeBody::Video,
@@ -2001,4 +2002,35 @@ fn channels_of_keeps_every_wired_stream_of_the_same_radio() {
         .map(|(node, stream)| (node.id.as_str(), stream))
         .collect();
     assert_eq!(lanes, vec![("ch", 0), ("ch", 1)]);
+}
+
+#[test]
+fn spectrum_monitor_has_only_iq_input_and_event_output() {
+    let monitor = NodeBody::SpectrumMonitor(crate::SpectrumMonitorNode::default());
+    let ports = super::ports_for(monitor.kind());
+    assert_eq!(ports.len(), 2);
+    assert_eq!(
+        (ports[0].name.as_str(), ports[0].direction),
+        ("iq", PortDirection::In)
+    );
+    assert_eq!(
+        (ports[1].name.as_str(), ports[1].direction),
+        ("events", PortDirection::Out)
+    );
+    let mut graph = PatchGraph {
+        nodes: vec![
+            node("radio", NodeBody::Device(DeviceNode::default())),
+            node("monitor", monitor),
+            node("log", NodeBody::DecoderLog),
+        ],
+        edges: vec![
+            edge(("radio", "iq"), ("monitor", "iq")),
+            edge(("monitor", "events"), ("log", "events")),
+        ],
+    };
+    graph.validate().unwrap();
+    graph
+        .edges
+        .push(edge(("radio", "iq"), ("monitor", "control")));
+    assert!(graph.validate().is_err());
 }

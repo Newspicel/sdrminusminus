@@ -159,6 +159,7 @@ mod tests {
 
     fn record(icao: &str) -> DecodedRecord {
         DecodedRecord {
+            origin: None,
             sinks: Vec::new(),
             device_set: 0,
             channel: 0,
@@ -282,6 +283,7 @@ mod tests {
         let routes =
             crate::decoded::resolve_routes(&store, &engine.snapshot()).expect("routes resolve");
         let mut batch = vec![routes.route(DecodedRecord {
+            origin: None,
             sinks: Vec::new(),
             device_set: set,
             channel,
@@ -296,6 +298,7 @@ mod tests {
         assert_eq!(entries[0].node.as_deref(), Some("channel:adsb"));
 
         let mut orphan = vec![routes.route(DecodedRecord {
+            origin: None,
             sinks: Vec::new(),
             device_set: set,
             channel: channel + 99,
@@ -338,6 +341,7 @@ mod tests {
             .insert_decoder_events(
                 &[
                     DecodedRecord {
+                        origin: None,
                         sinks: Vec::new(),
                         at: "2020-01-01T00:00:00Z".to_owned(),
                         ..record("3C6444")

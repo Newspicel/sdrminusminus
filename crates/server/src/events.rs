@@ -131,10 +131,15 @@ impl Routes {
     }
 
     pub(crate) fn route(&self, mut record: DecodedRecord) -> Routed {
-        let source = self
-            .sources
-            .get(&(record.device_set, record.channel))
-            .cloned();
+        let source = record
+            .origin
+            .as_ref()
+            .map(|origin| origin.node.clone())
+            .or_else(|| {
+                self.sources
+                    .get(&(record.device_set, record.channel))
+                    .cloned()
+            });
         record.sinks = source
             .as_deref()
             .map_or_else(Vec::new, |source| self.reached(source, &record.event));
@@ -395,6 +400,7 @@ mod tests {
 
     fn decoded(device_set: u32, channel: u32, event: DecoderEvent) -> DecodedRecord {
         DecodedRecord {
+            origin: None,
             device_set,
             channel,
             at: "2026-09-21T10:00:00Z".to_owned(),
@@ -523,5 +529,52 @@ mod tests {
             routes.route(decoded(1, 2, rtty())).record.sinks,
             vec!["chat".to_owned()]
         );
+    }
+}
+
+#[cfg(test)]
+mod monitor_tests {
+    use super::*;
+
+    #[test]
+    fn monitor_origin_routes_through_filters_without_claiming_a_manual_channel() {
+        let mut routes = Routes::default();
+        routes.sources.insert((1, 0), "manual".to_owned());
+        routes.sinks.push(Sink {
+            node: "export".to_owned(),
+            paths: vec![EventPath {
+                source: "monitor".to_owned(),
+                filters: vec![EventFilterNode {
+                    kinds: vec!["pocsag".to_owned()],
+                    ..Default::default()
+                }],
+            }],
+        });
+        let mut record = DecodedRecord {
+            origin: Some(sdrmm_wire::EventOrigin {
+                node: "monitor".to_owned(),
+                transmission: 7,
+            }),
+            device_set: 1,
+            channel: 0,
+            at: "2026-09-21T00:00:00Z".to_owned(),
+            freq_hz: 145_000_000.0,
+            event: DecoderEvent::Pocsag(sdrmm_wire::PocsagMessage {
+                address: 42,
+                function: 3,
+                baud: 1200,
+                payload: sdrmm_wire::PocsagPayload::Alpha,
+                text: "hello".to_owned(),
+                errors_corrected: 0,
+            }),
+            sinks: Vec::new(),
+        };
+        let routed = routes.route(record.clone());
+        assert_eq!(routed.source.as_deref(), Some("monitor"));
+        assert_eq!(routed.record.sinks, ["export"]);
+        record.event = DecoderEvent::Rtty(sdrmm_wire::RttyText {
+            text: "blocked".to_owned(),
+        });
+        assert!(routes.route(record).record.sinks.is_empty());
     }
 }

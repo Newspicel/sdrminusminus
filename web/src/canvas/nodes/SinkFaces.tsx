@@ -56,11 +56,12 @@ import type {
   VoiceCall,
 } from "../../lib/types";
 import { useNow } from "../../lib/useNow";
-import { type Input, inputsOf, iqSourceOf } from "../binding";
+import { eventSourcesOf, type Input, inputsOf, iqSourceOf, wiredSourcesOf } from "../binding";
 import { useWorkspaceContext } from "../context";
 import { patchNode } from "../graph";
 import { decoderOf, deviceSetOf } from "../workspaceDevice";
 import { AudioSpectrogramView } from "./AudioSpectrogramView";
+import { kindsOffered } from "./eventFilter";
 import { FaceBody, FaceEmpty, FaceFooter, NodeShell, useFaceActive } from "./NodeShell";
 
 function useInputs(node: string, port: string): Input[] {
@@ -85,12 +86,14 @@ function useWiredDecoders(inputs: readonly Input[]): { input: Input; kind: strin
   });
 }
 
-function useWiredKinds(inputs: readonly Input[]): string[] {
-  return [...new Set(useWiredDecoders(inputs).map((wired) => wired.kind))];
+function useWiredKinds(sink: string): string[] {
+  const workspace = useWorkspaceContext();
+  return kindsOffered(wiredSourcesOf(workspace.graph, sink), workspace.context.channelTypes);
 }
 
-function wireScope(sink: string, inputs: readonly Input[]): WireScope {
-  return { sink, wired: inputs.length > 0 };
+function useWireScope(sink: string): WireScope {
+  const workspace = useWorkspaceContext();
+  return { sink, wired: eventSourcesOf(workspace.graph, sink).length > 0 };
 }
 
 export function SpeakerFace({ node }: { node: PatchNode }) {
@@ -231,7 +234,7 @@ function AudioHealth({
 export function MapFace({ node }: { node: PatchNode }) {
   const workspace = useWorkspaceContext();
   const inputs = useInputs(node.id, "events");
-  const wired = useWiredKinds(inputs);
+  const wired = useWiredKinds(node.id);
   const kinds = mapKindsOf(wired);
   const positions = positionSourcesOf(workspace.graph, node.id);
   const finders = dfSourcesOf(workspace.graph, node.id);
@@ -298,6 +301,19 @@ export function ReadoutFace({ node }: { node: PatchNode }) {
   const workspace = useWorkspaceContext();
   const inputs = useInputs(node.id, "events");
   const readable = useWiredDecoders(inputs).filter((wired) => hasDecoderView(wired.kind));
+  const wires = useWireScope(node.id);
+  const monitor = eventSourcesOf(workspace.graph, node.id).some((source) =>
+    workspace.graph.nodes.some(
+      (candidate) => candidate.id === source && candidate.kind === "spectrum_monitor",
+    ),
+  );
+  if (monitor) {
+    return (
+      <NodeShell node={node} title="Readout" category="output">
+        <DecoderLogPanel wires={wires} />
+      </NodeShell>
+    );
+  }
   return (
     <NodeShell
       node={node}
@@ -357,15 +373,15 @@ export function VideoFace({ node }: { node: PatchNode }) {
 }
 
 export function DecoderLogFace({ node }: { node: PatchNode }) {
-  const inputs = useInputs(node.id, "events");
+  const wires = useWireScope(node.id);
   return (
     <NodeShell
       node={node}
       title="Decoder log"
       category="output"
-      subtitle={inputs.length > 0 ? `${inputs.length} in` : undefined}
+      subtitle={wires.wired ? "Connected" : undefined}
     >
-      <DecoderLogPanel wires={wireScope(node.id, inputs)} />
+      <DecoderLogPanel wires={wires} />
     </NodeShell>
   );
 }
@@ -412,25 +428,22 @@ export function CallRow({ call }: { call: VoiceCall }) {
 }
 
 export function ExportFace({ node }: { node: PatchNode }) {
-  const inputs = useInputs(node.id, "events");
-  const kinds = useWiredKinds(inputs);
-  const wires = wireScope(node.id, inputs);
+  const kinds = useWiredKinds(node.id);
+  const wires = useWireScope(node.id);
   return (
     <NodeShell
       node={node}
       title="Export"
       category="output"
-      subtitle={kinds.length > 0 ? kinds.join(" · ") : undefined}
+      subtitle={kinds.length > 3 ? `${kinds.length} kinds` : kinds.join(" · ")}
     >
       <FaceBody>
-        <FaceEmpty
-          hint={inputs.length === 0 ? "Wire decoders in" : "Every logged row, as one file"}
-        />
+        <FaceEmpty hint={!wires.wired ? "Wire decoders in" : "Every logged row, as one file"} />
       </FaceBody>
       <FaceFooter>
         <DownloadMenu
           choices={logDownloads(toQuery(DEFAULT_LOG_FILTER, wires))}
-          disabled={inputs.length === 0}
+          disabled={!wires.wired}
         />
       </FaceFooter>
     </NodeShell>

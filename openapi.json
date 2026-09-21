@@ -9901,6 +9901,16 @@
             "type": "number",
             "format": "double"
           },
+          "origin": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/EventOrigin"
+              }
+            ]
+          },
           "sinks": {
             "type": "array",
             "items": {
@@ -9911,6 +9921,24 @@
       },
       "DecoderEvent": {
         "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "data",
+              "kind"
+            ],
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/Transmission"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "transmission"
+                ]
+              }
+            }
+          },
           {
             "type": "object",
             "required": [
@@ -10677,6 +10705,16 @@
             "type": [
               "string",
               "null"
+            ]
+          },
+          "origin": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/EventOrigin"
+              }
             ]
           },
           "station": {
@@ -12774,6 +12812,23 @@
           },
           "kind": {
             "type": "string"
+          }
+        }
+      },
+      "EventOrigin": {
+        "type": "object",
+        "required": [
+          "node",
+          "transmission"
+        ],
+        "properties": {
+          "node": {
+            "type": "string"
+          },
+          "transmission": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
           }
         }
       },
@@ -15486,6 +15541,24 @@
                 "type": "string",
                 "enum": [
                   "dmr_trunk"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "data",
+              "kind"
+            ],
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/SpectrumMonitorNode"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "spectrum_monitor"
                 ]
               }
             }
@@ -18794,6 +18867,14 @@
           }
         }
       },
+      "SpectrumMonitorNode": {
+        "type": "object",
+        "properties": {
+          "record_audio": {
+            "type": "boolean"
+          }
+        }
+      },
       "Squelch": {
         "oneOf": [
           {
@@ -19824,6 +19905,97 @@
             }
           }
         }
+      },
+      "Transmission": {
+        "type": "object",
+        "required": [
+          "id",
+          "state",
+          "signal",
+          "start_sample",
+          "end_sample",
+          "sample_rate_hz",
+          "duration_ms"
+        ],
+        "properties": {
+          "audio": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/EventAudio"
+              }
+            ]
+          },
+          "decoder": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "decoder_confirmed": {
+            "type": "boolean"
+          },
+          "duration_ms": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "end_sample": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "ended_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "sample_rate_hz": {
+            "type": "number",
+            "format": "double"
+          },
+          "signal": {
+            "$ref": "#/components/schemas/IdentSignal"
+          },
+          "start_sample": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "started_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "state": {
+            "$ref": "#/components/schemas/TransmissionState"
+          }
+        }
+      },
+      "TransmissionState": {
+        "type": "string",
+        "enum": [
+          "started",
+          "completed",
+          "continued",
+          "interrupted",
+          "problem"
+        ]
       },
       "TrunkChannel": {
         "type": "object",

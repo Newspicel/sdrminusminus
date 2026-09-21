@@ -191,6 +191,24 @@ fn decoded_deliveries(
                 event: format!("call {}", call.id),
                 message: call_message(&binding.node, record, call, calls.audio(call.id)),
             },
+            DecoderEvent::Transmission(transmission) => {
+                let mut message = decoded_message(&binding.node, record, sequence);
+                message.audio = transmission
+                    .audio
+                    .as_ref()
+                    .and_then(|audio| calls.event_audio(audio))
+                    .map(|bytes| OutputAudio {
+                        bytes,
+                        filename: format!("transmission-{}.wav", transmission.id),
+                        duration_ms: transmission.duration_ms,
+                    });
+                Delivery {
+                    node: binding.node.clone(),
+                    target: binding.target.clone(),
+                    event: format!("transmission {}", transmission.id),
+                    message,
+                }
+            }
             _ => Delivery {
                 node: binding.node.clone(),
                 target: binding.target.clone(),

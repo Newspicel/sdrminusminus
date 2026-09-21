@@ -89,6 +89,7 @@ export interface WiredSource {
   channelType?: string;
   recordsCalls: boolean;
   trunk: boolean;
+  monitor?: boolean;
 }
 
 export function kindsOffered(
@@ -97,6 +98,13 @@ export function kindsOffered(
 ): string[] {
   const kinds = new Set<string>();
   for (const source of sources) {
+    if (source.monitor) {
+      kinds.add("transmission");
+      for (const descriptor of descriptors) {
+        if (descriptor.decoder_kind != null) kinds.add(descriptor.decoder_kind);
+      }
+      kinds.add("broadcast_data");
+    }
     if (source.trunk) {
       kinds.add("dv");
     }

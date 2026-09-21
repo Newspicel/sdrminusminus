@@ -1187,6 +1187,7 @@ async fn decoded_frames_reach_every_connection_from_one_encoding() {
     let mut b = dial(addr).await;
 
     let record = sdrmm_wire::DecodedRecord {
+        origin: None,
         sinks: Vec::new(),
         device_set: 1,
         channel: 2,
@@ -1218,6 +1219,7 @@ async fn a_late_client_is_handed_the_recent_past() {
     let (addr, state) = serve_ws(engine).await;
 
     let record = sdrmm_wire::DecodedRecord {
+        origin: None,
         sinks: Vec::new(),
         device_set: 1,
         channel: 2,
@@ -1256,6 +1258,7 @@ async fn a_silent_server_sends_no_backlog() {
     ));
 
     let record = sdrmm_wire::DecodedRecord {
+        origin: None,
         sinks: Vec::new(),
         device_set: 0,
         channel: 0,

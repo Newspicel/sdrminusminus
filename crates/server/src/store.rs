@@ -285,6 +285,7 @@ const MIGRATIONS: &[&str] = &[
         DELETE FROM decoder_log_sinks WHERE entry = OLD.id;
     END;
     ",
+    "ALTER TABLE decoder_log ADD COLUMN origin TEXT;",
 ];
 
 pub const WORKSPACE_HISTORY_DEPTH: i64 = 100;
@@ -546,8 +547,8 @@ impl Store {
         {
             let mut stmt = tx.prepare_cached(
                 "INSERT INTO decoder_log (at, device_set, channel, workspace, node, kind, \
-                 freq_hz, station, summary, event) \
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+                 freq_hz, station, summary, event, origin) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
             )?;
             let mut mark = tx.prepare_cached(
                 "INSERT INTO decoder_log_sinks (sink, at, entry) VALUES (?1, ?2, ?3)",
@@ -566,6 +567,11 @@ impl Store {
                     record.event.station(),
                     record.event.summary(),
                     serde_json::to_string(&record.event)?,
+                    record
+                        .origin
+                        .as_ref()
+                        .map(serde_json::to_string)
+                        .transpose()?,
                 ])?;
                 let entry = tx.last_insert_rowid();
                 for sink in &record.sinks {
@@ -1649,6 +1655,7 @@ fn name_taken(err: rusqlite::Error, name: &str) -> StoreError {
 }
 
 struct DecoderLogRow {
+    origin: Option<String>,
     id: i64,
     at: String,
     device_set: u32,
@@ -1669,7 +1676,7 @@ fn select_decoder_log(
     let mut stmt = conn.prepare(&format!(
         "SELECT decoder_log.id, decoder_log.at, decoder_log.device_set, decoder_log.channel, \
          decoder_log.node, decoder_log.kind, decoder_log.freq_hz, decoder_log.station, \
-         decoder_log.summary, decoder_log.event FROM {}{} ORDER BY {} LIMIT ?",
+         decoder_log.summary, decoder_log.event, decoder_log.origin FROM {}{} ORDER BY {} LIMIT ?",
         predicate.from, predicate.clause, predicate.order
     ))?;
     let mut params = predicate.params.clone();
@@ -1686,12 +1693,18 @@ fn select_decoder_log(
             station: row.get(7)?,
             summary: row.get(8)?,
             event: row.get(9)?,
+            origin: row.get(10)?,
         })
     })?;
     let mut entries = Vec::new();
     for row in rows {
         let row = row?;
         entries.push(DecoderLogEntry {
+            origin: row
+                .origin
+                .as_deref()
+                .map(serde_json::from_str)
+                .transpose()?,
             id: row.id,
             at: row.at,
             device_set: row.device_set,

@@ -598,6 +598,7 @@ pub enum NodeBody {
     Readout,
     DecoderLog,
     DmrTrunk(DmrTrunkNode),
+    SpectrumMonitor(crate::SpectrumMonitorNode),
     EventOutput(EventOutputNode),
     EventFilter(EventFilterNode),
     Video,
@@ -632,6 +633,7 @@ impl NodeBody {
             Self::Readout => "readout",
             Self::DecoderLog => "decoder_log",
             Self::DmrTrunk(_) => "dmr_trunk",
+            Self::SpectrumMonitor(_) => "spectrum_monitor",
             Self::EventOutput(_) => "event_output",
             Self::EventFilter(_) => "event_filter",
             Self::Video => "video",
@@ -664,6 +666,7 @@ impl NodeBody {
             | Self::Combiner(_)
             | Self::Scanner
             | Self::Hunt(_)
+            | Self::SpectrumMonitor(_)
             | Self::DmrTrunk(_)
             | Self::EventFilter(_)
             | Self::Triangulation => NodeCategory::Tool,
@@ -866,6 +869,10 @@ fn ports_for(kind: &str) -> Vec<PortSpec> {
         "readout" | "decoder_log" | "export" => {
             vec![PortSpec::new(Events, In, true, Always)]
         }
+        "spectrum_monitor" => vec![
+            PortSpec::new(Iq, In, false, Always),
+            PortSpec::new(Events, Out, true, Always),
+        ],
         "dmr_trunk" => vec![
             PortSpec::new(Iq, In, false, Always)
                 .noted("the radio the control channel sits on; the system runs its own decoders"),
@@ -966,6 +973,10 @@ impl PatchCatalog {
                 ),
                 entry(&NodeBody::Readout, "Readout"),
                 entry(&NodeBody::DecoderLog, "Decoder log"),
+                entry(
+                    &NodeBody::SpectrumMonitor(crate::SpectrumMonitorNode::default()),
+                    "Spectrum monitor",
+                ),
                 entry(
                     &NodeBody::DmrTrunk(DmrTrunkNode::default()),
                     "DMR trunk system",

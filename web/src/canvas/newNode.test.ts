@@ -17,6 +17,7 @@ const EVERY_KIND: Record<NodeKind, true> = {
   readout: true,
   decoder_log: true,
   dmr_trunk: true,
+  spectrum_monitor: true,
   event_filter: true,
   event_output: true,
   video: true,

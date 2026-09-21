@@ -224,6 +224,26 @@ The identifier can recognise some wider signals from a partial slice, but cannot
 spread-spectrum signals below noise or resolve densely packed 50 Hz HF signals.
 For fixture comparisons, run `cargo xtask ident-matrix`.
 
+## Automatic spectrum monitoring
+
+Wire **Device IQ → Spectrum monitor → Decoder log**, **Event filter**, or **Event output**.
+The monitor follows the supplied IQ bandwidth without tuning the radio or adding channel nodes.
+It detects simultaneous signals and tries matching decoders. Unknown transmissions also produce events.
+
+Events share a transmission ID and source node. They include frequency, bandwidth, confidence,
+sample timing, timestamps, decoder results, and optional audio. Digital confirmation requires
+decoder evidence. Open a completed transmission in the log to play its audio; event outputs can attach it.
+
+- **Record audio** includes mono 8 kHz WAV clips. Continuous signals emit clips every 30 seconds.
+- Buffered IQ covers up to two seconds, capped at 64 MiB per monitor, and is replayed into new decoder trials.
+- Up to 32 signals run concurrently, with three decoder trials per signal and an FM fallback where applicable.
+- Supported IQ rates span 8 kHz to 64 MHz. Capacity depends on the computer and signal mix.
+- Gaps, retunes, exhausted capacity, and truncated retries produce events or errors.
+- Audio lasts up to 24 hours within the shared 64 MiB cache. Export clips to keep them.
+
+Signals below noise, unresolved overlaps, and unsupported protocols may remain unknown.
+Image and video payloads are reported as unsupported by this event-only monitor.
+
 ## Slow-scan television
 
 Tune SSTV to the SSB carrier. It receives the 1000–2600 Hz video subcarrier above that frequency.

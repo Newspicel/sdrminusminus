@@ -776,6 +776,7 @@ function BroadcastView({ scope }: { scope: DecoderScope }) {
 }
 
 const VIEWS: Record<DecoderKind, ((scope: DecoderScope) => ReactNode) | null> = {
+  transmission: null,
   call: null,
   scrambler: null,
   rds: (scope) => <RdsView scope={scope} />,
