@@ -46,10 +46,11 @@ If something is shipped, then remove it.
   MODCODs are implemented.
 - DRM FAC, SDC and MSC, service selection and audio. The current channel only acquires the
   cyclic prefix and reports lock, SNR and frequency error.
-- Antenna and fading-channel validation. DAB, DVB-T and DVB-S/S2 playback is tested with
-  synthetic IQ, including independent Python reference transmitters for DVB-T and DVB-S2X,
-  codec golden vectors, virtual radios and browser playback. These do not establish performance
-  with real broadcast transmitters, fading or adjacent-channel interference.
+- Antenna and fading-channel validation. DVB-T and DVB-S/S2 playback is tested with synthetic IQ,
+  including independent Python reference transmitters for DVB-T and DVB-S2X, codec golden vectors,
+  virtual radios and browser playback. These do not establish performance with real broadcast
+  transmitters, fading or adjacent-channel interference. DAB mode I is received on air; modes II
+  to IV are not.
 
 ### Sub-GHz, ISM & IoT
 

@@ -51,12 +51,15 @@ vary by mode:
 | Aviation | ACARS, VDL Mode 2, HFDL, Inmarsat Classic Aero | fixture-only |
 | Aviation | VOR, ILS localizer / glideslope | experimental |
 | Marine | AIS, NAVTEX, Digital Selective Calling, Inmarsat STD-C / EGC | fixture-only |
-| Amateur data and HF | APRS / AX.25, RTTY, PSK (31, 63, 125, 250 baud), Morse (CW), CW skimmer, FT8, FT4, WSPR | fixture-only |
+| Amateur data and HF | CW skimmer, FT8, FT4, WSPR | tested on air |
+| Amateur data and HF | APRS / AX.25, RTTY, PSK (31, 63, 125, 250 baud), Morse (CW) | fixture-only |
 | Paging and telemetry | POCSAG | tested on air |
 | Paging and telemetry | FLEX, ERMES, Selcall (CCIR/ZVEI), Sub-GHz OOK/FSK frames, ISM sensors, radio clocks (DCF77, WWVB, MSF, JJY) | fixture-only |
 | Video | ATV, SSTV | fixture-only |
-| Wideband digital | DAB / DAB+, DVB-T, DATV (DVB-S / S2), DRM30 / DRM+ | experimental |
-| Utility | Signal identifier, Iridium bursts, DECT base station survey | fixture-only |
+| Wideband digital | DAB / DAB+ | tested on air |
+| Wideband digital | DVB-T, DATV (DVB-S / S2), DRM30 / DRM+ | experimental |
+| Utility | Signal identifier | tested on air |
+| Utility | Iridium bursts, DECT base station survey | fixture-only |
 | Utility | GNSS lab (GPS L1 C/A) | experimental |
 
 Optional services, trunking variants, and vendor extensions may be unsupported. Check the
@@ -72,6 +75,10 @@ mode-specific limits below.
 
 Fixture tests catch decoding errors but provide limited evidence for drift, interference,
 transients, and multipath. Labels apply only to the tested services.
+
+DAB and DAB+ decode modes I to IV, the FIC and MSC, MPEG Layer II and AAC audio, dynamic labels,
+PAD and packet-mode MOT, and packet-mode FEC and IP data. Only mode I has been received on air;
+modes II to IV rest on reference waveforms.
 
 The [fixture library](https://github.com/Newspicel/sdrminusminus/blob/main/fixtures/README.md)
 lists recording origins and expected output, including DMR, ADS-B, FreeDV 1600, and FT8.
@@ -108,7 +115,6 @@ Pulse slicing, payload layouts, validation rules, and CRC/LFSR digest routines f
 
 | Mode | Available output | Missing or limited functionality |
 |---|---|---|
-| DAB / DAB+ | Modes I–IV, FIC and MSC, MPEG Layer II and AAC audio, dynamic labels, PAD and packet-mode MOT, packet-mode FEC and IP data | Synthetic IQ validation |
 | DATV | DVB-S/S2/S2X, programme tables, MPEG Layer II/AAC/AC-3/E-AC-3 audio, MPEG-2/H.264/HEVC video, GSE datagrams | Synthetic IQ validation |
 | DVB-T | 2K/8K OFDM, 6/7/8 MHz channels, all guard intervals and code rates, QPSK/16-QAM/64-QAM, hierarchical HP/LP streams, audio and video | Synthetic IQ validation |
 | DRM30 / DRM+ | Acquisition, lock, SNR, and frequency error | No FAC, SDC, or MSC decoding; no service labels or media |
