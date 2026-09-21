@@ -239,3 +239,8 @@ describe("sectionsFor", () => {
     ]);
   });
 });
+
+it("offers automatically decoded kinds from a spectrum monitor", () => {
+  const offered = kindsOffered([{ monitor: true, recordsCalls: false, trunk: false }], []);
+  expect(offered).toContain("transmission");
+});

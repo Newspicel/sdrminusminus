@@ -5,12 +5,9 @@ use sdrmm_channels::{
     ChannelCtx, ChannelOutputs, Dvbs2Modulation as Modulation, Dvbs2Rate as Rate, testgen,
 };
 use sdrmm_modem_test_support::ber::perf::measure_throughput;
-use sdrmm_wire::{
-    ChannelParams, ChannelSettings, DatvCodeRate, DatvParams, DatvStandard, DecoderEvent,
-};
+use sdrmm_wire::{ChannelParams, ChannelSettings, DatvParams, DatvStandard, DecoderEvent};
 
 const BLOCK: usize = 2_048;
-const INPUT_RATE_HZ: f64 = 2_000_000.0;
 const SECONDS: usize = 1;
 
 struct Row {
@@ -26,11 +23,7 @@ fn settings(standard: DatvStandard) -> ChannelSettings {
         squelch: sdrmm_wire::Squelch::Off,
         params: ChannelParams::Datv(DatvParams {
             standard,
-            symbol_rate: testgen::datv::SYMBOL_RATE,
-            code_rate: DatvCodeRate::ThreeQuarters,
-            program: None,
-            input_stream: None,
-            superframes: false,
+            ..testgen::datv::params()
         }),
         audio: Default::default(),
     }
@@ -55,9 +48,8 @@ fn drive(
 }
 
 fn measure(mode: &'static str, standard: DatvStandard, iq: &[Complex<f32>]) -> Row {
-    let ctx = ChannelCtx {
-        input_rate: INPUT_RATE_HZ,
-    };
+    let input_rate = sdrmm_channels::input_rate(&settings(standard).params);
+    let ctx = ChannelCtx { input_rate };
     let mut rx = sdrmm_channels::create(ctx, &settings(standard)).expect("a DATV receiver");
     let mut outputs = ChannelOutputs::default();
     let frames_ok = drive(rx.as_mut(), iq, &mut outputs);
@@ -71,7 +63,7 @@ fn measure(mode: &'static str, standard: DatvStandard, iq: &[Complex<f32>]) -> R
     Row {
         mode,
         msamples_per_s,
-        realtime_factor: msamples_per_s * 1e6 / INPUT_RATE_HZ,
+        realtime_factor: msamples_per_s * 1e6 / input_rate,
         frames_ok,
     }
 }

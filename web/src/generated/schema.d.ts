@@ -2825,11 +2825,14 @@ export interface components {
             input_stream?: number | null;
             /** Format: int32 */
             program?: number | null;
+            roll_off?: components["schemas"]["DatvRollOff"];
             standard?: components["schemas"]["DatvStandard"];
             superframes?: boolean;
             /** Format: double */
             symbol_rate?: number;
         };
+        /** @enum {string} */
+        DatvRollOff: "pct35" | "pct25" | "pct20" | "pct15" | "pct10" | "pct5";
         /** @enum {string} */
         DatvStandard: "dvb_s" | "dvb_s2";
         /**
@@ -2847,9 +2850,14 @@ export interface components {
             event: components["schemas"]["DecoderEvent"];
             /** Format: double */
             freq_hz: number;
+            origin?: null | components["schemas"]["EventOrigin"];
             sinks?: string[];
         };
         DecoderEvent: {
+            data: components["schemas"]["Transmission"];
+            /** @enum {string} */
+            kind: "transmission";
+        } | {
             data: components["schemas"]["RdsUpdate"];
             /** @enum {string} */
             kind: "rds";
@@ -3023,6 +3031,7 @@ export interface components {
             id: number;
             kind: string;
             node?: string | null;
+            origin?: null | components["schemas"]["EventOrigin"];
             station?: string | null;
             summary: string;
         };
@@ -3444,7 +3453,7 @@ export interface components {
         /** @enum {string} */
         Duplex: "rx_only" | "tx_only" | "half" | "full";
         /** @enum {string} */
-        DvbtBandwidth: "mhz6" | "mhz7" | "mhz8";
+        DvbtBandwidth: "mhz1_7" | "mhz6" | "mhz7" | "mhz8";
         DvbtParams: {
             bandwidth?: components["schemas"]["DvbtBandwidth"];
             low_priority?: boolean;
@@ -3608,6 +3617,11 @@ export interface components {
         EventKindFacets: {
             facets: components["schemas"]["EventFacet"][];
             kind: string;
+        };
+        EventOrigin: {
+            node: string;
+            /** Format: int64 */
+            transmission: number;
         };
         EventOutputNode: {
             target: components["schemas"]["EventOutputTarget"];
@@ -4343,6 +4357,10 @@ export interface components {
             data: components["schemas"]["DmrTrunkNode"];
             /** @enum {string} */
             kind: "dmr_trunk";
+        } | {
+            data: components["schemas"]["SpectrumMonitorNode"];
+            /** @enum {string} */
+            kind: "spectrum_monitor";
         } | {
             data: components["schemas"]["EventOutputNode"];
             /** @enum {string} */
@@ -5291,6 +5309,11 @@ export interface components {
             /** Format: float */
             w: number;
         };
+        SpectrumMonitorNode: {
+            /** Format: float */
+            min_confidence?: number;
+            record_audio?: boolean;
+        };
         /**
          * @description How a channel gates what it decodes: not at all, above a level the operator set, or a margin
          *     above the noise floor it measures for itself.
@@ -5559,6 +5582,28 @@ export interface components {
         ToolsResponse: {
             tools: components["schemas"]["ToolDescriptor"][];
         };
+        Transmission: {
+            audio?: null | components["schemas"]["EventAudio"];
+            decoder?: string | null;
+            decoder_confirmed?: boolean;
+            /** Format: int64 */
+            duration_ms: number;
+            /** Format: int64 */
+            end_sample: number;
+            ended_at?: string | null;
+            error?: string | null;
+            /** Format: int64 */
+            id: number;
+            /** Format: double */
+            sample_rate_hz: number;
+            signal: components["schemas"]["IdentSignal"];
+            /** Format: int64 */
+            start_sample: number;
+            started_at?: string | null;
+            state: components["schemas"]["TransmissionState"];
+        };
+        /** @enum {string} */
+        TransmissionState: "started" | "completed" | "continued" | "interrupted" | "problem";
         TrunkChannel: {
             /** Format: int32 */
             confidence: number;

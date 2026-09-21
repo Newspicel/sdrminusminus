@@ -87,6 +87,7 @@ fn call() -> VoiceCall {
 
 fn call_record() -> DecodedRecord {
     DecodedRecord {
+        origin: None,
         sinks: Vec::new(),
         event: DecoderEvent::Call(call()),
         ..decoded()
@@ -95,6 +96,7 @@ fn call_record() -> DecodedRecord {
 
 fn decoded() -> DecodedRecord {
     DecodedRecord {
+        origin: None,
         sinks: vec!["matched".to_owned()],
         device_set: 1,
         channel: 2,
@@ -310,6 +312,7 @@ fn decoded_records_route_only_to_outputs_the_record_reached() {
 fn a_completed_call_travels_the_events_wire_like_any_other_decode() {
     let routing = routing_for();
     let record = DecodedRecord {
+        origin: None,
         event: DecoderEvent::Call(call()),
         ..decoded()
     };
@@ -325,6 +328,7 @@ fn a_completed_call_travels_the_events_wire_like_any_other_decode() {
 fn a_record_that_reached_no_output_posts_nowhere() {
     let routing = routing_for();
     let unrouted = DecodedRecord {
+        origin: None,
         sinks: Vec::new(),
         ..decoded()
     };
@@ -951,5 +955,44 @@ fn the_mqtt_client_id_stays_inside_the_protocol_limit() {
     assert_eq!(
         mqtt_client_id("an-output-node-with-a-very-long-identifier").len(),
         MQTT_CLIENT_ID_LEN
+    );
+}
+
+#[test]
+fn spectrum_monitor_audio_is_attached_to_event_deliveries() {
+    let calls = Calls::default();
+    let (audio, evicted) = calls.store_clip(&[1, -2, 3]);
+    assert!(!evicted);
+    let record = DecodedRecord {
+        origin: Some(sdrmm_wire::EventOrigin {
+            node: "monitor".to_owned(),
+            transmission: 7,
+        }),
+        event: DecoderEvent::Transmission(sdrmm_wire::Transmission {
+            id: 7,
+            state: sdrmm_wire::TransmissionState::Completed,
+            signal: Default::default(),
+            start_sample: 0,
+            end_sample: 48000,
+            sample_rate_hz: 48000.0,
+            duration_ms: 1000,
+            started_at: None,
+            ended_at: None,
+            decoder: Some("am".to_owned()),
+            decoder_confirmed: false,
+            audio: Some(audio.clone()),
+            error: None,
+        }),
+        ..decoded()
+    };
+    let deliveries = decoded_deliveries(&routing_for(), &record, 1, &calls);
+    assert_eq!(deliveries.len(), 1);
+    let attachment = deliveries[0].message.audio.as_ref().unwrap();
+    assert_eq!(&attachment.bytes[..4], b"RIFF");
+    assert_eq!(&attachment.bytes[44..], &[1, 0, 254, 255, 3, 0]);
+    assert_eq!(calls.event_audio(&audio).unwrap(), attachment.bytes);
+    assert_eq!(
+        deliveries[0].message.payload["record"]["origin"]["node"],
+        "monitor"
     );
 }

@@ -185,7 +185,7 @@ impl ChannelHost {
         let type_id = settings.params.type_id();
         let descriptor = sdrmm_channels::descriptor(type_id)
             .ok_or_else(|| ChannelError::UnknownType(type_id.to_owned()))?;
-        let input_rate = descriptor.input_rate_hz;
+        let input_rate = sdrmm_channels::input_rate(&settings.params);
         let offset_hz = settings.frequency_hz - center_hz;
         let (band_low_hz, band_high_hz) = sdrmm_channels::occupied_band(&settings.params);
         let ddc = Downconverter::new(device_rate, input_rate, offset_hz)

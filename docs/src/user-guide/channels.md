@@ -116,7 +116,7 @@ Pulse slicing, payload layouts, validation rules, and CRC/LFSR digest routines f
 | Mode | Available output | Missing or limited functionality |
 |---|---|---|
 | DATV | DVB-S/S2/S2X, programme tables, MPEG Layer II/AAC/AC-3/E-AC-3 audio, MPEG-2/H.264/HEVC video, GSE datagrams | Synthetic IQ validation |
-| DVB-T | 2K/8K OFDM, 6/7/8 MHz channels, all guard intervals and code rates, QPSK/16-QAM/64-QAM, hierarchical HP/LP streams, audio and video | Synthetic IQ validation |
+| DVB-T | 2K/8K OFDM, 1.7/6/7/8 MHz channels, all guard intervals and code rates, QPSK/16-QAM/64-QAM, hierarchical HP/LP streams, audio and video | Synthetic IQ validation |
 | DRM30 / DRM+ | Acquisition, lock, SNR, and frequency error | No FAC, SDC, or MSC decoding; no service labels or media |
 | GNSS lab | GPS L1 C/A acquisition and NAV telemetry | No position solution |
 | VOR / ILS | Radial or difference in depth of modulation | Tested only against analytically generated signals |
@@ -223,6 +223,29 @@ when the last signal disappears, so an idle channel does not fill the log.
 The identifier can recognise some wider signals from a partial slice, but cannot detect
 spread-spectrum signals below noise or resolve densely packed 50 Hz HF signals.
 For fixture comparisons, run `cargo xtask ident-matrix`.
+
+## Automatic spectrum monitoring
+
+Wire **Device IQ → Spectrum monitor → Decoder log**, **Event filter**, or **Event output**.
+The monitor follows the supplied IQ bandwidth without tuning the radio or adding channel nodes.
+It detects simultaneous signals and tries matching decoders. Unknown transmissions also produce events.
+
+Each capture emits one transmission event when it ends, with a transmission ID and source node.
+Events include frequency, bandwidth, confidence,
+sample timing, timestamps, decoder results, and optional audio. Digital confirmation requires
+decoder evidence. Open a completed transmission in the log to play its audio; event outputs can attach it.
+
+- **Record audio** includes mono 8 kHz WAV clips. Continuous signals emit clips every 30 seconds.
+- **Min confidence (%)** defaults to 70%. Weaker identifications are skipped before decoding or recording.
+  Raise it to reduce false detections; lower it to include uncertain signals. Zero accepts every detection.
+- Buffered IQ covers up to two seconds, capped at 64 MiB per monitor, and is replayed into new decoder trials.
+- Up to 32 signals run concurrently, with three decoder trials per signal and an FM fallback where applicable.
+- Supported IQ rates span 8 kHz to 64 MHz. Capacity depends on the computer and signal mix.
+- Gaps, retunes, exhausted capacity, and truncated retries produce events or errors.
+- Audio lasts up to 24 hours within the shared 64 MiB cache. Export clips to keep them.
+
+Signals below noise, unresolved overlaps, and unsupported protocols may remain unknown.
+Image and video payloads are reported as unsupported by this event-only monitor.
 
 ## Slow-scan television
 
@@ -334,8 +357,13 @@ bounds object size and segment count. The log also reports audio, video and data
 
 For DVB-T choose **Bandwidth** to match the transmitter. FFT size, guard interval, constellation
 and code rate are detected from TPS signalling. **Low priority stream** selects the LP stream of
-a hierarchical multiplex. The channel input is 64/7 MS/s; the engine resamples supported wider
-receiver rates to this rate. Select a discovered service or enter its programme number manually.
+a hierarchical multiplex. **1.7 MHz** is a scaled narrow DVB-T mode. The channel input clock
+follows bandwidth, allowing narrow reception from a 2.048 MS/s radio. Select a discovered
+service or enter its programme number manually.
+
+For DVB-S and DVB-S2 set **Symbol rate** between 100 kBd and 4 MBd. The channel input rate
+follows it, so a 2 MBd carrier runs at 4 MS/s and needs a receiver that can supply it.
+**Roll-off** matches the transmitter's filter; DVB-S is always 0.35.
 
 DVB-S2 automatically detects standard and extended MODCODs, including 8/64/128/256APSK,
 normal and short frames and VL-SNR modes. **Input stream** selects an ISI on multistream

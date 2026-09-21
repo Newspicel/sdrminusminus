@@ -333,6 +333,9 @@ export function wiredSourcesOf(graph: PatchGraph, node: string): WiredSource[] {
         trunk: false,
       };
     }
+    if (found?.kind === "spectrum_monitor") {
+      return { recordsCalls: false, trunk: false, monitor: true };
+    }
     if (found?.kind === "dmr_trunk") {
       return { recordsCalls: found.data.record_calls ?? true, trunk: true };
     }

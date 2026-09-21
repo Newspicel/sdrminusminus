@@ -26,6 +26,7 @@ mod ils;
 mod inmarsat_aero;
 mod inmarsat_stdc;
 mod iridium;
+pub mod monitor;
 mod morse;
 mod navtex;
 mod nfm;
@@ -66,7 +67,10 @@ pub use cw_skimmer::CwSkimmerChannel;
 pub use dab::DabChannel;
 #[cfg(any(test, feature = "test-signals"))]
 pub use datv::dvbs2::{frame::Modulation as Dvbs2Modulation, ldpc::Rate as Dvbs2Rate};
-pub use datv::{DatvChannel, dvbt::DvbtChannel};
+pub use datv::{
+    DatvChannel,
+    dvbt::{DvbtChannel, t2 as dvbt2},
+};
 pub use dect::DectChannel;
 pub use drm::DrmChannel;
 pub use dsc::DscChannel;
@@ -685,16 +689,33 @@ fn find(settings: &ChannelSettings) -> Result<&'static Registration, ChannelErro
         .ok_or_else(|| ChannelError::UnknownType(type_id.to_owned()))
 }
 
+#[must_use]
+pub fn input_rate(params: &ChannelParams) -> f64 {
+    match params {
+        ChannelParams::Datv(p) => datv::input_rate_hz(p),
+        ChannelParams::Dvbt(p) => p.bandwidth.sample_rate_hz(),
+        other => descriptor_of(other.type_id()).map_or(0.0, |d| d.input_rate_hz),
+    }
+}
+
 pub(crate) fn check_input_rate(
     ctx: ChannelCtx,
     descriptor: &ChannelDescriptor,
 ) -> Result<(), ChannelError> {
-    if ctx.input_rate == descriptor.input_rate_hz {
+    check_rate(ctx, descriptor, descriptor.input_rate_hz)
+}
+
+pub(crate) fn check_rate(
+    ctx: ChannelCtx,
+    descriptor: &ChannelDescriptor,
+    expected: f64,
+) -> Result<(), ChannelError> {
+    if ctx.input_rate == expected {
         Ok(())
     } else {
         Err(ChannelError::InvalidSettings(format!(
-            "{} expects {} Hz input, engine supplied {} Hz",
-            descriptor.type_id, descriptor.input_rate_hz, ctx.input_rate
+            "{} expects {expected} Hz input, engine supplied {} Hz",
+            descriptor.type_id, ctx.input_rate
         )))
     }
 }
@@ -767,6 +788,21 @@ mod tests {
             "dect" => ChannelParams::Dect(DectParams::default()),
             other => panic!("unexpected type id {other}"),
         }
+    }
+
+    #[test]
+    fn a_datv_input_rate_follows_its_symbol_rate() {
+        let narrow = ChannelParams::Datv(DatvParams::default());
+        let wide = ChannelParams::Datv(DatvParams {
+            symbol_rate: 2_330_000.0,
+            ..DatvParams::default()
+        });
+        assert_eq!(input_rate(&narrow), 2_000_000.0);
+        assert_eq!(input_rate(&wide), 4_000_000.0);
+        assert_eq!(
+            input_rate(&ChannelParams::Nfm(NfmParams::default())),
+            NfmChannel::descriptor().input_rate_hz
+        );
     }
 
     #[test]
@@ -856,7 +892,7 @@ mod tests {
                 "atv" => (1_500_000.0, 16_000_000.0),
                 "sstv" => (1_600.0, 16_000.0),
                 "dab" => (1_536_000.0, 2_048_000.0),
-                "datv" => (1_500_000.0, 2_000_000.0),
+                "datv" => (449_550.0, 2_000_000.0),
                 "dvbt" => (8_000_000.0, 64_000_000.0 / 7.0),
                 "drm" => (100_000.0, 192_000.0),
                 "dmr" | "ysf" | "p25" => (12_500.0, 48_000.0),

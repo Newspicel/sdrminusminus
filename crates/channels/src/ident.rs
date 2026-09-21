@@ -2,7 +2,7 @@ mod agreement;
 mod catalog;
 mod classify;
 mod confirm;
-mod detect;
+pub(crate) mod detect;
 mod features;
 mod framing;
 
@@ -357,6 +357,62 @@ impl ChannelRx for IdentChannel {
             }
         }
     }
+}
+
+pub(crate) fn identify(
+    iq: &[Complex<f32>],
+    rate: f64,
+    band: &detect::Band,
+    center: f64,
+) -> IdentSignal {
+    let mut signal = IdentSignal {
+        frequency_hz: center + band.center_hz,
+        center_offset_hz: band.center_hz,
+        bandwidth_hz: band.bandwidth_hz,
+        snr_db: band.snr_db,
+        ..IdentSignal::default()
+    };
+    let Some(zoom) = features::zoom(iq, rate, band) else {
+        return signal;
+    };
+    let waveform = features::Meter::new().measure(&zoom, band);
+    let verdict = classify::classify(band, &waveform);
+    signal.modulation = verdict.modulation;
+    signal.confidence = verdict.confidence;
+    signal.sideband = verdict.sideband;
+    signal.symbol_rate_hz = waveform.symbol_rate_hz;
+    signal.deviation_hz = shifts(verdict.modulation).then_some(waveform.deviation_hz);
+    signal.burst_ms = waveform.burst_ms;
+    signal.burst_period_ms = waveform.burst_period_ms;
+    signal.ofdm_symbol_us = waveform.ofdm_symbol_us;
+    signal.ofdm_guard_us = waveform.ofdm_guard_us;
+    signal.features = IdentFeatures {
+        envelope_variation: waveform.envelope_variation,
+        duty: waveform.duty,
+        keying_depth_db: waveform.on_off_db,
+        spectral_asymmetry: band.skew,
+        carrier_db: band.carrier_db,
+        spectral_flatness: band.flatness,
+        frequency_levels: waveform.frequency_levels,
+        frequency_spread_hz: waveform.frequency_spread_hz,
+        square_line_db: waveform.square_line_db,
+        quartic_line_db: waveform.quartic_line_db,
+    };
+    signal.candidates = catalog::candidates(
+        verdict.modulation,
+        band,
+        &waveform,
+        Some(signal.frequency_hz),
+    );
+    framing::confirm(&mut signal.candidates, iq, rate, band);
+    if looks_analog(signal.modulation)
+        && let Some(probe) = framing::probe(iq, rate, band)
+    {
+        signal.modulation = probe.modulation;
+        signal.confidence = PROBED_CONFIDENCE;
+        signal.candidates.splice(0..0, probe.matches);
+    }
+    signal
 }
 
 #[cfg(test)]

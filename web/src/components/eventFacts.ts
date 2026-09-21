@@ -267,6 +267,12 @@ export function eventSummary(event: DecoderEvent): string {
       ]);
       return join([heard === "" ? "no tone" : heard, t.open ? "open" : "muted"]);
     }
+    case "transmission":
+      return join([
+        event.data.state,
+        event.data.decoder ?? modulationLabel({ modulation: event.data.signal.modulation }),
+        event.data.error ?? null,
+      ]);
     case "call":
       return callSummary(event.data);
     case "dv":
@@ -427,6 +433,7 @@ export function eventStation(event: DecoderEvent): string | null {
       return event.data.station ?? null;
     case "dect":
       return event.data.identity?.rfpi ?? null;
+    case "transmission":
     case "rtty":
     case "morse":
     case "cw_skimmer":

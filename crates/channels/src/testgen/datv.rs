@@ -3,7 +3,7 @@
 use num_complex::Complex;
 use sdrmm_dsp::FracResampler;
 use sdrmm_modem::pulse::{self, Norm};
-use sdrmm_wire::DatvCodeRate;
+use sdrmm_wire::{DatvCodeRate, DatvParams, DatvStandard};
 
 use crate::datv::{
     dvbs::{DvbsEncoder, PACKET},
@@ -22,8 +22,16 @@ pub const PROGRAM_NAME: &str = "Rust TV";
 pub const PROVIDER: &str = "SDR--";
 pub const CODE_RATE: DatvCodeRate = DatvCodeRate::ThreeQuarters;
 
-const INPUT_RATE_HZ: f64 = 2_000_000.0;
-const ROLL_OFF: f64 = 0.35;
+#[must_use]
+pub fn params() -> DatvParams {
+    DatvParams {
+        standard: DatvStandard::DvbS,
+        symbol_rate: SYMBOL_RATE,
+        code_rate: CODE_RATE,
+        ..DatvParams::default()
+    }
+}
+
 const SPS: usize = 4;
 const PULSE_SPAN: usize = 8;
 const TABLE_PERIOD: usize = 40;
@@ -135,14 +143,19 @@ pub fn transport(packets: usize) -> Vec<[u8; PACKET]> {
 
 #[must_use]
 pub fn dvbs(seconds: usize) -> Vec<Complex<f32>> {
-    let wanted = seconds * SYMBOL_RATE as usize;
-    let mut encoder = DvbsEncoder::new(CODE_RATE);
+    dvbs_with(seconds, &params())
+}
+
+#[must_use]
+pub fn dvbs_with(seconds: usize, p: &DatvParams) -> Vec<Complex<f32>> {
+    let wanted = seconds * p.symbol_rate as usize;
+    let mut encoder = DvbsEncoder::new(p.code_rate);
     let mut multiplex = Multiplex::new();
     let mut symbols = Vec::with_capacity(wanted);
     while symbols.len() < wanted {
         encoder.packet(&multiplex.packet(), &mut symbols);
     }
-    shape(&symbols)
+    shape_with(&symbols, p)
 }
 
 pub const S2_MODULATION: Modulation = Modulation::Qpsk;
@@ -274,7 +287,11 @@ pub fn dvbs2_very_low_generic(seconds: usize, header: u8, streams: &[u8]) -> Vec
 }
 
 fn shape(symbols: &[Complex<f32>]) -> Vec<Complex<f32>> {
-    let taps = pulse::root_raised_cosine(SPS as f64, ROLL_OFF, PULSE_SPAN, Norm::Energy);
+    shape_with(symbols, &params())
+}
+
+fn shape_with(symbols: &[Complex<f32>], p: &DatvParams) -> Vec<Complex<f32>> {
+    let taps = pulse::root_raised_cosine(SPS as f64, p.roll_off.factor(), PULSE_SPAN, Norm::Energy);
     let mut upsampled = Vec::with_capacity(symbols.len() * SPS);
     for &symbol in symbols {
         upsampled.push(symbol);
@@ -290,7 +307,8 @@ fn shape(symbols: &[Complex<f32>]) -> Vec<Complex<f32>> {
         }
         shaped.push(sum);
     }
-    let mut resampler = FracResampler::new(INPUT_RATE_HZ / (SPS as f64 * SYMBOL_RATE));
+    let rate = crate::datv::input_rate_hz(p);
+    let mut resampler = FracResampler::new(rate / (SPS as f64 * p.symbol_rate));
     let mut out = Vec::new();
     resampler.process(&shaped, &mut out);
     out
@@ -319,7 +337,7 @@ mod tests {
     #[test]
     fn the_shaped_waveform_runs_at_the_channel_rate() {
         let iq = dvbs(1);
-        let expected = INPUT_RATE_HZ as usize;
+        let expected = crate::datv::input_rate_hz(&params()) as usize;
         assert!(
             iq.len().abs_diff(expected) < expected / 8,
             "{} samples for one second",

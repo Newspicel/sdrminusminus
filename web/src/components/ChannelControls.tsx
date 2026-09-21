@@ -157,6 +157,14 @@ const DATV_STANDARDS: Options<NonNullable<ChannelParamsOf<"datv">["standard"]>> 
   { value: "dvb_s", label: "DVB-S" },
   { value: "dvb_s2", label: "DVB-S2" },
 ];
+const DATV_ROLL_OFFS: Options<NonNullable<ChannelParamsOf<"datv">["roll_off"]>> = [
+  { value: "pct35", label: "0.35" },
+  { value: "pct25", label: "0.25" },
+  { value: "pct20", label: "0.20" },
+  { value: "pct15", label: "0.15" },
+  { value: "pct10", label: "0.10" },
+  { value: "pct5", label: "0.05" },
+];
 const DRM_MODES: Options<NonNullable<ChannelParamsOf<"drm">["mode"]>> = [
   { value: "auto", label: "Auto" },
   { value: "drm30", label: "DRM30" },
@@ -1220,6 +1228,19 @@ function ModeControls({
           />
           {params.settings.standard === "dvb_s2" ? (
             <>
+              <SettingRow
+                label="Roll-off"
+                title="Match the transmitter's filter shape; DVB-S2 signals it in the base band header"
+              >
+                <Select
+                  label="DATV roll-off"
+                  value={params.settings.roll_off ?? "pct35"}
+                  options={DATV_ROLL_OFFS}
+                  onChange={(roll_off) =>
+                    onParams({ type: "datv", settings: { ...params.settings, roll_off } })
+                  }
+                />
+              </SettingRow>
               <Toggle
                 label="Superframes"
                 title="Receive Annex E format 0 or 1 with the default reference and payload scrambling codes"
@@ -1274,6 +1295,7 @@ function ModeControls({
               label="DVB-T bandwidth"
               value={params.settings.bandwidth ?? "mhz8"}
               options={[
+                { value: "mhz1_7", label: "1.7 MHz", title: "Scaled narrow DVB-T" },
                 { value: "mhz6", label: "6 MHz" },
                 { value: "mhz7", label: "7 MHz" },
                 { value: "mhz8", label: "8 MHz" },

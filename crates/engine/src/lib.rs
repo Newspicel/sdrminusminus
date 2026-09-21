@@ -1,3 +1,4 @@
+pub mod monitor;
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
     path::{Path, PathBuf},
@@ -219,6 +220,8 @@ pub fn builtin_registry_accelerated(
 
 #[derive(Debug, thiserror::Error)]
 pub enum EngineError {
+    #[error("monitor: {0}")]
+    Monitor(String),
     #[error("device set {0} not found")]
     DeviceSetNotFound(u32),
     #[error("channel {0} not found in device set {1}")]
@@ -805,6 +808,7 @@ impl Engine {
                     let Some(raw) = raw else { continue };
                     let at = format!("{:.9}", jiff::Timestamp::now());
                     let record = DecodedRecord {
+                        origin: None,
                         sinks: Vec::new(),
                         device_set: raw.device_set,
                         channel: raw.channel,

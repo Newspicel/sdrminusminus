@@ -181,6 +181,7 @@ mod tests {
         bytes[0] = 0x60;
         bytes[5] = 4;
         let elsewhere = DecodedRecord {
+            origin: None,
             sinks: vec!["other".to_owned()],
             device_set: 1,
             channel: 2,
@@ -191,6 +192,7 @@ mod tests {
         outputs.push(std::slice::from_ref(&binding), &elsewhere);
         assert!(receiver.try_recv().is_err());
         let reached = DecodedRecord {
+            origin: None,
             sinks: vec!["out".to_owned()],
             ..elsewhere
         };

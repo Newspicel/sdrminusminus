@@ -1,3 +1,5 @@
+pub mod monitor;
+pub use monitor::{EventOrigin, SpectrumMonitorNode, Transmission, TransmissionState};
 pub mod about;
 pub mod audio;
 pub mod bandplan;
@@ -43,13 +45,14 @@ pub use channel::{
     AcarsParams, AdsbParams, AisChannel, AisParams, AmParams, AprsMode, AprsParams, AtvColor,
     AtvModulation, AtvParams, AtvStandard, ChannelDescriptor, ChannelInfo, ChannelParams,
     ChannelSettings, CwSkimmerParams, DECT_CARRIER_SPACING_HZ, DEFAULT_FREQUENCY_HZ, DabMode,
-    DabParams, DabTransmissionMode, DatvCodeRate, DatvParams, DatvStandard, DectBand, DectParams,
-    DectSides, DmrParams, DmrSlots, DpmrParams, DrmMode, DrmParams, DscParams, DstarParams,
-    DvbtBandwidth, DvbtParams, ErmesParams, FlexParams, FreeDvMode, FreeDvParams, GnssParams,
-    HfdlParams, IdentParams, IlsComponent, IlsParams, InmarsatAeroParams, InmarsatStdcParams,
-    IridiumParams, M17Params, MAX_IDENT_BANDWIDTH_HZ, MAX_IDENT_INTERVAL_MS,
-    MAX_IDENT_THRESHOLD_DB, MAX_NAVAID_REPORT_MS, MAX_SQUELCH_AUTO_MARGIN_DB,
-    MIN_IDENT_BANDWIDTH_HZ, MIN_IDENT_INTERVAL_MS, MIN_IDENT_THRESHOLD_DB, MIN_NAVAID_REPORT_MS,
+    DabParams, DabTransmissionMode, DatvCodeRate, DatvParams, DatvRollOff, DatvStandard, DectBand,
+    DectParams, DectSides, DmrParams, DmrSlots, DpmrParams, DrmMode, DrmParams, DscParams,
+    DstarParams, DvbtBandwidth, DvbtParams, ErmesParams, FlexParams, FreeDvMode, FreeDvParams,
+    GnssParams, HfdlParams, IdentParams, IlsComponent, IlsParams, InmarsatAeroParams,
+    InmarsatStdcParams, IridiumParams, M17Params, MAX_DATV_SYMBOL_RATE, MAX_IDENT_BANDWIDTH_HZ,
+    MAX_IDENT_INTERVAL_MS, MAX_IDENT_THRESHOLD_DB, MAX_NAVAID_REPORT_MS,
+    MAX_SQUELCH_AUTO_MARGIN_DB, MIN_DATV_SYMBOL_RATE, MIN_IDENT_BANDWIDTH_HZ,
+    MIN_IDENT_INTERVAL_MS, MIN_IDENT_THRESHOLD_DB, MIN_NAVAID_REPORT_MS,
     MIN_SQUELCH_AUTO_MARGIN_DB, MorseParams, NavtexParams, NfmParams, NfmScramblerMode,
     NfmToneMode, NxdnBandwidth, NxdnParams, P25Params, ParamLimit, PocsagBaud, PocsagParams,
     PskBaud, PskParams, RadioClockParams, RadioClockStandard, RttyParams, RttyStopBits,
@@ -759,6 +762,7 @@ mod contract_tests {
     #[test]
     fn decoded_event_shape() {
         let ev = ServerEvent::Decoded(Box::new(decode::DecodedRecord {
+            origin: None,
             sinks: Vec::new(),
             device_set: 1,
             channel: 4,

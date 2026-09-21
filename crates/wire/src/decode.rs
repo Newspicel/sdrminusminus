@@ -1155,6 +1155,7 @@ pub struct DataLinkMessage {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 #[serde(tag = "kind", content = "data", rename_all = "snake_case")]
 pub enum DecoderEvent {
+    Transmission(crate::Transmission),
     Rds(RdsUpdate),
     Pocsag(PocsagMessage),
     Flex(FlexMessage),
@@ -1449,6 +1450,7 @@ impl DecoderEvent {
             Self::Hfdl(_) => "hfdl",
             Self::Iridium(_) => "iridium",
             Self::Call(_) => "call",
+            Self::Transmission(_) => "transmission",
             Self::Df(_) => "df",
             Self::DfFix(_) => "df_fix",
             Self::Radar(_) => "radar",
@@ -1554,6 +1556,7 @@ impl DecoderEvent {
             },
             Self::Subghz(f) => subghz_summary(f),
             Self::Call(c) => call_summary(c),
+            Self::Transmission(t) => t.summary(),
             Self::Dv(f) => dv_summary(f),
             Self::Ft8(m) | Self::Ft4(m) => {
                 format!("{} · {:+.0} dB · {:.0} Hz", m.text, m.snr_db, m.audio_hz)
@@ -1694,6 +1697,7 @@ impl DecoderEvent {
                 .clone()
                 .or_else(|| f.source.map(|s| s.to_string())),
             Self::Call(c) => c.source.map(|s| s.to_string()),
+            Self::Transmission(_) => None,
             Self::Ft8(m) | Self::Ft4(m) => m.text.split_whitespace().nth(1).map(str::to_owned),
             Self::Wspr(s) => Some(s.callsign.clone()),
             Self::Rtty(_)
@@ -1729,6 +1733,8 @@ impl DecoderEvent {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct DecodedRecord {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub origin: Option<crate::EventOrigin>,
     pub device_set: u32,
     pub channel: u32,
     pub at: String,
@@ -2093,6 +2099,7 @@ mod tests {
     #[test]
     fn decoded_record_roundtrips() {
         let rec = DecodedRecord {
+            origin: None,
             sinks: Vec::new(),
             device_set: 1,
             channel: 2,

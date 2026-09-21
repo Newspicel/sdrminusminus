@@ -33,6 +33,7 @@ import {
   SpeakerFace,
   VideoFace,
 } from "./SinkFaces";
+import { SpectrumMonitorFace } from "./SpectrumMonitorFace";
 import { TimeMachineFace } from "./TimeMachineFace";
 import { TriangulationFace } from "./TriangulationFace";
 
@@ -64,6 +65,7 @@ export const NODE_TYPES: Record<NodeKind, ComponentType<NodeProps<Node<FlowData>
   readout: mount(ReadoutFace),
   decoder_log: mount(DecoderLogFace),
   dmr_trunk: mount(DmrTrunkFace),
+  spectrum_monitor: mount(SpectrumMonitorFace),
   event_filter: mount(EventFilterFace),
   video: mount(VideoFace),
   recorder: mount(RecorderFace),
@@ -96,6 +98,7 @@ export const FACES: Record<NodeKind, Face> = {
   readout: ReadoutFace,
   decoder_log: DecoderLogFace,
   dmr_trunk: DmrTrunkFace,
+  spectrum_monitor: SpectrumMonitorFace,
   event_filter: EventFilterFace,
   video: VideoFace,
   recorder: RecorderFace,

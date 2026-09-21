@@ -113,6 +113,7 @@ mod tests {
 
     fn adsb(icao: &str, at: &str) -> DecodedRecord {
         DecodedRecord {
+            origin: None,
             sinks: Vec::new(),
             device_set: 0,
             channel: 0,
@@ -179,6 +180,7 @@ mod tests {
     fn an_event_with_no_station_identity_is_not_tracked() {
         let tracks = Tracks::default();
         tracks.observe(&DecodedRecord {
+            origin: None,
             sinks: Vec::new(),
             device_set: 0,
             channel: 0,

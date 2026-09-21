@@ -1261,6 +1261,7 @@ mod tests {
 
     fn record(carrier: (u32, u32), frame: DvFrame) -> DecodedRecord {
         DecodedRecord {
+            origin: None,
             sinks: Vec::new(),
             device_set: carrier.0,
             channel: carrier.1,

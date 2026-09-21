@@ -19,6 +19,37 @@ function dataLink(
 describe("eventDetail", () => {
   it("answers for every decoder the wire union declares", () => {
     const sample: Record<DecoderKind, DecoderEvent> = {
+      transmission: {
+        kind: "transmission",
+        data: {
+          id: 1,
+          state: "completed",
+          start_sample: 0,
+          end_sample: 48000,
+          sample_rate_hz: 48000,
+          duration_ms: 1000,
+          signal: {
+            frequency_hz: 145000000,
+            center_offset_hz: 0,
+            bandwidth_hz: 12500,
+            confidence: 0.9,
+            modulation: "fm",
+            snr_db: 20,
+            features: {
+              envelope_variation: 0,
+              duty: 1,
+              keying_depth_db: 0,
+              spectral_asymmetry: 0,
+              carrier_db: 0,
+              spectral_flatness: 0,
+              frequency_levels: 0,
+              frequency_spread_hz: 0,
+              square_line_db: 0,
+              quartic_line_db: 0,
+            },
+          },
+        },
+      },
       broadcast_data: {
         kind: "broadcast_data",
         data: { name: "slide.png", media_type: "image/png", bytes: [] },

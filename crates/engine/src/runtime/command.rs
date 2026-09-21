@@ -9,6 +9,13 @@ use crate::{
 };
 
 pub(crate) enum DspCommand {
+    AddMonitor {
+        id: u64,
+        tap: Box<crate::monitor::MonitorTap>,
+    },
+    RemoveMonitor {
+        id: u64,
+    },
     SetSubbands(Box<Subbands>),
     ConnectArray {
         id: u32,

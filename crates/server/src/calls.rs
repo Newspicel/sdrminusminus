@@ -45,6 +45,7 @@ struct StoredCalls {
     next_id: u64,
     calls: VecDeque<StoredCall>,
     audio_bytes: usize,
+    clips: VecDeque<(u64, Bytes, Instant)>,
 }
 
 struct StoredCall {
@@ -81,6 +82,43 @@ impl Calls {
             .iter()
             .find(|item| item.call.id == id)
             .and_then(|item| item.audio.clone())
+            .or_else(|| {
+                inner
+                    .clips
+                    .iter()
+                    .find(|(key, _, _)| *key == id)
+                    .map(|(_, bytes, _)| bytes.clone())
+            })
+    }
+
+    pub(crate) fn store_clip(&self, samples: &[i16]) -> (EventAudio, bool) {
+        let mut inner = self.lock();
+        prune(&mut inner);
+        inner.next_id += 1;
+        let id = inner.next_id;
+        let audio = wav(samples);
+        inner.audio_bytes += audio.len();
+        inner
+            .clips
+            .push_back((id, audio, Instant::now() + RETENTION));
+        let evicted = evict_audio(&mut inner);
+        (
+            EventAudio {
+                url: crate::rest::call_audio_path(id),
+                media_type: "audio/wav".to_owned(),
+            },
+            evicted,
+        )
+    }
+
+    pub(crate) fn event_audio(&self, audio: &EventAudio) -> Option<Bytes> {
+        let id = audio
+            .url
+            .strip_prefix("/api/calls/")?
+            .strip_suffix("/audio")?
+            .parse()
+            .ok()?;
+        self.audio(id)
     }
 
     fn expire(&self) -> bool {
@@ -153,6 +191,14 @@ fn prune(inner: &mut StoredCalls) {
         }
         keep
     });
+    inner.clips.retain(|(_, audio, expires)| {
+        if *expires > now {
+            true
+        } else {
+            freed += audio.len();
+            false
+        }
+    });
     inner.audio_bytes -= freed;
 }
 
@@ -170,6 +216,13 @@ fn evict_audio(inner: &mut StoredCalls) -> bool {
         item.call
             .audio_error
             .get_or_insert_with(|| "audio evicted by the temporary buffer limit".to_owned());
+        evicted = true;
+    }
+    while inner.audio_bytes > MAX_STORED_AUDIO_BYTES || inner.clips.len() > MAX_STORED_CALLS {
+        let Some((_, audio, _)) = inner.clips.pop_front() else {
+            break;
+        };
+        inner.audio_bytes -= audio.len();
         evicted = true;
     }
     evicted
@@ -390,6 +443,9 @@ fn handle_record(
     engine: &Weak<Engine>,
     taps: &[f32],
 ) {
+    if record.origin.is_some() {
+        return;
+    }
     let DecoderEvent::Dv(frame) = &record.event else {
         return;
     };
@@ -608,6 +664,7 @@ fn complete(key: &CallKey, active: ActiveCall, calls: &Calls, engine: &Engine) {
         RETENTION,
     );
     engine.publish_decoded(DecodedRecord {
+        origin: None,
         sinks: Vec::new(),
         device_set: key.device_set,
         channel: key.channel,
@@ -936,6 +993,7 @@ mod tests {
 
     fn record(kind: DvFrameKind, slot: u8) -> DecodedRecord {
         DecodedRecord {
+            origin: None,
             sinks: Vec::new(),
             device_set: 1,
             channel: 2,

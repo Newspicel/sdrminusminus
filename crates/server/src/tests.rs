@@ -453,6 +453,7 @@ async fn time_machine(app: &Router, ds: u32, body: serde_json::Value) -> (Status
 
 fn adsb_record(at: &str, device_set: u32, icao: &str, callsign: &str) -> DecodedRecord {
     DecodedRecord {
+        origin: None,
         sinks: Vec::new(),
         device_set,
         channel: 0,
@@ -470,6 +471,7 @@ fn adsb_record(at: &str, device_set: u32, icao: &str, callsign: &str) -> Decoded
 
 fn awkward_record(at: &str) -> DecodedRecord {
     DecodedRecord {
+        origin: None,
         sinks: Vec::new(),
         device_set: 1,
         channel: 2,
