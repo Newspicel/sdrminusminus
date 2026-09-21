@@ -1,16 +1,13 @@
 import { Checkbox } from "../../components/Checkbox";
-import { formatHz } from "../../components/format";
+import { NumberField } from "../../components/NumberField";
 import { SettingRow, Settings } from "../../components/Settings";
-import { useDecodedKind } from "../../lib/decoded";
 import type { PatchNode } from "../../lib/types";
 import { useWorkspaceContext } from "../context";
 import { patchNode, portStream } from "../graph";
 import { FaceBody, NodeShell } from "./NodeShell";
-import { monitorTransmissions } from "./spectrumMonitor";
 
 export function SpectrumMonitorFace({ node }: { node: PatchNode }) {
   const workspace = useWorkspaceContext();
-  const records = useDecodedKind("transmission");
   if (node.kind !== "spectrum_monitor") return null;
   const edge = workspace.graph.edges?.find(
     (wire) => wire.to.node === node.id && wire.to.port === "iq",
@@ -23,9 +20,6 @@ export function SpectrumMonitorFace({ node }: { node: PatchNode }) {
         )?.from.node
       : edge?.from.node;
   const device = upstream === undefined ? undefined : workspace.devices.get(upstream);
-  const rows = monitorTransmissions(records, node.id);
-  const problem = rows.find((row) => row.state === "problem");
-  const active = rows.filter((row) => row.state === "started" || row.state === "continued");
   const state =
     edge === undefined
       ? "Connect IQ"
@@ -35,7 +29,29 @@ export function SpectrumMonitorFace({ node }: { node: PatchNode }) {
   return (
     <NodeShell node={node} title="Spectrum monitor" category="tool" subtitle={state}>
       <FaceBody>
-        <Settings className="border-b border-line p-2">
+        <Settings className="p-2">
+          <SettingRow
+            label="Min confidence (%)"
+            title="Ignore signals below this identification confidence; 0 accepts all detections"
+          >
+            <NumberField
+              label="Minimum confidence (%)"
+              value={Math.round((node.data.min_confidence ?? 0.7) * 100)}
+              min={0}
+              max={100}
+              step={5}
+              onCommit={(value) =>
+                workspace.edit((snapshot) => ({
+                  ...snapshot,
+                  graph: patchNode(snapshot.graph, node.id, (current) =>
+                    current.kind === "spectrum_monitor"
+                      ? { ...current, data: { ...current.data, min_confidence: value / 100 } }
+                      : current,
+                  ),
+                }))
+              }
+            />
+          </SettingRow>
           <SettingRow
             label="Record audio"
             title="Attach temporary audio clips to transmission events"
@@ -56,37 +72,6 @@ export function SpectrumMonitorFace({ node }: { node: PatchNode }) {
             />
           </SettingRow>
         </Settings>
-        <div className="flex justify-between gap-2 p-2 text-xs tabular-nums">
-          <span>{device?.status === "running" ? active.length : 0} active</span>
-          <span>{rows.filter((row) => row.state !== "problem").length} recent</span>
-        </div>
-        {problem?.error && (
-          <div
-            role="status"
-            className="truncate px-2 pb-2 text-xs text-warning"
-            title={problem.error}
-          >
-            {problem.error}
-          </div>
-        )}
-        <ul className="text-xs tabular-nums">
-          {rows
-            .filter((row) => row.state !== "problem")
-            .slice(0, 5)
-            .map((row) => (
-              <li
-                key={row.id}
-                className="flex items-center justify-between gap-2 border-t border-line px-2 py-1"
-                title={row.error ?? row.state}
-              >
-                <span>{formatHz(Math.round(row.signal.frequency_hz))}</span>
-                <span className="truncate">
-                  {row.decoder?.toUpperCase() ?? row.signal.modulation}
-                </span>
-                <span className="text-ink-dim">{row.state}</span>
-              </li>
-            ))}
-        </ul>
       </FaceBody>
     </NodeShell>
   );

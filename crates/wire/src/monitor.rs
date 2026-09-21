@@ -7,6 +7,13 @@ use crate::{EventAudio, IdentSignal};
 pub struct SpectrumMonitorNode {
     #[serde(default = "enabled")]
     pub record_audio: bool,
+    #[serde(default = "default_min_confidence")]
+    #[schema(minimum = 0, maximum = 1)]
+    pub min_confidence: f32,
+}
+
+const fn default_min_confidence() -> f32 {
+    0.7
 }
 
 const fn enabled() -> bool {
@@ -15,7 +22,16 @@ const fn enabled() -> bool {
 
 impl Default for SpectrumMonitorNode {
     fn default() -> Self {
-        Self { record_audio: true }
+        Self {
+            record_audio: true,
+            min_confidence: default_min_confidence(),
+        }
+    }
+}
+
+impl SpectrumMonitorNode {
+    pub fn valid(&self) -> bool {
+        (0.0..=1.0).contains(&self.min_confidence)
     }
 }
 
@@ -77,5 +93,40 @@ impl Transmission {
             summary.push_str(error);
         }
         summary
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn old_settings_receive_the_confidence_default() {
+        let settings: SpectrumMonitorNode =
+            serde_json::from_str(r#"{"record_audio":false}"#).unwrap();
+        assert!(!settings.record_audio);
+        assert_eq!(settings.min_confidence, 0.7);
+    }
+
+    #[test]
+    fn confidence_must_be_finite_and_within_zero_and_one() {
+        for min_confidence in [-0.1, 1.1, f32::NAN, f32::INFINITY] {
+            assert!(
+                !SpectrumMonitorNode {
+                    min_confidence,
+                    ..Default::default()
+                }
+                .valid()
+            );
+        }
+        for min_confidence in [0.0, 0.7, 1.0] {
+            assert!(
+                SpectrumMonitorNode {
+                    min_confidence,
+                    ..Default::default()
+                }
+                .valid()
+            );
+        }
     }
 }

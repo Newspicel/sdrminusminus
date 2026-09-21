@@ -50,7 +50,7 @@ export function newNodeBody(kind: NodeKind, seed: NewNodeSeed = {}): NodeBody {
         },
       };
     case "spectrum_monitor":
-      return { kind, data: { record_audio: true } };
+      return { kind, data: { record_audio: true, min_confidence: 0.7 } };
     case "dmr_trunk":
       return { kind, data: { protocol: "auto", record_calls: true } };
     case "event_filter":

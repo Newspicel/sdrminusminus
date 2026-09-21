@@ -52,7 +52,7 @@ test("monitors IQ through one node and exports transmission audio", async ({ pag
     },
   };
   const created = await page.request.post("/api/workspaces", {
-    data: { name: "Spectrum monitor test", snapshot },
+    data: { name: `Spectrum monitor test ${suffix}`, snapshot },
   });
   expect(created.ok()).toBe(true);
   const { id } = await created.json();
@@ -63,7 +63,33 @@ test("monitors IQ through one node and exports transmission audio", async ({ pag
     const log = page.locator(`.react-flow__node[data-id="${nodeIds.log}"]`);
     await expect(monitor).toContainText("Monitoring");
     await expect(monitor.locator(".react-flow__handle")).toHaveCount(2);
-    await expect(monitor).toContainText(/[1-9]\d* recent/, { timeout: 15000 });
+    await expect(monitor.locator("li")).toHaveCount(0);
+    await expect(monitor).not.toContainText(/\d+ (active|recent)/);
+    const confidence = monitor.getByRole("textbox", { name: "Minimum confidence (%)" });
+    await expect(confidence).toHaveValue("70");
+    await monitor.getByText("Spectrum monitor", { exact: true }).click();
+    await confidence.click();
+    await confidence.press("ControlOrMeta+A");
+    await confidence.pressSequentially("80");
+    await expect(confidence).toHaveValue("80");
+    await confidence.press("Enter");
+    await expect
+      .poll(async () => {
+        const workspace = await page.request
+          .get(`/api/workspaces/${id}`)
+          .then((response) => response.json());
+        return workspace.snapshot.graph.nodes.find(
+          (node: { id: string }) => node.id === nodeIds.monitor,
+        ).data.min_confidence;
+      })
+      .toBeCloseTo(0.8);
+    await page.reload();
+    await expect(confidence).toHaveValue("80");
+    await monitor.getByText("Spectrum monitor", { exact: true }).click();
+    await confidence.click();
+    await confidence.press("ControlOrMeta+A");
+    await confidence.pressSequentially("0");
+    await confidence.press("Enter");
     await expect(log).toContainText("Transmission", { timeout: 15000 });
     const state: StateSnapshot = await page.request
       .get("/api/state")

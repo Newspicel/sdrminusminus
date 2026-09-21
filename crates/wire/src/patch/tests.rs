@@ -2034,3 +2034,21 @@ fn spectrum_monitor_has_only_iq_input_and_event_output() {
         .push(edge(("radio", "iq"), ("monitor", "control")));
     assert!(graph.validate().is_err());
 }
+
+#[test]
+fn spectrum_monitor_rejects_invalid_confidence_in_workspaces() {
+    let graph = PatchGraph {
+        nodes: vec![node(
+            "monitor",
+            NodeBody::SpectrumMonitor(crate::SpectrumMonitorNode {
+                min_confidence: 1.01,
+                ..Default::default()
+            }),
+        )],
+        edges: Vec::new(),
+    };
+    assert_eq!(
+        graph.validate(),
+        Err(PatchError::NodeSettings("monitor".to_owned()))
+    );
+}

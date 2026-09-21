@@ -235,6 +235,8 @@ sample timing, timestamps, decoder results, and optional audio. Digital confirma
 decoder evidence. Open a completed transmission in the log to play its audio; event outputs can attach it.
 
 - **Record audio** includes mono 8 kHz WAV clips. Continuous signals emit clips every 30 seconds.
+- **Min confidence (%)** defaults to 70%. Weaker identifications are skipped before decoding or recording.
+  Raise it to reduce false detections; lower it to include uncertain signals. Zero accepts every detection.
 - Buffered IQ covers up to two seconds, capped at 64 MiB per monitor, and is replayed into new decoder trials.
 - Up to 32 signals run concurrently, with three decoder trials per signal and an FM fallback where applicable.
 - Supported IQ rates span 8 kHz to 64 MHz. Capacity depends on the computer and signal mix.

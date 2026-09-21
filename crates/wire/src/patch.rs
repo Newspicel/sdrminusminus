@@ -1324,6 +1324,9 @@ impl PatchGraph {
                 NodeBody::EventFilter(settings) if !settings.valid() => {
                     return Err(PatchError::NodeSettings(node.id.clone()));
                 }
+                NodeBody::SpectrumMonitor(settings) if !settings.valid() => {
+                    return Err(PatchError::NodeSettings(node.id.clone()));
+                }
                 NodeBody::Gps(gps) => {
                     if let Some(source) = &gps.source {
                         validate_gps_source(source)?;

@@ -56,6 +56,11 @@ impl SpectrumMonitor {
         center: f64,
         settings: SpectrumMonitorNode,
     ) -> Result<Self, ChannelError> {
+        if !settings.valid() {
+            return Err(ChannelError::InvalidSettings(
+                "monitor confidence must be between 0 and 1".to_owned(),
+            ));
+        }
         if !rate.is_finite() || !(8000.0..=64_000_000.0).contains(&rate) || !center.is_finite() {
             return Err(ChannelError::InvalidSettings(
                 "monitor requires 8 kHz to 64 MHz IQ and a finite center".to_owned(),
@@ -135,11 +140,14 @@ impl SpectrumMonitor {
                 }
                 continue;
             }
+            let signal = ident::identify(&self.window, self.rate, &band, self.center);
+            if signal.confidence < self.settings.min_confidence {
+                continue;
+            }
             if self.tracks.len() >= MAX_TRACKS {
                 overflow = true;
                 continue;
             }
-            let signal = ident::identify(&self.window, self.rate, &band, self.center);
             let start = end.saturating_sub(self.history.len() as u64);
             let mut track = Track {
                 id: self.next_id,
@@ -188,7 +196,9 @@ impl SpectrumMonitor {
         self.overloaded = overflow;
         let mut tracks = std::mem::take(&mut self.tracks);
         for mut track in tracks.drain(..) {
-            if end.saturating_sub(track.last_seen) as f64 >= self.rate * HANG_SECONDS {
+            if end.saturating_sub(track.last_seen) as f64 >= self.rate * HANG_SECONDS
+                || !self.refresh(&mut track, end, output)
+            {
                 output.push(transmission(
                     &mut track,
                     end,
@@ -208,20 +218,22 @@ impl SpectrumMonitor {
                 ));
                 track.segment = end;
             }
-            self.refresh(&mut track, end, output);
             self.tracks.push(track);
         }
     }
 
-    fn refresh(&mut self, track: &mut Track, end: u64, output: &mut Vec<MonitorOutput>) {
+    fn refresh(&mut self, track: &mut Track, end: u64, output: &mut Vec<MonitorOutput>) -> bool {
         if track.decoders.iter().any(|decoder| decoder.verified) {
-            return;
+            return true;
         }
         if end == track.last_seen
             && end.saturating_sub(track.identified_at) as f64 >= self.rate * 0.5
         {
             track.identified_at = end;
             let signal = ident::identify(&self.window, self.rate, &track.band, self.center);
+            if signal.confidence < self.settings.min_confidence {
+                return false;
+            }
             for kind in decoder::choices(&signal) {
                 if !track.tried.contains(&kind)
                     && !track.choices.contains(&kind)
@@ -261,6 +273,7 @@ impl SpectrumMonitor {
                 });
             }
         }
+        true
     }
 
     fn start_trials(&self, track: &mut Track) {

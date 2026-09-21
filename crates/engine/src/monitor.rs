@@ -283,7 +283,10 @@ mod tests {
         let alive = Arc::new(AtomicBool::new(true));
         let mut tap = MonitorTap::new(
             48_000.0,
-            SpectrumMonitorNode::default(),
+            SpectrumMonitorNode {
+                min_confidence: 0.0,
+                ..Default::default()
+            },
             Box::new(move |event| received.lock().unwrap().push(event)),
             alive.clone(),
         )
@@ -317,7 +320,10 @@ mod tests {
         let received = seen.clone();
         let mut tap = MonitorTap::new(
             48_000.0,
-            SpectrumMonitorNode::default(),
+            SpectrumMonitorNode {
+                min_confidence: 0.0,
+                ..Default::default()
+            },
             Box::new(move |event| received.lock().unwrap().push(event)),
             Arc::new(AtomicBool::new(true)),
         )
@@ -366,7 +372,10 @@ mod tests {
         let received = seen.clone();
         let tap = MonitorTap::new(
             48_000.0,
-            SpectrumMonitorNode::default(),
+            SpectrumMonitorNode {
+                min_confidence: 0.0,
+                ..Default::default()
+            },
             Box::new(move |event| received.lock().unwrap().push(event)),
             Arc::new(AtomicBool::new(true)),
         )

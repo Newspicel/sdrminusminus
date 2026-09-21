@@ -5310,6 +5310,8 @@ export interface components {
             w: number;
         };
         SpectrumMonitorNode: {
+            /** Format: float */
+            min_confidence?: number;
             record_audio?: boolean;
         };
         /**

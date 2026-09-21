@@ -18870,6 +18870,12 @@
       "SpectrumMonitorNode": {
         "type": "object",
         "properties": {
+          "min_confidence": {
+            "type": "number",
+            "format": "float",
+            "maximum": 1,
+            "minimum": 0
+          },
           "record_audio": {
             "type": "boolean"
           }

@@ -83,6 +83,7 @@ fn stored_signal_finders_keep_wiring_and_audio_preferences() {
             node.body,
             sdrmm_wire::NodeBody::SpectrumMonitor(sdrmm_wire::SpectrumMonitorNode {
                 record_audio: record.unwrap_or(true),
+                ..Default::default()
             })
         );
         let encoded = serde_json::to_value(&migrated).unwrap();

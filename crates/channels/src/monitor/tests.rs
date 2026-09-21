@@ -36,6 +36,68 @@ fn quiet_wideband_stream_does_not_invent_transmissions() {
     assert!(run(&mut monitor, &noise(0.5, 41), 0).is_empty());
 }
 
+fn uncertain_noise(seconds: f64) -> Vec<Complex<f32>> {
+    let mut iq = noise(seconds, 80);
+    let mut filtered = Complex::new(0.0, 0.0);
+    let random = crate::testutil::complex_noise(81, 0.6, iq.len());
+    for (i, (sample, random)) in iq.iter_mut().zip(random).enumerate() {
+        filtered = filtered * 0.95 + random * 0.05;
+        *sample += filtered
+            * Complex::from_polar(
+                1.0,
+                (std::f64::consts::TAU * 250_000.0 * i as f64 / RATE)
+                    .rem_euclid(std::f64::consts::TAU) as f32,
+            );
+    }
+    iq
+}
+
+#[test]
+fn uncertain_noise_is_rejected_before_decoding_or_recording() {
+    let iq = uncertain_noise(0.3);
+    let mut permissive = SpectrumMonitor::new(
+        RATE,
+        CENTER,
+        SpectrumMonitorNode {
+            min_confidence: 0.0,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let output = run(&mut permissive, &iq, 0);
+    let detected = transmissions(&output);
+    assert!(!detected.is_empty());
+    assert!(
+        detected.iter().all(|t| t.signal.confidence < 0.7),
+        "{detected:?}"
+    );
+    let mut filtered = monitor();
+    assert!(run(&mut filtered, &iq, 0).is_empty());
+    assert!(filtered.tracks.is_empty());
+    assert!(
+        filtered
+            .finish(TransmissionState::Completed, None)
+            .is_empty()
+    );
+}
+
+#[test]
+fn invalid_confidence_is_rejected_before_capture() {
+    for min_confidence in [-0.1, 1.1, f32::NAN] {
+        assert!(
+            SpectrumMonitor::new(
+                RATE,
+                CENTER,
+                SpectrumMonitorNode {
+                    min_confidence,
+                    ..Default::default()
+                }
+            )
+            .is_err()
+        );
+    }
+}
+
 #[test]
 fn concurrent_am_and_fm_outside_identifier_span_have_separate_audio_events() {
     let mut iq = noise(0.7, 42);
@@ -53,7 +115,15 @@ fn concurrent_am_and_fm_outside_identifier_span_have_separate_audio_events() {
     for ((sample, fm), am) in iq.iter_mut().zip(fm).zip(am) {
         *sample += fm + am;
     }
-    let mut monitor = monitor();
+    let mut monitor = SpectrumMonitor::new(
+        RATE,
+        CENTER,
+        SpectrumMonitorNode {
+            min_confidence: 0.0,
+            ..Default::default()
+        },
+    )
+    .unwrap();
     let mut output = run(&mut monitor, &iq, 0);
     output.extend(run(&mut monitor, &noise(0.5, 43), iq.len() as u64));
     let completed: Vec<_> = output.iter().filter(|out| matches!(&out.event, DecoderEvent::Transmission(t) if t.state == TransmissionState::Completed)).collect();
@@ -127,6 +197,7 @@ fn audio_can_be_disabled_without_disabling_events() {
         CENTER,
         SpectrumMonitorNode {
             record_audio: false,
+            ..Default::default()
         },
     )
     .unwrap();
@@ -160,7 +231,15 @@ fn a_carrier_that_starts_modulating_is_reidentified_automatically() {
             (std::f64::consts::TAU * 250_000.0 * t).rem_euclid(std::f64::consts::TAU) as f32,
         );
     }
-    let mut monitor = monitor();
+    let mut monitor = SpectrumMonitor::new(
+        RATE,
+        CENTER,
+        SpectrumMonitorNode {
+            min_confidence: 0.0,
+            ..Default::default()
+        },
+    )
+    .unwrap();
     let mut output = run(&mut monitor, &iq, 0);
     output.extend(run(&mut monitor, &noise(0.4, 52), iq.len() as u64));
     assert!(
@@ -202,7 +281,15 @@ fn a_short_final_window_is_examined_when_the_stream_finishes() {
                 as f32,
         );
     }
-    let mut monitor = monitor();
+    let mut monitor = SpectrumMonitor::new(
+        RATE,
+        CENTER,
+        SpectrumMonitorNode {
+            min_confidence: 0.0,
+            ..Default::default()
+        },
+    )
+    .unwrap();
     assert!(run(&mut monitor, &iq, 0).is_empty());
     let output = monitor.finish(TransmissionState::Completed, None);
     assert!(
@@ -251,4 +338,26 @@ fn continuous_audio_is_segmented_without_loss_or_buffer_overflow() {
     assert_eq!(segments[2].state, TransmissionState::Completed);
     assert_eq!(segments[0].end_sample, segments[1].start_sample);
     assert_eq!(segments[1].end_sample, segments[2].start_sample);
+}
+
+#[test]
+fn an_unconfirmed_track_closes_when_confidence_falls() {
+    let mut iq = noise(0.1, 82);
+    for (i, sample) in iq.iter_mut().enumerate() {
+        *sample += Complex::from_polar(
+            0.5,
+            (std::f64::consts::TAU * 250_000.0 * i as f64 / RATE).rem_euclid(std::f64::consts::TAU)
+                as f32,
+        );
+    }
+    let mut monitor = monitor();
+    let started = run(&mut monitor, &iq, 0);
+    let id = transmissions(&started).first().unwrap().id;
+    let output = run(&mut monitor, &uncertain_noise(0.8), iq.len() as u64);
+    assert!(
+        transmissions(&output)
+            .iter()
+            .any(|t| t.id == id && t.state == TransmissionState::Completed)
+    );
+    assert!(monitor.tracks.is_empty());
 }

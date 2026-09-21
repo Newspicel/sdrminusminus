@@ -75,4 +75,11 @@ describe("newNodeBody", () => {
       data: { channel_type: "dmr", record_calls: false },
     });
   });
+
+  it("starts a monitor with a 70% minimum confidence", () => {
+    expect(newNodeBody("spectrum_monitor")).toEqual({
+      kind: "spectrum_monitor",
+      data: { record_audio: true, min_confidence: 0.7 },
+    });
+  });
 });
