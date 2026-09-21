@@ -310,8 +310,10 @@ mod tests {
         drop(tap);
         assert!(!alive.load(Ordering::Acquire));
         let seen = seen.lock().unwrap();
-        assert!(seen.iter().any(|out| matches!(&out.event, DecoderEvent::Transmission(t) if t.state == TransmissionState::Started && t.started_at.is_some())));
-        assert!(seen.iter().any(|out| matches!(&out.event, DecoderEvent::Transmission(t) if t.state == TransmissionState::Interrupted)));
+        assert_eq!(seen.len(), 1);
+        assert!(
+            matches!(&seen[0].event, DecoderEvent::Transmission(t) if t.state == TransmissionState::Interrupted && t.started_at.is_some() && t.ended_at.is_some() && t.start_sample == 0 && t.end_sample == 4800)
+        );
     }
 
     #[test]
@@ -351,17 +353,25 @@ mod tests {
         }
         drop(tap);
         let seen = seen.lock().unwrap();
-        let starts: Vec<_> = seen
+        let transmissions: Vec<_> = seen
             .iter()
             .filter_map(|out| match &out.event {
-                DecoderEvent::Transmission(t) if t.state == TransmissionState::Started => Some(t),
+                DecoderEvent::Transmission(t) => Some(t),
                 _ => None,
             })
             .collect();
-        assert_eq!(starts.len(), 2);
-        assert_ne!(starts[0].id, starts[1].id);
+        assert_eq!(transmissions.len(), 2);
         assert!(
-            (starts[1].signal.frequency_hz - starts[0].signal.frequency_hz - 1_000_000.0).abs()
+            transmissions
+                .iter()
+                .all(|t| t.state == TransmissionState::Interrupted)
+        );
+        assert_ne!(transmissions[0].id, transmissions[1].id);
+        assert!(
+            (transmissions[1].signal.frequency_hz
+                - transmissions[0].signal.frequency_hz
+                - 1_000_000.0)
+                .abs()
                 < 1.0
         );
     }

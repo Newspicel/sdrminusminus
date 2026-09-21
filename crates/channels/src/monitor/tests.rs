@@ -64,7 +64,8 @@ fn uncertain_noise_is_rejected_before_decoding_or_recording() {
         },
     )
     .unwrap();
-    let output = run(&mut permissive, &iq, 0);
+    let mut output = run(&mut permissive, &iq, 0);
+    output.extend(permissive.finish(TransmissionState::Completed, None));
     let detected = transmissions(&output);
     assert!(!detected.is_empty());
     assert!(
@@ -125,7 +126,9 @@ fn concurrent_am_and_fm_outside_identifier_span_have_separate_audio_events() {
     )
     .unwrap();
     let mut output = run(&mut monitor, &iq, 0);
+    assert!(transmissions(&output).is_empty());
     output.extend(run(&mut monitor, &noise(0.5, 43), iq.len() as u64));
+    assert_eq!(transmissions(&output).len(), 2);
     let completed: Vec<_> = output.iter().filter(|out| matches!(&out.event, DecoderEvent::Transmission(t) if t.state == TransmissionState::Completed)).collect();
     for offset in [-250_000.0, 250_000.0] {
         let found = completed
@@ -176,7 +179,8 @@ fn a_capture_gap_interrupts_instead_of_joining_unrelated_samples() {
     }
     let mut monitor = monitor();
     let first = run(&mut monitor, &iq, 0);
-    assert!(!transmissions(&first).is_empty());
+    assert!(transmissions(&first).is_empty());
+    assert!(!monitor.tracks.is_empty());
     let gap = run(&mut monitor, &noise(0.2, 47), iq.len() as u64 + 8192);
     assert!(
         transmissions(&gap)
@@ -331,8 +335,9 @@ fn continuous_audio_is_segmented_without_loss_or_buffer_overflow() {
     );
     let segments: Vec<_> = transmissions(&output)
         .into_iter()
-        .filter(|t| t.id == clips[0].transmission && t.state != TransmissionState::Started)
+        .filter(|t| t.id == clips[0].transmission)
         .collect();
+    assert_eq!(segments.len(), 3);
     assert_eq!(segments[0].state, TransmissionState::Continued);
     assert_eq!(segments[1].state, TransmissionState::Continued);
     assert_eq!(segments[2].state, TransmissionState::Completed);
@@ -351,8 +356,9 @@ fn an_unconfirmed_track_closes_when_confidence_falls() {
         );
     }
     let mut monitor = monitor();
-    let started = run(&mut monitor, &iq, 0);
-    let id = transmissions(&started).first().unwrap().id;
+    let output = run(&mut monitor, &iq, 0);
+    assert!(transmissions(&output).is_empty());
+    let id = monitor.tracks.first().unwrap().id;
     let output = run(&mut monitor, &uncertain_noise(0.8), iq.len() as u64);
     assert!(
         transmissions(&output)

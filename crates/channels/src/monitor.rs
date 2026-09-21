@@ -176,13 +176,6 @@ impl SpectrumMonitor {
                 }
             }
             self.start_trials(&mut track);
-            output.push(transmission(
-                &mut track,
-                end,
-                self.rate,
-                TransmissionState::Started,
-                false,
-            ));
             let buffered = self.history.make_contiguous();
             feed(&mut track, buffered, output);
             self.tracks.push(track);
@@ -204,7 +197,6 @@ impl SpectrumMonitor {
                     end,
                     self.rate,
                     TransmissionState::Completed,
-                    true,
                 ));
                 continue;
             }
@@ -214,7 +206,6 @@ impl SpectrumMonitor {
                     end,
                     self.rate,
                     TransmissionState::Continued,
-                    true,
                 ));
                 track.segment = end;
             }
@@ -300,7 +291,7 @@ impl SpectrumMonitor {
             if let Some(error) = error {
                 track.error = Some(error.to_owned());
             }
-            transmission(&mut track, end, self.rate, state, true)
+            transmission(&mut track, end, self.rate, state)
         }));
         output
     }
@@ -359,13 +350,7 @@ fn feed(track: &mut Track, iq: &[Complex<f32>], output: &mut Vec<MonitorOutput>)
     }
 }
 
-fn transmission(
-    track: &mut Track,
-    end: u64,
-    rate: f64,
-    state: TransmissionState,
-    take_audio: bool,
-) -> MonitorOutput {
+fn transmission(track: &mut Track, end: u64, rate: f64, state: TransmissionState) -> MonitorOutput {
     let selected = track
         .decoders
         .iter_mut()
@@ -375,17 +360,11 @@ fn transmission(
     let (decoder, audio) = selected.map_or((None, Vec::new()), |decoder| {
         (
             Some(decoder.kind.clone()),
-            if take_audio {
-                std::mem::take(&mut decoder.audio)
-            } else {
-                Vec::new()
-            },
+            std::mem::take(&mut decoder.audio),
         )
     });
-    if take_audio {
-        for decoder in track.decoders.iter_mut().chain(track.fallback.iter_mut()) {
-            decoder.audio.clear();
-        }
+    for decoder in track.decoders.iter_mut().chain(track.fallback.iter_mut()) {
+        decoder.audio.clear();
     }
     MonitorOutput {
         transmission: track.id,

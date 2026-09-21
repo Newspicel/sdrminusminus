@@ -230,7 +230,8 @@ Wire **Device IQ → Spectrum monitor → Decoder log**, **Event filter**, or **
 The monitor follows the supplied IQ bandwidth without tuning the radio or adding channel nodes.
 It detects simultaneous signals and tries matching decoders. Unknown transmissions also produce events.
 
-Events share a transmission ID and source node. They include frequency, bandwidth, confidence,
+Each capture emits one transmission event when it ends, with a transmission ID and source node.
+Events include frequency, bandwidth, confidence,
 sample timing, timestamps, decoder results, and optional audio. Digital confirmation requires
 decoder evidence. Open a completed transmission in the log to play its audio; event outputs can attach it.
 
