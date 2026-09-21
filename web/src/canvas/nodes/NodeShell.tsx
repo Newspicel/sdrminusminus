@@ -201,17 +201,13 @@ export function NodeShell({ node, title, category, subtitle, actions, children }
           </span>
         </header>
 
-        <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden nodrag nopan">
+        <div
+          className="relative flex min-h-0 flex-1 flex-col overflow-hidden nodrag nopan"
+          onPointerDownCapture={surface === "canvas" ? () => workspace.select(node.id) : undefined}
+        >
           <Active value={active}>
             <WheelClaimSlot value={holdWheel}>{children}</WheelClaimSlot>
           </Active>
-          {!active && (
-            <span
-              aria-hidden
-              className="absolute inset-0 z-20"
-              onPointerDown={() => workspace.select(node.id)}
-            />
-          )}
         </div>
 
         {ports.map((port, index) => (

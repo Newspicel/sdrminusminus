@@ -303,7 +303,8 @@ test.describe("the workspace", () => {
     };
     const grip = thumb.x + thumb.width / 2;
     await sweep(grip, 90);
-    expect(await threshold.inputValue()).toBe(held);
+    expect(await threshold.inputValue()).not.toBe(held);
+    await expect(channel).toHaveClass(/selected/);
     expect(await framing()).toBe(framedAt);
 
     await activate(channel);
