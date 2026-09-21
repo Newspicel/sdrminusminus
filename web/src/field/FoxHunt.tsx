@@ -14,16 +14,18 @@ import {
 } from "../components/hunt";
 import { STATE_KEY, startHunt, stopHunt } from "../lib/api";
 import { type Clicker, startClicker } from "../lib/geiger";
-import { useHuntStore } from "../lib/hunt";
+import { decoderKey, useHuntStore } from "../lib/hunt";
 import { toastError } from "../lib/toasts";
 import type { MissionProps } from "./missions";
 
 export function FoxHunt({ target }: MissionProps & { target: HuntTarget | null }) {
   const queryClient = useQueryClient();
   const set = target?.set ?? null;
-  const pushed = useHuntStore((store) => (set === null ? undefined : store.byDeviceSet[set.id]));
+  const pushed = useHuntStore((store) =>
+    target === null ? undefined : store.byDecoder[decoderKey(target.set.id, target.channel.id)],
+  );
   const clearLive = useHuntStore((store) => store.clear);
-  const status = liveHunt(set, pushed);
+  const status = liveHunt(set, target?.channel.id ?? null, pushed);
   const strength = status?.strength ?? 0;
   const hz = huntedHz(status, target?.channel ?? null);
   const [clicks, setClicks] = useState(true);
@@ -50,13 +52,16 @@ export function FoxHunt({ target }: MissionProps & { target: HuntTarget | null }
   const invalidate = (): void => void queryClient.invalidateQueries({ queryKey: STATE_KEY });
   const startMut = useMutation({
     mutationFn: async (hunted: HuntTarget) =>
-      startHunt(hunted.set.id, { channel: hunted.channel.id, interval_ms: HUNT_INTERVAL_MS }),
+      startHunt(
+        { deviceSet: hunted.set.id, channel: hunted.channel.id },
+        { channel: hunted.channel.id, interval_ms: HUNT_INTERVAL_MS },
+      ),
     onError: (error: Error) => toastError(error),
     onSettled: invalidate,
   });
   const stopMut = useMutation({
     mutationFn: stopHunt,
-    onSuccess: (_status, deviceSet) => clearLive(deviceSet),
+    onSuccess: (_status, decoder) => clearLive(decoder.deviceSet, decoder.channel),
     onError: (error: Error) => toastError(error),
     onSettled: invalidate,
   });
@@ -97,7 +102,7 @@ export function FoxHunt({ target }: MissionProps & { target: HuntTarget | null }
               return;
             }
             if (running) {
-              stopMut.mutate(target.set.id);
+              stopMut.mutate({ deviceSet: target.set.id, channel: target.channel.id });
             } else {
               startMut.mutate(target);
             }

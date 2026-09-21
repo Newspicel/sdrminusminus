@@ -46,15 +46,16 @@ function deviceSet(over: Partial<DeviceSet> = {}): DeviceSet {
 
 describe("liveHunt", () => {
   it("prefers the pushed reading over the one the state snapshot carried", () => {
-    const set = deviceSet({ hunt: HUNT });
-    expect(liveHunt(set, undefined)).toBe(HUNT);
+    const set = deviceSet({ hunts: [HUNT] });
+    expect(liveHunt(set, 9, undefined)).toBe(HUNT);
     const fresher = { ...HUNT, readings: 99 };
-    expect(liveHunt(set, fresher)?.readings).toBe(99);
+    expect(liveHunt(set, 9, fresher)?.readings).toBe(99);
   });
 
-  it("reports nothing when the set is not hunting", () => {
-    expect(liveHunt(deviceSet(), HUNT)).toBeNull();
-    expect(liveHunt(null, HUNT)).toBeNull();
+  it("reports nothing when the decoder is not hunted", () => {
+    expect(liveHunt(deviceSet({ hunts: [HUNT] }), 3, HUNT)).toBeNull();
+    expect(liveHunt(deviceSet(), 9, HUNT)).toBeNull();
+    expect(liveHunt(null, 9, HUNT)).toBeNull();
   });
 });
 
@@ -71,19 +72,19 @@ describe("huntRefusal", () => {
     expect(huntRefusal({ set: deviceSet(), channel: { ...CHANNEL, out_of_band: true } })).toMatch(
       /tuned away/,
     );
-    const scanning = deviceSet({
-      scanner: {
-        state: "scanning",
-        settings: {} as never,
-        targets: 1,
-        first_hz: 1,
-        last_hz: 1,
-        current_hz: 1,
-        sweeps: 0,
-        hits: 0,
-      } as never,
-    });
+    const scan = {
+      state: "scanning",
+      settings: { channel: CHANNEL.id } as never,
+      targets: 1,
+      first_hz: 1,
+      last_hz: 1,
+      current_hz: 1,
+      sweeps: 0,
+      hits: 0,
+    } as never;
+    const scanning = deviceSet({ scanners: [scan] });
     expect(huntRefusal({ set: scanning, channel: CHANNEL })).toMatch(/scanning/);
+    expect(huntRefusal({ set: scanning, channel: { ...CHANNEL, id: 2 } })).toBeNull();
   });
 });
 

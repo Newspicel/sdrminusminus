@@ -74,9 +74,10 @@ export function ChannelFace({ node }: { node: PatchNode }) {
   const locked = node.data.tuning_locked ?? false;
   const driven =
     channel !== null &&
-    set?.scanner != null &&
-    set.scanner.error == null &&
-    set.scanner.settings.channel === channel.id;
+    (set?.scanners?.some(
+      (scanner) => scanner.error == null && scanner.settings.channel === channel.id,
+    ) ??
+      false);
   const editNode = (next: Partial<ChannelNodeData>): void =>
     workspace.edit((snapshot) => ({
       ...snapshot,

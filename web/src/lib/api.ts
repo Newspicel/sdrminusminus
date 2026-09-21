@@ -737,46 +737,54 @@ export function diagnosticsQuery(enabled: boolean) {
   });
 }
 
-export async function startScan(ds: number, settings: ScanSettings): Promise<ScannerStatus> {
+export interface DecoderRef {
+  deviceSet: number;
+  channel: number;
+}
+
+export async function startScan(
+  decoder: DecoderRef,
+  settings: ScanSettings,
+): Promise<ScannerStatus> {
   return unwrap(
-    await client.POST("/api/devicesets/{ds}/scanner", {
-      params: { path: { ds } },
+    await client.POST("/api/devicesets/{ds}/channels/{ch}/scanner", {
+      params: { path: { ds: decoder.deviceSet, ch: decoder.channel } },
       body: { action: "start", settings },
     }),
   );
 }
 
-export async function stopScan(ds: number): Promise<ScannerStatus> {
+export async function stopScan(decoder: DecoderRef): Promise<ScannerStatus> {
   return unwrap(
-    await client.POST("/api/devicesets/{ds}/scanner", {
-      params: { path: { ds } },
+    await client.POST("/api/devicesets/{ds}/channels/{ch}/scanner", {
+      params: { path: { ds: decoder.deviceSet, ch: decoder.channel } },
       body: { action: "stop" },
     }),
   );
 }
 
-export async function skipScan(ds: number): Promise<ScannerStatus> {
+export async function skipScan(decoder: DecoderRef): Promise<ScannerStatus> {
   return unwrap(
-    await client.POST("/api/devicesets/{ds}/scanner", {
-      params: { path: { ds } },
+    await client.POST("/api/devicesets/{ds}/channels/{ch}/scanner", {
+      params: { path: { ds: decoder.deviceSet, ch: decoder.channel } },
       body: { action: "skip" },
     }),
   );
 }
 
-export async function startHunt(ds: number, settings: HuntSettings): Promise<HuntStatus> {
+export async function startHunt(decoder: DecoderRef, settings: HuntSettings): Promise<HuntStatus> {
   return unwrap(
-    await client.POST("/api/devicesets/{ds}/hunt", {
-      params: { path: { ds } },
+    await client.POST("/api/devicesets/{ds}/channels/{ch}/hunt", {
+      params: { path: { ds: decoder.deviceSet, ch: decoder.channel } },
       body: { action: "start", settings },
     }),
   );
 }
 
-export async function stopHunt(ds: number): Promise<HuntStatus> {
+export async function stopHunt(decoder: DecoderRef): Promise<HuntStatus> {
   return unwrap(
-    await client.POST("/api/devicesets/{ds}/hunt", {
-      params: { path: { ds } },
+    await client.POST("/api/devicesets/{ds}/channels/{ch}/hunt", {
+      params: { path: { ds: decoder.deviceSet, ch: decoder.channel } },
       body: { action: "stop" },
     }),
   );

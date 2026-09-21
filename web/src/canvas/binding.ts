@@ -107,14 +107,38 @@ function primaryLane(graph: PatchGraph, node: string, owner: string, stream: num
   return first !== undefined && first.source === owner && first.stream === stream;
 }
 
+export function trunkChannelIds(
+  trunks: readonly TrunkSystemStatus[],
+  deviceSet: number,
+): Set<number> {
+  const ids = new Set<number>();
+  for (const system of trunks) {
+    if (system.control != null && system.control.device_set === deviceSet) {
+      ids.add(system.control.channel);
+    }
+    for (const follower of system.followers) {
+      if (follower.device_set === deviceSet) {
+        ids.add(follower.channel);
+      }
+    }
+    for (const probe of system.probes ?? []) {
+      if (probe.device_set === deviceSet) {
+        ids.add(probe.channel);
+      }
+    }
+  }
+  return ids;
+}
+
 export function bindCarriers(
   graph: PatchGraph,
   devices: ReadonlyMap<string, DeviceSet>,
+  trunks: readonly TrunkSystemStatus[] = [],
 ): Map<string, Carrier> {
   const carriers = new Map<string, Carrier>();
   const claimed = new Map<string, Set<number>>();
   for (const [owner, set] of devices) {
-    const used = new Set<number>();
+    const used = trunkChannelIds(trunks, set.id);
     claimed.set(owner, used);
     for (const { node, stream } of channelNodesOf(graph, owner)) {
       const channel = set.channels.find(
@@ -156,8 +180,9 @@ export function ownersOf(carriers: ReadonlyMap<string, Carrier>): Map<string, st
 export function bindChannels(
   graph: PatchGraph,
   devices: ReadonlyMap<string, DeviceSet>,
+  trunks: readonly TrunkSystemStatus[] = [],
 ): Map<string, ChannelInfo> {
-  return channelsOf(bindCarriers(graph, devices));
+  return channelsOf(bindCarriers(graph, devices, trunks));
 }
 
 export function iqLanesOf(graph: PatchGraph, node: string): { source: string; stream: number }[] {

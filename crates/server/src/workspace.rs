@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::{collections::HashSet, time::Duration};
 
 use sdrmm_engine::Engine;
 use sdrmm_wire::{
@@ -133,6 +133,7 @@ pub(crate) fn bind_channels(
     graph: &PatchGraph,
     device_node: &str,
     set: &DeviceSet,
+    reserved: &HashSet<u32>,
 ) -> Vec<(String, u32)> {
     let mut free: Vec<&ChannelInfo> = set.channels.iter().collect();
     let wired: Vec<(&str, &str, u32)> = graph
@@ -160,9 +161,11 @@ pub(crate) fn bind_channels(
         if graph.lanes_of(node).first() != Some(&(device_node, *stream)) {
             continue;
         }
-        let unclaimed = free
-            .iter()
-            .position(|live| live.node.is_none() && carries(live, channel_type, *stream));
+        let unclaimed = free.iter().position(|live| {
+            live.node.is_none()
+                && !reserved.contains(&live.id)
+                && carries(live, channel_type, *stream)
+        });
         if let Some(at) = unclaimed {
             bound.push(((*node).to_owned(), free.remove(at).id));
         }
@@ -171,13 +174,43 @@ pub(crate) fn bind_channels(
     bound
 }
 
+/// The channels a trunk system opened for itself on a radio. They belong to the system node and
+/// are never handed to a decoder node that happens to share their type.
+pub(crate) fn trunk_channels(state: &StateSnapshot, device_set: u32) -> HashSet<u32> {
+    state
+        .trunk_systems
+        .iter()
+        .flat_map(|system| {
+            system
+                .control
+                .iter()
+                .map(|control| (control.device_set, control.channel))
+                .chain(
+                    system
+                        .followers
+                        .iter()
+                        .map(|follower| (follower.device_set, follower.channel)),
+                )
+                .chain(
+                    system
+                        .probes
+                        .iter()
+                        .map(|probe| (probe.device_set, probe.channel)),
+                )
+        })
+        .filter(|(set, _)| *set == device_set)
+        .map(|(_, channel)| channel)
+        .collect()
+}
+
 pub(crate) fn bind(graph: &PatchGraph, state: &StateSnapshot) -> Vec<DeviceBinding> {
     bind_devices(graph, state)
         .into_iter()
         .filter_map(|(node, device_set)| {
             let set = state.device_sets.iter().find(|set| set.id == device_set)?;
+            let reserved = trunk_channels(state, device_set);
             Some(DeviceBinding {
-                channels: bind_channels(graph, &node, set)
+                channels: bind_channels(graph, &node, set, &reserved)
                     .into_iter()
                     .filter(|(node, id)| {
                         set.channels
@@ -212,22 +245,28 @@ pub(crate) fn capture(
         else {
             continue;
         };
-        if set.scanner.is_some() || unrestored.contains(&binding.node) {
+        if unrestored.contains(&binding.node) {
             continue;
         }
+        let scanned = |id: u32| set.scanners.iter().any(|scan| scan.settings.channel == id);
         for (node, id) in binding.channels {
             let Some(channel) = set.channels.iter().find(|channel| channel.id == id) else {
                 continue;
             };
+            if scanned(id) {
+                continue;
+            }
             channels.push(WorkspaceChannel {
                 node,
                 settings: channel.settings.clone(),
             });
         }
-        devices.push(WorkspaceDevice {
-            node: binding.node,
-            settings: set.settings.clone(),
-        });
+        if set.scanners.is_empty() {
+            devices.push(WorkspaceDevice {
+                node: binding.node,
+                settings: set.settings.clone(),
+            });
+        }
     }
     (devices, channels)
 }
@@ -463,16 +502,16 @@ pub(crate) fn reconcile(
         else {
             continue;
         };
-        if set.scanner.is_some() {
-            match engine.stop_scan(set.id) {
+        for scanner in &set.scanners {
+            match engine.stop_scan(set.id, scanner.settings.channel) {
                 Ok(_) => report.stopped_scans += 1,
                 Err(err) => tracing::warn!(%err, set = set.id, "could not stop a sweep on switch"),
             }
         }
-        if set.hunt.is_some()
-            && let Err(err) = engine.stop_hunt(set.id)
-        {
-            tracing::warn!(%err, set = set.id, "could not stop a hunt on switch");
+        for hunt in &set.hunts {
+            if let Err(err) = engine.stop_hunt(set.id, hunt.settings.channel) {
+                tracing::warn!(%err, set = set.id, "could not stop a hunt on switch");
+            }
         }
         for channel in &set.channels {
             if binding.channels.iter().any(|(_, id)| *id == channel.id) {
@@ -807,5 +846,133 @@ mod tests {
         assert!(
             crate::trunking::learned_for(&state, "sys", &[status("sys", None, &[])]).is_empty()
         );
+    }
+
+    fn dmr_channel(id: u32, node: Option<&str>) -> ChannelInfo {
+        ChannelInfo {
+            id,
+            stream: 0,
+            node: node.map(str::to_owned),
+            settings: ChannelSettings::default_for("dmr").expect("dmr"),
+            out_of_band: false,
+            audio_recording: None,
+            baseband_recording: None,
+            network_export: None,
+        }
+    }
+
+    fn radio_with(channels: Vec<ChannelInfo>) -> DeviceSet {
+        DeviceSet {
+            id: 1,
+            device: DeviceInfo {
+                driver: "virtual".to_owned(),
+                key: "siggen".to_owned(),
+                label: "Siggen".to_owned(),
+                serial: None,
+                profile: None,
+            },
+            capabilities: sdrmm_wire::Capabilities {
+                freq_ranges: Vec::new(),
+                sample_rates: Vec::new(),
+                sample_rate_ranges: Vec::new(),
+                gains: Vec::new(),
+                antennas: Vec::new(),
+                bandwidths: Vec::new(),
+                bandwidth_ranges: Vec::new(),
+                bandwidth_auto: false,
+                bias_tee: false,
+                agc: sdrmm_wire::Agc::None,
+                extra: Vec::new(),
+                ppm: false,
+                duplex: sdrmm_wire::Duplex::RxOnly,
+                rx_streams: 1,
+                tx_streams: 0,
+                per_stream: sdrmm_wire::StreamScope::default(),
+                directional: None,
+                dc_artifact: sdrmm_wire::DcArtifact::Operator,
+                hardware_sweep: false,
+                coherence: sdrmm_wire::Coherence::None,
+                noise_source: false,
+            },
+            settings: sdrmm_wire::DeviceSettings::default(),
+            status: sdrmm_wire::DeviceSetStatus::Running,
+            channels,
+            overruns: 0,
+            error: None,
+            fault: None,
+            recording: None,
+            network_export: None,
+            time_machine: None,
+            scanners: Vec::new(),
+            hunts: Vec::new(),
+            playback: None,
+        }
+    }
+
+    fn dmr_graph() -> PatchGraph {
+        let mut snapshot = WorkspaceSnapshot::starter();
+        snapshot.graph.nodes.push(PatchNode {
+            id: "voice".to_owned(),
+            body: NodeBody::Channel(sdrmm_wire::ChannelNode {
+                channel_type: "dmr".to_owned(),
+                record_calls: false,
+                tuning_locked: false,
+            }),
+            position: Position { x: 0.0, y: 0.0 },
+            size: None,
+            label: None,
+        });
+        snapshot.graph.edges.push(sdrmm_wire::PatchEdge {
+            from: sdrmm_wire::PortRef {
+                node: "device".to_owned(),
+                port: "iq".to_owned(),
+            },
+            to: sdrmm_wire::PortRef {
+                node: "voice".to_owned(),
+                port: "iq".to_owned(),
+            },
+        });
+        snapshot.graph
+    }
+
+    #[test]
+    fn a_decoder_node_never_adopts_a_trunk_systems_own_channel() {
+        let graph = dmr_graph();
+        let follower = radio_with(vec![dmr_channel(4, None)]);
+        assert_eq!(
+            bind_channels(&graph, "device", &follower, &HashSet::new()),
+            vec![("voice".to_owned(), 4)],
+            "a channel nobody opened for a node is adopted"
+        );
+        assert!(
+            bind_channels(&graph, "device", &follower, &HashSet::from([4])).is_empty(),
+            "a trunk system's follower stays with the system"
+        );
+        let state = StateSnapshot {
+            device_sets: vec![follower],
+            trunk_systems: vec![TrunkSystemStatus {
+                node: "trunk".to_owned(),
+                detected: None,
+                carriers: 1,
+                control: None,
+                followers: vec![sdrmm_wire::TrunkFollower {
+                    device_set: 1,
+                    channel: 4,
+                    logical_channel: None,
+                    slot: 1,
+                    freq_hz: 451_000_000,
+                }],
+                problems: Vec::new(),
+                channel_map: Vec::new(),
+                probes: Vec::new(),
+                searching: 0,
+                candidates: 0,
+                other_control_hz: Vec::new(),
+                color_code: None,
+            }],
+            revision: 1,
+        };
+        assert_eq!(trunk_channels(&state, 1), HashSet::from([4]));
+        assert!(trunk_channels(&state, 2).is_empty());
     }
 }

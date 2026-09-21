@@ -65,13 +65,13 @@ fn carried_by<'a>(
 }
 
 fn holds_channel(set: &DeviceSet, channel: &ChannelInfo) -> bool {
-    set.scanner
-        .as_ref()
-        .is_some_and(|scan| scan.settings.channel == channel.id)
+    set.scanners
+        .iter()
+        .any(|scan| scan.settings.channel == channel.id)
         || set
-            .hunt
-            .as_ref()
-            .is_some_and(|hunt| hunt.settings.channel == channel.id)
+            .hunts
+            .iter()
+            .any(|hunt| hunt.settings.channel == channel.id)
         || channel.audio_recording.is_some()
         || channel.baseband_recording.is_some()
         || channel.network_export.is_some()

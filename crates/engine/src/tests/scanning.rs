@@ -46,13 +46,17 @@ async fn scan_finds_a_carrier_and_holds() {
         engine
             .start_scan(ds, sdrmm_wire::ScanSettings::for_channel(ch))
             .is_err(),
-        "one scan per radio"
+        "one scan per decoder"
     );
 
     let deadline = Instant::now() + Duration::from_secs(20);
     let held = loop {
         let set = &engine.snapshot().device_sets[0];
-        let scanner = set.scanner.clone().expect("scan listed on the set");
+        let scanner = set
+            .scanners
+            .first()
+            .cloned()
+            .expect("scan listed on the set");
         assert_eq!(scanner.error, None, "scan failed");
         if scanner.state == ScanState::Holding {
             break (scanner, set.channels[0].settings.frequency_hz);
@@ -68,14 +72,48 @@ async fn scan_finds_a_carrier_and_holds() {
         "the decoder parked at {parked_hz} Hz, carrier at {SIGNAL_HZ} Hz"
     );
 
-    let final_status = engine.stop_scan(ds).unwrap();
+    let final_status = engine.stop_scan(ds, ch).unwrap();
     assert_eq!(final_status.state, ScanState::Holding);
     assert!(
-        engine.stop_scan(ds).is_err(),
+        engine.stop_scan(ds, ch).is_err(),
         "double stop must be an error"
     );
     let after = &engine.snapshot().device_sets[0];
-    assert!(after.scanner.is_none());
+    assert!(after.scanners.is_empty());
+    let other = nfm_decoder(&engine, ds, TEST_CENTER_HZ);
+    engine
+        .start_scan(
+            ds,
+            sdrmm_wire::ScanSettings {
+                frequencies: vec![SIGNAL_HZ],
+                ..sdrmm_wire::ScanSettings::for_channel(other)
+            },
+        )
+        .expect("another decoder on the same radio can scan");
+    engine
+        .start_scan(
+            ds,
+            sdrmm_wire::ScanSettings {
+                frequencies: vec![SIGNAL_HZ],
+                ..sdrmm_wire::ScanSettings::for_channel(ch)
+            },
+        )
+        .expect("two decoders scan side by side");
+    let both = &engine.snapshot().device_sets[0];
+    assert_eq!(
+        both.scanners
+            .iter()
+            .map(|scanner| scanner.settings.channel)
+            .collect::<Vec<_>>(),
+        vec![ch, other]
+    );
+    engine.remove_channel(ds, other).unwrap();
+    assert_eq!(
+        engine.snapshot().device_sets[0].scanners.len(),
+        1,
+        "removing a decoder stops its scan"
+    );
+    engine.stop_scan(ds, ch).unwrap();
     assert_eq!(
         after.channels[0].settings.frequency_hz, SIGNAL_HZ,
         "the decoder stays where the scan left it"
@@ -122,7 +160,7 @@ async fn a_radio_tuned_by_hand_stays_put_and_the_scan_searches_only_its_window()
     let deadline = Instant::now() + Duration::from_secs(20);
     loop {
         let set = &engine.snapshot().device_sets[0];
-        let scanner = set.scanner.clone().expect("scan listed");
+        let scanner = set.scanners.first().cloned().expect("scan listed");
         assert_eq!(scanner.error, None, "scan failed");
         assert_eq!(
             set.settings.center_hz, held_hz,
@@ -138,12 +176,12 @@ async fn a_radio_tuned_by_hand_stays_put_and_the_scan_searches_only_its_window()
         assert!(Instant::now() < deadline, "scan never found the carrier");
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
-    engine.skip_scan(ds).unwrap();
+    engine.skip_scan(ds, ch).unwrap();
 
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {
         let set = &engine.snapshot().device_sets[0];
-        let scanner = set.scanner.clone().expect("scan listed");
+        let scanner = set.scanners.first().cloned().expect("scan listed");
         assert_eq!(scanner.error, None, "scan failed");
         assert_eq!(set.settings.center_hz, held_hz);
         assert_ne!(set.channels[0].settings.frequency_hz, beyond);
@@ -156,7 +194,7 @@ async fn a_radio_tuned_by_hand_stays_put_and_the_scan_searches_only_its_window()
         );
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
-    engine.stop_scan(ds).unwrap();
+    engine.stop_scan(ds, ch).unwrap();
     engine.remove_device_set(ds).unwrap();
 }
 
@@ -183,7 +221,7 @@ async fn the_decoder_follows_the_sweep_and_stays_where_the_scan_stops() {
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {
         let set = &engine.snapshot().device_sets[0];
-        let scanner = set.scanner.clone().expect("scan listed");
+        let scanner = set.scanners.first().cloned().expect("scan listed");
         assert_eq!(scanner.error, None, "scan failed");
         let decoder_hz = set.channels[0].settings.frequency_hz;
         if targets.contains(&decoder_hz) {
@@ -200,7 +238,7 @@ async fn the_decoder_follows_the_sweep_and_stays_where_the_scan_stops() {
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
 
-    let stopped = engine.stop_scan(ds).unwrap();
+    let stopped = engine.stop_scan(ds, ch).unwrap();
     let set = &engine.snapshot().device_sets[0];
     assert_eq!(
         set.channels[0].settings.frequency_hz, stopped.current_hz,
@@ -217,7 +255,7 @@ async fn skipping_a_held_frequency_resumes_and_never_holds_there_again() {
     let ds = engine.create_device_set("mock:signal").unwrap();
     let ch = nfm_decoder(&engine, ds, TEST_CENTER_HZ);
     assert!(
-        engine.skip_scan(ds).is_err(),
+        engine.skip_scan(ds, ch).is_err(),
         "nothing to skip before a scan runs"
     );
     engine
@@ -236,8 +274,9 @@ async fn skipping_a_held_frequency_resumes_and_never_holds_there_again() {
     let deadline = Instant::now() + Duration::from_secs(20);
     loop {
         let scanner = engine.snapshot().device_sets[0]
-            .scanner
-            .clone()
+            .scanners
+            .first()
+            .cloned()
             .expect("scan listed");
         assert_eq!(scanner.error, None, "scan failed");
         if scanner.state == ScanState::Holding {
@@ -246,14 +285,15 @@ async fn skipping_a_held_frequency_resumes_and_never_holds_there_again() {
         assert!(Instant::now() < deadline, "scan never found the carrier");
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
-    let skipped = engine.skip_scan(ds).unwrap();
+    let skipped = engine.skip_scan(ds, ch).unwrap();
     assert_eq!(skipped.settings.skip, vec![SIGNAL_HZ]);
 
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {
         let scanner = engine.snapshot().device_sets[0]
-            .scanner
-            .clone()
+            .scanners
+            .first()
+            .cloned()
             .expect("scan listed");
         assert_eq!(scanner.error, None, "scan failed");
         if scanner.state == ScanState::Scanning && scanner.sweeps >= 1 {
@@ -264,8 +304,9 @@ async fn skipping_a_held_frequency_resumes_and_never_holds_there_again() {
     }
     tokio::time::sleep(Duration::from_millis(400)).await;
     let scanner = engine.snapshot().device_sets[0]
-        .scanner
-        .clone()
+        .scanners
+        .first()
+        .cloned()
         .expect("scan listed");
     assert_eq!(
         scanner.state,
@@ -273,8 +314,8 @@ async fn skipping_a_held_frequency_resumes_and_never_holds_there_again() {
         "held on a skipped frequency"
     );
     assert_eq!(scanner.hits, 1, "the skipped carrier was called again");
-    assert!(engine.skip_scan(ds).is_err(), "nothing held to skip");
-    engine.stop_scan(ds).unwrap();
+    assert!(engine.skip_scan(ds, ch).is_err(), "nothing held to skip");
+    engine.stop_scan(ds, ch).unwrap();
     engine.remove_device_set(ds).unwrap();
 }
 
@@ -314,7 +355,11 @@ async fn a_firmware_sweep_finds_a_carrier_without_the_scanner_retuning() {
     let deadline = Instant::now() + Duration::from_secs(20);
     let held = loop {
         let set = &engine.snapshot().device_sets[0];
-        let scanner = set.scanner.clone().expect("scan listed on the set");
+        let scanner = set
+            .scanners
+            .first()
+            .cloned()
+            .expect("scan listed on the set");
         assert_eq!(scanner.error, None, "scan failed");
         if scanner.state == ScanState::Holding {
             break scanner;
@@ -333,7 +378,7 @@ async fn a_firmware_sweep_finds_a_carrier_without_the_scanner_retuning() {
     );
     assert!(held.hits >= 1);
 
-    engine.stop_scan(ds).unwrap();
+    engine.stop_scan(ds, ch).unwrap();
     let set = &engine.snapshot().device_sets[0];
     assert_eq!(
         set.status,
@@ -374,8 +419,9 @@ async fn a_radio_sweeping_in_firmware_refuses_a_retune_by_name() {
     let deadline = Instant::now() + Duration::from_secs(20);
     loop {
         let scanner = engine.snapshot().device_sets[0]
-            .scanner
-            .clone()
+            .scanners
+            .first()
+            .cloned()
             .expect("scan listed");
         assert_eq!(scanner.error, None, "scan failed");
         assert!(scanner.hardware_sweep, "the scan must sweep in firmware");
@@ -399,7 +445,7 @@ async fn a_radio_sweeping_in_firmware_refuses_a_retune_by_name() {
         .unwrap_err();
     assert!(err.is_bad_request(), "expected bad request, got {err}");
     assert!(err.to_string().contains("firmware"), "unhelpful: {err}");
-    engine.stop_scan(ds).unwrap();
+    engine.stop_scan(ds, ch).unwrap();
     engine.remove_device_set(ds).unwrap();
 }
 
@@ -464,8 +510,9 @@ async fn a_hunt_streams_a_strength_a_walker_can_follow() {
     assert!((0.0..=1.0).contains(&seen.strength));
 
     let listed = engine.snapshot().device_sets[0]
-        .hunt
-        .clone()
+        .hunts
+        .first()
+        .cloned()
         .expect("the hunt is listed on the set");
     assert!(listed.readings >= 1);
 
@@ -484,8 +531,9 @@ async fn a_hunt_streams_a_strength_a_walker_can_follow() {
     let deadline = Instant::now() + Duration::from_secs(5);
     loop {
         let hunt = engine.snapshot().device_sets[0]
-            .hunt
-            .clone()
+            .hunts
+            .first()
+            .cloned()
             .expect("still hunting");
         assert_eq!(hunt.error, None, "hunt failed");
         if hunt.freq_hz == SIGNAL_HZ + 50_000.0 {
@@ -498,13 +546,13 @@ async fn a_hunt_streams_a_strength_a_walker_can_follow() {
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
 
-    let final_status = engine.stop_hunt(ds).unwrap();
+    let final_status = engine.stop_hunt(ds, ch).unwrap();
     assert!(final_status.readings >= 1);
     assert!(
-        engine.stop_hunt(ds).is_err(),
+        engine.stop_hunt(ds, ch).is_err(),
         "double stop must be an error"
     );
-    assert!(engine.snapshot().device_sets[0].hunt.is_none());
+    assert!(engine.snapshot().device_sets[0].hunts.is_empty());
     engine.remove_device_set(ds).unwrap();
 }
 
@@ -532,8 +580,9 @@ async fn a_hunt_leaves_the_dial_alone_and_says_so_when_the_radio_is_off_the_deco
     let deadline = Instant::now() + Duration::from_secs(10);
     let fault = loop {
         let hunt = engine.snapshot().device_sets[0]
-            .hunt
-            .clone()
+            .hunts
+            .first()
+            .cloned()
             .expect("the hunt stays listed with its fault");
         if let Some(error) = hunt.error {
             break error;
@@ -545,12 +594,12 @@ async fn a_hunt_leaves_the_dial_alone_and_says_so_when_the_radio_is_off_the_deco
         tokio::time::sleep(Duration::from_millis(50)).await;
     };
     assert!(fault.contains("not tuned over"), "unhelpful fault: {fault}");
-    engine.stop_hunt(ds).unwrap();
+    engine.stop_hunt(ds, ch).unwrap();
     engine.remove_device_set(ds).unwrap();
 }
 
 #[tokio::test]
-async fn a_hunt_and_a_scan_do_not_share_a_dial() {
+async fn a_hunt_and_a_scan_do_not_share_a_decoder() {
     let mut registry = DeviceRegistry::new();
     registry.register(50, Box::new(SignalDriver));
     let engine = Engine::with_registry(registry, None);
@@ -569,7 +618,18 @@ async fn a_hunt_and_a_scan_do_not_share_a_dial() {
         )
         .unwrap_err();
     assert!(err.is_bad_request(), "expected bad request, got {err}");
-    engine.stop_hunt(ds).unwrap();
+    let other = nfm_decoder(&engine, ds, SIGNAL_HZ);
+    engine
+        .start_scan(
+            ds,
+            sdrmm_wire::ScanSettings {
+                frequencies: vec![SIGNAL_HZ],
+                ..sdrmm_wire::ScanSettings::for_channel(other)
+            },
+        )
+        .expect("another decoder on the hunted radio can still scan");
+    engine.stop_scan(ds, other).unwrap();
+    engine.stop_hunt(ds, ch).unwrap();
     engine.remove_device_set(ds).unwrap();
 }
 
@@ -601,8 +661,9 @@ async fn close_call_holds_on_the_loudest_carrier_nobody_named() {
     let deadline = Instant::now() + Duration::from_secs(20);
     let held = loop {
         let scanner = engine.snapshot().device_sets[0]
-            .scanner
-            .clone()
+            .scanners
+            .first()
+            .cloned()
             .expect("scan listed");
         assert_eq!(scanner.error, None, "scan failed");
         if scanner.state == ScanState::Holding {
@@ -617,7 +678,7 @@ async fn close_call_holds_on_the_loudest_carrier_nobody_named() {
         held.current_hz
     );
     assert!(held.hits >= 1);
-    engine.stop_scan(ds).unwrap();
+    engine.stop_scan(ds, ch).unwrap();
     engine.remove_device_set(ds).unwrap();
 }
 
@@ -646,8 +707,9 @@ async fn close_call_stays_quiet_on_an_empty_band() {
         .unwrap();
     tokio::time::sleep(Duration::from_millis(600)).await;
     let scanner = engine.snapshot().device_sets[0]
-        .scanner
-        .clone()
+        .scanners
+        .first()
+        .cloned()
         .expect("scan listed");
     assert_eq!(scanner.error, None, "scan failed");
     assert_eq!(
@@ -656,7 +718,7 @@ async fn close_call_stays_quiet_on_an_empty_band() {
         "an empty band must not be called"
     );
     assert_eq!(scanner.hits, 0);
-    engine.stop_scan(ds).unwrap();
+    engine.stop_scan(ds, ch).unwrap();
     engine.remove_device_set(ds).unwrap();
 }
 
@@ -696,8 +758,9 @@ async fn a_refused_firmware_sweep_falls_back_to_retuning_without_losing_the_radi
     let deadline = Instant::now() + Duration::from_secs(20);
     let held = loop {
         let scanner = engine.snapshot().device_sets[0]
-            .scanner
-            .clone()
+            .scanners
+            .first()
+            .cloned()
             .expect("scan listed");
         assert_eq!(scanner.error, None, "scan failed");
         if scanner.state == ScanState::Holding {
@@ -715,7 +778,7 @@ async fn a_refused_firmware_sweep_falls_back_to_retuning_without_losing_the_radi
     );
     assert_eq!(held.current_hz, SIGNAL_HZ);
 
-    engine.stop_scan(ds).unwrap();
+    engine.stop_scan(ds, ch).unwrap();
     let set = &engine.snapshot().device_sets[0];
     assert_eq!(
         set.status,
@@ -761,8 +824,9 @@ async fn stopping_mid_sweep_hands_the_radio_back() {
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {
         let scanner = engine.snapshot().device_sets[0]
-            .scanner
-            .clone()
+            .scanners
+            .first()
+            .cloned()
             .expect("scan listed");
         assert_eq!(scanner.error, None, "scan failed");
         if scanner.sweeps >= 1 {
@@ -775,7 +839,7 @@ async fn stopping_mid_sweep_hands_the_radio_back() {
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
 
-    let stopped = engine.stop_scan(ds).unwrap();
+    let stopped = engine.stop_scan(ds, ch).unwrap();
     assert_eq!(stopped.state, ScanState::Scanning, "stopped mid-sweep");
     assert!(stopped.sweeps >= 1, "the pass counter must advance");
     let set = &engine.snapshot().device_sets[0];
@@ -817,7 +881,7 @@ async fn a_sweep_hands_back_a_working_channel() {
     let deadline = Instant::now() + Duration::from_secs(20);
     loop {
         let set = &engine.snapshot().device_sets[0];
-        let scanner = set.scanner.clone().expect("scan listed");
+        let scanner = set.scanners.first().cloned().expect("scan listed");
         assert_eq!(scanner.error, None, "scan failed");
         if scanner.state == ScanState::Holding {
             let parked_hz = set.channels[0].settings.frequency_hz;
@@ -831,7 +895,7 @@ async fn a_sweep_hands_back_a_working_channel() {
         assert!(Instant::now() < deadline, "never held");
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
-    engine.stop_scan(ds).unwrap();
+    engine.stop_scan(ds, channel).unwrap();
     assert_eq!(
         engine.snapshot().device_sets[0].channels.len(),
         1,

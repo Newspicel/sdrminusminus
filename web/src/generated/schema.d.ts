@@ -676,6 +676,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/devicesets/{ds}/channels/{ch}/hunt": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["hunt_channel"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/devicesets/{ds}/channels/{ch}/network-export": {
         parameters: {
             query?: never;
@@ -708,6 +724,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/devicesets/{ds}/channels/{ch}/scanner": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["scan_channel"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/devicesets/{ds}/device": {
         parameters: {
             query?: never;
@@ -722,22 +754,6 @@ export interface paths {
         options?: never;
         head?: never;
         patch: operations["patch_device"];
-        trace?: never;
-    };
-    "/api/devicesets/{ds}/hunt": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post: operations["hunt_device_set"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
         trace?: never;
     };
     "/api/devicesets/{ds}/network-export": {
@@ -782,22 +798,6 @@ export interface paths {
         get?: never;
         put?: never;
         post: operations["record_device_set"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/devicesets/{ds}/scanner": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post: operations["scan_device_set"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3168,7 +3168,8 @@ export interface components {
             device: components["schemas"]["DeviceInfo"];
             error?: string | null;
             fault?: null | components["schemas"]["DeviceFault"];
-            hunt?: null | components["schemas"]["HuntStatus"];
+            /** @description One hunt per decoder that is being hunted. */
+            hunts?: components["schemas"]["HuntStatus"][];
             /** Format: int32 */
             id: number;
             network_export?: null | components["schemas"]["NetworkExportStatus"];
@@ -3176,7 +3177,8 @@ export interface components {
             overruns?: number;
             playback?: null | components["schemas"]["PlaybackStatus"];
             recording?: null | components["schemas"]["RecordingStatus"];
-            scanner?: null | components["schemas"]["ScannerStatus"];
+            /** @description One scan per decoder that is being driven. */
+            scanners?: components["schemas"]["ScannerStatus"][];
             settings: components["schemas"]["DeviceSettings"];
             status: components["schemas"]["DeviceSetStatus"];
             time_machine?: null | components["schemas"]["TimeMachineStatus"];
@@ -7621,6 +7623,62 @@ export interface operations {
             };
         };
     };
+    hunt_channel: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The decoder being hunted */
+                ch: number;
+                /** @description Device set id */
+                ds: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["HuntRequest"];
+            };
+        };
+        responses: {
+            /** @description Hunt status: the initial state after `start`, the final state after `stop`. Readings arrive as the `HuntUpdate` WS event */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HuntStatus"];
+                };
+            };
+            /** @description Set not running, scanning, already hunting, or not hunting */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Device set or decoder not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Malformed request body */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
     network_export_channel: {
         parameters: {
             query?: never;
@@ -7733,6 +7791,62 @@ export interface operations {
             };
         };
     };
+    scan_channel: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The decoder the scan drives */
+                ch: number;
+                /** @description Device set id */
+                ds: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ScanRequest"];
+            };
+        };
+        responses: {
+            /** @description Scanner status: the initial state after `start`, the final state after `stop`, the state after `skip` lets go of a held frequency. Live progress arrives as the `ScannerUpdate` WS event, not as one state change per step */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScannerStatus"];
+                };
+            };
+            /** @description Unusable scan settings, set not running, decoder already scanning or hunted, not scanning, or nothing held to skip */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Device set or decoder not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Malformed request body */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
     patch_device: {
         parameters: {
             query?: never;
@@ -7766,60 +7880,6 @@ export interface operations {
                 };
             };
             /** @description Device set not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiError"];
-                };
-            };
-            /** @description Malformed request body */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiError"];
-                };
-            };
-        };
-    };
-    hunt_device_set: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description Device set id */
-                ds: number;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["HuntRequest"];
-            };
-        };
-        responses: {
-            /** @description Hunt status: the initial state after `start`, the final state after `stop`. Readings arrive as the `HuntUpdate` WS event */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HuntStatus"];
-                };
-            };
-            /** @description Set not running, scanning, already hunting, or not hunting */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiError"];
-                };
-            };
-            /** @description Device set or decoder not found */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -7973,60 +8033,6 @@ export interface operations {
                 };
             };
             /** @description Device set not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiError"];
-                };
-            };
-            /** @description Malformed request body */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiError"];
-                };
-            };
-        };
-    };
-    scan_device_set: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description Device set id */
-                ds: number;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ScanRequest"];
-            };
-        };
-        responses: {
-            /** @description Scanner status: the initial state after `start`, the final state after `stop`, the state after `skip` lets go of a held frequency. Live progress arrives as the `ScannerUpdate` WS event, not as one state change per step */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ScannerStatus"];
-                };
-            };
-            /** @description Unusable scan settings, set not running, already scanning, not scanning, or nothing held to skip */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiError"];
-                };
-            };
-            /** @description Device set or decoder not found */
             404: {
                 headers: {
                     [name: string]: unknown;

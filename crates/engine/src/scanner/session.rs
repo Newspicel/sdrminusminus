@@ -5,15 +5,15 @@ use sdrmm_wire::{ChannelSettings, ScanSettings, ScannerStatus, ServerEvent, Stat
 use super::{ScanPlan, spawn};
 use crate::{DeviceSetState, DeviceSetStatus, Engine, EngineError};
 
-fn admits_a_scan(state: &DeviceSetState, ds: u32) -> Result<(), EngineError> {
-    if state.scanner.is_some() {
+fn admits_a_scan(state: &DeviceSetState, ds: u32, channel: u32) -> Result<(), EngineError> {
+    if state.scanners.contains_key(&channel) {
         return Err(EngineError::Scan(format!(
-            "device set {ds} is already scanning"
+            "decoder {channel} is already scanning"
         )));
     }
-    if state.hunt.is_some() {
+    if state.hunts.contains_key(&channel) {
         return Err(EngineError::Scan(format!(
-            "device set {ds} is hunting; a sweep would carry the radio off the decoder"
+            "decoder {channel} is being hunted; a sweep would carry it off its frequency"
         )));
     }
     if state.status != DeviceSetStatus::Running {
@@ -38,12 +38,12 @@ fn admit(
         .device_sets
         .get(&ds)
         .ok_or(EngineError::DeviceSetNotFound(ds))?;
-    admits_a_scan(state, ds)?;
     let decoder = state
         .channels
         .iter()
         .find(|c| c.id == settings.channel)
         .ok_or(EngineError::ChannelNotFound(settings.channel, ds))?;
+    admits_a_scan(state, ds, settings.channel)?;
     settings.measure_bw_hz = Some(
         settings
             .measure_bw_hz
@@ -70,14 +70,14 @@ pub(crate) fn start(
             worker.stop_and_join();
             return Err(EngineError::DeviceSetNotFound(ds));
         };
-        if state.scanner.is_some() {
+        if state.scanners.contains_key(&decoder) {
             drop(inner);
             worker.stop_and_join();
             return Err(EngineError::Scan(format!(
-                "device set {ds} is already scanning"
+                "decoder {decoder} is already scanning"
             )));
         }
-        state.scanner = Some(worker);
+        state.scanners.insert(decoder, worker);
         inner.revision += 1;
     }
     engine.emit(ServerEvent::StateChanged {
@@ -86,7 +86,7 @@ pub(crate) fn start(
     Ok(status)
 }
 
-pub(crate) fn stop(engine: &Engine, ds: u32) -> Result<ScannerStatus, EngineError> {
+pub(crate) fn stop(engine: &Engine, ds: u32, channel: u32) -> Result<ScannerStatus, EngineError> {
     let worker = {
         let mut inner = engine.lock();
         let state = inner
@@ -94,9 +94,9 @@ pub(crate) fn stop(engine: &Engine, ds: u32) -> Result<ScannerStatus, EngineErro
             .get_mut(&ds)
             .ok_or(EngineError::DeviceSetNotFound(ds))?;
         let worker = state
-            .scanner
-            .take()
-            .ok_or_else(|| EngineError::Scan("no scan is running".to_string()))?;
+            .scanners
+            .remove(&channel)
+            .ok_or_else(|| EngineError::Scan(format!("decoder {channel} is not scanning")))?;
         inner.revision += 1;
         worker
     };
@@ -108,15 +108,15 @@ pub(crate) fn stop(engine: &Engine, ds: u32) -> Result<ScannerStatus, EngineErro
     Ok(status)
 }
 
-pub(crate) fn skip(engine: &Engine, ds: u32) -> Result<ScannerStatus, EngineError> {
+pub(crate) fn skip(engine: &Engine, ds: u32, channel: u32) -> Result<ScannerStatus, EngineError> {
     let inner = engine.lock();
     let state = inner
         .device_sets
         .get(&ds)
         .ok_or(EngineError::DeviceSetNotFound(ds))?;
     let worker = state
-        .scanner
-        .as_ref()
-        .ok_or_else(|| EngineError::Scan("no scan is running".to_string()))?;
+        .scanners
+        .get(&channel)
+        .ok_or_else(|| EngineError::Scan(format!("decoder {channel} is not scanning")))?;
     worker.skip()
 }

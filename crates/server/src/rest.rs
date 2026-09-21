@@ -22,17 +22,18 @@ use sdrmm_wire::{
     CreateChannelRequest, CreateDeviceSetRequest, CreatePresetRequest, CreateWorkspaceRequest,
     CreatedId, CreatedRowId, DecoderLogEntry, DecoderLogQuery, DecoderLogResponse, DeletedCount,
     DeviceInfo, DeviceSettings, DevicesResponse, DfFusionState, DiagnosticsReport, DoctorReport,
-    ErrorCode, ExportFormat, HuntAction, HuntRequest, HuntStatus, IonosondeReport,
+    ErrorCode, ExportFormat, HuntAction, HuntRequest, HuntSettings, HuntStatus, IonosondeReport,
     LicenseTextResponse, LocateQuery, MAX_RECORDING_UPLOAD_BYTES, NetworkExportAction,
     NetworkExportRequest, NetworkExportStatus, NmeaDevicesResponse, NodeBody, OccupancyReport,
     PRESET_SNAPSHOT_VERSION, PatchApplyReport, PatchBinding, PatchCatalog, PatchGraph,
     PatchRefusal, PlaybackRequest, PlaybackStatus, PresetDevice, PresetInfo, PresetSnapshot,
     RecordAction, RecordRequest, RecordingAnnotation, RecordingDownloadQuery, RecordingFormat,
     RecordingInfo, RecordingStatus, RecordingUpload, RecordingsResponse, Route, RouteRequest,
-    ScanAction, ScanRequest, ScannerStatus, ServerEvent, StateScope, StateSnapshot, TemplateInfo,
-    TemplatesResponse, TimeMachineAction, TimeMachineRequest, TimeMachineStatus, ToolRequest,
-    ToolResponse, ToolsResponse, UpdateWorkspaceRequest, VoiceCallsResponse, WorkspaceDetail,
-    WorkspaceExport, WorkspaceInfo, WorkspaceSnapshot, WorkspaceState, WorkspacesResponse,
+    ScanAction, ScanRequest, ScanSettings, ScannerStatus, ServerEvent, StateScope, StateSnapshot,
+    TemplateInfo, TemplatesResponse, TimeMachineAction, TimeMachineRequest, TimeMachineStatus,
+    ToolRequest, ToolResponse, ToolsResponse, UpdateWorkspaceRequest, VoiceCallsResponse,
+    WorkspaceDetail, WorkspaceExport, WorkspaceInfo, WorkspaceSnapshot, WorkspaceState,
+    WorkspacesResponse,
 };
 use utoipa::OpenApi;
 use utoipa_axum::{router::OpenApiRouter, routes};
@@ -381,8 +382,8 @@ pub(crate) fn openapi_router() -> OpenApiRouter<AppState> {
         .routes(routes!(download_recording))
         .routes(routes!(list_decoder_log, clear_decoder_log))
         .routes(routes!(export_decoder_log))
-        .routes(routes!(scan_device_set))
-        .routes(routes!(hunt_device_set))
+        .routes(routes!(scan_channel))
+        .routes(routes!(hunt_channel))
         .routes(routes!(list_templates))
         .routes(routes!(apply_template))
         .routes(routes!(list_workspaces, create_workspace))

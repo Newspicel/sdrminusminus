@@ -21,7 +21,7 @@ async fn scanner_start_stop_and_error_mapping_over_http() {
     let (status, body) = request(
         app.clone(),
         "POST",
-        &format!("/api/devicesets/{ds}/scanner"),
+        &format!("/api/devicesets/{ds}/channels/{ch}/scanner"),
         Some(r#"{"action":"start"}"#),
     )
     .await;
@@ -31,7 +31,7 @@ async fn scanner_start_stop_and_error_mapping_over_http() {
     let (status, _) = request(
         app.clone(),
         "POST",
-        &format!("/api/devicesets/{ds}/scanner"),
+        &format!("/api/devicesets/{ds}/channels/{ch}/scanner"),
         Some(r#"{"action":"stop"}"#),
     )
     .await;
@@ -40,7 +40,7 @@ async fn scanner_start_stop_and_error_mapping_over_http() {
     let (status, _) = request(
         app.clone(),
         "POST",
-        &format!("/api/devicesets/{ds}/scanner"),
+        &format!("/api/devicesets/{ds}/channels/{ch}/scanner"),
         Some(r#"{"action":"skip"}"#),
     )
     .await;
@@ -53,7 +53,7 @@ async fn scanner_start_stop_and_error_mapping_over_http() {
     let (status, body) = request(
         app.clone(),
         "POST",
-        &format!("/api/devicesets/{ds}/scanner"),
+        &format!("/api/devicesets/{ds}/channels/99/scanner"),
         Some(r#"{"action":"start","settings":{"channel":99,"frequencies":[100000000.0]}}"#),
     )
     .await;
@@ -70,7 +70,7 @@ async fn scanner_start_stop_and_error_mapping_over_http() {
     let (status, body) = request(
         app.clone(),
         "POST",
-        &format!("/api/devicesets/{ds}/scanner"),
+        &format!("/api/devicesets/{ds}/channels/{ch}/scanner"),
         Some(&start),
     )
     .await;
@@ -82,12 +82,14 @@ async fn scanner_start_stop_and_error_mapping_over_http() {
         status_body.settings.measure_bw_hz.is_some(),
         "the decoder's bandwidth is reported as the one measured"
     );
-    assert!(get_state(&app).await.device_sets[0].scanner.is_some());
+    let listed = get_state(&app).await.device_sets[0].scanners.clone();
+    assert_eq!(listed.len(), 1);
+    assert_eq!(listed[0].settings.channel, ch);
 
     let (status, _) = request(
         app.clone(),
         "POST",
-        &format!("/api/devicesets/{ds}/scanner"),
+        &format!("/api/devicesets/{ds}/channels/{ch}/scanner"),
         Some(r#"{"action":"skip"}"#),
     )
     .await;
@@ -110,17 +112,17 @@ async fn scanner_start_stop_and_error_mapping_over_http() {
     let (status, _) = request(
         app.clone(),
         "POST",
-        &format!("/api/devicesets/{ds}/scanner"),
+        &format!("/api/devicesets/{ds}/channels/{ch}/scanner"),
         Some(r#"{"action":"stop"}"#),
     )
     .await;
     assert_eq!(status, StatusCode::OK);
-    assert!(get_state(&app).await.device_sets[0].scanner.is_none());
+    assert!(get_state(&app).await.device_sets[0].scanners.is_empty());
 
     let (status, _) = request(
         app,
         "POST",
-        "/api/devicesets/999/scanner",
+        &format!("/api/devicesets/999/channels/{ch}/scanner"),
         Some(r#"{"action":"stop"}"#),
     )
     .await;
@@ -136,7 +138,7 @@ async fn hunt_start_stop_and_error_mapping_over_http() {
     let (status, body) = request(
         app.clone(),
         "POST",
-        &format!("/api/devicesets/{ds}/hunt"),
+        &format!("/api/devicesets/{ds}/channels/{ch}/hunt"),
         Some(r#"{"action":"start"}"#),
     )
     .await;
@@ -146,7 +148,7 @@ async fn hunt_start_stop_and_error_mapping_over_http() {
     let (status, _) = request(
         app.clone(),
         "POST",
-        &format!("/api/devicesets/{ds}/hunt"),
+        &format!("/api/devicesets/{ds}/channels/{ch}/hunt"),
         Some(r#"{"action":"stop"}"#),
     )
     .await;
@@ -155,7 +157,7 @@ async fn hunt_start_stop_and_error_mapping_over_http() {
     let (status, _) = request(
         app.clone(),
         "POST",
-        &format!("/api/devicesets/{ds}/hunt"),
+        &format!("/api/devicesets/{ds}/channels/99/hunt"),
         Some(r#"{"action":"start","settings":{"channel":99}}"#),
     )
     .await;
@@ -168,7 +170,7 @@ async fn hunt_start_stop_and_error_mapping_over_http() {
     let (status, body) = request(
         app.clone(),
         "POST",
-        &format!("/api/devicesets/{ds}/hunt"),
+        &format!("/api/devicesets/{ds}/channels/{ch}/hunt"),
         Some(&format!(
             r#"{{"action":"start","settings":{{"channel":{ch}}}}}"#
         )),
@@ -178,7 +180,7 @@ async fn hunt_start_stop_and_error_mapping_over_http() {
     let hunt: sdrmm_wire::HuntStatus = serde_json::from_slice(&body).expect("json");
     assert_eq!(hunt.settings.channel, ch);
     assert_eq!(hunt.freq_hz, 100_100_000.0, "the hunt reads the decoder");
-    assert!(get_state(&app).await.device_sets[0].hunt.is_some());
+    assert_eq!(get_state(&app).await.device_sets[0].hunts.len(), 1);
 
     let (status, _) = request(
         app.clone(),
@@ -196,12 +198,12 @@ async fn hunt_start_stop_and_error_mapping_over_http() {
     let (status, _) = request(
         app.clone(),
         "POST",
-        &format!("/api/devicesets/{ds}/hunt"),
+        &format!("/api/devicesets/{ds}/channels/{ch}/hunt"),
         Some(r#"{"action":"stop"}"#),
     )
     .await;
     assert_eq!(status, StatusCode::OK);
-    assert!(get_state(&app).await.device_sets[0].hunt.is_none());
+    assert!(get_state(&app).await.device_sets[0].hunts.is_empty());
 
     let (status, _) = request(
         app,

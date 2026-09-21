@@ -2235,6 +2235,87 @@
         }
       }
     },
+    "/api/devicesets/{ds}/channels/{ch}/hunt": {
+      "post": {
+        "operationId": "hunt_channel",
+        "parameters": [
+          {
+            "name": "ds",
+            "in": "path",
+            "description": "Device set id",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "ch",
+            "in": "path",
+            "description": "The decoder being hunted",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HuntRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Hunt status: the initial state after `start`, the final state after `stop`. Readings arrive as the `HuntUpdate` WS event",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HuntStatus"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Set not running, scanning, already hunting, or not hunting",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Device set or decoder not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Malformed request body",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/devicesets/{ds}/channels/{ch}/network-export": {
       "post": {
         "operationId": "network_export_channel",
@@ -2397,6 +2478,87 @@
         }
       }
     },
+    "/api/devicesets/{ds}/channels/{ch}/scanner": {
+      "post": {
+        "operationId": "scan_channel",
+        "parameters": [
+          {
+            "name": "ds",
+            "in": "path",
+            "description": "Device set id",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "ch",
+            "in": "path",
+            "description": "The decoder the scan drives",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScanRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Scanner status: the initial state after `start`, the final state after `stop`, the state after `skip` lets go of a held frequency. Live progress arrives as the `ScannerUpdate` WS event, not as one state change per step",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScannerStatus"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Unusable scan settings, set not running, decoder already scanning or hunted, not scanning, or nothing held to skip",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Device set or decoder not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Malformed request body",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/devicesets/{ds}/device": {
       "patch": {
         "operationId": "patch_device",
@@ -2439,76 +2601,6 @@
           },
           "404": {
             "description": "Device set not found",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Malformed request body",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/devicesets/{ds}/hunt": {
-      "post": {
-        "operationId": "hunt_device_set",
-        "parameters": [
-          {
-            "name": "ds",
-            "in": "path",
-            "description": "Device set id",
-            "required": true,
-            "schema": {
-              "type": "integer",
-              "format": "int32",
-              "minimum": 0
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/HuntRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Hunt status: the initial state after `start`, the final state after `stop`. Readings arrive as the `HuntUpdate` WS event",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HuntStatus"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Set not running, scanning, already hunting, or not hunting",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Device set or decoder not found",
             "content": {
               "application/json": {
                 "schema": {
@@ -2709,76 +2801,6 @@
           },
           "404": {
             "description": "Device set not found",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Malformed request body",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/devicesets/{ds}/scanner": {
-      "post": {
-        "operationId": "scan_device_set",
-        "parameters": [
-          {
-            "name": "ds",
-            "in": "path",
-            "description": "Device set id",
-            "required": true,
-            "schema": {
-              "type": "integer",
-              "format": "int32",
-              "minimum": 0
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ScanRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Scanner status: the initial state after `start`, the final state after `stop`, the state after `skip` lets go of a held frequency. Live progress arrives as the `ScannerUpdate` WS event, not as one state change per step",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ScannerStatus"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Unusable scan settings, set not running, already scanning, not scanning, or nothing held to skip",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Device set or decoder not found",
             "content": {
               "application/json": {
                 "schema": {
@@ -11271,15 +11293,12 @@
               }
             ]
           },
-          "hunt": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/HuntStatus"
-              }
-            ]
+          "hunts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/HuntStatus"
+            },
+            "description": "One hunt per decoder that is being hunted."
           },
           "id": {
             "type": "integer",
@@ -11321,15 +11340,12 @@
               }
             ]
           },
-          "scanner": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/ScannerStatus"
-              }
-            ]
+          "scanners": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ScannerStatus"
+            },
+            "description": "One scan per decoder that is being driven."
           },
           "settings": {
             "$ref": "#/components/schemas/DeviceSettings"

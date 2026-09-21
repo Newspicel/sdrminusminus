@@ -196,12 +196,12 @@ impl Engine {
         scanner::session::start(self, ds, settings)
     }
 
-    pub fn stop_scan(&self, ds: u32) -> Result<ScannerStatus, EngineError> {
-        scanner::session::stop(self, ds)
+    pub fn stop_scan(&self, ds: u32, channel: u32) -> Result<ScannerStatus, EngineError> {
+        scanner::session::stop(self, ds, channel)
     }
 
-    pub fn skip_scan(&self, ds: u32) -> Result<ScannerStatus, EngineError> {
-        scanner::session::skip(self, ds)
+    pub fn skip_scan(&self, ds: u32, channel: u32) -> Result<ScannerStatus, EngineError> {
+        scanner::session::skip(self, ds, channel)
     }
 
     /// Parks the radio on one frequency and streams how strong it is, fast enough to walk with.
@@ -215,8 +215,8 @@ impl Engine {
         hunt::start(self, ds, settings)
     }
 
-    pub fn stop_hunt(&self, ds: u32) -> Result<HuntStatus, EngineError> {
-        hunt::stop(self, ds)
+    pub fn stop_hunt(&self, ds: u32, channel: u32) -> Result<HuntStatus, EngineError> {
+        hunt::stop(self, ds, channel)
     }
 
     pub fn control_playback(

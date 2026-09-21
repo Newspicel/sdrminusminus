@@ -105,15 +105,16 @@ function deviceSet(overrides: Partial<DeviceSet> = {}): DeviceSet {
 
 describe("liveStatus", () => {
   it("prefers the pushed update but falls back to the snapshot", () => {
-    const set = deviceSet({ scanner: STATUS });
-    expect(liveStatus(set, undefined)).toBe(STATUS);
+    const set = deviceSet({ scanners: [STATUS] });
+    expect(liveStatus(set, 1, undefined)).toBe(STATUS);
     const pushed = { ...STATUS, current_hz: 146_000_000 };
-    expect(liveStatus(set, pushed)).toBe(pushed);
+    expect(liveStatus(set, 1, pushed)).toBe(pushed);
   });
 
-  it("reports nothing when the snapshot has no scan", () => {
-    expect(liveStatus(deviceSet(), STATUS)).toBeNull();
-    expect(liveStatus(null, STATUS)).toBeNull();
+  it("reports nothing when the decoder is not scanning", () => {
+    expect(liveStatus(deviceSet({ scanners: [STATUS] }), 2, STATUS)).toBeNull();
+    expect(liveStatus(deviceSet(), 1, STATUS)).toBeNull();
+    expect(liveStatus(null, 1, STATUS)).toBeNull();
   });
 });
 

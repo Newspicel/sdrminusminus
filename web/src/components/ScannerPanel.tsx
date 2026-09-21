@@ -3,7 +3,7 @@ import { X } from "lucide-react";
 import { useState } from "react";
 import { FaceBody, FaceFooter } from "../canvas/nodes/NodeShell";
 import { STATE_KEY, skipScan, startScan, stopScan } from "../lib/api";
-import { useScannerStore } from "../lib/scanner";
+import { decoderKey, useScannerStore } from "../lib/scanner";
 import { pushToast } from "../lib/toasts";
 import type { ChannelInfo, DeviceSet, ScanMode } from "../lib/types";
 import { Button } from "./BaseControls";
@@ -39,7 +39,9 @@ export function ScannerPanel({
   hint: string;
 }) {
   const queryClient = useQueryClient();
-  const pushed = useScannerStore((s) => (active ? s.byDeviceSet[active.id] : undefined));
+  const pushed = useScannerStore((s) =>
+    active && channel ? s.byDecoder[decoderKey(active.id, channel.id)] : undefined,
+  );
   const clearLive = useScannerStore((s) => s.clear);
   const [ranges, setRanges] = useState<RangeInput[]>(() => [newRange()]);
   const [mode, setMode] = useState<ScanMode>("targets");
@@ -47,7 +49,7 @@ export function ScannerPanel({
   const [marginDb, setMarginDb] = useState(DEFAULT_MARGIN_DB);
   const [hardwareSweep, setHardwareSweep] = useState(true);
 
-  const status = liveStatus(active, pushed);
+  const status = liveStatus(active, channel?.id ?? null, pushed);
   const invalidate = (): void => void queryClient.invalidateQueries({ queryKey: STATE_KEY });
 
   const startMut = useMutation({
@@ -67,7 +69,7 @@ export function ScannerPanel({
         resume_ms: 1500,
         hardware_sweep: hardwareSweep,
       };
-      return startScan(target.deviceSet, settings);
+      return startScan(target, settings);
     },
     onError: (e) => pushToast(e.message),
     onSettled: invalidate,
@@ -75,8 +77,8 @@ export function ScannerPanel({
 
   const stopMut = useMutation({
     mutationFn: stopScan,
-    onSuccess: (_status, deviceSet) => {
-      clearLive(deviceSet);
+    onSuccess: (_status, decoder) => {
+      clearLive(decoder.deviceSet, decoder.channel);
     },
     onError: (e) => pushToast(e.message),
     onSettled: invalidate,
@@ -257,14 +259,14 @@ export function ScannerPanel({
       </FaceBody>
 
       <FaceFooter>
-        {status !== null && active !== null ? (
+        {status !== null && active !== null && channel !== null ? (
           <>
             <Button
               type="button"
               className={BTN}
               disabled={busy || !holding}
               title="Leave this frequency and never hold on it again this scan"
-              onClick={() => skipMut.mutate(active.id)}
+              onClick={() => skipMut.mutate({ deviceSet: active.id, channel: channel.id })}
             >
               Skip
             </Button>
@@ -272,7 +274,7 @@ export function ScannerPanel({
               type="button"
               className={BTN_DANGER}
               disabled={busy}
-              onClick={() => stopMut.mutate(active.id)}
+              onClick={() => stopMut.mutate({ deviceSet: active.id, channel: channel.id })}
             >
               Stop scan
             </Button>

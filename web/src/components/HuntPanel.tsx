@@ -3,7 +3,7 @@ import { useEffect, useRef } from "react";
 import { FaceBody, FaceFooter } from "../canvas/nodes/NodeShell";
 import { STATE_KEY, startHunt, stopHunt } from "../lib/api";
 import { type Clicker, startClicker } from "../lib/geiger";
-import { useHuntStore } from "../lib/hunt";
+import { decoderKey, useHuntStore } from "../lib/hunt";
 import { pushToast } from "../lib/toasts";
 import { Button } from "./BaseControls";
 import { Checkbox } from "./Checkbox";
@@ -36,10 +36,12 @@ export function HuntPanel({
 }) {
   const queryClient = useQueryClient();
   const set = target?.set ?? null;
-  const pushed = useHuntStore((s) => (set ? s.byDeviceSet[set.id] : undefined));
+  const pushed = useHuntStore((s) =>
+    target ? s.byDecoder[decoderKey(target.set.id, target.channel.id)] : undefined,
+  );
   const clearLive = useHuntStore((s) => s.clear);
 
-  const status = liveHunt(set, pushed);
+  const status = liveHunt(set, target?.channel.id ?? null, pushed);
   const strength = status?.strength ?? 0;
   const running = status !== null;
   const clicker = useRef<Clicker | null>(null);
@@ -65,14 +67,17 @@ export function HuntPanel({
 
   const startMut = useMutation({
     mutationFn: async (hunted: HuntTarget) =>
-      startHunt(hunted.set.id, { channel: hunted.channel.id, interval_ms: HUNT_INTERVAL_MS }),
+      startHunt(
+        { deviceSet: hunted.set.id, channel: hunted.channel.id },
+        { channel: hunted.channel.id, interval_ms: HUNT_INTERVAL_MS },
+      ),
     onError: (e) => pushToast(e.message),
     onSettled: invalidate,
   });
 
   const stopMut = useMutation({
     mutationFn: stopHunt,
-    onSuccess: (_status, deviceSet) => clearLive(deviceSet),
+    onSuccess: (_status, decoder) => clearLive(decoder.deviceSet, decoder.channel),
     onError: (e) => pushToast(e.message),
     onSettled: invalidate,
   });
@@ -155,12 +160,12 @@ export function HuntPanel({
       </FaceBody>
 
       <FaceFooter>
-        {status !== null && set !== null ? (
+        {status !== null && target !== null ? (
           <Button
             type="button"
             className={BTN_DANGER}
             disabled={busy}
-            onClick={() => stopMut.mutate(set.id)}
+            onClick={() => stopMut.mutate({ deviceSet: target.set.id, channel: target.channel.id })}
           >
             Stop hunt
           </Button>

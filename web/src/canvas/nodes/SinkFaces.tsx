@@ -25,6 +25,7 @@ import {
 } from "../../components/recordings";
 import { ScannerPanel } from "../../components/ScannerPanel";
 import { Slider } from "../../components/Slider";
+import { scanning as isScanning } from "../../components/scanner";
 import { VideoView } from "../../components/VideoView";
 import {
   callAudioUrl,
@@ -727,7 +728,9 @@ export function HuntFace({ node }: { node: PatchNode }) {
 function HuntNodeFace({ node }: { node: PatchNodeOf<"hunt"> }) {
   const workspace = useWorkspaceContext();
   const decoder = decoderOf(workspace, node.id);
-  const hunting = decoder?.set.hunt != null;
+  const hunting =
+    decoder !== null &&
+    (decoder.set.hunts?.some((hunt) => hunt.settings.channel === decoder.channel.id) ?? false);
   const remember = (data: Partial<PatchNodeOf<"hunt">["data"]>): void => {
     workspace.edit((snapshot) => ({
       ...snapshot,
@@ -757,13 +760,13 @@ export function ScannerFace({ node }: { node: PatchNode }) {
   const workspace = useWorkspaceContext();
   const decoder = decoderOf(workspace, node.id);
   const set = decoder?.set ?? null;
-  const scanning = set?.scanner != null;
+  const scanning = decoder !== null && isScanning(set, decoder.channel.id);
   return (
     <NodeShell
       node={node}
       title="Scanner"
       category="tool"
-      subtitle={scanning ? "owns this radio" : undefined}
+      subtitle={scanning ? "scanning" : undefined}
     >
       <ScannerPanel
         active={set}

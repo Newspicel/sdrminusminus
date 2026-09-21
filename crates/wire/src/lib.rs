@@ -849,8 +849,8 @@ mod contract_tests {
             recording: None,
             network_export: None,
             time_machine: None,
-            scanner: None,
-            hunt: None,
+            scanners: Vec::new(),
+            hunts: Vec::new(),
             playback: None,
         }
     }
@@ -1092,12 +1092,12 @@ mod contract_tests {
     }
 
     #[test]
-    fn device_set_scanner_default_and_roundtrip() {
+    fn device_set_scanners_default_and_roundtrip() {
         let mut set = sample_device_set();
         let json = serde_json::to_value(&set).unwrap();
-        assert!(json.get("scanner").is_none());
+        assert!(json.get("scanners").is_none());
 
-        set.scanner = Some(scan::ScannerStatus {
+        set.scanners = vec![scan::ScannerStatus {
             state: scan::ScanState::Holding,
             settings: scan::ScanSettings {
                 ranges: vec![scan::ScanRange {
@@ -1116,18 +1116,18 @@ mod contract_tests {
             hits: 9,
             hardware_sweep: false,
             error: None,
-        });
+        }];
         let mut json = serde_json::to_value(&set).unwrap();
-        assert_eq!(json["scanner"]["state"], "holding");
-        assert_eq!(json["scanner"]["current_hz"], 145_500_000.0);
-        assert_eq!(json["scanner"]["settings"]["channel"], 2);
-        assert!(json["scanner"].get("error").is_none());
+        assert_eq!(json["scanners"][0]["state"], "holding");
+        assert_eq!(json["scanners"][0]["current_hz"], 145_500_000.0);
+        assert_eq!(json["scanners"][0]["settings"]["channel"], 2);
+        assert!(json["scanners"][0].get("error").is_none());
         let back: DeviceSet = serde_json::from_value(json.clone()).unwrap();
         assert_eq!(back, set);
 
-        json.as_object_mut().unwrap().remove("scanner");
+        json.as_object_mut().unwrap().remove("scanners");
         let back: DeviceSet = serde_json::from_value(json).unwrap();
-        assert_eq!(back.scanner, None);
+        assert!(back.scanners.is_empty());
     }
 
     #[test]

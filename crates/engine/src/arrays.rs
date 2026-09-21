@@ -41,8 +41,8 @@ impl Engine {
                         ))
                     })?;
                 if state.status != DeviceSetStatus::Running
-                    || state.scanner.is_some()
-                    || state.hunt.is_some()
+                    || !state.scanners.is_empty()
+                    || !state.hunts.is_empty()
                 {
                     return Err(DeviceError::Unsupported(format!(
                         "array member {member} is not continuously receiving"

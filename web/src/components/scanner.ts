@@ -48,12 +48,18 @@ export function targetCount(ranges: readonly ScanRange[]): number {
 
 export function liveStatus(
   set: DeviceSet | null,
+  channel: number | null,
   pushed: ScannerStatus | undefined,
 ): ScannerStatus | null {
-  if (!set?.scanner) {
+  const listed = set?.scanners?.find((scanner) => scanner.settings.channel === channel);
+  if (listed === undefined) {
     return null;
   }
-  return pushed ?? set.scanner;
+  return pushed ?? listed;
+}
+
+export function scanning(set: DeviceSet | null, channel: number | null): boolean {
+  return set?.scanners?.some((scanner) => scanner.settings.channel === channel) ?? false;
 }
 
 export function sweepKind(set: DeviceSet | null, status: ScannerStatus | null): string {

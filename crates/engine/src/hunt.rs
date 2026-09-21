@@ -58,6 +58,7 @@ pub(crate) fn start(
     settings: HuntSettings,
 ) -> Result<HuntStatus, EngineError> {
     let decoder = admits_a_hunt(engine, ds, &settings)?;
+    let settings_channel = settings.channel;
     let hunt = spawn(engine, ds, settings, decoder)?;
     let status = hunt.status();
     {
@@ -67,12 +68,14 @@ pub(crate) fn start(
             hunt.stop_and_join();
             return Err(EngineError::DeviceSetNotFound(ds));
         };
-        if state.hunt.is_some() {
+        if state.hunts.contains_key(&settings_channel) {
             drop(inner);
             hunt.stop_and_join();
-            return Err(EngineError::Scan("a hunt is already running".to_string()));
+            return Err(EngineError::Scan(format!(
+                "decoder {settings_channel} is already being hunted"
+            )));
         }
-        state.hunt = Some(hunt);
+        state.hunts.insert(settings_channel, hunt);
         inner.revision += 1;
     }
     engine.emit(ServerEvent::StateChanged {
@@ -91,13 +94,17 @@ fn admits_a_hunt(
         .device_sets
         .get(&ds)
         .ok_or(EngineError::DeviceSetNotFound(ds))?;
-    if state.hunt.is_some() {
-        return Err(EngineError::Scan("a hunt is already running".to_string()));
+    if state.hunts.contains_key(&settings.channel) {
+        return Err(EngineError::Scan(format!(
+            "decoder {} is already being hunted",
+            settings.channel
+        )));
     }
-    if state.scanner.is_some() {
-        return Err(EngineError::Scan(
-            "this radio is scanning; a hunt needs the radio over its decoder".to_string(),
-        ));
+    if state.scanners.contains_key(&settings.channel) {
+        return Err(EngineError::Scan(format!(
+            "decoder {} is scanning; a hunt needs it held on one frequency",
+            settings.channel
+        )));
     }
     if state.status != DeviceSetStatus::Running {
         return Err(EngineError::Scan(
@@ -130,7 +137,7 @@ impl Decoder {
     }
 }
 
-pub(crate) fn stop(engine: &Engine, ds: u32) -> Result<HuntStatus, EngineError> {
+pub(crate) fn stop(engine: &Engine, ds: u32, channel: u32) -> Result<HuntStatus, EngineError> {
     let hunt = {
         let mut inner = engine.lock();
         let state = inner
@@ -138,9 +145,9 @@ pub(crate) fn stop(engine: &Engine, ds: u32) -> Result<HuntStatus, EngineError> 
             .get_mut(&ds)
             .ok_or(EngineError::DeviceSetNotFound(ds))?;
         let hunt = state
-            .hunt
-            .take()
-            .ok_or_else(|| EngineError::Scan("no hunt is running".to_string()))?;
+            .hunts
+            .remove(&channel)
+            .ok_or_else(|| EngineError::Scan(format!("decoder {channel} is not being hunted")))?;
         inner.revision += 1;
         hunt
     };

@@ -104,7 +104,7 @@ export function App() {
   );
 
   const devices = useMemo(() => bindDevices(graph, deviceSets), [graph, deviceSets]);
-  const carriers = useMemo(() => bindCarriers(graph, devices), [graph, devices]);
+  const carriers = useMemo(() => bindCarriers(graph, devices, trunks), [graph, devices, trunks]);
   const channels = useMemo(() => channelsOf(carriers), [carriers]);
   const owners = useMemo(() => ownersOf(carriers), [carriers]);
 

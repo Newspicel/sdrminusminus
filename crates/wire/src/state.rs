@@ -83,10 +83,12 @@ pub struct DeviceSet {
     pub network_export: Option<NetworkExportStatus>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub time_machine: Option<TimeMachineStatus>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub scanner: Option<ScannerStatus>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub hunt: Option<HuntStatus>,
+    /// One scan per decoder that is being driven.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub scanners: Vec<ScannerStatus>,
+    /// One hunt per decoder that is being hunted.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub hunts: Vec<HuntStatus>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub playback: Option<PlaybackStatus>,
 }

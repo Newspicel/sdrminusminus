@@ -1,16 +1,20 @@
 import { create } from "zustand";
 import type { ScannerStatus, ServerEvent } from "./types";
 
+export function decoderKey(deviceSet: number, channel: number): string {
+  return `${deviceSet}:${channel}`;
+}
+
 export const FLUSH_MS = 150;
 
 export interface ScannerState {
-  byDeviceSet: Readonly<Record<number, ScannerStatus>>;
+  byDecoder: Readonly<Record<string, ScannerStatus>>;
   observe: (event: ServerEvent) => void;
-  clear: (deviceSet: number) => void;
+  clear: (deviceSet: number, channel: number) => void;
   reset: () => void;
 }
 
-let pending: Record<number, ScannerStatus> | null = null;
+let pending: Record<string, ScannerStatus> | null = null;
 let timer: ReturnType<typeof setTimeout> | null = null;
 
 export const useScannerStore = create<ScannerState>((set) => {
@@ -21,30 +25,34 @@ export const useScannerStore = create<ScannerState>((set) => {
     if (staged === null) {
       return;
     }
-    set((state) => ({ byDeviceSet: { ...state.byDeviceSet, ...staged } }));
+    set((state) => ({ byDecoder: { ...state.byDecoder, ...staged } }));
   };
 
   return {
-    byDeviceSet: {},
+    byDecoder: {},
     observe: (event: ServerEvent) => {
       if (event.type !== "ScannerUpdate") {
         return;
       }
-      pending = { ...pending, [event.data.device_set]: event.data.status };
+      pending = {
+        ...pending,
+        [decoderKey(event.data.device_set, event.data.status.settings.channel)]: event.data.status,
+      };
       if (timer === null) {
         timer = setTimeout(flush, FLUSH_MS);
       }
     },
-    clear: (deviceSet: number) => {
+    clear: (deviceSet: number, channel: number) => {
+      const key = decoderKey(deviceSet, channel);
       if (pending !== null) {
-        delete pending[deviceSet];
+        delete pending[key];
       }
       set((state) => {
-        if (!(deviceSet in state.byDeviceSet)) {
+        if (!(key in state.byDecoder)) {
           return state;
         }
-        const { [deviceSet]: _dropped, ...rest } = state.byDeviceSet;
-        return { byDeviceSet: rest };
+        const { [key]: _dropped, ...rest } = state.byDecoder;
+        return { byDecoder: rest };
       });
     },
     reset: () => {
@@ -53,7 +61,7 @@ export const useScannerStore = create<ScannerState>((set) => {
         clearTimeout(timer);
         timer = null;
       }
-      set({ byDeviceSet: {} });
+      set({ byDecoder: {} });
     },
   };
 });

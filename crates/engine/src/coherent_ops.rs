@@ -402,7 +402,7 @@ impl Engine {
         if !state.capabilities.noise_source {
             return None;
         }
-        if state.scanner.is_some() || state.hunt.is_some() {
+        if !state.scanners.is_empty() || !state.hunts.is_empty() {
             return None;
         }
         let coherent = state.coherent.as_ref()?;

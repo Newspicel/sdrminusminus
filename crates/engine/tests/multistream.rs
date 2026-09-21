@@ -469,7 +469,7 @@ async fn a_scan_moves_its_decoder_and_only_that_lane_follows() {
         )
         .expect("a scan never owns a dial");
 
-    engine.stop_scan(ds).unwrap();
+    engine.stop_scan(ds, scanned).unwrap();
     engine.remove_device_set(ds).unwrap();
 }
 
@@ -498,7 +498,7 @@ async fn the_lane_a_scan_is_not_using_keeps_following_its_decoders() {
         !lane1.out_of_band,
         "lane 1 stopped following its decoder during a scan on lane 2"
     );
-    engine.stop_scan(ds).unwrap();
+    engine.stop_scan(ds, scanned).unwrap();
     engine.remove_device_set(ds).unwrap();
 }
 

@@ -198,6 +198,26 @@ describe("binding", () => {
     expect(channels.has("nfm")).toBe(false);
   });
 
+  it("never hands a node a channel a trunk system opened for itself", () => {
+    const live = set(1, rtl, [channel(8, "dmr")]);
+    const trunked: PatchGraph = {
+      nodes: [...graph().nodes, node("talk", { kind: "channel", data: { channel_type: "dmr" } })],
+      edges: [
+        ...(graph().edges ?? []),
+        { from: { node: "dev", port: "iq" }, to: { node: "talk", port: "iq" } },
+      ],
+    };
+    const devices = bindDevices(trunked, [live]);
+    expect(bindChannels(trunked, devices).get("talk")?.id).toBe(8);
+    const trunk = {
+      node: "sys",
+      carriers: 1,
+      followers: [{ device_set: 1, channel: 8, slot: 1, freq_hz: 451_000_000 }],
+      problems: [],
+    };
+    expect(bindChannels(trunked, devices, [trunk]).has("talk")).toBe(false);
+  });
+
   it("leaves a node unbound when the engine has no channel of its type yet", () => {
     const devices = bindDevices(graph(), [set(1, rtl, [channel(3, "am")])]);
     const channels = bindChannels(graph(), devices);

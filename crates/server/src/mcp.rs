@@ -460,9 +460,9 @@ impl SdrMcp {
     }
 
     #[tool(
-        description = "Sweep a device set across frequency ranges and park the named decoder on \
-                       anything above the threshold. While a scan runs it owns the device's \
-                       tuning.",
+        description = "Step the named decoder across frequency ranges and park it on anything \
+                       above the threshold. The radio follows the decoder through auto tuning \
+                       and is never tuned by the scan itself.",
         annotations(title = "Start scan")
     )]
     async fn start_scan(
@@ -499,18 +499,20 @@ impl SdrMcp {
     }
 
     #[tool(
-        description = "Stop a running scan, leaving the device where the scan left it.",
+        description = "Stop the scan driving the named decoder, leaving it where the scan left \
+                       it.",
         annotations(title = "Stop scan")
     )]
     async fn stop_scan(
         &self,
-        Parameters(req): Parameters<DeviceSetRef>,
+        Parameters(req): Parameters<ChannelRef>,
     ) -> Result<CallToolResult, ErrorData> {
         let engine = self.engine.clone();
-        let status = tokio::task::spawn_blocking(move || engine.stop_scan(req.device_set))
-            .await
-            .map_err(|e| ErrorData::internal_error(e.to_string(), None))?
-            .map_err(engine_error)?;
+        let status =
+            tokio::task::spawn_blocking(move || engine.stop_scan(req.device_set, req.channel))
+                .await
+                .map_err(|e| ErrorData::internal_error(e.to_string(), None))?
+                .map_err(engine_error)?;
         structured(&status)
     }
 

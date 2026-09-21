@@ -508,8 +508,8 @@ struct DeviceSetState {
     channel_exports: HashMap<u32, NetworkExportState>,
     network_export: Option<NetworkExportState>,
     time_machine: Option<TimeMachineState>,
-    scanner: Option<ScannerState>,
-    hunt: Option<HuntState>,
+    scanners: HashMap<u32, ScannerState>,
+    hunts: HashMap<u32, HuntState>,
     rate_patches: u32,
     cmd_txs: Vec<mpsc::Sender<DspCommand>>,
     overruns: Vec<Arc<AtomicU64>>,
@@ -579,10 +579,24 @@ impl DeviceSetState {
                 .time_machine
                 .as_ref()
                 .map(|history| history.status(overruns)),
-            scanner: self.scanner.as_ref().map(ScannerState::status),
-            hunt: self.hunt.as_ref().map(HuntState::status),
+            scanners: self.scanner_statuses(),
+            hunts: self.hunt_statuses(),
             playback: self.playback.as_deref().map(PlaybackShared::status),
         }
+    }
+
+    fn scanner_statuses(&self) -> Vec<sdrmm_wire::ScannerStatus> {
+        let mut statuses: Vec<sdrmm_wire::ScannerStatus> =
+            self.scanners.values().map(ScannerState::status).collect();
+        statuses.sort_by_key(|status| status.settings.channel);
+        statuses
+    }
+
+    fn hunt_statuses(&self) -> Vec<sdrmm_wire::HuntStatus> {
+        let mut statuses: Vec<sdrmm_wire::HuntStatus> =
+            self.hunts.values().map(HuntState::status).collect();
+        statuses.sort_by_key(|status| status.settings.channel);
+        statuses
     }
 
     fn rx_streams(&self) -> u32 {
@@ -918,15 +932,15 @@ impl Engine {
             if let Some(history) = &history {
                 state.send_dsp(history.stream, DspCommand::StopTimeMachine);
             }
-            let scanner = state.scanner.take();
-            let hunt = state.hunt.take();
+            let scanners: Vec<ScannerState> = state.scanners.drain().map(|(_, s)| s).collect();
+            let hunts: Vec<HuntState> = state.hunts.drain().map(|(_, h)| h).collect();
             let runtime = state.runtime.clone();
             inner.revision += 1;
             drop(inner);
-            if let Some(scanner) = scanner {
+            for scanner in scanners {
                 scanner.stop_and_join();
             }
-            if let Some(hunt) = hunt {
+            for hunt in hunts {
                 hunt.stop_and_join();
             }
             lock_runtime(&runtime).stop();
@@ -1243,10 +1257,10 @@ fn lock_runtime(runtime: &DeviceRuntime) -> std::sync::MutexGuard<'_, CaptureRun
 }
 
 fn teardown_set(mut removed: DeviceSetState) -> bool {
-    if let Some(scanner) = removed.scanner.take() {
+    for (_, scanner) in removed.scanners.drain() {
         scanner.stop_and_join();
     }
-    if let Some(hunt) = removed.hunt.take() {
+    for (_, hunt) in removed.hunts.drain() {
         hunt.stop_and_join();
     }
     lock_runtime(&removed.runtime).stop();

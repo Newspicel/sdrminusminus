@@ -23,19 +23,24 @@ export function huntTarget(
   return set === undefined || carrier === undefined ? null : { set, channel: carrier.channel };
 }
 
-export function liveHunt(set: DeviceSet | null, pushed: HuntStatus | undefined): HuntStatus | null {
-  if (!set?.hunt) {
+export function liveHunt(
+  set: DeviceSet | null,
+  channel: number | null,
+  pushed: HuntStatus | undefined,
+): HuntStatus | null {
+  const listed = set?.hunts?.find((hunt) => hunt.settings.channel === channel);
+  if (listed === undefined) {
     return null;
   }
-  return pushed ?? set.hunt;
+  return pushed ?? listed;
 }
 
 export function huntRefusal(target: HuntTarget | null): string | null {
   if (target === null) {
     return null;
   }
-  if (target.set.scanner != null) {
-    return "This radio is scanning. Stop the scan to hunt on one frequency.";
+  if (target.set.scanners?.some((scanner) => scanner.settings.channel === target.channel.id)) {
+    return "This decoder is scanning. Stop the scan to hunt on one frequency.";
   }
   if (target.channel.out_of_band) {
     return "The radio is tuned away from this decoder. Unlock its tuning or move it there.";

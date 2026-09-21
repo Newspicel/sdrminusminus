@@ -254,7 +254,8 @@ pub(super) fn bring_up(
         else {
             continue;
         };
-        let bound = workspace::bind_channels(&snapshot.graph, &binding.node, set);
+        let reserved = workspace::trunk_channels(&state, set.id);
+        let bound = workspace::bind_channels(&snapshot.graph, &binding.node, set, &reserved);
         let cut = set.channels.iter().filter(|channel| {
             channel.node.is_some() && !bound.iter().any(|(_, held)| *held == channel.id)
         });

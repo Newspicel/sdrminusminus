@@ -389,6 +389,20 @@ impl Engine {
     }
 
     pub fn remove_channel(&self, ds: u32, ch: u32) -> Result<(), EngineError> {
+        let (scanner, hunt) = {
+            let mut inner = self.lock();
+            let state = inner
+                .device_sets
+                .get_mut(&ds)
+                .ok_or(EngineError::DeviceSetNotFound(ds))?;
+            (state.scanners.remove(&ch), state.hunts.remove(&ch))
+        };
+        if let Some(scanner) = scanner {
+            scanner.stop_and_join();
+        }
+        if let Some(hunt) = hunt {
+            hunt.stop_and_join();
+        }
         let (handle, recording, baseband) = {
             let mut inner = self.lock();
             let state = inner
