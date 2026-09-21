@@ -994,8 +994,15 @@ fn media_dir(root: &Path, target: Option<&str>) -> Result<Option<PathBuf>> {
     Ok(dir.join("sdrmm-build.txt").is_file().then_some(dir))
 }
 
+const WINDOWS_LIBCLANG_RELOAD_ATTEMPTS: usize = 3;
+
 fn run_against_media(args: &[&str], cwd: &Path, media: Option<&Path>) -> Result<()> {
-    match media {
+    let attempts = if cfg!(windows) {
+        WINDOWS_LIBCLANG_RELOAD_ATTEMPTS
+    } else {
+        1
+    };
+    retry(attempts, || match media {
         Some(dir) => run_with_env(
             "cargo",
             args,
@@ -1003,6 +1010,45 @@ fn run_against_media(args: &[&str], cwd: &Path, media: Option<&Path>) -> Result<
             &[("FFMPEG_DIR", &dir.to_string_lossy())],
         ),
         None => run("cargo", args, cwd),
+    })
+}
+
+fn retry(attempts: usize, mut run: impl FnMut() -> Result<()>) -> Result<()> {
+    let mut outcome = run();
+    for attempt in 2..=attempts {
+        if outcome.is_ok() {
+            break;
+        }
+        println!("retrying after ffmpeg-sys build script crash ({attempt}/{attempts})");
+        outcome = run();
+    }
+    outcome
+}
+
+#[cfg(test)]
+mod retry_tests {
+    use super::*;
+
+    #[test]
+    fn retries_until_success() {
+        let mut calls = 0;
+        let outcome = retry(3, || {
+            calls += 1;
+            if calls < 3 { bail!("crash") } else { Ok(()) }
+        });
+        assert!(outcome.is_ok());
+        assert_eq!(calls, 3);
+    }
+
+    #[test]
+    fn gives_up_after_attempts() {
+        let mut calls = 0;
+        let outcome = retry(2, || {
+            calls += 1;
+            bail!("crash")
+        });
+        assert!(outcome.is_err());
+        assert_eq!(calls, 2);
     }
 }
 
