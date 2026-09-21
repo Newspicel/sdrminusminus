@@ -37,6 +37,106 @@ fn migration_is_idempotent() {
     assert_eq!(version, MIGRATIONS.len() as i64);
 }
 
+fn signal_finder_snapshot() -> serde_json::Value {
+    let mut snapshot = serde_json::to_value(WorkspaceSnapshot::starter()).unwrap();
+    snapshot["graph"]["nodes"].as_array_mut().unwrap().extend([
+        serde_json::json!({
+            "id": "finder", "kind": "signal_finder", "label": "Monitor",
+            "position": {"x": 532.0, "y": 128.5},
+            "data": {
+                "step_hz": 12500.0, "margin_db": 12.0, "hang_ms": 1500,
+                "dwell_ms": 2000, "max_call_s": 180, "receivers": 8, "record": true
+            }
+        }),
+        serde_json::json!({
+            "id": "log", "kind": "decoder_log", "position": {"x": 900.0, "y": 0.0}
+        }),
+    ]);
+    snapshot["graph"]["edges"].as_array_mut().unwrap().extend([
+        serde_json::json!({
+            "from": {"node": "device", "port": "iq"},
+            "to": {"node": "finder", "port": "iq"}
+        }),
+        serde_json::json!({
+            "from": {"node": "finder", "port": "events"},
+            "to": {"node": "log", "port": "events"}
+        }),
+    ]);
+    snapshot
+}
+
+#[test]
+fn stored_signal_finders_keep_wiring_and_audio_preferences() {
+    for record in [None, Some(false), Some(true)] {
+        let mut value = signal_finder_snapshot();
+        let data = value["graph"]["nodes"][3]["data"].as_object_mut().unwrap();
+        data.remove("record");
+        if let Some(record) = record {
+            data.insert("record".to_owned(), serde_json::json!(record));
+        }
+        let migrated = parse_workspace_snapshot(&value.to_string()).unwrap();
+        migrated.validate().unwrap();
+        let node = migrated.graph.node("finder").unwrap();
+        assert_eq!(node.label.as_deref(), Some("Monitor"));
+        assert_eq!(node.position, sdrmm_wire::Position { x: 532.0, y: 128.5 });
+        assert_eq!(
+            node.body,
+            sdrmm_wire::NodeBody::SpectrumMonitor(sdrmm_wire::SpectrumMonitorNode {
+                record_audio: record.unwrap_or(true),
+            })
+        );
+        let encoded = serde_json::to_value(&migrated).unwrap();
+        assert_eq!(encoded["graph"]["edges"], value["graph"]["edges"]);
+        assert_eq!(encoded["graph"]["nodes"][3]["kind"], "spectrum_monitor");
+        assert_eq!(
+            parse_workspace_snapshot(&encoded.to_string()).unwrap(),
+            migrated
+        );
+    }
+}
+
+#[test]
+fn signal_finder_migration_keeps_an_explicit_current_audio_setting() {
+    let mut value = signal_finder_snapshot();
+    value["graph"]["nodes"][3]["data"]["record_audio"] = serde_json::json!(false);
+    let migrated = parse_workspace_snapshot(&value.to_string()).unwrap();
+    let encoded = serde_json::to_value(migrated).unwrap();
+    assert_eq!(encoded["graph"]["nodes"][3]["data"]["record_audio"], false);
+}
+
+#[test]
+fn signal_finders_load_from_active_workspaces_exports_and_undo_history() {
+    let store = Store::open(None).unwrap();
+    let id = active(&store);
+    let json = signal_finder_snapshot().to_string();
+    store
+        .lock()
+        .execute(
+            "UPDATE workspaces SET snapshot = ?1 WHERE id = ?2",
+            params![json, id],
+        )
+        .unwrap();
+    let migrated = store.active_workspace().unwrap().unwrap().snapshot;
+    migrated.validate().unwrap();
+    assert_eq!(store.export_workspace(id).unwrap().snapshot, migrated);
+    write(&store, id, &WorkspaceSnapshot::starter());
+    let undone = store.undo_workspace(id).unwrap().detail.snapshot;
+    assert_eq!(undone, migrated);
+    let saved: String = store
+        .lock()
+        .query_row(
+            "SELECT snapshot FROM workspaces WHERE id = ?1",
+            params![id],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert!(!saved.contains("signal_finder"));
+    assert_eq!(
+        store.redo_workspace(id).unwrap().detail.snapshot,
+        WorkspaceSnapshot::starter()
+    );
+}
+
 #[test]
 fn preset_crud_roundtrip() {
     let store = Store::open(None).expect("open");
