@@ -9829,6 +9829,9 @@
             "format": "int32",
             "minimum": 0
           },
+          "roll_off": {
+            "$ref": "#/components/schemas/DatvRollOff"
+          },
           "standard": {
             "$ref": "#/components/schemas/DatvStandard"
           },
@@ -9840,6 +9843,17 @@
             "format": "double"
           }
         }
+      },
+      "DatvRollOff": {
+        "type": "string",
+        "enum": [
+          "pct35",
+          "pct25",
+          "pct20",
+          "pct15",
+          "pct10",
+          "pct5"
+        ]
       },
       "DatvStandard": {
         "type": "string",

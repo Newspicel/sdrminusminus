@@ -9,7 +9,8 @@ use sdrmm_modem::{
 };
 use sdrmm_wire::{
     BroadcastService, BroadcastServiceKind, BroadcastStatus, BroadcastSystem, ChannelDescriptor,
-    ChannelParams, ChannelSettings, DatvParams, DatvStandard, DecoderEvent,
+    ChannelParams, ChannelSettings, DatvParams, DatvRollOff, DatvStandard, DecoderEvent,
+    MAX_DATV_SYMBOL_RATE, MIN_DATV_SYMBOL_RATE,
 };
 
 use super::{
@@ -25,23 +26,31 @@ use super::{
 use crate::{
     ChannelCtx, ChannelError, ChannelFilter, ChannelOutputs, ChannelRx,
     broadcast_media::{BroadcastMedia, Kind as MediaKind},
-    check_input_rate,
+    check_rate,
 };
 
-const INPUT_RATE_HZ: f64 = 2_000_000.0;
-const BANDWIDTH_HZ: f64 = 1_500_000.0;
-const MIN_SYMBOL_RATE: f64 = 100_000.0;
-const MAX_SYMBOL_RATE: f64 = 1_000_000.0;
-const ROLL_OFF: f64 = 0.35;
+const MIN_INPUT_RATE_HZ: f64 = 2_000_000.0;
 const SPS: usize = 4;
 const PULSE_SPAN: usize = 8;
 const MAX_PROTOCOLS: usize = 8;
 
+pub fn occupied_hz(p: &DatvParams) -> f64 {
+    (p.symbol_rate * (1.0 + p.roll_off.factor())).round()
+}
+
+pub fn input_rate_hz(p: &DatvParams) -> f64 {
+    let mut rate = MIN_INPUT_RATE_HZ;
+    while flat_bandwidth_hz(rate) < occupied_hz(p) {
+        rate *= 2.0;
+    }
+    rate
+}
+
 static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescriptor {
     type_id: "datv".to_owned(),
     name: "DATV (DVB-S / S2)".to_owned(),
-    bandwidth_hz: BANDWIDTH_HZ,
-    input_rate_hz: INPUT_RATE_HZ,
+    bandwidth_hz: occupied_hz(&DatvParams::default()),
+    input_rate_hz: input_rate_hz(&DatvParams::default()),
     has_audio: true,
     has_video: true,
     decoder_kind: Some("broadcast".to_owned()),
@@ -52,12 +61,12 @@ fn params(settings: &ChannelSettings) -> Result<DatvParams, ChannelError> {
     match settings.params {
         ChannelParams::Datv(p) => {
             if p.symbol_rate.is_finite()
-                && (MIN_SYMBOL_RATE..=MAX_SYMBOL_RATE).contains(&p.symbol_rate)
+                && (MIN_DATV_SYMBOL_RATE..=MAX_DATV_SYMBOL_RATE).contains(&p.symbol_rate)
             {
                 Ok(p)
             } else {
                 Err(ChannelError::InvalidSettings(format!(
-                    "DATV symbol rate must be in [{MIN_SYMBOL_RATE}, {MAX_SYMBOL_RATE}] baud, got {}",
+                    "DATV symbol rate must be in [{MIN_DATV_SYMBOL_RATE}, {MAX_DATV_SYMBOL_RATE}] baud, got {}",
                     p.symbol_rate
                 )))
             }
@@ -70,7 +79,7 @@ fn params(settings: &ChannelSettings) -> Result<DatvParams, ChannelError> {
 }
 
 pub fn occupied_band(p: &DatvParams) -> (f64, f64) {
-    let half = (p.symbol_rate * (1.0 + ROLL_OFF) / 2.0).min(BANDWIDTH_HZ / 2.0);
+    let half = occupied_hz(p) / 2.0;
     (-half, half)
 }
 
@@ -82,17 +91,18 @@ pub fn channel_filter(p: &DatvParams) -> Result<ChannelFilter, ChannelError> {
         audio: sdrmm_wire::AudioProcessing::default(),
     })?;
     let (_, half) = occupied_band(&p);
-    let pass = half.min(flat_bandwidth_hz(INPUT_RATE_HZ) / 2.0);
+    let rate = input_rate_hz(&p);
+    let pass = half.min(flat_bandwidth_hz(rate) / 2.0);
     Ok(ChannelFilter::Symmetric(Decimator::new(
-        &design_lowpass(127, pass / INPUT_RATE_HZ),
+        &design_lowpass(127, pass / rate),
         1,
     )))
 }
 
-fn demodulator(standard: DatvStandard) -> Result<LinearDemod, ChannelError> {
+fn demodulator(standard: DatvStandard, roll_off: DatvRollOff) -> Result<LinearDemod, ChannelError> {
     let constellation = tables::psk_rotated(4, std::f64::consts::FRAC_PI_4)
         .map_err(|error| ChannelError::InvalidSettings(format!("QPSK table: {error}")))?;
-    let pulse = pulse::root_raised_cosine(SPS as f64, ROLL_OFF, PULSE_SPAN, Norm::Energy);
+    let pulse = pulse::root_raised_cosine(SPS as f64, roll_off.factor(), PULSE_SPAN, Norm::Energy);
     let params = LinearParams::new(constellation, pulse.clone(), SPS)
         .map_err(|error| ChannelError::InvalidSettings(format!("DATV waveform: {error}")))?;
     let carrier = match standard {
@@ -154,9 +164,10 @@ pub struct DatvChannel {
 
 impl DatvChannel {
     fn rebuild(&mut self) -> Result<(), ChannelError> {
-        self.acquisition = Acquisition::new(self.params.symbol_rate, INPUT_RATE_HZ);
-        self.resampler = FracResampler::new(SPS as f64 * self.params.symbol_rate / INPUT_RATE_HZ);
-        self.demod = demodulator(self.params.standard)?;
+        let rate = input_rate_hz(&self.params);
+        self.acquisition = Acquisition::new(self.params.symbol_rate, rate);
+        self.resampler = FracResampler::new(SPS as f64 * self.params.symbol_rate / rate);
+        self.demod = demodulator(self.params.standard, self.params.roll_off)?;
         self.decoder = DvbsDecoder::new(self.params.code_rate, self.params.symbol_rate);
         self.second = Dvbs2Decoder::new();
         self.demux = TsDemux::new();
@@ -412,14 +423,15 @@ impl ChannelRx for DatvChannel {
     }
 
     fn new(ctx: ChannelCtx, settings: ChannelSettings) -> Result<Self, ChannelError> {
-        check_input_rate(ctx, &DESCRIPTOR)?;
         let params = params(&settings)?;
+        let rate = input_rate_hz(&params);
+        check_rate(ctx, &DESCRIPTOR, rate)?;
         let mut channel = Self {
             params,
-            acquisition: Acquisition::new(params.symbol_rate, INPUT_RATE_HZ),
+            acquisition: Acquisition::new(params.symbol_rate, rate),
             reports: Vec::new(),
-            resampler: FracResampler::new(SPS as f64 * params.symbol_rate / INPUT_RATE_HZ),
-            demod: demodulator(params.standard)?,
+            resampler: FracResampler::new(SPS as f64 * params.symbol_rate / rate),
+            demod: demodulator(params.standard, params.roll_off)?,
             decoder: DvbsDecoder::new(params.code_rate, params.symbol_rate),
             second: Dvbs2Decoder::new(),
             demux: TsDemux::new(),
@@ -446,7 +458,8 @@ impl ChannelRx for DatvChannel {
         let wanted = params(&settings)?;
         let rebuild = wanted.symbol_rate != self.params.symbol_rate
             || wanted.standard != self.params.standard
-            || wanted.code_rate != self.params.code_rate;
+            || wanted.code_rate != self.params.code_rate
+            || wanted.roll_off != self.params.roll_off;
         self.params = wanted;
         if rebuild {
             self.rebuild()?;
@@ -473,7 +486,7 @@ impl ChannelRx for DatvChannel {
     }
 
     fn process(&mut self, iq: &[Complex<f32>], out: &mut ChannelOutputs) {
-        self.media.advance(iq.len(), INPUT_RATE_HZ);
+        self.media.advance(iq.len(), input_rate_hz(&self.params));
         let mut reports = std::mem::take(&mut self.reports);
         reports.clear();
         self.acquisition.push(iq, &mut reports);
@@ -529,35 +542,33 @@ impl ChannelRx for DatvChannel {
 
 #[cfg(test)]
 mod tests {
-    use sdrmm_wire::DatvCodeRate;
-
     use super::*;
     use crate::{testgen, testutil::realtime_budget};
 
-    fn settings(program: Option<u16>) -> ChannelSettings {
+    fn settings_of(params: DatvParams) -> ChannelSettings {
         ChannelSettings {
             frequency_hz: 0.0,
             squelch: sdrmm_wire::Squelch::Off,
-            params: ChannelParams::Datv(DatvParams {
-                standard: DatvStandard::DvbS,
-                symbol_rate: testgen::datv::SYMBOL_RATE,
-                code_rate: DatvCodeRate::ThreeQuarters,
-                program,
-                input_stream: None,
-                superframes: false,
-            }),
+            params: ChannelParams::Datv(params),
             audio: Default::default(),
         }
     }
 
-    fn channel(program: Option<u16>) -> DatvChannel {
+    fn open(params: DatvParams) -> DatvChannel {
         DatvChannel::new(
             ChannelCtx {
-                input_rate: INPUT_RATE_HZ,
+                input_rate: input_rate_hz(&params),
             },
-            settings(program),
+            settings_of(params),
         )
-        .expect("a DATV channel at the descriptor rate")
+        .expect("a DATV channel at its own input rate")
+    }
+
+    fn channel(program: Option<u16>) -> DatvChannel {
+        open(DatvParams {
+            program,
+            ..testgen::datv::params()
+        })
     }
 
     fn drive(channel: &mut DatvChannel, iq: &[Complex<f32>]) -> Vec<BroadcastStatus> {
@@ -573,6 +584,43 @@ mod tests {
             }
         }
         statuses
+    }
+
+    #[test]
+    fn the_channel_rate_follows_the_symbol_rate() {
+        let narrow = DatvParams {
+            symbol_rate: 333_000.0,
+            ..DatvParams::default()
+        };
+        let wide = DatvParams {
+            symbol_rate: 2_330_000.0,
+            roll_off: DatvRollOff::Pct25,
+            ..DatvParams::default()
+        };
+        assert_eq!(input_rate_hz(&narrow), 2_000_000.0);
+        assert_eq!(input_rate_hz(&wide), 4_000_000.0);
+        assert_eq!(
+            input_rate_hz(&DatvParams {
+                symbol_rate: MAX_DATV_SYMBOL_RATE,
+                ..DatvParams::default()
+            }),
+            8_000_000.0
+        );
+    }
+
+    #[test]
+    fn an_iss_wide_carrier_locks_and_decodes() {
+        let params = DatvParams {
+            symbol_rate: 2_000_000.0,
+            ..testgen::datv::params()
+        };
+        let iq = testgen::datv::dvbs_with(1, &params);
+        let mut channel = open(params);
+        let statuses = drive(&mut channel, &iq);
+        let status = statuses.last().expect("a broadcast status");
+        assert!(status.locked, "{status:?}");
+        assert!(status.frames_ok > 0, "{status:?}");
+        assert_eq!(status.label.as_deref(), Some(testgen::datv::PROGRAM_NAME));
     }
 
     #[test]
@@ -596,7 +644,9 @@ mod tests {
         let mut out = ChannelOutputs::default();
         let until = std::time::Instant::now() + std::time::Duration::from_secs(2);
         while channel.media.video_frames == 0 && std::time::Instant::now() < until {
-            channel.media.advance(16384, INPUT_RATE_HZ);
+            channel
+                .media
+                .advance(16384, input_rate_hz(&testgen::datv::params()));
             channel.media.drain(&mut out);
             std::thread::sleep(std::time::Duration::from_millis(1));
         }
@@ -623,22 +673,11 @@ mod tests {
     }
 
     fn second_generation() -> DatvChannel {
-        DatvChannel::new(
-            ChannelCtx {
-                input_rate: INPUT_RATE_HZ,
-            },
-            ChannelSettings {
-                frequency_hz: 0.0,
-                squelch: sdrmm_wire::Squelch::Off,
-                params: ChannelParams::Datv(DatvParams {
-                    standard: DatvStandard::DvbS2,
-                    symbol_rate: testgen::datv::SYMBOL_RATE,
-                    ..DatvParams::default()
-                }),
-                audio: Default::default(),
-            },
-        )
-        .expect("a DATV channel at the descriptor rate")
+        open(DatvParams {
+            standard: DatvStandard::DvbS2,
+            symbol_rate: testgen::datv::SYMBOL_RATE,
+            ..DatvParams::default()
+        })
     }
 
     #[test]
@@ -737,23 +776,12 @@ mod tests {
     #[test]
     fn only_the_chosen_input_stream_is_read() {
         let iq = testgen::datv::dvbs2_generic(3, &[4, 11]);
-        let mut channel = DatvChannel::new(
-            ChannelCtx {
-                input_rate: INPUT_RATE_HZ,
-            },
-            ChannelSettings {
-                frequency_hz: 0.0,
-                squelch: sdrmm_wire::Squelch::Off,
-                params: ChannelParams::Datv(DatvParams {
-                    standard: DatvStandard::DvbS2,
-                    symbol_rate: testgen::datv::SYMBOL_RATE,
-                    input_stream: Some(11),
-                    ..DatvParams::default()
-                }),
-                audio: Default::default(),
-            },
-        )
-        .expect("a DATV channel at the descriptor rate");
+        let mut channel = open(DatvParams {
+            standard: DatvStandard::DvbS2,
+            symbol_rate: testgen::datv::SYMBOL_RATE,
+            input_stream: Some(11),
+            ..DatvParams::default()
+        });
         let statuses = drive(&mut channel, &iq);
         let status = statuses.last().expect("a broadcast status");
         let chosen: Vec<u32> = status
@@ -789,7 +817,7 @@ mod tests {
     #[test]
     fn noise_reports_neither_a_lock_nor_a_program() {
         let mut state = 0x0bad_c0deu32;
-        let iq: Vec<Complex<f32>> = (0..2 * INPUT_RATE_HZ as usize)
+        let iq: Vec<Complex<f32>> = (0..2 * input_rate_hz(&testgen::datv::params()) as usize)
             .map(|_| {
                 state ^= state << 13;
                 state ^= state >> 17;
@@ -815,7 +843,7 @@ mod tests {
         let started = std::time::Instant::now();
         let statuses = drive(&mut channel, &iq);
         let elapsed = started.elapsed().as_secs_f64();
-        let seconds = iq.len() as f64 / INPUT_RATE_HZ;
+        let seconds = iq.len() as f64 / input_rate_hz(&testgen::datv::params());
         assert!(
             statuses.last().is_some_and(|status| status.frames_ok > 0),
             "no 32APSK frame decoded, so the timing proves nothing"
@@ -833,7 +861,7 @@ mod tests {
         let started = std::time::Instant::now();
         let statuses = drive(&mut channel, &iq);
         let elapsed = started.elapsed().as_secs_f64();
-        let seconds = iq.len() as f64 / INPUT_RATE_HZ;
+        let seconds = iq.len() as f64 / input_rate_hz(&testgen::datv::params());
         assert!(
             statuses.last().is_some_and(|status| status.frames_ok > 0),
             "no VL-SNR frame decoded, so the timing proves nothing"
@@ -851,7 +879,7 @@ mod tests {
         let started = std::time::Instant::now();
         drive(&mut channel, &iq);
         let elapsed = started.elapsed().as_secs_f64();
-        let seconds = iq.len() as f64 / INPUT_RATE_HZ;
+        let seconds = iq.len() as f64 / input_rate_hz(&testgen::datv::params());
         assert!(
             elapsed < realtime_budget(seconds),
             "{seconds:.2} s of DATV took {elapsed:.2} s"

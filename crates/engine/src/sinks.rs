@@ -111,11 +111,11 @@ impl DeviceSetState {
             .iter()
             .find(|c| c.id == ch)
             .ok_or(EngineError::ChannelNotFound(ch, ds))?;
-        let descriptor = descriptor_for(&channel.settings.params)?;
+        descriptor_for(&channel.settings.params)?;
         let device_rate = sample_rate_of(&self.settings);
         Ok(BasebandPlan {
             stream: channel.stream,
-            sample_rate: descriptor.input_rate_hz,
+            sample_rate: sdrmm_channels::input_rate(&channel.settings.params),
             device_rate,
             center_hz: channel.settings.frequency_hz,
             hardware: self.info.label.clone(),

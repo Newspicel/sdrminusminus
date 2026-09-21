@@ -109,7 +109,12 @@ pub fn param_limits(type_id: &str) -> Vec<ParamLimit> {
             7_500_000.0,
             500_000.0,
         )],
-        "datv" => vec![limit("symbol_rate", 100_000.0, 1_000_000.0, 1_000.0)],
+        "datv" => vec![limit(
+            "symbol_rate",
+            MIN_DATV_SYMBOL_RATE,
+            MAX_DATV_SYMBOL_RATE,
+            1_000.0,
+        )],
         "ident" => vec![
             limit(
                 "bandwidth_hz",
@@ -870,8 +875,37 @@ pub enum DatvStandard {
     DvbS2,
 }
 
+pub const MIN_DATV_SYMBOL_RATE: f64 = 100_000.0;
+pub const MAX_DATV_SYMBOL_RATE: f64 = 4_000_000.0;
+
 fn default_datv_symbol_rate() -> f64 {
     333_000.0
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum DatvRollOff {
+    #[default]
+    Pct35,
+    Pct25,
+    Pct20,
+    Pct15,
+    Pct10,
+    Pct5,
+}
+
+impl DatvRollOff {
+    #[must_use]
+    pub const fn factor(self) -> f64 {
+        match self {
+            Self::Pct35 => 0.35,
+            Self::Pct25 => 0.25,
+            Self::Pct20 => 0.20,
+            Self::Pct15 => 0.15,
+            Self::Pct10 => 0.10,
+            Self::Pct5 => 0.05,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
@@ -910,6 +944,8 @@ pub struct DatvParams {
     pub symbol_rate: f64,
     #[serde(default)]
     pub code_rate: DatvCodeRate,
+    #[serde(default)]
+    pub roll_off: DatvRollOff,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub program: Option<u16>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -923,6 +959,7 @@ impl Default for DatvParams {
             symbol_rate: default_datv_symbol_rate(),
             superframes: false,
             code_rate: DatvCodeRate::default(),
+            roll_off: DatvRollOff::default(),
             program: None,
             input_stream: None,
         }

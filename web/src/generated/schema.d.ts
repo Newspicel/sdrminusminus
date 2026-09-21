@@ -2825,11 +2825,14 @@ export interface components {
             input_stream?: number | null;
             /** Format: int32 */
             program?: number | null;
+            roll_off?: components["schemas"]["DatvRollOff"];
             standard?: components["schemas"]["DatvStandard"];
             superframes?: boolean;
             /** Format: double */
             symbol_rate?: number;
         };
+        /** @enum {string} */
+        DatvRollOff: "pct35" | "pct25" | "pct20" | "pct15" | "pct10" | "pct5";
         /** @enum {string} */
         DatvStandard: "dvb_s" | "dvb_s2";
         /**

@@ -337,6 +337,10 @@ and code rate are detected from TPS signalling. **Low priority stream** selects 
 a hierarchical multiplex. The channel input is 64/7 MS/s; the engine resamples supported wider
 receiver rates to this rate. Select a discovered service or enter its programme number manually.
 
+For DVB-S and DVB-S2 set **Symbol rate** between 100 kBd and 4 MBd. The channel input rate
+follows it, so a 2 MBd carrier runs at 4 MS/s and needs a receiver that can supply it.
+**Roll-off** matches the transmitter's filter; DVB-S is always 0.35.
+
 DVB-S2 automatically detects standard and extended MODCODs, including 8/64/128/256APSK,
 normal and short frames and VL-SNR modes. **Input stream** selects an ISI on multistream
 carriers; automatic transport selection uses the first received stream. Transport packets are
