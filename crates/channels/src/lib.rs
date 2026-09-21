@@ -67,7 +67,10 @@ pub use cw_skimmer::CwSkimmerChannel;
 pub use dab::DabChannel;
 #[cfg(any(test, feature = "test-signals"))]
 pub use datv::dvbs2::{frame::Modulation as Dvbs2Modulation, ldpc::Rate as Dvbs2Rate};
-pub use datv::{DatvChannel, dvbt::DvbtChannel};
+pub use datv::{
+    DatvChannel,
+    dvbt::{DvbtChannel, t2 as dvbt2},
+};
 pub use dect::DectChannel;
 pub use drm::DrmChannel;
 pub use dsc::DscChannel;
@@ -690,6 +693,7 @@ fn find(settings: &ChannelSettings) -> Result<&'static Registration, ChannelErro
 pub fn input_rate(params: &ChannelParams) -> f64 {
     match params {
         ChannelParams::Datv(p) => datv::input_rate_hz(p),
+        ChannelParams::Dvbt(p) => p.bandwidth.sample_rate_hz(),
         other => descriptor_of(other.type_id()).map_or(0.0, |d| d.input_rate_hz),
     }
 }

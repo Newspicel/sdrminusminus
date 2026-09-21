@@ -14,6 +14,13 @@ pub struct Bch {
     message: usize,
 }
 
+pub struct BchScratch {
+    syndromes: Vec<u16>,
+    locator: Vec<u16>,
+    previous: Vec<u16>,
+    saved: Vec<u16>,
+}
+
 #[cfg(any(test, feature = "test-signals"))]
 fn minimal_polynomial(exp: &[u16], log: &[u16], order: usize, power: usize) -> Vec<u16> {
     let mut roots = Vec::new();
@@ -130,72 +137,96 @@ impl Bch {
         out.extend_from_slice(&remainder);
     }
 
-    fn syndromes(&self, word: &[bool]) -> Vec<u16> {
-        let last = word.len() - 1;
-        (1..=2 * self.correct)
-            .map(|index| {
-                word.iter()
-                    .enumerate()
-                    .filter(|&(_, &bit)| bit)
-                    .fold(0u16, |sum, (position, _)| {
-                        sum ^ self.power(index * (last - position))
-                    })
-            })
-            .collect()
+    pub fn scratch(&self) -> BchScratch {
+        BchScratch {
+            syndromes: vec![0; 2 * self.correct],
+            locator: vec![0; 2 * self.correct + 1],
+            previous: vec![0; 2 * self.correct + 1],
+            saved: vec![0; 2 * self.correct + 1],
+        }
     }
 
-    fn locator(&self, syndromes: &[u16]) -> (Vec<u16>, usize) {
-        let mut locator = vec![1u16];
-        let mut previous = vec![1u16];
-        let mut discrepancy_at_update = 1u16;
-        let mut shift = 1usize;
-        let mut errors = 0usize;
-        for step in 0..2 * self.correct {
+    fn syndromes(&self, word: &[bool], out: &mut [u16]) {
+        let last = word.len() - 1;
+        for (index, syndrome) in out.iter_mut().enumerate() {
+            *syndrome = word
+                .iter()
+                .enumerate()
+                .filter(|&(_, &bit)| bit)
+                .fold(0, |sum, (position, _)| {
+                    sum ^ self.power((index + 1) * (last - position))
+                });
+        }
+    }
+
+    fn locator(&self, scratch: &mut BchScratch) -> usize {
+        let BchScratch {
+            syndromes,
+            locator,
+            previous,
+            saved,
+        } = scratch;
+        locator.fill(0);
+        previous.fill(0);
+        locator[0] = 1;
+        previous[0] = 1;
+        let mut discrepancy_at_update = 1;
+        let mut shift = 1;
+        let mut errors = 0;
+        for step in 0..syndromes.len() {
             let mut discrepancy = syndromes[step];
-            for index in 1..locator.len().min(step + 1) {
+            for index in 1..=errors {
                 discrepancy ^= self.mul(locator[index], syndromes[step - index]);
             }
             if discrepancy == 0 {
                 shift += 1;
                 continue;
             }
-            let saved = locator.clone();
+            saved.copy_from_slice(locator);
             let scale = self.mul(discrepancy, self.inv(discrepancy_at_update));
-            if locator.len() < previous.len() + shift {
-                locator.resize(previous.len() + shift, 0);
-            }
-            for (index, &coefficient) in previous.iter().enumerate() {
-                locator[index + shift] ^= self.mul(scale, coefficient);
+            for index in shift..locator.len() {
+                locator[index] ^= self.mul(scale, previous[index - shift]);
             }
             if 2 * errors <= step {
                 errors = step + 1 - errors;
-                previous = saved;
+                previous.copy_from_slice(saved);
                 discrepancy_at_update = discrepancy;
                 shift = 1;
             } else {
                 shift += 1;
             }
         }
-        locator.truncate(errors + 1);
-        (locator, errors)
+        errors
     }
 
     pub fn decode(&self, word: &mut [bool]) -> Option<usize> {
-        let syndromes = self.syndromes(word);
-        if syndromes.iter().all(|&value| value == 0) {
+        self.decode_with_scratch(word, &mut self.scratch())
+    }
+
+    pub fn decode_with_scratch(
+        &self,
+        word: &mut [bool],
+        scratch: &mut BchScratch,
+    ) -> Option<usize> {
+        if word.is_empty() || word.len() > self.order || scratch.syndromes.len() != 2 * self.correct
+        {
+            return None;
+        }
+        self.syndromes(word, &mut scratch.syndromes);
+        if scratch.syndromes.iter().all(|&value| value == 0) {
             return Some(0);
         }
-        let (locator, errors) = self.locator(&syndromes);
+        let errors = self.locator(scratch);
         if errors == 0 || errors > self.correct {
             return None;
         }
         let last = word.len() - 1;
-        let mut found = 0usize;
+        let mut found = 0;
         for (position, slot) in word.iter_mut().enumerate() {
             let inverse = self.power(self.order - (last - position) % self.order);
-            let mut sum = 0u16;
-            let mut term = 1u16;
-            for &coefficient in &locator {
+            let mut sum = 0;
+            let mut term = 1;
+            for &coefficient in &scratch.locator[..=errors] {
                 sum ^= self.mul(coefficient, term);
                 term = self.mul(term, inverse);
             }
@@ -207,7 +238,9 @@ impl Bch {
         if found != errors {
             return None;
         }
-        self.syndromes(word)
+        self.syndromes(word, &mut scratch.syndromes);
+        scratch
+            .syndromes
             .iter()
             .all(|&value| value == 0)
             .then_some(errors)
@@ -254,6 +287,32 @@ fn divides(product: &[bool], factor: &[u16]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn scratch_reuse_repairs_different_words_and_rejects_wrong_sizes() {
+        let code = Bch::new(Frame::Short, 12, 7_032);
+        let mut scratch = code.scratch();
+        assert_eq!(code.decode_with_scratch(&mut [], &mut scratch), None);
+        for seed in 1..=3 {
+            let mut word = Vec::new();
+            code.encode(&message(code.message(), seed), &mut word);
+            let clean = word.clone();
+            for index in 0..seed as usize {
+                word[index * 997 + 1] ^= true;
+            }
+            assert_eq!(
+                code.decode_with_scratch(&mut word, &mut scratch),
+                Some(seed as usize)
+            );
+            assert_eq!(word, clean);
+            assert_eq!(code.decode_with_scratch(&mut word, &mut scratch), Some(0));
+        }
+        let mut wrong = Bch::new(Frame::Normal, 8, 57_472).scratch();
+        assert_eq!(
+            code.decode_with_scratch(&mut [false; 100], &mut wrong),
+            None
+        );
+    }
 
     fn message(len: usize, seed: u32) -> Vec<bool> {
         let mut state = seed | 1;

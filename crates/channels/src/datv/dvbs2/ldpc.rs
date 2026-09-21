@@ -251,10 +251,23 @@ pub struct Ldpc {
 impl Ldpc {
     #[must_use]
     pub fn new(rate: Rate, frame: Frame) -> Option<Self> {
-        let length = frame.length();
         let addresses = rate.addresses(frame)?;
+        Self::with_addresses(frame, addresses)
+    }
+
+    pub(crate) fn with_addresses(frame: Frame, addresses: &[&[u16]]) -> Option<Self> {
+        let length = frame.length();
         let information = addresses.len() * GROUP;
+        if information == 0 || information >= length {
+            return None;
+        }
         let parity = length - information;
+        if addresses
+            .iter()
+            .any(|row| row.is_empty() || row.iter().any(|&address| usize::from(address) >= parity))
+        {
+            return None;
+        }
         let step = parity / GROUP;
         let mut edges: Vec<(u32, u32)> = Vec::new();
         for bit in 0..information {
@@ -449,6 +462,14 @@ impl Ldpc {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn invalid_parity_address_tables_are_rejected() {
+        assert!(Ldpc::with_addresses(Frame::Short, &[]).is_none());
+        assert!(Ldpc::with_addresses(Frame::Short, &[&[]]).is_none());
+        assert!(Ldpc::with_addresses(Frame::Short, &[&[SHORT as u16]]).is_none());
+        assert!(Ldpc::with_addresses(Frame::Short, &[&[0][..]; 45]).is_none());
+    }
 
     const RATES: [Rate; 11] = [
         Rate::R1_4,

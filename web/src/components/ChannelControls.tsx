@@ -1295,6 +1295,7 @@ function ModeControls({
               label="DVB-T bandwidth"
               value={params.settings.bandwidth ?? "mhz8"}
               options={[
+                { value: "mhz1_7", label: "1.7 MHz", title: "Scaled narrow DVB-T" },
                 { value: "mhz6", label: "6 MHz" },
                 { value: "mhz7", label: "7 MHz" },
                 { value: "mhz8", label: "8 MHz" },

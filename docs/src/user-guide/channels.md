@@ -116,7 +116,7 @@ Pulse slicing, payload layouts, validation rules, and CRC/LFSR digest routines f
 | Mode | Available output | Missing or limited functionality |
 |---|---|---|
 | DATV | DVB-S/S2/S2X, programme tables, MPEG Layer II/AAC/AC-3/E-AC-3 audio, MPEG-2/H.264/HEVC video, GSE datagrams | Synthetic IQ validation |
-| DVB-T | 2K/8K OFDM, 6/7/8 MHz channels, all guard intervals and code rates, QPSK/16-QAM/64-QAM, hierarchical HP/LP streams, audio and video | Synthetic IQ validation |
+| DVB-T | 2K/8K OFDM, 1.7/6/7/8 MHz channels, all guard intervals and code rates, QPSK/16-QAM/64-QAM, hierarchical HP/LP streams, audio and video | Synthetic IQ validation |
 | DRM30 / DRM+ | Acquisition, lock, SNR, and frequency error | No FAC, SDC, or MSC decoding; no service labels or media |
 | GNSS lab | GPS L1 C/A acquisition and NAV telemetry | No position solution |
 | VOR / ILS | Radial or difference in depth of modulation | Tested only against analytically generated signals |
@@ -356,8 +356,9 @@ bounds object size and segment count. The log also reports audio, video and data
 
 For DVB-T choose **Bandwidth** to match the transmitter. FFT size, guard interval, constellation
 and code rate are detected from TPS signalling. **Low priority stream** selects the LP stream of
-a hierarchical multiplex. The channel input is 64/7 MS/s; the engine resamples supported wider
-receiver rates to this rate. Select a discovered service or enter its programme number manually.
+a hierarchical multiplex. **1.7 MHz** is a scaled narrow DVB-T mode. The channel input clock
+follows bandwidth, allowing narrow reception from a 2.048 MS/s radio. Select a discovered
+service or enter its programme number manually.
 
 For DVB-S and DVB-S2 set **Symbol rate** between 100 kBd and 4 MBd. The channel input rate
 follows it, so a 2 MBd carrier runs at 4 MS/s and needs a receiver that can supply it.

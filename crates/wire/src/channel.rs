@@ -969,6 +969,7 @@ impl Default for DatvParams {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum DvbtBandwidth {
+    Mhz1_7,
     Mhz6,
     Mhz7,
     #[default]
@@ -978,10 +979,15 @@ pub enum DvbtBandwidth {
 impl DvbtBandwidth {
     pub const fn hz(self) -> f64 {
         match self {
+            Self::Mhz1_7 => 1_700_000.0,
             Self::Mhz6 => 6_000_000.0,
             Self::Mhz7 => 7_000_000.0,
             Self::Mhz8 => 8_000_000.0,
         }
+    }
+
+    pub const fn sample_rate_hz(self) -> f64 {
+        self.hz() * 8.0 / 7.0
     }
 }
 
@@ -1737,4 +1743,32 @@ pub struct ChannelInfo {
     pub baseband_recording: Option<RecordingStatus>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub network_export: Option<NetworkExportStatus>,
+}
+
+#[cfg(test)]
+mod dvbt_tests {
+    use super::*;
+
+    #[test]
+    fn dvbt_bandwidths_roundtrip_with_native_clocks() {
+        for (bandwidth, json, hz) in [
+            (DvbtBandwidth::Mhz1_7, "mhz1_7", 1_700_000.0),
+            (DvbtBandwidth::Mhz6, "mhz6", 6_000_000.0),
+            (DvbtBandwidth::Mhz7, "mhz7", 7_000_000.0),
+            (DvbtBandwidth::Mhz8, "mhz8", 8_000_000.0),
+        ] {
+            let encoded = serde_json::to_value(bandwidth).unwrap();
+            assert_eq!(encoded, json);
+            assert_eq!(
+                serde_json::from_value::<DvbtBandwidth>(encoded).unwrap(),
+                bandwidth
+            );
+            assert_eq!(bandwidth.hz(), hz);
+            assert_eq!(bandwidth.sample_rate_hz(), hz * 8.0 / 7.0);
+        }
+        assert_eq!(
+            serde_json::from_str::<DvbtParams>("{}").unwrap(),
+            DvbtParams::default()
+        );
+    }
 }

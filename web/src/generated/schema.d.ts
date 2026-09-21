@@ -3453,7 +3453,7 @@ export interface components {
         /** @enum {string} */
         Duplex: "rx_only" | "tx_only" | "half" | "full";
         /** @enum {string} */
-        DvbtBandwidth: "mhz6" | "mhz7" | "mhz8";
+        DvbtBandwidth: "mhz1_7" | "mhz6" | "mhz7" | "mhz8";
         DvbtParams: {
             bandwidth?: components["schemas"]["DvbtBandwidth"];
             low_priority?: boolean;

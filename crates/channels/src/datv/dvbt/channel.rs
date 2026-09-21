@@ -1,7 +1,7 @@
 use std::sync::LazyLock;
 
 use num_complex::Complex;
-use sdrmm_dsp::{Decimator, FracResampler, design_lowpass};
+use sdrmm_dsp::{Decimator, design_lowpass};
 use sdrmm_wire::{
     BroadcastService, BroadcastServiceKind, BroadcastStatus, BroadcastSystem, ChannelDescriptor,
     ChannelParams, ChannelSettings, DecoderEvent, DvbtParams,
@@ -11,7 +11,7 @@ use super::receiver::Receiver;
 use crate::{
     ChannelCtx, ChannelError, ChannelFilter, ChannelOutputs, ChannelRx,
     broadcast_media::BroadcastMedia,
-    check_input_rate,
+    check_rate,
     datv::{
         channel::media_kind,
         dvbs::PACKET,
@@ -38,7 +38,10 @@ pub fn occupied_band(params: &DvbtParams) -> (f64, f64) {
 
 pub fn channel_filter(params: &DvbtParams) -> ChannelFilter {
     ChannelFilter::Symmetric(Decimator::new(
-        &design_lowpass(127, params.bandwidth.hz() / (2.0 * INPUT_RATE)),
+        &design_lowpass(
+            127,
+            params.bandwidth.hz() / (2.0 * params.bandwidth.sample_rate_hz()),
+        ),
         1,
     ))
 }
@@ -63,8 +66,6 @@ struct Selection {
 pub struct DvbtChannel {
     params: DvbtParams,
     receiver: Receiver,
-    resampler: FracResampler,
-    resampled: Vec<Complex<f32>>,
     packets: Vec<[u8; PACKET]>,
     units: Vec<PesUnit>,
     demux: TsDemux,
@@ -138,7 +139,7 @@ impl DvbtChannel {
             locked: self.receiver.locked(),
             snr_db: self.receiver.snr,
             frequency_error_hz: self.receiver.frequency
-                * (self.params.bandwidth.hz() * 8.0 / 7.0) as f32
+                * self.params.bandwidth.sample_rate_hz() as f32
                 / std::f32::consts::TAU,
             service_id: selected,
             label: program.and_then(|p| p.name.clone()),
@@ -183,8 +184,8 @@ impl ChannelRx for DvbtChannel {
         &DESCRIPTOR
     }
     fn new(ctx: ChannelCtx, settings: ChannelSettings) -> Result<Self, ChannelError> {
-        check_input_rate(ctx, &DESCRIPTOR)?;
         let params = params(&settings)?;
+        check_rate(ctx, &DESCRIPTOR, params.bandwidth.sample_rate_hz())?;
         let mut demux = TsDemux::new();
         demux.select(params.program);
         let mut media = BroadcastMedia::new()?;
@@ -192,8 +193,6 @@ impl ChannelRx for DvbtChannel {
         Ok(Self {
             params,
             receiver: Receiver::new(params.low_priority),
-            resampler: FracResampler::new(params.bandwidth.hz() / 8_000_000.0),
-            resampled: Vec::with_capacity(16384),
             packets: Vec::with_capacity(256),
             units: Vec::with_capacity(32),
             demux,
@@ -209,7 +208,6 @@ impl ChannelRx for DvbtChannel {
             || wanted.low_priority != self.params.low_priority
         {
             self.retuned();
-            self.resampler = FracResampler::new(wanted.bandwidth.hz() / 8_000_000.0);
             self.receiver.low_priority = wanted.low_priority;
         }
         self.demux.select(wanted.program);
@@ -218,7 +216,6 @@ impl ChannelRx for DvbtChannel {
     }
     fn retuned(&mut self) {
         self.receiver.reset();
-        self.resampler.reset();
         self.demux.reset();
         self.media.reset();
         self.selection = None;
@@ -226,14 +223,10 @@ impl ChannelRx for DvbtChannel {
         self.was_locked = false;
     }
     fn process(&mut self, iq: &[Complex<f32>], out: &mut ChannelOutputs) {
-        self.media.advance(iq.len(), INPUT_RATE);
+        let input_rate = self.params.bandwidth.sample_rate_hz();
+        self.media.advance(iq.len(), input_rate);
         self.packets.clear();
-        if self.params.bandwidth.hz() == 8_000_000.0 {
-            self.receiver.push(iq, &mut self.packets);
-        } else {
-            self.resampler.process(iq, &mut self.resampled);
-            self.receiver.push(&self.resampled, &mut self.packets);
-        }
+        self.receiver.push(iq, &mut self.packets);
         let locked = self.receiver.locked();
         if self.was_locked && !locked {
             self.demux.reset();
@@ -247,8 +240,8 @@ impl ChannelRx for DvbtChannel {
         }
         self.play(out);
         self.report_samples += iq.len();
-        if self.report_samples >= (INPUT_RATE / 4.0) as usize {
-            self.report_samples %= (INPUT_RATE / 4.0) as usize;
+        if self.report_samples >= (input_rate / 4.0) as usize {
+            self.report_samples %= (input_rate / 4.0) as usize;
             self.report(out);
         }
     }
@@ -257,21 +250,105 @@ impl ChannelRx for DvbtChannel {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn settings(bandwidth: sdrmm_wire::DvbtBandwidth) -> ChannelSettings {
+        ChannelSettings {
+            frequency_hz: 0.0,
+            squelch: sdrmm_wire::Squelch::Off,
+            params: ChannelParams::Dvbt(DvbtParams {
+                bandwidth,
+                ..Default::default()
+            }),
+            audio: Default::default(),
+        }
+    }
+
     #[test]
-    fn six_and_seven_megahertz_channels_resample_and_discover_services() {
+    fn narrow_channel_decodes_from_a_two_megasample_radio() {
+        let bandwidth = sdrmm_wire::DvbtBandwidth::Mhz1_7;
+        let channel_settings = settings(bandwidth);
+        let input_rate = crate::input_rate(&channel_settings.params);
+        assert_eq!(input_rate, bandwidth.sample_rate_hz());
+        assert_eq!(
+            crate::occupied_band(&channel_settings.params),
+            (-850_000.0, 850_000.0)
+        );
+        let mut native = crate::testgen::dvbt::waveform(crate::testgen::dvbt::defaults(), 180);
+        crate::testgen::shift(&mut native, 600.0, input_rate);
+        let iq = crate::testgen::resample(&native, input_rate, 2_048_000.0);
+        let mut ddc = sdrmm_dsp::Ddc::new(2_048_000.0, input_rate, 0.0).unwrap();
+        let mut filter = crate::channel_filter(&channel_settings.params).unwrap();
+        let mut receiver = DvbtChannel::new(ChannelCtx { input_rate }, channel_settings).unwrap();
+        let mut baseband = Vec::new();
+        let mut filtered = Vec::new();
+        let mut out = ChannelOutputs::default();
+        for block in iq.chunks(1009) {
+            ddc.process(block, &mut baseband);
+            filter.process(&baseband, &mut filtered);
+            out.reset();
+            receiver.process(&filtered, &mut out);
+        }
+        assert!(receiver.receiver.locked());
+        assert_eq!(
+            receiver.demux.program().and_then(|p| p.name.as_deref()),
+            Some("Rust TV")
+        );
+        out.reset();
+        receiver.report(&mut out);
+        let DecoderEvent::Broadcast(status) = &out.events[0] else {
+            panic!("broadcast status");
+        };
+        assert!((status.frequency_error_hz - 600.0).abs() < 30.0);
+        assert!(
+            DvbtChannel::new(
+                ChannelCtx {
+                    input_rate: INPUT_RATE
+                },
+                settings(bandwidth)
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn changing_bandwidth_discards_decoder_and_media_state() {
+        let bandwidth = sdrmm_wire::DvbtBandwidth::Mhz1_7;
+        let mut receiver = DvbtChannel::new(
+            ChannelCtx {
+                input_rate: INPUT_RATE,
+            },
+            settings(sdrmm_wire::DvbtBandwidth::Mhz8),
+        )
+        .unwrap();
+        let iq = crate::testgen::dvbt::waveform(crate::testgen::dvbt::defaults(), 180);
+        let mut out = ChannelOutputs::default();
+        receiver.process(&iq, &mut out);
+        assert!(receiver.receiver.locked());
+        receiver.apply(settings(bandwidth)).unwrap();
+        assert!(!receiver.receiver.locked());
+        assert!(receiver.selection.is_none());
+        assert_eq!(receiver.report_samples, 0);
+        out.reset();
+        receiver.process(&iq, &mut out);
+        assert!(receiver.receiver.locked());
+    }
+
+    #[test]
+    fn every_bandwidth_discovers_services_at_its_native_clock() {
+        let iq = crate::testgen::dvbt::waveform(crate::testgen::dvbt::defaults(), 180);
         for bandwidth in [
+            sdrmm_wire::DvbtBandwidth::Mhz1_7,
             sdrmm_wire::DvbtBandwidth::Mhz6,
             sdrmm_wire::DvbtBandwidth::Mhz7,
+            sdrmm_wire::DvbtBandwidth::Mhz8,
         ] {
             let params = DvbtParams {
                 bandwidth,
                 ..Default::default()
             };
-            let native = crate::testgen::dvbt::waveform(crate::testgen::dvbt::defaults(), 180);
-            let iq = crate::testgen::resample(&native, bandwidth.hz() * 8.0 / 7.0, INPUT_RATE);
             let mut channel = DvbtChannel::new(
                 ChannelCtx {
-                    input_rate: INPUT_RATE,
+                    input_rate: bandwidth.sample_rate_hz(),
                 },
                 ChannelSettings {
                     frequency_hz: 0.0,
