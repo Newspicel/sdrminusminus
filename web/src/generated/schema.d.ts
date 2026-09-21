@@ -3192,6 +3192,8 @@ export interface components {
             extra?: components["schemas"]["ExtraValue"][];
             gains?: components["schemas"]["GainValue"][];
             /** Format: double */
+            offset_hz?: number | null;
+            /** Format: double */
             ppm?: number | null;
             /** Format: double */
             sample_rate?: number | null;

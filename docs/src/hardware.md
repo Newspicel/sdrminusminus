@@ -132,7 +132,13 @@ Every radio uses the same controls, so a slider means the same thing on every De
 | Amp | Switch | A preamp that is on or off, with its gain in the readout |
 | Bias tee | Switch | Antenna-port power for an amplifier or active antenna |
 | PPM | Number field | Crystal frequency correction |
+| Converter | Number field | Local oscillator of an up- or downconverter in front of the radio, in MHz |
 | DC block | Switch | Notches the receiver's own DC spike |
+
+With a converter set, every frequency shown is the one at the antenna: the radio is tuned to it
+minus the offset. Enter the local oscillator in MHz, positive for a downconverter such as an
+LNB (9750 for Ku band low side) and negative for an HF upconverter (-125 for a Ham It Up).
+Changing the offset moves the display, not the radio.
 
 Anything a radio has beyond that list is a model-specific setting below the standard rows.
 Changing a setting can change other available controls. For example, RTL-SDR direct sampling

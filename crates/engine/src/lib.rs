@@ -521,6 +521,10 @@ struct DeviceSetState {
 }
 
 impl DeviceSetState {
+    fn hardware_capabilities(&self) -> Capabilities {
+        self.capabilities.shifted_by(-self.settings.offset())
+    }
+
     /// Whether the radio's window covers what this decoder is listening for. A decoder keeps its
     /// frequency when the radio moves off it, so this is a passing state, not a broken patch.
     fn reaches_channel(&self, channel: &ChannelInfo) -> bool {

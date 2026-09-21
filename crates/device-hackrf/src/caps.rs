@@ -191,6 +191,7 @@ pub(crate) fn settings_from_config(config: &Config) -> DeviceSettings {
         tuning: None,
         sample_rate: Some(f64::from(config.sample_rate_hz)),
         ppm: None,
+        offset_hz: None,
         antenna: Some(ANTENNA.to_string()),
         bandwidth: Some(match config.filter {
             FilterWidth::MatchRate => BandwidthSetting::Auto,

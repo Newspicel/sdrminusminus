@@ -392,6 +392,7 @@ impl CaptureRuntime {
     pub fn start_sweep(
         mut device: Box<dyn SdrDevice>,
         plan: &SweepPlan,
+        offset_hz: f64,
         taps: Vec<broadcast::Sender<SpectrumSnapshot>>,
         on_fatal: impl FnOnce(DeviceError) + Send + 'static,
     ) -> Result<Self, (Box<dyn SdrDevice>, DeviceError)> {
@@ -425,7 +426,7 @@ impl CaptureRuntime {
             })
             .collect();
 
-        let sink = match sweep_sink(taps[0].clone(), plan.sample_rate_hz, on_fatal) {
+        let sink = match sweep_sink(taps[0].clone(), plan.sample_rate_hz, offset_hz, on_fatal) {
             Ok(sink) => sink,
             Err(error) => return Err((device, error)),
         };
@@ -446,6 +447,7 @@ impl CaptureRuntime {
 fn sweep_sink(
     tx: broadcast::Sender<SpectrumSnapshot>,
     sample_rate: f64,
+    offset_hz: f64,
     on_fatal: impl FnOnce(DeviceError) + Send + 'static,
 ) -> Result<SweepSink, DeviceError> {
     let mut publisher = SpectrumPublisher::new(tx, FFT_SIZE)
@@ -474,7 +476,7 @@ fn sweep_sink(
                 seq,
                 SpectrumFrame {
                     timestamp,
-                    center_hz,
+                    center_hz: center_hz + offset_hz,
                     span_hz: sample_rate as f32,
                 },
                 &db,

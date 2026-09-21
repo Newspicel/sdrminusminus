@@ -27,6 +27,7 @@ import {
   stageSettings,
 } from "./capabilities";
 import { FIELD } from "./controls";
+import { isTunable, tuningRange } from "./dial";
 import { formatHz, formatSampleRate } from "./format";
 import { NumberField } from "./NumberField";
 import { LOOP_SETTING } from "./playback";
@@ -166,6 +167,21 @@ export function RadioSettings({
             step={1}
             onCommit={(ppm) => patch({ ppm })}
             className="w-20"
+          />
+        </SettingRow>
+      )}
+
+      {isTunable(tuningRange(caps)) && (
+        <SettingRow
+          label="Converter (MHz)"
+          title="Local oscillator of a converter in front of the radio: positive for a downconverter, negative for an upconverter. Frequencies shown are what the antenna sees"
+        >
+          <NumberField
+            label="Converter offset (MHz)"
+            value={(settings.offset_hz ?? 0) / 1e6}
+            step={0.001}
+            onCommit={(mhz) => patch({ offset_hz: Math.round(mhz * 1e6) })}
+            className="w-28"
           />
         </SettingRow>
       )}

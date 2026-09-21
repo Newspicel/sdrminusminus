@@ -805,6 +805,28 @@ impl Capabilities {
         self.gains.iter().find(|stage| stage.name == name)
     }
 
+    /// Whether the radio can be moved at all; a recording plays where it was taken, so a
+    /// converter offset means nothing to it.
+    #[must_use]
+    pub fn tunes(&self) -> bool {
+        self.freq_ranges.is_empty() || self.freq_ranges.iter().any(|r| r.min < r.max)
+    }
+
+    /// The same radio seen through a converter: every frequency it reaches, moved by the
+    /// converter's local oscillator.
+    #[must_use]
+    pub fn shifted_by(&self, offset_hz: f64) -> Capabilities {
+        if offset_hz == 0.0 {
+            return self.clone();
+        }
+        let mut shifted = self.clone();
+        for range in &mut shifted.freq_ranges {
+            range.min += offset_hz;
+            range.max += offset_hz;
+        }
+        shifted
+    }
+
     #[must_use]
     pub fn profile(&self) -> DeviceProfile {
         DeviceProfile {
@@ -934,6 +956,8 @@ pub struct DeviceSettings {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ppm: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub offset_hz: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub antenna: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub bandwidth: Option<BandwidthSetting>,
@@ -979,6 +1003,16 @@ impl StreamSettings {
     }
 }
 
+fn shift_centers(settings: &mut DeviceSettings, by_hz: f64) {
+    if by_hz == 0.0 {
+        return;
+    }
+    settings.center_hz = settings.center_hz.map(|hz| hz + by_hz);
+    for stream in &mut settings.streams {
+        stream.center_hz = stream.center_hz.map(|hz| hz + by_hz);
+    }
+}
+
 fn merge_gains(gains: &mut Vec<GainValue>, delta: &[GainValue]) {
     for gain in delta {
         match gains.iter_mut().find(|g| g.stage == gain.stage) {
@@ -1001,6 +1035,9 @@ impl DeviceSettings {
         }
         if delta.ppm.is_some() {
             self.ppm = delta.ppm;
+        }
+        if delta.offset_hz.is_some() {
+            self.offset_hz = delta.offset_hz;
         }
         if delta.antenna.is_some() {
             self.antenna.clone_from(&delta.antenna);
@@ -1041,16 +1078,19 @@ impl DeviceSettings {
     #[must_use]
     pub fn supported_by(&self, capabilities: &Capabilities) -> DeviceSettings {
         let scope = capabilities.per_stream;
+        let offset_hz = self.offset_hz.filter(|_| capabilities.tunes());
+        let offset = offset_hz.unwrap_or(0.0);
         DeviceSettings {
             center_hz: self
                 .center_hz
-                .filter(|hz| reaches(&capabilities.freq_ranges, *hz)),
+                .filter(|hz| reaches(&capabilities.freq_ranges, *hz - offset)),
             tuning: self.tuning,
             sample_rate: self.sample_rate.filter(|rate| {
                 capabilities.sample_rates.contains(rate)
                     || any_range_holds(&capabilities.sample_rate_ranges, *rate)
             }),
             ppm: self.ppm.filter(|_| capabilities.ppm),
+            offset_hz,
             antenna: self
                 .antenna
                 .clone()
@@ -1076,9 +1116,9 @@ impl DeviceSettings {
                 .filter(|stream| stream.stream < capabilities.rx_streams)
                 .map(|stream| StreamSettings {
                     stream: stream.stream,
-                    center_hz: stream
-                        .center_hz
-                        .filter(|hz| scope.tuning && reaches(&capabilities.freq_ranges, *hz)),
+                    center_hz: stream.center_hz.filter(|hz| {
+                        scope.tuning && reaches(&capabilities.freq_ranges, *hz - offset)
+                    }),
                     tuning: stream.tuning.filter(|_| scope.tuning),
                     gains: if scope.gain {
                         supported_gains(&stream.gains, capabilities)
@@ -1123,16 +1163,61 @@ impl DeviceSettings {
         self.bandwidth.and_then(BandwidthSetting::hz)
     }
 
-    /// The settings the driver is handed: the front end's own controls stay with the engine.
+    /// The local oscillator of a converter in front of the radio: what is shown is what the
+    /// radio is tuned to plus this.
+    #[must_use]
+    pub fn offset(&self) -> f64 {
+        self.offset_hz.unwrap_or(0.0)
+    }
+
+    /// The settings the driver is handed: the front end's own controls stay with the engine and
+    /// every frequency is the one the radio itself has to reach.
     #[must_use]
     pub fn to_hardware(&self) -> DeviceSettings {
         let mut hardware = self.clone();
         hardware.dc_block = None;
         hardware.tuning = None;
+        hardware.offset_hz = None;
+        shift_centers(&mut hardware, -self.offset());
         for stream in &mut hardware.streams {
             stream.tuning = None;
         }
         hardware
+    }
+
+    /// What a radio reports back, seen through the converter in front of it.
+    #[must_use]
+    pub fn from_hardware(mut hardware: DeviceSettings, offset_hz: Option<f64>) -> DeviceSettings {
+        shift_centers(&mut hardware, offset_hz.unwrap_or(0.0));
+        hardware.offset_hz = offset_hz;
+        hardware
+    }
+
+    /// Gives a delta the converter offset it is applied under. A delta that moves the offset
+    /// without naming a frequency leaves the radio where it is, so what is shown moves instead.
+    pub fn carry_offset(&self, delta: &mut DeviceSettings) {
+        let Some(offset_hz) = delta.offset_hz else {
+            delta.offset_hz = self.offset_hz;
+            return;
+        };
+        let moved = offset_hz - self.offset();
+        if delta.center_hz.is_none() {
+            delta.center_hz = self.center_hz.map(|hz| hz + moved);
+        }
+        for stream in &self.streams {
+            let Some(hz) = stream.center_hz else {
+                continue;
+            };
+            match delta.streams.iter_mut().find(|s| s.stream == stream.stream) {
+                Some(own) if own.center_hz.is_some() => {}
+                Some(own) => own.center_hz = Some(hz + moved),
+                None => delta.streams.push(StreamSettings {
+                    stream: stream.stream,
+                    center_hz: Some(hz + moved),
+                    ..StreamSettings::default()
+                }),
+            }
+        }
     }
 
     #[must_use]
@@ -1746,6 +1831,109 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec!["loop"]
         );
+    }
+
+    fn converted(center_hz: f64, offset_hz: f64) -> DeviceSettings {
+        DeviceSettings {
+            center_hz: Some(center_hz),
+            offset_hz: Some(offset_hz),
+            streams: vec![StreamSettings {
+                stream: 1,
+                center_hz: Some(center_hz + 1e6),
+                ..StreamSettings::default()
+            }],
+            ..DeviceSettings::default()
+        }
+    }
+
+    #[test]
+    fn the_radio_is_tuned_below_a_downconverter() {
+        let hardware = converted(9.85e9, 9.75e9).to_hardware();
+        assert_eq!(hardware.center_hz, Some(100e6));
+        assert_eq!(hardware.streams[0].center_hz, Some(101e6));
+        assert_eq!(hardware.offset_hz, None);
+    }
+
+    #[test]
+    fn the_radio_is_tuned_above_an_upconverter() {
+        let hardware = converted(7.1e6, -125e6).to_hardware();
+        assert_eq!(hardware.center_hz, Some(132.1e6));
+    }
+
+    #[test]
+    fn readback_is_seen_through_the_converter_again() {
+        let shown = converted(9.85e9, 9.75e9);
+        let back = DeviceSettings::from_hardware(shown.to_hardware(), shown.offset_hz);
+        assert_eq!(
+            back,
+            DeviceSettings {
+                tuning: None,
+                ..shown
+            }
+        );
+    }
+
+    #[test]
+    fn a_delta_without_an_offset_inherits_the_stored_one() {
+        let mut delta = DeviceSettings {
+            center_hz: Some(9.9e9),
+            ..DeviceSettings::default()
+        };
+        converted(9.85e9, 9.75e9).carry_offset(&mut delta);
+        assert_eq!(delta.offset_hz, Some(9.75e9));
+        assert_eq!(delta.to_hardware().center_hz, Some(150e6));
+    }
+
+    #[test]
+    fn moving_the_offset_alone_leaves_the_radio_where_it_is() {
+        let stored = converted(100e6, 0.0);
+        let mut delta = DeviceSettings {
+            offset_hz: Some(9.75e9),
+            ..DeviceSettings::default()
+        };
+        stored.carry_offset(&mut delta);
+        assert_eq!(delta.center_hz, Some(9.85e9));
+        assert_eq!(delta.streams[0].center_hz, Some(9.851e9));
+        assert_eq!(delta.to_hardware(), stored.to_hardware());
+    }
+
+    #[test]
+    fn a_named_frequency_wins_over_following_the_offset() {
+        let mut delta = DeviceSettings {
+            offset_hz: Some(9.75e9),
+            center_hz: Some(10e9),
+            ..DeviceSettings::default()
+        };
+        converted(100e6, 0.0).carry_offset(&mut delta);
+        assert_eq!(delta.center_hz, Some(10e9));
+    }
+
+    #[test]
+    fn a_stored_frequency_is_checked_against_the_radio_through_its_offset() {
+        let receiver = caps(vec![range(24e6, 1.766e9)], vec![2.048e6], Duplex::RxOnly);
+        let taken = converted(9.85e9, 9.75e9).supported_by(&receiver);
+        assert_eq!(taken.center_hz, Some(9.85e9));
+        assert_eq!(taken.offset_hz, Some(9.75e9));
+        let unreachable = converted(9.85e9, 0.0).supported_by(&receiver);
+        assert_eq!(unreachable.center_hz, None);
+    }
+
+    #[test]
+    fn a_recording_takes_no_converter_offset() {
+        let recording = caps(vec![range(9.85e9, 9.85e9)], vec![2.4e6], Duplex::RxOnly);
+        assert!(!recording.tunes());
+        let taken = converted(9.85e9, 9.75e9).supported_by(&recording);
+        assert_eq!(taken.offset_hz, None);
+        assert_eq!(taken.center_hz, Some(9.85e9));
+    }
+
+    #[test]
+    fn a_radio_reaches_further_through_a_converter() {
+        let receiver = caps(vec![range(24e6, 1.766e9)], vec![2.048e6], Duplex::RxOnly);
+        let seen = receiver.shifted_by(9.75e9);
+        assert_eq!(seen.freq_ranges[0].min, 9.774e9);
+        assert_eq!(seen.freq_ranges[0].max, 11.516e9);
+        assert_eq!(seen.shifted_by(-9.75e9), receiver);
     }
 
     #[test]

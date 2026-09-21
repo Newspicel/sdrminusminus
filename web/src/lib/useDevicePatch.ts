@@ -1,5 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useLayoutEffect, useRef } from "react";
+import { followOffset } from "../components/converter";
 import { patchDevice, STATE_KEY } from "./api";
 import { toastError } from "./toasts";
 import type { DeviceSettings, StateSnapshot, StreamScope, StreamSettings } from "./types";
@@ -17,6 +18,9 @@ export function mergeSettings(current: DeviceSettings, delta: DeviceSettings): D
   }
   if (delta.ppm != null) {
     next.ppm = delta.ppm;
+  }
+  if (delta.offset_hz != null) {
+    next.offset_hz = delta.offset_hz;
   }
   if (delta.antenna != null) {
     next.antenna = delta.antenna;
@@ -158,16 +162,18 @@ export function useDevicePatch(): {
   const applyPatch = (ds: number, delta: DeviceSettings): void => {
     void queryClient.cancelQueries({ queryKey: STATE_KEY });
     const prev = queryClient.getQueryData<StateSnapshot>(STATE_KEY);
-    if (!prev || !patchTargetExists(prev, ds)) {
+    const current = prev?.device_sets.find((d) => d.id === ds);
+    if (!prev || current === undefined) {
       return;
     }
+    const followed = followOffset(current.settings, delta);
     queryClient.setQueryData<StateSnapshot>(STATE_KEY, {
       ...prev,
       device_sets: prev.device_sets.map((d) =>
-        d.id === ds ? { ...d, settings: mergeSettings(d.settings, delta) } : d,
+        d.id === ds ? { ...d, settings: mergeSettings(d.settings, followed) } : d,
       ),
     });
-    queue.current?.(ds, delta);
+    queue.current?.(ds, followed);
   };
 
   const cachedSettings = (ds: number): DeviceSettings | undefined =>

@@ -43,7 +43,7 @@ fn fault_handler(
 /// Hands the sweep to the radio's firmware, taking the receive stream down for the duration. The
 /// spectrum tap survives the switch; the channels do not, and are rebuilt on the way back.
 pub(crate) fn enter(engine: &Engine, ds: u32, plan: &SweepPlan) -> Result<(), EngineError> {
-    let runtime = {
+    let (runtime, offset_hz) = {
         let inner = engine.lock();
         let state = inner
             .device_sets
@@ -59,7 +59,7 @@ pub(crate) fn enter(engine: &Engine, ds: u32, plan: &SweepPlan) -> Result<(), En
                 "the device set is not running".to_string(),
             ));
         }
-        state.runtime.clone()
+        (state.runtime.clone(), state.settings.offset())
     };
     let (device, taps) = {
         let mut current = lock_runtime(&runtime);
@@ -71,7 +71,14 @@ pub(crate) fn enter(engine: &Engine, ds: u32, plan: &SweepPlan) -> Result<(), En
     };
     let device =
         device.ok_or_else(|| EngineError::Scan("the radio is already down".to_string()))?;
-    match CaptureRuntime::start_sweep(device, plan, taps.clone(), fault_handler(engine, ds)) {
+    let started = CaptureRuntime::start_sweep(
+        device,
+        &plan.shifted_by(-offset_hz),
+        offset_hz,
+        taps.clone(),
+        fault_handler(engine, ds),
+    );
+    match started {
         Ok(sweeping) => swap_runtime(engine, ds, sweeping),
         Err((device, refused)) => {
             restore_receiving(engine, ds, device, taps)?;

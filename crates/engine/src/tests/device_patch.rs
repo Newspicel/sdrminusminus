@@ -369,3 +369,69 @@ async fn a_channel_added_mid_tune_does_not_drag_the_radio_back_to_where_it_was()
     );
     engine.remove_device_set(ds).unwrap();
 }
+
+#[tokio::test]
+async fn a_converter_offset_moves_what_is_shown_and_leaves_the_radio_still() {
+    let engine = virtual_engine();
+    let ds = engine.create_device_set("virtual:siggen").unwrap();
+    engine
+        .patch_device(
+            ds,
+            DeviceSettings {
+                center_hz: Some(TEST_CENTER_HZ),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    engine
+        .patch_device(
+            ds,
+            DeviceSettings {
+                offset_hz: Some(9.75e9),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+    let set = engine.snapshot().device_sets[0].clone();
+    assert_eq!(set.settings.center_hz, Some(TEST_CENTER_HZ + 9.75e9));
+    assert_eq!(set.settings.offset_hz, Some(9.75e9));
+    assert_eq!(set.capabilities.freq_ranges[0].min, 9.75e9);
+    assert_eq!(set.capabilities.freq_ranges[0].max, 15.75e9);
+    let radio = engine.capabilities(ds).unwrap();
+    assert_eq!(radio.freq_ranges[0].min, 0.0);
+    engine.remove_device_set(ds).unwrap();
+}
+
+#[tokio::test]
+async fn tuning_through_a_converter_reaches_what_the_radio_alone_cannot() {
+    let engine = virtual_engine();
+    let ds = engine.create_device_set("virtual:siggen").unwrap();
+    engine
+        .patch_device(
+            ds,
+            DeviceSettings {
+                center_hz: Some(9.85e9),
+                offset_hz: Some(9.75e9),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    assert_eq!(
+        engine.snapshot().device_sets[0].settings.center_hz,
+        Some(9.85e9)
+    );
+
+    let below_the_radio = engine.patch_device(
+        ds,
+        DeviceSettings {
+            center_hz: Some(TEST_CENTER_HZ),
+            ..Default::default()
+        },
+    );
+    assert!(
+        below_the_radio.is_err(),
+        "100 MHz through a 9.75 GHz converter is nothing the radio reaches"
+    );
+    engine.remove_device_set(ds).unwrap();
+}

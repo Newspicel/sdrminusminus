@@ -603,6 +603,7 @@ pub fn read(target: &Target<'_>, bandwidth_auto: bool) -> DeviceSettings {
         tuning: None,
         sample_rate: Some(target.output_rate_hz()),
         ppm: Some(target.dev.ppm),
+        offset_hz: None,
         antenna: read_antenna(target),
         bandwidth: Some(if bandwidth_auto {
             BandwidthSetting::Auto

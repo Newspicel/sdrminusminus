@@ -328,10 +328,13 @@ impl Engine {
                 return;
             }
         };
-        let capabilities = device.capabilities().clone();
+        let capabilities = device.capabilities().shifted_by(stored_settings.offset());
         let playback = device.playback();
         let mut settings = stored_settings.clone();
-        settings.merge_from(device.settings());
+        settings.merge_from(&DeviceSettings::from_hardware(
+            device.settings().clone(),
+            stored_settings.offset_hz,
+        ));
         let rate = sample_rate_of(&settings);
         let blocking = dc_block(&capabilities, &settings);
         let gate = Arc::new(Mutex::new(FaultGate::Pending(None)));
@@ -656,13 +659,14 @@ impl Engine {
             .map(|state| state.runtime.clone())
     }
 
-    /// What the radio open on this set can do, for a caller deciding what to ask of it.
+    /// What the radio open on this set can do by itself, for a caller deciding what to ask of
+    /// it. Frequencies are the radio's own; the snapshot shows them through the converter.
     #[must_use]
     pub fn capabilities(&self, ds: u32) -> Option<Capabilities> {
         self.lock()
             .device_sets
             .get(&ds)
-            .map(|state| state.capabilities.clone())
+            .map(DeviceSetState::hardware_capabilities)
     }
 
     pub(crate) fn settle_tuning(&self, ds: u32) -> bool {
@@ -693,7 +697,7 @@ impl Engine {
     pub(crate) fn patch_device_from(
         &self,
         ds: u32,
-        delta: DeviceSettings,
+        mut delta: DeviceSettings,
     ) -> Result<(), EngineError> {
         let serialized = self
             .runtime_of(ds)
@@ -710,6 +714,7 @@ impl Engine {
                 .device_sets
                 .get_mut(&ds)
                 .ok_or(EngineError::DeviceSetNotFound(ds))?;
+            state.settings.carry_offset(&mut delta);
             let (hardware, rate_change) = state.validate_patch(&delta)?;
             let runtime = state.runtime.clone();
             let guard = rate_change.then(|| {
@@ -718,7 +723,9 @@ impl Engine {
             });
             (runtime, hardware, guard)
         };
-        let actual = runtime.apply(&hardware)?;
+        let actual = runtime
+            .apply(&hardware)?
+            .map(|actual| DeviceSettings::from_hardware(actual, delta.offset_hz));
         let (settings, blocking, rate, rebuilds, retuned) = {
             let mut inner = self.lock();
             let state = inner
@@ -809,7 +816,7 @@ impl Engine {
                     .collect()
             };
             if let Some(current) = lock_runtime(&state.runtime).capabilities() {
-                state.capabilities = current;
+                state.capabilities = current.shifted_by(state.settings.offset());
             }
             let settings = state.settings.clone();
             let blocking = dc_block(&state.capabilities, &settings);
@@ -876,7 +883,7 @@ impl DeviceSetState {
         delta: &DeviceSettings,
     ) -> Result<(DeviceSettings, bool), EngineError> {
         let hardware = delta.to_hardware();
-        validate_streams(&self.capabilities, &hardware)?;
+        validate_streams(&self.hardware_capabilities(), &hardware)?;
         let rate_change = delta
             .sample_rate
             .is_some_and(|rate| rate != sample_rate_of(&self.settings));

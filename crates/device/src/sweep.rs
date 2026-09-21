@@ -24,6 +24,21 @@ impl SweepPlan {
         }
     }
 
+    #[must_use]
+    pub fn shifted_by(&self, hz: f64) -> Self {
+        Self {
+            bands: self
+                .bands
+                .iter()
+                .map(|band| SweepBand {
+                    start_hz: band.start_hz + hz,
+                    stop_hz: band.stop_hz + hz,
+                })
+                .collect(),
+            sample_rate_hz: self.sample_rate_hz,
+        }
+    }
+
     pub fn check(&self) -> Result<(), DeviceError> {
         if self.bands.is_empty() {
             return Err(DeviceError::Unsupported(

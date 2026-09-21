@@ -11381,6 +11381,13 @@
               "$ref": "#/components/schemas/GainValue"
             }
           },
+          "offset_hz": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
           "ppm": {
             "type": [
               "number",

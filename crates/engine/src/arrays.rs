@@ -247,6 +247,12 @@ impl Engine {
     }
 
     pub(crate) fn patch_array(&self, ds: u32, delta: DeviceSettings) -> Result<(), EngineError> {
+        if delta.offset_hz.is_some() {
+            return Err(DeviceError::Unsupported(
+                "set the converter offset on each radio of the array".into(),
+            )
+            .into());
+        }
         let (binding, before) = {
             let inner = self.lock();
             let state = inner

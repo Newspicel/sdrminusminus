@@ -40,6 +40,11 @@ describe("mergeSettings", () => {
     expect(mergeSettings(next, {}).bandwidth).toEqual({ kind: "auto" });
   });
 
+  it("overlays the converter offset", () => {
+    const next = mergeSettings({ center_hz: 9.85e9, offset_hz: 9.75e9 }, { offset_hz: 10.6e9 });
+    expect(next).toEqual({ center_hz: 9.85e9, offset_hz: 10.6e9 });
+  });
+
   it("overlays the front-end switches", () => {
     const current: DeviceSettings = { bias_tee: false, agc: { on: false } };
     const next = mergeSettings(current, { agc: { on: true, mode: "slow_attack" } });
