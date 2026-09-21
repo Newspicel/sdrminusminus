@@ -261,7 +261,17 @@ pub(crate) fn capture(
                 settings: channel.settings.clone(),
             });
         }
-        if set.scanners.is_empty() {
+        let follows_a_scan = set.scanners.iter().any(|scan| {
+            set.channels
+                .iter()
+                .find(|channel| channel.id == scan.settings.channel)
+                .is_some_and(|channel| {
+                    set.settings
+                        .for_stream(channel.stream, &set.capabilities.per_stream)
+                        .tunes_itself()
+                })
+        });
+        if !follows_a_scan {
             devices.push(WorkspaceDevice {
                 node: binding.node,
                 settings: set.settings.clone(),
