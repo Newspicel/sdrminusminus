@@ -159,6 +159,9 @@ The level meter marks the opening threshold. Auto learns during quiet periods, s
 signal can be mistaken for noise. Once open, the floor cannot rise and suppress a long transmission.
 Returning to Manual restores the previous manual threshold.
 
+Squelch gates audio, so only channels with audio show it. Data decoders and the Signal identifier
+have their own detection thresholds.
+
 NFM also supports tone squelch:
 
 | Setting | Behaviour |
@@ -207,6 +210,9 @@ decoder can run at the identifier's rate.
 
 **Interval** sets the observation length. **Threshold** sets the required level above noise.
 Results settle across recent windows to reduce changes caused by one noisy measurement.
+
+A report arrives every interval while something is on the air. A quiet span is reported once,
+when the last signal disappears, so an idle channel does not fill the log.
 
 The identifier can recognise some wider signals from a partial slice, but cannot detect
 spread-spectrum signals below noise or resolve densely packed 50 Hz HF signals.
@@ -282,6 +288,22 @@ Disable it to follow traffic without audio buffering.
 
 Events include source, frequency, and timestamp. Use **Readout** for current state, **Decoder log**
 for message history, **Map** for positions, and **Export** for saved rows.
+
+### Filtering events
+
+Wire an **Event filter** between a decoder and its outputs. Every rule that is set must match.
+
+| Mode | Behaviour |
+|---|---|
+| Keep | Only matching events pass |
+| Drop | Matching events are removed, everything else passes |
+
+Rules that do not apply to a kind are ignored: a talkgroup rule never judges an aircraft. A drop
+filter with no rules drops nothing. Chain filters to combine a keep with a drop, for example
+keep POCSAG, then drop messages containing `TEST`.
+
+A filter shapes what reaches the nodes after it from the moment it is set. Rows already in the
+Decoder log stay until they are cleared or age out.
 
 Decoder-log retention is bounded. SSTV images use a separate picture store: the log records
 arrival, while `GET /api/images` serves the pictures.

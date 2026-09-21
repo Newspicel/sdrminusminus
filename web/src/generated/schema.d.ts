@@ -2331,6 +2331,7 @@ export interface components {
             squelch?: components["schemas"]["Squelch"];
         };
         ChannelTypesResponse: {
+            facets?: components["schemas"]["EventKindFacets"][];
             types: components["schemas"]["ChannelDescriptor"][];
         };
         /** @enum {string} */
@@ -2846,6 +2847,7 @@ export interface components {
             event: components["schemas"]["DecoderEvent"];
             /** Format: double */
             freq_hz: number;
+            sinks?: string[];
         };
         DecoderEvent: {
             data: components["schemas"]["RdsUpdate"];
@@ -3582,6 +3584,8 @@ export interface components {
             media_type: string;
             url: string;
         };
+        /** @enum {string} */
+        EventFacet: "position" | "voice" | "duration";
         EventFilterNode: {
             contains?: string | null;
             emergency?: boolean | null;
@@ -3590,6 +3594,7 @@ export interface components {
             kinds?: string[];
             /** Format: int32 */
             min_duration_ms?: number;
+            mode?: components["schemas"]["FilterMode"];
             radios?: number[];
             stations?: string[];
             talkgroups?: number[];
@@ -3597,6 +3602,10 @@ export interface components {
         EventImage: {
             media_type: string;
             url: string;
+        };
+        EventKindFacets: {
+            facets: components["schemas"]["EventFacet"][];
+            kind: string;
         };
         EventOutputNode: {
             target: components["schemas"]["EventOutputTarget"];
@@ -3661,6 +3670,8 @@ export interface components {
             name: string;
             value: unknown;
         };
+        /** @enum {string} */
+        FilterMode: "keep" | "drop";
         FlexMessage: {
             /** Format: int64 */
             address: number;
@@ -7172,6 +7183,7 @@ export interface operations {
                 nodes?: string;
                 q?: string;
                 since?: string;
+                sink?: string;
                 sources?: string;
                 until?: string;
             };
@@ -7211,6 +7223,7 @@ export interface operations {
                 nodes?: string;
                 q?: string;
                 since?: string;
+                sink?: string;
                 sources?: string;
                 until?: string;
             };
@@ -7250,6 +7263,7 @@ export interface operations {
                 nodes?: string;
                 q?: string;
                 since?: string;
+                sink?: string;
                 sources?: string;
                 until?: string;
             };

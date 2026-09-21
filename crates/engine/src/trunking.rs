@@ -1261,6 +1261,7 @@ mod tests {
 
     fn record(carrier: (u32, u32), frame: DvFrame) -> DecodedRecord {
         DecodedRecord {
+            sinks: Vec::new(),
             device_set: carrier.0,
             channel: carrier.1,
             at: "2026-08-14T10:00:00Z".to_owned(),

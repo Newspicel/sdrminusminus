@@ -29,6 +29,7 @@ mod basemap;
 mod calls;
 pub(crate) mod coherent;
 pub(crate) mod cps;
+mod decoded;
 mod decoderlog;
 pub(crate) mod df_fusion;
 pub mod diagnostics;
@@ -75,6 +76,7 @@ pub(crate) struct AppState {
     pub apply_gate: Arc<std::sync::Mutex<()>>,
     decoder_log_dropped: Arc<AtomicU64>,
     pub decoded_text: tokio::sync::broadcast::Sender<axum::extract::ws::Utf8Bytes>,
+    pub(crate) decoded: decoded::Feed,
     pub(crate) tracks: Arc<tracks::Tracks>,
     pub(crate) calls: Arc<calls::Calls>,
     pub(crate) images: Arc<images::Images>,
@@ -102,6 +104,7 @@ impl AppState {
             apply_gate: Arc::new(std::sync::Mutex::new(())),
             decoder_log_dropped: Arc::new(AtomicU64::new(0)),
             decoded_text: tokio::sync::broadcast::channel(DECODED_TEXT_CAP).0,
+            decoded: decoded::feed(),
             tracks: Arc::new(tracks::Tracks::default()),
             calls: Arc::new(calls::Calls::default()),
             images: Arc::new(images::Images::default()),
@@ -235,12 +238,19 @@ impl Drop for Background {
 
 fn start_background(state: &AppState) -> Background {
     let (recording_tx, recording_rx) = tokio::sync::watch::channel(trunking::Recording::default());
+    let routing = {
+        let engine = Arc::downgrade(&state.engine);
+        let store = state.store.clone();
+        let feed = state.decoded.clone();
+        spawn_task("sdrmm-decoded", move || decoded::run(engine, store, feed))
+    };
     let log = {
-        let engine = state.engine.clone();
+        let engine = Arc::downgrade(&state.engine);
         let store = state.store.clone();
         let dropped = state.decoder_log_dropped.clone();
+        let records = state.decoded.subscribe();
         spawn_task("sdrmm-decoderlog", move || {
-            decoderlog::run(engine, store, dropped)
+            decoderlog::run(records, engine, store, dropped)
         })
     };
     let patch = {
@@ -266,12 +276,13 @@ fn start_background(state: &AppState) -> Background {
         let engine = Arc::downgrade(&state.engine);
         let store = state.store.clone();
         let calls = state.calls.clone();
+        let records = state.decoded.subscribe();
         spawn_task("sdrmm-event-output", move || {
-            event_output::run(engine, store, calls)
+            event_output::run(records, engine, store, calls)
         })
     };
     Background {
-        tasks: vec![log, patch, calls, images, event_output],
+        tasks: vec![routing, log, patch, calls, images, event_output],
         detached: false,
     }
 }

@@ -1,16 +1,18 @@
 use std::{
     collections::{HashMap, HashSet},
     path::Path,
-    sync::{LazyLock, Mutex, MutexGuard},
+    sync::{Mutex, MutexGuard},
 };
 
 use rusqlite::{Connection, OptionalExtension, params, params_from_iter, types::Value};
 use sdrmm_wire::{
-    Bookmark, CreateBookmarkRequest, DecodedRecord, DecoderLogEntry, DecoderLogQuery, LogScope,
-    PresetInfo, PresetSnapshot, RecordingInfo, UpdateWorkspaceRequest, WorkspaceDetail,
-    WorkspaceError, WorkspaceExport, WorkspaceHistory, WorkspaceInfo, WorkspaceSnapshot,
-    WorkspaceState, WorkspacesResponse,
+    Bookmark, CreateBookmarkRequest, DecoderLogEntry, DecoderLogQuery, LogScope, PresetInfo,
+    PresetSnapshot, RecordingInfo, UpdateWorkspaceRequest, WorkspaceDetail, WorkspaceError,
+    WorkspaceExport, WorkspaceHistory, WorkspaceInfo, WorkspaceSnapshot, WorkspaceState,
+    WorkspacesResponse,
 };
+
+use crate::events::Routed;
 
 #[derive(Debug, thiserror::Error)]
 pub enum StoreError {
@@ -270,6 +272,19 @@ const MIGRATIONS: &[&str] = &[
     -- this column.
     ALTER TABLE recordings ADD COLUMN name TEXT;
     ",
+    "
+    CREATE TABLE decoder_log_sinks (
+        sink TEXT NOT NULL,
+        at TEXT NOT NULL,
+        entry INTEGER NOT NULL,
+        PRIMARY KEY (sink, at, entry)
+    ) WITHOUT ROWID;
+    CREATE INDEX decoder_log_sinks_entry ON decoder_log_sinks (entry);
+    CREATE TRIGGER decoder_log_sinks_gc AFTER DELETE ON decoder_log
+    BEGIN
+        DELETE FROM decoder_log_sinks WHERE entry = OLD.id;
+    END;
+    ",
 ];
 
 pub const WORKSPACE_HISTORY_DEPTH: i64 = 100;
@@ -310,22 +325,6 @@ pub struct RecordingRow {
     pub bytes: u64,
     pub tags: Vec<String>,
     pub note: Option<String>,
-}
-
-pub struct LogOrigin<'a> {
-    pub workspace: Option<i64>,
-    pub nodes: &'a HashMap<(u32, u32), String>,
-}
-
-impl LogOrigin<'static> {
-    #[must_use]
-    pub fn unattributed() -> Self {
-        static NONE: LazyLock<HashMap<(u32, u32), String>> = LazyLock::new(HashMap::new);
-        Self {
-            workspace: None,
-            nodes: &NONE,
-        }
-    }
 }
 
 pub struct Store {
@@ -538,11 +537,7 @@ impl Store {
         Ok(())
     }
 
-    pub fn insert_decoder_events(
-        &self,
-        records: &[DecodedRecord],
-        origin: &LogOrigin<'_>,
-    ) -> Result<usize, StoreError> {
+    pub(crate) fn insert_decoder_events(&self, records: &[Routed]) -> Result<usize, StoreError> {
         if records.is_empty() {
             return Ok(0);
         }
@@ -554,19 +549,28 @@ impl Store {
                  freq_hz, station, summary, event) \
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
             )?;
-            for record in records {
+            let mut mark = tx.prepare_cached(
+                "INSERT INTO decoder_log_sinks (sink, at, entry) VALUES (?1, ?2, ?3)",
+            )?;
+            for routed in records {
+                let record = &routed.record;
+                let at = normalize_timestamp(&record.at)?;
                 stmt.execute(params![
-                    normalize_timestamp(&record.at)?,
+                    at,
                     record.device_set,
                     record.channel,
-                    origin.workspace,
-                    origin.nodes.get(&(record.device_set, record.channel)),
+                    routed.workspace,
+                    routed.source,
                     record.event.kind(),
                     record.freq_hz,
                     record.event.station(),
                     record.event.summary(),
                     serde_json::to_string(&record.event)?,
                 ])?;
+                let entry = tx.last_insert_rowid();
+                for sink in &record.sinks {
+                    mark.execute(params![sink, at, entry])?;
+                }
             }
         }
         tx.commit()?;
@@ -592,7 +596,10 @@ impl Store {
         let predicate = self.decoder_log_predicate(filter)?;
         let conn = self.lock();
         let total: i64 = conn.query_row(
-            &format!("SELECT COUNT(*) FROM decoder_log{}", predicate.clause),
+            &format!(
+                "SELECT COUNT(*) FROM {}{}",
+                predicate.from, predicate.clause
+            ),
             params_from_iter(&predicate.params),
             |row| row.get(0),
         )?;
@@ -612,7 +619,10 @@ impl Store {
     pub fn delete_decoder_log(&self, filter: &DecoderLogQuery) -> Result<u64, StoreError> {
         let predicate = self.decoder_log_predicate(filter)?;
         let deleted = self.lock().execute(
-            &format!("DELETE FROM decoder_log{}", predicate.clause),
+            &format!(
+                "DELETE FROM decoder_log WHERE id IN (SELECT decoder_log.id FROM {}{})",
+                predicate.from, predicate.clause
+            ),
             params_from_iter(&predicate.params),
         )?;
         Ok(deleted as u64)
@@ -1657,9 +1667,10 @@ fn select_decoder_log(
     limit: u32,
 ) -> Result<Vec<DecoderLogEntry>, StoreError> {
     let mut stmt = conn.prepare(&format!(
-        "SELECT id, at, device_set, channel, node, kind, freq_hz, station, summary, event \
-         FROM decoder_log{} ORDER BY at DESC, id DESC LIMIT ?",
-        predicate.clause
+        "SELECT decoder_log.id, decoder_log.at, decoder_log.device_set, decoder_log.channel, \
+         decoder_log.node, decoder_log.kind, decoder_log.freq_hz, decoder_log.station, \
+         decoder_log.summary, decoder_log.event FROM {}{} ORDER BY {} LIMIT ?",
+        predicate.from, predicate.clause, predicate.order
     ))?;
     let mut params = predicate.params.clone();
     params.push(Value::Integer(i64::from(limit)));
@@ -1696,7 +1707,17 @@ fn select_decoder_log(
     Ok(entries)
 }
 
+const LOG_FROM: &str = "decoder_log";
+
+const LOG_FROM_SINK: &str = "decoder_log_sinks AS s JOIN decoder_log ON decoder_log.id = s.entry";
+
+const LOG_ORDER: &str = "decoder_log.at DESC, decoder_log.id DESC";
+
+const LOG_ORDER_SINK: &str = "s.at DESC, s.entry DESC";
+
 struct DecoderLogPredicate {
+    from: &'static str,
+    order: &'static str,
     clause: String,
     params: Vec<Value>,
 }
@@ -1711,8 +1732,21 @@ impl DecoderLogPredicate {
         let mut terms: Vec<&str> = Vec::new();
         let mut params = Vec::new();
         let kinds_term: String;
+        let (from, order) = match &filter.sink {
+            Some(sink) => {
+                if sink.is_empty() || sink.len() > sdrmm_wire::patch::MAX_NODE_ID_LEN {
+                    return Err(StoreError::Sources(sink.clone()));
+                }
+                terms.push("s.sink = ?");
+                params.push(Value::Text(sink.clone()));
+                terms.push("decoder_log.workspace IS ?");
+                params.push(workspace.map_or(Value::Null, Value::Integer));
+                (LOG_FROM_SINK, LOG_ORDER_SINK)
+            }
+            None => (LOG_FROM, LOG_ORDER),
+        };
         if let Some(kind) = &filter.kind {
-            terms.push("kind = ?");
+            terms.push("decoder_log.kind = ?");
             params.push(Value::Text(kind.clone()));
         }
         let kinds = filter
@@ -1720,14 +1754,14 @@ impl DecoderLogPredicate {
             .map_err(|bad| StoreError::Sources(bad.to_owned()))?;
         if !kinds.is_empty() {
             let holes = vec!["?"; kinds.len()].join(", ");
-            kinds_term = format!("kind IN ({holes})");
+            kinds_term = format!("decoder_log.kind IN ({holes})");
             terms.push(&kinds_term);
             for kind in kinds {
                 params.push(Value::Text(kind));
             }
         }
         if let Some(device_set) = filter.device_set {
-            terms.push("device_set = ?");
+            terms.push("decoder_log.device_set = ?");
             params.push(Value::Integer(i64::from(device_set)));
         }
         let scope = filter
@@ -1738,15 +1772,17 @@ impl DecoderLogPredicate {
             terms.push(&sources_term);
         }
         if let Some(since) = &filter.since {
-            terms.push("at >= ?");
+            terms.push("decoder_log.at >= ?");
             params.push(Value::Text(normalize_timestamp(since)?));
         }
         if let Some(until) = &filter.until {
-            terms.push("at <= ?");
+            terms.push("decoder_log.at <= ?");
             params.push(Value::Text(normalize_timestamp(until)?));
         }
         if let Some(q) = &filter.q {
-            terms.push("(station LIKE ? ESCAPE '\\' OR summary LIKE ? ESCAPE '\\')");
+            terms.push(
+                "(decoder_log.station LIKE ? ESCAPE '\\' OR decoder_log.summary LIKE ? ESCAPE '\\')",
+            );
             let pattern = Value::Text(format!("%{}%", escape_like(q)));
             params.push(pattern.clone());
             params.push(pattern);
@@ -1756,7 +1792,12 @@ impl DecoderLogPredicate {
         } else {
             format!(" WHERE {}", terms.join(" AND "))
         };
-        Ok(Self { clause, params })
+        Ok(Self {
+            from,
+            order,
+            clause,
+            params,
+        })
     }
 }
 
@@ -1775,7 +1816,9 @@ fn scope_clause(
             params.push(Value::Text(node.clone()));
         }
         let slots = vec!["?"; scope.nodes.len()].join(", ");
-        halves.push(format!("(workspace = ? AND node IN ({slots}))"));
+        halves.push(format!(
+            "(decoder_log.workspace = ? AND decoder_log.node IN ({slots}))"
+        ));
     }
     if !scope.channels.is_empty() {
         params.push(Value::Text(run_start.to_owned()));
@@ -1783,9 +1826,10 @@ fn scope_clause(
             params.push(Value::Integer(i64::from(*device_set)));
             params.push(Value::Integer(i64::from(*channel)));
         }
-        let pairs = vec!["(device_set = ? AND channel = ?)"; scope.channels.len()];
+        let pairs =
+            vec!["(decoder_log.device_set = ? AND decoder_log.channel = ?)"; scope.channels.len()];
         halves.push(format!(
-            "(node IS NULL AND at >= ? AND ({}))",
+            "(decoder_log.node IS NULL AND decoder_log.at >= ? AND ({}))",
             pairs.join(" OR ")
         ));
     }

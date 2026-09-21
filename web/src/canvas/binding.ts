@@ -3,7 +3,6 @@ import type {
   DeviceInfo,
   DeviceRef,
   DeviceSet,
-  EventFilterNode,
   NodeKind,
   PatchGraph,
   PatchNode,
@@ -279,30 +278,24 @@ export function sourcesOf(graph: PatchGraph, node: string, port: string): string
 
 const MAX_FILTER_DEPTH = 16;
 
-export interface EventPath {
-  source: string;
-  filters: EventFilterNode[];
-}
-
-export function eventPathsOf(graph: PatchGraph, node: string, depth = 0): EventPath[] {
+function walkEventSources(graph: PatchGraph, node: string, depth: number, seen: Set<string>) {
   if (depth > MAX_FILTER_DEPTH) {
-    return [];
+    return;
   }
-  return sourcesOf(graph, node, "events").flatMap((source) => {
+  for (const source of sourcesOf(graph, node, "events")) {
     const found = (graph.nodes ?? []).find((candidate) => candidate.id === source);
-    if (found?.kind !== "event_filter") {
-      return [{ source, filters: [] }];
+    if (found?.kind === "event_filter") {
+      walkEventSources(graph, source, depth + 1, seen);
+    } else {
+      seen.add(source);
     }
-    const settings = found.data ?? {};
-    return eventPathsOf(graph, source, depth + 1).map((path) => ({
-      source: path.source,
-      filters: [...path.filters, settings],
-    }));
-  });
+  }
 }
 
 export function eventSourcesOf(graph: PatchGraph, node: string): string[] {
-  return [...new Set(eventPathsOf(graph, node).map((path) => path.source))];
+  const seen = new Set<string>();
+  walkEventSources(graph, node, 0, seen);
+  return [...seen];
 }
 
 export function wiredSourcesOf(graph: PatchGraph, node: string): WiredSource[] {

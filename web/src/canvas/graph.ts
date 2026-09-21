@@ -3,6 +3,7 @@ import type {
   ChannelDescriptor,
   DeviceSet,
   Duplex,
+  EventKindFacets,
   NodeKind,
   PatchCatalog,
   PatchEdge,
@@ -19,6 +20,7 @@ import { elementCount } from "./nodes/df";
 export interface GraphContext {
   catalog: PatchCatalog;
   channelTypes: readonly ChannelDescriptor[];
+  facets: readonly EventKindFacets[];
   bound?: ReadonlyMap<string, DeviceSet>;
 }
 

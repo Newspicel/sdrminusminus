@@ -25,10 +25,8 @@ import {
   type LogRow,
   logDownloads,
   matchesFilter,
-  passesGate,
   readColumnWidths,
   resizeColumn,
-  sourceSet,
   toQuery,
   totalColumnWidth,
   type WireScope,
@@ -75,29 +73,20 @@ export function DecoderLogPanel({ wires }: { wires: WireScope }) {
 
   const query = toQuery(filter, wires);
   const log = useQuery(decoderLogQuery(query));
-  const frames = useDecodedStore((s) => (wires.sources === "" ? NO_FRAMES : s.frames));
+  const frames = useDecodedStore((s) => (wires.wired ? s.frames : NO_FRAMES));
   const lost = useDecodedStore((s) => s.lost);
-  const wired = useMemo(() => sourceSet(wires.sources), [wires.sources]);
 
-  const entries = useMemo(
-    () =>
-      (log.data?.entries ?? []).filter((entry) =>
-        passesGate(wires.gate, `${entry.device_set}:${entry.channel}`, entry.event),
-      ),
-    [log.data, wires.gate],
-  );
+  const entries = log.data?.entries;
   const rows = useMemo(
-    () => buildRows(entries, collectLive(frames, filter, wired, wires.gate)),
-    [entries, frames, filter, wired, wires.gate],
+    () => buildRows(entries ?? [], collectLive(frames, filter, wires.sink)),
+    [entries, frames, filter, wires.sink],
   );
 
   const clearMut = useMutation({
     mutationFn: () => clearDecoderLog(query),
     onSuccess: (deleted) => {
       const live = rows.filter((row) => row.live).length;
-      useDecodedStore
-        .getState()
-        .dropFrames((record) => matchesFilter(record, filter, wired, wires.gate));
+      useDecodedStore.getState().dropFrames((record) => matchesFilter(record, filter, wires.sink));
       setError(null);
       setCleared(deleted + live);
     },

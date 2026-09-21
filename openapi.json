@@ -1524,6 +1524,14 @@
             }
           },
           {
+            "name": "sink",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "name": "since",
             "in": "query",
             "required": false,
@@ -1620,6 +1628,14 @@
           },
           {
             "name": "sources",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "sink",
             "in": "query",
             "required": false,
             "schema": {
@@ -1734,6 +1750,14 @@
           },
           {
             "name": "sources",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "sink",
             "in": "query",
             "required": false,
             "schema": {
@@ -7974,6 +7998,12 @@
           "types"
         ],
         "properties": {
+          "facets": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/EventKindFacets"
+            }
+          },
           "types": {
             "type": "array",
             "items": {
@@ -9834,6 +9864,12 @@
           "freq_hz": {
             "type": "number",
             "format": "double"
+          },
+          "sinks": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           }
         }
       },
@@ -12605,6 +12641,14 @@
           }
         }
       },
+      "EventFacet": {
+        "type": "string",
+        "enum": [
+          "position",
+          "voice",
+          "duration"
+        ]
+      },
       "EventFilterNode": {
         "type": "object",
         "properties": {
@@ -12643,6 +12687,9 @@
             "format": "int32",
             "minimum": 0
           },
+          "mode": {
+            "$ref": "#/components/schemas/FilterMode"
+          },
           "radios": {
             "type": "array",
             "items": {
@@ -12678,6 +12725,24 @@
             "type": "string"
           },
           "url": {
+            "type": "string"
+          }
+        }
+      },
+      "EventKindFacets": {
+        "type": "object",
+        "required": [
+          "kind",
+          "facets"
+        ],
+        "properties": {
+          "facets": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/EventFacet"
+            }
+          },
+          "kind": {
             "type": "string"
           }
         }
@@ -12947,6 +13012,13 @@
           },
           "value": {}
         }
+      },
+      "FilterMode": {
+        "type": "string",
+        "enum": [
+          "keep",
+          "drop"
+        ]
       },
       "FlexMessage": {
         "type": "object",

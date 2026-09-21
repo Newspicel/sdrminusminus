@@ -150,7 +150,7 @@ const TYPES: ChannelDescriptor[] = [
   },
 ];
 
-const context: GraphContext = { catalog: CATALOG, channelTypes: TYPES };
+const context: GraphContext = { catalog: CATALOG, channelTypes: TYPES, facets: [] };
 
 function node(id: string, body: Partial<PatchNode> & Pick<PatchNode, "kind">): PatchNode {
   return { id, position: { x: 0, y: 0 }, ...body } as PatchNode;

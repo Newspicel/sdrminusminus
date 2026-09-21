@@ -791,6 +791,7 @@ impl Engine {
                     let Some(raw) = raw else { continue };
                     let at = format!("{:.9}", jiff::Timestamp::now());
                     let record = DecodedRecord {
+                        sinks: Vec::new(),
                         device_set: raw.device_set,
                         channel: raw.channel,
                         at,

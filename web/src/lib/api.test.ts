@@ -87,15 +87,12 @@ describe("recordingDownloadUrl", () => {
 describe("decoderLogExportUrl", () => {
   afterEach(() => setToken(null));
 
-  it("drops a blank text filter but never a blank wire scope", () => {
+  it("drops blank fields and carries the sink it exports for", () => {
     expect(decoderLogExportUrl("csv", { q: "", kind: "adsb" })).toBe(
       "/api/decoderlog/export/csv?kind=adsb",
     );
-    expect(decoderLogExportUrl("csv", { nodes: "", sources: "" })).toBe(
-      "/api/decoderlog/export/csv?nodes=&sources=",
-    );
-    expect(decoderLogExportUrl("json", { nodes: "channel:a1", sources: "0:1,0:2" })).toBe(
-      "/api/decoderlog/export/json?nodes=channel%3Aa1&sources=0%3A1%2C0%3A2",
+    expect(decoderLogExportUrl("json", { sink: "export:a1", q: "wx" })).toBe(
+      "/api/decoderlog/export/json?sink=export%3Aa1&q=wx",
     );
   });
 

@@ -813,12 +813,10 @@ export function decoderLogExportUrl(format: ExportFormat, filter: DecoderLogFilt
   );
 }
 
-const SCOPE_FIELDS: ReadonlySet<string> = new Set(["nodes", "sources"]);
-
 function normalizeFilter(filter: DecoderLogFilter): DecoderLogFilter {
   const normalized: DecoderLogFilter = {};
   for (const [key, value] of Object.entries(filter)) {
-    if (value != null && (value !== "" || SCOPE_FIELDS.has(key))) {
+    if (value != null && value !== "") {
       (normalized as Record<string, string | number>)[key] = value;
     }
   }

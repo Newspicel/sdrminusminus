@@ -113,6 +113,7 @@ mod tests {
 
     fn adsb(icao: &str, at: &str) -> DecodedRecord {
         DecodedRecord {
+            sinks: Vec::new(),
             device_set: 0,
             channel: 0,
             at: at.to_string(),
@@ -178,6 +179,7 @@ mod tests {
     fn an_event_with_no_station_identity_is_not_tracked() {
         let tracks = Tracks::default();
         tracks.observe(&DecodedRecord {
+            sinks: Vec::new(),
             device_set: 0,
             channel: 0,
             at: "2026-08-10T00:00:00.000000000Z".to_string(),

@@ -98,6 +98,8 @@ pub struct CreateChannelRequest {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct ChannelTypesResponse {
     pub types: Vec<ChannelDescriptor>,
+    #[serde(default)]
+    pub facets: Vec<crate::EventKindFacets>,
 }
 
 pub const PRESET_SNAPSHOT_VERSION: u32 = 2;
@@ -405,6 +407,8 @@ pub struct DecoderLogQuery {
     pub nodes: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sources: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sink: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub since: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

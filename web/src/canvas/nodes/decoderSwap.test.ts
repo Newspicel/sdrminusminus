@@ -100,7 +100,11 @@ const ADSB = descriptor("adsb", {
   needs_position: true,
 });
 
-const context: GraphContext = { catalog: CATALOG, channelTypes: [NFM, AM, DMR, ADSB] };
+const context: GraphContext = {
+  catalog: CATALOG,
+  channelTypes: [NFM, AM, DMR, ADSB],
+  facets: [],
+};
 
 function node(id: string, body: Partial<PatchNode> & Pick<PatchNode, "kind">): PatchNode {
   return { id, position: { x: 0, y: 0 }, ...body } as PatchNode;

@@ -122,6 +122,7 @@ export function App() {
     () => ({
       catalog: catalog.data ?? { nodes: [] },
       channelTypes: channelTypes.data?.types ?? [],
+      facets: channelTypes.data?.facets ?? [],
       bound: devices,
     }),
     [catalog.data, channelTypes.data, devices],

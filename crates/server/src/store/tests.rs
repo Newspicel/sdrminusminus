@@ -1,6 +1,6 @@
 use sdrmm_wire::{
-    AdsbMessage, AprsPacket, ChannelParams, ChannelSettings, DecoderEvent, DeviceSettings,
-    NfmParams, PRESET_SNAPSHOT_VERSION, PresetDevice,
+    AdsbMessage, AprsPacket, ChannelParams, ChannelSettings, DecodedRecord, DecoderEvent,
+    DeviceSettings, NfmParams, PRESET_SNAPSHOT_VERSION, PresetDevice,
 };
 
 use super::*;
@@ -226,6 +226,7 @@ fn aprs(source: &str, tnc2: &str) -> DecoderEvent {
 
 fn record(at: &str, device_set: u32, event: DecoderEvent) -> DecodedRecord {
     DecodedRecord {
+        sinks: Vec::new(),
         device_set,
         channel: 0,
         at: at.to_string(),
@@ -234,10 +235,26 @@ fn record(at: &str, device_set: u32, event: DecoderEvent) -> DecodedRecord {
     }
 }
 
-fn bound(workspace: i64, nodes: &HashMap<(u32, u32), String>) -> LogOrigin<'_> {
-    LogOrigin {
+fn loose(records: Vec<DecodedRecord>) -> Vec<Routed> {
+    records.into_iter().map(Routed::unattributed).collect()
+}
+
+fn bound(workspace: i64, node: &str, record: DecodedRecord) -> Routed {
+    Routed {
+        record,
+        source: Some(node.to_owned()),
         workspace: Some(workspace),
-        nodes,
+    }
+}
+
+fn reaching(workspace: i64, sinks: &[&str], record: DecodedRecord) -> Routed {
+    Routed {
+        record: DecodedRecord {
+            sinks: sinks.iter().map(|sink| (*sink).to_owned()).collect(),
+            ..record
+        },
+        source: Some("decoder".to_owned()),
+        workspace: Some(workspace),
     }
 }
 
@@ -250,18 +267,15 @@ fn active(store: &Store) -> i64 {
 
 fn seed(store: &Store) {
     store
-        .insert_decoder_events(
-            &[
-                record("2026-08-09T12:00:00Z", 0, adsb("3C6444", "DLH123")),
-                record(
-                    "2026-08-09T12:00:01Z",
-                    1,
-                    aprs("DL1ABC-9", "DL1ABC-9>APRS:hi"),
-                ),
-                record("2026-08-09T12:00:02Z", 0, adsb("4CA2D4", "RYR9AB")),
-            ],
-            &LogOrigin::unattributed(),
-        )
+        .insert_decoder_events(&loose(vec![
+            record("2026-08-09T12:00:00Z", 0, adsb("3C6444", "DLH123")),
+            record(
+                "2026-08-09T12:00:01Z",
+                1,
+                aprs("DL1ABC-9", "DL1ABC-9>APRS:hi"),
+            ),
+            record("2026-08-09T12:00:02Z", 0, adsb("4CA2D4", "RYR9AB")),
+        ]))
         .expect("insert");
 }
 
@@ -272,12 +286,7 @@ fn query(store: &Store, filter: DecoderLogQuery) -> (Vec<DecoderLogEntry>, u64) 
 #[test]
 fn decoder_log_insert_and_query_newest_first() {
     let store = Store::open(None).expect("open");
-    assert_eq!(
-        store
-            .insert_decoder_events(&[], &LogOrigin::unattributed())
-            .expect("empty"),
-        0
-    );
+    assert_eq!(store.insert_decoder_events(&[]).expect("empty"), 0);
     seed(&store);
 
     let (entries, total) = query(&store, DecoderLogQuery::default());
@@ -446,14 +455,16 @@ fn decoder_log_sources_filter_names_channels_not_device_sets() {
     let store = Store::open(None).expect("open");
     let now = now_rfc3339();
     let on = |device_set: u32, channel: u32, icao: &str| DecodedRecord {
+        sinks: Vec::new(),
         channel,
         ..record(&now, device_set, adsb(icao, "FLIGHT"))
     };
     store
-        .insert_decoder_events(
-            &[on(0, 1, "AAAAAA"), on(0, 2, "BBBBBB"), on(1, 1, "CCCCCC")],
-            &LogOrigin::unattributed(),
-        )
+        .insert_decoder_events(&loose(vec![
+            on(0, 1, "AAAAAA"),
+            on(0, 2, "BBBBBB"),
+            on(1, 1, "CCCCCC"),
+        ]))
         .expect("insert");
     let stations = |sources: &str| {
         query(
@@ -514,29 +525,18 @@ fn decoder_log_scope_prefers_the_node_over_the_reused_channel_id() {
     let workspace = active(&store);
     let now = now_rfc3339();
     let on = |channel: u32, icao: &str| DecodedRecord {
+        sinks: Vec::new(),
         channel,
         ..record(&now, 0, adsb(icao, "FLIGHT"))
     };
     store
-        .insert_decoder_events(
-            &[on(1, "AAAAAA")],
-            &bound(
-                workspace,
-                &HashMap::from([((0, 1), "channel:old".to_owned())]),
-            ),
-        )
+        .insert_decoder_events(&[bound(workspace, "channel:old", on(1, "AAAAAA"))])
         .expect("insert");
     store
-        .insert_decoder_events(
-            &[on(1, "BBBBBB")],
-            &bound(
-                workspace,
-                &HashMap::from([((0, 1), "channel:new".to_owned())]),
-            ),
-        )
+        .insert_decoder_events(&[bound(workspace, "channel:new", on(1, "BBBBBB"))])
         .expect("insert");
     store
-        .insert_decoder_events(&[on(1, "LEGACY")], &LogOrigin::unattributed())
+        .insert_decoder_events(&loose(vec![on(1, "LEGACY")]))
         .expect("insert");
 
     let stations = |nodes: &str, sources: &str| {
@@ -569,17 +569,15 @@ fn decoder_log_scope_prefers_the_node_over_the_reused_channel_id() {
 fn decoder_log_scope_fallback_stops_at_the_start_of_this_run() {
     let store = Store::open(None).expect("open");
     let on = |at: &str, icao: &str| DecodedRecord {
+        sinks: Vec::new(),
         channel: 1,
         ..record(at, 0, adsb(icao, "FLIGHT"))
     };
     store
-        .insert_decoder_events(
-            &[
-                on("2026-08-09T12:00:00Z", "LASTRUN"),
-                on(&now_rfc3339(), "THISRUN"),
-            ],
-            &LogOrigin::unattributed(),
-        )
+        .insert_decoder_events(&loose(vec![
+            on("2026-08-09T12:00:00Z", "LASTRUN"),
+            on(&now_rfc3339(), "THISRUN"),
+        ]))
         .expect("insert");
 
     let scoped = query(
@@ -608,16 +606,16 @@ fn decoder_log_scope_does_not_cross_workspaces_sharing_a_node_id() {
         .create_workspace("second", &WorkspaceSnapshot::starter())
         .expect("create");
     let now = now_rfc3339();
-    let nodes = HashMap::from([((0, 1), "ch0".to_owned())]);
     let on = |icao: &str| DecodedRecord {
+        sinks: Vec::new(),
         channel: 1,
         ..record(&now, 0, adsb(icao, "FLIGHT"))
     };
     store
-        .insert_decoder_events(&[on("FIRSTWS")], &bound(first, &nodes))
+        .insert_decoder_events(&[bound(first, "ch0", on("FIRSTWS"))])
         .expect("insert");
     store
-        .insert_decoder_events(&[on("SECONDWS")], &bound(second, &nodes))
+        .insert_decoder_events(&[bound(second, "ch0", on("SECONDWS"))])
         .expect("insert");
 
     let stations = || {
@@ -678,7 +676,7 @@ fn decoder_log_serves_the_largest_page_the_panel_offers() {
         })
         .collect();
     store
-        .insert_decoder_events(&records, &LogOrigin::unattributed())
+        .insert_decoder_events(&loose(records))
         .expect("insert");
 
     let (entries, total) = query(
@@ -745,7 +743,7 @@ fn decoder_log_prune_keeps_the_newest_rows() {
         .collect();
     assert_eq!(
         store
-            .insert_decoder_events(&records, &LogOrigin::unattributed())
+            .insert_decoder_events(&loose(records))
             .expect("insert"),
         10
     );
@@ -800,6 +798,188 @@ fn a_fresh_database_is_seeded_with_one_active_workspace() {
     assert_eq!(active.snapshot, WorkspaceSnapshot::starter());
 
     drop(store);
+}
+
+#[test]
+fn a_sink_query_returns_what_reached_that_node_newest_first() {
+    let store = Store::open(None).expect("open");
+    let workspace = active(&store);
+    store
+        .insert_decoder_events(&[
+            reaching(
+                workspace,
+                &["log", "export"],
+                record("2026-08-09T12:00:00Z", 0, adsb("3C6444", "DLH123")),
+            ),
+            reaching(
+                workspace,
+                &["export"],
+                record("2026-08-09T12:00:01Z", 0, adsb("4CA2D4", "RYR9AB")),
+            ),
+            reaching(
+                workspace,
+                &["log"],
+                record("2026-08-09T12:00:02Z", 0, adsb("AB1234", "BAW890")),
+            ),
+            reaching(
+                workspace,
+                &[],
+                record("2026-08-09T12:00:03Z", 0, adsb("000000", "DROPPED")),
+            ),
+        ])
+        .expect("insert");
+
+    let at = |sink: &str| DecoderLogQuery {
+        sink: Some(sink.to_owned()),
+        ..DecoderLogQuery::default()
+    };
+    let (entries, total) = query(&store, at("log"));
+    assert_eq!(total, 2);
+    let stations: Vec<_> = entries.iter().filter_map(|e| e.station.clone()).collect();
+    assert_eq!(stations, ["AB1234", "3C6444"]);
+    assert_eq!(query(&store, at("export")).1, 2);
+    assert_eq!(query(&store, at("nowhere")).1, 0);
+    assert_eq!(
+        query(&store, DecoderLogQuery::default()).1,
+        4,
+        "a row that reached nothing is still logged"
+    );
+}
+
+#[test]
+fn a_sink_query_composes_with_the_text_search_and_the_kind_list() {
+    let store = Store::open(None).expect("open");
+    let workspace = active(&store);
+    store
+        .insert_decoder_events(&[
+            reaching(
+                workspace,
+                &["log"],
+                record("2026-08-09T12:00:00Z", 0, adsb("3C6444", "DLH123")),
+            ),
+            reaching(
+                workspace,
+                &["log"],
+                record(
+                    "2026-08-09T12:00:01Z",
+                    1,
+                    aprs("DL1ABC-9", "DL1ABC-9>APRS:hi"),
+                ),
+            ),
+        ])
+        .expect("insert");
+
+    let found = query(
+        &store,
+        DecoderLogQuery {
+            sink: Some("log".to_owned()),
+            q: Some("dlh".to_owned()),
+            ..DecoderLogQuery::default()
+        },
+    );
+    assert_eq!(found.1, 1);
+    assert_eq!(found.0[0].station.as_deref(), Some("3C6444"));
+    let kinds = query(
+        &store,
+        DecoderLogQuery {
+            sink: Some("log".to_owned()),
+            kinds: Some("aprs".to_owned()),
+            ..DecoderLogQuery::default()
+        },
+    );
+    assert_eq!(kinds.1, 1);
+    assert_eq!(kinds.0[0].kind, "aprs");
+}
+
+#[test]
+fn a_sink_query_stays_inside_the_active_workspace() {
+    let store = Store::open(None).expect("open");
+    let first = active(&store);
+    let second = store
+        .create_workspace("second", &WorkspaceSnapshot::starter())
+        .expect("create");
+    store
+        .insert_decoder_events(&[
+            reaching(
+                first,
+                &["log"],
+                record("2026-08-09T12:00:00Z", 0, adsb("3C6444", "FIRSTWS")),
+            ),
+            reaching(
+                second,
+                &["log"],
+                record("2026-08-09T12:00:01Z", 0, adsb("4CA2D4", "SECONDWS")),
+            ),
+        ])
+        .expect("insert");
+    let at_log = || {
+        query(
+            &store,
+            DecoderLogQuery {
+                sink: Some("log".to_owned()),
+                ..DecoderLogQuery::default()
+            },
+        )
+    };
+
+    assert_eq!(at_log().0[0].summary, "3C6444 · FIRSTWS");
+    assert_eq!(at_log().1, 1);
+    store.activate_workspace(second).expect("activate");
+    assert_eq!(at_log().0[0].summary, "4CA2D4 · SECONDWS");
+}
+
+#[test]
+fn deleting_and_pruning_rows_drops_their_sink_marks_too() {
+    let store = Store::open(None).expect("open");
+    let workspace = active(&store);
+    store
+        .insert_decoder_events(&[
+            reaching(
+                workspace,
+                &["log"],
+                record("2026-08-09T12:00:00Z", 0, adsb("3C6444", "DLH123")),
+            ),
+            reaching(
+                workspace,
+                &["log"],
+                record("2026-08-09T12:00:01Z", 0, adsb("4CA2D4", "RYR9AB")),
+            ),
+        ])
+        .expect("insert");
+    let marks = || -> i64 {
+        store
+            .lock()
+            .query_row("SELECT COUNT(*) FROM decoder_log_sinks", [], |row| {
+                row.get(0)
+            })
+            .expect("count")
+    };
+    assert_eq!(marks(), 2);
+
+    let deleted = store
+        .delete_decoder_log(&DecoderLogQuery {
+            sink: Some("log".to_owned()),
+            q: Some("DLH".to_owned()),
+            ..DecoderLogQuery::default()
+        })
+        .expect("delete");
+    assert_eq!(deleted, 1);
+    assert_eq!(marks(), 1);
+
+    store.prune_decoder_log(0).expect("prune");
+    assert_eq!(marks(), 0);
+}
+
+#[test]
+fn an_oversized_sink_id_is_refused() {
+    let store = Store::open(None).expect("open");
+    let err = store
+        .query_decoder_log(&DecoderLogQuery {
+            sink: Some("x".repeat(65)),
+            ..DecoderLogQuery::default()
+        })
+        .expect_err("refused");
+    assert!(matches!(err, StoreError::Sources(_)), "{err}");
 }
 
 #[test]

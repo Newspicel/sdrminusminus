@@ -1,4 +1,4 @@
-use std::{collections::HashMap, sync::Arc, time::Duration};
+use std::{sync::Arc, time::Duration};
 
 use axum::body::Bytes;
 use reqwest::{Client, Response, Url, multipart};
@@ -8,14 +8,17 @@ use rumqttc::{
 };
 use sdrmm_engine::Engine;
 use sdrmm_wire::{
-    DecodedRecord, DecoderEvent, EventOutputTarget, NodeBody, ServerEvent, StateScope,
-    StateSnapshot, VoiceCall, WebhookFormat,
+    DecodedRecord, DecoderEvent, EventOutputTarget, NodeBody, ServerEvent, StateScope, VoiceCall,
+    WebhookFormat,
 };
 use serde::Deserialize;
 use serde_json::json;
-use tokio::sync::{broadcast::error::RecvError, mpsc};
+use tokio::sync::{
+    broadcast::{Receiver, error::RecvError},
+    mpsc,
+};
 
-use crate::{Store, calls::Calls, events::EventPath};
+use crate::{Store, calls::Calls, decoded::Decoded};
 
 mod tunnel;
 
@@ -37,14 +40,12 @@ const MQTTS_PORT: u16 = 8_883;
 #[derive(Clone)]
 struct Binding {
     node: String,
-    paths: Vec<EventPath>,
     target: EventOutputTarget,
 }
 
 #[derive(Default)]
 struct Routing {
     bindings: Vec<Binding>,
-    decoded_sources: HashMap<(u32, u32), String>,
 }
 
 struct Delivery {
@@ -83,12 +84,17 @@ struct OutputAudio {
     duration_ms: u64,
 }
 
-pub(crate) async fn run(engine: std::sync::Weak<Engine>, store: Arc<Store>, calls: Arc<Calls>) {
+pub(crate) async fn run(
+    decoded: Receiver<Decoded>,
+    engine: std::sync::Weak<Engine>,
+    store: Arc<Store>,
+    calls: Arc<Calls>,
+) {
     let Some(strong) = engine.upgrade() else {
         return;
     };
     let mut events = strong.subscribe_events();
-    let mut decoded = strong.subscribe_decoded();
+    let mut decoded = decoded;
     drop(strong);
     let client = match Client::builder()
         .timeout(REQUEST_TIMEOUT)
@@ -103,7 +109,7 @@ pub(crate) async fn run(engine: std::sync::Weak<Engine>, store: Arc<Store>, call
     };
     let (delivery_tx, delivery_rx) = mpsc::channel(DELIVERY_QUEUE);
     let worker = tokio::spawn(deliver_all(client, delivery_rx));
-    let mut routing = load_routing(store.clone(), engine.clone()).await;
+    let mut routing = load_routing(store.clone()).await;
     let mut tunnels = tunnel::Outputs::default();
     tunnels.configure(&routing.bindings);
     let mut decoded_open = true;
@@ -117,28 +123,26 @@ pub(crate) async fn run(engine: std::sync::Weak<Engine>, store: Arc<Store>, call
                         | StateScope::DeviceSet(_)
                         | StateScope::Workspaces,
                 }) => {
-                    routing = load_routing(store.clone(), engine.clone()).await;
+                    routing = load_routing(store.clone()).await;
                     tunnels.configure(&routing.bindings);
                 },
                 Ok(_) => {}
                 Err(RecvError::Lagged(count)) => {
                     tracing::error!(count, "event output missed server events");
-                    routing = load_routing(store.clone(), engine.clone()).await;
+                    routing = load_routing(store.clone()).await;
                     tunnels.configure(&routing.bindings);
                 }
                 Err(RecvError::Closed) => break,
             },
             record = decoded.recv(), if decoded_open => match record {
-                Ok(record) => {
-                    if let Some(source) = routing.decoded_sources.get(&(record.device_set,record.channel)) {
-                        tunnels.push(&routing.bindings,source,&record);
-                    }
+                Ok(Decoded::Record(routed)) => {
+                    tunnels.push(&routing.bindings, &routed.record);
                     decoded_sequence = decoded_sequence.wrapping_add(1);
-                    for delivery in decoded_deliveries(&routing, &record, decoded_sequence, &calls) {
+                    for delivery in decoded_deliveries(&routing, &routed.record, decoded_sequence, &calls) {
                         enqueue(&delivery_tx, delivery);
                     }
                 }
-                Err(RecvError::Lagged(count)) => {
+                Ok(Decoded::Lost(count)) | Err(RecvError::Lagged(count)) => {
                     tracing::error!(count, "event output missed decoded events");
                 }
                 Err(RecvError::Closed) => decoded_open = false,
@@ -175,22 +179,11 @@ fn decoded_deliveries(
     sequence: u64,
     calls: &Calls,
 ) -> Vec<Delivery> {
-    let Some(source) = routing
-        .decoded_sources
-        .get(&(record.device_set, record.channel))
-    else {
-        return Vec::new();
-    };
     routing
         .bindings
         .iter()
         .filter(|binding| !matches!(binding.target, EventOutputTarget::Tunnel { .. }))
-        .filter(|binding| {
-            binding
-                .paths
-                .iter()
-                .any(|path| path.source == *source && path.passes(&record.event))
-        })
+        .filter(|binding| record.sinks.contains(&binding.node))
         .map(|binding| match &record.event {
             DecoderEvent::Call(call) => Delivery {
                 node: binding.node.clone(),
@@ -208,13 +201,8 @@ fn decoded_deliveries(
         .collect()
 }
 
-async fn load_routing(store: Arc<Store>, engine: std::sync::Weak<Engine>) -> Routing {
-    match tokio::task::spawn_blocking(move || {
-        let state = engine.upgrade().map(|engine| engine.snapshot());
-        resolve(&store, state.as_ref())
-    })
-    .await
-    {
+async fn load_routing(store: Arc<Store>) -> Routing {
+    match tokio::task::spawn_blocking(move || resolve(&store)).await {
         Ok(Ok(routing)) => routing,
         Ok(Err(error)) => {
             tracing::error!(%error, "could not resolve event outputs");
@@ -227,12 +215,13 @@ async fn load_routing(store: Arc<Store>, engine: std::sync::Weak<Engine>) -> Rou
     }
 }
 
-fn resolve(store: &Store, state: Option<&StateSnapshot>) -> Result<Routing, crate::StoreError> {
+fn resolve(store: &Store) -> Result<Routing, crate::StoreError> {
     let Some(workspace) = store.active_workspace()? else {
         return Ok(Routing::default());
     };
-    let graph = &workspace.snapshot.graph;
-    let bindings = graph
+    let bindings = workspace
+        .snapshot
+        .graph
         .nodes
         .iter()
         .filter_map(|node| {
@@ -241,18 +230,11 @@ fn resolve(store: &Store, state: Option<&StateSnapshot>) -> Result<Routing, crat
             };
             settings.target.configured().then(|| Binding {
                 node: node.id.clone(),
-                paths: crate::events::paths_into(graph, &node.id),
                 target: settings.target.clone(),
             })
         })
         .collect();
-    let decoded_sources = state.map_or_else(HashMap::new, |state| {
-        crate::events::decoder_nodes(graph, state)
-    });
-    Ok(Routing {
-        bindings,
-        decoded_sources,
-    })
+    Ok(Routing { bindings })
 }
 
 async fn deliver_all(client: Client, mut deliveries: mpsc::Receiver<Delivery>) {

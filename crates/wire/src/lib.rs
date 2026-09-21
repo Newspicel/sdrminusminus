@@ -104,8 +104,8 @@ pub use event_output::{
     MAX_MQTT_USERNAME_LEN, MAX_OUTPUT_SECRET_LEN, MAX_OUTPUT_URL_LEN, WebhookFormat,
 };
 pub use filter::{
-    DURATION_KINDS, EventFilterNode, MAX_FILTER_DURATION_MS, MAX_FILTER_IDS, MAX_FILTER_KINDS,
-    MAX_FILTER_TEXT_LEN, POSITION_KINDS, VOICE_KINDS, predicates_for,
+    EventFacet, EventFilterNode, EventKindFacets, FilterMode, MAX_FILTER_DURATION_MS,
+    MAX_FILTER_IDS, MAX_FILTER_KINDS, MAX_FILTER_TEXT_LEN, event_facets, facets_of,
 };
 pub use frame::{
     AudioFrame, FrameKind, HEADER_LEN, IqFrame, PROTOCOL_VERSION, RangeDopplerFrame, SpectrumFrame,
@@ -759,6 +759,7 @@ mod contract_tests {
     #[test]
     fn decoded_event_shape() {
         let ev = ServerEvent::Decoded(Box::new(decode::DecodedRecord {
+            sinks: Vec::new(),
             device_set: 1,
             channel: 4,
             at: "2026-08-09T12:00:00Z".to_owned(),

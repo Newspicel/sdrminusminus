@@ -354,6 +354,7 @@ async fn pump(device_set: u32, mut updates: broadcast::Receiver<CoherentUpdate>,
         let station = binding.station(&node);
         if reading.confidence > 0.0 {
             state.engine.publish_decoded(sdrmm_wire::DecodedRecord {
+                sinks: Vec::new(),
                 device_set,
                 channel: binding.id,
                 at: at.clone(),
@@ -377,6 +378,7 @@ async fn pump(device_set: u32, mut updates: broadcast::Receiver<CoherentUpdate>,
             };
             if let Some(estimate) = outcome.first_fix {
                 state.engine.publish_decoded(sdrmm_wire::DecodedRecord {
+                    sinks: Vec::new(),
                     device_set,
                     channel: binding.id,
                     at: at.clone(),

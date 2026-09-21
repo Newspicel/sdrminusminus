@@ -21,19 +21,16 @@ import {
   MAX_COLUMN_WIDTH,
   MIN_COLUMN_WIDTH,
   matchesFilter,
-  NO_GATE,
-  NO_WIRES,
-  passesGate,
+  reachedSink,
   readColumnWidths,
   resizeColumn,
-  sourceSet,
   storedRow,
   toQuery,
   totalColumnWidth,
   writeColumnWidths,
 } from "./decoderLog";
 
-const WIRED = sourceSet("0:0,1:0");
+const LOG = "decoder_log:1";
 
 const adsb: DecoderEvent = {
   kind: "adsb",
@@ -75,6 +72,7 @@ function record(over: Partial<DecodedRecord> = {}): DecodedRecord {
     freq_hz: 1_090_000_000,
     device_set: 0,
     channel: 0,
+    sinks: [LOG, "export:1"],
     ...over,
   };
 }
@@ -98,24 +96,23 @@ describe("kind labels", () => {
 });
 
 describe("toQuery", () => {
-  const wires = { nodes: "channel:a1", sources: "0:1", gate: NO_GATE };
-  const scope = { nodes: wires.nodes, sources: wires.sources };
+  const wires = { sink: LOG, wired: true };
 
   it("drops empty selects so a cleared filter is one query key, not two", () => {
-    expect(toQuery(filter(), wires)).toEqual({ limit: 500, ...scope });
-    expect(toQuery(filter({ q: "   " }), wires)).toEqual({ limit: 500, ...scope });
+    expect(toQuery(filter(), wires)).toEqual({ limit: 500, sink: LOG });
+    expect(toQuery(filter({ q: "   " }), wires)).toEqual({ limit: 500, sink: LOG });
   });
 
   it("carries every set field, trimmed", () => {
     expect(toQuery(filter({ q: " nord ", limit: 100 }), wires)).toEqual({
       q: "nord",
       limit: 100,
-      ...scope,
+      sink: LOG,
     });
   });
 
-  it("sends an empty scope rather than omitting it", () => {
-    expect(toQuery(filter(), NO_WIRES)).toEqual({ limit: 500, nodes: "", sources: "" });
+  it("asks by the sink node even when nothing is wired in yet", () => {
+    expect(toQuery(filter(), { sink: LOG, wired: false })).toEqual({ limit: 500, sink: LOG });
   });
 });
 
@@ -128,17 +125,16 @@ describe("isFiltered", () => {
 
 describe("matchesFilter", () => {
   it("searches station and summary case-insensitively", () => {
-    expect(matchesFilter(record(), filter({ q: "DLH" }), WIRED)).toBe(true);
-    expect(matchesFilter(record(), filter({ q: "3C6444" }), WIRED)).toBe(true);
-    expect(matchesFilter(record(), filter({ q: "nordlicht" }), WIRED)).toBe(false);
+    expect(matchesFilter(record(), filter({ q: "DLH" }), LOG)).toBe(true);
+    expect(matchesFilter(record(), filter({ q: "3C6444" }), LOG)).toBe(true);
+    expect(matchesFilter(record(), filter({ q: "nordlicht" }), LOG)).toBe(false);
   });
 
-  it("drops a frame from a channel that is not wired in", () => {
-    const scope = sourceSet("0:0");
-    expect(matchesFilter(record(), filter(), scope)).toBe(true);
-    expect(matchesFilter(record({ channel: 1 }), filter(), scope)).toBe(false);
-    expect(matchesFilter(record({ device_set: 1 }), filter(), scope)).toBe(false);
-    expect(matchesFilter(record(), filter(), sourceSet(""))).toBe(false);
+  it("trusts the server's verdict on which sinks a frame reached", () => {
+    expect(matchesFilter(record(), filter(), LOG)).toBe(true);
+    expect(matchesFilter(record({ sinks: ["export:1"] }), filter(), LOG)).toBe(false);
+    expect(matchesFilter(record({ sinks: [] }), filter(), LOG)).toBe(false);
+    expect(reachedSink(record({ sinks: undefined }), LOG)).toBe(false);
   });
 });
 
@@ -149,7 +145,7 @@ describe("collectLive", () => {
   } as DecodedState["frames"];
 
   it("merges every decoder newest first", () => {
-    expect(collectLive(frames, filter(), WIRED).map((r) => r.at)).toEqual([
+    expect(collectLive(frames, filter(), LOG).map((r) => r.at)).toEqual([
       "2026-08-09T12:00:03Z",
       "2026-08-09T12:00:02Z",
       "2026-08-09T12:00:01Z",
@@ -157,8 +153,8 @@ describe("collectLive", () => {
   });
 
   it("honours the filter and the cap", () => {
-    expect(collectLive(frames, filter({ q: "nordlicht" }), WIRED)).toHaveLength(1);
-    expect(collectLive(frames, filter(), WIRED, NO_GATE, 2).map((r) => r.at)).toEqual([
+    expect(collectLive(frames, filter({ q: "nordlicht" }), LOG)).toHaveLength(1);
+    expect(collectLive(frames, filter(), LOG, 2).map((r) => r.at)).toEqual([
       "2026-08-09T12:00:03Z",
       "2026-08-09T12:00:02Z",
     ]);
@@ -169,7 +165,7 @@ describe("collectLive", () => {
       ...frames,
       adsb: [...(frames.adsb ?? []), record({ at: "not a date" })],
     } as DecodedState["frames"];
-    expect(collectLive(broken, filter(), WIRED).at(-1)?.at).toBe("not a date");
+    expect(collectLive(broken, filter(), LOG).at(-1)?.at).toBe("not a date");
   });
 });
 
@@ -560,64 +556,6 @@ describe("wave-2 summaries", () => {
   });
 });
 
-describe("passesGate", () => {
-  const calls = {
-    kind: "call",
-    data: {
-      id: 1,
-      node: "dmr",
-      source_node: "dmr",
-      started_at: "",
-      ended_at: "",
-      duration_ms: 2000,
-      device_set: 0,
-      channel: 1,
-      freq_hz: 446e6,
-      mode: "dmr",
-      destination: 505,
-      encrypted: false,
-      emergency: false,
-    },
-  } as DecoderEvent;
-  const voice: DecoderEvent = { kind: "dv", data: { mode: "dmr", kind: "voice" } } as DecoderEvent;
-
-  it("lets everything through when the source has no filter", () => {
-    expect(passesGate(NO_GATE, "0:1", voice)).toBe(true);
-  });
-
-  it("drops raw voice once a wire asks for calls only", () => {
-    const gate = { kinds: ["call"], bySource: { "0:1": [[{ kinds: ["call"] }]] } };
-    expect(passesGate(gate, "0:1", voice)).toBe(false);
-    expect(passesGate(gate, "0:1", calls)).toBe(true);
-  });
-
-  it("passes an event that any one wire admits", () => {
-    const gate = { kinds: [], bySource: { "0:1": [[{ kinds: ["call"] }], []] } };
-    expect(passesGate(gate, "0:1", voice)).toBe(true);
-  });
-
-  it("leaves a source it does not know alone", () => {
-    const gate = { kinds: ["call"], bySource: { "9:9": [[{ kinds: ["call"] }]] } };
-    expect(passesGate(gate, "0:1", voice)).toBe(true);
-  });
-});
-
-describe("toQuery with a gate", () => {
-  it("asks the server for only the kinds the wires admit", () => {
-    const wires = {
-      nodes: "dmr",
-      sources: "0:1",
-      gate: { kinds: ["call"], bySource: {} },
-    };
-    expect(toQuery(DEFAULT_LOG_FILTER, wires).kinds).toBe("call");
-  });
-
-  it("asks for everything when any wire is unfiltered", () => {
-    const wires = { nodes: "dmr", sources: "0:1", gate: NO_GATE };
-    expect(toQuery(DEFAULT_LOG_FILTER, wires).kinds).toBeUndefined();
-  });
-});
-
 function fakeStorage(): Storage {
   const map = new Map<string, string>();
   return {
@@ -706,10 +644,10 @@ describe("column widths", () => {
 
 describe("logDownloads", () => {
   it("offers both formats over the same filter", () => {
-    const choices = logDownloads({ limit: 200, nodes: "log", sources: "ch:1", q: "wx" });
+    const choices = logDownloads({ limit: 200, sink: "export:1", q: "wx" });
     expect(choices.map((choice) => choice.label)).toEqual(["CSV", "JSON"]);
     for (const choice of choices) {
-      expect(choice.href).toContain("nodes=log");
+      expect(choice.href).toContain("sink=export%3A1");
       expect(choice.href).toContain("q=wx");
     }
     expect(choices[0]?.href).toContain("csv");

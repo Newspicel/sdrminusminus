@@ -192,5 +192,6 @@ pub(super) async fn delete_channel(
 pub(super) async fn get_channel_types(State(state): State<AppState>) -> Json<ChannelTypesResponse> {
     Json(ChannelTypesResponse {
         types: state.engine.channel_types(),
+        facets: sdrmm_wire::event_facets(),
     })
 }

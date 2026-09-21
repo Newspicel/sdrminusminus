@@ -50,7 +50,14 @@ describe("newNodeBody", () => {
     const body = newNodeBody("event_filter");
     expect(body).toEqual({
       kind: "event_filter",
-      data: { kinds: [], stations: [], talkgroups: [], radios: [], min_duration_ms: 0 },
+      data: {
+        mode: "keep",
+        kinds: [],
+        stations: [],
+        talkgroups: [],
+        radios: [],
+        min_duration_ms: 0,
+      },
     });
   });
 

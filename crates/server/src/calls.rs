@@ -608,6 +608,7 @@ fn complete(key: &CallKey, active: ActiveCall, calls: &Calls, engine: &Engine) {
         RETENTION,
     );
     engine.publish_decoded(DecodedRecord {
+        sinks: Vec::new(),
         device_set: key.device_set,
         channel: key.channel,
         at: call.ended_at.clone(),
@@ -935,6 +936,7 @@ mod tests {
 
     fn record(kind: DvFrameKind, slot: u8) -> DecodedRecord {
         DecodedRecord {
+            sinks: Vec::new(),
             device_set: 1,
             channel: 2,
             at: "2026-08-14T10:00:00Z".to_owned(),

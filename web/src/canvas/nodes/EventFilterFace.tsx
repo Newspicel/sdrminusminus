@@ -3,13 +3,16 @@ import { Checkbox } from "../../components/Checkbox";
 import { CHIP, FIELD, LABEL } from "../../components/controls";
 import { kindLabel } from "../../components/decoderLog";
 import { NumberField } from "../../components/NumberField";
+import { Segmented } from "../../components/Segmented";
 import { Select } from "../../components/Select";
 import { SettingGroup, SettingRow, Settings } from "../../components/Settings";
-import type { EventFilterNode, PatchNode, PatchNodeOf } from "../../lib/types";
+import type { EventFilterNode, EventKindFacets, PatchNode, PatchNodeOf } from "../../lib/types";
 import { eventSourcesOf, wiredSourcesOf } from "../binding";
 import { useWorkspaceContext } from "../context";
 import { patchNode } from "../graph";
 import {
+  FILTER_MODES,
+  filterMode,
   filterSaid,
   formatIds,
   formatWords,
@@ -47,9 +50,10 @@ function Face({ node }: { node: PatchNodeOf<"event_filter"> }) {
     wiredSourcesOf(workspace.graph, node.id),
     workspace.context.channelTypes,
   );
+  const facets = workspace.context.facets;
   const kinds = settings.kinds ?? [];
   const narrowed = kinds.length > 0 ? kinds : offered;
-  const sections = sectionsFor(narrowed);
+  const sections = sectionsFor(narrowed, facets);
 
   const edit = (next: Partial<EventFilterNode>) => {
     workspace.edit((snapshot) => ({
@@ -79,6 +83,20 @@ function Face({ node }: { node: PatchNodeOf<"event_filter"> }) {
         }
       >
         <>
+          <div className="flex items-center justify-between gap-2 border-b border-line p-2">
+            <span
+              className={LABEL}
+              title="Keep passes only what matches; Drop removes what matches"
+            >
+              Mode
+            </span>
+            <Segmented
+              label="Filter mode"
+              value={filterMode(settings)}
+              options={FILTER_MODES}
+              onChange={(mode) => edit({ mode })}
+            />
+          </div>
           {offered.length > 1 && (
             <div className="flex flex-col gap-1.5 border-b border-line p-2">
               <span className={LABEL}>Kinds</span>
@@ -125,6 +143,7 @@ function Face({ node }: { node: PatchNodeOf<"event_filter"> }) {
                     which={predicate}
                     settings={settings}
                     kinds={narrowed}
+                    facets={facets}
                     edit={edit}
                   />
                 ))}
@@ -141,16 +160,18 @@ function Predicate({
   which,
   settings,
   kinds,
+  facets,
   edit,
 }: {
   which: PredicateKey;
   settings: EventFilterNode;
   kinds: readonly string[];
+  facets: readonly EventKindFacets[];
   edit: (next: Partial<EventFilterNode>) => void;
 }) {
   switch (which) {
     case "stations": {
-      const label = stationLabel(kinds);
+      const label = stationLabel(kinds, facets);
       return (
         <SettingRow label={label}>
           <Input

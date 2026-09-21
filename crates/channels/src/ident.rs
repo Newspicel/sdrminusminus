@@ -64,6 +64,7 @@ pub struct IdentChannel {
     confirmer: confirm::Confirmer,
     artifact_hz: Option<f64>,
     block_power: Vec<f64>,
+    last_heard: Option<bool>,
 }
 
 fn params(settings: &ChannelSettings) -> Result<&IdentParams, ChannelError> {
@@ -117,6 +118,11 @@ impl IdentChannel {
         self.restart();
         self.tracker.forget();
         self.confirmer.forget();
+        self.last_heard = None;
+    }
+
+    fn worth_reporting(&self, report: &IdentReport) -> bool {
+        !report.signals.is_empty() || self.last_heard != Some(false)
     }
 
     fn analyse(&mut self) -> IdentReport {
@@ -302,6 +308,7 @@ impl ChannelRx for IdentChannel {
             confirmer: confirm::Confirmer::new(),
             artifact_hz: None,
             block_power: Vec::with_capacity(MAX_WINDOW / OCCUPANCY_BLOCK),
+            last_heard: None,
         })
     }
 
@@ -342,7 +349,10 @@ impl ChannelRx for IdentChannel {
             }
             if self.pending >= interval {
                 let report = self.analyse();
-                out.events.push(DecoderEvent::Ident(report));
+                if self.worth_reporting(&report) {
+                    self.last_heard = Some(!report.signals.is_empty());
+                    out.events.push(DecoderEvent::Ident(report));
+                }
                 self.restart();
             }
         }
@@ -479,28 +489,7 @@ mod tests {
             .map_or(Modulation::None, |(m, _)| m)
     }
 
-    #[test]
-    fn an_empty_channel_reports_nothing_rather_than_guessing() {
-        let noise = complex_noise(0x2b71, 0.02, (INPUT_RATE_HZ * 1.2) as usize);
-        let reports = run(params(), &noise);
-        assert!(!reports.is_empty(), "reports arrive on the interval");
-        for report in &reports {
-            assert!(report.signals.is_empty(), "{report:?}");
-            assert!(report.best().is_none());
-        }
-    }
-
-    #[test]
-    fn reports_arrive_once_per_interval() {
-        let noise = complex_noise(0x9c14, 0.02, (INPUT_RATE_HZ * 2.0) as usize);
-        let reports = run(params(), &noise);
-        assert_eq!(reports.len(), 4);
-    }
-
-    #[test]
-    fn an_unmodulated_carrier_is_named_and_located() {
-        let offset = 42_000.0;
-        let len = (INPUT_RATE_HZ * 1.2) as usize;
+    fn carrier(offset: f64, len: usize, seed: u32) -> Vec<Complex<f32>> {
         let mut iq: Vec<Complex<f32>> = (0..len)
             .map(|k| {
                 Complex::from_polar(
@@ -510,9 +499,62 @@ mod tests {
                 )
             })
             .collect();
-        for (s, n) in iq.iter_mut().zip(complex_noise(0x4411, 0.002, len)) {
+        for (s, n) in iq.iter_mut().zip(complex_noise(seed, 0.002, len)) {
             *s += n;
         }
+        iq
+    }
+
+    #[test]
+    fn a_quiet_channel_says_no_signal_once_and_then_keeps_quiet() {
+        let noise = complex_noise(0x2b71, 0.02, (INPUT_RATE_HZ * 2.2) as usize);
+        let reports = run(params(), &noise);
+        assert_eq!(reports.len(), 1, "{reports:?}");
+        assert!(reports[0].signals.is_empty());
+        assert!(reports[0].best().is_none());
+    }
+
+    #[test]
+    fn reports_arrive_once_per_interval_while_something_is_on_the_air() {
+        let iq = carrier(42_000.0, (INPUT_RATE_HZ * 2.0) as usize, 0x9c14);
+        let reports = run(params(), &iq);
+        assert_eq!(reports.len(), 4);
+        assert!(reports.iter().all(|report| !report.signals.is_empty()));
+    }
+
+    #[test]
+    fn a_signal_that_stops_is_reported_gone_once() {
+        let mut iq = carrier(42_000.0, (INPUT_RATE_HZ * 1.0) as usize, 0x9c15);
+        iq.extend(complex_noise(0x9c16, 0.02, (INPUT_RATE_HZ * 1.6) as usize));
+        let reports = run(params(), &iq);
+        let heard = reports
+            .iter()
+            .take_while(|report| !report.signals.is_empty())
+            .count();
+        assert_eq!(heard, 2, "{reports:?}");
+        assert_eq!(reports.len(), 3, "one report says the signal is gone");
+        assert!(reports[2].signals.is_empty());
+    }
+
+    #[test]
+    fn a_retune_reports_the_new_dial_even_when_it_is_quiet() {
+        let ctx = ChannelCtx {
+            input_rate: INPUT_RATE_HZ,
+        };
+        let mut channel = IdentChannel::new(ctx, settings(params())).expect("builds");
+        let mut out = ChannelOutputs::default();
+        let window = (INPUT_RATE_HZ * f64::from(INTERVAL_MS) / 1_000.0) as usize;
+        channel.process(&complex_noise(0x5566, 0.02, 2 * window), &mut out);
+        assert_eq!(out.events.len(), 1);
+        channel.retuned();
+        channel.process(&complex_noise(0x7788, 0.02, window), &mut out);
+        assert_eq!(out.events.len(), 2, "the new dial gets its own first word");
+    }
+
+    #[test]
+    fn an_unmodulated_carrier_is_named_and_located() {
+        let offset = 42_000.0;
+        let iq = carrier(offset, (INPUT_RATE_HZ * 1.2) as usize, 0x4411);
         let reports = run(params(), &iq);
         assert_eq!(consensus(&reports), Modulation::Carrier);
         let first = loudest(&reports[0]);
@@ -859,7 +901,8 @@ mod tests {
             ..IdentParams::default()
         };
         let noise = complex_noise(0x77c2, 0.02, (INPUT_RATE_HZ * 4.5) as usize);
-        assert_eq!(run(long, &noise).len(), 2);
+        let on_air = carrier(42_000.0, noise.len(), 0x77c3);
+        assert_eq!(run(long, &on_air).len(), 2);
 
         let ctx = ChannelCtx {
             input_rate: INPUT_RATE_HZ,

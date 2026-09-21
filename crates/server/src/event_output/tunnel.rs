@@ -85,7 +85,7 @@ impl Outputs {
         }
     }
 
-    pub fn push(&self, bindings: &[Binding], source: &str, record: &DecodedRecord) {
+    pub fn push(&self, bindings: &[Binding], record: &DecodedRecord) {
         let DecoderEvent::BroadcastData(data) = &record.event else {
             return;
         };
@@ -93,11 +93,7 @@ impl Outputs {
             let Some(entry) = self.entries.get(&binding.node) else {
                 continue;
             };
-            if !binding
-                .paths
-                .iter()
-                .any(|path| path.source == source && path.passes(&record.event))
-            {
+            if !record.sinks.contains(&binding.node) {
                 continue;
             }
             match ip_packet(data) {
@@ -170,10 +166,6 @@ mod tests {
         let binding = Binding {
             node: "out".to_owned(),
             target: target.clone(),
-            paths: vec![crate::events::EventPath {
-                source: "radio".to_owned(),
-                filters: Vec::new(),
-            }],
         };
         let (sender, mut receiver) = mpsc::channel(1);
         let mut outputs = Outputs::default();
@@ -188,16 +180,21 @@ mod tests {
         let mut bytes = vec![0; 44];
         bytes[0] = 0x60;
         bytes[5] = 4;
-        let record = DecodedRecord {
+        let elsewhere = DecodedRecord {
+            sinks: vec!["other".to_owned()],
             device_set: 1,
             channel: 2,
             at: "2026-09-16T00:00:00Z".to_owned(),
             freq_hz: 1e9,
             event: DecoderEvent::BroadcastData(data(0x86dd, bytes.clone())),
         };
-        outputs.push(std::slice::from_ref(&binding), "other", &record);
+        outputs.push(std::slice::from_ref(&binding), &elsewhere);
         assert!(receiver.try_recv().is_err());
-        outputs.push(std::slice::from_ref(&binding), "radio", &record);
+        let reached = DecodedRecord {
+            sinks: vec!["out".to_owned()],
+            ..elsewhere
+        };
+        outputs.push(std::slice::from_ref(&binding), &reached);
         assert_eq!(receiver.recv().await.unwrap(), bytes);
         outputs.configure(&[]);
         assert!(outputs.entries.is_empty());

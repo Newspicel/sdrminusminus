@@ -453,6 +453,7 @@ async fn time_machine(app: &Router, ds: u32, body: serde_json::Value) -> (Status
 
 fn adsb_record(at: &str, device_set: u32, icao: &str, callsign: &str) -> DecodedRecord {
     DecodedRecord {
+        sinks: Vec::new(),
         device_set,
         channel: 0,
         at: at.to_string(),
@@ -469,6 +470,7 @@ fn adsb_record(at: &str, device_set: u32, icao: &str, callsign: &str) -> Decoded
 
 fn awkward_record(at: &str) -> DecodedRecord {
     DecodedRecord {
+        sinks: Vec::new(),
         device_set: 1,
         channel: 2,
         at: at.to_string(),
@@ -493,8 +495,8 @@ fn seed_decoder_log(store: &Store) {
                 adsb_record(&recent(180), 0, "3C6444", "DLH123"),
                 awkward_record(&recent(120)),
                 adsb_record(&recent(60), 0, "4CA2D4", "RYR9AB"),
-            ],
-            &crate::store::LogOrigin::unattributed(),
+            ]
+            .map(crate::events::Routed::unattributed),
         )
         .expect("insert");
 }

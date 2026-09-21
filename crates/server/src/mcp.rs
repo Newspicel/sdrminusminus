@@ -595,6 +595,7 @@ impl SdrMcp {
             device_set: req.device_set,
             nodes: None,
             sources: None,
+            sink: None,
             since: req.since,
             until: req.until,
             q: req.q,

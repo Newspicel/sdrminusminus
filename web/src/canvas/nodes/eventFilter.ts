@@ -1,5 +1,10 @@
-import { eventStation, eventSummary, hasPosition } from "../../components/eventFacts";
-import type { ChannelDescriptor, DecoderEvent, EventFilterNode } from "../../lib/types";
+import type {
+  ChannelDescriptor,
+  EventFacet,
+  EventFilterNode,
+  EventKindFacets,
+  FilterMode,
+} from "../../lib/types";
 
 export const MAX_FILTER_IDS = 256;
 export const MAX_FILTER_DURATION_MS = 600_000;
@@ -41,14 +46,26 @@ export function formatWords(words: readonly string[] | undefined): string {
   return (words ?? []).join(", ");
 }
 
-export function stationLabel(kinds: readonly string[]): string {
+export function facetsOf(kind: string, facets: readonly EventKindFacets[]): readonly EventFacet[] {
+  return facets.find((entry) => entry.kind === kind)?.facets ?? [];
+}
+
+function everyKindHas(
+  kinds: readonly string[],
+  facet: EventFacet,
+  facets: readonly EventKindFacets[],
+): boolean {
+  return kinds.length > 0 && kinds.every((kind) => facetsOf(kind, facets).includes(facet));
+}
+
+export function stationLabel(kinds: readonly string[], facets: readonly EventKindFacets[]): string {
   if (kinds.length > 0 && kinds.every((kind) => kind === "adsb")) {
     return "Aircraft";
   }
   if (kinds.length > 0 && kinds.every((kind) => kind === "ais")) {
     return "Vessels";
   }
-  if (kinds.length > 0 && kinds.every((kind) => VOICE_KINDS.includes(kind))) {
+  if (everyKindHas(kinds, "voice", facets)) {
     return "Radios seen";
   }
   return "Stations";
@@ -95,6 +112,15 @@ export function kindsOffered(
   return [...kinds].toSorted();
 }
 
+export const FILTER_MODES: readonly { value: FilterMode; label: string; title: string }[] = [
+  { value: "keep", label: "Keep", title: "Only events matching every rule pass" },
+  { value: "drop", label: "Drop", title: "Events matching every rule are removed" },
+];
+
+export function filterMode(filter: EventFilterNode): FilterMode {
+  return filter.mode ?? "keep";
+}
+
 export function filterSaid(filter: EventFilterNode): string {
   const parts: string[] = [];
   const kinds = filter.kinds ?? [];
@@ -123,25 +149,11 @@ export function filterSaid(filter: EventFilterNode): string {
   if ((filter.min_duration_ms ?? 0) > 0) {
     parts.push(`over ${((filter.min_duration_ms ?? 0) / 1000).toFixed(1)} s`);
   }
-  return parts.join(" · ");
+  if (filterMode(filter) === "drop" && parts.length === 1 && kinds.length === 0) {
+    return "drop nothing";
+  }
+  return `${filterMode(filter)} ${parts.join(" · ")}`;
 }
-
-export const VOICE_KINDS = ["call", "dv"];
-
-export const POSITION_KINDS = [
-  "adsb",
-  "ais",
-  "aprs",
-  "dv",
-  "dsc",
-  "inmarsat_stdc",
-  "inmarsat_aero",
-  "vdl2",
-  "hfdl",
-  "iridium",
-];
-
-export const DURATION_KINDS = ["call"];
 
 export type PredicateKey =
   | "stations"
@@ -153,17 +165,20 @@ export type PredicateKey =
   | "emergency"
   | "min_duration_ms";
 
-export function predicatesFor(kinds: readonly string[]): PredicateKey[] {
-  const touches = (applies: readonly string[]) =>
-    kinds.length === 0 || kinds.some((kind) => applies.includes(kind));
+export function predicatesFor(
+  kinds: readonly string[],
+  facets: readonly EventKindFacets[],
+): PredicateKey[] {
+  const touches = (facet: EventFacet) =>
+    kinds.length === 0 || kinds.some((kind) => facetsOf(kind, facets).includes(facet));
   const shown: PredicateKey[] = ["stations", "contains"];
-  if (touches(POSITION_KINDS)) {
+  if (touches("position")) {
     shown.push("has_position");
   }
-  if (touches(VOICE_KINDS)) {
+  if (touches("voice")) {
     shown.push("talkgroups", "radios", "encrypted", "emergency");
   }
-  if (touches(DURATION_KINDS)) {
+  if (touches("duration")) {
     shown.push("min_duration_ms");
   }
   return shown;
@@ -176,11 +191,14 @@ export interface PredicateSection {
   predicates: PredicateKey[];
 }
 
-export function sectionsFor(kinds: readonly string[]): PredicateSection[] {
-  const shown = predicatesFor(kinds);
+export function sectionsFor(
+  kinds: readonly string[],
+  facets: readonly EventKindFacets[],
+): PredicateSection[] {
+  const shown = predicatesFor(kinds, facets);
   const pick = (keys: PredicateKey[]) => keys.filter((key) => shown.includes(key));
-  const scope = (applies: readonly string[]) =>
-    kinds.filter((kind) => applies.includes(kind)).toSorted();
+  const scope = (facet: EventFacet) =>
+    kinds.filter((kind) => facetsOf(kind, facets).includes(facet)).toSorted();
   const sections: PredicateSection[] = [];
   const any = pick(["stations", "contains"]);
   if (any.length > 0) {
@@ -196,7 +214,7 @@ export function sectionsFor(kinds: readonly string[]): PredicateSection[] {
     sections.push({
       key: "position",
       title: "Position",
-      applies: scope(POSITION_KINDS),
+      applies: scope("position"),
       predicates: position,
     });
   }
@@ -205,88 +223,9 @@ export function sectionsFor(kinds: readonly string[]): PredicateSection[] {
     sections.push({
       key: "voice",
       title: "Voice",
-      applies: scope(VOICE_KINDS),
+      applies: scope("voice"),
       predicates: voice,
     });
   }
   return sections;
-}
-
-interface Voice {
-  source?: number | null;
-  destination?: number | null;
-  encrypted?: boolean | null;
-  emergency?: boolean | null;
-  duration_ms?: number;
-}
-
-function voiceOf(event: DecoderEvent): Voice | null {
-  if (event.kind === "call") {
-    return {
-      source: event.data.source,
-      destination: event.data.destination,
-      encrypted: event.data.encrypted,
-      emergency: event.data.emergency,
-      duration_ms: event.data.duration_ms,
-    };
-  }
-  if (event.kind === "dv") {
-    return {
-      source: event.data.source,
-      destination: event.data.destination,
-      encrypted: event.data.encrypted,
-      emergency: event.data.emergency,
-    };
-  }
-  return null;
-}
-
-export function passesFilter(filter: EventFilterNode, event: DecoderEvent): boolean {
-  const kinds = filter.kinds ?? [];
-  if (kinds.length > 0 && !kinds.includes(event.kind)) {
-    return false;
-  }
-  const stations = filter.stations ?? [];
-  if (stations.length > 0) {
-    const station = eventStation(event);
-    if (
-      station === null ||
-      !stations.some((want) => want.toLowerCase() === station.toLowerCase())
-    ) {
-      return false;
-    }
-  }
-  const contains = filter.contains ?? "";
-  if (contains !== "" && !eventSummary(event).toLowerCase().includes(contains.toLowerCase())) {
-    return false;
-  }
-  if (filter.has_position != null && filter.has_position !== hasPosition(event)) {
-    return false;
-  }
-  const voice = voiceOf(event);
-  if (voice === null) {
-    return true;
-  }
-  const talkgroups = filter.talkgroups ?? [];
-  if (
-    talkgroups.length > 0 &&
-    (voice.destination == null || !talkgroups.includes(voice.destination))
-  ) {
-    return false;
-  }
-  const radios = filter.radios ?? [];
-  if (radios.length > 0 && (voice.source == null || !radios.includes(voice.source))) {
-    return false;
-  }
-  if (filter.encrypted != null && filter.encrypted !== voice.encrypted) {
-    return false;
-  }
-  if (filter.emergency != null && filter.emergency !== voice.emergency) {
-    return false;
-  }
-  return voice.duration_ms == null || voice.duration_ms >= (filter.min_duration_ms ?? 0);
-}
-
-export function passesChain(filters: readonly EventFilterNode[], event: DecoderEvent): boolean {
-  return filters.every((filter) => passesFilter(filter, event));
 }

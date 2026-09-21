@@ -1734,6 +1734,8 @@ pub struct DecodedRecord {
     pub at: String,
     pub freq_hz: f64,
     pub event: DecoderEvent,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub sinks: Vec<String>,
 }
 
 #[cfg(test)]
@@ -2091,6 +2093,7 @@ mod tests {
     #[test]
     fn decoded_record_roundtrips() {
         let rec = DecodedRecord {
+            sinks: Vec::new(),
             device_set: 1,
             channel: 2,
             at: "2026-08-09T12:00:00Z".to_owned(),

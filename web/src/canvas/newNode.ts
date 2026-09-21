@@ -55,6 +55,7 @@ export function newNodeBody(kind: NodeKind, seed: NewNodeSeed = {}): NodeBody {
       return {
         kind,
         data: {
+          mode: "keep",
           kinds: [],
           stations: [],
           talkgroups: [],

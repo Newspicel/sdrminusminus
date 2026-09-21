@@ -283,7 +283,7 @@ export function ChannelControls({
 }) {
   return (
     <Settings className="p-2">
-      <SquelchRow settings={settings} onEdit={onEdit} />
+      {channelHasAudio(descriptor) && <SquelchRow settings={settings} onEdit={onEdit} />}
       <ModeControls
         params={settings.params}
         broadcast={broadcast}

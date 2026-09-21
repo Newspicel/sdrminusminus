@@ -8,43 +8,67 @@ pub const MAX_FILTER_IDS: usize = 256;
 pub const MAX_FILTER_DURATION_MS: u32 = 600_000;
 pub const MAX_FILTER_TEXT_LEN: usize = 128;
 
-pub const VOICE_KINDS: &[&str] = &["call", "dv"];
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum EventFacet {
+    Position,
+    Voice,
+    Duration,
+}
 
-pub const POSITION_KINDS: &[&str] = &[
-    "adsb",
-    "ais",
-    "aprs",
-    "dv",
-    "dsc",
-    "inmarsat_stdc",
-    "inmarsat_aero",
-    "vdl2",
-    "hfdl",
-    "iridium",
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct EventKindFacets {
+    pub kind: String,
+    pub facets: Vec<EventFacet>,
+}
+
+const FACETS: &[(&str, &[EventFacet])] = &[
+    ("adsb", &[EventFacet::Position]),
+    ("ais", &[EventFacet::Position]),
+    ("aprs", &[EventFacet::Position]),
+    ("call", &[EventFacet::Voice, EventFacet::Duration]),
+    ("df", &[EventFacet::Position]),
+    ("df_fix", &[EventFacet::Position]),
+    ("dsc", &[EventFacet::Position]),
+    ("dv", &[EventFacet::Position, EventFacet::Voice]),
+    ("hfdl", &[EventFacet::Position]),
+    ("inmarsat_aero", &[EventFacet::Position]),
+    ("inmarsat_stdc", &[EventFacet::Position]),
+    ("iridium", &[EventFacet::Position]),
+    ("vdl2", &[EventFacet::Position]),
 ];
 
-pub const DURATION_KINDS: &[&str] = &["call"];
+#[must_use]
+pub fn facets_of(kind: &str) -> &'static [EventFacet] {
+    FACETS
+        .iter()
+        .find(|(named, _)| *named == kind)
+        .map_or(&[], |(_, facets)| facets)
+}
 
 #[must_use]
-pub fn predicates_for(kinds: &[String]) -> Vec<&'static str> {
-    let touches = |applies: &[&str]| {
-        kinds.is_empty() || kinds.iter().any(|kind| applies.contains(&kind.as_str()))
-    };
-    let mut shown = vec!["stations", "contains"];
-    if touches(POSITION_KINDS) {
-        shown.push("has_position");
-    }
-    if touches(VOICE_KINDS) {
-        shown.extend(["talkgroups", "radios", "encrypted", "emergency"]);
-    }
-    if touches(DURATION_KINDS) {
-        shown.push("min_duration_ms");
-    }
-    shown
+pub fn event_facets() -> Vec<EventKindFacets> {
+    FACETS
+        .iter()
+        .map(|(kind, facets)| EventKindFacets {
+            kind: (*kind).to_owned(),
+            facets: facets.to_vec(),
+        })
+        .collect()
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum FilterMode {
+    #[default]
+    Keep,
+    Drop,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct EventFilterNode {
+    #[serde(default)]
+    pub mode: FilterMode,
     #[serde(default)]
     pub kinds: Vec<String>,
     #[serde(default)]
@@ -63,6 +87,19 @@ pub struct EventFilterNode {
     pub emergency: Option<bool>,
     #[serde(default)]
     pub min_duration_ms: u32,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Verdict {
+    Matched,
+    Missed,
+    Unjudged,
+}
+
+impl Verdict {
+    fn of(matched: bool) -> Self {
+        if matched { Self::Matched } else { Self::Missed }
+    }
 }
 
 struct Voice {
@@ -97,64 +134,112 @@ impl EventFilterNode {
 
     #[must_use]
     pub fn passes(&self, event: &DecoderEvent) -> bool {
-        if !self.kinds.is_empty() && !self.kinds.iter().any(|kind| kind == event.kind()) {
-            return false;
-        }
-        if !self.stations.is_empty() {
-            let Some(station) = event.station() else {
-                return false;
-            };
-            if !self
-                .stations
-                .iter()
-                .any(|wanted| wanted.eq_ignore_ascii_case(&station))
-            {
-                return false;
+        let mut judged = false;
+        for verdict in self.verdicts(event) {
+            match verdict {
+                Verdict::Missed => return self.mode == FilterMode::Drop,
+                Verdict::Matched => judged = true,
+                Verdict::Unjudged => {}
             }
         }
-        if let Some(text) = &self.contains
-            && !text.is_empty()
-            && !event
-                .summary()
-                .to_lowercase()
-                .contains(&text.to_lowercase())
-        {
-            return false;
+        match self.mode {
+            FilterMode::Keep => true,
+            FilterMode::Drop => !judged,
         }
-        if let Some(want) = self.has_position
-            && want != event.position().is_some()
-        {
-            return false;
-        }
-        let Some(voice) = voice_of(event) else {
-            return true;
-        };
-        if !self.talkgroups.is_empty()
-            && !voice
-                .destination
-                .is_some_and(|id| self.talkgroups.contains(&id))
-        {
-            return false;
-        }
-        if !self.radios.is_empty() && !voice.source.is_some_and(|id| self.radios.contains(&id)) {
-            return false;
-        }
-        if self
-            .encrypted
-            .is_some_and(|want| voice.encrypted != Some(want))
-        {
-            return false;
-        }
-        if self
-            .emergency
-            .is_some_and(|want| voice.emergency != Some(want))
-        {
-            return false;
-        }
-        voice
-            .duration_ms
-            .is_none_or(|held| held >= u64::from(self.min_duration_ms))
     }
+
+    fn verdicts(&self, event: &DecoderEvent) -> [Verdict; 9] {
+        let voice = voice_of(event);
+        let voice = voice.as_ref();
+        [
+            self.kind_verdict(event),
+            self.station_verdict(event),
+            self.text_verdict(event),
+            self.position_verdict(event),
+            list_verdict(&self.talkgroups, voice, |v| v.destination),
+            list_verdict(&self.radios, voice, |v| v.source),
+            flag_verdict(self.encrypted, voice, |v| v.encrypted),
+            flag_verdict(self.emergency, voice, |v| v.emergency),
+            self.duration_verdict(voice),
+        ]
+    }
+
+    fn kind_verdict(&self, event: &DecoderEvent) -> Verdict {
+        if self.kinds.is_empty() {
+            return Verdict::Unjudged;
+        }
+        Verdict::of(self.kinds.iter().any(|kind| kind == event.kind()))
+    }
+
+    fn station_verdict(&self, event: &DecoderEvent) -> Verdict {
+        if self.stations.is_empty() {
+            return Verdict::Unjudged;
+        }
+        let Some(station) = event.station() else {
+            return Verdict::Missed;
+        };
+        Verdict::of(
+            self.stations
+                .iter()
+                .any(|wanted| wanted.eq_ignore_ascii_case(&station)),
+        )
+    }
+
+    fn text_verdict(&self, event: &DecoderEvent) -> Verdict {
+        match self.contains.as_deref() {
+            None | Some("") => Verdict::Unjudged,
+            Some(text) => Verdict::of(
+                event
+                    .summary()
+                    .to_lowercase()
+                    .contains(&text.to_lowercase()),
+            ),
+        }
+    }
+
+    fn position_verdict(&self, event: &DecoderEvent) -> Verdict {
+        let Some(want) = self.has_position else {
+            return Verdict::Unjudged;
+        };
+        if !facets_of(event.kind()).contains(&EventFacet::Position) {
+            return Verdict::Unjudged;
+        }
+        Verdict::of(event.position().is_some() == want)
+    }
+
+    fn duration_verdict(&self, voice: Option<&Voice>) -> Verdict {
+        if self.min_duration_ms == 0 {
+            return Verdict::Unjudged;
+        }
+        match voice.and_then(|v| v.duration_ms) {
+            None => Verdict::Unjudged,
+            Some(held) => Verdict::of(held >= u64::from(self.min_duration_ms)),
+        }
+    }
+}
+
+fn list_verdict(wanted: &[u32], voice: Option<&Voice>, pick: fn(&Voice) -> Option<u32>) -> Verdict {
+    if wanted.is_empty() {
+        return Verdict::Unjudged;
+    }
+    let Some(voice) = voice else {
+        return Verdict::Unjudged;
+    };
+    Verdict::of(pick(voice).is_some_and(|id| wanted.contains(&id)))
+}
+
+fn flag_verdict(
+    want: Option<bool>,
+    voice: Option<&Voice>,
+    pick: fn(&Voice) -> Option<bool>,
+) -> Verdict {
+    let Some(want) = want else {
+        return Verdict::Unjudged;
+    };
+    let Some(voice) = voice else {
+        return Verdict::Unjudged;
+    };
+    Verdict::of(pick(voice) == Some(want))
 }
 
 fn voice_of(event: &DecoderEvent) -> Option<Voice> {
@@ -290,20 +375,13 @@ mod tests {
 
     #[test]
     fn a_position_predicate_keeps_only_the_fixes() {
-        let wants = EventFilterNode {
-            has_position: Some(true),
-            ..EventFilterNode::default()
-        };
-        assert!(wants.passes(&adsb("3C6444", None, true)));
-        assert!(!wants.passes(&adsb("3C6444", None, false)));
-        assert!(!wants.passes(&rtty()));
-
         let without = EventFilterNode {
             has_position: Some(false),
             ..EventFilterNode::default()
         };
-        assert!(without.passes(&rtty()));
+        assert!(without.passes(&adsb("3C6444", None, false)));
         assert!(!without.passes(&adsb("3C6444", None, true)));
+        assert!(without.passes(&rtty()));
     }
 
     #[test]
@@ -405,37 +483,90 @@ mod tests {
     }
 
     #[test]
-    fn only_the_predicates_that_suit_the_wired_kinds_are_offered() {
+    fn facets_say_which_predicates_suit_a_kind() {
+        assert_eq!(facets_of("adsb"), &[EventFacet::Position]);
+        assert_eq!(facets_of("pocsag"), &[] as &[EventFacet]);
         assert_eq!(
-            predicates_for(&["adsb".to_owned()]),
-            vec!["stations", "contains", "has_position"],
+            facets_of("call"),
+            &[EventFacet::Voice, EventFacet::Duration]
+        );
+        assert_eq!(facets_of("dv"), &[EventFacet::Position, EventFacet::Voice]);
+        let listed = event_facets();
+        assert!(listed.iter().any(|entry| entry.kind == "ais"));
+        assert!(listed.iter().all(|entry| !entry.facets.is_empty()));
+    }
+
+    #[test]
+    fn a_position_rule_leaves_kinds_without_a_position_alone() {
+        let fixed = EventFilterNode {
+            has_position: Some(true),
+            ..EventFilterNode::default()
+        };
+        assert!(fixed.passes(&adsb("3C6444", None, true)));
+        assert!(!fixed.passes(&adsb("3C6444", None, false)));
+        assert!(fixed.passes(&rtty()), "a teleprinter has no fix to judge");
+    }
+
+    #[test]
+    fn drop_mode_removes_what_matches_and_keeps_the_rest() {
+        let filter = EventFilterNode {
+            mode: FilterMode::Drop,
+            contains: Some("test".to_owned()),
+            ..EventFilterNode::default()
+        };
+        assert!(!filter.passes(&rtty()));
+        assert!(filter.passes(&adsb("3C6444", Some("DLH123"), true)));
+    }
+
+    #[test]
+    fn drop_mode_needs_every_rule_to_match_before_it_drops() {
+        let filter = EventFilterNode {
+            mode: FilterMode::Drop,
+            kinds: vec!["rtty".to_owned()],
+            contains: Some("nothing here".to_owned()),
+            ..EventFilterNode::default()
+        };
+        assert!(
+            filter.passes(&rtty()),
+            "the text rule missed, so nothing is dropped"
+        );
+        assert!(filter.passes(&adsb("3C6444", None, true)));
+    }
+
+    #[test]
+    fn drop_mode_ignores_rules_that_do_not_apply() {
+        let filter = EventFilterNode {
+            mode: FilterMode::Drop,
+            talkgroups: vec![505],
+            ..EventFilterNode::default()
+        };
+        assert!(!filter.passes(&DecoderEvent::Call(call())));
+        assert!(filter.passes(&DecoderEvent::Call(VoiceCall {
+            destination: Some(77),
+            ..call()
+        })));
+        assert!(
+            filter.passes(&adsb("3C6444", None, true)),
             "an aircraft has no talkgroup"
         );
-        assert_eq!(
-            predicates_for(&["pocsag".to_owned()]),
-            vec!["stations", "contains"],
-            "a pager has neither talkgroup nor position"
-        );
-        assert_eq!(
-            predicates_for(&["call".to_owned()]),
-            vec![
-                "stations",
-                "contains",
-                "talkgroups",
-                "radios",
-                "encrypted",
-                "emergency",
-                "min_duration_ms"
-            ]
-        );
-        assert!(
-            predicates_for(&["adsb".to_owned(), "call".to_owned()]).contains(&"talkgroups"),
-            "a mixed wire offers the union"
-        );
-        assert!(
-            predicates_for(&[]).contains(&"talkgroups"),
-            "with nothing wired we cannot narrow, so offer everything"
-        );
+    }
+
+    #[test]
+    fn an_empty_drop_filter_drops_nothing() {
+        let filter = EventFilterNode {
+            mode: FilterMode::Drop,
+            ..EventFilterNode::default()
+        };
+        assert!(filter.passes(&rtty()));
+        assert!(filter.passes(&DecoderEvent::Call(call())));
+    }
+
+    #[test]
+    fn the_mode_defaults_to_keep_when_absent() {
+        let filter: EventFilterNode = serde_json::from_str(r#"{"kinds":["call"]}"#).unwrap();
+        assert_eq!(filter.mode, FilterMode::Keep);
+        let json = serde_json::to_value(&filter).unwrap();
+        assert_eq!(json["mode"], "keep");
     }
 
     #[test]

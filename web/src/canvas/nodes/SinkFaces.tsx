@@ -9,7 +9,6 @@ import { DevOnly } from "../../components/DevOnly";
 import { DownloadMenu } from "../../components/DownloadMenu";
 import {
   DEFAULT_LOG_FILTER,
-  type EventGate,
   logDownloads,
   toQuery,
   type WireScope,
@@ -49,7 +48,6 @@ import { toastError } from "../../lib/toasts";
 import type {
   AudioRecordingStatus,
   DeviceSet,
-  EventFilterNode,
   PatchNode,
   PatchNodeOf,
   RecordAction,
@@ -57,7 +55,7 @@ import type {
   VoiceCall,
 } from "../../lib/types";
 import { useNow } from "../../lib/useNow";
-import { type EventPath, eventPathsOf, type Input, inputsOf, iqSourceOf } from "../binding";
+import { type Input, inputsOf, iqSourceOf } from "../binding";
 import { useWorkspaceContext } from "../context";
 import { patchNode } from "../graph";
 import { decoderOf, deviceSetOf } from "../workspaceDevice";
@@ -90,34 +88,8 @@ function useWiredKinds(inputs: readonly Input[]): string[] {
   return [...new Set(useWiredDecoders(inputs).map((wired) => wired.kind))];
 }
 
-function wireScope(inputs: readonly Input[], paths: readonly EventPath[] = []): WireScope {
-  return {
-    nodes: inputs.map((input) => input.node).join(","),
-    sources: inputs.map((input) => `${input.deviceSet}:${input.channel.id}`).join(","),
-    gate: eventGate(inputs, paths),
-  };
-}
-
-function eventGate(inputs: readonly Input[], paths: readonly EventPath[]): EventGate {
-  const bySource: Record<string, EventFilterNode[][]> = {};
-  for (const input of inputs) {
-    const key = `${input.deviceSet}:${input.channel.id}`;
-    const chains = paths.filter((path) => path.source === input.node).map((path) => path.filters);
-    (bySource[key] ??= []).push(...chains);
-  }
-  const kinds = new Set<string>();
-  for (const chains of Object.values(bySource)) {
-    for (const chain of chains) {
-      const named = chain.flatMap((filter) => filter.kinds ?? []);
-      if (named.length === 0) {
-        return { kinds: [], bySource };
-      }
-      for (const kind of named) {
-        kinds.add(kind);
-      }
-    }
-  }
-  return { kinds: [...kinds].toSorted(), bySource };
+function wireScope(sink: string, inputs: readonly Input[]): WireScope {
+  return { sink, wired: inputs.length > 0 };
 }
 
 export function SpeakerFace({ node }: { node: PatchNode }) {
@@ -384,9 +356,7 @@ export function VideoFace({ node }: { node: PatchNode }) {
 }
 
 export function DecoderLogFace({ node }: { node: PatchNode }) {
-  const workspace = useWorkspaceContext();
   const inputs = useInputs(node.id, "events");
-  const paths = eventPathsOf(workspace.graph, node.id);
   return (
     <NodeShell
       node={node}
@@ -394,7 +364,7 @@ export function DecoderLogFace({ node }: { node: PatchNode }) {
       category="output"
       subtitle={inputs.length > 0 ? `${inputs.length} in` : undefined}
     >
-      <DecoderLogPanel wires={wireScope(inputs, paths)} />
+      <DecoderLogPanel wires={wireScope(node.id, inputs)} />
     </NodeShell>
   );
 }
@@ -443,7 +413,7 @@ export function CallRow({ call }: { call: VoiceCall }) {
 export function ExportFace({ node }: { node: PatchNode }) {
   const inputs = useInputs(node.id, "events");
   const kinds = useWiredKinds(inputs);
-  const wires = wireScope(inputs);
+  const wires = wireScope(node.id, inputs);
   return (
     <NodeShell
       node={node}

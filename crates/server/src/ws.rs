@@ -41,7 +41,7 @@ pub(crate) async fn handler(ws: WebSocketUpgrade, State(state): State<AppState>)
 }
 
 pub(crate) fn start_decoded_encoder(state: &AppState) {
-    let mut decoded_rx = state.engine.subscribe_decoded();
+    let mut decoded_rx = state.decoded.subscribe();
     let out = state.decoded_text.clone();
     let tracks = state.tracks.clone();
     let Ok(handle) = tokio::runtime::Handle::try_current() else {
@@ -52,12 +52,15 @@ pub(crate) fn start_decoded_encoder(state: &AppState) {
     tokio::spawn(async move {
         loop {
             match decoded_rx.recv().await {
-                Ok(record) => {
-                    tracks.observe(&record);
-                    let _ = out.send(encode_event(&ServerEvent::Decoded(Box::new(record))));
+                Ok(crate::decoded::Decoded::Record(routed)) => {
+                    tracks.observe(&routed.record);
+                    let _ = out.send(encode_event(&ServerEvent::Decoded(Box::new(routed.record))));
                 }
-                Err(broadcast::error::RecvError::Lagged(missed)) => {
-                    let _ = out.send(encode_event(&ServerEvent::DecodedLost { count: missed }));
+                Ok(crate::decoded::Decoded::Lost(count)) => {
+                    let _ = out.send(encode_event(&ServerEvent::DecodedLost { count }));
+                }
+                Err(broadcast::error::RecvError::Lagged(count)) => {
+                    let _ = out.send(encode_event(&ServerEvent::DecodedLost { count }));
                 }
                 Err(broadcast::error::RecvError::Closed) => break,
             }

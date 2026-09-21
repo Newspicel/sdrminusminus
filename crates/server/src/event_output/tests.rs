@@ -10,9 +10,8 @@ use axum::{
 };
 use reqwest::StatusCode;
 use sdrmm_wire::{
-    ChannelNode, DecoderEvent, DvMode, EventAudio, EventFilterNode, EventOutputNode, PatchEdge,
-    PatchGraph, PatchNode, PortRef, Position, RackLayout, RttyText, UpdateWorkspaceRequest,
-    WorkspaceSnapshot,
+    ChannelNode, DecoderEvent, DvMode, EventAudio, EventOutputNode, PatchEdge, PatchGraph,
+    PatchNode, PortRef, Position, RackLayout, RttyText, UpdateWorkspaceRequest, WorkspaceSnapshot,
 };
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
@@ -88,6 +87,7 @@ fn call() -> VoiceCall {
 
 fn call_record() -> DecodedRecord {
     DecodedRecord {
+        sinks: Vec::new(),
         event: DecoderEvent::Call(call()),
         ..decoded()
     }
@@ -95,6 +95,7 @@ fn call_record() -> DecodedRecord {
 
 fn decoded() -> DecodedRecord {
     DecodedRecord {
+        sinks: vec!["matched".to_owned()],
         device_set: 1,
         channel: 2,
         at: "2026-08-15T10:00:02Z".to_owned(),
@@ -264,51 +265,37 @@ fn resolve_maps_configured_outputs_and_the_events_port() {
         )
         .expect("update workspace");
 
-    let routing = resolve(&store, None).expect("resolve outputs");
+    let routing = resolve(&store).expect("resolve outputs");
     let bindings = routing.bindings;
 
     assert_eq!(bindings.len(), 1);
     assert_eq!(bindings[0].node, "configured");
-    assert_eq!(bindings[0].paths.len(), 1);
-    assert_eq!(bindings[0].paths[0].source, "decoder");
     assert_eq!(bindings[0].target, configured);
 }
 
-fn path(source: &str, filters: Vec<EventFilterNode>) -> EventPath {
-    EventPath {
-        source: source.to_owned(),
-        filters,
-    }
-}
-
-fn routing_for(paths: Vec<EventPath>) -> Routing {
+fn routing_for() -> Routing {
     Routing {
         bindings: vec![Binding {
             node: "matched".to_owned(),
-            paths,
             target: discord_webhook(),
         }],
-        decoded_sources: HashMap::from([((1, 2), "decoder".to_owned())]),
     }
 }
 
 #[test]
-fn decoded_records_route_only_to_outputs_wired_to_the_live_channel() {
+fn decoded_records_route_only_to_outputs_the_record_reached() {
     let target = discord_webhook();
     let routing = Routing {
         bindings: vec![
             Binding {
                 node: "matched".to_owned(),
-                paths: vec![path("decoder", Vec::new())],
                 target: target.clone(),
             },
             Binding {
                 node: "other".to_owned(),
-                paths: vec![path("other-decoder", Vec::new())],
                 target,
             },
         ],
-        decoded_sources: HashMap::from([((1, 2), "decoder".to_owned())]),
     };
 
     let deliveries = decoded_deliveries(&routing, &decoded(), 9, &Calls::default());
@@ -321,7 +308,7 @@ fn decoded_records_route_only_to_outputs_wired_to_the_live_channel() {
 
 #[test]
 fn a_completed_call_travels_the_events_wire_like_any_other_decode() {
-    let routing = routing_for(vec![path("decoder", Vec::new())]);
+    let routing = routing_for();
     let record = DecodedRecord {
         event: DecoderEvent::Call(call()),
         ..decoded()
@@ -335,71 +322,14 @@ fn a_completed_call_travels_the_events_wire_like_any_other_decode() {
 }
 
 #[test]
-fn a_filter_on_the_wire_decides_what_the_output_posts() {
-    let only_calls = EventFilterNode {
-        kinds: vec!["call".to_owned()],
-        ..EventFilterNode::default()
-    };
-    let routing = routing_for(vec![path("decoder", vec![only_calls])]);
-
-    assert!(
-        decoded_deliveries(&routing, &decoded(), 9, &Calls::default()).is_empty(),
-        "the filter admits calls only"
-    );
-    let record = DecodedRecord {
-        event: DecoderEvent::Call(call()),
-        ..decoded()
-    };
-    assert_eq!(
-        decoded_deliveries(&routing, &record, 9, &Calls::default()).len(),
-        1
-    );
-}
-
-#[test]
-fn a_talkgroup_filter_drops_the_calls_it_does_not_name() {
-    let routing = routing_for(vec![path(
-        "decoder",
-        vec![EventFilterNode {
-            talkgroups: vec![91],
-            ..EventFilterNode::default()
-        }],
-    )]);
-    let wanted = DecodedRecord {
-        event: DecoderEvent::Call(call()),
-        ..decoded()
-    };
-    let other = DecodedRecord {
-        event: DecoderEvent::Call(VoiceCall {
-            destination: Some(4_242),
-            ..call()
-        }),
+fn a_record_that_reached_no_output_posts_nowhere() {
+    let routing = routing_for();
+    let unrouted = DecodedRecord {
+        sinks: Vec::new(),
         ..decoded()
     };
 
-    assert_eq!(
-        decoded_deliveries(&routing, &wanted, 9, &Calls::default()).len(),
-        1
-    );
-    assert!(decoded_deliveries(&routing, &other, 9, &Calls::default()).is_empty());
-}
-
-#[test]
-fn one_output_can_be_fed_by_a_filtered_and_an_unfiltered_wire() {
-    let only_calls = EventFilterNode {
-        kinds: vec!["call".to_owned()],
-        ..EventFilterNode::default()
-    };
-    let routing = routing_for(vec![
-        path("decoder", vec![only_calls]),
-        path("decoder", Vec::new()),
-    ]);
-
-    assert_eq!(
-        decoded_deliveries(&routing, &decoded(), 9, &Calls::default()).len(),
-        1,
-        "one open wire is enough to post, and it posts once"
-    );
+    assert!(decoded_deliveries(&routing, &unrouted, 9, &Calls::default()).is_empty());
 }
 
 #[tokio::test]

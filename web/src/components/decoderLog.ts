@@ -1,4 +1,3 @@
-import { passesChain } from "../canvas/nodes/eventFilter";
 import { decoderLogExportUrl } from "../lib/api";
 import type { DecodedState } from "../lib/decoded";
 import type {
@@ -7,7 +6,6 @@ import type {
   DecoderKind,
   DecoderLogEntry,
   DecoderLogFilter,
-  EventFilterNode,
 } from "../lib/types";
 import type { DownloadChoice } from "./DownloadMenu";
 import { eventStation, eventSummary, hasPosition, hex2, hex5 } from "./eventFacts";
@@ -169,45 +167,19 @@ export function kindLabel(kind: string): string {
 }
 
 export interface WireScope {
-  nodes: string;
-  sources: string;
-  gate: EventGate;
+  sink: string;
+  wired: boolean;
 }
 
-export interface EventGate {
-  kinds: string[];
-  bySource: Record<string, EventFilterNode[][]>;
-}
-
-export const NO_GATE: EventGate = { kinds: [], bySource: {} };
-
-export const NO_WIRES: WireScope = { nodes: "", sources: "", gate: NO_GATE };
-
-export function passesGate(gate: EventGate, source: string, event: DecoderEvent): boolean {
-  const chains = gate.bySource[source];
-  if (chains === undefined || chains.length === 0) {
-    return true;
-  }
-  return chains.some((chain) => passesChain(chain, event));
-}
-
-export function sourceSet(sources: string): ReadonlySet<string> {
-  return new Set(sources === "" ? [] : sources.split(","));
-}
-
-function inSources(record: DecodedRecord, sources: ReadonlySet<string>): boolean {
-  return sources.has(`${record.device_set}:${record.channel}`);
+export function reachedSink(record: DecodedRecord, sink: string): boolean {
+  return (record.sinks ?? []).includes(sink);
 }
 
 export function toQuery(filter: LogFilter, wires: WireScope): DecoderLogFilter {
   const query: DecoderLogFilter = {
     limit: filter.limit,
-    nodes: wires.nodes,
-    sources: wires.sources,
+    sink: wires.sink,
   };
-  if (wires.gate.kinds.length > 0) {
-    query.kinds = wires.gate.kinds.join(",");
-  }
   const q = filter.q.trim();
   if (q !== "") {
     query.q = q;
@@ -219,16 +191,8 @@ export function isFiltered(filter: LogFilter): boolean {
   return filter.q.trim() !== "";
 }
 
-export function matchesFilter(
-  record: DecodedRecord,
-  filter: LogFilter,
-  sources: ReadonlySet<string>,
-  gate: EventGate = NO_GATE,
-): boolean {
-  if (!inSources(record, sources)) {
-    return false;
-  }
-  if (!passesGate(gate, `${record.device_set}:${record.channel}`, record.event)) {
+export function matchesFilter(record: DecodedRecord, filter: LogFilter, sink: string): boolean {
+  if (!reachedSink(record, sink)) {
     return false;
   }
   const q = filter.q.trim().toLowerCase();
@@ -245,14 +209,13 @@ export function matchesFilter(
 export function collectLive(
   frames: DecodedState["frames"],
   filter: LogFilter,
-  sources: ReadonlySet<string>,
-  gate: EventGate = NO_GATE,
+  sink: string,
   cap = LIVE_ROW_CAP,
 ): DecodedRecord[] {
   const records: DecodedRecord[] = [];
   for (const slice of Object.values(frames)) {
     for (const record of slice ?? []) {
-      if (matchesFilter(record, filter, sources, gate)) {
+      if (matchesFilter(record, filter, sink)) {
         records.push(record);
       }
     }

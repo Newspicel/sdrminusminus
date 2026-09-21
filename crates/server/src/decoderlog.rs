@@ -1,19 +1,16 @@
-use std::{
-    collections::HashMap,
-    sync::{
-        Arc, Weak,
-        atomic::{AtomicU64, Ordering},
-    },
+use std::sync::{
+    Arc, Weak,
+    atomic::{AtomicU64, Ordering},
 };
 
 use sdrmm_engine::Engine;
-use sdrmm_wire::{DecodedRecord, StateScope};
+use sdrmm_wire::StateScope;
 use tokio::{
     sync::broadcast::{Receiver, error::RecvError},
     time::{Duration, MissedTickBehavior, interval},
 };
 
-use crate::store::{LogOrigin, Store};
+use crate::{decoded::Decoded, events::Routed, store::Store};
 
 const MAX_ROWS: u64 = 1_000_000;
 
@@ -27,53 +24,39 @@ const RETENTION: Duration = Duration::from_secs(24 * 60 * 60);
 
 const RETRY_MAX: usize = 4 * BATCH_MAX;
 
-pub(crate) async fn run(engine: Arc<Engine>, store: Arc<Store>, dropped: Arc<AtomicU64>) {
-    let records = engine.subscribe_decoded();
-    let weak = Arc::downgrade(&engine);
-    drop(engine);
-    write(records, weak, store, dropped).await;
-}
-
-#[cfg(test)]
-fn spawn_writer_on(
-    records: Receiver<DecodedRecord>,
-    engine: Weak<Engine>,
-    store: Arc<Store>,
-    dropped: Arc<AtomicU64>,
-) -> tokio::task::JoinHandle<()> {
-    tokio::spawn(write(records, engine, store, dropped))
-}
-
-async fn write(
-    mut records: Receiver<DecodedRecord>,
+pub(crate) async fn run(
+    records: Receiver<Decoded>,
     engine: Weak<Engine>,
     store: Arc<Store>,
     dropped: Arc<AtomicU64>,
 ) {
-    let mut batch: Vec<DecodedRecord> = Vec::with_capacity(BATCH_MAX);
-    let mut nodes = NodeMap::default();
+    let mut batch: Vec<Routed> = Vec::with_capacity(BATCH_MAX);
     let mut flush_tick = ticker(FLUSH_INTERVAL);
     let mut prune_tick = ticker(PRUNE_INTERVAL);
+    let mut records = records;
     loop {
         tokio::select! {
             received = records.recv() => match received {
-                Ok(record) => {
-                    batch.push(record);
+                Ok(Decoded::Record(routed)) => {
+                    batch.push(*routed);
                     if batch.len() >= BATCH_MAX {
-                        flush(&store, &mut batch, &dropped, &engine, &mut nodes).await;
+                        flush(&store, &mut batch, &dropped).await;
                     }
+                }
+                Ok(Decoded::Lost(count)) => {
+                    dropped.fetch_add(count, Ordering::Relaxed);
                 }
                 Err(RecvError::Lagged(count)) => {
                     dropped.fetch_add(count, Ordering::Relaxed);
                     tracing::warn!(count, "decoder frames lost: log writer behind");
                 }
                 Err(RecvError::Closed) => {
-                    flush(&store, &mut batch, &dropped, &engine, &mut nodes).await;
+                    flush(&store, &mut batch, &dropped).await;
                     return;
                 }
             },
             _ = flush_tick.tick() => {
-                flush(&store, &mut batch, &dropped, &engine, &mut nodes).await;
+                flush(&store, &mut batch, &dropped).await;
             }
             _ = prune_tick.tick() => {
                 expire(&store, &engine, RETENTION).await;
@@ -83,124 +66,23 @@ async fn write(
     }
 }
 
-#[derive(PartialEq, Eq)]
-struct NodeMapKey {
-    channels: Vec<(u32, u32)>,
-    workspace: i64,
-    revision: u64,
-}
-
-#[derive(Default)]
-struct NodeMap {
-    key: Option<NodeMapKey>,
-    workspace: Option<i64>,
-    map: HashMap<(u32, u32), String>,
-}
-
-impl NodeMap {
-    fn resolve(&mut self, engine: Option<&Engine>, store: &Store) -> LogOrigin<'_> {
-        let Some(engine) = engine else {
-            self.forget();
-            return self.origin();
-        };
-        let state = engine.snapshot();
-        let channels: Vec<(u32, u32)> = state
-            .device_sets
-            .iter()
-            .flat_map(|set| set.channels.iter().map(move |channel| (set.id, channel.id)))
-            .collect();
-        let active = match store.active_workspace() {
-            Ok(active) => active,
-            Err(err) => {
-                tracing::warn!(%err, "could not read the active workspace for the decoder log");
-                return self.origin();
-            }
-        };
-        let Some(active) = active else {
-            self.forget();
-            return self.origin();
-        };
-        let key = NodeMapKey {
-            channels,
-            workspace: active.info.id,
-            revision: active.info.revision,
-        };
-        if self.key.as_ref() == Some(&key) {
-            return self.origin();
-        }
-        self.map = crate::workspace::bind(&active.snapshot.graph, &state)
-            .into_iter()
-            .flat_map(|binding| {
-                binding
-                    .channels
-                    .into_iter()
-                    .map(move |(node, channel)| ((binding.device_set, channel), node))
-            })
-            .collect();
-        for system in &state.trunk_systems {
-            for follower in &system.followers {
-                self.map
-                    .insert((follower.device_set, follower.channel), system.node.clone());
-            }
-            if let Some(control) = &system.control {
-                self.map
-                    .insert((control.device_set, control.channel), system.node.clone());
-            }
-        }
-        self.workspace = Some(active.info.id);
-        self.key = Some(key);
-        self.origin()
-    }
-
-    fn origin(&self) -> LogOrigin<'_> {
-        LogOrigin {
-            workspace: self.workspace,
-            nodes: &self.map,
-        }
-    }
-
-    fn forget(&mut self) {
-        self.key = None;
-        self.workspace = None;
-        self.map.clear();
-    }
-}
-
 fn ticker(period: Duration) -> tokio::time::Interval {
     let mut ticker = interval(period);
     ticker.set_missed_tick_behavior(MissedTickBehavior::Delay);
     ticker
 }
 
-async fn flush(
-    store: &Arc<Store>,
-    batch: &mut Vec<DecodedRecord>,
-    dropped: &AtomicU64,
-    engine: &Weak<Engine>,
-    nodes: &mut NodeMap,
-) {
+async fn flush(store: &Arc<Store>, batch: &mut Vec<Routed>, dropped: &AtomicU64) {
     if batch.is_empty() {
         return;
     }
     let records = std::mem::take(batch);
     let owned = store.clone();
-    let engine = engine.upgrade();
-    let mut resolver = std::mem::take(nodes);
     let written = tokio::task::spawn_blocking(move || {
-        let result = {
-            let origin = resolver.resolve(engine.as_deref(), &owned);
-            owned.insert_decoder_events(&records, &origin)
-        };
-        (result, records, resolver)
+        let result = owned.insert_decoder_events(&records);
+        (result, records)
     })
     .await;
-    let written = match written {
-        Ok((result, records, resolver)) => {
-            *nodes = resolver;
-            Ok((result, records))
-        }
-        Err(err) => Err(err),
-    };
     match written {
         Ok((Ok(_), _)) => {}
         Ok((Err(err), mut records)) => {
@@ -254,16 +136,30 @@ async fn prune(store: &Arc<Store>, engine: &Weak<Engine>, max_rows: u64) {
 #[cfg(test)]
 mod tests {
     use sdrmm_wire::{
-        AdsbMessage, ChannelNode, ChannelParams, ChannelSettings, DecoderEvent, DecoderLogQuery,
-        DeviceRef, NodeBody, PatchEdge, PatchNode, PortRef, Position, ServerEvent,
+        AdsbMessage, ChannelNode, ChannelParams, ChannelSettings, DecodedRecord, DecoderEvent,
+        DecoderLogQuery, DeviceRef, NodeBody, PatchEdge, PatchNode, PortRef, Position, ServerEvent,
         WorkspaceSnapshot,
     };
     use tokio::sync::broadcast;
 
     use super::*;
 
+    fn spawn_writer_on(
+        records: Receiver<Decoded>,
+        engine: Weak<Engine>,
+        store: Arc<Store>,
+        dropped: Arc<AtomicU64>,
+    ) -> tokio::task::JoinHandle<()> {
+        tokio::spawn(run(records, engine, store, dropped))
+    }
+
+    fn loose(record: DecodedRecord) -> Decoded {
+        Decoded::Record(Box::new(Routed::unattributed(record)))
+    }
+
     fn record(icao: &str) -> DecodedRecord {
         DecodedRecord {
+            sinks: Vec::new(),
             device_set: 0,
             channel: 0,
             at: jiff::Timestamp::now().to_string(),
@@ -305,7 +201,7 @@ mod tests {
         let writer = spawn_writer_on(rx, Weak::new(), store.clone(), dropped.clone());
 
         for icao in ["3C6444", "4CA2D4", "AB1234"] {
-            tx.send(record(icao)).expect("send");
+            tx.send(loose(record(icao))).expect("send");
         }
         wait_for_rows(&store, 3).await;
         assert_eq!(dropped.load(Ordering::Relaxed), 0);
@@ -383,20 +279,15 @@ mod tests {
         let id = store.create_workspace("bench", &snapshot).expect("create");
         store.activate_workspace(id).expect("activate");
 
-        let mut nodes = NodeMap::default();
-        let mut batch = vec![DecodedRecord {
+        let routes =
+            crate::decoded::resolve_routes(&store, &engine.snapshot()).expect("routes resolve");
+        let mut batch = vec![routes.route(DecodedRecord {
+            sinks: Vec::new(),
             device_set: set,
             channel,
             ..record("3C6444")
-        }];
-        flush(
-            &store,
-            &mut batch,
-            &AtomicU64::new(0),
-            &Arc::downgrade(&engine),
-            &mut nodes,
-        )
-        .await;
+        })];
+        flush(&store, &mut batch, &AtomicU64::new(0)).await;
 
         let entries = store
             .query_decoder_log(&DecoderLogQuery::default())
@@ -404,19 +295,13 @@ mod tests {
             .0;
         assert_eq!(entries[0].node.as_deref(), Some("channel:adsb"));
 
-        let mut orphan = vec![DecodedRecord {
+        let mut orphan = vec![routes.route(DecodedRecord {
+            sinks: Vec::new(),
             device_set: set,
             channel: channel + 99,
             ..record("4CA2D4")
-        }];
-        flush(
-            &store,
-            &mut orphan,
-            &AtomicU64::new(0),
-            &Arc::downgrade(&engine),
-            &mut nodes,
-        )
-        .await;
+        })];
+        flush(&store, &mut orphan, &AtomicU64::new(0)).await;
         let entries = store
             .query_decoder_log(&DecoderLogQuery::default())
             .expect("query")
@@ -434,7 +319,7 @@ mod tests {
         let (tx, rx) = broadcast::channel(4);
         let dropped = Arc::new(AtomicU64::new(0));
         for i in 0..20 {
-            tx.send(record(&format!("00000{i}"))).expect("send");
+            tx.send(loose(record(&format!("00000{i}")))).expect("send");
         }
         let writer = spawn_writer_on(rx, Weak::new(), store.clone(), dropped.clone());
         drop(tx);
@@ -453,12 +338,13 @@ mod tests {
             .insert_decoder_events(
                 &[
                     DecodedRecord {
+                        sinks: Vec::new(),
                         at: "2020-01-01T00:00:00Z".to_owned(),
                         ..record("3C6444")
                     },
                     record("4CA2D4"),
-                ],
-                &crate::store::LogOrigin::unattributed(),
+                ]
+                .map(Routed::unattributed),
             )
             .expect("insert");
         assert_eq!(total(&store), 2);
@@ -480,10 +366,10 @@ mod tests {
         let mut events = engine.subscribe_events();
 
         let store = Arc::new(Store::open(None).expect("store"));
-        let records: Vec<DecodedRecord> = (0..3).map(|i| record(&format!("00000{i}"))).collect();
-        store
-            .insert_decoder_events(&records, &LogOrigin::unattributed())
-            .expect("insert");
+        let records: Vec<Routed> = (0..3)
+            .map(|i| Routed::unattributed(record(&format!("00000{i}"))))
+            .collect();
+        store.insert_decoder_events(&records).expect("insert");
 
         let weak = Arc::downgrade(&engine);
         prune(&store, &weak, 3).await;

@@ -8,7 +8,6 @@ import {
   controlledNodeOf,
   deviceNodeOf,
   deviceRefOf,
-  eventPathsOf,
   eventSourcesOf,
   hasWire,
   inputsOf,
@@ -341,12 +340,9 @@ describe("binding", () => {
       { node: "dmr", deviceSet: 1, channel: dmr },
     ]);
     expect(eventSourcesOf(g, "log")).toEqual(["dmr"]);
-    expect(eventPathsOf(g, "log")).toEqual([
-      { source: "dmr", filters: [{ kinds: ["call"] }, { min_duration_ms: 1000 }] },
-    ]);
   });
 
-  it("reports one path per wire when a decoder reaches a sink filtered and direct", () => {
+  it("names a decoder once when it reaches a sink filtered and direct", () => {
     const g: PatchGraph = {
       nodes: [
         node("dev", { kind: "device", data: { device: deviceRefOf(rtl) } }),
@@ -362,10 +358,6 @@ describe("binding", () => {
       ],
     };
 
-    expect(eventPathsOf(g, "log")).toEqual([
-      { source: "dmr", filters: [{ kinds: ["call"] }] },
-      { source: "dmr", filters: [] },
-    ]);
     expect(eventSourcesOf(g, "log")).toEqual(["dmr"]);
   });
 

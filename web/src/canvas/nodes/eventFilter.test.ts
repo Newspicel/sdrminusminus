@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
-import type { ChannelDescriptor, DecoderEvent } from "../../lib/types";
+import type { ChannelDescriptor, EventKindFacets } from "../../lib/types";
 import {
+  facetsOf,
   filterSaid,
   formatIds,
   fromTriState,
@@ -8,39 +9,18 @@ import {
   MAX_FILTER_IDS,
   parseIds,
   parseWords,
-  passesChain,
-  passesFilter,
   predicatesFor,
   sectionsFor,
   stationLabel,
   toTriState,
 } from "./eventFilter";
 
-const call = (over: Partial<Record<string, unknown>> = {}) =>
-  ({
-    kind: "call",
-    data: {
-      id: 1,
-      node: "dmr",
-      source_node: "dmr",
-      started_at: "",
-      ended_at: "",
-      duration_ms: 2_000,
-      device_set: 1,
-      channel: 2,
-      freq_hz: 446e6,
-      mode: "dmr",
-      source: 2_621_001,
-      destination: 505,
-      group_call: true,
-      encrypted: false,
-      emergency: false,
-      ...over,
-    },
-  }) as DecoderEvent;
-
-const voice = { kind: "dv", data: { mode: "dmr", kind: "voice" } } as DecoderEvent;
-const rtty = { kind: "rtty", data: { text: "CQ" } } as DecoderEvent;
+const FACETS: EventKindFacets[] = [
+  { kind: "adsb", facets: ["position"] },
+  { kind: "ais", facets: ["position"] },
+  { kind: "call", facets: ["voice", "duration"] },
+  { kind: "dv", facets: ["position", "voice"] },
+];
 
 describe("parseIds", () => {
   it("takes commas, spaces and newlines alike", () => {
@@ -132,18 +112,18 @@ describe("kindsOffered", () => {
 
 describe("predicatesFor", () => {
   it("offers an aircraft wire no talkgroups", () => {
-    const shown = predicatesFor(["adsb"]);
+    const shown = predicatesFor(["adsb"], FACETS);
     expect(shown).toEqual(["stations", "contains", "has_position"]);
     expect(shown).not.toContain("talkgroups");
     expect(shown).not.toContain("encrypted");
   });
 
   it("offers a pager wire neither talkgroups nor position", () => {
-    expect(predicatesFor(["pocsag"])).toEqual(["stations", "contains"]);
+    expect(predicatesFor(["pocsag"], FACETS)).toEqual(["stations", "contains"]);
   });
 
   it("offers a call wire the voice predicates and a duration", () => {
-    expect(predicatesFor(["call"])).toEqual([
+    expect(predicatesFor(["call"], FACETS)).toEqual([
       "stations",
       "contains",
       "talkgroups",
@@ -155,12 +135,12 @@ describe("predicatesFor", () => {
   });
 
   it("offers a raw voice wire no duration, since a frame has none", () => {
-    expect(predicatesFor(["dv"])).not.toContain("min_duration_ms");
-    expect(predicatesFor(["dv"])).toContain("talkgroups");
+    expect(predicatesFor(["dv"], FACETS)).not.toContain("min_duration_ms");
+    expect(predicatesFor(["dv"], FACETS)).toContain("talkgroups");
   });
 
   it("offers the union across a mixed wire", () => {
-    const shown = predicatesFor(["adsb", "call"]);
+    const shown = predicatesFor(["adsb", "call"], FACETS);
     expect(shown).toContain("has_position");
     expect(shown).toContain("talkgroups");
   });
@@ -168,11 +148,11 @@ describe("predicatesFor", () => {
 
 describe("stationLabel", () => {
   it("names what the wire actually carries", () => {
-    expect(stationLabel(["adsb"])).toBe("Aircraft");
-    expect(stationLabel(["ais"])).toBe("Vessels");
-    expect(stationLabel(["call", "dv"])).toBe("Radios seen");
-    expect(stationLabel(["adsb", "pocsag"])).toBe("Stations");
-    expect(stationLabel([])).toBe("Stations");
+    expect(stationLabel(["adsb"], FACETS)).toBe("Aircraft");
+    expect(stationLabel(["ais"], FACETS)).toBe("Vessels");
+    expect(stationLabel(["call", "dv"], FACETS)).toBe("Radios seen");
+    expect(stationLabel(["adsb", "pocsag"], FACETS)).toBe("Stations");
+    expect(stationLabel([], FACETS)).toBe("Stations");
   });
 });
 
@@ -187,8 +167,8 @@ describe("parseWords", () => {
 });
 
 describe("filterSaid", () => {
-  it("says it passes everything when nothing is set", () => {
-    expect(filterSaid({})).toBe("every event");
+  it("says it keeps everything when nothing is set", () => {
+    expect(filterSaid({})).toBe("keep every event");
   });
 
   it("names each predicate that is set", () => {
@@ -200,98 +180,28 @@ describe("filterSaid", () => {
       emergency: true,
       min_duration_ms: 1_500,
     });
-    expect(said).toBe("call · TG 505 · radio 1001 · clear · emergency · over 1.5 s");
+    expect(said).toBe("keep call · TG 505 · radio 1001 · clear · emergency · over 1.5 s");
+  });
+
+  it("leads with drop when the filter removes what matches", () => {
+    expect(filterSaid({ mode: "drop", kinds: ["pocsag"], contains: "TEST" })).toBe(
+      'drop pocsag · "TEST"',
+    );
+  });
+
+  it("admits that an empty drop filter drops nothing", () => {
+    expect(filterSaid({ mode: "drop" })).toBe("drop nothing");
   });
 });
 
-describe("passesFilter", () => {
-  it("passes everything when nothing is named", () => {
-    for (const event of [call(), voice, rtty]) {
-      expect(passesFilter({}, event)).toBe(true);
-    }
-  });
-
-  it("naming call keeps calls and drops raw voice frames", () => {
-    const only = { kinds: ["call"] };
-    expect(passesFilter(only, call())).toBe(true);
-    expect(passesFilter(only, voice)).toBe(false);
-    expect(passesFilter(only, rtty)).toBe(false);
-  });
-
-  it("matches the talkgroup, the radio and the flags", () => {
-    expect(passesFilter({ talkgroups: [505] }, call())).toBe(true);
-    expect(passesFilter({ talkgroups: [505] }, call({ destination: 9 }))).toBe(false);
-    expect(passesFilter({ radios: [2_621_001] }, call())).toBe(true);
-    expect(passesFilter({ radios: [1] }, call())).toBe(false);
-    expect(passesFilter({ encrypted: true }, call())).toBe(false);
-    expect(passesFilter({ emergency: false }, call())).toBe(true);
-  });
-
-  it("drops calls shorter than the floor", () => {
-    expect(passesFilter({ min_duration_ms: 1_500 }, call())).toBe(true);
-    expect(passesFilter({ min_duration_ms: 1_500 }, call({ duration_ms: 400 }))).toBe(false);
-  });
-
-  it("leaves other kinds alone when only call predicates are set", () => {
-    expect(passesFilter({ talkgroups: [505], min_duration_ms: 60_000 }, rtty)).toBe(true);
-  });
-
-  it("needs every filter in a chain to agree", () => {
-    const chain = [{ kinds: ["call"] }, { talkgroups: [505] }];
-    expect(passesChain(chain, call())).toBe(true);
-    expect(passesChain(chain, call({ destination: 9 }))).toBe(false);
-    expect(passesChain(chain, voice)).toBe(false);
-    expect(passesChain([], voice)).toBe(true);
+describe("facetsOf", () => {
+  it("reads the facets the server declared for a kind", () => {
+    expect(facetsOf("call", FACETS)).toEqual(["voice", "duration"]);
+    expect(facetsOf("pocsag", FACETS)).toEqual([]);
   });
 });
 
-const adsbEvent = (icao: string, callsign?: string, fix = true) =>
-  ({
-    kind: "adsb",
-    data: {
-      icao,
-      df: 17,
-      raw: "",
-      ...(callsign == null ? {} : { callsign }),
-      ...(fix ? { lat: 50.4, lon: 6.6 } : {}),
-    },
-  }) as DecoderEvent;
-
-describe("the generic predicates reach every kind", () => {
-  const adsb = adsbEvent;
-
-  it("matches an aircraft by its ICAO, whatever the case", () => {
-    expect(passesFilter({ stations: ["3C6444"] }, adsb("3C6444"))).toBe(true);
-    expect(passesFilter({ stations: ["3c6444"] }, adsb("3C6444"))).toBe(true);
-    expect(passesFilter({ stations: ["3C6444"] }, adsb("4CA2D4"))).toBe(false);
-  });
-
-  it("searches the summary for a callsign", () => {
-    expect(passesFilter({ contains: "baw" }, adsb("3C6444", "BAW890"))).toBe(true);
-    expect(passesFilter({ contains: "baw" }, adsb("3C6444", "RYR9AB"))).toBe(false);
-  });
-
-  it("keeps only the aircraft that have a fix", () => {
-    expect(passesFilter({ has_position: true }, adsb("3C6444", undefined, true))).toBe(true);
-    expect(passesFilter({ has_position: true }, adsb("3C6444", undefined, false))).toBe(false);
-  });
-
-  it("leaves an aircraft alone when only voice predicates are set", () => {
-    expect(passesFilter({ talkgroups: [505], encrypted: true }, adsb("3C6444"))).toBe(true);
-  });
-
-  it("applies the voice predicates to raw frames too", () => {
-    const frame = {
-      kind: "dv",
-      data: { mode: "dmr", kind: "voice", destination: 505 },
-    } as DecoderEvent;
-    expect(passesFilter({ talkgroups: [505] }, frame)).toBe(true);
-    expect(passesFilter({ talkgroups: [9] }, frame)).toBe(false);
-    expect(passesFilter({ min_duration_ms: 5_000 }, frame)).toBe(true);
-  });
-});
-
-const titles = (kinds: string[]) => sectionsFor(kinds).map((s) => s.title);
+const titles = (kinds: string[]) => sectionsFor(kinds, FACETS).map((s) => s.title);
 
 describe("sectionsFor", () => {
   it("gives an aircraft wire only the sections that apply", () => {
@@ -300,12 +210,12 @@ describe("sectionsFor", () => {
 
   it("gives a pager wire one section", () => {
     expect(titles(["pocsag"])).toEqual(["Any event"]);
-    expect(sectionsFor(["pocsag"])[0]?.predicates).toEqual(["stations", "contains"]);
+    expect(sectionsFor(["pocsag"], FACETS)[0]?.predicates).toEqual(["stations", "contains"]);
   });
 
   it("gives a call wire the voice section", () => {
     expect(titles(["call"])).toEqual(["Any event", "Voice"]);
-    expect(sectionsFor(["call"]).at(-1)?.predicates).toEqual([
+    expect(sectionsFor(["call"], FACETS).at(-1)?.predicates).toEqual([
       "talkgroups",
       "radios",
       "encrypted",
@@ -321,7 +231,7 @@ describe("sectionsFor", () => {
   });
 
   it("names the kinds each section judges, and nothing more", () => {
-    const mixed = sectionsFor(["adsb", "call"]);
+    const mixed = sectionsFor(["adsb", "call"], FACETS);
     expect(mixed.map((s) => [s.title, s.applies])).toEqual([
       ["Any event", ["adsb", "call"]],
       ["Position", ["adsb"]],
