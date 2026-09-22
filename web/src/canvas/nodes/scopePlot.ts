@@ -241,7 +241,7 @@ function drawCursor(
   ctx.lineTo(x, plotH);
   ctx.stroke();
   ctx.globalAlpha = 1;
-  const level = Number.isFinite(readout.db) ? `  ${readout.db.toFixed(1)} dB` : "";
+  const level = Number.isFinite(readout.db) ? `  ${readout.db.toFixed(1)} dBFS` : "";
   const text = `${formatMhz(readout.hz)}${level}`;
   const w = ctx.measureText(text).width + 8;
   const left = x + 6 + w > width ? x - 6 - w : x + 6;

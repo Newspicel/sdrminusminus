@@ -1329,7 +1329,7 @@ function formatCentre(meta: FrameMeta, view: SpectrumView): string {
 }
 
 function formatRange(window: DbWindow): string {
-  return `   ${window.min.toFixed(0)}…${window.max.toFixed(0)} dB`;
+  return `   ${window.min.toFixed(0)}…${window.max.toFixed(0)} dBFS`;
 }
 
 function displayWindow(meta: FrameMeta | null, held: DbWindow | null): DbWindow {

@@ -100,7 +100,7 @@ export function ScopeSettings(props: ScopeSettingsProps) {
           />
           <Section
             name="Levels"
-            title="dB floor and ceiling the colours are spread across"
+            title="dBFS floor and ceiling the colours are spread across"
             aside={
               <span className="flex items-center gap-2">
                 <span className={LABEL}>auto</span>
@@ -114,13 +114,13 @@ export function ScopeSettings(props: ScopeSettingsProps) {
           >
             <Level
               name="floor"
-              label="Waterfall dB floor"
+              label="Waterfall dBFS floor"
               value={props.range.min}
               onChange={(db) => props.onRange(withFloor(props.range, db))}
             />
             <Level
               name="ceiling"
-              label="Waterfall dB ceiling"
+              label="Waterfall dBFS ceiling"
               value={props.range.max}
               onChange={(db) => props.onRange(withCeiling(props.range, db))}
             />

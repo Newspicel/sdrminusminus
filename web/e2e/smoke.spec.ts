@@ -386,8 +386,8 @@ test.describe("the workspace", () => {
     await expect(tracesDialog).toBeHidden();
 
     await scopePlot.getByRole("button", { name: /^range$/i }).click();
-    const floor = scopePlot.getByRole("slider", { name: /waterfall dB floor/i });
-    const ceiling = scopePlot.getByRole("slider", { name: /waterfall dB ceiling/i });
+    const floor = scopePlot.getByRole("slider", { name: /waterfall dBFS floor/i });
+    const ceiling = scopePlot.getByRole("slider", { name: /waterfall dBFS ceiling/i });
     const auto = scopePlot.getByRole("button", { name: /^auto$/i });
     await expect(auto).toHaveAttribute("aria-pressed", "true");
     const automatic = await floor.inputValue();
