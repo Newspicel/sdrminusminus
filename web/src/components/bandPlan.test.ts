@@ -4,10 +4,10 @@ import type { BandSpan } from "./bandPlan";
 import {
   bandTuneHz,
   coveredByLayer,
+  flattenLanes,
   identify,
   parseFrequency,
   provisionText,
-  rulerRows,
   searchPlan,
   serviceLabel,
   spansIn,
@@ -311,33 +311,46 @@ describe("bandTuneHz", () => {
   });
 });
 
-describe("rulerRows", () => {
-  const span = (left: number, width: number, name: string): BandSpan => ({
-    block: { start_hz: 0, stop_hz: 1, of: 0 },
-    allocation: allocation({ id: name, name }),
+function round(value: number): number {
+  return Math.round(value * 1000) / 1000;
+}
+
+function pieceNames(pieces: BandSpan[]): (string | number)[][] {
+  return pieces.map((piece) => [piece.allocation.name, round(piece.left), round(piece.width)]);
+}
+
+describe("flattenLanes", () => {
+  const span = (left: number, width: number, name: string, hz: number): BandSpan => ({
+    block: { start_hz: 0, stop_hz: hz, of: 0 },
+    allocation: allocation({ id: name, name, start_hz: 0, stop_hz: hz }),
     left,
     width,
     startsInside: left > 0,
     endsInside: left + width < 1,
   });
-
-  it("folds bands that fill the view into one label row", () => {
-    const { covering, rows } = rulerRows([
-      [span(0, 1, "70 cm")],
-      [span(0, 1, "ISM")],
-      [span(0, 1, "satellite")],
+  it("keeps one row where the narrowest band wins", () => {
+    const pieces = flattenLanes([
+      [span(0, 0.8, "ADS-B", 1e6), span(0.8, 0.2, "aero", 5e7)],
+      [span(0, 1, "ISM", 1e8)],
     ]);
-    expect(covering.map((a) => a.name)).toEqual(["70 cm", "ISM", "satellite"]);
-    expect(rows).toEqual([]);
+    expect(pieceNames(pieces)).toEqual([
+      ["ADS-B", 0, 0.8],
+      ["aero", 0.8, 0.2],
+    ]);
   });
 
-  it("shares a row between lanes that do not overlap", () => {
-    const { rows } = rulerRows([[span(0, 0.3, "a")], [span(0.5, 0.2, "b")]]);
-    expect(rows.map((row) => row.map((s) => s.allocation.name))).toEqual([["a", "b"]]);
+  it("lets a wider band show around a narrow one", () => {
+    const pieces = flattenLanes([[span(0.4, 0.2, "narrow", 1e5)], [span(0, 1, "wide", 1e8)]]);
+    expect(pieceNames(pieces)).toEqual([
+      ["wide", 0, 0.4],
+      ["narrow", 0.4, 0.2],
+      ["wide", 0.6, 0.4],
+    ]);
+    expect(pieces[2]?.startsInside).toBe(true);
   });
 
-  it("stacks lanes that overlap", () => {
-    const { rows } = rulerRows([[span(0, 0.6, "a")], [span(0.5, 0.2, "b")]]);
-    expect(rows).toHaveLength(2);
+  it("joins neighbouring blocks of the same band", () => {
+    const pieces = flattenLanes([[span(0, 0.5, "FM", 1e6)], [span(0.5, 0.5, "FM", 2e6)]]);
+    expect(pieceNames(pieces)).toEqual([["FM", 0, 1]]);
   });
 });

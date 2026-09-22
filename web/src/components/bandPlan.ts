@@ -237,36 +237,71 @@ function haystackOf(allocation: BandAllocation): string {
   return `${allocation.name} ${(allocation.aliases ?? []).join(" ")} ${service}`.toLowerCase();
 }
 
-export interface RulerRows {
-  covering: BandAllocation[];
-  rows: BandSpan[][];
-}
+const MIN_PIECE = 0.002;
 
-export function rulerRows(lanes: readonly (readonly BandSpan[])[]): RulerRows {
-  const covering: BandAllocation[] = [];
-  const rows: BandSpan[][] = [];
-  for (const spans of lanes) {
-    const partial = spans.filter((span) => span.startsInside || span.endsInside);
-    for (const span of spans) {
-      if (!span.startsInside && !span.endsInside && !covering.includes(span.allocation)) {
-        covering.push(span.allocation);
+export function flattenLanes(lanes: readonly (readonly BandSpan[])[]): BandSpan[] {
+  const narrowestFirst = lanes
+    .flat()
+    .toSorted((a, b) => bandwidth(a.allocation) - bandwidth(b.allocation));
+  const taken: [number, number][] = [];
+  const pieces: BandSpan[] = [];
+  for (const span of narrowestFirst) {
+    for (const [left, right] of freeParts(span.left, span.left + span.width, taken)) {
+      if (right - left >= MIN_PIECE) {
+        pieces.push({ ...span, left, width: right - left, startsInside: left > 0 });
       }
     }
-    if (partial.length === 0) {
-      continue;
-    }
-    const row = rows.find(
-      (placed) => !partial.some((span) => placed.some((p) => overlaps(p, span))),
-    );
-    if (row === undefined) {
-      rows.push(partial);
-    } else {
-      row.push(...partial);
-    }
+    taken.push([span.left, span.left + span.width]);
   }
-  return { covering, rows };
+  return mergeNeighbours(pieces.toSorted((a, b) => a.left - b.left));
 }
 
-function overlaps(a: BandSpan, b: BandSpan): boolean {
-  return a.left < b.left + b.width && b.left < a.left + a.width;
+function mergeNeighbours(pieces: readonly BandSpan[]): BandSpan[] {
+  const merged: BandSpan[] = [];
+  for (const piece of pieces) {
+    const last = merged.at(-1);
+    if (
+      last !== undefined &&
+      last.allocation.name === piece.allocation.name &&
+      last.allocation.service === piece.allocation.service &&
+      Math.abs(last.left + last.width - piece.left) < MIN_PIECE
+    ) {
+      merged[merged.length - 1] = {
+        ...last,
+        width: piece.left + piece.width - last.left,
+        endsInside: piece.endsInside,
+      };
+    } else {
+      merged.push(piece);
+    }
+  }
+  return merged;
+}
+
+function bandwidth(allocation: BandAllocation): number {
+  return allocation.stop_hz - allocation.start_hz;
+}
+
+function freeParts(
+  left: number,
+  right: number,
+  taken: readonly [number, number][],
+): [number, number][] {
+  let parts: [number, number][] = [[left, right]];
+  for (const [from, to] of taken) {
+    parts = parts.flatMap(([a, b]): [number, number][] => {
+      if (to <= a || from >= b) {
+        return [[a, b]];
+      }
+      const kept: [number, number][] = [];
+      if (from > a) {
+        kept.push([a, from]);
+      }
+      if (to < b) {
+        kept.push([to, b]);
+      }
+      return kept;
+    });
+  }
+  return parts;
 }

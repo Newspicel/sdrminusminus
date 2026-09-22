@@ -84,7 +84,7 @@ import {
 import { channelPicker } from "../palette";
 import { useNodePlacement } from "../placement";
 import { deviceSetOf } from "../workspaceDevice";
-import { BandRuler } from "./BandRuler";
+import { BAND_RULER_H, BandRuler } from "./BandRuler";
 import { ChannelPicker } from "./ChannelPicker";
 import { lockedChannels } from "./channelNode";
 import { autoTuning, tuneDelta } from "./deviceNode";
@@ -801,7 +801,10 @@ function Spectrum({
         />
       )}
 
-      <div className="pointer-events-none absolute inset-0 flex flex-col justify-between p-1.5">
+      <div
+        className="pointer-events-none absolute inset-x-0 bottom-0 flex flex-col justify-between p-1.5"
+        style={{ top: bandRuler && plan !== null ? BAND_RULER_H : 0 }}
+      >
         <span className="legend self-end text-right whitespace-pre text-plot-ink-dim">
           {meta !== null && `${formatCentre(meta, view)}${formatRange(shownRange)}`}
           {range !== null && " · manual"}

@@ -4,9 +4,9 @@ import { Button } from "../../components/BaseControls";
 import type { BandIdentity, BandSpan } from "../../components/bandPlan";
 import {
   coveredByLayer,
+  flattenLanes,
   identify,
   provisionText,
-  rulerRows,
   serviceEdge,
   serviceFill,
   serviceLabel,
@@ -20,7 +20,7 @@ import { type SpectrumView, spanToOffset, viewWidth } from "../../components/spe
 import type { BandAllocation, BandPlan, ChannelParams } from "../../lib/types";
 import { useBandPlan } from "../../lib/useBandPlan";
 
-const ROW_H = 16;
+export const BAND_RULER_H = 16;
 const LABEL_MIN = 0.07;
 const TIP_DELAY_MS = 120;
 const META = "block font-mono text-[10px] leading-snug tracking-[0.09em] uppercase text-ink-faint";
@@ -43,9 +43,9 @@ export const BandRuler = memo(function BandRuler({
 
   const visibleHz = spanHz * viewWidth(view);
   const lowHz = centerHz + spanToOffset(view.start, spanHz);
-  const { covering, rows } = useMemo(
+  const spans = useMemo(
     () =>
-      rulerRows(
+      flattenLanes(
         plan === null ? [] : plan.lanes.map((lane) => spansIn(plan, lane, lowHz, visibleHz)),
       ),
     [plan, lowHz, visibleHz],
@@ -84,14 +84,7 @@ export const BandRuler = memo(function BandRuler({
         onPointerEnter={(event) => setHoverAt(fractionAt(event.clientX))}
         onPointerMove={(event) => setHoverAt(fractionAt(event.clientX))}
       >
-        {covering.length > 0 && <Covering allocations={covering} onTune={tuneAt} />}
-        {rows.map((spans) => (
-          <Lane
-            key={spans.map((span) => span.allocation.id).join()}
-            spans={spans}
-            onTune={tuneAt}
-          />
-        ))}
+        <Lane spans={spans} onTune={tuneAt} />
       </Tooltip.Trigger>
       <Tooltip.Portal container={portalContainer} className="contents">
         <Tooltip.Positioner
@@ -109,53 +102,25 @@ export const BandRuler = memo(function BandRuler({
   );
 });
 
-type TuneHandler = (event: React.MouseEvent<HTMLElement>) => void;
-
-function RowButton({ onTune, children }: { onTune: TuneHandler; children: React.ReactNode }) {
+function Lane({
+  spans,
+  onTune,
+}: {
+  spans: readonly BandSpan[];
+  onTune: (event: React.MouseEvent<HTMLElement>) => void;
+}) {
   return (
     <Button
       type="button"
-      className="relative block w-full cursor-pointer border-b border-line/60 last:border-b-0"
-      style={{ height: `${ROW_H}px` }}
+      className="relative block w-full cursor-pointer border-b border-line/60"
+      style={{ height: `${BAND_RULER_H}px` }}
       onClick={onTune}
       onPointerDown={(event) => event.stopPropagation()}
       aria-label="Band plan: hover to identify, click to tune"
     >
-      {children}
-    </Button>
-  );
-}
-
-function Covering({
-  allocations,
-  onTune,
-}: {
-  allocations: readonly BandAllocation[];
-  onTune: TuneHandler;
-}) {
-  return (
-    <RowButton onTune={onTune}>
-      <span
-        aria-hidden
-        className="absolute inset-0 flex items-center gap-3 overflow-hidden px-1 whitespace-nowrap font-mono text-[10px] text-ink"
-      >
-        {allocations.map((allocation) => (
-          <span key={allocation.id} className="flex items-center gap-1">
-            <span className={`size-2 shrink-0 rounded-[1px] ${serviceEdge(allocation.service)}`} />
-            {allocation.name}
-          </span>
-        ))}
-      </span>
-    </RowButton>
-  );
-}
-
-function Lane({ spans, onTune }: { spans: readonly BandSpan[]; onTune: TuneHandler }) {
-  return (
-    <RowButton onTune={onTune}>
       {spans.map((span) => (
         <span
-          key={`${span.allocation.id}:${span.block.start_hz}`}
+          key={`${span.allocation.id}:${span.left}`}
           aria-hidden
           className={`absolute inset-y-0 overflow-hidden ${serviceFill(span.allocation.service)}`}
           style={{ left: `${span.left * 100}%`, width: `${span.width * 100}%` }}
@@ -166,13 +131,13 @@ function Lane({ spans, onTune }: { spans: readonly BandSpan[]; onTune: TuneHandl
             />
           )}
           {span.width >= LABEL_MIN && (
-            <span className="absolute inset-y-0 left-1 flex items-center whitespace-nowrap font-mono text-[10px] text-ink">
+            <span className="absolute inset-y-0 right-1 left-1 flex items-center overflow-hidden text-ellipsis whitespace-nowrap font-mono text-[10px] text-ink">
               {span.allocation.name}
             </span>
           )}
         </span>
       ))}
-    </RowButton>
+    </Button>
   );
 }
 
