@@ -13,10 +13,10 @@ import {
 } from "react";
 import { Button } from "../../components/BaseControls";
 import { identify, suggestedAt } from "../../components/bandPlan";
-import { type Options, plotButton, segment, segmentSm } from "../../components/controls";
-import { clampWindow, DB_LIMIT, DB_STEP, withCeiling, withFloor } from "../../components/dbRange";
+import { type Options, plotButton, segmentSm } from "../../components/controls";
+import { clampWindow } from "../../components/dbRange";
 import { formatHz, formatMhz } from "../../components/format";
-import { Popover } from "../../components/Popover";
+import { FrameTween } from "../../components/frameTween";
 import { Slider } from "../../components/Slider";
 import {
   alignHistory,
@@ -31,7 +31,6 @@ import {
   dequantize,
   frameWindow,
   requantize,
-  TRACE_MODES,
   type TraceMode,
   type TraceState,
   traceOf,
@@ -50,6 +49,12 @@ import {
   viewWidth,
   wheelView,
 } from "../../components/spectrumView";
+import {
+  AVERAGE_CHOICES,
+  type AverageFrames,
+  quantizeDb,
+  VideoAverage,
+} from "../../components/videoAverage";
 import { rowsForHeight } from "../../gl/raster";
 import {
   attachWaterfall,
@@ -62,8 +67,8 @@ import {
 import { bookmarksQuery } from "../../lib/api";
 import type { SpectrumFrame } from "../../lib/frame";
 import {
-  binsForView,
   SPECTRUM_HISTORY_ROWS,
+  SPECTRUM_MAX_BINS,
   type SpectrumHistory,
   spectrumHub,
 } from "../../lib/spectrum";
@@ -93,6 +98,7 @@ import { autoTuning, tuneDelta } from "./deviceNode";
 import { type TrunkChannelOwner, trunkChannelRoles } from "./dmrTrunk";
 import { FaceBody, NodeShell, useFaceActive, useFaceWheel } from "./NodeShell";
 import { ScopeMenu, type ScopeMenuAt } from "./ScopeMenu";
+import { ScopeSettings } from "./ScopeSettings";
 import {
   bookmarkDraft,
   channelTypeAt,
@@ -110,12 +116,12 @@ import { DensityLayer, drawPlot, type PlotFrame, type PlotTrace } from "./scopeP
 const DRAG_SLOP_PX = 4;
 const GRAB_PX = 12;
 const TUNE_THROTTLE_MS = 150;
-const BINS_DEBOUNCE_MS = 300;
 
 const NO_CHANNELS: readonly ChannelInfo[] = [];
 
 const NO_OWNERS: ReadonlyMap<number, TrunkChannelOwner> = new Map();
 const COLORMAP_KEY = "sdrmm.colormap";
+const AVERAGE_KEY = "sdrmm.scopeAverage";
 const TRACE_MIN = 0.15;
 const TRACE_MAX = 0.75;
 const LABEL_TOP_PX = 28;
@@ -250,13 +256,14 @@ function Spectrum({
   const frameRef = useRef<SpectrumFrame | null>(seedFrame);
   const gestureRef = useRef<Gesture | null>(null);
   const liveDbRef = useRef<Float32Array | null>(null);
+  const tweenRef = useRef(new FrameTween());
+  const videoRef = useRef(new VideoAverage());
   const tracesRef = useRef<TraceState | null>(null);
   const densityRef = useRef<DensityLayer | null>(null);
   const rowRef = useRef<Uint8Array | null>(null);
   const frozenDbRef = useRef<Float32Array | null>(null);
   const keyRef = useRef<FrameKey | null>(null);
   const hoverRef = useRef<number | null>(null);
-  const listenerRef = useRef<((frame: SpectrumFrame) => void) | null>(null);
   const reseedRef = useRef(0);
 
   const [meta, setMeta] = useState<FrameMeta | null>(() =>
@@ -266,8 +273,8 @@ function Spectrum({
   const [view, setView] = useState<SpectrumView>(FULL_VIEW);
   const [traceModes, setTraceModes] = useState<readonly TraceMode[]>([]);
   const [phosphor, setPhosphor] = useState(false);
+  const [average, setAverage] = useState<AverageFrames>(readAverage);
   const [range, setRange] = useState<DbWindow | null>(null);
-  const [rangeOpen, setRangeOpen] = useState(false);
   const [frozen, setFrozen] = useState<SpectrumHistory | null>(null);
   const [scrub, setScrub] = useState(0);
   const [waterfall, setWaterfall] = useState({ top: 0, height: 0, width: 0 });
@@ -291,8 +298,10 @@ function Spectrum({
   const rangeRef = useRef(range);
   const frozenRef = useRef(frozen);
   const scrubRef = useRef(scrub);
+  const averageRef = useRef(average);
   useLayoutEffect(() => {
     viewRef.current = view;
+    averageRef.current = average;
     modesRef.current = traceModes;
     rangeRef.current = range;
     frozenRef.current = frozen;
@@ -488,8 +497,16 @@ function Spectrum({
       frameRef.current = frame;
       const held = rangeRef.current;
       const window = held ?? frameWindow(frame);
-      const db = dequantize(frame, liveDbRef.current);
-      liveDbRef.current = db;
+      liveDbRef.current = dequantize(frame, liveDbRef.current);
+      if (action.kind !== "none") {
+        videoRef.current.reset();
+      }
+      const db = videoRef.current.apply(liveDbRef.current, averageRef.current);
+      if (action.kind === "none") {
+        tweenRef.current.push(db, performance.now());
+      } else {
+        tweenRef.current.jump(db, performance.now());
+      }
       let seeded = false;
       if (action.kind !== "none") {
         tracesRef.current = null;
@@ -510,13 +527,8 @@ function Spectrum({
       }
       if (frozenRef.current === null) {
         if (!seeded) {
-          if (held === null) {
-            rendererRef.current?.pushRow(frame.bins);
-          } else {
-            const row = requantize(frame.bins, frameWindow(frame), held, rowRef.current);
-            rowRef.current = row;
-            rendererRef.current?.pushRow(row);
-          }
+          rowRef.current = waterfallRow(frame, db, liveDbRef.current, held, rowRef.current);
+          rendererRef.current?.pushRow(rowRef.current);
         }
         tracesRef.current = accumulateTraces(tracesRef.current, db);
         densityRef.current?.add(db, viewRef.current, window);
@@ -526,30 +538,8 @@ function Spectrum({
         setMeta(metaOf(frame));
       }
     };
-    listenerRef.current = listener;
-    const drop = spectrumHub.subscribe(
-      setId,
-      stream,
-      listener,
-      binsForView(viewWidth(viewRef.current)),
-    );
-    return () => {
-      if (listenerRef.current === listener) {
-        listenerRef.current = null;
-      }
-      drop();
-    };
+    return spectrumHub.subscribe(setId, stream, listener, SPECTRUM_MAX_BINS);
   }, [setId, stream]);
-
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      const listener = listenerRef.current;
-      if (listener !== null && setId !== null) {
-        spectrumHub.setBins(setId, stream, listener, binsForView(viewWidth(view)));
-      }
-    }, BINS_DEBOUNCE_MS);
-    return () => clearTimeout(timer);
-  }, [view, setId, stream]);
 
   useEffect(() => {
     let raf = 0;
@@ -558,7 +548,7 @@ function Spectrum({
         frozenRef.current,
         scrubRef.current,
         frameRef.current,
-        liveDbRef.current,
+        liveDbRef.current === null ? null : tweenRef.current.sample(performance.now()),
         rangeRef.current,
         frozenDbRef,
       );
@@ -649,6 +639,20 @@ function Spectrum({
       reseedRef.current = 0;
       reseed(rangeRef.current);
     });
+  };
+
+  const chooseAverage = (frames: AverageFrames): void => {
+    setAverage(frames);
+    try {
+      localStorage.setItem(AVERAGE_KEY, String(frames));
+    } catch {}
+  };
+
+  const togglePhosphor = (): void => {
+    if (!phosphor && range === null) {
+      holdRange();
+    }
+    setPhosphor(!phosphor);
   };
 
   const toggleTrace = (mode: TraceMode): void => {
@@ -915,82 +919,22 @@ function Spectrum({
           data-plot-chrome
           className="pointer-events-auto flex items-center gap-1 self-start rounded-[3px] bg-plot-bg/85 p-0.5"
         >
-          <Popover
-            label={colormap}
-            triggerClass={plotButton(false)}
-            width="w-auto min-w-[var(--anchor-width)]"
-            padded={false}
-          >
-            {(close) => (
-              <div className="flex flex-col p-0.5">
-                {COLORMAPS.map((name) => (
-                  <Button
-                    key={name}
-                    type="button"
-                    className={`${segment(name === colormap)} justify-start`}
-                    onClick={() => {
-                      chooseColormap(name);
-                      close();
-                    }}
-                  >
-                    {name}
-                  </Button>
-                ))}
-              </div>
-            )}
-          </Popover>
-          <Popover
-            label={traceLabel(traceModes, phosphor)}
-            triggerClass={plotButton(traceModes.length > 0 || phosphor)}
-            width="w-auto min-w-[var(--anchor-width)]"
-            padded={false}
-          >
-            {() => (
-              <div className="flex flex-col p-0.5">
-                {TRACE_MODES.map((mode) => (
-                  <Button
-                    key={mode}
-                    type="button"
-                    className={`${segment(traceModes.includes(mode))} justify-start`}
-                    aria-pressed={traceModes.includes(mode)}
-                    onClick={() => toggleTrace(mode)}
-                  >
-                    {mode}
-                  </Button>
-                ))}
-                <Button
-                  type="button"
-                  className={`${segment(phosphor)} justify-start`}
-                  aria-pressed={phosphor}
-                  onClick={() => {
-                    if (!phosphor && range === null) {
-                      holdRange();
-                    }
-                    setPhosphor(!phosphor);
-                  }}
-                >
-                  phosphor
-                </Button>
-              </div>
-            )}
-          </Popover>
-          <Button
-            type="button"
-            className={plotButton(rangeOpen)}
-            aria-expanded={rangeOpen}
-            title="Set the dB floor and ceiling the colours are spread across"
-            onClick={() => setRangeOpen(!rangeOpen)}
-          >
-            range
-          </Button>
-          <Button
-            type="button"
-            className={plotButton(bandRuler)}
-            aria-pressed={bandRuler}
-            onClick={() => setRuler(!bandRuler)}
-          >
-            bands
-          </Button>
+          <ScopeSettings
+            colormap={colormap}
+            onColormap={chooseColormap}
+            average={average}
+            onAverage={chooseAverage}
+            traces={traceModes}
+            onTrace={toggleTrace}
+            phosphor={phosphor}
+            onPhosphor={togglePhosphor}
+            bands={bandRuler}
+            onBands={() => setRuler(!bandRuler)}
+            range={clampWindow(shownRange)}
+            manual={range !== null}
+            onRange={applyRange}
+            onAuto={() => applyRange(null)}
+          />
           <Button
             type="button"
             className={plotButton(frozen !== null)}
@@ -1007,34 +951,24 @@ function Spectrum({
         </div>
       </div>
 
-      {(rangeOpen || (frozen !== null && frozenRows > 0)) && (
+      {frozen !== null && frozenRows > 0 && (
         <div className="absolute inset-x-1.5 bottom-8 flex flex-col gap-1">
-          {rangeOpen && (
-            <RangePanel
-              range={clampWindow(shownRange)}
-              manual={range !== null}
-              onRange={applyRange}
-              onAuto={() => applyRange(null)}
+          <div
+            data-plot-chrome
+            className="flex items-center gap-2 rounded-[3px] bg-plot-bg/85 px-1.5 py-1"
+          >
+            <Slider
+              label="Scrub the frozen waterfall"
+              className="min-w-0 flex-1"
+              min={0}
+              max={frozenRows - 1}
+              value={Math.min(scrub, frozenRows - 1)}
+              onChange={setScrub}
             />
-          )}
-          {frozen !== null && frozenRows > 0 && (
-            <div
-              data-plot-chrome
-              className="flex items-center gap-2 rounded-[3px] bg-plot-bg/85 px-1.5 py-1"
-            >
-              <Slider
-                label="Scrub the frozen waterfall"
-                className="min-w-0 flex-1"
-                min={0}
-                max={frozenRows - 1}
-                value={Math.min(scrub, frozenRows - 1)}
-                onChange={setScrub}
-              />
-              <span className="legend w-16 shrink-0 text-right whitespace-pre text-plot-ink-dim">
-                {frozenAge(frozen, scrub)}
-              </span>
-            </div>
-          )}
+            <span className="legend w-16 shrink-0 text-right whitespace-pre text-plot-ink-dim">
+              {frozenAge(frozen, scrub)}
+            </span>
+          </div>
         </div>
       )}
 
@@ -1079,79 +1013,6 @@ function Spectrum({
         </div>
       )}
     </div>
-  );
-}
-
-function RangePanel({
-  range,
-  manual,
-  onRange,
-  onAuto,
-}: {
-  range: DbWindow;
-  manual: boolean;
-  onRange: (range: DbWindow) => void;
-  onAuto: () => void;
-}) {
-  return (
-    <div
-      data-plot-chrome
-      className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-[3px] bg-plot-bg/85 px-1.5 py-1"
-    >
-      <Button
-        type="button"
-        className={plotButton(!manual)}
-        aria-pressed={!manual}
-        title="Follow the signal instead of a range you set"
-        onClick={onAuto}
-      >
-        auto
-      </Button>
-      <RangeSlider
-        name="min"
-        label="Waterfall dB floor"
-        title="Levels at or below this take the coldest colour"
-        value={range.min}
-        onChange={(db) => onRange(withFloor(range, db))}
-      />
-      <RangeSlider
-        name="max"
-        label="Waterfall dB ceiling"
-        title="Levels at or above this take the hottest colour"
-        value={range.max}
-        onChange={(db) => onRange(withCeiling(range, db))}
-      />
-    </div>
-  );
-}
-
-function RangeSlider({
-  name,
-  label,
-  title,
-  value,
-  onChange,
-}: {
-  name: string;
-  label: string;
-  title: string;
-  value: number;
-  onChange: (db: number) => void;
-}) {
-  return (
-    <span className="flex min-w-32 flex-1 items-center gap-1.5" title={title}>
-      <span className="legend shrink-0 whitespace-pre text-plot-ink-dim">{name}</span>
-      <span className="legend w-8 shrink-0 text-right tabular-nums text-plot-ink-dim">{value}</span>
-      <Slider
-        label={label}
-        className="min-w-0 flex-1"
-        min={DB_LIMIT.min}
-        max={DB_LIMIT.max}
-        step={DB_STEP}
-        value={value}
-        onChange={onChange}
-      />
-    </span>
   );
 }
 
@@ -1506,6 +1367,28 @@ function metaOf(frame: SpectrumFrame): FrameMeta {
   };
 }
 
+function waterfallRow(
+  frame: SpectrumFrame,
+  shown: Float32Array,
+  raw: Float32Array,
+  held: DbWindow | null,
+  scratch: Uint8Array | null,
+): Uint8Array {
+  if (shown !== raw) {
+    return quantizeDb(shown, held ?? frameWindow(frame), scratch);
+  }
+  return held === null ? frame.bins : requantize(frame.bins, frameWindow(frame), held, scratch);
+}
+
+function readAverage(): AverageFrames {
+  try {
+    const stored = Number(localStorage.getItem(AVERAGE_KEY));
+    return AVERAGE_CHOICES.find((frames) => frames === stored) ?? 1;
+  } catch {
+    return 1;
+  }
+}
+
 function readColormap(): Colormap {
   try {
     const stored = localStorage.getItem(COLORMAP_KEY);
@@ -1525,11 +1408,6 @@ function formatCentre(meta: FrameMeta, view: SpectrumView): string {
 
 function formatRange(window: DbWindow): string {
   return `   ${window.min.toFixed(0)}…${window.max.toFixed(0)} dB`;
-}
-
-function traceLabel(modes: readonly TraceMode[], phosphor: boolean): string {
-  const on = [...modes, ...(phosphor ? (["phosphor"] as const) : [])];
-  return on.length === 0 ? "traces" : on.join(" · ");
 }
 
 function displayWindow(meta: FrameMeta | null, held: DbWindow | null): DbWindow {

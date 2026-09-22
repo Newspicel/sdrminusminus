@@ -12,8 +12,11 @@ use num_complex::Complex;
 use sdrmm_device::RxSink;
 
 use super::{
-    ChannelHost, DspCommand, DspMeta, FFT_SIZE, dsp_block_len, frontend::Frontend,
-    retire::Reclaimer, spectrum::history::SpectrumHistory, subbands::Subbands,
+    ChannelHost, DspCommand, DspMeta, FFT_SIZE, dsp_block_len,
+    frontend::Frontend,
+    retire::Reclaimer,
+    spectrum::{average::FrameAverage, history::SpectrumHistory},
+    subbands::Subbands,
 };
 use crate::{
     capture_ring::CaptureConsumer,
@@ -25,6 +28,7 @@ use crate::{
 };
 
 const TARGET_FPS: f64 = 30.0;
+const SPECTRUM_AVERAGES: u32 = 16;
 const IDLE_PARK: Duration = Duration::from_millis(20);
 
 #[derive(Default)]
@@ -105,6 +109,8 @@ pub(super) fn dsp_loop(
     } = lane;
     let mut spectrum_history = SpectrumHistory::new(FFT_SIZE);
     let mut db = vec![0.0f32; FFT_SIZE];
+    let mut frame_average = FrameAverage::new(FFT_SIZE);
+    let mut averaged = vec![0.0f32; FFT_SIZE];
     let mut channels: Vec<(u32, Box<ChannelHost>)> = Vec::new();
     let mut arrays: Vec<ArrayOutput> = Vec::new();
     let mut monitors = Vec::with_capacity(128);
@@ -134,7 +140,7 @@ pub(super) fn dsp_loop(
             &mut retirement,
         );
         let snapshot = *meta.load_full();
-        let hop = ((snapshot.sample_rate / TARGET_FPS) as usize).max(FFT_SIZE / 4);
+        let (hop, averages) = spectrum_cadence(snapshot.sample_rate);
         frontend.follow(snapshot);
         subbands.prepare(&mut channels, snapshot.center_hz, snapshot.sample_rate);
         let block_len = dsp_block_len(snapshot.sample_rate);
@@ -143,6 +149,7 @@ pub(super) fn dsp_loop(
             if next_input.is_some_and(|next| next != total) {
                 frontend.reset();
                 spectrum_history.reset();
+                frame_average.reset();
             }
             next_input = Some(total + raw.len() as u64);
             let slice = frontend.apply(raw);
@@ -193,9 +200,11 @@ pub(super) fn dsp_loop(
                     center_hz: snapshot.center_hz,
                     span_hz: snapshot.sample_rate as f32,
                 };
-                if let Some(completed) = analyzer.power_db(window, &mut db, frame) {
+                if let Some(completed) = analyzer.power_db(window, &mut db, frame)
+                    && let Some(done) = frame_average.push(completed, &db, averages, &mut averaged)
+                {
                     seq = seq.wrapping_add(1);
-                    publisher.publish(seq, completed, &db);
+                    publisher.publish(seq, done, &averaged);
                 }
             });
         });
@@ -203,6 +212,13 @@ pub(super) fn dsp_loop(
             std::thread::park_timeout(IDLE_PARK);
         }
     }
+}
+
+fn spectrum_cadence(sample_rate: f64) -> (usize, u32) {
+    let per_frame = (sample_rate / TARGET_FPS).max(1.0);
+    let hop = ((per_frame / f64::from(SPECTRUM_AVERAGES)) as usize).max(FFT_SIZE / 4);
+    let averages = (per_frame / hop as f64).round() as u32;
+    (hop, averages.clamp(1, SPECTRUM_AVERAGES))
 }
 
 fn record_stall(stalled_us: &AtomicU64, served: &mut Instant) {
@@ -386,6 +402,21 @@ mod tests {
 
     use super::*;
     use crate::{capture_ring::capture_ring, spectrum::SpectrumPlan};
+
+    #[test]
+    fn each_published_frame_averages_the_transforms_that_fit_its_period() {
+        for rate in [2_400_000.0, 20_000_000.0] {
+            let (hop, averages) = spectrum_cadence(rate);
+            assert_eq!(averages, SPECTRUM_AVERAGES);
+            let covered = hop as f64 * f64::from(averages) / rate;
+            assert!(
+                (covered - 1.0 / TARGET_FPS).abs() < 1e-3,
+                "{rate}: {covered} s"
+            );
+        }
+        assert_eq!(spectrum_cadence(48_000.0), (FFT_SIZE / 4, 2));
+        assert_eq!(spectrum_cadence(8_000.0).1, 1);
+    }
 
     #[test]
     fn a_waker_with_no_thread_yet_is_a_no_op() {

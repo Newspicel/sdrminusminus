@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+pub(super) mod average;
 pub(super) mod history;
 
 #[derive(Clone, Debug)]

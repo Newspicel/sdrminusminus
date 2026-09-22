@@ -23,6 +23,8 @@ import { token } from "../../lib/tokens";
 
 export const AXIS_H = 16;
 const TRACE_FILL_ALPHA = 0.2;
+const BAND_FILL_ALPHA = 0.3;
+const scratch = emptyPoints();
 
 const TRACE_INK: Record<TraceMode, string> = {
   peak: "plot-hold",
@@ -187,22 +189,28 @@ export function drawPlot(canvas: HTMLCanvasElement | null, options: PlotOptions)
   ctx.lineWidth = 1;
   drawGrid(ctx, frame, view, dbWindow, width, height, plotH);
 
+  ctx.lineJoin = "round";
   for (const trace of options.traces) {
     ctx.strokeStyle = token(TRACE_INK[trace.mode]);
     ctx.lineWidth = 1;
-    tracePath(ctx, trace.db, view, width, plotH, dbWindow);
+    peakPath(ctx, tracePoints(trace.db, view, width, scratch), plotH, dbWindow);
     ctx.stroke();
   }
 
-  ctx.strokeStyle = token("plot-trace");
+  const points = tracePoints(frame.db, view, width, scratch);
+  const ink = token("plot-trace");
+  ctx.fillStyle = ink;
+  ctx.globalAlpha = BAND_FILL_ALPHA;
+  bandPath(ctx, points, plotH, dbWindow);
+  ctx.fill();
+  ctx.strokeStyle = ink;
   ctx.lineWidth = 1.25;
-  ctx.lineJoin = "round";
-  tracePath(ctx, frame.db, view, width, plotH, dbWindow);
+  ctx.globalAlpha = 1;
+  peakPath(ctx, points, plotH, dbWindow);
   ctx.stroke();
   ctx.lineTo(width, plotH);
   ctx.lineTo(0, plotH);
   ctx.closePath();
-  ctx.fillStyle = token("plot-trace");
   ctx.globalAlpha = TRACE_FILL_ALPHA;
   ctx.fill();
   ctx.globalAlpha = 1;
@@ -302,37 +310,139 @@ function drawGrid(
   }
 }
 
-function tracePath(
-  ctx: CanvasRenderingContext2D,
+export interface TracePoints {
+  xs: Float32Array;
+  low: Float32Array;
+  high: Float32Array;
+  count: number;
+}
+
+export function emptyPoints(): TracePoints {
+  return {
+    xs: new Float32Array(0),
+    low: new Float32Array(0),
+    high: new Float32Array(0),
+    count: 0,
+  };
+}
+
+function ensure(points: TracePoints, size: number): void {
+  if (points.xs.length < size) {
+    points.xs = new Float32Array(size);
+    points.low = new Float32Array(size);
+    points.high = new Float32Array(size);
+  }
+}
+
+export function tracePoints(
   db: Float32Array,
   view: SpectrumView,
   width: number,
-  height: number,
-  dbWindow: DbWindow,
-): void {
+  points: TracePoints = emptyPoints(),
+): TracePoints {
   const n = db.length;
   const first = view.start * (n - 1);
   const last = view.end * (n - 1);
-  ctx.beginPath();
-  for (let x = 0; x < width; x++) {
+  if (n < 2 || width < 1 || !(last > first)) {
+    points.count = 0;
+    return points;
+  }
+  if (last - first < width) {
+    binPoints(db, first, last, width, points);
+  } else {
+    pixelPoints(db, first, last, width, points);
+  }
+  return points;
+}
+
+function binPoints(
+  db: Float32Array,
+  first: number,
+  last: number,
+  width: number,
+  points: TracePoints,
+): void {
+  const lo = Math.max(0, Math.floor(first));
+  const hi = Math.min(db.length - 1, Math.ceil(last));
+  ensure(points, hi - lo + 1);
+  let count = 0;
+  for (let i = lo; i <= hi; i++) {
+    const value = db[i] ?? Number.NEGATIVE_INFINITY;
+    points.xs[count] = ((i - first) / (last - first)) * width;
+    points.low[count] = value;
+    points.high[count] = value;
+    count += 1;
+  }
+  points.count = count;
+}
+
+function pixelPoints(
+  db: Float32Array,
+  first: number,
+  last: number,
+  width: number,
+  points: TracePoints,
+): void {
+  const n = db.length;
+  const columns = Math.ceil(width);
+  ensure(points, columns);
+  for (let x = 0; x < columns; x++) {
     const from = first + ((last - first) * x) / width;
     const to = first + ((last - first) * (x + 1)) / width;
     const lo = Math.max(0, Math.floor(from));
-    const hi = Math.min(n - 1, Math.max(lo, Math.floor(to)));
-    let peak = Number.NEGATIVE_INFINITY;
+    const hi = Math.min(n - 1, Math.max(lo, Math.ceil(to) - 1));
+    let low = Number.POSITIVE_INFINITY;
+    let high = Number.NEGATIVE_INFINITY;
     for (let i = lo; i <= hi; i++) {
       const value = db[i] ?? Number.NEGATIVE_INFINITY;
-      if (value > peak) {
-        peak = value;
+      if (value < low) {
+        low = value;
+      }
+      if (value > high) {
+        high = value;
       }
     }
-    const y = (1 - traceUnit(peak, dbWindow)) * height;
-    if (x === 0) {
+    points.xs[x] = x + 0.5;
+    points.low[x] = low;
+    points.high[x] = high;
+  }
+  points.count = columns;
+}
+
+function levelY(db: number, height: number, dbWindow: DbWindow): number {
+  return (1 - traceUnit(db, dbWindow)) * height;
+}
+
+function peakPath(
+  ctx: CanvasRenderingContext2D,
+  points: TracePoints,
+  height: number,
+  dbWindow: DbWindow,
+): void {
+  ctx.beginPath();
+  for (let i = 0; i < points.count; i++) {
+    const x = points.xs[i] ?? 0;
+    const y = levelY(points.high[i] ?? Number.NEGATIVE_INFINITY, height, dbWindow);
+    if (i === 0) {
       ctx.moveTo(x, y);
     } else {
       ctx.lineTo(x, y);
     }
   }
+}
+
+function bandPath(
+  ctx: CanvasRenderingContext2D,
+  points: TracePoints,
+  height: number,
+  dbWindow: DbWindow,
+): void {
+  peakPath(ctx, points, height, dbWindow);
+  for (let i = points.count - 1; i >= 0; i--) {
+    const x = points.xs[i] ?? 0;
+    ctx.lineTo(x, levelY(points.low[i] ?? Number.NEGATIVE_INFINITY, height, dbWindow));
+  }
+  ctx.closePath();
 }
 
 function formatTick(hz: number, visibleHz: number): string {

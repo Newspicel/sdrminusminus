@@ -166,6 +166,48 @@ pub fn decimate_max(db: &[f32], out: &mut [f32]) {
     }
 }
 
+pub struct PowerAverage {
+    sum: Vec<f32>,
+    count: u32,
+}
+
+impl PowerAverage {
+    #[must_use]
+    pub fn new(size: usize) -> Self {
+        Self {
+            sum: vec![0.0; size],
+            count: 0,
+        }
+    }
+
+    #[must_use]
+    pub fn count(&self) -> u32 {
+        self.count
+    }
+
+    pub fn reset(&mut self) {
+        self.sum.fill(0.0);
+        self.count = 0;
+    }
+
+    pub fn add(&mut self, db: &[f32]) {
+        assert_eq!(db.len(), self.sum.len(), "average length mismatch");
+        for (slot, &level) in self.sum.iter_mut().zip(db) {
+            *slot += 10f32.powf(level * 0.1);
+        }
+        self.count += 1;
+    }
+
+    pub fn take_db(&mut self, out: &mut [f32]) {
+        assert_eq!(out.len(), self.sum.len(), "average length mismatch");
+        let scale = 1.0 / self.count.max(1) as f32;
+        for (slot, &power) in out.iter_mut().zip(&self.sum) {
+            *slot = 10.0 * (power * scale + 1e-24).log10();
+        }
+        self.reset();
+    }
+}
+
 const FLOOR_PERCENTILE: f32 = 0.25;
 const FLOOR_MARGIN_DB: f32 = 10.0;
 const DEFAULT_DB_RANGE: f32 = 70.0;
@@ -184,6 +226,34 @@ pub fn adaptive_db_window(db: &[f32], scratch: &mut Vec<f32>) -> (f32, f32) {
         .fold(f32::NEG_INFINITY, f32::max);
     let min = floor - FLOOR_MARGIN_DB;
     (min, (min + DEFAULT_DB_RANGE).max(peak + PEAK_MARGIN_DB))
+}
+
+const WINDOW_SNAP_DB: f32 = 12.0;
+const FLOOR_GLIDE: f32 = 0.1;
+const CEILING_RELEASE: f32 = 0.03;
+
+#[derive(Default)]
+pub struct DbWindowSmoother {
+    current: Option<(f32, f32)>,
+}
+
+impl DbWindowSmoother {
+    pub fn follow(&mut self, target: (f32, f32)) -> (f32, f32) {
+        let next = match self.current {
+            Some((min, max)) if (target.0 - min).abs() <= WINDOW_SNAP_DB => {
+                let min = min + (target.0 - min) * FLOOR_GLIDE;
+                let max = if target.1 > max {
+                    target.1
+                } else {
+                    max + (target.1 - max) * CEILING_RELEASE
+                };
+                (min, max.max(min + DEFAULT_DB_RANGE))
+            }
+            _ => target,
+        };
+        self.current = Some(next);
+        next
+    }
 }
 
 fn percentile(db: &[f32], scratch: &mut Vec<f32>, q: f32) -> Option<f32> {
@@ -384,6 +454,58 @@ mod tests {
         NoiseFloor::new(48, 8).estimate(&power, &mut floor);
         assert!((floor[2_600] - -50.0).abs() < 2.0, "{}", floor[2_600]);
         assert!((floor[1_000] - -80.0).abs() < 2.0, "{}", floor[1_000]);
+    }
+
+    fn spread(db: &[f32]) -> f32 {
+        let mean = db.iter().sum::<f32>() / db.len() as f32;
+        (db.iter().map(|v| (v - mean).powi(2)).sum::<f32>() / db.len() as f32).sqrt()
+    }
+
+    #[test]
+    fn averaging_power_calms_noise_and_keeps_its_mean() {
+        let mut average = PowerAverage::new(4_096);
+        for seed in 1..=16 {
+            average.add(&exponential_power_db(4_096, -80.0, seed * 0x9E37));
+        }
+        assert_eq!(average.count(), 16);
+        let mut out = vec![0.0; 4_096];
+        average.take_db(&mut out);
+        assert_eq!(average.count(), 0);
+        let raw = spread(&exponential_power_db(4_096, -80.0, 7));
+        let calm = spread(&out);
+        assert!(calm < raw / 3.0, "spread {calm} dB, raw {raw} dB");
+        let mean = out.iter().sum::<f32>() / out.len() as f32;
+        assert!((mean - -80.0).abs() < 1.0, "mean read as {mean}");
+    }
+
+    #[test]
+    fn averaging_a_steady_tone_leaves_it_in_place() {
+        let mut average = PowerAverage::new(3);
+        average.add(&[-10.0, -60.0, -90.0]);
+        average.add(&[-10.0, -60.0, -90.0]);
+        let mut out = [0.0; 3];
+        average.take_db(&mut out);
+        for (got, want) in out.iter().zip([-10.0, -60.0, -90.0]) {
+            assert!((got - want).abs() < 1e-3, "{got} vs {want}");
+        }
+    }
+
+    #[test]
+    fn the_window_ceiling_rises_at_once_and_falls_slowly() {
+        let mut smoother = DbWindowSmoother::default();
+        assert_eq!(smoother.follow((-100.0, -30.0)), (-100.0, -30.0));
+        assert_eq!(smoother.follow((-100.0, -10.0)).1, -10.0);
+        let fallen = smoother.follow((-100.0, -30.0)).1;
+        assert!(fallen > -12.0 && fallen < -10.0, "ceiling at {fallen}");
+    }
+
+    #[test]
+    fn the_window_floor_glides_and_snaps_on_a_jump() {
+        let mut smoother = DbWindowSmoother::default();
+        smoother.follow((-100.0, -30.0));
+        let glided = smoother.follow((-98.0, -28.0)).0;
+        assert!(glided > -100.0 && glided < -99.0, "floor at {glided}");
+        assert_eq!(smoother.follow((-60.0, 10.0)), (-60.0, 10.0));
     }
 
     #[test]

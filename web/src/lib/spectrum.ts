@@ -16,17 +16,6 @@ export const SPECTRUM_HISTORY_ROWS = 1024;
 
 const RELEASE_GRACE_MS = 5_000;
 
-export function binsForView(width: number): number {
-  if (!(width > 0)) {
-    return SPECTRUM_BINS;
-  }
-  let bins = SPECTRUM_BINS;
-  while (bins < SPECTRUM_MAX_BINS && bins * width < SPECTRUM_BINS) {
-    bins *= 2;
-  }
-  return bins;
-}
-
 export function resampleRows(
   rows: Uint8Array,
   count: number,
@@ -238,21 +227,6 @@ export class SpectrumHub {
     lane.listeners.set(listener, bins);
     this.refresh(key, { deviceSet, stream });
     return () => this.release(key, { deviceSet, stream }, listener);
-  }
-
-  setBins(
-    deviceSet: number,
-    stream: number,
-    listener: (frame: SpectrumFrame) => void,
-    bins: number,
-  ): void {
-    const key = laneKey(deviceSet, stream);
-    const lane = this.lanes.get(key);
-    if (lane === undefined || !lane.listeners.has(listener)) {
-      return;
-    }
-    lane.listeners.set(listener, bins);
-    this.refresh(key, { deviceSet, stream });
   }
 
   history(deviceSet: number, stream: number): SpectrumHistory {

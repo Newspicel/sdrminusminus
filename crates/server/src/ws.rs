@@ -12,7 +12,7 @@ use axum::{
     response::Response,
 };
 use futures::{SinkExt, StreamExt};
-use sdrmm_dsp::{adaptive_db_window, decimate_max, quantize_db};
+use sdrmm_dsp::{DbWindowSmoother, adaptive_db_window, decimate_max, quantize_db};
 use sdrmm_engine::{
     AudioPacket, Engine, IqBlock, SpectrumSnapshot, SymbolBlock, VideoPacket,
     coherent::SurfaceUpdate,
@@ -853,6 +853,7 @@ fn spawn_spectrum(
         let mut dec = vec![0f32; bins];
         let mut quant = vec![0u8; bins];
         let mut window = Vec::with_capacity(bins);
+        let mut smoother = DbWindowSmoother::default();
         let mut throttle = FrameThrottle::new(fps);
 
         loop {
@@ -870,7 +871,7 @@ fn spawn_spectrum(
                     }
 
                     decimate_max(&snap.db, &mut dec);
-                    let (db_min, db_max) = adaptive_db_window(&dec, &mut window);
+                    let (db_min, db_max) = smoother.follow(adaptive_db_window(&dec, &mut window));
                     quantize_db(&dec, db_min, db_max, &mut quant);
 
                     let frame = SpectrumFrame {

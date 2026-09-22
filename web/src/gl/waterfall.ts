@@ -34,9 +34,31 @@ uniform float uHeight;
 uniform float uRows;
 uniform float uViewStart;
 uniform float uViewWidth;
+uniform float uPixels;
 uniform int uMap;
 
 ${COLORMAP_GLSL}
+
+const int MAX_TAPS = 32;
+
+float footprintPeak(float tx, int row) {
+  int bins = textureSize(uTex, 0).x;
+  float left = tx * float(bins);
+  float right = left + uViewWidth * float(bins) / max(uPixels, 1.0);
+  int first = int(floor(left));
+  int last = max(first, int(ceil(right)) - 1);
+  float peak = 0.0;
+  for (int i = 0; i < MAX_TAPS; i++) {
+    int x = first + i;
+    if (x > last) {
+      break;
+    }
+    if (x >= 0 && x < bins) {
+      peak = max(peak, texelFetch(uTex, ivec2(x, row), 0).r);
+    }
+  }
+  return peak;
+}
 
 void main() {
   // Newest row at the top; older rows scroll downward, one history row per *layout* pixel — the
@@ -47,7 +69,12 @@ void main() {
   float row = mod(uWrite - 1.0 - rowsBack, uHeight);
   float ty = (row + 0.5) / uHeight;
   float tx = uViewStart + vUv.x * uViewWidth + texelFetch(uShift, ivec2(0, int(row)), 0).r;
-  float v = (tx < 0.0 || tx > 1.0) ? 0.0 : texture(uTex, vec2(tx, ty)).r;
+  float perPixel = uViewWidth * float(textureSize(uTex, 0).x) / max(uPixels, 1.0);
+  float v = (tx < 0.0 || tx > 1.0)
+    ? 0.0
+    : perPixel > 1.0
+      ? footprintPeak(tx, int(row))
+      : texture(uTex, vec2(tx, ty)).r;
   fragColor = vec4(colormap(v), 1.0);
 }`;
 
@@ -93,6 +120,7 @@ interface Uniforms {
   rows: WebGLUniformLocation | null;
   viewStart: WebGLUniformLocation | null;
   viewWidth: WebGLUniformLocation | null;
+  pixels: WebGLUniformLocation | null;
   map: WebGLUniformLocation | null;
 }
 
@@ -329,6 +357,7 @@ class Plot implements WaterfallView {
     gl.uniform1f(uniforms.rows, rowsForHeight(h, this.ratio, HISTORY_ROWS));
     gl.uniform1f(uniforms.viewStart, this.windowStart);
     gl.uniform1f(uniforms.viewWidth, this.windowWidth);
+    gl.uniform1f(uniforms.pixels, w);
     gl.uniform1i(uniforms.map, this.map);
     gl.drawArrays(gl.TRIANGLES, 0, 6);
     this.ctx?.drawImage(buffer, 0, buffer.height - h, w, h, 0, 0, w, h);
@@ -459,6 +488,7 @@ function build(canvas: HTMLCanvasElement, gl: WebGL2RenderingContext): Shared {
       rows: gl.getUniformLocation(program, "uRows"),
       viewStart: gl.getUniformLocation(program, "uViewStart"),
       viewWidth: gl.getUniformLocation(program, "uViewWidth"),
+      pixels: gl.getUniformLocation(program, "uPixels"),
       map: gl.getUniformLocation(program, "uMap"),
     },
   };
