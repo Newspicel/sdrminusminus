@@ -9,6 +9,7 @@ export class JitterBuffer {
   private readonly trimHold: number;
   private readonly relaxAfter: number;
   private readonly smoothOver: number;
+  private readonly deadband: number;
 
   private target: number;
   private readPos = 0;
@@ -36,6 +37,7 @@ export class JitterBuffer {
     this.trimHold = 20 * target;
     this.relaxAfter = 300 * target;
     this.smoothOver = 10 * target;
+    this.deadband = Math.max(0.05, 1 / target);
   }
 
   get buffered(): number {
@@ -164,14 +166,14 @@ export class JitterBuffer {
   }
 
   private driftRate(): number {
-    const deadband = 0.15;
+    const fullSpan = 0.1;
     const maxDrift = 0.004;
     const error = (this.avgDepth - this.target) / this.target;
-    const excess = Math.abs(error) - deadband;
+    const excess = Math.abs(error) - this.deadband;
     if (excess <= 0) {
       return 1;
     }
-    const correction = Math.min(1, excess / (0.5 - deadband)) * maxDrift;
+    const correction = Math.min(1, excess / fullSpan) * maxDrift;
     return error > 0 ? 1 + correction : 1 - correction;
   }
 

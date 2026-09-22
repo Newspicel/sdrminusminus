@@ -191,6 +191,14 @@ describe("JitterBuffer", () => {
     expect(jb.targetDepth).toBe(4_800);
   });
 
+  it("holds its depth near target against a producer clock 0.2 % slow", () => {
+    const jb = new JitterBuffer(4_800, 48_000, 1);
+    const { maxStep } = drift(jb, -2_000, 60);
+    expect(jb.buffered).toBeGreaterThan(0.85 * 4_800);
+    expect(maxStep).toBeLessThan(1.01);
+    expect(jb.underruns).toBe(0);
+  });
+
   it("still works when rebuilt from its own source, as the worklet rebuilds it", () => {
     // oxlint-disable-next-line typescript/no-implied-eval -- rebuilding from source is the thing under test: it is how the worklet loads it
     // oxlint-disable-next-line typescript/no-implied-eval -- rebuilding from source is the thing under test: it is how the worklet loads it
