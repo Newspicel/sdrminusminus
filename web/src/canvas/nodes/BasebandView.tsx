@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Button } from "../../components/BaseControls";
 import {
   addConstellation,
@@ -58,12 +58,10 @@ export function BasebandView({
   deviceSet,
   channel,
   colormap,
-  label,
 }: {
   deviceSet: number;
   channel: ChannelInfo;
   colormap: Colormap;
-  label: ReactNode;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [frame, setFrame] = useState<IqFrame | null>(() => iqHub.latest(deviceSet, channel.id));
@@ -82,6 +80,7 @@ export function BasebandView({
   const driftRef = useRef(new Trend(TREND_POINTS));
 
   const chromeRef = useRef<HTMLDivElement>(null);
+  const headerRef = useRef<HTMLDivElement>(null);
   const insetRef = useRef<PlotInset>({ top: HEADER_INSET, bottom: 0 });
   const gridRef = useRef<BasebandGrid | null>(null);
   const bitmapRef = useRef<GridBitmap | null>(null);
@@ -167,14 +166,19 @@ export function BasebandView({
 
   useEffect(() => {
     const chrome = chromeRef.current;
-    if (chrome === null) {
+    const header = headerRef.current;
+    if (chrome === null || header === null) {
       return;
     }
     const measure = () => {
-      insetRef.current = { top: HEADER_INSET, bottom: chrome.offsetHeight + CHROME_GAP };
+      insetRef.current = {
+        top: Math.max(HEADER_INSET, header.offsetHeight + CHROME_GAP),
+        bottom: chrome.offsetHeight + CHROME_GAP,
+      };
     };
     const observer = new ResizeObserver(measure);
     observer.observe(chrome);
+    observer.observe(header);
     measure();
     return () => observer.disconnect();
   }, []);
@@ -212,12 +216,29 @@ export function BasebandView({
       <canvas ref={canvasRef} className="h-full w-full min-h-0 flex-1" />
 
       <div className="pointer-events-none absolute inset-0 flex flex-col justify-between p-1.5">
-        <span className="legend self-end text-right whitespace-pre text-plot-ink-dim">
-          {readout(view, frame, symbols, period)}
-        </span>
+        <div ref={headerRef} className="flex items-start justify-between gap-2">
+          <div data-plot-chrome className="pointer-events-auto flex items-center gap-1">
+            <ViewOptions
+              view={view}
+              symbols={symbols !== null}
+              eyeComponent={eyeComponent}
+              onEyeComponent={setEyeComponent}
+              decimate={decimate}
+              onDecimate={setDecimate}
+              symbolRate={symbolRate}
+              onSymbolRate={setSymbolRate}
+              nyquist={nyquist}
+            />
+          </div>
+          <span className="legend text-right whitespace-pre text-plot-ink-dim">
+            {readout(view, frame, symbols, period)}
+          </span>
+        </div>
         <div
           ref={chromeRef}
           data-plot-chrome
+          role="group"
+          aria-label="Baseband view"
           className="pointer-events-auto flex max-w-full flex-wrap items-center gap-1 self-start rounded-[3px] bg-plot-bg/85 p-0.5"
         >
           {BASEBAND_VIEWS.map((name) => (
@@ -231,65 +252,88 @@ export function BasebandView({
               {name}
             </Button>
           ))}
-          {view === "eye" && (
-            <Popover
-              label={eyeComponent}
-              triggerClass={plotButton(false)}
-              width="w-auto min-w-[var(--anchor-width)]"
-              padded={false}
-            >
-              {(close) => (
-                <div className="flex flex-col p-0.5">
-                  {EYE_COMPONENTS.map((name) => (
-                    <Button
-                      key={name}
-                      type="button"
-                      className={`${segment(name === eyeComponent)} justify-start`}
-                      onClick={() => {
-                        setEyeComponent(name);
-                        close();
-                      }}
-                    >
-                      {name}
-                    </Button>
-                  ))}
-                </div>
-              )}
-            </Popover>
-          )}
-          {view === "constellation" && symbols === null && (
-            <Button
-              type="button"
-              className={plotButton(decimate)}
-              aria-pressed={decimate}
-              onClick={() => setDecimate(!decimate)}
-            >
-              symbols
-            </Button>
-          )}
-          {(view === "eye" ||
-            (symbols === null &&
-              (view === "levels" || (view === "constellation" && decimate)))) && (
-            <>
-              <NumberField
-                label="Symbol rate"
-                className="w-20"
-                value={symbolRate}
-                min={MIN_SYMBOL_RATE}
-                max={nyquist}
-                step={100}
-                onCommit={setSymbolRate}
-              />
-              <span className="legend text-plot-ink-dim">Bd</span>
-            </>
-          )}
         </div>
       </div>
-
-      <span className="pointer-events-none absolute inset-x-0 top-0 p-1.5 text-plot-ink-dim legend">
-        {label}
-      </span>
     </div>
+  );
+}
+
+function ViewOptions({
+  view,
+  symbols,
+  eyeComponent,
+  onEyeComponent,
+  decimate,
+  onDecimate,
+  symbolRate,
+  onSymbolRate,
+  nyquist,
+}: {
+  view: BasebandView;
+  symbols: boolean;
+  eyeComponent: EyeComponent;
+  onEyeComponent: (component: EyeComponent) => void;
+  decimate: boolean;
+  onDecimate: (on: boolean) => void;
+  symbolRate: number;
+  onSymbolRate: (rate: number) => void;
+  nyquist: number;
+}) {
+  const needsRate =
+    view === "eye" || (!symbols && (view === "levels" || (view === "constellation" && decimate)));
+  return (
+    <>
+      {view === "eye" && (
+        <Popover
+          label={eyeComponent}
+          triggerClass={plotButton(false)}
+          width="w-auto min-w-[var(--anchor-width)]"
+          padded={false}
+        >
+          {(close) => (
+            <div className="flex flex-col p-0.5">
+              {EYE_COMPONENTS.map((name) => (
+                <Button
+                  key={name}
+                  type="button"
+                  className={`${segment(name === eyeComponent)} justify-start`}
+                  onClick={() => {
+                    onEyeComponent(name);
+                    close();
+                  }}
+                >
+                  {name}
+                </Button>
+              ))}
+            </div>
+          )}
+        </Popover>
+      )}
+      {view === "constellation" && !symbols && (
+        <Button
+          type="button"
+          className={plotButton(decimate)}
+          aria-pressed={decimate}
+          onClick={() => onDecimate(!decimate)}
+        >
+          symbols
+        </Button>
+      )}
+      {needsRate && (
+        <>
+          <NumberField
+            label="Symbol rate"
+            className="w-20 !h-6 !text-[10px]"
+            value={symbolRate}
+            min={MIN_SYMBOL_RATE}
+            max={nyquist}
+            step={100}
+            onCommit={onSymbolRate}
+          />
+          <span className="legend text-plot-ink-dim">Bd</span>
+        </>
+      )}
+    </>
   );
 }
 

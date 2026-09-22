@@ -4398,6 +4398,9 @@ export interface components {
             kind: "scope";
         } | {
             /** @enum {string} */
+            kind: "baseband_scope";
+        } | {
+            /** @enum {string} */
             kind: "speaker";
         } | {
             /** @enum {string} */

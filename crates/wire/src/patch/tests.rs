@@ -786,6 +786,7 @@ fn default_body(kind: &str) -> NodeBody {
             tuning_locked: false,
         }),
         "scope" => NodeBody::Scope,
+        "baseband_scope" => NodeBody::BasebandScope,
         "speaker" => NodeBody::Speaker,
         "map" => NodeBody::Map,
         "signal_map" => NodeBody::SignalMap(SignalMapNode::default()),
@@ -1324,9 +1325,10 @@ fn a_channel_tap_cannot_be_wired_where_a_wideband_stream_belongs() {
     assert!(takes("audio_recorder", PortType::Audio));
     assert!(!takes("audio_recorder", PortType::Iq));
     assert!(!takes("signal_map", PortType::Baseband));
+    assert!(!takes("scope", PortType::Baseband));
     assert!(
-        takes("scope", PortType::Baseband),
-        "the scope is what reads it"
+        takes("baseband_scope", PortType::Baseband),
+        "the baseband scope is what reads it"
     );
 
     let mut graph = workspace();

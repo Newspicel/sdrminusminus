@@ -7,7 +7,6 @@ import {
   dragTuneHz,
   pickAt,
   pickText,
-  scopeSource,
   streamChannels,
   takeCreationTune,
   tuneOnCreate,
@@ -54,27 +53,6 @@ function channel(params: ChannelInfo["settings"]["params"]): ChannelInfo {
     settings: { frequency_hz: 100_000_000, params },
   };
 }
-
-describe("scopeSource", () => {
-  it("shows the radio when nothing has been picked, tap or no tap", () => {
-    expect(scopeSource("iq", true, true)).toBe("iq");
-    expect(scopeSource("iq", true, false)).toBe("iq");
-  });
-
-  it("shows the channel tap once the operator picks it", () => {
-    expect(scopeSource("baseband", true, true)).toBe("baseband");
-  });
-
-  it("falls back to the wire that is left rather than blanking the face", () => {
-    expect(scopeSource("iq", false, true)).toBe("baseband");
-    expect(scopeSource("baseband", true, false)).toBe("iq");
-  });
-
-  it("stays on the spectrum when neither wire is drawn", () => {
-    expect(scopeSource("baseband", false, false)).toBe("iq");
-    expect(scopeSource("iq", false, false)).toBe("iq");
-  });
-});
 
 describe("streamChannels", () => {
   const onStream = (id: number, stream: number): ChannelInfo => ({

@@ -10,6 +10,7 @@ export interface NewNodeSeed {
 
 const WITHOUT_DATA = new Set<NodeKind>([
   "scope",
+  "baseband_scope",
   "speaker",
   "map",
   "readout",

@@ -13,7 +13,7 @@ import {
 } from "react";
 import { Button } from "../../components/BaseControls";
 import { identify, suggestedAt } from "../../components/bandPlan";
-import { type Options, plotButton, segmentSm } from "../../components/controls";
+import { plotButton } from "../../components/controls";
 import { clampWindow } from "../../components/dbRange";
 import { formatHz, formatMhz } from "../../components/format";
 import { FrameTween } from "../../components/frameTween";
@@ -70,7 +70,7 @@ import type { Bookmark, ChannelInfo, ChannelParams, DeviceSet, PatchNode } from 
 import { useBandPlan } from "../../lib/useBandPlan";
 import { useChannelPatch } from "../../lib/useChannelPatch";
 import { useDevicePatch } from "../../lib/useDevicePatch";
-import { basebandSourceOf, channelNodesOf, iqSourceOf } from "../binding";
+import { channelNodesOf, iqSourceOf } from "../binding";
 import { useWorkspaceContext } from "../context";
 import {
   addEdge,
@@ -85,7 +85,6 @@ import { channelPicker } from "../palette";
 import { useNodePlacement } from "../placement";
 import { deviceSetOf } from "../workspaceDevice";
 import { BandRuler } from "./BandRuler";
-import { BasebandView } from "./BasebandView";
 import { ChannelPicker } from "./ChannelPicker";
 import { lockedChannels } from "./channelNode";
 import { autoTuning, tuneDelta } from "./deviceNode";
@@ -99,8 +98,6 @@ import {
   dragTuneHz,
   pickAt,
   type ScopePick,
-  type ScopeSource,
-  scopeSource,
   streamChannels,
   takeCreationTune,
   tuneOnCreate,
@@ -139,73 +136,12 @@ interface Gesture {
   sentAt: number;
 }
 
-const SOURCES: Options<ScopeSource> = [
-  { value: "iq", label: "IQ" },
-  { value: "baseband", label: "Base" },
-];
-
 export function ScopeFace({ node }: { node: PatchNode }) {
   const workspace = useWorkspaceContext();
   const set = deviceSetOf(workspace, node.id);
   const source = iqSourceOf(workspace.graph, node.id);
-  const tap = basebandSourceOf(
-    workspace.graph,
-    node.id,
-    workspace.devices,
-    workspace.channels,
-    workspace.owners,
-  );
-  const [colormap] = useState<Colormap>(readColormap);
-  const [chosen, setChosen] = useState<ScopeSource>("iq");
-  const shown = scopeSource(chosen, source !== null, tap !== null);
-
-  const actions =
-    source !== null && tap !== null ? (
-      <span className="flex items-center" role="group" aria-label="Scope source">
-        {SOURCES.map((option) => (
-          <Button
-            key={option.value}
-            type="button"
-            className={segmentSm(shown === option.value)}
-            aria-pressed={shown === option.value}
-            onClick={() => setChosen(option.value)}
-          >
-            {option.label}
-          </Button>
-        ))}
-      </span>
-    ) : undefined;
-
-  if (shown === "baseband" && tap !== null) {
-    return (
-      <NodeShell
-        node={node}
-        title="Scope"
-        category="output"
-        subtitle={`${tap.channel.settings.params.type} baseband`}
-        actions={actions}
-      >
-        <FaceBody scroll={false}>
-          <BasebandView
-            key={`${tap.deviceSet}:${tap.channel.id}`}
-            deviceSet={tap.deviceSet}
-            channel={tap.channel}
-            colormap={colormap}
-            label={workspace.deviceSets.find((radio) => radio.id === tap.deviceSet)?.device.label}
-          />
-        </FaceBody>
-      </NodeShell>
-    );
-  }
-
   return (
-    <NodeShell
-      node={node}
-      title="Scope"
-      category="output"
-      subtitle={set?.device.label}
-      actions={actions}
-    >
+    <NodeShell node={node} title="Scope" category="output">
       <FaceBody scroll={false}>
         <Spectrum
           key={`${set?.id ?? "none"}:${source?.stream ?? 0}`}
@@ -1315,7 +1251,7 @@ function readAverage(): AverageFrames {
   }
 }
 
-function readColormap(): Colormap {
+export function readColormap(): Colormap {
   try {
     const stored = localStorage.getItem(COLORMAP_KEY);
     return COLORMAPS.find((name) => name === stored) ?? DEFAULT_COLORMAP;

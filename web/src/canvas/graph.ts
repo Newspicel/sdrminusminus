@@ -280,6 +280,7 @@ export const NODE_SIZE: Record<NodeKind, NodeSize> = {
   event_output: { w: 420 },
   event_filter: { w: 380 },
   scope: { w: 520, h: 360 },
+  baseband_scope: { w: 420, h: 340 },
   speaker: { w: 320 },
   map: { w: 520, h: 380 },
   signal_map: { w: 600, h: 440 },
@@ -310,6 +311,7 @@ export function isResizable(kind: NodeKind): boolean {
 
 const RESIZE_FLOOR: Partial<Record<NodeKind, { w: number; h: number }>> = {
   scope: { w: 320, h: 200 },
+  baseband_scope: { w: 320, h: 200 },
   map: { w: 300, h: 220 },
   signal_map: { w: 400, h: 300 },
   propagation: { w: 440, h: 380 },

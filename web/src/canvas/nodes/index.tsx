@@ -4,6 +4,7 @@ import type { NodeKind, PatchNode } from "../../lib/types";
 import type { FlowData } from "../Canvas";
 import { NODE_SIZE } from "../graph";
 import { ArrayFace } from "./ArrayFace";
+import { BasebandScopeFace } from "./BasebandScopeFace";
 import { ChannelFace } from "./ChannelFace";
 import { CombinerFace } from "./CombinerFace";
 import { DeviceFace } from "./DeviceFace";
@@ -59,6 +60,7 @@ export const NODE_TYPES: Record<NodeKind, ComponentType<NodeProps<Node<FlowData>
   channel: mount(ChannelFace),
   event_output: mount(EventOutputFace),
   scope: mount(ScopeFace),
+  baseband_scope: mount(BasebandScopeFace),
   speaker: mount(SpeakerFace),
   map: mount(MapFace),
   signal_map: mount(SignalMapFace),
@@ -93,6 +95,7 @@ export const FACES: Record<NodeKind, Face> = {
   channel: ChannelFace,
   event_output: EventOutputFace,
   scope: ScopeFace,
+  baseband_scope: BasebandScopeFace,
   speaker: SpeakerFace,
   map: MapFace,
   signal_map: SignalMapFace,

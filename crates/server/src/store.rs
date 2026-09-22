@@ -1298,7 +1298,73 @@ fn parse_workspace_snapshot(json: &str) -> Result<WorkspaceSnapshot, serde_json:
     migrate_control_wires(&mut value);
     migrate_device_locks(&mut value);
     migrate_signal_finders(&mut value);
+    migrate_baseband_scopes(&mut value);
     serde_json::from_value(value)
+}
+
+const SPLIT_SCOPE_OFFSET_Y: f64 = 420.0;
+
+fn migrate_baseband_scopes(snapshot: &mut serde_json::Value) {
+    let Some(graph) = snapshot.get_mut("graph") else {
+        return;
+    };
+    let (mut tapped, mut fed) = (HashSet::new(), HashSet::new());
+    for edge in graph
+        .get("edges")
+        .and_then(serde_json::Value::as_array)
+        .into_iter()
+        .flatten()
+    {
+        match edge_end(edge, "to") {
+            Some((sink, "baseband")) => tapped.insert(sink.to_owned()),
+            Some((sink, "iq")) => fed.insert(sink.to_owned()),
+            _ => false,
+        };
+    }
+    let mut split = HashMap::new();
+    let mut added = Vec::new();
+    for node in graph
+        .get_mut("nodes")
+        .and_then(serde_json::Value::as_array_mut)
+        .into_iter()
+        .flatten()
+    {
+        let Some(id) = node.get("id").and_then(serde_json::Value::as_str) else {
+            continue;
+        };
+        if node_kind(node) != Some("scope") || !tapped.contains(id) {
+            continue;
+        }
+        if !fed.contains(id) {
+            node["kind"] = serde_json::json!("baseband_scope");
+            continue;
+        }
+        let twin = format!("baseband_scope:{id}");
+        let x = node["position"]["x"].as_f64().unwrap_or_default();
+        let y = node["position"]["y"].as_f64().unwrap_or_default() + SPLIT_SCOPE_OFFSET_Y;
+        added.push(serde_json::json!({
+            "id": twin, "kind": "baseband_scope", "position": {"x": x, "y": y}
+        }));
+        split.insert(id.to_owned(), twin);
+    }
+    if let Some(nodes) = graph
+        .get_mut("nodes")
+        .and_then(serde_json::Value::as_array_mut)
+    {
+        nodes.extend(added);
+    }
+    for edge in graph
+        .get_mut("edges")
+        .and_then(serde_json::Value::as_array_mut)
+        .into_iter()
+        .flatten()
+    {
+        if let Some((sink, "baseband")) = edge_end(edge, "to")
+            && let Some(twin) = split.get(sink)
+        {
+            edge["to"]["node"] = serde_json::json!(twin);
+        }
+    }
 }
 
 fn migrate_signal_finders(snapshot: &mut serde_json::Value) {

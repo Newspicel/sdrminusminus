@@ -18,7 +18,7 @@ Moving or resizing it in Rack leaves its connections intact. Press `v` to switch
 | Sources | Device, GPS position | Supply IQ or station position |
 | Decoders | AM, NFM, WFM, ADS-B, DMR | Receive one signal from IQ |
 | Tools | Array, Direction finder, Passive radar, Combiner, Scanner, Signal hunt, Satellite, DMR trunk, Event filter, Triangulation | Process signals or control receivers |
-| Outputs | Scope, Map, Readout, Decoder log, Video, Speaker, recorders, Network IQ, Export | Display, play, save, or forward results |
+| Outputs | Scope, Baseband scope, Map, Readout, Decoder log, Video, Speaker, recorders, Network IQ, Export | Display, play, save, or forward results |
 
 **+ Node** lists the nodes available in the running server. Start with a Device, connect a channel,
 and add outputs for its audio or events.

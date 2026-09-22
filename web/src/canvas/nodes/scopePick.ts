@@ -8,18 +8,6 @@ import {
 } from "../../components/spectrumView";
 import type { BandPlan, ChannelInfo, ChannelParams } from "../../lib/types";
 
-export type ScopeSource = "iq" | "baseband";
-
-export function scopeSource(chosen: ScopeSource, hasIq: boolean, hasTap: boolean): ScopeSource {
-  if (chosen === "iq" && hasIq) {
-    return "iq";
-  }
-  if (chosen === "baseband" && hasTap) {
-    return "baseband";
-  }
-  return hasTap ? "baseband" : "iq";
-}
-
 export function streamChannels(
   channels: readonly ChannelInfo[],
   stream: number,

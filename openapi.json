@@ -15660,6 +15660,20 @@
               "kind": {
                 "type": "string",
                 "enum": [
+                  "baseband_scope"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
                   "speaker"
                 ]
               }

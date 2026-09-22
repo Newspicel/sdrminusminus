@@ -214,8 +214,11 @@ const spectrum: Scene = {
     await showRack(page);
     const scope = page.locator('.grid > [data-id="scope"]');
     await expect(scope).toBeVisible();
-    await scope.getByRole("button", { name: /^classic$/i }).click();
-    await page.getByRole("button", { name: /^viridis$/i }).click();
+    await scope.getByRole("button", { name: "Scope settings" }).click();
+    await page
+      .getByRole("dialog")
+      .getByRole("button", { name: /^viridis$/i })
+      .click();
     await page.keyboard.press("Escape");
     await page.mouse.move(0, 0);
   },

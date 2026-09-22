@@ -375,41 +375,36 @@ test.describe("the workspace", () => {
     };
     const tuning = await tunedTo();
 
-    await scopePlot.getByRole("button", { name: /^traces$/i }).click();
-    const tracesDialog = page.getByRole("dialog");
-    const peak = tracesDialog.getByRole("button", { name: /^peak$/i });
+    await scopePlot.getByRole("button", { name: "Scope settings" }).click();
+    const settings = page.getByRole("dialog");
+    const peak = settings.getByRole("button", { name: /^peak$/i });
     await peak.click();
     await expect(peak).toHaveAttribute("aria-pressed", "true");
     await peak.click();
     await expect(peak).toHaveAttribute("aria-pressed", "false");
-    await page.keyboard.press("Escape");
-    await expect(tracesDialog).toBeHidden();
 
-    await scopePlot.getByRole("button", { name: /^range$/i }).click();
-    const floor = scopePlot.getByRole("slider", { name: /waterfall dBFS floor/i });
-    const ceiling = scopePlot.getByRole("slider", { name: /waterfall dBFS ceiling/i });
-    const auto = scopePlot.getByRole("button", { name: /^auto$/i });
-    await expect(auto).toHaveAttribute("aria-pressed", "true");
+    const floor = settings.getByRole("slider", { name: /waterfall dBFS floor/i });
+    const ceiling = settings.getByRole("slider", { name: /waterfall dBFS ceiling/i });
+    const auto = settings.getByRole("switch", { name: "Automatic levels" });
+    await expect(auto).toBeChecked();
     const automatic = await floor.inputValue();
     await floor.press("ArrowUp");
     await expect(floor).not.toHaveValue(automatic);
-    await expect(auto).toHaveAttribute("aria-pressed", "false");
+    await expect(auto).not.toBeChecked();
     await expect(scopePlot.getByText(/· manual/)).toBeVisible();
 
     await ceiling.press("ArrowDown");
     expect(Number(await ceiling.inputValue())).toBeGreaterThan(Number(await floor.inputValue()));
 
     await auto.click();
-    await expect(auto).toHaveAttribute("aria-pressed", "true");
+    await expect(auto).toBeChecked();
     await expect(scopePlot.getByText(/· manual/)).toHaveCount(0);
-    await scopePlot.getByRole("button", { name: /^range$/i }).click();
-    await expect(floor).toHaveCount(0);
 
-    await scopePlot.getByRole("button", { name: /^classic$/i }).click();
-    await page.getByRole("button", { name: /^viridis$/i }).click();
-    await expect(
-      scopePlot.locator('button[aria-haspopup="dialog"]', { hasText: /^viridis$/i }),
-    ).toBeVisible();
+    const viridis = settings.getByRole("button", { name: /^viridis$/i });
+    await viridis.click();
+    await expect(viridis).toHaveAttribute("aria-pressed", "true");
+    await page.keyboard.press("Escape");
+    await expect(settings).toBeHidden();
 
     expect(await tunedTo()).toBe(tuning);
 
@@ -808,7 +803,7 @@ test.describe("the workspace", () => {
     await expect.poll(stored).toEqual(before);
   });
 
-  test("switches the scope between its wires and works from the frequency under the pointer", async ({
+  test("splits baseband into its own scope and works from the frequency under the pointer", async ({
     page,
   }) => {
     await page.goto("/");
@@ -817,9 +812,13 @@ test.describe("the workspace", () => {
     await expect(scope.getByText(/MHz/).first()).toBeVisible();
     await fitPatch(page);
 
-    const sources = scope.getByRole("group", { name: "Scope source" });
-    await expect(sources).toHaveCount(0);
+    await expect(scope.locator('.react-flow__handle[data-handleid="baseband"]')).toHaveCount(0);
 
+    await page.getByRole("button", { name: "Add a node" }).click();
+    await page.getByRole("button", { name: "Baseband scope", exact: true }).click();
+    const baseband = page.locator('.react-flow__node[data-id^="baseband_scope:"]');
+    await expect(baseband).toBeVisible();
+    await fitPatch(page);
     await dragWire(
       page,
       page
@@ -827,18 +826,15 @@ test.describe("the workspace", () => {
           '.react-flow__node[data-id^="channel:"] .react-flow__handle[data-handleid="baseband"]',
         )
         .first(),
-      scope.locator('.react-flow__handle[data-handleid="baseband"]'),
+      baseband.locator('.react-flow__handle[data-handleid="baseband"]'),
     );
-
-    await expect(sources).toBeVisible();
-    await expect(scope.getByRole("button", { name: "TRACES" })).toBeVisible();
-    await activate(scope);
-    await sources.getByRole("button", { name: "BASE" }).click();
-    await expect(scope.getByRole("button", { name: "SPECTRUM" })).toBeVisible();
-    await expect(scope.getByRole("button", { name: "TRACES" })).toHaveCount(0);
-
-    await sources.getByRole("button", { name: "IQ" }).click();
-    await expect(scope.getByRole("button", { name: "TRACES" })).toBeVisible();
+    const views = baseband.getByRole("group", { name: "Baseband view" });
+    await expect(views.getByRole("button", { name: "SPECTRUM" })).toBeVisible();
+    await activate(baseband);
+    const barTop = (await views.boundingBox())?.y;
+    await views.getByRole("button", { name: "LEVELS" }).click();
+    await expect(baseband.getByRole("textbox", { name: "Symbol rate" })).toBeVisible();
+    expect((await views.boundingBox())?.y, "the view bar stays put").toBe(barTop);
 
     const plot = scope.locator(".bg-plot-bg");
     const box = await plot.boundingBox();

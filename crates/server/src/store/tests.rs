@@ -1995,3 +1995,67 @@ fn decoder_log_preserves_monitor_origin_in_queries_and_exports() {
     let json = serde_json::to_value(&exported[0]).unwrap();
     assert_eq!(json["origin"]["transmission"], 123);
 }
+
+fn tapped_scope_snapshot(fed: bool) -> serde_json::Value {
+    let mut snapshot = serde_json::to_value(WorkspaceSnapshot::starter()).unwrap();
+    snapshot["graph"]["nodes"]
+        .as_array_mut()
+        .unwrap()
+        .push(serde_json::json!({
+            "id": "nfm", "kind": "channel", "position": {"x": 200.0, "y": 0.0},
+            "data": {"channel_type": "nfm"}
+        }));
+    let edges = snapshot["graph"]["edges"].as_array_mut().unwrap();
+    if !fed {
+        edges.retain(|edge| edge["to"]["node"] != "scope");
+    }
+    edges.extend([
+        serde_json::json!({
+            "from": {"node": "device", "port": "iq"},
+            "to": {"node": "nfm", "port": "iq"}
+        }),
+        serde_json::json!({
+            "from": {"node": "nfm", "port": "baseband"},
+            "to": {"node": "scope", "port": "baseband"}
+        }),
+    ]);
+    snapshot
+}
+
+#[test]
+fn a_scope_wired_only_to_baseband_becomes_a_baseband_scope() {
+    let migrated = parse_workspace_snapshot(&tapped_scope_snapshot(false).to_string()).unwrap();
+    migrated.validate().unwrap();
+    assert_eq!(
+        migrated.graph.node("scope").unwrap().body,
+        sdrmm_wire::NodeBody::BasebandScope
+    );
+}
+
+#[test]
+fn a_scope_wired_to_both_hands_baseband_to_a_new_node() {
+    let migrated = parse_workspace_snapshot(&tapped_scope_snapshot(true).to_string()).unwrap();
+    migrated.validate().unwrap();
+    assert_eq!(
+        migrated.graph.node("scope").unwrap().body,
+        sdrmm_wire::NodeBody::Scope
+    );
+    let twin = migrated.graph.node("baseband_scope:scope").unwrap();
+    assert_eq!(twin.body, sdrmm_wire::NodeBody::BasebandScope);
+    assert!(
+        migrated
+            .graph
+            .edges
+            .iter()
+            .any(|edge| edge.to.node == "baseband_scope:scope" && edge.to.port == "baseband")
+    );
+    assert!(
+        !migrated
+            .graph
+            .edges
+            .iter()
+            .any(|edge| edge.to.node == "scope" && edge.to.port == "baseband")
+    );
+    let again = serde_json::to_string(&migrated).unwrap();
+    assert_eq!(parse_workspace_snapshot(&again).unwrap(), migrated);
+}

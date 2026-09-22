@@ -592,6 +592,7 @@ pub enum NodeBody {
     Gps(GpsNode),
     Channel(ChannelNode),
     Scope,
+    BasebandScope,
     Speaker,
     Map,
     SignalMap(SignalMapNode),
@@ -628,6 +629,7 @@ impl NodeBody {
             Self::Gps(_) => "gps",
             Self::Channel(_) => "channel",
             Self::Scope => "scope",
+            Self::BasebandScope => "baseband_scope",
             Self::Speaker => "speaker",
             Self::Map => "map",
             Self::SignalMap(_) => "signal_map",
@@ -675,6 +677,7 @@ impl NodeBody {
             | Self::EventFilter(_)
             | Self::Triangulation => NodeCategory::Tool,
             Self::Scope
+            | Self::BasebandScope
             | Self::Map
             | Self::SignalMap(_)
             | Self::Propagation(_)
@@ -838,10 +841,8 @@ fn ports_for(kind: &str) -> Vec<PortSpec> {
             PortSpec::new(Events, Out, true, ChannelIsDecoder),
             PortSpec::new(Video, Out, true, ChannelHasVideo),
         ],
-        "scope" => vec![
-            PortSpec::new(Iq, In, false, Always),
-            PortSpec::new(Baseband, In, false, Always),
-        ],
+        "scope" => vec![PortSpec::new(Iq, In, false, Always)],
+        "baseband_scope" => vec![PortSpec::new(Baseband, In, false, Always)],
         "recorder" => vec![
             PortSpec::new(Iq, In, false, Always),
             PortSpec::new(Position, In, false, Always),
@@ -972,6 +973,7 @@ impl PatchCatalog {
                     "Channel",
                 ),
                 entry(&NodeBody::Scope, "Scope"),
+                entry(&NodeBody::BasebandScope, "Baseband scope"),
                 entry(&NodeBody::Speaker, "Speaker"),
                 entry(&NodeBody::Map, "Map"),
                 entry(

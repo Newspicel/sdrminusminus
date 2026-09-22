@@ -10,6 +10,7 @@ const EVERY_KIND: Record<NodeKind, true> = {
   gps: true,
   channel: true,
   scope: true,
+  baseband_scope: true,
   speaker: true,
   map: true,
   signal_map: true,
