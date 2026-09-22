@@ -15,6 +15,8 @@ use sdrmm_wire::{NetworkExportSettings, NetworkSampleFormat, NetworkTransport};
 
 use crate::EngineError;
 
+mod rtl_tcp;
+
 const NETWORK_RING_CAPACITY: usize = 1 << 20;
 const UDP_PAYLOAD_BYTES: usize = 1_400;
 const NETWORK_IO_TIMEOUT: Duration = Duration::from_secs(3);
@@ -30,6 +32,7 @@ pub(crate) struct NetworkExportShared {
     bytes_per_sample: u64,
     bytes: AtomicU64,
     packets: AtomicU64,
+    clients: std::sync::atomic::AtomicU32,
     error: OnceLock<String>,
     feed_fault: AtomicU8,
 }
@@ -40,6 +43,7 @@ impl NetworkExportShared {
             bytes_per_sample: format.bytes_per_sample() as u64,
             bytes: AtomicU64::new(0),
             packets: AtomicU64::new(0),
+            clients: std::sync::atomic::AtomicU32::new(0),
             error: OnceLock::new(),
             feed_fault: AtomicU8::new(0),
         }
@@ -55,6 +59,10 @@ impl NetworkExportShared {
 
     pub(crate) fn packets(&self) -> u64 {
         self.packets.load(Ordering::Relaxed)
+    }
+
+    pub(crate) fn clients(&self) -> u32 {
+        self.clients.load(Ordering::Relaxed)
     }
 
     pub(crate) fn error(&self) -> Option<String> {
@@ -112,6 +120,7 @@ impl NetworkExportTap {
 enum Connection {
     Udp(UdpSocket),
     Tcp(TcpStream),
+    RtlTcp(rtl_tcp::Server),
 }
 
 pub(crate) fn start(
@@ -128,7 +137,10 @@ pub(crate) fn start(
     let format = settings.format;
     let writer = std::thread::Builder::new()
         .name("sdrmm-network-export".to_owned())
-        .spawn(move || write_loop(connection, format, consumer, &worker_shared))
+        .spawn(move || {
+            write_loop(connection, format, consumer, &worker_shared);
+            worker_shared.clients.store(0, Ordering::Relaxed);
+        })
         .map_err(|error| EngineError::NetworkExport(format!("spawn writer thread: {error}")))?;
     Ok((tap, shared, writer))
 }
@@ -153,6 +165,18 @@ fn connect(settings: &NetworkExportSettings) -> Result<Connection, EngineError> 
         ));
     }
     match settings.transport {
+        NetworkTransport::RtlTcp => {
+            if !settings.valid_format() {
+                return Err(EngineError::NetworkExport(
+                    "rtl_tcp requires CU8 samples".to_owned(),
+                ));
+            }
+            rtl_tcp::Server::bind(target)
+                .map(Connection::RtlTcp)
+                .map_err(|error| {
+                    EngineError::NetworkExport(format!("listen on {}: {error}", settings.address))
+                })
+        }
         NetworkTransport::Udp => {
             let bind = if target.is_ipv4() {
                 SocketAddr::from(([0, 0, 0, 0], 0))
@@ -196,6 +220,12 @@ fn write_loop(
 ) {
     let mut encoded = Vec::new();
     loop {
+        if let Connection::RtlTcp(server) = &mut connection
+            && let Err(error) = server.poll(shared)
+        {
+            shared.fail(format!("rtl_tcp server failed: {error}"));
+            return;
+        }
         let available = samples.slots();
         if available == 0 {
             if samples.is_abandoned() {
@@ -216,6 +246,7 @@ fn write_loop(
             let result = match &mut connection {
                 Connection::Udp(socket) => write_udp(socket, &encoded, format, shared),
                 Connection::Tcp(stream) => write_tcp(stream, &encoded, shared),
+                Connection::RtlTcp(server) => server.broadcast(&encoded, shared),
             };
             if let Err(error) = result {
                 shared.fail(format!("network export write failed: {error}"));

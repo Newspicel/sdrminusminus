@@ -18,6 +18,11 @@ pub enum WebhookFormat {
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(tag = "service", rename_all = "snake_case")]
 pub enum EventOutputTarget {
+    Beast {
+        address: String,
+        #[serde(default)]
+        enabled: bool,
+    },
     Tunnel {
         interface: String,
         #[schema(value_type = String, format = "ipv4")]
@@ -47,6 +52,10 @@ pub enum EventOutputTarget {
 impl std::fmt::Debug for EventOutputTarget {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::Beast { address, .. } => formatter
+                .debug_struct("Beast")
+                .field("address", address)
+                .finish(),
             Self::Tunnel {
                 interface,
                 address,
@@ -101,6 +110,7 @@ impl EventOutputTarget {
     #[must_use]
     pub fn configured(&self) -> bool {
         match self {
+            Self::Beast { address, enabled } => *enabled && !address.is_empty(),
             Self::Tunnel { interface, .. } => !interface.is_empty(),
             Self::Webhook { url, .. } => !url.trim().is_empty(),
             Self::Matrix {
@@ -121,6 +131,13 @@ impl EventOutputTarget {
     #[must_use]
     pub fn valid(&self) -> bool {
         match self {
+            Self::Beast { address, .. } => {
+                address.is_empty()
+                    || (address.len() <= crate::MAX_NETWORK_ADDRESS_LEN
+                        && address
+                            .parse::<std::net::SocketAddr>()
+                            .is_ok_and(|address| address.port() != 0))
+            }
             Self::Tunnel {
                 interface,
                 address,
@@ -199,6 +216,16 @@ pub struct EventOutputNode {
     pub target: EventOutputTarget,
 }
 
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct BeastExportStatus {
+    pub node: String,
+    pub address: String,
+    pub listening: bool,
+    pub clients: u32,
+    pub frames: u64,
+    pub error: Option<String>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -225,6 +252,38 @@ mod tests {
             username: String::new(),
             password: String::new(),
         }
+    }
+
+    #[test]
+    fn beast_requires_an_explicit_listener_and_enable() {
+        for address in ["127.0.0.1:30005", "0.0.0.0:30005", "[::1]:30005"] {
+            let target = EventOutputTarget::Beast {
+                address: address.to_owned(),
+                enabled: true,
+            };
+            assert!(target.valid() && target.configured());
+            assert_eq!(
+                serde_json::from_str::<EventOutputTarget>(&serde_json::to_string(&target).unwrap())
+                    .unwrap(),
+                target
+            );
+        }
+        for address in ["127.0.0.1:0", "localhost", "::1:30005", "host:30005"] {
+            assert!(
+                !EventOutputTarget::Beast {
+                    address: address.to_owned(),
+                    enabled: true
+                }
+                .valid()
+            );
+        }
+        assert!(
+            !EventOutputTarget::Beast {
+                address: "127.0.0.1:30005".to_owned(),
+                enabled: false
+            }
+            .configured()
+        );
     }
 
     #[test]

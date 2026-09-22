@@ -1343,7 +1343,8 @@ impl PatchGraph {
                     return Err(PatchError::NodeSettings(node.id.clone()));
                 }
                 NodeBody::NetworkExport(export) => {
-                    if export.settings.address.is_empty()
+                    if !export.settings.valid_format()
+                        || export.settings.address.is_empty()
                         || export.settings.address.len() > MAX_NETWORK_ADDRESS_LEN
                         || !valid_host_port(&export.settings.address)
                     {

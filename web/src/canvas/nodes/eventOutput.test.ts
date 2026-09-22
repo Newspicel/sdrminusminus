@@ -13,6 +13,16 @@ const mqtt = (broker_url: string, topic: string) =>
   eventOutputConfigured({ service: "mqtt", broker_url, topic, username: "", password: "" });
 
 describe("event output configuration", () => {
+  it("opens Beast only after an address and explicit enable", () => {
+    expect(
+      eventOutputConfigured({ service: "beast", address: "127.0.0.1:30005", enabled: false }),
+    ).toBe(false);
+    expect(eventOutputConfigured({ service: "beast", address: "", enabled: true })).toBe(false);
+    expect(
+      eventOutputConfigured({ service: "beast", address: "127.0.0.1:30005", enabled: true }),
+    ).toBe(true);
+  });
+
   it("needs a webhook endpoint", () => {
     expect(eventOutputConfigured({ service: "webhook", url: "", format: "json" })).toBe(false);
     expect(eventOutputConfigured({ service: "webhook", url: "   ", format: "json" })).toBe(false);
@@ -38,7 +48,7 @@ describe("event output configuration", () => {
   });
 
   it("starts every service unconfigured", () => {
-    for (const service of ["webhook", "matrix", "mqtt"] as const) {
+    for (const service of ["webhook", "matrix", "mqtt", "beast"] as const) {
       const target = newOutputTarget(service);
       expect(target.service).toBe(service);
       expect(eventOutputConfigured(target)).toBe(false);

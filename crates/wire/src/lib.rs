@@ -962,6 +962,7 @@ mod contract_tests {
             samples: 4_096,
             bytes: 32_768,
             packets: 24,
+            clients: 0,
             overruns: 0,
             error: None,
         });
@@ -1011,6 +1012,7 @@ mod contract_tests {
             samples: 4_096,
             bytes: 32_768,
             packets: 24,
+            clients: 0,
             overruns: 0,
             error: None,
         });

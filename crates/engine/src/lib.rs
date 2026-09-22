@@ -318,6 +318,11 @@ fn fault_kind(error: &DeviceError) -> DeviceFault {
 }
 
 fn check_export_request(node: &str, settings: &NetworkExportSettings) -> Result<(), EngineError> {
+    if !settings.valid_format() {
+        return Err(EngineError::NetworkExport(
+            "rtl_tcp requires CU8 samples".to_owned(),
+        ));
+    }
     if node.is_empty() || node.len() > sdrmm_wire::patch::MAX_NODE_ID_LEN {
         return Err(EngineError::NetworkExport(
             "node id is empty or too long".to_owned(),
@@ -433,6 +438,7 @@ impl ChannelAudioRecording {
 }
 
 struct NetworkExportState {
+    clients_seen: u32,
     node: String,
     stream: u32,
     settings: NetworkExportSettings,
@@ -465,6 +471,7 @@ impl NetworkExportState {
             samples: self.shared.samples(),
             bytes: self.shared.bytes(),
             packets: self.shared.packets(),
+            clients: self.shared.clients(),
             overruns: overruns_now - self.overruns_at_start,
             error: self.shared.error(),
         }

@@ -996,3 +996,49 @@ fn spectrum_monitor_audio_is_attached_to_event_deliveries() {
         "monitor"
     );
 }
+
+#[test]
+fn beast_listener_requires_an_event_wire_and_explicit_enable() {
+    let store = Store::open(None).unwrap();
+    let active = store.active_workspace().unwrap().unwrap();
+    let beast = |enabled| {
+        NodeBody::EventOutput(EventOutputNode {
+            target: EventOutputTarget::Beast {
+                address: "127.0.0.1:30005".to_owned(),
+                enabled,
+            },
+        })
+    };
+    let graph = PatchGraph {
+        nodes: vec![
+            node(
+                "decoder",
+                NodeBody::Channel(ChannelNode {
+                    channel_type: "adsb".to_owned(),
+                    record_calls: false,
+                    tuning_locked: false,
+                }),
+            ),
+            node("wired", beast(true)),
+            node("unwired", beast(true)),
+            node("disabled", beast(false)),
+        ],
+        edges: vec![
+            edge(("decoder", "events"), ("wired", "events")),
+            edge(("decoder", "events"), ("disabled", "events")),
+        ],
+    };
+    store
+        .update_workspace(
+            active.info.id,
+            &UpdateWorkspaceRequest {
+                revision: active.info.revision,
+                name: None,
+                snapshot: Some(WorkspaceSnapshot::new(graph, RackLayout::default())),
+            },
+        )
+        .unwrap();
+    let routing = resolve(&store).unwrap();
+    assert_eq!(routing.bindings.len(), 1);
+    assert_eq!(routing.bindings[0].node, "wired");
+}

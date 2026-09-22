@@ -109,6 +109,11 @@ impl Engine {
                 }
             }
             for (ch, export) in &mut s.channel_exports {
+                let clients = export.shared.clients();
+                if clients != export.clients_seen {
+                    export.clients_seen = clients;
+                    dirty = true;
+                }
                 let samples = export.shared.samples();
                 if samples != export.samples_seen {
                     export.samples_seen = samples;
@@ -141,6 +146,11 @@ impl Engine {
                 }
             }
             if let Some(export) = &mut s.network_export {
+                let clients = export.shared.clients();
+                if clients != export.clients_seen {
+                    export.clients_seen = clients;
+                    dirty = true;
+                }
                 let samples = export.shared.samples();
                 if samples != export.samples_seen {
                     export.samples_seen = samples;

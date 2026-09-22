@@ -5,6 +5,7 @@ import { TextField } from "../../components/TextField";
 import type { EventOutputTarget, PatchNode, PatchNodeOf } from "../../lib/types";
 import { useWorkspaceContext } from "../context";
 import { patchNode } from "../graph";
+import { BeastOutputControls } from "./BeastOutputControls";
 import {
   eventOutputConfigured,
   newOutputTarget,
@@ -59,7 +60,16 @@ function EventOutputNodeFace({ node }: { node: PatchNodeOf<"event_output"> }) {
           </SettingRow>
           <TargetFields target={target} onEdit={editTarget} />
         </Settings>
-        <FaceEmpty hint={emptyHint(inputs, configured, target)} />
+        {target.service === "beast" ? (
+          <BeastOutputControls
+            node={node.id}
+            target={target}
+            connected={inputs > 0}
+            onEdit={editTarget}
+          />
+        ) : (
+          <FaceEmpty hint={emptyHint(inputs, configured, target)} />
+        )}
       </FaceBody>
     </NodeShell>
   );
@@ -93,6 +103,20 @@ function TargetFields({
   target: EventOutputTarget;
   onEdit: (next: EventOutputTarget) => void;
 }) {
+  if (target.service === "beast") {
+    return (
+      <SettingRow
+        label="Listen on"
+        title="Beast binary TCP server. Wire ADS-B events in, then connect your feeder to this address."
+      >
+        <TextField
+          label="Beast listen address"
+          value={target.address}
+          onCommit={(address) => onEdit({ ...target, address, enabled: false })}
+        />
+      </SettingRow>
+    );
+  }
   if (target.service === "tunnel") {
     return (
       <>

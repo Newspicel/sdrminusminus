@@ -309,6 +309,7 @@ impl Engine {
                         && state.baseband_plan(ds, ch).ok().as_ref() == Some(&plan) =>
                 {
                     let export = NetworkExportState {
+                        clients_seen: 0,
                         node: node.clone(),
                         stream: plan.stream,
                         settings: settings.clone(),

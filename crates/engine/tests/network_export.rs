@@ -228,3 +228,89 @@ fn virtual_device_exports_an_unframed_cf32_tcp_stream() {
     assert_eq!(status.samples, status.bytes / 8);
     engine.remove_device_set(ds).expect("remove set");
 }
+
+#[test]
+fn rtl_tcp_listens_without_clients_streams_and_releases_its_port() {
+    let reservation = TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = reservation.local_addr().unwrap();
+    drop(reservation);
+    let engine = engine();
+    let ds = engine.create_device_set("virtual:siggen").unwrap();
+    let settings = NetworkExportSettings {
+        address: address.to_string(),
+        transport: NetworkTransport::RtlTcp,
+        format: NetworkSampleFormat::Cu8,
+    };
+    engine
+        .start_network_export(ds, "rtl".to_owned(), 0, settings.clone())
+        .unwrap();
+    std::thread::sleep(Duration::from_millis(100));
+    assert!(
+        engine.snapshot().device_sets[0]
+            .network_export
+            .as_ref()
+            .unwrap()
+            .error
+            .is_none()
+    );
+    let mut client = std::net::TcpStream::connect(address).unwrap();
+    client.set_read_timeout(Some(WAIT)).unwrap();
+    let mut bytes = [0; 4096];
+    client.read_exact(&mut bytes).unwrap();
+    assert_eq!(&bytes[..4], b"RTL0");
+    assert!(bytes[12..].iter().any(|byte| *byte != 128));
+    let status = engine.stop_network_export(ds, "rtl").unwrap();
+    assert!(status.bytes > 0);
+    assert!(status.error.is_none(), "{:?}", status.error);
+    drop(client);
+    engine
+        .start_network_export(ds, "rtl".to_owned(), 0, settings)
+        .unwrap();
+    engine.stop_network_export(ds, "rtl").unwrap();
+    engine.remove_device_set(ds).unwrap();
+}
+
+#[test]
+#[ignore = "requires rtl_433 on PATH"]
+fn rtl_433_consumes_the_live_export() {
+    let reservation = TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = reservation.local_addr().unwrap();
+    drop(reservation);
+    let engine = engine();
+    let ds = engine.create_device_set("virtual:siggen").unwrap();
+    let settings = NetworkExportSettings {
+        address: address.to_string(),
+        transport: NetworkTransport::RtlTcp,
+        format: NetworkSampleFormat::Cu8,
+    };
+    let status = engine
+        .start_network_export(ds, "rtl".to_owned(), 0, settings)
+        .unwrap();
+    let output = std::process::Command::new("rtl_433")
+        .args([
+            "-d",
+            &format!("rtl_tcp:{address}"),
+            "-s",
+            &status.sample_rate.to_string(),
+            "-f",
+            &status.center_hz.to_string(),
+            "-T",
+            "1",
+            "-F",
+            "null",
+            "-F",
+            "log",
+        ])
+        .output()
+        .unwrap();
+    let log = format!(
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(output.status.success(), "{log}");
+    assert!(log.contains("rtl_tcp connected"), "{log}");
+    let status = engine.stop_network_export(ds, "rtl").unwrap();
+    assert!(status.bytes > 0);
+    engine.remove_device_set(ds).unwrap();
+}

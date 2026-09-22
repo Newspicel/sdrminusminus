@@ -4563,11 +4563,27 @@
           "raw": {
             "type": "string"
           },
+          "signal_level": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
           "squawk": {
             "type": [
               "string",
               "null"
             ]
+          },
+          "timestamp_12mhz": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
           },
           "track_deg": {
             "type": [
@@ -6102,6 +6118,43 @@
             }
           }
         ]
+      },
+      "BeastExportStatus": {
+        "type": "object",
+        "required": [
+          "node",
+          "address",
+          "listening",
+          "clients",
+          "frames"
+        ],
+        "properties": {
+          "address": {
+            "type": "string"
+          },
+          "clients": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "frames": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "listening": {
+            "type": "boolean"
+          },
+          "node": {
+            "type": "string"
+          }
+        }
       },
       "Bookmark": {
         "type": "object",
@@ -12870,6 +12923,27 @@
           {
             "type": "object",
             "required": [
+              "address",
+              "service"
+            ],
+            "properties": {
+              "address": {
+                "type": "string"
+              },
+              "enabled": {
+                "type": "boolean"
+              },
+              "service": {
+                "type": "string",
+                "enum": [
+                  "beast"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
               "interface",
               "address",
               "prefix",
@@ -15163,6 +15237,11 @@
             "type": "integer",
             "format": "int64"
           },
+          "clients": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
           "error": {
             "type": [
               "string",
@@ -15214,7 +15293,8 @@
         "type": "string",
         "enum": [
           "udp",
-          "tcp"
+          "tcp",
+          "rtl_tcp"
         ]
       },
       "NfmParams": {
@@ -18113,6 +18193,24 @@
       },
       "ServerEvent": {
         "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "data",
+              "type"
+            ],
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/BeastExportStatus"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "BeastExportStatus"
+                ]
+              }
+            }
+          },
           {
             "type": "object",
             "required": [

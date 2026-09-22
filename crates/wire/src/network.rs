@@ -9,6 +9,7 @@ pub enum NetworkTransport {
     #[default]
     Udp,
     Tcp,
+    RtlTcp,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
@@ -53,6 +54,12 @@ impl Default for NetworkExportSettings {
     }
 }
 
+impl NetworkExportSettings {
+    pub fn valid_format(&self) -> bool {
+        self.transport != NetworkTransport::RtlTcp || self.format == NetworkSampleFormat::Cu8
+    }
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct NetworkExportNode {
     #[serde(flatten)]
@@ -94,7 +101,34 @@ pub struct NetworkExportStatus {
     pub samples: u64,
     pub bytes: u64,
     pub packets: u64,
+    #[serde(default)]
+    pub clients: u32,
     pub overruns: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rtl_tcp_uses_cu8_and_legacy_settings_keep_their_transport() {
+        let settings: NetworkExportSettings = serde_json::from_str(
+            r#"{"transport":"rtl_tcp","format":"cu8","address":"127.0.0.1:1234"}"#,
+        )
+        .unwrap();
+        assert!(settings.valid_format());
+        assert!(
+            !NetworkExportSettings {
+                format: NetworkSampleFormat::Cf32Le,
+                ..settings
+            }
+            .valid_format()
+        );
+        assert_eq!(
+            serde_json::from_str::<NetworkExportSettings>("{}").unwrap(),
+            NetworkExportSettings::default()
+        );
+    }
 }

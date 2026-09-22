@@ -20,6 +20,7 @@ use tokio::sync::{
 
 use crate::{Store, calls::Calls, decoded::Decoded};
 
+mod beast;
 mod tunnel;
 
 const DELIVERY_QUEUE: usize = 64;
@@ -112,10 +113,18 @@ pub(crate) async fn run(
     let mut routing = load_routing(store.clone()).await;
     let mut tunnels = tunnel::Outputs::default();
     tunnels.configure(&routing.bindings);
+    let mut beasts = beast::Outputs::default();
+    beasts.configure(&routing.bindings);
+    let mut status_tick = tokio::time::interval(Duration::from_secs(1));
     let mut decoded_open = true;
     let mut decoded_sequence = 0_u64;
     loop {
         tokio::select! {
+            _ = status_tick.tick() => {
+                if let Some(engine) = engine.upgrade() {
+                    beasts.publish_status(&engine);
+                }
+            },
             event = events.recv() => match event {
                 Ok(ServerEvent::StateChanged {
                     scope: StateScope::All
@@ -125,18 +134,21 @@ pub(crate) async fn run(
                 }) => {
                     routing = load_routing(store.clone()).await;
                     tunnels.configure(&routing.bindings);
+                    beasts.configure(&routing.bindings);
                 },
                 Ok(_) => {}
                 Err(RecvError::Lagged(count)) => {
                     tracing::error!(count, "event output missed server events");
                     routing = load_routing(store.clone()).await;
                     tunnels.configure(&routing.bindings);
+                    beasts.configure(&routing.bindings);
                 }
                 Err(RecvError::Closed) => break,
             },
             record = decoded.recv(), if decoded_open => match record {
                 Ok(Decoded::Record(routed)) => {
                     tunnels.push(&routing.bindings, &routed.record);
+                    beasts.push(&routed.record);
                     decoded_sequence = decoded_sequence.wrapping_add(1);
                     for delivery in decoded_deliveries(&routing, &routed.record, decoded_sequence, &calls) {
                         enqueue(&delivery_tx, delivery);
@@ -144,6 +156,7 @@ pub(crate) async fn run(
                 }
                 Ok(Decoded::Lost(count)) | Err(RecvError::Lagged(count)) => {
                     tracing::error!(count, "event output missed decoded events");
+                    beasts.lost(count);
                 }
                 Err(RecvError::Closed) => decoded_open = false,
             },
@@ -182,7 +195,12 @@ fn decoded_deliveries(
     routing
         .bindings
         .iter()
-        .filter(|binding| !matches!(binding.target, EventOutputTarget::Tunnel { .. }))
+        .filter(|binding| {
+            !matches!(
+                binding.target,
+                EventOutputTarget::Tunnel { .. } | EventOutputTarget::Beast { .. }
+            )
+        })
         .filter(|binding| record.sinks.contains(&binding.node))
         .map(|binding| match &record.event {
             DecoderEvent::Call(call) => Delivery {
@@ -246,10 +264,18 @@ fn resolve(store: &Store) -> Result<Routing, crate::StoreError> {
             let NodeBody::EventOutput(settings) = &node.body else {
                 return None;
             };
-            settings.target.configured().then(|| Binding {
-                node: node.id.clone(),
-                target: settings.target.clone(),
-            })
+            let connected = workspace
+                .snapshot
+                .graph
+                .edges
+                .iter()
+                .any(|edge| edge.to.node == node.id && edge.to.port == "events");
+            (settings.target.configured()
+                && (!matches!(settings.target, EventOutputTarget::Beast { .. }) || connected))
+                .then(|| Binding {
+                    node: node.id.clone(),
+                    target: settings.target.clone(),
+                })
         })
         .collect();
     Ok(Routing { bindings })
@@ -292,9 +318,9 @@ async fn deliver_all(client: Client, mut deliveries: mpsc::Receiver<Delivery>) {
 
 async fn deliver(client: &Client, delivery: &Delivery) -> Result<(), DeliveryError> {
     match &delivery.target {
-        EventOutputTarget::Tunnel { .. } => Err(DeliveryError::Failed(
-            "TUN datagrams use the bounded network writer".to_owned(),
-        )),
+        EventOutputTarget::Tunnel { .. } | EventOutputTarget::Beast { .. } => Err(
+            DeliveryError::Failed("Network streams use the dedicated writer".to_owned()),
+        ),
         EventOutputTarget::Webhook { url, format } => {
             send_webhook(client, url, *format, &delivery.message).await
         }

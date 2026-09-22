@@ -376,6 +376,7 @@ impl Engine {
                             .center_hz
                             .unwrap_or(DEFAULT_CENTER_HZ);
                         let export = NetworkExportState {
+                            clients_seen: 0,
                             node: node.clone(),
                             stream,
                             settings: settings.clone(),

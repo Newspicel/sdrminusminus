@@ -110,6 +110,7 @@ fn an_exporting_decoder_is_pinned_until_the_export_stops() {
         samples: 0,
         bytes: 0,
         packets: 0,
+        clients: 0,
         overruns: 0,
         error: None,
     });

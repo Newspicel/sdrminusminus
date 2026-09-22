@@ -33,6 +33,7 @@ pub enum StreamKind {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 #[serde(tag = "type", content = "data")]
 pub enum ServerEvent {
+    BeastExportStatus(crate::event_output::BeastExportStatus),
     PipelineHealth {
         queues: Vec<crate::PipelineQueue>,
         websocket: crate::QueueHealth,

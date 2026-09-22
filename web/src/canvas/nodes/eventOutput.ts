@@ -1,6 +1,7 @@
 import type { EventOutputTarget } from "../../lib/types";
 
 export const OUTPUT_SERVICES = [
+  { value: "beast", label: "ADS-B Beast TCP" },
   { value: "webhook", label: "Webhook" },
   { value: "matrix", label: "Matrix" },
   { value: "mqtt", label: "MQTT" },
@@ -13,6 +14,7 @@ export const WEBHOOK_FORMATS = [
 ] as const;
 
 export const SERVICE_LABELS: Record<EventOutputTarget["service"], string> = {
+  beast: "ADS-B Beast TCP",
   webhook: "Webhook",
   matrix: "Matrix",
   mqtt: "MQTT",
@@ -21,6 +23,8 @@ export const SERVICE_LABELS: Record<EventOutputTarget["service"], string> = {
 
 export function newOutputTarget(service: EventOutputTarget["service"]): EventOutputTarget {
   switch (service) {
+    case "beast":
+      return { service, address: "127.0.0.1:30005", enabled: false };
     case "tunnel":
       return { service, interface: "", address: "10.23.0.1", prefix: 24 };
     case "webhook":
@@ -34,6 +38,8 @@ export function newOutputTarget(service: EventOutputTarget["service"]): EventOut
 
 export function eventOutputConfigured(target: EventOutputTarget): boolean {
   switch (target.service) {
+    case "beast":
+      return target.enabled === true && target.address.trim() !== "";
     case "tunnel":
       return target.interface.trim() !== "";
     case "webhook":

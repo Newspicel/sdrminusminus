@@ -1399,7 +1399,11 @@ export interface components {
             lon?: number | null;
             on_ground?: boolean | null;
             raw: string;
+            /** Format: int32 */
+            signal_level?: number | null;
             squawk?: string | null;
+            /** Format: int64 */
+            timestamp_12mhz?: number | null;
             /** Format: double */
             track_deg?: number | null;
             /** Format: int32 */
@@ -1806,6 +1810,16 @@ export interface components {
             hz: number;
             /** @enum {string} */
             kind: "manual";
+        };
+        BeastExportStatus: {
+            address: string;
+            /** Format: int32 */
+            clients: number;
+            error?: string | null;
+            /** Format: int64 */
+            frames: number;
+            listening: boolean;
+            node: string;
         };
         Bookmark: {
             /** Format: double */
@@ -3632,6 +3646,11 @@ export interface components {
             target: components["schemas"]["EventOutputTarget"];
         };
         EventOutputTarget: {
+            address: string;
+            enabled?: boolean;
+            /** @enum {string} */
+            service: "beast";
+        } | {
             /** Format: ipv4 */
             address: string;
             interface: string;
@@ -4263,6 +4282,8 @@ export interface components {
             bytes: number;
             /** Format: int64 */
             center_hz: number;
+            /** Format: int32 */
+            clients?: number;
             error?: string | null;
             node: string;
             /** Format: int64 */
@@ -4280,7 +4301,7 @@ export interface components {
         /** @enum {string} */
         NetworkSampleFormat: "cf32_le" | "ci16_le" | "cu8";
         /** @enum {string} */
-        NetworkTransport: "udp" | "tcp";
+        NetworkTransport: "udp" | "tcp" | "rtl_tcp";
         NfmParams: {
             /** Format: double */
             bandwidth_hz?: number;
@@ -5112,6 +5133,10 @@ export interface components {
         /** @enum {string} */
         SelcallSystem: "ccir1" | "zvei1";
         ServerEvent: {
+            data: components["schemas"]["BeastExportStatus"];
+            /** @enum {string} */
+            type: "BeastExportStatus";
+        } | {
             data: {
                 queues: components["schemas"]["PipelineQueue"][];
                 websocket: components["schemas"]["QueueHealth"];

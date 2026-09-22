@@ -81,6 +81,10 @@ pub struct ErmesMessage {
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct AdsbMessage {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timestamp_12mhz: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub signal_level: Option<u8>,
     pub icao: String,
     pub df: u8,
     #[serde(default, skip_serializing_if = "Option::is_none")]

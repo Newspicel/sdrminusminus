@@ -656,7 +656,13 @@ impl AdsbChannel {
         }
         let (frame, len, df, icao, proved, consumed) = hit?;
         self.observe(icao, stamp, proved);
-        let message = self.message(frame.get(..len)?, df, icao, stamp);
+        let mut message = self.message(frame.get(..len)?, df, icao, stamp);
+        message.timestamp_12mhz = Some(stamp.wrapping_mul(5) & 0xFFFF_FFFF_FFFF);
+        let peak = self.mag[at..at + consumed]
+            .iter()
+            .copied()
+            .fold(0.0_f32, f32::max);
+        message.signal_level = Some((peak.clamp(0.0, 1.0) * 255.0).round() as u8);
         out.events.push(DecoderEvent::Adsb(message));
         Some(consumed)
     }
@@ -815,6 +821,19 @@ mod tests {
             }
         }
         out
+    }
+
+    #[test]
+    fn beast_metadata_uses_sample_time_and_measured_amplitude() {
+        let messages = decode(
+            AdsbParams::default(),
+            &[squitter(0x3C_6444, me_identification("DLH123"))],
+        );
+        assert_eq!(messages.len(), 1);
+        let message = &messages[0];
+        let stamp = message.timestamp_12mhz.unwrap();
+        assert!(stamp.abs_diff((GAP_US * 12.0) as u64) <= 10, "{stamp}");
+        assert_eq!(message.signal_level, Some(128));
     }
 
     #[test]

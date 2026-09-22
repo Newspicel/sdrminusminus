@@ -24,6 +24,7 @@ import { FaceBody, FaceEmpty, FaceFooter, NodeShell } from "./NodeShell";
 const TRANSPORTS = [
   { value: "udp", label: "UDP datagrams" },
   { value: "tcp", label: "TCP stream" },
+  { value: "rtl_tcp", label: "rtl_tcp server (rtl_433)" },
 ] as const;
 
 const FORMATS = [
@@ -103,7 +104,13 @@ function NetworkExportNodeFace({ node }: { node: PatchNodeOf<"network_export"> }
               value={node.data.transport}
               options={TRANSPORTS}
               disabled={locked}
-              onChange={(transport) => edit({ transport })}
+              onChange={(transport) =>
+                edit(
+                  transport === "rtl_tcp"
+                    ? { transport, format: "cu8", address: "127.0.0.1:1234" }
+                    : { transport },
+                )
+              }
             />
           </SettingRow>
           <SettingRow label="Samples">
@@ -111,14 +118,25 @@ function NetworkExportNodeFace({ node }: { node: PatchNodeOf<"network_export"> }
               label="Sample format"
               value={node.data.format}
               options={FORMATS}
-              disabled={locked}
+              disabled={locked || node.data.transport === "rtl_tcp"}
               onChange={(format) => edit({ format })}
             />
           </SettingRow>
-          <SettingRow label="Destination">
+          <SettingRow
+            label={node.data.transport === "rtl_tcp" ? "Listen on" : "Destination"}
+            title={
+              node.data.transport === "rtl_tcp"
+                ? "Exports the wired source. Set rtl_433 frequency and sample rate to match; client tuning commands are ignored."
+                : undefined
+            }
+          >
             <Input
               className={FIELD}
-              aria-label="Network IQ destination"
+              aria-label={
+                node.data.transport === "rtl_tcp"
+                  ? "rtl_tcp listen address"
+                  : "Network IQ destination"
+              }
               value={address}
               disabled={locked}
               onChange={(event) => setAddress(event.target.value)}
@@ -137,6 +155,12 @@ function NetworkExportNodeFace({ node }: { node: PatchNodeOf<"network_export"> }
           <FaceEmpty hint="Wire a device's IQ or a channel's baseband in" />
         ) : control.kind === "active" ? (
           <div className="grid grid-cols-2 gap-x-3 gap-y-1 p-2 font-mono text-xs tabular-nums">
+            {node.data.transport === "rtl_tcp" && (
+              <>
+                <span className="text-ink-dim">Clients</span>
+                <span>{control.status.clients ?? 0}</span>
+              </>
+            )}
             <span className="text-ink-dim">Rate</span>
             <span>{formatSampleRate(control.status.sample_rate)}</span>
             <span className="text-ink-dim">Center</span>
@@ -163,7 +187,9 @@ function NetworkExportNodeFace({ node }: { node: PatchNodeOf<"network_export"> }
               control.kind === "busy"
                 ? "Another network sink already uses this input"
                 : control.kind === "ready"
-                  ? "Raw interleaved I/Q at the rate and format set above"
+                  ? node.data.transport === "rtl_tcp"
+                    ? "rtl_433 input · CU8"
+                    : "Raw interleaved I/Q"
                   : undefined
             }
           />
