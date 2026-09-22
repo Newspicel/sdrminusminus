@@ -236,3 +236,37 @@ function haystackOf(allocation: BandAllocation): string {
   const service = allocation.service === "amateur" ? "amateur ham" : allocation.service;
   return `${allocation.name} ${(allocation.aliases ?? []).join(" ")} ${service}`.toLowerCase();
 }
+
+export interface RulerRows {
+  covering: BandAllocation[];
+  rows: BandSpan[][];
+}
+
+export function rulerRows(lanes: readonly (readonly BandSpan[])[]): RulerRows {
+  const covering: BandAllocation[] = [];
+  const rows: BandSpan[][] = [];
+  for (const spans of lanes) {
+    const partial = spans.filter((span) => span.startsInside || span.endsInside);
+    for (const span of spans) {
+      if (!span.startsInside && !span.endsInside && !covering.includes(span.allocation)) {
+        covering.push(span.allocation);
+      }
+    }
+    if (partial.length === 0) {
+      continue;
+    }
+    const row = rows.find(
+      (placed) => !partial.some((span) => placed.some((p) => overlaps(p, span))),
+    );
+    if (row === undefined) {
+      rows.push(partial);
+    } else {
+      row.push(...partial);
+    }
+  }
+  return { covering, rows };
+}
+
+function overlaps(a: BandSpan, b: BandSpan): boolean {
+  return a.left < b.left + b.width && b.left < a.left + a.width;
+}

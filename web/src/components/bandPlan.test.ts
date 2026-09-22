@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
 import type { BandAllocation, BandBlock, BandLane, BandPlan } from "../lib/types";
+import type { BandSpan } from "./bandPlan";
 import {
   bandTuneHz,
   coveredByLayer,
   identify,
   parseFrequency,
   provisionText,
+  rulerRows,
   searchPlan,
   serviceLabel,
   spansIn,
@@ -306,5 +308,36 @@ describe("bandTuneHz", () => {
   it("ignores a step that carries no grid", () => {
     const band = allocation({ id: "b", start_hz: 100, stop_hz: 200, channel_step_hz: 0 });
     expect(bandTuneHz(band)).toBe(150);
+  });
+});
+
+describe("rulerRows", () => {
+  const span = (left: number, width: number, name: string): BandSpan => ({
+    block: { start_hz: 0, stop_hz: 1, of: 0 },
+    allocation: allocation({ id: name, name }),
+    left,
+    width,
+    startsInside: left > 0,
+    endsInside: left + width < 1,
+  });
+
+  it("folds bands that fill the view into one label row", () => {
+    const { covering, rows } = rulerRows([
+      [span(0, 1, "70 cm")],
+      [span(0, 1, "ISM")],
+      [span(0, 1, "satellite")],
+    ]);
+    expect(covering.map((a) => a.name)).toEqual(["70 cm", "ISM", "satellite"]);
+    expect(rows).toEqual([]);
+  });
+
+  it("shares a row between lanes that do not overlap", () => {
+    const { rows } = rulerRows([[span(0, 0.3, "a")], [span(0.5, 0.2, "b")]]);
+    expect(rows.map((row) => row.map((s) => s.allocation.name))).toEqual([["a", "b"]]);
+  });
+
+  it("stacks lanes that overlap", () => {
+    const { rows } = rulerRows([[span(0, 0.6, "a")], [span(0.5, 0.2, "b")]]);
+    expect(rows).toHaveLength(2);
   });
 });

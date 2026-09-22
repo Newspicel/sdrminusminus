@@ -6,6 +6,7 @@ import {
   coveredByLayer,
   identify,
   provisionText,
+  rulerRows,
   serviceEdge,
   serviceFill,
   serviceLabel,
@@ -16,7 +17,7 @@ import { CHIP_SM, LABEL, SURFACE } from "../../components/controls";
 import { formatHz } from "../../components/format";
 import { usePortalContainer } from "../../components/PortalContainer";
 import { type SpectrumView, spanToOffset, viewWidth } from "../../components/spectrumView";
-import type { BandAllocation, BandLane, BandPlan, ChannelParams } from "../../lib/types";
+import type { BandAllocation, BandPlan, ChannelParams } from "../../lib/types";
 import { useBandPlan } from "../../lib/useBandPlan";
 
 const ROW_H = 16;
@@ -42,11 +43,11 @@ export const BandRuler = memo(function BandRuler({
 
   const visibleHz = spanHz * viewWidth(view);
   const lowHz = centerHz + spanToOffset(view.start, spanHz);
-  const lanes = useMemo(
+  const { covering, rows } = useMemo(
     () =>
-      plan === null
-        ? []
-        : plan.lanes.map((lane) => ({ lane, spans: spansIn(plan, lane, lowHz, visibleHz) })),
+      rulerRows(
+        plan === null ? [] : plan.lanes.map((lane) => spansIn(plan, lane, lowHz, visibleHz)),
+      ),
     [plan, lowHz, visibleHz],
   );
 
@@ -83,8 +84,13 @@ export const BandRuler = memo(function BandRuler({
         onPointerEnter={(event) => setHoverAt(fractionAt(event.clientX))}
         onPointerMove={(event) => setHoverAt(fractionAt(event.clientX))}
       >
-        {lanes.map(({ lane, spans }) => (
-          <Lane key={lane.id} lane={lane} spans={spans} onTune={tuneAt} />
+        {covering.length > 0 && <Covering allocations={covering} onTune={tuneAt} />}
+        {rows.map((spans) => (
+          <Lane
+            key={spans.map((span) => span.allocation.id).join()}
+            spans={spans}
+            onTune={tuneAt}
+          />
         ))}
       </Tooltip.Trigger>
       <Tooltip.Portal container={portalContainer} className="contents">
@@ -103,15 +109,9 @@ export const BandRuler = memo(function BandRuler({
   );
 });
 
-function Lane({
-  lane,
-  spans,
-  onTune,
-}: {
-  lane: BandLane;
-  spans: readonly BandSpan[];
-  onTune: (event: React.MouseEvent<HTMLElement>) => void;
-}) {
+type TuneHandler = (event: React.MouseEvent<HTMLElement>) => void;
+
+function RowButton({ onTune, children }: { onTune: TuneHandler; children: React.ReactNode }) {
   return (
     <Button
       type="button"
@@ -119,8 +119,40 @@ function Lane({
       style={{ height: `${ROW_H}px` }}
       onClick={onTune}
       onPointerDown={(event) => event.stopPropagation()}
-      aria-label={`${lane.name} — hover to identify, click to tune`}
+      aria-label="Band plan: hover to identify, click to tune"
     >
+      {children}
+    </Button>
+  );
+}
+
+function Covering({
+  allocations,
+  onTune,
+}: {
+  allocations: readonly BandAllocation[];
+  onTune: TuneHandler;
+}) {
+  return (
+    <RowButton onTune={onTune}>
+      <span
+        aria-hidden
+        className="absolute inset-0 flex items-center gap-3 overflow-hidden px-1 whitespace-nowrap font-mono text-[10px] text-ink"
+      >
+        {allocations.map((allocation) => (
+          <span key={allocation.id} className="flex items-center gap-1">
+            <span className={`size-2 shrink-0 rounded-[1px] ${serviceEdge(allocation.service)}`} />
+            {allocation.name}
+          </span>
+        ))}
+      </span>
+    </RowButton>
+  );
+}
+
+function Lane({ spans, onTune }: { spans: readonly BandSpan[]; onTune: TuneHandler }) {
+  return (
+    <RowButton onTune={onTune}>
       {spans.map((span) => (
         <span
           key={`${span.allocation.id}:${span.block.start_hz}`}
@@ -140,7 +172,7 @@ function Lane({
           )}
         </span>
       ))}
-    </Button>
+    </RowButton>
   );
 }
 
