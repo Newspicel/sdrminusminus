@@ -2,11 +2,13 @@ import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { Button, Input } from "../../components/BaseControls";
 import { BTN, BTN_QUIET, FIELD } from "../../components/controls";
+import { dialId, FrequencyDial } from "../../components/FrequencyDial";
 import { formatMhz } from "../../components/format";
-import { NumberField } from "../../components/NumberField";
 import { Readout, ReadoutRow } from "../../components/Readout";
-import { Select } from "../../components/Select";
+import { SearchableSelect } from "../../components/SearchableSelect";
 import { SettingRow, Settings } from "../../components/Settings";
+import { TuneTo } from "../../components/TuneTo";
+import { HeldLock } from "../../components/TuningLock";
 import { satellitesQuery, transmittersQuery } from "../../lib/api";
 import { useSatelliteStore } from "../../lib/satellite";
 import type {
@@ -18,13 +20,15 @@ import type {
 } from "../../lib/types";
 import { useWorkspaceContext } from "../context";
 import { patchNode } from "../graph";
-import { FaceBody, FaceFooter, NodeShell } from "./NodeShell";
+import { FaceBody, FaceFooter, NodeShell, useFaceActive } from "./NodeShell";
 import {
   compass,
   formatDoppler,
   passLine,
   pastedElements,
+  SATELLITE_RANGE,
   STALE_ELEMENTS_DAYS,
+  shownSignals,
   transmitterLabel,
 } from "./satellite";
 
@@ -66,35 +70,13 @@ function SatelliteNodeFace({ node }: { node: PatchNodeOf<"satellite"> }) {
       subtitle={status?.name ?? status?.catalog ?? undefined}
     >
       <FaceBody>
-        <Settings className="p-2">
-          <TransmitterRow catalog={status?.catalog ?? null} data={data} onEdit={edit} />
-          <SettingRow label="Downlink" title="The published frequency; Doppler is added on top">
-            <NumberField
-              label="Downlink in MHz"
-              value={(data.downlink_hz ?? 0) / 1e6}
-              min={0}
-              step={0.0001}
-              onCommit={(mhz) => edit({ downlink_hz: mhz > 0 ? mhz * 1e6 : null })}
-              className="w-32"
-            />
-            <span className="legend">MHz</span>
-          </SettingRow>
-          <SettingRow
-            label="Min. elevation"
-            title="A pass counts from this height over the horizon"
-          >
-            <NumberField
-              label="Minimum elevation in degrees"
-              value={data.min_elevation_deg ?? 0}
-              min={-10}
-              max={90}
-              step={1}
-              onCommit={(min_elevation_deg) => edit({ min_elevation_deg })}
-              className="w-20"
-            />
-            <span className="legend">°</span>
-          </SettingRow>
-        </Settings>
+        <Downlink
+          node={node.id}
+          hz={data.downlink_hz ?? null}
+          held={data.transmitter != null}
+          onTune={(downlink_hz) => edit({ downlink_hz, uplink_hz: null, transmitter: null })}
+        />
+        <SignalRow catalog={status?.catalog ?? null} data={data} onEdit={edit} />
         <TrackReadout status={status} />
       </FaceBody>
       <FaceFooter>
@@ -102,7 +84,7 @@ function SatelliteNodeFace({ node }: { node: PatchNodeOf<"satellite"> }) {
         <Button
           type="button"
           className={BTN_QUIET}
-          onClick={() => edit({ tle: null, downlink_hz: null, uplink_hz: null })}
+          onClick={() => edit({ tle: null, downlink_hz: null, uplink_hz: null, transmitter: null })}
         >
           Change satellite
         </Button>
@@ -167,7 +149,53 @@ function SatellitePicker({ onPick }: { onPick: (tle: string) => void }) {
   );
 }
 
-function TransmitterRow({
+function Downlink({
+  node,
+  hz,
+  held,
+  onTune,
+}: {
+  node: string;
+  hz: number | null;
+  held: boolean;
+  onTune: (hz: number) => void;
+}) {
+  const active = useFaceActive();
+  return (
+    <div
+      className="@container flex min-w-0 items-center gap-1 border-b border-line p-2"
+      title="Downlink before Doppler"
+    >
+      {hz === null ? (
+        <span className="text-xs text-ink-dim">No downlink</span>
+      ) : (
+        <FrequencyDial
+          id={dialId(node)}
+          hz={hz}
+          range={SATELLITE_RANGE}
+          disabled={held}
+          wheelTunes={active}
+          onTune={onTune}
+        />
+      )}
+      <span className="ml-auto flex shrink-0 items-center gap-1">
+        <TuneTo
+          title="Type the downlink"
+          hz={hz ?? 0}
+          hint="Before Doppler"
+          resolve={(entered) =>
+            entered > SATELLITE_RANGE.min && entered <= SATELLITE_RANGE.max ? entered : null
+          }
+          disabled={held}
+          onTune={onTune}
+        />
+        {held && <HeldLock reason="Set by the signal. Pick Own frequency to tune by hand." />}
+      </span>
+    </div>
+  );
+}
+
+function SignalRow({
   catalog,
   data,
   onEdit,
@@ -177,38 +205,41 @@ function TransmitterRow({
   onEdit: (next: Partial<SatelliteNode>) => void;
 }) {
   const listed = useQuery(transmittersQuery(catalog));
-  const transmitters = (listed.data?.transmitters ?? []).filter(
-    (transmitter) => transmitter.downlink_hz != null,
-  );
+  const transmitters = shownSignals(listed.data?.transmitters ?? [], data.transmitter);
   if (transmitters.length === 0) {
     return null;
   }
-  const chosen = transmitters.findIndex(
-    (transmitter) => transmitter.downlink_hz === data.downlink_hz,
-  );
   return (
-    <SettingRow label="Transmitter" title={`From ${listed.data?.source ?? "SatNOGS DB"}`}>
-      <Select
-        label="Transmitter"
-        value={chosen}
-        options={[
-          { value: -1, label: "Custom" },
-          ...transmitters.map((transmitter, index) => ({
-            value: index,
-            label: transmitterLabel(transmitter),
-          })),
-        ]}
-        onChange={(index) => {
-          const transmitter = transmitters[index];
-          if (transmitter !== undefined) {
-            onEdit({
-              downlink_hz: transmitter.downlink_hz ?? null,
-              uplink_hz: transmitter.uplink_hz ?? null,
-            });
-          }
-        }}
-      />
-    </SettingRow>
+    <Settings className="p-2">
+      <SettingRow
+        label="Signal"
+        title={`What this satellite sends, from ${listed.data?.source ?? "SatNOGS DB"}`}
+      >
+        <SearchableSelect
+          label="Signal"
+          value={data.transmitter ?? ""}
+          options={[
+            { value: "", label: "Own frequency" },
+            ...transmitters.map((transmitter) => ({
+              value: transmitter.id,
+              label: transmitterLabel(transmitter),
+            })),
+          ]}
+          onChange={(id) => {
+            const transmitter = transmitters.find((candidate) => candidate.id === id);
+            onEdit(
+              transmitter === undefined
+                ? { transmitter: null }
+                : {
+                    transmitter: transmitter.id,
+                    downlink_hz: transmitter.downlink_hz ?? null,
+                    uplink_hz: transmitter.uplink_hz ?? null,
+                  },
+            );
+          }}
+        />
+      </SettingRow>
+    </Settings>
   );
 }
 

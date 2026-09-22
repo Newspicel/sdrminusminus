@@ -1,5 +1,5 @@
 import { Combobox } from "@base-ui/react/combobox";
-import { Check, ChevronDown } from "lucide-react";
+import { ChevronDown } from "lucide-react";
 import { FIELD, type Options, SURFACE, segment } from "./controls";
 import { Icon } from "./Icon";
 import { usePortalContainer } from "./PortalContainer";
@@ -73,15 +73,12 @@ export function SearchableSelect<T extends string | number>({
                   key={String(item.value)}
                   value={item}
                   className={(state) =>
-                    `${segment(state.selected)} grid grid-cols-[0.75rem_minmax(0,1fr)] items-center gap-2 text-left ${
+                    `${segment(state.selected)} text-left ${
                       state.highlighted && !state.selected ? "bg-panel-2 text-ink" : ""
                     }`
                   }
                 >
-                  <Combobox.ItemIndicator className="col-start-1">
-                    <Icon glyph={Check} size={12} />
-                  </Combobox.ItemIndicator>
-                  <span className="col-start-2 truncate">{item.label}</span>
+                  <span className="truncate">{item.label}</span>
                 </Combobox.Item>
               )}
             </Combobox.List>

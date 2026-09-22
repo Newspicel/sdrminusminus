@@ -2,9 +2,8 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 pub const MAX_TLE_LEN: usize = 256;
+pub const MAX_TRANSMITTER_ID_LEN: usize = 64;
 pub const MAX_SATELLITE_HZ: f64 = 300e9;
-pub const MIN_ELEVATION_DEG: f32 = -10.0;
-pub const MAX_ELEVATION_DEG: f32 = 90.0;
 pub const MAX_CATALOG_RESULTS: usize = 64;
 pub const MAX_SATELLITE_QUERY_LEN: usize = 64;
 pub const SATELLITE_CATALOG_SOURCE: &str = "CelesTrak";
@@ -20,8 +19,8 @@ pub struct SatelliteNode {
     pub downlink_hz: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub uplink_hz: Option<f64>,
-    #[serde(default)]
-    pub min_elevation_deg: f32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub transmitter: Option<String>,
 }
 
 impl SatelliteNode {
@@ -35,7 +34,10 @@ impl SatelliteNode {
             .is_none_or(|tle| !tle.trim().is_empty() && tle.len() <= MAX_TLE_LEN)
             && frequency(self.downlink_hz)
             && frequency(self.uplink_hz)
-            && (MIN_ELEVATION_DEG..=MAX_ELEVATION_DEG).contains(&self.min_elevation_deg)
+            && self
+                .transmitter
+                .as_ref()
+                .is_none_or(|id| !id.is_empty() && id.len() <= MAX_TRANSMITTER_ID_LEN)
     }
 }
 
@@ -108,6 +110,7 @@ pub struct SatelliteCatalogResponse {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct Transmitter {
+    pub id: String,
     pub description: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mode: Option<String>,
@@ -153,7 +156,7 @@ mod tests {
                 ..SatelliteNode::default()
             },
             SatelliteNode {
-                min_elevation_deg: 91.0,
+                transmitter: Some(String::new()),
                 ..SatelliteNode::default()
             },
         ];

@@ -5074,9 +5074,8 @@ export interface components {
         SatelliteNode: {
             /** Format: double */
             downlink_hz?: number | null;
-            /** Format: float */
-            min_elevation_deg?: number;
             tle?: string | null;
+            transmitter?: string | null;
             /** Format: double */
             uplink_hz?: number | null;
         };
@@ -5737,6 +5736,7 @@ export interface components {
             description: string;
             /** Format: double */
             downlink_hz?: number | null;
+            id: string;
             mode?: string | null;
             /** Format: double */
             uplink_hz?: number | null;

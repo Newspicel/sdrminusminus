@@ -231,7 +231,8 @@ export function ChannelDial({
   range,
   dialId,
   wheelTunes,
-  locked,
+  locked: lockedByHand,
+  heldBy,
   onTune,
   onLock,
 }: {
@@ -243,10 +244,12 @@ export function ChannelDial({
   dialId: string;
   wheelTunes: boolean;
   locked: boolean;
+  heldBy: string | null;
   onTune: (hz: number) => void;
   onLock: (locked: boolean) => void;
 }) {
   const heard = radioWindowHz(centerHz, spanHz, descriptor);
+  const locked = lockedByHand || heldBy !== null;
   return (
     <div className="flex min-w-0 items-center gap-1">
       <FrequencyDial
@@ -270,7 +273,13 @@ export function ChannelDial({
           disabled={locked}
           onTune={onTune}
         />
-        <TuningLock locked={locked} held="Frequency locked" free="Lock frequency" onLock={onLock} />
+        <TuningLock
+          locked={locked}
+          held="Frequency locked"
+          free="Lock frequency"
+          hold={heldBy === null ? null : `Tuned by ${heldBy}. Unwire its control to tune by hand.`}
+          onLock={onLock}
+        />
       </span>
     </div>
   );

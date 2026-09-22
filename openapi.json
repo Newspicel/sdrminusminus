@@ -18023,11 +18023,13 @@
             ],
             "format": "double"
           },
-          "min_elevation_deg": {
-            "type": "number",
-            "format": "float"
-          },
           "tle": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "transmitter": {
             "type": [
               "string",
               "null"
@@ -20475,6 +20477,7 @@
       "Transmitter": {
         "type": "object",
         "required": [
+          "id",
           "description",
           "alive"
         ],
@@ -20491,6 +20494,9 @@
               "null"
             ],
             "format": "double"
+          },
+          "id": {
+            "type": "string"
           },
           "mode": {
             "type": [

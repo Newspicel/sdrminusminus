@@ -26,7 +26,7 @@ test.describe("the source nodes", () => {
     const generator = page.locator('.react-flow__node[data-id^="signal_gen:"]').last();
     await expect(generator.locator("header")).not.toContainText("CTCSS");
 
-    await generator.getByRole("combobox", { name: "signal" }).click();
+    await generator.getByRole("combobox", { name: "Signal", exact: true }).click();
     const search = page.getByRole("combobox", { name: "Search signal" });
     await expect(search).toBeVisible();
     await search.fill("adsb");
@@ -36,7 +36,9 @@ test.describe("the source nodes", () => {
     await page.screenshot({ path: "/tmp/shot-signals.png" });
     await options.first().click();
 
-    await expect(generator.getByRole("combobox", { name: "signal" })).toContainText("ADS-B");
+    await expect(generator.getByRole("combobox", { name: "Signal", exact: true })).toContainText(
+      "ADS-B",
+    );
     await expect(generator.getByRole("combobox", { name: "sample rate" })).toContainText("2 MS/s");
   });
 

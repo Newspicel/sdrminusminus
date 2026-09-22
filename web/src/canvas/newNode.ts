@@ -70,7 +70,7 @@ export function newNodeBody(kind: NodeKind, seed: NewNodeSeed = {}): NodeBody {
     case "hunt":
       return { kind, data: { clicks: true } };
     case "satellite":
-      return { kind, data: { min_elevation_deg: 0 } };
+      return { kind, data: {} };
     case "time_machine":
       return { kind, data: { history_seconds: DEFAULT_HISTORY_SECONDS } };
     case "event_output":

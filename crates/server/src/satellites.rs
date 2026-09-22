@@ -27,6 +27,7 @@ const PUBLISH_EVERY: Duration = Duration::from_secs(1);
 const PASS_EVERY: Duration = Duration::from_secs(60);
 const BIND_EVERY: Duration = Duration::from_secs(2);
 const PASS_HORIZON_S: f64 = 2.0 * 86_400.0;
+const HORIZON_DEG: f64 = 0.0;
 
 #[derive(Clone, Debug, PartialEq)]
 struct Wiring {
@@ -306,7 +307,6 @@ impl Tracker {
                 return status;
             }
         };
-        let min_elevation = f64::from(wiring.settings.min_elevation_deg);
         if orbit.passed_at.is_none_or(|at| at.elapsed() >= PASS_EVERY)
             || orbit
                 .pass
@@ -314,13 +314,13 @@ impl Tracker {
         {
             orbit.passed_at = Some(Instant::now());
             orbit.pass = satellite
-                .next_pass(&observer, now, PASS_HORIZON_S, min_elevation)
+                .next_pass(&observer, now, PASS_HORIZON_S, HORIZON_DEG)
                 .ok()
                 .flatten()
                 .map(track::pass);
         }
         status.look = Some(steering.look);
-        status.visible = steering.look.elevation_deg >= min_elevation;
+        status.visible = steering.look.elevation_deg >= HORIZON_DEG;
         status.next_pass = orbit.pass;
         status.uplink_hz = steering.uplink_hz;
         status.doppler_hz = steering.doppler.map(|doppler| doppler.shift_hz);

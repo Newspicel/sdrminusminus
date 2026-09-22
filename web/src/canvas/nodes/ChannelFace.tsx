@@ -16,7 +16,7 @@ import type { PatchNode, PatchNodeOf } from "../../lib/types";
 import { channelSettingsOf, liveChannelOf, useChannelEdit } from "../../lib/useChannelEdit";
 import type { ChannelEdit } from "../../lib/useChannelPatch";
 import { forStream } from "../../lib/useDevicePatch";
-import { iqLanesOf } from "../binding";
+import { iqLanesOf, tuningControllerOf } from "../binding";
 import { useWorkspaceContext } from "../context";
 import { nodeOf, patchNode } from "../graph";
 import { deviceSetOf, laneOf } from "../workspaceDevice";
@@ -80,7 +80,7 @@ export function ChannelFace({ node }: { node: PatchNode }) {
       (scanner) => scanner.error == null && scanner.settings.channel === channel.id,
     ) ??
       false);
-  const driven = scanned || tracked !== null;
+  const controller = tuningControllerOf(workspace.graph, node.id);
   const editNode = (next: Partial<ChannelNodeData>): void =>
     workspace.edit((snapshot) => ({
       ...snapshot,
@@ -115,7 +115,8 @@ export function ChannelFace({ node }: { node: PatchNode }) {
               range={set === null ? ANY_FREQUENCY : tuningRange(set.capabilities)}
               dialId={dialId(node.id)}
               wheelTunes={workspace.selected === node.id}
-              locked={locked || driven}
+              locked={locked}
+              heldBy={controller === null ? null : (tracked?.name ?? controller)}
               onTune={(frequency_hz) => onEdit({ frequency_hz })}
               onLock={(tuning_locked) => editNode({ tuning_locked })}
             />

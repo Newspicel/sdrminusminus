@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { compass, formatDoppler, passLine, pastedElements, transmitterLabel } from "./satellite";
+import {
+  compass,
+  formatDoppler,
+  passLine,
+  pastedElements,
+  shownSignals,
+  transmitterLabel,
+} from "./satellite";
 
 const ISS = `ISS (ZARYA)
 1 25544U 98067A   24001.50000000  .00016717  00000-0  30306-3 0  9999
@@ -41,12 +48,23 @@ describe("satellite face", () => {
   it("labels a transmitter by what it is and where it sits", () => {
     expect(
       transmitterLabel({
+        id: "a",
         description: "FM voice",
         mode: "FM",
         downlink_hz: 437_800_000,
         alive: true,
       }),
     ).toBe("FM voice FM 437.800");
-    expect(transmitterLabel({ description: "Beacon", alive: false })).toBe("Beacon (off)");
+    expect(transmitterLabel({ id: "b", description: "Beacon", alive: false })).toBe("Beacon (off)");
+  });
+
+  it("offers live signals, and a dead one only while it is the one picked", () => {
+    const signals = [
+      { id: "live", description: "Voice", downlink_hz: 437_800_000, alive: true },
+      { id: "dead", description: "Old beacon", downlink_hz: 145_800_000, alive: false },
+      { id: "blank", description: "No downlink", alive: true },
+    ];
+    expect(shownSignals(signals, null).map((signal) => signal.id)).toEqual(["live"]);
+    expect(shownSignals(signals, "dead").map((signal) => signal.id)).toEqual(["live", "dead"]);
   });
 });

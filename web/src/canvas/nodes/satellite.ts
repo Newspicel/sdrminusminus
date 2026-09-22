@@ -2,6 +2,7 @@ import type { SatellitePass, Transmitter } from "../../lib/types";
 
 const COMPASS = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"] as const;
 export const STALE_ELEMENTS_DAYS = 7;
+export const SATELLITE_RANGE = { min: 1e6, max: 12e9 };
 
 export function compass(azimuthDeg: number): string {
   const index = Math.round((((azimuthDeg % 360) + 360) % 360) / 45) % COMPASS.length;
@@ -58,4 +59,14 @@ export function transmitterLabel(transmitter: Transmitter): string {
     transmitter.downlink_hz == null ? "" : ` ${(transmitter.downlink_hz / 1e6).toFixed(3)}`;
   const mode = transmitter.mode == null ? "" : ` ${transmitter.mode}`;
   return `${transmitter.description}${mode}${mhz}${transmitter.alive ? "" : " (off)"}`;
+}
+
+export function shownSignals(
+  transmitters: readonly Transmitter[],
+  chosen: string | null | undefined,
+): Transmitter[] {
+  return transmitters.filter(
+    (transmitter) =>
+      transmitter.downlink_hz != null && (transmitter.alive || transmitter.id === chosen),
+  );
 }

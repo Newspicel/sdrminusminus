@@ -6,9 +6,9 @@ use std::{
 use reqwest::Client;
 use sdrmm_orbit::Tle;
 use sdrmm_wire::{
-    CatalogSatellite, MAX_CATALOG_RESULTS, MAX_SATELLITE_QUERY_LEN, SATELLITE_CATALOG_SOURCE,
-    SATELLITE_CATALOG_URL, SatelliteCatalogResponse, TRANSMITTER_SOURCE, TRANSMITTER_URL,
-    Transmitter, TransmittersResponse,
+    CatalogSatellite, MAX_CATALOG_RESULTS, MAX_SATELLITE_QUERY_LEN, MAX_TRANSMITTER_ID_LEN,
+    SATELLITE_CATALOG_SOURCE, SATELLITE_CATALOG_URL, SatelliteCatalogResponse, TRANSMITTER_SOURCE,
+    TRANSMITTER_URL, Transmitter, TransmittersResponse,
 };
 use serde::Deserialize;
 use tokio::sync::Mutex;
@@ -32,6 +32,8 @@ pub(crate) struct Catalog {
 
 #[derive(Debug, Deserialize)]
 struct SatnogsTransmitter {
+    #[serde(default)]
+    uuid: String,
     #[serde(default)]
     description: String,
     #[serde(default)]
@@ -184,8 +186,10 @@ fn transmitters(listed: Vec<SatnogsTransmitter>) -> Vec<Transmitter> {
     let mut out: Vec<Transmitter> = listed
         .into_iter()
         .filter(|entry| entry.status != "invalid")
+        .filter(|entry| !entry.uuid.is_empty() && entry.uuid.len() <= MAX_TRANSMITTER_ID_LEN)
         .filter(|entry| frequency(entry.downlink_low).is_some())
         .map(|entry| Transmitter {
+            id: entry.uuid,
             description: entry.description,
             mode: entry.mode.filter(|mode| !mode.is_empty()),
             downlink_hz: frequency(entry.downlink_low),
@@ -235,15 +239,16 @@ BROKEN
     fn live_transmitters_come_first_and_invalid_ones_are_dropped() {
         let listed: Vec<SatnogsTransmitter> = serde_json::from_str(
             r#"[
-                {"description":"Old beacon","alive":false,"status":"inactive","downlink_low":145800000},
-                {"description":"Bad","alive":true,"status":"invalid","downlink_low":1},
-                {"description":"FM voice","alive":true,"status":"active","mode":"FM","downlink_low":437800000,"uplink_low":145990000},
-                {"description":"No downlink","alive":true,"status":"active","downlink_low":null}
+                {"uuid":"a","description":"Old beacon","alive":false,"status":"inactive","downlink_low":145800000},
+                {"uuid":"b","description":"Bad","alive":true,"status":"invalid","downlink_low":1},
+                {"uuid":"c","description":"FM voice","alive":true,"status":"active","mode":"FM","downlink_low":437800000,"uplink_low":145990000},
+                {"uuid":"d","description":"No downlink","alive":true,"status":"active","downlink_low":null}
             ]"#,
         )
         .expect("parses");
         let kept = transmitters(listed);
         assert_eq!(kept.len(), 2);
+        assert_eq!(kept[0].id, "c");
         assert_eq!(kept[0].description, "FM voice");
         assert_eq!(kept[0].uplink_hz, Some(145_990_000.0));
         assert!(!kept[1].alive);

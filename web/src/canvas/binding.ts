@@ -295,6 +295,20 @@ export function controlledNodeOf(graph: PatchGraph, node: string): string | null
   return target?.kind === "channel" ? target.id : null;
 }
 
+const TUNING_CONTROLLERS: Readonly<Partial<Record<PatchNode["kind"], string>>> = {
+  scanner: "Scanner",
+  satellite: "Satellite",
+};
+
+export function tuningControllerOf(graph: PatchGraph, channel: string): string | null {
+  const wire = (graph.edges ?? []).find(
+    (edge) => edge.to.node === channel && edge.to.port === "control",
+  );
+  const controller = graph.nodes.find((candidate) => candidate.id === wire?.from.node);
+  const kind = controller === undefined ? undefined : TUNING_CONTROLLERS[controller.kind];
+  return kind === undefined ? null : (controller?.label ?? kind);
+}
+
 export function sourcesOf(graph: PatchGraph, node: string, port: string): string[] {
   return (graph.edges ?? [])
     .filter((edge) => edge.to.node === node && edge.to.port === port)

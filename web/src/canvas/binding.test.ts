@@ -16,6 +16,7 @@ import {
   ownersOf,
   refMatches,
   speakerInputsOf,
+  tuningControllerOf,
 } from "./binding";
 
 function info(overrides: Partial<DeviceInfo>): DeviceInfo {
@@ -544,5 +545,46 @@ describe("binding", () => {
         { node: "high", deviceSet: 1, channel: channel(5, "nfm", 2) },
       ]);
     });
+  });
+});
+
+function controlledBy(from: PatchNode): PatchGraph {
+  return {
+    nodes: [
+      from,
+      { id: "voice", kind: "channel", data: { channel_type: "nfm" }, position: { x: 0, y: 0 } },
+    ],
+    edges: [{ from: { node: from.id, port: "control" }, to: { node: "voice", port: "control" } }],
+  };
+}
+
+describe("tuningControllerOf", () => {
+  it("names the scanner or satellite that tunes a decoder", () => {
+    expect(
+      tuningControllerOf(
+        controlledBy({ id: "sat", kind: "satellite", data: {}, position: { x: 0, y: 0 } }),
+        "voice",
+      ),
+    ).toBe("Satellite");
+    expect(
+      tuningControllerOf(
+        controlledBy({ id: "scan", kind: "scanner", label: "Airband", position: { x: 0, y: 0 } }),
+        "voice",
+      ),
+    ).toBe("Airband");
+  });
+
+  it("leaves a hunted decoder free, since a hunt only listens", () => {
+    expect(
+      tuningControllerOf(
+        controlledBy({
+          id: "hunt",
+          kind: "hunt",
+          data: { clicks: true },
+          position: { x: 0, y: 0 },
+        }),
+        "voice",
+      ),
+    ).toBeNull();
   });
 });
