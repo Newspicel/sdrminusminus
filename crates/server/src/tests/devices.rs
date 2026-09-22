@@ -258,8 +258,15 @@ async fn terrestrial_bandwidth_priority_and_service_round_trip_over_http() {
     let ch = serde_json::from_slice::<CreatedId>(&body)
         .expect("channel")
         .id;
-    for bandwidth in ["mhz6", "mhz7", "mhz8"] {
-        let params = serde_json::json!({"type":"dvbt","settings":{"bandwidth":bandwidth,"low_priority":true,"program":42}});
+    for (standard, bandwidth) in [
+        ("dvb_t", "mhz6"),
+        ("dvb_t", "mhz7"),
+        ("dvb_t", "mhz8"),
+        ("dvb_t2", "mhz1_7"),
+        ("dvb_t2", "mhz5"),
+        ("dvb_t2", "mhz10"),
+    ] {
+        let params = serde_json::json!({"type":"dvbt","settings":{"standard":standard,"bandwidth":bandwidth,"low_priority":true,"program":42}});
         let body = serde_json::json!({"params":params}).to_string();
         let (status, _) = request(
             app.clone(),
@@ -280,7 +287,7 @@ async fn terrestrial_bandwidth_priority_and_service_round_trip_over_http() {
         app,
         "PATCH",
         &format!("/api/devicesets/{ds}/channels/{ch}"),
-        Some(r#"{"params":{"type":"dvbt","settings":{"bandwidth":"mhz5"}}}"#),
+        Some(r#"{"params":{"type":"dvbt","settings":{"bandwidth":"mhz9"}}}"#),
     )
     .await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
