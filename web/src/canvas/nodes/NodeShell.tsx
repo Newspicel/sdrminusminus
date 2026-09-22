@@ -144,6 +144,7 @@ export function NodeShell({ node, title, category, subtitle, actions, children }
           <NodeResizer
             minWidth={minimum.w}
             minHeight={minimum.h}
+            autoScale={false}
             lineClassName="!border-accent/40"
             handleClassName="!size-2 !rounded-none !border-accent !bg-panel"
           />
