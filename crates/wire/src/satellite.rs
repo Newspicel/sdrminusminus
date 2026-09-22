@@ -21,6 +21,8 @@ pub struct SatelliteNode {
     pub uplink_hz: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub transmitter: Option<String>,
+    #[serde(default)]
+    pub tuning_locked: bool,
 }
 
 impl SatelliteNode {

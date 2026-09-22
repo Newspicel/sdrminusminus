@@ -8,7 +8,7 @@ import { Readout, ReadoutRow } from "../../components/Readout";
 import { SearchableSelect } from "../../components/SearchableSelect";
 import { SettingRow, Settings } from "../../components/Settings";
 import { TuneTo } from "../../components/TuneTo";
-import { HeldLock } from "../../components/TuningLock";
+import { TuningLock } from "../../components/TuningLock";
 import { satellitesQuery, transmittersQuery } from "../../lib/api";
 import { useSatelliteStore } from "../../lib/satellite";
 import type {
@@ -74,6 +74,8 @@ function SatelliteNodeFace({ node }: { node: PatchNodeOf<"satellite"> }) {
           node={node.id}
           hz={data.downlink_hz ?? null}
           held={data.transmitter != null}
+          locked={data.tuning_locked ?? false}
+          onLock={(tuning_locked) => edit({ tuning_locked })}
           onTune={(downlink_hz) => edit({ downlink_hz, uplink_hz: null, transmitter: null })}
         />
         <SignalRow catalog={status?.catalog ?? null} data={data} onEdit={edit} />
@@ -153,11 +155,15 @@ function Downlink({
   node,
   hz,
   held,
+  locked,
+  onLock,
   onTune,
 }: {
   node: string;
   hz: number | null;
   held: boolean;
+  locked: boolean;
+  onLock: (locked: boolean) => void;
   onTune: (hz: number) => void;
 }) {
   const active = useFaceActive();
@@ -173,7 +179,7 @@ function Downlink({
           id={dialId(node)}
           hz={hz}
           range={SATELLITE_RANGE}
-          disabled={held}
+          disabled={held || locked}
           wheelTunes={active}
           onTune={onTune}
         />
@@ -186,10 +192,16 @@ function Downlink({
           resolve={(entered) =>
             entered > SATELLITE_RANGE.min && entered <= SATELLITE_RANGE.max ? entered : null
           }
-          disabled={held}
+          disabled={held || locked}
           onTune={onTune}
         />
-        {held && <HeldLock reason="Set by the signal. Pick Own frequency to tune by hand." />}
+        <TuningLock
+          locked={held || locked}
+          held="Downlink locked"
+          free="Lock downlink"
+          hold={held ? "Set by the signal. Pick Own frequency to tune by hand." : null}
+          onLock={onLock}
+        />
       </span>
     </div>
   );

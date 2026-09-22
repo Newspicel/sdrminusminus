@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { type APIRequestContext, expect, type Page, test } from "@playwright/test";
 
 test("a decoder wired to a satellite says who tunes it", async ({ page, request }) => {
   await page.route("https://tiles.openfreemap.org/**", (route) => route.abort());
@@ -40,7 +40,7 @@ test("a decoder wired to a satellite says who tunes it", async ({ page, request 
   await expect(lock).toBeVisible();
 });
 
-test("a picked signal holds the downlink", async ({ page, request }) => {
+async function drawSatellite(page: Page, request: APIRequestContext, held: boolean) {
   await page.route("https://tiles.openfreemap.org/**", (route) => route.abort());
   await page.goto("/");
   const listed = await (await request.get("/api/workspaces")).json();
@@ -56,7 +56,7 @@ test("a picked signal holds the downlink", async ({ page, request }) => {
       {
         id: "satellite:1",
         kind: "satellite",
-        data: { tle, downlink_hz: 145_800_000, transmitter: "voice" },
+        data: { tle, downlink_hz: 145_800_000, transmitter: held ? "voice" : undefined },
         position: { x: 0, y: 0 },
       },
     ],
@@ -67,8 +67,11 @@ test("a picked signal holds the downlink", async ({ page, request }) => {
   });
   expect(saved.ok()).toBe(true);
   await page.reload();
+  return page.locator('.react-flow__node[data-id="satellite:1"]');
+}
 
-  const satellite = page.locator('.react-flow__node[data-id="satellite:1"]');
+test("a picked signal holds the downlink", async ({ page, request }) => {
+  const satellite = await drawSatellite(page, request, true);
   const lock = satellite.getByRole("button", { name: /Set by the signal/ });
   await expect(lock).toBeVisible();
   await lock.hover();
@@ -76,4 +79,14 @@ test("a picked signal holds the downlink", async ({ page, request }) => {
     page.getByText("Set by the signal. Pick Own frequency to tune by hand."),
   ).toBeVisible();
   await expect(satellite.getByRole("button", { name: "Type the downlink" })).toBeDisabled();
+});
+
+test("an own downlink can be locked by hand", async ({ page, request }) => {
+  const satellite = await drawSatellite(page, request, false);
+  const typed = satellite.getByRole("button", { name: "Type the downlink" });
+  await expect(typed).toBeEnabled();
+  await satellite.getByRole("button", { name: "Lock tuning" }).click();
+  await expect(typed).toBeDisabled();
+  await satellite.getByRole("button", { name: "Unlock tuning" }).click();
+  await expect(typed).toBeEnabled();
 });

@@ -5076,6 +5076,7 @@ export interface components {
             downlink_hz?: number | null;
             tle?: string | null;
             transmitter?: string | null;
+            tuning_locked?: boolean;
             /** Format: double */
             uplink_hz?: number | null;
         };

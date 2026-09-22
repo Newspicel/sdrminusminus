@@ -40,7 +40,7 @@ export function TuningLock({
   );
 }
 
-export function HeldLock({ reason }: { reason: string }) {
+function HeldLock({ reason }: { reason: string }) {
   return (
     <Tip
       text={reason}

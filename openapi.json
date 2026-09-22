@@ -18035,6 +18035,9 @@
               "null"
             ]
           },
+          "tuning_locked": {
+            "type": "boolean"
+          },
           "uplink_hz": {
             "type": [
               "number",
