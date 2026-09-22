@@ -1,116 +1,17 @@
-<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="color-scheme" content="dark">
-<title>Download SDR--</title>
-<meta name="description" content="Installers for macOS, Windows and Linux, portable servers for a machine by the antenna, and the package managers that carry SDR--.">
-<link rel="icon" href="/icon.svg" type="image/svg+xml">
-<link rel="canonical" href="https://sdrmm.newspicel.dev/download.html">
-<meta property="og:type" content="website">
-<meta property="og:url" content="https://sdrmm.newspicel.dev/download.html">
-<meta property="og:title" content="Download SDR--">
-<meta property="og:description" content="Pick the file for the computer you will run the radio on.">
-<meta property="og:image" content="https://sdrmm.newspicel.dev/screens/patch.png">
-<meta name="twitter:card" content="summary_large_image">
-<link rel="stylesheet" href="/site.css">
-<style>
-.pick {
-  margin-top: 30px;
-  max-width: 640px;
-  background: var(--panel);
-  border: 1px solid var(--line);
-  padding: 24px;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 14px;
-}
-.pick .btn.primary { font-size: 15px; padding: 13px 22px; }
-.pick .file { margin: 0; font-family: var(--mono); font-size: 12.5px; color: var(--ink-dim); overflow-wrap: anywhere; }
-.pick .hint { margin: 0; font-size: 14px; color: var(--ink-dim); max-width: 52ch; }
-.pick .alts { margin: 0; display: flex; flex-wrap: wrap; gap: 4px 18px; font-size: 14px; }
-.pick .alts a { color: var(--ink-dim); }
-.pick .alts a:hover { color: var(--accent); }
+---
+import Page from "../layouts/Page.astro";
+---
 
-.bar nav a.get[aria-current] { border-color: var(--accent); color: var(--accent); }
-
-.stamp { margin: 0 0 28px; font-family: var(--mono); font-size: 12px; letter-spacing: 0.04em; color: var(--ink-faint); }
-
-.files { border-top: 1px solid var(--line); }
-.group {
-  display: grid;
-  grid-template-columns: 200px minmax(0, 1fr);
-  gap: 10px 40px;
-  padding: 22px 0;
-  border-bottom: 1px solid var(--line);
-}
-.group h3 { margin: 0; font-size: 1.05rem; font-weight: 600; }
-.group h3 .legend { display: block; color: var(--ink-faint); margin-bottom: 4px; }
-.group ul { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 2px; }
-
-.row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 2px 16px;
-  align-items: baseline;
-  padding: 10px 12px;
-  margin-inline: -12px;
-  border: 1px solid transparent;
-  border-radius: 3px;
-  text-decoration: none;
-  color: var(--ink);
-}
-.row:hover { background: var(--panel); border-color: var(--line-strong); }
-.row .what { font-size: 15px; }
-.row .what em { font-style: normal; color: var(--ink-faint); }
-.row .size { font-family: var(--mono); font-size: 12px; color: var(--ink-faint); text-align: right; white-space: nowrap; }
-.row .name { grid-column: 1 / -1; font-family: var(--mono); font-size: 12px; color: var(--ink-faint); overflow-wrap: anywhere; }
-
-.steps { margin: 0; padding: 0; list-style: none; counter-reset: step; display: grid; gap: 20px; max-width: var(--measure); }
-.steps li { counter-increment: step; display: grid; grid-template-columns: 26px minmax(0, 1fr); gap: 14px; }
-.steps li::before {
-  content: counter(step);
-  font-family: var(--mono);
-  font-size: 12px;
-  color: var(--accent);
-  border: 1px solid var(--line-strong);
-  border-radius: 3px;
-  height: 24px;
-  display: grid;
-  place-items: center;
-}
-.steps h3 { margin: 0 0 4px; font-size: 1rem; font-weight: 600; }
-.steps p { margin: 0; color: var(--ink-dim); font-size: 15px; }
-.steps code { font-family: var(--mono); font-size: 0.88em; color: var(--ink); }
-
-@media (max-width: 720px) {
-  .group { grid-template-columns: minmax(0, 1fr); gap: 8px; }
-}
-</style>
-</head>
-<body>
-<a class="skip" href="#main">Skip to content</a>
-
-<div class="bar">
-  <div class="wrap">
-    <a class="mark" href="/"><img src="/icon.svg" alt="" width="24" height="24">SDR--</a>
-    <nav>
-      <a href="/introduction.html">Docs</a>
-      <a class="hardware" href="/hardware.html">Hardware</a>
-      <a href="https://github.com/Newspicel/sdrminusminus">GitHub</a>
-      <a class="get" href="/download.html" aria-current="page">Download</a>
-    </nav>
-  </div>
-</div>
-
-<main id="main">
-
+<Page
+  title="Download SDR--"
+  description="Installers for macOS, Windows and Linux, portable servers for a machine by the antenna, and the package managers that carry SDR--."
+  summary="Pick the file for the computer you will run the radio on."
+  current="download"
+>
 <div class="wrap hero">
   <h1>Download SDR--</h1>
   <p class="lede">One release, a handful of files. Take the one for the computer the radio will be
-    plugged into — or put the server on the machine that sits by the antenna and drive it from any
+    plugged into, or put the server on the machine that sits by the antenna and drive it from any
     browser.</p>
 
   <div class="pick">
@@ -125,7 +26,7 @@
 <section class="wrap" id="choose">
   <h2>App or server</h2>
   <p class="section-lede">This is the only choice that matters, and it is about where the radio
-    sits — not about how much you know.</p>
+    sits, not about how much you know.</p>
 
   <div class="install">
     <div class="lane">
@@ -138,7 +39,7 @@
 
     <div class="lane">
       <h3>Portable server</h3>
-      <p>The radio is somewhere else — a Pi in the loft, a box by the antenna, a machine left
+      <p>The radio is somewhere else: a Pi in the loft, a box by the antenna, a machine left
         running. Unpack the archive, start <code>sdrmm</code>, and open port 8080 from any browser
         on the network. Same receiver, no window.</p>
       <p class="foot"><a href="/server/deployment.html">Run it as a service</a></p>
@@ -268,7 +169,7 @@
   <p class="note">There is no ARM Linux desktop bundle yet: on a Pi, run the server and open it in
     a browser. The rolling
     <a href="https://github.com/Newspicel/sdrminusminus/releases/tag/nightly">nightly</a> follows
-    <code>main</code> and can change saved-data formats without migrating them — use a stable
+    <code>main</code> and can change saved-data formats without migrating them. Use a stable
     release unless you are testing one.</p>
 </section>
 
@@ -317,8 +218,8 @@ docker compose up -d</pre>
     <li>
       <div>
         <h3>Install it</h3>
-        <p>macOS: open the disk image and drag SDR-- to Applications. Windows: run the installer —
-          it is not code-signed yet, so SmartScreen asks first; choose <b>More info</b>, then
+        <p>macOS: open the disk image and drag SDR-- to Applications. Windows: run the installer.
+          It is not code-signed yet, so SmartScreen asks first; choose <b>More info</b>, then
           <b>Run anyway</b>. Linux: <code>chmod +x</code> the AppImage, or
           <code>sudo apt install ./SDR--*.deb</code>. Servers: unpack the archive and run
           <code>./sdrmm</code>.</p>
@@ -327,7 +228,7 @@ docker compose up -d</pre>
     <li>
       <div>
         <h3>Open it</h3>
-        <p>The app opens its own window. The server prints its address — reach it at
+        <p>The app opens its own window. The server prints its address. Reach it at
           <code>http://localhost:8080</code>, or <code>http://&lt;machine&gt;:8080</code> from
           another computer on the network.</p>
       </div>
@@ -346,29 +247,89 @@ docker compose up -d</pre>
     the <a href="/hardware.html">hardware guide</a> for what each radio needs, or
     <a href="/troubleshooting.html">troubleshooting</a> when something stays silent.</p>
 
-  <div class="actions" style="margin-top: 28px">
+  <div class="actions next">
     <a class="btn ghost" href="/getting-started/install.html">All install methods</a>
     <a class="btn ghost" href="/development/building.html">Build from source</a>
   </div>
 </section>
+</Page>
 
-</main>
+<style is:global>
+.pick {
+  margin-top: 30px;
+  max-width: 640px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 14px;
+}
+.pick .btn.primary { font-size: 15px; padding: 13px 22px; }
+.pick .file { margin: 0; font-family: var(--mono); font-size: 12.5px; color: var(--ink-dim); overflow-wrap: anywhere; }
+.pick .hint { margin: 0; font-size: 14px; color: var(--ink-dim); max-width: 52ch; }
+.pick .alts { margin: 0; display: flex; flex-wrap: wrap; gap: 4px 18px; font-size: 14px; }
+.pick .alts a { color: var(--ink-dim); }
+.pick .alts a:hover { color: var(--accent); }
 
-<footer>
-  <div class="wrap">
-    <span>SDR-- · GPL-3.0-or-later</span>
-    <nav>
-      <a href="/download.html">Download</a>
-      <a href="/introduction.html">Docs</a>
-      <a href="/hardware.html">Hardware</a>
-      <a href="/troubleshooting.html">Troubleshooting</a>
-      <a href="/development/building.html">Build from source</a>
-      <a href="https://github.com/Newspicel/sdrminusminus">GitHub</a>
-    </nav>
-  </div>
-</footer>
 
-<script>
+.stamp { margin: 0 0 28px; font-family: var(--mono); font-size: 12px; letter-spacing: 0.04em; color: var(--ink-faint); }
+
+.files { border-top: 1px solid var(--line); }
+.group {
+  display: grid;
+  grid-template-columns: 200px minmax(0, 1fr);
+  gap: 10px 40px;
+  padding: 22px 0;
+  border-bottom: 1px solid var(--line);
+}
+.group h3 { margin: 0; font-size: 1.05rem; font-weight: 600; }
+.group h3 .legend { display: block; color: var(--ink-faint); margin-bottom: 4px; }
+.group ul { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 2px; }
+
+.row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 2px 16px;
+  align-items: baseline;
+  padding: 10px 12px;
+  margin-inline: -12px;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  text-decoration: none;
+  color: var(--ink);
+}
+.row:hover { background: var(--panel); border-color: var(--line-strong); }
+.row .what { font-size: 15px; }
+.row .what em { font-style: normal; color: var(--ink-faint); }
+.row .size { font-family: var(--mono); font-size: 12px; color: var(--ink-faint); text-align: right; white-space: nowrap; }
+.row .name { grid-column: 1 / -1; font-family: var(--mono); font-size: 12px; color: var(--ink-faint); overflow-wrap: anywhere; }
+
+.steps { margin: 0; padding: 0; list-style: none; counter-reset: step; display: grid; gap: 20px; max-width: var(--measure); }
+.steps li { counter-increment: step; display: grid; grid-template-columns: 26px minmax(0, 1fr); gap: 14px; }
+.steps li::before {
+  content: counter(step);
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--accent);
+  border: 1px solid var(--line-strong);
+  border-radius: 3px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+}
+.steps h3 { margin: 0 0 4px; font-size: 1rem; font-weight: 600; }
+.steps p { margin: 0; color: var(--ink-dim); font-size: 15px; }
+.steps code { font-family: var(--mono); font-size: 0.88em; color: var(--ink); }
+
+@media (max-width: 720px) {
+  .group { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+}
+.next { margin-top: 28px; }
+</style>
+
+<script is:inline>
 const RELEASE = "https://api.github.com/repos/Newspicel/sdrminusminus/releases/latest";
 
 const PICKS = {
@@ -511,5 +472,3 @@ async function start() {
 
 start();
 </script>
-</body>
-</html>

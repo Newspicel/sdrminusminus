@@ -539,6 +539,8 @@ fn check(root: &Path) -> Result<()> {
         root,
     )?;
     run(PNPM, &["--dir", "web", "exec", "tsgo", "--noEmit"], root)?;
+    run(PNPM, &["--dir", "site", "exec", "biome", "ci", "."], root)?;
+    run(PNPM, &["--dir", "site", "typecheck"], root)?;
 
     run(
         "cargo",
@@ -607,24 +609,22 @@ fn check_toolchain_pins(root: &Path) -> Result<()> {
     };
 
     let dockerfile = file("Dockerfile")?;
-    let package_json = file("web/package.json")?;
-
-    let mut pnpm = vec![
-        (
-            "web/package.json".to_string(),
+    let mut pnpm = vec![(
+        "Dockerfile".to_string(),
+        pin(&dockerfile, "pnpm@", "\n", "Dockerfile", "pnpm pin")?,
+    )];
+    for rel in ["web/package.json", "site/package.json"] {
+        pnpm.push((
+            rel.to_string(),
             pin(
-                &package_json,
+                &file(rel)?,
                 "\"packageManager\": \"pnpm@",
                 "\"",
-                "web/package.json",
+                rel,
                 "packageManager pin",
             )?,
-        ),
-        (
-            "Dockerfile".to_string(),
-            pin(&dockerfile, "pnpm@", "\n", "Dockerfile", "pnpm pin")?,
-        ),
-    ];
+        ));
+    }
     let mut node = vec![(
         "Dockerfile".to_string(),
         pin(
@@ -636,7 +636,7 @@ fn check_toolchain_pins(root: &Path) -> Result<()> {
         )?,
     )];
 
-    for name in ["ci.yml", "release.yml"] {
+    for name in ["ci.yml", "release.yml", "docs.yml"] {
         let rel = format!(".github/workflows/{name}");
         let text = file(&rel)?;
         pnpm.push((
@@ -1252,6 +1252,7 @@ fn test(root: &Path) -> Result<()> {
     )?;
     ensure_web_deps(root)?;
     run(PNPM, &["--dir", "web", "test"], root)?;
+    run(PNPM, &["--dir", "site", "test"], root)?;
     Ok(())
 }
 
@@ -1978,14 +1979,12 @@ fn write_fixture(
 }
 
 fn ensure_web_deps(root: &Path) -> Result<()> {
-    if root.join("web/node_modules").is_dir() {
-        return Ok(());
+    for dir in ["web", "site"] {
+        if !root.join(dir).join("node_modules").is_dir() {
+            run(PNPM, &["--dir", dir, "install", "--frozen-lockfile"], root)?;
+        }
     }
-    run(
-        PNPM,
-        &["--dir", "web", "install", "--frozen-lockfile"],
-        root,
-    )
+    Ok(())
 }
 
 fn run(program: &str, args: &[&str], cwd: &Path) -> Result<()> {

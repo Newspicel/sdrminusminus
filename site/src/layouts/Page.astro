@@ -1,0 +1,66 @@
+---
+import "../styles/site.css";
+
+interface Props {
+  title: string;
+  description: string;
+  summary: string;
+  current?: "download";
+}
+
+const { title, description, summary, current } = Astro.props;
+const canonical = new URL(Astro.url.pathname, Astro.site);
+const image = new URL("/screens/patch.png", Astro.site);
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark" />
+    <title>{title}</title>
+    <meta name="description" content={description} />
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+    <link rel="canonical" href={canonical} />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content={canonical} />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={summary} />
+    <meta property="og:image" content={image} />
+    <meta name="twitter:card" content="summary_large_image" />
+  </head>
+  <body>
+    <a class="skip" href="#main">Skip to content</a>
+
+    <div class="bar">
+      <div class="wrap">
+        <a class="mark" href="/"><img src="/icon.svg" alt="" width="24" height="24" />SDR--</a>
+        <nav>
+          <a href="/introduction.html">Docs</a>
+          <a class="hardware" href="/hardware.html">Hardware</a>
+          <a href="https://github.com/Newspicel/sdrminusminus">GitHub</a>
+          <a class="get" href="/download.html" aria-current={current === "download" ? "page" : undefined}>Download</a>
+        </nav>
+      </div>
+    </div>
+
+    <main id="main">
+      <slot />
+    </main>
+
+    <footer>
+      <div class="wrap">
+        <span>SDR-- · GPL-3.0-or-later</span>
+        <nav>
+          <a href="/download.html">Download</a>
+          <a href="/introduction.html">Docs</a>
+          <a href="/hardware.html">Hardware</a>
+          <a href="/troubleshooting.html">Troubleshooting</a>
+          <a href="/development/building.html">Build from source</a>
+          <a href="https://github.com/Newspicel/sdrminusminus">GitHub</a>
+        </nav>
+      </div>
+    </footer>
+  </body>
+</html>

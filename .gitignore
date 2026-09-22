@@ -47,3 +47,6 @@ web/playwright-report/
 
 # Claude Code local state (settings, worktrees)
 .claude/
+
+# Astro
+.astro

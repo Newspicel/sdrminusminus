@@ -1,6 +1,6 @@
 {
   "$schema": "https://biomejs.dev/schemas/2.5.11/schema.json",
-  "files": { "includes": ["web/**"] },
+  "files": { "includes": ["web/**", "site/**"] },
   "formatter": {
     "enabled": true,
     "indentStyle": "space",

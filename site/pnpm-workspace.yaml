@@ -1,0 +1,8 @@
+overrides:
+  semver: "^7.8.5"
+
+trustPolicy: no-downgrade
+minimumReleaseAge: 1440
+
+allowBuilds:
+  esbuild: false

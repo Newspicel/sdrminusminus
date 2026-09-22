@@ -5,14 +5,12 @@ root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 out=${1:-$root/dist/site}
 
 mdbook build "$root/docs"
+pnpm --dir "$root/site" build
 
 rm -rf "$out"
-mkdir -p "$out/screens"
+mkdir -p "$out"
 cp -R "$root/docs/book/." "$out/"
-cp "$root"/site/*.html "$out/"
-cp "$root"/site/*.css "$out/"
-cp "$root/assets/icon.svg" "$out/icon.svg"
-cp "$root"/assets/screenshots/*.png "$out/screens/"
+cp -R "$root/site/dist/." "$out/"
 printf 'sdrmm.newspicel.dev\n' > "$out/CNAME"
 
 echo "site assembled in $out"

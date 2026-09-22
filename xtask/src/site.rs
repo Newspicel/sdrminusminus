@@ -7,32 +7,33 @@ fn root() -> PathBuf {
         .to_path_buf()
 }
 
-fn site_files(root: &Path) -> Vec<PathBuf> {
-    let mut found: Vec<PathBuf> = std::fs::read_dir(root.join("site"))
-        .expect("read site/")
-        .map(|entry| entry.expect("a site/ entry").path())
-        .filter(|path| path.is_file())
-        .collect();
+fn astro_files(dir: &Path, found: &mut Vec<PathBuf>) {
+    for entry in std::fs::read_dir(dir).unwrap_or_else(|_| panic!("read {}", dir.display())) {
+        let path = entry.expect("a directory entry").path();
+        if path.is_dir() {
+            astro_files(&path, found);
+        } else if path
+            .extension()
+            .is_some_and(|extension| extension == "astro")
+        {
+            found.push(path);
+        }
+    }
+}
+
+fn sources(root: &Path) -> Vec<PathBuf> {
+    let mut found = Vec::new();
+    astro_files(&root.join("site/src"), &mut found);
     found.sort();
     found
 }
 
-fn pages(root: &Path) -> Vec<PathBuf> {
-    site_files(root)
-        .into_iter()
-        .filter(|path| {
-            path.extension()
-                .is_some_and(|extension| extension == "html")
-        })
-        .collect()
+fn read(path: &Path) -> String {
+    std::fs::read_to_string(path).unwrap_or_else(|_| panic!("read {}", path.display()))
 }
 
-fn read(page: &Path) -> String {
-    std::fs::read_to_string(page).unwrap_or_else(|_| panic!("read {}", page.display()))
-}
-
-fn name(page: &Path) -> String {
-    page.file_name()
+fn name(path: &Path) -> String {
+    path.file_name()
         .expect("a file name")
         .to_string_lossy()
         .into_owned()
@@ -65,20 +66,18 @@ fn host(line_source: &str, marker: &str) -> String {
 }
 
 fn source_of(root: &Path, path: &str) -> PathBuf {
-    if let Some(shot) = path.strip_prefix("screens/") {
-        return root.join("assets/screenshots").join(shot);
+    let public = root.join("site/public").join(path);
+    if public.exists() {
+        return public;
     }
-    if path == "icon.svg" {
-        return root.join("assets/icon.svg");
-    }
-    let alongside = root.join("site").join(path);
-    if alongside.is_file() {
-        return alongside;
-    }
-    let chapter = path
+    let stem = path
         .strip_suffix(".html")
-        .unwrap_or_else(|| panic!("`{path}` is neither a book page nor a file in site/"));
-    root.join("docs/src").join(format!("{chapter}.md"))
+        .unwrap_or_else(|| panic!("`{path}` is neither a page nor a file in site/public"));
+    let page = root.join("site/src/pages").join(format!("{stem}.astro"));
+    if page.is_file() {
+        return page;
+    }
+    root.join("docs/src").join(format!("{stem}.md"))
 }
 
 #[test]
@@ -86,24 +85,23 @@ fn every_local_reference_resolves_to_a_file_the_build_publishes() {
     let root = root();
     let mut checked = 0;
 
-    for page in pages(&root) {
-        let html = read(&page);
-        for reference in references(&html) {
+    for source in sources(&root) {
+        for reference in references(&read(&source)) {
             let Some(path) = reference.strip_prefix('/') else {
                 continue;
             };
-            let path = path.split('#').next().unwrap_or(path);
+            let path = path.split(['#', '?']).next().unwrap_or(path);
             if path.is_empty() {
                 continue;
             }
             checked += 1;
 
-            let source = source_of(&root, path);
+            let target = source_of(&root, path);
             assert!(
-                source.exists(),
+                target.exists(),
                 "site/{} links to /{path}, which nothing publishes ({} is missing)",
-                name(&page),
-                source.display()
+                name(&source),
+                target.display()
             );
         }
     }
@@ -112,56 +110,47 @@ fn every_local_reference_resolves_to_a_file_the_build_publishes() {
 }
 
 #[test]
-fn the_published_host_matches_the_page_that_claims_it() {
+fn the_published_host_matches_the_site_astro_builds() {
     let root = root();
-    let script =
-        std::fs::read_to_string(root.join("scripts/build-site.sh")).expect("read build-site.sh");
-    let published = host(&script, "printf '");
-
-    for page in pages(&root) {
-        let html = read(&page);
-        assert_eq!(
-            host(&html, "<link rel=\"canonical\" href=\"https://"),
-            published,
-            "site/{} and the CNAME the build writes name different hosts",
-            name(&page)
-        );
-    }
-}
-
-#[test]
-fn the_build_copies_every_file_kept_in_site() {
-    let root = root();
-    let script =
-        std::fs::read_to_string(root.join("scripts/build-site.sh")).expect("read build-site.sh");
-
-    for file in site_files(&root) {
-        let extension = file
-            .extension()
-            .unwrap_or_else(|| panic!("site/{} has no extension", name(&file)))
-            .to_string_lossy();
-        assert!(
-            script.contains(&format!("site/*.{extension} ")),
-            "build-site.sh publishes no .{extension} from site/, so site/{} never reaches the site",
-            name(&file)
-        );
-    }
+    let script = read(&root.join("scripts/build-site.sh"));
+    let config = read(&root.join("site/astro.config.mjs"));
+    assert_eq!(
+        host(&config, "site: \"https://"),
+        host(&script, "printf '"),
+        "site/astro.config.mjs and the CNAME the build writes name different hosts"
+    );
 }
 
 #[test]
 fn the_download_button_leads_to_the_download_page() {
     let root = root();
     assert!(
-        root.join("site/download.html").is_file(),
+        root.join("site/src/pages/download.astro").is_file(),
         "the download page is what the Download button points at"
     );
+    assert!(
+        read(&root.join("site/src/layouts/Page.astro"))
+            .contains("class=\"get\" href=\"/download.html\""),
+        "the page layout sends its Download button somewhere other than the download page"
+    );
+}
 
-    for page in pages(&root) {
-        let html = read(&page);
+#[test]
+fn every_demo_scene_has_a_recording() {
+    let root = root();
+    let scenes = read(&root.join("site/src/demo/scenes.ts"));
+    let mut checked = 0;
+    let mut rest = scenes.as_str();
+    while let Some(start) = rest.find("{ id: \"") {
+        rest = &rest[start + "{ id: \"".len()..];
+        let id = &rest[..rest.find('"').expect("a closing quote")];
+        checked += 1;
         assert!(
-            html.contains("class=\"get\" href=\"/download.html\""),
-            "site/{} sends its Download button somewhere other than the download page",
-            name(&page)
+            root.join("site/public/demo")
+                .join(format!("{id}.json"))
+                .is_file(),
+            "the {id} demo has no recording; run `pnpm --dir web demo:record`"
         );
     }
+    assert!(checked > 0, "no demo scenes were found");
 }

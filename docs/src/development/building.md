@@ -129,6 +129,7 @@ Regenerate and commit outputs when their sources change:
 | Decoder reference signals | `cargo xtask fixtures` | SigMF pairs under `fixtures/` |
 | Band-plan source imports | `cargo xtask bandplan` | Embedded regional tables |
 | `assets/icon.svg` | `cargo xtask icons` | Desktop and web icon variants |
+| Demo scenes in `web/e2e/scenes.ts` | `pnpm --dir web demo:record` | Site demo sessions in `site/public/demo/` |
 
 `cargo xtask check` detects stale contracts and metadata. `nix-hash` uses Nix on Linux or a
 `nixos/nix` container elsewhere. It updates the pnpm store hash and Cargo git-dependency hashes.

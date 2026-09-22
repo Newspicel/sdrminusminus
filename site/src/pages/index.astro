@@ -1,0 +1,264 @@
+---
+import { DEFAULT_SCENE, demoUrl, SCENES } from "../demo/scenes";
+import Page from "../layouts/Page.astro";
+---
+
+<Page
+  title="SDR-- · patch a radio together"
+  description="A software-defined radio application for listening, decoding and recording. Connect a receiver, a channel and a display, on your desk or on a server at the antenna."
+  summary="A software-defined radio application for listening, decoding and recording."
+>
+  <div class="wrap hero">
+    <h1>Patch a radio together</h1>
+    <p class="lede">Wire a receiver to a channel, and the channel to a speaker, a map or a recorder.
+      SDR-- listens, decodes and records, on your desk or on a server at the antenna.</p>
+    <div class="actions">
+      <a class="btn primary" href="/download.html">Download for macOS, Windows, Linux</a>
+      <a class="btn ghost" href="/getting-started/first-receiver.html">Build your first receiver</a>
+    </div>
+    <p class="cmd"><code>brew tap newspicel/tap</code><br /><code>brew install --cask sdrminusminus</code></p>
+  </div>
+
+  <div class="demo">
+    <div class="wrap">
+      <div class="scenes" role="tablist" aria-label="Demo">
+        {
+          SCENES.map((scene) => (
+            <button
+              type="button"
+              role="tab"
+              data-scene={scene.id}
+              aria-selected={scene.id === DEFAULT_SCENE ? "true" : "false"}
+            >
+              {scene.label}
+            </button>
+          ))
+        }
+        <a class="full" href={demoUrl(DEFAULT_SCENE)}>Full screen</a>
+      </div>
+      <div class="window">
+        <iframe src={demoUrl(DEFAULT_SCENE)} title="SDR-- replaying a recorded session"></iframe>
+        <img
+          class="still"
+          src="/screens/patch.png"
+          alt="A patch with a signal generator feeding a scope and three channels, wired to a speaker, a recorder and a network IQ export."
+          width="2160"
+          height="1350"
+        />
+      </div>
+      <p class="note">The real app, replaying a recorded session. Drag, zoom, and press Play on a
+        speaker.</p>
+    </div>
+  </div>
+
+  <section class="wrap">
+    <h2>Choose what the signal becomes</h2>
+    <p class="section-lede">A channel takes IQ from a radio and gives back something you can use.
+      Which output it produces is what makes one channel different from another.</p>
+
+    <div class="outputs">
+      <div class="output audio">
+        <h3><span class="legend">Audio</span>Voice and music</h3>
+        <p>AM, NFM, SSB and CW, broadcast FM in stereo with RDS, and digital voice: DMR, FreeDV,
+          D-STAR, System Fusion, NXDN, P25 Phase 1, dPMR and M17.</p>
+      </div>
+      <div class="output events">
+        <h3><span class="legend">Events</span>Messages and positions</h3>
+        <p>Aircraft over ADS-B, ACARS, VDL Mode 2 and HFDL. Ships over AIS, NAVTEX and DSC. Pagers
+          over POCSAG, FLEX and ERMES. Amateur data: FT8, FT4, WSPR, APRS, RTTY, PSK and CW. ISM
+          sensors and radio clocks.</p>
+      </div>
+      <div class="output video">
+        <h3><span class="legend">Video</span>Pictures</h3>
+        <p>Slow-scan television, amateur television, and DVB-S / S2 digital television.</p>
+      </div>
+      <div class="output iq">
+        <h3><span class="legend">IQ</span>Samples to keep</h3>
+        <p>Record the radio, a channel's baseband or its audio, and replay it later. SigMF in and
+          out, and live IQ to another program over the network.</p>
+      </div>
+    </div>
+
+    <div class="also">
+      <div>
+        <h3>See the band</h3>
+        <p>Spectrum, waterfall, constellation and map displays, with the decoded messages beside
+          them.</p>
+      </div>
+      <div>
+        <h3>Find the signal</h3>
+        <p>Scanning, signal identification, coherent arrays, direction finding and passive radar.</p>
+      </div>
+      <div>
+        <h3>Drive it from elsewhere</h3>
+        <p>REST, WebSocket, MCP, network IQ export and event forwarding to your own tools.</p>
+      </div>
+    </div>
+
+    <p class="note">Modes range from tested on air to experimental. The
+      <a href="/user-guide/channels.html#channel-catalog">channel catalog</a> says which is which,
+      mode by mode.</p>
+  </section>
+
+  <section class="wrap">
+    <h2>Install it</h2>
+    <p class="section-lede">The desktop app runs its own server on a private port. The standalone
+      server does the same job on a machine you keep near the antenna, and any browser on your
+      network drives it.</p>
+
+    <div class="install">
+      <div class="lane">
+        <h3>Desktop app</h3>
+        <p>macOS <code>.dmg</code>, Windows <code>.msi</code> or <code>.exe</code>, Linux
+          <code>.deb</code> or <code>.AppImage</code>.</p>
+        <p class="foot"><a href="/download.html">Pick the file for your computer</a></p>
+      </div>
+
+      <div class="lane">
+        <h3>Homebrew</h3>
+        <p>The cask installs the app; the formula installs the headless server.</p>
+        <pre>brew tap newspicel/tap
+brew install --cask sdrminusminus
+
+<span class="p">or, for a server</span>
+brew install sdrmm
+brew services start sdrmm</pre>
+        <p class="foot"><a href="/getting-started/install.html">All install methods, including
+          Nix</a></p>
+      </div>
+
+      <div class="lane">
+        <h3>Container</h3>
+        <p>Persists its database and recordings in a volume. Pass through the USB group that owns
+          your radio.</p>
+        <pre>git clone https://github.com/Newspicel/sdrminusminus.git
+cd sdrminusminus
+docker compose up -d</pre>
+        <p class="foot"><a href="/server/deployment.html">Container setup, auth and HTTPS</a></p>
+      </div>
+    </div>
+
+    <p class="note">Then open <code>http://localhost:8080</code>, select your radio on a
+      Device node, and tune. The server listens on every interface without authentication by
+      default. Set <a href="/server/configuration.html">a token and HTTPS</a> before you put it on
+      an untrusted network.</p>
+  </section>
+
+  <section class="wrap">
+    <h2>Still being built</h2>
+    <p class="section-lede">SDR-- is under active development, and the docs say plainly what is
+      tested on air, what is only tested against fixtures, and what is experimental. Bug reports and
+      decoder fixtures are both welcome.</p>
+    <div class="actions">
+      <a class="btn ghost" href="https://github.com/Newspicel/sdrminusminus">Source on GitHub</a>
+      <a class="btn ghost" href="/development/architecture.html">How it is put together</a>
+    </div>
+  </section>
+</Page>
+
+<style>
+  .demo {
+    border-block: 1px solid var(--line);
+    background-color: color-mix(in oklab, var(--bg) 60%, black);
+    background-image: radial-gradient(circle, var(--line) 1px, transparent 1px);
+    background-size: 24px 24px;
+    background-position: 12px 12px;
+    padding-block: clamp(32px, 5vw, 56px);
+  }
+
+  .scenes {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 12px;
+  }
+  .scenes button {
+    height: 30px;
+    padding-inline: 12px;
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    background: var(--panel);
+    color: var(--ink-dim);
+    font-family: var(--mono);
+    font-size: 12px;
+    cursor: pointer;
+  }
+  .scenes button:hover { color: var(--ink); border-color: var(--line-strong); }
+  .scenes button[aria-selected="true"] {
+    color: var(--accent);
+    border-color: var(--accent);
+    background: color-mix(in oklab, var(--accent) 12%, var(--panel));
+  }
+  .scenes .full { margin-left: auto; font-family: var(--mono); font-size: 12px; }
+
+  .window {
+    border: 1px solid var(--line-strong);
+    background: var(--bg);
+    aspect-ratio: 16 / 10;
+    max-height: 82vh;
+    width: 100%;
+  }
+  .window iframe { display: block; width: 100%; height: 100%; border: 0; }
+  .window .still { display: none; width: 100%; height: auto; }
+
+  .outputs { border-top: 1px solid var(--line); }
+  .output {
+    display: grid;
+    grid-template-columns: 200px minmax(0, 1fr);
+    gap: 8px 40px;
+    padding: 26px 0 26px 16px;
+    border-bottom: 1px solid var(--line);
+    border-left: 3px solid var(--port);
+  }
+  .output h3 { margin: 0; font-size: 1.05rem; font-weight: 600; }
+  .output h3 .legend { display: block; color: var(--port); margin-bottom: 4px; }
+  .output p { margin: 0; color: var(--ink-dim); max-width: 64ch; }
+  .output.audio { --port: var(--audio); }
+  .output.events { --port: var(--events); }
+  .output.video { --port: var(--video); }
+  .output.iq { --port: var(--iq); }
+
+  .also {
+    margin-top: 40px;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 28px 40px;
+  }
+  .also h3 { margin: 0 0 6px; font-size: 1rem; font-weight: 600; }
+  .also p { margin: 0; color: var(--ink-dim); font-size: 15px; }
+
+  @media (max-width: 900px) {
+    .scenes { display: none; }
+    .window { aspect-ratio: auto; max-height: none; border-color: var(--line); }
+    .window iframe { display: none; }
+    .window .still { display: block; }
+  }
+
+  @media (max-width: 720px) {
+    .output { grid-template-columns: minmax(0, 1fr); gap: 6px; }
+  }
+</style>
+
+<script>
+  import { demoUrl } from "../demo/scenes";
+
+  const frame = document.querySelector<HTMLIFrameElement>(".window iframe");
+  const full = document.querySelector<HTMLAnchorElement>(".scenes .full");
+  const tabs = document.querySelectorAll<HTMLButtonElement>(".scenes [data-scene]");
+
+  for (const tab of tabs) {
+    tab.addEventListener("click", () => {
+      const url = demoUrl(tab.dataset.scene ?? "");
+      for (const other of tabs) {
+        other.setAttribute("aria-selected", String(other === tab));
+      }
+      if (frame !== null) {
+        frame.src = url;
+      }
+      if (full !== null) {
+        full.href = url;
+      }
+    });
+  }
+</script>

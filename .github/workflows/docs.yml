@@ -1,5 +1,5 @@
-# Builds the site (docs/ as an mdBook, site/ as the landing page) and publishes it to GitHub
-# Pages on main. Pull requests build it but never deploy: a fork PR's GITHUB_TOKEN is read-only,
+# Builds the site (docs/ as an mdBook, site/ as the Astro landing page and demo) and publishes
+# it to GitHub Pages on main. Pull requests build it but never deploy: a fork PR's GITHUB_TOKEN is read-only,
 # so the Pages steps would fail on permissions rather than on anything the PR changed.
 name: Docs
 
@@ -9,6 +9,9 @@ on:
     paths:
       - "docs/**"
       - "site/**"
+      - "web/src/**"
+      - "web/e2e/demoSession.ts"
+      - "web/package.json"
       - "assets/**"
       - "scripts/build-site.sh"
       - ".github/workflows/docs.yml"
@@ -16,6 +19,9 @@ on:
     paths:
       - "docs/**"
       - "site/**"
+      - "web/src/**"
+      - "web/e2e/demoSession.ts"
+      - "web/package.json"
       - "assets/**"
       - "scripts/build-site.sh"
       - ".github/workflows/docs.yml"
@@ -23,6 +29,10 @@ on:
 
 permissions:
   contents: read
+
+env:
+  PNPM_VERSION: 11.15.1
+  NODE_VERSION: 26
 
 concurrency:
   group: docs-${{ github.ref }}
@@ -42,6 +52,19 @@ jobs:
       - uses: peaceiris/actions-mdbook@v2
         with:
           mdbook-version: "0.5.4"
+      - uses: pnpm/action-setup@v6
+        with:
+          version: ${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+          cache-dependency-path: |
+            web/pnpm-lock.yaml
+            site/pnpm-lock.yaml
+      # The demo page imports the app's components straight from web/.
+      - run: pnpm --dir web install --frozen-lockfile
+      - run: pnpm --dir site install --frozen-lockfile
       # book.toml sets create-missing = false, so a SUMMARY entry without a file fails here.
       - run: scripts/build-site.sh
       - uses: actions/configure-pages@v6

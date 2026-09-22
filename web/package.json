@@ -11,6 +11,7 @@
     "typecheck": "tsgo --noEmit",
     "test": "vitest run",
     "e2e": "playwright test",
+    "demo:record": "playwright test -c playwright.demo.config.ts",
     "lint": "node scripts/check-base-ui.mjs && oxlint --type-aware",
     "format": "biome check --write ."
   },
