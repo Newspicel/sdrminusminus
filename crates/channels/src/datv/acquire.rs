@@ -216,6 +216,20 @@ mod tests {
     }
 
     #[test]
+    fn an_off_frequency_unmodulated_carrier_is_not_a_transmission() {
+        let tone: Vec<_> = (0..INPUT_RATE_HZ as usize)
+            .map(|index| {
+                Complex::from_polar(
+                    1.0,
+                    2.0 * PI * 71_000.0 * index as f32 / INPUT_RATE_HZ as f32,
+                )
+            })
+            .collect();
+        let report = drive(&tone, 250_000.0);
+        assert!(!report.locked, "{report:?}");
+    }
+
+    #[test]
     fn a_single_unmodulated_carrier_is_not_a_transmission() {
         let report = drive(
             &vec![Complex::new(1.0, 0.0); INPUT_RATE_HZ as usize],

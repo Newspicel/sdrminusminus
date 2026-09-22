@@ -1163,8 +1163,10 @@ fn datv_qpsk_fixture() -> Vec<Complex<f32>> {
         Complex::new(0.7, -0.7),
     ];
     let mut iq = Vec::with_capacity(2_000_000);
-    for i in 0..250_000 {
-        iq.extend(std::iter::repeat_n(points[(i * 13 + i / 7) % 4], 8));
+    let mut state = 0x1234_5678u32;
+    for _ in 0..250_000 {
+        state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+        iq.extend(std::iter::repeat_n(points[(state >> 24) as usize % 4], 8));
     }
     iq
 }
