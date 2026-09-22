@@ -641,6 +641,9 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
     for position in state.gps.snapshot() {
         let _ = out_tx.send(text_event(&position)).await;
     }
+    for satellite in state.satellites.snapshot() {
+        let _ = out_tx.send(text_event(&satellite)).await;
+    }
 
     let backlog = state.tracks.backlog();
     if !backlog.is_empty() {

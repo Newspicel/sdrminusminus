@@ -31,6 +31,7 @@ const EVERY_KIND: Record<NodeKind, true> = {
   df: true,
   passive_radar: true,
   hunt: true,
+  satellite: true,
   triangulation: true,
   combiner: true,
 };

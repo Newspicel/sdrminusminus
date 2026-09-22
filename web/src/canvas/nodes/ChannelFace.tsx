@@ -11,6 +11,7 @@ import { SettingRow } from "../../components/Settings";
 import { devicesQuery } from "../../lib/api";
 import { useDecodedKind } from "../../lib/decoded";
 import { useLevelStore } from "../../lib/levels";
+import { trackedBy, useSatelliteStore } from "../../lib/satellite";
 import type { PatchNode, PatchNodeOf } from "../../lib/types";
 import { channelSettingsOf, liveChannelOf, useChannelEdit } from "../../lib/useChannelEdit";
 import type { ChannelEdit } from "../../lib/useChannelPatch";
@@ -40,6 +41,7 @@ export function ChannelFace({ node }: { node: PatchNode }) {
   const attached = useQuery(devicesQuery());
   const editChannel = useChannelEdit();
   const broadcasts = useDecodedKind("broadcast");
+  const tracked = useSatelliteStore((store) => trackedBy(store.byNode, node.id));
   if (node.kind !== "channel") {
     return null;
   }
@@ -72,12 +74,13 @@ export function ChannelFace({ node }: { node: PatchNode }) {
     frequencyHz !== null &&
     (channel?.out_of_band ?? !reachesHz(frequencyHz, window));
   const locked = node.data.tuning_locked ?? false;
-  const driven =
+  const scanned =
     channel !== null &&
     (set?.scanners?.some(
       (scanner) => scanner.error == null && scanner.settings.channel === channel.id,
     ) ??
       false);
+  const driven = scanned || tracked !== null;
   const editNode = (next: Partial<ChannelNodeData>): void =>
     workspace.edit((snapshot) => ({
       ...snapshot,
@@ -94,7 +97,7 @@ export function ChannelFace({ node }: { node: PatchNode }) {
     live: live !== null,
     binding,
     unreachable,
-    driven,
+    driver: scanned ? "scanning" : (tracked?.name ?? (tracked === null ? null : "satellite")),
     carrier,
   });
   const action = live === null ? channelBindingAction(binding) : null;
@@ -168,20 +171,20 @@ function faceStatus({
   live,
   binding,
   unreachable,
-  driven,
+  driver,
   carrier,
 }: {
   live: boolean;
   binding: ChannelBinding;
   unreachable: boolean;
-  driven: boolean;
+  driver: string | null;
   carrier: string | null;
 }) {
   if (!live) {
     return <span title={channelBindingHint(binding)}>{channelBindingStatus(binding)}</span>;
   }
-  if (driven) {
-    return <span title="A scanner is tuning this decoder">scanning</span>;
+  if (driver !== null) {
+    return <span title="Tuned by the node on its control input">{driver}</span>;
   }
   if (unreachable) {
     return <span className="text-warn">out of band</span>;

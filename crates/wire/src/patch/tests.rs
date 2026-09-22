@@ -805,6 +805,7 @@ fn default_body(kind: &str) -> NodeBody {
         "export" => NodeBody::Export,
         "scanner" => NodeBody::Scanner,
         "hunt" => NodeBody::Hunt(HuntNode::default()),
+        "satellite" => NodeBody::Satellite(crate::SatelliteNode::default()),
         "df" => NodeBody::Df(DfNode::default()),
         "passive_radar" => NodeBody::PassiveRadar(PassiveRadarNode::default()),
         "combiner" => NodeBody::Combiner(CombinerNode::default()),
@@ -2051,4 +2052,55 @@ fn spectrum_monitor_rejects_invalid_confidence_in_workspaces() {
         graph.validate(),
         Err(PatchError::NodeSettings("monitor".to_owned()))
     );
+}
+
+#[test]
+fn a_satellite_drives_many_decoders_but_a_decoder_answers_to_one_controller() {
+    let decoder = |id: &str| {
+        node(
+            id,
+            NodeBody::Channel(ChannelNode {
+                channel_type: "nfm".to_owned(),
+                record_calls: false,
+                tuning_locked: false,
+            }),
+        )
+    };
+    let wire = |from: &str, to: &str| PatchEdge {
+        from: PortRef {
+            node: from.to_owned(),
+            port: "control".to_owned(),
+        },
+        to: PortRef {
+            node: to.to_owned(),
+            port: "control".to_owned(),
+        },
+    };
+    let mut graph = PatchGraph {
+        nodes: vec![
+            node("sat", NodeBody::Satellite(crate::SatelliteNode::default())),
+            node("scan", NodeBody::Scanner),
+            decoder("voice"),
+            decoder("telemetry"),
+        ],
+        edges: vec![wire("sat", "voice"), wire("sat", "telemetry")],
+    };
+    assert_eq!(graph.validate(), Ok(()));
+    graph.edges.push(wire("scan", "voice"));
+    assert!(matches!(graph.validate(), Err(PatchError::PortOccupied(_))));
+}
+
+#[test]
+fn a_satellite_with_nonsense_settings_is_refused() {
+    let graph = PatchGraph {
+        nodes: vec![node(
+            "sat",
+            NodeBody::Satellite(crate::SatelliteNode {
+                downlink_hz: Some(-1.0),
+                ..crate::SatelliteNode::default()
+            }),
+        )],
+        edges: Vec::new(),
+    };
+    assert!(matches!(graph.validate(), Err(PatchError::NodeSettings(_))));
 }

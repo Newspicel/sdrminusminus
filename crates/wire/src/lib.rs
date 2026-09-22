@@ -21,6 +21,7 @@ pub mod patch;
 pub mod position;
 pub mod propagation;
 pub mod rest;
+pub mod satellite;
 pub mod scan;
 pub mod state;
 pub mod timemachine;
@@ -157,6 +158,13 @@ pub use rest::{
     PresetSnapshot, RecordAction, RecordRequest, RecordingAnnotation, RecordingDownloadQuery,
     RecordingFormat, RecordingInfo, RecordingUpload, RecordingsResponse, Route, RoutePoint,
     RouteRequest, RoutingBackend, TemplateInfo, TemplatesResponse, VoiceCall, VoiceCallsResponse,
+};
+pub use satellite::{
+    CatalogSatellite, MAX_CATALOG_RESULTS, MAX_ELEVATION_DEG, MAX_SATELLITE_HZ,
+    MAX_SATELLITE_QUERY_LEN, MAX_TLE_LEN, MIN_ELEVATION_DEG, SATELLITE_CATALOG_SOURCE,
+    SATELLITE_CATALOG_URL, SatelliteCatalogQuery, SatelliteCatalogResponse, SatelliteLook,
+    SatelliteNode, SatellitePass, SatelliteStatus, TRANSMITTER_SOURCE, TRANSMITTER_URL,
+    Transmitter, TransmittersResponse,
 };
 pub use scan::{
     MAX_SCAN_TARGETS, ScanAction, ScanMode, ScanRange, ScanRequest, ScanSettings, ScanState,

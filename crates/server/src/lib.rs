@@ -45,6 +45,7 @@ pub mod notices;
 mod placement;
 mod rest;
 pub mod routing;
+mod satellites;
 mod store;
 mod templates;
 pub mod tls;
@@ -87,6 +88,7 @@ pub(crate) struct AppState {
     pub(crate) unrestored: Arc<std::sync::Mutex<Vec<String>>>,
     pub(crate) restored: Arc<std::sync::Mutex<HashSet<(i64, String, u32)>>>,
     pub(crate) gps: Arc<gps::GpsHub>,
+    pub(crate) satellites: Arc<satellites::SatelliteHub>,
     pub(crate) coherent: Arc<coherent::CoherentHub>,
     pub(crate) cps: Arc<cps::CpsHub>,
     pub(crate) fusion: df_fusion::SharedFusion,
@@ -115,6 +117,7 @@ impl AppState {
             unrestored: Arc::new(std::sync::Mutex::new(Vec::new())),
             restored: Arc::new(std::sync::Mutex::new(HashSet::new())),
             gps: Arc::new(gps::GpsHub::default()),
+            satellites: Arc::new(satellites::SatelliteHub::default()),
             coherent: Arc::new(coherent::CoherentHub::default()),
             cps: Arc::new(cps::CpsHub::default()),
             fusion: Arc::new(df_fusion::FusionHub::default()),
@@ -172,6 +175,7 @@ fn router_with_state(mut state: AppState, options: &ServerOptions) -> (Router, B
     workspace::spawn_autosave(&state);
     placement::spawn_settling(&state);
     state.gps.reconcile(&state);
+    state.satellites.reconcile(&state);
     let (api_router, api) = rest::openapi_router().split_for_parts();
 
     let mut app = Router::new()

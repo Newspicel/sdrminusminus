@@ -4,6 +4,7 @@ members = [
     "crates/test-support",
     "crates/wire",
     "crates/dsp",
+    "crates/orbit",
     "crates/modem",
     "crates/modem-test-support",
     "crates/device",
@@ -38,6 +39,7 @@ default-members = [
     "crates/test-support",
     "crates/wire",
     "crates/dsp",
+    "crates/orbit",
     "crates/modem",
     "crates/modem-test-support",
     "crates/device",
@@ -81,6 +83,7 @@ sdrmm-test-support = { path = "crates/test-support" }
 # Internal crates
 sdrmm-wire = { path = "crates/wire" }
 sdrmm-dsp = { path = "crates/dsp" }
+sdrmm-orbit = { path = "crates/orbit" }
 sdrmm-modem = { path = "crates/modem" }
 sdrmm-modem-test-support = { path = "crates/modem-test-support" }
 sdrmm-device = { path = "crates/device" }

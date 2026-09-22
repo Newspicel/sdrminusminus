@@ -22,6 +22,7 @@ import { iqHub } from "./iq";
 import { useLevelStore } from "./levels";
 import { usePipelineHealth } from "./pipeline";
 import { usePositionStore } from "./position";
+import { useSatelliteStore } from "./satellite";
 import { useScannerStore } from "./scanner";
 import { spectrumHub } from "./spectrum";
 import { surfaceHub } from "./surface";
@@ -94,6 +95,7 @@ export function useSdrSocket(queryClient: QueryClient, workspaceError: string | 
     s.on("event", useScannerStore.getState().observe);
     s.on("event", useHuntStore.getState().observe);
     s.on("event", usePositionStore.getState().observe);
+    s.on("event", useSatelliteStore.getState().observe);
     s.on("event", useLevelStore.getState().observe);
     s.on("event", useDfStore.getState().observe);
     spectrumHub.attach(s);

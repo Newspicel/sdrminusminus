@@ -13,6 +13,7 @@ use crate::{
     filter::EventFilterNode,
     network::{MAX_NETWORK_ADDRESS_LEN, NetworkExportNode},
     propagation::PropagationNode,
+    satellite::SatelliteNode,
     timemachine::TimeMachineNode,
     workspace::MAX_NAME_LEN,
 };
@@ -610,6 +611,7 @@ pub enum NodeBody {
     Export,
     Scanner,
     Hunt(HuntNode),
+    Satellite(SatelliteNode),
     Df(DfNode),
     PassiveRadar(PassiveRadarNode),
     Combiner(CombinerNode),
@@ -645,6 +647,7 @@ impl NodeBody {
             Self::Export => "export",
             Self::Scanner => "scanner",
             Self::Hunt(_) => "hunt",
+            Self::Satellite(_) => "satellite",
             Self::Df(_) => "df",
             Self::PassiveRadar(_) => "passive_radar",
             Self::Array(_) => "array",
@@ -666,6 +669,7 @@ impl NodeBody {
             | Self::Combiner(_)
             | Self::Scanner
             | Self::Hunt(_)
+            | Self::Satellite(_)
             | Self::SpectrumMonitor(_)
             | Self::DmrTrunk(_)
             | Self::EventFilter(_)
@@ -825,8 +829,9 @@ fn ports_for(kind: &str) -> Vec<PortSpec> {
         "channel" => vec![
             PortSpec::new(Iq, In, true, Always)
                 .noted("every radio that may carry this decoder; it runs on the one that hears it"),
-            PortSpec::new(Control, In, false, Always)
-                .noted("a scanner or signal hunt drives this decoder; its radio follows"),
+            PortSpec::new(Control, In, false, Always).noted(
+                "a scanner, signal hunt or satellite drives this decoder; its radio follows",
+            ),
             PortSpec::new(Position, In, false, ChannelNeedsPosition),
             PortSpec::new(Baseband, Out, true, Always),
             PortSpec::new(Audio, Out, true, ChannelHasAudio),
@@ -852,6 +857,12 @@ fn ports_for(kind: &str) -> Vec<PortSpec> {
             PortSpec::new(Baseband, In, false, Always),
         ],
         "scanner" | "hunt" => vec![PortSpec::new(Control, Out, false, Always)],
+        "satellite" => vec![
+            PortSpec::new(Position, In, false, Always),
+            PortSpec::new(Control, Out, true, Always).noted(
+                "every decoder listening to this satellite; each is tuned and Doppler corrected",
+            ),
+        ],
         "speaker" => vec![PortSpec::new(Audio, In, true, Always)],
         "video" => vec![PortSpec::new(Video, In, true, Always)],
         "map" => vec![
@@ -1004,6 +1015,7 @@ impl PatchCatalog {
                 entry(&NodeBody::Export, "Export"),
                 entry(&NodeBody::Scanner, "Scanner"),
                 entry(&NodeBody::Hunt(HuntNode::default()), "Signal hunt"),
+                entry(&NodeBody::Satellite(SatelliteNode::default()), "Satellite"),
                 entry(&NodeBody::Df(DfNode::default()), "Direction finder"),
                 entry(
                     &NodeBody::PassiveRadar(PassiveRadarNode::default()),
@@ -1366,6 +1378,9 @@ impl PatchGraph {
                     return Err(PatchError::NodeSettings(node.id.clone()));
                 }
                 NodeBody::Df(df) if !df.settings.valid() => {
+                    return Err(PatchError::NodeSettings(node.id.clone()));
+                }
+                NodeBody::Satellite(satellite) if !satellite.valid() => {
                     return Err(PatchError::NodeSettings(node.id.clone()));
                 }
                 NodeBody::PassiveRadar(radar) if !radar.settings.valid() => {

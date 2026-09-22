@@ -30,6 +30,7 @@ local-ip-address = "0.6"
 sdrmm-wire.workspace = true
 sdrmm-engine.workspace = true
 sdrmm-dsp.workspace = true
+sdrmm-orbit.workspace = true
 sdrmm-device.workspace = true
 sdrmm-device-soapy = { workspace = true, optional = true }
 sdrmm-device-sdrplay = { workspace = true, optional = true }

@@ -1108,6 +1108,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/satellites": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["search_satellites"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/satellites/{catalog}/transmitters": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["satellite_transmitters"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/state": {
         parameters: {
             query?: never;
@@ -2002,6 +2034,11 @@ export interface components {
         };
         CapturedImagesResponse: {
             images: components["schemas"]["CapturedImage"][];
+        };
+        CatalogSatellite: {
+            catalog: string;
+            name: string;
+            tle: string;
         };
         CfarParams: {
             /**
@@ -4426,6 +4463,10 @@ export interface components {
             /** @enum {string} */
             kind: "hunt";
         } | {
+            data: components["schemas"]["SatelliteNode"];
+            /** @enum {string} */
+            kind: "satellite";
+        } | {
             data: components["schemas"]["DfNode"];
             /** @enum {string} */
             kind: "df";
@@ -5016,6 +5057,57 @@ export interface components {
         RttyText: {
             text: string;
         };
+        SatelliteCatalogResponse: {
+            satellites: components["schemas"]["CatalogSatellite"][];
+            source: string;
+        };
+        SatelliteLook: {
+            /** Format: double */
+            azimuth_deg: number;
+            /** Format: double */
+            elevation_deg: number;
+            /** Format: double */
+            range_km: number;
+            /** Format: double */
+            range_rate_km_s: number;
+        };
+        SatelliteNode: {
+            /** Format: double */
+            downlink_hz?: number | null;
+            /** Format: float */
+            min_elevation_deg?: number;
+            tle?: string | null;
+            /** Format: double */
+            uplink_hz?: number | null;
+        };
+        SatellitePass: {
+            /** Format: int64 */
+            aos?: number | null;
+            /** Format: int64 */
+            los?: number | null;
+            /** Format: int64 */
+            max_at: number;
+            /** Format: double */
+            max_elevation_deg: number;
+        };
+        SatelliteStatus: {
+            catalog?: string | null;
+            /** Format: double */
+            doppler_hz?: number | null;
+            /** Format: double */
+            doppler_rate_hz_s?: number | null;
+            driving?: string[];
+            error?: string | null;
+            look?: null | components["schemas"]["SatelliteLook"];
+            name?: string | null;
+            next_pass?: null | components["schemas"]["SatellitePass"];
+            node: string;
+            /** Format: double */
+            tle_age_days?: number | null;
+            /** Format: double */
+            uplink_hz?: number | null;
+            visible?: boolean;
+        };
         /** @enum {string} */
         ScanAction: "start" | "stop" | "skip";
         ScanList: {
@@ -5264,6 +5356,12 @@ export interface components {
             };
             /** @enum {string} */
             type: "HuntUpdate";
+        } | {
+            data: {
+                status: components["schemas"]["SatelliteStatus"];
+            };
+            /** @enum {string} */
+            type: "SatelliteUpdate";
         } | {
             data: {
                 error?: string | null;
@@ -5634,6 +5732,19 @@ export interface components {
         };
         /** @enum {string} */
         TransmissionState: "started" | "completed" | "continued" | "interrupted" | "problem";
+        Transmitter: {
+            alive: boolean;
+            description: string;
+            /** Format: double */
+            downlink_hz?: number | null;
+            mode?: string | null;
+            /** Format: double */
+            uplink_hz?: number | null;
+        };
+        TransmittersResponse: {
+            source: string;
+            transmitters: components["schemas"]["Transmitter"][];
+        };
         TrunkChannel: {
             /** Format: int32 */
             confidence: number;
@@ -8811,6 +8922,87 @@ export interface operations {
                 };
             };
             /** @description No routing backend is configured */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    search_satellites: {
+        parameters: {
+            query?: {
+                q?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Element sets matching a name or catalog number, or the amateur group when `q` is empty. Cached for two hours */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SatelliteCatalogResponse"];
+                };
+            };
+            /** @description A search with characters no satellite name has */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description The element set source could not be reached */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    satellite_transmitters: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description NORAD catalog number */
+                catalog: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Known transmitters of the satellite, live ones first. Cached for two hours */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TransmittersResponse"];
+                };
+            };
+            /** @description A catalog number that is not digits */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description The transmitter database could not be reached */
             503: {
                 headers: {
                     [name: string]: unknown;

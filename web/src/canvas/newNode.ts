@@ -69,6 +69,8 @@ export function newNodeBody(kind: NodeKind, seed: NewNodeSeed = {}): NodeBody {
       return { kind, data: { transport: "udp", format: "cf32_le", address: "127.0.0.1:7355" } };
     case "hunt":
       return { kind, data: { clicks: true } };
+    case "satellite":
+      return { kind, data: { min_elevation_deg: 0 } };
     case "time_machine":
       return { kind, data: { history_seconds: DEFAULT_HISTORY_SECONDS } };
     case "event_output":

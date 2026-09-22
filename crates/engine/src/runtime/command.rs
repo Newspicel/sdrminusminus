@@ -40,6 +40,10 @@ pub(crate) enum DspCommand {
         id: u32,
         fix: Option<PositionFix>,
     },
+    SteerChannel {
+        id: u32,
+        doppler: crate::Doppler,
+    },
     StartRecording {
         tap: RecorderTap,
         publisher: RecordingPublisher,

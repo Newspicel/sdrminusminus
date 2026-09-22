@@ -297,6 +297,7 @@ export const NODE_SIZE: Record<NodeKind, NodeSize> = {
   export: { w: 320 },
   scanner: { w: 400 },
   hunt: { w: 340 },
+  satellite: { w: 380 },
   df: { w: 400 },
   triangulation: { w: 380 },
   combiner: { w: 400 },

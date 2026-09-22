@@ -553,7 +553,7 @@ pub(super) async fn update_workspace(
         Ok(info)
     })
     .await??;
-    reconcile_gps(state).await?;
+    reconcile_graph(state).await?;
     Ok(Json(info))
 }
 
@@ -587,7 +587,7 @@ pub(super) async fn delete_workspace(
         Ok(())
     })
     .await??;
-    reconcile_gps(gps_state).await?;
+    reconcile_graph(gps_state).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -634,7 +634,7 @@ pub(super) async fn activate_workspace(
         Ok(())
     })
     .await??;
-    reconcile_gps(gps_state).await?;
+    reconcile_graph(gps_state).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -714,7 +714,7 @@ pub(super) async fn step_history(
         Ok(detail)
     })
     .await??;
-    reconcile_gps(gps_state).await?;
+    reconcile_graph(gps_state).await?;
     Ok(Json(detail))
 }
 
@@ -748,12 +748,16 @@ pub(super) async fn apply_workspace(
         bring_up(&state, id, &workspace.snapshot, &saved)
     })
     .await??;
-    reconcile_gps(gps_state).await?;
+    reconcile_graph(gps_state).await?;
     Ok(Json(report))
 }
 
-pub(super) async fn reconcile_gps(state: AppState) -> Result<(), AppError> {
-    tokio::task::spawn_blocking(move || state.gps.reconcile(&state)).await?;
+pub(super) async fn reconcile_graph(state: AppState) -> Result<(), AppError> {
+    tokio::task::spawn_blocking(move || {
+        state.gps.reconcile(&state);
+        state.satellites.reconcile(&state);
+    })
+    .await?;
     Ok(())
 }
 

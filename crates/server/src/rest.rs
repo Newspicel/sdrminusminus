@@ -23,15 +23,16 @@ use sdrmm_wire::{
     CreatedId, CreatedRowId, DecoderLogEntry, DecoderLogQuery, DecoderLogResponse, DeletedCount,
     DeviceInfo, DeviceSettings, DevicesResponse, DfFusionState, DiagnosticsReport, DoctorReport,
     ErrorCode, ExportFormat, HuntAction, HuntRequest, HuntSettings, HuntStatus, IonosondeReport,
-    LicenseTextResponse, LocateQuery, MAX_RECORDING_UPLOAD_BYTES, NetworkExportAction,
-    NetworkExportRequest, NetworkExportStatus, NmeaDevicesResponse, NodeBody, OccupancyReport,
-    PRESET_SNAPSHOT_VERSION, PatchApplyReport, PatchBinding, PatchCatalog, PatchGraph,
-    PatchRefusal, PlaybackRequest, PlaybackStatus, PresetDevice, PresetInfo, PresetSnapshot,
-    RecordAction, RecordRequest, RecordingAnnotation, RecordingDownloadQuery, RecordingFormat,
-    RecordingInfo, RecordingStatus, RecordingUpload, RecordingsResponse, Route, RouteRequest,
-    ScanAction, ScanRequest, ScanSettings, ScannerStatus, ServerEvent, StateScope, StateSnapshot,
-    TemplateInfo, TemplatesResponse, TimeMachineAction, TimeMachineRequest, TimeMachineStatus,
-    ToolRequest, ToolResponse, ToolsResponse, UpdateWorkspaceRequest, VoiceCallsResponse,
+    LicenseTextResponse, LocateQuery, MAX_RECORDING_UPLOAD_BYTES, MAX_SATELLITE_QUERY_LEN,
+    NetworkExportAction, NetworkExportRequest, NetworkExportStatus, NmeaDevicesResponse, NodeBody,
+    OccupancyReport, PRESET_SNAPSHOT_VERSION, PatchApplyReport, PatchBinding, PatchCatalog,
+    PatchGraph, PatchRefusal, PlaybackRequest, PlaybackStatus, PresetDevice, PresetInfo,
+    PresetSnapshot, RecordAction, RecordRequest, RecordingAnnotation, RecordingDownloadQuery,
+    RecordingFormat, RecordingInfo, RecordingStatus, RecordingUpload, RecordingsResponse, Route,
+    RouteRequest, SatelliteCatalogQuery, SatelliteCatalogResponse, ScanAction, ScanRequest,
+    ScanSettings, ScannerStatus, ServerEvent, StateScope, StateSnapshot, TemplateInfo,
+    TemplatesResponse, TimeMachineAction, TimeMachineRequest, TimeMachineStatus, ToolRequest,
+    ToolResponse, ToolsResponse, TransmittersResponse, UpdateWorkspaceRequest, VoiceCallsResponse,
     WorkspaceDetail, WorkspaceExport, WorkspaceInfo, WorkspaceSnapshot, WorkspaceState,
     WorkspacesResponse,
 };
@@ -48,6 +49,7 @@ mod info;
 mod media;
 mod presets;
 mod recordings;
+mod satellites;
 mod scanning;
 mod workspaces;
 
@@ -62,6 +64,7 @@ use media::*;
 pub(crate) use media::{call_audio_path, captured_image_path};
 use presets::*;
 use recordings::*;
+use satellites::*;
 use scanning::*;
 use workspaces::*;
 
@@ -384,6 +387,8 @@ pub(crate) fn openapi_router() -> OpenApiRouter<AppState> {
         .routes(routes!(export_decoder_log))
         .routes(routes!(scan_channel))
         .routes(routes!(hunt_channel))
+        .routes(routes!(search_satellites))
+        .routes(routes!(satellite_transmitters))
         .routes(routes!(list_templates))
         .routes(routes!(apply_template))
         .routes(routes!(list_workspaces, create_workspace))

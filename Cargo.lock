@@ -5769,6 +5769,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "sdrmm-orbit"
+version = "0.0.0"
+dependencies = [
+ "sgp4",
+ "thiserror 2.0.20",
+]
+
+[[package]]
 name = "sdrmm-recorder"
 version = "0.0.0"
 dependencies = [
@@ -5814,6 +5822,7 @@ dependencies = [
  "sdrmm-device-virtual",
  "sdrmm-dsp",
  "sdrmm-engine",
+ "sdrmm-orbit",
  "sdrmm-recorder",
  "sdrmm-tools",
  "sdrmm-wire",
@@ -6130,6 +6139,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "170fb83ab34de17dc69aa7c67482b22218ddb85da56546f9bd6b929e32a05930"
 dependencies = [
  "stable_deref_trait",
+]
+
+[[package]]
+name = "sgp4"
+version = "2.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9467b9a7be8485ed8be0f336d399c8f32c0fcd60686e7dd2ed3dab75c9a73eb3"
+dependencies = [
+ "chrono",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

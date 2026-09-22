@@ -17,6 +17,7 @@ import { CanvasSurface } from "./NodeShell";
 import { PropagationFace } from "./PropagationFace";
 import { RangeDopplerFace } from "./RangeDopplerFace";
 import { RecordingFace } from "./RecordingFace";
+import { SatelliteFace } from "./SatelliteFace";
 import { ScopeFace } from "./ScopeFace";
 import { SignalGenFace } from "./SignalGenFace";
 import { SignalMapFace } from "./SignalMapFace";
@@ -76,6 +77,7 @@ export const NODE_TYPES: Record<NodeKind, ComponentType<NodeProps<Node<FlowData>
   export: mount(ExportFace),
   scanner: mount(ScannerFace),
   hunt: mount(HuntFace),
+  satellite: mount(SatelliteFace),
   df: mount(DfFace),
   passive_radar: mount(RangeDopplerFace),
   combiner: mount(CombinerFace),
@@ -109,6 +111,7 @@ export const FACES: Record<NodeKind, Face> = {
   export: ExportFace,
   scanner: ScannerFace,
   hunt: HuntFace,
+  satellite: SatelliteFace,
   df: DfFace,
   passive_radar: RangeDopplerFace,
   combiner: CombinerFace,

@@ -94,6 +94,9 @@ pub enum ServerEvent {
         device_set: u32,
         status: Box<crate::hunt::HuntStatus>,
     },
+    SatelliteUpdate {
+        status: Box<crate::satellite::SatelliteStatus>,
+    },
     PositionChanged {
         node: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]

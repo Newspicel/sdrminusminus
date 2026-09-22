@@ -15,6 +15,7 @@ use tokio::sync::broadcast;
 
 use super::{downconvert::Downconverter, dsp_block_len};
 use crate::{
+    Doppler,
     audio::PcmBlock,
     audio_recording::AudioRecorderTap,
     iq::IqBlock,
@@ -27,6 +28,7 @@ use crate::{
 
 const SQUELCH_HYSTERESIS_DB: f32 = 2.0;
 const SQUELCH_HOLD_S: f32 = 0.1;
+const DOPPLER_RAMP_S: f64 = 2.0;
 
 pub(crate) struct RawDecoded {
     pub(crate) device_set: u32,
@@ -166,6 +168,8 @@ pub(crate) struct ChannelHost {
     position: Option<PositionFix>,
     meter: LevelMeter,
     lo_artifact_hz: Option<f64>,
+    doppler: Doppler,
+    ramp_left: u64,
 }
 
 /// Whether the radio's window covers everything this channel occupies.
@@ -250,6 +254,8 @@ impl ChannelHost {
             position: None,
             meter: LevelMeter::new(input_rate),
             lo_artifact_hz: None,
+            doppler: Doppler::default(),
+            ramp_left: 0,
         }))
     }
 
@@ -261,6 +267,9 @@ impl ChannelHost {
         self.baseband_pos = previous.baseband_pos;
         self.gap_audio = previous.gap_audio;
         self.gap_baseband = previous.gap_baseband;
+        self.doppler = previous.doppler;
+        self.ramp_left = previous.ramp_left;
+        self.place();
     }
 
     pub(super) fn follow(&mut self, previous: &Self) {
@@ -351,6 +360,7 @@ impl ChannelHost {
         center_hz: f64,
         selected: Option<&[Complex<f32>]>,
     ) {
+        self.ramp_doppler(input.len());
         self.follow_center(center_hz);
         if !self.in_band {
             self.sinks
@@ -502,7 +512,36 @@ impl ChannelHost {
     }
 
     fn place(&mut self) {
-        let offset_hz = self.frequency_hz - self.center_hz;
+        if self.aim() {
+            self.restart_chain();
+        }
+    }
+
+    pub(crate) fn steer(&mut self, doppler: Doppler) {
+        self.doppler = doppler;
+        self.ramp_left = (DOPPLER_RAMP_S * self.device_rate) as u64;
+        self.glide();
+    }
+
+    fn ramp_doppler(&mut self, samples: usize) {
+        if self.ramp_left == 0 || self.doppler.rate_hz_s == 0.0 {
+            return;
+        }
+        let ramped = (samples as u64).min(self.ramp_left);
+        self.ramp_left -= ramped;
+        self.doppler.shift_hz += self.doppler.rate_hz_s * ramped as f64 / self.device_rate;
+        self.glide();
+    }
+
+    fn glide(&mut self) {
+        let was_in_band = self.in_band;
+        if self.aim() && !was_in_band {
+            self.restart_chain();
+        }
+    }
+
+    fn aim(&mut self) -> bool {
+        let offset_hz = self.frequency_hz + self.doppler.shift_hz - self.center_hz;
         self.in_band = reaches(
             offset_hz,
             self.band_low_hz,
@@ -510,10 +549,14 @@ impl ChannelHost {
             self.device_rate,
         );
         if !self.in_band || offset_hz == self.offset_hz {
-            return;
+            return false;
         }
         self.offset_hz = offset_hz;
         self.ddc.set_offset(offset_hz);
+        true
+    }
+
+    fn restart_chain(&mut self) {
         self.ddc.reset();
         self.filter.reset();
         self.audio.reset();
@@ -1410,5 +1453,50 @@ mod tests {
         host.retuned();
         let after = samples(&run(&mut host, &mut rx, &fm_tone(1_000.0, 2_500.0, 4_800)));
         assert!(rms(&after[..2_400]) < 1.0, "the old gain followed the tune");
+    }
+
+    #[test]
+    fn a_doppler_steer_follows_the_carrier_without_moving_the_decoder() {
+        let (mut host, _rx) = host(&nfm_settings(sdrmm_wire::Squelch::Off));
+        host.steer(Doppler {
+            shift_hz: 3_000.0,
+            rate_hz_s: 0.0,
+        });
+        assert_eq!(host.offset_hz, 3_000.0);
+        assert_eq!(
+            host.frequency_hz, CENTER,
+            "the tuned frequency stays the published one"
+        );
+    }
+
+    #[test]
+    fn a_doppler_ramp_glides_between_updates_and_stops_when_they_do() {
+        let (mut host, _rx) = host(&nfm_settings(sdrmm_wire::Squelch::Off));
+        host.steer(Doppler {
+            shift_hz: 0.0,
+            rate_hz_s: -100.0,
+        });
+        let second = RATE as usize;
+        host.process_and_flush(&tone(0.0, 0.1, second), CENTER);
+        assert!((host.offset_hz + 100.0).abs() < 1.0, "{}", host.offset_hz);
+        host.process_and_flush(&tone(0.0, 0.1, 3 * second), CENTER);
+        assert!(
+            (host.offset_hz + 100.0 * DOPPLER_RAMP_S).abs() < 1.0,
+            "a silent tracker must not steer forever: {}",
+            host.offset_hz
+        );
+    }
+
+    #[test]
+    fn a_doppler_steer_off_the_window_mutes_and_back_on_restores() {
+        let (mut host, _rx) = host(&nfm_settings(sdrmm_wire::Squelch::Off));
+        host.steer(Doppler {
+            shift_hz: 40_000.0,
+            rate_hz_s: 0.0,
+        });
+        assert!(!host.in_band);
+        host.steer(Doppler::default());
+        assert!(host.in_band);
+        assert_eq!(host.offset_hz, 0.0);
     }
 }

@@ -62,6 +62,7 @@ import type {
   RecordingsResponse,
   Route,
   RouteRequest,
+  SatelliteCatalogResponse,
   ScannerStatus,
   ScanSettings,
   StateSnapshot,
@@ -72,6 +73,7 @@ import type {
   ToolRequest,
   ToolResponse,
   ToolsResponse,
+  TransmittersResponse,
   VoiceCallsResponse,
   WorkspaceDetail,
   WorkspaceExport,
@@ -173,6 +175,31 @@ export function ionosondeQuery(enabled: boolean) {
     enabled,
     staleTime: 10 * 60_000,
     refetchInterval: 15 * 60_000,
+  });
+}
+
+export function satellitesQuery(search: string) {
+  return queryOptions({
+    queryKey: ["get", "/api/satellites", search] as const,
+    queryFn: async (): Promise<SatelliteCatalogResponse> =>
+      unwrap(await client.GET("/api/satellites", { params: { query: { q: search } } })),
+    staleTime: 60 * 60_000,
+    retry: false,
+  });
+}
+
+export function transmittersQuery(catalog: string | null) {
+  return queryOptions({
+    queryKey: ["get", "/api/satellites/{catalog}/transmitters", catalog] as const,
+    queryFn: async (): Promise<TransmittersResponse> =>
+      unwrap(
+        await client.GET("/api/satellites/{catalog}/transmitters", {
+          params: { path: { catalog: catalog ?? "" } },
+        }),
+      ),
+    enabled: catalog !== null,
+    staleTime: 60 * 60_000,
+    retry: false,
   });
 }
 

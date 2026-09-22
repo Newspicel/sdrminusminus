@@ -295,6 +295,13 @@ fn drain_commands(
                     tracing::debug!(id, "retune for a channel no longer hosted");
                 }
             }
+            DspCommand::SteerChannel { id, doppler } => {
+                if let Some((_, host)) = channels.iter_mut().find(|(existing, _)| *existing == id) {
+                    host.steer(doppler);
+                } else {
+                    tracing::debug!(id, "doppler for a channel no longer hosted");
+                }
+            }
             DspCommand::PositionChanged { id, fix } => {
                 if let Some((_, host)) = channels.iter_mut().find(|(existing, _)| *existing == id) {
                     host.position_changed(fix.as_ref());

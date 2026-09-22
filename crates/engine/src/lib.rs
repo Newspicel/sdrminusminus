@@ -35,6 +35,7 @@ pub mod coherent;
 mod coherent_ops;
 mod device_ops;
 mod discovery;
+mod doppler;
 #[cfg(feature = "gpu-fft")]
 mod gpu;
 mod history;
@@ -60,6 +61,7 @@ mod time_machine;
 pub mod trunking;
 pub mod video;
 pub use audio::{AudioPacket, PcmBlock, PcmPayload};
+pub use doppler::Doppler;
 pub use image::ImageCapture;
 pub use iq::{IQ_BLOCK_SAMPLES, IQ_BLOCKS_PER_SEC, IqBlock};
 pub use placement::{Allocation, Lane, Placeable, Placement};
