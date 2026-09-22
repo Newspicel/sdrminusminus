@@ -46,7 +46,7 @@ export function ServerDown({
   }, [reconnect]);
 
   return (
-    <div className="flex min-h-0 flex-1 items-center justify-center bg-bg px-4 py-10">
+    <div className="fixed inset-0 z-35 flex items-center justify-center bg-bg/90 px-4 py-10">
       <div
         role="alert"
         className="flex w-full max-w-md flex-col gap-3 rounded border border-line bg-panel px-4 py-4"
@@ -58,9 +58,7 @@ export function ServerDown({
         <div>
           <h1 className="text-sm font-semibold text-ink">Can't reach the server</h1>
           <p className="mt-1 text-sm text-ink-dim">
-            This window is running, but the SDR-- server behind it is not answering. Nothing you
-            arranged is lost — it lives on the server, and this page picks it up again by itself as
-            soon as the server is back.
+            Your work is safe on the server. This page reconnects when it is back.
           </p>
         </div>
         {detail !== null && (
@@ -68,7 +66,7 @@ export function ServerDown({
         )}
         <DevOnly>
           <p className="text-sm text-ink-dim">
-            Start it with <code className="font-mono text-ink">cargo run -p sdrmm</code> — the dev
+            Start it with <code className="font-mono text-ink">cargo run -p sdrmm</code>. The dev
             server proxies <code className="font-mono text-ink">/api</code> to 127.0.0.1:8080.
           </p>
         </DevOnly>
