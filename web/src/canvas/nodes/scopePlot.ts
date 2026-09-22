@@ -26,7 +26,7 @@ const TRACE_FILL_ALPHA = 0.2;
 const BAND_FILL_ALPHA = 0.3;
 const scratch = emptyPoints();
 
-const TRACE_INK: Record<TraceMode, string> = {
+export const TRACE_INK: Record<TraceMode, string> = {
   peak: "plot-hold",
   average: "plot-ink",
   min: "plot-ink-dim",

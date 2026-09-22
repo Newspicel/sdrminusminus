@@ -17,14 +17,12 @@ import { type Options, plotButton, segmentSm } from "../../components/controls";
 import { clampWindow } from "../../components/dbRange";
 import { formatHz, formatMhz } from "../../components/format";
 import { FrameTween } from "../../components/frameTween";
-import { Slider } from "../../components/Slider";
 import {
   alignHistory,
   type FrameKey,
   retuneAction,
   seedRows,
 } from "../../components/spectrumAlign";
-import { frozenAge, frozenCursor, frozenLength, frozenRow } from "../../components/spectrumFreeze";
 import {
   accumulateTraces,
   type DbWindow,
@@ -55,7 +53,6 @@ import {
   quantizeDb,
   VideoAverage,
 } from "../../components/videoAverage";
-import { rowsForHeight } from "../../gl/raster";
 import {
   attachWaterfall,
   COLORMAPS,
@@ -66,12 +63,7 @@ import {
 } from "../../gl/waterfall";
 import { bookmarksQuery } from "../../lib/api";
 import type { SpectrumFrame } from "../../lib/frame";
-import {
-  SPECTRUM_HISTORY_ROWS,
-  SPECTRUM_MAX_BINS,
-  type SpectrumHistory,
-  spectrumHub,
-} from "../../lib/spectrum";
+import { SPECTRUM_MAX_BINS, spectrumHub } from "../../lib/spectrum";
 import type { Bookmark, ChannelInfo, ChannelParams, DeviceSet, PatchNode } from "../../lib/types";
 import { useBandPlan } from "../../lib/useBandPlan";
 import { useChannelPatch } from "../../lib/useChannelPatch";
@@ -261,7 +253,6 @@ function Spectrum({
   const tracesRef = useRef<TraceState | null>(null);
   const densityRef = useRef<DensityLayer | null>(null);
   const rowRef = useRef<Uint8Array | null>(null);
-  const frozenDbRef = useRef<Float32Array | null>(null);
   const keyRef = useRef<FrameKey | null>(null);
   const hoverRef = useRef<number | null>(null);
   const reseedRef = useRef(0);
@@ -275,8 +266,6 @@ function Spectrum({
   const [phosphor, setPhosphor] = useState(false);
   const [average, setAverage] = useState<AverageFrames>(readAverage);
   const [range, setRange] = useState<DbWindow | null>(null);
-  const [frozen, setFrozen] = useState<SpectrumHistory | null>(null);
-  const [scrub, setScrub] = useState(0);
   const [waterfall, setWaterfall] = useState({ top: 0, height: 0, width: 0 });
   const [colormap, setColormap] = useState<Colormap>(readColormap);
   const [traceFraction, setTraceFraction] = useState(0.32);
@@ -296,16 +285,12 @@ function Spectrum({
   const viewRef = useRef(view);
   const modesRef = useRef(traceModes);
   const rangeRef = useRef(range);
-  const frozenRef = useRef(frozen);
-  const scrubRef = useRef(scrub);
   const averageRef = useRef(average);
   useLayoutEffect(() => {
     viewRef.current = view;
     averageRef.current = average;
     modesRef.current = traceModes;
     rangeRef.current = range;
-    frozenRef.current = frozen;
-    scrubRef.current = scrub;
     if (!active) {
       hoverRef.current = null;
     }
@@ -513,7 +498,7 @@ function Spectrum({
         densityRef.current?.clear();
         if (action.kind === "shift") {
           rendererRef.current?.shiftRows(action.delta);
-        } else if (frozenRef.current === null) {
+        } else {
           const rows = spectrumHub.history(setId, stream);
           if (rows.count > 0) {
             rendererRef.current?.seed(
@@ -525,14 +510,12 @@ function Spectrum({
           }
         }
       }
-      if (frozenRef.current === null) {
-        if (!seeded) {
-          rowRef.current = waterfallRow(frame, db, liveDbRef.current, held, rowRef.current);
-          rendererRef.current?.pushRow(rowRef.current);
-        }
-        tracesRef.current = accumulateTraces(tracesRef.current, db);
-        densityRef.current?.add(db, viewRef.current, window);
+      if (!seeded) {
+        rowRef.current = waterfallRow(frame, db, liveDbRef.current, held, rowRef.current);
+        rendererRef.current?.pushRow(rowRef.current);
       }
+      tracesRef.current = accumulateTraces(tracesRef.current, db);
+      densityRef.current?.add(db, viewRef.current, window);
       count += 1;
       if (count === 1 || count % 8 === 0) {
         setMeta(metaOf(frame));
@@ -545,12 +528,9 @@ function Spectrum({
     let raf = 0;
     const loop = () => {
       const { frame, window } = plotSource(
-        frozenRef.current,
-        scrubRef.current,
         frameRef.current,
         liveDbRef.current === null ? null : tweenRef.current.sample(performance.now()),
         rangeRef.current,
-        frozenDbRef,
       );
       drawPlot(traceRef.current, {
         frame,
@@ -624,7 +604,7 @@ function Spectrum({
     if (setId === null) {
       return;
     }
-    const past = frozenRef.current ?? spectrumHub.history(setId, stream);
+    const past = spectrumHub.history(setId, stream);
     if (past.count === 0) {
       return;
     }
@@ -672,29 +652,7 @@ function Spectrum({
     applyRange(clampWindow(displayWindow(meta, null)));
   };
 
-  const toggleFreeze = (): void => {
-    if (frozen !== null) {
-      frozenRef.current = null;
-      setFrozen(null);
-      reseed(rangeRef.current);
-      return;
-    }
-    if (setId === null) {
-      return;
-    }
-    const captured = spectrumHub.history(setId, stream);
-    frozenRef.current = captured;
-    setFrozen(captured);
-    setScrub(Math.max(0, frozenLength(captured) - 1));
-  };
-
   const shownRange = displayWindow(meta, range);
-  const frozenRows = frozen === null ? 0 : frozenLength(frozen);
-  const cursorAt =
-    frozen === null
-      ? null
-      : frozenCursor(scrub, frozenRows, rowsForHeight(waterfall.height, 1, SPECTRUM_HISTORY_ROWS));
-
   const spanHz = meta?.spanHz ?? 0;
   const pointerFraction = (clientX: number): number => {
     const rect = plotRef.current?.getBoundingClientRect();
@@ -877,13 +835,6 @@ function Spectrum({
       <Divider fraction={traceFraction} onFraction={setTraceFraction} plotRef={plotRef} />
       <canvas ref={waterfallRef} className="w-full min-h-0 flex-1" />
 
-      {cursorAt !== null && (
-        <div
-          className="pointer-events-none absolute inset-x-0 border-t border-plot-ink/80"
-          style={{ top: `${waterfall.top + cursorAt * waterfall.height}px` }}
-        />
-      )}
-
       {meta !== null && (
         <Bookmarks
           bookmarks={bookmarks.data ?? []}
@@ -935,14 +886,6 @@ function Spectrum({
             onRange={applyRange}
             onAuto={() => applyRange(null)}
           />
-          <Button
-            type="button"
-            className={plotButton(frozen !== null)}
-            aria-pressed={frozen !== null}
-            onClick={toggleFreeze}
-          >
-            {frozen === null ? "freeze" : "live"}
-          </Button>
           {!isFullView(view) && (
             <Button type="button" className={plotButton(false)} onClick={() => setView(FULL_VIEW)}>
               {(1 / viewWidth(view)).toFixed(1)}× · reset
@@ -950,27 +893,6 @@ function Spectrum({
           )}
         </div>
       </div>
-
-      {frozen !== null && frozenRows > 0 && (
-        <div className="absolute inset-x-1.5 bottom-8 flex flex-col gap-1">
-          <div
-            data-plot-chrome
-            className="flex items-center gap-2 rounded-[3px] bg-plot-bg/85 px-1.5 py-1"
-          >
-            <Slider
-              label="Scrub the frozen waterfall"
-              className="min-w-0 flex-1"
-              min={0}
-              max={frozenRows - 1}
-              value={Math.min(scrub, frozenRows - 1)}
-              onChange={setScrub}
-            />
-            <span className="legend w-16 shrink-0 text-right whitespace-pre text-plot-ink-dim">
-              {frozenAge(frozen, scrub)}
-            </span>
-          </div>
-        </div>
-      )}
 
       {openMenu !== null && (
         <ScopeMenu
@@ -1418,21 +1340,10 @@ function displayWindow(meta: FrameMeta | null, held: DbWindow | null): DbWindow 
 }
 
 function plotSource(
-  frozen: SpectrumHistory | null,
-  scrub: number,
   frame: SpectrumFrame | null,
   liveDb: Float32Array | null,
   held: DbWindow | null,
-  scratch: RefObject<Float32Array | null>,
 ): { frame: PlotFrame | null; window: DbWindow } {
-  if (frozen !== null) {
-    const row = frozenRow(frozen, scrub, scratch.current);
-    scratch.current = row?.db ?? null;
-    return {
-      frame: row === null ? null : { centerHz: row.centerHz, spanHz: row.spanHz, db: row.db },
-      window: held ?? row?.window ?? EMPTY_WINDOW,
-    };
-  }
   if (frame === null || liveDb === null) {
     return { frame: null, window: held ?? EMPTY_WINDOW };
   }
