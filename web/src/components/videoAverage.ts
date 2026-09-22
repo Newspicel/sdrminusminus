@@ -2,6 +2,7 @@ import type { DbWindow } from "./spectrumTraces";
 
 export const AVERAGE_CHOICES = [1, 2, 4, 8, 16] as const;
 export type AverageFrames = (typeof AVERAGE_CHOICES)[number];
+export const DEFAULT_AVERAGE: AverageFrames = 4;
 
 export class VideoAverage {
   private power = new Float32Array(0);

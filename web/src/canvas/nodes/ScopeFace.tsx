@@ -17,6 +17,7 @@ import { type Options, plotButton, segmentSm } from "../../components/controls";
 import { clampWindow } from "../../components/dbRange";
 import { formatHz, formatMhz } from "../../components/format";
 import { FrameTween } from "../../components/frameTween";
+import { ReadoutHold } from "../../components/readoutHold";
 import {
   alignHistory,
   type FrameKey,
@@ -50,6 +51,7 @@ import {
 import {
   AVERAGE_CHOICES,
   type AverageFrames,
+  DEFAULT_AVERAGE,
   quantizeDb,
   VideoAverage,
 } from "../../components/videoAverage";
@@ -249,6 +251,7 @@ function Spectrum({
   const gestureRef = useRef<Gesture | null>(null);
   const liveDbRef = useRef<Float32Array | null>(null);
   const tweenRef = useRef(new FrameTween());
+  const readoutRef = useRef(new ReadoutHold());
   const videoRef = useRef(new VideoAverage());
   const tracesRef = useRef<TraceState | null>(null);
   const densityRef = useRef<DensityLayer | null>(null);
@@ -539,6 +542,7 @@ function Spectrum({
         traces: overlays(tracesRef.current, modesRef.current, frame),
         density: densityRef.current,
         cursor: hoverRef.current,
+        readout: readoutRef.current,
       });
       raf = requestAnimationFrame(loop);
     };
@@ -1305,9 +1309,9 @@ function waterfallRow(
 function readAverage(): AverageFrames {
   try {
     const stored = Number(localStorage.getItem(AVERAGE_KEY));
-    return AVERAGE_CHOICES.find((frames) => frames === stored) ?? 1;
+    return AVERAGE_CHOICES.find((frames) => frames === stored) ?? DEFAULT_AVERAGE;
   } catch {
-    return 1;
+    return DEFAULT_AVERAGE;
   }
 }
 

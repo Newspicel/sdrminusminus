@@ -7,6 +7,7 @@ import {
   decayDensity,
   densityToImage,
 } from "../../components/persistence";
+import type { ReadoutHold } from "../../components/readoutHold";
 import { type DbWindow, type TraceMode, traceUnit } from "../../components/spectrumTraces";
 import {
   decibelTicks,
@@ -50,13 +51,14 @@ export interface PlotOptions {
   traces: readonly PlotTrace[];
   density: DensityLayer | null;
   cursor?: number | null;
+  readout?: ReadoutHold;
 }
 
 export function readoutAt(
   frame: PlotFrame,
   view: SpectrumView,
   at: number,
-): { hz: number; db: number } | null {
+): { hz: number; db: number; bin: number } | null {
   if (at < 0 || at > 1 || frame.db.length === 0 || !(frame.spanHz > 0)) {
     return null;
   }
@@ -66,7 +68,7 @@ export function readoutAt(
     frame.db.length - 1,
     Math.max(0, Math.round(fraction * (frame.db.length - 1))),
   );
-  return { hz, db: frame.db[index] ?? Number.NEGATIVE_INFINITY };
+  return { hz, db: frame.db[index] ?? Number.NEGATIVE_INFINITY, bin: index };
 }
 
 export class GridBitmap {
@@ -217,7 +219,7 @@ export function drawPlot(canvas: HTMLCanvasElement | null, options: PlotOptions)
 
   const cursor = options.cursor ?? null;
   if (cursor !== null) {
-    drawCursor(ctx, frame, view, cursor, width, plotH);
+    drawCursor(ctx, frame, view, cursor, width, plotH, options.readout);
   }
 }
 
@@ -228,6 +230,7 @@ function drawCursor(
   at: number,
   width: number,
   plotH: number,
+  hold: ReadoutHold | undefined,
 ): void {
   const readout = readoutAt(frame, view, at);
   if (readout === null) {
@@ -241,7 +244,8 @@ function drawCursor(
   ctx.lineTo(x, plotH);
   ctx.stroke();
   ctx.globalAlpha = 1;
-  const level = Number.isFinite(readout.db) ? `  ${readout.db.toFixed(1)} dBFS` : "";
+  const db = hold?.read(readout.bin, readout.db, performance.now()) ?? readout.db;
+  const level = Number.isFinite(db) ? `  ${db.toFixed(1)} dBFS` : "";
   const text = `${formatMhz(readout.hz)}${level}`;
   const w = ctx.measureText(text).width + 8;
   const left = x + 6 + w > width ? x - 6 - w : x + 6;

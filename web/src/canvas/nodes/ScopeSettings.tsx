@@ -9,7 +9,11 @@ import { Segmented } from "../../components/Segmented";
 import { Slider } from "../../components/Slider";
 import { Switch } from "../../components/Switch";
 import { type DbWindow, TRACE_MODES, type TraceMode } from "../../components/spectrumTraces";
-import { AVERAGE_CHOICES, type AverageFrames } from "../../components/videoAverage";
+import {
+  AVERAGE_CHOICES,
+  type AverageFrames,
+  DEFAULT_AVERAGE,
+} from "../../components/videoAverage";
 import { type Colormap, sampleColormap } from "../../gl/colormap";
 import { COLORMAPS } from "../../gl/waterfall";
 import { TRACE_INK } from "./scopePlot";
@@ -39,7 +43,8 @@ export interface ScopeSettingsProps {
 }
 
 export function ScopeSettings(props: ScopeSettingsProps) {
-  const changed = props.average > 1 || props.traces.length > 0 || props.phosphor || props.manual;
+  const changed =
+    props.average !== DEFAULT_AVERAGE || props.traces.length > 0 || props.phosphor || props.manual;
   return (
     <Popover
       label={<Icon glyph={Settings2} size={12} />}
