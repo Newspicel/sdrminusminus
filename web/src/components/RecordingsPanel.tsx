@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Download, FolderOpen, Pencil, Trash2 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   AUDIO_RECORDINGS_KEY,
   aboutQuery,
@@ -34,6 +34,7 @@ import {
 } from "./ListPanel";
 import { RecordingUpload } from "./RecordingUpload";
 import {
+  deleteAll,
   describeRecording,
   downloadFormats,
   formatDuration,
@@ -91,6 +92,7 @@ export function RecordingsPanel({ onOpen }: { onOpen: (recording: RecordingInfo)
           />
         )}
         <RecordingUpload compact={listed.length > 0} />
+        <ClearAllRecordings iq={listed.map((r) => r.id)} />
       </PanelToolbar>
       {dir != null && <RecordingsFolder dir={dir} reveal={reveal} />}
       {listed.length === 0 && <PanelHint>No recordings yet.</PanelHint>}
@@ -159,6 +161,58 @@ export function RecordingsPanel({ onOpen }: { onOpen: (recording: RecordingInfo)
       )}
       <AudioRecordings reveal={reveal} />
     </Panel>
+  );
+}
+
+const CLEAR_ARM_MS = 3000;
+
+function ClearAllRecordings({ iq }: { iq: readonly number[] }) {
+  const queryClient = useQueryClient();
+  const audio = useQuery(audioRecordingsQuery()).data?.recordings ?? [];
+  const [armed, setArmed] = useState(false);
+
+  useEffect(() => {
+    if (!armed) {
+      return;
+    }
+    const timer = window.setTimeout(() => setArmed(false), CLEAR_ARM_MS);
+    return () => window.clearTimeout(timer);
+  }, [armed]);
+
+  const clearMut = useMutation({
+    mutationFn: () =>
+      deleteAll([
+        ...iq.map((id) => () => deleteRecording(id)),
+        ...audio.map((r) => () => deleteAudioRecording(r.file)),
+      ]),
+    onSuccess: (failed) => {
+      if (failed > 0) {
+        pushToast(`${failed} recording${failed === 1 ? "" : "s"} could not be deleted`);
+      }
+    },
+    onError: (e) => pushToast(e.message),
+    onSettled: () => {
+      setArmed(false);
+      void queryClient.invalidateQueries({ queryKey: RECORDINGS_KEY });
+      void queryClient.invalidateQueries({ queryKey: AUDIO_RECORDINGS_KEY });
+    },
+  });
+
+  if (iq.length === 0 && audio.length === 0) {
+    return null;
+  }
+  return (
+    <Button
+      type="button"
+      className={`${BTN_SM} hover:border-danger hover:text-danger ${
+        armed ? "border-danger text-danger" : ""
+      }`}
+      title="Delete every IQ and audio recording"
+      disabled={clearMut.isPending}
+      onClick={() => (armed ? clearMut.mutate() : setArmed(true))}
+    >
+      {armed ? "Confirm clear" : "Clear all"}
+    </Button>
   );
 }
 

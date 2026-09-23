@@ -120,3 +120,8 @@ export function recordingProvenance(recording: RecordingInfo): string {
 function pad2(n: number): string {
   return String(n).padStart(2, "0");
 }
+
+export async function deleteAll(deletions: ReadonlyArray<() => Promise<void>>): Promise<number> {
+  const results = await Promise.allSettled(deletions.map((remove) => remove()));
+  return results.filter((result) => result.status === "rejected").length;
+}

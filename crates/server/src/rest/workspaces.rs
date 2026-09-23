@@ -334,6 +334,9 @@ fn open_arrays(
             continue;
         }
         let key = sdrmm_wire::patch::array_key(&node.id);
+        if engine.arrays().get(&key).is_none() {
+            continue;
+        }
         match engine.create_array_set(&key) {
             Ok(id) => {
                 if first_binding(app, workspace, &node.id, id) {

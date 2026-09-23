@@ -78,16 +78,19 @@ impl CoherentHub {
     }
 }
 
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum Wiring {
+    Complete(String, Vec<u32>),
+    Incomplete,
+    MixedRadios,
+}
+
 /// Which of the radio's lanes feed a coherent node, in the order its elements are numbered.
 ///
 /// Read off the wires themselves: the port a lane arrives on names the element, and the device
 /// port it left names the lane, so a cable swap is a re-wire rather than a recalibration.
 #[must_use]
-pub(crate) fn wired_lanes(
-    graph: &PatchGraph,
-    node: &str,
-    body: &NodeBody,
-) -> Option<(String, Vec<u32>)> {
+pub(crate) fn wired_lanes(graph: &PatchGraph, node: &str, body: &NodeBody) -> Wiring {
     let ports: Vec<String> = match body {
         NodeBody::Df(df) => (0..df.settings.geometry.count())
             .map(|element| stream_port("iq", element))
@@ -99,22 +102,33 @@ pub(crate) fn wired_lanes(
             RADAR_REFERENCE_PORT.to_owned(),
             RADAR_SURVEILLANCE_PORT.to_owned(),
         ],
-        _ => return None,
+        _ => return Wiring::Incomplete,
     };
-    let mut device = None;
+    let mut device: Option<String> = None;
     let mut lanes = Vec::with_capacity(ports.len());
+    let mut complete = true;
     for port in &ports {
-        let edge = graph
+        let Some(edge) = graph
             .edges
             .iter()
-            .find(|edge| edge.to.node == node && edge.to.port == *port)?;
+            .find(|edge| edge.to.node == node && edge.to.port == *port)
+        else {
+            complete = false;
+            continue;
+        };
         let source = device.get_or_insert_with(|| edge.from.node.clone());
         if *source != edge.from.node {
-            return None;
+            return Wiring::MixedRadios;
         }
-        lanes.push(port_stream("iq", &edge.from.port)?);
+        match port_stream("iq", &edge.from.port) {
+            Some(lane) => lanes.push(lane),
+            None => complete = false,
+        }
     }
-    device.map(|device| (device, lanes))
+    match device {
+        Some(device) if complete => Wiring::Complete(device, lanes),
+        _ => Wiring::Incomplete,
+    }
 }
 
 /// The triangulation nodes a finder's bearings are wired into, which is where they are crossed
@@ -210,12 +224,17 @@ pub(crate) fn apply(
         let Some(params) = settings_of(&node.body) else {
             continue;
         };
-        let Some((device_node, lanes)) = wired_lanes(graph, &node.id, &node.body) else {
-            refused.push((
-                node.id.clone(),
-                "every lane of a coherent node has to come from one radio".to_owned(),
-            ));
-            continue;
+        let (device_node, lanes) = match wired_lanes(graph, &node.id, &node.body) {
+            Wiring::Complete(device_node, lanes) => (device_node, lanes),
+            Wiring::Incomplete => {
+                forget_binding(state, &node.id);
+                continue;
+            }
+            Wiring::MixedRadios => {
+                forget_binding(state, &node.id);
+                refused.push((node.id.clone(), "wire all inputs from one radio".to_owned()));
+                continue;
+            }
         };
         let Some((_, device_set)) = bound.iter().find(|(name, _)| *name == device_node) else {
             continue;
@@ -282,6 +301,13 @@ pub(crate) fn apply(
         }
     }
     refused
+}
+
+fn forget_binding(state: &AppState, node: &str) {
+    if let Some(binding) = state.coherent.binding(node) {
+        let _ = state.engine.remove_coherent(binding.device_set, binding.id);
+        state.coherent.forget(node);
+    }
 }
 
 /// Turns what the aggregator reports into the events every client already listens to, naming the
@@ -460,9 +486,10 @@ mod tests {
             ],
         };
         let body = &graph.node("df").expect("df node").body;
-        let (device, lanes) = wired_lanes(&graph, "df", body).expect("a complete wiring");
-        assert_eq!(device, "radio");
-        assert_eq!(lanes, vec![2, 0, 3, 1]);
+        assert_eq!(
+            wired_lanes(&graph, "df", body),
+            Wiring::Complete("radio".to_owned(), vec![2, 0, 3, 1])
+        );
     }
 
     #[test]
@@ -478,7 +505,17 @@ mod tests {
             ],
         };
         let body = &graph.node("df").expect("df node").body;
-        assert!(wired_lanes(&graph, "df", body).is_none());
+        assert_eq!(wired_lanes(&graph, "df", body), Wiring::Incomplete);
+    }
+
+    #[test]
+    fn an_unwired_array_is_idle_not_refused() {
+        let graph = PatchGraph {
+            nodes: vec![node("df", df_node(4))],
+            edges: vec![],
+        };
+        let body = &graph.node("df").expect("df node").body;
+        assert_eq!(wired_lanes(&graph, "df", body), Wiring::Incomplete);
     }
 
     #[test]
@@ -495,7 +532,7 @@ mod tests {
             ],
         };
         let body = &graph.node("df").expect("df node").body;
-        assert!(wired_lanes(&graph, "df", body).is_none());
+        assert_eq!(wired_lanes(&graph, "df", body), Wiring::MixedRadios);
     }
 
     #[test]
@@ -511,8 +548,9 @@ mod tests {
             ],
         };
         let body = &graph.node("radar").expect("radar node").body;
-        let (device, lanes) = wired_lanes(&graph, "radar", body).expect("a complete wiring");
-        assert_eq!(device, "radio");
-        assert_eq!(lanes, vec![1, 0]);
+        assert_eq!(
+            wired_lanes(&graph, "radar", body),
+            Wiring::Complete("radio".to_owned(), vec![1, 0])
+        );
     }
 }

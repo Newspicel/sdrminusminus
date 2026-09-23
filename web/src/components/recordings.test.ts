@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { DeviceSet, RecordingInfo, RecordingStatus } from "../lib/types";
 import { formatBytes } from "./format";
 import {
+  deleteAll,
   deriveRecordControl,
   describeRecording,
   formatDuration,
@@ -225,5 +226,25 @@ describe("recordingTitle", () => {
       "siggen-20260809-120000",
     );
     expect(recordingProvenance(recording)).not.toContain("siggen-20260809-120000");
+  });
+});
+
+describe("deleteAll", () => {
+  it("runs every deletion and counts the failures", async () => {
+    const ran: number[] = [];
+    const failed = await deleteAll([
+      async () => {
+        ran.push(1);
+      },
+      async () => {
+        ran.push(2);
+        throw new Error("in use");
+      },
+      async () => {
+        ran.push(3);
+      },
+    ]);
+    expect(ran).toEqual([1, 2, 3]);
+    expect(failed).toBe(1);
   });
 });

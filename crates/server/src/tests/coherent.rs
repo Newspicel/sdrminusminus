@@ -79,18 +79,31 @@ async fn a_direction_finder_the_patch_no_longer_draws_is_taken_down() {
 }
 
 #[tokio::test]
-async fn an_array_wired_to_only_some_of_its_lanes_is_refused_by_name() {
-    let (app, _state) = test_router_with_state();
+async fn an_array_wired_to_only_some_of_its_lanes_waits_quietly() {
+    let (app, state) = test_router_with_state();
     let mut snapshot = array_snapshot();
     snapshot.graph.edges.retain(|edge| edge.to.port != "iq4");
     let workspace = put_active_workspace(&app, &snapshot).await;
     let report = apply(&app, workspace).await;
-    let refusal = report
-        .refused
-        .iter()
-        .find(|refusal| refusal.node == "df")
-        .expect("the half-wired array is refused");
-    assert!(refusal.reason.contains("lane"), "{refusal:?}");
+    assert!(
+        report.refused.iter().all(|refusal| refusal.node != "df"),
+        "{:?}",
+        report.refused
+    );
+    assert!(state.coherent.binding("df").is_none());
+}
+
+#[tokio::test]
+async fn unwiring_a_lane_takes_the_array_down() {
+    let (app, state) = test_router_with_state();
+    staged_array(&app).await;
+    let binding = state.coherent.binding("df").expect("bound");
+    let mut snapshot = array_snapshot();
+    snapshot.graph.edges.retain(|edge| edge.to.port != "iq4");
+    let workspace = put_workspace_revision(&app, &snapshot, 2).await;
+    apply(&app, workspace).await;
+    assert!(state.coherent.binding("df").is_none());
+    assert!(state.engine.coherent_nodes(binding.device_set).is_empty());
 }
 
 #[tokio::test]
@@ -298,9 +311,20 @@ async fn an_incomplete_array_keeps_its_device_node_live() {
     let (app, state) = test_router_with_state();
     let snapshot = array_node_snapshot(&["virtual:siggen"]);
     let workspace = put_active_workspace(&app, &snapshot).await;
-    apply(&app, workspace).await;
+    let report = apply(&app, workspace).await;
+    assert!(report.refused.is_empty(), "{report:?}");
     assert!(state.engine.arrays().all().is_empty());
     assert_eq!(state.engine.snapshot().device_sets.len(), 1);
+}
+
+#[tokio::test]
+async fn an_unwired_array_is_not_an_error() {
+    let (app, state) = test_router_with_state();
+    let snapshot = array_node_snapshot(&[]);
+    let workspace = put_active_workspace(&app, &snapshot).await;
+    let report = apply(&app, workspace).await;
+    assert!(report.refused.is_empty(), "{report:?}");
+    assert!(state.engine.snapshot().device_sets.is_empty());
 }
 
 #[tokio::test]
