@@ -628,40 +628,6 @@ mod tests {
         assert_eq!(status.label.as_deref(), Some(testgen::datv::PROGRAM_NAME));
     }
 
-    const DOPPLER_HZ: f64 = 55_000.0;
-    const DOPPLER_DRIFT_HZ_PER_S: f64 = -1_000.0;
-    const ISS_ES_N0_DB: f32 = 4.0;
-
-    fn doppler(iq: &mut [Complex<f32>], rate: f64, offset_hz: f64, drift_hz_per_s: f64) {
-        for (index, sample) in iq.iter_mut().enumerate() {
-            let t = index as f64 / rate;
-            let phase = std::f64::consts::TAU * (offset_hz * t + 0.5 * drift_hz_per_s * t * t);
-            *sample *= Complex::from_polar(1.0, phase as f32);
-        }
-    }
-
-    #[test]
-    fn an_iss_second_generation_carrier_rides_its_doppler() {
-        use crate::datv::dvbs2::{frame::Modulation, ldpc::Rate};
-        let params = DatvParams {
-            standard: DatvStandard::DvbS2,
-            symbol_rate: 2_000_000.0,
-            ..DatvParams::default()
-        };
-        let rate = input_rate_hz(&params);
-        let mut iq = testgen::datv::dvbs2_with(2, &params, Modulation::Qpsk, Rate::R1_2);
-        doppler(&mut iq, rate, DOPPLER_HZ, DOPPLER_DRIFT_HZ_PER_S);
-        let power = iq.iter().map(|value| value.norm_sqr()).sum::<f32>() / iq.len() as f32;
-        let noise = power * (rate / params.symbol_rate) as f32 / 10f32.powf(ISS_ES_N0_DB / 10.0);
-        testgen::add_noise(&mut iq, 7, (1.5 * noise).sqrt());
-        let mut channel = open(params);
-        let statuses = drive(&mut channel, &iq);
-        let status = statuses.last().expect("a broadcast status");
-        assert!(status.locked, "{status:?}");
-        assert!(status.frames_ok > 100, "{status:?}");
-        assert_eq!(status.label.as_deref(), Some(testgen::datv::PROGRAM_NAME));
-    }
-
     #[test]
     fn a_generated_transport_stream_reaches_the_program_table() {
         let iq = testgen::datv::dvbs(3);

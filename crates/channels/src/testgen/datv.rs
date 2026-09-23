@@ -189,27 +189,6 @@ pub fn dvbs2_mode(
 }
 
 #[must_use]
-pub fn dvbs2_with(
-    seconds: usize,
-    p: &DatvParams,
-    modulation: Modulation,
-    rate: Rate,
-) -> Vec<Complex<f32>> {
-    let wanted = seconds * p.symbol_rate as usize;
-    let modcod = ModCod::find_for_frame(modulation, rate, false).expect("a catalogued mode");
-    let mut encoder = Dvbs2Encoder::new(modcod, false, true).expect("a supported mode");
-    let mut multiplex = Multiplex::new();
-    let mut symbols = Vec::with_capacity(wanted);
-    while symbols.len() < wanted {
-        let packets: Vec<[u8; PACKET]> = (0..encoder.capacity())
-            .map(|_| multiplex.packet())
-            .collect();
-        encoder.frame(&packets, &mut symbols);
-    }
-    shape_with(&symbols, p)
-}
-
-#[must_use]
 pub fn dvbs2_superframes(seconds: usize) -> Vec<Complex<f32>> {
     use crate::datv::dvbs2::{pl, superframe};
     let count = (seconds * SYMBOL_RATE as usize).div_ceil(superframe::LENGTH);

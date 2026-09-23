@@ -130,7 +130,6 @@ pub fn header(signalling: Signalling, out: &mut Vec<Complex<f32>>) {
 #[derive(Clone, Copy, Debug)]
 pub struct SofFit {
     pub coherence: f32,
-    pub drift_coherence: f32,
     pub rotation: f32,
     pub reference: Complex<f32>,
 }
@@ -156,8 +155,6 @@ pub fn correlate_sof(symbols: &[Complex<f32>]) -> Option<SofFit> {
         .fold(Complex::new(0.0f32, 0.0), |sum, &value| sum + value);
     Some(SofFit {
         coherence: sum.norm() / energy.max(1e-12).sqrt() / (SOF.len() as f32).sqrt(),
-        drift_coherence: lag.norm() * SOF.len() as f32
-            / (energy.max(1e-12) * (SOF.len() - 1) as f32),
         rotation: if lag.norm() > 1e-12 { lag.arg() } else { 0.0 },
         reference: sum / sum.norm().max(1e-12),
     })
@@ -178,40 +175,6 @@ pub fn header_phase(symbols: &[Complex<f32>], signalling: Signalling) -> Option<
         sum += symbols[SOF.len() + step] * plsc(SOF.len() + step, bit, jump).conj();
     }
     (sum.norm() > 1e-12).then(|| sum.arg())
-}
-
-#[must_use]
-pub fn header_rotation(symbols: &[Complex<f32>], signalling: Signalling) -> Option<f32> {
-    if symbols.len() < HEADER {
-        return None;
-    }
-    let coded = signalling_bits(signalling);
-    let jump = extended(signalling);
-    let reference = |index: usize| {
-        if index < SOF.len() {
-            bpsk(index, SOF[index])
-        } else {
-            plsc(index, coded[index - SOF.len()], jump)
-        }
-    };
-    let mut previous = symbols[0] * reference(0).conj();
-    let mut lag = Complex::new(0.0f32, 0.0);
-    for (index, &symbol) in symbols.iter().enumerate().take(HEADER).skip(1) {
-        let stripped = symbol * reference(index).conj();
-        lag += stripped * previous.conj();
-        previous = stripped;
-    }
-    (lag.norm() > 1e-12).then(|| lag.arg())
-}
-
-#[must_use]
-pub fn pilot_lag(block: &[Complex<f32>], distance: usize) -> Complex<f32> {
-    block
-        .iter()
-        .zip(block.iter().skip(distance))
-        .fold(Complex::new(0.0f32, 0.0), |sum, (&early, &late)| {
-            sum + late * early.conj()
-        })
 }
 
 #[must_use]
@@ -544,35 +507,6 @@ mod tests {
             let phase = header_phase(&turned, signalling).expect("a phase");
             assert!((phase - turn).abs() < 1e-4, "{turn}: {phase}");
         }
-    }
-
-    #[test]
-    fn the_whole_header_measures_a_carrier_drift() {
-        let signalling = Signalling {
-            modcod: 4,
-            short: false,
-            pilots: true,
-        };
-        let mut symbols = Vec::new();
-        header(signalling, &mut symbols);
-        for drift in [-1.0f32, -0.17, 0.02, 0.5] {
-            let drifting: Vec<Complex<f32>> = symbols
-                .iter()
-                .enumerate()
-                .map(|(index, &value)| value * Complex::from_polar(1.0, 0.3 + drift * index as f32))
-                .collect();
-            let rotation = header_rotation(&drifting, signalling).expect("a rotation");
-            assert!((rotation - drift).abs() < 1e-4, "{drift}: {rotation}");
-        }
-    }
-
-    #[test]
-    fn a_constant_pilot_block_turning_steadily_shows_its_turn_per_symbol() {
-        let block: Vec<Complex<f32>> = (0..PILOT_LENGTH)
-            .map(|index| pilot_symbol() * Complex::from_polar(1.0, 0.01 * index as f32))
-            .collect();
-        let lag = pilot_lag(&block, PILOT_LENGTH / 2);
-        assert!((lag.arg() - 0.01 * (PILOT_LENGTH / 2) as f32).abs() < 1e-4);
     }
 
     #[test]

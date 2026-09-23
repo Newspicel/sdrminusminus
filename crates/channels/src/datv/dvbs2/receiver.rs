@@ -18,9 +18,6 @@ const LOCK_COHERENCE: f32 = 0.75;
 const NOISE: f32 = 0.25;
 const ACQUIRE_GAIN: f32 = 1.0;
 const TRACK_GAIN: f32 = 0.02;
-const RESIDUAL_GAIN: f32 = 0.5;
-const REACQUIRE_MISSES: u32 = 4;
-const PILOT_DISTANCE: usize = pl::PILOT_LENGTH / 2;
 const VLSNR_CONFIDENCE: f32 = 0.5;
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -200,10 +197,6 @@ pub struct Dvbs2Decoder {
     bits: Vec<bool>,
     searched: usize,
     frequency: f32,
-    residual: Option<f32>,
-    lost: bool,
-    estimates: u32,
-    misses: u32,
     good: u32,
     gse: Gse,
     wanted: Option<u8>,
@@ -235,10 +228,6 @@ impl Dvbs2Decoder {
             bits: Vec::new(),
             searched: 0,
             frequency: 0.0,
-            residual: None,
-            lost: true,
-            estimates: 0,
-            misses: 0,
             good: 0,
             gse: Gse::new(),
             wanted: None,
@@ -273,10 +262,6 @@ impl Dvbs2Decoder {
         self.pending.clear();
         self.searched = 0;
         self.frequency = 0.0;
-        self.residual = None;
-        self.lost = true;
-        self.estimates = 0;
-        self.misses = 0;
         self.good = 0;
         self.gse.reset();
         self.seen.fill(0);
@@ -310,7 +295,7 @@ impl Dvbs2Decoder {
 
     #[must_use]
     pub const fn locked(&self) -> bool {
-        !self.lost
+        self.good > 0
     }
 
     #[must_use]
@@ -382,7 +367,9 @@ impl Dvbs2Decoder {
     fn step(&mut self, out: &mut Dvbs2Output) -> bool {
         while self.searched + pl::HEADER <= self.pending.len() {
             let at = self.searched;
-            let Some((guess, fit)) = self.fit_header(at) else {
+            let guess = self.frequency;
+            self.derotate(at, pl::HEADER, guess, Complex::new(1.0, 0.0));
+            let Some(fit) = pl::correlate_sof(&self.window) else {
                 return false;
             };
             if fit.coherence < LOCK_COHERENCE {
@@ -426,12 +413,6 @@ impl Dvbs2Decoder {
                 return false;
             }
             self.signalling = Some(signalling);
-            let guess = if set.is_none() {
-                self.coarse(at, guess, signalling)
-            } else {
-                guess
-            };
-            self.derotate(at, pl::HEADER, guess, fit.reference);
             let anchor = pl::header_phase(&self.window, signalling).unwrap_or(0.0);
             self.derotate(
                 at,
@@ -457,80 +438,17 @@ impl Dvbs2Decoder {
                     self.metrics.frames_skipped += 1;
                 }
             }
-            self.frequency = guess + self.correction(fit.rotation);
+            let gain = if self.good > 0 {
+                TRACK_GAIN
+            } else {
+                ACQUIRE_GAIN
+            };
+            self.frequency += gain * fit.rotation;
             self.pending.drain(..at + span);
             self.searched = 0;
             return true;
         }
         false
-    }
-
-    fn fit_header(&mut self, at: usize) -> Option<(f32, pl::SofFit)> {
-        let guess = self.frequency;
-        self.derotate(at, pl::HEADER, guess, Complex::new(1.0, 0.0));
-        let fit = pl::correlate_sof(&self.window)?;
-        if !self.lost || fit.coherence >= LOCK_COHERENCE || fit.drift_coherence < LOCK_COHERENCE {
-            return Some((guess, fit));
-        }
-        let retry = guess + fit.rotation;
-        self.derotate(at, pl::HEADER, retry, Complex::new(1.0, 0.0));
-        pl::correlate_sof(&self.window).map(|refit| (retry, refit))
-    }
-
-    fn coarse(&mut self, at: usize, guess: f32, signalling: Signalling) -> f32 {
-        if !self.lost || self.estimates > 0 {
-            return guess;
-        }
-        let rotation = pl::header_rotation(&self.window, signalling).unwrap_or(0.0);
-        self.derotate(at, pl::HEADER, guess + rotation, Complex::new(1.0, 0.0));
-        guess + rotation
-    }
-
-    fn correction(&mut self, rotation: f32) -> f32 {
-        match self.residual.take() {
-            Some(residual) if self.lost => {
-                self.estimates = self.estimates.saturating_add(1);
-                residual / self.estimates as f32
-            }
-            Some(residual) => RESIDUAL_GAIN * residual,
-            None if self.lost => ACQUIRE_GAIN * rotation,
-            None => TRACK_GAIN * rotation,
-        }
-    }
-
-    fn pilot_residual(&self, slots: usize) -> Option<f32> {
-        if !self.lost {
-            return self.anchor_slope();
-        }
-        let lag = (1..=pl::pilot_blocks(slots))
-            .map(|block| {
-                let start = pl::pilot_block_start(block);
-                pl::pilot_lag(&self.frame[start..start + pl::PILOT_LENGTH], PILOT_DISTANCE)
-            })
-            .fold(Complex::new(0.0f32, 0.0), |sum, lag| sum + lag);
-        (lag.norm() > 1e-12).then(|| lag.arg() / PILOT_DISTANCE as f32)
-    }
-
-    fn anchor_slope(&self) -> Option<f32> {
-        if self.anchors.len() < 2 {
-            return None;
-        }
-        let count = self.anchors.len() as f32;
-        let (x, y) = self
-            .anchors
-            .iter()
-            .fold((0.0f32, 0.0f32), |(x, y), &(at, phase)| {
-                (x + at as f32, y + phase)
-            });
-        let (x, y) = (x / count, y / count);
-        let (covariance, variance) =
-            self.anchors
-                .iter()
-                .fold((0.0f32, 0.0f32), |(covariance, variance), &(at, phase)| {
-                    let dx = at as f32 - x;
-                    (covariance + dx * (phase - y), variance + dx * dx)
-                });
-        (variance > 0.0).then(|| covariance / variance)
     }
 
     fn anchor(&mut self, at: usize, len: usize) {
@@ -552,7 +470,6 @@ impl Dvbs2Decoder {
             for block in 1..=pl::pilot_blocks(slots) {
                 self.anchor(pl::pilot_block_start(block), pl::PILOT_LENGTH);
             }
-            self.residual = self.pilot_residual(slots);
         }
         self.interpolate();
     }
@@ -648,28 +565,17 @@ impl Dvbs2Decoder {
         match codec.decode(&self.payload) {
             Some(data) => {
                 self.metrics.frames_ok += 1;
-                self.succeed();
+                self.good = self.good.saturating_add(1);
                 self.deliver(data, out);
             }
             None => self.fail(),
         }
     }
 
-    fn succeed(&mut self) {
-        self.good = self.good.saturating_add(1);
-        self.misses = 0;
-        self.lost = false;
-    }
-
     fn fail(&mut self) {
         self.transport.reset();
         self.metrics.frames_bad += 1;
         self.good = 0;
-        self.misses = self.misses.saturating_add(1);
-        if self.misses >= REACQUIRE_MISSES && !self.lost {
-            self.lost = true;
-            self.estimates = 0;
-        }
     }
 
     fn deliver(&mut self, data: super::bb::BaseBandData, out: &mut Dvbs2Output) {
@@ -737,7 +643,7 @@ impl Dvbs2Decoder {
             return;
         };
         if !signalling.pilots {
-            self.residual = Some(track_decisions(&mut self.payload, &codec.constellation));
+            track_decisions(&mut self.payload, &codec.constellation);
         }
         self.llrs.clear();
         demodulate(&self.payload, &codec.constellation, NOISE, &mut self.llrs);
@@ -762,12 +668,12 @@ impl Dvbs2Decoder {
             return;
         };
         self.metrics.frames_ok += 1;
-        self.succeed();
+        self.good = self.good.saturating_add(1);
         self.deliver(data, out);
     }
 }
 
-fn track_decisions(symbols: &mut [Complex<f32>], constellation: &Constellation) -> f32 {
+fn track_decisions(symbols: &mut [Complex<f32>], constellation: &Constellation) {
     let mut phase = 0.0f32;
     let mut frequency = 0.0f32;
     for symbol in symbols {
@@ -789,7 +695,6 @@ fn track_decisions(symbols: &mut [Complex<f32>], constellation: &Constellation) 
             - std::f32::consts::PI;
         *symbol = corrected;
     }
-    frequency
 }
 
 impl Default for Dvbs2Decoder {

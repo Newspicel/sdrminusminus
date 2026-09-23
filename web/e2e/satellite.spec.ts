@@ -1,11 +1,32 @@
 import { type APIRequestContext, expect, type Page, test } from "@playwright/test";
 
-test("a decoder wired to a satellite says who tunes it", async ({ page, request }) => {
-  await page.route("https://tiles.openfreemap.org/**", (route) => route.abort());
-  await page.goto("/");
+let original: { id: string; snapshot: unknown } | undefined;
+
+async function replaceGraph(request: APIRequestContext, graph: unknown) {
   const listed = await (await request.get("/api/workspaces")).json();
   const id = listed.active;
   const detail = await (await request.get(`/api/workspaces/${id}`)).json();
+  original ??= { id, snapshot: detail.snapshot };
+  const saved = await request.put(`/api/workspaces/${id}`, {
+    data: { revision: detail.revision, snapshot: { ...detail.snapshot, graph } },
+  });
+  expect(saved.ok()).toBe(true);
+}
+
+test.afterEach(async ({ request }) => {
+  if (!original) return;
+  const { id, snapshot } = original;
+  original = undefined;
+  const detail = await (await request.get(`/api/workspaces/${id}`)).json();
+  const restored = await request.put(`/api/workspaces/${id}`, {
+    data: { revision: detail.revision, snapshot },
+  });
+  expect(restored.ok()).toBe(true);
+});
+
+test("a decoder wired to a satellite says who tunes it", async ({ page, request }) => {
+  await page.route("https://tiles.openfreemap.org/**", (route) => route.abort());
+  await page.goto("/");
   const graph = {
     nodes: [
       { id: "satellite:1", kind: "satellite", data: {}, position: { x: 0, y: 0 } },
@@ -23,10 +44,7 @@ test("a decoder wired to a satellite says who tunes it", async ({ page, request 
       },
     ],
   };
-  const saved = await request.put(`/api/workspaces/${id}`, {
-    data: { revision: detail.revision, snapshot: { ...detail.snapshot, graph } },
-  });
-  expect(saved.ok()).toBe(true);
+  await replaceGraph(request, graph);
   await page.reload();
 
   const decoder = page.locator('.react-flow__node[data-id="channel:1"]');
@@ -43,9 +61,6 @@ test("a decoder wired to a satellite says who tunes it", async ({ page, request 
 async function drawSatellite(page: Page, request: APIRequestContext, held: boolean) {
   await page.route("https://tiles.openfreemap.org/**", (route) => route.abort());
   await page.goto("/");
-  const listed = await (await request.get("/api/workspaces")).json();
-  const id = listed.active;
-  const detail = await (await request.get(`/api/workspaces/${id}`)).json();
   const tle = [
     "ISS (ZARYA)",
     "1 25544U 98067A   24001.50000000  .00016717  00000-0  30306-3 0  9999",
@@ -62,10 +77,7 @@ async function drawSatellite(page: Page, request: APIRequestContext, held: boole
     ],
     edges: [],
   };
-  const saved = await request.put(`/api/workspaces/${id}`, {
-    data: { revision: detail.revision, snapshot: { ...detail.snapshot, graph } },
-  });
-  expect(saved.ok()).toBe(true);
+  await replaceGraph(request, graph);
   await page.reload();
   return page.locator('.react-flow__node[data-id="satellite:1"]');
 }

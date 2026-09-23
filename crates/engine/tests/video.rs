@@ -17,6 +17,7 @@ const VIDEO_TIMEOUT: Duration = Duration::from_secs(30);
 const DEVICE_RATE: f64 = 2_400_000.0;
 const CENTER_HZ: f64 = 434_250_000.0;
 const OFFSET_HZ: f64 = 200_000.0;
+const FIELDS_PER_FULL_FRAME: usize = 2;
 
 #[tokio::test]
 async fn dvb_satellite_video_reaches_the_color_video_stream() {
@@ -209,9 +210,11 @@ async fn an_atv_transmission_reaches_the_video_stream_as_a_picture() {
     let mut rx = engine.subscribe_video(ds, ch).unwrap();
 
     let packet = tokio::time::timeout(VIDEO_TIMEOUT, async {
+        let mut fields = 0;
         loop {
             match rx.recv().await {
-                Ok(packet) => return packet,
+                Ok(packet) if fields >= FIELDS_PER_FULL_FRAME => return packet,
+                Ok(_) => fields += 1,
                 Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
                 Err(tokio::sync::broadcast::error::RecvError::Closed) => {
                     panic!("video stream closed")
