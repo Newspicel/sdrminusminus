@@ -1,56 +1,48 @@
 # Field mode
 
-Field mode provides phone controls for signal hunting, direction finding, and passive radar.
-Prepare the active workspace on a desktop, then connect the phone to the same server.
+Field mode puts signal hunting, direction finding, and passive radar on your phone. Set up the
+workspace on a desktop first, then connect the phone to the same server.
 
-## Connect your phone
+## Connect a phone
 
-Open **Library → Field** and scan the QR code. The link includes the server token, which field mode
-stores and removes from the address bar. When the desktop uses `localhost`, the QR code offers
-a reachable LAN address.
+Open **Library → Field** and scan the QR code. The link carries the server token, which field mode
+saves and removes from the address bar. If the desktop is on `localhost`, the QR code uses a LAN
+address instead. You can also open `/field` in any browser that reaches the server.
 
-You can also open `/field` directly from a browser that can reach the server.
-
-For remote access with browser location, set up
-[HTTPS with Tailscale or Cloudflare Tunnel](../server/tunnels.md).
+Phone location needs HTTPS. Away from home, use
+[a tunnel](../server/tunnels.md).
 
 ## Missions
 
-Available missions depend on the active workspace. Each controls one node.
+Each mission drives one node in the active workspace:
 
-| Mission | Required node | Controls |
+| Mission | Needs | Shows |
 |---|---|---|
-| Fox hunt | Signal hunt | Level, rising/falling indication, variable-rate clicks, start/stop |
+| Fox hunt | Signal hunt | Level, rising or falling, clicks that speed up |
 | DF drive | Direction finder | Compass, guidance, map |
-| Radar watch | Passive radar | Range–Doppler surface and tracks |
+| Radar watch | Passive radar | Range-Doppler display and tracks |
 
-Fullscreen and screen wake lock are available where supported by the browser.
+Fullscreen and keep-screen-on work where the browser supports them.
 
-## Driving to a signal
+## DF drive
 
-DF drive orients the compass using GPS course over ground, not the phone's compass sensor.
-A connected [Triangulation node](direction-finding.md#crossing-bearings-from-several-finders)
-provides crossing and approach guidance. Without it, the bearing display still works.
+The compass turns with your GPS heading, not the phone's compass. A
+[Triangulation](direction-finding.md#triangulate) node adds guidance on where to drive. Without
+it, you still get bearings.
 
-### Turn-by-turn
+With a [routing service](../server/configuration.md#turn-by-turn-routing) configured, you also
+get turn-by-turn directions. Spoken directions start after you tap the screen.
 
-Configure a [routing backend](../server/configuration.md#turn-by-turn-routing) for routes,
-next manoeuvres, and distances. Spoken directions become available after a touch interaction.
-The routing key stays on the server.
-
-| Nav mode | Destination |
+| Nav mode | Drives to |
 |---|---|
-| Auto | Crossing waypoint until convergence, then the location estimate |
-| Direct | Current location estimate |
-| Off | Heading guidance only |
+| Auto | A crossing point until the estimate settles, then the estimate |
+| Direct | The current estimate |
+| Off | Nowhere; heading guidance only |
 
-Routes update when you leave the route, the target moves, or the guidance phase changes.
-If routing is unavailable, the screen reports the reason and keeps heading guidance.
+**Navigate in Maps** hands the target to your phone's navigation app. Tap it again when the
+target moves; the browser cannot update an open navigation session.
 
-**Navigate in Maps** opens the target in the phone's navigation app. Open it again when the target
-changes; the browser cannot update an already open native navigation session.
+## Offline maps
 
-## Maps without internet
-
-Place `basemap.pmtiles` beside the server database for an offline basemap. Otherwise, field mode
-uses the online style. Without either map, bearings, routes, and markers appear on a blank background.
+Put `basemap.pmtiles` next to the server database for maps without internet. Without it, field
+mode uses the online map, or a blank background if that is unreachable.

@@ -1,45 +1,38 @@
 # Passive radar
 
-Passive radar compares a transmitter's direct signal with its reflections to measure echo delay
-and Doppler shift. Use two receiver lanes sharing a sample clock. A
-[time-synced array](arrays.md) is sufficient; relative phase calibration is unnecessary.
+Passive radar compares a broadcast transmitter's direct signal with its echoes off aircraft and
+other objects. It measures how much further each echo travelled and its Doppler shift. Two lanes
+on a shared clock are enough; a [`time_sync` array](arrays.md) works without phase calibration.
 
-## Set up the receiver
+## Set up
 
 1. Add a Device or Array with at least two time-synced lanes.
 2. Add **Passive radar**.
-3. Connect the antenna aimed at the transmitter to `ref`.
-4. Connect the surveillance antenna aimed at the area of interest to `surv`.
-5. Connect GPS `position` for map output.
+3. Wire the antenna pointing at the transmitter to `ref`.
+4. Wire the antenna pointing at the area you watch to `surv`.
+5. Wire [GPS position](position.md) for the map.
 
-## Processing and settings
-
-| Stage | Purpose |
+| Setting | Does |
 |---|---|
-| ECA | Cancel the direct signal and stationary clutter |
-| CAF | Compare reference and surveillance signals across delay and Doppler offsets |
-| CFAR | Detect cells above their local background |
-| Cluster | Merge adjacent detections |
-| Track | Associate echoes across observations |
+| Integration | Longer finds weaker echoes, but blurs moving ones |
+| Range bins | How far out the display reaches |
+| Doppler span | How large a frequency shift to search |
 
-| Setting | Effect |
-|---|---|
-| Integration | Longer intervals can reveal weaker echoes, but motion can blur them |
-| Range bins | Delay extent of the display |
-| Doppler span | Frequency-shift range searched |
+Processing runs in five steps: cancel the direct signal and ground clutter, correlate reference
+with surveillance, detect cells above their background, merge neighbours, and track echoes over
+time.
 
-## Reading the surface
+## Read the display
 
-The display plots range against Doppler and marks detections. Repeated observations receive a
-track number. A brief detection may be noise or an unconfirmed echo.
+The display plots range against Doppler and marks detections. An echo seen repeatedly gets a
+track number. A single flash may be noise.
 
-## Echoes on the map
+## On the map
 
-Enable **Transmitter** and enter its coordinates and frequency. With receiver position available,
-the map draws an ellipse of possible locations for each echo.
+Turn on **Transmitter** and enter its position and frequency. With your own position known, the
+map draws an ellipse of possible locations for each echo.
 
-The measurement is **bistatic range**, the extra distance travelled by the reflected signal.
-One echo does not give a unique position or bearing. Tracks follow range and Doppler, not geographic
-coordinates. Without transmitter coordinates, no ellipse is drawn.
+The range is **bistatic**: the extra distance the echo travelled compared with the direct path.
+One echo gives an ellipse, not a point or a bearing.
 
-Use the **Radar watch** mission in [field mode](field-mode.md) to view the surface and tracks on a phone.
+On a phone, use the **Radar watch** mission in [field mode](field-mode.md).

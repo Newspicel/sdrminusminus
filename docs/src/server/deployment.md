@@ -1,7 +1,7 @@
-# Containers and remote radios
+# Deployment
 
-Run SDR-- beside the radio and connect through a desktop browser. The server sends audio,
-decoded data, and display frames over the network, keeping raw device IQ local.
+Put the server next to the antenna and connect from a browser anywhere. Only audio, decoded data,
+and display frames cross the network; raw IQ stays on the server.
 
 ## Docker Compose
 
@@ -10,16 +10,16 @@ On Linux:
 ```sh
 git clone https://github.com/Newspicel/sdrminusminus.git
 cd sdrminusminus
-docker compose pull
 docker compose up -d
 ```
 
-Open `http://<host>:8080`. The supplied service restarts unless stopped and keeps data in the
-`sdrmm-data` volume. Use `:nightly` instead of `:latest` only to test unreleased changes.
+Open `http://<host>:8080`. The service restarts on its own and keeps its database, recordings,
+and certificate under `/data` in the `sdrmm-data` volume. Keep and back up that volume. Use the
+`:nightly` tag only to test unreleased changes.
 
 ### USB devices
 
-The supplied service includes:
+The supplied service already contains:
 
 ```yaml
 devices:
@@ -29,25 +29,19 @@ device_cgroup_rules:
 group_add: ["46"]
 ```
 
-The bus mapping exposes USB devices. The cgroup rule allows devices to reconnect with new minor
-numbers. Host udev rules still control access.
-
-Set `group_add` to the numeric group IDs owning your radio nodes. `46` is commonly `plugdev` on
-Debian and Ubuntu. Check on the host:
+The cgroup rule lets radios reconnect. Set `group_add` to the group that owns your radio on the
+host. `46` is usually `plugdev` on Debian and Ubuntu. Check with:
 
 ```sh
 stat -c '%g %G %a' /dev/bus/usb/*/*
 ```
 
-Install the receiver's udev rules and use the reported group. An unconfigured node may belong to
-group `0`. **Check hardware** reports inaccessible nodes and ownership from inside the container.
+If the radio belongs to group `0`, install its udev rules on the host first. **Check hardware**
+shows ownership from inside the container.
 
 ### SoapySDR modules
 
-The image includes the SoapySDR core and bladeRF, LimeSDR, and SoapyRemote modules. Built-in
-drivers cover other supported radios; see [hardware requirements](../hardware.md).
-
-To add a module, build a derived image:
+The image has bladeRF, LimeSDR, and SoapyRemote modules. Add others with a derived image:
 
 ```dockerfile
 FROM ghcr.io/newspicel/sdrminusminus:latest
@@ -58,12 +52,10 @@ RUN apt-get update \
 USER sdrmm
 ```
 
-Replace the example module with the one you need.
-
 ### SDRplay receivers
 
-Install the vendor API on the host and keep `sdrplay_apiService` running. Add its library and
-shared IPC to the service:
+Install the SDRplay API on the host and keep `sdrplay_apiService` running. Then share the library
+and the host's IPC:
 
 ```yaml
 volumes:
@@ -72,20 +64,15 @@ volumes:
 ipc: host
 ```
 
-The API needs host shared memory to communicate with its service. `ipc: host` also exposes other
-host IPC objects, so use this setup only with a trusted image and host. See
-[SDRplay](../hardware.md#sdrplay) for library diagnostics.
+`ipc: host` exposes the host's shared memory to the container. Only use it with a trusted image.
 
-### Data and authentication
+### Token
 
-The image stores its database and recordings under `/data`. Keep that volume when replacing the
-container. Supply a token through a protected `.env` file:
+Put the token in a `.env` file kept out of version control:
 
 ```text
 SDRMM_TOKEN=replace-with-a-long-random-secret
 ```
-
-Add this to the service and keep `.env` out of version control:
 
 ```yaml
 services:
@@ -93,14 +80,9 @@ services:
     env_file: .env
 ```
 
-Back up the volume. Configure [HTTPS and access control](configuration.md) for remote use.
-
 ### HTTPS
 
-For HTTPS through a tunnel, follow the [Tailscale or Cloudflare Tunnel setup](tunnels.md),
-including its loopback-only Docker port mapping.
-
-Mount a certificate directory read-only and pass the certificate options:
+The simplest option is a [tunnel](tunnels.md). To use your own certificate, mount it read-only:
 
 ```yaml
 volumes:
@@ -109,21 +91,16 @@ volumes:
 command: ["--bind", "0.0.0.0:8080", "--tls-cert", "/certs/fullchain.pem", "--tls-key", "/certs/privkey.pem"]
 ```
 
-The container runs as UID `10001`; grant it read access to both files. Certificate symlink targets
-must also be available inside the container.
-
-For a self-signed certificate, specify the hostname clients use:
+The container runs as UID `10001` and must be able to read both files, including symlink
+targets. For a self-signed certificate, name the host clients use:
 
 ```yaml
 command: ["--bind", "0.0.0.0:8080", "--tls-self-signed", "--tls-name", "radio.example"]
 ```
 
-The certificate persists in `/data/tls`. Back it up with the database to preserve client trust.
-The bundled health check supports HTTP and HTTPS.
+## As a system service
 
-## Run the portable server as a service
-
-Use a dedicated account with USB access and explicit storage paths:
+Run the portable server under its own user with USB access and fixed paths:
 
 ```sh
 /usr/local/bin/sdrmm \
@@ -132,35 +109,21 @@ Use a dedicated account with USB access and explicit storage paths:
   --recordings-dir /var/lib/sdrmm/recordings
 ```
 
-Configure your service manager to send a normal termination signal so active recordings can finish.
-Use `SDRMM_TOKEN` for authentication and the [TLS options](configuration.md#https) for HTTPS.
+Stop it with a normal termination signal so recordings can finish. Set `SDRMM_TOKEN` and
+[HTTPS](configuration.md#https).
 
-## Connect to a network receiver
+## Before leaving it unattended
 
-On Device, open **Network**, choose a protocol, and enter its address:
+Test the packaged build with your radio:
 
-| Protocol | Default port |
-|---|---:|
-| `rtl_tcp` | 1234 |
-| SpyServer | 5555 |
-| SDRconnect | 5454 |
-| AD936x / iiod | 30431 |
+1. Save the `sdrmm --doctor` report.
+2. Stream for 30 minutes and check the drop counter, audio, and spectrum.
+3. Try tuning, gain, rate, and every control you plan to use.
+4. Unplug and replug the radio. The workspace should pick it up again.
+5. Record a short capture and play it back.
 
-Use a hostname, IPv4 address, or bracketed IPv6 address, with an optional port. The workspace saves
-the endpoint as the receiver identity. Use only the sample rate you need and watch overruns;
-network IQ can require substantial bandwidth.
+## Radios on other machines
 
-## SoapyRemote
-
-Install SoapyRemote where SDR-- runs and start `SoapySDRServer` beside the hardware. Choose the
-remote receiver from the normal Device search. The container includes the module; desktop and
-portable packages use the host's installation.
-
-## Browser deployment
-
-Serve the interface at the origin root with `/api/*`, `/api/ws`, and `/mcp` on the same origin.
-A reverse proxy must forward WebSocket upgrades.
-
-Use HTTPS or localhost for browser location and AudioWorklet playback. Plain LAN HTTP can play
-audio through a fallback, but busy displays may interrupt it. Manual band-region selection remains
-available without browser location.
+A Device node can open [network radios](../hardware.md#network-radios) such as `rtl_tcp`,
+SpyServer, SDRconnect, and iiod directly. For SoapyRemote, run `SoapySDRServer` next to the
+radio and install SoapyRemote where SDR-- runs; the radio then appears in the normal list.

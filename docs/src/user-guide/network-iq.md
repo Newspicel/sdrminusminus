@@ -1,94 +1,64 @@
-# Network IQ export
+# Network export
 
-Send live IQ over UDP or TCP, or open an rtl_tcp server for rtl_433.
+Send live IQ or decoded aircraft to other programs.
 
-## Start an export
+| Node | Mode | For |
+|---|---|---|
+| Network IQ | UDP or TCP | GNU Radio and other raw IQ tools |
+| Network IQ | rtl_tcp server | rtl_433 and other rtl_tcp clients |
+| Event output | ADS-B Beast TCP | Flight tracking feeders |
 
-1. Add **Network IQ**.
-2. Connect one Device `IQ` lane or one channel `baseband` output.
-3. Choose the protocol, sample encoding, and destination as `host:port`.
-4. Start the receiving program, then press **Start export**.
-5. Enter the displayed sample rate and centre frequency in the receiver.
+None of these ports use the server's token or TLS. Keep them on trusted networks. A listener
+address belongs to the server: use its LAN address or `0.0.0.0` to accept other machines.
 
-A node accepts one source. Channel baseband exports filtered IQ at the channel's lower rate;
-each channel supports one export, independently of device-wide export.
+## Raw IQ over UDP or TCP
 
-Sample rate is locked during export. Retuning remains available, but you must update the receiving
-program's centre frequency. The display reports sent bytes, writes, and errors.
+1. Add **Network IQ** and wire one Device `iq` lane or one channel `baseband`.
+2. Pick the protocol, encoding, and destination `host:port`.
+3. Start the receiving program, then press **Start export**.
+4. Set the receiver to the rate and centre frequency shown on the node.
 
-## Wire contract
+Channel `baseband` sends only that channel, at its lower rate. The sample rate is locked during
+export. Retuning works, but you must update the receiver yourself. The node counts bytes, writes,
+and errors.
 
-Raw UDP and TCP payloads contain unframed, interleaved `I, Q, I, Q, ...` samples:
+Samples are interleaved `I, Q, I, Q`, with no header or timestamps:
 
-| Encoding | Components | Bytes per complex sample | GNU Radio input |
+| Encoding | Samples | Bytes per I/Q pair | GNU Radio type |
 |---|---|---:|---|
-| `cf32_le` | Little-endian 32-bit float | 8 | Complex |
-| `ci16_le` | Little-endian signed 16-bit integer | 4 | Short, then Interleaved Short to Complex |
-| `cu8` | Unsigned 8-bit integer, zero at 127.5 | 2 | RTL-SDR-style byte IQ |
+| `cf32_le` | 32-bit float | 8 | Complex |
+| `ci16_le` | Signed 16-bit | 4 | Short, then Interleaved Short to Complex |
+| `cu8` | Unsigned 8-bit, zero at 127.5 | 2 | RTL-SDR byte IQ |
 
-Encoding names follow [SigMF datatypes](https://sigmf.org/#sigmf-dataset-format).
-The stream carries no metadata, timestamps, or stream IDs.
+Names follow [SigMF](https://sigmf.org/#sigmf-dataset-format). VITA 49 and DIFI are not supported.
 
-### UDP
+**UDP** sends whole samples in datagrams of up to 1,400 bytes. In GNU Radio's **UDP Source**, set
+header to `None` and payload size to 1,400. There are no sequence numbers, so lost packets cannot
+be detected.
 
-Datagrams contain whole complex samples, with payloads up to 1,400 bytes. Configure GNU Radio's
-**UDP Source** with header `None`, matching data type, and payload size 1,400.
+**TCP** connects to your listening program. If it reads too slowly, the export stops with an
+error.
 
-There are no sequence numbers. SDR-- reports loss before the socket but cannot detect missing or
-reordered network datagrams.
+## rtl_433
 
-### TCP
-
-SDR-- connects to a listening receiver and writes a continuous byte stream. TCP preserves order
-and delivery, but a slow receiver can fill the bounded export queue. The export then stops and
-reports an error.
-
-## Access control
-
-Exports can use substantial bandwidth and send to caller-selected destinations. Restrict server
-access to trusted operators with [authentication](../server/configuration.md#shared-token-authentication)
-and network controls.
-
-## Protocol compatibility
-
-The output is raw IQ. Receiving software must accept the selected encoding and use the displayed
-rate and frequency. VITA 49 and DIFI framing are not supported.
-
-### rtl_433
-
-1. Tune the Device to **433.92 MHz** and choose a supported sample rate.
-2. Wire Device `IQ` into **Network IQ**.
-3. Select **rtl_tcp server (rtl_433)** and listen on `127.0.0.1:1234`.
-4. Press **Start export**, then run rtl_433 with the displayed rate and frequency:
+1. Tune the Device to **433.92 MHz**.
+2. Wire Device `iq` into **Network IQ** and pick **rtl_tcp server (rtl_433)** on `127.0.0.1:1234`.
+3. Press **Start export** and run rtl_433 with the rate and frequency shown:
 
 ```sh
 rtl_433 -d rtl_tcp:127.0.0.1:1234 -s 1024000 -f 433920000 -F json
 ```
 
-Replace `1024000` with the export's actual sample rate. Channel `baseband` also works when its
-bandwidth covers the sensor signal. The server sends an `RTL0` header followed by CU8 IQ,
-matching [rtl_433's rtl_tcp input](https://github.com/merbanan/rtl_433/blob/master/src/sdr.c).
+A channel's `baseband` works too if it covers the sensor. Commands from the client cannot retune
+the radio; set that on the canvas. Up to eight clients can connect. A slow one is dropped without
+affecting the others.
 
-Client commands do not tune or change gain on the wired source. Configure those on the canvas;
-keep rtl_433's rate and frequency aligned. Up to eight clients can connect or reconnect.
-A slow client is disconnected and reported without stopping the radio or other clients.
+## ADS-B Beast
 
-### ADS-B Beast
+1. Wire the ADS-B channel's `events` into **Event output**.
+2. Pick **ADS-B Beast TCP**, set `127.0.0.1:30005`, and press **Open server**.
+3. Point your feeder at that address.
 
-1. Wire the ADS-B channel's `events` output into **Event output**.
-2. Select **ADS-B Beast TCP**, set `127.0.0.1:30005`, and press **Open server**.
-3. Connect your feeder or other Beast-compatible receiver to that address.
-
-The server sends [Beast binary frames](https://wiki.jetvision.de/wiki/Mode-S_Beast:Data_Output_Formats),
-including short Mode S replies, 12 MHz sample timestamps, signal levels, and byte escaping.
-Only ADS-B events reaching this node are exported. Use one ADS-B source per Beast output;
-sample clocks from separate channels are independent. Timestamps are relative to the decoder's
-sample stream, without GPS synchronization or continuity across capture gaps and restarts.
-
-The node reports clients, delivered frames, and errors. Up to 16 clients can connect;
-slow clients are disconnected. **Close server**, removing its event wire, or deleting the node
-closes the listener and clients.
-
-Listener addresses belong to the SDR-- server machine. Use its LAN address or `0.0.0.0` to accept
-remote clients. These TCP exports have no authentication or encryption; restrict them to trusted
-networks. The web API token does not protect these ports.
+The server sends [Beast binary frames](https://wiki.jetvision.de/wiki/Mode-S_Beast:Data_Output_Formats)
+with 12 MHz timestamps and signal levels. Timestamps count samples, not GPS time, and restart
+after gaps. Use one ADS-B channel per output. Up to 16 clients can connect.

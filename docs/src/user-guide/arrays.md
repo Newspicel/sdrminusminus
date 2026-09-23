@@ -1,80 +1,73 @@
 # Coherent arrays
 
-An array processes several antenna signals together. Shared clocks determine whether those
-signals can support direction finding, beamforming, or passive radar.
+An array receives several antennas at once, from receivers that share a clock. How much they
+share decides what they can do:
 
-| Tier | Shared hardware | Supported operations |
+| Tier | Shared | Can do |
 |---|---|---|
-| `phase_coherent` | Reference clock and synthesizer | Bearings, beamforming, combining, passive radar |
-| `time_sync` | Reference clock | Passive radar; phase-dependent operations need calibration |
-| `none` | No shared reference | Independent reception |
+| `phase_coherent` | Clock and local oscillator | Bearings, beamforming, combining, passive radar |
+| `time_sync` | Clock only | Passive radar. The rest needs calibration after every retune. |
+| `none` | Nothing | Independent reception only |
 
-A shared clock is required. Independent receivers drift apart even when tuned to the same frequency.
+Receivers without a shared clock drift apart, even on the same frequency.
 
-## Radios that are already an array
+## Multi-lane radios
 
-Add one **Device** for a multi-lane receiver such as KrakenSDR, CR-8, RSPduo in dual-tuner mode,
-or a multi-channel SoapySDR radio. Its driver reports the coherence tier. Connect its `iq`, `iq2`,
-and subsequent outputs directly to processing nodes.
+KrakenSDR, CR-8, an RSPduo in dual-tuner mode, and multi-channel SoapySDR radios are one
+**Device** with several outputs: `iq1`, `iq2`, and so on. The driver reports the tier. Wire the
+outputs straight to the processing node.
 
 ### KrakenSDR
 
-KrakenSDR has five lanes; KerberosSDR has four. Their shared clock provides `time_sync` coherence,
-but tuner phases change after every retune.
+KrakenSDR has five lanes, KerberosSDR four. They are `time_sync`: the tuner phases change on
+every retune.
 
-Set **Cal source** to **Noise**. SDR-- switches the built-in noise source on when calibration is
-needed, including after a retune or a press of **Calibrate**, then returns to the antennas.
-During calibration, the display shows `noise source in` and suppresses bearings.
+Set **Cal source** to **Noise**. SDR-- then switches on the built-in noise source whenever it
+needs to calibrate, after a retune or when you press **Calibrate**, and switches back to the
+antennas. Bearings are hidden while it shows `noise source in`.
 
-Use fixed gain and equal-length antenna cables. Calibration pauses while scanning or hunting.
+Use fixed gain and equal-length cables. Calibration pauses during scans and hunts.
 
-## Radios you wired together yourself
+## Build your own array
 
-Use an **Array** node for separate receivers physically connected to a shared clock.
+For separate receivers wired to one clock, use an **Array** node.
 
 1. Add a Device for each receiver.
-2. Set matching sample rates and, for shared tuning, matching centre frequencies.
-3. Connect each Device's `iq` output to an Array input. Inputs expand as members are added.
-4. Set **Wired as** to match the hardware: shared clock, or shared clock and local oscillator.
-5. Connect the Array outputs to your processor, channels, or recorders.
+2. Give them the same sample rate, and the same frequency if they share tuning.
+3. Wire each Device `iq` to the Array. It grows an input per member.
+4. Set **Wired as** to match: shared clock, or shared clock and local oscillator.
+5. Wire the Array's outputs to the processor, channels, or recorders.
 
-Input order sets antenna numbering. Use fixed gain on every receiver; calibration can correct
-different fixed gains, but AGC changes invalidate it.
+Input order sets antenna numbering. Use fixed gain: AGC breaks calibration.
 
-### Tuning and membership
+Tune and change the rate on the Array, not the members, so they stay aligned. Disconnect the
+array before scanning or hunting. The Devices keep their radios, and removing the Array leaves
+them running. If a member drops out, the array pauses until it is back.
 
-Tune and change sample rate through Array to keep members aligned. Independently tuned arrays
-provide a frequency control per lane. Disconnect the array before scanning or hunting.
+## Calibrate
 
-Device nodes keep ownership of their radios and existing outputs. Removing Array leaves those
-running. Removing a member removes the dependent array. A disconnected member faults the array;
-processing reconnects when all members recover.
+Press **Calibrate** on the processing node. It measures the delay, gain, and phase of each lane.
 
-## Calibration
-
-Press **Calibrate** on the coherent processor. It measures delay, amplitude, and phase corrections
-for each lane.
-
-| Cal source | Required signal |
+| Cal source | Needs |
 |---|---|
-| Signal | A strong signal received by every element |
-| Noise | Noise injected into every lane, from the radio or an external splitter |
+| Signal | A strong signal every antenna receives |
+| Noise | Noise fed into every lane, built in or through an external splitter |
 
-A `time_sync` array needs injected noise or a specified pilot frequency to resolve phase after
-retuning. Built-in noise sources switch automatically. Inject an external reference before pressing
-**Calibrate**. On `phase_coherent` hardware, calibration corrects cable and other path differences.
+A `time_sync` array needs noise or a known pilot to recover phase after each retune. Built-in
+noise switches itself. Feed external noise before pressing **Calibrate**. On `phase_coherent`
+hardware, calibration corrects cable and path differences.
 
-The display reports **solved**, **still solving**, or **phase unknown**. Phase unknown means the
-reference is insufficient for bearings or beamforming.
+The node shows **solved**, **still solving**, or **phase unknown**. Phase unknown means there is
+not enough reference for bearings or beamforming.
 
-## Combining antennas
+## Combine antennas
 
-Connect one coherent source to a **Combiner**, then connect its beam output to an ordinary channel.
+Wire a coherent source to a **Combiner** and its `beam` output to an ordinary channel.
 
-| Mode | Effect |
+| Mode | Does |
 |---|---|
-| Combine | Align and sum signals; two antennas can improve SNR by about 3 dB under suitable conditions |
-| Cancel | Use the other antennas as noise references for the first antenna |
+| Combine | Aligns and adds the antennas. Two antennas gain about 3 dB SNR. |
+| Cancel | Uses the other antennas to subtract local noise from the first |
 
-For cancellation, place the wanted signal on the first antenna and receive the local noise on the
-others. Both modes need known relative phase; `time_sync` arrays require a pilot or noise reference.
+For Cancel, point the first antenna at the wanted signal and the others at the noise. Both modes
+need the phase: `time_sync` arrays need a pilot or noise reference.

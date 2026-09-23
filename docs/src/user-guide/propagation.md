@@ -1,60 +1,49 @@
 # Propagation map
 
-Map reception paths from FT8, FT4, and WSPR decodes and estimate a lower bound on maximum usable
-frequency (MUF). The map uses decoder events, with no additional signal processing.
+The **Propagation map** plots where FT8, FT4, and WSPR signals came from, and estimates a lower
+bound on the maximum usable frequency (MUF). It only reads decoder events.
 
 ## Build one
 
 1. Add FT8, FT4, or WSPR channels and a **Propagation map**.
-2. Connect each channel's `events` output to the map.
-3. Connect **GPS position** to `position`. For a fixed station, enter coordinates in the GPS node's
-   **Fixed** tab.
+2. Wire each channel's `events` to the map.
+3. Wire [GPS position](position.md) to `position`. A fixed position works.
 
-The map also loads six hours of decoder-log history for connected channels when opened.
+On opening, the map loads the last six hours of logged decodes.
 
-## Read the layers
+## Layers
 
-| Layer | Display |
+| Layer | Shows |
 |---|---|
-| Activity | Estimated reflection points weighted by decode count and age |
+| Activity | Estimated reflection points, weighted by count and age |
 | MUF | Estimated MUF lower bound per Maidenhead square |
-| Paths | Great-circle paths by station and band, newest first; off by default |
+| Paths | Great-circle paths by station and band. Off by default. |
 
-A message must contain a Maidenhead locator to add a path. Reports, `RRR`, `RR73`, and `73`
-usually contribute no new location data.
+Only messages with a locator add a path. Reports and `73` usually do not.
 
-The model divides each path into hops and estimates reflection points. A single-hop reflection
-point is the midpoint. Points are grouped into Maidenhead squares and lose half their weight per
-**Half-life**, adjustable from five minutes to twelve hours. The table ranks squares by activity.
+Each path is split into hops. A one-hop path reflects at its midpoint. Points lose half their
+weight every **Half-life**, from five minutes to twelve hours.
 
 ## Measured MUF
 
-Receiving a signal proves its path supported that frequency at that time. The model scales it to
-a 3000 km reference hop:
+A decoded signal proves its path carried that frequency at that moment. The map scales it to a
+3000 km hop:
 
 ```text
 MUF(3000) ≥ f × M(3000) / M(D / hops)
 ```
 
-Here, `f` is received frequency, `D` is path length, and `M` is the obliquity factor (`sec φ`) for
-a thin reflecting layer over a spherical Earth. At a 300 km layer height, `M(3000)` is about 3.28.
-A single 3000 km hop reports the received frequency; shorter hops scale upward.
+`f` is the received frequency, `D` the path length, `M` the obliquity factor for a thin layer over
+a round Earth. At a 300 km layer height, `M(3000)` is about 3.28.
 
-Interpret the result as a model-dependent lower bound:
+Read the result as a lower bound:
 
-- Paths under 500 km count as activity but do not contribute to MUF.
-- Missing decodes on a band do not establish that the band was closed.
-- Layer height changes the estimate. Use 300 km for F2 or 110 km for sporadic-E modelling.
-- A result below a forecast does not by itself disprove that forecast.
+- Paths under 500 km count as activity but not towards MUF.
+- No decodes on a band does not mean the band was closed.
+- Layer height matters. Use 300 km for F2, 110 km for sporadic E.
 
-## Comparing against the ionosonde network
+## Ionosondes
 
-Enable **Ionosondes** for GIRO and INGV soundings through
-[prop.kc2g.com](https://prop.kc2g.com/). The server caches results for fifteen minutes.
-
-The map shows station MUF(3000 km) and compares local estimates with an inverse-distance
-interpolation of sounding sites within 3000 km. The footer reports squares above the forecast
-and the median difference.
-
-Feed failures are reported while local decodes remain visible. Disable **Ionosondes** to stop
-sounding requests; basemap requests are separate.
+**Ionosondes** overlays GIRO and INGV soundings from [prop.kc2g.com](https://prop.kc2g.com/),
+cached for fifteen minutes. The footer compares your estimates with the soundings within 3000 km.
+If the feed fails, your own decodes stay on the map. Turn it off to stop the requests.

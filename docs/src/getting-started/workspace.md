@@ -1,85 +1,69 @@
-# Understand the workspace
+# Nodes and wires
 
-A workspace saves your nodes, connections, radio settings, rack layout, and regional band plan.
-It lives on the server and is shared by every connected client.
+Everything in SDR-- is a node, and every flow between nodes is a wire you can see. The set of
+nodes, wires, and settings is a **workspace**. It lives on the server and every client shares it.
 
-## Patch and rack
+## Patch and Rack
 
-Use **Patch** to connect nodes and inspect signal flow. Ports accept compatible signals:
-IQ feeds channels and scopes, audio feeds speakers, and decoder events feed displays and exports.
+**Patch** shows every node and wire. Use it to build and change a receiver.
 
-Use **Rack** for everyday operation. Select a node and press `p` to pin or unpin its controls.
-Moving or resizing it in Rack leaves its connections intact. Press `v` to switch views.
+**Rack** shows only the nodes you pinned. Use it for everyday operation. Select a node and press
+`p` to pin or unpin it, and `v` to switch views. Moving a node in the Rack leaves its wires alone.
+
+## Ports
+
+A wire joins an output port to an input port that carries the same kind of data:
+
+| Port | Carries | Typical wire |
+|---|---|---|
+| `iq` | Raw radio samples | Device → channel, Scope, recorder |
+| `audio` | Demodulated sound | Channel → Speaker, Audio recorder |
+| `events` | Decoded messages | Channel → Readout, Decoder log, Map |
+| `baseband` | One channel's filtered IQ | Channel → Baseband scope, recorder, Network IQ |
+| `video` | Pictures and video | Channel → Video |
+| `control` | Tuning commands | Scanner, Satellite → channel |
+| `position` | Station location | GPS position → Map, Recorder, ADS-B |
 
 ## Node types
 
-| Group | Examples | Purpose |
-|---|---|---|
-| Sources | Device, GPS position | Supply IQ or station position |
-| Decoders | AM, NFM, WFM, ADS-B, DMR | Receive one signal from IQ |
-| Tools | Array, Direction finder, Passive radar, Combiner, Scanner, Signal hunt, Satellite, DMR trunk, Event filter, Triangulation | Process signals or control receivers |
-| Outputs | Scope, Baseband scope, Map, Readout, Decoder log, Video, Speaker, recorders, Network IQ, Export | Display, play, save, or forward results |
-
-**+ Node** lists the nodes available in the running server. Start with a Device, connect a channel,
-and add outputs for its audio or events.
-
-## Live position wiring
-
-Add **GPS position** and select a source:
-
-| Tab | Source |
+| Group | Nodes |
 |---|---|
-| Receiver | Serial NMEA receiver, selected from the list or entered as a device path |
-| Network | gpsd endpoint; default `127.0.0.1:2947` |
-| Fixed | Latitude and longitude entered manually |
-| This device | Browser or desktop WebView location, where supported |
+| Sources | Device, Recording, Signal generator, Array, GPS position |
+| Channels | AM, NFM, WFM, ADS-B, DMR, and every other [decoder](../user-guide/decoders.md) |
+| Tools | Scanner, Signal hunt, Spectrum monitor, Satellite, DMR trunk system, Event filter, Direction finder, Triangulation, Passive radar, Combiner |
+| Outputs | Scope, Baseband scope, Speaker, Readout, Decoder log, Map, Video, Signal survey, Propagation map, recorders, Network IQ, Event output, Export |
 
-Serial and network sources must be reachable from the server. **This device** uses the client
-showing the interface. For serial receivers, set the baud rate and maximum published update rate.
-The node validates GGA and RMC sentences and displays a six-character Maidenhead locator.
+**+ Node** lists what the running server offers.
 
-Connect `position` to any consumers that need it:
+## How a Device and its channels share a radio
 
-| Consumer | Uses position for |
-|---|---|
-| ADS-B | Local CPR decoding reference |
-| Map | Station position, route, and visited-location heatmap |
-| Recorder | Position and fix time in SigMF capture metadata |
-| Direction finder, Passive radar, Propagation map | Geographic results |
+A **Device** opens one radio. A **channel** decodes one frequency from the Device's IQ.
 
-One source can feed several nodes. Lost fixes are reported and stale coordinates stop being used.
-Serial and gpsd sources reconnect automatically. **Forget source** reopens the source picker.
+By default a Device tunes itself. It places its window over as many wired channels as its sample
+rate can hold, and keeps its own DC spike off them. The Device header counts how many it covers:
+`5/5` is green, `3/5` yellow, `0/5` red. To cover more, raise the sample rate or move some channels
+to another radio.
 
-## Drive a signal survey
+To tune by hand, press the radar button on the Device or just turn its dial. The Device then stays
+put, and channels outside its window wait until it covers them again.
 
-1. Add **Signal survey** and connect Device `IQ` and GPS `position`.
-2. Choose a frequency offset within the IQ span and a measurement width.
-3. Wait for a spectrum level and GPS fix, then start the survey.
-4. Pause before changing the receiver setup. Export the results as CSV when finished.
+A channel wired to several Devices runs on whichever one hears it, and names that radio on its
+face. See [Channels](../user-guide/channels.md#which-radio-hears-a-channel).
 
-The offset controls move the measured slice without retuning the radio. Each fix records the
-peak spectrum level within that slice. Nearby fixes are grouped into roughly ten-metre cells.
+## Radios come back
 
-Levels are in dBFS. Keep gain, antenna, cable, and measurement width unchanged to compare locations.
+A Device node remembers which radio it holds. Unplug it and the node, wires, and settings stay.
+Plug the same radio back in and it reconnects. **Forget this radio** frees the node for another
+one.
 
-## Device identity and reconnection
+## Applying changes
 
-Device nodes remember the selected receiver's identity. Unplugging it preserves the node,
-connections, and settings; reconnecting the same receiver restores the binding.
+Edits apply on their own. Applying opens radios, restores settings, updates channels, and closes
+anything the workspace no longer uses. If a node says the saved layout and the running receiver
+differ, press **Apply patch**.
 
-Use **Forget this radio** to release it and choose a replacement. The node and wires remain.
+## Shared by everyone
 
-## Applying a patch
-
-Most edits save and apply automatically. Applying a patch opens devices, restores settings,
-updates channels, and removes live objects no longer used by the workspace. Press **Apply patch**
-when a node reports that the saved layout and running receiver differ.
-
-## Multiple workspaces and clients
-
-Tuning, switching workspaces, and applying templates affect everyone connected to the server.
-Workspaces organise activities; they are not private browser sessions.
-
-Concurrent edits to the same saved revision produce a conflict rather than overwrite another
-client's layout. See [Workspaces, templates, and presets](../user-guide/workspaces.md) for
-saving, sharing, undo, and reuse.
+Tuning, switching workspaces, and applying templates affect every connected client. If two
+clients edit the same revision at once, the second gets a conflict instead of overwriting the
+first. See [Workspaces and presets](../user-guide/workspaces.md) for saving, undo, and sharing.

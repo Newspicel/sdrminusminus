@@ -1,7 +1,7 @@
 # Architecture
 
-The desktop app and headless binary share the Rust server and receiver engine. Both serve the
-same React interface.
+The desktop app and the headless server run the same Rust server and receiver engine, and serve
+the same React interface.
 
 ```text
 React client ↔ REST / WebSocket / MCP ↔ Server control plane
@@ -9,7 +9,7 @@ React client ↔ REST / WebSocket / MCP ↔ Server control plane
 Radio / network / recording → DSP engine → audio, events, spectrum, IQ
 ```
 
-## Crate boundaries
+## Crates
 
 | Crate | Responsibility |
 |---|---|
@@ -18,11 +18,14 @@ Radio / network / recording → DSP engine → audio, events, spectrum, IQ
 | `sdrmm-modem-test-support` | Modem measurement catalogs, simulations, and baseline tooling; tests and developer tools only |
 | `sdrmm-wire` | Shared settings, DTOs, events, patch graph, and OpenAPI schemas |
 | `sdrmm-device` | Hardware-independent device traits, capabilities, settings, and registry |
-| `sdrmm-device-virtual` | Signal generators and SigMF playback |
+| `sdrmm-device-recording` | SigMF playback behind the Recording node |
+| `sdrmm-device-siggen` | Test signals behind the Signal generator node |
+| `sdrmm-device-virtual` | Synthetic radios for debug builds and tests |
+| `sdrmm-usb-stream` | Bulk USB streaming shared by the native drivers |
 | `sdrmm-device-rtlsdr` | Native RTL-SDR driver |
 | `sdrmm-device-airspy`, `sdrmm-device-airspyhf` | Native Airspy drivers |
 | `sdrmm-device-hackrf` | Native HackRF driver |
-| `sdrmm-device-ad936x` | AntSDR, PlutoSDR and other AD936x boards, speaking iiod over ethernet or USB |
+| `sdrmm-device-ad936x` | AntSDR, PlutoSDR and other AD936x boards, speaking iiod over Ethernet or USB |
 | `sdrmm-device-soapy` | Local hardware through SoapySDR |
 | `sdrmm-device-sdrplay` | SDRplay RSP receivers through the vendor API, loaded at runtime |
 | `sdrmm-device-rtltcp` | Direct `rtl_tcp` client |
@@ -32,119 +35,127 @@ Radio / network / recording → DSP engine → audio, events, spectrum, IQ
 | `sdrmm-device-array` | Already-open streams composed as logical lanes; no hardware opens |
 | `sdrmm-channels` | Analog demodulators, protocol decoders, and their descriptors |
 | `sdrmm-recorder` | SigMF writing, reading, scanning, and export |
+| `sdrmm-orbit` | SGP4, pass prediction, and Doppler |
+| `sdrmm-tools` | Antenna calculator and NanoVNA |
+| `sdrmm-cps` | Codeplug reading, writing, and conversion |
+| `sdrmm-test-support` | Allocation and timing helpers for tests |
 | `sdrmm-engine` | Device supervision, channelization, scanning, streams, recording, and state snapshots |
 | `sdrmm-server` | REST, WebSocket, MCP, persistence, band plans, auth, and embedded assets |
 
-`apps/sdrmm` owns CLI configuration and process lifetime. `apps/desktop` starts the server on
-an ephemeral loopback port and opens a Tauri WebView. Both isolate SoapySDR discovery in a
-short-lived child process.
+`apps/sdrmm` is the CLI and owns the process. `apps/desktop` starts the same server on a random
+loopback port and opens it in a Tauri window. Both probe SoapySDR in a short-lived child process.
+
+The dependency rules:
+
+- `dsp` does no I/O and depends on no project crate.
+- `modem` builds reusable modulation algorithms on `dsp` only.
+- `channels` depends on `dsp`, `modem`, and `wire`.
+- Measurement tooling lives in test-support crates, outside the application graph.
+
+`cargo xtask check` enforces them.
 
 ## One source of truth for wire types
 
-Define REST bodies, WebSocket messages, settings, and patch types in `crates/wire`. OpenAPI
-schemas derive from those types; `cargo xtask codegen` generates TypeScript declarations.
+REST bodies, WebSocket messages, settings, and the patch graph are defined once in `crates/wire`.
+OpenAPI derives from them, and `cargo xtask codegen` generates the TypeScript types.
 
-The client reads device capabilities, channel descriptors, and the node palette from the server,
-keeping controls aligned with the running build.
+The client builds its controls from what the server reports: device capabilities, channel
+descriptors, and the node palette. A control never exists in the UI that the running build does
+not support.
 
-## Data plane and control plane
+## Control plane and DSP plane
 
-The DSP path uses command queues for settings and bounded snapshots or buffers for output.
-It performs no I/O, locking, allocation, or async work in hot processing.
+The DSP path takes settings through command queues and publishes through bounded snapshots and
+buffers. It never does I/O, takes a lock, allocates, or awaits.
 
-The control plane owns HTTP handlers, SQLite, workspace reconciliation, subscriptions, recording
-indexes, and serialization. It may allocate or block as needed.
+The control plane owns HTTP, SQLite, workspace reconciliation, subscriptions, and serialization.
+It may block and allocate.
 
-Spectrum, audio, and video use binary WebSocket frames; browser audio is Opus-compressed.
-Decoder events use typed JSON. Durable state is fetched through REST after WebSocket invalidations.
+Media and recording data leave DSP through preallocated single-producer, single-consumer buffer
+pools. Workers turn them into network payloads. A full queue never blocks DSP: lost media is
+reported and recordings fail loudly. Some decoders still allocate for variable-size results.
+
+Spectrum, audio, and video travel as binary WebSocket frames; browser audio is Opus. Decoder
+events are typed JSON. After a WebSocket invalidation, clients fetch durable state over REST.
+
+`cargo xtask perf` measures DSP throughput, allocation, decoder searches, and publication.
 
 ## Coherent processing
 
-Each capture block carries its first sample index, including gaps from reported hardware loss.
-Coherent processing taps each lane into a ring and selects the sample range common to all lanes.
-After a gap, it advances to the next shared index before applying calibrated delays and weights.
+Every capture block carries the index of its first sample, so reported hardware gaps are visible.
+Coherent processing buffers each lane and works on the sample range all lanes share. After a gap
+it skips to the next shared index, then applies the calibrated delays and weights.
 
-Beamforming sums weighted lanes into a normal capture ring. Channels, recorders, and scopes
-consume that beam through the ordinary single-lane path.
+A beam is written to an ordinary capture ring, so channels, recorders, and scopes use it like any
+single-lane source.
 
-An Array node combines streams already owned by Device nodes. `device-array` provides logical
-ingress lanes; the engine forwards corrected IQ, coordinates tuning, and handles member recovery.
-The array adapter never opens hardware.
+An Array node combines streams that Device nodes already own. `device-array` exposes them as
+logical lanes. The engine forwards corrected IQ, coordinates tuning, and recovers members. The
+array never opens hardware itself.
 
-Media and recording outputs cross preallocated single-producer/single-consumer buffer pools.
-Workers allocate transport payloads and publish them. Full queues never block DSP: media loss
-is reported and recordings fail explicitly. Shutdown drains pending buffers. Some decoder
-algorithms still allocate variable-sized results.
+## Workspaces and the live engine
 
-`channels` depends on `dsp`, `modem`, and `wire`. Shared modem algorithms belong in `modem`.
-Allocation, throughput, and modem measurement tooling belongs in test-support crates outside the
-application dependency graph. `cargo xtask check` enforces boundaries; `cargo xtask perf` checks
-DSP throughput, allocation, decoder searches, and engine publication.
+The workspace graph is the desired state. Applying it binds saved Device references to found
+radios, restores their settings, and reconciles channels and engine objects.
 
-## Workspaces and live engine state
+Saved references identify a radio by backend, serial, key, and variant. Engine IDs are temporary
+and never saved. A disconnected radio keeps its node and settings until it returns.
 
-The workspace graph describes desired state. Applying it binds saved Device references to
-discovered radios, restores settings, and reconciles channels and engine objects.
+## Placing channels on radios
 
-Saved references use backend, serial, key, and variant identity. Engine IDs are temporary and
-never stored in the graph. Disconnected radios retain their nodes and settings until reconnection.
+When Devices tune themselves, the control plane searches for tuning windows that cover the most
+channels, using branch-and-bound. Each independently tunable stream gets one window. The search
+respects wires, bandwidths, tuning ranges, manual settings, and pinned channels.
 
-## Decoder allocation
+It stops after 50 ms or 100,000 search nodes and keeps the best answer found. Apply reports
+include `placement.heard` and `placement.upper_bound`. When they are equal, coverage is proven
+optimal for that snapshot. Ties favour existing placements.
 
-The control plane searches tuning windows with branch-and-bound. Each independently tunable
-stream gets one window; shared tuning gets one per radio. Coverage respects IQ wires, occupied
-bandwidth, tuning ranges, manual settings and pinned decoders. Existing fixed channels count too.
+Tests compare the search with an exhaustive oracle. For the larger comparison:
 
-Search keeps a feasible incumbent and stops after 50 ms or 100,000 search nodes. Preparation and
-final verification add some overhead. Apply reports include `placement.heard` and
-`placement.upper_bound`: equality proves maximum coverage for the planning snapshot. A gap means
-optimality remains unproven. Failed moves omit this result. Ties favor existing placements;
-minimum migration count is not part of the proof.
-
-The allocation tests compare an independent exhaustive oracle, the former heuristic and the
-window search. Run the larger comparison with
-`cargo test -p sdrmm-engine --lib compares_realistic_sizes -- --ignored --nocapture`.
+```sh
+cargo test -p sdrmm-engine --lib compares_realistic_sizes -- --ignored --nocapture
+```
 
 ## Failure and backpressure
 
-Queues are bounded. Overruns, dropped frames, recording faults, truncated exports, WebSocket lag,
-and reconnection state surface to clients. Slow consumers cannot block capture or grow memory
-without a limit.
+Every queue is bounded. Drops, recording faults, truncated exports, WebSocket lag, and
+reconnects are reported to clients. A slow consumer can never block capture or grow memory
+without limit.
 
-## Testing layers
+## Tests
 
-| Layer | Coverage |
+| Layer | Tested with |
 |---|---|
 | DSP | Analytic and golden vectors, allocation and throughput gates |
-| Decoders | Recorded IQ and expected output, plus generated vectors |
-| Engine | End-to-end virtual-device tests |
-| Server | Handlers, persistence, streams, authentication, OpenAPI, codegen drift |
+| Decoders | Recorded IQ with expected output, generated vectors |
+| Engine | End-to-end runs on virtual devices |
+| Server | Handlers, persistence, streams, auth, OpenAPI, codegen drift |
 | Client | Unit tests and browser smoke flows |
 
-CI builds release configurations without enumerating host radios. Test at the narrowest layer
-that proves the behaviour, adding end-to-end coverage for cross-layer workflows.
+Test at the narrowest layer that proves the behaviour. Add end-to-end coverage when a change
+crosses layers. CI never touches real radios.
 
-## Standard tables and their provenance
+## Tables from standards
 
-Some decoder constants come directly from specifications:
+Some decoder constants are copied from the standards:
 
-| Constants | Location |
+| Constants | File |
 |---|---|
 | DAB puncturing and protection profiles | `crates/channels/src/dab/protection.rs` |
 | DAB phase reference | `crates/channels/src/dab/ofdm.rs` |
-| DVB-S puncturing and Reed–Solomon parameters | `crates/channels/src/datv/dvbs.rs` |
+| DVB-S puncturing and Reed-Solomon parameters | `crates/channels/src/datv/dvbs.rs` |
 | DVB-S2 LDPC accumulator addresses | `crates/channels/src/datv/dvbs2/tables/` |
 | VL-SNR header sequence | `crates/channels/src/datv/dvbs2/vlsnr.rs` |
 
-Sources are ETSI EN 300 401 (DAB), TS 102 563 (DAB+), EN 300 421 (DVB-S), EN 302 307-1 and -2
+Sources: ETSI EN 300 401 (DAB), TS 102 563 (DAB+), EN 300 421 (DVB-S), EN 302 307-1 and -2
 (DVB-S2/S2X), TS 102 606 (GSE), and ES 201 980 (DRM).
 
-Table values were cross-checked against [welle.io](https://github.com/AlbrechtL/welle.io)
+The values were cross-checked against [welle.io](https://github.com/AlbrechtL/welle.io)
 (GPL-2.0-or-later) and GNU Radio's [gr-dtv](https://github.com/gnuradio/gnuradio)
-(GPL-3.0-or-later). This attribution concerns table verification, not copied decoder code.
-The 7,378 DVB-S2 accumulator addresses were transformed mechanically. The VL-SNR 896-bit seed
-and Walsh–Hadamard rows were transcribed from the standard; their sixteen generated patterns
-match gr-dtv's tables.
+(GPL-3.0-or-later). No decoder code was copied. The 7,378 DVB-S2 accumulator addresses were
+converted by script. The VL-SNR seed and Walsh-Hadamard rows were typed from the standard, and the
+sixteen patterns they generate match gr-dtv.
 
-Tests check independent properties such as puncturing density, polynomial roots, published CRC
-values, and parity checks on encoded words. These checks help detect transcription errors.
+Tests catch transcription errors by checking independent properties: puncturing density,
+polynomial roots, published CRC values, and parity of encoded words.

@@ -2,7 +2,7 @@
 
 If something is shipped, then remove it.
 
-## 1. Engine — many radios, arrays and cross-cutting DSP
+## 1. Engine: many radios, arrays and cross-cutting DSP
 
 - More Native Drivers: RX-888 / Mk2 native driver
 - ESPRIT alongside the correlative and MUSIC estimators. On the circular array this defaults to
@@ -21,7 +21,6 @@ If something is shipped, then remove it.
 - recording scheduler + unattended satellite-pass automation
 - Demod analyzer
 - Noise figure; PER tester; SID monitor
-- export to rtl_433 tcp/udp, beast adsb, etc.
 
 ## 4. Decoders & protocols
 
@@ -32,11 +31,11 @@ If something is shipped, then remove it.
 - TETRA
 - NOAA APT; Meteor M-2 LRPT
 - Radiosonde (RS41 …) + map/log feature, DFM, M10/M20, iMet
-- HF WEFAX — the DSP is the easy half; the picture store SSTV shipped already holds a picture that
+- HF WEFAX: the DSP is the easy half; the picture store SSTV shipped already holds a picture that
   takes minutes to arrive, so what is left is the decoder and the mode's own line geometry
 - APRS weather aggregation
-- DECT: the survey reads the A-field only. The B-field is left — ADPCM/G.726 voice off unencrypted
-  bearers — as are the extended fixed part capability messages (QH = 4, C, E) that carry the newer
+- DECT: the survey reads the A-field only. The B-field is left (ADPCM/G.726 voice off unencrypted
+  bearers), as are the extended fixed part capability messages (QH = 4, C, E) that carry the newer
   DSAA2/DSC2 security bits, and scanning the ten carriers from one wideband capture
 
 ### Broadcast & wideband digital
@@ -64,19 +63,19 @@ If something is shipped, then remove it.
 ## 5. Transmit & legitimate security research
 
 - Signal generator / arbitrary waveform + IQ playback-to-air
-- Modulators for the remaining modes, over the shared frame/bit codec each protocol module owns in both directions — for two-way, beacon and test use
+- Modulators for the remaining modes, over the shared frame/bit codec each protocol module owns in both directions: for two-way, beacon and test use
 - Sub-GHz capture → decode → replay; fixed-code analysis and generation including de Bruijn sequences; rolling-code capture and implementation analysis against your own DUT
 - Interference / jam-susceptibility testing into a contained link
 - Flood / spam / malformed-broadcast testing at a DUT over a contained link
 - Targeted protocol fuzzing
-- Bench loopback — TX into your own RX to validate decoders (note: this is the point at which the graph's no-cycle proof stops being sufficient)
+- Bench loopback: TX into your own RX to validate decoders (note: this is the point at which the graph's no-cycle proof stops being sufficient)
 - Simple PTT
 - Beam-steering CW modulator (TX MIMO)
 
 ## 6. Station services & hardware integration
 
-- Codeplug programming reaches the objects every radio shares — channels, contacts, group lists,
-  zones, scan lists and radio IDs — and preserves every byte it does not model, so a read/write
+- Codeplug programming reaches the objects every radio shares (channels, contacts, group lists,
+  zones, scan lists and radio IDs) and preserves every byte it does not model, so a read/write
   round trip changes nothing. What it does not read at all is the rest of the AnyTone map: the
   general-settings block, GPS and both APRS flavours, roaming zones and channels, encryption keys,
   DTMF/2-tone/5-tone signalling, satellite and boot settings, and the per-channel long tail
@@ -87,16 +86,15 @@ If something is shipped, then remove it.
   conversion report says so on any channel that uses one
 - More radios: the AnyTone GD32 family (D868/D878/D578) shares the serial protocol already here and
   needs only its own memory map
-- Satellite tracker (TLE fetch, pass prediction, Doppler-corrected channels)
 - Rotator control (GS-232, rotctld); rigctld-compatible rig control server
-- Saved antenna profiles — the NanoVNA tool sweeps, plots SWR and a Smith chart and
+- Saved antenna profiles: the NanoVNA tool sweeps, plots SWR and a Smith chart and
   calibrates, but a sweep is never stored against a named antenna
-- Map layers — sondes, satellites, beacons
+- Map layers: sondes, satellites, beacons
 - TinySA import, Hamlib CAT control
 - Radio astronomy; star tracker; sky map
 
 ## 7. API, automation & access
 
-- Alerting/notifications — rule engine on decoder events → desktop, push
+- Alerting/notifications: rule engine on decoder events → desktop, push
 - Plugin SDK via WASM?
-- Offline reference bundles — band plans, TLE snapshots, callsign prefixes, PMTiles maps
+- Offline reference bundles: band plans, TLE snapshots, callsign prefixes, PMTiles maps

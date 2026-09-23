@@ -1,106 +1,71 @@
 # Recording and playback
 
-Choose a recorder for the signal you need to save:
+| Node | Records | Wire from | Format |
+|---|---|---|---|
+| Recorder | The Device's full IQ | Device `iq` | SigMF |
+| Baseband recorder | One channel's filtered IQ | Channel `baseband` | SigMF |
+| Audio recorder | One channel's audio | Channel `audio` | 48 kHz 16-bit WAV |
+| Time machine | IQ from before you pressed the button | Device `iq` | SigMF |
 
-| Node | Records | Format |
-|---|---|---|
-| Recorder | One device IQ lane | SigMF |
-| Baseband recorder | Filtered IQ from individual channels | SigMF |
-| Audio recorder | Processed channel audio | 48 kHz, 16-bit PCM WAV |
-| Time machine | Recent device IQ plus live capture | SigMF |
+A SigMF recording is two files: samples in `.sigmf-data`, frequency, rate, and time in
+`.sigmf-meta`. Keep them together.
 
-SigMF stores samples in `.sigmf-data` and frequency, sample rate, timing, and annotations in
-`.sigmf-meta`. Keep both files together.
+Decoded messages are not recordings. For those, wire `events` to a **Decoder log**.
 
 ## Record IQ
 
-1. Connect Device `IQ` to **Recorder** `IQ`.
-2. Start the radio and press **Record**.
-3. Press **Stop** to finish the files.
+Wire Device `iq` to a **Recorder**, press **Record**, then **Stop**. On a multi-lane radio the
+wired port picks the lane. Wire GPS `position` to store the location.
 
-For multi-lane radios, the connected port selects the lane. Connect GPS `position` to include
-location metadata. The recorder shows elapsed time, bytes, and write errors.
+A clean server shutdown finishes open recordings. Killing the process can leave one incomplete.
 
-A clean server shutdown finalises active recordings. Forcibly ending the process can leave an
-incomplete capture.
+## Record a channel
 
-## Record a channel's audio
+**Baseband recorder** keeps a channel's IQ after filtering and before squelch. The files are much
+smaller than full Device IQ and can be played back like any other recording. Changing the mode or
+the Device rate, or removing the channel, ends the file.
 
-Connect channel `audio` outputs to **Audio recorder**. Press **Record** beside each channel you
-want to save, then **Stop** to finish its WAV file.
+**Audio recorder** keeps what you hear, after squelch, filters, and AGC. Closed squelch writes
+silence so timing stays intact. Mode and rate changes do not stop it. The file stays playable even
+if the server stops mid-recording.
 
-Each channel gets a separate file after squelch, filtering, noise reduction, and AGC. Closed
-squelch writes silence to preserve timing. Mode and device-rate changes do not stop audio
-recording; removing a channel does. Headers update during capture so interrupted files remain
-playable through the last finalised data.
+Both recorders take several channels. Start and stop each with its own button.
 
-Audio and IQ recording can run independently at the same time.
+## Time machine
 
-## Record a channel's baseband
+Capture a signal after it happened:
 
-Connect channel `baseband` outputs to **Baseband recorder**. Start and stop each channel separately.
+1. Wire Device `iq` to **Time machine**, and GPS `position` if you have one.
+2. Set how many seconds to keep and press **Arm**.
+3. Press **Capture** to save the buffer and keep recording live.
+4. **Stop** ends the file and stays armed. **Disarm** frees the memory.
 
-Files contain IQ after frequency translation and filtering, before squelch. They preserve the
-channel frequency and sample rate and use less storage than full-device IQ. Completed files appear
-in the IQ library for playback.
-
-A channel rebuild, including a mode or device-rate change, finishes the recording. Removing the
-channel also finishes it.
-
-## The IQ time machine
-
-Capture a signal after it happens:
-
-1. Connect Device `IQ` to **Time machine**, with optional GPS `position`.
-2. Set a buffer duration and press **Arm**.
-3. Press **Capture** to save the buffer and continue recording live IQ.
-4. Press **Stop** to finish and remain armed, or **Disarm** to release the buffer.
-
-Memory use is `seconds × sample rate × 8` bytes, up to the server's 1 GiB limit. The display shows
-the required memory and maximum duration.
-
-Sample rate is locked while armed. Retuning starts a new SigMF capture segment. The first
-timestamp belongs to the oldest buffered sample.
-
-## Storage
-
-Recordings default to `sdrmm/recordings` under the platform data directory. Override it with:
-
-```sh
-sdrmm --recordings-dir /srv/sdrmm/recordings
-```
-
-Containers use `/data/recordings`; persist `/data`. The library rebuilds its IQ index from valid
-SigMF pairs on disk. Audio files live in the `audio` subdirectory.
-
-## Tags and notes
-
-In **Library → Recordings**, choose **Annotate** and enter comma-separated tags and a note.
-Search matches names, tags, and notes; click a tag to search for it.
-
-Annotations are stored in SigMF metadata as `sdrmm:tags` and `core:description`, so they survive
-downloads and index rebuilds. Duplicate tags merge while keeping the first spelling.
-
-## Download and export
-
-Download IQ as the original SigMF archive or a stereo float WAV with I and Q as separate channels.
-WAV preserves samples but only part of the capture metadata. **Channel audio** provides the audio
-WAV downloads.
-
-Downloads stream from disk. Failed exports abort instead of returning an apparently complete,
-truncated file.
+The buffer uses `seconds × sample rate × 8` bytes, up to 1 GiB. The node shows both. The sample
+rate is locked while armed. Retuning starts a new segment in the same recording.
 
 ## Play a recording
 
-Choose **Open as source** in **Library → Recordings**. Connect the new playback Device to
-channels and displays as you would a radio.
+In **Library → Recordings**, press **Open as source**. A **Recording** node appears. Wire it to
+channels and displays like a Device, then use play, pause, and seek to decode the same samples
+again with different settings.
 
-Playback uses the capture's centre frequency and sample rate. Use play, pause, stop, and seek to
-review the same samples with different decoder settings. Recording playback is available in
-release builds.
+**Upload SigMF** adds a recording from your computer, as a `.sigmf` archive or a
+`.sigmf-meta` and `.sigmf-data` pair.
 
-## Decoder logs are separate
+## Tags and notes
 
-For messages, identifiers, and positions, connect channel `events` to **Decoder log**.
-Add **Export** for CSV or JSON. Logs store decoded results in SQLite; IQ files store the signal
-needed to decode again.
+In **Library → Recordings**, choose **Annotate** to add comma-separated tags and a note. Search
+covers names, tags, and notes. Annotations live in the SigMF metadata, so they travel with the
+files.
+
+## Download
+
+Download IQ as the original SigMF archive or as a stereo float WAV with I and Q as channels. WAV
+keeps the samples but not all metadata. A failed download aborts instead of handing you a
+truncated file.
+
+## Where files go
+
+Recordings go to `sdrmm/recordings` in the platform data folder, with audio in `audio/`. Change it
+with `--recordings-dir`. Containers use `/data/recordings`. The library rebuilds itself from the
+SigMF files on disk.

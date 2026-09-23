@@ -2,84 +2,55 @@
 
 ## Make a change
 
-1. Follow the [build and test guide](https://sdrmm.newspicel.dev/development/building.html).
+1. Set up with the [build guide](https://sdrmm.newspicel.dev/development/building.html).
 2. Branch from the latest `main`.
-3. Keep the change focused and add tests that demonstrate the behaviour.
-4. Run the checks for the parts you changed.
-5. Open a pull request describing the result and how you verified it.
+3. Keep the change focused, with tests that show it works.
+4. Format, lint, check, and test the parts you changed.
+5. Open a pull request saying what changed and how you verified it.
 
-Use an issue to discuss substantial changes to behaviour or crate boundaries.
+Open an issue first for large changes to behaviour or crate boundaries.
 
-## Code boundaries
+## Rules
 
-- Define shared REST, WebSocket, settings, and patch types in `crates/wire`. Generate OpenAPI and
-  TypeScript declarations from them.
-- Keep `crates/dsp` free of I/O and internal dependencies. Reusable modem algorithms belong in
-  `crates/modem`; measurement and file tooling belongs in `crates/modem-test-support`.
-- Keep locks, allocation, and async work out of the hot DSP path. Send settings through command
-  queues and publish state through snapshot channels.
-- Open radios through Device nodes and feature-gated backends. Nodes that combine devices use
-  existing Device streams.
-- Report overruns, dropped frames, truncated recordings, and other failures to the operator.
-- Build frontend controls from server capabilities and descriptors.
-- Prefer clear names and small functions. Reserve comments for rare, non-obvious constraints.
-- Prefer Rust implementations. Preserve attribution and license notices for reused code or tables.
+- Define REST, WebSocket, settings, and patch types once, in `crates/wire`.
+- `crates/dsp` does no I/O and depends on no project crate. Reusable modem algorithms go in
+  `crates/modem`.
+- No locks, allocation, or async in the hot DSP path. Settings go in through command queues,
+  state comes out through snapshots.
+- Only Device nodes open radios. Nodes that combine radios use Device streams.
+- Every flow is a visible wire. No hidden connections.
+- Never fail silently. Report drops, truncated recordings, and other losses.
+- Build frontend controls from what the server reports.
+- No comments. Clear names and small functions instead.
+- Prefer pure Rust. Keep attribution and licenses for anything reused.
 
-See [Architecture](https://sdrmm.newspicel.dev/development/architecture.html)
-for dependencies and runtime data flow.
+Adding a decoder should touch one module in `channels`, one settings struct in `wire`, and
+optionally one React panel. See [Architecture](https://sdrmm.newspicel.dev/development/architecture.html).
 
-## Tests and checks
+## Tests
 
-Use the narrowest test that demonstrates the change:
+Use the narrowest test that proves the change:
 
-| Changed area | Required coverage |
+| Area | Test with |
 |---|---|
-| DSP primitives | Analytic or golden-vector tests, plus relevant performance gates |
-| Decoders | Recorded IQ fixture and expected decoded output |
-| Engine | End-to-end tests through `device-virtual` |
-| Server | Handler tests, OpenAPI snapshot, and codegen drift |
+| DSP | Analytic or golden vectors, plus `cargo xtask perf` |
+| Decoders | A recorded IQ fixture and its expected output |
+| Engine | End-to-end runs through `device-virtual` |
+| Server | Handler tests, OpenAPI snapshot, codegen drift |
 | Client | Unit tests and affected browser flows |
-| Documentation | `mdbook build docs`, local links, and heading anchors |
+| Docs | `mdbook build docs`, links, and anchors |
 
-Automated tests must not require or enumerate real hardware. Use virtual devices and reviewed fixtures.
-Format, lint, check, and test the changed code. The full code gates are:
+Automated tests never use real hardware. The
+[checks table](https://sdrmm.newspicel.dev/development/building.html#checks) lists every gate, and
+[generated files](https://sdrmm.newspicel.dev/development/building.html#generated-files) lists what
+to regenerate.
 
-```sh
-cargo xtask check
-cargo xtask test
-```
-
-Additional checks depend on the change:
-
-| Command | Use for |
-|---|---|
-| `cargo xtask smoke` | Browser workflows |
-| `cargo xtask desktop` | Tauri shell |
-| `cargo xtask perf` | DSP allocation and throughput |
-| `cargo xtask sanitize` | Changes to the vendored AMBE or FDMDV C |
-| `cargo xtask fuzz` | Changes to a decoder's framing or to channel settings |
-| `cargo xtask audit` | Dependency changes |
-
-Report manual hardware tests with the receiver, driver versions, OS, duration, reconnect result,
-and overrun or underflow counts.
-
-## Generated files
-
-Commit generated output with its source change:
-
-- API or wire types: `cargo xtask codegen`.
-- Dependencies: `cargo xtask licenses`.
-- `web/pnpm-lock.yaml`, or a git dependency's `rev`: `cargo xtask nix-hash` to update the Nix pnpm
-  store hash and cargo git hashes. This requires Nix on Linux or a `nixos/nix` container elsewhere.
-
-The [generated-file reference](https://sdrmm.newspicel.dev/development/building.html#generated-files)
-also covers decoder fixtures, band plans, and icons. `cargo xtask check` detects stale contracts,
-lockfile digests, and git revisions recorded with Nix hashes.
+For manual hardware tests, report the radio, driver version, OS, duration, reconnect result, and
+drop counts.
 
 ## Pull requests
 
-Explain what changed, why it belongs in the chosen layer, and how you tested it. Include any
-remaining limitations. Keep unrelated cleanup in a separate change.
+Say what changed, why it belongs in that layer, how you tested it, and what is still missing.
+Keep unrelated cleanup separate.
 
-Contributions are licensed under the repository's
-[GNU General Public License, version 3 or later](LICENSE).
+Contributions are licensed under the [GNU General Public License, version 3 or later](LICENSE).

@@ -40,16 +40,13 @@ Open <http://localhost:8080>. For remote access, configure
 
 ## Start with an RTL-SDR
 
-1. Attach an antenna and plug the RTL-SDR into the computer running SDR--.
-2. Select it on the **Device** node. Set the sample rate to **2.4 MS/s** and tune to a local FM station.
-3. Add a **WFM** channel from **+ Node** and set it to the station's frequency.
-4. Connect Device `IQ` to WFM `IQ`, then WFM `audio` to Speaker `audio`.
-5. Start playback on the Speaker. Select a node and press `p` to pin it to the Rack.
+1. Plug in the RTL-SDR and pick it on the **Device** node. Set the rate to **2.4 MS/s**.
+2. Add a **WFM** channel from **+ Node** and set it to a local FM station.
+3. Wire Device `iq` to WFM `iq`, and WFM `audio` to the Speaker.
+4. Start the Speaker. Press `p` on a node to pin it to the Rack.
 
-[Your first receiver](https://sdrmm.newspicel.dev/getting-started/first-receiver.html)
-walks through tuning, gain, audio, and RDS. See the
-[hardware guide](https://sdrmm.newspicel.dev/hardware.html) for other receivers and
-package-specific driver requirements.
+[Your first receiver](https://sdrmm.newspicel.dev/getting-started/first-receiver.html) walks
+through it. [Radios](https://sdrmm.newspicel.dev/hardware.html) covers other hardware.
 
 ## What it supports
 
@@ -61,8 +58,8 @@ package-specific driver requirements.
 - **Automation:** REST, WebSocket, MCP, network IQ export, and event forwarding.
 
 SDR-- is under active development. The
-[channel catalog](https://sdrmm.newspicel.dev/user-guide/channels.html#channel-catalog)
-lists each mode's test coverage and limitations, including partial experimental decoders.
+[decoder catalog](https://sdrmm.newspicel.dev/user-guide/decoders.html#catalog) shows how well
+each mode is tested.
 
 ## Screenshots
 
@@ -91,8 +88,6 @@ These captures use debug-build signal sources and repository IQ fixtures. Regene
 
 ## Build and contribute
 
-Use the repository's pinned Rust toolchain, a C/C++ compiler, Clang/libclang, CMake, Python 3.12+, GNU Make, Node 26, and pnpm 11.
-
 ```sh
 git clone https://github.com/Newspicel/sdrminusminus.git
 cd sdrminusminus
@@ -103,24 +98,12 @@ pnpm --dir web build
 cargo run -p sdrmm
 ```
 
-Open <http://localhost:8080>. For frontend hot reload and backend watching, run
-`cargo xtask dev --watch` and open <http://localhost:5173>.
+Open <http://localhost:8080>, or run `cargo xtask dev --watch` and open <http://localhost:5173>
+for hot reload. `cargo xtask check` and `cargo xtask test` are the main gates.
 
-The signal generator and synthetic test radios are available in debug builds. Release builds
-support real receivers and recording playback.
-
-| Command | Purpose |
-|---|---|
-| `cargo xtask check` | Format, lint, type-check, build, and check generated files |
-| `cargo xtask test` | Rust and frontend tests without hardware |
-| `cargo xtask smoke` | Browser tests against the server |
-| `cargo xtask codegen` | Generate OpenAPI and TypeScript types |
-| `cargo xtask audit` | Dependency checks |
-
-Read [Contributing](CONTRIBUTING.md), the
-[build guide](https://sdrmm.newspicel.dev/development/building.html), and
-[architecture](https://sdrmm.newspicel.dev/development/architecture.html)
-for prerequisites, crate boundaries, and tests.
+The [build guide](https://sdrmm.newspicel.dev/development/building.html) lists prerequisites and
+every check. Read [Contributing](CONTRIBUTING.md) and the
+[architecture](https://sdrmm.newspicel.dev/development/architecture.html) before a pull request.
 
 ## Documentation and API
 

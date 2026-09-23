@@ -4,21 +4,24 @@
 
 # Get started
 
-- [Install SDR--](getting-started/install.md)
+- [Install](getting-started/install.md)
 - [Your first receiver](getting-started/first-receiver.md)
-- [Understand the workspace](getting-started/workspace.md)
+- [Nodes and wires](getting-started/workspace.md)
 
-# Use the receiver
+# Receive
 
-- [Radios and hardware](hardware.md)
-- [Channels and decoding](user-guide/channels.md)
-- [Scanning](user-guide/scanning.md)
+- [Radios](hardware.md)
+- [Channels](user-guide/channels.md)
+- [Decoders](user-guide/decoders.md)
+- [Finding signals](user-guide/scanning.md)
+- [Position and GPS](user-guide/position.md)
 - [Satellites](user-guide/satellites.md)
 - [Propagation map](user-guide/propagation.md)
 - [Recording and playback](user-guide/recording.md)
-- [Network IQ export](user-guide/network-iq.md)
-- [Workspaces, templates, and presets](user-guide/workspaces.md)
-- [Keyboard controls](user-guide/keyboard.md)
+- [Network export](user-guide/network-iq.md)
+- [Workspaces and presets](user-guide/workspaces.md)
+- [Tools](user-guide/tools.md)
+- [Keyboard](user-guide/keyboard.md)
 - [Troubleshooting](troubleshooting.md)
 
 # Arrays and field work
@@ -31,13 +34,13 @@
 # Run a server
 
 - [Configuration and security](server/configuration.md)
-- [HTTPS with Tailscale or Cloudflare Tunnel](server/tunnels.md)
-- [Containers and remote radios](server/deployment.md)
-- [API and automation](server/api.md)
+- [HTTPS with a tunnel](server/tunnels.md)
+- [Deployment](server/deployment.md)
+- [API](server/api.md)
 
 # Contribute
 
 - [Build and test](development/building.md)
 - [Architecture](development/architecture.md)
 - [GPU measurements](development/gpu-performance.md)
-- [Release process](development/releases.md)
+- [Releases](development/releases.md)

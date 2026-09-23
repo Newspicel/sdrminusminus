@@ -1,73 +1,54 @@
-# Workspaces, templates, and presets
+# Workspaces and presets
 
-| Tool | Saves or supplies | Use |
+| | Holds | Use it to |
 |---|---|---|
-| Workspace | Patch, rack, radio references and settings, band plan | A complete receiver layout |
-| Template | Built-in graph and radio configuration | Start a common activity |
-| Preset | Named workspace snapshot with bound radio settings | Restore a tuned setup |
-| Bookmark | Frequency and label | Retune a selected Device |
+| Workspace | Nodes, wires, rack, radio settings, band plan | Keep a whole receiver |
+| Template | A ready-made receiver, built in | Start a common setup |
+| Preset | A saved copy of a tuned workspace | Get back to a known state |
+| Bookmark | A frequency and a name | Retune quickly |
 
 ## Workspaces
 
-Use the workspace name in the top bar to create, switch, or delete layouts. A new database starts
-with Device, Scope, and Speaker nodes; later workspaces start empty.
+Create, switch, rename, and delete workspaces from the name in the top bar. A new database starts
+with a Device, a Scope, and a Speaker. Later workspaces start empty. Changes save on their own.
 
-Changes save automatically on the server. All clients share the active workspace.
+### Undo
 
-### Export and import
-
-The ↓ button downloads the workspace as JSON, including its name, patch, rack, band plan, and
-node settings. Database identity, revision, and undo history are excluded.
-
-**Import a workspace file** creates and activates a new workspace. Duplicate names receive a
-copy number. Available radios open with the imported settings; missing radios remain disconnected
-and appear in the apply report. Select a replacement to use different hardware.
-
-Unsupported newer file versions are rejected.
-
-### Undo and redo
-
-Use the top-bar arrows or `Ctrl`/`⌘ Z` and `Ctrl`/`⌘ Shift Z`. Each workspace keeps 100 layouts
-on the server. Undo affects all clients and updates the running graph; for example, undoing an
-added channel closes it. A new edit after undo discards redo history.
-
-Radio tuning is excluded from layout history.
+Use the top-bar arrows, `Ctrl`/`⌘ Z`, and `Ctrl`/`⌘ Shift Z`. Undo changes the running receiver
+for every client: undoing an added channel closes it. The server keeps 100 steps per workspace.
+Tuning is not part of the history.
 
 ### Copy and paste
 
-Select nodes, press `Ctrl`/`⌘ C`, then `Ctrl`/`⌘ V`. Copies appear beside the originals with their
-internal wires. Connections outside the selection are excluded, and copied Device nodes need
-a radio selected.
+Select nodes, then `Ctrl`/`⌘ C` and `Ctrl`/`⌘ V`. Copies land beside the originals with the wires
+between them. Pasted Device nodes need a radio picked. The clipboard works across workspaces
+while the tab stays open.
 
-The clipboard works across workspaces for the lifetime of the browser tab.
+### Export and import
+
+The ↓ button downloads the workspace as JSON. **Import a workspace file** adds it as a new
+workspace. Radios that are present open with the saved settings. Missing ones stay disconnected
+and are listed in the apply report, so you can pick replacements.
 
 ## Templates
 
-Select a Device, then open **Library → Templates**. Applying a template retunes that radio,
-sets its sample rate, and adds channels and compatible outputs. The button names the target radio.
-Templates outside its tuning or sample-rate capabilities are disabled.
+Select a Device, then open **Library → Templates**. A template retunes that radio, sets its rate,
+and adds channels and outputs. Templates the radio cannot handle are greyed out.
 
-Templates cover broadcast, aviation, marine, paging, amateur, digital voice, ISM, and other
-services. Choose a setup for a signal available at your location.
-
-Undo removes the added nodes but does not restore the previous radio frequency or sample rate.
+Undo removes the added nodes but leaves the radio's new frequency and rate.
 
 ## Presets
 
-Save a preset after arranging and tuning a workspace. Applying it restores the graph and radio
-settings using saved hardware identities. The apply report lists anything that could not be restored.
-
-Presets are editable and stored on the server. Templates ship with the app and are read-only.
+Save a preset once a workspace is set up and tuned. Applying it restores the nodes and the radio
+settings. The apply report lists anything it could not restore.
 
 ## Bookmarks and band plans
 
-A bookmark saves the selected Device or decoder's frequency and tunes it back without changing
-the graph.
+A bookmark saves the selected Device's or channel's frequency and tunes it back.
 
-**Bands** chooses the band-plan region and searches its allocations. A hit tunes the selected
-Device, or the selected decoder — pulling its radio over when it cannot hear that frequency.
-Enable the Scope allocation ruler to browse them: hover for details or click to tune, using the
-usual mode when available.
+**Bands** picks your band-plan region and searches its allocations. A hit tunes the selected
+Device, or the selected channel, moving its radio if needed. Turn on the Scope's band ruler to
+browse allocations: hover for details, click to tune.
 
-Automatic region selection uses browser location and requires HTTPS or localhost. Manual selection
-is always available.
+The region is picked from your location when the page is on HTTPS or localhost. You can always
+pick it by hand.

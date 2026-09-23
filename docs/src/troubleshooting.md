@@ -1,159 +1,104 @@
 # Troubleshooting
 
-Start with **Check hardware** on an unbound Device node, or run:
+Start with **Check hardware** on an empty Device node, or run:
 
 ```sh
 sdrmm --doctor
 ```
 
-The report checks drivers, libraries, discovery, USB permissions, and storage paths.
+It checks drivers, libraries, radio discovery, USB permissions, and storage paths.
 
 ## The page does not open
 
-- Find the address printed beside `SDR-- ready` in the server log.
+- Use the address printed after `SDR-- ready` in the server log.
 - On the server itself, try <http://127.0.0.1:8080>.
-- For remote access, bind to a reachable interface, for example `sdrmm --bind 0.0.0.0:8080`.
-- Check firewall rules and container port mappings.
-- Serve reverse-proxy deployments at the origin root; path prefixes are unsupported.
+- From another machine, the server must listen on a reachable address, such as
+  `--bind 0.0.0.0:8080`.
+- Check the firewall and any container port mapping.
+- Behind a reverse proxy, serve SDR-- at the root. Path prefixes do not work.
+- With TLS on, use `https://`.
 
-Use `https://` when TLS is enabled.
+## The Linux window is blank or the waterfall is missing
 
-## The Linux window is blank or the waterfall is broken
-
-Some WebKitGTK graphics drivers cause blank windows, frozen panels, or
+Some graphics drivers break WebKitGTK: a blank window, frozen panels, or
 `waterfall unavailable: no WebGL2 context`. Try safe rendering:
 
 ```sh
 SDRMM_LINUX_GRAPHICS=safe sdrmm-desktop
 ```
 
-| Value | Behaviour |
+| Value | Does |
 |---|---|
-| `auto` | Default; disables DMABUF when the NVIDIA kernel module is loaded |
-| `safe` | Disables DMABUF and accelerated compositing |
-| `off` | Leaves graphics settings unchanged |
+| `auto` | Default. Turns off DMABUF when the NVIDIA driver is loaded. |
+| `safe` | Turns off DMABUF and accelerated compositing. The waterfall may run slower. |
+| `off` | Changes nothing |
 
-Safe rendering may lower the waterfall frame rate. Existing `WEBKIT_*` variables take precedence;
-the startup log shows applied settings. See
-[Tauri's graphics debugging guide](https://v2.tauri.app/develop/debug/linux-graphics/) for individual options.
+Your own `WEBKIT_*` variables win. If the window still fails, run `sdrmm --bind 127.0.0.1:8080`
+and use a browser.
 
-If the window still fails, use the server in a browser:
+## The token is rejected
 
-```sh
-sdrmm --bind 127.0.0.1:8080
-```
-
-## A token is rejected
-
-The browser stores the token for the server's origin. After an unauthorised response, it clears
-the saved value and prompts again. Enter the token currently configured on the server.
-
-API clients use `Authorization: Bearer <token>`. WebSocket and browser download URLs can use
-`?token=...`.
+The browser forgets a rejected token and asks again. Enter the one the server is using now. API
+clients send `Authorization: Bearer <token>`. WebSocket and download URLs can use `?token=...`.
 
 ## A radio is missing
 
-1. Confirm the operating system detects it.
-2. Run `sdrmm --doctor` and resolve library or permission errors.
-3. Stop other SDR software that may hold the receiver.
-4. For SoapySDR radios, run `SoapySDRUtil --find` and check that modules match ABI `0.8`.
-5. On Linux, install udev rules and grant the server account access. In containers, pass the
-   owning group's numeric ID with `group_add`.
+1. Check that the operating system sees it.
+2. Run `sdrmm --doctor` and fix any library or permission error.
+3. Close other SDR programs that may hold it.
+4. For SoapySDR radios, run `SoapySDRUtil --find` and check the module is built for 0.8.
+5. On Linux, install the udev rules. In a container, set
+   [`group_add`](server/deployment.md#usb-devices).
 
-Desktop and portable packages use system SoapySDR installations. Containers include selected
-modules; Nix uses configured plugins. `SDRMM_SOAPY_MODULE_PATH` adds search directories.
-See [Radios and hardware](hardware.md) for package and receiver requirements.
+**SDRplay:** install the [SDRplay API](https://www.sdrplay.com/downloads/) and start
+`sdrplay_apiService`. An RSPduo in use elsewhere only lists its free modes.
 
-## An SDRplay receiver does not appear
+See [Radios](hardware.md) for each radio's requirements.
 
-Install [SDRplay API](https://www.sdrplay.com/downloads/) and start `sdrplay_apiService`.
-The **SDRplay API** section in `sdrmm --doctor` reports library and service errors.
+## A radio is plugged in but its node stays disconnected
 
-An RSPduo already in use lists only free operating modes. See [SDRplay](hardware.md#sdrplay)
-and [container setup](server/deployment.md#sdrplay-receivers).
-
-## A device is present but a saved node is disconnected
-
-The node waits for its saved radio identity. Check the serial number and variant. To replace the
-receiver, choose **Forget this radio** and select the new one.
+The node waits for the exact radio it saved, by serial number. To use a different one, press
+**Forget this radio** and pick the new one.
 
 ## Spectrum works but audio is silent
 
-- Connect channel `audio` to Speaker `audio` and start Speaker playback.
-- Click the page to allow browser audio.
-- Turn off squelch temporarily or lower its threshold.
-- Check that the channel covers the signal and fits inside the Device passband.
-- Check tab mute, system volume, and the selected audio output.
+- Wire channel `audio` to a Speaker and start it.
+- Click the page once. Browsers block audio until you do.
+- Turn squelch off, or lower it.
+- Check the channel sits on the signal and inside the Device's window.
+- Check tab mute, system volume, and the output device.
 
-For broken or intermittent browser audio, use HTTPS or localhost. Plain LAN HTTP uses a fallback
-without AudioWorklet, which can stutter while the display is busy.
+Audio that stutters on a plain `http://` LAN address improves on HTTPS or localhost. Without
+them the browser falls back to a slower audio path.
 
-## A decoder produces nothing
+## A decoder shows nothing
 
-- Confirm frequency, mode, baud rate, and protocol variant.
-- Check the Scope for a signal within the channel bandwidth.
-- Connect `events` to the right output: Decoder log for frames, Readout for current state, Map for positions.
-- Adjust gain and check for clipping or gaps.
-- Check the mode's [coverage and limitations](user-guide/channels.md#channel-catalog).
+- Check frequency, mode, and any baud rate or variant setting.
+- Check the Scope shows a signal inside the channel.
+- Wire `events` to the right place: Decoder log for messages, Readout for current state, Map for
+  positions.
+- Adjust gain. Watch for clipping and drops.
+- Check the mode's [maturity](user-guide/decoders.md#catalog).
 
-## Overruns or gaps
+## Drops and gaps
 
-The dropped count includes reported device gaps, full capture queues, and discarded stale samples.
-These losses affect audio, spectrum, recordings, and decoding.
+The drop counter on a Device counts samples lost anywhere between the radio and the decoders.
+Drops damage audio, spectrum, recordings, and decoding.
 
-- Lower the sample rate and close unused channels or displays.
-- Use a release build for regular reception.
-- Check CPU throttling and temperature on small computers.
-- Use wired Ethernet for high-rate network receivers.
-- Put high-rate USB radios on separate USB buses. HackRF at 20 MS/s nearly fills a
-  [USB 2 bus](https://hackrf.readthedocs.io/en/stable/synchronization_checklist.html).
-  A shared hub can lose samples before host-side drop counters see them.
+- Lower the sample rate and close channels and displays you do not need.
+- Use a release build.
+- On small computers, check for CPU throttling and heat.
+- Use wired Ethernet for network radios.
+- Give fast USB radios their own USB bus. A HackRF at 20 MS/s nearly fills
+  [USB 2](https://hackrf.readthedocs.io/en/stable/synchronization_checklist.html), and a shared
+  hub can lose samples before any counter sees it.
 
-Developers can compare raw reception with capture, DSP, and publication queues:
-
-```sh
-SDRMM_CAPTURE_DRIVER=hackrf SDRMM_CAPTURE_RATE=8000000 SDRMM_CAPTURE_SECONDS=30 \
-  cargo test -p sdrmm-engine --lib --no-default-features --features rtlsdr,hackrf \
-  connected_radio_capture_health -- --ignored --nocapture
-```
-
-Use idle radios. `SDRMM_CAPTURE_DRIVER` accepts `hackrf`, `rtlsdr`, or `both`.
-Default rates are 20 MS/s for HackRF and 2.4 MS/s for RTL-SDR.
-
-| Environment variable | Effect |
-|---|---|
-| `SDRMM_CAPTURE_CHANNELS=8` | Eight channels per radio; default four |
-| `SDRMM_CAPTURE_MIXED=1` | Cycle NFM, WFM, AM, and SSB |
-| `SDRMM_CAPTURE_RETUNE=1` | Retune channels every five seconds |
-| `SDRMM_CAPTURE_DEVICE_RETUNE=1` | Retune radios through USB every five seconds |
-| `SDRMM_CAPTURE_RTL_RATE=3200000` | Override only the RTL-SDR rate |
-| `SDRMM_CAPTURE_CPU_THREADS=4` | Add four CPU load threads |
-| `SDRMM_CAPTURE_RECORD=1` | Record full-rate IQ to temporary files and verify sample counts |
-| `SDRMM_CAPTURE_HISTORY=1` | Capture one second of history, then record and verify live IQ |
-| `SDRMM_CAPTURE_HISTORY_SECONDS=6` | History window; default one second |
-| `SDRMM_CAPTURE_TRANSPORT_SECONDS=5` | Raw reception duration per radio; zero skips it |
-| `SDRMM_CAPTURE_ALLOW_DROPS=1` | Measure overload without requiring zero losses |
-
-The test checks capture queues, PCM and decoded Opus audio, timestamps, and spectrum continuity.
-It fails on losses by default. Software counters cannot detect every device-side USB loss.
-For RTL-SDR, also test the hardware byte counter:
-
-```sh
-SDRMM_RTL_TEST_RATE=3200000 SDRMM_RTL_TEST_SECONDS=60 \
-  cargo test -p sdrmm-device-rtlsdr --lib connected_rtl_counter_continuity -- --ignored --nocapture
-```
-
-This checks sequence continuity, USB transfer drops, and delivered sample rate.
-The eight-bit counter alone cannot reveal missing multiples of 256 bytes.
+Developers can measure capture health on real radios, see
+[hardware capture tests](development/building.md#hardware-capture-tests).
 
 ## Recordings do not appear
 
-- Confirm the server can write to `--recordings-dir`.
-- In Docker, check the persisted `/data/recordings` directory.
-- Stop active recordings to finalise metadata.
-- Check that each IQ capture has valid `.sigmf-meta` and `.sigmf-data` files.
-
-## Development server requests fail
-
-Use `cargo xtask dev` to start the backend and configure the Vite API and WebSocket proxy.
-When starting them separately, use `--dev-cors` only for trusted local development.
+- Check the server can write to `--recordings-dir`.
+- In Docker, check `/data/recordings` is on the persisted volume.
+- Stop the recording. Metadata is written on stop.
+- Check each capture has both `.sigmf-meta` and `.sigmf-data`.

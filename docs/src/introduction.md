@@ -4,35 +4,36 @@
 
 # Welcome to SDR--
 
-SDR-- is a software-defined radio application. Listen, decode, view, and record signals from an
-SDR, a network receiver, or an IQ recording.
+SDR-- listens to, decodes, and records radio signals from an SDR, a network receiver, or an IQ
+recording.
 
-Build a receiver by connecting nodes in **Patch** view. Pin frequently used controls and displays
-to **Rack** view. Start with an RTL-SDR and a local FM station.
+You build a receiver by wiring nodes together in **Patch** view, then pin the controls you use
+to **Rack** view. An RTL-SDR and a local FM station are enough to start.
 
-## Get started
+## Start here
 
 1. [Install SDR--](getting-started/install.md).
 2. Build [your first receiver](getting-started/first-receiver.md).
-3. Learn the [workspace controls](getting-started/workspace.md).
+3. Learn how [nodes and wires](getting-started/workspace.md) fit together.
 
 ## Find a guide
 
 | Task | Guide |
 |---|---|
-| Connect a radio | [Radios and hardware](hardware.md) |
-| Listen or decode | [Channels and decoding](user-guide/channels.md) |
+| Connect a radio | [Radios](hardware.md) |
+| Listen to a signal | [Channels](user-guide/channels.md) |
+| Decode data | [Decoders](user-guide/decoders.md) |
 | Save and replay signals | [Recording and playback](user-guide/recording.md) |
-| Operate over a network | [Containers and remote radios](server/deployment.md) |
+| Run the radio somewhere else | [Deployment](server/deployment.md) |
 | Use a phone in the field | [Field mode](user-guide/field-mode.md) |
 | Fix a problem | [Troubleshooting](troubleshooting.md) |
-| Develop SDR-- | [Build and test](development/building.md) |
+| Work on SDR-- | [Build and test](development/building.md) |
 
 ## How it runs
 
-The server handles the radio and signal processing. The desktop app and browser provide the same
-interface. Run everything on one computer, or place the server near the antenna and connect over
-the network. All clients share the active workspace.
+A server talks to the radio and does all signal processing. The desktop app and the browser
+show the same interface on top of it. Run both on one computer, or put the server next to the
+antenna and connect over the network. Every connected client sees the same workspace.
 
-SDR-- is under active development. The [channel catalog](user-guide/channels.md#channel-catalog)
-lists supported modes, test coverage, and experimental limits.
+SDR-- is under active development. The [decoder catalog](user-guide/decoders.md#catalog) shows
+how well each mode is tested.
