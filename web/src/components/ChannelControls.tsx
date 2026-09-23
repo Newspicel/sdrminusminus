@@ -721,12 +721,13 @@ function ModeControls({
               unit="Hz"
             />
           </SettingRow>
-          <SettingRow label="WPM">
+          <SettingRow label="Speed">
             <OptionalNumberField
-              label="Morse speed (WPM), empty to auto-track"
+              label="Morse speed, empty to auto-track"
               placeholder="auto"
               value={params.settings.wpm ?? null}
               {...limitOf(limits, "wpm")}
+              unit="WPM"
               onCommit={(wpm) => onParams({ type: "morse", settings: { ...params.settings, wpm } })}
             />
           </SettingRow>
@@ -776,12 +777,13 @@ function ModeControls({
               }
             />
           </SettingRow>
-          <SettingRow label="WPM">
+          <SettingRow label="Speed">
             <OptionalNumberField
-              label="Morse speed (WPM), empty to track each signal"
+              label="Morse speed, empty to track each signal"
               placeholder="auto"
               value={params.settings.wpm ?? null}
               {...limitOf(limits, "wpm")}
+              unit="WPM"
               onCommit={(wpm) =>
                 onParams({ type: "cw_skimmer", settings: { ...params.settings, wpm } })
               }
@@ -931,6 +933,7 @@ function ModeControls({
               placeholder="Unknown"
               value={params.settings.station_lat ?? null}
               {...limitOf(limits, "station_lat")}
+              unit="°"
               onCommit={(station_lat) => set({ ...params.settings, station_lat })}
             />
           </SettingRow>
@@ -940,6 +943,7 @@ function ModeControls({
               placeholder="Unknown"
               value={params.settings.station_lon ?? null}
               {...limitOf(limits, "station_lon")}
+              unit="°"
               onCommit={(station_lon) => set({ ...params.settings, station_lon })}
             />
           </SettingRow>
@@ -1161,7 +1165,6 @@ function ModeControls({
           />
           <Toggle
             label="Keep unfinished pictures"
-            title="Keep a picture even when the transmission stops early"
             checked={params.settings.keep_partial ?? true}
             onChange={(keep_partial) =>
               onParams({ type: "sstv", settings: { ...params.settings, keep_partial } })
@@ -1215,7 +1218,7 @@ function ModeControls({
           </SettingRow>
           <SettingRow label="Symbol rate">
             <NumberField
-              label="DATV symbol rate (baud)"
+              label="DATV symbol rate"
               value={params.settings.symbol_rate ?? 333_000}
               {...limitOf(limits, "symbol_rate")}
               onCommit={(symbol_rate) =>
@@ -1415,7 +1418,6 @@ function ModeControls({
           </SettingRow>
           <Toggle
             label="Ignore data CRC"
-            title="Show data blocks whose checksum fails"
             checked={params.settings.ignore_crc ?? false}
             onChange={(ignore_crc) =>
               onParams({ type: "dmr", settings: { ...params.settings, ignore_crc } })

@@ -64,8 +64,17 @@ test("monitors IQ through one node and exports transmission audio", async ({ pag
     await expect(monitor.locator(".react-flow__handle")).toHaveCount(2);
     await expect(monitor.locator("li")).toHaveCount(0);
     await expect(monitor).not.toContainText(/\d+ (active|recent)/);
-    const confidence = monitor.getByRole("textbox", { name: "Minimum confidence (%)" });
+    const confidence = monitor.getByRole("textbox", { name: "Minimum confidence" });
     await expect(confidence).toHaveValue("70");
+    const confidenceInfo =
+      "Ignore signals below this identification confidence; 0 accepts all detections";
+    await monitor.getByRole("button", { name: confidenceInfo }).click();
+    await expect(page.getByText(confidenceInfo, { exact: true })).toBeVisible();
+    await page.mouse.move(0, 0);
+    await page.waitForTimeout(500);
+    await expect(page.getByText(confidenceInfo, { exact: true })).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(page.getByText(confidenceInfo, { exact: true })).toBeHidden();
     await monitor.getByText("Spectrum monitor", { exact: true }).click();
     await confidence.click();
     await confidence.press("ControlOrMeta+A");

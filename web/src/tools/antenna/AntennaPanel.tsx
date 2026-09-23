@@ -252,7 +252,7 @@ function DesignSettings({
               step={1}
             />
           </Labelled>
-          <Labelled label="Spacing (λ)">
+          <Labelled label="Spacing">
             <NumberField
               label="Element spacing in wavelengths"
               value={design.settings.spacing_wavelengths ?? 0.2}
@@ -262,6 +262,7 @@ function DesignSettings({
               min={0.1}
               max={0.4}
               step={0.01}
+              unit="λ"
             />
           </Labelled>
         </>

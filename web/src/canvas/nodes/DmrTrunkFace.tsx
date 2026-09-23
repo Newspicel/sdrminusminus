@@ -89,7 +89,7 @@ export function DmrTrunkFace({ node }: { node: PatchNode }) {
               onChange={(next) => edit({ protocol: next })}
             />
           </SettingRow>
-          <SettingRow label="Control" title="Where the control channel sits">
+          <SettingRow label="Control">
             <FieldUnitFrame symbol="MHz" className="w-32">
               <Input
                 aria-label="Control channel"

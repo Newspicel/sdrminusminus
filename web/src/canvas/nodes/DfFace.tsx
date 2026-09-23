@@ -1,6 +1,5 @@
 import { Button } from "../../components/BaseControls";
 import { BTN, type Options } from "../../components/controls";
-import { formatSignedHz } from "../../components/format";
 import { NumberField } from "../../components/NumberField";
 import { Readout, ReadoutRow } from "../../components/Readout";
 import { Select } from "../../components/Select";
@@ -271,7 +270,7 @@ function DfSettings({
           onCommit={(count) => onChange({ geometry: withCount(settings.geometry, count) })}
         />
       </SettingRow>
-      <SettingRow label="Offset" title={formatSignedHz(settings.offset_hz)}>
+      <SettingRow label="Offset">
         <NumberField
           label="Signal offset"
           unit="Hz"

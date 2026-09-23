@@ -358,18 +358,16 @@ function ViewOptions({
             <SettingsSection
               name="Symbol rate"
               aside={
-                <span className="flex items-center gap-1.5 text-[11px] text-ink-faint">
-                  <NumberField
-                    label="Symbol rate"
-                    className="w-24"
-                    value={symbolRate}
-                    min={MIN_SYMBOL_RATE}
-                    max={nyquist}
-                    step={100}
-                    onCommit={onSymbolRate}
-                  />
-                  Bd
-                </span>
+                <NumberField
+                  label="Symbol rate"
+                  className="w-24"
+                  value={symbolRate}
+                  min={MIN_SYMBOL_RATE}
+                  max={nyquist}
+                  step={100}
+                  onCommit={onSymbolRate}
+                  unit="Bd"
+                />
               }
             />
           )}

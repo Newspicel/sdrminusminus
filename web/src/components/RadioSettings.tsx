@@ -371,7 +371,7 @@ function GainControl({
   const name = gainLabel(stage);
   const unit = gainUnit(stage);
   const label = `${port === undefined ? "" : `${port} `}${name} gain`;
-  const title = disabled ? AGC_HINT : unit === "" ? `${name}, firmware step` : `${name} gain in dB`;
+  const title = disabled ? AGC_HINT : unit === "" ? "Firmware step, not dB" : undefined;
 
   if (isSwitch(stage)) {
     const on = shown > stage.range.min;
@@ -449,7 +449,7 @@ function ExtraControl({
   switch (setting.kind) {
     case "bool":
       return (
-        <SettingRow label={name} title={setting.name}>
+        <SettingRow label={name}>
           <Checkbox
             label={name}
             checked={typeof raw === "boolean" ? raw : setting.default}
@@ -464,7 +464,7 @@ function ExtraControl({
       }));
       const Picker = options.length > SEARCHABLE_FROM ? SearchableSelect : Select;
       return (
-        <SettingRow label={name} title={setting.name}>
+        <SettingRow label={name}>
           <Picker
             label={name}
             value={typeof raw === "string" ? raw : setting.default}
@@ -480,7 +480,6 @@ function ExtraControl({
         return (
           <RangeSlider
             name={name}
-            title={setting.name}
             unit={setting.unit}
             range={setting.range}
             value={value}
@@ -489,7 +488,7 @@ function ExtraControl({
         );
       }
       return (
-        <SettingRow label={name} title={setting.name}>
+        <SettingRow label={name}>
           <NumberField
             label={name}
             unit={setting.unit === "" ? undefined : setting.unit}
@@ -504,7 +503,7 @@ function ExtraControl({
     }
     case "string":
       return (
-        <SettingRow label={name} title={setting.name}>
+        <SettingRow label={name}>
           <Input
             aria-label={name}
             className={`${FIELD} w-full max-w-64`}
@@ -528,14 +527,12 @@ function ExtraControl({
 
 function RangeSlider({
   name,
-  title,
   unit,
   range,
   value,
   onCommit,
 }: {
   name: string;
-  title: string;
   unit: string;
   range: Range;
   value: number;
@@ -545,7 +542,7 @@ function RangeSlider({
   const shown = pending ?? value;
   const digits = range.step != null && range.step < 1 ? 1 : 0;
   return (
-    <SettingRow label={name} title={`${title}, ${range.min} to ${range.max}`}>
+    <SettingRow label={name} title={`${range.min} to ${range.max}`}>
       <Slider
         label={`${name} (${unit})`}
         className="min-w-0 flex-1"

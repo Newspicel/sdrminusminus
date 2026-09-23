@@ -40,16 +40,17 @@ export function SpectrumMonitorFace({ node }: { node: PatchNode }) {
             />
           </SettingRow>
           <SettingRow
-            label="Min confidence (%)"
+            label="Min confidence"
             title="Ignore signals below this identification confidence; 0 accepts all detections"
           >
             <NumberField
-              label="Minimum confidence (%)"
+              label="Minimum confidence"
               value={Math.round((node.data.min_confidence ?? 0.7) * 100)}
               min={0}
               max={100}
               step={5}
               onCommit={(value) => edit({ min_confidence: value / 100 })}
+              unit="%"
             />
           </SettingRow>
           <SettingRow

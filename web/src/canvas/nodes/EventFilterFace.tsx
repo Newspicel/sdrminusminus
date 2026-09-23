@@ -263,6 +263,7 @@ function Predicate({
             max={MAX_FILTER_DURATION_MS / 1000}
             step={0.5}
             onCommit={(next) => edit({ min_duration_ms: Math.round(next * 1000) })}
+            unit="s"
           />
         </SettingRow>
       );

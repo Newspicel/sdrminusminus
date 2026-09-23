@@ -194,18 +194,10 @@ export function RecordingFace({ node }: { node: PatchNode }) {
         {set.playback != null && <PlaybackTransport set={set} status={set.playback} />}
         {known !== null && (
           <Readout separated={set.playback == null}>
-            <ReadoutRow label="Centre" title="The frequency this recording was captured at">
-              {formatMhz(known.center_hz)}
-            </ReadoutRow>
-            <ReadoutRow label="Rate" title="The rate this recording plays back at">
-              {formatSampleRate(known.sample_rate)}
-            </ReadoutRow>
-            <ReadoutRow label="Length" title="How long this recording runs">
-              {formatDuration(known.duration_s)}
-            </ReadoutRow>
-            <ReadoutRow label="Size" title="What this recording takes on disk">
-              {formatBytes(known.bytes)}
-            </ReadoutRow>
+            <ReadoutRow label="Centre">{formatMhz(known.center_hz)}</ReadoutRow>
+            <ReadoutRow label="Rate">{formatSampleRate(known.sample_rate)}</ReadoutRow>
+            <ReadoutRow label="Length">{formatDuration(known.duration_s)}</ReadoutRow>
+            <ReadoutRow label="Size">{formatBytes(known.bytes)}</ReadoutRow>
           </Readout>
         )}
         {set.error != null && (

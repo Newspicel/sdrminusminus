@@ -1,4 +1,5 @@
 import { ChevronDown } from "lucide-react";
+import { Button } from "../../components/BaseControls";
 import { Checkbox } from "../../components/Checkbox";
 import { BTN_SM } from "../../components/controls";
 import { Icon } from "../../components/Icon";
@@ -138,7 +139,7 @@ function Presets({
   return (
     <div className="flex flex-wrap gap-1 border-b border-line p-2">
       {protocolPresets(groups).map((preset) => (
-        <button
+        <Button
           key={preset.id}
           type="button"
           aria-pressed={preset.id === active}
@@ -146,7 +147,7 @@ function Presets({
           onClick={() => onChange(preset.choice)}
         >
           {preset.label}
-        </button>
+        </Button>
       ))}
     </div>
   );
@@ -200,7 +201,7 @@ function Key({
   onToggle: (enabled: boolean) => void;
 }) {
   return (
-    <button
+    <Button
       type="button"
       aria-pressed={on}
       title={protocol.name}
@@ -214,6 +215,6 @@ function Key({
         }`}
       />
       {protocol.label}
-    </button>
+    </Button>
   );
 }
