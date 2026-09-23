@@ -57,6 +57,7 @@ jobs:
       - uses: ./.github/actions/rust
         with:
           cache: sanitize
+      - run: rustup toolchain install nightly --profile minimal
       - run: cargo xtask sanitize
 
   fuzz:
@@ -72,6 +73,7 @@ jobs:
       - uses: ./.github/actions/rust
         with:
           cache: fuzz
+      - run: rustup toolchain install nightly --profile minimal
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-fuzz

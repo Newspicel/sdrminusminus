@@ -55,9 +55,6 @@ ENV RUSTUP_HOME=/usr/local/rustup \
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
     | sh -s -- -y --no-modify-path --default-toolchain none
 
-# Everything below runs from the repo root so .cargo/config.toml applies: it carries
-# `-Zpolonius=next` and CMAKE_POLICY_VERSION_MINIMUM. Never set a RUSTFLAGS env var here — the
-# variable replaces `[build] rustflags` wholesale and would silently drop polonius.
 WORKDIR /src
 COPY --from=planner /plan/ ./
 COPY scripts/build-media.py scripts/build-media.py

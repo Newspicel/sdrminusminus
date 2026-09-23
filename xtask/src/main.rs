@@ -856,8 +856,6 @@ fn source_dist(root: &Path) -> Result<()> {
     std::fs::create_dir_all(&staged)
         .with_context(|| format!("cannot create {}", staged.display()))?;
 
-    // `git archive` rather than the working tree: it carries the committed sources and honours
-    // the `export-ignore` that keeps the nightly cargo config out of a stable build.
     let tar = out.join(format!("{name}.tar"));
     run(
         "git",
@@ -881,12 +879,6 @@ fn source_dist(root: &Path) -> Result<()> {
         root,
     )?;
     std::fs::remove_file(&tar).with_context(|| format!("cannot clear {}", tar.display()))?;
-    ensure!(
-        !staged.join(".cargo/config.toml").exists(),
-        "the export carries .cargo/config.toml, whose nightly `-Z` flags stop a stable \
-         toolchain. `git archive` reads .gitattributes from the commit, so an uncommitted \
-         `export-ignore` does not apply."
-    );
 
     // The stamped manifests and the built UI are what the commit cannot carry: one names the
     // release, the other is embedded by `crates/server` at compile time.
@@ -1328,6 +1320,7 @@ fn ubsan_runtime(dir: &Path, target: &str) -> Result<PathBuf> {
 }
 
 const SANITIZED_CFG: &str = "--cfg=sanitized";
+const NIGHTLY: &str = "+nightly";
 
 fn encoded_rustflags(flags: &[String]) -> String {
     flags.join("\u{1f}")
@@ -1338,6 +1331,7 @@ fn sanitize(root: &Path) -> Result<()> {
     let runtime_dir = clang_runtime_dir()?;
     let ubsan = ubsan_runtime(&runtime_dir, &target)?;
     let args = [
+        NIGHTLY,
         "test",
         "-p",
         "sdrmm-channels",
@@ -1413,13 +1407,18 @@ fn fuzz(root: &Path, target: Option<&str>, seconds: u64, jobs: u8, minimize: boo
     let rss = format!("-rss_limit_mb={}", 8_192 / u32::from(jobs.max(1)));
     for name in fuzz_targets(target)? {
         if minimize {
-            run("cargo", &["fuzz", "cmin", "--target", &host, name], root)?;
+            run(
+                "cargo",
+                &[NIGHTLY, "fuzz", "cmin", "--target", &host, name],
+                root,
+            )?;
             continue;
         }
         run(
             "cargo",
             &[
-                "fuzz", "run", "--target", &host, "--jobs", &workers, name, "--", &budget, &rss,
+                NIGHTLY, "fuzz", "run", "--target", &host, "--jobs", &workers, name, "--", &budget,
+                &rss,
             ],
             root,
         )?;

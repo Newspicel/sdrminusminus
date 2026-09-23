@@ -5,6 +5,8 @@ updates:
     directories: [/, /fuzz]
     schedule:
       interval: monthly
+    cooldown:
+      default-days: 1
     open-pull-requests-limit: 5
     groups:
       cargo-minor:

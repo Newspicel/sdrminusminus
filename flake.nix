@@ -31,8 +31,7 @@
             overlays = [ rust-overlay.overlays.default ];
           };
           toolchainConfig = builtins.fromTOML (builtins.readFile ./rust-toolchain.toml);
-          toolchainDate = pkgs.lib.removePrefix "nightly-" toolchainConfig.toolchain.channel;
-          toolchain = pkgs.rust-bin.nightly.${toolchainDate}.minimal;
+          toolchain = pkgs.rust-bin.stable.${toolchainConfig.toolchain.channel}.minimal;
           rustPlatform = pkgs.makeRustPlatform {
             cargo = toolchain;
             rustc = toolchain;

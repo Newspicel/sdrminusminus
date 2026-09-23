@@ -152,7 +152,6 @@ jobs:
           grep -qx "$ROOT/apps/sdrmm/src/main.rs" listing
           grep -qx "$ROOT/web/dist/index.html" listing
           grep -qx "$ROOT/Cargo.lock" listing
-          ! grep -qx "$ROOT/.cargo/config.toml" listing
       - name: Version
         run: tar -xzOf "dist/$ROOT.tar.gz" "$ROOT/Cargo.toml" | grep -qx 'version = "${{ needs.version.outputs.version }}"'
       - uses: actions/upload-artifact@v7

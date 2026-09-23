@@ -16,8 +16,8 @@ sudo apt-get install -y build-essential cmake clang libclang-dev python3 nasm   
 brew install cmake python nasm                                                  # macOS
 ```
 
-The workspace needs the pinned nightly for `-Zpolonius=next`. SoapySDR loads at runtime, so no
-development package is needed.
+`rust-toolchain.toml` pins stable Rust. Fuzzing and `cargo xtask sanitize` also need a nightly
+toolchain. SoapySDR loads at runtime, so no development package is needed.
 
 ## Build and run
 
