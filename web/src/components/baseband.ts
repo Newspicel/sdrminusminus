@@ -36,15 +36,20 @@ function paint(grid: BasebandGrid, x: number, y: number, gain: number): void {
   grid.cells[at] = value > 1 ? 1 : value;
 }
 
-export function peakMagnitude(samples: Float32Array): number {
-  let peak = 0;
-  for (let i = 0; i + 1 < samples.length; i += 2) {
-    const magnitude = Math.hypot(samples[i] ?? 0, samples[i + 1] ?? 0);
-    if (magnitude > peak) {
-      peak = magnitude;
-    }
+export const IQ_HEADROOM = 2;
+
+export function iqScale(samples: Float32Array): number {
+  const count = samples.length >> 1;
+  if (count === 0) {
+    return 0;
   }
-  return peak;
+  let power = 0;
+  for (let i = 0; i < count; i++) {
+    const re = samples[i * 2] ?? 0;
+    const im = samples[i * 2 + 1] ?? 0;
+    power += re * re + im * im;
+  }
+  return Math.sqrt(power / count) * IQ_HEADROOM;
 }
 
 export function addConstellation(

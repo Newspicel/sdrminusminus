@@ -9,7 +9,8 @@ import {
   decayBasebandGrid,
   decisionDistance,
   eyeScale,
-  peakMagnitude,
+  IQ_HEADROOM,
+  iqScale,
   samplesPerSymbol,
   stateBits,
   symbolGain,
@@ -35,14 +36,21 @@ function iq(...pairs: [number, number][]): Float32Array {
   return Float32Array.from(pairs.flat());
 }
 
-describe("peakMagnitude", () => {
-  it("is the largest magnitude in the burst", () => {
-    expect(peakMagnitude(iq([3, 4], [1, 0]))).toBe(5);
-    expect(peakMagnitude(new Float32Array(0))).toBe(0);
+describe("iqScale", () => {
+  it("scales by RMS magnitude so one spike does not shrink the plot", () => {
+    const quiet = iqScale(iq([1, 0], [0, 1], [-1, 0], [0, -1]));
+    const spiked = iqScale(iq([1, 0], [0, 1], [-1, 0], [0, -1], [0, 0], [0, 0], [0, 0], [3, 0]));
+    expect(quiet).toBeCloseTo(IQ_HEADROOM, 6);
+    expect(spiked).toBeCloseTo(IQ_HEADROOM * Math.sqrt(13 / 8), 6);
+    expect(spiked).toBeLessThan(3);
+  });
+
+  it("is zero for an empty burst", () => {
+    expect(iqScale(new Float32Array(0))).toBe(0);
   });
 
   it("ignores a trailing component with no partner", () => {
-    expect(peakMagnitude(Float32Array.from([0, 1, 9]))).toBe(1);
+    expect(iqScale(Float32Array.from([0, 1, 9]))).toBeCloseTo(IQ_HEADROOM, 6);
   });
 });
 

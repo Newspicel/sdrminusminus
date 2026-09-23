@@ -10,7 +10,7 @@ import {
   decayBasebandGrid,
   type EyeComponent,
   eyeScale,
-  peakMagnitude,
+  iqScale,
   type SymbolState,
   samplesPerSymbol,
   symbolHistogram,
@@ -42,6 +42,7 @@ import {
   drawHistogram,
   drawStates,
   drawTrend,
+  type PlotBox,
   type PlotInset,
   plotLabel,
 } from "./symbolPlot";
@@ -91,7 +92,7 @@ export function BasebandView({
   const [view, setView] = useState<BasebandView>("spectrum");
   const [eyeComponent, setEyeComponent] = useState<EyeComponent>("frequency");
   const [symbolRate, setSymbolRate] = useState(4800);
-  const [decimate, setDecimate] = useState(false);
+  const [decimate, setDecimate] = useState(true);
 
   const [symbols, setSymbols] = useState<SymbolFrame | null>(() =>
     symbolHub.latest(deviceSet, channel.id),
@@ -103,6 +104,7 @@ export function BasebandView({
 
   const insetRef = useRef<PlotInset>(PLOT_INSET);
   const gridRef = useRef<BasebandGrid | null>(null);
+  const scaleRef = useRef(1);
   const bitmapRef = useRef<GridBitmap | null>(null);
   const analyzerRef = useRef<SpectrumAnalyzer | null>(null);
   const dbRef = useRef<Float32Array | null>(null);
@@ -140,10 +142,11 @@ export function BasebandView({
         if (mode === "constellation") {
           if (symbolsRef.current === null) {
             const step = sparse ? Math.round(period) : 1;
+            scaleRef.current = iqScale(burst.samples);
             addConstellation(
               grid,
               burst.samples,
-              peakMagnitude(burst.samples),
+              scaleRef.current,
               step,
               sparse ? symbolPhase(burst.samples, period) : 0,
             );
@@ -175,7 +178,8 @@ export function BasebandView({
         gridRef.current = grid;
         decayBasebandGrid(grid);
         bitmapRef.current?.invalidate();
-        addConstellation(grid, paired(block), referenceScale(block));
+        scaleRef.current = referenceScale(block);
+        addConstellation(grid, paired(block), scaleRef.current);
       }
       seen += 1;
       if (seen === 1 || seen % 4 === 0) {
@@ -192,7 +196,7 @@ export function BasebandView({
         frameRef.current,
         symbolsRef.current,
         settingsRef.current,
-        gridRef.current,
+        { grid: gridRef.current, scale: scaleRef.current },
         bitmapRef,
         colormap,
         analyzerRef,
@@ -425,7 +429,7 @@ function draw(
   frame: IqFrame | null,
   block: SymbolFrame | null,
   settings: { view: BasebandView; eyeComponent: EyeComponent; symbolRate: number },
-  grid: BasebandGrid | null,
+  scatter: Scatter,
   bitmapRef: { current: GridBitmap | null },
   colormap: Colormap,
   analyzerRef: { current: SpectrumAnalyzer | null },
@@ -493,7 +497,7 @@ function draw(
     });
     return;
   }
-  drawScatter(canvas, grid, bitmapRef, colormap, view, settings.eyeComponent);
+  drawScatter(canvas, scatter, bitmapRef, colormap, view, settings.eyeComponent);
 }
 
 function drawLevels(
@@ -549,9 +553,14 @@ export function discriminator(samples: Float32Array, period: number, offset: num
   return Float32Array.from(out);
 }
 
+interface Scatter {
+  grid: BasebandGrid | null;
+  scale: number;
+}
+
 function drawScatter(
   canvas: HTMLCanvasElement,
-  grid: BasebandGrid | null,
+  { grid, scale }: Scatter,
   bitmapRef: { current: GridBitmap | null },
   colormap: Colormap,
   view: BasebandView,
@@ -593,6 +602,7 @@ function drawScatter(
   if (constellation) {
     plotLabel(ctx, "I", box.x + box.w - 5, box.y + box.h / 2 - 6, "right");
     plotLabel(ctx, "Q", box.x + box.w / 2 + 6, box.y + 12);
+    drawIqTicks(ctx, box, scale);
   } else {
     plotLabel(
       ctx,
@@ -602,6 +612,19 @@ function drawScatter(
     );
     plotLabel(ctx, "2 symbols", box.x + box.w - 5, box.y + box.h - 5, "right");
   }
+}
+
+function drawIqTicks(ctx: CanvasRenderingContext2D, box: PlotBox, scale: number): void {
+  const half = scale / 2;
+  const bottom = box.y + box.h - 5;
+  plotLabel(ctx, tickLabel(-half), box.x + box.w / 4, bottom, "center");
+  plotLabel(ctx, tickLabel(half), box.x + (box.w * 3) / 4, bottom, "center");
+  plotLabel(ctx, tickLabel(half), box.x + 5, box.y + box.h / 4 + 4);
+  plotLabel(ctx, tickLabel(-half), box.x + 5, box.y + (box.h * 3) / 4 + 4);
+}
+
+export function tickLabel(value: number): string {
+  return Number(value.toPrecision(2)).toString();
 }
 
 function recolour(grid: BasebandGrid, colormap: Colormap, out: Uint8ClampedArray): void {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { SymbolFrame } from "../../lib/frame";
-import { discriminator, paired, referenceScale, waiting } from "./BasebandView";
+import { discriminator, paired, referenceScale, tickLabel, waiting } from "./BasebandView";
 
 function block(over: Partial<SymbolFrame> = {}): SymbolFrame {
   return {
@@ -90,5 +90,13 @@ describe("discriminator", () => {
     const wave = new Float32Array(64 * 2);
     expect(discriminator(wave, 8, 0).length).toBe(8);
     expect(discriminator(wave, 4, 0).length).toBe(16);
+  });
+});
+
+describe("tickLabel", () => {
+  it("rounds to two significant digits", () => {
+    expect(tickLabel(0.3536)).toBe("0.35");
+    expect(tickLabel(-1234)).toBe("-1200");
+    expect(tickLabel(0.5)).toBe("0.5");
   });
 });
