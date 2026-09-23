@@ -9,6 +9,7 @@
 # FFmpeg source tree and install prefix (scripts/build-media.py)
 /.media
 /.media-build
+/.llvm
 
 # Python
 __pycache__/

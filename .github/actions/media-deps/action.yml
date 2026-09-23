@@ -20,13 +20,30 @@ runs:
       with:
         install: make diffutils
         path-type: inherit
+    # LLVM 22 stopped libclang.dll crashing the process on exit after bindgen unloads it.
+    - if: runner.os == 'Windows'
+      id: llvm
+      uses: actions/cache@v5
+      with:
+        path: .llvm
+        key: libclang-23.1.2-${{ runner.arch }}
+    - if: runner.os == 'Windows' && steps.llvm.outputs.cache-hit != 'true'
+      shell: bash
+      env:
+        ARCH: ${{ runner.arch == 'ARM64' && 'aarch64' || 'x86_64' }}
+      run: |
+        name="clang+llvm-23.1.2-$ARCH-pc-windows-msvc"
+        curl -fsSL -o llvm.tar.xz "https://github.com/llvm/llvm-project/releases/download/llvmorg-23.1.2/$name.tar.xz"
+        mkdir -p .llvm
+        tar -xJf llvm.tar.xz -C .llvm --strip-components 1 "$name/bin/libclang.dll" "$name/lib/clang"
+        rm llvm.tar.xz
     # MSYS2 stays off the job's PATH: its `usr/bin` carries a `link.exe` that would shadow the
     # MSVC linker for every later cargo step. The media script prepends it for its own children.
     - if: runner.os == 'Windows'
       shell: pwsh
       run: |
         "MEDIA_SHELL_BIN=${{ steps.msys2.outputs.msys2-location }}\usr\bin;C:\Program Files\LLVM\bin" >> $env:GITHUB_ENV
-        "LIBCLANG_PATH=C:\Program Files\LLVM\bin" >> $env:GITHUB_ENV
+        "LIBCLANG_PATH=$env:GITHUB_WORKSPACE\.llvm\bin" >> $env:GITHUB_ENV
     - uses: actions/cache@v5
       with:
         path: .media
