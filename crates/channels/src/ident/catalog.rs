@@ -803,6 +803,14 @@ fn dv_signatures() -> impl Iterator<Item = Signature> {
     })
 }
 
+pub(crate) fn identifiable(kind: &str) -> bool {
+    SIGNATURES
+        .iter()
+        .copied()
+        .chain(dv_signatures())
+        .any(|signature| signature.type_id == Some(kind))
+}
+
 pub(crate) fn in_allocation(kind: &str, frequency_hz: f64) -> bool {
     SIGNATURES.iter().any(|signature| {
         signature.type_id == Some(kind)

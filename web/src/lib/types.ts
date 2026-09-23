@@ -33,6 +33,7 @@ export type DecoderFamily = components["schemas"]["DecoderFamily"];
 export type ParamLimit = components["schemas"]["ParamLimit"];
 export type Squelch = components["schemas"]["Squelch"];
 export type EventFilterNode = components["schemas"]["EventFilterNode"];
+export type SpectrumMonitorNode = components["schemas"]["SpectrumMonitorNode"];
 export type FilterMode = components["schemas"]["FilterMode"];
 export type EventFacet = components["schemas"]["EventFacet"];
 export type EventKindFacets = components["schemas"]["EventKindFacets"];

@@ -643,6 +643,7 @@ static DESCRIPTORS: std::sync::LazyLock<Vec<ChannelDescriptor>> = std::sync::Laz
             descriptor.can_transmit = r.create_tx.is_some();
             descriptor.defaults = ChannelSettings::default_for(&descriptor.type_id);
             descriptor.limits = sdrmm_wire::param_limits(&descriptor.type_id);
+            descriptor.identifiable = ident::identifiable(&descriptor.type_id);
             descriptor
         })
         .collect()
@@ -818,6 +819,15 @@ mod tests {
             assert_eq!(descriptor(&expected.type_id), Some(expected));
         }
         assert!(descriptor("unknown").is_none());
+    }
+
+    #[test]
+    fn only_protocols_the_identifier_recognizes_are_identifiable() {
+        let identifiable = |kind: &str| descriptor(kind).is_some_and(|d| d.identifiable);
+        for kind in ["nfm", "am", "wfm", "ssb", "dmr", "pocsag", "adsb", "ft8"] {
+            assert!(identifiable(kind), "{kind}");
+        }
+        assert!(!identifiable("ident"));
     }
 
     #[test]

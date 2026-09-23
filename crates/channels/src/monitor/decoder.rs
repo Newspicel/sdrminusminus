@@ -1,6 +1,9 @@
 use num_complex::Complex;
 use sdrmm_dsp::{Ddc, RealDecimator, design_lowpass};
-use sdrmm_wire::{ChannelParams, ChannelSettings, DecoderEvent, IdentSignal, Modulation, Sideband};
+use sdrmm_wire::{
+    ChannelParams, ChannelSettings, DecoderEvent, IdentSignal, Modulation, Sideband,
+    SpectrumMonitorNode,
+};
 
 use crate::{
     ChannelCtx, ChannelError, ChannelFilter, ChannelOutputs, ChannelRx, audio_channels,
@@ -28,7 +31,7 @@ pub(super) struct Decoder {
     frequency_hz: f64,
 }
 
-pub(super) fn choices(signal: &IdentSignal) -> Vec<String> {
+pub(super) fn choices(signal: &IdentSignal, settings: &SpectrumMonitorNode) -> Vec<String> {
     let mut choices = Vec::new();
     for candidate in &signal.candidates {
         if let Some(kind) = &candidate.type_id
@@ -45,6 +48,7 @@ pub(super) fn choices(signal: &IdentSignal) -> Vec<String> {
     {
         choices.push(kind.to_owned());
     }
+    choices.retain(|kind| settings.decodes(kind));
     choices
 }
 
@@ -230,11 +234,11 @@ mod tests {
             }],
             ..Default::default()
         };
-        assert!(choices(&signal).is_empty());
+        assert!(choices(&signal, &SpectrumMonitorNode::default()).is_empty());
         signal.candidates[0].score = 0.95;
-        assert_eq!(choices(&signal), ["nfm"]);
+        assert_eq!(choices(&signal, &SpectrumMonitorNode::default()), ["nfm"]);
         signal.modulation = Modulation::Fsk4;
-        assert!(choices(&signal).is_empty());
+        assert!(choices(&signal, &SpectrumMonitorNode::default()).is_empty());
     }
 
     #[test]

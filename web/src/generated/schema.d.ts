@@ -2078,6 +2078,7 @@ export interface components {
             family?: components["schemas"]["DecoderFamily"];
             has_audio?: boolean;
             has_video?: boolean;
+            identifiable?: boolean;
             /** Format: double */
             input_rate_hz: number;
             limits?: components["schemas"]["ParamLimit"][];
@@ -5413,9 +5414,11 @@ export interface components {
             w: number;
         };
         SpectrumMonitorNode: {
+            disabled_protocols?: string[];
             /** Format: float */
             min_confidence?: number;
             record_audio?: boolean;
+            report_unidentified?: boolean;
         };
         /**
          * @description How a channel gates what it decodes: not at all, above a level the operator set, or a margin

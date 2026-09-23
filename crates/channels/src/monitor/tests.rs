@@ -169,6 +169,62 @@ fn buffered_pager_decodes_the_first_message_and_retains_its_origin() {
 }
 
 #[test]
+fn a_disabled_protocol_is_neither_decoded_nor_reported() {
+    let pages = [testgen::pocsag::Page {
+        address: 1_234_567,
+        function: 3,
+        text: "MUTED".to_owned(),
+        numeric: false,
+    }];
+    let mut iq = testgen::pocsag::transmission(&pages, 1200, 4500.0, RATE);
+    testgen::shift(&mut iq, 300_000.0, RATE);
+    testgen::add_noise(&mut iq, 44, 0.002);
+    let settings = SpectrumMonitorNode {
+        disabled_protocols: vec!["pocsag".to_owned()],
+        ..Default::default()
+    };
+    let mut monitor = SpectrumMonitor::new(RATE, CENTER, settings).unwrap();
+    let mut output = run(&mut monitor, &iq, 0);
+    output.extend(monitor.finish(TransmissionState::Completed, None));
+    assert!(
+        output
+            .iter()
+            .all(|out| !matches!(out.event, DecoderEvent::Pocsag(_))),
+        "{:?}",
+        transmissions(&output)
+    );
+    assert!(
+        transmissions(&output)
+            .iter()
+            .all(|t| t.decoder.as_deref() != Some("pocsag"))
+    );
+}
+
+#[test]
+fn unidentified_signals_can_be_hidden() {
+    let bits = testgen::dv::filler(720, 85);
+    let mut iq = testgen::fsk(&bits, 1200.0, 4500.0, RATE);
+    testgen::shift(&mut iq, 250_000.0, RATE);
+    testgen::add_noise(&mut iq, 86, 0.002);
+    let settings = SpectrumMonitorNode {
+        report_unidentified: false,
+        disabled_protocols: crate::descriptors()
+            .into_iter()
+            .map(|descriptor| descriptor.type_id)
+            .collect(),
+        ..Default::default()
+    };
+    let mut monitor = SpectrumMonitor::new(RATE, CENTER, settings).unwrap();
+    let mut output = run(&mut monitor, &iq, 0);
+    output.extend(monitor.finish(TransmissionState::Completed, None));
+    assert!(
+        transmissions(&output).is_empty(),
+        "{:?}",
+        transmissions(&output)
+    );
+}
+
+#[test]
 fn simplex_dmr_at_435_125_mhz_is_confirmed() {
     let call = testgen::dv::dmr::Call::default();
     let mut iq = testgen::dv::dmr::simplex_transmission(&call, RATE);

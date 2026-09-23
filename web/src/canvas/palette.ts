@@ -24,7 +24,7 @@ export const SECTIONS: readonly { id: PaletteSection; title: string }[] = [
   { id: "output", title: "Outputs" },
 ];
 
-const FAMILIES = {
+export const FAMILIES = {
   analog_voice: "Analog voice",
   digital_voice: "Digital voice",
   aviation: "Aviation",

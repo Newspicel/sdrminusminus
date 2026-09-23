@@ -10,6 +10,10 @@ pub struct SpectrumMonitorNode {
     #[serde(default = "default_min_confidence")]
     #[schema(minimum = 0, maximum = 1)]
     pub min_confidence: f32,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub disabled_protocols: Vec<String>,
+    #[serde(default = "enabled")]
+    pub report_unidentified: bool,
 }
 
 const fn default_min_confidence() -> f32 {
@@ -25,6 +29,8 @@ impl Default for SpectrumMonitorNode {
         Self {
             record_audio: true,
             min_confidence: default_min_confidence(),
+            disabled_protocols: Vec::new(),
+            report_unidentified: true,
         }
     }
 }
@@ -32,6 +38,14 @@ impl Default for SpectrumMonitorNode {
 impl SpectrumMonitorNode {
     pub fn valid(&self) -> bool {
         (0.0..=1.0).contains(&self.min_confidence)
+    }
+
+    #[must_use]
+    pub fn decodes(&self, kind: &str) -> bool {
+        !self
+            .disabled_protocols
+            .iter()
+            .any(|disabled| disabled == kind)
     }
 }
 
@@ -106,6 +120,17 @@ mod tests {
             serde_json::from_str(r#"{"record_audio":false}"#).unwrap();
         assert!(!settings.record_audio);
         assert_eq!(settings.min_confidence, 0.7);
+        assert!(settings.disabled_protocols.is_empty());
+        assert!(settings.report_unidentified);
+    }
+
+    #[test]
+    fn every_protocol_decodes_until_disabled() {
+        let mut settings = SpectrumMonitorNode::default();
+        assert!(settings.decodes("dmr"));
+        settings.disabled_protocols.push("dmr".to_owned());
+        assert!(!settings.decodes("dmr"));
+        assert!(settings.decodes("nfm"));
     }
 
     #[test]

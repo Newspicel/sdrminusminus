@@ -56,6 +56,9 @@ Wire **Device iq → Spectrum monitor → Decoder log**. The monitor watches the
 finds every transmission, and tries the matching decoders on each one. It adds no channel nodes
 and never tunes the radio.
 
+**Protocols** picks what it decodes. Everything is on by default. Pick a preset such as
+**Analog voice**, or toggle single protocols. Off protocols are skipped, not logged.
+
 Each transmission produces one event when it ends, with frequency, bandwidth, confidence, decoder
 results, and optional audio. Open it in the log to play the audio.
 

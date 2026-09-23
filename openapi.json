@@ -6878,6 +6878,9 @@
           "has_video": {
             "type": "boolean"
           },
+          "identifiable": {
+            "type": "boolean"
+          },
           "input_rate_hz": {
             "type": "number",
             "format": "double"
@@ -19217,6 +19220,12 @@
       "SpectrumMonitorNode": {
         "type": "object",
         "properties": {
+          "disabled_protocols": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
           "min_confidence": {
             "type": "number",
             "format": "float",
@@ -19224,6 +19233,9 @@
             "minimum": 0
           },
           "record_audio": {
+            "type": "boolean"
+          },
+          "report_unidentified": {
             "type": "boolean"
           }
         }

@@ -84,6 +84,26 @@ test("monitors IQ through one node and exports transmission audio", async ({ pag
       .toBeCloseTo(0.8);
     await page.reload();
     await expect(confidence).toHaveValue("80");
+    const protocols = monitor.getByRole("button", { name: "Protocols to decode" });
+    await expect(protocols).toContainText("All protocols");
+    await protocols.click();
+    const analog = page.getByRole("button", { name: "Analog voice", exact: true });
+    await analog.click();
+    await expect(analog).toHaveAttribute("aria-pressed", "true");
+    await expect
+      .poll(async () => {
+        const workspace = await page.request
+          .get(`/api/workspaces/${id}`)
+          .then((response) => response.json());
+        const data = workspace.snapshot.graph.nodes.find(
+          (node: { id: string }) => node.id === nodeIds.monitor,
+        ).data;
+        return [data.disabled_protocols?.includes("dmr"), data.report_unidentified];
+      })
+      .toEqual([true, false]);
+    await page.getByRole("button", { name: "All", exact: true }).click();
+    await page.keyboard.press("Escape");
+    await expect(protocols).toContainText("All protocols");
     await monitor.getByText("Spectrum monitor", { exact: true }).click();
     await confidence.click();
     await confidence.press("ControlOrMeta+A");

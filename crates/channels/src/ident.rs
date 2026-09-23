@@ -366,6 +366,10 @@ pub(crate) fn in_allocation(kind: &str, frequency_hz: f64) -> bool {
     catalog::in_allocation(kind, frequency_hz)
 }
 
+pub(crate) fn identifiable(kind: &str) -> bool {
+    catalog::identifiable(kind)
+}
+
 pub(crate) fn identify(
     iq: &[Complex<f32>],
     rate: f64,

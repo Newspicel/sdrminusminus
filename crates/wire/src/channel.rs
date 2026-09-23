@@ -42,6 +42,8 @@ pub struct ChannelDescriptor {
     pub can_transmit: bool,
     #[serde(default)]
     pub needs_position: bool,
+    #[serde(default)]
+    pub identifiable: bool,
     /// What a fresh channel of this type starts on, so a node can show and edit its settings
     /// before any radio is open to carry it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -176,6 +178,7 @@ impl Default for ChannelDescriptor {
             has_video: false,
             can_transmit: false,
             needs_position: false,
+            identifiable: false,
             defaults: None,
             limits: Vec::new(),
         }

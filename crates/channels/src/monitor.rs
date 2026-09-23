@@ -141,7 +141,7 @@ impl SpectrumMonitor {
                 continue;
             }
             let signal = ident::identify(&self.window, self.rate, &band, self.center);
-            if signal.confidence < self.settings.min_confidence {
+            if signal.confidence < self.settings.min_confidence || !self.wanted(&signal) {
                 continue;
             }
             if self.tracks.len() >= MAX_TRACKS {
@@ -151,7 +151,7 @@ impl SpectrumMonitor {
             let start = end.saturating_sub(self.history.len() as u64);
             let mut track = Track {
                 id: self.next_id,
-                choices: decoder::choices(&signal).into(),
+                choices: decoder::choices(&signal, &self.settings).into(),
                 signal,
                 segment: start,
                 last_seen: end,
@@ -231,7 +231,7 @@ impl SpectrumMonitor {
                 track.choices.clear();
                 track.tried.retain(|kind| !confirmed(kind));
             }
-            for kind in decoder::choices(&signal) {
+            for kind in decoder::choices(&signal, &self.settings) {
                 if !track.tried.contains(&kind)
                     && !track.choices.contains(&kind)
                     && !track.decoders.iter().any(|decoder| decoder.kind == kind)
@@ -270,6 +270,16 @@ impl SpectrumMonitor {
             }
         }
         true
+    }
+
+    fn wanted(&self, signal: &IdentSignal) -> bool {
+        signal
+            .candidates
+            .iter()
+            .find_map(|candidate| candidate.type_id.as_deref().filter(|kind| *kind != "ident"))
+            .map_or(self.settings.report_unidentified, |kind| {
+                self.settings.decodes(kind)
+            })
     }
 
     fn start_trials(&self, track: &mut Track) {
