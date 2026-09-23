@@ -2,7 +2,7 @@ version: 2
 
 updates:
   - package-ecosystem: cargo
-    directory: /
+    directories: [/, /fuzz]
     schedule:
       interval: monthly
     open-pull-requests-limit: 5
@@ -17,7 +17,7 @@ updates:
       - dependency-name: tokio-tungstenite
 
   - package-ecosystem: npm
-    directory: /web
+    directories: [/web, /site]
     schedule:
       interval: monthly
     open-pull-requests-limit: 5
@@ -28,7 +28,7 @@ updates:
       - dependency-name: "@typescript/native-preview"
 
   - package-ecosystem: github-actions
-    directory: /
+    directories: [/, /.github/actions/*]
     schedule:
       interval: monthly
     groups:
