@@ -13,6 +13,7 @@ use super::{
     mode::Mode,
     msc::{CIF_BITS, SubChannelDecoder, subchannel_range},
     ofdm::{FrameSync, SymbolDemod, prefix_offset_for_mode},
+    pacer::Pacer,
     superframe::{AccessUnits, SuperframeAssembler},
 };
 use crate::{
@@ -87,6 +88,7 @@ pub struct DabChannel {
     selection: Option<Selection>,
     audio: LayerTwoAudio,
     media: BroadcastMedia,
+    pacer: Pacer,
     frames: u32,
     frequency_error_hz: f32,
     snr_db: f32,
@@ -106,8 +108,7 @@ impl DabChannel {
         self.pending.clear();
         self.frame_start = None;
         self.selection = None;
-        self.audio.reset();
-        self.media.reset();
+        self.stop_audio();
         self.frames = 0;
         self.frequency_error_hz = 0.0;
         self.snr_db = 0.0;
@@ -116,6 +117,19 @@ impl DabChannel {
         self.last_format = None;
         self.locked = false;
         self.samples_without_frame = 0;
+    }
+
+    fn stop_audio(&mut self) {
+        self.audio.reset();
+        self.media.reset();
+        self.pacer.reset();
+    }
+
+    fn collect_audio(&mut self, out: &mut ChannelOutputs) {
+        let from = out.audio_pcm.len();
+        self.audio.drain(out);
+        self.media.drain(out);
+        self.pacer.take(out, from);
     }
 
     fn align(&self, start: usize) -> usize {
@@ -215,8 +229,7 @@ impl DabChannel {
         });
         let Some((service, subchannel)) = chosen else {
             if self.selection.take().is_some() {
-                self.audio.reset();
-                self.media.reset();
+                self.stop_audio();
             }
             return;
         };
@@ -249,6 +262,7 @@ impl DabChannel {
         self.last_format = None;
         self.audio.reset();
         self.media.reset();
+        self.pacer.reset();
         self.media.mot_app = service.mot_app;
         self.media.service_id = Some(service.id);
     }
@@ -371,12 +385,16 @@ impl DabChannel {
             audio_frames_bad: self
                 .audio
                 .frames_bad
-                .saturating_add(self.media.audio_errors),
+                .saturating_add(self.media.audio_errors)
+                .saturating_add(self.pacer.dropped_frames),
             audio_error: self
                 .audio
                 .error
                 .map(str::to_owned)
-                .or_else(|| self.media.audio_error.clone()),
+                .or_else(|| self.media.audio_error.clone())
+                .or_else(|| {
+                    (self.pacer.dropped_frames > 0).then(|| "Audio buffer overflow".to_owned())
+                }),
             symbol_rate: Some(INPUT_RATE_HZ / self.mode.useful as f64),
             ensemble_id: self.ensemble.id.map(u32::from),
             ensemble_label: self.ensemble.label.clone(),
@@ -421,6 +439,7 @@ impl ChannelRx for DabChannel {
             selection: None,
             audio: LayerTwoAudio::new()?,
             media: BroadcastMedia::new()?,
+            pacer: Pacer::new(INPUT_RATE_HZ),
             frames: 0,
             frequency_error_hz: 0.0,
             snr_db: 0.0,
@@ -448,8 +467,7 @@ impl ChannelRx for DabChannel {
         self.params = wanted;
         if changed {
             self.selection = None;
-            self.audio.reset();
-            self.media.reset();
+            self.stop_audio();
         }
         Ok(())
     }
@@ -464,8 +482,7 @@ impl ChannelRx for DabChannel {
             if self.samples_without_frame >= 3 * self.mode.frame() && self.locked {
                 self.fic.reset();
                 self.selection = None;
-                self.audio.reset();
-                self.media.reset();
+                self.stop_audio();
                 self.snr_db = 0.0;
                 self.frequency_error_hz = 0.0;
                 self.report(out);
@@ -486,8 +503,7 @@ impl ChannelRx for DabChannel {
                 self.read_fic();
                 self.choose();
                 self.read_msc();
-                self.audio.drain(out);
-                self.media.drain(out);
+                self.collect_audio(out);
                 self.frames += 1;
                 if self.frames >= REPORT_FRAMES {
                     self.frames = 0;
@@ -495,8 +511,8 @@ impl ChannelRx for DabChannel {
                 }
             }
         }
-        self.audio.drain(out);
-        self.media.drain(out);
+        self.collect_audio(out);
+        self.pacer.release(iq.len(), out);
     }
 }
 
