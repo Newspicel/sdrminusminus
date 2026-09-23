@@ -23,7 +23,7 @@ dist
 apps/desktop/gen
 
 # Generated (checked in, but ignore local build noise)
-web/src/generated/*.tsbuildinfo
+*.tsbuildinfo
 
 # Editor
 .idea
