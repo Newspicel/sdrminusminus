@@ -8,11 +8,29 @@ const wires = [
 
 const nodes = [
   { x: 0, y: 150, w: 150, h: 78, title: "RTL-SDR", cat: "source" },
-  { x: 210, y: 150, w: 150, h: 78, title: "BROADCAST FM", cat: "channel" },
-  { x: 420, y: 40, w: 140, h: 70, title: "SPEAKER", cat: "output" },
-  { x: 420, y: 174, w: 140, h: 78, title: "DECODER LOG", cat: "output" },
-  { x: 420, y: 280, w: 140, h: 70, title: "RECORDER", cat: "output" },
+  { x: 210, y: 150, w: 150, h: 78, title: "Broadcast FM", cat: "channel" },
+  { x: 420, y: 40, w: 140, h: 70, title: "Speaker", cat: "output" },
+  { x: 420, y: 174, w: 140, h: 78, title: "Decoder log", cat: "output" },
+  { x: 420, y: 280, w: 140, h: 70, title: "Recorder", cat: "output" },
 ];
+
+const ports = [
+  { type: "iq", x: 150, y: 172 },
+  { type: "iq", x: 210, y: 172 },
+  { type: "audio", x: 360, y: 172 },
+  { type: "events", x: 360, y: 196 },
+  { type: "audio", x: 420, y: 62 },
+  { type: "events", x: 420, y: 196 },
+  { type: "iq", x: 420, y: 302 },
+];
+
+const glyphs: Record<string, string> = {
+  iq: "M4.5 0A4.5 4.5 0 1 1 -4.5 0A4.5 4.5 0 1 1 4.5 0Z",
+  audio: "M0 -5 5 0 0 5 -5 0Z",
+  events: "M-3 -5h6l2 5-2 5h-6l-2-5Z",
+};
+
+const head = (width: number) => `M0 20V4A4 4 0 0 1 4 0H${width - 4}A4 4 0 0 1 ${width} 4V20Z`;
 
 const meter = [0.9, 0.7, 1, 0.8, 0.55, 0.85, 0.65, 0.95, 0.5, 0.75, 0.6, 0.9, 0.4, 0.7];
 ---
@@ -35,10 +53,11 @@ const meter = [0.9, 0.7, 1, 0.8, 0.55, 0.85, 0.65, 0.95, 0.5, 0.75, 0.6, 0.9, 0.
   {
     nodes.map((node) => (
       <g class={`node ${node.cat}`} transform={`translate(${node.x} ${node.y})`}>
-        <rect class="face" width={node.w} height={node.h} rx="3" />
-        <rect class="head" width={node.w} height="20" rx="3" />
-        <rect class="cat" width="3" height="20" />
-        <text class="title" x="10" y="14">
+        <rect class="face" width={node.w} height={node.h} rx="4" />
+        <path class="head" d={head(node.w)} />
+        <line class="rule" x1="0" y1="20" x2={node.w} y2="20" />
+        <circle class="cat" cx="10" cy="10" r="2.5" />
+        <text class="title" x="18" y="13.5">
           {node.title}
         </text>
       </g>
@@ -47,7 +66,7 @@ const meter = [0.9, 0.7, 1, 0.8, 0.55, 0.85, 0.65, 0.95, 0.5, 0.75, 0.6, 0.9, 0.
 
   <g transform="translate(0 150)">
     <text class="freq" x="10" y="48">100.000<tspan class="unit" dx="4">MHz</tspan></text>
-    <text class="dim" x="10" y="66">RATE 2.4 MS/s</text>
+    <text class="dim" x="10" y="66">Rate 2.4 MS/s</text>
   </g>
 
   <g transform="translate(210 150)">
@@ -72,13 +91,7 @@ const meter = [0.9, 0.7, 1, 0.8, 0.55, 0.85, 0.65, 0.95, 0.5, 0.75, 0.6, 0.9, 0.
   </g>
 
   <g class="ports">
-    <circle class="iq" cx="150" cy="172" r="4" />
-    <circle class="iq" cx="210" cy="172" r="4" />
-    <circle class="audio" cx="360" cy="172" r="4" />
-    <circle class="events" cx="360" cy="196" r="4" />
-    <circle class="audio" cx="420" cy="62" r="4" />
-    <circle class="events" cx="420" cy="196" r="4" />
-    <circle class="iq" cx="420" cy="302" r="4" />
+    {ports.map((port) => <path class={port.type} d={glyphs[port.type]} transform={`translate(${port.x} ${port.y})`} />)}
   </g>
 </svg>
 
@@ -107,24 +120,25 @@ const meter = [0.9, 0.7, 1, 0.8, 0.55, 0.85, 0.65, 0.95, 0.5, 0.75, 0.6, 0.9, 0.
   .audio { --port: var(--audio); }
   .events { --port: var(--events); }
 
-  .face { fill: var(--panel); stroke: var(--line-strong); stroke-width: 1; }
-  .head { fill: var(--panel-2); }
+  .face { fill: var(--panel); stroke: var(--line); stroke-width: 1; filter: drop-shadow(0 6px 14px oklch(0 0 0 / 0.3)); }
+  .head { fill: color-mix(in oklab, var(--cat) 14%, var(--panel)); }
+  .rule { stroke: var(--line); stroke-width: 1; }
   .cat { fill: var(--cat); }
   .source { --cat: var(--cat-source); }
   .channel { --cat: var(--cat-channel); }
   .output { --cat: var(--cat-output); }
-  .title { fill: var(--ink-dim); font-size: 8.5px; letter-spacing: 0.06em; }
+  .title { fill: var(--ink); font-size: 9px; font-weight: 500; }
 
-  .freq { fill: var(--ink); font-size: 19px; letter-spacing: 0.02em; }
+  .freq { fill: var(--vfo); font-size: 19px; }
   .unit { fill: var(--ink-faint); font-size: 8px; }
-  .dim { fill: var(--ink-faint); font-size: 9px; letter-spacing: 0.04em; }
-  .ink { fill: var(--ink); font-size: 11px; letter-spacing: 0.02em; }
+  .dim { fill: var(--ink-faint); font-size: 9px; }
+  .ink { fill: var(--ink); font-size: 11px; }
   .track { fill: var(--panel-3); }
   .level { fill: var(--accent); }
   .meter rect { fill: var(--audio); opacity: 0.8; transform-box: fill-box; transform-origin: bottom; }
   .rec { fill: var(--danger); }
 
-  .ports circle { fill: var(--port); stroke: var(--bg); stroke-width: 2; }
+  .ports path { fill: var(--port); stroke: var(--line-strong); stroke-width: 1; }
 
   @media (prefers-reduced-motion: no-preference) {
     .wire .pulse { animation: flow 2.6s linear infinite; }

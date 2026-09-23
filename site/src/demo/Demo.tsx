@@ -1,3 +1,4 @@
+import "@fontsource-variable/jetbrains-mono";
 import "./install";
 import { App } from "../../../web/src/App";
 import { initTheme, setTheme } from "../../../web/src/lib/theme";

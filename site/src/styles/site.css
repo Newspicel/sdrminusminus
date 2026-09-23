@@ -1,34 +1,39 @@
-@import "@fontsource-variable/martian-mono/standard.css";
+@import "@fontsource-variable/jetbrains-mono";
 
 :root {
-  --bg: oklch(0.165 0.005 255);
-  --panel: oklch(0.205 0.006 255);
-  --panel-2: oklch(0.245 0.007 255);
-  --panel-3: oklch(0.3 0.007 255);
-  --line: oklch(0.29 0.007 255);
-  --line-strong: oklch(0.42 0.009 255);
-  --ink: oklch(0.96 0.003 255);
-  --ink-dim: oklch(0.76 0.006 255);
-  --ink-faint: oklch(0.62 0.008 255);
-  --accent: oklch(0.74 0.13 258);
-  --accent-dim: oklch(0.58 0.115 258);
+  --bg: oklch(0.165 0.004 240);
+  --panel: oklch(0.205 0.005 240);
+  --panel-2: oklch(0.255 0.007 240);
+  --panel-3: oklch(0.225 0.006 240);
+  --well: oklch(0.145 0.004 240);
+  --line: oklch(0.3 0.008 240);
+  --line-strong: oklch(0.42 0.01 240);
+  --ink: oklch(0.93 0.005 240);
+  --ink-dim: oklch(0.74 0.008 240);
+  --ink-faint: oklch(0.58 0.01 240);
+  --accent: oklch(0.78 0.12 210);
+  --accent-dim: oklch(0.6 0.1 212);
+  --on-accent: oklch(0.17 0.02 220);
+  --vfo: oklch(0.9 0.09 200);
   --danger: oklch(0.7 0.17 25);
   --iq: oklch(0.72 0.11 228);
   --audio: oklch(0.74 0.12 158);
   --events: oklch(0.78 0.11 85);
   --video: oklch(0.76 0.12 35);
-  --cat-source: oklch(0.62 0.07 228);
-  --cat-channel: oklch(0.62 0.07 300);
-  --cat-output: oklch(0.62 0.05 200);
-  --mono: ui-monospace, "SF Mono", "JetBrains Mono", "IBM Plex Mono", Menlo, monospace;
-  --display: "Martian Mono Variable", var(--mono);
-  --well: oklch(0.135 0.005 255);
+  --cat-source: oklch(0.72 0.1 228);
+  --cat-channel: oklch(0.72 0.1 300);
+  --cat-output: oklch(0.74 0.11 150);
+  --mono: "JetBrains Mono Variable", ui-monospace, "SF Mono", Menlo, monospace;
+  --display: var(--mono);
   --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --pad: clamp(20px, 5vw, 48px);
   --measure: 62ch;
-  --radius: 10px;
-  --radius-lg: 16px;
-  --glow: 0 40px 120px -48px color-mix(in oklab, var(--accent) 45%, transparent);
+  --radius: 4px;
+  --radius-lg: 6px;
+  --shadow-face:
+    inset 0 1px 0 oklch(1 0 0 / 0.04), 0 1px 2px oklch(0 0 0 / 0.3), 0 8px 24px oklch(0 0 0 / 0.22);
+  --shadow-raised: inset 0 1px 0 oklch(1 0 0 / 0.07), 0 1px 2px oklch(0 0 0 / 0.35);
+  --glow: 0 40px 120px -48px color-mix(in oklab, var(--accent) 35%, transparent);
 }
 
 * {
@@ -84,7 +89,7 @@ a:hover {
   z-index: 10;
   background: var(--panel-2);
   border: 1px solid var(--line);
-  border-radius: 6px;
+  border-radius: var(--radius);
   padding: 8px 12px;
   color: var(--ink);
 }
@@ -139,25 +144,26 @@ a:hover {
   color: var(--ink);
 }
 .bar nav a.get {
-  color: var(--ink);
-  background: var(--panel);
-  border: 1px solid var(--line-strong);
-  border-radius: 999px;
-  padding: 6px 16px;
+  color: var(--on-accent);
+  background: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  padding: 4px 14px;
+  font-weight: 600;
+  box-shadow: var(--shadow-raised);
 }
 .bar nav a.get:hover,
 .bar nav a.get[aria-current] {
-  border-color: var(--ink-dim);
-  background: var(--panel-2);
+  color: var(--on-accent);
+  filter: brightness(1.05);
 }
 
 h1 {
   font-family: var(--display);
   font-weight: 600;
-  font-stretch: 78%;
-  font-size: clamp(2.6rem, 8vw, 6rem);
-  line-height: 0.98;
-  letter-spacing: -0.045em;
+  font-size: clamp(2.4rem, 7vw, 5.2rem);
+  line-height: 1;
+  letter-spacing: -0.05em;
   margin: 0 0 24px;
   text-wrap: balance;
 }
@@ -186,8 +192,8 @@ h1 {
   font-size: 15px;
   font-weight: 500;
   text-decoration: none;
-  padding: 12px 22px;
-  border-radius: 10px;
+  padding: 11px 20px;
+  border-radius: var(--radius);
   border: 1px solid transparent;
   transition:
     background-color 0.15s,
@@ -195,22 +201,26 @@ h1 {
     color 0.15s;
 }
 .btn.primary {
-  background: var(--ink);
-  color: var(--bg);
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--on-accent);
   font-weight: 600;
-  box-shadow: 0 8px 32px -8px color-mix(in oklab, var(--ink) 35%, transparent);
+  box-shadow:
+    var(--shadow-raised),
+    0 8px 32px -10px color-mix(in oklab, var(--accent) 50%, transparent);
 }
 .btn.primary:hover {
-  background: white;
+  filter: brightness(1.05);
 }
 .btn.ghost {
-  background: color-mix(in oklab, var(--panel) 70%, transparent);
-  border-color: var(--line-strong);
+  background: var(--panel-2);
+  border-color: var(--line);
   color: var(--ink);
+  box-shadow: var(--shadow-raised);
 }
 .btn.ghost:hover {
-  border-color: var(--ink-dim);
-  background: var(--panel-2);
+  border-color: var(--line-strong);
+  background: var(--panel-3);
 }
 
 .note {
@@ -231,10 +241,9 @@ section {
 
 h2 {
   font-family: var(--display);
-  font-weight: 500;
-  font-stretch: 80%;
-  font-size: clamp(1.7rem, 4vw, 2.7rem);
-  letter-spacing: -0.035em;
+  font-weight: 600;
+  font-size: clamp(1.6rem, 3.6vw, 2.4rem);
+  letter-spacing: -0.04em;
   line-height: 1.1;
   text-wrap: balance;
   margin: 0 0 14px;
@@ -254,22 +263,33 @@ h2 {
   gap: 16px;
 }
 .lane {
-  background: linear-gradient(
-    180deg,
-    var(--panel),
-    color-mix(in oklab, var(--panel) 40%, var(--bg))
-  );
+  background: var(--panel);
   border: 1px solid var(--line);
-  border-radius: var(--radius-lg);
-  padding: 24px;
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-face);
+  padding: 0 20px 20px;
   display: flex;
   flex-direction: column;
   gap: 14px;
 }
 .lane h3 {
-  margin: 0;
-  font-size: 1.08rem;
-  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 32px;
+  margin: 0 -20px 4px;
+  padding-inline: 12px;
+  border-bottom: 1px solid var(--line);
+  border-radius: 3px 3px 0 0;
+  background: color-mix(in oklab, var(--cat-output) 14%, var(--panel));
+  font: 500 12.5px var(--mono);
+}
+.lane h3::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--cat-output);
 }
 .lane p {
   margin: 0;
@@ -311,11 +331,11 @@ h2 {
   top: 8px;
   right: 8px;
   padding: 4px 10px;
-  border: 1px solid var(--line-strong);
-  border-radius: 6px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
   background: var(--panel-2);
   color: var(--ink-dim);
-  font: 12px var(--sans);
+  font: 11px var(--mono);
   cursor: pointer;
   opacity: 0;
   transition: opacity 0.15s;

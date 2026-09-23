@@ -343,27 +343,31 @@ docker compose up -d</pre></div>
   .scenes [role="tablist"] {
     display: flex;
     flex-wrap: wrap;
-    gap: 2px;
-    padding: 3px;
+    gap: 1px;
+    padding: 1px;
     border: 1px solid var(--line);
-    border-radius: 999px;
-    background: color-mix(in oklab, var(--panel) 70%, transparent);
-    backdrop-filter: blur(8px);
+    border-radius: var(--radius);
+    background: var(--well);
   }
   .scenes button {
-    height: 32px;
-    padding-inline: 16px;
-    border: 0;
-    border-radius: 999px;
+    height: 28px;
+    padding-inline: 14px;
+    border: 1px solid transparent;
+    border-radius: 3px;
     background: none;
     color: var(--ink-faint);
-    font: 500 13.5px var(--sans);
+    font: 12px var(--mono);
     cursor: pointer;
-    transition: color 0.15s, background-color 0.15s;
+    transition: color 0.1s, background-color 0.1s;
   }
-  .scenes button:hover { color: var(--ink); }
-  .scenes button[aria-selected="true"] { color: var(--bg); background: var(--ink); }
-  .scenes .full { font-size: 14px; color: var(--ink-dim); text-decoration: none; }
+  .scenes button:hover { color: var(--ink); background: var(--panel); }
+  .scenes button[aria-selected="true"] {
+    color: var(--accent);
+    background: var(--panel-2);
+    border-color: var(--line);
+    box-shadow: var(--shadow-raised);
+  }
+  .scenes .full { font: 12px var(--mono); color: var(--ink-dim); text-decoration: none; }
   .scenes .full:hover { color: var(--ink); }
 
   .window {
@@ -374,7 +378,7 @@ docker compose up -d</pre></div>
     aspect-ratio: 16 / 10;
     max-height: 82vh;
     width: 100%;
-    box-shadow: 0 0 0 6px color-mix(in oklab, var(--panel) 50%, transparent), var(--glow), 0 30px 80px -30px black;
+    box-shadow: var(--glow), 0 30px 80px -30px black;
   }
   .window iframe { display: block; width: 100%; height: 100%; border: 0; }
   .window .still { display: none; width: 100%; height: auto; }
@@ -394,39 +398,39 @@ docker compose up -d</pre></div>
     gap: 16px;
   }
   .output {
-    position: relative;
     overflow: hidden;
-    padding: 28px 28px 32px;
     border: 1px solid var(--line);
-    border-radius: var(--radius-lg);
-    background:
-      radial-gradient(120% 90% at 0% 0%, color-mix(in oklab, var(--port) 10%, transparent), transparent 60%),
-      var(--panel);
+    border-radius: var(--radius);
+    background: var(--panel);
+    box-shadow: var(--shadow-face);
   }
   .output .port {
     display: flex;
     align-items: center;
     gap: 8px;
-    margin: 0 0 8px;
-    font: 12px var(--mono);
-    color: var(--port);
+    height: 32px;
+    margin: 0;
+    padding-inline: 12px;
+    border-bottom: 1px solid var(--line);
+    background: color-mix(in oklab, var(--port) 14%, var(--panel));
+    font: 500 12.5px var(--mono);
+    color: var(--ink);
   }
   .output .dot {
-    width: 9px;
-    height: 9px;
+    width: 6px;
+    height: 6px;
     border-radius: 50%;
     background: var(--port);
-    box-shadow: 0 0 0 3px color-mix(in oklab, var(--port) 22%, transparent);
   }
-  .output h3 { margin: 0 0 18px; font-size: 1.3rem; font-weight: 600; letter-spacing: -0.01em; }
-  .modes { margin: 0; padding: 0; list-style: none; display: flex; flex-wrap: wrap; gap: 6px; }
+  .output h3 { margin: 20px 20px 14px; font-size: 1.2rem; font-weight: 600; letter-spacing: -0.01em; }
+  .modes { margin: 0 20px 22px; padding: 0; list-style: none; display: flex; flex-wrap: wrap; gap: 4px; }
   .modes li {
-    font: 12.5px/1 var(--mono);
-    padding: 7px 10px;
-    border-radius: 999px;
+    font: 12px/1 var(--mono);
+    padding: 6px 8px;
+    border-radius: 3px;
     color: var(--ink-dim);
-    background: color-mix(in oklab, var(--port) 8%, var(--bg));
-    border: 1px solid color-mix(in oklab, var(--port) 20%, var(--line));
+    background: var(--well);
+    border: 1px solid var(--line);
   }
   .output.audio { --port: var(--audio); }
   .output.events { --port: var(--events); }
@@ -439,8 +443,8 @@ docker compose up -d</pre></div>
     grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
     gap: 28px 40px;
   }
-  .tools > div { padding-top: 18px; border-top: 1px solid var(--line); }
-  .tools h3 { margin: 0 0 6px; font-size: 1.05rem; font-weight: 600; }
+  .tools > div { padding-top: 16px; border-top: 1px solid var(--line); }
+  .tools h3 { margin: 0 0 6px; font: 600 14px var(--mono); color: var(--accent); }
   .tools p { margin: 0; color: var(--ink-dim); font-size: 15px; }
 
   .voices { overflow: hidden; }
@@ -470,7 +474,8 @@ docker compose up -d</pre></div>
     padding: 18px 20px 20px;
     border: 1px solid var(--line);
     border-radius: var(--radius);
-    background: color-mix(in oklab, var(--panel) 60%, var(--bg));
+    background: var(--panel);
+    box-shadow: var(--shadow-face);
     color: var(--ink);
     text-decoration: none;
     transition: border-color 0.15s, background-color 0.15s;
@@ -484,11 +489,10 @@ docker compose up -d</pre></div>
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    font-size: 14px;
-    font-weight: 500;
+    font: 500 12.5px var(--mono);
     color: var(--ink-dim);
   }
-  .where { margin-left: auto; font-size: 13px; color: var(--ink-faint); }
+  .where { margin-left: auto; font: 11px var(--mono); color: var(--ink-faint); }
   .quote { font-size: 15px; line-height: 1.5; }
 
   @media (prefers-reduced-motion: no-preference) {
@@ -509,9 +513,9 @@ docker compose up -d</pre></div>
     position: relative;
     text-align: center;
     padding-block: clamp(96px, 14vw, 180px);
-    background: radial-gradient(60% 70% at 50% 100%, color-mix(in oklab, var(--accent) 12%, transparent), transparent 70%);
+    background: radial-gradient(60% 70% at 50% 100%, color-mix(in oklab, var(--accent) 10%, transparent), transparent 70%);
   }
-  .closing h2 { margin-bottom: 36px; font-size: clamp(2.2rem, 6vw, 4.2rem); font-weight: 600; letter-spacing: -0.045em; }
+  .closing h2 { margin-bottom: 36px; font-size: clamp(2.2rem, 6vw, 4.2rem); font-weight: 600; letter-spacing: -0.05em; }
   .closing .actions { justify-content: center; }
 
   @media (max-width: 900px) {
