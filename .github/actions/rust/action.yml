@@ -44,7 +44,7 @@ runs:
         path-type: inherit
     - if: runner.os == 'Windows'
       id: llvm
-      uses: actions/cache@v5
+      uses: actions/cache@v6
       with:
         path: .llvm
         key: libclang-23.1.2-${{ runner.arch }}
@@ -62,7 +62,7 @@ runs:
       run: |
         "MEDIA_SHELL_BIN=${{ steps.msys2.outputs.msys2-location }}\usr\bin;C:\Program Files\LLVM\bin" >> $env:GITHUB_ENV
         "LIBCLANG_PATH=$env:GITHUB_WORKSPACE\.llvm\bin" >> $env:GITHUB_ENV
-    - uses: actions/cache@v5
+    - uses: actions/cache@v6
       with:
         path: .media
         key: media-${{ runner.os }}-${{ runner.arch }}-${{ inputs.target }}-${{ hashFiles('scripts/build-media.py') }}
