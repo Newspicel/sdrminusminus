@@ -100,12 +100,7 @@ export function SpeakerFace({ node }: { node: PatchNode }) {
   const inputs = useInputs(node.id, "audio");
 
   return (
-    <NodeShell
-      node={node}
-      title="Speaker"
-      category="output"
-      subtitle={inputs.length > 0 ? `${inputs.length} in` : undefined}
-    >
+    <NodeShell node={node} title="Speaker" category="output">
       <FaceBody>
         {inputs.length === 0 ? (
           <FaceEmpty hint="Wire a channel's audio in" />
@@ -233,7 +228,6 @@ function AudioHealth({
 
 export function MapFace({ node }: { node: PatchNode }) {
   const workspace = useWorkspaceContext();
-  const inputs = useInputs(node.id, "events");
   const wired = useWiredKinds(node.id);
   const kinds = mapKindsOf(wired);
   const positions = positionSourcesOf(workspace.graph, node.id);
@@ -241,12 +235,7 @@ export function MapFace({ node }: { node: PatchNode }) {
   const crossings = crossingSourcesOf(workspace.graph, node.id);
   const radars = radarSourcesOf(workspace.graph, node.id);
   return (
-    <NodeShell
-      node={node}
-      title="Map"
-      category="output"
-      subtitle={inputs.length > 0 ? `${inputs.length} in` : undefined}
-    >
+    <NodeShell node={node} title="Map" category="output">
       <FaceBody scroll={false}>
         <Plot
           kinds={kinds}
@@ -315,12 +304,7 @@ export function ReadoutFace({ node }: { node: PatchNode }) {
     );
   }
   return (
-    <NodeShell
-      node={node}
-      title="Readout"
-      category="output"
-      subtitle={inputs.length > 0 ? `${inputs.length} in` : undefined}
-    >
+    <NodeShell node={node} title="Readout" category="output">
       <FaceBody>
         {inputs.length === 0 ? (
           <FaceEmpty hint="Wire a decoder's events in" />
@@ -350,12 +334,7 @@ export function ReadoutFace({ node }: { node: PatchNode }) {
 export function VideoFace({ node }: { node: PatchNode }) {
   const inputs = useInputs(node.id, "video");
   return (
-    <NodeShell
-      node={node}
-      title="Video"
-      category="output"
-      subtitle={inputs.length > 0 ? `${inputs.length} in` : undefined}
-    >
+    <NodeShell node={node} title="Video" category="output">
       <FaceBody>
         {inputs.length === 0 ? (
           <FaceEmpty hint="Wire a video channel's picture in" />
@@ -375,12 +354,7 @@ export function VideoFace({ node }: { node: PatchNode }) {
 export function DecoderLogFace({ node }: { node: PatchNode }) {
   const wires = useWireScope(node.id);
   return (
-    <NodeShell
-      node={node}
-      title="Decoder log"
-      category="output"
-      subtitle={wires.wired ? "Connected" : undefined}
-    >
+    <NodeShell node={node} title="Decoder log" category="output">
       <DecoderLogPanel wires={wires} />
     </NodeShell>
   );
@@ -428,15 +402,9 @@ export function CallRow({ call }: { call: VoiceCall }) {
 }
 
 export function ExportFace({ node }: { node: PatchNode }) {
-  const kinds = useWiredKinds(node.id);
   const wires = useWireScope(node.id);
   return (
-    <NodeShell
-      node={node}
-      title="Export"
-      category="output"
-      subtitle={kinds.length > 3 ? `${kinds.length} kinds` : kinds.join(" · ")}
-    >
+    <NodeShell node={node} title="Export" category="output">
       <FaceBody>
         <FaceEmpty hint={!wires.wired ? "Wire decoders in" : "Every logged row, as one file"} />
       </FaceBody>

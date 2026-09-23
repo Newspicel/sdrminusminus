@@ -3,8 +3,8 @@ use std::{ffi::c_void, ptr::NonNull, sync::LazyLock};
 use num_complex::Complex;
 use sdrmm_dsp::{FirC, design_lowpass, golay23_correct};
 use sdrmm_wire::{
-    ChannelDescriptor, ChannelParams, ChannelSettings, DecoderEvent, DvFrame, DvFrameKind, DvMode,
-    FreeDvMode, FreeDvParams, Sideband,
+    ChannelDescriptor, ChannelParams, ChannelSettings, DecoderEvent, DecoderFamily, DvFrame,
+    DvFrameKind, DvMode, FreeDvMode, FreeDvParams, Sideband,
 };
 
 use super::vocoder::Codec2Decoder;
@@ -22,6 +22,8 @@ const CODEC_BITS: usize = 52;
 static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescriptor {
     type_id: "freedv".to_owned(),
     name: "FreeDV 1600".to_owned(),
+    summary: "FreeDV HF digital voice".to_owned(),
+    family: DecoderFamily::DigitalVoice,
     bandwidth_hz: HIGH_EDGE_HZ - LOW_EDGE_HZ,
     input_rate_hz: INPUT_RATE_HZ,
     has_audio: true,

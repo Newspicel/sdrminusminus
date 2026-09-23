@@ -55,7 +55,7 @@ function SatelliteNodeFace({ node }: { node: PatchNodeOf<"satellite"> }) {
   const data = node.data;
   if (data.tle == null) {
     return (
-      <NodeShell node={node} title="Satellite" category="tool" subtitle="none picked">
+      <NodeShell node={node} title="Satellite" category="tool">
         <FaceBody>
           <SatellitePicker onPick={(tle) => edit({ tle })} />
         </FaceBody>

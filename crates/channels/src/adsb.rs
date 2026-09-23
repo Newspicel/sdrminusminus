@@ -8,7 +8,7 @@ use sdrmm_modem::{
 };
 use sdrmm_wire::{
     AdsbMessage, AdsbParams, ChannelDescriptor, ChannelParams, ChannelSettings, DecoderEvent,
-    PositionFix,
+    DecoderFamily, PositionFix,
 };
 
 use crate::{ChannelCtx, ChannelError, ChannelFilter, ChannelOutputs, ChannelRx, check_input_rate};
@@ -64,6 +64,8 @@ const CPR_PAIR_MAX_AGE_S: f64 = 10.0;
 static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescriptor {
     type_id: "adsb".to_owned(),
     name: "ADS-B (1090ES)".to_owned(),
+    summary: "Aircraft positions on 1090 MHz".to_owned(),
+    family: DecoderFamily::Aviation,
     bandwidth_hz: BANDWIDTH_HZ,
     input_rate_hz: INPUT_RATE_HZ,
     has_audio: false,

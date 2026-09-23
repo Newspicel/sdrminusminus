@@ -816,6 +816,14 @@ mod tests {
     }
 
     #[test]
+    fn every_descriptor_has_a_short_summary() {
+        for d in descriptors() {
+            assert!(!d.summary.is_empty(), "{} has no summary", d.type_id);
+            assert!(d.summary.len() <= 60, "{} summary is too long", d.type_id);
+        }
+    }
+
+    #[test]
     fn descriptors_are_unique_and_complete() {
         let all = descriptors();
         assert_eq!(all.len(), 47);

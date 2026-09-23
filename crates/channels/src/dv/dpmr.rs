@@ -3,8 +3,8 @@ use std::sync::LazyLock;
 use num_complex::Complex;
 use sdrmm_modem::cpm::CpmDemod;
 use sdrmm_wire::{
-    ChannelDescriptor, ChannelParams, ChannelSettings, DecoderEvent, DpmrParams, DvFrame,
-    DvFrameKind, DvMode,
+    ChannelDescriptor, ChannelParams, ChannelSettings, DecoderEvent, DecoderFamily, DpmrParams,
+    DvFrame, DvFrameKind, DvMode,
 };
 
 use super::{
@@ -41,6 +41,8 @@ const AMBE_SYMBOLS: usize = 36;
 static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescriptor {
     type_id: "dpmr".to_owned(),
     name: "dPMR".to_owned(),
+    summary: "dPMR two-way radio voice".to_owned(),
+    family: DecoderFamily::DigitalVoice,
     bandwidth_hz: BANDWIDTH_HZ,
     input_rate_hz: INPUT_RATE_HZ,
     has_audio: true,

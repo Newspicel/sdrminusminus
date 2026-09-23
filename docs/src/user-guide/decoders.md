@@ -5,7 +5,7 @@ covers the modes that need more than a frequency.
 
 ## Catalog
 
-**+ Node** lists the modes in the running build.
+**+ Add** lists the modes in the running build, grouped as below.
 
 | Group | Tested on air | Fixture only | Experimental |
 |---|---|---|---|

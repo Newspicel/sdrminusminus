@@ -43,16 +43,12 @@ export function CombinerFace({ node }: { node: PatchNode }) {
   };
   const verdict = calVerdict(state?.cal);
   return (
-    <NodeShell
-      node={node}
-      title="Combiner"
-      category="tool"
-      subtitle={`${settings.lanes} antennas · ${tierLabel(state?.cal)}`}
-    >
+    <NodeShell node={node} title="Combiner" category="tool">
       <FaceBody>
         <div className="flex flex-col gap-2 p-2">
           <Readout>
             <ReadoutRow label="Calibration">{CAL_VERDICT_TEXT[verdict]}</ReadoutRow>
+            <ReadoutRow label="Coherence">{tierLabel(state?.cal)}</ReadoutRow>
           </Readout>
           <Button
             className={BTN}

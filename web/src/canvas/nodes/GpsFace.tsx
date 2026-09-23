@@ -35,7 +35,7 @@ export function GpsFace({ node }: { node: PatchNode }) {
   const fix = state?.fix ?? null;
   if (source === null) {
     return (
-      <NodeShell node={node} title="GPS position" category="source" subtitle="no source">
+      <NodeShell node={node} title="GPS position" category="source">
         <FaceBody>
           <div className="flex flex-col gap-2 p-2">
             <GpsChoices onChoose={setSource} />
@@ -45,7 +45,7 @@ export function GpsFace({ node }: { node: PatchNode }) {
     );
   }
   return (
-    <NodeShell node={node} title="GPS position" category="source" subtitle={sourceName(source)}>
+    <NodeShell node={node} title="GPS position" category="source">
       <FaceBody>
         <Settings className="p-2">
           <SourceSettings source={source} onChange={setSource} />
@@ -232,17 +232,4 @@ function NmeaSettings({
       </SettingRow>
     </>
   );
-}
-
-function sourceName(source: PositionSource): string {
-  switch (source.type) {
-    case "device":
-      return "device";
-    case "gpsd":
-      return "gpsd";
-    case "fixed":
-      return "fixed place";
-    case "nmea":
-      return "NMEA";
-  }
 }

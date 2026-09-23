@@ -271,10 +271,10 @@ export interface NodeSize {
 }
 
 export const NODE_SIZE: Record<NodeKind, NodeSize> = {
-  device: { w: 380 },
-  recording: { w: 380 },
-  signal_gen: { w: 380 },
-  array: { w: 380 },
+  device: { w: 420 },
+  recording: { w: 420 },
+  signal_gen: { w: 420 },
+  array: { w: 420 },
   gps: { w: 360 },
   channel: { w: 440 },
   event_output: { w: 420 },
@@ -304,6 +304,27 @@ export const NODE_SIZE: Record<NodeKind, NodeSize> = {
   combiner: { w: 400 },
   passive_radar: { w: 520, h: 420 },
 };
+
+export const FIT_MIN_W = 280;
+
+const DIAL_MIN_W = 420;
+
+const DIAL_KINDS: ReadonlySet<NodeKind> = new Set([
+  "device",
+  "signal_gen",
+  "recording",
+  "array",
+  "channel",
+]);
+
+export function fitWidth(kind: NodeKind): { minWidth: number; maxWidth: number } | null {
+  const size = NODE_SIZE[kind];
+  if (size.h !== undefined) {
+    return null;
+  }
+  const minWidth = DIAL_KINDS.has(kind) ? DIAL_MIN_W : FIT_MIN_W;
+  return { minWidth, maxWidth: Math.max(minWidth, size.w) };
+}
 
 export function isResizable(kind: NodeKind): boolean {
   return NODE_SIZE[kind].h !== undefined;

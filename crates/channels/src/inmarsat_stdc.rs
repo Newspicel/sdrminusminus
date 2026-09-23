@@ -2,7 +2,8 @@ use std::sync::LazyLock;
 
 use num_complex::Complex;
 use sdrmm_wire::{
-    ChannelDescriptor, ChannelParams, ChannelSettings, DecoderEvent, InmarsatStdcParams,
+    ChannelDescriptor, ChannelParams, ChannelSettings, DecoderEvent, DecoderFamily,
+    InmarsatStdcParams,
 };
 use xng_mode_stdc::StdcChannelDecoder;
 
@@ -17,6 +18,8 @@ const HALF_BANDWIDTH: f64 = 2_000.0;
 static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescriptor {
     type_id: "inmarsat_stdc".to_owned(),
     name: "Inmarsat STD-C / EGC".to_owned(),
+    summary: "Maritime text and safety messages over Inmarsat".to_owned(),
+    family: DecoderFamily::Marine,
     bandwidth_hz: HALF_BANDWIDTH * 2.0,
     input_rate_hz: RATE,
     has_audio: false,

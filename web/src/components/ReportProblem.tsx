@@ -8,7 +8,7 @@ import { pushToast } from "../lib/toasts";
 import type { PatchGraph } from "../lib/types";
 import { Button, Input } from "./BaseControls";
 import { Checkbox } from "./Checkbox";
-import { BTN, BTN_PRIMARY, BTN_QUIET, FIELD, LABEL, SURFACE } from "./controls";
+import { BTN, BTN_PRIMARY, BTN_QUIET, DIALOG_TITLE, FIELD, LABEL, SURFACE } from "./controls";
 import { bugIssueUrl, buildBundle, featureIssueUrl, issueTitle, workspaceFacts } from "./report";
 
 export function ReportProblem({
@@ -65,7 +65,7 @@ export function ReportProblem({
           className={`${SURFACE} fixed top-1/2 left-1/2 z-40 flex max-h-[85vh] w-full max-w-3xl -translate-x-1/2 -translate-y-1/2 flex-col p-4`}
         >
           <div className="flex shrink-0 items-baseline justify-between gap-4">
-            <Dialog.Title className="text-base font-medium text-ink">Report a problem</Dialog.Title>
+            <Dialog.Title className={DIALOG_TITLE}>Report a problem</Dialog.Title>
             <Dialog.Description className="legend">
               {version.length > 0 ? `SDR-- ${version}` : "Collecting…"}
             </Dialog.Description>

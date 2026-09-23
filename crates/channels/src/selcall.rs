@@ -4,7 +4,7 @@ use num_complex::Complex;
 use sdrmm_dsp::{Decimator, ToneCorrelator, design_lowpass};
 use sdrmm_modem::analog::{AngleDemod, AngleDetector, AngleKind, AngleParams, AngleRx};
 use sdrmm_wire::{
-    ChannelDescriptor, ChannelParams, ChannelSettings, DecoderEvent, SelcallParams,
+    ChannelDescriptor, ChannelParams, ChannelSettings, DecoderEvent, DecoderFamily, SelcallParams,
     SelcallSequence, SelcallSystem,
 };
 
@@ -88,6 +88,8 @@ fn tones(system: SelcallSystem) -> &'static [Tone] {
 static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescriptor {
     type_id: "selcall".to_owned(),
     name: "Selcall (CCIR/ZVEI)".to_owned(),
+    summary: "Selective calling tone sequences".to_owned(),
+    family: DecoderFamily::Paging,
     bandwidth_hz: BANDWIDTH_HZ,
     input_rate_hz: INPUT_RATE_HZ,
     has_audio: false,

@@ -3,8 +3,8 @@ use std::sync::LazyLock;
 use num_complex::Complex;
 use sdrmm_dsp::{Decimator, design_lowpass};
 use sdrmm_wire::{
-    ChannelDescriptor, ChannelParams, ChannelSettings, DecoderEvent, RadioClockFrame,
-    RadioClockParams, RadioClockStandard,
+    ChannelDescriptor, ChannelParams, ChannelSettings, DecoderEvent, DecoderFamily,
+    RadioClockFrame, RadioClockParams, RadioClockStandard,
 };
 
 use crate::{ChannelCtx, ChannelError, ChannelFilter, ChannelOutputs, ChannelRx, check_input_rate};
@@ -15,6 +15,8 @@ const CHANNEL_TAPS: usize = 257;
 static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescriptor {
     type_id: "radio_clock".to_owned(),
     name: "Radio clock (DCF77 / WWVB / MSF / JJY)".to_owned(),
+    summary: "Time from DCF77, WWVB, MSF or JJY".to_owned(),
+    family: DecoderFamily::Paging,
     bandwidth_hz: 200.0,
     input_rate_hz: RATE,
     has_audio: false,

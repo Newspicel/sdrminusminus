@@ -4,7 +4,7 @@ use num_complex::Complex;
 use sdrmm_dsp::{Decimator, design_lowpass, flat_bandwidth_hz};
 use sdrmm_wire::{
     BroadcastStatus, BroadcastSystem, ChannelDescriptor, ChannelParams, ChannelSettings,
-    DecoderEvent, DrmMode, DrmParams,
+    DecoderEvent, DecoderFamily, DrmMode, DrmParams,
 };
 
 use crate::{ChannelCtx, ChannelError, ChannelFilter, ChannelOutputs, ChannelRx, check_input_rate};
@@ -18,6 +18,8 @@ const DRM_PLUS_BANDWIDTH_HZ: f64 = 100_000.0;
 static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescriptor {
     type_id: "drm".to_owned(),
     name: "DRM30 / DRM+ acquisition".to_owned(),
+    summary: "Digital Radio Mondiale signal info".to_owned(),
+    family: DecoderFamily::Broadcast,
     bandwidth_hz: DRM_PLUS_BANDWIDTH_HZ,
     input_rate_hz: INPUT_RATE_HZ,
     has_audio: false,

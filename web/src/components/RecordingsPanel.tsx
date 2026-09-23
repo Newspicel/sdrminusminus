@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Download, FolderOpen, Pencil, Trash2 } from "lucide-react";
 import { useState } from "react";
 import {
   AUDIO_RECORDINGS_KEY,
@@ -19,8 +20,18 @@ import {
 import { pushToast } from "../lib/toasts";
 import type { RecordingAnnotation, RecordingInfo } from "../lib/types";
 import { Button, Form, Input, Textarea } from "./BaseControls";
-import { BTN, BTN_SM, CHIP, FIELD } from "./controls";
+import { BTN_SM, CHIP_SM, FIELD } from "./controls";
 import { formatBytes, formatSampleRate } from "./format";
+import {
+  List,
+  ListRow,
+  Panel,
+  PanelHint,
+  PanelToolbar,
+  RowAction,
+  RowLink,
+  SearchField,
+} from "./ListPanel";
 import { RecordingUpload } from "./RecordingUpload";
 import {
   describeRecording,
@@ -67,11 +78,10 @@ export function RecordingsPanel({ onOpen }: { onOpen: (recording: RecordingInfo)
   const dir = recordings.data?.dir;
 
   return (
-    <div className="flex flex-col gap-2 p-3">
-      <div className="flex items-center gap-2">
+    <Panel>
+      <PanelToolbar>
         {listed.length > 0 && (
-          <Input
-            className={`${FIELD} min-w-0 flex-1`}
+          <SearchField
             type="search"
             name="recording-library-filter"
             placeholder="Search name, tag or note"
@@ -81,80 +91,74 @@ export function RecordingsPanel({ onOpen }: { onOpen: (recording: RecordingInfo)
           />
         )}
         <RecordingUpload compact={listed.length > 0} />
-      </div>
+      </PanelToolbar>
       {dir != null && <RecordingsFolder dir={dir} reveal={reveal} />}
-      {shown.map((r) => (
-        <div key={r.id} className="flex flex-col gap-1">
-          <div className="flex items-center gap-2">
-            <div className="min-w-0 flex-1">
-              <div className="truncate font-mono text-ink text-sm">{recordingTitle(r)}</div>
-              <div className="truncate font-mono text-[10px] text-ink-dim tabular-nums">
-                {describeRecording(r)}
-              </div>
-              <div className="truncate font-mono text-[10px] text-ink-faint">
-                {recordingProvenance(r)}
-              </div>
-            </div>
-            <Button type="button" className={BTN} onClick={() => onOpen(r)}>
-              Open as source
-            </Button>
-            {downloadFormats.map(({ format, label, hint }) => (
-              <a
-                key={format}
-                className={BTN}
-                href={recordingDownloadUrl(r.id, format)}
-                title={hint}
-                download
-              >
-                {label}
-              </a>
-            ))}
-            <Button
-              type="button"
-              className={BTN}
-              aria-expanded={editing === r.id}
-              title="A name, tags and a note, kept in the recording's own metadata"
-              onClick={() => setEditing(editing === r.id ? null : r.id)}
-            >
-              Annotate
-            </Button>
-            {reveal && (
-              <Button
-                type="button"
-                className={BTN}
-                title="Select the file in this machine's file manager"
-                onClick={() => revealMut.mutate(r.id)}
-              >
-                Show in folder
-              </Button>
-            )}
-            <Button
-              type="button"
-              className={`${BTN} hover:border-danger hover:text-danger`}
-              disabled={deleteMut.isPending}
-              onClick={() => deleteMut.mutate(r.id)}
-            >
-              Delete
-            </Button>
-          </div>
-          {editing === r.id ? (
-            <AnnotationForm
-              recording={r}
-              pending={annotateMut.isPending}
-              onCancel={() => setEditing(null)}
-              onSave={(annotation) => annotateMut.mutate({ id: r.id, annotation })}
-            />
-          ) : (
-            <Annotation recording={r} onPickTag={setSearch} />
-          )}
-        </div>
-      ))}
-      {listed.length === 0 && <span className="text-sm text-ink-dim">No recordings yet.</span>}
+      {listed.length === 0 && <PanelHint>No recordings yet.</PanelHint>}
       {listed.length > 0 && shown.length === 0 && (
-        <span className="text-sm text-ink-dim">No recording matches “{search}”.</span>
+        <PanelHint>No recording matches “{search}”.</PanelHint>
+      )}
+      {shown.length > 0 && (
+        <List title="IQ">
+          {shown.map((r) => (
+            <ListRow
+              key={r.id}
+              primary={recordingTitle(r)}
+              secondary={describeRecording(r)}
+              hint={recordingProvenance(r)}
+              actions={
+                <>
+                  <Button type="button" className={BTN_SM} onClick={() => onOpen(r)}>
+                    Open as source
+                  </Button>
+                  {downloadFormats.map(({ format, label, hint }) => (
+                    <a
+                      key={format}
+                      className={BTN_SM}
+                      href={recordingDownloadUrl(r.id, format)}
+                      title={hint}
+                      download
+                    >
+                      {label}
+                    </a>
+                  ))}
+                  <RowAction
+                    label={`Annotate ${recordingTitle(r)}`}
+                    glyph={Pencil}
+                    onClick={() => setEditing(editing === r.id ? null : r.id)}
+                  />
+                  {reveal && (
+                    <RowAction
+                      label="Show in folder"
+                      glyph={FolderOpen}
+                      onClick={() => revealMut.mutate(r.id)}
+                    />
+                  )}
+                  <RowAction
+                    label={`Delete ${recordingTitle(r)}`}
+                    glyph={Trash2}
+                    danger
+                    disabled={deleteMut.isPending}
+                    onClick={() => deleteMut.mutate(r.id)}
+                  />
+                </>
+              }
+            >
+              {editing === r.id ? (
+                <AnnotationForm
+                  recording={r}
+                  pending={annotateMut.isPending}
+                  onCancel={() => setEditing(null)}
+                  onSave={(annotation) => annotateMut.mutate({ id: r.id, annotation })}
+                />
+              ) : (
+                <Annotation recording={r} onPickTag={setSearch} />
+              )}
+            </ListRow>
+          ))}
+        </List>
       )}
       <AudioRecordings reveal={reveal} />
-    </div>
+    </Panel>
   );
 }
 
@@ -164,8 +168,8 @@ function RecordingsFolder({ dir, reveal }: { dir: string; reveal: boolean }) {
     onError: (e) => pushToast(e.message),
   });
   return (
-    <div className="flex items-center gap-2">
-      <span className="min-w-0 flex-1 truncate font-mono text-[10px] text-ink-faint" title={dir}>
+    <PanelToolbar>
+      <span className="legend min-w-0 flex-1 truncate" title={dir}>
         {dir}
       </span>
       {reveal && (
@@ -178,7 +182,7 @@ function RecordingsFolder({ dir, reveal }: { dir: string; reveal: boolean }) {
           Show in folder
         </Button>
       )}
-    </div>
+    </PanelToolbar>
   );
 }
 
@@ -199,7 +203,7 @@ function Annotation({
         <Button
           key={tag}
           type="button"
-          className={`${CHIP} h-5 px-1.5 text-[10px] hover:border-accent-dim`}
+          className={`${CHIP_SM} hover:border-accent-dim hover:text-accent`}
           title={`Search for ${tag}`}
           onClick={() => onPickTag(tag)}
         >
@@ -207,7 +211,7 @@ function Annotation({
         </Button>
       ))}
       {recording.note != null && recording.note !== "" && (
-        <span className="min-w-0 flex-1 truncate text-[11px] text-ink-dim" title={recording.note}>
+        <span className="min-w-0 flex-1 truncate text-xs text-ink-dim" title={recording.note}>
           {recording.note}
         </span>
       )}
@@ -232,7 +236,7 @@ function AnnotationForm({
 
   return (
     <Form
-      className="flex flex-col gap-1.5 border-line border-l-2 pl-2"
+      className="flex flex-col gap-1.5 border-accent-dim border-l-2 pl-2"
       onSubmit={(e) => {
         e.preventDefault();
         onSave({
@@ -295,53 +299,44 @@ function AudioRecordings({ reveal }: { reveal: boolean }) {
     return null;
   }
   return (
-    <>
-      <div className="mt-1 border-line border-t pt-2 text-xs text-ink-dim">Channel audio</div>
+    <List title="Channel audio">
       {listed.map((r) => (
-        <div key={r.file} className="flex flex-col gap-1">
-          <div className="flex items-center gap-2">
-            <div className="min-w-0 flex-1">
-              <div className="truncate font-mono text-ink text-sm">{r.file}</div>
-              <div className="truncate font-mono text-[10px] text-ink-dim tabular-nums">
-                {r.channels === 2 ? "stereo" : "mono"} · {formatSampleRate(r.sample_rate)} ·{" "}
-                {formatDuration(r.duration_s)} · {formatBytes(r.bytes)}
-              </div>
-            </div>
-            {reveal && (
-              <Button
-                type="button"
-                className={BTN}
-                title="Select the file in this machine's file manager"
-                onClick={() => revealMut.mutate(r.file)}
-              >
-                Show in folder
-              </Button>
-            )}
-            <a
-              className={BTN}
-              href={audioRecordingDownloadUrl(r.file)}
-              title="Save a copy of this 16-bit PCM WAV"
-              download
-            >
-              Download
-            </a>
-            <Button
-              type="button"
-              className={`${BTN} hover:border-danger hover:text-danger`}
-              disabled={deleteMut.isPending}
-              onClick={() => deleteMut.mutate(r.file)}
-            >
-              Delete
-            </Button>
-          </div>
+        <ListRow
+          key={r.file}
+          primary={r.file}
+          secondary={`${r.channels === 2 ? "stereo" : "mono"} · ${formatSampleRate(r.sample_rate)} · ${formatDuration(r.duration_s)} · ${formatBytes(r.bytes)}`}
+          actions={
+            <>
+              {reveal && (
+                <RowAction
+                  label="Show in folder"
+                  glyph={FolderOpen}
+                  onClick={() => revealMut.mutate(r.file)}
+                />
+              )}
+              <RowLink
+                label="Download WAV"
+                glyph={Download}
+                href={audioRecordingDownloadUrl(r.file)}
+              />
+              <RowAction
+                label={`Delete ${r.file}`}
+                glyph={Trash2}
+                danger
+                disabled={deleteMut.isPending}
+                onClick={() => deleteMut.mutate(r.file)}
+              />
+            </>
+          }
+        >
           <audio
             className="h-8 w-full min-w-0"
             controls
             preload="none"
             src={audioRecordingUrl(r.file)}
           />
-        </div>
+        </ListRow>
       ))}
-    </>
+    </List>
   );
 }

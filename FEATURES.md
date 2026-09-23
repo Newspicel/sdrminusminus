@@ -2,6 +2,11 @@
 
 If something is shipped, then remove it.
 
+
+## Drivers
+- KrankenRF
+- RX-888 / Mk2
+
 ## 1. Engine: many radios, arrays and cross-cutting DSP
 
 - More Native Drivers: RX-888 / Mk2 native driver
@@ -11,18 +16,13 @@ If something is shipped, then remove it.
 - Interferometer
 - A floor that jumps up in one step is read as a signal until the channel next falls quiet, which is the deliberate half of the auto-squelch trade; a smarter estimator would tell the two apart
 
-## 2. Spectrum, tuning & navigation
-
-- Wideband skimmer/auto-detect
-- Server-side zoom of the device spectrum
-
-## 3. Recording, replay & measurement
+## 2. Recording, replay & measurement
 
 - recording scheduler + unattended satellite-pass automation
 - Demod analyzer
 - Noise figure; PER tester; SID monitor
 
-## 4. Decoders & protocols
+## 3. Decoders & protocols
 
 - Tetrapol
 - STANAG modem ID
@@ -60,7 +60,7 @@ If something is shipped, then remove it.
 - LoRaWAN frame parsing
 - BLE advertisements, 2.4 GHz survey, Wi-Fi channel occupancy (energy only)
 
-## 5. Transmit & legitimate security research
+## 4. Transmit & legitimate security research
 
 - Signal generator / arbitrary waveform + IQ playback-to-air
 - Modulators for the remaining modes, over the shared frame/bit codec each protocol module owns in both directions: for two-way, beacon and test use
@@ -72,7 +72,7 @@ If something is shipped, then remove it.
 - Simple PTT
 - Beam-steering CW modulator (TX MIMO)
 
-## 6. Station services & hardware integration
+## 5. Station services & hardware integration
 
 - Codeplug programming reaches the objects every radio shares (channels, contacts, group lists,
   zones, scan lists and radio IDs) and preserves every byte it does not model, so a read/write
@@ -93,7 +93,7 @@ If something is shipped, then remove it.
 - TinySA import, Hamlib CAT control
 - Radio astronomy; star tracker; sky map
 
-## 7. API, automation & access
+## 6. API, automation & access
 
 - Alerting/notifications: rule engine on decoder events → desktop, push
 - Plugin SDK via WASM?

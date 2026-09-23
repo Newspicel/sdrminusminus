@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Trash2 } from "lucide-react";
 import { useState } from "react";
 import type { TuneTarget } from "../canvas/libraryTarget";
 import { BOOKMARKS_KEY, bookmarksQuery, createBookmark, deleteBookmark } from "../lib/api";
@@ -6,8 +7,9 @@ import { pushToast } from "../lib/toasts";
 import type { Bookmark, CreateBookmarkRequest } from "../lib/types";
 import { sameMode, useTuner } from "../lib/useTuner";
 import { Button, Form, Input } from "./BaseControls";
-import { BTN, FIELD } from "./controls";
+import { BTN, CHIP_SM, FIELD } from "./controls";
 import { formatMhz } from "./format";
+import { List, ListRow, Panel, PanelHint, RowAction } from "./ListPanel";
 
 export function BookmarksPanel({ target }: { target: TuneTarget | null }) {
   const queryClient = useQueryClient();
@@ -48,10 +50,8 @@ export function BookmarksPanel({ target }: { target: TuneTarget | null }) {
   };
 
   return (
-    <div className="flex flex-col gap-2 p-3">
-      {target === null && (
-        <span className="text-sm text-ink-dim">Select a Device or decoder first.</span>
-      )}
+    <Panel>
+      {target === null && <PanelHint>Select a device or decoder first.</PanelHint>}
       <Form
         className="flex flex-wrap gap-2"
         onSubmit={(e) => {
@@ -89,38 +89,36 @@ export function BookmarksPanel({ target }: { target: TuneTarget | null }) {
       </Form>
 
       {target !== null && !ready && sorted.length > 0 && (
-        <span className="text-sm text-ink-dim">Tuning is locked here.</span>
+        <PanelHint>Tuning is locked here.</PanelHint>
       )}
-
-      {sorted.map((b) => (
-        <div key={b.id} className="flex items-center gap-2">
-          <Button
-            type="button"
-            className="min-w-0 flex-1 rounded px-1 py-1 text-left transition-colors hover:bg-panel-2 disabled:opacity-40 max-md:min-h-10"
-            disabled={!ready}
-            onClick={() => recall(b)}
-          >
-            <span className="font-mono text-sm tabular-nums text-ink">{formatMhz(b.freq_hz)}</span>
-            <span className="ml-2 text-sm text-ink-dim">{b.label}</span>
-            {b.mode != null && b.mode !== "" && (
-              <span className="ml-2 rounded border border-line px-1 font-mono text-[10px] uppercase text-ink-dim">
-                {b.mode}
-              </span>
-            )}
-          </Button>
-          <Button
-            type="button"
-            className={`${BTN} hover:border-danger hover:text-danger`}
-            disabled={deleteMut.isPending}
-            onClick={() => deleteMut.mutate(b.id)}
-          >
-            Delete
-          </Button>
-        </div>
-      ))}
-      {bookmarks.data?.length === 0 && (
-        <span className="text-sm text-ink-dim">No bookmarks yet.</span>
+      {bookmarks.data?.length === 0 && <PanelHint>No bookmarks yet.</PanelHint>}
+      {sorted.length > 0 && (
+        <List>
+          {sorted.map((b) => (
+            <ListRow
+              key={b.id}
+              primary={formatMhz(b.freq_hz)}
+              badge={
+                b.mode != null && b.mode !== "" ? (
+                  <span className={CHIP_SM}>{b.mode}</span>
+                ) : undefined
+              }
+              secondary={b.label}
+              disabled={!ready}
+              onSelect={() => recall(b)}
+              actions={
+                <RowAction
+                  label={`Delete ${b.label}`}
+                  glyph={Trash2}
+                  danger
+                  disabled={deleteMut.isPending}
+                  onClick={() => deleteMut.mutate(b.id)}
+                />
+              }
+            />
+          ))}
+        </List>
       )}
-    </div>
+    </Panel>
   );
 }

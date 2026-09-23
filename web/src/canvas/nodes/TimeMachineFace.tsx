@@ -81,9 +81,8 @@ function TimeMachineNodeFace({ node }: { node: PatchNodeOf<"time_machine"> }) {
               step={1}
               disabled={phase.kind !== "idle" || control.isPending}
               onCommit={edit}
-              className="w-24"
+              unit="s"
             />
-            <span className="legend">s</span>
           </SettingRow>
         </Settings>
         {status === null ? (

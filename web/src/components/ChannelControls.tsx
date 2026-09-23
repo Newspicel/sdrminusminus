@@ -34,7 +34,7 @@ import { NumberField, OptionalNumberField } from "./NumberField";
 import { Segmented } from "./Segmented";
 import { Select } from "./Select";
 import { SettingRow, Settings } from "./Settings";
-import { Slider } from "./Slider";
+import { SliderField } from "./Slider";
 import { withCurrent } from "./selectOptions";
 import { TextAutocomplete } from "./TextAutocomplete";
 import { TuneTo } from "./TuneTo";
@@ -299,7 +299,7 @@ export function ChannelControls({
   broadcast?: BroadcastStatus;
 }) {
   return (
-    <Settings className="p-2">
+    <Settings className="p-3">
       {channelHasAudio(descriptor) && <SquelchRow settings={settings} onEdit={onEdit} />}
       <ModeControls
         params={settings.params}
@@ -346,28 +346,32 @@ function SquelchRow({
     onEdit({ squelch: squelchAt(next, { levelDb, marginDb }) });
   };
   return (
-    <SettingRow label="Squelch" title="Mute the channel until a signal is strong enough">
-      <Segmented label="Squelch mode" value={mode} options={SQUELCH_MODES} onChange={pick} />
-      <Slider
-        label={auto ? "Squelch margin above the noise floor (dB)" : "Squelch threshold (dB)"}
-        className="min-w-0 flex-1"
-        disabled={mode === "off"}
-        min={auto ? AUDIO_LIMITS.squelchAutoMarginDb.min : SQUELCH_RANGE_DB.min}
-        max={auto ? AUDIO_LIMITS.squelchAutoMarginDb.max : SQUELCH_RANGE_DB.max}
-        step={1}
-        value={auto ? marginDb : levelDb}
-        onChange={auto ? marginSlider.change : levelSlider.change}
-      />
-      <span
-        className={`w-14 shrink-0 text-right font-mono text-xs tabular-nums ${
-          mode === "off" ? "text-ink-faint opacity-45" : "text-ink"
-        }`}
-        title={auto ? "Above the noise floor the channel measures" : undefined}
-      >
-        {auto ? `+${marginDb.toFixed(0)}` : levelDb.toFixed(0)}{" "}
-        <span className="text-ink-faint">dB</span>
-      </span>
-    </SettingRow>
+    <>
+      <SettingRow label="Squelch" title="Mute the channel until a signal is strong enough">
+        <Segmented label="Squelch mode" value={mode} options={SQUELCH_MODES} onChange={pick} />
+      </SettingRow>
+      {mode !== "off" && (
+        <SettingRow
+          label={auto ? "Margin" : "Level"}
+          title={auto ? "How far above the measured noise floor the channel opens" : undefined}
+        >
+          <SliderField
+            label={auto ? "Squelch margin above the noise floor (dB)" : "Squelch threshold (dB)"}
+            min={auto ? AUDIO_LIMITS.squelchAutoMarginDb.min : SQUELCH_RANGE_DB.min}
+            max={auto ? AUDIO_LIMITS.squelchAutoMarginDb.max : SQUELCH_RANGE_DB.max}
+            step={1}
+            value={auto ? marginDb : levelDb}
+            onChange={auto ? marginSlider.change : levelSlider.change}
+            readout={
+              <>
+                {auto ? `+${marginDb.toFixed(0)}` : levelDb.toFixed(0)}{" "}
+                <span className="text-ink-faint">dB</span>
+              </>
+            }
+          />
+        </SettingRow>
+      )}
+    </>
   );
 }
 
@@ -452,9 +456,8 @@ function ModeControls({
                 value={params.settings.inversion_hz ?? INVERSION_DEFAULT_HZ}
                 {...limitOf(limits, "inversion_hz")}
                 onCommit={(inversion_hz) => set({ ...params.settings, inversion_hz })}
-                className="w-20"
+                unit="Hz"
               />
-              <span className="legend">Hz</span>
             </SettingRow>
           )}
           <Toggle
@@ -514,9 +517,8 @@ function ModeControls({
               onCommit={(bandwidth_hz) =>
                 onParams({ type: "ssb", settings: { ...params.settings, bandwidth_hz } })
               }
-              className="w-20"
+              unit="Hz"
             />
-            <span className="legend">Hz</span>
           </SettingRow>
         </>
       );
@@ -712,8 +714,8 @@ function ModeControls({
               onCommit={(bandwidth_hz) =>
                 onParams({ type: "morse", settings: { ...params.settings, bandwidth_hz } })
               }
+              unit="Hz"
             />
-            <span className="legend">Hz</span>
           </SettingRow>
           <SettingRow label="WPM">
             <OptionalNumberField
@@ -740,9 +742,8 @@ function ModeControls({
                   settings: { ...params.settings, bandwidth_hz },
                 })
               }
-              className="w-24"
+              unit="Hz"
             />
-            <span className="legend">Hz</span>
           </SettingRow>
           <SettingRow label="Acquire">
             <NumberField
@@ -755,9 +756,8 @@ function ModeControls({
                   settings: { ...params.settings, threshold_db },
                 })
               }
-              className="w-16"
+              unit="dB SNR"
             />
-            <span className="legend">dB SNR</span>
           </SettingRow>
           <SettingRow label="Signals">
             <NumberField
@@ -770,7 +770,6 @@ function ModeControls({
                   settings: { ...params.settings, max_signals },
                 })
               }
-              className="w-16"
             />
           </SettingRow>
           <SettingRow label="WPM">
@@ -880,7 +879,6 @@ function ModeControls({
               value={params.settings.prn ?? 1}
               {...limitOf(limits, "prn")}
               onCommit={(prn) => onParams({ type: "gnss", settings: { ...params.settings, prn } })}
-              className="w-16"
             />
           </SettingRow>
           <SettingRow label="Doppler">
@@ -891,9 +889,8 @@ function ModeControls({
               onCommit={(doppler_hz) =>
                 onParams({ type: "gnss", settings: { ...params.settings, doppler_hz } })
               }
-              className="w-20"
+              unit="Hz"
             />
-            <span className="legend">Hz</span>
           </SettingRow>
           <SettingRow label="Acquire above">
             <NumberField
@@ -903,9 +900,8 @@ function ModeControls({
               onCommit={(threshold) =>
                 onParams({ type: "gnss", settings: { ...params.settings, threshold } })
               }
-              className="w-16"
+              unit="× floor"
             />
-            <span className="legend">× floor</span>
           </SettingRow>
         </>
       );
@@ -951,8 +947,8 @@ function ModeControls({
               onCommit={(magnetic_declination_deg) =>
                 set({ ...params.settings, magnetic_declination_deg })
               }
+              unit="°"
             />
-            <span className="legend">°</span>
           </SettingRow>
           <SettingRow label="Report every">
             <NumberField
@@ -960,8 +956,8 @@ function ModeControls({
               value={params.settings.report_ms ?? 500}
               {...limitOf(limits, "report_ms")}
               onCommit={(report_ms) => set({ ...params.settings, report_ms })}
+              unit="ms"
             />
-            <span className="legend">ms</span>
           </SettingRow>
         </>
       );
@@ -987,8 +983,8 @@ function ModeControls({
               onCommit={(report_ms) =>
                 onParams({ type: "ils", settings: { ...params.settings, report_ms } })
               }
+              unit="ms"
             />
-            <span className="legend">ms</span>
           </SettingRow>
         </>
       );
@@ -1034,9 +1030,8 @@ function ModeControls({
               onCommit={(min_pulse_us) =>
                 onParams({ type: "subghz", settings: { ...params.settings, min_pulse_us } })
               }
-              className="w-20"
+              unit="µs"
             />
-            <span className="legend">µs</span>
           </SettingRow>
           <SettingRow label="Frame gap">
             <NumberField
@@ -1046,9 +1041,8 @@ function ModeControls({
               onCommit={(frame_gap_us) =>
                 onParams({ type: "subghz", settings: { ...params.settings, frame_gap_us } })
               }
-              className="w-24"
+              unit="µs"
             />
-            <span className="legend">µs</span>
           </SettingRow>
         </>
       );
@@ -1113,8 +1107,8 @@ function ModeControls({
                   },
                 })
               }
+              unit="MHz"
             />
-            <span className="legend">MHz</span>
           </SettingRow>
           <Toggle
             label="Interlace"
@@ -1223,9 +1217,8 @@ function ModeControls({
               onCommit={(symbol_rate) =>
                 onParams({ type: "datv", settings: { ...params.settings, symbol_rate } })
               }
-              className="w-28"
+              unit="Bd"
             />
-            <span className="legend">Bd</span>
           </SettingRow>
           <BroadcastServicePicker
             status={broadcast}
@@ -1472,9 +1465,8 @@ function ModeControls({
               onCommit={(interval_ms) =>
                 onParams({ type: "ident", settings: { ...params.settings, interval_ms } })
               }
-              className="w-20"
+              unit="ms"
             />
-            <span className="legend">ms</span>
           </SettingRow>
           <SettingRow label="Detect above">
             <NumberField
@@ -1484,9 +1476,8 @@ function ModeControls({
               onCommit={(threshold_db) =>
                 onParams({ type: "ident", settings: { ...params.settings, threshold_db } })
               }
-              className="w-16"
+              unit="dB"
             />
-            <span className="legend">dB</span>
           </SettingRow>
         </>
       );
@@ -1552,8 +1543,8 @@ function WsjtControls({
           value={settings.audio_low_hz ?? (wspr ? 1_400 : 200)}
           {...limitOf(limits, "audio_low_hz")}
           onCommit={(audio_low_hz) => onChange({ ...settings, audio_low_hz })}
+          unit="Hz"
         />
-        <span className="legend">Hz</span>
       </SettingRow>
       <SettingRow label="Audio to">
         <NumberField
@@ -1561,8 +1552,8 @@ function WsjtControls({
           value={settings.audio_high_hz ?? (wspr ? 1_600 : 3_000)}
           {...limitOf(limits, "audio_high_hz")}
           onCommit={(audio_high_hz) => onChange({ ...settings, audio_high_hz })}
+          unit="Hz"
         />
-        <span className="legend">Hz</span>
       </SettingRow>
       <SettingRow label="Candidates">
         <NumberField

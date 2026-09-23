@@ -2,6 +2,8 @@ import type { SymbolFrame } from "../lib/frame";
 
 export const BASEBAND_GAIN = 0.22;
 export const BASEBAND_DECAY = 0.82;
+const EYE_STROKE = 0.35;
+const EYE_WINDOWS = 24;
 
 export interface BasebandGrid {
   width: number;
@@ -82,13 +84,38 @@ export function addEye(
     return;
   }
   const halfH = (grid.height - 1) / 2;
+  const windows = Math.floor((count - width) / (width >> 1)) + 1;
+  const stroke = gain * EYE_STROKE * Math.min(1, Math.sqrt(EYE_WINDOWS / windows));
   for (let start = 0; start + width <= count; start += width >> 1) {
+    let lastX = 0;
+    let lastY = 0;
     for (let k = 0; k < width; k++) {
       const value = rail(samples, start + k, component) / span;
-      const x = Math.round((k / (width - 1)) * (grid.width - 1));
-      const y = Math.round(halfH - Math.min(1, Math.max(-1, value)) * halfH);
-      paint(grid, x, y, gain);
+      const x = (k / (width - 1)) * (grid.width - 1);
+      const y = halfH - Math.min(1, Math.max(-1, value)) * halfH;
+      if (k === 0) {
+        paint(grid, Math.round(x), Math.round(y), stroke);
+      } else {
+        segment(grid, lastX, lastY, x, y, stroke);
+      }
+      lastX = x;
+      lastY = y;
     }
+  }
+}
+
+function segment(
+  grid: BasebandGrid,
+  x0: number,
+  y0: number,
+  x1: number,
+  y1: number,
+  gain: number,
+): void {
+  const steps = Math.max(1, Math.ceil(Math.max(Math.abs(x1 - x0), Math.abs(y1 - y0))));
+  for (let i = 1; i <= steps; i++) {
+    const t = i / steps;
+    paint(grid, Math.round(x0 + (x1 - x0) * t), Math.round(y0 + (y1 - y0) * t), gain);
   }
 }
 

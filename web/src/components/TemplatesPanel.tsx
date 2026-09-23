@@ -5,9 +5,10 @@ import { applyTemplate, STATE_KEY, templatesQuery } from "../lib/api";
 import { pushToast } from "../lib/toasts";
 import type { DeviceSet, TemplateInfo } from "../lib/types";
 import { Button } from "./BaseControls";
-import { BTN, ICON_BTN_SM } from "./controls";
+import { BTN_SM, ICON_BTN_SM } from "./controls";
 import { formatHz, formatSampleRate } from "./format";
 import { Icon } from "./Icon";
+import { List, ListRow, Panel, PanelHint } from "./ListPanel";
 import { Popover } from "./Popover";
 import { supports } from "./templates";
 
@@ -33,69 +34,61 @@ export function TemplatesPanel({
   });
 
   return (
-    <div className="flex flex-col gap-2 p-3">
+    <Panel>
       {applied !== null && (
-        <div className="rounded border border-accent bg-accent/10 px-3 py-2 text-sm text-ink">
-          <div className="font-semibold text-accent">{applied.name}</div>
-          <p className="mt-1 text-ink-dim">{applied.explainer}</p>
+        <div className="rounded-[3px] border border-accent-dim bg-accent/10 px-3 py-2">
+          <div className="font-mono text-xs text-accent">{applied.name}</div>
+          <p className="mt-1 text-xs text-ink-dim">{applied.explainer}</p>
         </div>
       )}
-
-      {active === null && (
-        <span className="text-sm text-ink-dim">
-          A template configures one radio: select the device node it should land on.
-        </span>
-      )}
-
-      <div className="grid gap-2 sm:grid-cols-2">
+      {active === null && <PanelHint>Select a device node to apply a template.</PanelHint>}
+      <List>
         {(templates.data?.templates ?? []).map((t) => {
           const ok = supports(t, active);
           return (
-            <div
+            <ListRow
               key={t.id}
-              className="flex flex-col gap-1 rounded-[3px] border border-line bg-panel px-3 py-2"
-            >
-              <div className="flex items-start justify-between gap-2">
-                <div className="text-sm font-semibold text-ink">{t.name}</div>
-                <Popover
-                  label={<Icon glyph={Info} size={12} />}
-                  triggerClass={ICON_BTN_SM}
-                  title={`About ${t.name}`}
-                  width="w-72"
-                  align="end"
-                  openOnHover
-                >
-                  {() => <p className="text-xs text-ink-dim">{t.explainer}</p>}
-                </Popover>
-              </div>
-              <div className="text-xs text-ink-dim">{t.description}</div>
-              <div className="font-mono text-[10px] text-ink-dim">
-                {formatHz(t.center_hz)} · {formatSampleRate(t.sample_rate)} · {t.channels.length}{" "}
-                channel{t.channels.length === 1 ? "" : "s"}
-              </div>
-              <Button
-                type="button"
-                className={`${BTN} mt-1 max-w-full self-start`}
-                disabled={!active || !ok || applyMut.isPending}
-                title={
-                  active === null || ok
-                    ? undefined
-                    : `${active.device.label} cannot run this template`
-                }
-                onClick={() => active && applyMut.mutate({ template: t, ds: active.id })}
-              >
-                <span className="truncate">
-                  {active === null
-                    ? "Apply"
-                    : ok
-                      ? `Apply to ${active.device.label}`
-                      : `${active.device.label} cannot run this`}
+              primary={t.name}
+              badge={
+                <span className="legend shrink-0 tabular-nums">
+                  {formatHz(t.center_hz)} · {formatSampleRate(t.sample_rate)} · {t.channels.length}{" "}
+                  ch
                 </span>
-              </Button>
-            </div>
+              }
+              secondary={t.description}
+              actions={
+                <>
+                  <Popover
+                    label={<Icon glyph={Info} size={12} />}
+                    triggerClass={ICON_BTN_SM}
+                    title={`About ${t.name}`}
+                    width="w-72"
+                    align="end"
+                    openOnHover
+                  >
+                    {() => <p className="text-xs text-ink-dim">{t.explainer}</p>}
+                  </Popover>
+                  <Button
+                    type="button"
+                    className={BTN_SM}
+                    disabled={!active || !ok || applyMut.isPending}
+                    title={
+                      active === null
+                        ? undefined
+                        : ok
+                          ? `Apply to ${active.device.label}`
+                          : `${active.device.label} cannot run this template`
+                    }
+                    onClick={() => active && applyMut.mutate({ template: t, ds: active.id })}
+                  >
+                    Apply
+                  </Button>
+                </>
+              }
+            />
           );
         })}
-      </div>
-    </div>
+      </List>
+    </Panel>
   );
 }

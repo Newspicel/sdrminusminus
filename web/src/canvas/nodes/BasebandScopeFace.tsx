@@ -15,12 +15,7 @@ export function BasebandScopeFace({ node }: { node: PatchNode }) {
     workspace.owners,
   );
   return (
-    <NodeShell
-      node={node}
-      title="Baseband scope"
-      category="output"
-      subtitle={tap === null ? undefined : `${tap.channel.settings.params.type} baseband`}
-    >
+    <NodeShell node={node} title="Baseband scope" category="output">
       <FaceBody scroll={false}>
         {tap === null ? (
           <div className="flex h-full items-center justify-center bg-plot-bg legend text-plot-ink-dim">

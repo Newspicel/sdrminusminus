@@ -45,7 +45,7 @@ export function SignalGenFace({ node }: { node: PatchNode }) {
 
   if (set === null) {
     return (
-      <NodeShell node={node} title="Signal generator" category="source" subtitle="stopped">
+      <NodeShell node={node} title="Signal generator" category="source">
         <FaceFooter>
           <Button
             type="button"

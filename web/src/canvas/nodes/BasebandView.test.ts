@@ -1,13 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { SymbolFrame } from "../../lib/frame";
-import {
-  discriminator,
-  formatMeasurement,
-  paired,
-  readout,
-  referenceScale,
-  waiting,
-} from "./BasebandView";
+import { discriminator, paired, referenceScale, waiting } from "./BasebandView";
 
 function block(over: Partial<SymbolFrame> = {}): SymbolFrame {
   return {
@@ -54,25 +47,6 @@ describe("referenceScale", () => {
   });
 });
 
-describe("formatMeasurement", () => {
-  it("states the rate, the error, the margin and the offset", () => {
-    const text = formatMeasurement(block());
-    expect(text).toContain("4.8 kBd");
-    expect(text).toContain("12.5% EVM");
-    expect(text).toContain("18.1 dB MER");
-    expect(text).toContain("×2.50 margin");
-    expect(text).toContain("-12 Hz");
-  });
-
-  it("says clean rather than printing the ceiling as a measurement", () => {
-    expect(formatMeasurement(block({ merDb: 99 }))).toContain("clean");
-  });
-
-  it("keeps a slow mode in baud", () => {
-    expect(formatMeasurement(block({ symbolRate: 31.25 }))).toContain("31.25 Bd");
-  });
-});
-
 describe("waiting", () => {
   it("says a trend needs a decoder that reports symbols", () => {
     expect(waiting("quality", null, null)).toContain("reports no symbols");
@@ -116,40 +90,5 @@ describe("discriminator", () => {
     const wave = new Float32Array(64 * 2);
     expect(discriminator(wave, 8, 0).length).toBe(8);
     expect(discriminator(wave, 4, 0).length).toBe(16);
-  });
-});
-
-describe("readout", () => {
-  const burst = {
-    streamId: 1,
-    seq: 0,
-    timestamp: 0n,
-    sampleRate: 48_000,
-    centerHz: 145.8e6,
-    samples: Float32Array.from([1, 0]),
-  };
-
-  it("keeps the spectrum readout on a channel that also reports symbols", () => {
-    const text = readout("spectrum", burst, block(), 10);
-    expect(text).toContain("145.8 MHz");
-    expect(text).not.toContain("EVM");
-  });
-
-  it("keeps the eye on its own sample-rate readout", () => {
-    expect(readout("eye", burst, block(), 10)).toContain("S/sym");
-  });
-
-  it("shows the measurement on the views the symbols feed", () => {
-    for (const view of ["constellation", "levels", "states", "quality", "drift"] as const) {
-      expect(readout(view, burst, block(), 10)).toContain("EVM");
-    }
-  });
-
-  it("falls back to the burst readout when no decoder reports symbols", () => {
-    expect(readout("constellation", burst, null, 10)).toContain("145.8 MHz");
-  });
-
-  it("says nothing at all before anything has arrived", () => {
-    expect(readout("spectrum", null, null, 0)).toBe("");
   });
 });

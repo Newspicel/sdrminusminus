@@ -1,17 +1,15 @@
 import { Select as Primitive } from "@base-ui/react/select";
 import { ChevronDown } from "lucide-react";
-import { FIELD, type Options, SURFACE, segment } from "./controls";
+import { CONTROL_W, FIELD, listItem, type Options, SURFACE } from "./controls";
 import { Icon } from "./Icon";
 import { usePortalContainer } from "./PortalContainer";
-
-const TRIGGER = "w-full max-w-52";
 
 export function Select<T extends string | number>({
   label,
   value,
   options,
   onChange,
-  className = TRIGGER,
+  className = CONTROL_W,
   disabled = false,
 }: {
   label: string;
@@ -61,11 +59,7 @@ export function Select<T extends string | number>({
                 <Primitive.Item
                   key={String(option.value)}
                   value={option.value}
-                  className={(state) =>
-                    `${segment(state.selected)} justify-start ${
-                      state.highlighted && !state.selected ? "bg-panel-2 text-ink" : ""
-                    }`
-                  }
+                  className={(state) => listItem(state.selected, state.highlighted)}
                 >
                   <Primitive.ItemText>{option.label}</Primitive.ItemText>
                 </Primitive.Item>

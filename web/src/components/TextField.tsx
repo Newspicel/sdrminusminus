@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Input } from "./BaseControls";
-import { FIELD } from "./controls";
+import { CONTROL_W, FIELD } from "./controls";
 
 export function TextField({
   label,
@@ -30,7 +30,7 @@ export function TextField({
   };
   return (
     <Input
-      className={FIELD}
+      className={`${FIELD} ${CONTROL_W}`}
       aria-label={label}
       type={secret ? "password" : "text"}
       autoComplete="off"

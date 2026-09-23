@@ -1,15 +1,20 @@
 import type { ReactNode } from "react";
+import { InfoTip } from "./InfoTip";
 
-const GRID = "grid grid-cols-[auto_minmax(0,1fr)] items-baseline gap-x-3 gap-y-1";
+const GRID = "grid items-baseline gap-x-3 gap-y-1";
+
+const COLUMNS = "grid-cols-[auto_minmax(0,1fr)]";
 
 export function Readout({
   children,
   separated = true,
   className,
+  columns = COLUMNS,
 }: {
   children: ReactNode;
   separated?: boolean;
   className?: string;
+  columns?: string;
 }) {
   return (
     <div
@@ -17,7 +22,7 @@ export function Readout({
         className ?? ""
       }`}
     >
-      <div className={GRID}>{children}</div>
+      <div className={`${GRID} ${columns}`}>{children}</div>
     </div>
   );
 }
@@ -33,8 +38,9 @@ export function ReadoutRow({
 }) {
   return (
     <>
-      <span className="legend wrap-anywhere" title={title}>
+      <span className="legend flex items-center gap-1 wrap-anywhere">
         {label}
+        {title !== undefined && <InfoTip text={title} />}
       </span>
       <span className="min-w-0 font-mono text-xs tabular-nums text-ink">{children}</span>
     </>

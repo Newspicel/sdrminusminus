@@ -35,12 +35,7 @@ export function RangeDopplerFace({ node }: { node: PatchNode }) {
   };
   const detections = state?.detections ?? [];
   return (
-    <NodeShell
-      node={node}
-      title="Passive radar"
-      category="tool"
-      subtitle={`${settings.cpi_ms} ms · ${settings.max_range_bins} range bins`}
-    >
+    <NodeShell node={node} title="Passive radar" category="tool">
       <FaceBody scroll={false}>
         <RangeDopplerView node={node.id} />
         <Readout>

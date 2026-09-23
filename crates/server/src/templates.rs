@@ -100,7 +100,7 @@ struct Entry {
     channels: &'static [Channel],
 }
 
-const COLUMN: f32 = 400.0;
+const COLUMN: f32 = 520.0;
 const ROW: f32 = 240.0;
 const SINK_ROW: f32 = 420.0;
 

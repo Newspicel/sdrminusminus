@@ -931,6 +931,8 @@ pub struct NodeTypeInfo {
     pub kind: String,
     pub name: String,
     pub category: NodeCategory,
+    #[serde(default)]
+    pub summary: String,
     pub ports: Vec<PortSpec>,
     #[serde(default)]
     pub needs_channel_type: bool,
@@ -947,23 +949,41 @@ impl PatchCatalog {
         // The catalog describes a kind, not one drawn node, so repeated ports stay repeated here:
         // how many a node actually carries depends on its own settings and is worked out where
         // that node is drawn.
-        let entry = |body: &NodeBody, name: &str| NodeTypeInfo {
+        let entry = |body: &NodeBody, name: &str, summary: &str| NodeTypeInfo {
             kind: body.kind().to_owned(),
             name: name.to_owned(),
+            summary: summary.to_owned(),
             category: body.category(),
             ports: ports_for(body.kind()),
             needs_channel_type: matches!(body, NodeBody::Channel(_)),
         };
         Self {
             nodes: vec![
-                entry(&NodeBody::Device(DeviceNode::default()), "Device"),
-                entry(&NodeBody::Recording(RecordingNode::default()), "Recording"),
+                entry(
+                    &NodeBody::Device(DeviceNode::default()),
+                    "Device",
+                    "A radio, where every patch starts",
+                ),
+                entry(
+                    &NodeBody::Recording(RecordingNode::default()),
+                    "Recording",
+                    "Plays back a recorded IQ file",
+                ),
                 entry(
                     &NodeBody::SignalGen(SignalGenNode::default()),
                     "Signal generator",
+                    "Test signals without a radio",
                 ),
-                entry(&NodeBody::Array(ArrayNode::default()), "Array"),
-                entry(&NodeBody::Gps(GpsNode::default()), "GPS position"),
+                entry(
+                    &NodeBody::Array(ArrayNode::default()),
+                    "Array",
+                    "Several radios as one coherent array",
+                ),
+                entry(
+                    &NodeBody::Gps(GpsNode::default()),
+                    "GPS position",
+                    "Your station location, live or fixed",
+                ),
                 entry(
                     &NodeBody::Channel(ChannelNode {
                         channel_type: String::new(),
@@ -971,60 +991,114 @@ impl PatchCatalog {
                         tuning_locked: false,
                     }),
                     "Channel",
+                    "Tunes and decodes one signal",
                 ),
-                entry(&NodeBody::Scope, "Scope"),
-                entry(&NodeBody::BasebandScope, "Baseband scope"),
-                entry(&NodeBody::Speaker, "Speaker"),
-                entry(&NodeBody::Map, "Map"),
+                entry(&NodeBody::Scope, "Scope", "Spectrum and waterfall"),
+                entry(
+                    &NodeBody::BasebandScope,
+                    "Baseband scope",
+                    "Constellation and eye of one channel",
+                ),
+                entry(&NodeBody::Speaker, "Speaker", "Plays channel audio"),
+                entry(&NodeBody::Map, "Map", "Decoded positions on a map"),
                 entry(
                     &NodeBody::SignalMap(SignalMapNode::default()),
                     "Signal survey",
+                    "Maps signal strength while you move",
                 ),
                 entry(
                     &NodeBody::Propagation(PropagationNode::default()),
                     "Propagation map",
+                    "Where FT8, FT4 and WSPR signals came from",
                 ),
-                entry(&NodeBody::Readout, "Readout"),
-                entry(&NodeBody::DecoderLog, "Decoder log"),
+                entry(&NodeBody::Readout, "Readout", "Current decoder state"),
+                entry(
+                    &NodeBody::DecoderLog,
+                    "Decoder log",
+                    "Every decoded message in a table",
+                ),
                 entry(
                     &NodeBody::SpectrumMonitor(crate::SpectrumMonitorNode::default()),
                     "Spectrum monitor",
+                    "Catches and decodes everything in view",
                 ),
                 entry(
                     &NodeBody::DmrTrunk(DmrTrunkNode::default()),
                     "DMR trunk system",
+                    "Follows calls across a DMR trunk system",
                 ),
                 entry(
                     &NodeBody::EventFilter(EventFilterNode::default()),
                     "Event filter",
+                    "Passes only matching events",
                 ),
                 entry(
                     &NodeBody::EventOutput(EventOutputNode::default()),
                     "Event output",
+                    "Sends events to other programs",
                 ),
-                entry(&NodeBody::Video, "Video"),
-                entry(&NodeBody::Recorder, "Recorder"),
-                entry(&NodeBody::AudioRecorder, "Audio recorder"),
-                entry(&NodeBody::BasebandRecorder, "Baseband recorder"),
+                entry(&NodeBody::Video, "Video", "ATV frames and SSTV pictures"),
+                entry(&NodeBody::Recorder, "Recorder", "Records a radio's full IQ"),
+                entry(
+                    &NodeBody::AudioRecorder,
+                    "Audio recorder",
+                    "Records channel audio to WAV",
+                ),
+                entry(
+                    &NodeBody::BasebandRecorder,
+                    "Baseband recorder",
+                    "Records one channel's IQ",
+                ),
                 entry(
                     &NodeBody::TimeMachine(TimeMachineNode::default()),
                     "Time machine",
+                    "Saves IQ from before you pressed record",
                 ),
                 entry(
                     &NodeBody::NetworkExport(NetworkExportNode::default()),
                     "Network IQ",
+                    "Streams IQ to other programs",
                 ),
-                entry(&NodeBody::Export, "Export"),
-                entry(&NodeBody::Scanner, "Scanner"),
-                entry(&NodeBody::Hunt(HuntNode::default()), "Signal hunt"),
-                entry(&NodeBody::Satellite(SatelliteNode::default()), "Satellite"),
-                entry(&NodeBody::Df(DfNode::default()), "Direction finder"),
+                entry(
+                    &NodeBody::Export,
+                    "Export",
+                    "Saves logged rows as CSV or JSON",
+                ),
+                entry(
+                    &NodeBody::Scanner,
+                    "Scanner",
+                    "Steps through frequencies, stops on activity",
+                ),
+                entry(
+                    &NodeBody::Hunt(HuntNode::default()),
+                    "Signal hunt",
+                    "Walks you towards a transmitter",
+                ),
+                entry(
+                    &NodeBody::Satellite(SatelliteNode::default()),
+                    "Satellite",
+                    "Predicts passes and follows Doppler",
+                ),
+                entry(
+                    &NodeBody::Df(DfNode::default()),
+                    "Direction finder",
+                    "Bearing to a transmitter",
+                ),
                 entry(
                     &NodeBody::PassiveRadar(PassiveRadarNode::default()),
                     "Passive radar",
+                    "Finds aircraft in broadcast reflections",
                 ),
-                entry(&NodeBody::Combiner(CombinerNode::default()), "Combiner"),
-                entry(&NodeBody::Triangulation, "Triangulation"),
+                entry(
+                    &NodeBody::Combiner(CombinerNode::default()),
+                    "Combiner",
+                    "Adds antennas together",
+                ),
+                entry(
+                    &NodeBody::Triangulation,
+                    "Triangulation",
+                    "Crosses bearings into a position",
+                ),
             ],
         }
     }

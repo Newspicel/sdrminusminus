@@ -1,16 +1,21 @@
 import { CircleQuestionMark, Plus, Redo2, Undo2 } from "lucide-react";
 import { Button } from "../components/BaseControls";
-import { BTN_QUIET, ICON_BTN, type Options, segment } from "../components/controls";
+import {
+  BTN_PRIMARY,
+  BTN_QUIET,
+  ICON_BTN,
+  type Options,
+  segment,
+  WELL,
+} from "../components/controls";
 import { Icon } from "../components/Icon";
 import { Popover } from "../components/Popover";
 import { ThemeControl } from "../components/ThemeControl";
-import type { NodeKind, PatchNode, WorkspaceInfo } from "../lib/types";
+import type { WorkspaceInfo } from "../lib/types";
 import { useWorkspaceContext } from "./context";
-import { addNode, newNodeId, nodeIds } from "./graph";
 import { Library } from "./Library";
 import { NodePalette } from "./NodePalette";
-import { newNodeBody, startsOnItsOwn } from "./newNode";
-import { useNodePlacement } from "./placement";
+import { useAddNode } from "./useAddNode";
 import { WorkspaceMenu } from "./WorkspaceMenu";
 
 export type View = "patch" | "rack";
@@ -56,25 +61,9 @@ export function WorkspaceBar({
   onOpenTool: (id: string) => void;
 }) {
   const workspace = useWorkspaceContext();
-  const placeNode = useNodePlacement();
+  const add = useAddNode();
   const active = workspaces.find((entry) => entry.id === activeWorkspace) ?? null;
   const pinned = workspace.rack.slots?.length ?? 0;
-
-  const add = (kind: NodeKind, channelType?: string) => {
-    const id = newNodeId(kind, nodeIds(workspace.graph));
-    workspace.edit((snapshot) => {
-      const node = {
-        id,
-        position: placeNode(snapshot.graph, kind),
-        ...newNodeBody(kind, { channelType }),
-      } as PatchNode;
-      return { ...snapshot, graph: addNode(snapshot.graph, node) };
-    });
-    workspace.select(id);
-    if (startsOnItsOwn(kind)) {
-      workspace.apply();
-    }
-  };
 
   return (
     <header className="flex h-9 shrink-0 items-center gap-1 border-b border-line bg-panel px-2">
@@ -116,12 +105,12 @@ export function WorkspaceBar({
 
       <Rule />
 
-      <span className="flex items-center" role="group" aria-label="View">
+      <span className={WELL} role="group" aria-label="View">
         {VIEWS.map((option) => (
           <Button
             key={option.value}
             type="button"
-            className={`${segment(view === option.value)} font-mono`}
+            className={segment(view === option.value)}
             aria-pressed={view === option.value}
             onClick={() => onView(option.value)}
           >
@@ -141,12 +130,13 @@ export function WorkspaceBar({
         label={
           <>
             <Icon glyph={Plus} />
-            Node
+            Add
           </>
         }
-        title="Add a node"
-        triggerClass={BTN_QUIET}
-        width="w-[48rem]"
+        title="Add a node, or double-click the canvas"
+        triggerClass={`${BTN_PRIMARY} pl-2`}
+        width="w-[44rem]"
+        padded={false}
       >
         {(close) => (
           <NodePalette
@@ -184,7 +174,7 @@ export function WorkspaceBar({
           label="Library"
           triggerClass={BTN_QUIET}
           align="end"
-          width="w-[46rem]"
+          width="w-[44rem]"
           padded={false}
         >
           {(close) => (

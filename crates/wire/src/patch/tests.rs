@@ -1981,6 +1981,18 @@ fn a_recording_that_reaches_out_of_the_library_is_refused() {
 }
 
 #[test]
+fn every_catalog_entry_has_a_short_summary() {
+    for entry in PatchCatalog::build().nodes {
+        assert!(!entry.summary.is_empty(), "{} has no summary", entry.kind);
+        assert!(
+            entry.summary.len() <= 60,
+            "{} summary is too long",
+            entry.kind
+        );
+    }
+}
+
+#[test]
 fn the_catalog_offers_a_recording_and_a_generator_as_sources() {
     let catalog = PatchCatalog::build();
     for kind in ["recording", "signal_gen"] {

@@ -5,6 +5,7 @@ use sdrmm_dsp::{DcBlocker, Decimator, crc16_ccitt, design_lowpass};
 use sdrmm_modem::cpm::MskDetector;
 use sdrmm_wire::{
     AcarsMessage, AcarsParams, ChannelDescriptor, ChannelParams, ChannelSettings, DecoderEvent,
+    DecoderFamily,
 };
 
 use crate::{ChannelCtx, ChannelError, ChannelFilter, ChannelOutputs, ChannelRx, check_input_rate};
@@ -37,6 +38,8 @@ const FLIGHT_LEN: usize = 6;
 static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescriptor {
     type_id: "acars".to_owned(),
     name: "ACARS".to_owned(),
+    summary: "Aircraft text messages on VHF".to_owned(),
+    family: DecoderFamily::Aviation,
     bandwidth_hz: 12_500.0,
     input_rate_hz: 48_000.0,
     has_audio: false,

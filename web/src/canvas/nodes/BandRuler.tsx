@@ -23,7 +23,7 @@ import { useBandPlan } from "../../lib/useBandPlan";
 export const BAND_RULER_H = 16;
 const LABEL_MIN = 0.07;
 const TIP_DELAY_MS = 120;
-const META = "block font-mono text-[10px] leading-snug tracking-[0.09em] uppercase text-ink-faint";
+const META = "block text-[11px] leading-snug text-ink-faint";
 
 export const BandRuler = memo(function BandRuler({
   centerHz,

@@ -13,8 +13,8 @@ use num_complex::Complex;
 use rtrb::{Consumer, Producer, PushError, RingBuffer};
 use sdrmm_dsp::{FirC, design_lowpass};
 use sdrmm_wire::{
-    ChannelDescriptor, ChannelParams, ChannelSettings, DecoderEvent, WsjtMessage, WsjtParams,
-    WsprParams, WsprSpot,
+    ChannelDescriptor, ChannelParams, ChannelSettings, DecoderEvent, DecoderFamily, WsjtMessage,
+    WsjtParams, WsprParams, WsprSpot,
 };
 
 use crate::{ChannelCtx, ChannelError, ChannelFilter, ChannelOutputs, ChannelRx, check_input_rate};
@@ -30,14 +30,19 @@ const WSPR_POWER_DBM: [i32; 19] = [
     0, 3, 7, 10, 13, 17, 20, 23, 27, 30, 33, 37, 40, 43, 47, 50, 53, 57, 60,
 ];
 
-static FT8_DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| descriptor("ft8", "FT8"));
-static FT4_DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| descriptor("ft4", "FT4"));
-static WSPR_DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| descriptor("wspr", "WSPR"));
+static FT8_DESCRIPTOR: LazyLock<ChannelDescriptor> =
+    LazyLock::new(|| descriptor("ft8", "FT8", "FT8 weak signal contacts"));
+static FT4_DESCRIPTOR: LazyLock<ChannelDescriptor> =
+    LazyLock::new(|| descriptor("ft4", "FT4", "FT4 fast weak signal contacts"));
+static WSPR_DESCRIPTOR: LazyLock<ChannelDescriptor> =
+    LazyLock::new(|| descriptor("wspr", "WSPR", "WSPR propagation beacons"));
 
-fn descriptor(type_id: &str, name: &str) -> ChannelDescriptor {
+fn descriptor(type_id: &str, name: &str, summary: &str) -> ChannelDescriptor {
     ChannelDescriptor {
         type_id: type_id.to_owned(),
         name: name.to_owned(),
+        summary: summary.to_owned(),
+        family: DecoderFamily::Amateur,
         bandwidth_hz: 3_200.0,
         input_rate_hz: INPUT_RATE_HZ,
         has_audio: false,

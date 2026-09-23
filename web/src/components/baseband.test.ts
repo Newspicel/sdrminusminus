@@ -101,14 +101,15 @@ describe("addConstellation", () => {
 });
 
 describe("addEye", () => {
-  it("overlays every window on the same two-period span", () => {
+  it("draws every window as one continuous trace over two periods", () => {
     const grid = createBasebandGrid(9, 9);
     const samples = iq([1, 0], [1, 0], [-1, 0], [-1, 0], [1, 0], [1, 0], [-1, 0], [-1, 0]);
     addEye(grid, samples, 2, "i", 1);
 
     const columns = new Set(lit(grid).map((hit) => hit.x));
-    expect(columns).toEqual(new Set([0, 3, 5, 8]));
-    expect(new Set(lit(grid).map((hit) => hit.y))).toEqual(new Set([0, 8]));
+    expect(columns).toEqual(new Set([0, 1, 2, 3, 4, 5, 6, 7, 8]));
+    const rows = new Set(lit(grid).map((hit) => hit.y));
+    expect(rows.has(0) && rows.has(8)).toBe(true);
   });
 
   it("does nothing with a burst shorter than one window", () => {
@@ -121,7 +122,8 @@ describe("addEye", () => {
     const grid = createBasebandGrid(9, 9);
     const samples = iq([0, 1], [0, 1], [0, -1], [0, -1]);
     addEye(grid, samples, 2, "q", 1);
-    expect(new Set(lit(grid).map((hit) => hit.y))).toEqual(new Set([0, 8]));
+    const top = lit(grid).filter((hit) => hit.x === 0);
+    expect(top.map((hit) => hit.y)).toEqual([0]);
   });
 
   it("reads a rotating phasor as a steady frequency", () => {
@@ -134,7 +136,7 @@ describe("addEye", () => {
 
     const rows = new Set(lit(grid).map((hit) => hit.y));
     expect(rows.has(2)).toBe(true);
-    expect([...rows].every((row) => row === 2 || row === 4)).toBe(true);
+    expect([...rows].every((row) => row >= 2 && row <= 4)).toBe(true);
   });
 });
 

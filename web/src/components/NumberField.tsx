@@ -1,6 +1,6 @@
 import { NumberField as Primitive } from "@base-ui/react/number-field";
 import { useState } from "react";
-import { FIELD } from "./controls";
+import { CONTROL_W, FIELD } from "./controls";
 import { fractionDigits } from "./format";
 
 interface Common {
@@ -11,6 +11,7 @@ interface Common {
   className?: string;
   invalid?: boolean;
   disabled?: boolean;
+  unit?: string;
 }
 
 export function NumberField({
@@ -23,6 +24,7 @@ export function NumberField({
   className,
   invalid,
   disabled,
+  unit,
 }: Common & { value: number; onCommit: (value: number) => void }) {
   const [draft, setDraft] = useDraft(value);
   return (
@@ -34,6 +36,7 @@ export function NumberField({
       className={className}
       invalid={invalid}
       disabled={disabled}
+      unit={unit}
       value={draft}
       onDraft={setDraft}
       onCommit={(committed) => {
@@ -58,6 +61,7 @@ export function OptionalNumberField({
   step,
   className,
   invalid,
+  unit,
 }: Common & {
   placeholder: string;
   value: number | null;
@@ -73,6 +77,7 @@ export function OptionalNumberField({
       step={step}
       className={className}
       invalid={invalid}
+      unit={unit}
       value={draft}
       onDraft={setDraft}
       onCommit={(committed) => {
@@ -94,6 +99,7 @@ function Field({
   className,
   invalid,
   disabled,
+  unit,
   value,
   onDraft,
   onCommit,
@@ -105,8 +111,10 @@ function Field({
   onCommit: (value: number | null) => void;
   onRevert: () => void;
 }) {
-  return (
+  const width = unit === undefined ? (className ?? CONTROL_W) : "min-w-0 flex-1";
+  const field = (
     <Primitive.Root
+      className={width}
       value={value}
       min={min}
       max={max}
@@ -120,7 +128,7 @@ function Field({
         aria-label={label}
         aria-invalid={invalid}
         placeholder={placeholder}
-        className={`${FIELD} tabular-nums ${className ?? "w-20"} ${invalid === true ? "border-danger" : ""}`}
+        className={`${FIELD} w-full tabular-nums ${invalid === true ? "border-danger" : ""}`}
         onKeyDown={(event) => {
           if (event.key === "Escape") {
             onRevert();
@@ -131,6 +139,15 @@ function Field({
         }}
       />
     </Primitive.Root>
+  );
+  if (unit === undefined) {
+    return field;
+  }
+  return (
+    <span className={`flex items-center gap-1.5 ${className ?? CONTROL_W}`}>
+      {field}
+      <span className="legend w-8 shrink-0">{unit}</span>
+    </span>
   );
 }
 

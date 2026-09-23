@@ -284,7 +284,7 @@ function SortButton({
   return (
     <Button
       type="button"
-      className="inline-flex items-center gap-1 uppercase tracking-wider hover:text-accent"
+      className="inline-flex items-center gap-1 hover:text-accent"
       onClick={onClick}
     >
       {label}

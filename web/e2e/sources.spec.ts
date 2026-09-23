@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { addNode } from "./scenes";
 
 test.describe("the source nodes", () => {
   test.describe.configure({ mode: "serial" });
@@ -9,8 +10,7 @@ test.describe("the source nodes", () => {
   });
 
   test("a signal generator starts as soon as it is drawn", async ({ page }) => {
-    await page.getByRole("button", { name: "Add a node" }).click();
-    await page.getByRole("button", { name: "Signal generator", exact: true }).click();
+    await addNode(page, "Signal generator");
 
     const generator = page.locator('.react-flow__node[data-id^="signal_gen:"]').last();
     await expect(generator).toBeVisible();
@@ -20,8 +20,7 @@ test.describe("the source nodes", () => {
   });
 
   test("the signal list is searchable rather than one long scroll", async ({ page }) => {
-    await page.getByRole("button", { name: "Add a node" }).click();
-    await page.getByRole("button", { name: "Signal generator", exact: true }).click();
+    await addNode(page, "Signal generator");
 
     const generator = page.locator('.react-flow__node[data-id^="signal_gen:"]').last();
     await expect(generator.locator("header")).not.toContainText("CTCSS");
@@ -43,8 +42,7 @@ test.describe("the source nodes", () => {
   });
 
   test("a recording node picks from the library and plays what it is given", async ({ page }) => {
-    await page.getByRole("button", { name: "Add a node" }).click();
-    await page.getByRole("button", { name: "Recording", exact: true }).click();
+    await addNode(page, "Recording");
 
     const recording = page.locator('.react-flow__node[data-id^="recording:"]').last();
     await recording.locator("header").click();
@@ -62,8 +60,7 @@ test.describe("the source nodes", () => {
   });
 
   test("the device node no longer offers recordings", async ({ page }) => {
-    await page.getByRole("button", { name: "Add a node" }).click();
-    await page.getByRole("button", { name: "Device", exact: true }).click();
+    await addNode(page, "Device");
 
     const device = page.locator('.react-flow__node[data-id^="device:"]').last();
     await device.locator("header").click();

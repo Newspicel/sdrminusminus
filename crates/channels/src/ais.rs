@@ -8,6 +8,7 @@ use sdrmm_modem::{
 };
 use sdrmm_wire::{
     AisMessage, AisParams, ChannelDescriptor, ChannelParams, ChannelSettings, DecoderEvent,
+    DecoderFamily,
 };
 
 use crate::{ChannelCtx, ChannelError, ChannelFilter, ChannelOutputs, ChannelRx, check_input_rate};
@@ -33,6 +34,8 @@ const MAX_PAYLOAD_CHARS: usize = 60;
 static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescriptor {
     type_id: "ais".to_owned(),
     name: "AIS".to_owned(),
+    summary: "Ship positions and names".to_owned(),
+    family: DecoderFamily::Marine,
     bandwidth_hz: 25_000.0,
     input_rate_hz: 48_000.0,
     has_audio: false,

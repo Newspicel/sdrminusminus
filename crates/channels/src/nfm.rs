@@ -4,8 +4,8 @@ use num_complex::Complex;
 use sdrmm_dsp::{Compander, Decimator, Highpass, RealDecimator, design_lowpass};
 use sdrmm_modem::analog::{AngleDemod, AngleDetector, AngleKind, AngleParams, AngleRx};
 use sdrmm_wire::{
-    ChannelDescriptor, ChannelParams, ChannelSettings, DecoderEvent, NfmParams, NfmScramblerMode,
-    NfmToneMode, ScramblerStatus, ToneSquelchStatus,
+    ChannelDescriptor, ChannelParams, ChannelSettings, DecoderEvent, DecoderFamily, NfmParams,
+    NfmScramblerMode, NfmToneMode, ScramblerStatus, ToneSquelchStatus,
 };
 
 use crate::{
@@ -29,6 +29,8 @@ const CHANNEL_TAPS: usize = 129;
 static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescriptor {
     type_id: "nfm".to_owned(),
     name: "NFM".to_owned(),
+    summary: "Narrowband FM voice with CTCSS and DCS".to_owned(),
+    family: DecoderFamily::AnalogVoice,
     bandwidth_hz: 12_500.0,
     input_rate_hz: 48_000.0,
     has_audio: true,

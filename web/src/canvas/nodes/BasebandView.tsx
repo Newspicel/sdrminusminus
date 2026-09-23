@@ -1,3 +1,4 @@
+import { Settings2 } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Button } from "../../components/BaseControls";
 import {
@@ -7,7 +8,6 @@ import {
   clearBasebandGrid,
   createBasebandGrid,
   decayBasebandGrid,
-  EYE_COMPONENTS,
   type EyeComponent,
   eyeScale,
   peakMagnitude,
@@ -18,11 +18,15 @@ import {
   symbolStates,
   Trend,
 } from "../../components/baseband";
-import { plotButton, segment } from "../../components/controls";
-import { formatBaud, formatHz, formatSampleRate } from "../../components/format";
+import { ICON_BTN_SM, TAB_BAR, tab } from "../../components/controls";
+import { Icon } from "../../components/Icon";
 import { NumberField } from "../../components/NumberField";
 import { Popover } from "../../components/Popover";
 import { colormapLut } from "../../components/persistence";
+import { Readout, ReadoutRow } from "../../components/Readout";
+import { Segmented } from "../../components/Segmented";
+import { SettingsPanel, SettingsSection } from "../../components/SettingsPanel";
+import { Switch } from "../../components/Switch";
 import { FULL_VIEW } from "../../components/spectrumView";
 import type { Colormap } from "../../gl/colormap";
 import { SpectrumAnalyzer } from "../../lib/dsp/fft";
@@ -31,8 +35,16 @@ import { iqHub } from "../../lib/iq";
 import { symbolHub } from "../../lib/symbols";
 import { token } from "../../lib/tokens";
 import type { ChannelInfo } from "../../lib/types";
-import { drawPlot, GridBitmap } from "./scopePlot";
-import { drawHistogram, drawStates, drawTrend, type PlotInset } from "./symbolPlot";
+import { measurements } from "./basebandMeasure";
+import { drawPlot, GridBitmap, PLOT_FONT, prepareCanvas } from "./scopePlot";
+import {
+  drawGraticule,
+  drawHistogram,
+  drawStates,
+  drawTrend,
+  type PlotInset,
+  plotLabel,
+} from "./symbolPlot";
 
 export const BASEBAND_VIEWS = [
   "spectrum",
@@ -45,14 +57,24 @@ export const BASEBAND_VIEWS = [
 ] as const;
 export type BasebandView = (typeof BASEBAND_VIEWS)[number];
 
+const EYE_OPTIONS = [
+  { value: "i", label: "I" },
+  { value: "q", label: "Q" },
+  { value: "frequency", label: "freq" },
+] as const satisfies readonly { value: EyeComponent; label: string }[];
+
 const FFT_SIZE = 2048;
 const GRID = 320;
 const SPECTRUM_RANGE_DB = 90;
 const MIN_SYMBOL_RATE = 1;
 const TREND_POINTS = 240;
 const SCATTER_VIEWS: readonly BasebandView[] = ["constellation", "eye"];
-const HEADER_INSET = 14;
-const CHROME_GAP = 6;
+const SIGNAL_VIEWS: readonly BasebandView[] = ["spectrum", "constellation", "eye", "levels"];
+const SYMBOL_VIEWS: readonly BasebandView[] = ["states", "quality", "drift"];
+const MEASURE_COLUMNS =
+  "grid-cols-[repeat(3,auto_auto)] justify-start gap-x-4 @[36rem]:grid-cols-[repeat(4,auto_auto)] @[60rem]:grid-cols-[repeat(8,auto_auto)]";
+const SCATTER_PAD = 12;
+const PLOT_INSET: PlotInset = { top: 10, bottom: 4 };
 
 export function BasebandView({
   deviceSet,
@@ -79,9 +101,7 @@ export function BasebandView({
   const marginRef = useRef(new Trend(TREND_POINTS));
   const driftRef = useRef(new Trend(TREND_POINTS));
 
-  const chromeRef = useRef<HTMLDivElement>(null);
-  const headerRef = useRef<HTMLDivElement>(null);
-  const insetRef = useRef<PlotInset>({ top: HEADER_INSET, bottom: 0 });
+  const insetRef = useRef<PlotInset>(PLOT_INSET);
   const gridRef = useRef<BasebandGrid | null>(null);
   const bitmapRef = useRef<GridBitmap | null>(null);
   const analyzerRef = useRef<SpectrumAnalyzer | null>(null);
@@ -165,25 +185,6 @@ export function BasebandView({
   }, [deviceSet, channel.id]);
 
   useEffect(() => {
-    const chrome = chromeRef.current;
-    const header = headerRef.current;
-    if (chrome === null || header === null) {
-      return;
-    }
-    const measure = () => {
-      insetRef.current = {
-        top: Math.max(HEADER_INSET, header.offsetHeight + CHROME_GAP),
-        bottom: chrome.offsetHeight + CHROME_GAP,
-      };
-    };
-    const observer = new ResizeObserver(measure);
-    observer.observe(chrome);
-    observer.observe(header);
-    measure();
-    return () => observer.disconnect();
-  }, []);
-
-  useEffect(() => {
     let raf = 0;
     const loop = () => {
       draw(
@@ -208,53 +209,89 @@ export function BasebandView({
   const nyquist = frame === null ? Number.POSITIVE_INFINITY : frame.sampleRate / 2;
   const period = frame === null ? 0 : samplesPerSymbol(frame.sampleRate, symbolRate);
 
-  return (
-    <div
-      className="relative flex h-full min-h-0 flex-col overflow-hidden bg-plot-bg"
-      title={waiting(view, frame, symbols) ?? undefined}
-    >
-      <canvas ref={canvasRef} className="h-full w-full min-h-0 flex-1" />
+  const shown = symbols === null && SYMBOL_VIEWS.includes(view) ? "spectrum" : view;
+  const hint = waiting(shown, frame, symbols);
+  const rows = measurements(shown, frame, symbols, period);
 
-      <div className="pointer-events-none absolute inset-0 flex flex-col justify-between p-1.5">
-        <div ref={headerRef} className="flex items-start justify-between gap-2">
-          <div data-plot-chrome className="pointer-events-auto flex items-center gap-1">
-            <ViewOptions
-              view={view}
-              symbols={symbols !== null}
-              eyeComponent={eyeComponent}
-              onEyeComponent={setEyeComponent}
-              decimate={decimate}
-              onDecimate={setDecimate}
-              symbolRate={symbolRate}
-              onSymbolRate={setSymbolRate}
-              nyquist={nyquist}
-            />
-          </div>
-          <span className="legend text-right whitespace-pre text-plot-ink-dim">
-            {readout(view, frame, symbols, period)}
-          </span>
-        </div>
+  return (
+    <div className="@container flex h-full min-h-0 flex-col overflow-hidden">
+      <div data-plot-chrome className={`${TAB_BAR} shrink-0 pr-1`}>
         <div
-          ref={chromeRef}
-          data-plot-chrome
           role="group"
           aria-label="Baseband view"
-          className="pointer-events-auto flex max-w-full flex-wrap items-center gap-1 self-start rounded-[3px] bg-plot-bg/85 p-0.5"
+          className="flex min-w-0 flex-wrap items-stretch"
         >
-          {BASEBAND_VIEWS.map((name) => (
-            <Button
-              key={name}
-              type="button"
-              className={plotButton(view === name)}
-              aria-pressed={view === name}
-              onClick={() => setView(name)}
-            >
-              {name}
-            </Button>
+          {SIGNAL_VIEWS.map((name) => (
+            <ViewTab key={name} name={name} active={shown === name} onPick={setView} />
           ))}
+          {symbols !== null && (
+            <>
+              <span aria-hidden className="mx-1 my-2 w-px bg-line" />
+              {SYMBOL_VIEWS.map((name) => (
+                <ViewTab key={name} name={name} active={shown === name} onPick={setView} />
+              ))}
+            </>
+          )}
         </div>
+        <span className="ml-auto flex items-center">
+          <ViewOptions
+            view={shown}
+            symbols={symbols !== null}
+            eyeComponent={eyeComponent}
+            onEyeComponent={setEyeComponent}
+            decimate={decimate}
+            onDecimate={setDecimate}
+            symbolRate={symbolRate}
+            onSymbolRate={setSymbolRate}
+            nyquist={nyquist}
+          />
+        </span>
+      </div>
+      <div className="flex min-h-0 flex-1 flex-col">
+        <div className="relative min-h-0 min-w-0 flex-1 bg-plot-bg">
+          <canvas ref={canvasRef} className="absolute inset-0 h-full w-full" />
+          {hint !== null && (
+            <span className="legend pointer-events-none absolute inset-0 flex items-center justify-center text-plot-ink-dim">
+              {hint}
+            </span>
+          )}
+        </div>
+        {rows.length > 0 && (
+          <Readout
+            separated={false}
+            columns={MEASURE_COLUMNS}
+            className="shrink-0 border-t border-line bg-panel"
+          >
+            {rows.map((row) => (
+              <ReadoutRow key={row.label} label={row.label} title={row.hint}>
+                {row.value}
+              </ReadoutRow>
+            ))}
+          </Readout>
+        )}
       </div>
     </div>
+  );
+}
+
+function ViewTab({
+  name,
+  active,
+  onPick,
+}: {
+  name: BasebandView;
+  active: boolean;
+  onPick: (view: BasebandView) => void;
+}) {
+  return (
+    <Button
+      type="button"
+      className={tab(active)}
+      aria-pressed={active}
+      onClick={() => onPick(name)}
+    >
+      {name}
+    </Button>
   );
 }
 
@@ -281,84 +318,61 @@ function ViewOptions({
 }) {
   const needsRate =
     view === "eye" || (!symbols && (view === "levels" || (view === "constellation" && decimate)));
+  const decimates = view === "constellation" && !symbols;
+  if (view !== "eye" && !decimates && !needsRate) {
+    return null;
+  }
   return (
-    <>
-      {view === "eye" && (
-        <Popover
-          label={eyeComponent}
-          triggerClass={plotButton(false)}
-          width="w-auto min-w-[var(--anchor-width)]"
-          padded={false}
-        >
-          {(close) => (
-            <div className="flex flex-col p-0.5">
-              {EYE_COMPONENTS.map((name) => (
-                <Button
-                  key={name}
-                  type="button"
-                  className={`${segment(name === eyeComponent)} justify-start`}
-                  onClick={() => {
-                    onEyeComponent(name);
-                    close();
-                  }}
-                >
-                  {name}
-                </Button>
-              ))}
-            </div>
+    <Popover
+      label={<Icon glyph={Settings2} size={12} />}
+      title="View settings"
+      triggerClass={ICON_BTN_SM}
+      width="w-64"
+      padded={false}
+    >
+      {() => (
+        <SettingsPanel>
+          {view === "eye" && (
+            <SettingsSection name="Trace">
+              <Segmented
+                label="Eye trace"
+                value={eyeComponent}
+                options={EYE_OPTIONS}
+                onChange={onEyeComponent}
+                fill
+              />
+            </SettingsSection>
           )}
-        </Popover>
+          {decimates && (
+            <SettingsSection
+              name="Symbols only"
+              hint="Plot one point per symbol instead of every sample"
+              aside={<Switch label="Symbols only" checked={decimate} onChange={onDecimate} />}
+            />
+          )}
+          {needsRate && (
+            <SettingsSection
+              name="Symbol rate"
+              aside={
+                <span className="flex items-center gap-1.5 text-[11px] text-ink-faint">
+                  <NumberField
+                    label="Symbol rate"
+                    className="w-24"
+                    value={symbolRate}
+                    min={MIN_SYMBOL_RATE}
+                    max={nyquist}
+                    step={100}
+                    onCommit={onSymbolRate}
+                  />
+                  Bd
+                </span>
+              }
+            />
+          )}
+        </SettingsPanel>
       )}
-      {view === "constellation" && !symbols && (
-        <Button
-          type="button"
-          className={plotButton(decimate)}
-          aria-pressed={decimate}
-          onClick={() => onDecimate(!decimate)}
-        >
-          symbols
-        </Button>
-      )}
-      {needsRate && (
-        <>
-          <NumberField
-            label="Symbol rate"
-            className="w-20 !h-6 !text-[10px]"
-            value={symbolRate}
-            min={MIN_SYMBOL_RATE}
-            max={nyquist}
-            step={100}
-            onCommit={onSymbolRate}
-          />
-          <span className="legend text-plot-ink-dim">Bd</span>
-        </>
-      )}
-    </>
+    </Popover>
   );
-}
-
-export function readout(
-  view: BasebandView,
-  frame: IqFrame | null,
-  block: SymbolFrame | null,
-  period: number,
-): string {
-  if (SCATTER_VIEWS.includes(view) && view !== "constellation") {
-    return frame === null ? "" : formatReadout(frame, view, period);
-  }
-  if (view === "spectrum") {
-    return frame === null ? "" : formatReadout(frame, view, period);
-  }
-  if (block !== null) {
-    return formatMeasurement(block);
-  }
-  return frame === null ? "" : formatReadout(frame, view, period);
-}
-
-export function formatMeasurement(block: SymbolFrame): string {
-  const rate = formatBaud(block.symbolRate);
-  const mer = block.merDb >= 99 ? "clean" : `${block.merDb.toFixed(1)} dB MER`;
-  return `${rate}   ${(block.evm * 100).toFixed(1)}% EVM   ${mer}   ×${block.margin.toFixed(2)} margin   ${block.freqErrorHz >= 0 ? "+" : ""}${block.freqErrorHz.toFixed(0)} Hz`;
 }
 
 export function waiting(
@@ -373,15 +387,6 @@ export function waiting(
     return "No burst yet";
   }
   return null;
-}
-
-function formatReadout(frame: IqFrame, view: BasebandView, period: number): string {
-  const rate = formatSampleRate(frame.sampleRate);
-  const centre = formatHz(frame.centerHz);
-  if (view === "spectrum") {
-    return `${centre}   ${rate}`;
-  }
-  return `${centre}   ${rate}   ${period.toFixed(2)} S/sym`;
 }
 
 interface Trends {
@@ -484,10 +489,11 @@ function draw(
       window: { min: top - SPECTRUM_RANGE_DB, max: top },
       traces: [],
       density: null,
+      offsetAxis: true,
     });
     return;
   }
-  drawScatter(canvas, grid, bitmapRef, colormap, view);
+  drawScatter(canvas, grid, bitmapRef, colormap, view, settings.eyeComponent);
 }
 
 function drawLevels(
@@ -549,45 +555,53 @@ function drawScatter(
   bitmapRef: { current: GridBitmap | null },
   colormap: Colormap,
   view: BasebandView,
+  eyeComponent: EyeComponent,
 ): void {
-  const width = canvas.clientWidth;
-  const height = canvas.clientHeight;
-  if (width === 0 || height === 0 || grid === null) {
+  const prepared = prepareCanvas(canvas);
+  if (prepared === null || grid === null) {
     return;
   }
-  if (canvas.width !== width || canvas.height !== height) {
-    canvas.width = width;
-    canvas.height = height;
-  }
-  const ctx = canvas.getContext("2d");
-  if (ctx === null) {
-    return;
-  }
-  ctx.clearRect(0, 0, width, height);
-
-  const side = view === "constellation" ? Math.min(width, height) : 0;
-  const box =
-    side > 0
-      ? { x: (width - side) / 2, y: (height - side) / 2, w: side, h: side }
-      : { x: 0, y: 0, w: width, h: height };
-
-  ctx.strokeStyle = token("plot-grid");
+  const { ctx, width, height } = prepared;
+  ctx.font = PLOT_FONT;
   ctx.lineWidth = 1;
-  ctx.beginPath();
-  ctx.moveTo(box.x, Math.round(box.y + box.h / 2) + 0.5);
-  ctx.lineTo(box.x + box.w, Math.round(box.y + box.h / 2) + 0.5);
-  if (view === "constellation") {
-    ctx.moveTo(Math.round(box.x + box.w / 2) + 0.5, box.y);
-    ctx.lineTo(Math.round(box.x + box.w / 2) + 0.5, box.y + box.h);
-    ctx.stroke();
+  const inner = { w: width - 2 * SCATTER_PAD, h: height - 2 * SCATTER_PAD };
+  if (inner.w <= 0 || inner.h <= 0) {
+    return;
+  }
+  const constellation = view === "constellation";
+  const side = Math.min(inner.w, inner.h);
+  const box = constellation
+    ? { x: (width - side) / 2, y: (height - side) / 2, w: side, h: side }
+    : { x: SCATTER_PAD, y: SCATTER_PAD, w: inner.w, h: inner.h };
+
+  drawGraticule(ctx, box, constellation ? 8 : 8, constellation ? 8 : 6);
+  if (constellation) {
+    ctx.strokeStyle = token("plot-ink-dim");
+    ctx.globalAlpha = 0.35;
+    ctx.setLineDash([2, 4]);
     ctx.beginPath();
     ctx.arc(box.x + box.w / 2, box.y + box.h / 2, box.w / 2, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.globalAlpha = 1;
   }
-  ctx.stroke();
 
   const bitmap = bitmapRef.current ?? new GridBitmap(grid.width, grid.height);
   bitmapRef.current = bitmap;
   bitmap.blit(ctx, box, (out) => recolour(grid, colormap, out));
+
+  if (constellation) {
+    plotLabel(ctx, "I", box.x + box.w - 5, box.y + box.h / 2 - 6, "right");
+    plotLabel(ctx, "Q", box.x + box.w / 2 + 6, box.y + 12);
+  } else {
+    plotLabel(
+      ctx,
+      eyeComponent === "frequency" ? "freq" : eyeComponent.toUpperCase(),
+      box.x + 5,
+      box.y + 12,
+    );
+    plotLabel(ctx, "2 symbols", box.x + box.w - 5, box.y + box.h - 5, "right");
+  }
 }
 
 function recolour(grid: BasebandGrid, colormap: Colormap, out: Uint8ClampedArray): void {

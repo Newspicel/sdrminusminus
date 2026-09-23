@@ -4,7 +4,7 @@ use num_complex::Complex;
 use sdrmm_dsp::{Decimator, design_lowpass};
 use sdrmm_wire::{
     BroadcastService, BroadcastServiceKind, ChannelDescriptor, ChannelParams, ChannelSettings,
-    DecoderEvent, DvbtParams,
+    DecoderEvent, DecoderFamily, DvbtParams,
 };
 
 use super::frontend::Frontend;
@@ -23,6 +23,8 @@ pub const INPUT_RATE: f64 = 64_000_000.0 / 7.0;
 static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescriptor {
     type_id: "dvbt".to_owned(),
     name: "DVB-T/T2".to_owned(),
+    summary: "DVB-T and T2 digital TV".to_owned(),
+    family: DecoderFamily::Broadcast,
     bandwidth_hz: 8_000_000.0,
     input_rate_hz: INPUT_RATE,
     has_audio: true,

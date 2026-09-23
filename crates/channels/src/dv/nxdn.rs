@@ -7,8 +7,8 @@ use sdrmm_dsp::{
 };
 use sdrmm_modem::cpm::CpmDemod;
 use sdrmm_wire::{
-    ChannelDescriptor, ChannelParams, ChannelSettings, DecoderEvent, DvFrame, DvFrameKind, DvMode,
-    NxdnBandwidth, NxdnParams,
+    ChannelDescriptor, ChannelParams, ChannelSettings, DecoderEvent, DecoderFamily, DvFrame,
+    DvFrameKind, DvMode, NxdnBandwidth, NxdnParams,
 };
 
 use super::{
@@ -57,6 +57,8 @@ pub(crate) fn shape(bandwidth: NxdnBandwidth) -> (f64, f64, f64) {
 static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescriptor {
     type_id: "nxdn".to_owned(),
     name: "NXDN".to_owned(),
+    summary: "NXDN two-way radio voice".to_owned(),
+    family: DecoderFamily::DigitalVoice,
     bandwidth_hz: 6_250.0,
     input_rate_hz: INPUT_RATE_HZ,
     has_audio: true,

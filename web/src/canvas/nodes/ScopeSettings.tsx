@@ -1,11 +1,12 @@
 import { Settings2 } from "lucide-react";
 import type { ReactNode } from "react";
 import { Button } from "../../components/BaseControls";
-import { LABEL, plotButton } from "../../components/controls";
+import { plotButton } from "../../components/controls";
 import { DB_LIMIT, DB_STEP, withCeiling, withFloor } from "../../components/dbRange";
 import { Icon } from "../../components/Icon";
 import { Popover } from "../../components/Popover";
 import { Segmented } from "../../components/Segmented";
+import { SettingsPanel, SettingsSection, ToggleChip } from "../../components/SettingsPanel";
 import { Slider } from "../../components/Slider";
 import { Switch } from "../../components/Switch";
 import { type DbWindow, TRACE_MODES, type TraceMode } from "../../components/spectrumTraces";
@@ -19,6 +20,12 @@ import { COLORMAPS } from "../../gl/waterfall";
 import { TRACE_INK } from "./scopePlot";
 
 const GRADIENT_STOPS = 8;
+
+const TRACE_LABEL: Record<TraceMode, string> = {
+  peak: "peak hold",
+  average: "average",
+  min: "min hold",
+};
 
 const AVERAGE_OPTIONS = AVERAGE_CHOICES.map((frames) => ({
   value: frames,
@@ -50,13 +57,13 @@ export function ScopeSettings(props: ScopeSettingsProps) {
       label={<Icon glyph={Settings2} size={12} />}
       title="Scope settings"
       triggerClass={plotButton(changed)}
-      width="w-72"
+      width="w-76"
       padded={false}
     >
       {() => (
-        <div className="flex flex-col divide-y divide-line">
-          <Section name="Colours">
-            <div className="grid grid-cols-3 gap-1">
+        <SettingsPanel>
+          <SettingsSection name="Colours">
+            <div className="grid grid-cols-3 gap-1.5">
               {COLORMAPS.map((name) => (
                 <Swatch
                   key={name}
@@ -66,8 +73,8 @@ export function ScopeSettings(props: ScopeSettingsProps) {
                 />
               ))}
             </div>
-          </Section>
-          <Section name="Average" title="Frames blended into the live trace and waterfall">
+          </SettingsSection>
+          <SettingsSection name="Average" hint="Frames blended into the trace and waterfall">
             <Segmented
               label="Frames averaged"
               value={props.average}
@@ -75,40 +82,45 @@ export function ScopeSettings(props: ScopeSettingsProps) {
               onChange={props.onAverage}
               fill
             />
-          </Section>
-          <Section name="Traces">
+          </SettingsSection>
+          <SettingsSection name="Traces">
             <div className="grid grid-cols-2 gap-1.5">
               {TRACE_MODES.map((mode) => (
-                <TraceChip
+                <ToggleChip
                   key={mode}
-                  name={mode}
+                  label={TRACE_LABEL[mode]}
                   on={props.traces.includes(mode)}
                   onClick={() => props.onTrace(mode)}
                 >
-                  <span
-                    className="h-0.5 w-full rounded-full"
-                    style={{ background: `var(--color-${TRACE_INK[mode]})` }}
-                  />
-                </TraceChip>
+                  <TraceSample>
+                    <span
+                      className="h-0.5 w-full rounded-full"
+                      style={{ background: `var(--color-${TRACE_INK[mode]})` }}
+                    />
+                  </TraceSample>
+                </ToggleChip>
               ))}
-              <TraceChip name="phosphor" on={props.phosphor} onClick={props.onPhosphor}>
-                <span
-                  className="-mx-0.5 h-full w-[calc(100%+4px)]"
-                  style={{ background: gradient(props.colormap, "to top") }}
-                />
-              </TraceChip>
+              <ToggleChip label="phosphor" on={props.phosphor} onClick={props.onPhosphor}>
+                <TraceSample>
+                  <span
+                    className="-mx-0.5 h-full w-[calc(100%+4px)]"
+                    style={{ background: gradient(props.colormap, "to top") }}
+                  />
+                </TraceSample>
+              </ToggleChip>
             </div>
-          </Section>
-          <Section
+          </SettingsSection>
+          <SettingsSection
             name="Band plan"
+            hint="Show band allocations above the trace"
             aside={<Switch label="Band plan" checked={props.bands} onChange={props.onBands} />}
           />
-          <Section
+          <SettingsSection
             name="Levels"
-            title="dBFS floor and ceiling the colours are spread across"
+            hint="dBFS range the waterfall colours span"
             aside={
-              <span className="flex items-center gap-2">
-                <span className={LABEL}>auto</span>
+              <span className="flex items-center gap-2 font-mono text-[10.5px] text-ink-faint">
+                auto
                 <Switch
                   label="Automatic levels"
                   checked={!props.manual}
@@ -129,8 +141,8 @@ export function ScopeSettings(props: ScopeSettingsProps) {
               value={props.range.max}
               onChange={(db) => props.onRange(withCeiling(props.range, db))}
             />
-          </Section>
-        </div>
+          </SettingsSection>
+        </SettingsPanel>
       )}
     </Popover>
   );
@@ -144,46 +156,22 @@ function gradient(map: Colormap, direction: string): string {
   return `linear-gradient(${direction}, ${stops.join(", ")})`;
 }
 
-function Section({
-  name,
-  title,
-  aside,
-  children,
-}: {
-  name: string;
-  title?: string;
-  aside?: ReactNode;
-  children?: ReactNode;
-}) {
-  return (
-    <section className="flex flex-col gap-2 px-3 py-2.5" title={title}>
-      <header className="flex h-4 items-center justify-between">
-        <span className={LABEL}>{name}</span>
-        {aside}
-      </header>
-      {children}
-    </section>
-  );
-}
-
 function Swatch({ name, on, onClick }: { name: Colormap; on: boolean; onClick: () => void }) {
   return (
     <Button
       type="button"
       aria-pressed={on}
       onClick={onClick}
-      className={`group flex flex-col gap-1 rounded-[3px] p-1 text-left transition-colors duration-100 ${
-        on ? "bg-accent/15" : "hover:bg-panel-2"
+      className={`group flex flex-col gap-1 rounded-[3px] border p-1 text-left transition-colors duration-100 ${
+        on ? "border-accent-dim bg-accent/10" : "border-transparent hover:bg-panel-2"
       }`}
     >
       <span
-        className={`h-3 w-full rounded-[2px] ${on ? "ring-1 ring-accent" : ""}`}
+        className="h-3 w-full rounded-[2px]"
         style={{ background: gradient(name, "to right") }}
       />
       <span
-        className={`font-mono text-[10px] tracking-[0.09em] uppercase ${
-          on ? "text-accent" : "text-ink-faint group-hover:text-ink"
-        }`}
+        className={`font-mono text-[10.5px] ${on ? "text-accent" : "text-ink-faint group-hover:text-ink"}`}
       >
         {name}
       </span>
@@ -191,33 +179,11 @@ function Swatch({ name, on, onClick }: { name: Colormap; on: boolean; onClick: (
   );
 }
 
-function TraceChip({
-  name,
-  on,
-  onClick,
-  children,
-}: {
-  name: string;
-  on: boolean;
-  onClick: () => void;
-  children: ReactNode;
-}) {
+function TraceSample({ children }: { children: ReactNode }) {
   return (
-    <Button
-      type="button"
-      aria-pressed={on}
-      onClick={onClick}
-      className={`flex h-7 items-center gap-2 rounded-[3px] border px-2 font-mono text-[10px] tracking-[0.09em] uppercase transition-colors duration-100 ${
-        on
-          ? "border-accent bg-accent/15 text-accent"
-          : "border-line text-ink-dim hover:border-line-strong hover:text-ink"
-      }`}
-    >
-      <span className="flex h-3 w-4 shrink-0 items-center overflow-hidden rounded-[2px] bg-plot-bg px-0.5">
-        {children}
-      </span>
-      {name}
-    </Button>
+    <span className="flex h-3.5 w-5 shrink-0 items-center overflow-hidden rounded-[3px] bg-plot-bg px-0.5">
+      {children}
+    </span>
   );
 }
 
@@ -233,8 +199,8 @@ function Level({
   onChange: (db: number) => void;
 }) {
   return (
-    <div className="flex items-center gap-2">
-      <span className="w-12 shrink-0 font-mono text-[10px] text-ink-faint">{name}</span>
+    <div className="flex items-center gap-3">
+      <span className="w-12 shrink-0 font-mono text-[10.5px] text-ink-faint">{name}</span>
       <Slider
         label={label}
         className="min-w-0 flex-1"
@@ -244,7 +210,7 @@ function Level({
         value={value}
         onChange={onChange}
       />
-      <span className="w-12 shrink-0 text-right font-mono text-[10px] tabular-nums text-ink-dim">
+      <span className="w-14 shrink-0 text-right font-mono text-[11px] tabular-nums text-ink-dim">
         {value} dB
       </span>
     </div>

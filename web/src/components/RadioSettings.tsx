@@ -166,7 +166,6 @@ export function RadioSettings({
             value={settings.ppm ?? 0}
             step={1}
             onCommit={(ppm) => patch({ ppm })}
-            className="w-20"
           />
         </SettingRow>
       )}
@@ -181,7 +180,6 @@ export function RadioSettings({
             value={(settings.offset_hz ?? 0) / 1e6}
             step={0.001}
             onCommit={(mhz) => patch({ offset_hz: Math.round(mhz * 1e6) })}
-            className="w-28"
           />
         </SettingRow>
       )}
@@ -495,7 +493,6 @@ function ExtraControl({
             max={setting.range.max}
             step={setting.range.step ?? undefined}
             onCommit={onCommit}
-            className="w-24"
           />
           <span className="legend">{setting.unit}</span>
         </SettingRow>

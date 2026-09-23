@@ -7,8 +7,8 @@ use sdrmm_modem::{
     pulse::{self, Norm},
 };
 use sdrmm_wire::{
-    ChannelDescriptor, ChannelParams, ChannelSettings, DecoderEvent, PocsagBaud, PocsagMessage,
-    PocsagParams, PocsagPayload,
+    ChannelDescriptor, ChannelParams, ChannelSettings, DecoderEvent, DecoderFamily, PocsagBaud,
+    PocsagMessage, PocsagParams, PocsagPayload,
 };
 
 use crate::{ChannelCtx, ChannelError, ChannelFilter, ChannelOutputs, ChannelRx, check_input_rate};
@@ -49,6 +49,8 @@ const BRACKET_PAIRS: [(u8, u8); 2] = [(b'[', b']'), (b'{', b'}')];
 static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescriptor {
     type_id: "pocsag".to_owned(),
     name: "POCSAG".to_owned(),
+    summary: "POCSAG pager messages".to_owned(),
+    family: DecoderFamily::Paging,
     bandwidth_hz: 12_500.0,
     input_rate_hz: 48_000.0,
     has_audio: false,

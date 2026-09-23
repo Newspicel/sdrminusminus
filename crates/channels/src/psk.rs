@@ -10,7 +10,8 @@ use sdrmm_modem::{
     pulse::{self, Norm},
 };
 use sdrmm_wire::{
-    ChannelDescriptor, ChannelParams, ChannelSettings, DecoderEvent, PskBaud, PskParams, PskText,
+    ChannelDescriptor, ChannelParams, ChannelSettings, DecoderEvent, DecoderFamily, PskBaud,
+    PskParams, PskText,
 };
 
 use crate::{ChannelCtx, ChannelError, ChannelFilter, ChannelOutputs, ChannelRx, check_input_rate};
@@ -25,6 +26,8 @@ const LOCK_MIN: f32 = 0.78;
 static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescriptor {
     type_id: "psk".to_owned(),
     name: "PSK".to_owned(),
+    summary: "PSK31 to PSK250 keyboard chat".to_owned(),
+    family: DecoderFamily::Amateur,
     bandwidth_hz: 650.0,
     input_rate_hz: INPUT_RATE_HZ,
     has_audio: false,

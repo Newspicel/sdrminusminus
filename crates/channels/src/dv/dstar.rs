@@ -7,8 +7,8 @@ use sdrmm_modem::{
     pulse::{self, Norm},
 };
 use sdrmm_wire::{
-    ChannelDescriptor, ChannelParams, ChannelSettings, DecoderEvent, DstarParams, DvFrame,
-    DvFrameKind, DvMode,
+    ChannelDescriptor, ChannelParams, ChannelSettings, DecoderEvent, DecoderFamily, DstarParams,
+    DvFrame, DvFrameKind, DvMode,
 };
 
 use super::{INPUT_RATE_HZ, tap_symbols, vocoder::DstarVocoder};
@@ -40,6 +40,8 @@ const CALLSIGN_LEN: usize = 8;
 static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescriptor {
     type_id: "dstar".to_owned(),
     name: "D-STAR".to_owned(),
+    summary: "D-STAR amateur digital voice".to_owned(),
+    family: DecoderFamily::DigitalVoice,
     bandwidth_hz: BANDWIDTH_HZ,
     input_rate_hz: INPUT_RATE_HZ,
     has_audio: true,

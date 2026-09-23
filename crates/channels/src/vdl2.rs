@@ -1,7 +1,9 @@
 use std::sync::LazyLock;
 
 use num_complex::Complex;
-use sdrmm_wire::{ChannelDescriptor, ChannelParams, ChannelSettings, DecoderEvent, Vdl2Params};
+use sdrmm_wire::{
+    ChannelDescriptor, ChannelParams, ChannelSettings, DecoderEvent, DecoderFamily, Vdl2Params,
+};
 use xng_mode_vdl2::Vdl2ChannelDecoder;
 
 use crate::{
@@ -15,6 +17,8 @@ const HALF_BANDWIDTH: f64 = 8_500.0;
 static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescriptor {
     type_id: "vdl2".to_owned(),
     name: "VDL Mode 2".to_owned(),
+    summary: "Aircraft datalink on VHF".to_owned(),
+    family: DecoderFamily::Aviation,
     bandwidth_hz: HALF_BANDWIDTH * 2.0,
     input_rate_hz: RATE,
     has_audio: false,

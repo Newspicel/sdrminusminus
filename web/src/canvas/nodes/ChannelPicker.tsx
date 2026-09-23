@@ -1,8 +1,8 @@
 import { Dialog } from "@base-ui/react/dialog";
 import { useState } from "react";
 import { Form, Input } from "../../components/BaseControls";
-import { BTN, FIELD, LABEL, SURFACE } from "../../components/controls";
-import { PaletteEntry } from "../NodePalette";
+import { BTN, DIALOG_TITLE, FIELD, SURFACE } from "../../components/controls";
+import { PaletteList } from "../NodePalette";
 import { filterPalette, firstPaletteItem, type PaletteGroup, type PaletteItem } from "../palette";
 
 export function ChannelPicker({
@@ -41,7 +41,7 @@ export function ChannelPicker({
         <Dialog.Popup
           className={`${SURFACE} fixed top-1/2 left-1/2 z-40 flex max-h-[80vh] w-full max-w-lg -translate-x-1/2 -translate-y-1/2 flex-col p-4`}
         >
-          <Dialog.Title className="text-base font-medium text-ink">{title}</Dialog.Title>
+          <Dialog.Title className={DIALOG_TITLE}>{title}</Dialog.Title>
           <Dialog.Description className="mt-1 font-mono text-xs tabular-nums text-ink-dim">
             {note}
           </Dialog.Description>
@@ -63,20 +63,8 @@ export function ChannelPicker({
               value={query}
               onChange={(event) => setQuery(event.target.value)}
             />
-            <div className="mt-2 flex min-h-0 flex-col gap-2 overflow-y-auto">
-              {shown.length === 0 && (
-                <p className="py-3 text-center text-sm text-ink-dim">No mode matches that.</p>
-              )}
-              {shown.map((group) => (
-                <div key={group.id} className="flex flex-col gap-1">
-                  <span className={`${LABEL} px-1`}>{group.title}</span>
-                  <div className="grid grid-cols-2 gap-1">
-                    {group.items.map((item) => (
-                      <PaletteEntry key={item.id} item={item} onAdd={() => choose(item)} />
-                    ))}
-                  </div>
-                </div>
-              ))}
+            <div className="mt-2 min-h-0 overflow-y-auto">
+              <PaletteList groups={shown} columns={2} onPick={choose} />
             </div>
           </Form>
 

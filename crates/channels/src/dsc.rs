@@ -1,7 +1,9 @@
 use std::sync::LazyLock;
 
 use num_complex::Complex;
-use sdrmm_wire::{ChannelDescriptor, ChannelParams, ChannelSettings, DecoderEvent, DscParams};
+use sdrmm_wire::{
+    ChannelDescriptor, ChannelParams, ChannelSettings, DecoderEvent, DecoderFamily, DscParams,
+};
 use xng_mode_dsc::DscChannelDecoder;
 
 use crate::{
@@ -15,6 +17,8 @@ const HALF_BANDWIDTH: f64 = 250.0;
 static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescriptor {
     type_id: "dsc".to_owned(),
     name: "Digital Selective Calling".to_owned(),
+    summary: "Maritime distress and calling alerts".to_owned(),
+    family: DecoderFamily::Marine,
     bandwidth_hz: HALF_BANDWIDTH * 2.0,
     input_rate_hz: RATE,
     has_audio: false,

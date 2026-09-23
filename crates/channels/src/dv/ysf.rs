@@ -4,8 +4,8 @@ use num_complex::Complex;
 use sdrmm_dsp::{CyclicCode, Viterbi5, crc16_msb};
 use sdrmm_modem::cpm::CpmDemod;
 use sdrmm_wire::{
-    ChannelDescriptor, ChannelParams, ChannelSettings, DecoderEvent, DvFrame, DvFrameKind, DvMode,
-    YsfParams,
+    ChannelDescriptor, ChannelParams, ChannelSettings, DecoderEvent, DecoderFamily, DvFrame,
+    DvFrameKind, DvMode, YsfParams,
 };
 
 use super::{
@@ -48,6 +48,8 @@ const VFR_INTERLEAVE: [usize; 144] = [
 static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescriptor {
     type_id: "ysf".to_owned(),
     name: "System Fusion".to_owned(),
+    summary: "Yaesu System Fusion voice".to_owned(),
+    family: DecoderFamily::DigitalVoice,
     bandwidth_hz: BANDWIDTH_HZ,
     input_rate_hz: INPUT_RATE_HZ,
     has_audio: true,

@@ -11,8 +11,9 @@ use std::sync::LazyLock;
 use num_complex::Complex;
 use sdrmm_dsp::{Decimator, design_lowpass, flat_bandwidth_hz};
 use sdrmm_wire::{
-    ChannelDescriptor, ChannelParams, ChannelSettings, DecoderEvent, IdentFeatures, IdentParams,
-    IdentReport, IdentSignal, MAX_IDENT_BANDWIDTH_HZ, MIN_IDENT_BANDWIDTH_HZ, Modulation,
+    ChannelDescriptor, ChannelParams, ChannelSettings, DecoderEvent, DecoderFamily, IdentFeatures,
+    IdentParams, IdentReport, IdentSignal, MAX_IDENT_BANDWIDTH_HZ, MIN_IDENT_BANDWIDTH_HZ,
+    Modulation,
 };
 
 use crate::{ChannelCtx, ChannelError, ChannelFilter, ChannelOutputs, ChannelRx, check_input_rate};
@@ -46,6 +47,8 @@ const PROBE_ENVELOPE: f32 = 0.3;
 static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescriptor {
     type_id: "ident".to_owned(),
     name: "Signal identifier".to_owned(),
+    summary: "Guesses what an unknown signal is".to_owned(),
+    family: DecoderFamily::Utility,
     bandwidth_hz: MAX_IDENT_BANDWIDTH_HZ,
     input_rate_hz: INPUT_RATE_HZ,
     has_audio: false,

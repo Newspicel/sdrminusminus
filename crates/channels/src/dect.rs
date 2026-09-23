@@ -8,7 +8,9 @@ use std::sync::LazyLock;
 use burst::{Burst, INPUT_RATE_HZ, OCCUPIED_BANDWIDTH_HZ};
 use num_complex::Complex;
 use sdrmm_dsp::{Decimator, design_lowpass};
-use sdrmm_wire::{ChannelDescriptor, ChannelParams, ChannelSettings, DecoderEvent, DectParams};
+use sdrmm_wire::{
+    ChannelDescriptor, ChannelParams, ChannelSettings, DecoderEvent, DecoderFamily, DectParams,
+};
 
 use crate::{ChannelCtx, ChannelError, ChannelFilter, ChannelOutputs, ChannelRx, check_input_rate};
 
@@ -17,6 +19,8 @@ const CHANNEL_TAPS: usize = 63;
 static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescriptor {
     type_id: "dect".to_owned(),
     name: "DECT".to_owned(),
+    summary: "DECT cordless phone survey".to_owned(),
+    family: DecoderFamily::Utility,
     bandwidth_hz: OCCUPIED_BANDWIDTH_HZ,
     input_rate_hz: INPUT_RATE_HZ,
     has_audio: false,

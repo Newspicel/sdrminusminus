@@ -1,7 +1,9 @@
 use std::sync::LazyLock;
 
 use num_complex::Complex;
-use sdrmm_wire::{ChannelDescriptor, ChannelParams, ChannelSettings, DecoderEvent, HfdlParams};
+use sdrmm_wire::{
+    ChannelDescriptor, ChannelParams, ChannelSettings, DecoderEvent, DecoderFamily, HfdlParams,
+};
 use xng_mode_hfdl::HfdlChannelDecoder;
 
 use crate::{
@@ -15,6 +17,8 @@ const HALF_BANDWIDTH: f64 = 3_000.0;
 static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescriptor {
     type_id: "hfdl".to_owned(),
     name: "High Frequency Data Link".to_owned(),
+    summary: "Aircraft datalink on HF".to_owned(),
+    family: DecoderFamily::Aviation,
     bandwidth_hz: HALF_BANDWIDTH * 2.0,
     input_rate_hz: RATE,
     has_audio: false,

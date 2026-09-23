@@ -1,5 +1,6 @@
 import { expect, type Locator, type Page, test } from "@playwright/test";
 import type { StateSnapshot, WorkspaceDetail } from "../src/lib/types";
+import { addNode } from "./scenes";
 
 function deferred(): { promise: Promise<void>; resolve: () => void } {
   let resolve!: () => void;
@@ -190,8 +191,7 @@ test.describe("the workspace", () => {
     await receiver.getByRole("button", { name: /signal generator/i }).click();
     await expect(receiver.locator('[id^="frequency-dial"]')).toBeVisible();
 
-    await page.getByRole("button", { name: "Add a node" }).click();
-    await page.getByRole("button", { name: "Recording", exact: true }).click();
+    await addNode(page, "Recording");
     const library = page.locator('.react-flow__node[data-id^="recording:"]');
     await expect(library).toBeVisible();
     await activate(library);
@@ -206,8 +206,7 @@ test.describe("the workspace", () => {
     await expect(library).toHaveCount(0);
     await activate(receiver);
 
-    await page.getByRole("button", { name: "Add a node" }).click();
-    await page.getByRole("button", { name: "NFM", exact: true }).click();
+    await addNode(page, "NFM");
     const channel = page.locator('.react-flow__node[data-id^="channel:"]');
     await expect(channel).toBeVisible();
 
@@ -273,7 +272,7 @@ test.describe("the workspace", () => {
     const squelch = channel.getByRole("group", { name: "Squelch mode" });
     const manual = squelch.getByRole("button", { name: "Manual" });
     const threshold = channel.getByRole("slider", { name: /squelch threshold/i });
-    await expect(threshold).toBeDisabled();
+    await expect(threshold).toHaveCount(0);
     await manual.click();
     await expect(threshold).toBeEnabled();
     expect(await cursor(manual)).toBe("pointer");
@@ -309,7 +308,7 @@ test.describe("the workspace", () => {
 
     await activate(channel);
     await squelch.getByRole("button", { name: "Off" }).click();
-    await expect(threshold).toBeDisabled();
+    await expect(threshold).toHaveCount(0);
 
     await expect(node("scope").getByText(/MHz/).first()).toBeVisible();
 
@@ -377,7 +376,7 @@ test.describe("the workspace", () => {
 
     await scopePlot.getByRole("button", { name: "Scope settings" }).click();
     const settings = page.getByRole("dialog");
-    const peak = settings.getByRole("button", { name: /^peak$/i });
+    const peak = settings.getByRole("button", { name: /^peak hold$/i });
     await peak.click();
     await expect(peak).toHaveAttribute("aria-pressed", "true");
     await peak.click();
@@ -444,8 +443,7 @@ test.describe("the workspace", () => {
     await node("device").getByRole("combobox", { name: "Sample rate" }).click();
     await page.getByRole("option", { name: "2 MS/s", exact: true }).click();
 
-    await page.getByRole("button", { name: "Add a node" }).click();
-    await page.getByRole("button", { name: "ADS-B (1090ES)" }).click();
+    await addNode(page, "ADS-B (1090ES)");
     const adsb = page.locator('.react-flow__node[data-id^="channel:"]', { hasText: "ADS-B" });
     await fitPatch(page);
     await dragWire(
@@ -454,8 +452,7 @@ test.describe("the workspace", () => {
       adsb.locator('.react-flow__handle[data-handleid="iq"]'),
     );
 
-    await page.getByRole("button", { name: "Add a node" }).click();
-    await page.getByRole("button", { name: "Map", exact: true }).click();
+    await addNode(page, "Map");
     const map = page.locator('.react-flow__node[data-id^="map:"]');
     await fitPatch(page);
     await dragWire(
@@ -537,9 +534,8 @@ test.describe("the workspace", () => {
     await expect(page.locator('.react-flow__node[data-id="device"]')).toBeVisible();
 
     const addGps = async (): Promise<Locator> => {
-      await page.getByRole("button", { name: "Add a node" }).click();
-      await page.getByRole("button", { name: "GPS position", exact: true }).click();
-      const added = page.locator('.react-flow__node[data-id^="gps:"]', { hasText: "no source" });
+      await addNode(page, "GPS position");
+      const added = page.locator('.react-flow__node[data-id^="gps:"]').last();
       await expect(added).toBeVisible();
       const id = await added.getAttribute("data-id");
       const node = page.locator(`.react-flow__node[data-id="${id}"]`);
@@ -727,8 +723,7 @@ test.describe("the workspace", () => {
     const undo = page.getByRole("button", { name: /^undo/i });
     const redo = page.getByRole("button", { name: /^redo/i });
 
-    await page.getByRole("button", { name: "Add a node" }).click();
-    await page.getByRole("button", { name: "Speaker", exact: true }).click();
+    await addNode(page, "Speaker");
     const added = page.locator('.react-flow__node[data-id^="speaker:"]');
     await expect(added).toBeVisible();
     await expect(undo).toBeEnabled();
@@ -814,8 +809,7 @@ test.describe("the workspace", () => {
 
     await expect(scope.locator('.react-flow__handle[data-handleid="baseband"]')).toHaveCount(0);
 
-    await page.getByRole("button", { name: "Add a node" }).click();
-    await page.getByRole("button", { name: "Baseband scope", exact: true }).click();
+    await addNode(page, "Baseband scope");
     const baseband = page.locator('.react-flow__node[data-id^="baseband_scope:"]');
     await expect(baseband).toBeVisible();
     await fitPatch(page);
@@ -829,11 +823,13 @@ test.describe("the workspace", () => {
       baseband.locator('.react-flow__handle[data-handleid="baseband"]'),
     );
     const views = baseband.getByRole("group", { name: "Baseband view" });
-    await expect(views.getByRole("button", { name: "SPECTRUM" })).toBeVisible();
+    await expect(views.getByRole("button", { name: "Spectrum" })).toBeVisible();
     await activate(baseband);
     const barTop = (await views.boundingBox())?.y;
-    await views.getByRole("button", { name: "LEVELS" }).click();
-    await expect(baseband.getByRole("textbox", { name: "Symbol rate" })).toBeVisible();
+    await views.getByRole("button", { name: "Levels" }).click();
+    await baseband.getByRole("button", { name: "View settings", exact: true }).click();
+    await expect(page.getByRole("textbox", { name: "Symbol rate" })).toBeVisible();
+    await page.keyboard.press("Escape");
     expect((await views.boundingBox())?.y, "the view bar stays put").toBe(barTop);
 
     const plot = scope.locator(".bg-plot-bg");

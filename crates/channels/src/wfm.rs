@@ -5,7 +5,7 @@ use sdrmm_dsp::{
     ComplexOnePole, Decimator, Deemphasis, Nco, Pll, RealDecimator, design_lowpass, one_pole_coeff,
 };
 use sdrmm_modem::analog::{AngleDemod, AngleDetector, AngleKind, AngleParams, AngleRx};
-use sdrmm_wire::{ChannelDescriptor, ChannelParams, ChannelSettings, WfmParams};
+use sdrmm_wire::{ChannelDescriptor, ChannelParams, ChannelSettings, DecoderFamily, WfmParams};
 
 use crate::{
     AUDIO_RATE, ChannelCtx, ChannelError, ChannelFilter, ChannelOutputs, ChannelRx,
@@ -43,6 +43,8 @@ fn discriminator(rate: f64) -> AngleDemod {
 static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescriptor {
     type_id: "wfm".to_owned(),
     name: "WFM (broadcast)".to_owned(),
+    summary: "FM broadcast radio with stereo and RDS".to_owned(),
+    family: DecoderFamily::AnalogVoice,
     bandwidth_hz: 200_000.0,
     input_rate_hz: 240_000.0,
     has_audio: true,

@@ -52,6 +52,7 @@ export interface PlotOptions {
   density: DensityLayer | null;
   cursor?: number | null;
   readout?: ReadoutHold;
+  offsetAxis?: boolean;
 }
 
 export function readoutAt(
@@ -144,9 +145,15 @@ export class DensityLayer {
   }
 }
 
-function prepare(
-  canvas: HTMLCanvasElement,
-): { ctx: CanvasRenderingContext2D; width: number; height: number } | null {
+export const PLOT_FONT = '10px "JetBrains Mono Variable", ui-monospace, Menlo, monospace';
+
+export interface PreparedCanvas {
+  ctx: CanvasRenderingContext2D;
+  width: number;
+  height: number;
+}
+
+export function prepareCanvas(canvas: HTMLCanvasElement): PreparedCanvas | null {
   const width = canvas.clientWidth;
   const height = canvas.clientHeight;
   if (width === 0 || height === 0) {
@@ -173,7 +180,7 @@ export function drawPlot(canvas: HTMLCanvasElement | null, options: PlotOptions)
   if (canvas === null) {
     return;
   }
-  const prepared = prepare(canvas);
+  const prepared = prepareCanvas(canvas);
   if (prepared === null) {
     return;
   }
@@ -186,10 +193,10 @@ export function drawPlot(canvas: HTMLCanvasElement | null, options: PlotOptions)
 
   options.density?.blit(ctx, width, plotH);
 
-  ctx.font = '10px ui-monospace, "SF Mono", Menlo, monospace';
+  ctx.font = PLOT_FONT;
   ctx.textBaseline = "middle";
   ctx.lineWidth = 1;
-  drawGrid(ctx, frame, view, dbWindow, width, height, plotH);
+  drawGrid(ctx, frame, view, dbWindow, width, height, plotH, options.offsetAxis === true);
 
   ctx.lineJoin = "round";
   for (const trace of options.traces) {
@@ -266,6 +273,7 @@ function drawGrid(
   width: number,
   height: number,
   plotH: number,
+  offsetAxis: boolean,
 ): void {
   ctx.strokeStyle = token("plot-grid");
   ctx.fillStyle = token("plot-ink-dim");
@@ -276,7 +284,7 @@ function drawGrid(
     ctx.moveTo(0, y);
     ctx.lineTo(width, y);
     ctx.stroke();
-    if (y > 12 && y < plotH - 4) {
+    if (y > (offsetAxis ? 24 : 12) && y < plotH - 4) {
       ctx.fillText(db.toFixed(0), 4, y - 7);
     }
   }
@@ -295,9 +303,18 @@ function drawGrid(
     ctx.moveTo(x, 0);
     ctx.lineTo(x, plotH);
     ctx.stroke();
-    ctx.fillText(formatTick(tick.hz, visible), x, height - AXIS_H / 2);
+    const label = offsetAxis
+      ? formatOffset(tick.hz - frame.centerHz)
+      : formatTick(tick.hz, visible);
+    ctx.fillText(label, x, height - AXIS_H / 2);
   }
   ctx.textAlign = "left";
+  if (offsetAxis) {
+    ctx.fillText("dBFS", 4, 8);
+    ctx.textAlign = "right";
+    ctx.fillText("kHz", width - 4, 8);
+    ctx.textAlign = "left";
+  }
 
   const centerAt = spanToView(view, 0.5);
   if (centerAt >= 0 && centerAt <= 1) {
@@ -447,6 +464,12 @@ function bandPath(
     ctx.lineTo(x, levelY(points.low[i] ?? Number.NEGATIVE_INFINITY, height, dbWindow));
   }
   ctx.closePath();
+}
+
+function formatOffset(hz: number): string {
+  const khz = hz / 1e3;
+  const shown = Math.abs(khz) < 1e-9 ? 0 : khz;
+  return `${shown > 0 ? "+" : ""}${shown.toFixed(shown === 0 || Math.abs(shown) >= 10 ? 0 : 1)}`;
 }
 
 function formatTick(hz: number, visibleHz: number): string {

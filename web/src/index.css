@@ -2,17 +2,21 @@
 @import "@xyflow/react/dist/base.css";
 
 @theme static {
-  --color-bg: oklch(0.178 0.004 255);
-  --color-panel: oklch(0.215 0.005 255);
-  --color-panel-2: oklch(0.255 0.006 255);
-  --color-panel-3: oklch(0.3 0.007 255);
-  --color-line: oklch(0.33 0.007 255);
-  --color-line-strong: oklch(0.5 0.009 255);
-  --color-ink: oklch(0.95 0.003 255);
-  --color-ink-dim: oklch(0.74 0.006 255);
-  --color-ink-faint: oklch(0.62 0.008 255);
-  --color-accent: oklch(0.74 0.13 258);
-  --color-accent-dim: oklch(0.58 0.115 258);
+  --color-bg: oklch(0.165 0.004 240);
+  --color-panel: oklch(0.205 0.005 240);
+  --color-panel-2: oklch(0.255 0.007 240);
+  --color-panel-3: oklch(0.225 0.006 240);
+  --color-well: oklch(0.145 0.004 240);
+  --color-line: oklch(0.3 0.008 240);
+  --color-line-strong: oklch(0.42 0.01 240);
+  --color-ink: oklch(0.93 0.005 240);
+  --color-ink-dim: oklch(0.74 0.008 240);
+  --color-ink-faint: oklch(0.58 0.01 240);
+  --color-accent: oklch(0.78 0.12 210);
+  --color-accent-dim: oklch(0.6 0.1 212);
+  --color-on-accent: oklch(0.17 0.02 220);
+  --color-vfo: oklch(0.9 0.09 200);
+  --color-vfo-glow: oklch(0.78 0.12 210 / 0.25);
   --color-danger: oklch(0.7 0.17 25);
   --color-warn: oklch(0.8 0.13 85);
   --color-ok: oklch(0.78 0.15 155);
@@ -32,10 +36,10 @@
   --color-port-control: oklch(0.76 0.1 300);
   --color-port-tx: oklch(0.76 0.12 345);
 
-  --color-cat-source: oklch(0.62 0.07 228);
-  --color-cat-channel: oklch(0.62 0.07 300);
-  --color-cat-tool: oklch(0.62 0.07 60);
-  --color-cat-output: oklch(0.62 0.05 200);
+  --color-cat-source: oklch(0.72 0.1 228);
+  --color-cat-channel: oklch(0.72 0.1 300);
+  --color-cat-tool: oklch(0.76 0.12 65);
+  --color-cat-output: oklch(0.74 0.11 150);
 
   --color-band-ism: oklch(0.64 0.1 25);
   --color-band-broadcast: oklch(0.64 0.1 60);
@@ -48,25 +52,33 @@
   --color-band-satellite: oklch(0.64 0.1 345);
   --color-band-other: oklch(0.6 0.02 80);
 
-  --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", "IBM Plex Mono", Menlo, monospace;
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "JetBrains Mono Variable", ui-monospace, "SF Mono", Menlo, monospace;
 
   --shadow-pop:
-    inset 0 1px 0 oklch(1 0 0 / 0.06), 0 1px 2px oklch(0 0 0 / 0.4), 0 8px 24px oklch(0 0 0 / 0.44);
+    inset 0 1px 0 oklch(1 0 0 / 0.06), 0 1px 2px oklch(0 0 0 / 0.4), 0 12px 32px oklch(0 0 0 / 0.5);
+  --shadow-face:
+    inset 0 1px 0 oklch(1 0 0 / 0.04), 0 1px 2px oklch(0 0 0 / 0.3), 0 8px 24px oklch(0 0 0 / 0.22);
+  --shadow-raised: inset 0 1px 0 oklch(1 0 0 / 0.07), 0 1px 2px oklch(0 0 0 / 0.35);
 }
 
 @layer base {
   :root[data-theme="light"] {
-    --color-bg: oklch(0.968 0.002 255);
-    --color-panel: oklch(0.99 0.002 255);
-    --color-panel-2: oklch(0.94 0.004 255);
+    --color-bg: oklch(0.955 0.003 240);
+    --color-panel: oklch(0.99 0.002 240);
+    --color-panel-2: oklch(0.935 0.005 240);
     --color-panel-3: oklch(1 0 0);
-    --color-line: oklch(0.895 0.005 255);
-    --color-line-strong: oklch(0.62 0.01 255);
-    --color-ink: oklch(0.26 0.012 255);
-    --color-ink-dim: oklch(0.47 0.012 255);
-    --color-ink-faint: oklch(0.56 0.012 255);
-    --color-accent: oklch(0.52 0.16 258);
-    --color-accent-dim: oklch(0.62 0.13 258);
+    --color-well: oklch(0.96 0.004 240);
+    --color-line: oklch(0.88 0.006 240);
+    --color-line-strong: oklch(0.68 0.01 240);
+    --color-ink: oklch(0.24 0.012 240);
+    --color-ink-dim: oklch(0.44 0.012 240);
+    --color-ink-faint: oklch(0.55 0.012 240);
+    --color-accent: oklch(0.52 0.12 225);
+    --color-accent-dim: oklch(0.64 0.1 222);
+    --color-on-accent: oklch(0.99 0.005 220);
+    --color-vfo: oklch(0.3 0.06 225);
+    --color-vfo-glow: transparent;
     --color-danger: oklch(0.51 0.19 27);
     --color-warn: oklch(0.58 0.14 75);
     --color-ok: oklch(0.5 0.115 155);
@@ -80,8 +92,8 @@
 
     --color-cat-source: oklch(0.594 0.07 228);
     --color-cat-channel: oklch(0.603 0.07 300);
-    --color-cat-tool: oklch(0.602 0.07 60);
-    --color-cat-output: oklch(0.592 0.05 200);
+    --color-cat-tool: oklch(0.6 0.11 65);
+    --color-cat-output: oklch(0.58 0.1 150);
 
     --color-band-ism: oklch(0.55 0.15 25);
     --color-band-broadcast: oklch(0.58 0.11 60);
@@ -94,7 +106,9 @@
     --color-band-satellite: oklch(0.57 0.14 345);
     --color-band-other: oklch(0.58 0.02 80);
 
-    --shadow-pop: 0 1px 2px oklch(0 0 0 / 0.08), 0 8px 24px oklch(0 0 0 / 0.12);
+    --shadow-pop: 0 1px 2px oklch(0 0 0 / 0.08), 0 12px 32px oklch(0 0 0 / 0.14);
+    --shadow-face: 0 1px 3px oklch(0 0 0 / 0.1);
+    --shadow-raised: 0 1px 1px oklch(0 0 0 / 0.08);
   }
 
   html,
@@ -107,7 +121,7 @@
     margin: 0;
     background: var(--color-bg);
     color: var(--color-ink);
-    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    font-family: var(--font-sans);
     font-size: 13px;
     line-height: 1.5;
     -webkit-font-smoothing: antialiased;
@@ -125,7 +139,7 @@
   :focus-visible {
     outline: 2px solid var(--color-accent);
     outline-offset: 2px;
-    border-radius: 3px;
+    border-radius: 4px;
   }
 
   ::selection {
@@ -163,10 +177,8 @@
 @layer components {
   .legend {
     font-family: var(--font-mono);
-    font-size: 10px;
+    font-size: 10.5px;
     line-height: 1.4;
-    letter-spacing: 0.09em;
-    text-transform: uppercase;
     color: var(--color-ink-faint);
   }
 }
@@ -181,7 +193,7 @@
 
 .react-flow__edge-path {
   stroke: var(--color-line-strong);
-  stroke-width: 1.5;
+  stroke-width: 1.75;
 }
 
 .wire-iq .react-flow__edge-path {

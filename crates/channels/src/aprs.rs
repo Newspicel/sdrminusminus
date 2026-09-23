@@ -7,7 +7,7 @@ use sdrmm_dsp::{
 };
 use sdrmm_wire::{
     AprsMode, AprsPacket, AprsParams, ChannelDescriptor, ChannelParams, ChannelSettings,
-    DecoderEvent,
+    DecoderEvent, DecoderFamily,
 };
 
 use crate::{
@@ -40,6 +40,8 @@ const MAX_FRAME_BYTES: usize = MAX_ADDRESSES * ADDRESS_LEN + 2 + 256 + 2;
 static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescriptor {
     type_id: "aprs".to_owned(),
     name: "APRS / AX.25".to_owned(),
+    summary: "Amateur packet positions and messages".to_owned(),
+    family: DecoderFamily::Amateur,
     bandwidth_hz: 12_500.0,
     input_rate_hz: 48_000.0,
     has_audio: false,

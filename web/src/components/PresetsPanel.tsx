@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Trash2 } from "lucide-react";
 import { useState } from "react";
 import {
   applyPreset,
@@ -10,7 +11,8 @@ import {
 } from "../lib/api";
 import { pushToast } from "../lib/toasts";
 import { Button, Form, Input } from "./BaseControls";
-import { BTN, FIELD } from "./controls";
+import { BTN, BTN_SM, FIELD } from "./controls";
+import { List, ListRow, Panel, PanelHint, RowAction } from "./ListPanel";
 
 export function PresetsPanel() {
   const queryClient = useQueryClient();
@@ -40,7 +42,7 @@ export function PresetsPanel() {
   });
 
   return (
-    <div className="flex flex-col gap-2 p-3">
+    <Panel>
       <Form
         className="flex gap-2"
         onSubmit={(e) => {
@@ -61,38 +63,39 @@ export function PresetsPanel() {
           Save
         </Button>
       </Form>
-
-      {(presets.data ?? []).map((p) => (
-        <div key={p.id} className="flex items-center gap-2">
-          <div className="min-w-0 flex-1">
-            <div className="truncate text-sm text-ink">{p.name}</div>
-            <div className="truncate font-mono text-[10px] tabular-nums text-ink-dim">
-              {p.devices} radio{p.devices === 1 ? "" : "s"}
-            </div>
-          </div>
-          <Button
-            type="button"
-            className={BTN}
-            disabled={applyMut.isPending}
-            onClick={() => applyMut.mutate(p.id)}
-          >
-            Apply
-          </Button>
-          <Button
-            type="button"
-            className={`${BTN} hover:border-danger hover:text-danger`}
-            disabled={deleteMut.isPending}
-            onClick={() => deleteMut.mutate(p.id)}
-          >
-            Delete
-          </Button>
-        </div>
-      ))}
       {presets.data?.length === 0 && (
-        <span className="text-sm text-ink-dim">
-          No presets saved. Saving one takes every radio this workspace has open, where it is now.
-        </span>
+        <PanelHint>A preset saves every open radio as it is now.</PanelHint>
       )}
-    </div>
+      {(presets.data?.length ?? 0) > 0 && (
+        <List>
+          {(presets.data ?? []).map((p) => (
+            <ListRow
+              key={p.id}
+              primary={p.name}
+              secondary={`${p.devices} radio${p.devices === 1 ? "" : "s"}`}
+              actions={
+                <>
+                  <Button
+                    type="button"
+                    className={BTN_SM}
+                    disabled={applyMut.isPending}
+                    onClick={() => applyMut.mutate(p.id)}
+                  >
+                    Apply
+                  </Button>
+                  <RowAction
+                    label={`Delete ${p.name}`}
+                    glyph={Trash2}
+                    danger
+                    disabled={deleteMut.isPending}
+                    onClick={() => deleteMut.mutate(p.id)}
+                  />
+                </>
+              }
+            />
+          ))}
+        </List>
+      )}
+    </Panel>
   );
 }

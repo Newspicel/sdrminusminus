@@ -15,7 +15,7 @@ Radio not listed? Press **Check hardware** on the Device node, or see
 
 ## 2. Add a WFM channel
 
-WFM is broadcast FM. Press **+ Node**, search for **WFM**, and add it. Wire it up:
+WFM is broadcast FM. Press **+ Add**, search for **WFM**, and add it. Wire it up:
 
 ```text
 Device iq   → WFM iq

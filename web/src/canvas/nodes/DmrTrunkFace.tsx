@@ -69,7 +69,12 @@ export function DmrTrunkFace({ node }: { node: PatchNode }) {
       category="tool"
       subtitle={
         onIq && !awaiting
-          ? `${trunkProtocolLabel(protocol, detected)} · ${followers.length} following`
+          ? [
+              protocol === "auto" ? trunkProtocolLabel(protocol, detected) : null,
+              `${followers.length} following`,
+            ]
+              .filter(Boolean)
+              .join(" · ")
           : undefined
       }
     >

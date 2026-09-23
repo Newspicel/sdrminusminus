@@ -501,7 +501,7 @@ export function MapPanel({
           <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 px-2 py-1.5">
             {detail.rows.map(([label, value]) => (
               <div key={label} className="col-span-2 grid grid-cols-subgrid">
-                <dt className="text-[10px] text-ink-dim uppercase tracking-wider">{label}</dt>
+                <dt className="text-[11px] text-ink-faint">{label}</dt>
                 <dd className="truncate text-right font-mono text-xs tabular-nums text-ink">
                   {value}
                 </dd>

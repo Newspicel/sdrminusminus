@@ -2,7 +2,8 @@ use std::{f64::consts::TAU, sync::LazyLock};
 
 use num_complex::Complex;
 use sdrmm_wire::{
-    ChannelDescriptor, ChannelParams, ChannelSettings, DecoderEvent, VorParams, VorReading,
+    ChannelDescriptor, ChannelParams, ChannelSettings, DecoderEvent, DecoderFamily, VorParams,
+    VorReading,
 };
 
 use crate::{
@@ -16,6 +17,8 @@ const HALF_BANDWIDTH: f64 = 12_000.0;
 static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescriptor {
     type_id: "vor".to_owned(),
     name: "VOR".to_owned(),
+    summary: "Bearing to a VOR beacon".to_owned(),
+    family: DecoderFamily::Aviation,
     bandwidth_hz: HALF_BANDWIDTH * 2.0,
     input_rate_hz: RATE,
     has_audio: false,

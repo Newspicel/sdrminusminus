@@ -29,6 +29,7 @@ export type PropagationNode = components["schemas"]["PropagationNode"];
 export type ChannelSettings = components["schemas"]["ChannelSettings"];
 export type ChannelParams = components["schemas"]["ChannelParams"];
 export type ChannelDescriptor = components["schemas"]["ChannelDescriptor"];
+export type DecoderFamily = components["schemas"]["DecoderFamily"];
 export type ParamLimit = components["schemas"]["ParamLimit"];
 export type Squelch = components["schemas"]["Squelch"];
 export type EventFilterNode = components["schemas"]["EventFilterNode"];

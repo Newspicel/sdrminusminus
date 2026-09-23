@@ -1,10 +1,12 @@
 import type { SymbolState, Trend } from "../../components/baseband";
 import { token } from "../../lib/tokens";
+import { PLOT_FONT, type PreparedCanvas, prepareCanvas } from "./scopePlot";
 
-const PAD = { left: 34, right: 6, top: 8, bottom: 16 };
+const PAD = { left: 40, right: 8, top: 6, bottom: 18 };
 const STATE_LABELS = 78;
 const STATE_READOUT = 132;
 const STATE_EXTENT = 1.1;
+const MINOR_TICKS = 5;
 
 export interface PlotInset {
   top: number;
@@ -19,23 +21,86 @@ export interface TrendSeries {
   label: string;
 }
 
-function fit(canvas: HTMLCanvasElement): CanvasRenderingContext2D | null {
-  const width = canvas.clientWidth;
-  const height = canvas.clientHeight;
-  if (width === 0 || height === 0) {
-    return null;
+function fit(canvas: HTMLCanvasElement): PreparedCanvas | null {
+  const prepared = prepareCanvas(canvas);
+  if (prepared !== null) {
+    prepared.ctx.font = PLOT_FONT;
+    prepared.ctx.lineWidth = 1;
   }
-  if (canvas.width !== width || canvas.height !== height) {
-    canvas.width = width;
-    canvas.height = height;
+  return prepared;
+}
+
+export interface PlotBox {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+export function drawGraticule(
+  ctx: CanvasRenderingContext2D,
+  box: PlotBox,
+  columns: number,
+  rows: number,
+): void {
+  const x0 = Math.round(box.x) + 0.5;
+  const y0 = Math.round(box.y) + 0.5;
+  const x1 = Math.round(box.x + box.w) - 0.5;
+  const y1 = Math.round(box.y + box.h) - 0.5;
+  ctx.strokeStyle = token("plot-grid");
+  ctx.globalAlpha = 0.55;
+  ctx.beginPath();
+  for (let i = 1; i < columns; i++) {
+    const x = Math.round(box.x + (box.w * i) / columns) + 0.5;
+    ctx.moveTo(x, y0);
+    ctx.lineTo(x, y1);
   }
-  const ctx = canvas.getContext("2d");
-  if (ctx === null) {
-    return null;
+  for (let i = 1; i < rows; i++) {
+    const y = Math.round(box.y + (box.h * i) / rows) + 0.5;
+    ctx.moveTo(x0, y);
+    ctx.lineTo(x1, y);
   }
-  ctx.clearRect(0, 0, width, height);
-  ctx.font = "10px ui-monospace, monospace";
-  return ctx;
+  ctx.stroke();
+  ctx.globalAlpha = 1;
+  ctx.strokeRect(x0, y0, x1 - x0, y1 - y0);
+
+  const cx = Math.round(box.x + box.w / 2) + 0.5;
+  const cy = Math.round(box.y + box.h / 2) + 0.5;
+  ctx.strokeStyle = token("plot-ink-dim");
+  ctx.globalAlpha = 0.45;
+  ctx.beginPath();
+  for (let i = 1; i < columns * MINOR_TICKS; i++) {
+    const x = Math.round(box.x + (box.w * i) / (columns * MINOR_TICKS)) + 0.5;
+    const tick = i % MINOR_TICKS === 0 ? 4 : 2;
+    ctx.moveTo(x, cy - tick);
+    ctx.lineTo(x, cy + tick);
+  }
+  for (let i = 1; i < rows * MINOR_TICKS; i++) {
+    const y = Math.round(box.y + (box.h * i) / (rows * MINOR_TICKS)) + 0.5;
+    const tick = i % MINOR_TICKS === 0 ? 4 : 2;
+    ctx.moveTo(cx - tick, y);
+    ctx.lineTo(cx + tick, y);
+  }
+  ctx.stroke();
+  ctx.globalAlpha = 1;
+}
+
+export function plotLabel(
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  x: number,
+  y: number,
+  align: CanvasTextAlign = "left",
+): void {
+  const width = ctx.measureText(text).width;
+  const left = align === "right" ? x - width : align === "center" ? x - width / 2 : x;
+  ctx.fillStyle = token("plot-bg");
+  ctx.globalAlpha = 0.75;
+  ctx.fillRect(left - 2, y - 9, width + 4, 12);
+  ctx.globalAlpha = 1;
+  ctx.fillStyle = token("plot-ink-dim");
+  ctx.textAlign = align;
+  ctx.fillText(text, x, y);
 }
 
 export function drawHistogram(
@@ -45,53 +110,56 @@ export function drawHistogram(
   scale: number,
   inset: PlotInset = NO_INSET,
 ): void {
-  const ctx = fit(canvas);
-  if (ctx === null || bins.length === 0) {
+  const prepared = fit(canvas);
+  if (prepared === null || bins.length === 0) {
     return;
   }
-  const width = canvas.width;
-  const height = canvas.height;
-  const top = PAD.top + inset.top;
-  const plotH = height - PAD.bottom - inset.bottom;
-  if (plotH <= top) {
+  const { ctx, width, height } = prepared;
+  const box = {
+    x: PAD.right,
+    y: PAD.top + inset.top,
+    w: width - 2 * PAD.right,
+    h: height - PAD.top - PAD.bottom - inset.top - inset.bottom,
+  };
+  if (box.w <= 0 || box.h <= 0) {
     return;
   }
+  drawGraticule(ctx, box, 8, 4);
   const span = scale > 0 ? scale : 1;
-  const toX = (value: number): number => ((value / span + 1) / 2) * width;
-
-  ctx.strokeStyle = token("plot-grid");
-  ctx.beginPath();
-  ctx.moveTo(0, plotH + 0.5);
-  ctx.lineTo(width, plotH + 0.5);
-  ctx.stroke();
+  const toX = (value: number): number => box.x + ((value / span + 1) / 2) * box.w;
+  const foot = box.y + box.h;
 
   ctx.fillStyle = token("plot-trace");
-  const step = width / bins.length;
+  ctx.globalAlpha = 0.85;
+  const step = box.w / bins.length;
   for (let i = 0; i < bins.length; i++) {
     const value = bins[i] ?? 0;
     if (value <= 0) {
       continue;
     }
-    const barH = value * (plotH - top);
-    ctx.fillRect(i * step, plotH - barH, Math.max(1, step - 1), barH);
+    const barH = value * box.h * 0.92;
+    ctx.fillRect(box.x + i * step, foot - barH, Math.max(1, step - 0.5), barH);
   }
+  ctx.globalAlpha = 1;
 
-  ctx.strokeStyle = token("plot-ink-dim");
-  ctx.fillStyle = token("plot-ink-dim");
-  ctx.textAlign = "center";
-  ctx.setLineDash([2, 3]);
+  ctx.strokeStyle = token("plot-hold");
+  ctx.globalAlpha = 0.7;
+  ctx.setLineDash([3, 3]);
   for (const level of reference) {
     const x = Math.round(toX(level)) + 0.5;
-    if (x < 0 || x > width) {
+    if (x < box.x || x > box.x + box.w) {
       continue;
     }
     ctx.beginPath();
-    ctx.moveTo(x, top);
-    ctx.lineTo(x, plotH);
+    ctx.moveTo(x, box.y);
+    ctx.lineTo(x, foot);
     ctx.stroke();
-    ctx.fillText(level.toFixed(level % 1 === 0 ? 0 : 2), x, plotH + 12);
+    plotLabel(ctx, level.toFixed(level % 1 === 0 ? 0 : 2), x, foot + 11, "center");
   }
   ctx.setLineDash([]);
+  ctx.globalAlpha = 1;
+  plotLabel(ctx, "share", box.x + 4, box.y + 11);
+  plotLabel(ctx, "level", box.x + box.w - 4, box.y + 11, "right");
 }
 
 export function drawTrend(
@@ -101,19 +169,21 @@ export function drawTrend(
   zero: boolean,
   inset: PlotInset = NO_INSET,
 ): void {
-  const ctx = fit(canvas);
-  if (ctx === null) {
+  const prepared = fit(canvas);
+  if (prepared === null) {
     return;
   }
-  const width = canvas.width;
-  const height = canvas.height;
-  const top = PAD.top + inset.top;
-  const foot = height - PAD.bottom - inset.bottom;
-  const plotW = width - PAD.left - PAD.right;
-  const plotH = foot - top;
-  if (plotW <= 0 || plotH <= 0) {
+  const { ctx, width, height } = prepared;
+  const box = {
+    x: PAD.left,
+    y: PAD.top + inset.top,
+    w: width - PAD.left - PAD.right,
+    h: height - PAD.top - PAD.bottom - inset.top - inset.bottom,
+  };
+  if (box.w <= 0 || box.h <= 0) {
     return;
   }
+  drawGraticule(ctx, box, 10, 4);
 
   let min = Number.POSITIVE_INFINITY;
   let max = Number.NEGATIVE_INFINITY;
@@ -135,34 +205,15 @@ export function drawTrend(
     min = -reach;
     max = reach;
   }
-  const pad = (max - min) * 0.1;
+  const pad = Math.max((max - min) * 0.1, 0.5);
   min -= pad;
   max += pad;
+  const toY = (value: number): number => box.y + (1 - (value - min) / (max - min)) * box.h;
 
-  const toY = (value: number): number => top + (1 - (value - min) / (max - min)) * plotH;
-
-  ctx.strokeStyle = token("plot-grid");
-  ctx.fillStyle = token("plot-ink-dim");
-  ctx.textAlign = "right";
-  for (let i = 0; i <= 2; i++) {
-    const value = min + ((max - min) * i) / 2;
-    const y = Math.round(toY(value)) + 0.5;
-    ctx.beginPath();
-    ctx.moveTo(PAD.left, y);
-    ctx.lineTo(width - PAD.right, y);
-    ctx.stroke();
-    ctx.fillText(value.toFixed(Math.abs(max - min) < 10 ? 1 : 0), PAD.left - 4, y + 3);
-  }
-
-  if (zero) {
-    ctx.strokeStyle = token("plot-ink-dim");
-    ctx.globalAlpha = 0.6;
-    const y = Math.round(toY(0)) + 0.5;
-    ctx.beginPath();
-    ctx.moveTo(PAD.left, y);
-    ctx.lineTo(width - PAD.right, y);
-    ctx.stroke();
-    ctx.globalAlpha = 1;
+  const decimals = Math.abs(max - min) < 10 ? 1 : 0;
+  for (let i = 0; i <= 4; i++) {
+    const value = min + ((max - min) * i) / 4;
+    plotLabel(ctx, value.toFixed(decimals), box.x - 5, toY(value) + 3, "right");
   }
 
   for (const { trend, colour } of series) {
@@ -171,9 +222,10 @@ export function drawTrend(
     }
     ctx.strokeStyle = colour;
     ctx.lineWidth = 1.5;
+    ctx.lineJoin = "round";
     ctx.beginPath();
     for (let i = 0; i < trend.length; i++) {
-      const x = PAD.left + (i / (longest - 1)) * plotW;
+      const x = box.x + (i / (longest - 1)) * box.w;
       const y = toY(trend.sample(i));
       if (i === 0) {
         ctx.moveTo(x, y);
@@ -185,16 +237,16 @@ export function drawTrend(
   }
   ctx.lineWidth = 1;
 
-  ctx.textAlign = "left";
-  let at = PAD.left + 2;
+  let at = box.x + 6;
   for (const { colour, label } of series) {
     ctx.fillStyle = colour;
-    ctx.fillText(label, at, foot + 12);
-    at += ctx.measureText(label).width + 10;
+    ctx.fillRect(at, box.y + 7, 8, 2);
+    plotLabel(ctx, label, at + 12, box.y + 11);
+    at += ctx.measureText(label).width + 26;
   }
-  ctx.fillStyle = token("plot-ink-dim");
-  ctx.textAlign = "right";
-  ctx.fillText(unit, width - PAD.right, foot + 12);
+  plotLabel(ctx, unit, box.x + box.w - 6, box.y + 11, "right");
+  plotLabel(ctx, "older", box.x, box.y + box.h + 12);
+  plotLabel(ctx, "now", box.x + box.w, box.y + box.h + 12, "right");
 }
 
 export function drawStates(
@@ -203,12 +255,11 @@ export function drawStates(
   signed: boolean,
   inset: PlotInset = NO_INSET,
 ): void {
-  const ctx = fit(canvas);
-  if (ctx === null || states.length === 0) {
+  const prepared = fit(canvas);
+  if (prepared === null || states.length === 0) {
     return;
   }
-  const width = canvas.width;
-  const height = canvas.height;
+  const { ctx, width, height } = prepared;
   const top = PAD.top + inset.top;
   const foot = height - PAD.bottom - inset.bottom;
   const left = STATE_LABELS;

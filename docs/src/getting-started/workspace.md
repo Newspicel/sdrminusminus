@@ -28,12 +28,13 @@ A wire joins an output port to an input port that carries the same kind of data:
 
 | Group | Nodes |
 |---|---|
-| Sources | Device, Recording, Signal generator, Array, GPS position |
-| Channels | AM, NFM, WFM, ADS-B, DMR, and every other [decoder](../user-guide/decoders.md) |
-| Tools | Scanner, Signal hunt, Spectrum monitor, Satellite, DMR trunk system, Event filter, Direction finder, Triangulation, Passive radar, Combiner |
+| Sources | Device, Recording, Signal generator, GPS position |
+| Decoders | AM, NFM, WFM, ADS-B, DMR, and every other [decoder](../user-guide/decoders.md) |
+| Tools | Array, Scanner, Signal hunt, Spectrum monitor, Satellite, DMR trunk system, Event filter, Direction finder, Triangulation, Passive radar, Combiner |
 | Outputs | Scope, Baseband scope, Speaker, Readout, Decoder log, Map, Video, Signal survey, Propagation map, recorders, Network IQ, Event output, Export |
 
-**+ Node** lists what the running server offers.
+**+ Add** lists what the running server offers. Double-click or right-click the canvas to add a
+node at the cursor. Hover an entry to see what it does.
 
 ## How a Device and its channels share a radio
 

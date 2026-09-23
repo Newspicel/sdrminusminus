@@ -12,8 +12,8 @@ use sdrmm_dsp::{
     one_pole_coeff,
 };
 use sdrmm_wire::{
-    ChannelDescriptor, ChannelParams, ChannelSettings, DecoderEvent, SubghzEncoding, SubghzFrame,
-    SubghzModulation, SubghzParams,
+    ChannelDescriptor, ChannelParams, ChannelSettings, DecoderEvent, DecoderFamily, SubghzEncoding,
+    SubghzFrame, SubghzModulation, SubghzParams,
 };
 
 use crate::{ChannelCtx, ChannelError, ChannelFilter, ChannelOutputs, ChannelRx, check_input_rate};
@@ -45,6 +45,8 @@ const EV1527_ADDRESS_BITS: usize = 20;
 static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescriptor {
     type_id: "subghz".to_owned(),
     name: "Sub-GHz".to_owned(),
+    summary: "Remotes and sensors below 1 GHz".to_owned(),
+    family: DecoderFamily::Paging,
     bandwidth_hz: 150_000.0,
     input_rate_hz: 250_000.0,
     has_audio: false,

@@ -94,7 +94,6 @@ function NetworkExportNodeFace({ node }: { node: PatchNodeOf<"network_export"> }
       node={node}
       title={channel === null ? "Network IQ" : "Network baseband"}
       category="output"
-      subtitle={control.kind === "active" ? node.data.address : undefined}
     >
       <FaceBody>
         <Settings className="border-b border-line p-2">

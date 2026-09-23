@@ -353,23 +353,21 @@ function DeviceHealth({ set }: { set: DeviceSet }) {
   const health = usePipelineHealth((state) => state.health);
   const summary = queueSummary(health, set.id);
   const overruns = set.overruns ?? 0;
+  if (summary === null && overruns === 0) {
+    return null;
+  }
   return (
-    <>
+    <Readout>
       {summary !== null && (
-        <span className="legend" title={summary.detail}>
-          Queue {summary.oldestMs.toFixed(0)} ms
-        </span>
+        <ReadoutRow label="Queue" title={summary.detail}>
+          {summary.oldestMs.toFixed(0)} ms
+        </ReadoutRow>
       )}
       {overruns > 0 && (
-        <Readout>
-          <ReadoutRow
-            label="Drops"
-            title="Samples lost during capture since the radio opened, including reported device gaps, full queues, and stale samples."
-          >
-            {overruns}
-          </ReadoutRow>
-        </Readout>
+        <ReadoutRow label="Drops" title="Samples lost since the radio opened">
+          {overruns}
+        </ReadoutRow>
       )}
-    </>
+    </Readout>
   );
 }

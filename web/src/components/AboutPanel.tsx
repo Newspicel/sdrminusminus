@@ -6,7 +6,7 @@ import { aboutQuery, licenseTextQuery } from "../lib/api";
 import type { Attribution } from "../lib/types";
 import { groupComponents, licenseSummary, notedComponents } from "./about";
 import { Button, Input } from "./BaseControls";
-import { BTN, BTN_QUIET, FIELD, SURFACE } from "./controls";
+import { BTN, BTN_QUIET, DIALOG_TITLE, FIELD, SURFACE } from "./controls";
 
 export function AboutPanel({
   open,
@@ -33,9 +33,7 @@ export function AboutPanel({
           className={`${SURFACE} fixed top-1/2 left-1/2 z-40 flex max-h-[85vh] w-full max-w-3xl -translate-x-1/2 -translate-y-1/2 flex-col p-4`}
         >
           <div className="flex shrink-0 items-baseline justify-between gap-4">
-            <Dialog.Title className="text-base font-medium text-ink">
-              SDR-- {about.data?.version ?? ""}
-            </Dialog.Title>
+            <Dialog.Title className={DIALOG_TITLE}>SDR-- {about.data?.version ?? ""}</Dialog.Title>
             <Dialog.Description className="legend">
               {about.data ? `${about.data.license} licensed` : "Loading…"}
             </Dialog.Description>

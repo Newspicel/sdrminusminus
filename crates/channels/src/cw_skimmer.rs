@@ -4,7 +4,7 @@ use num_complex::Complex;
 use sdrmm_dsp::{Ddc, Decimator, NoiseFloor, SpectrumAnalyzer, design_lowpass};
 use sdrmm_wire::{
     ChannelDescriptor, ChannelParams, ChannelSettings, CwSkimmerParams, CwSkimmerSpot,
-    DecoderEvent, MorseParams,
+    DecoderEvent, DecoderFamily, MorseParams,
 };
 
 use crate::{
@@ -38,6 +38,8 @@ const SPUR_RANGE_DB: f32 = 80.0;
 static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescriptor {
     type_id: "cw_skimmer".to_owned(),
     name: "CW skimmer".to_owned(),
+    summary: "Every Morse signal in the band at once".to_owned(),
+    family: DecoderFamily::Amateur,
     bandwidth_hz: 24_000.0,
     input_rate_hz: RATE,
     has_audio: false,

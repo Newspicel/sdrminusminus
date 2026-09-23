@@ -73,12 +73,7 @@ export function DfFace({ node }: { node: PatchNode }) {
   const bearing =
     verdict === "phase_unknown" || verdict === "injecting" ? null : (state?.reading ?? null);
   return (
-    <NodeShell
-      node={node}
-      title="Direction finder"
-      category="tool"
-      subtitle={`${elementCount(settings.geometry)} elements · ${tierLabel(state?.cal)}`}
-    >
+    <NodeShell node={node} title="Direction finder" category="tool">
       <FaceBody>
         <div
           className="flex flex-col items-center gap-2 p-2"
@@ -96,6 +91,7 @@ export function DfFace({ node }: { node: PatchNode }) {
               {bearing === null ? "—" : `${Math.round(bearing.confidence * 100)}%`}
             </ReadoutRow>
             <ReadoutRow label="Calibration">{CAL_VERDICT_TEXT[verdict]}</ReadoutRow>
+            <ReadoutRow label="Coherence">{tierLabel(state?.cal)}</ReadoutRow>
           </Readout>
           {state !== undefined && <LaneStrip cal={state.cal} />}
           <Button

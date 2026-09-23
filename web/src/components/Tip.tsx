@@ -27,7 +27,7 @@ export function Tip({
           sideOffset={6}
           collisionPadding={8}
         >
-          <Tooltip.Popup className={`${SURFACE} px-2 py-1 text-xs whitespace-nowrap`}>
+          <Tooltip.Popup className={`${SURFACE} max-w-72 px-2 py-1 text-xs text-balance`}>
             {text}
           </Tooltip.Popup>
         </Tooltip.Positioner>

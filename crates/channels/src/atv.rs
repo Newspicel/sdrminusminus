@@ -8,7 +8,7 @@ use sdrmm_modem::analog::{
 };
 use sdrmm_wire::{
     AtvColor, AtvModulation, AtvParams, AtvStandard, ChannelDescriptor, ChannelParams,
-    ChannelSettings,
+    ChannelSettings, DecoderFamily,
 };
 
 use crate::{
@@ -54,6 +54,8 @@ const MIN_WIDTH: u16 = 16;
 static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescriptor {
     type_id: "atv".to_owned(),
     name: "ATV".to_owned(),
+    summary: "Analog TV picture and sound".to_owned(),
+    family: DecoderFamily::Video,
     bandwidth_hz: 1_500_000.0,
     input_rate_hz: INPUT_RATE_HZ,
     has_audio: true,

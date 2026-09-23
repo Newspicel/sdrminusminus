@@ -10,7 +10,7 @@ use sdrmm_modem::{
 use sdrmm_wire::{
     BroadcastService, BroadcastServiceKind, BroadcastStatus, BroadcastSystem, ChannelDescriptor,
     ChannelParams, ChannelSettings, DatvParams, DatvRollOff, DatvStandard, DecoderEvent,
-    MAX_DATV_SYMBOL_RATE, MIN_DATV_SYMBOL_RATE,
+    DecoderFamily, MAX_DATV_SYMBOL_RATE, MIN_DATV_SYMBOL_RATE,
 };
 
 use super::{
@@ -49,6 +49,8 @@ pub fn input_rate_hz(p: &DatvParams) -> f64 {
 static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescriptor {
     type_id: "datv".to_owned(),
     name: "DATV (DVB-S / S2)".to_owned(),
+    summary: "Digital amateur TV over DVB-S and S2".to_owned(),
+    family: DecoderFamily::Broadcast,
     bandwidth_hz: occupied_hz(&DatvParams::default()),
     input_rate_hz: input_rate_hz(&DatvParams::default()),
     has_audio: true,

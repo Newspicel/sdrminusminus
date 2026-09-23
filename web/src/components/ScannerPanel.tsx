@@ -158,9 +158,8 @@ export function ScannerPanel({
                       min={0}
                       step={0.1}
                       onCommit={(startMhz) => patchRange(range.id, { startMhz })}
-                      className="w-24"
+                      unit="MHz"
                     />
-                    <span className="legend">MHz</span>
                   </SettingRow>
                   <SettingRow label="To">
                     <NumberField
@@ -170,9 +169,8 @@ export function ScannerPanel({
                       step={0.1}
                       invalid={range.stopMhz < range.startMhz}
                       onCommit={(stopMhz) => patchRange(range.id, { stopMhz })}
-                      className="w-24"
+                      unit="MHz"
                     />
-                    <span className="legend">MHz</span>
                   </SettingRow>
                   <SettingRow label="Step">
                     <NumberField
@@ -181,9 +179,8 @@ export function ScannerPanel({
                       min={MIN_STEP_KHZ}
                       step={MIN_STEP_KHZ}
                       onCommit={(stepKhz) => patchRange(range.id, { stepKhz })}
-                      className="w-24"
+                      unit="kHz"
                     />
-                    <span className="legend">kHz</span>
                   </SettingRow>
                 </SettingGroup>
               ))}
@@ -209,9 +206,8 @@ export function ScannerPanel({
                       max={60}
                       step={1}
                       onCommit={setMarginDb}
-                      className="w-24"
+                      unit="dB"
                     />
-                    <span className="legend">dB</span>
                   </SettingRow>
                 ) : (
                   <SettingRow label="Threshold">
@@ -222,9 +218,8 @@ export function ScannerPanel({
                       max={0}
                       step={1}
                       onCommit={setThresholdDb}
-                      className="w-24"
+                      unit="dB"
                     />
-                    <span className="legend">dB</span>
                   </SettingRow>
                 )}
                 {active?.capabilities.hardware_sweep === true && (

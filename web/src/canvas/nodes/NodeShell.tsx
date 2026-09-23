@@ -18,6 +18,7 @@ import { toastError } from "../../lib/toasts";
 import type { NodeCategory, PatchNode, PortSpec, PortType } from "../../lib/types";
 import { useWorkspaceContext } from "../context";
 import {
+  fitWidth,
   isPinned,
   isResizable,
   nodeMinSize,
@@ -69,6 +70,13 @@ const CATEGORY_STRIP: Record<NodeCategory, string> = {
   output: "bg-cat-output",
 };
 
+const CATEGORY_BAR: Record<NodeCategory, string> = {
+  source: "bg-cat-source/14",
+  channel: "bg-cat-channel/14",
+  tool: "bg-cat-tool/14",
+  output: "bg-cat-output/14",
+};
+
 const PORT_COLOR: Record<PortType, string> = {
   iq: "text-port-iq",
   baseband: "text-port-baseband",
@@ -111,10 +119,19 @@ export interface NodeShellProps {
   category: NodeCategory;
   subtitle?: ReactNode;
   actions?: ReactNode;
+  width?: number;
   children: ReactNode;
 }
 
-export function NodeShell({ node, title, category, subtitle, actions, children }: NodeShellProps) {
+export function NodeShell({
+  node,
+  title,
+  category,
+  subtitle,
+  actions,
+  width,
+  children,
+}: NodeShellProps) {
   const workspace = useWorkspaceContext();
   const surface = useContext(Surface);
   const remove = useRemoveNode(node);
@@ -134,8 +151,8 @@ export function NodeShell({ node, title, category, subtitle, actions, children }
   return (
     <div
       ref={portalContainer}
-      style={surface === "canvas" ? { minHeight: minimum.h } : undefined}
-      className={`relative flex h-full min-h-0 w-full flex-col border bg-panel ${
+      style={surface === "canvas" ? canvasSize(node.kind, minimum.h, width) : undefined}
+      className={`relative flex h-full min-h-0 flex-col ${surface === "canvas" && width === undefined && fitWidth(node.kind) !== null ? "w-max" : "w-full"} rounded-[4px] border bg-panel shadow-face ${
         selected ? "border-accent" : "border-line"
       }`}
     >
@@ -146,18 +163,25 @@ export function NodeShell({ node, title, category, subtitle, actions, children }
             minHeight={minimum.h}
             autoScale={false}
             lineClassName="!border-accent/40"
-            handleClassName="!size-2 !rounded-none !border-accent !bg-panel"
+            handleClassName="!size-2 !rounded-[2px] !border-accent !bg-panel"
           />
         )}
         <header
-          className={`flex h-6.5 shrink-0 items-center gap-2 border-b border-line bg-panel-2 pr-1 ${
+          className={`flex h-6.5 shrink-0 items-center gap-2 rounded-t-[3px] border-b border-line pr-1 pl-2 ${CATEGORY_BAR[category]} ${
             surface === "canvas" ? "node-drag cursor-grab active:cursor-grabbing" : ""
           }`}
         >
-          <span aria-hidden className={`h-full w-1 ${CATEGORY_STRIP[category]}`} />
-          <span className="legend truncate text-ink-dim">{node.label ?? title}</span>
+          <span
+            aria-hidden
+            className={`size-1.5 shrink-0 rounded-full ${CATEGORY_STRIP[category]}`}
+          />
+          <span className="truncate font-mono text-[11px] font-medium text-ink">
+            {node.label ?? title}
+          </span>
           {subtitle !== undefined && (
-            <span className="legend ml-auto truncate text-ink-faint">{subtitle}</span>
+            <span className="ml-auto truncate font-mono text-[10.5px] text-ink-faint">
+              {subtitle}
+            </span>
           )}
           <span
             className={`nodrag flex cursor-auto items-center gap-0.5 ${subtitle === undefined ? "ml-auto" : ""}`}
@@ -203,7 +227,7 @@ export function NodeShell({ node, title, category, subtitle, actions, children }
         </header>
 
         <div
-          className="relative flex min-h-0 flex-1 flex-col overflow-hidden nodrag nopan"
+          className="relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-b-[3px] nodrag nopan"
           onPointerDownCapture={surface === "canvas" ? () => workspace.select(node.id) : undefined}
         >
           <Active value={active}>
@@ -222,6 +246,14 @@ export function NodeShell({ node, title, category, subtitle, actions, children }
       </PortalContainerProvider>
     </div>
   );
+}
+
+function canvasSize(
+  kind: PatchNode["kind"],
+  minHeight: number,
+  width: number | undefined,
+): React.CSSProperties {
+  return width === undefined ? { minHeight, ...fitWidth(kind) } : { minHeight, width };
 }
 
 function useWheelRouting(
@@ -292,7 +324,7 @@ function PortHandle({ port, label, offset }: { port: PortSpec; label: string; of
       <span
         aria-hidden
         style={{ top: offset }}
-        className={`legend pointer-events-none absolute z-10 -translate-y-1/2 rounded-xs bg-bg/85 px-1 whitespace-nowrap select-none text-ink-faint ${
+        className={`pointer-events-none absolute z-10 -translate-y-1/2 rounded-[3px] bg-bg/85 px-1 font-mono text-[10px] whitespace-nowrap select-none text-ink-faint ${
           out ? "left-full ml-2.5" : "right-full mr-2.5"
         }`}
       >
@@ -333,7 +365,7 @@ export function FaceEmpty({ hint }: { hint?: string }) {
 
 export function FaceFooter({ children }: { children: ReactNode }) {
   return (
-    <div className="flex shrink-0 flex-wrap items-center justify-end gap-2 border-t border-line p-2">
+    <div className="flex shrink-0 flex-wrap items-center justify-end gap-2 border-t border-line px-2.5 py-2">
       {children}
     </div>
   );

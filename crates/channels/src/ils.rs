@@ -2,8 +2,8 @@ use std::{f64::consts::TAU, sync::LazyLock};
 
 use num_complex::Complex;
 use sdrmm_wire::{
-    ChannelDescriptor, ChannelParams, ChannelSettings, DecoderEvent, IlsComponent, IlsParams,
-    IlsReading,
+    ChannelDescriptor, ChannelParams, ChannelSettings, DecoderEvent, DecoderFamily, IlsComponent,
+    IlsParams, IlsReading,
 };
 
 use crate::{
@@ -17,6 +17,8 @@ const HALF_BANDWIDTH: f64 = 10_000.0;
 static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescriptor {
     type_id: "ils".to_owned(),
     name: "ILS localizer / glideslope".to_owned(),
+    summary: "ILS landing guidance deviation".to_owned(),
+    family: DecoderFamily::Aviation,
     bandwidth_hz: HALF_BANDWIDTH * 2.0,
     input_rate_hz: RATE,
     has_audio: false,

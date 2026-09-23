@@ -1,7 +1,7 @@
 import { Dialog } from "@base-ui/react/dialog";
 import { BINDINGS } from "../canvas/useHotkeys";
 import { Button } from "./BaseControls";
-import { BTN, BTN_QUIET, SURFACE } from "./controls";
+import { BTN, BTN_QUIET, DIALOG_TITLE, SURFACE } from "./controls";
 
 export function Shortcuts({
   open,
@@ -22,7 +22,7 @@ export function Shortcuts({
           className={`${SURFACE} fixed top-1/2 left-1/2 z-40 w-full max-w-md -translate-x-1/2 -translate-y-1/2 p-4`}
         >
           <div className="flex items-baseline justify-between gap-4">
-            <Dialog.Title className="text-base font-medium text-ink">Keyboard</Dialog.Title>
+            <Dialog.Title className={DIALOG_TITLE}>Keyboard</Dialog.Title>
           </div>
           <dl className="mt-3 grid grid-cols-[8rem_1fr] gap-x-4 gap-y-1.5">
             {BINDINGS.map((binding) => (

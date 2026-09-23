@@ -6,7 +6,7 @@ lists them all.
 
 ## Add a channel
 
-1. Press **+ Node** and pick a mode.
+1. Press **+ Add** and pick a mode.
 2. Wire Device `iq` to the channel's `iq`.
 3. Set the channel frequency.
 4. Wire the outputs you need:

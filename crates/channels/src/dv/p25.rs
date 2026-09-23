@@ -4,8 +4,8 @@ use num_complex::Complex;
 use sdrmm_dsp::{CyclicCode, ParityCode, crc16_msb, rs64_decode};
 use sdrmm_modem::cpm::CpmDemod;
 use sdrmm_wire::{
-    ChannelDescriptor, ChannelParams, ChannelSettings, DecoderEvent, DvFrame, DvFrameKind, DvMode,
-    P25Params, Vendor,
+    ChannelDescriptor, ChannelParams, ChannelSettings, DecoderEvent, DecoderFamily, DvFrame,
+    DvFrameKind, DvMode, P25Params, Vendor,
 };
 
 use super::{INPUT_RATE_HZ, SymbolWindow, c4fm_demod, c4fm_params, tap_c4fm, vocoder::MbeDecoder};
@@ -41,6 +41,8 @@ const DUID_TERMINATOR_LC: u8 = 0xF;
 static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescriptor {
     type_id: "p25".to_owned(),
     name: "P25 Phase 1".to_owned(),
+    summary: "P25 public safety voice".to_owned(),
+    family: DecoderFamily::DigitalVoice,
     bandwidth_hz: BANDWIDTH_HZ,
     input_rate_hz: INPUT_RATE_HZ,
     has_audio: true,

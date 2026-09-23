@@ -7,8 +7,8 @@ use sdrmm_modem::{
     pulse::{self, Norm},
 };
 use sdrmm_wire::{
-    ChannelDescriptor, ChannelParams, ChannelSettings, DecoderEvent, ErmesMessage, ErmesParams,
-    PagerPayload,
+    ChannelDescriptor, ChannelParams, ChannelSettings, DecoderEvent, DecoderFamily, ErmesMessage,
+    ErmesParams, PagerPayload,
 };
 
 use crate::{ChannelCtx, ChannelError, ChannelFilter, ChannelOutputs, ChannelRx, check_input_rate};
@@ -26,6 +26,8 @@ const MAX_TEXT: usize = 4_096;
 static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescriptor {
     type_id: "ermes".to_owned(),
     name: "ERMES pager".to_owned(),
+    summary: "ERMES pager messages".to_owned(),
+    family: DecoderFamily::Paging,
     bandwidth_hz: 12_500.0,
     input_rate_hz: RATE,
     has_audio: false,

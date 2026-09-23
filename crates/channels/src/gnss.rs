@@ -6,7 +6,8 @@ use std::{
 use num_complex::Complex;
 use rustfft::{Fft, FftPlanner};
 use sdrmm_wire::{
-    ChannelDescriptor, ChannelParams, ChannelSettings, DecoderEvent, GnssFrame, GnssParams,
+    ChannelDescriptor, ChannelParams, ChannelSettings, DecoderEvent, DecoderFamily, GnssFrame,
+    GnssParams,
 };
 
 use crate::{ChannelCtx, ChannelError, ChannelFilter, ChannelOutputs, ChannelRx, check_input_rate};
@@ -19,6 +20,8 @@ const DOPPLER_STEP_HZ: i32 = 500;
 static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescriptor {
     type_id: "gnss".to_owned(),
     name: "GNSS lab (GPS L1 C/A)".to_owned(),
+    summary: "GPS satellite acquisition and tracking".to_owned(),
+    family: DecoderFamily::Utility,
     bandwidth_hz: 2_046_000.0,
     input_rate_hz: RATE,
     has_audio: false,

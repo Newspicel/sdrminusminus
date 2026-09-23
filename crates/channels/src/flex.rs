@@ -3,8 +3,8 @@ use std::{f32::consts::TAU, sync::LazyLock};
 use num_complex::Complex;
 use sdrmm_dsp::{Decimator, design_lowpass, hamming_distance, pocsag_bch_decode};
 use sdrmm_wire::{
-    ChannelDescriptor, ChannelParams, ChannelSettings, DecoderEvent, FlexMessage, FlexParams,
-    PagerPayload,
+    ChannelDescriptor, ChannelParams, ChannelSettings, DecoderEvent, DecoderFamily, FlexMessage,
+    FlexParams, PagerPayload,
 };
 
 use crate::{ChannelCtx, ChannelError, ChannelFilter, ChannelOutputs, ChannelRx, check_input_rate};
@@ -21,6 +21,8 @@ const MAX_TEXT: usize = 256;
 static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescriptor {
     type_id: "flex".to_owned(),
     name: "FLEX pager".to_owned(),
+    summary: "FLEX pager messages".to_owned(),
+    family: DecoderFamily::Paging,
     bandwidth_hz: 12_500.0,
     input_rate_hz: RATE,
     has_audio: false,

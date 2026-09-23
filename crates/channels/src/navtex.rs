@@ -6,7 +6,8 @@ use sdrmm_dsp::{BitSync, Decimator, FmDemod, RealDecimator, design_lowpass};
 use sdrmm_modem::cpm::{CpmParams, Mapping};
 use sdrmm_modem::pulse::{self, Norm};
 use sdrmm_wire::{
-    ChannelDescriptor, ChannelParams, ChannelSettings, DecoderEvent, NavtexMessage, NavtexParams,
+    ChannelDescriptor, ChannelParams, ChannelSettings, DecoderEvent, DecoderFamily, NavtexMessage,
+    NavtexParams,
 };
 
 use crate::{
@@ -93,6 +94,8 @@ const MAX_BODY_CHARS: usize = 10_000;
 static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescriptor {
     type_id: "navtex".to_owned(),
     name: "NAVTEX".to_owned(),
+    summary: "Maritime safety text broadcasts".to_owned(),
+    family: DecoderFamily::Marine,
     bandwidth_hz: 600.0,
     input_rate_hz: 8_000.0,
     has_audio: false,

@@ -142,8 +142,8 @@ impl WorkspaceSnapshot {
                     0.0,
                     0.0,
                 ),
-                node("scope", NodeBody::Scope, 420.0, 0.0),
-                node("speaker", NodeBody::Speaker, 420.0, 380.0),
+                node("scope", NodeBody::Scope, 500.0, 0.0),
+                node("speaker", NodeBody::Speaker, 500.0, 380.0),
             ],
             edges: vec![crate::patch::PatchEdge {
                 from: crate::patch::PortRef {

@@ -16,7 +16,7 @@ import { Icon } from "./Icon";
 import { NumberField } from "./NumberField";
 import { Segmented } from "./Segmented";
 import { SettingGroup, SettingRow } from "./Settings";
-import { Slider } from "./Slider";
+import { SliderField } from "./Slider";
 import { useDebouncedCommit } from "./useDebouncedCommit";
 
 const AGC_MODES: Options<AudioAgcMode> = [
@@ -101,20 +101,21 @@ export function AudioControls({
             checked={blanker.enabled ?? false}
             onChange={(enabled) => edit({ blanker: { ...blanker, enabled } })}
           />
-          <Slider
+          <SliderField
             label="Noise blanker threshold"
-            className="min-w-0 flex-1"
             disabled={!(blanker.enabled ?? false)}
             min={AUDIO_LIMITS.blankerThreshold.min}
             max={AUDIO_LIMITS.blankerThreshold.max}
             step={0.5}
             value={blankerSlider.pending ?? blankerThreshold}
             onChange={blankerSlider.change}
+            readout={
+              <>
+                {(blankerSlider.pending ?? blankerThreshold).toFixed(1)}
+                <span className="text-ink-faint">×</span>
+              </>
+            }
           />
-          <span className="w-10 shrink-0 text-right font-mono text-xs tabular-nums">
-            {(blankerSlider.pending ?? blankerThreshold).toFixed(1)}
-            <span className="text-ink-faint">×</span>
-          </span>
         </SettingRow>
 
         <SettingRow label="De-click">
@@ -123,20 +124,21 @@ export function AudioControls({
             checked={clicks.enabled ?? false}
             onChange={(enabled) => edit({ click_removal: { ...clicks, enabled } })}
           />
-          <Slider
+          <SliderField
             label="Click threshold"
-            className="min-w-0 flex-1"
             disabled={!(clicks.enabled ?? false)}
             min={AUDIO_LIMITS.clickThreshold.min}
             max={AUDIO_LIMITS.clickThreshold.max}
             step={0.5}
             value={clickSlider.pending ?? clickThreshold}
             onChange={clickSlider.change}
+            readout={
+              <>
+                {(clickSlider.pending ?? clickThreshold).toFixed(1)}
+                <span className="text-ink-faint">×</span>
+              </>
+            }
           />
-          <span className="w-10 shrink-0 text-right font-mono text-xs tabular-nums">
-            {(clickSlider.pending ?? clickThreshold).toFixed(1)}
-            <span className="text-ink-faint">×</span>
-          </span>
         </SettingRow>
 
         <SettingRow label="Denoise">
@@ -145,29 +147,29 @@ export function AudioControls({
             checked={denoise.enabled ?? false}
             onChange={(enabled) => edit({ denoise: { ...denoise, enabled } })}
           />
-          <Slider
+          <SliderField
             label="Noise reduction strength"
-            className="min-w-0 flex-1"
             disabled={!(denoise.enabled ?? false)}
             min={0}
             max={1}
             step={0.05}
             value={denoiseSlider.pending ?? denoiseStrength}
             onChange={denoiseSlider.change}
+            readout={
+              <>
+                {Math.round((denoiseSlider.pending ?? denoiseStrength) * 100)}
+                <span className="text-ink-faint">%</span>
+              </>
+            }
           />
-          <span className="w-10 shrink-0 text-right font-mono text-xs tabular-nums">
-            {Math.round((denoiseSlider.pending ?? denoiseStrength) * 100)}
-            <span className="text-ink-faint">%</span>
-          </span>
         </SettingRow>
 
-        <SettingRow label="Auto notch">
+        <SettingRow label="Auto notch" title="Finds and removes steady carriers">
           <Checkbox
             label="Automatic notch"
             checked={audio.auto_notch ?? false}
             onChange={(auto_notch) => edit({ auto_notch })}
           />
-          <span className="text-xs text-ink-dim">finds steady carriers by itself</span>
         </SettingRow>
 
         <SettingRow label="Passband">
@@ -233,17 +235,18 @@ function NotchRow({
         min={AUDIO_LIMITS.toneHz.min}
         max={AUDIO_LIMITS.toneHz.max}
         step={10}
-        className="w-20"
+        className="w-28"
+        unit="Hz"
         onCommit={(freq_hz) => onEdit({ freq_hz })}
       />
-      <span className="legend">Hz wide</span>
       <NumberField
         label={`Notch ${index + 1} width (Hz)`}
         value={notch.width_hz ?? AUDIO_DEFAULTS.notchWidthHz}
         min={AUDIO_LIMITS.notchWidthHz.min}
         max={AUDIO_LIMITS.notchWidthHz.max}
         step={10}
-        className="w-20"
+        className="w-28"
+        unit="wide"
         onCommit={(width_hz) => onEdit({ width_hz })}
       />
       <Button

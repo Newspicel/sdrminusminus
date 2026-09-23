@@ -862,7 +862,7 @@ Opened at runtime from whatever SoapySDR the host has installed, and never linke
 | [zvariant_derive](https://github.com/z-galaxy/zbus/) | 5.15.0 | MIT |
 | [zvariant_utils](https://github.com/z-galaxy/zbus/) | 4.2.0 | MIT |
 
-## Web packages (69)
+## Web packages (70)
 
 | Component | Version | License |
 | --- | --- | --- |
@@ -874,6 +874,7 @@ Opened at runtime from whatever SoapySDR the host has installed, and never linke
 | [@floating-ui/dom](https://floating-ui.com) | 1.8.0 | MIT |
 | [@floating-ui/react-dom](https://floating-ui.com/docs/react-dom) | 2.1.9 | MIT |
 | [@floating-ui/utils](https://floating-ui.com) | 0.2.12 | MIT |
+| [@fontsource-variable/jetbrains-mono](https://fontsource.org/fonts/jetbrains-mono) | 5.3.0 | OFL-1.1 |
 | [@mapbox/jsonlint-lines-primitives](https://github.com/mapbox/jsonlint#readme) | 2.0.3 | MIT |
 | [@mapbox/point-geometry](https://github.com/mapbox/point-geometry) | 1.1.0 | ISC |
 | [@mapbox/tiny-sdf](https://github.com/mapbox/tiny-sdf#readme) | 2.2.0 | BSD-2-Clause |

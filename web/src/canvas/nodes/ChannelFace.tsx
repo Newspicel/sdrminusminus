@@ -2,7 +2,12 @@ import { useQuery } from "@tanstack/react-query";
 import { Button } from "../../components/BaseControls";
 import { ChannelControls, ChannelDial } from "../../components/ChannelControls";
 import { Checkbox } from "../../components/Checkbox";
-import { radioWindowHz, reachesHz, squelchLevelDb } from "../../components/channelSettings";
+import {
+  channelHasAudio,
+  radioWindowHz,
+  reachesHz,
+  squelchLevelDb,
+} from "../../components/channelSettings";
 import { BTN_PRIMARY } from "../../components/controls";
 import { ANY_FREQUENCY, tuningRange } from "../../components/dial";
 import { dialId } from "../../components/FrequencyDial";
@@ -31,6 +36,8 @@ import {
   radioRefsOf,
 } from "./channelNode";
 import { FaceBody, FaceFooter, NodeShell } from "./NodeShell";
+
+const AUDIO_FACE_W = 460;
 
 type ChannelNodeData = PatchNodeOf<"channel">["data"];
 
@@ -103,7 +110,13 @@ export function ChannelFace({ node }: { node: PatchNode }) {
   const action = live === null ? channelBindingAction(binding) : null;
 
   return (
-    <NodeShell node={node} title={name} category="channel" subtitle={status}>
+    <NodeShell
+      node={node}
+      title={name}
+      category="channel"
+      subtitle={status}
+      width={channelHasAudio(descriptor) ? AUDIO_FACE_W : undefined}
+    >
       <FaceBody>
         {settings !== null && (
           <div className="@container flex flex-col gap-1.5 border-b border-line p-2">
@@ -182,7 +195,9 @@ function faceStatus({
   carrier: string | null;
 }) {
   if (!live) {
-    return <span title={channelBindingHint(binding)}>{channelBindingStatus(binding)}</span>;
+    return binding === "unwired" ? undefined : (
+      <span title={channelBindingHint(binding)}>{channelBindingStatus(binding)}</span>
+    );
   }
   if (driver !== null) {
     return <span title="Tuned by the node on its control input">{driver}</span>;

@@ -13,14 +13,6 @@ export const WEBHOOK_FORMATS = [
   { value: "discord", label: "Discord" },
 ] as const;
 
-export const SERVICE_LABELS: Record<EventOutputTarget["service"], string> = {
-  beast: "ADS-B Beast TCP",
-  webhook: "Webhook",
-  matrix: "Matrix",
-  mqtt: "MQTT",
-  tunnel: "Network interface",
-};
-
 export function newOutputTarget(service: EventOutputTarget["service"]): EventOutputTarget {
   switch (service) {
     case "beast":

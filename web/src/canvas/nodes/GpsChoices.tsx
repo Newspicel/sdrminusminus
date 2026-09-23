@@ -171,7 +171,7 @@ function FixedForm({ onChoose }: { onChoose: Choose }) {
         max={90}
         step={0.00001}
         onCommit={setLat}
-        className="w-24 text-center"
+        className="w-24"
       />
       <span className={LABEL}>Lon</span>
       <NumberField
@@ -181,7 +181,7 @@ function FixedForm({ onChoose }: { onChoose: Choose }) {
         max={180}
         step={0.00001}
         onCommit={setLon}
-        className="w-24 text-center"
+        className="w-24"
       />
       <Button type="submit" className={BTN} title="Use these coordinates as the position">
         Set

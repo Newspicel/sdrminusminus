@@ -8,7 +8,9 @@ use sdrmm_dsp::{FirC, RealDecimator, design_bandpass, design_lowpass};
 use sdrmm_modem::analog::{
     Sideband as EngineSideband, SsbDemod, SsbDetector, SsbMethod, SsbParams as SsbWaveform,
 };
-use sdrmm_wire::{ChannelDescriptor, ChannelParams, ChannelSettings, Sideband, SsbParams};
+use sdrmm_wire::{
+    ChannelDescriptor, ChannelParams, ChannelSettings, DecoderFamily, Sideband, SsbParams,
+};
 
 use crate::{
     AUDIO_RATE, ChannelCtx, ChannelError, ChannelOutputs, ChannelRx, ChannelTx, TxPayload,
@@ -22,6 +24,8 @@ const FILTER_TAPS: usize = 257;
 static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescriptor {
     type_id: "ssb".to_owned(),
     name: "SSB".to_owned(),
+    summary: "Single sideband voice, USB or LSB".to_owned(),
+    family: DecoderFamily::AnalogVoice,
     bandwidth_hz: 3_000.0,
     input_rate_hz: 48_000.0,
     has_audio: true,

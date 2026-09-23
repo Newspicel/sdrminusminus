@@ -8,7 +8,7 @@ import {
   FIELD,
   ICON_BTN_SM,
   LABEL,
-  segment,
+  listItem,
 } from "../components/controls";
 import { Icon } from "../components/Icon";
 import { workspaceExportUrl } from "../lib/api";
@@ -172,7 +172,7 @@ function WorkspaceRow({
     <div className="group flex items-center gap-1">
       <Button
         type="button"
-        className={`${segment(active)} min-w-0 flex-1 justify-start`}
+        className={`${listItem(active, false)} min-w-0 flex-1`}
         aria-pressed={active}
         onClick={() => onActivate(workspace.id)}
       >

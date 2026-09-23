@@ -35,7 +35,7 @@ export function OffsetStepper({
         max={limitKhz}
         step={0.5}
         onCommit={(khz) => onOffset(clampOffsetHz(Math.round(khz * 1000), limitHz))}
-        className="w-20 text-center"
+        className="w-20"
       />
       {UP_HZ.map((hz) => (
         <StepButton key={hz} hz={hz} onStep={step} />

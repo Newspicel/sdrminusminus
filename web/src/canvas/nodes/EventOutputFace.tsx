@@ -10,7 +10,6 @@ import {
   eventOutputConfigured,
   newOutputTarget,
   OUTPUT_SERVICES,
-  SERVICE_LABELS,
   WEBHOOK_FORMATS,
 } from "./eventOutput";
 import { FaceBody, FaceEmpty, NodeShell } from "./NodeShell";
@@ -38,12 +37,7 @@ function EventOutputNodeFace({ node }: { node: PatchNodeOf<"event_output"> }) {
     }));
   };
   return (
-    <NodeShell
-      node={node}
-      title="Event output"
-      category="output"
-      subtitle={SERVICE_LABELS[target.service]}
-    >
+    <NodeShell node={node} title="Event output" category="output">
       <FaceBody>
         <Settings className="border-b border-line p-2">
           <SettingRow label="Service">

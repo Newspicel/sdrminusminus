@@ -99,12 +99,7 @@ export function PropagationFace({ node }: { node: PatchNode }) {
   }
 
   return (
-    <NodeShell
-      node={node}
-      title="Propagation map"
-      category="output"
-      subtitle={wired.length > 0 ? `${wired.length} in` : undefined}
-    >
+    <NodeShell node={node} title="Propagation map" category="output">
       <FaceBody scroll={false}>
         <Propagation
           node={node}

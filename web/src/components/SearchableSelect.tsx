@@ -1,6 +1,6 @@
 import { Combobox } from "@base-ui/react/combobox";
 import { ChevronDown } from "lucide-react";
-import { FIELD, type Options, SURFACE, segment } from "./controls";
+import { FIELD, listItem, type Options, SURFACE } from "./controls";
 import { Icon } from "./Icon";
 import { usePortalContainer } from "./PortalContainer";
 import { type Choice, optionMatches } from "./selectFilter";
@@ -72,11 +72,7 @@ export function SearchableSelect<T extends string | number>({
                 <Combobox.Item
                   key={String(item.value)}
                   value={item}
-                  className={(state) =>
-                    `${segment(state.selected)} text-left ${
-                      state.highlighted && !state.selected ? "bg-panel-2 text-ink" : ""
-                    }`
-                  }
+                  className={(state) => `${listItem(state.selected, state.highlighted)} text-left`}
                 >
                   <span className="truncate">{item.label}</span>
                 </Combobox.Item>

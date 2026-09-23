@@ -3,7 +3,8 @@ use std::sync::LazyLock;
 use num_complex::Complex;
 use sdrmm_dsp::{Decimator, Envelope, KeyingSlicer, design_lowpass};
 use sdrmm_wire::{
-    ChannelDescriptor, ChannelParams, ChannelSettings, DecoderEvent, MorseParams, MorseText,
+    ChannelDescriptor, ChannelParams, ChannelSettings, DecoderEvent, DecoderFamily, MorseParams,
+    MorseText,
 };
 
 use crate::{ChannelCtx, ChannelError, ChannelFilter, ChannelOutputs, ChannelRx, check_input_rate};
@@ -36,6 +37,8 @@ const FIT_MARKS: u32 = 3;
 static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescriptor {
     type_id: "morse".to_owned(),
     name: "Morse (CW)".to_owned(),
+    summary: "One Morse signal to text".to_owned(),
+    family: DecoderFamily::Amateur,
     bandwidth_hz: 400.0,
     input_rate_hz: 8_000.0,
     has_audio: false,

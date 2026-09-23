@@ -1,7 +1,7 @@
 import { Tabs } from "@base-ui/react/tabs";
 import { BandsPanel } from "../components/BandsPanel";
 import { BookmarksPanel } from "../components/BookmarksPanel";
-import { segment } from "../components/controls";
+import { TAB_BAR, tab } from "../components/controls";
 import { OccupancyPanel } from "../components/OccupancyPanel";
 import { PresetsPanel } from "../components/PresetsPanel";
 import { RecordingsPanel } from "../components/RecordingsPanel";
@@ -56,12 +56,9 @@ export function Library({ onOpenTool }: { onOpenTool: (id: string) => void }) {
 
   return (
     <Tabs.Root defaultValue="templates" className="flex flex-col overflow-hidden rounded-md">
-      <Tabs.List
-        className="flex shrink-0 items-center gap-0.5 border-b border-line bg-panel-2 px-2 py-1.5"
-        aria-label="Library section"
-      >
+      <Tabs.List className={`${TAB_BAR} shrink-0 px-1`} aria-label="Library section">
         {TABS.map((entry) => (
-          <Tabs.Tab key={entry.id} value={entry.id} className={(state) => segment(state.active)}>
+          <Tabs.Tab key={entry.id} value={entry.id} className={(state) => tab(state.active)}>
             {entry.label}
           </Tabs.Tab>
         ))}

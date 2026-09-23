@@ -12,6 +12,7 @@ import { type ReactNode, useCallback, useEffect, useLayoutEffect, useRef, useSta
 import { Button } from "../components/BaseControls";
 import { BTN_QUIET, SURFACE } from "../components/controls";
 import type { PatchGraph, PatchNode } from "../lib/types";
+import { CanvasPalette, type ScreenPoint } from "./CanvasPalette";
 import { useClipboard } from "./clipboard";
 import { useWorkspaceContext } from "./context";
 import {
@@ -134,6 +135,7 @@ export function Canvas() {
 
   const [menu, setMenu] = useState<Menu | null>(null);
   const [replacing, setReplacing] = useState<string | null>(null);
+  const [adding, setAdding] = useState<ScreenPoint | null>(null);
   const openMenu = useCallback((event: React.MouseEvent, target: Menu["target"]) => {
     event.preventDefault();
     setMenu({ x: event.clientX, y: event.clientY, target });
@@ -141,7 +143,7 @@ export function Canvas() {
   const replaced = replacing === null ? undefined : nodeOf(workspace.graph, replacing);
 
   const select = workspace.select;
-  const claimed = menu !== null || workspace.expanded !== null;
+  const claimed = menu !== null || adding !== null || workspace.expanded !== null;
   useEffect(() => {
     if (claimed) {
       return;
@@ -160,7 +162,17 @@ export function Canvas() {
   }, [claimed, select, setNodes]);
 
   return (
-    <div className="relative flex min-h-0 flex-1 flex-col">
+    <div
+      className="relative flex min-h-0 flex-1 flex-col"
+      onDoubleClick={(event) => {
+        if (
+          event.target instanceof Element &&
+          event.target.classList.contains("react-flow__pane")
+        ) {
+          setAdding({ x: event.clientX, y: event.clientY });
+        }
+      }}
+    >
       <ReactFlow
         nodes={nodes}
         edges={edges}
@@ -181,6 +193,7 @@ export function Canvas() {
         onEdgeContextMenu={(event, edge) => openMenu(event, { kind: "edge", id: edge.id })}
         onPaneContextMenu={(event) => openMenu(event as React.MouseEvent, { kind: "pane" })}
         deleteKeyCode={workspace.expanded === null ? DELETE_KEYS : null}
+        zoomOnDoubleClick={false}
         panOnScroll
         panOnScrollSpeed={1}
         fitView
@@ -193,8 +206,14 @@ export function Canvas() {
         <Background variant={BackgroundVariant.Dots} gap={24} size={1} className="!bg-bg" />
       </ReactFlow>
       {menu !== null && (
-        <ContextMenu menu={menu} onClose={() => setMenu(null)} onReplace={setReplacing} />
+        <ContextMenu
+          menu={menu}
+          onClose={() => setMenu(null)}
+          onReplace={setReplacing}
+          onAdd={setAdding}
+        />
       )}
+      {adding !== null && <CanvasPalette at={adding} onClose={() => setAdding(null)} />}
       {replaced !== undefined && (
         <ReplaceDecoder node={replaced} onClose={() => setReplacing(null)} />
       )}
@@ -212,10 +231,12 @@ function ContextMenu({
   menu,
   onClose,
   onReplace,
+  onAdd,
 }: {
   menu: Menu;
   onClose: () => void;
   onReplace: (node: string) => void;
+  onAdd: (at: ScreenPoint) => void;
 }) {
   const workspace = useWorkspaceContext();
   const { fitView } = useReactFlow();
@@ -266,6 +287,9 @@ function ContextMenu({
   );
 
   const items: ReactNode[] = [];
+  if (menu.target.kind === "pane") {
+    items.push(item("Add node here", () => onAdd({ x: menu.x, y: menu.y })));
+  }
   if (node !== undefined) {
     const full = workspace.expanded === node.id;
     if (node.kind === "channel") {
@@ -339,7 +363,7 @@ function toFlowNodes(graph: PatchGraph): Node<FlowData>[] {
       type: node.kind,
       position: node.position,
       data: { node },
-      width: size.w,
+      width: isResizable(node.kind) ? size.w : undefined,
       height: size.h,
       dragHandle: ".node-drag",
     };

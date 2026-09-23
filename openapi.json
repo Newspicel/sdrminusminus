@@ -7090,6 +7090,9 @@
               }
             ]
           },
+          "family": {
+            "$ref": "#/components/schemas/DecoderFamily"
+          },
           "has_audio": {
             "type": "boolean"
           },
@@ -7111,6 +7114,9 @@
           },
           "needs_position": {
             "type": "boolean"
+          },
+          "summary": {
+            "type": "string"
           },
           "type_id": {
             "type": "string"
@@ -10827,6 +10833,20 @@
               }
             }
           }
+        ]
+      },
+      "DecoderFamily": {
+        "type": "string",
+        "enum": [
+          "analog_voice",
+          "digital_voice",
+          "aviation",
+          "marine",
+          "amateur",
+          "paging",
+          "video",
+          "broadcast",
+          "utility"
         ]
       },
       "DecoderLogEntry": {
@@ -16090,6 +16110,9 @@
             "items": {
               "$ref": "#/components/schemas/PortSpec"
             }
+          },
+          "summary": {
+            "type": "string"
           }
         }
       },

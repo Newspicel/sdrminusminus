@@ -7,8 +7,8 @@ use sdrmm_dsp::{
 };
 use sdrmm_modem::cpm::CpmDemod;
 use sdrmm_wire::{
-    ChannelDescriptor, ChannelParams, ChannelSettings, DecoderEvent, DvFrame, DvFrameKind, DvMode,
-    M17Params,
+    ChannelDescriptor, ChannelParams, ChannelSettings, DecoderEvent, DecoderFamily, DvFrame,
+    DvFrameKind, DvMode, M17Params,
 };
 
 use super::{
@@ -64,6 +64,8 @@ const CALLSIGN_ALPHABET: &[u8; 40] = b" ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-/."
 static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescriptor {
     type_id: "m17".to_owned(),
     name: "M17".to_owned(),
+    summary: "M17 open amateur digital voice".to_owned(),
+    family: DecoderFamily::DigitalVoice,
     bandwidth_hz: BANDWIDTH_HZ,
     input_rate_hz: INPUT_RATE_HZ,
     has_audio: true,

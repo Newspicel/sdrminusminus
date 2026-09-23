@@ -4,7 +4,7 @@ use num_complex::Complex;
 use sdrmm_dsp::{Decimator, Soft, design_lowpass};
 use sdrmm_wire::{
     BroadcastService, BroadcastServiceKind, BroadcastStatus, BroadcastSystem, ChannelDescriptor,
-    ChannelParams, ChannelSettings, DabMode, DabParams, DecoderEvent,
+    ChannelParams, ChannelSettings, DabMode, DabParams, DecoderEvent, DecoderFamily,
 };
 
 use super::{
@@ -32,6 +32,8 @@ const LOCK_QUALITY: f32 = 0.5;
 static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescriptor {
     type_id: "dab".to_owned(),
     name: "DAB / DAB+".to_owned(),
+    summary: "DAB and DAB+ digital radio".to_owned(),
+    family: DecoderFamily::Broadcast,
     bandwidth_hz: BANDWIDTH_HZ,
     input_rate_hz: INPUT_RATE_HZ,
     has_audio: true,

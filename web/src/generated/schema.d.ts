@@ -2120,6 +2120,7 @@ export interface components {
             can_transmit?: boolean;
             decoder_kind?: string | null;
             defaults?: null | components["schemas"]["ChannelSettings"];
+            family?: components["schemas"]["DecoderFamily"];
             has_audio?: boolean;
             has_video?: boolean;
             /** Format: double */
@@ -2127,6 +2128,7 @@ export interface components {
             limits?: components["schemas"]["ParamLimit"][];
             name: string;
             needs_position?: boolean;
+            summary?: string;
             type_id: string;
         };
         ChannelInfo: {
@@ -3069,6 +3071,8 @@ export interface components {
             /** @enum {string} */
             kind: "dect";
         };
+        /** @enum {string} */
+        DecoderFamily: "analog_voice" | "digital_voice" | "aviation" | "marine" | "amateur" | "paging" | "video" | "broadcast" | "utility";
         DecoderLogEntry: {
             at: string;
             /** Format: int32 */
@@ -4493,6 +4497,7 @@ export interface components {
             name: string;
             needs_channel_type?: boolean;
             ports: components["schemas"]["PortSpec"][];
+            summary?: string;
         };
         NoiseBlankerSettings: {
             enabled?: boolean;

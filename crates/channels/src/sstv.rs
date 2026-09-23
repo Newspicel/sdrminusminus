@@ -8,8 +8,8 @@ use modes::{
 use num_complex::Complex;
 use sdrmm_dsp::{FirC, FmDemod, design_lowpass};
 use sdrmm_wire::{
-    ChannelDescriptor, ChannelParams, ChannelSettings, DecoderEvent, SstvMode, SstvParams,
-    SstvPicture,
+    ChannelDescriptor, ChannelParams, ChannelSettings, DecoderEvent, DecoderFamily, SstvMode,
+    SstvParams, SstvPicture,
 };
 
 use crate::{
@@ -50,6 +50,8 @@ pub(crate) const SOURCE: &str = "sstv";
 static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescriptor {
     type_id: "sstv".to_owned(),
     name: "SSTV".to_owned(),
+    summary: "Slow scan TV pictures".to_owned(),
+    family: DecoderFamily::Video,
     bandwidth_hz: AUDIO_HIGH_HZ - AUDIO_LOW_HZ,
     input_rate_hz: INPUT_RATE_HZ,
     has_audio: false,

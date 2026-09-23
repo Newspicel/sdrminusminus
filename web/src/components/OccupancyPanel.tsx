@@ -4,8 +4,8 @@ import { tuneDelta } from "../canvas/nodes/deviceNode";
 import { occupancyQuery } from "../lib/api";
 import type { DeviceSet } from "../lib/types";
 import { useDevicePatch } from "../lib/useDevicePatch";
-import { Button, Input } from "./BaseControls";
-import { FIELD, segment } from "./controls";
+import type { Options } from "./controls";
+import { List, ListRow, Panel, PanelHint, PanelToolbar, SearchField } from "./ListPanel";
 import {
   busiestHour,
   dutyAlpha,
@@ -18,10 +18,11 @@ import {
   type OccupancySort,
   occupancyRows,
 } from "./occupancy";
+import { Segmented } from "./Segmented";
 
-const SORTS: { id: OccupancySort; label: string }[] = [
-  { id: "busiest", label: "Busiest" },
-  { id: "frequency", label: "Frequency" },
+const SORTS: Options<OccupancySort> = [
+  { value: "busiest", label: "Busiest" },
+  { value: "frequency", label: "Frequency" },
 ];
 
 const MIN_SAMPLES = 30;
@@ -35,96 +36,77 @@ export function OccupancyPanel({ active }: { active: DeviceSet | null }) {
   const rows = occupancyRows(report.data ?? null, sort, query);
 
   return (
-    <div className="flex flex-col gap-2 p-3">
-      {active === null && <span className="text-sm text-ink-dim">Select a device node first.</span>}
-
-      <div className="flex items-center gap-1">
-        {SORTS.map((entry) => (
-          <Button
-            key={entry.id}
-            type="button"
-            className={segment(sort === entry.id)}
-            aria-pressed={sort === entry.id}
-            onClick={() => setSort(entry.id)}
-          >
-            {entry.label}
-          </Button>
-        ))}
-      </div>
-
-      <Input
-        className={FIELD}
-        placeholder="145.5, 433…"
-        value={query}
-        onChange={(event) => setQuery(event.target.value)}
-        aria-label="Filter occupancy by frequency"
-      />
-
-      {report.isLoading && <span className="text-sm text-ink-dim">Reading the statistics…</span>}
+    <Panel>
+      {active === null && <PanelHint>Select a device node first.</PanelHint>}
+      <PanelToolbar>
+        <Segmented label="Sort occupancy" value={sort} options={SORTS} onChange={setSort} />
+        <SearchField
+          placeholder="145.5, 433…"
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          aria-label="Filter occupancy by frequency"
+        />
+      </PanelToolbar>
+      {report.isLoading && <PanelHint>Reading the statistics…</PanelHint>}
       {!report.isLoading && !hasOccupancy(report.data ?? null) && (
-        <span className="text-sm text-ink-dim">Nothing measured yet.</span>
+        <PanelHint>Nothing measured yet.</PanelHint>
       )}
-
       {rows.length > 0 && (
-        <>
-          <div className="flex items-center gap-2">
-            <span className="w-24 shrink-0" />
-            <div className="legend flex min-w-0 flex-1 justify-between text-ink-dim">
+        <List
+          aside={
+            <span className="legend flex flex-1 justify-between pr-12 pl-24">
               {[0, 6, 12, 18].map((hour) => (
                 <span key={hour}>{formatHour(hour)}</span>
               ))}
-            </div>
-            <span className="w-10 shrink-0" />
-          </div>
-
+            </span>
+          }
+        >
           {rows.map((bucket) => {
             const peak = busiestHour(bucket);
             return (
-              <Button
+              <ListRow
                 key={bucket.freq_hz}
-                type="button"
-                disabled={active === null}
-                className="flex w-full items-center gap-2 rounded-[3px] text-left hover:bg-panel-2 disabled:cursor-default disabled:hover:bg-transparent"
-                title={
+                primary={
+                  <span className="flex items-center gap-2">
+                    <span className="w-20 shrink-0 tabular-nums">
+                      {formatBucketHz(bucket.freq_hz)}
+                    </span>
+                    <span className="flex min-w-0 flex-1 gap-px">
+                      {Array.from({ length: HOURS }, (_, hour) => (
+                        <span
+                          key={hour}
+                          className="h-3 min-w-0 flex-1 rounded-[1px] bg-accent"
+                          style={{ opacity: dutyAlpha(bucket.by_hour[hour] ?? 0) }}
+                        />
+                      ))}
+                    </span>
+                    <span className="w-10 shrink-0 text-right text-ink-dim tabular-nums">
+                      {formatDuty(bucket.duty)}
+                    </span>
+                  </span>
+                }
+                hint={
                   peak === null
                     ? `${formatBucketHz(bucket.freq_hz)}, ${bucket.samples} observations`
-                    : `${formatBucketHz(bucket.freq_hz)}, busiest around ${formatHour(peak)}, ${
-                        bucket.samples
-                      } observations`
+                    : `${formatBucketHz(bucket.freq_hz)}, busiest around ${formatHour(peak)}, ${bucket.samples} observations`
                 }
-                onClick={() => {
+                disabled={active === null}
+                onSelect={() => {
                   if (active !== null) {
                     applyPatch(active.id, tuneDelta(active.capabilities, 0, bucket.freq_hz));
                   }
                 }}
-              >
-                <span className="w-24 shrink-0 font-mono text-xs tabular-nums">
-                  {formatBucketHz(bucket.freq_hz)}
-                </span>
-                <span className="flex min-w-0 flex-1 gap-px">
-                  {Array.from({ length: HOURS }, (_, hour) => (
-                    <span
-                      key={hour}
-                      className="h-3 min-w-0 flex-1 rounded-[1px] bg-accent"
-                      style={{ opacity: dutyAlpha(bucket.by_hour[hour] ?? 0) }}
-                    />
-                  ))}
-                </span>
-                <span className="legend w-10 shrink-0 text-right tabular-nums">
-                  {formatDuty(bucket.duty)}
-                </span>
-              </Button>
+              />
             );
           })}
-
-          {(report.data?.buckets.length ?? 0) > rows.length && (
-            <span className="legend text-ink-dim">
-              {rows.length} of {report.data?.buckets.length} frequencies — the busiest
-              {rows.length === MAX_ROWS ? " fit here" : " match"}.
-            </span>
-          )}
-        </>
+        </List>
       )}
-    </div>
+      {rows.length > 0 && (report.data?.buckets.length ?? 0) > rows.length && (
+        <PanelHint>
+          {rows.length} of {report.data?.buckets.length} frequencies, the busiest
+          {rows.length === MAX_ROWS ? " that fit" : " that match"}.
+        </PanelHint>
+      )}
+    </Panel>
   );
 }

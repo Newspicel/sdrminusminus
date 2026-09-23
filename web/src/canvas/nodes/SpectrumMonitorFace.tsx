@@ -21,11 +21,7 @@ export function SpectrumMonitorFace({ node }: { node: PatchNode }) {
       : edge?.from.node;
   const device = upstream === undefined ? undefined : workspace.devices.get(upstream);
   const state =
-    edge === undefined
-      ? "Connect IQ"
-      : device?.status === "running"
-        ? "Monitoring"
-        : "Waiting for IQ";
+    edge === undefined ? undefined : device?.status === "running" ? "monitoring" : "waiting for IQ";
   return (
     <NodeShell node={node} title="Spectrum monitor" category="tool" subtitle={state}>
       <FaceBody>

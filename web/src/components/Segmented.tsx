@@ -1,6 +1,6 @@
 import { Toggle } from "@base-ui/react/toggle";
 import { ToggleGroup } from "@base-ui/react/toggle-group";
-import { type Options, segment } from "./controls";
+import { type Options, segment, WELL } from "./controls";
 
 export function Segmented<T extends string | number>({
   label,
@@ -19,7 +19,7 @@ export function Segmented<T extends string | number>({
     <ToggleGroup
       data-hotkeys="off"
       aria-label={label}
-      className={`flex overflow-hidden rounded-[3px] border border-line ${fill ? "w-full" : ""}`}
+      className={`${WELL} ${fill ? "w-full" : "w-fit"}`}
       value={[String(value)]}
       onValueChange={(next) => {
         const picked = options.find((option) => String(option.value) === next[0]);
@@ -34,7 +34,7 @@ export function Segmented<T extends string | number>({
           value={String(option.value)}
           title={option.title}
           className={(state) =>
-            `${segment(state.pressed)} rounded-none font-mono tabular-nums ${
+            `${segment(state.pressed)} tabular-nums ${
               fill ? "flex-auto justify-center whitespace-nowrap" : ""
             }`
           }

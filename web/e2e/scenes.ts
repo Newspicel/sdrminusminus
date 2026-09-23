@@ -135,6 +135,12 @@ async function showRack(page: Page): Promise<void> {
   await page.getByRole("group", { name: "View" }).getByRole("button", { name: "Rack" }).click();
 }
 
+export async function addNode(page: Page, name: string): Promise<void> {
+  await page.getByRole("button", { name: "Add a node" }).click();
+  await page.getByRole("textbox", { name: "Search nodes" }).fill(name);
+  await page.getByRole("button", { name, exact: true }).click();
+}
+
 export function face(page: Page, id: string) {
   return page.locator(`.react-flow__node[data-id="${id}"]`);
 }

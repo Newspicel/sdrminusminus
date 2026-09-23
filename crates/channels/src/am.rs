@@ -3,7 +3,7 @@ use std::sync::LazyLock;
 use num_complex::Complex;
 use sdrmm_dsp::{Decimator, RealDecimator, design_lowpass};
 use sdrmm_modem::analog::{AmDemod, AmDetector, AmMode, AmParams as AmWaveform, AmRx};
-use sdrmm_wire::{AmParams, ChannelDescriptor, ChannelParams, ChannelSettings};
+use sdrmm_wire::{AmParams, ChannelDescriptor, ChannelParams, ChannelSettings, DecoderFamily};
 
 use crate::{
     AUDIO_RATE, ChannelCtx, ChannelError, ChannelFilter, ChannelOutputs, ChannelRx, ChannelTx,
@@ -17,6 +17,8 @@ const CHANNEL_TAPS: usize = 129;
 static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescriptor {
     type_id: "am".to_owned(),
     name: "AM".to_owned(),
+    summary: "AM voice, airband and shortwave".to_owned(),
+    family: DecoderFamily::AnalogVoice,
     bandwidth_hz: 10_000.0,
     input_rate_hz: 48_000.0,
     has_audio: true,

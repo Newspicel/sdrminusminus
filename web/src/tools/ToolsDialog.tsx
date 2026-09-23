@@ -1,7 +1,7 @@
 import { Dialog } from "@base-ui/react/dialog";
 import { useQuery } from "@tanstack/react-query";
 import { useRef } from "react";
-import { BTN, SURFACE } from "../components/controls";
+import { BTN, DIALOG_TITLE, SURFACE } from "../components/controls";
 import { PortalContainerProvider } from "../components/PortalContainer";
 import { toolsQuery } from "../lib/api";
 import { findTool, type LaunchableTool, launchableTools, toolSize } from "./registry";
@@ -34,7 +34,7 @@ export function ToolsDialog({ tool, onClose }: { tool: string | null; onClose: (
         >
           <PortalContainerProvider container={portalContainer}>
             <div className="flex shrink-0 items-baseline justify-between gap-4 border-b border-line px-4 py-3">
-              <Dialog.Title className="text-base font-medium text-ink">
+              <Dialog.Title className={DIALOG_TITLE}>
                 {active?.descriptor.name ?? "Tool"}
               </Dialog.Title>
               {active === null && (

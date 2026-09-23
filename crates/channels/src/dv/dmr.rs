@@ -4,8 +4,9 @@ use num_complex::Complex;
 use sdrmm_dsp::{Bptc128, Bptc196, CyclicCode, ParityCode, crc16_msb, rs129_parity};
 use sdrmm_modem::cpm::CpmDemod;
 use sdrmm_wire::{
-    ChannelDescriptor, ChannelParams, ChannelSettings, DecoderEvent, DmrParams, DmrSlots,
-    DvChannelDefinition, DvFrame, DvFrameKind, DvMode, DvSlotActivity, DvTrunkProtocol, Vendor,
+    ChannelDescriptor, ChannelParams, ChannelSettings, DecoderEvent, DecoderFamily, DmrParams,
+    DmrSlots, DvChannelDefinition, DvFrame, DvFrameKind, DvMode, DvSlotActivity, DvTrunkProtocol,
+    Vendor,
 };
 
 use super::{
@@ -74,6 +75,8 @@ const VOCODER_FRAMES_PER_BURST: usize = 3;
 static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescriptor {
     type_id: "dmr".to_owned(),
     name: "DMR".to_owned(),
+    summary: "DMR two-way radio voice".to_owned(),
+    family: DecoderFamily::DigitalVoice,
     bandwidth_hz: BANDWIDTH_HZ,
     input_rate_hz: INPUT_RATE_HZ,
     has_audio: true,

@@ -118,7 +118,7 @@ export function FrequencyDial({
       aria-valuemin={range.min}
       aria-valuemax={range.max}
       aria-valuetext={`${(hz / 1e6).toFixed(6)} megahertz`}
-      className="flex items-baseline rounded-[3px] font-mono leading-none select-none"
+      className="flex items-baseline rounded-[3px] border border-line bg-well px-1.5 py-0.5 font-mono leading-none shadow-[inset_0_1px_3px_oklch(0_0_0/0.35)] select-none [text-shadow:0_0_14px_var(--color-vfo-glow)]"
       onKeyDown={disabled ? undefined : onKeyDown}
     >
       {digits.map((digit, i) => (
@@ -162,7 +162,11 @@ function Digit({
         className={`relative min-h-7 overflow-hidden rounded-[2px] px-[2px] tabular-nums transition-colors duration-100 pointer-coarse:min-h-10 ${DIGIT_SIZE} ${
           armed === null ? "" : armed > 0 ? "cursor-n-resize" : "cursor-s-resize"
         } ${
-          armed !== null || active ? "text-accent" : digit.leading ? "text-ink-faint" : "text-ink"
+          armed !== null || active
+            ? "text-accent"
+            : digit.leading
+              ? "text-ink-faint/60"
+              : "text-vfo"
         } ${active ? "bg-accent/12 shadow-[inset_0_-2px_0_var(--color-accent)]" : ""}`}
         onPointerDown={(event) => {
           onSelect();
@@ -194,7 +198,7 @@ function Digit({
         <span className="relative">{digit.digit}</span>
       </Button>
       {separator !== "" && (
-        <span aria-hidden className={`text-ink-dim ${DIGIT_SIZE}`}>
+        <span aria-hidden className={`text-vfo/70 ${DIGIT_SIZE}`}>
           {separator}
         </span>
       )}
@@ -223,7 +227,7 @@ function DirectEntry({
       autoFocus
       aria-label="Tune to frequency"
       placeholder="145.5 · 433800k · 2.4g"
-      className={`h-9 w-[15ch] rounded-[3px] border bg-panel-2 px-2 font-mono text-[16px] leading-none tabular-nums text-ink placeholder:text-[11px] placeholder:text-ink-faint @min-[22rem]:text-[20px] ${
+      className={`h-9 w-[15ch] rounded-[3px] border bg-well px-2 font-mono text-[16px] leading-none tabular-nums text-ink placeholder:text-[11px] placeholder:text-ink-faint @min-[22rem]:text-[20px] ${
         empty || parsed !== null ? "border-accent" : "border-danger"
       }`}
       value={draft}

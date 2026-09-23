@@ -43,9 +43,7 @@ export function ArrayFace({ node }: { node: PatchNode }) {
       title={node.label ?? "Array"}
       category="tool"
       subtitle={
-        set === undefined && members.length < 2
-          ? `${members.length} of 2 radios`
-          : `${members.length} elements`
+        set === undefined && members.length < 2 ? `${members.length} of 2 radios` : undefined
       }
     >
       <FaceBody>

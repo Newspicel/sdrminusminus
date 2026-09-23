@@ -7,10 +7,29 @@ use crate::{
     state::{AudioRecordingStatus, RecordingStatus},
 };
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum DecoderFamily {
+    AnalogVoice,
+    DigitalVoice,
+    Aviation,
+    Marine,
+    Amateur,
+    Paging,
+    Video,
+    Broadcast,
+    #[default]
+    Utility,
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct ChannelDescriptor {
     pub type_id: String,
     pub name: String,
+    #[serde(default)]
+    pub summary: String,
+    #[serde(default)]
+    pub family: DecoderFamily,
     pub bandwidth_hz: f64,
     pub input_rate_hz: f64,
     #[serde(default = "default_has_audio")]
@@ -148,6 +167,8 @@ impl Default for ChannelDescriptor {
         Self {
             type_id: String::new(),
             name: String::new(),
+            summary: String::new(),
+            family: DecoderFamily::default(),
             bandwidth_hz: 0.0,
             input_rate_hz: 0.0,
             has_audio: default_has_audio(),
