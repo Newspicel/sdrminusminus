@@ -37,6 +37,7 @@ import { SettingGroup, SettingRow, Settings } from "./Settings";
 import { Slider } from "./Slider";
 import { withCurrent } from "./selectOptions";
 import { settingLabel } from "./settingLabel";
+import { Unit } from "./Unit";
 import { useDebouncedCommit } from "./useDebouncedCommit";
 
 const AGC_HINT = "The radio is setting this. Turn AGC off to set it by hand";
@@ -162,7 +163,8 @@ export function RadioSettings({
       {caps.ppm && (
         <SettingRow label="PPM" title="Frequency correction in parts per million">
           <NumberField
-            label="Frequency correction (ppm)"
+            label="Frequency correction"
+            unit="ppm"
             value={settings.ppm ?? 0}
             step={1}
             onCommit={(ppm) => patch({ ppm })}
@@ -172,11 +174,12 @@ export function RadioSettings({
 
       {isTunable(tuningRange(caps)) && (
         <SettingRow
-          label="Converter (MHz)"
+          label="Converter"
           title="Local oscillator of a converter in front of the radio: positive for a downconverter, negative for an upconverter. Frequencies shown are what the antenna sees"
         >
           <NumberField
-            label="Converter offset (MHz)"
+            label="Converter offset"
+            unit="MHz"
             value={(settings.offset_hz ?? 0) / 1e6}
             step={0.001}
             onCommit={(mhz) => patch({ offset_hz: Math.round(mhz * 1e6) })}
@@ -245,15 +248,15 @@ function RateControl({
   return (
     <>
       <NumberField
-        label="Sample rate (MS/s)"
+        label="Sample rate"
+        unit="MS/s"
         value={sampleRate / 1e6}
         min={rateRange ? rateRange.min / 1e6 : undefined}
         max={rateRange ? rateRange.max / 1e6 : undefined}
         step={rateRange?.step != null ? rateRange.step / 1e6 : 0.001}
         onCommit={(msps) => onCommit(snapToRanges(caps.sample_rate_ranges, Math.round(msps * 1e6)))}
-        className="w-24"
+        className="w-28"
       />
-      <span className="legend">MS/s</span>
     </>
   );
 }
@@ -301,7 +304,8 @@ function FilterControl({
         bandwidthRange != null && (
           <>
             <NumberField
-              label="Analog bandwidth (MHz)"
+              label="Analog bandwidth"
+              unit="MHz"
               value={hz / 1e6}
               min={bandwidthRange.min / 1e6}
               max={bandwidthRange.max / 1e6}
@@ -310,9 +314,8 @@ function FilterControl({
               onCommit={(mhz) =>
                 onCommit(manualFilter(snapToRanges(caps.bandwidth_ranges, Math.round(mhz * 1e6))))
               }
-              className="w-24"
+              className="w-28"
             />
-            <span className="legend">MHz</span>
           </>
         )
       )}
@@ -381,7 +384,8 @@ function GainControl({
           onChange={(next) => onCommit(next ? stage.range.max : stage.range.min)}
         />
         <span className={READOUT}>
-          {on ? `+${stage.range.max.toFixed(0)}` : "0"} <span className="text-ink-faint">dB</span>
+          {on ? `+${stage.range.max.toFixed(0)}` : "0"}{" "}
+          <Unit symbol="dB" className="text-ink-faint" />
         </span>
       </SettingRow>
     );
@@ -414,7 +418,7 @@ function GainControl({
         />
       )}
       <span className={READOUT}>
-        {formatGain(stage, shown)} <span className="text-ink-faint">{unit}</span>
+        {formatGain(stage, shown)} <Unit symbol={unit} className="text-ink-faint" />
       </span>
     </SettingRow>
   );
@@ -487,14 +491,14 @@ function ExtraControl({
       return (
         <SettingRow label={name} title={setting.name}>
           <NumberField
-            label={`${name} (${setting.unit})`}
+            label={name}
+            unit={setting.unit === "" ? undefined : setting.unit}
             value={value}
             min={setting.range.min}
             max={setting.range.max}
             step={setting.range.step ?? undefined}
             onCommit={onCommit}
           />
-          <span className="legend">{setting.unit}</span>
         </SettingRow>
       );
     }
@@ -552,7 +556,7 @@ function RangeSlider({
         onChange={change}
       />
       <span className={READOUT}>
-        {shown.toFixed(digits)} <span className="text-ink-faint">{unit}</span>
+        {shown.toFixed(digits)} <Unit symbol={unit} className="text-ink-faint" />
       </span>
     </SettingRow>
   );

@@ -39,6 +39,7 @@ import { withCurrent } from "./selectOptions";
 import { TextAutocomplete } from "./TextAutocomplete";
 import { TuneTo } from "./TuneTo";
 import { TuningLock } from "./TuningLock";
+import { Unit } from "./Unit";
 import { useDebouncedCommit } from "./useDebouncedCommit";
 
 type BroadcastStatus = Extract<DecoderEvent, { kind: "broadcast" }>["data"];
@@ -356,7 +357,7 @@ function SquelchRow({
           title={auto ? "How far above the measured noise floor the channel opens" : undefined}
         >
           <SliderField
-            label={auto ? "Squelch margin above the noise floor (dB)" : "Squelch threshold (dB)"}
+            label={auto ? "Squelch margin above the noise floor" : "Squelch threshold"}
             min={auto ? AUDIO_LIMITS.squelchAutoMarginDb.min : SQUELCH_RANGE_DB.min}
             max={auto ? AUDIO_LIMITS.squelchAutoMarginDb.max : SQUELCH_RANGE_DB.max}
             step={1}
@@ -365,7 +366,7 @@ function SquelchRow({
             readout={
               <>
                 {auto ? `+${marginDb.toFixed(0)}` : levelDb.toFixed(0)}{" "}
-                <span className="text-ink-faint">dB</span>
+                <Unit symbol="dB" className="text-ink-faint" />
               </>
             }
           />
@@ -452,7 +453,7 @@ function ModeControls({
           {scrambler === "inversion" && (
             <SettingRow label="Carrier">
               <NumberField
-                label="Inversion carrier (Hz)"
+                label="Inversion carrier"
                 value={params.settings.inversion_hz ?? INVERSION_DEFAULT_HZ}
                 {...limitOf(limits, "inversion_hz")}
                 onCommit={(inversion_hz) => set({ ...params.settings, inversion_hz })}
@@ -511,7 +512,7 @@ function ModeControls({
           </SettingRow>
           <SettingRow label="Bandwidth">
             <NumberField
-              label="SSB bandwidth (Hz)"
+              label="SSB bandwidth"
               value={params.settings.bandwidth_hz ?? 2_700}
               {...limitOf(limits, "bandwidth_hz")}
               onCommit={(bandwidth_hz) =>
@@ -527,7 +528,7 @@ function ModeControls({
         <>
           <SettingRow label="De-emphasis">
             <Select
-              label="De-emphasis (µs)"
+              label="De-emphasis"
               value={params.settings.deemphasis_us ?? 50}
               options={DEEMPHASIS_US}
               onChange={(deemphasis_us) =>
@@ -665,7 +666,8 @@ function ModeControls({
           </SettingRow>
           <SettingRow label="Shift">
             <PresetNumberField
-              label="RTTY shift (Hz)"
+              label="RTTY shift"
+              unit="Hz"
               value={params.settings.shift_hz ?? 170}
               presets={RTTY_SHIFTS_HZ}
               limit={limitOf(limits, "shift_hz")}
@@ -673,7 +675,6 @@ function ModeControls({
                 onParams({ type: "rtty", settings: { ...params.settings, shift_hz } })
               }
             />
-            <span className="legend">Hz</span>
           </SettingRow>
           <SettingRow label="Stop bits">
             <Select
@@ -708,7 +709,7 @@ function ModeControls({
         <>
           <SettingRow label="Bandwidth">
             <NumberField
-              label="CW filter bandwidth (Hz)"
+              label="CW filter bandwidth"
               value={params.settings.bandwidth_hz ?? 400}
               {...limitOf(limits, "bandwidth_hz")}
               onCommit={(bandwidth_hz) =>
@@ -733,7 +734,7 @@ function ModeControls({
         <>
           <SettingRow label="Passband">
             <NumberField
-              label="CW skimmer passband (Hz)"
+              label="CW skimmer passband"
               value={params.settings.bandwidth_hz ?? 24_000}
               {...limitOf(limits, "bandwidth_hz")}
               onCommit={(bandwidth_hz) =>
@@ -747,7 +748,7 @@ function ModeControls({
           </SettingRow>
           <SettingRow label="Acquire">
             <NumberField
-              label="Carrier threshold above the noise floor (dB)"
+              label="Carrier threshold above the noise floor"
               value={params.settings.threshold_db ?? 10}
               {...limitOf(limits, "threshold_db")}
               onCommit={(threshold_db) =>
@@ -883,7 +884,7 @@ function ModeControls({
           </SettingRow>
           <SettingRow label="Doppler">
             <NumberField
-              label="Symmetric Doppler search span (Hz)"
+              label="Symmetric Doppler search span"
               value={params.settings.doppler_hz ?? 10_000}
               {...limitOf(limits, "doppler_hz")}
               onCommit={(doppler_hz) =>
@@ -952,7 +953,7 @@ function ModeControls({
           </SettingRow>
           <SettingRow label="Report every">
             <NumberField
-              label="VOR report interval in milliseconds"
+              label="VOR report interval"
               value={params.settings.report_ms ?? 500}
               {...limitOf(limits, "report_ms")}
               onCommit={(report_ms) => set({ ...params.settings, report_ms })}
@@ -977,7 +978,7 @@ function ModeControls({
           </SettingRow>
           <SettingRow label="Report every">
             <NumberField
-              label="ILS report interval in milliseconds"
+              label="ILS report interval"
               value={params.settings.report_ms ?? 500}
               {...limitOf(limits, "report_ms")}
               onCommit={(report_ms) =>
@@ -1024,7 +1025,7 @@ function ModeControls({
           </SettingRow>
           <SettingRow label="Min pulse">
             <NumberField
-              label="Shortest keying edge accepted (µs)"
+              label="Shortest keying edge accepted"
               value={params.settings.min_pulse_us ?? 80}
               {...limitOf(limits, "min_pulse_us")}
               onCommit={(min_pulse_us) =>
@@ -1035,7 +1036,7 @@ function ModeControls({
           </SettingRow>
           <SettingRow label="Frame gap">
             <NumberField
-              label="Silence that ends a frame (µs)"
+              label="Silence that ends a frame"
               value={params.settings.frame_gap_us ?? 5_000}
               {...limitOf(limits, "frame_gap_us")}
               onCommit={(frame_gap_us) =>
@@ -1090,7 +1091,7 @@ function ModeControls({
           </SettingRow>
           <SettingRow label="Sound">
             <OptionalNumberField
-              label="FM sound subcarrier (MHz), empty for none"
+              label="FM sound subcarrier, empty for none"
               placeholder="off"
               value={
                 params.settings.sound_subcarrier_hz == null
@@ -1611,18 +1612,20 @@ function PresetNumberField({
   value,
   presets,
   limit,
+  unit,
   onCommit,
 }: {
   label: string;
   value: number;
   presets: Options<number>;
   limit: NumberLimit;
+  unit?: string;
   onCommit: (value: number) => void;
 }) {
   return (
     <>
       <Segmented label={`${label} presets`} value={value} options={presets} onChange={onCommit} />
-      <NumberField label={label} value={value} {...limit} onCommit={onCommit} />
+      <NumberField label={label} value={value} unit={unit} {...limit} onCommit={onCommit} />
     </>
   );
 }

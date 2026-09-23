@@ -179,7 +179,8 @@ export function AudioControls({
             onChange={(enabled) => edit({ filter: { ...filter, enabled } })}
           />
           <NumberField
-            label="Audio filter low cut (Hz)"
+            label="Audio filter low cut"
+            unit="Hz"
             value={lowHz}
             min={AUDIO_LIMITS.toneHz.min}
             max={AUDIO_LIMITS.toneHz.max}
@@ -190,7 +191,8 @@ export function AudioControls({
           />
           <span className="legend">–</span>
           <NumberField
-            label="Audio filter high cut (Hz)"
+            label="Audio filter high cut"
+            unit="Hz"
             value={highHz}
             min={AUDIO_LIMITS.toneHz.min}
             max={AUDIO_LIMITS.toneHz.max}
@@ -199,7 +201,6 @@ export function AudioControls({
             className="w-20"
             onCommit={(high_hz) => edit({ filter: { ...filter, high_hz } })}
           />
-          <span className="legend">Hz</span>
         </SettingRow>
       </SettingGroup>
 
@@ -230,7 +231,7 @@ function NotchRow({
   return (
     <SettingRow label={`Notch ${index + 1}`}>
       <NumberField
-        label={`Notch ${index + 1} frequency (Hz)`}
+        label={`Notch ${index + 1} frequency`}
         value={notch.freq_hz ?? AUDIO_DEFAULTS.notchFreqHz}
         min={AUDIO_LIMITS.toneHz.min}
         max={AUDIO_LIMITS.toneHz.max}
@@ -240,7 +241,7 @@ function NotchRow({
         onCommit={(freq_hz) => onEdit({ freq_hz })}
       />
       <NumberField
-        label={`Notch ${index + 1} width (Hz)`}
+        label={`Notch ${index + 1} width`}
         value={notch.width_hz ?? AUDIO_DEFAULTS.notchWidthHz}
         min={AUDIO_LIMITS.notchWidthHz.min}
         max={AUDIO_LIMITS.notchWidthHz.max}

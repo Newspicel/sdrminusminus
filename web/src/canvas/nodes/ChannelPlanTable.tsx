@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Button } from "../../components/BaseControls";
 import { BTN_SM, TABLE_CELL, TABLE_HEAD } from "../../components/controls";
 import { OptionalNumberField } from "../../components/NumberField";
+import { Unit } from "../../components/Unit";
 import type { DmrChannelEntry, TrunkChannel } from "../../lib/types";
 import {
   channelEntry,
@@ -56,7 +57,9 @@ export function ChannelPlanTable({
           <thead className="sticky top-0 bg-panel">
             <tr>
               <th className={`${TABLE_HEAD} text-right`}>LCN</th>
-              <th className={`${TABLE_HEAD} text-right`}>MHz</th>
+              <th className={`${TABLE_HEAD} text-right`}>
+                <Unit symbol="MHz" />
+              </th>
               <th className={TABLE_HEAD}>Known by</th>
               <th className={TABLE_HEAD}>
                 <span className="sr-only">Actions</span>
@@ -118,10 +121,10 @@ export function ChannelPlanTable({
           value={mhz}
           min={0}
           step={0.0125}
-          className="w-24"
+          className="w-28"
+          unit="MHz"
           onCommit={setMhz}
         />
-        <span className="legend">MHz</span>
         <Button type="button" className={BTN_SM} disabled={pending === null} onClick={add}>
           Add
         </Button>

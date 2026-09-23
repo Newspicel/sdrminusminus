@@ -2,6 +2,7 @@ import { NumberField as Primitive } from "@base-ui/react/number-field";
 import { useState } from "react";
 import { CONTROL_W, FIELD } from "./controls";
 import { fractionDigits } from "./format";
+import { InFieldUnit, unitPadding } from "./Unit";
 
 interface Common {
   label: string;
@@ -111,10 +112,9 @@ function Field({
   onCommit: (value: number | null) => void;
   onRevert: () => void;
 }) {
-  const width = unit === undefined ? (className ?? CONTROL_W) : "min-w-0 flex-1";
-  const field = (
+  return (
     <Primitive.Root
-      className={width}
+      className={`relative ${className ?? CONTROL_W}`}
       value={value}
       min={min}
       max={max}
@@ -129,6 +129,7 @@ function Field({
         aria-invalid={invalid}
         placeholder={placeholder}
         className={`${FIELD} w-full tabular-nums ${invalid === true ? "border-danger" : ""}`}
+        style={unit === undefined ? undefined : unitPadding(unit)}
         onKeyDown={(event) => {
           if (event.key === "Escape") {
             onRevert();
@@ -138,16 +139,8 @@ function Field({
           }
         }}
       />
+      {unit !== undefined && <InFieldUnit symbol={unit} />}
     </Primitive.Root>
-  );
-  if (unit === undefined) {
-    return field;
-  }
-  return (
-    <span className={`flex items-center gap-1.5 ${className ?? CONTROL_W}`}>
-      {field}
-      <span className="legend w-8 shrink-0">{unit}</span>
-    </span>
   );
 }
 

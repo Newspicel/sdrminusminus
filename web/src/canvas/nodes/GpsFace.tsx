@@ -140,7 +140,8 @@ function FixedSettings({
     <>
       <SettingRow label="Latitude">
         <NumberField
-          label="Latitude in degrees"
+          label="Latitude"
+          unit="°"
           value={source.lat}
           min={-90}
           max={90}
@@ -150,7 +151,8 @@ function FixedSettings({
       </SettingRow>
       <SettingRow label="Longitude">
         <NumberField
-          label="Longitude in degrees"
+          label="Longitude"
+          unit="°"
           value={source.lon}
           min={-180}
           max={180}

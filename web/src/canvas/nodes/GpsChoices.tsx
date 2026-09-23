@@ -165,7 +165,8 @@ function FixedForm({ onChoose }: { onChoose: Choose }) {
     >
       <span className={LABEL}>Lat</span>
       <NumberField
-        label="Latitude in degrees"
+        label="Latitude"
+        unit="°"
         value={lat}
         min={-90}
         max={90}
@@ -175,7 +176,8 @@ function FixedForm({ onChoose }: { onChoose: Choose }) {
       />
       <span className={LABEL}>Lon</span>
       <NumberField
-        label="Longitude in degrees"
+        label="Longitude"
+        unit="°"
         value={lon}
         min={-180}
         max={180}

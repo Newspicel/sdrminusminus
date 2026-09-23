@@ -81,7 +81,8 @@ export function CombinerFace({ node }: { node: PatchNode }) {
           </SettingRow>
           <SettingRow label="Offset" title={formatSignedHz(settings.offset_hz)}>
             <NumberField
-              label="Signal offset in hertz"
+              label="Signal offset"
+              unit="Hz"
               value={settings.offset_hz}
               step={1_000}
               onCommit={(offset_hz) => update({ offset_hz })}
@@ -89,7 +90,8 @@ export function CombinerFace({ node }: { node: PatchNode }) {
           </SettingRow>
           <SettingRow label="Bandwidth">
             <NumberField
-              label="Signal bandwidth in hertz"
+              label="Signal bandwidth"
+              unit="Hz"
               value={settings.bandwidth_hz}
               min={100}
               max={20_000_000}
@@ -99,7 +101,8 @@ export function CombinerFace({ node }: { node: PatchNode }) {
           </SettingRow>
           <SettingRow label="Solve every">
             <NumberField
-              label="How often the weights are solved again, in milliseconds"
+              label="How often the weights are solved again"
+              unit="ms"
               value={settings.update_ms}
               min={100}
               max={10_000}

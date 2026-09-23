@@ -43,9 +43,10 @@ export function AntennaPanel() {
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-end gap-x-4 gap-y-3">
-        <Labelled label="Frequency (MHz)">
+        <Labelled label="Frequency">
           <NumberField
-            label="Frequency in MHz"
+            label="Frequency"
+            unit="MHz"
             value={frequencyMhz}
             onCommit={setFrequencyMhz}
             min={0.01}
@@ -194,9 +195,10 @@ function DesignSettings({
   switch (design.type) {
     case "inverted_v":
       return (
-        <Labelled label="Apex angle (°)">
+        <Labelled label="Apex angle">
           <NumberField
-            label="Apex angle in degrees"
+            label="Apex angle"
+            unit="°"
             value={design.settings.apex_angle_deg ?? 120}
             onCommit={(apex_angle_deg) => onChange({ ...design, settings: { apex_angle_deg } })}
             min={60}
@@ -220,9 +222,10 @@ function DesignSettings({
               step={1}
             />
           </Labelled>
-          <Labelled label="Radial slope (°)">
+          <Labelled label="Radial slope">
             <NumberField
-              label="Radial slope in degrees"
+              label="Radial slope"
+              unit="°"
               value={design.settings.radial_slope_deg ?? 45}
               onCommit={(radial_slope_deg) =>
                 onChange({ ...design, settings: { ...design.settings, radial_slope_deg } })

@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { InfoTip } from "./InfoTip";
+import { WithUnit } from "./Unit";
 
 const GRID = "grid items-baseline gap-x-3 gap-y-1";
 
@@ -42,7 +43,9 @@ export function ReadoutRow({
         {label}
         {title !== undefined && <InfoTip text={title} />}
       </span>
-      <span className="min-w-0 font-mono text-xs tabular-nums text-ink">{children}</span>
+      <span className="min-w-0 font-mono text-xs tabular-nums text-ink">
+        <WithUnit>{children}</WithUnit>
+      </span>
     </>
   );
 }

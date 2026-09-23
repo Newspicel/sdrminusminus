@@ -230,7 +230,8 @@ function DfSettings({
       {settings.geometry.kind === "uca" && (
         <SettingRow label="Radius">
           <NumberField
-            label="Array radius in metres"
+            label="Array radius"
+            unit="m"
             value={settings.geometry.radius_m}
             min={0.01}
             max={100}
@@ -246,7 +247,8 @@ function DfSettings({
       {settings.geometry.kind === "ula" && (
         <SettingRow label="Spacing">
           <NumberField
-            label="Element spacing in metres"
+            label="Element spacing"
+            unit="m"
             value={settings.geometry.spacing_m}
             min={0.01}
             max={100}
@@ -271,7 +273,8 @@ function DfSettings({
       </SettingRow>
       <SettingRow label="Offset" title={formatSignedHz(settings.offset_hz)}>
         <NumberField
-          label="Signal offset in hertz"
+          label="Signal offset"
+          unit="Hz"
           value={settings.offset_hz}
           step={1_000}
           onCommit={(offset_hz) => onChange({ offset_hz })}
@@ -279,7 +282,8 @@ function DfSettings({
       </SettingRow>
       <SettingRow label="Bandwidth">
         <NumberField
-          label="Signal bandwidth in hertz"
+          label="Signal bandwidth"
+          unit="Hz"
           value={settings.bandwidth_hz}
           min={100}
           max={20_000_000}
@@ -289,7 +293,8 @@ function DfSettings({
       </SettingRow>
       <SettingRow label="Report every">
         <NumberField
-          label="Report interval in milliseconds"
+          label="Report interval"
+          unit="ms"
           value={settings.report_ms}
           min={100}
           max={10_000}
@@ -316,7 +321,8 @@ function DfSettings({
       {settings.beam_bearing_deg != null && (
         <SettingRow label="Azimuth">
           <NumberField
-            label="Beam azimuth in degrees"
+            label="Beam azimuth"
+            unit="°"
             value={settings.beam_bearing_deg}
             min={0}
             max={359}

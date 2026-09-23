@@ -10,6 +10,7 @@ import {
   setDialDigit,
   stepDial,
 } from "./dial";
+import { Unit } from "./Unit";
 
 export const DIAL_ID = "frequency-dial";
 
@@ -131,7 +132,7 @@ export function FrequencyDial({
           onStep={(direction) => onTune(stepDial(hz, digit.place, direction, range))}
         />
       ))}
-      <span className="ml-2 self-baseline text-[11px] tracking-wide text-ink-faint">MHz</span>
+      <Unit symbol="MHz" className="ml-2 self-baseline text-[11px] tracking-wide text-ink-faint" />
     </div>
   );
 }

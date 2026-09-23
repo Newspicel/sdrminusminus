@@ -122,9 +122,10 @@ export function NanoVnaPanel() {
             </Button>
           </div>
         </Labelled>
-        <Labelled label="Start (MHz)">
+        <Labelled label="Start">
           <NumberField
-            label="Sweep start in MHz"
+            label="Sweep start"
+            unit="MHz"
             value={startMhz}
             onCommit={setStartMhz}
             min={0.01}
@@ -133,9 +134,10 @@ export function NanoVnaPanel() {
             className="w-28"
           />
         </Labelled>
-        <Labelled label="Stop (MHz)">
+        <Labelled label="Stop">
           <NumberField
-            label="Sweep stop in MHz"
+            label="Sweep stop"
+            unit="MHz"
             value={stopMhz}
             onCommit={setStopMhz}
             min={0.01}

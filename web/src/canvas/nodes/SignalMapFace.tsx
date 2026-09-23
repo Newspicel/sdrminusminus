@@ -4,6 +4,7 @@ import { BTN, BTN_DANGER, BTN_PRIMARY, FIELD, LABEL } from "../../components/con
 import { formatHz, formatSignedHz } from "../../components/format";
 import { MapPanel } from "../../components/MapPanel";
 import { OffsetStepper } from "../../components/OffsetStepper";
+import { FieldUnitFrame, unitPadding } from "../../components/Unit";
 import type { SpectrumFrame } from "../../lib/frame";
 import { type PositionSample, positionSourcesOf, usePositionStore } from "../../lib/position";
 import {
@@ -175,7 +176,7 @@ function SignalSurvey({
           disabled={samples.length > 0}
           title={samples.length > 0 ? "Clear the current survey before changing offset" : undefined}
         >
-          <span className="legend">Offset (kHz)</span>
+          <span className="legend">Offset</span>
           <OffsetStepper
             offsetHz={node.data.offset_hz}
             limitHz={offsetLimitHz}
@@ -184,35 +185,40 @@ function SignalSurvey({
           />
         </fieldset>
         <label className={`${LABEL} flex w-28 flex-col items-stretch gap-1`}>
-          Width (kHz)
-          <Input
-            key={node.data.bandwidth_hz}
-            className={FIELD}
-            defaultValue={`${node.data.bandwidth_hz / 1e3}`}
-            inputMode="decimal"
-            aria-label="Survey bandwidth in kilohertz"
-            disabled={samples.length > 0}
-            title={
-              samples.length > 0 ? "Clear the current survey before changing bandwidth" : undefined
-            }
-            onBlur={(event) => {
-              const bandwidth = Math.round(
-                Number(event.currentTarget.value.replace(",", ".")) * 1e3,
-              );
-              if (!Number.isFinite(bandwidth) || bandwidth < 1 || bandwidth > 100_000_000) {
-                event.currentTarget.value = `${node.data.bandwidth_hz / 1e3}`;
-                return;
+          Width
+          <FieldUnitFrame symbol="kHz">
+            <Input
+              key={node.data.bandwidth_hz}
+              className={`${FIELD} w-full`}
+              style={unitPadding("kHz")}
+              defaultValue={`${node.data.bandwidth_hz / 1e3}`}
+              inputMode="decimal"
+              aria-label="Survey bandwidth"
+              disabled={samples.length > 0}
+              title={
+                samples.length > 0
+                  ? "Clear the current survey before changing bandwidth"
+                  : undefined
               }
-              if (bandwidth !== node.data.bandwidth_hz) {
-                const limit =
-                  live === null
-                    ? MAX_OFFSET_HZ
-                    : Math.min(MAX_OFFSET_HZ, signalOffsetLimitHz(live.spanHz, bandwidth));
-                const offset = Math.max(-limit, Math.min(limit, node.data.offset_hz));
-                updateSettings(offset, bandwidth);
-              }
-            }}
-          />
+              onBlur={(event) => {
+                const bandwidth = Math.round(
+                  Number(event.currentTarget.value.replace(",", ".")) * 1e3,
+                );
+                if (!Number.isFinite(bandwidth) || bandwidth < 1 || bandwidth > 100_000_000) {
+                  event.currentTarget.value = `${node.data.bandwidth_hz / 1e3}`;
+                  return;
+                }
+                if (bandwidth !== node.data.bandwidth_hz) {
+                  const limit =
+                    live === null
+                      ? MAX_OFFSET_HZ
+                      : Math.min(MAX_OFFSET_HZ, signalOffsetLimitHz(live.spanHz, bandwidth));
+                  const offset = Math.max(-limit, Math.min(limit, node.data.offset_hz));
+                  updateSettings(offset, bandwidth);
+                }
+              }}
+            />
+          </FieldUnitFrame>
         </label>
         <Button
           type="button"

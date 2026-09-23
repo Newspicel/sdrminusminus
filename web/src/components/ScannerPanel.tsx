@@ -153,7 +153,7 @@ export function ScannerPanel({
                 >
                   <SettingRow label="From">
                     <NumberField
-                      label={`Range ${index + 1} start (MHz)`}
+                      label={`Range ${index + 1} start`}
                       value={range.startMhz}
                       min={0}
                       step={0.1}
@@ -163,7 +163,7 @@ export function ScannerPanel({
                   </SettingRow>
                   <SettingRow label="To">
                     <NumberField
-                      label={`Range ${index + 1} stop (MHz)`}
+                      label={`Range ${index + 1} stop`}
                       value={range.stopMhz}
                       min={0}
                       step={0.1}
@@ -174,7 +174,7 @@ export function ScannerPanel({
                   </SettingRow>
                   <SettingRow label="Step">
                     <NumberField
-                      label={`Range ${index + 1} step (kHz)`}
+                      label={`Range ${index + 1} step`}
                       value={range.stepKhz}
                       min={MIN_STEP_KHZ}
                       step={MIN_STEP_KHZ}
@@ -200,7 +200,7 @@ export function ScannerPanel({
                 {mode === "close_call" ? (
                   <SettingRow label="Over noise">
                     <NumberField
-                      label="Close call margin (dB)"
+                      label="Close call margin"
                       value={marginDb}
                       min={1}
                       max={60}
@@ -212,7 +212,7 @@ export function ScannerPanel({
                 ) : (
                   <SettingRow label="Threshold">
                     <NumberField
-                      label="Scan threshold (dB)"
+                      label="Scan threshold"
                       value={thresholdDb}
                       min={-120}
                       max={0}

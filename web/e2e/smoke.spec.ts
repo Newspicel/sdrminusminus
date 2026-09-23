@@ -961,7 +961,7 @@ test.describe("the workspace", () => {
     const tools = page.getByRole("dialog", { name: "Antenna calculator" });
     await expect(tools).toBeVisible();
 
-    const frequency = tools.getByRole("textbox", { name: "Frequency in MHz" });
+    const frequency = tools.getByRole("textbox", { name: "Frequency" });
     await frequency.click();
     await frequency.press("ControlOrMeta+a");
     await frequency.pressSequentially("14.2");

@@ -51,6 +51,7 @@ import {
 } from "./decoderViews";
 import { formatHz } from "./format";
 import { Icon } from "./Icon";
+import { Unit } from "./Unit";
 
 const PANE = "flex flex-col gap-2 p-3";
 const EMPTY = "text-sm text-ink-dim";
@@ -595,7 +596,9 @@ function DectView({ scope = {} }: { scope?: DecoderScope }) {
               <th className={TABLE_HEAD}>Cipher</th>
               <th className={TABLE_HEAD}>State</th>
               <th className={TABLE_HEAD}>Handsets</th>
-              <th className={TABLE_HEAD}>dBFS</th>
+              <th className={TABLE_HEAD}>
+                <Unit symbol="dBFS" />
+              </th>
               <th className={TABLE_HEAD}>Bursts</th>
             </tr>
           </thead>

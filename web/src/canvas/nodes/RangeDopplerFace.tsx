@@ -122,7 +122,8 @@ function RadarSettings({
     <Settings className="border-t border-line p-2">
       <SettingRow label="Integration" title={`${rangeAxisKm(settings).toFixed(1)} km of range`}>
         <NumberField
-          label="Coherent processing interval in milliseconds"
+          label="Coherent processing interval"
+          unit="ms"
           value={settings.cpi_ms}
           min={10}
           max={2_000}
@@ -151,7 +152,8 @@ function RadarSettings({
         <>
           <SettingRow label="Latitude">
             <NumberField
-              label="Transmitter latitude in degrees"
+              label="Transmitter latitude"
+              unit="°"
               value={settings.illuminator.lat}
               min={-90}
               max={90}
@@ -163,7 +165,8 @@ function RadarSettings({
           </SettingRow>
           <SettingRow label="Longitude">
             <NumberField
-              label="Transmitter longitude in degrees"
+              label="Transmitter longitude"
+              unit="°"
               value={settings.illuminator.lon}
               min={-180}
               max={180}
@@ -175,7 +178,8 @@ function RadarSettings({
           </SettingRow>
           <SettingRow label="Frequency">
             <NumberField
-              label="Transmitter frequency in hertz"
+              label="Transmitter frequency"
+              unit="Hz"
               value={settings.illuminator.freq_hz}
               min={1}
               step={100_000}
@@ -193,7 +197,8 @@ function RadarSettings({
         title={`${dopplerAxisHz(settings).toFixed(1)} Hz either side of zero`}
       >
         <NumberField
-          label="Doppler span in hertz"
+          label="Doppler span"
+          unit="Hz"
           value={settings.doppler_span_hz}
           min={1}
           max={5_000}

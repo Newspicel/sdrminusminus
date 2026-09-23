@@ -4,6 +4,7 @@ import { CHIP, FIELD } from "../../components/controls";
 import { formatHz } from "../../components/format";
 import { Select } from "../../components/Select";
 import { SettingGroup, SettingRow, Settings } from "../../components/Settings";
+import { FieldUnitFrame, unitPadding } from "../../components/Unit";
 import type { PatchNode } from "../../lib/types";
 import { useWorkspaceContext } from "../context";
 import { patchNode } from "../graph";
@@ -88,17 +89,19 @@ export function DmrTrunkFace({ node }: { node: PatchNode }) {
               onChange={(next) => edit({ protocol: next })}
             />
           </SettingRow>
-          <SettingRow label="Control" title="Where the control channel sits, in MHz">
-            <Input
-              aria-label="Control channel"
-              className={FIELD}
-              defaultValue={
-                node.data.control_hz == null ? "" : (node.data.control_hz / 1e6).toString()
-              }
-              placeholder="451.0125"
-              onBlur={(event) => edit({ control_hz: parseControlHz(event.target.value) })}
-            />
-            <span className="legend">MHz</span>
+          <SettingRow label="Control" title="Where the control channel sits">
+            <FieldUnitFrame symbol="MHz" className="w-32">
+              <Input
+                aria-label="Control channel"
+                className={`${FIELD} w-full`}
+                style={unitPadding("MHz")}
+                defaultValue={
+                  node.data.control_hz == null ? "" : (node.data.control_hz / 1e6).toString()
+                }
+                placeholder="451.0125"
+                onBlur={(event) => edit({ control_hz: parseControlHz(event.target.value) })}
+              />
+            </FieldUnitFrame>
           </SettingRow>
           <SettingRow label="Record calls">
             <Checkbox
