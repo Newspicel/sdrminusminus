@@ -1,3 +1,5 @@
+@import "@fontsource-variable/martian-mono/standard.css";
+
 :root {
   --bg: oklch(0.178 0.004 255);
   --panel: oklch(0.215 0.005 255);
@@ -19,6 +21,8 @@
   --cat-channel: oklch(0.62 0.07 300);
   --cat-output: oklch(0.62 0.05 200);
   --mono: ui-monospace, "SF Mono", "JetBrains Mono", "IBM Plex Mono", Menlo, monospace;
+  --display: "Martian Mono Variable", var(--mono);
+  --well: oklch(0.145 0.004 255);
   --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --pad: clamp(20px, 5vw, 48px);
   --measure: 62ch;
@@ -107,9 +111,9 @@ a:hover {
   display: flex;
   align-items: center;
   gap: 10px;
-  font-family: var(--mono);
-  font-size: 16px;
-  letter-spacing: 0.02em;
+  font-family: var(--display);
+  font-weight: 600;
+  font-size: 15px;
   color: var(--ink);
   text-decoration: none;
   margin-right: auto;
@@ -150,13 +154,15 @@ a:hover {
 }
 
 h1 {
-  font-family: var(--mono);
-  font-weight: 500;
-  font-size: clamp(2.1rem, 6.4vw, 3.6rem);
-  line-height: 1.04;
-  letter-spacing: -0.015em;
-  margin: 0 0 20px;
+  font-family: var(--display);
+  font-weight: 600;
+  font-stretch: 78%;
+  font-size: clamp(2.4rem, 7vw, 5.4rem);
+  line-height: 1;
+  letter-spacing: -0.035em;
+  margin: 0 0 24px;
   max-width: 16ch;
+  text-wrap: balance;
 }
 
 .lede {
@@ -176,12 +182,12 @@ h1 {
 
 .btn {
   display: inline-block;
-  font-family: var(--mono);
-  font-size: 14px;
-  letter-spacing: 0.02em;
+  font-family: var(--sans);
+  font-size: 15px;
+  font-weight: 500;
   text-decoration: none;
-  padding: 10px 18px;
-  border-radius: 3px;
+  padding: 11px 20px;
+  border-radius: 4px;
   border: 1px solid transparent;
 }
 .btn.primary {
@@ -222,22 +228,30 @@ h1 {
   font-size: 15px;
   max-width: var(--measure);
 }
+.note code {
+  font-family: var(--mono);
+  font-size: 0.9em;
+  color: var(--ink-dim);
+}
 
 section {
   padding-block: clamp(56px, 9vw, 104px);
 }
 
 h2 {
-  font-family: var(--mono);
+  font-family: var(--display);
   font-weight: 500;
-  font-size: clamp(1.45rem, 3.4vw, 2rem);
-  letter-spacing: -0.01em;
-  line-height: 1.2;
+  font-stretch: 82%;
+  font-size: clamp(1.5rem, 3.4vw, 2.15rem);
+  letter-spacing: -0.025em;
+  line-height: 1.15;
+  text-wrap: balance;
   margin: 0 0 12px;
 }
 
 .section-lede {
   color: var(--ink-dim);
+  font-size: 1.08rem;
   max-width: var(--measure);
   margin: 0 0 40px;
 }
