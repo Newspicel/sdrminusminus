@@ -1,12 +1,9 @@
-# Builds the site (docs/ as an mdBook, site/ as the Astro landing page and demo) and publishes
-# it to GitHub Pages on main. Pull requests build it but never deploy: a fork PR's GITHUB_TOKEN is read-only,
-# so the Pages steps would fail on permissions rather than on anything the PR changed.
 name: Docs
 
 on:
   push:
     branches: [main]
-    paths:
+    paths: &paths
       - "docs/**"
       - "site/**"
       - "web/src/**"
@@ -15,24 +12,13 @@ on:
       - "assets/**"
       - "scripts/build-site.sh"
       - ".github/workflows/docs.yml"
+      - ".github/actions/node/**"
   pull_request:
-    paths:
-      - "docs/**"
-      - "site/**"
-      - "web/src/**"
-      - "web/e2e/demoSession.ts"
-      - "web/package.json"
-      - "assets/**"
-      - "scripts/build-site.sh"
-      - ".github/workflows/docs.yml"
+    paths: *paths
   workflow_dispatch:
 
 permissions:
   contents: read
-
-env:
-  PNPM_VERSION: 11.15.1
-  NODE_VERSION: 26
 
 concurrency:
   group: docs-${{ github.ref }}
@@ -48,34 +34,21 @@ jobs:
       id-token: write
     steps:
       - uses: actions/checkout@v7
-      # Prebuilt binary; `cargo install mdbook` would cost minutes per run.
       - uses: peaceiris/actions-mdbook@v2
         with:
           mdbook-version: "0.5.4"
-      - uses: pnpm/action-setup@v6
-        with:
-          version: ${{ env.PNPM_VERSION }}
-      - uses: actions/setup-node@v7
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: pnpm
-          cache-dependency-path: |
-            web/pnpm-lock.yaml
-            site/pnpm-lock.yaml
-      # The demo page imports the app's components straight from web/.
-      - run: pnpm --dir web install --frozen-lockfile
+      - uses: ./.github/actions/node
       - run: pnpm --dir site install --frozen-lockfile
-      # book.toml sets create-missing = false, so a SUMMARY entry without a file fails here.
       - run: scripts/build-site.sh
-      - uses: actions/configure-pages@v6
-        if: github.event_name != 'pull_request'
-      - uses: actions/upload-pages-artifact@v5
-        if: github.event_name != 'pull_request'
+      - if: github.event_name != 'pull_request'
+        uses: actions/configure-pages@v6
+      - if: github.event_name != 'pull_request'
+        uses: actions/upload-pages-artifact@v5
         with:
           path: dist/site
 
   deploy:
-    name: Deploy to GitHub Pages
+    name: Deploy
     needs: build
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest

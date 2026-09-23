@@ -636,18 +636,17 @@ fn check_toolchain_pins(root: &Path) -> Result<()> {
         )?,
     )];
 
-    for name in ["ci.yml", "release.yml", "docs.yml"] {
-        let rel = format!(".github/workflows/{name}");
-        let text = file(&rel)?;
-        pnpm.push((
-            rel.clone(),
-            pin(&text, "PNPM_VERSION: ", "\n", &rel, "PNPM_VERSION")?,
-        ));
-        node.push((
-            rel.clone(),
-            pin(&text, "NODE_VERSION: ", "\n", &rel, "NODE_VERSION")?,
-        ));
-    }
+    let action = ".github/actions/node/action.yml";
+    node.push((
+        action.to_string(),
+        pin(
+            &file(action)?,
+            "node-version: ",
+            "\n",
+            action,
+            "node-version",
+        )?,
+    ));
 
     agree("pnpm", &pnpm)?;
     agree("the Node major", &node)

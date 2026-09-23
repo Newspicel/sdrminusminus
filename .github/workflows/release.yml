@@ -1,134 +1,65 @@
-# Release artifacts. Tag-driven; workflow_dispatch and the `build_nightly` pull-request label
-# build and upload everything without publishing, so the pipeline can be exercised off a branch.
-#
-# Three rules run through every job here:
-#
-#  - The version comes from the tag and is stamped *once*, by the `version` job, which uploads
-#    the rewritten Cargo.toml + Cargo.lock for everything downstream to check out over. Before
-#    this existed the tag named the tarball and nothing else: bundles shipped as `0.0.0` and
-#    `sdrmm --version` disagreed with the release it came from.
-#
-#  - Every artifact compiles the canonical Soapy backend, and none of them carry SoapySDR:
-#    it is opened at runtime from the host's own installation, so no job here builds, links or
-#    stages one. The cargo flags live in `xtask`, not here.
-#
-#  - The web UI is built by whatever produces the artifact and its presence is then asserted.
-#    crates/server/build.rs creates web/dist when it is missing, so a Rust build with no UI
-#    *succeeds* and ships a 503 "not built" page — a silent failure this pipeline prevents.
-#    `cargo xtask dist` does both, which is why one command reproduces a release artifact on a
-#    laptop; the Dockerfile has the same two steps as its own stages.
-#
-# Four modes, one pipeline — the build jobs are identical in all of them and only the `version`
-# job and the publish step know which is running:
-#
-#   tag       a real release, published from the tag's version
-#   schedule  a nightly, published over the rolling `nightly` prerelease — but only if main has
-#             moved since the last one, because a full matrix is twelve jobs and four of them
-#             are macOS
-#   dispatch  a rehearsal: builds and uploads everything, publishes nothing
-#   label     a pull request carrying `build_nightly`: the same rehearsal, hung off the run the
-#             pull request already links to, so a reviewer can install the branch
 name: Release
 
 on:
   push:
     tags: ["v*"]
-  pull_request:
-    types: [labeled, synchronize]
-  schedule:
-    # 03:00 UTC. Nothing downstream cares about the exact hour; this one is outside both
-    # European and US working days, so a nightly is finished before anyone looks for it.
-    - cron: "0 3 * * *"
   workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read
 
-concurrency:
-  group: release-${{ github.ref }}
-  # A labelled pull request rebuilds on every push, so the superseded run is cancelled rather
-  # than left to finish twelve jobs nobody will look at. Nothing else here is ever interrupted.
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
-
 env:
-  # ghcr rejects an uppercase reference and `github.repository` carries the owner's canonical
-  # casing (`Newspicel/…`), so the name is lowercased at use rather than interpolated raw.
   IMAGE_NAME: ghcr.io/newspicel/sdrminusminus
-  # Enforced by `xtask check` against web/package.json and the Dockerfile — these three
-  # are bumped by different tools and must move together.
-  PNPM_VERSION: 11.15.1
-  NODE_VERSION: 26
-  # The desktop updater reads this at compile time and stays off unless it is set, so a nightly,
-  # a rehearsal and a developer's own build never replace themselves with the latest release.
   SDRMM_RELEASE: ${{ github.ref_type == 'tag' && '1' || '' }}
 
 jobs:
-  version:
-    name: Stamp version
-    # The gate for the whole pipeline on a pull request: the `build_nightly` label, and a branch
-    # in this repository. A fork's run is handed no secrets, and the desktop job refuses a bundle
-    # it could not sign — so a fork would pay for the full matrix and then fail on the last step.
-    # The second clause keeps an unrelated label from rebuilding an already-labelled branch.
-    if: >-
-      github.event_name != 'pull_request'
-      || (github.event.pull_request.head.repo.full_name == github.repository
-          && contains(github.event.pull_request.labels.*.name, 'build_nightly')
-          && (github.event.action != 'labeled'
-              || github.event.label.name == 'build_nightly'))
+  plan:
+    name: Plan
     runs-on: ubuntu-24.04
     outputs:
-      version: ${{ steps.stamp.outputs.version }}
-      # Every build job below hangs off this. Only a nightly can ever set it false.
-      changed: ${{ steps.stamp.outputs.changed }}
+      changed: ${{ steps.changed.outputs.changed }}
+      version: ${{ steps.version.outputs.version }}
+      tap: ${{ steps.tap.outputs.tap }}
     steps:
-      - uses: actions/checkout@v7
-      # Building xtask reaches sdrmm-server, so opusic-sys' vendored libopus is compiled here
-      # too — the one reason a manifest edit needs a C toolchain.
-      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends cmake
-      - run: rustup show
-      - uses: ./.github/actions/media-deps
-      - uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: ubuntu
-          save-if: false
-      - id: stamp
+      - id: changed
         env:
-          REF_TYPE: ${{ github.ref_type }}
-          REF_NAME: ${{ github.ref_name }}
           GH_TOKEN: ${{ github.token }}
         run: |
-          set -euo pipefail
-          if [ "$GITHUB_EVENT_NAME" = schedule ]; then
-            # The `nightly` tag is the marker: it points at the commit the last published
-            # nightly was built from. Resolving it through /commits/ rather than reading the
-            # ref dereferences the tag object, so this compares commit to commit.
-            previous="$(gh api "repos/$GITHUB_REPOSITORY/commits/nightly" --jq .sha 2>/dev/null || true)"
-            if [ "$previous" = "$GITHUB_SHA" ]; then
-              echo "changed=false" >> "$GITHUB_OUTPUT"
-              echo "main is unchanged since the last nightly ($previous) — nothing to build."
-              exit 0
-            fi
-            # YY.M.D, and every part of that is forced. It has to be plain major.minor.patch
-            # with major <= 255, so neither `0.0.0-nightly.x` nor a four-digit year survives
-            # the MSI bundler (`xtask set-version` rejects both up front). This says which
-            # night a build came from, which is the whole point of running `sdrmm --version`
-            # on a nightly; the commit is in the release notes.
-            version="$(date -u +%y.%-m.%-d)"
-          elif [ "$REF_TYPE" = tag ]; then
-            version="${REF_NAME#v}"
+          previous="$(gh api "repos/$GITHUB_REPOSITORY/commits/nightly" --jq .sha 2>/dev/null || true)"
+          if [ "$GITHUB_EVENT_NAME" = schedule ] && [ "$previous" = "$GITHUB_SHA" ]; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
           else
-            # Dispatch runs and labelled pull requests are rehearsals and are never published, so
-            # they keep the manifest's own version. Fixed on purpose: nothing here reads the
-            # branch or the pull request's title, so rebuilding the same commit twice produces
-            # two identical artifact sets rather than two versions to tell apart.
-            version=0.0.0
+            echo "changed=true" >> "$GITHUB_OUTPUT"
           fi
-          echo "changed=true" >> "$GITHUB_OUTPUT"
-          cargo xtask set-version "$version"
+      - id: version
+        run: |
+          case "$GITHUB_EVENT_NAME/$GITHUB_REF_TYPE" in
+            schedule/*) version="$(date -u +%y.%-m.%-d)" ;;
+            */tag) version="${GITHUB_REF_NAME#v}" ;;
+            *) version=0.0.0 ;;
+          esac
           echo "version=$version" >> "$GITHUB_OUTPUT"
-      # Two files, and every build job below starts by checking them out over its own copy.
+      - id: tap
+        env:
+          TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: echo "tap=${TAP_TOKEN:+true}" >> "$GITHUB_OUTPUT"
+
+  version:
+    name: Stamp version
+    needs: plan
+    if: needs.plan.outputs.changed == 'true'
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ needs.plan.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/rust
+        with:
+          cache: ubuntu
+          save: false
+      - run: cargo xtask set-version ${{ needs.plan.outputs.version }}
       - uses: actions/upload-artifact@v7
-        if: steps.stamp.outputs.changed == 'true'
         with:
           name: version-stamp
           path: |
@@ -140,7 +71,6 @@ jobs:
   binaries:
     name: sdrmm (${{ matrix.target }})
     needs: version
-    if: needs.version.outputs.changed == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -151,85 +81,47 @@ jobs:
             runner: ubuntu-24.04-arm
           - target: aarch64-apple-darwin
             runner: macos-15
-          # The one cross build: Apple ships both slices in a single SDK, so the arm64 runner
-          # produces the Intel binary without a sysroot of its own.
           - target: x86_64-apple-darwin
             runner: macos-15
+            cross: true
           - target: x86_64-pc-windows-msvc
             runner: windows-2025
+            exe: .exe
           - target: aarch64-pc-windows-msvc
             runner: windows-11-arm
-    # Every other entry is a native runner — GitHub's hosted arm64 Linux runners remove the need
-    # to cross-compile or emulate, so no sysroot, no cargo-zigbuild, no QEMU. The OS is pinned
-    # rather than `-latest` because the build machine's glibc is the floor of every Linux
-    # artifact we ship, and a silent bump would strand older Pi installs.
+            exe: .exe
     runs-on: ${{ matrix.runner }}
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+      STAGED: dist/sdrmm-${{ needs.version.outputs.version }}-${{ matrix.target }}
     steps:
       - uses: actions/checkout@v7
-      # Installs the pinned nightly from rust-toolchain.toml; `xtask dist` adds the cross
-      # target itself when `--target` names something other than the host.
-      - run: rustup show
-      # Before the version stamp on purpose: rust-cache keys on Cargo.lock, and stamping
-      # rewrites every workspace entry in it. Restoring first means a release reuses the
-      # dependency artifacts `main` already built, and only the workspace crates rebuild.
-      - uses: ./.github/actions/media-deps
+      - uses: ./.github/actions/rust
         with:
+          cache: release-${{ matrix.target }}
           target: ${{ matrix.target }}
-      - uses: Swatinem/rust-cache@v2
-        with:
-          key: ${{ matrix.target }}
       - uses: actions/download-artifact@v8
         with:
           name: version-stamp
-      # `xtask dist` builds the UI itself, so the toolchain has to be here rather than in a
-      # shared artifact — which is also what lets one command reproduce this on a laptop.
-      - uses: pnpm/action-setup@v6
-        with:
-          version: ${{ env.PNPM_VERSION }}
-      - uses: actions/setup-node@v7
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: pnpm
-          cache-dependency-path: web/pnpm-lock.yaml
-      # opusic-sys builds vendored libopus through the cmake crate.
-      - if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends cmake
-      - name: cargo xtask dist
-        run: cargo xtask dist --target ${{ matrix.target }}
-      # An artifact that reports a version other than the one it is named after is exactly the
-      # bug this pipeline was rebuilt to close, so assert it rather than trust it. The staged
-      # directory holds the same files the archive was packed from, which keeps this one step
-      # portable across all three shells instead of needing a per-OS unpacker.
-      # The Intel build cannot run on the arm64 runner, so it is checked for presence only.
-      - name: Smoke the artifact
+      - uses: ./.github/actions/node
+      - run: cargo xtask dist --target ${{ matrix.target }}
+      - name: Archive
         shell: bash
-        env:
-          VERSION: ${{ needs.version.outputs.version }}
-          TARGET: ${{ matrix.target }}
+        run: test -s "$STAGED.tar.gz" || test -s "$STAGED.zip"
+      - name: Linking
+        if: runner.os == 'macOS'
+        run: cargo xtask link-check "$STAGED/sdrmm"
+      - name: Version
+        if: ${{ !matrix.cross }}
+        shell: bash
+        run: test "$("$STAGED/sdrmm${{ matrix.exe }}" --version)" = "sdrmm $VERSION"
+      - name: Doctor
+        if: ${{ !matrix.cross }}
+        shell: bash
         run: |
-          set -euo pipefail
-          staged="dist/sdrmm-${VERSION}-${TARGET}"
-          ls -l "$staged"
-          test -s "$staged.tar.gz" || test -s "$staged.zip"
-          # Reads the binary rather than running it, so the Intel slice is checked on the arm64
-          # runner too. Nothing links SoapySDR any more, so the archive must depend on no
-          # library the host is not guaranteed to have.
-          if [ "$RUNNER_OS" = macOS ]; then
-            cargo xtask link-check "$staged/sdrmm"
-          fi
-          if [ "$TARGET" = x86_64-apple-darwin ]; then exit 0; fi
-          bin="$staged/sdrmm"
-          if [ -f "$bin.exe" ]; then bin="$bin.exe"; fi
-          printed="$("$bin" --version)"
-          echo "$printed"
-          test "$printed" = "sdrmm $VERSION"
-          # No SoapySDR is installed on the runner, so this asserts the one thing that must be
-          # true of every host without it: the backend is compiled in and reports it is missing
-          # instead of failing to start.
-          doctor="$("$bin" --doctor)"
-          echo "$doctor"
-          grep -q 'compiled backends:.*soapy' <<< "$doctor"
-          grep -qi 'soapysdr' <<< "$doctor"
+          "$STAGED/sdrmm${{ matrix.exe }}" --doctor | tee doctor
+          grep -q 'compiled backends:.*soapy' doctor
+          grep -qi 'soapysdr' doctor
       - uses: actions/upload-artifact@v7
         with:
           name: sdrmm-${{ matrix.target }}
@@ -238,55 +130,31 @@ jobs:
             dist/*.zip
           if-no-files-found: error
 
-  # What a packager builds from. The tag's own tarball is not it: the version lives in the tag
-  # rather than the tree, the UI is not built, and `.cargo/config.toml` pins a nightly whose `-Z`
-  # flags stop a stable toolchain dead. This folds the stamped manifests and the built UI into an
-  # export that already drops that config, so `cargo build --locked` on stable is the whole
-  # recipe.
   source:
     name: Source tarball
     needs: version
-    if: needs.version.outputs.changed == 'true'
     runs-on: ubuntu-24.04
+    env:
+      ROOT: sdrmm-${{ needs.version.outputs.version }}-src
     steps:
       - uses: actions/checkout@v7
-      # Building xtask reaches sdrmm-server, and opusic-sys compiles vendored libopus.
-      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends cmake
-      - run: rustup show
-      - uses: ./.github/actions/media-deps
-      - uses: Swatinem/rust-cache@v2
+      - uses: ./.github/actions/rust
         with:
-          key: source
+          cache: source
       - uses: actions/download-artifact@v8
         with:
           name: version-stamp
-      - uses: pnpm/action-setup@v6
-        with:
-          version: ${{ env.PNPM_VERSION }}
-      - uses: actions/setup-node@v7
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: pnpm
-          cache-dependency-path: web/pnpm-lock.yaml
+      - uses: ./.github/actions/node
       - run: cargo xtask source-dist
-      - name: Smoke the tarball
-        env:
-          VERSION: ${{ needs.version.outputs.version }}
+      - name: Contents
         run: |
-          set -euo pipefail
-          root="sdrmm-${VERSION}-src"
-          tarball="dist/${root}.tar.gz"
-          test -s "$tarball"
-          tar -tzf "$tarball" > listing
-          grep -qx "${root}/apps/sdrmm/src/main.rs" listing
-          grep -qx "${root}/web/dist/index.html" listing
-          grep -qx "${root}/Cargo.lock" listing
-          if grep -qx "${root}/.cargo/config.toml" listing; then
-            echo "the export carries the nightly cargo config" >&2
-            exit 1
-          fi
-          tar -xzOf "$tarball" "${root}/Cargo.toml" > manifest
-          grep -qx "version = \"${VERSION}\"" manifest
+          tar -tzf "dist/$ROOT.tar.gz" > listing
+          grep -qx "$ROOT/apps/sdrmm/src/main.rs" listing
+          grep -qx "$ROOT/web/dist/index.html" listing
+          grep -qx "$ROOT/Cargo.lock" listing
+          ! grep -qx "$ROOT/.cargo/config.toml" listing
+      - name: Version
+        run: tar -xzOf "dist/$ROOT.tar.gz" "$ROOT/Cargo.toml" | grep -qx 'version = "${{ needs.version.outputs.version }}"'
       - uses: actions/upload-artifact@v7
         with:
           name: sdrmm-source
@@ -294,91 +162,54 @@ jobs:
           if-no-files-found: error
 
   image:
-    name: Image (${{ matrix.platform }})
+    name: Image (${{ matrix.arch }})
     needs: version
-    if: needs.version.outputs.changed == 'true'
     strategy:
       fail-fast: false
       matrix:
         include:
-          - platform: linux/amd64
+          - arch: amd64
             runner: ubuntu-24.04
-          - platform: linux/arm64
+          - arch: arm64
             runner: ubuntu-24.04-arm
-    # One native runner per platform, each pushing an untagged manifest by digest; the merge
-    # job below assembles them into one multi-arch tag. QEMU would work too and take hours.
     runs-on: ${{ matrix.runner }}
     permissions:
       contents: read
       packages: write
     steps:
       - uses: actions/checkout@v7
-      # Into the build context, so the binary inside the image reports the release version too.
-      # Unlike the cargo jobs this cannot be reordered around the cache: Cargo.toml is a layer
-      # input to the Dockerfile's dependency-compilation stage, so a tag build recompiles the
-      # dependency tree from cold. That is a few minutes per platform, on a workflow that runs
-      # per release — cheaper than teaching the Dockerfile to stamp itself.
       - uses: actions/download-artifact@v8
         with:
           name: version-stamp
-      # Artifact names cannot contain "/".
-      - name: Platform slug
-        env:
-          PLATFORM: ${{ matrix.platform }}
-        run: echo "PLATFORM_SLUG=${PLATFORM//\//-}" >> "$GITHUB_ENV"
       - uses: docker/setup-buildx-action@v4
       - uses: docker/login-action@v4
-        if: github.event_name != 'pull_request'
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      # The web build and its index.html assertion are stages of the Dockerfile itself, so the
-      # image cannot be published without an embedded UI either.
-      # A labelled pull request writes a `docker load`-able tarball instead of pushing: a registry
-      # reference is a published thing, and a branch build has no business creating one.
       - id: build
         uses: docker/build-push-action@v7
         with:
-          platforms: ${{ matrix.platform }}
-          outputs: >-
-            ${{ github.event_name == 'pull_request'
-                && format('type=docker,dest=image-{0}.tar', env.PLATFORM_SLUG)
-                || format('type=image,name={0},push-by-digest=true,name-canonical=true,push=true', env.IMAGE_NAME) }}
-          cache-from: type=gha,scope=${{ matrix.platform }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.platform }}
+          platforms: linux/${{ matrix.arch }}
+          outputs: type=image,name=${{ env.IMAGE_NAME }},push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=linux/${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=linux/${{ matrix.arch }}
       - name: Export digest
-        if: github.event_name != 'pull_request'
         env:
           DIGEST: ${{ steps.build.outputs.digest }}
         run: |
-          mkdir -p /tmp/digests
-          touch "/tmp/digests/${DIGEST#sha256:}"
+          mkdir -p "$RUNNER_TEMP/digests"
+          touch "$RUNNER_TEMP/digests/${DIGEST#sha256:}"
       - uses: actions/upload-artifact@v7
-        if: github.event_name != 'pull_request'
         with:
-          name: digest-${{ env.PLATFORM_SLUG }}
-          path: /tmp/digests/*
+          name: digest-${{ matrix.arch }}
+          path: ${{ runner.temp }}/digests/*
           if-no-files-found: error
           retention-days: 1
-      - name: Compress the image
-        if: github.event_name == 'pull_request'
-        run: gzip "image-${PLATFORM_SLUG}.tar"
-      - uses: actions/upload-artifact@v7
-        if: github.event_name == 'pull_request'
-        with:
-          name: image-${{ env.PLATFORM_SLUG }}
-          path: image-${{ env.PLATFORM_SLUG }}.tar.gz
-          if-no-files-found: error
-          # Already gzipped; zipping it again buys nothing and costs minutes on a 1 GB layer set.
-          compression-level: 0
-          retention-days: 7
 
   image-manifest:
     name: Image manifest
-    needs: [version, image]
-    # A pull request pushed no digests to assemble.
-    if: needs.version.outputs.changed == 'true' && github.event_name != 'pull_request'
+    needs: image
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -386,7 +217,7 @@ jobs:
     steps:
       - uses: actions/download-artifact@v8
         with:
-          path: /tmp/digests
+          path: digests
           pattern: digest-*
           merge-multiple: true
       - uses: docker/setup-buildx-action@v4
@@ -399,9 +230,6 @@ jobs:
         uses: docker/metadata-action@v6
         with:
           images: ${{ env.IMAGE_NAME }}
-          # The semver patterns need a tag ref and produce nothing on the other two triggers,
-          # which is why `latest` and `nightly` are raw and mutually exclusive: a nightly must
-          # never be what `docker pull` gives someone who asked for no tag at all.
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
@@ -409,26 +237,21 @@ jobs:
             type=raw,value=nightly,enable=${{ github.event_name == 'schedule' }}
             type=sha,enable=${{ github.ref_type != 'tag' }}
       - name: Create manifest list
-        working-directory: /tmp/digests
+        working-directory: digests
         run: |
-          # shellcheck disable=SC2046  # both substitutions are argument lists, not one word
-          docker buildx imagetools create \
-            $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
-            $(printf "${IMAGE_NAME}@sha256:%s " *)
+          mapfile -t tags < <(jq -r '.tags[] | "-t", .' <<< "$DOCKER_METADATA_OUTPUT_JSON")
+          mapfile -t digests < <(printf "${IMAGE_NAME}@sha256:%s\n" *)
+          docker buildx imagetools create "${tags[@]}" "${digests[@]}"
       - name: Inspect
         run: docker buildx imagetools inspect "${IMAGE_NAME}:${{ steps.meta.outputs.version }}"
 
   desktop:
     name: Desktop (${{ matrix.label }})
     needs: version
-    if: needs.version.outputs.changed == 'true'
     strategy:
       fail-fast: false
       matrix:
         include:
-          # `app` alongside `dmg` because the macOS updater artifact is the tarred `.app`, and
-          # the bundler only emits it when `app` is an explicit target — with `dmg` alone it
-          # builds the `.app`, wraps it, then deletes it, and the release loses its updater.
           - label: macos-arm64
             runner: macos-15
             target: aarch64-apple-darwin
@@ -449,256 +272,74 @@ jobs:
             runner: windows-2025
             target: x86_64-pc-windows-msvc
             bundles: msi,nsis
-          # NSIS alone: WiX 3 emits no arm64 package, so `msi` here fails the bundle.
           - label: windows-arm64
             runner: windows-11-arm
             target: aarch64-pc-windows-msvc
             bundles: nsis
     runs-on: ${{ matrix.runner }}
+    env:
+      TAURI_ARGS: >-
+        --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
+        -- --no-default-features --features soapy,sdrplay,rtlsdr,hackrf,airspy,airspyhf,ad936x,net-client,gpu-fft
+      APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+      APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+      APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
     steps:
       - uses: actions/checkout@v7
-      - run: rustup show
-      - run: rustup target add ${{ matrix.target }}
-      # Before the version stamp, for the reason given in the binaries job.
-      - uses: ./.github/actions/media-deps
+      - uses: ./.github/actions/rust
         with:
+          cache: release-desktop-${{ matrix.label }}
           target: ${{ matrix.target }}
-      - uses: Swatinem/rust-cache@v2
-        with:
-          key: desktop-${{ matrix.label }}
+          tauri: true
       - uses: actions/download-artifact@v8
         with:
           name: version-stamp
-      - uses: pnpm/action-setup@v6
-        with:
-          version: ${{ env.PNPM_VERSION }}
-      - uses: actions/setup-node@v7
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: pnpm
-          cache-dependency-path: web/pnpm-lock.yaml
-      # Tauri v2's Linux prerequisites; cmake is for opusic-sys' vendored libopus. The GStreamer
-      # plugins and patchelf are the AppImage's: linuxdeploy bundles the GStreamer core WebKit
-      # links against, and a core refuses plugins built for a newer release, so the host's own
-      # plugins are rejected and WebKit finds no audio sink. The bundle therefore carries the
-      # plugins from this machine, which has to have them installed to bundle them.
-      - if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev \
-            libxdo-dev libssl-dev cmake file patchelf xdg-utils \
-            gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-alsa
-          test -x /usr/bin/xdg-open
-      # tauri-action drives the bundle itself, so the UI has to be on disk before it starts —
-      # the Tauri shell serves the same embedded UI through the in-process server, and needs
-      # web/dist just as much as the headless binary does.
-      - run: pnpm --dir web install --frozen-lockfile
+      - uses: ./.github/actions/node
       - run: pnpm --dir web build
-      - name: Assert the UI built
+      - name: UI built
         shell: bash
         run: test -f web/dist/index.html
-      # The AppImage bundler shells out to linuxdeploy, which it does not vendor: on the first
-      # bundle it pulls AppRun and the linuxdeploy tools from GitHub with one retry-less
-      # request each, and a dropped connection there kills the whole job *after* the release
-      # build has already been paid for (`failed to bundle project: io: Peer disconnected`).
-      # It only downloads what is missing from its tools directory, so fetching the same set
-      # here — with retries, and with each file moved into place only once it is complete —
-      # leaves the bundler with nothing to fetch and no network to be flaky.
-      - name: Prefetch the AppImage tooling
-        if: runner.os == 'Linux' && contains(matrix.bundles, 'appimage')
-        shell: bash
-        env:
-          TARGET: ${{ matrix.target }}
-        run: |
-          set -euo pipefail
-          arch="${TARGET%%-*}"
-          tools="${XDG_CACHE_HOME:-$HOME/.cache}/tauri"
-          mkdir -p "$tools"
-          fetch() {
-            if ! curl --fail --location --silent --show-error \
-                 --retry 5 --retry-delay 5 --retry-all-errors --connect-timeout 30 \
-                 --output "$tools/$2.part" "$1" || [ ! -s "$tools/$2.part" ]; then
-              rm -f "$tools/$2.part"
-              return 1
-            fi
-            chmod +x "$tools/$2.part"
-            mv "$tools/$2.part" "$tools/$2"
-          }
-          releases=https://github.com/tauri-apps/binary-releases/releases/download
-          plugins=https://raw.githubusercontent.com/tauri-apps
-          fetch "$releases/apprun-old/AppRun-$arch" "AppRun-$arch"
-          # Upstream rather than the mirror the bundler would use: the pinned mirror predates the
-          # GTK and GStreamer plugin contract the staged runtime is deployed with.
-          fetch "https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-$arch.AppImage" \
-            "linuxdeploy-$arch.AppImage"
-          fetch "$plugins/linuxdeploy-plugin-gtk/master/linuxdeploy-plugin-gtk.sh" linuxdeploy-plugin-gtk.sh
-          fetch "$plugins/linuxdeploy-plugin-gstreamer/master/linuxdeploy-plugin-gstreamer.sh" linuxdeploy-plugin-gstreamer.sh
-          # The one optional tool — linuxdeploy carries its own older copy — so a miss here is
-          # the bundler's own fallback, not a failed release. Note the name it is stored under
-          # drops the architecture the URL carries.
-          fetch "https://github.com/linuxdeploy/linuxdeploy-plugin-appimage/releases/download/continuous/linuxdeploy-plugin-appimage-$arch.AppImage" \
-            linuxdeploy-plugin-appimage.AppImage \
-            || echo "AppImage plugin unavailable — linuxdeploy will use its built-in version."
-          ls -l "$tools"
-      # `cargo xtask desktop --bundles` is the same build locally. CI goes through the action
-      # because signing a macOS bundle needs the certificate imported into a temporary keychain
-      # first, and that is the action's job.
-      # `continue-on-error` because of the retry below, and the pair of them only on macOS:
-      # the DMG bundler mounts an interstitial disk image, and `hdiutil attach` on the runners
-      # intermittently refuses — the app is built, signed and notarized by then, so the whole
-      # release dies on a step whose second attempt costs a re-bundle.
+      - if: contains(matrix.bundles, 'appimage')
+        run: scripts/ci/prefetch-appimage-tools.sh "${{ runner.arch == 'ARM64' && 'aarch64' || 'x86_64' }}"
       - id: bundle
         uses: tauri-apps/tauri-action@v1
         continue-on-error: ${{ runner.os == 'macOS' }}
         env:
-          # macOS bundles are signed and notarized, which is what these six carry: the first
-          # three are the Developer ID Application certificate, the last three are the notary
-          # credentials. Tauri creates and unlocks its own temporary keychain from the .p12, so
-          # there is no KEYCHAIN_PASSWORD to set here.
-          # If any are missing the build still succeeds and produces an *unsigned* .dmg —
-          # Gatekeeper then quarantines the app with no ticket to staple, and users have to
-          # clear the quarantine attribute by hand.
           FFMPEG_DIR: ${{ github.workspace }}/.media/${{ matrix.target }}
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          # The updater's own signature, unrelated to the Apple ones above: the client trusts
-          # only this key, and `createUpdaterArtifacts` produces nothing without it. Missing here
-          # means a release with no `.sig` files, which the collect step below refuses.
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           projectPath: apps/desktop
-          args: --target ${{ matrix.target }} --bundles ${{ matrix.bundles }} -- --no-default-features --features soapy,sdrplay,rtlsdr,hackrf,airspy,airspyhf,ad936x,net-client,gpu-fft
-      # A bundler that dies mid-DMG leaves the image attached — the runner kills the orphaned
-      # `diskimages-helper` at cleanup — and its read-write interstitial on disk. The second
-      # attempt names its own interstitial after its pid, so it is not the mount that matters
-      # here: the leftover is a `.dmg` two levels under `bundle/`, exactly what the collect step
-      # below globs, and it would ship as a release asset of its own.
-      - name: Clear what the failed DMG bundle left behind
-        if: runner.os == 'macOS' && steps.bundle.outcome == 'failure'
-        shell: bash
-        env:
-          TARGET: ${{ matrix.target }}
+          args: ${{ env.TAURI_ARGS }}
+      - name: Clear failed DMG
+        if: steps.bundle.outcome == 'failure'
         run: |
-          set -euo pipefail
           shopt -s nullglob
-          for volume in /Volumes/dmg.*; do
-            echo "detaching $volume"
-            hdiutil detach -force "$volume" || true
-          done
-          for image in "target/$TARGET/release/bundle/macos"/rw.*.dmg; do
-            echo "removing $image"
-            rm -f "$image"
-          done
-      # `TAURI_CLI_VERBOSITY` only here: the bundler runs `bundle_dmg.sh` with its output piped
-      # into a debug-level log, so at the default level a failed script reports nothing but its
-      # own name. If the retry fails too, this is the run that says why.
+          for volume in /Volumes/dmg.*; do hdiutil detach -force "$volume" || true; done
+          rm -f "target/${{ matrix.target }}/release/bundle/macos"/rw.*.dmg
       - name: Bundle again
-        if: runner.os == 'macOS' && steps.bundle.outcome == 'failure'
+        if: steps.bundle.outcome == 'failure'
         uses: tauri-apps/tauri-action@v1
         env:
           FFMPEG_DIR: ${{ github.workspace }}/.media/${{ matrix.target }}
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           TAURI_CLI_VERBOSITY: 1
         with:
           projectPath: apps/desktop
-          args: --target ${{ matrix.target }} --bundles ${{ matrix.bundles }} -- --no-default-features --features soapy,sdrplay,rtlsdr,hackrf,airspy,airspyhf,ad936x,net-client,gpu-fft
-      # The AppImage ships its own GStreamer core, so the sink WebKit opens a speaker with has
-      # to travel with it. Miss it and the app still builds, still launches and plays nothing,
-      # with "GStreamer element autoaudiosink not found" on a console nobody is watching.
-      - name: Assert the AppImage can reach a speaker
-        if: runner.os == 'Linux' && contains(matrix.bundles, 'appimage')
-        shell: bash
-        env:
-          TARGET: ${{ matrix.target }}
-        run: |
-          set -euo pipefail
-          image="$(find "target/$TARGET/release/bundle/appimage" -maxdepth 1 -name '*.AppImage' -print -quit)"
-          test -n "$image" || { echo "no AppImage to check" >&2; exit 1; }
-          image="$(readlink -f "$image")"
-          check="$RUNNER_TEMP/appimage-audio"
-          rm -rf "$check"
-          mkdir -p "$check"
-          (cd "$check" && "$image" --appimage-extract > /dev/null)
-          root="$check/squashfs-root"
-          need() { test -f "$root/$1" || { echo "missing from the AppImage: $1" >&2; exit 1; }; }
-          need apprun-hooks/linuxdeploy-plugin-gstreamer.sh
-          need usr/lib/gstreamer-1.0/libgstautodetect.so
-          need usr/lib/gstreamer1.0/gstreamer-1.0/gst-plugin-scanner
-          test -f "$root/usr/lib/gstreamer-1.0/libgstpulseaudio.so" \
-            || test -f "$root/usr/lib/gstreamer-1.0/libgstalsa.so" \
-            || { echo "the AppImage bundles no audio sink plugin" >&2; exit 1; }
-          # The plugins are only found through the hook, which runs solely because linuxdeploy
-          # wrapped AppRun around it.
-          grep -qa apprun-hooks "$root/AppRun" \
-            || { echo "AppRun does not run the bundled hooks" >&2; exit 1; }
-          rm -rf "$check"
-      # Flattened first: upload-artifact roots a multi-path artifact at the least common
-      # ancestor of its search paths, which would nest the bundles under dmg/ deb/ appimage/
-      # — and the release job below treats every downloaded entry as a file to attach.
-      # Tauri v2 reuses the AppImage and Windows installers as updater payloads; macOS still
-      # archives the `.app`. The installers are also what a human downloads. Everything goes to
-      # the release, and `latest.json` is built from the signatures — so a dropped `.sig` here is
-      # a platform that silently stops updating.
+          args: ${{ env.TAURI_ARGS }}
+      - name: AppImage audio
+        if: contains(matrix.bundles, 'appimage')
+        run: scripts/ci/check-appimage-audio.sh "target/${{ matrix.target }}/release/bundle/appimage"
       - name: Collect bundles
         shell: bash
-        env:
-          TARGET: ${{ matrix.target }}
-          VERSION: ${{ needs.version.outputs.version }}
-        run: |
-          set -euo pipefail
-          shopt -s nullglob
-          mkdir -p bundles
-          # Bundles sit one directory under `bundle/`; `-maxdepth 2` keeps the walk out of the
-          # `.app` the macOS `app` target leaves behind, whose payload is not ours to collect.
-          find "target/$TARGET/release/bundle" -maxdepth 2 -type f \
-            \( -name '*.dmg' -o -name '*.deb' -o -name '*.AppImage' \
-               -o -name '*.msi' -o -name '*-setup.exe' \
-               -o -name '*.app.tar.gz' -o -name '*.sig' \) \
-            -exec cp {} bundles/ \;
-          # macOS names its updater artifact after the product alone (`SDR--.app.tar.gz`), with
-          # no architecture in it — so both slices would reach one release under the same name
-          # and whichever uploaded second would win. The other three targets carry their arch.
-          if [ "$RUNNER_OS" = macOS ]; then
-            arch="${TARGET%%-*}"
-            for f in bundles/*.app.tar.gz; do
-              mv "$f" "${f%.app.tar.gz}_${VERSION}_${arch}.app.tar.gz"
-              mv "$f.sig" "${f%.app.tar.gz}_${VERSION}_${arch}.app.tar.gz.sig"
-            done
-          fi
-          # An unsigned bundle still builds and still installs; it just can never be updated
-          # from, and nothing downstream notices until a release reaches nobody. Every strand of
-          # this matrix emits at least one updater artifact, so this is unconditional.
-          test -n "$(find bundles -name '*.sig')" \
-            || { echo "no .sig files — is TAURI_SIGNING_PRIVATE_KEY set?" >&2; exit 1; }
-          ls -l bundles
-      # The bundler notarizes and staples the `.app`, and then signs the `.dmg` around it and
-      # stops. Gatekeeper assesses a downloaded disk image on its own ticket, so without this the
-      # installer every macOS user double-clicks is refused with "Apple cannot check it for
-      # malicious software" — while the app inside it was notarized all along.
-      - name: Notarize the disk image
+        run: scripts/ci/collect-bundles.sh "${{ matrix.target }}" "${{ needs.version.outputs.version }}"
+      - name: Notarize disk image
         if: runner.os == 'macOS'
-        env:
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
-          set -euo pipefail
           for dmg in bundles/*.dmg; do
-            xcrun notarytool submit "$dmg" --apple-id "$APPLE_ID" --password "$APPLE_PASSWORD" \
-              --team-id "$APPLE_TEAM_ID" --wait
+            xcrun notarytool submit "$dmg" --apple-id "$APPLE_ID" --password "$APPLE_PASSWORD" --team-id "$APPLE_TEAM_ID" --wait
             xcrun stapler staple "$dmg"
             xcrun stapler validate "$dmg"
             spctl --assess --type open --context context:primary-signature -v "$dmg"
@@ -709,24 +350,16 @@ jobs:
           path: bundles/*
           if-no-files-found: error
 
-  # Runs on a dispatch rehearsal too, deliberately: this is the one job whose input is the whole
-  # desktop matrix at once, so a bundler rename that collapses two platforms into one entry is
-  # only visible here. Rehearsing it off a branch is what keeps that from surfacing on tag day.
   updater-manifest:
     name: Updater manifest
     needs: [version, desktop]
-    if: needs.version.outputs.changed == 'true'
     runs-on: ubuntu-24.04
     steps:
-      # Before the download: checkout cleans the workspace and would take `bundles/` with it.
       - uses: actions/checkout@v7
-      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends cmake
-      - run: rustup show
-      - uses: ./.github/actions/media-deps
-      - uses: Swatinem/rust-cache@v2
+      - uses: ./.github/actions/rust
         with:
-          shared-key: ubuntu
-          save-if: false
+          cache: ubuntu
+          save: false
       - uses: actions/download-artifact@v8
         with:
           path: bundles
@@ -734,21 +367,12 @@ jobs:
           merge-multiple: true
       - name: Write latest.json
         env:
-          VERSION: ${{ needs.version.outputs.version }}
+          TAG: ${{ github.event_name == 'schedule' && 'nightly' || github.ref_name }}
         run: |
-          set -euo pipefail
-          # A tag serves the manifest from its own release; the nightly from the rolling one. A
-          # dispatch and a labelled pull request have neither and only exercise the generator, so
-          # they are named after the thing that will never exist rather than after `123/merge`.
-          case "$GITHUB_EVENT_NAME" in
-            schedule) tag=nightly ;;
-            pull_request) tag="pr-${{ github.event.pull_request.number }}" ;;
-            *) tag="$GITHUB_REF_NAME" ;;
-          esac
           cargo xtask updater-manifest \
-            --version "$VERSION" \
+            --version "${{ needs.version.outputs.version }}" \
             --dir bundles \
-            --base-url "https://github.com/$GITHUB_REPOSITORY/releases/download/$tag" \
+            --base-url "https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG" \
             --out latest.json
           cat latest.json
       - uses: actions/upload-artifact@v7
@@ -757,57 +381,18 @@ jobs:
           path: latest.json
           if-no-files-found: error
 
-  # What "in the pull request" means in practice: the run holds every artifact, and this points
-  # the conversation at them so nobody has to open the check first. One comment per pull request,
-  # rewritten in place on each rebuild rather than appended to.
-  pull-request-build:
-    name: Pull request build
-    needs: [version, binaries, source, image, desktop, updater-manifest]
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-24.04
-    permissions:
-      contents: read
-      pull-requests: write
-    steps:
-      - env:
-          GH_TOKEN: ${{ github.token }}
-          NUMBER: ${{ github.event.pull_request.number }}
-          VERSION: ${{ needs.version.outputs.version }}
-        run: |
-          set -euo pipefail
-          run="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
-          body=$(cat <<EOF
-          <!-- build_nightly -->
-          Full build of \`${GITHUB_SHA}\`, stamped \`${VERSION}\`. No tag, no release, nothing published.
-
-          **[Artifacts](${run}#artifacts)** — portable archives, desktop installers and update bundles for every platform, \`latest.json\`, and a \`docker load\`-able image per architecture.
-
-          Every push rebuilds this while the \`build_nightly\` label is on; remove the label to stop.
-          EOF
-          )
-          # `--jq` runs once per page, so the filter emits ids rather than picking one: `tail`
-          # does the choosing, across pages.
-          id=$(gh api "repos/$GITHUB_REPOSITORY/issues/$NUMBER/comments" --paginate \
-            --jq '.[] | select(.body | startswith("<!-- build_nightly -->")) | .id' | tail -n 1)
-          if [ -n "$id" ]; then
-            gh api -X PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$id" -f body="$body"
-          else
-            gh pr comment "$NUMBER" --repo "$GITHUB_REPOSITORY" --body "$body"
-          fi
-
   release:
     name: GitHub Release
-    # Dispatch rehearsals and labelled pull requests stop at the uploaded artifacts; a tag and a
-    # nightly publish.
     if: github.ref_type == 'tag' || github.event_name == 'schedule'
-    needs: [version, binaries, source, image-manifest, desktop, updater-manifest]
+    needs: [version, binaries, source, image-manifest, updater-manifest]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
-      # Provenance: every published file gets a signed statement tying it to this workflow at
-      # this commit, verifiable with `gh attestation verify <file> --repo <repo>`.
       id-token: write
       attestations: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      VERSION: ${{ needs.version.outputs.version }}
     steps:
       - uses: actions/download-artifact@v8
         with:
@@ -817,129 +402,70 @@ jobs:
       - name: Checksums
         working-directory: artifacts
         run: |
-          # `! -name SHA256SUMS`: the redirect creates the file before `find` runs, so without
-          # it the manifest lists itself — hashed while still empty, since it sorts first.
-          # shellcheck disable=SC2094  # that exclusion is exactly what makes this safe
-          find . -type f ! -name SHA256SUMS -printf '%P\0' \
-            | sort -z | xargs -0 shasum -a 256 > SHA256SUMS
+          find . -type f -printf '%P\0' | sort -z | xargs -0 shasum -a 256 > "$RUNNER_TEMP/SHA256SUMS"
+          mv "$RUNNER_TEMP/SHA256SUMS" .
           cat SHA256SUMS
       - uses: actions/attest-build-provenance@v4
         with:
           subject-path: "artifacts/*"
       - name: Publish release
         if: github.ref_type == 'tag'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ needs.version.outputs.version }}
         run: |
-          # shellcheck disable=SC2046  # the find is an asset list, one argument per file
+          mapfile -t files < <(find artifacts -type f | sort)
           gh release create "$GITHUB_REF_NAME" \
             --repo "$GITHUB_REPOSITORY" \
             --verify-tag \
             --generate-notes \
             --notes "Container image: \`docker pull ${IMAGE_NAME}:${VERSION}\`" \
-            $(find artifacts -type f | sort)
-
-      # Rolling, so the download URLs are stable and always point at the newest build. The tag
-      # is deleted with the release and recreated at this commit, which is also what makes it
-      # usable as the change marker the `version` job reads — the tag *is* the record of what
-      # the last nightly was built from.
+            "${files[@]}"
+      - name: Remove previous nightly
+        if: github.event_name == 'schedule'
+        run: gh release delete nightly --repo "$GITHUB_REPOSITORY" --yes --cleanup-tag || true
       - name: Publish nightly
         if: github.event_name == 'schedule'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ needs.version.outputs.version }}
         run: |
-          set -euo pipefail
-          gh release delete nightly --repo "$GITHUB_REPOSITORY" --yes --cleanup-tag || true
-          notes=$(cat <<EOF
-          Automated build of \`main\` at ${GITHUB_SHA}, published $(date -u '+%Y-%m-%d %H:%M UTC').
-
-          Unstable by definition: this is whatever was on \`main\` last night, not a release.
-          It is replaced every night, so these download URLs always point at the newest build.
-
-          Container image: \`docker pull ${IMAGE_NAME}:nightly\`
-          EOF
-          )
-          # shellcheck disable=SC2046  # the find is an asset list, one argument per file
+          mapfile -t files < <(find artifacts -type f | sort)
           gh release create nightly \
             --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" \
             --title "Nightly $VERSION" \
             --prerelease \
-            --notes "$notes" \
-            $(find artifacts -type f | sort)
+            --notes "Build of \`main\` at ${GITHUB_SHA}. Replaced every night. Container image: \`docker pull ${IMAGE_NAME}:nightly\`" \
+            "${files[@]}"
 
-  # The tap points Homebrew at files the release job just published, so it can only be written
-  # once they exist. Tags only: `brew upgrade` must never move a stable install onto the rolling
-  # nightly. The tap lives in a second repository, which is why this needs a token of its own —
-  # without one the job stops at the guard rather than failing a release that already shipped.
   homebrew:
     name: Homebrew tap
-    if: github.ref_type == 'tag'
-    needs: [version, release]
+    if: github.ref_type == 'tag' && needs.plan.outputs.tap == 'true'
+    needs: [plan, version, release]
     runs-on: ubuntu-24.04
     steps:
-      - name: Guard
-        id: guard
-        env:
-          TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
-        run: |
-          if [ -z "$TAP_TOKEN" ]; then
-            echo "HOMEBREW_TAP_TOKEN is unset: skipping the tap update." >&2
-            echo "ready=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "ready=true" >> "$GITHUB_OUTPUT"
-          fi
       - uses: actions/checkout@v7
-        if: steps.guard.outputs.ready == 'true'
-      - if: steps.guard.outputs.ready == 'true'
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends cmake
-      - if: steps.guard.outputs.ready == 'true'
-        run: rustup show
-      - uses: ./.github/actions/media-deps
-      - uses: Swatinem/rust-cache@v2
-        if: steps.guard.outputs.ready == 'true'
+      - uses: ./.github/actions/rust
         with:
-          shared-key: ubuntu
-          save-if: false
-      # The published manifest rather than a rebuilt one: a tap that disagrees with the release it
-      # names hands every `brew install` a checksum mismatch.
-      - name: Fetch the published checksums
-        if: steps.guard.outputs.ready == 'true'
+          cache: ubuntu
+          save: false
+      - name: Fetch checksums
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh release download "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --pattern SHA256SUMS
-      - name: Check out the tap
-        if: steps.guard.outputs.ready == 'true'
-        uses: actions/checkout@v7
+      - uses: actions/checkout@v7
         with:
           repository: ${{ github.repository_owner }}/homebrew-tap
           token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
           path: tap
-      - name: Write the formula and the cask
-        if: steps.guard.outputs.ready == 'true'
-        env:
-          VERSION: ${{ needs.version.outputs.version }}
+      - name: Write formula and cask
         run: |
           cargo xtask homebrew-tap \
-            --version "$VERSION" \
+            --version "${{ needs.version.outputs.version }}" \
             --sums SHA256SUMS \
             --repo "$GITHUB_REPOSITORY" \
             --out tap
-      - name: Publish the tap
-        if: steps.guard.outputs.ready == 'true'
+      - name: Push tap
         working-directory: tap
-        env:
-          VERSION: ${{ needs.version.outputs.version }}
         run: |
-          set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add Formula/sdrmm.rb Casks/sdrminusminus.rb
-          if git diff --cached --quiet; then
-            echo "the tap already describes $VERSION"
-            exit 0
-          fi
-          git commit -m "sdrmm $VERSION"
+          git diff --cached --quiet && exit 0
+          git commit -m "sdrmm ${{ needs.version.outputs.version }}"
           git push

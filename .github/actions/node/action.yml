@@ -1,0 +1,17 @@
+name: Node
+description: pnpm, Node and the web dependencies
+runs:
+  using: composite
+  steps:
+    - uses: pnpm/action-setup@v6
+      with:
+        package_json_file: web/package.json
+    - uses: actions/setup-node@v7
+      with:
+        node-version: 26
+        cache: pnpm
+        cache-dependency-path: |
+          web/pnpm-lock.yaml
+          site/pnpm-lock.yaml
+    - shell: bash
+      run: pnpm --dir web install --frozen-lockfile

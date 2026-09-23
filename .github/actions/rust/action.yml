@@ -1,0 +1,79 @@
+name: Rust
+description: Toolchain, media libraries and build cache
+inputs:
+  cache:
+    description: Cache key
+    required: true
+  save:
+    description: Save the cache
+    default: "true"
+  target:
+    description: Additional target triple
+    default: ""
+  tauri:
+    description: Install the Tauri Linux packages
+    default: "false"
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: rustup show
+    - if: inputs.target != ''
+      shell: bash
+      run: rustup target add ${{ inputs.target }}
+    - if: runner.os == 'Linux'
+      shell: bash
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y --no-install-recommends clang libclang-dev nasm python3 make cmake
+    - if: runner.os == 'Linux' && inputs.tauri == 'true'
+      shell: bash
+      run: |
+        sudo apt-get install -y --no-install-recommends \
+          libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev libssl-dev \
+          file patchelf xdg-utils gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-alsa
+    - if: runner.os == 'Windows'
+      uses: ilammy/msvc-dev-cmd@v1
+      with:
+        arch: ${{ runner.arch == 'ARM64' && 'arm64' || 'x64' }}
+    - if: runner.os == 'Windows'
+      id: msys2
+      uses: msys2/setup-msys2@v2
+      with:
+        install: make diffutils
+        path-type: inherit
+    - if: runner.os == 'Windows'
+      id: llvm
+      uses: actions/cache@v5
+      with:
+        path: .llvm
+        key: libclang-23.1.2-${{ runner.arch }}
+    - if: runner.os == 'Windows' && steps.llvm.outputs.cache-hit != 'true'
+      shell: bash
+      env:
+        NAME: clang+llvm-23.1.2-${{ runner.arch == 'ARM64' && 'aarch64' || 'x86_64' }}-pc-windows-msvc
+      run: |
+        curl -fsSL -o llvm.tar.xz "https://github.com/llvm/llvm-project/releases/download/llvmorg-23.1.2/$NAME.tar.xz"
+        mkdir -p .llvm
+        tar -xJf llvm.tar.xz -C .llvm --strip-components 1 "$NAME/bin/libclang.dll" "$NAME/lib/clang"
+        rm llvm.tar.xz
+    - if: runner.os == 'Windows'
+      shell: pwsh
+      run: |
+        "MEDIA_SHELL_BIN=${{ steps.msys2.outputs.msys2-location }}\usr\bin;C:\Program Files\LLVM\bin" >> $env:GITHUB_ENV
+        "LIBCLANG_PATH=$env:GITHUB_WORKSPACE\.llvm\bin" >> $env:GITHUB_ENV
+    - uses: actions/cache@v5
+      with:
+        path: .media
+        key: media-${{ runner.os }}-${{ runner.arch }}-${{ inputs.target }}-${{ hashFiles('scripts/build-media.py') }}
+    - shell: bash
+      run: python3 scripts/build-media.py
+    - if: inputs.target != ''
+      shell: bash
+      run: python3 scripts/build-media.py --target "${{ inputs.target }}"
+    - shell: bash
+      run: echo "FFMPEG_DIR=$(python3 scripts/build-media.py --print-prefix)" >> "$GITHUB_ENV"
+    - uses: Swatinem/rust-cache@v2
+      with:
+        shared-key: ${{ inputs.cache }}
+        save-if: ${{ inputs.save }}

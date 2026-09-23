@@ -1,7 +1,7 @@
 # Release process
 
 Tagged releases publish portable servers, desktop installers, signed update bundles, and container
-images. A scheduled workflow updates the rolling nightly when `main` changes.
+images. The nightly workflow updates the rolling nightly when `main` changes.
 
 ## Versioning
 
@@ -101,18 +101,6 @@ brew style newspicel/tap
 brew audit --strict --online newspicel/tap/sdrmm
 brew audit --strict --online --cask newspicel/tap/sdrminusminus
 ```
-
-## Building a pull request
-
-Add `build_nightly` to a same-repository pull request to build the full release matrix. The run
-uploads portable archives, installers, update bundles, `latest.json`, and container tarballs.
-A pull-request comment links to the artifacts.
-
-This rehearsal publishes no release, tag, or registry image. Containers can be imported with
-`docker load`. The build uses the manifest version, currently `0.0.0`.
-
-Each push rebuilds and cancels the older run. Remove the label to stop. Forks cannot use this
-workflow because the bundle jobs require signing secrets.
 
 ## Release checklist
 

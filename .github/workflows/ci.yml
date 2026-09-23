@@ -1,11 +1,3 @@
-# CI mirrors the local gate 1:1 (CLAUDE.md): every job here is an `xtask` subcommand a developer
-# can run unchanged — `check`, `test`, `smoke`, `desktop`, `audit`. No hardware — everything runs
-# on `device-virtual`. One subcommand per job rather than four in sequence: they share no state,
-# and running them serially made the pull-request wall clock their sum.
-#
-# Every platform runs on every pull request. A break in macOS- or Windows-gated code is found
-# by the change that caused it, not by `main` after the merge — the runners are free on a public
-# repository, so there is nothing to trade the signal against.
 name: CI
 
 on:
@@ -22,10 +14,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  # Enforced by `xtask check` against web/package.json and the Dockerfile — these three
-  # are bumped by different tools and must move together.
-  PNPM_VERSION: 11.15.1
-  NODE_VERSION: 26
+  SAVE_CACHE: ${{ github.ref == 'refs/heads/main' }}
 
 jobs:
   check:
@@ -33,106 +22,64 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
-      - uses: pnpm/action-setup@v6
+      - uses: ./.github/actions/node
+      - uses: ./.github/actions/rust
         with:
-          version: ${{ env.PNPM_VERSION }}
-      - uses: actions/setup-node@v7
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: pnpm
-          cache-dependency-path: web/pnpm-lock.yaml
-      - run: pnpm --dir web install --frozen-lockfile
-      # Installs the pinned nightly + rustfmt/clippy from rust-toolchain.toml.
-      - run: rustup show
-      # Its own key: clippy is a `cargo check`, so this target dir holds dependency metadata
-      # where `ubuntu` below holds the linkable rlibs. Sharing one key would leave whichever
-      # job saved last unable to serve the other.
-      - uses: ./.github/actions/media-deps
-      - uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: ubuntu-check
-          save-if: ${{ github.ref == 'refs/heads/main' }}
-      # `check` is ordered cheapest-first internally (fmt and the web lints before clippy), so
-      # a formatting break answers in seconds rather than after a cold workspace build.
-      - name: cargo xtask check
-        run: cargo xtask check
+          cache: ubuntu-check
+          save: ${{ env.SAVE_CACHE }}
+      - run: cargo xtask check
 
   performance:
-    name: Rust performance gates (ubuntu)
+    name: Performance gates (ubuntu)
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
-      - run: rustup show
-      - uses: ./.github/actions/media-deps
-      - uses: Swatinem/rust-cache@v2
+      - uses: ./.github/actions/rust
         with:
-          shared-key: performance
-      - name: Throughput and allocation budgets
-        run: cargo xtask perf
+          cache: performance
+      - run: cargo xtask perf
 
   test:
-    name: Rust + web tests (ubuntu)
-    runs-on: ubuntu-24.04
+    name: Tests (${{ matrix.label }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: ubuntu
+            runner: ubuntu-24.04
+          - label: macos-arm64
+            runner: macos-15
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v7
-      # `cargo xtask test` runs the web unit tests too, so it needs pnpm + node.
-      - uses: pnpm/action-setup@v6
+      - uses: ./.github/actions/node
+      - uses: ./.github/actions/rust
         with:
-          version: ${{ env.PNPM_VERSION }}
-      - uses: actions/setup-node@v7
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: pnpm
-          cache-dependency-path: web/pnpm-lock.yaml
-      - run: pnpm --dir web install --frozen-lockfile
-      - run: rustup show
-      # Keeps the `ubuntu` key: this is the job that compiles dependencies all the way to
-      # rlibs, which is what the `smoke` and `advisories` jobs here and the xtask-only jobs in
-      # release.yml restore.
-      - uses: ./.github/actions/media-deps
-      - uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: ubuntu
-          save-if: ${{ github.ref == 'refs/heads/main' }}
+          cache: ${{ matrix.label == 'ubuntu' && 'ubuntu' || 'macos' }}
+          save: ${{ env.SAVE_CACHE }}
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-nextest
-      - name: cargo xtask test
-        run: cargo xtask test
+      - run: cargo xtask test
 
-  gpu-fft:
-    name: GPU DSP parity (ubuntu)
+  gpu:
+    name: GPU parity (ubuntu)
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
-      # mesa-vulkan-drivers supplies Lavapipe, the only adapter a headless runner offers.
-      - run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends mesa-vulkan-drivers
-      - run: rustup show
-      # Restore-only on the test job's cache: it compiles the same dependency graph in the same
-      # profile and has nothing of its own worth storing.
-      - uses: ./.github/actions/media-deps
-      - uses: Swatinem/rust-cache@v2
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends mesa-vulkan-drivers
+      - uses: ./.github/actions/rust
         with:
-          shared-key: ubuntu
-          save-if: false
-      # Separate from the browser smoke below: the two share no compiled artifacts — this builds
-      # `sdrmm-engine` with every feature, that builds the `sdrmm` binary with the defaults — so
-      # one job only made them queue behind each other and report a single ambiguous failure.
-      # `crates/engine` has no build script, so nothing here needs Node or a UI on disk.
-      #
-      # Exercise WGSL compilation and the complete compute/readback path even on a headless
-      # runner. Lavapipe is deliberately accepted by the test but rejected by production
-      # selection, where a software adapter would only move CPU work around.
-      - name: GPU FFT parity (Lavapipe)
+          cache: ubuntu
+          save: false
+      - name: FFT
         env:
           SDRMM_REQUIRE_GPU_FFT_TEST: "1"
         run: >
           cargo test -p sdrmm-engine --all-features
           --lib spectrum::tests::gpu_matches_cpu_when_a_hardware_adapter_is_available
           -- --ignored --exact
-      - name: GPU radar parity (Lavapipe)
+      - name: Radar
         run: >
           cargo test -p sdrmm-engine --all-features
           --lib gpu::caf::tests::radar_matches_cpu_across_tiles_and_fractional_doppler
@@ -143,34 +90,14 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
-      - uses: pnpm/action-setup@v6
+      - uses: ./.github/actions/node
+      - uses: ./.github/actions/rust
         with:
-          version: ${{ env.PNPM_VERSION }}
-      - uses: actions/setup-node@v7
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: pnpm
-          cache-dependency-path: web/pnpm-lock.yaml
-      - run: pnpm --dir web install --frozen-lockfile
-      - run: rustup show
-      # Restore-only on the test job's cache: it compiles the same dependency graph in the same
-      # profile and has nothing of its own worth storing.
-      - uses: ./.github/actions/media-deps
-      - uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: ubuntu
-          save-if: false
-      # The browser flow needs a browser binary the other gates do not; it drives the real
-      # server on `device-virtual`, so still no hardware.
-      - name: install the smoke browser
-        run: pnpm --dir web exec playwright install --with-deps chromium
-      - name: cargo xtask smoke
-        run: cargo xtask smoke
-      # `retain-on-failure` (web/playwright.config.ts) already writes a trace and a page snapshot
-      # per failed test; without this they die with the runner, and a browser failure that only
-      # happens on CI is then a stack trace with nothing behind it.
-      - name: keep the smoke trace
-        if: failure()
+          cache: ubuntu
+          save: false
+      - run: pnpm --dir web exec playwright install --with-deps chromium
+      - run: cargo xtask smoke
+      - if: failure()
         uses: actions/upload-artifact@v7
         with:
           name: smoke-trace
@@ -178,31 +105,42 @@ jobs:
           retention-days: 7
 
   desktop:
-    name: Desktop shell (ubuntu)
+    name: Desktop shell (${{ matrix.label }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: ubuntu
+            runner: ubuntu-24.04
+          - label: macos
+            runner: macos-15
+          - label: windows
+            runner: windows-2025
+          - label: windows-arm64
+            runner: windows-11-arm
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/rust
+        with:
+          cache: desktop-${{ matrix.label }}
+          save: ${{ env.SAVE_CACHE }}
+          tauri: true
+      - run: cargo xtask desktop
+
+  advisories:
+    name: Advisories (ubuntu)
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
-      # Tauri v2's Linux prerequisites; cmake is for opusic-sys' vendored libopus.
-      - run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev \
-            libxdo-dev libssl-dev cmake file
-      - run: rustup show
-      - uses: ./.github/actions/media-deps
-      - uses: Swatinem/rust-cache@v2
+      - uses: ./.github/actions/rust
         with:
-          shared-key: desktop-ubuntu
-          save-if: ${{ github.ref == 'refs/heads/main' }}
-      # Its own job because `apps/desktop` is outside the workspace's `default-members` — the
-      # gate above never compiles it. Without this, a break in the Tauri shell stayed invisible
-      # until a tag was cut and the release job was the first thing to build it.
-      #
-      # Clippy only, not a bundle: the installers are release work, and the failure this job
-      # exists to catch is a compile error. That is also why there is no Node here — the
-      # compile gate needs no UI on disk (see the command's own comment).
-      - name: cargo xtask desktop
-        run: cargo xtask desktop
+          cache: ubuntu
+          save: false
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deny
+      - run: cargo xtask audit
 
   image:
     name: Container image (${{ matrix.arch }})
@@ -211,57 +149,44 @@ jobs:
       matrix:
         include:
           - arch: amd64
-            platform: linux/amd64
             runner: ubuntu-24.04
           - arch: arm64
-            platform: linux/arm64
             runner: ubuntu-24.04-arm
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v7
       - uses: docker/setup-buildx-action@v4
-      # Build without pushing, so a broken Dockerfile fails on the pull request that broke it
-      # instead of on release day. Its own cache scope, not the release job's: `PROFILE=ci`
-      # changes every cargo layer's key, so sharing one scope would store both profiles' layers
-      # and serve neither build a hit.
       - uses: docker/build-push-action@v7
         with:
-          platforms: ${{ matrix.platform }}
-          push: false
+          platforms: linux/${{ matrix.arch }}
           load: true
           tags: sdrmm:ci
           build-args: PROFILE=ci
-          cache-from: type=gha,scope=${{ matrix.platform }}-ci
-          cache-to: type=gha,mode=max,scope=${{ matrix.platform }}-ci
-      # The image is only as good as what it does on start: this asserts the binary runs and
-      # that the UI really was embedded, which a `--version` check alone would not show.
-      - name: Smoke the image
+          cache-from: type=gha,scope=linux/${{ matrix.arch }}-ci
+          cache-to: type=gha,mode=max,scope=linux/${{ matrix.arch }}-ci
+      - name: Version
+        run: docker run --rm sdrmm:ci --version
+      - name: Doctor
         run: |
-          set -euo pipefail
-          docker run --rm sdrmm:ci --version
-          doctor="$(docker run --rm sdrmm:ci --doctor)"
-          echo "$doctor"
-          grep -q 'compiled backends:.*soapy' <<< "$doctor"
-          grep -q 'core: 0.8.' <<< "$doctor"
-          grep -q 'compiled backends:.*rtlsdr' <<< "$doctor"
-          grep -q 'compiled backends:.*hackrf' <<< "$doctor"
-          grep -qi 'bladerf' <<< "$doctor"
-          grep -qi 'lms7\|limesuite' <<< "$doctor"
-          grep -qi 'lms7' <<< "$doctor"
-          grep -qi 'remote' <<< "$doctor"
-          docker run --rm --detach --name sdrmm-ci --publish 8080:8080 sdrmm:ci
-          trap 'docker rm --force sdrmm-ci >/dev/null 2>&1 || true' EXIT
-          for _ in $(seq 30); do
-            if curl -fsS -o /dev/null http://127.0.0.1:8080/api/state; then ok=1; break; fi
-            sleep 1
-          done
-          test "${ok:-}" = 1 || { docker logs sdrmm-ci; exit 1; }
-          # `build.rs` ships a 503 "not built" placeholder when web/dist is empty, so a served
-          # index is the only proof the UI is actually in the image.
+          docker run --rm sdrmm:ci --doctor | tee doctor
+          grep -q 'compiled backends:.*soapy' doctor
+          grep -q 'compiled backends:.*rtlsdr' doctor
+          grep -q 'compiled backends:.*hackrf' doctor
+          grep -q 'core: 0.8.' doctor
+          grep -qi 'bladerf' doctor
+          grep -qi 'lms7' doctor
+          grep -qi 'remote' doctor
+      - name: Start
+        run: docker run --rm --detach --name sdrmm-ci --publish 8080:8080 sdrmm:ci
+      - name: Serve UI
+        run: |
+          curl -fsS --retry 30 --retry-delay 1 --retry-all-errors -o /dev/null http://127.0.0.1:8080/api/state
           curl -fsS http://127.0.0.1:8080/ | grep -q '<div id="root"'
+      - if: failure()
+        run: docker logs sdrmm-ci
 
   nix:
-    name: Nix desktop package (${{ matrix.arch }})
+    name: Nix package (${{ matrix.arch }})
     strategy:
       fail-fast: false
       matrix:
@@ -278,13 +203,11 @@ jobs:
         with:
           persist-credentials: false
       - uses: cachix/install-nix-action@v31
-      - name: Install virtual display
+      - run: sudo apt-get update && sudo apt-get install --yes xvfb
+      - name: Flake check
+        run: nix flake check --print-build-logs
+      - name: Build
         run: |
-          sudo apt-get update
-          sudo apt-get install --yes xvfb
-      - name: Build and smoke-test the package
-        run: |
-          nix flake check --print-build-logs
           nix build --impure --print-build-logs --expr '
             let
               flake = builtins.getFlake (toString ./.);
@@ -292,134 +215,29 @@ jobs:
               pkgs = builtins.getAttr system flake.inputs.nixpkgs.legacyPackages;
             in
             (builtins.getAttr system flake.packages).default.override {
-              soapyPlugins = with pkgs; [
-                soapybladerf
-                soapyremote
-              ];
+              soapyPlugins = with pkgs; [ soapybladerf soapyremote ];
             }
           '
+      - name: Layout
+        run: |
           test -x result/bin/sdrmm-desktop
           test ! -e result/bin/sdrmm
           test -f result/share/applications/sdrmm-desktop.desktop
           test -f result/share/icons/hicolor/128x128/apps/dev.newspicel.sdrmm.png
-          ldd result/bin/.sdrmm-desktop-wrapped | grep -q 'libwebkit2gtk-4.1'
-          if ldd result/bin/.sdrmm-desktop-wrapped | grep -q 'libSoapySDR'; then exit 1; fi
+          test -z "$(find -L result -path '*/SoapySDR/modules*' -print -quit)"
+      - name: Linking
+        run: |
+          ldd result/bin/.sdrmm-desktop-wrapped | tee ldd
+          grep -q 'libwebkit2gtk-4.1' ldd
+          ! grep -q 'libSoapySDR' ldd
+      - name: Wrapper
+        run: |
           grep -q 'SDRMM_SOAPY_LIBRARY' result/bin/sdrmm-desktop
           grep -q 'SOAPY_SDR_PLUGIN_PATH' result/bin/sdrmm-desktop
           grep -q 'soapybladerf' result/bin/sdrmm-desktop
           grep -q 'soapyremote' result/bin/sdrmm-desktop
-          test -z "$(find -L result -path '*/SoapySDR/modules*' -print -quit)"
-          set +e
-          timeout 15s xvfb-run --auto-servernum result/bin/sdrmm-desktop >desktop.log 2>&1
-          status=$?
-          set -e
-          if [ "$status" -ne 124 ]; then
-            cat desktop.log
-            exit 1
-          fi
-
-  advisories:
-    name: Dependency advisories (ubuntu)
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v7
-      - run: rustup show
-      # Restore-only on the test job's cache: this job builds the same xtask binary and has
-      # nothing of its own worth storing.
-      - uses: ./.github/actions/media-deps
-      - uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: ubuntu
-          save-if: false
-      - uses: taiki-e/install-action@v2
-        with:
-          tool: cargo-deny
-      # Its own job, not a step in the gate: a new advisory lands on RustSec's schedule, not on
-      # ours, and that must not read as "this pull request broke the build".
-      - name: cargo xtask audit
-        run: cargo xtask audit
-
-  rust-macos:
-    name: Rust + web tests (macos-arm64)
-    # The whole suite, not the handful of `#[cfg(target_os = "macos")]` tests: a test does not
-    # need a cfg gate to fail only here. A case-insensitive filesystem, the dylib search order,
-    # thread scheduling and timer resolution all differ, and the gated tests are by definition
-    # the ones somebody already knew to write.
-    runs-on: macos-15
-    steps:
-      - uses: actions/checkout@v7
-      # `cargo xtask test` runs the web unit tests too, so it needs pnpm + node.
-      - uses: pnpm/action-setup@v6
-        with:
-          version: ${{ env.PNPM_VERSION }}
-      - uses: actions/setup-node@v7
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: pnpm
-          cache-dependency-path: web/pnpm-lock.yaml
-      - run: pnpm --dir web install --frozen-lockfile
-      - run: rustup show
-      - uses: ./.github/actions/media-deps
-      - uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: macos
-          save-if: ${{ github.ref == 'refs/heads/main' }}
-      - uses: taiki-e/install-action@v2
-        with:
-          tool: cargo-nextest
-      - run: cargo xtask test
-
-  desktop-macos:
-    name: Desktop shell (macos-arm64)
-    runs-on: macos-15
-    steps:
-      - uses: actions/checkout@v7
-      - run: rustup show
-      - uses: ./.github/actions/media-deps
-      - uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: desktop-macos
-          save-if: ${{ github.ref == 'refs/heads/main' }}
-      # `apps/desktop` is outside `default-members`, so the test job above never reaches it and
-      # the macOS Tauri shell used to compile for the first time on tag day — the same gap the
-      # Windows job below was added to close.
-      - name: cargo xtask desktop
-        run: cargo xtask desktop
-
-  desktop-windows:
-    name: Desktop shell (windows)
-    # Windows is the one platform whose dependency graph nothing else compiles: `windows-rs`
-    # appears in it twice (Tauri's 0.61 next to wgpu's 0.62), so a lockfile that unifies the two
-    # wrongly still builds cleanly on Linux and macOS and only fails here. Before this job the
-    # release matrix was the first thing to find that out, on tag day.
-    runs-on: windows-2025
-    steps:
-      - uses: actions/checkout@v7
-      - run: rustup show
-      - uses: ./.github/actions/media-deps
-      - uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: desktop-windows
-          save-if: ${{ github.ref == 'refs/heads/main' }}
-      # `desktop` rather than `test`: it compiles the Tauri shell and the whole engine/server
-      # chain under it — both halves of the Windows graph in one command — and needs neither
-      # Node nor a browser to do it.
-      - name: cargo xtask desktop
-        run: cargo xtask desktop
-
-  desktop-windows-arm64:
-    name: Desktop shell (windows-arm64)
-    # The release matrix ships an ARM64 Windows installer, and this strand builds the media
-    # codecs with a different assembler and a different Visual Studio host than any other job.
-    # Without a gate here, a tag is the first thing to find out that it no longer builds.
-    runs-on: windows-11-arm
-    steps:
-      - uses: actions/checkout@v7
-      - run: rustup show
-      - uses: ./.github/actions/media-deps
-      - uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: desktop-windows-arm64
-          save-if: ${{ github.ref == 'refs/heads/main' }}
-      - name: cargo xtask desktop
-        run: cargo xtask desktop
+      - name: Launch
+        run: |
+          status=0
+          timeout 15s xvfb-run --auto-servernum result/bin/sdrmm-desktop > desktop.log 2>&1 || status=$?
+          test "$status" -eq 124 || { cat desktop.log; exit 1; }
