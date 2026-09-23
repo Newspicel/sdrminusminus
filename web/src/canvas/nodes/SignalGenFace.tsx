@@ -68,7 +68,7 @@ export function SignalGenFace({ node }: { node: PatchNode }) {
       node={node}
       title="Signal generator"
       category="source"
-      subtitle={<span className={set.status === "error" ? "text-danger" : ""}>{set.status}</span>}
+      subtitle={set.status === "error" ? <span className="text-danger">error</span> : undefined}
     >
       <FaceBody>
         <div className="@container flex flex-col gap-1 border-b border-line p-2">

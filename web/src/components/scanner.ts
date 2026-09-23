@@ -58,10 +58,6 @@ export function liveStatus(
   return pushed ?? listed;
 }
 
-export function scanning(set: DeviceSet | null, channel: number | null): boolean {
-  return set?.scanners?.some((scanner) => scanner.settings.channel === channel) ?? false;
-}
-
 export function sweepKind(set: DeviceSet | null, status: ScannerStatus | null): string {
   if (status !== null) {
     return status.hardware_sweep === true ? "the radio's own" : "by retuning";

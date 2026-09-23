@@ -58,18 +58,7 @@ function TimeMachineNodeFace({ node }: { node: PatchNodeOf<"time_machine"> }) {
   };
 
   return (
-    <NodeShell
-      node={node}
-      title="Time machine"
-      category="output"
-      subtitle={
-        phase.kind === "capturing"
-          ? "capturing"
-          : phase.kind === "armed"
-            ? `holding ${seconds} s`
-            : undefined
-      }
-    >
+    <NodeShell node={node} title="Time machine" category="output">
       <FaceBody>
         <Settings className="border-b border-line p-2">
           <SettingRow label="History">

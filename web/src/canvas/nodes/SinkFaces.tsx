@@ -25,7 +25,6 @@ import {
 } from "../../components/recordings";
 import { ScannerPanel } from "../../components/ScannerPanel";
 import { Slider } from "../../components/Slider";
-import { scanning as isScanning } from "../../components/scanner";
 import { VideoView } from "../../components/VideoView";
 import {
   callAudioUrl,
@@ -423,12 +422,7 @@ export function RecorderFace({ node }: { node: PatchNode }) {
   const set = deviceSetOf(workspace, node.id);
   const stream = iqSourceOf(workspace.graph, node.id)?.stream ?? 0;
   return (
-    <NodeShell
-      node={node}
-      title="Recorder"
-      category="output"
-      subtitle={set?.recording == null ? undefined : "recording"}
-    >
+    <NodeShell node={node} title="Recorder" category="output">
       <RecordControl set={set} stream={stream} />
     </NodeShell>
   );
@@ -528,20 +522,8 @@ function RecordingReadout({ status, sampleRate }: { status: RecordingStatus; sam
 
 export function AudioRecorderFace({ node }: { node: PatchNode }) {
   const inputs = useInputs(node.id, "audio");
-  const recording = inputs.filter((input) => input.channel.audio_recording != null).length;
   return (
-    <NodeShell
-      node={node}
-      title="Audio recorder"
-      category="output"
-      subtitle={
-        recording === 0
-          ? undefined
-          : recording === 1
-            ? "1 channel recording"
-            : `${recording} channels recording`
-      }
-    >
+    <NodeShell node={node} title="Audio recorder" category="output">
       <FaceBody>
         {inputs.length === 0 ? (
           <FaceEmpty hint="Wire a channel's audio in" />
@@ -613,20 +595,8 @@ function AudioRecordingReadout({ status }: { status: AudioRecordingStatus }) {
 
 export function BasebandRecorderFace({ node }: { node: PatchNode }) {
   const inputs = useInputs(node.id, "baseband");
-  const recording = inputs.filter((input) => input.channel.baseband_recording != null).length;
   return (
-    <NodeShell
-      node={node}
-      title="Baseband recorder"
-      category="output"
-      subtitle={
-        recording === 0
-          ? undefined
-          : recording === 1
-            ? "1 channel recording"
-            : `${recording} channels recording`
-      }
-    >
+    <NodeShell node={node} title="Baseband recorder" category="output">
       <FaceBody>
         {inputs.length === 0 ? (
           <FaceEmpty hint="Wire a channel's baseband in" />
@@ -709,9 +679,6 @@ export function HuntFace({ node }: { node: PatchNode }) {
 function HuntNodeFace({ node }: { node: PatchNodeOf<"hunt"> }) {
   const workspace = useWorkspaceContext();
   const decoder = decoderOf(workspace, node.id);
-  const hunting =
-    decoder !== null &&
-    (decoder.set.hunts?.some((hunt) => hunt.settings.channel === decoder.channel.id) ?? false);
   const remember = (data: Partial<PatchNodeOf<"hunt">["data"]>): void => {
     workspace.edit((snapshot) => ({
       ...snapshot,
@@ -721,12 +688,7 @@ function HuntNodeFace({ node }: { node: PatchNodeOf<"hunt"> }) {
     }));
   };
   return (
-    <NodeShell
-      node={node}
-      title="Signal hunt"
-      category="tool"
-      subtitle={hunting ? "hunting" : undefined}
-    >
+    <NodeShell node={node} title="Signal hunt" category="tool">
       <HuntPanel
         target={decoder}
         clicks={node.data.clicks ?? true}
@@ -741,14 +703,8 @@ export function ScannerFace({ node }: { node: PatchNode }) {
   const workspace = useWorkspaceContext();
   const decoder = decoderOf(workspace, node.id);
   const set = decoder?.set ?? null;
-  const scanning = decoder !== null && isScanning(set, decoder.channel.id);
   return (
-    <NodeShell
-      node={node}
-      title="Scanner"
-      category="tool"
-      subtitle={scanning ? "scanning" : undefined}
-    >
+    <NodeShell node={node} title="Scanner" category="tool">
       <ScannerPanel
         active={set}
         channel={decoder?.channel ?? null}

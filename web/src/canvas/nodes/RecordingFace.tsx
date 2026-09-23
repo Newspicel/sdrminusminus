@@ -15,7 +15,7 @@ import {
 } from "../../components/recordings";
 import { createDeviceSet, recordingsQuery, STATE_KEY } from "../../lib/api";
 import { toastError } from "../../lib/toasts";
-import type { DeviceSet, PatchNode, PatchNodeOf, RecordingInfo } from "../../lib/types";
+import type { PatchNode, PatchNodeOf, RecordingInfo } from "../../lib/types";
 import { useWorkspaceContext } from "../context";
 import { patchNode } from "../graph";
 import { releaseRadio } from "../remove";
@@ -23,13 +23,6 @@ import { FaceBody, FaceFooter, NodeShell } from "./NodeShell";
 import { claimedRecordings, recordingChoices, recordingDeviceId } from "./recordingNode";
 
 type RecordingNodeData = PatchNodeOf<"recording">["data"];
-
-function playing(set: DeviceSet): string {
-  if (set.status !== "running" || set.playback == null) {
-    return set.status;
-  }
-  return set.playback.paused ? "paused" : "playing";
-}
 
 function Library({
   node,
@@ -152,7 +145,7 @@ export function RecordingFace({ node }: { node: PatchNode }) {
         node={node}
         title="Recording"
         category="source"
-        subtitle={gone ? "missing" : "not playing"}
+        subtitle={gone ? "missing" : undefined}
       >
         <FaceBody>
           <p className="p-3 font-mono text-sm text-ink">{known?.file ?? stem}</p>
@@ -195,7 +188,7 @@ export function RecordingFace({ node }: { node: PatchNode }) {
       node={node}
       title={known === null ? stem : recordingTitle(known)}
       category="source"
-      subtitle={<span className={set.status === "error" ? "text-danger" : ""}>{playing(set)}</span>}
+      subtitle={set.status === "error" ? <span className="text-danger">error</span> : undefined}
     >
       <FaceBody>
         {set.playback != null && <PlaybackTransport set={set} status={set.playback} />}
