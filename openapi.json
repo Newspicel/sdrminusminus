@@ -11366,6 +11366,16 @@
               }
             ]
           },
+          "refused": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/SettingsRefused"
+              }
+            ]
+          },
           "scanners": {
             "type": "array",
             "items": {
@@ -19136,6 +19146,24 @@
             }
           }
         ]
+      },
+      "SettingsRefused": {
+        "type": "object",
+        "required": [
+          "settings",
+          "error"
+        ],
+        "properties": {
+          "error": {
+            "type": "string"
+          },
+          "settings": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
       },
       "Sideband": {
         "type": "string",

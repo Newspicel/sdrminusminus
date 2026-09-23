@@ -910,6 +910,7 @@ mod tests {
             overruns: 0,
             error: None,
             fault: None,
+            refused: None,
             recording: None,
             network_export: None,
             time_machine: None,

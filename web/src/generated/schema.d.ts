@@ -3198,6 +3198,7 @@ export interface components {
             overruns?: number;
             playback?: null | components["schemas"]["PlaybackStatus"];
             recording?: null | components["schemas"]["RecordingStatus"];
+            refused?: null | components["schemas"]["SettingsRefused"];
             /** @description One scan per decoder that is being driven. */
             scanners?: components["schemas"]["ScannerStatus"][];
             settings: components["schemas"]["DeviceSettings"];
@@ -5382,6 +5383,10 @@ export interface components {
             };
             /** @enum {string} */
             type: "Error";
+        };
+        SettingsRefused: {
+            error: string;
+            settings: string[];
         };
         /** @enum {string} */
         Sideband: "usb" | "lsb";

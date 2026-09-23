@@ -32,6 +32,12 @@ pub enum DeviceFault {
     Other,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct SettingsRefused {
+    pub settings: Vec<String>,
+    pub error: String,
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct RecordingStatus {
     pub file: String,
@@ -79,6 +85,8 @@ pub struct DeviceSet {
     pub error: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fault: Option<DeviceFault>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub refused: Option<SettingsRefused>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub recording: Option<RecordingStatus>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

@@ -20,8 +20,8 @@ use sdrmm_recorder::{data_path, meta_path};
 use sdrmm_wire::{
     AudioRecordingStatus, AudioRoute, Capabilities, ChannelInfo, ChannelSettings, DecodedRecord,
     DeviceFault, DeviceInfo, DeviceSet, DeviceSetStatus, DeviceSettings, NetworkExportSettings,
-    NetworkExportStatus, PositionFix, RecordingStatus, ServerEvent, StateScope, StateSnapshot,
-    StreamScope, TrunkSystemStatus,
+    NetworkExportStatus, PositionFix, RecordingStatus, ServerEvent, SettingsRefused, StateScope,
+    StateSnapshot, StreamScope, TrunkSystemStatus,
 };
 use tokio::sync::broadcast;
 
@@ -52,6 +52,7 @@ mod planning;
 mod position;
 mod publishing;
 pub mod recording;
+mod refusal;
 pub mod runtime;
 pub mod scanner;
 mod sinks;
@@ -539,6 +540,7 @@ struct DeviceSetState {
     next_channel_id: u32,
     error: Option<String>,
     fault: Option<DeviceFault>,
+    refused: Option<SettingsRefused>,
     recording: Option<RecordingState>,
     audio_recordings: HashMap<AudioRoute, ChannelAudioRecording>,
     baseband_recordings: HashMap<u32, ChannelBasebandRecording>,
@@ -604,6 +606,7 @@ impl DeviceSetState {
             overruns,
             error: self.error.clone(),
             fault: self.fault,
+            refused: self.refused.clone(),
             recording: self.recording.as_ref().map(|r| r.status(overruns)),
             network_export: self
                 .network_export

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { ApiRequestError } from "./api";
 import type { DeviceSettings } from "./types";
-import { createPatchQueue } from "./useDevicePatch";
+import { createPatchQueue, refusedByRadio } from "./useDevicePatch";
 
 function recorder(): {
   sent: [number, DeviceSettings][];
@@ -109,5 +110,15 @@ describe("createPatchQueue", () => {
     push(1, { center_hz: 101e6 });
 
     expect(sent).toHaveLength(2);
+  });
+});
+
+describe("refusedByRadio", () => {
+  it("leaves a radio's refusal to its node and toasts the rest", () => {
+    expect(refusedByRadio(new ApiRequestError("device I/O error", 500, "engine", undefined))).toBe(
+      true,
+    );
+    expect(refusedByRadio(new ApiRequestError("locked", 400, "request", undefined))).toBe(false);
+    expect(refusedByRadio(new Error("network"))).toBe(false);
   });
 });

@@ -10,6 +10,7 @@ use crate::{
     ChannelMedia, DEFAULT_CENTER_HZ, DeviceSetState, Engine, EngineError, FaultGate,
     RatePatchGuard, RebuildEntry, dc_block, fault_kind, hotplug, ids_of, lock_runtime,
     planning::{plan_center, validate_streams},
+    refusal,
     runtime::{CaptureRuntime, DeviceRuntime},
     sample_rate_of, teardown_set,
 };
@@ -545,6 +546,7 @@ impl Engine {
                     next_channel_id: 1,
                     error: pending.as_ref().map(ToString::to_string),
                     fault: pending.as_ref().map(fault_kind),
+                    refused: None,
                     recording: None,
                     audio_recordings: HashMap::new(),
                     baseband_recordings: HashMap::new(),
@@ -733,9 +735,9 @@ impl Engine {
             });
             (runtime, hardware, guard)
         };
-        let actual = runtime
-            .apply(&hardware)?
-            .map(|actual| DeviceSettings::from_hardware(actual, delta.offset_hz));
+        let applied = runtime.apply(&hardware);
+        self.note_refusal(ds, &hardware, applied.as_ref().err());
+        let actual = applied?.map(|actual| DeviceSettings::from_hardware(actual, delta.offset_hz));
         let (settings, blocking, rate, rebuilds, retuned) = {
             let mut inner = self.lock();
             let state = inner
@@ -851,6 +853,24 @@ impl Engine {
             scope: StateScope::DeviceSet(ds),
         });
         Ok(())
+    }
+
+    fn note_refusal(&self, ds: u32, hardware: &DeviceSettings, error: Option<&DeviceError>) {
+        let refused = error.map(|error| refusal::refused(hardware, error));
+        {
+            let mut inner = self.lock();
+            let Some(state) = inner.device_sets.get_mut(&ds) else {
+                return;
+            };
+            if state.refused == refused {
+                return;
+            }
+            state.refused = refused;
+            inner.revision += 1;
+        }
+        self.emit(ServerEvent::StateChanged {
+            scope: StateScope::DeviceSet(ds),
+        });
     }
 
     pub(crate) fn guard_device_patches<'a>(

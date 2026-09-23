@@ -7,6 +7,7 @@ import {
   hearing,
   lockStream,
   refLabel,
+  refusalSaid,
   tuneDelta,
   tunerDials,
   tuningDelta,
@@ -150,6 +151,29 @@ describe("faultSaid", () => {
   it("leaves a fault nobody can act on to its own message", () => {
     expect(faultSaid(deviceSet({ status: "error", fault: "other", error: "boom" }))).toBeNull();
     expect(faultSaid(deviceSet({ status: "error", error: "boom" }))).toBeNull();
+  });
+});
+
+function refused(settings: string[]): NonNullable<DeviceSet["refused"]> {
+  return { settings, error: "endpoint stalled" };
+}
+
+describe("refusalSaid", () => {
+  it("names what the radio would not take", () => {
+    expect(refusalSaid(deviceSet({ refused: refused(["frequency"]) }))).toBe(
+      "Radio refused the new frequency",
+    );
+    expect(refusalSaid(deviceSet({ refused: refused(["frequency", "gain", "AGC"]) }))).toBe(
+      "Radio refused the new frequency, gain and AGC",
+    );
+    expect(refusalSaid(deviceSet({ refused: refused([]) }))).toBe("Radio refused the change");
+  });
+
+  it("stays quiet when nothing was refused or the radio is faulted", () => {
+    expect(refusalSaid(deviceSet())).toBeNull();
+    expect(
+      refusalSaid(deviceSet({ status: "error", error: "gone", refused: refused(["frequency"]) })),
+    ).toBeNull();
   });
 });
 

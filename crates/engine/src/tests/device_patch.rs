@@ -435,3 +435,77 @@ async fn tuning_through_a_converter_reaches_what_the_radio_alone_cannot() {
     );
     engine.remove_device_set(ds).unwrap();
 }
+
+struct BiasTeeRefusingDriver;
+
+impl DeviceDriver for BiasTeeRefusingDriver {
+    fn id(&self) -> &'static str {
+        "mock"
+    }
+
+    fn probe(&self) -> Vec<DeviceInfo> {
+        vec![mock_info("refusing", None)]
+    }
+
+    fn open(&self, _info: &DeviceInfo) -> Result<Box<dyn SdrDevice>, DeviceError> {
+        Ok(Box::new(BiasTeeRefusingDevice {
+            capabilities: empty_capabilities(),
+            settings: mock_settings(),
+        }))
+    }
+}
+
+struct BiasTeeRefusingDevice {
+    capabilities: Capabilities,
+    settings: DeviceSettings,
+}
+
+impl SdrDevice for BiasTeeRefusingDevice {
+    fn capabilities(&self) -> &Capabilities {
+        &self.capabilities
+    }
+
+    fn settings(&self) -> &DeviceSettings {
+        &self.settings
+    }
+
+    fn apply(&mut self, settings: &DeviceSettings) -> Result<(), DeviceError> {
+        if settings.bias_tee == Some(true) {
+            return Err(DeviceError::Io("endpoint stalled".to_string()));
+        }
+        self.settings.merge_from(settings);
+        Ok(())
+    }
+
+    fn rx_start(&mut self, sinks: Vec<RxSink>) -> Result<(), DeviceError> {
+        single_rx_sink(sinks).map(|_| ())
+    }
+
+    fn rx_stop(&mut self) {}
+}
+
+#[tokio::test]
+async fn a_setting_the_radio_refuses_stays_on_the_set_until_one_is_taken() {
+    let mut registry = DeviceRegistry::new();
+    registry.register(50, Box::new(BiasTeeRefusingDriver));
+    let engine = Engine::with_registry(registry, None);
+    let ds = engine.create_device_set("mock:refusing").unwrap();
+    let bias_tee = |on: bool| DeviceSettings {
+        bias_tee: Some(on),
+        ..DeviceSettings::default()
+    };
+
+    engine.patch_device(ds, bias_tee(true)).unwrap_err();
+    let refused = engine.snapshot().device_sets[0].refused.clone();
+    assert_eq!(
+        refused,
+        Some(sdrmm_wire::SettingsRefused {
+            settings: vec!["bias tee".to_string()],
+            error: "device I/O error: endpoint stalled".to_string(),
+        })
+    );
+
+    engine.patch_device(ds, bias_tee(false)).unwrap();
+    assert_eq!(engine.snapshot().device_sets[0].refused, None);
+    engine.remove_device_set(ds).unwrap();
+}

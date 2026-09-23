@@ -73,6 +73,19 @@ const FAULTS: Record<string, string> = {
     "may not be opened by this user. Open Check hardware for the USB permission line, which names the device node and the group that owns it.",
 };
 
+export function refusalSaid(set: DeviceSet): string | null {
+  const names = set.refused?.settings;
+  if (set.error != null || names === undefined) {
+    return null;
+  }
+  if (names.length === 0) {
+    return "Radio refused the change";
+  }
+  const listed =
+    names.length === 1 ? names[0] : `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`;
+  return `Radio refused the new ${listed}`;
+}
+
 /** What a fault means for the operator, or null when only the raw message can say. */
 export function faultSaid(set: DeviceSet): string | null {
   const said = set.fault == null ? undefined : FAULTS[set.fault];

@@ -32,6 +32,7 @@ import {
   hearing,
   lockStream,
   refLabel,
+  refusalSaid,
   tuneDelta,
   tunerDials,
   tuningDelta,
@@ -188,6 +189,23 @@ function Fault({ set }: { set: DeviceSet }) {
   );
 }
 
+function Refused({ set }: { set: DeviceSet }) {
+  const said = refusalSaid(set);
+  if (said == null) {
+    return null;
+  }
+  return (
+    <div role="alert" className="border-t border-line p-2 text-xs text-danger">
+      <Collapsible.Root>
+        <Collapsible.Trigger className="cursor-pointer text-left">{said}</Collapsible.Trigger>
+        <Collapsible.Panel>
+          <p className="mt-1 font-mono text-ink-dim">{set.refused?.error}</p>
+        </Collapsible.Panel>
+      </Collapsible.Root>
+    </div>
+  );
+}
+
 export function DeviceFace({ node }: { node: PatchNode }) {
   const workspace = useWorkspaceContext();
   const queryClient = useQueryClient();
@@ -333,6 +351,7 @@ export function DeviceFace({ node }: { node: PatchNode }) {
         </DevOnly>
 
         {set.error != null && <Fault set={set} />}
+        <Refused set={set} />
       </FaceBody>
       <FaceFooter>
         <Button

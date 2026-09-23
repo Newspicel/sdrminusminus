@@ -2,12 +2,14 @@ use std::time::Duration;
 
 use nusb::{
     Interface, MaybeFuture,
-    transfer::{ControlIn, ControlOut, ControlType, Recipient},
+    transfer::{ControlIn, ControlOut, ControlType, Recipient, TransferError},
 };
 
 use super::error::{Error, Result};
 
 const CTRL_TIMEOUT: Duration = Duration::from_millis(300);
+const CTRL_ATTEMPTS: u32 = 4;
+const STALL_BACKOFF: Duration = Duration::from_millis(2);
 
 pub(crate) const BLOCK_USB: u16 = 1;
 pub(crate) const BLOCK_SYS: u16 = 2;
@@ -38,21 +40,24 @@ impl Rtl2832u {
         &self.iface
     }
 
+    fn control_in(&self, request: ControlIn) -> std::result::Result<Vec<u8>, TransferError> {
+        retry_stalls(|| self.iface.control_in(request, CTRL_TIMEOUT).wait())
+    }
+
+    fn control_out(&self, request: ControlOut<'_>) -> std::result::Result<(), TransferError> {
+        retry_stalls(|| self.iface.control_out(request, CTRL_TIMEOUT).wait())
+    }
+
     pub(crate) fn read_reg(&self, block: u16, addr: u16, len: u16) -> Result<u16> {
         let data = self
-            .iface
-            .control_in(
-                ControlIn {
-                    control_type: ControlType::Vendor,
-                    recipient: Recipient::Device,
-                    request: 0,
-                    value: addr,
-                    index: block << 8,
-                    length: len,
-                },
-                CTRL_TIMEOUT,
-            )
-            .wait()
+            .control_in(ControlIn {
+                control_type: ControlType::Vendor,
+                recipient: Recipient::Device,
+                request: 0,
+                value: addr,
+                index: block << 8,
+                length: len,
+            })
             .map_err(on(|| format!("read of block {block:#x} reg {addr:#06x}")))?;
 
         match *data.as_slice() {
@@ -67,37 +72,27 @@ impl Rtl2832u {
 
     pub(crate) fn write_reg(&self, block: u16, addr: u16, val: u16, len: u8) -> Result<()> {
         let data = reg_bytes(val, len);
-        self.iface
-            .control_out(
-                ControlOut {
-                    control_type: ControlType::Vendor,
-                    recipient: Recipient::Device,
-                    request: 0,
-                    value: addr,
-                    index: (block << 8) | 0x10,
-                    data: &data,
-                },
-                CTRL_TIMEOUT,
-            )
-            .wait()
-            .map_err(on(|| format!("write of block {block:#x} reg {addr:#06x}")))
+        self.control_out(ControlOut {
+            control_type: ControlType::Vendor,
+            recipient: Recipient::Device,
+            request: 0,
+            value: addr,
+            index: (block << 8) | 0x10,
+            data: &data,
+        })
+        .map_err(on(|| format!("write of block {block:#x} reg {addr:#06x}")))
     }
 
     pub(crate) fn demod_read_reg(&self, page: u16, addr: u16) -> Result<u8> {
         let data = self
-            .iface
-            .control_in(
-                ControlIn {
-                    control_type: ControlType::Vendor,
-                    recipient: Recipient::Device,
-                    request: 0,
-                    value: (addr << 8) | 0x20,
-                    index: page,
-                    length: 1,
-                },
-                CTRL_TIMEOUT,
-            )
-            .wait()
+            .control_in(ControlIn {
+                control_type: ControlType::Vendor,
+                recipient: Recipient::Device,
+                request: 0,
+                value: (addr << 8) | 0x20,
+                index: page,
+                length: 1,
+            })
             .map_err(on(|| {
                 format!("demod read of page {page:#x} reg {addr:#06x}")
             }))?;
@@ -110,64 +105,49 @@ impl Rtl2832u {
 
     pub(crate) fn demod_write_reg(&self, page: u16, addr: u16, val: u16, len: u8) -> Result<()> {
         let data = reg_bytes(val, len);
-        self.iface
-            .control_out(
-                ControlOut {
-                    control_type: ControlType::Vendor,
-                    recipient: Recipient::Device,
-                    request: 0,
-                    value: (addr << 8) | 0x20,
-                    index: 0x10 | page,
-                    data: &data,
-                },
-                CTRL_TIMEOUT,
-            )
-            .wait()
-            .map_err(on(|| {
-                format!("demod write of page {page:#x} reg {addr:#06x}")
-            }))?;
+        self.control_out(ControlOut {
+            control_type: ControlType::Vendor,
+            recipient: Recipient::Device,
+            request: 0,
+            value: (addr << 8) | 0x20,
+            index: 0x10 | page,
+            data: &data,
+        })
+        .map_err(on(|| {
+            format!("demod write of page {page:#x} reg {addr:#06x}")
+        }))?;
 
         let _ = self.demod_read_reg(0x0a, 0x01);
         Ok(())
     }
 
     pub(crate) fn i2c_write(&self, i2c_addr: u8, data: &[u8]) -> Result<()> {
-        self.iface
-            .control_out(
-                ControlOut {
-                    control_type: ControlType::Vendor,
-                    recipient: Recipient::Device,
-                    request: 0,
-                    value: u16::from(i2c_addr),
-                    index: (BLOCK_IIC << 8) | 0x10,
-                    data,
-                },
-                CTRL_TIMEOUT,
-            )
-            .wait()
-            .map_err(on(|| {
-                let reg = data.first().copied().unwrap_or_default();
-                format!("i2c write to {i2c_addr:#04x} reg {reg:#04x}")
-            }))
+        self.control_out(ControlOut {
+            control_type: ControlType::Vendor,
+            recipient: Recipient::Device,
+            request: 0,
+            value: u16::from(i2c_addr),
+            index: (BLOCK_IIC << 8) | 0x10,
+            data,
+        })
+        .map_err(on(|| {
+            let reg = data.first().copied().unwrap_or_default();
+            format!("i2c write to {i2c_addr:#04x} reg {reg:#04x}")
+        }))
     }
 
     pub(crate) fn i2c_read(&self, i2c_addr: u8, len: u16) -> Result<Vec<u8>> {
-        self.iface
-            .control_in(
-                ControlIn {
-                    control_type: ControlType::Vendor,
-                    recipient: Recipient::Device,
-                    request: 0,
-                    value: u16::from(i2c_addr),
-                    index: BLOCK_IIC << 8,
-                    length: len,
-                },
-                CTRL_TIMEOUT,
-            )
-            .wait()
-            .map_err(on(|| {
-                format!("i2c read of {len} bytes from {i2c_addr:#04x}")
-            }))
+        self.control_in(ControlIn {
+            control_type: ControlType::Vendor,
+            recipient: Recipient::Device,
+            request: 0,
+            value: u16::from(i2c_addr),
+            index: BLOCK_IIC << 8,
+            length: len,
+        })
+        .map_err(on(|| {
+            format!("i2c read of {len} bytes from {i2c_addr:#04x}")
+        }))
     }
 
     pub(crate) fn i2c_read_reg(&self, i2c_addr: u8, reg: u8) -> Result<u8> {
@@ -208,6 +188,22 @@ impl Rtl2832u {
     }
 }
 
+fn retry_stalls<T>(
+    mut transfer: impl FnMut() -> std::result::Result<T, TransferError>,
+) -> std::result::Result<T, TransferError> {
+    let mut attempt = 1;
+    loop {
+        match transfer() {
+            Err(TransferError::Stall) if attempt < CTRL_ATTEMPTS => {
+                tracing::debug!(attempt, "control transfer stalled; retrying");
+                std::thread::sleep(STALL_BACKOFF);
+                attempt += 1;
+            }
+            result => return result,
+        }
+    }
+}
+
 /// Names the register the radio refused, so a transfer that fails says which one it was.
 fn on(what: impl FnOnce() -> String) -> impl FnOnce(nusb::transfer::TransferError) -> Error {
     move |source| Error::ControlTransfer { op: what(), source }
@@ -224,6 +220,42 @@ fn reg_bytes(val: u16, len: u8) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_stalled_request_is_repeated_until_it_is_taken() {
+        let mut calls = 0;
+        let result = retry_stalls(|| {
+            calls += 1;
+            if calls < CTRL_ATTEMPTS {
+                Err(TransferError::Stall)
+            } else {
+                Ok(calls)
+            }
+        });
+        assert_eq!(result, Ok(CTRL_ATTEMPTS));
+    }
+
+    #[test]
+    fn a_request_that_keeps_stalling_gives_up() {
+        let mut calls = 0;
+        let result: std::result::Result<(), _> = retry_stalls(|| {
+            calls += 1;
+            Err(TransferError::Stall)
+        });
+        assert_eq!(result, Err(TransferError::Stall));
+        assert_eq!(calls, CTRL_ATTEMPTS);
+    }
+
+    #[test]
+    fn only_stalls_are_repeated() {
+        let mut calls = 0;
+        let result: std::result::Result<(), _> = retry_stalls(|| {
+            calls += 1;
+            Err(TransferError::Disconnected)
+        });
+        assert_eq!(result, Err(TransferError::Disconnected));
+        assert_eq!(calls, 1);
+    }
 
     #[test]
     fn register_writes_are_big_endian() {

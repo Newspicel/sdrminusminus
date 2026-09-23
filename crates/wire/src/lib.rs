@@ -172,8 +172,8 @@ pub use scan::{
 };
 pub use state::{
     AudioRecordingStatus, ChannelLevel, DeviceFault, DeviceSet, DeviceSetStatus, PlaybackStatus,
-    RecordingStatus, StateSnapshot, TrunkChannel, TrunkChannelSource, TrunkControl, TrunkFollower,
-    TrunkProbe, TrunkProblem, TrunkSystemStatus,
+    RecordingStatus, SettingsRefused, StateSnapshot, TrunkChannel, TrunkChannelSource,
+    TrunkControl, TrunkFollower, TrunkProbe, TrunkProblem, TrunkSystemStatus,
 };
 pub use timemachine::{
     DEFAULT_TIME_MACHINE_SECONDS, MAX_TIME_MACHINE_BYTES, MAX_TIME_MACHINE_SECONDS,
@@ -856,6 +856,7 @@ mod contract_tests {
             overruns: 0,
             error: None,
             fault: None,
+            refused: None,
             recording: None,
             network_export: None,
             time_machine: None,

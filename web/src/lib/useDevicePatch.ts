@@ -2,6 +2,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useLayoutEffect, useRef } from "react";
 import { followOffset } from "../components/converter";
 import { patchDevice, STATE_KEY } from "./api";
+import { recordEvent } from "./diagnostics";
 import { toastError } from "./toasts";
 import type { DeviceSettings, StateSnapshot, StreamScope, StreamSettings } from "./types";
 
@@ -141,6 +142,10 @@ export function createPatchQueue(
   };
 }
 
+export function refusedByRadio(error: unknown): error is Error {
+  return error instanceof Error && (error as { code?: unknown }).code === "engine";
+}
+
 export function useDevicePatch(): {
   applyPatch: (ds: number, delta: DeviceSettings) => void;
   cachedSettings: (ds: number) => DeviceSettings | undefined;
@@ -148,7 +153,13 @@ export function useDevicePatch(): {
   const queryClient = useQueryClient();
   const patchMut = useMutation({
     mutationFn: (v: { ds: number; settings: DeviceSettings }) => patchDevice(v.ds, v.settings),
-    onError: (error) => toastError(error),
+    onError: (error) => {
+      if (refusedByRadio(error)) {
+        recordEvent("error", "device", error.message);
+        return;
+      }
+      toastError(error);
+    },
     onSettled: () => void queryClient.invalidateQueries({ queryKey: STATE_KEY }),
   });
 
