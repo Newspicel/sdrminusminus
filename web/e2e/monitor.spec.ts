@@ -111,7 +111,9 @@ test("monitors IQ through one node and exports transmission audio", async ({ pag
       })
       .toEqual([true, false]);
     await page.getByRole("button", { name: "All", exact: true }).click();
-    await page.keyboard.press("Escape");
+    await page.mouse.move(40, 600);
+    await page.mouse.wheel(0, 40);
+    await expect(analog).toBeHidden();
     await expect(protocols).toContainText("All protocols");
     await monitor.getByText("Spectrum monitor", { exact: true }).click();
     await confidence.click();

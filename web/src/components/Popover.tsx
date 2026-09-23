@@ -1,11 +1,13 @@
 import { Popover as Primitive } from "@base-ui/react/popover";
 import type { ReactNode } from "react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { SURFACE } from "./controls";
 import { usePortalContainer } from "./PortalContainer";
 import { Tip } from "./Tip";
 
 const HOVER_DELAY_MS = 120;
+
+export const CANVAS_MOVED = "sdrmm:canvas-moved";
 
 export function Popover({
   label,
@@ -30,6 +32,14 @@ export function Popover({
 }) {
   const [open, setOpen] = useState(false);
   const portalContainer = usePortalContainer();
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+    const close = () => setOpen(false);
+    window.addEventListener(CANVAS_MOVED, close);
+    return () => window.removeEventListener(CANVAS_MOVED, close);
+  }, [open]);
   const triggerProps = {
     className: triggerClass,
     disabled,

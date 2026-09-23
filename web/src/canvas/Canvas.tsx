@@ -11,6 +11,7 @@ import {
 import { type ReactNode, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Button } from "../components/BaseControls";
 import { BTN_QUIET, SURFACE } from "../components/controls";
+import { CANVAS_MOVED } from "../components/Popover";
 import type { PatchGraph, PatchNode } from "../lib/types";
 import { CanvasPalette, type ScreenPoint } from "./CanvasPalette";
 import { useClipboard } from "./clipboard";
@@ -189,6 +190,11 @@ export function Canvas() {
           setMenu(null);
         }}
         onNodeClick={() => setMenu(null)}
+        onMoveStart={(event) => {
+          if (event !== null) {
+            window.dispatchEvent(new Event(CANVAS_MOVED));
+          }
+        }}
         onNodeContextMenu={(event, node) => openMenu(event, { kind: "node", id: node.id })}
         onEdgeContextMenu={(event, edge) => openMenu(event, { kind: "edge", id: edge.id })}
         onPaneContextMenu={(event) => openMenu(event as React.MouseEvent, { kind: "pane" })}
