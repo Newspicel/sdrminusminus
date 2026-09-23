@@ -27,6 +27,6 @@
     "@typescript/native-preview": "7.0.0-dev.20260707.2",
     "babel-plugin-react-compiler": "1.0.0",
     "tailwindcss": "4.3.3",
-    "vitest": "4.1.11"
+    "vitest": "5.0.1"
   }
 }
