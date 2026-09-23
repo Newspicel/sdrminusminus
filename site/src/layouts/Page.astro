@@ -62,5 +62,36 @@ const image = new URL("/screens/patch.png", Astro.site);
         </nav>
       </div>
     </footer>
+
+    <script>
+      for (const shell of document.querySelectorAll<HTMLElement>(".shell")) {
+        const code = shell.querySelector("pre");
+        if (code === null) {
+          continue;
+        }
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "copy";
+        button.textContent = "Copy";
+        button.addEventListener("click", async () => {
+          const lines = [...code.childNodes]
+            .filter((node) => !(node instanceof HTMLElement && node.classList.contains("p")))
+            .map((node) => node.textContent ?? "")
+            .join("");
+          try {
+            await navigator.clipboard.writeText(lines.replace(/\n{2,}/g, "\n").trim());
+            button.textContent = "Copied";
+          } catch {
+            button.textContent = "Select and copy";
+          }
+          button.dataset.done = "";
+          setTimeout(() => {
+            button.textContent = "Copy";
+            delete button.dataset.done;
+          }, 1600);
+        });
+        shell.append(button);
+      }
+    </script>
   </body>
 </html>

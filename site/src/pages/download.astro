@@ -8,13 +8,13 @@ import Page from "../layouts/Page.astro";
   summary="Pick the file for the computer you will run the radio on."
   current="download"
 >
-<div class="wrap hero">
+<div class="wrap top">
   <h1>Download SDR--</h1>
   <p class="lede">Take the app for the computer your radio plugs into, or the server for a machine
     by the antenna.</p>
 
   <div class="pick">
-    <p class="legend" id="pick-who">Latest release</p>
+    <p class="who" id="pick-who">Latest release</p>
     <a class="btn primary" id="pick-btn" href="https://github.com/Newspicel/sdrminusminus/releases/latest">Download SDR--</a>
     <p class="file" id="pick-file">Desktop app for macOS, Windows and Linux.</p>
     <p class="hint" id="pick-hint" hidden></p>
@@ -53,7 +53,7 @@ import Page from "../layouts/Page.astro";
 
   <div class="files">
     <div class="group">
-      <h3><span class="legend">macOS</span>Apple silicon and Intel</h3>
+      <h3><span class="os">macOS</span>Apple silicon and Intel</h3>
       <ul>
         <li><a class="row" data-file="_aarch64.dmg" href="https://github.com/Newspicel/sdrminusminus/releases/latest">
           <span class="what">Desktop app <em>Apple silicon</em></span>
@@ -79,7 +79,7 @@ import Page from "../layouts/Page.astro";
     </div>
 
     <div class="group">
-      <h3><span class="legend">Windows</span>x86-64 and ARM64</h3>
+      <h3><span class="os">Windows</span>x86-64 and ARM64</h3>
       <ul>
         <li><a class="row" data-file="_x64-setup.exe" href="https://github.com/Newspicel/sdrminusminus/releases/latest">
           <span class="what">Desktop app <em>installer</em></span>
@@ -110,7 +110,7 @@ import Page from "../layouts/Page.astro";
     </div>
 
     <div class="group">
-      <h3><span class="legend">Linux</span>x86-64 and ARM64</h3>
+      <h3><span class="os">Linux</span>x86-64 and ARM64</h3>
       <ul>
         <li><a class="row" data-file="_amd64.AppImage" href="https://github.com/Newspicel/sdrminusminus/releases/latest">
           <span class="what">Desktop app <em>AppImage, any distribution</em></span>
@@ -146,7 +146,7 @@ import Page from "../layouts/Page.astro";
     </div>
 
     <div class="group">
-      <h3><span class="legend">Source</span>Build it yourself</h3>
+      <h3><span class="os">Source</span>Build it yourself</h3>
       <ul>
         <li><a class="row" data-file="-src.tar.gz" href="https://github.com/Newspicel/sdrminusminus/releases/latest">
           <span class="what">Source tarball <em>vendored, builds offline</em></span>
@@ -177,20 +177,20 @@ import Page from "../layouts/Page.astro";
     <div class="lane">
       <h3>Homebrew</h3>
       <p>The cask installs the app; the formula installs the headless server.</p>
-      <pre>brew tap newspicel/tap
+      <div class="shell"><pre>brew tap newspicel/tap
 brew install --cask sdrminusminus
 
 <span class="p">or, for a server</span>
 brew install sdrmm
-brew services start sdrmm</pre>
+brew services start sdrmm</pre></div>
     </div>
 
     <div class="lane">
       <h3>Nix</h3>
       <p>Flake package for x86-64 and ARM64 Linux, with SoapySDR modules selectable.</p>
-      <pre>nix profile install \
+      <div class="shell"><pre>nix profile install \
   github:Newspicel/sdrminusminus
-sdrmm-desktop</pre>
+sdrmm-desktop</pre></div>
       <p class="foot"><a href="/getting-started/install.html#nix">NixOS module options</a></p>
     </div>
 
@@ -198,9 +198,9 @@ sdrmm-desktop</pre>
       <h3>Container</h3>
       <p>Persists its database and recordings in a volume. Pass through the USB group that owns
         your radio.</p>
-      <pre>git clone https://github.com/Newspicel/sdrminusminus.git
+      <div class="shell"><pre>git clone https://github.com/Newspicel/sdrminusminus.git
 cd sdrminusminus
-docker compose up -d</pre>
+docker compose up -d</pre></div>
       <p class="foot"><a href="/server/deployment.html">Container setup, auth and HTTPS</a></p>
     </div>
   </div>
@@ -250,78 +250,133 @@ docker compose up -d</pre>
 </Page>
 
 <style is:global>
-.pick {
-  margin-top: 30px;
-  max-width: 640px;
-  background: var(--panel);
-  border: 1px solid var(--line);
-  padding: 24px;
+.top {
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
+  align-items: center;
+  text-align: center;
+  padding-top: clamp(56px, 9vw, 112px);
+  padding-bottom: clamp(24px, 4vw, 40px);
+}
+.top .lede { margin-inline: auto; }
+
+.pick {
+  width: 100%;
+  max-width: 560px;
+  margin-top: 8px;
+  padding: 32px 28px 26px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-lg);
+  background:
+    radial-gradient(100% 80% at 50% 0%, color-mix(in oklab, var(--accent) 12%, transparent), transparent 70%),
+    var(--panel);
+  box-shadow: var(--glow);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
   gap: 14px;
 }
-.pick .btn.primary { font-size: 15px; padding: 13px 22px; }
-.pick .file { margin: 0; font-family: var(--mono); font-size: 12.5px; color: var(--ink-dim); overflow-wrap: anywhere; }
-.pick .hint { margin: 0; font-size: 14px; color: var(--ink-dim); max-width: 52ch; }
-.pick .alts { margin: 0; display: flex; flex-wrap: wrap; gap: 4px 18px; font-size: 14px; }
-.pick .alts a { color: var(--ink-dim); }
-.pick .alts a:hover { color: var(--accent); }
+.pick .who { margin: 0; font-size: 14px; color: var(--ink-dim); }
+.pick .btn.primary { font-size: 16px; padding: 14px 28px; }
+.pick .file { margin: 0; font-family: var(--mono); font-size: 12.5px; color: var(--ink-faint); overflow-wrap: anywhere; }
+.pick .hint { margin: 0; font-size: 14px; color: var(--ink-dim); max-width: 44ch; }
+.pick .alts {
+  margin: 6px 0 0;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+  align-self: stretch;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 4px 20px;
+  font-size: 14px;
+}
+.pick .alts a { color: var(--ink-dim); text-decoration: none; }
+.pick .alts a:hover { color: var(--ink); }
 
+.stamp { margin: 0 0 28px; font-size: 14px; color: var(--ink-faint); }
 
-.stamp { margin: 0 0 28px; font-family: var(--mono); font-size: 12px; letter-spacing: 0.04em; color: var(--ink-faint); }
-
-.files { border-top: 1px solid var(--line); }
+.files {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: color-mix(in oklab, var(--panel) 55%, var(--bg));
+  overflow: hidden;
+}
 .group {
   display: grid;
-  grid-template-columns: 200px minmax(0, 1fr);
+  grid-template-columns: 220px minmax(0, 1fr);
   gap: 10px 40px;
-  padding: 22px 0;
-  border-bottom: 1px solid var(--line);
+  padding: 24px 28px;
 }
-.group h3 { margin: 0; font-size: 1.05rem; font-weight: 600; }
-.group h3 .legend { display: block; color: var(--ink-faint); margin-bottom: 4px; }
-.group ul { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 2px; }
+.group + .group { border-top: 1px solid var(--line); }
+.group h3 { margin: 0; color: var(--ink-faint); font-weight: 400; font-size: 14px; }
+.group h3 .os {
+  display: block;
+  margin-bottom: 2px;
+  font-family: var(--display);
+  font-stretch: 80%;
+  font-size: 1.35rem;
+  letter-spacing: -0.02em;
+  color: var(--ink);
+}
+.group ul { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 4px; }
 
 .row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 2px 16px;
   align-items: baseline;
-  padding: 10px 12px;
-  margin-inline: -12px;
+  padding: 10px 14px;
   border: 1px solid transparent;
-  border-radius: 3px;
+  border-radius: var(--radius);
   text-decoration: none;
   color: var(--ink);
+  transition: background-color 0.15s, border-color 0.15s;
 }
-.row:hover { background: var(--panel); border-color: var(--line-strong); }
-.row .what { font-size: 15px; }
-.row .what em { font-style: normal; color: var(--ink-faint); }
+.row:hover { background: var(--panel-2); border-color: var(--line-strong); }
+.row .what { font-size: 15px; font-weight: 500; }
+.row .what em { font-style: normal; font-weight: 400; color: var(--ink-faint); }
 .row .size { font-family: var(--mono); font-size: 12px; color: var(--ink-faint); text-align: right; white-space: nowrap; }
 .row .name { grid-column: 1 / -1; font-family: var(--mono); font-size: 12px; color: var(--ink-faint); overflow-wrap: anywhere; }
 
-.steps { margin: 0; padding: 0; list-style: none; counter-reset: step; display: grid; gap: 20px; max-width: var(--measure); }
-.steps li { counter-increment: step; display: grid; grid-template-columns: 26px minmax(0, 1fr); gap: 14px; }
+.steps {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: step;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 16px;
+}
+.steps li {
+  counter-increment: step;
+  padding: 24px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: linear-gradient(180deg, var(--panel), color-mix(in oklab, var(--panel) 40%, var(--bg)));
+}
 .steps li::before {
   content: counter(step);
-  font-family: var(--mono);
-  font-size: 12px;
-  color: var(--accent);
-  border: 1px solid var(--line-strong);
-  border-radius: 3px;
-  height: 24px;
   display: grid;
   place-items: center;
+  width: 30px;
+  height: 30px;
+  margin-bottom: 16px;
+  border-radius: 50%;
+  background: var(--ink);
+  color: var(--bg);
+  font: 600 14px var(--display);
 }
-.steps h3 { margin: 0 0 4px; font-size: 1rem; font-weight: 600; }
+.steps h3 { margin: 0 0 6px; font-size: 1.08rem; font-weight: 600; }
 .steps p { margin: 0; color: var(--ink-dim); font-size: 15px; }
 .steps code { font-family: var(--mono); font-size: 0.88em; color: var(--ink); }
 
-@media (max-width: 720px) {
-  .group { grid-template-columns: minmax(0, 1fr); gap: 8px; }
-}
 .next { margin-top: 28px; }
+
+@media (max-width: 720px) {
+  .group { grid-template-columns: minmax(0, 1fr); gap: 12px; padding: 20px 14px; }
+  .group h3 { padding-inline: 14px; }
+}
 </style>
 
 <script is:inline>

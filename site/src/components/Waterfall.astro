@@ -1,0 +1,70 @@
+<canvas class="waterfall" width="384" height="216" aria-hidden="true"></canvas>
+
+<style>
+  .waterfall {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    opacity: 0.5;
+    pointer-events: none;
+    mask-image: radial-gradient(ellipse 70% 80% at 50% 20%, black 25%, transparent 80%);
+  }
+</style>
+
+<script>
+  import { heat, SIGNALS, spectrumRow } from "../waterfall/spectrum";
+
+  const FRAME_MS = 50;
+
+  function run(canvas: HTMLCanvasElement, context: CanvasRenderingContext2D) {
+    const { width, height } = canvas;
+    const levels = new Float32Array(width);
+    const row = context.createImageData(width, 1);
+    let frame = 0;
+    let last = 0;
+    let visible = true;
+    const still = matchMedia("(prefers-reduced-motion: reduce)");
+
+    const step = () => {
+      context.drawImage(canvas, 0, 0, width, height - 1, 0, 1, width, height - 1);
+      spectrumRow(levels, frame, SIGNALS, Math.random);
+      for (let bin = 0; bin < width; bin++) {
+        heat(levels[bin], row.data, bin * 4);
+      }
+      context.putImageData(row, 0, 0);
+      frame += 1;
+    };
+
+    const tick = (now: number) => {
+      if (!visible || still.matches) {
+        return;
+      }
+      if (now - last >= FRAME_MS) {
+        last = now;
+        step();
+      }
+      requestAnimationFrame(tick);
+    };
+
+    for (let line = 0; line < height; line++) {
+      step();
+    }
+
+    new IntersectionObserver(([entry]) => {
+      const was = visible;
+      visible = entry?.isIntersecting ?? false;
+      if (visible && !was) {
+        requestAnimationFrame(tick);
+      }
+    }).observe(canvas);
+
+    requestAnimationFrame(tick);
+  }
+
+  const canvas = document.querySelector<HTMLCanvasElement>(".waterfall");
+  const context = canvas?.getContext("2d");
+  if (canvas && context) {
+    run(canvas, context);
+  }
+</script>

@@ -1,14 +1,14 @@
 @import "@fontsource-variable/martian-mono/standard.css";
 
 :root {
-  --bg: oklch(0.178 0.004 255);
-  --panel: oklch(0.215 0.005 255);
-  --panel-2: oklch(0.255 0.006 255);
+  --bg: oklch(0.165 0.005 255);
+  --panel: oklch(0.205 0.006 255);
+  --panel-2: oklch(0.245 0.007 255);
   --panel-3: oklch(0.3 0.007 255);
-  --line: oklch(0.33 0.007 255);
-  --line-strong: oklch(0.5 0.009 255);
-  --ink: oklch(0.95 0.003 255);
-  --ink-dim: oklch(0.74 0.006 255);
+  --line: oklch(0.29 0.007 255);
+  --line-strong: oklch(0.42 0.009 255);
+  --ink: oklch(0.96 0.003 255);
+  --ink-dim: oklch(0.76 0.006 255);
   --ink-faint: oklch(0.62 0.008 255);
   --accent: oklch(0.74 0.13 258);
   --accent-dim: oklch(0.58 0.115 258);
@@ -22,10 +22,13 @@
   --cat-output: oklch(0.62 0.05 200);
   --mono: ui-monospace, "SF Mono", "JetBrains Mono", "IBM Plex Mono", Menlo, monospace;
   --display: "Martian Mono Variable", var(--mono);
-  --well: oklch(0.145 0.004 255);
+  --well: oklch(0.135 0.005 255);
   --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --pad: clamp(20px, 5vw, 48px);
   --measure: 62ch;
+  --radius: 10px;
+  --radius-lg: 16px;
+  --glow: 0 40px 120px -48px color-mix(in oklab, var(--accent) 45%, transparent);
 }
 
 * {
@@ -34,6 +37,13 @@
 
 html {
   -webkit-text-size-adjust: 100%;
+  scroll-behavior: smooth;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
 }
 
 body {
@@ -74,6 +84,7 @@ a:hover {
   z-index: 10;
   background: var(--panel-2);
   border: 1px solid var(--line);
+  border-radius: 6px;
   padding: 8px 12px;
   color: var(--ink);
 }
@@ -84,28 +95,19 @@ a:hover {
   padding-inline: var(--pad);
 }
 
-.legend {
-  font-family: var(--mono);
-  font-size: 10px;
-  line-height: 1.4;
-  letter-spacing: 0.09em;
-  text-transform: uppercase;
-  color: var(--ink-faint);
-}
-
 .bar {
   position: sticky;
   top: 0;
   z-index: 5;
-  background: color-mix(in oklab, var(--bg) 88%, transparent);
-  backdrop-filter: blur(8px);
-  border-bottom: 1px solid var(--line);
+  background: color-mix(in oklab, var(--bg) 80%, transparent);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid color-mix(in oklab, var(--line) 60%, transparent);
 }
 .bar .wrap {
   display: flex;
   align-items: center;
   gap: 24px;
-  height: 56px;
+  height: 60px;
 }
 .mark {
   display: flex;
@@ -126,7 +128,7 @@ a:hover {
 .bar nav {
   display: flex;
   align-items: center;
-  gap: 22px;
+  gap: 24px;
 }
 .bar nav a {
   font-size: 15px;
@@ -138,39 +140,35 @@ a:hover {
 }
 .bar nav a.get {
   color: var(--ink);
+  background: var(--panel);
   border: 1px solid var(--line-strong);
-  border-radius: 3px;
-  padding: 5px 12px;
+  border-radius: 999px;
+  padding: 6px 16px;
 }
 .bar nav a.get:hover,
 .bar nav a.get[aria-current] {
-  border-color: var(--accent);
-  color: var(--accent);
-}
-
-.hero {
-  padding-top: clamp(48px, 9vw, 92px);
-  padding-bottom: clamp(36px, 6vw, 64px);
+  border-color: var(--ink-dim);
+  background: var(--panel-2);
 }
 
 h1 {
   font-family: var(--display);
   font-weight: 600;
   font-stretch: 78%;
-  font-size: clamp(2.4rem, 7vw, 5.4rem);
-  line-height: 1;
-  letter-spacing: -0.035em;
+  font-size: clamp(2.6rem, 8vw, 6rem);
+  line-height: 0.98;
+  letter-spacing: -0.045em;
   margin: 0 0 24px;
-  max-width: 16ch;
   text-wrap: balance;
 }
 
 .lede {
-  font-size: clamp(1.05rem, 2.2vw, 1.28rem);
+  font-size: clamp(1.08rem, 2.2vw, 1.3rem);
   line-height: 1.55;
   color: var(--ink-dim);
-  max-width: 54ch;
-  margin: 0 0 28px;
+  max-width: 50ch;
+  margin: 0 0 32px;
+  text-wrap: pretty;
 }
 
 .actions {
@@ -181,45 +179,38 @@ h1 {
 }
 
 .btn {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
   font-family: var(--sans);
   font-size: 15px;
   font-weight: 500;
   text-decoration: none;
-  padding: 11px 20px;
-  border-radius: 4px;
+  padding: 12px 22px;
+  border-radius: 10px;
   border: 1px solid transparent;
+  transition:
+    background-color 0.15s,
+    border-color 0.15s,
+    color 0.15s;
 }
 .btn.primary {
-  background: var(--accent);
-  border-color: var(--accent);
+  background: var(--ink);
   color: var(--bg);
   font-weight: 600;
+  box-shadow: 0 8px 32px -8px color-mix(in oklab, var(--ink) 35%, transparent);
 }
 .btn.primary:hover {
-  filter: brightness(1.1);
+  background: white;
 }
 .btn.ghost {
+  background: color-mix(in oklab, var(--panel) 70%, transparent);
   border-color: var(--line-strong);
   color: var(--ink);
 }
 .btn.ghost:hover {
-  border-color: var(--accent);
-  color: var(--accent);
-}
-
-.cmd {
-  margin: 24px 0 0;
-  font-family: var(--mono);
-  font-size: 14px;
-  color: var(--ink-dim);
-}
-.cmd code {
-  color: var(--ink);
-}
-.cmd code::before {
-  content: "$ ";
-  color: var(--ink-faint);
+  border-color: var(--ink-dim);
+  background: var(--panel-2);
 }
 
 .note {
@@ -235,43 +226,49 @@ h1 {
 }
 
 section {
-  padding-block: clamp(56px, 9vw, 104px);
+  padding-block: clamp(64px, 10vw, 120px);
 }
 
 h2 {
   font-family: var(--display);
   font-weight: 500;
-  font-stretch: 82%;
-  font-size: clamp(1.5rem, 3.4vw, 2.15rem);
-  letter-spacing: -0.025em;
-  line-height: 1.15;
+  font-stretch: 80%;
+  font-size: clamp(1.7rem, 4vw, 2.7rem);
+  letter-spacing: -0.035em;
+  line-height: 1.1;
   text-wrap: balance;
-  margin: 0 0 12px;
+  margin: 0 0 14px;
 }
 
 .section-lede {
   color: var(--ink-dim);
-  font-size: 1.08rem;
+  font-size: 1.1rem;
   max-width: var(--measure);
-  margin: 0 0 40px;
+  margin: 0 0 44px;
+  text-wrap: pretty;
 }
 
 .install {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(290px, 1fr));
-  gap: 20px;
+  gap: 16px;
 }
 .lane {
-  background: var(--panel);
+  background: linear-gradient(
+    180deg,
+    var(--panel),
+    color-mix(in oklab, var(--panel) 40%, var(--bg))
+  );
   border: 1px solid var(--line);
-  padding: 22px;
+  border-radius: var(--radius-lg);
+  padding: 24px;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 14px;
 }
 .lane h3 {
   margin: 0;
-  font-size: 1.05rem;
+  font-size: 1.08rem;
   font-weight: 600;
 }
 .lane p {
@@ -284,24 +281,52 @@ h2 {
   font-size: 0.88em;
   color: var(--ink);
 }
-.lane pre {
-  margin: 0;
-  padding: 12px 14px;
-  background: var(--bg);
-  border: 1px solid var(--line);
-  overflow-x: auto;
-  font-family: var(--mono);
-  font-size: 13px;
-  line-height: 1.7;
-  color: var(--ink);
-}
-.lane pre .p {
-  color: var(--ink-faint);
-}
 .lane .foot {
   margin-top: auto;
   padding-top: 4px;
   font-size: 14px;
+}
+
+.shell {
+  position: relative;
+  margin: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--well);
+}
+.shell pre {
+  margin: 0;
+  padding: 14px 16px;
+  overflow-x: auto;
+  font-family: var(--mono);
+  font-size: 13px;
+  line-height: 1.75;
+  color: var(--ink);
+}
+.shell .p {
+  color: var(--ink-faint);
+}
+.shell .copy {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  padding: 4px 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  background: var(--panel-2);
+  color: var(--ink-dim);
+  font: 12px var(--sans);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.shell:hover .copy,
+.shell .copy:focus-visible,
+.shell .copy[data-done] {
+  opacity: 1;
+}
+.shell .copy:hover {
+  color: var(--ink);
 }
 
 footer {
@@ -327,7 +352,16 @@ footer a {
   text-decoration: none;
 }
 footer a:hover {
-  color: var(--accent);
+  color: var(--ink);
+}
+
+@media (hover: none) {
+  .shell .copy {
+    opacity: 1;
+  }
+  .shell pre {
+    padding-right: 72px;
+  }
 }
 
 @media (max-width: 720px) {

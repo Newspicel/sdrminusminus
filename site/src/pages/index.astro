@@ -1,5 +1,6 @@
 ---
 import Patch from "../components/Patch.astro";
+import Waterfall from "../components/Waterfall.astro";
 import { DEFAULT_SCENE, demoUrl, SCENES } from "../demo/scenes";
 import Page from "../layouts/Page.astro";
 
@@ -78,6 +79,65 @@ const tools = [
     text: "REST, WebSocket, MCP and event forwarding to your own tools.",
   },
 ];
+
+const voices = [
+  {
+    quote:
+      "The first SDR that works in an intuitive way. I stopped using SDR software because they all failed to work properly.",
+    who: "@david3rd",
+    where: "X",
+    href: "https://x.com/david3rd/status/2100811276473544745",
+  },
+  {
+    quote: "Light years more capable and is also flow graph based.",
+    who: "@david3rd",
+    where: "X",
+    href: "https://x.com/david3rd/status/2102255787372630269",
+  },
+  {
+    quote:
+      "I'm pretty new to the sdr world and been looking for a main workhorse as far as software goes, and I think this might be it!",
+    who: "j2T-QkTx38_atdg72G",
+    where: "r/sdr",
+    href: "https://www.reddit.com/r/sdr/comments/1whaalq/comment/pa4xaga/",
+  },
+  {
+    quote: "Hell yes this is exactly what I've been wanting!",
+    who: "Reddit user",
+    where: "r/RTLSDR",
+    href: "https://www.reddit.com/r/RTLSDR/comments/1wgfnuz/comment/p9yz53q/",
+  },
+  {
+    quote: "This is really great software, I LOVE it.",
+    who: "phpbg",
+    where: "GitHub",
+    href: "https://github.com/Newspicel/sdrminusminus/issues/93",
+  },
+  {
+    quote: "Fantastic software",
+    who: "pbranly",
+    where: "GitHub",
+    href: "https://github.com/Newspicel/sdrminusminus/issues/73",
+  },
+  {
+    quote: "Nice application, congratulations.",
+    who: "eb3frn",
+    where: "GitHub",
+    href: "https://github.com/Newspicel/sdrminusminus/issues/72",
+  },
+  {
+    quote: "This looks amazing! The RTL-SDR driver is in Rust (no FFI)!",
+    who: "switch161",
+    where: "r/RTLSDR",
+    href: "https://www.reddit.com/r/RTLSDR/comments/1wgfnuz/comment/p9wf5fy/",
+  },
+];
+
+const half = Math.ceil(voices.length / 2);
+
+const rows = [voices.slice(0, half), voices.slice(half)];
+
+const copies = [0, 1, 2, 3];
 ---
 
 <Page
@@ -85,9 +145,10 @@ const tools = [
   description="A software-defined radio application for listening, decoding and recording. Connect a receiver, a channel and a display, on your desk or on a server at the antenna."
   summary="A software-defined radio application for listening, decoding and recording."
 >
-  <div class="wrap hero">
-    <h1>Patch a radio together</h1>
-    <div class="pitch">
+  <div class="stage">
+    <Waterfall />
+    <div class="wrap intro">
+      <h1>Patch a radio together</h1>
       <p class="lede">Wire a receiver to a channel, the channel to a speaker, a map or a recorder.
         On your desk, or on a server at the antenna.</p>
       <div class="actions">
@@ -96,11 +157,8 @@ const tools = [
       </div>
       <p class="platforms">macOS, Windows, Linux. Free and open source.</p>
     </div>
-    <Patch />
-  </div>
 
-  <div class="demo" id="demo">
-    <div class="wrap">
+    <div class="wrap demo" id="demo">
       <div class="scenes">
         <div role="tablist" aria-label="Demo session">
           {
@@ -131,6 +189,15 @@ const tools = [
       <p class="caption">The real app, replaying a recorded session. Drag, zoom, press Play on a speaker.</p>
     </div>
   </div>
+
+  <section class="wrap wiring">
+    <div>
+      <h2>Every flow is a wire</h2>
+      <p class="section-lede">A Device node feeds channels. Channels feed speakers, maps, logs and
+        recorders. Nothing happens behind your back.</p>
+    </div>
+    <Patch />
+  </section>
 
   <section class="wrap">
     <h2>Choose what the signal becomes</h2>
@@ -165,6 +232,35 @@ const tools = [
       <a href="/user-guide/decoders.html#catalog">decoder catalog</a> says which.</p>
   </section>
 
+  <section class="voices">
+    <div class="wrap">
+      <h2>People like it</h2>
+    </div>
+    <div class="rail">
+      {
+        rows.map((row) => (
+          <div class="marquee">
+            {copies.map((copy) => (
+              <ul aria-hidden={copy > 0 ? "true" : undefined}>
+                {row.map((voice) => (
+                  <li>
+                    <a class="voice" href={voice.href} tabindex={copy > 0 ? -1 : undefined}>
+                      <span class="who">
+                        <span class="handle">{voice.who}</span>
+                        <span class="where">{voice.where}</span>
+                      </span>
+                      <span class="quote">{voice.quote}</span>
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            ))}
+          </div>
+        ))
+      }
+    </div>
+  </section>
+
   <section class="wrap">
     <h2>Install it</h2>
     <p class="section-lede">The app runs its own server. Or run the server alone by the antenna and
@@ -180,20 +276,20 @@ const tools = [
 
       <div class="lane">
         <h3>Homebrew</h3>
-        <pre>brew tap newspicel/tap
+        <div class="shell"><pre>brew tap newspicel/tap
 brew install --cask sdrminusminus
 
 <span class="p">or the server</span>
 brew install sdrmm
-brew services start sdrmm</pre>
+brew services start sdrmm</pre></div>
         <p class="foot"><a href="/getting-started/install.html">All methods, including Nix</a></p>
       </div>
 
       <div class="lane">
         <h3>Container</h3>
-        <pre>git clone https://github.com/Newspicel/sdrminusminus.git
+        <div class="shell"><pre>git clone https://github.com/Newspicel/sdrminusminus.git
 cd sdrminusminus
-docker compose up -d</pre>
+docker compose up -d</pre></div>
         <p class="foot"><a href="/server/deployment.html">Setup, auth and HTTPS</a></p>
       </div>
     </div>
@@ -203,100 +299,115 @@ docker compose up -d</pre>
       before exposing it.</p>
   </section>
 
-  <section class="wrap closing">
-    <h2>Still being built</h2>
-    <p class="section-lede">The docs say plainly what works on air and what is experimental. Bug
-      reports and decoder recordings are welcome.</p>
-    <div class="actions">
-      <a class="btn ghost" href="https://github.com/Newspicel/sdrminusminus">Source on GitHub</a>
-      <a class="btn ghost" href="/development/architecture.html">Architecture</a>
+  <section class="closing">
+    <div class="wrap">
+      <h2>Plug in a radio. Start patching.</h2>
+      <div class="actions">
+        <a class="btn primary" href="/download.html">Download</a>
+        <a class="btn ghost" href="https://github.com/Newspicel/sdrminusminus">Source on GitHub</a>
+      </div>
     </div>
   </section>
 </Page>
 
 <style>
-  .hero {
-    display: grid;
-    grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr);
-    grid-template-areas: "title title" "pitch patch";
+  .stage {
+    position: relative;
+    overflow: hidden;
+    isolation: isolate;
+  }
+  .stage :global(.waterfall) {
+    height: min(760px, 100%);
+    z-index: -1;
+  }
+  .intro {
+    display: flex;
+    flex-direction: column;
     align-items: center;
-    column-gap: clamp(32px, 5vw, 72px);
-    padding-top: clamp(40px, 7vw, 80px);
-    padding-bottom: clamp(40px, 6vw, 72px);
+    text-align: center;
+    padding-top: clamp(64px, 11vw, 136px);
+    padding-bottom: clamp(48px, 7vw, 80px);
   }
-  .hero h1 { grid-area: title; max-width: none; }
-  .pitch { grid-area: pitch; }
-  .hero :global(.patch) { grid-area: patch; margin-top: clamp(-150px, -9vw, -60px); }
-  .platforms { margin: 18px 0 0; font-size: 14px; color: var(--ink-faint); }
+  .intro .lede { margin-inline: auto; }
+  .intro .actions { justify-content: center; }
+  .platforms { margin: 20px 0 0; font-size: 14px; color: var(--ink-faint); }
 
-  .demo {
-    border-block: 1px solid var(--line);
-    background-color: var(--well);
-    background-image: radial-gradient(circle, var(--line) 1px, transparent 1px);
-    background-size: 24px 24px;
-    background-position: 12px 12px;
-    padding-block: clamp(24px, 4vw, 48px);
-  }
-
+  .demo { padding-bottom: clamp(24px, 4vw, 48px); }
   .scenes {
     display: flex;
-    align-items: end;
+    align-items: center;
     justify-content: space-between;
     gap: 12px;
+    margin-bottom: 14px;
   }
-  .scenes [role="tablist"] { display: flex; flex-wrap: wrap; }
+  .scenes [role="tablist"] {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2px;
+    padding: 3px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: color-mix(in oklab, var(--panel) 70%, transparent);
+    backdrop-filter: blur(8px);
+  }
   .scenes button {
-    height: 34px;
-    padding-inline: 14px;
-    border: 1px solid transparent;
-    border-bottom: 0;
-    border-radius: 4px 4px 0 0;
+    height: 32px;
+    padding-inline: 16px;
+    border: 0;
+    border-radius: 999px;
     background: none;
     color: var(--ink-faint);
-    font: 12.5px var(--mono);
+    font: 500 13.5px var(--sans);
     cursor: pointer;
+    transition: color 0.15s, background-color 0.15s;
   }
   .scenes button:hover { color: var(--ink); }
-  .scenes button[aria-selected="true"] {
-    color: var(--ink);
-    background: var(--panel-2);
-    border-color: var(--line-strong);
-    box-shadow: inset 0 2px 0 var(--accent);
-  }
-  .scenes .full { margin-bottom: 8px; font: 12.5px var(--mono); color: var(--ink-dim); }
-  .scenes .full:hover { color: var(--accent); }
+  .scenes button[aria-selected="true"] { color: var(--bg); background: var(--ink); }
+  .scenes .full { font-size: 14px; color: var(--ink-dim); text-decoration: none; }
+  .scenes .full:hover { color: var(--ink); }
 
   .window {
     border: 1px solid var(--line-strong);
-    border-radius: 0 4px 4px 4px;
+    border-radius: var(--radius-lg);
     overflow: hidden;
     background: var(--bg);
     aspect-ratio: 16 / 10;
     max-height: 82vh;
     width: 100%;
-    box-shadow: 0 30px 80px -30px black;
+    box-shadow: 0 0 0 6px color-mix(in oklab, var(--panel) 50%, transparent), var(--glow), 0 30px 80px -30px black;
   }
   .window iframe { display: block; width: 100%; height: 100%; border: 0; }
   .window .still { display: none; width: 100%; height: auto; }
-  .caption { margin: 14px 0 0; font-size: 14px; color: var(--ink-faint); }
+  .caption { margin: 18px 0 0; text-align: center; font-size: 14px; color: var(--ink-faint); }
+
+  .wiring {
+    display: grid;
+    grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
+    align-items: center;
+    gap: clamp(32px, 6vw, 88px);
+  }
+  .wiring .section-lede { margin-bottom: 0; }
 
   .outputs {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 1px;
-    background: var(--line);
-    border: 1px solid var(--line);
+    gap: 16px;
   }
   .output {
-    background: var(--bg);
-    padding: 26px 28px 30px;
-    box-shadow: inset 0 2px 0 var(--port);
+    position: relative;
+    overflow: hidden;
+    padding: 28px 28px 32px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-lg);
+    background:
+      radial-gradient(120% 90% at 0% 0%, color-mix(in oklab, var(--port) 10%, transparent), transparent 60%),
+      var(--panel);
   }
   .output .port {
     display: flex;
     align-items: center;
     gap: 8px;
-    margin: 0 0 6px;
+    margin: 0 0 8px;
     font: 12px var(--mono);
     color: var(--port);
   }
@@ -307,15 +418,15 @@ docker compose up -d</pre>
     background: var(--port);
     box-shadow: 0 0 0 3px color-mix(in oklab, var(--port) 22%, transparent);
   }
-  .output h3 { margin: 0 0 16px; font-size: 1.2rem; font-weight: 600; }
+  .output h3 { margin: 0 0 18px; font-size: 1.3rem; font-weight: 600; letter-spacing: -0.01em; }
   .modes { margin: 0; padding: 0; list-style: none; display: flex; flex-wrap: wrap; gap: 6px; }
   .modes li {
     font: 12.5px/1 var(--mono);
-    padding: 6px 8px;
-    border-radius: 3px;
+    padding: 7px 10px;
+    border-radius: 999px;
     color: var(--ink-dim);
-    background: color-mix(in oklab, var(--port) 9%, var(--panel));
-    border: 1px solid color-mix(in oklab, var(--port) 22%, var(--line));
+    background: color-mix(in oklab, var(--port) 8%, var(--bg));
+    border: 1px solid color-mix(in oklab, var(--port) 20%, var(--line));
   }
   .output.audio { --port: var(--audio); }
   .output.events { --port: var(--events); }
@@ -323,28 +434,98 @@ docker compose up -d</pre>
   .output.iq { --port: var(--iq); }
 
   .tools {
-    margin-top: 48px;
+    margin-top: 56px;
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
     gap: 28px 40px;
   }
-  .tools h3 { margin: 0 0 6px; font-size: 1rem; font-weight: 600; }
+  .tools > div { padding-top: 18px; border-top: 1px solid var(--line); }
+  .tools h3 { margin: 0 0 6px; font-size: 1.05rem; font-weight: 600; }
   .tools p { margin: 0; color: var(--ink-dim); font-size: 15px; }
 
-  .closing { border-top: 1px solid var(--line); }
+  .voices { overflow: hidden; }
+  .voices h2 { margin-bottom: 40px; }
+  .rail {
+    display: grid;
+    gap: 12px;
+    mask-image: linear-gradient(90deg, transparent, black 10%, black 90%, transparent);
+  }
+  .marquee {
+    display: flex;
+    width: max-content;
+  }
+  .marquee ul {
+    display: flex;
+    gap: 12px;
+    margin: 0;
+    padding: 0 12px 0 0;
+    list-style: none;
+  }
+  .voice {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    width: 300px;
+    height: 100%;
+    padding: 18px 20px 20px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: color-mix(in oklab, var(--panel) 60%, var(--bg));
+    color: var(--ink);
+    text-decoration: none;
+    transition: border-color 0.15s, background-color 0.15s;
+  }
+  .voice:hover {
+    border-color: var(--line-strong);
+    background: var(--panel);
+  }
+  .who { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
+  .handle {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--ink-dim);
+  }
+  .where { margin-left: auto; font-size: 13px; color: var(--ink-faint); }
+  .quote { font-size: 15px; line-height: 1.5; }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .marquee { animation: drift 70s linear infinite; }
+    .marquee + .marquee { animation-direction: reverse; }
+    .marquee:hover, .marquee:focus-within { animation-play-state: paused; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .rail { mask-image: none; overflow-x: auto; }
+    .marquee { padding-inline: var(--pad); }
+    .marquee ul[aria-hidden] { display: none; }
+  }
+  @keyframes drift {
+    to { transform: translateX(-25%); }
+  }
+
+  .closing {
+    position: relative;
+    text-align: center;
+    padding-block: clamp(96px, 14vw, 180px);
+    background: radial-gradient(60% 70% at 50% 100%, color-mix(in oklab, var(--accent) 12%, transparent), transparent 70%);
+  }
+  .closing h2 { margin-bottom: 36px; font-size: clamp(2.2rem, 6vw, 4.2rem); font-weight: 600; letter-spacing: -0.045em; }
+  .closing .actions { justify-content: center; }
 
   @media (max-width: 900px) {
-    .hero { grid-template-columns: minmax(0, 1fr); grid-template-areas: "title" "pitch" "patch"; row-gap: 40px; }
-    .hero :global(.patch) { margin-top: 0; }
+    .wiring { grid-template-columns: minmax(0, 1fr); }
     .scenes { display: none; }
-    .window { aspect-ratio: auto; max-height: none; border-radius: 4px; }
+    .window { aspect-ratio: auto; max-height: none; }
     .window iframe { display: none; }
     .window .still { display: block; }
   }
 
   @media (max-width: 720px) {
     .outputs { grid-template-columns: minmax(0, 1fr); }
-    .output { padding: 22px 18px 24px; }
+    .output { padding: 22px 20px 24px; }
+    .voice { width: 260px; }
   }
 </style>
 
