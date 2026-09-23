@@ -250,9 +250,10 @@ fn a_dropped_connection_reconnects_and_replays_the_tuning() {
     eventually("a reconnect", || {
         (server.connections() > RECONNECTED).then_some(())
     });
-    eventually("the replayed tuning", || {
-        (commands(&observed, RECONNECTED).contains(&(0x01, 433_920_000))).then_some(())
+    eventually("the replay", || {
+        (commands(&observed, RECONNECTED).len() >= REPLAY_IN_AGC).then_some(())
     });
+    assert!(commands(&observed, RECONNECTED).contains(&(0x01, 433_920_000)));
     assert_eq!(
         commands(&observed, RECONNECTED).len(),
         REPLAY_IN_AGC,
