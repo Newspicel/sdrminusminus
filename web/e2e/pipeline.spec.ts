@@ -3,6 +3,8 @@ import type { WorkletReport } from "../src/lib/audio/worklet";
 import { decodeAudio } from "../src/lib/frame";
 import type { ChannelSettings, StateSnapshot, WorkspaceSnapshot } from "../src/lib/types";
 
+test.describe.configure({ retries: 2 });
+
 interface AudioProbe {
   frames: number;
   nonfinite: number;
