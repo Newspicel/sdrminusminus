@@ -35,7 +35,7 @@ fuzz_target!(|data: &[u8]| {
         frequency_hz: 0.0,
         squelch: Squelch::Off,
         params: ChannelParams::Dpmr(DpmrParams::default()),
-        audio: sdrmm_wire::AudioProcessing::default(),
+        blanker: Default::default(),
     };
     let Ok(mut channel) = DpmrChannel::new(ChannelCtx { input_rate: rate }, settings) else {
         return;

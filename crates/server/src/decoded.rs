@@ -156,7 +156,7 @@ mod tests {
                     frequency_hz: 100_000_000.0,
                     squelch: sdrmm_wire::Squelch::Off,
                     params: ChannelParams::default_for("adsb").expect("adsb is a channel type"),
-                    audio: Default::default(),
+                    blanker: Default::default(),
                 },
             )
             .expect("add channel");

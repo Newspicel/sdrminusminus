@@ -10,6 +10,10 @@
 A SigMF recording is two files: samples in `.sigmf-data`, frequency, rate, and time in
 `.sigmf-meta`. Keep them together.
 
+**Record** on a recorder is a switch saved with the workspace. While it is on, the server records
+whatever is wired in: it follows rewiring, keeps going with the browser closed, and starts again
+after a restart.
+
 Decoded messages are not recordings. For those, wire `events` to a **Decoder log**.
 
 ## Record IQ
@@ -25,11 +29,11 @@ A clean server shutdown finishes open recordings. Killing the process can leave 
 smaller than full Device IQ and can be played back like any other recording. Changing the mode or
 the Device rate, or removing the channel, ends the file.
 
-**Audio recorder** keeps what you hear, after squelch, filters, and AGC. Closed squelch writes
+**Audio recorder** keeps what reaches it, after squelch and any Audio FX it is wired behind. Closed squelch writes
 silence so timing stays intact. Mode and rate changes do not stop it. The file stays playable even
 if the server stops mid-recording.
 
-Both recorders take several channels. Start and stop each with its own button.
+Both recorders take several channels and write one file per wired input.
 
 ## Time machine
 

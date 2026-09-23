@@ -1,4 +1,4 @@
-import type { DeviceSet, RecordingFormat, RecordingInfo, RecordingStatus } from "../lib/types";
+import type { RecordingFormat, RecordingInfo, RecordingStatus } from "../lib/types";
 import { formatBytes, formatMhz, formatSampleRate } from "./format";
 
 export const MAX_RECORDING_TAGS = 32;
@@ -21,17 +21,6 @@ export const downloadFormats: ReadonlyArray<{
     hint: "I/Q as a float WAV for HDSDR, SDR# or Audacity — keeps the samples, but only the center frequency and start time of the metadata",
   },
 ];
-
-export type RecordControl =
-  | { kind: "idle"; canStart: boolean }
-  | { kind: "recording"; status: RecordingStatus };
-
-export function deriveRecordControl(set: DeviceSet): RecordControl {
-  if (set.recording != null) {
-    return { kind: "recording", status: set.recording };
-  }
-  return { kind: "idle", canStart: set.status === "running" };
-}
 
 export function recordingElapsedS(
   status: RecordingStatus,

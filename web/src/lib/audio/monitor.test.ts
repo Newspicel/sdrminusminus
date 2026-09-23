@@ -72,3 +72,12 @@ describe("monitorKey", () => {
     expect(monitorKey(1, 7)).toBe("1:7");
   });
 });
+
+describe("monitorKey", () => {
+  it("is the bare channel without audio FX and a distinct key through them", () => {
+    expect(monitorKey(1, 7)).toBe("1:7");
+    expect(monitorKey(1, 7, [])).toBe("1:7");
+    expect(monitorKey(1, 7, ["a", "b"])).not.toBe(monitorKey(1, 7, ["b", "a"]));
+    expect(monitorKey(1, 7, ["a"])).not.toBe("1:7");
+  });
+});

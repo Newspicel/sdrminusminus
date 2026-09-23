@@ -25,9 +25,9 @@ async fn a_template_the_radio_cannot_run_is_refused_before_anything_is_torn_down
     let dir = tempfile::TempDir::new().expect("tempdir");
     let app = recording_router(dir.path());
     let ds = create_virtual_set(&app).await;
-    record(&app, ds, "start").await;
+    record(&app, ds, true).await.expect("recording started");
     wait_for_recorded_samples(&app, ds, 1).await;
-    record(&app, ds, "stop").await;
+    record(&app, ds, false).await;
 
     let rec = list_recordings(&app).await.remove(0);
     let (status, body) = request(

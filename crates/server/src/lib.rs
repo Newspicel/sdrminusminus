@@ -23,6 +23,7 @@ pub const LEVEL_INTERVAL: Duration = Duration::from_millis(100);
 const DECODED_TEXT_CAP: usize = 1024;
 
 mod assets;
+mod audio_fx;
 mod auth;
 mod bandplan;
 mod basemap;
@@ -43,6 +44,7 @@ mod mcp;
 mod monitor;
 pub mod notices;
 mod placement;
+mod recorders;
 mod rest;
 pub mod routing;
 mod satellites;
@@ -189,7 +191,6 @@ fn router_with_state(mut state: AppState, options: &ServerOptions) -> (Router, B
             state.engine.clone(),
             state.store.clone(),
             state.tools.clone(),
-            state.recordings_gate.clone(),
         ))
         .merge(SwaggerUi::new("/api/docs").url("/api/openapi.json", api))
         .route_layer(axum::middleware::from_fn_with_state(
@@ -292,8 +293,26 @@ fn start_background(state: &AppState) -> Background {
             event_output::run(records, engine, store, calls)
         })
     };
+    let audio_fx = {
+        let engine = Arc::downgrade(&state.engine);
+        let hooks = Arc::new(recorders::Hooks {
+            store: state.store.clone(),
+            gate: state.recordings_gate.clone(),
+            gps: state.gps.clone(),
+        });
+        spawn_task("sdrmm-recorders", move || audio_fx::run(engine, hooks))
+    };
     Background {
-        tasks: vec![routing, log, patch, calls, images, event_output, monitor],
+        tasks: vec![
+            routing,
+            log,
+            patch,
+            calls,
+            images,
+            event_output,
+            monitor,
+            audio_fx,
+        ],
         detached: false,
     }
 }

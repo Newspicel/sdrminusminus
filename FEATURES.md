@@ -54,7 +54,6 @@ M17, NXDN, P25 and YSF. Only the Signal generator uses the modulators.
 ## 3. Receive DSP
 - ESPRIT next to the correlative and MUSIC estimators. The circular array needs the beamspace form
 - Interferometer
-- DeepFilterNet3 neural noise reduction on the listen path
 - Auto-squelch: tell a floor step from a signal. Today a floor that jumps in one step reads as a
   signal until the channel next falls quiet
 

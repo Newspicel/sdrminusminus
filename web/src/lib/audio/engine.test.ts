@@ -651,6 +651,34 @@ describe("AudioEngine", () => {
     expect(sinks[0]?.closed).toBe(false);
   });
 
+  it("keeps a channel heard through audio FX apart from the bare channel", async () => {
+    const made = makeFactory();
+    const routed = new AudioEngine(made.factory);
+    routed.attach(socket);
+    routed.start(1, 2);
+    routed.start(1, 2, ["fx"]);
+    await flush();
+    expect(socket.sent).toEqual([
+      { type: "SubscribeAudio", data: { device_set: 1, channel: 2 } },
+      { type: "SubscribeAudio", data: { device_set: 1, channel: 2, fx: ["fx"] } },
+    ]);
+    expect(made.keys).toEqual(["1:2", '1:2>["fx"]']);
+
+    socket.emit({
+      type: "AudioStreamStarted",
+      data: { device_set: 1, channel: 2, stream_id: 12, fx: ["fx"] },
+    });
+    expect(routed.isPlaying(1, 2, ["fx"])).toBe(true);
+    expect(routed.isPlaying(1, 2)).toBe(false);
+
+    socket.sent.length = 0;
+    routed.retain([{ deviceSet: 1, channel: 2 }]);
+    expect(routed.isPlaying(1, 2, ["fx"])).toBe(false);
+    expect(socket.sent).toEqual([
+      { type: "UnsubscribeAudio", data: { device_set: 1, channel: 2, fx: ["fx"] } },
+    ]);
+  });
+
   it("retain leaves a stopped channel alone rather than resubscribing or re-erroring", async () => {
     engine.start(1, 2);
     await flush();

@@ -2154,87 +2154,6 @@
         }
       }
     },
-    "/api/devicesets/{ds}/channels/{ch}/baseband": {
-      "post": {
-        "operationId": "record_channel_baseband",
-        "parameters": [
-          {
-            "name": "ds",
-            "in": "path",
-            "description": "Device set id",
-            "required": true,
-            "schema": {
-              "type": "integer",
-              "format": "int32",
-              "minimum": 0
-            }
-          },
-          {
-            "name": "ch",
-            "in": "path",
-            "description": "Channel id",
-            "required": true,
-            "schema": {
-              "type": "integer",
-              "format": "int32",
-              "minimum": 0
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ChannelRecordRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Baseband recording status: live after `start`; final counts after `stop`, where the finished SigMF pair appears in `GET /api/recordings`",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RecordingStatus"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Cannot record: no recordings directory, set not running, or this channel's baseband is already recording",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Device set or channel not found",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Malformed request body",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/devicesets/{ds}/channels/{ch}/hunt": {
       "post": {
         "operationId": "hunt_channel",
@@ -2366,87 +2285,6 @@
           },
           "400": {
             "description": "Invalid destination, inactive export, or conflicting owner",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Device set or channel not found",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Malformed request body",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/devicesets/{ds}/channels/{ch}/record": {
-      "post": {
-        "operationId": "record_channel_audio",
-        "parameters": [
-          {
-            "name": "ds",
-            "in": "path",
-            "description": "Device set id",
-            "required": true,
-            "schema": {
-              "type": "integer",
-              "format": "int32",
-              "minimum": 0
-            }
-          },
-          {
-            "name": "ch",
-            "in": "path",
-            "description": "Channel id",
-            "required": true,
-            "schema": {
-              "type": "integer",
-              "format": "int32",
-              "minimum": 0
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ChannelRecordRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Recording status: live after `start`; final counts after `stop`, where `error` reports a recording that was cut short and the finished file appears in `GET /api/audiorecordings`",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/AudioRecordingStatus"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Cannot record: no recordings directory, set not running, channel already recording, not recording, or a channel with no audio",
             "content": {
               "application/json": {
                 "schema": {
@@ -2741,76 +2579,6 @@
           },
           "404": {
             "description": "Device set not found",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/devicesets/{ds}/record": {
-      "post": {
-        "operationId": "record_device_set",
-        "parameters": [
-          {
-            "name": "ds",
-            "in": "path",
-            "description": "Device set id",
-            "required": true,
-            "schema": {
-              "type": "integer",
-              "format": "int32",
-              "minimum": 0
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/RecordRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Recording status: live after `start`; final counts after `stop`, where `error` reports a truncated recording and the finalized pair appears in `GET /api/recordings`",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RecordingStatus"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Cannot record: no recordings directory, set not running, already recording, or not recording",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Device set not found",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Malformed request body",
             "content": {
               "application/json": {
                 "schema": {
@@ -5703,6 +5471,14 @@
           }
         }
       },
+      "AudioFxNode": {
+        "type": "object",
+        "properties": {
+          "settings": {
+            "$ref": "#/components/schemas/AudioProcessing"
+          }
+        }
+      },
       "AudioProcessing": {
         "type": "object",
         "properties": {
@@ -5711,9 +5487,6 @@
           },
           "auto_notch": {
             "type": "boolean"
-          },
-          "blanker": {
-            "$ref": "#/components/schemas/NoiseBlankerSettings"
           },
           "click_removal": {
             "$ref": "#/components/schemas/ClickRemovalSettings"
@@ -5809,6 +5582,12 @@
             "type": "integer",
             "format": "int64",
             "minimum": 0
+          },
+          "fx": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           },
           "started_at": {
             "type": "string"
@@ -7130,15 +6909,11 @@
           "settings"
         ],
         "properties": {
-          "audio_recording": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/AudioRecordingStatus"
-              }
-            ]
+          "audio_recordings": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AudioRecordingStatus"
+            }
           },
           "baseband_recording": {
             "oneOf": [
@@ -8154,17 +7929,6 @@
           }
         ]
       },
-      "ChannelRecordRequest": {
-        "type": "object",
-        "required": [
-          "action"
-        ],
-        "properties": {
-          "action": {
-            "$ref": "#/components/schemas/RecordAction"
-          }
-        }
-      },
       "ChannelSettings": {
         "type": "object",
         "required": [
@@ -8172,8 +7936,8 @@
           "params"
         ],
         "properties": {
-          "audio": {
-            "$ref": "#/components/schemas/AudioProcessing"
+          "blanker": {
+            "$ref": "#/components/schemas/NoiseBlankerSettings"
           },
           "frequency_hz": {
             "type": "number",
@@ -8357,6 +8121,12 @@
                     "type": "integer",
                     "format": "int32",
                     "minimum": 0
+                  },
+                  "fx": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
                   }
                 }
               },
@@ -8391,6 +8161,12 @@
                     "type": "integer",
                     "format": "int32",
                     "minimum": 0
+                  },
+                  "fx": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
                   }
                 }
               },
@@ -11344,11 +11120,21 @@
           }
         }
       },
+      "DenoiseMode": {
+        "type": "string",
+        "enum": [
+          "spectral",
+          "neural"
+        ]
+      },
       "DenoiseSettings": {
         "type": "object",
         "properties": {
           "enabled": {
             "type": "boolean"
+          },
+          "mode": {
+            "$ref": "#/components/schemas/DenoiseMode"
           },
           "strength": {
             "type": "number",
@@ -15852,6 +15638,24 @@
           {
             "type": "object",
             "required": [
+              "data",
+              "kind"
+            ],
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/AudioFxNode"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "audio_fx"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
               "kind"
             ],
             "properties": {
@@ -15866,9 +15670,13 @@
           {
             "type": "object",
             "required": [
+              "data",
               "kind"
             ],
             "properties": {
+              "data": {
+                "$ref": "#/components/schemas/RecorderNode"
+              },
               "kind": {
                 "type": "string",
                 "enum": [
@@ -15880,9 +15688,13 @@
           {
             "type": "object",
             "required": [
+              "data",
               "kind"
             ],
             "properties": {
+              "data": {
+                "$ref": "#/components/schemas/RecorderNode"
+              },
               "kind": {
                 "type": "string",
                 "enum": [
@@ -15894,9 +15706,13 @@
           {
             "type": "object",
             "required": [
+              "data",
               "kind"
             ],
             "properties": {
+              "data": {
+                "$ref": "#/components/schemas/RecorderNode"
+              },
               "kind": {
                 "type": "string",
                 "enum": [
@@ -17681,26 +17497,12 @@
           }
         }
       },
-      "RecordAction": {
-        "type": "string",
-        "enum": [
-          "start",
-          "stop"
-        ]
-      },
-      "RecordRequest": {
+      "RecorderNode": {
         "type": "object",
-        "required": [
-          "action"
-        ],
         "properties": {
-          "action": {
-            "$ref": "#/components/schemas/RecordAction"
-          },
-          "stream": {
-            "type": "integer",
-            "format": "int32",
-            "minimum": 0
+          "recording": {
+            "type": "boolean",
+            "default": false
           }
         }
       },
@@ -18726,6 +18528,12 @@
                     "type": "integer",
                     "format": "int32",
                     "minimum": 0
+                  },
+                  "fx": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
                   },
                   "stream_id": {
                     "type": "integer",

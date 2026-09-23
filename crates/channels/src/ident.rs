@@ -458,7 +458,7 @@ mod tests {
             frequency_hz,
             squelch: sdrmm_wire::Squelch::Off,
             params: sdrmm_wire::ChannelParams::Ident(params),
-            audio: Default::default(),
+            blanker: Default::default(),
         }
     }
 

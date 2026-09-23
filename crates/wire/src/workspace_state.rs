@@ -226,7 +226,7 @@ mod tests {
                 frequency_hz,
                 squelch: crate::Squelch::Off,
                 params: ChannelParams::Nfm(NfmParams::default()),
-                audio: crate::audio::AudioProcessing::default(),
+                blanker: crate::audio::NoiseBlankerSettings::default(),
             },
         }
     }

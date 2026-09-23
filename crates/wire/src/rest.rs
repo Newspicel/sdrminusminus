@@ -153,20 +153,6 @@ pub struct CreateBookmarkRequest {
     pub group: Option<String>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
-pub struct RecordRequest {
-    pub action: RecordAction,
-    #[serde(default)]
-    pub stream: u32,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum RecordAction {
-    Start,
-    Stop,
-}
-
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct RecordingInfo {
     pub id: i64,
@@ -305,11 +291,6 @@ pub struct RecordingsResponse {
     /// than leave the operator hunting for the folder. Absent when nothing is recorded to disk.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dir: Option<String>,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
-pub struct ChannelRecordRequest {
-    pub action: RecordAction,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]

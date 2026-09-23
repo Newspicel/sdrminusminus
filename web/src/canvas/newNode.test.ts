@@ -18,6 +18,7 @@ const EVERY_KIND: Record<NodeKind, true> = {
   readout: true,
   decoder_log: true,
   dmr_trunk: true,
+  audio_fx: true,
   spectrum_monitor: true,
   event_filter: true,
   event_output: true,
@@ -70,6 +71,13 @@ describe("newNodeBody", () => {
       data: { protocol: "auto", record_calls: true },
     });
   });
+
+  it.each(["recorder", "audio_recorder", "baseband_recorder"] as const)(
+    "starts a %s switched off",
+    (kind) => {
+      expect(newNodeBody(kind)).toEqual({ kind, data: { recording: false } });
+    },
+  );
 
   it("starts a channel not recording", () => {
     expect(newNodeBody("channel", { channelType: "dmr" })).toEqual({

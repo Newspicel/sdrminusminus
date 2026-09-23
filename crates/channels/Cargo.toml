@@ -19,6 +19,7 @@ sdrmm-dsp.workspace = true
 sdrmm-modem.workspace = true
 num-complex.workspace = true
 rustfft.workspace = true
+tract-onnx.workspace = true
 rtrb.workspace = true
 thiserror.workspace = true
 blip25-vocoder.workspace = true

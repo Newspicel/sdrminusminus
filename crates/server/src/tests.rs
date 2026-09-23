@@ -147,6 +147,14 @@ fn recording_router_with_shell(dir: &Path) -> (Router, Arc<FakeShell>) {
     (router, shell)
 }
 
+fn recording_router_without_reconcilers(dir: &Path) -> (Router, Arc<Engine>) {
+    let state = recording_state(dir);
+    let engine = state.engine.clone();
+    let (router, background) = router_with_state(state, &ServerOptions::default());
+    drop(background);
+    (router, engine)
+}
+
 fn recording_router(dir: &Path) -> Router {
     let (router, background) = router_with_state(recording_state(dir), &ServerOptions::default());
     background.detach();
@@ -249,7 +257,7 @@ fn nfm_with_inversion_at(frequency_hz: f64, inversion_hz: f64) -> ChannelSetting
             inversion_hz: Some(inversion_hz),
             ..NfmParams::default()
         }),
-        audio: Default::default(),
+        blanker: Default::default(),
     }
 }
 
@@ -258,18 +266,89 @@ fn nfm_at(offset_hz: f64) -> ChannelSettings {
         frequency_hz: 100_000_000.0 + offset_hz,
         squelch: sdrmm_wire::Squelch::Off,
         params: ChannelParams::Nfm(NfmParams::default()),
-        audio: Default::default(),
+        blanker: Default::default(),
     }
 }
 
-async fn record(app: &Router, ds: u32, action: &str) -> (StatusCode, Bytes) {
-    request(
+async fn record(app: &Router, ds: u32, on: bool) -> Option<sdrmm_wire::RecordingStatus> {
+    let state = get_state(app).await;
+    let set = state
+        .device_sets
+        .iter()
+        .find(|set| set.id == ds)
+        .expect("set listed");
+    let finishing = set.recording.as_ref().map(|status| status.file.clone());
+    let device = sdrmm_wire::DeviceRef::from_info(&set.device);
+    let workspace = workspaces(app).await.active.expect("seeded workspace");
+    let (status, body) = request(
         app.clone(),
-        "POST",
-        &format!("/api/devicesets/{ds}/record"),
-        Some(&format!(r#"{{"action":"{action}"}}"#)),
+        "GET",
+        &format!("/api/workspaces/{workspace}"),
+        None,
     )
-    .await
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let detail: sdrmm_wire::WorkspaceDetail = serde_json::from_slice(&body).expect("json");
+    let mut snapshot = detail.snapshot;
+    let (radio, recorder) = (format!("radio:{ds}"), format!("iq:{ds}"));
+    snapshot
+        .graph
+        .nodes
+        .retain(|node| node.id != radio && node.id != recorder);
+    snapshot.graph.edges.retain(|edge| edge.to.node != recorder);
+    let at = |id: &str, body| sdrmm_wire::PatchNode {
+        id: id.to_owned(),
+        body,
+        position: sdrmm_wire::Position { x: 0.0, y: 0.0 },
+        size: None,
+        label: None,
+    };
+    snapshot.graph.nodes.push(at(
+        &radio,
+        sdrmm_wire::NodeBody::Device(sdrmm_wire::DeviceNode {
+            device: Some(device),
+            ..sdrmm_wire::DeviceNode::default()
+        }),
+    ));
+    snapshot.graph.nodes.push(at(
+        &recorder,
+        sdrmm_wire::NodeBody::Recorder(sdrmm_wire::RecorderNode { recording: on }),
+    ));
+    snapshot.graph.edges.push(sdrmm_wire::PatchEdge {
+        from: sdrmm_wire::PortRef {
+            node: radio,
+            port: "iq".to_owned(),
+        },
+        to: sdrmm_wire::PortRef {
+            node: recorder,
+            port: "iq".to_owned(),
+        },
+    });
+    put_workspace_revision(app, &snapshot, detail.info.revision).await;
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let live = get_state(app)
+            .await
+            .device_sets
+            .into_iter()
+            .find(|set| set.id == ds)
+            .and_then(|set| set.recording);
+        let settled = on
+            || match &finishing {
+                Some(file) => list_recordings(app)
+                    .await
+                    .iter()
+                    .any(|listed| &listed.file == file),
+                None => true,
+            };
+        if live.is_some() == on && settled {
+            return live;
+        }
+        if Instant::now() >= deadline {
+            return None;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
 }
 
 async fn list_recordings(app: &Router) -> Vec<sdrmm_wire::RecordingInfo> {
@@ -336,9 +415,9 @@ async fn playback(app: &Router, ds: u32, body: &str) -> (StatusCode, Bytes) {
 
 async fn recorded(app: &Router) -> sdrmm_wire::RecordingInfo {
     let ds = create_virtual_set(app).await;
-    record(app, ds, "start").await;
+    record(app, ds, true).await.expect("recording started");
     wait_for_recorded_samples(app, ds, 1_024).await;
-    record(app, ds, "stop").await;
+    record(app, ds, false).await;
     list_recordings(app).await.remove(0)
 }
 
@@ -347,16 +426,6 @@ fn header_value(headers: &axum::http::HeaderMap, name: &str) -> String {
         .get(name)
         .map(|value| value.to_str().expect("ascii header").to_string())
         .unwrap_or_default()
-}
-
-async fn record_channel(app: &Router, ds: u32, ch: u32, action: &str) -> (StatusCode, Bytes) {
-    request(
-        app.clone(),
-        "POST",
-        &format!("/api/devicesets/{ds}/channels/{ch}/record"),
-        Some(&format!(r#"{{"action":"{action}"}}"#)),
-    )
-    .await
 }
 
 async fn list_audio_recordings(app: &Router) -> Vec<sdrmm_wire::AudioRecordingInfo> {
@@ -380,8 +449,9 @@ async fn wait_for_recorded_frames(app: &Router, ds: u32, ch: u32, min: u64) {
             .iter()
             .find(|c| c.id == ch)
             .expect("channel listed")
-            .audio_recording
-            .clone();
+            .audio_recordings
+            .first()
+            .cloned();
         if recording.is_some_and(|r| r.frames >= min) {
             return;
         }
@@ -403,16 +473,6 @@ async fn create_nfm_channel(app: &Router, ds: u32) -> u32 {
     .await;
     assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
     serde_json::from_slice::<CreatedId>(&body).expect("json").id
-}
-
-async fn record_baseband(app: &Router, ds: u32, ch: u32, action: &str) -> (StatusCode, Bytes) {
-    request(
-        app.clone(),
-        "POST",
-        &format!("/api/devicesets/{ds}/channels/{ch}/baseband"),
-        Some(&format!(r#"{{"action":"{action}"}}"#)),
-    )
-    .await
 }
 
 async fn wait_for_baseband_samples(app: &Router, ds: u32, ch: u32, min: u64) {

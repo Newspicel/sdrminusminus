@@ -422,11 +422,22 @@ impl GpsHub {
         self.queue_route(state);
     }
 
+    pub(crate) fn route_for(&self, engine: &Arc<sdrmm_engine::Engine>, store: &Arc<Store>) {
+        self.send_route(RouteState {
+            engine: engine.clone(),
+            store: store.clone(),
+        });
+    }
+
     fn queue_route(&self, state: &AppState) {
+        self.send_route(RouteState::from(state));
+    }
+
+    fn send_route(&self, route: RouteState) {
         let Some(route_signal) = &self.route_signal else {
             return;
         };
-        match route_signal.try_send(RouteState::from(state)) {
+        match route_signal.try_send(route) {
             Ok(()) | Err(TrySendError::Full(_)) => {}
             Err(TrySendError::Disconnected(_)) => {
                 tracing::error!("GPS routing thread stopped");
@@ -510,7 +521,7 @@ fn route_position(state: &RouteState, source: &str, fix: Option<PositionFix>) {
                     tracing::debug!(%error, node = target, "could not route GPS fix to channel");
                 }
             }
-            NodeBody::Recorder => {
+            NodeBody::Recorder(_) => {
                 let device_set = wired_device_set(graph, &bindings, target);
                 if let Some(device_set) = device_set
                     && snapshot

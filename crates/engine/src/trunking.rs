@@ -9,10 +9,10 @@ use std::{
 
 use prospect::Prospector;
 use sdrmm_wire::{
-    AudioProcessing, ChannelParams, ChannelSettings, DecodedRecord, DecoderEvent, DmrChannelEntry,
-    DmrDiscovery, DmrParams, DmrSlots, DmrTrunkProtocol, DvFrame, DvFrameKind, DvTrunkProtocol,
-    StateScope, TrunkChannel, TrunkChannelSource, TrunkControl, TrunkFollower, TrunkProbe,
-    TrunkProblem, TrunkSystemStatus,
+    ChannelParams, ChannelSettings, DecodedRecord, DecoderEvent, DmrChannelEntry, DmrDiscovery,
+    DmrParams, DmrSlots, DmrTrunkProtocol, DvFrame, DvFrameKind, DvTrunkProtocol, StateScope,
+    TrunkChannel, TrunkChannelSource, TrunkControl, TrunkFollower, TrunkProbe, TrunkProblem,
+    TrunkSystemStatus,
 };
 
 use crate::Engine;
@@ -470,7 +470,7 @@ impl Follower {
             let settings = ChannelSettings {
                 frequency_hz: radio.control_hz as f64,
                 squelch: sdrmm_wire::Squelch::Off,
-                audio: AudioProcessing::default_for(params.type_id()),
+                blanker: Default::default(),
                 params,
             };
             let result = match self.controls.get(&node) {
@@ -621,7 +621,7 @@ impl Follower {
         let settings = ChannelSettings {
             frequency_hz: freq_hz as f64,
             squelch: sdrmm_wire::Squelch::Off,
-            audio: AudioProcessing::default_for(params.type_id()),
+            blanker: Default::default(),
             params,
         };
         match engine.add_channel(carrier.device_set, carrier.stream, settings) {
@@ -780,7 +780,7 @@ impl Follower {
         let settings = ChannelSettings {
             frequency_hz: grant.freq_hz as f64,
             squelch: sdrmm_wire::Squelch::Off,
-            audio: AudioProcessing::default_for(params.type_id()),
+            blanker: Default::default(),
             params,
         };
         if !engine.hears(carrier.device_set, carrier.stream, &settings) {
@@ -1189,7 +1189,7 @@ mod tests {
                     frequency_hz: center_hz,
                     squelch: sdrmm_wire::Squelch::Off,
                     params: ChannelParams::Dmr(DmrParams::default()),
-                    audio: Default::default(),
+                    blanker: Default::default(),
                 },
             )
             .expect("control channel");

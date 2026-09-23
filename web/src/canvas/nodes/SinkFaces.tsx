@@ -1,4 +1,3 @@
-import { useMutation } from "@tanstack/react-query";
 import { Circle } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Button } from "../../components/BaseControls";
@@ -18,20 +17,12 @@ import { HuntPanel } from "../../components/HuntPanel";
 import { Icon } from "../../components/Icon";
 import { MapPanel } from "../../components/MapPanel";
 import { Readout, ReadoutRow } from "../../components/Readout";
-import {
-  deriveRecordControl,
-  formatDuration,
-  recordingElapsedS,
-} from "../../components/recordings";
+import { formatDuration, recordingElapsedS } from "../../components/recordings";
 import { ScannerPanel } from "../../components/ScannerPanel";
 import { Slider } from "../../components/Slider";
 import { VideoView } from "../../components/VideoView";
-import {
-  callAudioUrl,
-  recordChannelAudio,
-  recordChannelBaseband,
-  recordDeviceSet,
-} from "../../lib/api";
+import { callAudioUrl } from "../../lib/api";
+import { monitorKey } from "../../lib/audio/monitor";
 import { useChannelAudio } from "../../lib/audio/useChannelAudio";
 import { SAMPLE_RATE as AUDIO_RATE_HZ } from "../../lib/audio/worklet";
 import { useDfStore } from "../../lib/df";
@@ -44,22 +35,20 @@ import {
 } from "../../lib/dfOverlay";
 import { type MapKind, mapKindsOf } from "../../lib/map/layers";
 import { positionSourcesOf, usePositionStore } from "../../lib/position";
-import { toastError } from "../../lib/toasts";
 import type {
   AudioRecordingStatus,
-  DeviceSet,
   PatchNode,
   PatchNodeOf,
-  RecordAction,
   RecordingStatus,
   VoiceCall,
 } from "../../lib/types";
 import { useNow } from "../../lib/useNow";
-import { eventSourcesOf, type Input, inputsOf, iqSourceOf, wiredSourcesOf } from "../binding";
+import { eventSourcesOf, type Input, inputsOf, wiredSourcesOf } from "../binding";
 import { useWorkspaceContext } from "../context";
 import { patchNode } from "../graph";
 import { decoderOf, deviceSetOf } from "../workspaceDevice";
 import { AudioSpectrogramView } from "./AudioSpectrogramView";
+import { recordingFor } from "./audioRecorder";
 import { kindsOffered } from "./eventFilter";
 import { FaceBody, FaceEmpty, FaceFooter, NodeShell, useFaceActive } from "./NodeShell";
 
@@ -74,6 +63,10 @@ function useInputs(node: string, port: string): Input[] {
     workspace.trunks,
     workspace.owners,
   );
+}
+
+function inputKey(input: Input): string {
+  return monitorKey(input.deviceSet, input.channel.id, input.fx);
 }
 
 function useWiredDecoders(inputs: readonly Input[]): { input: Input; kind: string }[] {
@@ -104,7 +97,7 @@ export function SpeakerFace({ node }: { node: PatchNode }) {
         {inputs.length === 0 ? (
           <FaceEmpty hint="Wire a channel's audio in" />
         ) : (
-          inputs.map((input) => <AudioInput key={input.node} input={input} />)
+          inputs.map((input) => <AudioInput key={inputKey(input)} input={input} />)
         )}
       </FaceBody>
     </NodeShell>
@@ -113,7 +106,7 @@ export function SpeakerFace({ node }: { node: PatchNode }) {
 
 function AudioInput({ input }: { input: Input }) {
   const workspace = useWorkspaceContext();
-  const audio = useChannelAudio(workspace.socket, input.deviceSet, input.channel.id);
+  const audio = useChannelAudio(workspace.socket, input.deviceSet, input.channel.id, input.fx);
   const active = audio.playing || audio.pending || audio.suspended;
   const label = workspace.graph.nodes.find((n) => n.id === input.node)?.label;
   return (
@@ -156,8 +149,7 @@ function AudioInput({ input }: { input: Input }) {
         </Button>
       )}
       <AudioSpectrogramView
-        deviceSet={input.deviceSet}
-        channel={input.channel.id}
+        source={monitorKey(input.deviceSet, input.channel.id, input.fx)}
         playing={audio.playing}
       />
       <DevOnly>
@@ -417,40 +409,64 @@ export function ExportFace({ node }: { node: PatchNode }) {
   );
 }
 
-export function RecorderFace({ node }: { node: PatchNode }) {
-  const workspace = useWorkspaceContext();
-  const set = deviceSetOf(workspace, node.id);
-  const stream = iqSourceOf(workspace.graph, node.id)?.stream ?? 0;
+type RecorderNodeOf = PatchNodeOf<"recorder" | "audio_recorder" | "baseband_recorder">;
+
+function isRecorder(node: PatchNode): node is RecorderNodeOf {
   return (
-    <NodeShell node={node} title="Recorder" category="output">
-      <RecordControl set={set} stream={stream} />
-    </NodeShell>
+    node.kind === "recorder" || node.kind === "audio_recorder" || node.kind === "baseband_recorder"
   );
 }
 
-function RecordControl({ set, stream }: { set: DeviceSet | null; stream: number }) {
-  const record = useMutation({
-    mutationFn: (action: RecordAction) =>
-      set === null
-        ? Promise.reject(new Error("no radio"))
-        : recordDeviceSet(set.id, action, stream),
-    onError: (error: Error) => toastError(error),
-  });
-  const control = set === null ? null : deriveRecordControl(set);
-  const status = control === null || control.kind === "idle" ? null : control.status;
-  const canStart = control?.kind === "idle" && control.canStart;
+function RecorderSwitch({ node, title }: { node: RecorderNodeOf; title: string }) {
+  const workspace = useWorkspaceContext();
+  const recording = node.data?.recording ?? false;
+  const switchTo = (next: boolean) => {
+    workspace.edit((snapshot) => ({
+      ...snapshot,
+      graph: patchNode(snapshot.graph, node.id, (current) =>
+        isRecorder(current) ? { ...current, data: { ...current.data, recording: next } } : current,
+      ),
+    }));
+  };
   return (
-    <>
+    <Button
+      type="button"
+      className={recording ? BTN_DANGER : BTN}
+      title={recording ? undefined : title}
+      onClick={() => switchTo(!recording)}
+    >
+      {recording ? (
+        "Stop"
+      ) : (
+        <>
+          <span className="flex text-danger">
+            <Icon glyph={Circle} size={12} filled />
+          </span>
+          Record
+        </>
+      )}
+    </Button>
+  );
+}
+
+export function RecorderFace({ node }: { node: PatchNode }) {
+  if (node.kind !== "recorder") {
+    return null;
+  }
+  return <IqRecorder node={node} />;
+}
+
+function IqRecorder({ node }: { node: PatchNodeOf<"recorder"> }) {
+  const workspace = useWorkspaceContext();
+  const set = deviceSetOf(workspace, node.id);
+  const status = set?.recording ?? null;
+  const waiting = (node.data?.recording ?? false) && status === null;
+  return (
+    <NodeShell node={node} title="Recorder" category="output">
       <FaceBody>
         {status === null ? (
           <FaceEmpty
-            hint={
-              set === null
-                ? "Wire a device's IQ in"
-                : canStart
-                  ? "Writes a SigMF pair beside the server's captures"
-                  : undefined
-            }
+            hint={set === null ? "Wire a device's IQ in" : waiting ? "Waiting" : undefined}
           />
         ) : (
           <>
@@ -463,32 +479,12 @@ function RecordControl({ set, stream }: { set: DeviceSet | null; stream: number 
           </>
         )}
       </FaceBody>
-      <FaceFooter>
-        {status === null ? (
-          <Button
-            type="button"
-            className={BTN}
-            disabled={!canStart || record.isPending}
-            title="Record IQ to a SigMF pair"
-            onClick={() => record.mutate("start")}
-          >
-            <span className="flex text-danger">
-              <Icon glyph={Circle} size={12} filled />
-            </span>
-            Record
-          </Button>
-        ) : (
-          <Button
-            type="button"
-            className={BTN_DANGER}
-            disabled={record.isPending}
-            onClick={() => record.mutate("stop")}
-          >
-            Stop
-          </Button>
-        )}
-      </FaceFooter>
-    </>
+      {set !== null && (
+        <FaceFooter>
+          <RecorderSwitch node={node} title="Record IQ to a SigMF pair" />
+        </FaceFooter>
+      )}
+    </NodeShell>
   );
 }
 
@@ -521,53 +517,46 @@ function RecordingReadout({ status, sampleRate }: { status: RecordingStatus; sam
 }
 
 export function AudioRecorderFace({ node }: { node: PatchNode }) {
+  if (node.kind !== "audio_recorder") {
+    return null;
+  }
+  return <AudioRecorder node={node} />;
+}
+
+function AudioRecorder({ node }: { node: PatchNodeOf<"audio_recorder"> }) {
   const inputs = useInputs(node.id, "audio");
+  const recording = node.data?.recording ?? false;
   return (
     <NodeShell node={node} title="Audio recorder" category="output">
       <FaceBody>
         {inputs.length === 0 ? (
           <FaceEmpty hint="Wire a channel's audio in" />
         ) : (
-          inputs.map((input) => <AudioRecordInput key={input.node} input={input} />)
+          <>
+            <div className="border-b border-line p-2">
+              <RecorderSwitch node={node} title="Record every wired input to its own WAV file" />
+            </div>
+            {inputs.map((input) => (
+              <AudioRecordInput key={inputKey(input)} input={input} recording={recording} />
+            ))}
+          </>
         )}
       </FaceBody>
     </NodeShell>
   );
 }
 
-function AudioRecordInput({ input }: { input: Input }) {
+function AudioRecordInput({ input, recording }: { input: Input; recording: boolean }) {
   const workspace = useWorkspaceContext();
   const label = workspace.graph.nodes.find((n) => n.id === input.node)?.label;
-  const status = input.channel.audio_recording ?? null;
-  const record = useMutation({
-    mutationFn: (action: RecordAction) =>
-      recordChannelAudio(input.deviceSet, input.channel.id, action),
-    onError: (error: Error) => toastError(error),
-  });
+  const status = recordingFor(input.channel, input.fx);
   return (
     <div className="flex flex-col gap-1 border-b border-line p-2 last:border-b-0">
       <div className="flex items-center gap-2">
-        <Button
-          type="button"
-          className={status === null ? BTN : BTN_DANGER}
-          disabled={record.isPending}
-          title={status === null ? "Record this channel's audio to a WAV file" : undefined}
-          onClick={() => record.mutate(status === null ? "start" : "stop")}
-        >
-          {status === null ? (
-            <>
-              <span className="flex text-danger">
-                <Icon glyph={Circle} size={12} filled />
-              </span>
-              Record
-            </>
-          ) : (
-            "Stop"
-          )}
-        </Button>
         <span className="legend truncate">
           {label ?? input.channel.settings.params.type.toUpperCase()}
         </span>
+        {recording && status === null && <span className="legend">Waiting</span>}
       </div>
       {status !== null && <AudioRecordingReadout status={status} />}
       {status?.error != null && (
@@ -594,53 +583,49 @@ function AudioRecordingReadout({ status }: { status: AudioRecordingStatus }) {
 }
 
 export function BasebandRecorderFace({ node }: { node: PatchNode }) {
+  if (node.kind !== "baseband_recorder") {
+    return null;
+  }
+  return <BasebandRecorder node={node} />;
+}
+
+function BasebandRecorder({ node }: { node: PatchNodeOf<"baseband_recorder"> }) {
   const inputs = useInputs(node.id, "baseband");
+  const recording = node.data?.recording ?? false;
   return (
     <NodeShell node={node} title="Baseband recorder" category="output">
       <FaceBody>
         {inputs.length === 0 ? (
           <FaceEmpty hint="Wire a channel's baseband in" />
         ) : (
-          inputs.map((input) => <BasebandRecordInput key={input.node} input={input} />)
+          <>
+            <div className="border-b border-line p-2">
+              <RecorderSwitch
+                node={node}
+                title="Record every wired channel's baseband to its own SigMF pair"
+              />
+            </div>
+            {inputs.map((input) => (
+              <BasebandRecordInput key={input.node} input={input} recording={recording} />
+            ))}
+          </>
         )}
       </FaceBody>
     </NodeShell>
   );
 }
 
-function BasebandRecordInput({ input }: { input: Input }) {
+function BasebandRecordInput({ input, recording }: { input: Input; recording: boolean }) {
   const workspace = useWorkspaceContext();
   const label = workspace.graph.nodes.find((n) => n.id === input.node)?.label;
   const status = input.channel.baseband_recording ?? null;
-  const record = useMutation({
-    mutationFn: (action: RecordAction) =>
-      recordChannelBaseband(input.deviceSet, input.channel.id, action),
-    onError: (error: Error) => toastError(error),
-  });
   return (
     <div className="flex flex-col gap-1 border-b border-line p-2 last:border-b-0">
       <div className="flex items-center gap-2">
-        <Button
-          type="button"
-          className={status === null ? BTN : BTN_DANGER}
-          disabled={record.isPending}
-          title={status === null ? "Record this channel's baseband to a SigMF pair" : undefined}
-          onClick={() => record.mutate(status === null ? "start" : "stop")}
-        >
-          {status === null ? (
-            <>
-              <span className="flex text-danger">
-                <Icon glyph={Circle} size={12} filled />
-              </span>
-              Record
-            </>
-          ) : (
-            "Stop"
-          )}
-        </Button>
         <span className="legend truncate">
           {label ?? input.channel.settings.params.type.toUpperCase()}
         </span>
+        {recording && status === null && <span className="legend">Waiting</span>}
       </div>
       {status !== null && <BasebandRecordingReadout status={status} />}
       {status?.error != null && (

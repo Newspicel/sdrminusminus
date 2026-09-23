@@ -9,7 +9,7 @@ fn nfm_decoder(engine: &Engine, ds: u32, frequency_hz: f64) -> u32 {
                 frequency_hz,
                 squelch: sdrmm_wire::Squelch::Off,
                 params: ChannelParams::Nfm(NfmParams::default()),
-                audio: Default::default(),
+                blanker: Default::default(),
             },
         )
         .expect("a decoder to scan with")
@@ -524,7 +524,7 @@ async fn a_hunt_streams_a_strength_a_walker_can_follow() {
                 frequency_hz: SIGNAL_HZ + 50_000.0,
                 squelch: sdrmm_wire::Squelch::Off,
                 params: ChannelParams::Nfm(NfmParams::default()),
-                audio: Default::default(),
+                blanker: Default::default(),
             },
         )
         .expect("the decoder retunes under a hunt");

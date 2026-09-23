@@ -22,7 +22,7 @@ async fn validate_honors_configured_bandwidth_and_sideband() {
             sideband: Sideband::Usb,
             bandwidth_hz: 10_000.0,
         }),
-        audio: Default::default(),
+        blanker: Default::default(),
     };
     let wide_nfm = |offset_hz: f64| ChannelSettings {
         frequency_hz: TEST_CENTER_HZ + offset_hz,
@@ -31,7 +31,7 @@ async fn validate_honors_configured_bandwidth_and_sideband() {
             bandwidth_hz: 25_000.0,
             ..NfmParams::default()
         }),
-        audio: Default::default(),
+        blanker: Default::default(),
     };
 
     let past_the_edge = engine.add_channel(ds, 0, usb(120_000.0)).unwrap();
@@ -98,7 +98,7 @@ async fn faulted_set_reconnects_and_restores_its_channels() {
                 frequency_hz: 145_025_000.0,
                 squelch: sdrmm_wire::Squelch::Off,
                 params: ChannelParams::Nfm(NfmParams::default()),
-                audio: Default::default(),
+                blanker: Default::default(),
             },
         )
         .unwrap();
@@ -345,7 +345,7 @@ async fn a_channel_added_mid_tune_does_not_drag_the_radio_back_to_where_it_was()
                     frequency_hz: 460_137_500.0,
                     squelch: sdrmm_wire::Squelch::Off,
                     params: ChannelParams::Nfm(NfmParams::default()),
-                    audio: AudioProcessing::default(),
+                    blanker: Default::default(),
                 },
             )
         })

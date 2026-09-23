@@ -551,6 +551,22 @@ describe("editing", () => {
     ]);
   });
 
+  it("opens a recorder saved without a switch as switched off", () => {
+    const kinds = ["recorder", "audio_recorder", "baseband_recorder"] as const;
+    const stored: WorkspaceSnapshot = {
+      version: 1,
+      graph: {
+        nodes: kinds.map((kind) => node(kind, { kind } as PatchNode)),
+        edges: [],
+      },
+    };
+    const migrated = migrateSnapshot(stored);
+    for (const [index, kind] of kinds.entries()) {
+      expect(migrated.graph.nodes[index]).toMatchObject({ kind, data: { recording: false } });
+    }
+    expect(migrateSnapshot(migrated)).toBe(migrated);
+  });
+
   it("moves a stored control wire off the radio onto its one decoder, or drops it", () => {
     const driving = (edges: PatchGraph["edges"]): WorkspaceSnapshot => ({
       version: 1,

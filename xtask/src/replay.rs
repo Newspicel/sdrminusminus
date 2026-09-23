@@ -5,7 +5,7 @@ use clap::Args;
 use num_complex::Complex;
 use sdrmm_channels::{ChannelCtx, ChannelOutputs};
 use sdrmm_dsp::Ddc;
-use sdrmm_wire::{AudioProcessing, ChannelParams, ChannelSettings};
+use sdrmm_wire::{ChannelParams, ChannelSettings};
 
 use crate::excerpt::Source;
 
@@ -40,7 +40,7 @@ pub fn run(args: &Replay) -> Result<()> {
         frequency_hz: args.offset,
         squelch: sdrmm_wire::Squelch::Off,
         params,
-        audio: AudioProcessing::default(),
+        blanker: Default::default(),
     };
     let mut ddc =
         Ddc::new(device_rate, input_rate, args.offset).map_err(|err| anyhow::anyhow!("{err}"))?;

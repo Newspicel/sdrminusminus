@@ -45,7 +45,7 @@ async fn live_position_survives_a_channel_rate_rebuild() {
                 frequency_hz: ADSB_CENTER_HZ,
                 squelch: sdrmm_wire::Squelch::Off,
                 params: ChannelParams::Adsb(AdsbParams::default()),
-                audio: Default::default(),
+                blanker: Default::default(),
             },
         )
         .unwrap();
@@ -74,7 +74,7 @@ async fn live_position_survives_a_channel_rate_rebuild() {
                     ref_lat: Some(0.0),
                     ref_lon: Some(0.0),
                 }),
-                audio: Default::default(),
+                blanker: Default::default(),
             },
         )
         .unwrap();
@@ -156,59 +156,33 @@ async fn a_channel_the_radio_cannot_reach_opens_silent_rather_than_refused() {
 }
 
 #[tokio::test]
-async fn add_channel_rejects_audio_settings_outside_their_controls() {
+async fn add_channel_rejects_a_blanker_outside_its_range() {
     let engine = virtual_engine();
     let ds = engine.create_device_set("virtual:siggen").unwrap();
-    let bad: [AudioProcessing; 3] = [
-        AudioProcessing {
-            blanker: sdrmm_wire::NoiseBlankerSettings {
-                enabled: true,
-                threshold: 0.2,
-            },
-            ..AudioProcessing::default()
+    let settings = ChannelSettings {
+        blanker: sdrmm_wire::NoiseBlankerSettings {
+            enabled: true,
+            threshold: 0.2,
         },
-        AudioProcessing {
-            filter: sdrmm_wire::AudioFilterSettings {
-                enabled: true,
-                low_hz: 3_000.0,
-                high_hz: 300.0,
-            },
-            ..AudioProcessing::default()
-        },
-        AudioProcessing {
-            notches: vec![sdrmm_wire::NotchSettings {
-                freq_hz: 1_000.0,
-                width_hz: f64::NAN,
-            }],
-            ..AudioProcessing::default()
-        },
-    ];
-    for audio in bad {
-        let settings = ChannelSettings {
-            audio: audio.clone(),
-            ..nfm_settings(0.0)
-        };
-        let err = engine.add_channel(ds, 0, settings).unwrap_err();
-        assert!(
-            err.is_bad_request(),
-            "{audio:?}: expected bad request, {err}"
-        );
-    }
+        ..nfm_settings(0.0)
+    };
+    let err = engine.add_channel(ds, 0, settings).unwrap_err();
+    assert!(err.is_bad_request(), "expected bad request, got {err}");
     assert!(engine.snapshot().device_sets[0].channels.is_empty());
     engine.remove_device_set(ds).unwrap();
 }
 
 #[tokio::test]
-async fn a_channel_with_no_audio_refuses_an_audio_chain() {
+async fn a_channel_with_no_audio_refuses_a_blanker() {
     let engine = virtual_engine();
     let ds = engine.create_device_set("virtual:siggen").unwrap();
     let settings = ChannelSettings {
         frequency_hz: TEST_CENTER_HZ,
         squelch: sdrmm_wire::Squelch::Off,
         params: ChannelParams::Pocsag(sdrmm_wire::PocsagParams::default()),
-        audio: AudioProcessing {
-            agc: sdrmm_wire::AudioAgcMode::Fast,
-            ..AudioProcessing::default()
+        blanker: sdrmm_wire::NoiseBlankerSettings {
+            enabled: true,
+            threshold: 5.0,
         },
     };
     let err = engine.add_channel(ds, 0, settings).unwrap_err();
@@ -217,21 +191,67 @@ async fn a_channel_with_no_audio_refuses_an_audio_chain() {
 }
 
 #[tokio::test]
-async fn patching_the_audio_chain_reaches_the_running_channel() {
+async fn patching_the_blanker_reaches_the_running_channel() {
     let engine = virtual_engine();
     let ds = engine.create_device_set("virtual:siggen").unwrap();
     let ch = engine.add_channel(ds, 0, nfm_settings(0.0)).unwrap();
     let patched = ChannelSettings {
-        audio: AudioProcessing {
-            auto_notch: true,
-            agc: sdrmm_wire::AudioAgcMode::Slow,
-            ..AudioProcessing::default()
+        blanker: sdrmm_wire::NoiseBlankerSettings {
+            enabled: true,
+            threshold: 6.0,
         },
         ..nfm_settings(0.0)
     };
     engine.patch_channel(ds, ch, patched.clone()).unwrap();
     let live = &engine.snapshot().device_sets[0].channels[0].settings;
-    assert_eq!(live.audio, patched.audio);
+    assert_eq!(live.blanker, patched.blanker);
+    engine.remove_device_set(ds).unwrap();
+}
+
+#[tokio::test]
+async fn audio_fx_refuses_settings_outside_their_controls() {
+    let engine = virtual_engine();
+    let bad = sdrmm_wire::AudioProcessing {
+        filter: sdrmm_wire::AudioFilterSettings {
+            enabled: true,
+            low_hz: 3_000.0,
+            high_hz: 300.0,
+        },
+        ..sdrmm_wire::AudioProcessing::default()
+    };
+    let err = engine.set_audio_fx("fx", bad).unwrap_err();
+    assert!(err.is_bad_request(), "expected bad request, got {err}");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_route_through_audio_fx_carries_the_channel_audio() {
+    let engine = virtual_engine();
+    let ds = engine.create_device_set("virtual:siggen").unwrap();
+    let ch = engine.add_channel(ds, 0, nfm_settings(0.0)).unwrap();
+    engine
+        .set_audio_fx(
+            "fx",
+            sdrmm_wire::AudioProcessing {
+                agc: sdrmm_wire::AudioAgcMode::Fast,
+                ..sdrmm_wire::AudioProcessing::default()
+            },
+        )
+        .unwrap();
+    let route = sdrmm_wire::AudioRoute {
+        fx: vec!["fx".to_owned()],
+        ..sdrmm_wire::AudioRoute::channel(ds, ch)
+    };
+    let mut rx = engine.subscribe_route_pcm(&route).unwrap();
+    let block = tokio::time::timeout(std::time::Duration::from_secs(10), rx.recv())
+        .await
+        .expect("processed audio arrives")
+        .expect("the route stays open");
+    assert_eq!(block.channels, 1);
+    let unknown = sdrmm_wire::AudioRoute {
+        fx: vec!["ghost".to_owned()],
+        ..sdrmm_wire::AudioRoute::channel(ds, ch)
+    };
+    assert!(engine.subscribe_route_pcm(&unknown).is_err());
     engine.remove_device_set(ds).unwrap();
 }
 

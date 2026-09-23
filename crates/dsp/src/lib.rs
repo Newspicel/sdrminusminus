@@ -69,7 +69,7 @@ pub use fm::FmDemod;
 pub use iir::{
     Biquad, ComplexOnePole, DcBlocker, Deemphasis, Highpass, IqDcBlocker, one_pole_coeff,
 };
-pub use interp::CubicInterpolator;
+pub use interp::{CubicInterpolator, RealInterpolator};
 pub use level::{LEVEL_FLOOR_DB, LevelMeter};
 pub use nco::Nco;
 pub use noise::{AutoNotch, ClickRemover, NoiseBlanker, SpectralDenoiser};

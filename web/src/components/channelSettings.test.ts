@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { ChannelDescriptor, ChannelSettings } from "../lib/types";
+import type { AudioProcessing, ChannelDescriptor, ChannelSettings } from "../lib/types";
 import {
   AUDIO_LIMITS,
   audioChainActive,
@@ -44,16 +44,16 @@ describe("mergeChannelSettings", () => {
   it("widens a frequency edit and keeps squelch + params", () => {
     expect(mergeChannelSettings(base, { frequency_hz: 144_987_500 })).toEqual({
       ...base,
-      audio: {},
+      blanker: {},
       frequency_hz: 144_987_500,
     });
   });
 
-  it("carries the audio chain through an unrelated edit", () => {
-    const withChain: ChannelSettings = { ...base, audio: { agc: "slow", auto_notch: true } };
-    expect(mergeChannelSettings(withChain, { frequency_hz: 145_000_000 }).audio).toEqual({
-      agc: "slow",
-      auto_notch: true,
+  it("carries the blanker through an unrelated edit", () => {
+    const blanked: ChannelSettings = { ...base, blanker: { enabled: true, threshold: 7 } };
+    expect(mergeChannelSettings(blanked, { frequency_hz: 145_000_000 }).blanker).toEqual({
+      enabled: true,
+      threshold: 7,
     });
   });
 
@@ -100,7 +100,7 @@ describe("mergeChannelSettings", () => {
     expect(next).toEqual({
       frequency_hz: 14_070_000,
       squelch: { mode: "off" },
-      audio: {},
+      blanker: {},
       params: {
         type: "rtty",
         settings: { baud: 45.45, shift_hz: 850, stop_bits: "two", invert: true },
@@ -267,10 +267,7 @@ describe("clampOffsetHz", () => {
 
 describe("mergeAudio", () => {
   it("widens one stage's edit over the stages beside it", () => {
-    const current: ChannelSettings = {
-      ...base,
-      audio: { agc: "medium", denoise: { enabled: true, strength: 0.4 } },
-    };
+    const current: AudioProcessing = { agc: "medium", denoise: { enabled: true, strength: 0.4 } };
     expect(mergeAudio(current, { auto_notch: true })).toEqual({
       agc: "medium",
       denoise: { enabled: true, strength: 0.4 },
@@ -278,8 +275,8 @@ describe("mergeAudio", () => {
     });
   });
 
-  it("starts from an empty chain when the channel has none", () => {
-    expect(mergeAudio(base, { agc: "fast" })).toEqual({ agc: "fast" });
+  it("starts from an empty chain", () => {
+    expect(mergeAudio({}, { agc: "fast" })).toEqual({ agc: "fast" });
   });
 });
 
@@ -306,13 +303,12 @@ describe("audioChainActive", () => {
   it("is false for an absent or all-off chain", () => {
     expect(audioChainActive(undefined)).toBe(false);
     expect(audioChainActive({})).toBe(false);
-    expect(audioChainActive({ agc: "off", notches: [], blanker: { enabled: false } })).toBe(false);
+    expect(audioChainActive({ agc: "off", notches: [], denoise: { enabled: false } })).toBe(false);
   });
 
   it("is true as soon as any one stage is doing something", () => {
     expect(audioChainActive({ agc: "slow" })).toBe(true);
     expect(audioChainActive({ auto_notch: true })).toBe(true);
-    expect(audioChainActive({ blanker: { enabled: true } })).toBe(true);
     expect(audioChainActive({ denoise: { enabled: true } })).toBe(true);
     expect(audioChainActive({ filter: { enabled: true } })).toBe(true);
     expect(audioChainActive({ click_removal: { enabled: true } })).toBe(true);

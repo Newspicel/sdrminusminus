@@ -11,6 +11,7 @@ pub const MIN_AUDIO_TONE_HZ: f64 = 30.0;
 pub const MAX_AUDIO_TONE_HZ: f64 = 20_000.0;
 pub const MIN_NOTCH_WIDTH_HZ: f64 = 10.0;
 pub const MAX_NOTCH_WIDTH_HZ: f64 = 2_000.0;
+pub const MAX_AUDIO_FX_CHAIN: usize = 16;
 
 fn default_blanker_threshold() -> f32 {
     5.0
@@ -57,10 +58,35 @@ impl Default for NoiseBlankerSettings {
     }
 }
 
+impl NoiseBlankerSettings {
+    pub fn validate(&self) -> Result<(), String> {
+        if self.threshold.is_finite()
+            && (MIN_BLANKER_THRESHOLD..=MAX_BLANKER_THRESHOLD).contains(&self.threshold)
+        {
+            Ok(())
+        } else {
+            Err(format!(
+                "noise blanker threshold must be in {MIN_BLANKER_THRESHOLD}..={MAX_BLANKER_THRESHOLD}, got {}",
+                self.threshold
+            ))
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum DenoiseMode {
+    #[default]
+    Spectral,
+    Neural,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct DenoiseSettings {
     #[serde(default)]
     pub enabled: bool,
+    #[serde(default)]
+    pub mode: DenoiseMode,
     #[serde(default = "default_denoise_strength")]
     pub strength: f32,
 }
@@ -69,6 +95,7 @@ impl Default for DenoiseSettings {
     fn default() -> Self {
         Self {
             enabled: false,
+            mode: DenoiseMode::default(),
             strength: default_denoise_strength(),
         }
     }
@@ -153,8 +180,6 @@ impl AudioAgcMode {
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct AudioProcessing {
     #[serde(default)]
-    pub blanker: NoiseBlankerSettings,
-    #[serde(default)]
     pub click_removal: ClickRemovalSettings,
     #[serde(default)]
     pub filter: AudioFilterSettings,
@@ -170,20 +195,8 @@ pub struct AudioProcessing {
 
 impl AudioProcessing {
     #[must_use]
-    pub fn default_for(type_id: &str) -> Self {
-        Self {
-            agc: match type_id {
-                "am" | "ssb" => AudioAgcMode::Medium,
-                _ => AudioAgcMode::Off,
-            },
-            ..Self::default()
-        }
-    }
-
-    #[must_use]
     pub fn is_active(&self) -> bool {
-        self.blanker.enabled
-            || self.click_removal.enabled
+        self.click_removal.enabled
             || self.filter.enabled
             || !self.notches.is_empty()
             || self.auto_notch
@@ -192,14 +205,6 @@ impl AudioProcessing {
     }
 
     pub fn validate(&self) -> Result<(), String> {
-        if !self.blanker.threshold.is_finite()
-            || !(MIN_BLANKER_THRESHOLD..=MAX_BLANKER_THRESHOLD).contains(&self.blanker.threshold)
-        {
-            return Err(format!(
-                "noise blanker threshold must be in {MIN_BLANKER_THRESHOLD}..={MAX_BLANKER_THRESHOLD}, got {}",
-                self.blanker.threshold
-            ));
-        }
         if !self.click_removal.threshold.is_finite()
             || !(MIN_CLICK_THRESHOLD..=MAX_CLICK_THRESHOLD).contains(&self.click_removal.threshold)
         {
@@ -224,7 +229,7 @@ impl AudioProcessing {
         }
         if self.notches.len() > MAX_AUDIO_NOTCHES {
             return Err(format!(
-                "a channel carries at most {MAX_AUDIO_NOTCHES} notches, got {}",
+                "audio FX carries at most {MAX_AUDIO_NOTCHES} notches, got {}",
                 self.notches.len()
             ));
         }
@@ -238,6 +243,48 @@ impl AudioProcessing {
                     notch.width_hz
                 ));
             }
+        }
+        Ok(())
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct AudioFxNode {
+    #[serde(default)]
+    pub settings: AudioProcessing,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize, ToSchema)]
+pub struct AudioRoute {
+    pub device_set: u32,
+    pub channel: u32,
+    #[serde(default)]
+    pub fx: Vec<String>,
+}
+
+impl AudioRoute {
+    #[must_use]
+    pub const fn channel(device_set: u32, channel: u32) -> Self {
+        Self {
+            device_set,
+            channel,
+            fx: Vec::new(),
+        }
+    }
+
+    pub fn validate(&self) -> Result<(), String> {
+        if self.fx.len() > MAX_AUDIO_FX_CHAIN {
+            return Err(format!(
+                "audio passes through at most {MAX_AUDIO_FX_CHAIN} audio FX nodes, got {}",
+                self.fx.len()
+            ));
+        }
+        if self
+            .fx
+            .iter()
+            .any(|node| node.is_empty() || node.len() > crate::patch::MAX_NODE_ID_LEN)
+        {
+            return Err("an audio FX node id is empty or too long".to_owned());
         }
         Ok(())
     }
@@ -266,22 +313,53 @@ mod tests {
     }
 
     #[test]
-    fn only_the_modes_with_no_level_control_of_their_own_start_with_agc() {
-        assert_eq!(AudioProcessing::default_for("am").agc, AudioAgcMode::Medium);
-        assert_eq!(
-            AudioProcessing::default_for("ssb").agc,
-            AudioAgcMode::Medium
-        );
-        assert_eq!(AudioProcessing::default_for("nfm").agc, AudioAgcMode::Off);
-        assert_eq!(AudioProcessing::default_for("wfm").agc, AudioAgcMode::Off);
-        assert!(AudioProcessing::default_for("am").is_active());
-        assert!(!AudioProcessing::default_for("nfm").is_active());
+    fn a_route_that_names_no_fx_is_the_channel_itself() {
+        let parsed: AudioRoute =
+            serde_json::from_str(r#"{"device_set":1,"channel":2}"#).expect("parses");
+        assert_eq!(parsed, AudioRoute::channel(1, 2));
+        parsed.validate().expect("a bare channel route is valid");
+    }
+
+    #[test]
+    fn a_route_through_too_many_fx_nodes_is_refused() {
+        let route = AudioRoute {
+            fx: vec!["fx".to_owned(); MAX_AUDIO_FX_CHAIN + 1],
+            ..AudioRoute::channel(0, 0)
+        };
+        assert!(route.validate().is_err());
+        let blank = AudioRoute {
+            fx: vec![String::new()],
+            ..AudioRoute::channel(0, 0)
+        };
+        assert!(blank.validate().is_err());
+    }
+
+    #[test]
+    fn a_denoiser_that_names_no_mode_is_spectral() {
+        let parsed: DenoiseSettings =
+            serde_json::from_str(r#"{"enabled":true,"strength":0.4}"#).expect("parses");
+        assert_eq!(parsed.mode, DenoiseMode::Spectral);
+        let neural: DenoiseSettings = serde_json::from_str(r#"{"mode":"neural"}"#).expect("parses");
+        assert_eq!(neural.mode, DenoiseMode::Neural);
+    }
+
+    #[test]
+    fn a_blanker_threshold_outside_its_range_is_named() {
+        NoiseBlankerSettings::default()
+            .validate()
+            .expect("the default blanker is valid");
+        for threshold in [0.5, f32::NAN, 50.0] {
+            let blanker = NoiseBlankerSettings {
+                enabled: true,
+                threshold,
+            };
+            assert!(blanker.validate().is_err(), "{threshold} was accepted");
+        }
     }
 
     #[test]
     fn every_stage_counts_as_active_on_its_own() {
-        let stages: [fn(&mut AudioProcessing); 7] = [
-            |a| a.blanker.enabled = true,
+        let stages: [fn(&mut AudioProcessing); 6] = [
             |a| a.click_removal.enabled = true,
             |a| a.filter.enabled = true,
             |a| a.notches.push(NotchSettings::default()),
@@ -301,9 +379,7 @@ mod tests {
 
     #[test]
     fn out_of_range_settings_are_named_rather_than_clamped() {
-        let bad: [Break; 9] = [
-            (|a| a.blanker.threshold = 0.5, "blanker"),
-            (|a| a.blanker.threshold = f32::NAN, "blanker nan"),
+        let bad: [Break; 7] = [
             (|a| a.click_removal.threshold = 1.0, "click threshold"),
             (|a| a.click_removal.threshold = f32::NAN, "click nan"),
             (|a| a.denoise.strength = 1.5, "strength"),

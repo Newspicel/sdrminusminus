@@ -29,12 +29,12 @@ pub(crate) fn validate_channel(
     settings
         .check_limits()
         .map_err(|reason| EngineError::from(ChannelError::InvalidSettings(reason)))?;
-    if let Err(reason) = settings.audio.validate() {
+    if let Err(reason) = settings.blanker.validate() {
         return Err(ChannelError::InvalidSettings(reason).into());
     }
-    if settings.audio.is_active() && !descriptor.has_audio {
+    if settings.blanker.enabled && !descriptor.has_audio {
         return Err(ChannelError::InvalidSettings(format!(
-            "{} produces no audio, so it has nothing for the audio chain to process",
+            "{} produces no audio, so it has no use for a noise blanker",
             descriptor.type_id
         ))
         .into());

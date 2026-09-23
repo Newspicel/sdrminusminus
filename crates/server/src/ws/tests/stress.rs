@@ -46,6 +46,7 @@ async fn listen(mut socket: WsClient, device_set: u32, channels: &[u32]) {
             &ClientCommand::SubscribeAudio {
                 device_set,
                 channel,
+                fx: Vec::new(),
             },
         )
         .await;

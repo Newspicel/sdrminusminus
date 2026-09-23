@@ -15,7 +15,7 @@ async fn channel_levels_are_measured_and_pushed_without_invalidating_state() {
                 frequency_hz: TEST_CENTER_HZ,
                 squelch: sdrmm_wire::Squelch::Off,
                 params: ChannelParams::Nfm(NfmParams::default()),
-                audio: Default::default(),
+                blanker: Default::default(),
             },
         )
         .expect("channel");

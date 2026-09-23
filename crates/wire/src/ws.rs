@@ -54,6 +54,8 @@ pub enum ServerEvent {
         stream_id: u16,
         device_set: u32,
         channel: u32,
+        #[serde(default)]
+        fx: Vec<String>,
     },
     VideoStreamStarted {
         stream_id: u16,
@@ -150,10 +152,14 @@ pub enum ClientCommand {
     SubscribeAudio {
         device_set: u32,
         channel: u32,
+        #[serde(default)]
+        fx: Vec<String>,
     },
     UnsubscribeAudio {
         device_set: u32,
         channel: u32,
+        #[serde(default)]
+        fx: Vec<String>,
     },
     SubscribeVideo {
         device_set: u32,

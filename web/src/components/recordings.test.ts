@@ -1,9 +1,8 @@
 import { describe, expect, it } from "vitest";
-import type { DeviceSet, RecordingInfo, RecordingStatus } from "../lib/types";
+import type { RecordingInfo, RecordingStatus } from "../lib/types";
 import { formatBytes } from "./format";
 import {
   deleteAll,
-  deriveRecordControl,
   describeRecording,
   formatDuration,
   formatTags,
@@ -16,24 +15,6 @@ import {
   recordingTitle,
 } from "./recordings";
 
-function set(over: Partial<DeviceSet>): DeviceSet {
-  return {
-    id: 1,
-    status: "running",
-    device: { driver: "virtual", key: "siggen", label: "Virtual SigGen" },
-    settings: {},
-    capabilities: {
-      antennas: [],
-      bandwidths: [],
-      freq_ranges: [],
-      gains: [],
-      sample_rates: [],
-    },
-    channels: [],
-    ...over,
-  };
-}
-
 const status: RecordingStatus = {
   file: "siggen-20260809-120000",
   started_at: "2026-08-09T12:00:00Z",
@@ -41,32 +22,6 @@ const status: RecordingStatus = {
   bytes: 19_200_000,
   overruns: 0,
 };
-
-describe("deriveRecordControl", () => {
-  it("offers start only while the set is running", () => {
-    expect(deriveRecordControl(set({}))).toEqual({ kind: "idle", canStart: true });
-    expect(deriveRecordControl(set({ status: "idle" }))).toEqual({ kind: "idle", canStart: false });
-    expect(deriveRecordControl(set({ status: "error" }))).toEqual({
-      kind: "idle",
-      canStart: false,
-    });
-  });
-
-  it("reports recording with its live status", () => {
-    expect(deriveRecordControl(set({ recording: status }))).toEqual({
-      kind: "recording",
-      status,
-    });
-  });
-
-  it("keeps a faulted recording visible even when the set itself faulted", () => {
-    const faulted = { ...status, error: "recording queue overflow" };
-    expect(deriveRecordControl(set({ status: "error", recording: faulted }))).toEqual({
-      kind: "recording",
-      status: faulted,
-    });
-  });
-});
 
 describe("recordingElapsedS", () => {
   const startMs = Date.parse("2026-08-09T12:00:00Z");

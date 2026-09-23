@@ -7,7 +7,7 @@ import type {
   ParamLimit,
 } from "../lib/types";
 import type { ChannelEdit } from "../lib/useChannelPatch";
-import { AudioControls } from "./AudioControls";
+import { BlankerControl } from "./BlankerControl";
 import { Checkbox } from "./Checkbox";
 import {
   AUDIO_DEFAULTS,
@@ -310,7 +310,10 @@ export function ChannelControls({
       />
       {extra}
       {channelHasAudio(descriptor) && (
-        <AudioControls settings={settings} onAudio={(audio) => onEdit({ audio })} />
+        <BlankerControl
+          blanker={settings.blanker ?? {}}
+          onBlanker={(blanker) => onEdit({ blanker })}
+        />
       )}
     </Settings>
   );

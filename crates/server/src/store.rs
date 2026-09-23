@@ -340,6 +340,7 @@ impl Store {
             None => Connection::open_in_memory()?,
         };
         migrate(&conn)?;
+        audio_fx_lift::lift_audio_chains(&conn)?;
         let store = Self {
             conn: Mutex::new(conn),
             run_start: now_rfc3339(),
@@ -1299,6 +1300,7 @@ fn parse_workspace_snapshot(json: &str) -> Result<WorkspaceSnapshot, serde_json:
     migrate_device_locks(&mut value);
     migrate_signal_finders(&mut value);
     migrate_baseband_scopes(&mut value);
+    migrate_recorders(&mut value);
     serde_json::from_value(value)
 }
 
@@ -1363,6 +1365,24 @@ fn migrate_baseband_scopes(snapshot: &mut serde_json::Value) {
             && let Some(twin) = split.get(sink)
         {
             edge["to"]["node"] = serde_json::json!(twin);
+        }
+    }
+}
+
+fn migrate_recorders(snapshot: &mut serde_json::Value) {
+    for node in snapshot
+        .get_mut("graph")
+        .and_then(|graph| graph.get_mut("nodes"))
+        .and_then(serde_json::Value::as_array_mut)
+        .into_iter()
+        .flatten()
+    {
+        let recorder = matches!(
+            node_kind(node),
+            Some("recorder" | "audio_recorder" | "baseband_recorder")
+        );
+        if recorder && node.get("data").is_none() {
+            node["data"] = serde_json::json!({});
         }
     }
 }
@@ -1985,6 +2005,7 @@ pub fn rfc3339_now() -> String {
     now_rfc3339()
 }
 
+mod audio_fx_lift;
 mod cps;
 
 #[cfg(test)]

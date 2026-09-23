@@ -145,7 +145,7 @@ fn channel_settings(index: usize) -> ChannelSettings {
         frequency_hz: 100_000_000.0 + offset,
         squelch: sdrmm_wire::Squelch::Off,
         params,
-        audio: Default::default(),
+        blanker: Default::default(),
     }
 }
 

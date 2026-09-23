@@ -72,7 +72,7 @@ impl Track {
                 bandwidth_hz: 400.0,
                 wpm,
             }),
-            audio: Default::default(),
+            blanker: Default::default(),
         };
         Ok(Self {
             frequency_hz: 0.0,

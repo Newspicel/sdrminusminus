@@ -1,7 +1,7 @@
 use std::sync::LazyLock;
 
 use num_complex::Complex;
-use sdrmm_dsp::{Decimator, RealDecimator, design_lowpass};
+use sdrmm_dsp::{Agc, Decimator, RealDecimator, design_lowpass};
 use sdrmm_modem::analog::{AmDemod, AmDetector, AmMode, AmParams as AmWaveform, AmRx};
 use sdrmm_wire::{AmParams, ChannelDescriptor, ChannelParams, ChannelSettings, DecoderFamily};
 
@@ -9,6 +9,7 @@ use crate::{
     AUDIO_RATE, ChannelCtx, ChannelError, ChannelFilter, ChannelOutputs, ChannelRx, ChannelTx,
     TxPayload, check_input_rate, clamp_full_scale,
     tx::{Burst, TxQueue},
+    voice_leveller,
 };
 
 const AUDIO_TAPS: usize = 129;
@@ -28,6 +29,7 @@ static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescrip
 
 pub struct AmChannel {
     demod: AmDemod,
+    leveller: Agc,
 }
 
 fn params(settings: &ChannelSettings) -> Result<&AmParams, ChannelError> {
@@ -99,6 +101,7 @@ impl ChannelRx for AmChannel {
         let p = params(&settings)?;
         Ok(Self {
             demod: demodulator(p)?,
+            leveller: voice_leveller(),
         })
     }
 
@@ -110,6 +113,7 @@ impl ChannelRx for AmChannel {
 
     fn process(&mut self, iq: &[Complex<f32>], out: &mut ChannelOutputs) {
         self.demod.process(iq, &mut out.audio_pcm);
+        self.leveller.process(&mut out.audio_pcm);
         clamp_full_scale(&mut out.audio_pcm);
         if !out.audio_pcm.is_empty() {
             out.audio_rate = AUDIO_RATE;
@@ -206,7 +210,7 @@ mod tests {
         assert!((995.0..1_005.0).contains(&freq), "dominant {freq} Hz");
         assert!(ratio > 10.0, "tone-to-rest ratio {ratio}");
         let amplitude = rms(window);
-        assert!((0.32..0.39).contains(&amplitude), "rms {amplitude}");
+        assert!((0.2..0.3).contains(&amplitude), "rms {amplitude}");
     }
 
     #[test]
@@ -224,7 +228,7 @@ mod tests {
         assert!((995.0..1_005.0).contains(&freq), "dominant {freq} Hz");
         assert!(ratio > 10.0, "tone-to-rest ratio {ratio}");
         let amplitude = rms(window);
-        assert!((0.32..0.39).contains(&amplitude), "rms {amplitude}");
+        assert!((0.2..0.3).contains(&amplitude), "rms {amplitude}");
     }
 
     #[test]
@@ -263,7 +267,7 @@ mod tests {
         assert!((995.0..1_005.0).contains(&freq), "dominant {freq} Hz");
         assert!(ratio > 10.0, "tone-to-rest ratio {ratio}");
         let amplitude = rms(window);
-        assert!((0.28..0.35).contains(&amplitude), "rms {amplitude}");
+        assert!((0.2..0.3).contains(&amplitude), "rms {amplitude}");
     }
 
     #[test]

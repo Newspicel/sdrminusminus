@@ -43,7 +43,7 @@ fn settings(params: ChannelParams, offset_hz: f64, squelch_db: Option<f32>) -> C
             sdrmm_wire::Squelch::Manual { level_db }
         }),
         params,
-        audio: Default::default(),
+        blanker: Default::default(),
     }
 }
 

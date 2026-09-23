@@ -6,10 +6,9 @@ use std::sync::{
 
 use num_complex::Complex;
 use sdrmm_channels::{
-    AUDIO_RATE, AudioChain, ChannelCtx, ChannelError, ChannelFilter, ChannelOutputs, ChannelRx,
-    ClickProfile, DecodedImage,
+    AUDIO_RATE, ChannelCtx, ChannelError, ChannelFilter, ChannelOutputs, ChannelRx, DecodedImage,
 };
-use sdrmm_dsp::{LevelMeter, Squelch};
+use sdrmm_dsp::{LevelMeter, NoiseBlanker, Squelch};
 use sdrmm_wire::{ChannelSettings, DecoderEvent, PositionFix};
 use tokio::sync::broadcast;
 
@@ -137,8 +136,7 @@ pub(crate) struct ChannelHost {
     squelched: bool,
     audio_rec: Option<AudioRecorderTap>,
     rx: Box<dyn ChannelRx>,
-    audio: AudioChain,
-    has_audio: bool,
+    blanker: Option<NoiseBlanker>,
     outputs: ChannelOutputs,
     scratch: Vec<Complex<f32>>,
     filtered: Vec<Complex<f32>>,
@@ -218,13 +216,8 @@ impl ChannelHost {
             squelched: !settings.squelch.is_off(),
             audio_rec: None,
             rx,
-            audio: AudioChain::new(
-                input_rate,
-                audio_channels,
-                &settings.audio,
-                ClickProfile::for_params(&settings.params),
-            ),
-            has_audio: descriptor.has_audio,
+            blanker: (descriptor.has_audio && settings.blanker.enabled)
+                .then(|| NoiseBlanker::new(input_rate, settings.blanker.threshold)),
             outputs: ChannelOutputs::default(),
             scratch: Vec::new(),
             filtered: Vec::new(),
@@ -310,7 +303,7 @@ impl ChannelHost {
             self.rx.position_changed(self.position.as_ref());
             self.ddc.reset();
             self.filter.reset();
-            self.audio.reset();
+            self.reset_blanker();
             self.squelch.reset();
             self.lo_artifact_hz = None;
             self.recovering = false;
@@ -378,15 +371,15 @@ impl ChannelHost {
         self.follow_lo_artifact();
         if self.ddc.select_shared(selected.is_some()) {
             self.filter.reset();
-            self.audio.reset();
+            self.reset_blanker();
             self.squelch.reset();
         }
         self.ddc.process(input, selected, &mut self.scratch);
         if self.scratch.is_empty() {
             return;
         }
-        if self.has_audio {
-            self.audio.process_iq(&mut self.scratch);
+        if let Some(blanker) = &mut self.blanker {
+            blanker.process(&mut self.scratch);
         }
         self.filter.process(&self.scratch, &mut self.filtered);
         self.meter.process(&self.filtered);
@@ -423,9 +416,6 @@ impl ChannelHost {
         let mut silence = 0;
         if open {
             self.rx.process(&self.filtered, &mut self.outputs);
-            if self.has_audio {
-                self.audio.process_audio(&mut self.outputs.audio_pcm);
-            }
         } else {
             if self.emits_events {
                 self.gated.clear();
@@ -559,9 +549,15 @@ impl ChannelHost {
     fn restart_chain(&mut self) {
         self.ddc.reset();
         self.filter.reset();
-        self.audio.reset();
+        self.reset_blanker();
         self.squelch.reset();
         self.lo_artifact_hz = None;
+    }
+
+    fn reset_blanker(&mut self) {
+        if let Some(blanker) = &mut self.blanker {
+            blanker.reset();
+        }
     }
 
     fn follow_lo_artifact(&mut self) {
@@ -577,12 +573,6 @@ impl ChannelHost {
     pub(crate) fn position_changed(&mut self, fix: Option<&PositionFix>) {
         self.position = fix.cloned();
         self.rx.position_changed(fix);
-    }
-
-    #[cfg(test)]
-    pub(crate) fn retuned(&mut self) {
-        self.audio.reset();
-        self.squelch.reset();
     }
 
     pub(super) fn set_audio_recording(&mut self, tap: Option<AudioRecorderTap>) {
@@ -603,8 +593,7 @@ mod tests {
     use std::f64::consts::TAU;
 
     use sdrmm_wire::{
-        AmParams, AudioAgcMode, AudioProcessing, ChannelParams, NfmParams, NoiseBlankerSettings,
-        Sideband, SsbParams, WfmParams,
+        AmParams, ChannelParams, NfmParams, NoiseBlankerSettings, Sideband, SsbParams, WfmParams,
     };
 
     use super::{super::DSP_BLOCK, *};
@@ -619,7 +608,7 @@ mod tests {
             frequency_hz: CENTER,
             squelch,
             params: ChannelParams::Nfm(NfmParams::default()),
-            audio: Default::default(),
+            blanker: Default::default(),
         }
     }
 
@@ -885,7 +874,7 @@ mod tests {
                 sideband: Sideband::Usb,
                 bandwidth_hz: 2_700.0,
             }),
-            audio: Default::default(),
+            blanker: Default::default(),
         };
         let (mut host, mut rx) = host(&settings);
         let blocks = run(&mut host, &mut rx, &tone(10_000.0, 1.0, 48_000));
@@ -912,7 +901,7 @@ mod tests {
             frequency_hz: CENTER,
             squelch,
             params: ChannelParams::Am(AmParams::default()),
-            audio: Default::default(),
+            blanker: Default::default(),
         }
     }
 
@@ -1053,7 +1042,7 @@ mod tests {
                 deemphasis_us: 50.0,
                 stereo,
             }),
-            audio: Default::default(),
+            blanker: Default::default(),
         };
         let input = tone(1_000.0, 0.5, 48_000);
         let mut expected = 0u64;
@@ -1169,7 +1158,7 @@ mod tests {
             frequency_hz: CENTER + 250_000.0,
             squelch: sdrmm_wire::Squelch::Off,
             params: ChannelParams::Wfm(sdrmm_wire::WfmParams::default()),
-            audio: Default::default(),
+            blanker: Default::default(),
         };
         let (pcm_tx, mut pcm_rx) = broadcast::channel::<PcmBlock>(4096);
         let mut host = ChannelHost::build(
@@ -1324,9 +1313,12 @@ mod tests {
         assert!(host.sinks.iq_tx.subscribe().try_recv().is_err());
     }
 
-    fn nfm_audio_settings(audio: AudioProcessing) -> ChannelSettings {
+    fn blanked_nfm_settings() -> ChannelSettings {
         ChannelSettings {
-            audio,
+            blanker: NoiseBlankerSettings {
+                enabled: true,
+                threshold: 4.0,
+            },
             ..nfm_settings(sdrmm_wire::Squelch::Off)
         }
     }
@@ -1356,28 +1348,14 @@ mod tests {
     }
 
     #[test]
-    fn the_audio_chain_runs_on_a_channel_that_never_had_one() {
-        let quiet = fm_tone(1_000.0, 250.0, 192_000);
-        let (mut plain, mut rx) = host(&nfm_settings(sdrmm_wire::Squelch::Off));
-        let untouched = samples(&run(&mut plain, &mut rx, &quiet));
-        assert!(rms(&untouched[96_000..]) < 0.15, "signal was not quiet");
-
-        let (mut levelled, mut rx) = host(&nfm_audio_settings(AudioProcessing {
-            agc: AudioAgcMode::Fast,
-            ..AudioProcessing::default()
-        }));
-        let lifted = samples(&run(&mut levelled, &mut rx, &quiet));
-        let level = rms(&lifted[144_000..]);
-        assert!((0.18..0.32).contains(&level), "levelled to {level}");
-    }
-
-    #[test]
-    fn a_default_chain_leaves_the_audio_alone() {
+    fn a_channel_without_a_blanker_leaves_its_audio_alone() {
         let input = fm_tone(1_000.0, 2_500.0, 48_000);
         let (mut plain, mut rx) = host(&nfm_settings(sdrmm_wire::Squelch::Off));
         let plain_audio = samples(&run(&mut plain, &mut rx, &input));
-        let (mut chained, mut rx) = host(&nfm_audio_settings(AudioProcessing::default()));
-        assert_eq!(samples(&run(&mut chained, &mut rx, &input)), plain_audio);
+        let (mut blanked, mut rx) = host(&blanked_nfm_settings());
+        let blanked_audio = samples(&run(&mut blanked, &mut rx, &input));
+        assert_eq!(blanked_audio.len(), plain_audio.len());
+        assert!(rms(&plain_audio[24_000..]) > 0.1);
     }
 
     #[test]
@@ -1404,13 +1382,7 @@ mod tests {
 
         let dirty = peak(&nfm_settings(sdrmm_wire::Squelch::Off));
         assert!(dirty > 1.5, "the impulses never reached the demod: {dirty}");
-        let clean = peak(&nfm_audio_settings(AudioProcessing {
-            blanker: NoiseBlankerSettings {
-                enabled: true,
-                threshold: 4.0,
-            },
-            ..AudioProcessing::default()
-        }));
+        let clean = peak(&blanked_nfm_settings());
         assert!(
             clean < 1.3 && clean < 0.6 * dirty,
             "impulses survived into the demod: {dirty} -> {clean}"
@@ -1422,10 +1394,7 @@ mod tests {
         let (mut host, mut rx) = host(&nfm_settings(sdrmm_wire::Squelch::Off));
         let quiet = fm_tone(1_000.0, 250.0, 96_000);
         run(&mut host, &mut rx, &quiet);
-        let settings = nfm_audio_settings(AudioProcessing {
-            agc: AudioAgcMode::Fast,
-            ..AudioProcessing::default()
-        });
+        let settings = blanked_nfm_settings();
         let mut replacement = ChannelHost::build(
             RATE,
             CENTER,
@@ -1437,22 +1406,10 @@ mod tests {
         replacement.inherit(&mut host);
         let before = host.sinks.pcm_pos.load(Ordering::Relaxed);
         host = replacement;
-        let lifted = samples(&run(&mut host, &mut rx, &quiet));
+        let after = samples(&run(&mut host, &mut rx, &quiet));
         assert!(host.sinks.pcm_pos.load(Ordering::Relaxed) > before);
-        let level = rms(&lifted[48_000..]);
-        assert!((0.18..0.32).contains(&level), "levelled to {level}");
-    }
-
-    #[test]
-    fn retuning_forgets_what_the_chain_learnt() {
-        let (mut host, mut rx) = host(&nfm_audio_settings(AudioProcessing {
-            agc: AudioAgcMode::Slow,
-            ..AudioProcessing::default()
-        }));
-        run(&mut host, &mut rx, &fm_tone(1_000.0, 250.0, 96_000));
-        host.retuned();
-        let after = samples(&run(&mut host, &mut rx, &fm_tone(1_000.0, 2_500.0, 4_800)));
-        assert!(rms(&after[..2_400]) < 1.0, "the old gain followed the tune");
+        assert!(!after.is_empty());
+        assert!(host.blanker.is_some(), "the replacement lost its blanker");
     }
 
     #[test]

@@ -155,6 +155,7 @@ libloading = "0.9"
 # DSP
 num-complex = "0.4"
 rustfft = "6"
+tract-onnx = { version = "0.23.8", default-features = false }
 realfft = "3"
 mfsk-core = { version = "0.10.0", default-features = false, features = ["std", "fft-rustfft", "ft8", "ft4", "wspr"] }
 xng-mode-dsc = { git = "https://github.com/airframesio/xng", rev = "6a768a2f843099171d7ed08df9fe0f3ba0678f25" }

@@ -62,6 +62,18 @@ struct Native {
 
 const NATIVE: &[Native] = &[
     Native {
+        name: "DPDFNet",
+        license: "Apache-2.0",
+        url: "https://github.com/ceva-ip/DPDFNet",
+        note: Some(
+            "The neural denoiser of the Audio FX node runs the pretrained dpdfnet2 16 kHz model \
+             published by Ceva, shipped unmodified as `crates/channels/models/dpdfnet2.onnx` \
+             and executed with tract. Only the weights are used; the STFT and streaming around \
+             them in `crates/channels/src/neural_denoise.rs` are this project's own.",
+        ),
+        files: &[],
+    },
+    Native {
         name: "DVB-T, DVB-S2X and DAB packet-mode reference implementations",
         license: "GPL-3.0-or-later",
         url: "https://github.com/gnuradio/gnuradio/tree/main/gr-dtv/lib/dvbt",

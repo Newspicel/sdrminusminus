@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { ChannelInfo, DeviceInfo, DeviceSet, PatchGraph, PatchNode } from "../lib/types";
 import {
+  audioSourcesOf,
   bindCarriers,
   bindChannels,
   bindDevices,
@@ -131,7 +132,7 @@ describe("binding", () => {
     const g = graph();
     const devices = bindDevices(g, [set(1, rtl, [channel(4, "nfm"), channel(5, "am")])]);
     const channels = bindChannels(g, devices);
-    expect(speakerInputsOf(g, devices, channels)).toEqual([{ deviceSet: 1, channel: 4 }]);
+    expect(speakerInputsOf(g, devices, channels)).toEqual([{ deviceSet: 1, channel: 4, fx: [] }]);
 
     const unwired: PatchGraph = {
       nodes: g.nodes.filter((n) => n.id !== "spk"),
@@ -259,7 +260,7 @@ describe("binding", () => {
     const devices = bindDevices(g, [set(1, rtl, [channel(9, "nfm")])]);
     const channels = bindChannels(g, devices);
     expect(inputsOf(g, "spk", "audio", devices, channels)).toEqual([
-      { node: "nfm", deviceSet: 1, channel: channel(9, "nfm") },
+      { node: "nfm", deviceSet: 1, channel: channel(9, "nfm"), fx: [] },
     ]);
     expect(inputsOf(g, "spk", "audio", devices, new Map())).toEqual([]);
   });
@@ -301,8 +302,8 @@ describe("binding", () => {
     ];
 
     expect(inputsOf(g, "log", "events", devices, channels, trunks)).toEqual([
-      { node: "trunk", deviceSet: 1, channel: control },
-      { node: "trunk", deviceSet: 1, channel: traffic },
+      { node: "trunk", deviceSet: 1, channel: control, fx: [] },
+      { node: "trunk", deviceSet: 1, channel: traffic, fx: [] },
     ]);
     expect(inputsOf(g, "log", "events", devices, channels)).toEqual([]);
   });
@@ -333,7 +334,7 @@ describe("binding", () => {
     ];
 
     expect(inputsOf(g, "log", "events", devices, channels, trunks)).toEqual([
-      { node: "trunk", deviceSet: 1, channel: control },
+      { node: "trunk", deviceSet: 1, channel: control, fx: [] },
     ]);
   });
 
@@ -358,7 +359,7 @@ describe("binding", () => {
     const channels = bindChannels(g, devices);
 
     expect(inputsOf(g, "log", "events", devices, channels)).toEqual([
-      { node: "dmr", deviceSet: 1, channel: dmr },
+      { node: "dmr", deviceSet: 1, channel: dmr, fx: [] },
     ]);
     expect(eventSourcesOf(g, "log")).toEqual(["dmr"]);
   });
@@ -382,6 +383,58 @@ describe("binding", () => {
     expect(eventSourcesOf(g, "log")).toEqual(["dmr"]);
   });
 
+  it("follows audio through a chain of audio FX nodes, channel side first", () => {
+    const g: PatchGraph = {
+      nodes: [
+        node("dev", { kind: "device", data: { device: deviceRefOf(rtl) } }),
+        node("nfm", { kind: "channel", data: { channel_type: "nfm" } }),
+        node("near", { kind: "audio_fx", data: { settings: {} } }),
+        node("far", { kind: "audio_fx", data: { settings: {} } }),
+        node("spk", { kind: "speaker" }),
+      ],
+      edges: [
+        { from: { node: "dev", port: "iq" }, to: { node: "nfm", port: "iq" } },
+        { from: { node: "nfm", port: "audio" }, to: { node: "near", port: "audio" } },
+        { from: { node: "near", port: "audio" }, to: { node: "far", port: "audio" } },
+        { from: { node: "far", port: "audio" }, to: { node: "spk", port: "audio" } },
+        { from: { node: "nfm", port: "audio" }, to: { node: "spk", port: "audio" } },
+      ],
+    };
+    const nfm = channel(3, "nfm");
+    const devices = bindDevices(g, [set(1, rtl, [nfm])]);
+    const channels = bindChannels(g, devices);
+
+    expect(inputsOf(g, "spk", "audio", devices, channels)).toEqual([
+      { node: "nfm", deviceSet: 1, channel: nfm, fx: ["near", "far"] },
+      { node: "nfm", deviceSet: 1, channel: nfm, fx: [] },
+    ]);
+    expect(speakerInputsOf(g, devices, channels)).toEqual([
+      { deviceSet: 1, channel: 3, fx: ["near", "far"] },
+      { deviceSet: 1, channel: 3, fx: [] },
+    ]);
+    expect(audioSourcesOf(g, "far")).toEqual([{ node: "nfm", fx: ["near"] }]);
+  });
+
+  it("gives up on an audio FX chain deeper than the cap", () => {
+    const chain = Array.from({ length: 40 }, (_, at) => `fx${at}`);
+    const g: PatchGraph = {
+      nodes: [
+        node("nfm", { kind: "channel", data: { channel_type: "nfm" } }),
+        ...chain.map((id) => node(id, { kind: "audio_fx", data: { settings: {} } })),
+        node("spk", { kind: "speaker" }),
+      ],
+      edges: [
+        { from: { node: "nfm", port: "audio" }, to: { node: "fx0", port: "audio" } },
+        ...chain.slice(1).map((id, at) => ({
+          from: { node: chain[at] ?? "", port: "audio" },
+          to: { node: id, port: "audio" },
+        })),
+        { from: { node: chain.at(-1) ?? "", port: "audio" }, to: { node: "spk", port: "audio" } },
+      ],
+    };
+    expect(audioSourcesOf(g, "spk")).toEqual([]);
+  });
+
   it("does not walk audio wires looking for filters", () => {
     const g: PatchGraph = {
       nodes: [
@@ -399,7 +452,7 @@ describe("binding", () => {
     const channels = bindChannels(g, devices);
 
     expect(inputsOf(g, "spk", "audio", devices, channels)).toEqual([
-      { node: "nfm", deviceSet: 1, channel: nfm },
+      { node: "nfm", deviceSet: 1, channel: nfm, fx: [] },
     ]);
   });
 
@@ -489,10 +542,10 @@ describe("binding", () => {
       expect(deviceNodeOf(twin, "high")).toBe("dev");
       const channels = bindChannels(twin, devices);
       expect(inputsOf(twin, "spk", "audio", devices, channels, [], owners)).toEqual([
-        { node: "high", deviceSet: 2, channel: carried },
+        { node: "high", deviceSet: 2, channel: carried, fx: [] },
       ]);
       expect(speakerInputsOf(twin, devices, channels, [], owners)).toEqual([
-        { deviceSet: 2, channel: 9 },
+        { deviceSet: 2, channel: 9, fx: [] },
       ]);
     });
 
@@ -542,7 +595,7 @@ describe("binding", () => {
       expect(deviceNodeOf(lanes(), "high")).toBe("dev");
       const channels = bindChannels(lanes(), devices);
       expect(inputsOf(lanes(), "spk", "audio", devices, channels)).toEqual([
-        { node: "high", deviceSet: 1, channel: channel(5, "nfm", 2) },
+        { node: "high", deviceSet: 1, channel: channel(5, "nfm", 2), fx: [] },
       ]);
     });
   });

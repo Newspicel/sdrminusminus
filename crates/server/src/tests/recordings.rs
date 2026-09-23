@@ -225,28 +225,22 @@ async fn record_start_stop_index_and_delete_roundtrip_over_http() {
     let app = recording_router(dir.path());
     let ds = create_virtual_set(&app).await;
 
-    let (status, body) = record(&app, ds, "start").await;
-    assert_eq!(status, StatusCode::OK);
-    let live: RecordingStatus = serde_json::from_slice(&body).expect("json");
+    let live: RecordingStatus = record(&app, ds, true).await.expect("recording started");
     assert!(!live.file.is_empty());
     assert_eq!(live.error, None);
     live.started_at.parse::<jiff::Timestamp>().expect("rfc3339");
 
     wait_for_recorded_samples(&app, ds, 1).await;
-
-    let (status, body) = record(&app, ds, "stop").await;
-    assert_eq!(status, StatusCode::OK);
-    let done: RecordingStatus = serde_json::from_slice(&body).expect("json");
-    assert_eq!(done.file, live.file);
-    assert!(done.samples > 0);
-    assert_eq!(done.bytes, done.samples * sdrmm_recorder::BYTES_PER_SAMPLE);
-    assert_eq!(done.error, None);
+    assert!(
+        record(&app, ds, false).await.is_none(),
+        "switching off kept recording"
+    );
 
     let listed = list_recordings(&app).await;
     assert_eq!(listed.len(), 1);
     let rec = &listed[0];
-    assert_eq!(rec.file, done.file);
-    assert_eq!(rec.samples, done.samples);
+    assert_eq!(rec.file, live.file);
+    assert!(rec.samples > 0);
     assert_eq!(rec.sample_rate, 2_048_000.0);
     assert_eq!(rec.center_hz, 100_000_000.0);
     assert_eq!(rec.device_label, "Signal Generator (virtual)");
@@ -391,23 +385,11 @@ async fn annotation_error_mapping_over_http() {
 }
 
 #[tokio::test]
-async fn record_error_mapping_over_http() {
+async fn a_rate_change_is_refused_while_the_recorder_is_switched_on() {
     let dir = tempfile::TempDir::new().expect("tempdir");
     let app = recording_router(dir.path());
-
-    let (status, _) = record(&app, 999, "start").await;
-    assert_eq!(status, StatusCode::NOT_FOUND);
-
     let ds = create_virtual_set(&app).await;
-    let (status, body) = record(&app, ds, "stop").await;
-    assert_eq!(status, StatusCode::BAD_REQUEST);
-    serde_json::from_slice::<ApiError>(&body).expect("ApiError body");
-
-    let (status, _) = record(&app, ds, "start").await;
-    assert_eq!(status, StatusCode::OK);
-    let (status, _) = record(&app, ds, "start").await;
-    assert_eq!(status, StatusCode::BAD_REQUEST);
-
+    record(&app, ds, true).await.expect("recording started");
     let (status, body) = request(
         app.clone(),
         "PATCH",
@@ -417,22 +399,17 @@ async fn record_error_mapping_over_http() {
     .await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
     serde_json::from_slice::<ApiError>(&body).expect("ApiError body");
-
-    let (status, _) = record(&app, ds, "stop").await;
-    assert_eq!(status, StatusCode::OK);
+    assert!(record(&app, ds, false).await.is_none());
 }
 
 #[tokio::test]
 async fn recording_endpoints_without_a_recordings_dir() {
     let app = test_router();
     let ds = create_virtual_set(&app).await;
-
-    let (status, body) = record(&app, ds, "start").await;
-    assert_eq!(status, StatusCode::BAD_REQUEST);
-    serde_json::from_slice::<ApiError>(&body).expect("ApiError body");
-
-    let (status, _) = record(&app, 999, "start").await;
-    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert!(
+        record(&app, ds, true).await.is_none(),
+        "recorded with nowhere to write"
+    );
 
     assert!(list_recordings(&app).await.is_empty());
     let (status, _) = request(app, "DELETE", "/api/recordings/1", None).await;

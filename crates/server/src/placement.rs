@@ -72,7 +72,7 @@ fn holds_channel(set: &DeviceSet, channel: &ChannelInfo) -> bool {
             .hunts
             .iter()
             .any(|hunt| hunt.settings.channel == channel.id)
-        || channel.audio_recording.is_some()
+        || !channel.audio_recordings.is_empty()
         || channel.baseband_recording.is_some()
         || channel.network_export.is_some()
 }

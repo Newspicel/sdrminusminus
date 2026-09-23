@@ -3,7 +3,7 @@ use super::*;
 #[tokio::test]
 async fn channel_audio_record_list_download_and_delete_roundtrip_over_http() {
     let dir = tempfile::TempDir::new().expect("tempdir");
-    let app = recording_router(dir.path());
+    let (app, engine) = recording_router_without_reconcilers(dir.path());
     let ds = create_virtual_set(&app).await;
     let (status, body) = request(
         app.clone(),
@@ -15,18 +15,14 @@ async fn channel_audio_record_list_download_and_delete_roundtrip_over_http() {
     assert_eq!(status, StatusCode::OK);
     let ch = serde_json::from_slice::<CreatedId>(&body).expect("json").id;
 
-    let (status, body) = record_channel(&app, ds, ch, "start").await;
-    assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
-    let live: sdrmm_wire::AudioRecordingStatus = serde_json::from_slice(&body).expect("json");
+    let live = engine
+        .start_channel_recording(ds, ch)
+        .expect("recording starts");
     assert!(live.file.ends_with(".wav"));
-    assert_eq!(live.channels, 1);
-    live.started_at.parse::<jiff::Timestamp>().expect("rfc3339");
-
     wait_for_recorded_frames(&app, ds, ch, 4_800).await;
-
-    let (status, body) = record_channel(&app, ds, ch, "stop").await;
-    assert_eq!(status, StatusCode::OK);
-    let done: sdrmm_wire::AudioRecordingStatus = serde_json::from_slice(&body).expect("json");
+    let done = engine
+        .stop_channel_recording(ds, ch)
+        .expect("recording stops");
     assert_eq!(done.file, live.file);
     assert!(done.frames > 0);
     assert_eq!(done.bytes, done.frames * 2);
@@ -98,29 +94,6 @@ async fn an_audio_recording_name_cannot_reach_outside_its_directory() {
 }
 
 #[tokio::test]
-async fn recording_a_channel_that_makes_no_audio_is_refused() {
-    let dir = tempfile::TempDir::new().expect("tempdir");
-    let app = recording_router(dir.path());
-    let ds = create_virtual_set(&app).await;
-    let (status, body) = request(
-        app.clone(),
-        "POST",
-        &format!("/api/devicesets/{ds}/channels"),
-        Some(r#"{"settings":{"params":{"type":"adsb","settings":{}}}}"#),
-    )
-    .await;
-    assert_eq!(status, StatusCode::OK);
-    let ch = serde_json::from_slice::<CreatedId>(&body).expect("json").id;
-
-    let (status, body) = record_channel(&app, ds, ch, "start").await;
-    assert_eq!(status, StatusCode::BAD_REQUEST);
-    assert!(String::from_utf8_lossy(&body).contains("no audio"));
-
-    let (status, _) = record_channel(&app, ds, 9_999, "start").await;
-    assert_eq!(status, StatusCode::NOT_FOUND);
-}
-
-#[tokio::test]
 async fn network_export_start_stream_and_stop_roundtrip_over_http() {
     let app = test_router();
     let ds = create_virtual_set(&app).await;
@@ -175,24 +148,21 @@ async fn network_export_start_stream_and_stop_roundtrip_over_http() {
 #[tokio::test]
 async fn channel_baseband_record_roundtrip_lands_in_the_recording_library() {
     let dir = tempfile::TempDir::new().expect("tempdir");
-    let app = recording_router(dir.path());
+    let (app, engine) = recording_router_without_reconcilers(dir.path());
     let ds = create_virtual_set(&app).await;
     let ch = create_nfm_channel(&app, ds).await;
 
-    let (status, body) = record_baseband(&app, ds, ch, "start").await;
-    assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
-    let live: RecordingStatus = serde_json::from_slice(&body).expect("json");
+    let live = engine
+        .start_channel_baseband_recording(ds, ch)
+        .expect("baseband starts");
     assert!(live.file.starts_with(&format!("bb_{ds}_{ch}_")));
     live.started_at.parse::<jiff::Timestamp>().expect("rfc3339");
-
-    let (status, body) = record_baseband(&app, ds, ch, "start").await;
-    assert_eq!(status, StatusCode::BAD_REQUEST);
-    assert!(String::from_utf8_lossy(&body).contains("already recording"));
+    assert!(engine.start_channel_baseband_recording(ds, ch).is_err());
 
     wait_for_baseband_samples(&app, ds, ch, 4_800).await;
-    let (status, body) = record_baseband(&app, ds, ch, "stop").await;
-    assert_eq!(status, StatusCode::OK);
-    let done: RecordingStatus = serde_json::from_slice(&body).expect("json");
+    let done = engine
+        .stop_channel_baseband_recording(ds, ch)
+        .expect("baseband stops");
     assert_eq!(done.file, live.file);
     assert!(done.samples >= 4_800);
     assert_eq!(done.error, None);
@@ -205,11 +175,6 @@ async fn channel_baseband_record_roundtrip_lands_in_the_recording_library() {
     assert_eq!(entry.sample_rate, 48_000.0);
     assert_eq!(entry.center_hz, 100_000_000.0);
     assert_eq!(entry.samples, done.samples);
-
-    let (status, _) = record_baseband(&app, ds, ch, "stop").await;
-    assert_eq!(status, StatusCode::BAD_REQUEST);
-    let (status, _) = record_baseband(&app, ds, 9_999, "start").await;
-    assert_eq!(status, StatusCode::NOT_FOUND);
 }
 
 #[tokio::test]

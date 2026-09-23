@@ -228,7 +228,7 @@ mod tests {
                 bandwidth,
                 ..Default::default()
             }),
-            audio: Default::default(),
+            blanker: Default::default(),
         }
     }
 
@@ -323,7 +323,7 @@ mod tests {
                     frequency_hz: 0.0,
                     squelch: sdrmm_wire::Squelch::Off,
                     params: ChannelParams::Dvbt(params),
-                    audio: Default::default(),
+                    blanker: Default::default(),
                 },
             )
             .unwrap();

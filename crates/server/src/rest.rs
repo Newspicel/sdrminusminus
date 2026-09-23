@@ -15,21 +15,20 @@ use sdrmm_recorder::{
 };
 use sdrmm_tools::ToolError;
 use sdrmm_wire::{
-    AboutResponse, ApiError, ApplyTemplateRequest, AudioRecordingInfo, AudioRecordingStatus,
-    AudioRecordingsResponse, AuthInfo, BandPlan, BandRegionMatch, BandRegionsResponse, Bookmark,
-    CapturedImagesResponse, ChannelNetworkExportRequest, ChannelRecordRequest, ChannelSettings,
-    ChannelTypesResponse, ClientCommand, ClientsResponse, CreateBookmarkRequest,
-    CreateChannelRequest, CreateDeviceSetRequest, CreatePresetRequest, CreateWorkspaceRequest,
-    CreatedId, CreatedRowId, DecoderLogEntry, DecoderLogQuery, DecoderLogResponse, DeletedCount,
-    DeviceInfo, DeviceSettings, DevicesResponse, DfFusionState, DiagnosticsReport, DoctorReport,
-    ErrorCode, ExportFormat, HuntAction, HuntRequest, HuntSettings, HuntStatus, IonosondeReport,
-    LicenseTextResponse, LocateQuery, MAX_RECORDING_UPLOAD_BYTES, MAX_SATELLITE_QUERY_LEN,
-    NetworkExportAction, NetworkExportRequest, NetworkExportStatus, NmeaDevicesResponse, NodeBody,
-    OccupancyReport, PRESET_SNAPSHOT_VERSION, PatchApplyReport, PatchBinding, PatchCatalog,
-    PatchGraph, PatchRefusal, PlaybackRequest, PlaybackStatus, PresetDevice, PresetInfo,
-    PresetSnapshot, RecordAction, RecordRequest, RecordingAnnotation, RecordingDownloadQuery,
-    RecordingFormat, RecordingInfo, RecordingStatus, RecordingUpload, RecordingsResponse, Route,
-    RouteRequest, SatelliteCatalogQuery, SatelliteCatalogResponse, ScanAction, ScanRequest,
+    AboutResponse, ApiError, ApplyTemplateRequest, AudioRecordingInfo, AudioRecordingsResponse,
+    AuthInfo, BandPlan, BandRegionMatch, BandRegionsResponse, Bookmark, CapturedImagesResponse,
+    ChannelNetworkExportRequest, ChannelSettings, ChannelTypesResponse, ClientCommand,
+    ClientsResponse, CreateBookmarkRequest, CreateChannelRequest, CreateDeviceSetRequest,
+    CreatePresetRequest, CreateWorkspaceRequest, CreatedId, CreatedRowId, DecoderLogEntry,
+    DecoderLogQuery, DecoderLogResponse, DeletedCount, DeviceInfo, DeviceSettings, DevicesResponse,
+    DfFusionState, DiagnosticsReport, DoctorReport, ErrorCode, ExportFormat, HuntAction,
+    HuntRequest, HuntSettings, HuntStatus, IonosondeReport, LicenseTextResponse, LocateQuery,
+    MAX_RECORDING_UPLOAD_BYTES, MAX_SATELLITE_QUERY_LEN, NetworkExportAction, NetworkExportRequest,
+    NetworkExportStatus, NmeaDevicesResponse, NodeBody, OccupancyReport, PRESET_SNAPSHOT_VERSION,
+    PatchApplyReport, PatchBinding, PatchCatalog, PatchGraph, PatchRefusal, PlaybackRequest,
+    PlaybackStatus, PresetDevice, PresetInfo, PresetSnapshot, RecordingAnnotation,
+    RecordingDownloadQuery, RecordingFormat, RecordingInfo, RecordingUpload, RecordingsResponse,
+    Route, RouteRequest, SatelliteCatalogQuery, SatelliteCatalogResponse, ScanAction, ScanRequest,
     ScanSettings, ScannerStatus, ServerEvent, StateScope, StateSnapshot, TemplateInfo,
     TemplatesResponse, TimeMachineAction, TimeMachineRequest, TimeMachineStatus, ToolRequest,
     ToolResponse, ToolsResponse, TransmittersResponse, UpdateWorkspaceRequest, VoiceCallsResponse,
@@ -362,9 +361,6 @@ pub(crate) fn openapi_router() -> OpenApiRouter<AppState> {
         .routes(routes!(delete_preset))
         .routes(routes!(list_bookmarks, create_bookmark))
         .routes(routes!(delete_bookmark))
-        .routes(routes!(record_device_set))
-        .routes(routes!(record_channel_audio))
-        .routes(routes!(record_channel_baseband))
         .routes(routes!(network_export_channel))
         .routes(routes!(time_machine_device_set))
         .routes(routes!(list_audio_recordings))

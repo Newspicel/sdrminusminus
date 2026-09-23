@@ -381,7 +381,7 @@ async fn a_channel_on_the_beam_lane_hears_what_the_array_is_pointed_at() {
                 frequency_hz: CENTRE_HZ + array::WAVEFRONT_OFFSET_HZ,
                 squelch: sdrmm_wire::Squelch::Off,
                 params: sdrmm_wire::ChannelParams::Nfm(sdrmm_wire::NfmParams::default()),
-                audio: Default::default(),
+                blanker: Default::default(),
             },
         )
         .expect("a channel on the beam");

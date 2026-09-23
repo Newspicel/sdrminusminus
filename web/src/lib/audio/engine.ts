@@ -2,6 +2,7 @@ import type { AudioFrame } from "../frame";
 import type { Listener, Unsubscribe } from "../listeners";
 import type { ClientCommand, ServerEvent } from "../types";
 import { LossTracker } from "./loss";
+import { monitorKey } from "./monitor";
 import { MAX_GAP_FRAMES, SAMPLE_RATE, type WorkletReport } from "./worklet";
 
 export interface AudioSink {
@@ -29,6 +30,7 @@ export interface AudioSocket {
 interface ChannelEntry {
   readonly deviceSet: number;
   readonly channel: number;
+  readonly fx: readonly string[];
   desired: boolean;
   requested: boolean;
   streamId: number | null;
@@ -49,8 +51,19 @@ interface ChannelEntry {
 
 const US_PER_FRAME = 1_000_000 / SAMPLE_RATE;
 
-function entryKey(deviceSet: number, channel: number): string {
-  return `${deviceSet}:${channel}`;
+const NO_FX: readonly string[] = [];
+
+function entryKey(deviceSet: number, channel: number, fx: readonly string[] = NO_FX): string {
+  return monitorKey(deviceSet, channel, fx);
+}
+
+function keyOf(entry: ChannelEntry): string {
+  return entryKey(entry.deviceSet, entry.channel, entry.fx);
+}
+
+function routeData(entry: ChannelEntry): { device_set: number; channel: number; fx?: string[] } {
+  const bare = { device_set: entry.deviceSet, channel: entry.channel };
+  return entry.fx.length === 0 ? bare : { ...bare, fx: [...entry.fx] };
 }
 
 export class AudioEngine {
@@ -97,43 +110,43 @@ export class AudioEngine {
     this.dropLiveStreams();
   }
 
-  isPlaying(deviceSet: number, channel: number): boolean {
-    const entry = this.entries.get(entryKey(deviceSet, channel));
+  isPlaying(deviceSet: number, channel: number, fx: readonly string[] = NO_FX): boolean {
+    const entry = this.entries.get(entryKey(deviceSet, channel, fx));
     return entry !== undefined && entry.desired && entry.streamId !== null && this.outputRunning;
   }
 
-  isPending(deviceSet: number, channel: number): boolean {
-    const entry = this.entries.get(entryKey(deviceSet, channel));
+  isPending(deviceSet: number, channel: number, fx: readonly string[] = NO_FX): boolean {
+    const entry = this.entries.get(entryKey(deviceSet, channel, fx));
     return entry !== undefined && entry.desired && entry.streamId === null && this.outputRunning;
   }
 
-  isSuspended(deviceSet: number, channel: number): boolean {
-    const entry = this.entries.get(entryKey(deviceSet, channel));
+  isSuspended(deviceSet: number, channel: number, fx: readonly string[] = NO_FX): boolean {
+    const entry = this.entries.get(entryKey(deviceSet, channel, fx));
     return entry !== undefined && entry.desired && !this.outputRunning;
   }
 
-  getError(deviceSet: number, channel: number): string | null {
-    return this.entries.get(entryKey(deviceSet, channel))?.lastError ?? null;
+  getError(deviceSet: number, channel: number, fx: readonly string[] = NO_FX): string | null {
+    return this.entries.get(entryKey(deviceSet, channel, fx))?.lastError ?? null;
   }
 
-  clearError(deviceSet: number, channel: number): void {
-    const entry = this.entries.get(entryKey(deviceSet, channel));
+  clearError(deviceSet: number, channel: number, fx: readonly string[] = NO_FX): void {
+    const entry = this.entries.get(entryKey(deviceSet, channel, fx));
     if (entry && entry.lastError !== null) {
       entry.lastError = null;
       this.notify();
     }
   }
 
-  getVolume(deviceSet: number, channel: number): number {
-    return this.entries.get(entryKey(deviceSet, channel))?.volume ?? 1;
+  getVolume(deviceSet: number, channel: number, fx: readonly string[] = NO_FX): number {
+    return this.entries.get(entryKey(deviceSet, channel, fx))?.volume ?? 1;
   }
 
-  getLostFrames(deviceSet: number, channel: number): number {
-    return this.entries.get(entryKey(deviceSet, channel))?.lost ?? 0;
+  getLostFrames(deviceSet: number, channel: number, fx: readonly string[] = NO_FX): number {
+    return this.entries.get(entryKey(deviceSet, channel, fx))?.lost ?? 0;
   }
 
-  getUnderruns(deviceSet: number, channel: number): number {
-    return this.entries.get(entryKey(deviceSet, channel))?.underruns ?? 0;
+  getUnderruns(deviceSet: number, channel: number, fx: readonly string[] = NO_FX): number {
+    return this.entries.get(entryKey(deviceSet, channel, fx))?.underruns ?? 0;
   }
 
   setOutputRunning(running: boolean): void {
@@ -172,8 +185,8 @@ export class AudioEngine {
     return true;
   }
 
-  start(deviceSet: number, channel: number): void {
-    const entry = this.ensureEntry(deviceSet, channel);
+  start(deviceSet: number, channel: number, fx: readonly string[] = NO_FX): void {
+    const entry = this.ensureEntry(deviceSet, channel, fx);
     if (entry.desired) {
       return;
     }
@@ -184,8 +197,8 @@ export class AudioEngine {
     this.ensureSink(entry);
   }
 
-  stop(deviceSet: number, channel: number): void {
-    const entry = this.entries.get(entryKey(deviceSet, channel));
+  stop(deviceSet: number, channel: number, fx: readonly string[] = NO_FX): void {
+    const entry = this.entries.get(entryKey(deviceSet, channel, fx));
     if (!entry || !entry.desired) {
       return;
     }
@@ -202,25 +215,30 @@ export class AudioEngine {
       entry.requested = false;
       this.socket?.send({
         type: "UnsubscribeAudio",
-        data: { device_set: entry.deviceSet, channel: entry.channel },
+        data: routeData(entry),
       });
     }
   }
 
-  retain(live: Iterable<{ deviceSet: number; channel: number }>): void {
+  retain(live: Iterable<{ deviceSet: number; channel: number; fx?: readonly string[] }>): void {
     const keep = new Set<string>();
-    for (const { deviceSet, channel } of live) {
-      keep.add(entryKey(deviceSet, channel));
+    for (const { deviceSet, channel, fx } of live) {
+      keep.add(entryKey(deviceSet, channel, fx));
     }
     for (const [key, entry] of this.entries) {
       if (entry.desired && !keep.has(key)) {
-        this.stop(entry.deviceSet, entry.channel);
+        this.stop(entry.deviceSet, entry.channel, entry.fx);
       }
     }
   }
 
-  setVolume(deviceSet: number, channel: number, volume: number): void {
-    const entry = this.ensureEntry(deviceSet, channel);
+  setVolume(
+    deviceSet: number,
+    channel: number,
+    volume: number,
+    fx: readonly string[] = NO_FX,
+  ): void {
+    const entry = this.ensureEntry(deviceSet, channel, fx);
     entry.volume = Math.min(1, Math.max(0, volume));
     entry.sink?.setVolume(entry.volume);
     this.notify();
@@ -229,7 +247,7 @@ export class AudioEngine {
   private readonly handleEvent = (event: ServerEvent): void => {
     switch (event.type) {
       case "AudioStreamStarted": {
-        const key = entryKey(event.data.device_set, event.data.channel);
+        const key = entryKey(event.data.device_set, event.data.channel, event.data.fx ?? NO_FX);
         const at = this.pendingSubscribes.findIndex((p) => p.key === key);
         const pending = at >= 0 ? this.pendingSubscribes.splice(at, 1)[0] : undefined;
         const entry = this.entries.get(key);
@@ -313,13 +331,18 @@ export class AudioEngine {
     }
   };
 
-  private ensureEntry(deviceSet: number, channel: number): ChannelEntry {
-    const key = entryKey(deviceSet, channel);
+  private ensureEntry(
+    deviceSet: number,
+    channel: number,
+    fx: readonly string[] = NO_FX,
+  ): ChannelEntry {
+    const key = entryKey(deviceSet, channel, fx);
     let entry = this.entries.get(key);
     if (!entry) {
       entry = {
         deviceSet,
         channel,
+        fx: [...fx],
         desired: false,
         requested: false,
         streamId: null,
@@ -362,7 +385,7 @@ export class AudioEngine {
     entry.sinkPending = true;
     const generation = entry.generation;
     this.createSink(
-      entryKey(entry.deviceSet, entry.channel),
+      keyOf(entry),
       entry.volume,
       (err) => {
         if (entry.desired && entry.generation === generation) this.fail(entry, err);
@@ -421,24 +444,26 @@ export class AudioEngine {
     }
     entry.requested = true;
     this.pendingSubscribes.push({
-      key: entryKey(entry.deviceSet, entry.channel),
+      key: keyOf(entry),
       generation: entry.generation,
     });
     this.socket.send({
       type: "SubscribeAudio",
-      data: { device_set: entry.deviceSet, channel: entry.channel },
+      data: routeData(entry),
     });
   }
 
-  getBufferedMs(deviceSet: number, channel: number): number {
+  getBufferedMs(deviceSet: number, channel: number, fx: readonly string[] = NO_FX): number {
     return (
-      ((this.entries.get(entryKey(deviceSet, channel))?.bufferedFrames ?? 0) * 1000) / SAMPLE_RATE
+      ((this.entries.get(entryKey(deviceSet, channel, fx))?.bufferedFrames ?? 0) * 1000) /
+      SAMPLE_RATE
     );
   }
 
-  getTrimmedMs(deviceSet: number, channel: number): number {
+  getTrimmedMs(deviceSet: number, channel: number, fx: readonly string[] = NO_FX): number {
     return (
-      ((this.entries.get(entryKey(deviceSet, channel))?.trimmedFrames ?? 0) * 1000) / SAMPLE_RATE
+      ((this.entries.get(entryKey(deviceSet, channel, fx))?.trimmedFrames ?? 0) * 1000) /
+      SAMPLE_RATE
     );
   }
 
@@ -455,9 +480,9 @@ export class AudioEngine {
   }
 
   private fail(entry: ChannelEntry, err: unknown): void {
-    console.error(`audio ${entry.deviceSet}:${entry.channel} failed:`, err);
+    console.error(`audio ${keyOf(entry)} failed:`, err);
     entry.lastError = err instanceof Error ? err.message : String(err);
-    this.stop(entry.deviceSet, entry.channel);
+    this.stop(entry.deviceSet, entry.channel, entry.fx);
     this.notify();
   }
 

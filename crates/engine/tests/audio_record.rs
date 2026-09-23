@@ -44,7 +44,7 @@ fn settings(params: ChannelParams, offset_hz: f64) -> ChannelSettings {
         frequency_hz: 100_000_000.0 + offset_hz,
         squelch: sdrmm_wire::Squelch::Off,
         params,
-        audio: Default::default(),
+        blanker: Default::default(),
     }
 }
 
@@ -70,8 +70,9 @@ fn live_status(engine: &Engine, ds: u32, ch: u32) -> Option<AudioRecordingStatus
         .channels
         .iter()
         .find(|c| c.id == ch)?
-        .audio_recording
-        .clone()
+        .audio_recordings
+        .first()
+        .cloned()
 }
 
 async fn wait_for_frames(engine: &Engine, ds: u32, ch: u32, min: u64) -> AudioRecordingStatus {
@@ -137,6 +138,95 @@ async fn a_channel_recording_lands_as_a_playable_wav_of_its_audio() {
         "the file holds no audio at all"
     );
 
+    engine.remove_device_set(ds).unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_recording_through_audio_fx_holds_the_processed_audio() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let engine = engine(dir.path());
+    let ds = set_at_test_rate(&engine);
+    let ch = nfm_channel(&engine, ds);
+    engine
+        .set_audio_fx(
+            "fx",
+            sdrmm_wire::AudioProcessing {
+                agc: sdrmm_wire::AudioAgcMode::Fast,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    let route = sdrmm_wire::AudioRoute {
+        fx: vec!["fx".to_owned()],
+        ..sdrmm_wire::AudioRoute::channel(ds, ch)
+    };
+
+    let started = engine.start_route_recording(&route).unwrap();
+    assert!(engine.start_route_recording(&route).is_err());
+    let live = wait_for_frames(&engine, ds, ch, 9_600).await;
+    let stopping = Instant::now();
+    let done = engine.stop_route_recording(&route).unwrap();
+    assert!(stopping.elapsed() < Duration::from_secs(2), "stopping hung");
+    assert_eq!(done.error, None);
+    assert!(done.frames >= live.frames);
+
+    let path = engine.audio_recordings_dir().unwrap().join(&started.file);
+    assert_eq!(read_audio_info(&path).unwrap().frames, done.frames);
+    assert!(rms(&wav_samples(&path)) > 100.0, "the file holds no audio");
+    engine.remove_device_set(ds).unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_channel_records_raw_and_through_audio_fx_at_once() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let engine = engine(dir.path());
+    let ds = set_at_test_rate(&engine);
+    let ch = nfm_channel(&engine, ds);
+    engine
+        .set_audio_fx("fx", sdrmm_wire::AudioProcessing::default())
+        .unwrap();
+    let processed = sdrmm_wire::AudioRoute {
+        fx: vec!["fx".to_owned()],
+        ..sdrmm_wire::AudioRoute::channel(ds, ch)
+    };
+    let raw = engine.start_channel_recording(ds, ch).unwrap();
+    let cleaned = engine.start_route_recording(&processed).unwrap();
+    assert_ne!(raw.file, cleaned.file);
+    let statuses = engine
+        .snapshot()
+        .device_sets
+        .into_iter()
+        .find(|s| s.id == ds)
+        .unwrap()
+        .channels
+        .into_iter()
+        .find(|c| c.id == ch)
+        .unwrap()
+        .audio_recordings;
+    let routes: Vec<Vec<String>> = statuses.into_iter().map(|s| s.fx).collect();
+    assert_eq!(routes, vec![Vec::<String>::new(), vec!["fx".to_owned()]]);
+    engine.stop_route_recording(&processed).unwrap();
+    engine.stop_channel_recording(ds, ch).unwrap();
+    assert!(live_status(&engine, ds, ch).is_none());
+    engine.remove_device_set(ds).unwrap();
+}
+
+#[tokio::test]
+async fn a_recording_through_an_unknown_audio_fx_is_refused_and_leaves_no_file() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let engine = engine(dir.path());
+    let ds = set_at_test_rate(&engine);
+    let ch = nfm_channel(&engine, ds);
+    let route = sdrmm_wire::AudioRoute {
+        fx: vec!["ghost".to_owned()],
+        ..sdrmm_wire::AudioRoute::channel(ds, ch)
+    };
+    assert!(engine.start_route_recording(&route).is_err());
+    assert!(live_status(&engine, ds, ch).is_none());
+    let left = std::fs::read_dir(engine.audio_recordings_dir().unwrap())
+        .map(|entries| entries.count())
+        .unwrap_or(0);
+    assert_eq!(left, 0, "a refused recording left a file behind");
     engine.remove_device_set(ds).unwrap();
 }
 

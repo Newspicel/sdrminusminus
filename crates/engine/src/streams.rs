@@ -1,16 +1,22 @@
-use std::sync::{Arc, atomic::Ordering};
+use std::{
+    collections::HashSet,
+    sync::{Arc, atomic::Ordering},
+};
 
-use sdrmm_channels::ChannelError;
+use sdrmm_channels::{ChannelError, ClickProfile};
 use sdrmm_device::DeviceError;
 use sdrmm_wire::{
-    ChannelDescriptor, ChannelInfo, ChannelLevel, DeviceSetStatus, HuntSettings, HuntStatus,
-    PlaybackRequest, PlaybackStatus, ScanSettings, ScannerStatus, ServerEvent, StateScope,
+    AudioProcessing, AudioRoute, ChannelDescriptor, ChannelInfo, ChannelLevel, DeviceSetStatus,
+    HuntSettings, HuntStatus, PlaybackRequest, PlaybackStatus, ScanSettings, ScannerStatus,
+    ServerEvent, StateScope,
 };
 use tokio::sync::broadcast;
 
 use crate::{
     AudioPacket, DspCommand, Engine, EngineError, IqBlock, PcmBlock, SpectrumSnapshot, SymbolBlock,
-    VideoPacket, hunt, lock_runtime,
+    VideoPacket,
+    audio_fx::{AudioFxHub, FxSource},
+    hunt, lock_runtime,
     planning::{descriptor_for, plan_center},
     sample_rate_of, scanner,
 };
@@ -80,6 +86,77 @@ impl Engine {
             .get(&ch)
             .ok_or(EngineError::ChannelNotFound(ch, ds))?;
         Ok(handle.sinks.pcm_tx.subscribe())
+    }
+
+    pub fn set_audio_fx(&self, node: &str, settings: AudioProcessing) -> Result<(), EngineError> {
+        settings
+            .validate()
+            .map_err(|reason| EngineError::from(ChannelError::InvalidSettings(reason)))?;
+        self.fx_hub().set(node, settings);
+        Ok(())
+    }
+
+    pub fn retain_audio_fx(&self, nodes: &HashSet<String>) {
+        self.fx_hub().retain(nodes);
+    }
+
+    pub fn subscribe_route_audio(
+        &self,
+        route: &AudioRoute,
+    ) -> Result<broadcast::Receiver<AudioPacket>, EngineError> {
+        if route.fx.is_empty() {
+            return self.subscribe_audio(route.device_set, route.channel);
+        }
+        check_route(route)?;
+        self.fx_hub()
+            .subscribe_audio(route, || self.fx_source(route))
+    }
+
+    pub fn subscribe_route_pcm(
+        &self,
+        route: &AudioRoute,
+    ) -> Result<broadcast::Receiver<PcmBlock>, EngineError> {
+        if route.fx.is_empty() {
+            return self.subscribe_pcm(route.device_set, route.channel);
+        }
+        check_route(route)?;
+        self.fx_hub().subscribe_pcm(route, || self.fx_source(route))
+    }
+
+    pub(crate) fn fx_hub(&self) -> std::sync::MutexGuard<'_, AudioFxHub> {
+        self.audio_fx
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    pub(crate) fn fx_source(&self, route: &AudioRoute) -> Result<FxSource, EngineError> {
+        let inner = self.lock();
+        let (ds, ch) = (route.device_set, route.channel);
+        let state = inner
+            .device_sets
+            .get(&ds)
+            .ok_or(EngineError::DeviceSetNotFound(ds))?;
+        let info = state
+            .channels
+            .iter()
+            .find(|c| c.id == ch)
+            .ok_or(EngineError::ChannelNotFound(ch, ds))?;
+        if !descriptor_for(&info.settings.params)?.has_audio {
+            return Err(EngineError::Audio(format!(
+                "`{}` channels produce no audio for audio FX",
+                info.settings.params.type_id()
+            )));
+        }
+        let handle = state
+            .media
+            .get(&ch)
+            .ok_or(EngineError::ChannelNotFound(ch, ds))?;
+        Ok(FxSource {
+            pcm: handle.sinks.pcm_tx.subscribe(),
+            channels: sdrmm_channels::audio_channels(&info.settings.params),
+            profile: ClickProfile::for_params(&info.settings.params),
+            capacity: crate::audio::pcm_channel_cap(sample_rate_of(&state.settings)),
+        })
     }
 
     pub fn subscribe_video(
@@ -376,4 +453,10 @@ impl Engine {
             .subscribe(stream)
             .ok_or(EngineError::StreamOutOfRange { stream, streams })
     }
+}
+
+fn check_route(route: &AudioRoute) -> Result<(), EngineError> {
+    route
+        .validate()
+        .map_err(|reason| EngineError::from(ChannelError::InvalidSettings(reason)))
 }

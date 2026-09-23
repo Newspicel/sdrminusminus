@@ -18,8 +18,8 @@ use sdrmm_engine::{
     coherent::SurfaceUpdate,
 };
 use sdrmm_wire::{
-    AudioFrame, ClientCommand, IqFrame, PositionFix, RangeDopplerFrame, ServerEvent, SpectrumFrame,
-    StateScope, StreamKind, SymbolFrame, VideoData, VideoFrame,
+    AudioFrame, AudioRoute, ClientCommand, IqFrame, PositionFix, RangeDopplerFrame, ServerEvent,
+    SpectrumFrame, StateScope, StreamKind, SymbolFrame, VideoData, VideoFrame,
 };
 use tokio::sync::broadcast;
 
@@ -103,7 +103,7 @@ struct Session {
     state: AppState,
     out: Outbox,
     spectra: HashMap<(u32, u32), (u16, tokio::task::JoinHandle<()>)>,
-    audio: HashMap<(u32, u32), (u16, tokio::task::JoinHandle<()>)>,
+    audio: HashMap<AudioRoute, (u16, tokio::task::JoinHandle<()>)>,
     video: HashMap<(u32, u32), (u16, tokio::task::JoinHandle<()>)>,
     iq: HashMap<(u32, u32), (u16, tokio::task::JoinHandle<()>)>,
     symbols: HashMap<(u32, u32), (u16, tokio::task::JoinHandle<()>)>,
@@ -163,11 +163,27 @@ impl Session {
             ClientCommand::SubscribeAudio {
                 device_set,
                 channel,
-            } => self.subscribe_audio(device_set, channel).await,
+                fx,
+            } => {
+                self.subscribe_audio(AudioRoute {
+                    device_set,
+                    channel,
+                    fx,
+                })
+                .await;
+            }
             ClientCommand::UnsubscribeAudio {
                 device_set,
                 channel,
-            } => self.unsubscribe_audio(device_set, channel).await,
+                fx,
+            } => {
+                self.unsubscribe_audio(AudioRoute {
+                    device_set,
+                    channel,
+                    fx,
+                })
+                .await;
+            }
             ClientCommand::SubscribeVideo {
                 device_set,
                 channel,
@@ -346,14 +362,22 @@ impl Session {
         }
     }
 
-    async fn subscribe_audio(&mut self, device_set: u32, channel: u32) {
+    async fn subscribe_audio(&mut self, route: AudioRoute) {
         let subscribe = {
             let engine = self.engine.clone();
-            tokio::task::spawn_blocking(move || engine.subscribe_audio(device_set, channel)).await
+            let store = self.state.store.clone();
+            let route = route.clone();
+            tokio::task::spawn_blocking(move || {
+                if !route.fx.is_empty() {
+                    crate::audio_fx::sync(&engine, &store);
+                }
+                engine.subscribe_route_audio(&route)
+            })
+            .await
         };
         match flatten_join(subscribe) {
             Ok(rx) => {
-                if let Some((old_id, old)) = self.audio.remove(&(device_set, channel)) {
+                if let Some((old_id, old)) = self.audio.remove(&route) {
                     old.abort();
                     let stopped = ServerEvent::StreamStopped {
                         stream_id: old_id,
@@ -367,12 +391,13 @@ impl Session {
                     Some(stream_id) => {
                         let started = ServerEvent::AudioStreamStarted {
                             stream_id,
-                            device_set,
-                            channel,
+                            device_set: route.device_set,
+                            channel: route.channel,
+                            fx: route.fx.clone(),
                         };
                         let _ = self.out.send(text_event(&started)).await;
                         let task = spawn_audio(stream_id, rx, self.out.clone());
-                        self.audio.insert((device_set, channel), (stream_id, task));
+                        self.audio.insert(route, (stream_id, task));
                     }
                     None => {
                         let err = ServerEvent::Error {
@@ -391,8 +416,8 @@ impl Session {
         }
     }
 
-    async fn unsubscribe_audio(&mut self, device_set: u32, channel: u32) {
-        if let Some((stream_id, task)) = self.audio.remove(&(device_set, channel)) {
+    async fn unsubscribe_audio(&mut self, route: AudioRoute) {
+        if let Some((stream_id, task)) = self.audio.remove(&route) {
             task.abort();
             let stopped = ServerEvent::StreamStopped {
                 stream_id,
@@ -961,7 +986,7 @@ fn spawn_audio(
 }
 
 fn media_id_live(
-    audio: &HashMap<(u32, u32), (u16, tokio::task::JoinHandle<()>)>,
+    audio: &HashMap<AudioRoute, (u16, tokio::task::JoinHandle<()>)>,
     video: &HashMap<(u32, u32), (u16, tokio::task::JoinHandle<()>)>,
     iq: &HashMap<(u32, u32), (u16, tokio::task::JoinHandle<()>)>,
     symbols: &HashMap<(u32, u32), (u16, tokio::task::JoinHandle<()>)>,

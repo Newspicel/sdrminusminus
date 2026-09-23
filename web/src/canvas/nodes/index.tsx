@@ -4,6 +4,7 @@ import type { NodeKind, PatchNode } from "../../lib/types";
 import type { FlowData } from "../Canvas";
 import { NODE_SIZE } from "../graph";
 import { ArrayFace } from "./ArrayFace";
+import { AudioFxFace } from "./AudioFxFace";
 import { BasebandScopeFace } from "./BasebandScopeFace";
 import { ChannelFace } from "./ChannelFace";
 import { CombinerFace } from "./CombinerFace";
@@ -70,6 +71,7 @@ export const NODE_TYPES: Record<NodeKind, ComponentType<NodeProps<Node<FlowData>
   dmr_trunk: mount(DmrTrunkFace),
   spectrum_monitor: mount(SpectrumMonitorFace),
   event_filter: mount(EventFilterFace),
+  audio_fx: mount(AudioFxFace),
   video: mount(VideoFace),
   recorder: mount(RecorderFace),
   audio_recorder: mount(AudioRecorderFace),
@@ -105,6 +107,7 @@ export const FACES: Record<NodeKind, Face> = {
   dmr_trunk: DmrTrunkFace,
   spectrum_monitor: SpectrumMonitorFace,
   event_filter: EventFilterFace,
+  audio_fx: AudioFxFace,
   video: VideoFace,
   recorder: RecorderFace,
   audio_recorder: AudioRecorderFace,

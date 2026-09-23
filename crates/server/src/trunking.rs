@@ -214,7 +214,7 @@ mod tests {
                     squelch: sdrmm_wire::Squelch::Off,
                     params: ChannelParams::default_for(&channel.channel_type)
                         .expect("a known channel type"),
-                    audio: Default::default(),
+                    blanker: Default::default(),
                 },
             )
             .expect("add channel");

@@ -382,10 +382,10 @@ mod tests {
                     bandwidth_hz: 25_000.0,
                     ..sdrmm_wire::NfmParams::default()
                 }),
-                audio: sdrmm_wire::AudioProcessing::default(),
+                blanker: Default::default(),
             },
             out_of_band: false,
-            audio_recording: None,
+            audio_recordings: Vec::new(),
             baseband_recording: None,
             network_export: None,
         };

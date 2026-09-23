@@ -1,19 +1,17 @@
 import { useEffect, useRef, useState } from "react";
 import { type Colormap, DEFAULT_COLORMAP } from "../../gl/colormap";
 import { attachWaterfall, GRAPHICS_HELP, type WaterfallView } from "../../gl/waterfall";
-import { monitorKey, watchAudio } from "../../lib/audio/monitor";
+import { watchAudio } from "../../lib/audio/monitor";
 import { AudioSpectrogram, audioNyquistHz } from "../../lib/dsp/audioSpectrum";
 
 const TICKS_HZ = [3000, 6000, 12_000, 18_000];
 
 export function AudioSpectrogramView({
-  deviceSet,
-  channel,
+  source,
   playing,
   colormap = DEFAULT_COLORMAP,
 }: {
-  deviceSet: number;
-  channel: number;
+  source: string;
   playing: boolean;
   colormap?: Colormap;
 }) {
@@ -47,13 +45,13 @@ export function AudioSpectrogramView({
       return;
     }
     const spectrogram = new AudioSpectrogram();
-    const stop = watchAudio(monitorKey(deviceSet, channel), (pcm, channels) => {
+    const stop = watchAudio(source, (pcm, channels) => {
       spectrogram.push(pcm, channels, (row) => {
         rendererRef.current?.pushRow(row);
       });
     });
     return stop;
-  }, [deviceSet, channel, playing]);
+  }, [source, playing]);
 
   return (
     <div className="relative h-24 w-full overflow-hidden rounded-[3px] bg-plot-bg">

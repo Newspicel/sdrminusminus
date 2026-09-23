@@ -17,7 +17,7 @@ A wire joins an output port to an input port that carries the same kind of data:
 | Port | Carries | Typical wire |
 |---|---|---|
 | `iq` | Raw radio samples | Device → channel, Scope, recorder |
-| `audio` | Demodulated sound | Channel → Speaker, Audio recorder |
+| `audio` | Demodulated sound | Channel → Audio FX, Speaker, Audio recorder |
 | `events` | Decoded messages | Channel → Readout, Decoder log, Map |
 | `baseband` | One channel's filtered IQ | Channel → Baseband scope, recorder, Network IQ |
 | `video` | Pictures and video | Channel → Video |
@@ -30,7 +30,7 @@ A wire joins an output port to an input port that carries the same kind of data:
 |---|---|
 | Sources | Device, Recording, Signal generator, GPS position |
 | Decoders | AM, NFM, WFM, ADS-B, DMR, and every other [decoder](../user-guide/decoders.md) |
-| Tools | Array, Scanner, Signal hunt, Spectrum monitor, Satellite, DMR trunk system, Event filter, Direction finder, Triangulation, Passive radar, Combiner |
+| Tools | Array, Scanner, Signal hunt, Spectrum monitor, Satellite, DMR trunk system, Event filter, Audio FX, Direction finder, Triangulation, Passive radar, Combiner |
 | Outputs | Scope, Baseband scope, Speaker, Readout, Decoder log, Map, Video, Signal survey, Propagation map, recorders, Network IQ, Event output, Export |
 
 **+ Add** lists what the running server offers. Double-click or right-click the canvas to add a

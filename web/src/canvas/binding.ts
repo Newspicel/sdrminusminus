@@ -14,6 +14,12 @@ export interface Input {
   node: string;
   deviceSet: number;
   channel: ChannelInfo;
+  fx: string[];
+}
+
+export interface AudioSource {
+  node: string;
+  fx: string[];
 }
 
 export interface Carrier {
@@ -331,6 +337,39 @@ function walkEventSources(graph: PatchGraph, node: string, depth: number, seen: 
   }
 }
 
+function walkAudioSources(
+  graph: PatchGraph,
+  node: string,
+  fx: string[],
+  found: AudioSource[],
+): void {
+  if (fx.length > MAX_FILTER_DEPTH) {
+    return;
+  }
+  for (const source of sourcesOf(graph, node, "audio")) {
+    const upstream = graph.nodes.find((candidate) => candidate.id === source);
+    if (upstream?.kind === "audio_fx") {
+      walkAudioSources(graph, source, [source, ...fx], found);
+    } else {
+      found.push({ node: source, fx });
+    }
+  }
+}
+
+export function audioSourcesOf(graph: PatchGraph, node: string): AudioSource[] {
+  const found: AudioSource[] = [];
+  walkAudioSources(graph, node, [], found);
+  return found;
+}
+
+function sourcesFor(graph: PatchGraph, node: string, port: string): AudioSource[] {
+  if (port === "audio") {
+    return audioSourcesOf(graph, node);
+  }
+  const plain = port === "events" ? eventSourcesOf(graph, node) : sourcesOf(graph, node, port);
+  return plain.map((source) => ({ node: source, fx: [] }));
+}
+
 export function eventSourcesOf(graph: PatchGraph, node: string): string[] {
   const seen = new Set<string>();
   walkEventSources(graph, node, 0, seen);
@@ -373,8 +412,7 @@ export function inputsOf(
   owners: ReadonlyMap<string, string> = NO_OWNERS,
 ): Input[] {
   const out: Input[] = [];
-  const sources = port === "events" ? eventSourcesOf(graph, node) : sourcesOf(graph, node, port);
-  for (const source of sources) {
+  for (const { node: source, fx } of sourcesFor(graph, node, port)) {
     const trunk = trunks.find((system) => system.node === source);
     if (trunk !== undefined) {
       out.push(...trunkInputs(trunk, devices));
@@ -387,7 +425,7 @@ export function inputsOf(
     const owner = carrierOf(graph, source, owners);
     const set = owner === undefined ? undefined : devices.get(owner);
     if (set !== undefined) {
-      out.push({ node: source, deviceSet: set.id, channel });
+      out.push({ node: source, deviceSet: set.id, channel, fx });
     }
   }
   return out;
@@ -399,11 +437,11 @@ export function speakerInputsOf(
   channels: ReadonlyMap<string, ChannelInfo>,
   trunks: readonly TrunkSystemStatus[] = [],
   owners: ReadonlyMap<string, string> = NO_OWNERS,
-): { deviceSet: number; channel: number }[] {
+): { deviceSet: number; channel: number; fx: string[] }[] {
   return graph.nodes
     .filter((node) => node.kind === "speaker")
     .flatMap((node) => inputsOf(graph, node.id, "audio", devices, channels, trunks, owners))
-    .map((input) => ({ deviceSet: input.deviceSet, channel: input.channel.id }));
+    .map((input) => ({ deviceSet: input.deviceSet, channel: input.channel.id, fx: input.fx }));
 }
 
 function trunkInputs(trunk: TrunkSystemStatus, devices: ReadonlyMap<string, DeviceSet>): Input[] {
@@ -412,7 +450,7 @@ function trunkInputs(trunk: TrunkSystemStatus, devices: ReadonlyMap<string, Devi
     const info = sets
       .find((set) => set.id === deviceSet)
       ?.channels.find((candidate) => candidate.id === channel);
-    return info === undefined ? [] : [{ node: trunk.node, deviceSet, channel: info }];
+    return info === undefined ? [] : [{ node: trunk.node, deviceSet, channel: info, fx: [] }];
   };
   const control =
     trunk.control == null ? [] : wired(trunk.control.device_set, trunk.control.channel);

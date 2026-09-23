@@ -40,6 +40,10 @@ MPL-2.0. File-level copyleft: modifications to the crate's own files must be pub
 
 The Rust PAD and MOT decoders in crates/channels/src/dab/pad were written using DABlin's protocol implementation as a reference. DABlin is Copyright (C) 2015-2022 Stefan Pöschel and distributed under GPL-3.0-or-later, the same license as SDR--.
 
+**DPDFNet** — Apache-2.0
+
+The neural denoiser of the Audio FX node runs the pretrained dpdfnet2 16 kHz model published by Ceva, shipped unmodified as `crates/channels/models/dpdfnet2.onnx` and executed with tract. Only the weights are used; the STFT and streaming around them in `crates/channels/src/neural_denoise.rs` are this project's own.
+
 **DVB-T, DVB-S2X and DAB packet-mode reference implementations** — GPL-3.0-or-later
 
 The Rust DVB-T implementation was written from ETSI EN 300 744, with constellation and convolutional-code conventions checked against GNU Radio, Copyright 2015,2016 Free Software Foundation, Inc., GPL-3.0-or-later. DAB packet-mode fields were checked against Qt-DAB, Copyright 2015-2024 Jan van Katwijk, GPL-2.0-or-later, https://github.com/JvanKatwijk/qt-dab. DVB-S2X constellation, interleaver and LDPC tables are adapted from GNU Radio gr-dtv, Copyright 2015-2019 Free Software Foundation, Inc., GPL-3.0-or-later. These reference works are compatible with this project's GPL-3.0-or-later license.
@@ -84,7 +88,7 @@ SDR-- drives the RTL2832U and its R82xx tuner itself, in Rust, over its own USB 
 
 Opened at runtime from whatever SoapySDR the host has installed, and never linked or distributed by this project. A release that finds none simply reports no SoapySDR hardware. The modules it loads, and their licenses, belong to that installation.
 
-## Rust crates (773)
+## Rust crates (805)
 
 | Component | Version | License |
 | --- | --- | --- |
@@ -100,6 +104,7 @@ Opened at runtime from whatever SoapySDR the host has installed, and never linke
 | [anstyle-query](https://github.com/rust-cli/anstyle.git) | 1.1.5 | MIT OR Apache-2.0 |
 | [anstyle-wincon](https://github.com/rust-cli/anstyle.git) | 3.0.11 | MIT OR Apache-2.0 |
 | [anyhow](https://github.com/dtolnay/anyhow) | 1.0.104 | MIT OR Apache-2.0 |
+| [anymap3](https://github.com/reivilibre/anymap3) | 1.1.0 | BlueOak-1.0.0 OR MIT OR Apache-2.0 |
 | [arbitrary](https://github.com/rust-fuzz/arbitrary/) | 1.4.2 | MIT OR Apache-2.0 |
 | [arc-swap](https://github.com/vorner/arc-swap) | 1.9.2 | MIT OR Apache-2.0 |
 | [arrayvec](https://github.com/bluss/arrayvec) | 0.7.8 | MIT OR Apache-2.0 |
@@ -134,7 +139,9 @@ Opened at runtime from whatever SoapySDR the host has installed, and never linke
 | [base64](https://github.com/marshallpierce/rust-base64) | 0.23.1 | MIT OR Apache-2.0 |
 | [bindgen](https://github.com/rust-lang/rust-bindgen) | 0.72.1 | BSD-3-Clause |
 | [bit-set](https://github.com/contain-rs/bit-set) | 0.10.0 | Apache-2.0 OR MIT |
+| [bit-set](https://github.com/contain-rs/bit-vec) | 0.11.1 | Apache-2.0 OR MIT |
 | [bit-set](https://github.com/contain-rs/bit-set) | 0.8.0 | Apache-2.0 OR MIT |
+| [bit-vec](https://github.com/contain-rs/bit-vec) | 0.10.1 | Apache-2.0 OR MIT |
 | [bit-vec](https://github.com/contain-rs/bit-vec) | 0.8.0 | Apache-2.0 OR MIT |
 | [bit-vec](https://github.com/contain-rs/bit-vec) | 0.9.1 | Apache-2.0 OR MIT |
 | [bitflags](https://github.com/bitflags/bitflags) | 1.3.2 | MIT/Apache-2.0 |
@@ -144,6 +151,8 @@ Opened at runtime from whatever SoapySDR the host has installed, and never linke
 | [block-buffer](https://github.com/RustCrypto/utils) | 0.12.1 | MIT OR Apache-2.0 |
 | [block2](https://github.com/madsmtm/objc2) | 0.6.2 | MIT |
 | [blocking](https://github.com/smol-rs/blocking) | 1.7.0 | Apache-2.0 OR MIT |
+| [borsh](https://github.com/near/borsh-rs) | 1.8.1 | MIT OR Apache-2.0 |
+| [borsh-derive](https://github.com/near/borsh-rs) | 1.8.1 | Apache-2.0 |
 | [brotli](https://github.com/dropbox/rust-brotli) | 8.0.4 | BSD-3-Clause AND MIT |
 | [brotli-decompressor](https://github.com/dropbox/rust-brotli-decompressor) | 5.0.3 | BSD-3-Clause/MIT |
 | [bs58](https://github.com/Nullus157/bs58-rs) | 0.5.1 | MIT/Apache-2.0 |
@@ -221,6 +230,7 @@ Opened at runtime from whatever SoapySDR the host has installed, and never linke
 | [defmt-parser](https://github.com/knurling-rs/defmt) | 1.0.0 | MIT OR Apache-2.0 |
 | [der-parser](https://github.com/rusticata/der-parser.git) | 10.0.0 | MIT OR Apache-2.0 |
 | [deranged](https://github.com/jhpratt/deranged) | 0.5.8 | MIT OR Apache-2.0 |
+| [derive-new](https://github.com/nrc/derive-new) | 0.7.0 | MIT |
 | [derive_arbitrary](https://github.com/rust-fuzz/arbitrary) | 1.4.2 | MIT OR Apache-2.0 |
 | [derive_builder](https://github.com/colin-kiegel/rust-derive-builder) | 0.20.2 | MIT OR Apache-2.0 |
 | [derive_builder_core](https://github.com/colin-kiegel/rust-derive-builder) | 0.20.2 | MIT OR Apache-2.0 |
@@ -238,6 +248,7 @@ Opened at runtime from whatever SoapySDR the host has installed, and never linke
 | [dlopen2_derive](https://github.com/OpenByteDev/dlopen2) | 0.4.3 | MIT |
 | [document-features](https://github.com/slint-ui/document-features) | 0.2.12 | MIT OR Apache-2.0 |
 | [dom_query](https://github.com/niklak/dom_query) | 0.27.0 | MIT |
+| [downcast-rs](https://github.com/marcianx/downcast-rs) | 2.0.2 | MIT OR Apache-2.0 |
 | [dpi](https://github.com/rust-windowing/winit) | 0.1.2 | Apache-2.0 AND MIT |
 | [dtoa](https://github.com/dtolnay/dtoa) | 1.0.11 | MIT OR Apache-2.0 |
 | [dtoa-short](https://github.com/upsuper/dtoa-short) | 0.3.5 | MPL-2.0 |
@@ -245,6 +256,7 @@ Opened at runtime from whatever SoapySDR the host has installed, and never linke
 | [dtor-proc-macro](https://github.com/mmastrac/rust-ctor) | 0.0.6 | Apache-2.0 OR MIT |
 | [dunce](https://gitlab.com/kornelski/dunce) | 1.0.5 | CC0-1.0 OR MIT-0 OR Apache-2.0 |
 | [dyn-clone](https://github.com/dtolnay/dyn-clone) | 1.0.20 | MIT OR Apache-2.0 |
+| [dyn-hash](https://github.com/dtolnay/dyn-hash) | 1.0.0 | MIT OR Apache-2.0 |
 | [either](https://github.com/rayon-rs/either) | 1.18.0 | MIT OR Apache-2.0 |
 | [embed-resource](https://github.com/nabijaczleweli/rust-embed-resource) | 3.0.11 | MIT |
 | [embed_plist](https://github.com/nvzqz/embed-plist-rs) | 1.2.2 | MIT OR Apache-2.0 |
@@ -351,6 +363,7 @@ Opened at runtime from whatever SoapySDR the host has installed, and never linke
 | [indexmap](https://github.com/bluss/indexmap) | 1.9.3 | Apache-2.0 OR MIT |
 | [indexmap](https://github.com/indexmap-rs/indexmap) | 2.14.1 | Apache-2.0 OR MIT |
 | [infer](https://github.com/bojand/infer) | 0.19.0 | MIT |
+| [inventory](https://github.com/dtolnay/inventory) | 0.3.24 | MIT OR Apache-2.0 |
 | [io-kit-sys](https://github.com/jtakakura/io-kit-rs) | 0.4.1 | MIT / Apache-2.0 |
 | [io-kit-sys](https://github.com/jtakakura/io-kit-rs) | 0.5.0 | MIT OR Apache-2.0 |
 | [ipnet](https://github.com/krisprice/ipnet) | 2.12.1 | MIT OR Apache-2.0 |
@@ -358,6 +371,7 @@ Opened at runtime from whatever SoapySDR the host has installed, and never linke
 | [is-wsl](https://github.com/TheLarkInn/is-wsl) | 0.4.0 | MIT |
 | [is_terminal_polyfill](https://github.com/polyfill-rs/is_terminal_polyfill) | 1.70.2 | MIT OR Apache-2.0 |
 | [itertools](https://github.com/rust-itertools/itertools) | 0.13.0 | MIT OR Apache-2.0 |
+| [itertools](https://github.com/rust-itertools/itertools) | 0.15.0 | MIT OR Apache-2.0 |
 | [itoa](https://github.com/dtolnay/itoa) | 1.0.18 | MIT OR Apache-2.0 |
 | [javascriptcore-rs](https://github.com/tauri-apps/javascriptcore-rs) | 1.1.2 | MIT |
 | [javascriptcore-rs-sys](https://github.com/tauri-apps/javascriptcore-rs) | 1.1.1 | MIT |
@@ -399,14 +413,19 @@ Opened at runtime from whatever SoapySDR the host has installed, and never linke
 | [lru-slab](https://github.com/Ralith/lru-slab) | 0.1.2 | MIT OR Apache-2.0 OR Zlib |
 | [mach2](https://github.com/JohnTitor/mach2) | 0.4.3 | BSD-2-Clause OR MIT OR Apache-2.0 |
 | [mach2](https://github.com/JohnTitor/mach2) | 0.5.0 | BSD-2-Clause OR MIT OR Apache-2.0 |
+| [maplit](https://github.com/bluss/maplit) | 1.0.2 | MIT/Apache-2.0 |
 | [markup5ever](https://github.com/servo/html5ever) | 0.38.0 | MIT OR Apache-2.0 |
 | [matchers](https://github.com/hawkw/matchers) | 0.2.0 | MIT |
 | [matchit](https://github.com/ibraheemdev/matchit) | 0.8.4 | MIT AND BSD-3-Clause |
+| [matrixmultiply](https://github.com/bluss/matrixmultiply/) | 0.3.11 | MIT/Apache-2.0 |
 | [memchr](https://github.com/BurntSushi/memchr) | 2.8.3 | Unlicense OR MIT |
+| [memmap2](https://github.com/RazrFalcon/memmap2-rs) | 0.9.11 | MIT OR Apache-2.0 |
+| [memo-map](https://github.com/mitsuhiko/memo-map) | 0.3.4 | Apache-2.0 |
 | [memoffset](https://github.com/Gilnaa/memoffset) | 0.9.1 | MIT |
 | [mfsk-core](https://github.com/jl1nie/mfsk-core) | 0.10.0 | GPL-3.0-or-later |
 | [mime](https://github.com/hyperium/mime) | 0.3.17 | MIT OR Apache-2.0 |
 | [mime_guess](https://github.com/abonander/mime_guess) | 2.0.5 | MIT |
+| [minijinja](https://github.com/mitsuhiko/minijinja) | 2.24.0 | Apache-2.0 |
 | [minimal-lexical](https://github.com/Alexhuszagh/minimal-lexical) | 0.2.1 | MIT/Apache-2.0 |
 | [minisign-verify](https://github.com/jedisct1/rust-minisign-verify) | 0.2.5 | MIT |
 | [miniz_oxide](https://github.com/Frommi/miniz_oxide/tree/master/miniz_oxide) | 0.8.9 | MIT OR Zlib OR Apache-2.0 |
@@ -421,6 +440,7 @@ Opened at runtime from whatever SoapySDR the host has installed, and never linke
 | [multiversion_no_op](https://github.com/hsivonen/multiversion_no_op) | 1.0.0 | Apache-2.0 OR MIT |
 | [naga](https://github.com/gfx-rs/wgpu) | 30.0.1 | MIT OR Apache-2.0 |
 | [naga-types](https://github.com/gfx-rs/wgpu) | 30.0.1 | MIT OR Apache-2.0 |
+| [ndarray](https://github.com/rust-ndarray/ndarray) | 0.17.2 | MIT OR Apache-2.0 |
 | [ndk](https://github.com/rust-mobile/ndk) | 0.9.0 | MIT OR Apache-2.0 |
 | [ndk-sys](https://github.com/rust-mobile/ndk) | 0.6.0+11769913 | MIT OR Apache-2.0 |
 | [neli](https://github.com/jbaublitz/neli) | 0.7.4 | BSD-3-Clause |
@@ -435,11 +455,14 @@ Opened at runtime from whatever SoapySDR the host has installed, and never linke
 | [nix](https://github.com/nix-rust/nix) | 0.30.1 | MIT |
 | [nix](https://github.com/nix-rust/nix) | 0.31.3 | MIT |
 | [nom](https://github.com/Geal/nom) | 7.1.3 | MIT |
+| [nom](https://github.com/rust-bakery/nom) | 8.0.0 | MIT |
+| [nom-language](https://github.com/rust-bakery/nom) | 0.1.0 | MIT |
 | [nu-ansi-term](https://github.com/nushell/nu-ansi-term) | 0.50.3 | MIT |
 | [num-bigint](https://github.com/rust-num/num-bigint) | 0.4.8 | MIT OR Apache-2.0 |
 | [num-complex](https://github.com/rust-num/num-complex) | 0.4.6 | MIT OR Apache-2.0 |
 | [num-conv](https://github.com/jhpratt/num-conv) | 0.2.2 | MIT OR Apache-2.0 |
 | [num-integer](https://github.com/rust-num/num-integer) | 0.1.47 | MIT OR Apache-2.0 |
+| [num-rational](https://github.com/rust-num/num-rational) | 0.4.2 | MIT OR Apache-2.0 |
 | [num-traits](https://github.com/rust-num/num-traits) | 0.2.19 | MIT OR Apache-2.0 |
 | [num_enum](https://github.com/illicitonion/num_enum) | 0.7.6 | BSD-3-Clause OR MIT OR Apache-2.0 |
 | [num_enum_derive](https://github.com/illicitonion/num_enum) | 0.7.6 | BSD-3-Clause OR MIT OR Apache-2.0 |
@@ -511,6 +534,8 @@ Opened at runtime from whatever SoapySDR the host has installed, and never linke
 | [proc-macro-error-attr](https://gitlab.com/CreepySkeleton/proc-macro-error) | 1.0.4 | MIT OR Apache-2.0 |
 | [proc-macro2](https://github.com/dtolnay/proc-macro2) | 1.0.107 | MIT OR Apache-2.0 |
 | [profiling](https://github.com/aclysma/profiling) | 1.0.18 | MIT OR Apache-2.0 |
+| [prost](https://github.com/tokio-rs/prost) | 0.14.4 | Apache-2.0 |
+| [prost-derive](https://github.com/tokio-rs/prost) | 0.14.4 | Apache-2.0 |
 | [quick-xml](https://github.com/tafia/quick-xml) | 0.41.0 | MIT |
 | [quinn](https://github.com/quinn-rs/quinn) | 0.11.11 | MIT OR Apache-2.0 |
 | [quinn-proto](https://github.com/quinn-rs/quinn) | 0.11.17 | MIT OR Apache-2.0 |
@@ -523,10 +548,12 @@ Opened at runtime from whatever SoapySDR the host has installed, and never linke
 | [rand_chacha](https://github.com/rust-random/rand) | 0.9.0 | MIT OR Apache-2.0 |
 | [rand_core](https://github.com/rust-random/rand_core) | 0.10.1 | MIT OR Apache-2.0 |
 | [rand_core](https://github.com/rust-random/rand) | 0.9.5 | MIT OR Apache-2.0 |
+| [rand_distr](https://github.com/rust-random/rand_distr) | 0.6.0 | MIT OR Apache-2.0 |
 | [rand_pcg](https://github.com/rust-random/rngs) | 0.10.2 | MIT OR Apache-2.0 |
 | [range-alloc](https://github.com/gfx-rs/range-alloc) | 0.1.5 | MIT OR Apache-2.0 |
 | [raw-window-handle](https://github.com/rust-windowing/raw-window-handle) | 0.6.2 | MIT OR Apache-2.0 OR Zlib |
 | [raw-window-metal](https://github.com/rust-windowing/raw-window-metal) | 1.1.0 | MIT OR Apache-2.0 |
+| [rawpointer](https://github.com/bluss/rawpointer/) | 0.2.1 | MIT/Apache-2.0 |
 | [rayon](https://github.com/rayon-rs/rayon) | 1.12.0 | MIT OR Apache-2.0 |
 | [rayon-core](https://github.com/rayon-rs/rayon) | 1.13.0 | MIT OR Apache-2.0 |
 | [rcgen](https://github.com/rustls/rcgen) | 0.14.10 | MIT OR Apache-2.0 |
@@ -621,6 +648,7 @@ Opened at runtime from whatever SoapySDR the host has installed, and never linke
 | [stable_deref_trait](https://github.com/storyyeller/stable_deref_trait) | 1.2.1 | MIT OR Apache-2.0 |
 | [static_assertions](https://github.com/nvzqz/static-assertions-rs) | 1.1.0 | MIT OR Apache-2.0 |
 | [strength_reduce](http://github.com/ejmahler/strength_reduce) | 0.2.4 | MIT OR Apache-2.0 |
+| [string-interner](https://github.com/robbepop/string-interner) | 0.20.0 | MIT/Apache-2.0 |
 | [string_cache](https://github.com/servo/string-cache) | 0.9.0 | MIT OR Apache-2.0 |
 | [string_cache_codegen](https://github.com/servo/string-cache) | 0.6.1 | MIT OR Apache-2.0 |
 | [strsim](https://github.com/rapidfuzz/strsim-rs) | 0.11.1 | MIT |
@@ -694,6 +722,14 @@ Opened at runtime from whatever SoapySDR the host has installed, and never linke
 | [tracing-core](https://github.com/tokio-rs/tracing) | 0.1.36 | MIT |
 | [tracing-log](https://github.com/tokio-rs/tracing) | 0.2.0 | MIT |
 | [tracing-subscriber](https://github.com/tokio-rs/tracing) | 0.3.23 | MIT |
+| [tract-core](https://github.com/sonos/tract) | 0.23.8 | MIT OR Apache-2.0 |
+| [tract-data](https://github.com/sonos/tract) | 0.23.8 | MIT OR Apache-2.0 |
+| [tract-extra](https://github.com/sonos/tract) | 0.23.8 | MIT OR Apache-2.0 |
+| [tract-hir](https://github.com/sonos/tract) | 0.23.8 | MIT OR Apache-2.0 |
+| [tract-linalg](https://github.com/sonos/tract) | 0.23.8 | MIT OR Apache-2.0 |
+| [tract-nnef](https://github.com/sonos/tract) | 0.23.8 | MIT OR Apache-2.0 |
+| [tract-onnx](https://github.com/sonos/tract) | 0.23.8 | MIT OR Apache-2.0 |
+| [tract-onnx-opl](https://github.com/sonos/tract) | 0.23.8 | MIT OR Apache-2.0 |
 | [transpose](https://github.com/ejmahler/transpose) | 0.2.3 | MIT OR Apache-2.0 |
 | [tray-icon](https://github.com/tauri-apps/tray-icon) | 0.24.2 | MIT OR Apache-2.0 |
 | [try-lock](https://github.com/seanmonstar/try-lock) | 0.2.5 | MIT |
@@ -937,11 +973,12 @@ Opened at runtime from whatever SoapySDR the host has installed, and never linke
 | [use-sync-external-store](https://github.com/facebook/react#readme) | 1.6.0 | MIT |
 | [zustand](https://github.com/pmndrs/zustand) | 4.5.7, 5.0.15 | MIT |
 
-## Hardware libraries (12)
+## Hardware libraries (13)
 
 | Component | Version | License |
 | --- | --- | --- |
 | [DABlin PAD and MOT reference](https://github.com/Opendigitalradio/dablin) | — | GPL-3.0-or-later |
+| [DPDFNet](https://github.com/ceva-ip/DPDFNet) | — | Apache-2.0 |
 | [DVB-T, DVB-S2X and DAB packet-mode reference implementations](https://github.com/gnuradio/gnuradio/tree/main/gr-dtv/lib/dvbt) | — | GPL-3.0-or-later |
 | [FFmpeg 9.0.1](https://ffmpeg.org/) | — | GPL-3.0-or-later |
 | [gr-dtv, gr-dvbs2rx, gr-dvbgse](https://github.com/gnuradio/gnuradio) | — | GPL-3.0-or-later |

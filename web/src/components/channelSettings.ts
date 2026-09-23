@@ -23,7 +23,7 @@ export function mergeChannelSettings(
     frequency_hz: edit.frequency_hz ?? current.frequency_hz,
     squelch: edit.squelch ?? current.squelch ?? SQUELCH_OFF,
     params: edit.params ?? current.params,
-    audio: edit.audio ?? current.audio ?? {},
+    blanker: edit.blanker ?? current.blanker ?? {},
   };
 }
 
@@ -113,10 +113,10 @@ export const AUDIO_LIMITS = {
 } as const;
 
 export function mergeAudio(
-  current: ChannelSettings,
+  current: AudioProcessing,
   edit: Partial<AudioProcessing>,
 ): AudioProcessing {
-  return { ...current.audio, ...edit };
+  return { ...current, ...edit };
 }
 
 export function withNotchAdded(notches: NotchSettings[]): NotchSettings[] | null {
@@ -146,7 +146,6 @@ export function audioChainActive(audio: AudioProcessing | undefined): boolean {
     return false;
   }
   return (
-    (audio.blanker?.enabled ?? false) ||
     (audio.click_removal?.enabled ?? false) ||
     (audio.filter?.enabled ?? false) ||
     (audio.notches?.length ?? 0) > 0 ||

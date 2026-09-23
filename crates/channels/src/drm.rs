@@ -185,7 +185,7 @@ pub(crate) fn channel_filter(p: &DrmParams) -> Result<ChannelFilter, ChannelErro
         frequency_hz: 0.0,
         squelch: sdrmm_wire::Squelch::Off,
         params: ChannelParams::Drm(*p),
-        audio: sdrmm_wire::AudioProcessing::default(),
+        blanker: Default::default(),
     })?;
     let (_, half) = occupied_band(&p);
     let pass = half.min(flat_bandwidth_hz(INPUT_RATE_HZ) / 2.0);
@@ -315,7 +315,7 @@ mod tests {
                 bandwidth_hz,
                 ..DrmParams::default()
             }),
-            audio: Default::default(),
+            blanker: Default::default(),
         }
     }
 

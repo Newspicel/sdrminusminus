@@ -186,7 +186,11 @@ const patch: Scene = {
           channel("am", "am", { x: 480, y: 520, w: 440, h: 445 }),
           channel("wfm", "wfm", { x: 960, y: 520, w: 440, h: 469 }),
           node("speaker", { kind: "speaker" }, { x: 1440, y: 520, w: 320, h: 270 }),
-          node("rec", { kind: "audio_recorder" }, { x: 1440, y: 830, w: 340, h: 70 }),
+          node(
+            "rec",
+            { kind: "audio_recorder", data: { recording: false } },
+            { x: 1440, y: 830, w: 340, h: 70 },
+          ),
           node("udp", { kind: "network_export", data: {} }, { x: 1440, y: 940, w: 380, h: 240 }),
         ],
         edges: [

@@ -25,7 +25,7 @@ fn settings(standard: DatvStandard) -> ChannelSettings {
             standard,
             ..testgen::datv::params()
         }),
-        audio: Default::default(),
+        blanker: Default::default(),
     }
 }
 

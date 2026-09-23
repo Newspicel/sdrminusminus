@@ -505,7 +505,7 @@ fn synthetic_call_decodes_through_an_impaired_channel() {
             frequency_hz: 0.0,
             squelch: sdrmm_wire::Squelch::Off,
             params: dmr_params(),
-            audio: Default::default(),
+            blanker: Default::default(),
         },
     )
     .unwrap();

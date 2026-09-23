@@ -18,8 +18,8 @@ use sdrmm_device_siggen::SigGenDriver;
 use sdrmm_device_virtual::VirtualDriver;
 use sdrmm_recorder::{data_path, meta_path};
 use sdrmm_wire::{
-    AudioRecordingStatus, Capabilities, ChannelInfo, ChannelSettings, DecodedRecord, DeviceFault,
-    DeviceInfo, DeviceSet, DeviceSetStatus, DeviceSettings, NetworkExportSettings,
+    AudioRecordingStatus, AudioRoute, Capabilities, ChannelInfo, ChannelSettings, DecodedRecord,
+    DeviceFault, DeviceInfo, DeviceSet, DeviceSetStatus, DeviceSettings, NetworkExportSettings,
     NetworkExportStatus, PositionFix, RecordingStatus, ServerEvent, StateScope, StateSnapshot,
     StreamScope, TrunkSystemStatus,
 };
@@ -27,6 +27,7 @@ use tokio::sync::broadcast;
 
 mod arrays;
 pub mod audio;
+mod audio_fx;
 pub mod audio_recording;
 mod capture_ops;
 mod capture_ring;
@@ -113,6 +114,7 @@ const DECODED_CHANNEL_CAP: usize = 1024;
 const DEFAULT_CENTER_HZ: f64 = 100_000_000.0;
 const DEFAULT_SAMPLE_RATE: f64 = 2_048_000.0;
 const TIME_MACHINE_STOP_POLL: Duration = Duration::from_millis(10);
+const FX_RECORDING_DRAIN: Duration = Duration::from_secs(2);
 const TIME_MACHINE_STOP_POLLS: u32 = 200;
 
 #[must_use]
@@ -407,6 +409,7 @@ struct RecordingState {
 }
 
 struct ChannelAudioRecording {
+    fx: Vec<String>,
     file: String,
     stream: u32,
     started_at: String,
@@ -414,6 +417,7 @@ struct ChannelAudioRecording {
     tap: audio_recording::AudioRecorderTap,
     shared: Arc<AudioRecordingShared>,
     writer: JoinHandle<()>,
+    fx_control: Option<std::sync::mpsc::Sender<audio_fx::FxControl>>,
     frames_seen: u64,
     error_seen: bool,
 }
@@ -421,6 +425,7 @@ struct ChannelAudioRecording {
 impl ChannelAudioRecording {
     fn status(&self) -> AudioRecordingStatus {
         AudioRecordingStatus {
+            fx: self.fx.clone(),
             file: self.file.clone(),
             started_at: self.started_at.clone(),
             channels: self.channels,
@@ -431,8 +436,26 @@ impl ChannelAudioRecording {
     }
 
     fn join(self) {
-        let Self { tap, writer, .. } = self;
+        let Self {
+            tap,
+            writer,
+            fx_control,
+            ..
+        } = self;
         drop(tap);
+        if let Some(control) = fx_control {
+            let _ = control.send(audio_fx::FxControl::StopRecording);
+            let deadline = Instant::now() + FX_RECORDING_DRAIN;
+            while !writer.is_finished() {
+                if Instant::now() >= deadline {
+                    tracing::warn!(
+                        "audio FX recording is still draining; its file closes once the FX stream next runs"
+                    );
+                    return;
+                }
+                std::thread::sleep(Duration::from_millis(5));
+            }
+        }
         if writer.join().is_err() {
             tracing::error!("audio recording writer thread panicked");
         }
@@ -517,7 +540,7 @@ struct DeviceSetState {
     error: Option<String>,
     fault: Option<DeviceFault>,
     recording: Option<RecordingState>,
-    audio_recordings: HashMap<u32, ChannelAudioRecording>,
+    audio_recordings: HashMap<AudioRoute, ChannelAudioRecording>,
     baseband_recordings: HashMap<u32, ChannelBasebandRecording>,
     channel_exports: HashMap<u32, NetworkExportState>,
     network_export: Option<NetworkExportState>,
@@ -566,10 +589,7 @@ impl DeviceSetState {
                 .iter()
                 .map(|channel| ChannelInfo {
                     out_of_band: !self.reaches_channel(channel),
-                    audio_recording: self
-                        .audio_recordings
-                        .get(&channel.id)
-                        .map(ChannelAudioRecording::status),
+                    audio_recordings: self.audio_recording_statuses(channel.id),
                     baseband_recording: self
                         .baseband_recordings
                         .get(&channel.id)
@@ -664,8 +684,37 @@ impl DeviceSetState {
         }
     }
 
+    fn audio_recording_statuses(&self, ch: u32) -> Vec<AudioRecordingStatus> {
+        let mut statuses: Vec<AudioRecordingStatus> = self
+            .audio_recordings
+            .iter()
+            .filter(|(route, _)| route.channel == ch)
+            .map(|(_, recording)| recording.status())
+            .collect();
+        statuses.sort_by(|a, b| a.fx.cmp(&b.fx));
+        statuses
+    }
+
+    fn take_audio_recordings(&mut self, ch: u32) -> Vec<ChannelAudioRecording> {
+        let routes: Vec<AudioRoute> = self
+            .audio_recordings
+            .keys()
+            .filter(|route| route.channel == ch)
+            .cloned()
+            .collect();
+        routes
+            .iter()
+            .filter_map(|route| self.audio_recordings.remove(route))
+            .collect()
+    }
+
     fn rearm_audio_recording(&self, ch: u32, stream: u32) {
-        if let Some(recording) = self.audio_recordings.get(&ch) {
+        if let Some(recording) = self
+            .audio_recordings
+            .iter()
+            .find(|(route, _)| route.channel == ch && route.fx.is_empty())
+            .map(|(_, recording)| recording)
+        {
             self.send_dsp(
                 stream,
                 DspCommand::StartChannelRecording {
@@ -710,6 +759,7 @@ pub struct Engine {
     registry: DeviceRegistry,
     arrays: ArrayCatalog,
     inner: Mutex<Inner>,
+    audio_fx: Mutex<audio_fx::AudioFxHub>,
     event_tx: broadcast::Sender<ServerEvent>,
     fault_tx: mpsc::Sender<(u32, DeviceError)>,
     decoded_tx: mpsc::SyncSender<RawDecoded>,
@@ -762,6 +812,7 @@ impl Engine {
             registry,
             arrays,
             inner: Mutex::new(Inner::default()),
+            audio_fx: Mutex::new(audio_fx::AudioFxHub::default()),
             event_tx,
             fault_tx,
             decoded_tx,

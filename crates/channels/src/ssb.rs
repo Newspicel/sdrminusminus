@@ -4,7 +4,7 @@ use std::{
 };
 
 use num_complex::Complex;
-use sdrmm_dsp::{FirC, RealDecimator, design_bandpass, design_lowpass};
+use sdrmm_dsp::{Agc, FirC, RealDecimator, design_bandpass, design_lowpass};
 use sdrmm_modem::analog::{
     Sideband as EngineSideband, SsbDemod, SsbDetector, SsbMethod, SsbParams as SsbWaveform,
 };
@@ -16,6 +16,7 @@ use crate::{
     AUDIO_RATE, ChannelCtx, ChannelError, ChannelOutputs, ChannelRx, ChannelTx, TxPayload,
     check_input_rate, clamp_full_scale,
     tx::{Burst, TxQueue},
+    voice_leveller,
 };
 
 pub(crate) const PASSBAND_LOW_HZ: f64 = 100.0;
@@ -35,6 +36,7 @@ static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescrip
 
 pub struct SsbChannel {
     demod: SsbDemod,
+    leveller: Agc,
 }
 
 fn params(settings: &ChannelSettings) -> Result<&SsbParams, ChannelError> {
@@ -93,6 +95,7 @@ impl ChannelRx for SsbChannel {
         let p = params(&settings)?;
         Ok(Self {
             demod: demodulator(p)?,
+            leveller: voice_leveller(),
         })
     }
 
@@ -104,6 +107,7 @@ impl ChannelRx for SsbChannel {
 
     fn process(&mut self, iq: &[Complex<f32>], out: &mut ChannelOutputs) {
         self.demod.process(iq, &mut out.audio_pcm);
+        self.leveller.process(&mut out.audio_pcm);
         clamp_full_scale(&mut out.audio_pcm);
         if !out.audio_pcm.is_empty() {
             out.audio_rate = AUDIO_RATE;
@@ -274,7 +278,19 @@ mod tests {
         assert!((995.0..1_005.0).contains(&freq), "dominant {freq} Hz");
         assert!(ratio > 10.0, "tone-to-rest ratio {ratio}");
         let amplitude = rms(window);
-        assert!((0.62..0.78).contains(&amplitude), "rms {amplitude}");
+        assert!((0.2..0.3).contains(&amplitude), "rms {amplitude}");
+    }
+
+    #[test]
+    fn a_weak_signal_is_levelled_like_a_strong_one() {
+        let mut chan = channel(Sideband::Usb);
+        let weak: Vec<Complex<f32>> = complex_tone(1_000.0 / RATE, 96_000)
+            .iter()
+            .map(|s| s * 0.01)
+            .collect();
+        let audio = run_ragged(&mut chan, &weak);
+        let amplitude = rms(&audio[72_000..]);
+        assert!((0.2..0.3).contains(&amplitude), "rms {amplitude}");
     }
 
     #[test]

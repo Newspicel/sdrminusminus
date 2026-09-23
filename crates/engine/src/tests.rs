@@ -7,7 +7,7 @@ use std::{
 use num_complex::Complex;
 use sdrmm_device::{DeviceDriver, DeviceRegistry, RxSink, SdrDevice, lock, single_rx_sink};
 use sdrmm_wire::{
-    AdsbParams, AudioProcessing, ChannelParams, ChannelSettings, DcArtifact, DecoderEvent, Duplex,
+    AdsbParams, ChannelParams, ChannelSettings, DcArtifact, DecoderEvent, Duplex,
     MAX_TIME_MACHINE_SECONDS, NfmParams, ScanState, Sideband, SsbParams, StreamScope,
     TimeMachineAction, TimeMachineNode, TimeMachineStatus, Tuning,
 };
@@ -1126,7 +1126,7 @@ fn parked(id: u32, offset_hz: f64) -> ChannelInfo {
         node: None,
         settings: nfm_settings(offset_hz),
         out_of_band: false,
-        audio_recording: None,
+        audio_recordings: Vec::new(),
         baseband_recording: None,
         network_export: None,
     }
@@ -1155,7 +1155,7 @@ fn nfm_settings(offset_hz: f64) -> ChannelSettings {
         frequency_hz: TEST_CENTER_HZ + offset_hz,
         squelch: sdrmm_wire::Squelch::Off,
         params: ChannelParams::Nfm(NfmParams::default()),
-        audio: Default::default(),
+        blanker: Default::default(),
     }
 }
 

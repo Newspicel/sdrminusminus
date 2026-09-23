@@ -2,8 +2,9 @@ export type PcmListener = (pcm: Float32Array, channels: number) => void;
 
 const listeners = new Map<string, Set<PcmListener>>();
 
-export function monitorKey(deviceSet: number, channel: number): string {
-  return `${deviceSet}:${channel}`;
+export function monitorKey(deviceSet: number, channel: number, fx: readonly string[] = []): string {
+  const base = `${deviceSet}:${channel}`;
+  return fx.length === 0 ? base : `${base}>${JSON.stringify(fx)}`;
 }
 
 export function watchAudio(key: string, listener: PcmListener): () => void {

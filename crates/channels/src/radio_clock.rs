@@ -970,7 +970,7 @@ mod tests {
             frequency_hz: 0.0,
             squelch: sdrmm_wire::Squelch::Off,
             params: ChannelParams::RadioClock(RadioClockParams::default()),
-            audio: Default::default(),
+            blanker: Default::default(),
         };
         let mut channel = RadioClockChannel::new(ChannelCtx { input_rate: RATE }, settings)
             .expect("valid fixture channel");

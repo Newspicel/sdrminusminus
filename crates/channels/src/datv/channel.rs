@@ -90,7 +90,7 @@ pub fn channel_filter(p: &DatvParams) -> Result<ChannelFilter, ChannelError> {
         frequency_hz: 0.0,
         squelch: sdrmm_wire::Squelch::Off,
         params: ChannelParams::Datv(*p),
-        audio: sdrmm_wire::AudioProcessing::default(),
+        blanker: Default::default(),
     })?;
     let (_, half) = occupied_band(&p);
     let rate = input_rate_hz(&p);
@@ -555,7 +555,7 @@ mod tests {
             frequency_hz: 0.0,
             squelch: sdrmm_wire::Squelch::Off,
             params: ChannelParams::Datv(params),
-            audio: Default::default(),
+            blanker: Default::default(),
         }
     }
 

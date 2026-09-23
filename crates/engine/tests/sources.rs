@@ -104,7 +104,7 @@ async fn a_recording_node_plays_its_library_stem_into_a_decoder() {
             frequency_hz: CENTER_HZ,
             squelch: Squelch::Off,
             params: ChannelParams::Pocsag(PocsagParams::default()),
-            audio: Default::default(),
+            blanker: Default::default(),
         },
         |event| matches!(event, DecoderEvent::Pocsag(_)),
     )
@@ -155,7 +155,7 @@ async fn a_signal_generator_node_opens_once_per_node_and_decodes() {
             frequency_hz: CENTER_HZ,
             squelch: Squelch::Off,
             params: ChannelParams::Pocsag(PocsagParams::default()),
-            audio: Default::default(),
+            blanker: Default::default(),
         },
         |event| matches!(event, DecoderEvent::Pocsag(_)),
     )
@@ -183,7 +183,7 @@ async fn a_generated_signal_reaches_the_decoder_it_is_named_for() {
                 ctcss_hz: Some(88.5),
                 ..NfmParams::default()
             }),
-            audio: Default::default(),
+            blanker: Default::default(),
         },
         |event| matches!(event, DecoderEvent::Tone(tone) if tone.ctcss_hz.is_some()),
     )
@@ -230,7 +230,7 @@ async fn a_signal_that_needs_another_rate_takes_the_whole_chain_with_it() {
                 frequency_hz: CENTER_HZ,
                 squelch: Squelch::Off,
                 params: ChannelParams::Pocsag(PocsagParams::default()),
-                audio: Default::default(),
+                blanker: Default::default(),
             },
         )
         .unwrap();
@@ -251,7 +251,7 @@ async fn a_signal_that_needs_another_rate_takes_the_whole_chain_with_it() {
             frequency_hz: CENTER_HZ,
             squelch: Squelch::Off,
             params: ChannelParams::Adsb(sdrmm_wire::AdsbParams::default()),
-            audio: Default::default(),
+            blanker: Default::default(),
         },
         |event| matches!(event, DecoderEvent::Adsb(_)),
     )

@@ -395,7 +395,7 @@ fn run(fixture: &Fixture, iq: &[Complex<f32>]) -> Vec<IdentReport> {
                 .clamp(MIN_IDENT_BANDWIDTH_HZ, MAX_IDENT_BANDWIDTH_HZ),
             ..IdentParams::default()
         }),
-        audio: Default::default(),
+        blanker: Default::default(),
     };
     let mut channel = IdentChannel::new(
         ChannelCtx {

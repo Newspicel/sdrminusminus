@@ -514,7 +514,7 @@ mod tests {
                 service_id,
                 ..DabParams::default()
             }),
-            audio: Default::default(),
+            blanker: Default::default(),
         }
     }
 

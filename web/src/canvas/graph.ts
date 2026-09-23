@@ -279,6 +279,7 @@ export const NODE_SIZE: Record<NodeKind, NodeSize> = {
   channel: { w: 440 },
   event_output: { w: 420 },
   event_filter: { w: 380 },
+  audio_fx: { w: 400 },
   scope: { w: 520, h: 360 },
   baseband_scope: { w: 420, h: 340 },
   speaker: { w: 320 },
@@ -426,7 +427,24 @@ export function migrateSnapshot(snapshot: WorkspaceSnapshot): WorkspaceSnapshot 
 const port = (reference: PortRef): string => `${reference.node}.${reference.port}`;
 
 function migrateGraph(graph: PatchGraph): PatchGraph {
-  return repointControlWires(flipScannerInputs(graph));
+  return idleBareRecorders(repointControlWires(flipScannerInputs(graph)));
+}
+
+function idleBareRecorders(graph: PatchGraph): PatchGraph {
+  const bare = (node: PatchNode): boolean =>
+    (node.kind === "recorder" ||
+      node.kind === "audio_recorder" ||
+      node.kind === "baseband_recorder") &&
+    (node as { data?: unknown }).data === undefined;
+  if (!graph.nodes.some(bare)) {
+    return graph;
+  }
+  return {
+    ...graph,
+    nodes: graph.nodes.map((node) =>
+      bare(node) ? ({ ...node, data: { recording: false } } as PatchNode) : node,
+    ),
+  };
 }
 
 function flipScannerInputs(graph: PatchGraph): PatchGraph {

@@ -14,11 +14,10 @@ use schemars::JsonSchema;
 use sdrmm_engine::Engine;
 use sdrmm_tools::{ToolError, ToolRegistry};
 use sdrmm_wire::{
-    AntennaDesign, AntennaRequest, AudioProcessing, ChannelParams, ChannelSettings,
-    DecoderLogQuery, DeviceSettings, GroundPlaneParams, InvertedVParams, NanoVnaCalStep,
-    NanoVnaCalibrateRequest, NanoVnaPortRequest, NanoVnaRequest, NanoVnaSweepRequest,
-    NanoVnaSweepState, ScanRange, ScanSettings, Squelch, ToolRequest, ToolResponse, ToolsResponse,
-    YagiParams,
+    AntennaDesign, AntennaRequest, ChannelParams, ChannelSettings, DecoderLogQuery, DeviceSettings,
+    GroundPlaneParams, InvertedVParams, NanoVnaCalStep, NanoVnaCalibrateRequest,
+    NanoVnaPortRequest, NanoVnaRequest, NanoVnaSweepRequest, NanoVnaSweepState, ScanRange,
+    ScanSettings, Squelch, ToolRequest, ToolResponse, ToolsResponse, YagiParams,
 };
 use serde::Deserialize;
 
@@ -36,17 +35,9 @@ pub(crate) fn router(
     engine: Arc<Engine>,
     store: Arc<Store>,
     tools: Arc<ToolRegistry>,
-    recordings_gate: Arc<std::sync::Mutex<()>>,
 ) -> Router<AppState> {
     let service = StreamableHttpService::new(
-        move || {
-            Ok(SdrMcp::new(
-                engine.clone(),
-                store.clone(),
-                tools.clone(),
-                recordings_gate.clone(),
-            ))
-        },
+        move || Ok(SdrMcp::new(engine.clone(), store.clone(), tools.clone())),
         Arc::new(LocalSessionManager::default()),
         StreamableHttpServerConfig::default()
             .with_legacy_session_mode(false)
@@ -61,23 +52,16 @@ struct SdrMcp {
     engine: Arc<Engine>,
     store: Arc<Store>,
     tools: Arc<ToolRegistry>,
-    recordings_gate: Arc<std::sync::Mutex<()>>,
     tool_router: ToolRouter<Self>,
 }
 
 impl SdrMcp {
-    fn new(
-        engine: Arc<Engine>,
-        store: Arc<Store>,
-        tools: Arc<ToolRegistry>,
-        recordings_gate: Arc<std::sync::Mutex<()>>,
-    ) -> Self {
+    fn new(engine: Arc<Engine>, store: Arc<Store>, tools: Arc<ToolRegistry>) -> Self {
         static ROUTER: LazyLock<ToolRouter<SdrMcp>> = LazyLock::new(SdrMcp::tool_router);
         Self {
             engine,
             store,
             tools,
-            recordings_gate,
             tool_router: ROUTER.clone(),
         }
     }
@@ -168,17 +152,9 @@ struct StartScanRequest {
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
-struct RecordRequest {
-    device_set: u32,
-    start: bool,
-    stream: Option<u32>,
-}
-
-#[derive(Debug, Deserialize, JsonSchema)]
-struct RecordChannelAudioRequest {
-    device_set: u32,
-    channel: u32,
-    start: bool,
+struct SetRecorderRequest {
+    node: String,
+    recording: bool,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -429,7 +405,7 @@ impl SdrMcp {
         let settings = ChannelSettings {
             frequency_hz: req.frequency_hz,
             squelch: Squelch::from_levels(req.squelch_db, req.squelch_auto_db),
-            audio: AudioProcessing::default_for(params.type_id()),
+            blanker: Default::default(),
             params,
         };
         let engine = self.engine.clone();
@@ -517,69 +493,24 @@ impl SdrMcp {
     }
 
     #[tool(
-        description = "Start or stop a lossless SigMF IQ recording of a device set.",
-        annotations(title = "Record")
+        description = "Switch a recorder node in the open workspace on or off: Recorder (full \
+                       IQ as SigMF), Baseband recorder (a channel's IQ) or Audio recorder \
+                       (WAV, after any Audio FX). While on, it records whatever is wired into it.",
+        annotations(title = "Switch recorder")
     )]
-    async fn record(
+    async fn set_recorder(
         &self,
-        Parameters(req): Parameters<RecordRequest>,
+        Parameters(req): Parameters<SetRecorderRequest>,
     ) -> Result<CallToolResult, ErrorData> {
-        let engine = self.engine.clone();
         let store = self.store.clone();
-        let gate = self.recordings_gate.clone();
-        let ds = req.device_set;
-        let result = tokio::task::spawn_blocking(move || {
-            if req.start {
-                engine
-                    .start_recording(ds, req.stream.unwrap_or_default())
-                    .map_err(engine_error)?;
-                return Ok(serde_json::json!({ "recording": true }));
-            }
-            let finalized = engine.stop_recording(ds).map_err(engine_error)?;
-            if let Some(dir) = engine.recordings_dir() {
-                {
-                    let _gate = crate::rest::lock_gate(&gate);
-                    crate::rest::reconcile_recordings(dir, &store).map_err(|e| {
-                        ErrorData::internal_error(format!("indexing the recording: {e:?}"), None)
-                    })?;
-                }
-                engine.emit_scope(sdrmm_wire::StateScope::Recordings);
-            }
-            Ok(serde_json::json!({
-                "recording": false,
-                "file": finalized.stem.display().to_string(),
-                "samples": finalized.samples,
-                "error": finalized.error,
-            }))
-        })
-        .await
-        .map_err(|e| ErrorData::internal_error(e.to_string(), None))??;
-        structured(&result)
-    }
-
-    #[tool(
-        description = "Start or stop recording one channel's audio to a WAV file — what a \
-                       listener on that channel would hear, the channel's own processing \
-                       included. Independent of the device's IQ recording; a channel that \
-                       produces no audio is refused.",
-        annotations(title = "Record channel audio")
-    )]
-    async fn record_channel_audio(
-        &self,
-        Parameters(req): Parameters<RecordChannelAudioRequest>,
-    ) -> Result<CallToolResult, ErrorData> {
         let engine = self.engine.clone();
-        let status = tokio::task::spawn_blocking(move || {
-            if req.start {
-                engine.start_channel_recording(req.device_set, req.channel)
-            } else {
-                engine.stop_channel_recording(req.device_set, req.channel)
-            }
-        })
-        .await
-        .map_err(|e| ErrorData::internal_error(e.to_string(), None))?
-        .map_err(engine_error)?;
-        structured(&status)
+        let node = req.node.clone();
+        tokio::task::spawn_blocking(move || crate::recorders::switch(&store, &node, req.recording))
+            .await
+            .map_err(|e| ErrorData::internal_error(e.to_string(), None))?
+            .map_err(|e| ErrorData::invalid_params(e.to_string(), None))?;
+        engine.emit_scope(sdrmm_wire::StateScope::Workspaces);
+        structured(&serde_json::json!({ "node": req.node, "recording": req.recording }))
     }
 
     #[tool(
@@ -818,9 +749,8 @@ mod tests {
                 "nanovna_sweep",
                 "open_device",
                 "query_decoder_log",
-                "record",
-                "record_channel_audio",
                 "remove_channel",
+                "set_recorder",
                 "spectrum_snapshot",
                 "start_scan",
                 "stop_scan",

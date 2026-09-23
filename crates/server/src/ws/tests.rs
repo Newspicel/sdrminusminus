@@ -127,7 +127,7 @@ fn nfm_channel(offset_hz: f64) -> ChannelSettings {
         frequency_hz: 100_000_000.0 + offset_hz,
         squelch: sdrmm_wire::Squelch::Off,
         params: ChannelParams::Nfm(NfmParams::default()),
-        audio: Default::default(),
+        blanker: Default::default(),
     }
 }
 
@@ -136,7 +136,7 @@ fn atv_channel() -> ChannelSettings {
         frequency_hz: 100_000_000.0,
         squelch: sdrmm_wire::Squelch::Off,
         params: ChannelParams::Atv(sdrmm_wire::AtvParams::default()),
-        audio: Default::default(),
+        blanker: Default::default(),
     }
 }
 
@@ -161,6 +161,7 @@ async fn iq_lifecycle_shares_the_media_id_space_and_streams_baseband() {
         &ClientCommand::SubscribeAudio {
             device_set: ds,
             channel: voice,
+            fx: Vec::new(),
         },
     )
     .await;
@@ -347,6 +348,7 @@ async fn video_lifecycle_shares_the_media_id_space_and_refuses_silent_channels()
         &ClientCommand::SubscribeAudio {
             device_set: ds,
             channel: voice,
+            fx: Vec::new(),
         },
     )
     .await;
@@ -608,6 +610,7 @@ async fn audio_ids_disjoint_from_spectrum_and_duplicate_subscribe_stops_old() {
     let subscribe = ClientCommand::SubscribeAudio {
         device_set: ds,
         channel: ch,
+        fx: Vec::new(),
     };
     send(&mut ws, &subscribe).await;
     let first_id = match next_event(&mut ws).await {
@@ -615,6 +618,7 @@ async fn audio_ids_disjoint_from_spectrum_and_duplicate_subscribe_stops_old() {
             stream_id,
             device_set,
             channel,
+            fx,
         } => {
             assert!(
                 stream_id >= MEDIA_ID_BASE,
@@ -622,6 +626,7 @@ async fn audio_ids_disjoint_from_spectrum_and_duplicate_subscribe_stops_old() {
             );
             assert_eq!(device_set, ds);
             assert_eq!(channel, ch);
+            assert!(fx.is_empty());
             stream_id
         }
         other => panic!("expected AudioStreamStarted, got {other:?}"),
@@ -647,6 +652,7 @@ async fn audio_ids_disjoint_from_spectrum_and_duplicate_subscribe_stops_old() {
         &ClientCommand::UnsubscribeAudio {
             device_set: ds,
             channel: ch,
+            fx: Vec::new(),
         },
     )
     .await;

@@ -545,7 +545,7 @@ fn a_baseband_recorder_takes_every_channel_wired_into_it() {
         nodes: vec![
             channel("a", "nfm"),
             channel("b", "nfm"),
-            node("files", NodeBody::BasebandRecorder),
+            node("files", NodeBody::BasebandRecorder(RecorderNode::default())),
         ],
         edges: vec![
             edge(("a", "baseband"), ("files", "baseband")),
@@ -687,7 +687,9 @@ fn a_single_input_takes_one_wire_and_an_output_fans_out() {
     );
 
     let mut fanned = workspace();
-    fanned.nodes.push(node("rec", NodeBody::Recorder));
+    fanned
+        .nodes
+        .push(node("rec", NodeBody::Recorder(RecorderNode::default())));
     fanned.edges.push(edge(("dev", "iq"), ("rec", "iq")));
     fanned.validate().expect("iq fans out");
 }
@@ -713,7 +715,7 @@ fn duplicate_wires_and_self_wires_are_refused() {
 }
 
 #[test]
-fn the_only_type_level_cycle_is_the_guarded_event_transform() {
+fn the_only_type_level_cycles_are_the_guarded_transforms() {
     let catalog = PatchCatalog::build();
     let reaches = |from: &NodeTypeInfo, to: &NodeTypeInfo| {
         from.ports
@@ -745,7 +747,14 @@ fn the_only_type_level_cycle_is_the_guarded_event_transform() {
         .collect();
     assert_eq!(
         cycle,
-        vec!["array", "event_filter", "df", "combiner", "triangulation"]
+        vec![
+            "array",
+            "event_filter",
+            "audio_fx",
+            "df",
+            "combiner",
+            "triangulation"
+        ]
     );
 }
 
@@ -796,11 +805,12 @@ fn default_body(kind: &str) -> NodeBody {
         "dmr_trunk" => NodeBody::DmrTrunk(DmrTrunkNode::default()),
         "spectrum_monitor" => NodeBody::SpectrumMonitor(crate::SpectrumMonitorNode::default()),
         "event_filter" => NodeBody::EventFilter(EventFilterNode::default()),
+        "audio_fx" => NodeBody::AudioFx(crate::AudioFxNode::default()),
         "event_output" => NodeBody::EventOutput(EventOutputNode::default()),
         "video" => NodeBody::Video,
-        "recorder" => NodeBody::Recorder,
-        "audio_recorder" => NodeBody::AudioRecorder,
-        "baseband_recorder" => NodeBody::BasebandRecorder,
+        "recorder" => NodeBody::Recorder(RecorderNode::default()),
+        "audio_recorder" => NodeBody::AudioRecorder(RecorderNode::default()),
+        "baseband_recorder" => NodeBody::BasebandRecorder(RecorderNode::default()),
         "time_machine" => NodeBody::TimeMachine(TimeMachineNode::default()),
         "network_export" => NodeBody::NetworkExport(NetworkExportNode::default()),
         "export" => NodeBody::Export,
@@ -2117,4 +2127,44 @@ fn a_satellite_with_nonsense_settings_is_refused() {
         edges: Vec::new(),
     };
     assert!(matches!(graph.validate(), Err(PatchError::NodeSettings(_))));
+}
+
+fn audio_fx(id: &str) -> PatchNode {
+    node(id, NodeBody::AudioFx(crate::AudioFxNode::default()))
+}
+
+#[test]
+fn audio_fx_sits_between_a_channel_and_its_speaker() {
+    let mut graph = workspace();
+    graph.nodes.push(audio_fx("fx"));
+    graph.edges.pop();
+    graph.edges.push(edge(("ch", "audio"), ("fx", "audio")));
+    graph.edges.push(edge(("fx", "audio"), ("spk", "audio")));
+    assert!(graph.validate().is_ok());
+}
+
+#[test]
+fn audio_fx_wired_back_into_itself_is_a_loop() {
+    let graph = PatchGraph {
+        nodes: vec![audio_fx("a"), audio_fx("b")],
+        edges: vec![
+            edge(("a", "audio"), ("b", "audio")),
+            edge(("b", "audio"), ("a", "audio")),
+        ],
+    };
+    assert!(matches!(graph.validate(), Err(PatchError::Cycle(_))));
+}
+
+#[test]
+fn audio_fx_with_settings_outside_their_range_is_refused() {
+    let mut fx = crate::AudioFxNode::default();
+    fx.settings.denoise.strength = 3.0;
+    let graph = PatchGraph {
+        nodes: vec![node("fx", NodeBody::AudioFx(fx))],
+        edges: Vec::new(),
+    };
+    assert_eq!(
+        graph.validate(),
+        Err(PatchError::NodeSettings("fx".to_owned()))
+    );
 }

@@ -90,7 +90,7 @@ impl Engine {
                     && !recording.error_seen
                 {
                     recording.error_seen = true;
-                    audio_rec_faults.push((*id, *ch, error));
+                    audio_rec_faults.push((*id, ch.channel, error));
                     dirty = true;
                 }
             }

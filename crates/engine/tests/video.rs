@@ -74,7 +74,7 @@ async fn dvb_satellite_video_reaches_the_color_video_stream() {
                         code_rate: datv::CODE_RATE,
                         ..DatvParams::default()
                     }),
-                    audio: Default::default(),
+                    blanker: Default::default(),
                 },
             )
             .unwrap();
@@ -142,7 +142,7 @@ async fn dvbt_media_crosses_a_virtual_device_and_reaches_audio_and_video() {
                 frequency_hz: CENTER_HZ,
                 squelch: sdrmm_wire::Squelch::Off,
                 params: ChannelParams::Dvbt(sdrmm_wire::DvbtParams::default()),
-                audio: Default::default(),
+                blanker: Default::default(),
             },
         )
         .unwrap();
@@ -203,7 +203,7 @@ async fn an_atv_transmission_reaches_the_video_stream_as_a_picture() {
                 frequency_hz: CENTER_HZ + OFFSET_HZ,
                 squelch: sdrmm_wire::Squelch::Off,
                 params: ChannelParams::Atv(params),
-                audio: Default::default(),
+                blanker: Default::default(),
             },
         )
         .unwrap();
@@ -273,7 +273,7 @@ async fn a_channel_without_video_refuses_the_subscription() {
                 frequency_hz: 100_000_000.0,
                 squelch: sdrmm_wire::Squelch::Off,
                 params: ChannelParams::Nfm(NfmParams::default()),
-                audio: Default::default(),
+                blanker: Default::default(),
             },
         )
         .unwrap();
@@ -335,7 +335,7 @@ async fn an_sstv_transmission_reaches_the_image_stream_as_a_finished_picture() {
                 frequency_hz: CENTER_HZ + SSTV_OFFSET_HZ,
                 squelch: sdrmm_wire::Squelch::Off,
                 params: ChannelParams::Sstv(SstvParams::default()),
-                audio: Default::default(),
+                blanker: Default::default(),
             },
         )
         .unwrap();

@@ -20,6 +20,8 @@ export interface ChannelAudio {
   trimmedMs?: number;
 }
 
+const NO_FX: readonly string[] = [];
+
 export const audioEngine = new AudioEngine(createWebAudioSink);
 onOutputStateChange((running) => audioEngine.setOutputRunning(running));
 
@@ -27,6 +29,7 @@ export function useChannelAudio(
   socket: SdrSocket | null,
   deviceSet: number,
   channelId: number,
+  fx: readonly string[] = NO_FX,
 ): ChannelAudio {
   useEffect(() => {
     if (socket) {
@@ -35,32 +38,32 @@ export function useChannelAudio(
   }, [socket]);
 
   const playing = useSyncExternalStore(audioEngine.subscribe, () =>
-    audioEngine.isPlaying(deviceSet, channelId),
+    audioEngine.isPlaying(deviceSet, channelId, fx),
   );
   const pending = useSyncExternalStore(audioEngine.subscribe, () =>
-    audioEngine.isPending(deviceSet, channelId),
+    audioEngine.isPending(deviceSet, channelId, fx),
   );
   const suspended = useSyncExternalStore(audioEngine.subscribe, () =>
-    audioEngine.isSuspended(deviceSet, channelId),
+    audioEngine.isSuspended(deviceSet, channelId, fx),
   );
   const error = useSyncExternalStore(audioEngine.subscribe, () =>
-    audioEngine.getError(deviceSet, channelId),
+    audioEngine.getError(deviceSet, channelId, fx),
   );
   const volume = useSyncExternalStore(audioEngine.subscribe, () =>
-    audioEngine.getVolume(deviceSet, channelId),
+    audioEngine.getVolume(deviceSet, channelId, fx),
   );
   const lostFrames = useSyncExternalStore(audioEngine.subscribe, () =>
-    audioEngine.getLostFrames(deviceSet, channelId),
+    audioEngine.getLostFrames(deviceSet, channelId, fx),
   );
   const underruns = useSyncExternalStore(audioEngine.subscribe, () =>
-    audioEngine.getUnderruns(deviceSet, channelId),
+    audioEngine.getUnderruns(deviceSet, channelId, fx),
   );
 
   const bufferedMs = useSyncExternalStore(audioEngine.subscribe, () =>
-    audioEngine.getBufferedMs(deviceSet, channelId),
+    audioEngine.getBufferedMs(deviceSet, channelId, fx),
   );
   const trimmedMs = useSyncExternalStore(audioEngine.subscribe, () =>
-    audioEngine.getTrimmedMs(deviceSet, channelId),
+    audioEngine.getTrimmedMs(deviceSet, channelId, fx),
   );
 
   const start = useCallback(() => {
@@ -68,22 +71,22 @@ export function useChannelAudio(
       return;
     }
     audioEngine.attach(socket);
-    audioEngine.start(deviceSet, channelId);
-  }, [socket, deviceSet, channelId]);
+    audioEngine.start(deviceSet, channelId, fx);
+  }, [socket, deviceSet, channelId, fx]);
 
   const stop = useCallback(() => {
-    audioEngine.stop(deviceSet, channelId);
-  }, [deviceSet, channelId]);
+    audioEngine.stop(deviceSet, channelId, fx);
+  }, [deviceSet, channelId, fx]);
 
   const dismissError = useCallback(() => {
-    audioEngine.clearError(deviceSet, channelId);
-  }, [deviceSet, channelId]);
+    audioEngine.clearError(deviceSet, channelId, fx);
+  }, [deviceSet, channelId, fx]);
 
   const setVolume = useCallback(
     (v: number) => {
-      audioEngine.setVolume(deviceSet, channelId, v);
+      audioEngine.setVolume(deviceSet, channelId, v, fx);
     },
-    [deviceSet, channelId],
+    [deviceSet, channelId, fx],
   );
 
   return {

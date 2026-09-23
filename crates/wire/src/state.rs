@@ -47,6 +47,8 @@ pub struct RecordingStatus {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct AudioRecordingStatus {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub fx: Vec<String>,
     pub file: String,
     pub started_at: String,
     pub channels: u8,

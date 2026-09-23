@@ -75,7 +75,7 @@ const CATALOG: PatchCatalog = {
 const settings = (type: string, frequencyHz: number): ChannelSettings => ({
   frequency_hz: frequencyHz,
   params: { type, settings: {} } as ChannelSettings["params"],
-  audio: {},
+  blanker: {},
 });
 
 const descriptor = (
@@ -195,7 +195,7 @@ describe("retypedSettings", () => {
     expect(retypedSettings(current, AM)).toEqual({
       frequency_hz: 145.5e6,
       params: { type: "am", settings: {} },
-      audio: {},
+      blanker: {},
       squelch: { mode: "manual", level_db: -50 },
     });
   });
@@ -233,7 +233,7 @@ describe("swapDecoder", () => {
     expect(result.applyEdit).toHaveBeenCalledWith(3, 7, {
       frequency_hz: 145.5e6,
       params: { type: "am", settings: {} },
-      audio: {},
+      blanker: {},
     });
     expect(result.saveChannel).not.toHaveBeenCalled();
     expect(channelNode(result.snapshot.graph).data).toMatchObject({ channel_type: "am" });
@@ -244,7 +244,7 @@ describe("swapDecoder", () => {
     expect(result.saveChannel).toHaveBeenCalledWith("ch", {
       frequency_hz: 145.5e6,
       params: { type: "am", settings: {} },
-      audio: {},
+      blanker: {},
     });
     expect(result.applyEdit).not.toHaveBeenCalled();
   });

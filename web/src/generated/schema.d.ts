@@ -660,22 +660,6 @@ export interface paths {
         patch: operations["patch_channel"];
         trace?: never;
     };
-    "/api/devicesets/{ds}/channels/{ch}/baseband": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post: operations["record_channel_baseband"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/devicesets/{ds}/channels/{ch}/hunt": {
         parameters: {
             query?: never;
@@ -702,22 +686,6 @@ export interface paths {
         get?: never;
         put?: never;
         post: operations["network_export_channel"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/devicesets/{ds}/channels/{ch}/record": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post: operations["record_channel_audio"];
         delete?: never;
         options?: never;
         head?: never;
@@ -782,22 +750,6 @@ export interface paths {
         get?: never;
         put?: never;
         post: operations["control_playback"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/devicesets/{ds}/record": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post: operations["record_device_set"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1715,10 +1667,12 @@ export interface components {
             /** Format: double */
             low_hz?: number;
         };
+        AudioFxNode: {
+            settings?: components["schemas"]["AudioProcessing"];
+        };
         AudioProcessing: {
             agc?: components["schemas"]["AudioAgcMode"];
             auto_notch?: boolean;
-            blanker?: components["schemas"]["NoiseBlankerSettings"];
             click_removal?: components["schemas"]["ClickRemovalSettings"];
             denoise?: components["schemas"]["DenoiseSettings"];
             filter?: components["schemas"]["AudioFilterSettings"];
@@ -1750,6 +1704,7 @@ export interface components {
             file: string;
             /** Format: int64 */
             frames: number;
+            fx?: string[];
             started_at: string;
         };
         AuthInfo: {
@@ -2132,7 +2087,7 @@ export interface components {
             type_id: string;
         };
         ChannelInfo: {
-            audio_recording?: null | components["schemas"]["AudioRecordingStatus"];
+            audio_recordings?: components["schemas"]["AudioRecordingStatus"][];
             baseband_recording?: null | components["schemas"]["RecordingStatus"];
             /** Format: int32 */
             id: number;
@@ -2369,11 +2324,8 @@ export interface components {
             /** @enum {string} */
             type: "dect";
         };
-        ChannelRecordRequest: {
-            action: components["schemas"]["RecordAction"];
-        };
         ChannelSettings: {
-            audio?: components["schemas"]["AudioProcessing"];
+            blanker?: components["schemas"]["NoiseBlankerSettings"];
             /**
              * Format: double
              * @description The frequency the decoder listens on, whatever any radio happens to be tuned to. A radio
@@ -2428,6 +2380,7 @@ export interface components {
                 channel: number;
                 /** Format: int32 */
                 device_set: number;
+                fx?: string[];
             };
             /** @enum {string} */
             type: "SubscribeAudio";
@@ -2437,6 +2390,7 @@ export interface components {
                 channel: number;
                 /** Format: int32 */
                 device_set: number;
+                fx?: string[];
             };
             /** @enum {string} */
             type: "UnsubscribeAudio";
@@ -3189,8 +3143,11 @@ export interface components {
             /** Format: int64 */
             deleted: number;
         };
+        /** @enum {string} */
+        DenoiseMode: "spectral" | "neural";
         DenoiseSettings: {
             enabled?: boolean;
+            mode?: components["schemas"]["DenoiseMode"];
             /** Format: float */
             strength?: number;
         };
@@ -4440,15 +4397,22 @@ export interface components {
             /** @enum {string} */
             kind: "event_filter";
         } | {
+            data: components["schemas"]["AudioFxNode"];
+            /** @enum {string} */
+            kind: "audio_fx";
+        } | {
             /** @enum {string} */
             kind: "video";
         } | {
+            data: components["schemas"]["RecorderNode"];
             /** @enum {string} */
             kind: "recorder";
         } | {
+            data: components["schemas"]["RecorderNode"];
             /** @enum {string} */
             kind: "audio_recorder";
         } | {
+            data: components["schemas"]["RecorderNode"];
             /** @enum {string} */
             kind: "baseband_recorder";
         } | {
@@ -4965,8 +4929,10 @@ export interface components {
             ta?: boolean | null;
             tp?: boolean | null;
         };
-        /** @enum {string} */
-        RecordAction: "start" | "stop";
+        RecorderNode: {
+            /** @default false */
+            recording: boolean;
+        };
         RecordingAnnotation: {
             name?: string | null;
             note?: string | null;
@@ -5026,11 +4992,6 @@ export interface components {
             data?: string;
             /** Format: binary */
             meta?: string;
-        };
-        RecordRequest: {
-            action: components["schemas"]["RecordAction"];
-            /** Format: int32 */
-            stream?: number;
         };
         Route: {
             /** Format: double */
@@ -5273,6 +5234,7 @@ export interface components {
                 channel: number;
                 /** Format: int32 */
                 device_set: number;
+                fx?: string[];
                 /** Format: int32 */
                 stream_id: number;
             };
@@ -7762,62 +7724,6 @@ export interface operations {
             };
         };
     };
-    record_channel_baseband: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description Channel id */
-                ch: number;
-                /** @description Device set id */
-                ds: number;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ChannelRecordRequest"];
-            };
-        };
-        responses: {
-            /** @description Baseband recording status: live after `start`; final counts after `stop`, where the finished SigMF pair appears in `GET /api/recordings` */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["RecordingStatus"];
-                };
-            };
-            /** @description Cannot record: no recordings directory, set not running, or this channel's baseband is already recording */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiError"];
-                };
-            };
-            /** @description Device set or channel not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiError"];
-                };
-            };
-            /** @description Malformed request body */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiError"];
-                };
-            };
-        };
-    };
     hunt_channel: {
         parameters: {
             query?: never;
@@ -7902,62 +7808,6 @@ export interface operations {
                 };
             };
             /** @description Invalid destination, inactive export, or conflicting owner */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiError"];
-                };
-            };
-            /** @description Device set or channel not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiError"];
-                };
-            };
-            /** @description Malformed request body */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiError"];
-                };
-            };
-        };
-    };
-    record_channel_audio: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description Channel id */
-                ch: number;
-                /** @description Device set id */
-                ds: number;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ChannelRecordRequest"];
-            };
-        };
-        responses: {
-            /** @description Recording status: live after `start`; final counts after `stop`, where `error` reports a recording that was cut short and the finished file appears in `GET /api/audiorecordings` */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AudioRecordingStatus"];
-                };
-            };
-            /** @description Cannot record: no recordings directory, set not running, channel already recording, not recording, or a channel with no audio */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -8184,60 +8034,6 @@ export interface operations {
             };
             /** @description Device set not found */
             404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiError"];
-                };
-            };
-        };
-    };
-    record_device_set: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description Device set id */
-                ds: number;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["RecordRequest"];
-            };
-        };
-        responses: {
-            /** @description Recording status: live after `start`; final counts after `stop`, where `error` reports a truncated recording and the finalized pair appears in `GET /api/recordings` */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["RecordingStatus"];
-                };
-            };
-            /** @description Cannot record: no recordings directory, set not running, already recording, or not recording */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiError"];
-                };
-            };
-            /** @description Device set not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiError"];
-                };
-            };
-            /** @description Malformed request body */
-            422: {
                 headers: {
                     [name: string]: unknown;
                 };

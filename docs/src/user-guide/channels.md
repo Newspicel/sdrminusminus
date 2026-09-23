@@ -15,6 +15,7 @@ lists them all.
 |---|---|---|
 | `audio` | Speaker | Live sound |
 | `audio` | Audio recorder | A WAV file |
+| `audio` | Audio FX | Filtered, denoised or levelled sound |
 | `events` | Readout | Current state: station text, aircraft table |
 | `events` | Decoder log | Message history |
 | `events` | Map | Positions |
@@ -83,19 +84,28 @@ NFM also has tone squelch:
 
 **Compander** expands audio 2:1 for links that compress it. Leave it off for ordinary NFM.
 
-## Audio processing
+## Noise blanker
 
-The **Audio** block runs these stages in order. All are off by default except AGC on AM and SSB.
+The channel's **Blanker** removes impulse noise from the IQ before filtering. A lower threshold
+removes more, but can damage the signal. AM and SSB level their own volume.
+
+## Audio FX
+
+Wire a channel's `audio` through an **Audio FX** node to process what you hear. The channel's raw
+audio stays available on its own wires, so a recorder can keep it while a Speaker plays the
+cleaned version. Chain several nodes to stack effects. Stages run in this order, all off by
+default:
 
 | Stage | Does |
 |---|---|
-| Blanker | Removes impulse noise from the IQ before filtering. A lower threshold removes more, but can damage the signal. |
 | De-click | Removes short clicks from the audio. |
 | Passband | Cuts audio below and above two frequencies. |
 | Notches | Removes up to four chosen tones, each with its own width. |
 | Auto notch | Finds and removes steady tones. |
-| Denoise | Attenuates noise between 0 and 20 dB. Steady carriers can be treated as noise. |
+| Denoise | Spectral: attenuates noise by up to 20 dB, light on CPU. Neural: the DPDFNet speech model, stronger on voice, about 10% of a core per stream. |
 | AGC | Levels the volume. Slow suits SSB speech, fast suits tuning around. |
+
+Neural denoise is trained on speech. Leave it off for music, data tones and CW.
 
 ## Where decoded events go
 

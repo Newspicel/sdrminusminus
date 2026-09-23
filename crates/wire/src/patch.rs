@@ -457,6 +457,12 @@ pub const DEFAULT_SIGNAL_MAP_BANDWIDTH_HZ: u64 = 12_500;
 pub const MAX_SIGNAL_MAP_OFFSET_HZ: i64 = 1_000_000_000_000;
 pub const MAX_SIGNAL_MAP_BANDWIDTH_HZ: u64 = 100_000_000;
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(default)]
+pub struct RecorderNode {
+    pub recording: bool,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(default)]
 pub struct SignalMapNode {
@@ -603,10 +609,11 @@ pub enum NodeBody {
     SpectrumMonitor(crate::SpectrumMonitorNode),
     EventOutput(EventOutputNode),
     EventFilter(EventFilterNode),
+    AudioFx(crate::AudioFxNode),
     Video,
-    Recorder,
-    AudioRecorder,
-    BasebandRecorder,
+    Recorder(RecorderNode),
+    AudioRecorder(RecorderNode),
+    BasebandRecorder(RecorderNode),
     TimeMachine(TimeMachineNode),
     NetworkExport(NetworkExportNode),
     Export,
@@ -640,10 +647,11 @@ impl NodeBody {
             Self::SpectrumMonitor(_) => "spectrum_monitor",
             Self::EventOutput(_) => "event_output",
             Self::EventFilter(_) => "event_filter",
+            Self::AudioFx(_) => "audio_fx",
             Self::Video => "video",
-            Self::Recorder => "recorder",
-            Self::AudioRecorder => "audio_recorder",
-            Self::BasebandRecorder => "baseband_recorder",
+            Self::Recorder(_) => "recorder",
+            Self::AudioRecorder(_) => "audio_recorder",
+            Self::BasebandRecorder(_) => "baseband_recorder",
             Self::TimeMachine(_) => "time_machine",
             Self::NetworkExport(_) => "network_export",
             Self::Export => "export",
@@ -675,6 +683,7 @@ impl NodeBody {
             | Self::SpectrumMonitor(_)
             | Self::DmrTrunk(_)
             | Self::EventFilter(_)
+            | Self::AudioFx(_)
             | Self::Triangulation => NodeCategory::Tool,
             Self::Scope
             | Self::BasebandScope
@@ -685,9 +694,9 @@ impl NodeBody {
             | Self::DecoderLog
             | Self::Video
             | Self::Speaker
-            | Self::Recorder
-            | Self::AudioRecorder
-            | Self::BasebandRecorder
+            | Self::Recorder(_)
+            | Self::AudioRecorder(_)
+            | Self::BasebandRecorder(_)
             | Self::TimeMachine(_)
             | Self::NetworkExport(_)
             | Self::EventOutput(_)
@@ -895,6 +904,10 @@ fn ports_for(kind: &str) -> Vec<PortSpec> {
             PortSpec::new(Events, In, true, Always),
             PortSpec::new(Events, Out, true, Always),
         ],
+        "audio_fx" => vec![
+            PortSpec::new(Audio, In, true, Always),
+            PortSpec::new(Audio, Out, true, Always),
+        ],
         "triangulation" => vec![
             PortSpec::new(Events, In, true, Always)
                 .noted("every direction finder whose bearings should be crossed together"),
@@ -1033,19 +1046,28 @@ impl PatchCatalog {
                     "Passes only matching events",
                 ),
                 entry(
+                    &NodeBody::AudioFx(crate::AudioFxNode::default()),
+                    "Audio FX",
+                    "Filters, denoise and AGC",
+                ),
+                entry(
                     &NodeBody::EventOutput(EventOutputNode::default()),
                     "Event output",
                     "Sends events to other programs",
                 ),
                 entry(&NodeBody::Video, "Video", "ATV frames and SSTV pictures"),
-                entry(&NodeBody::Recorder, "Recorder", "Records a radio's full IQ"),
                 entry(
-                    &NodeBody::AudioRecorder,
+                    &NodeBody::Recorder(RecorderNode::default()),
+                    "Recorder",
+                    "Records a radio's full IQ",
+                ),
+                entry(
+                    &NodeBody::AudioRecorder(RecorderNode::default()),
                     "Audio recorder",
                     "Records channel audio to WAV",
                 ),
                 entry(
-                    &NodeBody::BasebandRecorder,
+                    &NodeBody::BasebandRecorder(RecorderNode::default()),
                     "Baseband recorder",
                     "Records one channel's IQ",
                 ),
@@ -1410,6 +1432,9 @@ impl PatchGraph {
                     return Err(PatchError::NodeSettings(node.id.clone()));
                 }
                 NodeBody::EventFilter(settings) if !settings.valid() => {
+                    return Err(PatchError::NodeSettings(node.id.clone()));
+                }
+                NodeBody::AudioFx(fx) if fx.settings.validate().is_err() => {
                     return Err(PatchError::NodeSettings(node.id.clone()));
                 }
                 NodeBody::SpectrumMonitor(settings) if !settings.valid() => {

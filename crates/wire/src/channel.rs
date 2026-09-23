@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 use crate::{
-    audio::AudioProcessing,
+    audio::NoiseBlankerSettings,
     network::NetworkExportStatus,
     state::{AudioRecordingStatus, RecordingStatus},
 };
@@ -1696,7 +1696,7 @@ pub struct ChannelSettings {
     pub squelch: Squelch,
     pub params: ChannelParams,
     #[serde(default)]
-    pub audio: AudioProcessing,
+    pub blanker: NoiseBlankerSettings,
 }
 
 impl ChannelSettings {
@@ -1706,7 +1706,7 @@ impl ChannelSettings {
             frequency_hz: home_frequency_hz(type_id).unwrap_or(DEFAULT_FREQUENCY_HZ),
             squelch: Squelch::Off,
             params: ChannelParams::default_for(type_id)?,
-            audio: AudioProcessing::default_for(type_id),
+            blanker: NoiseBlankerSettings::default(),
         })
     }
 
@@ -1753,12 +1753,20 @@ impl<'de> Deserialize<'de> for ChannelSettings {
             squelch_auto_db: Option<f32>,
             params: ChannelParams,
             #[serde(default)]
-            audio: Option<AudioProcessing>,
+            blanker: Option<NoiseBlankerSettings>,
+            #[serde(default)]
+            audio: Option<LegacyAudio>,
+        }
+        #[derive(Deserialize)]
+        struct LegacyAudio {
+            #[serde(default)]
+            blanker: NoiseBlankerSettings,
         }
         let stated = Stated::deserialize(deserializer)?;
-        let audio = stated
-            .audio
-            .unwrap_or_else(|| AudioProcessing::default_for(stated.params.type_id()));
+        let blanker = stated
+            .blanker
+            .or_else(|| stated.audio.map(|audio| audio.blanker))
+            .unwrap_or_default();
         Ok(Self {
             frequency_hz: stated.frequency_hz.unwrap_or_else(|| {
                 home_frequency_hz(stated.params.type_id()).unwrap_or(DEFAULT_FREQUENCY_HZ)
@@ -1767,7 +1775,7 @@ impl<'de> Deserialize<'de> for ChannelSettings {
                 .squelch
                 .unwrap_or_else(|| Squelch::from_levels(stated.squelch_db, stated.squelch_auto_db)),
             params: stated.params,
-            audio,
+            blanker,
         })
     }
 }
@@ -1786,8 +1794,8 @@ pub struct ChannelInfo {
     /// so the channel is alive and set up but silent until the radio comes back over it.
     #[serde(default)]
     pub out_of_band: bool,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub audio_recording: Option<AudioRecordingStatus>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub audio_recordings: Vec<AudioRecordingStatus>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub baseband_recording: Option<RecordingStatus>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

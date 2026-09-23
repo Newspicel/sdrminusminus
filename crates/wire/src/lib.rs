@@ -33,10 +33,11 @@ pub mod ws;
 
 pub use about::{AboutResponse, Attribution, ComponentSource, LicenseTextResponse};
 pub use audio::{
-    AudioAgcMode, AudioFilterSettings, AudioProcessing, ClickRemovalSettings, DenoiseSettings,
-    MAX_AUDIO_NOTCHES, MAX_AUDIO_TONE_HZ, MAX_BLANKER_THRESHOLD, MAX_CLICK_THRESHOLD,
-    MAX_NOTCH_WIDTH_HZ, MIN_AUDIO_TONE_HZ, MIN_BLANKER_THRESHOLD, MIN_CLICK_THRESHOLD,
-    MIN_NOTCH_WIDTH_HZ, NoiseBlankerSettings, NotchSettings,
+    AudioAgcMode, AudioFilterSettings, AudioFxNode, AudioProcessing, AudioRoute,
+    ClickRemovalSettings, DenoiseMode, DenoiseSettings, MAX_AUDIO_FX_CHAIN, MAX_AUDIO_NOTCHES,
+    MAX_AUDIO_TONE_HZ, MAX_BLANKER_THRESHOLD, MAX_CLICK_THRESHOLD, MAX_NOTCH_WIDTH_HZ,
+    MIN_AUDIO_TONE_HZ, MIN_BLANKER_THRESHOLD, MIN_CLICK_THRESHOLD, MIN_NOTCH_WIDTH_HZ,
+    NoiseBlankerSettings, NotchSettings,
 };
 pub use bandplan::{
     BandAllocation, BandBlock, BandLane, BandLayerInfo, BandLayerKind, BandPlan, BandProvision,
@@ -131,8 +132,8 @@ pub use patch::{
     NodeTypeInfo, PassiveRadarNode, PatchCatalog, PatchEdge, PatchError, PatchGraph, PatchNode,
     PortBacking, PortCondition, PortDirection, PortRef, PortRepeat, PortSpec, PortType, Position,
     RACK_COLS, RACK_ROWS, RADAR_REFERENCE_PORT, RADAR_SURVEILLANCE_PORT, RackCell, RackLayout,
-    RackSlot, RecordingNode, SignalGenNode, SignalMapNode, Size, port_stream, siggen_key,
-    stream_port,
+    RackSlot, RecorderNode, RecordingNode, SignalGenNode, SignalMapNode, Size, port_stream,
+    siggen_key, stream_port,
 };
 pub use position::{
     DEFAULT_GPSD_ADDRESS, DEFAULT_NMEA_BAUD, DEFAULT_NMEA_UPDATE_INTERVAL_MS, GpsNode,
@@ -147,17 +148,17 @@ pub use propagation::{
 };
 pub use rest::{
     AnnotationError, ApiError, ApplyTemplateRequest, AudioRecordingInfo, AudioRecordingsResponse,
-    AuthInfo, Bookmark, CapturedImage, CapturedImagesResponse, ChannelRecordRequest,
-    ChannelTypesResponse, ClientsResponse, CreateBookmarkRequest, CreateChannelRequest,
-    CreateDeviceSetRequest, CreatePresetRequest, CreatedId, CreatedRowId, DecoderLogEntry,
-    DecoderLogQuery, DecoderLogResponse, DeletedCount, DevicesResponse, ErrorCode, EventAudio,
-    EventImage, ExportFormat, LogScope, MAX_LOG_SOURCES, MAX_RECORDING_NAME_LEN,
-    MAX_RECORDING_NOTE_LEN, MAX_RECORDING_TAG_LEN, MAX_RECORDING_TAGS, MAX_RECORDING_UPLOAD_BYTES,
-    MAX_ROUTE_LEG_M, Maneuver, ManeuverKind, OccupancyBucket, OccupancyReport,
-    PRESET_SNAPSHOT_VERSION, PlaybackAction, PlaybackRequest, PresetDevice, PresetInfo,
-    PresetSnapshot, RecordAction, RecordRequest, RecordingAnnotation, RecordingDownloadQuery,
-    RecordingFormat, RecordingInfo, RecordingUpload, RecordingsResponse, Route, RoutePoint,
-    RouteRequest, RoutingBackend, TemplateInfo, TemplatesResponse, VoiceCall, VoiceCallsResponse,
+    AuthInfo, Bookmark, CapturedImage, CapturedImagesResponse, ChannelTypesResponse,
+    ClientsResponse, CreateBookmarkRequest, CreateChannelRequest, CreateDeviceSetRequest,
+    CreatePresetRequest, CreatedId, CreatedRowId, DecoderLogEntry, DecoderLogQuery,
+    DecoderLogResponse, DeletedCount, DevicesResponse, ErrorCode, EventAudio, EventImage,
+    ExportFormat, LogScope, MAX_LOG_SOURCES, MAX_RECORDING_NAME_LEN, MAX_RECORDING_NOTE_LEN,
+    MAX_RECORDING_TAG_LEN, MAX_RECORDING_TAGS, MAX_RECORDING_UPLOAD_BYTES, MAX_ROUTE_LEG_M,
+    Maneuver, ManeuverKind, OccupancyBucket, OccupancyReport, PRESET_SNAPSHOT_VERSION,
+    PlaybackAction, PlaybackRequest, PresetDevice, PresetInfo, PresetSnapshot, RecordingAnnotation,
+    RecordingDownloadQuery, RecordingFormat, RecordingInfo, RecordingUpload, RecordingsResponse,
+    Route, RoutePoint, RouteRequest, RoutingBackend, TemplateInfo, TemplatesResponse, VoiceCall,
+    VoiceCallsResponse,
 };
 pub use satellite::{
     CatalogSatellite, MAX_CATALOG_RESULTS, MAX_SATELLITE_HZ, MAX_SATELLITE_QUERY_LEN, MAX_TLE_LEN,
@@ -252,9 +253,6 @@ mod contract_tests {
                 stream: 0,
             }
         );
-
-        let record: RecordRequest = serde_json::from_str(r#"{"action":"start"}"#).unwrap();
-        assert_eq!(record.stream, 0);
 
         let create: CreateChannelRequest =
             serde_json::from_str(r#"{"settings":{"params":{"type":"nfm","settings":{}}}}"#)
@@ -447,27 +445,26 @@ mod contract_tests {
     }
 
     #[test]
-    fn a_payload_that_names_no_audio_chain_gets_its_mode_default() {
-        for (type_id, agc) in [
-            ("am", AudioAgcMode::Medium),
-            ("ssb", AudioAgcMode::Medium),
-            ("nfm", AudioAgcMode::Off),
-            ("wfm", AudioAgcMode::Off),
-        ] {
-            let json = format!(r#"{{"params":{{"type":"{type_id}","settings":{{}}}}}}"#);
-            let settings: ChannelSettings = serde_json::from_str(&json).unwrap();
-            assert_eq!(settings.audio.agc, agc, "{type_id}");
-        }
-    }
-
-    #[test]
-    fn an_audio_chain_that_is_stated_is_taken_as_stated() {
-        let json = r#"{"params":{"type":"am","settings":{}},"audio":{}}"#;
+    fn a_legacy_audio_chain_keeps_its_blanker_and_drops_the_rest() {
+        let json = r#"{"params":{"type":"am","settings":{}},"audio":{"blanker":{"enabled":true,"threshold":7.0},"agc":"fast"}}"#;
         let settings: ChannelSettings = serde_json::from_str(json).unwrap();
-        assert_eq!(settings.audio, AudioProcessing::default());
+        assert_eq!(
+            settings.blanker,
+            NoiseBlankerSettings {
+                enabled: true,
+                threshold: 7.0,
+            }
+        );
         let round_tripped: ChannelSettings =
             serde_json::from_str(&serde_json::to_string(&settings).unwrap()).unwrap();
         assert_eq!(round_tripped, settings);
+    }
+
+    #[test]
+    fn a_payload_that_names_no_blanker_has_it_off() {
+        let json = r#"{"params":{"type":"ssb","settings":{}}}"#;
+        let settings: ChannelSettings = serde_json::from_str(json).unwrap();
+        assert_eq!(settings.blanker, NoiseBlankerSettings::default());
     }
 
     #[test]
@@ -604,29 +601,31 @@ mod contract_tests {
     }
 
     #[test]
-    fn a_channel_states_an_audio_recording_only_while_one_runs() {
+    fn a_channel_states_its_audio_recordings_only_while_they_run() {
         let mut info: ChannelInfo =
             serde_json::from_str(r#"{"id":3,"settings":{"params":{"type":"nfm","settings":{}}}}"#)
                 .unwrap();
-        assert_eq!(info.audio_recording, None);
+        assert!(info.audio_recordings.is_empty());
         assert!(
             serde_json::to_value(&info)
                 .unwrap()
-                .get("audio_recording")
+                .get("audio_recordings")
                 .is_none()
         );
 
-        info.audio_recording = Some(AudioRecordingStatus {
+        info.audio_recordings = vec![AudioRecordingStatus {
+            fx: vec!["fx".to_owned()],
             file: "ch_1_3_20260815T120000Z.wav".to_owned(),
             started_at: "2026-08-15T12:00:00Z".to_owned(),
             channels: 1,
             frames: 48_000,
             bytes: 96_000,
             error: None,
-        });
+        }];
         let json = serde_json::to_value(&info).unwrap();
-        assert_eq!(json["audio_recording"]["frames"], 48_000);
-        assert!(json["audio_recording"].get("error").is_none());
+        assert_eq!(json["audio_recordings"][0]["frames"], 48_000);
+        assert_eq!(json["audio_recordings"][0]["fx"][0], "fx");
+        assert!(json["audio_recordings"][0].get("error").is_none());
         let back: ChannelInfo = serde_json::from_value(json).unwrap();
         assert_eq!(back, info);
     }
@@ -1091,20 +1090,6 @@ mod contract_tests {
     }
 
     #[test]
-    fn record_request_action_shape() {
-        let json = serde_json::to_value(RecordRequest {
-            action: RecordAction::Start,
-            stream: 0,
-        })
-        .unwrap();
-        assert_eq!(json["action"], "start");
-        assert_eq!(serde_json::to_value(RecordAction::Stop).unwrap(), "stop");
-
-        let back: RecordRequest = serde_json::from_value(json).unwrap();
-        assert_eq!(back.action, RecordAction::Start);
-    }
-
-    #[test]
     fn device_set_scanners_default_and_roundtrip() {
         let mut set = sample_device_set();
         let json = serde_json::to_value(&set).unwrap();
@@ -1311,10 +1296,12 @@ mod contract_tests {
             ClientCommand::SubscribeAudio {
                 device_set: 1,
                 channel: 2,
+                fx: vec!["fx".to_owned()],
             },
             ClientCommand::UnsubscribeAudio {
                 device_set: 1,
                 channel: 2,
+                fx: Vec::new(),
             },
         ] {
             let json = serde_json::to_value(&cmd).unwrap();
@@ -1326,17 +1313,33 @@ mod contract_tests {
     }
 
     #[test]
+    fn an_audio_subscription_without_fx_is_the_bare_channel() {
+        let json = r#"{"type":"SubscribeAudio","data":{"device_set":1,"channel":2}}"#;
+        let parsed: ClientCommand = serde_json::from_str(json).unwrap();
+        assert_eq!(
+            parsed,
+            ClientCommand::SubscribeAudio {
+                device_set: 1,
+                channel: 2,
+                fx: Vec::new(),
+            }
+        );
+    }
+
+    #[test]
     fn audio_stream_started_shape() {
         let ev = ServerEvent::AudioStreamStarted {
             stream_id: 4,
             device_set: 1,
             channel: 2,
+            fx: vec!["fx".to_owned()],
         };
         let json = serde_json::to_value(&ev).unwrap();
         assert_eq!(json["type"], "AudioStreamStarted");
         assert_eq!(json["data"]["stream_id"], 4);
         assert_eq!(json["data"]["device_set"], 1);
         assert_eq!(json["data"]["channel"], 2);
+        assert_eq!(json["data"]["fx"][0], "fx");
     }
 
     #[test]

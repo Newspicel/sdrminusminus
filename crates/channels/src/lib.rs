@@ -29,6 +29,7 @@ mod iridium;
 pub mod monitor;
 mod morse;
 mod navtex;
+pub mod neural_denoise;
 mod nfm;
 mod passive_radar;
 pub use passive_radar::{PassiveRadarProcessor, RadarCorrelation};
@@ -119,6 +120,10 @@ pub fn audio_channels(params: &ChannelParams) -> u8 {
         ChannelParams::Dab(_) | ChannelParams::Datv(_) | ChannelParams::Dvbt(_) => 2,
         _ => 1,
     }
+}
+
+pub(crate) fn voice_leveller() -> sdrmm_dsp::Agc {
+    sdrmm_dsp::Agc::new(f64::from(AUDIO_RATE), 0.25, 0.005, 0.5, 100.0)
 }
 
 pub(crate) fn clamp_full_scale(pcm: &mut [f32]) {

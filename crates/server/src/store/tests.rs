@@ -20,7 +20,7 @@ fn snapshot() -> PresetSnapshot {
                 frequency_hz: 100_100_000.0,
                 squelch: sdrmm_wire::Squelch::Manual { level_db: -60.0 },
                 params: ChannelParams::Nfm(NfmParams::default()),
-                audio: Default::default(),
+                blanker: Default::default(),
             }],
         }],
     }
@@ -2058,4 +2058,30 @@ fn a_scope_wired_to_both_hands_baseband_to_a_new_node() {
     );
     let again = serde_json::to_string(&migrated).unwrap();
     assert_eq!(parse_workspace_snapshot(&again).unwrap(), migrated);
+}
+
+#[test]
+fn a_recorder_saved_before_it_had_a_switch_opens_idle() {
+    let mut value = serde_json::to_value(WorkspaceSnapshot::empty()).expect("encode");
+    value["graph"]["nodes"] = serde_json::json!([
+        { "id": "iq", "kind": "recorder", "position": { "x": 0.0, "y": 0.0 } },
+        { "id": "audio", "kind": "audio_recorder", "position": { "x": 0.0, "y": 0.0 } },
+        { "id": "base", "kind": "baseband_recorder", "position": { "x": 0.0, "y": 0.0 } }
+    ]);
+    let migrated = parse_workspace_snapshot(&value.to_string()).expect("migrated");
+    let off = sdrmm_wire::RecorderNode::default();
+    let bodies: Vec<_> = migrated
+        .graph
+        .nodes
+        .into_iter()
+        .map(|node| node.body)
+        .collect();
+    assert_eq!(
+        bodies,
+        vec![
+            sdrmm_wire::NodeBody::Recorder(off),
+            sdrmm_wire::NodeBody::AudioRecorder(off),
+            sdrmm_wire::NodeBody::BasebandRecorder(off),
+        ]
+    );
 }

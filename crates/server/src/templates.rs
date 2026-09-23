@@ -1,10 +1,10 @@
 use std::sync::LazyLock;
 
 use sdrmm_wire::{
-    AcarsParams, AdsbParams, AisParams, AmParams, AprsParams, AudioProcessing, ChannelNode,
-    ChannelParams, ChannelSettings, DabParams, DeviceNode, DmrParams, DstarParams, ErmesParams,
-    FlexParams, GnssParams, IdentParams, M17Params, MorseParams, NavtexParams, NfmParams, NodeBody,
-    PatchEdge, PatchGraph, PatchNode, PocsagParams, PortRef, Position, PskParams, RadioClockParams,
+    AcarsParams, AdsbParams, AisParams, AmParams, AprsParams, ChannelNode, ChannelParams,
+    ChannelSettings, DabParams, DeviceNode, DmrParams, DstarParams, ErmesParams, FlexParams,
+    GnssParams, IdentParams, M17Params, MorseParams, NavtexParams, NfmParams, NodeBody, PatchEdge,
+    PatchGraph, PatchNode, PocsagParams, PortRef, Position, PskParams, RadioClockParams,
     RttyParams, Squelch, SsbParams, SstvParams, SubghzParams, TemplateInfo, WfmParams, WsjtParams,
     WsprParams, YsfParams,
 };
@@ -599,7 +599,7 @@ pub(crate) fn all() -> &'static [TemplateInfo] {
                         ChannelSettings {
                             frequency_hz: channel.freq_hz,
                             squelch: channel.squelch,
-                            audio: AudioProcessing::default_for(params.type_id()),
+                            blanker: Default::default(),
                             params,
                         }
                     })

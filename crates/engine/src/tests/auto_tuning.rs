@@ -243,7 +243,7 @@ fn a_decoder_too_wide_to_clear_the_spike_is_held_as_far_off_it_as_the_window_all
             frequency_hz: ADSB_CENTER_HZ,
             squelch: sdrmm_wire::Squelch::Off,
             params: ChannelParams::Adsb(AdsbParams::default()),
-            audio: Default::default(),
+            blanker: Default::default(),
         },
         ..parked(1, 0.0)
     };

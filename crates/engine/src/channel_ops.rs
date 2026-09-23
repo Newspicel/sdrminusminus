@@ -85,11 +85,11 @@ impl Engine {
                     tracing::error!(ds, channel = id, error = %e, "channel rebuild failed after rate change; removing channel");
                     state.channels.retain(|c| c.id != id);
                     dead.extend(state.media.remove(&id));
-                    let recording = state.audio_recordings.remove(&id);
+                    let recordings = state.take_audio_recordings(id);
                     state.send_dsp(stream, DspCommand::RemoveChannel { id });
                     inner.revision += 1;
                     drop(inner);
-                    if let Some(recording) = recording {
+                    for recording in recordings {
                         recording.join();
                     }
                     self.close_baseband_sinks(ds, id, orphaned, "the channel was removed");
@@ -201,7 +201,7 @@ impl Engine {
                 node: node.map(str::to_owned),
                 settings: settings.clone(),
                 out_of_band: false,
-                audio_recording: None,
+                audio_recordings: Vec::new(),
                 baseband_recording: None,
                 network_export: None,
             });
@@ -297,8 +297,8 @@ impl Engine {
         let mut need_host = old.frequency_hz != settings.frequency_hz
             || old.params != settings.params
             || old.squelch != settings.squelch
-            || old.audio != settings.audio;
-        let mut orphaned: Option<ChannelAudioRecording> = None;
+            || old.blanker != settings.blanker;
+        let mut orphaned: Vec<ChannelAudioRecording> = Vec::new();
         let mut orphaned_baseband = BasebandSinks::default();
         let staged = loop {
             if let Err(e) = validate_channel(descriptor, &settings) {
@@ -362,13 +362,13 @@ impl Engine {
                 if descriptor.has_audio {
                     state.rearm_audio_recording(ch, stream);
                 } else {
-                    orphaned = state.audio_recordings.remove(&ch);
+                    orphaned = state.take_audio_recordings(ch);
                 }
             }
             inner.revision += 1;
             break Ok(());
         };
-        if let Some(recording) = orphaned {
+        for recording in orphaned {
             tracing::info!(
                 ds,
                 channel = ch,
@@ -417,13 +417,13 @@ impl Engine {
                 .ok_or(EngineError::ChannelNotFound(ch, ds))?;
             state.channels.retain(|c| c.id != ch);
             let handle = state.media.remove(&ch);
-            let recording = state.audio_recordings.remove(&ch);
+            let recordings = state.take_audio_recordings(ch);
             let baseband = state.release_baseband_sinks(ch, stream);
             state.send_dsp(stream, DspCommand::RemoveChannel { id: ch });
             inner.revision += 1;
-            (handle, recording, baseband)
+            (handle, recordings, baseband)
         };
-        if let Some(recording) = recording {
+        for recording in recording {
             recording.join();
         }
         self.close_baseband_sinks(ds, ch, baseband, "the channel was removed");

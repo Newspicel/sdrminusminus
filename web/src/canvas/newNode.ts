@@ -16,9 +16,6 @@ const WITHOUT_DATA = new Set<NodeKind>([
   "readout",
   "decoder_log",
   "video",
-  "recorder",
-  "audio_recorder",
-  "baseband_recorder",
   "export",
   "scanner",
   "triangulation",
@@ -66,6 +63,12 @@ export function newNodeBody(kind: NodeKind, seed: NewNodeSeed = {}): NodeBody {
           min_duration_ms: 0,
         },
       };
+    case "audio_fx":
+      return { kind, data: { settings: {} } };
+    case "recorder":
+    case "audio_recorder":
+    case "baseband_recorder":
+      return { kind, data: { recording: false } };
     case "network_export":
       return { kind, data: { transport: "udp", format: "cf32_le", address: "127.0.0.1:7355" } };
     case "hunt":

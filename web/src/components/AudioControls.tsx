@@ -1,5 +1,5 @@
 import { Plus, X } from "lucide-react";
-import type { AudioAgcMode, AudioProcessing, ChannelSettings, NotchSettings } from "../lib/types";
+import type { AudioAgcMode, AudioProcessing, DenoiseMode, NotchSettings } from "../lib/types";
 import { Button } from "./BaseControls";
 import { Checkbox } from "./Checkbox";
 import {
@@ -26,22 +26,24 @@ const AGC_MODES: Options<AudioAgcMode> = [
   { value: "fast", label: "Fast" },
 ];
 
+const DENOISE_MODES: Options<DenoiseMode> = [
+  {
+    value: "spectral",
+    label: "Spectral",
+    title: "Light and fast, for steady hiss",
+  },
+  { value: "neural", label: "Neural", title: "DPDFNet speech model, for voice" },
+];
+
 export function AudioControls({
-  settings,
+  audio,
   onAudio,
 }: {
-  settings: ChannelSettings;
+  audio: AudioProcessing;
   onAudio: (audio: AudioProcessing) => void;
 }) {
-  const audio = settings.audio ?? {};
   const notches = audio.notches ?? [];
-  const edit = (patch: Partial<AudioProcessing>) => onAudio(mergeAudio(settings, patch));
-
-  const blanker = audio.blanker ?? {};
-  const blankerThreshold = blanker.threshold ?? AUDIO_DEFAULTS.blankerThreshold;
-  const blankerSlider = useDebouncedCommit((threshold: number) =>
-    edit({ blanker: { ...blanker, threshold } }),
-  );
+  const edit = (patch: Partial<AudioProcessing>) => onAudio(mergeAudio(audio, patch));
 
   const clicks = audio.click_removal ?? {};
   const clickThreshold = clicks.threshold ?? AUDIO_DEFAULTS.clickThreshold;
@@ -95,29 +97,6 @@ export function AudioControls({
           />
         </SettingRow>
 
-        <SettingRow label="Blanker">
-          <Checkbox
-            label="Noise blanker"
-            checked={blanker.enabled ?? false}
-            onChange={(enabled) => edit({ blanker: { ...blanker, enabled } })}
-          />
-          <SliderField
-            label="Noise blanker threshold"
-            disabled={!(blanker.enabled ?? false)}
-            min={AUDIO_LIMITS.blankerThreshold.min}
-            max={AUDIO_LIMITS.blankerThreshold.max}
-            step={0.5}
-            value={blankerSlider.pending ?? blankerThreshold}
-            onChange={blankerSlider.change}
-            readout={
-              <>
-                {(blankerSlider.pending ?? blankerThreshold).toFixed(1)}
-                <span className="text-ink-faint">×</span>
-              </>
-            }
-          />
-        </SettingRow>
-
         <SettingRow label="De-click">
           <Checkbox
             label="Click removal"
@@ -143,9 +122,15 @@ export function AudioControls({
 
         <SettingRow label="Denoise">
           <Checkbox
-            label="Spectral noise reduction"
+            label="Noise reduction"
             checked={denoise.enabled ?? false}
             onChange={(enabled) => edit({ denoise: { ...denoise, enabled } })}
+          />
+          <Segmented
+            label="Noise reduction mode"
+            value={denoise.mode ?? "spectral"}
+            options={DENOISE_MODES}
+            onChange={(mode) => edit({ denoise: { ...denoise, mode } })}
           />
           <SliderField
             label="Noise reduction strength"

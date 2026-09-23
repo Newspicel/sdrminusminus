@@ -6,7 +6,6 @@ import { getToken, rejectToken, withToken } from "./auth";
 import type {
   AboutResponse,
   ApiError,
-  AudioRecordingStatus,
   AudioRecordingsResponse,
   AuthInfo,
   BandPlan,
@@ -54,11 +53,9 @@ import type {
   PresetInfo,
   RadioIdent,
   RadioModelsResponse,
-  RecordAction,
   RecordingAnnotation,
   RecordingFormat,
   RecordingInfo,
-  RecordingStatus,
   RecordingsResponse,
   Route,
   RouteRequest,
@@ -335,38 +332,12 @@ export function recordingsQuery() {
   });
 }
 
-export async function recordDeviceSet(
-  ds: number,
-  action: RecordAction,
-  stream = 0,
-): Promise<RecordingStatus> {
-  return unwrap(
-    await client.POST("/api/devicesets/{ds}/record", {
-      params: { path: { ds } },
-      body: { action, stream },
-    }),
-  );
-}
-
 export function audioRecordingsQuery() {
   return queryOptions({
     queryKey: AUDIO_RECORDINGS_KEY,
     queryFn: async (): Promise<AudioRecordingsResponse> =>
       unwrap(await client.GET("/api/audiorecordings")),
   });
-}
-
-export async function recordChannelAudio(
-  ds: number,
-  ch: number,
-  action: RecordAction,
-): Promise<AudioRecordingStatus> {
-  return unwrap(
-    await client.POST("/api/devicesets/{ds}/channels/{ch}/record", {
-      params: { path: { ds, ch } },
-      body: { action },
-    }),
-  );
 }
 
 export function audioRecordingDownloadUrl(file: string): string {
@@ -389,19 +360,6 @@ export async function deleteAudioRecording(file: string): Promise<void> {
   unwrap(
     await client.DELETE("/api/audiorecordings/{file}", {
       params: { path: { file } },
-    }),
-  );
-}
-
-export async function recordChannelBaseband(
-  ds: number,
-  ch: number,
-  action: RecordAction,
-): Promise<RecordingStatus> {
-  return unwrap(
-    await client.POST("/api/devicesets/{ds}/channels/{ch}/baseband", {
-      params: { path: { ds, ch } },
-      body: { action },
     }),
   );
 }

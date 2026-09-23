@@ -4,9 +4,9 @@ use sdrmm_channels::{
     testgen::{self, dv, weak_signal},
 };
 use sdrmm_wire::{
-    AmParams, ArgumentOption, AtvModulation, AtvParams, AtvStandard, AudioProcessing,
-    ChannelParams, ChannelSettings, DabTransmissionMode, PskBaud, SelcallSystem, Sideband, Squelch,
-    SsbParams, SstvMode,
+    AmParams, ArgumentOption, AtvModulation, AtvParams, AtvStandard, ChannelParams,
+    ChannelSettings, DabTransmissionMode, PskBaud, SelcallSystem, Sideband, Squelch, SsbParams,
+    SstvMode,
 };
 
 pub struct Signal {
@@ -383,7 +383,7 @@ fn voice_settings(params: ChannelParams) -> ChannelSettings {
         frequency_hz: CENTER_HZ,
         squelch: Squelch::Off,
         params,
-        audio: AudioProcessing::default(),
+        blanker: Default::default(),
     }
 }
 
