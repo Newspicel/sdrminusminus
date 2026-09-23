@@ -20,6 +20,7 @@ COPY .cargo .cargo
 COPY crates crates
 COPY apps apps
 COPY xtask xtask
+COPY vendor vendor
 # Reduce the workspace to manifests plus empty targets. This tree is the cache key of the
 # dependency-compilation layer below, so it must not change when a source file changes.
 # crates/* are all libraries, apps/* and xtask are all binaries; if that ever stops holding,

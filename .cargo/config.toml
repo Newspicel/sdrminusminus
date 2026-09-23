@@ -15,6 +15,3 @@ min-publish-age = true
 
 [registry]
 global-min-publish-age = "1 day"
-
-[env]
-LIBCLANG_DISABLE_CRASH_RECOVERY = "1"

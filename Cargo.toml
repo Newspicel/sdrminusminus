@@ -68,6 +68,7 @@ default-members = [
     "apps/sdrmm",
     "xtask",
 ]
+exclude = ["vendor/clang-sys"]
 
 [workspace.package]
 edition = "2024"
@@ -295,3 +296,6 @@ opt-level = 3
 
 [profile.dev.package.sdrmm-recorder]
 opt-level = 3
+
+[patch.crates-io]
+clang-sys = { path = "vendor/clang-sys" }
