@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { commitText, ICON_BTN, ICON_BTN_SM } from "./controls";
+import { commitText, ICON_BTN, ICON_BTN_SM, listItem } from "./controls";
 
 const SOURCES: Record<string, string> = import.meta.glob("../**/*.tsx", {
   query: "?raw",
@@ -46,5 +46,19 @@ describe("commitText", () => {
 
   it("restores the current value when the consumer refuses the edit", () => {
     expect(commitText("BAD", "TST", () => false)).toBe("TST");
+  });
+});
+
+describe("list items", () => {
+  it("highlight without a fade", () => {
+    expect(listItem(true, true)).not.toContain("transition");
+    expect(listItem(false, false)).not.toContain("transition");
+  });
+
+  it("keep the selected accent while highlighted", () => {
+    const item = listItem(true, true);
+    expect(item).toContain("text-accent");
+    expect(item).not.toContain("text-ink ");
+    expect(item.endsWith("text-ink")).toBe(false);
   });
 });

@@ -1,6 +1,8 @@
-const INTERACTIVE =
-  "inline-flex items-center gap-1.5 rounded-[3px] transition-colors duration-100 " +
+const INSTANT =
+  "inline-flex items-center gap-1.5 rounded-[3px] " +
   "disabled:opacity-45 disabled:pointer-events-none pointer-coarse:min-h-10";
+
+const INTERACTIVE = `${INSTANT} transition-colors duration-100`;
 
 const RAISED = "bg-panel-2 text-ink";
 
@@ -98,9 +100,10 @@ export function commitText(
 
 export function listItem(selected: boolean, highlighted: boolean): string {
   return (
-    `${INTERACTIVE} h-7 w-full justify-start px-2 text-xs ` +
+    `${INSTANT} h-7 w-full justify-start px-2 text-xs ` +
     (selected ? "font-medium text-accent " : "text-ink-dim ") +
-    (highlighted ? "bg-panel-2 text-ink" : "hover:bg-panel-2 hover:text-ink")
+    (highlighted ? "bg-panel-2 " : "hover:bg-panel-2 ") +
+    (selected ? "" : highlighted ? "text-ink" : "hover:text-ink")
   );
 }
 
