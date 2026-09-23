@@ -14,11 +14,7 @@ trustPolicy: no-downgrade
 # A release has to sit in the registry for a day before this repo will install it, so a
 # compromised publish has a window in which to be caught. Held at 24 hours rather than a week
 # because a week would reject the pinned biome and oxlint releases until they age past the
-# cutoff, so it is a version-pinning decision, not a switch. `cargo` runs the same gate over
-# crates — see `.cargo/config.toml`.
+# cutoff, so it is a version-pinning decision, not a switch. Dependabot holds crates back the
+# same day through its `cooldown`.
 minimumReleaseAge: 1440
 
-# Versions taken before they age out. Each one is a hole in the gate above: name the exact
-# version, and drop the entry once it is older than the cutoff.
-minimumReleaseAgeExclude:
-  - lucide-react@1.40.0

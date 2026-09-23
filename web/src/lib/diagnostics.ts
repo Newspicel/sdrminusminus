@@ -60,14 +60,16 @@ export interface ErrorSource {
   removeEventListener(type: string, handler: (event: Event) => void): void;
 }
 
+const onError = (event: Event) => {
+  const raised = event as Event & { error?: unknown; message?: string };
+  recordEvent("error", "window", describeError(raised.error ?? raised.message));
+};
+
+const onRejection = (event: Event) => {
+  recordEvent("error", "promise", describeError((event as Event & { reason?: unknown }).reason));
+};
+
 export function installGlobalHandlers(target: ErrorSource): () => void {
-  const onError = (event: Event) => {
-    const raised = event as Event & { error?: unknown; message?: string };
-    recordEvent("error", "window", describeError(raised.error ?? raised.message));
-  };
-  const onRejection = (event: Event) => {
-    recordEvent("error", "promise", describeError((event as Event & { reason?: unknown }).reason));
-  };
   target.addEventListener("error", onError);
   target.addEventListener("unhandledrejection", onRejection);
   return () => {

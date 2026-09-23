@@ -3,7 +3,7 @@ import { expect, type Page, test } from "@playwright/test";
 async function captureOpens(page: Page): Promise<void> {
   await page.addInitScript(() => {
     const opened: string[] = [];
-    (window as unknown as { __opened: string[] }).__opened = opened;
+    (window as unknown as { sdrmmOpened: string[] }).sdrmmOpened = opened;
     window.open = (url) => {
       opened.push(String(url));
       return null;
@@ -12,7 +12,9 @@ async function captureOpens(page: Page): Promise<void> {
 }
 
 async function openedUrl(page: Page): Promise<URL> {
-  const opened = await page.evaluate(() => (window as unknown as { __opened: string[] }).__opened);
+  const opened = await page.evaluate(
+    () => (window as unknown as { sdrmmOpened: string[] }).sdrmmOpened,
+  );
   expect(opened).toHaveLength(1);
   return new URL(opened[0] ?? "");
 }

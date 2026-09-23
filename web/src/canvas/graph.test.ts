@@ -499,6 +499,32 @@ describe("node ids", () => {
   });
 });
 
+const scanning = (edges: PatchGraph["edges"]): WorkspaceSnapshot => ({
+  version: 1,
+  graph: {
+    nodes: [
+      ...workspace().nodes,
+      node("scan", { kind: "scanner" }),
+      node("dev2", { kind: "device", data: {} }),
+    ],
+    edges,
+  },
+});
+
+const driving = (edges: PatchGraph["edges"]): WorkspaceSnapshot => ({
+  version: 1,
+  graph: {
+    nodes: [
+      ...workspace().nodes,
+      node("scan", { kind: "scanner" }),
+      node("walk", { kind: "hunt", data: {} }),
+      node("am", { kind: "channel", data: { channel_type: "am" } }),
+      node("dev2", { kind: "device", data: {} }),
+    ],
+    edges,
+  },
+});
+
 describe("editing", () => {
   it("removing a node takes its wires with it", () => {
     const graph = removeNode(workspace(), "nfm");
@@ -516,17 +542,6 @@ describe("editing", () => {
   });
 
   it("turns a stored scanner's IQ wire into the control wire that drives the radio's decoder", () => {
-    const scanning = (edges: PatchGraph["edges"]): WorkspaceSnapshot => ({
-      version: 1,
-      graph: {
-        nodes: [
-          ...workspace().nodes,
-          node("scan", { kind: "scanner" }),
-          node("dev2", { kind: "device", data: {} }),
-        ],
-        edges,
-      },
-    });
     const stored = scanning([
       { from: { node: "dev", port: "iq" }, to: { node: "scope", port: "iq" } },
       { from: { node: "dev", port: "iq" }, to: { node: "nfm", port: "iq" } },
@@ -556,7 +571,7 @@ describe("editing", () => {
     const stored: WorkspaceSnapshot = {
       version: 1,
       graph: {
-        nodes: kinds.map((kind) => node(kind, { kind } as PatchNode)),
+        nodes: kinds.map((kind) => node(kind, { kind })),
         edges: [],
       },
     };
@@ -568,19 +583,6 @@ describe("editing", () => {
   });
 
   it("moves a stored control wire off the radio onto its one decoder, or drops it", () => {
-    const driving = (edges: PatchGraph["edges"]): WorkspaceSnapshot => ({
-      version: 1,
-      graph: {
-        nodes: [
-          ...workspace().nodes,
-          node("scan", { kind: "scanner" }),
-          node("walk", { kind: "hunt", data: {} }),
-          node("am", { kind: "channel", data: { channel_type: "am" } }),
-          node("dev2", { kind: "device", data: {} }),
-        ],
-        edges,
-      },
-    });
     const one = driving([
       { from: { node: "dev", port: "iq" }, to: { node: "nfm", port: "iq" } },
       { from: { node: "scan", port: "control" }, to: { node: "dev", port: "control" } },

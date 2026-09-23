@@ -319,15 +319,16 @@ function pieceNames(pieces: BandSpan[]): (string | number)[][] {
   return pieces.map((piece) => [piece.allocation.name, round(piece.left), round(piece.width)]);
 }
 
+const span = (left: number, width: number, name: string, hz: number): BandSpan => ({
+  block: { start_hz: 0, stop_hz: hz, of: 0 },
+  allocation: allocation({ id: name, name, start_hz: 0, stop_hz: hz }),
+  left,
+  width,
+  startsInside: left > 0,
+  endsInside: left + width < 1,
+});
+
 describe("flattenLanes", () => {
-  const span = (left: number, width: number, name: string, hz: number): BandSpan => ({
-    block: { start_hz: 0, stop_hz: hz, of: 0 },
-    allocation: allocation({ id: name, name, start_hz: 0, stop_hz: hz }),
-    left,
-    width,
-    startsInside: left > 0,
-    endsInside: left + width < 1,
-  });
   it("keeps one row where the narrowest band wins", () => {
     const pieces = flattenLanes([
       [span(0, 0.8, "ADS-B", 1e6), span(0.8, 0.2, "aero", 5e7)],

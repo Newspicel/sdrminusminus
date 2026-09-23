@@ -456,23 +456,23 @@ describe("binding", () => {
     ]);
   });
 
-  describe("multi-stream wires", () => {
-    function lanes(): PatchGraph {
-      return {
-        nodes: [
-          node("dev", { kind: "device", data: { device: deviceRefOf(rtl) } }),
-          node("low", { kind: "channel", data: { channel_type: "nfm" } }),
-          node("high", { kind: "channel", data: { channel_type: "nfm" } }),
-          node("spk", { kind: "speaker" }),
-        ],
-        edges: [
-          { from: { node: "dev", port: "iq" }, to: { node: "low", port: "iq" } },
-          { from: { node: "dev", port: "iq3" }, to: { node: "high", port: "iq" } },
-          { from: { node: "high", port: "audio" }, to: { node: "spk", port: "audio" } },
-        ],
-      };
-    }
+  function lanes(): PatchGraph {
+    return {
+      nodes: [
+        node("dev", { kind: "device", data: { device: deviceRefOf(rtl) } }),
+        node("low", { kind: "channel", data: { channel_type: "nfm" } }),
+        node("high", { kind: "channel", data: { channel_type: "nfm" } }),
+        node("spk", { kind: "speaker" }),
+      ],
+      edges: [
+        { from: { node: "dev", port: "iq" }, to: { node: "low", port: "iq" } },
+        { from: { node: "dev", port: "iq3" }, to: { node: "high", port: "iq" } },
+        { from: { node: "high", port: "audio" }, to: { node: "spk", port: "audio" } },
+      ],
+    };
+  }
 
+  describe("multi-stream wires", () => {
     it("reads the stream off the device end of the wire", () => {
       expect(iqSourceOf(lanes(), "high")).toEqual({ source: "dev", stream: 2 });
       expect(iqSourceOf(lanes(), "low")).toEqual({ source: "dev", stream: 0 });

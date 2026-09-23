@@ -54,13 +54,13 @@ function channel(params: ChannelInfo["settings"]["params"]): ChannelInfo {
   };
 }
 
-describe("streamChannels", () => {
-  const onStream = (id: number, stream: number): ChannelInfo => ({
-    ...channel({ type: "nfm", settings: {} }),
-    id,
-    stream,
-  });
+const onStream = (id: number, stream: number): ChannelInfo => ({
+  ...channel({ type: "nfm", settings: {} }),
+  id,
+  stream,
+});
 
+describe("streamChannels", () => {
   it("keeps only the decoders riding the scope's own IQ", () => {
     const listed = [onStream(1, 0), onStream(2, 1), onStream(3, 0)];
     expect(streamChannels(listed, 0).map((found) => found.id)).toEqual([1, 3]);

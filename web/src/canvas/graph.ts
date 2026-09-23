@@ -430,12 +430,13 @@ function migrateGraph(graph: PatchGraph): PatchGraph {
   return idleBareRecorders(repointControlWires(flipScannerInputs(graph)));
 }
 
+const bare = (node: PatchNode): boolean =>
+  (node.kind === "recorder" ||
+    node.kind === "audio_recorder" ||
+    node.kind === "baseband_recorder") &&
+  (node as { data?: unknown }).data === undefined;
+
 function idleBareRecorders(graph: PatchGraph): PatchGraph {
-  const bare = (node: PatchNode): boolean =>
-    (node.kind === "recorder" ||
-      node.kind === "audio_recorder" ||
-      node.kind === "baseband_recorder") &&
-    (node as { data?: unknown }).data === undefined;
   if (!graph.nodes.some(bare)) {
     return graph;
   }

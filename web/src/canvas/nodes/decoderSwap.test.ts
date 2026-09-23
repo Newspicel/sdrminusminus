@@ -206,26 +206,26 @@ describe("retypedSettings", () => {
   });
 });
 
-describe("swapDecoder", () => {
-  const swap = (target: PatchNode, wanted: ChannelDescriptor, live: ChannelInfo | null) => {
-    const applyEdit = vi.fn();
-    const saveChannel = vi.fn();
-    let snapshot: WorkspaceSnapshot = { version: 1, graph: graph() };
-    const done = swapDecoder({
-      context,
-      node: target,
-      descriptor: wanted,
-      live: live === null ? null : { deviceSet: 3, channel: live },
-      saved: settings("nfm", 145.5e6),
-      applyEdit,
-      saveChannel,
-      edit: (change) => {
-        snapshot = change(snapshot);
-      },
-    });
-    return { done, applyEdit, saveChannel, snapshot };
-  };
+const swap = (target: PatchNode, wanted: ChannelDescriptor, live: ChannelInfo | null) => {
+  const applyEdit = vi.fn();
+  const saveChannel = vi.fn();
+  let snapshot: WorkspaceSnapshot = { version: 1, graph: graph() };
+  const done = swapDecoder({
+    context,
+    node: target,
+    descriptor: wanted,
+    live: live === null ? null : { deviceSet: 3, channel: live },
+    saved: settings("nfm", 145.5e6),
+    applyEdit,
+    saveChannel,
+    edit: (change) => {
+      snapshot = change(snapshot);
+    },
+  });
+  return { done, applyEdit, saveChannel, snapshot };
+};
 
+describe("swapDecoder", () => {
   it("patches the live channel and the node together", () => {
     const live: ChannelInfo = { id: 7, settings: settings("nfm", 145.5e6) };
     const result = swap(channelNode(graph()), AM, live);

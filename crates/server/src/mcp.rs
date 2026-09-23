@@ -4,7 +4,7 @@ use axum::Router;
 use rmcp::{
     ErrorData, ServerHandler,
     handler::server::{router::tool::ToolRouter, wrapper::Parameters},
-    model::{CallToolResult, Implementation, ServerCapabilities, ServerInfo},
+    model::{CallToolResult, Implementation, ServerCapabilities, ServerConfig},
     tool, tool_handler, tool_router,
     transport::streamable_http_server::{
         StreamableHttpServerConfig, StreamableHttpService, session::local::LocalSessionManager,
@@ -703,8 +703,8 @@ impl SdrMcp {
 
 #[tool_handler(router = self.tool_router)]
 impl ServerHandler for SdrMcp {
-    fn get_info(&self) -> ServerInfo {
-        ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
+    fn get_info(&self) -> ServerConfig {
+        ServerConfig::new(ServerCapabilities::builder().enable_tools().build())
             .with_server_info(Implementation::new("SDR--", env!("CARGO_PKG_VERSION")))
             .with_instructions(
                 "Control an SDR-- software-defined-radio server. Call get_state first: device \

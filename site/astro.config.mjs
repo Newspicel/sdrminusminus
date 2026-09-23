@@ -7,12 +7,7 @@ export default defineConfig({
   compressHTML: true,
   devToolbar: { enabled: false },
   build: { format: "file" },
-  integrations: [
-    react({
-      exclude: [/node_modules/],
-      babel: { plugins: ["babel-plugin-react-compiler"] },
-    }),
-  ],
+  integrations: [react({ exclude: [/node_modules/], compiler: true })],
   vite: {
     plugins: [tailwindcss()],
     resolve: { dedupe: ["react", "react-dom"] },
