@@ -3,6 +3,7 @@ use tracing::{debug, trace, warn};
 use super::{
     error::{Error, Result},
     regs::Rtl2832u,
+    sdr::BoardVariant,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -234,6 +235,26 @@ const BW_LP_CUTOFFS: &[u32] = &[
     350_000,
 ];
 
+const UPCONVERTER_GPIO: u8 = 5;
+const V4_VHF_MAX_HZ: u32 = 250_000_000;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Band {
+    Hf,
+    Vhf,
+    Uhf,
+}
+
+impl Band {
+    fn of(board: BoardVariant, freq: u32) -> Self {
+        match freq {
+            0..=XTAL_FREQ_28_8 => Self::Hf,
+            _ if board == BoardVariant::RtlSdrBlogV4 && freq < V4_VHF_MAX_HZ => Self::Vhf,
+            _ => Self::Uhf,
+        }
+    }
+}
+
 const HP_BW1: u32 = 350_000;
 const HP_BW2: u32 = 380_000;
 
@@ -251,7 +272,8 @@ pub(crate) struct R82xx {
     regs: [u8; NUM_REGS],
     pub(crate) int_freq: u32,
     xtal_freq: u32,
-    is_blog_v4: bool,
+    board: BoardVariant,
+    band: Option<Band>,
     fil_cal_code: u8,
     dither: bool,
 }
@@ -269,7 +291,7 @@ impl R82xx {
         tuner_type: TunerType,
         i2c_addr: u8,
         xtal_freq: u32,
-        is_blog_v4: bool,
+        board: BoardVariant,
     ) -> Self {
         Self {
             tuner_type,
@@ -277,7 +299,8 @@ impl R82xx {
             regs: REG_INIT,
             int_freq: R82XX_IF_FREQ,
             xtal_freq,
-            is_blog_v4,
+            board,
+            band: None,
             fil_cal_code: 0,
             dither: true,
         }
@@ -344,11 +367,12 @@ impl R82xx {
 
     pub(crate) fn init(&mut self, dev: &Rtl2832u) -> Result<()> {
         debug!(
-            "R82xx init: {:?} at 0x{:02x}, xtal={}Hz, blog_v4={}",
-            self.tuner_type, self.i2c_addr, self.xtal_freq, self.is_blog_v4
+            "R82xx init: {:?} at 0x{:02x}, xtal={}Hz, board={:?}",
+            self.tuner_type, self.i2c_addr, self.xtal_freq, self.board
         );
 
         self.regs = REG_INIT;
+        self.band = None;
 
         self.write_regs(dev, REG_SHADOW_START, NUM_REGS)?;
 
@@ -365,6 +389,7 @@ impl R82xx {
 
     pub(crate) fn standby(&mut self, dev: &Rtl2832u) -> Result<()> {
         debug!("R82xx entering standby");
+        self.band = None;
 
         self.write_reg_mask(dev, 0x06, 0xb1, 0xff)?;
         self.write_reg_mask(dev, 0x05, 0xa0, 0xff)?;
@@ -504,34 +529,26 @@ impl R82xx {
     pub(crate) fn set_freq(&mut self, dev: &Rtl2832u, freq: u32) -> Result<()> {
         debug!("R82xx set_freq: {} Hz", freq);
 
-        let upconverted_freq =
-            if self.is_blog_v4 && self.tuner_type == TunerType::R828D && freq < XTAL_FREQ_28_8 {
-                debug!(
-                    "Blog V4 HF upconversion: {} + {} = {} Hz",
-                    freq,
-                    XTAL_FREQ_28_8,
-                    freq + XTAL_FREQ_28_8
-                );
-                freq + XTAL_FREQ_28_8
-            } else {
-                freq
-            };
+        let rf_freq = if self.board.upconverts_hf() && freq < XTAL_FREQ_28_8 {
+            freq + XTAL_FREQ_28_8
+        } else {
+            freq
+        };
 
-        let lo_freq = upconverted_freq.saturating_add(self.int_freq);
+        let lo_freq = rf_freq.saturating_add(self.int_freq);
 
         self.set_mux(dev, lo_freq)?;
 
         self.set_pll(dev, lo_freq)?;
 
-        if self.tuner_type == TunerType::R828D {
-            if self.is_blog_v4 {
-                self.set_blog_v4_input(dev, freq)?;
-            } else {
-                self.set_r828d_input(dev, freq)?;
+        match self.board {
+            BoardVariant::RtlSdrBlogV4 => self.set_blog_v4_input(dev, freq),
+            BoardVariant::RtlSdrBlogV4Lite => self.set_blog_v4_lite_input(dev, freq),
+            BoardVariant::Generic if self.tuner_type == TunerType::R828D => {
+                self.set_r828d_input(dev, freq)
             }
+            BoardVariant::Generic => Ok(()),
         }
-
-        Ok(())
     }
 
     fn set_mux(&mut self, dev: &Rtl2832u, lo_freq: u32) -> Result<()> {
@@ -596,10 +613,7 @@ impl R82xx {
         let data = self.read_regs(dev, 0x00, 5)?;
         let vco_fine_tune = (data[4] & 0x30) >> 4;
 
-        let vco_power_ref: u8 = match self.tuner_type {
-            TunerType::R820T => 2,
-            TunerType::R828D => 1,
-        };
+        let vco_power_ref = vco_power_ref(self.tuner_type, self.board);
 
         if vco_fine_tune > vco_power_ref {
             div_num = div_num.wrapping_sub(1);
@@ -668,23 +682,45 @@ impl R82xx {
     }
 
     fn set_blog_v4_input(&mut self, dev: &Rtl2832u, freq: u32) -> Result<()> {
-        if freq <= XTAL_FREQ_28_8 {
-            self.write_reg_mask(dev, 0x06, 0x08, 0x08)?; // Cable2 on
-            self.write_reg_mask(dev, 0x05, 0x20, 0x60)?; // bit 5 = air_in enable
-        } else if freq <= 250_000_000 {
-            self.write_reg_mask(dev, 0x06, 0x00, 0x08)?; // Cable2 off
-            self.write_reg_mask(dev, 0x05, 0x60, 0x60)?; // bits 6+5 = cable1 + air_in
-        } else {
-            self.write_reg_mask(dev, 0x06, 0x00, 0x08)?; // Cable2 off
-            self.write_reg_mask(dev, 0x05, 0x00, 0x60)?; // Neither = air input (default)
-        }
-
         let notch_on = !matches!(freq,
             0..=2_200_000 | 85_000_000..=112_000_000 | 172_000_000..=242_000_000
         );
         self.write_reg_mask(dev, 0x17, if notch_on { 0x08 } else { 0x00 }, 0x08)?;
 
-        Ok(())
+        let band = Band::of(self.board, freq);
+        if band == Band::Hf {
+            self.bypass_tracking_filter(dev)?;
+        }
+        if self.band == Some(band) {
+            return Ok(());
+        }
+        self.band = Some(band);
+        self.write_reg_mask(dev, 0x06, if band == Band::Hf { 0x08 } else { 0x00 }, 0x08)?;
+        set_upconverter(dev, band == Band::Hf)?;
+        let reg_05 = match band {
+            Band::Hf => 0x20,
+            Band::Vhf => 0x60,
+            Band::Uhf => 0x00,
+        };
+        self.write_reg_mask(dev, 0x05, reg_05, 0x60)
+    }
+
+    fn set_blog_v4_lite_input(&mut self, dev: &Rtl2832u, freq: u32) -> Result<()> {
+        let band = Band::of(self.board, freq);
+        if band == Band::Hf {
+            self.bypass_tracking_filter(dev)?;
+        }
+        if self.band == Some(band) {
+            return Ok(());
+        }
+        self.band = Some(band);
+        set_upconverter(dev, band == Band::Hf)?;
+        self.write_reg_mask(dev, 0x05, if band == Band::Hf { 0x60 } else { 0x00 }, 0x60)
+    }
+
+    fn bypass_tracking_filter(&mut self, dev: &Rtl2832u) -> Result<()> {
+        self.write_reg_mask(dev, 0x1a, 0x40, 0xc3)?;
+        self.write_reg_mask(dev, 0x1b, 0x00, 0xff)
     }
 
     fn set_r828d_input(&mut self, dev: &Rtl2832u, freq: u32) -> Result<()> {
@@ -810,6 +846,19 @@ impl R82xx {
     }
 }
 
+fn set_upconverter(dev: &Rtl2832u, hf: bool) -> Result<()> {
+    dev.set_gpio_output(UPCONVERTER_GPIO)?;
+    dev.set_gpio_bit(UPCONVERTER_GPIO, !hf)
+}
+
+fn vco_power_ref(tuner_type: TunerType, board: BoardVariant) -> u8 {
+    if tuner_type == TunerType::R828D || board == BoardVariant::RtlSdrBlogV4Lite {
+        1
+    } else {
+        2
+    }
+}
+
 use std::time::Duration;
 
 #[cfg(test)]
@@ -822,5 +871,31 @@ mod tests {
         assert_eq!(pll_sdm_reg(false, true), 0x00);
         assert_eq!(pll_sdm_reg(true, false), 0x18);
         assert_eq!(pll_sdm_reg(false, false), 0x10);
+    }
+
+    #[test]
+    fn the_v4_lite_tunes_its_r820t_with_the_r828d_vco_reference() {
+        assert_eq!(vco_power_ref(TunerType::R820T, BoardVariant::Generic), 2);
+        assert_eq!(
+            vco_power_ref(TunerType::R820T, BoardVariant::RtlSdrBlogV4Lite),
+            1
+        );
+        assert_eq!(vco_power_ref(TunerType::R828D, BoardVariant::Generic), 1);
+        assert_eq!(
+            vco_power_ref(TunerType::R828D, BoardVariant::RtlSdrBlogV4),
+            1
+        );
+    }
+
+    #[test]
+    fn only_the_v4_has_a_vhf_input() {
+        let v4 = BoardVariant::RtlSdrBlogV4;
+        let lite = BoardVariant::RtlSdrBlogV4Lite;
+        assert_eq!(Band::of(v4, 7_100_000), Band::Hf);
+        assert_eq!(Band::of(v4, XTAL_FREQ_28_8), Band::Hf);
+        assert_eq!(Band::of(v4, 100_000_000), Band::Vhf);
+        assert_eq!(Band::of(v4, V4_VHF_MAX_HZ), Band::Uhf);
+        assert_eq!(Band::of(lite, 7_100_000), Band::Hf);
+        assert_eq!(Band::of(lite, 100_000_000), Band::Uhf);
     }
 }

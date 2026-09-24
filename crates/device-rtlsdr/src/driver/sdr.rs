@@ -45,6 +45,13 @@ pub(crate) struct DeviceDescriptor {
 pub(crate) enum BoardVariant {
     Generic,
     RtlSdrBlogV4,
+    RtlSdrBlogV4Lite,
+}
+
+impl BoardVariant {
+    pub(crate) const fn upconverts_hf(self) -> bool {
+        matches!(self, Self::RtlSdrBlogV4 | Self::RtlSdrBlogV4Lite)
+    }
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -104,12 +111,10 @@ fn is_known_rtl_device(vendor_id: u16, product_id: u16) -> bool {
 /// the dongle is the only field that can name the board on every platform.
 fn classify_board_variant(manufacturer: Option<&str>, product: Option<&str>) -> BoardVariant {
     let vendor_fits = manufacturer.is_none_or(|name| name.eq_ignore_ascii_case("RTLSDRBlog"));
-    match product {
-        Some(product)
-            if vendor_fits && product.trim().to_ascii_lowercase().starts_with("blog v4") =>
-        {
-            BoardVariant::RtlSdrBlogV4
-        }
+    let product = product.map(|name| name.trim().to_ascii_lowercase());
+    match product.as_deref() {
+        Some(name) if vendor_fits && name.starts_with("blog v4l") => BoardVariant::RtlSdrBlogV4Lite,
+        Some(name) if vendor_fits && name.starts_with("blog v4") => BoardVariant::RtlSdrBlogV4,
         _ => BoardVariant::Generic,
     }
 }
@@ -188,7 +193,7 @@ impl RtlSdr {
                 TunerType::R820T,
                 tuner::R820T_I2C_ADDR,
                 DEF_RTL_XTAL_FREQ,
-                false,
+                info.board_variant,
             ),
             center_freq: 0,
             sample_rate: 0,
@@ -210,14 +215,14 @@ impl RtlSdr {
 
         self.dev.set_i2c_repeater(true)?;
         let (tuner_type, i2c_addr) = self.search_tuner()?;
-        let is_blog_v4 = self.board_variant == BoardVariant::RtlSdrBlogV4;
-        let tuner_xtal = if tuner_type == TunerType::R828D && !is_blog_v4 {
-            tuner::XTAL_FREQ_16
-        } else {
-            DEF_RTL_XTAL_FREQ
-        };
+        let tuner_xtal =
+            if tuner_type == TunerType::R828D && self.board_variant != BoardVariant::RtlSdrBlogV4 {
+                tuner::XTAL_FREQ_16
+            } else {
+                DEF_RTL_XTAL_FREQ
+            };
         self.tuner_xtal_freq = tuner_xtal;
-        self.tuner = R82xx::new(tuner_type, i2c_addr, tuner_xtal, is_blog_v4);
+        self.tuner = R82xx::new(tuner_type, i2c_addr, tuner_xtal, self.board_variant);
         self.tuner.init(&self.dev)?;
         self.dev.set_i2c_repeater(false)?;
 
@@ -609,6 +614,17 @@ mod tests {
     }
 
     #[test]
+    fn the_v4_lite_is_its_own_board_and_both_upconvert_hf() {
+        assert_eq!(
+            classify_board_variant(Some("RTLSDRBlog"), Some("Blog V4L")),
+            BoardVariant::RtlSdrBlogV4Lite
+        );
+        assert!(BoardVariant::RtlSdrBlogV4.upconverts_hf());
+        assert!(BoardVariant::RtlSdrBlogV4Lite.upconverts_hf());
+        assert!(!BoardVariant::Generic.upconverts_hf());
+    }
+
+    #[test]
     fn a_blog_v4_is_recognised_where_no_manufacturer_string_is_reported() {
         assert_eq!(
             classify_board_variant(None, Some("Blog V4")),
@@ -617,7 +633,7 @@ mod tests {
         );
         assert_eq!(
             classify_board_variant(None, Some("Blog V4L")),
-            BoardVariant::RtlSdrBlogV4
+            BoardVariant::RtlSdrBlogV4Lite
         );
         assert_eq!(
             classify_board_variant(None, Some("RTL2838UHIDIR")),

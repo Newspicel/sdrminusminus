@@ -114,7 +114,7 @@ fn tuner_stage(gains: &[i32]) -> Option<GainStage> {
 
 pub(crate) fn capabilities(board: BoardVariant, gains: &[i32]) -> Capabilities {
     let mut freq_ranges = Vec::with_capacity(2);
-    if board == BoardVariant::RtlSdrBlogV4 {
+    if board.upconverts_hf() {
         freq_ranges.push(Range {
             min: V4_HF_MIN_HZ,
             max: V4_HF_MAX_HZ,
@@ -192,7 +192,7 @@ pub(crate) fn kraken_capabilities(lanes: u32, gains: &[i32]) -> Capabilities {
 }
 
 fn extra_settings(board: BoardVariant) -> Vec<ExtraSetting> {
-    if board == BoardVariant::RtlSdrBlogV4 {
+    if board.upconverts_hf() {
         return Vec::new();
     }
     vec![ExtraSetting::choice(
@@ -677,6 +677,14 @@ mod tests {
         assert_eq!(caps.freq_ranges[0].max, 28.8e6);
         assert_eq!(caps.freq_ranges[1].min, 24e6);
         assert!(caps.extra.is_empty(), "a V4 never bypasses its tuner");
+    }
+
+    #[test]
+    fn the_v4_lite_advertises_the_same_upconverted_hf_range_as_the_v4() {
+        assert_eq!(
+            capabilities(BoardVariant::RtlSdrBlogV4Lite, GAIN_VALUES),
+            capabilities(BoardVariant::RtlSdrBlogV4, GAIN_VALUES)
+        );
     }
 
     #[test]

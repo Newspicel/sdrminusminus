@@ -126,7 +126,7 @@ sampling changes the tuning range. Transmit is not available yet.
 | Tuner | Gain, in the tuner's own steps: 20 dB on an R820T becomes 19.7 dB |
 | AGC | Tuner AGC |
 | Bias tee | Antenna-port power |
-| Direct sampling | `off`, `i`, or `q`. Not on the RTL-SDR Blog V4, which has an upconverter for HF. |
+| Direct sampling | `off`, `i`, or `q`. Not on the RTL-SDR Blog V4 or V4 Lite, which upconvert HF. |
 
 Rates: 225 to 300 kHz, or 900 kHz to 3.2 MHz. Filter: 290 kHz to 8 MHz on R82xx tuners.
 

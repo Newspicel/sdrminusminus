@@ -1,7 +1,7 @@
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use caps::{GainMode, Plan};
-use driver::{BoardVariant, DeviceDescriptor, DeviceDescriptors, RtlSdr};
+use driver::{DeviceDescriptor, DeviceDescriptors, RtlSdr};
 use sdrmm_device::{
     Capture, CaptureConfig, CaptureRadio, DeviceDriver, DeviceError, RxSink, SdrDevice, lock,
     single_rx_sink,
@@ -145,7 +145,7 @@ impl RtlSdrDevice {
         let bias_tee = sdr.bias_t_at_startup();
         sdr.set_bias_t(bias_tee).map_err(map_err)?;
 
-        let extra = (sdr.board_variant() != BoardVariant::RtlSdrBlogV4)
+        let extra = (!sdr.board_variant().upconverts_hf())
             .then(|| ExtraValue {
                 name: caps::DIRECT_SAMPLING.to_string(),
                 value: sdr.direct_sampling().as_str().into(),
