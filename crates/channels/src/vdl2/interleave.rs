@@ -97,7 +97,8 @@ pub fn interleave(data_bits: &[u8], rs: &ReedSolomon) -> Option<Vec<u8>> {
 
 #[cfg(test)]
 pub fn deinterleave(tx_bits: &[u8], tl_bits: usize, rs: &ReedSolomon) -> Option<(Vec<u8>, usize)> {
-    deinterleave_soft(tx_bits, &[], 0, tl_bits, rs, Erasures::Doubtful).map(|decoded| (decoded.bits, decoded.corrected))
+    deinterleave_soft(tx_bits, &[], 0, tl_bits, rs, Erasures::Doubtful)
+        .map(|decoded| (decoded.bits, decoded.corrected))
 }
 
 pub struct Deinterleaved {

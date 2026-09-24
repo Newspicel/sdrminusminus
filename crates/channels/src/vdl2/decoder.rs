@@ -12,6 +12,7 @@ use super::demod::{Burst, SYMBOL_RATE, Vdl2Demod};
 use super::interleave;
 
 const SELECTIVITY_TAPS: usize = 101;
+const SELECTIVITY_CUTOFF: f64 = 0.7 * SYMBOL_RATE;
 const ACARS_FILL: u8 = 0xFF;
 
 pub struct Vdl2Frame {
@@ -43,10 +44,7 @@ pub struct Vdl2Decoder {
 impl Vdl2Decoder {
     pub fn new(input_rate: f64) -> Self {
         Self {
-            selectivity: Decimator::new(
-                &lowpass_taps(SYMBOL_RATE / input_rate, SELECTIVITY_TAPS),
-                1,
-            ),
+            selectivity: selectivity(SELECTIVITY_CUTOFF / input_rate),
             filtered: Vec::new(),
             demod: Vdl2Demod::new(input_rate),
             bursts: Vec::new(),
@@ -64,6 +62,7 @@ impl Vdl2Decoder {
     #[cfg(test)]
     pub fn differential(input_rate: f64) -> Self {
         Self {
+            selectivity: selectivity(SYMBOL_RATE / input_rate),
             demod: Vdl2Demod::differential(input_rate),
             ..Self::new(input_rate)
         }
@@ -184,6 +183,10 @@ fn cotp_reassemble(full: &[u8], v: &mut Value, cotp: &mut CotpReassembler, now: 
             }
         }
     }
+}
+
+fn selectivity(cutoff: f64) -> Decimator {
+    Decimator::new(&lowpass_taps(cutoff, SELECTIVITY_TAPS), 1)
 }
 
 fn lowpass_taps(cutoff: f64, num_taps: usize) -> Vec<f32> {

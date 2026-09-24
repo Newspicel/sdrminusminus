@@ -362,7 +362,9 @@ fn sweep_capture(seed: u64, noise: f32, bursts: usize) -> Vec<Complex<f32>> {
     }
     iq.extend(vec![Complex::default(); 40_000]);
     Noise(seed).add(&mut iq, noise);
-    iq
+    let mut filtered = Vec::new();
+    channel_filter().process(&iq, &mut filtered);
+    filtered
 }
 
 #[test]
