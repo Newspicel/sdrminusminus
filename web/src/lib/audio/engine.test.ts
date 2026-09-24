@@ -155,6 +155,27 @@ describe("AudioEngine", () => {
     expect(sinks[0]?.pushed).toHaveLength(1);
   });
 
+  it("reroute rebuilds each playing channel on a fresh sink and resubscribes", async () => {
+    engine.start(1, 2);
+    await flush();
+    socket.emit(started(1, 2, 9));
+    socket.sent = [];
+
+    engine.rerouteOutput();
+    expect(sinks[0]?.closed).toBe(true);
+    expect(engine.isPending(1, 2)).toBe(true);
+    await flush();
+
+    expect(sinks).toHaveLength(2);
+    expect(socket.sent).toEqual([
+      { type: "UnsubscribeAudio", data: { device_set: 1, channel: 2 } },
+      { type: "SubscribeAudio", data: { device_set: 1, channel: 2 } },
+    ]);
+    socket.emit(started(1, 2, 11));
+    socket.onAudio(audioFrame(11, 0n, [1]));
+    expect(sinks[1]?.pushed).toHaveLength(1);
+  });
+
   it("does not subscribe a cancelled start when delayed output becomes ready", async () => {
     engine.setOutputRunning(false);
     engine.start(1, 2);

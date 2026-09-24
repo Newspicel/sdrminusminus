@@ -65,6 +65,13 @@ class FakeWorkletNode {
   }
 }
 
+function workletContext() {
+  return {
+    currentTime: 0,
+    audioWorklet: { addModule: vi.fn(() => Promise.resolve()) },
+  } as unknown as AudioContext & { audioWorklet: { addModule: ReturnType<typeof vi.fn> } };
+}
+
 describe("createPlayback with an audio worklet", () => {
   beforeEach(() => {
     vi.useFakeTimers();
@@ -117,6 +124,16 @@ describe("createPlayback with an audio worklet", () => {
     const calls = timestamp.mock.calls.length;
     await vi.advanceTimersByTimeAsync(1000);
     expect(timestamp).toHaveBeenCalledTimes(calls);
+  });
+
+  it("registers the processor once per context", async () => {
+    const first = workletContext();
+    const second = workletContext();
+    (await createPlayback(first, vi.fn(), vi.fn())).release();
+    (await createPlayback(first, vi.fn(), vi.fn())).release();
+    (await createPlayback(second, vi.fn(), vi.fn())).release();
+    expect(first.audioWorklet.addModule).toHaveBeenCalledOnce();
+    expect(second.audioWorklet.addModule).toHaveBeenCalledOnce();
   });
 
   it.each([false, true])("reports processor failure with ready=%s", async (started) => {

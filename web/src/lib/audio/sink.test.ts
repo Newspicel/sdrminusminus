@@ -15,6 +15,10 @@ class FakeAudioContext {
     ? { addModule: vi.fn(() => Promise.resolve()) }
     : undefined;
   resume = vi.fn(() => Promise.resolve());
+  close = vi.fn(() => {
+    this.state = "closed";
+    return Promise.resolve();
+  });
   createScriptProcessor = vi.fn((frames: number) => new FakeScriptProcessor(frames));
   private readonly listeners = new Set<() => void>();
 
@@ -82,6 +86,12 @@ async function importSink() {
   return await import("./sink");
 }
 
+let deviceListeners: (() => void)[] = [];
+
+function idleDecoder() {
+  return { channels: 2, decode: vi.fn(), reset: vi.fn(), close: vi.fn() };
+}
+
 describe("createWebAudioSink", () => {
   beforeEach(() => {
     FakeAudioContext.initialState = "running";
@@ -100,6 +110,12 @@ describe("createWebAudioSink", () => {
       visibilityState: "visible",
     });
     vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:sdr-test");
+    deviceListeners = [];
+    vi.stubGlobal("navigator", {
+      mediaDevices: {
+        addEventListener: (_type: string, listener: () => void) => deviceListeners.push(listener),
+      },
+    });
   });
 
   afterEach(() => {
@@ -346,5 +362,61 @@ describe("createWebAudioSink", () => {
 
     sink.setVolume(0.25);
     expect(gain?.gain.value).toBeCloseTo(gainForVolume(0.25), 6);
+  });
+
+  it("releases the output device once the last sink closes", async () => {
+    createDecoder.mockImplementation(() => Promise.resolve(idleDecoder()));
+    const { createWebAudioSink } = await importSink();
+
+    const first = await createWebAudioSink("1:1", 1, vi.fn(), vi.fn());
+    const second = await createWebAudioSink("1:2", 1, vi.fn(), vi.fn());
+    const context = FakeAudioContext.instances[0];
+    expect(FakeAudioContext.instances).toHaveLength(1);
+
+    first.close();
+    first.close();
+    expect(context?.close).not.toHaveBeenCalled();
+    second.close();
+    expect(context?.close).toHaveBeenCalledOnce();
+
+    await createWebAudioSink("1:1", 1, vi.fn(), vi.fn());
+    expect(FakeAudioContext.instances).toHaveLength(2);
+  });
+
+  it("keeps a suspended context so a gesture can still resume it", async () => {
+    createDecoder.mockImplementation(() => Promise.resolve(idleDecoder()));
+    FakeAudioContext.initialState = "suspended";
+    const { createWebAudioSink } = await importSink();
+
+    const sink = await createWebAudioSink("1:1", 1, vi.fn(), vi.fn());
+    sink.close();
+    expect(FakeAudioContext.instances[0]?.close).not.toHaveBeenCalled();
+  });
+
+  it("moves playback to a fresh context when the output devices change", async () => {
+    vi.useFakeTimers();
+    try {
+      createDecoder.mockImplementation(() => Promise.resolve(idleDecoder()));
+      const sinkModule = await importSink();
+      const rerouted = vi.fn();
+      sinkModule.onOutputRerouted(rerouted);
+
+      const sink = await sinkModule.createWebAudioSink("1:1", 1, vi.fn(), vi.fn());
+      const old = FakeAudioContext.instances[0];
+      for (const listener of deviceListeners) listener();
+      for (const listener of deviceListeners) listener();
+      expect(rerouted).not.toHaveBeenCalled();
+
+      vi.runAllTimers();
+      expect(old?.close).toHaveBeenCalledOnce();
+      expect(rerouted).toHaveBeenCalledOnce();
+
+      sink.close();
+      await sinkModule.createWebAudioSink("1:1", 1, vi.fn(), vi.fn());
+      expect(FakeAudioContext.instances).toHaveLength(2);
+      expect(FakeAudioContext.instances[1]?.close).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

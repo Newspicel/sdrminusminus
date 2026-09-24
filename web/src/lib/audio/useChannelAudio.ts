@@ -1,7 +1,12 @@
 import { useCallback, useEffect, useSyncExternalStore } from "react";
 import type { SdrSocket } from "../ws";
 import { AudioEngine } from "./engine";
-import { createWebAudioSink, onOutputStateChange, resumeAudioOutput } from "./sink";
+import {
+  createWebAudioSink,
+  onOutputRerouted,
+  onOutputStateChange,
+  resumeAudioOutput,
+} from "./sink";
 
 export interface ChannelAudio {
   playing: boolean;
@@ -24,6 +29,7 @@ const NO_FX: readonly string[] = [];
 
 export const audioEngine = new AudioEngine(createWebAudioSink);
 onOutputStateChange((running) => audioEngine.setOutputRunning(running));
+onOutputRerouted(() => audioEngine.rerouteOutput());
 
 export function useChannelAudio(
   socket: SdrSocket | null,

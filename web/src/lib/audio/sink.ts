@@ -3,16 +3,21 @@ import type { OpusPacketDecoder } from "./decoder";
 import { createOpusPacketDecoder } from "./decoder";
 import type { AudioSink, SinkFactory } from "./engine";
 import { isWatched, publishAudio } from "./monitor";
-import { createPlayback } from "./playback";
+import { createPlayback, type Playback } from "./playback";
 import type { WorkletReport } from "./worklet";
 import { CHANNELS, SAMPLE_RATE, TARGET_FRAMES } from "./worklet";
 
 const VOLUME_RANGE_DB = 60;
 const VOLUME_RAMP_SECONDS = 0.02;
+const DEVICE_SETTLE_MS = 750;
 
 let ctx: AudioContext | null = null;
+let liveSinks = 0;
 const outputListeners = new Set<(running: boolean) => void>();
+const rerouteListeners = new Set<() => void>();
 let recoveryArmed = false;
+let watchingDevices = false;
+let rerouteTimer: ReturnType<typeof setTimeout> | undefined;
 
 export function gainForVolume(volume: number): number {
   const position = Math.min(1, Math.max(0, volume));
@@ -26,6 +31,11 @@ export function isOutputRunning(): boolean {
 export function onOutputStateChange(listener: (running: boolean) => void): () => void {
   outputListeners.add(listener);
   return () => outputListeners.delete(listener);
+}
+
+export function onOutputRerouted(listener: () => void): () => void {
+  rerouteListeners.add(listener);
+  return () => rerouteListeners.delete(listener);
 }
 
 export function resumeAudioOutput(): void {
@@ -48,6 +58,63 @@ function handleStateChange(): void {
   }
   for (const listener of outputListeners) {
     listener(running);
+  }
+  if (running && liveSinks === 0) {
+    closeContext();
+  }
+}
+
+function acquireContext(): AudioContext {
+  if (ctx === null) {
+    ctx = new AudioContext({ sampleRate: SAMPLE_RATE });
+    ctx.addEventListener("statechange", handleStateChange);
+    watchOutputDevices();
+  }
+  liveSinks += 1;
+  return ctx;
+}
+
+function releaseContext(context: AudioContext): void {
+  if (context !== ctx) {
+    return;
+  }
+  liveSinks -= 1;
+  if (liveSinks === 0 && context.state === "running") {
+    closeContext();
+  }
+}
+
+function closeContext(): void {
+  const closing = ctx;
+  if (closing === null) {
+    return;
+  }
+  ctx = null;
+  liveSinks = 0;
+  closing.removeEventListener("statechange", handleStateChange);
+  disarmRecovery();
+  closing.close().catch(() => {});
+}
+
+function watchOutputDevices(): void {
+  const devices = globalThis.navigator?.mediaDevices;
+  if (watchingDevices || devices === undefined) {
+    return;
+  }
+  watchingDevices = true;
+  devices.addEventListener("devicechange", () => {
+    clearTimeout(rerouteTimer);
+    rerouteTimer = setTimeout(reroute, DEVICE_SETTLE_MS);
+  });
+}
+
+function reroute(): void {
+  if (ctx === null || ctx.state !== "running") {
+    return;
+  }
+  closeContext();
+  for (const listener of rerouteListeners) {
+    listener();
   }
 }
 
@@ -76,11 +143,7 @@ function handleVisibility(): void {
 }
 
 export const createWebAudioSink: SinkFactory = async (key, volume, onError, onReport) => {
-  if (ctx === null) {
-    ctx = new AudioContext({ sampleRate: SAMPLE_RATE });
-    ctx.addEventListener("statechange", handleStateChange);
-  }
-  const context = ctx;
+  const context = acquireContext();
   if (context.state !== "running") {
     attemptResume();
     handleStateChange();
@@ -91,14 +154,20 @@ export const createWebAudioSink: SinkFactory = async (key, volume, onError, onRe
     decoderDroppedFrames += frames;
     onReport({ ...lastReport, decoderDroppedFrames });
   };
-  const playback = await createPlayback(
-    context,
-    (report) => {
-      lastReport = report;
-      onReport({ ...lastReport, decoderDroppedFrames });
-    },
-    onError,
-  );
+  let playback: Playback;
+  try {
+    playback = await createPlayback(
+      context,
+      (report) => {
+        lastReport = report;
+        onReport({ ...lastReport, decoderDroppedFrames });
+      },
+      onError,
+    );
+  } catch (err) {
+    releaseContext(context);
+    throw err;
+  }
   const gain = new GainNode(context, { gain: gainForVolume(volume) });
   playback.node.connect(gain).connect(context.destination);
 
@@ -130,6 +199,7 @@ export const createWebAudioSink: SinkFactory = async (key, volume, onError, onRe
     playback.release();
     gain.disconnect();
     removeLatency();
+    releaseContext(context);
     throw err;
   }
 
@@ -157,12 +227,16 @@ export const createWebAudioSink: SinkFactory = async (key, volume, onError, onRe
       playback.send("reset");
     },
     close() {
+      if (closed) {
+        return;
+      }
       closed = true;
       removeLatency();
       decoder.close();
       playback.send("close");
       playback.release();
       gain.disconnect();
+      releaseContext(context);
     },
   };
   return sink;

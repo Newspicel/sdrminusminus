@@ -167,6 +167,17 @@ export class AudioEngine {
     this.notify();
   }
 
+  rerouteOutput(): void {
+    for (const entry of this.entries.values()) {
+      if (!entry.desired) continue;
+      entry.generation += 1;
+      this.releaseSubscription(entry);
+      this.teardown(entry);
+      if (this.outputRunning) this.ensureSink(entry);
+    }
+    this.notify();
+  }
+
   claimServerError(message: string): boolean {
     const pending = this.pendingSubscribes.shift();
     if (!pending) {

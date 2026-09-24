@@ -60,7 +60,7 @@ export interface Playback {
   release(): void;
 }
 
-let workletModule: Promise<void> | null = null;
+const workletModules = new WeakMap<BaseAudioContext, Promise<void>>();
 
 export function supportsAudioWorklet(context: BaseAudioContext): boolean {
   return (
@@ -76,12 +76,20 @@ export async function createPlayback(
   if (!supportsAudioWorklet(context)) {
     return createScriptProcessorPlayback(context, onReport);
   }
-  workletModule ??= context.audioWorklet.addModule(processorUrl()).catch((err: unknown) => {
-    workletModule = null;
-    throw err;
-  });
-  await workletModule;
+  await loadWorkletModule(context);
   return createWorkletPlayback(context, onReport, onError);
+}
+
+function loadWorkletModule(context: BaseAudioContext): Promise<void> {
+  let loading = workletModules.get(context);
+  if (loading === undefined) {
+    loading = context.audioWorklet.addModule(processorUrl()).catch((err: unknown) => {
+      workletModules.delete(context);
+      throw err;
+    });
+    workletModules.set(context, loading);
+  }
+  return loading;
 }
 
 function createWorkletPlayback(
