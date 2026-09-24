@@ -224,3 +224,59 @@ async fn applying_a_template_merges_its_patch_into_the_active_workspace() {
     );
     detail.snapshot.validate().expect("a valid workspace");
 }
+
+struct HidesOpenRadios {
+    inner: sdrmm_device_virtual::VirtualDriver,
+    opened: std::sync::atomic::AtomicBool,
+}
+
+impl sdrmm_device::DeviceDriver for HidesOpenRadios {
+    fn id(&self) -> &'static str {
+        self.inner.id()
+    }
+
+    fn probe(&self) -> Vec<sdrmm_wire::DeviceInfo> {
+        if self.opened.load(std::sync::atomic::Ordering::Acquire) {
+            Vec::new()
+        } else {
+            self.inner.probe()
+        }
+    }
+
+    fn open(
+        &self,
+        info: &sdrmm_wire::DeviceInfo,
+    ) -> Result<Box<dyn sdrmm_device::SdrDevice>, sdrmm_device::DeviceError> {
+        let device = self.inner.open(info)?;
+        self.opened
+            .store(true, std::sync::atomic::Ordering::Release);
+        Ok(device)
+    }
+}
+
+#[tokio::test]
+async fn an_open_radio_the_driver_no_longer_lists_can_still_run_templates() {
+    let mut registry = sdrmm_device::DeviceRegistry::new();
+    registry.register(
+        1,
+        Box::new(HidesOpenRadios {
+            inner: sdrmm_device_virtual::VirtualDriver::new(),
+            opened: std::sync::atomic::AtomicBool::new(false),
+        }),
+    );
+    let store = Arc::new(Store::open(None).expect("in-memory store"));
+    let state = AppState::new(Engine::with_registry(registry, None), store);
+    let (app, background) = router_with_state(state, &ServerOptions::default());
+    background.detach();
+    create_virtual_set(&app).await;
+
+    let (status, body) = request(app.clone(), "GET", "/api/templates", None).await;
+    assert_eq!(status, StatusCode::OK);
+    let listed: sdrmm_wire::TemplatesResponse = serde_json::from_slice(&body).expect("json");
+    let fm = listed
+        .templates
+        .iter()
+        .find(|t| t.id == "fm-radio")
+        .expect("fm-radio");
+    assert_eq!(fm.supported_devices, vec!["virtual:siggen".to_string()]);
+}

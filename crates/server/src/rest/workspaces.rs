@@ -16,23 +16,39 @@ pub(super) async fn list_templates(
 ) -> Result<Json<TemplatesResponse>, AppError> {
     let engine = state.engine.clone();
     let probed = tokio::task::spawn_blocking(move || engine.probe_devices()).await?;
+    let open = state.engine.snapshot().device_sets;
     let templates = crate::templates::all()
         .iter()
         .map(|template| TemplateInfo {
-            supported_devices: probed
-                .iter()
-                .filter(|device| {
-                    device
-                        .profile
-                        .as_ref()
-                        .is_none_or(|profile| template.unmet_by(profile).is_none())
-                })
-                .map(DeviceInfo::id)
-                .collect(),
+            supported_devices: devices_running(template, &probed, &open),
             ..template.clone()
         })
         .collect();
     Ok(Json(TemplatesResponse { templates }))
+}
+
+fn devices_running(
+    template: &TemplateInfo,
+    probed: &[DeviceInfo],
+    open: &[sdrmm_wire::DeviceSet],
+) -> Vec<String> {
+    let probed = probed
+        .iter()
+        .filter(|device| {
+            device
+                .profile
+                .as_ref()
+                .is_none_or(|profile| template.unmet_by(profile).is_none())
+        })
+        .map(DeviceInfo::id);
+    let open = open
+        .iter()
+        .filter(|set| template.unmet_by(&set.capabilities.profile()).is_none())
+        .map(|set| set.device.id());
+    let mut ids: Vec<String> = probed.chain(open).collect();
+    ids.sort_unstable();
+    ids.dedup();
+    ids
 }
 
 #[utoipa::path(

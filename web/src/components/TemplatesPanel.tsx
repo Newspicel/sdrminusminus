@@ -10,7 +10,7 @@ import { formatHz, formatSampleRate } from "./format";
 import { Icon } from "./Icon";
 import { List, ListRow, Panel, PanelHint } from "./ListPanel";
 import { Popover } from "./Popover";
-import { supports } from "./templates";
+import { supports, templatesHint } from "./templates";
 
 export function TemplatesPanel({
   active,
@@ -21,6 +21,8 @@ export function TemplatesPanel({
 }) {
   const queryClient = useQueryClient();
   const templates = useQuery(templatesQuery());
+  const list = templates.data?.templates ?? [];
+  const hint = templatesHint(list, active);
   const [applied, setApplied] = useState<TemplateInfo | null>(null);
 
   const applyMut = useMutation({
@@ -35,15 +37,15 @@ export function TemplatesPanel({
 
   return (
     <Panel>
+      {hint !== null && <PanelHint>{hint}</PanelHint>}
       {applied !== null && (
         <div className="rounded-[3px] border border-accent-dim bg-accent/10 px-3 py-2">
           <div className="font-mono text-xs text-accent">{applied.name}</div>
           <p className="mt-1 text-xs text-ink-dim">{applied.explainer}</p>
         </div>
       )}
-      {active === null && <PanelHint>Select a device node to apply a template.</PanelHint>}
       <List>
-        {(templates.data?.templates ?? []).map((t) => {
+        {list.map((t) => {
           const ok = supports(t, active);
           return (
             <ListRow

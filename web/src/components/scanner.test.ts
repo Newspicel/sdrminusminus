@@ -10,7 +10,7 @@ import {
   sweepKind,
   targetCount,
 } from "./scanner";
-import { supports } from "./templates";
+import { supports, templatesHint } from "./templates";
 
 describe("parseRanges", () => {
   it("converts the MHz/kHz the editor holds into whole wire Hz", () => {
@@ -155,6 +155,16 @@ describe("template support", () => {
     });
     expect(supports(TEMPLATE, other)).toBe(false);
     expect(supports(TEMPLATE, null)).toBe(false);
+  });
+});
+
+describe("templatesHint", () => {
+  it("asks for a device, and says when the open one runs none of them", () => {
+    const rtl = deviceSet({ device: { driver: "rtlsdr", key: "00000001", label: "RTL-SDR" } });
+    const other = deviceSet({ device: { driver: "rtlsdr", key: "00000002", label: "Other" } });
+    expect(templatesHint([TEMPLATE], null)).toBe("Select a device first.");
+    expect(templatesHint([TEMPLATE], rtl)).toBeNull();
+    expect(templatesHint([TEMPLATE], other)).toBe("Other cannot run these templates.");
   });
 });
 
