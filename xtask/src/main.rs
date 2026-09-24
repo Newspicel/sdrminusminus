@@ -1461,7 +1461,11 @@ fn build_smoke_server(root: &Path) -> Result<()> {
 
 fn smoke(root: &Path) -> Result<()> {
     ensure_web_deps(root)?;
-    build_smoke_server(root)?;
+    run(
+        "cargo",
+        &["build", "-p", "sdrmm", "--no-default-features"],
+        root,
+    )?;
     run_with_env(
         PNPM,
         &["--dir", "web", "exec", "playwright", "test"],

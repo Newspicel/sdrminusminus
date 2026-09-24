@@ -64,8 +64,8 @@
   },
   {
     "bench": "ais",
-    "msamples_per_s": 20.644419867071438,
-    "realtime_factor": 430.0920805639883,
+    "msamples_per_s": 8.26,
+    "realtime_factor": 172.083,
     "config": "noise including deferred decode slots, 48000 Hz, 2048 sample blocks",
     "host": "aarch64-macos"
   },
@@ -281,8 +281,8 @@
   },
   {
     "bench": "dsc",
-    "msamples_per_s": 256.5339112026906,
-    "realtime_factor": 32066.738900336324,
+    "msamples_per_s": 42.94,
+    "realtime_factor": 5367.5,
     "config": "noise including deferred decode slots, 8000 Hz, 2048 sample blocks",
     "host": "aarch64-macos"
   },
