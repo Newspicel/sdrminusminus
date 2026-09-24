@@ -52,6 +52,14 @@ def run(args, cwd, env):
     subprocess.run(args, cwd=cwd, env=env, check=True)
 
 
+def require_msys_shell(env):
+    kernel = subprocess.run(
+        [tool("bash", env), "-c", "uname -s"], env=env, capture_output=True, text=True, check=True
+    ).stdout
+    if kernel.startswith("CYGWIN"):
+        raise RuntimeError("Cygwin bash cannot build FFmpeg for clang-cl, put MSYS2 usr\\bin in MEDIA_SHELL_BIN")
+
+
 def prepare_source(work, archive):
     if archive is None:
         archive = work / f"ffmpeg-{VERSION}.tar.xz"
@@ -118,6 +126,8 @@ def main():
     work = work_dir(args.target)
     work.mkdir(parents=True, exist_ok=True)
     env = shell_env()
+    if "windows-msvc" in args.target:
+        require_msys_shell(env)
     source = prepare_source(work, args.archive)
     run(configure(source, prefix, args.target, env), work, env)
     run([tool("make", env), "-j", str(os.cpu_count() or 2)], work, env)
