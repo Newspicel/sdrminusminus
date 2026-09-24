@@ -388,7 +388,8 @@ footer a:hover {
   .bar nav {
     gap: 16px;
   }
-  .bar nav a.hardware {
+  .bar nav a.hardware,
+  .bar nav a.discord {
     display: none;
   }
 }
