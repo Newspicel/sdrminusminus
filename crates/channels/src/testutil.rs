@@ -119,6 +119,12 @@ pub(crate) fn at_snr(signal: &[Complex<f32>], snr_db: f32, seed: u64) -> Vec<Com
         .sum::<f32>()
         / signal.len() as f32;
     let sigma = (power / 10f32.powf(snr_db / 10.0) / 2.0).sqrt();
+    let mut noisy = signal.to_vec();
+    add_awgn(&mut noisy, sigma, seed);
+    noisy
+}
+
+pub(crate) fn add_awgn(iq: &mut [Complex<f32>], sigma: f32, seed: u64) {
     let mut state = seed | 1;
     let mut gaussian = move || {
         state = state
@@ -131,10 +137,9 @@ pub(crate) fn at_snr(signal: &[Complex<f32>], snr_db: f32, seed: u64) -> Vec<Com
         let v = f64::from((state >> 40) as u32) / f64::from(1u32 << 24);
         ((-2.0 * u.max(1e-12).ln()).sqrt() * (TAU * v).cos()) as f32
     };
-    signal
-        .iter()
-        .map(|&sample| sample + Complex::new(gaussian() * sigma, gaussian() * sigma))
-        .collect()
+    for sample in iq {
+        *sample += Complex::new(gaussian() * sigma, gaussian() * sigma);
+    }
 }
 
 pub(crate) fn tone_amplitude(audio: &[f32], freq_hz: f64, rate: f64) -> f32 {
