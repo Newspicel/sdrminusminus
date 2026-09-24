@@ -150,6 +150,11 @@ fn every_chain_round_trips_near_clean_at_high_ebn0() {
             ChannelSpec::default(),
             "gmsk bt=0.5 coherent",
         ),
+        (
+            gmsk::stream_link(0.5),
+            ChannelSpec::default(),
+            "gmsk bt=0.5 stream",
+        ),
         (afsk::filterbank_link(), ChannelSpec::default(), "afsk fb"),
         (
             afsk::discriminator_link(),
@@ -208,6 +213,23 @@ fn coherent_curves_match_committed_baselines() {
     smoke(msk::COHERENT_AWGN);
     smoke(gmsk::BT03_COHERENT_AWGN);
     smoke(gmsk::BT05_COHERENT_AWGN);
+}
+
+#[test]
+fn stream_curve_matches_committed_baseline() {
+    smoke(gmsk::BT05_STREAM_AWGN);
+}
+
+#[test]
+fn the_streaming_tier_keeps_the_coherent_gain() {
+    let stream = sweep::load_json(&baseline_path(gmsk::BT05_STREAM_AWGN)).unwrap();
+    let burst = sweep::load_json(&baseline_path(gmsk::BT05_COHERENT_AWGN)).unwrap();
+    let discriminator = sweep::load_json(&baseline_path(gmsk::BT05_AWGN)).unwrap();
+    let gain = -sweep::penalty_db_vs_curve(&stream, &discriminator, 1e-3);
+    let loss = sweep::penalty_db_vs_curve(&stream, &burst, 1e-3);
+    println!("stream gains {gain:+.3} dB, trails the burst tier by {loss:+.3} dB");
+    assert!(gain > 5.0, "stream gains only {gain} dB");
+    assert!(loss < 1.0, "stream trails the burst tier by {loss} dB");
 }
 
 #[test]
@@ -559,6 +581,15 @@ fn coherent_tiers_loop_back_clean_at_margin() {
 }
 
 #[test]
+fn stream_tier_loops_back_clean_at_margin() {
+    e2e(
+        gmsk::stream_link(0.5),
+        gmsk::BT05_STREAM_AWGN,
+        0x0e2e_63a5_5e11,
+    );
+}
+
+#[test]
 fn afsk_loops_back_clean_at_margin_through_both_detectors() {
     e2e(afsk::filterbank_link(), afsk::FILTERBANK_AWGN, 0x0e2e_afb1);
     e2e(
@@ -890,6 +921,18 @@ fn measure_coherent_curves_full() {
     ] {
         remeasure_curve(&link, &ChannelSpec::default(), grid, seed, stem);
     }
+}
+
+#[test]
+#[ignore = "full sweep; run in release to (re)generate the committed curves"]
+fn measure_stream_curve_full() {
+    remeasure_curve(
+        &gmsk::stream_link(0.5),
+        &ChannelSpec::default(),
+        gmsk::STREAM_GRID,
+        gmsk::BT05_STREAM_SEED,
+        gmsk::BT05_STREAM_AWGN,
+    );
 }
 
 #[test]

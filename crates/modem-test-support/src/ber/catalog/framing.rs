@@ -1,6 +1,8 @@
 use num_complex::Complex;
 use sdrmm_dsp::{Decimator, design_lowpass};
-use sdrmm_modem::cpm::{CoherentCpmDemod, CpmDemod, CpmMod, CpmParams, TIMING_BW_BURST};
+use sdrmm_modem::cpm::{
+    CoherentCpmDemod, CoherentCpmStream, CpmDemod, CpmMod, CpmParams, TIMING_BW_BURST,
+};
 
 use crate::ber::{rng::Rng, sweep::Link};
 
@@ -207,6 +209,49 @@ pub fn coherent_link(label: &str, acquisition: Acquisition, params: CpmParams) -
                 return Vec::new();
             };
             payload_bits(&params, &soft, at, UW24.len(), STEADY_BITS)
+        }),
+    }
+}
+
+pub const STREAM_PREAMBLE: usize = 720;
+pub const STREAM_BITS: usize = 4_096;
+pub const STREAM_LOOP_BW: f64 = 0.01;
+pub const STREAM_TIMING_BW: f64 = 0.02;
+const STREAM_SEARCH: usize = 64;
+
+#[must_use]
+pub fn stream_soft(params: &CpmParams, wave: &[Complex<f32>]) -> Vec<f32> {
+    let front = design_lowpass(FRONT_TAPS, NOISE_BW_HZ / RATE);
+    let mut filtered = Vec::new();
+    Decimator::new(&front, 1).process(wave, &mut filtered);
+    let Ok(mut demod) = CoherentCpmStream::new(params, STREAM_LOOP_BW, STREAM_TIMING_BW) else {
+        return Vec::new();
+    };
+    let mut soft = Vec::new();
+    demod.process(&filtered, &mut soft);
+    soft
+}
+
+#[must_use]
+pub fn stream_link(label: &str, params: CpmParams) -> Link {
+    let mod_params = params.clone();
+    Link {
+        label: label.to_string(),
+        bits_per_trial: STREAM_BITS,
+        modulate: Box::new(move |bits| {
+            cpm_wave(
+                &mod_params,
+                &framed_symbols(Acquisition::DataLike, STREAM_PREAMBLE, &UW24, bits, TAIL),
+            )
+        }),
+        demodulate: Box::new(move |wave| {
+            let soft = stream_soft(&params, wave);
+            let levels = uw_levels(&params, &UW24);
+            let lo = STREAM_PREAMBLE - STREAM_SEARCH;
+            let Some(at) = find_uw(&soft, lo, STREAM_PREAMBLE + STREAM_SEARCH, &levels) else {
+                return Vec::new();
+            };
+            payload_bits(&params, &soft, at, UW24.len(), STREAM_BITS)
         }),
     }
 }

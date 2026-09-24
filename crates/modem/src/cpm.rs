@@ -1,10 +1,14 @@
+mod costas;
 mod demod;
 mod laurent;
 mod levels;
+mod lines;
+mod lock;
 mod mlse;
 mod modulator;
 mod msk;
 mod params;
+mod stream;
 
 pub use demod::{CpmDemod, RealDetector, TIMING_BW_BURST, TIMING_BW_CONTINUOUS};
 pub use laurent::{CoherentCpmDemod, LaurentError, laurent_main_pulse};
@@ -13,3 +17,4 @@ pub use mlse::{MlseDetector, SymbolResponse};
 pub use modulator::CpmMod;
 pub use msk::MskDetector;
 pub use params::{CpmParams, Mapping};
+pub use stream::CoherentCpmStream;

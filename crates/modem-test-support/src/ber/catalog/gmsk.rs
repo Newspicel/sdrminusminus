@@ -99,6 +99,26 @@ pub fn coherent_link(bt: f64) -> Link {
 }
 
 #[must_use]
+pub fn stream_link(bt: f64) -> Link {
+    framing::stream_link(
+        &format!(
+            "gmsk BT={bt} h=0.5 uncoded, streaming coherent tier: CpmMod -> +/-6 kHz front \
+             lowpass -> FLL -> Laurent C0 matched filter -> squared-line timing -> \
+             ISI-cancelling Costas (bw {}) -> differential decode, 48 kHz 4800 baud, data-like \
+             {}+24+24 symbol overhead in Eb, release",
+            framing::STREAM_LOOP_BW,
+            framing::STREAM_PREAMBLE
+        ),
+        params(bt),
+    )
+}
+
+#[must_use]
+pub fn bt05_stream_link() -> Link {
+    stream_link(0.5)
+}
+
+#[must_use]
 pub fn bt03_coherent_link() -> Link {
     coherent_link(0.3)
 }
@@ -322,12 +342,15 @@ pub const BT05_MLSE_GRID: &[f64] = &[9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0];
 
 pub const COHERENT_GRID: &[f64] = &[4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0];
 
+pub const STREAM_GRID: &[f64] = &[4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0];
+
 pub const BT03_SEED: u64 = 0x63a3;
 pub const BT05_SEED: u64 = 0x63a5;
 pub const BT03_MLSE_SEED: u64 = 0x63a3_11e5;
 pub const BT05_MLSE_SEED: u64 = 0x63a5_11e5;
 pub const BT03_COHERENT_SEED: u64 = 0x63a3_c0e5;
 pub const BT05_COHERENT_SEED: u64 = 0x63a5_c0e5;
+pub const BT05_STREAM_SEED: u64 = 0x63a5_5e11;
 
 pub const BT03_AWGN: &str = "cpm/gmsk_bt03_datalike_awgn";
 pub const BT05_AWGN: &str = "cpm/gmsk_bt05_datalike_awgn";
@@ -335,6 +358,7 @@ pub const BT03_MLSE_AWGN: &str = "cpm/gmsk_bt03_mlse_awgn";
 pub const BT05_MLSE_AWGN: &str = "cpm/gmsk_bt05_mlse_awgn";
 pub const BT03_COHERENT_AWGN: &str = "cpm/gmsk_bt03_coherent_awgn";
 pub const BT05_COHERENT_AWGN: &str = "cpm/gmsk_bt05_coherent_awgn";
+pub const BT05_STREAM_AWGN: &str = "cpm/gmsk_bt05_stream_awgn";
 
 pub const BT03_AWGN_ALTERNATING: &str = "cpm/gmsk_bt03_awgn";
 pub const BT05_AWGN_ALTERNATING: &str = "cpm/gmsk_bt05_awgn";
@@ -386,6 +410,13 @@ pub const MEASUREMENTS: &[Measurement] = &[
         bt05_coherent_link,
         COHERENT_GRID,
         BT05_COHERENT_SEED,
+        framing::FULL_CAP,
+    ),
+    Measurement::committed(
+        BT05_STREAM_AWGN,
+        bt05_stream_link,
+        STREAM_GRID,
+        BT05_STREAM_SEED,
         framing::FULL_CAP,
     ),
 ];

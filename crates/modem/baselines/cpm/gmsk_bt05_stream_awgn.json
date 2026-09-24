@@ -1,0 +1,40 @@
+{
+  "label": "gmsk BT=0.5 h=0.5 uncoded, streaming coherent tier: CpmMod -> +/-6 kHz front lowpass -> FLL -> Laurent C0 matched filter -> squared-line timing -> ISI-cancelling Costas (bw 0.01) -> differential decode, 48 kHz 4800 baud, data-like 720+24+24 symbol overhead in Eb, release, uncoded BER, seed 0x63a55e11",
+  "points": [
+    {
+      "ebn0_db": 4.0,
+      "errors": 2199,
+      "trials": 28672
+    },
+    {
+      "ebn0_db": 5.0,
+      "errors": 2081,
+      "trials": 57344
+    },
+    {
+      "ebn0_db": 6.0,
+      "errors": 2029,
+      "trials": 110592
+    },
+    {
+      "ebn0_db": 7.0,
+      "errors": 2011,
+      "trials": 307200
+    },
+    {
+      "ebn0_db": 8.0,
+      "errors": 2002,
+      "trials": 1036288
+    },
+    {
+      "ebn0_db": 9.0,
+      "errors": 2003,
+      "trials": 3997696
+    },
+    {
+      "ebn0_db": 10.0,
+      "errors": 333,
+      "trials": 4001792
+    }
+  ]
+}

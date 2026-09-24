@@ -73,7 +73,7 @@ pub fn laurent_main_pulse(params: &CpmParams) -> Result<Vec<f32>, LaurentError> 
     Ok(raw.iter().map(|v| (v * scale) as f32).collect())
 }
 
-fn whole_sps(params: &CpmParams) -> Result<usize, LaurentError> {
+pub(super) fn whole_sps(params: &CpmParams) -> Result<usize, LaurentError> {
     if params.mapping().m() != 2 {
         return Err(LaurentError::NotBinary(params.mapping().m()));
     }
@@ -116,10 +116,9 @@ impl CoherentCpmDemod {
             rotation_rad: QUARTER_TURN,
             order: 2,
         });
-        let levels = params.mapping().levels();
         Ok(Self {
             receiver,
-            polarity: if levels[1] > levels[0] { 1.0 } else { -1.0 },
+            polarity: polarity(params),
             symbols: Vec::new(),
         })
     }
@@ -138,6 +137,11 @@ impl CoherentCpmDemod {
     pub fn carrier_freq_cycles_per_symbol(&self) -> f64 {
         self.receiver.carrier_freq_cycles_per_symbol()
     }
+}
+
+pub(super) fn polarity(params: &CpmParams) -> f32 {
+    let levels = params.mapping().levels();
+    if levels[1] > levels[0] { 1.0 } else { -1.0 }
 }
 
 fn carrier(loop_bw: f64) -> CarrierLoop {

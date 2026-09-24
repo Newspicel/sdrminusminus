@@ -239,8 +239,8 @@
   },
   {
     "bench": "dstar",
-    "msamples_per_s": 19.86,
-    "realtime_factor": 413.75,
+    "msamples_per_s": 5.2,
+    "realtime_factor": 108.33,
     "config": "noise including deferred decode slots, 48000 Hz, 2048 sample blocks",
     "host": "x86_64-linux"
   },

@@ -3,7 +3,7 @@ use std::sync::LazyLock;
 use num_complex::Complex;
 use sdrmm_dsp::{crc16_x25, hamming_distance};
 use sdrmm_modem::{
-    cpm::{CpmDemod, CpmParams, Mapping, TIMING_BW_BURST},
+    cpm::{CoherentCpmStream, CpmDemod, CpmParams, Mapping, TIMING_BW_BURST},
     pulse::{self, Norm},
 };
 use sdrmm_wire::{
@@ -29,6 +29,10 @@ const FRAME_BITS: usize = 96;
 const DATA_BITS: usize = 24;
 const FRAMES_PER_SUPERFRAME: usize = 21;
 
+const COHERENT_LOOP_BW: f64 = 0.01;
+const COHERENT_TIMING_BW: f64 = 0.02;
+const RELEASE_SYMBOLS: usize = FRAME_BITS;
+
 const SCRAMBLER: [u8; 3] = [0x70, 0x4F, 0x93];
 
 const TYPE_TEXT: u8 = 0x4;
@@ -49,11 +53,23 @@ static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescrip
     ..ChannelDescriptor::default()
 });
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Source {
+    Discriminator,
+    Coherent,
+}
+
 pub struct DstarChannel {
     demod: CpmDemod,
+    coherent: CoherentCpmStream,
     slicer: Mapping,
     decoder: Decoder,
+    coherent_decoder: Decoder,
+    source: Source,
+    unlocked: usize,
     soft: Vec<f32>,
+    coherent_soft: Vec<f32>,
+    shadow: ChannelOutputs,
 }
 
 pub(crate) fn cpm_params(sps: f64) -> CpmParams {
@@ -94,15 +110,23 @@ impl ChannelRx for DstarChannel {
         params(&settings)?;
         let sps = ctx.input_rate / BAUD;
         let cpm = cpm_params(sps);
+        let coherent = CoherentCpmStream::new(&cpm, COHERENT_LOOP_BW, COHERENT_TIMING_BW)
+            .map_err(|e| ChannelError::InvalidSettings(e.to_string()))?;
         Ok(Self {
             demod: CpmDemod::new(
                 &cpm,
                 &pulse::gaussian(sps, BT, MATCHED_SPAN, Norm::Area),
                 TIMING_BW_BURST,
             ),
+            coherent,
             slicer: cpm.mapping().clone(),
             decoder: Decoder::new(),
+            coherent_decoder: Decoder::new(),
+            source: Source::Discriminator,
+            unlocked: 0,
             soft: Vec::new(),
+            coherent_soft: Vec::new(),
+            shadow: ChannelOutputs::default(),
         })
     }
 
@@ -113,22 +137,78 @@ impl ChannelRx for DstarChannel {
 
     fn retuned(&mut self) {
         self.demod.reset();
+        self.coherent.reset();
         self.decoder.reset();
+        self.coherent_decoder.reset();
+        self.source = Source::Discriminator;
+        self.unlocked = 0;
     }
 
     fn process(&mut self, iq: &[Complex<f32>], out: &mut ChannelOutputs) {
         self.soft.clear();
         self.demod.process(iq, &mut self.soft);
-        tap_symbols(
-            out,
-            &self.demod,
-            &self.soft,
+        self.coherent_soft.clear();
+        self.coherent.process(iq, &mut self.coherent_soft);
+        self.follow_lock();
+        self.shadow.reset();
+        let (live, shadow) = match self.source {
+            Source::Discriminator => (&mut *out, &mut self.shadow),
+            Source::Coherent => (&mut self.shadow, &mut *out),
+        };
+        feed(&mut self.decoder, &self.soft, &self.slicer, live);
+        feed(
+            &mut self.coherent_decoder,
+            &self.coherent_soft,
             &self.slicer,
-            BAUD,
-            INPUT_RATE_HZ,
+            shadow,
         );
-        for &symbol in &self.soft {
-            self.decoder.push(self.slicer.slice(symbol) == 1, out);
+        self.tap(out);
+    }
+}
+
+fn feed(decoder: &mut Decoder, soft: &[f32], slicer: &Mapping, out: &mut ChannelOutputs) {
+    for &symbol in soft {
+        decoder.push(slicer.slice(symbol) == 1, out);
+    }
+}
+
+impl DstarChannel {
+    fn follow_lock(&mut self) {
+        for &locked in self.coherent.locked() {
+            self.unlocked = if locked { 0 } else { self.unlocked + 1 };
+        }
+        let next = match self.source {
+            Source::Discriminator if self.coherent.is_locked() => Source::Coherent,
+            Source::Coherent if self.unlocked >= RELEASE_SYMBOLS => Source::Discriminator,
+            current => current,
+        };
+        if next == self.source {
+            return;
+        }
+        self.source = next;
+        match next {
+            Source::Coherent => self.coherent_decoder.adopt(&self.decoder),
+            Source::Discriminator => self.decoder.adopt(&self.coherent_decoder),
+        }
+    }
+
+    fn tap(&self, out: &mut ChannelOutputs) {
+        match self.source {
+            Source::Discriminator => tap_symbols(
+                out,
+                &self.demod,
+                &self.soft,
+                &self.slicer,
+                BAUD,
+                INPUT_RATE_HZ,
+            ),
+            Source::Coherent => out.symbols.levels(
+                &self.coherent_soft,
+                self.coherent.locked(),
+                &self.slicer,
+                BAUD,
+                self.coherent.frequency_error_cycles_per_sample() * INPUT_RATE_HZ,
+            ),
         }
     }
 }
@@ -162,6 +242,10 @@ impl Decoder {
             reported: None,
             vocoder: DstarVocoder::new(),
         }
+    }
+
+    fn adopt(&mut self, other: &Self) {
+        self.reported.clone_from(&other.reported);
     }
 
     fn reset(&mut self) {
@@ -340,5 +424,56 @@ mod tests {
     fn noise_decodes_to_nothing() {
         let noise = crate::testutil::complex_noise(81, 0.5, 400_000);
         assert!(decode(&mut channel(), &noise).is_empty());
+    }
+
+    fn weak(snr_db: f32, offset_hz: f64, seed: u64) -> Vec<Complex<f32>> {
+        let mut iq = vec![Complex::new(0.0, 0.0); 9_600];
+        iq.extend(tx::repeated_transmission(
+            &tx::Call::default(),
+            6,
+            INPUT_RATE_HZ,
+        ));
+        let step = std::f64::consts::TAU * offset_hz / INPUT_RATE_HZ;
+        for (k, s) in iq.iter_mut().enumerate() {
+            let theta = step * k as f64;
+            *s *= Complex::new(theta.cos() as f32, theta.sin() as f32);
+        }
+        let signal_power = 1.0;
+        let sigma = (signal_power / 10f32.powf(snr_db / 10.0) / 2.0).sqrt();
+        crate::testutil::add_awgn(&mut iq, sigma, seed);
+        let mut filtered = Vec::new();
+        channel_filter().process(&iq, &mut filtered);
+        filtered
+    }
+
+    fn discriminator_headers(iq: &[Complex<f32>]) -> usize {
+        let sps = INPUT_RATE_HZ / BAUD;
+        let cpm = cpm_params(sps);
+        let mut demod = CpmDemod::new(
+            &cpm,
+            &pulse::gaussian(sps, BT, MATCHED_SPAN, Norm::Area),
+            TIMING_BW_BURST,
+        );
+        let mut decoder = Decoder::new();
+        let mut out = ChannelOutputs::default();
+        let mut soft = Vec::new();
+        demod.process(iq, &mut soft);
+        feed(&mut decoder, &soft, cpm.mapping(), &mut out);
+        out.events.len()
+    }
+
+    #[test]
+    fn coherent_detection_decodes_headers_the_discriminator_loses() {
+        let (mut coherent, mut discriminator) = (0, 0);
+        for seed in 0..4 {
+            let iq = weak(-2.0, 700.0, 0x5eed + seed);
+            coherent += usize::from(!decode(&mut channel(), &iq).is_empty());
+            discriminator += usize::from(discriminator_headers(&iq) > 0);
+        }
+        assert_eq!(coherent, 4, "coherent decoded {coherent} of 4");
+        assert_eq!(
+            discriminator, 0,
+            "discriminator decoded {discriminator} of 4"
+        );
     }
 }

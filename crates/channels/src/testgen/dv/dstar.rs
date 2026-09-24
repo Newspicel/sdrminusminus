@@ -12,6 +12,7 @@ const PULSE_SPAN: usize = 3;
 const SYNC: u32 = 0x0055_2D16;
 const FRAME_BITS: usize = 96;
 const HEADER_BYTES: usize = 41;
+const SLOW_CYCLE: usize = 20;
 const SCRAMBLER: [u8; 3] = [0x70, 0x4F, 0x93];
 const AMBE_NULL: [u8; 9] = [0x9E, 0x8D, 0x32, 0x88, 0x26, 0x1A, 0x3F, 0x61, 0xE8];
 
@@ -35,6 +36,11 @@ impl Default for Call {
 
 #[must_use]
 pub fn transmission(call: &Call, rate: f64) -> Vec<Complex<f32>> {
+    repeated_transmission(call, 2, rate)
+}
+
+#[must_use]
+pub fn repeated_transmission(call: &Call, superframes: usize, rate: f64) -> Vec<Complex<f32>> {
     let header = header(call);
     let mut slow = Vec::new();
     for chunk in header.chunks(5) {
@@ -49,11 +55,12 @@ pub fn transmission(call: &Call, rate: f64) -> Vec<Complex<f32>> {
     for i in 0..64 {
         bits.push(i % 2 == 0);
     }
-    for superframe in 0..2 {
+    slow.resize(SLOW_CYCLE, [0x66; 6]);
+    for superframe in 0..superframes {
         bits.extend(voice_frame(&sync_data(), superframe));
         for frame in 1..21 {
             let index = superframe * 10 + (frame - 1) / 2;
-            let source = slow.get(index).copied().unwrap_or([0x66; 6]);
+            let source = slow[index % SLOW_CYCLE];
             let half = (frame - 1) % 2 * 3;
             let bytes = [source[half], source[half + 1], source[half + 2]];
             bits.extend(voice_frame(&scramble(bytes), superframe * 21 + frame));
