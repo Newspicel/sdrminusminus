@@ -22,6 +22,19 @@ pub struct StdcPacket {
 }
 
 impl StdcPacket {
+    pub fn damaged_frame(rejected_packets: Option<usize>) -> Self {
+        Self {
+            descriptor: 0,
+            name: "damaged-frame",
+            checksum_ok: false,
+            text: None,
+            details: json!({ "rejected_packets": rejected_packets }),
+            fec_corrected: None,
+            uw_ber_ppt: None,
+            raw: Vec::new(),
+        }
+    }
+
     fn parsed(packet: &[u8], name: &'static str, text: Option<String>, details: Value) -> Self {
         Self {
             descriptor: packet.first().copied().unwrap_or_default(),
@@ -342,7 +355,7 @@ impl PacketParser {
         Self::default()
     }
 
-    pub fn parse_frame(&mut self, frame: &[u8], out: &mut Vec<StdcPacket>) {
+    pub fn parse_frame(&mut self, frame: &[u8], out: &mut Vec<StdcPacket>) -> usize {
         for assembly in &mut self.egc {
             assembly.age += 1;
         }
@@ -352,11 +365,17 @@ impl PacketParser {
         self.egc.retain(|assembly| assembly.age < ASSEMBLY_MAX_AGE);
         self.channels
             .retain(|channel| channel.age < ASSEMBLY_MAX_AGE);
-        self.parse_stream(frame, out);
+        self.parse_stream(frame, false, out)
     }
 
-    fn parse_stream(&mut self, buf: &[u8], out: &mut Vec<StdcPacket>) {
+    fn parse_stream(
+        &mut self,
+        buf: &[u8],
+        reencapsulated: bool,
+        out: &mut Vec<StdcPacket>,
+    ) -> usize {
         let mut position = 0;
+        let mut rejected = 0;
         while let Some(rest) = buf.get(position..)
             && let Some(&descriptor) = rest.first()
             && descriptor != 0x00
@@ -368,10 +387,13 @@ impl PacketParser {
                 break;
             };
             position += length;
-            if checksum_ok(packet) {
+            if checksum_ok(packet, reencapsulated) {
                 self.handle_packet(packet, out);
+            } else {
+                rejected += 1;
             }
         }
+        rejected
     }
 
     fn handle_packet(&mut self, packet: &[u8], out: &mut Vec<StdcPacket>) {
@@ -461,7 +483,10 @@ impl PacketParser {
         if accumulated.len() + 2 >= *needed
             && let Some((_, accumulated)) = self.multiframe.take()
         {
-            self.parse_stream(&accumulated, out);
+            let rejected = self.parse_stream(&accumulated, true, out);
+            if rejected > 0 {
+                out.push(StdcPacket::damaged_frame(Some(rejected)));
+            }
         }
     }
 

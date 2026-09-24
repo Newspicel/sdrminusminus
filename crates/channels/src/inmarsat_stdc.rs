@@ -1,4 +1,4 @@
-use std::sync::LazyLock;
+use std::{ops::RangeInclusive, sync::LazyLock};
 
 use num_complex::Complex;
 use sdrmm_wire::{
@@ -22,14 +22,21 @@ mod packet;
 mod equivalence;
 #[cfg(test)]
 mod modulate;
+#[cfg(test)]
+mod sensitivity;
 
 use demod::{BpskDemod, RATE};
-use frame::{FRAME_SYMBOLS, FrameDecoder, UW_MIN_MATCH, uw_ber_ppt, uw_score};
+use frame::{
+    CODED_SYMBOLS, FRAME_SYMBOLS, FrameDecoder, UW_ACQUIRE_MATCH, UW_TRACK_MATCH, uw_ber_ppt,
+    uw_score,
+};
 use packet::{PacketParser, StdcPacket, details_with_uw_ber};
 
 const HALF_BANDWIDTH: f64 = 2_000.0;
 const MID_FRAME_FLIP_MIN_GAIN: u32 = 24;
 const RELOCK_AFTER_SYMBOLS: u32 = 2 * FRAME_SYMBOLS as u32;
+const LOOKAHEAD: usize = 2;
+const MAX_FEC_CORRECTED: u32 = CODED_SYMBOLS as u32 * 3 / 10;
 
 static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescriptor {
     type_id: "inmarsat_stdc".to_owned(),
@@ -54,12 +61,43 @@ enum Body<'a> {
     },
 }
 
+#[derive(Clone, Copy)]
+struct Alignment {
+    start: usize,
+    invert: bool,
+    matches: u32,
+}
+
+fn alignment_at(symbols: &[f32], start: usize) -> Alignment {
+    let (normal, inverted) = uw_score(&symbols[start..start + FRAME_SYMBOLS]);
+    Alignment {
+        start,
+        invert: inverted > normal,
+        matches: normal.max(inverted),
+    }
+}
+
+fn best_alignment(symbols: &[f32], starts: RangeInclusive<usize>) -> Alignment {
+    starts
+        .map(|start| alignment_at(symbols, start))
+        .reduce(|best, candidate| {
+            if candidate.matches > best.matches {
+                candidate
+            } else {
+                best
+            }
+        })
+        .unwrap_or_else(|| alignment_at(symbols, 0))
+}
+
 pub struct StdcDecoder {
     demod: BpskDemod,
     frames: FrameDecoder,
     parser: PacketParser,
     symbols: Vec<f32>,
     flipped: Vec<f32>,
+    start: usize,
+    expected: Option<usize>,
     since_lock: u32,
 }
 
@@ -71,41 +109,67 @@ impl StdcDecoder {
             parser: PacketParser::new(),
             symbols: Vec::with_capacity(3 * FRAME_SYMBOLS),
             flipped: vec![0.0; FRAME_SYMBOLS],
+            start: 0,
+            expected: None,
             since_lock: 0,
         }
     }
 
     pub fn process(&mut self, iq: &[Complex<f32>], out: &mut Vec<StdcPacket>) {
         self.demod.process(iq, &mut self.symbols);
-        let mut start = 0;
-        while self.symbols.len() - start >= FRAME_SYMBOLS {
-            if self.try_frame(start, out) {
-                start += FRAME_SYMBOLS;
+        while self.symbols.len() >= self.start + FRAME_SYMBOLS + LOOKAHEAD {
+            if self.try_frame(out) {
+                self.expected = Some(self.start);
                 self.demod.locked = true;
                 self.since_lock = 0;
             } else {
-                start += 1;
+                self.start += 1;
                 self.since_lock += 1;
                 if self.since_lock > RELOCK_AFTER_SYMBOLS {
                     self.demod.locked = false;
                 }
             }
         }
-        self.symbols.drain(..start);
+        let consumed = self.start.saturating_sub(LOOKAHEAD);
+        self.symbols.drain(..consumed);
+        self.start -= consumed;
+        self.expected = self.expected.and_then(|at| at.checked_sub(consumed));
     }
 
-    fn try_frame(&mut self, start: usize, out: &mut Vec<StdcPacket>) -> bool {
-        let soft = &self.symbols[start..start + FRAME_SYMBOLS];
-        let (normal, inverted) = uw_score(soft);
-        if normal >= UW_MIN_MATCH || inverted >= UW_MIN_MATCH {
-            let invert = inverted > normal;
-            let (bytes, stats) = self.frames.decode(soft, invert);
-            let matches = if invert { inverted } else { normal };
-            self.emit(&bytes, stats.fec_corrected, uw_ber_ppt(matches), out);
+    fn locate(&mut self) -> Option<Alignment> {
+        let start = self.start;
+        if self.expected == Some(start) {
+            let tracked = best_alignment(
+                &self.symbols,
+                start.saturating_sub(LOOKAHEAD)..=start + LOOKAHEAD,
+            );
+            if tracked.matches >= UW_TRACK_MATCH {
+                return Some(tracked);
+            }
+            self.expected = None;
+        }
+        if alignment_at(&self.symbols, start).matches < UW_ACQUIRE_MATCH {
+            return None;
+        }
+        Some(best_alignment(&self.symbols, start..=start + LOOKAHEAD))
+    }
+
+    fn try_frame(&mut self, out: &mut Vec<StdcPacket>) -> bool {
+        if let Some(alignment) = self.locate() {
+            let soft = &self.symbols[alignment.start..alignment.start + FRAME_SYMBOLS];
+            let (bytes, stats) = self.frames.decode(soft, alignment.invert);
+            self.emit(
+                &bytes,
+                stats.fec_corrected,
+                uw_ber_ppt(alignment.matches),
+                out,
+            );
+            self.start = alignment.start + FRAME_SYMBOLS;
             return true;
         }
+        let soft = &self.symbols[self.start..self.start + FRAME_SYMBOLS];
         let Some(flip) = frame::detect_polarity_flip(soft, MID_FRAME_FLIP_MIN_GAIN)
-            .filter(|flip| flip.uw_score >= UW_MIN_MATCH)
+            .filter(|flip| flip.uw_score >= UW_ACQUIRE_MATCH)
         else {
             return false;
         };
@@ -113,6 +177,7 @@ impl StdcDecoder {
         frame::apply_polarity_flip(&mut self.flipped, &flip);
         let (bytes, stats) = self.frames.decode(&self.flipped, false);
         self.emit(&bytes, stats.fec_corrected, uw_ber_ppt(flip.uw_score), out);
+        self.start += FRAME_SYMBOLS;
         true
     }
 
@@ -124,7 +189,14 @@ impl StdcDecoder {
         out: &mut Vec<StdcPacket>,
     ) {
         let first = out.len();
-        self.parser.parse_frame(bytes, out);
+        let rejected = if fec_corrected > MAX_FEC_CORRECTED {
+            None
+        } else {
+            Some(self.parser.parse_frame(bytes, out))
+        };
+        if rejected != Some(0) {
+            out.push(StdcPacket::damaged_frame(rejected));
+        }
         for packet in &mut out[first..] {
             packet.fec_corrected = Some(fec_corrected);
             packet.uw_ber_ppt = Some(uw_ber_ppt);
@@ -257,6 +329,27 @@ mod tests {
         assert_eq!(message.details["details"]["frame_number"], 1000);
         assert!(message.details["details"]["uw_ber_ppt"].is_number());
         assert_eq!(message.fec_corrected, Some(0));
+    }
+
+    #[test]
+    fn a_packet_with_a_bad_checksum_surfaces() {
+        let mut payload = packet::build_packet(&[0x7D, 1, 0x03, 0xE8, 0, 0, 1, 0x10, 0, 0, 0, 0]);
+        let last = payload.len() - 1;
+        payload[last] ^= 0x5A;
+        payload.resize(639, 0);
+        let frame = frame::encode_frame(&payload);
+        let mut bits: Vec<u8> = (0..4_000).map(|index| (index % 2) as u8).collect();
+        bits.extend(&frame);
+        bits.extend(&frame);
+        let iq = modulate::modulate(&bits, 1_200.0, RATE, 0.0, 0.5);
+        let mut decoder = StdcDecoder::new();
+        let mut packets = Vec::new();
+        decoder.process(&iq, &mut packets);
+        let damaged = packets.first().expect("damaged frame");
+        assert_eq!(damaged.name, "damaged-frame");
+        assert!(!damaged.checksum_ok);
+        assert_eq!(damaged.details["rejected_packets"], 1);
+        assert!(packets.iter().all(|packet| !packet.checksum_ok));
     }
 
     #[test]

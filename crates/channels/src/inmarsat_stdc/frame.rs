@@ -5,9 +5,11 @@ pub const ROWS: usize = 64;
 pub const COLS: usize = 162;
 pub const FRAME_BYTES: usize = 640;
 pub const UW: [u8; 8] = [0x07, 0xEA, 0xCD, 0xDA, 0x4E, 0x2F, 0x28, 0xC2];
-pub const UW_MIN_MATCH: u32 = 121;
+pub const UW_ACQUIRE_MATCH: u32 = 110;
+pub const UW_TRACK_MATCH: u32 = 100;
 pub const UW_SYMBOLS: u32 = (ROWS * 2) as u32;
 const DATA_COLS: usize = COLS - 2;
+pub const CODED_SYMBOLS: usize = ROWS * DATA_COLS;
 const ROW_PERMUTATION: usize = 23;
 const POLY_FIRST: u32 = 0o133;
 const POLY_SECOND: u32 = 0o171;
@@ -113,7 +115,7 @@ impl FrameDecoder {
     pub fn new() -> Self {
         Self {
             viterbi: SoftViterbi::new(7, POLY_FIRST, POLY_SECOND),
-            deleaved: vec![0.0; ROWS * DATA_COLS],
+            deleaved: vec![0.0; CODED_SYMBOLS],
         }
     }
 
@@ -161,7 +163,7 @@ pub fn encode_frame(payload: &[u8]) -> Vec<u8> {
         .flat_map(|&byte| (0..8).map(move |bit| (byte >> bit) & 1))
         .collect();
     let coded = SoftViterbi::new(7, POLY_FIRST, POLY_SECOND).encode(&bits);
-    let mut matrix = vec![0u8; ROWS * DATA_COLS];
+    let mut matrix = vec![0u8; CODED_SYMBOLS];
     for (index, &bit) in coded.iter().enumerate() {
         matrix[(index % ROWS) * DATA_COLS + index / ROWS] = bit;
     }
@@ -223,7 +225,7 @@ mod tests {
         let data = payload(0xA7);
         let soft = antipodal(&encode_frame(&data), true);
         let (normal, inverted) = uw_score(&soft);
-        assert!(inverted >= UW_MIN_MATCH && normal < 8);
+        assert!(inverted >= UW_ACQUIRE_MATCH && normal < 8);
         assert_eq!(&FrameDecoder::new().decode(&soft, true).0[..639], &data[..]);
     }
 
@@ -256,9 +258,9 @@ mod tests {
             *symbol = -*symbol;
         }
         let (normal, inverted) = uw_score(&soft);
-        assert!(normal < UW_MIN_MATCH && inverted < UW_MIN_MATCH);
+        assert!(normal < UW_ACQUIRE_MATCH && inverted < UW_ACQUIRE_MATCH);
         let flip = detect_polarity_flip(&soft, 24).expect("flip detected");
-        assert!(flip.uw_score >= UW_MIN_MATCH);
+        assert!(flip.uw_score >= UW_ACQUIRE_MATCH);
         apply_polarity_flip(&mut soft, &flip);
         assert_eq!(
             &FrameDecoder::new().decode(&soft, false).0[..639],

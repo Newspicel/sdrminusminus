@@ -36,7 +36,7 @@ fn xng_datalink(packet: &xng_mode_stdc::packet::StdcPacket) -> DataLinkMessage {
     )
 }
 
-fn run_xng(iq: &[Complex<f32>], chunk: usize) -> Vec<DataLinkMessage> {
+pub(super) fn run_xng(iq: &[Complex<f32>], chunk: usize) -> Vec<DataLinkMessage> {
     let mut decoder = xng_mode_stdc::StdcChannelDecoder::new(RATE, 0.0).expect("xng decoder");
     iq.chunks(chunk)
         .flat_map(|piece| decoder.process(piece))
@@ -106,13 +106,26 @@ fn modulators_agree() {
 }
 
 #[test]
-fn demod_symbols_match_xng() {
-    let iq = transmission(2, 180.0, 0.3, 11);
-    let mut ours = Vec::new();
-    super::demod::BpskDemod::new(RATE).process(&iq, &mut ours);
-    let mut theirs = Vec::new();
-    xng_mode_stdc::demod::BpskDemod::new(RATE).process(&iq, &mut theirs);
-    assert_eq!(ours, theirs);
+fn frame_layer_matches_xng() {
+    let symbols = frame::encode_frame(&frame_payload(b"SECURITE TEST", 4));
+    let mut state = 0x2545_f491_4f6c_dd1du64;
+    let soft: Vec<f32> = symbols
+        .iter()
+        .map(|&bit| {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            let noise = (state >> 40) as f32 / (1u64 << 24) as f32 * 3.0 - 1.5;
+            if bit == 1 { 1.0 + noise } else { -1.0 + noise }
+        })
+        .collect();
+    for invert in [false, true] {
+        let (bytes, stats) = frame::FrameDecoder::new().decode(&soft, invert);
+        let (theirs, their_stats) =
+            xng_mode_stdc::frame::FrameDecoder::new().decode_with_stats(&soft, invert);
+        assert_eq!(bytes, theirs);
+        assert_eq!(stats.fec_corrected, their_stats.fec_corrected);
+    }
 }
 
 #[test]
@@ -130,24 +143,39 @@ fn packet_layer_matches_xng() {
     }
 }
 
+fn essence(message: &DataLinkMessage) -> serde_json::Value {
+    let mut details = message.details.clone();
+    if let Some(inner) = details
+        .get_mut("details")
+        .and_then(serde_json::Value::as_object_mut)
+    {
+        inner.remove("uw_ber_ppt");
+    }
+    serde_json::json!([message.message_type, message.text, message.raw, details])
+}
+
+fn assert_superset(iq: &[Complex<f32>], chunk: usize) -> usize {
+    let ours: Vec<_> = run_ours(iq, chunk).iter().map(essence).collect();
+    let theirs: Vec<_> = run_xng(iq, chunk).iter().map(essence).collect();
+    for packet in &theirs {
+        assert!(ours.contains(packet), "missing {packet}");
+    }
+    theirs.len()
+}
+
 #[test]
-fn matches_xng_on_the_offair_recording() {
+fn keeps_every_xng_packet_on_the_offair_recording() {
     let iq = offair_channel_iq();
     for chunk in [4_096, 777] {
-        let ours = run_ours(&iq, chunk);
-        assert!(ours.len() >= 5);
-        assert_eq!(ours, run_xng(&iq, chunk));
+        assert!(assert_superset(&iq, chunk) >= 5);
     }
 }
 
 #[test]
-fn matches_xng_on_noisy_synthetic_frames() {
+fn keeps_every_xng_packet_on_noisy_synthetic_frames() {
     let mut compared = 0;
     for (seed, sigma, offset) in [(1u64, 0.2f32, 230.0), (2, 0.8, -310.0), (3, 1.2, 90.0)] {
-        let iq = transmission(3, offset, sigma, seed);
-        let ours = run_ours(&iq, 8_192);
-        assert_eq!(ours, run_xng(&iq, 8_192), "sigma {sigma}");
-        compared += ours.len();
+        compared += assert_superset(&transmission(3, offset, sigma, seed), 8_192);
     }
     assert!(compared >= 6, "{compared}");
 }

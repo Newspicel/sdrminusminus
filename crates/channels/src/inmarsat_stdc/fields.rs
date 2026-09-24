@@ -22,10 +22,11 @@ pub fn checksum(packet_with_zeroed_checksum: &[u8]) -> (u8, u8) {
     fletcher(packet_with_zeroed_checksum)
 }
 
-pub fn checksum_ok(packet: &[u8]) -> bool {
+pub fn checksum_ok(packet: &[u8], zero_allowed: bool) -> bool {
     match packet.split_last_chunk::<2>() {
         Some((body, &[first, second])) if !body.is_empty() => {
-            (first, second) == (0, 0) || fletcher(body.iter().chain(&[0, 0])) == (first, second)
+            (zero_allowed && (first, second) == (0, 0))
+                || fletcher(body.iter().chain(&[0, 0])) == (first, second)
         }
         _ => false,
     }
@@ -505,10 +506,13 @@ mod tests {
         let (first, second) = checksum(&packet);
         packet[7] = first;
         packet[8] = second;
-        assert!(checksum_ok(&packet));
+        assert!(checksum_ok(&packet, false));
         packet[4] ^= 1;
-        assert!(!checksum_ok(&packet));
-        assert!(!checksum_ok(&[1, 2]));
+        assert!(!checksum_ok(&packet, false));
+        assert!(!checksum_ok(&[1, 2], true));
+        let unsummed = [0x27, 1, 2, 3, 4, 5, 0, 0];
+        assert!(checksum_ok(&unsummed, true));
+        assert!(!checksum_ok(&unsummed, false));
     }
 
     #[test]
