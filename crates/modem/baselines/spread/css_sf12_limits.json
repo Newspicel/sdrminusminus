@@ -1,0 +1,21 @@
+{
+  "entry": "css-sf12",
+  "seed": 23570,
+  "sensitivity_db_1e2": 2.489430837704649,
+  "sensitivity_db_1e3": 3.6209151626940854,
+  "sensitivity_db_1e4": 4.472470125422467,
+  "rows": [
+    {
+      "axis": "sample clock",
+      "unit": "ppm",
+      "threshold": 1007.8125,
+      "criterion": "BER <= 1e-2 at sensitivity(1e-3) + 3 dB"
+    },
+    {
+      "axis": "shared crystal",
+      "unit": "ppm",
+      "threshold": 71.99631378873401,
+      "criterion": "BER <= 1e-2 at sensitivity(1e-3) + 3 dB"
+    }
+  ]
+}

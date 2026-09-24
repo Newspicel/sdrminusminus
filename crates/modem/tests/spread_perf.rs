@@ -14,10 +14,12 @@ use sdrmm_modem_test_support::ber::{
         self, CHIP_ALPHA, CHIP_SAMPLE_RATE, CHIP_SPAN, CHIP_SPS, CSS_BANDWIDTH, CSS_PREAMBLE, LEAD,
         PREAMBLE, SEARCH, barker, css_payload, hop_sequence,
     },
+    impair::{ClockError, Impairment},
     perf::{
         CountingAlloc, PerfBaseline, REGRESSION_FRACTION, assert_no_alloc, compare_perf, host_id,
         load_baselines, measure_throughput, save_baselines,
     },
+    rng::Rng,
 };
 
 #[global_allocator]
@@ -25,6 +27,7 @@ static ALLOC: CountingAlloc = CountingAlloc::new();
 
 const SYMBOLS: usize = 512;
 const CSS_SF: u32 = 7;
+const CLOCKED_PPM: f64 = 1_000.0;
 
 fn shaper() -> ChipShaper {
     ChipShaper::root_raised_cosine(CHIP_SPS, CHIP_ALPHA, CHIP_SPAN)
@@ -177,7 +180,7 @@ fn measured() -> Vec<PerfBaseline> {
             realtime_factor: css_msps * 1e6 / CSS_BANDWIDTH,
             config: format!(
                 "SF{CSS_SF}, critically sampled, {CSS_PREAMBLE}-symbol preamble, {css_symbols} \
-                 symbols, preamble-bin origin + dechirp/transform argmax"
+                 symbols, preamble timing, carrier and clock fit + tracked dechirp"
             ),
             host: host_id(),
         },
@@ -270,27 +273,40 @@ fn the_cck_correlator_bank_allocates_nothing() {
 
 #[test]
 fn the_chirp_receive_path_allocates_nothing() {
-    let (mut demod, wave, preamble, symbols) = css_burst();
+    let (demod, wave, preamble, symbols) = css_burst();
+    let mut clocked = wave.clone();
+    ClockError::new(CLOCKED_PPM).apply(&mut clocked, &mut Rng::new(1));
+    for wave in [wave, clocked] {
+        assert_chirp_path_allocates_nothing(demod.clone(), &wave, &preamble, symbols);
+    }
+}
+
+fn assert_chirp_path_allocates_nothing(
+    mut demod: CssDemod,
+    wave: &[Complex<f32>],
+    preamble: &[u32],
+    symbols: usize,
+) {
     let data = CSS_PREAMBLE * (1 << CSS_SF);
     let mut sink = Vec::with_capacity(symbols);
     let mut llrs = Vec::with_capacity(symbols * CSS_SF as usize);
     for _ in 0..2 {
-        demod.estimate_origin(&wave, &preamble);
+        demod.estimate_origin(wave, preamble);
         sink.clear();
-        demod.demodulate(&wave, data, symbols, &mut sink);
+        demod.demodulate(wave, data, symbols, &mut sink);
         llrs.clear();
-        demod.llrs(&wave, data, symbols, 1.0, &mut llrs);
+        demod.llrs(wave, data, symbols, 1.0, &mut llrs);
     }
     assert_no_alloc("CssDemod::estimate_origin", || {
-        demod.estimate_origin(&wave, &preamble);
+        demod.estimate_origin(wave, preamble);
     });
     sink.clear();
     assert_no_alloc("CssDemod::demodulate", || {
-        demod.demodulate(&wave, data, symbols, &mut sink);
+        demod.demodulate(wave, data, symbols, &mut sink);
     });
     llrs.clear();
     assert_no_alloc("CssDemod::llrs", || {
-        demod.llrs(&wave, data, symbols, 1.0, &mut llrs);
+        demod.llrs(wave, data, symbols, 1.0, &mut llrs);
     });
     assert_eq!(sink.len(), symbols);
 }

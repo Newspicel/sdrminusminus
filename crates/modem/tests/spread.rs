@@ -12,11 +12,12 @@ use sdrmm_modem_test_support::ber::{
             BARKER11_QPSK_SEED, BARKER11_SEED, CCK_LIMITS, CCK11_AWGN, CCK11_GRID, CCK11_SEED,
             CCK55_AWGN, CCK55_GRID, CCK55_SEED, CHIP_SAMPLE_RATE, CHIP_SPS, CSS_BANDWIDTH,
             CSS_LIMITS, CSS_PREAMBLE, CSS_SF7_AWGN, CSS_SF7_GRID, CSS_SF7_SEED, CSS_SF10_AWGN,
-            CSS_SF10_GRID, CSS_SF10_SEED, CSS_SF12_AWGN, CSS_SF12_GRID, CSS_SF12_SEED, DSSS_LIMITS,
-            DSSS_PAYLOAD, FHSS_AWGN, FHSS_GRID, FHSS_LIMITS, FHSS_SEED, FULL_CAP, HOP_CHANNELS,
-            M31_AWGN, M31_GRID, M31_LIMITS, M31_SEED, PREAMBLE, barker11_link, barker11_qpsk_link,
-            cck11_link, cck55_link, css_link, css_overhead_db, css_payload, dsss_overhead_db,
-            fhss_link, hop_sequence, m31_link,
+            CSS_SF10_GRID, CSS_SF10_SEED, CSS_SF12_AWGN, CSS_SF12_GRID, CSS_SF12_LIMITS,
+            CSS_SF12_SEED, CSS_SHARED_CARRIER_HZ, DSSS_LIMITS, DSSS_PAYLOAD, FHSS_AWGN, FHSS_GRID,
+            FHSS_LIMITS, FHSS_SEED, FULL_CAP, HOP_CHANNELS, M31_AWGN, M31_GRID, M31_LIMITS,
+            M31_SEED, PREAMBLE, barker11_link, barker11_qpsk_link, cck11_link, cck55_link,
+            css_alias_ppm, css_link, css_overhead_db, css_payload, dsss_overhead_db, fhss_link,
+            hop_sequence, m31_link,
         },
     },
     e2e::{Payloads, channel_at_margin, loopback},
@@ -354,6 +355,8 @@ const JAMMER_AXIS_DB: f64 = 40.0;
 const JAMMER_FLOOR_DB: f64 = 10.0;
 const TIMING_AXIS_SAMPLES: f64 = 16.0;
 
+const CSS_CLOCK_AXIS_PPM: f64 = 2_000.0;
+
 fn probe(link: &Link, spec: &ChannelSpec, op_db: f64, seed: u64) -> f64 {
     limits::measure_ber(link, spec, op_db, seed, PROBE_ERRORS, PROBE_BITS)
 }
@@ -496,14 +499,8 @@ fn css_rows(link: &Link, op_db: f64, seed: u64) -> Vec<LimitRow> {
                 seed,
             )
         }),
-        axis_row("sample clock", "ppm", 200.0, 0.5, |ppm| {
-            probe(
-                link,
-                &ChannelSpec::default().clock(ClockError::new(ppm)),
-                op_db,
-                seed,
-            )
-        }),
+        css_clock_row(link, op_db, seed),
+        css_crystal_row(link, op_db, seed),
         axis_row(
             "static timing offset",
             "samples",
@@ -543,6 +540,40 @@ fn css_rows(link: &Link, op_db: f64, seed: u64) -> Vec<LimitRow> {
             PROBE_ERRORS,
             600_000,
         ),
+    ]
+}
+
+fn css_clock_row(link: &Link, op_db: f64, seed: u64) -> LimitRow {
+    axis_row("sample clock", "ppm", CSS_CLOCK_AXIS_PPM, 5.0, |ppm| {
+        probe(
+            link,
+            &ChannelSpec::default().clock(ClockError::new(ppm)),
+            op_db,
+            seed,
+        )
+    })
+}
+
+fn css_crystal_row(link: &Link, op_db: f64, seed: u64) -> LimitRow {
+    axis_row("shared crystal", "ppm", css_alias_ppm(), 1.0, |ppm| {
+        probe(
+            link,
+            &ChannelSpec::default()
+                .clock(ClockError::new(ppm))
+                .cfo(Cfo::from_hz(
+                    ppm * 1e-6 * CSS_SHARED_CARRIER_HZ,
+                    CSS_BANDWIDTH,
+                )),
+            op_db,
+            seed,
+        )
+    })
+}
+
+fn css_clock_rows(link: &Link, op_db: f64, seed: u64) -> Vec<LimitRow> {
+    vec![
+        css_clock_row(link, op_db, seed),
+        css_crystal_row(link, op_db, seed),
     ]
 }
 
@@ -642,6 +673,15 @@ fn css_limits_rows_match_committed_table() {
     assert_table_matches(
         CSS_LIMITS,
         css_rows(&css_link(7), op, CSS_SF7_SEED ^ 0x11e5),
+    );
+}
+
+#[test]
+fn css_sf12_limits_rows_match_committed_table() {
+    let op = operating_point(CSS_SF12_LIMITS);
+    assert_table_matches(
+        CSS_SF12_LIMITS,
+        css_clock_rows(&css_link(12), op, CSS_SF12_SEED ^ 0x11e5),
     );
 }
 
@@ -804,6 +844,15 @@ fn measure_all_limits_full() {
         CSS_SF7_SEED,
         |op| css_rows(&css, op, CSS_SF7_SEED ^ 0x11e5),
     );
+    let css12 = css_link(12);
+    measure_table_full(
+        CSS_SF12_LIMITS,
+        "css-sf12",
+        &css12,
+        CSS_SF12_GRID,
+        CSS_SF12_SEED,
+        |op| css_clock_rows(&css12, op, CSS_SF12_SEED ^ 0x11e5),
+    );
     let fhss = fhss_link();
     measure_table_full(
         FHSS_LIMITS,
@@ -851,6 +900,7 @@ fn print_catalog_numbers() {
         ("dsss m31", M31_LIMITS),
         ("cck 8-bit", CCK_LIMITS),
         ("css sf7", CSS_LIMITS),
+        ("css sf12", CSS_SF12_LIMITS),
         ("fhss", FHSS_LIMITS),
     ] {
         let table = limits::load_json(&baseline_path(stem)).unwrap();

@@ -77,12 +77,12 @@ impl Impairment for Channel {
         let stages: [Option<&dyn Impairment>; 15] = [
             s.burst.as_ref().map(|i| i as &dyn Impairment),
             s.multipath.as_ref().map(|i| i as &dyn Impairment),
-            s.cfo.as_ref().map(|i| i as &dyn Impairment),
-            s.drift.as_ref().map(|i| i as &dyn Impairment),
-            s.phase_noise.as_ref().map(|i| i as &dyn Impairment),
             s.clock.as_ref().map(|i| i as &dyn Impairment),
             s.timing_offset.as_ref().map(|i| i as &dyn Impairment),
             s.timing_jitter.as_ref().map(|i| i as &dyn Impairment),
+            s.cfo.as_ref().map(|i| i as &dyn Impairment),
+            s.drift.as_ref().map(|i| i as &dyn Impairment),
+            s.phase_noise.as_ref().map(|i| i as &dyn Impairment),
             s.iq_imbalance.as_ref().map(|i| i as &dyn Impairment),
             s.dc_offset.as_ref().map(|i| i as &dyn Impairment),
             s.cochannel.as_ref().map(|i| i as &dyn Impairment),
@@ -142,6 +142,30 @@ mod tests {
             .build()
             .apply(&mut x, &mut Rng::new(9));
         assert_eq!(x.len(), 100_050);
+    }
+
+    #[test]
+    fn the_receiver_clock_samples_before_the_carrier_offset() {
+        let (tone_cycles, offset_cycles, ppm) = (0.03, 0.2, 500.0);
+        let mut x = tone(tone_cycles, 100_000);
+        ChannelSpec::default()
+            .cfo(Cfo::from_cycles_per_sample(offset_cycles))
+            .clock(ClockError::new(ppm))
+            .build()
+            .apply(&mut x, &mut Rng::new(4));
+        let turn: num_complex::Complex<f64> = x[1_000..99_000]
+            .windows(2)
+            .map(|p| {
+                let z = p[1] * p[0].conj();
+                num_complex::Complex::new(f64::from(z.re), f64::from(z.im))
+            })
+            .sum();
+        let measured = turn.arg() / std::f64::consts::TAU;
+        let expected = tone_cycles / (1.0 + ppm * 1e-6) + offset_cycles;
+        assert!(
+            (measured - expected).abs() < 2e-6,
+            "measured {measured}, expected {expected}"
+        );
     }
 
     #[test]

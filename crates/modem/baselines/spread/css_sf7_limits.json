@@ -1,26 +1,32 @@
 {
   "entry": "css-sf7",
   "seed": 23559,
-  "sensitivity_db_1e2": 3.431470540275676,
-  "sensitivity_db_1e3": 4.8426811564616825,
-  "sensitivity_db_1e4": 5.818584390879734,
+  "sensitivity_db_1e2": 3.4644295246358476,
+  "sensitivity_db_1e3": 4.8595727740750965,
+  "sensitivity_db_1e4": 5.834374986569845,
   "rows": [
     {
       "axis": "static CFO",
       "unit": "Hz",
-      "threshold": 31616.2109375,
+      "threshold": 62500.0,
       "criterion": "BER <= 1e-2 at sensitivity(1e-3) + 3 dB"
     },
     {
       "axis": "frequency drift",
       "unit": "Hz/s",
-      "threshold": 25085.44921875,
+      "threshold": 30883.7890625,
       "criterion": "BER <= 1e-2 at sensitivity(1e-3) + 3 dB"
     },
     {
       "axis": "sample clock",
       "unit": "ppm",
-      "threshold": 16.796875,
+      "threshold": 2000.0,
+      "criterion": "BER <= 1e-2 at sensitivity(1e-3) + 3 dB"
+    },
+    {
+      "axis": "shared crystal",
+      "unit": "ppm",
+      "threshold": 71.99631378873401,
       "criterion": "BER <= 1e-2 at sensitivity(1e-3) + 3 dB"
     },
     {
@@ -44,7 +50,7 @@
     {
       "axis": "profile:static-indoor",
       "unit": "dB",
-      "threshold": 0.5576796812942684,
+      "threshold": 0.5331087635546199,
       "criterion": "Eb/N0 degradation at BER 1e-3"
     }
   ]

@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{f64::consts::TAU, sync::Arc};
 
 use num_complex::Complex;
 use rustfft::{Fft, FftPlanner};
@@ -7,11 +7,28 @@ use sdrmm_dsp::LoopFilter;
 
 use crate::{constellation::demap::energy_llrs, soft::Llr};
 
+mod acquire;
+mod resample;
+#[cfg(test)]
+mod sync_tests;
+mod window;
+
+use acquire::Point;
+use resample::Interpolator;
+
 pub const TRACK_BW: f64 = 0.02;
 
 const TRACK_DAMPING: f64 = std::f64::consts::FRAC_1_SQRT_2;
 
 const TRACK_RANGE_BINS: f64 = 0.25;
+
+pub const TIMING_BW: f64 = 0.05;
+
+pub const MAX_CLOCK_PPM: f64 = 1_000.0;
+
+const MIN_TIMING_RANGE: f64 = 0.5;
+
+const SPLIT_WEIGHT: f64 = 6.0;
 
 pub const MIN_SPREADING_FACTOR: u32 = 5;
 
@@ -121,15 +138,25 @@ impl CssMod {
 #[derive(Clone)]
 pub struct CssDemod {
     params: CssParams,
-    conjugate: Vec<Complex<f32>>,
     fft: Arc<dyn Fft<f32>>,
+    ifft: Arc<dyn Fft<f32>>,
     scratch: Vec<Complex<f32>>,
+    reference: Vec<Complex<f32>>,
+    stretch: f64,
+    window: Vec<Complex<f32>>,
+    source: Vec<Complex<f32>>,
+    interpolator: Interpolator,
+    dechirped: Vec<Complex<f32>>,
     bins: Vec<Complex<f32>>,
     energies: Vec<f32>,
+    symbol_energies: Vec<f32>,
     symbol_llrs: Vec<Llr>,
-    votes: Vec<u32>,
+    points: Vec<Point>,
+    hypotheses: Vec<Complex<f64>>,
     offset_bins: f64,
     tracker: LoopFilter,
+    timing: LoopFilter,
+    anchor: Option<f64>,
 }
 
 impl std::fmt::Debug for CssDemod {
@@ -144,25 +171,50 @@ impl CssDemod {
     #[must_use]
     pub fn new(params: CssParams) -> Self {
         let n = params.chips();
-        let fft = FftPlanner::<f32>::new().plan_fft_forward(n);
-        let conjugate = params.base_chirp().into_iter().map(|c| c.conj()).collect();
+        let mut planner = FftPlanner::<f32>::new();
+        let fft = planner.plan_fft_forward(n);
+        let ifft = planner.plan_fft_inverse(n);
+        let scratch_len = fft
+            .get_inplace_scratch_len()
+            .max(ifft.get_inplace_scratch_len());
+        let zero = Complex::new(0.0, 0.0);
         Self {
-            scratch: vec![Complex::new(0.0, 0.0); fft.get_inplace_scratch_len()],
-            bins: vec![Complex::new(0.0, 0.0); n],
+            scratch: vec![zero; scratch_len],
+            reference: params.base_chirp().into_iter().map(|c| c.conj()).collect(),
+            stretch: 1.0,
+            window: vec![zero; n],
+            source: vec![zero; resample::source_len(n)],
+            interpolator: Interpolator::new(),
+            dechirped: vec![zero; n],
+            bins: vec![zero; n],
             energies: vec![0.0; n],
+            symbol_energies: vec![0.0; n],
             symbol_llrs: vec![Llr(0.0); params.bits_per_symbol()],
-            votes: vec![0; n],
+            points: Vec::new(),
+            hypotheses: vec![Complex::new(0.0, 0.0); n],
             offset_bins: 0.0,
             tracker: tracker(),
+            timing: timing_loop(n),
+            anchor: None,
             params,
-            conjugate,
             fft,
+            ifft,
         }
     }
 
     #[must_use]
     pub fn offset_bins(&self) -> f64 {
         self.offset_bins
+    }
+
+    #[must_use]
+    pub fn samples_per_symbol(&self) -> f64 {
+        self.params.chips() as f64 + self.timing.freq_norm()
+    }
+
+    #[must_use]
+    pub fn clock_ppm(&self) -> f64 {
+        self.timing.freq_norm() / self.params.chips() as f64 * 1e6
     }
 
     #[must_use]
@@ -176,96 +228,72 @@ impl CssDemod {
             self.params.chips(),
             "one energy per cyclic shift"
         );
-        self.fill(iq, origin, symbol);
-        out.copy_from_slice(&self.energies);
+        let start = self.position(origin, symbol);
+        self.observe(iq, start);
+        out.copy_from_slice(&self.symbol_energies);
     }
 
-    fn fill(&mut self, iq: &[Complex<f32>], origin: usize, symbol: usize) {
-        let n = self.params.chips();
-        let at = origin + symbol * n;
-        let step = Complex::from_polar(1.0, -std::f64::consts::TAU * self.offset_bins / n as f64);
-        let mut turn = Complex::new(1.0f64, 0.0);
-        for k in 0..n {
-            let y = iq.get(at + k).copied().unwrap_or(Complex::new(0.0, 0.0));
-            let spin = Complex::new(turn.re as f32, turn.im as f32);
-            self.bins[k] = y * self.conjugate[k] * spin;
-            turn *= step;
+    fn position(&self, origin: usize, symbol: usize) -> f64 {
+        let nominal = (origin + symbol * self.params.chips()) as f64;
+        match self.anchor {
+            None => nominal,
+            Some(anchor) => {
+                let period = self.samples_per_symbol();
+                anchor + ((nominal - anchor) / period).round() * period
+            }
         }
-        self.fft
-            .process_with_scratch(&mut self.bins, &mut self.scratch);
-        let scale = (n as f32).recip();
-        for (slot, bin) in self.energies.iter_mut().zip(&self.bins) {
-            *slot = bin.norm_sqr() * scale;
-        }
+    }
+
+    fn observe(&mut self, iq: &[Complex<f32>], start: f64) {
+        self.load(iq, start, self.offset_bins, self.samples_per_symbol());
+        self.dechirp();
     }
 
     fn peak(&self) -> f32 {
         self.energies.iter().copied().fold(0.0f32, f32::max)
     }
 
-    pub fn estimate_origin(&mut self, iq: &[Complex<f32>], preamble: &[u32]) -> usize {
-        let n = self.params.chips();
-        self.offset_bins = 0.0;
-        self.tracker = tracker();
-        self.votes.fill(0);
-        for (k, &known) in preamble.iter().enumerate() {
-            self.fill(iq, 0, k);
-            let decoded = argmax_bin(&self.energies);
-            let shift = (known + n as u32 - decoded % n as u32) % n as u32;
-            self.votes[shift as usize] += 1;
-        }
-        let mut best = 0usize;
-        for (shift, &count) in self.votes.iter().enumerate() {
-            if count > self.votes[best] {
-                best = shift;
-            }
-        }
-        self.offset_bins = self.preamble_offset(iq, best, preamble);
-        best
-    }
-
-    fn preamble_offset(&mut self, iq: &[Complex<f32>], origin: usize, preamble: &[u32]) -> f64 {
-        let n = self.params.chips() as u32;
-        let mut acc = Complex::new(0.0f64, 0.0);
-        for (k, &known) in preamble.iter().enumerate() {
-            self.fill(iq, origin, k);
-            let bin = argmax_bin(&self.energies);
-            if bin != known % n {
-                continue;
-            }
-            let fraction = self.fraction(bin as usize);
-            acc += Complex::from_polar(
-                f64::from(self.energies[bin as usize]),
-                std::f64::consts::TAU * fraction,
-            );
-        }
-        if acc.norm() <= 0.0 {
-            return 0.0;
-        }
-        acc.arg() / std::f64::consts::TAU
-    }
-
-    fn fraction(&self, peak: usize) -> f64 {
-        let n = self.bins.len();
-        let at = |i: usize| {
-            let b = self.bins[i % n];
-            Complex::new(f64::from(b.re), f64::from(b.im))
-        };
-        let (left, mid, right) = (at(peak + n - 1), at(peak), at(peak + 1));
-        let denominator = mid * 2.0 - left - right;
-        if denominator.norm() <= 0.0 {
-            return 0.0;
-        }
-        ((left - right) / denominator).re.clamp(-0.5, 0.5)
-    }
-
     fn decide(&mut self, iq: &[Complex<f32>], origin: usize, symbol: usize) -> u32 {
-        self.fill(iq, origin, symbol);
+        let n = self.params.chips() as f64;
+        let start = self.position(origin, symbol);
+        self.observe(iq, start);
         let bin = argmax_bin(&self.energies);
-        let error = self.fraction(bin as usize);
-        let step = self.tracker.advance(std::f64::consts::TAU * error) / std::f64::consts::TAU;
-        self.offset_bins += step;
-        bin
+        let value = self.symbol_of(f64::from(bin));
+        let (tone, late) = self.resolve(f64::from(value) * self.stretch, value);
+        let weight = self.timing_weight(value);
+        let freq_error = (wrap(tone - f64::from(value) * self.stretch, n) + weight.min(1.0) * late)
+            .clamp(-0.5, 0.5);
+        let timing_error = (weight * late).clamp(-0.5, 0.5);
+        self.offset_bins += self.tracker.advance(TAU * freq_error) / TAU;
+        let step = self.timing.advance(TAU * timing_error) / TAU;
+        self.anchor = Some(start + n + step);
+        value
+    }
+
+    fn symbol_of(&self, tone: f64) -> u32 {
+        let n = self.params.chips() as i64;
+        ((tone / self.stretch).round() as i64).rem_euclid(n) as u32
+    }
+
+    fn resolve(&self, tone: f64, value: u32) -> (f64, f64) {
+        let n = self.params.chips();
+        let split = self.wrap_point(value);
+        if split == 0 || split >= n {
+            return (tone, 0.0);
+        }
+        let resolved = self.split_tone(tone, split);
+        (resolved.tone, resolved.late)
+    }
+
+    fn timing_weight(&self, value: u32) -> f64 {
+        let share = self.wrap_point(value) as f64 / self.params.chips() as f64;
+        SPLIT_WEIGHT * share * (1.0 - share)
+    }
+
+    fn wrap_point(&self, value: u32) -> usize {
+        let n = self.params.chips();
+        let split = ((n as f64 - f64::from(value)) / self.stretch).round();
+        split.clamp(0.0, n as f64) as usize
     }
 
     pub fn demodulate(
@@ -277,8 +305,8 @@ impl CssDemod {
     ) {
         out.reserve(symbols);
         for symbol in 0..symbols {
-            let bin = self.decide(iq, origin, symbol);
-            out.push(bin);
+            let value = self.decide(iq, origin, symbol);
+            out.push(value);
         }
     }
 
@@ -293,7 +321,7 @@ impl CssDemod {
         out.reserve(symbols * self.params.bits_per_symbol());
         for symbol in 0..symbols {
             let _ = self.decide(iq, origin, symbol);
-            energy_llrs(&self.energies, noise_var, &mut self.symbol_llrs);
+            energy_llrs(&self.symbol_energies, noise_var, &mut self.symbol_llrs);
             out.extend_from_slice(&self.symbol_llrs);
         }
     }
@@ -306,16 +334,33 @@ impl CssDemod {
         let n = self.params.chips();
         let mut sum = 0.0f64;
         for symbol in 0..symbols {
-            self.fill(iq, origin, symbol);
+            let start = self.position(origin, symbol);
+            self.observe(iq, start);
             let peak = f64::from(self.peak());
             sum += self.energies.iter().map(|&e| f64::from(e)).sum::<f64>() - peak;
         }
         sum / (symbols * (n - 1)) as f64
     }
+
+    fn restart(&mut self) {
+        self.offset_bins = 0.0;
+        self.tracker = tracker();
+        self.timing = timing_loop(self.params.chips());
+        self.anchor = None;
+    }
 }
 
 fn tracker() -> LoopFilter {
     LoopFilter::new(TRACK_BW, TRACK_DAMPING, TRACK_RANGE_BINS)
+}
+
+fn timing_loop(chips: usize) -> LoopFilter {
+    let range = (chips as f64 * MAX_CLOCK_PPM * 1e-6).max(MIN_TIMING_RANGE);
+    LoopFilter::new(TIMING_BW, TRACK_DAMPING, range)
+}
+
+fn wrap(value: f64, period: f64) -> f64 {
+    value - (value / period).round() * period
 }
 
 fn argmax_bin(energies: &[f32]) -> u32 {

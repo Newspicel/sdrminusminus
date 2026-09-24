@@ -283,6 +283,13 @@ pub fn css_link(spreading_factor: u32) -> Link {
 
 pub const CSS_LEAD: usize = 32;
 
+pub const CSS_SHARED_CARRIER_HZ: f64 = 868.1e6;
+
+#[must_use]
+pub fn css_alias_ppm() -> f64 {
+    CSS_BANDWIDTH / 2.0 / CSS_SHARED_CARRIER_HZ * 1e6
+}
+
 pub const HOP_CHANNELS: usize = 3;
 
 pub const HOP_SPACING_CYCLES: f64 = 1.0 / CHIP_SPS as f64;
@@ -378,6 +385,7 @@ pub const DSSS_LIMITS: &str = "spread/dsss_barker11_limits";
 pub const M31_LIMITS: &str = "spread/dsss_m31_limits";
 pub const CCK_LIMITS: &str = "spread/cck_8bit_limits";
 pub const CSS_LIMITS: &str = "spread/css_sf7_limits";
+pub const CSS_SF12_LIMITS: &str = "spread/css_sf12_limits";
 pub const FHSS_LIMITS: &str = "spread/fhss_limits";
 pub const PERF: &str = "spread/spread_perf";
 
