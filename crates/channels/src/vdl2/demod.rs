@@ -28,17 +28,73 @@ const CORR_THRESHOLD: f32 = 0.6;
 const FIT_COST_MAX: f32 = 0.25;
 const ENERGY_FACTOR: f32 = 12.0;
 const NOISE_ALPHA: f32 = 1e-4;
-const PHASE_GAIN: f32 = 0.1;
+const DIFFERENTIAL_GAIN: f32 = 0.1;
+const PROFILES: [Detector; 3] = [
+    Detector::Coherent {
+        carrier_gain: 0.3,
+        frequency_gain: 0.02,
+    },
+    Detector::Coherent {
+        carrier_gain: 0.15,
+        frequency_gain: 0.005,
+    },
+    Detector::Differential,
+];
 const MAX_TL_BITS: u32 = 16_000;
 const MIN_EDGE_ENERGY: f32 = 0.01;
 const FIT_STEP: f64 = 0.25;
 
+#[derive(Clone, Copy)]
+enum Detector {
+    Coherent {
+        carrier_gain: f32,
+        frequency_gain: f32,
+    },
+    Differential,
+}
+
+struct Tracker {
+    detector: Detector,
+    reference: f32,
+    prev: Complex<f32>,
+    theta: f32,
+}
+
+impl Tracker {
+    fn step(&mut self, s: Complex<f32>) -> (usize, f32) {
+        let (ph, predicted) = match self.detector {
+            Detector::Coherent { .. } => {
+                let predicted = self.reference + self.theta;
+                (wrap(s.arg() - predicted), predicted)
+            }
+            Detector::Differential => {
+                let d = s * self.prev.conj();
+                self.prev = s;
+                (d.arg() - self.theta, 0.0)
+            }
+        };
+        let idx_f = (ph / (PI / 4.0)).round();
+        let residual = ph - idx_f * (PI / 4.0);
+        match self.detector {
+            Detector::Coherent {
+                carrier_gain,
+                frequency_gain,
+            } => {
+                self.reference = wrap(predicted + idx_f * (PI / 4.0) + carrier_gain * residual);
+                self.theta += frequency_gain * residual;
+            }
+            Detector::Differential => self.theta += DIFFERENTIAL_GAIN * residual,
+        }
+        ((idx_f as i32).rem_euclid(8) as usize, residual)
+    }
+}
+
 struct Collecting {
+    lock: Lock,
+    profile: usize,
     uw_start: f64,
     next_pos: f64,
-    theta: f32,
-    cfo: f32,
-    prev: Complex<f32>,
+    tracker: Tracker,
     bits: Vec<u8>,
     conf: Vec<f32>,
     scr: Scrambler,
@@ -79,9 +135,17 @@ pub struct Burst {
     pub snr_db: f32,
 }
 
+#[derive(Clone, Copy)]
 struct Lock {
     uw_pos: f64,
     theta: f32,
+    phase: f32,
+}
+
+struct Fit {
+    cost: f32,
+    slope: f32,
+    intercept: f32,
 }
 
 impl Vdl2Demod {
@@ -134,12 +198,9 @@ impl Vdl2Demod {
         Some(corr.norm() / norm)
     }
 
-    fn preamble_fit(&self, pos: f64) -> Option<(f64, f32, f32)> {
-        let mut ramp = [0.0f32; 16];
-        for k in 1..16 {
-            ramp[k] = ramp[k - 1] + f32::from(UW_DELTAS[k]) * PI / 4.0;
-        }
-        let mut best: Option<(f32, f64, f32)> = None;
+    fn preamble_fit(&self, pos: f64) -> Option<(f64, Fit)> {
+        let ramp = uw_ramp();
+        let mut best: Option<(f64, Fit)> = None;
         let half = (0.63 * self.sps).max(3.0);
         let mut t = -half;
         while t <= half {
@@ -155,14 +216,14 @@ impl Vdl2Demod {
                 r[k] = s.arg() - ramp[k];
                 w[k] = s.norm_sqr();
             }
-            let Some((cost, slope)) = line_fit(&mut r, &w) else {
+            let Some(fit) = line_fit(&mut r, &w) else {
                 continue;
             };
-            if best.is_none_or(|(c, _, _)| cost < c) {
-                best = Some((cost, cand, slope));
+            if best.as_ref().is_none_or(|(_, b)| fit.cost < b.cost) {
+                best = Some((cand, fit));
             }
         }
-        best.map(|(c, p, th)| (p, th, c))
+        best
     }
 
     fn hunt(&mut self) -> Option<Lock> {
@@ -181,10 +242,15 @@ impl Vdl2Demod {
             if !self.uw_correlate(pos).is_some_and(|m| m > CORR_THRESHOLD) {
                 continue;
             }
-            if let Some((uw_pos, theta, cost)) = self.preamble_fit(pos)
-                && cost < FIT_COST_MAX
+            if let Some((uw_pos, fit)) = self.preamble_fit(pos)
+                && fit.cost < FIT_COST_MAX
             {
-                return Some(Lock { uw_pos, theta });
+                let last = (UW_DELTAS.len() - 1) as f32;
+                return Some(Lock {
+                    uw_pos,
+                    theta: fit.slope,
+                    phase: fit.intercept + fit.slope * last + uw_ramp()[UW_DELTAS.len() - 1],
+                });
             }
         }
         None
@@ -206,14 +272,8 @@ impl Vdl2Demod {
             let Some(s) = self.sample(c.next_pos) else {
                 return Collected::Pending;
             };
-            let d = s * c.prev.conj();
-            c.prev = s;
             c.next_pos += self.sps;
-            let ph = d.arg() - c.theta;
-            let idx_f = (ph / (PI / 4.0)).round();
-            let idx = (idx_f as i32).rem_euclid(8) as usize;
-            let residual = ph - idx_f * (PI / 4.0);
-            c.theta += PHASE_GAIN * residual;
+            let (idx, residual) = c.tracker.step(s);
             c.conf.push(residual.abs());
             let (x, y, z) = GRAY_INV[idx];
             for b in [x, y, z] {
@@ -222,27 +282,50 @@ impl Vdl2Demod {
         }
     }
 
-    fn start_collect(&mut self, lock: &Lock) -> bool {
+    fn start_collect(&mut self, lock: Lock) -> bool {
         if (lock.uw_pos - self.last_rs_fail).abs() < 1.5 {
             self.cursor = lock.uw_pos + 17.0 * self.sps;
             return true;
         }
+        match self.collecting(lock, 0) {
+            Some(c) => {
+                self.state = State::Collect(Box::new(c));
+                true
+            }
+            None => false,
+        }
+    }
+
+    fn collecting(&self, lock: Lock, profile: usize) -> Option<Collecting> {
+        let detector = *PROFILES.get(profile)?;
         let last_uw = lock.uw_pos + 15.0 * self.sps;
-        let Some(prev) = self.sample(last_uw) else {
-            return false;
-        };
-        self.state = State::Collect(Box::new(Collecting {
+        let prev = self.sample(last_uw)?;
+        Some(Collecting {
             uw_start: lock.uw_pos,
             next_pos: last_uw + self.sps,
-            theta: lock.theta,
-            cfo: lock.theta,
-            prev,
+            tracker: Tracker {
+                detector,
+                reference: wrap(lock.phase),
+                prev,
+                theta: lock.theta,
+            },
+            lock,
+            profile,
             bits: Vec::new(),
             conf: Vec::new(),
             scr: Scrambler::new(),
             length: None,
-        }));
-        true
+        })
+    }
+
+    fn retry(&mut self, c: &Collecting) -> bool {
+        match self.collecting(c.lock, c.profile + 1) {
+            Some(next) => {
+                self.state = State::Collect(Box::new(next));
+                true
+            }
+            None => false,
+        }
     }
 
     fn finish(&mut self, c: &Collecting, length: BurstLength, rs: &ReedSolomon) -> Option<Burst> {
@@ -254,6 +337,9 @@ impl Vdl2Demod {
             rs,
         );
         let Some(decoded) = decoded else {
+            if self.retry(c) {
+                return None;
+            }
             self.last_rs_fail = c.uw_start;
             self.cursor = c.uw_start + 1.0;
             return None;
@@ -267,7 +353,7 @@ impl Vdl2Demod {
         Some(Burst {
             bits: decoded.bits,
             rs_corrected: decoded.corrected,
-            freq_skew_hz: (f64::from(c.cfo) * SYMBOL_RATE / std::f64::consts::TAU) as f32,
+            freq_skew_hz: (f64::from(c.lock.theta) * SYMBOL_RATE / std::f64::consts::TAU) as f32,
             snr_db: evm_snr_db(&c.conf),
         })
     }
@@ -278,7 +364,7 @@ impl Vdl2Demod {
             match std::mem::replace(&mut self.state, State::Hunt) {
                 State::Hunt => match self.hunt() {
                     Some(lock) => {
-                        if !self.start_collect(&lock) {
+                        if !self.start_collect(lock) {
                             break;
                         }
                     }
@@ -289,7 +375,9 @@ impl Vdl2Demod {
                         self.state = State::Collect(c);
                         break;
                     }
-                    Collected::BadHeader => {}
+                    Collected::BadHeader => {
+                        self.retry(&c);
+                    }
                     Collected::Complete(length) => {
                         out.extend(self.finish(&c, length, rs));
                     }
@@ -322,7 +410,19 @@ fn burst_length(bits: &[u8]) -> Option<BurstLength> {
     })
 }
 
-fn line_fit(r: &mut [f32; 16], w: &[f32; 16]) -> Option<(f32, f32)> {
+fn uw_ramp() -> [f32; 16] {
+    let mut ramp = [0.0f32; 16];
+    for k in 1..16 {
+        ramp[k] = ramp[k - 1] + f32::from(UW_DELTAS[k]) * PI / 4.0;
+    }
+    ramp
+}
+
+fn wrap(phase: f32) -> f32 {
+    (phase + PI).rem_euclid(2.0 * PI) - PI
+}
+
+fn line_fit(r: &mut [f32; 16], w: &[f32; 16]) -> Option<Fit> {
     for k in 1..16 {
         let mut d = r[k] - r[k - 1];
         while d > PI {
@@ -367,7 +467,11 @@ fn line_fit(r: &mut [f32; 16], w: &[f32; 16]) -> Option<(f32, f32)> {
         let e = r[k] - a - b * k as f32;
         cost += w[k] * e * e;
     }
-    Some((cost / sw, b))
+    Some(Fit {
+        cost: cost / sw,
+        slope: b,
+        intercept: a,
+    })
 }
 
 fn evm_snr_db(residuals: &[f32]) -> f32 {

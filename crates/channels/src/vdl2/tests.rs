@@ -316,3 +316,35 @@ fn matches_xng_on_the_same_iq() {
         assert_same(&ours, &theirs);
     }
 }
+
+fn sweep_capture(seed: u64, noise: f32, bursts: usize) -> Vec<Complex<f32>> {
+    let mut rng = Noise(seed ^ 0x9e37_79b9_7f4a_7c15);
+    let mut iq = vec![Complex::default(); 3_000];
+    for k in 0..bursts {
+        let cfo = f64::from(rng.next()) * 500.0;
+        let frames = if k % 2 == 0 {
+            vec![aoa_frame(), rr_frame()]
+        } else {
+            vec![cpdlc_frame()]
+        };
+        iq.extend(burst_iq_shaped(&frames, RATE, cfo, 0.4));
+        iq.extend(vec![Complex::default(); 4_000 + (rng.next().abs() * 3_000.0) as usize]);
+    }
+    iq.extend(vec![Complex::default(); 40_000]);
+    Noise(seed).add(&mut iq, noise);
+    iq
+}
+
+#[test]
+#[ignore = "sensitivity sweep"]
+fn sensitivity_sweep() {
+    for noise in [0.14f32, 0.16, 0.18, 0.2, 0.22, 0.24] {
+        let (mut ours, mut theirs) = (0, 0);
+        for seed in 1..=6u64 {
+            let iq = sweep_capture(seed * 0x1234_5678_9abc_def1, noise, 30);
+            ours += decode_channel(&iq).len();
+            theirs += decode_xng(&iq).len();
+        }
+        eprintln!("SWEEP noise {noise}: ours {ours} xng {theirs}");
+    }
+}
