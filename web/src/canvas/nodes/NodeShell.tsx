@@ -1,5 +1,5 @@
 import { useMutation } from "@tanstack/react-query";
-import { Handle, NodeResizer, Position } from "@xyflow/react";
+import { Handle, NodeResizer, Position, useUpdateNodeInternals } from "@xyflow/react";
 import { Maximize2, Minimize2, Pin, X } from "lucide-react";
 import {
   createContext,
@@ -19,6 +19,7 @@ import type { NodeCategory, PatchNode, PortSpec, PortType } from "../../lib/type
 import { useWorkspaceContext } from "../context";
 import {
   fitWidth,
+  handleSignature,
   isPinned,
   isResizable,
   nodeMinSize,
@@ -149,6 +150,7 @@ export function NodeShell({
   }, []);
   const full = workspace.expanded === node.id;
   useWheelRouting(portalContainer, wheelClaim);
+  useHandleRefresh(node.id, ports, surface === "canvas");
 
   return (
     <div
@@ -287,6 +289,16 @@ function useWheelRouting(
     host.addEventListener("wheel", onWheel, { passive: false });
     return () => host.removeEventListener("wheel", onWheel);
   }, [face, claim]);
+}
+
+function useHandleRefresh(id: string, ports: readonly PortSpec[], onCanvas: boolean): void {
+  const updateNodeInternals = useUpdateNodeInternals();
+  const handles = handleSignature(ports);
+  useEffect(() => {
+    if (onCanvas && handles !== "") {
+      updateNodeInternals(id);
+    }
+  }, [id, handles, onCanvas, updateNodeInternals]);
 }
 
 function useRemoveNode(node: PatchNode): () => void {

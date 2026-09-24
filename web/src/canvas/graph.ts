@@ -207,6 +207,10 @@ export function portOf(
       );
 }
 
+export function handleSignature(ports: readonly PortSpec[]): string {
+  return ports.map((port) => `${port.direction}:${port.name}`).join(",");
+}
+
 export function edgeKey(edge: PatchEdge): string {
   return `${edge.from.node}.${edge.from.port}->${edge.to.node}.${edge.to.port}`;
 }

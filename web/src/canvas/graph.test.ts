@@ -17,6 +17,7 @@ import {
   connectionRefusal,
   edgeKey,
   type GraphContext,
+  handleSignature,
   isPinned,
   isResizable,
   migrateSnapshot,
@@ -44,6 +45,7 @@ import {
   tuningLocked,
   unpin,
 } from "./graph";
+import { DEFAULT_COMBINER_PARAMS } from "./nodes/combiner";
 
 const CATALOG: PatchCatalog = {
   nodes: [
@@ -113,6 +115,15 @@ const CATALOG: PatchCatalog = {
       name: "Speaker",
       category: "output",
       ports: [{ name: "audio", port_type: "audio", direction: "in", multi: true }],
+    },
+    {
+      kind: "combiner",
+      name: "Combiner",
+      category: "tool",
+      ports: [
+        { name: "iq", port_type: "iq", direction: "in", multi: false, repeat: "per_rx_stream" },
+        { name: "beam", port_type: "iq", direction: "out", multi: true },
+      ],
     },
     {
       kind: "scanner",
@@ -212,6 +223,21 @@ describe("portLabel", () => {
     expect(streamLabel("iq", 0, 1)).toBe("iq");
     expect(streamLabel("iq", 0, 4)).toBe("iq1");
     expect(streamLabel("iq", 3, 4)).toBe("iq4");
+  });
+});
+
+const combiner = (lanes: number): PatchNode =>
+  node("comb", { kind: "combiner", data: { settings: { ...DEFAULT_COMBINER_PARAMS, lanes } } });
+
+describe("handleSignature", () => {
+  it("changes when a combiner gains antennas", () => {
+    const two = handleSignature(portsOf(context, { nodes: [combiner(2)], edges: [] }, combiner(2)));
+    const five = handleSignature(
+      portsOf(context, { nodes: [combiner(5)], edges: [] }, combiner(5)),
+    );
+    expect(five).not.toBe(two);
+    expect(five).toContain("in:iq3");
+    expect(two).not.toContain("in:iq3");
   });
 });
 
