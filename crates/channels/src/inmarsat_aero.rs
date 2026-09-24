@@ -1,19 +1,43 @@
+mod decoder;
+mod demod;
+mod frame;
+mod framer;
+mod oqpsk;
+mod satellite;
+mod state;
+mod su;
+mod taps;
+
+#[cfg(test)]
+mod burst;
+#[cfg(test)]
+mod cchannel;
+#[cfg(test)]
+mod coherent;
+#[cfg(test)]
+mod modulate;
+#[cfg(test)]
+mod tests;
+
 use std::sync::LazyLock;
 
 use num_complex::Complex;
 use sdrmm_wire::{
-    ChannelDescriptor, ChannelParams, ChannelSettings, DecoderEvent, DecoderFamily,
-    InmarsatAeroParams,
+    ChannelDescriptor, ChannelParams, ChannelSettings, DataLinkMessage, DecoderEvent,
+    DecoderFamily, InmarsatAeroParams,
 };
-use xng_mode_aero::AeroChannelDecoder;
+use serde::Serialize;
+use serde_json::{Value, json};
+use xng_acars::block as acars_block;
 
+use self::decoder::{AeroChannelDecoder, AeroEvent, INPUT_RATE};
 use crate::{
-    ChannelCtx, ChannelError, ChannelFilter, ChannelOutputs, ChannelRx, check_input_rate, datalink,
-    xng_adapter,
+    ChannelCtx, ChannelError, ChannelFilter, ChannelOutputs, ChannelRx, check_input_rate,
+    datalink::{self, Quality},
 };
 
-const RATE: f64 = 48_000.0;
 const HALF_BANDWIDTH: f64 = 6_500.0;
+const P_CHANNEL: &str = "p-channel";
 
 static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescriptor {
     type_id: "inmarsat_aero".to_owned(),
@@ -21,7 +45,7 @@ static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescrip
     summary: "Aircraft datalink over Inmarsat".to_owned(),
     family: DecoderFamily::Aviation,
     bandwidth_hz: HALF_BANDWIDTH * 2.0,
-    input_rate_hz: RATE,
+    input_rate_hz: INPUT_RATE,
     has_audio: false,
     decoder_kind: Some("inmarsat_aero".to_owned()),
     ..ChannelDescriptor::default()
@@ -29,6 +53,7 @@ static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescrip
 
 pub struct InmarsatAeroChannel {
     decoder: AeroChannelDecoder,
+    events: Vec<AeroEvent>,
 }
 
 fn params(settings: &ChannelSettings) -> Result<&InmarsatAeroParams, ChannelError> {
@@ -46,7 +71,82 @@ pub(crate) fn occupied_band() -> (f64, f64) {
 }
 
 pub(crate) fn channel_filter() -> ChannelFilter {
-    datalink::channel_filter(RATE, HALF_BANDWIDTH)
+    datalink::channel_filter(INPUT_RATE, HALF_BANDWIDTH)
+}
+
+#[derive(Serialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+enum AcarsBody<'a, C> {
+    Acars(&'a C),
+}
+
+#[derive(Serialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+enum AeroBody {
+    Aero { kind: String, details: Value },
+    Undecoded,
+}
+
+fn enrich(details: &mut Value, event: &AeroEvent) {
+    let Value::Object(map) = details else {
+        return;
+    };
+    if let Some(Value::Object(satellite)) = &event.satellite {
+        for (key, value) in satellite {
+            map.entry(key.clone()).or_insert_with(|| value.clone());
+        }
+    }
+    if let Some(header) = event.frame_header {
+        map.entry("frame_header").or_insert_with(|| header.to_json());
+    }
+    if let Some(lock) = &event.lock {
+        map.entry("superframe_lock")
+            .or_insert_with(|| lock.clone());
+    }
+}
+
+fn aero_body(kind: &str, event: &AeroEvent) -> AeroBody {
+    let mut details = json!({});
+    enrich(&mut details, event);
+    AeroBody::Aero {
+        kind: kind.to_owned(),
+        details,
+    }
+}
+
+fn su_body(su_event: &Value, event: &AeroEvent) -> AeroBody {
+    let mut details = su_event.clone();
+    if let Value::Object(map) = &mut details {
+        map.insert("channel".to_owned(), json!(P_CHANNEL));
+        map.insert("line_bit_rate".to_owned(), json!(event.bit_rate));
+    }
+    enrich(&mut details, event);
+    AeroBody::Aero {
+        kind: su::p_su_kind(su_event),
+        details,
+    }
+}
+
+fn to_message(event: &AeroEvent) -> DataLinkMessage {
+    let quality = |crc_ok| Quality {
+        crc_ok,
+        fec_corrected: event.fec_corrected,
+        snr_db: None,
+        frequency_error_hz: None,
+    };
+    let raw = Some(event.user.data.as_slice());
+    if let Some(block) = &event.acars {
+        return datalink::message(&AcarsBody::Acars(&block.core), quality(block.crc_ok), raw);
+    }
+    let body = match &event.su_event {
+        Some(su_event) => su_body(su_event, event),
+        None if event.lock.is_some() => aero_body("p-channel-status", event),
+        None if event.satellite.is_some() || event.frame_header.is_some() => {
+            aero_body("aero-frame", event)
+        }
+        None => AeroBody::Undecoded,
+    };
+    datalink::message(&body, quality(true), raw)
 }
 
 impl ChannelRx for InmarsatAeroChannel {
@@ -57,9 +157,10 @@ impl ChannelRx for InmarsatAeroChannel {
     fn new(ctx: ChannelCtx, settings: ChannelSettings) -> Result<Self, ChannelError> {
         check_input_rate(ctx, &DESCRIPTOR)?;
         params(&settings)?;
-        let decoder =
-            AeroChannelDecoder::new(ctx.input_rate, 0.0).map_err(ChannelError::InvalidSettings)?;
-        Ok(Self { decoder })
+        Ok(Self {
+            decoder: AeroChannelDecoder::new(),
+            events: Vec::new(),
+        })
     }
 
     fn apply(&mut self, settings: ChannelSettings) -> Result<(), ChannelError> {
@@ -67,62 +168,11 @@ impl ChannelRx for InmarsatAeroChannel {
     }
 
     fn process(&mut self, iq: &[Complex<f32>], out: &mut ChannelOutputs) {
-        let events = self.decoder.process(iq);
-        let level = self.decoder.level_dbfs();
-        out.events.extend(events.iter().map(|event| {
-            DecoderEvent::InmarsatAero(xng_adapter::structured(xng_mode_aero::to_message(
-                event,
-                0,
-                level,
-                xng_adapter::provenance(),
-            )))
-        }));
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use xng_mode_aero::{frame::FrameEncoder, modulate::modulate, su};
-
-    use super::*;
-    use crate::testutil::{run_events, settings};
-
-    const ADSC_TEXT: &str =
-        "/BOMASAI.ADS.VT-ANB072501A070A988CA73248F0E5DC10200000F5EE1ABC000102B885E0A19F5";
-
-    #[test]
-    fn decodes_a_p_channel_intermediate_signal_unit() {
-        let mut user = vec![0xFF, 0xFF];
-        user.extend(xng_acars::block::build(
-            '2', "VT-ANB", None, "B6", 'A', None, None, ADSC_TEXT, false,
-        ));
-        let mut units = su::build_isu_chain(0xA1B2C3, 0x44, 1, 7, &user);
-        while !units.len().is_multiple_of(6) {
-            units.push(su::fill_su());
-        }
-        let mut encoder = FrameEncoder::new(600);
-        let mut bits: Vec<u8> = (0..160).map(|index| (index % 2) as u8).collect();
-        for (index, chunk) in units.chunks(6).enumerate() {
-            let bytes: Vec<u8> = chunk.iter().flatten().copied().collect();
-            bits.extend(encoder.encode(&bytes, index as u8));
-        }
-        bits.extend((0..64).map(|index| (index % 2) as u8));
-        let iq = modulate(&bits, 600.0, RATE, 0.0, 0.5);
-        let mut channel = InmarsatAeroChannel::new(
-            ChannelCtx { input_rate: RATE },
-            settings(ChannelParams::InmarsatAero(InmarsatAeroParams::default())),
-        )
-        .expect("channel");
-        let events = run_events(&mut channel, &iq);
-        let message = events
-            .iter()
-            .find_map(|event| match event {
-                DecoderEvent::InmarsatAero(message) => Some(message),
-                _ => None,
-            })
-            .expect("Inmarsat Aero message");
-        assert!(message.crc_ok);
-        assert_eq!(message.station.as_deref(), Some("VT-ANB"));
-        assert_eq!(message.text.as_deref(), Some(ADSC_TEXT));
+        self.decoder.process(iq, &mut self.events);
+        out.events.extend(
+            self.events
+                .drain(..)
+                .map(|event| DecoderEvent::InmarsatAero(to_message(&event))),
+        );
     }
 }

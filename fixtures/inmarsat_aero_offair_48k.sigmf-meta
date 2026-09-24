@@ -1,0 +1,23 @@
+{
+  "global": {
+    "core:datatype": "ci16_le",
+    "core:version": "1.2.6",
+    "core:sample_rate": 48000.0,
+    "core:recorder": "SDR--",
+    "core:hw": "JAERO 600bps_sample.ogg",
+    "core:description": "Inmarsat Classic Aero off air: a 600 bps P channel frame carrying ACARS from HL8217 (label _d), from JAERO's reference recording"
+  },
+  "captures": [
+    {
+      "core:sample_start": 0,
+      "core:frequency": 1545000000.0
+    }
+  ],
+  "annotations": [
+    {
+      "core:sample_start": 0,
+      "core:sample_count": 134400,
+      "core:comment": "JAERO samples/600bps_sample.ogg (MIT, github.com/jontio/JAERO), decoded to 48 kHz mono s16; seconds 8.6..11.4; source SHA-256 b3a11ca8db4828a4cf85dec5a374d09406ec5ea9dcc6359fc1f8a91f16f4f3eb (first 12 s as s16le); the audio-band carrier at 1066 Hz mixed to 0 Hz and low-passed at 1.2 kHz; the capture frequency is nominal"
+    }
+  ]
+}
