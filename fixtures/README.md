@@ -63,6 +63,7 @@ SHA-256 in a SigMF annotation.
 | `ft8_20m_busy_12k` | 12 k | `ft8` @ 0 Hz | 19 of the 20 decodes `ft8_lib` publishes for this slot |
 | `acars_offair_48k` | 48 k | `acars` @ 0 Hz | `F-GTAE` / `AF7728` `[H1]` engine report `#DFB00000/V206,...`, then `LN-DYY` `[_d]` acknowledging block 5 |
 | `inmarsat_stdc_egc_24k` | 24 k | `inmarsat_stdc` @ +216 Hz | NCS bulletin board for frame 5987 (LES 144), an LES 104 announcement, the signalling channel |
+| `inmarsat_aero_offair_48k` | 48 k | `inmarsat_aero` @ 0 Hz | 600 bps P channel, `HL8217` `[_d]` |
 | `dvbt/qpsk_2k_reference` | 9.142857 M | `dvbt` @ 0 Hz | 2K QPSK, rate 1/2, guard 1/8, 1750 Hz offset; PID 0x123 packets, TPS cell 0x5a |
 | `dab/mode_ii_reference_2m048` | 2.048 M | `dab` @ 0 Hz | Mode II frame: ensemble `0x4a2c`, service `0xc201`, no failed FIB CRCs |
 | `dab/mode_iii_reference_2m048` | 2.048 M | `dab` @ 0 Hz | the same ensemble in Mode III |
@@ -184,6 +185,13 @@ A 14-second slice of sigidwiki's Inmarsat-C TDM/EGC IQ recording, resampled to 2
 The same slice is the off-air test of xng-mode-stdc. sigidwiki content is CC BY-SA, so this pair
 is test data under that license. `inmarsat_stdc::tests::decodes_the_offair_recording` reads it
 directly.
+
+### Inmarsat Aero: `inmarsat_aero_offair_48k`
+
+2.8 s of JAERO's MIT-licensed `600bps_sample.ogg`: one 600 bps P channel frame with an
+ACARS block from `HL8217`. The audio carrier at 1066 Hz was mixed to 0 Hz and low-passed at
+1.2 kHz; the capture frequency is nominal. `ci16_le`, like the `dvbt` pairs.
+`inmarsat_aero::tests::decodes_the_recorded_600_bps_channel` reads it directly.
 
 ### FreeDV: `freedv_1600_8k`
 
