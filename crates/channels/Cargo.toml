@@ -32,7 +32,6 @@ serde.workspace = true
 serde_json.workspace = true
 flate2.workspace = true
 xng-mode-aero.workspace = true
-xng-mode-vdl2.workspace = true
 xng-mode-hfdl.workspace = true
 xng-mode-iridium.workspace = true
 xng-types.workspace = true
@@ -56,3 +55,4 @@ blip25-vocoder = { workspace = true, features = ["encode"] }
 xng-acars.workspace = true
 xng-mode-dsc.workspace = true
 xng-mode-stdc.workspace = true
+xng-mode-vdl2.workspace = true
