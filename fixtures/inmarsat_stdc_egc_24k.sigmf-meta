@@ -1,0 +1,21 @@
+{
+  "global": {
+    "core:datatype": "ci16_le",
+    "core:version": "1.2.6",
+    "core:sample_rate": 24000.0,
+    "core:license": "https://creativecommons.org/licenses/by-sa/4.0/",
+    "core:description": "Inmarsat-C NCS common channel off air (AOR-E): bulletin board for frame 5987, an LES 104 announcement, the signalling channel and confirmations"
+  },
+  "captures": [
+    {
+      "core:sample_start": 0
+    }
+  ],
+  "annotations": [
+    {
+      "core:sample_start": 0,
+      "core:sample_count": 336000,
+      "core:comment": "sigidwiki Inmarsat-C_TDM_EGC_IQ.zip (CC BY-SA), 14 s from 4 s, resampled to 24 kHz with ffmpeg -ss 4 -t 14 -ar 24000 -f s16le; the carrier sits at +216 Hz; the RF frequency is not recorded upstream. Same slice as xng-mode-stdc tests/data/stdc_egc_14s.i16, SHA-256 7e59c76edbd19b1d7046d70c56a15a7701715374362a301bbe817aa4bd2eefeb"
+    }
+  ]
+}
