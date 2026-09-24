@@ -13,6 +13,7 @@ use crate::{
 };
 
 mod demod;
+mod frame;
 mod message;
 mod symbol;
 
@@ -20,15 +21,20 @@ mod symbol;
 mod equivalence;
 #[cfg(test)]
 mod modulate;
+#[cfg(test)]
+mod sensitivity;
 
 use demod::{FskDemod, RATE, find_phasing};
+use frame::{Received, decode_at, frame_bits};
 use message::{DscMessage, Format};
 use symbol::{LEADING_DX_PHASING, RX_DELAY, SYMBOL_BITS};
 
 const HALF_BANDWIDTH: f64 = 250.0;
+const CHAR_PAIR_BITS: usize = 2 * SYMBOL_BITS;
 const MAX_BITS_WINDOW: usize = 4_096;
+const HISTORY_BITS: usize = CHAR_PAIR_BITS * LEADING_DX_PHASING;
 const MIN_FRAME_BITS: usize = 460;
-const MAX_FRAME_BITS: usize = 2 * SYMBOL_BITS * (LEADING_DX_PHASING + 25 + RX_DELAY + 1);
+const MAX_FRAME_BITS: usize = CHAR_PAIR_BITS * (LEADING_DX_PHASING + 25 + RX_DELAY + 1);
 
 static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescriptor {
     type_id: "dsc".to_owned(),
@@ -51,53 +57,117 @@ enum Body<'a> {
     },
 }
 
+enum Outcome {
+    Emit(Box<DscMessage>, usize),
+    Skip,
+    Wait,
+}
+
 pub struct DscDecoder {
     demod: FskDemod,
-    bits: Vec<u8>,
+    soft: Vec<f32>,
+    hard: Vec<u8>,
     scanned: usize,
+    waiting: Option<(usize, usize)>,
 }
 
 impl DscDecoder {
     pub fn new() -> Self {
         Self {
             demod: FskDemod::new(),
-            bits: Vec::with_capacity(2 * MAX_BITS_WINDOW),
+            soft: Vec::with_capacity(2 * MAX_BITS_WINDOW),
+            hard: Vec::with_capacity(2 * MAX_BITS_WINDOW),
             scanned: 0,
+            waiting: None,
         }
     }
 
     pub fn process(&mut self, iq: &[Complex<f32>], out: &mut Vec<DscMessage>) {
-        self.demod.process(iq, &mut self.bits);
-        while let Some(offset) = find_phasing(&self.bits[self.scanned..]) {
-            let start = self.scanned + offset;
-            let available = self.bits.len() - start;
-            if available < MIN_FRAME_BITS {
-                break;
-            }
-            let message = decode_from_bits(&self.bits[start..]);
-            if message.format != Format::Unknown {
-                if !message.is_complete() && available < MAX_FRAME_BITS {
-                    break;
+        let before = self.soft.len();
+        self.demod.process(iq, &mut self.soft);
+        self.hard.extend(
+            self.soft[before..]
+                .iter()
+                .map(|&soft| u8::from(soft >= 0.0)),
+        );
+        while let Some(offset) = self.hard.get(self.scanned..).and_then(find_phasing) {
+            let found = self.scanned + offset;
+            match self.outcome(found) {
+                Outcome::Wait => break,
+                Outcome::Skip => self.scanned = found + SYMBOL_BITS,
+                Outcome::Emit(message, end) => {
+                    out.push(*message);
+                    self.scanned = end.max(found + SYMBOL_BITS);
                 }
-                out.push(message);
             }
-            self.scanned = start + SYMBOL_BITS;
-            if self.scanned >= self.bits.len() {
+            if self.scanned >= self.hard.len() {
                 break;
             }
         }
-        if self.bits.len() > MAX_BITS_WINDOW {
-            let consumed = self.scanned.min(self.bits.len());
-            self.bits.drain(..consumed);
-            self.scanned = 0;
+        self.trim();
+    }
+
+    fn outcome(&mut self, found: usize) -> Outcome {
+        let available = self.hard.len() - found;
+        let unchanged = self
+            .waiting
+            .is_some_and(|(at, length)| at == found && self.hard.len() < length + SYMBOL_BITS);
+        if available < MIN_FRAME_BITS || unchanged {
+            return Outcome::Wait;
         }
+        let received = Received {
+            hard: &self.hard,
+            soft: &self.soft,
+        };
+        if let Some((start, message)) = best_valid(&received, found) {
+            self.waiting = None;
+            let end = start + frame_bits(&message);
+            return Outcome::Emit(Box::new(message), end);
+        }
+        let primary = decode_at(&received, found);
+        if primary.format == Format::Unknown {
+            return Outcome::Skip;
+        }
+        let settled =
+            primary.is_complete() && available >= frame_bits(&primary) + CHAR_PAIR_BITS * RX_DELAY;
+        if !settled && available < MAX_FRAME_BITS {
+            self.waiting = Some((found, self.hard.len()));
+            return Outcome::Wait;
+        }
+        self.waiting = None;
+        let end = found + frame_bits(&primary);
+        Outcome::Emit(Box::new(primary), end)
+    }
+
+    fn trim(&mut self) {
+        if self.hard.len() <= MAX_BITS_WINDOW {
+            return;
+        }
+        let drop = self.scanned.saturating_sub(HISTORY_BITS);
+        self.hard.drain(..drop);
+        self.soft.drain(..drop);
+        self.scanned -= drop;
+        self.waiting = None;
     }
 }
 
-pub fn decode_from_bits(bits: &[u8]) -> DscMessage {
-    let chars = symbol::decode_bitstream(bits);
-    let symbols = symbol::deinterleave_dx_rx(&chars, LEADING_DX_PHASING, RX_DELAY);
-    message::decode(&symbols)
+fn best_valid(received: &Received, found: usize) -> Option<(usize, DscMessage)> {
+    let mut best: Option<(usize, usize, DscMessage)> = None;
+    for start in (0..LEADING_DX_PHASING).filter_map(|back| found.checked_sub(back * CHAR_PAIR_BITS))
+    {
+        let message = decode_at(received, start);
+        if message.format == Format::Unknown || !message.is_complete() || !message.ecc_ok() {
+            continue;
+        }
+        let score = received.phasing_score(start);
+        if best
+            .as_ref()
+            .is_none_or(|(best_score, _, _)| score > *best_score)
+        {
+            best = Some((score, start, message));
+        }
+    }
+    best.map(|(_, start, message)| (start, message))
 }
 
 pub fn to_datalink(message: &DscMessage) -> DataLinkMessage {

@@ -3,11 +3,10 @@ use std::f64::consts::TAU;
 use num_complex::Complex;
 
 use super::{
-    demod::{BAUD, PHASING},
+    demod::{BAUD, PHASING, SHIFT_HZ},
     symbol::{LEADING_DX_PHASING, RX_DELAY, zero_count},
 };
 
-pub const SHIFT_HZ: f64 = 85.0;
 const DOT_PAIRS: usize = 40;
 const FIRST_RX_PHASING: i32 = 111;
 
@@ -117,28 +116,37 @@ pub fn m493_call_iq(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::dsc::{
-        decode_from_bits,
-        symbol::{ERASURE, decode_bitstream, deinterleave_dx_rx},
-    };
+    use crate::dsc::frame::{Received, decode_at};
 
     const CALL: &[i32] = &[
         112, 112, 25, 58, 5, 99, 70, 107, 4, 52, 60, 13, 7, 12, 52, 109, 127, 52, 127, 127,
     ];
 
+    fn decoded(bits: &[u8]) -> Vec<i32> {
+        let soft: Vec<f32> = bits.iter().map(|&bit| f32::from(bit) - 0.5).collect();
+        let message = decode_at(
+            &Received {
+                hard: bits,
+                soft: &soft,
+            },
+            0,
+        );
+        assert!(message.ecc_ok());
+        message.symbols
+    }
+
     #[test]
     fn frame_bits_round_trip() {
-        assert!(decode_from_bits(&frame_bits(CALL)).ecc_ok());
-        assert!(decode_from_bits(&m493_bits(CALL)).ecc_ok());
+        assert_eq!(&decoded(&frame_bits(CALL))[..CALL.len()], CALL);
+        assert_eq!(&decoded(&m493_bits(CALL))[..CALL.len()], CALL);
     }
 
     #[test]
     fn m493_rx_stream_repeats_every_data_symbol() {
-        let mut chars = decode_bitstream(&m493_bits(CALL));
-        for dx in chars.iter_mut().step_by(2) {
-            *dx = ERASURE;
+        let mut bits = m493_bits(CALL);
+        for dx in bits.chunks_mut(20) {
+            dx[0] ^= 1;
         }
-        let symbols = deinterleave_dx_rx(&chars, LEADING_DX_PHASING, RX_DELAY);
-        assert_eq!(&symbols[..CALL.len()], CALL);
+        assert_eq!(&decoded(&bits)[..CALL.len()], CALL);
     }
 }

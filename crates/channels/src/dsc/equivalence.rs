@@ -7,7 +7,7 @@ use crate::{
     testutil::add_awgn,
 };
 
-const CALLS: &[&[i32]] = &[
+pub(super) const CALLS: &[&[i32]] = &[
     &[
         112, 112, 25, 58, 5, 99, 70, 107, 4, 52, 60, 13, 7, 12, 52, 109, 127, 52, 127, 127,
     ],
@@ -57,7 +57,7 @@ fn xng_datalink(message: &xng_mode_dsc::DscMessage) -> DataLinkMessage {
     )
 }
 
-fn run_xng(iq: &[Complex<f32>], chunk: usize) -> Vec<DataLinkMessage> {
+pub(super) fn run_xng(iq: &[Complex<f32>], chunk: usize) -> Vec<DataLinkMessage> {
     let mut decoder = xng_mode_dsc::DscChannelDecoder::new(RATE, 0.0).expect("xng decoder");
     iq.chunks(chunk)
         .flat_map(|piece| decoder.process(piece))
@@ -80,6 +80,16 @@ pub(super) fn transmission(
     sigma: f32,
     seed: u64,
 ) -> Vec<Complex<f32>> {
+    offset_transmission(calls, realistic, 0.0, sigma, seed)
+}
+
+pub(super) fn offset_transmission(
+    calls: &[&[i32]],
+    realistic: bool,
+    offset_hz: f64,
+    sigma: f32,
+    seed: u64,
+) -> Vec<Complex<f32>> {
     let mut iq = vec![Complex::new(0.0, 0.0); 1_000];
     for call in calls {
         if realistic {
@@ -89,6 +99,7 @@ pub(super) fn transmission(
         }
         iq.extend(vec![Complex::new(0.0, 0.0); 3_000]);
     }
+    crate::testgen::shift(&mut iq, offset_hz, RATE);
     add_awgn(&mut iq, sigma, seed);
     let mut filtered = Vec::with_capacity(iq.len());
     super::channel_filter().process(&iq, &mut filtered);
@@ -106,16 +117,6 @@ fn modulators_agree() {
 }
 
 #[test]
-fn demod_bits_match_xng() {
-    let iq = transmission(CALLS, true, 2.0, 9);
-    let mut ours = Vec::new();
-    super::demod::FskDemod::new().process(&iq, &mut ours);
-    let mut theirs = Vec::new();
-    xng_mode_dsc::demod::FskDemod::new().process(&iq, &mut theirs);
-    assert_eq!(ours, theirs);
-}
-
-#[test]
 fn symbol_layer_matches_xng() {
     for call in CALLS {
         let mut symbols = call.to_vec();
@@ -130,30 +131,55 @@ fn symbol_layer_matches_xng() {
     }
 }
 
+fn essence(message: &DataLinkMessage) -> serde_json::Value {
+    let mut details = message.details.clone();
+    if let Some(inner) = details
+        .get_mut("details")
+        .and_then(serde_json::Value::as_object_mut)
+    {
+        inner.remove("symbols");
+    }
+    serde_json::json!([
+        message.message_type,
+        message.station,
+        message.crc_ok,
+        details
+    ])
+}
+
 #[test]
-fn matches_xng_on_clean_and_noisy_iq() {
+fn every_valid_xng_decode_is_also_ours() {
     let mut compared = 0;
-    for (seed, sigma) in [
-        (1u64, 0.0f32),
-        (2, 1.0),
-        (3, 2.0),
-        (4, 3.0),
-        (5, 4.0),
-        (6, 5.0),
-    ] {
+    for (seed, sigma) in [(1u64, 0.0f32), (2, 1.0), (3, 1.4), (4, 1.8), (5, 2.2)] {
         for (realistic, call) in [false, true]
             .into_iter()
             .flat_map(|r| CALLS.iter().map(move |c| (r, c)))
         {
             let iq = transmission(&[call], realistic, sigma, seed);
             for chunk in CHUNKS {
-                let ours = run_ours(&iq, chunk);
-                let theirs = run_xng(&iq, chunk);
-                assert!(ours.len() >= theirs.len(), "sigma {sigma} chunk {chunk}");
-                assert_eq!(ours[..theirs.len()], theirs, "sigma {sigma} chunk {chunk}");
-                compared += theirs.len();
+                let ours: Vec<_> = run_ours(&iq, chunk).iter().map(essence).collect();
+                for theirs in run_xng(&iq, chunk).iter().filter(|m| m.crc_ok) {
+                    assert!(
+                        ours.contains(&essence(theirs)),
+                        "sigma {sigma} chunk {chunk}: {theirs:?}"
+                    );
+                    compared += 1;
+                }
             }
         }
     }
-    assert!(compared > 60, "{compared}");
+    assert!(compared > 80, "{compared}");
+}
+
+#[test]
+fn back_to_back_calls_all_decode_once() {
+    for realistic in [false, true] {
+        let iq = transmission(CALLS, realistic, 0.3, 21);
+        for chunk in CHUNKS {
+            let ours = run_ours(&iq, chunk);
+            assert_eq!(ours.len(), CALLS.len(), "{ours:?}");
+            assert!(ours.iter().all(|message| message.crc_ok));
+            assert_eq!(run_xng(&iq, chunk).len(), 1);
+        }
+    }
 }

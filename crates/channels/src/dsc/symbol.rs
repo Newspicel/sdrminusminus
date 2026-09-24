@@ -25,33 +25,6 @@ pub fn zero_count(value: u8) -> u8 {
         .sum()
 }
 
-pub fn decode_bitstream(bits: &[u8]) -> Vec<i32> {
-    bits.as_chunks::<SYMBOL_BITS>()
-        .0
-        .iter()
-        .map(|chunk| match decode_symbol(chunk) {
-            (value, true) => i32::from(value),
-            (_, false) => ERASURE,
-        })
-        .collect()
-}
-
-pub fn deinterleave_dx_rx(chars: &[i32], dx_skip: usize, rx_offset: usize) -> Vec<i32> {
-    let dx: Vec<i32> = chars.iter().step_by(2).copied().collect();
-    let rx: Vec<i32> = chars.iter().skip(1).step_by(2).copied().collect();
-    dx.iter()
-        .enumerate()
-        .skip(dx_skip)
-        .map(|(index, &symbol)| {
-            if symbol == ERASURE {
-                rx.get(index + rx_offset).copied().unwrap_or(ERASURE)
-            } else {
-                symbol
-            }
-        })
-        .collect()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -79,10 +52,6 @@ mod tests {
     #[test]
     fn corrupt_check_is_erasure() {
         assert!(!decode_symbol(&[0, 1, 0, 0, 0, 0, 0, 1, 0, 1]).1);
-        assert_eq!(
-            decode_bitstream(&[0, 1, 0, 0, 0, 0, 0, 1, 0, 1]),
-            vec![ERASURE]
-        );
     }
 
     #[test]
@@ -101,35 +70,5 @@ mod tests {
             symbol_at(&[1, 1, 1, 1, 1, 1, 1, 0, 0, 0], 0),
             Some((127, true))
         );
-    }
-
-    fn interleave(dx: &[i32], rx: &[i32]) -> Vec<i32> {
-        dx.iter().zip(rx).flat_map(|(&d, &r)| [d, r]).collect()
-    }
-
-    #[test]
-    fn dx_rx_recovers_erased_dx_from_rx() {
-        let mut dx = [0i32; 12];
-        dx[..6].fill(125);
-        dx[6] = ERASURE;
-        for (k, d) in dx.iter_mut().enumerate().skip(7) {
-            *d = 70 + k as i32;
-        }
-        let mut rx = [0i32; 12];
-        rx[8] = 66;
-        let symbols = deinterleave_dx_rx(&interleave(&dx, &rx), 6, 2);
-        assert_eq!(symbols, vec![66, 77, 78, 79, 80, 81]);
-    }
-
-    #[test]
-    fn dx_rx_unrecoverable_is_erasure() {
-        let mut dx = [125i32; 9];
-        dx[6] = ERASURE;
-        dx[7] = 99;
-        dx[8] = 100;
-        let mut rx = [0i32; 9];
-        rx[8] = ERASURE;
-        let symbols = deinterleave_dx_rx(&interleave(&dx, &rx), 6, 2);
-        assert_eq!(symbols, vec![ERASURE, 99, 100]);
     }
 }
