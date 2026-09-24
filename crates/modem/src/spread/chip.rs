@@ -1,6 +1,72 @@
 use num_complex::Complex;
+use sdrmm_dsp::{LoopFilter, farrow};
 
 use crate::pulse::{self, Norm};
+
+pub const TIMING_BW: f64 = 0.01;
+
+const TIMING_STEP_LIMIT: f64 = 0.05;
+
+#[must_use]
+pub fn sample_at(filtered: &[Complex<f32>], position: f64) -> Complex<f32> {
+    let zero = Complex::new(0.0, 0.0);
+    if !position.is_finite() || position < 0.0 {
+        return zero;
+    }
+    let base = position.floor() as usize;
+    if base >= 1 && base + 2 < filtered.len() {
+        return farrow(
+            &filtered[base - 1..base + 3],
+            (position - base as f64) as f32,
+        );
+    }
+    filtered
+        .get(position.round() as usize)
+        .copied()
+        .unwrap_or(zero)
+}
+
+#[derive(Clone, Debug)]
+pub struct ChipTiming {
+    offset: f64,
+    half_chip: f64,
+    filter: LoopFilter,
+}
+
+impl ChipTiming {
+    #[must_use]
+    pub fn new(sps: usize, loop_bw: f64) -> Self {
+        Self {
+            offset: 0.0,
+            half_chip: sps as f64 / 2.0,
+            filter: LoopFilter::new(loop_bw, std::f64::consts::FRAC_1_SQRT_2, TIMING_STEP_LIMIT),
+        }
+    }
+
+    #[must_use]
+    pub fn offset(&self) -> f64 {
+        self.offset
+    }
+
+    #[must_use]
+    pub fn early(&self) -> f64 {
+        self.offset - self.half_chip
+    }
+
+    #[must_use]
+    pub fn late(&self) -> f64 {
+        self.offset + self.half_chip
+    }
+
+    pub fn update(&mut self, early_energy: f32, late_energy: f32) {
+        let total = f64::from(early_energy + late_energy);
+        if total <= 0.0 || !total.is_finite() {
+            return;
+        }
+        let error = f64::from(late_energy - early_energy) / total * self.half_chip;
+        self.offset += self.filter.advance(error);
+    }
+}
 
 #[derive(Clone, Debug)]
 pub struct ChipShaper {
@@ -97,6 +163,18 @@ impl ChipShaper {
             score += (re * re + im * im).sqrt();
         }
         score
+    }
+
+    pub fn block_at(
+        &self,
+        filtered: &[Complex<f32>],
+        origin: f64,
+        first_chip: usize,
+        out: &mut [Complex<f32>],
+    ) {
+        for (c, slot) in out.iter_mut().enumerate() {
+            *slot = sample_at(filtered, origin + ((first_chip + c) * self.sps) as f64);
+        }
     }
 
     pub fn block(

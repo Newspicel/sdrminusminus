@@ -3,7 +3,15 @@ use std::sync::Arc;
 use num_complex::Complex;
 use rustfft::{Fft, FftPlanner};
 
+use sdrmm_dsp::LoopFilter;
+
 use crate::{constellation::demap::energy_llrs, soft::Llr};
+
+pub const TRACK_BW: f64 = 0.02;
+
+const TRACK_DAMPING: f64 = std::f64::consts::FRAC_1_SQRT_2;
+
+const TRACK_RANGE_BINS: f64 = 0.25;
 
 pub const MIN_SPREADING_FACTOR: u32 = 5;
 
@@ -120,6 +128,8 @@ pub struct CssDemod {
     energies: Vec<f32>,
     symbol_llrs: Vec<Llr>,
     votes: Vec<u32>,
+    offset_bins: f64,
+    tracker: LoopFilter,
 }
 
 impl std::fmt::Debug for CssDemod {
@@ -142,10 +152,17 @@ impl CssDemod {
             energies: vec![0.0; n],
             symbol_llrs: vec![Llr(0.0); params.bits_per_symbol()],
             votes: vec![0; n],
+            offset_bins: 0.0,
+            tracker: tracker(),
             params,
             conjugate,
             fft,
         }
+    }
+
+    #[must_use]
+    pub fn offset_bins(&self) -> f64 {
+        self.offset_bins
     }
 
     #[must_use]
@@ -166,9 +183,13 @@ impl CssDemod {
     fn fill(&mut self, iq: &[Complex<f32>], origin: usize, symbol: usize) {
         let n = self.params.chips();
         let at = origin + symbol * n;
+        let step = Complex::from_polar(1.0, -std::f64::consts::TAU * self.offset_bins / n as f64);
+        let mut turn = Complex::new(1.0f64, 0.0);
         for k in 0..n {
             let y = iq.get(at + k).copied().unwrap_or(Complex::new(0.0, 0.0));
-            self.bins[k] = y * self.conjugate[k];
+            let spin = Complex::new(turn.re as f32, turn.im as f32);
+            self.bins[k] = y * self.conjugate[k] * spin;
+            turn *= step;
         }
         self.fft
             .process_with_scratch(&mut self.bins, &mut self.scratch);
@@ -184,6 +205,8 @@ impl CssDemod {
 
     pub fn estimate_origin(&mut self, iq: &[Complex<f32>], preamble: &[u32]) -> usize {
         let n = self.params.chips();
+        self.offset_bins = 0.0;
+        self.tracker = tracker();
         self.votes.fill(0);
         for (k, &known) in preamble.iter().enumerate() {
             self.fill(iq, 0, k);
@@ -197,7 +220,52 @@ impl CssDemod {
                 best = shift;
             }
         }
+        self.offset_bins = self.preamble_offset(iq, best, preamble);
         best
+    }
+
+    fn preamble_offset(&mut self, iq: &[Complex<f32>], origin: usize, preamble: &[u32]) -> f64 {
+        let n = self.params.chips() as u32;
+        let mut acc = Complex::new(0.0f64, 0.0);
+        for (k, &known) in preamble.iter().enumerate() {
+            self.fill(iq, origin, k);
+            let bin = argmax_bin(&self.energies);
+            if bin != known % n {
+                continue;
+            }
+            let fraction = self.fraction(bin as usize);
+            acc += Complex::from_polar(
+                f64::from(self.energies[bin as usize]),
+                std::f64::consts::TAU * fraction,
+            );
+        }
+        if acc.norm() <= 0.0 {
+            return 0.0;
+        }
+        acc.arg() / std::f64::consts::TAU
+    }
+
+    fn fraction(&self, peak: usize) -> f64 {
+        let n = self.bins.len();
+        let at = |i: usize| {
+            let b = self.bins[i % n];
+            Complex::new(f64::from(b.re), f64::from(b.im))
+        };
+        let (left, mid, right) = (at(peak + n - 1), at(peak), at(peak + 1));
+        let denominator = mid * 2.0 - left - right;
+        if denominator.norm() <= 0.0 {
+            return 0.0;
+        }
+        ((left - right) / denominator).re.clamp(-0.5, 0.5)
+    }
+
+    fn decide(&mut self, iq: &[Complex<f32>], origin: usize, symbol: usize) -> u32 {
+        self.fill(iq, origin, symbol);
+        let bin = argmax_bin(&self.energies);
+        let error = self.fraction(bin as usize);
+        let step = self.tracker.advance(std::f64::consts::TAU * error) / std::f64::consts::TAU;
+        self.offset_bins += step;
+        bin
     }
 
     pub fn demodulate(
@@ -209,8 +277,8 @@ impl CssDemod {
     ) {
         out.reserve(symbols);
         for symbol in 0..symbols {
-            self.fill(iq, origin, symbol);
-            out.push(argmax_bin(&self.energies));
+            let bin = self.decide(iq, origin, symbol);
+            out.push(bin);
         }
     }
 
@@ -224,7 +292,7 @@ impl CssDemod {
     ) {
         out.reserve(symbols * self.params.bits_per_symbol());
         for symbol in 0..symbols {
-            self.fill(iq, origin, symbol);
+            let _ = self.decide(iq, origin, symbol);
             energy_llrs(&self.energies, noise_var, &mut self.symbol_llrs);
             out.extend_from_slice(&self.symbol_llrs);
         }
@@ -244,6 +312,10 @@ impl CssDemod {
         }
         sum / (symbols * (n - 1)) as f64
     }
+}
+
+fn tracker() -> LoopFilter {
+    LoopFilter::new(TRACK_BW, TRACK_DAMPING, TRACK_RANGE_BINS)
 }
 
 fn argmax_bin(energies: &[f32]) -> u32 {
@@ -406,6 +478,36 @@ mod tests {
             );
             previous = errors;
         }
+    }
+
+    fn offset(wave: &mut [Complex<f32>], bins_per_symbol: f64, drift: f64, n: usize) {
+        let mut phase = 0.0f64;
+        for (k, s) in wave.iter_mut().enumerate() {
+            let symbol = k as f64 / n as f64;
+            let bins = bins_per_symbol + drift * symbol;
+            phase += std::f64::consts::TAU * bins / n as f64;
+            *s *= Complex::new(phase.cos() as f32, phase.sin() as f32);
+        }
+    }
+
+    #[test]
+    fn a_fractional_offset_and_its_drift_are_tracked() {
+        let params = CssParams::new(9);
+        let n = params.chips();
+        let preamble = payload(n, 16, 0x0f0f);
+        let symbols = payload(n, 400, 0x1f1f);
+        let mut wave = Vec::new();
+        CssMod::new(params.clone()).frame(&preamble, &symbols, &mut wave);
+        offset(&mut wave, 0.37, 0.004, n);
+        add_noise(&mut wave, 0x2f2f, 0.02);
+        let mut demod = CssDemod::new(params);
+        let origin = demod.estimate_origin(&wave, &preamble);
+        assert_eq!(origin, 0);
+        let mut got = Vec::new();
+        demod.demodulate(&wave, preamble.len() * n, symbols.len(), &mut got);
+        let errors = got.iter().zip(&symbols).filter(|(a, b)| a != b).count();
+        assert_eq!(errors, 0, "offset read {}", demod.offset_bins());
+        assert!((demod.offset_bins() - 2.03).abs() < 0.05);
     }
 
     #[test]

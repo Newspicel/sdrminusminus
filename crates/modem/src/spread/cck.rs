@@ -2,8 +2,12 @@ use std::f32::consts::FRAC_1_SQRT_2;
 
 use num_complex::Complex;
 
-use super::chip::{ChipShaper, find_burst};
+use sdrmm_dsp::LoopFilter;
+
+use super::chip::{ChipShaper, ChipTiming, TIMING_BW, find_burst};
 use crate::{linear::PhaseAnchor, soft::Llr};
+
+pub const TRACK_BW: f64 = 0.02;
 
 pub const CHIPS: usize = 8;
 
@@ -366,6 +370,46 @@ impl CckDemod {
         }
     }
 
+    fn tracked_bank(&self, timing: &ChipTiming, symbol: usize, out: &mut [Complex<f32>]) {
+        let Some(acquisition) = self.acquisition else {
+            out.fill(Complex::new(0.0, 0.0));
+            return;
+        };
+        let mut chips = [Complex::new(0.0, 0.0); CHIPS];
+        let origin = acquisition.origin as f64 + timing.offset();
+        self.params
+            .shaper
+            .block_at(&self.filtered, origin, symbol * CHIPS, &mut chips);
+        self.params.codebook.correlate(&chips, out);
+        for slot in out.iter_mut() {
+            *slot = acquisition.anchor.correct(symbol, *slot);
+        }
+    }
+
+    fn steer(&self, timing: &mut ChipTiming, label: u32, symbol: usize) {
+        let Some(acquisition) = self.acquisition else {
+            return;
+        };
+        let mut word = [Complex::new(0.0, 0.0); CHIPS];
+        self.params.codebook.chips(label, symbol, &mut word);
+        let energy = |offset: f64| {
+            let mut chips = [Complex::new(0.0, 0.0); CHIPS];
+            self.params.shaper.block_at(
+                &self.filtered,
+                acquisition.origin as f64 + offset,
+                symbol * CHIPS,
+                &mut chips,
+            );
+            chips
+                .iter()
+                .zip(&word)
+                .map(|(&y, &w)| y * w.conj())
+                .sum::<Complex<f32>>()
+                .norm_sqr()
+        };
+        timing.update(energy(timing.early()), energy(timing.late()));
+    }
+
     fn bank_at(&self, origin: usize, symbol: usize, out: &mut [Complex<f32>]) {
         let mut chips = [Complex::new(0.0, 0.0); CHIPS];
         self.params
@@ -380,11 +424,17 @@ impl CckDemod {
         }
         let mut bank = [Complex::new(0.0, 0.0); MAX_WORDS];
         let bank = &mut bank[..self.params.codebook.words().len()];
+        let mut tracker = PhaseTracker::new();
+        let mut timing = ChipTiming::new(self.params.shaper.sps(), TIMING_BW);
         out.reserve(symbols);
         for k in 0..symbols {
             let index = preamble_symbols + k;
-            self.bank(index, bank);
-            out.push(self.params.codebook.decide(bank, index));
+            self.tracked_bank(&timing, index, bank);
+            tracker.derotate(bank);
+            let label = self.params.codebook.decide(bank, index);
+            tracker.follow(bank, label, &self.params.codebook, index);
+            self.steer(&mut timing, label, index);
+            out.push(label);
         }
     }
 
@@ -398,15 +448,49 @@ impl CckDemod {
         let mut symbol_llrs = [Llr(0.0); 8];
         let symbol_llrs = &mut symbol_llrs[..bits];
         let noise_var = acquisition.noise_var.max(f64::MIN_POSITIVE);
+        let mut tracker = PhaseTracker::new();
+        let mut timing = ChipTiming::new(self.params.shaper.sps(), TIMING_BW);
         out.reserve(symbols * bits);
         for k in 0..symbols {
             let index = preamble_symbols + k;
-            self.bank(index, bank);
+            self.tracked_bank(&timing, index, bank);
+            tracker.derotate(bank);
             self.params
                 .codebook
                 .llrs(bank, index, noise_var, symbol_llrs);
+            let label = self.params.codebook.decide(bank, index);
+            tracker.follow(bank, label, &self.params.codebook, index);
+            self.steer(&mut timing, label, index);
             out.extend_from_slice(symbol_llrs);
         }
+    }
+}
+
+struct PhaseTracker {
+    filter: LoopFilter,
+    phase: f64,
+}
+
+impl PhaseTracker {
+    fn new() -> Self {
+        Self {
+            filter: LoopFilter::new(TRACK_BW, std::f64::consts::FRAC_1_SQRT_2, 0.25),
+            phase: 0.0,
+        }
+    }
+
+    fn derotate(&self, bank: &mut [Complex<f32>]) {
+        let turn = Complex::new((-self.phase).cos() as f32, (-self.phase).sin() as f32);
+        for slot in bank.iter_mut() {
+            *slot *= turn;
+        }
+    }
+
+    fn follow(&mut self, bank: &[Complex<f32>], label: u32, codebook: &Codebook, symbol: usize) {
+        let chosen = bank[(label >> 2) as usize % bank.len()];
+        let reference = codebook.reference(label, symbol);
+        let error = f64::from((chosen * reference.conj()).arg());
+        self.phase += self.filter.advance(error);
     }
 }
 

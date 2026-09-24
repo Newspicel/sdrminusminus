@@ -6,7 +6,7 @@ pub mod fhss;
 pub mod pn;
 
 pub use cck::{CckDemod, CckMod, CckMode, CckParams, Codebook};
-pub use chip::{ChipShaper, find_burst};
+pub use chip::{ChipShaper, ChipTiming, find_burst, sample_at};
 pub use css::{CssDemod, CssMod, CssParams, MAX_SPREADING_FACTOR, MIN_SPREADING_FACTOR};
 pub use dsss::{Acquisition, DsssDemod, DsssMod, DsssParams, MAX_CHIPS};
 pub use fhss::{FhssDemod, FhssMod, HopSequence, HopSequencer};

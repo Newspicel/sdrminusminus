@@ -1,9 +1,9 @@
 {
   "entry": "dsss-m31-bpsk",
   "seed": 23345,
-  "sensitivity_db_1e2": 4.473917027015272,
-  "sensitivity_db_1e3": 6.920407420917911,
-  "sensitivity_db_1e4": 8.554052994942275,
+  "sensitivity_db_1e2": 4.519086952455754,
+  "sensitivity_db_1e3": 6.952962332444173,
+  "sensitivity_db_1e4": 8.587644520655322,
   "rows": [
     {
       "axis": "narrowband J/C",

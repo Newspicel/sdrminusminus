@@ -1,14 +1,16 @@
 use num_complex::Complex;
 
 use super::{
-    chip::{ChipShaper, find_burst},
+    chip::{ChipShaper, ChipTiming, TIMING_BW, find_burst, sample_at},
     pn::PnSequence,
 };
 use crate::{
     constellation::{Constellation, demap},
-    linear::PhaseAnchor,
+    linear::{CarrierLoop, PhaseAnchor, PhaseDetector},
     soft::Llr,
 };
+
+pub const TRACK_BW: f64 = 0.02;
 
 pub const MAX_CHIPS: usize = 4_096;
 
@@ -129,6 +131,7 @@ pub struct DsssDemod {
     filtered: Vec<Complex<f32>>,
     scratch: Vec<Complex<f32>>,
     acquisition: Option<Acquisition>,
+    tracking: Option<(Constellation, f64)>,
 }
 
 impl DsssDemod {
@@ -139,7 +142,14 @@ impl DsssDemod {
             filtered: Vec::new(),
             scratch: Vec::new(),
             acquisition: None,
+            tracking: None,
         }
+    }
+
+    #[must_use]
+    pub fn with_tracking(mut self, table: Constellation, loop_bw: f64) -> Self {
+        self.tracking = Some((table, loop_bw));
+        self
     }
 
     #[must_use]
@@ -201,11 +211,38 @@ impl DsssDemod {
             return;
         };
         out.reserve(symbols);
+        let Some((table, bw)) = &self.tracking else {
+            for k in 0..symbols {
+                let index = preamble_symbols + k;
+                let raw = self.despread(acquisition.origin, index);
+                out.push(acquisition.anchor.correct(index, raw));
+            }
+            return;
+        };
+        let mut carrier = CarrierLoop::new(PhaseDetector::DecisionDirected, *bw);
+        let mut timing = ChipTiming::new(self.params.shaper.sps(), TIMING_BW);
+        let origin = acquisition.origin as f64;
         for k in 0..symbols {
             let index = preamble_symbols + k;
-            let raw = self.despread(acquisition.origin, index);
-            out.push(acquisition.anchor.correct(index, raw));
+            let raw = self.despread_at(origin + timing.offset(), index);
+            let early = self.despread_at(origin + timing.early(), index).norm_sqr();
+            let late = self.despread_at(origin + timing.late(), index).norm_sqr();
+            timing.update(early, late);
+            out.push(carrier.advance(acquisition.anchor.correct(index, raw), table));
         }
+    }
+
+    #[must_use]
+    pub fn despread_at(&self, origin: f64, symbol: usize) -> Complex<f32> {
+        let n = self.params.chips_per_symbol();
+        let sps = self.params.shaper.sps();
+        let mut acc = Complex::new(0.0f64, 0.0);
+        for (c, &code) in self.params.pn.chips().iter().enumerate() {
+            let y = sample_at(&self.filtered, origin + ((symbol * n + c) * sps) as f64);
+            acc += Complex::new(f64::from(y.re), f64::from(y.im)) * f64::from(code);
+        }
+        let scaled = acc * (n as f64).sqrt().recip();
+        Complex::new(scaled.re as f32, scaled.im as f32)
     }
 
     #[must_use]

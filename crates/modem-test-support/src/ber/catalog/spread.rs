@@ -3,7 +3,7 @@ use sdrmm_modem::{
     constellation::{Constellation, tables},
     spread::{
         CckDemod, CckMod, CckMode, CckParams, ChipShaper, CssDemod, CssMod, CssParams, DsssDemod,
-        DsssMod, DsssParams, FhssDemod, FhssMod, HopSequence, PnSequence,
+        DsssMod, DsssParams, FhssDemod, FhssMod, HopSequence, PnSequence, dsss,
     },
     symbolcode::{DifferentialSymbolDecoder, DifferentialSymbolEncoder},
 };
@@ -86,13 +86,13 @@ pub fn dsss_link(name: &str, pn: PnSequence, constellation: Constellation) -> Li
     let by_label = points_by_label(&constellation);
     let preamble = preamble_points(&constellation, PREAMBLE);
     let modulator = DsssMod::new(params.clone());
-    let demod = DsssDemod::new(params);
+    let demod = DsssDemod::new(params).with_tracking(constellation.clone(), dsss::TRACK_BW);
     let known = preamble.clone();
 
     let label = format!(
         "{name} uncoded, DSSS {chips} chips/symbol at {} Mchip/s, {CHIP_SPS} samples/chip, \
          RRC α={CHIP_ALPHA}, {PREAMBLE}-symbol preamble, {DSSS_PAYLOAD}-symbol payload, \
-         correlator + gain anchor",
+         correlator + gain anchor + decision-directed phase tracking",
         CHIP_RATE / 1e6
     );
     Link {
@@ -171,7 +171,7 @@ pub fn cck_link(name: &str, mode: CckMode) -> Link {
     let label = format!(
         "{name} uncoded, CCK {bits_per_symbol} bits/symbol over 8 chips at {} Mchip/s, \
          {CHIP_SPS} samples/chip, RRC α={CHIP_ALPHA}, differential φ1, {PREAMBLE}-symbol \
-         preamble, {CCK_PAYLOAD}-symbol payload, correlator bank + gain anchor",
+         preamble, {CCK_PAYLOAD}-symbol payload, correlator bank + gain anchor + decision-directed phase tracking",
         CHIP_RATE / 1e6
     );
     Link {
