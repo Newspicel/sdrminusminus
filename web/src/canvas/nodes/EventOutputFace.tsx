@@ -79,6 +79,12 @@ function emptyHint(inputs: number, configured: boolean, target: EventOutputTarge
   if (!configured) {
     return "Enter the destination credentials";
   }
+  if (target.service === "postgres") {
+    return "One row per event";
+  }
+  if (target.service === "influx") {
+    return "One point per event";
+  }
   return carriesAudio(target)
     ? "One send per event, with available audio"
     : "One send per event, as one JSON object";
@@ -189,6 +195,79 @@ function TargetFields({
             value={target.access_token}
             secret
             onCommit={(access_token) => onEdit({ ...target, access_token })}
+          />
+        </SettingRow>
+      </>
+    );
+  }
+  if (target.service === "postgres") {
+    return (
+      <>
+        <SettingRow
+          label="Server"
+          title="postgres://host:5432/database. Add ?sslmode=disable for a server without TLS."
+        >
+          <TextField
+            label="PostgreSQL URL"
+            value={target.url}
+            onCommit={(url) => onEdit({ ...target, url })}
+          />
+        </SettingRow>
+        <SettingRow label="Table" title="Created on first write. Lowercase letters, digits and _.">
+          <TextField
+            label="PostgreSQL table"
+            value={target.table}
+            onCommit={(table) => onEdit({ ...target, table })}
+          />
+        </SettingRow>
+        <SettingRow label="Username">
+          <TextField
+            label="PostgreSQL username"
+            value={target.username ?? ""}
+            onCommit={(username) => onEdit({ ...target, username })}
+          />
+        </SettingRow>
+        <SettingRow label="Password">
+          <TextField
+            label="PostgreSQL password"
+            value={target.password ?? ""}
+            secret
+            onCommit={(password) => onEdit({ ...target, password })}
+          />
+        </SettingRow>
+      </>
+    );
+  }
+  if (target.service === "influx") {
+    return (
+      <>
+        <SettingRow label="Server" title="InfluxDB 2 or 3 base URL, e.g. http://127.0.0.1:8086">
+          <TextField
+            label="InfluxDB URL"
+            value={target.url}
+            onCommit={(url) => onEdit({ ...target, url })}
+          />
+        </SettingRow>
+        <SettingRow label="Bucket" title="Bucket, or database on InfluxDB 3">
+          <TextField
+            label="InfluxDB bucket"
+            value={target.bucket}
+            onCommit={(bucket) => onEdit({ ...target, bucket })}
+          />
+        </SettingRow>
+        <SettingRow label="Org">
+          <TextField
+            label="InfluxDB organization"
+            value={target.org ?? ""}
+            onCommit={(org) => onEdit({ ...target, org })}
+          />
+        </SettingRow>
+        <SettingRow label="Token">
+          <TextField
+            label="InfluxDB token"
+            value={target.token ?? ""}
+            secret
+            onCommit={(token) => onEdit({ ...target, token })}
           />
         </SettingRow>
       </>

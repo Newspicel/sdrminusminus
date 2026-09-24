@@ -3677,6 +3677,20 @@ export interface components {
             service: "mqtt";
             topic: string;
             username?: string;
+        } | {
+            password?: string;
+            /** @enum {string} */
+            service: "postgres";
+            table: string;
+            url: string;
+            username?: string;
+        } | {
+            bucket: string;
+            org?: string;
+            /** @enum {string} */
+            service: "influx";
+            token?: string;
+            url: string;
         };
         /** @enum {string} */
         ExportFormat: "csv" | "json";

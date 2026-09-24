@@ -47,8 +47,25 @@ describe("event output configuration", () => {
     expect(mqtt("mqtts://broker.example", "sdrmm/events")).toBe(true);
   });
 
+  it("needs a Postgres server, table and user", () => {
+    const postgres = (url: string, table: string, username: string) =>
+      eventOutputConfigured({ service: "postgres", url, table, username, password: "" });
+    expect(postgres("postgres://db.example/radio", "sdrmm_events", "radio")).toBe(true);
+    expect(postgres("", "sdrmm_events", "radio")).toBe(false);
+    expect(postgres("postgres://db.example/radio", " ", "radio")).toBe(false);
+    expect(postgres("postgres://db.example/radio", "sdrmm_events", "")).toBe(false);
+  });
+
+  it("needs an InfluxDB server and bucket, but no token", () => {
+    const influx = (url: string, bucket: string) =>
+      eventOutputConfigured({ service: "influx", url, bucket, org: "", token: "" });
+    expect(influx("http://127.0.0.1:8086", "radio")).toBe(true);
+    expect(influx("", "radio")).toBe(false);
+    expect(influx("http://127.0.0.1:8086", "")).toBe(false);
+  });
+
   it("starts every service unconfigured", () => {
-    for (const service of ["webhook", "matrix", "mqtt", "beast"] as const) {
+    for (const service of ["webhook", "matrix", "mqtt", "beast", "postgres", "influx"] as const) {
       const target = newOutputTarget(service);
       expect(target.service).toBe(service);
       expect(eventOutputConfigured(target)).toBe(false);

@@ -105,8 +105,9 @@ pub use device::{
 pub use diagnostics::{DiagnosticsReport, LogLevel, LogLine, MAX_LOG_LINES, MAX_LOG_MESSAGE_LEN};
 pub use doctor::{CheckStatus, DoctorCheck, DoctorReport};
 pub use event_output::{
-    EventOutputNode, EventOutputTarget, MAX_MATRIX_ROOM_ID_LEN, MAX_MQTT_TOPIC_LEN,
-    MAX_MQTT_USERNAME_LEN, MAX_OUTPUT_SECRET_LEN, MAX_OUTPUT_URL_LEN, WebhookFormat,
+    DEFAULT_POSTGRES_TABLE, EventOutputNode, EventOutputTarget, MAX_INFLUX_NAME_LEN,
+    MAX_MATRIX_ROOM_ID_LEN, MAX_MQTT_TOPIC_LEN, MAX_MQTT_USERNAME_LEN, MAX_OUTPUT_SECRET_LEN,
+    MAX_OUTPUT_URL_LEN, MAX_SQL_IDENTIFIER_LEN, WebhookFormat, valid_sql_identifier,
 };
 pub use filter::{
     EventFacet, EventFilterNode, EventKindFacets, FilterMode, MAX_FILTER_DURATION_MS,

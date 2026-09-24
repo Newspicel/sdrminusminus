@@ -21,6 +21,8 @@ use tokio::sync::{
 use crate::{Store, calls::Calls, decoded::Decoded};
 
 mod beast;
+mod influx;
+mod postgres;
 mod tunnel;
 
 const DELIVERY_QUEUE: usize = 64;
@@ -62,6 +64,18 @@ struct OutputMessage {
     payload: serde_json::Value,
     transaction: String,
     audio: Option<OutputAudio>,
+    facts: EventFacts,
+}
+
+struct EventFacts {
+    at: String,
+    kind: &'static str,
+    device_set: u32,
+    channel: u32,
+    freq_hz: f64,
+    station: Option<String>,
+    summary: String,
+    record: serde_json::Value,
 }
 
 #[derive(Debug)]
@@ -282,41 +296,79 @@ fn resolve(store: &Store) -> Result<Routing, crate::StoreError> {
 }
 
 async fn deliver_all(client: Client, mut deliveries: mpsc::Receiver<Delivery>) {
-    while let Some(delivery) = deliveries.recv().await {
-        for attempt in 1..=MAX_DELIVERY_ATTEMPTS {
-            match deliver(&client, &delivery).await {
-                Ok(()) => {
-                    tracing::info!(
-                        output = %delivery.node,
-                        event = %delivery.event,
-                        "event output delivered"
-                    );
-                    break;
-                }
-                Err(DeliveryError::RateLimited(wait)) if attempt < MAX_DELIVERY_ATTEMPTS => {
-                    tracing::warn!(
-                        output = %delivery.node,
-                        event = %delivery.event,
-                        wait_ms = wait.as_millis(),
-                        "event output rate limited, waiting before the next attempt"
-                    );
-                    tokio::time::sleep(wait).await;
-                }
-                Err(error) => {
-                    tracing::error!(
-                        output = %delivery.node,
-                        event = %delivery.event,
-                        %error,
-                        "event output delivery failed"
-                    );
-                    break;
-                }
+    let mut databases = postgres::Connections::default();
+    let mut pending = Vec::with_capacity(DELIVERY_QUEUE);
+    while deliveries.recv_many(&mut pending, DELIVERY_QUEUE).await > 0 {
+        for batch in pending.chunk_by(same_batch) {
+            deliver_with_retries(&client, &mut databases, batch).await;
+        }
+        pending.clear();
+    }
+}
+
+fn same_batch(first: &Delivery, next: &Delivery) -> bool {
+    matches!(
+        first.target,
+        EventOutputTarget::Postgres { .. } | EventOutputTarget::Influx { .. }
+    ) && first.node == next.node
+        && first.target == next.target
+}
+
+fn batch_name(batch: &[Delivery]) -> String {
+    match batch {
+        [delivery] => delivery.event.clone(),
+        _ => format!("{} events", batch.len()),
+    }
+}
+
+async fn deliver_with_retries(
+    client: &Client,
+    databases: &mut postgres::Connections,
+    batch: &[Delivery],
+) {
+    let Some(first) = batch.first() else {
+        return;
+    };
+    for attempt in 1..=MAX_DELIVERY_ATTEMPTS {
+        match deliver(client, databases, batch).await {
+            Ok(()) => {
+                tracing::info!(
+                    output = %first.node,
+                    event = %batch_name(batch),
+                    "event output delivered"
+                );
+                break;
+            }
+            Err(DeliveryError::RateLimited(wait)) if attempt < MAX_DELIVERY_ATTEMPTS => {
+                tracing::warn!(
+                    output = %first.node,
+                    event = %batch_name(batch),
+                    wait_ms = wait.as_millis(),
+                    "event output rate limited, waiting before the next attempt"
+                );
+                tokio::time::sleep(wait).await;
+            }
+            Err(error) => {
+                tracing::error!(
+                    output = %first.node,
+                    event = %batch_name(batch),
+                    %error,
+                    "event output delivery failed"
+                );
+                break;
             }
         }
     }
 }
 
-async fn deliver(client: &Client, delivery: &Delivery) -> Result<(), DeliveryError> {
+async fn deliver(
+    client: &Client,
+    databases: &mut postgres::Connections,
+    batch: &[Delivery],
+) -> Result<(), DeliveryError> {
+    let Some(delivery) = batch.first() else {
+        return Ok(());
+    };
     match &delivery.target {
         EventOutputTarget::Tunnel { .. } | EventOutputTarget::Beast { .. } => Err(
             DeliveryError::Failed("Network streams use the dedicated writer".to_owned()),
@@ -355,6 +407,29 @@ async fn deliver(client: &Client, delivery: &Delivery) -> Result<(), DeliveryErr
                     client_id: &mqtt_client_id(&delivery.node),
                 },
                 &delivery.message,
+            )
+            .await
+        }
+        EventOutputTarget::Postgres { .. } => {
+            databases
+                .insert(&delivery.node, &delivery.target, batch)
+                .await
+        }
+        EventOutputTarget::Influx {
+            url,
+            bucket,
+            org,
+            token,
+        } => {
+            influx::send(
+                client,
+                influx::InfluxTarget {
+                    url,
+                    bucket,
+                    org,
+                    token,
+                },
+                batch,
             )
             .await
         }
@@ -442,7 +517,7 @@ async fn send_matrix(
         .map_err(|error| DeliveryError::Failed(format!("Matrix homeserver URL: {error}")))?;
     let mut content = match &message.audio {
         Some(audio) => {
-            let mut upload_url = matrix_url(&base, &["_matrix", "media", "v3", "upload"])
+            let mut upload_url = endpoint_url(&base, &["_matrix", "media", "v3", "upload"])
                 .map_err(|error| DeliveryError::Failed(format!("Matrix upload URL: {error}")))?;
             upload_url
                 .query_pairs_mut()
@@ -479,7 +554,7 @@ async fn send_matrix(
         content["format"] = json!(MATRIX_HTML_FORMAT);
         content["formatted_body"] = json!(html);
     }
-    let send_url = matrix_url(
+    let send_url = endpoint_url(
         &base,
         &[
             "_matrix",
@@ -505,7 +580,7 @@ async fn send_matrix(
     checked("Matrix message", response).await
 }
 
-fn matrix_url(base: &Url, segments: &[&str]) -> Result<Url, String> {
+fn endpoint_url(base: &Url, segments: &[&str]) -> Result<Url, String> {
     let mut url = base.clone();
     url.set_query(None);
     url.set_fragment(None);
@@ -742,6 +817,22 @@ fn event_payload(output_node: &str, record: &DecodedRecord, text: &str) -> serde
     })
 }
 
+fn event_facts(record: &DecodedRecord, payload: &serde_json::Value) -> EventFacts {
+    EventFacts {
+        at: record.at.clone(),
+        kind: record.event.kind(),
+        device_set: record.device_set,
+        channel: record.channel,
+        freq_hz: record.freq_hz,
+        station: record.event.station(),
+        summary: record.event.summary(),
+        record: payload
+            .get("record")
+            .cloned()
+            .unwrap_or(serde_json::Value::Null),
+    }
+}
+
 fn call_message(
     output_node: &str,
     record: &DecodedRecord,
@@ -749,8 +840,10 @@ fn call_message(
     audio: Option<Bytes>,
 ) -> OutputMessage {
     let body = bounded_message(format_call(call));
+    let payload = event_payload(output_node, record, &body);
     OutputMessage {
-        payload: event_payload(output_node, record, &body),
+        facts: event_facts(record, &payload),
+        payload,
         html: Some(bounded_message(format_call_html(call))),
         body,
         transaction: call_transaction(output_node, call),
@@ -764,8 +857,10 @@ fn call_message(
 
 fn decoded_message(output_node: &str, record: &DecodedRecord, sequence: u64) -> OutputMessage {
     let body = bounded_message(format_decoded(record));
+    let payload = event_payload(output_node, record, &body);
     OutputMessage {
-        payload: event_payload(output_node, record, &body),
+        facts: event_facts(record, &payload),
+        payload,
         html: None,
         body,
         transaction: decoded_transaction(output_node, record, sequence),

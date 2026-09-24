@@ -12980,6 +12980,62 @@
                 "type": "string"
               }
             }
+          },
+          {
+            "type": "object",
+            "required": [
+              "url",
+              "table",
+              "service"
+            ],
+            "properties": {
+              "password": {
+                "type": "string"
+              },
+              "service": {
+                "type": "string",
+                "enum": [
+                  "postgres"
+                ]
+              },
+              "table": {
+                "type": "string"
+              },
+              "url": {
+                "type": "string"
+              },
+              "username": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "url",
+              "bucket",
+              "service"
+            ],
+            "properties": {
+              "bucket": {
+                "type": "string"
+              },
+              "org": {
+                "type": "string"
+              },
+              "service": {
+                "type": "string",
+                "enum": [
+                  "influx"
+                ]
+              },
+              "token": {
+                "type": "string"
+              },
+              "url": {
+                "type": "string"
+              }
+            }
           }
         ]
       },

@@ -5,6 +5,8 @@ export const OUTPUT_SERVICES = [
   { value: "webhook", label: "Webhook" },
   { value: "matrix", label: "Matrix" },
   { value: "mqtt", label: "MQTT" },
+  { value: "postgres", label: "PostgreSQL" },
+  { value: "influx", label: "InfluxDB" },
   { value: "tunnel", label: "Network interface" },
 ] as const;
 
@@ -25,6 +27,10 @@ export function newOutputTarget(service: EventOutputTarget["service"]): EventOut
       return { service, homeserver_url: "", room_id: "", access_token: "" };
     case "mqtt":
       return { service, broker_url: "", topic: "", username: "", password: "" };
+    case "postgres":
+      return { service, url: "", table: "sdrmm_events", username: "", password: "" };
+    case "influx":
+      return { service, url: "", bucket: "", org: "", token: "" };
   }
 }
 
@@ -44,5 +50,11 @@ export function eventOutputConfigured(target: EventOutputTarget): boolean {
       );
     case "mqtt":
       return target.broker_url.trim() !== "" && target.topic.trim() !== "";
+    case "postgres":
+      return [target.url, target.table, target.username ?? ""].every(
+        (value) => value.trim() !== "",
+      );
+    case "influx":
+      return target.url.trim() !== "" && target.bucket.trim() !== "";
   }
 }

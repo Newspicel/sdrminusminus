@@ -6,6 +6,9 @@ pub const MAX_MATRIX_ROOM_ID_LEN: usize = 255;
 pub const MAX_OUTPUT_SECRET_LEN: usize = 4_096;
 pub const MAX_MQTT_TOPIC_LEN: usize = 512;
 pub const MAX_MQTT_USERNAME_LEN: usize = 255;
+pub const MAX_SQL_IDENTIFIER_LEN: usize = 63;
+pub const MAX_INFLUX_NAME_LEN: usize = 255;
+pub const DEFAULT_POSTGRES_TABLE: &str = "sdrmm_events";
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
@@ -46,6 +49,22 @@ pub enum EventOutputTarget {
         username: String,
         #[serde(default)]
         password: String,
+    },
+    Postgres {
+        url: String,
+        table: String,
+        #[serde(default)]
+        username: String,
+        #[serde(default)]
+        password: String,
+    },
+    Influx {
+        url: String,
+        bucket: String,
+        #[serde(default)]
+        org: String,
+        #[serde(default)]
+        token: String,
     },
 }
 
@@ -93,6 +112,27 @@ impl std::fmt::Debug for EventOutputTarget {
                 .field("username", username)
                 .field("password", &"[redacted]")
                 .finish(),
+            Self::Postgres {
+                url,
+                table,
+                username,
+                ..
+            } => formatter
+                .debug_struct("Postgres")
+                .field("url", &redacted_if_credentialed(url))
+                .field("table", table)
+                .field("username", username)
+                .field("password", &"[redacted]")
+                .finish(),
+            Self::Influx {
+                url, bucket, org, ..
+            } => formatter
+                .debug_struct("Influx")
+                .field("url", &redacted_if_credentialed(url))
+                .field("bucket", bucket)
+                .field("org", org)
+                .field("token", &"[redacted]")
+                .finish(),
         }
     }
 }
@@ -123,6 +163,17 @@ impl EventOutputTarget {
             Self::Mqtt {
                 broker_url, topic, ..
             } => [broker_url, topic]
+                .into_iter()
+                .all(|value| !value.trim().is_empty()),
+            Self::Postgres {
+                url,
+                table,
+                username,
+                ..
+            } => [url, table, username]
+                .into_iter()
+                .all(|value| !value.trim().is_empty()),
+            Self::Influx { url, bucket, .. } => [url, bucket]
                 .into_iter()
                 .all(|value| !value.trim().is_empty()),
         }
@@ -173,6 +224,28 @@ impl EventOutputTarget {
                     && username.len() <= MAX_MQTT_USERNAME_LEN
                     && password.len() <= MAX_OUTPUT_SECRET_LEN
             }
+            Self::Postgres {
+                url,
+                table,
+                username,
+                password,
+            } => {
+                valid_postgres_url(url)
+                    && (table.is_empty() || valid_sql_identifier(table))
+                    && username.len() <= MAX_SQL_IDENTIFIER_LEN
+                    && password.len() <= MAX_OUTPUT_SECRET_LEN
+            }
+            Self::Influx {
+                url,
+                bucket,
+                org,
+                token,
+            } => {
+                valid_influx_url(url)
+                    && valid_influx_name(bucket)
+                    && valid_influx_name(org)
+                    && token.len() <= MAX_OUTPUT_SECRET_LEN
+            }
         }
     }
 }
@@ -183,6 +256,28 @@ fn valid_https_url(value: &str) -> bool {
 
 fn valid_broker_url(value: &str) -> bool {
     value.is_empty() || valid_url(value, &["mqtt", "mqtts"])
+}
+
+fn valid_postgres_url(value: &str) -> bool {
+    value.is_empty() || valid_url(value, &["postgres", "postgresql"])
+}
+
+fn valid_influx_url(value: &str) -> bool {
+    value.is_empty() || valid_url(value, &["http", "https"])
+}
+
+#[must_use]
+pub fn valid_sql_identifier(value: &str) -> bool {
+    let mut bytes = value.bytes();
+    value.len() <= MAX_SQL_IDENTIFIER_LEN
+        && bytes
+            .next()
+            .is_some_and(|first| first.is_ascii_lowercase() || first == b'_')
+        && bytes.all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')
+}
+
+fn valid_influx_name(value: &str) -> bool {
+    value.len() <= MAX_INFLUX_NAME_LEN && !value.chars().any(char::is_control)
 }
 
 fn valid_url(value: &str, schemes: &[&str]) -> bool {
@@ -428,6 +523,99 @@ mod tests {
         );
     }
 
+    fn postgres(url: &str, table: &str, username: &str) -> EventOutputTarget {
+        EventOutputTarget::Postgres {
+            url: url.to_owned(),
+            table: table.to_owned(),
+            username: username.to_owned(),
+            password: String::new(),
+        }
+    }
+
+    fn influx(url: &str, bucket: &str) -> EventOutputTarget {
+        EventOutputTarget::Influx {
+            url: url.to_owned(),
+            bucket: bucket.to_owned(),
+            org: String::new(),
+            token: String::new(),
+        }
+    }
+
+    #[test]
+    fn postgres_needs_a_server_a_plain_table_and_a_user() {
+        let target = postgres("postgres://db.example:5432/radio", "sdrmm_events", "radio");
+        assert!(target.valid() && target.configured());
+        assert!(postgres("postgresql://127.0.0.1/radio?sslmode=require", "t", "radio").valid());
+        assert!(!postgres("", "sdrmm_events", "radio").configured());
+        assert!(!postgres("postgres://db.example/radio", "", "radio").configured());
+        assert!(!postgres("postgres://db.example/radio", "sdrmm_events", "").configured());
+        for url in [
+            "https://db.example/radio",
+            "postgres://radio:secret@db.example/radio",
+            "postgres://",
+        ] {
+            assert!(!postgres(url, "sdrmm_events", "radio").valid(), "{url}");
+        }
+        for table in [
+            "Events",
+            "1events",
+            "events;drop",
+            "public.events",
+            "\"events\"",
+        ] {
+            assert!(
+                !postgres("postgres://db.example/radio", table, "radio").valid(),
+                "{table}"
+            );
+        }
+        assert!(
+            !postgres(
+                "postgres://db.example/radio",
+                &"t".repeat(MAX_SQL_IDENTIFIER_LEN + 1),
+                "radio"
+            )
+            .valid()
+        );
+        assert_eq!(
+            serde_json::from_str::<EventOutputTarget>(&serde_json::to_string(&target).unwrap())
+                .unwrap(),
+            target
+        );
+    }
+
+    #[test]
+    fn influx_needs_a_server_and_a_bucket() {
+        let target = influx("http://127.0.0.1:8086", "radio");
+        assert!(target.valid() && target.configured());
+        assert!(influx("https://influx.example", "radio").valid());
+        assert!(!influx("", "radio").configured());
+        assert!(!influx("http://127.0.0.1:8086", "").configured());
+        for url in [
+            "influx://127.0.0.1",
+            "https://user:secret@influx.example",
+            "https://",
+        ] {
+            assert!(!influx(url, "radio").valid(), "{url}");
+        }
+        assert!(!influx("https://influx.example", "ra\ndio").valid());
+        assert!(
+            !influx(
+                "https://influx.example",
+                &"b".repeat(MAX_INFLUX_NAME_LEN + 1)
+            )
+            .valid()
+        );
+        assert!(
+            !EventOutputTarget::Influx {
+                url: "https://influx.example".to_owned(),
+                bucket: "radio".to_owned(),
+                org: String::new(),
+                token: "t".repeat(MAX_OUTPUT_SECRET_LEN + 1),
+            }
+            .valid()
+        );
+    }
+
     #[test]
     fn debug_output_redacts_credentials() {
         let webhook_secret = "webhook-secret";
@@ -472,5 +660,27 @@ mod tests {
         assert!(debug.contains("mqtts://broker.example"));
         assert!(debug.contains("sdrmm/events"));
         assert!(!debug.contains(broker_secret));
+
+        let database_secret = "database-secret";
+        let target = EventOutputTarget::Postgres {
+            url: "postgres://db.example/radio".to_owned(),
+            table: "sdrmm_events".to_owned(),
+            username: "radio".to_owned(),
+            password: database_secret.to_owned(),
+        };
+        let debug = format!("{target:?}");
+        assert!(debug.contains("postgres://db.example/radio"));
+        assert!(!debug.contains(database_secret));
+
+        let token = "influx-token";
+        let target = EventOutputTarget::Influx {
+            url: "https://influx.example".to_owned(),
+            bucket: "radio".to_owned(),
+            org: "home".to_owned(),
+            token: token.to_owned(),
+        };
+        let debug = format!("{target:?}");
+        assert!(debug.contains("radio"));
+        assert!(!debug.contains(token));
     }
 }

@@ -144,7 +144,7 @@ async fn capture(State(captures): State<Captures>, request: Request) -> AxumResp
         content_type,
         body,
     });
-    if uri == "/oversized-error" {
+    if uri.starts_with("/oversized-error") {
         return (
             StatusCode::BAD_REQUEST,
             "x".repeat(MAX_ERROR_BODY.saturating_mul(4)),
@@ -1041,4 +1041,207 @@ fn beast_listener_requires_an_event_wire_and_explicit_enable() {
     let routing = resolve(&store).unwrap();
     assert_eq!(routing.bindings.len(), 1);
     assert_eq!(routing.bindings[0].node, "wired");
+}
+
+fn influx_target() -> EventOutputTarget {
+    EventOutputTarget::Influx {
+        url: "http://127.0.0.1:8086".to_owned(),
+        bucket: "radio".to_owned(),
+        org: "home".to_owned(),
+        token: "influx-token".to_owned(),
+    }
+}
+
+fn postgres_target(url: &str, table: &str) -> EventOutputTarget {
+    EventOutputTarget::Postgres {
+        url: url.to_owned(),
+        table: table.to_owned(),
+        username: "radio".to_owned(),
+        password: "secret".to_owned(),
+    }
+}
+
+fn delivery_to(node: &str, target: EventOutputTarget, record: &DecodedRecord) -> Delivery {
+    Delivery {
+        node: node.to_owned(),
+        target,
+        event: "test".to_owned(),
+        message: decoded_message(node, record, 1),
+    }
+}
+
+#[test]
+fn an_influx_point_carries_tags_event_fields_and_the_receive_time() {
+    let message = decoded_message("influx", &decoded(), 1);
+
+    let line = influx::line("influx", &message.facts);
+
+    assert_eq!(
+        line,
+        "rtty,output=influx,device_set=1,channel=2 \
+         freq_hz=14080000.0,summary=\"CQ TEST\",text=\"CQ TEST\" \
+         1786788002000000000"
+    );
+}
+
+#[test]
+fn an_influx_point_escapes_names_and_strings() {
+    let record = DecodedRecord {
+        event: DecoderEvent::Rtty(RttyText {
+            text: "say \"hi\"\\\nnow".to_owned(),
+        }),
+        ..decoded()
+    };
+    let message = decoded_message("a b,c=d", &record, 1);
+
+    let line = influx::line("a b,c=d", &message.facts);
+
+    assert!(line.starts_with("rtty,output=a\\ b\\,c\\=d,"), "{line}");
+    assert!(line.contains(r#"text="say \"hi\"\\ now""#), "{line}");
+}
+
+#[tokio::test]
+async fn influx_writes_a_batch_in_one_authenticated_request() {
+    let (base, captures) = server().await;
+    let target = influx::InfluxTarget {
+        url: &format!("{base}/influx"),
+        bucket: "radio",
+        org: "home",
+        token: "influx-token",
+    };
+    let batch = [
+        delivery_to("influx", influx_target(), &decoded()),
+        delivery_to("influx", influx_target(), &decoded()),
+    ];
+
+    influx::send(&Client::new(), target, &batch)
+        .await
+        .expect("influx write");
+
+    let captured = captures.lock().expect("captures");
+    assert_eq!(captured.len(), 1);
+    assert_eq!(captured[0].method, Method::POST);
+    assert_eq!(
+        captured[0].uri,
+        "/influx/api/v2/write?bucket=radio&org=home&precision=ns"
+    );
+    assert_eq!(
+        captured[0].authorization.as_deref(),
+        Some("Token influx-token")
+    );
+    let body = String::from_utf8_lossy(&captured[0].body);
+    assert_eq!(body.lines().count(), 2);
+}
+
+#[tokio::test]
+async fn an_influx_rejection_surfaces_the_server_reply() {
+    let (base, _) = server().await;
+    let target = influx::InfluxTarget {
+        url: &format!("{base}/oversized-error"),
+        bucket: "radio",
+        org: "",
+        token: "",
+    };
+    let batch = [delivery_to("influx", influx_target(), &decoded())];
+
+    let error = influx::send(&Client::new(), target, &batch)
+        .await
+        .expect_err("rejected write")
+        .to_string();
+
+    assert!(error.starts_with("InfluxDB returned"), "{error}");
+}
+
+#[test]
+fn only_consecutive_database_deliveries_to_one_output_share_a_batch() {
+    let database = delivery_to("influx", influx_target(), &decoded());
+    let same = delivery_to("influx", influx_target(), &decoded());
+    let other_node = delivery_to("other", influx_target(), &decoded());
+    let webhook = delivery_to("hook", discord_webhook(), &decoded());
+    let webhook_again = delivery_to("hook", discord_webhook(), &decoded());
+
+    assert!(same_batch(&database, &same));
+    assert!(!same_batch(&database, &other_node));
+    assert!(!same_batch(&webhook, &webhook_again));
+}
+
+#[test]
+fn postgres_rows_hold_the_event_columns_and_full_record() {
+    let batch = [delivery_to(
+        "archive",
+        postgres_target("postgres://127.0.0.1/radio", "sdrmm_events"),
+        &decoded(),
+    )];
+
+    let columns = postgres::columns(&batch);
+
+    assert_eq!(columns.at, ["2026-08-15T10:00:02Z"]);
+    assert_eq!(columns.output, ["archive"]);
+    assert_eq!(columns.kind, ["rtty"]);
+    assert_eq!(columns.device_set, [1]);
+    assert_eq!(columns.channel, [2]);
+    assert_eq!(columns.freq_hz, [14_080_000.0]);
+    assert_eq!(columns.summary, ["CQ TEST"]);
+    let record: serde_json::Value = serde_json::from_str(&columns.record[0]).expect("record");
+    assert_eq!(record["event"]["data"]["text"], "CQ TEST");
+}
+
+#[test]
+fn postgres_statements_name_the_configured_table() {
+    let create = postgres::create_table("radio_log");
+    assert!(create.contains("CREATE TABLE IF NOT EXISTS radio_log ("));
+    assert!(create.contains("ON radio_log (kind, at)"));
+    assert!(postgres::insert_statement("radio_log").starts_with("INSERT INTO radio_log "));
+}
+
+#[test]
+fn postgres_takes_credentials_beside_the_url() {
+    let config = postgres::config(&postgres::PostgresTarget {
+        url: "postgres://db.example:5433/radio?sslmode=require",
+        table: "sdrmm_events",
+        username: "radio",
+        password: "secret",
+    })
+    .expect("config");
+
+    assert_eq!(config.get_user(), Some("radio"));
+    assert_eq!(config.get_password(), Some(&b"secret"[..]));
+    assert_eq!(config.get_dbname(), Some("radio"));
+    assert_eq!(config.get_ports(), [5433]);
+}
+
+#[tokio::test]
+async fn postgres_refuses_an_unsafe_table_before_connecting() {
+    let target = postgres_target("postgres://127.0.0.1:1/radio", "events; drop");
+    let batch = [delivery_to("archive", target.clone(), &decoded())];
+
+    let error = postgres::Connections::default()
+        .insert("archive", &target, &batch)
+        .await
+        .expect_err("unsafe table")
+        .to_string();
+
+    assert!(error.contains("not a plain lowercase name"), "{error}");
+}
+
+#[tokio::test]
+async fn an_unreachable_postgres_surfaces_the_failure() {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("test listener");
+    let address = listener.local_addr().expect("local address");
+    drop(listener);
+    let target = postgres_target(
+        &format!("postgres://{address}/radio?sslmode=disable"),
+        "sdrmm_events",
+    );
+    let batch = [delivery_to("archive", target.clone(), &decoded())];
+
+    let error = postgres::Connections::default()
+        .insert("archive", &target, &batch)
+        .await
+        .expect_err("connection failure")
+        .to_string();
+
+    assert!(error.starts_with("Postgres connect:"), "{error}");
 }

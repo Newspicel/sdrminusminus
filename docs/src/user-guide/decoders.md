@@ -85,6 +85,17 @@ and prefix. SDR-- creates a TUN interface and writes the packets to it.
 
 Routing and multicast are up to your operating system.
 
+## Databases
+
+Wire `events` to an **Event output** and choose **PostgreSQL** or **InfluxDB**.
+
+**PostgreSQL** creates the table on first write: one row per event with time, kind, frequency,
+station, summary, and the full record as `jsonb`. Add `?sslmode=disable` to the URL for a server
+without TLS.
+
+**InfluxDB** 2 and 3 take one point per event. The measurement is the event kind, and numbers,
+flags, and short text from the event become fields.
+
 ## DMR trunking
 
 Add **DMR trunk system**, wire Device `iq`, and enter the control channel in MHz. Pick the system

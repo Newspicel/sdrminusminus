@@ -125,6 +125,9 @@ futures = "0.3"
 reqwest = { version = "0.13.4", default-features = false, features = ["json", "multipart", "rustls"] }
 rumqttc = { package = "rumqttc-v4-next", version = "0.34.0", default-features = false, features = ["use-rustls"] }
 url = "2.5.8"
+tokio-postgres = { version = "0.7.18", default-features = false, features = ["runtime"] }
+tokio-postgres-rustls = "0.14"
+rustls-platform-verifier = "0.7"
 tokio-tungstenite = "0.30"
 tokio-serial = "5.5.0"
 serialport = { version = "4.9.0", default-features = false }
