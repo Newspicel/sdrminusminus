@@ -65,7 +65,15 @@ fn starts(txt: &[u8], prefix: &[u8]) -> bool {
 pub fn decode(label: &str, text: &str) -> Option<Oooi> {
     let t = text.as_bytes();
     let mut o = Oooi::default();
+    if label.starts_with('Q') {
+        q_series(label, t, &mut o)?;
+    } else {
+        numbered(label, t, &mut o)?;
+    }
+    if o.is_empty() { None } else { Some(o) }
+}
 
+fn q_series(label: &str, t: &[u8], o: &mut Oooi) -> Option<()> {
     match label {
         "Q1" => {
             o.depa = airport(t, 0);
@@ -158,7 +166,13 @@ pub fn decode(label: &str, text: &str) -> Option<Oooi> {
             o.gtout = time4(t, 8);
             o.gtin = time4(t, 12);
         }
+        _ => return None,
+    }
+    Some(())
+}
 
+fn numbered(label: &str, t: &[u8], o: &mut Oooi) -> Option<()> {
+    match label {
         "10" => {
             if !starts(t, b"ARR01") {
                 return None;
@@ -277,11 +291,9 @@ pub fn decode(label: &str, text: &str) -> Option<Oooi> {
             o.dsta = airport(t, 0);
             o.eta = time4(t, 5);
         }
-
         _ => return None,
     }
-
-    if o.is_empty() { None } else { Some(o) }
+    Some(())
 }
 
 #[cfg(test)]
