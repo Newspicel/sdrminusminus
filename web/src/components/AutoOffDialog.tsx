@@ -37,10 +37,10 @@ export function AutoOffDialog() {
             Don't show again
           </label>
           <div className="mt-4 flex justify-end gap-2 border-t border-line pt-3">
-            <Dialog.Close className={BTN_QUIET}>Stay on Auto</Dialog.Close>
-            <Button type="button" className={BTN_PRIMARY} onClick={() => confirmLeave(neverAgain)}>
+            <Button type="button" className={BTN_QUIET} onClick={() => confirmLeave(neverAgain)}>
               Switch to Manual
             </Button>
+            <Dialog.Close className={BTN_PRIMARY}>Stay on Auto</Dialog.Close>
           </div>
         </Dialog.Popup>
       </Dialog.Portal>
