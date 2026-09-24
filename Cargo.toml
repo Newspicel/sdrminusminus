@@ -157,14 +157,14 @@ tract-onnx = { version = "0.23.8", default-features = false }
 tract-nnef = "0.23.8"
 realfft = "3"
 mfsk-core = { version = "0.11.0", default-features = false, features = ["std", "fft-rustfft", "ft8", "ft4", "wspr"] }
-xng-mode-dsc = { git = "https://github.com/airframesio/xng", rev = "6a768a2f843099171d7ed08df9fe0f3ba0678f25" }
-xng-mode-stdc = { git = "https://github.com/airframesio/xng", rev = "6a768a2f843099171d7ed08df9fe0f3ba0678f25" }
-xng-mode-aero = { git = "https://github.com/airframesio/xng", rev = "6a768a2f843099171d7ed08df9fe0f3ba0678f25" }
-xng-mode-vdl2 = { git = "https://github.com/airframesio/xng", rev = "6a768a2f843099171d7ed08df9fe0f3ba0678f25" }
-xng-mode-hfdl = { git = "https://github.com/airframesio/xng", rev = "6a768a2f843099171d7ed08df9fe0f3ba0678f25" }
-xng-mode-iridium = { git = "https://github.com/airframesio/xng", rev = "6a768a2f843099171d7ed08df9fe0f3ba0678f25" }
-xng-types = { git = "https://github.com/airframesio/xng", rev = "6a768a2f843099171d7ed08df9fe0f3ba0678f25" }
-xng-acars = { git = "https://github.com/airframesio/xng", rev = "6a768a2f843099171d7ed08df9fe0f3ba0678f25" }
+xng-mode-dsc = { git = "https://github.com/airframesio/xng", rev = "096c805278faa0a904de7d98066bf4cf395cb6c2" }
+xng-mode-stdc = { git = "https://github.com/airframesio/xng", rev = "096c805278faa0a904de7d98066bf4cf395cb6c2" }
+xng-mode-aero = { git = "https://github.com/airframesio/xng", rev = "096c805278faa0a904de7d98066bf4cf395cb6c2" }
+xng-mode-vdl2 = { git = "https://github.com/airframesio/xng", rev = "096c805278faa0a904de7d98066bf4cf395cb6c2" }
+xng-mode-hfdl = { git = "https://github.com/airframesio/xng", rev = "096c805278faa0a904de7d98066bf4cf395cb6c2" }
+xng-mode-iridium = { git = "https://github.com/airframesio/xng", rev = "096c805278faa0a904de7d98066bf4cf395cb6c2" }
+xng-types = { git = "https://github.com/airframesio/xng", rev = "096c805278faa0a904de7d98066bf4cf395cb6c2" }
+xng-acars = { git = "https://github.com/airframesio/xng", rev = "096c805278faa0a904de7d98066bf4cf395cb6c2" }
 rtrb = "0.4"
 bytemuck = { version = "1", features = ["derive"] }
 pollster = "1"

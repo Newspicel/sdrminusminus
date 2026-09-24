@@ -28,6 +28,7 @@ symphonia-core.workspace = true
 symphonia-bundle-mp3.workspace = true
 ffmpeg-the-third.workspace = true
 mfsk-core.workspace = true
+serde.workspace = true
 serde_json.workspace = true
 xng-mode-dsc.workspace = true
 xng-mode-stdc.workspace = true

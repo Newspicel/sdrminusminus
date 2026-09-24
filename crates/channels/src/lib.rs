@@ -11,6 +11,7 @@ pub mod coherent;
 mod combiner;
 mod cw_skimmer;
 mod dab;
+mod datalink;
 mod datv;
 mod dect;
 mod df;

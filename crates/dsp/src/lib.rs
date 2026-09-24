@@ -50,6 +50,7 @@ pub use fec::{
     block::{CyclicCode, ParityCode},
     bptc::{Bptc128, Bptc196},
     conv::{CONFIDENT, ERASURE, Soft, Viterbi5, soft},
+    conv_soft::SoftViterbi,
     conv7::{ConvCode, Depuncturer, StreamViterbiK7, ViterbiK7, depuncture, puncture},
     crc4_msb, crc8_msb, crc16_ccitt, crc16_msb, crc16_msb_bits, crc16_x25, crc32_mpeg,
     ermes_bch_decode, ermes_bch_encode, golay23_correct, golay23_encode, golay23_ok, hdlc_fcs_ok,
