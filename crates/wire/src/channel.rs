@@ -1471,10 +1471,24 @@ pub struct DectParams {
     pub sides: DectSides,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum AeroChannel {
+    #[default]
+    P,
+    Burst,
+    C,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct InmarsatAeroParams {
+    #[serde(default)]
+    pub channel: AeroChannel,
+}
+
 empty_params! {
     DscParams,
     InmarsatStdcParams,
-    InmarsatAeroParams,
     Vdl2Params,
     HfdlParams,
     IridiumParams,

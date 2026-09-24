@@ -4497,6 +4497,14 @@
           }
         }
       },
+      "AeroChannel": {
+        "type": "string",
+        "enum": [
+          "p",
+          "burst",
+          "c"
+        ]
+      },
       "Agc": {
         "oneOf": [
           {
@@ -13992,7 +14000,12 @@
         }
       },
       "InmarsatAeroParams": {
-        "type": "object"
+        "type": "object",
+        "properties": {
+          "channel": {
+            "$ref": "#/components/schemas/AeroChannel"
+          }
+        }
       },
       "InmarsatStdcParams": {
         "type": "object"

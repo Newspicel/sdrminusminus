@@ -1,21 +1,19 @@
 mod acquisition;
+mod burst;
+mod cchannel;
+mod coherent;
 mod decoder;
 mod demod;
 mod frame;
 mod framer;
 mod msk;
 mod oqpsk;
+mod receiver;
 mod satellite;
 mod state;
 mod su;
 mod taps;
 
-#[cfg(test)]
-mod burst;
-#[cfg(test)]
-mod cchannel;
-#[cfg(test)]
-mod coherent;
 #[cfg(test)]
 mod modulate;
 #[cfg(test)]
@@ -23,7 +21,11 @@ mod tests;
 
 use std::sync::LazyLock;
 
-use self::decoder::{AeroChannelDecoder, AeroEvent, INPUT_RATE};
+use self::{
+    burst::BurstEvent,
+    decoder::{AeroChannelDecoder, AeroEvent, INPUT_RATE},
+    receiver::{BurstReceiver, CircuitEvent, CircuitReceiver, burst_tag},
+};
 use crate::{
     ChannelCtx, ChannelError, ChannelFilter, ChannelOutputs, ChannelRx,
     acars::block as acars_block,
@@ -32,7 +34,7 @@ use crate::{
 };
 use num_complex::Complex;
 use sdrmm_wire::{
-    ChannelDescriptor, ChannelParams, ChannelSettings, DataLinkMessage, DecoderEvent,
+    AeroChannel, ChannelDescriptor, ChannelParams, ChannelSettings, DataLinkMessage, DecoderEvent,
     DecoderFamily, InmarsatAeroParams,
 };
 use serde::Serialize;
@@ -40,6 +42,7 @@ use serde_json::{Value, json};
 
 const HALF_BANDWIDTH: f64 = 6_500.0;
 const P_CHANNEL: &str = "p-channel";
+const C_CHANNEL_VOICE: &str = "c-channel-voice";
 
 static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescriptor {
     type_id: "inmarsat_aero".to_owned(),
@@ -53,9 +56,41 @@ static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescrip
     ..ChannelDescriptor::default()
 });
 
+enum Receiver {
+    Forward(Box<AeroChannelDecoder>, Vec<AeroEvent>),
+    Burst(Box<BurstReceiver>),
+    Circuit(Box<CircuitReceiver>, Vec<CircuitEvent>),
+}
+
+impl Receiver {
+    fn new(channel: AeroChannel) -> Self {
+        match channel {
+            AeroChannel::P => Self::Forward(Box::new(AeroChannelDecoder::new()), Vec::new()),
+            AeroChannel::Burst => Self::Burst(Box::new(BurstReceiver::new())),
+            AeroChannel::C => Self::Circuit(Box::new(CircuitReceiver::new()), Vec::new()),
+        }
+    }
+
+    fn process(&mut self, iq: &[Complex<f32>], out: &mut ChannelOutputs) {
+        let messages: Vec<DataLinkMessage> = match self {
+            Self::Forward(decoder, events) => {
+                decoder.process(iq, events);
+                events.drain(..).map(|event| to_message(&event)).collect()
+            }
+            Self::Burst(receiver) => receiver.process(iq).iter().map(burst_message).collect(),
+            Self::Circuit(receiver, events) => {
+                receiver.process(iq, events);
+                events.drain(..).map(circuit_message).collect()
+            }
+        };
+        out.events
+            .extend(messages.into_iter().map(DecoderEvent::InmarsatAero));
+    }
+}
+
 pub struct InmarsatAeroChannel {
-    decoder: AeroChannelDecoder,
-    events: Vec<AeroEvent>,
+    channel: AeroChannel,
+    receiver: Receiver,
 }
 
 fn params(settings: &ChannelSettings) -> Result<&InmarsatAeroParams, ChannelError> {
@@ -151,6 +186,52 @@ fn to_message(event: &AeroEvent) -> DataLinkMessage {
     datalink::message(&body, quality(true), raw)
 }
 
+fn burst_message(event: &BurstEvent) -> DataLinkMessage {
+    let quality = |crc_ok| Quality {
+        crc_ok,
+        fec_corrected: Some(event.fec_corrected),
+        snr_db: None,
+        frequency_error_hz: None,
+    };
+    if let Some(user) = &event.user {
+        let raw = Some(user.data.as_slice());
+        return match su::parse_acars(&user.data) {
+            Some(block) => {
+                datalink::message(&AcarsBody::Acars(&block.core), quality(block.crc_ok), raw)
+            }
+            None => datalink::message(&AeroBody::Undecoded, quality(true), raw),
+        };
+    }
+    let mut details = event.su_event.clone().unwrap_or_else(|| json!({}));
+    let kind = su::p_su_kind(&details);
+    if let Value::Object(map) = &mut details {
+        map.insert("channel".to_owned(), json!(burst_tag(event.channel)));
+        map.insert("line_bit_rate".to_owned(), json!(event.bit_rate));
+    }
+    datalink::message(&AeroBody::Aero { kind, details }, quality(true), None)
+}
+
+fn circuit_message(event: CircuitEvent) -> DataLinkMessage {
+    let body = match event {
+        CircuitEvent::SignalUnit { kind, details } => AeroBody::Aero {
+            kind: kind.to_owned(),
+            details,
+        },
+        CircuitEvent::VoiceStarted => AeroBody::Aero {
+            kind: C_CHANNEL_VOICE.to_owned(),
+            details: json!({ "channel": "c-channel" }),
+        },
+    };
+    datalink::message(
+        &body,
+        Quality {
+            crc_ok: true,
+            ..Quality::default()
+        },
+        None,
+    )
+}
+
 impl ChannelRx for InmarsatAeroChannel {
     fn descriptor() -> &'static ChannelDescriptor {
         &DESCRIPTOR
@@ -158,23 +239,23 @@ impl ChannelRx for InmarsatAeroChannel {
 
     fn new(ctx: ChannelCtx, settings: ChannelSettings) -> Result<Self, ChannelError> {
         check_input_rate(ctx, &DESCRIPTOR)?;
-        params(&settings)?;
+        let channel = params(&settings)?.channel;
         Ok(Self {
-            decoder: AeroChannelDecoder::new(),
-            events: Vec::new(),
+            channel,
+            receiver: Receiver::new(channel),
         })
     }
 
     fn apply(&mut self, settings: ChannelSettings) -> Result<(), ChannelError> {
-        params(&settings).map(|_| ())
+        let channel = params(&settings)?.channel;
+        if channel != self.channel {
+            self.channel = channel;
+            self.receiver = Receiver::new(channel);
+        }
+        Ok(())
     }
 
     fn process(&mut self, iq: &[Complex<f32>], out: &mut ChannelOutputs) {
-        self.decoder.process(iq, &mut self.events);
-        out.events.extend(
-            self.events
-                .drain(..)
-                .map(|event| DecoderEvent::InmarsatAero(to_message(&event))),
-        );
+        self.receiver.process(iq, out);
     }
 }

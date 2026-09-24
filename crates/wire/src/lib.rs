@@ -44,8 +44,8 @@ pub use bandplan::{
     BandRegion, BandRegionMatch, BandRegionsResponse, BandService, ItuRegion, LocateQuery,
 };
 pub use channel::{
-    AcarsParams, AdsbParams, AisChannel, AisParams, AmParams, AprsMode, AprsParams, AtvColor,
-    AtvModulation, AtvParams, AtvStandard, ChannelDescriptor, ChannelInfo, ChannelParams,
+    AcarsParams, AdsbParams, AeroChannel, AisChannel, AisParams, AmParams, AprsMode, AprsParams,
+    AtvColor, AtvModulation, AtvParams, AtvStandard, ChannelDescriptor, ChannelInfo, ChannelParams,
     ChannelSettings, CwSkimmerParams, DECT_CARRIER_SPACING_HZ, DEFAULT_FREQUENCY_HZ, DabMode,
     DabParams, DabTransmissionMode, DatvCodeRate, DatvParams, DatvRollOff, DatvStandard,
     DecoderFamily, DectBand, DectParams, DectSides, DmrParams, DmrSlots, DpmrParams, DrmMode,

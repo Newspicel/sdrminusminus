@@ -24,6 +24,7 @@ fn seq_indicator(value: u8) -> Option<(u8, u8)> {
     }
 }
 
+#[cfg(test)]
 fn seq_indicator_for(index: u8, total: u8) -> u8 {
     match (index, total) {
         (1, 1) => 1,
@@ -137,6 +138,7 @@ impl RIsuReassembler {
     }
 }
 
+#[cfg(test)]
 pub(in crate::inmarsat_aero) fn build_r_sus(
     aes_id: u32,
     ges_id: u8,

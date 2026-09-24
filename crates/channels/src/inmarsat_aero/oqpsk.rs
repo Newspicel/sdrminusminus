@@ -30,7 +30,6 @@ const HIGH_RATE_RESONATOR: ([f32; 3], [f32; 2]) = (
     [0.000_327_142_2, 0.0, 0.000_327_142_2],
     [-0.390_053, 0.999_345_7],
 );
-#[cfg(test)]
 const C_CHANNEL_RESONATOR: ([f32; 3], [f32; 2]) = (
     [0.001_284_585_8, 0.0, -0.001_284_585_8],
     [-0.906_814_63, 0.997_430_8],
@@ -195,7 +194,6 @@ impl OqpskDemod {
         Self::with_rate(channel_rate, f64::from(BIT_RATE), HIGH_RATE_RESONATOR, 1.0)
     }
 
-    #[cfg(test)]
     pub(super) fn new_c_channel(channel_rate: f64) -> Self {
         Self::with_rate(channel_rate, 8_400.0, C_CHANNEL_RESONATOR, 0.6)
     }

@@ -12,6 +12,12 @@ const matrix = (access_token: string) =>
 const mqtt = (broker_url: string, topic: string) =>
   eventOutputConfigured({ service: "mqtt", broker_url, topic, username: "", password: "" });
 
+const postgres = (url: string, table: string, username: string) =>
+  eventOutputConfigured({ service: "postgres", url, table, username, password: "" });
+
+const influx = (url: string, bucket: string) =>
+  eventOutputConfigured({ service: "influx", url, bucket, org: "", token: "" });
+
 describe("event output configuration", () => {
   it("opens Beast only after an address and explicit enable", () => {
     expect(
@@ -48,8 +54,6 @@ describe("event output configuration", () => {
   });
 
   it("needs a Postgres server, table and user", () => {
-    const postgres = (url: string, table: string, username: string) =>
-      eventOutputConfigured({ service: "postgres", url, table, username, password: "" });
     expect(postgres("postgres://db.example/radio", "sdrmm_events", "radio")).toBe(true);
     expect(postgres("", "sdrmm_events", "radio")).toBe(false);
     expect(postgres("postgres://db.example/radio", " ", "radio")).toBe(false);
@@ -57,8 +61,6 @@ describe("event output configuration", () => {
   });
 
   it("needs an InfluxDB server and bucket, but no token", () => {
-    const influx = (url: string, bucket: string) =>
-      eventOutputConfigured({ service: "influx", url, bucket, org: "", token: "" });
     expect(influx("http://127.0.0.1:8086", "radio")).toBe(true);
     expect(influx("", "radio")).toBe(false);
     expect(influx("http://127.0.0.1:8086", "")).toBe(false);

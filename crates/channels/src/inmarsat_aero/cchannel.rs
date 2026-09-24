@@ -4,6 +4,7 @@ use super::{frame::Scrambler, su};
 
 pub(super) const FRAME_CODED_BITS: usize = 4096;
 pub(super) const INFO_BITS: usize = 2714;
+#[cfg(test)]
 const DECODED_BITS: usize = 2730;
 const SUBBLOCK_BITS: usize = 109;
 const VOICE_FRAMES: usize = 25;
@@ -24,6 +25,7 @@ fn pattern_bits(value: u64) -> [u8; UW_LEN] {
     pattern
 }
 
+#[cfg(test)]
 fn permute(row: usize) -> usize {
     (27 * row) % ROWS
 }
@@ -232,10 +234,12 @@ fn signal_units(bits: &[u8]) -> Vec<CChannelEvent> {
     out
 }
 
+#[cfg(test)]
 pub(super) struct CChannelEncoder {
     viterbi: SoftViterbi,
 }
 
+#[cfg(test)]
 impl CChannelEncoder {
     pub(super) fn new() -> Self {
         Self {
@@ -380,6 +384,46 @@ mod tests {
                 assert_eq!(detector.inverted, invert == 1);
             }
         }
+    }
+
+    #[test]
+    fn the_c_setting_reports_call_progress_and_one_voice_start() {
+        use crate::{ChannelCtx, ChannelRx};
+        let info = frame_with(&call_progress([0x12, 0x34, 0x56], 0x7E), 0xA7);
+        let mut encoder = CChannelEncoder::new();
+        let bits: Vec<u8> = (0..6).flat_map(|_| encoder.encode(&info)).collect();
+        let mut iq = modulate_oqpsk_rate(&bits, 8_400.0, 0.6, CHANNEL_RATE_HR, 90.0, 0.5);
+        Noise(0x0123_4567_89ab_cdef).add(&mut iq, 0.02);
+        let mut channel = crate::inmarsat_aero::InmarsatAeroChannel::new(
+            ChannelCtx {
+                input_rate: CHANNEL_RATE_HR,
+            },
+            crate::testutil::settings(sdrmm_wire::ChannelParams::InmarsatAero(
+                sdrmm_wire::InmarsatAeroParams {
+                    channel: sdrmm_wire::AeroChannel::C,
+                },
+            )),
+        )
+        .expect("aero channel");
+        let kinds: Vec<String> = crate::testutil::run_events(&mut channel, &iq)
+            .into_iter()
+            .filter_map(|event| match event {
+                sdrmm_wire::DecoderEvent::InmarsatAero(message) => Some(message.message_type),
+                _ => None,
+            })
+            .collect();
+        assert!(
+            kinds.iter().any(|kind| kind == "call-progress"),
+            "{kinds:?}"
+        );
+        assert_eq!(
+            kinds
+                .iter()
+                .filter(|kind| *kind == "c-channel-voice")
+                .count(),
+            1,
+            "{kinds:?}"
+        );
     }
 
     #[test]

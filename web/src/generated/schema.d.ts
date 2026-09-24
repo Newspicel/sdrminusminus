@@ -1403,6 +1403,8 @@ export interface components {
             /** Format: double */
             ref_lon?: number | null;
         };
+        /** @enum {string} */
+        AeroChannel: "p" | "burst" | "c";
         Agc: {
             /** @enum {string} */
             kind: "none";
@@ -3998,7 +4000,9 @@ export interface components {
             /** Format: float */
             signal_db: number;
         };
-        InmarsatAeroParams: Record<string, never>;
+        InmarsatAeroParams: {
+            channel?: components["schemas"]["AeroChannel"];
+        };
         InmarsatStdcParams: Record<string, never>;
         InvertedVParams: {
             /** Format: double */

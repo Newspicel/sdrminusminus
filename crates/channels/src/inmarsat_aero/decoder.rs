@@ -12,7 +12,7 @@ use super::{
     taps::{Fir, lowpass_taps},
 };
 
-pub(super) const INPUT_RATE: f64 = 48_000.0;
+pub(crate) const INPUT_RATE: f64 = 48_000.0;
 pub(super) const CHANNEL_RATE: f64 = 24_000.0;
 const DECIMATION: usize = 2;
 const PASSBAND_HZ: f64 = 2_500.0;
@@ -160,6 +160,13 @@ pub(super) struct AeroChannelDecoder {
     bits: Vec<(f32, u8)>,
 }
 
+pub(super) fn front_filter() -> Fir {
+    Fir::new(
+        lowpass_taps(PASSBAND_HZ / INPUT_RATE, FRONT_TAPS),
+        DECIMATION,
+    )
+}
+
 impl AeroChannelDecoder {
     pub(super) fn new() -> Self {
         Self::with_detection(true)
@@ -172,10 +179,7 @@ impl AeroChannelDecoder {
 
     fn with_detection(combined: bool) -> Self {
         Self {
-            front: Fir::new(
-                lowpass_taps(PASSBAND_HZ / INPUT_RATE, FRONT_TAPS),
-                DECIMATION,
-            ),
+            front: front_filter(),
             channel: Vec::new(),
             chains: LOW_RATES.map(|rate| RateChain::new(rate, combined)),
             high_rate: HighRateChain {

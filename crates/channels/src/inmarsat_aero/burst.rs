@@ -13,7 +13,9 @@ use super::{
 };
 use sdrmm_dsp::SoftViterbi;
 
-pub(super) use rsu::{R_SU_LEN, build_r_sus};
+pub(super) use rsu::R_SU_LEN;
+#[cfg(test)]
+pub(super) use rsu::build_r_sus;
 
 const UW_TOLERANCE: u32 = 4;
 const UW_SEARCH_BITS: usize = 300;
@@ -371,6 +373,50 @@ mod tests {
             .expect("ACARS");
         assert!(block.crc_ok);
         assert_eq!(block.core.tail.as_deref(), Some("VT-ANB"));
+    }
+
+    fn channel(channel: sdrmm_wire::AeroChannel) -> crate::inmarsat_aero::InmarsatAeroChannel {
+        use crate::{ChannelCtx, ChannelRx};
+        crate::inmarsat_aero::InmarsatAeroChannel::new(
+            ChannelCtx {
+                input_rate: crate::inmarsat_aero::decoder::INPUT_RATE,
+            },
+            crate::testutil::settings(sdrmm_wire::ChannelParams::InmarsatAero(
+                sdrmm_wire::InmarsatAeroParams { channel },
+            )),
+        )
+        .expect("aero channel")
+    }
+
+    #[test]
+    fn the_burst_setting_decodes_t_bursts_through_the_channel() {
+        let mut iq = burst_iq(&burst_bits(&t_burst_bytes()), 1200.0, 180.0, 2000, 126.0);
+        Noise(0xfeed_f00d_dead_c0de).add(&mut iq, 0.01);
+        let wide =
+            crate::testgen::resample(&iq, CHANNEL_RATE, crate::inmarsat_aero::decoder::INPUT_RATE);
+        let mut padded = wide;
+        padded.extend(std::iter::repeat_n(Complex::new(0.0, 0.0), 48_000));
+        let bursts =
+            crate::testutil::run_events(&mut channel(sdrmm_wire::AeroChannel::Burst), &padded);
+        let acars = bursts
+            .iter()
+            .find_map(|event| match event {
+                sdrmm_wire::DecoderEvent::InmarsatAero(message)
+                    if message.message_type == "acars" =>
+                {
+                    Some(message)
+                }
+                _ => None,
+            })
+            .expect("ACARS from the T burst");
+        assert!(acars.crc_ok);
+        assert_eq!(acars.station.as_deref(), Some("VT-ANB"));
+        let forward =
+            crate::testutil::run_events(&mut channel(sdrmm_wire::AeroChannel::P), &padded);
+        assert!(
+            forward.is_empty(),
+            "the P channel must not read bursts: {forward:?}"
+        );
     }
 
     #[test]

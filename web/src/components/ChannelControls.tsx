@@ -90,6 +90,11 @@ const AIS_CHANNELS: Options<NonNullable<ChannelParamsOf<"ais">["ais_channel"]>> 
   { value: "a", label: "A" },
   { value: "b", label: "B" },
 ];
+const AERO_CHANNELS: Options<NonNullable<ChannelParamsOf<"inmarsat_aero">["channel"]>> = [
+  { value: "p", label: "P", title: "Forward channel to aircraft" },
+  { value: "burst", label: "R/T", title: "Bursts from aircraft" },
+  { value: "c", label: "C", title: "Voice circuit" },
+];
 const APRS_MODES: Options<NonNullable<ChannelParamsOf<"aprs">["mode"]>> = [
   { value: "afsk1200", label: "AFSK 1200" },
   { value: "g3ruh9600", label: "G3RUH 9600" },
@@ -625,6 +630,19 @@ function ModeControls({
             options={AIS_CHANNELS}
             onChange={(ais_channel) =>
               onParams({ type: "ais", settings: { ...params.settings, ais_channel } })
+            }
+          />
+        </SettingRow>
+      );
+    case "inmarsat_aero":
+      return (
+        <SettingRow label="Channel">
+          <Segmented
+            label="Aero channel"
+            value={params.settings.channel ?? "p"}
+            options={AERO_CHANNELS}
+            onChange={(channel) =>
+              onParams({ type: "inmarsat_aero", settings: { ...params.settings, channel } })
             }
           />
         </SettingRow>
@@ -1519,7 +1537,6 @@ function ModeControls({
     case "m17":
     case "dsc":
     case "inmarsat_stdc":
-    case "inmarsat_aero":
     case "vdl2":
     case "hfdl":
     case "iridium":
