@@ -3,6 +3,7 @@ use std::f64::consts::TAU;
 use num_complex::Complex;
 
 use super::{modulator::long_training_time, params::OfdmParams};
+use crate::framesync::{RepetitionDetector, conj_product, rotor};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Acquisition {
@@ -51,38 +52,9 @@ impl PreambleSync {
 
     #[must_use]
     pub fn detect(&self, x: &[Complex<f32>], search: usize) -> Option<(usize, f64, f64)> {
-        let needed = self.window + self.period;
-        if x.len() < needed {
-            return None;
-        }
-        let last = search.min(x.len() - needed);
-        let mut p = Complex::new(0.0f64, 0.0);
-        let mut r = 0.0f64;
-        for n in 0..self.window {
-            p += conj_product(x[n], x[n + self.period]);
-            r += f64::from(x[n + self.period].norm_sqr());
-        }
-        let mut best = (0usize, p, f64::NEG_INFINITY);
-        for d in 0..=last {
-            if d > 0 {
-                let out = d - 1;
-                let into = d - 1 + self.window;
-                p -= conj_product(x[out], x[out + self.period]);
-                p += conj_product(x[into], x[into + self.period]);
-                r -= f64::from(x[out + self.period].norm_sqr());
-                r += f64::from(x[into + self.period].norm_sqr());
-            }
-            let metric = if r > 0.0 { p.norm_sqr() / (r * r) } else { 0.0 };
-            if metric > best.2 {
-                best = (d, p, metric);
-            }
-        }
-        let (offset, correlation, metric) = best;
-        Some((
-            offset,
-            correlation.arg() / (TAU * self.period as f64),
-            metric,
-        ))
+        RepetitionDetector::new(self.period, self.window)
+            .detect(x, search)
+            .map(|found| (found.offset, found.cfo, found.metric))
     }
 
     #[must_use]
@@ -137,20 +109,6 @@ impl PreambleSync {
         let measured = acc.arg() / (TAU * fft);
         measured + ((coarse - measured) * fft).round() / fft
     }
-}
-
-fn conj_product(a: Complex<f32>, b: Complex<f32>) -> Complex<f64> {
-    let a = Complex::new(f64::from(a.re), -f64::from(a.im));
-    let b = Complex::new(f64::from(b.re), f64::from(b.im));
-    a * b
-}
-
-pub(super) fn rotor(cfo: f64, n: usize) -> (Complex<f64>, Complex<f64>) {
-    let phase = -TAU * cfo;
-    let start = phase * n as f64;
-    let (s0, c0) = start.sin_cos();
-    let (s1, c1) = phase.sin_cos();
-    (Complex::new(c0, s0), Complex::new(c1, s1))
 }
 
 #[cfg(test)]

@@ -1,6 +1,7 @@
 pub mod analog;
 pub mod constellation;
 pub mod cpm;
+pub mod framesync;
 pub mod linear;
 pub mod multicarrier;
 pub mod ofdm;

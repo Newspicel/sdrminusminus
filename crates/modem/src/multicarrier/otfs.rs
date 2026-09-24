@@ -1,4 +1,9 @@
+mod estimate;
+mod receiver;
+
+pub use estimate::{DelayDopplerFit, Support};
 use num_complex::Complex;
+pub use receiver::{OtfsMod, OtfsReceiver};
 
 use super::transform::Dft;
 

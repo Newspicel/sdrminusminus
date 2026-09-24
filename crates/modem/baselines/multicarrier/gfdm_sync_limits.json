@@ -1,9 +1,9 @@
 {
-  "entry": "otfs",
-  "seed": 2038,
-  "sensitivity_db_1e2": 6.534387152090185,
-  "sensitivity_db_1e3": 9.097053688589076,
-  "sensitivity_db_1e4": 10.68100975071615,
+  "entry": "gfdm-sync",
+  "seed": 40914,
+  "sensitivity_db_1e2": 5.924155799050235,
+  "sensitivity_db_1e3": 8.415895650803465,
+  "sensitivity_db_1e4": 10.083086627550776,
   "rows": [
     {
       "axis": "static CFO",
@@ -20,7 +20,7 @@
     {
       "axis": "sample clock",
       "unit": "ppm",
-      "threshold": 113.525390625,
+      "threshold": 50.6591796875,
       "criterion": "<= 1 dB Eb/N0 penalty at sensitivity(1e-3) + 3 dB"
     },
     {
@@ -32,19 +32,19 @@
     {
       "axis": "IQ gain imbalance",
       "unit": "dB",
-      "threshold": 1.55859375,
+      "threshold": 2.220703125,
       "criterion": "<= 1 dB Eb/N0 penalty at sensitivity(1e-3) + 3 dB"
     },
     {
       "axis": "IQ phase imbalance",
       "unit": "degrees",
-      "threshold": 13.2421875,
+      "threshold": 15.17578125,
       "criterion": "<= 1 dB Eb/N0 penalty at sensitivity(1e-3) + 3 dB"
     },
     {
       "axis": "profile:static-indoor",
       "unit": "dB",
-      "threshold": 0.5223687248925089,
+      "threshold": 1.365590271635476,
       "criterion": "Eb/N0 degradation at BER 1e-3"
     }
   ]

@@ -9,8 +9,9 @@ use sdrmm_modem_test_support::ber::{
     catalog::{
         self, DRIFT_TOLERANCE_DB, FULL_ERRORS, Measurement,
         multicarrier::{
-            CAP, GFDM_LIMITS, GFDM_OVERHEAD_DB, GFDM_ZF_SEED, OTFS_LIMITS, SYMBOLS, fbmc_link,
-            gfdm_amplification_db, gfdm_zf_link, ofdm_reference_link, otfs_link, ufmc_link,
+            CAP, GFDM_BLOCKS, GFDM_LIMITS, GFDM_OVERHEAD_DB, GFDM_SYNC_LIMITS, GFDM_SYNC_SEED,
+            GFDM_ZF_SEED, OTFS_LIMITS, SYMBOLS, fbmc_link, gfdm_amplification_db, gfdm_sync_link,
+            gfdm_zf_link, ofdm_reference_link, otfs_link, ufmc_link,
         },
         ofdm::{LEAD, RATE},
     },
@@ -131,6 +132,23 @@ fn the_gfdm_tiers_cross_and_the_matched_one_walls() {
         at(&mf, low),
         at(&zf, low)
     );
+}
+
+#[test]
+fn acquiring_gfdm_costs_its_preamble_and_little_else() {
+    let preamble_db = 10.0 * ((GFDM_BLOCKS + 1) as f64 / GFDM_BLOCKS as f64).log10();
+    let loss =
+        sensitivity("multicarrier/gfdm_sync_awgn") - sensitivity("multicarrier/gfdm_zf_awgn");
+    assert!(
+        (preamble_db..preamble_db + 0.2).contains(&loss),
+        "acquisition costs {loss:+.3} dB, the preamble alone {preamble_db:+.3} dB"
+    );
+}
+
+#[test]
+fn acquiring_otfs_costs_next_to_nothing_over_the_genie() {
+    let loss = sensitivity("multicarrier/otfs_awgn") - sensitivity("multicarrier/otfs_genie_awgn");
+    assert!(loss.abs() < 0.1, "acquisition costs {loss:+.3} dB");
 }
 
 fn echo(wave: &mut [Complex<f32>], delay: usize, gain: Complex<f32>) {
@@ -273,8 +291,9 @@ type Loopback = (&'static str, fn() -> Link, f64);
 
 #[test]
 fn every_entry_loops_back_clean_at_its_stated_margin() {
-    let rows: [Loopback; 4] = [
+    let rows: [Loopback; 5] = [
         ("multicarrier/gfdm_zf_awgn", gfdm_zf_link, 6.0),
+        ("multicarrier/gfdm_sync_awgn", gfdm_sync_link, 6.0),
         ("multicarrier/ufmc_awgn", ufmc_link, 6.0),
         ("multicarrier/fbmc_awgn", fbmc_link, 6.0),
         ("multicarrier/otfs_awgn", otfs_link, 6.0),
@@ -336,8 +355,14 @@ fn axis_rows(link: &Link, op_db: f64, seed: u64, clean: &Curve) -> Vec<LimitRow>
 
 type Table = (&'static str, &'static str, fn() -> Link, u64);
 
-const TABLES: [Table; 2] = [
+const TABLES: [Table; 3] = [
     (GFDM_LIMITS, "gfdm-zf", gfdm_zf_link, GFDM_ZF_SEED),
+    (
+        GFDM_SYNC_LIMITS,
+        "gfdm-sync",
+        gfdm_sync_link,
+        GFDM_SYNC_SEED,
+    ),
     (OTFS_LIMITS, "otfs", otfs_link, OTFS_SEED_FOR_LIMITS),
 ];
 

@@ -4,8 +4,8 @@ use num_complex::Complex;
 use sdrmm_modem::{
     constellation::{Constellation, tables},
     multicarrier::{
-        FbmcDemod, FbmcMod, FbmcParams, GfdmDemod, GfdmDetector, GfdmMod, GfdmParams, OtfsGrid,
-        OtfsPrecoder, UfmcDemod, UfmcMod, UfmcParams,
+        FbmcDemod, FbmcMod, FbmcParams, GfdmDemod, GfdmDetector, GfdmMod, GfdmParams, GfdmReceiver,
+        OtfsGrid, OtfsMod, OtfsPrecoder, OtfsReceiver, UfmcDemod, UfmcMod, UfmcParams,
     },
     ofdm::{OfdmDemod, OfdmMod, OfdmParams},
 };
@@ -13,7 +13,7 @@ use sdrmm_modem::{
 use super::{
     Measurement, Reference, Tier,
     linear::{bits_to_labels, labels_to_bits, table},
-    ofdm::{LEAD, TAIL},
+    ofdm::{LEAD, SEARCH, TAIL},
 };
 use crate::ber::{sweep::Link, theory};
 
@@ -91,6 +91,49 @@ pub fn gfdm_link(detector: GfdmDetector) -> Link {
             let mut demodulator = demodulator.clone();
             let mut points = Vec::with_capacity(points);
             demodulator.demodulate(wave, &mut points);
+            let labels: Vec<u32> = points
+                .iter()
+                .map(|&p| constellation.hard_slice(p))
+                .collect();
+            labels_to_bits(&labels, bits_per_symbol)
+        }),
+    }
+}
+
+#[must_use]
+pub fn gfdm_sync_link() -> Link {
+    let params = gfdm_params();
+    let constellation = qpsk();
+    let by_label = points_by_label(&constellation);
+    let bits_per_symbol = constellation.bits_per_symbol();
+    let points = GFDM_BLOCKS * params.block();
+    let modulator = GfdmMod::new(params);
+    let receiver = GfdmReceiver::new(params, GfdmDetector::ZeroForcing, constellation.clone());
+    Link {
+        label: format!(
+            "gfdm qpsk uncoded, {}×{} block, roll-off {}, {}-sample prefix, {GFDM_BLOCKS} blocks \
+             after a two-half preamble, acquired timing, carrier and channel, zero forcing",
+            params.subcarriers, params.subsymbols, params.rolloff, params.cp
+        ),
+        bits_per_trial: points * bits_per_symbol,
+        modulate: Box::new(move |bits| {
+            let mut modulator = modulator.clone();
+            let points: Vec<Complex<f32>> = bits_to_labels(bits, bits_per_symbol)
+                .into_iter()
+                .map(|label| by_label[label as usize])
+                .collect();
+            let mut wave = vec![Complex::new(0.0, 0.0); LEAD];
+            modulator.frame(&points, &mut wave);
+            wave.resize(wave.len() + TAIL, Complex::new(0.0, 0.0));
+            wave
+        }),
+        demodulate: Box::new(move |wave| {
+            let mut receiver = receiver.clone();
+            let mut points = Vec::with_capacity(points);
+            if receiver.acquire(wave, SEARCH).is_none() {
+                return Vec::new();
+            }
+            receiver.demodulate(wave, GFDM_BLOCKS, &mut points);
             let labels: Vec<u32> = points
                 .iter()
                 .map(|&p| constellation.hard_slice(p))
@@ -193,6 +236,49 @@ pub fn fbmc_link() -> Link {
 
 #[must_use]
 pub fn otfs_link() -> Link {
+    let params = OfdmParams::wifi_like();
+    let grid = OtfsGrid::new(params.data_subcarriers(), SYMBOLS);
+    let constellation = qpsk();
+    let by_label = points_by_label(&constellation);
+    let bits_per_symbol = constellation.bits_per_symbol();
+    let modulator = OtfsMod::new(params.clone(), grid);
+    let receiver = OtfsReceiver::new(params.clone(), grid, constellation.clone());
+    Link {
+        label: format!(
+            "otfs qpsk uncoded, {}×{} delay–Doppler grid over CP-OFDM {}-point/{}-prefix, \
+             acquired timing and carrier, delay–Doppler channel refined from decisions",
+            grid.delay,
+            grid.doppler,
+            params.fft(),
+            params.cp()
+        ),
+        bits_per_trial: grid.points() * bits_per_symbol,
+        modulate: Box::new(move |bits| {
+            let mut modulator = modulator.clone();
+            let dd: Vec<Complex<f32>> = bits_to_labels(bits, bits_per_symbol)
+                .into_iter()
+                .map(|label| by_label[label as usize])
+                .collect();
+            let mut wave = vec![Complex::new(0.0, 0.0); LEAD];
+            modulator.frame(&dd, &mut wave);
+            wave.resize(wave.len() + TAIL, Complex::new(0.0, 0.0));
+            wave
+        }),
+        demodulate: Box::new(move |wave| {
+            let mut receiver = receiver.clone();
+            if receiver.acquire(wave, SEARCH).is_none() {
+                return Vec::new();
+            }
+            let mut dd = Vec::with_capacity(grid.points());
+            receiver.demodulate(wave, &mut dd);
+            let labels: Vec<u32> = dd.iter().map(|&p| constellation.hard_slice(p)).collect();
+            labels_to_bits(&labels, bits_per_symbol)
+        }),
+    }
+}
+
+#[must_use]
+pub fn otfs_genie_link() -> Link {
     let params = OfdmParams::wifi_like();
     let grid = OtfsGrid::new(params.data_subcarriers(), SYMBOLS);
     let constellation = qpsk();
@@ -333,9 +419,11 @@ pub const CAP: u64 = 4_000_000;
 
 pub const GFDM_ZF_SEED: u64 = 0x9f_d0;
 pub const GFDM_MF_SEED: u64 = 0x9f_d1;
+pub const GFDM_SYNC_SEED: u64 = 0x9f_d2;
 pub const UFMC_SEED: u64 = 0x0_fc5e;
 pub const FBMC_SEED: u64 = 0x0_fb3c;
 pub const OTFS_SEED: u64 = 0x0_07f5;
+pub const OTFS_GENIE_SEED: u64 = 0x0_07f7;
 
 const fn oracle(
     stem: &'static str,
@@ -378,6 +466,13 @@ pub const GFDM: &[Measurement] = &[
         GFDM_MF_SEED,
         CAP,
     ),
+    Measurement::committed(
+        "multicarrier/gfdm_sync_awgn",
+        gfdm_sync_link,
+        GRID,
+        GFDM_SYNC_SEED,
+        CAP,
+    ),
 ];
 
 pub const UFMC: &[Measurement] = &[oracle(
@@ -398,16 +493,31 @@ pub const FBMC: &[Measurement] = &[oracle(
     fbmc_oracle,
 )];
 
-pub const OTFS: &[Measurement] = &[oracle(
-    "multicarrier/otfs_awgn",
-    otfs_link,
-    GRID,
-    OTFS_SEED,
-    "Gray QPSK + the carrier frame's overhead",
-    otfs_oracle,
-)];
+pub const OTFS_SYNC_TOL_DB: f64 = 0.2;
+
+pub const OTFS: &[Measurement] = &[
+    Measurement {
+        reference: Reference::OffsetOracle {
+            name: "Gray QPSK + the carrier frame's overhead",
+            ber: otfs_oracle,
+            at_ber: 1e-3,
+            offset_db: 0.0,
+            tolerance_db: OTFS_SYNC_TOL_DB,
+        },
+        ..Measurement::committed("multicarrier/otfs_awgn", otfs_link, GRID, OTFS_SEED, CAP)
+    },
+    oracle(
+        "multicarrier/otfs_genie_awgn",
+        otfs_genie_link,
+        GRID,
+        OTFS_GENIE_SEED,
+        "Gray QPSK + the carrier frame's overhead",
+        otfs_oracle,
+    ),
+];
 
 pub const GFDM_LIMITS: &str = "multicarrier/gfdm_zf_limits";
+pub const GFDM_SYNC_LIMITS: &str = "multicarrier/gfdm_sync_limits";
 pub const OTFS_LIMITS: &str = "multicarrier/otfs_limits";
 
 #[cfg(test)]
@@ -438,6 +548,8 @@ mod tests {
     #[test]
     fn every_link_states_the_bits_it_carries() {
         assert_eq!(gfdm_zf_link().bits_per_trial, GFDM_BLOCKS * 80 * 2);
+        assert_eq!(gfdm_sync_link().bits_per_trial, GFDM_BLOCKS * 80 * 2);
+        assert_eq!(otfs_genie_link().bits_per_trial, SYMBOLS * 48 * 2);
         assert_eq!(ufmc_link().bits_per_trial, SYMBOLS * 48 * 2);
         assert_eq!(fbmc_link().bits_per_trial, FBMC_SYMBOLS * 48 * 2);
         assert_eq!(otfs_link().bits_per_trial, SYMBOLS * 48 * 2);

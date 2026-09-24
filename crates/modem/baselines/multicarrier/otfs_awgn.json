@@ -1,44 +1,44 @@
 {
-  "label": "otfs qpsk uncoded, 48×16 delay–Doppler grid over CP-OFDM 64-point/16-prefix, genie origin, carrier, channel and phase, uncoded BER, seed 0x7f5",
+  "label": "otfs qpsk uncoded, 48×16 delay–Doppler grid over CP-OFDM 64-point/16-prefix, acquired timing and carrier, delay–Doppler channel refined from decisions, uncoded BER, seed 0x7f5",
   "points": [
     {
       "ebn0_db": 0.0,
-      "errors": 2134,
-      "trials": 15360
+      "errors": 2083,
+      "trials": 13824
     },
     {
       "ebn0_db": 2.0,
-      "errors": 2102,
-      "trials": 24576
+      "errors": 2077,
+      "trials": 23040
     },
     {
       "ebn0_db": 4.0,
-      "errors": 2041,
+      "errors": 2047,
       "trials": 49152
     },
     {
       "ebn0_db": 6.0,
-      "errors": 2017,
-      "trials": 132096
+      "errors": 2006,
+      "trials": 130560
     },
     {
       "ebn0_db": 8.0,
-      "errors": 2004,
-      "trials": 646656
+      "errors": 2003,
+      "trials": 611328
     },
     {
       "ebn0_db": 9.0,
-      "errors": 2001,
-      "trials": 1852416
+      "errors": 2000,
+      "trials": 1821696
     },
     {
       "ebn0_db": 10.0,
-      "errors": 1187,
+      "errors": 1201,
       "trials": 4001280
     },
     {
       "ebn0_db": 11.0,
-      "errors": 226,
+      "errors": 236,
       "trials": 4001280
     }
   ]

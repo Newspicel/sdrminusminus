@@ -5,7 +5,10 @@ pub mod transform;
 pub mod ufmc;
 
 pub use fbmc::{FbmcDemod, FbmcMod, FbmcParams};
-pub use gfdm::{GfdmDemod, GfdmDetector, GfdmMod, GfdmParams};
-pub use otfs::{OtfsGrid, OtfsPrecoder};
+pub use gfdm::{
+    GfdmAcquisition, GfdmDemod, GfdmDetector, GfdmMod, GfdmParams, GfdmPreamble, GfdmReceiver,
+    GfdmSync,
+};
+pub use otfs::{OtfsGrid, OtfsMod, OtfsPrecoder, OtfsReceiver};
 pub use transform::Dft;
 pub use ufmc::{UfmcDemod, UfmcMod, UfmcParams};

@@ -6,10 +6,11 @@ use rustfft::{Fft, FftPlanner};
 use super::{
     equalize::{ChannelEstimate, ChannelEstimator, PilotFit, PilotTracker, noise_var_from_repeats},
     params::OfdmParams,
-    sync::{Acquisition, PreambleSync, rotor},
+    sync::{Acquisition, PreambleSync},
 };
 use crate::{
     constellation::{Constellation, demap::max_log_llrs},
+    framesync::rotor,
     soft::Llr,
 };
 
@@ -173,10 +174,35 @@ impl OfdmDemod {
         }
     }
 
+    pub fn observe(
+        &mut self,
+        x: &[Complex<f32>],
+        symbol: usize,
+        raw: &mut [Complex<f32>],
+    ) -> PilotFit {
+        assert_eq!(
+            raw.len(),
+            self.params.map().occupied().len(),
+            "one value per occupied subcarrier"
+        );
+        self.transform_window(x, self.window_start(symbol));
+        let fit = if self.pilot_tracking {
+            self.fit_pilots(symbol)
+        } else {
+            PilotFit::default()
+        };
+        for (slot, c) in raw.iter_mut().zip(self.params.map().occupied()) {
+            *slot = self.grid[c.bin];
+        }
+        fit
+    }
+
+    fn window_start(&self, symbol: usize) -> usize {
+        self.data_start + symbol * self.params.symbol_samples() + self.params.cp() - self.backoff
+    }
+
     fn read_symbol(&mut self, x: &[Complex<f32>], symbol: usize) {
-        let start = self.data_start + symbol * self.params.symbol_samples() + self.params.cp()
-            - self.backoff;
-        self.transform_window(x, start);
+        self.transform_window(x, self.window_start(symbol));
         let fit = if self.pilot_tracking {
             self.fit_pilots(symbol)
         } else {

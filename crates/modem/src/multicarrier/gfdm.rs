@@ -1,4 +1,9 @@
+mod preamble;
+mod receiver;
+
 use num_complex::Complex;
+pub use preamble::{GfdmAcquisition, GfdmPreamble, GfdmSync};
+pub use receiver::{CarrierTracker, GfdmReceiver};
 
 use super::transform::{invert, matvec};
 
@@ -103,6 +108,7 @@ pub struct GfdmMod {
     params: GfdmParams,
     matrix: Vec<Complex<f32>>,
     block: Vec<Complex<f32>>,
+    preamble: Vec<Complex<f32>>,
 }
 
 impl GfdmMod {
@@ -123,6 +129,7 @@ impl GfdmMod {
         Self {
             matrix,
             block: vec![Complex::new(0.0, 0.0); params.block()],
+            preamble: GfdmPreamble::new(&params).block().to_vec(),
             params,
         }
     }
@@ -130,6 +137,17 @@ impl GfdmMod {
     #[must_use]
     pub fn params(&self) -> &GfdmParams {
         &self.params
+    }
+
+    pub fn preamble(&self, out: &mut Vec<Complex<f32>>) {
+        let n = self.params.block();
+        out.extend_from_slice(&self.preamble[n - self.params.cp..]);
+        out.extend_from_slice(&self.preamble);
+    }
+
+    pub fn frame(&mut self, points: &[Complex<f32>], out: &mut Vec<Complex<f32>>) {
+        self.preamble(out);
+        self.modulate(points, out);
     }
 
     pub fn modulate(&mut self, points: &[Complex<f32>], out: &mut Vec<Complex<f32>>) {
@@ -197,6 +215,11 @@ impl GfdmDemod {
     #[must_use]
     pub fn amplification(&self) -> &[f32] {
         &self.amplification
+    }
+
+    pub fn detect_block(&self, window: &[Complex<f32>], out: &mut [Complex<f32>]) {
+        let n = self.params.block();
+        matvec(&self.matrix, n, n, window, out);
     }
 
     pub fn demodulate(&mut self, x: &[Complex<f32>], out: &mut Vec<Complex<f32>>) {

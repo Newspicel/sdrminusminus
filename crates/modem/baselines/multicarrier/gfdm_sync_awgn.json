@@ -1,0 +1,45 @@
+{
+  "label": "gfdm qpsk uncoded, 16×5 block, roll-off 0.5, 8-sample prefix, 16 blocks after a two-half preamble, acquired timing, carrier and channel, zero forcing, uncoded BER, seed 0x9fd2",
+  "points": [
+    {
+      "ebn0_db": 0.0,
+      "errors": 2321,
+      "trials": 10240
+    },
+    {
+      "ebn0_db": 2.0,
+      "errors": 2158,
+      "trials": 30720
+    },
+    {
+      "ebn0_db": 4.0,
+      "errors": 2054,
+      "trials": 66560
+    },
+    {
+      "ebn0_db": 6.0,
+      "errors": 2008,
+      "trials": 209920
+    },
+    {
+      "ebn0_db": 8.0,
+      "errors": 2003,
+      "trials": 1200640
+    },
+    {
+      "ebn0_db": 9.0,
+      "errors": 1950,
+      "trials": 4001280
+    },
+    {
+      "ebn0_db": 10.0,
+      "errors": 468,
+      "trials": 4001280
+    },
+    {
+      "ebn0_db": 11.0,
+      "errors": 71,
+      "trials": 4001280
+    }
+  ]
+}
