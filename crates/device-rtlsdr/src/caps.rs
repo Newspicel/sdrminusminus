@@ -189,7 +189,7 @@ pub(crate) fn kraken_capabilities(lanes: u32, gains: &[i32]) -> Capabilities {
         noise_source: true,
         rx_streams: lanes,
         per_stream: StreamScope {
-            tuning: false,
+            tuning: true,
             gain: true,
             antenna: false,
         },
@@ -577,12 +577,12 @@ mod tests {
     }
 
     #[test]
-    fn a_bank_is_tuned_together_and_carries_the_switches_of_the_whole_unit() {
+    fn every_lane_tunes_alone_and_the_bank_carries_the_switches_of_the_whole_unit() {
         let caps = kraken_capabilities(5, GAIN_VALUES);
         assert_eq!(caps.rx_streams, 5);
         assert_eq!(caps.tx_streams, 0);
         assert_eq!(caps.coherence, sdrmm_wire::Coherence::TimeSync);
-        assert!(!caps.per_stream.tuning, "an array measures one frequency");
+        assert!(caps.per_stream.tuning, "every lane has its own synthesizer");
         assert!(caps.per_stream.gain);
         assert!(caps.noise_source, "the bank calibrates against its own");
         assert!(caps.extra.is_empty(), "the bank has no oddities of its own");

@@ -741,6 +741,7 @@ impl Engine {
                 .device_sets
                 .get_mut(&ds)
                 .ok_or(EngineError::DeviceSetNotFound(ds))?;
+            state.tune_group_together(&mut delta);
             state.settings.carry_offset(&mut delta);
             let (hardware, rate_change) = state.validate_patch(&delta)?;
             let runtime = state.runtime.clone();
@@ -753,14 +754,14 @@ impl Engine {
         let applied = runtime.apply(&hardware);
         self.note_refusal(ds, &hardware, applied.as_ref().err());
         let actual = applied?.map(|actual| DeviceSettings::from_hardware(actual, delta.offset_hz));
-        let (settings, blocking, rate, rebuilds, retuned) = {
+        let (settings, blocking, rate, rebuilds, retuned, group_center) = {
             let mut inner = self.lock();
             let state = inner
                 .device_sets
                 .get_mut(&ds)
                 .ok_or(EngineError::DeviceSetNotFound(ds))?;
             let old_rate = sample_rate_of(&state.settings);
-            let old_center = state.settings.center_hz;
+            let old_centers = state.coherent_centers();
             let old_front_end = front_end(&state.settings);
             let locked_by_export = state.network_export.is_some();
             let owner = if locked_by_export {
@@ -848,18 +849,15 @@ impl Engine {
             }
             let settings = state.settings.clone();
             let blocking = dc_block(&state.capabilities, &settings);
-            let retuned = settings.center_hz != old_center
-                || rate != old_rate
-                || front_end(&settings) != old_front_end;
+            let centers = state.coherent_centers();
+            let retuned =
+                centers != old_centers || rate != old_rate || front_end(&settings) != old_front_end;
+            let group_center = centers.first().copied().unwrap_or(DEFAULT_CENTER_HZ);
             inner.revision += 1;
-            (settings, blocking, rate, rebuilds, retuned)
+            (settings, blocking, rate, rebuilds, retuned, group_center)
         };
         lock_runtime(&runtime).set_meta(&settings, blocking);
-        self.notify_coherent_meta(
-            ds,
-            settings.center_hz.unwrap_or(crate::DEFAULT_CENTER_HZ),
-            retuned,
-        );
+        self.notify_coherent_meta(ds, group_center, retuned);
         let mut dead: Vec<ChannelMedia> = Vec::new();
         for rebuild in rebuilds {
             self.rebuild_channel(ds, rebuild, rate, &mut dead);

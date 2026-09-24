@@ -185,9 +185,28 @@ async fn main() -> anyhow::Result<()> {
     tokio::select! {
         res = handle.join() => res.context("server task failed")?,
         _ = tokio::signal::ctrl_c() => tracing::info!("shutting down"),
+        () = terminated() => tracing::info!("terminated, shutting down"),
     }
     engine.shutdown();
     Ok(())
+}
+
+#[cfg(unix)]
+async fn terminated() {
+    match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
+        Ok(mut term) => {
+            term.recv().await;
+        }
+        Err(error) => {
+            tracing::warn!(%error, "cannot watch for SIGTERM, radios may be left streaming");
+            std::future::pending::<()>().await;
+        }
+    }
+}
+
+#[cfg(not(unix))]
+async fn terminated() {
+    std::future::pending::<()>().await;
 }
 
 #[cfg(test)]

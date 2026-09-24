@@ -71,17 +71,49 @@ impl DeviceDriver for KrakenDriver {
     }
 
     fn open(&self, wanted: &DeviceInfo) -> Result<Box<dyn SdrDevice>, DeviceError> {
-        with_retries(OPEN_ATTEMPTS, REENUMERATE_WAIT, || open_bank(wanted))
+        with_retries(OPEN_ATTEMPTS, || settle(&wanted.key), || open_bank(wanted))
     }
 }
 
-const OPEN_ATTEMPTS: u32 = 3;
+const OPEN_ATTEMPTS: u32 = 5;
 const OPENING_GAIN_TENTHS: i32 = 297;
-const REENUMERATE_WAIT: Duration = Duration::from_secs(2);
+const SETTLE_POLL: Duration = Duration::from_millis(250);
+const SETTLE_LIMIT: Duration = Duration::from_secs(8);
+const SETTLED_POLLS: u32 = 4;
+
+fn bank_addresses(key: &str) -> Option<Vec<(String, u8)>> {
+    let listed = crate::enumerate().ok()?;
+    let unit = unit::units(&listed)
+        .into_iter()
+        .find(|unit| unit.key == key)?;
+    Some(
+        unit.members
+            .iter()
+            .filter_map(|member| listed.get(*member))
+            .map(|lane| (lane.bus.clone(), lane.address))
+            .collect(),
+    )
+}
+
+fn settle(key: &str) {
+    let deadline = std::time::Instant::now() + SETTLE_LIMIT;
+    let mut last = None;
+    let mut steady = 0;
+    while std::time::Instant::now() < deadline && steady < SETTLED_POLLS {
+        std::thread::sleep(SETTLE_POLL);
+        let now = bank_addresses(key);
+        steady = if now.is_some() && now == last {
+            steady + 1
+        } else {
+            0
+        };
+        last = now;
+    }
+}
 
 fn with_retries<T>(
     attempts: u32,
-    wait: Duration,
+    mut settle: impl FnMut(),
     mut open: impl FnMut() -> Result<T, DeviceError>,
 ) -> Result<T, DeviceError> {
     let mut attempt = 1;
@@ -89,8 +121,12 @@ fn with_retries<T>(
         match open() {
             Err(error) if attempt < attempts && re_enumerating(&error) => {
                 tracing::warn!(%error, attempt, "a lane dropped off the bus while opening");
-                std::thread::sleep(wait);
+                settle();
                 attempt += 1;
+            }
+            Err(error) if attempt > 1 => {
+                tracing::warn!(%error, attempt, "the bank did not open");
+                return Err(error);
             }
             result => return result,
         }
@@ -211,14 +247,11 @@ impl KrakenDevice {
     /// Restates the bank from what its lanes settled on, so what a client reads back is what the
     /// radios are actually set to rather than what was asked for.
     fn hold_calibration_gain(&self) -> Result<(), DeviceError> {
-        let center = self
-            .settings
-            .center_hz
-            .unwrap_or(f64::from(DEFAULT_CENTER_HZ));
-        let Some(tenths) = apply::calibration_gain(center, &self.gain_table) else {
-            return Ok(());
-        };
-        for lane in &self.lanes {
+        for (lane, settled) in self.lanes.iter().zip(&self.lane_settings) {
+            let center = settled.center_hz.unwrap_or(f64::from(DEFAULT_CENTER_HZ));
+            let Some(tenths) = apply::calibration_gain(center, &self.gain_table) else {
+                continue;
+            };
             lock(lane).set_gain_manual(tenths).map_err(map_err)?;
         }
         Ok(())
@@ -238,15 +271,14 @@ impl KrakenDevice {
         Ok(())
     }
 
-    fn realign(&mut self) {
-        let (Some(center), Some(rate)) = (self.settings.center_hz, self.settings.sample_rate)
-        else {
-            return;
-        };
-        for (sdr, settled) in self.lanes.iter().zip(&mut self.lane_settings) {
+    fn realign(&mut self, before: &[(Option<f64>, Option<f64>)]) {
+        for ((sdr, settled), tuning) in self.lanes.iter().zip(&mut self.lane_settings).zip(before) {
+            let (Some(center), Some(rate)) = *tuning else {
+                continue;
+            };
             let mut sdr = lock(sdr);
             if let Err(error) = realign_lane(&mut sdr, center as u32, rate as u32) {
-                tracing::error!(%error, "a lane is left off the bank's tuning");
+                tracing::error!(%error, "a lane is left off its previous tuning");
             }
             settled.center_hz = Some(f64::from(sdr.center_freq()));
             settled.sample_rate = Some(f64::from(sdr.sample_rate()));
@@ -270,7 +302,7 @@ impl KrakenDevice {
             .enumerate()
             .map(|(lane, settled)| StreamSettings {
                 stream: lane as u32,
-                center_hz: None,
+                center_hz: settled.center_hz,
                 tuning: None,
                 gains: settled.gains.clone(),
                 antenna: None,
@@ -296,6 +328,11 @@ impl SdrDevice for KrakenDevice {
             &self.lane_settings,
             &self.gain_table,
         )?;
+        let before: Vec<(Option<f64>, Option<f64>)> = self
+            .lane_settings
+            .iter()
+            .map(|settled| (settled.center_hz, settled.sample_rate))
+            .collect();
         let mut failure = None;
         for ((sdr, settled), lane) in self
             .lanes
@@ -323,7 +360,7 @@ impl SdrDevice for KrakenDevice {
         }
         drop(control);
         if failure.is_some() {
-            self.realign();
+            self.realign(&before);
         }
         self.republish();
         if failure.is_none() && plan.bias_tee.is_some() {
@@ -449,11 +486,15 @@ mod tests {
 
     fn attempts_until(outcomes: &[Result<(), DeviceError>]) -> (Result<(), DeviceError>, usize) {
         let calls = Cell::new(0);
-        let result = with_retries(3, Duration::ZERO, || {
-            let at = calls.get();
-            calls.set(at + 1);
-            outcomes[at].clone()
-        });
+        let result = with_retries(
+            3,
+            || {},
+            || {
+                let at = calls.get();
+                calls.set(at + 1);
+                outcomes[at].clone()
+            },
+        );
         (result, calls.get())
     }
 

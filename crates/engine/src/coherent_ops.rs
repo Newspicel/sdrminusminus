@@ -9,7 +9,7 @@ use std::{
 };
 
 use sdrmm_channels::coherent::{CoherentCtx, coherent_descriptor};
-use sdrmm_wire::{CalParams, CalSource, Coherence, CoherentParams};
+use sdrmm_wire::{CalParams, CalSource, Coherence, CoherentParams, DeviceSettings, StreamSettings};
 use tokio::sync::broadcast::{self, error::TryRecvError};
 
 use crate::{
@@ -38,9 +38,24 @@ pub(crate) struct CoherentState {
     pub(crate) updates: broadcast::Sender<CoherentUpdate>,
     pub(crate) surfaces: broadcast::Sender<SurfaceUpdate>,
     pub(crate) nodes: BTreeMap<u32, CoherentParams>,
+    pub(crate) lanes: BTreeMap<u32, Vec<u32>>,
     /// Set while a calibration owns the radio's reference switch, so a second one does not start
     /// on top of it and put the antennas back halfway through the first.
     pub(crate) calibrating: Arc<AtomicBool>,
+}
+
+impl CoherentState {
+    pub(crate) fn members(&self) -> Vec<usize> {
+        let mut members: Vec<usize> = self
+            .lanes
+            .values()
+            .flatten()
+            .map(|lane| *lane as usize)
+            .collect();
+        members.sort_unstable();
+        members.dedup();
+        members
+    }
 }
 
 /// Everything the sequence needs to run without holding the engine open while it waits.
@@ -211,6 +226,7 @@ impl Engine {
                 updates: broadcast::channel(UPDATE_CHANNEL_CAP).0,
                 surfaces: broadcast::channel(SURFACE_CHANNEL_CAP).0,
                 nodes: BTreeMap::new(),
+                lanes: BTreeMap::new(),
                 calibrating: Arc::new(AtomicBool::new(false)),
             });
         }
@@ -235,7 +251,7 @@ impl Engine {
             },
             &params,
             sinks,
-            lanes,
+            lanes.clone(),
         )?;
         let Some(coherent) = state.coherent.as_mut() else {
             return Err(EngineError::Coherent(
@@ -243,12 +259,17 @@ impl Engine {
             ));
         };
         coherent.nodes.insert(node, params);
+        coherent.lanes.insert(node, lanes);
+        coherent
+            .runtime
+            .send(CoherentCommand::Members(coherent.members()));
         coherent.runtime.send(CoherentCommand::Cal {
             params: Box::new(bank_cal(&coherent.nodes)),
         });
         coherent.runtime.send(CoherentCommand::Add { node, host });
         inner.revision += 1;
         drop(inner);
+        self.align_group(ds);
         self.calibrate_against_reference(ds);
         Ok(node)
     }
@@ -308,15 +329,20 @@ impl Engine {
             },
             &params,
             sinks,
-            lanes,
+            lanes.clone(),
         )?;
         coherent.nodes.insert(node, params);
+        coherent.lanes.insert(node, lanes);
+        coherent
+            .runtime
+            .send(CoherentCommand::Members(coherent.members()));
         coherent.runtime.send(CoherentCommand::Cal {
             params: Box::new(bank_cal(&coherent.nodes)),
         });
         coherent.runtime.send(CoherentCommand::Add { node, host });
         inner.revision += 1;
         drop(inner);
+        self.align_group(ds);
         self.calibrate_against_reference(ds);
         Ok(())
     }
@@ -333,8 +359,12 @@ impl Engine {
             return Ok(());
         };
         coherent.nodes.remove(&node);
+        coherent.lanes.remove(&node);
         coherent.runtime.send(CoherentCommand::Remove { node });
         if !coherent.nodes.is_empty() {
+            coherent
+                .runtime
+                .send(CoherentCommand::Members(coherent.members()));
             coherent.runtime.send(CoherentCommand::Cal {
                 params: Box::new(bank_cal(&coherent.nodes)),
             });
@@ -370,6 +400,34 @@ impl Engine {
         }
         self.calibrate_against_reference(ds);
         Ok(())
+    }
+
+    fn align_group(&self, ds: u32) {
+        let delta = {
+            let inner = self.lock();
+            let Some(state) = inner.device_sets.get(&ds) else {
+                return;
+            };
+            let centers = state.coherent_centers();
+            let lanes = state.coherent_lanes();
+            let (Some(&lead), Some(&center)) = (lanes.first(), centers.first()) else {
+                return;
+            };
+            if !state.capabilities.per_stream.tuning || centers.iter().all(|hz| *hz == center) {
+                return;
+            }
+            DeviceSettings {
+                streams: vec![StreamSettings {
+                    stream: lead,
+                    center_hz: Some(center),
+                    ..StreamSettings::default()
+                }],
+                ..DeviceSettings::default()
+            }
+        };
+        if let Err(error) = self.patch_device_from(ds, delta) {
+            tracing::warn!(device_set = ds, %error, "the coherent lanes could not be put on one frequency");
+        }
     }
 
     pub(crate) fn recover_lost_sync(&self) {

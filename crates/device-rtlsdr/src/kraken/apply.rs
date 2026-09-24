@@ -189,16 +189,22 @@ mod tests {
     }
 
     #[test]
-    fn a_lane_cannot_be_tuned_away_from_the_others() {
-        let refused = planned(&DeviceSettings {
+    fn a_lane_tunes_on_its_own() {
+        let plan = planned(&DeviceSettings {
             streams: vec![StreamSettings {
                 stream: 1,
                 center_hz: Some(88e6),
                 ..StreamSettings::default()
             }],
             ..DeviceSettings::default()
-        });
-        assert!(matches!(refused, Err(DeviceError::Unsupported(_))));
+        })
+        .expect("plan");
+        assert_eq!(plan.lanes[1].center_hz, Some(88_000_000));
+        for (lane, planned) in plan.lanes.iter().enumerate() {
+            if lane != 1 {
+                assert_eq!(planned.center_hz, None, "lane {lane} was not retuned");
+            }
+        }
     }
 
     #[test]

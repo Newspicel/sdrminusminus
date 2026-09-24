@@ -1,7 +1,11 @@
 use std::{
     io::Read,
+    path::{Path, PathBuf},
     process::{Command, Stdio},
-    sync::atomic::{AtomicBool, Ordering},
+    sync::{
+        OnceLock,
+        atomic::{AtomicBool, Ordering},
+    },
     time::{Duration, Instant},
 };
 
@@ -16,6 +20,82 @@ const IN_PROCESS: &str = "in-process";
 const TIMEOUT: Duration = Duration::from_secs(20);
 const POLL: Duration = Duration::from_millis(10);
 const STDERR_TAIL: usize = 400;
+const ROOT_ENV: &str = "SOAPY_SDR_ROOT";
+const PLUGIN_PATH_ENV: &str = "SOAPY_SDR_PLUGIN_PATH";
+
+static MODULES: OnceLock<Option<PathBuf>> = OnceLock::new();
+
+fn module_driver(module: &Path) -> Option<String> {
+    let name = module.file_name()?.to_str()?.to_ascii_lowercase();
+    let name = name.strip_prefix("lib").unwrap_or(&name);
+    let stem = name.split_once("support")?.0;
+    (!stem.is_empty()).then(|| stem.to_owned())
+}
+
+fn link_allowed(modules: &[PathBuf], hidden: &[String], dir: &Path) -> std::io::Result<bool> {
+    let allowed: Vec<&PathBuf> = modules
+        .iter()
+        .filter(|module| !module_driver(module).is_some_and(|driver| hidden.contains(&driver)))
+        .collect();
+    if allowed.len() == modules.len() {
+        return Ok(false);
+    }
+    std::fs::create_dir_all(dir)?;
+    for module in allowed {
+        let Some(name) = module.file_name() else {
+            continue;
+        };
+        match link(module, &dir.join(name)) {
+            Err(error) if error.kind() != std::io::ErrorKind::AlreadyExists => return Err(error),
+            _ => {}
+        }
+    }
+    Ok(true)
+}
+
+#[cfg(unix)]
+fn link(module: &Path, at: &Path) -> std::io::Result<()> {
+    std::os::unix::fs::symlink(module, at)
+}
+
+#[cfg(not(unix))]
+fn link(module: &Path, at: &Path) -> std::io::Result<()> {
+    std::fs::copy(module, at).map(|_| ())
+}
+
+fn fingerprint(modules: &[PathBuf], hidden: &[String]) -> u64 {
+    let mut hash = 0xcbf2_9ce4_8422_2325u64;
+    let parts = modules
+        .iter()
+        .map(|module| module.to_string_lossy().into_owned())
+        .chain(hidden.iter().cloned());
+    for part in parts {
+        for byte in part.bytes().chain(std::iter::once(0)) {
+            hash = (hash ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3);
+        }
+    }
+    hash
+}
+
+pub(crate) fn allowed_modules(hidden: &[String]) -> Option<&'static Path> {
+    MODULES
+        .get_or_init(|| {
+            let modules: Vec<PathBuf> = crate::soapy::list_modules()
+                .into_iter()
+                .map(PathBuf::from)
+                .collect();
+            let dir = std::env::temp_dir().join(format!("sdrmm-soapy-{:016x}", fingerprint(&modules, hidden)));
+            match link_allowed(&modules, hidden, &dir) {
+                Ok(true) => Some(dir),
+                Ok(false) => None,
+                Err(error) => {
+                    tracing::warn!(%error, "soapy probe: native radios stay visible to SoapySDR modules");
+                    None
+                }
+            }
+        })
+        .as_deref()
+}
 
 static HELPER: AtomicBool = AtomicBool::new(false);
 
@@ -119,9 +199,13 @@ impl Found {
 ///
 /// A process that enumerates in-process cannot choose which modules are loaded: the first search
 /// loads them all, so there `scope` has nothing left to decide.
-pub(crate) fn devices(filter: &str, scope: Scope) -> Result<Vec<Found>, DeviceError> {
+pub(crate) fn devices(
+    filter: &str,
+    scope: Scope,
+    modules: Option<&Path>,
+) -> Result<Vec<Found>, DeviceError> {
     if isolated() {
-        return spawn(filter, scope);
+        return spawn(filter, scope, modules);
     }
     Ok(crate::enumerate_serialized(filter)
         .map_err(|error| DeviceError::Io(format!("soapy enumerate: {error}")))?
@@ -130,26 +214,34 @@ pub(crate) fn devices(filter: &str, scope: Scope) -> Result<Vec<Found>, DeviceEr
         .collect())
 }
 
-fn spawn(filter: &str, scope: Scope) -> Result<Vec<Found>, DeviceError> {
+fn spawn(filter: &str, scope: Scope, modules: Option<&Path>) -> Result<Vec<Found>, DeviceError> {
     let exe = std::env::current_exe().map_err(|error| {
         DeviceError::Io(format!(
             "soapy probe: cannot locate this executable: {error}"
         ))
     })?;
-    run(&exe, filter, scope, TIMEOUT)
+    run(&exe, filter, scope, modules, TIMEOUT)
 }
 
 fn run(
     exe: &std::path::Path,
     filter: &str,
     scope: Scope,
+    modules: Option<&Path>,
     timeout: Duration,
 ) -> Result<Vec<Found>, DeviceError> {
-    let mut child = Command::new(exe)
+    let mut command = Command::new(exe);
+    command
         .arg(PROBE_FLAG)
         .arg(scope.as_arg())
         .arg(filter)
-        .env(CHILD_MARKER, "1")
+        .env(CHILD_MARKER, "1");
+    if let Some(dir) = modules {
+        command
+            .env(ROOT_ENV, dir.join("root"))
+            .env(PLUGIN_PATH_ENV, dir);
+    }
+    let mut child = command
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -224,6 +316,61 @@ mod tests {
     use super::*;
 
     #[test]
+    fn a_module_is_named_for_the_driver_it_carries() {
+        let driver = |name: &str| module_driver(Path::new(name));
+        assert_eq!(
+            driver("/opt/lib/librtlsdrSupport.so").as_deref(),
+            Some("rtlsdr")
+        );
+        assert_eq!(driver("libHackRFSupport.dylib").as_deref(), Some("hackrf"));
+        assert_eq!(driver("libairspyhfSupport.so").as_deref(), Some("airspyhf"));
+        assert_eq!(driver("PlutoSDRSupport.dll").as_deref(), Some("plutosdr"));
+        assert_eq!(driver("libsomething.so"), None);
+    }
+
+    #[test]
+    fn natively_handled_modules_are_left_out_of_the_probe() {
+        let installed = tempfile::tempdir().expect("tempdir");
+        let modules: Vec<PathBuf> = [
+            "librtlsdrSupport.so",
+            "libairspySupport.so",
+            "libuhdSupport.so",
+        ]
+        .iter()
+        .map(|name| {
+            let path = installed.path().join(name);
+            std::fs::write(&path, b"").expect("module");
+            path
+        })
+        .collect();
+        let probe = tempfile::tempdir().expect("tempdir");
+        let dir = probe.path().join("modules");
+        let hidden = vec!["rtlsdr".to_owned(), "airspyhf".to_owned()];
+        assert!(link_allowed(&modules, &hidden, &dir).expect("link"));
+        let mut kept: Vec<String> = std::fs::read_dir(&dir)
+            .expect("dir")
+            .map(|entry| {
+                entry
+                    .expect("entry")
+                    .file_name()
+                    .to_string_lossy()
+                    .into_owned()
+            })
+            .collect();
+        kept.sort();
+        assert_eq!(kept, ["libairspySupport.so", "libuhdSupport.so"]);
+    }
+
+    #[test]
+    fn nothing_to_hide_leaves_the_search_paths_alone() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let modules = vec![PathBuf::from("/opt/lib/libuhdSupport.so")];
+        assert!(
+            !link_allowed(&modules, &["rtlsdr".to_owned()], &dir.path().join("m")).expect("link")
+        );
+    }
+
+    #[test]
     fn a_library_without_a_helper_enumerates_in_process() {
         assert!(
             !isolated(),
@@ -248,8 +395,14 @@ mod tests {
     #[test]
     fn the_helper_is_told_which_scope_to_search() {
         let (_dir, path) = helper("echo \"$2 $3\" >&2\nexit 1");
-        let error = run(&path, "driver=remote", Scope::Deep, Duration::from_secs(5))
-            .expect_err("this helper answers with its arguments and fails");
+        let error = run(
+            &path,
+            "driver=remote",
+            Scope::Deep,
+            None,
+            Duration::from_secs(5),
+        )
+        .expect_err("this helper answers with its arguments and fails");
         let message = error.to_string();
         assert!(message.contains("deep driver=remote"), "{message}");
     }
@@ -294,7 +447,7 @@ mod tests {
         }])
         .expect("encode");
         let (_dir, path) = helper(&format!("echo '{reply}'"));
-        let found = run(&path, "", Scope::Fast, Duration::from_secs(5)).expect("probe");
+        let found = run(&path, "", Scope::Fast, None, Duration::from_secs(5)).expect("probe");
         assert_eq!(found.len(), 1);
         assert_eq!(found[0].info.key, "00000001");
         assert_eq!(found[0].args, "driver=rtlsdr, serial=00000001");
@@ -318,7 +471,7 @@ mod tests {
     fn a_helper_killed_by_a_vendor_driver_reports_instead_of_taking_us_with_it() {
         let (_dir, path) = helper("echo 'rtlsdr open failed' >&2\nkill -SEGV $$");
         let error =
-            run(&path, "", Scope::Fast, Duration::from_secs(5)).expect_err("probe must fail");
+            run(&path, "", Scope::Fast, None, Duration::from_secs(5)).expect_err("probe must fail");
         let message = error.to_string();
         assert!(message.contains("probe helper failed"), "{message}");
         assert!(message.contains("rtlsdr open failed"), "{message}");
@@ -329,8 +482,8 @@ mod tests {
     fn a_wedged_helper_is_killed_and_reported() {
         let (_dir, path) = helper("sleep 30");
         let start = Instant::now();
-        let error =
-            run(&path, "", Scope::Fast, Duration::from_millis(200)).expect_err("probe must fail");
+        let error = run(&path, "", Scope::Fast, None, Duration::from_millis(200))
+            .expect_err("probe must fail");
         assert!(error.to_string().contains("timed out"), "{error}");
         assert!(
             start.elapsed() < Duration::from_secs(5),
@@ -343,7 +496,7 @@ mod tests {
     fn a_helper_that_answers_with_noise_is_an_error_not_a_panic() {
         let (_dir, path) = helper("echo not-json");
         let error =
-            run(&path, "", Scope::Fast, Duration::from_secs(5)).expect_err("probe must fail");
+            run(&path, "", Scope::Fast, None, Duration::from_secs(5)).expect_err("probe must fail");
         assert!(error.to_string().contains("unreadable reply"), "{error}");
     }
 

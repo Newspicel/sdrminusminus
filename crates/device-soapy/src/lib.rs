@@ -112,7 +112,7 @@ impl ProbeIdentity {
     }
 
     fn is_present(&self) -> Result<bool, DeviceError> {
-        Ok(probe::devices(&self.filter, probe::Scope::Deep)?
+        Ok(probe::devices(&self.filter, probe::Scope::Deep, None)?
             .iter()
             .any(|found| found.info.key == self.key))
     }
@@ -145,10 +145,12 @@ impl SoapyDriver {
     }
 
     fn visible(&self, scope: probe::Scope) -> Result<Vec<probe::Found>, DeviceError> {
-        Ok(probe::devices("", scope)?
-            .into_iter()
-            .filter(|found| !self.hides(found))
-            .collect())
+        Ok(
+            probe::devices("", scope, probe::allowed_modules(&self.excluded))?
+                .into_iter()
+                .filter(|found| !self.hides(found))
+                .collect(),
+        )
     }
 
     fn listed(&self, scope: probe::Scope) -> Vec<DeviceInfo> {

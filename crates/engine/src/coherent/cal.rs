@@ -68,6 +68,7 @@ pub(crate) struct Calibrator {
     phase_solved: bool,
     slips: Vec<Option<Slip>>,
     sync_lost: bool,
+    members: Vec<usize>,
 }
 
 fn frame_for(sample_rate: f64, bandwidth_hz: f64) -> usize {
@@ -105,7 +106,19 @@ impl Calibrator {
             phase_solved: false,
             slips: vec![None; lanes],
             sync_lost: false,
+            members: (0..lanes).collect(),
         }
+    }
+
+    pub(crate) fn set_members(&mut self, mut members: Vec<usize>) {
+        members.retain(|lane| *lane < self.lanes);
+        members.sort_unstable();
+        members.dedup();
+        if members.is_empty() || members == self.members {
+            return;
+        }
+        self.members = members;
+        self.invalidate(false);
     }
 
     pub(crate) const fn take_sync_lost(&mut self) -> bool {
@@ -208,11 +221,20 @@ impl Calibrator {
     }
 
     fn solve(&mut self, lanes: &[&[Complex<f32>]]) {
-        let reference = lanes[0];
+        let Some(&anchor) = self.members.first() else {
+            return;
+        };
+        let Some(&reference) = lanes.get(anchor) else {
+            return;
+        };
         let mut worst = f32::MAX;
         let mut slipped = false;
         let watching = self.solved && !self.pending && !self.state.tier.has_phase();
-        for (lane, source) in lanes.iter().enumerate().skip(1) {
+        for position in 1..self.members.len() {
+            let lane = self.members[position];
+            let Some(&source) = lanes.get(lane) else {
+                continue;
+            };
             let estimate = self.xcorr.estimate(reference, source);
             if estimate.coherence < USABLE_COHERENCE {
                 self.solutions[lane].quality = estimate.coherence;
@@ -250,7 +272,7 @@ impl Calibrator {
             solution.quality = estimate.coherence;
             worst = worst.min(estimate.coherence);
         }
-        self.solutions[0] = Lane {
+        self.solutions[anchor] = Lane {
             quality: 1.0,
             ..Lane::identity()
         };
@@ -531,6 +553,26 @@ mod tests {
         }
         assert!(!cal.take_sync_lost());
         assert!(cal.state().solved);
+    }
+
+    #[test]
+    fn a_lane_outside_the_group_is_left_out_of_the_solve() {
+        let mut cal = Calibrator::new(3, Coherence::TimeSync, injected(), RATE, false);
+        cal.set_members(vec![0, 2]);
+        drive(&mut cal, 3, |round| {
+            let base = round * 4_096;
+            vec![
+                tone(4_096, base + 7, Complex::new(1.0, 0.0)),
+                vec![Complex::new(0.0, 0.0); 4_096],
+                tone(4_096, base, Complex::new(1.0, 0.0)),
+            ]
+        });
+        let state = cal.state();
+        assert!(state.solved, "{state:?}");
+        assert!(
+            (state.lanes[2].delay_samples.abs() - 7.0).abs() < 0.5,
+            "{state:?}"
+        );
     }
 
     #[test]

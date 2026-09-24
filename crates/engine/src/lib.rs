@@ -308,6 +308,40 @@ fn center_of(settings: &DeviceSettings, stream: u32, scope: &StreamScope) -> f64
         .unwrap_or(DEFAULT_CENTER_HZ)
 }
 
+fn tune_together(delta: &mut DeviceSettings, group: &[u32]) {
+    let Some(leader) = delta
+        .streams
+        .iter()
+        .filter(|entry| group.contains(&entry.stream))
+        .filter(|entry| entry.center_hz.is_some() || entry.tuning.is_some())
+        .min_by_key(|entry| entry.stream)
+        .map(|entry| (entry.center_hz, entry.tuning))
+    else {
+        return;
+    };
+    for lane in group {
+        let entry = match delta.streams.iter().position(|entry| entry.stream == *lane) {
+            Some(at) => &mut delta.streams[at],
+            None => {
+                delta.streams.push(sdrmm_wire::StreamSettings {
+                    stream: *lane,
+                    ..sdrmm_wire::StreamSettings::default()
+                });
+                let Some(last) = delta.streams.last_mut() else {
+                    return;
+                };
+                last
+            }
+        };
+        if leader.0.is_some() {
+            entry.center_hz = leader.0;
+        }
+        if leader.1.is_some() {
+            entry.tuning = leader.1;
+        }
+    }
+}
+
 fn ids_of(devices: &[DeviceInfo]) -> Vec<String> {
     devices.iter().map(DeviceInfo::id).collect()
 }
@@ -659,6 +693,37 @@ impl DeviceSetState {
             .iter()
             .map(|counter| counter.load(Ordering::Relaxed))
             .sum()
+    }
+
+    fn coherent_lanes(&self) -> Vec<u32> {
+        self.coherent
+            .as_ref()
+            .map(|coherent| {
+                coherent
+                    .members()
+                    .into_iter()
+                    .map(|lane| lane as u32)
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    fn coherent_centers(&self) -> Vec<f64> {
+        let lanes = self.coherent_lanes();
+        if lanes.is_empty() {
+            return vec![center_of(&self.settings, 0, &self.capabilities.per_stream)];
+        }
+        lanes
+            .iter()
+            .map(|lane| center_of(&self.settings, *lane, &self.capabilities.per_stream))
+            .collect()
+    }
+
+    fn tune_group_together(&self, delta: &mut DeviceSettings) {
+        if !self.capabilities.per_stream.tuning {
+            return;
+        }
+        tune_together(delta, &self.coherent_lanes());
     }
 
     fn take_clipping(&self) -> Vec<u32> {

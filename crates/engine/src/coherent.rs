@@ -49,6 +49,7 @@ pub(crate) enum CoherentCommand {
     Cal { params: Box<CalParams> },
     Recalibrate,
     Reference(bool),
+    Members(Vec<usize>),
 }
 
 pub struct CoherentRuntime {
@@ -286,6 +287,7 @@ fn drain_commands(
             CoherentCommand::Cal { params } => calibrator.apply(*params, sample_rate),
             CoherentCommand::Recalibrate => calibrator.invalidate(false),
             CoherentCommand::Reference(on) => calibrator.reference(on),
+            CoherentCommand::Members(members) => calibrator.set_members(members),
         }
     }
 }

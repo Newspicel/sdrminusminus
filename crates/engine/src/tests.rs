@@ -24,6 +24,7 @@ mod clipping;
 mod device_patch;
 mod discovery;
 mod front_end;
+mod group_tuning;
 #[cfg(all(feature = "rtlsdr", feature = "hackrf", feature = "soapy"))]
 mod hardware;
 mod hotplug;
