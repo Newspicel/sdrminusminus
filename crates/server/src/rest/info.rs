@@ -264,7 +264,12 @@ pub(super) async fn run_tool(
 )]
 pub(super) async fn get_about(State(state): State<AppState>) -> Json<AboutResponse> {
     Json(AboutResponse {
-        lan_addresses: crate::notices::lan_addresses(),
+        lan_addresses: if state.local_only {
+            Vec::new()
+        } else {
+            crate::notices::lan_addresses()
+        },
+        local_only: state.local_only,
         routing: state.routing.configured(),
         offline_basemap: crate::basemap::basemap_path(&state).is_some(),
         reveal: state.shell.is_some(),

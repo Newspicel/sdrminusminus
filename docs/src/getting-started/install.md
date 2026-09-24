@@ -18,7 +18,8 @@ sits somewhere else and you connect from a browser. Both run the same receiver.
 ## Desktop app
 
 Download the installer from the [download page](/download.html) and open SDR--. The app starts
-its own server on a private local port.
+its own server on a random port only this computer can reach. For a fixed port or access from
+other devices, run the [server](#portable-server) instead.
 
 | Platform | Package |
 |---|---|
@@ -69,6 +70,9 @@ echo "deb [signed-by=/usr/share/keyrings/sdrminusminus.gpg] https://newspicel.gi
 sudo apt update
 sudo apt install sdrminusminus
 ```
+
+APT and DNF install the desktop app. For the `sdrmm` server, use the
+[portable server](#portable-server).
 
 ## DNF
 

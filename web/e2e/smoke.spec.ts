@@ -1018,7 +1018,6 @@ test.describe("the workspace", () => {
     await page.goto("/");
     await page.getByRole("button", { name: "Library" }).click();
     await page.getByRole("tab", { name: "Field" }).click();
-    await expect(page.getByRole("img", { name: "Field mode QR code" })).toBeVisible();
     await expect(page.getByRole("tabpanel").getByText(/\/field(\?|$)/)).toBeVisible();
   });
 

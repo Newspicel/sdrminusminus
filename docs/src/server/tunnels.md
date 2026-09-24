@@ -80,4 +80,4 @@ Open the HTTPS address, start a receiver, and check that spectrum and audio move
 - **Cloudflare:** open a private window and check the login appears before SDR-- does.
 
 For [field mode](../user-guide/field-mode.md), open **Library → Field** from the HTTPS page so the
-QR code uses that address.
+link uses that address.

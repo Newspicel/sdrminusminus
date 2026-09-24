@@ -19,10 +19,18 @@ export function FieldPanel() {
   const [pick, setPick] = useState(0);
   const origin = origins[Math.min(pick, origins.length - 1)] ?? window.location.origin;
   const url = handoffUrl(origin);
+  if (about.data?.local_only) {
+    return (
+      <p className="mx-auto w-72 max-w-full p-3 text-center text-xs text-ink-faint">
+        The server only listens on this machine. Start it with <code>--bind 0.0.0.0:8080</code>.
+      </p>
+    );
+  }
   return (
     <div className="mx-auto flex w-72 max-w-full flex-col items-center gap-2 p-3">
       {/* biome-ignore lint/security/noDangerouslySetInnerHtml: uqr renders an SVG string, no user input */}
       <div
+        hidden
         className="rounded bg-white p-2"
         role="img"
         aria-label="Field mode QR code"

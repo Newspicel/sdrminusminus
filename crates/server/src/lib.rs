@@ -97,6 +97,7 @@ pub(crate) struct AppState {
     pub(crate) fusion: df_fusion::SharedFusion,
     pub(crate) routing: Arc<routing::RoutingOptions>,
     pub(crate) shell: Option<Arc<dyn NativeShell>>,
+    pub(crate) local_only: bool,
 }
 
 impl AppState {
@@ -126,6 +127,7 @@ impl AppState {
             fusion: Arc::new(df_fusion::FusionHub::default()),
             routing: Arc::new(routing::RoutingOptions::default()),
             shell: None,
+            local_only: false,
         }
     }
 
@@ -411,6 +413,7 @@ pub async fn serve(config: Config, engine: Arc<Engine>) -> std::io::Result<Serve
     let mut state = AppState::new(engine, Arc::new(store));
     state.auth = auth::Auth::new(config.options.token.as_deref());
     state.db_path = config.db_path.clone();
+    state.local_only = config.bind.ip().is_loopback();
     let (app, background) = router_with_state(state, &config.options);
     let tls_config = config
         .tls

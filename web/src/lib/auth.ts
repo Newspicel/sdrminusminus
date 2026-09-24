@@ -73,7 +73,7 @@ export const TOKEN_PARAM = "token";
 /// Takes a token out of the address bar, keeps it, and puts the address back the way it should
 /// have been.
 ///
-/// This is how a phone joins: the operator scans a QR code that carries the token, and the phone
+/// This is how a phone joins: the operator opens a link that carries the token, and the phone
 /// must not be left holding a URL that leaks it into history, a screenshot or a shared link.
 export function adoptTokenFromUrl(location: Location, history: History): string | null {
   const url = new URL(location.href);

@@ -5,9 +5,12 @@ workspace on a desktop first, then connect the phone to the same server.
 
 ## Connect a phone
 
-Open **Library → Field** and scan the QR code. The link carries the server token, which field mode
-saves and removes from the address bar. If the desktop is on `localhost`, the QR code uses a LAN
+Open **Library → Field** and open the link on the phone. It carries the server token, which field
+mode saves and removes from the address bar. If the desktop is on `localhost`, the link uses a LAN
 address instead. You can also open `/field` in any browser that reaches the server.
+
+The phone must reach the server. The desktop app and `sdrmm --bind 127.0.0.1:<port>` only listen
+on this computer; run `sdrmm` with the default `--bind 0.0.0.0:8080`.
 
 Phone location needs HTTPS. Away from home, use
 [a tunnel](../server/tunnels.md).

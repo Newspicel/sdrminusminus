@@ -35,6 +35,7 @@ pub fn about() -> AboutResponse {
         routing: false,
         offline_basemap: false,
         reveal: false,
+        local_only: false,
     }
 }
 

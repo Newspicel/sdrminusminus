@@ -4272,6 +4272,9 @@
           "license_text": {
             "type": "string"
           },
+          "local_only": {
+            "type": "boolean"
+          },
           "name": {
             "type": "string"
           },

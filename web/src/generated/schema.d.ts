@@ -1330,6 +1330,7 @@ export interface components {
             lan_addresses?: string[];
             license: string;
             license_text: string;
+            local_only?: boolean;
             name: string;
             /**
              * @description Whether an operator has put a map archive next to the database, so the client can draw a

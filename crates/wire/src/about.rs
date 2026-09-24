@@ -60,6 +60,8 @@ pub struct AboutResponse {
     /// server elsewhere gets download links instead.
     #[serde(default)]
     pub reveal: bool,
+    #[serde(default)]
+    pub local_only: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
