@@ -5,6 +5,7 @@ import {
   audioChainActive,
   channelDecoderKind,
   channelHasAudio,
+  channelWidthHz,
   clampOffsetHz,
   limitOf,
   mergeAudio,
@@ -217,6 +218,26 @@ describe("offsetLimitHz", () => {
 
   it("falls back to a point channel when the type is unknown", () => {
     expect(offsetLimitHz(2_000_000, undefined)).toBe(1_000_000);
+  });
+});
+
+describe("channelWidthHz", () => {
+  it("prefers the decoder's own bandwidth setting", () => {
+    expect(
+      channelWidthHz(
+        { type: "am", settings: { bandwidth_hz: 8_000 } } as ChannelSettings["params"],
+        descriptor({ bandwidth_hz: 10_000 }),
+      ),
+    ).toBe(8_000);
+  });
+
+  it("falls back to the channel type width", () => {
+    expect(channelWidthHz(undefined, descriptor({ bandwidth_hz: 12_500 }))).toBe(12_500);
+  });
+
+  it("hides a missing or zero width", () => {
+    expect(channelWidthHz(undefined, descriptor({ bandwidth_hz: 0 }))).toBeNull();
+    expect(channelWidthHz(undefined, undefined)).toBeNull();
   });
 });
 

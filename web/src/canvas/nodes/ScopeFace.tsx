@@ -13,6 +13,7 @@ import {
 } from "react";
 import { Button } from "../../components/BaseControls";
 import { identify, suggestedAt } from "../../components/bandPlan";
+import { paramBandwidthHz } from "../../components/channelSettings";
 import { plotButton } from "../../components/controls";
 import { clampWindow } from "../../components/dbRange";
 import { formatHz, formatMhz } from "../../components/format";
@@ -977,7 +978,7 @@ function Markers({
             {members.map(({ channel, hz, at }) => {
               const active = channel.id === selected;
               const owner = owners.get(channel.id);
-              const bandwidth = bandwidthHz(channel.settings.params);
+              const bandwidth = paramBandwidthHz(channel.settings.params);
               return (
                 <Fragment key={channel.id}>
                   {bandwidth !== null && visible > 0 && (
@@ -1155,12 +1156,6 @@ function MarkerLabel({
       {children}
     </span>
   );
-}
-
-function bandwidthHz(params: ChannelParams): number | null {
-  return "bandwidth_hz" in params.settings && typeof params.settings.bandwidth_hz === "number"
-    ? params.settings.bandwidth_hz
-    : null;
 }
 
 function markerAt(

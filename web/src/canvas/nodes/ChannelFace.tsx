@@ -4,6 +4,7 @@ import { ChannelControls, ChannelDial } from "../../components/ChannelControls";
 import { Checkbox } from "../../components/Checkbox";
 import {
   channelHasAudio,
+  channelWidthHz,
   radioWindowHz,
   reachesHz,
   squelchLevelDb,
@@ -11,6 +12,7 @@ import {
 import { BTN_PRIMARY } from "../../components/controls";
 import { ANY_FREQUENCY, tuningRange } from "../../components/dial";
 import { dialId } from "../../components/FrequencyDial";
+import { formatHz } from "../../components/format";
 import { LevelMeter } from "../../components/LevelMeter";
 import { SettingRow } from "../../components/Settings";
 import { devicesQuery } from "../../lib/api";
@@ -107,6 +109,7 @@ export function ChannelFace({ node }: { node: PatchNode }) {
     driver: scanned ? "scanning" : (tracked?.name ?? (tracked === null ? null : "satellite")),
     carrier,
   });
+  const widthHz = channelWidthHz(settings?.params, descriptor);
   const action = live === null ? channelBindingAction(binding) : null;
 
   return (
@@ -115,6 +118,9 @@ export function ChannelFace({ node }: { node: PatchNode }) {
       title={name}
       category="channel"
       subtitle={status}
+      badge={
+        widthHz === null ? undefined : <span title="Channel bandwidth">{formatHz(widthHz)}</span>
+      }
       width={channelHasAudio(descriptor) ? AUDIO_FACE_W : undefined}
     >
       <FaceBody>

@@ -118,6 +118,7 @@ export interface NodeShellProps {
   title: string;
   category: NodeCategory;
   subtitle?: ReactNode;
+  badge?: ReactNode;
   actions?: ReactNode;
   width?: number;
   children: ReactNode;
@@ -128,6 +129,7 @@ export function NodeShell({
   title,
   category,
   subtitle,
+  badge,
   actions,
   width,
   children,
@@ -178,6 +180,9 @@ export function NodeShell({
           <span className="truncate font-mono text-[11px] font-medium text-ink">
             {node.label ?? title}
           </span>
+          {badge !== undefined && (
+            <span className="shrink-0 font-mono text-[10.5px] text-ink-faint">{badge}</span>
+          )}
           {subtitle !== undefined && (
             <span className="ml-auto truncate font-mono text-[10.5px] text-ink-faint">
               {subtitle}

@@ -189,6 +189,21 @@ export function reachesHz(frequencyHz: number, window: RadioWindow | null): bool
   return window === null || (frequencyHz >= window.lowHz && frequencyHz <= window.highHz);
 }
 
+export function paramBandwidthHz(params: ChannelParams): number | null {
+  return "bandwidth_hz" in params.settings && typeof params.settings.bandwidth_hz === "number"
+    ? params.settings.bandwidth_hz
+    : null;
+}
+
+export function channelWidthHz(
+  params: ChannelParams | undefined,
+  descriptor: ChannelDescriptor | undefined,
+): number | null {
+  const width =
+    (params === undefined ? null : paramBandwidthHz(params)) ?? descriptor?.bandwidth_hz;
+  return width !== undefined && Number.isFinite(width) && width > 0 ? width : null;
+}
+
 export function offsetLimitHz(
   spanHz: number | null | undefined,
   descriptor: ChannelDescriptor | undefined,
