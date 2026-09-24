@@ -436,7 +436,14 @@ impl R82xx {
 
             self.write_reg_mask(dev, 0x10, 0x00, 0x03)?;
 
-            self.set_pll(dev, filt_cal_lo * 1000)?;
+            match self.set_pll(dev, filt_cal_lo * 1000) {
+                Err(Error::PllLockFailed { .. }) => {
+                    warn!("filter calibration PLL did not lock, using the default filter");
+                    self.fil_cal_code = 0;
+                    break;
+                }
+                result => result?,
+            }
 
             self.write_reg_mask(dev, 0x0b, 0x10, 0x10)?;
 
@@ -660,17 +667,16 @@ impl R82xx {
 
         trace!("PLL SDM: 0x{:04x}", sdm);
 
-        for attempt in 0..2 {
+        for (attempt, stronger) in [Some(0x60), Some(0x00), None].into_iter().enumerate() {
             let lock_data = self.read_regs(dev, 0x00, 3)?;
             if lock_data[2] & 0x40 != 0 {
                 trace!("PLL locked on attempt {}", attempt + 1);
                 self.write_reg_mask(dev, 0x1a, 0x08, 0x08)?;
                 return Ok(());
             }
-
-            if attempt == 0 {
+            if let Some(current) = stronger {
                 trace!("PLL not locked, increasing VCO current");
-                self.write_reg_mask(dev, 0x12, 0x60, 0xe0)?;
+                self.write_reg_mask(dev, 0x12, current, 0xe0)?;
             }
         }
 

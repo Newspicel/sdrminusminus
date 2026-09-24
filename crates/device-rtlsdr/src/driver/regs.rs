@@ -61,11 +61,11 @@ impl Rtl2832u {
             .map_err(on(|| format!("read of block {block:#x} reg {addr:#06x}")))?;
 
         match *data.as_slice() {
-            [low] => Ok(u16::from(low)),
+            [low] if len == 1 => Ok(u16::from(low)),
             [low, high, ..] => Ok(u16::from_le_bytes([low, high])),
-            [] => Err(Error::ShortResponse {
+            _ => Err(Error::ShortResponse {
                 what: "register read",
-                got: 0,
+                got: data.len(),
             }),
         }
     }

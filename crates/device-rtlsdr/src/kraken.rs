@@ -1,22 +1,28 @@
-use std::sync::{
-    Arc, Condvar, Mutex, PoisonError,
-    atomic::{AtomicBool, Ordering},
+use std::{
+    sync::{
+        Arc, Condvar, Mutex, PoisonError,
+        atomic::{AtomicBool, Ordering},
+    },
+    time::Duration,
 };
 
 use sdrmm_device::{
     CaptureConfig, DeviceDriver, DeviceError, RxSink, SdrDevice, Worker, drain_stream, lock,
 };
 use sdrmm_wire::{
-    AgcSetting, BandwidthSetting, Capabilities, DeviceInfo, DeviceSettings, StreamSettings,
+    AgcSetting, BandwidthSetting, Capabilities, DeviceInfo, DeviceSettings, GainKind, GainValue,
+    StreamSettings,
 };
 
 use crate::{
     DEFAULT_CENTER_HZ, apply_to_hardware, caps, convert,
-    driver::{BoardVariant, DeviceDescriptors, RtlSdr},
+    driver::{DeviceDescriptors, RtlSdr},
     map_err,
 };
 
 mod apply;
+#[cfg(test)]
+mod hardware;
 mod unit;
 
 pub(crate) use unit::claimed;
@@ -65,19 +71,52 @@ impl DeviceDriver for KrakenDriver {
     }
 
     fn open(&self, wanted: &DeviceInfo) -> Result<Box<dyn SdrDevice>, DeviceError> {
-        let descriptors = DeviceDescriptors::new().map_err(map_err)?;
-        let listed: Vec<_> = descriptors.iter().cloned().collect();
-        let unit = unit::units(&listed)
-            .into_iter()
-            .find(|unit| unit.key == wanted.key)
-            .ok_or_else(|| DeviceError::NotFound(wanted.id()))?;
-        let mut lanes = Vec::with_capacity(unit.members.len());
-        for member in &unit.members {
-            lanes.push(descriptors.open(*member).map_err(map_err)?);
-        }
-        tracing::info!(model = unit.model, key = %unit.key, lanes = lanes.len(), "opened a coherent bank");
-        Ok(Box::new(KrakenDevice::new(lanes)?))
+        with_retries(OPEN_ATTEMPTS, REENUMERATE_WAIT, || open_bank(wanted))
     }
+}
+
+const OPEN_ATTEMPTS: u32 = 3;
+const OPENING_GAIN_TENTHS: i32 = 297;
+const REENUMERATE_WAIT: Duration = Duration::from_secs(2);
+
+fn with_retries<T>(
+    attempts: u32,
+    wait: Duration,
+    mut open: impl FnMut() -> Result<T, DeviceError>,
+) -> Result<T, DeviceError> {
+    let mut attempt = 1;
+    loop {
+        match open() {
+            Err(error) if attempt < attempts && re_enumerating(&error) => {
+                tracing::warn!(%error, attempt, "a lane dropped off the bus while opening");
+                std::thread::sleep(wait);
+                attempt += 1;
+            }
+            result => return result,
+        }
+    }
+}
+
+fn re_enumerating(error: &DeviceError) -> bool {
+    matches!(
+        error,
+        DeviceError::Disconnected(_) | DeviceError::InUse(_) | DeviceError::NotFound(_)
+    )
+}
+
+fn open_bank(wanted: &DeviceInfo) -> Result<Box<dyn SdrDevice>, DeviceError> {
+    let descriptors = DeviceDescriptors::new().map_err(map_err)?;
+    let listed: Vec<_> = descriptors.iter().cloned().collect();
+    let unit = unit::units(&listed)
+        .into_iter()
+        .find(|unit| unit.key == wanted.key)
+        .ok_or_else(|| DeviceError::NotFound(wanted.id()))?;
+    let mut lanes = Vec::with_capacity(unit.members.len());
+    for member in &unit.members {
+        lanes.push(descriptors.open(*member).map_err(map_err)?);
+    }
+    tracing::info!(model = unit.model, key = %unit.key, lanes = lanes.len(), "opened a coherent bank");
+    Ok(Box::new(KrakenDevice::new(lanes)?))
 }
 
 /// Holds every lane until the last one is ready to run.
@@ -124,7 +163,11 @@ fn settled_from(sdr: &RtlSdr) -> DeviceSettings {
         ppm: Some(f64::from(sdr.freq_correction())),
         antenna: Some("RX".to_owned()),
         bandwidth: Some(BandwidthSetting::Auto),
-        agc: Some(AgcSetting::switched(true)),
+        agc: Some(AgcSetting::switched(false)),
+        gains: vec![GainValue::new(
+            GainKind::Tuner,
+            f64::from(OPENING_GAIN_TENTHS) / 10.0,
+        )],
         ..DeviceSettings::default()
     }
 }
@@ -142,18 +185,10 @@ impl KrakenDevice {
             sdr.set_sample_rate(DEFAULT_SAMPLE_RATE_HZ)
                 .map_err(map_err)?;
             sdr.set_center_freq(DEFAULT_CENTER_HZ).map_err(map_err)?;
-            sdr.set_gain_auto().map_err(map_err)?;
+            sdr.set_gain_manual(OPENING_GAIN_TENTHS).map_err(map_err)?;
             lane_settings.push(settled_from(sdr));
         }
-        let control = &lanes[0];
-        control
-            .set_gpio(apply::NOISE_SOURCE_PIN, false)
-            .map_err(map_err)?;
-        for lane in 0..lanes.len() {
-            control
-                .set_gpio(apply::bias_tee_pin(lane), false)
-                .map_err(map_err)?;
-        }
+        switch_off(&lanes[0], lanes.len()).map_err(map_err)?;
         let count = lanes.len() as u32;
         let mut device = Self {
             lanes: lanes
@@ -161,7 +196,7 @@ impl KrakenDevice {
                 .map(|sdr| Arc::new(Mutex::new(sdr)))
                 .collect(),
             capabilities: caps::kraken_capabilities(count, &gain_table),
-            lane_capabilities: caps::capabilities(BoardVariant::Generic, &gain_table),
+            lane_capabilities: caps::kraken_lane_capabilities(&gain_table),
             settings: DeviceSettings::default(),
             lane_settings,
             gain_table,
@@ -175,6 +210,49 @@ impl KrakenDevice {
 
     /// Restates the bank from what its lanes settled on, so what a client reads back is what the
     /// radios are actually set to rather than what was asked for.
+    fn hold_calibration_gain(&self) -> Result<(), DeviceError> {
+        let center = self
+            .settings
+            .center_hz
+            .unwrap_or(f64::from(DEFAULT_CENTER_HZ));
+        let Some(tenths) = apply::calibration_gain(center, &self.gain_table) else {
+            return Ok(());
+        };
+        for lane in &self.lanes {
+            lock(lane).set_gain_manual(tenths).map_err(map_err)?;
+        }
+        Ok(())
+    }
+
+    fn restore_gains(&self) -> Result<(), DeviceError> {
+        for (lane, settled) in self.lanes.iter().zip(&self.lane_settings) {
+            let mut sdr = lock(lane);
+            let agc = settled.agc.as_ref().is_some_and(|agc| agc.on);
+            match caps::current_manual_tenths(settled) {
+                _ if agc => sdr.set_gain_auto(),
+                Some(tenths) => sdr.set_gain_manual(tenths),
+                None => Ok(()),
+            }
+            .map_err(map_err)?;
+        }
+        Ok(())
+    }
+
+    fn realign(&mut self) {
+        let (Some(center), Some(rate)) = (self.settings.center_hz, self.settings.sample_rate)
+        else {
+            return;
+        };
+        for (sdr, settled) in self.lanes.iter().zip(&mut self.lane_settings) {
+            let mut sdr = lock(sdr);
+            if let Err(error) = realign_lane(&mut sdr, center as u32, rate as u32) {
+                tracing::error!(%error, "a lane is left off the bank's tuning");
+            }
+            settled.center_hz = Some(f64::from(sdr.center_freq()));
+            settled.sample_rate = Some(f64::from(sdr.sample_rate()));
+        }
+    }
+
     fn republish(&mut self) {
         let Some(first) = self.lane_settings.first() else {
             return;
@@ -244,6 +322,9 @@ impl SdrDevice for KrakenDevice {
             }
         }
         drop(control);
+        if failure.is_some() {
+            self.realign();
+        }
         self.republish();
         if failure.is_none() && plan.bias_tee.is_some() {
             self.settings.bias_tee = plan.bias_tee;
@@ -254,9 +335,13 @@ impl SdrDevice for KrakenDevice {
     /// Switches the bank's own noise source into every lane, through the one dongle whose GPIO
     /// the switch hangs off.
     fn set_noise_source(&mut self, on: bool) -> Result<(), DeviceError> {
+        if on {
+            self.hold_calibration_gain()?;
+        }
         lock(&self.lanes[0])
             .set_gpio(apply::NOISE_SOURCE_PIN, on)
-            .map_err(map_err)
+            .map_err(map_err)?;
+        if on { Ok(()) } else { self.restore_gains() }
     }
 
     fn rx_start(&mut self, sinks: Vec<RxSink>) -> Result<(), DeviceError> {
@@ -326,17 +411,82 @@ impl SdrDevice for KrakenDevice {
     }
 }
 
+fn realign_lane(sdr: &mut RtlSdr, center: u32, rate: u32) -> Result<(), crate::driver::Error> {
+    if sdr.sample_rate() != rate {
+        sdr.set_sample_rate(rate)?;
+    }
+    if sdr.center_freq() != center {
+        sdr.set_center_freq(center)?;
+    }
+    Ok(())
+}
+
+fn switch_off(control: &RtlSdr, lanes: usize) -> Result<(), crate::driver::Error> {
+    control.set_gpio(apply::NOISE_SOURCE_PIN, false)?;
+    for lane in 0..lanes {
+        control.set_gpio(apply::bias_tee_pin(lane), false)?;
+    }
+    Ok(())
+}
+
 impl Drop for KrakenDevice {
     fn drop(&mut self) {
         self.rx_stop();
+        let Some(control) = self.lanes.first() else {
+            return;
+        };
+        if let Err(error) = switch_off(&lock(control), self.lanes.len()) {
+            tracing::warn!(%error, "the bank's noise source and bias tees may still be on");
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::{sync::mpsc, time::Duration};
+    use std::{cell::Cell, sync::mpsc};
 
     use super::*;
+
+    fn attempts_until(outcomes: &[Result<(), DeviceError>]) -> (Result<(), DeviceError>, usize) {
+        let calls = Cell::new(0);
+        let result = with_retries(3, Duration::ZERO, || {
+            let at = calls.get();
+            calls.set(at + 1);
+            outcomes[at].clone()
+        });
+        (result, calls.get())
+    }
+
+    #[test]
+    fn a_bank_opens_on_a_gain_every_tuner_can_hold() {
+        assert!(crate::driver::GAIN_VALUES.contains(&OPENING_GAIN_TENTHS));
+    }
+
+    #[test]
+    fn a_lane_that_dropped_off_is_given_time_to_come_back() {
+        let (result, calls) = attempts_until(&[
+            Err(DeviceError::Disconnected("gone".to_owned())),
+            Err(DeviceError::InUse("re-enumerating".to_owned())),
+            Ok(()),
+        ]);
+        assert!(result.is_ok());
+        assert_eq!(calls, 3);
+    }
+
+    #[test]
+    fn a_bank_that_stays_gone_fails_after_the_last_attempt() {
+        let gone = || Err(DeviceError::Disconnected("gone".to_owned()));
+        let (result, calls) = attempts_until(&[gone(), gone(), gone()]);
+        assert!(matches!(result, Err(DeviceError::Disconnected(_))));
+        assert_eq!(calls, 3);
+    }
+
+    #[test]
+    fn a_fault_that_is_not_the_bus_is_not_retried() {
+        let (result, calls) = attempts_until(&[Err(DeviceError::Io("pll".to_owned()))]);
+        assert!(matches!(result, Err(DeviceError::Io(_))));
+        assert_eq!(calls, 1);
+    }
 
     fn crew(gate: &Arc<StartGate>, lanes: usize) -> mpsc::Receiver<bool> {
         let (tx, rx) = mpsc::channel();

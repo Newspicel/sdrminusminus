@@ -291,6 +291,7 @@ pub(super) fn bring_up(
             .is_some_and(|set| {
                 set.channels.iter().any(|existing| {
                     existing.stream == stream
+                        && existing.node.as_deref() == Some(node.as_str())
                         && existing.settings.params.type_id() == channel.channel_type
                 })
             });
@@ -305,7 +306,7 @@ pub(super) fn bring_up(
             });
             continue;
         };
-        match engine.add_channel(device_set, stream, settings) {
+        match engine.add_channel_for(device_set, stream, settings, Some(&node)) {
             Ok(_) => report.created += 1,
             Err(err) => report.refused.push(PatchRefusal {
                 node,

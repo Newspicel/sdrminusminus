@@ -27,6 +27,7 @@ import { releaseRadio } from "../remove";
 import { arrayHolding } from "./arrayNode";
 import {
   autoTuning,
+  clippingSaid,
   faultSaid,
   type Hearing,
   hearing,
@@ -372,11 +373,17 @@ function DeviceHealth({ set }: { set: DeviceSet }) {
   const health = usePipelineHealth((state) => state.health);
   const summary = queueSummary(health, set.id);
   const overruns = set.overruns ?? 0;
-  if (summary === null && overruns === 0) {
+  const clipping = clippingSaid(set);
+  if (summary === null && overruns === 0 && clipping === null) {
     return null;
   }
   return (
     <Readout>
+      {clipping !== null && (
+        <ReadoutRow label="Clipping" title="The ADC is at full scale. Lower the gain.">
+          {clipping}
+        </ReadoutRow>
+      )}
       {summary !== null && (
         <ReadoutRow label="Queue" title={summary.detail}>
           {summary.oldestMs.toFixed(0)} ms

@@ -81,6 +81,8 @@ pub struct DeviceSet {
     pub channels: Vec<ChannelInfo>,
     #[serde(default)]
     pub overruns: u64,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub clipping: Vec<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

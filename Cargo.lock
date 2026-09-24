@@ -5888,6 +5888,7 @@ dependencies = [
  "num-complex",
  "nusb",
  "sdrmm-device",
+ "sdrmm-dsp",
  "sdrmm-usb-stream",
  "sdrmm-wire",
  "thiserror 2.0.20",

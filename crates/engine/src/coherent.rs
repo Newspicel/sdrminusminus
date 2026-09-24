@@ -56,6 +56,7 @@ pub struct CoherentRuntime {
     stop: Arc<AtomicBool>,
     armed: Arc<AtomicBool>,
     realignments: Arc<AtomicU64>,
+    sync_lost: Arc<AtomicBool>,
     thread: Option<JoinHandle<CoherentTaps>>,
 }
 
@@ -86,6 +87,8 @@ impl CoherentRuntime {
         let stop = Arc::new(AtomicBool::new(false));
         let armed = taps.armed.clone();
         let realignments = Arc::new(AtomicU64::new(0));
+        let sync_lost = Arc::new(AtomicBool::new(false));
+        let alarm = sync_lost.clone();
         let (cmd_tx, cmd_rx) = mpsc::channel::<CoherentCommand>();
         let halt = stop.clone();
         let counted = realignments.clone();
@@ -102,6 +105,7 @@ impl CoherentRuntime {
                     &cmd_rx,
                     &halt,
                     &counted,
+                    &alarm,
                     center_hz,
                 )
             });
@@ -111,6 +115,7 @@ impl CoherentRuntime {
                 stop,
                 armed,
                 realignments,
+                sync_lost,
                 thread: Some(thread),
             }),
             Err(e) => {
@@ -128,6 +133,10 @@ impl CoherentRuntime {
     /// what the radio is doing without holding the engine open while it waits.
     pub(crate) fn sender(&self) -> mpsc::Sender<CoherentCommand> {
         self.cmd_tx.clone()
+    }
+
+    pub(crate) fn take_sync_lost(&self) -> bool {
+        self.sync_lost.swap(false, Ordering::AcqRel)
     }
 
     #[must_use]
@@ -195,6 +204,7 @@ fn aggregate(
     commands: &mpsc::Receiver<CoherentCommand>,
     stop: &AtomicBool,
     realignments: &AtomicU64,
+    sync_lost: &AtomicBool,
     center_hz: f64,
 ) -> CoherentTaps {
     let mut sinks: CoherentSinkList = Vec::new();
@@ -221,6 +231,9 @@ fn aggregate(
         seen = aligner.realignments();
         realignments.store(seen, Ordering::Relaxed);
         aligner.with_lanes(count, |lanes| calibrator.process(lanes));
+        if calibrator.take_sync_lost() {
+            sync_lost.store(true, Ordering::Release);
+        }
         if sinks.is_empty() {
             continue;
         }

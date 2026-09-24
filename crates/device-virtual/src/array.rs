@@ -10,6 +10,7 @@ pub const SCRAMBLE_SETTING: &str = "lane_phase_scramble";
 pub const ECHO_DELAY_SETTING: &str = "echo_delay_samples";
 pub const ECHO_DOPPLER_SETTING: &str = "echo_doppler_hz";
 pub const ECHO_GAIN_SETTING: &str = "echo_gain_db";
+pub const SLIP_SETTING: &str = "lane_slip_samples";
 
 /// The one signal every lane shares fills the whole span, because that is what a real
 /// illuminator does and what gives an echo a range worth measuring. What is fixed is where a
@@ -27,6 +28,8 @@ const LIGHT_SPEED_M_S: f64 = 299_792_458.0;
 /// The lane the echo lands on, so a surveillance/reference pair is a fixed property of the
 /// instrument rather than something a test has to arrange.
 pub const ECHO_LANE: usize = 1;
+pub const SLIP_LANE: usize = 2;
+pub const MAX_SLIP_SAMPLES: usize = 64;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ArrayParams {
@@ -36,6 +39,7 @@ pub struct ArrayParams {
     pub echo_delay: usize,
     pub echo_doppler_hz: f64,
     pub echo_gain_db: f64,
+    pub slip: usize,
 }
 
 impl ArrayParams {
@@ -57,6 +61,7 @@ impl Default for ArrayParams {
             echo_delay: 0,
             echo_doppler_hz: 0.0,
             echo_gain_db: -20.0,
+            slip: 0,
         }
     }
 }
@@ -115,6 +120,16 @@ pub fn extra_settings() -> Vec<ExtraSetting> {
             },
             "dB",
         ),
+        ExtraSetting::range(
+            SLIP_SETTING,
+            "Lane slip",
+            Range {
+                min: 0.0,
+                max: MAX_SLIP_SAMPLES as f64,
+                step: Some(1.0),
+            },
+            "samples",
+        ),
     ]
 }
 
@@ -131,6 +146,7 @@ pub fn default_extra() -> Vec<ExtraValue> {
         number(ECHO_DELAY_SETTING, defaults.echo_delay as f64),
         number(ECHO_DOPPLER_SETTING, defaults.echo_doppler_hz),
         number(ECHO_GAIN_SETTING, defaults.echo_gain_db),
+        number(SLIP_SETTING, defaults.slip as f64),
     ]
 }
 
@@ -159,6 +175,7 @@ pub fn validate(settings: &DeviceSettings) -> Result<(), DeviceError> {
             ECHO_DELAY_SETTING => bounded(0.0, MAX_ECHO_DELAY_SAMPLES as f64)?,
             ECHO_DOPPLER_SETTING => bounded(-MAX_ECHO_DOPPLER_HZ, MAX_ECHO_DOPPLER_HZ)?,
             ECHO_GAIN_SETTING => bounded(-60.0, 0.0)?,
+            SLIP_SETTING => bounded(0.0, MAX_SLIP_SAMPLES as f64)?,
             SCRAMBLE_SETTING if extra.value.is_boolean() => {}
             SCRAMBLE_SETTING => {
                 return Err(DeviceError::Unsupported(format!(
@@ -197,6 +214,7 @@ pub fn read(settings: &DeviceSettings) -> ArrayParams {
         echo_delay: number(ECHO_DELAY_SETTING, defaults.echo_delay as f64) as usize,
         echo_doppler_hz: number(ECHO_DOPPLER_SETTING, defaults.echo_doppler_hz),
         echo_gain_db: number(ECHO_GAIN_SETTING, defaults.echo_gain_db),
+        slip: number(SLIP_SETTING, defaults.slip as f64) as usize,
     }
 }
 
@@ -291,7 +309,13 @@ impl ArrayField {
         sample_rate: f64,
     ) {
         let steer = Complex::from_polar(1.0, phase);
-        for (slot, sample) in block.iter_mut().zip(common) {
+        let slip = if lane == SLIP_LANE { params.slip } else { 0 };
+        for (index, slot) in block.iter_mut().enumerate().take(common.len()) {
+            let sample = if index >= slip {
+                common[index - slip]
+            } else {
+                self.tail[self.tail.len() + index - slip]
+            };
             let field = sample * steer;
             *slot += Complex::new(field.re as f32, field.im as f32);
         }

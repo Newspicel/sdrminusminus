@@ -128,7 +128,7 @@ async fn a_radio_another_program_holds_is_refused_by_name() {
     let refused = engine.create_device_set("mock:busy").unwrap_err();
     assert!(refused.is_conflict(), "{refused}");
     assert!(
-        refused.to_string().contains("already in use"),
+        refused.to_string().contains("in use by another program"),
         "the reason must say the radio is taken, not just fail: {refused}"
     );
     assert!(

@@ -3,7 +3,7 @@ use sdrmm_usb_stream::{NusbBulkIn, RxStream, StreamConfig};
 
 #[cfg(test)]
 mod hardware;
-use tracing::{debug, info, trace};
+use tracing::{debug, info, trace, warn};
 
 use super::{
     error::{Error, Result},
@@ -15,8 +15,51 @@ pub(crate) const DEF_RTL_XTAL_FREQ: u32 = 28_800_000;
 
 pub(crate) const DIRECT_SAMPLING_MAX_HZ: u32 = DEF_RTL_XTAL_FREQ / 2;
 
-pub(crate) const RTL_USB_VID: u16 = 0x0bda;
-pub(crate) const RTL_USB_PIDS: &[u16] = &[0x2832, 0x2838];
+pub(crate) const RTL_USB_IDS: &[(u16, u16)] = &[
+    (0x0bda, 0x2832),
+    (0x0bda, 0x2838),
+    (0x0413, 0x6680),
+    (0x0413, 0x6f0f),
+    (0x0458, 0x707f),
+    (0x0ccd, 0x00a9),
+    (0x0ccd, 0x00b3),
+    (0x0ccd, 0x00b4),
+    (0x0ccd, 0x00b5),
+    (0x0ccd, 0x00b7),
+    (0x0ccd, 0x00b8),
+    (0x0ccd, 0x00b9),
+    (0x0ccd, 0x00c0),
+    (0x0ccd, 0x00c6),
+    (0x0ccd, 0x00d3),
+    (0x0ccd, 0x00d7),
+    (0x0ccd, 0x00e0),
+    (0x1554, 0x5020),
+    (0x15f4, 0x0131),
+    (0x15f4, 0x0133),
+    (0x185b, 0x0620),
+    (0x185b, 0x0650),
+    (0x185b, 0x0680),
+    (0x1b80, 0xd393),
+    (0x1b80, 0xd394),
+    (0x1b80, 0xd395),
+    (0x1b80, 0xd397),
+    (0x1b80, 0xd398),
+    (0x1b80, 0xd39d),
+    (0x1b80, 0xd3a4),
+    (0x1b80, 0xd3a8),
+    (0x1b80, 0xd3af),
+    (0x1b80, 0xd3b0),
+    (0x1d19, 0x1101),
+    (0x1d19, 0x1102),
+    (0x1d19, 0x1103),
+    (0x1d19, 0x1104),
+    (0x1f4d, 0xa803),
+    (0x1f4d, 0xb803),
+    (0x1f4d, 0xc803),
+    (0x1f4d, 0xd286),
+    (0x1f4d, 0xd803),
+    (0x1209, 0x2832),
+];
 
 const EEPROM_BIAS_T_OFFSET: u8 = 7;
 const BULK_ENDPOINT: u8 = 0x81;
@@ -103,8 +146,78 @@ impl EnumeratedDevice {
     }
 }
 
+const EEPROM_HEADER: [u8; 2] = [0x28, 0x32];
+
+fn eeprom_asks_for_bias_tee(header: [u8; 2], flags: u8) -> bool {
+    header == EEPROM_HEADER && flags & 0x02 == 0
+}
+
+struct TunerSignature {
+    name: &'static str,
+    addr: u8,
+    reg: u8,
+    mask: u8,
+    value: u8,
+}
+
+const BEFORE_RESET: &[TunerSignature] = &[
+    TunerSignature {
+        name: "Elonics E4000",
+        addr: 0xc8,
+        reg: 0x02,
+        mask: 0xff,
+        value: 0x40,
+    },
+    TunerSignature {
+        name: "Fitipower FC0013",
+        addr: 0xc6,
+        reg: 0x00,
+        mask: 0xff,
+        value: 0xa3,
+    },
+];
+
+const AFTER_RESET: &[TunerSignature] = &[
+    TunerSignature {
+        name: "FCI FC2580",
+        addr: 0xac,
+        reg: 0x01,
+        mask: 0x7f,
+        value: 0x56,
+    },
+    TunerSignature {
+        name: "Fitipower FC0012",
+        addr: 0xc6,
+        reg: 0x00,
+        mask: 0xff,
+        value: 0xa1,
+    },
+];
+
+fn matching(
+    signatures: &[TunerSignature],
+    read: &impl Fn(u8, u8) -> Option<u8>,
+) -> Option<&'static str> {
+    signatures
+        .iter()
+        .find(|tuner| {
+            read(tuner.addr, tuner.reg).is_some_and(|got| got & tuner.mask == tuner.value)
+        })
+        .map(|tuner| tuner.name)
+}
+
+fn unsupported_tuner(
+    read: impl Fn(u8, u8) -> Option<u8>,
+    reset: impl FnOnce(),
+) -> Option<&'static str> {
+    matching(BEFORE_RESET, &read).or_else(|| {
+        reset();
+        matching(AFTER_RESET, &read)
+    })
+}
+
 fn is_known_rtl_device(vendor_id: u16, product_id: u16) -> bool {
-    vendor_id == RTL_USB_VID && RTL_USB_PIDS.contains(&product_id)
+    RTL_USB_IDS.contains(&(vendor_id, product_id))
 }
 
 /// Windows reports no USB manufacturer string at all, so the product string the bus read out of
@@ -177,12 +290,8 @@ impl RtlSdr {
         );
 
         let usb_device = enumerated.usb.open().wait().map_err(Error::OpenFailed)?;
-        #[cfg(target_os = "linux")]
-        {
-            let _ = usb_device.detach_kernel_driver(0);
-        }
         let iface = usb_device
-            .claim_interface(0)
+            .detach_and_claim_interface(0)
             .wait()
             .map_err(Error::ClaimFailed)?;
 
@@ -231,10 +340,10 @@ impl RtlSdr {
         self.set_if_freq(self.tuner.if_freq())?;
         self.dev.demod_write_reg(1, 0x15, 0x01, 1)?;
 
-        match self.dev.read_eeprom_byte(EEPROM_BIAS_T_OFFSET) {
-            Ok(flags) => {
-                self.eeprom_bias_t = flags & 0x02 == 0;
-                if self.eeprom_bias_t {
+        match self.read_eeprom_bias_request() {
+            Ok(requested) => {
+                self.eeprom_bias_t = requested;
+                if requested {
                     debug!("EEPROM asks for bias-T at startup");
                 }
             }
@@ -308,6 +417,12 @@ impl RtlSdr {
         Ok(())
     }
 
+    fn read_eeprom_bias_request(&self) -> Result<bool> {
+        let header = [self.dev.read_eeprom_byte(0)?, self.dev.read_eeprom_byte(1)?];
+        let flags = self.dev.read_eeprom_byte(EEPROM_BIAS_T_OFFSET)?;
+        Ok(eeprom_asks_for_bias_tee(header, flags))
+    }
+
     fn search_tuner(&self) -> Result<(TunerType, u8)> {
         for &(tuner_type, addr) in KNOWN_TUNERS {
             match self.dev.i2c_read_reg(addr, 0x00) {
@@ -319,7 +434,15 @@ impl RtlSdr {
                 Err(e) => trace!("I2C probe addr=0x{addr:02x}: {e}"),
             }
         }
-        Err(Error::TunerNotFound)
+        let named = unsupported_tuner(
+            |addr, reg| self.dev.i2c_read_reg(addr, reg).ok(),
+            || {
+                let _ = self.dev.set_gpio_output(4);
+                let _ = self.dev.set_gpio_bit(4, true);
+                let _ = self.dev.set_gpio_bit(4, false);
+            },
+        );
+        Err(named.map_or(Error::TunerNotFound, Error::UnsupportedTuner))
     }
 
     #[must_use]
@@ -353,10 +476,9 @@ impl RtlSdr {
     }
 
     pub(crate) fn set_center_freq(&mut self, freq: u32) -> Result<()> {
+        self.center_freq = 0;
         if self.direct_sampling == DirectSampling::Off {
-            self.dev.set_i2c_repeater(true)?;
-            self.tuner.set_freq(&self.dev, freq)?;
-            self.dev.set_i2c_repeater(false)?;
+            self.with_tuner(|tuner, dev| tuner.set_freq(dev, freq))?;
             self.set_if_freq(self.tuner.if_freq())?;
         } else {
             self.set_if_freq(freq)?;
@@ -368,9 +490,7 @@ impl RtlSdr {
     pub(crate) fn set_direct_sampling(&mut self, mode: DirectSampling) -> Result<()> {
         match mode {
             DirectSampling::Off => {
-                self.dev.set_i2c_repeater(true)?;
-                self.tuner.init(&self.dev)?;
-                self.dev.set_i2c_repeater(false)?;
+                self.with_tuner(|tuner, dev| tuner.init(dev))?;
                 self.direct_sampling = mode;
                 self.dev.demod_write_reg(1, 0xb1, 0x1a, 1)?;
                 self.dev.demod_write_reg(0, 0x08, 0x4d, 1)?;
@@ -379,9 +499,7 @@ impl RtlSdr {
                 self.dev.demod_write_reg(0, 0x06, 0x80, 1)?;
             }
             DirectSampling::IBranch | DirectSampling::QBranch => {
-                self.dev.set_i2c_repeater(true)?;
-                self.tuner.standby(&self.dev)?;
-                self.dev.set_i2c_repeater(false)?;
+                self.with_tuner(|tuner, dev| tuner.standby(dev))?;
                 self.dev.demod_write_reg(1, 0xb1, 0x1a, 1)?;
                 self.dev.demod_write_reg(1, 0x15, 0x00, 1)?;
                 self.dev.demod_write_reg(0, 0x08, 0x4d, 1)?;
@@ -412,9 +530,7 @@ impl RtlSdr {
         self.sample_rate = actual_rate;
 
         if self.direct_sampling == DirectSampling::Off {
-            self.dev.set_i2c_repeater(true)?;
-            let if_freq = self.tuner.set_bandwidth(&self.dev, actual_rate)?;
-            self.dev.set_i2c_repeater(false)?;
+            let if_freq = self.with_tuner(|tuner, dev| tuner.set_bandwidth(dev, actual_rate))?;
             self.set_if_freq(if_freq)?;
             if self.center_freq != 0 {
                 self.set_center_freq(self.center_freq)?;
@@ -479,24 +595,18 @@ impl RtlSdr {
 
     pub(crate) fn set_gain_auto(&mut self) -> Result<()> {
         self.require_tuner("tuner AGC")?;
-        self.dev.set_i2c_repeater(true)?;
-        self.tuner.set_gain_auto(&self.dev)?;
-        self.dev.set_i2c_repeater(false)
+        self.with_tuner(|tuner, dev| tuner.set_gain_auto(dev))
     }
 
     pub(crate) fn set_gain_manual(&mut self, gain_tenth_db: i32) -> Result<()> {
         self.require_tuner("tuner gain")?;
-        self.dev.set_i2c_repeater(true)?;
-        self.tuner.set_gain_manual(&self.dev, gain_tenth_db)?;
-        self.dev.set_i2c_repeater(false)
+        self.with_tuner(|tuner, dev| tuner.set_gain_manual(dev, gain_tenth_db))
     }
 
     pub(crate) fn set_bandwidth(&mut self, bw: u32) -> Result<u32> {
         self.require_tuner("IF filter width")?;
         let bw = if bw == 0 { self.sample_rate } else { bw };
-        self.dev.set_i2c_repeater(true)?;
-        let if_freq = self.tuner.set_bandwidth(&self.dev, bw)?;
-        self.dev.set_i2c_repeater(false)?;
+        let if_freq = self.with_tuner(|tuner, dev| tuner.set_bandwidth(dev, bw))?;
         self.set_if_freq(if_freq)?;
         Ok(if_freq)
     }
@@ -560,11 +670,29 @@ impl StreamGate {
     }
 }
 
+impl RtlSdr {
+    fn with_tuner<T>(&mut self, op: impl FnOnce(&mut R82xx, &Rtl2832u) -> Result<T>) -> Result<T> {
+        self.dev.set_i2c_repeater(true)?;
+        let result = op(&mut self.tuner, &self.dev);
+        let closed = self.dev.set_i2c_repeater(false);
+        let value = result?;
+        closed?;
+        Ok(value)
+    }
+
+    fn stop_sampling(&self) -> Result<()> {
+        self.dev
+            .write_reg(regs::BLOCK_USB, regs::USB_EPA_CTL, 0x1002, 2)
+    }
+}
+
 impl Drop for RtlSdr {
     fn drop(&mut self) {
-        let _ = self.dev.set_i2c_repeater(true);
-        let _ = self.tuner.standby(&self.dev);
-        let _ = self.dev.set_i2c_repeater(false);
+        match self.stop_sampling() {
+            Ok(()) => {}
+            Err(error) if error.is_disconnected() => debug!(%error, "released a detached RTL-SDR"),
+            Err(error) => warn!(%error, "the RTL-SDR did not stop sampling"),
+        }
     }
 }
 
@@ -589,9 +717,37 @@ mod tests {
     use super::*;
 
     #[test]
+    fn an_unsupported_tuner_is_named_rather_than_missed() {
+        let e4000 = |addr, reg| (addr == 0xc8 && reg == 0x02).then_some(0x40);
+        assert_eq!(
+            unsupported_tuner(e4000, || panic!("no reset needed")),
+            Some("Elonics E4000")
+        );
+
+        let reset = std::cell::Cell::new(false);
+        let fc2580 = |addr, reg| (reset.get() && addr == 0xac && reg == 0x01).then_some(0xd6);
+        assert_eq!(
+            unsupported_tuner(fc2580, || reset.set(true)),
+            Some("FCI FC2580")
+        );
+
+        assert_eq!(unsupported_tuner(|_, _| None, || {}), None);
+    }
+
+    #[test]
+    fn only_a_programmed_eeprom_can_ask_for_the_bias_tee() {
+        assert!(eeprom_asks_for_bias_tee([0x28, 0x32], 0x00));
+        assert!(!eeprom_asks_for_bias_tee([0x28, 0x32], 0x02));
+        assert!(!eeprom_asks_for_bias_tee([0xff, 0xff], 0x00));
+        assert!(!eeprom_asks_for_bias_tee([0x00, 0x00], 0x00));
+    }
+
+    #[test]
     fn only_realtek_rtl2832u_dongles_are_claimed() {
         assert!(is_known_rtl_device(0x0bda, 0x2838));
         assert!(is_known_rtl_device(0x0bda, 0x2832));
+        assert!(is_known_rtl_device(0x0ccd, 0x00a9));
+        assert!(is_known_rtl_device(0x1209, 0x2832));
         assert!(!is_known_rtl_device(0x0bda, 0x2839));
         assert!(!is_known_rtl_device(0x1d50, 0x6089));
     }

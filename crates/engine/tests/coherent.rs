@@ -503,3 +503,110 @@ async fn nothing_is_reported_while_the_array_is_listening_to_its_own_reference()
     );
     engine.remove_device_set(ds).unwrap();
 }
+
+#[tokio::test]
+async fn a_radar_joining_the_bank_leaves_the_finders_reference_calibration_alone() {
+    let engine = engine();
+    let ds = engine.create_device_set(ARRAY).unwrap();
+    engine.patch_device(ds, tuned(scrambled_array())).unwrap();
+    engine
+        .add_coherent(
+            ds,
+            df_params_calibrated(DfAlgorithm::Music, against_its_own_reference()),
+            vec![0, 1, 2, 3],
+        )
+        .unwrap();
+    engine
+        .add_coherent(
+            ds,
+            CoherentParams::PassiveRadar(PassiveRadarParams {
+                cpi_ms: 20,
+                eca: sdrmm_wire::EcaParams {
+                    delay_taps: 8,
+                    ..sdrmm_wire::EcaParams::default()
+                },
+                ..PassiveRadarParams::default()
+            }),
+            vec![0, 1],
+        )
+        .unwrap();
+    let mut updates = engine.subscribe_coherent(ds).expect("an update channel");
+    engine.recalibrate_coherent(ds).unwrap();
+    let mut injected = false;
+    let mut reading = None;
+    for _ in 0..200 {
+        let update = next_update(&mut updates).await;
+        injected |= update.cal.reference_on;
+        reading = update
+            .reading
+            .filter(|_| injected && !update.cal.reference_on);
+        if reading.is_some() {
+            break;
+        }
+    }
+    let reading = reading.expect("a bearing once the reference was switched out again");
+    let error = (f64::from(reading.bearing_deg) - BEARING_DEG).abs();
+    assert!(
+        error.min(360.0 - error) < 2.0,
+        "wanted {BEARING_DEG}, read {reading:?}"
+    );
+    engine.remove_device_set(ds).unwrap();
+}
+
+async fn bearing_after_the_reference(
+    engine: &Engine,
+    updates: &mut broadcast::Receiver<CoherentUpdate>,
+) -> DfReading {
+    let mut known = None;
+    let mut missing_once = std::collections::HashSet::new();
+    let mut injected = false;
+    for _ in 0..400 {
+        engine.hotplug_tick_for_test(&mut known, &mut missing_once);
+        let update = next_update(updates).await;
+        injected |= update.cal.reference_on;
+        if let Some(reading) = update
+            .reading
+            .filter(|_| injected && !update.cal.reference_on)
+        {
+            return reading;
+        }
+    }
+    panic!("the array never came back through its reference");
+}
+
+#[tokio::test]
+async fn an_array_that_slips_a_sample_recalibrates_itself_against_its_reference() {
+    let engine = engine();
+    let ds = engine.create_device_set(ARRAY).unwrap();
+    engine.patch_device(ds, tuned(scrambled_array())).unwrap();
+    engine
+        .add_coherent(
+            ds,
+            df_params_calibrated(DfAlgorithm::Music, against_its_own_reference()),
+            vec![0, 1, 2, 3],
+        )
+        .unwrap();
+    let mut updates = engine.subscribe_coherent(ds).expect("an update channel");
+    bearing_after_the_reference(&engine, &mut updates).await;
+
+    let mut slipped = scrambled_array();
+    slipped.push(number(array::SLIP_SETTING, 5.0));
+    engine.patch_device(ds, tuned(slipped)).unwrap();
+
+    let mut lost = false;
+    for _ in 0..400 {
+        let update = next_update(&mut updates).await;
+        if !update.cal.solved {
+            lost = true;
+            break;
+        }
+    }
+    assert!(lost, "the slip was never noticed");
+    let reading = bearing_after_the_reference(&engine, &mut updates).await;
+    let error = (f64::from(reading.bearing_deg) - BEARING_DEG).abs();
+    assert!(
+        error.min(360.0 - error) < 2.0,
+        "wanted {BEARING_DEG}, read {reading:?}"
+    );
+    engine.remove_device_set(ds).unwrap();
+}

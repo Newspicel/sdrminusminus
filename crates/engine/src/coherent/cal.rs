@@ -10,9 +10,18 @@ const MAX_CORRECTION: usize = 4_096;
 const TRACK: f32 = 0.2;
 /// Below this the lanes are not looking at the same thing and the solution is left alone.
 const USABLE_COHERENCE: f32 = 0.2;
+const SLIP_SAMPLES: f32 = 1.0;
+const SHARP_PEAK_DB: f32 = 30.0;
+const SLIPS_TO_LOSE_SYNC: u32 = 3;
 
 const MIN_FRAME: usize = 1_024;
 const MAX_FRAME: usize = 32_768;
+
+#[derive(Clone, Copy)]
+struct Slip {
+    delay: f32,
+    count: u32,
+}
 
 #[derive(Clone, Copy)]
 struct Lane {
@@ -57,6 +66,8 @@ pub(crate) struct Calibrator {
     pending: bool,
     solved: bool,
     phase_solved: bool,
+    slips: Vec<Option<Slip>>,
+    sync_lost: bool,
 }
 
 fn frame_for(sample_rate: f64, bandwidth_hz: f64) -> usize {
@@ -92,7 +103,15 @@ impl Calibrator {
             pending: true,
             solved: false,
             phase_solved: false,
+            slips: vec![None; lanes],
+            sync_lost: false,
         }
+    }
+
+    pub(crate) const fn take_sync_lost(&mut self) -> bool {
+        let lost = self.sync_lost;
+        self.sync_lost = false;
+        lost
     }
 
     pub(crate) fn apply(&mut self, params: CalParams, sample_rate: f64) {
@@ -119,6 +138,7 @@ impl Calibrator {
         self.solved = false;
         self.phase_solved = false;
         self.pending = true;
+        self.slips.fill(None);
         self.publish();
         self.refresh_phase_state();
     }
@@ -190,6 +210,8 @@ impl Calibrator {
     fn solve(&mut self, lanes: &[&[Complex<f32>]]) {
         let reference = lanes[0];
         let mut worst = f32::MAX;
+        let mut slipped = false;
+        let watching = self.solved && !self.pending && !self.state.tier.has_phase();
         for (lane, source) in lanes.iter().enumerate().skip(1) {
             let estimate = self.xcorr.estimate(reference, source);
             if estimate.coherence < USABLE_COHERENCE {
@@ -197,10 +219,19 @@ impl Calibrator {
                 worst = 0.0;
                 continue;
             }
-            let delay = estimate.delay_samples.clamp(
-                -(MAX_CORRECTION as f32) / 2.0,
-                (MAX_CORRECTION as f32) / 2.0,
-            );
+            let delay = estimate.delay_samples;
+            if delay.abs() > MAX_CORRECTION as f32 / 2.0 {
+                self.solutions[lane].quality = 0.0;
+                worst = 0.0;
+                continue;
+            }
+            if watching && estimate.peak_to_floor_db < SHARP_PEAK_DB {
+                continue;
+            }
+            if watching && self.slipped(lane, delay) {
+                slipped = true;
+                continue;
+            }
             let gain = if estimate.gain > f32::MIN_POSITIVE {
                 1.0 / estimate.gain
             } else {
@@ -223,6 +254,19 @@ impl Calibrator {
             quality: 1.0,
             ..Lane::identity()
         };
+        let lost = self
+            .slips
+            .iter()
+            .flatten()
+            .any(|slip| slip.count >= SLIPS_TO_LOSE_SYNC);
+        if lost {
+            self.sync_lost = true;
+            self.invalidate(false);
+            return;
+        }
+        if slipped {
+            return;
+        }
         if worst >= USABLE_COHERENCE {
             self.solved = true;
             self.pending = false;
@@ -230,6 +274,30 @@ impl Calibrator {
         }
         self.publish();
         self.refresh_phase_state();
+    }
+
+    fn slipped(&mut self, lane: usize, delay: f32) -> bool {
+        let held = self.solutions[lane].delay;
+        if (delay - held).abs() < SLIP_SAMPLES {
+            self.slips[lane] = None;
+            return false;
+        }
+        let slip = match self.slips[lane] {
+            Some(slip) if (delay - slip.delay).abs() < SLIP_SAMPLES / 2.0 => Slip {
+                delay,
+                count: slip.count + 1,
+            },
+            _ => Slip { delay, count: 1 },
+        };
+        tracing::debug!(
+            lane,
+            measured = delay,
+            held,
+            count = slip.count,
+            "a lane slipped"
+        );
+        self.slips[lane] = Some(slip);
+        true
     }
 
     fn publish(&mut self) {
@@ -371,6 +439,106 @@ mod tests {
             state.lanes[1]
         );
         assert!(state.lanes[1].quality > 0.9, "{:?}", state.lanes[1]);
+    }
+
+    #[test]
+    fn a_lane_further_off_than_can_be_corrected_is_not_solved() {
+        let narrow = CalParams {
+            bandwidth_hz: 20_000.0,
+            ..injected()
+        };
+        let mut cal = Calibrator::new(2, Coherence::TimeSync, narrow, RATE, false);
+        let shift = 3_000usize;
+        drive(&mut cal, 4, |round| {
+            let base = round * 32_768;
+            vec![
+                tone(32_768, base + shift, Complex::new(1.0, 0.0)),
+                tone(32_768, base, Complex::new(1.0, 0.0)),
+            ]
+        });
+        let state = cal.state();
+        assert!(!state.solved, "{state:?}");
+        assert!(
+            state.lanes[1].quality < f32::EPSILON,
+            "{:?}",
+            state.lanes[1]
+        );
+    }
+
+    fn shifted(cal: &mut Calibrator, blocks: usize, shift: usize) {
+        drive(cal, blocks, |round| {
+            let base = round * 4_096;
+            vec![
+                tone(4_096, base + shift, Complex::new(1.0, 0.0)),
+                tone(4_096, base, Complex::new(1.0, 0.0)),
+            ]
+        });
+    }
+
+    fn locked_on(shift: usize) -> Calibrator {
+        let mut cal = Calibrator::new(2, Coherence::TimeSync, injected(), RATE, false);
+        shifted(&mut cal, 3, shift);
+        assert!(cal.state().solved, "{:?}", cal.state());
+        cal
+    }
+
+    #[test]
+    fn a_lane_that_stays_slipped_loses_sync() {
+        let mut cal = locked_on(7);
+        shifted(&mut cal, SLIPS_TO_LOSE_SYNC as usize, 12);
+        assert!(cal.take_sync_lost());
+        assert!(!cal.state().solved, "{:?}", cal.state());
+        assert!(!cal.take_sync_lost(), "one loss is reported once");
+    }
+
+    #[test]
+    fn a_single_glitch_does_not_lose_sync() {
+        let mut cal = locked_on(7);
+        shifted(&mut cal, 1, 12);
+        shifted(&mut cal, 3, 7);
+        shifted(&mut cal, 1, 12);
+        assert!(!cal.take_sync_lost());
+        assert!(cal.state().solved);
+        assert!(
+            (cal.state().lanes[1].delay_samples.abs() - 7.0).abs() < 0.5,
+            "a glitch must not pull the solution: {:?}",
+            cal.state().lanes[1]
+        );
+    }
+
+    #[test]
+    fn a_steady_carrier_neither_loses_sync_nor_drags_the_delay() {
+        let mut cal = locked_on(7);
+        drive(&mut cal, 6, |round| {
+            let carrier: Vec<Complex<f32>> = (0..4_096)
+                .map(|k| Complex::from_polar(1.0, TAU * 0.05 * (round * 4_096 + k) as f32))
+                .collect();
+            vec![carrier.clone(), carrier]
+        });
+        assert!(!cal.take_sync_lost());
+        assert!(
+            (cal.state().lanes[1].delay_samples.abs() - 7.0).abs() < 0.5,
+            "{:?}",
+            cal.state().lanes[1]
+        );
+    }
+
+    #[test]
+    fn a_lane_that_wanders_rather_than_slips_keeps_sync() {
+        let mut cal = locked_on(7);
+        for shift in [10, 12, 14, 16, 18, 20] {
+            shifted(&mut cal, 1, shift);
+        }
+        assert!(!cal.take_sync_lost());
+        assert!(cal.state().solved);
+    }
+
+    #[test]
+    fn a_lane_that_stays_put_keeps_sync() {
+        let mut cal = locked_on(7);
+        shifted(&mut cal, 10, 7);
+        assert!(!cal.take_sync_lost());
+        assert!(cal.state().solved);
     }
 
     #[test]

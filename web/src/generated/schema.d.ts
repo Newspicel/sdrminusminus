@@ -3190,6 +3190,7 @@ export interface components {
         DeviceSet: {
             capabilities: components["schemas"]["Capabilities"];
             channels: components["schemas"]["ChannelInfo"][];
+            clipping?: number[];
             device: components["schemas"]["DeviceInfo"];
             error?: string | null;
             fault?: null | components["schemas"]["DeviceFault"];

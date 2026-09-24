@@ -8,6 +8,21 @@ use crate::caps;
 /// off the lane it feeds.
 pub(crate) const NOISE_SOURCE_PIN: u8 = 0;
 
+const CALIBRATION_GAINS: [(f64, usize); 5] = [
+    (900e6, 0),
+    (1_000e6, 4),
+    (1_090e6, 6),
+    (1_300e6, 6),
+    (1_700e6, 7),
+];
+
+pub(crate) fn calibration_gain(center_hz: f64, table: &[i32]) -> Option<i32> {
+    let (_, index) = CALIBRATION_GAINS
+        .iter()
+        .min_by(|a, b| (a.0 - center_hz).abs().total_cmp(&(b.0 - center_hz).abs()))?;
+    table.get(*index).or_else(|| table.last()).copied()
+}
+
 pub(crate) const fn bias_tee_pin(lane: usize) -> u8 {
     lane as u8 + 1
 }
@@ -59,16 +74,13 @@ mod tests {
     use sdrmm_wire::{AgcSetting, ExtraValue, GainKind, GainValue, StreamSettings};
 
     use super::*;
-    use crate::{
-        caps::GainMode,
-        driver::{BoardVariant, GAIN_VALUES},
-    };
+    use crate::{caps::GainMode, driver::GAIN_VALUES};
 
     const LANES: usize = 5;
 
     fn fixture() -> (Capabilities, Capabilities, Vec<DeviceSettings>) {
         let capabilities = caps::kraken_capabilities(LANES as u32, GAIN_VALUES);
-        let lane_caps = caps::capabilities(BoardVariant::Generic, GAIN_VALUES);
+        let lane_caps = caps::kraken_lane_capabilities(GAIN_VALUES);
         let settled = vec![
             DeviceSettings {
                 center_hz: Some(100e6),
@@ -118,6 +130,20 @@ mod tests {
                 assert_eq!(planned.gain, None, "lane {lane} was not asked for a gain");
             }
         }
+    }
+
+    #[test]
+    fn the_noise_source_is_taken_in_quietly_low_and_loudly_high() {
+        assert_eq!(calibration_gain(98e6, GAIN_VALUES), Some(0));
+        assert_eq!(calibration_gain(868e6, GAIN_VALUES), Some(0));
+        assert_eq!(calibration_gain(1_090e6, GAIN_VALUES), Some(87));
+        assert_eq!(calibration_gain(1_700e6, GAIN_VALUES), Some(125));
+    }
+
+    #[test]
+    fn a_short_gain_table_still_gives_a_calibration_gain() {
+        assert_eq!(calibration_gain(1_700e6, &[0, 100]), Some(100));
+        assert_eq!(calibration_gain(1_090e6, &[]), None);
     }
 
     #[test]
@@ -189,7 +215,10 @@ mod tests {
             center_hz: Some(5e6),
             ..DeviceSettings::default()
         });
-        assert!(matches!(refused, Err(DeviceError::Unsupported(_))));
+        let Err(DeviceError::Unsupported(message)) = refused else {
+            panic!("HF must be refused");
+        };
+        assert!(!message.contains(crate::caps::DIRECT_SAMPLING), "{message}");
     }
 
     #[test]

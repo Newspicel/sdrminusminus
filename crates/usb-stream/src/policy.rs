@@ -45,7 +45,7 @@ impl TransferPolicy {
             };
         }
         self.consecutive_errors += 1;
-        if self.consecutive_errors >= self.threshold {
+        if error == TransferError::Disconnected || self.consecutive_errors >= self.threshold {
             Action::GiveUp {
                 attempts: self.consecutive_errors,
                 error,
@@ -64,6 +64,15 @@ mod tests {
 
     fn policy() -> TransferPolicy {
         TransferPolicy::new(DEPTH)
+    }
+
+    #[test]
+    fn an_unplugged_device_is_given_up_at_once() {
+        let mut policy = policy();
+        assert!(matches!(
+            policy.on_completion(Err(TransferError::Disconnected), false),
+            Action::GiveUp { attempts: 1, .. }
+        ));
     }
 
     #[test]
@@ -139,22 +148,5 @@ mod tests {
                 Action::Resubmit
             );
         }
-    }
-
-    #[test]
-    fn a_disconnect_gives_up_within_one_queue() {
-        let mut policy = policy();
-        let mut completions = 0;
-        loop {
-            completions += 1;
-            if let Action::GiveUp { error, .. } =
-                policy.on_completion(Err(TransferError::Disconnected), false)
-            {
-                assert_eq!(error, TransferError::Disconnected);
-                break;
-            }
-            assert!(completions <= DEPTH, "gave up after more than one queue");
-        }
-        assert_eq!(completions, DEPTH);
     }
 }

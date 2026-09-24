@@ -382,3 +382,75 @@ async fn composing_an_array_preserves_the_original_device_set() {
             .any(|set| set.device.id() == "array:bench")
     );
 }
+
+fn beam_snapshot(channel_type: &str) -> WorkspaceSnapshot {
+    let mut snapshot = array_snapshot();
+    snapshot.graph.nodes.push(PatchNode {
+        id: "listen".to_owned(),
+        body: NodeBody::Channel(sdrmm_wire::ChannelNode {
+            channel_type: channel_type.to_owned(),
+            record_calls: false,
+            tuning_locked: false,
+        }),
+        position: Position { x: 900.0, y: 300.0 },
+        size: None,
+        label: None,
+    });
+    snapshot.graph.edges.push(PatchEdge {
+        from: PortRef {
+            node: "df".to_owned(),
+            port: sdrmm_wire::DF_BEAM_PORT.to_owned(),
+        },
+        to: PortRef {
+            node: "listen".to_owned(),
+            port: "iq".to_owned(),
+        },
+    });
+    snapshot
+}
+
+fn beam_channels(state: &AppState) -> Vec<(Option<String>, String)> {
+    state
+        .engine
+        .snapshot()
+        .device_sets
+        .iter()
+        .flat_map(|set| set.channels.iter())
+        .filter(|channel| channel.stream == ARRAY_LANES)
+        .map(|channel| {
+            (
+                channel.node.clone(),
+                channel.settings.params.type_id().to_owned(),
+            )
+        })
+        .collect()
+}
+
+#[tokio::test]
+async fn a_beam_listener_removed_from_the_patch_is_closed() {
+    let (app, state) = test_router_with_state();
+    let workspace = put_active_workspace(&app, &beam_snapshot("nfm")).await;
+    apply(&app, workspace).await;
+    assert_eq!(
+        beam_channels(&state),
+        [(Some("listen".to_owned()), "nfm".to_owned())]
+    );
+
+    let workspace = put_workspace_revision(&app, &array_snapshot(), 2).await;
+    apply(&app, workspace).await;
+    assert!(beam_channels(&state).is_empty());
+}
+
+#[tokio::test]
+async fn a_beam_listener_changing_type_replaces_its_decoder() {
+    let (app, state) = test_router_with_state();
+    let workspace = put_active_workspace(&app, &beam_snapshot("nfm")).await;
+    apply(&app, workspace).await;
+
+    let workspace = put_workspace_revision(&app, &beam_snapshot("am"), 2).await;
+    apply(&app, workspace).await;
+    assert_eq!(
+        beam_channels(&state),
+        [(Some("listen".to_owned()), "am".to_owned())]
+    );
+}

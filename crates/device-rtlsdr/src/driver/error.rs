@@ -26,6 +26,9 @@ pub(crate) enum Error {
     #[error("no supported tuner found (checked R820T at 0x34, R828D at 0x74)")]
     TunerNotFound,
 
+    #[error("the {0} tuner is not supported, only R820T and R828D")]
+    UnsupportedTuner(&'static str),
+
     #[error("PLL failed to lock at {freq_hz} Hz")]
     PllLockFailed { freq_hz: u64 },
 
@@ -54,11 +57,25 @@ impl Error {
 
     /// Whether the operating system refused this user the device node.
     pub(crate) fn is_permission_denied(&self) -> bool {
+        self.usb_kind() == Some(nusb::ErrorKind::PermissionDenied)
+    }
+
+    pub(crate) fn is_busy(&self) -> bool {
+        self.usb_kind() == Some(nusb::ErrorKind::Busy)
+    }
+
+    pub(crate) fn is_wrong_driver(&self) -> bool {
+        self.usb_kind() == Some(nusb::ErrorKind::Unsupported)
+    }
+
+    pub(crate) fn is_missing(&self) -> bool {
+        self.usb_kind() == Some(nusb::ErrorKind::NotFound)
+    }
+
+    fn usb_kind(&self) -> Option<nusb::ErrorKind> {
         match self {
-            Self::OpenFailed(error) | Self::ClaimFailed(error) => {
-                error.kind() == nusb::ErrorKind::PermissionDenied
-            }
-            _ => false,
+            Self::OpenFailed(error) | Self::ClaimFailed(error) => Some(error.kind()),
+            _ => None,
         }
     }
 }

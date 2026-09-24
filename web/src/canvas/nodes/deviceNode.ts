@@ -3,6 +3,18 @@ import type { Capabilities, DeviceRef, DeviceSet, DeviceSettings, Tuning } from 
 import { forStream } from "../../lib/useDevicePatch";
 import { rxStreamCount, streamLabel } from "../graph";
 
+export function clippingSaid(set: DeviceSet): string | null {
+  const lanes = set.clipping ?? [];
+  if (lanes.length === 0) {
+    return null;
+  }
+  const streams = rxStreamCount(set.capabilities);
+  if (streams <= 1) {
+    return "yes";
+  }
+  return lanes.map((lane) => streamLabel("iq", lane, streams)).join(", ");
+}
+
 export interface TunerDial {
   stream: number;
   port: string | null;

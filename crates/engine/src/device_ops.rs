@@ -4,7 +4,10 @@ use std::{
 };
 
 use sdrmm_device::DeviceError;
-use sdrmm_wire::{Capabilities, DeviceSetStatus, DeviceSettings, ServerEvent, StateScope, Tuning};
+use sdrmm_wire::{
+    AgcSetting, Capabilities, DeviceSetStatus, DeviceSettings, GainValue, ServerEvent, StateScope,
+    Tuning,
+};
 
 use crate::{
     ChannelMedia, DEFAULT_CENTER_HZ, DeviceSetState, Engine, EngineError, FaultGate,
@@ -47,6 +50,7 @@ impl Engine {
         woken: bool,
     ) -> bool {
         self.report_sinks(self.poll_sinks());
+        self.recover_lost_sync();
         self.probe_bus(known, missing_once, gate, woken)
     }
 
@@ -64,6 +68,11 @@ impl Engine {
             let delta = now - s.overruns_seen;
             s.overruns_seen = now;
             let mut dirty = delta > 0;
+            let clipping = s.take_clipping();
+            if clipping != s.clipping {
+                s.clipping = clipping;
+                dirty = true;
+            }
             if delta > 0 {
                 grown.push((*id, delta, s.take_worst_stall_ms()));
             }
@@ -371,6 +380,7 @@ impl Engine {
         let cmd_txs = runtime.command_senders();
         let overruns = runtime.overruns_counters();
         let stalls = runtime.stall_counters();
+        let clip_meters = runtime.clip_meters();
         let runtime = Arc::new(DeviceRuntime::new(runtime));
 
         let (old_runtime, rebuilds, early_fault) = {
@@ -399,6 +409,8 @@ impl Engine {
             state.overruns = overruns;
             state.overruns_seen = 0;
             state.stalls = stalls;
+            state.clip_meters = clip_meters;
+            state.clipping.clear();
             state.array = array.clone();
             state.info = info;
             state.capabilities = capabilities;
@@ -525,6 +537,7 @@ impl Engine {
         let cmd_txs = runtime.command_senders();
         let overruns = runtime.overruns_counters();
         let stalls = runtime.stall_counters();
+        let clip_meters = runtime.clip_meters();
         let faulted = {
             let mut inner = self.lock();
             inner.creating.remove(&id);
@@ -560,6 +573,8 @@ impl Engine {
                     overruns,
                     overruns_seen: 0,
                     stalls,
+                    clip_meters,
+                    clipping: Vec::new(),
                     playback,
                     coherent: None,
                     runtime: Arc::new(DeviceRuntime::new(runtime)),
@@ -746,6 +761,7 @@ impl Engine {
                 .ok_or(EngineError::DeviceSetNotFound(ds))?;
             let old_rate = sample_rate_of(&state.settings);
             let old_center = state.settings.center_hz;
+            let old_front_end = front_end(&state.settings);
             let locked_by_export = state.network_export.is_some();
             let owner = if locked_by_export {
                 Some(("exporting", "stop the export first"))
@@ -832,7 +848,9 @@ impl Engine {
             }
             let settings = state.settings.clone();
             let blocking = dc_block(&state.capabilities, &settings);
-            let retuned = settings.center_hz != old_center || rate != old_rate;
+            let retuned = settings.center_hz != old_center
+                || rate != old_rate
+                || front_end(&settings) != old_front_end;
             inner.revision += 1;
             (settings, blocking, rate, rebuilds, retuned)
         };
@@ -946,5 +964,59 @@ impl DeviceSetState {
             ));
         }
         Ok(())
+    }
+}
+fn front_end(
+    settings: &DeviceSettings,
+) -> (Vec<GainValue>, Option<AgcSetting>, Vec<Vec<GainValue>>) {
+    (
+        settings.gains.clone(),
+        settings.agc.clone(),
+        settings
+            .streams
+            .iter()
+            .map(|stream| stream.gains.clone())
+            .collect(),
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use sdrmm_wire::{GainKind, StreamSettings};
+
+    use super::*;
+
+    fn lane_gain(db: f64) -> DeviceSettings {
+        DeviceSettings {
+            streams: vec![StreamSettings {
+                stream: 2,
+                gains: vec![GainValue::new(GainKind::Tuner, db)],
+                ..StreamSettings::default()
+            }],
+            ..DeviceSettings::default()
+        }
+    }
+
+    #[test]
+    fn one_lanes_gain_moving_changes_the_front_end() {
+        assert_ne!(front_end(&lane_gain(12.5)), front_end(&lane_gain(29.7)));
+    }
+
+    #[test]
+    fn switching_agc_changes_the_front_end() {
+        let on = DeviceSettings {
+            agc: Some(AgcSetting::switched(true)),
+            ..DeviceSettings::default()
+        };
+        assert_ne!(front_end(&on), front_end(&DeviceSettings::default()));
+    }
+
+    #[test]
+    fn a_retune_alone_leaves_the_front_end_as_it_was() {
+        let tuned = DeviceSettings {
+            center_hz: Some(433.92e6),
+            ..lane_gain(12.5)
+        };
+        assert_eq!(front_end(&tuned), front_end(&lane_gain(12.5)));
     }
 }

@@ -171,6 +171,13 @@ pub(crate) fn capabilities(board: BoardVariant, gains: &[i32]) -> Capabilities {
 /// measurement, and the tuner is never bypassed because elements are wired to antennas rather
 /// than to a direct-sampling injection point. Gain stays per lane. The noise source is not a
 /// setting: it belongs to the calibration that switches it, not to an operator.
+pub(crate) fn kraken_lane_capabilities(gains: &[i32]) -> Capabilities {
+    Capabilities {
+        extra: Vec::new(),
+        ..capabilities(BoardVariant::Generic, gains)
+    }
+}
+
 pub(crate) fn kraken_capabilities(lanes: u32, gains: &[i32]) -> Capabilities {
     Capabilities {
         freq_ranges: vec![Range {
@@ -544,7 +551,7 @@ fn extra_direct_sampling(
         })
 }
 
-fn current_manual_tenths(current: &DeviceSettings) -> Option<i32> {
+pub(crate) fn current_manual_tenths(current: &DeviceSettings) -> Option<i32> {
     current
         .gain(GainKind::Tuner.name())
         .filter(|db| db.is_finite())

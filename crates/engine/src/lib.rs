@@ -554,6 +554,8 @@ struct DeviceSetState {
     overruns: Vec<Arc<AtomicU64>>,
     overruns_seen: u64,
     stalls: Vec<Arc<AtomicU64>>,
+    clip_meters: Vec<Arc<runtime::clip::ClipMeter>>,
+    clipping: Vec<u32>,
     playback: Option<Arc<PlaybackShared>>,
     coherent: Option<crate::coherent_ops::CoherentState>,
     runtime: Arc<DeviceRuntime>,
@@ -604,6 +606,7 @@ impl DeviceSetState {
                 })
                 .collect(),
             overruns,
+            clipping: self.clipping.clone(),
             error: self.error.clone(),
             fault: self.fault,
             refused: self.refused.clone(),
@@ -656,6 +659,15 @@ impl DeviceSetState {
             .iter()
             .map(|counter| counter.load(Ordering::Relaxed))
             .sum()
+    }
+
+    fn take_clipping(&self) -> Vec<u32> {
+        self.clip_meters
+            .iter()
+            .enumerate()
+            .filter(|(_, meter)| meter.take_clipping())
+            .map(|(lane, _)| lane as u32)
+            .collect()
     }
 
     /// Longest gap any lane went without touching its capture ring since the last read, and

@@ -148,6 +148,7 @@ fn swap_runtime(engine: &Engine, ds: u32, runtime: CaptureRuntime) -> Result<(),
     let cmd_txs = runtime.command_senders();
     let overruns = runtime.overruns_counters();
     let stalls = runtime.stall_counters();
+    let clip_meters = runtime.clip_meters();
     let runtime = Arc::new(DeviceRuntime::new(runtime));
     let replaced = {
         let mut inner = engine.lock();
@@ -159,6 +160,8 @@ fn swap_runtime(engine: &Engine, ds: u32, runtime: CaptureRuntime) -> Result<(),
         state.cmd_txs = cmd_txs;
         state.overruns = overruns;
         state.stalls = stalls;
+        state.clip_meters = clip_meters;
+        state.clipping.clear();
         let replaced = std::mem::replace(&mut state.runtime, runtime);
         inner.revision += 1;
         replaced

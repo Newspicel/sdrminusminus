@@ -12,6 +12,7 @@ pub struct DelayEstimate {
     pub gain: f32,
     /// Magnitude-squared coherence at the peak, in `0..=1`.
     pub coherence: f32,
+    pub peak_to_floor_db: f32,
 }
 
 impl DelayEstimate {
@@ -22,8 +23,17 @@ impl DelayEstimate {
             phase_rad: 0.0,
             gain: 0.0,
             coherence: 0.0,
+            peak_to_floor_db: 0.0,
         }
     }
+}
+
+fn peak_to_floor_db(peak: f32, total: f32, lags: usize) -> f32 {
+    let floor = (total - peak) / lags.saturating_sub(1).max(1) as f32;
+    if floor <= f32::MIN_POSITIVE {
+        return f32::INFINITY;
+    }
+    10.0 * (peak / floor).log10()
 }
 
 /// FFT cross-correlation sized once for a frame length, then reused.
@@ -81,8 +91,10 @@ impl XCorr {
         let at = |lag: isize| cross[lag.rem_euclid(size) as usize];
         let mut peak = 0isize;
         let mut best = 0.0f32;
+        let mut total = 0.0f32;
         for lag in -frame..frame {
             let power = at(lag).norm_sqr();
+            total += power;
             if power > best {
                 best = power;
                 peak = lag;
@@ -102,6 +114,7 @@ impl XCorr {
             phase_rad: value.arg(),
             gain: centre / energy_a,
             coherence: (best / (energy_a * energy_b)).clamp(0.0, 1.0),
+            peak_to_floor_db: peak_to_floor_db(best, total, 2 * self.frame),
         }
     }
 
@@ -210,6 +223,27 @@ mod tests {
         assert!((estimate.phase_rad - 1.1).abs() < 0.02, "{estimate:?}");
         assert!((estimate.gain - 0.5).abs() < 0.02, "{estimate:?}");
         assert!(estimate.coherence > 0.99, "{estimate:?}");
+    }
+
+    #[test]
+    fn broadband_noise_correlates_to_a_sharp_peak() {
+        let mut xcorr = XCorr::new(2048);
+        let a = noisy(&vec![Complex::default(); 2048], 1.0, 0x3333);
+        let mut b = vec![Complex::default(); 7];
+        b.extend_from_slice(&a[..2048 - 7]);
+        let estimate = xcorr.estimate(&a, &b);
+        assert!(estimate.peak_to_floor_db > 20.0, "{estimate:?}");
+    }
+
+    #[test]
+    fn a_steady_tone_correlates_everywhere_and_so_has_no_sharp_peak() {
+        let mut xcorr = XCorr::new(2048);
+        let tone: Vec<Complex<f32>> = (0..2048)
+            .map(|k| Complex::from_polar(1.0, TAU * 0.05 * k as f32))
+            .collect();
+        let estimate = xcorr.estimate(&tone, &tone);
+        assert!(estimate.coherence > 0.2, "{estimate:?}");
+        assert!(estimate.peak_to_floor_db < 20.0, "{estimate:?}");
     }
 
     #[test]

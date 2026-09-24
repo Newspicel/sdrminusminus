@@ -111,11 +111,13 @@ fn beam_bound(graph: &PatchGraph, device_node: &str, set: &DeviceSet) -> Vec<(St
         let Some(listener) = crate::coherent::beam_listener(graph, &node.id) else {
             continue;
         };
-        if let Some(channel) = set
-            .channels
-            .iter()
-            .find(|channel| channel.stream == set.capabilities.rx_streams)
-        {
+        let Some(NodeBody::Channel(wanted)) = graph.node(&listener).map(|node| &node.body) else {
+            continue;
+        };
+        if let Some(channel) = set.channels.iter().find(|channel| {
+            channel.node.as_deref() == Some(listener.as_str())
+                && carries(channel, &wanted.channel_type, set.capabilities.rx_streams)
+        }) {
             bound.push((listener, channel.id));
         }
     }
@@ -908,6 +910,7 @@ mod tests {
             status: sdrmm_wire::DeviceSetStatus::Running,
             channels,
             overruns: 0,
+            clipping: Vec::new(),
             error: None,
             fault: None,
             refused: None,

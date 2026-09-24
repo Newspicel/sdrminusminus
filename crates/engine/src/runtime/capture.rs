@@ -17,6 +17,7 @@ use tokio::sync::broadcast;
 
 use super::{
     DspCommand, DspMeta, FFT_SIZE, SpectrumSnapshot, Waker,
+    clip::ClipMeter,
     retire::Reclaimer,
     worker::{LaneShared, dsp_loop},
 };
@@ -55,6 +56,7 @@ struct Lane {
     cmd_tx: mpsc::Sender<DspCommand>,
     overruns: Arc<AtomicU64>,
     stalled_us: Arc<AtomicU64>,
+    clip: Arc<ClipMeter>,
     waker: Arc<Waker>,
     stop: Arc<AtomicBool>,
     dsp: Option<JoinHandle<()>>,
@@ -142,6 +144,8 @@ impl CaptureRuntime {
             let (mut producer, consumer) = capture_ring(ring);
             let overruns = consumer.metrics.dropped_counter();
             let stalled_us = Arc::new(AtomicU64::new(0));
+            let clip = Arc::new(ClipMeter::default());
+            let meter = clip.clone();
             let waker = Arc::new(Waker::default());
             let wake = waker.clone();
             let fatal = fatal.clone();
@@ -161,6 +165,7 @@ impl CaptureRuntime {
                             if let Some(tap) = lane_tap.as_mut() {
                                 tap.push(samples, index);
                             }
+                            meter.measure(samples);
                             producer.push(samples, index);
                             wake.wake();
                         },
@@ -196,6 +201,7 @@ impl CaptureRuntime {
                 cmd_tx,
                 overruns,
                 stalled_us,
+                clip,
                 waker,
                 stop: Arc::new(AtomicBool::new(false)),
                 dsp: None,
@@ -295,6 +301,10 @@ impl CaptureRuntime {
             .iter()
             .map(|lane| lane.overruns.clone())
             .collect()
+    }
+
+    pub(crate) fn clip_meters(&self) -> Vec<Arc<ClipMeter>> {
+        self.lanes.iter().map(|lane| lane.clip.clone()).collect()
     }
 
     pub(crate) fn stall_counters(&self) -> Vec<Arc<AtomicU64>> {
@@ -417,6 +427,7 @@ impl CaptureRuntime {
                     cmd_tx,
                     overruns: Arc::new(AtomicU64::new(0)),
                     stalled_us: Arc::new(AtomicU64::new(0)),
+                    clip: Arc::new(ClipMeter::default()),
                     waker: Arc::new(Waker::default()),
                     stop: Arc::new(AtomicBool::new(false)),
                     dsp: None,

@@ -855,6 +855,7 @@ mod contract_tests {
             status: DeviceSetStatus::Running,
             channels: Vec::new(),
             overruns: 0,
+            clipping: Vec::new(),
             error: None,
             fault: None,
             refused: None,
@@ -922,6 +923,19 @@ mod contract_tests {
         json.as_object_mut().unwrap().remove("overruns");
         let back: DeviceSet = serde_json::from_value(json).unwrap();
         assert_eq!(back.overruns, 0);
+    }
+
+    #[test]
+    fn a_device_set_names_its_clipping_lanes_only_when_there_are_any() {
+        let mut set = sample_device_set();
+        let json = serde_json::to_value(&set).unwrap();
+        assert!(json.get("clipping").is_none());
+
+        set.clipping = vec![0, 3];
+        let json = serde_json::to_value(&set).unwrap();
+        assert_eq!(json["clipping"], serde_json::json!([0, 3]));
+        let back: DeviceSet = serde_json::from_value(json).unwrap();
+        assert_eq!(back.clipping, [0, 3]);
     }
 
     #[test]

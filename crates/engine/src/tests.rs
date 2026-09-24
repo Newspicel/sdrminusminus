@@ -20,6 +20,7 @@ mod auto_tuning;
 mod capture_health;
 mod channel_capture;
 mod channels;
+mod clipping;
 mod device_patch;
 mod discovery;
 mod front_end;

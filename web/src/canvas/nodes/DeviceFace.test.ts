@@ -3,6 +3,7 @@ import type { Capabilities, DeviceSet } from "../../lib/types";
 import { mergeSettings } from "../../lib/useDevicePatch";
 import {
   autoTuning,
+  clippingSaid,
   faultSaid,
   hearing,
   lockStream,
@@ -270,5 +271,20 @@ describe("hearing", () => {
   it("is red while the radio is faulted", () => {
     const set = deviceSet({ status: "error", channels: carrying([false, false]) });
     expect(hearing(set)).toEqual({ heard: 2, total: 2, tone: "danger" });
+  });
+});
+
+describe("clippingSaid", () => {
+  it("says nothing while no lane is at full scale", () => {
+    expect(clippingSaid(deviceSet())).toBeNull();
+  });
+
+  it("names the clipping lanes by their IQ port on a multi-lane radio", () => {
+    const set = deviceSet({ capabilities: capabilities({ rx_streams: 5 }), clipping: [0, 3] });
+    expect(clippingSaid(set)).toBe("iq1, iq4");
+  });
+
+  it("just says yes on a single-lane radio", () => {
+    expect(clippingSaid(deviceSet({ clipping: [0] }))).toBe("yes");
   });
 });

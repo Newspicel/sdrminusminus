@@ -189,7 +189,6 @@ impl Engine {
         let elements = lanes.len();
         let sample_rate = sample_rate_of(&state.settings);
         let center_hz = state.settings.center_hz.unwrap_or(crate::DEFAULT_CENTER_HZ);
-        let cal = cal_of(&params);
         if state.coherent.is_none() {
             let taps = crate::lock_runtime(&state.runtime)
                 .take_coherent()
@@ -204,7 +203,7 @@ impl Engine {
                 taps,
                 tier,
                 center_hz,
-                cal,
+                cal: cal_of(&params).unwrap_or_default(),
                 switched_reference: state.capabilities.noise_source,
             })?;
             state.coherent = Some(CoherentState {
@@ -243,11 +242,11 @@ impl Engine {
                 "the coherent runtime went away".to_string(),
             ));
         };
+        coherent.nodes.insert(node, params);
         coherent.runtime.send(CoherentCommand::Cal {
-            params: Box::new(cal),
+            params: Box::new(bank_cal(&coherent.nodes)),
         });
         coherent.runtime.send(CoherentCommand::Add { node, host });
-        coherent.nodes.insert(node, params);
         inner.revision += 1;
         drop(inner);
         self.calibrate_against_reference(ds);
@@ -281,7 +280,6 @@ impl Engine {
         let elements = lanes.len();
         let sample_rate = sample_rate_of(&state.settings);
         let center_hz = state.settings.center_hz.unwrap_or(crate::DEFAULT_CENTER_HZ);
-        let cal = cal_of(&params);
         let decoded = self.decoded_sink(ds, node);
         let coherent = state
             .coherent
@@ -312,11 +310,11 @@ impl Engine {
             sinks,
             lanes,
         )?;
+        coherent.nodes.insert(node, params);
         coherent.runtime.send(CoherentCommand::Cal {
-            params: Box::new(cal),
+            params: Box::new(bank_cal(&coherent.nodes)),
         });
         coherent.runtime.send(CoherentCommand::Add { node, host });
-        coherent.nodes.insert(node, params);
         inner.revision += 1;
         drop(inner);
         self.calibrate_against_reference(ds);
@@ -336,6 +334,11 @@ impl Engine {
         };
         coherent.nodes.remove(&node);
         coherent.runtime.send(CoherentCommand::Remove { node });
+        if !coherent.nodes.is_empty() {
+            coherent.runtime.send(CoherentCommand::Cal {
+                params: Box::new(bank_cal(&coherent.nodes)),
+            });
+        }
         if coherent.nodes.is_empty() {
             let Some(coherent) = state.coherent.take() else {
                 return Ok(());
@@ -367,6 +370,28 @@ impl Engine {
         }
         self.calibrate_against_reference(ds);
         Ok(())
+    }
+
+    pub(crate) fn recover_lost_sync(&self) {
+        let lost: Vec<u32> = self
+            .lock()
+            .device_sets
+            .iter()
+            .filter(|(_, state)| {
+                state
+                    .coherent
+                    .as_ref()
+                    .is_some_and(|coherent| coherent.runtime.take_sync_lost())
+            })
+            .map(|(ds, _)| *ds)
+            .collect();
+        for ds in lost {
+            tracing::warn!(
+                device_set = ds,
+                "the array lost sample sync, calibrating again"
+            );
+            self.calibrate_against_reference(ds);
+        }
     }
 
     /// Solves the calibration against the radio's own reference, when it has one and something
@@ -409,7 +434,8 @@ impl Engine {
         let wanted = coherent
             .nodes
             .values()
-            .any(|params| cal_of(params).source == CalSource::Noise);
+            .filter_map(cal_of)
+            .any(|cal| cal.source == CalSource::Noise);
         wanted.then(|| Reference {
             runtime: state.runtime.clone(),
             commands: coherent.runtime.sender(),
@@ -489,10 +515,19 @@ impl Engine {
     }
 }
 
-fn cal_of(params: &CoherentParams) -> CalParams {
+fn cal_of(params: &CoherentParams) -> Option<CalParams> {
     match params {
-        CoherentParams::Df(df) => df.cal,
-        CoherentParams::Combiner(combiner) => combiner.cal,
-        CoherentParams::PassiveRadar(_) => CalParams::default(),
+        CoherentParams::Df(df) => Some(df.cal),
+        CoherentParams::Combiner(combiner) => Some(combiner.cal),
+        CoherentParams::PassiveRadar(_) => None,
     }
+}
+
+fn bank_cal(nodes: &BTreeMap<u32, CoherentParams>) -> CalParams {
+    let mut asked = nodes.values().filter_map(cal_of);
+    let first = asked.next().unwrap_or_default();
+    std::iter::once(first)
+        .chain(asked)
+        .find(|cal| cal.source == CalSource::Noise)
+        .unwrap_or(first)
 }

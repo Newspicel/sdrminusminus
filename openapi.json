@@ -11314,6 +11314,14 @@
               "$ref": "#/components/schemas/ChannelInfo"
             }
           },
+          "clipping": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          },
           "device": {
             "$ref": "#/components/schemas/DeviceInfo"
           },

@@ -31,11 +31,21 @@ fn map_err(err: driver::Error) -> DeviceError {
     if err.is_permission_denied() {
         return DeviceError::PermissionDenied(text);
     }
+    if err.is_busy() {
+        return DeviceError::InUse(text);
+    }
+    if err.is_missing() {
+        return DeviceError::NotFound(text);
+    }
+    if err.is_wrong_driver() {
+        return DeviceError::Unsupported(format!("{text}: install the WinUSB driver with Zadig"));
+    }
     match err {
         driver::Error::DeviceNotFound => DeviceError::NotFound(text),
-        driver::Error::InvalidSampleRate { .. } | driver::Error::InvalidParam(_) => {
-            DeviceError::Unsupported(text)
-        }
+        driver::Error::InvalidSampleRate { .. }
+        | driver::Error::InvalidParam(_)
+        | driver::Error::PllLockFailed { .. }
+        | driver::Error::UnsupportedTuner(_) => DeviceError::Unsupported(text),
         _ => DeviceError::Io(text),
     }
 }
@@ -179,8 +189,6 @@ impl RtlSdrDevice {
 
 fn apply_to_hardware(sdr: &mut RtlSdr, plan: &Plan) -> Result<(), DeviceError> {
     if let Some(mode) = plan.direct_sampling {
-        // No retune here: `caps::validate` always plans a centre alongside a mode change, and the
-        // unconditional write below lands it once the sample rate is in place.
         sdr.set_direct_sampling(mode).map_err(map_err)?;
     }
     if let Some(rate) = plan.sample_rate {
