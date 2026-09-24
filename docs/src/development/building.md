@@ -9,6 +9,7 @@ CI and local development run the same `cargo xtask` commands.
 | Rust | Pinned in `rust-toolchain.toml`; rustup installs it |
 | Node | 26 |
 | pnpm | 11, exact version in `web/package.json` |
+| FFmpeg | 9, built by `scripts/build-media.py` |
 | Native | C/C++ compiler, Clang/libclang, CMake, GNU Make, NASM, Python 3.12+ |
 
 ```sh
@@ -34,8 +35,9 @@ cargo run -p sdrmm
 Open <http://localhost:8080>.
 
 The media script builds the few FFmpeg 9.0.1 codecs SDR-- needs, from checksummed source, into
-`.media/<target>`. Keep `FFMPEG_DIR` set for every Cargo command. For cross builds, pass
-`--target <triple>` to the script. Nix uses its own FFmpeg.
+`.media/<target>`. Keep `FFMPEG_DIR` set for every Cargo command. A system FFmpeg older than 9
+does not compile. For cross builds, pass `--target <triple>` to the script. Nix uses its own
+FFmpeg.
 
 The server embeds `web/dist`, so build the frontend first. Without it, backend-only builds get a
 placeholder page.
