@@ -567,8 +567,13 @@ pub(super) async fn update_workspace(
 ) -> Result<Json<WorkspaceInfo>, AppError> {
     let engine = state.engine.clone();
     let store = state.store.clone();
+    let app = state.clone();
     let info = tokio::task::spawn_blocking(move || -> Result<WorkspaceInfo, AppError> {
         let info = store.update_workspace(id, &req)?;
+        if store.active_workspace_id()? == Some(id) {
+            let graph = store.workspace(id)?.snapshot.graph;
+            crate::coherent::drop_undrawn(&app, &graph);
+        }
         engine.emit_scope(StateScope::Workspaces);
         Ok(info)
     })

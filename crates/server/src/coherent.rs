@@ -220,6 +220,19 @@ pub(crate) fn settings_of(body: &NodeBody) -> Option<CoherentParams> {
     }
 }
 
+pub(crate) fn drop_undrawn(state: &AppState, graph: &PatchGraph) {
+    for (node, binding) in state.coherent.nodes() {
+        let still_there = graph.node(&node).is_some_and(|patch| {
+            settings_of(&patch.body).is_some()
+                && matches!(wired_lanes(graph, &node, &patch.body), Wiring::Complete(..))
+        });
+        if !still_there {
+            let _ = state.engine.remove_coherent(binding.device_set, binding.id);
+            state.coherent.forget(&node);
+        }
+    }
+}
+
 /// Puts every coherent node the patch draws onto the radio it is wired to, and takes down the
 /// ones that are no longer drawn.
 pub(crate) fn apply(
@@ -228,17 +241,7 @@ pub(crate) fn apply(
     bound: &[(String, u32)],
 ) -> Vec<(String, String)> {
     let mut refused = Vec::new();
-    let live: Vec<(String, Binding)> = state.coherent.nodes();
-    for (node, binding) in live {
-        let still_there = graph
-            .node(&node)
-            .and_then(|node| settings_of(&node.body))
-            .is_some();
-        if !still_there {
-            let _ = state.engine.remove_coherent(binding.device_set, binding.id);
-            state.coherent.forget(&node);
-        }
-    }
+    drop_undrawn(state, graph);
     for node in &graph.nodes {
         let Some(params) = settings_of(&node.body) else {
             continue;

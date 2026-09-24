@@ -506,3 +506,115 @@ async fn a_beam_feeds_a_scope_and_every_channel_on_it() {
         ]
     );
 }
+
+#[tokio::test]
+async fn switching_to_a_workspace_without_the_direction_finder_takes_it_down() {
+    let (app, state) = test_router_with_state();
+    staged_array(&app).await;
+    let binding = state.coherent.binding("df").expect("bound");
+
+    let bare = virtual_snapshot("array4", &[]);
+    let (status, body) = request(
+        app.clone(),
+        "POST",
+        "/api/workspaces",
+        Some(&format!(
+            r#"{{"name":"Bare","snapshot":{}}}"#,
+            serde_json::to_string(&bare).unwrap()
+        )),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
+    let created: sdrmm_wire::CreatedRowId = serde_json::from_slice(&body).expect("json");
+    activate(&app, created.id).await;
+
+    assert_eq!(get_state(&app).await.device_sets.len(), 1);
+    assert!(state.coherent.binding("df").is_none());
+    assert!(state.engine.coherent_nodes(binding.device_set).is_empty());
+}
+
+fn combined_bank(wired: u32) -> WorkspaceSnapshot {
+    let mut snapshot = virtual_snapshot("bank5", &[]);
+    snapshot.graph.nodes.push(PatchNode {
+        id: "combiner".to_owned(),
+        body: NodeBody::Combiner(sdrmm_wire::CombinerNode {
+            settings: sdrmm_wire::CombinerParams {
+                lanes: 5,
+                ..sdrmm_wire::CombinerParams::default()
+            },
+        }),
+        position: Position { x: 700.0, y: 300.0 },
+        size: None,
+        label: None,
+    });
+    for lane in 0..wired {
+        snapshot.graph.edges.push(PatchEdge {
+            from: PortRef {
+                node: "device".to_owned(),
+                port: stream_port("iq", lane),
+            },
+            to: PortRef {
+                node: "combiner".to_owned(),
+                port: stream_port("iq", lane),
+            },
+        });
+    }
+    snapshot
+}
+
+#[tokio::test]
+async fn unwiring_a_combiner_lets_each_lane_tune_alone() {
+    let (app, state) = test_router_with_state();
+    let workspace = put_active_workspace(&app, &combined_bank(5)).await;
+    let report = apply(&app, workspace).await;
+    assert!(report.refused.is_empty(), "{report:?}");
+    assert!(state.coherent.binding("combiner").is_some());
+
+    let workspace = put_workspace_revision(&app, &combined_bank(0), 2).await;
+    apply(&app, workspace).await;
+    let ds = get_state(&app).await.device_sets[0].id;
+    assert!(state.engine.coherent_nodes(ds).is_empty());
+
+    let tune = async |body: &str| {
+        let (status, _) = request(
+            app.clone(),
+            "PATCH",
+            &format!("/api/devicesets/{ds}/device"),
+            Some(body),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NO_CONTENT);
+    };
+    tune(r#"{"tuning":"manual"}"#).await;
+    tune(r#"{"streams":[{"stream":2,"tuning":"auto"}]}"#).await;
+    let set = &get_state(&app).await.device_sets[0];
+    let scope = set.capabilities.per_stream;
+    assert_ne!(
+        set.settings.for_stream(0, &scope).tuning,
+        Some(sdrmm_wire::Tuning::Auto)
+    );
+}
+
+#[tokio::test]
+async fn deleting_a_combiner_takes_it_off_the_radio_without_an_apply() {
+    let (app, state) = test_router_with_state();
+    let workspace = put_active_workspace(&app, &combined_bank(5)).await;
+    apply(&app, workspace).await;
+    let binding = state.coherent.binding("combiner").expect("bound");
+
+    put_workspace_revision(&app, &virtual_snapshot("bank5", &[]), 2).await;
+    assert!(state.coherent.binding("combiner").is_none());
+    assert!(state.engine.coherent_nodes(binding.device_set).is_empty());
+}
+
+#[tokio::test]
+async fn unwiring_a_combiner_takes_it_off_the_radio_without_an_apply() {
+    let (app, state) = test_router_with_state();
+    let workspace = put_active_workspace(&app, &combined_bank(5)).await;
+    apply(&app, workspace).await;
+    let binding = state.coherent.binding("combiner").expect("bound");
+
+    put_workspace_revision(&app, &combined_bank(4), 2).await;
+    assert!(state.coherent.binding("combiner").is_none());
+    assert!(state.engine.coherent_nodes(binding.device_set).is_empty());
+}

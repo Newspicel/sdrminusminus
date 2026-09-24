@@ -494,6 +494,7 @@ pub(crate) fn reconcile(
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
         .clear();
+    crate::coherent::drop_undrawn(state, incoming);
 
     for set in &snapshot.device_sets {
         if bindings.iter().any(|bound| bound.device_set == set.id) {

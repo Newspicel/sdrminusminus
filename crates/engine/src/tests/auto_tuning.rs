@@ -468,3 +468,46 @@ fn feasible_tuning_boundaries_match_the_runtime_at_adjacent_floats() {
     assert!(crate::planning::tuning_span(100e6, -100_000.0, 100_000.0, 48_000.0).is_none());
     assert!(crate::planning::tuning_span(f64::NAN, 0.0, 1.0, 48_000.0).is_none());
 }
+
+#[tokio::test]
+async fn switching_one_lane_to_auto_leaves_the_others_alone() {
+    let engine = virtual_engine();
+    let ds = engine.create_device_set("virtual:bank5").unwrap();
+    let lane = |stream: u32, tuning: Tuning| DeviceSettings {
+        streams: vec![StreamSettings {
+            stream,
+            tuning: Some(tuning),
+            ..StreamSettings::default()
+        }],
+        ..DeviceSettings::default()
+    };
+    engine
+        .patch_device(
+            ds,
+            DeviceSettings {
+                center_hz: Some(TEST_CENTER_HZ),
+                tuning: Some(Tuning::Manual),
+                streams: (0..5)
+                    .map(|stream| StreamSettings {
+                        stream,
+                        center_hz: Some(TEST_CENTER_HZ),
+                        tuning: Some(Tuning::Manual),
+                        ..StreamSettings::default()
+                    })
+                    .collect(),
+                ..DeviceSettings::default()
+            },
+        )
+        .unwrap();
+    engine.patch_device(ds, lane(2, Tuning::Auto)).unwrap();
+
+    let set = &engine.snapshot().device_sets[0];
+    let scope = set.capabilities.per_stream;
+    let tunings: Vec<_> = (0..5)
+        .map(|stream| set.settings.for_stream(stream, &scope).tuning)
+        .collect();
+    engine.remove_device_set(ds).unwrap();
+    let mut expected = vec![Some(Tuning::Manual); 5];
+    expected[2] = Some(Tuning::Auto);
+    assert_eq!(tunings, expected);
+}
