@@ -37,8 +37,8 @@ rustPlatform.buildRustPackage (finalAttrs: {
   cargoLock = {
     lockFile = ../../Cargo.lock;
     outputHashes = {
-      # git rev 6a768a2f843099171d7ed08df9fe0f3ba0678f25
-      "xng-acars-0.21.0" = "sha256-Gaws7KiS6VDkJdctJV9vzvFfWEInDGf7GledbLmouUk=";
+      # git rev 096c805278faa0a904de7d98066bf4cf395cb6c2
+      "xng-acars-0.21.0" = "sha256-O/+eP1Eyx5PGrP7+YGJmOIRFFwF2t9HOWtag5z1lUWM=";
     };
   };
 
