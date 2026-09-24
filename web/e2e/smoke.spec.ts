@@ -80,11 +80,25 @@ async function fitPatch(page: Page): Promise<void> {
   if (box === null) {
     throw new Error("a pane to right-click");
   }
+  await expect(page.locator('.react-flow__node[style*="visibility: hidden"]')).toHaveCount(0);
   await page.mouse.click(box.x + 40, box.y + box.height - 40, { button: "right" });
   await page
     .getByRole("menu")
     .getByRole("button", { name: /fit the patch/i })
     .click();
+  await viewSettled(page);
+}
+
+async function viewSettled(page: Page): Promise<void> {
+  const viewport = page.locator(".react-flow__viewport");
+  const transform = () => viewport.evaluate((element) => (element as HTMLElement).style.transform);
+  await expect
+    .poll(async () => {
+      const before = await transform();
+      await page.waitForTimeout(150);
+      return before === (await transform());
+    })
+    .toBe(true);
 }
 
 async function dragBy(page: Page, grip: Locator, cells: number, down = 0): Promise<void> {
@@ -1018,7 +1032,7 @@ test.describe("the workspace", () => {
     await page.goto("/");
     await page.getByRole("button", { name: "Library" }).click();
     await page.getByRole("tab", { name: "Field" }).click();
-    await expect(page.getByRole("tabpanel").getByText(/\/field(\?|$)/)).toBeVisible();
+    await expect(page.getByRole("tabpanel").getByText("--bind 0.0.0.0:8080")).toBeVisible();
   });
 
   test("serves the mark to the tab and the top bar", async ({ page }) => {

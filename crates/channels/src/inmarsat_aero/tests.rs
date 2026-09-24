@@ -506,8 +506,8 @@ fn has_adsc(messages: &[DataLinkMessage]) -> bool {
 fn coherent_detection_decodes_below_the_discriminator_threshold() {
     for rate in [600, 1200] {
         let iq = noisy_msk(rate, 30.0, 3.5, 21);
-        assert!(has_adsc(&ours(&iq)), "{rate} bps");
-        assert!(!has_adsc(&reference(&iq)), "{rate} bps");
+        assert!(has_adsc(&ours(&iq)), "{rate} bit/s");
+        assert!(!has_adsc(&reference(&iq)), "{rate} bit/s");
     }
 }
 

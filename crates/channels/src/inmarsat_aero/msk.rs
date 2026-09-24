@@ -211,7 +211,7 @@ mod tests {
     #[test]
     fn clean_signal_has_no_errors() {
         for (rate, cfo) in [(600.0, 0.0), (600.0, -250.0), (1200.0, 300.0)] {
-            assert_eq!(rates(rate, cfo, 40.0).0, 0.0, "{rate} bps at {cfo} Hz");
+            assert_eq!(rates(rate, cfo, 40.0).0, 0.0, "{rate} bit/s at {cfo} Hz");
         }
     }
 
@@ -219,10 +219,10 @@ mod tests {
     fn beats_the_discriminator_in_noise() {
         for (rate, cfo) in [(600.0, 120.0), (1200.0, -150.0)] {
             let (coherent, discriminator) = rates(rate, cfo, 4.0);
-            assert!(coherent < 0.04, "{rate} bps: {coherent}");
+            assert!(coherent < 0.04, "{rate} bit/s: {coherent}");
             assert!(
                 coherent * 2.0 < discriminator,
-                "{rate} bps: {coherent} vs {discriminator}"
+                "{rate} bit/s: {coherent} vs {discriminator}"
             );
         }
     }
