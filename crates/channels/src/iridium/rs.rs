@@ -68,7 +68,9 @@ impl Gf64 {
         poly.iter()
             .enumerate()
             .filter(|(_, c)| **c != 0)
-            .fold(0u8, |acc, (k, &c)| acc ^ self.mul(c, self.pow(x_log, k as u32)))
+            .fold(0u8, |acc, (k, &c)| {
+                acc ^ self.mul(c, self.pow(x_log, k as u32))
+            })
     }
 }
 
@@ -137,7 +139,7 @@ pub fn rs6_correct(cw: &mut [u8; RS6_N]) -> Option<u32> {
         derivative[k - 1] = lambda[k];
     }
     let mut corrected = 0usize;
-    for i in 0..RS6_N {
+    for (i, symbol) in cw.iter_mut().enumerate() {
         let deg = (RS6_N - 1 - i) as u32;
         let x_inv_log = (GF64_ORDER - deg % GF64_ORDER) % GF64_ORDER;
         if gf.eval_at(&lambda, x_inv_log) != 0 {
@@ -149,7 +151,7 @@ pub fn rs6_correct(cw: &mut [u8; RS6_N]) -> Option<u32> {
         }
         let adjust = (i64::from(deg) * (1 - i64::from(RS6_FCR))).rem_euclid(i64::from(GF64_ORDER));
         let magnitude = gf.div(gf.eval_at(&omega, x_inv_log), slope);
-        cw[i] ^= gf.mul(magnitude, gf.exp[adjust as usize]);
+        *symbol ^= gf.mul(magnitude, gf.exp[adjust as usize]);
         corrected += 1;
     }
     if corrected != degree || rs6_syndromes(cw).iter().any(|&s| s != 0) {
@@ -185,7 +187,9 @@ pub fn iip_crc24(data: &[u8]) -> u32 {
 
 pub fn checksum_16(msg: &[u8; RS8_DATA]) -> u16 {
     let mut sum: u32 = msg[..28]
-        .chunks_exact(2)
+        .as_chunks::<2>()
+        .0
+        .iter()
         .map(|w| u32::from(u16::from_le_bytes([w[0], w[1]])))
         .sum();
     sum += u32::from(msg[28]);
@@ -196,7 +200,9 @@ pub fn checksum_16(msg: &[u8; RS8_DATA]) -> u16 {
 
 pub fn bytes_of_bits(bits: &[u8]) -> (Vec<u8>, Vec<u8>) {
     let straight: Vec<u8> = bits
-        .chunks_exact(8)
+        .as_chunks::<8>()
+        .0
+        .iter()
         .map(|c| c.iter().fold(0u8, |v, &b| (v << 1) | b))
         .collect();
     let reversed = straight.iter().map(|b| b.reverse_bits()).collect();

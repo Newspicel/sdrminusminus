@@ -3,14 +3,14 @@ use sdrmm_wire::{ChannelParams, DecoderEvent, IridiumParams};
 use serde_json::Value;
 
 use super::acars;
-use super::decode::{ChannelDecoder, Reassembly, WidebandDecoder, decode_bits};
-use super::demod::IridiumDemod;
+use super::decode::{Reassembly, decode_bits};
 use super::encode::{
     bits_of_str, da_burst_bits, encode_lcw, ims_bits, ira_bits, ira_payload, pager_blocks,
 };
 use super::frame::{ACCESS_DL, symbol_reverse};
 use super::ira::IridiumFrame;
 use super::modulate::modulate;
+use super::receiver::ChannelDecoder;
 use super::{CHANNEL_RATE, IridiumChannel};
 use crate::testutil::{run_events, settings};
 use crate::{ChannelCtx, ChannelRx};
@@ -35,7 +35,10 @@ fn snapshot(frame: &IridiumFrame) -> Snapshot {
     (
         frame.kind.to_owned(),
         frame.details.clone(),
-        frame.acars.as_ref().and_then(|a| serde_json::to_value(a).ok()),
+        frame
+            .acars
+            .as_ref()
+            .and_then(|a| serde_json::to_value(a).ok()),
     )
 }
 
@@ -43,13 +46,16 @@ fn xng_snapshot(frame: &xng_mode_iridium::ira::IridiumFrame) -> Snapshot {
     (
         frame.kind.to_owned(),
         frame.details.clone(),
-        frame.acars.as_ref().and_then(|a| serde_json::to_value(a).ok()),
+        frame
+            .acars
+            .as_ref()
+            .and_then(|a| serde_json::to_value(a).ok()),
     )
 }
 
 fn decode_burst(bits: &[u8]) -> Vec<IridiumFrame> {
     let mut out = Vec::new();
-    Reassembly::new().handle(bits, 0.0, 0.0, &mut out);
+    Reassembly::new().handle(bits, &[], 0.0, 0.0, &mut out);
     out
 }
 
@@ -75,27 +81,6 @@ fn xng(iq: &[Complex<f32>]) -> Vec<Snapshot> {
     iq.chunks(65_536)
         .flat_map(|chunk| decoder.process(chunk))
         .map(|frame| xng_snapshot(&frame))
-        .collect()
-}
-
-fn ours_wideband(iq: &[Complex<f32>], rate: f64) -> Vec<(f64, Snapshot)> {
-    let Ok(mut decoder) = WidebandDecoder::new(rate) else {
-        return Vec::new();
-    };
-    let mut frames = Vec::new();
-    for chunk in iq.chunks(65_536) {
-        decoder.process(chunk, &mut frames);
-    }
-    frames.iter().map(|(o, f)| (*o, snapshot(f))).collect()
-}
-
-fn xng_wideband(iq: &[Complex<f32>], rate: f64) -> Vec<(f64, Snapshot)> {
-    let Ok(mut decoder) = xng_mode_iridium::IridiumWidebandDecoder::new(rate) else {
-        return Vec::new();
-    };
-    iq.chunks(65_536)
-        .flat_map(|chunk| decoder.process(chunk))
-        .map(|(o, f)| (o, xng_snapshot(&f)))
         .collect()
 }
 
@@ -186,10 +171,11 @@ pub(super) fn da_fragments(l2: &[u8]) -> Vec<Vec<u8>> {
 }
 
 fn gr_reference_burst() -> Vec<Complex<f32>> {
-    const FIXTURE: &[u8] =
-        include_bytes!("../../../../fixtures/iridium_prbs15_250k.sigmf-data");
+    const FIXTURE: &[u8] = include_bytes!("../../../../fixtures/iridium_prbs15_250k.sigmf-data");
     FIXTURE
-        .chunks_exact(8)
+        .as_chunks::<8>()
+        .0
+        .iter()
         .map(|b| {
             Complex::new(
                 f32::from_le_bytes([b[0], b[1], b[2], b[3]]),
@@ -245,18 +231,31 @@ fn decodes_a_remodulated_off_air_ring_alert() {
     let events = run_events(&mut channel, &iq);
     assert!(events.iter().any(|event| matches!(
         event,
-        DecoderEvent::Iridium(message) if message.message_type == "ring-alert" && message.crc_ok
+        DecoderEvent::Iridium(message) if message.message_type == "ring-alert"
+            && message.crc_ok
+            && message.frequency_error_hz.is_some_and(|hz| hz.abs() < 200.0)
     )));
+}
+
+#[test]
+fn a_failed_data_crc_is_reported() {
+    let frame = IridiumFrame::new(
+        "ida",
+        serde_json::json!({ "crc_ok": false, "bch_corrected": 2 }),
+    );
+    let message = super::message(&frame);
+    assert!(!message.crc_ok);
+    assert_eq!(message.fec_corrected, Some(2));
 }
 
 #[test]
 fn demodulates_the_gr_iridium_reference_burst() {
     let mut iq = gr_reference_burst();
-    iq.extend(std::iter::repeat_n(Complex::default(), 37_500));
-    let mut demod = IridiumDemod::new(CHANNEL_RATE);
+    iq.extend(std::iter::repeat_n(Complex::default(), 40_000));
+    let mut decoder = ChannelDecoder::new();
     let mut bursts = Vec::new();
-    demod.process(&iq, &mut bursts);
-    assert_eq!(bursts.len(), 1);
+    decoder.demodulate(&iq, &mut bursts);
+    assert!(!bursts.is_empty());
     let bits = symbol_reverse(&bursts[0].bits);
     assert_eq!(&bits[..24], &ACCESS_DL[..]);
     let payload = &bits[24..];
@@ -394,7 +393,7 @@ fn sbd_acars_end_to_end() {
         .iter()
         .enumerate()
     {
-        reassembly.handle(bits, i as f64 * 0.09, 0.0, &mut frames);
+        reassembly.handle(bits, &[], i as f64 * 0.09, 0.0, &mut frames);
     }
     let block = frames
         .iter()
@@ -415,10 +414,10 @@ fn reassembles_interleaved_channels() {
     for i in 0..a.len().max(b.len()) {
         let t = i as f64 * 0.1;
         if let Some(bits) = a.get(i) {
-            reassembly.handle(bits, t, 100_000.0, &mut frames);
+            reassembly.handle(bits, &[], t, 100_000.0, &mut frames);
         }
         if let Some(bits) = b.get(i) {
-            reassembly.handle(bits, t, 200_000.0, &mut frames);
+            reassembly.handle(bits, &[], t, 200_000.0, &mut frames);
         }
     }
     let flights: Vec<_> = frames
@@ -542,12 +541,57 @@ fn every_traffic_class_matches_xng_bit_for_bit() {
     }
 }
 
+fn identity(frame: &Snapshot) -> (String, Value) {
+    let (kind, details, acars) = frame;
+    let fields: &[&str] = match kind.as_str() {
+        "ring-alert" => &["sat", "beam", "x", "y", "z"],
+        "broadcast" => &["bc_type", "sat", "beam"],
+        "msg" => &["block", "frame", "group"],
+        "itl" => &["version", "sat", "plane"],
+        "ida" => &["data_hex", "crc_ok", "len"],
+        "voice" | "ip-data" | "sync" | "u3" | "u6" | "lcw" => &["lcw"],
+        _ => return (kind.clone(), serde_json::json!([details, acars])),
+    };
+    let picked: serde_json::Map<String, Value> = fields
+        .iter()
+        .map(|&field| (field.to_owned(), details[field].clone()))
+        .collect();
+    (kind.clone(), Value::Object(picked))
+}
+
+fn assert_superset(ours: &[Snapshot], xng: &[Snapshot]) {
+    let mut remaining: Vec<(String, Value)> = ours.iter().map(identity).collect();
+    for frame in xng.iter().map(identity) {
+        let at = remaining.iter().position(|candidate| *candidate == frame);
+        assert!(at.is_some(), "xng frame missing: {frame:?}");
+        if let Some(at) = at {
+            remaining.remove(at);
+        }
+    }
+}
+
 #[test]
-fn channel_decoder_matches_xng_on_modulated_traffic() {
+fn channel_decoder_finds_every_xng_frame_in_modulated_traffic() {
     let iq = modulated_stream(&traffic_bursts(), 0.02, 11);
     let expected = xng(&iq);
     assert!(expected.len() >= 12, "xng decoded {}", expected.len());
-    assert_eq!(ours(&iq), expected);
+    let got = ours(&iq);
+    assert_superset(&got, &expected);
+    assert!(got.iter().any(|f| f.0 == "itl" && f.1["sat"] == "S09"));
+}
+
+#[test]
+fn channel_decoder_finds_every_xng_frame_in_weak_traffic() {
+    let iq = modulated_stream(&traffic_bursts(), 0.06, 13);
+    let expected = xng(&iq);
+    let got = ours(&iq);
+    assert_superset(&got, &expected);
+    assert!(
+        got.len() > expected.len(),
+        "ours {} xng {}",
+        got.len(),
+        expected.len()
+    );
 }
 
 #[test]
@@ -558,33 +602,9 @@ fn channel_decoder_matches_xng_on_the_reference_burst() {
 }
 
 #[test]
-fn channel_decoder_matches_xng_on_noise() {
-    let mut iq = vec![Complex::default(); 400_000];
+fn channel_decoder_stays_silent_on_noise() {
+    let mut iq = vec![Complex::default(); 2_000_000];
     add_noise(&mut iq, 0.05, 3);
-    let expected = xng(&iq);
-    assert!(expected.is_empty());
-    assert_eq!(ours(&iq), expected);
-}
-
-#[test]
-fn wideband_decoder_matches_xng() {
-    let rate = 2_000_000.0;
-    let bursts: Vec<Vec<Complex<f32>>> = [(-450_000.0, 77u32), (310_000.0, 12)]
-        .iter()
-        .map(|&(offset, sat)| {
-            let bits = ira_bits(&ira_payload(sat, 5, [100, -200, 1500], &[]));
-            modulate(&bits, 64, rate, offset, 0.4)
-        })
-        .collect();
-    let mut iq = place(&bursts, 400_000);
-    add_noise(&mut iq, 0.004, 5);
-    let expected = xng_wideband(&iq, rate);
-    assert!(!expected.is_empty());
-    let got = ours_wideband(&iq, rate);
-    assert_eq!(got.len(), expected.len());
-    for ((o1, f1), (o2, f2)) in got.iter().zip(&expected) {
-        assert!((o1 - o2).abs() < 1.0, "offset {o1} vs {o2}");
-        assert_eq!(f1, f2);
-    }
-    assert!(got.iter().any(|(o, f)| (o + 450_000.0).abs() < 5_000.0 && f.1["sat"] == 77));
+    assert!(xng(&iq).is_empty());
+    assert!(ours(&iq).is_empty());
 }

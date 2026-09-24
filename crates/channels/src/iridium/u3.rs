@@ -12,7 +12,10 @@ pub fn parse_u3(payload_bits: &[u8]) -> Value {
     if let Some(rs8m) = first_39(&bytes).and_then(|sent| rs8_correct(&sent)) {
         let cs_ok = checksum_16(&rs8m) == 0;
         let data: &[u8] = if cs_ok {
-            let end = rs8m[..28].iter().rposition(|&x| x != 0).map_or(0, |i| i + 1);
+            let end = rs8m[..28]
+                .iter()
+                .rposition(|&x| x != 0)
+                .map_or(0, |i| i + 1);
             &rs8m[..end]
         } else {
             &rs8m[..]
@@ -55,10 +58,10 @@ pub fn parse_u3(payload_bits: &[u8]) -> Value {
                 let body = &v[2..v.len().saturating_sub(4)];
                 let mut nums = group(body, 24);
                 let tail = group(&v[v.len().saturating_sub(4)..], 4);
-                if let Some(&t) = tail.first() {
-                    if t != 0 {
-                        nums.push(t);
-                    }
+                if let Some(&t) = tail.first()
+                    && t != 0
+                {
+                    nums.push(t);
                 }
                 while nums.last() == Some(&0x7ffff) {
                     nums.pop();

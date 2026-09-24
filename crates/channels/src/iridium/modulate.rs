@@ -2,12 +2,14 @@ use num_complex::Complex;
 
 use super::demod::SYMBOL_RATE;
 use super::frame::symbol_reverse;
-use super::wideband::rrc_taps;
+use super::receiver::rrc_taps;
 
 pub fn bits_to_symbols(bits: &[u8]) -> Vec<u8> {
     const INV_MAP: [u8; 4] = [0, 3, 1, 2];
     let mut old = 0u8;
-    bits.chunks_exact(2)
+    bits.as_chunks::<2>()
+        .0
+        .iter()
         .map(|pair| {
             old = (old + INV_MAP[usize::from((pair[0] << 1) | pair[1])]) % 4;
             old

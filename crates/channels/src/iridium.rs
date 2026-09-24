@@ -1,4 +1,4 @@
-mod ddc;
+mod burst;
 mod decode;
 mod demod;
 #[cfg(test)]
@@ -14,6 +14,7 @@ mod lcw;
 mod modulate;
 mod ms;
 mod mtpos;
+mod receiver;
 mod rs;
 mod sbd;
 #[cfg(test)]
@@ -22,10 +23,10 @@ mod sensitivity;
 mod tests;
 mod u3;
 mod voice;
-mod wideband;
 
 use std::sync::LazyLock;
 
+use crate::acars::block as acars;
 use num_complex::Complex;
 use sdrmm_wire::{
     ChannelDescriptor, ChannelParams, ChannelSettings, DataLinkMessage, DecoderEvent,
@@ -33,10 +34,9 @@ use sdrmm_wire::{
 };
 use serde::Serialize;
 use serde_json::Value;
-use xng_acars::block as acars;
 
-use self::decode::ChannelDecoder;
 use self::ira::IridiumFrame;
+use self::receiver::ChannelDecoder;
 use crate::datalink::{self, Quality};
 use crate::{ChannelCtx, ChannelError, ChannelFilter, ChannelOutputs, ChannelRx, check_input_rate};
 
@@ -97,6 +97,7 @@ fn message(frame: &IridiumFrame) -> DataLinkMessage {
             Quality {
                 crc_ok: block.crc_ok,
                 fec_corrected,
+                frequency_error_hz: frame.offset_hz,
                 ..Quality::default()
             },
             None,
@@ -113,6 +114,7 @@ fn message(frame: &IridiumFrame) -> DataLinkMessage {
                     .and_then(Value::as_bool)
                     .unwrap_or(true),
                 fec_corrected,
+                frequency_error_hz: frame.offset_hz,
                 ..Quality::default()
             },
             None,

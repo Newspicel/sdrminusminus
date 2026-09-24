@@ -25,7 +25,7 @@ pub fn interleave2(odd: &[u8], even: &[u8]) -> Vec<u8> {
     let mut symbols = vec![[0u8, 0]; n];
     for (start, block) in [(1usize, odd), (2, even)] {
         let slots = (0..=n - start).rev().step_by(2);
-        for (slot, pair) in slots.zip(block.chunks_exact(2)) {
+        for (slot, pair) in slots.zip(block.as_chunks::<2>().0.iter()) {
             symbols[slot] = [pair[0], pair[1]];
         }
     }
@@ -37,7 +37,7 @@ pub fn interleave3(b1: &[u8], b2: &[u8], b3: &[u8]) -> Vec<u8> {
     let mut symbols = vec![[0u8, 0]; n];
     for (start, block) in [(1usize, b1), (2, b2), (3, b3)] {
         let slots = (0..=n - start).rev().step_by(3);
-        for (slot, pair) in slots.zip(block.chunks_exact(2)) {
+        for (slot, pair) in slots.zip(block.as_chunks::<2>().0.iter()) {
             symbols[slot] = [pair[0], pair[1]];
         }
     }
@@ -64,11 +64,13 @@ pub fn encode_lcw(ft: u8, lcw2_data: u32, lcw3_data: u32) -> Vec<u8> {
 
 pub fn encode_da_payload(bits200: &[u8]) -> Vec<u8> {
     let blocks: Vec<Vec<u8>> = bits200
-        .chunks_exact(20)
+        .as_chunks::<20>()
+        .0
+        .iter()
         .map(|d| bch_encode_raw(ACCH_BCH_POLY, d, 11))
         .collect();
     let mut out = Vec::with_capacity(312);
-    for group in blocks[..8].chunks_exact(4) {
+    for group in blocks[..8].as_chunks::<4>().0.iter() {
         let all: Vec<u8> = [&group[3], &group[1], &group[2], &group[0]]
             .into_iter()
             .flatten()
@@ -142,19 +144,21 @@ pub fn ira_payload(sat: u32, beam: u32, xyz: [i32; 3], tmsis: &[u32]) -> Vec<u8>
 
 pub fn ira_bits(payload: &[u8]) -> Vec<u8> {
     let mut padded = payload.to_vec();
-    while padded.len() % 21 != 0 {
+    while !padded.len().is_multiple_of(21) {
         padded.push(0);
     }
-    while (padded.len() / 21 - 3) % 2 != 0 {
+    while !(padded.len() / 21 - 3).is_multiple_of(2) {
         padded.extend([0u8; 21]);
     }
     let blocks: Vec<Vec<u8>> = padded
-        .chunks_exact(21)
+        .as_chunks::<21>()
+        .0
+        .iter()
         .map(|d| bch_encode(RINGALERT_BCH_POLY, d))
         .collect();
     let mut bits = ACCESS_DL.to_vec();
     bits.extend(interleave3(&blocks[0], &blocks[1], &blocks[2]));
-    for pair in blocks[3..].chunks_exact(2) {
+    for pair in blocks[3..].as_chunks::<2>().0.iter() {
         bits.extend(interleave2(&pair[0], &pair[1]));
     }
     bits
@@ -167,7 +171,7 @@ pub fn ims_bits(blocks21: &[Vec<u8>]) -> Vec<u8> {
         .collect();
     let mut bits = ACCESS_DL.to_vec();
     bits.extend(HEADER_MESSAGING.iter().copied());
-    for pair in encoded.chunks_exact(2) {
+    for pair in encoded.as_chunks::<2>().0.iter() {
         bits.extend(interleave2(&pair[0], &pair[1]));
     }
     bits

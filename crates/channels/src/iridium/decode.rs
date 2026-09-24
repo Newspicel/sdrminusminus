@@ -1,18 +1,14 @@
-use num_complex::Complex;
 use serde_json::{Map, Value, json};
 
-use super::CHANNEL_RATE;
-use super::demod::{DemodBurst, IridiumDemod};
 use super::frame::{
     ACCESS_DL, ACCESS_UL, FrameKind, MESSAGING_BCH_POLY, RINGALERT_BCH_POLY, bits_to_u8,
     bits_to_u32, classify, ecc_blocks, pair_blocks, ra_blocks, strip_fill,
 };
 use super::ira::{IridiumFrame, parse_bc, parse_ra};
 use super::itl::decode_itl;
-use super::lcw::{DaFrame, Lcw, decode_da, decode_lcw};
+use super::lcw::{DaFrame, Lcw, decode_da, decode_da_soft, decode_lcw};
 use super::ms::{MsBody, PagerReassembler};
 use super::sbd::SbdReassembler;
-use super::wideband::IridiumWideband;
 use super::{iip, ms, u3, voice};
 use crate::datalink::hex;
 
@@ -36,7 +32,14 @@ impl Reassembly {
         }
     }
 
-    pub fn handle(&mut self, bits: &[u8], time: f64, freq: f64, out: &mut Vec<IridiumFrame>) {
+    pub fn handle(
+        &mut self,
+        bits: &[u8],
+        reliability: &[f32],
+        time: f64,
+        freq: f64,
+        out: &mut Vec<IridiumFrame>,
+    ) {
         let payload = if bits.len() > 24 { &bits[24..] } else { bits };
         let ones: usize = payload.iter().map(|&b| usize::from(b)).sum();
         if ones * 10 < payload.len() {
@@ -56,16 +59,20 @@ impl Reassembly {
             out.push(traffic_frame(&lcw, &data[LCW_BITS..]));
             return;
         }
-        let Some(da) = decode_da(&data[LCW_BITS..]) else {
+        let hard = decode_da(&data[LCW_BITS..]);
+        let soft = || {
+            let weights = reliability.get(24 + LCW_BITS..)?;
+            decode_da_soft(&data[LCW_BITS..], weights)
+        };
+        let Some(da) = hard.clone().filter(|da| da.crc_ok).or_else(soft).or(hard) else {
             return;
         };
         out.push(ida_frame(&da, &lcw));
         let uplink = bits[..24] == ACCESS_UL[..];
         if let Some(message) = self.sbd.push(&da, time, freq, uplink) {
             out.push(IridiumFrame {
-                kind: message.kind,
-                details: message.details,
                 acars: message.acars,
+                ..IridiumFrame::new(message.kind, message.details)
             });
         }
     }
@@ -79,62 +86,12 @@ impl Reassembly {
     }
 }
 
-pub struct ChannelDecoder {
-    demod: IridiumDemod,
-    bursts: Vec<DemodBurst>,
-    reassembly: Reassembly,
-    samples_seen: u64,
-}
-
-impl ChannelDecoder {
-    pub fn new() -> Self {
-        Self {
-            demod: IridiumDemod::new(CHANNEL_RATE),
-            bursts: Vec::new(),
-            reassembly: Reassembly::new(),
-            samples_seen: 0,
-        }
-    }
-
-    pub fn process(&mut self, input: &[Complex<f32>], out: &mut Vec<IridiumFrame>) {
-        self.samples_seen += input.len() as u64;
-        let time = self.samples_seen as f64 / CHANNEL_RATE;
-        self.bursts.clear();
-        self.demod.process(input, &mut self.bursts);
-        for burst in &self.bursts {
-            self.reassembly.handle(&burst.bits, time, 0.0, out);
-        }
-    }
-}
-
-pub struct WidebandDecoder {
-    wideband: IridiumWideband,
-    reassembly: Reassembly,
-    samples_seen: u64,
-    input_rate: f64,
-}
-
-impl WidebandDecoder {
-    pub fn new(input_rate: f64) -> Result<Self, String> {
-        Ok(Self {
-            wideband: IridiumWideband::new(input_rate)?,
-            reassembly: Reassembly::new(),
-            samples_seen: 0,
-            input_rate,
+pub fn is_valid(bits: &[u8]) -> bool {
+    decode_simplex(bits).is_some()
+        || lcw_frame(bits).is_some_and(|(lcw, data)| {
+            lcw.frame_type != DA_FRAME_TYPE
+                || decode_da(&data[LCW_BITS..]).is_some_and(|da| da.crc_ok)
         })
-    }
-
-    pub fn process(&mut self, input: &[Complex<f32>], out: &mut Vec<(f64, IridiumFrame)>) {
-        self.samples_seen += input.len() as u64;
-        let time = self.samples_seen as f64 / self.input_rate;
-        let mut frames = Vec::new();
-        for burst in self.wideband.process(input) {
-            frames.clear();
-            self.reassembly
-                .handle(&burst.bits, time, burst.offset_hz, &mut frames);
-            out.extend(frames.drain(..).map(|frame| (burst.offset_hz, frame)));
-        }
-    }
 }
 
 fn access_payload(bits: &[u8]) -> Option<&[u8]> {
@@ -142,6 +99,7 @@ fn access_payload(bits: &[u8]) -> Option<&[u8]> {
     valid.then(|| &bits[24..])
 }
 
+#[cfg(test)]
 pub fn decode_bits(bits: &[u8]) -> Option<IridiumFrame> {
     decode_simplex(bits).map(|(frame, _)| frame)
 }
@@ -176,7 +134,12 @@ fn decode_messaging(data: &[u8]) -> Option<(IridiumFrame, Option<MsBody>)> {
     let mut blocks = pair_blocks(&data[32..]);
     strip_fill(&mut blocks);
     let (payload, _) = ecc_blocks(&blocks, MESSAGING_BCH_POLY);
-    let blocks21: Vec<Vec<u8>> = payload.chunks_exact(21).map(<[u8]>::to_vec).collect();
+    let blocks21: Vec<Vec<u8>> = payload
+        .as_chunks::<21>()
+        .0
+        .iter()
+        .map(|block| block.to_vec())
+        .collect();
     let frame = ms::parse(&blocks21)?;
     let details = serde_json::to_value(&frame)
         .unwrap_or_else(|error| json!({ "serialization_error": error.to_string() }));
@@ -288,9 +251,11 @@ fn traffic_frame(lcw: &Lcw, payload: &[u8]) -> IridiumFrame {
         3 => merge(&mut details, Some(u3::parse_u3(payload))),
         7 => {
             let errors = payload
-                .chunks_exact(8)
+                .as_chunks::<8>()
+                .0
+                .iter()
                 .take(SYNC_BYTES)
-                .filter(|c| bits_to_u8(c) != SYNC_PATTERN)
+                .filter(|c| bits_to_u8(c.as_slice()) != SYNC_PATTERN)
                 .count();
             details.insert("sync_errors".into(), json!(errors));
             details.insert(

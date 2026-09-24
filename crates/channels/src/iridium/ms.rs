@@ -1,4 +1,3 @@
-
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -65,7 +64,11 @@ pub fn parse(blocks: &[Vec<u8>]) -> Option<MsFrame> {
     if bch_blocks < 2 {
         return None;
     }
-    let group = if ms_type == 1 { "A".to_string() } else { int(&h[19..21]).to_string() };
+    let group = if ms_type == 1 {
+        "A".to_string()
+    } else {
+        int(&h[19..21]).to_string()
+    };
 
     let mut blocks: Vec<&Vec<u8>> = blocks.iter().take(2 * bch_blocks).collect();
     blocks.remove(0);
@@ -76,7 +79,11 @@ pub fn parse(blocks: &[Vec<u8>]) -> Option<MsFrame> {
             return None;
         }
         let ctr1 = int(&blocks[0][..12]) as u16;
-        acq = Some(MsAcq { unknown1: h[19], secondary: h[20], ctr1 });
+        acq = Some(MsAcq {
+            unknown1: h[19],
+            secondary: h[20],
+            ctr1,
+        });
         let n = if blocks.len() >= 4 { 4 } else { 2 };
         blocks.drain(..n);
     }
@@ -85,7 +92,13 @@ pub fn parse(blocks: &[Vec<u8>]) -> Option<MsFrame> {
             blocks.pop();
         }
     }
-    let mut out = MsFrame { block, frame, group, acq, body: None };
+    let mut out = MsFrame {
+        block,
+        frame,
+        group,
+        acq,
+        body: None,
+    };
     if blocks.is_empty() {
         return Some(out);
     }
@@ -94,7 +107,10 @@ pub fn parse(blocks: &[Vec<u8>]) -> Option<MsFrame> {
     if rest.len() <= 27 + 16 {
         return Some(out);
     }
-    let ric = rest[..22].iter().rev().fold(0u32, |v, &b| (v << 1) | b as u32);
+    let ric = rest[..22]
+        .iter()
+        .rev()
+        .fold(0u32, |v, &b| (v << 1) | b as u32);
     let format = int(&rest[22..27]) as u8;
     let seq = int(&rest[27..33]) as u8;
     if int(&rest[33..37]) != 0 {
@@ -110,7 +126,12 @@ pub fn parse(blocks: &[Vec<u8>]) -> Option<MsFrame> {
     .unwrap_or_else(|| MsContent::Raw {
         hex: data.chunks(8).map(|c| format!("{:02x}", int(c))).collect(),
     });
-    out.body = Some(MsBody { ric, format, seq, content });
+    out.body = Some(MsBody {
+        ric,
+        format,
+        seq,
+        content,
+    });
     Some(out)
 }
 
@@ -159,7 +180,7 @@ fn ascii_content(data: &[u8], body_blocks: &[&Vec<u8>]) -> Option<MsContent> {
     }
     let chars = &rest[8..];
     let mut text = String::new();
-    for ch in chars.chunks_exact(7) {
+    for ch in chars.as_chunks::<7>().0.iter() {
         let c = int(ch);
         if c == 3 {
             break;
@@ -170,15 +191,24 @@ fn ascii_content(data: &[u8], body_blocks: &[&Vec<u8>]) -> Option<MsContent> {
             text.push(c as u8 as char);
         }
     }
-    Some(MsContent::Ascii { text, ctr, ctr_max, csum_ok })
+    Some(MsContent::Ascii {
+        text,
+        ctr,
+        ctr_max,
+        csum_ok,
+    })
 }
 
 fn bcd_content(data: &[u8]) -> Option<MsContent> {
     if data.len() < 5 {
         return None;
     }
-    let digits: String =
-        data[1..].chunks_exact(4).map(|c| format!("{:x}", int(c))).collect();
+    let digits: String = data[1..]
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .map(|c| format!("{:x}", int(c)))
+        .collect();
     Some(MsContent::Bcd { digits })
 }
 
@@ -190,17 +220,23 @@ const PAGE_TIMEOUT_SECS: f64 = 60.0;
 
 impl PagerReassembler {
     pub fn new() -> Self {
-        Self { pending: HashMap::new() }
+        Self {
+            pending: HashMap::new(),
+        }
     }
 
     pub fn push(&mut self, body: &MsBody, time: f64) -> Option<String> {
-        let MsContent::Ascii { text, ctr, ctr_max, .. } = &body.content else {
+        let MsContent::Ascii {
+            text, ctr, ctr_max, ..
+        } = &body.content
+        else {
             return None;
         };
         if *ctr_max == 0 {
             return Some(text.clone());
         }
-        self.pending.retain(|_, (_, t)| time - *t < PAGE_TIMEOUT_SECS);
+        self.pending
+            .retain(|_, (_, t)| time - *t < PAGE_TIMEOUT_SECS);
         let entry = self
             .pending
             .entry(body.ric)
@@ -212,8 +248,7 @@ impl PagerReassembler {
         entry.0[idx] = Some(text.clone());
         entry.1 = time;
         if entry.0.iter().all(|p| p.is_some()) {
-            let full: String =
-                entry.0.iter().map(|p| p.as_deref().unwrap_or("")).collect();
+            let full: String = entry.0.iter().map(|p| p.as_deref().unwrap_or("")).collect();
             self.pending.remove(&body.ric);
             return Some(full);
         }
@@ -257,7 +292,7 @@ mod tests {
             blocks.push(b);
         }
         let total_halves = 1 + blocks.len();
-        let bch_blocks = (total_halves + 1) / 2;
+        let bch_blocks = total_halves.div_ceil(2);
         let mut h = Vec::new();
         h.push(0);
         push_int(&mut h, 0, 4);

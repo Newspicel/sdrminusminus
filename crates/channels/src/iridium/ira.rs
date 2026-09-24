@@ -8,6 +8,7 @@ pub struct IridiumFrame {
     pub kind: &'static str,
     pub details: Value,
     pub acars: Option<AcarsBlock>,
+    pub offset_hz: Option<f32>,
 }
 
 impl IridiumFrame {
@@ -16,6 +17,7 @@ impl IridiumFrame {
             kind,
             details,
             acars: None,
+            offset_hz: None,
         }
     }
 }
@@ -90,7 +92,7 @@ pub fn parse_ra(data: &[u8], fixed: u32) -> Option<IridiumFrame> {
 
 fn ra_pages(data: &[u8]) -> (Vec<Value>, bool) {
     let mut pages = Vec::new();
-    for page in data.chunks_exact(42) {
+    for page in data.as_chunks::<42>().0.iter() {
         if page.iter().all(|&b| b == 1) {
             return (pages, true);
         }
@@ -131,7 +133,12 @@ pub fn iri_time_unix(iritime: u32) -> f64 {
 }
 
 pub fn parse_bc(bc_type: u32, data: &[u8], fixed: u32) -> IridiumFrame {
-    let mut blocks: Vec<&[u8]> = data.chunks_exact(42).collect();
+    let mut blocks: Vec<&[u8]> = data
+        .as_chunks::<42>()
+        .0
+        .iter()
+        .map(|b| b.as_slice())
+        .collect();
     let mut details = Map::new();
     details.insert("bc_type".into(), json!(bc_type));
     if blocks.len() > 4 {

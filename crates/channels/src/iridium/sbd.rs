@@ -1,4 +1,3 @@
-
 use super::lcw::DaFrame;
 use serde_json::json;
 
@@ -25,6 +24,14 @@ struct MultiSbd {
     last_time: f64,
 }
 
+type SbdParts = (
+    u16,
+    serde_json::Map<String, serde_json::Value>,
+    u8,
+    i16,
+    Vec<u8>,
+);
+
 pub struct SbdReassembler {
     buf: Vec<Pending>,
     multi: Vec<MultiSbd>,
@@ -39,7 +46,10 @@ pub struct SbdMessage {
 
 impl SbdReassembler {
     pub fn new() -> Self {
-        Self { buf: Vec::new(), multi: Vec::new() }
+        Self {
+            buf: Vec::new(),
+            multi: Vec::new(),
+        }
     }
 
     pub fn push(&mut self, f: &DaFrame, time: f64, freq: f64, ul: bool) -> Option<SbdMessage> {
@@ -91,22 +101,39 @@ impl SbdReassembler {
             return None;
         }
         if let Some(pos) = super::mtpos::extract(data, ul) {
-            return Some(SbdMessage { kind: "mt-position", details: pos, acars: None });
+            return Some(SbdMessage {
+                kind: "mt-position",
+                details: pos,
+                acars: None,
+            });
         }
         if let Some(mut g) = super::gsm::decode(data) {
             g["raw_l2_hex"] = json!(data.iter().map(|b| format!("{b:02x}")).collect::<String>());
             g["ul"] = json!(ul);
-            return Some(SbdMessage { kind: "gsm", details: g, acars: None });
+            return Some(SbdMessage {
+                kind: "gsm",
+                details: g,
+                acars: None,
+            });
         }
         let (typ, hdr, msgno, msgcnt, body) = Self::sbd_parts(data, ul)?;
 
-        self.multi.retain(|m| time - m.last_time < SBD_MULTI_EXPIRE_S);
+        self.multi
+            .retain(|m| time - m.last_time < SBD_MULTI_EXPIRE_S);
 
         if msgno == 0 || (msgcnt <= 1 && msgno == 1) {
             return Self::parse_acars(typ, &body, hdr);
         }
         if msgcnt > 1 && msgno == 1 {
-            self.multi.push(MultiSbd { msgno, msgcnt: msgcnt as u8, typ, hdr, ul, body, last_time: time });
+            self.multi.push(MultiSbd {
+                msgno,
+                msgcnt: msgcnt as u8,
+                typ,
+                hdr,
+                ul,
+                body,
+                last_time: time,
+            });
             return None;
         }
         if msgno > 1 {
@@ -130,10 +157,7 @@ impl SbdReassembler {
         Self::parse_acars(typ, &body, hdr)
     }
 
-    fn sbd_parts(
-        data: &[u8],
-        ul: bool,
-    ) -> Option<(u16, serde_json::Map<String, serde_json::Value>, u8, i16, Vec<u8>)> {
+    fn sbd_parts(data: &[u8], ul: bool) -> Option<SbdParts> {
         let (typ, mut rest): (u16, &[u8]) = match (data[0], data[1]) {
             (0x76, t) if t != 5 => (u16::from_be_bytes([data[0], data[1]]), &data[2..]),
             (0x06, 0x00) => (0x0600, &data[2..]),
@@ -165,7 +189,10 @@ impl SbdReassembler {
             }
             t if t >> 8 == 0x76 && (t & 0xff) == 0x08 => match rest.first() {
                 Some(0x26) if rest.len() >= 7 => {
-                    hdr.insert("mtmsn".into(), json!(u16::from_be_bytes([rest[1], rest[2]])));
+                    hdr.insert(
+                        "mtmsn".into(),
+                        json!(u16::from_be_bytes([rest[1], rest[2]])),
+                    );
                     hdr.insert("packets".into(), json!(rest[3]));
                     hdr.insert("backlog".into(), json!(rest[4]));
                     msgcnt = rest[3] as i16;
@@ -202,13 +229,27 @@ impl SbdReassembler {
         if payload.first() != Some(&0x01) || payload.len() < 16 {
             hdr.insert(
                 "payload_hex".into(),
-                json!(payload.iter().map(|b| format!("{b:02x}")).collect::<String>()),
+                json!(
+                    payload
+                        .iter()
+                        .map(|b| format!("{b:02x}"))
+                        .collect::<String>()
+                ),
             );
-            let printable = payload.iter().filter(|&&b| (0x20..0x7f).contains(&b)).count();
+            let printable = payload
+                .iter()
+                .filter(|&&b| (0x20..0x7f).contains(&b))
+                .count();
             if printable * 2 >= payload.len() {
                 let text: String = payload
                     .iter()
-                    .map(|&b| if (0x20..0x7f).contains(&b) { b as char } else { '.' })
+                    .map(|&b| {
+                        if (0x20..0x7f).contains(&b) {
+                            b as char
+                        } else {
+                            '.'
+                        }
+                    })
                     .collect();
                 hdr.insert("payload_text".into(), json!(text));
             }
@@ -227,7 +268,11 @@ impl SbdReassembler {
         };
         let acars = super::acars::parse(&body);
         hdr.insert("acars_ok".into(), json!(acars.as_ref().map(|a| a.crc_ok)));
-        Some(SbdMessage { kind: "sbd", details: serde_json::Value::Object(hdr), acars })
+        Some(SbdMessage {
+            kind: "sbd",
+            details: serde_json::Value::Object(hdr),
+            acars,
+        })
     }
 }
 
@@ -244,6 +289,12 @@ fn imei_bcd(b: &[u8]) -> Option<String> {
         return None;
     }
     Some(digits[1..16].iter().map(|d| char::from(b'0' + d)).collect())
+}
+
+impl Default for SbdReassembler {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 #[cfg(test)]
@@ -271,7 +322,9 @@ mod tests {
         h[15] = 1;
         data.extend_from_slice(&h);
         data.extend_from_slice(&[0xde, 0xad, 0xbe, 0xef]);
-        let m = SbdReassembler::new().parse_l2(&data, true, 0.0).expect("sbd message");
+        let m = SbdReassembler::new()
+            .parse_l2(&data, true, 0.0)
+            .expect("sbd message");
         assert_eq!(m.kind, "sbd");
         assert_eq!(m.details["type"], json!("0600"));
         assert_eq!(m.details["imei"], json!("300234032197210"));
@@ -292,7 +345,9 @@ mod tests {
         h[15] = 1;
         data.extend_from_slice(&h);
         data.extend_from_slice(&[0xde, 0xad, 0xbe, 0xef]);
-        let m = SbdReassembler::new().parse_l2(&data, false, 0.0).expect("sbd message");
+        let m = SbdReassembler::new()
+            .parse_l2(&data, false, 0.0)
+            .expect("sbd message");
         assert_eq!(m.details["type"], json!("0600"));
         assert!(m.details.get("imei").is_none(), "imei must be 0x20-only");
         assert!(m.details.get("momsn").is_none(), "momsn must be 0x20-only");
@@ -303,7 +358,9 @@ mod tests {
     fn sbd_text_payload_is_rendered() {
         let mut data = vec![0x76, 0x08, 0x26, 0, 0, 0, 0, 0, 0];
         data.extend_from_slice(b"ST_TXT:ID:01");
-        let m = SbdReassembler::new().parse_l2(&data, false, 0.0).expect("sbd message");
+        let m = SbdReassembler::new()
+            .parse_l2(&data, false, 0.0)
+            .expect("sbd message");
         assert_eq!(m.details["type"], json!("7608"));
         assert_eq!(m.details["payload_text"], json!("ST_TXT:ID:01"));
         assert!(m.acars.is_none(), "not ACARS (no 0x01 SOH)");
@@ -312,13 +369,11 @@ mod tests {
     #[test]
     fn sbd_7608_transfer_exposes_mtmsn_packets_backlog() {
         let data = [
-            0x76, 0x08,
-            0x26, 0x00, 0x07,
-            0x01, 0x02,
-            0x00, 0x00,
-            0xca, 0xfe,
+            0x76, 0x08, 0x26, 0x00, 0x07, 0x01, 0x02, 0x00, 0x00, 0xca, 0xfe,
         ];
-        let m = SbdReassembler::new().parse_l2(&data, false, 0.0).expect("sbd message");
+        let m = SbdReassembler::new()
+            .parse_l2(&data, false, 0.0)
+            .expect("sbd message");
         assert_eq!(m.details["type"], json!("7608"));
         assert_eq!(m.details["mtmsn"], json!(7));
         assert_eq!(m.details["packets"], json!(1));
@@ -330,17 +385,35 @@ mod tests {
     fn sbd_multi_packet_reassembles() {
         let mut r = SbdReassembler::new();
         let p1 = [
-            0x76, 0x08, 0x26, 0x00, 0x05, 0x02, 0x00, 0x00, 0x00,
-            0x10, 0x02, 0x01,
-            0xde, 0xad,
+            0x76, 0x08, 0x26, 0x00, 0x05, 0x02, 0x00, 0x00, 0x00, 0x10, 0x02, 0x01, 0xde, 0xad,
         ];
-        assert!(r.parse_l2(&p1, false, 0.0).is_none(), "first packet must buffer");
+        assert!(
+            r.parse_l2(&p1, false, 0.0).is_none(),
+            "first packet must buffer"
+        );
         let p2 = [0x76, 0x0a, 0x10, 0x02, 0x02, 0xbe, 0xef];
-        let m = r.parse_l2(&p2, false, 0.1).expect("multi-packet message completes");
-        assert_eq!(m.details["type"], json!("7608"), "carries first packet's type");
-        assert_eq!(m.details["payload_hex"], json!("deadbeef"), "bodies concatenated");
-        assert_eq!(m.details["multi_packets"], json!(2), "marked as 2-packet reassembly");
-        assert!(r.parse_l2(&p2, false, 0.2).is_none(), "orphan continuation dropped");
+        let m = r
+            .parse_l2(&p2, false, 0.1)
+            .expect("multi-packet message completes");
+        assert_eq!(
+            m.details["type"],
+            json!("7608"),
+            "carries first packet's type"
+        );
+        assert_eq!(
+            m.details["payload_hex"],
+            json!("deadbeef"),
+            "bodies concatenated"
+        );
+        assert_eq!(
+            m.details["multi_packets"],
+            json!(2),
+            "marked as 2-packet reassembly"
+        );
+        assert!(
+            r.parse_l2(&p2, false, 0.2).is_none(),
+            "orphan continuation dropped"
+        );
     }
 
     #[test]
@@ -351,12 +424,9 @@ mod tests {
         ];
         assert!(r.parse_l2(&p1, false, 0.0).is_none());
         let p2 = [0x76, 0x0a, 0x10, 0x02, 0x02, 0xbe, 0xef];
-        assert!(r.parse_l2(&p2, false, 6.0).is_none(), "late continuation expired");
-    }
-}
-
-impl Default for SbdReassembler {
-    fn default() -> Self {
-        Self::new()
+        assert!(
+            r.parse_l2(&p2, false, 6.0).is_none(),
+            "late continuation expired"
+        );
     }
 }

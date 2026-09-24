@@ -1,4 +1,3 @@
-
 use serde_json::{Map, Value, json};
 
 use crate::datalink::hex;
@@ -156,7 +155,11 @@ pub fn decode(data: &[u8]) -> Option<Value> {
     if tmaj == 0x76 || (tmaj == 0x06 && data[1] == 0x00) {
         return None;
     }
-    let b0 = if tmaj == 0x83 || tmaj == 0x89 { tmaj & 0x7f } else { tmaj };
+    let b0 = if tmaj == 0x83 || tmaj == 0x89 {
+        tmaj & 0x7f
+    } else {
+        tmaj
+    };
     let tmin = ((b0 as u16) << 8) | data[1] as u16;
     let body = &data[2..];
 
@@ -168,10 +171,11 @@ pub fn decode(data: &[u8]) -> Option<Value> {
 
     match tmin {
         0x032d | 0x032a => {
-            if body.len() == 4 && body[0] == 8 {
-                if let Some((v, _)) = p_disc(&body[1..]) {
-                    obj.insert("disconnect".into(), v);
-                }
+            if body.len() == 4
+                && body[0] == 8
+                && let Some((v, _)) = p_disc(&body[1..])
+            {
+                obj.insert("disconnect".into(), v);
             }
         }
         0x0325 => {
@@ -197,14 +201,17 @@ pub fn decode(data: &[u8]) -> Option<Value> {
         0x0508 => {
             if body.len() >= 7 && body[0] & 0xf == 0 && body[6] == 0x28 {
                 let key = body[0] >> 4;
-                obj.insert("key_seq".into(), if key == 7 { json!("none") } else { json!(key) });
+                obj.insert(
+                    "key_seq".into(),
+                    if key == 7 { json!("none") } else { json!(key) },
+                );
                 if let Some((lai, _)) = p_lai(&body[1..]) {
                     obj.insert("lai".into(), lai);
                 }
-                if body.len() > 7 {
-                    if let Some((mi, _)) = p_mi_iei(&body[7..]) {
-                        obj.insert("mobile_id".into(), mi);
-                    }
+                if body.len() > 7
+                    && let Some((mi, _)) = p_mi_iei(&body[7..])
+                {
+                    obj.insert("mobile_id".into(), mi);
                 }
             }
         }

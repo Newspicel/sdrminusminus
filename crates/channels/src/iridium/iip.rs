@@ -51,7 +51,11 @@ fn scan_ppp_pap(bytes: &[u8], out: &mut Vec<Value>) {
             let p = &bytes[i + 2..];
             if p.len() >= 5 && p[0] == 0x01 {
                 let length = u16::from_be_bytes([p[2], p[3]]) as usize;
-                let pkt = if length >= 4 && length <= p.len() { &p[..length] } else { p };
+                let pkt = if length >= 4 && length <= p.len() {
+                    &p[..length]
+                } else {
+                    p
+                };
                 if pkt.len() >= 5 {
                     let peer_len = pkt[4] as usize;
                     if 5 + peer_len < pkt.len() {
@@ -91,16 +95,15 @@ fn scan_http_basic(bytes: &[u8], out: &mut Vec<Value>) {
             while j < bytes.len() && is_b64(bytes[j]) {
                 j += 1;
             }
-            if j > start {
-                if let Some(dec) = base64_decode(&bytes[start..j]) {
-                    if let Some(colon) = dec.iter().position(|&b| b == b':') {
-                        out.push(json!({
-                            "kind": "http-basic",
-                            "username": String::from_utf8_lossy(&dec[..colon]),
-                            "password": String::from_utf8_lossy(&dec[colon + 1..]),
-                        }));
-                    }
-                }
+            if j > start
+                && let Some(dec) = base64_decode(&bytes[start..j])
+                && let Some(colon) = dec.iter().position(|&b| b == b':')
+            {
+                out.push(json!({
+                    "kind": "http-basic",
+                    "username": String::from_utf8_lossy(&dec[..colon]),
+                    "password": String::from_utf8_lossy(&dec[colon + 1..]),
+                }));
             }
         }
         from += rel + NEEDLE.len();
@@ -132,7 +135,7 @@ pub fn parse_iip_frame(payload_r: &[u8]) -> Value {
     let ack = payload_r[2];
     let cs = payload_r[3];
     let sum = hdr as u32 + seq as u32 + ack as u32 + cs as u32;
-    let cs_ok = sum > 0 && sum % 255 == 0;
+    let cs_ok = sum > 0 && sum.is_multiple_of(255);
     let mut out = json!({
         "ip_type": iip_type_name(hdr),
         "ip_type_code": hdr,
@@ -148,7 +151,13 @@ pub fn parse_iip_frame(payload_r: &[u8]) -> Value {
             out["data_hex"] = json!(hex(payload));
             let text: String = payload
                 .iter()
-                .map(|&b| if (0x20..0x7f).contains(&b) { b as char } else { '.' })
+                .map(|&b| {
+                    if (0x20..0x7f).contains(&b) {
+                        b as char
+                    } else {
+                        '.'
+                    }
+                })
                 .collect();
             out["data_ascii"] = json!(text);
             let creds = scan_credentials(payload);

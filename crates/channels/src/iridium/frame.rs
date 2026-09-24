@@ -15,6 +15,7 @@ pub const HDR_POLY: u32 = 29;
 pub const LCW2_POLY: u32 = 465;
 pub const LCW3_POLY: u32 = 41;
 
+const CHASE_BITS: usize = 5;
 const FILL_A: u32 = 0b1010_0010_0111_0011_1011_1111_0110_1101;
 const FILL_B: u32 = 0b0101_0100_0100_0101_1100_0010_1110_0110;
 
@@ -24,7 +25,8 @@ pub const LCW_TABLE: [usize; 46] = [
 ];
 
 pub fn bits_to_u32(bits: &[u8]) -> u32 {
-    bits.iter().fold(0u32, |value, &bit| (value << 1) | u32::from(bit))
+    bits.iter()
+        .fold(0u32, |value, &bit| (value << 1) | u32::from(bit))
 }
 
 pub fn bits_to_u8(bits: &[u8]) -> u8 {
@@ -49,6 +51,33 @@ pub fn ndivide(poly: u32, bits: &[u8]) -> u32 {
     remainder as u32
 }
 
+pub fn bch_repair_soft(poly: u32, block: &[u8], reliability: &[f32]) -> Option<Vec<u8>> {
+    let mut order: Vec<usize> = (0..block.len()).collect();
+    order.sort_by(|&a, &b| reliability[a].total_cmp(&reliability[b]));
+    let weakest = &order[..CHASE_BITS.min(order.len())];
+    let mut best: Option<(f32, Vec<u8>)> = None;
+    for mask in 0u32..(1 << weakest.len()) {
+        let mut candidate = block.to_vec();
+        for (k, &position) in weakest.iter().enumerate() {
+            candidate[position] ^= ((mask >> k) & 1) as u8;
+        }
+        if bch_repair(poly, &mut candidate).is_none() {
+            continue;
+        }
+        let distance: f32 = candidate
+            .iter()
+            .zip(block)
+            .zip(reliability)
+            .filter(|((a, b), _)| a != b)
+            .map(|(_, r)| r)
+            .sum();
+        if best.as_ref().is_none_or(|(d, _)| distance < *d) {
+            best = Some((distance, candidate));
+        }
+    }
+    best.map(|(_, codeword)| codeword)
+}
+
 pub fn bch_repair(poly: u32, block: &mut [u8]) -> Option<u32> {
     if ndivide(poly, block) == 0 {
         return Some(0);
@@ -70,22 +99,25 @@ pub fn bch_repair(poly: u32, block: &mut [u8]) -> Option<u32> {
     None
 }
 
+#[cfg(test)]
 pub fn symbol_reverse(bits: &[u8]) -> Vec<u8> {
     let mut out = bits.to_vec();
-    for pair in out.chunks_exact_mut(2) {
+    for pair in out.as_chunks_mut::<2>().0.iter_mut() {
         pair.swap(0, 1);
     }
     out
 }
 
-fn swapped_symbols(group: &[u8]) -> Vec<[u8; 2]> {
+fn swapped_symbols<T: Copy>(group: &[T]) -> Vec<[T; 2]> {
     group
-        .chunks_exact(2)
+        .as_chunks::<2>()
+        .0
+        .iter()
         .map(|pair| [pair[1], pair[0]])
         .collect()
 }
 
-fn every_nth_backwards(symbols: &[[u8; 2]], start: isize, step: usize) -> Vec<u8> {
+fn every_nth_backwards<T: Copy>(symbols: &[[T; 2]], start: isize, step: usize) -> Vec<T> {
     let mut out = Vec::with_capacity(2 * symbols.len() / step + 2);
     let mut index = start;
     while index >= 0 {
@@ -95,7 +127,7 @@ fn every_nth_backwards(symbols: &[[u8; 2]], start: isize, step: usize) -> Vec<u8
     out
 }
 
-pub fn de_interleave2(group: &[u8]) -> (Vec<u8>, Vec<u8>) {
+pub fn de_interleave2<T: Copy>(group: &[T]) -> (Vec<T>, Vec<T>) {
     let symbols = swapped_symbols(group);
     let n = symbols.len() as isize;
     (
@@ -150,7 +182,7 @@ pub fn strip_fill(blocks: &mut Vec<Vec<u8>>) {
 
 pub fn pair_blocks(data: &[u8]) -> Vec<Vec<u8>> {
     let mut blocks = Vec::with_capacity(data.len() / 32);
-    for chunk in data.chunks_exact(64) {
+    for chunk in data.as_chunks::<64>().0.iter() {
         let (odd, even) = de_interleave2(chunk);
         blocks.push(odd);
         blocks.push(even);

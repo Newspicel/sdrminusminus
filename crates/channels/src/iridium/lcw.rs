@@ -1,7 +1,8 @@
 use sdrmm_dsp::crc16_msb;
 
 use super::frame::{
-    HDR_POLY, LCW2_POLY, LCW3_POLY, bch_repair, bits_to_u8, bits_to_u32, de_interleave2, lcw_bits,
+    HDR_POLY, LCW2_POLY, LCW3_POLY, bch_repair, bch_repair_soft, bits_to_u8, bits_to_u32,
+    de_interleave2, lcw_bits,
 };
 
 pub const ACCH_BCH_POLY: u32 = 3545;
@@ -61,12 +62,12 @@ pub struct DaFrame {
     pub bch_corrected: u32,
 }
 
-pub fn da_blocks(data: &[u8]) -> Vec<Vec<u8>> {
-    let mut blocks: Vec<Vec<u8>> = Vec::with_capacity(10);
-    for chunk in data[..248].chunks_exact(124) {
+pub fn da_blocks<T: Copy>(data: &[T]) -> Vec<Vec<T>> {
+    let mut blocks: Vec<Vec<T>> = Vec::with_capacity(10);
+    for chunk in data[..248].as_chunks::<124>().0.iter() {
         let (first, second) = de_interleave2(chunk);
-        let all: Vec<u8> = first.iter().chain(&second).copied().collect();
-        let quarters: Vec<&[u8]> = all.chunks_exact(31).collect();
+        let all: Vec<T> = first.iter().chain(&second).copied().collect();
+        let quarters: Vec<&[T; 31]> = all.as_chunks::<31>().0.iter().collect();
         for index in [3, 1, 2, 0] {
             blocks.push(quarters[index].to_vec());
         }
@@ -92,13 +93,29 @@ pub fn decode_da(data: &[u8]) -> Option<DaFrame> {
     da_frame(&bits, fixed)
 }
 
+pub fn decode_da_soft(data: &[u8], reliability: &[f32]) -> Option<DaFrame> {
+    if data.len() < 312 || reliability.len() < 312 {
+        return None;
+    }
+    let mut bits = Vec::with_capacity(200);
+    let mut fixed = 0u32;
+    for (block, weights) in da_blocks(data).iter().zip(da_blocks(reliability)) {
+        let codeword = bch_repair_soft(ACCH_BCH_POLY, block, &weights)?;
+        if codeword != *block {
+            fixed += 1;
+        }
+        bits.extend_from_slice(&codeword[..20]);
+    }
+    da_frame(&bits, fixed).filter(|frame| frame.crc_ok)
+}
+
 pub fn da_frame(bits: &[u8], fixed: u32) -> Option<DaFrame> {
     if bits_to_u32(&bits[17..20]) != 0 || bits_to_u32(&bits[196..200]) != 0 {
         return None;
     }
     let len = bits_to_u8(&bits[11..16]);
     let mut data = [0u8; 20];
-    for (byte, chunk) in data.iter_mut().zip(bits[20..180].chunks_exact(8)) {
+    for (byte, chunk) in data.iter_mut().zip(bits[20..180].as_chunks::<8>().0.iter()) {
         *byte = bits_to_u8(chunk);
     }
     Some(DaFrame {
@@ -115,6 +132,11 @@ pub fn da_crc(bits: &[u8], end: usize) -> u16 {
     let mut stream: Vec<u8> = bits[..20].to_vec();
     stream.extend([0u8; 12]);
     stream.extend_from_slice(&bits[20..end]);
-    let bytes: Vec<u8> = stream.chunks_exact(8).map(bits_to_u8).collect();
+    let bytes: Vec<u8> = stream
+        .as_chunks::<8>()
+        .0
+        .iter()
+        .map(|byte| bits_to_u8(byte))
+        .collect();
     crc16_msb(CCITT_POLY, CCITT_INIT, &bytes)
 }

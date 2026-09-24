@@ -86,7 +86,7 @@ fn split_channels(payload: &[u8]) -> ([u8; SYMBOLS], [u8; SYMBOLS]) {
     let mut i_channel = [0u8; SYMBOLS];
     let mut q_channel = [0u8; SYMBOLS];
     let mut phase = 0u8;
-    for (k, pair) in payload.chunks_exact(2).take(SYMBOLS).enumerate() {
+    for (k, pair) in payload.as_chunks::<2>().0.iter().take(SYMBOLS).enumerate() {
         let mapped = (pair[1] << 1) | pair[0];
         phase = (phase + INV_DQPSK[usize::from(mapped)]) % 4;
         let (i, q) = match phase {
@@ -113,7 +113,7 @@ pub fn decode_itl(payload: &[u8]) -> Option<ItlFrame> {
     let plane = nearest(pack(&i_channel[128..]), &PRS_PLANES, 64).map(|i| (i + 1) as u8);
     let mut msg = [None; 4];
     let mut types = [None; 4];
-    for (k, code) in q_channel.chunks_exact(96).enumerate() {
+    for (k, code) in q_channel.as_chunks::<96>().0.iter().enumerate() {
         if let Some(j) = nearest(pack(code), &PRS_LIST, 24) {
             msg[k] = Some((j % 128) as u8);
             types[k] = Some((j / 128) as u8);

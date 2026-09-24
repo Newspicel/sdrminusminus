@@ -1,5 +1,4 @@
-
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 fn xyz(bytes: &[u8], skip: u32) -> Option<(f64, f64, i32, i32, i32, i32)> {
     if bytes.len() < 5 {
@@ -12,11 +11,7 @@ fn xyz(bytes: &[u8], skip: u32) -> Option<(f64, f64, i32, i32, i32, i32)> {
     let sb = 4 - skip;
     let ext = |f: u64| -> i32 {
         let v = (f & 0xfff) as i32;
-        if v > 0x7ff {
-            v - 0x1000
-        } else {
-            v
-        }
+        if v > 0x7ff { v - 0x1000 } else { v }
     };
     let x = ext(val >> (24 + sb));
     let y = ext(val >> (12 + sb));
@@ -45,9 +40,7 @@ pub fn extract(data: &[u8], ul: bool) -> Option<Value> {
     let msg_type = ((data[0] as u16) << 8) | data[1] as u16;
     let (src, skip): (&[u8], u32) = match msg_type {
         0x0605 if data.len() >= 42 && data[36] == 0x1b => (&data[37..], 0),
-        0x7605 if data.len() >= 8 && data[2] == 0x00 && (data[3] & 0xf0) == 0x40 => {
-            (&data[3..], 4)
-        }
+        0x7605 if data.len() >= 8 && data[2] == 0x00 && (data[3] & 0xf0) == 0x40 => (&data[3..], 4),
         0x0600
             if ul
                 && data.len() >= 24
