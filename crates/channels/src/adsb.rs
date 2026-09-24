@@ -1,7 +1,7 @@
 use std::sync::LazyLock;
 
 use num_complex::Complex;
-use sdrmm_dsp::{bits_be, mode_s_fix_single_bit, mode_s_overlay};
+use sdrmm_dsp::{bits_be, mode_s_bit_overlays, mode_s_fix_single_bit, mode_s_overlay};
 use sdrmm_modem::{
     ppm::{PpmDemod, SlotDetector, magnitudes},
     soft::argmax,
@@ -19,9 +19,13 @@ const BANDWIDTH_HZ: f64 = 2_000_000.0;
 const CHIP_S: f64 = 0.5e-6;
 const PREAMBLE_CHIPS: usize = 16;
 const PREAMBLE_PULSES: [usize; 4] = [0, 2, 7, 9];
-const PREAMBLE_FAR_GAPS: [usize; 7] = [4, 5, 11, 12, 13, 14, 15];
+const PREAMBLE_FAR_GAPS: [usize; 6] = [4, 5, 11, 12, 13, 14];
 const SHORT_BYTES: usize = 7;
 const LONG_BYTES: usize = 14;
+const LONG_BITS: usize = LONG_BYTES * 8;
+const DF_BITS: usize = 5;
+const CHASE_BITS: usize = 6;
+const CHASE_ADDRESS_PARITY_FLIPS: u32 = 2;
 const PULSE_SPREAD: f32 = 4.0;
 
 const PHASE_TABLES: usize = 8;
@@ -42,6 +46,7 @@ const ME_OFFSET_BITS: usize = 32;
 
 const CAPABILITY_OFFSET_BITS: usize = 5;
 const FLIGHT_STATUS_OFFSET_BITS: usize = 5;
+const VERTICAL_STATUS_OFFSET_BITS: usize = 5;
 const REPLY_FIELD_OFFSET_BITS: usize = 19;
 const MB_OFFSET_BITS: usize = ME_OFFSET_BITS;
 
@@ -112,6 +117,14 @@ pub struct AdsbChannel {
     mag: Vec<f32>,
     stream_pos: u64,
     cpr: Vec<Aircraft>,
+    short_flips: Vec<u32>,
+    long_flips: Vec<u32>,
+}
+
+struct Sliced {
+    frame: [u8; LONG_BYTES],
+    reliability: [f32; LONG_BITS],
+    confidence: f32,
 }
 
 fn params(settings: &ChannelSettings) -> Result<&AdsbParams, ChannelError> {
@@ -189,16 +202,37 @@ fn preamble_ok(receiver: &PpmDemod, window: &[f32]) -> bool {
     weakest > threshold && far_gaps.iter().all(|&g| g < threshold)
 }
 
-fn slice_bits(receiver: &PpmDemod, window: &[f32], frame: &mut [u8; LONG_BYTES]) {
+fn slice_bits(receiver: &PpmDemod, window: &[f32]) -> Sliced {
+    let mut sliced = Sliced {
+        frame: [0; LONG_BYTES],
+        reliability: [0.0; LONG_BITS],
+        confidence: 0.0,
+    };
     let mut slots = [0.0f32; 2];
-    for (index, byte) in frame.iter_mut().enumerate() {
-        let mut value = 0u8;
-        for bit in 0..8 {
-            receiver.envelope_at(window, PREAMBLE_CHIPS + (index * 8 + bit) * 2, &mut slots);
-            value = value << 1 | u8::from(argmax(&slots) == 0);
-        }
-        *byte = value;
+    for bit in 0..LONG_BITS {
+        receiver.envelope_at(window, PREAMBLE_CHIPS + bit * 2, &mut slots);
+        sliced.frame[bit / 8] |= u8::from(argmax(&slots) == 0) << (7 - bit % 8);
+        let total = slots[0] + slots[1];
+        let margin = if total > 0.0 {
+            (slots[0] - slots[1]).abs() / total
+        } else {
+            0.0
+        };
+        sliced.reliability[bit] = margin;
+        sliced.confidence += margin;
     }
+    sliced
+}
+
+fn weakest_bits(reliability: &[f32]) -> [usize; CHASE_BITS] {
+    let mut weakest = [(f32::INFINITY, 0usize); CHASE_BITS];
+    for (bit, &r) in reliability.iter().enumerate().skip(DF_BITS) {
+        if r < weakest[CHASE_BITS - 1].0 {
+            weakest[CHASE_BITS - 1] = (r, bit);
+            weakest.sort_by(|a, b| a.0.total_cmp(&b.0));
+        }
+    }
+    weakest.map(|(_, bit)| bit)
 }
 
 fn hex_upper(bytes: &[u8]) -> String {
@@ -471,8 +505,13 @@ fn clear_address(frame: &[u8]) -> u32 {
 }
 
 fn surveillance_reply(frame: &[u8], df: u8, msg: &mut AdsbMessage) {
-    msg.on_ground = flight_status_on_ground(bits_be(frame, FLIGHT_STATUS_OFFSET_BITS, 3));
     let field = bits_be(frame, REPLY_FIELD_OFFSET_BITS, 13) as u32;
+    if matches!(df, 0 | 16) {
+        msg.on_ground = Some(bits_be(frame, VERTICAL_STATUS_OFFSET_BITS, 1) == 1);
+        msg.altitude_ft = surveillance_altitude(field);
+        return;
+    }
+    msg.on_ground = flight_status_on_ground(bits_be(frame, FLIGHT_STATUS_OFFSET_BITS, 3));
     match df {
         4 | 20 => msg.altitude_ft = surveillance_altitude(field),
         _ => msg.squawk = Some(squawk(field)),
@@ -617,7 +656,7 @@ impl AdsbChannel {
                 Some((clear_address(frame), true))
             }
             11 => (mode_s_overlay(frame)? <= ALL_CALL_PI_MAX).then(|| (clear_address(frame), true)),
-            4 | 5 | 20 | 21 => {
+            0 | 4 | 5 | 16 | 20 | 21 => {
                 let icao = mode_s_overlay(frame)?;
                 self.vouched(icao, at).then_some((icao, false))
             }
@@ -625,38 +664,81 @@ impl AdsbChannel {
         }
     }
 
+    fn chase(&self, sliced: &mut Sliced, at: u64) -> Option<(u8, usize, u32)> {
+        let df = sliced.frame[0] >> 3;
+        let (len, flips) = match df {
+            0 | 4 | 5 => (SHORT_BYTES, &self.short_flips),
+            16 | 17 | 18 | 20 | 21 => (LONG_BYTES, &self.long_flips),
+            _ => return None,
+        };
+        let weakest = weakest_bits(&sliced.reliability[..len * 8]);
+        let base = mode_s_overlay(&sliced.frame[..len])?;
+        let most_flips = if matches!(df, 17 | 18) {
+            CHASE_BITS as u32
+        } else {
+            CHASE_ADDRESS_PARITY_FLIPS
+        };
+        for mask in (1u32..1 << CHASE_BITS).filter(|m| m.count_ones() <= most_flips) {
+            let chosen = || {
+                weakest
+                    .iter()
+                    .enumerate()
+                    .filter(move |(k, _)| mask >> k & 1 == 1)
+            };
+            let overlay = chosen().fold(base, |o, (_, &bit)| o ^ flips[bit]);
+            let mut frame = sliced.frame;
+            for (_, &bit) in chosen() {
+                frame[bit / 8] ^= 0x80 >> (bit % 8);
+            }
+            let icao = match df {
+                17 | 18 if overlay == 0 => clear_address(&frame),
+                17 | 18 => continue,
+                _ => overlay,
+            };
+            if self.vouched(icao, at) {
+                sliced.frame = frame;
+                return Some((df, len, icao));
+            }
+        }
+        None
+    }
+
     fn try_frame(&mut self, at: usize, out: &mut ChannelOutputs) -> Option<usize> {
         let stamp = self.stream_pos + at as u64;
         let mut hit = None;
-        for receiver in &self.receivers {
+        let mut doubtful: Option<(Sliced, usize)> = None;
+        for (index, receiver) in self.receivers.iter().enumerate() {
             let Some(window) = self.mag.get(at..at + receiver.grid().span()) else {
                 continue;
             };
             if !preamble_ok(receiver, window) {
                 continue;
             }
-            let mut frame = [0u8; LONG_BYTES];
-            slice_bits(receiver, window, &mut frame);
-
-            let df = frame.first().map_or(0, |&b| b >> 3);
+            let mut sliced = slice_bits(receiver, window);
+            let df = sliced.frame[0] >> 3;
             let len = if df >= 16 { LONG_BYTES } else { SHORT_BYTES };
-            let Some(bytes) = frame.get_mut(..len) else {
+            let Some((icao, proved)) = self.attribute(&mut sliced.frame[..len], df, stamp) else {
+                if doubtful
+                    .as_ref()
+                    .is_none_or(|(d, _)| sliced.confidence > d.confidence)
+                {
+                    doubtful = Some((sliced, index));
+                }
                 continue;
             };
-            let Some((icao, proved)) = self.attribute(bytes, df, stamp) else {
-                continue;
-            };
-            hit = Some((
-                frame,
-                len,
-                df,
-                icao,
-                proved,
-                receiver.grid().start(PREAMBLE_CHIPS + len * 8 * 2),
-            ));
+            hit = Some((sliced.frame, len, df, icao, proved, index));
             break;
         }
-        let (frame, len, df, icao, proved, consumed) = hit?;
+        if hit.is_none()
+            && let Some((mut sliced, index)) = doubtful
+            && let Some((df, len, icao)) = self.chase(&mut sliced, stamp)
+        {
+            hit = Some((sliced.frame, len, df, icao, false, index));
+        }
+        let (frame, len, df, icao, proved, index) = hit?;
+        let consumed = self.receivers[index]
+            .grid()
+            .start(PREAMBLE_CHIPS + len * 8 * 2);
         self.observe(icao, stamp, proved);
         let mut message = self.message(frame.get(..len)?, df, icao, stamp);
         message.timestamp_12mhz = Some(stamp.wrapping_mul(5) & 0xFFFF_FFFF_FFFF);
@@ -692,6 +774,8 @@ impl ChannelRx for AdsbChannel {
             mag: Vec::new(),
             stream_pos: 0,
             cpr: Vec::with_capacity(CPR_CACHE_LEN),
+            short_flips: mode_s_bit_overlays(SHORT_BYTES),
+            long_flips: mode_s_bit_overlays(LONG_BYTES),
         })
     }
 
@@ -737,10 +821,10 @@ mod tests {
         testgen::{
             add_noise,
             adsb::{
-                all_call_reply, altitude_reply, comm_b_altitude_reply, comm_b_identity_reply,
-                identity_reply, mb_identification, me_airborne_position, me_airborne_position_gnss,
-                me_identification, me_surface_position, me_velocity, position_me_raw, squitter,
-                transmission, transmission_at_phase,
+                air_air_reply, all_call_reply, altitude_reply, comm_b_altitude_reply,
+                comm_b_identity_reply, identity_reply, mb_identification, me_airborne_position,
+                me_airborne_position_gnss, me_identification, me_surface_position, me_velocity,
+                position_me_raw, squitter, transmission, transmission_at_phase,
             },
         },
         testutil::settings,
@@ -1654,6 +1738,61 @@ mod tests {
         }
     }
 
+    fn doubtful(frame: &[u8], weak: &[usize]) -> Sliced {
+        let mut sliced = Sliced {
+            frame: [0; LONG_BYTES],
+            reliability: [1.0; LONG_BITS],
+            confidence: 0.0,
+        };
+        sliced.frame[..frame.len()].copy_from_slice(frame);
+        for &bit in weak {
+            sliced.frame[bit / 8] ^= 0x80 >> (bit % 8);
+            sliced.reliability[bit] = 0.01;
+        }
+        sliced
+    }
+
+    #[test]
+    fn air_air_replies_from_a_known_aircraft_carry_altitude() {
+        let mut chan = channel(AdsbParams::default());
+        chan.observe(0x3C_6444, 0, true);
+        let mut frame = air_air_reply(0x3C_6444, 37_000, false);
+        let (icao, proved) = chan.attribute(&mut frame, 0, 0).expect("vouched");
+        assert_eq!((icao, proved), (0x3C_6444, false));
+        let m = chan.message(&frame, 0, icao, 0);
+        assert_eq!((m.altitude_ft, m.on_ground), (Some(37_000), Some(false)));
+    }
+
+    #[test]
+    fn soft_bits_repair_a_squitter_from_a_known_aircraft() {
+        let clean = squitter(0x3C_6444, me_identification("DLH123"));
+        let mut chan = channel(AdsbParams::default());
+        chan.observe(0x3C_6444, 0, true);
+        let mut sliced = doubtful(&clean, &[40, 97]);
+        let (df, len, icao) = chan.chase(&mut sliced, 0).expect("two weak bits repair");
+        assert_eq!((df, len, icao), (17, LONG_BYTES, 0x3C_6444));
+        assert_eq!(&sliced.frame[..], &clean[..]);
+    }
+
+    #[test]
+    fn soft_bits_never_invent_an_unknown_aircraft() {
+        let clean = squitter(0x3C_6444, me_identification("DLH123"));
+        let chan = channel(AdsbParams::default());
+        assert!(chan.chase(&mut doubtful(&clean, &[40, 97]), 0).is_none());
+    }
+
+    #[test]
+    fn address_parity_repairs_stay_within_two_bits() {
+        let clean = altitude_reply(0x3C_6444, 37_000, 0);
+        let mut chan = channel(AdsbParams::default());
+        chan.observe(0x3C_6444, 0, true);
+        assert!(chan.chase(&mut doubtful(&clean, &[20, 41]), 0).is_some());
+        assert!(
+            chan.chase(&mut doubtful(&clean, &[20, 33, 41]), 0)
+                .is_none()
+        );
+    }
+
     fn off_air_recording() -> Vec<Complex<f32>> {
         const FIXTURE: &[u8] = include_bytes!("../../../fixtures/adsb_offair_2m.sigmf-data");
         let raw: Vec<Complex<f32>> = FIXTURE
@@ -1680,7 +1819,7 @@ mod tests {
             &[997, 65_536, 4_096, 1],
         );
 
-        assert_eq!(messages.len(), 20, "{messages:?}");
+        assert_eq!(messages.len(), 22, "{messages:?}");
         let seen: std::collections::BTreeSet<&str> =
             messages.iter().map(|m| m.icao.as_str()).collect();
         assert_eq!(

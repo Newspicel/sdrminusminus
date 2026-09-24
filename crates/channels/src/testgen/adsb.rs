@@ -144,6 +144,17 @@ pub fn altitude_reply(icao: u32, alt_ft: i32, flight_status: u64) -> Vec<u8> {
 }
 
 #[must_use]
+pub fn air_air_reply(icao: u32, alt_ft: i32, on_ground: bool) -> Vec<u8> {
+    reply(
+        0,
+        icao,
+        u64::from(on_ground) << 2,
+        altitude_field13(alt_ft),
+        None,
+    )
+}
+
+#[must_use]
 pub fn identity_reply(icao: u32, squawk: &str, flight_status: u64) -> Vec<u8> {
     reply(5, icao, flight_status, identity_field13(squawk), None)
 }

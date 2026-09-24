@@ -158,7 +158,7 @@ fn modulate(framed: &[bool], rate: f64) -> Vec<Complex<f32>> {
         "need at least two samples per bit at {BAUD} baud"
     );
 
-    let mut bits = vec![false; TRAINING_BITS];
+    let mut bits: Vec<bool> = (0..TRAINING_BITS).map(|k| k % 2 == 1).collect();
     bits.extend(FLAG);
     bits.extend(stuff(framed));
     bits.extend(FLAG);

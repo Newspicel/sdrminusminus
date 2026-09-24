@@ -1,11 +1,7 @@
 use std::sync::LazyLock;
 
 use num_complex::Complex;
-use sdrmm_dsp::{Decimator, HdlcDeframer, NrziDecoder, bits_be, design_lowpass, hdlc_fcs_ok};
-use sdrmm_modem::{
-    cpm::{CpmDemod, CpmParams, Mapping, TIMING_BW_BURST},
-    pulse::{self, Norm},
-};
+use sdrmm_dsp::{Decimator, bits_be, design_lowpass};
 use sdrmm_wire::{
     AisMessage, AisParams, ChannelDescriptor, ChannelParams, ChannelSettings, DecoderEvent,
     DecoderFamily,
@@ -13,13 +9,13 @@ use sdrmm_wire::{
 
 use crate::{ChannelCtx, ChannelError, ChannelFilter, ChannelOutputs, ChannelRx, check_input_rate};
 
+mod burst;
+
+use burst::{BurstReceiver, Decoded};
+
 const CHANNEL_TAPS: usize = 129;
 
-const BAUD: f64 = 9_600.0;
-const DEVIATION_HZ: f64 = 2_400.0;
 const BT: f64 = 0.4;
-const PULSE_SPAN: usize = 5;
-const MATCHED_SPAN: usize = 3;
 
 const MIN_FRAME_BYTES: usize = 13;
 const MAX_FRAME_BYTES: usize = 128;
@@ -43,37 +39,11 @@ static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescrip
     ..ChannelDescriptor::default()
 });
 
-const CARRIER_TAU_SAMPLES: f64 = 200.0;
-
 pub struct AisChannelRx {
     letter: char,
-    demod: CpmDemod,
-    slicer: Mapping,
-    nrzi: NrziDecoder,
-    deframer: HdlcDeframer,
-    carrier_acc: Complex<f32>,
-    carrier_alpha: f32,
-    carrier_prev: Complex<f32>,
-    carrier_phase: f64,
-    mixed: Vec<Complex<f32>>,
-    soft: Vec<f32>,
     seq: u8,
-}
-
-fn cpm_params(sps: f64) -> CpmParams {
-    CpmParams::from_deviation(
-        Mapping::natural(2),
-        DEVIATION_HZ,
-        BAUD,
-        pulse::gaussian_freq(sps, BT, PULSE_SPAN, Norm::Area),
-        sps,
-    )
-}
-
-fn receive_filter(sps: f64) -> Vec<f32> {
-    let mut taps = pulse::gaussian(sps, BT, MATCHED_SPAN, Norm::Area);
-    taps.resize(CHANNEL_TAPS / 2 + taps.len(), 0.0);
-    taps
+    burst: BurstReceiver,
+    decoded: Vec<Decoded>,
 }
 
 fn params(settings: &ChannelSettings) -> Result<&AisParams, ChannelError> {
@@ -113,21 +83,11 @@ impl ChannelRx for AisChannelRx {
         check_input_rate(ctx, &DESCRIPTOR)?;
         let p = params(&settings)?;
         check_params(p)?;
-        let sps = ctx.input_rate / BAUD;
-        let cpm = cpm_params(sps);
         Ok(Self {
             letter: p.ais_channel.letter(),
-            demod: CpmDemod::new(&cpm, &receive_filter(sps), TIMING_BW_BURST),
-            slicer: cpm.mapping().clone(),
-            nrzi: NrziDecoder::new(),
-            deframer: HdlcDeframer::new(MIN_FRAME_BYTES, MAX_FRAME_BYTES),
-            carrier_acc: Complex::new(0.0, 0.0),
-            carrier_alpha: (1.0 / CARRIER_TAU_SAMPLES) as f32,
-            carrier_prev: Complex::new(0.0, 0.0),
-            carrier_phase: 0.0,
-            mixed: Vec::new(),
-            soft: Vec::new(),
             seq: 0,
+            burst: BurstReceiver::new(),
+            decoded: Vec::new(),
         })
     }
 
@@ -139,27 +99,10 @@ impl ChannelRx for AisChannelRx {
     }
 
     fn process(&mut self, iq: &[Complex<f32>], out: &mut ChannelOutputs) {
-        self.mixed.clear();
-        for &sample in iq {
-            let rotation = sample * self.carrier_prev.conj();
-            self.carrier_prev = sample;
-            self.carrier_acc += self.carrier_alpha * (rotation - self.carrier_acc);
-            self.carrier_phase -= f64::from(self.carrier_acc.arg());
-            self.carrier_phase = self.carrier_phase.rem_euclid(std::f64::consts::TAU);
-            self.mixed
-                .push(sample * Complex::from_polar(1.0, self.carrier_phase as f32));
-        }
-        self.soft.clear();
-        self.demod.process(&self.mixed, &mut self.soft);
-        for &symbol in &self.soft {
-            let level = self.slicer.slice(symbol) == 1;
-            let Some(frame) = self.deframer.push(self.nrzi.decode(level)) else {
-                continue;
-            };
-            if !hdlc_fcs_ok(&frame) {
-                continue;
-            }
-            let Some((payload, _fcs)) = frame.split_last_chunk::<2>() else {
+        self.decoded.clear();
+        self.burst.process(iq, &mut self.decoded);
+        for decoded in &self.decoded {
+            let Some((payload, _fcs)) = decoded.frame.split_last_chunk::<2>() else {
                 continue;
             };
             let bits = payload.len() * 8;
@@ -433,6 +376,31 @@ mod tests {
                 );
             }
         }
+    }
+
+    fn weak(offset_hz: f64, noise: f32, seed: u32) -> Vec<Complex<f32>> {
+        let mut iq = silence(LEAD_IN);
+        iq.extend(burst(&position_payload(&report()), RATE));
+        iq.extend(silence(RATE as usize / 4));
+        add_noise(&mut iq, seed, noise);
+        shift(&mut iq, offset_hz, RATE);
+        select(&iq)
+    }
+
+    #[test]
+    fn weak_bursts_below_the_discriminator_threshold_decode() {
+        for (offset_hz, seed) in [(0.0, 0x51), (-900.0, 0x52), (650.0, 0x53)] {
+            let iq = weak(offset_hz, 1.1, seed);
+            let msgs = run(&iq);
+            assert_eq!(only(msgs).mmsi, 244_670_316, "{offset_hz:+.0} Hz");
+        }
+    }
+
+    #[test]
+    fn noise_alone_decodes_nothing() {
+        let mut iq = silence(RATE as usize * 60);
+        add_noise(&mut iq, 0xA15, 0.3);
+        assert!(run(&select(&iq)).is_empty());
     }
 
     #[test]

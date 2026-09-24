@@ -386,6 +386,18 @@ pub fn mode_s_overlay(frame: &[u8]) -> Option<u32> {
     Some(mode_s_crc(body) ^ parity)
 }
 
+#[must_use]
+pub fn mode_s_bit_overlays(frame_len: usize) -> Vec<u32> {
+    let mut frame = vec![0u8; frame_len];
+    (0..frame_len * 8)
+        .map(|bit| {
+            frame.fill(0);
+            frame[bit / 8] = 0x80 >> (bit % 8);
+            mode_s_overlay(&frame).unwrap_or(u32::MAX)
+        })
+        .collect()
+}
+
 pub fn mode_s_append_parity(body: &mut Vec<u8>) {
     mode_s_append_overlaid_parity(body, 0);
 }
@@ -896,6 +908,24 @@ mod tests {
                 flip(&mut frame, b);
                 assert_eq!(mode_s_fix_single_bit(&mut frame), None, "bits {a},{b}");
                 assert_ne!(mode_s_syndrome(&frame), 0, "bits {a},{b}");
+            }
+        }
+    }
+
+    #[test]
+    fn flipping_a_bit_moves_the_overlay_by_its_table_entry() {
+        for len in [7usize, 14] {
+            let table = mode_s_bit_overlays(len);
+            let frame: Vec<u8> = (0..len as u8).map(|b| b.wrapping_mul(37) ^ 0x5A).collect();
+            let base = mode_s_overlay(&frame).unwrap();
+            for (bit, &delta) in table.iter().enumerate() {
+                let mut flipped = frame.clone();
+                flipped[bit / 8] ^= 0x80 >> (bit % 8);
+                assert_eq!(
+                    mode_s_overlay(&flipped).unwrap(),
+                    base ^ delta,
+                    "len {len} bit {bit}"
+                );
             }
         }
     }
