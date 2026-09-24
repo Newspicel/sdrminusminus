@@ -1,17 +1,46 @@
+mod ddc;
+mod decode;
+mod demod;
+#[cfg(test)]
+mod encode;
+mod frame;
+mod gsm;
+mod iip;
+mod ira;
+mod itl;
+mod itl_tables;
+mod lcw;
+#[cfg(test)]
+mod modulate;
+mod ms;
+mod mtpos;
+mod rs;
+mod sbd;
+#[cfg(test)]
+mod sensitivity;
+#[cfg(test)]
+mod tests;
+mod u3;
+mod voice;
+mod wideband;
+
 use std::sync::LazyLock;
 
 use num_complex::Complex;
 use sdrmm_wire::{
-    ChannelDescriptor, ChannelParams, ChannelSettings, DecoderEvent, DecoderFamily, IridiumParams,
+    ChannelDescriptor, ChannelParams, ChannelSettings, DataLinkMessage, DecoderEvent,
+    DecoderFamily, IridiumParams,
 };
-use xng_mode_iridium::IridiumChannelDecoder;
+use serde::Serialize;
+use serde_json::Value;
+use xng_acars::block as acars;
 
-use crate::{
-    ChannelCtx, ChannelError, ChannelFilter, ChannelOutputs, ChannelRx, check_input_rate, datalink,
-    xng_adapter,
-};
+use self::decode::ChannelDecoder;
+use self::ira::IridiumFrame;
+use crate::datalink::{self, Quality};
+use crate::{ChannelCtx, ChannelError, ChannelFilter, ChannelOutputs, ChannelRx, check_input_rate};
 
-const RATE: f64 = 250_000.0;
+const CHANNEL_RATE: f64 = 250_000.0;
 const HALF_BANDWIDTH: f64 = 25_000.0;
 
 static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescriptor {
@@ -20,14 +49,22 @@ static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescrip
     summary: "Iridium satellite bursts".to_owned(),
     family: DecoderFamily::Utility,
     bandwidth_hz: HALF_BANDWIDTH * 2.0,
-    input_rate_hz: RATE,
+    input_rate_hz: CHANNEL_RATE,
     has_audio: false,
     decoder_kind: Some("iridium".to_owned()),
     ..ChannelDescriptor::default()
 });
 
+#[derive(Serialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+enum Body<'a, A: Serialize> {
+    Acars(&'a A),
+    Iridium { kind: &'a str, details: &'a Value },
+}
+
 pub struct IridiumChannel {
-    decoder: IridiumChannelDecoder,
+    decoder: ChannelDecoder,
+    frames: Vec<IridiumFrame>,
 }
 
 fn params(settings: &ChannelSettings) -> Result<&IridiumParams, ChannelError> {
@@ -45,7 +82,42 @@ pub(crate) fn occupied_band() -> (f64, f64) {
 }
 
 pub(crate) fn channel_filter() -> ChannelFilter {
-    datalink::channel_filter(RATE, HALF_BANDWIDTH)
+    datalink::channel_filter(CHANNEL_RATE, HALF_BANDWIDTH)
+}
+
+fn message(frame: &IridiumFrame) -> DataLinkMessage {
+    let fec_corrected = frame
+        .details
+        .get("bch_corrected")
+        .and_then(Value::as_u64)
+        .and_then(|fixed| u32::try_from(fixed).ok());
+    match &frame.acars {
+        Some(block) => datalink::message(
+            &Body::Acars(&block.core),
+            Quality {
+                crc_ok: block.crc_ok,
+                fec_corrected,
+                ..Quality::default()
+            },
+            None,
+        ),
+        None => datalink::message(
+            &Body::<()>::Iridium {
+                kind: frame.kind,
+                details: &frame.details,
+            },
+            Quality {
+                crc_ok: frame
+                    .details
+                    .get("crc_ok")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(true),
+                fec_corrected,
+                ..Quality::default()
+            },
+            None,
+        ),
+    }
 }
 
 impl ChannelRx for IridiumChannel {
@@ -56,9 +128,10 @@ impl ChannelRx for IridiumChannel {
     fn new(ctx: ChannelCtx, settings: ChannelSettings) -> Result<Self, ChannelError> {
         check_input_rate(ctx, &DESCRIPTOR)?;
         params(&settings)?;
-        let decoder = IridiumChannelDecoder::new(ctx.input_rate, 0.0)
-            .map_err(ChannelError::InvalidSettings)?;
-        Ok(Self { decoder })
+        Ok(Self {
+            decoder: ChannelDecoder::new(),
+            frames: Vec::new(),
+        })
     }
 
     fn apply(&mut self, settings: ChannelSettings) -> Result<(), ChannelError> {
@@ -66,42 +139,12 @@ impl ChannelRx for IridiumChannel {
     }
 
     fn process(&mut self, iq: &[Complex<f32>], out: &mut ChannelOutputs) {
-        let frames = self.decoder.process(iq);
-        let level = self.decoder.level_dbfs();
-        out.events.extend(frames.iter().map(|frame| {
-            DecoderEvent::Iridium(xng_adapter::structured(xng_mode_iridium::to_message(
-                frame,
-                0,
-                level,
-                xng_adapter::provenance(),
-            )))
-        }));
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use xng_mode_iridium::{frame, modulate};
-
-    use super::*;
-    use crate::testutil::{run_events, settings};
-
-    #[test]
-    fn decodes_a_remodulated_off_air_ring_alert() {
-        let raw = "0011000000110000111100111111100001001010010011010011101101101100001001101011100001110011001100110000000111100010010011010011101011110101110100010010011010000111000101000111100110001000111111111111111111111111111111111111111111111111111111111111111110010111";
-        let symbols: Vec<u8> = raw.bytes().map(|value| u8::from(value == b'1')).collect();
-        let bits = frame::symbol_reverse(&symbols);
-        let mut iq = vec![Complex::default(); 4_000];
-        iq.extend(modulate::modulate(&bits, 64, RATE, 0.0, 0.5));
-        iq.extend(vec![Complex::default(); 30_000]);
-        let mut channel = IridiumChannel::new(
-            ChannelCtx { input_rate: RATE },
-            settings(ChannelParams::Iridium(IridiumParams::default())),
-        )
-        .expect("channel");
-        let events = run_events(&mut channel, &iq);
-        assert!(events.iter().any(
-            |event| matches!(event, DecoderEvent::Iridium(message) if message.message_type == "ring-alert" && message.crc_ok)
-        ));
+        self.frames.clear();
+        self.decoder.process(iq, &mut self.frames);
+        out.events.extend(
+            self.frames
+                .iter()
+                .map(|frame| DecoderEvent::Iridium(message(frame))),
+        );
     }
 }

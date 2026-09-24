@@ -62,6 +62,7 @@ SHA-256 in a SigMF annotation.
 | `adsb_offair_2m` | 2 M | `adsb` @ 0 Hz | 17 Mode S replies from four aircraft — DF4/5/11/17/20/21, FL370 and squawk 5245 from 4D2256, a TC11 position and a TC19 velocity from 3FF91D |
 | `ft8_20m_busy_12k` | 12 k | `ft8` @ 0 Hz | 19 of the 20 decodes `ft8_lib` publishes for this slot |
 | `acars_offair_48k` | 48 k | `acars` @ 0 Hz | `F-GTAE` / `AF7728` `[H1]` engine report `#DFB00000/V206,...`, then `LN-DYY` `[_d]` acknowledging block 5 |
+| `iridium_prbs15_250k` | 250 k | `iridium` @ 0 Hz | one downlink burst whose payload holds the PRBS15 recurrence bit for bit |
 | `dvbt/qpsk_2k_reference` | 9.142857 M | `dvbt` @ 0 Hz | 2K QPSK, rate 1/2, guard 1/8, 1750 Hz offset; PID 0x123 packets, TPS cell 0x5a |
 | `dab/mode_ii_reference_2m048` | 2.048 M | `dab` @ 0 Hz | Mode II frame: ensemble `0x4a2c`, service `0xc201`, no failed FIB CRCs |
 | `dab/mode_iii_reference_2m048` | 2.048 M | `dab` @ 0 Hz | the same ensemble in Mode III |
@@ -176,6 +177,13 @@ Channel 1 of acarsdec's four-channel `test.wav`, 0.5 s to 1.85 s: two real VHF b
 pinned by commit and SHA-256 in the SigMF annotation. Its 12.5 kHz AM-demodulated audio was
 resampled to 48 kHz and re-modulated at 80 % depth onto a 0 Hz carrier; the RF channel is not
 recorded upstream. `acars::tests::decodes_the_committed_recording` reads it directly.
+
+### Iridium: `iridium_prbs15_250k`
+
+A burst from gr-iridium's reference modulator (`test-data/prbs15-2M-20dB.sigmf-data`, GPL-3.0
+test data), as vendored by xng: downconverted to 250 kHz and trimmed to 32 ms. The signed 16-bit
+IQ was scaled to `cf32_le`; the annotation pins the source SHA-256.
+`iridium::tests::demodulates_the_gr_iridium_reference_burst` reads it directly.
 
 ### FreeDV: `freedv_1600_8k`
 
