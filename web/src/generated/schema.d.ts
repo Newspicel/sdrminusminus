@@ -4032,7 +4032,11 @@ export interface components {
             muf3000_mhz: number;
             name: string;
         };
-        IridiumParams: Record<string, never>;
+        IridiumParams: {
+            span?: components["schemas"]["IridiumSpan"];
+        };
+        /** @enum {string} */
+        IridiumSpan: "channel" | "mhz1" | "mhz2_5" | "mhz5" | "mhz10";
         /** @enum {string} */
         IssueScope: "settings" | "radio_id" | "contact" | "group_list" | "channel" | "zone" | "scan_list" | "extension";
         /** @enum {string} */

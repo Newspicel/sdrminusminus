@@ -14109,7 +14109,22 @@
         }
       },
       "IridiumParams": {
-        "type": "object"
+        "type": "object",
+        "properties": {
+          "span": {
+            "$ref": "#/components/schemas/IridiumSpan"
+          }
+        }
+      },
+      "IridiumSpan": {
+        "type": "string",
+        "enum": [
+          "channel",
+          "mhz1",
+          "mhz2_5",
+          "mhz5",
+          "mhz10"
+        ]
       },
       "IssueScope": {
         "type": "string",

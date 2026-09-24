@@ -1491,7 +1491,36 @@ empty_params! {
     InmarsatStdcParams,
     Vdl2Params,
     HfdlParams,
-    IridiumParams,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum IridiumSpan {
+    #[default]
+    Channel,
+    Mhz1,
+    Mhz2_5,
+    Mhz5,
+    Mhz10,
+}
+
+impl IridiumSpan {
+    #[must_use]
+    pub fn sample_rate_hz(self) -> Option<f64> {
+        match self {
+            Self::Channel => None,
+            Self::Mhz1 => Some(1_000_000.0),
+            Self::Mhz2_5 => Some(2_500_000.0),
+            Self::Mhz5 => Some(5_000_000.0),
+            Self::Mhz10 => Some(10_000_000.0),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct IridiumParams {
+    #[serde(default)]
+    pub span: IridiumSpan,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
@@ -1859,5 +1888,36 @@ mod dvbt_tests {
         assert_eq!(legacy.standard, DvbtStandard::DvbT);
         assert_eq!(legacy.sample_rate_hz(), 1_700_000.0 * 8.0 / 7.0);
         assert!(serde_json::from_str::<DvbtParams>(r#"{"plp":256}"#).is_err());
+    }
+}
+
+#[cfg(test)]
+mod iridium_tests {
+    use super::*;
+
+    #[test]
+    fn iridium_span_defaults_to_one_channel_and_roundtrips() {
+        assert_eq!(
+            serde_json::from_str::<IridiumParams>("{}").unwrap(),
+            IridiumParams::default()
+        );
+        let legacy: ChannelParams =
+            serde_json::from_str(r#"{"type":"iridium","settings":{}}"#).unwrap();
+        assert_eq!(legacy, ChannelParams::Iridium(IridiumParams::default()));
+        for (span, json, rate) in [
+            (IridiumSpan::Channel, "channel", None),
+            (IridiumSpan::Mhz1, "mhz1", Some(1_000_000.0)),
+            (IridiumSpan::Mhz2_5, "mhz2_5", Some(2_500_000.0)),
+            (IridiumSpan::Mhz5, "mhz5", Some(5_000_000.0)),
+            (IridiumSpan::Mhz10, "mhz10", Some(10_000_000.0)),
+        ] {
+            let encoded = serde_json::to_value(span).unwrap();
+            assert_eq!(encoded, json);
+            assert_eq!(
+                serde_json::from_value::<IridiumSpan>(encoded).unwrap(),
+                span
+            );
+            assert_eq!(span.sample_rate_hz(), rate);
+        }
     }
 }

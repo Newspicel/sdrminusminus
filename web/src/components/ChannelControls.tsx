@@ -95,6 +95,13 @@ const AERO_CHANNELS: Options<NonNullable<ChannelParamsOf<"inmarsat_aero">["chann
   { value: "burst", label: "R/T", title: "Bursts from aircraft" },
   { value: "c", label: "C", title: "Voice circuit" },
 ];
+const IRIDIUM_SPANS: Options<NonNullable<ChannelParamsOf<"iridium">["span"]>> = [
+  { value: "channel", label: "50 kHz", title: "One channel" },
+  { value: "mhz1", label: "1 MHz", title: "Radio at 1 MS/s, decodes the middle 800 kHz" },
+  { value: "mhz2_5", label: "2.5 MHz", title: "Radio at 2.5 MS/s, decodes the middle 2 MHz" },
+  { value: "mhz5", label: "5 MHz", title: "Radio at 5 MS/s, decodes the middle 4 MHz" },
+  { value: "mhz10", label: "10 MHz", title: "Radio at 10 MS/s, decodes the middle 8 MHz" },
+];
 const APRS_MODES: Options<NonNullable<ChannelParamsOf<"aprs">["mode"]>> = [
   { value: "afsk1200", label: "AFSK 1200" },
   { value: "g3ruh9600", label: "G3RUH 9600" },
@@ -643,6 +650,19 @@ function ModeControls({
             options={AERO_CHANNELS}
             onChange={(channel) =>
               onParams({ type: "inmarsat_aero", settings: { ...params.settings, channel } })
+            }
+          />
+        </SettingRow>
+      );
+    case "iridium":
+      return (
+        <SettingRow label="Span">
+          <Segmented
+            label="Iridium span"
+            value={params.settings.span ?? "channel"}
+            options={IRIDIUM_SPANS}
+            onChange={(span) =>
+              onParams({ type: "iridium", settings: { ...params.settings, span } })
             }
           />
         </SettingRow>
@@ -1539,7 +1559,6 @@ function ModeControls({
     case "inmarsat_stdc":
     case "vdl2":
     case "hfdl":
-    case "iridium":
       return null;
     default:
       return unhandledMode(params);

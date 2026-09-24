@@ -30,6 +30,8 @@ Fixtures catch decoding bugs but say little about drift, fading, or interference
 where each recording came from. VDL Mode 2, HFDL, Inmarsat Classic Aero and STD-C, DSC and
 Iridium started as ports of [xng](https://github.com/airframesio/xng). Inmarsat Classic Aero reads
 the P channel, R/T bursts from aircraft, or a C voice circuit; pick one on the node.
+Iridium decodes one 50 kHz channel, or bursts across 1 to 10 MHz when you set its span to the
+radio's sample rate; it reads the middle 80%.
 
 Have a short on-air recording of a fixture-only mode, with the decoded output? It is the most
 useful contribution there is. See [Build and test](../development/building.md).

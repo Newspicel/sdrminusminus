@@ -50,69 +50,20 @@ pub fn matched_filter(x: &[Complex<f32>], taps: &[f32]) -> Vec<Complex<f32>> {
         .collect()
 }
 
-pub struct ChannelDecoder {
-    detector: BurstDetector,
+pub struct WindowDemod {
     demod: IridiumDemod,
-    buf: Vec<Complex<f32>>,
-    start_abs: u64,
-    windows: Vec<Window>,
     taps: Vec<f32>,
-    reassembly: Reassembly,
-    bursts: Vec<DemodBurst>,
 }
 
-impl ChannelDecoder {
+impl WindowDemod {
     pub fn new() -> Self {
         Self {
-            detector: BurstDetector::new(),
             demod: IridiumDemod::new(CHANNEL_RATE),
-            buf: Vec::new(),
-            start_abs: 0,
-            windows: Vec::new(),
             taps: rrc_taps(CHANNEL_RATE / SYMBOL_RATE, MF_TAPS, MF_ALPHA),
-            reassembly: Reassembly::new(),
-            bursts: Vec::new(),
         }
     }
 
-    pub fn process(&mut self, input: &[Complex<f32>], out: &mut Vec<IridiumFrame>) {
-        let time =
-            (self.start_abs + self.buf.len() as u64 + input.len() as u64) as f64 / CHANNEL_RATE;
-        let mut bursts = std::mem::take(&mut self.bursts);
-        bursts.clear();
-        self.demodulate(input, &mut bursts);
-        for burst in &bursts {
-            let first = out.len();
-            self.reassembly
-                .handle(&burst.bits, &burst.reliability, time, 0.0, out);
-            for frame in &mut out[first..] {
-                frame.offset_hz = Some(burst.cfo_hz as f32);
-            }
-        }
-        self.bursts = bursts;
-    }
-
-    pub fn demodulate(&mut self, input: &[Complex<f32>], out: &mut Vec<DemodBurst>) {
-        self.buf.extend_from_slice(input);
-        self.windows.clear();
-        self.detector.push(input, &mut self.windows);
-        let now = self.start_abs + self.buf.len() as u64;
-        for index in 0..self.windows.len() {
-            let window = &self.windows[index];
-            let first = window.start.max(self.start_abs);
-            let from = (first - self.start_abs) as usize;
-            let to = (window.end.min(now) - self.start_abs) as usize;
-            let onset = window.onset.saturating_sub(first) as f64;
-            let samples = self.buf[from..to].to_vec();
-            out.extend(self.window_bursts(&samples, onset));
-        }
-        let keep_from = self.detector.earliest_needed().max(self.start_abs);
-        let drop = ((keep_from - self.start_abs) as usize).min(self.buf.len());
-        self.buf.drain(..drop);
-        self.start_abs += drop as u64;
-    }
-
-    fn window_bursts(&mut self, window: &[Complex<f32>], onset: f64) -> Vec<DemodBurst> {
+    pub fn bursts(&mut self, window: &[Complex<f32>], onset: f64) -> Vec<DemodBurst> {
         let filtered = matched_filter(window, &self.taps);
         let bursts = self.demod_window(filtered, onset);
         if bursts.iter().any(|b| is_valid(&b.bits)) {
@@ -130,5 +81,84 @@ impl ChannelDecoder {
         };
         chan.resize(chan.len() + QUIET_TAIL, Complex::default());
         self.demod.acquire(&chan, onset, noise)
+    }
+}
+
+pub struct Heard {
+    pub time: f64,
+    pub freq: f64,
+    pub center_hz: f64,
+}
+
+pub fn reassemble(
+    reassembly: &mut Reassembly,
+    burst: &DemodBurst,
+    heard: &Heard,
+    out: &mut Vec<IridiumFrame>,
+) {
+    let first = out.len();
+    reassembly.handle(&burst.bits, &burst.reliability, heard.time, heard.freq, out);
+    let offset = Some((heard.center_hz + burst.cfo_hz) as f32);
+    for frame in &mut out[first..] {
+        frame.offset_hz = offset;
+    }
+}
+
+pub struct ChannelDecoder {
+    detector: BurstDetector,
+    window: WindowDemod,
+    buf: Vec<Complex<f32>>,
+    start_abs: u64,
+    windows: Vec<Window>,
+    reassembly: Reassembly,
+    bursts: Vec<DemodBurst>,
+}
+
+impl ChannelDecoder {
+    pub fn new() -> Self {
+        Self {
+            detector: BurstDetector::new(),
+            window: WindowDemod::new(),
+            buf: Vec::new(),
+            start_abs: 0,
+            windows: Vec::new(),
+            reassembly: Reassembly::new(),
+            bursts: Vec::new(),
+        }
+    }
+
+    pub fn process(&mut self, input: &[Complex<f32>], out: &mut Vec<IridiumFrame>) {
+        let time =
+            (self.start_abs + self.buf.len() as u64 + input.len() as u64) as f64 / CHANNEL_RATE;
+        let mut bursts = std::mem::take(&mut self.bursts);
+        bursts.clear();
+        self.demodulate(input, &mut bursts);
+        let heard = Heard {
+            time,
+            freq: 0.0,
+            center_hz: 0.0,
+        };
+        for burst in &bursts {
+            reassemble(&mut self.reassembly, burst, &heard, out);
+        }
+        self.bursts = bursts;
+    }
+
+    pub fn demodulate(&mut self, input: &[Complex<f32>], out: &mut Vec<DemodBurst>) {
+        self.buf.extend_from_slice(input);
+        self.windows.clear();
+        self.detector.push(input, &mut self.windows);
+        let now = self.start_abs + self.buf.len() as u64;
+        for window in &self.windows {
+            let first = window.start.max(self.start_abs);
+            let from = (first - self.start_abs) as usize;
+            let to = (window.end.min(now) - self.start_abs) as usize;
+            let onset = window.onset.saturating_sub(first) as f64;
+            out.extend(self.window.bursts(&self.buf[from..to], onset));
+        }
+        let keep_from = self.detector.earliest_needed().max(self.start_abs);
+        let drop = ((keep_from - self.start_abs) as usize).min(self.buf.len());
+        self.buf.drain(..drop);
+        self.start_abs += drop as u64;
     }
 }

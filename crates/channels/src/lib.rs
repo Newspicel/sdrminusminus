@@ -188,7 +188,7 @@ pub fn occupied_band(params: &ChannelParams) -> (f64, f64) {
         ChannelParams::InmarsatAero(_) => inmarsat_aero::occupied_band(),
         ChannelParams::Vdl2(_) => vdl2::occupied_band(),
         ChannelParams::Hfdl(_) => hfdl::occupied_band(),
-        ChannelParams::Iridium(_) => iridium::occupied_band(),
+        ChannelParams::Iridium(p) => iridium::occupied_band(p),
         ChannelParams::Dect(_) => dect::occupied_band(),
     }
 }
@@ -267,7 +267,7 @@ pub fn channel_filter(params: &ChannelParams) -> Result<ChannelFilter, ChannelEr
         ChannelParams::InmarsatAero(_) => Ok(inmarsat_aero::channel_filter()),
         ChannelParams::Vdl2(_) => Ok(vdl2::channel_filter()),
         ChannelParams::Hfdl(_) => Ok(hfdl::channel_filter()),
-        ChannelParams::Iridium(_) => Ok(iridium::channel_filter()),
+        ChannelParams::Iridium(p) => Ok(iridium::channel_filter(p)),
         ChannelParams::Dect(_) => Ok(dect::channel_filter()),
     }
 }
@@ -703,6 +703,7 @@ pub fn input_rate(params: &ChannelParams) -> f64 {
     match params {
         ChannelParams::Datv(p) => datv::input_rate_hz(p),
         ChannelParams::Dvbt(p) => p.sample_rate_hz(),
+        ChannelParams::Iridium(p) => iridium::input_rate(p),
         other => descriptor_of(other.type_id()).map_or(0.0, |d| d.input_rate_hz),
     }
 }

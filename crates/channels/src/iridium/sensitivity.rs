@@ -8,16 +8,16 @@ use super::tests::{Gaussian, place};
 use super::{CHANNEL_RATE, channel_filter};
 
 #[derive(Clone)]
-enum Sent {
+pub(super) enum Sent {
     Ring { sat: u32, tmsi: String },
     Data { hex: String },
     Page { ric: u32 },
 }
 
-type Found = (String, Value);
+pub(super) type Found = (String, Value);
 type Runner = fn(&[Complex<f32>]) -> Vec<Found>;
 
-fn traffic(count: usize, seed: u64) -> Vec<(Sent, Vec<u8>)> {
+pub(super) fn traffic(count: usize, seed: u64) -> Vec<(Sent, Vec<u8>)> {
     let mut state = seed;
     let mut next = move || {
         state = state
@@ -47,7 +47,7 @@ fn traffic(count: usize, seed: u64) -> Vec<(Sent, Vec<u8>)> {
         .collect()
 }
 
-fn matches(sent: &Sent, found: &Found) -> bool {
+pub(super) fn matches(sent: &Sent, found: &Found) -> bool {
     let (kind, d) = found;
     match sent {
         Sent::Ring { sat, tmsi } => {
@@ -59,7 +59,7 @@ fn matches(sent: &Sent, found: &Found) -> bool {
 }
 
 fn filtered(iq: &[Complex<f32>]) -> Vec<Complex<f32>> {
-    let mut filter = channel_filter();
+    let mut filter = channel_filter(&sdrmm_wire::IridiumParams::default());
     let mut out = Vec::new();
     let mut all = Vec::with_capacity(iq.len());
     for chunk in iq.chunks(8_192) {
@@ -91,7 +91,7 @@ fn run_xng(iq: &[Complex<f32>]) -> Vec<Found> {
         .collect()
 }
 
-fn es_n0_sigma(es_n0_db: f64, burst_power: f64) -> f32 {
+pub(super) fn es_n0_sigma(es_n0_db: f64, burst_power: f64) -> f32 {
     let sps = CHANNEL_RATE / 25_000.0;
     let snr = 10f64.powf(es_n0_db / 10.0) / sps;
     (burst_power / snr / 2.0).sqrt() as f32

@@ -25,6 +25,8 @@ const DUPLEX_SYMBOLS: usize = 191;
 const DUPLEX_MAX_LCW_ERRORS: u32 = 6;
 const CFO_REFINE: i32 = 2;
 const CFO_REFINE_STEP: f32 = 0.08;
+const CFO_STEPS: usize = 2 * CFO_REFINE as usize + 1;
+const SYNC_LEN: usize = 28;
 const MAX_SLOPE: f32 = 0.2;
 const MIN_SYMBOLS: usize = UW_SYMBOLS + 32;
 const MAX_FRAMES_PER_BURST: usize = 32;
@@ -111,6 +113,21 @@ fn is_duplex(bits: &[u8]) -> bool {
         FrameKind::Ms | FrameKind::Itl | FrameKind::Bc | FrameKind::Ra
     );
     !simplex && decode_lcw(data).is_some_and(|lcw| lcw.corrected <= DUPLEX_MAX_LCW_ERRORS)
+}
+
+fn rotators(sync: &[u8; SYNC_LEN], theta: f32) -> [Complex<f32>; SYNC_LEN] {
+    std::array::from_fn(|k| phasor(-expected(sync[k]) - theta * k as f32))
+}
+
+fn correlate(
+    samples: &[Complex<f32>; SYNC_LEN],
+    rotators: &[Complex<f32>; SYNC_LEN],
+) -> Complex<f32> {
+    let mut acc = Complex::new(0.0f32, 0.0);
+    for (s, r) in samples.iter().zip(rotators) {
+        acc += s * r;
+    }
+    acc
 }
 
 fn blackman(k: usize, denom: f32) -> f32 {
@@ -284,29 +301,38 @@ impl IridiumDemod {
         (Some(burst), count)
     }
 
-    fn sync_score(&self, o: f64, sync: &[u8; 28], theta: f32) -> Option<f32> {
-        let mut acc = Complex::new(0.0f32, 0.0);
+    fn sync_samples(&self, o: f64) -> Option<([Complex<f32>; SYNC_LEN], f32)> {
+        let mut samples = [Complex::default(); SYNC_LEN];
         let mut mag = 0.0f32;
-        for (k, &symbol) in sync.iter().enumerate() {
-            let s = self.sample(o + k as f64 * self.sps)?;
-            acc += s * phasor(-expected(symbol) - theta * k as f32);
-            mag += s.norm();
+        for (k, slot) in samples.iter_mut().enumerate() {
+            *slot = self.sample(o + k as f64 * self.sps)?;
+            mag += slot.norm();
         }
-        (mag > 1e-12).then(|| acc.norm() / mag)
+        (mag > 1e-12).then_some((samples, mag))
+    }
+
+    fn sync_score(&self, o: f64, sync: &[u8; SYNC_LEN], theta: f32) -> Option<f32> {
+        let (samples, mag) = self.sync_samples(o)?;
+        Some(correlate(&samples, &rotators(sync, theta)).norm() / mag)
     }
 
     fn best_sync(&self, lo: f64, hi: f64, theta: f32) -> Option<(f64, f32, Sync)> {
+        let table: [[(f32, [Complex<f32>; SYNC_LEN]); CFO_STEPS]; 2] = std::array::from_fn(|e| {
+            std::array::from_fn(|i| {
+                let db = (i as i32 - CFO_REFINE) as f32 * CFO_REFINE_STEP;
+                (db, rotators(SYNCS[e].0, theta + db))
+            })
+        });
         let mut best: Option<(f32, f64, f32, Sync)> = None;
         let mut o = lo;
         while o < hi {
-            for entry in SYNCS {
-                for step in -CFO_REFINE..=CFO_REFINE {
-                    let db = step as f32 * CFO_REFINE_STEP;
-                    let Some(corr) = self.sync_score(o, entry.0, theta + db) else {
-                        continue;
-                    };
-                    if best.is_none_or(|(c, ..)| corr > c) {
-                        best = Some((corr, o, db, entry));
+            if let Some((samples, mag)) = self.sync_samples(o) {
+                for (entry, steps) in SYNCS.iter().zip(&table) {
+                    for (db, rotation) in steps {
+                        let corr = correlate(&samples, rotation).norm() / mag;
+                        if best.is_none_or(|(c, ..)| corr > c) {
+                            best = Some((corr, o, *db, *entry));
+                        }
                     }
                 }
             }
