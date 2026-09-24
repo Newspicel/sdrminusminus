@@ -35,7 +35,6 @@ xng-mode-dsc.workspace = true
 xng-mode-stdc.workspace = true
 xng-mode-aero.workspace = true
 xng-mode-vdl2.workspace = true
-xng-mode-hfdl.workspace = true
 xng-mode-iridium.workspace = true
 xng-types.workspace = true
 
@@ -55,4 +54,5 @@ serde_json.workspace = true
 # which `#[cfg(test)]` alone does not enable for tests/ targets).
 sdrmm-channels = { workspace = true, features = ["test-signals"] }
 blip25-vocoder = { workspace = true, features = ["encode"] }
+xng-mode-hfdl.workspace = true
 xng-acars.workspace = true
