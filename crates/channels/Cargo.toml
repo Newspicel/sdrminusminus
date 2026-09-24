@@ -31,7 +31,6 @@ mfsk-core.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 flate2.workspace = true
-xng-mode-iridium.workspace = true
 xng-types.workspace = true
 
 [build-dependencies]
@@ -56,3 +55,4 @@ xng-acars.workspace = true
 xng-mode-dsc.workspace = true
 xng-mode-stdc.workspace = true
 xng-mode-vdl2.workspace = true
+xng-mode-iridium.workspace = true
