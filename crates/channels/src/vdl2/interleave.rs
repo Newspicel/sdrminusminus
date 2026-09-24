@@ -97,7 +97,7 @@ pub fn interleave(data_bits: &[u8], rs: &ReedSolomon) -> Option<Vec<u8>> {
 
 #[cfg(test)]
 pub fn deinterleave(tx_bits: &[u8], tl_bits: usize, rs: &ReedSolomon) -> Option<(Vec<u8>, usize)> {
-    deinterleave_soft(tx_bits, &[], 0, tl_bits, rs).map(|decoded| (decoded.bits, decoded.corrected))
+    deinterleave_soft(tx_bits, &[], 0, tl_bits, rs, Erasures::Doubtful).map(|decoded| (decoded.bits, decoded.corrected))
 }
 
 pub struct Deinterleaved {
@@ -118,6 +118,12 @@ fn octet_confidence(octet_count: usize, sym_conf: &[f32], bit_offset: usize) -> 
         .collect()
 }
 
+#[derive(Clone, Copy)]
+pub enum Erasures {
+    Doubtful,
+    Least(usize),
+}
+
 struct RowFix {
     corrected: usize,
     soft_assisted: bool,
@@ -129,6 +135,7 @@ fn correct_row(
     data: usize,
     checks: usize,
     rs: &ReedSolomon,
+    erasures: Erasures,
 ) -> Option<RowFix> {
     let base: Vec<usize> = (ROW_DATA_OCTETS + checks..ROW_OCTETS).collect();
     let budget = NPAR.saturating_sub(base.len());
@@ -136,6 +143,20 @@ fn correct_row(
         .filter(|&col| col < data || (ROW_DATA_OCTETS..ROW_DATA_OCTETS + checks).contains(&col))
         .collect();
     ranked.sort_by(|&a, &b| confidence[b].total_cmp(&confidence[a]));
+    if let Erasures::Least(count) = erasures
+        && count + 2 <= budget
+        && ranked.len() >= count
+    {
+        let mut attempt = row.to_vec();
+        let mut positions = base.clone();
+        positions.extend(ranked.iter().take(count).copied());
+        let fixed = rs.decode_with_erasures(&mut attempt, &positions)?;
+        row.copy_from_slice(&attempt);
+        return Some(RowFix {
+            corrected: (fixed as usize).saturating_sub(base.len()),
+            soft_assisted: true,
+        });
+    }
     for extra in [0usize, SOFT_ERASURES] {
         if extra > budget {
             break;
@@ -170,6 +191,7 @@ pub fn deinterleave_soft(
     bit_offset: usize,
     tl_bits: usize,
     rs: &ReedSolomon,
+    erasures: Erasures,
 ) -> Option<Deinterleaved> {
     let lay = layout(tl_bits)?;
     if tx_bits.len() < lay.total_tx_bits {
@@ -197,7 +219,7 @@ pub fn deinterleave_soft(
         let n = lay.rows[r];
         let k = lay.checks[r];
         if k > 0 {
-            let fix = correct_row(row, &cgrid[r], n, k, rs)?;
+            let fix = correct_row(row, &cgrid[r], n, k, rs, erasures)?;
             corrected += fix.corrected;
             soft_assisted |= fix.soft_assisted;
         }

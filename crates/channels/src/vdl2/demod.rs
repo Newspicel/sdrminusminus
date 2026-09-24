@@ -3,8 +3,9 @@ use std::f32::consts::PI;
 use num_complex::Complex;
 use sdrmm_dsp::ReedSolomon;
 
+use super::avlc::{self, AvlcFrame};
 use super::header::{self, HEADER_BITS};
-use super::interleave;
+use super::interleave::{self, Erasures};
 use super::scramble::Scrambler;
 
 pub const SYMBOL_RATE: f64 = 10_500.0;
@@ -40,6 +41,25 @@ const PROFILES: [Detector; 3] = [
     },
     Detector::Differential,
 ];
+
+struct Strategy {
+    profiles: &'static [Detector],
+    ladder: &'static [Erasures],
+    fcs_arbitrates: bool,
+}
+
+const RECOVERY: Strategy = Strategy {
+    profiles: &PROFILES,
+    ladder: &[Erasures::Doubtful, Erasures::Least(2), Erasures::Least(4)],
+    fcs_arbitrates: true,
+};
+
+#[cfg(test)]
+const XNG: Strategy = Strategy {
+    profiles: &[Detector::Differential],
+    ladder: &[Erasures::Doubtful],
+    fcs_arbitrates: false,
+};
 const MAX_TL_BITS: u32 = 16_000;
 const MIN_EDGE_ENERGY: f32 = 0.01;
 const FIT_STEP: f64 = 0.25;
@@ -126,11 +146,11 @@ pub struct Vdl2Demod {
     cursor: f64,
     noise: f32,
     state: State,
-    profiles: &'static [Detector],
+    strategy: &'static Strategy,
 }
 
 pub struct Burst {
-    pub bits: Vec<u8>,
+    pub frames: Vec<AvlcFrame>,
     pub rs_corrected: usize,
     pub freq_skew_hz: f32,
     pub snr_db: f32,
@@ -158,7 +178,7 @@ impl Vdl2Demod {
             cursor: 0.0,
             noise: 1e-6,
             state: State::Hunt,
-            profiles: &PROFILES,
+            strategy: &RECOVERY,
             last_rs_fail: f64::NEG_INFINITY,
         }
     }
@@ -166,7 +186,7 @@ impl Vdl2Demod {
     #[cfg(test)]
     pub fn differential(channel_rate: f64) -> Self {
         Self {
-            profiles: &[Detector::Differential],
+            strategy: &XNG,
             ..Self::new(channel_rate)
         }
     }
@@ -307,7 +327,7 @@ impl Vdl2Demod {
     }
 
     fn collecting(&self, lock: Lock, profile: usize) -> Option<Collecting> {
-        let detector = *self.profiles.get(profile)?;
+        let detector = *self.strategy.profiles.get(profile)?;
         let last_uw = lock.uw_pos + 15.0 * self.sps;
         let prev = self.sample(last_uw)?;
         Some(Collecting {
@@ -339,14 +359,19 @@ impl Vdl2Demod {
     }
 
     fn finish(&mut self, c: &Collecting, length: BurstLength, rs: &ReedSolomon) -> Option<Burst> {
-        let decoded = interleave::deinterleave_soft(
-            &c.bits[HEADER_BITS..length.total_bits],
-            &c.conf,
-            HEADER_BITS,
-            length.tl_bits,
-            rs,
-        );
-        let Some(decoded) = decoded else {
+        let decoded = self.strategy.ladder.iter().find_map(|&erasures| {
+            let decoded = interleave::deinterleave_soft(
+                &c.bits[HEADER_BITS..length.total_bits],
+                &c.conf,
+                HEADER_BITS,
+                length.tl_bits,
+                rs,
+                erasures,
+            )?;
+            let frames = avlc::scan(&decoded.bits);
+            (!self.strategy.fcs_arbitrates || !frames.is_empty()).then_some((decoded, frames))
+        });
+        let Some((decoded, frames)) = decoded else {
             if self.retry(c) {
                 return None;
             }
@@ -361,7 +386,7 @@ impl Vdl2Demod {
             self.cursor = c.next_pos;
         }
         Some(Burst {
-            bits: decoded.bits,
+            frames,
             rs_corrected: decoded.corrected,
             freq_skew_hz: (f64::from(c.lock.theta) * SYMBOL_RATE / std::f64::consts::TAU) as f32,
             snr_db: evm_snr_db(&c.conf),

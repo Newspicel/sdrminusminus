@@ -7,7 +7,7 @@ use serde_json::{Value, json};
 use crate::acars::block::{AcarsBlock, parse as parse_acars};
 
 use super::atn::{self, ClnpReassembler, CotpReassembler, X25Reassembler};
-use super::avlc::{self, AvlcFrame, Control, Payload};
+use super::avlc::{AvlcFrame, Control, Payload};
 use super::demod::{Burst, SYMBOL_RATE, Vdl2Demod};
 use super::interleave;
 
@@ -76,8 +76,8 @@ impl Vdl2Decoder {
         self.bursts.clear();
         self.demod
             .process(&self.filtered, &self.rs, &mut self.bursts);
-        for burst in &self.bursts {
-            for frame in avlc::scan(&burst.bits) {
+        for burst in &mut self.bursts {
+            for frame in std::mem::take(&mut burst.frames) {
                 out.push(self.reassembly.frame(frame, burst, now));
             }
         }
