@@ -378,5 +378,25 @@ fn sensitivity_sweep() {
             theirs += decode_xng(&iq).len();
         }
         eprintln!("SWEEP noise {noise}: ours {ours} xng {theirs}");
+        assert!(ours >= theirs);
+    }
+}
+
+#[test]
+fn outdecodes_xng_near_the_noise_floor() {
+    let iq = sweep_capture(0x2468_ace0_1357_9bdf, 0.2, 20);
+    let ours = decode_channel(&iq, Vdl2Decoder::new(RATE)).len();
+    let theirs = decode_xng(&iq).len();
+    assert!(ours > 2 * theirs && ours > 25, "{ours} vs {theirs}");
+}
+
+#[test]
+fn stays_silent_on_noise() {
+    for (seed, noise) in [(0x0bad_cafe_f00d_d00d, 0.05f32), (0x1234_4321_abcd_dcba, 0.3)] {
+        let mut iq = vec![Complex::default(); 3_000_000];
+        Noise(seed).add(&mut iq, noise);
+        let mut filtered = Vec::new();
+        channel_filter().process(&iq, &mut filtered);
+        assert!(decode_ours(RATE, &filtered).is_empty(), "noise {noise}");
     }
 }

@@ -54,32 +54,48 @@ fn decode_ours(iq: &[Complex<f32>]) -> Vec<DecoderEvent> {
     events
 }
 
-fn decode_xng(iq: &[Complex<f32>]) -> usize {
+fn decode_xng(iq: &[Complex<f32>]) -> Vec<String> {
     let mut decoder = Vdl2ChannelDecoder::new(CAPTURE_RATE, 0.0).unwrap();
     iq.chunks(BLOCK)
-        .map(|block| decoder.process(block).len())
-        .sum()
+        .flat_map(|block| decoder.process(block))
+        .map(|frame| hex(&frame.avlc.raw))
+        .collect()
+}
+
+fn hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
 fn compare(file: &str) -> (usize, usize) {
     let iq = load(file).expect(file);
-    let ours = decode_ours(&iq);
-    assert!(ours.iter().all(|e| matches!(e, DecoderEvent::Vdl2(_))));
+    let ours: Vec<_> = decode_ours(&iq)
+        .into_iter()
+        .map(|event| match event {
+            DecoderEvent::Vdl2(message) => message,
+            other => panic!("unexpected {other:?}"),
+        })
+        .collect();
     let xng = decode_xng(&iq);
-    eprintln!("{file}: ours {} xng {xng}", ours.len());
-    (ours.len(), xng)
+    for raw in &xng {
+        assert!(ours.iter().any(|m| m.raw.as_ref() == Some(raw)), "lost {raw}");
+    }
+    for extra in ours.iter().filter(|m| m.raw.as_ref().is_none_or(|r| !xng.contains(r))) {
+        eprintln!("extra {} {:?} {:?}", extra.message_type, extra.station, extra.raw);
+    }
+    eprintln!("{file}: ours {} xng {}", ours.len(), xng.len());
+    (ours.len(), xng.len())
 }
 
 #[test]
 #[ignore = "needs xng bench fixtures: XNG_BENCH_DATA=dir cargo test -p sdrmm-channels --release --test xng_vdl2 -- --ignored --nocapture"]
 fn vdl2_matches_xng_off_air() {
     let (ours, xng) = compare("vdl2_105k_conj.s16");
-    assert!(ours >= xng && ours >= 42);
+    assert!(ours >= xng && ours >= 47);
 }
 
 #[test]
 #[ignore = "needs xng bench fixtures"]
 fn vdl2_matches_xng_on_opflasher() {
     let (ours, xng) = compare("vdl2_opflasher_105k.cs16");
-    assert!(ours >= xng);
+    assert!(ours >= xng && ours >= 17);
 }
