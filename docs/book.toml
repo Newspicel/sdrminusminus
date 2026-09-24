@@ -1,7 +1,7 @@
 [book]
 title = "SDR--"
 description = "Install, operate, and develop SDR--, a software-defined radio application for desktop and browser."
-authors = ["SDR-- contributors"]
+authors = ["Julian Haag"]
 src = "src"
 language = "en"
 

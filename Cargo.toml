@@ -73,7 +73,7 @@ default-members = [
 edition = "2024"
 version = "0.0.0"
 license = "GPL-3.0-or-later"
-authors = ["SDR-- contributors"]
+authors = ["Julian Haag"]
 repository = "https://github.com/newspicel/sdrminusminus"
 rust-version = "1.98"
 

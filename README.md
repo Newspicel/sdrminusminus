@@ -113,7 +113,7 @@ every check. Read [Contributing](CONTRIBUTING.md) and the
 
 ## License
 
-Copyright (C) 2026 SDR-- contributors.
+Copyright (C) 2026 Julian Haag.
 
 Licensed under the [GNU General Public License, version 3 or later](LICENSE).
 [Third-party notices](THIRD_PARTY_NOTICES.md) and license texts are also available in the app's
