@@ -3,9 +3,12 @@ import type { Capabilities, DeviceSet } from "../../lib/types";
 import { mergeSettings } from "../../lib/useDevicePatch";
 import {
   autoTuning,
+  bondSaid,
   clippingSaid,
   faultSaid,
+  hasLaneControls,
   hearing,
+  lanesMerged,
   lockStream,
   refLabel,
   refusalSaid,
@@ -51,6 +54,42 @@ describe("refLabel", () => {
 
   it("falls back to the backend alone", () => {
     expect(refLabel({ backend: "hackrf" })).toBe("hackrf");
+  });
+});
+
+describe("lanesMerged", () => {
+  it("draws lanes only when every stream tunes on its own", () => {
+    const lanes = deviceSet({
+      capabilities: capabilities({ rx_streams: 5, per_stream: { tuning: true, gain: true } }),
+    });
+    const shared = deviceSet({
+      capabilities: capabilities({ rx_streams: 4, per_stream: { gain: true } }),
+    });
+    expect(lanesMerged(lanes)).toBe(true);
+    expect(lanesMerged(shared)).toBe(false);
+    expect(lanesMerged(deviceSet())).toBe(false);
+  });
+});
+
+describe("hasLaneControls", () => {
+  it("offers lane controls only for what a lane sets on its own", () => {
+    const gain = { kind: "lna" as const, name: "LNA", range: { min: 0, max: 40 } };
+    const perLane = { tuning: true, gain: true };
+    expect(hasLaneControls(capabilities({ per_stream: perLane, gains: [gain] }))).toBe(true);
+    expect(hasLaneControls(capabilities({ per_stream: perLane }))).toBe(false);
+    expect(hasLaneControls(capabilities({ gains: [gain] }))).toBe(false);
+    expect(
+      hasLaneControls(capabilities({ per_stream: { antenna: true }, antennas: ["A", "B"] })),
+    ).toBe(true);
+  });
+});
+
+describe("bondSaid", () => {
+  it("names the bond between lanes, and nothing for independent ones", () => {
+    expect(bondSaid("time_sync")).toBe("Shared clock");
+    expect(bondSaid("phase_coherent")).toBe("Phase coherent");
+    expect(bondSaid("none")).toBeNull();
+    expect(bondSaid(undefined)).toBeNull();
   });
 });
 

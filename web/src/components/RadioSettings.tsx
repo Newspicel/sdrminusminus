@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
 import { rxStreamCount, streamLabel } from "../canvas/graph";
 import type { Capabilities, DeviceSet, ExtraSetting, GainStage, Range } from "../lib/types";
 import { forStream, useDevicePatch } from "../lib/useDevicePatch";
@@ -50,10 +50,14 @@ export function RadioSettings({
   active,
   className,
   sampleRateLocked = false,
+  lanesShown = false,
+  lead,
 }: {
   active: DeviceSet;
   className?: string;
   sampleRateLocked?: boolean;
+  lanesShown?: boolean;
+  lead?: ReactNode;
 }) {
   const { applyPatch } = useDevicePatch();
   const caps = active.capabilities;
@@ -66,13 +70,14 @@ export function RadioSettings({
   const streamedGain = scope?.gain === true && caps.gains.length > 0;
   const automaticGain = automaticGainIsOn(caps, settings);
   const streams =
-    streamedAntenna || streamedGain
+    !lanesShown && (streamedAntenna || streamedGain)
       ? Array.from({ length: rxStreamCount(caps) }, (_, index) => index)
       : [];
   const patch = (delta: Parameters<typeof applyPatch>[1]): void => applyPatch(active.id, delta);
 
   return (
     <Settings className={className}>
+      {lead}
       <SettingRow label="Rate">
         <RateControl
           caps={caps}
@@ -116,39 +121,11 @@ export function RadioSettings({
           />
         ))}
 
-      {streams.map((stream) => {
-        const port = streamLabel("iq", stream, streams.length);
-        const lane = forStream(settings, stream, scope);
-        return (
-          <SettingGroup key={stream} label={port}>
-            {streamedAntenna && (
-              <SettingRow label="Antenna">
-                <Select
-                  label={`${port} antenna`}
-                  value={lane.antenna ?? caps.antennas[0] ?? ""}
-                  options={caps.antennas.map((antenna) => ({ value: antenna, label: antenna }))}
-                  onChange={(antenna) => patch({ streams: [{ stream, antenna }] })}
-                />
-              </SettingRow>
-            )}
-            {streamedGain &&
-              caps.gains.map((stage) => (
-                <GainControl
-                  key={stage.name}
-                  stage={stage}
-                  port={port}
-                  disabled={automaticGain}
-                  value={
-                    lane.gains?.find((g) => g.stage === stage.name)?.value_db ?? stage.range.min
-                  }
-                  onCommit={(db) =>
-                    patch({ streams: [{ stream, gains: [{ stage: stage.name, value_db: db }] }] })
-                  }
-                />
-              ))}
-          </SettingGroup>
-        );
-      })}
+      {streams.map((stream) => (
+        <SettingGroup key={stream} label={streamLabel("iq", stream, streams.length)}>
+          <LaneControls active={active} stream={stream} />
+        </SettingGroup>
+      ))}
 
       {caps.bias_tee === true && (
         <SettingRow label="Bias tee" title="Powers an amplifier or active antenna over the coax">
@@ -206,6 +183,43 @@ export function RadioSettings({
         />
       ))}
     </Settings>
+  );
+}
+
+export function LaneControls({ active, stream }: { active: DeviceSet; stream: number }) {
+  const { applyPatch } = useDevicePatch();
+  const caps = active.capabilities;
+  const scope = caps.per_stream;
+  const port = streamLabel("iq", stream, rxStreamCount(caps));
+  const lane = forStream(active.settings, stream, scope);
+  const automaticGain = automaticGainIsOn(caps, active.settings);
+  const patch = (delta: Parameters<typeof applyPatch>[1]): void => applyPatch(active.id, delta);
+  return (
+    <>
+      {scope?.antenna === true && caps.antennas.length > 1 && (
+        <SettingRow label="Antenna">
+          <Select
+            label={`${port} antenna`}
+            value={lane.antenna ?? caps.antennas[0] ?? ""}
+            options={caps.antennas.map((antenna) => ({ value: antenna, label: antenna }))}
+            onChange={(antenna) => patch({ streams: [{ stream, antenna }] })}
+          />
+        </SettingRow>
+      )}
+      {scope?.gain === true &&
+        caps.gains.map((stage) => (
+          <GainControl
+            key={stage.name}
+            stage={stage}
+            port={port}
+            disabled={automaticGain}
+            value={lane.gains?.find((g) => g.stage === stage.name)?.value_db ?? stage.range.min}
+            onCommit={(db) =>
+              patch({ streams: [{ stream, gains: [{ stage: stage.name, value_db: db }] }] })
+            }
+          />
+        ))}
+    </>
   );
 }
 

@@ -1,5 +1,12 @@
 import { reachableHz } from "../../components/dial";
-import type { Capabilities, DeviceRef, DeviceSet, DeviceSettings, Tuning } from "../../lib/types";
+import type {
+  Capabilities,
+  Coherence,
+  DeviceRef,
+  DeviceSet,
+  DeviceSettings,
+  Tuning,
+} from "../../lib/types";
 import { forStream } from "../../lib/useDevicePatch";
 import { rxStreamCount, streamLabel } from "../graph";
 
@@ -33,6 +40,28 @@ export function tunerDials(set: DeviceSet): TunerDial[] {
     port: streamLabel("iq", stream, streams),
     hz: forStream(set.settings, stream, scope).center_hz ?? 0,
   }));
+}
+
+export function lanesMerged(set: DeviceSet): boolean {
+  return set.capabilities.per_stream?.tuning === true && rxStreamCount(set.capabilities) > 1;
+}
+
+export function hasLaneControls(capabilities: Capabilities): boolean {
+  const scope = capabilities.per_stream;
+  return (
+    (scope?.gain === true && capabilities.gains.length > 0) ||
+    (scope?.antenna === true && capabilities.antennas.length > 1)
+  );
+}
+
+const BONDS: Record<Coherence, string | null> = {
+  none: null,
+  time_sync: "Shared clock",
+  phase_coherent: "Phase coherent",
+};
+
+export function bondSaid(coherence: Coherence | undefined): string | null {
+  return BONDS[coherence ?? "none"];
 }
 
 export function autoTuning(set: DeviceSet, stream = 0): boolean {
