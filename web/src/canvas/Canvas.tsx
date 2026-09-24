@@ -5,6 +5,7 @@ import {
   type Node,
   ReactFlow,
   useEdgesState,
+  useNodesInitialized,
   useNodesState,
   useReactFlow,
 } from "@xyflow/react";
@@ -133,6 +134,7 @@ export function Canvas() {
   );
 
   const { isValidConnection, onConnect, onConnectEnd } = useConnections(workspace);
+  useFitOnceMeasured();
 
   const [menu, setMenu] = useState<Menu | null>(null);
   const [replacing, setReplacing] = useState<string | null>(null);
@@ -202,8 +204,6 @@ export function Canvas() {
         zoomOnDoubleClick={false}
         panOnScroll
         panOnScrollSpeed={1}
-        fitView
-        fitViewOptions={FIT_VIEW}
         minZoom={0.15}
         maxZoom={2}
         proOptions={{ hideAttribution: true }}
@@ -231,6 +231,18 @@ interface Menu {
   x: number;
   y: number;
   target: { kind: "node"; id: string } | { kind: "edge"; id: string } | { kind: "pane" };
+}
+
+function useFitOnceMeasured() {
+  const { fitView } = useReactFlow();
+  const measured = useNodesInitialized();
+  const fitted = useRef(false);
+  useEffect(() => {
+    if (measured && !fitted.current) {
+      fitted.current = true;
+      void fitView(FIT_VIEW);
+    }
+  }, [measured, fitView]);
 }
 
 function ContextMenu({
