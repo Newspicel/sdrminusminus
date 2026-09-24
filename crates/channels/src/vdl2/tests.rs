@@ -392,7 +392,10 @@ fn outdecodes_xng_near_the_noise_floor() {
 
 #[test]
 fn stays_silent_on_noise() {
-    for (seed, noise) in [(0x0bad_cafe_f00d_d00d, 0.05f32), (0x1234_4321_abcd_dcba, 0.3)] {
+    for (seed, noise) in [
+        (0x0bad_cafe_f00d_d00d, 0.05f32),
+        (0x1234_4321_abcd_dcba, 0.3),
+    ] {
         let mut iq = vec![Complex::default(); 3_000_000];
         Noise(seed).add(&mut iq, noise);
         let mut filtered = Vec::new();

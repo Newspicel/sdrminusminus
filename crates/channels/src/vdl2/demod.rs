@@ -30,6 +30,9 @@ const FIT_COST_MAX: f32 = 0.25;
 const ENERGY_FACTOR: f32 = 12.0;
 const NOISE_ALPHA: f32 = 1e-4;
 const DIFFERENTIAL_GAIN: f32 = 0.1;
+const MAX_TL_BITS: u32 = 16_000;
+const MIN_EDGE_ENERGY: f32 = 0.01;
+const FIT_STEP: f64 = 0.25;
 const PROFILES: [Detector; 3] = [
     Detector::Coherent {
         carrier_gain: 0.3,
@@ -60,9 +63,6 @@ const XNG: Strategy = Strategy {
     ladder: &[Erasures::Doubtful],
     fcs_arbitrates: false,
 };
-const MAX_TL_BITS: u32 = 16_000;
-const MIN_EDGE_ENERGY: f32 = 0.01;
-const FIT_STEP: f64 = 0.25;
 
 #[derive(Clone, Copy)]
 enum Detector {

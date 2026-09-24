@@ -77,10 +77,19 @@ fn compare(file: &str) -> (usize, usize) {
         .collect();
     let xng = decode_xng(&iq);
     for raw in &xng {
-        assert!(ours.iter().any(|m| m.raw.as_ref() == Some(raw)), "lost {raw}");
+        assert!(
+            ours.iter().any(|m| m.raw.as_ref() == Some(raw)),
+            "lost {raw}"
+        );
     }
-    for extra in ours.iter().filter(|m| m.raw.as_ref().is_none_or(|r| !xng.contains(r))) {
-        eprintln!("extra {} {:?} {:?}", extra.message_type, extra.station, extra.raw);
+    for extra in ours
+        .iter()
+        .filter(|m| m.raw.as_ref().is_none_or(|r| !xng.contains(r)))
+    {
+        eprintln!(
+            "extra {} {:?} {:?}",
+            extra.message_type, extra.station, extra.raw
+        );
     }
     eprintln!("{file}: ours {} xng {}", ours.len(), xng.len());
     (ours.len(), xng.len())
