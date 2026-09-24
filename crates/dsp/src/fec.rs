@@ -2,6 +2,7 @@ pub mod block;
 pub mod bptc;
 pub mod conv;
 pub mod conv7;
+pub mod conv_soft;
 pub mod prbs;
 pub mod rs256;
 

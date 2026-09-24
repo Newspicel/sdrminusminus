@@ -1,18 +1,33 @@
+mod atn;
+mod avlc;
+mod cpdlc;
+mod cpdlc_tables;
+mod decoder;
+mod demod;
+mod header;
+mod interleave;
+#[cfg(test)]
+mod modulate;
+mod scramble;
+
 use std::sync::LazyLock;
 
 use num_complex::Complex;
 use sdrmm_wire::{
-    ChannelDescriptor, ChannelParams, ChannelSettings, DecoderEvent, DecoderFamily, Vdl2Params,
+    ChannelDescriptor, ChannelParams, ChannelSettings, DataLinkMessage, DecoderEvent,
+    DecoderFamily, Vdl2Params,
 };
-use xng_mode_vdl2::Vdl2ChannelDecoder;
+use serde::Serialize;
+use serde_json::{Value, json};
 
-use crate::{
-    ChannelCtx, ChannelError, ChannelFilter, ChannelOutputs, ChannelRx, check_input_rate,
-    xng_adapter,
-};
+use self::avlc::{AvlcFrame, Control, Payload};
+use self::decoder::{Vdl2Decoder, Vdl2Frame};
+use crate::datalink::{self, Quality};
+use crate::{ChannelCtx, ChannelError, ChannelFilter, ChannelOutputs, ChannelRx, check_input_rate};
 
 const RATE: f64 = 100_000.0;
 const HALF_BANDWIDTH: f64 = 8_500.0;
+const INFO_HEX_LIMIT: usize = 64;
 
 static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescriptor {
     type_id: "vdl2".to_owned(),
@@ -27,7 +42,8 @@ static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescrip
 });
 
 pub struct Vdl2Channel {
-    decoder: Vdl2ChannelDecoder,
+    decoder: Vdl2Decoder,
+    frames: Vec<Vdl2Frame>,
 }
 
 fn params(settings: &ChannelSettings) -> Result<&Vdl2Params, ChannelError> {
@@ -45,7 +61,7 @@ pub(crate) fn occupied_band() -> (f64, f64) {
 }
 
 pub(crate) fn channel_filter() -> ChannelFilter {
-    xng_adapter::channel_filter(RATE, HALF_BANDWIDTH)
+    datalink::channel_filter(RATE, HALF_BANDWIDTH)
 }
 
 impl ChannelRx for Vdl2Channel {
@@ -56,9 +72,10 @@ impl ChannelRx for Vdl2Channel {
     fn new(ctx: ChannelCtx, settings: ChannelSettings) -> Result<Self, ChannelError> {
         check_input_rate(ctx, &DESCRIPTOR)?;
         params(&settings)?;
-        let decoder =
-            Vdl2ChannelDecoder::new(ctx.input_rate, 0.0).map_err(ChannelError::InvalidSettings)?;
-        Ok(Self { decoder })
+        Ok(Self {
+            decoder: Vdl2Decoder::new(ctx.input_rate),
+            frames: Vec::new(),
+        })
     }
 
     fn apply(&mut self, settings: ChannelSettings) -> Result<(), ChannelError> {
@@ -66,53 +83,86 @@ impl ChannelRx for Vdl2Channel {
     }
 
     fn process(&mut self, iq: &[Complex<f32>], out: &mut ChannelOutputs) {
-        let frames = self.decoder.process(iq);
-        let level = self.decoder.level_dbfs();
-        out.events.extend(frames.iter().map(|frame| {
-            DecoderEvent::Vdl2(xng_adapter::structured(xng_mode_vdl2::to_message(
-                frame,
-                0,
-                level,
-                xng_adapter::provenance(),
-            )))
-        }));
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use xng_mode_vdl2::{
-        avlc::{AddressType, encode_address},
-        modulate::burst_iq,
-    };
-
-    use super::*;
-    use crate::testutil::{run_events, settings};
-
-    #[test]
-    fn decodes_an_avlc_supervisory_frame() {
-        let mut frame = Vec::new();
-        frame.extend(encode_address(AddressType::Aircraft, 0x800F5C, true, false));
-        frame.extend(encode_address(
-            AddressType::GroundIcao,
-            0x10A234,
-            true,
-            true,
-        ));
-        frame.push(0x01);
-        let mut iq = vec![Complex::default(); 800];
-        iq.extend(burst_iq(&[frame], RATE, 0.0, 0.5));
-        iq.extend(vec![Complex::default(); 60_000]);
-        let mut channel = Vdl2Channel::new(
-            ChannelCtx { input_rate: RATE },
-            settings(ChannelParams::Vdl2(Vdl2Params::default())),
-        )
-        .expect("channel");
-        let events = run_events(&mut channel, &iq);
-        assert!(
-            events
+        self.frames.clear();
+        self.decoder.process(iq, &mut self.frames);
+        out.events.extend(
+            self.frames
                 .iter()
-                .any(|event| matches!(event, DecoderEvent::Vdl2(message) if message.crc_ok))
+                .map(|frame| DecoderEvent::Vdl2(message(frame))),
         );
     }
 }
+
+#[derive(Serialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+enum Body<'a, C: Serialize> {
+    Acars(&'a C),
+    Vdl2 { kind: String, details: Value },
+}
+
+fn message(frame: &Vdl2Frame) -> DataLinkMessage {
+    let quality = Quality {
+        crc_ok: frame.acars.as_ref().is_none_or(|block| block.crc_ok),
+        fec_corrected: u32::try_from(frame.rs_corrected).ok(),
+        snr_db: Some(frame.snr_db),
+        frequency_error_hz: Some(frame.freq_skew_hz),
+    };
+    let raw = Some(frame.avlc.raw.as_slice());
+    match &frame.acars {
+        Some(block) => datalink::message(&Body::Acars(&block.core), quality, raw),
+        None => {
+            let (kind, details) = avlc_body(&frame.avlc, frame.atn.as_ref());
+            datalink::message(&Body::<()>::Vdl2 { kind, details }, quality, raw)
+        }
+    }
+}
+
+fn frame_kind(frame: &AvlcFrame) -> String {
+    match (&frame.control, &frame.payload) {
+        (Control::Unnumbered { kind: "XID", .. }, _) => "xid".to_owned(),
+        (Control::Unnumbered { kind, .. } | Control::Supervisory { kind, .. }, _) => {
+            format!("avlc-{}", kind.to_lowercase())
+        }
+        (Control::Info { .. }, Payload::Atn { .. }) => "atn".to_owned(),
+        (Control::Info { .. }, _) => "avlc-i".to_owned(),
+    }
+}
+
+fn avlc_body(frame: &AvlcFrame, atn: Option<&Value>) -> (String, Value) {
+    let mut details = json!({
+        "dst": frame.dst,
+        "src": frame.src,
+        "control": frame.control,
+    });
+    if let Payload::Atn { ipi } = frame.payload {
+        details["protocol"] = json!(match ipi {
+            0x81 => "CLNP",
+            0x82 => "ES-IS",
+            _ => "IDRP",
+        });
+    }
+    if let Some(atn) = atn {
+        details["atn"] = atn.clone();
+    }
+    if let Control::Unnumbered { kind, .. } = frame.control {
+        if kind == "XID"
+            && let Some(params) = avlc::parse_xid(&frame.info)
+        {
+            details["params"] = json!(params);
+        }
+        if kind == "FRMR"
+            && let Some(frmr) = avlc::parse_frmr(&frame.info)
+        {
+            details["frmr"] = json!(frmr);
+        }
+    }
+    if !frame.info.is_empty() {
+        let shown = &frame.info[..frame.info.len().min(INFO_HEX_LIMIT)];
+        details["info_hex"] = json!(datalink::hex(shown));
+        details["info_len"] = json!(frame.info.len());
+    }
+    (frame_kind(frame), details)
+}
+
+#[cfg(test)]
+mod tests;

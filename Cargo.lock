@@ -5718,6 +5718,7 @@ dependencies = [
  "cc",
  "codec2",
  "ffmpeg-the-third",
+ "flate2",
  "mfsk-core",
  "num-complex",
  "rtrb",
@@ -9515,7 +9516,7 @@ checksum = "e450f9b2ed1dff33c94c12589a87338689467b9c4f5d8a5710bd09a847d2c8a7"
 [[package]]
 name = "xng-acars"
 version = "0.21.0"
-source = "git+https://github.com/airframesio/xng?rev=6a768a2f843099171d7ed08df9fe0f3ba0678f25#6a768a2f843099171d7ed08df9fe0f3ba0678f25"
+source = "git+https://github.com/airframesio/xng?rev=096c805278faa0a904de7d98066bf4cf395cb6c2#096c805278faa0a904de7d98066bf4cf395cb6c2"
 dependencies = [
  "base64 0.22.1",
  "crc",
@@ -9528,7 +9529,7 @@ dependencies = [
 [[package]]
 name = "xng-dsp"
 version = "0.21.0"
-source = "git+https://github.com/airframesio/xng?rev=6a768a2f843099171d7ed08df9fe0f3ba0678f25#6a768a2f843099171d7ed08df9fe0f3ba0678f25"
+source = "git+https://github.com/airframesio/xng?rev=096c805278faa0a904de7d98066bf4cf395cb6c2#096c805278faa0a904de7d98066bf4cf395cb6c2"
 dependencies = [
  "crc",
  "num-complex",
@@ -9538,7 +9539,7 @@ dependencies = [
 [[package]]
 name = "xng-mode-aero"
 version = "0.21.0"
-source = "git+https://github.com/airframesio/xng?rev=6a768a2f843099171d7ed08df9fe0f3ba0678f25#6a768a2f843099171d7ed08df9fe0f3ba0678f25"
+source = "git+https://github.com/airframesio/xng?rev=096c805278faa0a904de7d98066bf4cf395cb6c2#096c805278faa0a904de7d98066bf4cf395cb6c2"
 dependencies = [
  "chrono",
  "num-complex",
@@ -9553,7 +9554,7 @@ dependencies = [
 [[package]]
 name = "xng-mode-dsc"
 version = "0.21.0"
-source = "git+https://github.com/airframesio/xng?rev=6a768a2f843099171d7ed08df9fe0f3ba0678f25#6a768a2f843099171d7ed08df9fe0f3ba0678f25"
+source = "git+https://github.com/airframesio/xng?rev=096c805278faa0a904de7d98066bf4cf395cb6c2#096c805278faa0a904de7d98066bf4cf395cb6c2"
 dependencies = [
  "chrono",
  "num-complex",
@@ -9566,7 +9567,7 @@ dependencies = [
 [[package]]
 name = "xng-mode-hfdl"
 version = "0.21.0"
-source = "git+https://github.com/airframesio/xng?rev=6a768a2f843099171d7ed08df9fe0f3ba0678f25#6a768a2f843099171d7ed08df9fe0f3ba0678f25"
+source = "git+https://github.com/airframesio/xng?rev=096c805278faa0a904de7d98066bf4cf395cb6c2#096c805278faa0a904de7d98066bf4cf395cb6c2"
 dependencies = [
  "chrono",
  "num-complex",
@@ -9580,7 +9581,7 @@ dependencies = [
 [[package]]
 name = "xng-mode-iridium"
 version = "0.21.0"
-source = "git+https://github.com/airframesio/xng?rev=6a768a2f843099171d7ed08df9fe0f3ba0678f25#6a768a2f843099171d7ed08df9fe0f3ba0678f25"
+source = "git+https://github.com/airframesio/xng?rev=096c805278faa0a904de7d98066bf4cf395cb6c2#096c805278faa0a904de7d98066bf4cf395cb6c2"
 dependencies = [
  "chrono",
  "crc",
@@ -9597,7 +9598,7 @@ dependencies = [
 [[package]]
 name = "xng-mode-stdc"
 version = "0.21.0"
-source = "git+https://github.com/airframesio/xng?rev=6a768a2f843099171d7ed08df9fe0f3ba0678f25#6a768a2f843099171d7ed08df9fe0f3ba0678f25"
+source = "git+https://github.com/airframesio/xng?rev=096c805278faa0a904de7d98066bf4cf395cb6c2#096c805278faa0a904de7d98066bf4cf395cb6c2"
 dependencies = [
  "chrono",
  "num-complex",
@@ -9611,7 +9612,7 @@ dependencies = [
 [[package]]
 name = "xng-mode-vdl2"
 version = "0.21.0"
-source = "git+https://github.com/airframesio/xng?rev=6a768a2f843099171d7ed08df9fe0f3ba0678f25#6a768a2f843099171d7ed08df9fe0f3ba0678f25"
+source = "git+https://github.com/airframesio/xng?rev=096c805278faa0a904de7d98066bf4cf395cb6c2#096c805278faa0a904de7d98066bf4cf395cb6c2"
 dependencies = [
  "chrono",
  "num-complex",
@@ -9625,7 +9626,7 @@ dependencies = [
 [[package]]
 name = "xng-types"
 version = "0.21.0"
-source = "git+https://github.com/airframesio/xng?rev=6a768a2f843099171d7ed08df9fe0f3ba0678f25#6a768a2f843099171d7ed08df9fe0f3ba0678f25"
+source = "git+https://github.com/airframesio/xng?rev=096c805278faa0a904de7d98066bf4cf395cb6c2#096c805278faa0a904de7d98066bf4cf395cb6c2"
 dependencies = [
  "chrono",
  "serde",

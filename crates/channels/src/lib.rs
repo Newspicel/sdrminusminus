@@ -11,6 +11,7 @@ pub mod coherent;
 mod combiner;
 mod cw_skimmer;
 mod dab;
+mod datalink;
 mod datv;
 mod dect;
 mod df;
@@ -50,6 +51,7 @@ mod voice_inversion;
 mod vor;
 mod weak_signal;
 mod wfm;
+#[cfg(test)]
 mod xng_adapter;
 
 #[cfg(test)]

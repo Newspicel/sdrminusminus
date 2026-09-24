@@ -132,7 +132,7 @@ impl ReedSolomon {
         let mut discrepancy_at_update = 1u8;
         let mut shift = 1usize;
         let mut errors = 0usize;
-        for step in 0..self.parity {
+        for step in 0..syndromes.len() {
             let mut discrepancy = syndromes[step];
             for index in 1..=errors.min(step) {
                 if index < locator_len {
@@ -239,6 +239,78 @@ impl ReedSolomon {
             .iter()
             .all(|&value| value == 0)
             .then_some(errors as u32)
+    }
+}
+
+impl ReedSolomon {
+    pub fn decode_with_erasures(&self, codeword: &mut [u8], erasures: &[usize]) -> Option<u32> {
+        let len = codeword.len();
+        if len > ORDER
+            || len < self.parity
+            || erasures.len() > self.parity
+            || erasures.iter().any(|&index| index >= len)
+        {
+            return None;
+        }
+        let storage = self.syndromes(codeword);
+        let syndromes = &storage[..self.parity];
+        if syndromes.iter().all(|&value| value == 0) {
+            return Some(0);
+        }
+        let erased = erasures.len();
+        let gamma = self.erasure_locator(erasures, len);
+        let forney = self.evaluator(syndromes, &gamma[..=erased]);
+        let (lambda, errors) = self.berlekamp_massey(&forney[erased..self.parity]);
+        if errors > (self.parity - erased) / 2 {
+            return None;
+        }
+        let degree = errors + erased;
+        let errata = self.product(&lambda[..=errors], &gamma[..=erased]);
+        let locator = &errata[..=degree];
+        let positions = self.chien(locator, len, degree)?;
+        let evaluator = self.evaluator(syndromes, locator);
+        let mut derivative = [0u8; 256];
+        for (index, &coefficient) in locator.iter().enumerate() {
+            if index % 2 == 1 {
+                derivative[index] = coefficient;
+            }
+        }
+        for &position in positions.iter().take(degree) {
+            let magnitude = self.magnitude(
+                &evaluator[..self.parity],
+                &derivative[..locator.len()],
+                position,
+            )?;
+            codeword[len - 1 - position] ^= magnitude;
+        }
+        self.syndromes(codeword)[..self.parity]
+            .iter()
+            .all(|&value| value == 0)
+            .then_some(degree as u32)
+    }
+
+    fn erasure_locator(&self, erasures: &[usize], len: usize) -> [u8; 256] {
+        let mut gamma = [0u8; 256];
+        gamma[0] = 1;
+        for (count, &index) in erasures.iter().enumerate() {
+            let root = self.power((len - 1 - index) as u32);
+            for degree in (1..=count + 1).rev() {
+                gamma[degree] ^= self.mul(root, gamma[degree - 1]);
+            }
+        }
+        gamma
+    }
+
+    fn product(&self, a: &[u8], b: &[u8]) -> [u8; 256] {
+        let mut out = [0u8; 256];
+        for (i, &x) in a.iter().enumerate() {
+            for (j, &y) in b.iter().enumerate() {
+                if i + j < out.len() {
+                    out[i + j] ^= self.mul(x, y);
+                }
+            }
+        }
+        out
     }
 }
 
@@ -362,5 +434,48 @@ mod tests {
         }
         assert_eq!(code.decode(&mut codeword), Some(4));
         assert_eq!(codeword, clean);
+    }
+
+    fn erasure_trial(code: &ReedSolomon, len: usize, errors: &[usize], erasures: &[usize]) {
+        let data = payload(len - code.parity(), 0xE5A5);
+        let mut clean = Vec::new();
+        code.encode(&data, &mut clean);
+        let mut received = clean.clone();
+        for &index in errors.iter().chain(erasures) {
+            received[index] ^= 0x5B;
+        }
+        let fixed = code.decode_with_erasures(&mut received, erasures);
+        assert_eq!(fixed, Some((errors.len() + erasures.len()) as u32));
+        assert_eq!(received, clean);
+    }
+
+    #[test]
+    fn erasures_double_the_correctable_count() {
+        let code = dvb();
+        let erasures: Vec<usize> = (0..16).map(|k| k * 13).collect();
+        erasure_trial(&code, 255, &[], &erasures);
+        erasure_trial(&code, 204, &[3, 77, 150], &erasures[..10]);
+        erasure_trial(&code, 120, &[5, 6, 7, 8, 9, 10, 11, 12], &[]);
+    }
+
+    #[test]
+    fn erasures_work_with_a_non_zero_first_root() {
+        let code = ReedSolomon::new(0x187, 120, 6);
+        erasure_trial(&code, 255, &[40], &[3, 200, 254, 0]);
+    }
+
+    #[test]
+    fn too_many_errata_are_refused() {
+        let code = dvb();
+        let data = payload(239, 7);
+        let mut clean = Vec::new();
+        code.encode(&data, &mut clean);
+        let mut received = clean.clone();
+        for index in (0..30).map(|k| k * 7) {
+            received[index] ^= 0x33;
+        }
+        let erasures: Vec<usize> = (0..10).map(|k| k * 7).collect();
+        let result = code.decode_with_erasures(&mut received, &erasures);
+        assert_ne!(result, Some(30));
     }
 }

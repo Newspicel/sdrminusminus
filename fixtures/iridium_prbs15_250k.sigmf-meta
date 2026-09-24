@@ -1,0 +1,23 @@
+{
+  "global": {
+    "core:datatype": "cf32_le",
+    "core:version": "1.2.6",
+    "core:sample_rate": 250000.0,
+    "core:recorder": "SDR--",
+    "core:hw": "gr-iridium reference modulator",
+    "core:description": "Iridium downlink burst with a PRBS15 payload at 20 dB SNR, from gr-iridium's test data"
+  },
+  "captures": [
+    {
+      "core:sample_start": 0,
+      "core:frequency": 1626000000.0
+    }
+  ],
+  "annotations": [
+    {
+      "core:sample_start": 0,
+      "core:sample_count": 8000,
+      "core:comment": "gr-iridium test-data/prbs15-2M-20dB.sigmf-data (GPL-3.0, github.com/muccc/gr-iridium), as vendored by xng (github.com/airframesio/xng commit 096c805278faa0a904de7d98066bf4cf395cb6c2, crates/xng-mode-iridium/tests/data/grtest_prbs15_250k.i16, SHA-256 0db362bb977984112682c1f58aa7e18d33a5adbd704b18fcc3f22ad39120d6dc): downconverted to 250 kHz, trimmed to 32 ms, ci16_le scaled by 1/32768 to cf32_le; the capture frequency is nominal"
+    }
+  ]
+}

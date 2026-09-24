@@ -7,8 +7,7 @@ use sdrmm_wire::{
 };
 
 use crate::{
-    ChannelCtx, ChannelError, ChannelFilter, ChannelOutputs, ChannelRx, check_input_rate,
-    xng_adapter,
+    ChannelCtx, ChannelError, ChannelFilter, ChannelOutputs, ChannelRx, check_input_rate, datalink,
 };
 
 const RATE: f64 = 48_000.0;
@@ -67,7 +66,7 @@ pub(crate) fn occupied_band() -> (f64, f64) {
 }
 
 pub(crate) fn channel_filter() -> ChannelFilter {
-    xng_adapter::channel_filter(RATE, HALF_BANDWIDTH)
+    datalink::channel_filter(RATE, HALF_BANDWIDTH)
 }
 
 impl ChannelRx for VorChannel {

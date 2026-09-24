@@ -1,3 +1,35 @@
+pub(crate) mod adsc;
+pub(crate) mod airline5z;
+mod app;
+pub(crate) mod arinc622;
+mod bits;
+pub(crate) mod block;
+pub(crate) mod cfb;
+mod codec;
+pub(crate) mod cpdlc;
+pub(crate) mod fpn;
+pub(crate) mod media_adv;
+mod message;
+pub(crate) mod met;
+pub(crate) mod miam;
+pub(crate) mod min;
+pub(crate) mod ohma;
+pub(crate) mod oooi;
+pub(crate) mod position;
+pub(crate) mod qseries;
+#[cfg(test)]
+mod real_messages;
+#[cfg(test)]
+pub(crate) mod reasm;
+pub(crate) mod sublabel;
+#[cfg(test)]
+mod xng_equivalence;
+
+#[cfg(test)]
+pub(crate) use app::summary;
+pub(crate) use app::{AcarsApp, decode};
+pub(crate) use message::AcarsCore;
+
 use std::sync::LazyLock;
 
 use num_complex::Complex;
@@ -535,6 +567,30 @@ mod tests {
         assert_eq!(response.block_id, 'A');
         assert!(!response.downlink);
         assert_eq!(response.text, "");
+    }
+
+    #[test]
+    fn the_shared_block_parser_reads_vhf_framing() {
+        for block in [downlink(), uplink()] {
+            let heard = decode(&transmission(&block, RATE));
+            assert_eq!(heard.len(), 1, "{heard:?}");
+            let m = &heard[0];
+            let bytes = testgen::acars::block_bytes(&block);
+            let parsed = block::parse(&bytes[2..]).expect("vhf block parses");
+            assert!(parsed.crc_ok);
+            assert_eq!(parsed.parity_errors, 0);
+            assert_eq!(parsed.downlink, m.downlink);
+            let core = parsed.core;
+            assert_eq!(core.mode, m.mode);
+            assert_eq!(core.tail.as_deref(), Some(m.registration.as_str()));
+            assert_eq!(core.ack, m.ack);
+            assert_eq!(core.label, m.label);
+            assert_eq!(core.block_id, Some(m.block_id));
+            assert_eq!(core.msg_num, m.seq_no);
+            assert_eq!(core.flight, m.flight);
+            assert_eq!(core.text, m.text);
+            assert_eq!(core.more_to_come, m.more);
+        }
     }
 
     #[test]

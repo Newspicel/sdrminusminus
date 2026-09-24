@@ -88,7 +88,11 @@ SDR-- drives the RTL2832U and its R82xx tuner itself, in Rust, over its own USB 
 
 Opened at runtime from whatever SoapySDR the host has installed, and never linked or distributed by this project. A release that finds none simply reports no SoapySDR hardware. The modules it loads, and their licenses, belong to that installation.
 
-## Rust crates (788)
+**xng** — MIT OR Apache-2.0
+
+The ACARS application layer and the VDL2, HFDL, Inmarsat Aero, Inmarsat STD-C, DSC and Iridium decoders in `crates/channels` started as ports of xng, Copyright (c) 2023-2026 Kevin Elliott and the xng contributors, used under its MIT license.
+
+## Rust crates (775)
 
 | Component | Version | License |
 | --- | --- | --- |
@@ -204,8 +208,6 @@ Opened at runtime from whatever SoapySDR the host has installed, and never linke
 | [crc-catalog](https://github.com/akhilles/crc-catalog.git) | 2.5.0 | MIT OR Apache-2.0 |
 | [crc32fast](https://github.com/srijs/rust-crc32fast) | 1.5.2 | MIT OR Apache-2.0 |
 | [crossbeam-channel](https://github.com/crossbeam-rs/crossbeam) | 0.5.17 | MIT OR Apache-2.0 |
-| [crossbeam-deque](https://github.com/crossbeam-rs/crossbeam) | 0.8.8 | MIT OR Apache-2.0 |
-| [crossbeam-epoch](https://github.com/crossbeam-rs/crossbeam) | 0.9.21 | MIT OR Apache-2.0 |
 | [crossbeam-utils](https://github.com/crossbeam-rs/crossbeam) | 0.8.23 | MIT OR Apache-2.0 |
 | [crunchy](https://github.com/eira-fransham/crunchy) | 0.2.4 | MIT |
 | [crypto-common](https://github.com/RustCrypto/traits) | 0.1.7 | MIT OR Apache-2.0 |
@@ -547,8 +549,6 @@ Opened at runtime from whatever SoapySDR the host has installed, and never linke
 | [raw-window-handle](https://github.com/rust-windowing/raw-window-handle) | 0.6.2 | MIT OR Apache-2.0 OR Zlib |
 | [raw-window-metal](https://github.com/rust-windowing/raw-window-metal) | 1.1.0 | MIT OR Apache-2.0 |
 | [rawpointer](https://github.com/bluss/rawpointer/) | 0.2.1 | MIT/Apache-2.0 |
-| [rayon](https://github.com/rayon-rs/rayon) | 1.12.0 | MIT OR Apache-2.0 |
-| [rayon-core](https://github.com/rayon-rs/rayon) | 1.13.0 | MIT OR Apache-2.0 |
 | [rcgen](https://github.com/rustls/rcgen) | 0.14.10 | MIT OR Apache-2.0 |
 | [redox_syscall](https://gitlab.redox-os.org/redox-os/syscall) | 0.5.18 | MIT |
 | [redox_users](https://gitlab.redox-os.org/redox-os/users) | 0.5.3 | MIT |
@@ -850,15 +850,6 @@ Opened at runtime from whatever SoapySDR the host has installed, and never linke
 | [x509-parser](https://github.com/rusticata/x509-parser.git) | 0.18.1 | MIT OR Apache-2.0 |
 | [xattr](https://github.com/Stebalien/xattr) | 1.6.1 | MIT OR Apache-2.0 |
 | [xml-rs](https://github.com/kornelski/xml-rs) | 0.8.29 | MIT |
-| [xng-acars](https://github.com/airframesio/xng) | 0.21.0 | MIT OR Apache-2.0 |
-| [xng-dsp](https://github.com/airframesio/xng) | 0.21.0 | MIT OR Apache-2.0 |
-| [xng-mode-aero](https://github.com/airframesio/xng) | 0.21.0 | MIT OR Apache-2.0 |
-| [xng-mode-dsc](https://github.com/airframesio/xng) | 0.21.0 | MIT OR Apache-2.0 |
-| [xng-mode-hfdl](https://github.com/airframesio/xng) | 0.21.0 | MIT OR Apache-2.0 |
-| [xng-mode-iridium](https://github.com/airframesio/xng) | 0.21.0 | MIT OR Apache-2.0 |
-| [xng-mode-stdc](https://github.com/airframesio/xng) | 0.21.0 | MIT OR Apache-2.0 |
-| [xng-mode-vdl2](https://github.com/airframesio/xng) | 0.21.0 | MIT OR Apache-2.0 |
-| [xng-types](https://github.com/airframesio/xng) | 0.21.0 | MIT OR Apache-2.0 |
 | [yasna](https://github.com/qnighy/yasna.rs) | 0.6.0 | MIT OR Apache-2.0 |
 | [yoke](https://github.com/unicode-org/icu4x) | 0.8.3 | Unicode-3.0 |
 | [yoke-derive](https://github.com/unicode-org/icu4x) | 0.8.3 | Unicode-3.0 |
@@ -960,7 +951,7 @@ Opened at runtime from whatever SoapySDR the host has installed, and never linke
 | [use-sync-external-store](https://github.com/react/react#readme) | 1.7.0 | MIT |
 | [zustand](https://github.com/pmndrs/zustand) | 4.5.7, 5.0.15 | MIT |
 
-## Hardware libraries (13)
+## Hardware libraries (14)
 
 | Component | Version | License |
 | --- | --- | --- |
@@ -977,4 +968,5 @@ Opened at runtime from whatever SoapySDR the host has installed, and never linke
 | [qdmr (libdmrconf)](https://github.com/hmatuschek/qdmr) | — | GPL-3.0-or-later |
 | [rtl-sdr (librtlsdr)](https://gitea.osmocom.org/sdr/rtl-sdr) | — | GPL-2.0-or-later |
 | [SoapySDR](https://github.com/pothosware/SoapySDR) | — | BSL-1.0 |
+| [xng](https://github.com/airframesio/xng) | — | MIT OR Apache-2.0 |
 
