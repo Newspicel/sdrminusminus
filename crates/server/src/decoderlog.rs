@@ -18,6 +18,8 @@ const BATCH_MAX: usize = 256;
 
 const FLUSH_INTERVAL: Duration = Duration::from_millis(500);
 
+const ANNOUNCE_INTERVAL: Duration = Duration::from_secs(2);
+
 const PRUNE_INTERVAL: Duration = Duration::from_secs(60);
 
 const RETENTION: Duration = Duration::from_secs(24 * 60 * 60);
@@ -32,7 +34,9 @@ pub(crate) async fn run(
 ) {
     let mut batch: Vec<Routed> = Vec::with_capacity(BATCH_MAX);
     let mut flush_tick = ticker(FLUSH_INTERVAL);
+    let mut announce_tick = ticker(ANNOUNCE_INTERVAL);
     let mut prune_tick = ticker(PRUNE_INTERVAL);
+    let mut unannounced = false;
     let mut records = records;
     loop {
         tokio::select! {
@@ -40,7 +44,7 @@ pub(crate) async fn run(
                 Ok(Decoded::Record(routed)) => {
                     batch.push(*routed);
                     if batch.len() >= BATCH_MAX {
-                        flush(&store, &mut batch, &dropped).await;
+                        unannounced |= flush(&store, &mut batch, &dropped).await;
                     }
                 }
                 Ok(Decoded::Lost(count)) => {
@@ -56,7 +60,12 @@ pub(crate) async fn run(
                 }
             },
             _ = flush_tick.tick() => {
-                flush(&store, &mut batch, &dropped).await;
+                unannounced |= flush(&store, &mut batch, &dropped).await;
+            }
+            _ = announce_tick.tick() => {
+                if std::mem::take(&mut unannounced) {
+                    announce(&engine);
+                }
             }
             _ = prune_tick.tick() => {
                 expire(&store, &engine, RETENTION).await;
@@ -72,9 +81,15 @@ fn ticker(period: Duration) -> tokio::time::Interval {
     ticker
 }
 
-async fn flush(store: &Arc<Store>, batch: &mut Vec<Routed>, dropped: &AtomicU64) {
+fn announce(engine: &Weak<Engine>) {
+    if let Some(engine) = engine.upgrade() {
+        engine.emit_scope(StateScope::DecoderLog);
+    }
+}
+
+async fn flush(store: &Arc<Store>, batch: &mut Vec<Routed>, dropped: &AtomicU64) -> bool {
     if batch.is_empty() {
-        return;
+        return false;
     }
     let records = std::mem::take(batch);
     let owned = store.clone();
@@ -84,7 +99,7 @@ async fn flush(store: &Arc<Store>, batch: &mut Vec<Routed>, dropped: &AtomicU64)
     })
     .await;
     match written {
-        Ok((Ok(_), _)) => {}
+        Ok((Ok(_), _)) => true,
         Ok((Err(err), mut records)) => {
             tracing::error!(error = %err, rows = records.len(), "decoder log insert failed");
             if records.len() > RETRY_MAX {
@@ -94,8 +109,12 @@ async fn flush(store: &Arc<Store>, batch: &mut Vec<Routed>, dropped: &AtomicU64)
                 records.drain(..overflow);
             }
             *batch = records;
+            false
         }
-        Err(err) => tracing::error!(error = %err, "decoder log writer task failed"),
+        Err(err) => {
+            tracing::error!(error = %err, "decoder log writer task failed");
+            false
+        }
     }
 }
 
@@ -388,5 +407,38 @@ mod tests {
                 scope: StateScope::DecoderLog
             }
         ));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn written_rows_emit_the_decoder_log_scope() {
+        let engine = Engine::with_registry(sdrmm_device::DeviceRegistry::new(), None);
+        let mut events = engine.subscribe_events();
+        let store = Arc::new(Store::open(None).expect("store"));
+        let (tx, rx) = broadcast::channel(64);
+        let writer = spawn_writer_on(
+            rx,
+            Arc::downgrade(&engine),
+            store.clone(),
+            Arc::new(AtomicU64::new(0)),
+        );
+
+        tokio::time::sleep(ANNOUNCE_INTERVAL * 2).await;
+        assert!(events.try_recv().is_err(), "an idle log must not emit");
+
+        tx.send(loose(record("3C6444"))).expect("send");
+        let event = tokio::time::timeout(ANNOUNCE_INTERVAL * 2, events.recv())
+            .await
+            .expect("scope emitted after the write")
+            .expect("event");
+        assert!(matches!(
+            event,
+            ServerEvent::StateChanged {
+                scope: StateScope::DecoderLog
+            }
+        ));
+        assert_eq!(total(&store), 1);
+
+        drop(tx);
+        writer.await.expect("writer exits cleanly");
     }
 }
