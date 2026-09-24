@@ -23,7 +23,7 @@ WFM audio   → Speaker audio
 ```
 
 Set the WFM dial to a station you know is on air locally. The Device follows the channel on its
-own, so you do not need to tune the radio.
+own, so you do not need to tune the radio. See [Tuning](../user-guide/tuning.md).
 
 ## 3. Listen
 

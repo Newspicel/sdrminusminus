@@ -225,7 +225,7 @@ describe("channelWidthHz", () => {
   it("prefers the decoder's own bandwidth setting", () => {
     expect(
       channelWidthHz(
-        { type: "am", settings: { bandwidth_hz: 8_000 } } as ChannelSettings["params"],
+        { type: "am", settings: { bandwidth_hz: 8_000 } },
         descriptor({ bandwidth_hz: 10_000 }),
       ),
     ).toBe(8_000);

@@ -144,6 +144,8 @@ export function App() {
     selectedDevice,
     channelNodes,
     graph,
+    channels,
+    owners,
     context,
     stepHz,
     setStepHz,

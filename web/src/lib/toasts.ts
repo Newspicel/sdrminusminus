@@ -33,6 +33,22 @@ export function pushToast(message: string, tone: Tone = "error", extra: ToastDet
   });
 }
 
+export interface ToastAction {
+  label: string;
+  run: () => void;
+}
+
+export function pushNote(message: string, action: ToastAction): void {
+  recordEvent("info", "toast", message);
+  toastManager.add({
+    id: `info:${message}`,
+    type: "info",
+    title: message,
+    data: { repeats: 0 },
+    actionProps: { children: action.label, onClick: action.run },
+  });
+}
+
 function toastRecord(message: string, extra: ToastDetail): string {
   const code = extra.code === undefined ? "" : `[${extra.code}] `;
   const detail = extra.detail === undefined ? "" : `: ${extra.detail}`;

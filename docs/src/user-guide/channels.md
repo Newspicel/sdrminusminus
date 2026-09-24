@@ -30,7 +30,7 @@ stay; wires the new mode has no port for are dropped. `m` and `M` cycle the anal
 
 A Device on auto tuning moves its window to cover its channels. A Device tuned by hand only
 carries the channels inside its window. The rest stay configured and resume when the radio
-covers them again.
+covers them again. See [Tuning](tuning.md).
 
 Wire a channel to more than one Device and it runs on whichever radio hears it. Radios on auto
 tuning split their channels between them so as many as possible are heard. A channel wired to

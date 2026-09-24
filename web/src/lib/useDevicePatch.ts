@@ -65,6 +65,8 @@ function mergeStreams(
     merged[at] = {
       ...existing,
       ...(entry.center_hz != null ? { center_hz: entry.center_hz } : {}),
+      ...(entry.tuning != null ? { tuning: entry.tuning } : {}),
+      ...(entry.agc != null ? { agc: entry.agc } : {}),
       ...(entry.antenna != null ? { antenna: entry.antenna } : {}),
       ...(entry.gains ? { gains: mergeByKey(existing.gains, entry.gains, (g) => g.stage) } : {}),
     };

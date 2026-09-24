@@ -73,6 +73,16 @@ describe("mergeSettings", () => {
     ]);
   });
 
+  it("merges a stream's tuning mode and AGC", () => {
+    const current: DeviceSettings = { streams: [{ stream: 1, center_hz: 433_920_000 }] };
+    const next = mergeSettings(current, {
+      streams: [{ stream: 1, tuning: "manual", agc: { on: true } }],
+    });
+    expect(next.streams).toEqual([
+      { stream: 1, center_hz: 433_920_000, tuning: "manual", agc: { on: true } },
+    ]);
+  });
+
   it("keeps stream overrides across a radio-wide retune", () => {
     const current: DeviceSettings = {
       center_hz: 100_000_000,

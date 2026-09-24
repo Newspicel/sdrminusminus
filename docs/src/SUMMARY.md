@@ -12,6 +12,7 @@
 
 - [Radios](hardware.md)
 - [Channels](user-guide/channels.md)
+- [Tuning](user-guide/tuning.md)
 - [Decoders](user-guide/decoders.md)
 - [Finding signals](user-guide/scanning.md)
 - [Position and GPS](user-guide/position.md)
