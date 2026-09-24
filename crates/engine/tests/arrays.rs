@@ -57,12 +57,9 @@ fn assert_rate_change_is_inert(engine: &Engine, array: u32, reason: &str) {
 
 #[test]
 fn every_array_rate_lock_is_checked_before_retuning_sources() {
-    use sdrmm_wire::{
-        ArrayGeometry, CoherentParams, DfParams, NetworkExportSettings, TimeMachineAction,
-        TimeMachineNode,
-    };
+    use sdrmm_wire::{NetworkExportSettings, TimeMachineAction, TimeMachineNode};
 
-    for owner in ["export", "history", "coherent"] {
+    for owner in ["export", "history"] {
         let dir = tempfile::TempDir::new().expect("recordings");
         let engine = engine_at(Some(dir.path().to_owned()));
         members(&engine);
@@ -94,22 +91,6 @@ fn every_array_rate_lock_is_checked_before_retuning_sources() {
                     )
                     .expect("history");
                 "holds history"
-            }
-            "coherent" => {
-                engine
-                    .add_coherent(
-                        array,
-                        CoherentParams::Df(DfParams {
-                            geometry: ArrayGeometry::Ula {
-                                spacing_m: 0.35,
-                                count: 2,
-                            },
-                            ..Default::default()
-                        }),
-                        vec![0, 1],
-                    )
-                    .expect("coherent processor");
-                "stop coherent processors"
             }
             _ => unreachable!("every lock in the list is answered above"),
         };
@@ -241,16 +222,59 @@ fn tuning_an_array_updates_the_original_device_sets() {
             Some(110e6)
         );
     }
+    engine
+        .patch_device(
+            members[0],
+            DeviceSettings {
+                center_hz: Some(120e6),
+                ..Default::default()
+            },
+        )
+        .expect("a member's dial moves the array");
+    assert_eq!(
+        centers(&engine, members.into_iter().chain([array])),
+        [Some(120e6); 3]
+    );
+    engine.shutdown();
+}
+
+fn centers(engine: &Engine, ids: impl IntoIterator<Item = u32>) -> Vec<Option<f64>> {
+    let live = engine.snapshot();
+    ids.into_iter()
+        .map(|id| {
+            live.device_sets
+                .iter()
+                .find(|set| set.id == id)
+                .and_then(|set| set.settings.center_hz)
+        })
+        .collect()
+}
+
+#[test]
+fn an_array_in_auto_moves_its_members_to_its_decoders() {
+    let engine = engine();
+    let members = members(&engine);
+    let array = engine.create_array_set("pair").expect("array");
+    engine
+        .patch_device(
+            members[1],
+            DeviceSettings {
+                tuning: Some(Tuning::Auto),
+                ..Default::default()
+            },
+        )
+        .expect("a member's auto switch reaches the array");
+    let mut settings = ChannelSettings::default_for("nfm").expect("nfm");
+    settings.frequency_hz = 145.5e6;
+    engine
+        .add_channel(array, 1, settings)
+        .expect("a decoder on the array");
+    let settled = centers(&engine, members.into_iter().chain([array]));
+    assert!(settled.iter().all(|hz| *hz == settled[0]), "{settled:?}");
+    let center_hz = settled[0].expect("tuned");
     assert!(
-        engine
-            .patch_device(
-                members[0],
-                DeviceSettings {
-                    center_hz: Some(120e6),
-                    ..Default::default()
-                }
-            )
-            .is_err()
+        (center_hz - 145.5e6).abs() < 500e3,
+        "{center_hz} misses the decoder"
     );
     engine.shutdown();
 }
@@ -290,27 +314,53 @@ fn mismatched_rates_and_duplicate_ownership_are_refused() {
     engine.shutdown();
 }
 
-#[test]
-fn scans_cannot_break_an_active_arrays_tuning() {
+#[tokio::test]
+async fn a_scan_on_a_member_moves_the_whole_array() {
     let engine = engine();
-    let [one, two] = members(&engine);
+    let members = members(&engine);
     let array = engine.create_array_set("pair").expect("array");
-    for id in [one, two, array] {
+    engine
+        .patch_device(
+            array,
+            DeviceSettings {
+                tuning: Some(Tuning::Auto),
+                ..Default::default()
+            },
+        )
+        .expect("auto");
+    let ch = engine
+        .add_channel(
+            members[1],
+            0,
+            ChannelSettings::default_for("nfm").expect("nfm"),
+        )
+        .expect("decoder on a member");
+    let targets = [433.92e6, 433.945e6];
+    engine
+        .start_scan(
+            members[1],
+            sdrmm_wire::ScanSettings {
+                frequencies: targets.to_vec(),
+                threshold_db: 100.0,
+                dwell_ms: 40,
+                ..sdrmm_wire::ScanSettings::for_channel(ch)
+            },
+        )
+        .expect("a member scans");
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    loop {
+        let settled = centers(&engine, members.into_iter().chain([array]));
+        let near = settled[0].is_some_and(|hz| (hz - 433.93e6).abs() < 1e6);
+        if near && settled.iter().all(|hz| *hz == settled[0]) {
+            break;
+        }
         assert!(
-            engine
-                .start_scan(id, sdrmm_wire::ScanSettings::for_channel(1))
-                .expect_err("array scan refused")
-                .to_string()
-                .contains("disconnect the array")
+            std::time::Instant::now() < deadline,
+            "the array never followed: {settled:?}"
         );
-        assert!(
-            engine
-                .start_hunt(id, sdrmm_wire::HuntSettings::for_channel(1))
-                .expect_err("array hunt refused")
-                .to_string()
-                .contains("disconnect the array")
-        );
+        tokio::time::sleep(Duration::from_millis(20)).await;
     }
+    engine.stop_scan(members[1], ch).expect("stop");
     engine.shutdown();
 }
 

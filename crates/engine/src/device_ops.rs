@@ -50,8 +50,42 @@ impl Engine {
         woken: bool,
     ) -> bool {
         self.report_sinks(self.poll_sinks());
+        self.read_agc_gains();
         self.recover_lost_sync();
         self.probe_bus(known, missing_once, gate, woken)
+    }
+
+    fn read_agc_gains(&self) {
+        let running: Vec<(u32, bool, Arc<DeviceRuntime>)> = self
+            .lock()
+            .device_sets
+            .iter()
+            .filter(|(_, state)| state.status == DeviceSetStatus::Running)
+            .map(|(id, state)| (*id, state.runs_agc(), state.runtime.clone()))
+            .collect();
+        for (ds, agc, runtime) in running {
+            let gains = if agc {
+                match lock_runtime(&runtime).agc_gains() {
+                    Ok(gains) => gains,
+                    Err(error) => {
+                        tracing::warn!(ds, %error, "reading back the AGC gain failed");
+                        Vec::new()
+                    }
+                }
+            } else {
+                Vec::new()
+            };
+            let changed = self.lock().device_sets.get_mut(&ds).is_some_and(|state| {
+                let changed = state.agc_gains != gains;
+                state.agc_gains = gains;
+                changed
+            });
+            if changed {
+                self.emit(ServerEvent::StateChanged {
+                    scope: StateScope::DeviceSet(ds),
+                });
+            }
+        }
     }
 
     fn poll_sinks(&self) -> SinkPoll {
@@ -575,6 +609,7 @@ impl Engine {
                     stalls,
                     clip_meters,
                     clipping: Vec::new(),
+                    agc_gains: Vec::new(),
                     playback,
                     coherent: None,
                     runtime: Arc::new(DeviceRuntime::new(runtime)),
@@ -671,10 +706,18 @@ impl Engine {
             .get(&ds)
             .is_some_and(|state| state.array.is_some())
         {
-            return self.patch_array(ds, delta);
+            self.patch_array(ds, take_the_wheel(delta))?;
+            self.settle_tuning(ds);
+            return Ok(());
         }
-        self.check_array_member_patch(ds, &delta)?;
-        self.patch_device_from(ds, take_the_wheel(delta))?;
+        let mut delta = delta;
+        if let Some((array, forward)) = self.split_member_patch(ds, &mut delta) {
+            self.patch_array(array, take_the_wheel(forward))?;
+            self.settle_tuning(array);
+        }
+        if delta != DeviceSettings::default() {
+            self.patch_device_from(ds, take_the_wheel(delta))?;
+        }
         self.settle_tuning(ds);
         Ok(())
     }
@@ -697,10 +740,23 @@ impl Engine {
     }
 
     pub(crate) fn settle_tuning(&self, ds: u32) -> bool {
+        if let Some((array, _)) = self.array_of(ds) {
+            return self.settle_tuning(array);
+        }
         let Some(delta) = self.auto_center(ds) else {
             return false;
         };
-        match self.patch_device_from(ds, delta) {
+        let arrayed = self
+            .lock()
+            .device_sets
+            .get(&ds)
+            .is_some_and(|state| state.array.is_some());
+        let moved = if arrayed {
+            self.patch_array(ds, delta)
+        } else {
+            self.patch_device_from(ds, delta)
+        };
+        match moved {
             Ok(()) => true,
             Err(e) => {
                 tracing::warn!(ds, error = %e, "auto tuning could not move the radio");
@@ -718,7 +774,17 @@ impl Engine {
         if !state.tunes_freely() {
             return None;
         }
-        plan_center(&state.capabilities, &state.settings, &state.channels)
+        let channels = if state.array.is_some() {
+            crate::arrays::array_channels(&inner.device_sets, ds, None)
+        } else {
+            state.channels.clone()
+        };
+        plan_center(
+            &state.capabilities,
+            &state.settings,
+            &channels,
+            &state.coherent_lanes(),
+        )
     }
 
     pub(crate) fn patch_device_from(
@@ -754,7 +820,7 @@ impl Engine {
         let applied = runtime.apply(&hardware);
         self.note_refusal(ds, &hardware, applied.as_ref().err());
         let actual = applied?.map(|actual| DeviceSettings::from_hardware(actual, delta.offset_hz));
-        let (settings, blocking, rate, rebuilds, retuned, group_center) = {
+        let (settings, blocking, rate, rate_changed, rebuilds, retuned, group_center) = {
             let mut inner = self.lock();
             let state = inner
                 .device_sets
@@ -854,10 +920,22 @@ impl Engine {
                 centers != old_centers || rate != old_rate || front_end(&settings) != old_front_end;
             let group_center = centers.first().copied().unwrap_or(DEFAULT_CENTER_HZ);
             inner.revision += 1;
-            (settings, blocking, rate, rebuilds, retuned, group_center)
+            (
+                settings,
+                blocking,
+                rate,
+                rate != old_rate,
+                rebuilds,
+                retuned,
+                group_center,
+            )
         };
         lock_runtime(&runtime).set_meta(&settings, blocking);
-        self.notify_coherent_meta(ds, group_center, retuned);
+        if !rate_changed {
+            self.notify_coherent_meta(ds, group_center, retuned);
+        } else if let Err(error) = self.restart_coherent(ds) {
+            self.mark_device_fault(ds, DeviceError::Io(format!("coherent restart: {error}")));
+        }
         let mut dead: Vec<ChannelMedia> = Vec::new();
         for rebuild in rebuilds {
             self.rebuild_channel(ds, rebuild, rate, &mut dead);
@@ -921,7 +999,7 @@ impl Engine {
 
 impl DeviceSetState {
     pub(crate) fn tunes_freely(&self) -> bool {
-        self.array.is_none() && self.recording.is_none() && !self.runtime.sweeping()
+        self.recording.is_none() && !self.runtime.sweeping()
     }
 
     fn validate_patch(
@@ -940,11 +1018,6 @@ impl DeviceSetState {
     }
 
     fn validate_rate_change(&self) -> Result<(), EngineError> {
-        if self.coherent.is_some() {
-            return Err(EngineError::Coherent(
-                "stop coherent processors before changing the sample rate".into(),
-            ));
-        }
         if self.network_export.is_some() {
             return Err(EngineError::NetworkExport(
                 "sample rate is locked while exporting; stop the export first".to_string(),

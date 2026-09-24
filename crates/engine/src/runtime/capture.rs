@@ -350,6 +350,12 @@ impl CaptureRuntime {
             .apply(settings)
     }
 
+    pub fn agc_gains(&self) -> Result<Vec<sdrmm_wire::AgcGain>, DeviceError> {
+        self.device
+            .as_ref()
+            .map_or_else(|| Ok(Vec::new()), |device| device.agc_gains())
+    }
+
     pub fn set_noise_source(&mut self, on: bool) -> Result<(), DeviceError> {
         self.device
             .as_mut()

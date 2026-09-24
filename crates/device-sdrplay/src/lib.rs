@@ -276,6 +276,7 @@ impl SdrplayDevice {
                     tuning: None,
                     gains: read.gains,
                     antenna: None,
+                    agc: None,
                 });
             }
             settings.streams = streams;

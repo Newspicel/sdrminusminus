@@ -1490,6 +1490,7 @@ async fn a_second_stream_on_the_same_radio_can_carry_a_decoder() {
                     tuning: Some(sdrmm_wire::Tuning::Manual),
                     gains: Vec::new(),
                     antenna: None,
+                    agc: None,
                 }],
                 ..Default::default()
             },

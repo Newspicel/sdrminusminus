@@ -192,6 +192,7 @@ pub(crate) fn kraken_capabilities(lanes: u32, gains: &[i32]) -> Capabilities {
             tuning: true,
             gain: true,
             antenna: false,
+            agc: true,
         },
         coherence: sdrmm_wire::Coherence::TimeSync,
         ..capabilities(BoardVariant::Generic, gains)

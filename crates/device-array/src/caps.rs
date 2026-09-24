@@ -174,6 +174,7 @@ fn per_stream(definition: &ArrayDefinition, members: &[&Capabilities]) -> Stream
         tuning: declared.tuning,
         gain: declared.gain && members.iter().any(|member| !member.gains.is_empty()),
         antenna: declared.antenna && members.iter().any(|member| !member.antennas.is_empty()),
+        agc: declared.agc && members.iter().any(|member| member.agc.offered()),
     }
 }
 

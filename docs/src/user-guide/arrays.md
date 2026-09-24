@@ -26,7 +26,11 @@ Set **Cal source** to **Noise**. SDR-- then switches on the built-in noise sourc
 needs to calibrate, after a retune or when you press **Calibrate**, and switches back to the
 antennas. Bearings are hidden while it shows `noise source in`.
 
-Use fixed gain and equal-length cables. Calibration pauses during scans and hunts.
+Use fixed gain and equal-length cables. AGC stays allowed, but its **Auto** turns amber on lanes a
+coherent node or Array uses. Calibration pauses during scans and hunts.
+
+In Auto, the lanes a coherent node uses move as one, to the frequency that suits all their
+decoders. A new sample rate restarts the coherent nodes.
 
 ## Build your own array
 
@@ -40,9 +44,9 @@ For separate receivers wired to one clock, use an **Array** node.
 
 Input order sets antenna numbering. Use fixed gain: AGC breaks calibration.
 
-Tune and change the rate on the Array, not the members, so they stay aligned. Disconnect the
-array before scanning or hunting. The Devices keep their radios, and removing the Array leaves
-them running. If a member drops out, the array pauses until it is back.
+Tuning a member, changing its rate, or switching it to Auto moves the whole Array, so the members
+stay aligned. A scan or hunt on a member moves the whole Array too. The Devices keep their radios, and
+removing the Array leaves them running. If a member drops out, the array pauses until it is back.
 
 ## Calibrate
 

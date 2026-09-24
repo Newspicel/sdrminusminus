@@ -177,6 +177,25 @@ mod tests {
     }
 
     #[test]
+    fn a_lanes_agc_stays_on_that_lane() {
+        let plan = planned(&DeviceSettings {
+            streams: vec![StreamSettings {
+                stream: 3,
+                agc: Some(AgcSetting::switched(false)),
+                ..StreamSettings::default()
+            }],
+            ..DeviceSettings::default()
+        })
+        .expect("plan");
+        assert_eq!(plan.lanes[3].applied.agc, Some(AgcSetting::switched(false)));
+        for (lane, planned) in plan.lanes.iter().enumerate() {
+            if lane != 3 {
+                assert_eq!(planned.gain, None, "lane {lane} kept its AGC");
+            }
+        }
+    }
+
+    #[test]
     fn the_noise_source_is_not_a_setting_an_operator_can_reach() {
         let refused = planned(&DeviceSettings {
             extra: vec![ExtraValue {

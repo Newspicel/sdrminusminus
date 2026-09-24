@@ -603,6 +603,11 @@ impl RtlSdr {
         self.with_tuner(|tuner, dev| tuner.set_gain_manual(dev, gain_tenth_db))
     }
 
+    pub(crate) fn tuner_gain(&mut self) -> Result<i32> {
+        self.require_tuner("tuner gain")?;
+        self.with_tuner(|tuner, dev| tuner.read_gain(dev))
+    }
+
     pub(crate) fn set_bandwidth(&mut self, bw: u32) -> Result<u32> {
         self.require_tuner("IF filter width")?;
         let bw = if bw == 0 { self.sample_rate } else { bw };

@@ -268,8 +268,6 @@ impl Engine {
         ds: u32,
         settings: ScanSettings,
     ) -> Result<ScannerStatus, EngineError> {
-        let _edit = sdrmm_device::lock(&self.array_edits);
-        self.check_array_scan(ds)?;
         scanner::session::start(self, ds, settings)
     }
 
@@ -287,8 +285,6 @@ impl Engine {
         ds: u32,
         settings: HuntSettings,
     ) -> Result<HuntStatus, EngineError> {
-        let _edit = sdrmm_device::lock(&self.array_edits);
-        self.check_array_scan(ds)?;
         hunt::start(self, ds, settings)
     }
 
@@ -327,10 +323,12 @@ impl Engine {
 
     #[must_use]
     pub fn sweeps_in_firmware(&self, ds: u32) -> bool {
-        self.lock()
-            .device_sets
-            .get(&ds)
-            .is_some_and(|state| state.capabilities.hardware_sweep)
+        let inner = self.lock();
+        crate::arrays::array_of(&inner.device_sets, ds).is_none()
+            && inner
+                .device_sets
+                .get(&ds)
+                .is_some_and(|state| state.capabilities.hardware_sweep)
     }
 
     pub(crate) fn scan_sample_rate(&self, ds: u32) -> Option<f64> {
@@ -340,7 +338,6 @@ impl Engine {
     }
 
     pub(crate) fn scan_reaches(&self, ds: u32, ch: u32, hz: f64) -> Result<bool, EngineError> {
-        let arrayed = !self.arrays_using(ds).is_empty();
         let inner = self.lock();
         let state = inner
             .device_sets
@@ -351,40 +348,54 @@ impl Engine {
             .iter()
             .find(|c| c.id == ch)
             .ok_or(EngineError::ChannelNotFound(ch, ds))?;
-        let mut moved = channel.settings.clone();
-        moved.frequency_hz = hz;
-        if state.hears(channel.stream, &moved) {
+        let moved = ChannelInfo {
+            settings: sdrmm_wire::ChannelSettings {
+                frequency_hz: hz,
+                ..channel.settings.clone()
+            },
+            ..channel.clone()
+        };
+        if state.hears(channel.stream, &moved.settings) {
             return Ok(true);
         }
-        let scope = state.capabilities.per_stream;
-        let follows = !arrayed
-            && state.tunes_freely()
-            && state
-                .settings
-                .for_stream(channel.stream, &scope)
-                .tunes_itself();
-        if !follows {
+        let (planner, offset) = crate::arrays::array_of(&inner.device_sets, ds).unwrap_or((ds, 0));
+        let Some(tuner) = inner.device_sets.get(&planner) else {
+            return Ok(false);
+        };
+        let lane = channel.stream + offset;
+        let scope = tuner.capabilities.per_stream;
+        if !tuner.tunes_freely() || !tuner.settings.for_stream(lane, &scope).tunes_itself() {
             return Ok(false);
         }
-        let channels: Vec<ChannelInfo> = state
-            .channels
-            .iter()
-            .map(|c| {
-                if c.id == ch {
-                    ChannelInfo {
-                        settings: moved.clone(),
-                        ..c.clone()
-                    }
-                } else {
-                    c.clone()
-                }
-            })
-            .collect();
-        let mut settled = state.settings.clone();
-        if let Some(delta) = plan_center(&state.capabilities, &settled, &channels) {
+        let channels: Vec<ChannelInfo> = if tuner.array.is_some() {
+            crate::arrays::array_channels(&inner.device_sets, planner, Some((ds, ch, &moved)))
+        } else {
+            state
+                .channels
+                .iter()
+                .map(|c| if c.id == ch { moved.clone() } else { c.clone() })
+                .collect()
+        };
+        let mut settled = tuner.settings.clone();
+        if let Some(delta) = plan_center(
+            &tuner.capabilities,
+            &settled,
+            &channels,
+            &tuner.coherent_lanes(),
+        ) {
             settled.merge_from(&delta);
         }
-        Ok(state.hears_with(&settled, channel.stream, &moved))
+        if planner == ds {
+            return Ok(state.hears_with(&settled, channel.stream, &moved.settings));
+        }
+        let center_hz = crate::center_of(&settled, lane, &scope);
+        let mut own = state.settings.clone();
+        own.merge_from(&crate::retuned_to(
+            &state.capabilities,
+            channel.stream,
+            center_hz,
+        ));
+        Ok(state.hears_with(&own, channel.stream, &moved.settings))
     }
 
     pub(crate) fn decoder_of(&self, ds: u32, ch: u32) -> Option<hunt::Decoder> {

@@ -72,6 +72,35 @@ const LNA_GAIN_STEPS: [i32; 16] = [0, 9, 13, 40, 38, 13, 31, 22, 26, 31, 26, 14,
 
 const MIXER_GAIN_STEPS: [i32; 16] = [0, 5, 10, 10, 19, 9, 10, 25, 17, 10, 8, 16, 13, 6, 3, -8];
 
+fn manual_steps(gain_tenth_db: i32) -> (u8, u8, i32) {
+    let mut total_gain: i32 = 0;
+    let mut lna_index: u8 = 0;
+    let mut mix_index: u8 = 0;
+    for _ in 0..15 {
+        if total_gain >= gain_tenth_db {
+            break;
+        }
+        if (lna_index as usize + 1) < LNA_GAIN_STEPS.len() {
+            lna_index += 1;
+            total_gain += LNA_GAIN_STEPS[lna_index as usize];
+        }
+        if total_gain >= gain_tenth_db {
+            break;
+        }
+        if (mix_index as usize + 1) < MIXER_GAIN_STEPS.len() {
+            mix_index += 1;
+            total_gain += MIXER_GAIN_STEPS[mix_index as usize];
+        }
+    }
+    (lna_index, mix_index, total_gain)
+}
+
+fn status_gain(status: u8) -> i32 {
+    let lna = usize::from(status & 0x0f);
+    let mixer = usize::from(status >> 4);
+    LNA_GAIN_STEPS[1..=lna].iter().sum::<i32>() + MIXER_GAIN_STEPS[1..=mixer].iter().sum::<i32>()
+}
+
 struct FreqRange {
     freq_mhz: u32,
     open_d: u8,
@@ -759,30 +788,7 @@ impl R82xx {
 
         self.write_reg_mask(dev, 0x0c, 0x08, 0x9f)?;
 
-        let mut total_gain: i32 = 0;
-        let mut lna_index: u8 = 0;
-        let mut mix_index: u8 = 0;
-
-        for _ in 0..15 {
-            if total_gain >= gain_tenth_db {
-                break;
-            }
-
-            if (lna_index as usize + 1) < LNA_GAIN_STEPS.len() {
-                lna_index += 1;
-                total_gain += LNA_GAIN_STEPS[lna_index as usize];
-            }
-
-            if total_gain >= gain_tenth_db {
-                break;
-            }
-
-            if (mix_index as usize + 1) < MIXER_GAIN_STEPS.len() {
-                mix_index += 1;
-                total_gain += MIXER_GAIN_STEPS[mix_index as usize];
-            }
-        }
-
+        let (lna_index, mix_index, total_gain) = manual_steps(gain_tenth_db);
         trace!(
             "manual gain: lna_idx={}, mix_idx={}, total={}",
             lna_index, mix_index, total_gain
@@ -793,6 +799,11 @@ impl R82xx {
         self.write_reg_mask(dev, 0x07, mix_index, 0x0f)?;
 
         Ok(())
+    }
+
+    pub(crate) fn read_gain(&self, dev: &Rtl2832u) -> Result<i32> {
+        let status = self.read_regs(dev, 0x00, 4)?;
+        Ok(status_gain(status[3]))
     }
 
     pub(crate) fn set_bandwidth(&mut self, dev: &Rtl2832u, bw: u32) -> Result<u32> {
@@ -891,6 +902,15 @@ mod tests {
             vco_power_ref(TunerType::R828D, BoardVariant::RtlSdrBlogV4),
             1
         );
+    }
+
+    #[test]
+    fn the_gain_read_back_is_the_gain_set_by_hand() {
+        for &target in GAIN_VALUES {
+            let (lna, mixer, total) = manual_steps(target);
+            assert_eq!(status_gain(mixer << 4 | lna), total, "{target}");
+        }
+        assert_eq!(status_gain(0), 0);
     }
 
     #[test]

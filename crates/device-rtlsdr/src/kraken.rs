@@ -10,8 +10,8 @@ use sdrmm_device::{
     CaptureConfig, DeviceDriver, DeviceError, RxSink, SdrDevice, Worker, drain_stream, lock,
 };
 use sdrmm_wire::{
-    AgcSetting, BandwidthSetting, Capabilities, DeviceInfo, DeviceSettings, GainKind, GainValue,
-    StreamSettings,
+    AgcGain, AgcSetting, BandwidthSetting, Capabilities, DeviceInfo, DeviceSettings, GainKind,
+    GainValue, StreamSettings,
 };
 
 use crate::{
@@ -306,6 +306,7 @@ impl KrakenDevice {
                 tuning: None,
                 gains: settled.gains.clone(),
                 antenna: None,
+                agc: settled.agc.clone(),
             })
             .collect();
     }
@@ -437,6 +438,21 @@ impl SdrDevice for KrakenDevice {
         self.workers = workers;
         start.open(true);
         Ok(())
+    }
+
+    fn agc_gains(&self) -> Result<Vec<AgcGain>, DeviceError> {
+        let mut read = Vec::new();
+        for (stream, (lane, settled)) in self.lanes.iter().zip(&self.lane_settings).enumerate() {
+            if !settled.agc.as_ref().is_some_and(|agc| agc.on) {
+                continue;
+            }
+            let tenths = lock(lane).tuner_gain().map_err(map_err)?;
+            read.push(AgcGain {
+                stream: stream as u32,
+                value_db: f64::from(tenths) / 10.0,
+            });
+        }
+        Ok(read)
     }
 
     fn rx_stop(&mut self) {

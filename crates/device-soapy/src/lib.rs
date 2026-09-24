@@ -376,6 +376,7 @@ fn read_settings(device: &soapy::Device, capabilities: &Capabilities) -> DeviceS
             tuning: None,
             gains: channel_settings.gains,
             antenna: channel_settings.antenna,
+            agc: None,
         });
     }
     for extra in &capabilities.extra {

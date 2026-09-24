@@ -156,6 +156,7 @@ fn a_two_by_two_radio_is_recognised_as_one() {
             tuning: None,
             gains: vec![GainValue::new(GainKind::Tuner, 40.0)],
             antenna: Some("A_BALANCED".to_string()),
+            agc: None,
         }],
         "the second lane reports its own state"
     );

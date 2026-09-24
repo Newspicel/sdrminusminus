@@ -8,7 +8,7 @@ use sdrmm_device::{
 };
 use sdrmm_usb_stream::RxStream;
 use sdrmm_wire::{
-    AgcSetting, BandwidthSetting, Capabilities, DeviceInfo, DeviceSettings, ExtraValue,
+    AgcGain, AgcSetting, BandwidthSetting, Capabilities, DeviceInfo, DeviceSettings, ExtraValue,
 };
 
 mod caps;
@@ -262,6 +262,17 @@ impl SdrDevice for RtlSdrDevice {
 
     fn rx_stop(&mut self) {
         self.capture.stop();
+    }
+
+    fn agc_gains(&self) -> Result<Vec<AgcGain>, DeviceError> {
+        if !self.settings.agc.as_ref().is_some_and(|agc| agc.on) {
+            return Ok(Vec::new());
+        }
+        let tenths = self.radio.lock().tuner_gain().map_err(map_err)?;
+        Ok(vec![AgcGain {
+            stream: 0,
+            value_db: f64::from(tenths) / 10.0,
+        }])
     }
 }
 

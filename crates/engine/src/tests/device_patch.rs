@@ -509,3 +509,92 @@ async fn a_setting_the_radio_refuses_stays_on_the_set_until_one_is_taken() {
     assert_eq!(engine.snapshot().device_sets[0].refused, None);
     engine.remove_device_set(ds).unwrap();
 }
+
+struct AgcDriver;
+
+impl DeviceDriver for AgcDriver {
+    fn id(&self) -> &'static str {
+        "mock"
+    }
+
+    fn probe(&self) -> Vec<DeviceInfo> {
+        vec![mock_info("agc", None)]
+    }
+
+    fn open(&self, _info: &DeviceInfo) -> Result<Box<dyn SdrDevice>, DeviceError> {
+        Ok(Box::new(AgcDevice {
+            capabilities: Capabilities {
+                agc: sdrmm_wire::Agc::Switch,
+                ..empty_capabilities()
+            },
+            settings: DeviceSettings {
+                agc: Some(sdrmm_wire::AgcSetting::switched(true)),
+                ..mock_settings()
+            },
+        }))
+    }
+}
+
+struct AgcDevice {
+    capabilities: Capabilities,
+    settings: DeviceSettings,
+}
+
+impl SdrDevice for AgcDevice {
+    fn capabilities(&self) -> &Capabilities {
+        &self.capabilities
+    }
+
+    fn settings(&self) -> &DeviceSettings {
+        &self.settings
+    }
+
+    fn apply(&mut self, settings: &DeviceSettings) -> Result<(), DeviceError> {
+        self.settings.merge_from(settings);
+        Ok(())
+    }
+
+    fn rx_start(&mut self, sinks: Vec<RxSink>) -> Result<(), DeviceError> {
+        single_rx_sink(sinks).map(|_| ())
+    }
+
+    fn rx_stop(&mut self) {}
+
+    fn agc_gains(&self) -> Result<Vec<sdrmm_wire::AgcGain>, DeviceError> {
+        Ok(vec![sdrmm_wire::AgcGain {
+            stream: 0,
+            value_db: 28.0,
+        }])
+    }
+}
+
+#[tokio::test]
+async fn the_gain_an_agc_settled_on_is_read_back_while_it_runs() {
+    let mut registry = DeviceRegistry::new();
+    registry.register(50, Box::new(AgcDriver));
+    let engine = Engine::with_registry(registry, None);
+    let ds = engine.create_device_set("mock:agc").unwrap();
+    let tick = || engine.hotplug_tick_for_test(&mut None, &mut HashSet::new());
+
+    tick();
+    assert_eq!(
+        engine.snapshot().device_sets[0].agc_gains,
+        [sdrmm_wire::AgcGain {
+            stream: 0,
+            value_db: 28.0
+        }]
+    );
+
+    engine
+        .patch_device(
+            ds,
+            DeviceSettings {
+                agc: Some(sdrmm_wire::AgcSetting::switched(false)),
+                ..DeviceSettings::default()
+            },
+        )
+        .unwrap();
+    tick();
+    assert!(engine.snapshot().device_sets[0].agc_gains.is_empty());
+    engine.remove_device_set(ds).unwrap();
+}

@@ -541,6 +541,7 @@ fn read_streams(
                     .map(|value_db| vec![GainValue::new(GainKind::Tuner, value_db)])
                     .unwrap_or_default(),
                 antenna: read(Direction::In, port, RF_PORT_SELECT),
+                agc: None,
             })
         })
         .collect()

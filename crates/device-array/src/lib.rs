@@ -128,6 +128,11 @@ impl StreamArray {
                         } else {
                             None
                         },
+                        agc: if capabilities.per_stream.agc {
+                            source.agc
+                        } else {
+                            None
+                        },
                     });
                 }
                 lane += 1;

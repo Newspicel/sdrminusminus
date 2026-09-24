@@ -1,8 +1,65 @@
+use std::collections::BTreeMap;
+
 use sdrmm_device::{DeviceError, SdrDevice};
 use sdrmm_device_array::{ArrayIngress, StreamArray};
-use sdrmm_wire::{ArrayDefinition, DeviceInfo, DeviceSetStatus, DeviceSettings, StreamSettings};
+use sdrmm_wire::{
+    ArrayDefinition, ChannelInfo, DeviceInfo, DeviceSetStatus, DeviceSettings, StreamSettings,
+    Tuning,
+};
 
-use crate::{Engine, EngineError, runtime::DspCommand};
+use crate::{DeviceSetState, Engine, EngineError, runtime::DspCommand};
+
+pub(crate) fn array_of(sets: &BTreeMap<u32, DeviceSetState>, member: u32) -> Option<(u32, u32)> {
+    sets.iter().find_map(|(id, state)| {
+        let binding = state.array.as_ref()?;
+        let at = binding.members.iter().position(|(ds, _)| *ds == member)?;
+        Some((
+            *id,
+            binding.members[..at].iter().map(|(_, lanes)| lanes).sum(),
+        ))
+    })
+}
+
+pub(crate) fn array_channels(
+    sets: &BTreeMap<u32, DeviceSetState>,
+    array: u32,
+    moved: Option<(u32, u32, &ChannelInfo)>,
+) -> Vec<ChannelInfo> {
+    let Some(state) = sets.get(&array) else {
+        return Vec::new();
+    };
+    let placed = |ds: u32, offset: u32, channel: &ChannelInfo| {
+        let chosen = match moved {
+            Some((owner, ch, replaced)) if owner == ds && ch == channel.id => replaced,
+            _ => channel,
+        };
+        ChannelInfo {
+            stream: chosen.stream + offset,
+            ..chosen.clone()
+        }
+    };
+    let mut channels: Vec<ChannelInfo> = state
+        .channels
+        .iter()
+        .map(|channel| placed(array, 0, channel))
+        .collect();
+    let Some(binding) = state.array.as_ref() else {
+        return channels;
+    };
+    let mut offset = 0;
+    for (member, lanes) in &binding.members {
+        if let Some(member_state) = sets.get(member) {
+            channels.extend(
+                member_state
+                    .channels
+                    .iter()
+                    .map(|channel| placed(*member, offset, channel)),
+            );
+        }
+        offset += lanes;
+    }
+    channels
+}
 
 #[derive(Clone)]
 pub(crate) struct ArrayBinding {
@@ -26,7 +83,7 @@ impl Engine {
             .filter(ArrayDefinition::valid)
             .ok_or_else(|| DeviceError::NotFound(format!("array:{key}")))?;
         self.refuse_reopen(&definition.id())?;
-        let (members, device, ingress) = {
+        let (members, device, ingress, tuning) = {
             let inner = self.lock();
             let mut states = Vec::new();
             let mut members = Vec::new();
@@ -40,10 +97,7 @@ impl Engine {
                             "array member {member} must be opened by its Device node first"
                         ))
                     })?;
-                if state.status != DeviceSetStatus::Running
-                    || !state.scanners.is_empty()
-                    || !state.hunts.is_empty()
-                {
+                if state.status != DeviceSetStatus::Running {
                     return Err(DeviceError::Unsupported(format!(
                         "array member {member} is not continuously receiving"
                     ))
@@ -62,8 +116,9 @@ impl Engine {
                 members.push((*id, state.capabilities.rx_streams));
                 states.push((&state.capabilities, &state.settings));
             }
+            let tuning = states.first().and_then(|(_, settings)| settings.tuning);
             let (device, ingress) = StreamArray::new(&definition, &states)?;
-            (members, device, ingress)
+            (members, device, ingress, tuning)
         };
         let info = DeviceInfo {
             driver: "array".into(),
@@ -78,6 +133,9 @@ impl Engine {
             ingress: ingress.clone(),
         };
         let id = self.create_opened_set(info, Box::new(device), Some(binding.clone()))?;
+        if let Some(state) = self.lock().device_sets.get_mut(&id) {
+            state.settings.tuning = tuning;
+        }
         let result = self.connect_array_inputs(id, &binding);
         if let Err(error) = result {
             self.remove_set(id)?;
@@ -189,61 +247,76 @@ impl Engine {
         }
     }
 
-    pub(crate) fn check_array_member_patch(
+    pub(crate) fn split_member_patch(
         &self,
-        ds: u32,
-        delta: &DeviceSettings,
-    ) -> Result<(), EngineError> {
-        if !self.arrays_using(ds).is_empty() {
-            let inner = self.lock();
-            let state = inner
-                .device_sets
-                .get(&ds)
-                .ok_or(EngineError::DeviceSetNotFound(ds))?;
-            let changed = delta
-                .sample_rate
-                .is_some_and(|rate| Some(rate) != state.settings.sample_rate)
-                || delta
-                    .center_hz
-                    .is_some_and(|hz| Some(hz) != state.settings.center_hz)
-                || delta.streams.iter().any(|stream| {
-                    stream.center_hz.is_some_and(|hz| {
-                        Some(hz)
-                            != state
-                                .settings
-                                .for_stream(stream.stream, &state.capabilities.per_stream)
-                                .center_hz
-                    })
-                });
-            if changed {
-                return Err(DeviceError::Unsupported(
-                    "tune the array to keep its member streams synchronized".into(),
-                )
-                .into());
+        member: u32,
+        delta: &mut DeviceSettings,
+    ) -> Option<(u32, DeviceSettings)> {
+        let inner = self.lock();
+        let member_scope = inner.device_sets.get(&member)?.capabilities.per_stream;
+        let (array, offset, lanes, shared) = inner.device_sets.iter().find_map(|(id, state)| {
+            let binding = state.array.as_ref()?;
+            let at = binding.members.iter().position(|(ds, _)| *ds == member)?;
+            let offset: u32 = binding.members[..at].iter().map(|(_, lanes)| lanes).sum();
+            Some((
+                *id,
+                offset,
+                binding.members[at].1,
+                !state.capabilities.per_stream.tuning,
+            ))
+        })?;
+        drop(inner);
+        let mut forward = DeviceSettings {
+            sample_rate: delta.sample_rate.take(),
+            ..DeviceSettings::default()
+        };
+        let mut aim = |lane: Option<u32>, center_hz: Option<f64>, tuning: Option<Tuning>| {
+            if center_hz.is_none() && tuning.is_none() {
+                return;
+            }
+            match lane {
+                Some(lane) if !shared => forward.streams.push(StreamSettings {
+                    stream: offset + lane,
+                    center_hz,
+                    tuning,
+                    ..StreamSettings::default()
+                }),
+                None if !shared => forward
+                    .streams
+                    .extend((0..lanes).map(|lane| StreamSettings {
+                        stream: offset + lane,
+                        center_hz,
+                        tuning,
+                        ..StreamSettings::default()
+                    })),
+                _ => {
+                    forward.center_hz = center_hz.or(forward.center_hz);
+                    forward.tuning = tuning.or(forward.tuning);
+                }
+            }
+        };
+        aim(None, delta.center_hz.take(), delta.tuning.take());
+        if member_scope.tuning {
+            for stream in &mut delta.streams {
+                aim(
+                    Some(stream.stream),
+                    stream.center_hz.take(),
+                    stream.tuning.take(),
+                );
             }
         }
-        Ok(())
+        delta.streams.retain(|stream| {
+            *stream
+                != StreamSettings {
+                    stream: stream.stream,
+                    ..StreamSettings::default()
+                }
+        });
+        (forward != DeviceSettings::default()).then_some((array, forward))
     }
 
-    pub(crate) fn check_array_scan(&self, ds: u32) -> Result<(), EngineError> {
-        let inner = self.lock();
-        let state = inner
-            .device_sets
-            .get(&ds)
-            .ok_or(EngineError::DeviceSetNotFound(ds))?;
-        if state.array.is_some()
-            || inner.device_sets.values().any(|state| {
-                state
-                    .array
-                    .as_ref()
-                    .is_some_and(|array| array.members.iter().any(|(member, _)| *member == ds))
-            })
-        {
-            return Err(EngineError::Scan(
-                "disconnect the array before scanning or hunting with its radios".into(),
-            ));
-        }
-        Ok(())
+    pub(crate) fn array_of(&self, member: u32) -> Option<(u32, u32)> {
+        array_of(&self.lock().device_sets, member)
     }
 
     pub(crate) fn patch_array(&self, ds: u32, delta: DeviceSettings) -> Result<(), EngineError> {
@@ -304,8 +377,15 @@ impl Engine {
                     if !caps.per_stream.antenna {
                         wanted.antenna = local.antenna.take().or(wanted.antenna);
                     }
+                    if !caps.per_stream.agc {
+                        wanted.agc = local.agc.take().or(wanted.agc);
+                    }
                 }
-                if local.center_hz.is_some() || !local.gains.is_empty() || local.antenna.is_some() {
+                if local.center_hz.is_some()
+                    || !local.gains.is_empty()
+                    || local.antenna.is_some()
+                    || local.agc.is_some()
+                {
                     wanted.streams.push(local);
                 }
             }

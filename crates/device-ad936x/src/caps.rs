@@ -307,6 +307,7 @@ pub(crate) fn capabilities(front: &Front, layout: &Layout) -> Capabilities {
                 tuning: false,
                 gain: true,
                 antenna: true,
+                agc: false,
             }
         } else {
             StreamScope::default()

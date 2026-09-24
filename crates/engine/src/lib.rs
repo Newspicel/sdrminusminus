@@ -342,6 +342,24 @@ fn tune_together(delta: &mut DeviceSettings, group: &[u32]) {
     }
 }
 
+fn retuned_to(capabilities: &Capabilities, stream: u32, center_hz: f64) -> DeviceSettings {
+    if capabilities.per_stream.tuning {
+        DeviceSettings {
+            streams: vec![sdrmm_wire::StreamSettings {
+                stream,
+                center_hz: Some(center_hz),
+                ..sdrmm_wire::StreamSettings::default()
+            }],
+            ..DeviceSettings::default()
+        }
+    } else {
+        DeviceSettings {
+            center_hz: Some(center_hz),
+            ..DeviceSettings::default()
+        }
+    }
+}
+
 fn ids_of(devices: &[DeviceInfo]) -> Vec<String> {
     devices.iter().map(DeviceInfo::id).collect()
 }
@@ -590,6 +608,7 @@ struct DeviceSetState {
     stalls: Vec<Arc<AtomicU64>>,
     clip_meters: Vec<Arc<runtime::clip::ClipMeter>>,
     clipping: Vec<u32>,
+    agc_gains: Vec<sdrmm_wire::AgcGain>,
     playback: Option<Arc<PlaybackShared>>,
     coherent: Option<crate::coherent_ops::CoherentState>,
     runtime: Arc<DeviceRuntime>,
@@ -656,6 +675,7 @@ impl DeviceSetState {
             scanners: self.scanner_statuses(),
             hunts: self.hunt_statuses(),
             playback: self.playback.as_deref().map(PlaybackShared::status),
+            agc_gains: self.agc_gains.clone(),
         }
     }
 
@@ -724,6 +744,16 @@ impl DeviceSetState {
             return;
         }
         tune_together(delta, &self.coherent_lanes());
+    }
+
+    fn runs_agc(&self) -> bool {
+        let on = |settings: &DeviceSettings| settings.agc.as_ref().is_some_and(|agc| agc.on);
+        on(&self.settings)
+            || (0..self.capabilities.rx_streams).any(|stream| {
+                on(&self
+                    .settings
+                    .for_stream(stream, &self.capabilities.per_stream))
+            })
     }
 
     fn take_clipping(&self) -> Vec<u32> {

@@ -393,6 +393,7 @@ fn manual_streams_and_non_tunable_sources_remain_fixed() {
         tuning: Some(Tuning::Manual),
         gains: Vec::new(),
         antenna: None,
+        agc: None,
     });
     let mut b = radio(B, tuned(200e6));
     b.tunes_freely = false;

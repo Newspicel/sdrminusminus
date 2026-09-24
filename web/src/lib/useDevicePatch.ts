@@ -94,6 +94,9 @@ export function forStream(
   if (scope.antenna === true && overrides.antenna != null) {
     resolved.antenna = overrides.antenna;
   }
+  if (scope.agc === true && overrides.agc != null) {
+    resolved.agc = overrides.agc;
+  }
   return resolved;
 }
 

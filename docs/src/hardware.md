@@ -104,7 +104,7 @@ Controls mean the same thing on every radio:
 | Rate | Sample rate |
 | Filter | Analog bandwidth before sampling, or Auto |
 | Antenna | Input port, when there is a choice |
-| AGC | Lets the radio set its own gain. The gain sliders hold still meanwhile. |
+| AGC | **Auto** on the gain row. The radio sets its own gain; the slider shows what it chose, where the radio reports it. |
 | LNA, Mixer, VGA, IF, RF, Tuner, Attenuator | One gain stage each, in dB or firmware steps |
 | Amp | A switchable preamp |
 | Bias tee | Power on the antenna port for an active antenna or LNA |
@@ -133,8 +133,8 @@ Rates: 225 to 300 kHz, or 900 kHz to 3.2 MHz. Filter: 290 kHz to 8 MHz on R82xx 
 ## KrakenSDR
 
 One Device with five lanes; KerberosSDR has four. SDR-- groups the tuners by serial and USB hub,
-so the vendor Pi image is not needed. All lanes tune together, with gain per lane. There is no
-direct sampling. SDR-- runs the noise source during [calibration](user-guide/arrays.md#krakensdr).
+so the vendor Pi image is not needed. Each lane has its own dial, gain, and AGC. Lanes wired to a
+coherent node tune together. There is no direct sampling. SDR-- runs the noise source during [calibration](user-guide/arrays.md#krakensdr).
 
 If the array shows up as separate dongles, one of its tuners is missing: check `sdrmm --doctor`
 or `lsusb`.

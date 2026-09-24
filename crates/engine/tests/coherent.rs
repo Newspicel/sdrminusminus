@@ -106,6 +106,45 @@ async fn first_reading(rx: &mut broadcast::Receiver<CoherentUpdate>) -> DfReadin
 }
 
 #[tokio::test]
+async fn a_new_sample_rate_restarts_the_coherent_nodes_instead_of_being_refused() {
+    let engine = engine();
+    let ds = engine.create_device_set(ARRAY).unwrap();
+    engine
+        .patch_device(
+            ds,
+            tuned(vec![
+                number(array::BEARING_SETTING, BEARING_DEG),
+                number(array::RADIUS_SETTING, 0.35),
+            ]),
+        )
+        .unwrap();
+    let node = engine
+        .add_coherent(ds, df_params(DfAlgorithm::Music), vec![0, 1, 2, 3])
+        .unwrap();
+    let mut updates = engine.subscribe_coherent(ds).expect("an update channel");
+
+    engine
+        .patch_device(
+            ds,
+            DeviceSettings {
+                sample_rate: Some(RATE * 2.0),
+                ..DeviceSettings::default()
+            },
+        )
+        .expect("the rate changes under a running processor");
+
+    assert_eq!(engine.coherent_nodes(ds).len(), 1);
+    let reading = first_reading(&mut updates).await;
+    let error = (f64::from(reading.bearing_deg) - BEARING_DEG).abs();
+    assert!(
+        error.min(360.0 - error) < 2.0,
+        "read {reading:?} after the rate change"
+    );
+    engine.remove_coherent(ds, node).unwrap();
+    engine.remove_device_set(ds).unwrap();
+}
+
+#[tokio::test]
 async fn a_steered_wavefront_reads_back_as_the_bearing_it_was_set_to() {
     let engine = engine();
     let ds = engine.create_device_set(ARRAY).unwrap();

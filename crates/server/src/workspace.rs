@@ -920,6 +920,7 @@ mod tests {
             scanners: Vec::new(),
             hunts: Vec::new(),
             playback: None,
+            agc_gains: Vec::new(),
         }
     }
 

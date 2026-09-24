@@ -1,14 +1,17 @@
+import { agcState } from "../../components/capabilities";
 import { reachableHz } from "../../components/dial";
 import type {
+  AgcSetting,
   Capabilities,
   Coherence,
   DeviceRef,
   DeviceSet,
   DeviceSettings,
+  PatchGraph,
   Tuning,
 } from "../../lib/types";
 import { forStream } from "../../lib/useDevicePatch";
-import { rxStreamCount, streamLabel } from "../graph";
+import { nodeOf, portStream, rxStreamCount, streamLabel } from "../graph";
 
 export function clippingSaid(set: DeviceSet): string | null {
   const lanes = set.clipping ?? [];
@@ -82,6 +85,39 @@ export function tuningDelta(
   tuning: Tuning,
 ): DeviceSettings {
   return capabilities.per_stream?.tuning === true ? { streams: [{ stream, tuning }] } : { tuning };
+}
+
+export function laneAgc(set: DeviceSet, stream: number): AgcSetting {
+  return agcState(set.capabilities, forStream(set.settings, stream, set.capabilities.per_stream));
+}
+
+export function agcDelta(
+  capabilities: Capabilities,
+  stream: number,
+  agc: AgcSetting,
+): DeviceSettings {
+  return capabilities.per_stream?.agc === true ? { streams: [{ stream, agc }] } : { agc };
+}
+
+export function agcGainDb(set: DeviceSet, stream: number): number | null {
+  if (set.capabilities.gains.length !== 1 || !laneAgc(set, stream).on) {
+    return null;
+  }
+  return set.agc_gains?.find((reading) => reading.stream === stream)?.value_db ?? null;
+}
+
+const COHERENT_USERS = new Set(["df", "combiner", "passive_radar", "array"]);
+
+export function coherentLanes(graph: PatchGraph, deviceNode: string): Set<number> {
+  const lanes = new Set<number>();
+  for (const edge of graph.edges ?? []) {
+    const lane = edge.from.node === deviceNode ? portStream("iq", edge.from.port) : null;
+    const kind = nodeOf(graph, edge.to.node)?.kind;
+    if (lane !== null && kind !== undefined && COHERENT_USERS.has(kind)) {
+      lanes.add(lane);
+    }
+  }
+  return lanes;
 }
 
 export function lockStream(locked: readonly number[], stream: number, held: boolean): number[] {

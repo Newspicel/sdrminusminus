@@ -511,6 +511,12 @@ impl Agc {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct AgcGain {
+    pub stream: u32,
+    pub value_db: f64,
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct AgcSetting {
     pub on: bool,
@@ -700,6 +706,8 @@ pub struct StreamScope {
     pub gain: bool,
     #[serde(default)]
     pub antenna: bool,
+    #[serde(default)]
+    pub agc: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
@@ -911,6 +919,7 @@ impl ArrayDefinition {
             tuning: !self.shared_tuning,
             gain: true,
             antenna: true,
+            agc: true,
         }
     }
 }
@@ -986,10 +995,15 @@ pub struct StreamSettings {
     pub gains: Vec<GainValue>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub antenna: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agc: Option<AgcSetting>,
 }
 
 impl StreamSettings {
     fn merge_from(&mut self, delta: &StreamSettings) {
+        if delta.agc.is_some() {
+            self.agc.clone_from(&delta.agc);
+        }
         if delta.center_hz.is_some() {
             self.center_hz = delta.center_hz;
         }
@@ -1129,6 +1143,7 @@ impl DeviceSettings {
                         .antenna
                         .clone()
                         .filter(|a| scope.antenna && capabilities.antennas.contains(a)),
+                    agc: None,
                 })
                 .filter(|stream| {
                     stream.center_hz.is_some()
@@ -1241,6 +1256,9 @@ impl DeviceSettings {
         if scope.antenna && overrides.antenna.is_some() {
             resolved.antenna.clone_from(&overrides.antenna);
         }
+        if scope.agc && overrides.agc.is_some() {
+            resolved.agc.clone_from(&overrides.agc);
+        }
         resolved
     }
 }
@@ -1301,6 +1319,7 @@ mod tests {
             tuning: false,
             gain: true,
             antenna: false,
+            agc: false,
         };
         let profile = full.profile();
         assert_eq!(profile.freq_ranges, full.freq_ranges);
@@ -1550,6 +1569,7 @@ mod tests {
                 tuning: None,
                 gains: vec![gain("LNA", 16.0), gain("VGA", 20.0)],
                 antenna: None,
+                agc: None,
             }],
             ..DeviceSettings::default()
         };
@@ -1578,6 +1598,7 @@ mod tests {
                     tuning: None,
                     gains: vec![gain("LNA", 16.0), gain("VGA", 30.0), gain("AMP", 14.0)],
                     antenna: Some("RX2".to_string()),
+                    agc: None,
                 },
                 StreamSettings {
                     stream: 1,
@@ -1633,6 +1654,7 @@ mod tests {
                 tuning: None,
                 gains: vec![gain("VGA", 30.0)],
                 antenna: Some("RX2".to_string()),
+                agc: None,
             }],
             ..DeviceSettings::default()
         };
@@ -1641,6 +1663,7 @@ mod tests {
             tuning: true,
             gain: false,
             antenna: false,
+            agc: false,
         };
         let lane = settings.for_stream(1, &tuning_only);
         assert_eq!(lane.center_hz, Some(433_920_000.0));
@@ -1655,6 +1678,7 @@ mod tests {
             tuning: false,
             gain: true,
             antenna: false,
+            agc: false,
         };
         let lane = settings.for_stream(1, &gain_only);
         assert_eq!(lane.center_hz, Some(100_000_000.0));
@@ -1665,6 +1689,7 @@ mod tests {
             tuning: false,
             gain: false,
             antenna: true,
+            agc: false,
         };
         let lane = settings.for_stream(1, &antenna_only);
         assert_eq!(lane.center_hz, Some(100_000_000.0));
@@ -1688,6 +1713,7 @@ mod tests {
             tuning: true,
             gain: true,
             antenna: true,
+            agc: false,
         };
         let lane = settings.for_stream(0, &scope);
         assert_eq!(lane.center_hz, Some(100_000_000.0));
@@ -1710,6 +1736,7 @@ mod tests {
             tuning: true,
             gain: false,
             antenna: false,
+            agc: false,
         };
         assert!(settings.for_stream(0, &apart).tunes_itself());
         assert!(!settings.for_stream(1, &apart).tunes_itself());
@@ -1729,6 +1756,7 @@ mod tests {
             tuning: true,
             gain: false,
             antenna: false,
+            agc: false,
         };
         let stored = DeviceSettings {
             streams: vec![StreamSettings {
@@ -1971,6 +1999,7 @@ mod tests {
             tuning: false,
             gain: true,
             antenna: false,
+            agc: false,
         };
         let stored = DeviceSettings {
             streams: vec![
@@ -1980,6 +2009,7 @@ mod tests {
                     tuning: None,
                     gains: vec![GainValue::new(GainKind::Tuner, 20.0)],
                     antenna: Some("RX".to_string()),
+                    agc: None,
                 },
                 StreamSettings {
                     stream: 7,

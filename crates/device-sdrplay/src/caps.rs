@@ -501,6 +501,7 @@ pub fn capabilities(model: Model, mode: Option<DuoMode>, band: Band) -> Capabili
                 tuning: true,
                 gain: true,
                 antenna: false,
+                agc: false,
             }
         } else {
             StreamScope::default()

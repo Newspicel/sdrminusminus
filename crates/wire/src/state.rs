@@ -4,7 +4,7 @@ use utoipa::ToSchema;
 use crate::{
     channel::ChannelInfo,
     decode::DvTrunkProtocol,
-    device::{Capabilities, DeviceInfo, DeviceSettings},
+    device::{AgcGain, Capabilities, DeviceInfo, DeviceSettings},
     hunt::HuntStatus,
     network::NetworkExportStatus,
     scan::ScannerStatus,
@@ -83,6 +83,8 @@ pub struct DeviceSet {
     pub overruns: u64,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub clipping: Vec<u32>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub agc_gains: Vec<AgcGain>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

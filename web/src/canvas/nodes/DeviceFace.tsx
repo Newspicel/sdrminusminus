@@ -29,6 +29,7 @@ import {
   autoTuning,
   bondSaid,
   clippingSaid,
+  coherentLanes,
   faultSaid,
   type Hearing,
   hasLaneControls,
@@ -77,6 +78,7 @@ interface TunerProps {
   lockedStreams: readonly number[];
   onLock: (stream: number, locked: boolean) => void;
   arrayTuning: boolean;
+  advised: ReadonlySet<number>;
 }
 
 function DialRow({
@@ -85,8 +87,7 @@ function DialRow({
   dial,
   locked,
   onLock,
-  arrayTuning,
-}: Omit<TunerProps, "lockedStreams" | "onLock"> & {
+}: Omit<TunerProps, "lockedStreams" | "onLock" | "arrayTuning" | "advised"> & {
   dial: TunerDial;
   locked: boolean;
   onLock: (locked: boolean) => void;
@@ -95,7 +96,7 @@ function DialRow({
   const active = useFaceActive();
   const range = tuningRange(set.capabilities);
   const pinned = !isTunable(range);
-  const held = pinned || locked || arrayTuning;
+  const held = pinned || locked;
   const tune = (hz: number): void =>
     applyPatch(set.id, tuneDelta(set.capabilities, dial.stream, hz));
   return (
@@ -108,8 +109,8 @@ function DialRow({
         wheelTunes={active}
         onTune={tune}
       />
-      {!pinned && (
-        <span className="ml-auto flex shrink-0 items-center gap-1">
+      <span className="ml-auto flex shrink-0 items-center gap-1">
+        {!pinned && (
           <TuneTo
             title={dial.port === null ? "Type a frequency" : `Type a frequency for ${dial.port}`}
             hz={dial.hz}
@@ -118,18 +119,18 @@ function DialRow({
             disabled={held}
             onTune={tune}
           />
-          {!arrayTuning && <AutoTuning set={set} stream={dial.stream} />}
-          {!arrayTuning && (
-            <TuningLock locked={locked} held="Tuning locked" free="Lock tuning" onLock={onLock} />
-          )}
-        </span>
-      )}
+        )}
+        {!pinned && <AutoTuning set={set} stream={dial.stream} />}
+        {!pinned && (
+          <TuningLock locked={locked} held="Tuning locked" free="Lock tuning" onLock={onLock} />
+        )}
+      </span>
     </div>
   );
 }
 
 function Tuner(props: TunerProps) {
-  const { set, lockedStreams, onLock, arrayTuning } = props;
+  const { set, lockedStreams, onLock, arrayTuning, advised } = props;
   const merged = lanesMerged(set);
   const bond = merged ? bondSaid(set.capabilities.coherence) : null;
   const controls = merged && hasLaneControls(set.capabilities);
@@ -142,7 +143,7 @@ function Tuner(props: TunerProps) {
           <div
             key={dial.stream}
             className={`relative col-span-2 grid grid-cols-subgrid gap-y-2.5 ${
-              locked || arrayTuning
+              locked
                 ? "before:absolute before:inset-y-0 before:-left-2 before:w-0.5 before:bg-accent"
                 : ""
             }`}
@@ -164,7 +165,9 @@ function Tuner(props: TunerProps) {
                 onLock={(next) => onLock(dial.stream, next)}
               />
             </div>
-            {controls && <LaneControls active={set} stream={dial.stream} />}
+            {controls && (
+              <LaneControls active={set} stream={dial.stream} advised={advised.has(dial.stream)} />
+            )}
           </div>
         );
       })}
@@ -206,16 +209,16 @@ function LaneRule({
         </span>
       )}
       {arrayTuning && (
-        <span className="flex items-center gap-1 text-accent" title={ARRAY_TUNED}>
-          <Icon glyph={Lock} size={12} />
-          Tuned by Array
+        <span className="flex items-center gap-1 text-port-iq" title={ARRAY_TUNED}>
+          <Icon glyph={Link2} size={12} />
+          Array
         </span>
       )}
     </div>
   );
 }
 
-const ARRAY_TUNED = "Tune the connected Array node to keep its member radios synchronized";
+const ARRAY_TUNED = "Tuning moves the whole Array";
 
 const TONE: Record<Hearing["tone"], string> = {
   ok: "text-ok",
@@ -396,6 +399,7 @@ export function DeviceFace({ node }: { node: PatchNode }) {
 
   const array = arrayHolding(workspace.graph, node.id);
   const arrayTuning = array !== null && workspace.devices.has(array);
+  const advised = coherentLanes(workspace.graph, node.id);
 
   return (
     <NodeShell
@@ -408,13 +412,14 @@ export function DeviceFace({ node }: { node: PatchNode }) {
         <RadioSettings
           active={set}
           className="p-2"
-          sampleRateLocked={arrayTuning}
           lanesShown={lanesMerged(set)}
+          advised={advised}
           lead={
             <Tuner
               node={node.id}
               set={set}
               arrayTuning={arrayTuning}
+              advised={advised}
               lockedStreams={lockedStreams}
               onLock={(stream, next) =>
                 editNode({ locked_streams: lockStream(lockedStreams, stream, next) })

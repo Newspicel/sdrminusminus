@@ -1,13 +1,18 @@
 import { describe, expect, it } from "vitest";
-import type { Capabilities, DeviceSet } from "../../lib/types";
+import { agcTip } from "../../components/AgcAuto";
+import type { Capabilities, DeviceSet, PatchGraph } from "../../lib/types";
 import { mergeSettings } from "../../lib/useDevicePatch";
 import {
+  agcDelta,
+  agcGainDb,
   autoTuning,
   bondSaid,
   clippingSaid,
+  coherentLanes,
   faultSaid,
   hasLaneControls,
   hearing,
+  laneAgc,
   lanesMerged,
   lockStream,
   refLabel,
@@ -325,5 +330,91 @@ describe("clippingSaid", () => {
 
   it("just says yes on a single-lane radio", () => {
     expect(clippingSaid(deviceSet({ clipping: [0] }))).toBe("yes");
+  });
+});
+
+describe("lane AGC", () => {
+  const tuner = { name: "tuner", kind: "tuner" as const, range: { min: 0, max: 49.6 } };
+  const bank = capabilities({
+    agc: { kind: "switch" },
+    gains: [tuner],
+    rx_streams: 5,
+    per_stream: { tuning: true, gain: true, agc: true },
+  });
+
+  it("switches one lane of a bank and the whole radio otherwise", () => {
+    expect(agcDelta(bank, 3, { on: true })).toEqual({
+      streams: [{ stream: 3, agc: { on: true } }],
+    });
+    expect(agcDelta(capabilities({ agc: { kind: "switch" } }), 0, { on: false })).toEqual({
+      agc: { on: false },
+    });
+  });
+
+  it("reads each lane's own switch over the radio's", () => {
+    const set = deviceSet({
+      capabilities: bank,
+      settings: { agc: { on: false }, streams: [{ stream: 2, agc: { on: true } }] },
+    });
+    expect(laneAgc(set, 2).on).toBe(true);
+    expect(laneAgc(set, 1).on).toBe(false);
+  });
+
+  it("shows the gain the AGC settled on only while it runs", () => {
+    const set = deviceSet({
+      capabilities: bank,
+      settings: { streams: [{ stream: 1, agc: { on: true } }] },
+      agc_gains: [
+        { stream: 1, value_db: 28.0 },
+        { stream: 0, value_db: 12.5 },
+      ],
+    });
+    expect(agcGainDb(set, 1)).toBe(28);
+    expect(agcGainDb(set, 0)).toBeNull();
+  });
+});
+
+describe("coherentLanes", () => {
+  it("names the lanes a coherent node or an Array uses", () => {
+    const at = { x: 0, y: 0 };
+    const graph: PatchGraph = {
+      nodes: [
+        { id: "kraken", kind: "device", data: {}, position: at },
+        {
+          id: "bench",
+          kind: "array",
+          data: { members: 1, coherence: "time_sync", shared_tuning: true },
+          position: at,
+        },
+        { id: "fm", kind: "channel", data: {}, position: at },
+      ] as PatchGraph["nodes"],
+      edges: [
+        { from: { node: "kraken", port: "iq2" }, to: { node: "bench", port: "iq" } },
+        { from: { node: "kraken", port: "iq4" }, to: { node: "bench", port: "iq2" } },
+        { from: { node: "kraken", port: "iq" }, to: { node: "fm", port: "iq" } },
+      ],
+    };
+    expect([...coherentLanes(graph, "kraken")].toSorted((a, b) => a - b)).toEqual([1, 3]);
+  });
+});
+
+describe("agcTip", () => {
+  const set = deviceSet({
+    capabilities: capabilities({
+      agc: { kind: "switch" },
+      gains: [{ name: "tuner", kind: "tuner", range: { min: 0, max: 49.6 } }],
+    }),
+    settings: { agc: { on: true } },
+    agc_gains: [{ stream: 0, value_db: 28 }],
+  });
+
+  it("reads back the gain and advises fixed gain on coherent lanes without forcing it", () => {
+    expect(agcTip(set, 0, false)).toBe("AGC on at 28.0 dB");
+    expect(agcTip(set, 0, true)).toBe(
+      "AGC on at 28.0 dB. Fixed gain keeps coherent lanes calibrated",
+    );
+    expect(agcTip(deviceSet({ settings: { agc: { on: false } } }), 0, true)).toBe(
+      "AGC off, as coherent lanes want",
+    );
   });
 });

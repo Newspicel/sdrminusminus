@@ -1,7 +1,9 @@
 import { type ReactNode, useState } from "react";
 import { rxStreamCount, streamLabel } from "../canvas/graph";
+import { agcGainDb, laneAgc } from "../canvas/nodes/deviceNode";
 import type { Capabilities, DeviceSet, ExtraSetting, GainStage, Range } from "../lib/types";
 import { forStream, useDevicePatch } from "../lib/useDevicePatch";
+import { AgcAuto } from "./AgcAuto";
 import { Input } from "./BaseControls";
 import { Checkbox } from "./Checkbox";
 import {
@@ -44,19 +46,21 @@ const AGC_HINT = "The radio is setting this. Turn AGC off to set it by hand";
 
 const SEARCHABLE_FROM = 12;
 
+const WIDE = "min-w-0 flex-1";
+
 const READOUT = "w-14 shrink-0 text-right font-mono text-xs text-ink";
 
 export function RadioSettings({
   active,
   className,
-  sampleRateLocked = false,
   lanesShown = false,
+  advised = new Set(),
   lead,
 }: {
   active: DeviceSet;
   className?: string;
-  sampleRateLocked?: boolean;
   lanesShown?: boolean;
+  advised?: ReadonlySet<number>;
   lead?: ReactNode;
 }) {
   const { applyPatch } = useDevicePatch();
@@ -69,6 +73,8 @@ export function RadioSettings({
   const streamedAntenna = scope?.antenna === true && caps.antennas.length > 1;
   const streamedGain = scope?.gain === true && caps.gains.length > 0;
   const automaticGain = automaticGainIsOn(caps, settings);
+  const agcModes = caps.agc?.kind === "modes" && automaticGain;
+  const agcOnGain = agcOffered(caps) && caps.gains.length > 0;
   const streams =
     !lanesShown && (streamedAntenna || streamedGain)
       ? Array.from({ length: rxStreamCount(caps) }, (_, index) => index)
@@ -82,7 +88,6 @@ export function RadioSettings({
         <RateControl
           caps={caps}
           sampleRate={settings.sample_rate ?? 0}
-          locked={sampleRateLocked}
           onCommit={(sample_rate) => patch({ sample_rate })}
         />
       </SettingRow>
@@ -96,6 +101,7 @@ export function RadioSettings({
       {caps.antennas.length > 1 && !streamedAntenna && (
         <SettingRow label="Antenna">
           <Select
+            className={WIDE}
             label="Antenna"
             value={settings.antenna ?? caps.antennas[0] ?? ""}
             options={caps.antennas.map((antenna) => ({ value: antenna, label: antenna }))}
@@ -104,18 +110,23 @@ export function RadioSettings({
         </SettingRow>
       )}
 
-      {agcOffered(caps) && (
+      {agcOffered(caps) && (!agcOnGain || agcModes) && (
         <SettingRow label="AGC" title="The radio sets its own gain">
-          <AgcControl active={active} onCommit={(agc) => patch({ agc })} />
+          <AgcControl active={active} toggle={!agcOnGain} onCommit={(agc) => patch({ agc })} />
         </SettingRow>
       )}
 
       {!streamedGain &&
-        caps.gains.map((stage) => (
+        caps.gains.map((stage, index) => (
           <GainControl
             key={stage.name}
             stage={stage}
             disabled={automaticGain}
+            measured={agcGainDb(active, 0)}
+            agc={
+              agcOnGain &&
+              index === 0 && <AgcAuto set={active} stream={0} advised={advised.has(0)} />
+            }
             value={settings.gains?.find((g) => g.stage === stage.name)?.value_db ?? stage.range.min}
             onCommit={(db) => patch({ gains: [{ stage: stage.name, value_db: db }] })}
           />
@@ -123,7 +134,7 @@ export function RadioSettings({
 
       {streams.map((stream) => (
         <SettingGroup key={stream} label={streamLabel("iq", stream, streams.length)}>
-          <LaneControls active={active} stream={stream} />
+          <LaneControls active={active} stream={stream} advised={advised.has(stream)} />
         </SettingGroup>
       ))}
 
@@ -140,6 +151,7 @@ export function RadioSettings({
       {caps.ppm && (
         <SettingRow label="PPM" title="Frequency correction in parts per million">
           <NumberField
+            className={WIDE}
             label="Frequency correction"
             unit="ppm"
             value={settings.ppm ?? 0}
@@ -155,6 +167,7 @@ export function RadioSettings({
           title="Local oscillator of a converter in front of the radio: positive for a downconverter, negative for an upconverter. Frequencies shown are what the antenna sees"
         >
           <NumberField
+            className={WIDE}
             label="Converter offset"
             unit="MHz"
             value={(settings.offset_hz ?? 0) / 1e6}
@@ -186,19 +199,29 @@ export function RadioSettings({
   );
 }
 
-export function LaneControls({ active, stream }: { active: DeviceSet; stream: number }) {
+export function LaneControls({
+  active,
+  stream,
+  advised = false,
+}: {
+  active: DeviceSet;
+  stream: number;
+  advised?: boolean;
+}) {
   const { applyPatch } = useDevicePatch();
   const caps = active.capabilities;
   const scope = caps.per_stream;
   const port = streamLabel("iq", stream, rxStreamCount(caps));
   const lane = forStream(active.settings, stream, scope);
-  const automaticGain = automaticGainIsOn(caps, active.settings);
+  const automaticGain = laneAgc(active, stream).on;
+  const agcHere = agcOffered(caps) && (scope?.agc === true || stream === 0);
   const patch = (delta: Parameters<typeof applyPatch>[1]): void => applyPatch(active.id, delta);
   return (
     <>
       {scope?.antenna === true && caps.antennas.length > 1 && (
         <SettingRow label="Antenna">
           <Select
+            className={WIDE}
             label={`${port} antenna`}
             value={lane.antenna ?? caps.antennas[0] ?? ""}
             options={caps.antennas.map((antenna) => ({ value: antenna, label: antenna }))}
@@ -207,12 +230,17 @@ export function LaneControls({ active, stream }: { active: DeviceSet; stream: nu
         </SettingRow>
       )}
       {scope?.gain === true &&
-        caps.gains.map((stage) => (
+        caps.gains.map((stage, index) => (
           <GainControl
             key={stage.name}
             stage={stage}
             port={port}
             disabled={automaticGain}
+            measured={agcGainDb(active, stream)}
+            agc={
+              agcHere &&
+              index === 0 && <AgcAuto set={active} stream={stream} port={port} advised={advised} />
+            }
             value={lane.gains?.find((g) => g.stage === stage.name)?.value_db ?? stage.range.min}
             onCommit={(db) =>
               patch({ streams: [{ stream, gains: [{ stage: stage.name, value_db: db }] }] })
@@ -226,28 +254,20 @@ export function LaneControls({ active, stream }: { active: DeviceSet; stream: nu
 function RateControl({
   caps,
   sampleRate,
-  locked,
   onCommit,
 }: {
   caps: Capabilities;
   sampleRate: number;
-  locked: boolean;
   onCommit: (hz: number) => void;
 }) {
   const rateRange = spanOf(caps.sample_rate_ranges);
-  if (locked || (caps.sample_rates.length === 1 && rateRange == null)) {
-    return (
-      <span
-        className="font-mono text-xs text-ink"
-        title={locked ? "Change the sample rate on the connected Array node" : undefined}
-      >
-        {formatSampleRate(sampleRate)}
-      </span>
-    );
+  if (caps.sample_rates.length === 1 && rateRange == null) {
+    return <span className="font-mono text-xs text-ink">{formatSampleRate(sampleRate)}</span>;
   }
   if (caps.sample_rates.length > 0) {
     return (
       <Select
+        className={WIDE}
         label="Sample rate"
         value={sampleRate}
         options={withCurrent(
@@ -269,7 +289,7 @@ function RateControl({
         max={rateRange ? rateRange.max / 1e6 : undefined}
         step={rateRange?.step != null ? rateRange.step / 1e6 : 0.001}
         onCommit={(msps) => onCommit(snapToRanges(caps.sample_rate_ranges, Math.round(msps * 1e6)))}
-        className="w-28"
+        className={WIDE}
       />
     </>
   );
@@ -304,6 +324,7 @@ function FilterControl({
       )}
       {caps.bandwidths.length > 0 ? (
         <Select
+          className={WIDE}
           label="Analog bandwidth"
           value={hz}
           disabled={auto}
@@ -328,7 +349,7 @@ function FilterControl({
               onCommit={(mhz) =>
                 onCommit(manualFilter(snapToRanges(caps.bandwidth_ranges, Math.round(mhz * 1e6))))
               }
-              className="w-28"
+              className={WIDE}
             />
           </>
         )
@@ -339,9 +360,11 @@ function FilterControl({
 
 function AgcControl({
   active,
+  toggle,
   onCommit,
 }: {
   active: DeviceSet;
+  toggle: boolean;
   onCommit: (agc: NonNullable<DeviceSet["settings"]["agc"]>) => void;
 }) {
   const agc = active.capabilities.agc;
@@ -349,13 +372,16 @@ function AgcControl({
   const modes = agc?.kind === "modes" ? agc.options : [];
   return (
     <>
-      <Checkbox
-        label="Automatic gain"
-        checked={state.on}
-        onChange={(on) => onCommit({ ...state, on })}
-      />
+      {toggle && (
+        <Checkbox
+          label="Automatic gain"
+          checked={state.on}
+          onChange={(on) => onCommit({ ...state, on })}
+        />
+      )}
       {modes.length > 0 && (
         <Select
+          className={WIDE}
           label="AGC mode"
           value={state.mode ?? ""}
           disabled={!state.on}
@@ -373,15 +399,19 @@ function GainControl({
   onCommit,
   port,
   disabled,
+  measured = null,
+  agc,
 }: {
   stage: GainStage;
   value: number;
   onCommit: (db: number) => void;
   port?: string;
   disabled?: boolean;
+  measured?: number | null;
+  agc?: ReactNode;
 }) {
   const { pending, change } = useDebouncedCommit(onCommit);
-  const shown = pending ?? value;
+  const shown = (disabled ? measured : null) ?? pending ?? value;
   const name = gainLabel(stage);
   const unit = gainUnit(stage);
   const label = `${port === undefined ? "" : `${port} `}${name} gain`;
@@ -391,6 +421,7 @@ function GainControl({
     const on = shown > stage.range.min;
     return (
       <SettingRow label={name} title={title}>
+        {agc}
         <Checkbox
           label={label}
           checked={on}
@@ -408,6 +439,7 @@ function GainControl({
   const settings = stageSettings(stage);
   return (
     <SettingRow label={name} title={title}>
+      {agc}
       {settings.length > 0 ? (
         <Slider
           label={label}
@@ -480,6 +512,7 @@ function ExtraControl({
       return (
         <SettingRow label={name}>
           <Picker
+            className={WIDE}
             label={name}
             value={typeof raw === "string" ? raw : setting.default}
             options={options}
@@ -504,6 +537,7 @@ function ExtraControl({
       return (
         <SettingRow label={name}>
           <NumberField
+            className={WIDE}
             label={name}
             unit={setting.unit === "" ? undefined : setting.unit}
             value={value}
@@ -520,7 +554,7 @@ function ExtraControl({
         <SettingRow label={name}>
           <Input
             aria-label={name}
-            className={`${FIELD} w-full max-w-64`}
+            className={`${FIELD} ${WIDE}`}
             value={draft}
             onChange={(event) => {
               setDraft(event.currentTarget.value);

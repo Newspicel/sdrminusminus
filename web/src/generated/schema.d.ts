@@ -1416,6 +1416,12 @@ export interface components {
             kind: "modes";
             options: components["schemas"]["ArgumentOption"][];
         };
+        AgcGain: {
+            /** Format: int32 */
+            stream: number;
+            /** Format: double */
+            value_db: number;
+        };
         AgcSetting: {
             mode?: string | null;
             on: boolean;
@@ -3188,6 +3194,7 @@ export interface components {
             serial?: string | null;
         };
         DeviceSet: {
+            agc_gains?: components["schemas"]["AgcGain"][];
             capabilities: components["schemas"]["Capabilities"];
             channels: components["schemas"]["ChannelInfo"][];
             clipping?: number[];
@@ -5533,11 +5540,13 @@ export interface components {
         /** @enum {string} */
         StreamKind: "spectrum" | "audio" | "video" | "iq" | "symbols" | "range_doppler";
         StreamScope: {
+            agc?: boolean;
             antenna?: boolean;
             gain?: boolean;
             tuning?: boolean;
         };
         StreamSettings: {
+            agc?: null | components["schemas"]["AgcSetting"];
             antenna?: string | null;
             /** Format: double */
             center_hz?: number | null;

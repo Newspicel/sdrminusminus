@@ -4558,6 +4558,24 @@
           }
         ]
       },
+      "AgcGain": {
+        "type": "object",
+        "required": [
+          "stream",
+          "value_db"
+        ],
+        "properties": {
+          "stream": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "value_db": {
+            "type": "number",
+            "format": "double"
+          }
+        }
+      },
       "AgcSetting": {
         "type": "object",
         "required": [
@@ -11305,6 +11323,12 @@
           "channels"
         ],
         "properties": {
+          "agc_gains": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AgcGain"
+            }
+          },
           "capabilities": {
             "$ref": "#/components/schemas/Capabilities"
           },
@@ -19691,6 +19715,9 @@
       "StreamScope": {
         "type": "object",
         "properties": {
+          "agc": {
+            "type": "boolean"
+          },
           "antenna": {
             "type": "boolean"
           },
@@ -19708,6 +19735,16 @@
           "stream"
         ],
         "properties": {
+          "agc": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AgcSetting"
+              }
+            ]
+          },
           "antenna": {
             "type": [
               "string",

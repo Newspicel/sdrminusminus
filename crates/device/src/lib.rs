@@ -4,7 +4,7 @@ use std::sync::{
 };
 
 use num_complex::Complex;
-use sdrmm_wire::{Capabilities, DeviceInfo, DeviceSettings, StreamScope};
+use sdrmm_wire::{AgcGain, Capabilities, DeviceInfo, DeviceSettings, StreamScope};
 
 pub type Sample = Complex<f32>;
 
@@ -71,6 +71,11 @@ pub fn check_stream_settings(
         if !entry.gains.is_empty() && !scope.gain {
             return Err(DeviceError::Unsupported(format!(
                 "streams[{stream}].gains: this device's streams share one gain"
+            )));
+        }
+        if entry.agc.is_some() && !scope.agc {
+            return Err(DeviceError::Unsupported(format!(
+                "streams[{stream}].agc: this device's streams share one AGC"
             )));
         }
         if entry.antenna.is_some() && !scope.antenna {
@@ -279,6 +284,10 @@ pub trait SdrDevice: Send {
 
     fn playback(&self) -> Option<Arc<PlaybackShared>> {
         None
+    }
+
+    fn agc_gains(&self) -> Result<Vec<AgcGain>, DeviceError> {
+        Ok(Vec::new())
     }
 
     /// Switches this radio's own calibration reference into every lane at once.
@@ -553,6 +562,7 @@ mod tests {
             tuning: true,
             gain: true,
             antenna: true,
+            agc: false,
         };
         check_stream_settings(&settings, &caps(4, scoped)).expect("multi-stream");
     }
@@ -572,6 +582,7 @@ mod tests {
             tuning: true,
             gain: true,
             antenna: true,
+            agc: false,
         };
         refused_naming(
             &with_streams(vec![entry(2)]),
@@ -588,6 +599,7 @@ mod tests {
                 tuning: false,
                 gain: true,
                 antenna: false,
+                agc: false,
             },
         );
         let mut retune = entry(1);
@@ -609,8 +621,22 @@ mod tests {
                 tuning: true,
                 gain: false,
                 antenna: false,
+                agc: false,
             },
         );
         refused_naming(&with_streams(vec![gain]), &tuning_only, "gains");
+
+        let mut agc = entry(1);
+        agc.agc = Some(sdrmm_wire::AgcSetting::switched(true));
+        refused_naming(&with_streams(vec![agc.clone()]), &gain_only, "agc");
+        let agc_too = caps(
+            4,
+            StreamScope {
+                agc: true,
+                ..StreamScope::default()
+            },
+        );
+        check_stream_settings(&with_streams(vec![agc]), &agc_too)
+            .expect("agc is scoped per-stream");
     }
 }

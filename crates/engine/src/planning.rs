@@ -205,6 +205,7 @@ fn with_center(
                 tuning: None,
                 gains: Vec::new(),
                 antenna: None,
+                agc: None,
             }),
         }
     } else {
@@ -314,6 +315,7 @@ pub(crate) fn plan_center(
     capabilities: &Capabilities,
     settings: &DeviceSettings,
     channels: &[ChannelInfo],
+    group: &[u32],
 ) -> Option<DeviceSettings> {
     let scope = capabilities.per_stream;
     if !scope.tuning {
@@ -327,30 +329,35 @@ pub(crate) fn plan_center(
             ..DeviceSettings::default()
         });
     }
+    let leader = group.iter().min().copied();
     let mut streams = Vec::new();
     for stream in 0..capabilities.rx_streams {
-        if !settings.for_stream(stream, &scope).tunes_itself() {
+        let grouped = group.contains(&stream);
+        if grouped && Some(stream) != leader || !settings.for_stream(stream, &scope).tunes_itself()
+        {
             continue;
         }
-        let mine: Vec<ChannelInfo> = channels
+        let lanes: &[u32] = if grouped { group } else { &[stream] };
+        let heard: Vec<ChannelInfo> = channels
             .iter()
-            .filter(|channel| channel.stream == stream)
+            .filter(|channel| lanes.contains(&channel.stream))
             .cloned()
             .collect();
         let current_hz = center_of(settings, stream, &scope);
-        let Some(center_hz) = best_center_hz(capabilities, settings, stream, &mine, current_hz)
+        let Some(center_hz) = best_center_hz(capabilities, settings, stream, &heard, current_hz)
         else {
             continue;
         };
-        if center_hz != current_hz {
-            streams.push(StreamSettings {
-                stream,
-                center_hz: Some(center_hz),
-                tuning: None,
-                gains: Vec::new(),
-                antenna: None,
-            });
-        }
+        streams.extend(
+            lanes
+                .iter()
+                .filter(|lane| center_of(settings, **lane, &scope) != center_hz)
+                .map(|lane| StreamSettings {
+                    stream: *lane,
+                    center_hz: Some(center_hz),
+                    ..StreamSettings::default()
+                }),
+        );
     }
     (!streams.is_empty()).then(|| DeviceSettings {
         streams,

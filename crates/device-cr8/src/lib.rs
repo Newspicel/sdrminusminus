@@ -452,6 +452,7 @@ mod tests {
                         value_db: 40.0,
                     }],
                     antenna: None,
+                    agc: None,
                 }],
                 ..DeviceSettings::default()
             },
@@ -555,6 +556,7 @@ mod tests {
                         value_db: 1.0,
                     }],
                     antenna: None,
+                    agc: None,
                 }],
                 ..DeviceSettings::default()
             },

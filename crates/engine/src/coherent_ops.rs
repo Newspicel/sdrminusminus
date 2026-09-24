@@ -413,13 +413,23 @@ impl Engine {
             let (Some(&lead), Some(&center)) = (lanes.first(), centers.first()) else {
                 return;
             };
-            if !state.capabilities.per_stream.tuning || centers.iter().all(|hz| *hz == center) {
+            let scope = state.capabilities.per_stream;
+            let tuning = |lane: u32| {
+                state
+                    .settings
+                    .for_stream(lane, &scope)
+                    .tuning
+                    .unwrap_or_default()
+            };
+            let aligned = lanes.iter().all(|lane| tuning(*lane) == tuning(lead));
+            if !scope.tuning || aligned && centers.iter().all(|hz| *hz == center) {
                 return;
             }
             DeviceSettings {
                 streams: vec![StreamSettings {
                     stream: lead,
                     center_hz: Some(center),
+                    tuning: Some(tuning(lead)),
                     ..StreamSettings::default()
                 }],
                 ..DeviceSettings::default()
@@ -428,6 +438,7 @@ impl Engine {
         if let Err(error) = self.patch_device_from(ds, delta) {
             tracing::warn!(device_set = ds, %error, "the coherent lanes could not be put on one frequency");
         }
+        self.settle_tuning(ds);
     }
 
     pub(crate) fn recover_lost_sync(&self) {
@@ -553,6 +564,78 @@ impl Engine {
 
     /// Tells the aggregator the front end moved. A shared synthesizer keeps its phase across a
     /// retune; separate ones do not, so the solution is thrown away and rebuilt.
+    pub(crate) fn restart_coherent(&self, ds: u32) -> Result<(), EngineError> {
+        let mut inner = self.lock();
+        let state = inner
+            .device_sets
+            .get_mut(&ds)
+            .ok_or(EngineError::DeviceSetNotFound(ds))?;
+        let Some(coherent) = state.coherent.take() else {
+            return Ok(());
+        };
+        let CoherentState {
+            runtime,
+            updates,
+            surfaces,
+            nodes,
+            lanes,
+            calibrating,
+        } = coherent;
+        let mut taps = runtime.stop().ok_or_else(|| {
+            EngineError::Coherent("the coherent runtime lost its taps".to_string())
+        })?;
+        let sample_rate = sample_rate_of(&state.settings);
+        let center_hz = state
+            .coherent_centers()
+            .first()
+            .copied()
+            .unwrap_or(crate::DEFAULT_CENTER_HZ);
+        taps.sample_rate = sample_rate;
+        let runtime = CoherentRuntime::start(CoherentStart {
+            set: ds,
+            taps,
+            tier: state.capabilities.coherence,
+            center_hz,
+            cal: bank_cal(&nodes),
+            switched_reference: state.capabilities.noise_source,
+        })?;
+        for (node, params) in &nodes {
+            let wired = lanes.get(node).cloned().unwrap_or_default();
+            let host = CoherentHost::build(
+                *node,
+                CoherentCtx {
+                    lanes: wired.len(),
+                    sample_rate,
+                    center_hz,
+                },
+                params,
+                CoherentSinks {
+                    updates: updates.clone(),
+                    surfaces: surfaces.clone(),
+                    decoded: self.decoded_sink(ds, *node),
+                },
+                wired,
+            )?;
+            runtime.send(CoherentCommand::Add { node: *node, host });
+        }
+        let restarted = CoherentState {
+            runtime,
+            updates,
+            surfaces,
+            nodes,
+            lanes,
+            calibrating,
+        };
+        restarted
+            .runtime
+            .send(CoherentCommand::Members(restarted.members()));
+        state.coherent = Some(restarted);
+        inner.revision += 1;
+        drop(inner);
+        self.calibrate_against_reference(ds);
+        Ok(())
+    }
+
     pub(crate) fn notify_coherent_meta(&self, ds: u32, center_hz: f64, retuned: bool) {
         let inner = self.lock();
         let Some(state) = inner.device_sets.get(&ds) else {

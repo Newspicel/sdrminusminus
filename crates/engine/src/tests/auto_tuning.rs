@@ -16,7 +16,7 @@ fn settled(
     settings: &DeviceSettings,
     channels: &[ChannelInfo],
 ) -> f64 {
-    plan_center(capabilities, settings, channels)
+    plan_center(capabilities, settings, channels, &[])
         .and_then(|delta| delta.center_hz)
         .unwrap_or_else(|| settings.center_hz.expect("a tuned radio"))
 }
@@ -54,7 +54,7 @@ fn crowded_tuning_plans_do_not_hold_control_for_audio_queue_durations() {
         .collect();
     let capabilities = tuner_caps();
     let settings = tuned(100e6);
-    let expected = plan_center(&capabilities, &settings, &channels);
+    let expected = plan_center(&capabilities, &settings, &channels, &[]);
     sdrmm_test_support::assert_no_alloc("descriptor lookup", || {
         for channel in &channels {
             std::hint::black_box(
@@ -64,7 +64,10 @@ fn crowded_tuning_plans_do_not_hold_control_for_audio_queue_durations() {
     });
     let started = Instant::now();
     for _ in 0..10 {
-        assert_eq!(plan_center(&capabilities, &settings, &channels), expected);
+        assert_eq!(
+            plan_center(&capabilities, &settings, &channels, &[]),
+            expected
+        );
     }
     assert!(
         started.elapsed() < Duration::from_millis(250),
@@ -77,7 +80,7 @@ fn crowded_tuning_plans_do_not_hold_control_for_audio_queue_durations() {
 
 #[test]
 fn a_radio_with_nothing_wired_to_it_is_left_where_it_was() {
-    assert_eq!(plan_center(&tuner_caps(), &tuned(100e6), &[]), None);
+    assert_eq!(plan_center(&tuner_caps(), &tuned(100e6), &[], &[]), None);
 }
 
 #[test]
@@ -152,7 +155,7 @@ fn a_radio_already_over_its_decoders_is_not_retuned_for_nothing() {
     let wired = [parked(1, -1e6), parked(2, 1e6)];
     let settled_hz = settled(&tuner_caps(), &tuned(100e6), &wired);
     assert_eq!(
-        plan_center(&tuner_caps(), &tuned(settled_hz), &wired),
+        plan_center(&tuner_caps(), &tuned(settled_hz), &wired, &[]),
         None,
         "the radio moved again after it had already settled"
     );
@@ -179,6 +182,7 @@ fn a_radio_that_tunes_each_stream_apart_follows_the_decoders_on_each() {
             tuning: true,
             gain: true,
             antenna: true,
+            agc: false,
         },
         ..tuner_caps()
     };
@@ -191,13 +195,57 @@ fn a_radio_that_tunes_each_stream_apart_follows_the_decoders_on_each() {
         },
     ];
     let settings = tuned(100e6);
-    let settled = resolved(&settings, plan_center(&capabilities, &settings, &wired));
+    let settled = resolved(
+        &settings,
+        plan_center(&capabilities, &settings, &wired, &[]),
+    );
     for channel in &wired {
         let center_hz = center_of(&settled, channel.stream, &capabilities.per_stream);
         assert!(
             heard(center_hz, channel),
             "stream {} settled on {center_hz} Hz, away from its own decoder",
             channel.stream
+        );
+    }
+}
+
+#[test]
+fn a_coherent_group_follows_every_decoder_on_its_lanes_as_one() {
+    let capabilities = Capabilities {
+        rx_streams: 3,
+        per_stream: StreamScope {
+            tuning: true,
+            ..StreamScope::default()
+        },
+        ..tuner_caps()
+    };
+    let wired = [
+        ChannelInfo {
+            stream: 1,
+            settings: nfm_settings(40e6),
+            ..parked(1, 0.0)
+        },
+        ChannelInfo {
+            stream: 2,
+            settings: nfm_settings(40.2e6),
+            ..parked(2, 0.0)
+        },
+    ];
+    let settings = tuned(100e6);
+    let moved = plan_center(&capabilities, &settings, &wired, &[1, 2]).expect("the group moves");
+    let centers: Vec<(u32, Option<f64>)> = moved
+        .streams
+        .iter()
+        .map(|lane| (lane.stream, lane.center_hz))
+        .collect();
+    let [(1, Some(center_hz)), (2, Some(other_hz))] = centers[..] else {
+        panic!("only the group moves, together: {centers:?}");
+    };
+    assert_eq!(center_hz, other_hz);
+    for channel in &wired {
+        assert!(
+            heard(center_hz, channel),
+            "{center_hz} Hz misses a group decoder"
         );
     }
 }
@@ -210,6 +258,7 @@ fn a_stream_tuned_by_hand_stays_put_while_its_neighbour_follows_its_decoder() {
             tuning: true,
             gain: true,
             antenna: true,
+            agc: false,
         },
         ..tuner_caps()
     };
@@ -227,7 +276,7 @@ fn a_stream_tuned_by_hand_stays_put_while_its_neighbour_follows_its_decoder() {
         tuning: Some(Tuning::Manual),
         ..StreamSettings::default()
     }];
-    let moved = plan_center(&capabilities, &settings, &wired).expect("stream 1 moves");
+    let moved = plan_center(&capabilities, &settings, &wired, &[]).expect("stream 1 moves");
     let streams: Vec<u32> = moved.streams.iter().map(|s| s.stream).collect();
     assert_eq!(
         streams,
@@ -252,7 +301,7 @@ fn a_decoder_too_wide_to_clear_the_spike_is_held_as_far_off_it_as_the_window_all
         sample_rate: Some(4_000_000.0),
         ..DeviceSettings::default()
     };
-    let moved = plan_center(&tuner_caps(), &settings, std::slice::from_ref(&wide))
+    let moved = plan_center(&tuner_caps(), &settings, std::slice::from_ref(&wide), &[])
         .and_then(|delta| delta.center_hz)
         .expect("the spike was left on the carrier");
     let off_by = (moved - ADSB_CENTER_HZ).abs();
@@ -272,7 +321,7 @@ fn a_radio_tuned_by_hand_ignores_its_decoders() {
     let wired = [parked(1, 30e6)];
     let mut settings = tuned(100e6);
     settings.tuning = Some(Tuning::Manual);
-    assert_eq!(plan_center(&tuner_caps(), &settings, &wired), None);
+    assert_eq!(plan_center(&tuner_caps(), &settings, &wired, &[]), None);
 }
 
 #[tokio::test]

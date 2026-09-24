@@ -74,6 +74,7 @@ pub fn capabilities() -> Capabilities {
             tuning: false,
             gain: true,
             antenna: false,
+            agc: false,
         },
         directional: None,
         dc_artifact: DcArtifact::Operator,
