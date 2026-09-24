@@ -51,6 +51,7 @@ mod voice_inversion;
 mod vor;
 mod weak_signal;
 mod wfm;
+#[cfg(test)]
 mod xng_adapter;
 
 #[cfg(test)]
