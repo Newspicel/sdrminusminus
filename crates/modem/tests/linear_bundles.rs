@@ -60,6 +60,7 @@ fn every_linear_row_is_registered_and_committed() {
             "qam-star",
             "qam-nonuniform",
             "apsk",
+            "equalised",
         ],
         "the §6 linear rows and the registry have drifted apart"
     );
@@ -673,5 +674,68 @@ fn measure_limits_full() {
         let path = baseline_path(stem);
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         limits::save_json(&table, &path).unwrap();
+    }
+}
+
+#[test]
+#[ignore = "full sweeps; run in release to (re)generate the committed equalised curves"]
+fn measure_equalised_curves_full() {
+    for m in catalog::equalised::MEASUREMENTS {
+        write_curve(m);
+    }
+}
+
+#[test]
+fn the_equaliser_sits_near_the_awgn_tier_through_the_echo() {
+    for (equalised, awgn, most) in [
+        (
+            catalog::equalised::QPSK_MULTIPATH_EQ,
+            catalog::psk::QPSK_AWGN,
+            1.2,
+        ),
+        (
+            catalog::equalised::QAM16_MULTIPATH_EQ,
+            catalog::qam::QAM16_AWGN,
+            1.7,
+        ),
+        (
+            catalog::equalised::QAM64_MULTIPATH_EQ,
+            catalog::qam::QAM64_AWGN,
+            2.8,
+        ),
+        (
+            catalog::equalised::QAM16_TRACKED_MULTIPATH_EQ,
+            catalog::qam::QAM16_AWGN,
+            2.5,
+        ),
+    ] {
+        let penalty = crossing(equalised, 1e-3) - crossing(awgn, 1e-3);
+        assert!(
+            (0.0..most).contains(&penalty),
+            "{equalised}: {penalty:+.2} dB over {awgn}"
+        );
+    }
+}
+
+#[test]
+fn the_echo_breaks_the_unequalised_burst() {
+    for (stem, table) in [
+        (
+            catalog::equalised::QAM16_MULTIPATH_EQ,
+            sdrmm_modem::constellation::tables::qam_square(16),
+        ),
+        (
+            catalog::equalised::QAM64_MULTIPATH_EQ,
+            sdrmm_modem::constellation::tables::qam_square(64),
+        ),
+    ] {
+        let plain =
+            catalog::equalised::burst_link("plain", linear::params(table, 0.0, false), None);
+        let op = crossing(stem, 1e-3) + 3.0;
+        let ber = probe(&plain, &ChannelSpec::default(), op);
+        assert!(
+            ber > 1e-2,
+            "{stem}: unequalised BER {ber:.2e} at {op:.1} dB"
+        );
     }
 }

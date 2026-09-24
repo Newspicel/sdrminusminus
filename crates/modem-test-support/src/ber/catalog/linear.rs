@@ -245,7 +245,7 @@ pub fn find_word_amplitude(
     (lo..=last).min_by(|&a, &b| misfit(a).total_cmp(&misfit(b)))
 }
 
-fn frame(table: &Constellation, uw: &[u32], payload: &[u32]) -> Vec<u32> {
+pub(crate) fn frame(table: &Constellation, uw: &[u32], payload: &[u32]) -> Vec<u32> {
     let mut state = FILLER_SEED;
     let m = table.len() as u32;
     let mut s = filler_from(&mut state, PREAMBLE, m);
@@ -426,7 +426,7 @@ pub fn coherent_tracked_link(
     }
 }
 
-fn decode_coherent(
+pub(crate) fn decode_coherent(
     table: &Constellation,
     symbols: &[Complex<f32>],
     bits_per_symbol: usize,

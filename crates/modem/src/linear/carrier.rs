@@ -103,15 +103,32 @@ impl CarrierLoop {
 
     #[must_use]
     pub fn advance(&mut self, y: Complex<f32>, table: &Constellation) -> Complex<f32> {
-        let rot = Complex::new((-self.phase).cos() as f32, (-self.phase).sin() as f32);
-        let out = y * rot;
-        let error = self.detector.error(out, table);
+        let out = y * self.rotation();
+        self.steer(out, table);
+        out
+    }
+
+    #[must_use]
+    pub fn rotation(&self) -> Complex<f32> {
+        Complex::new((-self.phase).cos() as f32, (-self.phase).sin() as f32)
+    }
+
+    pub fn steer(&mut self, out: Complex<f32>, table: &Constellation) {
+        self.steer_with(self.detector, out, table);
+    }
+
+    pub fn steer_with(
+        &mut self,
+        detector: PhaseDetector,
+        out: Complex<f32>,
+        table: &Constellation,
+    ) {
+        let error = detector.error(out, table);
         let mut inc = self.filter.advance(error);
         if self.fll_gain > 0.0 {
             inc += self.advance_frequency_aid(out);
         }
         self.phase = wrap(self.phase + inc);
-        out
     }
 
     pub fn smooth(

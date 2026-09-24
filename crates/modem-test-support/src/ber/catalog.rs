@@ -1,6 +1,7 @@
 pub mod afsk;
 pub mod analog;
 pub mod ask;
+pub mod equalised;
 pub mod framing;
 pub mod gmsk;
 pub mod linear;
@@ -233,6 +234,10 @@ pub const ENTRIES: &[Entry] = &[
     Entry {
         name: "apsk",
         measurements: qam::APSK,
+    },
+    Entry {
+        name: "equalised",
+        measurements: equalised::MEASUREMENTS,
     },
     Entry {
         name: "ofdm",

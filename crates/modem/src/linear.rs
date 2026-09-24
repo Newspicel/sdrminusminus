@@ -4,6 +4,7 @@ mod carrier;
 mod demod;
 mod differential;
 mod envelope;
+mod equaliser;
 mod frontend;
 mod modulator;
 mod params;
@@ -17,6 +18,7 @@ pub use demod::{
 };
 pub use differential::{DifferentialDetector, differential_detect};
 pub use envelope::{EnvelopeDemod, EnvelopeTiming, slice_amplitude};
+pub use equaliser::{Equaliser, EqualiserConfig, EqualiserError};
 pub use frontend::{FrontCorrection, FrontEstimator};
 pub use modulator::LinearMod;
 pub use params::{LinearError, LinearParams};

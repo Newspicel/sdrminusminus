@@ -79,11 +79,53 @@ impl Impairment for Multipath {
     }
 }
 
+#[derive(Clone, Copy, Debug)]
+pub struct MovingEcho {
+    delay_samples: usize,
+    relative_db: f64,
+    doppler_cycles_per_sample: f64,
+}
+
+impl MovingEcho {
+    #[must_use]
+    pub fn new(delay_samples: usize, relative_db: f64, doppler_cycles_per_sample: f64) -> Self {
+        Self {
+            delay_samples,
+            relative_db,
+            doppler_cycles_per_sample,
+        }
+    }
+
+    fn echo_at(&self, n: usize) -> Complex<f64> {
+        let r = 10f64.powf(self.relative_db / 20.0);
+        let theta = std::f64::consts::TAU * (self.doppler_cycles_per_sample * n as f64).fract();
+        Complex::from_polar(r, theta)
+    }
+}
+
+impl Impairment for MovingEcho {
+    fn apply(&self, x: &mut Vec<Complex<f32>>, _rng: &mut Rng) {
+        let src = x.clone();
+        let r = 10f64.powf(self.relative_db / 20.0);
+        let scale = (1.0 + r * r).sqrt().recip();
+        for (n, s) in x.iter_mut().enumerate() {
+            let direct = Complex::new(f64::from(src[n].re), f64::from(src[n].im));
+            let late = n
+                .checked_sub(self.delay_samples)
+                .map_or(Complex::new(0.0, 0.0), |i| {
+                    Complex::new(f64::from(src[i].re), f64::from(src[i].im)) * self.echo_at(n)
+                });
+            let y = (direct + late) * scale;
+            *s = Complex::new(y.re as f32, y.im as f32);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use num_complex::Complex;
 
-    use super::{Multipath, MultipathProfile};
+    use super::{MovingEcho, Multipath, MultipathProfile};
     use crate::ber::{
         impair::{Impairment, mean_power, testutil::white},
         rng::Rng,
@@ -143,6 +185,27 @@ mod tests {
                 tap.norm()
             );
         }
+    }
+
+    #[test]
+    fn a_moving_echo_turns_at_its_doppler() {
+        let mut impulse = vec![Complex::new(0.0f32, 0.0); 64];
+        impulse[10] = Complex::new(1.0, 0.0);
+        let mut y = impulse.clone();
+        MovingEcho::new(5, 0.0, 0.01).apply(&mut y, &mut Rng::new(1));
+        let echo = Complex::new(f64::from(y[15].re), f64::from(y[15].im))
+            / Complex::new(f64::from(y[10].re), f64::from(y[10].im));
+        assert!(
+            (echo.norm() - 1.0).abs() < 1e-5,
+            "echo level {}",
+            echo.norm()
+        );
+        let want = std::f64::consts::TAU * 0.15;
+        assert!(
+            (echo.arg() - want).abs() < 1e-5,
+            "echo phase {}",
+            echo.arg()
+        );
     }
 
     #[test]

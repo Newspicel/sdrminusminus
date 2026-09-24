@@ -187,15 +187,19 @@ impl SymbolSync {
     }
 
     pub fn process(&mut self, input: &[Complex<f32>], out: &mut Vec<Complex<f32>>) {
-        self.run(input, false, |y| {
-            out.push(y);
+        self.run(input, false, |y, at_symbol| {
+            if at_symbol {
+                out.push(y);
+            }
             None
         });
     }
 
     pub fn process_held(&mut self, input: &[Complex<f32>], out: &mut Vec<Complex<f32>>) {
-        self.run(input, true, |y| {
-            out.push(y);
+        self.run(input, true, |y, at_symbol| {
+            if at_symbol {
+                out.push(y);
+            }
             None
         });
     }
@@ -203,7 +207,21 @@ impl SymbolSync {
     pub fn process_steered(
         &mut self,
         input: &[Complex<f32>],
-        steer: impl FnMut(Complex<f32>) -> Option<f64>,
+        mut steer: impl FnMut(Complex<f32>) -> Option<f64>,
+    ) {
+        self.run(
+            input,
+            false,
+            |y, at_symbol| {
+                if at_symbol { steer(y) } else { None }
+            },
+        );
+    }
+
+    pub fn process_spaced(
+        &mut self,
+        input: &[Complex<f32>],
+        steer: impl FnMut(Complex<f32>, bool) -> Option<f64>,
     ) {
         self.run(input, false, steer);
     }
@@ -212,14 +230,14 @@ impl SymbolSync {
         &mut self,
         input: &[Complex<f32>],
         hold: bool,
-        mut on_symbol: impl FnMut(Complex<f32>) -> Option<f64>,
+        mut on_sample: impl FnMut(Complex<f32>, bool) -> Option<f64>,
     ) {
         self.buf.extend_from_slice(input);
         while self.pos + 3 <= self.consumed + self.buf.len() {
             let base = self.pos - self.consumed;
             let y = farrow(&self.buf[base - 1..base + 3], self.frac as f32);
             if self.at_symbol {
-                let steered = on_symbol(y);
+                let steered = on_sample(y, true);
                 if hold {
                     self.step = self.free_run_sps;
                 } else if let Some(err) = steered.filter(|_| self.primed) {
@@ -231,6 +249,7 @@ impl SymbolSync {
                 self.primed = true;
             } else {
                 self.mid = y;
+                let _ = on_sample(y, false);
             }
             self.at_symbol = !self.at_symbol;
             self.advance();

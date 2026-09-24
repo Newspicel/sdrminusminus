@@ -1,0 +1,40 @@
+{
+  "label": "64-qam uncoded through a four-ray echo (3 symbols), burst tier: T/2 equaliser (8 symbols, blind stop-and-go then decision-directed) -> decision-directed Costas (bw 0.003) -> unique-word anchor, RRC α=0.35 span 8, 8 sps, 48 kHz 6000 baud, uncoded BER, seed 0xe964",
+  "points": [
+    {
+      "ebn0_db": 13.0,
+      "errors": 2991,
+      "trials": 98304
+    },
+    {
+      "ebn0_db": 14.0,
+      "errors": 2463,
+      "trials": 147456
+    },
+    {
+      "ebn0_db": 15.0,
+      "errors": 2208,
+      "trials": 393216
+    },
+    {
+      "ebn0_db": 16.0,
+      "errors": 2013,
+      "trials": 688128
+    },
+    {
+      "ebn0_db": 17.0,
+      "errors": 2066,
+      "trials": 1277952
+    },
+    {
+      "ebn0_db": 18.0,
+      "errors": 2009,
+      "trials": 3784704
+    },
+    {
+      "ebn0_db": 19.0,
+      "errors": 877,
+      "trials": 4030464
+    }
+  ]
+}

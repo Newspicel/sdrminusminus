@@ -4,6 +4,7 @@ use sdrmm_dsp::{Decimator, SymbolSync};
 use super::{
     acquire::{Chirp, FrequencyAcquisition},
     carrier::CarrierLoop,
+    equaliser::{Equaliser, EqualiserConfig, EqualiserError},
     frontend::{FrontCorrection, FrontEstimator},
     params::LinearParams,
     timing::{FeedforwardTiming, TimingMetric},
@@ -84,6 +85,7 @@ impl DecisionTiming {
 
 struct SymbolStage {
     carrier: Option<CarrierLoop>,
+    equaliser: Option<Equaliser>,
     params: LinearParams,
     power: f32,
     power_alpha: f32,
@@ -95,6 +97,7 @@ impl SymbolStage {
     fn new(params: &LinearParams, power_symbols: f64, carrier: Option<CarrierLoop>) -> Self {
         Self {
             carrier,
+            equaliser: None,
             params: params.clone(),
             power: INITIAL_POWER,
             power_alpha: if power_symbols.is_finite() {
@@ -124,14 +127,41 @@ impl SymbolStage {
     fn prepare(&mut self, y: Complex<f32>) -> Complex<f32> {
         self.power += self.power_alpha * (y.norm_sqr() - self.power);
         let scale = self.power.max(f32::MIN_POSITIVE).sqrt().recip();
-        let mut symbol = y * scale;
-        if self.params.rotation_rad() != 0.0 {
-            let theta =
-                -((self.symbols_out as f64 * self.params.rotation_rad()) % std::f64::consts::TAU);
-            symbol *= Complex::new(theta.cos() as f32, theta.sin() as f32);
-        }
+        let symbol = derotate(
+            y * scale,
+            self.symbols_out as f64,
+            self.params.rotation_rad(),
+        );
         self.symbols_out += 1;
         symbol
+    }
+
+    fn push_spaced(
+        &mut self,
+        y: Complex<f32>,
+        at_symbol: bool,
+    ) -> Option<(Complex<f32>, Option<f64>)> {
+        let Some(equaliser) = &mut self.equaliser else {
+            return at_symbol.then(|| self.push_steering(y));
+        };
+        let rotation = self.params.rotation_rad();
+        if !at_symbol {
+            equaliser.push(derotate(y, self.symbols_out as f64 - 0.5, rotation));
+            return None;
+        }
+        equaliser.push(derotate(y, self.symbols_out as f64, rotation));
+        self.symbols_out += 1;
+        let z = equaliser.symbol(self.carrier.as_mut(), self.params.constellation());
+        Some((z, None))
+    }
+
+    fn equalise(&mut self, config: EqualiserConfig) -> Result<(), EqualiserError> {
+        self.equaliser = Some(Equaliser::new(config, self.params.constellation())?);
+        Ok(())
+    }
+
+    fn equaliser_resets(&self) -> u64 {
+        self.equaliser.as_ref().map_or(0, Equaliser::resets)
     }
 
     fn track(&mut self, symbol: Complex<f32>) -> Complex<f32> {
@@ -151,10 +181,21 @@ impl SymbolStage {
         if let Some(carrier) = &mut self.carrier {
             carrier.reset();
         }
+        if let Some(equaliser) = &mut self.equaliser {
+            equaliser.reset();
+        }
         self.power = INITIAL_POWER;
         self.symbols_out = 0;
         self.timing.reset();
     }
+}
+
+fn derotate(y: Complex<f32>, symbol_time: f64, rotation_rad: f64) -> Complex<f32> {
+    if rotation_rad == 0.0 {
+        return y;
+    }
+    let theta = -((symbol_time * rotation_rad) % std::f64::consts::TAU);
+    y * Complex::new(theta.cos() as f32, theta.sin() as f32)
 }
 
 #[derive(Clone, Debug, Default)]
@@ -234,12 +275,35 @@ impl LinearDemod {
             .map_or(0.0, CarrierLoop::freq_cycles_per_symbol)
     }
 
+    pub fn with_equaliser(mut self, config: EqualiserConfig) -> Result<Self, EqualiserError> {
+        self.stage.equalise(config)?;
+        Ok(self)
+    }
+
+    #[must_use]
+    pub fn equaliser(&self) -> Option<&Equaliser> {
+        self.stage.equaliser.as_ref()
+    }
+
+    #[must_use]
+    pub fn equaliser_resets(&self) -> u64 {
+        self.stage.equaliser_resets()
+    }
+
     pub fn process(&mut self, iq: &[Complex<f32>], out: &mut Vec<Complex<f32>>) {
         self.stagger.apply(iq, &mut self.aligned);
         self.matched.process(&self.aligned, &mut self.filtered);
         let stage = &mut self.stage;
-        self.sync.process_steered(&self.filtered, |y| {
-            let (z, err) = stage.push_steering(y);
+        if stage.equaliser.is_none() {
+            self.sync.process_steered(&self.filtered, |y| {
+                let (z, err) = stage.push_steering(y);
+                out.push(z);
+                err
+            });
+            return;
+        }
+        self.sync.process_spaced(&self.filtered, |y, at_symbol| {
+            let (z, err) = stage.push_spaced(y, at_symbol)?;
             out.push(z);
             err
         });
@@ -264,6 +328,8 @@ pub struct LinearBurstDemod {
     stagger: Unstagger,
     aligned: Vec<Complex<f32>>,
     retimed: Vec<Complex<f32>>,
+    on_time: Vec<Complex<f32>>,
+    equalised: Vec<Complex<f32>>,
 }
 
 impl LinearBurstDemod {
@@ -286,7 +352,24 @@ impl LinearBurstDemod {
             stagger: Unstagger::new(params.stagger_samples()),
             aligned: Vec::new(),
             retimed: Vec::new(),
+            on_time: Vec::new(),
+            equalised: Vec::new(),
         }
+    }
+
+    pub fn with_equaliser(mut self, config: EqualiserConfig) -> Result<Self, EqualiserError> {
+        self.stage.equalise(config)?;
+        Ok(self)
+    }
+
+    #[must_use]
+    pub fn equaliser(&self) -> Option<&Equaliser> {
+        self.stage.equaliser.as_ref()
+    }
+
+    #[must_use]
+    pub fn equaliser_resets(&self) -> u64 {
+        self.stage.equaliser_resets()
     }
 
     #[must_use]
@@ -301,6 +384,9 @@ impl LinearBurstDemod {
         self.correction.apply(&mut self.corrected);
         self.stagger.apply(&self.corrected, &mut self.aligned);
         self.retimed.clear();
+        if self.stage.equaliser.is_some() {
+            return self.process_equalised(out);
+        }
         let offset = self.timing.process(&self.aligned, &mut self.retimed);
         for y in &mut self.retimed {
             *y = self.stage.prepare(*y);
@@ -319,6 +405,39 @@ impl LinearBurstDemod {
             );
         }
         out.extend_from_slice(&self.retimed);
+        offset
+    }
+
+    fn process_equalised(&mut self, out: &mut Vec<Complex<f32>>) -> f64 {
+        let offset = self
+            .timing
+            .process_spaced(&self.aligned, 2, &mut self.retimed);
+        let rotation = self.stage.params.rotation_rad();
+        for (i, y) in self.retimed.iter_mut().enumerate() {
+            *y = derotate(*y, i as f64 / 2.0, rotation);
+        }
+        self.on_time.clear();
+        self.on_time.extend(self.retimed.iter().step_by(2));
+        self.chirp = self
+            .stage
+            .acquisition_order()
+            .and_then(|order| self.acquisition.estimate(&self.on_time, order))
+            .unwrap_or_default();
+        self.chirp.remove_spaced(&mut self.retimed, 2);
+        self.equalised.clear();
+        let table = self.stage.params.constellation();
+        if let Some(equaliser) = &mut self.stage.equaliser {
+            equaliser.equalise_burst(
+                &self.retimed,
+                self.stage.carrier.as_ref(),
+                table,
+                &mut self.equalised,
+            );
+        }
+        if let Some(carrier) = &mut self.stage.carrier {
+            carrier.smooth(&mut self.equalised, table, &mut self.backward);
+        }
+        out.extend_from_slice(&self.equalised);
         offset
     }
 

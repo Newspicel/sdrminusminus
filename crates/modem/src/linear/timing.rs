@@ -60,6 +60,15 @@ impl FeedforwardTiming {
     }
 
     pub fn process(&mut self, iq: &[Complex<f32>], out: &mut Vec<Complex<f32>>) -> f64 {
+        self.process_spaced(iq, 1, out)
+    }
+
+    pub fn process_spaced(
+        &mut self,
+        iq: &[Complex<f32>],
+        per_symbol: usize,
+        out: &mut Vec<Complex<f32>>,
+    ) -> f64 {
         self.matched.process(iq, &mut self.filtered);
         let track = match self.metric {
             TimingMetric::SquareLaw => square_law_track(&self.filtered, self.sps, &mut self.lines),
@@ -79,7 +88,7 @@ impl FeedforwardTiming {
                 rate: 0.0,
             },
         };
-        track.resample(&self.filtered, self.sps, out);
+        track.resample_spaced(&self.filtered, self.sps, per_symbol, out);
         track.offset_at(0.0, self.sps)
     }
 }
@@ -106,13 +115,24 @@ impl TimingTrack {
     }
 
     pub fn resample(&self, filtered: &[Complex<f32>], sps: usize, out: &mut Vec<Complex<f32>>) {
+        self.resample_spaced(filtered, sps, 1, out);
+    }
+
+    pub fn resample_spaced(
+        &self,
+        filtered: &[Complex<f32>],
+        sps: usize,
+        per_symbol: usize,
+        out: &mut Vec<Complex<f32>>,
+    ) {
         let anchor = self.offset_samples - self.rate * self.at_sample;
         let step = sps as f64 / (1.0 - self.rate);
         let origin = anchor / (1.0 - self.rate);
         let first = ((1.0 - origin) / step).ceil();
-        let mut k = first;
+        let spacing = step / per_symbol.max(1) as f64;
+        let mut k = first * per_symbol.max(1) as f64;
         loop {
-            let position = origin + k * step;
+            let position = origin + k * spacing;
             if (position as usize) + 2 >= filtered.len() {
                 break;
             }

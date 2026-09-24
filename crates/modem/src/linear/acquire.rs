@@ -27,9 +27,14 @@ pub struct Chirp {
 
 impl Chirp {
     pub fn remove(&self, symbols: &mut [Complex<f32>]) {
-        let centre = (symbols.len() as f64 - 1.0) / 2.0;
-        for (k, s) in symbols.iter_mut().enumerate() {
-            let t = k as f64 - centre;
+        self.remove_spaced(symbols, 1);
+    }
+
+    pub fn remove_spaced(&self, samples: &mut [Complex<f32>], per_symbol: usize) {
+        let per_symbol = per_symbol.max(1);
+        let centre = (samples.len().div_ceil(per_symbol) as f64 - 1.0) / 2.0;
+        for (k, s) in samples.iter_mut().enumerate() {
+            let t = k as f64 / per_symbol as f64 - centre;
             let cycles =
                 self.centre_cycles_per_symbol * t + 0.5 * self.drift_cycles_per_symbol2 * t * t;
             let theta = -TAU * cycles.rem_euclid(1.0);
