@@ -8,72 +8,52 @@
     },
     {
       "ebn0_db": 7.0,
-      "errors": 2208,
+      "errors": 2195,
       "trials": 36864
     },
     {
       "ebn0_db": 8.0,
-      "errors": 2259,
+      "errors": 2166,
       "trials": 61440
     },
     {
       "ebn0_db": 9.0,
-      "errors": 2240,
-      "trials": 98304
+      "errors": 2000,
+      "trials": 122880
     },
     {
       "ebn0_db": 10.0,
-      "errors": 2105,
-      "trials": 184320
+      "errors": 2093,
+      "trials": 245760
     },
     {
       "ebn0_db": 11.0,
-      "errors": 2042,
-      "trials": 368640
+      "errors": 2032,
+      "trials": 577536
     },
     {
       "ebn0_db": 12.0,
-      "errors": 2048,
-      "trials": 663552
+      "errors": 2001,
+      "trials": 1462272
     },
     {
       "ebn0_db": 13.0,
-      "errors": 2019,
-      "trials": 1253376
+      "errors": 2000,
+      "trials": 3956736
     },
     {
       "ebn0_db": 14.0,
-      "errors": 2029,
-      "trials": 2592768
+      "errors": 946,
+      "trials": 6008832
     },
     {
       "ebn0_db": 15.0,
-      "errors": 2006,
-      "trials": 5185536
+      "errors": 287,
+      "trials": 6008832
     },
     {
       "ebn0_db": 16.0,
-      "errors": 1484,
-      "trials": 6008832
-    },
-    {
-      "ebn0_db": 17.0,
-      "errors": 872,
-      "trials": 6008832
-    },
-    {
-      "ebn0_db": 18.0,
-      "errors": 608,
-      "trials": 6008832
-    },
-    {
-      "ebn0_db": 19.0,
-      "errors": 398,
-      "trials": 6008832
-    },
-    {
-      "ebn0_db": 20.0,
-      "errors": 356,
+      "errors": 73,
       "trials": 6008832
     }
   ]

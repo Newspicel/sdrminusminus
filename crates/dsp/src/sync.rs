@@ -12,7 +12,123 @@ const FREE_RUN_MEMORY_SYMBOLS: f64 = 1024.0;
 
 const SYMMETRY_TOLERANCE: f64 = 0.15;
 
+const AMPLITUDE_SYMBOLS: f32 = 64.0;
+
+const SETTLE_SYMBOLS: f32 = 2.0 * AMPLITUDE_SYMBOLS;
+
+const HOLD_SYMBOLS: f32 = 4.0 * AMPLITUDE_SYMBOLS;
+
+const TRUST_MISFIT: f32 = 0.05;
+
+const DISTRUST_MISFIT: f32 = 0.065;
+
 #[derive(Clone, Debug)]
+struct Decisions {
+    levels: Vec<f32>,
+    outer: f32,
+    outer_edge: f32,
+    mean_square: f32,
+    amplitude: f32,
+    previous: f32,
+    seen: f32,
+    since_outer: f32,
+    spacing: f32,
+    misfit: f32,
+    trusted: bool,
+}
+
+impl Decisions {
+    fn new(levels: &[f32]) -> Self {
+        assert!(!levels.is_empty(), "decision levels must not be empty");
+        let outer = levels.iter().fold(0.0f32, |acc, l| acc.max(l.abs()));
+        assert!(outer > 0.0, "decision levels must not all be zero");
+        let inner = levels
+            .iter()
+            .map(|l| l.abs())
+            .filter(|&l| l < outer)
+            .fold(0.0f32, f32::max);
+        let mean_square = levels.iter().map(|l| l * l).sum::<f32>() / levels.len() as f32;
+        let spacing = levels
+            .iter()
+            .flat_map(|a| levels.iter().map(move |b| (a - b).abs()))
+            .filter(|&d| d > 0.0)
+            .fold(f32::INFINITY, f32::min);
+        Self {
+            levels: levels.to_vec(),
+            outer,
+            outer_edge: 0.5 * (outer + inner) / outer,
+            mean_square,
+            amplitude: 0.0,
+            previous: 0.0,
+            seen: 0.0,
+            since_outer: 0.0,
+            spacing: if spacing.is_finite() { spacing } else { outer },
+            misfit: 1.0,
+            trusted: false,
+        }
+    }
+
+    fn trusted(&self) -> bool {
+        self.trusted && self.seen >= SETTLE_SYMBOLS
+    }
+
+    fn judge(&mut self, normalised: f32, decision: f32) {
+        let miss = (normalised - decision) / self.spacing;
+        self.misfit += (miss * miss - self.misfit) / AMPLITUDE_SYMBOLS;
+        self.trusted = if self.trusted {
+            self.misfit < DISTRUST_MISFIT
+        } else {
+            self.misfit < TRUST_MISFIT
+        };
+    }
+
+    fn nearest(&self, x: f32) -> f32 {
+        self.levels
+            .iter()
+            .copied()
+            .min_by(|a, b| (a - x).abs().total_cmp(&(b - x).abs()))
+            .unwrap_or(0.0)
+    }
+
+    fn track_amplitude(&mut self, magnitude: f32) {
+        self.seen += 1.0;
+        if self.seen <= 1.0 {
+            self.amplitude = magnitude;
+        } else if magnitude >= self.outer_edge * self.amplitude {
+            self.amplitude += (magnitude - self.amplitude) / self.seen.min(AMPLITUDE_SYMBOLS);
+            self.since_outer = 0.0;
+        } else {
+            self.since_outer += 1.0;
+            if self.since_outer > HOLD_SYMBOLS {
+                self.amplitude *= 1.0 - 1.0 / AMPLITUDE_SYMBOLS;
+            }
+        }
+    }
+
+    fn error(&mut self, symbol: f32, previous: f32) -> Option<f64> {
+        self.track_amplitude(symbol.abs());
+        let scale = self.amplitude / self.outer;
+        if scale <= 0.0 || !scale.is_finite() {
+            return None;
+        }
+        let decision = self.nearest(symbol / scale);
+        self.judge(symbol / scale, decision);
+        let raw = decision * previous - self.previous * symbol;
+        self.previous = decision;
+        let err = f64::from(raw) / (f64::from(scale * self.mean_square) * std::f64::consts::PI);
+        err.is_finite().then_some(err)
+    }
+
+    fn reset(&mut self) {
+        self.amplitude = 0.0;
+        self.previous = 0.0;
+        self.seen = 0.0;
+        self.since_outer = 0.0;
+        self.misfit = 1.0;
+        self.trusted = false;
+    }
+}
+
 pub struct SymbolSync {
     nominal_sps: f64,
     sps: f64,
@@ -28,6 +144,7 @@ pub struct SymbolSync {
     prev_symbol: Complex<f32>,
     mid: Complex<f32>,
     primed: bool,
+    decisions: Option<Decisions>,
 }
 
 impl SymbolSync {
@@ -57,33 +174,61 @@ impl SymbolSync {
             prev_symbol: ZERO,
             mid: ZERO,
             primed: false,
+            decisions: None,
         };
         sync.reset();
         sync
     }
 
+    #[must_use]
+    pub fn with_levels(mut self, levels: &[f32]) -> Self {
+        self.decisions = Some(Decisions::new(levels));
+        self
+    }
+
     pub fn process(&mut self, input: &[Complex<f32>], out: &mut Vec<Complex<f32>>) {
-        self.run(input, out, false);
+        self.run(input, false, |y| {
+            out.push(y);
+            None
+        });
     }
 
     pub fn process_held(&mut self, input: &[Complex<f32>], out: &mut Vec<Complex<f32>>) {
-        self.run(input, out, true);
+        self.run(input, true, |y| {
+            out.push(y);
+            None
+        });
     }
 
-    fn run(&mut self, input: &[Complex<f32>], out: &mut Vec<Complex<f32>>, hold: bool) {
+    pub fn process_steered(
+        &mut self,
+        input: &[Complex<f32>],
+        steer: impl FnMut(Complex<f32>) -> Option<f64>,
+    ) {
+        self.run(input, false, steer);
+    }
+
+    fn run(
+        &mut self,
+        input: &[Complex<f32>],
+        hold: bool,
+        mut on_symbol: impl FnMut(Complex<f32>) -> Option<f64>,
+    ) {
         self.buf.extend_from_slice(input);
         while self.pos + 3 <= self.consumed + self.buf.len() {
             let base = self.pos - self.consumed;
             let y = farrow(&self.buf[base - 1..base + 3], self.frac as f32);
             if self.at_symbol {
-                if self.primed && !hold {
-                    self.retime(y);
-                } else if hold {
+                let steered = on_symbol(y);
+                if hold {
                     self.step = self.free_run_sps;
+                } else if let Some(err) = steered.filter(|_| self.primed) {
+                    self.steer(err);
+                } else if self.primed {
+                    self.retime(y);
                 }
                 self.prev_symbol = y;
                 self.primed = true;
-                out.push(y);
             } else {
                 self.mid = y;
             }
@@ -114,6 +259,9 @@ impl SymbolSync {
         self.prev_symbol = ZERO;
         self.mid = ZERO;
         self.primed = false;
+        if let Some(decisions) = &mut self.decisions {
+            decisions.reset();
+        }
     }
 
     fn advance(&mut self) {
@@ -124,6 +272,16 @@ impl SymbolSync {
     }
 
     fn retime(&mut self, symbol: Complex<f32>) {
+        if let Some(decisions) = &mut self.decisions {
+            let decided = decisions.error(symbol.re, self.prev_symbol.re);
+            if decisions.trusted() {
+                match decided {
+                    Some(err) => self.steer(err),
+                    None => self.step = self.free_run_sps,
+                }
+                return;
+            }
+        }
         let (before, after) = (self.prev_symbol.norm_sqr(), symbol.norm_sqr());
         if before <= 0.0 || after <= 0.0 {
             self.step = self.free_run_sps;
@@ -141,6 +299,10 @@ impl SymbolSync {
             self.step = self.free_run_sps;
             return;
         }
+        self.steer(err);
+    }
+
+    fn steer(&mut self, err: f64) {
         let err = err.clamp(-0.5, 0.5);
         self.sps = (self.sps - self.beta * err * self.nominal_sps).clamp(
             self.nominal_sps * (1.0 - TRACKING_RANGE),
@@ -299,6 +461,71 @@ mod tests {
             "no offset aligns {} recovered symbols",
             out.len()
         );
+    }
+
+    fn four_level(count: usize, seed: u32) -> Vec<f32> {
+        let mut rng = XorShift32(seed);
+        (0..count)
+            .map(|_| {
+                let u = rng.next_f32();
+                if u < -0.5 {
+                    -3.0
+                } else if u < 0.0 {
+                    -1.0
+                } else if u < 0.5 {
+                    1.0
+                } else {
+                    3.0
+                }
+            })
+            .collect()
+    }
+
+    fn residual(syms: &[f32], out: &[Complex<f32>], settle: usize) -> f32 {
+        (0..8)
+            .map(|d| {
+                let n = out.len().saturating_sub(settle + 8);
+                (settle..settle + n)
+                    .map(|j| (out[j].re - syms[j + d]).powi(2))
+                    .sum::<f32>()
+                    / n as f32
+            })
+            .fold(f32::INFINITY, f32::min)
+            .sqrt()
+    }
+
+    #[test]
+    fn decisions_lock_four_levels_tighter_than_the_gardner_detector() {
+        let syms = four_level(4_000, 0x4c4c_0001);
+        for offset in [0.0, 0.3, 0.61] {
+            let signal = bpsk(&syms, 8.0, offset);
+            let run = |sync: SymbolSync| {
+                let mut sync = sync;
+                let mut out = Vec::new();
+                sync.process(&signal, &mut out);
+                residual(&syms, &out, 1_000)
+            };
+            let gardner = run(SymbolSync::new(8.0, 0.01));
+            let decided = run(SymbolSync::new(8.0, 0.01).with_levels(&[-3.0, -1.0, 1.0, 3.0]));
+            assert!(decided < 0.02, "offset {offset}: residual {decided}");
+            assert!(
+                decided < gardner,
+                "offset {offset}: {decided} vs gardner {gardner}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_long_run_of_one_inner_level_keeps_the_decisions_scaled() {
+        let mut syms = four_level(1_500, 0x4c4c_0002);
+        syms.extend(std::iter::repeat_n(1.0, 150));
+        syms.extend(four_level(1_500, 0x4c4c_0003));
+        let signal = bpsk(&syms, 8.0, 0.4);
+        let mut sync = SymbolSync::new(8.0, 0.01).with_levels(&[-3.0, -1.0, 1.0, 3.0]);
+        let mut out = Vec::new();
+        sync.process(&signal, &mut out);
+        let tail = residual(&syms, &out, 1_700);
+        assert!(tail < 0.02, "residual after the run {tail}");
     }
 
     #[test]

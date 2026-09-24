@@ -31,16 +31,37 @@ pub fn link() -> Link {
     )
 }
 
+#[must_use]
+pub fn coherent_link() -> Link {
+    super::framing::coherent_link(
+        &format!(
+            "msk (1REC h=0.5) uncoded, coherent tier: CpmMod -> +/-6 kHz front lowpass -> \
+             half-sine matched filter -> rotated-power timing -> M-th power acquisition -> \
+             smoothed 2nd-power Costas (bw {}) -> differential decode, 48 kHz 4800 baud, \
+             96+24+24 symbol overhead in Eb, release",
+            super::framing::COHERENT_LOOP_BW
+        ),
+        Acquisition::Alternating,
+        params(),
+    )
+}
+
 pub const GRID: &[f64] = &[7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0];
 pub const SEED: u64 = 0x635b;
 pub const AWGN: &str = "cpm/msk_awgn";
+pub const COHERENT_GRID: &[f64] = &[4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0];
+pub const COHERENT_SEED: u64 = 0x635b_c0e5;
+pub const COHERENT_AWGN: &str = "cpm/msk_coherent_awgn";
 pub const LIMITS: &str = "cpm/msk_limits";
 pub const PERF: &str = "cpm/msk_perf";
 
-pub const MEASUREMENTS: &[Measurement] = &[Measurement::committed(
-    AWGN,
-    link,
-    GRID,
-    SEED,
-    super::framing::FULL_CAP,
-)];
+pub const MEASUREMENTS: &[Measurement] = &[
+    Measurement::committed(AWGN, link, GRID, SEED, super::framing::FULL_CAP),
+    Measurement::committed(
+        COHERENT_AWGN,
+        coherent_link,
+        COHERENT_GRID,
+        COHERENT_SEED,
+        super::framing::FULL_CAP,
+    ),
+];

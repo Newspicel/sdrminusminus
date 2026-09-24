@@ -84,6 +84,31 @@ fn framed_link(bt: f64, acquisition: Acquisition) -> Link {
 }
 
 #[must_use]
+pub fn coherent_link(bt: f64) -> Link {
+    framing::coherent_link(
+        &format!(
+            "gmsk BT={bt} h=0.5 uncoded, coherent tier: CpmMod -> +/-6 kHz front lowpass -> \
+             Laurent C0 matched filter -> rotated-power timing -> M-th power acquisition -> \
+             smoothed 2nd-power Costas (bw {}) -> differential decode, 48 kHz 4800 baud, \
+             data-like 96+24+24 symbol overhead in Eb, release",
+            framing::COHERENT_LOOP_BW
+        ),
+        Acquisition::DataLike,
+        params(bt),
+    )
+}
+
+#[must_use]
+pub fn bt03_coherent_link() -> Link {
+    coherent_link(0.3)
+}
+
+#[must_use]
+pub fn bt05_coherent_link() -> Link {
+    coherent_link(0.5)
+}
+
+#[must_use]
 pub fn bt03_link() -> Link {
     link(0.3)
 }
@@ -295,15 +320,21 @@ pub const BT03_MLSE_GRID: &[f64] = &[
 ];
 pub const BT05_MLSE_GRID: &[f64] = &[9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0];
 
+pub const COHERENT_GRID: &[f64] = &[4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0];
+
 pub const BT03_SEED: u64 = 0x63a3;
 pub const BT05_SEED: u64 = 0x63a5;
 pub const BT03_MLSE_SEED: u64 = 0x63a3_11e5;
 pub const BT05_MLSE_SEED: u64 = 0x63a5_11e5;
+pub const BT03_COHERENT_SEED: u64 = 0x63a3_c0e5;
+pub const BT05_COHERENT_SEED: u64 = 0x63a5_c0e5;
 
 pub const BT03_AWGN: &str = "cpm/gmsk_bt03_datalike_awgn";
 pub const BT05_AWGN: &str = "cpm/gmsk_bt05_datalike_awgn";
 pub const BT03_MLSE_AWGN: &str = "cpm/gmsk_bt03_mlse_awgn";
 pub const BT05_MLSE_AWGN: &str = "cpm/gmsk_bt05_mlse_awgn";
+pub const BT03_COHERENT_AWGN: &str = "cpm/gmsk_bt03_coherent_awgn";
+pub const BT05_COHERENT_AWGN: &str = "cpm/gmsk_bt05_coherent_awgn";
 
 pub const BT03_AWGN_ALTERNATING: &str = "cpm/gmsk_bt03_awgn";
 pub const BT05_AWGN_ALTERNATING: &str = "cpm/gmsk_bt05_awgn";
@@ -343,6 +374,20 @@ pub const MEASUREMENTS: &[Measurement] = &[
         BT05_MLSE_SEED,
         framing::FULL_CAP,
     ),
+    Measurement::committed(
+        BT03_COHERENT_AWGN,
+        bt03_coherent_link,
+        COHERENT_GRID,
+        BT03_COHERENT_SEED,
+        framing::FULL_CAP,
+    ),
+    Measurement::committed(
+        BT05_COHERENT_AWGN,
+        bt05_coherent_link,
+        COHERENT_GRID,
+        BT05_COHERENT_SEED,
+        framing::FULL_CAP,
+    ),
 ];
 
 #[cfg(test)]
@@ -357,6 +402,11 @@ mod tests {
                 (link(bt).modulate)(&bits),
                 (mlse_link(bt).modulate)(&bits),
                 "BT={bt}: the tiers no longer share a transmitter"
+            );
+            assert_eq!(
+                (link(bt).modulate)(&bits),
+                (coherent_link(bt).modulate)(&bits),
+                "BT={bt}: the coherent tier no longer shares the transmitter"
             );
         }
     }

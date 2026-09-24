@@ -184,7 +184,7 @@ impl CpmDemod {
         Self {
             front,
             matched: RealDecimator::new(receive_filter, 1),
-            sync: SymbolSync::new(sps, timing_bw),
+            sync: timing_loop(params, sps, timing_bw),
             level_max,
             centre: 0.0,
             centre_scale: params.h() / (2.0 * sps),
@@ -387,6 +387,15 @@ impl CpmDemod {
         self.retimed.clear();
         self.retimed_carrier.clear();
         self.retimed_settled.clear();
+    }
+}
+
+fn timing_loop(params: &CpmParams, sps: f64, timing_bw: f64) -> SymbolSync {
+    let sync = SymbolSync::new(sps, timing_bw);
+    if params.mapping().m() > 2 {
+        sync.with_levels(params.mapping().levels())
+    } else {
+        sync
     }
 }
 

@@ -1,6 +1,6 @@
 use num_complex::Complex;
 use sdrmm_dsp::{Decimator, design_lowpass};
-use sdrmm_modem::cpm::{CpmDemod, CpmMod, CpmParams, TIMING_BW_BURST};
+use sdrmm_modem::cpm::{CoherentCpmDemod, CpmDemod, CpmMod, CpmParams, TIMING_BW_BURST};
 
 use crate::ber::{rng::Rng, sweep::Link};
 
@@ -166,6 +166,44 @@ pub fn steady_link(label: &str, acquisition: Acquisition, params: CpmParams, rx:
             let soft = steady_soft(&params, &rx, wave);
             let levels = uw_levels(&params, &UW24);
             let Some(at) = find_uw(&soft, PREAMBLE, PREAMBLE + 48, &levels) else {
+                return Vec::new();
+            };
+            payload_bits(&params, &soft, at, UW24.len(), STEADY_BITS)
+        }),
+    }
+}
+
+pub const COHERENT_LOOP_BW: f64 = 0.005;
+
+#[must_use]
+pub fn coherent_soft(params: &CpmParams, wave: &[Complex<f32>]) -> Vec<f32> {
+    let front = design_lowpass(FRONT_TAPS, NOISE_BW_HZ / RATE);
+    let mut filtered = Vec::new();
+    Decimator::new(&front, 1).process(wave, &mut filtered);
+    let Ok(mut demod) = CoherentCpmDemod::new(params, COHERENT_LOOP_BW) else {
+        return Vec::new();
+    };
+    let mut soft = Vec::new();
+    demod.process(&filtered, &mut soft);
+    soft
+}
+
+#[must_use]
+pub fn coherent_link(label: &str, acquisition: Acquisition, params: CpmParams) -> Link {
+    let mod_params = params.clone();
+    Link {
+        label: label.to_string(),
+        bits_per_trial: STEADY_BITS,
+        modulate: Box::new(move |bits| {
+            cpm_wave(
+                &mod_params,
+                &framed_symbols(acquisition, PREAMBLE, &UW24, bits, TAIL),
+            )
+        }),
+        demodulate: Box::new(move |wave| {
+            let soft = coherent_soft(&params, wave);
+            let levels = uw_levels(&params, &UW24);
+            let Some(at) = find_uw(&soft, PREAMBLE / 2, PREAMBLE + 48, &levels) else {
                 return Vec::new();
             };
             payload_bits(&params, &soft, at, UW24.len(), STEADY_BITS)

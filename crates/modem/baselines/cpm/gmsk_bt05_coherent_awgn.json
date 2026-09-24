@@ -1,0 +1,40 @@
+{
+  "label": "gmsk BT=0.5 h=0.5 uncoded, coherent tier: CpmMod -> +/-6 kHz front lowpass -> Laurent C0 matched filter -> rotated-power timing -> M-th power acquisition -> smoothed 2nd-power Costas (bw 0.005) -> differential decode, 48 kHz 4800 baud, data-like 96+24+24 symbol overhead in Eb, release, uncoded BER, seed 0x63a5c0e5",
+  "points": [
+    {
+      "ebn0_db": 4.0,
+      "errors": 2019,
+      "trials": 52224
+    },
+    {
+      "ebn0_db": 5.0,
+      "errors": 2002,
+      "trials": 107520
+    },
+    {
+      "ebn0_db": 6.0,
+      "errors": 2017,
+      "trials": 225280
+    },
+    {
+      "ebn0_db": 7.0,
+      "errors": 2002,
+      "trials": 634880
+    },
+    {
+      "ebn0_db": 8.0,
+      "errors": 2001,
+      "trials": 2124800
+    },
+    {
+      "ebn0_db": 9.0,
+      "errors": 841,
+      "trials": 4000768
+    },
+    {
+      "ebn0_db": 10.0,
+      "errors": 130,
+      "trials": 4000768
+    }
+  ]
+}

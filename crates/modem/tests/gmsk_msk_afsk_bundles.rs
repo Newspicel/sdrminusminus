@@ -139,6 +139,17 @@ fn every_chain_round_trips_near_clean_at_high_ebn0() {
             "gmsk bt=0.5 mlse",
         ),
         (msk::link(), ChannelSpec::default(), "msk"),
+        (msk::coherent_link(), ChannelSpec::default(), "msk coherent"),
+        (
+            gmsk::coherent_link(0.3),
+            ChannelSpec::default(),
+            "gmsk bt=0.3 coherent",
+        ),
+        (
+            gmsk::coherent_link(0.5),
+            ChannelSpec::default(),
+            "gmsk bt=0.5 coherent",
+        ),
         (afsk::filterbank_link(), ChannelSpec::default(), "afsk fb"),
         (
             afsk::discriminator_link(),
@@ -190,6 +201,38 @@ fn gmsk_mlse_curves_match_committed_baselines() {
 #[test]
 fn msk_curve_matches_committed_baseline() {
     smoke(msk::AWGN);
+}
+
+#[test]
+fn coherent_curves_match_committed_baselines() {
+    smoke(msk::COHERENT_AWGN);
+    smoke(gmsk::BT03_COHERENT_AWGN);
+    smoke(gmsk::BT05_COHERENT_AWGN);
+}
+
+#[test]
+fn the_coherent_tier_beats_every_discriminator_tier() {
+    for (name, coherent, rival, floor) in [
+        ("msk", msk::COHERENT_AWGN, msk::AWGN, 4.0),
+        (
+            "gmsk bt=0.3",
+            gmsk::BT03_COHERENT_AWGN,
+            gmsk::BT03_MLSE_AWGN,
+            3.5,
+        ),
+        (
+            "gmsk bt=0.5",
+            gmsk::BT05_COHERENT_AWGN,
+            gmsk::BT05_MLSE_AWGN,
+            3.5,
+        ),
+    ] {
+        let coherent = sweep::load_json(&baseline_path(coherent)).unwrap();
+        let rival = sweep::load_json(&baseline_path(rival)).unwrap();
+        let gain = -sweep::penalty_db_vs_curve(&coherent, &rival, 1e-3);
+        println!("{name}: coherent gains {gain:+.3} dB at BER 1e-3");
+        assert!(gain > floor, "{name}: coherent gains only {gain} dB");
+    }
 }
 
 #[test]
@@ -501,6 +544,21 @@ fn msk_loops_back_clean_at_margin() {
 }
 
 #[test]
+fn coherent_tiers_loop_back_clean_at_margin() {
+    e2e(msk::coherent_link(), msk::COHERENT_AWGN, 0x0e2e_635b_c0e5);
+    e2e(
+        gmsk::coherent_link(0.3),
+        gmsk::BT03_COHERENT_AWGN,
+        0x0e2e_63a3_c0e5,
+    );
+    e2e(
+        gmsk::coherent_link(0.5),
+        gmsk::BT05_COHERENT_AWGN,
+        0x0e2e_63a5_c0e5,
+    );
+}
+
+#[test]
 fn afsk_loops_back_clean_at_margin_through_both_detectors() {
     e2e(afsk::filterbank_link(), afsk::FILTERBANK_AWGN, 0x0e2e_afb1);
     e2e(
@@ -805,6 +863,33 @@ fn measure_gmsk_mlse_curves_full() {
         gmsk::BT05_MLSE_SEED,
         gmsk::BT05_MLSE_AWGN,
     );
+}
+
+#[test]
+#[ignore = "full sweep; run in release to (re)generate the committed curves"]
+fn measure_coherent_curves_full() {
+    for (link, grid, seed, stem) in [
+        (
+            msk::coherent_link(),
+            msk::COHERENT_GRID,
+            msk::COHERENT_SEED,
+            msk::COHERENT_AWGN,
+        ),
+        (
+            gmsk::coherent_link(0.3),
+            gmsk::COHERENT_GRID,
+            gmsk::BT03_COHERENT_SEED,
+            gmsk::BT03_COHERENT_AWGN,
+        ),
+        (
+            gmsk::coherent_link(0.5),
+            gmsk::COHERENT_GRID,
+            gmsk::BT05_COHERENT_SEED,
+            gmsk::BT05_COHERENT_AWGN,
+        ),
+    ] {
+        remeasure_curve(&link, &ChannelSpec::default(), grid, seed, stem);
+    }
 }
 
 #[test]

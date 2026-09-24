@@ -1,20 +1,20 @@
 {
   "entry": "mfsk4-cpfsk-reference",
   "seed": 20316,
-  "sensitivity_db_1e2": 10.183560789680818,
-  "sensitivity_db_1e3": 13.660385339118458,
-  "sensitivity_db_1e4": 18.02778775876401,
+  "sensitivity_db_1e2": 9.752064485617716,
+  "sensitivity_db_1e3": 12.314938115915933,
+  "sensitivity_db_1e4": 14.380497217997766,
   "rows": [
     {
       "axis": "static CFO",
       "unit": "Hz",
-      "threshold": 3984.375,
+      "threshold": 3890.625,
       "criterion": "BER <= 1e-2 at sensitivity(1e-3) + 3 dB"
     },
     {
       "axis": "frequency drift",
       "unit": "Hz/s",
-      "threshold": 2890.625,
+      "threshold": 2812.5,
       "criterion": "BER <= 1e-2 at sensitivity(1e-3) + 3 dB"
     },
     {
@@ -38,19 +38,19 @@
     {
       "axis": "burst shortening",
       "unit": "payload symbols removed (of 108)",
-      "threshold": 88.5,
+      "threshold": 81.0,
       "criterion": "BER <= 1e-2 at sensitivity(1e-3) + 3 dB"
     },
     {
       "axis": "level step",
       "unit": "dB attenuation of alternate bursts",
-      "threshold": 6.375,
+      "threshold": 5.625,
       "criterion": "BER <= 1e-2 at sensitivity(1e-3) + 3 dB"
     },
     {
       "axis": "profile:static-indoor",
       "unit": "dB",
-      "threshold": -0.12098026098158066,
+      "threshold": 0.02964918990754839,
       "criterion": "Eb/N0 degradation at BER 1e-3"
     }
   ]
