@@ -37,7 +37,6 @@ xng-mode-vdl2.workspace = true
 xng-mode-hfdl.workspace = true
 xng-mode-iridium.workspace = true
 xng-types.workspace = true
-xng-acars.workspace = true
 
 [build-dependencies]
 # Builds the small, statically linked first-generation AMBE decoder used only by D-STAR.
@@ -56,3 +55,4 @@ serde_json.workspace = true
 sdrmm-channels = { workspace = true, features = ["test-signals"] }
 blip25-vocoder = { workspace = true, features = ["encode"] }
 xng-mode-aero.workspace = true
+xng-acars.workspace = true

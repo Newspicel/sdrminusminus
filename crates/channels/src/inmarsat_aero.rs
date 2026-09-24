@@ -28,11 +28,10 @@ use sdrmm_wire::{
 };
 use serde::Serialize;
 use serde_json::{Value, json};
-use xng_acars::block as acars_block;
-
 use self::decoder::{AeroChannelDecoder, AeroEvent, INPUT_RATE};
 use crate::{
-    ChannelCtx, ChannelError, ChannelFilter, ChannelOutputs, ChannelRx, check_input_rate,
+    ChannelCtx, ChannelError, ChannelFilter, ChannelOutputs, ChannelRx,
+    acars::block as acars_block, check_input_rate,
     datalink::{self, Quality},
 };
 
