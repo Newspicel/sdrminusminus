@@ -774,17 +774,24 @@ impl Engine {
         if !state.tunes_freely() {
             return None;
         }
+        let stitched = state.stitched();
+        if stitched
+            .as_ref()
+            .is_some_and(|stitched| stitched.mode == sdrmm_wire::StitchMode::Auto)
+        {
+            return state.plan_stitch();
+        }
+        let group = if stitched.is_some() {
+            Vec::new()
+        } else {
+            state.coherent_lanes()
+        };
         let channels = if state.array.is_some() {
             crate::arrays::array_channels(&inner.device_sets, ds, None)
         } else {
             state.channels.clone()
         };
-        plan_center(
-            &state.capabilities,
-            &state.settings,
-            &channels,
-            &state.coherent_lanes(),
-        )
+        plan_center(&state.capabilities, &state.settings, &channels, &group)
     }
 
     pub(crate) fn patch_device_from(
@@ -820,7 +827,7 @@ impl Engine {
         let applied = runtime.apply(&hardware);
         self.note_refusal(ds, &hardware, applied.as_ref().err());
         let actual = applied?.map(|actual| DeviceSettings::from_hardware(actual, delta.offset_hz));
-        let (settings, blocking, rate, rate_changed, rebuilds, retuned, group_center) = {
+        let (settings, blocking, rate, rate_changed, rebuilds, retuned) = {
             let mut inner = self.lock();
             let state = inner
                 .device_sets
@@ -918,7 +925,6 @@ impl Engine {
             let centers = state.coherent_centers();
             let retuned =
                 centers != old_centers || rate != old_rate || front_end(&settings) != old_front_end;
-            let group_center = centers.first().copied().unwrap_or(DEFAULT_CENTER_HZ);
             inner.revision += 1;
             (
                 settings,
@@ -927,12 +933,12 @@ impl Engine {
                 rate != old_rate,
                 rebuilds,
                 retuned,
-                group_center,
             )
         };
         lock_runtime(&runtime).set_meta(&settings, blocking);
         if !rate_changed {
-            self.notify_coherent_meta(ds, group_center, retuned);
+            self.sync_extra_lane(ds);
+            self.notify_coherent_meta(ds, retuned);
         } else if let Err(error) = self.restart_coherent(ds) {
             self.mark_device_fault(ds, DeviceError::Io(format!("coherent restart: {error}")));
         }

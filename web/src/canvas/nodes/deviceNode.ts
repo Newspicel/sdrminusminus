@@ -72,6 +72,19 @@ export function autoTuning(set: DeviceSet, stream = 0): boolean {
   return (resolved.tuning ?? "auto") === "auto";
 }
 
+export function laneCenterHz(set: DeviceSet, stream: number): number | null {
+  if (set.extra_lane?.stream === stream) {
+    return set.extra_lane.center_hz;
+  }
+  return forStream(set.settings, stream, set.capabilities.per_stream).center_hz ?? null;
+}
+
+export function laneRateHz(set: DeviceSet, stream: number): number | undefined {
+  return set.extra_lane?.stream === stream
+    ? set.extra_lane.sample_rate
+    : (set.settings.sample_rate ?? undefined);
+}
+
 export function tuneDelta(capabilities: Capabilities, stream: number, hz: number): DeviceSettings {
   const center_hz = reachableHz(capabilities, hz);
   return capabilities.per_stream?.tuning === true
@@ -106,7 +119,7 @@ export function agcGainDb(set: DeviceSet, stream: number): number | null {
   return set.agc_gains?.find((reading) => reading.stream === stream)?.value_db ?? null;
 }
 
-const COHERENT_USERS = new Set(["df", "combiner", "passive_radar", "array"]);
+const COHERENT_USERS = new Set(["df", "combiner", "stitch", "passive_radar", "array"]);
 
 export function coherentLanes(graph: PatchGraph, deviceNode: string): Set<number> {
   const lanes = new Set<number>();

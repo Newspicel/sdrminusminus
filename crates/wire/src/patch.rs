@@ -5,7 +5,7 @@ use crate::{
     EventOutputNode, GpsNode, MAX_NMEA_BAUD, MAX_NMEA_UPDATE_INTERVAL_MS,
     MAX_POSITION_ENDPOINT_LEN, MIN_NMEA_BAUD, MIN_NMEA_UPDATE_INTERVAL_MS, PositionSource,
     channel::{ChannelDescriptor, ChannelParams},
-    coherent::{CombinerParams, DfParams, PassiveRadarParams},
+    coherent::{CombinerParams, DfParams, PassiveRadarParams, StitchParams},
     device::{
         ArrayDefinition, Capabilities, Coherence, DeviceInfo, Direction, RECORDING_DRIVER_ID,
         SIGGEN_DRIVER_ID, recording_stem_valid,
@@ -584,9 +584,16 @@ pub struct CombinerNode {
     pub settings: CombinerParams,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct StitchNode {
+    #[serde(default)]
+    pub settings: StitchParams,
+}
+
 pub const RADAR_REFERENCE_PORT: &str = "ref";
 pub const RADAR_SURVEILLANCE_PORT: &str = "surv";
 pub const DF_BEAM_PORT: &str = "beam";
+pub const STITCH_WIDE_PORT: &str = "wide";
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 #[serde(tag = "kind", content = "data", rename_all = "snake_case")]
@@ -623,10 +630,20 @@ pub enum NodeBody {
     Df(DfNode),
     PassiveRadar(PassiveRadarNode),
     Combiner(CombinerNode),
+    Stitch(StitchNode),
     Triangulation,
 }
 
 impl NodeBody {
+    #[must_use]
+    pub const fn lane_output(&self) -> Option<&'static str> {
+        match self {
+            Self::Df(_) | Self::Combiner(_) => Some(DF_BEAM_PORT),
+            Self::Stitch(_) => Some(STITCH_WIDE_PORT),
+            _ => None,
+        }
+    }
+
     #[must_use]
     pub const fn kind(&self) -> &'static str {
         match self {
@@ -662,6 +679,7 @@ impl NodeBody {
             Self::PassiveRadar(_) => "passive_radar",
             Self::Array(_) => "array",
             Self::Combiner(_) => "combiner",
+            Self::Stitch(_) => "stitch",
             Self::Triangulation => "triangulation",
         }
     }
@@ -677,6 +695,7 @@ impl NodeBody {
             | Self::Df(_)
             | Self::PassiveRadar(_)
             | Self::Combiner(_)
+            | Self::Stitch(_)
             | Self::Scanner
             | Self::Hunt(_)
             | Self::Satellite(_)
@@ -739,6 +758,7 @@ impl NodeBody {
         match self {
             Self::Df(df) => spread_lanes(specs, df.settings.geometry.count()),
             Self::Combiner(combiner) => spread_lanes(specs, combiner.settings.lanes),
+            Self::Stitch(stitch) => spread_lanes(specs, stitch.settings.lanes),
             Self::Array(array) => spread_array(specs, array.members),
             _ => specs,
         }
@@ -926,6 +946,11 @@ fn ports_for(kind: &str) -> Vec<PortSpec> {
                 .noted("lane one is the antenna pointed at what you want"),
             PortSpec::named(DF_BEAM_PORT, Iq, Out, true, Always)
                 .noted("the antennas added together, as one more radio lane"),
+        ],
+        "stitch" => vec![
+            PortSpec::new(Iq, In, false, Always).repeated(PortRepeat::PerRxStream),
+            PortSpec::named(STITCH_WIDE_PORT, Iq, Out, true, Always)
+                .noted("every lane joined into one wide stream, as one more radio lane"),
         ],
         "passive_radar" => vec![
             PortSpec::named(RADAR_REFERENCE_PORT, Iq, In, false, Always)
@@ -1115,6 +1140,11 @@ impl PatchCatalog {
                     &NodeBody::Combiner(CombinerNode::default()),
                     "Combiner",
                     "Adds antennas together",
+                ),
+                entry(
+                    &NodeBody::Stitch(StitchNode::default()),
+                    "Stitch",
+                    "Joins lanes into one wide stream",
                 ),
                 entry(
                     &NodeBody::Triangulation,

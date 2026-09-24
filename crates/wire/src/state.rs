@@ -105,6 +105,15 @@ pub struct DeviceSet {
     pub hunts: Vec<HuntStatus>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub playback: Option<PlaybackStatus>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub extra_lane: Option<ExtraLane>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct ExtraLane {
+    pub stream: u32,
+    pub center_hz: f64,
+    pub sample_rate: f64,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, ToSchema)]

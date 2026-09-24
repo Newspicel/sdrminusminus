@@ -3,6 +3,7 @@ import type { NodeBody, NodeKind } from "../lib/types";
 import { DEFAULT_COMBINER_PARAMS } from "./nodes/combiner";
 import { DEFAULT_DF_PARAMS } from "./nodes/df";
 import { DEFAULT_RADAR_PARAMS } from "./nodes/radar";
+import { DEFAULT_STITCH_PARAMS } from "./nodes/stitch";
 
 export interface NewNodeSeed {
   channelType?: string;
@@ -85,6 +86,8 @@ export function newNodeBody(kind: NodeKind, seed: NewNodeSeed = {}): NodeBody {
       return { kind, data: { settings: DEFAULT_RADAR_PARAMS } };
     case "combiner":
       return { kind, data: { settings: DEFAULT_COMBINER_PARAMS } };
+    case "stitch":
+      return { kind, data: { settings: DEFAULT_STITCH_PARAMS } };
     default:
       return { kind };
   }

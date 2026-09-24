@@ -152,6 +152,7 @@ function repeatCount(
         node.data.settings === undefined ? undefined : elementCount(node.data.settings.geometry),
       );
     case "combiner":
+    case "stitch":
       return clampStreams(node.data.settings?.lanes);
     case "array":
       return clampStreams(
@@ -252,7 +253,7 @@ export function connectionRefusal(
     landing.length > 0 &&
     [from, ...landing.map((edge) => edge.from)].some((source) => {
       const kind = nodeOf(graph, source.node)?.kind;
-      return kind === "df" || kind === "combiner";
+      return kind === "df" || kind === "combiner" || kind === "stitch";
     })
   ) {
     return "a beam input takes one wire";
@@ -307,6 +308,7 @@ export const NODE_SIZE: Record<NodeKind, NodeSize> = {
   df: { w: 400 },
   triangulation: { w: 380 },
   combiner: { w: 400 },
+  stitch: { w: 340 },
   passive_radar: { w: 520, h: 420 },
 };
 

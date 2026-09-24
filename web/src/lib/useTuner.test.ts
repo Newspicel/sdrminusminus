@@ -22,29 +22,30 @@ function set(over: Partial<DeviceSet["settings"]> = {}): DeviceSet {
 }
 
 const NFM = { type_id: "nfm", bandwidth_hz: 12_500 } as ChannelDescriptor;
+const LANE = { stream: 0, tunes: 0 };
 
 describe("radioPullFor", () => {
   it("leaves multiple wired radios to server placement", () => {
-    expect(radioPullFor(set(), 0, NFM, 433_500_000, 2)).toBeNull();
+    expect(radioPullFor(set(), LANE, NFM, 433_500_000, 2)).toBeNull();
   });
 
   it("leaves the radio where it is when it already hears the frequency", () => {
-    expect(radioPullFor(set(), 0, NFM, 145_500_000)).toBeNull();
+    expect(radioPullFor(set(), LANE, NFM, 145_500_000)).toBeNull();
   });
 
   it("pulls the radio over a frequency outside its window", () => {
-    expect(radioPullFor(set(), 0, NFM, 433_500_000)).toEqual({
+    expect(radioPullFor(set(), LANE, NFM, 433_500_000)).toEqual({
       center_hz: 433_500_000,
       tuning: "manual",
     });
   });
 
   it("leaves a radio alone that has no window yet", () => {
-    expect(radioPullFor(set({ sample_rate: undefined }), 0, NFM, 433_500_000)).toBeNull();
+    expect(radioPullFor(set({ sample_rate: undefined }), LANE, NFM, 433_500_000)).toBeNull();
   });
 
   it("leaves an auto radio to the engine, which moves it over the decoder itself", () => {
-    expect(radioPullFor(set({ tuning: "auto" }), 0, NFM, 433_500_000)).toBeNull();
+    expect(radioPullFor(set({ tuning: "auto" }), LANE, NFM, 433_500_000)).toBeNull();
   });
 });
 

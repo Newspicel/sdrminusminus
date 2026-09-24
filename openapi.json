@@ -11355,6 +11355,16 @@
               "null"
             ]
           },
+          "extra_lane": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ExtraLane"
+              }
+            ]
+          },
           "fault": {
             "oneOf": [
               {
@@ -13085,6 +13095,29 @@
           "csv",
           "json"
         ]
+      },
+      "ExtraLane": {
+        "type": "object",
+        "required": [
+          "stream",
+          "center_hz",
+          "sample_rate"
+        ],
+        "properties": {
+          "center_hz": {
+            "type": "number",
+            "format": "double"
+          },
+          "sample_rate": {
+            "type": "number",
+            "format": "double"
+          },
+          "stream": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
       },
       "ExtraSetting": {
         "oneOf": [
@@ -16003,6 +16036,24 @@
                 "type": "string",
                 "enum": [
                   "combiner"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "data",
+              "kind"
+            ],
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/StitchNode"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "stitch"
                 ]
               }
             }
@@ -19698,6 +19749,40 @@
             "items": {
               "$ref": "#/components/schemas/TrunkSystemStatus"
             }
+          }
+        }
+      },
+      "StitchMode": {
+        "type": "string",
+        "enum": [
+          "auto",
+          "manual"
+        ]
+      },
+      "StitchNode": {
+        "type": "object",
+        "properties": {
+          "settings": {
+            "$ref": "#/components/schemas/StitchParams"
+          }
+        }
+      },
+      "StitchParams": {
+        "type": "object",
+        "properties": {
+          "lanes": {
+            "type": "integer",
+            "format": "int32",
+            "default": 2,
+            "minimum": 0
+          },
+          "mode": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/StitchMode"
+              }
+            ],
+            "default": "auto"
           }
         }
       },

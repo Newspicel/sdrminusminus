@@ -81,9 +81,7 @@ fn reconcile(
                 .iter()
                 .find(|edge| edge.to.node == node.id && edge.to.port == "iq")?;
             let (source, beam) = match graph.node(&edge.from.node).map(|node| &node.body) {
-                Some(NodeBody::Df(_) | NodeBody::Combiner(_))
-                    if edge.from.port == sdrmm_wire::DF_BEAM_PORT =>
-                {
+                Some(body) if body.lane_output() == Some(edge.from.port.as_str()) => {
                     let upstream = graph.edges.iter().find(|wire| {
                         wire.to.node == edge.from.node
                             && sdrmm_wire::port_stream("iq", &wire.to.port).is_some()

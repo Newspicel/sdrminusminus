@@ -69,7 +69,7 @@ pub use coherent::{
     Illuminator, LaneCal, MAX_ARRAY_ELEMENTS, MAX_ARRAY_EXTENT_M, MAX_CPI_MS, MAX_DF_BANDWIDTH_HZ,
     MAX_DF_REPORT_MS, MAX_RANGE_BINS, MAX_STATION_ID_LEN, MIN_ARRAY_ELEMENTS, MIN_CPI_MS,
     MIN_DF_BANDWIDTH_HZ, MIN_DF_REPORT_MS, NavTarget, NavTargetKind, PassiveRadarParams,
-    RadarDetection,
+    RadarDetection, StitchMode, StitchParams,
 };
 pub use cps::{
     ALL_CALL_NUMBER, Admit, Bandwidth, CODEPLUG_VERSION, ChannelKind, ChannelMode, Codeplug,
@@ -133,8 +133,8 @@ pub use patch::{
     NodeTypeInfo, PassiveRadarNode, PatchCatalog, PatchEdge, PatchError, PatchGraph, PatchNode,
     PortBacking, PortCondition, PortDirection, PortRef, PortRepeat, PortSpec, PortType, Position,
     RACK_COLS, RACK_ROWS, RADAR_REFERENCE_PORT, RADAR_SURVEILLANCE_PORT, RackCell, RackLayout,
-    RackSlot, RecorderNode, RecordingNode, SignalGenNode, SignalMapNode, Size, port_stream,
-    siggen_key, stream_port,
+    RackSlot, RecorderNode, RecordingNode, STITCH_WIDE_PORT, SignalGenNode, SignalMapNode, Size,
+    StitchNode, port_stream, siggen_key, stream_port,
 };
 pub use position::{
     DEFAULT_GPSD_ADDRESS, DEFAULT_NMEA_BAUD, DEFAULT_NMEA_UPDATE_INTERVAL_MS, GpsNode,
@@ -172,9 +172,9 @@ pub use scan::{
     ScannerStatus,
 };
 pub use state::{
-    AudioRecordingStatus, ChannelLevel, DeviceFault, DeviceSet, DeviceSetStatus, PlaybackStatus,
-    RecordingStatus, SettingsRefused, StateSnapshot, TrunkChannel, TrunkChannelSource,
-    TrunkControl, TrunkFollower, TrunkProbe, TrunkProblem, TrunkSystemStatus,
+    AudioRecordingStatus, ChannelLevel, DeviceFault, DeviceSet, DeviceSetStatus, ExtraLane,
+    PlaybackStatus, RecordingStatus, SettingsRefused, StateSnapshot, TrunkChannel,
+    TrunkChannelSource, TrunkControl, TrunkFollower, TrunkProbe, TrunkProblem, TrunkSystemStatus,
 };
 pub use timemachine::{
     DEFAULT_TIME_MACHINE_SECONDS, MAX_TIME_MACHINE_BYTES, MAX_TIME_MACHINE_SECONDS,
@@ -865,6 +865,7 @@ mod contract_tests {
             scanners: Vec::new(),
             hunts: Vec::new(),
             playback: None,
+            extra_lane: None,
             agc_gains: Vec::new(),
         }
     }

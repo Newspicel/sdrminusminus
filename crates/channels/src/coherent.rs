@@ -44,6 +44,7 @@ pub struct CoherentOutputs {
     /// What to multiply each lane by before summing them into the beam lane. A processor that
     /// knows where the signal is can point the array at it; everything else leaves this alone.
     pub weights: Option<Vec<Complex<f32>>>,
+    pub wide: Vec<Complex<f32>>,
 }
 
 impl CoherentOutputs {
@@ -53,6 +54,7 @@ impl CoherentOutputs {
         self.detections.clear();
         self.events.clear();
         self.weights = None;
+        self.wide.clear();
     }
 }
 
@@ -72,6 +74,8 @@ pub trait CoherentRx: Send {
     fn apply(&mut self, params: &CoherentParams) -> Result<(), ChannelError>;
 
     fn retuned(&mut self, _center_hz: f64) {}
+
+    fn tuned(&mut self, _lanes_hz: &[f64], _center_hz: f64) {}
 
     fn process(&mut self, lanes: &[&[Complex<f32>]], out: &mut CoherentOutputs);
 
@@ -104,6 +108,10 @@ const REGISTRY: &[Registration] = &[
     Registration {
         descriptor: crate::combiner::CombinerProcessor::descriptor,
         create: boxed::<crate::combiner::CombinerProcessor>,
+    },
+    Registration {
+        descriptor: crate::stitch::StitchProcessor::descriptor,
+        create: boxed::<crate::stitch::StitchProcessor>,
     },
 ];
 
@@ -147,9 +155,12 @@ mod tests {
     #[test]
     fn coherent_descriptors_are_unique_and_complete() {
         let all = coherent_descriptors();
-        assert_eq!(all.len(), 3);
+        assert_eq!(all.len(), 4);
         let ids: HashSet<&str> = all.iter().map(|d| d.type_id).collect();
-        assert_eq!(ids, HashSet::from(["df", "passive_radar", "combiner"]));
+        assert_eq!(
+            ids,
+            HashSet::from(["df", "passive_radar", "combiner", "stitch"])
+        );
         for descriptor in &all {
             assert!(
                 !descriptor.name.is_empty(),
@@ -170,12 +181,14 @@ mod tests {
             CoherentParams::Df(sdrmm_wire::DfParams::default()),
             CoherentParams::PassiveRadar(sdrmm_wire::PassiveRadarParams::default()),
             CoherentParams::Combiner(sdrmm_wire::CombinerParams::default()),
+            CoherentParams::Stitch(sdrmm_wire::StitchParams::default()),
         ] {
             let descriptor =
                 coherent_descriptor(params.type_id()).expect("every params names a processor");
             let lanes = match &params {
                 CoherentParams::Df(df) => df.geometry.count() as usize,
                 CoherentParams::Combiner(combiner) => combiner.lanes as usize,
+                CoherentParams::Stitch(stitch) => stitch.lanes as usize,
                 CoherentParams::PassiveRadar(_) => descriptor.min_lanes as usize,
             };
             let ctx = CoherentCtx {

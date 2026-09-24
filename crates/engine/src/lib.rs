@@ -57,6 +57,7 @@ pub mod runtime;
 pub mod scanner;
 mod sinks;
 mod spectrum;
+mod stitching;
 mod streams;
 pub mod symbols;
 mod time_machine;
@@ -630,6 +631,13 @@ impl DeviceSetState {
     }
 
     fn hears_with(&self, tuning: &DeviceSettings, stream: u32, settings: &ChannelSettings) -> bool {
+        if self.is_extra_lane(stream) {
+            return planning::hears_at(
+                self.lane_center(tuning, stream),
+                self.lane_rate(tuning, stream),
+                settings,
+            );
+        }
         planning::hears(&self.capabilities, tuning, stream, settings)
     }
 
@@ -676,6 +684,7 @@ impl DeviceSetState {
             hunts: self.hunt_statuses(),
             playback: self.playback.as_deref().map(PlaybackShared::status),
             agc_gains: self.agc_gains.clone(),
+            extra_lane: self.extra_lane(),
         }
     }
 
@@ -740,10 +749,7 @@ impl DeviceSetState {
     }
 
     fn tune_group_together(&self, delta: &mut DeviceSettings) {
-        if !self.capabilities.per_stream.tuning {
-            return;
-        }
-        tune_together(delta, &self.coherent_lanes());
+        self.lay_out(delta);
     }
 
     fn runs_agc(&self) -> bool {

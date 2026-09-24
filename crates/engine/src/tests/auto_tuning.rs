@@ -251,6 +251,38 @@ fn a_coherent_group_follows_every_decoder_on_its_lanes_as_one() {
 }
 
 #[test]
+fn a_coherent_group_follows_a_decoder_on_its_beam() {
+    let capabilities = Capabilities {
+        rx_streams: 3,
+        per_stream: StreamScope {
+            tuning: true,
+            ..StreamScope::default()
+        },
+        ..tuner_caps()
+    };
+    let beam = ChannelInfo {
+        stream: 3,
+        settings: nfm_settings(40e6),
+        ..parked(1, 0.0)
+    };
+    let settings = tuned(100e6);
+    let moved = plan_center(
+        &capabilities,
+        &settings,
+        std::slice::from_ref(&beam),
+        &[1, 2],
+    )
+    .expect("the group moves");
+    let centers: Vec<f64> = moved
+        .streams
+        .iter()
+        .filter_map(|lane| lane.center_hz)
+        .collect();
+    assert_eq!(centers.len(), 2);
+    assert!(centers.iter().all(|hz| heard(*hz, &beam)));
+}
+
+#[test]
 fn a_stream_tuned_by_hand_stays_put_while_its_neighbour_follows_its_decoder() {
     let capabilities = Capabilities {
         rx_streams: 2,

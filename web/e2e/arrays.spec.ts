@@ -44,58 +44,60 @@ test("array composition preserves live Device faces and their channels", async (
   expect(created.ok()).toBe(true);
   const { id } = await created.json();
   expect((await page.request.post(`/api/workspaces/${id}/activate`, { data: {} })).ok()).toBe(true);
-  await page.goto("/");
-  for (const source of ["left", "right"]) {
-    const face = page.locator(`.react-flow__node[data-id="${source}"]`);
-    await expect(face.getByRole("button", { name: "Forget radio" })).toBeVisible();
-    await expect(face.locator('[id^="frequency-dial"]')).toBeVisible();
-    await expect(face.getByRole("button", { name: "Unlock tuning" })).toHaveCount(0);
-    await expect(face.getByRole("combobox", { name: "Sample rate" })).toHaveCount(0);
-  }
-  const before: StateSnapshot = await page.request
-    .get("/api/state")
-    .then((response) => response.json());
-  const source = before.device_sets.find((set) => set.device.key === "siggen");
-  expect(before.device_sets).toHaveLength(3);
-  expect(source?.channels).toHaveLength(1);
-  const current: WorkspaceDetail = await page.request
-    .get(`/api/workspaces/${id}`)
-    .then((response) => response.json());
-  expect(
-    (
-      await page.request.put(`/api/workspaces/${id}`, {
-        data: {
-          revision: current.revision,
-          snapshot: {
-            ...current.snapshot,
-            graph: {
-              nodes: current.snapshot.graph.nodes.filter((node) => node.id !== "pair"),
-              edges: current.snapshot.graph.edges?.filter((edge) => edge.to.node !== "pair"),
+  try {
+    await page.goto("/");
+    for (const source of ["left", "right"]) {
+      const face = page.locator(`.react-flow__node[data-id="${source}"]`);
+      await expect(face.getByRole("button", { name: "Forget radio" })).toBeVisible();
+      await expect(face.locator('[id^="frequency-dial"]')).toBeVisible();
+      await expect(face.getByRole("button", { name: "Unlock tuning" })).toHaveCount(0);
+      await expect(face.getByRole("combobox", { name: "Sample rate" })).toBeVisible();
+    }
+    const before: StateSnapshot = await page.request
+      .get("/api/state")
+      .then((response) => response.json());
+    const source = before.device_sets.find((set) => set.device.key === "siggen");
+    expect(before.device_sets).toHaveLength(3);
+    expect(source?.channels).toHaveLength(1);
+    const current: WorkspaceDetail = await page.request
+      .get(`/api/workspaces/${id}`)
+      .then((response) => response.json());
+    expect(
+      (
+        await page.request.put(`/api/workspaces/${id}`, {
+          data: {
+            revision: current.revision,
+            snapshot: {
+              ...current.snapshot,
+              graph: {
+                nodes: current.snapshot.graph.nodes.filter((node) => node.id !== "pair"),
+                edges: current.snapshot.graph.edges?.filter((edge) => edge.to.node !== "pair"),
+              },
             },
           },
-        },
+        })
+      ).ok(),
+    ).toBe(true);
+    expect((await page.request.post(`/api/workspaces/${id}/apply`, { data: {} })).ok()).toBe(true);
+    await expect
+      .poll(async () => {
+        const state: StateSnapshot = await page.request
+          .get("/api/state")
+          .then((response) => response.json());
+        return state.device_sets.length;
       })
-    ).ok(),
-  ).toBe(true);
-  expect((await page.request.post(`/api/workspaces/${id}/apply`, { data: {} })).ok()).toBe(true);
-  await expect
-    .poll(async () => {
-      const state: StateSnapshot = await page.request
-        .get("/api/state")
-        .then((response) => response.json());
-      return state.device_sets.length;
-    })
-    .toBe(2);
-  const after: StateSnapshot = await page.request
-    .get("/api/state")
-    .then((response) => response.json());
-  expect(after.device_sets.find((set) => set.id === source?.id)?.channels).toHaveLength(1);
-  await expect(
-    page
-      .locator('.react-flow__node[data-id="left"]')
-      .getByRole("combobox", { name: "Sample rate" }),
-  ).toBeVisible();
-
-  await page.request.post(`/api/workspaces/${workspaces.active}/activate`);
-  await page.request.delete(`/api/workspaces/${id}`);
+      .toBe(2);
+    const after: StateSnapshot = await page.request
+      .get("/api/state")
+      .then((response) => response.json());
+    expect(after.device_sets.find((set) => set.id === source?.id)?.channels).toHaveLength(1);
+    await expect(
+      page
+        .locator('.react-flow__node[data-id="left"]')
+        .getByRole("combobox", { name: "Sample rate" }),
+    ).toBeVisible();
+  } finally {
+    await page.request.post(`/api/workspaces/${workspaces.active}/activate`);
+    await page.request.delete(`/api/workspaces/${id}`);
+  }
 });

@@ -9,7 +9,7 @@ use std::{
 };
 
 use sdrmm_channels::coherent::{CoherentCtx, coherent_descriptor};
-use sdrmm_wire::{CalParams, CalSource, Coherence, CoherentParams, DeviceSettings, StreamSettings};
+use sdrmm_wire::{CalParams, CalSource, Coherence, CoherentParams};
 use tokio::sync::broadcast::{self, error::TryRecvError};
 
 use crate::{
@@ -176,6 +176,7 @@ impl Engine {
             .device_sets
             .get_mut(&ds)
             .ok_or(EngineError::DeviceSetNotFound(ds))?;
+        state.admits(None, &params)?;
         if state.rate_patches > 0 {
             return Err(EngineError::Coherent(
                 "wait for the sample rate change before starting coherent processors".into(),
@@ -203,7 +204,11 @@ impl Engine {
         }
         let elements = lanes.len();
         let sample_rate = sample_rate_of(&state.settings);
-        let center_hz = state.settings.center_hz.unwrap_or(crate::DEFAULT_CENTER_HZ);
+        let center_hz = crate::center_of(
+            &state.settings,
+            lanes.iter().min().copied().unwrap_or(0),
+            &state.capabilities.per_stream,
+        );
         if state.coherent.is_none() {
             let taps = crate::lock_runtime(&state.runtime)
                 .take_coherent()
@@ -269,6 +274,7 @@ impl Engine {
         coherent.runtime.send(CoherentCommand::Add { node, host });
         inner.revision += 1;
         drop(inner);
+        self.sync_extra_lane(ds);
         self.align_group(ds);
         self.calibrate_against_reference(ds);
         Ok(node)
@@ -292,6 +298,7 @@ impl Engine {
             .device_sets
             .get_mut(&ds)
             .ok_or(EngineError::DeviceSetNotFound(ds))?;
+        state.admits(Some(node), &params)?;
         let streams = state.rx_streams();
         if lanes.iter().any(|lane| *lane >= streams) {
             return Err(EngineError::Coherent(format!(
@@ -300,7 +307,11 @@ impl Engine {
         }
         let elements = lanes.len();
         let sample_rate = sample_rate_of(&state.settings);
-        let center_hz = state.settings.center_hz.unwrap_or(crate::DEFAULT_CENTER_HZ);
+        let center_hz = crate::center_of(
+            &state.settings,
+            lanes.iter().min().copied().unwrap_or(0),
+            &state.capabilities.per_stream,
+        );
         let decoded = self.decoded_sink(ds, node);
         let coherent = state
             .coherent
@@ -342,6 +353,7 @@ impl Engine {
         coherent.runtime.send(CoherentCommand::Add { node, host });
         inner.revision += 1;
         drop(inner);
+        self.sync_extra_lane(ds);
         self.align_group(ds);
         self.calibrate_against_reference(ds);
         Ok(())
@@ -402,41 +414,45 @@ impl Engine {
         Ok(())
     }
 
+    pub(crate) fn sync_extra_lane(&self, ds: u32) {
+        let rebuilds = {
+            let inner = self.lock();
+            let Some(state) = inner.device_sets.get(&ds) else {
+                return;
+            };
+            let extra = state.capabilities.rx_streams;
+            let rate = state.lane_rate(&state.settings, extra);
+            let center = state.extra_center(&state.settings);
+            let resampled = crate::lock_runtime(&state.runtime).set_beam_meta(center, rate);
+            state.send_meta(false);
+            if resampled {
+                state.extra_rebuilds()
+            } else {
+                Vec::new()
+            }
+        };
+        let mut dead = Vec::new();
+        for rebuild in rebuilds {
+            self.rebuild_channel(ds, rebuild, 0.0, &mut dead);
+        }
+        for handle in dead {
+            handle.shutdown();
+        }
+    }
+
     fn align_group(&self, ds: u32) {
         let delta = {
             let inner = self.lock();
             let Some(state) = inner.device_sets.get(&ds) else {
                 return;
             };
-            let centers = state.coherent_centers();
-            let lanes = state.coherent_lanes();
-            let (Some(&lead), Some(&center)) = (lanes.first(), centers.first()) else {
-                return;
-            };
-            let scope = state.capabilities.per_stream;
-            let tuning = |lane: u32| {
-                state
-                    .settings
-                    .for_stream(lane, &scope)
-                    .tuning
-                    .unwrap_or_default()
-            };
-            let aligned = lanes.iter().all(|lane| tuning(*lane) == tuning(lead));
-            if !scope.tuning || aligned && centers.iter().all(|hz| *hz == center) {
-                return;
-            }
-            DeviceSettings {
-                streams: vec![StreamSettings {
-                    stream: lead,
-                    center_hz: Some(center),
-                    tuning: Some(tuning(lead)),
-                    ..StreamSettings::default()
-                }],
-                ..DeviceSettings::default()
+            match state.misaligned() {
+                Some(delta) => delta,
+                None => return,
             }
         };
         if let Err(error) = self.patch_device_from(ds, delta) {
-            tracing::warn!(device_set = ds, %error, "the coherent lanes could not be put on one frequency");
+            tracing::warn!(device_set = ds, %error, "the coherent lanes could not be laid out");
         }
         self.settle_tuning(ds);
     }
@@ -632,23 +648,18 @@ impl Engine {
         state.coherent = Some(restarted);
         inner.revision += 1;
         drop(inner);
+        self.sync_extra_lane(ds);
         self.calibrate_against_reference(ds);
         Ok(())
     }
 
-    pub(crate) fn notify_coherent_meta(&self, ds: u32, center_hz: f64, retuned: bool) {
+    pub(crate) fn notify_coherent_meta(&self, ds: u32, retuned: bool) {
         let inner = self.lock();
         let Some(state) = inner.device_sets.get(&ds) else {
             return;
         };
-        let Some(coherent) = state.coherent.as_ref() else {
-            return;
-        };
         let scrambles = retuned && !state.capabilities.coherence.has_phase();
-        coherent.runtime.send(CoherentCommand::Meta {
-            center_hz,
-            retuned: scrambles,
-        });
+        state.send_meta(scrambles);
         drop(inner);
         if scrambles {
             self.calibrate_against_reference(ds);
@@ -660,7 +671,7 @@ fn cal_of(params: &CoherentParams) -> Option<CalParams> {
     match params {
         CoherentParams::Df(df) => Some(df.cal),
         CoherentParams::Combiner(combiner) => Some(combiner.cal),
-        CoherentParams::PassiveRadar(_) => None,
+        CoherentParams::PassiveRadar(_) | CoherentParams::Stitch(_) => None,
     }
 }
 

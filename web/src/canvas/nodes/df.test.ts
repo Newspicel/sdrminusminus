@@ -89,8 +89,8 @@ describe("calVerdict", () => {
     expect(calVerdict(cal({ reference_on: true }))).toBe("injecting");
     expect(calVerdict(cal({ reference_on: true, phase_unknown: true }))).toBe("injecting");
     expect(calVerdict(cal())).toBe("solved");
-    expect(CAL_VERDICT_TEXT.phase_unknown).toContain("no bearings");
-    expect(CAL_VERDICT_TEXT.injecting).toContain("no bearings");
+    expect(CAL_VERDICT_TEXT.phase_unknown).toContain("calibrate");
+    expect(CAL_VERDICT_TEXT.injecting).toContain("paused");
   });
 });
 

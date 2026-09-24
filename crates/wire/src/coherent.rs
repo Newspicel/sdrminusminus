@@ -190,6 +190,37 @@ impl CombinerParams {
     }
 }
 
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum StitchMode {
+    #[default]
+    Auto,
+    Manual,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
+#[serde(default)]
+pub struct StitchParams {
+    pub mode: StitchMode,
+    pub lanes: u32,
+}
+
+impl Default for StitchParams {
+    fn default() -> Self {
+        Self {
+            mode: StitchMode::Auto,
+            lanes: 2,
+        }
+    }
+}
+
+impl StitchParams {
+    #[must_use]
+    pub fn valid(&self) -> bool {
+        (MIN_ARRAY_ELEMENTS..=MAX_ARRAY_ELEMENTS).contains(&self.lanes)
+    }
+}
+
 /// Which coherent processor a node runs, and how it is set up. The one place a coherent node's
 /// settings live, exactly as `ChannelParams` is for an ordinary channel.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
@@ -198,6 +229,7 @@ pub enum CoherentParams {
     Df(DfParams),
     PassiveRadar(PassiveRadarParams),
     Combiner(CombinerParams),
+    Stitch(StitchParams),
 }
 
 impl CoherentParams {
@@ -207,6 +239,7 @@ impl CoherentParams {
             Self::Df(_) => "df",
             Self::PassiveRadar(_) => "passive_radar",
             Self::Combiner(_) => "combiner",
+            Self::Stitch(_) => "stitch",
         }
     }
 
@@ -216,6 +249,7 @@ impl CoherentParams {
             Self::Df(params) => params.valid(),
             Self::PassiveRadar(params) => params.valid(),
             Self::Combiner(params) => params.valid(),
+            Self::Stitch(params) => params.valid(),
         }
     }
 }

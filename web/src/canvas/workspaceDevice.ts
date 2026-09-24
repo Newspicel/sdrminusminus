@@ -1,5 +1,5 @@
 import type { ChannelInfo, DeviceSet } from "../lib/types";
-import { controlledNodeOf, deviceNodeOf, iqSourceOf } from "./binding";
+import { controlledNodeOf, deviceNodeOf, type IqLane, iqSourceOf } from "./binding";
 import type { Workspace } from "./context";
 
 export function deviceSetOf(workspace: Workspace, node: string): DeviceSet | null {
@@ -7,16 +7,15 @@ export function deviceSetOf(workspace: Workspace, node: string): DeviceSet | nul
   return owner === null ? null : (workspace.devices.get(owner) ?? null);
 }
 
-export function laneOf(
-  workspace: Workspace,
-  node: string,
-): { source: string; stream: number } | null {
+export function laneOf(workspace: Workspace, node: string): IqLane | null {
+  const wired = iqSourceOf(workspace.graph, node, workspace.devices);
   const owner = workspace.owners.get(node);
   const channel = workspace.channels.get(node);
   if (owner !== undefined && channel !== undefined) {
-    return { source: owner, stream: channel.stream ?? 0 };
+    const stream = channel.stream ?? 0;
+    return wired?.source === owner && wired.stream === stream ? wired : { source: owner, stream };
   }
-  return iqSourceOf(workspace.graph, node);
+  return wired;
 }
 
 export interface Decoder {

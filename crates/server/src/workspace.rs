@@ -98,7 +98,7 @@ pub(crate) fn bind_devices(graph: &PatchGraph, state: &StateSnapshot) -> Vec<(St
 fn beam_bound(graph: &PatchGraph, device_node: &str, set: &DeviceSet) -> Vec<(String, u32)> {
     let mut bound = Vec::new();
     for node in &graph.nodes {
-        if !matches!(node.body, NodeBody::Df(_) | NodeBody::Combiner(_)) {
+        if node.body.lane_output().is_none() {
             continue;
         }
         let from_device = graph
@@ -108,17 +108,17 @@ fn beam_bound(graph: &PatchGraph, device_node: &str, set: &DeviceSet) -> Vec<(St
         if !from_device {
             continue;
         }
-        let Some(listener) = crate::coherent::beam_listener(graph, &node.id) else {
-            continue;
-        };
-        let Some(NodeBody::Channel(wanted)) = graph.node(&listener).map(|node| &node.body) else {
-            continue;
-        };
-        if let Some(channel) = set.channels.iter().find(|channel| {
-            channel.node.as_deref() == Some(listener.as_str())
-                && carries(channel, &wanted.channel_type, set.capabilities.rx_streams)
-        }) {
-            bound.push((listener, channel.id));
+        for listener in crate::coherent::beam_listeners(graph, &node.id) {
+            let Some(NodeBody::Channel(wanted)) = graph.node(&listener).map(|node| &node.body)
+            else {
+                continue;
+            };
+            if let Some(channel) = set.channels.iter().find(|channel| {
+                channel.node.as_deref() == Some(listener.as_str())
+                    && carries(channel, &wanted.channel_type, set.capabilities.rx_streams)
+            }) {
+                bound.push((listener, channel.id));
+            }
         }
     }
     bound
@@ -920,6 +920,7 @@ mod tests {
             scanners: Vec::new(),
             hunts: Vec::new(),
             playback: None,
+            extra_lane: None,
             agc_gains: Vec::new(),
         }
     }

@@ -1,8 +1,8 @@
-import { iqLanesOf } from "../canvas/binding";
+import { iqLanesOf, tunedStream } from "../canvas/binding";
 import { useWorkspaceContext, type Workspace } from "../canvas/context";
 import { descriptorOf, nodeOf } from "../canvas/graph";
 import type { ChannelTarget, TuneTarget } from "../canvas/libraryTarget";
-import { autoTuning, tuneDelta } from "../canvas/nodes/deviceNode";
+import { autoTuning, laneCenterHz, laneRateHz, tuneDelta } from "../canvas/nodes/deviceNode";
 import { laneOf } from "../canvas/workspaceDevice";
 import { radioWindowHz, reachesHz } from "../components/channelSettings";
 import type { ChannelDescriptor, DeviceSet, DeviceSettings } from "./types";
@@ -48,18 +48,27 @@ export function sameMode(mode: string | null | undefined, channelType: string | 
 
 export function radioPullFor(
   set: DeviceSet,
-  stream: number,
+  lane: { stream: number; tunes: number },
   descriptor: ChannelDescriptor | undefined,
   hz: number,
   laneCount = 1,
 ): DeviceSettings | null {
-  if (laneCount > 1 || autoTuning(set, stream)) {
+  if (laneCount > 1 || autoTuning(set, lane.tunes)) {
     return null;
   }
-  const centerHz = forStream(set.settings, stream, set.capabilities.per_stream).center_hz ?? null;
-  return reachesHz(hz, radioWindowHz(centerHz, set.settings.sample_rate, descriptor))
-    ? null
-    : tuneDelta(set.capabilities, stream, hz);
+  const window = radioWindowHz(
+    laneCenterHz(set, lane.stream),
+    laneRateHz(set, lane.stream),
+    descriptor,
+  );
+  return reachesHz(hz, window) ? null : tuneDelta(set.capabilities, lane.tunes, hz);
+}
+
+function tunedLane(workspace: Workspace, node: string): { stream: number; tunes: number } {
+  const lane = laneOf(workspace, node);
+  return lane === null
+    ? { stream: 0, tunes: 0 }
+    : { stream: lane.stream, tunes: tunedStream(lane) };
 }
 
 function frequencyOf(workspace: Workspace, target: TuneTarget): number | null {
@@ -86,7 +95,7 @@ function reachFor(
   const patch = nodeOf(workspace.graph, target.node);
   const pull = radioPullFor(
     set,
-    laneOf(workspace, target.node)?.stream ?? 0,
+    tunedLane(workspace, target.node),
     patch === undefined ? undefined : descriptorOf(workspace.context, patch),
     hz,
     iqLanesOf(workspace.graph, target.node).length,

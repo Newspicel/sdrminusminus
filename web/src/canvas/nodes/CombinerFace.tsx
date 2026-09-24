@@ -14,7 +14,7 @@ import { CAL_VERDICT_TEXT, calVerdict, tierLabel } from "./df";
 import { FaceBody, NodeShell } from "./NodeShell";
 
 const MODES: Options<CombineMode> = [
-  { value: "diversity", label: "Combine" },
+  { value: "diversity", label: "Diversity" },
   { value: "cancel", label: "Cancel" },
 ];
 

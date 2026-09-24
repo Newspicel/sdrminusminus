@@ -43,10 +43,21 @@ pub(crate) trait AlignedSink: Send {
 type CoherentSinkList = Vec<Box<CoherentHost>>;
 
 pub(crate) enum CoherentCommand {
-    Add { node: u32, host: Box<CoherentHost> },
-    Remove { node: u32 },
-    Meta { center_hz: f64, retuned: bool },
-    Cal { params: Box<CalParams> },
+    Add {
+        node: u32,
+        host: Box<CoherentHost>,
+    },
+    Remove {
+        node: u32,
+    },
+    Meta {
+        center_hz: f64,
+        lanes_hz: Vec<f64>,
+        retuned: bool,
+    },
+    Cal {
+        params: Box<CalParams>,
+    },
     Recalibrate,
     Reference(bool),
     Members(Vec<usize>),
@@ -166,6 +177,7 @@ struct Beam {
     sink: BeamSink,
     weights: Vec<Complex<f32>>,
     summed: Vec<Complex<f32>>,
+    wide_next: u64,
 }
 
 impl Beam {
@@ -174,7 +186,16 @@ impl Beam {
             sink,
             weights: Vec::new(),
             summed: Vec::new(),
+            wide_next: 0,
         }
+    }
+
+    fn push_wide(&mut self, samples: &[Complex<f32>], realigned: bool) {
+        if realigned {
+            self.wide_next += 1;
+        }
+        self.sink.push(samples, self.wide_next);
+        self.wide_next += samples.len() as u64;
     }
 
     fn steer(&mut self, weights: Vec<Complex<f32>>) {
@@ -211,13 +232,14 @@ fn aggregate(
     let mut sinks: CoherentSinkList = Vec::new();
     let mut seen = 0u64;
     let mut center = center_hz;
+    let mut lanes_hz: Vec<f64> = Vec::new();
     let sample_rate = aligner.sample_rate();
     let mut beam = aligner.take_beam().map(Beam::new);
     while !stop.load(Ordering::Acquire) {
         drain_commands(
             commands,
             &mut sinks,
-            &mut center,
+            (&mut center, &mut lanes_hz),
             &mut calibrator,
             sample_rate,
         );
@@ -251,12 +273,7 @@ fn aggregate(
             }
         });
         if let Some(beam) = beam.as_mut() {
-            for host in &mut sinks {
-                if let Some(weights) = host.take_weights() {
-                    beam.steer(weights);
-                }
-            }
-            calibrator.with_lanes(count, |lanes| beam.sum(lanes, count, ctx.index));
+            emit(beam, &mut sinks, &calibrator, count, &ctx);
         }
     }
     let mut taps = aligner.release();
@@ -264,22 +281,50 @@ fn aggregate(
     taps
 }
 
+fn emit(
+    beam: &mut Beam,
+    sinks: &mut CoherentSinkList,
+    calibrator: &cal::Calibrator,
+    count: usize,
+    ctx: &AlignedContext<'_>,
+) {
+    if let Some(host) = sinks.iter().find(|host| !host.wide().is_empty()) {
+        beam.push_wide(host.wide(), ctx.realigned);
+        return;
+    }
+    for host in sinks.iter_mut() {
+        if let Some(weights) = host.take_weights() {
+            beam.steer(weights);
+        }
+    }
+    calibrator.with_lanes(count, |lanes| beam.sum(lanes, count, ctx.index));
+}
+
 fn drain_commands(
     commands: &mpsc::Receiver<CoherentCommand>,
     sinks: &mut CoherentSinkList,
-    center: &mut f64,
+    (center, lanes): (&mut f64, &mut Vec<f64>),
     calibrator: &mut cal::Calibrator,
     sample_rate: f64,
 ) {
     while let Ok(command) = commands.try_recv() {
         match command {
-            CoherentCommand::Add { node, host } => {
+            CoherentCommand::Add { node, mut host } => {
+                host.tuned(lanes, *center);
                 sinks.retain(|existing| existing.node() != node);
                 sinks.push(host);
             }
             CoherentCommand::Remove { node } => sinks.retain(|existing| existing.node() != node),
-            CoherentCommand::Meta { center_hz, retuned } => {
+            CoherentCommand::Meta {
+                center_hz,
+                lanes_hz,
+                retuned,
+            } => {
                 *center = center_hz;
+                *lanes = lanes_hz;
+                for host in sinks.iter_mut() {
+                    host.tuned(lanes, center_hz);
+                }
                 if retuned {
                     calibrator.invalidate(true);
                 }

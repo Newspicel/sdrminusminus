@@ -2,10 +2,9 @@ use sdrmm_device::DeviceError;
 use sdrmm_wire::{ChannelInfo, ChannelSettings, DeviceSettings, ServerEvent, StateScope};
 
 use crate::{
-    ChannelAudioRecording, ChannelMedia, Engine, EngineError, RebuildEntry, center_of,
+    ChannelAudioRecording, ChannelMedia, Engine, EngineError, RebuildEntry,
     planning::{descriptor_for, tuner_reaches, validate_channel, validate_streams},
     runtime::{ChannelHost, DspCommand},
-    sample_rate_of,
     sinks::BasebandSinks,
 };
 
@@ -23,13 +22,19 @@ impl Engine {
             mut settings,
             sinks,
         } = rebuild;
-        let mut built_rate = rate;
-        let mut built_center = {
+        let (mut built_rate, mut built_center) = {
             let inner = self.lock();
             let Some(state) = inner.device_sets.get(&ds) else {
                 return;
             };
-            center_of(&state.settings, stream, &state.capabilities.per_stream)
+            if state.is_extra_lane(stream) {
+                (
+                    state.lane_rate(&state.settings, stream),
+                    state.lane_center(&state.settings, stream),
+                )
+            } else {
+                (rate, state.lane_center(&state.settings, stream))
+            }
         };
         loop {
             let built = descriptor_for(&settings.params)
@@ -48,8 +53,8 @@ impl Engine {
             let Some(state) = inner.device_sets.get_mut(&ds) else {
                 return;
             };
-            let current_rate = sample_rate_of(&state.settings);
-            let current_center = center_of(&state.settings, stream, &state.capabilities.per_stream);
+            let current_rate = state.lane_rate(&state.settings, stream);
+            let current_center = state.lane_center(&state.settings, stream);
             let Some(info) = state.channels.iter().find(|c| c.id == id) else {
                 return;
             };
@@ -154,8 +159,8 @@ impl Engine {
             let id = state.next_channel_id;
             state.next_channel_id += 1;
             (
-                sample_rate_of(&state.settings),
-                center_of(&state.settings, stream, &state.capabilities.per_stream),
+                state.lane_rate(&state.settings, stream),
+                state.lane_center(&state.settings, stream),
                 id,
             )
         };
@@ -188,8 +193,8 @@ impl Engine {
             if let Err(e) = state.check_stream(stream) {
                 break Err(e);
             }
-            let current_rate = sample_rate_of(&state.settings);
-            let current_center = center_of(&state.settings, stream, &state.capabilities.per_stream);
+            let current_rate = state.lane_rate(&state.settings, stream);
+            let current_center = state.lane_center(&state.settings, stream);
             if current_rate != device_rate || current_center != center_hz {
                 device_rate = current_rate;
                 center_hz = current_center;
@@ -290,8 +295,8 @@ impl Engine {
             (
                 info.settings.clone(),
                 handle.sinks.clone(),
-                sample_rate_of(&state.settings),
-                center_of(&state.settings, info.stream, &state.capabilities.per_stream),
+                state.lane_rate(&state.settings, info.stream),
+                state.lane_center(&state.settings, info.stream),
             )
         };
         let mut need_host = old.frequency_hz != settings.frequency_hz
@@ -322,13 +327,13 @@ impl Engine {
             let Some(state) = inner.device_sets.get_mut(&ds) else {
                 break Err(EngineError::DeviceSetNotFound(ds));
             };
-            let current_rate = sample_rate_of(&state.settings);
             let stream = state
                 .channels
                 .iter()
                 .find(|c| c.id == ch)
                 .map_or(0, |c| c.stream);
-            let current_center = center_of(&state.settings, stream, &state.capabilities.per_stream);
+            let current_rate = state.lane_rate(&state.settings, stream);
+            let current_center = state.lane_center(&state.settings, stream);
             if current_rate != device_rate || current_center != center_hz {
                 device_rate = current_rate;
                 center_hz = current_center;

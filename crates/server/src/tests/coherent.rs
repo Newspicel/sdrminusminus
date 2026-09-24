@@ -454,3 +454,55 @@ async fn a_beam_listener_changing_type_replaces_its_decoder() {
         [(Some("listen".to_owned()), "am".to_owned())]
     );
 }
+
+fn beam_edge(to: &str) -> PatchEdge {
+    PatchEdge {
+        from: PortRef {
+            node: "df".to_owned(),
+            port: sdrmm_wire::DF_BEAM_PORT.to_owned(),
+        },
+        to: PortRef {
+            node: to.to_owned(),
+            port: "iq".to_owned(),
+        },
+    }
+}
+
+#[tokio::test]
+async fn a_beam_feeds_a_scope_and_every_channel_on_it() {
+    let (app, state) = test_router_with_state();
+    let mut snapshot = beam_snapshot("nfm");
+    let listen = snapshot.graph.edges.pop().expect("beam wire");
+    snapshot.graph.nodes.push(PatchNode {
+        id: "beam_scope".to_owned(),
+        body: NodeBody::Scope,
+        position: Position { x: 900.0, y: 0.0 },
+        size: None,
+        label: None,
+    });
+    snapshot.graph.nodes.push(PatchNode {
+        id: "second".to_owned(),
+        body: NodeBody::Channel(sdrmm_wire::ChannelNode {
+            channel_type: "am".to_owned(),
+            record_calls: false,
+            tuning_locked: false,
+        }),
+        position: Position { x: 900.0, y: 600.0 },
+        size: None,
+        label: None,
+    });
+    snapshot.graph.edges.push(beam_edge("beam_scope"));
+    snapshot.graph.edges.push(listen);
+    snapshot.graph.edges.push(beam_edge("second"));
+    let workspace = put_active_workspace(&app, &snapshot).await;
+    apply(&app, workspace).await;
+    let mut listening = beam_channels(&state);
+    listening.sort();
+    assert_eq!(
+        listening,
+        [
+            (Some("listen".to_owned()), "nfm".to_owned()),
+            (Some("second".to_owned()), "am".to_owned()),
+        ]
+    );
+}

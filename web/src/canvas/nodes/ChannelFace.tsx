@@ -22,7 +22,6 @@ import { trackedBy, useSatelliteStore } from "../../lib/satellite";
 import type { PatchNode, PatchNodeOf } from "../../lib/types";
 import { channelSettingsOf, liveChannelOf, useChannelEdit } from "../../lib/useChannelEdit";
 import type { ChannelEdit } from "../../lib/useChannelPatch";
-import { forStream } from "../../lib/useDevicePatch";
 import { iqLanesOf, tuningControllerOf } from "../binding";
 import { useWorkspaceContext } from "../context";
 import { nodeOf, patchNode } from "../graph";
@@ -37,6 +36,7 @@ import {
   radioIsAttached,
   radioRefsOf,
 } from "./channelNode";
+import { laneCenterHz, laneRateHz } from "./deviceNode";
 import { FaceBody, FaceFooter, NodeShell } from "./NodeShell";
 
 const AUDIO_FACE_W = 460;
@@ -68,16 +68,13 @@ export function ChannelFace({ node }: { node: PatchNode }) {
     named: references.length > 0,
     attached: radioIsAttached(references, attached.data?.devices ?? []),
   });
-  const centerHz =
-    set === null
-      ? null
-      : (forStream(set.settings, source?.stream ?? 0, set.capabilities.per_stream).center_hz ??
-        null);
+  const centerHz = set === null ? null : laneCenterHz(set, source?.stream ?? 0);
   const live = liveChannelOf(workspace, node.id);
   const settings = channelSettingsOf(workspace, node.id);
   const onEdit = (edit: ChannelEdit): void => editChannel(node.id, edit);
   const frequencyHz = settings?.frequency_hz ?? null;
-  const window = radioWindowHz(centerHz, set?.settings.sample_rate, descriptor);
+  const spanHz = set === null ? undefined : laneRateHz(set, source?.stream ?? 0);
+  const window = radioWindowHz(centerHz, spanHz, descriptor);
   const unreachable =
     set !== null &&
     frequencyHz !== null &&
@@ -129,7 +126,7 @@ export function ChannelFace({ node }: { node: PatchNode }) {
             <ChannelDial
               hz={settings.frequency_hz}
               descriptor={descriptor}
-              spanHz={set?.settings.sample_rate ?? null}
+              spanHz={spanHz ?? null}
               centerHz={centerHz}
               range={set === null ? ANY_FREQUENCY : tuningRange(set.capabilities)}
               dialId={dialId(node.id)}

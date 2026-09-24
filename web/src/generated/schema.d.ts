@@ -3200,6 +3200,7 @@ export interface components {
             clipping?: number[];
             device: components["schemas"]["DeviceInfo"];
             error?: string | null;
+            extra_lane?: null | components["schemas"]["ExtraLane"];
             fault?: null | components["schemas"]["DeviceFault"];
             /** @description One hunt per decoder that is being hunted. */
             hunts?: components["schemas"]["HuntStatus"][];
@@ -3704,6 +3705,14 @@ export interface components {
         };
         /** @enum {string} */
         ExportFormat: "csv" | "json";
+        ExtraLane: {
+            /** Format: double */
+            center_hz: number;
+            /** Format: double */
+            sample_rate: number;
+            /** Format: int32 */
+            stream: number;
+        };
         ExtraSetting: {
             default: boolean;
             /** @enum {string} */
@@ -4482,6 +4491,10 @@ export interface components {
             data: components["schemas"]["CombinerNode"];
             /** @enum {string} */
             kind: "combiner";
+        } | {
+            data: components["schemas"]["StitchNode"];
+            /** @enum {string} */
+            kind: "stitch";
         } | {
             /** @enum {string} */
             kind: "triangulation";
@@ -5536,6 +5549,20 @@ export interface components {
             /** Format: int64 */
             revision: number;
             trunk_systems?: components["schemas"]["TrunkSystemStatus"][];
+        };
+        /** @enum {string} */
+        StitchMode: "auto" | "manual";
+        StitchNode: {
+            settings?: components["schemas"]["StitchParams"];
+        };
+        StitchParams: {
+            /**
+             * Format: int32
+             * @default 2
+             */
+            lanes: number;
+            /** @default auto */
+            mode: components["schemas"]["StitchMode"];
         };
         /** @enum {string} */
         StreamKind: "spectrum" | "audio" | "video" | "iq" | "symbols" | "range_doppler";

@@ -108,8 +108,14 @@ function carries(channel: ChannelInfo, channelType: string, stream: number): boo
   return channel.settings.params.type === channelType && (channel.stream ?? 0) === stream;
 }
 
-function primaryLane(graph: PatchGraph, node: string, owner: string, stream: number): boolean {
-  const first = iqLanesOf(graph, node)[0];
+function primaryLane(
+  graph: PatchGraph,
+  node: string,
+  owner: string,
+  stream: number,
+  devices: ReadonlyMap<string, DeviceSet>,
+): boolean {
+  const first = iqLanesOf(graph, node, devices)[0];
   return first !== undefined && first.source === owner && first.stream === stream;
 }
 
@@ -146,7 +152,7 @@ export function bindCarriers(
   for (const [owner, set] of devices) {
     const used = trunkChannelIds(trunks, set.id);
     claimed.set(owner, used);
-    for (const { node, stream } of channelNodesOf(graph, owner)) {
+    for (const { node, stream } of channelNodesOf(graph, owner, devices)) {
       const channel = set.channels.find(
         (live) => live.node === node.id && carries(live, node.data.channel_type, stream),
       );
@@ -158,8 +164,8 @@ export function bindCarriers(
   }
   for (const [owner, set] of devices) {
     const used = claimed.get(owner);
-    for (const { node, stream } of channelNodesOf(graph, owner)) {
-      if (carriers.has(node.id) || !primaryLane(graph, node.id, owner, stream)) {
+    for (const { node, stream } of channelNodesOf(graph, owner, devices)) {
+      if (carriers.has(node.id) || !primaryLane(graph, node.id, owner, stream, devices)) {
         continue;
       }
       const channel = set.channels.find(
@@ -191,10 +197,49 @@ export function bindChannels(
   return channelsOf(bindCarriers(graph, devices, trunks));
 }
 
-export function iqLanesOf(graph: PatchGraph, node: string): { source: string; stream: number }[] {
-  const lanes: { source: string; stream: number }[] = [];
+export interface IqLane {
+  source: string;
+  stream: number;
+  beam?: { node: string; port: string; tunes: number };
+}
+
+const LANE_OUTPUTS: Readonly<Partial<Record<NodeKind, string>>> = {
+  df: "beam",
+  combiner: "beam",
+  stitch: "wide",
+};
+const NO_DEVICES: ReadonlyMap<string, DeviceSet> = new Map();
+
+export function laneOutputOf(kind: NodeKind | undefined): string | undefined {
+  return kind === undefined ? undefined : LANE_OUTPUTS[kind];
+}
+
+function beamLane(
+  graph: PatchGraph,
+  node: string,
+  port: string,
+  devices: ReadonlyMap<string, DeviceSet>,
+): IqLane | null {
+  const kind = graph.nodes.find((candidate) => candidate.id === node)?.kind;
+  if (laneOutputOf(kind) !== port) {
+    return null;
+  }
+  const element = directLanesOf(graph, node)[0];
+  if (element === undefined) {
+    return null;
+  }
+  const stream = devices.get(element.source)?.capabilities.rx_streams ?? -1;
+  return {
+    source: element.source,
+    stream,
+    beam: { node, port, tunes: kind === "stitch" ? stream : element.stream },
+  };
+}
+
+function directLanesOf(graph: PatchGraph, node: string): IqLane[] {
+  const lanes: IqLane[] = [];
   for (const edge of graph.edges ?? []) {
-    if (edge.to.node !== node || edge.to.port !== "iq") {
+    if (edge.to.node !== node || portStream("iq", edge.to.port) === null) {
       continue;
     }
     const stream = portStream("iq", edge.from.port);
@@ -202,14 +247,42 @@ export function iqLanesOf(graph: PatchGraph, node: string): { source: string; st
       lanes.push({ source: edge.from.node, stream });
     }
   }
+  return lanes.toSorted((a, b) => a.stream - b.stream);
+}
+
+export function iqLanesOf(
+  graph: PatchGraph,
+  node: string,
+  devices: ReadonlyMap<string, DeviceSet> = NO_DEVICES,
+): IqLane[] {
+  const lanes: IqLane[] = [];
+  for (const edge of graph.edges ?? []) {
+    if (edge.to.node !== node || edge.to.port !== "iq") {
+      continue;
+    }
+    const stream = portStream("iq", edge.from.port);
+    if (stream !== null) {
+      lanes.push({ source: edge.from.node, stream });
+      continue;
+    }
+    const beam = beamLane(graph, edge.from.node, edge.from.port, devices);
+    if (beam !== null) {
+      lanes.push(beam);
+    }
+  }
   return lanes;
+}
+
+export function tunedStream(lane: IqLane): number {
+  return lane.beam?.tunes ?? lane.stream;
 }
 
 export function iqSourceOf(
   graph: PatchGraph,
   node: string,
-): { source: string; stream: number } | null {
-  return iqLanesOf(graph, node)[0] ?? null;
+  devices: ReadonlyMap<string, DeviceSet> = NO_DEVICES,
+): IqLane | null {
+  return iqLanesOf(graph, node, devices)[0] ?? null;
 }
 
 const NO_OWNERS: ReadonlyMap<string, string> = new Map();
@@ -247,13 +320,14 @@ export function hasWire(graph: PatchGraph, node: string, port: string): boolean 
 export function channelNodesOf(
   graph: PatchGraph,
   deviceNode: string,
+  devices: ReadonlyMap<string, DeviceSet> = NO_DEVICES,
 ): { node: PatchNodeOf<"channel">; stream: number }[] {
   const wired: { node: PatchNodeOf<"channel">; stream: number }[] = [];
   for (const node of graph.nodes) {
     if (node.kind !== "channel") {
       continue;
     }
-    for (const lane of iqLanesOf(graph, node.id)) {
+    for (const lane of iqLanesOf(graph, node.id, devices)) {
       if (lane.source === deviceNode) {
         wired.push({ node, stream: lane.stream });
       }

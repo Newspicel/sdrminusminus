@@ -43,7 +43,7 @@ export function NetworkExportFace({ node }: { node: PatchNode }) {
 function NetworkExportNodeFace({ node }: { node: PatchNodeOf<"network_export"> }) {
   const workspace = useWorkspaceContext();
   const set = deviceSetOf(workspace, node.id);
-  const radio = iqSourceOf(workspace.graph, node.id);
+  const radio = iqSourceOf(workspace.graph, node.id, workspace.devices);
   const channel = basebandSourceOf(
     workspace.graph,
     node.id,

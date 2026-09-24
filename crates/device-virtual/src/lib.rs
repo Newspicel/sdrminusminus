@@ -358,7 +358,7 @@ pub struct MarkerShape {
     pub noise_source: bool,
 }
 
-pub const MARKER_SHAPES: [MarkerShape; 3] = [
+pub const MARKER_SHAPES: [MarkerShape; 4] = [
     MarkerShape {
         key: "array4",
         label: "Coherent Array ×4 (virtual)",
@@ -402,6 +402,21 @@ pub const MARKER_SHAPES: [MarkerShape; 3] = [
             agc: false,
         },
         coherence: Coherence::None,
+        noise_source: false,
+    },
+    MarkerShape {
+        key: "bank5",
+        label: "Receiver bank ×5 (virtual)",
+        duplex: Duplex::RxOnly,
+        rx_streams: 5,
+        tx_streams: 0,
+        per_stream: StreamScope {
+            tuning: true,
+            gain: true,
+            antenna: false,
+            agc: false,
+        },
+        coherence: Coherence::TimeSync,
         noise_source: false,
     },
 ];

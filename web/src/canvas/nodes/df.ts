@@ -105,8 +105,8 @@ export function calVerdict(cal: CalState | undefined): CalVerdict {
 }
 
 export const CAL_VERDICT_TEXT: Record<CalVerdict, string> = {
-  injecting: "noise source in: no bearings",
-  phase_unknown: "phase unknown: no bearings",
+  injecting: "noise source in: paused",
+  phase_unknown: "phase unknown: calibrate",
   solving: "calibrating",
   solved: "calibrated",
 };

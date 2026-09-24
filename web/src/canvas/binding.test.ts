@@ -641,3 +641,69 @@ describe("tuningControllerOf", () => {
     ).toBeNull();
   });
 });
+
+describe("beam wires", () => {
+  const kraken = info({ serial: "K" });
+
+  function beam(): PatchGraph {
+    return {
+      nodes: [
+        node("dev", { kind: "device", data: { device: deviceRefOf(kraken) } }),
+        node("comb", { kind: "combiner", data: {} }),
+        node("scope", { kind: "scope" }),
+        node("nfm", { kind: "channel", data: { channel_type: "nfm" } }),
+      ],
+      edges: [
+        { from: { node: "dev", port: "iq2" }, to: { node: "comb", port: "iq" } },
+        { from: { node: "dev", port: "iq3" }, to: { node: "comb", port: "iq2" } },
+        { from: { node: "comb", port: "beam" }, to: { node: "scope", port: "iq" } },
+        { from: { node: "comb", port: "beam" }, to: { node: "nfm", port: "iq" } },
+      ],
+    };
+  }
+
+  function open(channels: ChannelInfo[] = []): DeviceSet {
+    const live = set(1, kraken, channels);
+    return { ...live, capabilities: { ...live.capabilities, rx_streams: 5 } };
+  }
+
+  it("follow the combiner back to its radio, one lane past the last", () => {
+    const devices = bindDevices(beam(), [open()]);
+    expect(iqSourceOf(beam(), "scope", devices)).toEqual({
+      source: "dev",
+      stream: 5,
+      beam: { node: "comb", port: "beam", tunes: 1 },
+    });
+    expect(deviceNodeOf(beam(), "scope")).toBe("dev");
+  });
+
+  it("bind a channel listening on the beam", () => {
+    const devices = bindDevices(beam(), [open([channel(7, "nfm", 5), channel(8, "nfm")])]);
+    expect(bindChannels(beam(), devices).get("nfm")?.id).toBe(7);
+  });
+
+  it("match nothing while the radio is closed", () => {
+    expect(iqSourceOf(beam(), "scope")?.stream).toBe(-1);
+  });
+
+  it("follow a stitch's wide output and tune the wide lane itself", () => {
+    const graph: PatchGraph = {
+      nodes: [
+        node("dev", { kind: "device", data: { device: deviceRefOf(kraken) } }),
+        node("wide", { kind: "stitch", data: {} }),
+        node("scope", { kind: "scope" }),
+      ],
+      edges: [
+        { from: { node: "dev", port: "iq" }, to: { node: "wide", port: "iq" } },
+        { from: { node: "dev", port: "iq2" }, to: { node: "wide", port: "iq2" } },
+        { from: { node: "wide", port: "wide" }, to: { node: "scope", port: "iq" } },
+      ],
+    };
+    const devices = bindDevices(graph, [open()]);
+    expect(iqSourceOf(graph, "scope", devices)).toEqual({
+      source: "dev",
+      stream: 5,
+      beam: { node: "wide", port: "wide", tunes: 5 },
+    });
+  });
+});

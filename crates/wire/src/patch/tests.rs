@@ -753,6 +753,7 @@ fn the_only_type_level_cycles_are_the_guarded_transforms() {
             "audio_fx",
             "df",
             "combiner",
+            "stitch",
             "triangulation"
         ]
     );
@@ -820,6 +821,7 @@ fn default_body(kind: &str) -> NodeBody {
         "df" => NodeBody::Df(DfNode::default()),
         "passive_radar" => NodeBody::PassiveRadar(PassiveRadarNode::default()),
         "combiner" => NodeBody::Combiner(CombinerNode::default()),
+        "stitch" => NodeBody::Stitch(crate::StitchNode::default()),
         "triangulation" => NodeBody::Triangulation,
         other => panic!("the palette offers {other}, which this test does not build"),
     }

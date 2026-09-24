@@ -48,14 +48,16 @@ pub(crate) fn hears(
     stream: u32,
     settings: &ChannelSettings,
 ) -> bool {
-    let (low, high) = sdrmm_channels::occupied_band(&settings.params);
-    let center = center_of(tuning, stream, &capabilities.per_stream);
-    crate::runtime::reaches(
-        settings.frequency_hz - center,
-        low,
-        high,
+    hears_at(
+        center_of(tuning, stream, &capabilities.per_stream),
         sample_rate_of(tuning),
+        settings,
     )
+}
+
+pub(crate) fn hears_at(center_hz: f64, rate: f64, settings: &ChannelSettings) -> bool {
+    let (low, high) = sdrmm_channels::occupied_band(&settings.params);
+    crate::runtime::reaches(settings.frequency_hz - center_hz, low, high, rate)
 }
 
 pub(crate) fn tuner_reaches(capabilities: &Capabilities, hz: f64) -> bool {
@@ -270,7 +272,22 @@ fn best_center_hz(
     channels: &[ChannelInfo],
     current_hz: f64,
 ) -> Option<f64> {
-    let rate = sample_rate_of(settings);
+    best_center_in(
+        capabilities,
+        settings,
+        stream,
+        channels,
+        (current_hz, sample_rate_of(settings)),
+    )
+}
+
+pub(crate) fn best_center_in(
+    capabilities: &Capabilities,
+    settings: &DeviceSettings,
+    stream: u32,
+    channels: &[ChannelInfo],
+    (current_hz, rate): (f64, f64),
+) -> Option<f64> {
     let spans: Vec<Span> = channels
         .iter()
         .filter_map(|channel| feasible_span(channel, rate))
@@ -340,7 +357,10 @@ pub(crate) fn plan_center(
         let lanes: &[u32] = if grouped { group } else { &[stream] };
         let heard: Vec<ChannelInfo> = channels
             .iter()
-            .filter(|channel| lanes.contains(&channel.stream))
+            .filter(|channel| {
+                lanes.contains(&channel.stream)
+                    || grouped && channel.stream == capabilities.rx_streams
+            })
             .cloned()
             .collect();
         let current_hz = center_of(settings, stream, &scope);

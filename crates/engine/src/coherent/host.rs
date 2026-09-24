@@ -63,6 +63,7 @@ pub(crate) struct CoherentHost {
     /// exactly this.
     told: (bool, bool, bool),
     weights: Option<Vec<Complex<f32>>>,
+    lanes_hz: Vec<f64>,
 }
 
 impl CoherentHost {
@@ -90,11 +91,16 @@ impl CoherentHost {
         let publisher = CoherentPublisher::new(node, sinks).map_err(|error| {
             ChannelError::InvalidSettings(format!("start coherent publisher: {error}"))
         })?;
+        let mut outputs = CoherentOutputs::default();
+        outputs
+            .wide
+            .reserve(super::align::ALIGN_BLOCK * 2 * lanes.len());
+        let lanes_hz = vec![ctx.center_hz; lanes.len()];
         Ok(Box::new(Self {
             node,
             lanes,
             rx,
-            outputs: CoherentOutputs::default(),
+            outputs,
             publisher,
             needs_phase: descriptor.needs_phase,
             center_hz: ctx.center_hz,
@@ -103,6 +109,7 @@ impl CoherentHost {
             state_samples: ctx.sample_rate * STATE_INTERVAL_S,
             told: (false, false, false),
             weights: None,
+            lanes_hz,
         }))
     }
 
@@ -133,6 +140,19 @@ impl CoherentHost {
         }
         self.publisher
             .publish(&mut self.outputs, cal, self.freq_hz, has_report);
+    }
+
+    pub(crate) fn tuned(&mut self, radio_hz: &[f64], center_hz: f64) {
+        for (slot, lane) in self.lanes_hz.iter_mut().zip(&self.lanes) {
+            if let Some(hz) = radio_hz.get(*lane as usize) {
+                *slot = *hz;
+            }
+        }
+        self.rx.tuned(&self.lanes_hz, center_hz);
+    }
+
+    pub(crate) fn wide(&self) -> &[Complex<f32>] {
+        &self.outputs.wide
     }
 
     pub(crate) const fn node(&self) -> u32 {
@@ -167,6 +187,7 @@ fn reorder(weights: &[Complex<f32>], lanes: &[u32]) -> Vec<Complex<f32>> {
 
 impl super::AlignedSink for CoherentHost {
     fn process(&mut self, lanes: &[&[Complex<f32>]], ctx: AlignedContext<'_>) {
+        self.outputs.wide.clear();
         if ctx.center_hz != self.center_hz || ctx.realigned {
             self.center_hz = ctx.center_hz;
             self.freq_hz = ctx.center_hz;

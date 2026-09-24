@@ -36,6 +36,7 @@ const EVERY_KIND: Record<NodeKind, true> = {
   satellite: true,
   triangulation: true,
   combiner: true,
+  stitch: true,
 };
 
 const KINDS = Object.keys(EVERY_KIND) as NodeKind[];

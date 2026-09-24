@@ -5,8 +5,8 @@ use std::{
 
 use sdrmm_engine::{Engine, coherent::CoherentUpdate};
 use sdrmm_wire::{
-    CoherentParams, DF_BEAM_PORT, NodeBody, PatchGraph, RADAR_REFERENCE_PORT,
-    RADAR_SURVEILLANCE_PORT, ServerEvent, port_stream, stream_port,
+    CoherentParams, NodeBody, PatchGraph, RADAR_REFERENCE_PORT, RADAR_SURVEILLANCE_PORT,
+    ServerEvent, port_stream, stream_port,
 };
 use tokio::{sync::broadcast, task::JoinHandle};
 
@@ -98,6 +98,9 @@ pub(crate) fn wired_lanes(graph: &PatchGraph, node: &str, body: &NodeBody) -> Wi
         NodeBody::Combiner(combiner) => (0..combiner.settings.lanes)
             .map(|element| stream_port("iq", element))
             .collect(),
+        NodeBody::Stitch(stitch) => (0..stitch.settings.lanes)
+            .map(|element| stream_port("iq", element))
+            .collect(),
         NodeBody::PassiveRadar(_) => vec![
             RADAR_REFERENCE_PORT.to_owned(),
             RADAR_SURVEILLANCE_PORT.to_owned(),
@@ -148,14 +151,26 @@ pub(crate) fn wired_crossings(graph: &PatchGraph, node: &str) -> Vec<String> {
         .collect()
 }
 
-/// The channel node, if any, listening to a direction finder's beam.
+/// The channel nodes listening to a coherent node's beam.
 #[must_use]
-pub(crate) fn beam_listener(graph: &PatchGraph, node: &str) -> Option<String> {
+pub(crate) fn beam_listeners(graph: &PatchGraph, node: &str) -> Vec<String> {
     graph
         .edges
         .iter()
-        .find(|edge| edge.from.node == node && edge.from.port == DF_BEAM_PORT)
+        .filter(|edge| {
+            edge.from.node == node
+                && graph
+                    .node(node)
+                    .and_then(|source| source.body.lane_output())
+                    == Some(edge.from.port.as_str())
+        })
+        .filter(|edge| {
+            graph
+                .node(&edge.to.node)
+                .is_some_and(|target| matches!(target.body, NodeBody::Channel(_)))
+        })
         .map(|edge| edge.to.node.clone())
+        .collect()
 }
 
 /// Which channels are listening to a beam rather than to an antenna, and on which lane.
@@ -170,12 +185,13 @@ pub(crate) fn beam_channels(
 ) -> Vec<(String, u32, u32)> {
     let mut out = Vec::new();
     for node in &graph.nodes {
-        if !matches!(node.body, NodeBody::Df(_) | NodeBody::Combiner(_)) {
+        if node.body.lane_output().is_none() {
             continue;
         }
-        let Some(listener) = beam_listener(graph, &node.id) else {
+        let listeners = beam_listeners(graph, &node.id);
+        if listeners.is_empty() {
             continue;
-        };
+        }
         let Some(binding) = state.coherent.binding(&node.id) else {
             continue;
         };
@@ -186,7 +202,9 @@ pub(crate) fn beam_channels(
         else {
             continue;
         };
-        out.push((listener, set.id, set.capabilities.rx_streams));
+        for listener in listeners {
+            out.push((listener, set.id, set.capabilities.rx_streams));
+        }
     }
     out
 }
@@ -196,6 +214,7 @@ pub(crate) fn settings_of(body: &NodeBody) -> Option<CoherentParams> {
     match body {
         NodeBody::Df(df) => Some(CoherentParams::Df(df.settings.clone())),
         NodeBody::Combiner(combiner) => Some(CoherentParams::Combiner(combiner.settings)),
+        NodeBody::Stitch(stitch) => Some(CoherentParams::Stitch(stitch.settings)),
         NodeBody::PassiveRadar(radar) => Some(CoherentParams::PassiveRadar(radar.settings)),
         _ => None,
     }
@@ -242,6 +261,7 @@ pub(crate) fn apply(
         let kind = match &node.body {
             NodeBody::Df(_) => "df",
             NodeBody::Combiner(_) => "combiner",
+            NodeBody::Stitch(_) => "stitch",
             _ => "passive_radar",
         };
         let station_id = match &node.body {

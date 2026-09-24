@@ -42,6 +42,7 @@ mod rtty;
 mod selcall;
 mod ssb;
 mod sstv;
+mod stitch;
 mod subghz;
 pub mod symbols;
 pub mod tone_squelch;

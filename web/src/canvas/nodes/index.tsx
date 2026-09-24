@@ -37,6 +37,7 @@ import {
   VideoFace,
 } from "./SinkFaces";
 import { SpectrumMonitorFace } from "./SpectrumMonitorFace";
+import { StitchFace } from "./StitchFace";
 import { TimeMachineFace } from "./TimeMachineFace";
 import { TriangulationFace } from "./TriangulationFace";
 
@@ -85,6 +86,7 @@ export const NODE_TYPES: Record<NodeKind, ComponentType<NodeProps<Node<FlowData>
   df: mount(DfFace),
   passive_radar: mount(RangeDopplerFace),
   combiner: mount(CombinerFace),
+  stitch: mount(StitchFace),
   triangulation: mount(TriangulationFace),
 };
 
@@ -121,6 +123,7 @@ export const FACES: Record<NodeKind, Face> = {
   df: DfFace,
   passive_radar: RangeDopplerFace,
   combiner: CombinerFace,
+  stitch: StitchFace,
   triangulation: TriangulationFace,
 };
 

@@ -70,8 +70,25 @@ Wire a coherent source to a **Combiner** and its `beam` output to an ordinary ch
 
 | Mode | Does |
 |---|---|
-| Combine | Aligns and adds the antennas. Two antennas gain about 3 dB SNR. |
+| Diversity | Aligns and adds the antennas. Two antennas gain about 3 dB SNR. |
 | Cancel | Uses the other antennas to subtract local noise from the first |
 
 For Cancel, point the first antenna at the wanted signal and the others at the noise. Both modes
 need the phase: `time_sync` arrays need a pilot or noise reference.
+
+The `beam` output also feeds a Scope and any number of channels. It stays silent until the phase
+is solved.
+
+## Stitch lanes into one wide stream
+
+Wire every lane of a radio that tunes each lane on its own into a **Stitch**. Its `wide` output
+runs at the lane rate times the lane count, as one more radio lane.
+
+| Mode | Does |
+|---|---|
+| Auto | Tunes the lanes side by side with a small overlap. Tuning the wide lane moves them all. |
+| Manual | Keeps each lane where you tune it. Gaps between lanes stay empty. |
+
+A KrakenSDR at 2.048 MS/s gives about 8.7 MHz in Auto. Overlaps match each lane's gain and phase to
+its neighbour while a signal sits in them. A Stitch needs the radio's lanes to itself, so no
+Combiner or direction finder can share them. Use fixed, equal gain on every lane.

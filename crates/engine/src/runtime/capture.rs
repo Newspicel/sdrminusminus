@@ -64,12 +64,30 @@ struct Lane {
     spectrum_metrics: Arc<crate::metrics::QueueMetrics>,
 }
 
+impl Lane {
+    fn set(&self, center_hz: f64, sample_rate: f64, dc_block: bool) {
+        if self.meta.load().sample_rate != sample_rate {
+            let bands = super::subbands::Subbands::new(sample_rate);
+            if let Err(error) = self.cmd_tx.send(DspCommand::SetSubbands(Box::new(bands))) {
+                tracing::warn!(%error, "capture stopped before subband update");
+            }
+            self.waker.wake();
+        }
+        self.meta.store(Arc::new(DspMeta {
+            center_hz,
+            sample_rate,
+            dc_block,
+        }));
+    }
+}
+
 pub struct CaptureRuntime {
     device: Option<Box<dyn SdrDevice>>,
     lanes: Vec<Lane>,
     per_stream: StreamScope,
     sweeping: bool,
     coherent: Option<CoherentTaps>,
+    beam_lane: Option<usize>,
     _awake: sdrmm_device::schedule::Awake,
 }
 
@@ -130,6 +148,7 @@ impl CaptureRuntime {
         };
         lane_taps.reverse();
         let total_lanes = lane_count + usize::from(coherent.is_some());
+        let mut beam_lane = None;
         let spectrum_plan = SpectrumPlan::new(FFT_SIZE, total_lanes);
 
         let mut sinks: Vec<RxSink> = Vec::with_capacity(lane_count);
@@ -140,8 +159,13 @@ impl CaptureRuntime {
             SpectrumAnalyzer,
         )> = Vec::with_capacity(lane_count);
         let ring = ring_capacity(sample_rate);
+        let wide_ring = ring_capacity(sample_rate * lane_count as f64);
         for stream in 0..total_lanes {
-            let (mut producer, consumer) = capture_ring(ring);
+            let (mut producer, consumer) = capture_ring(if stream >= lane_count {
+                wide_ring
+            } else {
+                ring
+            });
             let overruns = consumer.metrics.dropped_counter();
             let stalled_us = Arc::new(AtomicU64::new(0));
             let clip = Arc::new(ClipMeter::default());
@@ -152,6 +176,7 @@ impl CaptureRuntime {
             let mut lane_tap = lane_taps.pop();
             if stream >= lane_count {
                 if let Some(taps) = coherent.as_mut() {
+                    beam_lane = Some(stream);
                     taps.beam = Some(crate::coherent::BeamSink {
                         producer,
                         waker: waker.clone(),
@@ -217,6 +242,7 @@ impl CaptureRuntime {
             per_stream,
             sweeping: false,
             coherent,
+            beam_lane,
             _awake: sdrmm_device::schedule::stay_awake("a radio is streaming"),
         };
 
@@ -320,23 +346,26 @@ impl CaptureRuntime {
             taps.sample_rate = sample_rate;
         }
         for (stream, lane) in self.lanes.iter().enumerate() {
-            if lane.meta.load().sample_rate != sample_rate {
-                let bands = super::subbands::Subbands::new(sample_rate);
-                if let Err(error) = lane.cmd_tx.send(DspCommand::SetSubbands(Box::new(bands))) {
-                    tracing::warn!(%error, "capture stopped before subband update");
-                }
-                lane.waker.wake();
+            if self.beam_lane == Some(stream) {
+                let meta = lane.meta.load();
+                lane.meta.store(Arc::new(DspMeta { dc_block, ..**meta }));
+                continue;
             }
             let center_hz = settings
                 .for_stream(stream as u32, &self.per_stream)
                 .center_hz
                 .unwrap_or(crate::DEFAULT_CENTER_HZ);
-            lane.meta.store(Arc::new(DspMeta {
-                center_hz,
-                sample_rate,
-                dc_block,
-            }));
+            lane.set(center_hz, sample_rate, dc_block);
         }
+    }
+
+    pub fn set_beam_meta(&mut self, center_hz: f64, sample_rate: f64) -> bool {
+        let Some(lane) = self.beam_lane.and_then(|stream| self.lanes.get(stream)) else {
+            return false;
+        };
+        let meta = *lane.meta.load_full();
+        lane.set(center_hz, sample_rate, meta.dc_block);
+        meta.sample_rate != sample_rate
     }
 
     pub fn device_settings(&self) -> Option<DeviceSettings> {
@@ -456,6 +485,7 @@ impl CaptureRuntime {
             per_stream,
             sweeping: true,
             coherent: None,
+            beam_lane: None,
             _awake: sdrmm_device::schedule::stay_awake("a radio is sweeping"),
         })
     }
