@@ -126,6 +126,7 @@ pub struct Vdl2Demod {
     cursor: f64,
     noise: f32,
     state: State,
+    profiles: &'static [Detector],
 }
 
 pub struct Burst {
@@ -157,7 +158,16 @@ impl Vdl2Demod {
             cursor: 0.0,
             noise: 1e-6,
             state: State::Hunt,
+            profiles: &PROFILES,
             last_rs_fail: f64::NEG_INFINITY,
+        }
+    }
+
+    #[cfg(test)]
+    pub fn differential(channel_rate: f64) -> Self {
+        Self {
+            profiles: &[Detector::Differential],
+            ..Self::new(channel_rate)
         }
     }
 
@@ -297,7 +307,7 @@ impl Vdl2Demod {
     }
 
     fn collecting(&self, lock: Lock, profile: usize) -> Option<Collecting> {
-        let detector = *PROFILES.get(profile)?;
+        let detector = *self.profiles.get(profile)?;
         let last_uw = lock.uw_pos + 15.0 * self.sps;
         let prev = self.sample(last_uw)?;
         Some(Collecting {

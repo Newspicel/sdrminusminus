@@ -290,7 +290,9 @@ pub fn parse_xid(info: &[u8]) -> Option<Vec<XidParam>> {
             let text = if is_addr_list {
                 Some(
                     value
-                        .as_chunks::<4>().0.iter()
+                        .as_chunks::<4>()
+                        .0
+                        .iter()
                         .map(|c| parse_address(c).addr)
                         .collect::<Vec<_>>()
                         .join(","),
@@ -309,7 +311,9 @@ pub fn parse_xid(info: &[u8]) -> Option<Vec<XidParam>> {
                 && value.len().is_multiple_of(6)
             {
                 value
-                    .as_chunks::<6>().0.iter()
+                    .as_chunks::<6>()
+                    .0
+                    .iter()
                     .filter_map(|c| {
                         let (mhz, _) = decode_vdl2_freq(&c[0..2])?;
                         Some(FreqSupportEntry {
@@ -366,7 +370,9 @@ pub fn scan(bits: &[u8]) -> Vec<AvlcFrame> {
             return;
         }
         let octets: Vec<u8> = buf
-            .as_chunks::<8>().0.iter()
+            .as_chunks::<8>()
+            .0
+            .iter()
             .map(|c| c.iter().enumerate().fold(0u8, |b, (i, &v)| b | (v << i)))
             .collect();
         if octets.len() > MAX_FRAME_OCTETS {

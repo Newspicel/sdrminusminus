@@ -4,11 +4,12 @@ use num_complex::Complex;
 use sdrmm_dsp::{Decimator, ReedSolomon};
 use serde_json::{Value, json};
 
+use crate::acars::block::{AcarsBlock, parse as parse_acars};
+
 use super::atn::{self, ClnpReassembler, CotpReassembler, X25Reassembler};
 use super::avlc::{self, AvlcFrame, Control, Payload};
 use super::demod::{Burst, SYMBOL_RATE, Vdl2Demod};
 use super::interleave;
-use xng_acars::block::{AcarsBlock, parse as parse_acars};
 
 const SELECTIVITY_TAPS: usize = 101;
 const ACARS_FILL: u8 = 0xFF;
@@ -57,6 +58,14 @@ impl Vdl2Decoder {
             },
             samples_seen: 0,
             input_rate,
+        }
+    }
+
+    #[cfg(test)]
+    pub fn differential(input_rate: f64) -> Self {
+        Self {
+            demod: Vdl2Demod::differential(input_rate),
+            ..Self::new(input_rate)
         }
     }
 

@@ -34,7 +34,7 @@ fn aoa_frame() -> Vec<u8> {
     f.extend(encode_address(AddressType::Aircraft, 0x800F5C, false, true));
     f.push(0x03);
     f.push(0xFF);
-    f.extend(xng_acars::block::build(
+    f.extend(crate::acars::block::build(
         '2',
         "VT-ANB",
         None,
@@ -238,12 +238,11 @@ fn decode_xng(iq: &[Complex<f32>]) -> Vec<DataLinkMessage> {
     out
 }
 
-fn decode_channel(iq: &[Complex<f32>]) -> Vec<DataLinkMessage> {
-    let mut channel = Vdl2Channel::new(
-        ChannelCtx { input_rate: RATE },
-        settings(ChannelParams::Vdl2(Vdl2Params::default())),
-    )
-    .expect("channel");
+fn decode_channel(iq: &[Complex<f32>], decoder: Vdl2Decoder) -> Vec<DataLinkMessage> {
+    let mut channel = Vdl2Channel {
+        decoder,
+        frames: Vec::new(),
+    };
     let mut out = ChannelOutputs::default();
     let mut messages = Vec::new();
     for chunk in iq.chunks(1024) {
@@ -300,21 +299,49 @@ fn assert_same(ours: &[DataLinkMessage], theirs: &[DataLinkMessage]) {
     }
 }
 
+const EQUIVALENCE_CASES: [(u64, f32); 5] = [
+    (0x1111_2222_3333_4444, 0.01),
+    (0x5555_6666_7777_8888, 0.05),
+    (0x9999_aaaa_bbbb_cccc, 0.1),
+    (0xdddd_eeee_ffff_0000, 0.14),
+    (0x0123_4567_89ab_cdef, 0.18),
+];
+
 #[test]
-fn matches_xng_on_the_same_iq() {
-    for (seed, noise) in [
-        (0x1111_2222_3333_4444, 0.01),
-        (0x5555_6666_7777_8888, 0.05),
-        (0x9999_aaaa_bbbb_cccc, 0.1),
-        (0xdddd_eeee_ffff_0000, 0.14),
-        (0x0123_4567_89ab_cdef, 0.18),
-    ] {
+fn differential_detection_matches_xng_exactly() {
+    for (seed, noise) in EQUIVALENCE_CASES {
         let iq = equivalence_capture(seed, noise);
-        let ours = decode_channel(&iq);
+        let ours = decode_channel(&iq, Vdl2Decoder::differential(RATE));
         let theirs = decode_xng(&iq);
-        eprintln!("noise {noise}: ours {} xng {}", ours.len(), theirs.len());
+        assert!(
+            noise > 0.15 || ours.len() == 8,
+            "noise {noise}: {}",
+            ours.len()
+        );
         assert_same(&ours, &theirs);
     }
+}
+
+#[test]
+fn default_detection_keeps_every_xng_frame() {
+    let (mut ours_total, mut theirs_total) = (0, 0);
+    for (seed, noise) in EQUIVALENCE_CASES {
+        let iq = equivalence_capture(seed, noise);
+        let ours = decode_channel(&iq, Vdl2Decoder::new(RATE));
+        let theirs = decode_xng(&iq);
+        for message in &theirs {
+            let found = ours
+                .iter()
+                .find(|m| m.raw == message.raw)
+                .expect("xng frame");
+            assert_eq!(found.details, message.details);
+            assert_eq!(found.message_type, message.message_type);
+            assert_eq!(found.crc_ok, message.crc_ok);
+        }
+        ours_total += ours.len();
+        theirs_total += theirs.len();
+    }
+    assert!(ours_total > theirs_total, "{ours_total} vs {theirs_total}");
 }
 
 fn sweep_capture(seed: u64, noise: f32, bursts: usize) -> Vec<Complex<f32>> {
@@ -328,7 +355,10 @@ fn sweep_capture(seed: u64, noise: f32, bursts: usize) -> Vec<Complex<f32>> {
             vec![cpdlc_frame()]
         };
         iq.extend(burst_iq_shaped(&frames, RATE, cfo, 0.4));
-        iq.extend(vec![Complex::default(); 4_000 + (rng.next().abs() * 3_000.0) as usize]);
+        iq.extend(vec![
+            Complex::default();
+            4_000 + (rng.next().abs() * 3_000.0) as usize
+        ]);
     }
     iq.extend(vec![Complex::default(); 40_000]);
     Noise(seed).add(&mut iq, noise);
@@ -342,7 +372,7 @@ fn sensitivity_sweep() {
         let (mut ours, mut theirs) = (0, 0);
         for seed in 1..=6u64 {
             let iq = sweep_capture(seed * 0x1234_5678_9abc_def1, noise, 30);
-            ours += decode_channel(&iq).len();
+            ours += decode_channel(&iq, Vdl2Decoder::new(RATE)).len();
             theirs += decode_xng(&iq).len();
         }
         eprintln!("SWEEP noise {noise}: ours {ours} xng {theirs}");

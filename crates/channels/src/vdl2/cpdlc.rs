@@ -441,10 +441,10 @@ fn protected_message(p: &mut Per, downlink: bool) -> Option<Value> {
     };
     if let Some(nbits) = p.length()
         && let Some(ic) = p.remaining_bytes(nbits)
-            && !ic.is_empty() {
-                out["integrity_check"] =
-                    json!(ic.iter().map(|b| format!("{b:02x}")).collect::<String>());
-            }
+        && !ic.is_empty()
+    {
+        out["integrity_check"] = json!(ic.iter().map(|b| format!("{b:02x}")).collect::<String>());
+    }
     Some(out)
 }
 
@@ -547,20 +547,23 @@ fn walk_message_data(p: &mut Per, downlink: bool) -> Option<(Value, Option<Value
     }
 
     let mut route_clearances = None;
-    if has_constrained && !bailed
-        && p.bit() == Some(0) && p.bit() == Some(1)
-            && let Some(n) = p.constrained(1, 2) {
-                let mut rcs = Vec::new();
-                for _ in 0..n {
-                    match read_route_clearance(p) {
-                        Some(rc) => rcs.push(rc),
-                        None => break,
-                    }
-                }
-                if !rcs.is_empty() {
-                    route_clearances = Some(json!(rcs));
-                }
+    if has_constrained
+        && !bailed
+        && p.bit() == Some(0)
+        && p.bit() == Some(1)
+        && let Some(n) = p.constrained(1, 2)
+    {
+        let mut rcs = Vec::new();
+        for _ in 0..n {
+            match read_route_clearance(p) {
+                Some(rc) => rcs.push(rc),
+                None => break,
             }
+        }
+        if !rcs.is_empty() {
+            route_clearances = Some(json!(rcs));
+        }
+    }
     Some((json!(elements), route_clearances))
 }
 

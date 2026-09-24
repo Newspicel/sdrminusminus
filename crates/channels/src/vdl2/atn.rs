@@ -488,9 +488,10 @@ pub fn clnp_cotp_tpdu(b: &[u8]) -> Option<&[u8]> {
     }
     if flags & 0x80 != 0
         && let Some(seg) = clnp_segment(b)
-            && (seg.more || seg.offset != 0) {
-                return None;
-            }
+        && (seg.more || seg.offset != 0)
+    {
+        return None;
+    }
     b.get(hdr_len..)
 }
 
@@ -552,19 +553,20 @@ fn parse_esis(b: &[u8]) -> Value {
             }
         }
     } else if type_code == 4
-        && let Some(&len) = b.get(pos) {
-            let len = len as usize;
-            pos += 1;
-            if pos + len <= b.len() && len <= 20 {
-                addrs.push(
-                    b[pos..pos + len]
-                        .iter()
-                        .map(|x| format!("{x:02x}"))
-                        .collect::<String>(),
-                );
-                pos += len;
-            }
+        && let Some(&len) = b.get(pos)
+    {
+        let len = len as usize;
+        pos += 1;
+        if pos + len <= b.len() && len <= 20 {
+            addrs.push(
+                b[pos..pos + len]
+                    .iter()
+                    .map(|x| format!("{x:02x}"))
+                    .collect::<String>(),
+            );
+            pos += len;
         }
+    }
     if !addrs.is_empty() {
         out["addresses"] = json!(addrs);
     }
@@ -951,9 +953,10 @@ fn bitfield_names(byte: u8, namer: fn(u8) -> Option<&'static str>) -> Vec<&'stat
     for i in 0..8 {
         let bit = 1u8 << i;
         if byte & bit != 0
-            && let Some(name) = namer(bit) {
-                out.push(name);
-            }
+            && let Some(name) = namer(bit)
+        {
+            out.push(name);
+        }
     }
     out
 }
@@ -1168,9 +1171,10 @@ fn parse_clnp(b: &[u8]) -> Option<Value> {
     }
     let payload = &b[hdr_len..];
     if !(more_segments || segment_offset != 0)
-        && let Some(cotp) = parse_cotp(payload) {
-            out["cotp"] = cotp;
-        }
+        && let Some(cotp) = parse_cotp(payload)
+    {
+        out["cotp"] = cotp;
+    }
     Some(out)
 }
 
