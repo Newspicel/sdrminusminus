@@ -133,7 +133,6 @@ interface Gesture {
   channel: number | null;
   moved: boolean;
   centerHz: number;
-  followHz: number | null;
   sentHz: number | null;
   sentAt: number;
 }
@@ -160,6 +159,7 @@ function Spectrum({ set, source }: { set: DeviceSet | null; source: IqLane | nul
     () => streamChannels(set?.channels ?? NO_CHANNELS, stream),
     [set?.channels, stream],
   );
+  const { tuneRadio } = useRadioTune();
   const { applyEdit } = useChannelPatch();
   const active = useFaceActive();
   const placeNode = useNodePlacement();
@@ -246,19 +246,13 @@ function Spectrum({ set, source }: { set: DeviceSet | null; source: IqLane | nul
   const locked = lockedChannels(workspace.graph, faces);
   const heldChannel = (channel: number): boolean => owners.has(channel) || locked.has(channel);
   const centerHeld = deviceNode !== undefined && tuningLocked(workspace.graph, deviceNode, tuned);
-  const radio = useRadioTune(
-    set === null || deviceNode === undefined
-      ? null
-      : { node: deviceNode, set, stream, tunes: tuned },
-  );
-  const followedChannel = [...faces].find(([, id]) => id === radio.followed)?.[0] ?? null;
+  const onAuto = set !== null && autoTuning(set, tuned);
 
   const workspaceChannel = [...faces].find(([, id]) => id === workspace.selected)?.[0] ?? null;
   const selectedChannel =
     workspaceChannel ?? (channels.some((channel) => channel.id === picked) ? picked : null);
-  const pickedChannel = selectedChannel ?? followedChannel;
   const tunableChannel =
-    pickedChannel !== null && !heldChannel(pickedChannel) ? pickedChannel : null;
+    selectedChannel !== null && !heldChannel(selectedChannel) ? selectedChannel : null;
 
   const selectChannel = (channel: number): void => {
     setPicked(channel);
@@ -272,10 +266,8 @@ function Spectrum({ set, source }: { set: DeviceSet | null; source: IqLane | nul
     if (set === null || centerHeld) {
       return;
     }
-    radio.tune(hz);
+    tuneRadio(set, tuned, hz);
   };
-  const dragTarget = (gesture: Gesture, hz: number): number =>
-    gesture.followHz === null ? hz : gesture.followHz + gesture.centerHz - hz;
   const tuneChannel = (channel: number, frequencyHz: number): void => {
     if (setId === null || heldChannel(channel)) {
       return;
@@ -623,7 +615,6 @@ function Spectrum({ set, source }: { set: DeviceSet | null; source: IqLane | nul
       channel: grabbed?.id ?? null,
       moved: false,
       centerHz: meta.centerHz,
-      followHz: radio.followed === null ? null : radio.hz,
       sentHz: null,
       sentAt: 0,
     };
@@ -654,8 +645,11 @@ function Spectrum({ set, source }: { set: DeviceSet | null; source: IqLane | nul
       });
       return;
     }
-    setPanning(!(isFullView(gesture.view) && centerHeld));
     const rect = plotRef.current?.getBoundingClientRect();
+    if (isFullView(gesture.view) && (centerHeld || onAuto)) {
+      return;
+    }
+    setPanning(true);
     if (isFullView(gesture.view)) {
       const hz = dragTuneHz(
         gesture.centerHz,
@@ -668,7 +662,7 @@ function Spectrum({ set, source }: { set: DeviceSet | null; source: IqLane | nul
       if (hz !== gesture.sentHz && now - gesture.sentAt >= TUNE_THROTTLE_MS) {
         gesture.sentHz = hz;
         gesture.sentAt = now;
-        tuneCenter(dragTarget(gesture, hz));
+        tuneCenter(hz);
       }
       return;
     }
@@ -689,7 +683,7 @@ function Spectrum({ set, source }: { set: DeviceSet | null; source: IqLane | nul
     if (gesture.moved) {
       if (gesture.channel !== null && preview !== null && meta !== null) {
         tuneChannel(gesture.channel, meta.centerHz + preview.offsetHz);
-      } else if (gesture.channel === null && isFullView(gesture.view) && meta !== null) {
+      } else if (gesture.channel === null && isFullView(gesture.view) && !onAuto && meta !== null) {
         const rect = plotRef.current?.getBoundingClientRect();
         const hz = dragTuneHz(
           gesture.centerHz,
@@ -699,7 +693,7 @@ function Spectrum({ set, source }: { set: DeviceSet | null; source: IqLane | nul
           rect?.width || 1,
         );
         if (hz !== gesture.sentHz) {
-          tuneCenter(dragTarget(gesture, hz));
+          tuneCenter(hz);
         }
       }
       return;

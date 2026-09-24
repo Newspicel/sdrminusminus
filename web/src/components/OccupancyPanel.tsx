@@ -1,9 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
-import { tuneDelta } from "../canvas/nodes/deviceNode";
 import { occupancyQuery } from "../lib/api";
 import type { DeviceSet } from "../lib/types";
-import { useDevicePatch } from "../lib/useDevicePatch";
+import { useRadioTune } from "../lib/useRadioTune";
 import type { Options } from "./controls";
 import { List, ListRow, Panel, PanelHint, PanelToolbar, SearchField } from "./ListPanel";
 import {
@@ -28,7 +27,7 @@ const SORTS: Options<OccupancySort> = [
 const MIN_SAMPLES = 30;
 
 export function OccupancyPanel({ active }: { active: DeviceSet | null }) {
-  const { applyPatch } = useDevicePatch();
+  const { tuneRadio } = useRadioTune();
   const [sort, setSort] = useState<OccupancySort>("busiest");
   const [query, setQuery] = useState("");
   const report = useQuery(occupancyQuery(MIN_SAMPLES));
@@ -93,7 +92,7 @@ export function OccupancyPanel({ active }: { active: DeviceSet | null }) {
                 disabled={active === null}
                 onSelect={() => {
                   if (active !== null) {
-                    applyPatch(active.id, tuneDelta(active.capabilities, 0, bucket.freq_hz));
+                    tuneRadio(active, 0, bucket.freq_hz);
                   }
                 }}
               />

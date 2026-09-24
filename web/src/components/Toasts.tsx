@@ -2,7 +2,7 @@ import { Toast } from "@base-ui/react/toast";
 import { Flag, X } from "lucide-react";
 import { type ToastData, toastManager } from "../lib/toasts";
 import { Button } from "./BaseControls";
-import { BTN_SM, ICON_BTN } from "./controls";
+import { ICON_BTN } from "./controls";
 import { Icon } from "./Icon";
 
 const LIFETIME_MS = 12_000;
@@ -46,7 +46,6 @@ function ToastList({ onReport }: { onReport?: () => void }) {
             {toast.title}
             {repeats > 0 && <span className="text-ink-faint"> ×{repeats + 1}</span>}
           </Toast.Title>
-          {toast.actionProps !== undefined && <Toast.Action className={BTN_SM} />}
           {error && onReport !== undefined && (
             <Button
               type="button"

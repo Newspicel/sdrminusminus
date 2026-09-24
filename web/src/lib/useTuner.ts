@@ -8,6 +8,7 @@ import { radioWindowHz, reachesHz } from "../components/channelSettings";
 import type { ChannelDescriptor, DeviceSet, DeviceSettings } from "./types";
 import { channelSettingsOf, useChannelEdit } from "./useChannelEdit";
 import { forStream, useDevicePatch } from "./useDevicePatch";
+import { useRadioTune } from "./useRadioTune";
 
 export interface Tuner {
   tune: (hz: number) => void;
@@ -19,6 +20,7 @@ export interface Tuner {
 export function useTuner(target: TuneTarget | null): Tuner {
   const workspace = useWorkspaceContext();
   const { applyPatch } = useDevicePatch();
+  const { tuneRadio } = useRadioTune();
   const editChannel = useChannelEdit();
 
   const tune = (hz: number): void => {
@@ -26,7 +28,7 @@ export function useTuner(target: TuneTarget | null): Tuner {
       return;
     }
     if (target.kind === "device") {
-      applyPatch(target.set.id, tuneDelta(target.set.capabilities, 0, hz));
+      tuneRadio(target.set, 0, hz);
       return;
     }
     editChannel(target.node, { frequency_hz: hz });

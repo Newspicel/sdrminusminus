@@ -1,7 +1,5 @@
 import { type GraphContext, isPinned, pin, tuningLocked, unpin } from "./canvas/graph";
-import { followedDecoder } from "./canvas/nodes/autoFollow";
 import { nextAnalogMode, swapDecoder } from "./canvas/nodes/decoderSwap";
-import { autoTuning } from "./canvas/nodes/deviceNode";
 import { useHotkeys } from "./canvas/useHotkeys";
 import type { WorkspaceStore } from "./canvas/useWorkspace";
 import type { View } from "./canvas/WorkspaceBar";
@@ -11,7 +9,7 @@ import { dialId } from "./components/FrequencyDial";
 import type { ChannelInfo, DeviceSet, PatchGraph, PatchNode } from "./lib/types";
 import type { useChannelPatch } from "./lib/useChannelPatch";
 import { forStream, type useDevicePatch } from "./lib/useDevicePatch";
-import { takeOver } from "./lib/useRadioTune";
+import type { useRadioTune } from "./lib/useRadioTune";
 
 export interface AppHotkeys {
   selected: string | null;
@@ -22,13 +20,11 @@ export interface AppHotkeys {
   selectedDevice: string | null;
   channelNodes: readonly PatchNode[];
   graph: PatchGraph;
-  channels: ReadonlyMap<string, ChannelInfo>;
-  owners: ReadonlyMap<string, string>;
   context: GraphContext;
   stepHz: number;
   setStepHz: (hz: number) => void;
   workspace: WorkspaceStore;
-  applyPatch: ReturnType<typeof useDevicePatch>["applyPatch"];
+  tuneRadio: ReturnType<typeof useRadioTune>["tuneRadio"];
   cachedSettings: ReturnType<typeof useDevicePatch>["cachedSettings"];
   applyEdit: ReturnType<typeof useChannelPatch>["applyEdit"];
   setView: (update: (current: View) => View) => void;
@@ -48,17 +44,11 @@ export function useAppHotkeys(b: AppHotkeys) {
       }
       const { capabilities } = b.selectedSet;
       const range = tuningRange(capabilities);
-      const followed = followedChannel(b, b.selectedSet, b.selectedDevice);
       const cached = b.cachedSettings(b.selectedSet.id);
-      const center =
+      const current =
         cached === undefined ? 0 : (forStream(cached, 0, capabilities.per_stream).center_hz ?? 0);
-      const current = followed?.settings.frequency_hz ?? center;
-      const wanted = Math.min(range.max, Math.max(range.min, current + steps * b.stepHz));
-      if (followed === null) {
-        takeOver(b.applyPatch, b.cachedSettings, { set: b.selectedSet, tunes: 0 }, wanted);
-      } else {
-        b.applyEdit(b.selectedSet.id, followed.id, { frequency_hz: Math.round(wanted) });
-      }
+      const wanted = current + steps * b.stepHz;
+      b.tuneRadio(b.selectedSet, 0, Math.min(range.max, Math.max(range.min, wanted)));
     },
     stepBy: (direction) => {
       const at = TUNE_STEPS_HZ.indexOf(b.stepHz as (typeof TUNE_STEPS_HZ)[number]);
@@ -143,18 +133,4 @@ export function useAppHotkeys(b: AppHotkeys) {
     redo: b.workspace.redo,
     showShortcuts: () => b.setShowShortcuts(true),
   });
-}
-
-function followedChannel(b: AppHotkeys, set: DeviceSet, device: string): ChannelInfo | null {
-  if (!autoTuning(set, 0)) {
-    return null;
-  }
-  const scope = {
-    graph: b.graph,
-    devices: b.context.bound ?? new Map(),
-    owners: b.owners,
-    selected: b.selected,
-  };
-  const node = followedDecoder(scope, device, 0);
-  return node === null ? null : (b.channels.get(node) ?? null);
 }

@@ -20,6 +20,7 @@ import { useWorkspace } from "./canvas/useWorkspace";
 import { type View, WorkspaceBar } from "./canvas/WorkspaceBar";
 import { WorkspaceStart } from "./canvas/WorkspaceStart";
 import { AboutPanel } from "./components/AboutPanel";
+import { AutoOffDialog } from "./components/AutoOffDialog";
 import { ReportProblem } from "./components/ReportProblem";
 import { ServerDown } from "./components/ServerDown";
 import { Shortcuts } from "./components/Shortcuts";
@@ -32,6 +33,7 @@ import { pushToast } from "./lib/toasts";
 import type { PatchApplyReport, PatchGraph, WorkspaceSettings } from "./lib/types";
 import { useChannelPatch } from "./lib/useChannelPatch";
 import { useDevicePatch } from "./lib/useDevicePatch";
+import { useRadioTune } from "./lib/useRadioTune";
 import { useSdrSocket } from "./lib/useSdrSocket";
 import { ToolsDialog } from "./tools/ToolsDialog";
 
@@ -50,7 +52,8 @@ export function App() {
   const channelTypes = useQuery(channelTypesQuery());
   const catalog = useQuery(patchCatalogQuery());
   const workspace = useWorkspace();
-  const { applyPatch, cachedSettings } = useDevicePatch();
+  const { cachedSettings } = useDevicePatch();
+  const { tuneRadio } = useRadioTune();
   const { applyEdit } = useChannelPatch();
   const deviceSets = useMemo(() => state.data?.device_sets ?? [], [state.data?.device_sets]);
   const trunks = useMemo(() => state.data?.trunk_systems ?? [], [state.data?.trunk_systems]);
@@ -144,13 +147,11 @@ export function App() {
     selectedDevice,
     channelNodes,
     graph,
-    channels,
-    owners,
     context,
     stepHz,
     setStepHz,
     workspace,
-    applyPatch,
+    tuneRadio,
     cachedSettings,
     applyEdit,
     setView,
@@ -233,6 +234,7 @@ export function App() {
         <AboutPanel open={showAbout} onOpenChange={setShowAbout} />
         <ReportProblem open={showReport} onOpenChange={setShowReport} graph={graph} />
         <ToolsDialog tool={openTool} onClose={() => setOpenTool(null)} />
+        <AutoOffDialog />
         <Toasts onReport={() => setShowReport(true)} />
       </div>
     </TokenGate>

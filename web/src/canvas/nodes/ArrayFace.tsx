@@ -6,11 +6,11 @@ import { RadioSettings } from "../../components/RadioSettings";
 import { Select } from "../../components/Select";
 import { SettingRow, Settings } from "../../components/Settings";
 import type { ArrayNode, Coherence, PatchNode } from "../../lib/types";
-import { useDevicePatch } from "../../lib/useDevicePatch";
+import { useRadioTune } from "../../lib/useRadioTune";
 import { useWorkspaceContext } from "../context";
 import { patchNode } from "../graph";
 import { arrayMembers } from "./arrayNode";
-import { refLabel, tuneDelta, tunerDials } from "./deviceNode";
+import { refLabel, tunerDials } from "./deviceNode";
 import { FaceBody, NodeShell, useFaceActive } from "./NodeShell";
 
 const TIERS: Options<Coherence> = [
@@ -20,7 +20,7 @@ const TIERS: Options<Coherence> = [
 
 export function ArrayFace({ node }: { node: PatchNode }) {
   const workspace = useWorkspaceContext();
-  const { applyPatch } = useDevicePatch();
+  const { tuneRadio } = useRadioTune();
   const active = useFaceActive();
   if (node.kind !== "array") {
     return null;
@@ -56,7 +56,7 @@ export function ArrayFace({ node }: { node: PatchNode }) {
                 hz={dial.hz}
                 range={tuningRange(set.capabilities)}
                 wheelTunes={active}
-                onTune={(hz) => applyPatch(set.id, tuneDelta(set.capabilities, dial.stream, hz))}
+                onTune={(hz) => tuneRadio(set, dial.stream, hz)}
               />
             ))}
           </div>

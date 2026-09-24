@@ -5,7 +5,7 @@ text field or control. Press `?` to open the reference in the app.
 
 | Keys | Action |
 |---|---|
-| Left / Right | Tune down or up one step. On [Auto](tuning.md), this moves the decoder |
+| Left / Right | Tune down or up one step |
 | Shift + Left / Right | Tune ten steps |
 | `[` / `]` | Choose a smaller or larger tuning step |
 | `f` | Focus the device dial; press Enter to type a frequency |

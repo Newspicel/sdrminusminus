@@ -1,8 +1,8 @@
 import { Collapsible } from "@base-ui/react/collapsible";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link2, Lock } from "lucide-react";
+import { Link2, Lock, Radar } from "lucide-react";
 import { Button } from "../../components/BaseControls";
-import { BTN_PRIMARY, BTN_QUIET, type Options } from "../../components/controls";
+import { BTN_PRIMARY, BTN_QUIET, ICON_BTN } from "../../components/controls";
 import { DevOnly } from "../../components/DevOnly";
 import { deviceId } from "../../components/devices";
 import { inTuningRange, isTunable, tuningRange } from "../../components/dial";
@@ -12,22 +12,13 @@ import { Icon } from "../../components/Icon";
 import { DeviceChoices } from "../../components/OpenRadio";
 import { LaneControls, RadioSettings } from "../../components/RadioSettings";
 import { Readout, ReadoutRow } from "../../components/Readout";
-import { Segmented } from "../../components/Segmented";
-import { SettingRow } from "../../components/Settings";
+import { Tip } from "../../components/Tip";
 import { TuneTo } from "../../components/TuneTo";
 import { TuningLock } from "../../components/TuningLock";
 import { createDeviceSet, devicesQuery, STATE_KEY, stateQuery } from "../../lib/api";
 import { queueSummary, usePipelineHealth } from "../../lib/pipeline";
 import { toastError } from "../../lib/toasts";
-import type {
-  DeviceInfo,
-  DeviceRef,
-  DeviceSet,
-  PatchNode,
-  PatchNodeOf,
-  Tuning,
-} from "../../lib/types";
-import { useDevicePatch } from "../../lib/useDevicePatch";
+import type { DeviceInfo, DeviceRef, DeviceSet, PatchNode, PatchNodeOf } from "../../lib/types";
 import { useRadioTune } from "../../lib/useRadioTune";
 import { claimedDevices, deviceRefOf, refMatches } from "../binding";
 import { useWorkspaceContext } from "../context";
@@ -49,28 +40,31 @@ import {
   refusalSaid,
   type TunerDial,
   tunerDials,
-  tuningDelta,
 } from "./deviceNode";
 import { FaceBody, FaceFooter, NodeShell, useFaceActive } from "./NodeShell";
 
 type DeviceNodeData = PatchNodeOf<"device">["data"];
 
-const TUNING_MODES: Options<Tuning> = [
-  { value: "auto", label: "Auto", title: "Tune a decoder, the radio follows" },
-  { value: "manual", label: "Manual", title: "The radio stays where you set it" },
-];
-
-function TuningMode({ set, stream }: { set: DeviceSet; stream: number }) {
-  const { applyPatch } = useDevicePatch();
+function AutoTuning({ set, stream }: { set: DeviceSet; stream: number }) {
+  const { setTuning } = useRadioTune();
+  const auto = autoTuning(set, stream);
   return (
-    <SettingRow label="Tuning" title="Auto: tune your decoders and the radio follows them">
-      <Segmented
-        label="Tuning"
-        value={autoTuning(set, stream) ? "auto" : "manual"}
-        options={TUNING_MODES}
-        onChange={(tuning) => applyPatch(set.id, tuningDelta(set.capabilities, stream, tuning))}
-      />
-    </SettingRow>
+    <Tip
+      text={auto ? "Auto mode: following decoders" : "Auto mode: follow decoders"}
+      render={
+        <Button
+          type="button"
+          className={`${ICON_BTN} ${auto ? "bg-accent/15" : ""}`}
+          aria-label={auto ? "Tune by hand" : "Follow the decoders"}
+          aria-pressed={auto}
+          onClick={() => setTuning(set, stream, auto ? "manual" : "auto")}
+        />
+      }
+    >
+      <span className={auto ? "flex text-accent" : "flex"}>
+        <Icon glyph={Radar} size={16} />
+      </span>
+    </Tip>
   );
 }
 
@@ -94,33 +88,34 @@ function DialRow({
   locked: boolean;
   onLock: (locked: boolean) => void;
 }) {
+  const { tuneRadio } = useRadioTune();
   const active = useFaceActive();
-  const radio = useRadioTune({ node, set, stream: dial.stream, tunes: dial.stream });
   const range = tuningRange(set.capabilities);
   const pinned = !isTunable(range);
   const held = pinned || locked;
-  const hz = radio.hz ?? dial.hz;
+  const tune = (hz: number): void => tuneRadio(set, dial.stream, hz);
   return (
     <div className="flex min-w-0 items-center gap-2">
       <FrequencyDial
         id={dialId(node, dial.stream)}
-        hz={hz}
+        hz={dial.hz}
         range={range}
         disabled={held}
         wheelTunes={active}
-        onTune={radio.tune}
+        onTune={tune}
       />
       <span className="ml-auto flex shrink-0 items-center gap-1">
         {!pinned && (
           <TuneTo
             title={dial.port === null ? "Type a frequency" : `Type a frequency for ${dial.port}`}
-            hz={hz}
+            hz={dial.hz}
             hint={`Reaches ${formatMhz(range.min)} to ${formatMhz(range.max)}`}
             resolve={(entered) => inTuningRange(entered, range)}
             disabled={held}
-            onTune={radio.tune}
+            onTune={tune}
           />
         )}
+        {!pinned && <AutoTuning set={set} stream={dial.stream} />}
         {!pinned && (
           <TuningLock locked={locked} held="Tuning locked" free="Lock tuning" onLock={onLock} />
         )}
@@ -165,9 +160,6 @@ function Tuner(props: TunerProps) {
                 onLock={(next) => onLock(dial.stream, next)}
               />
             </div>
-            {isTunable(tuningRange(set.capabilities)) && (
-              <TuningMode set={set} stream={dial.stream} />
-            )}
             {controls && (
               <LaneControls active={set} stream={dial.stream} advised={advised.has(dial.stream)} />
             )}
