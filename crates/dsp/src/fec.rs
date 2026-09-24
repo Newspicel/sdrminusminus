@@ -343,6 +343,24 @@ pub fn hdlc_fcs_ok(frame: &[u8]) -> bool {
     crc16_x25(payload) == u16::from_le_bytes([*lo, *hi])
 }
 
+pub fn hdlc_repair(frame: &mut [u8]) -> bool {
+    if hdlc_fcs_ok(frame) {
+        return true;
+    }
+    let bits = frame.len() * 8;
+    let flip = |frame: &mut [u8], at: usize| frame[at / 8] ^= 1 << (at % 8);
+    for span in [1usize, 2] {
+        for at in 0..=bits - span {
+            (at..at + span).for_each(|b| flip(frame, b));
+            if hdlc_fcs_ok(frame) {
+                return true;
+            }
+            (at..at + span).for_each(|b| flip(frame, b));
+        }
+    }
+    false
+}
+
 const MODE_S_POLY: u32 = 0x00FF_F409;
 const MODE_S_MASK: u32 = 0x00FF_FFFF;
 const MODE_S_SHORT_LEN: usize = 7;
@@ -840,6 +858,29 @@ mod tests {
             flip(&mut corrupt, bit);
             assert_ne!(crc16_ccitt(&corrupt), 0, "bit {bit} slipped past the CRC");
         }
+    }
+
+    #[test]
+    fn one_bit_or_two_adjacent_bits_are_repaired_and_scattered_ones_are_not() {
+        let mut frame = b"DL1ABC>APRS:hello world".to_vec();
+        frame.extend_from_slice(&crc16_x25(&frame).to_le_bytes());
+        let clean = frame.clone();
+        for bit in [0usize, 13, 77, frame.len() * 8 - 1] {
+            let mut damaged = clean.clone();
+            damaged[bit / 8] ^= 1 << (bit % 8);
+            assert!(hdlc_repair(&mut damaged), "bit {bit}");
+            assert_eq!(damaged, clean, "bit {bit}");
+            if bit + 1 < clean.len() * 8 {
+                let mut pair = clean.clone();
+                pair[bit / 8] ^= 1 << (bit % 8);
+                pair[(bit + 1) / 8] ^= 1 << ((bit + 1) % 8);
+                assert!(hdlc_repair(&mut pair), "pair at {bit}");
+                assert_eq!(pair, clean, "pair at {bit}");
+            }
+        }
+        let mut scattered = clean.clone();
+        scattered[2] ^= 0x11;
+        assert!(!hdlc_repair(&mut scattered));
     }
 
     #[test]

@@ -3,7 +3,7 @@ use std::{f64::consts::TAU, sync::LazyLock};
 use num_complex::Complex;
 use sdrmm_dsp::{
     BitSync, DcBlocker, Decimator, Descrambler, FmDemod, HdlcDeframer, NrziDecoder, RealDecimator,
-    Scrambler, ToneCorrelator, crc16_x25, design_lowpass, hdlc_fcs_ok,
+    Scrambler, ToneCorrelator, crc16_x25, design_lowpass, hdlc_repair,
 };
 use sdrmm_wire::{
     AprsMode, AprsPacket, AprsParams, ChannelDescriptor, ChannelParams, ChannelSettings,
@@ -53,23 +53,57 @@ pub struct AprsChannel {
     mode: AprsMode,
     demod: FmDemod,
     slicer: Slicer,
+    discriminated: Vec<f32>,
+    frames: Vec<Vec<u8>>,
+    recent: Vec<(u64, Vec<u8>)>,
+    clock: u64,
+}
+
+const TWIST_GAINS: [f32; 5] = [0.5, 0.71, 1.0, 1.41, 2.0];
+
+const DEDUP_SAMPLES: u64 = 48_000;
+
+struct Lane {
+    sync: BitSync,
     nrzi: NrziDecoder,
     deframer: HdlcDeframer,
-    discriminated: Vec<f32>,
-    levels: Vec<bool>,
+    space_gain: f32,
+}
+
+impl Lane {
+    fn new(rate: f64, baud: f64, space_gain: f32) -> Self {
+        Self {
+            sync: BitSync::new(rate, baud),
+            nrzi: NrziDecoder::new(),
+            deframer: HdlcDeframer::new(MIN_FRAME_BYTES, MAX_FRAME_BYTES),
+            space_gain,
+        }
+    }
+
+    fn push(&mut self, sample: f32, frames: &mut Vec<Vec<u8>>) {
+        if let Some(level) = self.sync.push(sample) {
+            self.push_level(level, frames);
+        }
+    }
+
+    fn push_level(&mut self, level: bool, frames: &mut Vec<Vec<u8>>) {
+        if let Some(frame) = self.deframer.push(self.nrzi.decode(level)) {
+            frames.push(frame);
+        }
+    }
 }
 
 enum Slicer {
     Afsk {
         mark: ToneCorrelator,
         space: ToneCorrelator,
-        sync: BitSync,
+        lanes: Vec<Lane>,
     },
     G3ruh {
         lowpass: RealDecimator,
         dc: DcBlocker,
         filtered: Vec<f32>,
-        sync: BitSync,
+        lane: Lane,
         descrambler: Descrambler,
     },
 }
@@ -82,26 +116,29 @@ impl Slicer {
                 Self::Afsk {
                     mark: ToneCorrelator::new(rate, AFSK_MARK_HZ, window),
                     space: ToneCorrelator::new(rate, AFSK_SPACE_HZ, window),
-                    sync: BitSync::new(rate, AFSK_BAUD),
+                    lanes: TWIST_GAINS
+                        .iter()
+                        .map(|&gain| Lane::new(rate, AFSK_BAUD, gain))
+                        .collect(),
                 }
             }
             AprsMode::G3ruh9600 => Self::G3ruh {
                 lowpass: RealDecimator::new(&design_lowpass(G3RUH_TAPS, G3RUH_CUTOFF_HZ / rate), 1),
                 dc: DcBlocker::new(),
                 filtered: Vec::new(),
-                sync: BitSync::new(rate, G3RUH_BAUD),
+                lane: Lane::new(rate, G3RUH_BAUD, 1.0),
                 descrambler: Descrambler::g3ruh(),
             },
         }
     }
 
-    fn levels(&mut self, discriminated: &[f32], out: &mut Vec<bool>) {
+    fn frames(&mut self, discriminated: &[f32], out: &mut Vec<Vec<u8>>) {
         match self {
-            Self::Afsk { mark, space, sync } => {
+            Self::Afsk { mark, space, lanes } => {
                 for &s in discriminated {
-                    let baseband = mark.push(s) - space.push(s);
-                    if let Some(level) = sync.push(baseband) {
-                        out.push(level);
+                    let (m, sp) = (mark.push(s), space.push(s));
+                    for lane in lanes.iter_mut() {
+                        lane.push(m - lane.space_gain * sp, out);
                     }
                 }
             }
@@ -109,14 +146,14 @@ impl Slicer {
                 lowpass,
                 dc,
                 filtered,
-                sync,
+                lane,
                 descrambler,
             } => {
                 lowpass.process(discriminated, filtered);
                 dc.process(filtered);
                 for &s in filtered.iter() {
-                    if let Some(level) = sync.push(s) {
-                        out.push(descrambler.push(level));
+                    if let Some(level) = lane.sync.push(s) {
+                        lane.push_level(descrambler.push(level), out);
                     }
                 }
             }
@@ -173,10 +210,10 @@ impl ChannelRx for AprsChannel {
             mode: p.mode,
             demod: FmDemod::new(ctx.input_rate, DEVIATION_HZ),
             slicer: Slicer::new(p.mode, ctx.input_rate),
-            nrzi: NrziDecoder::new(),
-            deframer: HdlcDeframer::new(MIN_FRAME_BYTES, MAX_FRAME_BYTES),
             discriminated: Vec::new(),
-            levels: Vec::new(),
+            frames: Vec::new(),
+            recent: Vec::new(),
+            clock: 0,
         })
     }
 
@@ -186,26 +223,38 @@ impl ChannelRx for AprsChannel {
         if p.mode != self.mode {
             self.mode = p.mode;
             self.slicer = Slicer::new(p.mode, DESCRIPTOR.input_rate_hz);
-            self.nrzi.reset();
-            self.deframer.reset();
+            self.recent.clear();
         }
         Ok(())
     }
 
     fn process(&mut self, iq: &[Complex<f32>], out: &mut ChannelOutputs) {
         self.demod.process(iq, &mut self.discriminated);
-        self.levels.clear();
-        self.slicer.levels(&self.discriminated, &mut self.levels);
-        for &level in &self.levels {
-            let bit = self.nrzi.decode(level);
-            if let Some(frame) = self.deframer.push(bit)
-                && hdlc_fcs_ok(&frame)
-                && let Some(packet) = parse_frame(&frame)
-            {
-                out.events.push(DecoderEvent::Aprs(packet));
+        self.clock += iq.len() as u64;
+        self.frames.clear();
+        self.slicer.frames(&self.discriminated, &mut self.frames);
+        let clock = self.clock;
+        self.recent
+            .retain(|(seen, _)| clock.saturating_sub(*seen) < DEDUP_SAMPLES);
+        for frame in self.frames.drain(..) {
+            let Some((packet, repaired)) = checked_packet(frame) else {
+                continue;
+            };
+            if self.recent.iter().any(|(_, seen)| *seen == repaired) {
+                continue;
             }
+            self.recent.push((clock, repaired));
+            out.events.push(DecoderEvent::Aprs(packet));
         }
     }
+}
+
+fn checked_packet(mut frame: Vec<u8>) -> Option<(AprsPacket, Vec<u8>)> {
+    parse_frame(&frame)?;
+    if !hdlc_repair(&mut frame) {
+        return None;
+    }
+    Some((parse_frame(&frame)?, frame))
 }
 
 struct Address {
@@ -1396,8 +1445,14 @@ mod tests {
 
     #[test]
     fn a_corrupt_fcs_emits_nothing() {
-        let iq = keyed_frames(AprsMode::Afsk1200, &[&position_frame()], 1);
+        let iq = keyed_frames(AprsMode::Afsk1200, &[&position_frame()], 0x0501);
         assert!(decode(AprsMode::Afsk1200, &iq).is_empty());
+    }
+
+    #[test]
+    fn a_single_wrong_fcs_bit_is_repaired() {
+        let iq = keyed_frames(AprsMode::Afsk1200, &[&position_frame()], 0x0100);
+        assert_position_packet(&only(decode(AprsMode::Afsk1200, &iq)));
     }
 
     #[test]
@@ -1759,6 +1814,90 @@ mod tests {
         let mut out = ChannelOutputs::default();
         chan.process(&keyed(AprsMode::G3ruh9600, &position_frame()), &mut out);
         assert_position_packet(&only(packets(&out)));
+    }
+
+    fn twisted_afsk(frame: &[u8], twist_db: f64, sigma: f64, seed: u64) -> Vec<Complex<f32>> {
+        let mut bits = Vec::new();
+        push_flags(&mut bits, PREAMBLE_FLAGS);
+        push_frame(&mut bits, frame, 0);
+        push_flags(&mut bits, TRAILING_FLAGS);
+        let mut line = Line::new(AprsMode::Afsk1200);
+        let space_gain = 10f64.powf(twist_db / 20.0);
+        let norm = space_gain.max(1.0);
+        let sps = (RATE / AFSK_BAUD) as usize;
+        let (mut tone, mut carrier) = (0.0f64, 0.0f64);
+        let mut state = seed | 1;
+        let mut uniform = move || {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            ((state >> 11) as f64 + 0.5) / (1u64 << 53) as f64
+        };
+        let mut iq = Vec::with_capacity(bits.len() * sps + 2_000);
+        for _ in 0..1_000 {
+            iq.push(Complex::new(0.0, 0.0));
+        }
+        for &bit in &bits {
+            let mark = line.push(bit);
+            let (freq, gain) = if mark {
+                (AFSK_MARK_HZ, 1.0 / norm)
+            } else {
+                (AFSK_SPACE_HZ, space_gain / norm)
+            };
+            for _ in 0..sps {
+                tone += TAU * freq / RATE;
+                carrier += TAU * DEVIATION_HZ * gain * tone.sin() / RATE;
+                iq.push(Complex::from_polar(1.0, carrier as f32));
+            }
+        }
+        for _ in 0..1_000 {
+            iq.push(Complex::new(0.0, 0.0));
+        }
+        for s in &mut iq {
+            let r = (-2.0 * uniform().ln()).sqrt() * sigma;
+            let theta = TAU * uniform();
+            *s += Complex::new((r * theta.cos()) as f32, (r * theta.sin()) as f32);
+        }
+        iq
+    }
+
+    fn decoded_out_of(trials: u64, twist_db: f64, sigma: f64) -> u64 {
+        (0..trials)
+            .filter(|&k| {
+                let info = format!("!4807.38N/01131.00E>trial {k:04}");
+                let frame = AprsTx::ui_frame("DL1ABC-9", "APRS", &["WIDE1-1"], &info);
+                let iq = twisted_afsk(&frame, twist_db, sigma, 0x51c0 + k);
+                let ChannelFilter::Symmetric(mut filter) =
+                    channel_filter(&AprsParams::default()).unwrap()
+                else {
+                    unreachable!("aprs selects a symmetric channel")
+                };
+                let mut selected = Vec::new();
+                filter.process(&iq, &mut selected);
+                decode(AprsMode::Afsk1200, &selected)
+                    .iter()
+                    .any(|p| p.info == info)
+            })
+            .count() as u64
+    }
+
+    #[test]
+    fn weak_twisted_packets_still_decode() {
+        assert!(decoded_out_of(40, -6.0, 0.6) >= 18);
+        assert!(decoded_out_of(40, 6.0, 0.55) >= 20);
+    }
+
+    #[test]
+    #[ignore = "survey; prints packet counts against noise and twist"]
+    fn weak_signal_survey() {
+        for twist in [-9.0, -6.0, 0.0, 6.0] {
+            for sigma in [0.4, 0.5, 0.6, 0.7, 0.8] {
+                println!(
+                    "twist {twist:+} sigma {sigma}: {}/100",
+                    decoded_out_of(100, twist, sigma)
+                );
+            }
+        }
     }
 
     #[test]
