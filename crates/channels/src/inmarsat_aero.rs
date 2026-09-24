@@ -1,7 +1,9 @@
+mod acquisition;
 mod decoder;
 mod demod;
 mod frame;
 mod framer;
+mod msk;
 mod oqpsk;
 mod satellite;
 mod state;
@@ -21,6 +23,13 @@ mod tests;
 
 use std::sync::LazyLock;
 
+use self::decoder::{AeroChannelDecoder, AeroEvent, INPUT_RATE};
+use crate::{
+    ChannelCtx, ChannelError, ChannelFilter, ChannelOutputs, ChannelRx,
+    acars::block as acars_block,
+    check_input_rate,
+    datalink::{self, Quality},
+};
 use num_complex::Complex;
 use sdrmm_wire::{
     ChannelDescriptor, ChannelParams, ChannelSettings, DataLinkMessage, DecoderEvent,
@@ -28,12 +37,6 @@ use sdrmm_wire::{
 };
 use serde::Serialize;
 use serde_json::{Value, json};
-use self::decoder::{AeroChannelDecoder, AeroEvent, INPUT_RATE};
-use crate::{
-    ChannelCtx, ChannelError, ChannelFilter, ChannelOutputs, ChannelRx,
-    acars::block as acars_block, check_input_rate,
-    datalink::{self, Quality},
-};
 
 const HALF_BANDWIDTH: f64 = 6_500.0;
 const P_CHANNEL: &str = "p-channel";
@@ -96,11 +99,11 @@ fn enrich(details: &mut Value, event: &AeroEvent) {
         }
     }
     if let Some(header) = event.frame_header {
-        map.entry("frame_header").or_insert_with(|| header.to_json());
+        map.entry("frame_header")
+            .or_insert_with(|| header.to_json());
     }
     if let Some(lock) = &event.lock {
-        map.entry("superframe_lock")
-            .or_insert_with(|| lock.clone());
+        map.entry("superframe_lock").or_insert_with(|| lock.clone());
     }
 }
 

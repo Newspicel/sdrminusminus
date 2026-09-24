@@ -4,6 +4,7 @@ use serde_json::{Value, json};
 pub(super) const UW: u32 = 0xE15A_E893;
 pub(super) const HEADER_BITS: usize = 16;
 pub(super) const CODED_BITS: usize = 1152;
+pub(super) const FRAME_BITS: usize = 32 + HEADER_BITS + CODED_BITS;
 pub(super) const HIGH_RATE_BPS: u32 = 10_500;
 const OVERLAP: usize = 62;
 const INTERLEAVER_ROWS: usize = 64;
@@ -83,7 +84,9 @@ pub(super) fn deinterleave(soft: &[f32], columns: usize, out: &mut Vec<f32>) {
 }
 
 pub(super) fn pack_lsb_first(bits: &[u8]) -> Vec<u8> {
-    bits.chunks_exact(8)
+    bits.as_chunks::<8>()
+        .0
+        .iter()
         .map(|chunk| {
             chunk
                 .iter()
@@ -171,13 +174,11 @@ impl FrameDecoder {
 }
 
 #[cfg(test)]
-pub(super) use encoder::{FRAME_BITS, FrameEncoder, frame_bytes_for, interleave};
+pub(super) use encoder::{FrameEncoder, frame_bytes_for, interleave};
 
 #[cfg(test)]
 mod encoder {
     use super::*;
-
-    pub const FRAME_BITS: usize = 32 + HEADER_BITS + CODED_BITS;
 
     pub fn frame_bytes_for(rate_bps: u32) -> usize {
         coded_bits_for(rate_bps) / 16
@@ -187,8 +188,7 @@ mod encoder {
         let mut block = vec![0u8; INTERLEAVER_ROWS * columns];
         for (index, &bit) in bits.iter().enumerate() {
             let row = index % INTERLEAVER_ROWS;
-            block[((ROW_STEP * row) % INTERLEAVER_ROWS) * columns + index / INTERLEAVER_ROWS] =
-                bit;
+            block[((ROW_STEP * row) % INTERLEAVER_ROWS) * columns + index / INTERLEAVER_ROWS] = bit;
         }
         out.extend_from_slice(&block);
     }
@@ -341,7 +341,13 @@ mod tests {
         assert_eq!(header.to_u16(), 0x1234);
         let bits: Vec<f32> = (0..16)
             .rev()
-            .map(|index| if (0xABCDu16 >> index) & 1 == 1 { 0.9 } else { -0.9 })
+            .map(|index| {
+                if (0xABCDu16 >> index) & 1 == 1 {
+                    0.9
+                } else {
+                    -0.9
+                }
+            })
             .collect();
         let json = FrameHeader::from_soft_bits(&bits).to_json();
         assert_eq!(json["format_id"], 0xA);

@@ -1,18 +1,16 @@
 use num_complex::Complex;
-use sdrmm_wire::{
-    ChannelParams, DataLinkMessage, DecoderEvent, InmarsatAeroParams,
-};
+use sdrmm_wire::{ChannelParams, DataLinkMessage, DecoderEvent, InmarsatAeroParams};
 use serde_json::Value;
 
 use super::{
-    InmarsatAeroChannel,
-    acars_block,
+    InmarsatAeroChannel, acars_block,
     decoder::{AeroChannelDecoder, AeroEvent, INPUT_RATE},
     frame::FrameEncoder,
-    framer::Framer,
+    frame::{FRAME_BITS, FrameHeader},
+    framer::{DecodedFrame, FrameSink, Framer, MergeTiming},
     modulate::modulate,
     oqpsk::{self, HrFramer, hr_frame_bits, modulate_oqpsk},
-    su,
+    su, to_message,
 };
 use crate::{
     ChannelCtx, ChannelOutputs, ChannelRx,
@@ -41,6 +39,35 @@ impl Noise {
     }
 }
 
+pub(super) struct Gauss(pub u64);
+
+impl Gauss {
+    fn uniform(&mut self) -> f64 {
+        self.0 ^= self.0 << 13;
+        self.0 ^= self.0 >> 7;
+        self.0 ^= self.0 << 17;
+        ((self.0 >> 11) as f64 / (1u64 << 53) as f64).max(1e-300)
+    }
+
+    pub(super) fn sample(&mut self) -> f32 {
+        let (radius, angle) = (self.uniform(), self.uniform());
+        ((-2.0 * radius.ln()).sqrt() * (std::f64::consts::TAU * angle).cos()) as f32
+    }
+
+    pub(super) fn add(
+        &mut self,
+        iq: &mut [Complex<f32>],
+        power: f64,
+        samples_per_bit: f64,
+        es_n0_db: f64,
+    ) {
+        let sigma = (power * samples_per_bit / 10f64.powf(es_n0_db / 10.0) / 2.0).sqrt() as f32;
+        for sample in iq {
+            *sample += Complex::new(self.sample() * sigma, self.sample() * sigma);
+        }
+    }
+}
+
 pub(super) fn acars_user() -> Vec<u8> {
     let mut user = vec![0xFF, 0xFF];
     user.extend(acars_block::build(
@@ -49,7 +76,7 @@ pub(super) fn acars_user() -> Vec<u8> {
     user
 }
 
-fn frames_bits(rate: u32, units: &[Vec<u8>], frames: usize) -> Vec<u8> {
+pub(super) fn frames_bits(rate: u32, units: &[Vec<u8>], frames: usize) -> Vec<u8> {
     let mut encoder = FrameEncoder::new(rate);
     let mut bits: Vec<u8> = (0..160).map(|index| (index % 2) as u8).collect();
     let mut padded = units.to_vec();
@@ -65,7 +92,11 @@ fn frames_bits(rate: u32, units: &[Vec<u8>], frames: usize) -> Vec<u8> {
 }
 
 pub(super) fn p_channel_bits(rate: u32) -> Vec<u8> {
-    frames_bits(rate, &su::build_isu_chain(0xA1B2C3, 0x44, 1, 7, &acars_user()), 1)
+    frames_bits(
+        rate,
+        &su::build_isu_chain(0xA1B2C3, 0x44, 1, 7, &acars_user()),
+        1,
+    )
 }
 
 fn control_bits(su10: Vec<u8>) -> Vec<u8> {
@@ -174,9 +205,36 @@ pub(super) fn reference(iq: &[Complex<f32>]) -> Vec<DataLinkMessage> {
     messages
 }
 
+fn ported(iq: &[Complex<f32>]) -> Vec<DataLinkMessage> {
+    let mut decoder = AeroChannelDecoder::discriminator_only();
+    let mut events = Vec::new();
+    for chunk in chunked(iq) {
+        decoder.process(chunk, &mut events);
+    }
+    events.iter().map(to_message).collect()
+}
+
+fn same_content(a: &DataLinkMessage, b: &DataLinkMessage) -> bool {
+    a.message_type == b.message_type
+        && a.station == b.station
+        && a.text == b.text
+        && a.raw == b.raw
+        && a.crc_ok == b.crc_ok
+}
+
 fn assert_equivalent(iq: &[Complex<f32>]) -> Vec<DataLinkMessage> {
+    let reference = reference(iq);
+    assert_eq!(ported(iq), reference);
     let ours = ours(iq);
-    assert_eq!(ours, reference(iq));
+    for message in &reference {
+        assert!(
+            ours.iter()
+                .any(|candidate| same_content(candidate, message)),
+            "combined detection lost {} {:?}",
+            message.message_type,
+            message.station
+        );
+    }
     ours
 }
 
@@ -279,12 +337,14 @@ fn high_rate_framing_at_bit_level() {
     let bits = high_rate_bits();
     for inverted_rail in [false, true] {
         let mut framer = HrFramer::new();
-        let mut users = Vec::new();
+        let mut sink = FrameSink::new(None);
         for (index, &bit) in bits.iter().enumerate() {
             let bit = bit ^ u8::from(inverted_rail && index % 2 == 0);
-            framer.push(if bit == 1 { 1.0 } else { -1.0 }, bit, &mut users);
+            if let Some(frame) = framer.push(if bit == 1 { 1.0 } else { -1.0 }, bit) {
+                sink.offer(0, 0, frame);
+            }
         }
-        let user = users.first().expect("user data reassembles");
+        let user = sink.users.first().expect("user data reassembles");
         let block = su::parse_acars(&user.data).expect("ACARS parses");
         assert!(block.crc_ok);
         assert_eq!(block.core.tail.as_deref(), Some("VT-ANB"));
@@ -296,12 +356,44 @@ fn low_rate_framer_tolerates_two_uw_errors() {
     let mut bits = p_channel_bits(1200);
     bits[160] ^= 1;
     bits[170] ^= 1;
-    let mut framer = Framer::new(1200);
-    let mut users = Vec::new();
+    let mut framer = Framer::new(1200, false);
+    let mut sink = FrameSink::new(None);
     for &bit in &bits {
-        framer.push(if bit == 1 { 1.0 } else { -1.0 }, bit, &mut users);
+        if let Some(frame) = framer.push(if bit == 1 { 1.0 } else { -1.0 }, bit) {
+            sink.offer(0, 0, frame);
+        }
     }
-    assert_eq!(users.len(), 1);
+    assert_eq!(sink.users.len(), 1);
+}
+
+#[test]
+fn sink_merges_units_from_both_detectors() {
+    let units = su::build_isu_chain(0xA1B2C3, 0x44, 1, 7, &acars_user());
+    let frame = |valid: &[bool]| DecodedFrame {
+        header: FrameHeader::from_u16(0x1000),
+        units: units[..6]
+            .iter()
+            .zip(valid)
+            .map(|(unit, &valid)| valid.then(|| unit.as_slice().try_into().expect("unit")))
+            .collect(),
+        fec_corrected: 3,
+    };
+    let mut sink = FrameSink::new(Some(MergeTiming {
+        window: 600,
+        settle: 16,
+    }));
+    sink.offer(0, 1_000, frame(&[true, false, true, false, true, false]));
+    sink.offer(1, 1_002, frame(&[false, true, false, true, false, true]));
+    sink.offer(0, 2_200, frame(&[true; 6]));
+    sink.expire(3_000);
+    assert_eq!(sink.lock.status().match_count, 0);
+    assert_eq!(sink.last_fec_corrected, Some(3));
+    let mut reassembler = su::Reassembler::default();
+    let expected = units[..6]
+        .iter()
+        .filter_map(|unit| reassembler.push(unit))
+        .count();
+    assert!(sink.users.len() >= expected);
 }
 
 #[test]
@@ -321,7 +413,11 @@ fn decodes_acars_at_10500_bps() {
 fn matches_xng_on_low_rate_acars() {
     for (rate, cfo) in [(600u32, 30.0), (1200, -45.0)] {
         let messages = assert_equivalent(&msk(&p_channel_bits(rate), rate, cfo, 0.02, 11));
-        assert!(messages.iter().any(|message| message.message_type == "acars"));
+        assert!(
+            messages
+                .iter()
+                .any(|message| message.message_type == "acars")
+        );
     }
 }
 
@@ -340,11 +436,16 @@ fn matches_xng_on_high_rate_acars() {
     let mut iq = modulate_oqpsk(&high_rate_bits(), oqpsk::CHANNEL_RATE_HR, 120.0, 0.5);
     Noise(0xaa55_1234_9999_0001).add(&mut iq, 0.02);
     let messages = assert_equivalent(&iq);
-    assert!(messages.iter().any(|message| message.message_type == "acars"));
+    assert!(
+        messages
+            .iter()
+            .any(|message| message.message_type == "acars")
+    );
 }
 
 pub(super) fn offair() -> Vec<Complex<f32>> {
-    const FIXTURE: &[u8] = include_bytes!("../../../../fixtures/inmarsat_aero_offair_48k.sigmf-data");
+    const FIXTURE: &[u8] =
+        include_bytes!("../../../../fixtures/inmarsat_aero_offair_48k.sigmf-data");
     FIXTURE
         .as_chunks::<4>()
         .0
@@ -374,4 +475,71 @@ fn matches_xng_on_noise() {
     let mut iq = vec![Complex::new(0.0, 0.0); 96_000];
     Noise(99).add(&mut iq, 0.3);
     assert_equivalent(&iq);
+}
+
+fn continuous_bits(rate: u32, lead_frames: usize) -> Vec<u8> {
+    let mut units: Vec<Vec<u8>> = (0..lead_frames * 6).map(|_| su::fill_su()).collect();
+    units.extend(su::build_isu_chain(0xA1B2C3, 0x44, 1, 7, &acars_user()));
+    frames_bits(rate, &units, 1)
+}
+
+fn noisy_msk(rate: u32, cfo: f64, es_n0_db: f64, seed: u64) -> Vec<Complex<f32>> {
+    let mut iq = vec![Complex::new(0.0, 0.0); 24_000];
+    iq.extend(modulate(
+        &continuous_bits(rate, 2),
+        f64::from(rate),
+        INPUT_RATE,
+        cfo,
+        0.5,
+    ));
+    Gauss(seed).add(&mut iq, 0.25, INPUT_RATE / f64::from(rate), es_n0_db);
+    iq
+}
+
+fn has_adsc(messages: &[DataLinkMessage]) -> bool {
+    messages
+        .iter()
+        .any(|message| message.crc_ok && message.text.as_deref() == Some(ADSC_TEXT))
+}
+
+#[test]
+fn coherent_detection_decodes_below_the_discriminator_threshold() {
+    for rate in [600, 1200] {
+        let iq = noisy_msk(rate, 30.0, 3.5, 21);
+        assert!(has_adsc(&ours(&iq)), "{rate} bps");
+        assert!(!has_adsc(&reference(&iq)), "{rate} bps");
+    }
+}
+
+#[test]
+fn acquires_a_wide_frequency_offset() {
+    for cfo in [-380.0, 380.0] {
+        let iq = noisy_msk(600, cfo, 12.0, 5);
+        assert!(has_adsc(&ours(&iq)), "{cfo} Hz");
+        assert!(!has_adsc(&reference(&iq)), "{cfo} Hz");
+    }
+}
+
+#[test]
+fn flywheel_accepts_a_damaged_unique_word_after_a_frame() {
+    let mut bits = continuous_bits(1200, 1);
+    let second_uw = 160 + FRAME_BITS;
+    for offset in [0, 5, 11, 19, 27] {
+        bits[second_uw + offset] ^= 1;
+    }
+    let frames = |flywheel: bool| {
+        let mut framer = Framer::new(1200, flywheel);
+        bits.iter()
+            .filter_map(|&bit| framer.push(if bit == 1 { 1.0 } else { -1.0 }, bit))
+            .count()
+    };
+    assert_eq!(frames(false), 3);
+    assert_eq!(frames(true), 4);
+}
+
+#[test]
+fn combined_detection_stays_silent_on_noise() {
+    let mut iq = vec![Complex::new(0.0, 0.0); 48_000 * 20];
+    Gauss(3).add(&mut iq, 0.25, 40.0, 0.0);
+    assert!(ours(&iq).is_empty());
 }

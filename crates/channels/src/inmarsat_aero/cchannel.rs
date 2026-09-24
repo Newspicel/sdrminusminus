@@ -162,7 +162,7 @@ impl CChannelDeframer {
     fn decode_frame(&mut self) -> Vec<CChannelEvent> {
         self.synced = false;
         let mut deleaved = Vec::with_capacity(FRAME_CODED_BITS);
-        for block in self.frame.chunks_exact(BLOCK) {
+        for block in self.frame.as_chunks::<BLOCK>().0 {
             for column in 0..COLUMNS {
                 for row in 0..ROWS {
                     deleaved.push(block[depermute(row) * COLUMNS + column]);
@@ -261,7 +261,7 @@ impl CChannelEncoder {
             out.push(((UW_RAIL1 >> (UW_LEN - 1 - index)) & 1) as u8);
             out.push(((UW_RAIL2 >> (UW_LEN - 1 - index)) & 1) as u8);
         }
-        for block in punctured.chunks_exact(BLOCK) {
+        for block in punctured.as_chunks::<BLOCK>().0 {
             let mut written = [0u8; BLOCK];
             for column in 0..COLUMNS {
                 for row in 0..ROWS {

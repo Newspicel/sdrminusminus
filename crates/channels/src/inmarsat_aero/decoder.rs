@@ -4,8 +4,9 @@ use serde_json::Value;
 use super::{
     acars_block::AcarsBlock,
     demod::MskDemod,
-    frame::FrameHeader,
-    framer::{FrameSink, Framer},
+    frame::{FRAME_BITS, FrameHeader},
+    framer::{FrameSink, Framer, MergeTiming},
+    msk::CoherentMsk,
     oqpsk::{self, HrFramer, OqpskDemod},
     su::{self, AeroUserData},
     taps::{Fir, lowpass_taps},
@@ -17,6 +18,10 @@ const DECIMATION: usize = 2;
 const PASSBAND_HZ: f64 = 2_500.0;
 const FRONT_TAPS: usize = 15;
 const LOW_RATES: [u32; 2] = [600, 1200];
+const MERGE_WINDOW_BITS: u64 = FRAME_BITS as u64 / 2;
+const MERGE_SETTLE_BITS: u64 = 4;
+const DISCRIMINATOR: usize = 0;
+const COHERENT: usize = 1;
 
 pub(super) struct AeroEvent {
     pub user: AeroUserData,
@@ -38,17 +43,12 @@ struct Latched {
 }
 
 impl Latched {
-    fn from_sink(sink: &FrameSink, bit_rate: u32, lock: Option<Value>) -> Self {
-        Self {
-            bit_rate,
-            frame_header: sink.last_header,
-            satellite: sink.resolver.details(),
-            fec_corrected: sink.last_fec_corrected,
-            lock,
-        }
-    }
-
-    fn event(&self, user: AeroUserData, acars: Option<AcarsBlock>, su_event: Option<Value>) -> AeroEvent {
+    fn event(
+        &self,
+        user: AeroUserData,
+        acars: Option<AcarsBlock>,
+        su_event: Option<Value>,
+    ) -> AeroEvent {
         AeroEvent {
             user,
             acars,
@@ -62,13 +62,18 @@ impl Latched {
     }
 }
 
-fn emit(
-    sink: &mut FrameSink,
-    latched: &Latched,
-    users: &mut Vec<AeroUserData>,
-    out: &mut Vec<AeroEvent>,
-) {
-    for user in users.drain(..) {
+fn emit(sink: &mut FrameSink, bit_rate: u32, with_lock: bool, out: &mut Vec<AeroEvent>) {
+    if !sink.has_output() {
+        return;
+    }
+    let latched = Latched {
+        bit_rate,
+        frame_header: sink.last_header,
+        satellite: sink.resolver.details(),
+        fec_corrected: sink.last_fec_corrected,
+        lock: with_lock.then(|| sink.lock.details_json()),
+    };
+    for user in sink.users.drain(..) {
         let acars = su::parse_acars(&user.data);
         out.push(latched.event(user, acars, None));
     }
@@ -84,15 +89,67 @@ fn emit(
     }
 }
 
+struct Detector<D> {
+    demod: D,
+    framer: Framer,
+}
+
 struct RateChain {
     rate: u32,
-    demod: MskDemod,
-    framer: Framer,
+    sink: FrameSink,
+    samples: u64,
+    discriminator: Detector<MskDemod>,
+    coherent: Option<Detector<CoherentMsk>>,
+}
+
+impl RateChain {
+    fn new(rate: u32, combined: bool) -> Self {
+        let samples_per_bit = (CHANNEL_RATE / f64::from(rate)) as u64;
+        let merge = MergeTiming {
+            window: MERGE_WINDOW_BITS * samples_per_bit,
+            settle: MERGE_SETTLE_BITS * samples_per_bit,
+        };
+        Self {
+            rate,
+            sink: FrameSink::new(combined.then_some(merge)),
+            samples: 0,
+            discriminator: Detector {
+                demod: MskDemod::new(CHANNEL_RATE, f64::from(rate)),
+                framer: Framer::new(rate, combined),
+            },
+            coherent: combined.then(|| Detector {
+                demod: CoherentMsk::new(CHANNEL_RATE, f64::from(rate)),
+                framer: Framer::new(rate, true),
+            }),
+        }
+    }
+
+    fn process(&mut self, channel: &[Complex<f32>], bits: &mut Vec<(f32, u8)>) {
+        self.samples += channel.len() as u64;
+        bits.clear();
+        self.discriminator.demod.process(channel, bits);
+        for &(soft, hard) in bits.iter() {
+            if let Some(frame) = self.discriminator.framer.push(soft, hard) {
+                self.sink.offer(DISCRIMINATOR, self.samples, frame);
+            }
+        }
+        if let Some(coherent) = &mut self.coherent {
+            bits.clear();
+            coherent.demod.process(channel, bits);
+            for &(soft, hard) in bits.iter() {
+                if let Some(frame) = coherent.framer.push(soft, hard) {
+                    self.sink.offer(COHERENT, self.samples, frame);
+                }
+            }
+        }
+        self.sink.expire(self.samples);
+    }
 }
 
 struct HighRateChain {
     demod: OqpskDemod,
     framer: HrFramer,
+    sink: FrameSink,
 }
 
 pub(super) struct AeroChannelDecoder {
@@ -101,26 +158,32 @@ pub(super) struct AeroChannelDecoder {
     chains: [RateChain; 2],
     high_rate: HighRateChain,
     bits: Vec<(f32, u8)>,
-    users: Vec<AeroUserData>,
 }
 
 impl AeroChannelDecoder {
     pub(super) fn new() -> Self {
-        let chain = |rate: u32| RateChain {
-            rate,
-            demod: MskDemod::new(CHANNEL_RATE, f64::from(rate)),
-            framer: Framer::new(rate),
-        };
+        Self::with_detection(true)
+    }
+
+    #[cfg(test)]
+    pub(super) fn discriminator_only() -> Self {
+        Self::with_detection(false)
+    }
+
+    fn with_detection(combined: bool) -> Self {
         Self {
-            front: Fir::new(lowpass_taps(PASSBAND_HZ / INPUT_RATE, FRONT_TAPS), DECIMATION),
+            front: Fir::new(
+                lowpass_taps(PASSBAND_HZ / INPUT_RATE, FRONT_TAPS),
+                DECIMATION,
+            ),
             channel: Vec::new(),
-            chains: LOW_RATES.map(chain),
+            chains: LOW_RATES.map(|rate| RateChain::new(rate, combined)),
             high_rate: HighRateChain {
                 demod: OqpskDemod::new(oqpsk::CHANNEL_RATE_HR),
                 framer: HrFramer::new(),
+                sink: FrameSink::new(None),
             },
             bits: Vec::new(),
-            users: Vec::new(),
         }
     }
 
@@ -128,34 +191,17 @@ impl AeroChannelDecoder {
         self.channel.clear();
         self.front.process(input, &mut self.channel);
         for chain in &mut self.chains {
-            self.bits.clear();
-            chain.demod.process(&self.channel, &mut self.bits);
-            for &(soft, hard) in &self.bits {
-                chain.framer.push(soft, hard, &mut self.users);
-            }
-            let sink = &mut chain.framer.sink;
-            if self.users.is_empty() && sink.su_events.is_empty() {
-                continue;
-            }
-            let lock = Some(chain.framer.lock.details_json());
-            let latched = Latched::from_sink(sink, chain.rate, lock);
-            emit(sink, &latched, &mut self.users, out);
+            chain.process(&self.channel, &mut self.bits);
+            emit(&mut chain.sink, chain.rate, true, out);
         }
-        self.process_high_rate(input, out);
-    }
-
-    fn process_high_rate(&mut self, input: &[Complex<f32>], out: &mut Vec<AeroEvent>) {
         let chain = &mut self.high_rate;
         self.bits.clear();
         chain.demod.process(input, &mut self.bits);
         for &(soft, hard) in &self.bits {
-            chain.framer.push(soft, hard, &mut self.users);
+            if let Some(frame) = chain.framer.push(soft, hard) {
+                chain.sink.offer(DISCRIMINATOR, 0, frame);
+            }
         }
-        let sink = &mut chain.framer.sink;
-        if self.users.is_empty() && sink.su_events.is_empty() {
-            return;
-        }
-        let latched = Latched::from_sink(sink, oqpsk::BIT_RATE, None);
-        emit(sink, &latched, &mut self.users, out);
+        emit(&mut chain.sink, oqpsk::BIT_RATE, false, out);
     }
 }

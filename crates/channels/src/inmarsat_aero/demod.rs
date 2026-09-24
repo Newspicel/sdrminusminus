@@ -63,8 +63,8 @@ impl MskDemod {
             && self.previous_discriminator != 0.0
             && (discriminator < 0.0) != (self.previous_discriminator < 0.0)
         {
-            let error = self.timing
-                - (self.timing / self.samples_per_bit).round() * self.samples_per_bit;
+            let error =
+                self.timing - (self.timing / self.samples_per_bit).round() * self.samples_per_bit;
             self.timing -= TIMING_GAIN * error;
         }
         self.previous_discriminator = discriminator;

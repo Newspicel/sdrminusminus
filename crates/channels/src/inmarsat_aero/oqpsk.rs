@@ -1,17 +1,15 @@
 use std::{
     f32::consts::{FRAC_1_SQRT_2, FRAC_PI_2, PI},
     f64::consts::TAU,
-    sync::Arc,
 };
 
 use num_complex::Complex;
-use rustfft::{Fft, FftPlanner};
 
 use super::{
-    frame::{FrameHeader, HEADER_BITS, HIGH_RATE_BPS, UW},
-    su::AeroUserData,
+    acquisition::CoarseAcquisition,
+    frame::{FrameDecoder, FrameHeader, HEADER_BITS, HIGH_RATE_BPS, UW},
+    framer::DecodedFrame,
     taps::{Fir, rrc_taps},
-    framer::FrameSink,
 };
 
 pub(super) const BIT_RATE: u32 = HIGH_RATE_BPS;
@@ -23,34 +21,23 @@ const LOCK_MSE: f32 = 0.5;
 const LOCK_QUAD: f32 = 0.4;
 const ACQ_FFT: usize = 16_384;
 const ACQ_RANGE_HZ: f64 = 3_000.0;
+const ACQ_MIN_SHIFT_HZ: f64 = 1.0;
 const RRC_TAPS: usize = 55;
 const AGC_CLIP: f32 = 2.84;
 const BIAS_WINDOW: usize = 800;
 const UW_TOLERANCE: u32 = 2;
 const HIGH_RATE_RESONATOR: ([f32; 3], [f32; 2]) = (
-    [
-        0.000_327_142_189_395_890_35,
-        0.0,
-        0.000_327_142_189_395_890_35,
-    ],
-    [-0.390_052_999_482_108_03, 0.999_345_715_621_208_22],
+    [0.000_327_142_2, 0.0, 0.000_327_142_2],
+    [-0.390_053, 0.999_345_7],
 );
 #[cfg(test)]
 const C_CHANNEL_RESONATOR: ([f32; 3], [f32; 2]) = (
-    [
-        0.001_284_585_786_447_078_9,
-        0.0,
-        -0.001_284_585_786_447_078_9,
-    ],
-    [-0.906_814_619_992_798_89, 0.997_430_828_427_105_84],
+    [0.001_284_585_8, 0.0, -0.001_284_585_8],
+    [-0.906_814_63, 0.997_430_8],
 );
 const CARRIER_LOOP: ([f32; 3], [f32; 2]) = (
-    [
-        0.001_027_561_065_367_206_4,
-        0.002_055_122_130_734_412_8,
-        0.001_027_561_065_367_206_4,
-    ],
-    [-1.920_738_681_557_713_9, 0.925_092_473_103_063_31],
+    [0.001_027_561, 0.002_055_122, 0.001_027_561],
+    [-1.920_738_7, 0.925_092_46],
 );
 
 struct Biquad {
@@ -165,7 +152,8 @@ impl SymbolTiming {
         let detector = Complex::new(eta, -self.eighth.run(eta));
         let rotation = Complex::from_polar(1.0, (TAU * self.phase) as f32);
         let error = f64::from((rotation * detector).arg());
-        self.freq_hz = (self.freq_hz - error * 1e-8).clamp(self.bit_rate - 0.1, self.bit_rate + 0.1);
+        self.freq_hz =
+            (self.freq_hz - error * 1e-8).clamp(self.bit_rate - 0.1, self.bit_rate + 0.1);
         let previous = self.phase;
         self.phase += self.freq_hz / fs - error * 0.01 / 360.0;
         let from = previous.rem_euclid(1.0);
@@ -184,83 +172,8 @@ impl SymbolTiming {
     }
 }
 
-struct CoarseAcquisition {
-    buffer: Vec<Complex<f32>>,
-    squared: Vec<Complex<f32>>,
-    scratch: Vec<Complex<f32>>,
-    fft: Arc<dyn Fft<f32>>,
-    spectrum: Vec<f32>,
-    blocks: u32,
-}
-
-impl CoarseAcquisition {
-    fn new() -> Self {
-        let fft = FftPlanner::new().plan_fft_forward(ACQ_FFT);
-        let scratch = vec![Complex::new(0.0, 0.0); fft.get_inplace_scratch_len()];
-        Self {
-            buffer: Vec::with_capacity(ACQ_FFT),
-            squared: vec![Complex::new(0.0, 0.0); ACQ_FFT],
-            scratch,
-            fft,
-            spectrum: vec![0.0; ACQ_FFT],
-            blocks: 0,
-        }
-    }
-
-    fn push(&mut self, sample: Complex<f32>, locked: bool, fs: f64, bit_rate: f64) -> Option<f64> {
-        self.buffer.push(sample);
-        if self.buffer.len() < ACQ_FFT {
-            return None;
-        }
-        let estimate = if locked {
-            self.blocks = 0;
-            None
-        } else {
-            self.estimate(fs, bit_rate)
-        };
-        self.buffer.clear();
-        estimate
-    }
-
-    fn estimate(&mut self, fs: f64, bit_rate: f64) -> Option<f64> {
-        for (squared, value) in self.squared.iter_mut().zip(&self.buffer) {
-            *squared = value * value;
-        }
-        self.fft
-            .process_with_scratch(&mut self.squared, &mut self.scratch);
-        for (bin, value) in self.spectrum.iter_mut().zip(&self.squared) {
-            *bin = 0.5 * *bin + 0.5 * value.norm_sqr();
-        }
-        self.blocks += 1;
-        if self.blocks < 2 {
-            return None;
-        }
-        let resolution = fs / ACQ_FFT as f64;
-        let tone = (bit_rate / 2.0 / resolution).round() as i64;
-        let range = (ACQ_RANGE_HZ / resolution) as i64;
-        let bin = |k: i64| self.spectrum[k.rem_euclid(ACQ_FFT as i64) as usize];
-        let mut best = (f32::MIN, 0i64);
-        for k in -range..=range {
-            let score = (-1..=1).fold(0.0f32, |score, j| {
-                score + bin(k - tone + j) + bin(k + tone + j)
-            });
-            if score > best.0 {
-                best = (score, k);
-            }
-        }
-        let shift = best.1 as f64 * resolution / 2.0;
-        if shift.abs() <= 1.0 {
-            return None;
-        }
-        self.spectrum.fill(0.0);
-        self.blocks = 0;
-        Some(shift)
-    }
-}
-
 pub(super) struct OqpskDemod {
     fs: f64,
-    bit_rate: f64,
     rrc: Fir,
     nco_freq_hz: f64,
     nco_phase: f64,
@@ -296,7 +209,6 @@ impl OqpskDemod {
         let samples_per_symbol = channel_rate / (bit_rate / 2.0);
         Self {
             fs: channel_rate,
-            bit_rate,
             rrc: Fir::new(rrc_taps(samples_per_symbol, RRC_TAPS, rrc_beta), 1),
             nco_freq_hz: 0.0,
             nco_phase: 0.0,
@@ -310,7 +222,13 @@ impl OqpskDemod {
             bias: MovingAverage::new(BIAS_WINDOW),
             mse: 100.0,
             quad: Complex::new(0.0, 0.0),
-            acquisition: CoarseAcquisition::new(),
+            acquisition: CoarseAcquisition::new(
+                ACQ_FFT,
+                channel_rate,
+                bit_rate / 2.0,
+                ACQ_RANGE_HZ,
+                Some(ACQ_MIN_SHIFT_HZ),
+            ),
         }
     }
 
@@ -333,7 +251,7 @@ impl OqpskDemod {
         let filtered = self.rrc.filter(raw * rotation);
         let mixed = raw * Complex::from_polar(1.0, -self.nco_phase as f32);
         let locked = self.locked();
-        if let Some(shift) = self.acquisition.push(mixed, locked, self.fs, self.bit_rate) {
+        if let Some(shift) = self.acquisition.push(mixed, locked) {
             self.retune(shift);
         }
         self.agc += 0.001 * (filtered.norm() - self.agc);
@@ -401,7 +319,7 @@ fn check_uw(window: u64) -> Option<[f32; 2]> {
 }
 
 pub(super) struct HrFramer {
-    pub sink: FrameSink,
+    decoder: FrameDecoder,
     shift: u64,
     buffer: Vec<f32>,
     inversion: Option<[f32; 2]>,
@@ -410,21 +328,25 @@ pub(super) struct HrFramer {
 impl HrFramer {
     pub(super) fn new() -> Self {
         Self {
-            sink: FrameSink::new(BIT_RATE),
+            decoder: FrameDecoder::new(BIT_RATE),
             shift: 0,
             buffer: Vec::with_capacity(HR_SKIP_BITS + HR_CODED_BITS),
             inversion: None,
         }
     }
 
-    pub(super) fn push(&mut self, soft: f32, hard: u8, out: &mut Vec<AeroUserData>) {
+    pub(super) fn push(&mut self, soft: f32, hard: u8) -> Option<DecodedFrame> {
+        let mut frame = None;
         if let Some(inversion) = self.inversion {
             let index = self.buffer.len();
             self.buffer.push(soft * inversion[index % 2]);
             if self.buffer.len() == HR_SKIP_BITS + HR_CODED_BITS {
                 let header = FrameHeader::from_soft_bits(&self.buffer[..HEADER_BITS]);
-                self.sink
-                    .decode(header, &self.buffer[HR_SKIP_BITS..], out);
+                frame = Some(DecodedFrame::decode(
+                    &mut self.decoder,
+                    header,
+                    &self.buffer[HR_SKIP_BITS..],
+                ));
                 self.buffer.clear();
                 self.inversion = None;
             }
@@ -433,6 +355,7 @@ impl HrFramer {
         if self.inversion.is_none() {
             self.inversion = check_uw(self.shift);
         }
+        frame
     }
 }
 

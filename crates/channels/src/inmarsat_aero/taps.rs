@@ -108,7 +108,9 @@ impl Fir {
         self.history[self.head..self.head + self.taps.len()]
             .iter()
             .zip(&self.taps)
-            .fold(Complex::new(0.0, 0.0), |sum, (value, &tap)| sum + *value * tap)
+            .fold(Complex::new(0.0, 0.0), |sum, (value, &tap)| {
+                sum + *value * tap
+            })
     }
 }
 

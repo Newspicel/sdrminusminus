@@ -216,7 +216,14 @@ mod tests {
 
     #[test]
     fn seq_indicator_matches_jaero_switch() {
-        for (indicator, index, total) in [(1u8, 1u8, 1u8), (2, 1, 2), (3, 2, 2), (4, 1, 3), (5, 2, 3), (6, 3, 3)] {
+        for (indicator, index, total) in [
+            (1u8, 1u8, 1u8),
+            (2, 1, 2),
+            (3, 2, 2),
+            (4, 1, 3),
+            (5, 2, 3),
+            (6, 3, 3),
+        ] {
             assert_eq!(seq_indicator(indicator), Some((index, total)));
             assert_eq!(seq_indicator_for(index, total), indicator);
         }

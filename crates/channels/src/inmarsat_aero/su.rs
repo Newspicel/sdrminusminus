@@ -65,8 +65,7 @@ impl Reassembler {
         for pending in &mut self.pending {
             pending.age += 1;
         }
-        self.pending
-            .retain(|pending| pending.age < PENDING_MAX_AGE);
+        self.pending.retain(|pending| pending.age < PENDING_MAX_AGE);
         if kind == ISU {
             return self.start(su);
         }

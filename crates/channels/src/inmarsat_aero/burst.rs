@@ -102,7 +102,7 @@ impl BurstPacketizer {
     fn t_burst(&mut self, bytes: &[u8], fec_corrected: u32) -> BurstResult {
         let mut users = Vec::new();
         let mut su_events = Vec::new();
-        for unit in bytes[6..].chunks_exact(su::SU_LEN) {
+        for unit in bytes[6..].as_chunks::<{ su::SU_LEN }>().0 {
             if !su::su_crc_ok(unit) {
                 break;
             }
@@ -249,9 +249,9 @@ impl AeroBurstDecoder {
         for burst in self.gate.process(input) {
             for (packetizer, rate) in self.packetizers.iter_mut().zip([600u32, 1200]) {
                 let bits = demod_burst(&burst, f64::from(rate), false);
-                let result = packetizer.process(&bits).or_else(|| {
-                    packetizer.process(&demod_burst(&burst, f64::from(rate), true))
-                });
+                let result = packetizer
+                    .process(&bits)
+                    .or_else(|| packetizer.process(&demod_burst(&burst, f64::from(rate), true)));
                 if let Some(result) = result {
                     out.extend(events(result, rate));
                     break;
@@ -317,7 +317,13 @@ mod tests {
         out
     }
 
-    fn burst_iq(bits: &[u8], rate: f64, cfo: f64, lead: usize, tone_bits: f64) -> Vec<Complex<f32>> {
+    fn burst_iq(
+        bits: &[u8],
+        rate: f64,
+        cfo: f64,
+        lead: usize,
+        tone_bits: f64,
+    ) -> Vec<Complex<f32>> {
         let mut iq = vec![Complex::new(0.0, 0.0); lead];
         let mut phase = 0.0f64;
         for _ in 0..(tone_bits * CHANNEL_RATE / rate) as usize {
@@ -342,7 +348,9 @@ mod tests {
     }
 
     fn decode(iq: &[Complex<f32>], decoder: &mut AeroBurstDecoder) -> Vec<BurstEvent> {
-        iq.chunks(4096).flat_map(|chunk| decoder.process(chunk)).collect()
+        iq.chunks(4096)
+            .flat_map(|chunk| decoder.process(chunk))
+            .collect()
     }
 
     #[test]
