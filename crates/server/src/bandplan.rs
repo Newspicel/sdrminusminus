@@ -6,6 +6,8 @@ use sdrmm_wire::{
 };
 use serde::Deserialize;
 
+use crate::packed::{inflate, packed_data};
+
 #[derive(Clone, Debug, Deserialize)]
 pub(crate) struct Entry {
     pub start_hz: f64,
@@ -87,28 +89,26 @@ pub(crate) struct Annotation {
     pub service: Option<BandService>,
 }
 
-static LAYER_DOCS: &[(&str, &str)] = &[
-    ("world", include_str!("../data/bandplan/world.json")),
-    ("itu-r1", include_str!("../data/bandplan/itu-r1.json")),
-    ("itu-r2", include_str!("../data/bandplan/itu-r2.json")),
-    ("itu-r3", include_str!("../data/bandplan/itu-r3.json")),
-    ("cept", include_str!("../data/bandplan/cept.json")),
-    ("de", include_str!("../data/bandplan/de.json")),
-    (
-        "de-sonstige",
-        include_str!("../data/bandplan/de-sonstige.json"),
-    ),
-    ("gb", include_str!("../data/bandplan/gb.json")),
-    ("us", include_str!("../data/bandplan/us.json")),
-    ("iaru-r1", include_str!("../data/bandplan/iaru-r1.json")),
+static LAYER_DOCS: &[(&str, &[u8])] = &[
+    ("world", packed_data!("bandplan/world.json")),
+    ("itu-r1", packed_data!("bandplan/itu-r1.json")),
+    ("itu-r2", packed_data!("bandplan/itu-r2.json")),
+    ("itu-r3", packed_data!("bandplan/itu-r3.json")),
+    ("cept", packed_data!("bandplan/cept.json")),
+    ("de", packed_data!("bandplan/de.json")),
+    ("de-sonstige", packed_data!("bandplan/de-sonstige.json")),
+    ("gb", packed_data!("bandplan/gb.json")),
+    ("us", packed_data!("bandplan/us.json")),
+    ("iaru-r1", packed_data!("bandplan/iaru-r1.json")),
 ];
 
-static ANNOTATIONS_DOC: &str = include_str!("../data/bandplan/annotations.json");
+static ANNOTATIONS_DOC: &[u8] = packed_data!("bandplan/annotations.json");
 
 #[expect(clippy::expect_used, reason = "compiled-in constant; see above")]
 static ANNOTATIONS: LazyLock<Vec<Annotation>> = LazyLock::new(|| {
+    let raw = inflate(ANNOTATIONS_DOC).expect("annotations.json is committed and packed");
     let mut parsed: Vec<Annotation> =
-        serde_json::from_str(ANNOTATIONS_DOC).expect("annotations.json is committed and valid");
+        serde_json::from_slice(&raw).expect("annotations.json is committed and valid");
     parsed.sort_by(|a, b| a.start_hz.total_cmp(&b.start_hz));
     parsed
 });
@@ -117,8 +117,9 @@ static LAYERS: LazyLock<Vec<Layer>> = LazyLock::new(|| {
     LAYER_DOCS
         .iter()
         .map(|(id, doc)| {
+            let raw = inflate(doc).unwrap_or_else(|e| panic!("{id}.json: {e}"));
             let mut layer: Layer =
-                serde_json::from_str(doc).unwrap_or_else(|e| panic!("{id}.json: {e}"));
+                serde_json::from_slice(&raw).unwrap_or_else(|e| panic!("{id}.json: {e}"));
             layer.entries = annotate(layer.entries, &ANNOTATIONS);
             layer
                 .entries

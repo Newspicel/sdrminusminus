@@ -78,8 +78,6 @@ COPY fixtures/broadcast_audio fixtures/broadcast_audio
 COPY --from=web /web/dist web/dist
 # The touch is load-bearing: cargo decides freshness by mtime, and context files older than the
 # stub rlibs built above would leave those empty stubs in the shipped binary.
-# rust-embed only bakes bytes into the binary when debug assertions are off, which every profile
-# used here inherits from `release`.
 RUN test -f web/dist/index.html \
     && find crates apps xtask -name '*.rs' -exec touch {} + \
     && cargo build --profile "$PROFILE" --locked -p sdrmm --no-default-features --features "$FEATURES" \

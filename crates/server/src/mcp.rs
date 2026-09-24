@@ -389,7 +389,7 @@ impl SdrMcp {
         &self,
         Parameters(req): Parameters<AddChannelRequest>,
     ) -> Result<CallToolResult, ErrorData> {
-        let params: ChannelParams = serde_json::from_value(serde_json::json!({
+        let params: ChannelParams = crate::json::from_value(&serde_json::json!({
             "type": req.channel_type,
             "settings": req.settings.unwrap_or_else(|| serde_json::json!({})),
         }))

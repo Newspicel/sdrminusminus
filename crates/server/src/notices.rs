@@ -3,6 +3,8 @@ use std::{collections::BTreeMap, sync::LazyLock};
 use sdrmm_wire::{AboutResponse, Attribution, LicenseTextResponse};
 use serde::Deserialize;
 
+use crate::packed::{inflate, packed_data};
+
 #[derive(Debug, Deserialize)]
 struct NoticesDocument {
     license: String,
@@ -12,11 +14,12 @@ struct NoticesDocument {
     texts: BTreeMap<String, String>,
 }
 
-static NOTICES_DOC: &str = include_str!("../data/notices.json");
+static NOTICES_DOC: &[u8] = packed_data!("notices.json");
 
 #[expect(clippy::expect_used, reason = "compiled-in constant; see above")]
 static NOTICES: LazyLock<NoticesDocument> = LazyLock::new(|| {
-    serde_json::from_str(NOTICES_DOC).expect("notices.json is committed and valid")
+    let raw = inflate(NOTICES_DOC).expect("notices.json is committed and packed");
+    serde_json::from_slice(&raw).expect("notices.json is committed and valid")
 });
 
 #[must_use]

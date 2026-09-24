@@ -78,7 +78,7 @@ fn take_chains(state: &mut Value) -> Option<Vec<Lifted>> {
             .and_then(|params| params.get("type"))
             .and_then(Value::as_str)
             .unwrap_or_default();
-        let Ok(chain) = serde_json::from_value::<AudioProcessing>(audio) else {
+        let Ok(chain) = crate::json::from_value::<AudioProcessing>(&audio) else {
             continue;
         };
         if worth_a_node(&chain, type_id) {

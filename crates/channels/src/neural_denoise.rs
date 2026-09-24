@@ -3,11 +3,11 @@ use std::sync::{Arc, OnceLock};
 use num_complex::Complex;
 use rustfft::{Fft, FftPlanner};
 use sdrmm_dsp::{RealDecimator, RealInterpolator, design_lowpass};
-use tract_onnx::{pb::ModelProto, prelude::*};
+use tract_nnef::prelude::*;
 
 use crate::AUDIO_RATE;
 
-const MODEL: &[u8] = include_bytes!("../models/dpdfnet2.onnx");
+const MODEL: &[u8] = include_bytes!("../models/dpdfnet2.nnef.tgz");
 const MODEL_RATE: u32 = 16_000;
 const RATE_FACTOR: usize = (AUDIO_RATE / MODEL_RATE) as usize;
 const RESAMPLE_TAPS: usize = 96;
@@ -35,9 +35,8 @@ fn model() -> Result<&'static Model, NeuralDenoiseError> {
 }
 
 fn load() -> TractResult<Model> {
-    let onnx = tract_onnx::onnx();
-    let proto = onnx.proto_model_for_read(&mut &MODEL[..])?;
-    let meta = |key: &str| metadata(&proto, key);
+    let model = tract_nnef::nnef().model_for_read(&mut &MODEL[..])?;
+    let meta = |key: &str| metadata(&model, key);
     let window_len: usize = meta("window_length")?.parse()?;
     let hop: usize = meta("hop_length")?.parse()?;
     let initial_state = initial_state(
@@ -45,10 +44,7 @@ fn load() -> TractResult<Model> {
         &floats(&meta("erb_norm_init")?)?,
         &floats(&meta("spec_norm_init")?)?,
     );
-    let plan = onnx
-        .model_for_proto_model(&proto)?
-        .into_optimized()?
-        .into_runnable()?;
+    let plan = model.into_optimized()?.into_runnable()?;
     Ok(Model {
         plan,
         initial_state,
@@ -57,13 +53,14 @@ fn load() -> TractResult<Model> {
     })
 }
 
-fn metadata(proto: &ModelProto, key: &str) -> TractResult<String> {
-    proto
-        .metadata_props
-        .iter()
-        .find(|prop| prop.key == key)
-        .map(|prop| prop.value.clone())
-        .ok_or_else(|| TractError::msg(format!("model metadata lacks {key}")))
+fn metadata(model: &TypedModel, key: &str) -> TractResult<String> {
+    model
+        .properties
+        .get(&format!("onnx.metadata_props.{key}"))
+        .ok_or_else(|| TractError::msg(format!("model metadata lacks {key}")))?
+        .try_as_plain_ram()?
+        .to_scalar::<String>()
+        .cloned()
 }
 
 fn floats(list: &str) -> TractResult<Vec<f32>> {

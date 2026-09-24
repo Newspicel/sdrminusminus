@@ -18,3 +18,5 @@ trustPolicy: no-downgrade
 # same day through its `cooldown`.
 minimumReleaseAge: 1440
 
+allowBuilds:
+  '@scarf/scarf': false

@@ -7,8 +7,9 @@ export default defineConfig({
   plugins: [react(), babel({ presets: [reactCompilerPreset()] }), tailwindcss()],
   server: { proxy: { "/api": { target: "http://127.0.0.1:8080", ws: true } } },
   build: {
-    chunkSizeWarningLimit: 1000,
+    chunkSizeWarningLimit: 1500,
     rolldownOptions: {
+      input: { main: "index.html", apiDocs: "api-docs.html" },
       output: {
         codeSplitting: {
           groups: [

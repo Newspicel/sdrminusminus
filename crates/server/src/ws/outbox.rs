@@ -19,6 +19,16 @@ const MEDIA_LIMIT: usize = 128;
 pub(super) const WRITE_TIMEOUT: Duration = Duration::from_millis(250);
 const STREAM_STOPPED_PREFIX: &str = r#"{"type":"StreamStopped""#;
 
+#[derive(serde::Deserialize)]
+struct StoppedStream {
+    data: StoppedStreamData,
+}
+
+#[derive(serde::Deserialize)]
+struct StoppedStreamData {
+    stream_id: u16,
+}
+
 struct Packet {
     message: Message,
     queued: Instant,
@@ -68,10 +78,9 @@ fn packet(message: Message) -> Packet {
     };
     let barrier = match &message {
         Message::Text(text) if text.starts_with(STREAM_STOPPED_PREFIX) => {
-            match serde_json::from_str::<sdrmm_wire::ServerEvent>(text.as_str()) {
-                Ok(sdrmm_wire::ServerEvent::StreamStopped { stream_id, .. }) => Some(stream_id),
-                _ => None,
-            }
+            serde_json::from_str::<StoppedStream>(text.as_str())
+                .ok()
+                .map(|stopped| stopped.data.stream_id)
         }
         _ => None,
     };

@@ -67,9 +67,11 @@ const NATIVE: &[Native] = &[
         url: "https://github.com/ceva-ip/DPDFNet",
         note: Some(
             "The neural denoiser of the Audio FX node runs the pretrained dpdfnet2 16 kHz model \
-             published by Ceva, shipped unmodified as `crates/channels/models/dpdfnet2.onnx` \
-             and executed with tract. Only the weights are used; the STFT and streaming around \
-             them in `crates/channels/src/neural_denoise.rs` are this project's own.",
+             published by Ceva, executed with tract. `cargo xtask denoise-model` converts the \
+             published ONNX file to NNEF with its weights rounded to half precision, shipped as \
+             `crates/channels/models/dpdfnet2.nnef.tgz`. Only the weights are used; the STFT and \
+             streaming around them in `crates/channels/src/neural_denoise.rs` are this \
+             project's own.",
         ),
         files: &[],
     },

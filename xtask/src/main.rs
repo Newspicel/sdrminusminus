@@ -20,6 +20,7 @@ mod bandplan;
 mod ber;
 mod broadcast_fixtures;
 mod bundle;
+mod denoise_model;
 mod excerpt;
 mod homebrew;
 mod icons;
@@ -83,6 +84,7 @@ enum Cmd {
         #[arg(long)]
         full: bool,
     },
+    DenoiseModel,
     Icons,
     IdentMatrix,
     NixHash,
@@ -151,6 +153,7 @@ fn main() -> Result<()> {
         Cmd::Replay(args) => replay::run(&args),
         Cmd::Bandplan { offline } => bandplan::run(&root(), offline),
         Cmd::Ber { entry, out, full } => ber::run(&root(), &entry, out.as_deref(), full),
+        Cmd::DenoiseModel => denoise_model::run(&root()),
         Cmd::Icons => icons::icons(&root()),
         Cmd::IdentMatrix => ident_matrix::run(&root()),
         Cmd::NixHash => nixhash::run(&root()),

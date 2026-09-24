@@ -115,11 +115,10 @@ sdrmm-server = { path = "crates/server", default-features = false }
 # Async runtime / web
 tokio = { version = "1.53", features = ["rt-multi-thread", "macros", "sync", "time", "signal", "net"] }
 axum = { version = "0.8", features = ["ws", "multipart"] }
-# TLS termination for `--tls-*`. `tls-rustls-no-provider` keeps the crypto provider ours to pick:
-# the graph already enables both rustls backends, so an implicit default would be ambiguous.
+# TLS termination for `--tls-*`. `tls-rustls-no-provider` keeps the crypto provider ours to pick.
 axum-server = { version = "0.8", default-features = false, features = ["tls-rustls-no-provider"] }
 rustls = "0.23"
-rcgen = "0.14"
+rcgen = { version = "0.14.10", default-features = false, features = ["aws_lc_rs", "pem"] }
 tower = "0.5"
 tower-http = { version = "0.7", features = ["compression-gzip", "cors", "fs", "trace"] }
 futures = "0.3"
@@ -140,7 +139,6 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 utoipa = { version = "5", features = ["axum_extras"] }
 utoipa-axum = "0.2"
-utoipa-swagger-ui = { version = "9", features = ["axum", "vendored"] }
 mime_guess = "2"
 
 # Device backends
@@ -156,6 +154,7 @@ libloading = "0.9"
 num-complex = "0.4"
 rustfft = "6"
 tract-onnx = { version = "0.23.8", default-features = false }
+tract-nnef = "0.23.8"
 realfft = "3"
 mfsk-core = { version = "0.11.0", default-features = false, features = ["std", "fft-rustfft", "ft8", "ft4", "wspr"] }
 xng-mode-dsc = { git = "https://github.com/airframesio/xng", rev = "6a768a2f843099171d7ed08df9fe0f3ba0678f25" }
@@ -185,7 +184,7 @@ jiff = "0.2"
 dirs = "7"
 
 # Static asset embedding
-rust-embed = "8"
+flate2 = "1.1.10"
 
 sha2 = "0.11"
 
@@ -234,6 +233,7 @@ unexpected_cfgs = { level = "warn", check-cfg = ["cfg(sanitized)"] }
 opt-level = 3
 lto = "thin"
 codegen-units = 1
+strip = true
 
 # The container gate builds the real Dockerfile only to prove it still builds and that the
 # binary boots. Neither needs whole-program optimisation, and paying for it on a 4-core runner

@@ -60,18 +60,20 @@ serde.workspace = true
 serde_json.workspace = true
 utoipa.workspace = true
 utoipa-axum.workspace = true
-utoipa-swagger-ui.workspace = true
 
 rusqlite.workspace = true
 jiff.workspace = true
 sha2.workspace = true
 thiserror.workspace = true
 
-rust-embed.workspace = true
-mime_guess.workspace = true
+flate2.workspace = true
 png.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
+
+[build-dependencies]
+flate2.workspace = true
+mime_guess.workspace = true
 
 # `--doctor`'s USB-permission check asks for the effective uid, which only the Linux arm needs.
 [target.'cfg(target_os = "linux")'.dependencies]

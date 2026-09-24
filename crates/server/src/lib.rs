@@ -15,7 +15,6 @@ use tower_http::{
     compression::predicate::{NotForContentType, Predicate},
     cors::CorsLayer,
 };
-use utoipa_swagger_ui::SwaggerUi;
 
 pub const HOTPLUG_INTERVAL: Duration = Duration::from_secs(5);
 pub const LEVEL_INTERVAL: Duration = Duration::from_millis(100);
@@ -40,9 +39,11 @@ mod events;
 mod gps;
 mod images;
 mod ionosonde;
+mod json;
 mod mcp;
 mod monitor;
 pub mod notices;
+mod packed;
 mod placement;
 mod recorders;
 mod rest;
@@ -158,6 +159,34 @@ pub fn openapi() -> utoipa::openapi::OpenApi {
     api
 }
 
+fn openapi_route(api: &utoipa::openapi::OpenApi) -> axum::routing::MethodRouter<AppState> {
+    let spec = serde_json::to_vec(api)
+        .map(axum::body::Bytes::from)
+        .map_err(|error| error.to_string());
+    axum::routing::get(move || {
+        let spec = spec.clone();
+        async move {
+            use axum::response::IntoResponse;
+            match spec {
+                Ok(body) => (
+                    [(axum::http::header::CONTENT_TYPE, "application/json")],
+                    body,
+                )
+                    .into_response(),
+                Err(error) => (
+                    axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                    axum::Json(sdrmm_wire::ApiError {
+                        error: "OpenAPI document failed to serialize".to_string(),
+                        detail: Some(error),
+                        code: None,
+                    }),
+                )
+                    .into_response(),
+            }
+        }
+    })
+}
+
 pub fn router(engine: Arc<Engine>, store: Store, options: &ServerOptions) -> Router {
     let mut state = AppState::new(engine, Arc::new(store));
     state.auth = auth::Auth::new(options.token.as_deref());
@@ -192,7 +221,9 @@ fn router_with_state(mut state: AppState, options: &ServerOptions) -> (Router, B
             state.store.clone(),
             state.tools.clone(),
         ))
-        .merge(SwaggerUi::new("/api/docs").url("/api/openapi.json", api))
+        .route("/api/openapi.json", openapi_route(&api))
+        .route("/api/docs", axum::routing::get(assets::api_docs))
+        .route("/api/docs/", axum::routing::get(assets::api_docs))
         .route_layer(axum::middleware::from_fn_with_state(
             state.auth.clone(),
             auth::require_token,

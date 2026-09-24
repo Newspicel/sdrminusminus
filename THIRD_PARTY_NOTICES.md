@@ -42,7 +42,7 @@ The Rust PAD and MOT decoders in crates/channels/src/dab/pad were written using 
 
 **DPDFNet** — Apache-2.0
 
-The neural denoiser of the Audio FX node runs the pretrained dpdfnet2 16 kHz model published by Ceva, shipped unmodified as `crates/channels/models/dpdfnet2.onnx` and executed with tract. Only the weights are used; the STFT and streaming around them in `crates/channels/src/neural_denoise.rs` are this project's own.
+The neural denoiser of the Audio FX node runs the pretrained dpdfnet2 16 kHz model published by Ceva, executed with tract. `cargo xtask denoise-model` converts the published ONNX file to NNEF with its weights rounded to half precision, shipped as `crates/channels/models/dpdfnet2.nnef.tgz`. Only the weights are used; the STFT and streaming around them in `crates/channels/src/neural_denoise.rs` are this project's own.
 
 **DVB-T, DVB-S2X and DAB packet-mode reference implementations** — GPL-3.0-or-later
 
@@ -88,7 +88,7 @@ SDR-- drives the RTL2832U and its R82xx tuner itself, in Rust, over its own USB 
 
 Opened at runtime from whatever SoapySDR the host has installed, and never linked or distributed by this project. A release that finds none simply reports no SoapySDR hardware. The modules it loads, and their licenses, belong to that installation.
 
-## Rust crates (804)
+## Rust crates (788)
 
 | Component | Version | License |
 | --- | --- | --- |
@@ -369,7 +369,6 @@ Opened at runtime from whatever SoapySDR the host has installed, and never linke
 | [is-wsl](https://github.com/TheLarkInn/is-wsl) | 0.4.0 | MIT |
 | [is_terminal_polyfill](https://github.com/polyfill-rs/is_terminal_polyfill) | 1.70.2 | MIT OR Apache-2.0 |
 | [itertools](https://github.com/rust-itertools/itertools) | 0.13.0 | MIT OR Apache-2.0 |
-| [itertools](https://github.com/rust-itertools/itertools) | 0.14.0 | MIT OR Apache-2.0 |
 | [itertools](https://github.com/rust-itertools/itertools) | 0.15.0 | MIT OR Apache-2.0 |
 | [itoa](https://github.com/dtolnay/itoa) | 1.0.18 | MIT OR Apache-2.0 |
 | [javascriptcore-rs](https://github.com/tauri-apps/javascriptcore-rs) | 1.1.2 | MIT |
@@ -418,7 +417,6 @@ Opened at runtime from whatever SoapySDR the host has installed, and never linke
 | [matchit](https://github.com/ibraheemdev/matchit) | 0.8.4 | MIT AND BSD-3-Clause |
 | [matrixmultiply](https://github.com/bluss/matrixmultiply/) | 0.3.11 | MIT/Apache-2.0 |
 | [memchr](https://github.com/BurntSushi/memchr) | 2.8.3 | Unlicense OR MIT |
-| [memmap2](https://github.com/RazrFalcon/memmap2-rs) | 0.9.11 | MIT OR Apache-2.0 |
 | [memo-map](https://github.com/mitsuhiko/memo-map) | 0.3.4 | Apache-2.0 |
 | [memoffset](https://github.com/Gilnaa/memoffset) | 0.9.1 | MIT |
 | [mfsk-core](https://github.com/jl1nie/mfsk-core) | 0.11.0 | GPL-3.0-or-later |
@@ -461,7 +459,6 @@ Opened at runtime from whatever SoapySDR the host has installed, and never linke
 | [num-complex](https://github.com/rust-num/num-complex) | 0.4.6 | MIT OR Apache-2.0 |
 | [num-conv](https://github.com/jhpratt/num-conv) | 0.2.2 | MIT OR Apache-2.0 |
 | [num-integer](https://github.com/rust-num/num-integer) | 0.1.47 | MIT OR Apache-2.0 |
-| [num-rational](https://github.com/rust-num/num-rational) | 0.4.2 | MIT OR Apache-2.0 |
 | [num-traits](https://github.com/rust-num/num-traits) | 0.2.19 | MIT OR Apache-2.0 |
 | [num_enum](https://github.com/illicitonion/num_enum) | 0.7.6 | BSD-3-Clause OR MIT OR Apache-2.0 |
 | [num_enum_derive](https://github.com/illicitonion/num_enum) | 0.7.6 | BSD-3-Clause OR MIT OR Apache-2.0 |
@@ -533,8 +530,6 @@ Opened at runtime from whatever SoapySDR the host has installed, and never linke
 | [proc-macro-error-attr](https://gitlab.com/CreepySkeleton/proc-macro-error) | 1.0.4 | MIT OR Apache-2.0 |
 | [proc-macro2](https://github.com/dtolnay/proc-macro2) | 1.0.107 | MIT OR Apache-2.0 |
 | [profiling](https://github.com/aclysma/profiling) | 1.0.18 | MIT OR Apache-2.0 |
-| [prost](https://github.com/tokio-rs/prost) | 0.14.4 | Apache-2.0 |
-| [prost-derive](https://github.com/tokio-rs/prost) | 0.14.4 | Apache-2.0 |
 | [quick-xml](https://github.com/tafia/quick-xml) | 0.42.0 | MIT |
 | [quinn](https://github.com/quinn-rs/quinn) | 0.11.12 | MIT OR Apache-2.0 |
 | [quinn-proto](https://github.com/quinn-rs/quinn) | 0.11.18 | MIT OR Apache-2.0 |
@@ -547,7 +542,6 @@ Opened at runtime from whatever SoapySDR the host has installed, and never linke
 | [rand_chacha](https://github.com/rust-random/rand) | 0.9.0 | MIT OR Apache-2.0 |
 | [rand_core](https://github.com/rust-random/rand_core) | 0.10.1 | MIT OR Apache-2.0 |
 | [rand_core](https://github.com/rust-random/rand) | 0.9.5 | MIT OR Apache-2.0 |
-| [rand_distr](https://github.com/rust-random/rand_distr) | 0.6.0 | MIT OR Apache-2.0 |
 | [rand_pcg](https://github.com/rust-random/rngs) | 0.10.2 | MIT OR Apache-2.0 |
 | [range-alloc](https://github.com/gfx-rs/range-alloc) | 0.1.5 | MIT OR Apache-2.0 |
 | [raw-window-handle](https://github.com/rust-windowing/raw-window-handle) | 0.6.2 | MIT OR Apache-2.0 OR Zlib |
@@ -575,9 +569,6 @@ Opened at runtime from whatever SoapySDR the host has installed, and never linke
 | [rumqttc-core-next](https://github.com/thehouseisonfire/rumqtt) | 0.34.0 | Apache-2.0 |
 | [rumqttc-v4-next](https://github.com/thehouseisonfire/rumqtt) | 0.34.0 | Apache-2.0 |
 | [rusqlite](https://github.com/rusqlite/rusqlite) | 0.40.2 | MIT |
-| [rust-embed](https://pyrossh.dev/repos/rust-embed) | 8.12.0 | MIT |
-| [rust-embed-impl](https://pyrossh.dev/repos/rust-embed) | 8.12.0 | MIT |
-| [rust-embed-utils](https://pyrossh.dev/repos/rust-embed) | 8.12.0 | MIT |
 | [rustc-hash](https://github.com/rust-lang-nursery/rustc-hash) | 1.1.0 | Apache-2.0/MIT |
 | [rustc-hash](https://github.com/rust-lang/rustc-hash) | 2.1.3 | Apache-2.0 OR MIT |
 | [rustc_version](https://github.com/djc/rustc-version-rs) | 0.4.1 | MIT OR Apache-2.0 |
@@ -723,12 +714,8 @@ Opened at runtime from whatever SoapySDR the host has installed, and never linke
 | [tracing-subscriber](https://github.com/tokio-rs/tracing) | 0.3.23 | MIT |
 | [tract-core](https://github.com/sonos/tract) | 0.23.8 | MIT OR Apache-2.0 |
 | [tract-data](https://github.com/sonos/tract) | 0.23.8 | MIT OR Apache-2.0 |
-| [tract-extra](https://github.com/sonos/tract) | 0.23.8 | MIT OR Apache-2.0 |
-| [tract-hir](https://github.com/sonos/tract) | 0.23.8 | MIT OR Apache-2.0 |
 | [tract-linalg](https://github.com/sonos/tract) | 0.23.8 | MIT OR Apache-2.0 |
 | [tract-nnef](https://github.com/sonos/tract) | 0.23.8 | MIT OR Apache-2.0 |
-| [tract-onnx](https://github.com/sonos/tract) | 0.23.8 | MIT OR Apache-2.0 |
-| [tract-onnx-opl](https://github.com/sonos/tract) | 0.23.8 | MIT OR Apache-2.0 |
 | [transpose](https://github.com/ejmahler/transpose) | 0.2.3 | MIT OR Apache-2.0 |
 | [tray-icon](https://github.com/tauri-apps/tray-icon) | 0.24.2 | MIT OR Apache-2.0 |
 | [try-lock](https://github.com/seanmonstar/try-lock) | 0.2.5 | MIT |
@@ -747,6 +734,7 @@ Opened at runtime from whatever SoapySDR the host has installed, and never linke
 | [unicode-ident](https://github.com/dtolnay/unicode-ident) | 1.0.26 | (MIT OR Apache-2.0) AND Unicode-3.0 |
 | [unicode-segmentation](https://github.com/unicode-rs/unicode-segmentation) | 1.13.3 | MIT OR Apache-2.0 |
 | [unicode-width](https://github.com/unicode-rs/unicode-width) | 0.2.2 | MIT OR Apache-2.0 |
+| [untrusted](https://github.com/briansmith/untrusted) | 0.7.1 | ISC |
 | [untrusted](https://github.com/briansmith/untrusted) | 0.9.0 | ISC |
 | [url](https://github.com/servo/rust-url) | 2.5.8 | MIT OR Apache-2.0 |
 | [urlpattern](https://github.com/denoland/rust-urlpattern) | 0.3.0 | MIT |
@@ -755,8 +743,6 @@ Opened at runtime from whatever SoapySDR the host has installed, and never linke
 | [utoipa](https://github.com/juhaku/utoipa) | 5.5.0 | MIT OR Apache-2.0 |
 | [utoipa-axum](https://github.com/juhaku/utoipa) | 0.2.0 | MIT OR Apache-2.0 |
 | [utoipa-gen](https://github.com/juhaku/utoipa) | 5.5.0 | MIT OR Apache-2.0 |
-| [utoipa-swagger-ui](https://github.com/juhaku/utoipa) | 9.0.2 | MIT OR Apache-2.0 |
-| [utoipa-swagger-ui-vendored](https://github.com/juhaku/utoipa) | 0.1.2 | MIT OR Apache-2.0 |
 | [uuid](https://github.com/uuid-rs/uuid) | 1.26.1 | Apache-2.0 OR MIT |
 | [valuable](https://github.com/tokio-rs/valuable) | 0.1.1 | MIT |
 | [vcpkg](https://github.com/mcgoo/vcpkg-rs) | 0.2.15 | MIT/Apache-2.0 |
@@ -888,16 +874,14 @@ Opened at runtime from whatever SoapySDR the host has installed, and never linke
 | [zerotrie](https://github.com/unicode-org/icu4x) | 0.2.5 | Unicode-3.0 |
 | [zerovec](https://github.com/unicode-org/icu4x) | 0.11.8 | Unicode-3.0 |
 | [zerovec-derive](https://github.com/unicode-org/icu4x) | 0.11.6 | Unicode-3.0 |
-| [zip](https://github.com/zip-rs/zip2.git) | 3.0.0 | MIT |
 | [zip](https://github.com/zip-rs/zip2.git) | 4.6.1 | MIT |
 | [zlib-rs](https://github.com/trifectatechfoundation/zlib-rs) | 0.6.8 | Zlib |
 | [zmij](https://github.com/dtolnay/zmij) | 1.0.23 | MIT |
-| [zopfli](https://github.com/zopfli-rs/zopfli) | 0.8.3 | Apache-2.0 |
 | [zvariant](https://github.com/z-galaxy/zbus/) | 5.15.0 | MIT |
 | [zvariant_derive](https://github.com/z-galaxy/zbus/) | 5.15.0 | MIT |
 | [zvariant_utils](https://github.com/z-galaxy/zbus/) | 4.2.0 | MIT |
 
-## Web packages (72)
+## Web packages (74)
 
 | Component | Version | License |
 | --- | --- | --- |
@@ -919,6 +903,7 @@ Opened at runtime from whatever SoapySDR the host has installed, and never linke
 | [@maplibre/maplibre-gl-style-spec](https://maplibre.org/maplibre-style-spec/) | 26.4.4 | ISC |
 | [@maplibre/mlt](https://github.com/maplibre/maplibre-tile-spec/#readme) | 1.3.0 | (MIT OR Apache-2.0) |
 | [@maplibre/vt-pbf](https://github.com/maplibre/vt-pbf#readme) | 4.3.2 | MIT |
+| [@scarf/scarf](https://github.com/scarf-sh/scarf-js) | 1.4.0 | Apache-2.0 |
 | [@tanstack/query-core](https://tanstack.com/query) | 5.103.2 | MIT |
 | [@tanstack/react-query](https://tanstack.com/query) | 5.103.2 | MIT |
 | [@types/d3-color](https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/d3-color) | 3.1.3 | MIT |
@@ -969,6 +954,7 @@ Opened at runtime from whatever SoapySDR the host has installed, and never linke
 | [resolve-protobuf-schema](https://github.com/mafintosh/resolve-protobuf-schema) | 2.1.0 | MIT |
 | [scheduler](https://react.dev/) | 0.28.0 | MIT |
 | [simple-yenc](https://github.com/eshaz/simple-yenc#readme) | 1.0.4 | MIT |
+| [swagger-ui-dist](https://github.com/swagger-api/swagger-ui#readme) | 5.33.0 | Apache-2.0 |
 | [tinyqueue](https://github.com/mourner/tinyqueue) | 3.0.0 | ISC |
 | [uqr](https://github.com/unjs/uqr#readme) | 0.1.3 | MIT |
 | [use-sync-external-store](https://github.com/react/react#readme) | 1.7.0 | MIT |

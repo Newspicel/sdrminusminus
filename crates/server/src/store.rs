@@ -1301,7 +1301,7 @@ fn parse_workspace_snapshot(json: &str) -> Result<WorkspaceSnapshot, serde_json:
     migrate_signal_finders(&mut value);
     migrate_baseband_scopes(&mut value);
     migrate_recorders(&mut value);
-    serde_json::from_value(value)
+    crate::json::from_value(&value)
 }
 
 const SPLIT_SCOPE_OFFSET_Y: f64 = 420.0;

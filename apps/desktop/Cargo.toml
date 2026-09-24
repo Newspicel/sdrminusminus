@@ -36,7 +36,7 @@ sdrmm-engine.workspace = true
 sdrmm-device-soapy = { workspace = true, optional = true }
 anyhow.workspace = true
 tauri = { version = "2", features = [] }
-tauri-plugin-updater = "2"
+tauri-plugin-updater = { version = "2.12", default-features = false, features = ["zip", "system-proxy"] }
 tauri-plugin-dialog = "2"
 # Not used directly: `generate_context!` expands the config's `plugins` section into
 # `serde_json` paths resolved against this crate's root.
