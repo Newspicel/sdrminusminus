@@ -1,3 +1,55 @@
+#[allow(dead_code)]
+pub(crate) mod adsc;
+#[allow(dead_code)]
+pub(crate) mod airline5z;
+#[allow(dead_code)]
+mod app;
+#[allow(dead_code)]
+pub(crate) mod arinc622;
+#[allow(dead_code)]
+mod bits;
+#[allow(dead_code)]
+pub(crate) mod block;
+#[allow(dead_code)]
+pub(crate) mod cfb;
+#[allow(dead_code)]
+mod codec;
+#[allow(dead_code)]
+pub(crate) mod cpdlc;
+#[allow(dead_code)]
+pub(crate) mod fpn;
+#[allow(dead_code)]
+pub(crate) mod media_adv;
+#[allow(dead_code)]
+mod message;
+#[allow(dead_code)]
+pub(crate) mod met;
+#[allow(dead_code)]
+pub(crate) mod miam;
+#[allow(dead_code)]
+pub(crate) mod min;
+#[allow(dead_code)]
+pub(crate) mod ohma;
+#[allow(dead_code)]
+pub(crate) mod oooi;
+#[allow(dead_code)]
+pub(crate) mod position;
+#[allow(dead_code)]
+pub(crate) mod qseries;
+#[cfg(test)]
+mod real_messages;
+#[allow(dead_code)]
+pub(crate) mod reasm;
+#[allow(dead_code)]
+pub(crate) mod sublabel;
+#[cfg(test)]
+mod xng_equivalence;
+
+#[allow(unused_imports)]
+pub(crate) use app::{AcarsApp, AppDecode, decode, summary};
+#[allow(unused_imports)]
+pub(crate) use message::AcarsCore;
+
 use std::sync::LazyLock;
 
 use num_complex::Complex;
@@ -535,6 +587,30 @@ mod tests {
         assert_eq!(response.block_id, 'A');
         assert!(!response.downlink);
         assert_eq!(response.text, "");
+    }
+
+    #[test]
+    fn the_shared_block_parser_reads_vhf_framing() {
+        for block in [downlink(), uplink()] {
+            let heard = decode(&transmission(&block, RATE));
+            assert_eq!(heard.len(), 1, "{heard:?}");
+            let m = &heard[0];
+            let bytes = testgen::acars::block_bytes(&block);
+            let parsed = block::parse(&bytes[2..]).expect("vhf block parses");
+            assert!(parsed.crc_ok);
+            assert_eq!(parsed.parity_errors, 0);
+            assert_eq!(parsed.downlink, m.downlink);
+            let core = parsed.core;
+            assert_eq!(core.mode, m.mode);
+            assert_eq!(core.tail.as_deref(), Some(m.registration.as_str()));
+            assert_eq!(core.ack, m.ack);
+            assert_eq!(core.label, m.label);
+            assert_eq!(core.block_id, Some(m.block_id));
+            assert_eq!(core.msg_num, m.seq_no);
+            assert_eq!(core.flight, m.flight);
+            assert_eq!(core.text, m.text);
+            assert_eq!(core.more_to_come, m.more);
+        }
     }
 
     #[test]
