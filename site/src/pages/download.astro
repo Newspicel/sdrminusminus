@@ -260,7 +260,8 @@ docker compose up -d</pre></div>
         <p>macOS: open the disk image and drag SDR-- to Applications. Windows: run the installer.
           It is not code-signed yet, so SmartScreen asks first; choose <b>More info</b>, then
           <b>Run anyway</b>. Linux: <code>chmod +x</code> the AppImage, or
-          <code>sudo apt install ./sdrminusminus_*.deb</code>. Servers: unpack the archive and run
+          <code>sudo apt install ./sdrminusminus_*.deb</code>, or
+          <code>sudo dnf install ./sdrminusminus-*.rpm</code>. Servers: unpack the archive and run
           <code>./sdrmm</code>.</p>
       </div>
     </li>
@@ -432,10 +433,12 @@ const PICKS = {
   windows: { who: "Windows · 64-bit", file: "_x64-setup.exe", label: "Download for Windows", alts: ["windows-msi"] },
   "windows-msi": { who: "Windows · MSI package", file: "_x64_en-US.msi", label: "Download for Windows", alts: ["windows"] },
   "windows-arm": { who: "Windows on ARM", file: "_arm64-setup.exe", label: "Download for Windows", alts: [] },
-  linux: { who: "Linux · x86-64", file: "_amd64.AppImage", label: "Download for Linux", alts: ["linux-deb"] },
-  "linux-deb": { who: "Linux · Debian and Ubuntu", file: "_amd64.deb", label: "Download for Linux", alts: ["linux"] },
-  "linux-arm": { who: "Linux · ARM64", file: "_aarch64.AppImage", label: "Download for Linux", alts: ["linux-arm-deb", "linux-arm-server"] },
-  "linux-arm-deb": { who: "Linux · Debian and Ubuntu, ARM64", file: "_arm64.deb", label: "Download for Linux", alts: ["linux-arm"] },
+  linux: { who: "Linux · x86-64", file: "_amd64.AppImage", label: "Download for Linux", alts: ["linux-deb", "linux-rpm"] },
+  "linux-deb": { who: "Linux · Debian and Ubuntu", file: "_amd64.deb", label: "Download for Linux", alts: ["linux", "linux-rpm"] },
+  "linux-rpm": { who: "Linux · Fedora and openSUSE", file: ".x86_64.rpm", label: "Download for Linux", alts: ["linux", "linux-deb"] },
+  "linux-arm": { who: "Linux · ARM64", file: "_aarch64.AppImage", label: "Download for Linux", alts: ["linux-arm-deb", "linux-arm-rpm", "linux-arm-server"] },
+  "linux-arm-deb": { who: "Linux · Debian and Ubuntu, ARM64", file: "_arm64.deb", label: "Download for Linux", alts: ["linux-arm", "linux-arm-rpm"] },
+  "linux-arm-rpm": { who: "Linux · Fedora and openSUSE, ARM64", file: ".aarch64.rpm", label: "Download for Linux", alts: ["linux-arm", "linux-arm-deb"] },
   "linux-arm-server": {
     who: "Linux · ARM64",
     file: "-aarch64-unknown-linux-gnu.tar.gz",
@@ -452,8 +455,10 @@ const ALT_LABELS = {
   "windows-msi": "MSI package instead",
   linux: "AppImage instead",
   "linux-deb": "Debian package instead",
+  "linux-rpm": "RPM package instead",
   "linux-arm": "AppImage instead",
   "linux-arm-deb": "Debian package instead",
+  "linux-arm-rpm": "RPM package instead",
   "linux-arm-server": "Headless server instead",
 };
 
@@ -487,8 +492,15 @@ async function detect() {
   const arm = chip.startsWith("arm");
   if (/Mac/i.test(family)) return chip.startsWith("x86") ? "mac-intel" : "mac-arm";
   if (/Win/i.test(family)) return arm ? "windows-arm" : "windows";
-  if (/Linux|X11|CrOS/i.test(family)) return arm || /aarch64|arm64/i.test(agent) ? "linux-arm" : "linux";
+  if (/Linux|X11|CrOS/i.test(family)) return linuxPick(arm || /aarch64|arm64/i.test(agent), agent);
   return "";
+}
+
+function linuxPick(arm, agent) {
+  const base = arm ? "linux-arm" : "linux";
+  if (/Fedora|Red Hat|CentOS|Rocky|AlmaLinux|SUSE/i.test(agent)) return base + "-rpm";
+  if (/Ubuntu|Debian|Mint/i.test(agent)) return base + "-deb";
+  return base;
 }
 
 function handheldCard() {
