@@ -14,39 +14,39 @@ export function DeviceReport({ report }: { report: NanoVnaDeviceReport }) {
           <Entry label="Port" value={report.port} />
           <Entry
             label="Battery"
-            value={report.battery_mv == null ? "—" : `${(report.battery_mv / 1000).toFixed(3)} V`}
+            value={report.battery_mv == null ? "-" : `${(report.battery_mv / 1000).toFixed(3)} V`}
           />
         </Group>
         <Group title="Measurement">
           <Entry
             label="IF bandwidth"
-            value={report.bandwidth_hz == null ? "—" : formatHz(report.bandwidth_hz)}
+            value={report.bandwidth_hz == null ? "-" : formatHz(report.bandwidth_hz)}
           />
           <Entry label="Drive level" value={describePower(report.power)} />
           <Entry
             label="Electrical delay"
             value={
-              report.electrical_delay_s == null ? "—" : formatSi(report.electrical_delay_s, "s", 3)
+              report.electrical_delay_s == null ? "-" : formatSi(report.electrical_delay_s, "s", 3)
             }
           />
           <Entry
             label="S21 offset"
-            value={report.s21_offset_db == null ? "—" : `${report.s21_offset_db.toFixed(3)} dB`}
+            value={report.s21_offset_db == null ? "-" : `${report.s21_offset_db.toFixed(3)} dB`}
           />
         </Group>
         <Group title="Reference and range">
-          <Entry label="TCXO" value={report.tcxo_hz == null ? "—" : formatHz(report.tcxo_hz)} />
+          <Entry label="TCXO" value={report.tcxo_hz == null ? "-" : formatHz(report.tcxo_hz)} />
           <Entry
             label="Harmonic above"
             value={
-              report.harmonic_threshold_hz == null ? "—" : formatHz(report.harmonic_threshold_hz)
+              report.harmonic_threshold_hz == null ? "-" : formatHz(report.harmonic_threshold_hz)
             }
           />
           <Entry
             label="Device sweep"
-            value={sweep == null ? "—" : `${formatHz(sweep.start_hz)} – ${formatHz(sweep.stop_hz)}`}
+            value={sweep == null ? "-" : `${formatHz(sweep.start_hz)} – ${formatHz(sweep.stop_hz)}`}
           />
-          <Entry label="Device points" value={sweep == null ? "—" : String(sweep.points)} />
+          <Entry label="Device points" value={sweep == null ? "-" : String(sweep.points)} />
         </Group>
       </div>
 
@@ -80,7 +80,7 @@ export function DeviceReport({ report }: { report: NanoVnaDeviceReport }) {
 
 function describePower(power: number | null | undefined): string {
   if (power == null) {
-    return "—";
+    return "-";
   }
   return power === 255 ? "auto" : String(power);
 }

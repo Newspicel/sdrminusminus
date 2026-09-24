@@ -53,7 +53,7 @@ export function formatShift(channel: CodeplugChannel): string {
 
 export function formatTone(tone: Tone | null | undefined): string {
   if (tone === null || tone === undefined) {
-    return "—";
+    return "-";
   }
   if (tone.kind === "ctcss") {
     return (tone.decihertz / 10).toFixed(1);
@@ -68,7 +68,7 @@ export function channelKind(channel: CodeplugChannel): "fm" | "dmr" {
 export function channelDetail(channel: CodeplugChannel): string {
   if (channel.mode === "dmr") {
     const slot = channel.time_slot === "two" ? "TS2" : "TS1";
-    return `CC${channel.color_code} ${slot} ${channel.contact ?? "—"}`;
+    return `CC${channel.color_code} ${slot} ${channel.contact ?? "-"}`;
   }
   const width = channel.bandwidth === "wide" ? "25 kHz" : "12.5 kHz";
   return `${width}  ${formatTone(channel.rx_tone)} / ${formatTone(channel.tx_tone)}`;

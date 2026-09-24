@@ -301,7 +301,7 @@ function ContextMenu({
     if (node.kind === "channel") {
       items.push(
         item("Replace with…", () => onReplace(node.id), {
-          title: "Swap this decoder for another — m and M cycle the analog modes",
+          title: "Swap this decoder for another: m and M cycle the analog modes",
         }),
       );
     }
@@ -354,7 +354,7 @@ function ContextMenu({
       {items}
       {node !== undefined && (
         <span className="px-2 py-1 text-[10px] text-ink-faint">
-          Backspace deletes the selection — a node or a wire.
+          Backspace deletes the selection: a node or a wire.
         </span>
       )}
     </div>

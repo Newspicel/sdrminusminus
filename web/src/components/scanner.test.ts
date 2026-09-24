@@ -46,7 +46,7 @@ describe("newRange", () => {
     expect(rows[0]).toMatchObject({ startMhz: rows[1]?.startMhz, stopMhz: rows[1]?.stopMhz });
   });
 
-  it("stays parseable — the id is editor state, not wire state", () => {
+  it("stays parseable: the id is editor state, not wire state", () => {
     expect(parseRanges([newRange()])).toEqual({
       ranges: [{ start_hz: 145_600_000, stop_hz: 145_800_000, step_hz: 12_500 }],
     });
@@ -121,9 +121,9 @@ describe("liveStatus", () => {
 describe("formatDb", () => {
   it("renders a dash rather than a bogus number for an absent level", () => {
     expect(formatDb(-31.5)).toBe("-31.5 dB");
-    expect(formatDb(null)).toBe("—");
-    expect(formatDb(undefined)).toBe("—");
-    expect(formatDb(Number.NEGATIVE_INFINITY)).toBe("—");
+    expect(formatDb(null)).toBe("-");
+    expect(formatDb(undefined)).toBe("-");
+    expect(formatDb(Number.NEGATIVE_INFINITY)).toBe("-");
   });
 });
 
@@ -177,9 +177,9 @@ describe("rankDevices", () => {
 
 describe("formatMhz", () => {
   it("shows a dash rather than a frequency nobody reported", () => {
-    expect(formatMhz(null)).toBe("—");
-    expect(formatMhz(undefined)).toBe("—");
-    expect(formatMhz(Number.NaN)).toBe("—");
+    expect(formatMhz(null)).toBe("-");
+    expect(formatMhz(undefined)).toBe("-");
+    expect(formatMhz(Number.NaN)).toBe("-");
     expect(formatMhz(145_500_000)).toBe("145.5000 MHz");
   });
 });

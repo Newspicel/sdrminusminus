@@ -38,7 +38,7 @@
     "bench": "am_envelope_48k_acceptance",
     "msamples_per_s": 0.8856279244201367,
     "realtime_factor": 18.450581758752847,
-    "config": "48000 Hz, 3000 Hz message, 1023-tap filters, envelope detector — the SINAD curves' own configuration",
+    "config": "48000 Hz, 3000 Hz message, 1023-tap filters, envelope detector: the SINAD curves' own configuration",
     "host": "aarch64-macos"
   },
   {

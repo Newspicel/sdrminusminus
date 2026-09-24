@@ -7,7 +7,7 @@ export const GUIDANCE_TEXT: Record<GuidanceMode, string> = {
 
 export function spreadLabel(estimate: DfEstimate | null): string {
   if (estimate === null) {
-    return "—";
+    return "-";
   }
   return `${metres(estimate.ellipse_major_m)} × ${metres(estimate.ellipse_minor_m)}`;
 }

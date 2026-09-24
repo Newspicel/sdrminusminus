@@ -281,7 +281,7 @@ mod tests {
         let (wrong, total) = errors(&out, &sent, &table, 400);
         assert!(
             wrong * 100 < total,
-            "{wrong} of {total} mis-sliced — past the measured self-noise floor"
+            "{wrong} of {total} mis-sliced: past the measured self-noise floor"
         );
         assert!(
             wrong > 0,

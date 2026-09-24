@@ -229,7 +229,7 @@ fn five_eighths_vertical(lengths: &Lengths) -> Design {
         feedpoint_ohms: None,
         balanced: false,
         notes: vec![
-            "A five-eighths vertical is not resonant on its own — the base coil is what makes \
+            "A five-eighths vertical is not resonant on its own: the base coil is what makes \
              it match, so the impedance depends on the coil, not on the rod."
                 .to_owned(),
             "About 3 dB over a quarter-wave vertical at low angles, which is the whole point of \
@@ -429,7 +429,7 @@ fn quad_loop(lengths: &Lengths) -> Design {
         feedpoint_ohms: Some(110.0),
         balanced: true,
         notes: vec![
-            "A closed loop has no ends, so the wire end-effect factor does not apply — the 2% \
+            "A closed loop has no ends, so the wire end-effect factor does not apply: the 2% \
              is the loop's own correction."
                 .to_owned(),
             "Fed at the middle of a side it is horizontally polarised; fed at a corner, \
@@ -459,7 +459,7 @@ fn end_fed_half_wave(lengths: &Lengths) -> Design {
         feedpoint_ohms: Some(2_450.0),
         balanced: false,
         notes: vec![
-            "Fed at a voltage maximum, so it wants a 49:1 transformer — and the transformer, \
+            "Fed at a voltage maximum, so it wants a 49:1 transformer, and the transformer, \
              not the wire, is what usually limits the power."
                 .to_owned(),
             "Without a choke after the transformer the feedline becomes the counterpoise, and \

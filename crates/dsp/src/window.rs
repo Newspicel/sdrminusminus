@@ -14,7 +14,7 @@ pub fn hann(n: usize) -> Vec<f32> {
 }
 
 /// Four-term Blackman–Harris. Its main lobe is wider than Hann's, which is the price for
-/// sidelobes near -92 dB — the difference between reading a weak bearing next to a strong signal
+/// sidelobes near -92 dB: the difference between reading a weak bearing next to a strong signal
 /// and reading the strong signal's skirt.
 #[must_use]
 pub fn blackman_harris(n: usize) -> Vec<f32> {

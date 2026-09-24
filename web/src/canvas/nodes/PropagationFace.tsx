@@ -307,7 +307,7 @@ function Propagation({
         <span title="The highest frequency you actually decoded, projected onto a 3000 km hop. It is a floor: the real MUF sits at or above it.">
           measured MUF(3000){" "}
           <span className="text-ink">
-            {summary.bestMuf3000Mhz === null ? "—" : `≥ ${summary.bestMuf3000Mhz.toFixed(1)} MHz`}
+            {summary.bestMuf3000Mhz === null ? "-" : `≥ ${summary.bestMuf3000Mhz.toFixed(1)} MHz`}
           </span>
         </span>
         <span>
@@ -317,7 +317,7 @@ function Propagation({
           <span title="The ionosonde network's MUF(3000) interpolated over your own location.">
             overhead forecast{" "}
             <span className="text-ink">
-              {overhead === null ? "—" : `${overhead.muf3000Mhz.toFixed(1)} MHz`}
+              {overhead === null ? "-" : `${overhead.muf3000Mhz.toFixed(1)} MHz`}
             </span>
           </span>
         )}
@@ -350,7 +350,7 @@ function Propagation({
             medianDeltaMhz={agreement.medianDeltaMhz}
           />
         ) : (
-          "Measured MUF is a floor — the highest frequency actually decoded over each path, projected onto a 3000 km hop."
+          "Measured MUF is a floor: the highest frequency actually decoded over each path, projected onto a 3000 km hop."
         )}
       </div>
     </div>
@@ -442,7 +442,7 @@ function PathTable({
             <td className={TABLE_CELL}>{cell.decodes}</td>
             <td className={TABLE_CELL}>{formatMhz(cell.bestFreqHz)}</td>
             <td className={TABLE_CELL}>
-              {cell.measuredMuf3000Mhz === null ? "—" : `≥ ${cell.measuredMuf3000Mhz.toFixed(1)}`}
+              {cell.measuredMuf3000Mhz === null ? "-" : `≥ ${cell.measuredMuf3000Mhz.toFixed(1)}`}
             </td>
           </tr>
         ))}

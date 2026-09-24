@@ -116,7 +116,7 @@ export function CalibrationPanel({
 
       <p className="text-xs leading-snug text-ink-dim">
         Calibration belongs to the range it was measured over. Start it here, fit each standard when
-        the step asks for it, then apply — the instrument keeps the result until it is reset or
+        the step asks for it, then apply: the instrument keeps the result until it is reset or
         another slot is recalled.
       </p>
 

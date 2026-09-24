@@ -117,8 +117,8 @@ impl Found {
 
 /// Searches for devices matching `filter`, out of process where the running executable supports it.
 ///
-/// A process that enumerates in-process cannot choose which modules are loaded — the first search
-/// loads them all — so there `scope` has nothing left to decide.
+/// A process that enumerates in-process cannot choose which modules are loaded: the first search
+/// loads them all, so there `scope` has nothing left to decide.
 pub(crate) fn devices(filter: &str, scope: Scope) -> Result<Vec<Found>, DeviceError> {
     if isolated() {
         return spawn(filter, scope);

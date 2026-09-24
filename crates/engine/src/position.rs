@@ -69,7 +69,7 @@ impl Engine {
             .ok_or_else(|| EngineError::Recording("recording is stopping".to_owned()))?;
         position.update(fix).map_err(|error| match error {
             recording::PositionUpdateError::Full => {
-                EngineError::Recording("recording queue full — disk too slow?".to_owned())
+                EngineError::Recording("recording queue full: disk too slow?".to_owned())
             }
             recording::PositionUpdateError::Disconnected => {
                 EngineError::Recording("recording writer stopped".to_owned())

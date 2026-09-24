@@ -93,7 +93,7 @@ impl Response {
 }
 
 /// The server answers a refusal with the errno its own call returned, which is the only place a
-/// reason for it exists — so it is translated here rather than reported as a bare number.
+/// reason for it exists, so it is translated here rather than reported as a bare number.
 pub(crate) fn refusal(what: &str, errno: i32) -> DeviceError {
     let text = format!("{what}: {}", errno_text(errno));
     match -errno {

@@ -6,14 +6,14 @@ use super::{Import, Provision, Row, Target, report_unmapped, service_of};
 
 static TARGET: &Target = &Target {
     id: "de",
-    name: "Germany — BNetzA",
+    name: "Germany: BNetzA",
     authority: "Bundesnetzagentur",
     kind: "regulatory",
 };
 
 static ANNEX_TARGET: &Target = &Target {
     id: "de-sonstige",
-    name: "Germany — other applications",
+    name: "Germany: other applications",
     authority: "Bundesnetzagentur",
     kind: "application",
 };
@@ -183,10 +183,10 @@ pub(super) fn parse(layout: &str, spaced: &str) -> Result<Vec<Import>> {
         );
     }
     if plan.is_empty() || provisions.is_empty() {
-        bail!("no records parsed — the Frequenzplan's layout has changed");
+        bail!("no records parsed: the Frequenzplan's layout has changed");
     }
     if annex.is_empty() {
-        bail!("the annex of other applications is missing — its layout has changed");
+        bail!("the annex of other applications is missing: its layout has changed");
     }
 
     plan.sort_by(|a, b| a.start_hz.total_cmp(&b.start_hz));
@@ -430,7 +430,7 @@ fn next_label(text: &str) -> Option<usize> {
 
 fn ranges(value: &str) -> Vec<(f64, f64)> {
     let mut out = Vec::new();
-    for part in value.replace(['–', '—', '−'], "-").split(';') {
+    for part in value.replace(['–', '\u{2014}', '−'], "-").split(';') {
         let Some((lhs, rhs)) = part.split_once('-') else {
             continue;
         };

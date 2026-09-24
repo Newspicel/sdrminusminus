@@ -150,7 +150,7 @@ describe("the decoder log", () => {
       Confidence: "86%",
       "Frequency levels": "4",
     });
-    expect(detail.body).toContain("DMR — confirmed");
-    expect(detail.body).toContain("P25 Phase 1 — 38%");
+    expect(detail.body).toContain("DMR: confirmed");
+    expect(detail.body).toContain("P25 Phase 1: 38%");
   });
 });

@@ -8,7 +8,7 @@ pub const DEFAULT_TAPS: usize = 47;
 /// rest of the chain expects, at half the input rate.
 ///
 /// The band of interest sits at a quarter of the input rate. Translating by that quarter costs no
-/// multiplies — the rotation cycles through 1, -j, -1, j — and leaves the wanted signal at DC and
+/// multiplies, the rotation cycles through 1, -j, -1, j, and leaves the wanted signal at DC and
 /// its mirror at the edge, where a half-band low-pass removes it on the way down by two.
 #[derive(Clone, Debug)]
 pub struct RealToIq {

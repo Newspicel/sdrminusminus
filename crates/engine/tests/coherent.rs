@@ -273,7 +273,7 @@ fn beam_lane(engine: &Engine, ds: u32) -> u32 {
 
 /// How far one antenna's own marker stands above everything else on a lane.
 ///
-/// A beam is not louder than an antenna — weights that add to one leave the wanted signal exactly
+/// A beam is not louder than an antenna: weights that add to one leave the wanted signal exactly
 /// where it was. What a beam does is change the balance between what the elements share and what
 /// they do not, and this is that balance: the marker belongs to one antenna alone, so the lower
 /// this reads, the more of what is left is the wavefront every element heard.

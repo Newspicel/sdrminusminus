@@ -5,7 +5,7 @@ use super::{Row, Target, report_unmapped, service_of};
 
 pub(super) static TARGET: &Target = &Target {
     id: "gb",
-    name: "United Kingdom — Ofcom",
+    name: "United Kingdom: Ofcom",
     authority: "Ofcom",
     kind: "regulatory",
 };

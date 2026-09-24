@@ -98,7 +98,7 @@ describe("formatLength", () => {
   });
 
   it("says so when there is no number", () => {
-    expect(formatLength(Number.NaN, "m")).toBe("—");
+    expect(formatLength(Number.NaN, "m")).toBe("-");
   });
 });
 

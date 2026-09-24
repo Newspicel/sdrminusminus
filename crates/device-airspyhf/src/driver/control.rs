@@ -57,7 +57,7 @@ impl VendorControlRequest {
         Self::out_request(VendorRequest::ReceiverMode, mode as u16, 0, Vec::new())
     }
 
-    /// The radio tunes in whole kilohertz, and takes them most significant byte first — the one
+    /// The radio tunes in whole kilohertz, and takes them most significant byte first: the one
     /// big-endian field in this protocol.
     pub(crate) fn set_frequency(frequency_khz: u32) -> Self {
         Self::out_request(

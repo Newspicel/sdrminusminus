@@ -95,7 +95,7 @@ function Channels({ channels }: { channels: CodeplugChannel[] }) {
             <td className={TABLE_CELL}>{channelKind(channel).toUpperCase()}</td>
             <td className={`${TABLE_CELL} text-ink-dim`}>{channel.power ?? "mid"}</td>
             <td className={`${TABLE_CELL} text-ink-dim`}>{channelDetail(channel)}</td>
-            <td className={`${TABLE_CELL} text-ink-dim`}>{channel.scan_list ?? "—"}</td>
+            <td className={`${TABLE_CELL} text-ink-dim`}>{channel.scan_list ?? "-"}</td>
           </tr>
         ))}
       </tbody>
@@ -140,7 +140,7 @@ function Members({ head, rows }: { head: [string, string]; rows: [string, string
           <tr key={name} className="border-t border-line">
             <td className={`${TABLE_CELL} whitespace-nowrap text-ink`}>{name}</td>
             <td className={`${TABLE_CELL} text-ink-dim`} title={members.join(", ")}>
-              {members.length === 0 ? "—" : `${members.length} · ${members.join(", ")}`}
+              {members.length === 0 ? "-" : `${members.length} · ${members.join(", ")}`}
             </td>
           </tr>
         ))}

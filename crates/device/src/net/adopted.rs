@@ -9,7 +9,7 @@ const MAX_ENDPOINTS: usize = 64;
 
 /// The network addresses a driver has been told about, since nothing announces them.
 ///
-/// A backend that addresses more than a host — one tuner of a dual-tuner receiver, say — adopts
+/// A backend that addresses more than a host, one tuner of a dual-tuner receiver, say, adopts
 /// its own key type rather than losing the difference between two devices at the same endpoint.
 #[derive(Debug)]
 pub struct Adopted<K = Endpoint> {

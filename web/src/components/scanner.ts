@@ -66,9 +66,9 @@ export function sweepKind(set: DeviceSet | null, status: ScannerStatus | null): 
 }
 
 export function formatMhz(hz: number | null | undefined): string {
-  return hz == null || !Number.isFinite(hz) ? "—" : fixedWidthMhz(hz);
+  return hz == null || !Number.isFinite(hz) ? "-" : fixedWidthMhz(hz);
 }
 
 export function formatDb(db: number | null | undefined): string {
-  return db == null || !Number.isFinite(db) ? "—" : `${db.toFixed(1)} dB`;
+  return db == null || !Number.isFinite(db) ? "-" : `${db.toFixed(1)} dB`;
 }

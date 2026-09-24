@@ -111,7 +111,7 @@ pub fn run(root: &Path, args: &Excerpt) -> Result<()> {
     stamp(&stem, &args.description, &note, written)?;
 
     println!(
-        "{}: {written} samples, {:.3} s @ {} — {}",
+        "{}: {written} samples, {:.3} s @ {}: {}",
         args.out.display(),
         written as f64 / output_rate,
         sdrmm_wire::units::sample_rate(output_rate),
@@ -177,7 +177,7 @@ enum Reader {
 impl Source {
     pub fn open(path: &Path, rate: Option<f64>, center: Option<f64>) -> Result<Self> {
         if let Some(format) = RawFormat::of(path) {
-            let rate = rate.context("a raw IQ file carries no sample rate — pass --input-rate")?;
+            let rate = rate.context("a raw IQ file carries no sample rate: pass --input-rate")?;
             return Ok(Self {
                 reader: Reader::Raw(Raw::open(path, format)?),
                 rate,
@@ -209,7 +209,7 @@ impl Source {
             .and_then(|capture| capture.frequency);
         let rate = rate
             .or(meta_rate)
-            .context("the recording carries no sample rate — pass --input-rate")?;
+            .context("the recording carries no sample rate: pass --input-rate")?;
         Ok(Self {
             reader: Reader::Sigmf(Box::new(reader)),
             rate,

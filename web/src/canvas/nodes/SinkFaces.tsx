@@ -198,7 +198,7 @@ function AudioHealth({
       {lostFrames > 0 && (
         <span
           className={CHIP}
-          title="Audio lost before playback — dropped at the radio, the encoder or the link, or decoded too late on this machine to be played."
+          title="Audio lost before playback: dropped at the radio, the encoder or the link, or decoded too late on this machine to be played."
         >
           <span className="legend">Dropped</span>
           {(lostFrames / 48).toFixed(0)} ms
@@ -207,7 +207,7 @@ function AudioHealth({
       {underruns > 0 && (
         <span
           className={CHIP}
-          title="Audio arrived but playback ran dry before it could be played — this machine's scheduling or a clock the buffer could not track. The buffer holds more after each one."
+          title="Audio arrived but playback ran dry before it could be played: this machine's scheduling or a clock the buffer could not track. The buffer holds more after each one."
         >
           <span className="legend">Stalls</span>
           {underruns}

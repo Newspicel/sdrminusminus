@@ -197,8 +197,8 @@ describe("target rows", () => {
     );
     const row = aircraftRow(onGround, NOW);
     expect(row.primary).toBe("GND");
-    expect(row.label).toBe("—");
-    expect(row.position).toBe("—");
+    expect(row.label).toBe("-");
+    expect(row.position).toBe("-");
     expect(row.ageMs).toBe(0);
   });
 
@@ -223,7 +223,7 @@ describe("target rows", () => {
       label: "DEAB",
       primary: "12 kt",
       secondary: "0° · HAMBURG",
-      position: "—",
+      position: "-",
       ageMs: 90_000,
     });
   });
@@ -268,11 +268,11 @@ describe("sortTargets", () => {
 
 describe("formatting", () => {
   it("groups altitudes and rounds speeds and bearings", () => {
-    expect(formatAltitudeFt(null)).toBe("—");
+    expect(formatAltitudeFt(null)).toBe("-");
     expect(formatAltitudeFt(900)).toBe("900 ft");
     expect(formatAltitudeFt(37_000)).toBe("37,000 ft");
     expect(formatAltitudeFt(-1_200)).toBe("−1,200 ft");
-    expect(formatSpeedKt(undefined)).toBe("—");
+    expect(formatSpeedKt(undefined)).toBe("-");
     expect(formatSpeedKt(12.6)).toBe("13 kt");
     expect(formatBearing(null)).toBe("");
     expect(formatBearing(359.7)).toBe("0°");
@@ -280,7 +280,7 @@ describe("formatting", () => {
   });
 
   it("needs both halves of a position", () => {
-    expect(formatPosition(52.52, null)).toBe("—");
+    expect(formatPosition(52.52, null)).toBe("-");
     expect(formatPosition(52.52, 13.405)).toBe("52.52000, 13.40500");
   });
 
@@ -353,7 +353,7 @@ describe("RDS", () => {
   it("prefers the wire's PTY name and falls back to the code", () => {
     expect(ptyLabel({ ...base, pty: 10, pty_name: "Pop Music" })).toBe("Pop Music");
     expect(ptyLabel({ ...base, pty: 10 })).toBe("PTY 10");
-    expect(ptyLabel(base)).toBe("—");
+    expect(ptyLabel(base)).toBe("-");
   });
 
   it("sorts alternative frequencies ascending", () => {

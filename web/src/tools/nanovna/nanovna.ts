@@ -236,7 +236,7 @@ export function formatVswr(value: number): string {
 
 export function formatImpedance(value: NanoVnaComplex | null): string {
   if (value === null || !Number.isFinite(value.re) || !Number.isFinite(value.im)) {
-    return "—";
+    return "-";
   }
   return `${value.re.toFixed(1)} ${value.im < 0 ? "−" : "+"} j${Math.abs(value.im).toFixed(1)} Ω`;
 }
@@ -254,7 +254,7 @@ const SI_PREFIXES = [
 
 export function formatSi(value: number, unit: string, digits = 3): string {
   if (!Number.isFinite(value)) {
-    return "—";
+    return "-";
   }
   if (value === 0) {
     return `0 ${unit}`;
@@ -265,5 +265,5 @@ export function formatSi(value: number, unit: string, digits = 3): string {
 }
 
 export function formatNumber(value: number, digits = 3): string {
-  return Number.isFinite(value) ? value.toFixed(digits) : "—";
+  return Number.isFinite(value) ? value.toFixed(digits) : "-";
 }

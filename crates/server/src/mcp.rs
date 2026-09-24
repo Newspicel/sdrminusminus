@@ -297,7 +297,7 @@ impl NanoVnaCalibrateParams {
 impl SdrMcp {
     #[tool(
         description = "Full server state: every open device set with its settings, channels, \
-                       recording and running scan. Start here — the ids other tools take all \
+                       recording and running scan. Start here: the ids other tools take all \
                        come from this.",
         annotations(title = "Get state", read_only_hint = true)
     )]
@@ -545,7 +545,7 @@ impl SdrMcp {
 
     #[tool(
         description = "One spectrum frame from a device set, reduced to 128 power bins in \
-                       dBFS — enough to answer 'is anything on this band'.",
+                       dBFS: enough to answer 'is anything on this band'.",
         annotations(title = "Spectrum snapshot", read_only_hint = true)
     )]
     async fn spectrum_snapshot(
@@ -651,7 +651,7 @@ impl SdrMcp {
 
     #[tool(
         description = "Sweep a NanoVNA and return raw S11 and S21 per frequency, with the \
-                       device's own report of how it was configured. Calibrate first — an \
+                       device's own report of how it was configured. Calibrate first: an \
                        uncalibrated sweep measures the fixture as much as the antenna. averages \
                        defaults to 1. Ask for at most 401 points here; use POST /api/tools/run \
                        for a full-resolution sweep.",
@@ -711,8 +711,8 @@ impl ServerHandler for SdrMcp {
                  sets and channels are created explicitly and every other tool works from \
                  those ids. Frequencies are always in Hz. Channels are offset from their \
                  device set's centre frequency, so retuning the device moves them with it. \
-                 Beside the receiver stands a bench of tools — an antenna calculator, a \
-                 NanoVNA — that own no device set; list_tools says which of them this build \
+                 Beside the receiver stands a bench of tools, an antenna calculator, a \
+                 NanoVNA, that own no device set; list_tools says which of them this build \
                  carries.",
             )
     }

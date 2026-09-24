@@ -357,7 +357,7 @@ export function DeviceFace({ node }: { node: PatchNode }) {
         <Button
           type="button"
           className={BTN_QUIET}
-          title="Close this radio and free the node — the device is released and the wires stay drawn"
+          title="Close this radio and free the node: the device is released and the wires stay drawn"
           onClick={() => forget.mutate()}
           disabled={forget.isPending}
         >

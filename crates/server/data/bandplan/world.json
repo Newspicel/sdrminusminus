@@ -108,7 +108,7 @@
         "navtex",
         "national navtex"
       ],
-      "name": "NAVTEX — 490 kHz",
+      "name": "NAVTEX: 490 kHz",
       "notes": "National-language navigational warnings. SITOR-B, 100 baud FSK with a 170 Hz shift.",
       "service": "maritime",
       "start_hz": 489000.0,
@@ -135,7 +135,7 @@
         "navtex",
         "international navtex"
       ],
-      "name": "NAVTEX — 518 kHz",
+      "name": "NAVTEX: 518 kHz",
       "notes": "The international NAVTEX service, always in English. SITOR-B, 100 baud FSK.",
       "service": "maritime",
       "start_hz": 517000.0,
@@ -247,7 +247,7 @@
         "wwv",
         "standard frequency"
       ],
-      "name": "Standard frequency and time — 2.5 MHz",
+      "name": "Standard frequency and time: 2.5 MHz",
       "service": "science",
       "start_hz": 2495000.0,
       "stop_hz": 2505000.0,
@@ -552,7 +552,7 @@
       "aliases": [
         "ism"
       ],
-      "name": "ISM — 6.78 MHz",
+      "name": "ISM: 6.78 MHz",
       "notes": "RR 5.138: industrial, scientific and medical.",
       "service": "ism",
       "start_hz": 6765000.0,
@@ -691,7 +691,7 @@
         "wwv",
         "standard frequency"
       ],
-      "name": "Standard frequency and time — 10 MHz",
+      "name": "Standard frequency and time: 10 MHz",
       "service": "science",
       "start_hz": 9995000.0,
       "stop_hz": 10005000.0,
@@ -845,7 +845,7 @@
         "radio astronomy",
         "passive band"
       ],
-      "name": "Radio astronomy — 13.36 MHz",
+      "name": "Radio astronomy: 13.36 MHz",
       "notes": "A passive band: no emission is permitted.",
       "service": "science",
       "start_hz": 13360000.0,
@@ -866,7 +866,7 @@
         "rfid",
         "nfc"
       ],
-      "name": "ISM — 13.56 MHz",
+      "name": "ISM: 13.56 MHz",
       "notes": "RR 5.150. NFC and HF RFID.",
       "service": "ism",
       "start_hz": 13553000.0,
@@ -942,7 +942,7 @@
         "wwv",
         "standard frequency"
       ],
-      "name": "Standard frequency and time — 15 MHz",
+      "name": "Standard frequency and time: 15 MHz",
       "service": "science",
       "start_hz": 14990000.0,
       "stop_hz": 15010000.0,
@@ -1130,7 +1130,7 @@
         "wwv",
         "standard frequency"
       ],
-      "name": "Standard frequency and time — 20 MHz",
+      "name": "Standard frequency and time: 20 MHz",
       "service": "science",
       "start_hz": 19990000.0,
       "stop_hz": 20010000.0,
@@ -1293,7 +1293,7 @@
         "wwv",
         "standard frequency"
       ],
-      "name": "Standard frequency and time — 25 MHz",
+      "name": "Standard frequency and time: 25 MHz",
       "service": "science",
       "start_hz": 24990000.0,
       "stop_hz": 25010000.0,
@@ -1371,7 +1371,7 @@
         "ism",
         "27 mhz"
       ],
-      "name": "ISM — 27 MHz",
+      "name": "ISM: 27 MHz",
       "notes": "RR 5.150. The Citizens' Band channel plans sit inside it, as does a great deal of radio control and industrial heating.",
       "service": "ism",
       "start_hz": 26957000.0,
@@ -1427,7 +1427,7 @@
         "ism",
         "radio control"
       ],
-      "name": "ISM — 40.68 MHz",
+      "name": "ISM: 40.68 MHz",
       "notes": "RR 5.150. Model control and low-power telemetry.",
       "service": "ism",
       "start_hz": 40660000.0,
@@ -1480,7 +1480,7 @@
         "marker beacon",
         "outer marker"
       ],
-      "name": "Marker beacons — 75 MHz",
+      "name": "Marker beacons: 75 MHz",
       "notes": "Airport marker beacons, keyed at 400, 1300 or 3000 Hz.",
       "service": "aeronautical",
       "start_hz": 74800000.0,
@@ -1558,7 +1558,7 @@
         "tower"
       ],
       "channel_step_hz": 25000.0,
-      "name": "Airband — civil aviation voice",
+      "name": "Airband: civil aviation voice",
       "notes": "AM, so a stronger station does not capture a weaker one. 25 kHz spacing, 8.33 kHz across much of Europe. 121.5 MHz is the emergency frequency and is normally silent.",
       "service": "aeronautical",
       "start_hz": 117975000.0,
@@ -1669,7 +1669,7 @@
         "ship tracking",
         "vessel tracking"
       ],
-      "name": "AIS — 161.975 and 162.025 MHz",
+      "name": "AIS: 161.975 and 162.025 MHz",
       "notes": "AIS 1 and AIS 2, 9600 baud GMSK in 25 kHz channels. Both are decoded at once if the receiver's span covers them.",
       "service": "maritime",
       "start_hz": 161962500.0,
@@ -1703,7 +1703,7 @@
         "dab+",
         "digital radio"
       ],
-      "name": "VHF Band III — DAB and television",
+      "name": "VHF Band III: DAB and television",
       "notes": "DAB+ ensembles occupy 1.536 MHz each on the 5A–13F block raster in Region 1; Region 2 uses the band for television channels 7–13.",
       "service": "broadcast",
       "start_hz": 174000000.0,
@@ -1777,7 +1777,7 @@
         "rs41",
         "sonde"
       ],
-      "name": "Meteorological aids — radiosondes",
+      "name": "Meteorological aids: radiosondes",
       "notes": "Vaisala RS41 and Graw DFM sondes transmit GFSK here twice a day from every upper-air station in the world.",
       "service": "science",
       "start_hz": 401000000.0,
@@ -1791,7 +1791,7 @@
         "cospas-sarsat",
         "distress beacon"
       ],
-      "name": "Emergency beacons — 406 MHz",
+      "name": "Emergency beacons: 406 MHz",
       "notes": "COSPAS-SARSAT distress beacons. Listening is legal everywhere; transmitting anything here is not.",
       "service": "satellite",
       "start_hz": 406000000.0,
@@ -1801,7 +1801,7 @@
       "aliases": [
         "radio astronomy"
       ],
-      "name": "Radio astronomy — 406 MHz",
+      "name": "Radio astronomy: 406 MHz",
       "service": "science",
       "start_hz": 406100000.0,
       "stop_hz": 410000000.0
@@ -1937,7 +1937,7 @@
         "aircraft",
         "transponder"
       ],
-      "name": "ADS-B and Mode S — 1090 MHz",
+      "name": "ADS-B and Mode S: 1090 MHz",
       "notes": "Transponder replies and extended squitter, 1 Mbit/s PPM. Needs the receiver's own samples at 2 MS/s or more, so the channel takes IQ rather than a narrow passband.",
       "service": "aeronautical",
       "start_hz": 1089000000.0,
@@ -1968,7 +1968,7 @@
         "glonass",
         "beidou"
       ],
-      "name": "GNSS — L5, E5 and L2",
+      "name": "GNSS: L5, E5 and L2",
       "notes": "GPS L5 at 1176.45 MHz, Galileo E5, GLONASS L2 around 1246 MHz.",
       "service": "navigation",
       "start_hz": 1164000000.0,
@@ -2003,7 +2003,7 @@
         "h1",
         "radio astronomy"
       ],
-      "name": "Radio astronomy — hydrogen line",
+      "name": "Radio astronomy: hydrogen line",
       "notes": "Neutral hydrogen radiates at 1420.406 MHz. A passive band worldwide: no emission is permitted, which is why it is quiet enough to hear the galaxy in.",
       "service": "science",
       "start_hz": 1400000000.0,
@@ -2025,7 +2025,7 @@
         "std-c",
         "satcom"
       ],
-      "name": "Mobile satellite downlink — Inmarsat",
+      "name": "Mobile satellite downlink: Inmarsat",
       "notes": "1544–1545 MHz is reserved for distress and safety traffic.",
       "service": "satellite",
       "start_hz": 1518000000.0,
@@ -2039,7 +2039,7 @@
         "galileo",
         "glonass"
       ],
-      "name": "GNSS — L1 and E1",
+      "name": "GNSS: L1 and E1",
       "notes": "GPS L1 at 1575.42 MHz, GLONASS L1 around 1602 MHz.",
       "service": "navigation",
       "start_hz": 1559000000.0,
@@ -2050,7 +2050,7 @@
         "iridium",
         "satcom"
       ],
-      "name": "Mobile satellite — Iridium",
+      "name": "Mobile satellite: Iridium",
       "service": "satellite",
       "start_hz": 1610000000.0,
       "stop_hz": 1626500000.0
@@ -2133,7 +2133,7 @@
         "ism"
       ],
       "channel_step_hz": 5000000.0,
-      "name": "ISM — 2.4 GHz",
+      "name": "ISM: 2.4 GHz",
       "notes": "RR 5.150. Wi-Fi, Bluetooth, Zigbee and microwave ovens, and the lower half is also the 13 cm amateur band.",
       "service": "ism",
       "start_hz": 2400000000.0,
@@ -2154,7 +2154,7 @@
         "radio astronomy",
         "passive band"
       ],
-      "name": "Radio astronomy — 2.69 GHz",
+      "name": "Radio astronomy: 2.69 GHz",
       "notes": "A passive band: no emission is permitted.",
       "service": "science",
       "start_hz": 2690000000.0,
@@ -2177,7 +2177,7 @@
         "radar",
         "radiolocation"
       ],
-      "name": "Radiolocation — 3 GHz",
+      "name": "Radiolocation: 3 GHz",
       "service": "navigation",
       "start_hz": 3100000000.0,
       "stop_hz": 3400000000.0
@@ -2210,7 +2210,7 @@
         "radio altimeter"
       ],
       "name": "Radio altimeters",
-      "notes": "Aircraft radio altimeters — the band whose neighbours the 5G C-band rollout argued about.",
+      "notes": "Aircraft radio altimeters: the band whose neighbours the 5G C-band rollout argued about.",
       "service": "aeronautical",
       "start_hz": 4200000000.0,
       "stop_hz": 4400000000.0
@@ -2228,7 +2228,7 @@
       "aliases": [
         "radio astronomy"
       ],
-      "name": "Radio astronomy — 4.99 GHz",
+      "name": "Radio astronomy: 4.99 GHz",
       "service": "science",
       "start_hz": 4990000000.0,
       "stop_hz": 5000000000.0
@@ -2252,7 +2252,7 @@
         "5 ghz"
       ],
       "channel_step_hz": 20000000.0,
-      "name": "Wi-Fi 5 GHz — lower",
+      "name": "Wi-Fi 5 GHz: lower",
       "service": "ism",
       "start_hz": 5150000000.0,
       "stop_hz": 5350000000.0
@@ -2262,7 +2262,7 @@
         "radar",
         "radiolocation"
       ],
-      "name": "Radiolocation — 5.4 GHz",
+      "name": "Radiolocation: 5.4 GHz",
       "service": "navigation",
       "start_hz": 5350000000.0,
       "stop_hz": 5470000000.0
@@ -2276,7 +2276,7 @@
         "5 ghz"
       ],
       "channel_step_hz": 20000000.0,
-      "name": "Wi-Fi 5 GHz — upper",
+      "name": "Wi-Fi 5 GHz: upper",
       "notes": "Dynamic frequency selection is mandatory: the radar here has priority.",
       "service": "ism",
       "start_hz": 5470000000.0,
@@ -2290,7 +2290,7 @@
         "ism",
         "6 cm"
       ],
-      "name": "ISM — 5.8 GHz",
+      "name": "ISM: 5.8 GHz",
       "notes": "RR 5.150. Also the 6 cm amateur band and where analogue FPV video lives.",
       "service": "ism",
       "start_hz": 5725000000.0,
@@ -2325,5 +2325,5 @@
   "provenance": {
     "generator": "curated"
   },
-  "source": "Radio Regulations, Article 5 (Edition of 2020) — curated extract"
+  "source": "Radio Regulations, Article 5 (Edition of 2020): curated extract"
 }

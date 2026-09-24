@@ -1915,7 +1915,7 @@ export interface components {
         CalState: {
             lanes: components["schemas"]["LaneCal"][];
             /**
-             * @description Set when inter-lane phase cannot be trusted — a time-synced array with no pilot to
+             * @description Set when inter-lane phase cannot be trusted: a time-synced array with no pilot to
              *     re-solve against. Everything that depends on phase stays off while it is set.
              */
             phase_unknown: boolean;
@@ -1959,8 +1959,8 @@ export interface components {
             /** Format: int32 */
             rx_streams?: number;
             /**
-             * @description Continuous windows the radio resamples across. A radio with holes in its rate coverage —
-             *     the RTL2832U aliases between 300 kHz and 900 kHz — needs more than one, which is why this
+             * @description Continuous windows the radio resamples across. A radio with holes in its rate coverage,
+             *     the RTL2832U aliases between 300 kHz and 900 kHz, needs more than one, which is why this
              *     is a list and not the single range it replaced.
              */
             sample_rate_ranges?: components["schemas"]["Range"][];
@@ -2517,7 +2517,7 @@ export interface components {
          *
          *     A shared clock alone fixes the sample rate, so a measured delay between lanes stays true; the
          *     separate synthesizers still come up at an arbitrary phase after every retune. Only a shared
-         *     local oscillator makes inter-lane phase — and therefore a bearing — mean anything.
+         *     local oscillator makes inter-lane phase, and therefore a bearing, mean anything.
          * @enum {string}
          */
         Coherence: "none" | "time_sync" | "phase_coherent";
@@ -3237,7 +3237,7 @@ export interface components {
         DfAlgorithm: "correlative" | "music";
         /**
          * @description One bearing as an event, so it reaches the map, the log and every event output the same way a
-         *     decoded packet does — and so a remote station's webhook can post one straight into a
+         *     decoded packet does, and so a remote station's webhook can post one straight into a
          *     central fusion grid.
          */
         DfBearing: {
@@ -6286,7 +6286,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The region a coordinate falls in. Coarse by construction — bounding boxes over the national footprints and an approximation of the ITU lines — so `approximate` says when only the ITU region could be decided and the operator should confirm it */
+            /** @description The region a coordinate falls in. Coarse by construction, bounding boxes over the national footprints and an approximation of the ITU lines, so `approximate` says when only the ITU region could be decided and the operator should confirm it */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -8133,7 +8133,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Everything the server can say about a problem in one document: the `--doctor` environment report plus the tail of this run's log. Redacted at the point the line is recorded — the shared token, the operator's home directory and any address that is not the loopback never enter the ring, so what this returns is what a bug report may carry */
+            /** @description Everything the server can say about a problem in one document: the `--doctor` environment report plus the tail of this run's log. Redacted at the point the line is recorded: the shared token, the operator's home directory and any address that is not the loopback never enter the ring, so what this returns is what a bug report may carry */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -8225,7 +8225,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The ionosonde network's current MUF(3000 km) per sounding site, cached for fifteen minutes — the interval the upstream map is rebuilt on. A server with no route to the feed answers the same shape with an empty station list and the reason in `error`, so the propagation map degrades to what this receiver measured on its own */
+            /** @description The ionosonde network's current MUF(3000 km) per sounding site, cached for fifteen minutes: the interval the upstream map is rebuilt on. A server with no route to the feed answers the same shape with an empty station list and the reason in `error`, so the propagation map degrades to what this receiver measured on its own */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -9017,7 +9017,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Stored workspaces and which one is active. Layouts are not included — fetch one workspace for that */
+            /** @description Stored workspaces and which one is active. Layouts are not included: fetch one workspace for that */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -9109,7 +9109,7 @@ export interface operations {
                     "application/json": components["schemas"]["ApiError"];
                 };
             };
-            /** @description The stored layout no longer parses — the row is left intact so a newer build can still read it */
+            /** @description The stored layout no longer parses: the row is left intact so a newer build can still read it */
             500: {
                 headers: {
                     [name: string]: unknown;
@@ -9273,7 +9273,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The workspace was brought up: radios opened, channels added, and what could not be satisfied. Additive and idempotent — nothing is closed or deleted, so calling it twice changes nothing */
+            /** @description The workspace was brought up: radios opened, channels added, and what could not be satisfied. Additive and idempotent: nothing is closed or deleted, so calling it twice changes nothing */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -9368,7 +9368,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The workspace as a portable document: its name, the patch and rack it draws, and the tuning each node was left on. Nothing server-local travels — no id, revision or history — so importing it makes a new workspace rather than overwriting one */
+            /** @description The workspace as a portable document: its name, the patch and rack it draws, and the tuning each node was left on. Nothing server-local travels, no id, revision or history, so importing it makes a new workspace rather than overwriting one */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -9395,7 +9395,7 @@ export interface operations {
                     "application/json": components["schemas"]["ApiError"];
                 };
             };
-            /** @description The stored layout no longer parses — the row is left intact so a newer build can still read it */
+            /** @description The stored layout no longer parses: the row is left intact so a newer build can still read it */
             500: {
                 headers: {
                     [name: string]: unknown;
@@ -9468,7 +9468,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The workspace as it was before its last change, with the history it can still walk. The step is stored, so every client is told to reload it — one workspace, one history, whichever browser pressed undo */
+            /** @description The workspace as it was before its last change, with the history it can still walk. The step is stored, so every client is told to reload it: one workspace, one history, whichever browser pressed undo */
             200: {
                 headers: {
                     [name: string]: unknown;

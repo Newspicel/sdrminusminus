@@ -503,7 +503,7 @@ impl RtlSdr {
 
     /// What the dongle's EEPROM asks the bias tee to come up as. The IR-endpoint bit doubles as
     /// the flag the RTL-SDR Blog tools clear to power an amplifier on a headless machine, so it
-    /// decides where the bias tee starts — never where it stays, or a shorted feed could not be
+    /// decides where the bias tee starts, never where it stays, or a shorted feed could not be
     /// switched off again.
     pub(crate) fn bias_t_at_startup(&self) -> bool {
         self.eeprom_bias_t

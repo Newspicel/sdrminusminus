@@ -38,7 +38,7 @@ function palette(map: Colormap): Uint8ClampedArray {
 /// bottom so a target closing and a target opening lean opposite ways.
 ///
 /// A surface is one small image a few times a second, so it is coloured into an `ImageData` and
-/// blitted rather than uploaded to the GPU — the waterfall's machinery buys nothing at this size.
+/// blitted rather than uploaded to the GPU: the waterfall's machinery buys nothing at this size.
 export function attachSurface(canvas: HTMLCanvasElement): SurfaceView {
   const context = canvas.getContext("2d");
   let map = DEFAULT_COLORMAP;

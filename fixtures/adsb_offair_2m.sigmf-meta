@@ -5,7 +5,7 @@
     "core:sample_rate": 2000000.0,
     "core:recorder": "SDR--",
     "core:hw": "Generic RTL2832U OEM",
-    "core:description": "Mode S downlink off air at 1090 MHz — 200 ms over the Eifel with four aircraft answering interrogations, carrying DF4, DF5, DF11, DF17, DF20 and DF21"
+    "core:description": "Mode S downlink off air at 1090 MHz: 200 ms over the Eifel with four aircraft answering interrogations, carrying DF4, DF5, DF11, DF17, DF20 and DF21"
   },
   "captures": [
     {

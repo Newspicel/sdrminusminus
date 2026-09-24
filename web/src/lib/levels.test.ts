@@ -145,8 +145,8 @@ describe("formatLevel", () => {
   });
 
   it("says nothing about a channel that has measured nothing", () => {
-    expect(formatLevel(undefined)).toBe("—");
-    expect(formatLevel(LEVEL_FLOOR_DB)).toBe("—");
-    expect(formatLevel(Number.NEGATIVE_INFINITY)).toBe("—");
+    expect(formatLevel(undefined)).toBe("-");
+    expect(formatLevel(LEVEL_FLOOR_DB)).toBe("-");
+    expect(formatLevel(Number.NEGATIVE_INFINITY)).toBe("-");
   });
 });

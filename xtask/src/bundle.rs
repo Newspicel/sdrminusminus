@@ -20,7 +20,7 @@ pub fn check_resources(root: &Path) -> Result<()> {
             "{} maps {inner} and its ancestor {outer} as separate resources. The Windows \
              bundlers key their resource table by source path, so a file reachable through two \
              mappings is installed to one of the two destinations, chosen by the hash order of \
-             the map — which is how SoapySDR.dll stopped landing beside the executable.",
+             the map, which is how SoapySDR.dll stopped landing beside the executable.",
             path.display()
         );
     }
@@ -28,7 +28,7 @@ pub fn check_resources(root: &Path) -> Result<()> {
     for source in &sources {
         ensure!(
             source.contains('*') || crate_dir.join(source).exists(),
-            "{} maps {source}, which does not exist — every desktop build resolves this map, so \
+            "{} maps {source}, which does not exist: every desktop build resolves this map, so \
              a staged-only path has to keep a placeholder in the tree",
             path.display()
         );

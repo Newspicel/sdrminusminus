@@ -17,7 +17,7 @@
 - Hot DSP path: no locks, no allocation, no async. Settings via command queue, state via
    snapshot channels. Keep the control plane and DSP plane separated.
 - Errors: no `unwrap()`/`expect()` outside tests and startup. Use `Result` and the project's
-  error types. No silent failure — a dropped decoder frame or truncated result must surface.
+  error types. No silent failure: a dropped decoder frame or truncated result must surface.
 - Keep functions small and single-purpose. Prefer clear names over comments.
 - Always use the newest stable versions of every tool and dependency, and their current
   recommended patterns. Check the latest docs before writing.

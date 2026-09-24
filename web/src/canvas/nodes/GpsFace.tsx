@@ -127,7 +127,7 @@ function SourceSettings({
   }
 }
 
-/// A place typed in once. Everything downstream — direction finding, triangulation, geotagging —
+/// A place typed in once. Everything downstream, direction finding, triangulation, geotagging,
 /// asks for a position the same way whether it moves or not.
 function FixedSettings({
   source,
@@ -197,7 +197,7 @@ function NmeaSettings({
         <p className="col-span-2 text-xs text-danger">Serial device discovery failed</p>
       )}
       {devices.isSuccess && devices.data.devices.length === 0 && (
-        <SettingNote>No serial receiver detected — plug one in, or type its path.</SettingNote>
+        <SettingNote>No serial receiver detected: plug one in, or type its path.</SettingNote>
       )}
       <SettingRow label="Baud">
         <TextAutocomplete

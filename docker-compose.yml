@@ -18,11 +18,11 @@ services:
       - /dev/bus/usb:/dev/bus/usb
     device_cgroup_rules:
       # `devices:` whitelists only the nodes that existed when the container started, so a
-      # replugged SDR comes back as a new minor and is blocked — which defeats auto-reconnect.
+      # replugged SDR comes back as a new minor and is blocked, which defeats auto-reconnect.
       # 189 is the char major of the usbfs nodes under /dev/bus/usb.
       - "c 189:* rmw"
     # The image runs as an unprivileged user, so it needs the group that owns the device node
-    # — numerically, since the group name would have to resolve inside the container. 46 is
+    # numerically, since the group name would have to resolve inside the container. 46 is
     # plugdev, which is what the vendor udev rules grant on Debian and Ubuntu. Where no rule is
     # installed the node stays root:root 0664, so add "0" as well. `stat -c '%g %G %a'
     # /dev/bus/usb/*/*` on the host names the group to use, and so does Check hardware.

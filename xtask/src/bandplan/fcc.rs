@@ -22,7 +22,7 @@ pub(super) static ITU_R3: &Target = &Target {
 };
 pub(super) static FCC: &Target = &Target {
     id: "us",
-    name: "United States — FCC",
+    name: "United States: FCC",
     authority: "FCC",
     kind: "regulatory",
 };
@@ -267,7 +267,10 @@ fn bands(lines: &[ColumnLine]) -> Vec<Band> {
 }
 
 fn frequency_range(text: &str, scale: f64) -> Option<(f64, f64, String)> {
-    let token = text.split_whitespace().next()?.replace(['–', '—'], "-");
+    let token = text
+        .split_whitespace()
+        .next()?
+        .replace(['–', '\u{2014}'], "-");
     let (low, high) = token.split_once('-')?;
     let low = low.replace(',', "").parse::<f64>().ok()?;
     let high = high.replace(',', "").parse::<f64>().ok()?;
@@ -302,7 +305,7 @@ fn rows(bands: &[Band]) -> Vec<Row> {
                 .all(char::is_uppercase);
             rows.push(Row {
                 primary,
-                reference: Some(format!("{} — {name}", band.label)),
+                reference: Some(format!("{}: {name}", band.label)),
                 notes: (!references.is_empty()).then(|| format!("Footnotes: {references}")),
                 ..Row::new(band.start_hz, band.stop_hz, mention.service, name)
             });
@@ -312,7 +315,7 @@ fn rows(bands: &[Band]) -> Vec<Row> {
             .any(|reference| matches!(reference, "5.138" | "5.150"))
         {
             rows.push(Row {
-                reference: Some(format!("{} — ISM", band.label)),
+                reference: Some(format!("{}: ISM", band.label)),
                 notes: Some(format!("Footnotes: {references}")),
                 ..Row::new(band.start_hz, band.stop_hz, "ism", "ISM".to_string())
             });

@@ -60,7 +60,7 @@ const INCHES_PER_M = 39.370_078_7;
 
 export function formatLength(meters: number, unit: LengthUnit): string {
   if (!Number.isFinite(meters)) {
-    return "—";
+    return "-";
   }
   if (unit === "ft") {
     const inches = Math.round(meters * INCHES_PER_M * 10) / 10;

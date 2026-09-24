@@ -4,7 +4,7 @@ use super::{Row, Target, fcc, report_unmapped, service_of};
 
 pub(super) static TARGET: &Target = &Target {
     id: "cept",
-    name: "CEPT — European Common Allocation",
+    name: "CEPT: European Common Allocation",
     authority: "CEPT / ECO",
     kind: "regulatory",
 };
@@ -157,7 +157,7 @@ pub(super) fn parse(input: &str) -> Result<Vec<Row>> {
                     .chars()
                     .filter(|c| c.is_alphabetic())
                     .all(char::is_uppercase),
-                reference: Some(format!("{range} — {name}")),
+                reference: Some(format!("{range}: {name}")),
                 notes: note(&[("ECA", &record[range_notes])]),
                 ..Row::new(start_hz, stop_hz, mention.service, name)
             });
@@ -166,7 +166,7 @@ pub(super) fn parse(input: &str) -> Result<Vec<Row>> {
         if !name.is_empty() && name != "-" {
             rows.push(Row {
                 primary: false,
-                reference: Some(format!("{range} — {name}")),
+                reference: Some(format!("{range}: {name}")),
                 notes: note(&[
                     ("Measure", &record[measure]),
                     ("Standard", &record[standard]),

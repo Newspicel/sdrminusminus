@@ -282,7 +282,7 @@ fn a_native_driver_streams_what_soapy_streams_from_the_same_radio() {
             assert!(
                 (native_measurement.mean_i - soapy_measurement.mean_i).abs() < 0.01
                     && (native_measurement.mean_q - soapy_measurement.mean_q).abs() < 0.01,
-                "{} DC ({:+.5}, {:+.5}) against soapy DC ({:+.5}, {:+.5}) — the conversion tables \
+                "{} DC ({:+.5}, {:+.5}) against soapy DC ({:+.5}, {:+.5}): the conversion tables \
                  disagree about where zero is",
                 native.id(),
                 native_measurement.mean_i,

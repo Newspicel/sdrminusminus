@@ -31,7 +31,7 @@ export function formatBucketHz(hz: number): string {
 
 export function formatDuty(duty: number): string {
   if (!Number.isFinite(duty) || duty <= 0) {
-    return "—";
+    return "-";
   }
   return `${Math.round(duty * 100)}%`;
 }

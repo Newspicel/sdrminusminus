@@ -4,7 +4,7 @@ import type { DiagnosticsReport, PatchGraph } from "../lib/types";
 export const MAX_ISSUE_URL = 6000;
 export const MAX_BUNDLE_LOG_LINES = 200;
 
-export const PASTE_MARKER = "Paste the diagnostics bundle here — it is already on your clipboard.";
+export const PASTE_MARKER = "Paste the diagnostics bundle here: it is already on your clipboard.";
 
 export interface WorkspaceFacts {
   nodes: number;
@@ -66,7 +66,7 @@ function doctorSection(diagnostics: DiagnosticsReport | null): string | null {
   }
   const lines = checks.map((check) => {
     const hint = check.hint === undefined || check.hint === null ? "" : `\n  hint: ${check.hint}`;
-    return `- **${check.status.toUpperCase()}** ${check.name} — ${check.detail}${hint}`;
+    return `- **${check.status.toUpperCase()}** ${check.name}: ${check.detail}${hint}`;
   });
   return `### Diagnostics\n\n${lines.join("\n")}`;
 }

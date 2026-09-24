@@ -150,7 +150,7 @@ impl Runner {
         }
         bail!(
             "taking this hash means building the fixed-output derivation, which needs nix on \
-             linux or a container runtime to hold one. Install nix, or start docker — the fetch \
+             linux or a container runtime to hold one. Install nix, or start docker: the fetch \
              itself runs in {IMAGE}."
         )
     }

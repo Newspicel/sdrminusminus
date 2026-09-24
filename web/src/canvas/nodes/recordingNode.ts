@@ -70,8 +70,8 @@ export function checkUpload(names: readonly string[]): UploadProblem | null {
 
 export const UPLOAD_SAID: Record<UploadProblem, string> = {
   empty: "Pick a .sigmf archive, or a .sigmf-meta and .sigmf-data pair.",
-  "lone-meta": "That is the metadata on its own — add the matching .sigmf-data.",
-  "lone-data": "That is the samples on their own — add the matching .sigmf-meta.",
+  "lone-meta": "That is the metadata on its own: add the matching .sigmf-data.",
+  "lone-data": "That is the samples on their own: add the matching .sigmf-meta.",
   mixed: "Send one .sigmf archive, or one .sigmf-meta with one .sigmf-data.",
 };
 

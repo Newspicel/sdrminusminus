@@ -559,7 +559,7 @@ pub fn apply(
     if let Some(ppm) = delta.ppm {
         if target.is_slave() {
             return Err(DeviceError::Unsupported(
-                "an RSPduo slave cannot correct the clock — the master owns it".to_string(),
+                "an RSPduo slave cannot correct the clock: the master owns it".to_string(),
             ));
         }
         reasons.set(&mut target.dev.ppm, ppm, ffi::UPDATE_DEV_PPM);

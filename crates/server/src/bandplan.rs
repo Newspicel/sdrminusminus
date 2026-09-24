@@ -195,7 +195,7 @@ struct RegionDef {
 static REGIONS: &[RegionDef] = &[
     RegionDef {
         id: "de",
-        name: "Germany — BNetzA",
+        name: "Germany: BNetzA",
         country: Some("DE"),
         itu: ItuRegion::R1,
         layers: &["world", "itu-r1", "cept", "de"],
@@ -207,7 +207,7 @@ static REGIONS: &[RegionDef] = &[
     },
     RegionDef {
         id: "gb",
-        name: "United Kingdom — Ofcom",
+        name: "United Kingdom: Ofcom",
         country: Some("GB"),
         itu: ItuRegion::R1,
         layers: &["world", "itu-r1", "cept", "gb"],
@@ -219,7 +219,7 @@ static REGIONS: &[RegionDef] = &[
     },
     RegionDef {
         id: "us",
-        name: "United States — FCC",
+        name: "United States: FCC",
         country: Some("US"),
         itu: ItuRegion::R2,
         layers: &["world", "itu-r2", "us"],
@@ -241,7 +241,7 @@ static REGIONS: &[RegionDef] = &[
     },
     RegionDef {
         id: "cept",
-        name: "Europe — CEPT",
+        name: "Europe: CEPT",
         country: None,
         itu: ItuRegion::R1,
         layers: &["world", "itu-r1", "cept"],
@@ -766,10 +766,7 @@ mod tests {
                 "{source}: unknown channel type {id}"
             );
         }
-        assert!(
-            checked > 0,
-            "nothing suggests a mode — the overlay is empty"
-        );
+        assert!(checked > 0, "nothing suggests a mode: the overlay is empty");
     }
 
     #[test]

@@ -72,7 +72,7 @@ pub struct Awake(
 #[cfg(target_os = "macos")]
 unsafe impl Send for Awake {}
 
-/// SAFETY: see the `Send` impl — the token is opaque and never dereferenced.
+/// SAFETY: see the `Send` impl: the token is opaque and never dereferenced.
 #[cfg(target_os = "macos")]
 unsafe impl Sync for Awake {}
 

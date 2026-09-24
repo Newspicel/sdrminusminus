@@ -65,17 +65,17 @@ const ALLOCATION: BandLane = {
 };
 const AMATEUR: BandLane = {
   id: "iaru-r1",
-  name: "Amateur band plan — IARU R1",
+  name: "Amateur band plan: IARU R1",
   overlay: true,
   blocks: [
     block(144_794_000, 144_990_000, {
-      name: "2 m — APRS",
+      name: "2 m: APRS",
       service: "amateur",
       aliases: ["aprs"],
       suggested: { type: "aprs", settings: {} },
     }),
     block(145_206_000, 145_594_000, {
-      name: "2 m — FM simplex",
+      name: "2 m: FM simplex",
       service: "amateur",
       aliases: ["simplex"],
     }),
@@ -177,7 +177,7 @@ describe("identify", () => {
     const found = identify(PLAN, 145_500_000);
     expect(found.map((entry) => entry.laneId)).toEqual(["allocation", "iaru-r1"]);
     expect(found[0]?.allocation.name).toBe("2 m amateur");
-    expect(found[1]?.allocation.name).toBe("2 m — FM simplex");
+    expect(found[1]?.allocation.name).toBe("2 m: FM simplex");
   });
 
   it("omits a lane with nothing there rather than reporting it empty", () => {
@@ -224,7 +224,7 @@ describe("searchPlan", () => {
 
   it("resolves a query that reads as a frequency, and ranks it above a name match", () => {
     const hits = searchPlan(PLAN, "145.5");
-    expect(hits[0]?.allocation.name).toBe("2 m — FM simplex");
+    expect(hits[0]?.allocation.name).toBe("2 m: FM simplex");
     expect(hits[1]?.allocation.name).toBe("2 m amateur");
   });
 

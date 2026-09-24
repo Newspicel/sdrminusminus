@@ -311,7 +311,7 @@ pub struct LaneCal {
 pub struct CalState {
     pub tier: Coherence,
     pub lanes: Vec<LaneCal>,
-    /// Set when inter-lane phase cannot be trusted — a time-synced array with no pilot to
+    /// Set when inter-lane phase cannot be trusted: a time-synced array with no pilot to
     /// re-solve against. Everything that depends on phase stays off while it is set.
     pub phase_unknown: bool,
     pub solved: bool,
@@ -527,7 +527,7 @@ pub struct DfFusionState {
 }
 
 /// One bearing as an event, so it reaches the map, the log and every event output the same way a
-/// decoded packet does — and so a remote station's webhook can post one straight into a
+/// decoded packet does, and so a remote station's webhook can post one straight into a
 /// central fusion grid.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct DfBearing {

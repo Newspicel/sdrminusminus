@@ -24,7 +24,7 @@ function suggestMode(allocation: BandAllocation, channelType: string | null): vo
   const mode = suggested.type.toUpperCase();
   pushToast(
     channelType === null
-      ? `${mode} is the mode for this band — set it on a channel`
+      ? `${mode} is the mode for this band: set it on a channel`
       : `${mode} is the mode for this band, not ${channelType.toUpperCase()}`,
     "info",
   );

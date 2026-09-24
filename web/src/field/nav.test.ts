@@ -133,7 +133,7 @@ describe("formatDistance", () => {
   it("rounds to something a driver can read at a glance", () => {
     expect(formatDistance(123)).toBe("120 m");
     expect(formatDistance(2_450)).toBe("2.5 km");
-    expect(formatDistance(Number.POSITIVE_INFINITY)).toBe("—");
+    expect(formatDistance(Number.POSITIVE_INFINITY)).toBe("-");
   });
 });
 

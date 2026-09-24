@@ -71,7 +71,7 @@ pub fn manifest(dir: &Path, version: &str, base_url: &str, out: Option<&Path>) -
     sigs.sort();
     ensure!(
         !sigs.is_empty(),
-        "no .sig files in {} — the desktop jobs did not produce updater artifacts, which means \
+        "no .sig files in {}: the desktop jobs did not produce updater artifacts, which means \
          `createUpdaterArtifacts` is off or the signing key was missing",
         dir.display()
     );

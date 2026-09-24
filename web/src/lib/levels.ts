@@ -90,7 +90,7 @@ export function gateOpen(
 
 export function formatLevel(db: number | undefined): string {
   if (db === undefined || !Number.isFinite(db) || db <= LEVEL_FLOOR_DB) {
-    return "—";
+    return "-";
   }
   return `${db.toFixed(1)} dB`;
 }

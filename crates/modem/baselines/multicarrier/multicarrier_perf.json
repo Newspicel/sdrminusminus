@@ -10,7 +10,7 @@
     "bench": "gfdm_tx_20m",
     "msamples_per_s": 28.981754462377133,
     "realtime_factor": 1.4490877231188566,
-    "config": "16×5 block, dense A per block — the transmitter pays exactly what the zero-forcing receiver does",
+    "config": "16×5 block, dense A per block: the transmitter pays exactly what the zero-forcing receiver does",
     "host": "aarch64-macos"
   },
   {
@@ -31,7 +31,7 @@
     "bench": "otfs_precoder_20m",
     "msamples_per_s": 656.0387534392383,
     "realtime_factor": 32.801937671961916,
-    "config": "48×16 delay–Doppler grid, ISFFT only — the carrier's own cost is the CP-OFDM row's",
+    "config": "48×16 delay–Doppler grid, ISFFT only: the carrier's own cost is the CP-OFDM row's",
     "host": "aarch64-macos"
   },
   {

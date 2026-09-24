@@ -114,7 +114,7 @@ function Report({ report, unit }: { report: AntennaReport; unit: LengthUnit }) {
           <span className="text-ink-faint">feedpoint</span>
           {formatImpedance(report.feedpoint_ohms)}
         </span>
-        <span className={CHIP}>{report.balanced ? "Balanced — wants a balun" : "Unbalanced"}</span>
+        <span className={CHIP}>{report.balanced ? "Balanced: wants a balun" : "Unbalanced"}</span>
       </div>
 
       <AntennaView report={report} unit={unit} highlight={highlight} onHighlight={setHighlight} />

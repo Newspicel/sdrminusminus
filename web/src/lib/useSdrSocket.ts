@@ -82,7 +82,7 @@ export function useSdrSocket(queryClient: QueryClient, workspaceError: string | 
     let up = false;
     s.on("status", (now) => {
       if (up && !now) {
-        pushToast("Lost the server — reconnecting");
+        pushToast("Lost the server: reconnecting");
       } else if (!up && now) {
         recordEvent("info", "socket", "connected");
       }

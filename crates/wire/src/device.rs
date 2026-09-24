@@ -706,8 +706,8 @@ pub struct StreamScope {
 pub struct Capabilities {
     pub freq_ranges: Vec<Range>,
     pub sample_rates: Vec<f64>,
-    /// Continuous windows the radio resamples across. A radio with holes in its rate coverage —
-    /// the RTL2832U aliases between 300 kHz and 900 kHz — needs more than one, which is why this
+    /// Continuous windows the radio resamples across. A radio with holes in its rate coverage,
+    /// the RTL2832U aliases between 300 kHz and 900 kHz, needs more than one, which is why this
     /// is a list and not the single range it replaced.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub sample_rate_ranges: Vec<Range>,
@@ -756,7 +756,7 @@ pub struct Capabilities {
 ///
 /// A shared clock alone fixes the sample rate, so a measured delay between lanes stays true; the
 /// separate synthesizers still come up at an arbitrary phase after every retune. Only a shared
-/// local oscillator makes inter-lane phase — and therefore a bearing — mean anything.
+/// local oscillator makes inter-lane phase, and therefore a bearing, mean anything.
 #[derive(
     Clone, Copy, Debug, Default, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize, ToSchema,
 )]

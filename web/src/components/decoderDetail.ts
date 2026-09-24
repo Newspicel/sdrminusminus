@@ -222,7 +222,7 @@ const DETAIL: {
       ["Station", n.station],
       ["Subject", n.subject_name ?? n.subject],
       ["Serial", n.serial == null ? undefined : String(n.serial).padStart(2, "0")],
-      ["Ended with NNNN", n.complete ? "yes" : "no — flushed early"],
+      ["Ended with NNNN", n.complete ? "yes" : "no: flushed early"],
       ["Repaired", n.errors_corrected > 0 ? `${n.errors_corrected} characters` : undefined],
     ]),
     body: n.text,
@@ -238,7 +238,7 @@ const DETAIL: {
       ["Direction", a.downlink ? "downlink" : "uplink"],
       ["Sequence", a.seq_no?.trim()],
       ["Acknowledges", a.ack ?? "NAK"],
-      ["Continues", a.more ? "yes — another block follows" : undefined],
+      ["Continues", a.more ? "yes: another block follows" : undefined],
     ]),
     body: a.text || null,
   }),
@@ -315,7 +315,7 @@ const DETAIL: {
       body: signals
         .map((signal) => {
           const candidates = (signal.candidates ?? [])
-            .map((m) => `${m.name} — ${candidateScore(m)} — ${m.why}`)
+            .map((m) => `${m.name}: ${candidateScore(m)}, ${m.why}`)
             .join("\n");
           return `${signalFrequency(signal)} · ${modulationLabel(signal)}\n${candidates}`;
         })

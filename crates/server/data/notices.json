@@ -591,7 +591,7 @@
       "texts": [
         "602aca57fd3b5a3a"
       ],
-      "note": "MIT, but the AMBE+2 vocoder it implements is covered by patents held by Digital Voice Systems, Inc. in some jurisdictions. A software license grants no patent rights it does not hold — check your own position before distributing DMR voice decoding."
+      "note": "MIT, but the AMBE+2 vocoder it implements is covered by patents held by Digital Voice Systems, Inc. in some jurisdictions. A software license grants no patent rights it does not hold: check your own position before distributing DMR voice decoding."
     },
     {
       "name": "block-buffer",
@@ -8827,7 +8827,7 @@
       "source": "native",
       "url": "https://github.com/krakenrf/heimdall_daq_fw",
       "texts": [],
-      "note": "How a KrakenSDR identifies itself and how its bank is wired — the serial each receive chain carries, the control chain's GPIO pin for the calibration noise source, and the pins for the lanes' bias tees — is published only as KrakenRF's own acquisition firmware. `crates/device-rtlsdr/src/kraken` was written from it. No code was taken and nothing is linked or shipped; SDR-- distributes under GPL-3.0-or-later regardless."
+      "note": "How a KrakenSDR identifies itself and how its bank is wired, the serial each receive chain carries, the control chain's GPIO pin for the calibration noise source, and the pins for the lanes' bias tees, is published only as KrakenRF's own acquisition firmware. `crates/device-rtlsdr/src/kraken` was written from it. No code was taken and nothing is linked or shipped; SDR-- distributes under GPL-3.0-or-later regardless."
     },
     {
       "name": "libairspy",

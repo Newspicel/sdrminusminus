@@ -473,7 +473,7 @@ impl MarkerGen {
 }
 
 /// The instrument's own reference reaches the lanes past the antennas, so while it is switched
-/// in there is no wavefront to steer and what is left on each lane is the receiver's own phase —
+/// in there is no wavefront to steer and what is left on each lane is the receiver's own phase,
 /// which is the whole of what a calibration is there to measure.
 fn marker_params(
     settings: &DeviceSettings,

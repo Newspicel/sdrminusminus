@@ -15,7 +15,7 @@ const PCM_CHANNEL_MAX: usize = 8192;
 pub(crate) const AUDIO_CHANNEL_CAP: usize = 64;
 
 /// One block reaches the encoder per DSP block of capture, so a slot count buys a slack that
-/// shrinks as the radio speeds up — thirty-two slots are twenty-six milliseconds at 2.4 MS/s, less
+/// shrinks as the radio speeds up: thirty-two slots are twenty-six milliseconds at 2.4 MS/s, less
 /// than one scheduling hiccup on a busy machine, and a block the encoder never sees resyncs the
 /// frame clock mid-word. A slot is a stamp and an `Arc`, so the same half second at every rate
 /// costs almost nothing. The floor keeps that slack usable for a channel whose radio is sped up

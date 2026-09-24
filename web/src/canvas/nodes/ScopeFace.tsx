@@ -1095,7 +1095,7 @@ function Bookmarks({
           <span
             key={anchor.bookmark.id}
             title={members
-              .map((mark) => `${mark.bookmark.label} — ${formatMhz(mark.bookmark.freq_hz)}`)
+              .map((mark) => `${mark.bookmark.label}: ${formatMhz(mark.bookmark.freq_hz)}`)
               .join("\n")}
             className="absolute -translate-x-1/2 rounded-[2px] border border-accent/40 bg-bg/85 px-1 py-px font-mono text-[10px] whitespace-nowrap text-accent"
             style={{ left: `${anchor.at * 100}%`, top: `${labelTop}px` }}
@@ -1120,12 +1120,12 @@ function markerHint(
   locked: boolean,
 ): string {
   if (owner !== undefined) {
-    return `trunk ${owner.role} channel — ${formatMhz(hz)}; the system it belongs to tunes it`;
+    return `trunk ${owner.role} channel: ${formatMhz(hz)}; the system it belongs to tunes it`;
   }
   if (locked) {
-    return `${channel.settings.params.type} channel — ${formatMhz(hz)}; held, unlock it on its node to tune`;
+    return `${channel.settings.params.type} channel: ${formatMhz(hz)}; held, unlock it on its node to tune`;
   }
-  return `${channel.settings.params.type} channel — ${formatMhz(hz)}`;
+  return `${channel.settings.params.type} channel: ${formatMhz(hz)}`;
 }
 
 function MarkerLabel({

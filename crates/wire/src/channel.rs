@@ -1674,7 +1674,7 @@ impl Squelch {
 pub const DEFAULT_FREQUENCY_HZ: f64 = 100_000_000.0;
 
 /// The one frequency a service lives on the world over, for the decoders that have one. A mode
-/// that can sit anywhere — voice, paging, a data burst — has none, and starts wherever the radio
+/// that can sit anywhere, voice, paging, a data burst, has none, and starts wherever the radio
 /// feeding it is tuned.
 #[must_use]
 pub fn home_frequency_hz(type_id: &str) -> Option<f64> {

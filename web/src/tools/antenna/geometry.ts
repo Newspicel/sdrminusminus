@@ -146,7 +146,7 @@ const METERS_PER_FOOT = 0.3048;
 export function scaleBar(pixelsPerMeter: number, maxPixels: number, unit: LengthUnit): ScaleBar {
   const room = maxPixels / pixelsPerMeter;
   if (!Number.isFinite(room) || room <= 0) {
-    return { meters: 0, pixels: 0, label: "—" };
+    return { meters: 0, pixels: 0, label: "-" };
   }
   const meters =
     unit === "ft" ? roundDown(room / METERS_PER_FOOT) * METERS_PER_FOOT : roundDown(room);

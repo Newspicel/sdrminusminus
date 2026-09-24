@@ -199,7 +199,7 @@ unsafe extern "C" fn event(
                 tracing::warn!("sdrplay overload acknowledgement failed: {error}");
             }
             if detected {
-                tracing::warn!("sdrplay reports an ADC overload — reduce RF gain");
+                tracing::warn!("sdrplay reports an ADC overload: reduce RF gain");
             }
         }
         ffi::EVENT_DEVICE_REMOVED => state.fail("the SDRplay receiver was unplugged"),

@@ -67,7 +67,7 @@ body:
       label: Diagnostics
       description: >-
         Paste the bundle from Report a problem, or the output of `sdrmm --doctor`. Read it before
-        you post it — it is a public issue.
+        you post it: it is a public issue.
     validations:
       required: false
 

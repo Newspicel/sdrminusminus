@@ -89,7 +89,7 @@ mod tests {
         );
         assert!(
             about.components.len() > 100,
-            "harvested only {} components — the generator produced a stub",
+            "harvested only {} components: the generator produced a stub",
             about.components.len()
         );
     }

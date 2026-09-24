@@ -13,7 +13,7 @@
   {
     "start_hz": 77000.0,
     "stop_hz": 78000.0,
-    "name": "DCF77 — time signal",
+    "name": "DCF77: time signal",
     "service": "science",
     "aliases": [
       "dcf77",
@@ -137,7 +137,7 @@
   {
     "start_hz": 489000.0,
     "stop_hz": 491000.0,
-    "name": "NAVTEX — 490 kHz",
+    "name": "NAVTEX: 490 kHz",
     "service": "maritime",
     "aliases": [
       "navtex",
@@ -164,7 +164,7 @@
   {
     "start_hz": 517000.0,
     "stop_hz": 519000.0,
-    "name": "NAVTEX — 518 kHz",
+    "name": "NAVTEX: 518 kHz",
     "service": "maritime",
     "aliases": [
       "navtex",
@@ -314,7 +314,7 @@
   {
     "start_hz": 2495000.0,
     "stop_hz": 2505000.0,
-    "name": "Standard frequency and time — 2.5 MHz",
+    "name": "Standard frequency and time: 2.5 MHz",
     "service": "science",
     "aliases": [
       "time signal",
@@ -676,7 +676,7 @@
   {
     "start_hz": 6765000.0,
     "stop_hz": 6795000.0,
-    "name": "ISM — 6.78 MHz",
+    "name": "ISM: 6.78 MHz",
     "service": "ism",
     "aliases": [
       "ism"
@@ -831,7 +831,7 @@
   {
     "start_hz": 9995000.0,
     "stop_hz": 10005000.0,
-    "name": "Standard frequency and time — 10 MHz",
+    "name": "Standard frequency and time: 10 MHz",
     "service": "science",
     "aliases": [
       "time signal",
@@ -986,7 +986,7 @@
   {
     "start_hz": 13360000.0,
     "stop_hz": 13410000.0,
-    "name": "Radio astronomy — 13.36 MHz",
+    "name": "Radio astronomy: 13.36 MHz",
     "service": "science",
     "aliases": [
       "radio astronomy",
@@ -1006,7 +1006,7 @@
   {
     "start_hz": 13553000.0,
     "stop_hz": 13567000.0,
-    "name": "ISM — 13.56 MHz",
+    "name": "ISM: 13.56 MHz",
     "service": "ism",
     "aliases": [
       "ism",
@@ -1082,7 +1082,7 @@
   {
     "start_hz": 14990000.0,
     "stop_hz": 15010000.0,
-    "name": "Standard frequency and time — 15 MHz",
+    "name": "Standard frequency and time: 15 MHz",
     "service": "science",
     "aliases": [
       "time signal",
@@ -1270,7 +1270,7 @@
   {
     "start_hz": 19990000.0,
     "stop_hz": 20010000.0,
-    "name": "Standard frequency and time — 20 MHz",
+    "name": "Standard frequency and time: 20 MHz",
     "service": "science",
     "aliases": [
       "time signal",
@@ -1433,7 +1433,7 @@
   {
     "start_hz": 24990000.0,
     "stop_hz": 25010000.0,
-    "name": "Standard frequency and time — 25 MHz",
+    "name": "Standard frequency and time: 25 MHz",
     "service": "science",
     "aliases": [
       "time signal",
@@ -1531,7 +1531,7 @@
   {
     "start_hz": 26957000.0,
     "stop_hz": 27283000.0,
-    "name": "ISM — 27 MHz",
+    "name": "ISM: 27 MHz",
     "service": "ism",
     "aliases": [
       "ism",
@@ -1542,7 +1542,7 @@
   {
     "start_hz": 26965000.0,
     "stop_hz": 27405000.0,
-    "name": "Citizens Band — 40 channels",
+    "name": "Citizens Band: 40 channels",
     "service": "mobile",
     "aliases": [
       "cb",
@@ -1571,7 +1571,7 @@
   {
     "start_hz": 27601250.0,
     "stop_hz": 27991250.0,
-    "name": "CB 27/81 — UK FM channels",
+    "name": "CB 27/81: UK FM channels",
     "service": "mobile",
     "aliases": [
       "cb",
@@ -1626,7 +1626,7 @@
   {
     "start_hz": 40660000.0,
     "stop_hz": 40700000.0,
-    "name": "ISM — 40.68 MHz",
+    "name": "ISM: 40.68 MHz",
     "service": "ism",
     "aliases": [
       "ism",
@@ -1787,12 +1787,12 @@
       },
       "type": "ssb"
     },
-    "notes": "A 30 kHz secondary allocation, CW and SSB only — a sliver next to the UK's 500 kHz on the same band."
+    "notes": "A 30 kHz secondary allocation, CW and SSB only: a sliver next to the UK's 500 kHz on the same band."
   },
   {
     "start_hz": 74800000.0,
     "stop_hz": 75200000.0,
-    "name": "Marker beacons — 75 MHz",
+    "name": "Marker beacons: 75 MHz",
     "service": "aeronautical",
     "aliases": [
       "marker beacon",
@@ -1925,7 +1925,7 @@
   {
     "start_hz": 117975000.0,
     "stop_hz": 137000000.0,
-    "name": "Airband — civil aviation voice",
+    "name": "Airband: civil aviation voice",
     "service": "aeronautical",
     "aliases": [
       "airband",
@@ -2070,7 +2070,7 @@
   {
     "start_hz": 161962500.0,
     "stop_hz": 162037500.0,
-    "name": "AIS — 161.975 and 162.025 MHz",
+    "name": "AIS: 161.975 and 162.025 MHz",
     "service": "maritime",
     "aliases": [
       "ais",
@@ -2143,7 +2143,7 @@
   {
     "start_hz": 174000000.0,
     "stop_hz": 216000000.0,
-    "name": "VHF television — channels 7–13",
+    "name": "VHF television: channels 7–13",
     "service": "broadcast",
     "aliases": [
       "vhf tv",
@@ -2151,12 +2151,12 @@
       "television"
     ],
     "channel_step_hz": 6000000.0,
-    "notes": "Region 2 uses Band III for television, where Region 1 put DAB — the same spectrum, a completely different sound on a scope."
+    "notes": "Region 2 uses Band III for television, where Region 1 put DAB: the same spectrum, a completely different sound on a scope."
   },
   {
     "start_hz": 174000000.0,
     "stop_hz": 230000000.0,
-    "name": "VHF Band III — DAB and television",
+    "name": "VHF Band III: DAB and television",
     "service": "broadcast",
     "aliases": [
       "band iii",
@@ -2169,7 +2169,7 @@
   {
     "start_hz": 174000000.0,
     "stop_hz": 230000000.0,
-    "name": "DAB+ — VHF Band III",
+    "name": "DAB+: VHF Band III",
     "service": "broadcast",
     "aliases": [
       "dab",
@@ -2181,7 +2181,7 @@
   {
     "start_hz": 174000000.0,
     "stop_hz": 230000000.0,
-    "name": "DAB — VHF Band III",
+    "name": "DAB: VHF Band III",
     "service": "broadcast",
     "aliases": [
       "dab",
@@ -2256,7 +2256,7 @@
   {
     "start_hz": 380000000.0,
     "stop_hz": 400000000.0,
-    "name": "Airwave — emergency services",
+    "name": "Airwave: emergency services",
     "service": "mobile",
     "aliases": [
       "airwave",
@@ -2278,7 +2278,7 @@
   {
     "start_hz": 401000000.0,
     "stop_hz": 406000000.0,
-    "name": "Meteorological aids — radiosondes",
+    "name": "Meteorological aids: radiosondes",
     "service": "science",
     "aliases": [
       "radiosonde",
@@ -2291,7 +2291,7 @@
   {
     "start_hz": 406000000.0,
     "stop_hz": 406100000.0,
-    "name": "Emergency beacons — 406 MHz",
+    "name": "Emergency beacons: 406 MHz",
     "service": "satellite",
     "aliases": [
       "epirb",
@@ -2305,7 +2305,7 @@
   {
     "start_hz": 406100000.0,
     "stop_hz": 410000000.0,
-    "name": "Radio astronomy — 406 MHz",
+    "name": "Radio astronomy: 406 MHz",
     "service": "science",
     "aliases": [
       "radio astronomy"
@@ -2380,7 +2380,7 @@
   {
     "start_hz": 433050000.0,
     "stop_hz": 434790000.0,
-    "name": "ISM — 433 MHz",
+    "name": "ISM: 433 MHz",
     "service": "ism",
     "aliases": [
       "433",
@@ -2398,7 +2398,7 @@
       },
       "type": "subghz"
     },
-    "notes": "RR 5.138, Region 1 only. Car keys, tyre-pressure sensors, weather stations, doorbells — and it sits on top of the 70 cm amateur band."
+    "notes": "RR 5.138, Region 1 only. Car keys, tyre-pressure sensors, weather stations, doorbells, and it sits on top of the 70 cm amateur band."
   },
   {
     "start_hz": 440000000.0,
@@ -2452,7 +2452,7 @@
   {
     "start_hz": 457500000.0,
     "stop_hz": 464000000.0,
-    "name": "Business radio — simple UK and simple light",
+    "name": "Business radio: simple UK and simple light",
     "service": "mobile",
     "aliases": [
       "business radio",
@@ -2471,7 +2471,7 @@
   {
     "start_hz": 462537500.0,
     "stop_hz": 462737500.0,
-    "name": "FRS and GMRS — 462 MHz",
+    "name": "FRS and GMRS: 462 MHz",
     "service": "mobile",
     "aliases": [
       "frs",
@@ -2491,7 +2491,7 @@
   {
     "start_hz": 467537500.0,
     "stop_hz": 467737500.0,
-    "name": "FRS and GMRS — 467 MHz",
+    "name": "FRS and GMRS: 467 MHz",
     "service": "mobile",
     "aliases": [
       "frs",
@@ -2537,7 +2537,7 @@
   {
     "start_hz": 470000000.0,
     "stop_hz": 694000000.0,
-    "name": "UHF television — Freeview",
+    "name": "UHF television: Freeview",
     "service": "broadcast",
     "aliases": [
       "freeview",
@@ -2592,7 +2592,7 @@
   {
     "start_hz": 863000000.0,
     "stop_hz": 865000000.0,
-    "name": "Wireless microphones — 863–865 MHz",
+    "name": "Wireless microphones: 863–865 MHz",
     "service": "ism",
     "aliases": [
       "radio mic",
@@ -2627,7 +2627,7 @@
   {
     "start_hz": 902000000.0,
     "stop_hz": 928000000.0,
-    "name": "ISM — 915 MHz",
+    "name": "ISM: 915 MHz",
     "service": "ism",
     "aliases": [
       "915",
@@ -2673,7 +2673,7 @@
   {
     "start_hz": 1089000000.0,
     "stop_hz": 1091000000.0,
-    "name": "ADS-B and Mode S — 1090 MHz",
+    "name": "ADS-B and Mode S: 1090 MHz",
     "service": "aeronautical",
     "aliases": [
       "ads-b",
@@ -2705,7 +2705,7 @@
   {
     "start_hz": 1164000000.0,
     "stop_hz": 1240000000.0,
-    "name": "GNSS — L5, E5 and L2",
+    "name": "GNSS: L5, E5 and L2",
     "service": "navigation",
     "aliases": [
       "gps",
@@ -2741,7 +2741,7 @@
   {
     "start_hz": 1400000000.0,
     "stop_hz": 1427000000.0,
-    "name": "Radio astronomy — hydrogen line",
+    "name": "Radio astronomy: hydrogen line",
     "service": "science",
     "aliases": [
       "hydrogen line",
@@ -2763,7 +2763,7 @@
   {
     "start_hz": 1518000000.0,
     "stop_hz": 1559000000.0,
-    "name": "Mobile satellite downlink — Inmarsat",
+    "name": "Mobile satellite downlink: Inmarsat",
     "service": "satellite",
     "aliases": [
       "inmarsat",
@@ -2776,7 +2776,7 @@
   {
     "start_hz": 1559000000.0,
     "stop_hz": 1610000000.0,
-    "name": "GNSS — L1 and E1",
+    "name": "GNSS: L1 and E1",
     "service": "navigation",
     "aliases": [
       "gps",
@@ -2790,7 +2790,7 @@
   {
     "start_hz": 1610000000.0,
     "stop_hz": 1626500000.0,
-    "name": "Mobile satellite — Iridium",
+    "name": "Mobile satellite: Iridium",
     "service": "satellite",
     "aliases": [
       "iridium",
@@ -2879,7 +2879,7 @@
   {
     "start_hz": 2400000000.0,
     "stop_hz": 2500000000.0,
-    "name": "ISM — 2.4 GHz",
+    "name": "ISM: 2.4 GHz",
     "service": "ism",
     "aliases": [
       "wifi",
@@ -2905,7 +2905,7 @@
   {
     "start_hz": 2690000000.0,
     "stop_hz": 2700000000.0,
-    "name": "Radio astronomy — 2.69 GHz",
+    "name": "Radio astronomy: 2.69 GHz",
     "service": "science",
     "aliases": [
       "radio astronomy",
@@ -2928,7 +2928,7 @@
   {
     "start_hz": 3100000000.0,
     "stop_hz": 3400000000.0,
-    "name": "Radiolocation — 3 GHz",
+    "name": "Radiolocation: 3 GHz",
     "service": "navigation",
     "aliases": [
       "radar",
@@ -2966,7 +2966,7 @@
       "radalt",
       "radio altimeter"
     ],
-    "notes": "Aircraft radio altimeters — the band whose neighbours the 5G C-band rollout argued about."
+    "notes": "Aircraft radio altimeters: the band whose neighbours the 5G C-band rollout argued about."
   },
   {
     "start_hz": 4400000000.0,
@@ -2980,7 +2980,7 @@
   {
     "start_hz": 4990000000.0,
     "stop_hz": 5000000000.0,
-    "name": "Radio astronomy — 4.99 GHz",
+    "name": "Radio astronomy: 4.99 GHz",
     "service": "science",
     "aliases": [
       "radio astronomy"
@@ -2999,7 +2999,7 @@
   {
     "start_hz": 5150000000.0,
     "stop_hz": 5350000000.0,
-    "name": "Wi-Fi 5 GHz — lower",
+    "name": "Wi-Fi 5 GHz: lower",
     "service": "ism",
     "aliases": [
       "wifi",
@@ -3013,7 +3013,7 @@
   {
     "start_hz": 5350000000.0,
     "stop_hz": 5470000000.0,
-    "name": "Radiolocation — 5.4 GHz",
+    "name": "Radiolocation: 5.4 GHz",
     "service": "navigation",
     "aliases": [
       "radar",
@@ -3023,7 +3023,7 @@
   {
     "start_hz": 5470000000.0,
     "stop_hz": 5725000000.0,
-    "name": "Wi-Fi 5 GHz — upper",
+    "name": "Wi-Fi 5 GHz: upper",
     "service": "ism",
     "aliases": [
       "wifi",
@@ -3038,7 +3038,7 @@
   {
     "start_hz": 5725000000.0,
     "stop_hz": 5875000000.0,
-    "name": "ISM — 5.8 GHz",
+    "name": "ISM: 5.8 GHz",
     "service": "ism",
     "aliases": [
       "wifi",

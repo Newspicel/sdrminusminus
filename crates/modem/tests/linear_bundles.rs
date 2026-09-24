@@ -177,7 +177,7 @@ fn coherent_ook_beats_the_envelope_tier_by_its_committed_margin() {
     let margin = envelope - coherent;
     assert!(
         margin > 0.7,
-        "coherent OOK 1e-3 at {coherent:.2} dB, envelope at {envelope:.2} dB — margin {margin:.2} dB"
+        "coherent OOK 1e-3 at {coherent:.2} dB, envelope at {envelope:.2} dB: margin {margin:.2} dB"
     );
     assert!(margin < 4.0, "margin {margin:.2} dB is implausibly large");
 }
@@ -189,7 +189,7 @@ fn feedforward_timing_beats_the_tracking_loop_by_its_committed_margin() {
     let margin = tracked - feedforward;
     assert!(
         margin > 0.8,
-        "feedforward 1e-3 at {feedforward:.2} dB, tracked at {tracked:.2} dB — margin {margin:.2} dB"
+        "feedforward 1e-3 at {feedforward:.2} dB, tracked at {tracked:.2} dB: margin {margin:.2} dB"
     );
 }
 
@@ -200,7 +200,7 @@ fn coherent_pi4_dqpsk_beats_the_differential_tier_by_its_committed_margin() {
     let margin = differential - coherent;
     assert!(
         (1.5..3.5).contains(&margin),
-        "coherent 1e-3 at {coherent:.2} dB, differential at {differential:.2} dB — margin {margin:.2} dB"
+        "coherent 1e-3 at {coherent:.2} dB, differential at {differential:.2} dB: margin {margin:.2} dB"
     );
 }
 

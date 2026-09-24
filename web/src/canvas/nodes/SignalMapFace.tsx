@@ -257,12 +257,12 @@ function SignalSurvey({
       <div className="flex shrink-0 items-center gap-3 border-b border-line px-2 py-1 font-mono text-[10px] tabular-nums">
         <span className={recording ? "text-accent" : "text-ink-dim"}>{status}</span>
         <span className="ml-auto text-ink-dim">{samples.length} cells</span>
-        <span className="text-ink-dim">{live === null ? "— Hz" : formatHz(live.targetHz)}</span>
+        <span className="text-ink-dim">{live === null ? "- Hz" : formatHz(live.targetHz)}</span>
         <span
           className="min-w-20 text-right text-ink"
           title="Relative receiver level. Keep gain and antenna settings fixed when comparing locations."
         >
-          {level === null ? "— dBFS" : `${level.toFixed(1)} dBFS`}
+          {level === null ? "- dBFS" : `${level.toFixed(1)} dBFS`}
         </span>
       </div>
       <MapPanel
@@ -289,7 +289,7 @@ function surveyStatus(
     return "Offset is outside the IQ span";
   }
   if (frequencyChanged) {
-    return "IQ centre changed — clear to start a new survey";
+    return "IQ centre changed: clear to start a new survey";
   }
   return recording ? "Recording each new GPS fix" : "Ready";
 }

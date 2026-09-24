@@ -421,8 +421,8 @@ fn print_catalog_numbers() {
         println!(
             "{:<32} 12 dB SINAD at {:>7} dB, 20 dB at {:>7} dB, oracle {:?}",
             m.stem,
-            sensitivity.map_or("—".to_string(), |v| format!("{v:.2}")),
-            twenty.map_or("—".to_string(), |v| format!("{v:.2}")),
+            sensitivity.map_or("-".to_string(), |v| format!("{v:.2}")),
+            twenty.map_or("-".to_string(), |v| format!("{v:.2}")),
             gap
         );
     }

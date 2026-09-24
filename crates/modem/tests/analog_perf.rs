@@ -179,8 +179,8 @@ fn measured_baselines() -> Vec<PerfBaseline> {
             msamples_per_s: sharp_msps,
             realtime_factor: sharp_msps * 1e6 / VOICE_RATE_HZ,
             config: format!(
-                "{VOICE_RATE_HZ:.0} Hz, {:.0} Hz message, {TAPS}-tap filters, envelope detector \
-                 — the SINAD curves' own configuration",
+                "{VOICE_RATE_HZ:.0} Hz, {:.0} Hz message, {TAPS}-tap filters, envelope detector: \
+                 the SINAD curves' own configuration",
                 VOICE_BANDWIDTH * VOICE_RATE_HZ
             ),
             host: host_id(),

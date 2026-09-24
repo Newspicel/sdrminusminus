@@ -181,7 +181,7 @@ describe("scaleBar", () => {
   });
 
   it("says nothing rather than a nonsense length when there is no scale", () => {
-    expect(scaleBar(0, 200, "m").label).toBe("—");
+    expect(scaleBar(0, 200, "m").label).toBe("-");
   });
 });
 

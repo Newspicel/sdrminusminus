@@ -6,8 +6,8 @@ pub const LIGHT_SPEED_M_S: f64 = 299_792_458.0;
 
 /// Element positions in metres on the ground plane: `x` east, `y` north.
 ///
-/// Bearings everywhere in the project are compass bearings — zero due north, increasing
-/// clockwise — so the projection of a position onto an arrival direction is
+/// Bearings everywhere in the project are compass bearings: zero due north, increasing
+/// clockwise, so the projection of a position onto an arrival direction is
 /// `x·sin θ + y·cos θ` and nothing has to remember a second convention.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Element {

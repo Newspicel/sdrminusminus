@@ -19,7 +19,7 @@ describe("spreadLabel", () => {
         samples: 6,
       }),
     ).toBe("2.4 km × 180 m");
-    expect(spreadLabel(null)).toBe("—");
+    expect(spreadLabel(null)).toBe("-");
   });
 });
 

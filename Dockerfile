@@ -64,7 +64,7 @@ RUN rustup show
 
 ARG FEATURES=soapy,sdrplay,rtlsdr,hackrf,airspy,airspyhf,ad936x,net-client,gpu-fft
 # `ci` (Cargo.toml) drops LTO to answer a broken Dockerfile faster on a pull request. Releases
-# must never pass this — the published image is built from the default.
+# must never pass this: the published image is built from the default.
 ARG PROFILE=release
 # Dependency compilation against the stubs: invalidated only by Cargo.lock or a manifest, never
 # by a source edit. The stubs reference nothing, so each workspace crate compiles empty while
@@ -87,12 +87,12 @@ RUN test -f web/dist/index.html \
 # --- runtime -----------------------------------------------------------------------------
 FROM debian:trixie-slim AS runtime
 LABEL org.opencontainers.image.source="https://github.com/newspicel/sdrminusminus" \
-      org.opencontainers.image.description="SDR-- — headless SDR server with embedded web UI" \
+      org.opencontainers.image.description="SDR--: headless SDR server with embedded web UI" \
       org.opencontainers.image.licenses="GPL-3.0-or-later"
 
 # SoapySDR comes from Debian, as it would on the host: the modules named here are the ones no
 # native backend in this build covers. Modules are listed one by one rather than through
-# soapysdr-module-all, which pulls in SoapyUHD — it aborts the process when it loads headless.
+# soapysdr-module-all, which pulls in SoapyUHD: it aborts the process when it loads headless.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
        ca-certificates curl \
@@ -130,7 +130,7 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
         || exit 1
 
 # The data paths belong in ENTRYPOINT, not CMD: `docker run <image> --bind …` replaces CMD
-# wholesale, and the binary's own defaults are dirs::data_dir()-based — /home/sdrmm/.local/share
+# wholesale, and the binary's own defaults are dirs::data_dir()-based: /home/sdrmm/.local/share
 # inside a container, outside the volume, so every run would come up with an empty database.
 ENTRYPOINT ["/usr/local/bin/sdrmm", "--db", "/data/sdrmm.db", "--recordings-dir", "/data/recordings"]
 CMD ["--bind", "0.0.0.0:8080"]

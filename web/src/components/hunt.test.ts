@@ -113,11 +113,11 @@ describe("bearing", () => {
 
 describe("formatting", () => {
   it("shows a dash rather than a number nobody measured", () => {
-    expect(formatStrength(null)).toBe("—");
-    expect(formatStrength({ ...HUNT, readings: 0 })).toBe("—");
+    expect(formatStrength(null)).toBe("-");
+    expect(formatStrength({ ...HUNT, readings: 0 })).toBe("-");
     expect(formatStrength(HUNT)).toBe("50%");
-    expect(formatHuntDb(null)).toBe("—");
-    expect(formatHuntDb(Number.NaN)).toBe("—");
+    expect(formatHuntDb(null)).toBe("-");
+    expect(formatHuntDb(Number.NaN)).toBe("-");
     expect(formatHuntDb(-61.25)).toBe("-61.3 dB");
   });
 });

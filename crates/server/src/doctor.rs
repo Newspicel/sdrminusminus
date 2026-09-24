@@ -78,7 +78,7 @@ fn backends_check(registry: &sdrmm_device::DeviceRegistry) -> DoctorCheck {
             status: CheckStatus::Warn,
             detail,
             hint: Some(format!(
-                "this build has no hardware backend — only {virtual_capabilities}. Use a normal \
+                "this build has no hardware backend, only {virtual_capabilities}. Use a normal \
                  build, or rebuild with --features soapy."
             )),
         };
@@ -185,7 +185,7 @@ fn sdrplay_check(info: &sdrmm_device_sdrplay::RuntimeInfo) -> DoctorCheck {
             "SDRplay receivers need the vendor API, which is licensed for genuine SDRplay \
              hardware and is not part of this package. Install it from \
              https://www.sdrplay.com/downloads/ and make sure its service is running. Without \
-             it nothing else is affected — only RSP receivers stay invisible."
+             it nothing else is affected, only RSP receivers stay invisible."
                 .to_string()
         }),
     }
@@ -205,7 +205,7 @@ fn cr8_check(error: Option<String>) -> DoctorCheck {
         hint: error.is_some().then(|| {
             "The CR-8 needs its vendor library, which ships with the receiver and is not part of \
              this package. Put libdlcr where the loader can find it, or point \
-             SDRMM_DLCR_LIBRARY at it. Nothing else is affected — only CR-8 receivers stay \
+             SDRMM_DLCR_LIBRARY at it. Nothing else is affected, only CR-8 receivers stay \
              invisible."
                 .to_string()
         }),
@@ -429,8 +429,8 @@ fn permission_hint(blocked: &[&sdrmm_device::usb::RadioNode]) -> String {
              Running the container as root is the last resort."
         ),
         (true, None) => "the container user may not open this node, and its group may not \
-             either. Install the receiver's udev rule on the host — vendor rules grant a group, \
-             usually plugdev — then pass that group's numeric id with `--group-add`. Running the \
+             either. Install the receiver's udev rule on the host: vendor rules grant a group, \
+             usually plugdev, then pass that group's numeric id with `--group-add`. Running the \
              container as root is the last resort."
             .to_string(),
         (false, Some(gid)) => format!(
@@ -499,7 +499,7 @@ fn path_check(
             id: id.to_string(),
             name: name.to_string(),
             status: CheckStatus::Warn,
-            detail: format!("not configured — {absent_consequence}"),
+            detail: format!("not configured: {absent_consequence}"),
             hint: None,
         };
     };

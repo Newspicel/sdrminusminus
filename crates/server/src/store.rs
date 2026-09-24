@@ -36,7 +36,7 @@ pub enum StoreError {
     CpsNameTaken,
     #[error("a workspace named {0:?} already exists")]
     WorkspaceNameTaken(String),
-    #[error("workspace {id} moved on (revision {current}, not {sent}) — reload and reapply")]
+    #[error("workspace {id} moved on (revision {current}, not {sent}), reload and reapply")]
     WorkspaceConflict { id: i64, sent: u64, current: u64 },
     #[error("workspace {id} has nothing to {step}")]
     WorkspaceHistoryEnd { id: i64, step: &'static str },
@@ -105,7 +105,7 @@ const MIGRATIONS: &[&str] = &[
     CREATE INDEX decoder_log_at ON decoder_log (at DESC, id DESC);
     -- `kind` is the only selective equality filter (the UI shows one decoder at a time);
     -- pairing it with the sort key keeps a filtered page off a full scan. `device_set` is
-    -- deliberately unindexed — a handful of distinct values never beats a scan — and `q` is
+    -- deliberately unindexed, a handful of distinct values never beats a scan, and `q` is
     -- a substring match no B-tree can serve.
     CREATE INDEX decoder_log_kind_at ON decoder_log (kind, at DESC, id DESC);
     ",
@@ -169,7 +169,7 @@ const MIGRATIONS: &[&str] = &[
     -- The durable half of a row's origin. `channel` is an engine id, allocated per run and
     -- reused (CANVAS §3), so a decoder-log node scoped by it would be handed another node's
     -- history after a restart. The patch node id is stable for the node's life, which is what
-    -- the scope needs — and null on every row written before this column, which is why the
+    -- the scope needs, and null on every row written before this column, which is why the
     -- query keeps the (device_set, channel) pair as the fallback for exactly those rows.
     ALTER TABLE decoder_log ADD COLUMN node TEXT;
     -- Paired with the sort key like `kind`, and for the same reason: a wire-scoped page is the
@@ -180,7 +180,7 @@ const MIGRATIONS: &[&str] = &[
     -- Which workspace's binding produced `node`. A node id is an identity only inside one
     -- workspace: templates author theirs as slugs (`ch0`, `log`) and `merge_patch` makes them
     -- unique only within the workspace it merges into, so two workspaces built from templates
-    -- hold the same ids — and a log node scoped on the id alone is handed the other workspace's
+    -- hold the same ids, and a log node scoped on the id alone is handed the other workspace's
     -- history. Null on rows written before this column, which the scope reads as unattributable
     -- rather than as a match for every workspace.
     ALTER TABLE decoder_log ADD COLUMN workspace INTEGER;
@@ -191,7 +191,7 @@ const MIGRATIONS: &[&str] = &[
     -- other's work and each believe it had won.
     CREATE TABLE workspace_history (
         workspace_id INTEGER NOT NULL,
-        -- Monotonic per workspace. Entries are states, not deltas — the same shape the row
+        -- Monotonic per workspace. Entries are states, not deltas: the same shape the row
         -- itself is stored in, so restoring one is a copy rather than an inverse operation
         -- nothing else in the app knows how to compute.
         seq INTEGER NOT NULL,
@@ -205,7 +205,7 @@ const MIGRATIONS: &[&str] = &[
     ",
     "
     -- Undo reaches the dial, not only the drawing. `state` is the workspace's settings as they
-    -- stood at that entry, null on an entry that left them alone — which is every entry written
+    -- stood at that entry, null on an entry that left them alone, which is every entry written
     -- before this column, and every arrangement gesture after it. An entry with no state of its
     -- own reads the nearest one behind it, so a layout step between two dial moves does not
     -- pretend the dial went back. `node` names whose dial moved, so a drag that lands a hundred
@@ -302,7 +302,7 @@ pub struct SettingsStep<'a> {
     pub after: &'a WorkspaceState,
 }
 
-/// A workspace after an undo or a redo, with the settings the step reached — `None` when the step
+/// A workspace after an undo or a redo, with the settings the step reached: `None` when the step
 /// only rearranged the canvas and the radios should be left where they are.
 pub struct SteppedWorkspace {
     pub detail: WorkspaceDetail,

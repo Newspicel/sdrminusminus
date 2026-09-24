@@ -80,8 +80,8 @@ describe("channel formatting", () => {
   });
 
   it("renders a missing tone as a dash rather than an empty cell", () => {
-    expect(formatTone(null)).toBe("—");
-    expect(formatTone(undefined)).toBe("—");
+    expect(formatTone(null)).toBe("-");
+    expect(formatTone(undefined)).toBe("-");
     expect(formatTone({ kind: "ctcss", decihertz: 885 })).toBe("88.5");
     expect(formatTone({ kind: "dcs", code: 23, inverted: false })).toBe("D023N");
   });

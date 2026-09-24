@@ -84,10 +84,10 @@ export function DfFace({ node }: { node: PatchNode }) {
           />
           <Readout>
             <ReadoutRow label="Bearing">
-              {bearing === null ? "—" : bearingLabel(bearing.bearing_deg)}
+              {bearing === null ? "-" : bearingLabel(bearing.bearing_deg)}
             </ReadoutRow>
             <ReadoutRow label="Confidence">
-              {bearing === null ? "—" : `${Math.round(bearing.confidence * 100)}%`}
+              {bearing === null ? "-" : `${Math.round(bearing.confidence * 100)}%`}
             </ReadoutRow>
             <ReadoutRow label="Calibration">{CAL_VERDICT_TEXT[verdict]}</ReadoutRow>
             <ReadoutRow label="Coherence">{tierLabel(state?.cal)}</ReadoutRow>

@@ -141,7 +141,7 @@ impl Engine {
                 MAX_TIME_MACHINE_BYTES as f64 / (rate * sdrmm_recorder::BYTES_PER_SAMPLE as f64);
             return Err(EngineError::Recording(format!(
                 "{} s at {:.3} MS/s needs {} MiB of memory, above the {} MiB the history buffer \
-                 may take — this radio's rate leaves room for {:.0} s",
+                 may take: this radio's rate leaves room for {:.0} s",
                 settings.history_seconds,
                 rate / 1e6,
                 bytes / (1 << 20),

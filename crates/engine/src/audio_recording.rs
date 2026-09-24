@@ -65,7 +65,7 @@ impl AudioRecorderTap {
             Ok(()) => true,
             Err(mpsc::TrySendError::Full(_)) => {
                 self.shared
-                    .fail("audio recording queue overflow — disk too slow?".to_string());
+                    .fail("audio recording queue overflow: disk too slow?".to_string());
                 false
             }
             Err(mpsc::TrySendError::Disconnected(_)) => {

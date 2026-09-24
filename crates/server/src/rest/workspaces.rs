@@ -366,7 +366,7 @@ fn open_arrays(
     get, path = "/api/workspaces",
     responses((
         status = 200,
-        description = "Stored workspaces and which one is active. Layouts are not included — \
+        description = "Stored workspaces and which one is active. Layouts are not included: \
                        fetch one workspace for that",
         body = WorkspacesResponse,
     )),
@@ -413,7 +413,7 @@ pub(super) async fn create_workspace(
         (status = 404, description = "Workspace not found", body = ApiError),
         (
             status = 500,
-            description = "The stored layout no longer parses — the row is left intact so a \
+            description = "The stored layout no longer parses: the row is left intact so a \
                            newer build can still read it",
             body = ApiError,
         ),
@@ -436,7 +436,7 @@ pub(super) async fn get_workspace(
             status = 200,
             description = "The workspace as a portable document: its name, the patch and rack it \
                            draws, and the tuning each node was left on. Nothing server-local \
-                           travels — no id, revision or history — so importing it makes a new \
+                           travels, no id, revision or history, so importing it makes a new \
                            workspace rather than overwriting one",
             body = WorkspaceExport,
         ),
@@ -444,7 +444,7 @@ pub(super) async fn get_workspace(
         (status = 404, description = "Workspace not found", body = ApiError),
         (
             status = 500,
-            description = "The stored layout no longer parses — the row is left intact so a \
+            description = "The stored layout no longer parses: the row is left intact so a \
                            newer build can still read it",
             body = ApiError,
         ),
@@ -649,7 +649,7 @@ pub(super) async fn activate_workspace(
             status = 200,
             description = "The workspace as it was before its last change, with the history it \
                            can still walk. The step is stored, so every client is told to reload \
-                           it — one workspace, one history, whichever browser pressed undo",
+                           it: one workspace, one history, whichever browser pressed undo",
             body = WorkspaceDetail,
         ),
         (status = 400, description = "Invalid path parameter", body = ApiError),
@@ -728,7 +728,7 @@ pub(super) async fn step_history(
         (
             status = 200,
             description = "The workspace was brought up: radios opened, channels added, and what \
-                           could not be satisfied. Additive and idempotent — nothing is closed \
+                           could not be satisfied. Additive and idempotent: nothing is closed \
                            or deleted, so calling it twice changes nothing",
             body = PatchApplyReport,
         ),

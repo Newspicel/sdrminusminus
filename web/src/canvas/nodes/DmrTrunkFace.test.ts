@@ -219,7 +219,7 @@ describe("the channel plan table", () => {
     ];
 
     expect(planSummary(rows)).toBe(
-      "4 logical channels — 1 announced, 1 entered, 1 found, 1 guessed.",
+      "4 logical channels: 1 announced, 1 entered, 1 found, 1 guessed.",
     );
     expect(planSummary([])).toContain("No logical channels");
   });

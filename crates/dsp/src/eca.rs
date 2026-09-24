@@ -68,7 +68,7 @@ fn conj_dot(left: &[Complex<f32>], right: &[Complex<f32>]) -> Complex<f32> {
 ///
 /// The direct path from the illuminator arrives at the surveillance antenna tens of decibels
 /// above anything reflected off a target, and it arrives as a scaled, delayed copy of what the
-/// reference antenna already has. Least squares over delayed — and optionally Doppler-shifted —
+/// reference antenna already has. Least squares over delayed, and optionally Doppler-shifted,
 /// copies of the reference removes exactly that, and leaves whatever the reference cannot explain.
 pub struct Eca {
     params: EcaParams,

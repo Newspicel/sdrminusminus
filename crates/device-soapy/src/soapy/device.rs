@@ -59,7 +59,7 @@ impl Device {
     /// Reports whether the last call threw, for the calls that have no integer status to return.
     ///
     /// The C bindings set `lastStatus` to -1 for every caught exception, which is also
-    /// `SOAPY_SDR_TIMEOUT`, so the status carries no code worth reading — only the message does.
+    /// `SOAPY_SDR_TIMEOUT`, so the status carries no code worth reading, only the message does.
     /// Reading it as a stream code would let a driver fault pass for a read timeout, which the
     /// capture loop retries instead of failing.
     pub(crate) fn check<T>(&self, value: T) -> Result<T, Error> {

@@ -22,7 +22,7 @@ export const DEFAULT_RADAR_PARAMS: PassiveRadarParams = {
 const LIGHT_SPEED_KM_S = 299_792.458;
 
 /// How far out the last range bin reaches, at whatever rate the radio happens to be running.
-/// One bin is one sample of extra path, so the answer only needs the rate the surface came at —
+/// One bin is one sample of extra path, so the answer only needs the rate the surface came at:
 /// which the face does not have until a frame arrives, so this is the shape of the axis rather
 /// than its length: bins times a microsecond apiece.
 export function rangeAxisKm(settings: PassiveRadarParams, rangeStepUs = 1): number {

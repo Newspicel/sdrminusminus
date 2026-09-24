@@ -117,7 +117,7 @@ export function DfDrive({
     <div className="flex h-full flex-col" onPointerDown={voice.arm}>
       <div className="flex items-center justify-between gap-2 px-3 py-2">
         <span className="font-mono text-3xl tabular-nums">
-          {usable && bearing !== null ? `${bearing.bearing_deg.toFixed(0).padStart(3, "0")}°` : "—"}
+          {usable && bearing !== null ? `${bearing.bearing_deg.toFixed(0).padStart(3, "0")}°` : "-"}
         </span>
         <span className="text-xs text-ink-dim">
           {state === undefined
@@ -143,8 +143,8 @@ export function DfDrive({
             : guidance === null
               ? "Drive until a bearing comes in."
               : guidance.mode === "cross"
-                ? `Cross the bearing — steer ${Math.round(guidance.heading_deg)}°`
-                : `Close in — ${formatDistance(guidance.distance_m)} to run`}
+                ? `Cross the bearing: steer ${Math.round(guidance.heading_deg)}°`
+                : `Close in: ${formatDistance(guidance.distance_m)} to run`}
         </p>
         {next !== null && (
           <p className="mt-1 font-medium text-base">
@@ -152,9 +152,7 @@ export function DfDrive({
           </p>
         )}
         {routeError !== null && mode !== "off" && (
-          <p className="mt-1 text-xs text-ink-dim">
-            No route ({routeError}) — steering by compass.
-          </p>
+          <p className="mt-1 text-xs text-ink-dim">No route ({routeError}): steering by compass.</p>
         )}
       </div>
       <div className="flex items-center justify-between gap-2 px-3 pb-2">

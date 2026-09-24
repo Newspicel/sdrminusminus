@@ -139,7 +139,7 @@ fn measured_baselines() -> Vec<PerfBaseline> {
             msamples_per_s: gfdm_tx_msps,
             realtime_factor: gfdm_tx_msps * 1e6 / RATE,
             config: format!(
-                "{}×{} block, dense A per block — the transmitter pays exactly what the \
+                "{}×{} block, dense A per block: the transmitter pays exactly what the \
                  zero-forcing receiver does",
                 params.subcarriers, params.subsymbols
             ),
@@ -170,7 +170,7 @@ fn measured_baselines() -> Vec<PerfBaseline> {
             bench: "otfs_precoder_20m".into(),
             msamples_per_s: otfs_msps,
             realtime_factor: otfs_msps * 1e6 / RATE,
-            config: "48×16 delay–Doppler grid, ISFFT only — the carrier's own cost is the \
+            config: "48×16 delay–Doppler grid, ISFFT only: the carrier's own cost is the \
                      CP-OFDM row's"
                 .into(),
             host: host_id(),

@@ -279,7 +279,7 @@ pub(crate) struct R82xx {
 }
 
 /// Register 0x12's sigma-delta bits. Bit 3 stops the modulator when the divider comes out exact,
-/// and bit 4 stops the PLL dithering that otherwise leaves every tuner on its own phase — which
+/// and bit 4 stops the PLL dithering that otherwise leaves every tuner on its own phase, which
 /// is what makes two dongles on one clock comparable at all.
 const fn pll_sdm_reg(exact: bool, dither: bool) -> u8 {
     let sdm = if exact { 0x08 } else { 0x00 };

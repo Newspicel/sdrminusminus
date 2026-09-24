@@ -188,7 +188,7 @@ impl HackRfDevice {
 
 /// The firmware sweeps in whole megahertz, so a band is widened to the megahertz boundaries that
 /// contain it rather than silently losing the edges the caller asked for. The firmware also holds
-/// ten ranges at most, so the narrowest gaps are swallowed until the list fits — sweeping a little
+/// ten ranges at most, so the narrowest gaps are swallowed until the list fits: sweeping a little
 /// spectrum nobody asked for beats refusing the plan.
 fn firmware_ranges(plan: &sdrmm_device::SweepPlan) -> Result<Vec<SweepRange>, DeviceError> {
     plan.check()?;

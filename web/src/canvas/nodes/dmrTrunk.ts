@@ -225,7 +225,7 @@ export function planSummary(rows: readonly TrunkChannel[]): string {
   const parts = (["announced", "manual", "learned", "predicted"] as const)
     .filter((source) => counted[source] !== undefined)
     .map((source) => `${counted[source]} ${trunkChannelSourceLabel(source)}`);
-  return `${rows.length} logical channel${rows.length === 1 ? "" : "s"} — ${parts.join(", ")}.`;
+  return `${rows.length} logical channel${rows.length === 1 ? "" : "s"}: ${parts.join(", ")}.`;
 }
 
 export function adoptable(

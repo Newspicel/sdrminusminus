@@ -41,7 +41,7 @@ export class ErrorBoundary extends Component<{ children: ReactNode }, State> {
           <div>
             <h1 className="text-sm font-semibold text-ink">This window stopped drawing</h1>
             <p className="mt-1 text-sm text-ink-dim">
-              The server kept running and nothing you arranged is lost — it lives there, not here.
+              The server kept running and nothing you arranged is lost: it lives there, not here.
               Reloading picks it up again.
             </p>
           </div>

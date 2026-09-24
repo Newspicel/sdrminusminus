@@ -161,7 +161,7 @@ describe("formatting", () => {
     expect(formatSi(5e-9, "s", 2)).toBe("5.00 ns");
     expect(formatSi(1.2e-12, "F", 1)).toBe("1.2 pF");
     expect(formatSi(0, "s")).toBe("0 s");
-    expect(formatSi(Number.NaN, "s")).toBe("—");
+    expect(formatSi(Number.NaN, "s")).toBe("-");
   });
 });
 

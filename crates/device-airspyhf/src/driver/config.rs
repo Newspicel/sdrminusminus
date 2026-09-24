@@ -34,7 +34,7 @@ impl Default for Config {
 }
 
 /// The receiver covers HF up to 31 MHz and a VHF window from 60 to 260 MHz, with nothing between
-/// the two — a frequency in the gap has no tuning to reach it rather than a poor one.
+/// the two: a frequency in the gap has no tuning to reach it rather than a poor one.
 pub(crate) fn validate_frequency(frequency_hz: u32) -> Result<()> {
     if frequency_hz <= HF_MAX_HZ || (VHF_MIN_HZ..=VHF_MAX_HZ).contains(&frequency_hz) {
         return Ok(());

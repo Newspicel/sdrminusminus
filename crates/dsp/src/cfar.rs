@@ -11,7 +11,7 @@ pub struct CfarParams {
     /// all noise cannot produce a wall of marks.
     pub min_snr_db: f32,
     /// Doppler rows either side of zero that are never reported. Everything that is not moving
-    /// lands there — the direct path, the ground, and whatever the reference antenna also hears —
+    /// lands there: the direct path, the ground, and whatever the reference antenna also hears,
     /// and reporting it would bury the targets in a ridge of clutter.
     pub zero_doppler_guard: usize,
 }
@@ -50,7 +50,7 @@ pub struct Detection {
 /// Merges detections that touch into one, keeping the strongest cell of each.
 ///
 /// One target lights several neighbouring cells, and reporting each of them is reporting one
-/// aircraft as four. Nothing here decides what a target is — it only refuses to count a single
+/// aircraft as four. Nothing here decides what a target is: it only refuses to count a single
 /// bright patch more than once.
 pub fn cluster(detections: &mut Vec<Detection>) {
     detections.sort_unstable_by(|a, b| {
@@ -126,7 +126,7 @@ const fn training_cells(params: &CfarParams) -> usize {
 }
 
 /// The average power of the training ring, or `None` when the cell sits too close to an edge for
-/// the ring to be filled — reporting a detection from half a window is how an edge turns into a
+/// the ring to be filled: reporting a detection from half a window is how an edge turns into a
 /// permanent false target.
 fn neighbourhood(
     surface: &[f32],

@@ -23,7 +23,7 @@ export function ReplaceDecoder({ node, onClose }: { node: PatchNode; onClose: ()
     <ChannelPicker
       title="Replace the decoder"
       note={`${descriptor?.name ?? typeId.toUpperCase()}${
-        settings === null ? "" : ` — ${formatHz(settings.frequency_hz)}`
+        settings === null ? "" : `: ${formatHz(settings.frequency_hz)}`
       }`}
       groups={decoderReplacements(workspace.context.channelTypes, typeId)}
       onChannel={(channelType) => {

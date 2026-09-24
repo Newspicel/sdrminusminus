@@ -173,7 +173,7 @@ pub(crate) fn run(root: &Path, offline: bool) -> Result<()> {
         }
     }
     println!(
-        "bandplan: regenerated. Review the diff — a table that changed shape is news, not noise."
+        "bandplan: regenerated. Review the diff: a table that changed shape is news, not noise."
     );
     Ok(())
 }
@@ -247,7 +247,7 @@ fn curl(url: &str, to: &Path, ca: Option<&Path>) -> Result<std::process::ExitSta
     }
     command
         .status()
-        .context("curl not found — it is how this fetches its sources")
+        .context("curl not found: it is how this fetches its sources")
 }
 
 fn pdftotext(path: &Path, mode: &[&str]) -> Result<String> {
@@ -258,7 +258,7 @@ fn pdftotext(path: &Path, mode: &[&str]) -> Result<String> {
         .output()
         .context(
             "pdftotext not found. It is poppler: `apt install poppler-utils` or \
-             `brew install poppler`. Only the importers need it — not the build, not the server",
+             `brew install poppler`. Only the importers need it, not the build, not the server",
         )?;
     if !out.status.success() {
         bail!("pdftotext failed on {}", path.display());
@@ -466,7 +466,7 @@ pub(crate) fn report_unmapped(generator: &str, unmapped: &[String]) {
         return;
     }
     println!(
-        "{generator}: {} service name(s) fell through to `other` — extend the mapping table:",
+        "{generator}: {} service name(s) fell through to `other`: extend the mapping table:",
         unmapped.len()
     );
     for name in unmapped {

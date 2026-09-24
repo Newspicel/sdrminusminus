@@ -228,7 +228,7 @@ export function DecoderLogPanel({ wires }: { wires: WireScope }) {
                         className={`${TABLE_CELL} truncate text-ink`}
                         title={row.station ?? undefined}
                       >
-                        {row.station ?? "—"}
+                        {row.station ?? "-"}
                       </td>
                       <td className={`${TABLE_CELL} truncate text-ink`} title={row.summary}>
                         {row.summary}

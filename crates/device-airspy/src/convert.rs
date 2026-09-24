@@ -9,7 +9,7 @@ const CODE_MASK: u16 = 0x0fff;
 ///
 /// The radio samples the band around a quarter of its ADC rate and sends what it measured, one
 /// real value per sample. The wanted signal only becomes complex here, at half the rate that
-/// arrives — which is why the rate the firmware publishes is already the one this produces.
+/// arrives, which is why the rate the firmware publishes is already the one this produces.
 #[derive(Debug)]
 pub(crate) struct AirspyConverter {
     dc: DcBlocker,

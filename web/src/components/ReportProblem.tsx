@@ -96,7 +96,7 @@ export function ReportProblem({
 
           <p className="mt-3 shrink-0 text-xs text-ink-dim">
             This is everything the report will carry. The shared token, your home directory and
-            every address but the loopback are already stripped — read it before you publish it.
+            every address but the loopback are already stripped: read it before you publish it.
           </p>
 
           {diagnostics.isError && (

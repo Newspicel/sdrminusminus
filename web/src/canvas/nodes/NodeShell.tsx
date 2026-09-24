@@ -201,7 +201,7 @@ export function NodeShell({
               type="button"
               aria-label={pinned ? "Unpin from the rack" : "Pin to the rack"}
               aria-pressed={pinned}
-              title={pinned ? "On the rack — click to take it off" : "Pin to the rack"}
+              title={pinned ? "On the rack: click to take it off" : "Pin to the rack"}
               className={`${ICON_BTN_SM} ${pinned ? "bg-accent/15 text-accent" : "text-ink-faint"}`}
               onClick={() =>
                 workspace.edit((snapshot) => ({
@@ -306,8 +306,7 @@ function indexOnSide(ports: readonly PortSpec[], index: number): number {
 
 function PortHandle({ port, label, offset }: { port: PortSpec; label: string; offset: number }) {
   const out = port.direction === "out";
-  const description =
-    port.note == null ? `${label} (${port.port_type})` : `${label} — ${port.note}`;
+  const description = port.note == null ? `${label} (${port.port_type})` : `${label}: ${port.note}`;
   return (
     <>
       <Handle

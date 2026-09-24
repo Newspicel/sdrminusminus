@@ -13,12 +13,12 @@ export const downloadFormats: ReadonlyArray<{
   {
     format: "sigmf",
     label: ".sigmf",
-    hint: "SigMF archive — metadata and samples, exactly as recorded",
+    hint: "SigMF archive: metadata and samples, exactly as recorded",
   },
   {
     format: "wav",
     label: ".wav",
-    hint: "I/Q as a float WAV for HDSDR, SDR# or Audacity — keeps the samples, but only the center frequency and start time of the metadata",
+    hint: "I/Q as a float WAV for HDSDR, SDR# or Audacity: keeps the samples, but only the center frequency and start time of the metadata",
   },
 ];
 

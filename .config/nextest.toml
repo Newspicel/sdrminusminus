@@ -7,7 +7,7 @@ filter = 'test(/_ahead_of_(the_channel_rate|realtime|the_audio_rate)|bounded_cos
 threads-required = "num-test-threads"
 
 # The opus encoder thread rides a bounded PCM broadcast, so a runner that starves it for longer
-# than the queue holds makes the engine resync the frame clock — a real signal, not a bug. These
+# than the queue holds makes the engine resync the frame clock: a real signal, not a bug. These
 # two read the live frame clock, so they run with the cores to themselves.
 [[profile.default.overrides]]
 filter = 'binary_id(sdrmm-engine::listen) & test(/^(audio_packets_are_sequenced_and_the_frame_clock_only_moves_forward|wfm_stereo_toggle_changes_the_layout_of_the_live_stream)$/)'

@@ -55,9 +55,9 @@ pub(super) async fn get_band_plan(Path(region): Path<String>) -> Result<Json<Ban
     responses(
         (
             status = 200,
-            description = "The region a coordinate falls in. Coarse by construction — bounding \
+            description = "The region a coordinate falls in. Coarse by construction, bounding \
                            boxes over the national footprints and an approximation of the ITU \
-                           lines — so `approximate` says when only the ITU region could be \
+                           lines, so `approximate` says when only the ITU region could be \
                            decided and the operator should confirm it",
             body = BandRegionMatch,
         ),
@@ -130,7 +130,7 @@ pub(super) struct OccupancyQuery {
     responses((
         status = 200,
         description = "The ionosonde network's current MUF(3000 km) per sounding site, cached \
-                       for fifteen minutes — the interval the upstream map is rebuilt on. \
+                       for fifteen minutes: the interval the upstream map is rebuilt on. \
                        A server with no route to the feed answers the same shape with an empty \
                        station list and the reason in `error`, so the propagation map degrades \
                        to what this receiver measured on its own",
@@ -187,7 +187,7 @@ pub(super) async fn get_doctor(
         status = 200,
         description = "Everything the server can say about a problem in one document: the \
                        `--doctor` environment report plus the tail of this run's log. Redacted \
-                       at the point the line is recorded — the shared token, the operator's home \
+                       at the point the line is recorded: the shared token, the operator's home \
                        directory and any address that is not the loopback never enter the ring, \
                        so what this returns is what a bug report may carry",
         body = DiagnosticsReport,

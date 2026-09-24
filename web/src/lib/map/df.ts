@@ -163,7 +163,7 @@ export interface BistaticEchoes {
 
 /// Everything one echo could have bounced off. A passive radar measures how much further the echo
 /// travelled than the direct path, which puts the reflector somewhere on the ellipse with the
-/// transmitter and the receiver at its foci — not on a bearing, and not at a point.
+/// transmitter and the receiver at its foci, not on a bearing, and not at a point.
 export function bistaticRing(set: BistaticEchoes, rangeKm: number): [number, number][] | null {
   const rangeM = rangeKm * 1_000;
   if (!(rangeM > 0)) {

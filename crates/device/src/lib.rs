@@ -18,7 +18,7 @@ pub enum DeviceError {
     Io(String),
     #[error("the radio is no longer attached ({0})")]
     Disconnected(String),
-    #[error("this radio is already in use — another program has it open ({0})")]
+    #[error("this radio is in use by another program ({0})")]
     InUse(String),
     #[error("this radio may not be opened by this user ({0})")]
     PermissionDenied(String),

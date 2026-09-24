@@ -324,8 +324,8 @@ pub fn shared() -> Result<Arc<Library>, String> {
     loader.resolve(Instant::now())
 }
 
-pub const MISSING: &str = "SoapySDR is not installed. Radios this build drives natively — \
-                           RTL-SDR, HackRF, Airspy, Airspy HF+, AD936x, SDRplay and CR-8 — do \
+pub const MISSING: &str = "SoapySDR is not installed. Radios this build drives natively: \
+                           RTL-SDR, HackRF, Airspy, Airspy HF+, AD936x, SDRplay and CR-8 do \
                            not need it; bladeRF, LimeSDR and other SoapySDR-only hardware do.";
 
 fn load() -> Result<Arc<Library>, String> {

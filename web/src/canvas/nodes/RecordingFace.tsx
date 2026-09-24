@@ -210,7 +210,7 @@ export function RecordingFace({ node }: { node: PatchNode }) {
         <Button
           type="button"
           className={BTN_QUIET}
-          title="Stop playing and free the node — the wires stay drawn"
+          title="Stop playing and free the node: the wires stay drawn"
           onClick={() => forget.mutate()}
           disabled={forget.isPending}
         >

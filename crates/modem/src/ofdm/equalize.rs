@@ -430,7 +430,7 @@ mod tests {
         assert_eq!(tracked.symbols(), 64);
         assert!(
             worst_untracked > 1.0,
-            "untracked residual {worst_untracked} rad — the ambiguity was never reached, so \
+            "untracked residual {worst_untracked} rad: the ambiguity was never reached, so \
              this test is not measuring what it claims"
         );
     }

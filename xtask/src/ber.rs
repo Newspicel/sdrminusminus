@@ -72,7 +72,7 @@ fn measure_analog(
         return Ok(());
     }
     bail!(
-        "FAIL: {} — {} of {} measurements off their reference:\n  {}",
+        "FAIL: {}: {} of {} measurements off their reference:\n  {}",
         entry.name,
         failures.len(),
         entry.measurements.len(),
@@ -100,7 +100,7 @@ fn judge_analog(
             }
         }
         Err(_) => println!(
-            "{}: no committed artifact at {} — nothing to guard against",
+            "{}: no committed artifact at {}: nothing to guard against",
             m.stem,
             m.artifact()
         ),
@@ -121,7 +121,7 @@ fn judge_analog(
             m.stem
         ),
         None => println!(
-            "{}: commit-and-guard — no closed form; the committed curve is the reference",
+            "{}: commit-and-guard: no closed form; the committed curve is the reference",
             m.stem
         ),
     }
@@ -165,7 +165,7 @@ fn measure(root: &Path, entry: &Entry, dir: &Path, full: bool) -> Result<()> {
         return Ok(());
     }
     bail!(
-        "FAIL: {} — {} of {} measurements off their reference:\n  {}",
+        "FAIL: {}: {} of {} measurements off their reference:\n  {}",
         entry.name,
         failures.len(),
         entry.measurements.len(),
@@ -204,7 +204,7 @@ fn judge(root: &Path, m: &Measurement, curve: &Curve) -> std::result::Result<(),
             None => faults.push(format!("{}: the sweep produced no usable point", m.stem)),
         },
         Err(_) => println!(
-            "{}: no committed artifact at {} — nothing to guard against",
+            "{}: no committed artifact at {}: nothing to guard against",
             m.stem,
             m.artifact()
         ),
@@ -221,7 +221,7 @@ fn judge(root: &Path, m: &Measurement, curve: &Curve) -> std::result::Result<(),
             }
         }
         None => println!(
-            "{}: commit-and-guard — no closed form; the committed curve is the reference",
+            "{}: commit-and-guard: no closed form; the committed curve is the reference",
             m.stem
         ),
     }

@@ -17,7 +17,7 @@ pub struct Bearing {
 
 /// Conventional beamforming: the power an array steered at each bearing would see.
 ///
-/// It resolves nothing two beamwidths apart, and it always answers — which is exactly why it is
+/// It resolves nothing two beamwidths apart, and it always answers, which is exactly why it is
 /// the baseline the operator can fall back to when the covariance is too short for MUSIC.
 pub fn correlative(r: &[Complex<f32>], grid: &SteeringGrid, out: &mut Vec<f32>) {
     let n = grid.elements();
@@ -40,7 +40,7 @@ pub fn correlative(r: &[Complex<f32>], grid: &SteeringGrid, out: &mut Vec<f32>) 
 /// The MUSIC pseudospectrum for a given number of sources.
 ///
 /// A steering vector that lies in the signal subspace is nearly orthogonal to every noise
-/// eigenvector, so the reciprocal of that projection spikes — far more sharply than any
+/// eigenvector, so the reciprocal of that projection spikes, far more sharply than any
 /// beamformer, at the price of needing the source count to be right.
 pub struct Music {
     solver: HermitianEigen,

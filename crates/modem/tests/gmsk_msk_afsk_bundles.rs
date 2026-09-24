@@ -273,7 +273,7 @@ fn the_acquisition_framing_moved_no_sensitivity() {
         println!("GMSK BT={bt}: data-like vs alternating framing at BER 1e-3: {shift:+.3} dB");
         assert!(
             shift.abs() < CROSSING_NOISE_DB,
-            "BT={bt}: the framing moved the 1e-3 crossing by {shift} dB — the two generations \
+            "BT={bt}: the framing moved the 1e-3 crossing by {shift} dB; the two generations \
              are supposed to differ in acquisition only"
         );
     }

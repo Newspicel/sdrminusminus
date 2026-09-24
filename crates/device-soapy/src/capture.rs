@@ -378,7 +378,7 @@ fn log_overflow(lane: Option<usize>, overflows: u64) {
 
 fn silent_stream(silence: Duration) -> String {
     format!(
-        "the radio stopped sending samples for {silence:?} but is still plugged in — another \
+        "the radio stopped sending samples for {silence:?} but is still plugged in: another \
          program may have taken it over, or it needs to be re-plugged"
     )
 }

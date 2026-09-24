@@ -78,11 +78,11 @@ export const BEARING_LABEL: Record<Bearing, string> = {
 
 export function formatStrength(status: HuntStatus | null): string {
   if (status === null || status.readings === 0) {
-    return "—";
+    return "-";
   }
   return `${Math.round((status.strength ?? 0) * 100)}%`;
 }
 
 export function formatHuntDb(db: number | null | undefined): string {
-  return db == null || !Number.isFinite(db) ? "—" : `${db.toFixed(1)} dB`;
+  return db == null || !Number.isFinite(db) ? "-" : `${db.toFixed(1)} dB`;
 }

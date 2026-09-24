@@ -320,7 +320,7 @@ pub(crate) struct SettingsEdit {
 }
 
 /// Opens a settings change for the node the patch lands on, or `None` when it lands on a radio the
-/// active workspace does not draw — an ad-hoc device has no node whose history could hold it.
+/// active workspace does not draw: an ad-hoc device has no node whose history could hold it.
 pub(crate) fn begin_edit(state: &AppState, ds: u32, channel: Option<u32>) -> Option<SettingsEdit> {
     let active = state.store.active_workspace().ok()??;
     let graph = active.snapshot.graph;

@@ -107,7 +107,7 @@ sdrmm-channels = { path = "crates/channels" }
 sdrmm-cps = { path = "crates/cps" }
 sdrmm-recorder = { path = "crates/recorder" }
 sdrmm-tools = { path = "crates/tools" }
-# default-features = false so binaries opt into `soapy` themselves — a member manifest cannot
+# default-features = false so binaries opt into `soapy` themselves: a member manifest cannot
 # disable a workspace dep's defaults, only add to them (needed for the minimal build).
 sdrmm-engine = { path = "crates/engine", default-features = false }
 sdrmm-server = { path = "crates/server", default-features = false }

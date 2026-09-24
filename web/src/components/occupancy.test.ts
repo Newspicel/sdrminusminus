@@ -98,8 +98,8 @@ describe("formatting", () => {
   it("prints duty as a percentage, and absence as a dash", () => {
     expect(formatDuty(0.123)).toBe("12%");
     expect(formatDuty(1)).toBe("100%");
-    expect(formatDuty(0)).toBe("—");
-    expect(formatDuty(Number.NaN)).toBe("—");
+    expect(formatDuty(0)).toBe("-");
+    expect(formatDuty(Number.NaN)).toBe("-");
   });
 
   it("pads the hour labels so the columns line up", () => {

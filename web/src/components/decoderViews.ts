@@ -225,7 +225,7 @@ export function aircraftRow(station: StationOf<"adsb">, nowMs: number): TargetRo
   const m: AdsbMessage = station.event.data;
   return {
     id: m.icao.toUpperCase(),
-    label: m.callsign?.trim() || "—",
+    label: m.callsign?.trim() || "-",
     primary: m.on_ground === true ? "GND" : formatAltitudeFt(m.altitude_ft),
     secondary: joinFields(formatSpeedKt(m.ground_speed_kt), formatBearing(m.track_deg)),
     position: formatPosition(m.lat, m.lon),
@@ -238,7 +238,7 @@ export function shipRow(station: StationOf<"ais">, nowMs: number): TargetRow {
   const m: AisMessage = station.event.data;
   return {
     id: String(m.mmsi),
-    label: m.name?.trim() || m.call_sign?.trim() || "—",
+    label: m.name?.trim() || m.call_sign?.trim() || "-",
     primary: formatSpeedKt(m.sog_kt),
     secondary: joinFields(formatBearing(m.cog_deg), m.destination?.trim() ?? ""),
     position: formatPosition(m.lat, m.lon),
@@ -261,11 +261,11 @@ export function sortTargets(
 }
 
 export function formatAltitudeFt(ft: number | null | undefined): string {
-  return ft == null ? "—" : `${groupThousands(Math.round(ft))} ft`;
+  return ft == null ? "-" : `${groupThousands(Math.round(ft))} ft`;
 }
 
 export function formatSpeedKt(kt: number | null | undefined): string {
-  return kt == null ? "—" : `${kt.toFixed(0)} kt`;
+  return kt == null ? "-" : `${kt.toFixed(0)} kt`;
 }
 
 export function formatBearing(deg: number | null | undefined): string {
@@ -279,7 +279,7 @@ export function formatPosition(
   lat: number | null | undefined,
   lon: number | null | undefined,
 ): string {
-  return lat == null || lon == null ? "—" : `${lat.toFixed(5)}, ${lon.toFixed(5)}`;
+  return lat == null || lon == null ? "-" : `${lat.toFixed(5)}, ${lon.toFixed(5)}`;
 }
 
 export function formatClock(at: string): string {
@@ -362,7 +362,7 @@ export function ptyLabel(update: RdsUpdate): string {
   if (update.pty_name != null && update.pty_name !== "") {
     return update.pty_name;
   }
-  return update.pty == null ? "—" : `PTY ${update.pty}`;
+  return update.pty == null ? "-" : `PTY ${update.pty}`;
 }
 
 export function formatAltFreqs(hz: readonly number[] | undefined): string[] {
@@ -520,7 +520,7 @@ export function dvChecksum(frame: Pick<DvFrame, "crc_verified">): string | undef
   if (frame.crc_verified == null) {
     return undefined;
   }
-  return frame.crc_verified ? "verified" : "not verified — read on error correction alone";
+  return frame.crc_verified ? "verified" : "not verified: read on error correction alone";
 }
 
 export function dvParties(

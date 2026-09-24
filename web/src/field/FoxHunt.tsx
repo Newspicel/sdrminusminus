@@ -72,7 +72,7 @@ export function FoxHunt({ target }: MissionProps & { target: HuntTarget | null }
   return (
     <div className="flex h-full flex-col justify-center">
       <div className="px-3 py-2 text-center">
-        <p className="font-mono text-3xl tabular-nums">{hz === null ? "—" : formatHz(hz)}</p>
+        <p className="font-mono text-3xl tabular-nums">{hz === null ? "-" : formatHz(hz)}</p>
         <p className="text-xs text-ink-dim">
           {status === null
             ? "not hunting"

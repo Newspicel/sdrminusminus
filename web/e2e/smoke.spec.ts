@@ -420,7 +420,7 @@ test.describe("the workspace", () => {
     const tall = await slots(page);
     await dragBy(
       page,
-      page.locator('[title="Move — drop on another face to trade places"]').first(),
+      page.locator('[title="Move: drop on another face to trade places"]').first(),
       0,
       8,
     );
@@ -980,7 +980,7 @@ test.describe("the workspace", () => {
     await expect(tools.getByRole("row", { name: /director 3/i })).toBeVisible();
     const drawing = tools.getByRole("img", { name: /yagi.*top view/i });
     await expect(drawing).toBeVisible();
-    await expect(drawing.locator("title", { hasText: /^Director 3 —/ })).toHaveCount(1);
+    await expect(drawing.locator("title", { hasText: /^Director 3:/ })).toHaveCount(1);
 
     await tools.getByRole("group", { name: "Drawing view" }).getByText("3D").click();
     await expect(tools.getByRole("img", { name: /yagi.*angle/i })).toBeVisible();

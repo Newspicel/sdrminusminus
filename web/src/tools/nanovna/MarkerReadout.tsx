@@ -20,20 +20,20 @@ export function MarkerReadout({ row }: { row: PointReadout }) {
       </Group>
       <Group title="Impedance">
         <Entry label="Z" value={formatImpedance(z)} accent />
-        <Entry label="Resistance" value={z === null ? "—" : `${formatNumber(z.re, 2)} Ω`} />
-        <Entry label="Reactance" value={z === null ? "—" : `${formatNumber(z.im, 2)} Ω`} />
+        <Entry label="Resistance" value={z === null ? "-" : `${formatNumber(z.re, 2)} Ω`} />
+        <Entry label="Reactance" value={z === null ? "-" : `${formatNumber(z.im, 2)} Ω`} />
         <Entry label="|Z|" value={`${formatNumber(row.impedanceMagnitude, 2)} Ω`} />
         <Entry label="Q" value={formatNumber(row.q, 2)} />
         <Entry
           label={row.component?.kind === "inductance" ? "Series L" : "Series C"}
           value={
             row.component === null
-              ? "—"
+              ? "-"
               : formatSi(row.component.value, row.component.kind === "inductance" ? "H" : "F")
           }
         />
-        <Entry label="Conductance" value={y === null ? "—" : formatSi(y.re, "S")} />
-        <Entry label="Susceptance" value={y === null ? "—" : formatSi(y.im, "S")} />
+        <Entry label="Conductance" value={y === null ? "-" : formatSi(y.re, "S")} />
+        <Entry label="Susceptance" value={y === null ? "-" : formatSi(y.im, "S")} />
       </Group>
       <Group title="Transmission">
         <Entry label="S21 gain" value={formatDb(row.s21Db)} accent />
@@ -55,7 +55,7 @@ export function SweepSummary({ analysis }: { analysis: SweepAnalysis }) {
     <div className="grid gap-x-6 gap-y-3 sm:grid-cols-2 xl:grid-cols-3">
       <Group title="Best match">
         {resonance === null ? (
-          <Entry label="Resonance" value="—" />
+          <Entry label="Resonance" value="-" />
         ) : (
           <>
             <Entry label="Frequency" value={formatHz(resonance.frequencyHz)} accent />
@@ -93,7 +93,7 @@ export function SweepSummary({ analysis }: { analysis: SweepAnalysis }) {
               label="Loaded Q"
               value={
                 analysis.transmissionBand === null
-                  ? "—"
+                  ? "-"
                   : formatNumber(analysis.transmissionBand.q, 1)
               }
             />

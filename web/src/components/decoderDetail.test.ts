@@ -446,7 +446,7 @@ describe("eventDetail", () => {
       Header: "DA07",
       Subject: "Navigational warning",
       Serial: "07",
-      "Ended with NNNN": "no — flushed early",
+      "Ended with NNNN": "no: flushed early",
       Repaired: "3 characters",
     });
     expect(detail.body).toBe("GALE WARNING\nGERMAN BIGHT");
@@ -473,7 +473,7 @@ describe("eventDetail", () => {
       Direction: "downlink",
       Sequence: "M01A",
       Acknowledges: "NAK",
-      Continues: "yes — another block follows",
+      Continues: "yes: another block follows",
     });
     expect(detail.body).toBe("POS N52.5 E013.4\nFL370");
   });
@@ -648,7 +648,7 @@ describe("eventDetail", () => {
 
     expect(Object.fromEntries(detail.fields)).toMatchObject({
       Trunking: "Tier III · traffic channel",
-      Checksum: "not verified — read on error correction alone",
+      Checksum: "not verified: read on error correction alone",
     });
   });
 

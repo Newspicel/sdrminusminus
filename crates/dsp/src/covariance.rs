@@ -5,8 +5,8 @@ use crate::linalg::MAX_ORDER;
 /// The spatial covariance every direction finder starts from.
 ///
 /// Accumulation is incremental so a processor can keep folding blocks in as they arrive, and the
-/// two corrections that make the estimate usable — forward–backward averaging and diagonal
-/// loading — are applied when the matrix is read rather than baked into the running sum.
+/// two corrections that make the estimate usable, forward–backward averaging and diagonal
+/// loading, are applied when the matrix is read rather than baked into the running sum.
 pub struct Covariance {
     order: usize,
     sum: Vec<Complex<f32>>,

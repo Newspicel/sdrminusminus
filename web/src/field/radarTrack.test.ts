@@ -13,6 +13,6 @@ describe("trackLabel", () => {
   });
 
   it("has no name for an echo the tracker has not decided about", () => {
-    expect(trackLabel(hit({ track_id: null })).startsWith("—")).toBe(true);
+    expect(trackLabel(hit({ track_id: null })).startsWith("-")).toBe(true);
   });
 });

@@ -194,7 +194,7 @@ static TEMPLATES: &[Entry] = &[
     Entry {
         id: "airband",
         name: "Airband",
-        description: "AM aircraft voice — tower, approach and ground.",
+        description: "AM aircraft voice: tower, approach and ground.",
         explainer: "Civil aviation voice is AM between 118 and 137 MHz, 25 kHz apart. \
                     Transmissions are short and sporadic: leave the squelch on and wait. \
                     The 2.4 MHz window covers roughly 117–119.3 MHz, so tower, ground and \
@@ -229,7 +229,7 @@ static TEMPLATES: &[Entry] = &[
         description: "Airline datalink text on the VHF ACARS channels.",
         explainer: "ACARS carries short text between aircraft and their airline: position \
                     reports, weather, link tests, gate changes and maintenance messages. The \
-                    allocation is regional, so five channels are decoded at once — 131.550 MHz \
+                    allocation is regional, so five channels are decoded at once: 131.550 MHz \
                     is the worldwide primary, 131.725 MHz serves Europe and 131.425 MHz the \
                     Asia-Pacific region. Traffic is bursty: near a busy airport expect a \
                     message every few seconds, elsewhere a handful per hour.",
@@ -275,7 +275,7 @@ static TEMPLATES: &[Entry] = &[
         description: "Amateur position and message packets (144.800 MHz).",
         explainer: "APRS is AX.25 packet radio at 1200 baud AFSK. Each burst is a short \
                     chirp; stations report position, weather or messages. 144.800 MHz is the \
-                    European calling frequency — North America uses 144.390 MHz.",
+                    European calling frequency: North America uses 144.390 MHz.",
         center_hz: 144_800_000.0,
         sample_rate: 1_024_000.0,
         channels: &[Channel::at(
@@ -424,7 +424,7 @@ static TEMPLATES: &[Entry] = &[
                     frequency answers which is in use: whichever locks is the mode, and the \
                     log names the talkgroup, callsign or reflector it carries while the \
                     speaker plays the decoded voice. Retune the receiver to a repeater output \
-                    near you — 439 MHz is only the middle of the segment.",
+                    near you: 439 MHz is only the middle of the segment.",
         center_hz: 439_000_000.0,
         sample_rate: 1_024_000.0,
         channels: &[
@@ -501,7 +501,7 @@ static TEMPLATES: &[Entry] = &[
                     below the noise floor, which is why 20 m stays busy even when the band \
                     sounds empty. FT8 (14.074 MHz) and FT4 (14.080 MHz) are contacts on a \
                     15 and 7.5 second clock; WSPR (14.0956 MHz) is beacons on a two-minute \
-                    one. Decoding depends on the computer clock being right — an error over \
+                    one. Decoding depends on the computer clock being right: an error over \
                     about a second costs you every FT8 slot.",
         center_hz: 14_084_800.0,
         sample_rate: 250_000.0,

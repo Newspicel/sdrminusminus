@@ -272,8 +272,8 @@ impl Engine {
 
         let changed = known.as_ref().is_some_and(|prev| *prev != ids);
         *known = Some(ids);
-        // A radio the quick search cannot name — one that answers over the network, or one whose
-        // vendor module only the deep search loads — still moved on the bus, and whoever has the
+        // A radio the quick search cannot name, one that answers over the network, or one whose
+        // vendor module only the deep search loads, still moved on the bus, and whoever has the
         // device list open is the one who should find out.
         if changed || reason == hotplug::Probe::BusChanged {
             self.emit(ServerEvent::StateChanged {

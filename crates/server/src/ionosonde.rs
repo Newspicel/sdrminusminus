@@ -105,7 +105,7 @@ impl Ionosonde {
                 let stale = cache.report.clone();
                 let report = match stale {
                     Some(mut report) => {
-                        report.error = Some(format!("{error} — showing the last good fetch"));
+                        report.error = Some(format!("{error}: showing the last good fetch"));
                         report
                     }
                     None => IonosondeReport::empty(Some(error)),

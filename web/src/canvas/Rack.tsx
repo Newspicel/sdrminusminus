@@ -185,7 +185,7 @@ function Grips({
       {edge("e", "inset-y-0 right-0 w-1.5 cursor-ew-resize", "Drag the boundary to the right")}
       <span
         aria-hidden
-        title="Move — drop on another face to trade places"
+        title="Move: drop on another face to trade places"
         className="absolute top-1.5 right-14 left-1.5 h-5 cursor-move"
         onPointerDown={(event) => onBegin(event, node, "move")}
       />

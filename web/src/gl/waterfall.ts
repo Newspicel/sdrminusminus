@@ -61,7 +61,7 @@ float footprintPeak(float tx, int row) {
 }
 
 void main() {
-  // Newest row at the top; older rows scroll downward, one history row per *layout* pixel — the
+  // Newest row at the top; older rows scroll downward, one history row per *layout* pixel: the
   // rule rowsForHeight computes, and where the reason it is not device pixels is written. uRows
   // is clamped to the ring size by the caller, so the bottom edge can never wrap back onto the
   // newest row.

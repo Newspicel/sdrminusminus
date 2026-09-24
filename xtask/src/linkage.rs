@@ -20,7 +20,7 @@ pub fn check(path: &Path, external: &[String]) -> Result<()> {
     let images = mach_o_under(path)?;
     ensure!(
         !images.is_empty(),
-        "{} holds no Mach-O files — this check reads macOS artifacts",
+        "{} holds no Mach-O files: this check reads macOS artifacts",
         path.display()
     );
     let executable_dir = executable_dir(path);
@@ -63,7 +63,7 @@ pub fn check(path: &Path, external: &[String]) -> Result<()> {
 
     ensure!(
         failures.is_empty(),
-        "{} would not launch — {} unresolved {}:\n  {}\n\nA dependency outside \
+        "{} would not launch: {} unresolved {}:\n  {}\n\nA dependency outside \
          /usr/lib and /System has to travel with the artifact. This is what an install sees, so \
          it fails here rather than on the first machine that is not the one that built it.",
         path.display(),

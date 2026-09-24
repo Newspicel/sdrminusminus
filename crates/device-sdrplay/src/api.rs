@@ -64,14 +64,14 @@ pub fn error_message(code: ffi::ErrT) -> &'static str {
         ffi::HW_VER_ERROR => "unsupported hardware version",
         13 => "out of memory",
         ffi::SERVICE_NOT_RESPONDING => {
-            "the SDRplay API service is not running — start sdrplay_apiService and retry"
+            "the SDRplay API service is not running: start sdrplay_apiService and retry"
         }
         ffi::START_PENDING => "waiting for the RSPduo master application to start",
         16 => "stop pending",
         ffi::INVALID_MODE => "invalid mode for this device",
         18..=23 => "the API failed to verify the device",
         ffi::INVALID_SERVICE_VERSION => {
-            "the installed SDRplay library and service are different versions — reinstall the API"
+            "the installed SDRplay library and service are different versions: reinstall the API"
         }
         _ => "unknown SDRplay error",
     }
@@ -465,7 +465,7 @@ fn load() -> Result<Arc<LoadedApi>, String> {
         }
     }
     Err(if failures.is_empty() {
-        "the SDRplay API is not installed — install it from https://www.sdrplay.com/downloads/ \
+        "the SDRplay API is not installed: install it from https://www.sdrplay.com/downloads/ \
          to use an RSP receiver"
             .to_string()
     } else {

@@ -161,7 +161,7 @@ pub(crate) fn beam_listener(graph: &PatchGraph, node: &str) -> Option<String> {
 /// Which channels are listening to a beam rather than to an antenna, and on which lane.
 ///
 /// The aggregator writes the summed array one past the radio's own lanes, so a channel wired to
-/// the beam is an ordinary channel on an ordinary lane — it just is not a lane the radio has.
+/// the beam is an ordinary channel on an ordinary lane: it just is not a lane the radio has.
 #[must_use]
 pub(crate) fn beam_channels(
     state: &crate::AppState,

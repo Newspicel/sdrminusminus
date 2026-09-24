@@ -20,8 +20,8 @@ export function blankStyle(background: string): MapStyle {
 /// A small self-authored style over the operator's own archive.
 ///
 /// Deliberately not a copy of a vendor style: it names only the layers every OpenMapTiles-schema
-/// extract has, so any archive cut from the usual sources draws something recognisable — land,
-/// water, roads and place names — without shipping a stylesheet nobody can maintain.
+/// extract has, so any archive cut from the usual sources draws something recognisable, land,
+/// water, roads and place names, without shipping a stylesheet nobody can maintain.
 export function offlineStyle(background: string, ink: string, line: string): MapStyle {
   return {
     version: 8,
@@ -97,7 +97,7 @@ export async function hasOfflineBasemap(): Promise<boolean> {
 }
 
 /// Which basemap to draw, given what could be reached. Online first, the operator's archive next,
-/// a plain backdrop last — and the answer says which, so the map can admit what it is showing.
+/// a plain backdrop last, and the answer says which, so the map can admit what it is showing.
 export function chooseBasemap(
   online: MapStyle | null,
   offline: boolean,

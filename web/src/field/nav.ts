@@ -24,7 +24,7 @@ export function distanceM(from: RoutePoint, to: RoutePoint): number {
 }
 
 /// How far a point is from the drawn line, measured against the nearest segment rather than the
-/// nearest vertex — a long straight leg has few vertices and a driver can be far from all of them
+/// nearest vertex: a long straight leg has few vertices and a driver can be far from all of them
 /// while still on the road.
 export function distanceToRouteM(route: Route, at: RoutePoint): number {
   if (route.polyline.length === 0) {
@@ -64,7 +64,7 @@ export interface RouteState {
 /// Whether the route has to be asked for again.
 ///
 /// Only ever a change worth a request: leaving the road, the target moving, or the guidance
-/// flipping from crossing to approaching. Never a timer — a free tier is a handful of requests a
+/// flipping from crossing to approaching. Never a timer: a free tier is a handful of requests a
 /// minute, and a timer would spend them on nothing.
 export function reroutePrompt(
   state: RouteState,
@@ -132,7 +132,7 @@ export function handoffUrl(target: RoutePoint, platform: string): string {
 
 export function formatDistance(metres: number): string {
   if (!Number.isFinite(metres)) {
-    return "—";
+    return "-";
   }
   return metres < 1_000 ? `${Math.round(metres / 10) * 10} m` : `${(metres / 1_000).toFixed(1)} km`;
 }

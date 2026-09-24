@@ -67,7 +67,7 @@ export function PlaybackTransport({ set, status }: { set: DeviceSet; status: Pla
           looping
             ? "Looping: replays from the start"
             : atEnd
-              ? "At the end — turn looping on, or stop and play again"
+              ? "At the end: turn looping on, or stop and play again"
               : "Plays once, then holds silent"
         }
         onClick={() => applyPatch(set.id, { extra: [{ name: LOOP_SETTING, value: !looping }] })}

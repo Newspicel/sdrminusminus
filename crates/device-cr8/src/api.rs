@@ -332,7 +332,7 @@ fn load() -> Result<Arc<LoadedApi>, String> {
 
 static LOADER: Mutex<Option<Loader>> = Mutex::new(None);
 
-/// The library if it is installed, and nothing at all if it is not — a machine without a CR-8
+/// The library if it is installed, and nothing at all if it is not: a machine without a CR-8
 /// simply finds no CR-8, exactly as it finds no SDRplay without that vendor's API.
 #[must_use]
 pub fn shared() -> Option<Arc<LoadedApi>> {

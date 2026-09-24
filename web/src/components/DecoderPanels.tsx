@@ -72,7 +72,7 @@ function RdsView({ scope = {} }: { scope?: DecoderScope }) {
   if (rds === null) {
     return (
       <div className={PANE}>
-        <span className={EMPTY}>No RDS yet — tune a WFM channel to a station that carries it.</span>
+        <span className={EMPTY}>No RDS yet: tune a WFM channel to a station that carries it.</span>
       </div>
     );
   }
@@ -86,7 +86,7 @@ function RdsView({ scope = {} }: { scope?: DecoderScope }) {
         <span className="font-mono text-2xl tracking-wide text-ink">
           {rds.ps?.trim() || "········"}
         </span>
-        <span className="font-mono text-sm tabular-nums text-ink-dim">PI {rds.pi ?? "—"}</span>
+        <span className="font-mono text-sm tabular-nums text-ink-dim">PI {rds.pi ?? "-"}</span>
         <span className="text-sm text-ink-dim">{ptyLabel(rds)}</span>
         <div className="ml-auto flex items-center gap-1">
           <Flag label="TP" on={rds.tp === true} />
@@ -98,7 +98,7 @@ function RdsView({ scope = {} }: { scope?: DecoderScope }) {
       <div>
         <div className="legend">RadioText</div>
         <div className="overflow-x-auto whitespace-nowrap rounded border border-line bg-panel px-2 py-1.5 font-mono text-sm text-ink">
-          {rds.radiotext?.trim() || <span className="text-ink-dim">—</span>}
+          {rds.radiotext?.trim() || <span className="text-ink-dim">-</span>}
         </div>
       </div>
 
@@ -106,7 +106,7 @@ function RdsView({ scope = {} }: { scope?: DecoderScope }) {
         <div className="flex flex-wrap items-center gap-1">
           <span className="legend">AF</span>
           {altFreqs.length === 0 ? (
-            <span className="font-mono text-xs text-ink-dim">—</span>
+            <span className="font-mono text-xs text-ink-dim">-</span>
           ) : (
             altFreqs.map((af) => (
               <span key={af} className={CHIP}>
@@ -260,7 +260,7 @@ function TargetTable({
                   <td className={`${TABLE_CELL} font-semibold`}>{row.id}</td>
                   <td className={TABLE_CELL}>{row.label}</td>
                   <td className={TABLE_CELL}>{row.primary}</td>
-                  <td className={TABLE_CELL}>{row.secondary || "—"}</td>
+                  <td className={TABLE_CELL}>{row.secondary || "-"}</td>
                   <td className={TABLE_CELL}>{row.position}</td>
                   <td className={`${TABLE_CELL} text-right`}>{formatAge(row.ageMs)}</td>
                 </tr>
@@ -542,28 +542,28 @@ const DECT_CIPHER_CHIP: Record<string, string> = {
 };
 
 function dectSupport(value: boolean | null): string {
-  return value === null ? "—" : value ? "yes" : "no";
+  return value === null ? "-" : value ? "yes" : "no";
 }
 
 function DectRow({ station }: { station: DectStation }) {
   return (
     <tr>
-      <td className={`${TABLE_CELL} font-mono`}>{station.rfpi ?? "—"}</td>
-      <td className={TABLE_CELL}>{station.arc === null ? "—" : station.arc.toUpperCase()}</td>
+      <td className={`${TABLE_CELL} font-mono`}>{station.rfpi ?? "-"}</td>
+      <td className={TABLE_CELL}>{station.arc === null ? "-" : station.arc.toUpperCase()}</td>
       <td className={TABLE_CELL}>
         {station.carrier === null
-          ? "—"
+          ? "-"
           : station.carrierHz === null
             ? String(station.carrier)
             : `${station.carrier} · ${formatHz(station.carrierHz)}`}
       </td>
-      <td className={TABLE_CELL}>{station.slotPair === null ? "—" : String(station.slotPair)}</td>
+      <td className={TABLE_CELL}>{station.slotPair === null ? "-" : String(station.slotPair)}</td>
       <td className={TABLE_CELL}>{dectSupport(station.authentication)}</td>
       <td className={TABLE_CELL}>{dectSupport(station.ciphering)}</td>
       <td className={TABLE_CELL}>
         <span className={CHIP}>{DECT_CIPHER_CHIP[station.cipherState] ?? station.cipherState}</span>
       </td>
-      <td className={TABLE_CELL}>{station.handsets === 0 ? "—" : String(station.handsets)}</td>
+      <td className={TABLE_CELL}>{station.handsets === 0 ? "-" : String(station.handsets)}</td>
       <td className={TABLE_CELL}>{station.levelDbfs.toFixed(1)}</td>
       <td className={TABLE_CELL}>
         {station.bursts}
@@ -692,7 +692,7 @@ function PicturesView({ scope = {} }: { scope?: DecoderScope }) {
     return (
       <div className={PANE}>
         <span className={EMPTY}>
-          No picture received yet — a scanning transmission takes between 36 s and four minutes.
+          No picture received yet: a scanning transmission takes between 36 s and four minutes.
         </span>
       </div>
     );

@@ -433,7 +433,7 @@ fn print_catalog_numbers() {
         println!(
             "{:<32} 1e-3 at {:>7} dB  {}",
             m.stem,
-            limits::ebn0_at_ber(&curve, 1e-3).map_or("—".to_string(), |v| format!("{v:.2}")),
+            limits::ebn0_at_ber(&curve, 1e-3).map_or("-".to_string(), |v| format!("{v:.2}")),
             gap.unwrap_or_else(|| "commit-and-guard".to_string())
         );
     }

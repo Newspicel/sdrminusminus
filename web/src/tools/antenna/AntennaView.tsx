@@ -81,7 +81,7 @@ export function AntennaView({
   }, [grid, report.geometry, angles]);
 
   const ruler = scaleBar(drawn.fit.scale, VIEWPORT.width / 4, unit);
-  const view = mode === "plan" ? plan.label : "Orbit — drag to turn";
+  const view = mode === "plan" ? plan.label : "Orbit: drag to turn";
 
   return (
     <div className="flex flex-col gap-2">
@@ -245,7 +245,7 @@ function Piece({
       onPointerEnter={() => onHighlight(segment.label)}
       onPointerLeave={() => onHighlight(null)}
     >
-      <title>{`${segment.label} — ${formatLength(length, unit)}`}</title>
+      <title>{`${segment.label}: ${formatLength(length, unit)}`}</title>
     </line>
   );
 }

@@ -1104,7 +1104,7 @@ fn desktop(root: &Path, target: Option<&str>, bundles: Option<&str>) -> Result<(
     let unsigned = std::env::var_os("TAURI_SIGNING_PRIVATE_KEY").is_none();
     if unsigned {
         println!(
-            "note: TAURI_SIGNING_PRIVATE_KEY is unset — bundling unsigned, so these installers \
+            "note: TAURI_SIGNING_PRIVATE_KEY is unset: bundling unsigned, so these installers \
              cannot be served to the updater."
         );
     }
@@ -1419,7 +1419,7 @@ fn fuzz_targets(target: Option<&str>) -> Result<Vec<&str>> {
 fn fuzz(root: &Path, target: Option<&str>, seconds: u64, jobs: u8, minimize: bool) -> Result<()> {
     ensure_tool("fuzz", "cargo-fuzz")?;
     // cargo-fuzz defaults to the triple its own binary was built for, and the prebuilt one is a
-    // musl static build — a target no sanitizer can link against. The host is what we fuzz.
+    // musl static build: a target no sanitizer can link against. The host is what we fuzz.
     let host = host_target()?;
     let budget = format!("-max_total_time={seconds}");
     let workers = jobs.to_string();
@@ -1453,7 +1453,7 @@ fn audit(root: &Path) -> Result<()> {
 }
 
 // Playwright starts the server with `cargo run -p sdrmm` under a fixed webServer timeout, and that
-// binary pulls in the hardware and GPU features nothing else in the gate builds — a cold cache
+// binary pulls in the hardware and GPU features nothing else in the gate builds: a cold cache
 // turns the launch into a full rebuild and the timeout fires before the port opens.
 fn build_smoke_server(root: &Path) -> Result<()> {
     run("cargo", &["build", "-p", "sdrmm"], root)
@@ -1509,7 +1509,7 @@ fn fixtures(root: &Path) -> Result<()> {
         SIGGEN_RATE,
         CENTER_HZ,
         "Signal Generator (virtual)",
-        "1 s of the virtual siggen — the record/replay fixture",
+        "1 s of the virtual siggen: the record/replay fixture",
     )?;
 
     for fixture in decoder_fixtures() {
@@ -1989,7 +1989,7 @@ fn write_fixture(
         iq.len()
     );
     println!(
-        "{stem_name}: {} samples, {:.2} s @ {} — {note}",
+        "{stem_name}: {} samples, {:.2} s @ {}: {note}",
         iq.len(),
         iq.len() as f64 / rate,
         sdrmm_wire::units::sample_rate(rate),

@@ -104,7 +104,7 @@ export function SignalGenFace({ node }: { node: PatchNode }) {
         <Button
           type="button"
           className={BTN_QUIET}
-          title="Stop generating and free the node — the wires stay drawn"
+          title="Stop generating and free the node: the wires stay drawn"
           onClick={() => stop.mutate()}
           disabled={stop.isPending}
         >

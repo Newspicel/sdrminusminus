@@ -38,7 +38,7 @@ export function TriangulationFace({ node }: { node: PatchNode }) {
         >
           <Readout>
             <ReadoutRow label="Estimate">
-              {estimate === null ? "—" : `${estimate.lat.toFixed(5)}, ${estimate.lon.toFixed(5)}`}
+              {estimate === null ? "-" : `${estimate.lat.toFixed(5)}, ${estimate.lon.toFixed(5)}`}
             </ReadoutRow>
             <ReadoutRow
               label="Spread"
@@ -48,7 +48,7 @@ export function TriangulationFace({ node }: { node: PatchNode }) {
             </ReadoutRow>
             <ReadoutRow label="Guidance">
               {fusion?.guidance === undefined || fusion.guidance === null
-                ? "—"
+                ? "-"
                 : `${GUIDANCE_TEXT[fusion.guidance.mode]} · ${Math.round(fusion.guidance.heading_deg)}°`}
             </ReadoutRow>
             <ReadoutRow label="Bearings">{fusion?.samples ?? 0}</ReadoutRow>

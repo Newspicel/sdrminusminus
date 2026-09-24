@@ -27,7 +27,7 @@ pub(crate) struct LaneGap {
 /// The capture callback's end of one lane's coherent tap.
 ///
 /// Dormant it costs a relaxed load. Armed it copies the block and, whenever the stream index
-/// skips — a device drop, a full ring, or the window where nothing was listening — leaves a
+/// skips, a device drop, a full ring, or the window where nothing was listening, leaves a
 /// record of exactly which samples are absent instead of quietly shortening the lane.
 pub(crate) struct LaneTap {
     samples: Producer<Complex<f32>>,

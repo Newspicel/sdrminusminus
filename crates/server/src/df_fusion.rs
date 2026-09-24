@@ -314,7 +314,7 @@ pub(crate) struct FusionHub {
 }
 
 /// What one new bearing changed: the state to publish, and whether this was the moment the fix
-/// closed up — the one worth telling everyone about.
+/// closed up: the one worth telling everyone about.
 pub(crate) struct FusionOutcome {
     pub(crate) state: DfFusionState,
     pub(crate) first_fix: Option<DfEstimate>,

@@ -24,7 +24,7 @@ export function ThemeControl() {
       type="button"
       className={ICON_BTN}
       aria-label={`Theme: ${NAMES[choice]}. Switch to ${NAMES[next]}`}
-      title={`Theme: ${NAMES[choice]} — click for ${NAMES[next]}`}
+      title={`Theme: ${NAMES[choice]}, click for ${NAMES[next]}`}
       onClick={() => setTheme(next)}
     >
       <Icon glyph={THEME_ICONS[choice]} size={16} />
