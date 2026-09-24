@@ -30,6 +30,7 @@ ffmpeg-the-third.workspace = true
 mfsk-core.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+flate2.workspace = true
 xng-mode-dsc.workspace = true
 xng-mode-stdc.workspace = true
 xng-mode-vdl2.workspace = true
