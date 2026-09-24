@@ -134,13 +134,13 @@ pub fn pi4_dqpsk_link() -> Link {
 #[must_use]
 pub fn pi4_dqpsk_coherent_link() -> Link {
     coherent_differential_link(
-        "π/4-dqpsk uncoded, coherent tier: 4th-power Costas -> unique-word anchor -> slice -> \
+        "π/4-dqpsk uncoded, coherent tier: de-rotate -> 4th-power Costas -> unique-word anchor -> slice -> \
          differential decode of the indices, RRC α=0.35 span 8, 8 sps, 48 kHz 6000 baud",
         params(tables::psk(4), tables::PI_4_ROTATION, false),
         4,
         || {
             Some(CarrierLoop::new(
-                PhaseDetector::MthPower { m: 8 },
+                PhaseDetector::MthPower { m: 4 },
                 PSK_LOOP_BW,
             ))
         },

@@ -63,6 +63,7 @@ fn unit_power(y: Complex<f32>, m: u32) -> Complex<f64> {
 pub struct CarrierLoop {
     detector: PhaseDetector,
     filter: LoopFilter,
+    loop_bw: f64,
     phase: f64,
     fll_gain: f64,
     fll_freq: f64,
@@ -78,6 +79,7 @@ impl CarrierLoop {
         Self {
             detector,
             filter: LoopFilter::new(loop_bw, DAMPING, FREQ_LIMIT_CYCLES_PER_SYMBOL),
+            loop_bw,
             phase: 0.0,
             fll_gain: 0.0,
             fll_freq: 0.0,
@@ -112,6 +114,48 @@ impl CarrierLoop {
         out
     }
 
+    pub fn smooth(
+        &mut self,
+        symbols: &mut [Complex<f32>],
+        table: &Constellation,
+        backward: &mut Vec<f64>,
+    ) {
+        let mut probe = self.clone();
+        let mut phase_at_last = probe.phase;
+        for &y in symbols.iter() {
+            phase_at_last = probe.phase;
+            let _ = probe.advance(y, table);
+        }
+        probe.turn_around(phase_at_last);
+        backward.clear();
+        backward.resize(symbols.len(), 0.0);
+        for (k, &y) in symbols.iter().enumerate().rev() {
+            backward[k] = probe.phase;
+            let _ = probe.advance(y, table);
+        }
+        let Some(&first) = backward.first() else {
+            return;
+        };
+        *self = probe;
+        self.turn_around(first);
+        let branch = TAU / f64::from(self.acquisition_order(table).max(1));
+        for (y, &behind) in symbols.iter_mut().zip(backward.iter()) {
+            let ahead = self.phase;
+            let _ = self.advance(*y, table);
+            let gap = wrap(behind - ahead);
+            let aligned = gap - branch * (gap / branch).round();
+            let theta = -(ahead + 0.5 * aligned);
+            *y *= Complex::new(theta.cos() as f32, theta.sin() as f32);
+        }
+    }
+
+    fn turn_around(&mut self, phase: f64) {
+        self.phase = phase;
+        self.filter.reset(-self.filter.freq_norm());
+        self.fll_freq = -self.fll_freq;
+        self.last_stripped = None;
+    }
+
     fn advance_frequency_aid(&mut self, y: Complex<f32>) -> f64 {
         let PhaseDetector::MthPower { m } = self.detector else {
             return 0.0;
@@ -129,6 +173,20 @@ impl CarrierLoop {
         }
         self.last_stripped = Some(stripped);
         self.fll_freq
+    }
+
+    #[must_use]
+    pub fn loop_bw(&self) -> f64 {
+        self.loop_bw
+    }
+
+    #[must_use]
+    pub fn acquisition_order(&self, table: &Constellation) -> u32 {
+        let symmetry = table.rotational_order();
+        match self.detector {
+            PhaseDetector::MthPower { m } => m.min(symmetry),
+            PhaseDetector::DecisionDirected => symmetry,
+        }
     }
 
     #[must_use]

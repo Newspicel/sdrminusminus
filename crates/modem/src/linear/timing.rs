@@ -1,14 +1,28 @@
 use num_complex::Complex;
 use sdrmm_dsp::{Decimator, farrow};
 
-use super::params::LinearParams;
+use super::{acquire::FrequencyAcquisition, params::LinearParams};
 
 pub const MIN_SPS: usize = 4;
+
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub enum TimingMetric {
+    #[default]
+    SquareLaw,
+    RotatedPower {
+        rotation_rad: f64,
+        order: u32,
+    },
+}
 
 pub struct FeedforwardTiming {
     matched: Decimator,
     sps: usize,
+    metric: TimingMetric,
     filtered: Vec<Complex<f32>>,
+    lines: Vec<Complex<f64>>,
+    acquisition: FrequencyAcquisition,
+    candidates: Vec<Complex<f32>>,
 }
 
 impl FeedforwardTiming {
@@ -31,16 +45,260 @@ impl FeedforwardTiming {
         Self {
             matched: Decimator::new(receive_filter, 1),
             sps: params.sps(),
+            metric: TimingMetric::SquareLaw,
             filtered: Vec::new(),
+            lines: Vec::new(),
+            acquisition: FrequencyAcquisition::new(),
+            candidates: Vec::new(),
         }
+    }
+
+    #[must_use]
+    pub fn with_metric(mut self, metric: TimingMetric) -> Self {
+        self.metric = metric;
+        self
     }
 
     pub fn process(&mut self, iq: &[Complex<f32>], out: &mut Vec<Complex<f32>>) -> f64 {
         self.matched.process(iq, &mut self.filtered);
-        let offset = square_law_offset(&self.filtered, self.sps);
-        resample_at(&self.filtered, self.sps, offset, out);
-        offset
+        let track = match self.metric {
+            TimingMetric::SquareLaw => square_law_track(&self.filtered, self.sps, &mut self.lines),
+            TimingMetric::RotatedPower {
+                rotation_rad,
+                order,
+            } => TimingTrack {
+                offset_samples: rotated_power_offset(
+                    &self.filtered,
+                    self.sps,
+                    rotation_rad,
+                    order,
+                    &mut self.acquisition,
+                    &mut self.candidates,
+                ),
+                at_sample: 0.0,
+                rate: 0.0,
+            },
+        };
+        track.resample(&self.filtered, self.sps, out);
+        track.offset_at(0.0, self.sps)
     }
+}
+
+pub const TRACK_BLOCK_SYMBOLS: usize = 64;
+
+const MIN_RATE_SIGMAS: f64 = 4.0;
+
+const STEP_SEARCH_OVERSAMPLE: usize = 4;
+
+const MIN_RATE_EXCURSION_SAMPLES: f64 = 0.05;
+
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct TimingTrack {
+    pub offset_samples: f64,
+    pub at_sample: f64,
+    pub rate: f64,
+}
+
+impl TimingTrack {
+    #[must_use]
+    pub fn offset_at(&self, sample: f64, sps: usize) -> f64 {
+        (self.offset_samples + self.rate * (sample - self.at_sample)).rem_euclid(sps as f64)
+    }
+
+    pub fn resample(&self, filtered: &[Complex<f32>], sps: usize, out: &mut Vec<Complex<f32>>) {
+        let anchor = self.offset_samples - self.rate * self.at_sample;
+        let step = sps as f64 / (1.0 - self.rate);
+        let origin = anchor / (1.0 - self.rate);
+        let first = ((1.0 - origin) / step).ceil();
+        let mut k = first;
+        loop {
+            let position = origin + k * step;
+            if (position as usize) + 2 >= filtered.len() {
+                break;
+            }
+            let base = position as usize;
+            let mu = (position - base as f64) as f32;
+            out.push(farrow(&filtered[base - 1..base + 3], mu));
+            k += 1.0;
+        }
+    }
+}
+
+pub fn square_law_track(
+    filtered: &[Complex<f32>],
+    sps: usize,
+    lines: &mut Vec<Complex<f64>>,
+) -> TimingTrack {
+    let block = TRACK_BLOCK_SYMBOLS * sps;
+    let blocks = filtered.len() / block;
+    let whole = TimingTrack {
+        offset_samples: square_law_offset(filtered, sps),
+        at_sample: 0.0,
+        rate: 0.0,
+    };
+    if blocks < 2 {
+        return whole;
+    }
+    lines.clear();
+    lines.extend(
+        filtered
+            .chunks_exact(block)
+            .map(|b| square_law_line(b, sps)),
+    );
+    let centre = (blocks as f64 - 1.0) / 2.0;
+    let coarse = strongest_step(lines, centre);
+    let derotate = |b: usize, step: f64| Complex::from_polar(1.0, -step * (b as f64 - centre));
+    let mean: Complex<f64> = lines
+        .iter()
+        .enumerate()
+        .map(|(b, &l)| l * derotate(b, coarse))
+        .sum();
+    if mean.norm() <= 0.0 {
+        return whole;
+    }
+    let fit = residual_slope(lines, coarse, mean, centre);
+    let total = coarse + fit.slope;
+    let excursion = (total * centre * sps as f64 / std::f64::consts::TAU).abs();
+    let step = if total.abs() >= MIN_RATE_SIGMAS * fit.standard_error
+        && excursion >= MIN_RATE_EXCURSION_SAMPLES
+    {
+        total
+    } else {
+        0.0
+    };
+    let acc: Complex<f64> = lines
+        .iter()
+        .enumerate()
+        .map(|(b, &l)| l * derotate(b, step))
+        .sum();
+    let to_samples = -(sps as f64) / std::f64::consts::TAU;
+    TimingTrack {
+        offset_samples: (acc.arg() * to_samples).rem_euclid(sps as f64),
+        at_sample: (centre + 0.5) * block as f64,
+        rate: step * to_samples / block as f64,
+    }
+}
+
+fn strongest_step(lines: &[Complex<f64>], centre: f64) -> f64 {
+    let bins = STEP_SEARCH_OVERSAMPLE * lines.len();
+    let power = |step: f64| {
+        lines
+            .iter()
+            .enumerate()
+            .map(|(b, &l)| l * Complex::from_polar(1.0, -step * (b as f64 - centre)))
+            .sum::<Complex<f64>>()
+            .norm()
+    };
+    let spacing = std::f64::consts::TAU / bins as f64;
+    let step_of = |i: usize| (i as f64 - (bins / 2) as f64) * spacing;
+    let Some((best, _)) = (0..bins)
+        .map(|i| (i, power(step_of(i))))
+        .max_by(|a, b| a.1.total_cmp(&b.1))
+    else {
+        return 0.0;
+    };
+    let (left, mid, right) = (
+        power(step_of(best) - spacing),
+        power(step_of(best)),
+        power(step_of(best) + spacing),
+    );
+    let curvature = left - 2.0 * mid + right;
+    let shift = if curvature < 0.0 {
+        (0.5 * (left - right) / curvature).clamp(-0.5, 0.5)
+    } else {
+        0.0
+    };
+    step_of(best) + shift * spacing
+}
+
+pub fn rotated_power_offset(
+    filtered: &[Complex<f32>],
+    sps: usize,
+    rotation_rad: f64,
+    order: u32,
+    acquisition: &mut FrequencyAcquisition,
+    symbols: &mut Vec<Complex<f32>>,
+) -> f64 {
+    let mut metric = |offset: usize| -> f64 {
+        symbols.clear();
+        symbols.extend(
+            (offset..filtered.len())
+                .step_by(sps)
+                .enumerate()
+                .map(|(k, n)| {
+                    let turn = (-rotation_rad * k as f64).rem_euclid(std::f64::consts::TAU);
+                    filtered[n] * Complex::new(turn.cos() as f32, turn.sin() as f32)
+                }),
+        );
+        acquisition.peak_power(symbols, order).sqrt()
+    };
+    let scores: Vec<f64> = (0..sps).map(&mut metric).collect();
+    let Some((best, _)) = scores.iter().enumerate().max_by(|a, b| a.1.total_cmp(b.1)) else {
+        return 0.0;
+    };
+    let (left, mid, right) = (
+        scores[(best + sps - 1) % sps],
+        scores[best],
+        scores[(best + 1) % sps],
+    );
+    let curvature = left - 2.0 * mid + right;
+    let shift = if curvature < 0.0 {
+        (0.5 * (left - right) / curvature).clamp(-0.5, 0.5)
+    } else {
+        0.0
+    };
+    (best as f64 + shift).rem_euclid(sps as f64)
+}
+
+struct SlopeFit {
+    slope: f64,
+    standard_error: f64,
+}
+
+fn residual_slope(
+    lines: &[Complex<f64>],
+    coarse: f64,
+    mean: Complex<f64>,
+    centre: f64,
+) -> SlopeFit {
+    let rotate = |b: usize| Complex::from_polar(1.0, -coarse * (b as f64 - centre));
+    let residual = |b: usize, l: Complex<f64>| (l * rotate(b) * mean.conj()).arg();
+    let (mut num, mut den, mut weight) = (0.0f64, 0.0f64, 0.0f64);
+    for (b, &l) in lines.iter().enumerate() {
+        let t = b as f64 - centre;
+        let w = l.norm();
+        num += w * t * residual(b, l);
+        den += w * t * t;
+        weight += w;
+    }
+    if den <= 0.0 || weight <= 0.0 || lines.len() < 3 {
+        return SlopeFit {
+            slope: 0.0,
+            standard_error: f64::INFINITY,
+        };
+    }
+    let slope = num / den;
+    let scatter: f64 = lines
+        .iter()
+        .enumerate()
+        .map(|(b, &l)| l.norm() * (residual(b, l) - slope * (b as f64 - centre)).powi(2))
+        .sum::<f64>()
+        / weight
+        * lines.len() as f64
+        / (lines.len() - 2) as f64;
+    SlopeFit {
+        slope,
+        standard_error: (scatter * weight / lines.len() as f64 / den).sqrt(),
+    }
+}
+
+fn square_law_line(filtered: &[Complex<f32>], sps: usize) -> Complex<f64> {
+    let mut acc = Complex::new(0.0f64, 0.0);
+    for (n, y) in filtered.iter().enumerate() {
+        let theta = -std::f64::consts::TAU * (n % sps) as f64 / sps as f64;
+        acc += Complex::new(theta.cos(), theta.sin()) * f64::from(y.norm_sqr());
+    }
+    acc
 }
 
 #[must_use]

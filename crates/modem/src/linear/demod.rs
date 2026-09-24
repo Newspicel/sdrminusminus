@@ -1,7 +1,13 @@
 use num_complex::Complex;
 use sdrmm_dsp::{Decimator, SymbolSync};
 
-use super::{carrier::CarrierLoop, params::LinearParams, timing::FeedforwardTiming};
+use super::{
+    acquire::{Chirp, FrequencyAcquisition},
+    carrier::CarrierLoop,
+    frontend::{FrontCorrection, FrontEstimator},
+    params::LinearParams,
+    timing::{FeedforwardTiming, TimingMetric},
+};
 
 pub const TIMING_BW_CONTINUOUS: f64 = 0.003;
 
@@ -27,12 +33,62 @@ impl LinearTiming {
 
 const INITIAL_POWER: f32 = 1.0;
 
+const TIMING_MISFIT_SYMBOLS: f32 = 64.0;
+
+const TRUST_MISFIT: f32 = 0.08;
+
+const DISTRUST_MISFIT: f32 = 0.11;
+
+struct DecisionTiming {
+    previous: Complex<f32>,
+    previous_decision: Complex<f32>,
+    misfit: f32,
+    trusted: bool,
+    spacing: f32,
+}
+
+impl DecisionTiming {
+    fn new(params: &LinearParams) -> Self {
+        Self {
+            previous: Complex::new(0.0, 0.0),
+            previous_decision: Complex::new(0.0, 0.0),
+            misfit: 1.0,
+            trusted: false,
+            spacing: params.constellation().min_distance().max(f64::MIN_POSITIVE) as f32,
+        }
+    }
+
+    fn error(&mut self, z: Complex<f32>, decision: Complex<f32>) -> Option<f64> {
+        let miss = (z - decision).norm_sqr() / (self.spacing * self.spacing);
+        self.misfit += (miss - self.misfit) / TIMING_MISFIT_SYMBOLS;
+        self.trusted = if self.trusted {
+            self.misfit < DISTRUST_MISFIT
+        } else {
+            self.misfit < TRUST_MISFIT
+        };
+        let raw = (self.previous_decision.conj() * z - decision.conj() * self.previous).re;
+        self.previous = z;
+        self.previous_decision = decision;
+        self.trusted
+            .then(|| -f64::from(raw) / std::f64::consts::PI)
+            .filter(|e| e.is_finite())
+    }
+
+    fn reset(&mut self) {
+        self.previous = Complex::new(0.0, 0.0);
+        self.previous_decision = Complex::new(0.0, 0.0);
+        self.misfit = 1.0;
+        self.trusted = false;
+    }
+}
+
 struct SymbolStage {
     carrier: Option<CarrierLoop>,
     params: LinearParams,
     power: f32,
     power_alpha: f32,
     symbols_out: u64,
+    timing: DecisionTiming,
 }
 
 impl SymbolStage {
@@ -47,10 +103,25 @@ impl SymbolStage {
                 0.0
             },
             symbols_out: 0,
+            timing: DecisionTiming::new(params),
         }
     }
 
+    fn push_steering(&mut self, y: Complex<f32>) -> (Complex<f32>, Option<f64>) {
+        let z = self.push(y);
+        if self.carrier.is_none() {
+            return (z, None);
+        }
+        let decision = self.params.constellation().nearest(z);
+        (z, self.timing.error(z, decision))
+    }
+
     fn push(&mut self, y: Complex<f32>) -> Complex<f32> {
+        let symbol = self.prepare(y);
+        self.track(symbol)
+    }
+
+    fn prepare(&mut self, y: Complex<f32>) -> Complex<f32> {
         self.power += self.power_alpha * (y.norm_sqr() - self.power);
         let scale = self.power.max(f32::MIN_POSITIVE).sqrt().recip();
         let mut symbol = y * scale;
@@ -59,11 +130,21 @@ impl SymbolStage {
                 -((self.symbols_out as f64 * self.params.rotation_rad()) % std::f64::consts::TAU);
             symbol *= Complex::new(theta.cos() as f32, theta.sin() as f32);
         }
-        if let Some(carrier) = &mut self.carrier {
-            symbol = carrier.advance(symbol, self.params.constellation());
-        }
         self.symbols_out += 1;
         symbol
+    }
+
+    fn track(&mut self, symbol: Complex<f32>) -> Complex<f32> {
+        match &mut self.carrier {
+            Some(carrier) => carrier.advance(symbol, self.params.constellation()),
+            None => symbol,
+        }
+    }
+
+    fn acquisition_order(&self) -> Option<u32> {
+        self.carrier
+            .as_ref()
+            .map(|c| c.acquisition_order(self.params.constellation()))
     }
 
     fn reset(&mut self) {
@@ -72,6 +153,7 @@ impl SymbolStage {
         }
         self.power = INITIAL_POWER;
         self.symbols_out = 0;
+        self.timing.reset();
     }
 }
 
@@ -118,7 +200,6 @@ pub struct LinearDemod {
     stagger: Unstagger,
     aligned: Vec<Complex<f32>>,
     filtered: Vec<Complex<f32>>,
-    retimed: Vec<Complex<f32>>,
 }
 
 impl LinearDemod {
@@ -137,7 +218,6 @@ impl LinearDemod {
             stagger: Unstagger::new(params.stagger_samples()),
             aligned: Vec::new(),
             filtered: Vec::new(),
-            retimed: Vec::new(),
         }
     }
 
@@ -157,11 +237,12 @@ impl LinearDemod {
     pub fn process(&mut self, iq: &[Complex<f32>], out: &mut Vec<Complex<f32>>) {
         self.stagger.apply(iq, &mut self.aligned);
         self.matched.process(&self.aligned, &mut self.filtered);
-        self.retimed.clear();
-        self.sync.process(&self.filtered, &mut self.retimed);
-        for &y in &self.retimed {
-            out.push(self.stage.push(y));
-        }
+        let stage = &mut self.stage;
+        self.sync.process_steered(&self.filtered, |y| {
+            let (z, err) = stage.push_steering(y);
+            out.push(z);
+            err
+        });
     }
 
     pub fn reset(&mut self) {
@@ -172,7 +253,13 @@ impl LinearDemod {
 }
 
 pub struct LinearBurstDemod {
+    front: FrontEstimator,
+    correction: FrontCorrection,
+    corrected: Vec<Complex<f32>>,
     timing: FeedforwardTiming,
+    acquisition: FrequencyAcquisition,
+    chirp: Chirp,
+    backward: Vec<f64>,
     stage: SymbolStage,
     stagger: Unstagger,
     aligned: Vec<Complex<f32>>,
@@ -188,7 +275,13 @@ impl LinearBurstDemod {
         carrier: Option<CarrierLoop>,
     ) -> Self {
         Self {
+            front: FrontEstimator::for_params(params),
+            correction: FrontCorrection::default(),
+            corrected: Vec::new(),
             timing: FeedforwardTiming::new(params, receive_filter),
+            acquisition: FrequencyAcquisition::new(),
+            chirp: Chirp::default(),
+            backward: Vec::new(),
             stage: SymbolStage::new(params, power_symbols, carrier),
             stagger: Unstagger::new(params.stagger_samples()),
             aligned: Vec::new(),
@@ -202,21 +295,57 @@ impl LinearBurstDemod {
     }
 
     pub fn process(&mut self, iq: &[Complex<f32>], out: &mut Vec<Complex<f32>>) -> f64 {
-        self.stagger.apply(iq, &mut self.aligned);
+        self.correction = self.front.estimate(iq);
+        self.corrected.clear();
+        self.corrected.extend_from_slice(iq);
+        self.correction.apply(&mut self.corrected);
+        self.stagger.apply(&self.corrected, &mut self.aligned);
         self.retimed.clear();
         let offset = self.timing.process(&self.aligned, &mut self.retimed);
-        for &y in &self.retimed {
-            out.push(self.stage.push(y));
+        for y in &mut self.retimed {
+            *y = self.stage.prepare(*y);
         }
+        self.chirp = self
+            .stage
+            .acquisition_order()
+            .and_then(|order| self.acquisition.estimate(&self.retimed, order))
+            .unwrap_or_default();
+        self.chirp.remove(&mut self.retimed);
+        if let Some(carrier) = &mut self.stage.carrier {
+            carrier.smooth(
+                &mut self.retimed,
+                self.stage.params.constellation(),
+                &mut self.backward,
+            );
+        }
+        out.extend_from_slice(&self.retimed);
         offset
     }
 
     #[must_use]
     pub fn carrier_freq_cycles_per_symbol(&self) -> f64 {
-        self.stage
-            .carrier
-            .as_ref()
-            .map_or(0.0, CarrierLoop::freq_cycles_per_symbol)
+        self.chirp.centre_cycles_per_symbol
+            + self
+                .stage
+                .carrier
+                .as_ref()
+                .map_or(0.0, CarrierLoop::freq_cycles_per_symbol)
+    }
+
+    #[must_use]
+    pub fn with_timing_metric(mut self, metric: TimingMetric) -> Self {
+        self.timing = self.timing.with_metric(metric);
+        self
+    }
+
+    #[must_use]
+    pub fn front_correction(&self) -> FrontCorrection {
+        self.correction
+    }
+
+    #[must_use]
+    pub fn chirp(&self) -> Chirp {
+        self.chirp
     }
 }
 

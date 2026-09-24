@@ -1,34 +1,34 @@
 {
-  "label": "16-qam uncoded, tracking timing tier: LinearMod -> SymbolSync (bw 0.005) -> decision-directed Costas -> unique-word anchor, RRC α=0.35 span 8, 8 S/sym, 48 kHz 6000 baud, uncoded BER, seed 0x9a17",
+  "label": "16-qam uncoded, tracking timing tier: LinearMod -> SymbolSync (bw 0.005, decision-steered) -> decision-directed Costas -> unique-word anchor, RRC α=0.35 span 8, 8 sps, 48 kHz 6000 baud, uncoded BER, seed 0x9a17",
   "points": [
     {
       "ebn0_db": 8.0,
-      "errors": 2124,
+      "errors": 2079,
       "trials": 131072
     },
     {
       "ebn0_db": 9.0,
-      "errors": 2214,
-      "trials": 262144
+      "errors": 2026,
+      "trials": 294912
     },
     {
       "ebn0_db": 10.0,
-      "errors": 2117,
-      "trials": 524288
+      "errors": 2085,
+      "trials": 753664
     },
     {
       "ebn0_db": 11.0,
-      "errors": 2056,
-      "trials": 1015808
+      "errors": 2000,
+      "trials": 1933312
     },
     {
       "ebn0_db": 12.0,
-      "errors": 2007,
-      "trials": 2260992
+      "errors": 1156,
+      "trials": 4030464
     },
     {
       "ebn0_db": 13.0,
-      "errors": 1541,
+      "errors": 275,
       "trials": 4030464
     }
   ]

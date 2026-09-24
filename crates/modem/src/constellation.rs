@@ -141,6 +141,23 @@ impl Constellation {
     }
 
     #[must_use]
+    pub fn rotational_order(&self) -> u32 {
+        const MAX_ORDER: u32 = 64;
+        let tolerance = 1e-3 * self.min_distance().max(f64::MIN_POSITIVE);
+        (1..=MAX_ORDER)
+            .rev()
+            .find(|&m| self.is_invariant_under(std::f64::consts::TAU / f64::from(m), tolerance))
+            .unwrap_or(1)
+    }
+
+    fn is_invariant_under(&self, theta: f64, tolerance: f64) -> bool {
+        let rot = Complex::new(theta.cos() as f32, theta.sin() as f32);
+        self.points
+            .iter()
+            .all(|&p| f64::from((self.nearest(p * rot) - p * rot).norm()) <= tolerance)
+    }
+
+    #[must_use]
     pub fn hard_slice(&self, y: Complex<f32>) -> u32 {
         let mut best = 0usize;
         let mut best_d2 = f64::INFINITY;
@@ -160,6 +177,22 @@ impl Constellation {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_rotational_order_is_the_table_symmetry() {
+        for (name, table, want) in [
+            ("ook", tables::ook().unwrap(), 1u32),
+            ("bpsk", tables::pam(2).unwrap(), 2),
+            ("pam4", tables::pam(4).unwrap(), 2),
+            ("qpsk", tables::qam_square(4).unwrap(), 4),
+            ("8psk", tables::psk(8).unwrap(), 8),
+            ("qam16", tables::qam_square(16).unwrap(), 4),
+            ("cross32", tables::qam_cross(32).unwrap(), 4),
+            ("apsk16", tables::apsk16_dvbs2(2.57).unwrap(), 4),
+        ] {
+            assert_eq!(table.rotational_order(), want, "{name}");
+        }
+    }
 
     fn gray_4pam() -> Constellation {
         Constellation::from_points(

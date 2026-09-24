@@ -1,34 +1,34 @@
 {
-  "label": "8-psk uncoded, LinearMod -> feedforward timing -> 8th-power Costas -> unique-word anchor, RRC α=0.35 span 8, 8 S/sym, 48 kHz 6000 baud, 64+32+16 symbol overhead in Eb, uncoded BER, seed 0x8b5c",
+  "label": "8-psk uncoded, LinearMod -> feedforward timing -> 8th-power Costas -> unique-word anchor, RRC α=0.35 span 8, 8 sps, 48 kHz 6000 baud, 64+32+16 symbol overhead in Eb, uncoded BER, seed 0x8b5c",
   "points": [
     {
       "ebn0_db": 7.0,
-      "errors": 2324,
+      "errors": 2244,
       "trials": 147456
     },
     {
       "ebn0_db": 8.0,
-      "errors": 2074,
+      "errors": 2025,
       "trials": 245760
     },
     {
       "ebn0_db": 9.0,
-      "errors": 2082,
+      "errors": 2038,
       "trials": 516096
     },
     {
       "ebn0_db": 10.0,
-      "errors": 2015,
-      "trials": 1351680
+      "errors": 2022,
+      "trials": 1376256
     },
     {
       "ebn0_db": 11.0,
-      "errors": 2002,
-      "trials": 3760128
+      "errors": 2005,
+      "trials": 3956736
     },
     {
       "ebn0_db": 12.0,
-      "errors": 509,
+      "errors": 497,
       "trials": 4005888
     }
   ]

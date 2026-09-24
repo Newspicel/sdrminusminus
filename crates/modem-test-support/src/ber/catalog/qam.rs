@@ -55,7 +55,7 @@ pub fn qam1024_link() -> Link {
 #[must_use]
 pub fn qam16_tracked_link() -> Link {
     coherent_tracked_link(
-        "16-qam uncoded, tracking timing tier: LinearMod -> SymbolSync (bw 0.005) -> \
+        "16-qam uncoded, tracking timing tier: LinearMod -> SymbolSync (bw 0.005, decision-steered) -> \
          decision-directed Costas -> unique-word anchor, RRC α=0.35 span 8, 8 sps, 48 kHz 6000 baud",
         params(tables::qam_square(16), 0.0, false),
         || {

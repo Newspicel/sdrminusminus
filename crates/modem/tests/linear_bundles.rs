@@ -183,12 +183,12 @@ fn coherent_ook_beats_the_envelope_tier_by_its_committed_margin() {
 }
 
 #[test]
-fn feedforward_timing_beats_the_tracking_loop_by_its_committed_margin() {
+fn the_tracking_loop_sits_near_the_feedforward_tier() {
     let feedforward = crossing(catalog::qam::QAM16_AWGN, 1e-3);
     let tracked = crossing(catalog::qam::QAM16_TRACKED_AWGN, 1e-3);
     let margin = tracked - feedforward;
     assert!(
-        margin > 0.8,
+        margin.abs() < 0.3,
         "feedforward 1e-3 at {feedforward:.2} dB, tracked at {tracked:.2} dB: margin {margin:.2} dB"
     );
 }
@@ -252,7 +252,7 @@ fn the_differential_family_pays_its_documented_penalty() {
 
 const LOOPBACK_MARGIN_DB: f64 = 8.0;
 
-const NO_CLEAN_LOOPBACK: [&str; 1] = [catalog::qam::QAM16_TRACKED_AWGN];
+const NO_CLEAN_LOOPBACK: [&str; 0] = [];
 
 #[test]
 fn every_entry_loops_back_clean_at_its_stated_margin() {
