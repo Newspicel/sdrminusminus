@@ -1,53 +1,33 @@
-#[allow(dead_code)]
 pub(crate) mod adsc;
-#[allow(dead_code)]
 pub(crate) mod airline5z;
-#[allow(dead_code)]
 mod app;
-#[allow(dead_code)]
 pub(crate) mod arinc622;
-#[allow(dead_code)]
 mod bits;
-#[allow(dead_code)]
 pub(crate) mod block;
-#[allow(dead_code)]
 pub(crate) mod cfb;
-#[allow(dead_code)]
 mod codec;
-#[allow(dead_code)]
 pub(crate) mod cpdlc;
-#[allow(dead_code)]
 pub(crate) mod fpn;
-#[allow(dead_code)]
 pub(crate) mod media_adv;
-#[allow(dead_code)]
 mod message;
-#[allow(dead_code)]
 pub(crate) mod met;
-#[allow(dead_code)]
 pub(crate) mod miam;
-#[allow(dead_code)]
 pub(crate) mod min;
-#[allow(dead_code)]
 pub(crate) mod ohma;
-#[allow(dead_code)]
 pub(crate) mod oooi;
-#[allow(dead_code)]
 pub(crate) mod position;
-#[allow(dead_code)]
 pub(crate) mod qseries;
 #[cfg(test)]
 mod real_messages;
-#[allow(dead_code)]
+#[cfg(test)]
 pub(crate) mod reasm;
-#[allow(dead_code)]
 pub(crate) mod sublabel;
 #[cfg(test)]
 mod xng_equivalence;
 
-#[allow(unused_imports)]
-pub(crate) use app::{AcarsApp, AppDecode, decode, summary};
-#[allow(unused_imports)]
+#[cfg(test)]
+pub(crate) use app::summary;
+pub(crate) use app::{AcarsApp, decode};
 pub(crate) use message::AcarsCore;
 
 use std::sync::LazyLock;

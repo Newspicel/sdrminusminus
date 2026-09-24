@@ -1,5 +1,6 @@
 use serde::Serialize;
 
+#[cfg(test)]
 pub fn is_downlink_block(block_id: char) -> bool {
     block_id.is_ascii_digit()
 }

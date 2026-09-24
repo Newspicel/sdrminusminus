@@ -218,6 +218,7 @@ pub struct AdscMessage {
 }
 
 impl AdscMessage {
+    #[cfg(test)]
     pub fn summary(&self) -> Option<String> {
         for t in &self.tags {
             if let AdscTag::Report(r) = t {
@@ -231,6 +232,7 @@ impl AdscMessage {
     }
 }
 
+#[cfg(test)]
 fn tag_name(t: &AdscTag) -> &'static str {
     match t {
         AdscTag::Ack { .. } => "ack",

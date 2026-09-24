@@ -231,6 +231,17 @@ const NATIVE: &[Native] = &[
         ),
         files: &[],
     },
+    Native {
+        name: "xng",
+        license: "MIT OR Apache-2.0",
+        url: "https://github.com/airframesio/xng",
+        note: Some(
+            "The ACARS application layer and the VDL2, HFDL, Inmarsat Aero, Inmarsat STD-C, \
+             DSC and Iridium decoders in `crates/channels` started as ports of xng, Copyright \
+             (c) 2023-2026 Kevin Elliott and the xng contributors, used under its MIT license.",
+        ),
+        files: &["xng-MIT.txt"],
+    },
 ];
 
 #[derive(Debug, Serialize)]

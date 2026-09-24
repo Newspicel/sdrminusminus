@@ -88,18 +88,22 @@ pub fn parse(text: &str) -> Option<MiamFrame> {
     }
 }
 
+#[cfg(test)]
 pub struct FileReassembler {
     pending: std::collections::HashMap<(String, u16), FileEntry>,
 }
 
+#[cfg(test)]
 struct FileEntry {
     expected: usize,
     parts: std::collections::BTreeMap<u16, String>,
     time: f64,
 }
 
+#[cfg(test)]
 const FILE_TIMEOUT_SECS: f64 = 600.0;
 
+#[cfg(test)]
 impl FileReassembler {
     pub fn new() -> Self {
         Self {
@@ -155,6 +159,7 @@ impl FileReassembler {
     }
 }
 
+#[cfg(test)]
 impl Default for FileReassembler {
     fn default() -> Self {
         Self::new()

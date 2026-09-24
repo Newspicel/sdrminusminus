@@ -22,6 +22,7 @@ pub enum Imi {
 }
 
 impl Imi {
+    #[cfg(test)]
     pub fn as_str(&self) -> &'static str {
         match self {
             Imi::At1 => "AT1",

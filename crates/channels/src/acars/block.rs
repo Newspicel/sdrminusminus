@@ -114,6 +114,7 @@ pub fn parse(octets: &[u8]) -> Option<AcarsBlock> {
     })
 }
 
+#[cfg(test)]
 #[allow(clippy::too_many_arguments)]
 pub fn build(
     mode: char,

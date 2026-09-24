@@ -80,6 +80,7 @@ pub fn decode(label: &str, text: &str, downlink: bool) -> AppDecode {
     out
 }
 
+#[cfg(test)]
 pub fn summary(app: &AcarsApp) -> Option<String> {
     match app {
         AcarsApp::Adsc { message, .. } => message.summary(),
@@ -122,6 +123,7 @@ pub fn summary(app: &AcarsApp) -> Option<String> {
     }
 }
 
+#[cfg(test)]
 fn airline5z_summary(a: &airline5z::Airline5z) -> String {
     match a {
         airline5z::Airline5z::Text { text } => format!("5Z TXT {text}"),
@@ -133,6 +135,7 @@ fn airline5z_summary(a: &airline5z::Airline5z) -> String {
     }
 }
 
+#[cfg(test)]
 fn miam_summary(frame: &miam::MiamFrame) -> String {
     match frame {
         miam::MiamFrame::SingleTransfer(p) => format!(
