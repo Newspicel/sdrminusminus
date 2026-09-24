@@ -8,6 +8,10 @@ sits somewhere else and you connect from a browser. Both run the same receiver.
 | [Desktop app](#desktop-app) | A radio on your computer |
 | [Portable server](#portable-server) | A Raspberry Pi, home server, or remote receiver |
 | [Homebrew](#homebrew) | macOS or Linux with Homebrew |
+| [WinGet](#winget) | Windows |
+| [APT](#apt) | Debian and Ubuntu |
+| [DNF](#dnf) | Fedora |
+| [AUR](#aur) | Arch Linux |
 | [Nix](#nix) | Linux managed with Nix |
 | [Container](#container) | Docker |
 
@@ -19,7 +23,7 @@ its own server on a private local port.
 | Platform | Package |
 |---|---|
 | macOS | `.dmg` for Apple silicon or Intel |
-| Linux | `.deb` or `.AppImage` for x86-64 or ARM64 |
+| Linux | `.deb`, `.rpm` or `.AppImage` for x86-64 or ARM64 |
 | Windows | `.msi` or `.exe` for x86-64, `.exe` for ARM64 |
 
 ## Portable server
@@ -48,6 +52,38 @@ brew services start sdrmm
 
 The cask installs into `/Applications`. The service starts the server at login. Open
 <http://localhost:8080>.
+
+## WinGet
+
+```powershell
+winget install Newspicel.SDRminusminus
+```
+
+## APT
+
+```sh
+curl -fsSL https://newspicel.github.io/packages/key.gpg \
+  | sudo tee /usr/share/keyrings/sdrminusminus.gpg > /dev/null
+echo "deb [signed-by=/usr/share/keyrings/sdrminusminus.gpg] https://newspicel.github.io/packages/deb stable main" \
+  | sudo tee /etc/apt/sources.list.d/sdrminusminus.list
+sudo apt update
+sudo apt install sdrminusminus
+```
+
+## DNF
+
+```sh
+sudo dnf config-manager addrepo \
+  --from-repofile=https://newspicel.github.io/packages/rpm/sdrminusminus.repo
+sudo dnf install sdrminusminus
+```
+
+## AUR
+
+```sh
+yay -S sdrminusminus-bin   # desktop app
+yay -S sdrmm-bin           # server
+```
 
 ## Nix
 

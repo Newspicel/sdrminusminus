@@ -20,7 +20,10 @@ jobs:
     outputs:
       changed: ${{ steps.changed.outputs.changed }}
       version: ${{ steps.version.outputs.version }}
-      tap: ${{ steps.tap.outputs.tap }}
+      tap: ${{ steps.publish.outputs.tap }}
+      winget: ${{ steps.publish.outputs.winget }}
+      aur: ${{ steps.publish.outputs.aur }}
+      packages: ${{ steps.publish.outputs.packages }}
     steps:
       - id: changed
         env:
@@ -40,10 +43,20 @@ jobs:
             *) version=0.0.0 ;;
           esac
           echo "version=$version" >> "$GITHUB_OUTPUT"
-      - id: tap
+      - id: publish
         env:
           TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
-        run: echo "tap=${TAP_TOKEN:+true}" >> "$GITHUB_OUTPUT"
+          WINGET_TOKEN: ${{ secrets.WINGET_TOKEN }}
+          AUR_SSH_KEY: ${{ secrets.AUR_SSH_KEY }}
+          PACKAGES_TOKEN: ${{ secrets.PACKAGES_TOKEN }}
+          PACKAGES_GPG_KEY: ${{ secrets.PACKAGES_GPG_KEY }}
+        run: |
+          {
+            echo "tap=${TAP_TOKEN:+true}"
+            echo "winget=${WINGET_TOKEN:+true}"
+            echo "aur=${AUR_SSH_KEY:+true}"
+            if [ -n "$PACKAGES_TOKEN" ] && [ -n "$PACKAGES_GPG_KEY" ]; then echo "packages=true"; fi
+          } >> "$GITHUB_OUTPUT"
 
   version:
     name: Stamp version
@@ -262,11 +275,11 @@ jobs:
           - label: linux-x86_64
             runner: ubuntu-24.04
             target: x86_64-unknown-linux-gnu
-            bundles: deb,appimage
+            bundles: deb,rpm,appimage
           - label: linux-arm64
             runner: ubuntu-24.04-arm
             target: aarch64-unknown-linux-gnu
-            bundles: deb,appimage
+            bundles: deb,rpm,appimage
           - label: windows-x86_64
             runner: windows-2025
             target: x86_64-pc-windows-msvc
@@ -468,3 +481,106 @@ jobs:
           git diff --cached --quiet && exit 0
           git commit -m "sdrmm ${{ needs.version.outputs.version }}"
           git push
+
+  winget:
+    name: WinGet
+    if: github.ref_type == 'tag' && needs.plan.outputs.winget == 'true'
+    needs: [plan, version, release]
+    runs-on: ubuntu-24.04
+    env:
+      GH_TOKEN: ${{ github.token }}
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - name: Install Komac
+        run: |
+          gh release download v2.16.0 --repo russellbanks/Komac \
+            --pattern 'komac-2.16.0-x86_64-unknown-linux-gnu.tar.gz' --output - | tar -xz -C "$RUNNER_TEMP" komac
+      - name: Submit manifest
+        env:
+          GITHUB_TOKEN: ${{ secrets.WINGET_TOKEN }}
+        run: |
+          base="https://github.com/$GITHUB_REPOSITORY/releases/download/$GITHUB_REF_NAME"
+          "$RUNNER_TEMP/komac" update Newspicel.SDRminusminus \
+            --version "$VERSION" \
+            --urls "$base/SDR--_${VERSION}_x64-setup.exe" "$base/SDR--_${VERSION}_arm64-setup.exe" \
+            --release-notes-url "https://github.com/$GITHUB_REPOSITORY/releases/tag/$GITHUB_REF_NAME" \
+            --submit
+
+  aur:
+    name: AUR
+    if: github.ref_type == 'tag' && needs.plan.outputs.aur == 'true'
+    needs: [plan, version, release]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/rust
+        with:
+          cache: ubuntu
+          save: false
+      - name: Fetch checksums
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release download "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --pattern SHA256SUMS
+      - name: Write PKGBUILDs
+        run: |
+          cargo xtask aur \
+            --version "${{ needs.version.outputs.version }}" \
+            --sums SHA256SUMS \
+            --repo "$GITHUB_REPOSITORY" \
+            --out "$RUNNER_TEMP/generated"
+      - name: Push to AUR
+        env:
+          AUR_SSH_KEY: ${{ secrets.AUR_SSH_KEY }}
+        run: |
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$AUR_SSH_KEY" > ~/.ssh/aur
+          chmod 600 ~/.ssh/aur
+          ssh-keyscan -t ed25519 aur.archlinux.org >> ~/.ssh/known_hosts
+          export GIT_SSH_COMMAND="ssh -i ~/.ssh/aur -o IdentitiesOnly=yes"
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          for pkg in sdrminusminus-bin sdrmm-bin; do
+            git clone "ssh://aur@aur.archlinux.org/$pkg.git" "$RUNNER_TEMP/$pkg"
+            cp "$RUNNER_TEMP/generated/$pkg/PKGBUILD" "$RUNNER_TEMP/generated/$pkg/.SRCINFO" "$RUNNER_TEMP/$pkg/"
+            git -C "$RUNNER_TEMP/$pkg" add PKGBUILD .SRCINFO
+            git -C "$RUNNER_TEMP/$pkg" diff --cached --quiet && continue
+            git -C "$RUNNER_TEMP/$pkg" commit -m "${{ needs.version.outputs.version }}"
+            git -C "$RUNNER_TEMP/$pkg" push origin HEAD:master
+          done
+
+  linux-repo:
+    name: APT and RPM repository
+    if: github.ref_type == 'tag' && needs.plan.outputs.packages == 'true'
+    needs: [plan, release]
+    runs-on: ubuntu-24.04
+    env:
+      GH_TOKEN: ${{ github.token }}
+      URL: https://${{ github.repository_owner }}.github.io/packages
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7
+        with:
+          repository: ${{ github.repository_owner }}/packages
+          token: ${{ secrets.PACKAGES_TOKEN }}
+          path: site
+      - name: Tools
+        run: sudo apt-get install -y --no-install-recommends apt-utils createrepo-c rpm
+      - name: Fetch packages
+        run: gh release download "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --pattern '*.deb' --pattern '*.rpm' --dir packages
+      - name: Import signing key
+        env:
+          PACKAGES_GPG_KEY: ${{ secrets.PACKAGES_GPG_KEY }}
+        run: |
+          printf '%s\n' "$PACKAGES_GPG_KEY" | gpg --batch --import
+          echo "KEY=$(gpg --list-secret-keys --with-colons | awk -F: '/^fpr/ {print $10; exit}')" >> "$GITHUB_ENV"
+      - name: Build repository
+        run: scripts/ci/linux-repo.sh packages site "$KEY" "${URL,,}"
+      - name: Publish
+        working-directory: site
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout --orphan next
+          git add -A
+          git commit -m "$GITHUB_REF_NAME"
+          git push --force origin next:main

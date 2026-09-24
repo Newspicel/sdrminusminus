@@ -16,6 +16,7 @@ use notify::{Config, Event, EventKind, PollWatcher, RecursiveMode, Watcher};
 use num_complex::Complex;
 
 mod architecture;
+mod aur;
 mod bandplan;
 mod ber;
 mod broadcast_fixtures;
@@ -31,6 +32,7 @@ mod nixhash;
 mod replay;
 #[cfg(test)]
 mod site;
+mod sums;
 mod units;
 mod updater;
 
@@ -127,6 +129,16 @@ enum Cmd {
         #[arg(long)]
         out: PathBuf,
     },
+    Aur {
+        #[arg(long)]
+        version: String,
+        #[arg(long)]
+        sums: PathBuf,
+        #[arg(long)]
+        repo: String,
+        #[arg(long)]
+        out: PathBuf,
+    },
 }
 
 fn main() -> Result<()> {
@@ -174,6 +186,12 @@ fn main() -> Result<()> {
             repo,
             out,
         } => homebrew::tap(&sums, &version, &repo, &out),
+        Cmd::Aur {
+            version,
+            sums,
+            repo,
+            out,
+        } => aur::packages(&sums, &version, &repo, &out),
     }
 }
 

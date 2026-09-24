@@ -1,0 +1,15 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "sdrminusminus",
+  "bundle": {
+    "linux": {
+      "deb": {
+        "section": "hamradio",
+        "desktopTemplate": "../../packaging/linux/sdrminusminus.desktop"
+      },
+      "rpm": {
+        "desktopTemplate": "../../packaging/linux/sdrminusminus.desktop"
+      }
+    }
+  }
+}

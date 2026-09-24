@@ -6,7 +6,7 @@ target="$1"
 version="$2"
 mkdir -p bundles
 find "target/$target/release/bundle" -maxdepth 2 -type f \
-  \( -name '*.dmg' -o -name '*.deb' -o -name '*.AppImage' \
+  \( -name '*.dmg' -o -name '*.deb' -o -name '*.rpm' -o -name '*.AppImage' \
      -o -name '*.msi' -o -name '*-setup.exe' \
      -o -name '*.app.tar.gz' -o -name '*.sig' \) \
   -exec cp {} bundles/ \;

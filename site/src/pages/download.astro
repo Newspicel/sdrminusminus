@@ -115,22 +115,32 @@ import Page from "../layouts/Page.astro";
         <li><a class="row" data-file="_amd64.AppImage" href="https://github.com/Newspicel/sdrminusminus/releases/latest">
           <span class="what">Desktop app <em>AppImage, any distribution</em></span>
           <span class="size"></span>
-          <span class="name">SDR--_&lt;version&gt;_amd64.AppImage</span>
+          <span class="name">sdrminusminus_&lt;version&gt;_amd64.AppImage</span>
         </a></li>
         <li><a class="row" data-file="_amd64.deb" href="https://github.com/Newspicel/sdrminusminus/releases/latest">
           <span class="what">Desktop app <em>Debian and Ubuntu</em></span>
           <span class="size"></span>
-          <span class="name">SDR--_&lt;version&gt;_amd64.deb</span>
+          <span class="name">sdrminusminus_&lt;version&gt;_amd64.deb</span>
+        </a></li>
+        <li><a class="row" data-file=".x86_64.rpm" href="https://github.com/Newspicel/sdrminusminus/releases/latest">
+          <span class="what">Desktop app <em>Fedora and openSUSE</em></span>
+          <span class="size"></span>
+          <span class="name">sdrminusminus-&lt;version&gt;-1.x86_64.rpm</span>
         </a></li>
         <li><a class="row" data-file="_aarch64.AppImage" href="https://github.com/Newspicel/sdrminusminus/releases/latest">
           <span class="what">Desktop app <em>AppImage, ARM64</em></span>
           <span class="size"></span>
-          <span class="name">SDR--_&lt;version&gt;_aarch64.AppImage</span>
+          <span class="name">sdrminusminus_&lt;version&gt;_aarch64.AppImage</span>
         </a></li>
         <li><a class="row" data-file="_arm64.deb" href="https://github.com/Newspicel/sdrminusminus/releases/latest">
           <span class="what">Desktop app <em>Debian and Ubuntu, ARM64</em></span>
           <span class="size"></span>
-          <span class="name">SDR--_&lt;version&gt;_arm64.deb</span>
+          <span class="name">sdrminusminus_&lt;version&gt;_arm64.deb</span>
+        </a></li>
+        <li><a class="row" data-file=".aarch64.rpm" href="https://github.com/Newspicel/sdrminusminus/releases/latest">
+          <span class="what">Desktop app <em>Fedora and openSUSE, ARM64</em></span>
+          <span class="size"></span>
+          <span class="name">sdrminusminus-&lt;version&gt;-1.aarch64.rpm</span>
         </a></li>
         <li><a class="row" data-file="-x86_64-unknown-linux-gnu.tar.gz" href="https://github.com/Newspicel/sdrminusminus/releases/latest">
           <span class="what">Server <em>x86-64</em></span>
@@ -162,8 +172,7 @@ import Page from "../layouts/Page.astro";
     </div>
   </div>
 
-  <p class="note">There is no ARM Linux desktop bundle yet: on a Pi, run the server and open it in
-    a browser. The rolling
+  <p class="note">The rolling
     <a href="https://github.com/Newspicel/sdrminusminus/releases/tag/nightly">nightly</a> follows
     <code>main</code> and can change saved-data formats without migrating them. Use a stable
     release unless you are testing one.</p>
@@ -183,6 +192,41 @@ brew install --cask sdrminusminus
 <span class="p">or, for a server</span>
 brew install sdrmm
 brew services start sdrmm</pre></div>
+    </div>
+
+    <div class="lane">
+      <h3>WinGet</h3>
+      <p>The Windows desktop app.</p>
+      <div class="shell"><pre>winget install Newspicel.SDRminusminus</pre></div>
+    </div>
+
+    <div class="lane">
+      <h3>Debian and Ubuntu</h3>
+      <p>Signed APT repository for x86-64 and ARM64.</p>
+      <div class="shell"><pre>curl -fsSL https://newspicel.github.io/packages/key.gpg \
+  | sudo tee /usr/share/keyrings/sdrminusminus.gpg > /dev/null
+echo "deb [signed-by=/usr/share/keyrings/sdrminusminus.gpg] \
+https://newspicel.github.io/packages/deb stable main" \
+  | sudo tee /etc/apt/sources.list.d/sdrminusminus.list
+sudo apt update
+sudo apt install sdrminusminus</pre></div>
+    </div>
+
+    <div class="lane">
+      <h3>Fedora</h3>
+      <p>Signed RPM repository for x86-64 and ARM64.</p>
+      <div class="shell"><pre>sudo dnf config-manager addrepo \
+  --from-repofile=https://newspicel.github.io/packages/rpm/sdrminusminus.repo
+sudo dnf install sdrminusminus</pre></div>
+    </div>
+
+    <div class="lane">
+      <h3>Arch Linux</h3>
+      <p>AUR packages for the app and the server.</p>
+      <div class="shell"><pre>yay -S sdrminusminus-bin
+
+<span class="p">or, for a server</span>
+yay -S sdrmm-bin</pre></div>
     </div>
 
     <div class="lane">
@@ -216,7 +260,7 @@ docker compose up -d</pre></div>
         <p>macOS: open the disk image and drag SDR-- to Applications. Windows: run the installer.
           It is not code-signed yet, so SmartScreen asks first; choose <b>More info</b>, then
           <b>Run anyway</b>. Linux: <code>chmod +x</code> the AppImage, or
-          <code>sudo apt install ./SDR--*.deb</code>. Servers: unpack the archive and run
+          <code>sudo apt install ./sdrminusminus_*.deb</code>. Servers: unpack the archive and run
           <code>./sdrmm</code>.</p>
       </div>
     </li>

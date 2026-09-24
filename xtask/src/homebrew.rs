@@ -1,6 +1,8 @@
-use std::{collections::BTreeMap, path::Path};
+use std::path::Path;
 
-use anyhow::{Context, Result, ensure};
+use anyhow::{Context, Result};
+
+use crate::sums::{Digests, digest, parse};
 
 const FORMULA_TRIPLES: [&str; 4] = [
     "aarch64-apple-darwin",
@@ -10,8 +12,6 @@ const FORMULA_TRIPLES: [&str; 4] = [
 ];
 
 const CASK_ARCHES: [&str; 2] = ["aarch64", "x64"];
-
-type Digests = BTreeMap<String, String>;
 
 pub fn tap(sums: &Path, version: &str, repo: &str, out: &Path) -> Result<()> {
     let text = std::fs::read_to_string(sums).with_context(|| format!("read {}", sums.display()))?;
@@ -29,31 +29,6 @@ pub fn tap(sums: &Path, version: &str, repo: &str, out: &Path) -> Result<()> {
         println!("wrote {}", path.display());
     }
     Ok(())
-}
-
-fn parse(text: &str) -> Result<Digests> {
-    let mut digests = Digests::new();
-    for line in text.lines().filter(|line| !line.trim().is_empty()) {
-        let (digest, file) = line
-            .split_once("  ")
-            .with_context(|| format!("`{line}` is not a `shasum -a 256` line"))?;
-        ensure!(
-            digest.len() == 64 && digest.bytes().all(|byte| byte.is_ascii_hexdigit()),
-            "`{digest}` is not a SHA-256 digest"
-        );
-        digests.insert(file.trim().to_string(), digest.to_string());
-    }
-    ensure!(!digests.is_empty(), "the checksum file lists no artifact");
-    Ok(digests)
-}
-
-fn digest<'a>(digests: &'a Digests, file: &str) -> Result<&'a str> {
-    digests.get(file).map(String::as_str).with_context(|| {
-        format!(
-            "the release carries no `{file}`, so the tap would point at a download that does not \
-             exist"
-        )
-    })
 }
 
 fn formula(digests: &Digests, version: &str, repo: &str) -> Result<String> {
@@ -234,14 +209,6 @@ mod tests {
             .unwrap_err()
             .to_string();
         assert!(err.contains("SDR--_1.2.3_x64.dmg"), "{err}");
-    }
-
-    #[test]
-    fn a_truncated_digest_is_refused() {
-        let err = parse("abc  sdrmm-1.2.3-aarch64-apple-darwin.tar.gz")
-            .unwrap_err()
-            .to_string();
-        assert!(err.contains("not a SHA-256 digest"), "{err}");
     }
 
     #[test]

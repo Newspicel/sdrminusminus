@@ -19,7 +19,7 @@ a browser. Both use the same receiver engine and interface.
 Download a desktop installer or portable server from
 [GitHub Releases](https://github.com/Newspicel/sdrminusminus/releases).
 The [installation guide](https://sdrmm.newspicel.dev/getting-started/install.html)
-covers macOS, Windows, Linux, Homebrew, Nix, and Docker.
+covers macOS, Windows, Linux, Homebrew, WinGet, APT, DNF, AUR, Nix, and Docker.
 
 On macOS:
 

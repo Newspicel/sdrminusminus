@@ -15,6 +15,11 @@
     "active": true,
     "targets": "all",
     "createUpdaterArtifacts": true,
+    "homepage": "https://github.com/Newspicel/sdrminusminus",
+    "license": "GPL-3.0-or-later",
+    "category": "Utility",
+    "shortDescription": "Modular software-defined radio",
+    "longDescription": "Modular, client-server software-defined radio receiver.",
     "resources": {
       "../../THIRD_PARTY_NOTICES.md": "THIRD_PARTY_NOTICES.md"
     },

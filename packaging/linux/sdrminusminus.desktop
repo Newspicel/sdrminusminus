@@ -1,0 +1,9 @@
+[Desktop Entry]
+Categories=Network;HamRadio;
+Comment=Modular software-defined radio
+Exec={{exec}}
+StartupWMClass={{exec}}
+Icon={{icon}}
+Name=SDR--
+Terminal=false
+Type=Application
