@@ -1,7 +1,8 @@
 use std::{cell::RefCell, collections::HashMap};
 
+use sdrmm_wire::frame::SpectrumFrame;
+
 use crate::{
-    socket::Spectrum,
     ui::{
         kit_maps::iso_of,
         map::{
@@ -47,6 +48,27 @@ pub fn keep(node: &str, session: Session) {
     SESSIONS.with(|sessions| {
         sessions.borrow_mut().insert(node.to_owned(), session);
     });
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct Spectrum {
+    pub center_hz: f64,
+    pub span_hz: f32,
+    pub db_min: f32,
+    pub db_max: f32,
+    pub bins: Vec<u8>,
+}
+
+#[must_use]
+pub fn spectrum(bytes: &[u8]) -> Option<Spectrum> {
+    let frame = SpectrumFrame::decode(bytes)?;
+    Some(Spectrum {
+        center_hz: frame.center_hz,
+        span_hz: frame.span_hz,
+        db_min: frame.db_min,
+        db_max: frame.db_max,
+        bins: frame.bins.to_vec(),
+    })
 }
 
 #[must_use]
@@ -234,8 +256,6 @@ mod tests {
 
     fn frame() -> Spectrum {
         Spectrum {
-            stream_id: 1,
-            seq: 1,
             center_hz: 100_000_000.0,
             span_hz: 1_000_000.0,
             db_min: -120.0,

@@ -2,7 +2,7 @@ use sdrmm_wire::coherent::{Illuminator, PassiveRadarParams, RadarDetection};
 
 use crate::ui::{
     kit_raster::{Pen, Raster, Scene, WHITE},
-    plot::Palette,
+    faces::scope::colormap::Colormap,
 };
 
 const LIGHT_SPEED_KM_S: f64 = 299_792.458;
@@ -67,10 +67,10 @@ pub struct RadarScene {
 
 impl RadarScene {
     #[must_use]
-    pub fn new(palette: Palette) -> Self {
+    pub fn new(palette: Colormap) -> Self {
         let table = (0..PALETTE_STEPS)
             .map(|step| {
-                let [r, g, b] = palette.rgb(step as f32 / (PALETTE_STEPS - 1) as f32);
+                let [r, g, b] = palette.sample(f64::from(step as f32 / (PALETTE_STEPS - 1) as f32));
                 [
                     (r * 255.0).round() as u8,
                     (g * 255.0).round() as u8,
@@ -179,7 +179,7 @@ mod tests {
 
     #[test]
     fn the_most_negative_doppler_is_painted_at_the_bottom() {
-        let mut scene = RadarScene::new(Palette::Classic);
+        let mut scene = RadarScene::new(Colormap::Classic);
         scene.show(Surface {
             ranges: 1,
             dopplers: 2,
@@ -194,7 +194,7 @@ mod tests {
 
     #[test]
     fn a_short_surface_paints_nothing_but_black() {
-        let mut scene = RadarScene::new(Palette::Classic);
+        let mut scene = RadarScene::new(Colormap::Classic);
         scene.show(Surface {
             ranges: 4,
             dopplers: 4,
@@ -215,7 +215,7 @@ mod tests {
 
     #[test]
     fn a_new_surface_or_new_marks_ask_for_a_repaint() {
-        let mut scene = RadarScene::new(Palette::Classic);
+        let mut scene = RadarScene::new(Colormap::Classic);
         let before = scene.stamp();
         scene.mark(vec![hit(1, 0.0)]);
         assert!(scene.stamp() > before);

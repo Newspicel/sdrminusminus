@@ -9,7 +9,7 @@ use crate::{
     store::Store,
     ui::{
         kit_raster::{Bounds, number, raster_view},
-        plot::Palette,
+        faces::scope::colormap::Colormap,
         widgets::{check, row_field, segments},
     },
 };
@@ -163,7 +163,7 @@ fn watch(store: Store, device_set: u32, channel: u32) -> impl IntoView {
         labels: RwSignal::new(Vec::new()),
         square: RwSignal::new(false),
     };
-    let scope = Rc::new(RefCell::new(Scope::new(Palette::Viridis)));
+    let scope = Rc::new(RefCell::new(Scope::new(Colormap::Viridis)));
     listen(store, device_set, channel, scope.clone(), seen);
     let configure = {
         let scope = scope.clone();

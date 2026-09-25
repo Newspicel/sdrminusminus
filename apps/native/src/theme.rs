@@ -360,55 +360,6 @@ pub const SHEET: &str = css!(
     color: var(--ink-faint);
 }
 
-.scope { flex-direction: column; background-color: #000000; border-bottom-left-radius: 6px; border-bottom-right-radius: 6px; overflow: hidden; }
-.scope__trace { width: 100%; height: 132px; }
-.scope__fall { width: 100%; height: 190px; }
-
-.scope__head {
-    align-items: center;
-    gap: 10px;
-    padding: 2px 8px;
-    background-color: oklch(0.3 0.03 60);
-}
-
-.scope__plot { position: relative; }
-
-.scope__db {
-    position: absolute;
-    left: 4px;
-    top: 0;
-    bottom: 0;
-    width: 34px;
-    flex-direction: column;
-    justify-content: space-around;
-    pointer-events: none;
-}
-
-.scope__mark { position: absolute; top: 3px; pointer-events: none; }
-
-.scope__mark_text {
-    font-family: var(--mono);
-    font-size: 9px;
-    letter-spacing: 0.06em;
-    color: var(--ink);
-    background-color: rgba(0, 0, 0, 0.72);
-    border: 1px solid #3a3a3a;
-    border-radius: 3px;
-    padding: 0 4px;
-    white-space: nowrap;
-}
-
-.scope__axis {
-    align-items: center;
-    justify-content: space-between;
-    padding: 1px 4px 2px 4px;
-    border-top: 1px solid #262626;
-    background-color: #000000;
-}
-
-.scope__strip { align-items: center; gap: 10px; padding: 4px 8px; background-color: rgba(0, 0, 0, 0.6); }
-.scope__read { font-family: var(--mono); font-size: 10px; letter-spacing: 0.06em; color: var(--plot-ink-dim); }
-
 .log { flex-direction: column; gap: 3px; height: 168px; overflow: auto; }
 .log__row { gap: 9px; font-family: var(--mono); font-size: 10px; color: var(--ink-dim); }
 .log__when { flex: 0 0 auto; color: var(--ink-faint); }

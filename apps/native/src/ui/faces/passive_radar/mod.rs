@@ -17,7 +17,7 @@ use crate::{
     store::Store,
     ui::{
         kit_raster::{Bounds, edit_body, number, raster_view, readout},
-        plot::Palette,
+        faces::scope::colormap::Colormap,
         widgets::{check, row_field},
     },
 };
@@ -75,7 +75,7 @@ pub fn face(store: Store, node: String) -> impl IntoView {
             .map(|finder| finder.detections)
             .unwrap_or_default()
     });
-    let scene = Rc::new(RefCell::new(RadarScene::new(Palette::Classic)));
+    let scene = Rc::new(RefCell::new(RadarScene::new(Colormap::Classic)));
     listen(store, node.clone(), scene.clone());
     let marking = {
         let scene = scene.clone();

@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use sdrmm_wire::{
     channel::{
         ChannelInfo, ChannelSettings, MAX_SQUELCH_AUTO_MARGIN_DB, MIN_SQUELCH_AUTO_MARGIN_DB,
@@ -12,14 +10,9 @@ use sdrmm_wire::{
 use zgui::prelude::*;
 
 use crate::{
-    format,
-    socket::Spectrum,
+    binding, format,
     store::Store,
-    ui::{
-        gpu,
-        plot::{self, Palette},
-        widgets::{check, dial, level_bar, pick, row_field, segments, slide},
-    },
+    ui::widgets::{check, dial, level_bar, meter, pick, row_field, segments, slide},
 };
 
 pub mod array;
@@ -150,13 +143,6 @@ pub(crate) fn channel_writer(
             store.set_channel(node.clone(), settings);
         }
     }
-}
-
-pub(crate) fn spectrum_signal(store: Store, node: String) -> Signal<Option<Arc<Spectrum>>> {
-    Signal::derive(move || {
-        let set = store.device_set_of(&node)?;
-        store.spectra.get().get(&set).cloned()
-    })
 }
 
 #[cfg(test)]

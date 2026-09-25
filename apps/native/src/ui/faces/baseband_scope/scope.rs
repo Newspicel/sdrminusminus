@@ -12,7 +12,7 @@ use super::{
 };
 use crate::ui::{
     kit_raster::{PLOT_BG, PLOT_GRID, PLOT_HOLD, PLOT_INK, PLOT_TRACE, Pen, Raster, Rgba, Scene},
-    plot::Palette,
+    faces::scope::colormap::Colormap,
 };
 
 pub const GRID: usize = 320;
@@ -134,7 +134,7 @@ pub struct Scope {
 
 impl Scope {
     #[must_use]
-    pub fn new(palette: Palette) -> Self {
+    pub fn new(palette: Colormap) -> Self {
         Self {
             settings: Settings::default(),
             burst: None,
@@ -486,10 +486,10 @@ impl Scene for Scope {
     }
 }
 
-fn lut(palette: Palette) -> Vec<Rgba> {
+fn lut(palette: Colormap) -> Vec<Rgba> {
     (0..256)
         .map(|step| {
-            let [r, g, b] = palette.rgb(step as f32 / 255.0);
+            let [r, g, b] = palette.sample(f64::from(step as f32 / 255.0));
             [(r * 255.0) as u8, (g * 255.0) as u8, (b * 255.0) as u8, 255]
         })
         .collect()
@@ -721,7 +721,7 @@ mod tests {
 
     #[test]
     fn a_burst_in_constellation_view_lights_the_grid_and_asks_for_a_repaint() {
-        let mut scope = Scope::new(Palette::Viridis);
+        let mut scope = Scope::new(Colormap::Viridis);
         scope.configure(Settings {
             view: View::Constellation,
             decimate: false,
@@ -737,7 +737,7 @@ mod tests {
 
     #[test]
     fn a_block_feeds_the_trends_and_unlocks_the_symbol_views() {
-        let mut scope = Scope::new(Palette::Viridis);
+        let mut scope = Scope::new(Colormap::Viridis);
         scope.configure(Settings {
             view: View::Quality,
             ..Settings::default()
@@ -751,7 +751,7 @@ mod tests {
 
     #[test]
     fn the_constellation_paints_square_and_the_spectrum_fills_the_plot() {
-        let mut scope = Scope::new(Palette::Viridis);
+        let mut scope = Scope::new(Colormap::Viridis);
         scope.take_burst(burst((0..256).map(|i| (i as f32 * 0.3).sin()).collect()));
         let mut raster = Raster::sized(200, 100);
         scope.paint(&mut raster);
@@ -806,7 +806,7 @@ mod tests {
 
     #[test]
     fn every_view_but_the_states_carries_its_labels() {
-        let mut scope = Scope::new(Palette::Viridis);
+        let mut scope = Scope::new(Colormap::Viridis);
         scope.take_burst(burst(vec![1.0, 0.0]));
         scope.take_block(block());
         for view in [

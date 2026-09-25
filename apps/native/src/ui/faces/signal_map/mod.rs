@@ -132,7 +132,7 @@ pub fn face(store: Store, node: String) -> impl IntoView {
         if store.source_of(frame.stream_id) != Some(Source::Spectrum { device_set, stream }) {
             return;
         }
-        let Some(spectrum) = crate::socket::spectrum(&frame.bytes) else {
+        let Some(spectrum) = survey::spectrum(&frame.bytes) else {
             return;
         };
         let chosen = settings.get_untracked();

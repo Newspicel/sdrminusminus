@@ -10,12 +10,13 @@ use crate::{
         use_audio,
     },
     binding::{self, Input},
-    socket::Spectrum,
     store::Store,
     ui::{
-        gpu::WaterfallSurface,
+        faces::scope::{
+            colormap::Colormap,
+            gpu::{WaterfallFeed, WaterfallSurface},
+        },
         kit_audio::{self, button},
-        plot::Palette,
         widgets::{check, meter, row_field, slide},
     },
 };
@@ -125,26 +126,17 @@ fn lane(store: Store, audio: Audio, input: Input) -> impl IntoView {
 }
 
 fn gram(audio: Audio, route: AudioRoute) -> impl IntoView {
-    let rows = RwSignal::new(None::<Arc<Spectrum>>);
+    let feed = Rc::new(RefCell::new(WaterfallFeed::default()));
+    feed.borrow_mut().set_colormap(Colormap::Viridis);
+    let sink = feed.clone();
     let analyser = Rc::new(RefCell::new(AudioSpectrogram::new(
         spectrogram::FFT_SIZE,
         spectrogram::HOP,
     )));
-    let seq = Rc::new(RefCell::new(0u32));
     audio.watch(route, move |pcm, channels| {
-        analyser.borrow_mut().push(pcm, channels, |row| {
-            let mut next = seq.borrow_mut();
-            *next = next.wrapping_add(1);
-            rows.set(Some(Arc::new(Spectrum {
-                stream_id: 0,
-                seq: *next,
-                center_hz: 0.0,
-                span_hz: SAMPLE_RATE as f32,
-                db_min: spectrogram::DB_MIN,
-                db_max: spectrogram::DB_MAX,
-                bins: row.to_vec(),
-            })));
-        });
+        analyser
+            .borrow_mut()
+            .push(pcm, channels, |row| sink.borrow_mut().push_row(row));
     });
     let ticks: Vec<_> = TICKS_HZ
         .into_iter()
@@ -161,7 +153,7 @@ fn gram(audio: Audio, route: AudioRoute) -> impl IntoView {
         box(class = "gram") {
             {zgui::elements::surface()
                 .class("gram__fall")
-                .renderer(WaterfallSurface::new(rows.into(), Signal::stored(Palette::Viridis)))
+                .renderer(WaterfallSurface::new(feed))
                 .into_view()}
             {ticks}
         }

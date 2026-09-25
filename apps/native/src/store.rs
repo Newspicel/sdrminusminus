@@ -23,7 +23,7 @@ use crate::{
     },
     decoded::Decoded,
     coherent,
-    socket::{Incoming, Socket, Spectrum},
+    socket::{Incoming, Socket},
     workspace::Session,
 };
 
@@ -68,7 +68,6 @@ pub struct Store {
     pub selected: RwSignal<Option<String>>,
     pub palette: RwSignal<bool>,
     pub palette_at: RwSignal<Option<(f32, f32)>>,
-    pub spectra: RwSignal<Arc<HashMap<u32, Arc<Spectrum>>>>,
     pub levels: RwSignal<Arc<HashMap<(u32, u32), ChannelLevel>>>,
     pub decoded: RwSignal<Arc<Decoded>>,
     staged: StoredValue<Vec<DecodedRecord>>,
@@ -103,7 +102,6 @@ impl Store {
             selected: RwSignal::new(None),
             palette: RwSignal::new(false),
             palette_at: RwSignal::new(None),
-            spectra: RwSignal::new(Arc::new(HashMap::new())),
             levels: RwSignal::new(Arc::new(HashMap::new())),
             decoded: RwSignal::new(Arc::new(Decoded::default())),
             staged: StoredValue::new(Vec::new()),
@@ -177,15 +175,6 @@ impl Store {
         }
     }
 
-    pub fn watch_spectrum(self, set: u32) {
-        self.hold(ClientCommand::SubscribeSpectrum {
-            device_set: set,
-            fps: SPECTRUM_FPS,
-            bins: SPECTRUM_BINS,
-            stream: 0,
-        });
-    }
-
     pub fn hold(self, command: ClientCommand) {
         if let Some(first) = self.bus.get_value().hold(&command) {
             self.command(first);
@@ -214,19 +203,7 @@ impl Store {
     }
 
     fn receive_frame(self, frame: &Frame) {
-        let bus = self.bus.get_value();
-        if frame.kind == FrameKind::Spectrum
-            && let Some(Source::Spectrum {
-                device_set,
-                stream: 0,
-            }) = bus.source_of(frame.stream_id)
-            && let Some(spectrum) = crate::socket::spectrum(&frame.bytes)
-        {
-            let mut next = (*self.spectra.get_untracked()).clone();
-            next.insert(device_set, Arc::new(spectrum));
-            self.spectra.set(Arc::new(next));
-        }
-        bus.publish_frame(frame);
+        self.bus.get_value().publish_frame(frame);
     }
 
     async fn drain(self, mut incoming: mpsc::UnboundedReceiver<Incoming>) {
