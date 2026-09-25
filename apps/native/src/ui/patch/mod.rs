@@ -1,4 +1,5 @@
 pub mod graph;
+mod header;
 mod menu;
 mod remove;
 
@@ -406,51 +407,19 @@ fn card(store: Store, cx: NodeCx<PatchNode, PortType>) -> AnyView {
     let Some(node) = store.graph.get_untracked().node(&id).cloned() else {
         return AnyView::new(());
     };
-    let title = {
+    let remove = {
         let id = id.clone();
-        move || {
-            store
-                .graph
-                .get()
-                .node(&id)
-                .map(node::title_of)
-                .unwrap_or_default()
-        }
-    };
-    let status = {
-        let id = id.clone();
-        Signal::derive(move || faces::status_of(store, &id))
-    };
-    let shut = {
-        let id = id.clone();
-        move |_: &mut EventCx<'_, events::Click>| {
-            remove_selection(store, vec![id.clone()], Vec::new())
-        }
+        move || remove_selection(store, vec![id.clone()], Vec::new())
     };
     let category = node::category_class(node.body.category());
     let body = faces::face(store, &node);
-    let drag = cx.drag_handle();
+    let bar = header::header(store, id, cx.drag_handle(), remove);
     AnyView::new(view! {
         column(class = "node", attr:data-category = category) {
-            row(class = "node__bar", {..drag}) {
-                text(class = "node__title") {{title}}
-                spacer()
-                text(
-                    class = "node__state",
-                    class:run = move || status.get().0 == "run",
-                    class:err = move || status.get().0 == "err",
-                    class:idle = move || status.get().0 == "idle"
-                ) {
-                    {move || status.get().1}
-                }
-                control(
-                    class = "node__shut",
-                    a11y:label = "Remove",
-                    on:pointer_down = |ev: &mut EventCx<'_, events::PointerDown>| ev.stop_propagation(),
-                    on:click = shut
-                ) {"x"}
+            {bar}
+            column(class = "node__body") {
+                {body}
             }
-            {body}
         }
     })
 }

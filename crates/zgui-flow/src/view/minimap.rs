@@ -1,10 +1,7 @@
 use kurbo::{Point, Rect, Shape, Size};
-use zgui::{
-    canvas::{Brush, ShapeBuilder},
-    prelude::*,
-};
+use zgui::{canvas::ShapeBuilder, prelude::*};
 
-use super::{FlowHandle, FlowStyle, edges::colour};
+use super::{FlowHandle, FlowStyle, edges::brush};
 use crate::{model::Node, viewport::bounds_of};
 
 const MARGIN: f64 = 0.1;
@@ -74,7 +71,7 @@ pub fn minimap<T: Send + Sync + 'static, E: Send + Sync + 'static>(
         flow.nodes
             .with(|nodes| Fit::new(world(nodes, visible), size.get()))
     };
-    let painter = zgui::elements::canvas()
+    let nodes = zgui::elements::canvas()
         .class("flow__minimap-canvas")
         .draw(move |cx| {
             let canvas = Size::new(f64::from(cx.size.width.0), f64::from(cx.size.height.0));
@@ -94,14 +91,27 @@ pub fn minimap<T: Send + Sync + 'static, E: Send + Sync + 'static>(
                 }
                 cx.scene.push(
                     ShapeBuilder::new(shapes)
-                        .fill(Brush::Solid(colour(style.minimap_node)))
+                        .fill(brush(style.minimap_node))
                         .build(),
                 );
-                let mut mask = canvas.to_rect().to_path(0.1);
-                mask.extend(fit.to_map(visible).to_path(0.1));
+            });
+        });
+    let mask = zgui::elements::canvas()
+        .class("flow__minimap-mask")
+        .draw(move |cx| {
+            let canvas = Size::new(f64::from(cx.size.width.0), f64::from(cx.size.height.0));
+            let visible = flow
+                .state
+                .with(|state| state.viewport.visible(state.screen));
+            flow.nodes.with(|nodes| {
+                let Some(fit) = Fit::new(world(nodes, visible), canvas) else {
+                    return;
+                };
+                let mut shade = canvas.to_rect().to_path(0.1);
+                shade.extend(fit.to_map(visible).to_path(0.1));
                 cx.scene.push(
-                    ShapeBuilder::new(mask)
-                        .fill_even_odd(Brush::Solid(colour(style.minimap_mask)))
+                    ShapeBuilder::new(shade)
+                        .fill_even_odd(brush(style.minimap_mask))
                         .build(),
                 );
             });
@@ -161,7 +171,8 @@ pub fn minimap<T: Send + Sync + 'static, E: Send + Sync + 'static>(
                 });
             }
         ) {
-            {painter.into_view()}
+            {nodes.into_view()}
+            {mask.into_view()}
         }
     }
 }

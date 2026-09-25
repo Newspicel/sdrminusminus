@@ -16,6 +16,12 @@ pub(super) fn colour(rgba: Rgba) -> Color {
     Color::srgb(rgba.r, rgba.g, rgba.b, rgba.a)
 }
 
+pub(super) fn brush(tint: Option<Rgba>) -> Brush {
+    tint.map_or(Brush::Inherited { alpha: 1.0 }, |rgba| {
+        Brush::Solid(colour(rgba))
+    })
+}
+
 fn screen(path: &BezPath, viewport: Viewport) -> BezPath {
     Affine::new([
         viewport.zoom,

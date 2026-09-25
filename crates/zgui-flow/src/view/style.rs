@@ -12,8 +12,8 @@ pub struct FlowStyle {
     pub connection_valid: Rgba,
     pub connection_invalid: Rgba,
     pub background: Option<Background>,
-    pub minimap_node: Rgba,
-    pub minimap_mask: Rgba,
+    pub minimap_node: Option<Rgba>,
+    pub minimap_mask: Option<Rgba>,
 }
 
 impl Default for FlowStyle {
@@ -26,8 +26,8 @@ impl Default for FlowStyle {
             connection_valid: Rgba::new(0.4, 0.85, 0.6, 1.0),
             connection_invalid: Rgba::new(0.95, 0.45, 0.4, 1.0),
             background: Some(Background::default()),
-            minimap_node: Rgba::new(0.45, 0.48, 0.55, 1.0),
-            minimap_mask: Rgba::new(0.0, 0.0, 0.0, 0.45),
+            minimap_node: None,
+            minimap_mask: None,
         }
     }
 }
@@ -48,6 +48,10 @@ pub const FLOW_SHEET: &str = css!(
 .flow.dragging, .flow.dragging * { cursor: grabbing; }
 .flow.connecting, .flow.connecting * { cursor: crosshair; }
 .flow.over-edge { cursor: pointer; }
+
+.flow__background { color: #4d525e; }
+.flow__minimap-canvas { color: #737a8c; }
+.flow__minimap-mask { color: rgba(0, 0, 0, 0.45); }
 
 .flow__background, .flow__edges {
     position: absolute;
@@ -161,7 +165,7 @@ pub const FLOW_SHEET: &str = css!(
     z-index: 5;
 }
 
-.flow__minimap-canvas {
+.flow__minimap-canvas, .flow__minimap-mask {
     position: absolute;
     left: 0;
     top: 0;

@@ -110,6 +110,8 @@ pub const SHEET: &str = css!(
     box-shadow: 0 1px 2px rgba(0, 0, 0, 0.45), 0 10px 28px rgba(0, 0, 0, 0.42);
 }
 
+.node__body { flex: 1 1 auto; min-height: 0; overflow: hidden; display: flex; flex-direction: column; border-bottom-left-radius: 6px; border-bottom-right-radius: 6px; }
+
 .flow__node.selected .node {
     z-index: 5;
     border-color: var(--accent);
@@ -119,7 +121,7 @@ pub const SHEET: &str = css!(
 
 .node__bar {
     align-items: center;
-    gap: 10px;
+    gap: 8px;
     height: 26px;
     padding: 0 9px;
     border-bottom: 1px solid var(--line);
@@ -198,6 +200,9 @@ pub const SHEET: &str = css!(
 .flow .flow__handle-label[data-side="right"] { right: auto; left: 18px; }
 
 .flow__minimap, .flow__controls { border-color: var(--line); background-color: var(--panel); }
+.flow .flow__background { color: var(--line); }
+.flow .flow__minimap-canvas { color: var(--line-strong); }
+.flow .flow__minimap-mask { color: color-mix(in oklab, var(--bg) 60%, transparent); }
 .flow__control { color: var(--ink-dim); }
 .flow__control:hover { background-color: var(--panel-2); color: var(--ink); }
 .flow__selection { border-color: var(--accent); background-color: color-mix(in oklab, var(--accent) 12%, transparent); }

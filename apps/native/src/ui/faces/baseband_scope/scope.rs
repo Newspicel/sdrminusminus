@@ -11,8 +11,8 @@ use super::{
     measure::{View, discriminator, tick_label},
 };
 use crate::ui::{
-    kit_raster::{PLOT_BG, PLOT_GRID, PLOT_HOLD, PLOT_INK, PLOT_TRACE, Pen, Raster, Rgba, Scene},
     faces::scope::colormap::Colormap,
+    kit_raster::{PLOT_BG, PLOT_GRID, PLOT_HOLD, PLOT_INK, PLOT_TRACE, Pen, Raster, Rgba, Scene},
 };
 
 pub const GRID: usize = 320;

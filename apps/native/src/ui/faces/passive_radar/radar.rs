@@ -1,8 +1,8 @@
 use sdrmm_wire::coherent::{Illuminator, PassiveRadarParams, RadarDetection};
 
 use crate::ui::{
-    kit_raster::{Pen, Raster, Scene, WHITE},
     faces::scope::colormap::Colormap,
+    kit_raster::{Pen, Raster, Scene, WHITE},
 };
 
 const LIGHT_SPEED_KM_S: f64 = 299_792.458;

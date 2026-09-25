@@ -18,12 +18,12 @@ use crate::{
     api::Api,
     binding,
     bus::{Bus, Frame, Source},
+    coherent,
+    decoded::Decoded,
     shell::{
         apply_toasts::apply_toasts,
         toasts::{Toasts, Tone},
     },
-    decoded::Decoded,
-    coherent,
     socket::{Incoming, Socket},
     workspace::Session,
 };

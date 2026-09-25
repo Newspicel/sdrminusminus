@@ -2,14 +2,12 @@ use std::{cell::RefCell, collections::HashMap};
 
 use sdrmm_wire::frame::SpectrumFrame;
 
-use crate::{
-    ui::{
-        kit_maps::iso_of,
-        map::{
-            Geo,
-            heat::Ramp,
-            overlay::{Dot, EDGE, Heat, Overlay},
-        },
+use crate::ui::{
+    kit_maps::iso_of,
+    map::{
+        Geo,
+        heat::Ramp,
+        overlay::{Dot, EDGE, Heat, Overlay},
     },
 };
 

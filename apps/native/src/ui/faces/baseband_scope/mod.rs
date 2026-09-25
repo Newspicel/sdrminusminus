@@ -8,8 +8,8 @@ use crate::{
     bus::Source,
     store::Store,
     ui::{
-        kit_raster::{Bounds, number, raster_view},
         faces::scope::colormap::Colormap,
+        kit_raster::{Bounds, number, raster_view},
         widgets::{check, row_field, segments},
     },
 };

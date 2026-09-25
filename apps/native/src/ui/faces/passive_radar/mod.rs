@@ -16,8 +16,8 @@ use crate::{
     bus::Source,
     store::Store,
     ui::{
-        kit_raster::{Bounds, edit_body, number, raster_view, readout},
         faces::scope::colormap::Colormap,
+        kit_raster::{Bounds, edit_body, number, raster_view, readout},
         widgets::{check, row_field},
     },
 };

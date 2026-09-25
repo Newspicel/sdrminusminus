@@ -199,7 +199,8 @@ pub fn add_channel_at(cx: ScopeCx, pick: ScopePick, channel_type: String) {
     let lane = cx.lane.get_value();
     let scope = cx.node.get_value();
     let graph = cx.store.graph.get_untracked();
-    let id = crate::ui::patch::graph::new_node_id("channel", &crate::ui::patch::graph::node_ids(&graph));
+    let id =
+        crate::ui::patch::graph::new_node_id("channel", &crate::ui::patch::graph::node_ids(&graph));
     let Some(body) = palette::body_for(&format!("channel:{channel_type}")) else {
         cx.store.say(format!("Unknown decoder: {channel_type}"));
         return;

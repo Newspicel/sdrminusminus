@@ -1,10 +1,7 @@
 use kurbo::{Line, Rect, Shape};
-use zgui::{
-    canvas::{Brush, ShapeBuilder},
-    prelude::*,
-};
+use zgui::{canvas::ShapeBuilder, prelude::*};
 
-use super::{FlowHandle, edges::colour};
+use super::{FlowHandle, edges::brush};
 use crate::model::Rgba;
 
 const FADE_BELOW: f64 = 5.0;
@@ -21,7 +18,7 @@ pub struct Background {
     pub pattern: Pattern,
     pub gap: f64,
     pub size: f64,
-    pub colour: Rgba,
+    pub colour: Option<Rgba>,
 }
 
 impl Default for Background {
@@ -30,7 +27,7 @@ impl Default for Background {
             pattern: Pattern::Dots,
             gap: 24.0,
             size: 1.2,
-            colour: Rgba::new(0.3, 0.32, 0.37, 1.0),
+            colour: None,
         }
     }
 }
@@ -53,7 +50,7 @@ pub fn background<T: Send + Sync + 'static, E: Send + Sync + 'static>(
             if width <= 0.0 || height <= 0.0 || pitch < FADE_BELOW {
                 return;
             }
-            let brush = Brush::Solid(colour(look.colour));
+            let brush = brush(look.colour);
             let x0 = first(viewport.x, pitch);
             let y0 = first(viewport.y, pitch);
             match look.pattern {

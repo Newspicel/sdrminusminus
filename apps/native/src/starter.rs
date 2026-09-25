@@ -35,15 +35,15 @@ pub fn graph(devices: &[DeviceInfo]) -> PatchGraph {
                     locked_streams: Vec::new(),
                 }),
                 40.0,
-                72.0,
+                40.0,
                 None,
             ),
             node(
                 "scope",
                 NodeBody::Scope,
-                470.0,
-                24.0,
-                Some(Size { w: 620.0, h: 360.0 }),
+                520.0,
+                40.0,
+                Some(Size { w: 640.0, h: 400.0 }),
             ),
             node(
                 "nfm",
@@ -53,16 +53,17 @@ pub fn graph(devices: &[DeviceInfo]) -> PatchGraph {
                     tuning_locked: false,
                 }),
                 40.0,
-                440.0,
+                420.0,
                 None,
             ),
-            node("speaker", NodeBody::Speaker, 470.0, 470.0, None),
-            node("log", NodeBody::DecoderLog, 880.0, 470.0, None),
+            node("speaker", NodeBody::Speaker, 540.0, 500.0, None),
+            node("log", NodeBody::DecoderLog, 920.0, 500.0, None),
         ],
         edges: vec![
             edge(("device", "iq"), ("scope", "iq")),
             edge(("device", "iq"), ("nfm", "iq")),
             edge(("nfm", "audio"), ("speaker", "audio")),
+            edge(("nfm", "events"), ("log", "events")),
         ],
     }
 }
@@ -148,11 +149,11 @@ mod tests {
     }
 
     #[test]
-    fn the_starter_patch_is_a_radio_a_scope_a_channel_and_a_speaker() {
+    fn the_starter_patch_is_a_radio_a_scope_a_channel_a_speaker_and_a_log() {
         let graph = graph(&[info("virtual", "siggen")]);
         let ids: Vec<&str> = graph.nodes.iter().map(|node| node.id.as_str()).collect();
         assert_eq!(ids, ["device", "scope", "nfm", "speaker", "log"]);
-        assert_eq!(graph.edges.len(), 3);
+        assert_eq!(graph.edges.len(), 4);
         graph.validate().expect("a valid starter patch");
     }
 
