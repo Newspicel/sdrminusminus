@@ -211,7 +211,11 @@ impl SdrplayDevice {
     ) -> Result<Self, DeviceError> {
         let handle = DevHandle(device.dev);
         let params = SendPtr(api.device_params(handle)?);
-        let band = read_band(params.0, model, mode, ffi::TUNER_A)?;
+        let initial_tuner = match mode {
+            Some(DuoMode::SingleTunerB | DuoMode::MasterB) => ffi::TUNER_B,
+            _ => ffi::TUNER_A,
+        };
+        let band = read_band(params.0, model, mode, initial_tuner)?;
         let mut this = Self {
             api,
             device,
