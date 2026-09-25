@@ -221,12 +221,13 @@ pub fn readout(rows: Vec<(&'static str, AnyView)>) -> impl IntoView {
     view! { column(class = "readout") {{rows}} }
 }
 
-pub fn alert(message: impl Fn() -> Option<String> + Send + Sync + 'static) -> impl IntoView {
-    let message = Signal::derive(message);
-    view! {
-        if move || message.get().is_some() {
-            text(class = "alert") {{move || message.get().unwrap_or_default()}}
-        }
+pub fn alert(message: impl Fn() -> Option<String> + 'static) -> impl IntoView {
+    move || {
+        message().map(|said| {
+            view! {
+                text(class = "alert") {{said}}
+            }
+        })
     }
 }
 
