@@ -7309,6 +7309,7 @@ dependencies = [
  "clap",
  "dirs 7.0.0",
  "futures",
+ "jiff",
  "reqwest",
  "sdrmm-device",
  "sdrmm-device-virtual",
@@ -7321,8 +7322,10 @@ dependencies = [
  "tokio-tungstenite 0.30.0",
  "tracing",
  "tracing-subscriber",
+ "url",
  "zgui",
  "zgui-flow",
+ "zgui-image",
  "zgui-tokio",
  "zgui-ui",
 ]

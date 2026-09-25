@@ -4,10 +4,10 @@ use sdrmm_wire::{
     channel::{ChannelDescriptor, ChannelInfo, ChannelSettings},
     decode::DecodedRecord,
     device::{DeviceInfo, DeviceSettings},
+    frame::FrameKind,
     patch::{PatchCatalog, PatchGraph},
     state::{ChannelLevel, DeviceSet, StateSnapshot},
     workspace::WorkspaceDetail,
-    frame::FrameKind,
     ws::{ClientCommand, ServerEvent, StateScope},
 };
 use tokio::sync::mpsc;
@@ -15,8 +15,9 @@ use zgui::prelude::*;
 
 use crate::{
     api::Api,
-    bus::{Bus, Frame, Source},
     binding,
+    bus::{Bus, Frame, Source},
+    decoded::Decoded,
     socket::{Incoming, Socket, Spectrum},
     starter,
     workspace::Session,
@@ -24,7 +25,6 @@ use crate::{
 
 pub const SPECTRUM_BINS: u16 = 512;
 pub const SPECTRUM_FPS: u16 = 20;
-const DECODED_KEEP: usize = 120;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Pane {
@@ -52,7 +52,8 @@ pub struct Store {
     pub palette_at: RwSignal<Option<(f32, f32)>>,
     pub spectra: RwSignal<Arc<HashMap<u32, Arc<Spectrum>>>>,
     pub levels: RwSignal<Arc<HashMap<(u32, u32), ChannelLevel>>>,
-    pub decoded: RwSignal<Arc<Vec<DecodedRecord>>>,
+    pub decoded: RwSignal<Arc<Decoded>>,
+    staged: StoredValue<Vec<DecodedRecord>>,
     bus: StoredValue<Rc<Bus>, LocalStorage>,
     editor: StoredValue<Option<Session>>,
     api: StoredValue<Api>,
@@ -80,7 +81,8 @@ impl Store {
             palette_at: RwSignal::new(None),
             spectra: RwSignal::new(Arc::new(HashMap::new())),
             levels: RwSignal::new(Arc::new(HashMap::new())),
-            decoded: RwSignal::new(Arc::new(Vec::new())),
+            decoded: RwSignal::new(Arc::new(Decoded::default())),
+            staged: StoredValue::new(Vec::new()),
             bus: StoredValue::new_local(Rc::new(Bus::default())),
             editor: StoredValue::new(None),
             api: StoredValue::new(api),
@@ -172,7 +174,10 @@ impl Store {
     fn receive_frame(self, frame: &Frame) {
         let bus = self.bus.get_value();
         if frame.kind == FrameKind::Spectrum
-            && let Some(Source::Spectrum { device_set, stream: 0 }) = bus.source_of(frame.stream_id)
+            && let Some(Source::Spectrum {
+                device_set,
+                stream: 0,
+            }) = bus.source_of(frame.stream_id)
             && let Some(spectrum) = crate::socket::spectrum(&frame.bytes)
         {
             let mut next = (*self.spectra.get_untracked()).clone();
@@ -184,24 +189,32 @@ impl Store {
 
     async fn drain(self, mut incoming: mpsc::UnboundedReceiver<Incoming>) {
         while let Some(message) = incoming.recv().await {
-            match message {
-                Incoming::Up => {
-                    self.connected.set(true);
-                    for command in self.bus.get_value().held() {
-                        self.command(command);
-                    }
-                    self.refresh_all();
-                }
-                Incoming::Down => {
-                    self.connected.set(false);
-                    self.say("the server connection dropped");
-                }
-                Incoming::Event(event) => {
-                    self.bus.get_value().publish_event(&event);
-                    self.absorb(*event);
-                }
-                Incoming::Frame(frame) => self.receive_frame(&frame),
+            self.receive(message);
+            while let Ok(message) = incoming.try_recv() {
+                self.receive(message);
             }
+            self.publish_decoded();
+        }
+    }
+
+    fn receive(self, message: Incoming) {
+        match message {
+            Incoming::Up => {
+                self.connected.set(true);
+                for command in self.bus.get_value().held() {
+                    self.command(command);
+                }
+                self.refresh_all();
+            }
+            Incoming::Down => {
+                self.connected.set(false);
+                self.say("the server connection dropped");
+            }
+            Incoming::Event(event) => {
+                self.bus.get_value().publish_event(&event);
+                self.absorb(*event);
+            }
+            Incoming::Frame(frame) => self.receive_frame(&frame),
         }
     }
 
@@ -220,16 +233,49 @@ impl Store {
                 }
                 self.levels.set(Arc::new(next));
             }
-            ServerEvent::Decoded(record) => {
+            ServerEvent::Decoded(record) => self.staged.update_value(|staged| staged.push(*record)),
+            ServerEvent::DecodedBacklog { records } => {
                 let mut next = (*self.decoded.get_untracked()).clone();
-                next.push(*record);
-                let overflow = next.len().saturating_sub(DECODED_KEEP);
-                next.drain(..overflow);
-                self.decoded.set(Arc::new(next));
+                if next.hydrate(&records) {
+                    self.decoded.set(Arc::new(next));
+                }
+            }
+            ServerEvent::DecodedLost { count } => {
+                self.decoded
+                    .update(|decoded| Arc::make_mut(decoded).report_lost(count));
             }
             ServerEvent::Error { message } => self.say(message),
             _ => {}
         }
+    }
+
+    fn publish_decoded(self) {
+        let batch = self
+            .staged
+            .try_update_value(std::mem::take)
+            .unwrap_or_default();
+        if !batch.is_empty() {
+            self.decoded
+                .update(|decoded| Arc::make_mut(decoded).publish(batch));
+        }
+    }
+
+    pub fn age_out_stations(self, max_age_ms: i64) {
+        let now = crate::decoded::now_ms();
+        if self
+            .decoded
+            .with_untracked(|decoded| decoded.stale(max_age_ms, now))
+        {
+            self.decoded
+                .update(|decoded| Arc::make_mut(decoded).age_out(max_age_ms, now));
+        }
+    }
+
+    pub fn drop_decoded(self, matches: impl Fn(&DecodedRecord) -> bool) -> usize {
+        let mut dropped = 0;
+        self.decoded
+            .update(|decoded| dropped = Arc::make_mut(decoded).drop_frames(matches));
+        dropped
     }
 
     pub fn refresh_all(self) {
