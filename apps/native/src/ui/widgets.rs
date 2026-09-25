@@ -87,6 +87,7 @@ pub fn dial(hz: Signal<f64>, on_change: impl Fn(f64) + Clone + 'static) -> impl 
                 _ => return,
             }
             ev.prevent_default();
+            ev.stop_propagation();
         }
     };
 

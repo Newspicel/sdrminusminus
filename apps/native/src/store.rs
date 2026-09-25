@@ -4,10 +4,10 @@ use sdrmm_wire::{
     channel::{ChannelDescriptor, ChannelInfo, ChannelSettings},
     decode::DecodedRecord,
     device::{DeviceInfo, DeviceSettings},
-    patch::{PatchCatalog, PatchGraph},
-    state::{ChannelLevel, DeviceSet, StateSnapshot},
-    workspace::WorkspaceDetail,
     frame::FrameKind,
+    patch::{PatchCatalog, PatchGraph, RackLayout},
+    state::{ChannelLevel, DeviceSet, StateSnapshot},
+    workspace::{WorkspaceDetail, WorkspaceInfo, WorkspaceSettings},
     ws::{ClientCommand, ServerEvent, StateScope},
 };
 use tokio::sync::mpsc;
@@ -15,10 +15,13 @@ use zgui::prelude::*;
 
 use crate::{
     api::Api,
-    bus::{Bus, Frame, Source},
     binding,
+    bus::{Bus, Frame, Source},
+    shell::{
+        apply_toasts::apply_toasts,
+        toasts::{Toasts, Tone},
+    },
     socket::{Incoming, Socket, Spectrum},
-    starter,
     workspace::Session,
 };
 
@@ -30,6 +33,15 @@ const DECODED_KEEP: usize = 120;
 pub enum Pane {
     Patch,
     Rack,
+}
+
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub enum Phase {
+    Loading,
+    Ready,
+    NoWorkspace,
+    Unreachable(String),
+    Locked { refused: bool },
 }
 
 #[derive(Clone, Copy)]
@@ -45,7 +57,12 @@ pub struct Store {
     pub connected: RwSignal<bool>,
     pub can_undo: RwSignal<bool>,
     pub can_redo: RwSignal<bool>,
-    pub notice: RwSignal<Option<String>>,
+    pub toasts: RwSignal<Arc<Toasts>>,
+    pub phase: RwSignal<Phase>,
+    pub rack: RwSignal<Arc<RackLayout>>,
+    pub settings: RwSignal<Arc<WorkspaceSettings>>,
+    pub workspaces: RwSignal<Arc<Vec<WorkspaceInfo>>>,
+    pub expanded: RwSignal<Option<String>>,
     pub pane: RwSignal<Pane>,
     pub selected: RwSignal<Option<String>>,
     pub palette: RwSignal<bool>,
@@ -54,7 +71,7 @@ pub struct Store {
     pub levels: RwSignal<Arc<HashMap<(u32, u32), ChannelLevel>>>,
     pub decoded: RwSignal<Arc<Vec<DecodedRecord>>>,
     bus: StoredValue<Rc<Bus>, LocalStorage>,
-    editor: StoredValue<Option<Session>>,
+    pub(crate) editor: StoredValue<Option<Session>>,
     api: StoredValue<Api>,
     socket: StoredValue<Option<Socket>>,
 }
@@ -73,7 +90,12 @@ impl Store {
             connected: RwSignal::new(false),
             can_undo: RwSignal::new(false),
             can_redo: RwSignal::new(false),
-            notice: RwSignal::new(None),
+            toasts: RwSignal::new(Arc::new(Toasts::default())),
+            phase: RwSignal::new(Phase::Loading),
+            rack: RwSignal::new(Arc::new(RackLayout::default())),
+            settings: RwSignal::new(Arc::new(WorkspaceSettings::default())),
+            workspaces: RwSignal::new(Arc::new(Vec::new())),
+            expanded: RwSignal::new(None),
             pane: RwSignal::new(Pane::Patch),
             selected: RwSignal::new(None),
             palette: RwSignal::new(false),
@@ -117,14 +139,31 @@ impl Store {
     }
 
     pub fn say(self, message: impl Into<String>) {
-        self.notice.set(Some(message.into()));
+        self.toast(&message.into(), Tone::Error, None);
+    }
+
+    pub fn note(self, message: impl Into<String>) {
+        self.toast(&message.into(), Tone::Info, None);
+    }
+
+    pub fn fail(self, context: &str, error: &anyhow::Error) {
+        let code = crate::api::error_code(error);
+        self.toast(&format!("{context}: {error}"), Tone::Error, code.as_deref());
+    }
+
+    fn toast(self, message: &str, tone: Tone, code: Option<&str>) {
+        let at = jiff::Timestamp::now();
+        let now_ms = u64::try_from(at.as_millisecond()).unwrap_or_default();
+        let mut next = (*self.toasts.get_untracked()).clone();
+        next.push(message, tone, code, now_ms, &at.to_string());
+        self.toasts.set(Arc::new(next));
     }
 
     pub fn start(self, socket: Socket, incoming: mpsc::UnboundedReceiver<Incoming>) {
         self.socket.set_value(Some(socket));
         zgui::task::spawn_local(async move { self.drain(incoming).await });
         self.refresh_all();
-        zgui::task::spawn_local(async move { self.open_workspace().await });
+        zgui::task::spawn_local(async move { self.boot().await });
     }
 
     pub fn command(self, command: ClientCommand) {
@@ -172,7 +211,10 @@ impl Store {
     fn receive_frame(self, frame: &Frame) {
         let bus = self.bus.get_value();
         if frame.kind == FrameKind::Spectrum
-            && let Some(Source::Spectrum { device_set, stream: 0 }) = bus.source_of(frame.stream_id)
+            && let Some(Source::Spectrum {
+                device_set,
+                stream: 0,
+            }) = bus.source_of(frame.stream_id)
             && let Some(spectrum) = crate::socket::spectrum(&frame.bytes)
         {
             let mut next = (*self.spectra.get_untracked()).clone();
@@ -194,7 +236,7 @@ impl Store {
                 }
                 Incoming::Down => {
                     self.connected.set(false);
-                    self.say("the server connection dropped");
+                    self.say("Lost the server: reconnecting");
                 }
                 Incoming::Event(event) => {
                     self.bus.get_value().publish_event(&event);
@@ -210,7 +252,7 @@ impl Store {
             ServerEvent::Hello { .. } => self.refresh_all(),
             ServerEvent::StateChanged { scope } => match scope {
                 StateScope::Devices => self.refresh_devices(),
-                StateScope::Workspaces => {}
+                StateScope::Workspaces => self.refresh_workspaces(),
                 _ => self.refresh_state(),
             },
             ServerEvent::ChannelLevels { device_set, levels } => {
@@ -273,110 +315,18 @@ impl Store {
         });
     }
 
-    async fn open_workspace(self) {
-        let api = self.api();
-        let listed = match api.workspaces().await {
-            Ok(listed) => listed,
-            Err(error) => {
-                self.say(format!("cannot reach the server: {error}"));
-                return;
-            }
-        };
-        let id = match listed
-            .active
-            .or_else(|| listed.workspaces.first().map(|w| w.id))
-        {
-            Some(id) => id,
-            None => match api.create_workspace("Native").await {
-                Ok(id) => id,
-                Err(error) => {
-                    self.say(format!("cannot create a workspace: {error}"));
-                    return;
-                }
-            },
-        };
-        if let Err(error) = api.activate_workspace(id).await {
-            tracing::debug!(%error, "cannot activate the workspace");
-        }
-        let detail = match api.workspace(id).await {
-            Ok(detail) => detail,
-            Err(error) => {
-                self.say(format!("cannot read the workspace: {error}"));
-                return;
-            }
-        };
-        let (editor, worker) = Session::new(api.clone(), detail.clone());
-        self.editor.set_value(Some(editor));
-        zgui::task::spawn_local(worker.run());
-        self.workspace.set(Some(id));
-        self.revision.set(detail.info.revision);
-        self.name.set(detail.info.name.clone());
-        self.can_undo.set(detail.history.can_undo);
-        self.can_redo.set(detail.history.can_redo);
-
-        let seeding = starter::wants_seeding(&detail.snapshot.graph);
-        let graph = if seeding {
-            let devices = api.devices().await.unwrap_or_default();
-            let graph = starter::graph(&devices);
-            if let Err(error) = self.write_graph(graph.clone()).await {
-                self.say(format!("cannot save the starter patch: {error}"));
-                return;
-            }
-            graph
-        } else {
-            detail.snapshot.graph.clone()
-        };
-        self.graph.set(Arc::new(graph));
-        self.apply().await;
-        if seeding {
-            self.tune_starter().await;
-        }
-    }
-
-    async fn tune_starter(self) {
-        let state = match self.api().state().await {
-            Ok(state) => state,
-            Err(error) => {
-                tracing::debug!(%error, "cannot read the state after seeding");
-                return;
-            }
-        };
-        self.state.set(Arc::new(state.clone()));
-        let graph = self.graph.get_untracked();
-        let devices = binding::device_sets(&graph, &state.device_sets);
-        let Some(set) = devices.values().copied().next() else {
-            return;
-        };
-        let centre = DeviceSettings {
-            center_hz: Some(starter::DEVICE_CENTRE_HZ),
-            ..DeviceSettings::default()
-        };
-        if let Err(error) = self.api().patch_device(set, &centre).await {
-            tracing::debug!(%error, "cannot centre the radio");
-        }
-        let channels = binding::channels(&graph, &state.device_sets, &devices);
-        for channel in channels.values() {
-            let mut settings = channel.settings.clone();
-            settings.frequency_hz = starter::CHANNEL_HZ;
-            if let Err(error) = self.api().patch_channel(set, channel.id, &settings).await {
-                tracing::debug!(%error, "cannot tune the starter channel");
-            }
-        }
-        self.refresh_state();
-    }
-
     pub async fn apply(self) {
         let Some(id) = self.workspace.get_untracked() else {
             return;
         };
         match self.api().apply_workspace(id).await {
             Ok(report) => {
-                for refusal in &report.refused {
-                    self.say(format!("{}: {}", refusal.node, refusal.reason));
+                for message in apply_toasts(&report, &self.graph.get_untracked().nodes) {
+                    self.say(message);
                 }
                 self.refresh_state();
             }
-            Err(error) => self.say(format!("cannot apply the patch: {error}")),
+            Err(error) => self.fail("Cannot apply the patch", &error),
         }
     }
 
@@ -388,7 +338,7 @@ impl Store {
         zgui::task::spawn_local(async move {
             match save.await {
                 Ok(()) => self.apply().await,
-                Err(error) => self.say(format!("cannot save the patch: {error}")),
+                Err(error) => self.fail("Cannot save the patch", &error),
             }
         });
     }
@@ -425,19 +375,26 @@ impl Store {
         let save = self.write_graph((*self.graph.get_untracked()).clone());
         zgui::task::spawn_local(async move {
             if let Err(error) = save.await {
-                self.say(format!("cannot save the layout: {error}"));
+                self.fail("Cannot save the layout", &error);
             }
         });
     }
 
-    fn read_detail(self, detail: &WorkspaceDetail) {
+    pub(crate) fn read_detail(self, detail: &WorkspaceDetail) {
         self.revision.set(detail.info.revision);
         self.can_undo.set(detail.history.can_undo);
         self.can_redo.set(detail.history.can_redo);
         self.name.set(detail.info.name.clone());
+        if *self.rack.get_untracked() != detail.snapshot.rack {
+            self.rack.set(Arc::new(detail.snapshot.rack.clone()));
+        }
+        if *self.settings.get_untracked() != detail.snapshot.settings {
+            self.settings
+                .set(Arc::new(detail.snapshot.settings.clone()));
+        }
     }
 
-    fn write_graph(self, graph: PatchGraph) -> impl Future<Output = anyhow::Result<()>> {
+    pub(crate) fn write_graph(self, graph: PatchGraph) -> impl Future<Output = anyhow::Result<()>> {
         let pending = self.editor.get_value().map(|editor| editor.save(graph));
         async move {
             let pending = pending.ok_or_else(|| anyhow::anyhow!("workspace is still loading"))?;
@@ -458,7 +415,7 @@ impl Store {
                     self.graph.set(Arc::new(detail.snapshot.graph));
                     self.apply().await;
                 }
-                Err(error) => self.say(format!("cannot step the history: {error}")),
+                Err(error) => self.fail("Cannot step the history", &error),
             }
         });
     }
@@ -492,7 +449,7 @@ impl Store {
             match pending.await {
                 Ok(detail) => self.read_detail(&detail),
                 Err(error) => {
-                    self.say(format!("cannot change settings: {error}"));
+                    self.fail("Cannot change settings", &error);
                     self.refresh_state();
                 }
             }

@@ -50,7 +50,13 @@ tokio.workspace = true
 tokio-tungstenite.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
+qrcode.workspace = true
+rfd.workspace = true
+open.workspace = true
+url.workspace = true
+jiff.workspace = true
 
 [dev-dependencies]
+tempfile.workspace = true
 sdrmm-device.workspace = true
 sdrmm-device-virtual.workspace = true

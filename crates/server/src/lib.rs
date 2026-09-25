@@ -57,7 +57,7 @@ mod trunking;
 mod workspace;
 mod ws;
 
-pub use store::{Store, StoreError};
+pub use store::{Store, StoreError, parse_workspace_snapshot};
 
 pub trait NativeShell: Send + Sync + std::fmt::Debug {
     fn reveal(&self, path: &Path) -> std::io::Result<()>;

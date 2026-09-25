@@ -7,7 +7,7 @@ use sdrmm_wire::{
 };
 use tokio::sync::mpsc;
 
-use crate::bus::Frame;
+use crate::{api::Token, bus::Frame};
 use tokio_tungstenite::tungstenite::Message;
 
 #[derive(Clone, Debug)]
@@ -45,10 +45,11 @@ impl Socket {
 pub fn connect(
     runtime: &tokio::runtime::Handle,
     url: String,
+    token: Token,
 ) -> (Socket, mpsc::UnboundedReceiver<Incoming>) {
     let (command_tx, command_rx) = mpsc::unbounded_channel();
     let (incoming_tx, incoming_rx) = mpsc::unbounded_channel();
-    runtime.spawn(run(url, command_rx, incoming_tx));
+    runtime.spawn(run(url, token, command_rx, incoming_tx));
     (
         Socket {
             commands: command_tx,
@@ -57,14 +58,31 @@ pub fn connect(
     )
 }
 
+#[must_use]
+pub fn with_token(url: &str, token: Option<&str>) -> String {
+    match token.filter(|token| !token.is_empty()) {
+        Some(token) => {
+            let mut parsed = match url::Url::parse(url) {
+                Ok(parsed) => parsed,
+                Err(_) => return url.to_owned(),
+            };
+            parsed.query_pairs_mut().append_pair("token", token);
+            parsed.to_string()
+        }
+        None => url.to_owned(),
+    }
+}
+
 async fn run(
     url: String,
+    token: Token,
     mut commands: mpsc::UnboundedReceiver<ClientCommand>,
     incoming: mpsc::UnboundedSender<Incoming>,
 ) {
     let mut backoff = Duration::from_millis(250);
     loop {
-        match tokio_tungstenite::connect_async(&url).await {
+        let address = with_token(&url, token.get().as_deref());
+        match tokio_tungstenite::connect_async(&address).await {
             Ok((stream, _)) => {
                 backoff = Duration::from_millis(250);
                 if incoming.send(Incoming::Up).is_err() {
@@ -199,5 +217,15 @@ mod tests {
         .encode();
         assert!(spectrum(&audio).is_none());
         assert!(spectrum(&[]).is_none());
+    }
+
+    #[test]
+    fn a_held_token_rides_on_the_socket_address() {
+        assert_eq!(with_token("ws://h/api/ws", None), "ws://h/api/ws");
+        assert_eq!(with_token("ws://h/api/ws", Some("")), "ws://h/api/ws");
+        assert_eq!(
+            with_token("ws://h/api/ws", Some("a b")),
+            "ws://h/api/ws?token=a+b"
+        );
     }
 }

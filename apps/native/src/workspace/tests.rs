@@ -128,7 +128,12 @@ async fn an_external_edit_is_reported_without_overwriting_it() {
         .save(detail.snapshot.graph)
         .await
         .expect_err("revision conflict");
-    assert!(error.to_string().contains("409"));
+    assert_eq!(
+        error
+            .downcast_ref::<crate::api::ApiFailure>()
+            .map(|failure| failure.status),
+        Some(409)
+    );
     let current = server
         .api
         .workspace(detail.info.id)

@@ -61,7 +61,7 @@ pub fn sheet(store: Store, canvas: Canvas) -> impl IntoView {
                 spacer()
                 control(class = "node__shut", on:click:stop = move |_| store.palette.set(false)) {"x"}
             }
-            box(class = "pal__search") {
+            box(class = "pal__search", on:key_down = crate::ui::kit_shell::typing) {
                 Input(class = "native-input", value = search, label = "Search nodes", placeholder = "Search nodes…")
             }
             {segments(

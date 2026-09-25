@@ -4,6 +4,7 @@ mod bus;
 mod format;
 mod host;
 mod params;
+mod shell;
 mod socket;
 mod starter;
 mod store;
@@ -47,16 +48,20 @@ fn main() -> anyhow::Result<()> {
 
     let args = Args::parse();
     let tokio = zgui_tokio::install()?;
+    let data = data_dir(args.data_dir)?;
+    let prefs = shell::prefs::PrefsFile::new(data.join("native-prefs.json"));
 
     let host = tokio.handle().block_on(async {
         match args.server {
             Some(base) => Ok(host::Host::remote(base)),
-            None => host::Host::embedded(data_dir(args.data_dir)?).await,
+            None => host::Host::embedded(data).await,
         }
     })?;
     tracing::info!(base = %host.base, "sdr-- native ready");
 
-    let api = api::Api::new(host.base.clone())?;
+    let token = api::Token::default();
+    token.set(prefs.load().token);
+    let api = api::Api::new(host.base.clone())?.with_token(token.clone());
     let websocket = host.websocket_url();
     let runtime = tokio.handle().clone();
 
@@ -68,9 +73,9 @@ fn main() -> anyhow::Result<()> {
         .with_stylesheet(theme::SHEET)
         .run(move || {
             let store = store::Store::new(api.clone());
-            let (socket, incoming) = socket::connect(&runtime, websocket.clone());
+            let (socket, incoming) = socket::connect(&runtime, websocket.clone(), token.clone());
             store.start(socket, incoming);
-            ui::app(store)
+            ui::app(store, prefs.clone())
         });
 
     host.shutdown();
