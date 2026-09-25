@@ -209,6 +209,14 @@ impl Api {
             .map(|_| ())
     }
 
+    pub async fn multipart<T: DeserializeOwned>(
+        &self,
+        path: &str,
+        form: reqwest::multipart::Form,
+    ) -> anyhow::Result<T> {
+        self.post_form(path, form).await
+    }
+
     pub async fn bytes(&self, path: &str) -> anyhow::Result<Vec<u8>> {
         let url = self.url(path);
         let response = self

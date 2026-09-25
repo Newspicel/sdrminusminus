@@ -12,6 +12,7 @@ pub mod kit_raster;
 pub mod kit_audio;
 pub mod kit_maps;
 pub mod map;
+pub mod kit_sources;
 pub mod node;
 pub mod palette;
 pub mod params;
@@ -54,6 +55,7 @@ pub fn app(store: Store, prefs: PrefsFile) -> impl IntoView {
     shell::themed(shell);
     watch_token(store, shell);
     let audio = crate::audio::provide();
+    crate::position::Positions::provide(store);
     let canvas = patch::canvas();
     let tools_open = tools::provide();
     let root = NodeRef::new();

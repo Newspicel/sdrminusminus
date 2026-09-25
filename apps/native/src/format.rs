@@ -34,13 +34,24 @@ pub fn rate(samples_per_second: f64) -> String {
 }
 
 #[must_use]
-pub fn decibels(value: f32) -> String {
-    format!("{value:.1} dB")
+pub fn frequency(hz: f64) -> String {
+    format!("{:.6} MHz", hz / 1e6)
 }
 
 #[must_use]
-pub fn frequency(hz: f64) -> String {
-    format!("{:.6} MHz", hz / 1e6)
+pub fn span(hz: f64) -> String {
+    if hz >= 1e6 {
+        format!("{:.3} MHz", hz / 1e6)
+    } else if hz >= 1e3 {
+        format!("{:.1} kHz", hz / 1e3)
+    } else {
+        format!("{hz:.0} Hz")
+    }
+}
+
+#[must_use]
+pub fn decibels(value: f32) -> String {
+    format!("{value:.1} dB")
 }
 
 #[cfg(test)]
@@ -80,7 +91,10 @@ mod tests {
     fn readouts_pick_the_unit_the_number_belongs_in() {
         assert_eq!(rate(2_048_000.0), "2.048 MS/s");
         assert_eq!(rate(250_000.0), "250.0 kS/s");
+        assert_eq!(span(2_400_000.0), "2.400 MHz");
+        assert_eq!(span(12_500.0), "12.5 kHz");
+        assert_eq!(span(800.0), "800 Hz");
+        assert_eq!(frequency(100_300_000.0), "100.300000 MHz");
         assert_eq!(decibels(-14.04), "-14.0 dB");
     }
-
 }

@@ -450,25 +450,30 @@ impl Store {
         });
     }
 
-    pub fn tune_device(self, node: String, hz: f64) {
-        let Some(set) = self.device_set_of(&node) else {
-            return;
-        };
-        self.set_device(
-            set,
-            DeviceSettings {
-                center_hz: Some(hz),
-                ..DeviceSettings::default()
-            },
-        );
+    pub fn set_device(self, set: u32, settings: DeviceSettings) {
+        let sent = self.send_device(set, settings);
+        zgui::task::spawn_local(async move {
+            if let Err(error) = sent.await {
+                self.say(format!("Cannot change the radio: {error}"));
+                self.refresh_state();
+            }
+        });
     }
 
-    pub fn set_device(self, set: u32, settings: DeviceSettings) {
-        let Some(editor) = self.editor.get_value() else {
-            self.say("Workspace is still loading");
-            return;
-        };
-        self.receive_settings(editor.device(set, settings));
+    pub fn send_device(
+        self,
+        set: u32,
+        settings: DeviceSettings,
+    ) -> impl Future<Output = anyhow::Result<()>> + 'static {
+        let pending = self
+            .editor
+            .get_value()
+            .map(|editor| editor.device(set, settings));
+        async move {
+            let pending = pending.ok_or_else(|| anyhow::anyhow!("workspace is still loading"))?;
+            self.read_detail(&pending.await?);
+            Ok(())
+        }
     }
 
     fn receive_settings(

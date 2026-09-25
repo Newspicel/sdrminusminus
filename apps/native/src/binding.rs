@@ -224,7 +224,7 @@ pub fn device_node_of(graph: &PatchGraph, node: &str) -> Option<String> {
         graph
             .nodes
             .iter()
-            .any(|candidate| candidate.id == id && matches!(candidate.body, NodeBody::Device(_)))
+            .any(|candidate| candidate.id == id && candidate.body.opens_device())
     };
     if is_device(node) {
         return Some(node.to_owned());

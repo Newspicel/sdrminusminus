@@ -3,8 +3,7 @@ use sdrmm_wire::{
         ChannelInfo, ChannelSettings, MAX_SQUELCH_AUTO_MARGIN_DB, MIN_SQUELCH_AUTO_MARGIN_DB,
         Squelch,
     },
-    device::{DeviceInfo, DeviceSettings},
-    patch::{DeviceRef, NodeBody, PatchNode},
+    patch::{NodeBody, PatchNode},
     state::{DeviceSet, DeviceSetStatus},
 };
 use zgui::prelude::*;
@@ -109,7 +108,8 @@ pub fn status_of(store: Store, node: &str) -> (&'static str, &'static str) {
 
 fn carries_status(store: Store, node: &str) -> bool {
     store.graph.get().nodes.iter().any(|found| {
-        found.id == node && matches!(found.body, NodeBody::Device(_) | NodeBody::Channel(_))
+        found.id == node
+            && (found.body.opens_device() || matches!(found.body, NodeBody::Channel(_)))
     })
 }
 
@@ -147,7 +147,7 @@ pub(crate) fn channel_writer(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use sdrmm_wire::device::DeviceInfo;
 
     #[test]
     fn a_radio_is_named_by_its_driver_and_key() {
@@ -158,6 +158,6 @@ mod tests {
             serial: None,
             profile: None,
         };
-        assert_eq!(device::device_key(&info), "virtual:siggen");
+        assert_eq!(super::device::devices::device_id(&info), "virtual:siggen");
     }
 }
