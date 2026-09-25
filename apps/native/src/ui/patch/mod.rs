@@ -1,5 +1,10 @@
+pub mod graph;
+mod menu;
+mod remove;
+
 use sdrmm_wire::patch::{
     NodeBody, PatchEdge, PatchGraph, PatchNode, PortBacking, PortDirection, PortRef, PortType,
+    Position,
 };
 use zgui::prelude::*;
 use zgui_flow::{
@@ -77,19 +82,32 @@ fn handles_of(places: &[Place]) -> Vec<Handle> {
 
 fn flow_node(store: Store, node: &PatchNode, selected: bool) -> Node<PatchNode> {
     let places = places_of(store, node);
+    let kind = node.body.kind();
+    let natural = graph::natural_size(kind);
+    let resizable = graph::is_resizable(kind);
+    let width = node.size.map_or(natural.w, |size| size.w);
+    let height = if resizable {
+        node.size.map(|size| size.h).or(natural.h).unwrap_or(0.0)
+    } else {
+        0.0
+    };
     let mut drawn = Node::new(
         node.id.as_str(),
         Point::new(f64::from(node.position.x), f64::from(node.position.y)),
-        Size::new(
-            f64::from(node::width_of(node)),
-            node.size.map_or(0.0, |size| f64::from(size.h)),
-        ),
+        Size::new(f64::from(width), f64::from(height)),
         node.clone(),
     );
+    let inputs = places
+        .iter()
+        .filter(|place| place.direction == PortDirection::In)
+        .count();
+    let (min_w, min_h) = graph::min_size(kind, inputs, places.len() - inputs);
+    drawn.min_size = Size::new(f64::from(min_w), f64::from(min_h));
     drawn.handles = handles_of(&places);
     drawn.selected = selected;
     drawn.drag_handle = true;
-    drawn.auto_height = node.size.is_none();
+    drawn.resizable = resizable;
+    drawn.auto_height = !resizable;
     drawn.variant = Some(shape_of(node).into());
     drawn.class = Some(node::category_class(node.body.category()).to_owned());
     drawn
@@ -190,7 +208,7 @@ pub fn refusal(store: Store, graph: &PatchGraph, connection: &Connection) -> Opt
         .map(|error| error.to_string())
 }
 
-fn on_effect(store: Store, canvas: Canvas, effect: &Effect) {
+fn on_effect(store: Store, canvas: Canvas, menu: RwSignal<Option<menu::Menu>>, effect: &Effect) {
     tracing::debug!(?effect, "canvas");
     match effect {
         Effect::DragStop(ids) | Effect::Delete { nodes: ids, .. } if ids.is_empty() => {}
@@ -230,24 +248,21 @@ fn on_effect(store: Store, canvas: Canvas, effect: &Effect) {
                 return;
             }
             let edge = edge_of(connection);
-            store.edit_graph(move |graph| {
-                if !graph.edges.contains(&edge) {
-                    graph.edges.push(edge);
-                }
-            });
+            store.edit_graph(move |graph| *graph = graph::add_edge(graph, edge));
         }
         Effect::ConnectEnd { .. } => {}
-        Effect::Delete { nodes, edges } => {
-            let nodes: Vec<String> = nodes.iter().map(ToString::to_string).collect();
-            let edges: Vec<String> = edges.iter().map(ToString::to_string).collect();
-            store.edit_graph(move |graph| {
-                graph.nodes.retain(|node| !nodes.contains(&node.id));
-                graph.edges.retain(|edge| {
-                    !nodes.contains(&edge.from.node)
-                        && !nodes.contains(&edge.to.node)
-                        && !edges.contains(&connection_of(edge).key())
-                });
-            });
+        Effect::Delete { nodes, edges } => remove_selection(
+            store,
+            nodes.iter().map(ToString::to_string).collect(),
+            edges.iter().map(ToString::to_string).collect(),
+        ),
+        Effect::Menu { target, at } => {
+            close_menus();
+            menu.set(Some(menu::Menu {
+                target: target.clone(),
+                window: canvas.pane_to_window(*at),
+                flow: canvas.pane_to_flow(*at),
+            }));
         }
         Effect::SelectionChanged | Effect::NodeClick(_) | Effect::PaneClick(_) => {
             close_menus();
@@ -259,6 +274,69 @@ fn on_effect(store: Store, canvas: Canvas, effect: &Effect) {
         Effect::PaneDoubleClick(at) => store.open_palette_at(at.x as f32, at.y as f32),
         _ => {}
     }
+}
+
+pub fn remove_selection(store: Store, nodes: Vec<String>, edges: Vec<String>) {
+    let graph = store.graph.get_untracked();
+    let closing = remove::teardowns(store, &graph, &nodes);
+    zgui::task::spawn_local(async move {
+        remove::close(store, closing).await;
+        store.edit_graph(move |graph| {
+            *graph = graph::remove_edges(&graph::remove_nodes(graph, &nodes), &edges);
+        });
+    });
+}
+
+#[derive(Clone, Copy)]
+struct Clipboard {
+    held: StoredValue<Option<graph::Clipboard>, LocalStorage>,
+    pastes: StoredValue<u32, LocalStorage>,
+}
+
+fn copy(store: Store, canvas: Canvas, clipboard: Clipboard) -> bool {
+    let ids: Vec<String> = canvas.selected().iter().map(ToString::to_string).collect();
+    let Some(copied) = graph::copy_nodes(&store.graph.get_untracked(), &ids) else {
+        return false;
+    };
+    let count = copied.nodes.len();
+    clipboard.held.set_value(Some(copied));
+    clipboard.pastes.set_value(0);
+    store.say(if count == 1 {
+        String::from("Copied 1 node")
+    } else {
+        format!("Copied {count} nodes")
+    });
+    true
+}
+
+fn paste(store: Store, canvas: Canvas, clipboard: Clipboard) -> bool {
+    let Some(held) = clipboard.held.get_value() else {
+        return false;
+    };
+    let current = store.graph.get_untracked();
+    if let Some(reason) = graph::paste_refusal(&current, &held) {
+        store.say(reason);
+        return true;
+    }
+    let pastes = clipboard.pastes.get_value() + 1;
+    clipboard.pastes.set_value(pastes);
+    let step = graph::PASTE_OFFSET_PX * pastes as f32;
+    let (next, ids) = graph::paste_nodes(&current, &held, Position { x: step, y: step });
+    store.edit_graph(move |graph| *graph = next);
+    let chosen: Vec<Id> = ids.iter().map(|id| Id::from(id.as_str())).collect();
+    canvas.select_only(&chosen);
+    store.selected.set(ids.first().cloned());
+    true
+}
+
+fn chord(key: &Key, held: zgui::prelude::Modifiers) -> Option<char> {
+    if !(held.control() || held.meta()) || held.alt() || held.shift() {
+        return None;
+    }
+    key.as_str()
+        .and_then(|text| text.chars().next())
+        .map(|letter| letter.to_ascii_lowercase())
+        .filter(|letter| matches!(letter, 'c' | 'v'))
 }
 
 #[must_use]
@@ -289,17 +367,36 @@ pub fn pane(store: Store, canvas: Canvas) -> impl IntoView {
     on_cleanup_local(move || drop(following));
 
     let style = FlowStyle::default();
+    let open = RwSignal::new(None::<menu::Menu>);
+    let clipboard = Clipboard {
+        held: StoredValue::new_local(None),
+        pastes: StoredValue::new_local(0),
+    };
     let valid = move |connection: &Connection| {
         refusal(store, &store.graph.get_untracked(), connection).is_none()
     };
-    let effects = move |effect: &Effect| on_effect(store, canvas, effect);
+    let effects = move |effect: &Effect| on_effect(store, canvas, open, effect);
     let render = move |cx: NodeCx<PatchNode, PortType>| card(store, cx);
+    let keys = move |ev: &mut EventCx<'_, events::KeyDown>| {
+        if !canvas.is_pane(ev.target) {
+            return;
+        }
+        let done = match chord(&ev.key_without_modifiers, ev.modifiers) {
+            Some('c') => copy(store, canvas, clipboard),
+            Some('v') => paste(store, canvas, clipboard),
+            _ => false,
+        };
+        if done {
+            ev.prevent_default();
+        }
+    };
     view! {
-        box(class = "patch") {
+        box(class = "patch", on:key_down = keys) {
             {flow_view(canvas, style, valid, effects, render, view! {
                 {controls(canvas)}
                 {minimap(canvas, style)}
             })}
+            {menu::view(store, canvas, open)}
         }
     }
 }
@@ -327,13 +424,7 @@ fn card(store: Store, cx: NodeCx<PatchNode, PortType>) -> AnyView {
     let shut = {
         let id = id.clone();
         move |_: &mut EventCx<'_, events::Click>| {
-            let id = id.clone();
-            store.edit_graph(move |graph| {
-                graph.nodes.retain(|found| found.id != id);
-                graph
-                    .edges
-                    .retain(|edge| edge.from.node != id && edge.to.node != id);
-            });
+            remove_selection(store, vec![id.clone()], Vec::new())
         }
     };
     let category = node::category_class(node.body.category());

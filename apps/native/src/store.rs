@@ -4,10 +4,10 @@ use sdrmm_wire::{
     channel::{ChannelDescriptor, ChannelInfo, ChannelSettings},
     decode::DecodedRecord,
     device::{DeviceInfo, DeviceSettings},
+    frame::FrameKind,
     patch::{PatchCatalog, PatchGraph},
     state::{ChannelLevel, DeviceSet, StateSnapshot},
     workspace::WorkspaceDetail,
-    frame::FrameKind,
     ws::{ClientCommand, ServerEvent, StateScope},
 };
 use tokio::sync::mpsc;
@@ -15,8 +15,8 @@ use zgui::prelude::*;
 
 use crate::{
     api::Api,
-    bus::{Bus, Frame, Source},
     binding,
+    bus::{Bus, Frame, Source},
     socket::{Incoming, Socket, Spectrum},
     starter,
     workspace::Session,
@@ -172,7 +172,10 @@ impl Store {
     fn receive_frame(self, frame: &Frame) {
         let bus = self.bus.get_value();
         if frame.kind == FrameKind::Spectrum
-            && let Some(Source::Spectrum { device_set, stream: 0 }) = bus.source_of(frame.stream_id)
+            && let Some(Source::Spectrum {
+                device_set,
+                stream: 0,
+            }) = bus.source_of(frame.stream_id)
             && let Some(spectrum) = crate::socket::spectrum(&frame.bytes)
         {
             let mut next = (*self.spectra.get_untracked()).clone();

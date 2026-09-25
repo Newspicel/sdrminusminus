@@ -7,12 +7,31 @@ use sdrmm_wire::{
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Source {
-    Spectrum { device_set: u32, stream: u32 },
-    Audio { device_set: u32, channel: u32, fx: Vec<String> },
-    Video { device_set: u32, channel: u32 },
-    Iq { device_set: u32, channel: u32 },
-    Symbols { device_set: u32, channel: u32 },
-    Surface { device_set: u32, node: String },
+    Spectrum {
+        device_set: u32,
+        stream: u32,
+    },
+    Audio {
+        device_set: u32,
+        channel: u32,
+        fx: Vec<String>,
+    },
+    Video {
+        device_set: u32,
+        channel: u32,
+    },
+    Iq {
+        device_set: u32,
+        channel: u32,
+    },
+    Symbols {
+        device_set: u32,
+        channel: u32,
+    },
+    Surface {
+        device_set: u32,
+        node: String,
+    },
 }
 
 impl Source {
@@ -125,12 +144,18 @@ pub fn subscription_key(command: &ClientCommand) -> Option<(String, bool)> {
             device_set,
             channel,
             fx,
-        } => (key("audio", *device_set, format!("{channel}/{}", fx.join(","))), true),
+        } => (
+            key("audio", *device_set, format!("{channel}/{}", fx.join(","))),
+            true,
+        ),
         ClientCommand::UnsubscribeAudio {
             device_set,
             channel,
             fx,
-        } => (key("audio", *device_set, format!("{channel}/{}", fx.join(","))), false),
+        } => (
+            key("audio", *device_set, format!("{channel}/{}", fx.join(","))),
+            false,
+        ),
         ClientCommand::SubscribeVideo {
             device_set,
             channel,
@@ -235,7 +260,10 @@ impl<T> Listeners<T> {
 
     #[must_use]
     pub fn snapshot(&self) -> Vec<Handler<T>> {
-        self.held.iter().map(|(_, handler)| handler.clone()).collect()
+        self.held
+            .iter()
+            .map(|(_, handler)| handler.clone())
+            .collect()
     }
 }
 
@@ -360,7 +388,10 @@ mod tests {
         ];
         for command in commands {
             let off = unsubscribe_of(&command).expect("an unsubscription");
-            assert_eq!(subscription_key(&command).map(|(key, _)| key), subscription_key(&off).map(|(key, _)| key));
+            assert_eq!(
+                subscription_key(&command).map(|(key, _)| key),
+                subscription_key(&off).map(|(key, _)| key)
+            );
             assert_eq!(subscription_key(&off).map(|(_, on)| on), Some(false));
         }
     }

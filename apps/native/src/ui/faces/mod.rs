@@ -22,17 +22,15 @@ use crate::{
     },
 };
 
-pub mod device;
-pub mod channel;
-pub mod scope;
-pub mod speaker;
-pub mod decoder_log;
 pub mod array;
 pub mod audio_fx;
 pub mod audio_recorder;
 pub mod baseband_recorder;
 pub mod baseband_scope;
+pub mod channel;
 pub mod combiner;
+pub mod decoder_log;
+pub mod device;
 pub mod df;
 pub mod dmr_trunk;
 pub mod event_filter;
@@ -49,8 +47,10 @@ pub mod recorder;
 pub mod recording;
 pub mod satellite;
 pub mod scanner;
+pub mod scope;
 pub mod signal_gen;
 pub mod signal_map;
+pub mod speaker;
 pub mod spectrum_monitor;
 pub mod stitch;
 pub mod time_machine;
@@ -67,7 +67,9 @@ pub fn face(store: Store, node: &PatchNode) -> AnyView {
         NodeBody::Array(_) => AnyView::new(array::face(store, node.id.clone())),
         NodeBody::AudioFx(_) => AnyView::new(audio_fx::face(store, node.id.clone())),
         NodeBody::AudioRecorder(_) => AnyView::new(audio_recorder::face(store, node.id.clone())),
-        NodeBody::BasebandRecorder(_) => AnyView::new(baseband_recorder::face(store, node.id.clone())),
+        NodeBody::BasebandRecorder(_) => {
+            AnyView::new(baseband_recorder::face(store, node.id.clone()))
+        }
         NodeBody::BasebandScope => AnyView::new(baseband_scope::face(store, node.id.clone())),
         NodeBody::Combiner(_) => AnyView::new(combiner::face(store, node.id.clone())),
         NodeBody::Df(_) => AnyView::new(df::face(store, node.id.clone())),
@@ -88,7 +90,9 @@ pub fn face(store: Store, node: &PatchNode) -> AnyView {
         NodeBody::Scanner => AnyView::new(scanner::face(store, node.id.clone())),
         NodeBody::SignalGen(_) => AnyView::new(signal_gen::face(store, node.id.clone())),
         NodeBody::SignalMap(_) => AnyView::new(signal_map::face(store, node.id.clone())),
-        NodeBody::SpectrumMonitor(_) => AnyView::new(spectrum_monitor::face(store, node.id.clone())),
+        NodeBody::SpectrumMonitor(_) => {
+            AnyView::new(spectrum_monitor::face(store, node.id.clone()))
+        }
         NodeBody::Stitch(_) => AnyView::new(stitch::face(store, node.id.clone())),
         NodeBody::TimeMachine(_) => AnyView::new(time_machine::face(store, node.id.clone())),
         NodeBody::Triangulation => AnyView::new(triangulation::face(store, node.id.clone())),
@@ -129,8 +133,6 @@ pub(crate) fn set_signal(store: Store, node: String) -> Signal<Option<DeviceSet>
     Signal::derive(move || store.device_set_of(&node).and_then(|id| store.set_of(id)))
 }
 
-
-
 pub(crate) fn channel_signal(store: Store, node: String) -> Signal<Option<ChannelInfo>> {
     Signal::derive(move || store.channel_of(&node))
 }
@@ -150,16 +152,12 @@ pub(crate) fn channel_writer(
     }
 }
 
-
 pub(crate) fn spectrum_signal(store: Store, node: String) -> Signal<Option<Arc<Spectrum>>> {
     Signal::derive(move || {
         let set = store.device_set_of(&node)?;
         store.spectra.get().get(&set).cloned()
     })
 }
-
-
-
 
 #[cfg(test)]
 mod tests {

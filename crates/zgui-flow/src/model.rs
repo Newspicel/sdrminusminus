@@ -108,6 +108,7 @@ pub struct Node<T> {
     pub variant: Option<Id>,
     pub drag_handle: bool,
     pub auto_height: bool,
+    pub min_size: Size,
 }
 
 impl<T> Node<T> {
@@ -130,6 +131,7 @@ impl<T> Node<T> {
             variant: None,
             drag_handle: false,
             auto_height: false,
+            min_size: Size::new(10.0, 10.0),
         }
     }
 

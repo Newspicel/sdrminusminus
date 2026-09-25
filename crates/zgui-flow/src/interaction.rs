@@ -130,6 +130,7 @@ enum Gesture {
         grip: Grip,
         from: Point,
         start: Rect,
+        min: Size,
     },
 }
 
@@ -366,6 +367,7 @@ impl Flow {
                         grip,
                         from: flow,
                         start: node.frame(),
+                        min: node.min_size,
                     });
                 }
                 Vec::new()
@@ -642,17 +644,18 @@ impl Flow {
                 grip,
                 from,
                 start,
+                min,
             } => {
                 let pointer = self.options.snap.map_or(flow, |grid| grid.snap(flow));
                 let anchor = self.options.snap.map_or(*from, |grid| grid.snap(*from));
-                let frame = resized(
-                    *start,
-                    *grip,
-                    anchor,
-                    pointer,
-                    self.options.resize_limits,
-                    false,
-                );
+                let limits = Limits {
+                    min: Size::new(
+                        self.options.resize_limits.min.width.max(min.width),
+                        self.options.resize_limits.min.height.max(min.height),
+                    ),
+                    max: self.options.resize_limits.max,
+                };
+                let frame = resized(*start, *grip, anchor, pointer, limits, false);
                 vec![Effect::Nodes(vec![NodeChange::Size {
                     id: id.clone(),
                     position: frame.origin(),

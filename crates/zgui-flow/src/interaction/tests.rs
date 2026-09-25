@@ -522,3 +522,17 @@ fn a_node_key_changes_with_its_variant() {
     assert_ne!(node.key(), plain);
     assert!(node.key().starts_with('a'));
 }
+
+#[test]
+fn a_node_never_resizes_below_its_own_floor() {
+    let mut world = World::new();
+    world.nodes[0].min_size = Size::new(80.0, 50.0);
+    world.press(
+        Target::Grip("a".into(), Grip::BottomRight),
+        (100.0, 60.0),
+        NONE,
+    );
+    world.motion((20.0, 10.0));
+    world.release((20.0, 10.0));
+    assert_eq!(world.nodes[0].size, Size::new(80.0, 50.0));
+}

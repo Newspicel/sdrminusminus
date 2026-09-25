@@ -107,6 +107,23 @@ impl<T: Send + Sync + 'static, E: Send + Sync + 'static> FlowHandle<T, E> {
     }
 
     #[must_use]
+    pub fn pane_to_window(self, local: Point) -> Point {
+        let origin = self.origin();
+        Point::new(local.x + origin.x, local.y + origin.y)
+    }
+
+    #[must_use]
+    pub fn pane_to_flow(self, local: Point) -> Point {
+        self.state
+            .with_untracked(|state| state.viewport.to_flow(local))
+    }
+
+    #[must_use]
+    pub fn is_pane(self, node: NodeId) -> bool {
+        self.root.get_untracked() == Some(node)
+    }
+
+    #[must_use]
     pub fn visible_centre(self) -> Point {
         self.state
             .with_untracked(|state| state.viewport.visible(state.screen).center())

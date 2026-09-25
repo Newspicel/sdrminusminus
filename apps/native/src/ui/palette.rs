@@ -100,28 +100,11 @@ pub fn body_for(kind: &str) -> Option<NodeBody> {
     NodeBody::default_for(kind)
 }
 
-pub fn free_id(taken: &[String], kind: &str) -> String {
-    let stem = kind.strip_prefix("channel:").unwrap_or(kind);
-    let mut at = 1;
-    loop {
-        let candidate = if at == 1 {
-            stem.to_owned()
-        } else {
-            format!("{stem}{at}")
-        };
-        if !taken.iter().any(|held| held == &candidate) {
-            return candidate;
-        }
-        at += 1;
-    }
-}
-
 fn add(store: Store, canvas: Canvas, kind: &str) {
     let Some(body) = body_for(kind) else {
         store.say(format!("Unknown node kind: {kind}"));
         return;
     };
-    let kind = kind.to_owned();
     let at = store.palette_at.get_untracked().unwrap_or_else(|| {
         let centre = canvas.visible_centre();
         (
@@ -131,7 +114,7 @@ fn add(store: Store, canvas: Canvas, kind: &str) {
     });
     store.palette_at.set(None);
     store.edit_graph(move |graph| {
-        let taken: Vec<String> = graph.nodes.iter().map(|node| node.id.clone()).collect();
+        let taken = crate::ui::patch::graph::node_ids(graph);
         let step = graph
             .nodes
             .iter()
@@ -142,7 +125,7 @@ fn add(store: Store, canvas: Canvas, kind: &str) {
             * SPAWN_STEP;
         let (x, y) = (at.0 + step, at.1 + step);
         graph.nodes.push(PatchNode {
-            id: free_id(&taken, &kind),
+            id: crate::ui::patch::graph::new_node_id(body.kind(), &taken),
             body,
             position: Position { x, y },
             size: None,
@@ -204,13 +187,5 @@ mod tests {
             "FM wide",
             None
         ));
-    }
-
-    #[test]
-    fn a_new_node_takes_the_first_name_nothing_else_holds() {
-        let taken = vec!["scope".to_owned(), "scope2".to_owned()];
-        assert_eq!(free_id(&taken, "scope"), "scope3");
-        assert_eq!(free_id(&taken, "channel:nfm"), "nfm");
-        assert_eq!(free_id(&[], "speaker"), "speaker");
     }
 }
