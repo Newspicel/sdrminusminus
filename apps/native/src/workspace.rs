@@ -2,17 +2,25 @@ use anyhow::Context;
 use sdrmm_wire::{
     channel::ChannelSettings,
     device::DeviceSettings,
-    patch::PatchGraph,
-    workspace::{WorkspaceDetail, WorkspaceSnapshot},
+    patch::{PatchGraph, RackLayout},
+    workspace::{
+        UpdateWorkspaceRequest, WorkspaceDetail, WorkspaceInfo, WorkspaceSettings,
+        WorkspaceSnapshot,
+    },
 };
 use tokio::sync::{mpsc, oneshot};
 
-use crate::api::Api;
+use crate::{api::Api, shell::rack_grid};
+
+pub mod manage;
 
 type Reply = oneshot::Sender<anyhow::Result<WorkspaceDetail>>;
 
 enum Edit {
     Graph(PatchGraph),
+    Rack(RackLayout),
+    Settings(WorkspaceSettings),
+    Rename(String),
     History(bool),
     Channel(u32, u32, ChannelSettings),
     Device(u32, DeviceSettings),
@@ -28,6 +36,8 @@ pub struct Worker {
     detail: WorkspaceDetail,
     edits: mpsc::UnboundedReceiver<(Edit, Reply)>,
 }
+
+type Pending = std::pin::Pin<Box<dyn Future<Output = anyhow::Result<WorkspaceDetail>>>>;
 
 impl Session {
     pub fn new(api: Api, detail: WorkspaceDetail) -> (Self, Worker) {
@@ -47,6 +57,18 @@ impl Session {
         graph: PatchGraph,
     ) -> impl Future<Output = anyhow::Result<WorkspaceDetail>> + use<> {
         self.enqueue(Edit::Graph(graph))
+    }
+
+    pub fn rack(&self, rack: RackLayout) -> Pending {
+        Box::pin(self.enqueue(Edit::Rack(rack)))
+    }
+
+    pub fn settings(&self, settings: WorkspaceSettings) -> Pending {
+        Box::pin(self.enqueue(Edit::Settings(settings)))
+    }
+
+    pub fn rename(&self, name: String) -> Pending {
+        Box::pin(self.enqueue(Edit::Rename(name)))
     }
 
     pub fn step(
@@ -102,12 +124,32 @@ impl Worker {
         match edit {
             Edit::Graph(graph) => {
                 let snapshot = with_graph(self.detail.snapshot.clone(), graph);
-                snapshot.validate()?;
+                self.write(snapshot).await?;
+            }
+            Edit::Rack(rack) => {
+                let snapshot = WorkspaceSnapshot {
+                    rack: rack_grid::prune(&rack, &self.detail.snapshot.graph),
+                    ..self.detail.snapshot.clone()
+                };
+                self.write(snapshot).await?;
+            }
+            Edit::Settings(settings) => {
+                let snapshot = WorkspaceSnapshot {
+                    settings,
+                    ..self.detail.snapshot.clone()
+                };
+                self.write(snapshot).await?;
+            }
+            Edit::Rename(name) => {
+                let body = UpdateWorkspaceRequest {
+                    revision: self.detail.info.revision,
+                    name: Some(name),
+                    snapshot: None,
+                };
                 self.detail.info = self
                     .api
-                    .save_workspace(id, self.detail.info.revision, snapshot.clone())
+                    .put::<_, WorkspaceInfo>(&format!("/api/workspaces/{id}"), &body)
                     .await?;
-                self.detail.snapshot = snapshot;
             }
             Edit::History(back) => self.api.step_history(id, back).await?,
             Edit::Channel(set, channel, settings) => {
@@ -118,13 +160,21 @@ impl Worker {
         self.detail = self.api.workspace(id).await?;
         Ok(self.detail.clone())
     }
+
+    async fn write(&mut self, snapshot: WorkspaceSnapshot) -> anyhow::Result<()> {
+        snapshot.validate()?;
+        let id = self.detail.info.id;
+        self.detail.info = self
+            .api
+            .save_workspace(id, self.detail.info.revision, snapshot.clone())
+            .await?;
+        self.detail.snapshot = snapshot;
+        Ok(())
+    }
 }
 
 fn with_graph(mut snapshot: WorkspaceSnapshot, graph: PatchGraph) -> WorkspaceSnapshot {
-    snapshot
-        .rack
-        .slots
-        .retain(|slot| graph.node(&slot.node).is_some());
+    snapshot.rack = rack_grid::prune(&snapshot.rack, &graph);
     snapshot.graph = graph;
     snapshot
 }

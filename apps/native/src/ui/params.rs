@@ -119,7 +119,7 @@ pub fn entry(
     };
     let blur = submit.clone();
     view! {
-        column(class = "entry") {
+        column(class = "entry", on:key_down = crate::ui::kit_shell::typing) {
             Input(
                 value = draft,
                 class = "native-input",

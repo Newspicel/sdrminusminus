@@ -1,117 +1,120 @@
+pub mod bar;
+pub mod dialogs;
 pub mod faces;
+pub mod files;
+pub mod full_face;
+pub mod gates;
 pub mod gpu;
+pub mod hotkeys;
+pub mod kit_shell;
+pub mod library;
 pub mod node;
 pub mod palette;
 pub mod params;
 pub mod patch;
 pub mod plot;
 pub mod rack;
+pub mod shell;
+pub mod toasts;
+pub mod tools;
 pub mod widgets;
+pub mod workspace_menu;
+
+use std::time::Duration;
 
 use zgui::prelude::*;
 
 use crate::{
-    store::{Pane, Store},
-    ui::widgets::{close_menus, provide_menus},
+    shell::prefs::PrefsFile,
+    store::{Pane, Phase, Store},
+    ui::{
+        shell::{Menu, Shell},
+        widgets::{close_menus, provide_menus},
+    },
 };
 
-pub fn app(store: Store) -> impl IntoView {
+const TOKEN_WATCH: Duration = Duration::from_secs(1);
+
+const SHEET: &str = css!(
+    r#"
+.shell { position: relative; }
+"#
+);
+
+pub fn app(store: Store, prefs: PrefsFile) -> impl IntoView {
     provide_menus();
+    kit_shell::install();
+    gates::install();
+    install_stylesheet("shell-root", SHEET);
+    let shell = Shell::new(prefs);
+    provide_context(shell);
+    shell::themed(shell);
+    watch_token(store, shell);
     let canvas = patch::canvas();
+    let root = NodeRef::new();
+    listen_everywhere(root);
+    let phase = Memo::new(move |_| store.phase.get());
     view! {
         column(
+            node_ref = root,
             class = "shell",
-            tabindex = Focus::Sequential,
-            on:pointer_down = move |_: &mut EventCx<'_, events::PointerDown>| close_menus(),
-            on:key_down = move |ev: &mut EventCx<'_, events::KeyDown>| {
-                if matches!(ev.key, Key::Named(NamedKey::Escape)) {
-                    close_menus();
-                    store.selected.set(None);
-                    store.palette.set(false);
-                }
-            }
+            tabindex = Focus::Programmatic,
+            on:pointer_down = move |_: &mut EventCx<'_, events::PointerDown>| {
+                close_menus();
+                shell.menu.set(None);
+            },
+            on:key_down = move |ev: &mut EventCx<'_, events::KeyDown>| hotkeys::press(store, shell, ev)
         ) {
-            {head(store)}
+            {move || (phase.get() == Phase::Ready).then(|| AnyView::new(bar::head(store, shell)))}
             box(class = "pane") {
-                if move || store.pane.get() == Pane::Patch {
-                    {patch::pane(store, canvas)}
-                } else {
-                    {rack::pane(store)}
-                }
-                if move || store.palette.get() {
-                    {palette::sheet(store, canvas)}
-                }
-                if move || store.notice.get().is_some() {
-                    {notice(store)}
-                }
+                {move || match phase.get() {
+                    Phase::Ready => AnyView::new(panes(store, canvas)),
+                    Phase::NoWorkspace => AnyView::new(gates::workspace_start(store)),
+                    _ => AnyView::new(gates::loading()),
+                }}
             }
+            {move || match shell.menu.get() {
+                Some(Menu::Workspaces) => Some(AnyView::new(workspace_menu::menu(store, shell))),
+                Some(Menu::Library) => Some(AnyView::new(library::popover(store, shell))),
+                None => None,
+            }}
+            {gates::gate(store, shell)}
+            {dialogs::layer(store, shell)}
+            {toasts::stack(store, shell)}
         }
     }
 }
 
-fn head(store: Store) -> impl IntoView {
-    let tab = move |pane: Pane, label: &'static str| {
-        view! {
-            control(
-                tabindex = Focus::Sequential,
-                a11y:role = Role::Button,                class = "tab",
-                class:on = move || store.pane.get() == pane,
-                on:click = move |_| store.pane.set(pane)
-            ) {
-                {label}
-            }
-        }
-    };
+fn panes(store: Store, canvas: patch::Canvas) -> impl IntoView {
     view! {
-        row(class = "head") {
-            text(class = "head__mark") {"SDR--"}
-            text(class = "head__name") {{move || store.name.get()}}
-            box(class = "head__rule") {}
-            {tab(Pane::Patch, "Patch")}
-            {tab(Pane::Rack, "Rack")}
-            box(class = "head__rule")
-            control(
-                tabindex = Focus::Sequential,
-                a11y:role = Role::Button,                class = "head__link",
-                on:click = move |_| store.palette.update(|open| *open = !*open)
-            ) {
-                "+ Node"
-            }
-            spacer()
-            control(
-                tabindex = Focus::Sequential,
-                a11y:role = Role::Button,                class = "head__step",
-                state:disabled = move || !store.can_undo.get(),
-                a11y:label = "Undo",
-                on:click = move |_| store.step_history(true)
-            ) {
-                "\u{21ba}"
-            }
-            control(
-                tabindex = Focus::Sequential,
-                a11y:role = Role::Button,                class = "head__step",
-                state:disabled = move || !store.can_redo.get(),
-                a11y:label = "Redo",
-                on:click = move |_| store.step_history(false)
-            ) {
-                "\u{21bb}"
-            }
-            box(class = "head__rule") {}
-            control(
-                tabindex = Focus::Sequential,
-                a11y:role = Role::Button,                class = "head__link",
-                on:click = move |_| store.palette.set(true)
-            ) {
-                "Library"
-            }
+        if move || store.pane.get() == Pane::Patch {
+            {patch::pane(store, canvas)}
+        } else {
+            {rack::pane(store)}
+        }
+        {full_face::overlay(store)}
+        if move || store.palette.get() {
+            {palette::sheet(store, canvas)}
         }
     }
 }
 
-fn notice(store: Store) -> impl IntoView {
-    view! {
-        row(class = "toast", on:click = move |_| store.notice.set(None)) {
-            text {{move || store.notice.get().unwrap_or_default()}}
+fn listen_everywhere(root: NodeRef) {
+    let guard = StoredValue::new_local(None::<WindowShortcut>);
+    let binding = zgui::reactive::RenderEffect::new(move |_| {
+        if root.get().is_some() && guard.with_value(Option::is_none) {
+            guard.set_value(root.window_shortcut());
         }
-    }
+    });
+    on_cleanup_local(move || drop(binding));
+}
+
+fn watch_token(store: Store, shell: Shell) {
+    let watching = set_interval(TOKEN_WATCH, move || {
+        if store.api().token().take_rejected() {
+            shell.remember(|prefs| prefs.token = None);
+            store.phase.set(Phase::Locked { refused: true });
+        }
+    });
+    on_cleanup_local(move || drop(watching));
 }

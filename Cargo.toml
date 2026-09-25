@@ -121,6 +121,9 @@ zgui-flow = { path = "crates/zgui-flow" }
 zgui = { git = "https://github.com/zortax/zgui", rev = "f046ccd26a5862731b94b3b3f89dbcfe8f74d551" }
 zgui-ui = { git = "https://github.com/zortax/zgui", rev = "f046ccd26a5862731b94b3b3f89dbcfe8f74d551" }
 zgui-tokio = { git = "https://github.com/zortax/zgui", rev = "f046ccd26a5862731b94b3b3f89dbcfe8f74d551" }
+qrcode = { version = "0.14.1", default-features = false }
+rfd = "0.17.2"
+open = "5.4.4"
 
 # Async runtime / web
 tokio = { version = "1.53", features = ["rt-multi-thread", "macros", "sync", "time", "signal", "net"] }
