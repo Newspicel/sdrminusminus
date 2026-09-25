@@ -69,8 +69,32 @@ impl<'a> VideoData<'a> {
     }
 }
 
+mod decode;
 mod schema;
 pub use schema::typescript_frames;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct FrameHeader {
+    pub version: u8,
+    pub kind: FrameKind,
+    pub stream_id: u16,
+    pub seq: u32,
+    pub timestamp: u64,
+}
+
+impl FrameHeader {
+    #[must_use]
+    pub fn parse(buf: &[u8]) -> Option<Self> {
+        let head = buf.get(..HEADER_LEN)?;
+        Some(Self {
+            version: head[0],
+            kind: FrameKind::from_u8(head[1])?,
+            stream_id: u16::from_le_bytes(head[2..4].try_into().ok()?),
+            seq: u32::from_le_bytes(head[4..8].try_into().ok()?),
+            timestamp: u64::from_le_bytes(head[8..16].try_into().ok()?),
+        })
+    }
+}
 
 macro_rules! field_type {
     ($life:lifetime, bytes) => { &$life [u8] };
@@ -177,10 +201,86 @@ macro_rules! define_frame {
     };
 }
 
-define_frame!(SpectrumFrame, Spectrum, {
+macro_rules! read_field {
+    ($buf:ident, $at:ident, $kind:ident, bytes) => {{
+        let value = $buf.get($at..)?;
+        $at = $buf.len();
+        value
+    }};
+    ($buf:ident, $at:ident, $kind:ident, bytes16) => {{
+        let len = u16::from_le_bytes($buf.get($at..$at + 2)?.try_into().ok()?) as usize;
+        $at += 2;
+        let value = $buf.get($at..$at + len)?;
+        $at += len;
+        value
+    }};
+    ($buf:ident, $at:ident, $kind:ident, plane) => {{
+        let value = SymbolPlane::from_u8(*$buf.get($at)?)?;
+        $at += 1;
+        value
+    }};
+    ($buf:ident, $at:ident, $kind:ident, video) => {{
+        let bytes = $buf.get($at..)?;
+        $at = $buf.len();
+        match $kind {
+            FrameKind::VideoGray => VideoData::Gray(bytes),
+            FrameKind::VideoRgb => VideoData::Rgb(bytes),
+            _ => return None,
+        }
+    }};
+    ($buf:ident, $at:ident, $kind:ident, $scalar:ty) => {{
+        const WIDTH: usize = std::mem::size_of::<$scalar>();
+        let value = <$scalar>::from_le_bytes($buf.get($at..$at + WIDTH)?.try_into().ok()?);
+        $at += WIDTH;
+        value
+    }};
+}
+
+macro_rules! accepts_kind {
+    (Video, $kind:expr) => {
+        matches!($kind, FrameKind::VideoGray | FrameKind::VideoRgb)
+    };
+    ($kind_name:ident, $kind:expr) => {
+        $kind == FrameKind::$kind_name
+    };
+}
+
+macro_rules! define_decodable_frame {
+    ($name:ident, $kind:ident, {$($field:ident: $ty:ident),* $(,)?}) => {
+        define_frame!($name, $kind, {$($field: $ty),*});
+
+        impl<'a> $name<'a> {
+            /// Reads one frame back from the bytes [`encode`](Self::encode) produced.
+            ///
+            /// `None` means the buffer is not this frame: a version this build does not speak,
+            /// another kind, or a body that ends early.
+            #[must_use]
+            #[allow(unused_assignments)]
+            pub fn decode(buf: &'a [u8]) -> Option<Self> {
+                let header = FrameHeader::parse(buf)?;
+                if header.version != PROTOCOL_VERSION || !accepts_kind!($kind, header.kind) {
+                    return None;
+                }
+                let kind = header.kind;
+                let _ = kind;
+                #[allow(unused_mut)]
+                let mut at = HEADER_LEN;
+                $(let $field = read_field!(buf, at, kind, $ty);)*
+                Some(Self {
+                    stream_id: header.stream_id,
+                    seq: header.seq,
+                    timestamp: header.timestamp,
+                    $($field,)*
+                })
+            }
+        }
+    };
+}
+
+define_decodable_frame!(SpectrumFrame, Spectrum, {
     center_hz: f64, span_hz: f32, db_min: f32, db_max: f32, bins: bytes16,
 });
-define_frame!(AudioFrame, AudioOpus, { ch_layout: u8, opus: bytes });
+define_decodable_frame!(AudioFrame, AudioOpus, { ch_layout: u8, opus: bytes });
 define_frame!(IqFrame, IqF32, { center_hz: f64, sample_rate: f32, samples: floats });
 define_frame!(SymbolFrame, Symbols, {
     plane: plane, symbol_rate: f32, evm: f32, mer_db: f32, margin: f32,
@@ -190,7 +290,7 @@ define_frame!(RangeDopplerFrame, RangeDoppler, {
     ranges: u16, dopplers: u16, range_step_us: f32, doppler_step_hz: f32,
     db_min: f32, db_max: f32, cells: bytes,
 });
-define_frame!(VideoFrame, Video, { width: u16, height: u16, data: video });
+define_decodable_frame!(VideoFrame, Video, { width: u16, height: u16, data: video });
 
 #[cfg(test)]
 mod tests {
@@ -211,6 +311,102 @@ mod tests {
         (
             ver, kind, stream_id, seq, timestamp, center_hz, span_hz, db_min, db_max, bins,
         )
+    }
+
+    #[test]
+    fn spectrum_decodes_what_it_encoded() {
+        let bins: Vec<u8> = (0..512u16).map(|i| (i % 256) as u8).collect();
+        let frame = SpectrumFrame {
+            stream_id: 9,
+            seq: 3,
+            timestamp: 77,
+            center_hz: 145_500_000.0,
+            span_hz: 2_048_000.0,
+            db_min: -110.0,
+            db_max: -10.0,
+            bins: &bins,
+        };
+        let buf = frame.encode();
+        assert_eq!(SpectrumFrame::decode(&buf), Some(frame));
+    }
+
+    #[test]
+    fn audio_and_video_decode_what_they_encoded() {
+        let opus: Vec<u8> = (0..40u8).collect();
+        let audio = AudioFrame {
+            stream_id: 1,
+            seq: 2,
+            timestamp: 3,
+            ch_layout: 2,
+            opus: &opus,
+        };
+        assert_eq!(AudioFrame::decode(&audio.encode()), Some(audio));
+
+        let pixels: Vec<u8> = (0..48u8).collect();
+        for data in [VideoData::Gray(&pixels), VideoData::Rgb(&pixels)] {
+            let video = VideoFrame {
+                stream_id: 4,
+                seq: 5,
+                timestamp: 6,
+                width: 4,
+                height: 4,
+                data,
+            };
+            assert_eq!(VideoFrame::decode(&video.encode()), Some(video));
+        }
+    }
+
+    #[test]
+    fn the_header_is_read_without_the_body() {
+        let frame = SpectrumFrame {
+            stream_id: 12,
+            seq: 34,
+            timestamp: 56,
+            center_hz: 1.0,
+            span_hz: 2.0,
+            db_min: -3.0,
+            db_max: -4.0,
+            bins: &[7, 8],
+        };
+        let buf = frame.encode();
+        let header = FrameHeader::parse(&buf).expect("header");
+        assert_eq!(header.version, PROTOCOL_VERSION);
+        assert_eq!(header.kind, FrameKind::Spectrum);
+        assert_eq!(header.stream_id, 12);
+        assert_eq!(header.seq, 34);
+        assert_eq!(header.timestamp, 56);
+    }
+
+    #[test]
+    fn decoding_refuses_another_kind_a_bad_version_and_a_short_body() {
+        let audio = AudioFrame {
+            stream_id: 1,
+            seq: 1,
+            timestamp: 1,
+            ch_layout: 1,
+            opus: &[1, 2, 3],
+        }
+        .encode();
+        assert_eq!(SpectrumFrame::decode(&audio), None);
+
+        let frame = SpectrumFrame {
+            stream_id: 1,
+            seq: 1,
+            timestamp: 1,
+            center_hz: 1.0,
+            span_hz: 1.0,
+            db_min: -1.0,
+            db_max: -1.0,
+            bins: &[1, 2, 3, 4],
+        };
+        let mut wrong_version = frame.encode();
+        wrong_version[0] = PROTOCOL_VERSION + 1;
+        assert_eq!(SpectrumFrame::decode(&wrong_version), None);
+
+        let full = frame.encode();
+        for short in [0, HEADER_LEN, full.len() - 1] {
+            assert_eq!(SpectrumFrame::decode(&full[..short]), None, "len {short}");
+        }
     }
 
     #[test]

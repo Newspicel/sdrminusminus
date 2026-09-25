@@ -1266,12 +1266,31 @@ fn tone_summary(t: &ToneSquelchStatus) -> String {
     parts.join(" · ")
 }
 
+fn sensor_facts(reading: &SubghzReading) -> Vec<String> {
+    let mut parts = vec![reading.model.clone(), format!("id {:02X}", reading.id)];
+    let optional = [
+        reading.channel.map(|channel| format!("ch {channel}")),
+        reading.pressure_kpa.map(|kpa| format!("{kpa:.0} kPa")),
+        reading.temperature_c.map(|c| format!("{c:.1} °C")),
+        reading.humidity_pct.map(|pct| format!("{pct:.0} %")),
+        reading.moisture_pct.map(|pct| format!("soil {pct:.0} %")),
+        reading
+            .wind_avg_kmh
+            .map(|kmh| format!("wind {kmh:.1} km/h")),
+        reading.wind_dir_deg.map(|deg| format!("from {deg:.0}°")),
+        reading.rain_mm.map(|mm| format!("rain {mm:.1} mm")),
+        reading.power_w.map(|w| format!("{w:.0} W")),
+    ];
+    parts.extend(optional.into_iter().flatten());
+    parts
+}
+
 fn subghz_summary(f: &SubghzFrame) -> String {
-    let mut parts = vec![if f.bits == 0 {
-        format!("raw, {} edges", f.timings_us.len())
-    } else {
-        format!("{} bit {}", f.bits, f.data)
-    }];
+    let mut parts = match &f.reading {
+        Some(reading) => sensor_facts(reading),
+        None if f.bits == 0 => vec![format!("raw, {} edges", f.timings_us.len())],
+        None => vec![format!("{} bit {}", f.bits, f.data)],
+    };
     if let Some(address) = f.address {
         parts.push(format!("addr {address:05X}"));
     }
@@ -1695,8 +1714,10 @@ impl DecoderEvent {
             Self::Navtex(n) => n.station.map(String::from),
             Self::Acars(a) => Some(a.registration.clone()),
             Self::Subghz(f) => f
-                .address
-                .map(|a| format!("{a:05X}"))
+                .reading
+                .as_ref()
+                .map(|reading| format!("{} {:02X}", reading.model, reading.id))
+                .or_else(|| f.address.map(|a| format!("{a:05X}")))
                 .or_else(|| (!f.data.is_empty()).then(|| f.data.clone())),
             Self::Dv(f) => f
                 .source_call
@@ -1782,6 +1803,31 @@ mod tests {
             duration_ms: 14_500,
         });
         assert_eq!(cut_short.summary(), "Robot 36 · 320×240 · 96 of 240 lines");
+    }
+
+    #[test]
+    fn a_named_sensor_is_summarised_by_its_reading() {
+        let sensor = DecoderEvent::Subghz(SubghzFrame {
+            bits: 40,
+            data: "2AA1A95823".to_owned(),
+            short_us: 208,
+            repeats: 10,
+            reading: Some(SubghzReading {
+                model: "LaCrosse-TX141THBv2".to_owned(),
+                id: 0x2a,
+                channel: Some(2),
+                battery_ok: Some(false),
+                temperature_c: Some(-7.5),
+                humidity_pct: Some(88.0),
+                ..SubghzReading::default()
+            }),
+            ..SubghzFrame::default()
+        });
+        assert_eq!(
+            sensor.summary(),
+            "LaCrosse-TX141THBv2 · id 2A · ch 2 · -7.5 °C · 88 % · ×10"
+        );
+        assert_eq!(sensor.station().as_deref(), Some("LaCrosse-TX141THBv2 2A"));
     }
 
     #[test]

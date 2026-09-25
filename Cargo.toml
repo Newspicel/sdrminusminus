@@ -30,8 +30,10 @@ members = [
     "crates/engine",
     "crates/tools",
     "crates/server",
+    "crates/zgui-flow",
     "apps/sdrmm",
     "apps/desktop",
+    "apps/native",
     "xtask",
 ]
 
@@ -65,7 +67,9 @@ default-members = [
     "crates/engine",
     "crates/tools",
     "crates/server",
+    "crates/zgui-flow",
     "apps/sdrmm",
+    "apps/native",
     "xtask",
 ]
 
@@ -111,6 +115,16 @@ sdrmm-tools = { path = "crates/tools" }
 # disable a workspace dep's defaults, only add to them (needed for the minimal build).
 sdrmm-engine = { path = "crates/engine", default-features = false }
 sdrmm-server = { path = "crates/server", default-features = false }
+zgui-flow = { path = "crates/zgui-flow" }
+
+# Native UI
+zgui = { git = "https://github.com/zortax/zgui", rev = "f046ccd26a5862731b94b3b3f89dbcfe8f74d551" }
+zgui-ui = { git = "https://github.com/zortax/zgui", rev = "f046ccd26a5862731b94b3b3f89dbcfe8f74d551" }
+zgui-tokio = { git = "https://github.com/zortax/zgui", rev = "f046ccd26a5862731b94b3b3f89dbcfe8f74d551" }
+qrcode = { version = "0.14.1", default-features = false }
+rfd = "0.17.2"
+open = "5.4.4"
+zgui-image = { git = "https://github.com/zortax/zgui", rev = "f046ccd26a5862731b94b3b3f89dbcfe8f74d551" }
 
 # Async runtime / web
 tokio = { version = "1.53", features = ["rt-multi-thread", "macros", "sync", "time", "signal", "net"] }
@@ -155,6 +169,7 @@ libloading = "0.9"
 
 # DSP
 num-complex = "0.4"
+kurbo = "0.13.1"
 rustfft = "6"
 tract-onnx = { version = "0.23.8", default-features = false }
 tract-nnef = "0.23.8"
@@ -175,6 +190,7 @@ wgpu = { version = "30", default-features = false, features = ["std", "parking_l
 
 # Audio (libopus via vendored build, )
 opus = "0.4"
+cpal = "0.18"
 blip25-vocoder = { version = "1.0", default-features = false, features = ["decode"] }
 codec2 = "0.3.1"
 symphonia-core = "0.6.1"

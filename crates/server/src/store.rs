@@ -1290,7 +1290,7 @@ fn state_at(conn: &Connection, id: i64, seq: i64) -> Result<Option<String>, Stor
         .optional()?)
 }
 
-fn parse_workspace_snapshot(json: &str) -> Result<WorkspaceSnapshot, serde_json::Error> {
+pub fn parse_workspace_snapshot(json: &str) -> Result<WorkspaceSnapshot, serde_json::Error> {
     let mut value: serde_json::Value = serde_json::from_str(json)?;
     migrate_call_buffers(&mut value);
     migrate_trunk_carriers(&mut value);

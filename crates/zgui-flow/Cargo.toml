@@ -1,0 +1,18 @@
+[package]
+name = "zgui-flow"
+description = "Node graph editor for zgui: pan, zoom, nodes, handles, edges, selection."
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+keywords = ["zgui", "node-editor", "graph", "flow", "ui"]
+categories = ["gui"]
+
+[lints]
+workspace = true
+
+[dependencies]
+zgui.workspace = true
+kurbo.workspace = true

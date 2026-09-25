@@ -815,7 +815,7 @@ fn default_body(kind: &str) -> NodeBody {
         "time_machine" => NodeBody::TimeMachine(TimeMachineNode::default()),
         "network_export" => NodeBody::NetworkExport(NetworkExportNode::default()),
         "export" => NodeBody::Export,
-        "scanner" => NodeBody::Scanner,
+        "scanner" => NodeBody::Scanner(crate::scan::ScannerNode::default()),
         "hunt" => NodeBody::Hunt(HuntNode::default()),
         "satellite" => NodeBody::Satellite(crate::SatelliteNode::default()),
         "df" => NodeBody::Df(DfNode::default()),
@@ -939,7 +939,10 @@ fn only_a_radio_that_can_transmit_shows_a_transmit_input() {
 #[test]
 fn a_scanner_owns_the_one_decoder_its_wire_runs_into() {
     let mut driven = workspace();
-    driven.nodes.push(node("scan", NodeBody::Scanner));
+    driven.nodes.push(node(
+        "scan",
+        NodeBody::Scanner(crate::scan::ScannerNode::default()),
+    ));
     driven
         .edges
         .push(edge(("scan", "control"), ("ch", "control")));
@@ -985,7 +988,10 @@ fn a_scanner_owns_the_one_decoder_its_wire_runs_into() {
     );
 
     let mut two_scanners = driven.clone();
-    two_scanners.nodes.push(node("scan2", NodeBody::Scanner));
+    two_scanners.nodes.push(node(
+        "scan2",
+        NodeBody::Scanner(crate::scan::ScannerNode::default()),
+    ));
     two_scanners
         .edges
         .push(edge(("scan2", "control"), ("ch", "control")));
@@ -2105,7 +2111,10 @@ fn a_satellite_drives_many_decoders_but_a_decoder_answers_to_one_controller() {
     let mut graph = PatchGraph {
         nodes: vec![
             node("sat", NodeBody::Satellite(crate::SatelliteNode::default())),
-            node("scan", NodeBody::Scanner),
+            node(
+                "scan",
+                NodeBody::Scanner(crate::scan::ScannerNode::default()),
+            ),
             decoder("voice"),
             decoder("telemetry"),
         ],
@@ -2169,4 +2178,15 @@ fn audio_fx_with_settings_outside_their_range_is_refused() {
         graph.validate(),
         Err(PatchError::NodeSettings("fx".to_owned()))
     );
+}
+
+#[test]
+fn every_catalog_kind_has_a_default_body_of_its_own_kind() {
+    for entry in PatchCatalog::build().nodes {
+        let body = NodeBody::default_for(&entry.kind)
+            .unwrap_or_else(|| panic!("no default body for {}", entry.kind));
+        assert_eq!(body.kind(), entry.kind);
+        assert_eq!(body.category(), entry.category);
+    }
+    assert!(NodeBody::default_for("no_such_node").is_none());
 }

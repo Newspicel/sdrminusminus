@@ -88,6 +88,85 @@ impl ScanSettings {
     }
 }
 
+#[derive(Clone, Debug, PartialEq, Serialize, ToSchema)]
+pub struct ScannerNode {
+    #[serde(default)]
+    pub mode: ScanMode,
+    #[serde(default = "default_node_ranges")]
+    pub ranges: Vec<ScanRange>,
+    #[serde(default = "default_threshold_db")]
+    pub threshold_db: f32,
+    #[serde(default = "default_margin_db")]
+    pub margin_db: f32,
+    #[serde(default = "default_hardware_sweep")]
+    pub hardware_sweep: bool,
+}
+
+pub const DEFAULT_SCAN_RANGE: ScanRange = ScanRange {
+    start_hz: 145_600_000.0,
+    stop_hz: 145_800_000.0,
+    step_hz: 12_500.0,
+};
+
+fn default_node_ranges() -> Vec<ScanRange> {
+    vec![DEFAULT_SCAN_RANGE]
+}
+
+impl Default for ScannerNode {
+    fn default() -> Self {
+        Self {
+            mode: ScanMode::default(),
+            ranges: default_node_ranges(),
+            threshold_db: default_threshold_db(),
+            margin_db: default_margin_db(),
+            hardware_sweep: default_hardware_sweep(),
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for ScannerNode {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        struct Stated {
+            #[serde(default)]
+            mode: ScanMode,
+            #[serde(default = "default_node_ranges")]
+            ranges: Vec<ScanRange>,
+            #[serde(default = "default_threshold_db")]
+            threshold_db: f32,
+            #[serde(default = "default_margin_db")]
+            margin_db: f32,
+            #[serde(default = "default_hardware_sweep")]
+            hardware_sweep: bool,
+        }
+        Ok(
+            Option::<Stated>::deserialize(deserializer)?.map_or_else(Self::default, |stated| {
+                Self {
+                    mode: stated.mode,
+                    ranges: stated.ranges,
+                    threshold_db: stated.threshold_db,
+                    margin_db: stated.margin_db,
+                    hardware_sweep: stated.hardware_sweep,
+                }
+            }),
+        )
+    }
+}
+
+impl ScannerNode {
+    #[must_use]
+    pub fn settings_for(&self, channel: u32) -> ScanSettings {
+        ScanSettings {
+            mode: self.mode,
+            ranges: self.ranges.clone(),
+            threshold_db: self.threshold_db,
+            margin_db: self.margin_db,
+            hardware_sweep: self.hardware_sweep,
+            ..ScanSettings::for_channel(channel)
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum ScanState {
@@ -131,4 +210,44 @@ pub enum ScanAction {
     Stop,
     /// Leaves the frequency the scan is holding on and never holds on it again this scan.
     Skip,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::patch::NodeBody;
+
+    #[test]
+    fn a_scanner_saved_before_it_kept_settings_opens_on_the_defaults() {
+        let legacy: NodeBody = serde_json::from_str(r#"{"kind":"scanner"}"#).unwrap();
+        assert_eq!(legacy, NodeBody::Scanner(ScannerNode::default()));
+        let empty: NodeBody = serde_json::from_str(r#"{"kind":"scanner","data":{}}"#).unwrap();
+        assert_eq!(empty, NodeBody::Scanner(ScannerNode::default()));
+    }
+
+    #[test]
+    fn a_scanner_keeps_what_it_was_set_to() {
+        let node = ScannerNode {
+            mode: ScanMode::CloseCall,
+            ranges: vec![ScanRange {
+                start_hz: 433_050_000.0,
+                stop_hz: 434_790_000.0,
+                step_hz: 25_000.0,
+            }],
+            threshold_db: -70.0,
+            margin_db: 20.0,
+            hardware_sweep: false,
+        };
+        let body = NodeBody::Scanner(node.clone());
+        let back: NodeBody = serde_json::from_value(serde_json::to_value(&body).unwrap()).unwrap();
+        assert_eq!(back, body);
+        let settings = node.settings_for(4);
+        assert_eq!(settings.channel, 4);
+        assert_eq!(settings.mode, ScanMode::CloseCall);
+        assert_eq!(settings.ranges, node.ranges);
+        assert_eq!(settings.margin_db, 20.0);
+        assert!(!settings.hardware_sweep);
+        assert_eq!(settings.dwell_ms, 250);
+        assert_eq!(settings.resume_ms, 1_500);
+    }
 }

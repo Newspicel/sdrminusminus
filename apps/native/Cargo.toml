@@ -1,0 +1,69 @@
+[package]
+name = "sdrmm-native"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+publish = false
+
+[[bin]]
+name = "sdrmm-native"
+path = "src/main.rs"
+
+[lints]
+workspace = true
+
+[features]
+default = ["soapy", "sdrplay", "cr8", "rtlsdr", "hackrf", "airspy", "airspyhf", "ad936x", "net-client", "gpu-fft"]
+soapy = ["sdrmm-server/soapy", "sdrmm-engine/soapy"]
+sdrplay = ["sdrmm-server/sdrplay", "sdrmm-engine/sdrplay"]
+cr8 = ["sdrmm-server/cr8", "sdrmm-engine/cr8"]
+rtlsdr = ["sdrmm-server/rtlsdr", "sdrmm-engine/rtlsdr"]
+hackrf = ["sdrmm-server/hackrf", "sdrmm-engine/hackrf"]
+airspy = ["sdrmm-server/airspy", "sdrmm-engine/airspy"]
+airspyhf = ["sdrmm-server/airspyhf", "sdrmm-engine/airspyhf"]
+ad936x = ["sdrmm-server/ad936x", "sdrmm-engine/ad936x"]
+net-client = ["sdrmm-server/net-client", "sdrmm-engine/net-client"]
+gpu-fft = ["sdrmm-server/gpu-fft", "sdrmm-engine/gpu-fft"]
+
+[dependencies]
+zgui.workspace = true
+zgui-ui.workspace = true
+zgui-tokio.workspace = true
+zgui-flow.workspace = true
+zgui-image.workspace = true
+
+sdrmm-wire.workspace = true
+sdrmm-dsp.workspace = true
+num-complex.workspace = true
+sdrmm-engine.workspace = true
+sdrmm-server.workspace = true
+
+anyhow.workspace = true
+cpal.workspace = true
+opus.workspace = true
+rtrb.workspace = true
+jiff.workspace = true
+axum.workspace = true
+clap.workspace = true
+dirs.workspace = true
+flate2.workspace = true
+futures.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tokio-tungstenite.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+qrcode.workspace = true
+rfd.workspace = true
+open.workspace = true
+url.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+sdrmm-device.workspace = true
+sdrmm-device-virtual.workspace = true
