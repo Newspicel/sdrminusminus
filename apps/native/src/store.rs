@@ -8,6 +8,7 @@ use sdrmm_wire::{
     patch::{PatchCatalog, PatchGraph, RackLayout},
     state::{ChannelLevel, DeviceSet, StateSnapshot},
     workspace::{WorkspaceDetail, WorkspaceInfo, WorkspaceSettings},
+    workspace_state::WorkspaceChannel,
     ws::{ClientCommand, ServerEvent, StateScope},
 };
 use tokio::sync::mpsc;
@@ -72,6 +73,7 @@ pub struct Store {
     pub decoded: RwSignal<Arc<Decoded>>,
     staged: StoredValue<Vec<DecodedRecord>>,
     pub coherent: RwSignal<Arc<coherent::Book>>,
+    pub saved_channels: RwSignal<Arc<Vec<WorkspaceChannel>>>,
     bus: StoredValue<Rc<Bus>, LocalStorage>,
     pub(crate) editor: StoredValue<Option<Session>>,
     api: StoredValue<Api>,
@@ -106,6 +108,7 @@ impl Store {
             decoded: RwSignal::new(Arc::new(Decoded::default())),
             staged: StoredValue::new(Vec::new()),
             coherent: RwSignal::new(Arc::new(coherent::Book::default())),
+            saved_channels: RwSignal::new(Arc::new(Vec::new())),
             bus: StoredValue::new_local(Rc::new(Bus::default())),
             editor: StoredValue::new(None),
             api: StoredValue::new(api),
@@ -422,6 +425,10 @@ impl Store {
             self.settings
                 .set(Arc::new(detail.snapshot.settings.clone()));
         }
+        if *self.saved_channels.get_untracked() != detail.state.channels {
+            self.saved_channels
+                .set(Arc::new(detail.state.channels.clone()));
+        }
     }
 
     pub(crate) fn write_graph(self, graph: PatchGraph) -> impl Future<Output = anyhow::Result<()>> {
@@ -476,7 +483,11 @@ impl Store {
         }
     }
 
-    fn receive_settings(
+    pub(crate) fn editor(self) -> Option<Session> {
+        self.editor.get_value()
+    }
+
+    pub(crate) fn receive_settings(
         self,
         pending: impl Future<Output = anyhow::Result<WorkspaceDetail>> + 'static,
     ) {

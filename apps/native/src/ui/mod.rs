@@ -13,6 +13,7 @@ pub mod kit_audio;
 pub mod kit_maps;
 pub mod map;
 pub mod kit_sources;
+pub mod kit_channel;
 pub mod node;
 pub mod palette;
 pub mod params;

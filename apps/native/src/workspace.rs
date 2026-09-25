@@ -24,6 +24,7 @@ enum Edit {
     History(bool),
     Channel(u32, u32, ChannelSettings),
     Device(u32, DeviceSettings),
+    Saved(String, ChannelSettings),
 }
 
 #[derive(Clone)]
@@ -95,6 +96,14 @@ impl Session {
         self.enqueue(Edit::Device(set, settings))
     }
 
+    pub fn saved_channel(
+        &self,
+        node: String,
+        settings: ChannelSettings,
+    ) -> impl Future<Output = anyhow::Result<WorkspaceDetail>> + use<> {
+        self.enqueue(Edit::Saved(node, settings))
+    }
+
     fn enqueue(&self, edit: Edit) -> impl Future<Output = anyhow::Result<WorkspaceDetail>> + use<> {
         let (reply, receive) = oneshot::channel();
         let sent = self.edits.send((edit, reply));
@@ -156,6 +165,14 @@ impl Worker {
                 self.api.patch_channel(set, channel, &settings).await?
             }
             Edit::Device(set, settings) => self.api.patch_device(set, &settings).await?,
+            Edit::Saved(node, settings) => {
+                self.api
+                    .put::<_, serde::de::IgnoredAny>(
+                        &format!("/api/workspaces/{id}/channels/{node}"),
+                        &settings,
+                    )
+                    .await?;
+            }
         }
         self.detail = self.api.workspace(id).await?;
         Ok(self.detail.clone())

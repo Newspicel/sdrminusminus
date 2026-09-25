@@ -621,7 +621,7 @@ describe("tuningControllerOf", () => {
     ).toBe("Satellite");
     expect(
       tuningControllerOf(
-        controlledBy({ id: "scan", kind: "scanner", label: "Airband", position: { x: 0, y: 0 } }),
+        controlledBy({ id: "scan", kind: "scanner", data: {}, label: "Airband", position: { x: 0, y: 0 } }),
         "voice",
       ),
     ).toBe("Airband");

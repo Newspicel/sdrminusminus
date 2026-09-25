@@ -29,7 +29,7 @@ describe("reading a workspace file", () => {
     const older = document();
     older.snapshot.graph.nodes.push(
       { id: "nfm", kind: "channel", data: { channel_type: "nfm" }, position: { x: 0, y: 200 } },
-      { id: "scan", kind: "scanner", position: { x: 0, y: 400 } },
+      { id: "scan", kind: "scanner", data: {}, position: { x: 0, y: 400 } },
     );
     older.snapshot.graph.edges?.push(
       { from: { node: "dev", port: "iq" }, to: { node: "nfm", port: "iq" } },

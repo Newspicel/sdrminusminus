@@ -79,7 +79,7 @@ pub fn face(store: Store, node: &PatchNode) -> AnyView {
         NodeBody::Recorder(_) => AnyView::new(recorder::face(store, node.id.clone())),
         NodeBody::Recording(_) => AnyView::new(recording::face(store, node.id.clone())),
         NodeBody::Satellite(_) => AnyView::new(satellite::face(store, node.id.clone())),
-        NodeBody::Scanner => AnyView::new(scanner::face(store, node.id.clone())),
+        NodeBody::Scanner(_) => AnyView::new(scanner::face(store, node.id.clone())),
         NodeBody::SignalGen(_) => AnyView::new(signal_gen::face(store, node.id.clone())),
         NodeBody::SignalMap(_) => AnyView::new(signal_map::face(store, node.id.clone())),
         NodeBody::SpectrumMonitor(_) => {

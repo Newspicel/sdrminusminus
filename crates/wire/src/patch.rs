@@ -624,7 +624,7 @@ pub enum NodeBody {
     TimeMachine(TimeMachineNode),
     NetworkExport(NetworkExportNode),
     Export,
-    Scanner,
+    Scanner(crate::scan::ScannerNode),
     Hunt(HuntNode),
     Satellite(SatelliteNode),
     Df(DfNode),
@@ -726,7 +726,7 @@ impl NodeBody {
             Self::TimeMachine(_) => "time_machine",
             Self::NetworkExport(_) => "network_export",
             Self::Export => "export",
-            Self::Scanner => "scanner",
+            Self::Scanner(_) => "scanner",
             Self::Hunt(_) => "hunt",
             Self::Satellite(_) => "satellite",
             Self::Df(_) => "df",
@@ -750,7 +750,7 @@ impl NodeBody {
             | Self::PassiveRadar(_)
             | Self::Combiner(_)
             | Self::Stitch(_)
-            | Self::Scanner
+            | Self::Scanner(_)
             | Self::Hunt(_)
             | Self::Satellite(_)
             | Self::SpectrumMonitor(_)
@@ -1166,7 +1166,7 @@ impl PatchCatalog {
                     "Saves logged rows as CSV or JSON",
                 ),
                 entry(
-                    &NodeBody::Scanner,
+                    &NodeBody::Scanner(crate::scan::ScannerNode::default()),
                     "Scanner",
                     "Steps through frequencies, stops on activity",
                 ),

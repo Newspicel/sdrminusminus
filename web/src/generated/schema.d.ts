@@ -4469,6 +4469,7 @@ export interface components {
             /** @enum {string} */
             kind: "export";
         } | {
+            data: components["schemas"]["ScannerNode"];
             /** @enum {string} */
             kind: "scanner";
         } | {
@@ -5141,6 +5142,15 @@ export interface components {
          * @enum {string}
          */
         ScanMode: "targets" | "close_call";
+        ScannerNode: {
+            hardware_sweep?: boolean;
+            /** Format: float */
+            margin_db?: number;
+            mode?: components["schemas"]["ScanMode"];
+            ranges?: components["schemas"]["ScanRange"][];
+            /** Format: float */
+            threshold_db?: number;
+        };
         ScannerStatus: {
             /** Format: float */
             current_db?: number | null;
