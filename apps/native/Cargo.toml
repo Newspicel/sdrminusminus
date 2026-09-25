@@ -49,6 +49,7 @@ jiff.workspace = true
 axum.workspace = true
 clap.workspace = true
 dirs.workspace = true
+flate2.workspace = true
 futures.workspace = true
 reqwest.workspace = true
 serde.workspace = true

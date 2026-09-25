@@ -11,6 +11,8 @@ pub mod library;
 pub mod kit_decoders;
 pub mod kit_raster;
 pub mod kit_audio;
+pub mod kit_maps;
+pub mod map;
 pub mod node;
 pub mod palette;
 pub mod params;

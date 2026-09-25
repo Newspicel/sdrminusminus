@@ -7477,6 +7477,7 @@ dependencies = [
  "clap",
  "cpal",
  "dirs 7.0.0",
+ "flate2",
  "futures",
  "jiff",
  "num-complex",
