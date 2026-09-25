@@ -503,3 +503,22 @@ fn a_right_click_opens_the_menu_for_what_is_under_it() {
         }]
     ));
 }
+
+#[test]
+fn pressing_a_node_body_selects_it_without_dragging() {
+    let mut world = World::new();
+    world.press(Target::NodeBody("a".into()), (10.0, 10.0), NONE);
+    world.motion((80.0, 80.0));
+    world.release((80.0, 80.0));
+    assert_eq!(world.selected(), vec!["a"]);
+    assert_eq!(world.position("a"), Point::ZERO);
+}
+
+#[test]
+fn a_node_key_changes_with_its_variant() {
+    let mut node = box_node("a", 0.0, 0.0);
+    let plain = node.key();
+    node.variant = Some("nfm".into());
+    assert_ne!(node.key(), plain);
+    assert!(node.key().starts_with('a'));
+}

@@ -6,6 +6,26 @@ use crate::path::{EdgeShape, Side};
 
 pub type Id = Arc<str>;
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Rgba {
+    pub r: f32,
+    pub g: f32,
+    pub b: f32,
+    pub a: f32,
+}
+
+impl Rgba {
+    #[must_use]
+    pub const fn new(r: f32, g: f32, b: f32, a: f32) -> Self {
+        Self { r, g, b, a }
+    }
+
+    #[must_use]
+    pub const fn with_alpha(self, a: f32) -> Self {
+        Self { a, ..self }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum HandleKind {
     Source,
@@ -85,6 +105,9 @@ pub struct Node<T> {
     pub hidden: bool,
     pub z: i32,
     pub class: Option<String>,
+    pub variant: Option<Id>,
+    pub drag_handle: bool,
+    pub auto_height: bool,
 }
 
 impl<T> Node<T> {
@@ -104,6 +127,9 @@ impl<T> Node<T> {
             hidden: false,
             z: 0,
             class: None,
+            variant: None,
+            drag_handle: false,
+            auto_height: false,
         }
     }
 
@@ -113,8 +139,18 @@ impl<T> Node<T> {
     }
 
     #[must_use]
-    pub fn handle(&self, id: &str) -> Option<&Handle> {
-        self.handles.iter().find(|handle| &*handle.id == id)
+    pub fn key(&self) -> String {
+        match &self.variant {
+            Some(variant) => format!("{}\u{1f}{variant}", self.id),
+            None => self.id.to_string(),
+        }
+    }
+
+    #[must_use]
+    pub fn handle(&self, id: &str, kind: HandleKind) -> Option<&Handle> {
+        self.handles
+            .iter()
+            .find(|handle| &*handle.id == id && handle.kind == kind)
     }
 }
 
@@ -132,7 +168,8 @@ pub struct Edge<E> {
     pub animated: bool,
     pub shape: Option<EdgeShape>,
     pub label: Option<String>,
-    pub class: Option<String>,
+    pub color: Option<Rgba>,
+    pub width: Option<f64>,
 }
 
 impl<E> Edge<E> {
@@ -151,7 +188,8 @@ impl<E> Edge<E> {
             animated: false,
             shape: None,
             label: None,
-            class: None,
+            color: None,
+            width: None,
         }
     }
 

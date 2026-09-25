@@ -3,7 +3,7 @@ use kurbo::{Point, Rect, Size, Vec2};
 use crate::{
     drag::{DRAG_THRESHOLD, SnapGrid, dragged, past_threshold},
     hit::{SelectionMode, caught, path_crosses, path_hit},
-    model::{Connection, Edge, EdgeChange, HandleRef, Id, Node, NodeChange},
+    model::{Connection, Edge, EdgeChange, HandleKind, HandleRef, Id, Node, NodeChange},
     path::{EdgeShape, Endpoints},
     resize::{Grip, Limits, resized},
     viewport::{Padding, Viewport, ZoomRange, bounds_of, wheel_zoom_factor},
@@ -41,6 +41,7 @@ pub enum Button {
 pub enum Target {
     Pane,
     Node(Id),
+    NodeBody(Id),
     Handle(HandleRef),
     Grip(Id, Grip),
 }
@@ -65,6 +66,8 @@ pub struct Options {
     pub fit_padding: f64,
     pub connect_on_click: bool,
     pub keyboard_step: f64,
+    pub fit_on_start: bool,
+    pub dash_speed: f64,
 }
 
 impl Default for Options {
@@ -85,6 +88,8 @@ impl Default for Options {
             fit_padding: 0.12,
             connect_on_click: true,
             keyboard_step: 10.0,
+            fit_on_start: true,
+            dash_speed: 24.0,
         }
     }
 }
@@ -137,6 +142,7 @@ pub enum Effect {
     DragStop(Vec<Id>),
     ResizeStop(Id),
     PaneClick(Point),
+    PaneDoubleClick(Point),
     NodeClick(Id),
     EdgeClick(Id),
     Menu { target: MenuTarget, at: Point },
@@ -177,7 +183,10 @@ impl<T, E> Scene<'_, T, E> {
 
     fn anchor(&self, handle: &HandleRef) -> Option<Point> {
         let node = self.node(&handle.node)?;
-        Some(node.handle(&handle.handle)?.anchor(node.frame()))
+        Some(
+            node.handle(&handle.handle, handle.kind)?
+                .anchor(node.frame()),
+        )
     }
 
     fn selected(&self) -> Vec<Id> {
@@ -192,8 +201,8 @@ impl<T, E> Scene<'_, T, E> {
     pub fn endpoints(&self, edge: &Edge<E>) -> Option<Endpoints> {
         let source = self.node(&edge.source)?;
         let target = self.node(&edge.target)?;
-        let out = source.handle(&edge.source_handle)?;
-        let input = target.handle(&edge.target_handle)?;
+        let out = source.handle(&edge.source_handle, HandleKind::Source)?;
+        let input = target.handle(&edge.target_handle, HandleKind::Target)?;
         Some(Endpoints {
             source: out.anchor(source.frame()),
             source_side: out.side,
@@ -218,7 +227,7 @@ impl<T, E> Scene<'_, T, E> {
                 continue;
             }
             for handle in node.handles.iter().filter(|handle| handle.connectable) {
-                if node.id == from.node && handle.id == from.handle {
+                if node.id == from.node && handle.id == from.handle && handle.kind == from.kind {
                     continue;
                 }
                 let distance = (handle.anchor(node.frame()) - at).hypot();
@@ -361,7 +370,8 @@ impl Flow {
                 }
                 Vec::new()
             }
-            Target::Node(id) => self.press_node(scene, &id, at, modifiers),
+            Target::Node(id) => self.press_node(scene, &id, at, modifiers, true),
+            Target::NodeBody(id) => self.press_node(scene, &id, at, modifiers, false),
             Target::Pane => self.press_pane(scene, at, flow, modifiers),
         }
     }
@@ -375,7 +385,7 @@ impl Flow {
     ) -> Vec<Effect> {
         self.pending = None;
         let target = match target {
-            Target::Node(id) | Target::Grip(id, _) => MenuTarget::Node(id),
+            Target::Node(id) | Target::NodeBody(id) | Target::Grip(id, _) => MenuTarget::Node(id),
             Target::Handle(handle) => MenuTarget::Node(handle.node),
             Target::Pane => scene
                 .edge_at(flow, self.options.edge_shape, self.reach())
@@ -428,6 +438,7 @@ impl Flow {
         id: &Id,
         at: Point,
         modifiers: Modifiers,
+        drags: bool,
     ) -> Vec<Effect> {
         self.pending = None;
         let Some(node) = scene.node(id) else {
@@ -463,11 +474,13 @@ impl Flow {
             .filter(|node| node.draggable)
             .map(|node| (node.id.clone(), node.position))
             .collect();
-        self.gesture = Some(Gesture::Drag {
-            from: at,
-            origins,
-            moved: false,
-        });
+        if drags {
+            self.gesture = Some(Gesture::Drag {
+                from: at,
+                origins,
+                moved: false,
+            });
+        }
         let mut effects = Vec::new();
         let edges = deselect_edges(scene);
         if !edges.is_empty() {

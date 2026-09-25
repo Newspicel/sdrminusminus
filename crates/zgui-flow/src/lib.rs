@@ -4,6 +4,7 @@ pub mod interaction;
 pub mod model;
 pub mod path;
 pub mod resize;
+pub mod view;
 pub mod viewport;
 
 pub use kurbo;
