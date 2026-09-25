@@ -10,6 +10,7 @@ pub mod kit_shell;
 pub mod library;
 pub mod kit_decoders;
 pub mod kit_raster;
+pub mod kit_audio;
 pub mod node;
 pub mod palette;
 pub mod params;
@@ -52,6 +53,7 @@ pub fn app(store: Store, prefs: PrefsFile) -> impl IntoView {
     provide_context(shell);
     shell::themed(shell);
     watch_token(store, shell);
+    let audio = crate::audio::provide();
     let canvas = patch::canvas();
     let tools_open = tools::provide();
     let root = NodeRef::new();
@@ -69,6 +71,7 @@ pub fn app(store: Store, prefs: PrefsFile) -> impl IntoView {
             on:key_down = move |ev: &mut EventCx<'_, events::KeyDown>| hotkeys::press(store, shell, ev)
         ) {
             {move || (phase.get() == Phase::Ready).then(|| AnyView::new(bar::head(store, shell)))}
+            {crate::audio::player(store, audio)}
             box(class = "pane") {
                 {move || match phase.get() {
                     Phase::Ready => AnyView::new(panes(store, canvas)),

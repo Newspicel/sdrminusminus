@@ -190,6 +190,7 @@ wgpu = { version = "30", default-features = false, features = ["std", "parking_l
 
 # Audio (libopus via vendored build, )
 opus = "0.4"
+cpal = "0.18"
 blip25-vocoder = { version = "1.0", default-features = false, features = ["decode"] }
 codec2 = "0.3.1"
 symphonia-core = "0.6.1"
