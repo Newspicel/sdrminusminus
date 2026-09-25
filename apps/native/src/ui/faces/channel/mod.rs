@@ -42,7 +42,7 @@ use crate::{
     },
 };
 
-pub use swap::{cycle_analog, swap_decoder};
+pub use swap::cycle_analog;
 
 pub const SQUELCH_STEP_DB: f32 = 2.0;
 
@@ -265,7 +265,7 @@ fn watch_satellites(store: Store, node: String) -> Signal<Option<String>> {
     let wanted = node.clone();
     store.on_event(move |event| {
         if let ServerEvent::SatelliteUpdate { status } = event {
-            let driving = status.driving.iter().any(|driven| *driven == wanted);
+            let driving = status.driving.contains(&wanted);
             tracked.update(|held| {
                 if driving {
                     held.insert(status.node.clone(), status.name.clone());
@@ -643,7 +643,7 @@ fn squelch_row(store: Store, node: String, shown: Memo<View>) -> AnyView {
 }
 
 fn footer(store: Store, shown: Memo<View>) -> impl IntoView {
-    let action = move || {
+    move || {
         let view = shown.get();
         if view.live.is_some() {
             return None;
@@ -661,8 +661,7 @@ fn footer(store: Store, shown: Memo<View>) -> impl IntoView {
                 )))}
             }
         })
-    };
-    action
+    }
 }
 
 #[cfg(test)]
@@ -713,6 +712,17 @@ mod tests {
             face_status(true, ChannelBinding::NotStarted, false, None, None),
             None
         );
+    }
+
+    #[test]
+    fn the_channel_keys_match_the_web_hotkeys() {
+        assert_eq!(hotkey_of("m"), Some(Hotkey::CycleMode(1)));
+        assert_eq!(hotkey_of("M"), Some(Hotkey::CycleMode(-1)));
+        assert_eq!(hotkey_of("-"), Some(Hotkey::Squelch(-1)));
+        assert_eq!(hotkey_of("="), Some(Hotkey::Squelch(1)));
+        assert_eq!(hotkey_of("+"), Some(Hotkey::Squelch(1)));
+        assert_eq!(hotkey_of("s"), Some(Hotkey::ToggleSquelch));
+        assert_eq!(hotkey_of("x"), None);
     }
 
     #[test]

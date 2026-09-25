@@ -157,8 +157,8 @@ pub fn channel_picker_dialog(
     let shown = move || filter_groups(&groups.get(), &query.get());
     let enter = {
         let on_channel = on_channel.clone();
-        move |ev: &mut EventCx<'_, events::KeyDown>| match ev.key {
-            Key::Named(NamedKey::Enter) => {
+        move |ev: &mut EventCx<'_, events::KeyDown>| {
+            if let Key::Named(NamedKey::Enter) = ev.key {
                 if let Some(first) = first_item(&filter_groups(
                     &groups.get_untracked(),
                     &query.get_untracked(),
@@ -167,7 +167,6 @@ pub fn channel_picker_dialog(
                 }
                 ev.prevent_default();
             }
-            _ => {}
         }
     };
     let escape = {

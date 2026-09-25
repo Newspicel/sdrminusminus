@@ -1,3 +1,5 @@
+pub mod radio;
+
 use std::{
     sync::atomic::{AtomicU32, Ordering},
     time::Duration,
@@ -40,6 +42,7 @@ const SHEET: &str = css!(
     color: var(--ink-faint);
     overflow: hidden;
 }
+.kc-legend { font-family: var(--mono); font-size: 10px; color: var(--ink-faint); }
 .kc-name--tip { text-decoration: underline dotted; text-decoration-color: var(--line-strong); }
 .kc-cell { flex: 1 1 auto; min-width: 0; align-items: center; gap: 8px; flex-wrap: wrap; }
 .kc-group { flex-direction: column; gap: 8px; padding-top: 8px; border-top: 1px solid var(--line); }
@@ -54,6 +57,7 @@ const SHEET: &str = css!(
 
 .kc-num { position: relative; flex: 0 1 auto; width: 132px; min-width: 64px; }
 .kc-num--wide { width: 176px; }
+.kc-fill { width: 100%; }
 .kc-num--narrow { width: 72px; }
 .kc-num .native-input {
     height: 26px; width: 100%; min-width: 0; padding: 3px 8px;
@@ -61,6 +65,7 @@ const SHEET: &str = css!(
     background-color: var(--panel-2); color: var(--ink);
     border: 1px solid var(--line); border-radius: 5px;
 }
+.kc-num .native-input:placeholder-shown { color: var(--ink-faint); }
 .kc-num .native-input:focus-visible { border-color: var(--accent); outline: 1px solid var(--accent); }
 .kc-num.invalid .native-input { border-color: var(--danger); }
 .kc-num__unit {
@@ -84,7 +89,7 @@ const SHEET: &str = css!(
 .kc-btn--primary { border-color: var(--accent); background-color: var(--accent); color: var(--bg); font-weight: 600; }
 .kc-btn--primary:hover { background-color: var(--accent); border-color: var(--accent); }
 .kc-btn--danger:hover { border-color: var(--danger); color: var(--danger); }
-.kc-btn--on { border-color: var(--accent); background-color: var(--accent); color: var(--bg); }
+.kc-btn.on { border-color: var(--accent); background-color: var(--accent); color: var(--bg); }
 .kc-btn--mono { font-family: var(--mono); width: 44px; text-align: center; padding: 3px 0; }
 
 .kc-icon {
@@ -413,12 +418,6 @@ impl NumberSpec {
     }
 
     #[must_use]
-    pub fn placeholder(mut self, placeholder: &'static str) -> Self {
-        self.placeholder = placeholder;
-        self
-    }
-
-    #[must_use]
     pub fn size(mut self, size: &'static str) -> Self {
         self.size = size;
         self
@@ -430,7 +429,6 @@ pub fn number_text(value: Option<f64>, step: Option<f64>) -> String {
     value.map_or_else(String::new, |value| format_number(value, step))
 }
 
-#[must_use]
 pub fn resolve_number(text: &str, spec: NumberSpec) -> Result<Option<f64>, ()> {
     if text.trim().is_empty() {
         return if spec.optional { Ok(None) } else { Err(()) };
@@ -571,7 +569,6 @@ pub fn text_field(
 
 pub struct Debounced {
     pub shown: Signal<f64>,
-    pub pending: RwSignal<Option<f64>>,
 }
 
 pub fn debounced(
@@ -602,7 +599,7 @@ pub fn debounced(
         held.set_value(handle);
     };
     let shown = Signal::derive(move || pending.get().unwrap_or_else(|| value.get()));
-    (Debounced { shown, pending }, change)
+    (Debounced { shown }, change)
 }
 
 pub fn slider_field(
@@ -730,7 +727,7 @@ pub fn tune_to(
     let text = RwSignal::new_local(String::new());
     let target = {
         let resolve = resolve.clone();
-        move || parse_frequency(&text.get()).and_then(|entered| resolve(entered))
+        move || parse_frequency(&text.get()).and_then(&resolve)
     };
     let typed_unit = move || text.get().chars().any(|c| c.is_ascii_alphabetic());
     let submit = {
@@ -793,7 +790,7 @@ pub fn tune_to(
                                     },
                                 )
                             }
-                            {button("Set", "kc-btn kc-btn--primary", no_target, move || press())}
+                            {button("Set", "kc-btn kc-btn--primary", no_target, press)}
                         }
                         text(class = "kc-note") {{move || hint.get()}}
                     }

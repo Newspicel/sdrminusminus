@@ -15939,9 +15939,13 @@
           {
             "type": "object",
             "required": [
+              "data",
               "kind"
             ],
             "properties": {
+              "data": {
+                "$ref": "#/components/schemas/ScannerNode"
+              },
               "kind": {
                 "type": "string",
                 "enum": [
@@ -18422,6 +18426,31 @@
             }
           }
         ]
+      },
+      "ScannerNode": {
+        "type": "object",
+        "properties": {
+          "hardware_sweep": {
+            "type": "boolean"
+          },
+          "margin_db": {
+            "type": "number",
+            "format": "float"
+          },
+          "mode": {
+            "$ref": "#/components/schemas/ScanMode"
+          },
+          "ranges": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ScanRange"
+            }
+          },
+          "threshold_db": {
+            "type": "number",
+            "format": "float"
+          }
+        }
       },
       "ScannerStatus": {
         "type": "object",

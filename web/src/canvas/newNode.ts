@@ -18,7 +18,6 @@ const WITHOUT_DATA = new Set<NodeKind>([
   "decoder_log",
   "video",
   "export",
-  "scanner",
   "triangulation",
 ]);
 
@@ -72,6 +71,8 @@ export function newNodeBody(kind: NodeKind, seed: NewNodeSeed = {}): NodeBody {
       return { kind, data: { recording: false } };
     case "network_export":
       return { kind, data: { transport: "udp", format: "cf32_le", address: "127.0.0.1:7355" } };
+    case "scanner":
+      return { kind, data: {} };
     case "hunt":
       return { kind, data: { clicks: true } };
     case "satellite":

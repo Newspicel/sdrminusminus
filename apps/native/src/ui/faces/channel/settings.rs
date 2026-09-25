@@ -487,7 +487,7 @@ mod tests {
             width_hz: 100.0,
         };
         assert_eq!(with_notch_added(&[]), Some(vec![one]));
-        assert_eq!(with_notch_added(&vec![one; MAX_AUDIO_NOTCHES]), None);
+        assert_eq!(with_notch_added(&[one; MAX_AUDIO_NOTCHES]), None);
         let two = [
             one,
             NotchSettings {
