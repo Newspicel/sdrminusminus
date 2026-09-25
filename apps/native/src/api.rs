@@ -28,13 +28,13 @@ impl Api {
         })
     }
 
-    async fn read<T: DeserializeOwned>(&self, path: &str) -> anyhow::Result<T> {
+    pub async fn get<T: DeserializeOwned>(&self, path: &str) -> anyhow::Result<T> {
         let url = format!("{}{path}", self.base);
         let response = self.http.get(&url).send().await.context(url.clone())?;
         Self::body(response, &url).await
     }
 
-    async fn write<B: Serialize, T: DeserializeOwned>(
+    pub async fn send<B: Serialize, T: DeserializeOwned>(
         &self,
         method: reqwest::Method,
         path: &str,
@@ -47,6 +47,39 @@ impl Api {
         }
         let response = request.send().await.context(url.clone())?;
         Self::body(response, &url).await
+    }
+
+    pub async fn post<B: Serialize, T: DeserializeOwned>(&self, path: &str, body: &B) -> anyhow::Result<T> {
+        self.send(reqwest::Method::POST, path, Some(body)).await
+    }
+
+    pub async fn put<B: Serialize, T: DeserializeOwned>(&self, path: &str, body: &B) -> anyhow::Result<T> {
+        self.send(reqwest::Method::PUT, path, Some(body)).await
+    }
+
+    pub async fn patch<B: Serialize, T: DeserializeOwned>(&self, path: &str, body: &B) -> anyhow::Result<T> {
+        self.send(reqwest::Method::PATCH, path, Some(body)).await
+    }
+
+    pub async fn delete(&self, path: &str) -> anyhow::Result<()> {
+        self.send::<(), serde::de::IgnoredAny>(reqwest::Method::DELETE, path, None)
+            .await
+            .map(|_| ())
+    }
+
+    pub async fn bytes(&self, path: &str) -> anyhow::Result<Vec<u8>> {
+        let url = self.url(path);
+        let response = self.http.get(&url).send().await.context(url.clone())?;
+        let status = response.status();
+        if !status.is_success() {
+            bail!("{url}: {status}");
+        }
+        Ok(response.bytes().await.context("cannot read the response")?.to_vec())
+    }
+
+    #[must_use]
+    pub fn url(&self, path: &str) -> String {
+        format!("{}{path}", self.base)
     }
 
     async fn body<T: DeserializeOwned>(
@@ -65,30 +98,30 @@ impl Api {
     }
 
     pub async fn state(&self) -> anyhow::Result<StateSnapshot> {
-        self.read("/api/state").await
+        self.get("/api/state").await
     }
 
     pub async fn devices(&self) -> anyhow::Result<Vec<DeviceInfo>> {
-        Ok(self.read::<DevicesResponse>("/api/devices").await?.devices)
+        Ok(self.get::<DevicesResponse>("/api/devices").await?.devices)
     }
 
     pub async fn channel_types(&self) -> anyhow::Result<Vec<ChannelDescriptor>> {
         Ok(self
-            .read::<ChannelTypesResponse>("/api/channeltypes")
+            .get::<ChannelTypesResponse>("/api/channeltypes")
             .await?
             .types)
     }
 
     pub async fn catalog(&self) -> anyhow::Result<PatchCatalog> {
-        self.read("/api/patch/catalog").await
+        self.get("/api/patch/catalog").await
     }
 
     pub async fn workspaces(&self) -> anyhow::Result<WorkspacesResponse> {
-        self.read("/api/workspaces").await
+        self.get("/api/workspaces").await
     }
 
     pub async fn workspace(&self, id: i64) -> anyhow::Result<WorkspaceDetail> {
-        self.read(&format!("/api/workspaces/{id}")).await
+        self.get(&format!("/api/workspaces/{id}")).await
     }
 
     pub async fn create_workspace(&self, name: &str) -> anyhow::Result<i64> {
@@ -96,8 +129,7 @@ impl Api {
             name: name.to_owned(),
             snapshot: None,
         };
-        Ok(self
-            .write::<_, CreatedRowId>(reqwest::Method::POST, "/api/workspaces", Some(&body))
+        Ok(self.send::<_, CreatedRowId>(reqwest::Method::POST, "/api/workspaces", Some(&body))
             .await?
             .id)
     }
@@ -113,7 +145,7 @@ impl Api {
             name: None,
             snapshot: Some(snapshot),
         };
-        self.write::<_, WorkspaceInfo>(
+        self.send::<_, WorkspaceInfo>(
             reqwest::Method::PUT,
             &format!("/api/workspaces/{id}"),
             Some(&body),
@@ -122,7 +154,7 @@ impl Api {
     }
 
     pub async fn activate_workspace(&self, id: i64) -> anyhow::Result<()> {
-        self.write::<(), serde_json::Value>(
+        self.send::<(), serde_json::Value>(
             reqwest::Method::POST,
             &format!("/api/workspaces/{id}/activate"),
             None,
@@ -133,7 +165,7 @@ impl Api {
 
     pub async fn step_history(&self, id: i64, back: bool) -> anyhow::Result<()> {
         let step = if back { "undo" } else { "redo" };
-        self.write::<(), serde_json::Value>(
+        self.send::<(), serde_json::Value>(
             reqwest::Method::POST,
             &format!("/api/workspaces/{id}/{step}"),
             None,
@@ -143,7 +175,7 @@ impl Api {
     }
 
     pub async fn apply_workspace(&self, id: i64) -> anyhow::Result<PatchApplyReport> {
-        self.write::<(), PatchApplyReport>(
+        self.send::<(), PatchApplyReport>(
             reqwest::Method::POST,
             &format!("/api/workspaces/{id}/apply"),
             None,
@@ -152,7 +184,7 @@ impl Api {
     }
 
     pub async fn patch_device(&self, set: u32, settings: &DeviceSettings) -> anyhow::Result<()> {
-        self.write::<_, serde_json::Value>(
+        self.send::<_, serde_json::Value>(
             reqwest::Method::PATCH,
             &format!("/api/devicesets/{set}/device"),
             Some(settings),
@@ -167,7 +199,7 @@ impl Api {
         channel: u32,
         settings: &ChannelSettings,
     ) -> anyhow::Result<()> {
-        self.write::<_, serde_json::Value>(
+        self.send::<_, serde_json::Value>(
             reqwest::Method::PATCH,
             &format!("/api/devicesets/{set}/channels/{channel}"),
             Some(settings),

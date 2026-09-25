@@ -5,7 +5,7 @@ use zgui::{
     surface::{SurfaceRenderCx, wgpu},
 };
 
-use crate::{socket::Spectrum, ui::scope::Palette};
+use crate::{socket::Spectrum, ui::plot::Palette};
 
 pub const HISTORY_ROWS: u32 = 512;
 const PALETTE_STEPS: u32 = 256;

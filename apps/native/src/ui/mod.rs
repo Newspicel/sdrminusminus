@@ -5,7 +5,7 @@ pub mod palette;
 pub mod params;
 pub mod patch;
 pub mod rack;
-pub mod scope;
+pub mod plot;
 pub mod widgets;
 
 use zgui::prelude::*;

@@ -1,5 +1,6 @@
 mod api;
 mod binding;
+mod bus;
 mod format;
 mod host;
 mod params;

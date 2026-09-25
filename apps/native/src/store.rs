@@ -1,4 +1,4 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, rc::Rc, sync::Arc};
 
 use sdrmm_wire::{
     channel::{ChannelDescriptor, ChannelInfo, ChannelSettings},
@@ -7,13 +7,15 @@ use sdrmm_wire::{
     patch::{PatchCatalog, PatchGraph},
     state::{ChannelLevel, DeviceSet, StateSnapshot},
     workspace::WorkspaceDetail,
-    ws::{ClientCommand, ServerEvent, StateScope, StreamKind},
+    frame::FrameKind,
+    ws::{ClientCommand, ServerEvent, StateScope},
 };
 use tokio::sync::mpsc;
 use zgui::prelude::*;
 
 use crate::{
     api::Api,
+    bus::{Bus, Frame, Source},
     binding,
     socket::{Incoming, Socket, Spectrum},
     starter,
@@ -51,7 +53,7 @@ pub struct Store {
     pub spectra: RwSignal<Arc<HashMap<u32, Arc<Spectrum>>>>,
     pub levels: RwSignal<Arc<HashMap<(u32, u32), ChannelLevel>>>,
     pub decoded: RwSignal<Arc<Vec<DecodedRecord>>>,
-    streams: RwSignal<Arc<HashMap<u16, u32>>>,
+    bus: StoredValue<Rc<Bus>, LocalStorage>,
     editor: StoredValue<Option<Session>>,
     api: StoredValue<Api>,
     socket: StoredValue<Option<Socket>>,
@@ -79,7 +81,7 @@ impl Store {
             spectra: RwSignal::new(Arc::new(HashMap::new())),
             levels: RwSignal::new(Arc::new(HashMap::new())),
             decoded: RwSignal::new(Arc::new(Vec::new())),
-            streams: RwSignal::new(Arc::new(HashMap::new())),
+            bus: StoredValue::new_local(Rc::new(Bus::default())),
             editor: StoredValue::new(None),
             api: StoredValue::new(api),
             socket: StoredValue::new(None),
@@ -132,7 +134,7 @@ impl Store {
     }
 
     pub fn watch_spectrum(self, set: u32) {
-        self.command(ClientCommand::SubscribeSpectrum {
+        self.hold(ClientCommand::SubscribeSpectrum {
             device_set: set,
             fps: SPECTRUM_FPS,
             bins: SPECTRUM_BINS,
@@ -140,25 +142,65 @@ impl Store {
         });
     }
 
+    pub fn hold(self, command: ClientCommand) {
+        if let Some(first) = self.bus.get_value().hold(&command) {
+            self.command(first);
+        }
+        on_cleanup_local(move || {
+            if let Some(last) = self.bus.get_value().release(&command) {
+                self.command(last);
+            }
+        });
+    }
+
+    pub fn on_event(self, handler: impl Fn(&ServerEvent) + 'static) {
+        let bus = self.bus.get_value();
+        let id = bus.events.borrow_mut().add(handler);
+        on_cleanup_local(move || bus.events.borrow_mut().remove(id));
+    }
+
+    pub fn on_frame(self, handler: impl Fn(&Frame) + 'static) {
+        let bus = self.bus.get_value();
+        let id = bus.frames.borrow_mut().add(handler);
+        on_cleanup_local(move || bus.frames.borrow_mut().remove(id));
+    }
+
+    pub fn source_of(self, stream_id: u16) -> Option<Source> {
+        self.bus.get_value().source_of(stream_id)
+    }
+
+    fn receive_frame(self, frame: &Frame) {
+        let bus = self.bus.get_value();
+        if frame.kind == FrameKind::Spectrum
+            && let Some(Source::Spectrum { device_set, stream: 0 }) = bus.source_of(frame.stream_id)
+            && let Some(spectrum) = crate::socket::spectrum(&frame.bytes)
+        {
+            let mut next = (*self.spectra.get_untracked()).clone();
+            next.insert(device_set, Arc::new(spectrum));
+            self.spectra.set(Arc::new(next));
+        }
+        bus.publish_frame(frame);
+    }
+
     async fn drain(self, mut incoming: mpsc::UnboundedReceiver<Incoming>) {
         while let Some(message) = incoming.recv().await {
             match message {
                 Incoming::Up => {
                     self.connected.set(true);
+                    for command in self.bus.get_value().held() {
+                        self.command(command);
+                    }
                     self.refresh_all();
                 }
                 Incoming::Down => {
                     self.connected.set(false);
                     self.say("the server connection dropped");
                 }
-                Incoming::Event(event) => self.absorb(*event),
-                Incoming::Spectrum(spectrum) => {
-                    if let Some(set) = self.streams.get_untracked().get(&spectrum.stream_id) {
-                        let mut next = (*self.spectra.get_untracked()).clone();
-                        next.insert(*set, spectrum);
-                        self.spectra.set(Arc::new(next));
-                    }
+                Incoming::Event(event) => {
+                    self.bus.get_value().publish_event(&event);
+                    self.absorb(*event);
                 }
+                Incoming::Frame(frame) => self.receive_frame(&frame),
             }
         }
     }
@@ -171,22 +213,6 @@ impl Store {
                 StateScope::Workspaces => {}
                 _ => self.refresh_state(),
             },
-            ServerEvent::StreamStarted {
-                stream_id,
-                device_set,
-                ..
-            } => {
-                let mut next = (*self.streams.get_untracked()).clone();
-                next.insert(stream_id, device_set);
-                self.streams.set(Arc::new(next));
-            }
-            ServerEvent::StreamStopped { stream_id, kind } => {
-                if kind == StreamKind::Spectrum {
-                    let mut next = (*self.streams.get_untracked()).clone();
-                    next.remove(&stream_id);
-                    self.streams.set(Arc::new(next));
-                }
-            }
             ServerEvent::ChannelLevels { device_set, levels } => {
                 let mut next = (*self.levels.get_untracked()).clone();
                 for level in levels {

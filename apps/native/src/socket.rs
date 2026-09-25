@@ -1,4 +1,4 @@
-use std::{sync::Arc, time::Duration};
+use std::time::Duration;
 
 use futures::{SinkExt, StreamExt};
 use sdrmm_wire::{
@@ -6,6 +6,8 @@ use sdrmm_wire::{
     ws::{ClientCommand, ServerEvent},
 };
 use tokio::sync::mpsc;
+
+use crate::bus::Frame;
 use tokio_tungstenite::tungstenite::Message;
 
 #[derive(Clone, Debug)]
@@ -24,7 +26,7 @@ pub enum Incoming {
     Up,
     Down,
     Event(Box<ServerEvent>),
-    Spectrum(Arc<Spectrum>),
+    Frame(Frame),
 }
 
 #[derive(Clone)]
@@ -61,7 +63,6 @@ async fn run(
     incoming: mpsc::UnboundedSender<Incoming>,
 ) {
     let mut backoff = Duration::from_millis(250);
-    let mut pending: Vec<ClientCommand> = Vec::new();
     loop {
         match tokio_tungstenite::connect_async(&url).await {
             Ok((stream, _)) => {
@@ -69,7 +70,7 @@ async fn run(
                 if incoming.send(Incoming::Up).is_err() {
                     return;
                 }
-                let closed = pump(stream, &mut commands, &incoming, &mut pending).await;
+                let closed = pump(stream, &mut commands, &incoming).await;
                 if incoming.send(Incoming::Down).is_err() || closed {
                     return;
                 }
@@ -87,22 +88,15 @@ async fn pump<S>(
     stream: tokio_tungstenite::WebSocketStream<S>,
     commands: &mut mpsc::UnboundedReceiver<ClientCommand>,
     incoming: &mpsc::UnboundedSender<Incoming>,
-    pending: &mut Vec<ClientCommand>,
 ) -> bool
 where
     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
 {
     let (mut sink, mut source) = stream.split();
-    for command in pending.iter() {
-        if write(&mut sink, command).await.is_err() {
-            return false;
-        }
-    }
     loop {
         tokio::select! {
             command = commands.recv() => {
                 let Some(command) = command else { return true };
-                remember(pending, &command);
                 if write(&mut sink, &command).await.is_err() {
                     return false;
                 }
@@ -118,9 +112,13 @@ where
                         Err(error) => tracing::debug!(%error, "unreadable server event"),
                     },
                     Some(Ok(Message::Binary(bytes))) => {
-                        if let Some(spectrum) = spectrum(&bytes)
-                            && incoming.send(Incoming::Spectrum(Arc::new(spectrum))).is_err() {
-                            return true;
+                        match Frame::read(&bytes) {
+                            Some(frame) => {
+                                if incoming.send(Incoming::Frame(frame)).is_err() {
+                                    return true;
+                                }
+                            }
+                            None => tracing::debug!(len = bytes.len(), "unreadable frame"),
                         }
                     }
                     Some(Ok(_)) => {}
@@ -150,22 +148,7 @@ where
     })
 }
 
-fn remember(pending: &mut Vec<ClientCommand>, command: &ClientCommand) {
-    match command {
-        ClientCommand::SubscribeSpectrum { device_set, .. } => {
-            let set = *device_set;
-            pending.retain(|held| !matches!(held, ClientCommand::SubscribeSpectrum { device_set, .. } if *device_set == set));
-            pending.push(command.clone());
-        }
-        ClientCommand::UnsubscribeSpectrum { device_set, .. } => {
-            let set = *device_set;
-            pending.retain(|held| !matches!(held, ClientCommand::SubscribeSpectrum { device_set, .. } if *device_set == set));
-        }
-        _ => {}
-    }
-}
-
-fn spectrum(bytes: &[u8]) -> Option<Spectrum> {
+pub fn spectrum(bytes: &[u8]) -> Option<Spectrum> {
     let header = FrameHeader::parse(bytes)?;
     if header.kind != FrameKind::Spectrum {
         return None;
@@ -216,59 +199,5 @@ mod tests {
         .encode();
         assert!(spectrum(&audio).is_none());
         assert!(spectrum(&[]).is_none());
-    }
-
-    #[test]
-    fn one_subscription_per_device_set_is_replayed_after_a_reconnect() {
-        let mut pending = Vec::new();
-        remember(
-            &mut pending,
-            &ClientCommand::SubscribeSpectrum {
-                device_set: 1,
-                fps: 20,
-                bins: 512,
-                stream: 0,
-            },
-        );
-        remember(
-            &mut pending,
-            &ClientCommand::SubscribeSpectrum {
-                device_set: 1,
-                fps: 30,
-                bins: 256,
-                stream: 0,
-            },
-        );
-        remember(
-            &mut pending,
-            &ClientCommand::SubscribeSpectrum {
-                device_set: 2,
-                fps: 20,
-                bins: 512,
-                stream: 0,
-            },
-        );
-        assert_eq!(pending.len(), 2);
-        assert!(matches!(
-            pending[0],
-            ClientCommand::SubscribeSpectrum {
-                device_set: 1,
-                fps: 30,
-                ..
-            }
-        ));
-
-        remember(
-            &mut pending,
-            &ClientCommand::UnsubscribeSpectrum {
-                device_set: 1,
-                stream: 0,
-            },
-        );
-        assert_eq!(pending.len(), 1);
-        assert!(matches!(
-            pending[0],
-            ClientCommand::SubscribeSpectrum { device_set: 2, .. }
-        ));
     }
 }
