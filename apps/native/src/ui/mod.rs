@@ -1,5 +1,6 @@
 pub mod faces;
 pub mod gpu;
+pub mod kit_audio;
 pub mod node;
 pub mod palette;
 pub mod params;
@@ -17,6 +18,7 @@ use crate::{
 
 pub fn app(store: Store) -> impl IntoView {
     provide_menus();
+    let audio = crate::audio::provide();
     let canvas = patch::canvas();
     view! {
         column(
@@ -32,6 +34,7 @@ pub fn app(store: Store) -> impl IntoView {
             }
         ) {
             {head(store)}
+            {crate::audio::player(store, audio)}
             box(class = "pane") {
                 if move || store.pane.get() == Pane::Patch {
                     {patch::pane(store, canvas)}

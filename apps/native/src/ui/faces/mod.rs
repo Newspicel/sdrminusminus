@@ -12,13 +12,13 @@ use sdrmm_wire::{
 use zgui::prelude::*;
 
 use crate::{
-    binding, format,
+    format,
     socket::Spectrum,
     store::Store,
     ui::{
         gpu,
         plot::{self, Palette},
-        widgets::{check, dial, level_bar, meter, pick, row_field, segments, slide},
+        widgets::{check, dial, level_bar, pick, row_field, segments, slide},
     },
 };
 

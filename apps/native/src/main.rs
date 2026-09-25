@@ -1,4 +1,5 @@
 mod api;
+mod audio;
 mod binding;
 mod bus;
 mod format;

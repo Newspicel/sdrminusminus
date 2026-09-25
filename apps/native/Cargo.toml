@@ -39,6 +39,12 @@ sdrmm-engine.workspace = true
 sdrmm-server.workspace = true
 
 anyhow.workspace = true
+cpal.workspace = true
+opus.workspace = true
+rtrb.workspace = true
+sdrmm-dsp.workspace = true
+num-complex.workspace = true
+jiff.workspace = true
 axum.workspace = true
 clap.workspace = true
 dirs.workspace = true
