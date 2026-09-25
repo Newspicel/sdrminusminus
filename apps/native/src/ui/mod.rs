@@ -17,6 +17,7 @@ use crate::{
 
 pub fn app(store: Store) -> impl IntoView {
     provide_menus();
+    let canvas = patch::canvas();
     view! {
         column(
             class = "shell",
@@ -33,12 +34,12 @@ pub fn app(store: Store) -> impl IntoView {
             {head(store)}
             box(class = "pane") {
                 if move || store.pane.get() == Pane::Patch {
-                    {patch::pane(store)}
+                    {patch::pane(store, canvas)}
                 } else {
                     {rack::pane(store)}
                 }
                 if move || store.palette.get() {
-                    {palette::sheet(store)}
+                    {palette::sheet(store, canvas)}
                 }
                 if move || store.notice.get().is_some() {
                     {notice(store)}

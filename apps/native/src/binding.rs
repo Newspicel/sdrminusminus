@@ -106,11 +106,8 @@ fn port_stream(port: &str) -> u32 {
 
 #[cfg(test)]
 mod tests {
-    use sdrmm_wire::{
-        channel::{ChannelParams, ChannelSettings, NfmParams, Squelch},
-        device::{Capabilities, DeviceInfo, DeviceSettings},
-        patch::{ChannelNode, DeviceNode, DeviceRef, PatchEdge, PatchNode, PortRef, Position},
-        state::DeviceSetStatus,
+    use sdrmm_wire::patch::{
+        ChannelNode, DeviceNode, DeviceRef, PatchEdge, PatchNode, PortRef, Position,
     };
 
     use super::*;
@@ -147,66 +144,34 @@ mod tests {
     }
 
     fn channel(id: u32, stream: u32) -> ChannelInfo {
-        ChannelInfo {
-            id,
-            stream,
-            settings: ChannelSettings {
-                frequency_hz: 100e6,
-                squelch: Squelch::Off,
-                params: ChannelParams::Nfm(NfmParams::default()),
-                audio: Default::default(),
+        serde_json::from_value(serde_json::json!({
+            "id": id,
+            "stream": stream,
+            "settings": {
+                "frequency_hz": 100e6,
+                "params": { "type": "nfm", "settings": {} }
             },
-            out_of_band: false,
-            audio_recording: None,
-            baseband_recording: None,
-            network_export: None,
-        }
+            "out_of_band": false
+        }))
+        .expect("a channel")
     }
 
     fn set(id: u32, key: &str, channels: Vec<ChannelInfo>) -> DeviceSet {
-        DeviceSet {
-            id,
-            device: DeviceInfo {
-                driver: "virtual".to_owned(),
-                key: key.to_owned(),
-                label: key.to_owned(),
-                serial: None,
-                profile: None,
+        serde_json::from_value(serde_json::json!({
+            "id": id,
+            "device": { "driver": "virtual", "key": key, "label": key },
+            "capabilities": {
+                "freq_ranges": [],
+                "sample_rates": [],
+                "gains": [],
+                "antennas": [],
+                "bandwidths": []
             },
-            capabilities: Capabilities {
-                freq_ranges: Vec::new(),
-                sample_rates: Vec::new(),
-                sample_rate_ranges: Vec::new(),
-                gains: Vec::new(),
-                antennas: Vec::new(),
-                bandwidths: Vec::new(),
-                bandwidth_ranges: Vec::new(),
-                extra: Vec::new(),
-                ppm: false,
-                duplex: Default::default(),
-                rx_streams: 1,
-                tx_streams: 0,
-                per_stream: Default::default(),
-                directional: None,
-                dc_artifact: Default::default(),
-                hardware_sweep: false,
-                noise_source: false,
-                coherence: Default::default(),
-            },
-            settings: DeviceSettings::default(),
-            status: DeviceSetStatus::Running,
-            lo_offset_in_force_hz: 0.0,
-            channels,
-            overruns: 0,
-            error: None,
-            fault: None,
-            recording: None,
-            network_export: None,
-            time_machine: None,
-            scanner: None,
-            hunt: None,
-            playback: None,
-        }
+            "settings": {},
+            "status": "running",
+            "channels": channels
+        }))
+        .expect("a device set")
     }
 
     fn patch() -> PatchGraph {
@@ -216,7 +181,7 @@ mod tests {
                     "dev",
                     NodeBody::Device(DeviceNode {
                         device: Some(device_ref("siggen")),
-                        tuning_locked: false,
+                        locked_streams: Vec::new(),
                     }),
                 ),
                 node(
@@ -250,7 +215,7 @@ mod tests {
             "dev2",
             NodeBody::Device(DeviceNode {
                 device: Some(device_ref("siggen")),
-                tuning_locked: false,
+                locked_streams: Vec::new(),
             }),
         ));
         let sets = vec![set(1, "siggen", vec![])];

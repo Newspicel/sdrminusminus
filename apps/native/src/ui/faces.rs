@@ -1,10 +1,6 @@
 use std::sync::Arc;
 
 use sdrmm_wire::{
-    audio::{
-        AudioAgcMode, MAX_BLANKER_THRESHOLD, MAX_CLICK_THRESHOLD, MIN_BLANKER_THRESHOLD,
-        MIN_CLICK_THRESHOLD,
-    },
     channel::{
         ChannelInfo, ChannelSettings, MAX_SQUELCH_AUTO_MARGIN_DB, MIN_SQUELCH_AUTO_MARGIN_DB,
         Squelch,
@@ -22,7 +18,7 @@ use crate::{
     ui::{
         gpu,
         scope::{self, Palette},
-        widgets::{check, dial, gated_slide, level_bar, meter, pick, row_field, segments, slide},
+        widgets::{check, dial, level_bar, meter, pick, row_field, segments, slide},
     },
 };
 

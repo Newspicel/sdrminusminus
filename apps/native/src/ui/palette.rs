@@ -1,7 +1,8 @@
-use sdrmm_wire::patch::{ChannelNode, DeviceNode, NodeBody, NodeCategory, PatchNode, Position};
+use sdrmm_wire::patch::{ChannelNode, NodeBody, NodeCategory, PatchNode, Position};
 use zgui::prelude::*;
 use zgui_ui::prelude::*;
 
+use crate::ui::patch::Canvas;
 use crate::{
     store::Store,
     ui::{node, widgets::segments},
@@ -9,7 +10,7 @@ use crate::{
 
 const SPAWN_STEP: f32 = 36.0;
 
-pub fn sheet(store: Store) -> impl IntoView {
+pub fn sheet(store: Store, canvas: Canvas) -> impl IntoView {
     let search = RwSignal::new_local(String::new());
     let category = RwSignal::new(None::<NodeCategory>);
     let rows = move || {
@@ -41,7 +42,7 @@ pub fn sheet(store: Store) -> impl IntoView {
                         a11y:role = Role::Button,
                         tabindex = Focus::Sequential,
                         on:click:stop = move |_| {
-                            add(store, &chosen);
+                            add(store, canvas, &chosen);
                             store.palette.set(false);
                         }
                     ) {
@@ -96,9 +97,7 @@ pub fn body_for(kind: &str) -> Option<NodeBody> {
             tuning_locked: false,
         }));
     }
-    serde_json::from_value(serde_json::json!({ "kind": kind, "data": {} }))
-        .or_else(|_| serde_json::from_value(serde_json::json!({ "kind": kind })))
-        .ok()
+    NodeBody::default_for(kind)
 }
 
 pub fn free_id(taken: &[String], kind: &str) -> String {
@@ -117,22 +116,35 @@ pub fn free_id(taken: &[String], kind: &str) -> String {
     }
 }
 
-fn add(store: Store, kind: &str) {
+fn add(store: Store, canvas: Canvas, kind: &str) {
     let Some(body) = body_for(kind) else {
         store.say(format!("Unknown node kind: {kind}"));
         return;
     };
     let kind = kind.to_owned();
+    let at = store.palette_at.get_untracked().unwrap_or_else(|| {
+        let centre = canvas.visible_centre();
+        (
+            centre.x as f32 - node::DEFAULT_WIDTH / 2.0,
+            centre.y as f32 - 80.0,
+        )
+    });
+    store.palette_at.set(None);
     store.edit_graph(move |graph| {
         let taken: Vec<String> = graph.nodes.iter().map(|node| node.id.clone()).collect();
-        let step = graph.nodes.len() as f32 * SPAWN_STEP;
+        let step = graph
+            .nodes
+            .iter()
+            .filter(|node| {
+                (node.position.x - at.0).abs() < 1.0 && (node.position.y - at.1).abs() < 1.0
+            })
+            .count() as f32
+            * SPAWN_STEP;
+        let (x, y) = (at.0 + step, at.1 + step);
         graph.nodes.push(PatchNode {
             id: free_id(&taken, &kind),
             body,
-            position: Position {
-                x: 80.0 + step,
-                y: 80.0 + step,
-            },
+            position: Position { x, y },
             size: None,
             label: None,
         });

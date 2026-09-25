@@ -1,9 +1,9 @@
 use sdrmm_wire::patch::{NodeCategory, PatchNode, PortBacking, PortDirection, PortSpec, PortType};
 
 pub const DEFAULT_WIDTH: f32 = 320.0;
-pub const BAR_HEIGHT: f32 = 22.0;
-const FIRST_PORT: f32 = 16.0;
-const PORT_PITCH: f32 = 16.0;
+pub const BAR_HEIGHT: f32 = 26.0;
+const FIRST_PORT: f32 = 11.0;
+const PORT_PITCH: f32 = 22.0;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Place {
@@ -103,11 +103,22 @@ mod tests {
 
     #[test]
     fn each_side_stacks_its_own_ports_below_the_title_bar() {
-        let node = node(NodeBody::Scope, None);
-        let places = places(&node, None);
-        assert_eq!(places.len(), 2);
-        assert_eq!(places[0].y, BAR_HEIGHT + FIRST_PORT);
-        assert_eq!(places[1].y, BAR_HEIGHT + FIRST_PORT + PORT_PITCH);
+        for entry in sdrmm_wire::patch::PatchCatalog::build().nodes {
+            let Some(body) = NodeBody::default_for(&entry.kind) else {
+                continue;
+            };
+            let placed = places(&node(body, None), None);
+            for side in [PortDirection::In, PortDirection::Out] {
+                let heights: Vec<f32> = placed
+                    .iter()
+                    .filter(|place| place.direction == side)
+                    .map(|place| place.y)
+                    .collect();
+                for (at, y) in heights.iter().enumerate() {
+                    assert_eq!(*y, BAR_HEIGHT + FIRST_PORT + PORT_PITCH * at as f32);
+                }
+            }
+        }
     }
 
     #[test]

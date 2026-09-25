@@ -98,20 +98,19 @@ pub const SHEET: &str = css!(
 
 .pane { flex: 1 1 auto; min-height: 0; position: relative; overflow: hidden; display: flex; }
 
-.patch { flex: 1 1 auto; min-width: 0; position: relative; overflow: hidden; }
-
-.patch__wires { position: absolute; left: 0; top: 0; width: 100%; height: 100%; pointer-events: none; }
+.patch { flex: 1 1 auto; min-width: 0; position: relative; overflow: hidden; display: flex; }
 
 
 .node {
-    position: absolute;
+    width: 100%;
+    height: 100%;
     border: 1px solid var(--line);
     border-radius: 7px;
     background-color: var(--panel);
     box-shadow: 0 1px 2px rgba(0, 0, 0, 0.45), 0 10px 28px rgba(0, 0, 0, 0.42);
 }
 
-.node.sel {
+.flow__node.selected .node {
     z-index: 5;
     border-color: var(--accent);
     box-shadow: 0 0 0 1px color-mix(in oklab, var(--accent) 45%, transparent),
@@ -121,7 +120,7 @@ pub const SHEET: &str = css!(
 .node__bar {
     align-items: center;
     gap: 10px;
-    height: 24px;
+    height: 26px;
     padding: 0 9px;
     border-bottom: 1px solid var(--line);
     border-top-left-radius: 6px;
@@ -164,40 +163,44 @@ pub const SHEET: &str = css!(
     border-top: 1px solid var(--line);
 }
 
-.port {
-    position: absolute;
-    width: 9px;
-    height: 9px;
-    border-radius: 999px;
+.flow .flow__handle-dot {
+    width: 10px;
+    height: 10px;
     border: 2px solid var(--bg);
     background-color: var(--line-strong);
 }
 
-.port[data-port="iq"] { background-color: oklch(0.72 0.11 228); }
-.port[data-port="baseband"] { background-color: oklch(0.74 0.1 196); }
-.port[data-port="audio"] { background-color: oklch(0.74 0.12 158); }
-.port[data-port="events"] { background-color: oklch(0.78 0.11 85); }
-.port[data-port="video"] { background-color: oklch(0.76 0.12 35); }
-.port[data-port="control"] { background-color: oklch(0.76 0.1 300); }
-.port[data-port="position"] { background-color: oklch(0.74 0.09 140); }
-.port[data-port="tx"] { background-color: oklch(0.76 0.12 345); }
+.flow__handle[data-class="iq"] .flow__handle-dot { background-color: oklch(0.72 0.11 228); }
+.flow__handle[data-class="baseband"] .flow__handle-dot { background-color: oklch(0.74 0.1 196); }
+.flow__handle[data-class="audio"] .flow__handle-dot { background-color: oklch(0.74 0.12 158); }
+.flow__handle[data-class="events"] .flow__handle-dot { background-color: oklch(0.78 0.11 85); }
+.flow__handle[data-class="video"] .flow__handle-dot { background-color: oklch(0.76 0.12 35); }
+.flow__handle[data-class="control"] .flow__handle-dot { background-color: oklch(0.76 0.1 300); }
+.flow__handle[data-class="position"] .flow__handle-dot { background-color: oklch(0.74 0.09 140); }
+.flow__handle[data-class="tx"] .flow__handle-dot { background-color: oklch(0.76 0.12 345); }
 
-.port:hover { border-color: var(--ink); }
-.port.armed { border-color: var(--ink); }
+.flow__handle:hover .flow__handle-dot { border-color: var(--ink); }
+.flow__handle[data-status="from"] .flow__handle-dot { border-color: var(--ink); }
+.flow__handle[data-status="valid"] .flow__handle-dot { border-color: var(--ok); }
+.flow__handle[data-status="invalid"] .flow__handle-dot { border-color: var(--danger); }
 
-.port__tag {
-    position: absolute;
-    overflow: hidden;
-    pointer-events: none;
+.flow .flow__handle-label {
+    top: 0;
+    padding: 0 4px;
+    border-radius: 3px;
+    background-color: color-mix(in oklab, var(--bg) 85%, transparent);
     font-family: var(--mono);
-    font-size: 8px;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
+    font-size: 10px;
     color: var(--ink-faint);
-    white-space: nowrap;
 }
 
-.port__tag.out { text-align: right; }
+.flow .flow__handle-label[data-side="left"] { left: auto; right: 18px; }
+.flow .flow__handle-label[data-side="right"] { right: auto; left: 18px; }
+
+.flow__minimap, .flow__controls { border-color: var(--line); background-color: var(--panel); }
+.flow__control { color: var(--ink-dim); }
+.flow__control:hover { background-color: var(--panel-2); color: var(--ink); }
+.flow__selection { border-color: var(--accent); background-color: color-mix(in oklab, var(--accent) 12%, transparent); }
 
 .dial { align-items: center; gap: 0; flex: 0 0 auto; }
 
@@ -427,7 +430,7 @@ pub const SHEET: &str = css!(
 .hint { color: var(--ink-faint); font-size: 11px; }
 
 .rack { flex-direction: row; flex-wrap: wrap; align-content: flex-start; gap: 14px; padding: 14px; overflow: auto; }
-.rack .node { position: relative; left: 0; top: 0; }
+.rack .node { position: relative; left: 0; top: 0; height: auto; }
 
 .toast {
     position: absolute;

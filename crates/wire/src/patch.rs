@@ -636,6 +636,60 @@ pub enum NodeBody {
 
 impl NodeBody {
     #[must_use]
+    pub fn default_for(kind: &str) -> Option<Self> {
+        let data = match kind {
+            "df" => return Some(Self::Df(DfNode::default())),
+            "passive_radar" => return Some(Self::PassiveRadar(PassiveRadarNode::default())),
+            "combiner" => return Some(Self::Combiner(CombinerNode::default())),
+            "stitch" => return Some(Self::Stitch(StitchNode::default())),
+            "channel" => serde_json::json!({ "channel_type": "nfm", "record_calls": false }),
+            "signal_gen" => serde_json::json!({ "running": true }),
+            "array" => serde_json::json!({
+                "members": 0,
+                "coherence": "time_sync",
+                "shared_tuning": true
+            }),
+            "signal_map" => serde_json::json!({ "offset_hz": 0, "bandwidth_hz": 12_500 }),
+            "propagation" => serde_json::json!({
+                "half_life_minutes": 30,
+                "reflection_height_km": 300,
+                "show_paths": false,
+                "compare_forecast": true
+            }),
+            "spectrum_monitor" => {
+                serde_json::json!({ "record_audio": true, "min_confidence": 0.7 })
+            }
+            "dmr_trunk" => serde_json::json!({ "protocol": "auto", "record_calls": true }),
+            "event_filter" => serde_json::json!({
+                "mode": "keep",
+                "kinds": [],
+                "stations": [],
+                "talkgroups": [],
+                "radios": [],
+                "min_duration_ms": 0
+            }),
+            "audio_fx" => serde_json::json!({ "settings": {} }),
+            "recorder" | "audio_recorder" | "baseband_recorder" => {
+                serde_json::json!({ "recording": false })
+            }
+            "network_export" => serde_json::json!({
+                "transport": "udp",
+                "format": "cf32_le",
+                "address": "127.0.0.1:7355"
+            }),
+            "hunt" => serde_json::json!({ "clicks": true }),
+            "time_machine" => serde_json::json!({ "history_seconds": 10 }),
+            "event_output" => serde_json::json!({
+                "target": { "service": "webhook", "url": "", "format": "json" }
+            }),
+            _ => serde_json::json!({}),
+        };
+        serde_json::from_value(serde_json::json!({ "kind": kind, "data": data }))
+            .or_else(|_| serde_json::from_value(serde_json::json!({ "kind": kind })))
+            .ok()
+    }
+
+    #[must_use]
     pub const fn lane_output(&self) -> Option<&'static str> {
         match self {
             Self::Df(_) | Self::Combiner(_) => Some(DF_BEAM_PORT),

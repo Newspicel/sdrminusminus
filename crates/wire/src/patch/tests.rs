@@ -2170,3 +2170,14 @@ fn audio_fx_with_settings_outside_their_range_is_refused() {
         Err(PatchError::NodeSettings("fx".to_owned()))
     );
 }
+
+#[test]
+fn every_catalog_kind_has_a_default_body_of_its_own_kind() {
+    for entry in PatchCatalog::build().nodes {
+        let body = NodeBody::default_for(&entry.kind)
+            .unwrap_or_else(|| panic!("no default body for {}", entry.kind));
+        assert_eq!(body.kind(), entry.kind);
+        assert_eq!(body.category(), entry.category);
+    }
+    assert!(NodeBody::default_for("no_such_node").is_none());
+}

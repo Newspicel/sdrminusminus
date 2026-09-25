@@ -136,7 +136,7 @@ mod tests {
                         serial: None,
                         key: Some("0".to_owned()),
                     }),
-                    tuning_locked: false,
+                    locked_streams: Vec::new(),
                 }),
                 0.0,
                 0.0,

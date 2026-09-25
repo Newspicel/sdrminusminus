@@ -47,6 +47,7 @@ pub struct Store {
     pub pane: RwSignal<Pane>,
     pub selected: RwSignal<Option<String>>,
     pub palette: RwSignal<bool>,
+    pub palette_at: RwSignal<Option<(f32, f32)>>,
     pub spectra: RwSignal<Arc<HashMap<u32, Arc<Spectrum>>>>,
     pub levels: RwSignal<Arc<HashMap<(u32, u32), ChannelLevel>>>,
     pub decoded: RwSignal<Arc<Vec<DecodedRecord>>>,
@@ -74,6 +75,7 @@ impl Store {
             pane: RwSignal::new(Pane::Patch),
             selected: RwSignal::new(None),
             palette: RwSignal::new(false),
+            palette_at: RwSignal::new(None),
             spectra: RwSignal::new(Arc::new(HashMap::new())),
             levels: RwSignal::new(Arc::new(HashMap::new())),
             decoded: RwSignal::new(Arc::new(Vec::new())),
@@ -372,6 +374,25 @@ impl Store {
             found.position.y = y;
         }
         self.graph.set(Arc::new(graph));
+    }
+
+    pub fn open_palette_at(self, x: f32, y: f32) {
+        self.palette_at.set(Some((x, y)));
+        self.palette.set(true);
+    }
+
+    pub fn resize_node(self, node: String, x: f32, y: f32, width: f32, height: f32) {
+        let mut graph = (*self.graph.get_untracked()).clone();
+        if let Some(found) = graph.nodes.iter_mut().find(|found| found.id == node) {
+            found.position.x = x;
+            found.position.y = y;
+            found.size = Some(sdrmm_wire::patch::Size {
+                w: width,
+                h: height,
+            });
+        }
+        self.graph.set(Arc::new(graph));
+        self.commit_layout();
     }
 
     pub fn commit_layout(self) {

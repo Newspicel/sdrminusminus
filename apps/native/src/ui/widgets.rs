@@ -338,23 +338,6 @@ pub fn slide(
     }
 }
 
-pub fn gated_slide(
-    on: Signal<bool>,
-    toggle: impl Fn(bool) + 'static,
-    value: Signal<f64>,
-    min: f64,
-    max: f64,
-    read: impl Fn(f64) -> String + 'static,
-    on_change: impl Fn(f64) + Clone + 'static,
-) -> impl IntoView {
-    view! {
-        row(class = "field__body") {
-            {check(on, toggle)}
-            {slide(value, min, max, read, on_change)}
-        }
-    }
-}
-
 pub fn check(on: Signal<bool>, on_change: impl Fn(bool) + 'static) -> impl IntoView {
     view! {
         control(
