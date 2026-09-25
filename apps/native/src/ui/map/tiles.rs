@@ -7,10 +7,13 @@ use std::{
 
 use zgui::reactive::ArcRwSignal;
 use zgui::reactive::RenderEffect;
-use zgui::{elements::CanvasHandle, prelude::*};
+use zgui::{
+    elements::{kurbo, kurbo::Shape as _},
+    prelude::*,
+};
 
 use super::{
-    geo::{TILE_PX, TileId, View},
+    geo::{TileId, View},
     paint::{EXTENT, LabelClass, Painted},
     source::{Basemap, Cache, Kind, Net, OFFLINE_PATH, Slot},
 };
@@ -135,6 +138,28 @@ fn place(view: &View, id: TileId, column: i64) -> (f64, f64, f64) {
     (left, top, size)
 }
 
+fn clipped(view: &View, left: f64, top: f64, size: f64) -> Option<[f64; 4]> {
+    let (x0, y0) = (left.max(0.0), top.max(0.0));
+    let (x1, y1) = ((left + size).min(view.width), (top + size).min(view.height));
+    (x1 > x0 && y1 > y0 && size > 0.0).then_some([x0, y0, x1 - x0, y1 - y0])
+}
+
+fn visible(view: &View, id: TileId, column: i64) -> (String, Option<[f64; 4]>) {
+    let (left, top, size) = place(view, id, column);
+    let style =
+        format!("left: {left:.2}px; top: {top:.2}px; width: {size:.2}px; height: {size:.2}px");
+    let window = clipped(view, left, top, size).map(|[x, y, width, height]| {
+        let unit = EXTENT / size;
+        [
+            (x - left) * unit,
+            (y - top) * unit,
+            width * unit,
+            height * unit,
+        ]
+    });
+    (style, window)
+}
+
 fn drawn(shared: &Shared, basemap: &Basemap, view: &View) -> Vec<Drawn> {
     let source = basemap.key();
     let mut children = Vec::new();
@@ -207,22 +232,29 @@ pub fn layer(shared: Rc<Shared>, view: RwSignal<View>) -> impl IntoView {
             .get_untracked()
             .map(|basemap| basemap.key().to_owned())
             .unwrap_or_default();
-        let handle = CanvasHandle::new();
-        if let Some(painted) = shared.ready(&source, tile.id) {
-            handle.draw(|scene| scene.replace(painted.shapes.clone()));
-        }
+        let painted = shared.ready(&source, tile.id);
         let (id, column) = (tile.id, tile.column);
         zgui::elements::canvas()
             .class("map__tile")
-            .scene(&handle)
             .view_box(0.0, 0.0, EXTENT as f32, EXTENT as f32)
-            .style_property("transform", move || {
-                let (left, top, size) = place(&view.get(), id, column);
-                Some(format!(
-                    "translate({left:.2}px, {top:.2}px) scale({:.5})",
-                    size / TILE_PX
-                ))
+            .style_text(move || Some(visible(&view.get(), id, column).0))
+            .draw(move |cx| {
+                let Some(painted) = &painted else {
+                    return;
+                };
+                let Some([x, y, width, height]) = visible(&view.get(), id, column).1 else {
+                    return;
+                };
+                let window = Arc::new(kurbo::Rect::new(x, y, x + width, y + height).to_path(0.1));
+                for shape in &painted.shapes {
+                    let mut shape = shape.clone();
+                    for clip in &mut shape.clips {
+                        clip.path = window.clone();
+                    }
+                    cx.scene.push(shape);
+                }
             })
+            .into_view()
     };
 
     view! {
@@ -299,5 +331,29 @@ fn place_label(spot: Place, view: RwSignal<View>) -> impl IntoView {
             style:left = move || Some(format!("{:.1}px", at().0)),
             style:top = move || Some(format!("{:.1}px", at().1))
         ) {{spot.text}}
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_tile_is_cut_to_the_part_the_map_shows() {
+        let view = View {
+            width: 400.0,
+            height: 300.0,
+            ..View::default()
+        };
+        assert_eq!(
+            clipped(&view, -100.0, 50.0, 512.0),
+            Some([0.0, 50.0, 400.0, 250.0])
+        );
+        assert_eq!(clipped(&view, 500.0, 0.0, 512.0), None);
+        let (style, window) = visible(&view, TileId { z: 0, x: 0, y: 0 }, 0);
+        assert!(style.starts_with("left: -"));
+        let [x, y, width, height] = window.expect("a visible part");
+        assert!(x > 0.0 && y > 0.0 && width > 0.0 && height > 0.0);
+        assert!(x + width <= EXTENT && y + height <= EXTENT);
     }
 }

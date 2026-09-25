@@ -60,6 +60,7 @@ const SHEET: &str = css!(
     min-height: 240px;
     background-color: #1a1c20;
     cursor: grab;
+    isolation: isolate;
 }
 .map.dragging, .map.dragging * { cursor: grabbing; }
 .map__layer {
@@ -68,17 +69,12 @@ const SHEET: &str = css!(
     top: 0;
     width: 100%;
     height: 100%;
+    overflow: hidden;
     pointer-events: none;
 }
-.map__tile {
-    position: absolute;
-    left: 0;
-    top: 0;
-    width: 512px;
-    height: 512px;
-    transform-origin: 0 0;
-    pointer-events: none;
-}
+.map__tile { position: absolute; pointer-events: none; }
+.map__chrome, .map__zoom, .map__credit, .map__badge { z-index: 2; }
+.map__chrome { position: absolute; left: 0; top: 0; width: 100%; height: 100%; pointer-events: none; }
 .map__marks { position: absolute; left: 0; top: 0; width: 100%; height: 100%; pointer-events: none; }
 .map__place, .map__label {
     position: absolute;
@@ -306,7 +302,7 @@ pub fn map(store: Store, props: MapProps, chrome: AnyView) -> impl IntoView {
             {tiles::layer(shared.clone(), view)}
             {marks}
             {labels(props.overlay, view)}
-            {chrome}
+            box(class = "map__chrome") {{chrome}}
             column(class = "map__zoom") {
                 control(
                     class = "map__zoom-step",

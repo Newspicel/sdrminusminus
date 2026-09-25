@@ -267,6 +267,7 @@ pub const FACE_SHEET: &str = css!(
     border-radius: 5px;
     background-color: var(--panel);
     cursor: default;
+    pointer-events: auto;
 }
 .map-face__head { align-items: center; gap: 6px; padding: 3px 8px; border-bottom: 1px solid var(--line); }
 .map-face__title { font-family: var(--mono); font-size: 13px; }
