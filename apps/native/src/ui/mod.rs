@@ -5,6 +5,7 @@ pub mod palette;
 pub mod params;
 pub mod patch;
 pub mod rack;
+pub mod tools;
 pub mod plot;
 pub mod widgets;
 
