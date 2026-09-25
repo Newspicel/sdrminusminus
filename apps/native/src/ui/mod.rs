@@ -9,6 +9,7 @@ pub mod hotkeys;
 pub mod kit_shell;
 pub mod library;
 pub mod kit_decoders;
+pub mod kit_raster;
 pub mod node;
 pub mod palette;
 pub mod params;

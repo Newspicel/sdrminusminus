@@ -22,6 +22,7 @@ use crate::{
         toasts::{Toasts, Tone},
     },
     decoded::Decoded,
+    coherent,
     socket::{Incoming, Socket, Spectrum},
     workspace::Session,
 };
@@ -71,6 +72,7 @@ pub struct Store {
     pub levels: RwSignal<Arc<HashMap<(u32, u32), ChannelLevel>>>,
     pub decoded: RwSignal<Arc<Decoded>>,
     staged: StoredValue<Vec<DecodedRecord>>,
+    pub coherent: RwSignal<Arc<coherent::Book>>,
     bus: StoredValue<Rc<Bus>, LocalStorage>,
     pub(crate) editor: StoredValue<Option<Session>>,
     api: StoredValue<Api>,
@@ -105,6 +107,7 @@ impl Store {
             levels: RwSignal::new(Arc::new(HashMap::new())),
             decoded: RwSignal::new(Arc::new(Decoded::default())),
             staged: StoredValue::new(Vec::new()),
+            coherent: RwSignal::new(Arc::new(coherent::Book::default())),
             bus: StoredValue::new_local(Rc::new(Bus::default())),
             editor: StoredValue::new(None),
             api: StoredValue::new(api),
@@ -284,6 +287,13 @@ impl Store {
                     .update(|decoded| Arc::make_mut(decoded).report_lost(count));
             }
             ServerEvent::Error { message } => self.say(message),
+            event @ (ServerEvent::DfUpdate { .. }
+            | ServerEvent::DfFusionUpdate { .. }
+            | ServerEvent::RadarDetections { .. }) => {
+                let mut next = (*self.coherent.get_untracked()).clone();
+                next.observe(&event, std::time::SystemTime::now());
+                self.coherent.set(Arc::new(next));
+            }
             _ => {}
         }
     }

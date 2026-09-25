@@ -3,6 +3,7 @@ mod binding;
 mod bus;
 mod decoded;
 mod decoders;
+mod coherent;
 mod format;
 mod host;
 mod params;

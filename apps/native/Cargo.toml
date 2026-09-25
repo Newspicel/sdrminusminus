@@ -36,6 +36,8 @@ zgui-flow.workspace = true
 zgui-image.workspace = true
 
 sdrmm-wire.workspace = true
+sdrmm-dsp.workspace = true
+num-complex.workspace = true
 sdrmm-engine.workspace = true
 sdrmm-server.workspace = true
 
