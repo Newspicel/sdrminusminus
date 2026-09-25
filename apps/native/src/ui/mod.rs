@@ -52,6 +52,7 @@ pub fn app(store: Store, prefs: PrefsFile) -> impl IntoView {
     shell::themed(shell);
     watch_token(store, shell);
     let canvas = patch::canvas();
+    let tools_open = tools::provide();
     let root = NodeRef::new();
     listen_everywhere(root);
     let phase = Memo::new(move |_| store.phase.get());
@@ -81,6 +82,7 @@ pub fn app(store: Store, prefs: PrefsFile) -> impl IntoView {
             }}
             {gates::gate(store, shell)}
             {dialogs::layer(store, shell)}
+            {tools::dialog(store, tools_open)}
             {toasts::stack(store, shell)}
         }
     }
