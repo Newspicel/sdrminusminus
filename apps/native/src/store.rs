@@ -4,10 +4,11 @@ use sdrmm_wire::{
     channel::{ChannelDescriptor, ChannelInfo, ChannelSettings},
     decode::DecodedRecord,
     device::{DeviceInfo, DeviceSettings},
+    frame::FrameKind,
     patch::{PatchCatalog, PatchGraph},
     state::{ChannelLevel, DeviceSet, StateSnapshot},
     workspace::WorkspaceDetail,
-    frame::FrameKind,
+    workspace_state::WorkspaceChannel,
     ws::{ClientCommand, ServerEvent, StateScope},
 };
 use tokio::sync::mpsc;
@@ -15,8 +16,8 @@ use zgui::prelude::*;
 
 use crate::{
     api::Api,
-    bus::{Bus, Frame, Source},
     binding,
+    bus::{Bus, Frame, Source},
     socket::{Incoming, Socket, Spectrum},
     starter,
     workspace::Session,
@@ -53,6 +54,7 @@ pub struct Store {
     pub spectra: RwSignal<Arc<HashMap<u32, Arc<Spectrum>>>>,
     pub levels: RwSignal<Arc<HashMap<(u32, u32), ChannelLevel>>>,
     pub decoded: RwSignal<Arc<Vec<DecodedRecord>>>,
+    pub saved_channels: RwSignal<Arc<Vec<WorkspaceChannel>>>,
     bus: StoredValue<Rc<Bus>, LocalStorage>,
     editor: StoredValue<Option<Session>>,
     api: StoredValue<Api>,
@@ -81,6 +83,7 @@ impl Store {
             spectra: RwSignal::new(Arc::new(HashMap::new())),
             levels: RwSignal::new(Arc::new(HashMap::new())),
             decoded: RwSignal::new(Arc::new(Vec::new())),
+            saved_channels: RwSignal::new(Arc::new(Vec::new())),
             bus: StoredValue::new_local(Rc::new(Bus::default())),
             editor: StoredValue::new(None),
             api: StoredValue::new(api),
@@ -172,7 +175,10 @@ impl Store {
     fn receive_frame(self, frame: &Frame) {
         let bus = self.bus.get_value();
         if frame.kind == FrameKind::Spectrum
-            && let Some(Source::Spectrum { device_set, stream: 0 }) = bus.source_of(frame.stream_id)
+            && let Some(Source::Spectrum {
+                device_set,
+                stream: 0,
+            }) = bus.source_of(frame.stream_id)
             && let Some(spectrum) = crate::socket::spectrum(&frame.bytes)
         {
             let mut next = (*self.spectra.get_untracked()).clone();
@@ -313,6 +319,8 @@ impl Store {
         self.name.set(detail.info.name.clone());
         self.can_undo.set(detail.history.can_undo);
         self.can_redo.set(detail.history.can_redo);
+        self.saved_channels
+            .set(Arc::new(detail.state.channels.clone()));
 
         let seeding = starter::wants_seeding(&detail.snapshot.graph);
         let graph = if seeding {
@@ -435,6 +443,8 @@ impl Store {
         self.can_undo.set(detail.history.can_undo);
         self.can_redo.set(detail.history.can_redo);
         self.name.set(detail.info.name.clone());
+        self.saved_channels
+            .set(Arc::new(detail.state.channels.clone()));
     }
 
     fn write_graph(self, graph: PatchGraph) -> impl Future<Output = anyhow::Result<()>> {
@@ -484,7 +494,11 @@ impl Store {
         self.receive_settings(editor.device(set, settings));
     }
 
-    fn receive_settings(
+    pub(crate) fn editor(self) -> Option<Session> {
+        self.editor.get_value()
+    }
+
+    pub(crate) fn receive_settings(
         self,
         pending: impl Future<Output = anyhow::Result<WorkspaceDetail>> + 'static,
     ) {

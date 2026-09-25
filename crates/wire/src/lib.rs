@@ -168,8 +168,8 @@ pub use satellite::{
     TRANSMITTER_SOURCE, TRANSMITTER_URL, Transmitter, TransmittersResponse,
 };
 pub use scan::{
-    MAX_SCAN_TARGETS, ScanAction, ScanMode, ScanRange, ScanRequest, ScanSettings, ScanState,
-    ScannerStatus,
+    DEFAULT_SCAN_RANGE, MAX_SCAN_TARGETS, ScanAction, ScanMode, ScanRange, ScanRequest,
+    ScanSettings, ScanState, ScannerNode, ScannerStatus,
 };
 pub use state::{
     AudioRecordingStatus, ChannelLevel, DeviceFault, DeviceSet, DeviceSetStatus, ExtraLane,
