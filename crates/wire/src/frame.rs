@@ -69,6 +69,7 @@ impl<'a> VideoData<'a> {
     }
 }
 
+mod decode;
 mod schema;
 pub use schema::typescript_frames;
 

@@ -4,10 +4,10 @@ use sdrmm_wire::{
     channel::{ChannelDescriptor, ChannelInfo, ChannelSettings},
     decode::DecodedRecord,
     device::{DeviceInfo, DeviceSettings},
+    frame::FrameKind,
     patch::{PatchCatalog, PatchGraph},
     state::{ChannelLevel, DeviceSet, StateSnapshot},
     workspace::WorkspaceDetail,
-    frame::FrameKind,
     ws::{ClientCommand, ServerEvent, StateScope},
 };
 use tokio::sync::mpsc;
@@ -15,8 +15,9 @@ use zgui::prelude::*;
 
 use crate::{
     api::Api,
-    bus::{Bus, Frame, Source},
     binding,
+    bus::{Bus, Frame, Source},
+    coherent,
     socket::{Incoming, Socket, Spectrum},
     starter,
     workspace::Session,
@@ -53,6 +54,7 @@ pub struct Store {
     pub spectra: RwSignal<Arc<HashMap<u32, Arc<Spectrum>>>>,
     pub levels: RwSignal<Arc<HashMap<(u32, u32), ChannelLevel>>>,
     pub decoded: RwSignal<Arc<Vec<DecodedRecord>>>,
+    pub coherent: RwSignal<Arc<coherent::Book>>,
     bus: StoredValue<Rc<Bus>, LocalStorage>,
     editor: StoredValue<Option<Session>>,
     api: StoredValue<Api>,
@@ -81,6 +83,7 @@ impl Store {
             spectra: RwSignal::new(Arc::new(HashMap::new())),
             levels: RwSignal::new(Arc::new(HashMap::new())),
             decoded: RwSignal::new(Arc::new(Vec::new())),
+            coherent: RwSignal::new(Arc::new(coherent::Book::default())),
             bus: StoredValue::new_local(Rc::new(Bus::default())),
             editor: StoredValue::new(None),
             api: StoredValue::new(api),
@@ -172,7 +175,10 @@ impl Store {
     fn receive_frame(self, frame: &Frame) {
         let bus = self.bus.get_value();
         if frame.kind == FrameKind::Spectrum
-            && let Some(Source::Spectrum { device_set, stream: 0 }) = bus.source_of(frame.stream_id)
+            && let Some(Source::Spectrum {
+                device_set,
+                stream: 0,
+            }) = bus.source_of(frame.stream_id)
             && let Some(spectrum) = crate::socket::spectrum(&frame.bytes)
         {
             let mut next = (*self.spectra.get_untracked()).clone();
@@ -228,6 +234,13 @@ impl Store {
                 self.decoded.set(Arc::new(next));
             }
             ServerEvent::Error { message } => self.say(message),
+            event @ (ServerEvent::DfUpdate { .. }
+            | ServerEvent::DfFusionUpdate { .. }
+            | ServerEvent::RadarDetections { .. }) => {
+                let mut next = (*self.coherent.get_untracked()).clone();
+                next.observe(&event, std::time::SystemTime::now());
+                self.coherent.set(Arc::new(next));
+            }
             _ => {}
         }
     }
