@@ -60,7 +60,7 @@ pub(crate) fn capabilities(sample_rates: &[u32]) -> Capabilities {
         bandwidths: Vec::new(),
         bandwidth_ranges: Vec::new(),
         bandwidth_auto: false,
-        bias_tee: true,
+        bias_tee: false,
         agc: Agc::Modes {
             options: vec![
                 agc_mode(AGC_LOW, "Low threshold"),
@@ -86,7 +86,7 @@ pub(crate) fn settings(config: &Config) -> DeviceSettings {
         center_hz: Some(f64::from(config.frequency_hz)),
         sample_rate: Some(f64::from(config.sample_rate_hz)),
         antenna: Some(ANTENNA.to_string()),
-        bias_tee: Some(config.bias_tee),
+        bias_tee: None,
         agc: Some(agc_setting(config.agc, config.agc_high_threshold)),
         gains: vec![
             GainValue::new(GainKind::Amp, if config.lna { PREAMP_DB } else { 0.0 }),
@@ -261,7 +261,7 @@ mod tests {
         assert_eq!(amp.off(), 0.0);
         assert_eq!(amp.on(), 6.0);
         assert!(caps.stage("LNA").is_none());
-        assert!(caps.bias_tee);
+        assert!(!caps.bias_tee);
         assert!(caps.extra.is_empty());
     }
 
@@ -323,7 +323,7 @@ mod tests {
         });
         assert_eq!(reported.gain(GainKind::Amp.name()), Some(6.0));
         assert_eq!(reported.gain(GainKind::Attenuator.name()), Some(-18.0));
-        assert_eq!(reported.bias_tee, Some(true));
+        assert_eq!(reported.bias_tee, None);
         assert!(reported.extra.is_empty());
     }
 

@@ -57,6 +57,11 @@ impl AirspyHf {
             .wait()
             .map_err(|e| Error::usb("claiming Airspy HF+ USB interface 0", e))?;
 
+       interface
+           .set_alt_setting(1)
+           .wait()
+           .map_err(|e| Error::usb("selecting Airspy HF+ interface alternate setting 1", e))?;
+
         let control = Control::new(device, interface);
         control.control_out(&VendorControlRequest::receiver_mode(ReceiverMode::Off))?;
 
@@ -93,7 +98,8 @@ impl AirspyHf {
         opened.set_lna(defaults.lna)?;
         opened.set_agc(defaults.agc)?;
         opened.set_agc_high_threshold(defaults.agc_high_threshold)?;
-        opened.set_bias_tee(defaults.bias_tee)?;
+// Airspy HF+ and HF+ Discovery have no bias tee
+//        opened.set_bias_tee(defaults.bias_tee)?;
         Ok(opened)
     }
 
