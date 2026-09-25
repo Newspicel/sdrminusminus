@@ -30,12 +30,12 @@ members = [
     "crates/engine",
     "crates/tools",
     "crates/server",
+    "crates/zgui-flow",
     "apps/sdrmm",
     "apps/desktop",
+    "apps/native",
     "xtask",
 ]
-
-exclude = ["experiments"]
 
 default-members = [
     "crates/test-support",
@@ -67,7 +67,9 @@ default-members = [
     "crates/engine",
     "crates/tools",
     "crates/server",
+    "crates/zgui-flow",
     "apps/sdrmm",
+    "apps/native",
     "xtask",
 ]
 
@@ -113,6 +115,12 @@ sdrmm-tools = { path = "crates/tools" }
 # disable a workspace dep's defaults, only add to them (needed for the minimal build).
 sdrmm-engine = { path = "crates/engine", default-features = false }
 sdrmm-server = { path = "crates/server", default-features = false }
+zgui-flow = { path = "crates/zgui-flow" }
+
+# Native UI
+zgui = { git = "https://github.com/zortax/zgui", rev = "f046ccd26a5862731b94b3b3f89dbcfe8f74d551" }
+zgui-ui = { git = "https://github.com/zortax/zgui", rev = "f046ccd26a5862731b94b3b3f89dbcfe8f74d551" }
+zgui-tokio = { git = "https://github.com/zortax/zgui", rev = "f046ccd26a5862731b94b3b3f89dbcfe8f74d551" }
 
 # Async runtime / web
 tokio = { version = "1.53", features = ["rt-multi-thread", "macros", "sync", "time", "signal", "net"] }

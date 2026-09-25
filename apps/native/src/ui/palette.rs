@@ -96,35 +96,9 @@ pub fn body_for(kind: &str) -> Option<NodeBody> {
             tuning_locked: false,
         }));
     }
-    Some(match kind {
-        "device" => NodeBody::Device(DeviceNode::default()),
-        "array" => NodeBody::Array(Default::default()),
-        "gps" => NodeBody::Gps(Default::default()),
-        "signal_map" => NodeBody::SignalMap(Default::default()),
-        "propagation" => NodeBody::Propagation(Default::default()),
-        "dmr_trunk" => NodeBody::DmrTrunk(Default::default()),
-        "event_output" => NodeBody::EventOutput(Default::default()),
-        "event_filter" => NodeBody::EventFilter(Default::default()),
-        "time_machine" => NodeBody::TimeMachine(Default::default()),
-        "network_export" => NodeBody::NetworkExport(Default::default()),
-        "hunt" => NodeBody::Hunt(Default::default()),
-        "df" => NodeBody::Df(Default::default()),
-        "passive_radar" => NodeBody::PassiveRadar(Default::default()),
-        "combiner" => NodeBody::Combiner(Default::default()),
-        "scope" => NodeBody::Scope,
-        "speaker" => NodeBody::Speaker,
-        "map" => NodeBody::Map,
-        "readout" => NodeBody::Readout,
-        "decoder_log" => NodeBody::DecoderLog,
-        "video" => NodeBody::Video,
-        "recorder" => NodeBody::Recorder,
-        "audio_recorder" => NodeBody::AudioRecorder,
-        "baseband_recorder" => NodeBody::BasebandRecorder,
-        "export" => NodeBody::Export,
-        "scanner" => NodeBody::Scanner,
-        "triangulation" => NodeBody::Triangulation,
-        _ => return None,
-    })
+    serde_json::from_value(serde_json::json!({ "kind": kind, "data": {} }))
+        .or_else(|_| serde_json::from_value(serde_json::json!({ "kind": kind })))
+        .ok()
 }
 
 pub fn free_id(taken: &[String], kind: &str) -> String {

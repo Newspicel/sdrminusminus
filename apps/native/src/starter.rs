@@ -32,7 +32,7 @@ pub fn graph(devices: &[DeviceInfo]) -> PatchGraph {
                 "device",
                 NodeBody::Device(DeviceNode {
                     device,
-                    tuning_locked: false,
+                    locked_streams: Vec::new(),
                 }),
                 40.0,
                 72.0,
