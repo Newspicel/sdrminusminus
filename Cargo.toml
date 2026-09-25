@@ -124,6 +124,7 @@ zgui-tokio = { git = "https://github.com/zortax/zgui", rev = "f046ccd26a5862731b
 qrcode = { version = "0.14.1", default-features = false }
 rfd = "0.17.2"
 open = "5.4.4"
+zgui-image = { git = "https://github.com/zortax/zgui", rev = "f046ccd26a5862731b94b3b3f89dbcfe8f74d551" }
 
 # Async runtime / web
 tokio = { version = "1.53", features = ["rt-multi-thread", "macros", "sync", "time", "signal", "net"] }

@@ -55,14 +55,6 @@ pub fn decibels(value: f32) -> String {
     format!("{value:.1} dB")
 }
 
-#[must_use]
-pub fn clock(iso: &str) -> String {
-    iso.split('T').nth(1).map_or_else(
-        || iso.to_owned(),
-        |rest| rest[..rest.len().min(8)].to_owned(),
-    )
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -107,9 +99,4 @@ mod tests {
         assert_eq!(decibels(-14.04), "-14.0 dB");
     }
 
-    #[test]
-    fn a_timestamp_shows_its_clock_and_survives_one_that_has_none() {
-        assert_eq!(clock("2026-09-14T12:34:56.789Z"), "12:34:56");
-        assert_eq!(clock("no time here"), "no time here");
-    }
 }

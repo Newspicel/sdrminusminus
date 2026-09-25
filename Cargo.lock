@@ -7368,6 +7368,7 @@ dependencies = [
  "url",
  "zgui",
  "zgui-flow",
+ "zgui-image",
  "zgui-tokio",
  "zgui-ui",
 ]
