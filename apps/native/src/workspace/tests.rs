@@ -112,6 +112,25 @@ async fn queued_edits_preserve_settings_and_rack_and_undo_in_order() {
 }
 
 #[tokio::test]
+async fn a_settings_edit_keeps_the_graph_and_rack() {
+    let server = Server::new().await;
+    let detail = server.workspace().await;
+    let (session, worker) = Session::new(server.api.clone(), detail.clone());
+    let task = tokio::spawn(worker.run());
+    let mut settings = detail.snapshot.settings.clone();
+    settings.band_ruler = true;
+    let saved = session
+        .settings(settings.clone())
+        .await
+        .expect("save settings");
+    assert_eq!(saved.snapshot.settings, settings);
+    assert_eq!(saved.snapshot.graph, detail.snapshot.graph);
+    assert_eq!(saved.snapshot.rack, detail.snapshot.rack);
+    drop(session);
+    task.await.expect("writer shutdown");
+}
+
+#[tokio::test]
 async fn an_external_edit_is_reported_without_overwriting_it() {
     let server = Server::new().await;
     let detail = server.workspace().await;

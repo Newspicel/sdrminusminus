@@ -6,8 +6,7 @@ use sdrmm_wire::{
     device::{DeviceInfo, DeviceSettings},
     patch::{PatchCatalog, PatchGraph},
     state::{ChannelLevel, DeviceSet, StateSnapshot},
-    workspace::WorkspaceDetail,
-    frame::FrameKind,
+    workspace::{WorkspaceDetail, WorkspaceSettings},
     ws::{ClientCommand, ServerEvent, StateScope},
 };
 use tokio::sync::mpsc;
@@ -15,15 +14,13 @@ use zgui::prelude::*;
 
 use crate::{
     api::Api,
-    bus::{Bus, Frame, Source},
     binding,
-    socket::{Incoming, Socket, Spectrum},
+    bus::{Bus, Frame, Source},
+    socket::{Incoming, Socket},
     starter,
     workspace::Session,
 };
 
-pub const SPECTRUM_BINS: u16 = 512;
-pub const SPECTRUM_FPS: u16 = 20;
 const DECODED_KEEP: usize = 120;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -50,9 +47,9 @@ pub struct Store {
     pub selected: RwSignal<Option<String>>,
     pub palette: RwSignal<bool>,
     pub palette_at: RwSignal<Option<(f32, f32)>>,
-    pub spectra: RwSignal<Arc<HashMap<u32, Arc<Spectrum>>>>,
     pub levels: RwSignal<Arc<HashMap<(u32, u32), ChannelLevel>>>,
     pub decoded: RwSignal<Arc<Vec<DecodedRecord>>>,
+    pub settings: RwSignal<WorkspaceSettings>,
     bus: StoredValue<Rc<Bus>, LocalStorage>,
     editor: StoredValue<Option<Session>>,
     api: StoredValue<Api>,
@@ -78,9 +75,9 @@ impl Store {
             selected: RwSignal::new(None),
             palette: RwSignal::new(false),
             palette_at: RwSignal::new(None),
-            spectra: RwSignal::new(Arc::new(HashMap::new())),
             levels: RwSignal::new(Arc::new(HashMap::new())),
             decoded: RwSignal::new(Arc::new(Vec::new())),
+            settings: RwSignal::new(WorkspaceSettings::default()),
             bus: StoredValue::new_local(Rc::new(Bus::default())),
             editor: StoredValue::new(None),
             api: StoredValue::new(api),
@@ -133,15 +130,6 @@ impl Store {
         }
     }
 
-    pub fn watch_spectrum(self, set: u32) {
-        self.hold(ClientCommand::SubscribeSpectrum {
-            device_set: set,
-            fps: SPECTRUM_FPS,
-            bins: SPECTRUM_BINS,
-            stream: 0,
-        });
-    }
-
     pub fn hold(self, command: ClientCommand) {
         if let Some(first) = self.bus.get_value().hold(&command) {
             self.command(first);
@@ -170,16 +158,7 @@ impl Store {
     }
 
     fn receive_frame(self, frame: &Frame) {
-        let bus = self.bus.get_value();
-        if frame.kind == FrameKind::Spectrum
-            && let Some(Source::Spectrum { device_set, stream: 0 }) = bus.source_of(frame.stream_id)
-            && let Some(spectrum) = crate::socket::spectrum(&frame.bytes)
-        {
-            let mut next = (*self.spectra.get_untracked()).clone();
-            next.insert(device_set, Arc::new(spectrum));
-            self.spectra.set(Arc::new(next));
-        }
-        bus.publish_frame(frame);
+        self.bus.get_value().publish_frame(frame);
     }
 
     async fn drain(self, mut incoming: mpsc::UnboundedReceiver<Incoming>) {
@@ -313,6 +292,7 @@ impl Store {
         self.name.set(detail.info.name.clone());
         self.can_undo.set(detail.history.can_undo);
         self.can_redo.set(detail.history.can_redo);
+        self.settings.set(detail.snapshot.settings.clone());
 
         let seeding = starter::wants_seeding(&detail.snapshot.graph);
         let graph = if seeding {
@@ -435,6 +415,29 @@ impl Store {
         self.can_undo.set(detail.history.can_undo);
         self.can_redo.set(detail.history.can_redo);
         self.name.set(detail.info.name.clone());
+        if self
+            .settings
+            .with_untracked(|held| *held != detail.snapshot.settings)
+        {
+            self.settings.set(detail.snapshot.settings.clone());
+        }
+    }
+
+    pub fn edit_settings(self, edit: impl FnOnce(&mut WorkspaceSettings)) {
+        let mut settings = self.settings.get_untracked();
+        edit(&mut settings);
+        self.settings.set(settings.clone());
+        let Some(editor) = self.editor.get_value() else {
+            self.say("Workspace is still loading");
+            return;
+        };
+        let pending = editor.settings(settings);
+        zgui::task::spawn_local(async move {
+            match pending.await {
+                Ok(detail) => self.read_detail(&detail),
+                Err(error) => self.say(format!("cannot save the settings: {error}")),
+            }
+        });
     }
 
     fn write_graph(self, graph: PatchGraph) -> impl Future<Output = anyhow::Result<()>> {

@@ -3,7 +3,7 @@ use sdrmm_wire::{
     channel::ChannelSettings,
     device::DeviceSettings,
     patch::PatchGraph,
-    workspace::{WorkspaceDetail, WorkspaceSnapshot},
+    workspace::{WorkspaceDetail, WorkspaceSettings, WorkspaceSnapshot},
 };
 use tokio::sync::{mpsc, oneshot};
 
@@ -16,6 +16,7 @@ enum Edit {
     History(bool),
     Channel(u32, u32, ChannelSettings),
     Device(u32, DeviceSettings),
+    Settings(WorkspaceSettings),
 }
 
 #[derive(Clone)]
@@ -73,6 +74,13 @@ impl Session {
         self.enqueue(Edit::Device(set, settings))
     }
 
+    pub fn settings(
+        &self,
+        settings: WorkspaceSettings,
+    ) -> impl Future<Output = anyhow::Result<WorkspaceDetail>> + use<> {
+        self.enqueue(Edit::Settings(settings))
+    }
+
     fn enqueue(&self, edit: Edit) -> impl Future<Output = anyhow::Result<WorkspaceDetail>> + use<> {
         let (reply, receive) = oneshot::channel();
         let sent = self.edits.send((edit, reply));
@@ -102,6 +110,18 @@ impl Worker {
         match edit {
             Edit::Graph(graph) => {
                 let snapshot = with_graph(self.detail.snapshot.clone(), graph);
+                snapshot.validate()?;
+                self.detail.info = self
+                    .api
+                    .save_workspace(id, self.detail.info.revision, snapshot.clone())
+                    .await?;
+                self.detail.snapshot = snapshot;
+            }
+            Edit::Settings(settings) => {
+                let snapshot = WorkspaceSnapshot {
+                    settings,
+                    ..self.detail.snapshot.clone()
+                };
                 snapshot.validate()?;
                 self.detail.info = self
                     .api

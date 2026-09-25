@@ -1,11 +1,9 @@
 pub mod faces;
-pub mod gpu;
 pub mod node;
 pub mod palette;
 pub mod params;
 pub mod patch;
 pub mod rack;
-pub mod plot;
 pub mod widgets;
 
 use zgui::prelude::*;
