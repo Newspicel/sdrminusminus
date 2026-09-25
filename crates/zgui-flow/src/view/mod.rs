@@ -56,7 +56,7 @@ struct Runtime {
     valid: Option<Valid>,
     listener: Option<Listener>,
     claimed: Option<crate::interaction::Target>,
-    ticking: Rc<RefCell<Option<zgui::view::time::FrameHandle>>>,
+    ticking: Option<zgui::view::time::IntervalHandle>,
     fitted: bool,
 }
 

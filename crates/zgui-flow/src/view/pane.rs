@@ -6,7 +6,7 @@ use zgui::prelude::*;
 use super::{
     FlowHandle, FlowStyle, Listener, Valid,
     background::background,
-    edges::{edge_labels, edge_layer},
+    edges::{Layer, edge_labels, edge_layer},
     node::{NodeCx, node_view},
     style::FLOW_SHEET,
 };
@@ -20,6 +20,7 @@ const DOUBLE_CLICK: Duration = Duration::from_millis(400);
 const DOUBLE_CLICK_REACH: f64 = 6.0;
 const AUTO_PAN_SPEED: f64 = 12.0;
 const AUTO_PAN_MARGIN: f64 = 36.0;
+const FRAME: Duration = Duration::from_millis(16);
 
 pub(super) fn modifiers(state: zgui::prelude::Modifiers) -> Modifiers {
     Modifiers {
@@ -161,29 +162,28 @@ impl Clicks {
 }
 
 struct Pump {
-    frame: Option<zgui::view::time::FrameHandle>,
+    frame: Option<zgui::view::time::IntervalHandle>,
     pointer: Point,
 }
 
 fn pump<T: Send + Sync + 'static, E: Send + Sync + 'static>(
     flow: FlowHandle<T, E>,
-    timers: Timers,
+    timers: &Timers,
     held: Rc<RefCell<Pump>>,
 ) {
     let again = held.clone();
-    let clock = timers.clone();
-    let frame = timers.request_frame(move |_| {
-        let (pointer, screen, moving) = {
-            let pump = again.borrow();
-            let (screen, moving) = flow.state.with_untracked(|state| {
-                (
-                    state.screen,
-                    state.dragging() || state.selection_box.is_some() || state.pending.is_some(),
-                )
-            });
-            (pump.pointer, screen, moving)
-        };
-        if !moving || !flow.state.with_untracked(|state| state.busy()) {
+    let ticking = timers.set_interval(FRAME, move || {
+        let pointer = again.borrow().pointer;
+        let (screen, moving) = flow.state.with_untracked(|state| {
+            (
+                state.screen,
+                state.busy()
+                    && (state.dragging()
+                        || state.selection_box.is_some()
+                        || state.pending.is_some()),
+            )
+        });
+        if !moving {
             again.borrow_mut().frame = None;
             return;
         }
@@ -193,9 +193,8 @@ fn pump<T: Send + Sync + 'static, E: Send + Sync + 'static>(
                 .update(|state| state.viewport = state.viewport.panned(shift));
             flow.motion_at(pointer);
         }
-        pump(flow, clock, again);
     });
-    held.borrow_mut().frame = Some(frame);
+    held.borrow_mut().frame = Some(ticking);
 }
 
 pub fn flow_view<T, E, V, O>(
@@ -239,17 +238,21 @@ where
         let moving = flow
             .edges
             .with(|edges| edges.iter().any(|edge| edge.animated));
-        let slot = flow.runtime.with_value(|runtime| runtime.ticking.clone());
         if !moving {
-            slot.borrow_mut().take();
+            flow.runtime.update_value(|runtime| runtime.ticking = None);
             return;
         }
-        let idle = slot.borrow().is_none();
+        let idle = flow.runtime.with_value(|runtime| runtime.ticking.is_none());
         if let (true, Some(timers)) = (
             idle,
             flow.runtime.with_value(|runtime| runtime.timers.clone()),
         ) {
-            tick(flow, timers, slot);
+            let started = std::time::Instant::now();
+            let ticking = timers.set_interval(FRAME, move || {
+                flow.clock.set(started.elapsed().as_secs_f64());
+            });
+            flow.runtime
+                .update_value(|runtime| runtime.ticking = Some(ticking));
         }
     });
     on_cleanup_local(move || drop(animating));
@@ -354,7 +357,8 @@ where
         ))
     };
     let marquee = move || flow.state.with(|state| state.selection_box);
-    let edge_canvas = edge_layer(flow, style);
+    let still = edge_layer(flow, style, Layer::Still);
+    let live = edge_layer(flow, style, Layer::Live);
     let pattern = style
         .background
         .map(|look| AnyView::new(background(flow, look)));
@@ -380,7 +384,8 @@ where
             on:key_down = keys
         ) {
             {pattern}
-            {edge_canvas}
+            {still}
+            {live}
             box(class = "flow__world", style:transform = world) {
                 {edge_labels(flow)}
                 for key in move || keyed(flow), key = |key: &String| key.clone() {
@@ -419,22 +424,6 @@ fn fit_once<T: Send + Sync + 'static, E: Send + Sync + 'static>(flow: FlowHandle
     *slot.borrow_mut() = Some(handle);
 }
 
-fn tick<T: Send + Sync + 'static, E: Send + Sync + 'static>(
-    flow: FlowHandle<T, E>,
-    timers: Timers,
-    slot: Rc<RefCell<Option<zgui::view::time::FrameHandle>>>,
-) {
-    let again = slot.clone();
-    let clock = timers.clone();
-    let handle = timers.request_frame(move |now| {
-        flow.clock.set(now.since_origin().as_secs_f64());
-        if again.borrow().is_some() {
-            tick(flow, clock, again);
-        }
-    });
-    *slot.borrow_mut() = Some(handle);
-}
-
 fn start_pump<T: Send + Sync + 'static, E: Send + Sync + 'static>(
     flow: FlowHandle<T, E>,
     timers: Option<Timers>,
@@ -445,7 +434,7 @@ fn start_pump<T: Send + Sync + 'static, E: Send + Sync + 'static>(
     held.borrow_mut().pointer = flow.local(x, y);
     let idle = held.borrow().frame.is_none();
     if let (true, Some(timers)) = (idle, timers) {
-        pump(flow, timers, held.clone());
+        pump(flow, &timers, held.clone());
     }
 }
 

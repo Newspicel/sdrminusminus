@@ -1,4 +1,4 @@
-use kurbo::{Affine, BezPath, Point, Stroke};
+use kurbo::{Affine, BezPath, Point};
 use zgui::{
     canvas::{Brush, ShapeBuilder, zgui_color::Color},
     prelude::*,
@@ -25,6 +25,18 @@ fn screen(path: &BezPath, viewport: Viewport) -> BezPath {
         viewport.x,
         viewport.y,
     ]) * path.clone()
+}
+
+fn dashed(path: &BezPath, offset: f64, length: f64) -> BezPath {
+    if length <= 0.0 {
+        return path.clone();
+    }
+    kurbo::dash(
+        path.iter(),
+        offset.rem_euclid(length * 2.0),
+        &[length, length],
+    )
+    .collect()
 }
 
 struct Drawn {
@@ -104,23 +116,36 @@ fn connection_line<T, E>(
     Some(shape.route(ends))
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Layer {
+    Still,
+    Live,
+}
+
 pub(super) fn edge_layer<T: Send + Sync + 'static, E: Send + Sync + 'static>(
     flow: FlowHandle<T, E>,
     style: FlowStyle,
+    layer: Layer,
 ) -> impl IntoView {
+    let viewport = Memo::new(move |_| flow.state.with(|state| state.viewport));
+    let pending = Memo::new(move |_| flow.state.with(|state| state.pending.clone()));
     zgui::elements::canvas()
         .class("flow__edges")
         .draw(move |cx| {
-            let (viewport, pending, shape) = flow.state.with(|state| {
-                (
-                    state.viewport,
-                    state.pending.clone(),
-                    state.options.edge_shape,
-                )
-            });
+            let viewport = viewport.get();
+            let shape = flow.state.with_untracked(|state| state.options.edge_shape);
             let hovered = flow.hovered_edge.get();
-            let dash_speed = flow.state.with_untracked(|state| state.options.dash_speed);
-            let offset = -flow.clock.get() * dash_speed * viewport.zoom;
+            let offset = match layer {
+                Layer::Live => {
+                    let speed = flow.state.with_untracked(|state| state.options.dash_speed);
+                    -flow.clock.get() * speed * viewport.zoom
+                }
+                Layer::Still => 0.0,
+            };
+            let pending = match layer {
+                Layer::Live => pending.get(),
+                Layer::Still => None,
+            };
             flow.nodes.with(|nodes| {
                 flow.edges.with(|edges| {
                     let always = |_: &crate::model::Connection| true;
@@ -130,21 +155,19 @@ pub(super) fn edge_layer<T: Send + Sync + 'static, E: Send + Sync + 'static>(
                         valid: &always,
                     };
                     for drawn in routed(&scene, style, hovered.as_ref(), shape) {
+                        if drawn.dashed != (layer == Layer::Live) {
+                            continue;
+                        }
                         let path = screen(&drawn.path, viewport);
                         let width = (drawn.width * viewport.zoom).max(1.0);
                         let brush = Brush::Solid(colour(drawn.colour));
-                        let shape = if drawn.dashed {
-                            ShapeBuilder::new(path).stroke_styled(
-                                brush,
-                                Stroke::new(width).with_dashes(
-                                    offset,
-                                    [5.0 * viewport.zoom, 5.0 * viewport.zoom],
-                                ),
-                            )
+                        let path = if drawn.dashed {
+                            dashed(&path, offset, 5.0 * viewport.zoom)
                         } else {
-                            ShapeBuilder::new(path).stroke(brush, width)
+                            path
                         };
-                        cx.scene.push(shape.build());
+                        cx.scene
+                            .push(ShapeBuilder::new(path).stroke(brush, width).build());
                     }
                     if let Some(pending) = pending.as_ref()
                         && let Some(line) = connection_line(&scene, pending, shape)
@@ -156,11 +179,8 @@ pub(super) fn edge_layer<T: Send + Sync + 'static, E: Send + Sync + 'static>(
                         };
                         let width = (style.edge_width * viewport.zoom).max(1.0);
                         cx.scene.push(
-                            ShapeBuilder::new(screen(&line.path, viewport))
-                                .stroke_styled(
-                                    Brush::Solid(colour(tint)),
-                                    Stroke::new(width).with_dashes(0.0, [6.0, 4.0]),
-                                )
+                            ShapeBuilder::new(dashed(&screen(&line.path, viewport), 0.0, 5.0))
+                                .stroke(Brush::Solid(colour(tint)), width)
                                 .build(),
                         );
                     }
@@ -234,4 +254,34 @@ fn labelled<T: Send + Sync + 'static, E: Send + Sync + 'static>(
             .map(|edge| edge.id.to_string())
             .collect()
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use kurbo::Shape;
+
+    use super::*;
+
+    #[test]
+    fn a_dashed_line_is_split_into_equal_runs_and_gaps() {
+        let mut line = BezPath::new();
+        line.move_to((0.0, 0.0));
+        line.line_to((100.0, 0.0));
+        let dashes = dashed(&line, 0.0, 10.0);
+        let runs = dashes
+            .elements()
+            .iter()
+            .filter(|element| matches!(element, kurbo::PathEl::MoveTo(_)))
+            .count();
+        assert_eq!(runs, 5);
+        assert!((dashes.bounding_box().width() - 90.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn a_dash_offset_wraps_around_one_period() {
+        let mut line = BezPath::new();
+        line.move_to((0.0, 0.0));
+        line.line_to((100.0, 0.0));
+        assert_eq!(dashed(&line, 20.0, 10.0), dashed(&line, 0.0, 10.0));
+    }
 }
