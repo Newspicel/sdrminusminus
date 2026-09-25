@@ -282,7 +282,6 @@ pub fn apply_edge_changes<E>(edges: &mut Vec<Edge<E>>, changes: &[EdgeChange]) {
     }
 }
 
-#[must_use]
 pub fn connected_edges<'a, E>(
     edges: &'a [Edge<E>],
     nodes: &'a [Id],
