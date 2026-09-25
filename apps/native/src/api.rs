@@ -49,15 +49,27 @@ impl Api {
         Self::body(response, &url).await
     }
 
-    pub async fn post<B: Serialize, T: DeserializeOwned>(&self, path: &str, body: &B) -> anyhow::Result<T> {
+    pub async fn post<B: Serialize, T: DeserializeOwned>(
+        &self,
+        path: &str,
+        body: &B,
+    ) -> anyhow::Result<T> {
         self.send(reqwest::Method::POST, path, Some(body)).await
     }
 
-    pub async fn put<B: Serialize, T: DeserializeOwned>(&self, path: &str, body: &B) -> anyhow::Result<T> {
+    pub async fn put<B: Serialize, T: DeserializeOwned>(
+        &self,
+        path: &str,
+        body: &B,
+    ) -> anyhow::Result<T> {
         self.send(reqwest::Method::PUT, path, Some(body)).await
     }
 
-    pub async fn patch<B: Serialize, T: DeserializeOwned>(&self, path: &str, body: &B) -> anyhow::Result<T> {
+    pub async fn patch<B: Serialize, T: DeserializeOwned>(
+        &self,
+        path: &str,
+        body: &B,
+    ) -> anyhow::Result<T> {
         self.send(reqwest::Method::PATCH, path, Some(body)).await
     }
 
@@ -67,6 +79,22 @@ impl Api {
             .map(|_| ())
     }
 
+    pub async fn multipart<T: DeserializeOwned>(
+        &self,
+        path: &str,
+        form: reqwest::multipart::Form,
+    ) -> anyhow::Result<T> {
+        let url = self.url(path);
+        let response = self
+            .http
+            .post(&url)
+            .multipart(form)
+            .send()
+            .await
+            .context(url.clone())?;
+        Self::body(response, &url).await
+    }
+
     pub async fn bytes(&self, path: &str) -> anyhow::Result<Vec<u8>> {
         let url = self.url(path);
         let response = self.http.get(&url).send().await.context(url.clone())?;
@@ -74,7 +102,11 @@ impl Api {
         if !status.is_success() {
             bail!("{url}: {status}");
         }
-        Ok(response.bytes().await.context("cannot read the response")?.to_vec())
+        Ok(response
+            .bytes()
+            .await
+            .context("cannot read the response")?
+            .to_vec())
     }
 
     #[must_use]
@@ -129,7 +161,8 @@ impl Api {
             name: name.to_owned(),
             snapshot: None,
         };
-        Ok(self.send::<_, CreatedRowId>(reqwest::Method::POST, "/api/workspaces", Some(&body))
+        Ok(self
+            .send::<_, CreatedRowId>(reqwest::Method::POST, "/api/workspaces", Some(&body))
             .await?
             .id)
     }

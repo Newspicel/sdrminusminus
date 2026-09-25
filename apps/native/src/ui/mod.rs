@@ -1,11 +1,12 @@
 pub mod faces;
 pub mod gpu;
+pub mod kit_sources;
 pub mod node;
 pub mod palette;
 pub mod params;
 pub mod patch;
-pub mod rack;
 pub mod plot;
+pub mod rack;
 pub mod widgets;
 
 use zgui::prelude::*;
@@ -17,6 +18,7 @@ use crate::{
 
 pub fn app(store: Store) -> impl IntoView {
     provide_menus();
+    crate::position::Positions::provide(store);
     let canvas = patch::canvas();
     view! {
         column(

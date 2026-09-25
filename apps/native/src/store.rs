@@ -4,10 +4,10 @@ use sdrmm_wire::{
     channel::{ChannelDescriptor, ChannelInfo, ChannelSettings},
     decode::DecodedRecord,
     device::{DeviceInfo, DeviceSettings},
+    frame::FrameKind,
     patch::{PatchCatalog, PatchGraph},
     state::{ChannelLevel, DeviceSet, StateSnapshot},
     workspace::WorkspaceDetail,
-    frame::FrameKind,
     ws::{ClientCommand, ServerEvent, StateScope},
 };
 use tokio::sync::mpsc;
@@ -15,8 +15,8 @@ use zgui::prelude::*;
 
 use crate::{
     api::Api,
-    bus::{Bus, Frame, Source},
     binding,
+    bus::{Bus, Frame, Source},
     socket::{Incoming, Socket, Spectrum},
     starter,
     workspace::Session,
@@ -172,7 +172,10 @@ impl Store {
     fn receive_frame(self, frame: &Frame) {
         let bus = self.bus.get_value();
         if frame.kind == FrameKind::Spectrum
-            && let Some(Source::Spectrum { device_set, stream: 0 }) = bus.source_of(frame.stream_id)
+            && let Some(Source::Spectrum {
+                device_set,
+                stream: 0,
+            }) = bus.source_of(frame.stream_id)
             && let Some(spectrum) = crate::socket::spectrum(&frame.bytes)
         {
             let mut next = (*self.spectra.get_untracked()).clone();
@@ -463,25 +466,20 @@ impl Store {
         });
     }
 
-    pub fn tune_device(self, node: String, hz: f64) {
-        let Some(set) = self.device_set_of(&node) else {
-            return;
-        };
-        self.set_device(
-            set,
-            DeviceSettings {
-                center_hz: Some(hz),
-                ..DeviceSettings::default()
-            },
-        );
-    }
-
-    pub fn set_device(self, set: u32, settings: DeviceSettings) {
-        let Some(editor) = self.editor.get_value() else {
-            self.say("Workspace is still loading");
-            return;
-        };
-        self.receive_settings(editor.device(set, settings));
+    pub fn send_device(
+        self,
+        set: u32,
+        settings: DeviceSettings,
+    ) -> impl Future<Output = anyhow::Result<()>> + 'static {
+        let pending = self
+            .editor
+            .get_value()
+            .map(|editor| editor.device(set, settings));
+        async move {
+            let pending = pending.ok_or_else(|| anyhow::anyhow!("workspace is still loading"))?;
+            self.read_detail(&pending.await?);
+            Ok(())
+        }
     }
 
     fn receive_settings(

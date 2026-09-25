@@ -31,15 +31,6 @@ pub fn frequency(hz: f64) -> String {
 }
 
 #[must_use]
-pub fn rate(samples_per_second: f64) -> String {
-    if samples_per_second >= 1e6 {
-        format!("{:.3} MS/s", samples_per_second / 1e6)
-    } else {
-        format!("{:.1} kS/s", samples_per_second / 1e3)
-    }
-}
-
-#[must_use]
 pub fn span(hz: f64) -> String {
     if hz >= 1e6 {
         format!("{:.3} MHz", hz / 1e6)
@@ -98,8 +89,6 @@ mod tests {
 
     #[test]
     fn readouts_pick_the_unit_the_number_belongs_in() {
-        assert_eq!(rate(2_048_000.0), "2.048 MS/s");
-        assert_eq!(rate(250_000.0), "250.0 kS/s");
         assert_eq!(span(2_400_000.0), "2.400 MHz");
         assert_eq!(span(12_500.0), "12.5 kHz");
         assert_eq!(span(800.0), "800 Hz");
