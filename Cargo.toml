@@ -165,6 +165,7 @@ libloading = "0.9"
 
 # DSP
 num-complex = "0.4"
+kurbo = "0.13.1"
 rustfft = "6"
 tract-onnx = { version = "0.23.8", default-features = false }
 tract-nnef = "0.23.8"

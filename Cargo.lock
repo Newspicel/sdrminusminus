@@ -12268,6 +12268,7 @@ dependencies = [
 name = "zgui-flow"
 version = "0.0.0"
 dependencies = [
+ "kurbo",
  "zgui",
 ]
 
