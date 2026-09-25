@@ -291,43 +291,76 @@ pub fn slide(
     read: impl Fn(f64) -> String + 'static,
     on_change: impl Fn(f64) + Clone + 'static,
 ) -> impl IntoView {
-    let scale = use_window().scale();
     let span = if (max - min).abs() > f64::EPSILON {
         max - min
     } else {
         1.0
     };
     let fraction = move || ((value.get() - min) / span).clamp(0.0, 1.0) as f32 * 100.0;
-
+    let rail = NodeRef::new();
+    let held = RwSignal::new(false);
     let seek = {
         let on_change = on_change.clone();
-        move |ev: &mut EventCx<'_, events::PointerDown>| {
-            ev.capture_pointer();
-            if let Some(at) = track(ev.bounds(), ev.position, scale.get_untracked()) {
+        move |at: Point<CssPx, Css>| {
+            if let Some(at) = track(rail.window_bounds(), at, rail.scale()) {
                 on_change(min + span * f64::from(at));
             }
         }
     };
+    let press = {
+        let seek = seek.clone();
+        move |ev: &mut EventCx<'_, events::PointerDown>| {
+            if ev.button != Some(PointerButton::Primary) {
+                return;
+            }
+            ev.stop_propagation();
+            ev.capture_pointer();
+            held.set(true);
+            seek(ev.position);
+        }
+    };
     let drag = move |ev: &mut EventCx<'_, events::PointerMove>| {
-        if ev.pressure.is_some_and(|pressure| pressure <= 0.0) {
-            return;
+        if held.get_untracked() {
+            seek(ev.position);
         }
-        if ev.button.is_none() && ev.pressure.is_none() {
-            return;
-        }
-        if let Some(at) = track(ev.bounds(), ev.position, scale.get_untracked()) {
-            on_change(min + span * f64::from(at));
+    };
+    let release = move |ev: &mut EventCx<'_, events::PointerUp>| {
+        ev.release_pointer();
+        held.set(false);
+    };
+    let keys = {
+        let on_change = on_change.clone();
+        move |ev: &mut EventCx<'_, events::KeyDown>| {
+            let step = span / 100.0;
+            let now = value.get_untracked();
+            let next = match &ev.key {
+                Key::Named(NamedKey::ArrowLeft | NamedKey::ArrowDown) => now - step,
+                Key::Named(NamedKey::ArrowRight | NamedKey::ArrowUp) => now + step,
+                Key::Named(NamedKey::Home) => min,
+                Key::Named(NamedKey::End) => max,
+                _ => return,
+            };
+            ev.prevent_default();
+            on_change(next.clamp(min.min(max), max.max(min)));
         }
     };
 
     view! {
         row(class = "field__body") {
             box(
+                node_ref = rail,
                 class = "slide",
+                class:held = move || held.get(),
                 tabindex = Focus::Sequential,
                 a11y:role = Role::Slider,
-                on:pointer_down = seek,
-                on:pointer_move = drag
+                on:pointer_down = press,
+                on:pointer_move = drag,
+                on:pointer_up = release,
+                on:pointer_cancel = move |ev: &mut EventCx<'_, events::PointerCancel>| {
+                    ev.release_pointer();
+                    held.set(false);
+                },
+                on:key_down = keys
             ) {
                 box(class = "slide__rail")
                 box(class = "slide__fill", style:width = move || Some(format!("{}%", fraction())))
