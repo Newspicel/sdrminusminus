@@ -1,5 +1,7 @@
 pub mod faces;
 pub mod gpu;
+pub mod kit_maps;
+pub mod map;
 pub mod node;
 pub mod palette;
 pub mod params;
