@@ -159,8 +159,7 @@ SDRMM_RTL_TEST_RATE=3200000 SDRMM_RTL_TEST_SECONDS=60 \
 
 The 8-bit counter cannot see losses of exact multiples of 256 bytes.
 
-## Before a pull request
+## Before a commit
 
 Format, lint, check, and test what you changed. For docs, run `mdbook build docs` and check links.
-The full gates are `cargo xtask check` and `cargo xtask test`. See
-[Contributing](https://github.com/Newspicel/sdrminusminus/blob/main/CONTRIBUTING.md).
+The full gates are `cargo xtask check` and `cargo xtask test`.

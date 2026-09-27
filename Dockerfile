@@ -88,7 +88,7 @@ RUN test -f web/dist/index.html \
 FROM debian:trixie-slim AS runtime
 LABEL org.opencontainers.image.source="https://github.com/newspicel/sdrminusminus" \
       org.opencontainers.image.description="SDR--: headless SDR server with embedded web UI" \
-      org.opencontainers.image.licenses="GPL-3.0-or-later"
+      org.opencontainers.image.licenses="AGPL-3.0-or-later"
 
 # SoapySDR comes from Debian, as it would on the host: the modules named here are the ones no
 # native backend in this build covers. Modules are listed one by one rather than through

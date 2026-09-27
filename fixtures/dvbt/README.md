@@ -12,4 +12,4 @@ continuity counter is its low nibble. TPS reports cell byte `0x5a`.
 
 The generator follows ETSI EN 300 744 V1.6.1 clauses 4.3–4.6, published as
 [DVB BlueBook A012](https://dvb.org/wp-content/uploads/2019/12/a012_dvb-t_june_2015.pdf).
-The generator and recording are original project work under GPL-3.0-or-later.
+The generator and recording are original project work under AGPL-3.0-or-later.

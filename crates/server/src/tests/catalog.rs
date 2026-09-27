@@ -264,7 +264,7 @@ async fn about_serves_the_notices_and_their_texts() {
     assert_eq!(status, StatusCode::OK);
     let about: sdrmm_wire::AboutResponse = serde_json::from_slice(&body).expect("json");
     assert_eq!(about.version, env!("CARGO_PKG_VERSION"));
-    assert_eq!(about.license, "GPL-3.0-or-later");
+    assert_eq!(about.license, "AGPL-3.0-or-later");
 
     let component = about
         .components

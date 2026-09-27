@@ -86,7 +86,7 @@ These captures use debug-build signal sources and repository IQ fixtures. Regene
 |---|---|
 | ![POCSAG messages with webhook output](assets/screenshots/pocsag.png) | ![RDS station name, text, and alternate frequencies](assets/screenshots/rds.png) |
 
-## Build and contribute
+## Build
 
 ```sh
 git clone https://github.com/Newspicel/sdrminusminus.git
@@ -102,8 +102,7 @@ Open <http://localhost:8080>, or run `cargo xtask dev --watch` and open <http://
 for hot reload. `cargo xtask check` and `cargo xtask test` are the main gates.
 
 The [build guide](https://sdrmm.newspicel.dev/development/building.html) lists prerequisites and
-every check. Read [Contributing](CONTRIBUTING.md) and the
-[architecture](https://sdrmm.newspicel.dev/development/architecture.html) before a pull request.
+every check.
 
 ## Documentation and API
 
@@ -115,6 +114,6 @@ every check. Read [Contributing](CONTRIBUTING.md) and the
 
 Copyright (C) 2026 Julian Haag.
 
-Licensed under the [GNU General Public License, version 3 or later](LICENSE).
+Licensed under the [GNU Affero General Public License, version 3 or later](LICENSE).
 [Third-party notices](THIRD_PARTY_NOTICES.md) and license texts are also available in the app's
 About panel.

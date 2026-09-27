@@ -50,7 +50,7 @@ fn formula(digests: &Digests, version: &str, repo: &str) -> Result<String> {
         r##"class Sdrmm < Formula
   desc "Modular, client-server software-defined radio"
   homepage "https://github.com/{repo}"
-  license "GPL-3.0-or-later"
+  license "AGPL-3.0-or-later"
 
   livecheck do
     url :stable

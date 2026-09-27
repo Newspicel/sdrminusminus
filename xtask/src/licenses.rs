@@ -80,27 +80,27 @@ const NATIVE: &[Native] = &[
         license: "GPL-3.0-or-later",
         url: "https://github.com/gnuradio/gnuradio/tree/main/gr-dtv/lib/dvbt",
         note: Some(
-            "The Rust DVB-T implementation was written from ETSI EN 300 744, with constellation and convolutional-code conventions checked against GNU Radio, Copyright 2015,2016 Free Software Foundation, Inc., GPL-3.0-or-later. DAB packet-mode fields were checked against Qt-DAB, Copyright 2015-2024 Jan van Katwijk, GPL-2.0-or-later, https://github.com/JvanKatwijk/qt-dab. DVB-S2X constellation, interleaver and LDPC tables are adapted from GNU Radio gr-dtv, Copyright 2015-2019 Free Software Foundation, Inc., GPL-3.0-or-later. These reference works are compatible with this project's GPL-3.0-or-later license.",
+            "The Rust DVB-T implementation was written from ETSI EN 300 744, with constellation and convolutional-code conventions checked against GNU Radio, Copyright 2015,2016 Free Software Foundation, Inc., GPL-3.0-or-later. DAB packet-mode fields were checked against Qt-DAB, Copyright 2015-2024 Jan van Katwijk, GPL-2.0-or-later, https://github.com/JvanKatwijk/qt-dab. DVB-S2X constellation, interleaver and LDPC tables are adapted from GNU Radio gr-dtv, Copyright 2015-2019 Free Software Foundation, Inc., GPL-3.0-or-later. These reference works are compatible with this project's AGPL-3.0-or-later license through GPL-3.0 section 13.",
         ),
-        files: &[],
+        files: &["GPL-3.0.txt"],
     },
     Native {
         name: "FFmpeg 9.0.1",
         license: "GPL-3.0-or-later",
         url: "https://ffmpeg.org/",
         note: Some(
-            "Broadcast AAC, AC-3, MPEG-2, H.264 and HEVC playback uses FFmpeg. Release libraries are built from the unmodified official 9.0.1 source with GPL and version3 enabled by scripts/build-media.py. The script records the source URL, checksum and complete build configuration. FFmpeg is Copyright (c) the FFmpeg developers. Its GPL-3.0 license is reproduced in this distribution's LICENSE.",
+            "Broadcast AAC, AC-3, MPEG-2, H.264 and HEVC playback uses FFmpeg. Release libraries are built from the unmodified official 9.0.1 source with GPL and version3 enabled by scripts/build-media.py. The script records the source URL, checksum and complete build configuration. FFmpeg is Copyright (c) the FFmpeg developers. Its GPL-3.0 license text is below.",
         ),
-        files: &[],
+        files: &["GPL-3.0.txt"],
     },
     Native {
         name: "DABlin PAD and MOT reference",
         license: "GPL-3.0-or-later",
         url: "https://github.com/Opendigitalradio/dablin",
         note: Some(
-            "The Rust PAD and MOT decoders in crates/channels/src/dab/pad were written using DABlin's protocol implementation as a reference. DABlin is Copyright (C) 2015-2022 Stefan Pöschel and distributed under GPL-3.0-or-later, the same license as SDR--.",
+            "The Rust PAD and MOT decoders in crates/channels/src/dab/pad were written using DABlin's protocol implementation as a reference. DABlin is Copyright (C) 2015-2022 Stefan Pöschel and distributed under GPL-3.0-or-later, which GPL-3.0 section 13 lets SDR-- combine with its AGPL-3.0-or-later.",
         ),
-        files: &[],
+        files: &["GPL-3.0.txt"],
     },
     Native {
         name: "SoapySDR",
@@ -124,11 +124,10 @@ const NATIVE: &[Native] = &[
              encodings, the PLL and filter programming and the tuner gain table in \
              `crates/device-rtlsdr/src/driver` were written from librtlsdr, which is the only \
              specification these parts have. That makes them a derived work under \
-             GPL-2.0-or-later. SDR-- exercises the \"or later\" option and distributes them \
-             under its own GPL-3.0-or-later, whose full text ships as LICENSE and is reproduced \
-             at the top of this file, so no separate GPL-2.0 text accompanies them.",
+             GPL-2.0-or-later. SDR-- exercises the \"or later\" option to take them under GPL-3.0, whose text is \
+             below, and combines them with its own AGPL-3.0-or-later under GPL-3.0 section 13.",
         ),
-        files: &[],
+        files: &["GPL-3.0.txt"],
     },
     Native {
         name: "libairspy",
@@ -164,11 +163,11 @@ const NATIVE: &[Native] = &[
             "As with librtlsdr: SDR-- speaks the HackRF's USB protocol itself and links nothing, \
              but the vendor request numbers, the register maps and the sweep framing in \
              `crates/device-hackrf/src/driver` follow libhackrf and are a derived work on the \
-             same terms, distributed under SDR--'s own GPL-3.0-or-later exactly as librtlsdr \
-             above. The public API declarations in `hackrf.h` are BSD-3-Clause, whose text is \
-             below because that licence asks to accompany the binary.",
+             same terms, taken under GPL-3.0 exactly as librtlsdr above. The public API \
+             declarations in `hackrf.h` are BSD-3-Clause, whose text is below because that \
+             licence asks to accompany the binary.",
         ),
-        files: &["HackRF-BSD-3-Clause.txt"],
+        files: &["GPL-3.0.txt", "HackRF-BSD-3-Clause.txt"],
     },
     Native {
         name: "librtlsdr (KrakenRF fork)",
@@ -180,7 +179,7 @@ const NATIVE: &[Native] = &[
              librtlsdr. The write in `crates/device-rtlsdr/src/driver/tuner.rs` follows it and \
              is a derived work on the same terms as librtlsdr above.",
         ),
-        files: &[],
+        files: &["GPL-3.0.txt"],
     },
     Native {
         name: "heimdall_daq_fw",
@@ -191,8 +190,7 @@ const NATIVE: &[Native] = &[
              receive chain carries, the control chain's GPIO pin for the calibration noise \
              source, and the pins for the lanes' bias tees, is published only as KrakenRF's own \
              acquisition firmware. `crates/device-rtlsdr/src/kraken` was written from it. No \
-             code was taken and nothing is linked or shipped; SDR-- distributes under \
-             GPL-3.0-or-later regardless.",
+             code was taken and nothing is linked or shipped.",
         ),
         files: &[],
     },
@@ -210,10 +208,10 @@ const NATIVE: &[Native] = &[
              BCH and VL-SNR block lengths were cross-checked against gr-dvbs2rx. The VL-SNR \
              header sequence in `dvbs2/vlsnr.rs` is the standard's own, and reproduces gr-dtv's \
              sixteen patterns exactly, which is how both readings are known to agree. All three \
-             sources are GPL-3.0-or-later, the same terms SDR-- distributes under, so no \
-             separate text accompanies them.",
+             sources are GPL-3.0-or-later, combined with SDR--'s AGPL-3.0-or-later under \
+             GPL-3.0 section 13.",
         ),
-        files: &[],
+        files: &["GPL-3.0.txt"],
     },
     Native {
         name: "qdmr (libdmrconf)",
@@ -223,13 +221,13 @@ const NATIVE: &[Native] = &[
             "A codeplug is a vendor binary with no published specification, so the memory maps \
              and serial protocols in `crates/cps` were written from qdmr, which is where those \
              formats are documented. That makes them a derived work. qdmr is GPL-3.0-or-later, \
-             the same terms SDR-- distributes under, so no separate text accompanies them. The \
+             combined with SDR--'s AGPL-3.0-or-later under GPL-3.0 section 13. The \
              AnyTone AT-D890UV channel element is the exception: qdmr's second-generation map \
              decodes firmware V100's digital channels as analogue, and the field layout in \
              `crates/cps/src/anytone/channel.rs` was re-derived from a radio and checked against \
              `fixtures/cps/anytone-d890uv-v100.img`.",
         ),
-        files: &[],
+        files: &["GPL-3.0.txt"],
     },
     Native {
         name: "xng",
@@ -303,7 +301,7 @@ fn harvest(root: &Path, pnpm: &str) -> Result<NoticesDocument> {
 
     let license_text = std::fs::read_to_string(root.join("LICENSE")).context("read LICENSE")?;
     Ok(NoticesDocument {
-        license: "GPL-3.0-or-later".to_string(),
+        license: "AGPL-3.0-or-later".to_string(),
         license_text: normalize(&license_text),
         repository: "https://github.com/newspicel/sdrminusminus".to_string(),
         components,
@@ -562,7 +560,7 @@ fn markdown(document: &NoticesDocument) -> String {
         "# Third-party notices\n\n\
          <!-- Generated by `cargo xtask licenses`. Do not edit by hand: `cargo xtask check` \
          regenerates this file and fails on any difference. -->\n\n\
-         SDR-- itself is licensed under the GNU General Public License, version 3 or later: \
+         SDR-- itself is licensed under the GNU Affero General Public License, version 3 or later: \
          see [`LICENSE`](LICENSE).\n\n\
          This file lists every third-party component a release distributes: crates compiled into \
          the binaries and npm packages bundled into the web UI. Dev-only tooling is excluded, \

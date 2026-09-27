@@ -33,9 +33,6 @@ the P channel, R/T bursts from aircraft, or a C voice circuit; pick one on the n
 Iridium decodes one 50 kHz channel, or bursts across 1 to 10 MHz when you set its span to the
 radio's sample rate; it reads the middle 80%.
 
-Have a short on-air recording of a fixture-only mode, with the decoded output? It is the most
-useful contribution there is. See [Build and test](../development/building.md).
-
 ### Experimental limits
 
 | Mode | Works | Missing |

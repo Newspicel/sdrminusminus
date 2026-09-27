@@ -10,7 +10,7 @@ compressed audio fixtures, not antenna recordings. They exercise the shared DAB/
 The mono fixture is also carried through the DAB and DVB test multiplex generators.
 DAB test carriage checks the MSC-to-audio path; the elementary fixture lacks DAB-specific
 ancillary data and is not a complete DAB audio encoder conformance vector.
-The samples and fixtures are original project work under GPL-3.0-or-later.
+The samples and fixtures are original project work under AGPL-3.0-or-later.
 
 Reproduce with:
 

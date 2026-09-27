@@ -15,7 +15,7 @@ The FEC-block index is 3. Decoded bit `i` equals `(173*i + i//7) % 31 < 15`.
 
 The independent Python encoder follows [ETSI EN 302 755 V1.4.1](https://www.etsi.org/deliver/etsi_en/302700_302799/302755/01.04.01_60/en_302755v010401p.pdf),
 clauses 5.2.4 and 6, annexes A, B and I. It reads LDPC tables from the standard,
-without importing Rust code. The generator and fixtures are GPL-3.0-or-later.
+without importing Rust code. The generator and fixtures are AGPL-3.0-or-later.
 
 Regenerate using the standard's `pdftotext -layout` output:
 

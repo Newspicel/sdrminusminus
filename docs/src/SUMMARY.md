@@ -39,7 +39,7 @@
 - [Deployment](server/deployment.md)
 - [API](server/api.md)
 
-# Contribute
+# Development
 
 - [Build and test](development/building.md)
 - [Architecture](development/architecture.md)

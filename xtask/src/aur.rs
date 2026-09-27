@@ -157,7 +157,7 @@ fn pkgbuild(package: &Package, version: &str) -> String {
     let arches: Vec<&str> = package.sources.iter().map(|source| source.arch).collect();
     format!(
         "pkgname={name}\npkgver={pkgver}\npkgrel=1\npkgdesc='{desc}'\narch=({arches})\n\
-         url='{url}'\nlicense=('GPL-3.0-or-later')\ndepends=({depends})\noptdepends=('{SOAPY}')\n\
+         url='{url}'\nlicense=('AGPL-3.0-or-later')\ndepends=({depends})\noptdepends=('{SOAPY}')\n\
          provides=('{provides}')\nconflicts=('{provides}')\noptions=('!strip' '!debug')\n\
          {arch_lines}\npackage() {{\n{install}\n}}\n",
         name = package.name,
@@ -185,7 +185,7 @@ fn srcinfo(package: &Package, version: &str) -> String {
             .iter()
             .map(|source| format!("\tarch = {}", source.arch)),
     );
-    lines.push("\tlicense = GPL-3.0-or-later".to_string());
+    lines.push("\tlicense = AGPL-3.0-or-later".to_string());
     lines.extend(
         package
             .depends

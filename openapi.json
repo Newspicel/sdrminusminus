@@ -7,8 +7,8 @@
       "name": "Julian Haag"
     },
     "license": {
-      "name": "GPL-3.0-or-later",
-      "identifier": "GPL-3.0-or-later"
+      "name": "AGPL-3.0-or-later",
+      "identifier": "AGPL-3.0-or-later"
     },
     "version": "0.0.0"
   },
