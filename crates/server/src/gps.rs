@@ -1,8 +1,8 @@
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     sync::{
         Arc, Mutex,
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
         mpsc::{SyncSender, TrySendError},
     },
     time::Duration,
@@ -10,9 +10,8 @@ use std::{
 
 use sdrmm_wire::{
     NmeaDeviceInfo, NmeaDevicesResponse, NodeBody, PatchGraph, PositionFix, PositionSource,
-    ServerEvent,
+    ServerEvent, phone::POSE_MIN_INTERVAL_MS,
 };
-use serde::Deserialize;
 use tokio::{
     io::{AsyncBufRead, AsyncBufReadExt, AsyncWriteExt, BufReader},
     sync::broadcast,
@@ -21,6 +20,13 @@ use tokio::{
 use tokio_serial::{SerialPortBuilderExt, SerialPortInfo, SerialPortType};
 
 use crate::{AppState, Store, workspace};
+
+mod gpsd;
+mod nmea;
+mod pose;
+
+use gpsd::{GpsdOutcome, GpsdState};
+use nmea::NmeaState;
 
 const EVENT_CAPACITY: usize = 128;
 const RETRY_DELAY: Duration = Duration::from_secs(3);
@@ -31,7 +37,7 @@ const READ_TIMEOUT: Duration = Duration::from_secs(30);
 const GPSD_MAX_LINE: usize = 16 * 1024;
 const NMEA_MAX_LINE: usize = 512;
 const MAX_ERROR_LEN: usize = 256;
-const PHONE_SOURCES_PENDING: &str = "phone sources are not built yet";
+const WAITING: &str = "waiting for a position fix";
 
 #[derive(Clone, Debug, PartialEq)]
 struct PositionState {
@@ -73,6 +79,10 @@ pub(crate) struct GpsHub {
     route_worker: Option<std::thread::JoinHandle<()>>,
     clear_before_route: Arc<AtomicBool>,
     events: broadcast::Sender<ServerEvent>,
+    pose_at: Mutex<HashMap<String, tokio::time::Instant>>,
+    pose_seen: Mutex<HashMap<String, tokio::time::Instant>>,
+    online: Mutex<HashSet<String>>,
+    pose_interval_ms: AtomicU64,
 }
 
 impl Default for GpsHub {
@@ -112,6 +122,10 @@ impl Default for GpsHub {
             route_worker,
             clear_before_route,
             events: broadcast::channel(EVENT_CAPACITY).0,
+            pose_at: Mutex::new(HashMap::new()),
+            pose_seen: Mutex::new(HashMap::new()),
+            online: Mutex::new(HashSet::new()),
+            pose_interval_ms: AtomicU64::new(POSE_MIN_INTERVAL_MS),
         }
     }
 }
@@ -137,8 +151,6 @@ impl GpsHub {
             .map(|(node, state)| position_event(node, state))
             .collect()
     }
-
-    pub(crate) fn spawn_watchdog(self: &Arc<Self>, _state: &AppState) {}
 
     pub(crate) fn reconcile(self: &Arc<Self>, state: &AppState) {
         let active = match state.store.active_workspace() {
@@ -215,12 +227,7 @@ impl GpsHub {
             }
         }
         for node in &changed_sources {
-            self.publish_state(
-                state,
-                node,
-                None,
-                Some("waiting for a position fix".to_owned()),
-            );
+            self.publish_state(state, node, None, Some(WAITING.to_owned()));
         }
 
         let mut tasks = self
@@ -247,6 +254,12 @@ impl GpsHub {
             }
             if let Some(old) = tasks.remove(node) {
                 old.handle.abort();
+            }
+            if matches!(
+                source,
+                PositionSource::Fixed { .. } | PositionSource::Phone { .. }
+            ) {
+                continue;
             }
             let Ok(runtime) = tokio::runtime::Handle::try_current() else {
                 self.publish_state(
@@ -307,9 +320,7 @@ impl GpsHub {
                 } => {
                     self.publish_state(state, node, Some(fixed_fix(*lat, *lon, *altitude_m)), None);
                 }
-                PositionSource::Phone { .. } => {
-                    self.publish_state(state, node, None, Some(PHONE_SOURCES_PENDING.to_owned()));
-                }
+                PositionSource::Phone { phone } => self.publish_phone_standing(state, node, phone),
                 PositionSource::Gpsd { .. } | PositionSource::Nmea { .. } => {}
             }
         }
@@ -318,6 +329,16 @@ impl GpsHub {
     fn publish_state(
         &self,
         state: &AppState,
+        node: &str,
+        fix: Option<PositionFix>,
+        error: Option<String>,
+    ) {
+        self.publish_routed(RouteState::from(state), node, fix, error);
+    }
+
+    fn publish_routed(
+        &self,
+        route: RouteState,
         node: &str,
         fix: Option<PositionFix>,
         error: Option<String>,
@@ -336,7 +357,7 @@ impl GpsHub {
             }
         };
         if changed {
-            self.queue_route(state);
+            self.send_route(route);
             let _ = self.events.send(position_event(node, &next));
         }
     }
@@ -547,60 +568,25 @@ async fn gpsd_session(
         .await
         .map_err(|error| format!("gpsd watch: {error}"))?;
     let mut reader = BufReader::new(read);
+    let mut parser = GpsdState::default();
     while let Some(line) =
         tokio::time::timeout(READ_TIMEOUT, read_bounded_line(&mut reader, GPSD_MAX_LINE))
             .await
             .map_err(|_| "gpsd read timed out".to_owned())?
             .map_err(|error| format!("gpsd read: {error}"))?
     {
-        let Ok(tpv) = serde_json::from_str::<GpsdTpv>(&line) else {
-            continue;
-        };
-        if tpv.class != "TPV" {
-            continue;
-        }
-        if tpv.mode.unwrap_or_default() < 2 {
-            hub.publish_state(
+        match parser.line(&line, std::time::Instant::now()) {
+            GpsdOutcome::Fix(fix) => hub.publish_state(state, node, Some(fix), None),
+            GpsdOutcome::NoFix => hub.publish_state(
                 state,
                 node,
                 None,
                 Some("gpsd has no position fix".to_owned()),
-            );
-            continue;
+            ),
+            GpsdOutcome::Nothing => {}
         }
-        let (Some(latitude), Some(longitude)) = (tpv.lat, tpv.lon) else {
-            continue;
-        };
-        let fix = PositionFix {
-            latitude,
-            longitude,
-            altitude_m: tpv.alt,
-            accuracy_m: tpv.epx.into_iter().chain(tpv.epy).reduce(f64::max),
-            speed_mps: tpv.speed,
-            track_deg: tpv.track,
-            time: tpv.time.unwrap_or_else(now),
-            attitude: sdrmm_wire::Attitude::default(),
-        };
-        if fix.validate().is_err() {
-            continue;
-        }
-        hub.publish_state(state, node, Some(fix), None);
     }
     Err("gpsd connection closed".to_owned())
-}
-
-#[derive(Deserialize)]
-struct GpsdTpv {
-    class: String,
-    mode: Option<u8>,
-    lat: Option<f64>,
-    lon: Option<f64>,
-    alt: Option<f64>,
-    epx: Option<f64>,
-    epy: Option<f64>,
-    speed: Option<f64>,
-    track: Option<f64>,
-    time: Option<String>,
 }
 
 async fn run_nmea(
@@ -642,7 +628,7 @@ async fn nmea_session(
             .map_err(|_| "NMEA read timed out".to_owned())?
             .map_err(|error| format!("NMEA read: {error}"))?
     {
-        if let Some(fix) = parser.parse(&line)
+        if let Some(fix) = parser.parse(&line, std::time::Instant::now())
             && published_at.is_none_or(|last| last.elapsed() >= update_interval)
         {
             hub.publish_state(state, node, Some(fix), None);
@@ -807,82 +793,6 @@ fn nmea_device_info(info: SerialPortInfo) -> NmeaDeviceInfo {
     device
 }
 
-#[derive(Default)]
-struct NmeaState {
-    latitude: Option<f64>,
-    longitude: Option<f64>,
-    altitude_m: Option<f64>,
-    speed_mps: Option<f64>,
-    track_deg: Option<f64>,
-}
-
-impl NmeaState {
-    fn parse(&mut self, sentence: &str) -> Option<PositionFix> {
-        let body = checked_nmea(sentence)?;
-        let fields: Vec<&str> = body.split(',').collect();
-        let kind = fields.first()?.get(2..)?;
-        match kind {
-            "GGA" => {
-                if fields.get(6)?.parse::<u8>().ok()? == 0 {
-                    return None;
-                }
-                self.latitude = nmea_coordinate(fields.get(2)?, fields.get(3)?, false);
-                self.longitude = nmea_coordinate(fields.get(4)?, fields.get(5)?, true);
-                self.altitude_m = fields.get(9).and_then(|value| value.parse().ok());
-            }
-            "RMC" => {
-                if *fields.get(2)? != "A" {
-                    return None;
-                }
-                self.latitude = nmea_coordinate(fields.get(3)?, fields.get(4)?, false);
-                self.longitude = nmea_coordinate(fields.get(5)?, fields.get(6)?, true);
-                self.speed_mps = fields
-                    .get(7)
-                    .and_then(|value| value.parse::<f64>().ok())
-                    .map(|knots| knots * 0.514_444);
-                self.track_deg = fields.get(8).and_then(|value| value.parse().ok());
-            }
-            _ => return None,
-        }
-        let fix = PositionFix {
-            latitude: self.latitude?,
-            longitude: self.longitude?,
-            altitude_m: self.altitude_m,
-            accuracy_m: None,
-            speed_mps: self.speed_mps,
-            track_deg: self.track_deg,
-            time: now(),
-            attitude: sdrmm_wire::Attitude::default(),
-        };
-        fix.validate().ok()?;
-        Some(fix)
-    }
-}
-
-fn checked_nmea(sentence: &str) -> Option<&str> {
-    let sentence = sentence.trim();
-    let body = sentence.strip_prefix('$')?;
-    let (payload, checksum) = body.rsplit_once('*')?;
-    let expected = u8::from_str_radix(checksum.get(..2)?, 16).ok()?;
-    let actual = payload.bytes().fold(0, |sum, byte| sum ^ byte);
-    (actual == expected).then_some(payload)
-}
-
-fn nmea_coordinate(value: &str, hemisphere: &str, longitude: bool) -> Option<f64> {
-    let degree_digits = if longitude { 3 } else { 2 };
-    let degrees: f64 = value.get(..degree_digits)?.parse().ok()?;
-    let minutes: f64 = value.get(degree_digits..)?.parse().ok()?;
-    if !(0.0..60.0).contains(&minutes) {
-        return None;
-    }
-    let sign = match hemisphere {
-        "N" | "E" => 1.0,
-        "S" | "W" => -1.0,
-        _ => return None,
-    };
-    Some(sign * (degrees + minutes / 60.0))
-}
-
 fn now() -> String {
     jiff::Timestamp::now().to_string()
 }
@@ -892,244 +802,4 @@ fn limit_error(error: impl Into<String>) -> String {
 }
 
 #[cfg(test)]
-mod tests {
-    use sdrmm_engine::Engine;
-    use sdrmm_wire::{GpsNode, PatchNode, Position, WorkspaceSnapshot};
-    use tokio_serial::UsbPortInfo;
-
-    use super::*;
-
-    #[test]
-    fn parses_checked_gga_and_rmc_sentences() {
-        let mut state = NmeaState::default();
-        let gga = state
-            .parse("$GPGGA,123519,4807.038,N,01131.000,E,1,08,0.9,545.4,M,46.9,M,,*47")
-            .expect("GGA fix");
-        assert!((gga.latitude - 48.1173).abs() < 0.000_001);
-        assert!((gga.longitude - 11.516_666_7).abs() < 0.000_001);
-        assert_eq!(gga.altitude_m, Some(545.4));
-
-        let rmc = state
-            .parse("$GPRMC,123519,A,4807.038,N,01131.000,E,022.4,084.4,230394,003.1,W*6A")
-            .expect("RMC fix");
-        assert!((rmc.speed_mps.expect("speed") - 11.523_545_6).abs() < 0.000_001);
-        assert_eq!(rmc.track_deg, Some(84.4));
-        assert_eq!(rmc.altitude_m, Some(545.4));
-    }
-
-    #[test]
-    fn rejects_a_bad_checksum_and_invalid_coordinates() {
-        let mut state = NmeaState::default();
-        assert!(
-            state
-                .parse("$GPGGA,123519,4807.038,N,01131.000,E,1,08,0.9,545.4,M,46.9,M,,*00")
-                .is_none()
-        );
-        assert!(nmea_coordinate("1260.0", "N", false).is_none());
-        assert!(
-            state
-                .parse("$GPGGA,123519,9100.000,N,01131.000,E,1,08,0.9,545.4,M,46.9,M,,*4F")
-                .is_none()
-        );
-    }
-
-    #[tokio::test]
-    async fn bounded_lines_reject_oversized_input_before_allocating_it() {
-        let mut normal = BufReader::new(&b"$GPGGA,test*00\r\n"[..]);
-        assert_eq!(
-            read_bounded_line(&mut normal, 64).await.unwrap().as_deref(),
-            Some("$GPGGA,test*00")
-        );
-
-        let mut oversized = BufReader::new(&b"123456789\n"[..]);
-        let error = read_bounded_line(&mut oversized, 8).await.unwrap_err();
-        assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
-    }
-
-    #[test]
-    fn serial_discovery_preserves_usb_identity() {
-        let device = nmea_device_info(SerialPortInfo {
-            port_name: "/dev/ttyACM0".to_owned(),
-            port_type: SerialPortType::UsbPort(UsbPortInfo {
-                vid: 0x1546,
-                pid: 0x01a7,
-                serial_number: Some("GPS-1".to_owned()),
-                manufacturer: Some("u-blox".to_owned()),
-                product: Some("GNSS receiver".to_owned()),
-            }),
-        });
-        assert_eq!(device.path, "/dev/ttyACM0");
-        assert_eq!(device.product.as_deref(), Some("GNSS receiver"));
-        assert_eq!(device.serial.as_deref(), Some("GPS-1"));
-        assert_eq!(
-            (device.usb_vid, device.usb_pid),
-            (Some(0x1546), Some(0x01a7))
-        );
-    }
-
-    #[test]
-    fn only_openable_ports_are_offered_and_receivers_rank_first() {
-        for pseudo in [
-            "/dev/cu.Bluetooth-Incoming-Port",
-            "/dev/cu.debug-console",
-            "/dev/tty.usbmodem11401",
-        ] {
-            assert!(
-                !is_openable_port(&SerialPortInfo {
-                    port_name: pseudo.to_owned(),
-                    port_type: SerialPortType::Unknown,
-                }),
-                "offered {pseudo}"
-            );
-        }
-        assert!(is_openable_port(&SerialPortInfo {
-            port_name: "/dev/cu.usbmodem11401".to_owned(),
-            port_type: SerialPortType::Unknown,
-        }));
-        assert!(is_openable_port(&SerialPortInfo {
-            port_name: "/dev/ttyUSB0".to_owned(),
-            port_type: SerialPortType::Unknown,
-        }));
-
-        let port = |product: Option<&str>, vid: Option<u16>| NmeaDeviceInfo {
-            path: "/dev/ttyUSB0".to_owned(),
-            product: product.map(ToOwned::to_owned),
-            manufacturer: None,
-            serial: None,
-            usb_vid: vid,
-            usb_pid: None,
-        };
-        assert_eq!(receiver_rank(&port(Some("u-blox GNSS receiver"), None)), 0);
-        assert_eq!(receiver_rank(&port(None, Some(0x1546))), 0);
-        assert_eq!(
-            receiver_rank(&port(Some("STM32 Virtual ComPort"), Some(1))),
-            1
-        );
-        assert_eq!(
-            receiver_rank(&port(Some("FT232R USB UART"), Some(0x0403))),
-            1
-        );
-        assert_eq!(receiver_rank(&port(None, None)), 2);
-    }
-
-    #[test]
-    fn the_picker_is_offered_receivers_alone_unless_there_are_none() {
-        let named = |path: &str, product: Option<&str>| NmeaDeviceInfo {
-            path: path.to_owned(),
-            product: product.map(ToOwned::to_owned),
-            manufacturer: None,
-            serial: None,
-            usb_vid: Some(0x1234),
-            usb_pid: None,
-        };
-        let board = named("/dev/cu.usbmodem9A4", Some("STM32 Virtual ComPort"));
-        let bare = named("/dev/cu.usbmodem7B2", None);
-        let puck = named("/dev/cu.usbmodem11401", Some("u-blox GNSS receiver"));
-
-        assert_eq!(
-            offered_ports(vec![board.clone(), bare.clone(), puck.clone()])
-                .iter()
-                .map(|port| port.path.as_str())
-                .collect::<Vec<_>>(),
-            ["/dev/cu.usbmodem11401"]
-        );
-
-        assert_eq!(offered_ports(vec![board, bare]).len(), 2);
-        assert!(offered_ports(Vec::new()).is_empty());
-    }
-
-    #[test]
-    fn a_screen_that_answers_on_a_serial_port_is_never_offered_as_a_receiver() {
-        let monitor = NmeaDeviceInfo {
-            path: "/dev/cu.usbmodem306NTQD8F3802".to_owned(),
-            product: Some("LG Monitor Controls".to_owned()),
-            manufacturer: Some("LG Electronics Inc.".to_owned()),
-            serial: Some("306NTQD8F380".to_owned()),
-            usb_vid: Some(0x043e),
-            usb_pid: Some(0x9a39),
-        };
-        let keyboard = NmeaDeviceInfo {
-            path: "/dev/cu.usbmodem4001".to_owned(),
-            product: Some("USB Keyboard".to_owned()),
-            manufacturer: None,
-            serial: None,
-            usb_vid: Some(0x1234),
-            usb_pid: None,
-        };
-        assert!(offered_ports(vec![monitor, keyboard]).is_empty());
-
-        let mapping = NmeaDeviceInfo {
-            path: "/dev/cu.usbmodem11401".to_owned(),
-            product: Some("Garmin GPSMAP Display".to_owned()),
-            manufacturer: None,
-            serial: None,
-            usb_vid: Some(0x1234),
-            usb_pid: None,
-        };
-        assert_eq!(offered_ports(vec![mapping]).len(), 1);
-    }
-
-    #[test]
-    fn a_position_typed_in_stands_in_for_a_receiver_that_never_moves() {
-        let store = crate::Store::open(None).expect("store");
-        let mut snapshot = WorkspaceSnapshot::empty();
-        snapshot.graph.nodes.push(PatchNode {
-            id: "roof".to_owned(),
-            body: NodeBody::Gps(GpsNode {
-                source: Some(PositionSource::Fixed {
-                    lat: 51.5,
-                    lon: 7.0,
-                    altitude_m: Some(120.0),
-                }),
-            }),
-            position: Position { x: 0.0, y: 0.0 },
-            size: None,
-            label: None,
-        });
-        let workspace_id = store
-            .create_workspace("roof", &snapshot)
-            .expect("workspace");
-        store.activate_workspace(workspace_id).expect("activate");
-        let app = crate::AppState::new(Engine::new(None), Arc::new(store));
-        app.gps.reconcile(&app);
-        let fix = app.gps.fix("roof").expect("a typed-in place is a fix");
-        assert!((fix.latitude - 51.5).abs() < 1e-9);
-        assert!((fix.longitude - 7.0).abs() < 1e-9);
-        assert_eq!(fix.altitude_m, Some(120.0));
-        assert!(
-            fix.track_deg.is_none(),
-            "a receiver that never moves has no course"
-        );
-    }
-
-    #[test]
-    fn a_phone_source_says_it_is_not_built_yet() {
-        let store = crate::Store::open(None).expect("store");
-        let mut snapshot = WorkspaceSnapshot::empty();
-        snapshot.graph.nodes.push(PatchNode {
-            id: "car".to_owned(),
-            body: NodeBody::Gps(GpsNode {
-                source: Some(PositionSource::Phone {
-                    phone: "p0123456789abcdef".to_owned(),
-                }),
-            }),
-            position: Position { x: 0.0, y: 0.0 },
-            size: None,
-            label: None,
-        });
-        let workspace_id = store.create_workspace("car", &snapshot).expect("workspace");
-        store.activate_workspace(workspace_id).expect("activate");
-        let app = crate::AppState::new(Engine::new(None), Arc::new(store));
-        app.gps.reconcile(&app);
-        assert!(app.gps.fix("car").is_none());
-        let shown = app.gps.snapshot();
-        assert_eq!(
-            shown,
-            [ServerEvent::PositionChanged {
-                node: "car".to_owned(),
-                fix: None,
-                error: Some(PHONE_SOURCES_PENDING.to_owned()),
-            }]
-        );
-    }
-}
+mod tests;

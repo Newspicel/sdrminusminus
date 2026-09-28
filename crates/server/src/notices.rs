@@ -39,27 +39,6 @@ pub fn about(server_id: &str, server_name: &str) -> AboutResponse {
 }
 
 #[must_use]
-pub fn lan_addresses() -> Vec<String> {
-    let mut found: Vec<String> = local_ip_address::list_afinet_netifas()
-        .map(|interfaces| {
-            interfaces
-                .into_iter()
-                .map(|(_, address)| address)
-                .filter(|address| !address.is_loopback() && !address.is_unspecified())
-                .filter(|address| match address {
-                    std::net::IpAddr::V4(v4) => !v4.is_link_local(),
-                    std::net::IpAddr::V6(_) => false,
-                })
-                .map(|address| address.to_string())
-                .collect()
-        })
-        .unwrap_or_default();
-    found.sort_unstable();
-    found.dedup();
-    found
-}
-
-#[must_use]
 pub fn license_text(id: &str) -> Option<LicenseTextResponse> {
     NOTICES.texts.get(id).map(|text| LicenseTextResponse {
         id: id.to_string(),

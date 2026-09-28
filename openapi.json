@@ -3177,6 +3177,16 @@
                 }
               }
             }
+          },
+          "403": {
+            "description": "Not allowed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
           }
         }
       }
@@ -3262,6 +3272,16 @@
               }
             }
           },
+          "403": {
+            "description": "Not allowed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
           "409": {
             "description": "Turn on Allow phones",
             "content": {
@@ -3289,6 +3309,16 @@
         "responses": {
           "204": {
             "description": "The offer is gone"
+          },
+          "403": {
+            "description": "Not allowed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
           },
           "404": {
             "description": "No live offer",
@@ -3413,6 +3443,16 @@
                 }
               }
             }
+          },
+          "403": {
+            "description": "Not a phone",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
           }
         }
       },
@@ -3424,6 +3464,16 @@
           },
           "401": {
             "description": "Phone not paired",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not a phone",
             "content": {
               "application/json": {
                 "schema": {
@@ -3452,6 +3502,16 @@
         "responses": {
           "204": {
             "description": "The phone is revoked and its sockets close"
+          },
+          "403": {
+            "description": "Not allowed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
           },
           "404": {
             "description": "No phone with that id",
@@ -3501,6 +3561,16 @@
           },
           "400": {
             "description": "Name not valid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not allowed",
             "content": {
               "application/json": {
                 "schema": {

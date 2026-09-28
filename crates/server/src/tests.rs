@@ -26,6 +26,7 @@ mod devices;
 mod diagnostics;
 mod fusion;
 mod openapi;
+mod phones;
 mod presets;
 mod recordings;
 mod scanning;
@@ -88,6 +89,14 @@ fn test_router_with_state() -> (Router, AppState) {
     let store = Arc::new(Store::open(None).expect("in-memory store"));
     let state = state_over(store);
     let (router, background) = router_with_state(state.clone(), &ServerOptions::default());
+    background.detach();
+    (router, state)
+}
+
+fn tls_router_with_state() -> (Router, AppState) {
+    let store = Arc::new(Store::open(None).expect("in-memory store"));
+    let state = state_over(store);
+    let (router, background) = main_router(state.clone(), &ServerOptions::default(), true);
     background.detach();
     (router, state)
 }

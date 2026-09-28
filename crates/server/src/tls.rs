@@ -5,6 +5,7 @@ use std::{
     time::Duration,
 };
 
+use rcgen::PublicKeyData;
 use rustls::{
     ServerConfig,
     pki_types::{CertificateDer, PrivateKeyDer, pem::PemObject},
@@ -15,16 +16,10 @@ const MATERIAL_DIR: &str = "tls";
 const CERT_FILE: &str = "self-signed.pem";
 const KEY_FILE: &str = "self-signed.key.pem";
 const NAMES_FILE: &str = "self-signed.names";
-// Browsers distrust a server certificate valid for more than 398 days, self-signed included.
 const VALID_DAYS: i64 = 397;
 const RENEW_AFTER: Duration = Duration::from_secs(365 * 24 * 60 * 60);
+const LOCAL_NAMES: [&str; 3] = ["localhost", "127.0.0.1", "::1"];
 
-/// Where the listener gets the certificate it presents.
-///
-/// Self-signed material is kept on disk: a phone that accepted the certificate once for field
-/// mode keeps trusting it, where a freshly minted key on every restart would ask again each time.
-/// It is minted again once the addresses it covers change, since a certificate that does not name
-/// the address a client dialled is worse than an unknown one.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Tls {
     Files { cert: PathBuf, key: PathBuf },
@@ -57,16 +52,32 @@ pub enum TlsError {
     },
     #[error("the certificate and key cannot serve TLS: {0}")]
     Unusable(#[from] rustls::Error),
+    #[error("cannot pin the certificate: {0}")]
+    Pin(String),
 }
 
-pub(crate) fn server_config(tls: &Tls) -> Result<ServerConfig, TlsError> {
-    let (chain, key) = match tls {
-        Tls::Files { cert, key } => (read_chain(cert)?, read_key(key)?),
-        Tls::SelfSigned { dir, names } => self_signed(dir, names)?,
+pub(crate) struct Served {
+    pub(crate) config: Arc<ServerConfig>,
+    #[cfg_attr(not(test), expect(dead_code))]
+    pub(crate) pin: String,
+    #[cfg_attr(not(test), expect(dead_code))]
+    pub(crate) names: Vec<String>,
+}
+
+pub(crate) fn load(tls: &Tls) -> Result<Served, TlsError> {
+    let (chain, key, names) = match tls {
+        Tls::Files { cert, key } => (read_chain(cert)?, read_key(key)?, Vec::new()),
+        Tls::SelfSigned { dir, names } => {
+            let names = san_names(names);
+            let (chain, key) = kept_or_minted(&Kept::under(dir), &names)?;
+            (chain, key, reachable_names(names))
+        }
     };
-    if let Some(leaf) = chain.first() {
-        tracing::info!(sha256 = %fingerprint(leaf), "serving HTTPS");
-    }
+    let Some(leaf) = chain.first() else {
+        return Err(TlsError::Pin("no certificate to pin".to_owned()));
+    };
+    let pin = spki_pin(leaf)?;
+    tracing::info!(sha256 = %fingerprint(leaf), pin = %pin, "serving HTTPS");
     let mut config = ServerConfig::builder_with_provider(Arc::new(
         rustls::crypto::aws_lc_rs::default_provider(),
     ))
@@ -74,7 +85,22 @@ pub(crate) fn server_config(tls: &Tls) -> Result<ServerConfig, TlsError> {
     .with_no_client_auth()
     .with_single_cert(chain, key)?;
     config.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
-    Ok(config)
+    Ok(Served {
+        config: Arc::new(config),
+        pin,
+        names,
+    })
+}
+
+pub(crate) fn spki_pin(cert: &CertificateDer<'_>) -> Result<String, TlsError> {
+    sdrmm_wire::phone::spki_pin(cert.as_ref()).map_err(|error| TlsError::Pin(error.to_string()))
+}
+
+fn reachable_names(names: Vec<String>) -> Vec<String> {
+    names
+        .into_iter()
+        .filter(|name| !LOCAL_NAMES.contains(&name.as_str()))
+        .collect()
 }
 
 type Material = (Vec<CertificateDer<'static>>, PrivateKeyDer<'static>);
@@ -120,19 +146,59 @@ impl Kept {
     }
 }
 
+#[cfg(test)]
 fn self_signed(dir: &Path, asked_for: &[String]) -> Result<Material, TlsError> {
-    let kept = Kept::under(dir);
-    let names = san_names(asked_for);
-    if fresh(&kept.cert)
-        && issued_for(&kept.names, &names)
+    kept_or_minted(&Kept::under(dir), &san_names(asked_for))
+}
+
+fn kept_or_minted(kept: &Kept, names: &[String]) -> Result<Material, TlsError> {
+    let key = kept_key(&kept.key);
+    if let Some(key) = &key
+        && fresh(&kept.cert)
+        && issued_for(&kept.names, names)
         && let Ok(chain) = read_chain(&kept.cert)
-        && let Ok(key) = read_key(&kept.key)
+        && certifies(&chain, key)
+        && let Ok(der) = read_key(&kept.key)
     {
-        return Ok((chain, key));
+        return Ok((chain, der));
     }
+    let key = match key {
+        Some(key) => key,
+        None => rcgen::KeyPair::generate()?,
+    };
     tracing::info!(names = %names.join(", "), "minting a self-signed certificate");
-    store(&kept, &names, &generate(&names)?)?;
+    let cert = certificate(names, &key)?;
+    store(kept, names, &cert, &key)?;
     Ok((read_chain(&kept.cert)?, read_key(&kept.key)?))
+}
+
+fn kept_key(path: &Path) -> Option<rcgen::KeyPair> {
+    let pem = match fs::read_to_string(path) {
+        Ok(pem) => pem,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            tracing::info!("new TLS key");
+            return None;
+        }
+        Err(error) => {
+            tracing::warn!(%error, "new TLS key: phones must pair again");
+            return None;
+        }
+    };
+    match rcgen::KeyPair::from_pem(&pem) {
+        Ok(key) => Some(key),
+        Err(error) => {
+            tracing::warn!(%error, "new TLS key: phones must pair again");
+            None
+        }
+    }
+}
+
+fn certifies(chain: &[CertificateDer<'static>], key: &rcgen::KeyPair) -> bool {
+    let wanted = sdrmm_wire::phone::hex(&Sha256::digest(key.subject_public_key_info()));
+    chain
+        .first()
+        .and_then(|leaf| spki_pin(leaf).ok())
+        .is_some_and(|pin| pin == wanted)
 }
 
 fn fresh(cert_path: &Path) -> bool {
@@ -147,7 +213,14 @@ fn issued_for(names_path: &Path, names: &[String]) -> bool {
         .is_ok_and(|kept| kept.lines().eq(names.iter().map(String::as_str)))
 }
 
+#[cfg(test)]
 fn generate(names: &[String]) -> Result<rcgen::CertifiedKey<rcgen::KeyPair>, rcgen::Error> {
+    let signing_key = rcgen::KeyPair::generate()?;
+    let cert = certificate(names, &signing_key)?;
+    Ok(rcgen::CertifiedKey { cert, signing_key })
+}
+
+fn certificate(names: &[String], key: &rcgen::KeyPair) -> Result<rcgen::Certificate, rcgen::Error> {
     let mut params = rcgen::CertificateParams::new(names.to_vec())?;
     params.distinguished_name = distinguished_name();
     let today = jiff::Timestamp::now()
@@ -165,9 +238,7 @@ fn generate(names: &[String]) -> Result<rcgen::CertifiedKey<rcgen::KeyPair>, rcg
         until.month().unsigned_abs(),
         until.day().unsigned_abs(),
     );
-    let signing_key = rcgen::KeyPair::generate()?;
-    let cert = params.self_signed(&signing_key)?;
-    Ok(rcgen::CertifiedKey { cert, signing_key })
+    params.self_signed(key)
 }
 
 fn distinguished_name() -> rcgen::DistinguishedName {
@@ -176,19 +247,12 @@ fn distinguished_name() -> rcgen::DistinguishedName {
     name
 }
 
-/// Every name the self-signed certificate has to answer to.
-///
-/// Named addresses replace the discovered ones rather than adding to them: inside a container the
-/// addresses this process can see are the bridge's, not the ones a browser dials, and they change
-/// often enough that keeping them would mint a new certificate on most restarts.
 fn san_names(asked_for: &[String]) -> Vec<String> {
-    let mut names = vec![
-        "localhost".to_owned(),
-        "127.0.0.1".to_owned(),
-        "::1".to_owned(),
-    ];
+    let mut names: Vec<String> = LOCAL_NAMES.iter().map(|name| (*name).to_owned()).collect();
     let reachable = if asked_for.is_empty() {
-        crate::notices::lan_addresses()
+        let mut discovered = crate::net::lan_addresses();
+        discovered.push(crate::net::mdns_host());
+        discovered
     } else {
         asked_for.to_vec()
     };
@@ -203,12 +267,13 @@ fn san_names(asked_for: &[String]) -> Vec<String> {
 fn store(
     kept: &Kept,
     names: &[String],
-    issued: &rcgen::CertifiedKey<rcgen::KeyPair>,
+    cert: &rcgen::Certificate,
+    key: &rcgen::KeyPair,
 ) -> Result<(), TlsError> {
     fs::create_dir_all(&kept.dir).map_err(wrote(&kept.dir))?;
-    fs::write(&kept.cert, issued.cert.pem()).map_err(wrote(&kept.cert))?;
+    fs::write(&kept.cert, cert.pem()).map_err(wrote(&kept.cert))?;
     fs::write(&kept.names, names.join("\n")).map_err(wrote(&kept.names))?;
-    write_private(&kept.key, &issued.signing_key.serialize_pem()).map_err(wrote(&kept.key))
+    write_private(&kept.key, &key.serialize_pem()).map_err(wrote(&kept.key))
 }
 
 fn wrote(path: &Path) -> impl FnOnce(io::Error) -> TlsError {

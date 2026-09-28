@@ -9,6 +9,7 @@ use tokio_tungstenite::tungstenite;
 
 use super::*;
 
+mod phone;
 mod stress;
 
 const WAIT: Duration = Duration::from_secs(5);
@@ -415,7 +416,7 @@ async fn a_browser_hello_names_the_protocol_and_no_phone() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn a_pose_from_a_browser_is_refused_out_loud() {
+async fn a_pose_from_a_browser_socket_is_refused() {
     let mut ws = connect(test_engine()).await;
     assert!(matches!(
         next_event(&mut ws).await,
@@ -1182,7 +1183,7 @@ async fn event_forwarder_lag_synthesizes_full_invalidation() {
         .expect("send");
     }
     let (out_tx, mut out_rx) = outbox::channel();
-    let task = spawn_events(rx, out_tx);
+    let task = spawn_events(rx, out_tx, false);
 
     let first = timeout(WAIT, out_rx.recv())
         .await

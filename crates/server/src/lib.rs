@@ -109,9 +109,7 @@ pub(crate) struct AppState {
     pub(crate) surfaces: Arc<surfaces::SurfaceHub>,
     #[expect(dead_code)]
     pub(crate) survey: Arc<survey::SurveyHub>,
-    #[expect(dead_code)]
     pub(crate) phones: Arc<phones::Phones>,
-    #[expect(dead_code)]
     pub(crate) gate: Arc<phones::gate::PhoneGate>,
     pub(crate) server_id: Arc<str>,
     pub(crate) server_name: Arc<str>,
@@ -122,6 +120,7 @@ pub(crate) struct AppState {
 impl AppState {
     fn new(engine: Arc<Engine>, store: Arc<Store>) -> Self {
         let server_id = store.server_id();
+        let phones = Arc::new(phones::Phones::new(store.clone()));
         Self {
             engine,
             store,
@@ -149,7 +148,7 @@ impl AppState {
             radar: Arc::default(),
             surfaces: Arc::default(),
             survey: Arc::default(),
-            phones: Arc::default(),
+            phones,
             gate: Arc::default(),
             server_id,
             server_name: net::host_label().into(),
@@ -224,45 +223,54 @@ pub fn router(engine: Arc<Engine>, store: Store, options: &ServerOptions) -> Rou
     router
 }
 
-fn router_with_state(mut state: AppState, options: &ServerOptions) -> (Router, Background) {
+fn router_with_state(state: AppState, options: &ServerOptions) -> (Router, Background) {
+    main_router(state, options, false)
+}
+
+fn main_router(mut state: AppState, options: &ServerOptions, tls: bool) -> (Router, Background) {
     state.shell = options.shell.clone();
     state.dev_cors = options.dev_cors;
     if let Some(token) = &options.token {
         diagnostics::hide_secret(token);
     }
     let background = start_runtime(&state);
-    let dev_cors = state.dev_cors;
+    (app(&state, auth::ListenerRole::Main, tls), background)
+}
+
+fn app(state: &AppState, role: auth::ListenerRole, tls: bool) -> Router {
     let (api_router, api) = rest::openapi_router().split_for_parts();
-
-    let mut app = Router::new()
+    let mut routes = Router::new()
         .merge(api_router)
-        .route("/api/ws", axum::routing::get(ws::handler))
-        .merge(mcp::router(
-            state.engine.clone(),
-            state.store.clone(),
-            state.tools.clone(),
-        ))
-        .route("/api/openapi.json", openapi_route(&api))
-        .route("/api/docs", axum::routing::get(assets::api_docs))
-        .route("/api/docs/", axum::routing::get(assets::api_docs))
-        .route_layer(axum::middleware::from_fn_with_state(
-            state.auth.clone(),
-            auth::require_token,
-        ))
-        .fallback(assets::static_handler)
-        .with_state(state)
-        .layer(
-            tower_http::compression::CompressionLayer::new().compress_when(
-                tower_http::compression::predicate::DefaultPredicate::new()
-                    .and(NotForContentType::const_new("application/x-tar"))
-                    .and(NotForContentType::const_new("audio/wav")),
-            ),
-        );
-
-    if dev_cors {
+        .route("/api/ws", axum::routing::get(ws::handler));
+    if role == auth::ListenerRole::Main {
+        routes = routes
+            .merge(mcp::router(
+                state.engine.clone(),
+                state.store.clone(),
+                state.tools.clone(),
+            ))
+            .route("/api/openapi.json", openapi_route(&api))
+            .route("/api/docs", axum::routing::get(assets::api_docs))
+            .route("/api/docs/", axum::routing::get(assets::api_docs));
+    }
+    routes = routes.route_layer(axum::middleware::from_fn_with_state(
+        auth::AuthGate::new(state, role, tls),
+        auth::authenticate,
+    ));
+    if role == auth::ListenerRole::Main {
+        routes = routes.fallback(assets::static_handler);
+    }
+    let mut app = routes.with_state(state.clone()).layer(
+        tower_http::compression::CompressionLayer::new().compress_when(
+            tower_http::compression::predicate::DefaultPredicate::new()
+                .and(NotForContentType::const_new("application/x-tar"))
+                .and(NotForContentType::const_new("audio/wav")),
+        ),
+    );
+    if state.dev_cors && role == auth::ListenerRole::Main {
         app = app.layer(CorsLayer::very_permissive());
     }
-    (app, background)
+    app
 }
 
 fn start_runtime(state: &AppState) -> Background {
@@ -430,6 +438,17 @@ impl ServerHandle {
 }
 
 pub async fn serve(config: Config, engine: Arc<Engine>) -> std::io::Result<ServerHandle> {
+    if config
+        .options
+        .token
+        .as_deref()
+        .is_some_and(|token| token.starts_with(sdrmm_wire::phone::PHONE_TOKEN_PREFIX))
+    {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "the token must not start with sdrmm-phone.",
+        ));
+    }
     engine.start_hotplug_prober(HOTPLUG_INTERVAL)?;
     engine.start_level_meter(LEVEL_INTERVAL)?;
     engine.start_occupancy_collector(HOTPLUG_INTERVAL)?;
@@ -455,13 +474,14 @@ pub async fn serve(config: Config, engine: Arc<Engine>) -> std::io::Result<Serve
         .as_deref()
         .and_then(Path::parent)
         .map(Path::to_path_buf);
-    let (app, background) = router_with_state(state, &config.options);
-    let tls_config = config
+    let served = config
         .tls
         .as_ref()
-        .map(tls::server_config)
+        .map(tls::load)
         .transpose()
         .map_err(std::io::Error::other)?;
+    let (app, background) = main_router(state, &config.options, served.is_some());
+    let tls_config = served.map(|served| served.config);
     let listener = std::net::TcpListener::bind(config.bind)?;
     listener.set_nonblocking(true)?;
     let local_addr = listener.local_addr()?;
@@ -475,7 +495,7 @@ pub async fn serve(config: Config, engine: Arc<Engine>) -> std::io::Result<Serve
         Some(tls_config) => {
             let server = axum_server::from_tcp_rustls(
                 listener,
-                axum_server::tls_rustls::RustlsConfig::from_config(Arc::new(tls_config)),
+                axum_server::tls_rustls::RustlsConfig::from_config(tls_config),
             )?;
             tokio::spawn(async move { server.serve(app.into_make_service()).await })
         }

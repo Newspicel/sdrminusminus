@@ -208,6 +208,8 @@ impl From<StoreError> for AppError {
             | StoreError::RecordingNotFound(_)
             | StoreError::WorkspaceNotFound(_)
             | StoreError::NoticeNotFound(_)
+            | StoreError::PhoneNotFound(_)
+            | StoreError::OfferGone
             | StoreError::CpsUserNotFound(_)
             | StoreError::CpsDeviceNotFound(_)
             | StoreError::CpsCodeplugNotFound(_) => (StatusCode::NOT_FOUND, ErrorCode::NotFound),

@@ -29,6 +29,10 @@ pub enum StoreError {
     WorkspaceNotFound(i64),
     #[error("notice {0} not found")]
     NoticeNotFound(i64),
+    #[error("phone {0} not found")]
+    PhoneNotFound(String),
+    #[error("the pairing code is gone")]
+    OfferGone,
     #[error("radio operator {0} not found")]
     CpsUserNotFound(i64),
     #[error("radio {0} not found")]
@@ -2263,6 +2267,7 @@ mod cps;
 mod phones;
 
 pub(crate) use coherent_break::upgrade_export;
+pub(crate) use phones::{OfferFailure, OfferRow, PairWrite, PhoneRow};
 
 #[cfg(test)]
 mod tests;

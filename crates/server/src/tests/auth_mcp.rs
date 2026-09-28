@@ -188,3 +188,25 @@ async fn mcp_tool_bench_refusals_name_what_was_wrong() {
         "{no_slot}"
     );
 }
+
+#[tokio::test]
+async fn a_phone_cannot_reach_mcp() {
+    let (app, state) = tls_router_with_state();
+    let paired = crate::phones::tests::pair_one(&state.phones);
+    let bearer = format!("Bearer {}", paired.token);
+    let call = r#"{"jsonrpc":"2.0","id":1,"method":"tools/list"}"#;
+    let (status, _, body) = request_parts(
+        app,
+        "POST",
+        "/mcp",
+        Some(call),
+        &[
+            ("authorization", bearer.as_str()),
+            ("accept", "application/json, text/event-stream"),
+        ],
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    let error: ApiError = serde_json::from_slice(&body).expect("error body");
+    assert_eq!(error.error, "Not open to phones");
+}

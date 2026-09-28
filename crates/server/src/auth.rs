@@ -1,18 +1,29 @@
+use std::sync::Arc;
+
 use axum::{
     Json,
-    extract::{Request, State},
-    http::{StatusCode, header},
+    extract::{MatchedPath, Request, State},
+    http::{HeaderMap, StatusCode, header},
     middleware::Next,
     response::{IntoResponse, Response},
 };
-use sdrmm_wire::ApiError;
+use sdrmm_wire::{
+    ApiError, ErrorCode, PhoneToken, WS_BEARER_PROTOCOL_PREFIX,
+    phone::{PHONE_TOKEN_PREFIX, unhex},
+};
 
-const PUBLIC_PATHS: &[&str] = &["/api/auth", "/api/openapi.json"];
+use crate::{
+    AppState,
+    phones::{Phones, Verified, phone_may},
+};
+
+const PUBLIC_PATHS: &[&str] = &["/api/auth", "/api/about", "/api/openapi.json"];
 const PUBLIC_PREFIXES: &[&str] = &["/api/docs"];
+const PAIR_PATH: &str = "/api/phones/pair";
 
 #[derive(Clone, Debug, Default)]
 pub(crate) struct Auth {
-    token: Option<std::sync::Arc<str>>,
+    token: Option<Arc<str>>,
 }
 
 impl Auth {
@@ -34,50 +45,241 @@ impl Auth {
     }
 }
 
-pub(crate) async fn require_token(
-    State(auth): State<Auth>,
-    request: Request,
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum Identity {
+    Anonymous,
+    Open,
+    Operator,
+    Phone(String),
+}
+
+impl Identity {
+    pub(crate) fn phone(&self) -> Option<&str> {
+        match self {
+            Self::Phone(id) => Some(id),
+            Self::Anonymous | Self::Open | Self::Operator => None,
+        }
+    }
+
+    pub(crate) fn administers(&self) -> bool {
+        matches!(self, Self::Open | Self::Operator)
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ListenerRole {
+    Main,
+    Phones,
+}
+
+#[derive(Clone)]
+pub(crate) struct AuthGate {
+    role: ListenerRole,
+    tls: bool,
+    shared: Option<Arc<str>>,
+    phones: Arc<Phones>,
+}
+
+impl AuthGate {
+    pub(crate) fn new(state: &AppState, role: ListenerRole, tls: bool) -> Self {
+        Self {
+            role,
+            tls,
+            shared: state.auth.token.clone(),
+            phones: state.phones.clone(),
+        }
+    }
+}
+
+#[derive(Debug)]
+pub(crate) struct Refusal {
+    status: StatusCode,
+    message: &'static str,
+}
+
+pub(crate) fn unauthorized(message: &'static str) -> Refusal {
+    Refusal {
+        status: StatusCode::UNAUTHORIZED,
+        message,
+    }
+}
+
+pub(crate) fn forbidden(message: &'static str) -> Refusal {
+    Refusal {
+        status: StatusCode::FORBIDDEN,
+        message,
+    }
+}
+
+impl IntoResponse for Refusal {
+    fn into_response(self) -> Response {
+        let body = Json(ApiError {
+            error: self.message.to_owned(),
+            detail: None,
+            code: Some(ErrorCode::Auth),
+        });
+        if self.status == StatusCode::UNAUTHORIZED {
+            (self.status, [(header::WWW_AUTHENTICATE, "Bearer")], body).into_response()
+        } else {
+            (self.status, body).into_response()
+        }
+    }
+}
+
+enum Credential {
+    Shared(String),
+    Phone(PhoneToken),
+    PhoneInQuery,
+    Malformed,
+}
+
+enum Claim {
+    Decided(Result<Identity, Refusal>),
+    Phone(PhoneToken),
+}
+
+pub(crate) async fn authenticate(
+    State(gate): State<AuthGate>,
+    mut request: Request,
     next: Next,
 ) -> Response {
-    let Some(expected) = auth.token.as_deref() else {
-        return next.run(request).await;
+    let identity = match gate.claim(&request) {
+        Claim::Decided(decided) => decided,
+        Claim::Phone(token) => gate.phone(token).await,
     };
-    if is_public(request.uri().path()) {
-        return next.run(request).await;
+    let identity = match identity {
+        Ok(identity) => identity,
+        Err(refusal) => return refusal.into_response(),
+    };
+    if let Identity::Phone(id) = &identity {
+        if !phone_may(request.method(), request.extensions().get::<MatchedPath>()) {
+            return forbidden("Not open to phones").into_response();
+        }
+        gate.phones.touch(id);
     }
-    let presented = presented_token(&request);
-    if presented.is_some_and(|token| token_eq(&token, expected)) {
-        return next.run(request).await;
+    request.extensions_mut().insert(identity);
+    next.run(request).await
+}
+
+impl AuthGate {
+    fn claim(&self, request: &Request) -> Claim {
+        let path = request.uri().path();
+        if path == PAIR_PATH {
+            return Claim::Decided(if self.tls {
+                Ok(Identity::Anonymous)
+            } else {
+                Err(forbidden("Pair over HTTPS"))
+            });
+        }
+        if is_public(path) {
+            return Claim::Decided(Ok(Identity::Anonymous));
+        }
+        Claim::Decided(match credential(request, self.role) {
+            Some(Credential::Malformed) => Err(unauthorized("Bad credentials")),
+            Some(Credential::PhoneInQuery) => Err(unauthorized(
+                "Send the phone key in the Authorization header",
+            )),
+            Some(Credential::Phone(token)) => return Claim::Phone(token),
+            Some(Credential::Shared(shared)) => self.shared(Some(&shared)),
+            None => self.shared(None),
+        })
     }
-    (
-        StatusCode::UNAUTHORIZED,
-        [(header::WWW_AUTHENTICATE, "Bearer")],
-        Json(ApiError {
-            error: "authentication required".to_string(),
-            detail: Some(
-                "pass the shared token as `Authorization: Bearer <token>` or `?token=<token>`"
-                    .to_string(),
-            ),
-            code: Some(sdrmm_wire::ErrorCode::Request),
-        }),
-    )
-        .into_response()
+
+    async fn phone(&self, token: PhoneToken) -> Result<Identity, Refusal> {
+        if !self.tls {
+            return Err(unauthorized("Phones need HTTPS"));
+        }
+        let paired = match self.phones.verify_cached(&token) {
+            Verified::Paired => true,
+            Verified::Refused => false,
+            Verified::Unknown => self.verify_stored(token.clone()).await,
+        };
+        if paired {
+            Ok(Identity::Phone(token.phone))
+        } else {
+            Err(unauthorized("Phone not paired"))
+        }
+    }
+
+    async fn verify_stored(&self, token: PhoneToken) -> bool {
+        let phones = self.phones.clone();
+        match tokio::task::spawn_blocking(move || phones.verify(&token)).await {
+            Ok(paired) => paired,
+            Err(error) => {
+                tracing::warn!(%error, "checking a phone key stopped");
+                false
+            }
+        }
+    }
+
+    fn shared(&self, presented: Option<&str>) -> Result<Identity, Refusal> {
+        if self.role == ListenerRole::Phones {
+            return Err(unauthorized("Phone key required"));
+        }
+        match (self.shared.as_deref(), presented) {
+            (None, _) => Ok(Identity::Open),
+            (Some(expected), Some(presented))
+                if bytes_eq(presented.as_bytes(), expected.as_bytes()) =>
+            {
+                Ok(Identity::Operator)
+            }
+            (Some(_), Some(_)) => Err(unauthorized("Wrong token")),
+            (Some(_), None) => Err(unauthorized("Token required")),
+        }
+    }
 }
 
 fn is_public(path: &str) -> bool {
     PUBLIC_PATHS.contains(&path) || PUBLIC_PREFIXES.iter().any(|p| path.starts_with(p))
 }
 
-fn presented_token(request: &Request) -> Option<String> {
-    if let Some(bearer) = request
-        .headers()
-        .get(header::AUTHORIZATION)
-        .and_then(|v| v.to_str().ok())
-        .and_then(|v| v.strip_prefix("Bearer "))
-    {
-        return Some(bearer.to_string());
+fn credential(request: &Request, role: ListenerRole) -> Option<Credential> {
+    let headers = request.headers();
+    if let Some(bearer) = bearer(headers) {
+        return Some(classify(bearer.to_owned()));
     }
-    query_token(request.uri().query()?)
+    if let Some(offered) = subprotocol_credential(headers) {
+        return Some(offered);
+    }
+    if role != ListenerRole::Main {
+        return None;
+    }
+    let token = query_token(request.uri().query()?)?;
+    Some(if token.starts_with(PHONE_TOKEN_PREFIX) {
+        Credential::PhoneInQuery
+    } else {
+        Credential::Shared(token)
+    })
+}
+
+fn bearer(headers: &HeaderMap) -> Option<&str> {
+    headers
+        .get(header::AUTHORIZATION)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.strip_prefix("Bearer "))
+}
+
+fn subprotocol_credential(headers: &HeaderMap) -> Option<Credential> {
+    let encoded = headers
+        .get_all(header::SEC_WEBSOCKET_PROTOCOL)
+        .iter()
+        .filter_map(|value| value.to_str().ok())
+        .flat_map(|value| value.split(','))
+        .map(str::trim)
+        .find_map(|offered| offered.strip_prefix(WS_BEARER_PROTOCOL_PREFIX))?;
+    Some(
+        unhex(encoded)
+            .and_then(|bytes| String::from_utf8(bytes).ok())
+            .map_or(Credential::Malformed, classify),
+    )
+}
+
+fn classify(text: String) -> Credential {
+    if text.starts_with(PHONE_TOKEN_PREFIX) {
+        PhoneToken::parse(&text).map_or(Credential::Malformed, Credential::Phone)
+    } else {
+        Credential::Shared(text)
+    }
 }
 
 fn query_token(query: &str) -> Option<String> {
@@ -122,8 +324,7 @@ fn percent_decode(value: &str) -> String {
     String::from_utf8_lossy(&out).into_owned()
 }
 
-fn token_eq(presented: &str, expected: &str) -> bool {
-    let (a, b) = (presented.as_bytes(), expected.as_bytes());
+pub(crate) fn bytes_eq(a: &[u8], b: &[u8]) -> bool {
     if a.len() != b.len() {
         return false;
     }
@@ -135,150 +336,4 @@ fn token_eq(presented: &str, expected: &str) -> bool {
 }
 
 #[cfg(test)]
-mod tests {
-    use axum::{Router, body::Body, http::Request as HttpRequest, routing::get};
-    use tower::ServiceExt;
-
-    use super::*;
-
-    fn app(token: Option<&str>) -> Router {
-        Router::new()
-            .route("/api/state", get(|| async { "state" }))
-            .route("/api/auth", get(|| async { "auth" }))
-            .route("/api/docs/index.html", get(|| async { "docs" }))
-            .route_layer(axum::middleware::from_fn_with_state(
-                Auth::new(token),
-                require_token,
-            ))
-            .fallback(|| async { "spa" })
-    }
-
-    async fn status(app: &Router, uri: &str, header: Option<&str>) -> StatusCode {
-        let mut builder = HttpRequest::builder().uri(uri);
-        if let Some(value) = header {
-            builder = builder.header("authorization", value);
-        }
-        app.clone()
-            .oneshot(builder.body(Body::empty()).expect("request"))
-            .await
-            .expect("response")
-            .status()
-    }
-
-    #[tokio::test]
-    async fn no_token_configured_lets_everything_through() {
-        let app = app(None);
-        assert_eq!(status(&app, "/api/state", None).await, StatusCode::OK);
-        assert_eq!(status(&app, "/", None).await, StatusCode::OK);
-    }
-
-    #[tokio::test]
-    async fn a_configured_token_gates_the_api_but_never_the_ui_shell() {
-        let app = app(Some("s3cret"));
-        assert_eq!(
-            status(&app, "/api/state", None).await,
-            StatusCode::UNAUTHORIZED
-        );
-        assert_eq!(
-            status(&app, "/api/state", Some("Bearer s3cret")).await,
-            StatusCode::OK
-        );
-        assert_eq!(
-            status(&app, "/api/state?token=s3cret", None).await,
-            StatusCode::OK
-        );
-        assert_eq!(status(&app, "/", None).await, StatusCode::OK);
-        assert_eq!(status(&app, "/api/auth", None).await, StatusCode::OK);
-        assert_eq!(
-            status(&app, "/api/docs/index.html", None).await,
-            StatusCode::OK
-        );
-    }
-
-    #[tokio::test]
-    async fn wrong_tokens_are_rejected_in_every_form() {
-        let app = app(Some("s3cret"));
-        for uri in [
-            "/api/state?token=nope",
-            "/api/state?token=",
-            "/api/state?other=s3cret",
-        ] {
-            assert_eq!(
-                status(&app, uri, None).await,
-                StatusCode::UNAUTHORIZED,
-                "{uri}"
-            );
-        }
-        for header in ["s3cret", "Bearer  s3cret", "Basic s3cret", "Bearer s3cre"] {
-            assert_eq!(
-                status(&app, "/api/state", Some(header)).await,
-                StatusCode::UNAUTHORIZED,
-                "{header}"
-            );
-        }
-    }
-
-    #[tokio::test]
-    async fn unauthorized_answers_in_the_api_error_shape() {
-        let response = app(Some("s3cret"))
-            .oneshot(
-                HttpRequest::builder()
-                    .uri("/api/state")
-                    .body(Body::empty())
-                    .expect("request"),
-            )
-            .await
-            .expect("response");
-        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
-        assert_eq!(
-            response
-                .headers()
-                .get(header::WWW_AUTHENTICATE)
-                .and_then(|v| v.to_str().ok()),
-            Some("Bearer")
-        );
-        let bytes = axum::body::to_bytes(response.into_body(), 4096)
-            .await
-            .expect("body");
-        let err: ApiError = serde_json::from_slice(&bytes).expect("ApiError body");
-        assert_eq!(err.error, "authentication required");
-    }
-
-    #[test]
-    fn query_tokens_are_percent_decoded() {
-        assert_eq!(query_token("token=a%2Fb").as_deref(), Some("a/b"));
-        assert_eq!(query_token("x=1&token=a+b&y=2").as_deref(), Some("a b"));
-        assert_eq!(query_token("token=100%").as_deref(), Some("100%"));
-        assert_eq!(query_token("nope=1"), None);
-    }
-
-    #[test]
-    fn malformed_escapes_never_panic() {
-        for query in [
-            "token=%ää",
-            "token=%",
-            "token=%4",
-            "token=%zz",
-            "token=%e2%82%ac",
-        ] {
-            let _ = query_token(query);
-        }
-        assert_eq!(query_token("token=%e2%82%ac").as_deref(), Some("€"));
-        assert_eq!(query_token("token=%zz").as_deref(), Some("%zz"));
-    }
-
-    #[test]
-    fn token_comparison_is_length_safe() {
-        assert!(token_eq("abc", "abc"));
-        assert!(!token_eq("abc", "abcd"));
-        assert!(!token_eq("abcd", "abc"));
-        assert!(!token_eq("", "abc"));
-    }
-
-    #[test]
-    fn empty_token_disables_auth() {
-        assert!(!Auth::new(Some("")).required());
-        assert!(!Auth::new(None).required());
-        assert!(Auth::new(Some("x")).required());
-    }
-}
+mod tests;

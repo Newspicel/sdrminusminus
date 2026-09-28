@@ -1,28 +1,39 @@
 use std::{
     collections::HashMap,
     sync::{Arc, atomic},
+    time::{Duration, Instant},
 };
 
 use axum::{
+    Extension,
     extract::{
         State,
-        ws::{Message, Utf8Bytes, WebSocket, WebSocketUpgrade},
+        ws::{CloseFrame, Message, Utf8Bytes, WebSocket, WebSocketUpgrade},
     },
-    response::Response,
+    http::{HeaderMap, Uri, header},
+    response::{IntoResponse, Response},
 };
 use futures::{SinkExt, StreamExt};
 use sdrmm_dsp::{DbWindowSmoother, adaptive_db_window, decimate_max, quantize_db};
 use sdrmm_engine::{AudioPacket, Engine, IqBlock, SpectrumSnapshot, SymbolBlock, VideoPacket};
 use sdrmm_wire::{
-    API_PROTOCOL, AudioFrame, AudioRoute, ClientCommand, IqFrame, ServerEvent, SpectrumFrame,
-    StateScope, StreamKind, SymbolFrame, VideoData, VideoFrame,
+    API_PROTOCOL, AudioFrame, AudioRoute, ClientCommand, IqFrame, PositionFix, ServerEvent,
+    SpectrumFrame, StateScope, StreamKind, SymbolFrame, VideoData, VideoFrame, WS_CLOSE_REVOKED,
+    WS_SUBPROTOCOL,
+    phone::{POSE_BURST, POSE_RATE_HZ},
 };
-use tokio::sync::broadcast;
+use tokio::sync::{broadcast, watch};
 
 mod outbox;
+mod phone;
 use outbox::Outbox;
+use phone::{PhoneLink, RateBudget, revoked};
 
-use crate::AppState;
+use crate::{
+    AppState,
+    auth::Identity,
+    phones::{phone_command, phone_event},
+};
 
 const MIN_BINS: usize = 16;
 const MAX_BINS: usize = 4096;
@@ -30,9 +41,43 @@ const MAX_FPS: u16 = 60;
 const MEDIA_ID_BASE: u16 = 0x8000;
 const SPECTRUM_ID_BASE: u16 = 0;
 const POSE_NEEDS_PHONE: &str = "only a paired phone can publish a pose";
+const POSE_TOO_FAST: &str = "pose updates are limited to 20 Hz";
+const POSE_FAILED: &str = "could not publish the pose";
+const NOT_FOR_PHONES: &str = "Not open to phones";
+const LIMIT_ERROR_EVERY: Duration = Duration::from_secs(1);
+const CLOSE_FLUSH: Duration = Duration::from_secs(1);
 
-pub(crate) async fn handler(ws: WebSocketUpgrade, State(state): State<AppState>) -> Response {
-    ws.on_upgrade(move |socket| handle_socket(socket, state))
+pub(crate) async fn handler(
+    ws: WebSocketUpgrade,
+    State(state): State<AppState>,
+    Extension(identity): Extension<Identity>,
+    headers: HeaderMap,
+    uri: Uri,
+) -> Response {
+    if !origin_allowed(&headers, &uri, state.dev_cors) {
+        return crate::auth::forbidden("Cross-origin socket refused").into_response();
+    }
+    ws.protocols([WS_SUBPROTOCOL])
+        .on_upgrade(move |socket| handle_socket(socket, state, identity))
+}
+
+fn origin_allowed(headers: &HeaderMap, uri: &Uri, dev_cors: bool) -> bool {
+    let Some(origin) = headers.get(header::ORIGIN) else {
+        return true;
+    };
+    if dev_cors {
+        return true;
+    }
+    let host = headers
+        .get(header::HOST)
+        .and_then(|host| host.to_str().ok())
+        .or_else(|| uri.authority().map(axum::http::uri::Authority::as_str));
+    let authority = origin
+        .to_str()
+        .ok()
+        .and_then(|origin| origin.split_once("://"))
+        .map(|(_, rest)| rest.split('/').next().unwrap_or(rest));
+    matches!((host, authority), (Some(host), Some(authority)) if host.eq_ignore_ascii_case(authority))
 }
 
 pub(crate) fn start_decoded_encoder(state: &AppState) {
@@ -75,10 +120,13 @@ struct Session {
     next_spectrum_id: u16,
     next_media_id: u16,
     diagnostics: Option<tokio::task::JoinHandle<()>>,
+    identity: Identity,
+    pose_budget: RateBudget,
+    last_limit_error: Option<Instant>,
 }
 
 impl Session {
-    fn new(engine: Arc<Engine>, state: AppState, out: Outbox) -> Self {
+    fn new(engine: Arc<Engine>, state: AppState, out: Outbox, identity: Identity) -> Self {
         Self {
             engine,
             state,
@@ -91,17 +139,28 @@ impl Session {
             next_spectrum_id: SPECTRUM_ID_BASE,
             next_media_id: MEDIA_ID_BASE,
             diagnostics: None,
+            identity,
+            pose_budget: RateBudget::new(f64::from(POSE_BURST), f64::from(POSE_RATE_HZ)),
+            last_limit_error: None,
         }
+    }
+
+    async fn send_error(&self, message: impl Into<String>) {
+        let err = ServerEvent::Error {
+            message: message.into(),
+        };
+        let _ = self.out.send(text_event(&err)).await;
     }
 
     async fn dispatch(&mut self, text: &str) {
         let Ok(command) = serde_json::from_str::<ClientCommand>(text) else {
-            let err = ServerEvent::Error {
-                message: "invalid command".to_string(),
-            };
-            let _ = self.out.send(text_event(&err)).await;
+            self.send_error("invalid command").await;
             return;
         };
+        if self.identity.phone().is_some() && !phone_command(&command) {
+            self.send_error(NOT_FOR_PHONES).await;
+            return;
+        }
         match command {
             ClientCommand::SubscribeDiagnostics { enabled } => {
                 if let Some(task) = self.diagnostics.take() {
@@ -171,15 +230,38 @@ impl Session {
             } => self.unsubscribe_symbols(device_set, channel).await,
             ClientCommand::SubscribeSurface { node, .. } => self.refuse_surface(&node).await,
             ClientCommand::UnsubscribeSurface { .. } => {}
-            ClientCommand::PublishPose { .. } => self.refuse_pose().await,
+            ClientCommand::PublishPose { fix, error } => self.publish_pose(fix, error).await,
         }
     }
 
-    async fn refuse_pose(&self) {
-        let err = ServerEvent::Error {
-            message: POSE_NEEDS_PHONE.to_owned(),
+    async fn publish_pose(&mut self, fix: Option<PositionFix>, error: Option<String>) {
+        let Some(phone) = self.identity.phone().map(str::to_owned) else {
+            self.send_error(POSE_NEEDS_PHONE).await;
+            return;
         };
-        let _ = self.out.send(text_event(&err)).await;
+        if !self.pose_budget.take() {
+            let now = Instant::now();
+            if self
+                .last_limit_error
+                .is_none_or(|last| now.duration_since(last) >= LIMIT_ERROR_EVERY)
+            {
+                self.last_limit_error = Some(now);
+                self.send_error(POSE_TOO_FAST).await;
+            }
+            return;
+        }
+        let state = self.state.clone();
+        let published =
+            tokio::task::spawn_blocking(move || state.gps.publish_pose(&state, &phone, fix, error))
+                .await;
+        match published {
+            Ok(Ok(_)) => {}
+            Ok(Err(message)) => self.send_error(message).await,
+            Err(error) => {
+                tracing::warn!(%error, "publishing a pose stopped");
+                self.send_error(POSE_FAILED).await;
+            }
+        }
     }
 
     async fn refuse_surface(&self, node: &str) {
@@ -517,74 +599,106 @@ impl Session {
     }
 }
 
-async fn handle_socket(socket: WebSocket, state: AppState) {
+async fn handle_socket(socket: WebSocket, state: AppState, identity: Identity) {
     let engine = state.engine.clone();
     let live = state.clients.fetch_add(1, atomic::Ordering::Relaxed) + 1;
     tracing::debug!(clients = live, "client connected");
     engine.emit_scope(StateScope::Clients);
+    let link = PhoneLink::join(&state, &identity).await;
+    let for_phone = link.is_some();
     let (ws_tx, mut ws_rx) = socket.split();
     let (out_tx, out_rx) = outbox::channel();
 
     let mut writer = tokio::spawn(write_output(ws_tx, out_rx));
 
     let event_rx = engine.subscribe_events();
-    let decoded_rx = state.decoded_text.subscribe();
     let position_rx = state.gps.subscribe();
-    let hello = ServerEvent::Hello {
-        revision: engine.snapshot().revision,
-        protocol: API_PROTOCOL,
-        phone: None,
-    };
-    let _ = out_tx.send(text_event(&hello)).await;
-    for position in state.gps.snapshot() {
-        let _ = out_tx.send(text_event(&position)).await;
-    }
-    for satellite in state.satellites.snapshot() {
-        let _ = out_tx.send(text_event(&satellite)).await;
-    }
+    greet(&state, &out_tx, &identity).await;
 
-    let backlog = state.tracks.backlog();
-    if !backlog.is_empty() {
-        let _ = out_tx
-            .send(text_event(&ServerEvent::DecodedBacklog {
-                records: backlog,
-            }))
-            .await;
-    }
-
-    let events = spawn_events(event_rx, out_tx.clone());
-    let decoded = spawn_decoded(decoded_rx, out_tx.clone());
+    let events = spawn_events(event_rx, out_tx.clone(), for_phone);
+    let decoded =
+        (!for_phone).then(|| spawn_decoded(state.decoded_text.subscribe(), out_tx.clone()));
     let positions = spawn_positions(position_rx, out_tx.clone());
 
-    let mut session = Session::new(engine.clone(), state.clone(), out_tx.clone());
+    let mut session = Session::new(engine.clone(), state.clone(), out_tx.clone(), identity);
+    let mut revocation: Option<watch::Receiver<bool>> = link.as_ref().map(PhoneLink::revoked);
+    let mut writer_done = false;
 
-    loop {
+    let revoked_now = loop {
         let msg = tokio::select! {
-            _ = &mut writer => break,
+            _ = &mut writer => {
+                writer_done = true;
+                break false;
+            }
+            () = revoked(&mut revocation) => break true,
             message = ws_rx.next() => message,
         };
         let Some(Ok(msg)) = msg else {
-            break;
+            break false;
         };
         match msg {
             Message::Text(text) => session.dispatch(&text).await,
-            Message::Close(_) => break,
+            Message::Close(_) => break false,
             _ => {}
         }
+    };
+
+    if revoked_now {
+        let close = Message::Close(Some(CloseFrame {
+            code: WS_CLOSE_REVOKED,
+            reason: "revoked".into(),
+        }));
+        let _ = out_tx.send(close).await;
     }
-
     session.abort_streams();
-
     events.abort();
-    decoded.abort();
+    if let Some(decoded) = decoded {
+        decoded.abort();
+    }
     positions.abort();
-    writer.abort();
+    drop(out_tx);
+    if !writer_done
+        && tokio::time::timeout(CLOSE_FLUSH, &mut writer)
+            .await
+            .is_err()
+    {
+        writer.abort();
+    }
+    if let Some(link) = link {
+        link.leave(&state).await;
+    }
     let live = state
         .clients
         .fetch_sub(1, atomic::Ordering::Relaxed)
         .saturating_sub(1);
     tracing::debug!(clients = live, "client disconnected");
     engine.emit_scope(StateScope::Clients);
+}
+
+async fn greet(state: &AppState, out: &Outbox, identity: &Identity) {
+    let hello = ServerEvent::Hello {
+        revision: state.engine.snapshot().revision,
+        protocol: API_PROTOCOL,
+        phone: identity.phone().map(str::to_owned),
+    };
+    let _ = out.send(text_event(&hello)).await;
+    for position in state.gps.snapshot() {
+        let _ = out.send(text_event(&position)).await;
+    }
+    if identity.phone().is_some() {
+        return;
+    }
+    for satellite in state.satellites.snapshot() {
+        let _ = out.send(text_event(&satellite)).await;
+    }
+    let backlog = state.tracks.backlog();
+    if !backlog.is_empty() {
+        let _ = out
+            .send(text_event(&ServerEvent::DecodedBacklog {
+                records: backlog,
+            }))
+            .await;
+    }
 }
 
 fn flatten_join<T>(
@@ -620,11 +734,15 @@ fn alloc_stream_id(
 fn spawn_events(
     mut event_rx: broadcast::Receiver<ServerEvent>,
     out_tx: Outbox,
+    for_phone: bool,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         loop {
             match event_rx.recv().await {
                 Ok(ev) => {
+                    if for_phone && !phone_event(&ev) {
+                        continue;
+                    }
                     if out_tx.send(text_event(&ev)).await.is_err() {
                         break;
                     }
