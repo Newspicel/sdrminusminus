@@ -1,7 +1,7 @@
 mod angle;
 mod bessel;
 mod erf;
-mod gamma;
+pub mod gamma;
 mod optimize;
 
 pub use angle::{circular_mean_deg, norm_deg, wrap_deg};
