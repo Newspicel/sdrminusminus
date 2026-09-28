@@ -247,14 +247,6 @@ pub const FIXTURES: &[Fixture] = &[
         "a single tone at broadcast deviation reads as four discrete frequency levels",
     ),
     named(
-        "subghz_ev1527_500k",
-        500_000.0,
-        100_000.0,
-        433_920_000.0,
-        "subghz",
-        &[Modulation::Ook],
-    ),
-    named(
         "dcf77_2026_2k",
         2_000.0,
         0.0,

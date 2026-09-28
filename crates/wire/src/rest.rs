@@ -116,6 +116,7 @@ pub struct PresetDevice {
     pub node: String,
     pub device_id: String,
     pub settings: DeviceSettings,
+    #[serde(deserialize_with = "crate::channel::current_channel_settings")]
     pub channels: Vec<ChannelSettings>,
 }
 
@@ -834,6 +835,26 @@ mod tests {
         let parsed: PresetSnapshot = serde_json::from_value(v1).expect("the shape still parses");
         assert_ne!(parsed.version, PRESET_SNAPSHOT_VERSION);
         assert!(parsed.devices.is_empty());
+    }
+
+    #[test]
+    fn a_preset_drops_a_retired_decoder() {
+        let stored = serde_json::json!({
+            "version": PRESET_SNAPSHOT_VERSION,
+            "devices": [{
+                "node": "radio",
+                "device_id": "virtual:siggen",
+                "settings": {},
+                "channels": [
+                    { "frequency_hz": 433_920_000.0, "params": { "type": "subghz", "settings": {} } },
+                    { "frequency_hz": 145_500_000.0, "params": { "type": "nfm", "settings": {} } },
+                ],
+            }],
+        });
+        let parsed: PresetSnapshot = serde_json::from_value(stored).expect("loads");
+        let channels = &parsed.devices[0].channels;
+        assert_eq!(channels.len(), 1);
+        assert_eq!(channels[0].params.type_id(), "nfm");
     }
 
     #[test]

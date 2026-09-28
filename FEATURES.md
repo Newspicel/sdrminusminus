@@ -28,7 +28,7 @@ M17, NXDN, P25 and YSF. Only the Signal generator uses the modulators.
 - Beam-steering CW (TX MIMO)
 
 ### Security research (own DUT, contained link)
-- Sub-GHz capture, decode, replay
+- ISM-band capture, decode, replay
 - Fixed-code analysis and generation, including de Bruijn sequences
 - Rolling-code capture and implementation analysis
 - Interference and jam-susceptibility testing
@@ -77,8 +77,8 @@ M17, NXDN, P25 and YSF. Only the Signal generator uses the modulators.
 - Real-world validation of DVB-T and DVB-S/S2: real transmitters, fading, adjacent-channel
   interference. Today only synthetic IQ
 
-### Sub-GHz, ISM & IoT
-- More rtl_433 sensors
+### ISM & IoT
+- ISM remotes and sensors (OOK/FSK)
 - LoRa (ChirpChat), LoRaWAN frames, Meshtastic, MeshCore
 - End-of-Train (EOT) telemetry
 - BLE advertisements, 2.4 GHz survey, Wi-Fi channel occupancy (energy only)

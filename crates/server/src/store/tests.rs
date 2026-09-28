@@ -2085,3 +2085,55 @@ fn a_recorder_saved_before_it_had_a_switch_opens_idle() {
         ]
     );
 }
+
+#[test]
+fn a_stored_retired_decoder_leaves_the_workspace_and_its_wires() {
+    let mut value = serde_json::to_value(WorkspaceSnapshot::starter()).expect("snapshot");
+    value["graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .push(serde_json::json!({
+            "id": "remote", "kind": "channel", "position": {"x": 400.0, "y": 0.0},
+            "data": {"channel_type": "subghz"}
+        }));
+    value["graph"]["edges"]
+        .as_array_mut()
+        .expect("edges")
+        .push(serde_json::json!({
+            "from": {"node": "device", "port": "iq"},
+            "to": {"node": "remote", "port": "iq"}
+        }));
+    value["rack"] =
+        serde_json::json!({"slots": [{"node": "remote", "x": 0, "y": 0, "w": 4, "h": 2}]});
+
+    let migrated = parse_workspace_snapshot(&value.to_string()).expect("loads");
+    let starter = WorkspaceSnapshot::starter();
+    migrated.validate().expect("valid");
+    assert!(migrated.graph.node("remote").is_none());
+    assert_eq!(migrated.graph.edges, starter.graph.edges);
+    assert!(migrated.rack.slots.iter().all(|slot| slot.node != "remote"));
+}
+
+#[test]
+fn a_stored_retired_decoder_event_leaves_the_log() {
+    let file = tempfile::NamedTempFile::new().expect("temp db");
+    {
+        let store = Store::open(Some(file.path())).expect("open");
+        seed(&store);
+        let conn = store.lock();
+        conn.execute(
+            "INSERT INTO decoder_log (at, device_set, channel, kind, freq_hz, summary, event) \
+             VALUES ('2026-08-09T12:00:03Z', 0, 0, 'subghz', 433920000.0, '24 bit', \
+             '{\"kind\":\"subghz\",\"data\":{\"bits\":24}}')",
+            [],
+        )
+        .expect("an old row");
+        conn.pragma_update(None, "user_version", MIGRATIONS.len() as i64 - 1)
+            .expect("rewind");
+    }
+
+    let store = Store::open(Some(file.path())).expect("reopen");
+    let (entries, total) = query(&store, DecoderLogQuery::default());
+    assert_eq!(total, 3);
+    assert!(entries.iter().all(|entry| entry.kind != "subghz"));
+}

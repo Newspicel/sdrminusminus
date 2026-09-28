@@ -14,7 +14,7 @@ covers the modes that need more than a frequency.
 | Aviation | ADS-B (1090ES) | ACARS, VDL Mode 2, HFDL, Inmarsat Classic Aero | VOR, ILS localizer and glideslope |
 | Marine | | AIS, NAVTEX, DSC, Inmarsat STD-C and EGC | |
 | Amateur and HF | CW skimmer, FT8, FT4, WSPR | APRS / AX.25, RTTY, PSK31 to PSK250, Morse | |
-| Paging and telemetry | POCSAG | FLEX, ERMES, Selcall (CCIR, ZVEI), Sub-GHz OOK/FSK, [ISM sensors](#ism-sensors), DCF77, WWVB, MSF, JJY | |
+| Paging and telemetry | POCSAG | FLEX, ERMES, Selcall (CCIR, ZVEI), DCF77, WWVB, MSF, JJY | |
 | Pictures and video | | [SSTV](#sstv), ATV | |
 | Broadcast digital | [DAB and DAB+](#dab-and-dab) | | [DVB-T/T2, DATV (DVB-S/S2)](#dvb), DRM30 and DRM+ |
 | Utility | [Signal identifier](scanning.md#identify-a-signal) | Iridium bursts, [DECT survey](#dect) | GNSS lab (GPS L1 C/A) |
@@ -149,21 +149,6 @@ Each record lists the base identity (RFPI), system information, capabilities, ad
 observed security, and handset IDs seen during encryption setup. Encryption is marked active only
 after a grant is seen. Advertised support does not prove a call was encrypted, and missing
 signalling does not prove it was not.
-
-## ISM sensors
-
-The Sub-GHz channel decodes known sensors and shows raw frames for everything else.
-
-| Coding | Sensors |
-|---|---|
-| Pulse position | Nexus-T/TH, Rubicson (also Solight TE44, EMOS E0107T), Acurite 609TXC and 606TX, Prologue-TH, inFactory-TH, Kedsum-TH, Springfield soil probe |
-| Pulse width | LaCrosse TX141TH-Bv2, Fine Offset WH2, Auriol HG02832, Geevon TX16-3, WS2032, EMOS E6016, Rubicson 48942, WT0124, Opus XT300 |
-| Manchester | Ambient Weather F007TH |
-| FSK | Ambient Weather WH31E, Renault TPMS, Toyota TPMS |
-| Differential Manchester | WT450-TH |
-
-A reading is shown only after its checksum passes. Decoding follows
-[rtl_433](https://github.com/merbanan/rtl_433) (GPL-2.0-or-later).
 
 ## Pager text
 

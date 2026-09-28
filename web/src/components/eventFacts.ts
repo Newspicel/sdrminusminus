@@ -7,26 +7,6 @@ export function hex5(address: number): string {
   return address.toString(16).toUpperCase().padStart(5, "0");
 }
 
-export function hex2(value: number): string {
-  return value.toString(16).toUpperCase().padStart(2, "0");
-}
-
-export type SensorReading = {
-  model: string;
-  id: number;
-  channel?: number | null;
-  temperature_c?: number | null;
-  humidity_pct?: number | null;
-  moisture_pct?: number | null;
-  pressure_kpa?: number | null;
-  wind_avg_kmh?: number | null;
-  wind_max_kmh?: number | null;
-  wind_dir_deg?: number | null;
-  rain_mm?: number | null;
-  power_w?: number | null;
-  energy_kwh?: number | null;
-};
-
 export type DectSecurityView = {
   security: {
     authentication_supported?: boolean | null;
@@ -52,22 +32,6 @@ export const DECT_CIPHER_LABELS: Record<string, string> = {
   active: "encryption active",
   stopped: "encryption stopped",
 };
-
-export function sensorFacts(reading: SensorReading): (string | null)[] {
-  return [
-    reading.model,
-    `id ${hex2(reading.id)}`,
-    reading.channel == null ? null : `ch ${reading.channel}`,
-    reading.pressure_kpa == null ? null : `${reading.pressure_kpa.toFixed(0)} kPa`,
-    reading.temperature_c == null ? null : `${reading.temperature_c.toFixed(1)} °C`,
-    reading.humidity_pct == null ? null : `${reading.humidity_pct.toFixed(0)} %`,
-    reading.moisture_pct == null ? null : `soil ${reading.moisture_pct.toFixed(0)} %`,
-    reading.wind_avg_kmh == null ? null : `wind ${reading.wind_avg_kmh.toFixed(1)} km/h`,
-    reading.wind_dir_deg == null ? null : `from ${reading.wind_dir_deg.toFixed(0)}°`,
-    reading.rain_mm == null ? null : `rain ${reading.rain_mm.toFixed(1)} mm`,
-    reading.power_w == null ? null : `${reading.power_w.toFixed(0)} W`,
-  ];
-}
 
 function position(lat: number | null | undefined, lon: number | null | undefined): string | null {
   return lat == null || lon == null ? null : `${lat.toFixed(4)}, ${lon.toFixed(4)}`;
@@ -97,17 +61,6 @@ function join(parts: readonly (string | null)[]): string {
 }
 
 type EventData<K extends DecoderEvent["kind"]> = Extract<DecoderEvent, { kind: K }>["data"];
-
-function subghzSummary(f: EventData<"subghz">): string {
-  return join([
-    ...(f.reading == null
-      ? [f.bits === 0 ? `raw, ${(f.timings_us ?? []).length} edges` : `${f.bits} bit ${f.data}`]
-      : sensorFacts(f.reading)),
-    f.address == null ? null : `addr ${hex5(f.address)}`,
-    f.button == null ? null : `btn ${f.button.toString(16).toUpperCase()}`,
-    f.repeats > 1 ? `\u00d7${f.repeats}` : null,
-  ]);
-}
 
 function callSummary(c: EventData<"call">): string {
   return join([
@@ -252,8 +205,6 @@ export function eventSummary(event: DecoderEvent): string {
       const text = a.text.replaceAll("\n", " ").trim();
       return join([a.registration, a.flight?.trim() ?? null, `[${a.label}]`, text || null]);
     }
-    case "subghz":
-      return subghzSummary(event.data);
     case "scrambler": {
       const s = event.data;
       return s.inversion_hz == null
@@ -393,16 +344,6 @@ export function eventStation(event: DecoderEvent): string | null {
       return event.data.station ?? null;
     case "acars":
       return event.data.registration;
-    case "subghz": {
-      const f = event.data;
-      if (f.reading != null) {
-        return `${f.reading.model} ${hex2(f.reading.id)}`;
-      }
-      if (f.address != null) {
-        return hex5(f.address);
-      }
-      return f.data === "" ? null : f.data;
-    }
     case "dv":
       return (
         event.data.source_call ?? (event.data.source == null ? null : String(event.data.source))

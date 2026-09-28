@@ -798,7 +798,6 @@ const VIEWS: Record<DecoderKind, ((scope: DecoderScope) => ReactNode) | null> = 
   ermes: null,
   navtex: null,
   acars: null,
-  subghz: null,
   dv: null,
   ft8: null,
   ft4: null,

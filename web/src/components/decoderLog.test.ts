@@ -458,101 +458,11 @@ describe("wave-2 summaries", () => {
     );
   });
 
-  it("renders a sub-GHz frame, and a raw capture by its edge count", () => {
-    const frame: DecoderEvent = {
-      kind: "subghz",
-      data: {
-        modulation: "ook",
-        encoding: "pwm",
-        bits: 24,
-        data: "0A1B23",
-        address: 0x0_a1b2,
-        button: 3,
-        short_us: 320,
-        repeats: 6,
-      },
-    };
-    expect(eventSummary(frame)).toBe("24 bit 0A1B23 · addr 0A1B2 · btn 3 · ×6");
-    expect(eventStation(frame)).toBe("0A1B2");
-
-    const raw: DecoderEvent = {
-      kind: "subghz",
-      data: {
-        modulation: "fsk",
-        encoding: "raw",
-        bits: 0,
-        data: "",
-        short_us: 250,
-        repeats: 1,
-        timings_us: [320, 960, 320, 960],
-      },
-    };
-    expect(eventSummary(raw)).toBe("raw, 4 edges");
-    expect(eventStation(raw)).toBeNull();
-  });
-
-  it("summarises a named sensor by its reading rather than its bit pattern", () => {
-    const sensor: DecoderEvent = {
-      kind: "subghz",
-      data: {
-        modulation: "ook",
-        encoding: "pwm",
-        bits: 40,
-        data: "2AA1A95823",
-        short_us: 208,
-        repeats: 10,
-        reading: {
-          model: "LaCrosse-TX141THBv2",
-          id: 0x2a,
-          channel: 2,
-          battery_ok: false,
-          temperature_c: -7.5,
-          humidity_pct: 88,
-        },
-      },
-    };
-    expect(eventSummary(sensor)).toBe("LaCrosse-TX141THBv2 · id 2A · ch 2 · -7.5 °C · 88 % · ×10");
-    expect(eventStation(sensor)).toBe("LaCrosse-TX141THBv2 2A");
-  });
-
-  it("leads a tyre sensor with its pressure and a weather mast with its wind", () => {
-    const tyre: DecoderEvent = {
-      kind: "subghz",
-      data: {
-        modulation: "fsk",
-        encoding: "pcm",
-        bits: 64,
-        data: "",
-        short_us: 52,
-        repeats: 1,
-        reading: { model: "Toyota", id: 0x1a, pressure_kpa: 231, temperature_c: 18 },
-      },
-    };
-    expect(eventSummary(tyre)).toContain("231 kPa");
-
-    const mast: DecoderEvent = {
-      kind: "subghz",
-      data: {
-        modulation: "ook",
-        encoding: "pwm",
-        bits: 64,
-        data: "",
-        short_us: 500,
-        repeats: 1,
-        reading: { model: "WS2032", id: 7, wind_avg_kmh: 12.5, wind_dir_deg: 270, rain_mm: 3.2 },
-      },
-    };
-    expect(eventSummary(mast)).toContain("wind 12.5 km/h");
-    expect(eventSummary(mast)).toContain("rain 3.2 mm");
-  });
-
   it("gives the new kinds the names operators use for them", () => {
     expect(kindLabel("navtex")).toBe("NAVTEX");
     expect(kindLabel("acars")).toBe("ACARS");
-    expect(kindLabel("subghz")).toBe("Sub-GHz");
     expect(DECODER_KINDS).toContain("navtex");
     expect(DECODER_KINDS).toContain("acars");
-    expect(DECODER_KINDS).toContain("subghz");
   });
 });
 

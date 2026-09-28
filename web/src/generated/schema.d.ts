@@ -2210,10 +2210,6 @@ export interface components {
             /** @enum {string} */
             type: "acars";
         } | {
-            settings: components["schemas"]["SubghzParams"];
-            /** @enum {string} */
-            type: "subghz";
-        } | {
             settings: components["schemas"]["AtvParams"];
             /** @enum {string} */
             type: "atv";
@@ -2926,10 +2922,6 @@ export interface components {
             data: components["schemas"]["AcarsMessage"];
             /** @enum {string} */
             kind: "acars";
-        } | {
-            data: components["schemas"]["SubghzFrame"];
-            /** @enum {string} */
-            kind: "subghz";
         } | {
             data: components["schemas"]["ToneSquelchStatus"];
             /** @enum {string} */
@@ -5581,65 +5573,6 @@ export interface components {
             /** Format: int32 */
             stream: number;
             tuning?: null | components["schemas"]["Tuning"];
-        };
-        /** @enum {string} */
-        SubghzEncoding: "pcm" | "pwm" | "ppm" | "manchester" | "dmc" | "raw";
-        SubghzFrame: {
-            /** Format: int32 */
-            address?: number | null;
-            /** Format: int32 */
-            bits: number;
-            /** Format: int32 */
-            button?: number | null;
-            data: string;
-            encoding: components["schemas"]["SubghzEncoding"];
-            modulation: components["schemas"]["SubghzModulation"];
-            reading?: null | components["schemas"]["SubghzReading"];
-            /** Format: int32 */
-            repeats: number;
-            /** Format: int32 */
-            short_us: number;
-            timings_us?: number[];
-            tri_state?: string | null;
-        };
-        /** @enum {string} */
-        SubghzModulation: "ook" | "fsk";
-        SubghzParams: {
-            /** Format: double */
-            bandwidth_hz?: number;
-            /** Format: int32 */
-            frame_gap_us?: number;
-            /** Format: int32 */
-            min_pulse_us?: number;
-            modulation?: components["schemas"]["SubghzModulation"];
-        };
-        SubghzReading: {
-            battery_ok?: boolean | null;
-            /** Format: int32 */
-            channel?: number | null;
-            /** Format: double */
-            energy_kwh?: number | null;
-            /** Format: double */
-            humidity_pct?: number | null;
-            /** Format: int32 */
-            id: number;
-            model: string;
-            /** Format: double */
-            moisture_pct?: number | null;
-            /** Format: double */
-            power_w?: number | null;
-            /** Format: double */
-            pressure_kpa?: number | null;
-            /** Format: double */
-            rain_mm?: number | null;
-            /** Format: double */
-            temperature_c?: number | null;
-            /** Format: double */
-            wind_avg_kmh?: number | null;
-            /** Format: double */
-            wind_dir_deg?: number | null;
-            /** Format: double */
-            wind_max_kmh?: number | null;
         };
         TemplateInfo: {
             /** Format: double */

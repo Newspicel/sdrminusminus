@@ -197,12 +197,6 @@ fn valid(event: &DecoderEvent, frequency_hz: f64) -> bool {
                 || matches!(frame.kind, sdrmm_wire::DvFrameKind::Voice)
                     && frame.crc_verified != Some(false)
         }
-        DecoderEvent::Subghz(frame) => {
-            frame.reading.is_some()
-                || frame.encoding != sdrmm_wire::SubghzEncoding::Raw
-                    && frame.bits > 0
-                    && frame.repeats >= 2
-        }
         DecoderEvent::Ils(reading) => {
             crate::ident::in_allocation("ils", frequency_hz)
                 && reading.modulation_90 >= 0.05
@@ -215,7 +209,7 @@ fn valid(event: &DecoderEvent, frequency_hz: f64) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use sdrmm_wire::{IlsComponent, IlsReading, MorseText, ProtocolMatch, SubghzFrame};
+    use sdrmm_wire::{IlsComponent, IlsReading, MorseText, ProtocolMatch};
 
     use super::*;
 
@@ -239,18 +233,6 @@ mod tests {
         assert_eq!(choices(&signal, &SpectrumMonitorNode::default()), ["nfm"]);
         signal.modulation = Modulation::Fsk4;
         assert!(choices(&signal, &SpectrumMonitorNode::default()).is_empty());
-    }
-
-    #[test]
-    fn raw_pulses_do_not_confirm_a_decoder() {
-        assert!(!valid(
-            &DecoderEvent::Subghz(SubghzFrame {
-                repeats: 30,
-                timings_us: vec![100; 31],
-                ..Default::default()
-            }),
-            435_125_000.0
-        ));
     }
 
     #[test]

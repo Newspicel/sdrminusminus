@@ -120,10 +120,6 @@ pub fn param_limits(type_id: &str) -> Vec<ParamLimit> {
             navaid_report_limit(),
         ],
         "ils" => vec![navaid_report_limit()],
-        "subghz" => vec![
-            limit("min_pulse_us", 10.0, 2_000.0, 10.0),
-            limit("frame_gap_us", 500.0, 100_000.0, 500.0),
-        ],
         "atv" => vec![limit(
             "sound_subcarrier_hz",
             500_000.0,
@@ -617,49 +613,6 @@ impl Default for AcarsParams {
     fn default() -> Self {
         Self {
             bandwidth_hz: default_acars_bandwidth_hz(),
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum SubghzModulation {
-    #[default]
-    Ook,
-    Fsk,
-}
-
-fn default_subghz_bandwidth_hz() -> f64 {
-    150_000.0
-}
-
-fn default_subghz_min_pulse_us() -> u32 {
-    30
-}
-
-fn default_subghz_frame_gap_us() -> u32 {
-    5_000
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
-pub struct SubghzParams {
-    #[serde(default)]
-    pub modulation: SubghzModulation,
-    #[serde(default = "default_subghz_bandwidth_hz")]
-    pub bandwidth_hz: f64,
-    #[serde(default = "default_subghz_min_pulse_us")]
-    pub min_pulse_us: u32,
-    #[serde(default = "default_subghz_frame_gap_us")]
-    pub frame_gap_us: u32,
-}
-
-impl Default for SubghzParams {
-    fn default() -> Self {
-        Self {
-            modulation: SubghzModulation::default(),
-            bandwidth_hz: default_subghz_bandwidth_hz(),
-            min_pulse_us: default_subghz_min_pulse_us(),
-            frame_gap_us: default_subghz_frame_gap_us(),
         }
     }
 }
@@ -1542,7 +1495,6 @@ pub enum ChannelParams {
     CwSkimmer(CwSkimmerParams),
     Navtex(NavtexParams),
     Acars(AcarsParams),
-    Subghz(SubghzParams),
     Atv(AtvParams),
     Sstv(SstvParams),
     Dab(DabParams),
@@ -1595,7 +1547,6 @@ impl ChannelParams {
             Self::CwSkimmer(_) => "cw_skimmer",
             Self::Navtex(_) => "navtex",
             Self::Acars(_) => "acars",
-            Self::Subghz(_) => "subghz",
             Self::Atv(_) => "atv",
             Self::Sstv(_) => "sstv",
             Self::Dab(_) => "dab",
@@ -1824,6 +1775,31 @@ impl<'de> Deserialize<'de> for ChannelSettings {
             blanker,
         })
     }
+}
+
+pub const RETIRED_CHANNEL_TYPES: &[&str] = &["subghz"];
+
+#[must_use]
+pub fn retired_channel_type(type_id: &str) -> bool {
+    RETIRED_CHANNEL_TYPES.contains(&type_id)
+}
+
+pub(crate) fn states_retired_params(settings: &serde_json::Value) -> bool {
+    settings
+        .get("params")
+        .and_then(|params| params.get("type"))
+        .and_then(serde_json::Value::as_str)
+        .is_some_and(retired_channel_type)
+}
+
+pub(crate) fn current_channel_settings<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Vec<ChannelSettings>, D::Error> {
+    Vec::<serde_json::Value>::deserialize(deserializer)?
+        .into_iter()
+        .filter(|settings| !states_retired_params(settings))
+        .map(|settings| ChannelSettings::deserialize(settings).map_err(serde::de::Error::custom))
+        .collect()
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]

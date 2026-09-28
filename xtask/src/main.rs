@@ -1893,29 +1893,6 @@ fn wideband_fixtures(out: &mut Vec<Fixture>) {
             .to_string(),
     });
 
-    const SUBGHZ_RATE: f64 = 500_000.0;
-    out.push(Fixture {
-        stem: "subghz_ev1527_500k".to_string(),
-        iq: at(
-            testgen::subghz::pwm(
-                &testgen::subghz::Pwm {
-                    bits: (0..24)
-                        .map(|i| 0x0A_1B_23u32 >> (23 - i) & 1 == 1)
-                        .collect(),
-                    short_us: 320,
-                    long_multiple: 3,
-                    sync_gap_multiple: 31,
-                    repeats: 6,
-                },
-                SUBGHZ_RATE,
-            ),
-            100_000.0,
-            SUBGHZ_RATE,
-        ),
-        rate: SUBGHZ_RATE,
-        note: "subghz channel at +100 kHz -> 24-bit PWM 0A1B23, address 0A1B2 button 3".to_string(),
-    });
-
     const ATV_RATE: f64 = 2_400_000.0;
     let atv_params = sdrmm_wire::AtvParams::default();
     out.push(Fixture {

@@ -2389,15 +2389,6 @@
       "srd",
       "remote control"
     ],
-    "suggested": {
-      "settings": {
-        "bandwidth_hz": 150000.0,
-        "frame_gap_us": 5000,
-        "min_pulse_us": 80,
-        "modulation": "ook"
-      },
-      "type": "subghz"
-    },
     "notes": "RR 5.138, Region 1 only. Car keys, tyre-pressure sensors, weather stations, doorbells, and it sits on top of the 70 cm amateur band."
   },
   {
@@ -2636,15 +2627,6 @@
       "lora",
       "srd"
     ],
-    "suggested": {
-      "settings": {
-        "bandwidth_hz": 150000.0,
-        "frame_gap_us": 5000,
-        "min_pulse_us": 80,
-        "modulation": "ook"
-      },
-      "type": "subghz"
-    },
     "notes": "RR 5.150 in Region 2, and the reason 915 MHz hardware does not work in Europe. Also the 33 cm amateur band."
   },
   {

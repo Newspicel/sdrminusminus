@@ -251,7 +251,7 @@ fn simplex_dmr_at_435_125_mhz_is_confirmed() {
     assert!(
         !output
             .iter()
-            .any(|out| matches!(out.event, DecoderEvent::Ils(_) | DecoderEvent::Subghz(_)))
+            .any(|out| matches!(out.event, DecoderEvent::Ils(_)))
     );
 }
 

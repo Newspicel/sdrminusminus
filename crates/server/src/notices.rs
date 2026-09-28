@@ -84,7 +84,9 @@ mod tests {
         let about = about();
         assert_eq!(about.license, "AGPL-3.0-or-later");
         assert!(
-            about.license_text.contains("GNU AFFERO GENERAL PUBLIC LICENSE"),
+            about
+                .license_text
+                .contains("GNU AFFERO GENERAL PUBLIC LICENSE"),
             "the project's own license text is missing from the notices"
         );
         assert!(
@@ -130,7 +132,12 @@ mod tests {
     #[test]
     fn copyleft_components_are_annotated() {
         let about = about();
-        for name in ["codec2", "rtl-sdr (librtlsdr)", "qdmr (libdmrconf)", "NanoVNA-Saver"] {
+        for name in [
+            "codec2",
+            "rtl-sdr (librtlsdr)",
+            "qdmr (libdmrconf)",
+            "NanoVNA-Saver",
+        ] {
             let component = about
                 .components
                 .iter()

@@ -8,9 +8,9 @@ import type {
   DecoderLogFilter,
 } from "../lib/types";
 import type { DownloadChoice } from "./DownloadMenu";
-import { eventStation, eventSummary, hasPosition, hex2, hex5 } from "./eventFacts";
+import { eventStation, eventSummary, hasPosition, hex5 } from "./eventFacts";
 
-export { eventStation, eventSummary, hasPosition, hex2, hex5 };
+export { eventStation, eventSummary, hasPosition, hex5 };
 
 export const KIND_LABELS: Record<DecoderKind, string> = {
   call: "Call",
@@ -28,7 +28,6 @@ export const KIND_LABELS: Record<DecoderKind, string> = {
   selcall: "Selcall",
   navtex: "NAVTEX",
   acars: "ACARS",
-  subghz: "Sub-GHz",
   tone: "Tone",
   scrambler: "Scrambler",
   dv: "Digital voice",

@@ -43,7 +43,6 @@ mod selcall;
 mod ssb;
 mod sstv;
 mod stitch;
-mod subghz;
 pub mod symbols;
 pub mod tone_squelch;
 mod tx;
@@ -107,7 +106,6 @@ use sdrmm_wire::{
 pub use selcall::SelcallChannel;
 pub use ssb::{SsbChannel, SsbTx};
 pub use sstv::SstvChannel;
-pub use subghz::SubghzChannel;
 pub use symbols::SymbolTap;
 pub use vdl2::Vdl2Channel;
 pub use vor::VorChannel;
@@ -160,7 +158,6 @@ pub fn occupied_band(params: &ChannelParams) -> (f64, f64) {
         ChannelParams::CwSkimmer(p) => cw_skimmer::occupied_band(p),
         ChannelParams::Navtex(_) => navtex::occupied_band(),
         ChannelParams::Acars(p) => acars::occupied_band(p),
-        ChannelParams::Subghz(p) => subghz::occupied_band(p),
         ChannelParams::Atv(p) => atv::occupied_band(p),
         ChannelParams::Sstv(p) => sstv::occupied_band(p),
         ChannelParams::Dab(_) => dab::occupied_band(),
@@ -239,7 +236,6 @@ pub fn channel_filter(params: &ChannelParams) -> Result<ChannelFilter, ChannelEr
         ChannelParams::CwSkimmer(p) => cw_skimmer::channel_filter(p),
         ChannelParams::Navtex(_) => Ok(navtex::channel_filter()),
         ChannelParams::Acars(p) => acars::channel_filter(p),
-        ChannelParams::Subghz(p) => subghz::channel_filter(p),
         ChannelParams::Atv(p) => atv::channel_filter(p),
         ChannelParams::Sstv(p) => sstv::channel_filter(p),
         ChannelParams::Dab(_) => Ok(dab::channel_filter()),
@@ -479,11 +475,6 @@ const REGISTRY: &[Registration] = &[
     Registration {
         descriptor: AcarsChannel::descriptor,
         create: boxed::<AcarsChannel>,
-        create_tx: None,
-    },
-    Registration {
-        descriptor: SubghzChannel::descriptor,
-        create: boxed::<SubghzChannel>,
         create_tx: None,
     },
     Registration {
@@ -741,8 +732,8 @@ mod tests {
         DrmParams, DscParams, DstarParams, ErmesParams, FlexParams, FreeDvParams, GnssParams,
         HfdlParams, IdentParams, IlsParams, InmarsatAeroParams, InmarsatStdcParams, IridiumParams,
         M17Params, MorseParams, NavtexParams, NfmParams, NxdnParams, P25Params, PocsagParams,
-        PskParams, RadioClockParams, RttyParams, SelcallParams, SsbParams, SstvParams,
-        SubghzParams, Vdl2Params, VorParams, WfmParams, WsjtParams, WsprParams, YsfParams,
+        PskParams, RadioClockParams, RttyParams, SelcallParams, SsbParams, SstvParams, Vdl2Params,
+        VorParams, WfmParams, WsjtParams, WsprParams, YsfParams,
     };
 
     use super::*;
@@ -766,7 +757,6 @@ mod tests {
             "cw_skimmer" => ChannelParams::CwSkimmer(CwSkimmerParams::default()),
             "navtex" => ChannelParams::Navtex(NavtexParams::default()),
             "acars" => ChannelParams::Acars(AcarsParams::default()),
-            "subghz" => ChannelParams::Subghz(SubghzParams::default()),
             "atv" => ChannelParams::Atv(AtvParams::default()),
             "sstv" => ChannelParams::Sstv(SstvParams::default()),
             "dab" => ChannelParams::Dab(DabParams::default()),
@@ -845,7 +835,7 @@ mod tests {
     #[test]
     fn descriptors_are_unique_and_complete() {
         let all = descriptors();
-        assert_eq!(all.len(), 47);
+        assert_eq!(all.len(), 46);
         let ids: HashSet<&str> = all.iter().map(|d| d.type_id.as_str()).collect();
         assert_eq!(
             ids,
@@ -866,7 +856,6 @@ mod tests {
                 "cw_skimmer",
                 "navtex",
                 "acars",
-                "subghz",
                 "atv",
                 "sstv",
                 "dab",
@@ -916,7 +905,6 @@ mod tests {
                 "cw_skimmer" => (24_000.0, 48_000.0),
                 "navtex" => (600.0, 8_000.0),
                 "acars" => (12_500.0, 48_000.0),
-                "subghz" => (150_000.0, 250_000.0),
                 "atv" => (1_500_000.0, 16_000_000.0),
                 "sstv" => (1_600.0, 16_000.0),
                 "dab" => (1_536_000.0, 2_048_000.0),

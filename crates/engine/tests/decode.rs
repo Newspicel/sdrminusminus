@@ -15,8 +15,7 @@ use sdrmm_wire::{
     DrmParams, DvFrameKind, DvMode, ErmesParams, FlexParams, FreeDvParams, GnssParams, IdentParams,
     Modulation, MorseParams, NavtexParams, NfmParams, NfmToneMode, PipelineStage, PocsagBaud,
     PocsagParams, PskBaud, PskParams, RdsUpdate, RttyParams, SelcallParams, SelcallSystem,
-    SubghzEncoding, SubghzParams, SymbolPlane, VorParams, WfmParams, WsjtParams, WsprParams,
-    YsfParams,
+    SymbolPlane, VorParams, WfmParams, WsjtParams, WsprParams, YsfParams,
 };
 use tempfile::TempDir;
 
@@ -939,49 +938,6 @@ async fn acars_block_survives_the_ddc_and_reaches_the_decoded_stream() {
     assert!(message.downlink);
     assert_eq!(message.flight.as_deref(), Some("LH0400"));
     assert_eq!(message.text, "ENGINE E2E");
-}
-
-#[tokio::test]
-async fn subghz_remote_survives_the_ddc_and_reaches_the_decoded_stream() {
-    const SUBGHZ_DEVICE_RATE: f64 = 500_000.0;
-    let dir = TempDir::new().unwrap();
-    let engine = engine_for(dir.path());
-    let offset_hz = 100_000.0;
-
-    let remote = testgen::subghz::Pwm {
-        bits: (0..24)
-            .map(|i| 0x0A_1B_23u32 >> (23 - i) & 1 == 1)
-            .collect(),
-        short_us: 320,
-        long_multiple: 3,
-        sync_gap_multiple: 31,
-        repeats: 6,
-    };
-    let mut iq = testgen::subghz::pwm(&remote, SUBGHZ_DEVICE_RATE);
-    testgen::shift(&mut iq, offset_hz, SUBGHZ_DEVICE_RATE);
-
-    let device = plant(dir.path(), "subghz", iq, SUBGHZ_DEVICE_RATE);
-    let record = decode_first(
-        &engine,
-        &device,
-        ChannelSettings {
-            frequency_hz: CENTER_HZ + offset_hz,
-            squelch: sdrmm_wire::Squelch::Off,
-            params: ChannelParams::Subghz(SubghzParams::default()),
-            blanker: Default::default(),
-        },
-        |event| matches!(event, DecoderEvent::Subghz(f) if f.bits == 24),
-    )
-    .await;
-
-    let DecoderEvent::Subghz(frame) = record.event else {
-        unreachable!("filtered above")
-    };
-    assert_eq!(frame.encoding, SubghzEncoding::Pwm);
-    assert_eq!(frame.data, "0A1B23");
-    assert_eq!(frame.address, Some(0x0_A1B2));
-    assert_eq!(frame.button, Some(3));
-    assert!(frame.repeats > 1, "repeats collapsed to {}", frame.repeats);
 }
 
 #[tokio::test]

@@ -31,6 +31,7 @@ impl<'de> Deserialize<'de> for WorkspaceState {
         }
         let mut document = Value::deserialize(deserializer)?;
         lift_channels_to_the_top(&mut document);
+        drop_retired_channels(&mut document);
         let stated = Stated::deserialize(document).map_err(serde::de::Error::custom)?;
         Ok(Self {
             version: stated.version,
@@ -169,6 +170,16 @@ impl WorkspaceState {
     }
 }
 
+fn drop_retired_channels(document: &mut Value) {
+    if let Some(channels) = document.get_mut("channels").and_then(Value::as_array_mut) {
+        channels.retain(|channel| {
+            !channel
+                .get("settings")
+                .is_some_and(crate::channel::states_retired_params)
+        });
+    }
+}
+
 /// Version 1 hung a channel's settings off the radio that carried it and tuned it by an offset
 /// from that radio's centre. Lifts each one onto the node itself, resolving the offset against the
 /// centre it was taken from so the decoder comes back on the frequency it was actually hearing.
@@ -253,6 +264,26 @@ mod tests {
                 })
                 .collect(),
         }
+    }
+
+    #[test]
+    fn a_retired_decoder_is_dropped_and_the_rest_loads() {
+        let stored = serde_json::json!({
+            "version": WORKSPACE_STATE_VERSION,
+            "channels": [
+                {
+                    "node": "gone",
+                    "settings": {
+                        "frequency_hz": 433_920_000.0,
+                        "params": { "type": "subghz", "settings": { "modulation": "ook" } }
+                    }
+                },
+                serde_json::to_value(channel("kept", 145_500_000.0)).expect("channel"),
+            ],
+        });
+        let state: WorkspaceState = serde_json::from_value(stored).expect("loads");
+        assert!(state.channel("gone").is_none());
+        assert_eq!(state.channel("kept"), Some(&channel("kept", 145_500_000.0)));
     }
 
     #[test]

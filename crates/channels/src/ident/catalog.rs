@@ -516,8 +516,8 @@ const SIGNATURES: &[Signature] = &[
         symbol_rate_hz: Some(range(300.0, 30_000.0)),
         frequencies: ISM,
         ..signature(
-            "Sub-GHz remote (OOK)",
-            Some("subghz"),
+            "ISM remote (OOK)",
+            None,
             &[Modulation::Ook],
             range(2_000.0, 160_000.0),
             "a keyed carrier at remote-control speed",
@@ -528,8 +528,8 @@ const SIGNATURES: &[Signature] = &[
         deviation_hz: Some(range(8_000.0, 80_000.0)),
         frequencies: ISM,
         ..signature(
-            "Sub-GHz telemetry (2-FSK)",
-            Some("subghz"),
+            "ISM telemetry (2-FSK)",
+            None,
             &[Modulation::Fsk2],
             range(15_000.0, 160_000.0),
             "a wide two-level shift, sensor-radio speed",

@@ -57,10 +57,10 @@ pub use channel::{
     MIN_IDENT_INTERVAL_MS, MIN_IDENT_THRESHOLD_DB, MIN_NAVAID_REPORT_MS,
     MIN_SQUELCH_AUTO_MARGIN_DB, MorseParams, NavtexParams, NfmParams, NfmScramblerMode,
     NfmToneMode, NxdnBandwidth, NxdnParams, P25Params, ParamLimit, PocsagBaud, PocsagParams,
-    PskBaud, PskParams, RadioClockParams, RadioClockStandard, RttyParams, RttyStopBits,
-    SelcallParams, SelcallSystem, Sideband, Squelch, SsbParams, SstvMode, SstvParams,
-    SubghzModulation, SubghzParams, Vdl2Params, VorParams, WfmParams, WsjtParams, WsprParams,
-    YsfParams, home_frequency_hz, param_limits,
+    PskBaud, PskParams, RETIRED_CHANNEL_TYPES, RadioClockParams, RadioClockStandard, RttyParams,
+    RttyStopBits, SelcallParams, SelcallSystem, Sideband, Squelch, SsbParams, SstvMode, SstvParams,
+    Vdl2Params, VorParams, WfmParams, WsjtParams, WsprParams, YsfParams, home_frequency_hz,
+    param_limits, retired_channel_type,
 };
 pub use coherent::{
     ArrayElement, ArrayGeometry, CalParams, CalSource, CalState, CfarParams, CoherentParams,
@@ -91,8 +91,8 @@ pub use decode::{
     DvSlotActivity, DvTrunkProtocol, ErmesMessage, FlexMessage, GnssFrame, IdentFeatures,
     IdentReport, IdentSignal, IlsReading, Modulation, MorseText, NavtexMessage, PagerPayload,
     PocsagMessage, PocsagPayload, ProtocolMatch, PskText, RadioClockFrame, RdsUpdate, RttyText,
-    ScramblerStatus, SelcallSequence, SstvPicture, SubghzEncoding, SubghzFrame, SubghzReading,
-    ToneSquelchStatus, Vendor, VorReading, WsjtMessage, WsprSpot,
+    ScramblerStatus, SelcallSequence, SstvPicture, ToneSquelchStatus, Vendor, VorReading,
+    WsjtMessage, WsprSpot,
 };
 pub use device::{
     ARRAY_DRIVER_ID, Agc, AgcGain, AgcSetting, ArgumentInfo, ArgumentOption, ArgumentType,
@@ -661,7 +661,7 @@ mod contract_tests {
         use channel::{
             AcarsParams, AdsbParams, AisParams, AprsParams, DabParams, DatvParams, DrmParams,
             GnssParams, MorseParams, NavtexParams, PocsagParams, PskBaud, PskParams,
-            RadioClockParams, RttyParams, SubghzParams, WsjtParams, WsprParams,
+            RadioClockParams, RttyParams, WsjtParams, WsprParams,
         };
         for (json, expected) in [
             (
@@ -695,10 +695,6 @@ mod contract_tests {
             (
                 r#"{"type":"acars","settings":{}}"#,
                 ChannelParams::Acars(AcarsParams::default()),
-            ),
-            (
-                r#"{"type":"subghz","settings":{}}"#,
-                ChannelParams::Subghz(SubghzParams::default()),
             ),
             (
                 r#"{"type":"ft8","settings":{}}"#,

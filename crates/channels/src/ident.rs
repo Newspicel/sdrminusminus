@@ -783,27 +783,6 @@ mod tests {
     }
 
     #[test]
-    fn a_remote_control_is_keyed_rather_than_shifted() {
-        let frame = testgen::subghz::Pwm {
-            bits: (0..24).map(|i| 0x0A_1B23u32 >> (23 - i) & 1 == 1).collect(),
-            short_us: 320,
-            long_multiple: 3,
-            sync_gap_multiple: 31,
-            repeats: 6,
-        };
-        let iq = on_air(&testgen::subghz::pwm(&frame, INPUT_RATE_HZ), 2.0, 0x1e44);
-        let reports = run(params(), &iq);
-        assert_eq!(consensus(&reports), Modulation::Ook);
-        assert!(
-            reports
-                .iter()
-                .any(|r| best(r) == Some("Sub-GHz remote (OOK)")),
-            "candidates: {:?}",
-            reports.iter().map(best).collect::<Vec<_>>()
-        );
-    }
-
-    #[test]
     fn a_broadcast_signal_is_wideband_fm() {
         let audio = programme(48_000, 0x4d21);
         let iq = on_air(

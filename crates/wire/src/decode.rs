@@ -279,68 +279,6 @@ pub struct AcarsMessage {
     pub more: bool,
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum SubghzEncoding {
-    Pcm,
-    Pwm,
-    Ppm,
-    Manchester,
-    Dmc,
-    #[default]
-    Raw,
-}
-
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, ToSchema)]
-pub struct SubghzReading {
-    pub model: String,
-    pub id: u32,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub channel: Option<u8>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub battery_ok: Option<bool>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub temperature_c: Option<f64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub humidity_pct: Option<f64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub moisture_pct: Option<f64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub pressure_kpa: Option<f64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub wind_avg_kmh: Option<f64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub wind_max_kmh: Option<f64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub wind_dir_deg: Option<f64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub rain_mm: Option<f64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub power_w: Option<f64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub energy_kwh: Option<f64>,
-}
-
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, ToSchema)]
-pub struct SubghzFrame {
-    pub modulation: crate::channel::SubghzModulation,
-    pub encoding: SubghzEncoding,
-    pub bits: u32,
-    pub data: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub address: Option<u32>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub button: Option<u8>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub tri_state: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub reading: Option<SubghzReading>,
-    pub short_us: u32,
-    pub repeats: u32,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub timings_us: Vec<u32>,
-}
-
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct ToneSquelchStatus {
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1175,7 +1113,6 @@ pub enum DecoderEvent {
     Selcall(SelcallSequence),
     Navtex(NavtexMessage),
     Acars(AcarsMessage),
-    Subghz(SubghzFrame),
     Tone(ToneSquelchStatus),
     Scrambler(ScramblerStatus),
     Dv(DvFrame),
@@ -1263,24 +1200,6 @@ fn tone_summary(t: &ToneSquelchStatus) -> String {
         parts.push("no tone".to_owned());
     }
     parts.push(if t.open { "open" } else { "muted" }.to_owned());
-    parts.join(" · ")
-}
-
-fn subghz_summary(f: &SubghzFrame) -> String {
-    let mut parts = vec![if f.bits == 0 {
-        format!("raw, {} edges", f.timings_us.len())
-    } else {
-        format!("{} bit {}", f.bits, f.data)
-    }];
-    if let Some(address) = f.address {
-        parts.push(format!("addr {address:05X}"));
-    }
-    if let Some(button) = f.button {
-        parts.push(format!("btn {button:X}"));
-    }
-    if f.repeats > 1 {
-        parts.push(format!("×{}", f.repeats));
-    }
     parts.join(" · ")
 }
 
@@ -1433,7 +1352,6 @@ impl DecoderEvent {
             Self::Selcall(_) => "selcall",
             Self::Navtex(_) => "navtex",
             Self::Acars(_) => "acars",
-            Self::Subghz(_) => "subghz",
             Self::Tone(_) => "tone",
             Self::Scrambler(_) => "scrambler",
             Self::Dv(_) => "dv",
@@ -1560,7 +1478,6 @@ impl DecoderEvent {
                 ),
                 None => "no inversion".to_owned(),
             },
-            Self::Subghz(f) => subghz_summary(f),
             Self::Call(c) => call_summary(c),
             Self::Transmission(t) => t.summary(),
             Self::Dv(f) => dv_summary(f),
@@ -1694,10 +1611,6 @@ impl DecoderEvent {
             Self::Aprs(p) => Some(p.source.clone()),
             Self::Navtex(n) => n.station.map(String::from),
             Self::Acars(a) => Some(a.registration.clone()),
-            Self::Subghz(f) => f
-                .address
-                .map(|a| format!("{a:05X}"))
-                .or_else(|| (!f.data.is_empty()).then(|| f.data.clone())),
             Self::Dv(f) => f
                 .source_call
                 .clone()
@@ -1872,7 +1785,6 @@ mod tests {
             }),
             DecoderEvent::Navtex(NavtexMessage::default()),
             DecoderEvent::Acars(AcarsMessage::default()),
-            DecoderEvent::Subghz(SubghzFrame::default()),
             DecoderEvent::Tone(ToneSquelchStatus::default()),
             DecoderEvent::Scrambler(ScramblerStatus::default()),
             DecoderEvent::Ft8(WsjtMessage {
@@ -2010,29 +1922,6 @@ mod tests {
         assert_eq!(msg.header().as_deref(), Some("DA07"));
         msg.serial = None;
         assert_eq!(msg.header(), None);
-    }
-
-    #[test]
-    fn subghz_summary_describes_a_raw_capture() {
-        let raw = DecoderEvent::Subghz(SubghzFrame {
-            timings_us: vec![320, 960, 960, 320],
-            repeats: 1,
-            ..SubghzFrame::default()
-        });
-        assert_eq!(raw.summary(), "raw, 4 edges");
-        assert_eq!(raw.station(), None);
-
-        let decoded = DecoderEvent::Subghz(SubghzFrame {
-            encoding: SubghzEncoding::Pwm,
-            bits: 24,
-            data: "A1B2C3".to_owned(),
-            address: Some(0x0A1B2),
-            button: Some(3),
-            repeats: 4,
-            ..SubghzFrame::default()
-        });
-        assert_eq!(decoded.summary(), "24 bit A1B2C3 · addr 0A1B2 · btn 3 · ×4");
-        assert_eq!(decoded.station().as_deref(), Some("0A1B2"));
     }
 
     #[test]

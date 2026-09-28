@@ -241,12 +241,6 @@ pub static SIGNALS: &[Signal] = &[
         render: ysf,
     },
     Signal {
-        id: "subghz",
-        label: "Sub-GHz remote · OOK",
-        rate_hz: 500_000.0,
-        render: subghz,
-    },
-    Signal {
         id: "dect",
         label: "DECT",
         rate_hz: 2_304_000.0,
@@ -662,17 +656,6 @@ fn ysf() -> Vec<Complex<f32>> {
         &dv::ysf::Call::default(),
         AUDIO,
     )
-}
-
-fn subghz() -> Vec<Complex<f32>> {
-    let remote = testgen::subghz::Pwm {
-        bits: vec![true, false, true, true, false, false, true, false],
-        short_us: 350,
-        long_multiple: 2,
-        sync_gap_multiple: 30,
-        repeats: 4,
-    };
-    testgen::subghz::pwm(&remote, 500_000.0)
 }
 
 fn dect() -> Vec<Complex<f32>> {

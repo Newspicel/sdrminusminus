@@ -517,7 +517,7 @@ mod tests {
                 ..DeviceSettings::default()
             })
             .expect("in range");
-        device.apply(&signal("subghz")).expect("subghz is a signal");
+        device.apply(&signal("dect")).expect("dect is a signal");
         assert_eq!(device.settings().center_hz, Some(433_920_000.0));
     }
 

@@ -6,7 +6,7 @@ import type {
   DectFrame,
   DvFrame,
 } from "../lib/types";
-import { hex2, hex5 } from "./decoderLog";
+import { hex5 } from "./decoderLog";
 import {
   candidateScore,
   dvChecksum,
@@ -241,58 +241,6 @@ const DETAIL: {
       ["Continues", a.more ? "yes: another block follows" : undefined],
     ]),
     body: a.text || null,
-  }),
-
-  subghz: (f) => ({
-    fields: fields([
-      ["Model", f.reading?.model],
-      ["Sensor id", f.reading == null ? undefined : hex2(f.reading.id)],
-      ["Channel", f.reading?.channel == null ? undefined : String(f.reading.channel)],
-      [
-        "Temperature",
-        f.reading?.temperature_c == null ? undefined : `${f.reading.temperature_c.toFixed(1)} °C`,
-      ],
-      [
-        "Humidity",
-        f.reading?.humidity_pct == null ? undefined : `${f.reading.humidity_pct.toFixed(0)} %`,
-      ],
-      [
-        "Soil moisture",
-        f.reading?.moisture_pct == null ? undefined : `${f.reading.moisture_pct.toFixed(0)} %`,
-      ],
-      [
-        "Tyre pressure",
-        f.reading?.pressure_kpa == null ? undefined : `${f.reading.pressure_kpa.toFixed(0)} kPa`,
-      ],
-      [
-        "Wind average",
-        f.reading?.wind_avg_kmh == null ? undefined : `${f.reading.wind_avg_kmh.toFixed(1)} km/h`,
-      ],
-      [
-        "Wind gust",
-        f.reading?.wind_max_kmh == null ? undefined : `${f.reading.wind_max_kmh.toFixed(1)} km/h`,
-      ],
-      [
-        "Wind direction",
-        f.reading?.wind_dir_deg == null ? undefined : `${f.reading.wind_dir_deg.toFixed(0)}\u00b0`,
-      ],
-      ["Rain", f.reading?.rain_mm == null ? undefined : `${f.reading.rain_mm.toFixed(1)} mm`],
-      ["Power", f.reading?.power_w == null ? undefined : `${f.reading.power_w.toFixed(0)} W`],
-      [
-        "Energy",
-        f.reading?.energy_kwh == null ? undefined : `${f.reading.energy_kwh.toFixed(2)} kWh`,
-      ],
-      ["Battery", flag(f.reading?.battery_ok)],
-      ["Modulation", f.modulation],
-      ["Encoding", f.encoding],
-      ["Payload", f.bits === 0 ? undefined : `${f.data} (${f.bits} bit)`],
-      ["EV1527 address", f.address == null ? undefined : hex5(f.address)],
-      ["EV1527 button", f.button == null ? undefined : f.button.toString(16).toUpperCase()],
-      ["PT2262 tri-state", f.tri_state],
-      ["Base period", f.short_us > 0 ? `${f.short_us} µs` : undefined],
-      ["Repeats", f.repeats > 1 ? `×${f.repeats}` : undefined],
-    ]),
-    body: timings(f.timings_us ?? []),
   }),
 
   ident: (r) => {
@@ -794,16 +742,4 @@ function header(
     return undefined;
   }
   return `${station}${subject}${String(serial).padStart(2, "0")}`;
-}
-
-function timings(us: readonly number[]): string | null {
-  if (us.length === 0) {
-    return null;
-  }
-  const pairs: string[] = [];
-  for (let i = 0; i < us.length; i += 2) {
-    const gap = us[i + 1];
-    pairs.push(gap == null ? `${us[i]}` : `${us[i]}/${gap}`);
-  }
-  return pairs.join("  ");
 }

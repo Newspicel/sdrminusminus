@@ -166,17 +166,6 @@ describe("eventDetail", () => {
           more: false,
         },
       },
-      subghz: {
-        kind: "subghz",
-        data: {
-          modulation: "ook",
-          encoding: "raw",
-          bits: 0,
-          data: "",
-          short_us: 0,
-          repeats: 1,
-        },
-      },
       tone: { kind: "tone", data: { open: true } },
       scrambler: { kind: "scrambler", data: { inversion_hz: 3300, confidence: 0.8 } },
       dv: { kind: "dv", data: { mode: "dmr", kind: "header", errors_corrected: 0 } },
@@ -476,91 +465,6 @@ describe("eventDetail", () => {
       Continues: "yes: another block follows",
     });
     expect(detail.body).toBe("POS N52.5 E013.4\nFL370");
-  });
-
-  it("pairs sub-GHz timings pulse-with-gap and offers only the readings the frame supports", () => {
-    const detail = eventDetail({
-      kind: "subghz",
-      data: {
-        modulation: "ook",
-        encoding: "pwm",
-        bits: 24,
-        data: "A1B2C3",
-        address: 0xa1b2,
-        button: 3,
-        short_us: 320,
-        repeats: 6,
-        timings_us: [320, 960, 960, 320, 320],
-      },
-    });
-    expect(Object.fromEntries(detail.fields)).toMatchObject({
-      Payload: "A1B2C3 (24 bit)",
-      "EV1527 address": "0A1B2",
-      "EV1527 button": "3",
-      "Base period": "320 µs",
-      Repeats: "×6",
-    });
-    expect(detail.fields.map(([label]) => label)).not.toContain("PT2262 tri-state");
-    expect(detail.body).toBe("320/960  960/320  320");
-  });
-
-  it("puts a named sensor reading ahead of the framing that carried it", () => {
-    const detail = eventDetail({
-      kind: "subghz",
-      data: {
-        modulation: "ook",
-        encoding: "ppm",
-        bits: 36,
-        data: "8F80D5F2F",
-        short_us: 1000,
-        repeats: 8,
-        reading: {
-          model: "Nexus-TH",
-          id: 0x8f,
-          channel: 1,
-          battery_ok: true,
-          temperature_c: 21.3,
-          humidity_pct: 47,
-        },
-      },
-    });
-    expect(detail.fields.slice(0, 6)).toEqual([
-      ["Model", "Nexus-TH"],
-      ["Sensor id", "8F"],
-      ["Channel", "1"],
-      ["Temperature", "21.3 °C"],
-      ["Humidity", "47 %"],
-      ["Battery", "yes"],
-    ]);
-  });
-
-  it("omits the sensor fields a reading did not carry", () => {
-    const detail = eventDetail({
-      kind: "subghz",
-      data: {
-        modulation: "ook",
-        encoding: "ppm",
-        bits: 36,
-        data: "A3901EF0",
-        short_us: 1000,
-        repeats: 4,
-        reading: { model: "Nexus-T", id: 0xa3, temperature_c: 3 },
-      },
-    });
-    const labels = detail.fields.map(([label]) => label);
-    expect(labels).toContain("Temperature");
-    expect(labels).not.toContain("Humidity");
-    expect(labels).not.toContain("Channel");
-    expect(labels).not.toContain("Battery");
-  });
-
-  it("reports a raw capture as timings with no payload", () => {
-    const detail = eventDetail({
-      kind: "subghz",
-      data: { modulation: "ook", encoding: "raw", bits: 0, data: "", short_us: 0, repeats: 1 },
-    });
-    expect(detail.fields.map(([label]) => label)).toEqual(["Modulation", "Encoding"]);
-    expect(detail.body).toBeNull();
   });
 
   it("distinguishes a frame that said 'not encrypted' from one that did not say", () => {

@@ -270,7 +270,6 @@ function stationId(event: DecoderEvent): string | null {
     case "transmission":
     case "navtex":
     case "acars":
-    case "subghz":
     case "selcall":
     case "rtty":
     case "morse":

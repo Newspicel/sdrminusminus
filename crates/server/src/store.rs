@@ -286,6 +286,7 @@ const MIGRATIONS: &[&str] = &[
     END;
     ",
     "ALTER TABLE decoder_log ADD COLUMN origin TEXT;",
+    "DELETE FROM decoder_log WHERE kind = 'subghz';",
 ];
 
 pub const WORKSPACE_HISTORY_DEPTH: i64 = 100;
@@ -1292,6 +1293,7 @@ fn state_at(conn: &Connection, id: i64, seq: i64) -> Result<Option<String>, Stor
 
 fn parse_workspace_snapshot(json: &str) -> Result<WorkspaceSnapshot, serde_json::Error> {
     let mut value: serde_json::Value = serde_json::from_str(json)?;
+    drop_retired_channels(&mut value);
     migrate_call_buffers(&mut value);
     migrate_trunk_carriers(&mut value);
     migrate_event_outputs(&mut value);
@@ -1305,6 +1307,59 @@ fn parse_workspace_snapshot(json: &str) -> Result<WorkspaceSnapshot, serde_json:
 }
 
 const SPLIT_SCOPE_OFFSET_Y: f64 = 420.0;
+
+fn drop_retired_channels(snapshot: &mut serde_json::Value) {
+    let retired: HashSet<String> = snapshot
+        .get("graph")
+        .and_then(|graph| graph.get("nodes"))
+        .and_then(serde_json::Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter(|node| node_kind(node) == Some("channel"))
+        .filter(|node| {
+            node.get("data")
+                .and_then(|data| data.get("channel_type"))
+                .and_then(serde_json::Value::as_str)
+                .is_some_and(sdrmm_wire::retired_channel_type)
+        })
+        .filter_map(|node| node.get("id")?.as_str().map(str::to_owned))
+        .collect();
+    if retired.is_empty() {
+        return;
+    }
+    let named = |value: &serde_json::Value, key: &str| {
+        value
+            .get(key)
+            .and_then(serde_json::Value::as_str)
+            .is_some_and(|id| retired.contains(id))
+    };
+    let touches = |edge: &serde_json::Value| {
+        ["from", "to"]
+            .iter()
+            .any(|end| edge.get(end).is_some_and(|end| named(end, "node")))
+    };
+    if let Some(graph) = snapshot.get_mut("graph") {
+        if let Some(nodes) = graph
+            .get_mut("nodes")
+            .and_then(serde_json::Value::as_array_mut)
+        {
+            nodes.retain(|node| !named(node, "id"));
+        }
+        if let Some(edges) = graph
+            .get_mut("edges")
+            .and_then(serde_json::Value::as_array_mut)
+        {
+            edges.retain(|edge| !touches(edge));
+        }
+    }
+    if let Some(slots) = snapshot
+        .get_mut("rack")
+        .and_then(|rack| rack.get_mut("slots"))
+        .and_then(serde_json::Value::as_array_mut)
+    {
+        slots.retain(|slot| !named(slot, "node"));
+    }
+}
 
 fn migrate_baseband_scopes(snapshot: &mut serde_json::Value) {
     let Some(graph) = snapshot.get_mut("graph") else {

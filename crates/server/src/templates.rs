@@ -3,10 +3,9 @@ use std::sync::LazyLock;
 use sdrmm_wire::{
     AcarsParams, AdsbParams, AisParams, AmParams, AprsParams, ChannelNode, ChannelParams,
     ChannelSettings, DabParams, DeviceNode, DmrParams, DstarParams, ErmesParams, FlexParams,
-    GnssParams, IdentParams, M17Params, MorseParams, NavtexParams, NfmParams, NodeBody, PatchEdge,
-    PatchGraph, PatchNode, PocsagParams, PortRef, Position, PskParams, RadioClockParams,
-    RttyParams, Squelch, SsbParams, SstvParams, SubghzParams, TemplateInfo, WfmParams, WsjtParams,
-    WsprParams, YsfParams,
+    GnssParams, M17Params, MorseParams, NavtexParams, NfmParams, NodeBody, PatchEdge, PatchGraph,
+    PatchNode, PocsagParams, PortRef, Position, PskParams, RadioClockParams, RttyParams, Squelch,
+    SsbParams, SstvParams, TemplateInfo, WfmParams, WsjtParams, WsprParams, YsfParams,
 };
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -447,31 +446,6 @@ static TEMPLATES: &[Entry] = &[
                 439_000_000.0,
                 || ChannelParams::M17(M17Params::default()),
                 LISTEN_LOG,
-            ),
-        ],
-    },
-    Entry {
-        id: "ism-433",
-        name: "ISM 433 MHz",
-        description: "Remotes, sensors and doorbells, plus a classifier for the rest.",
-        explainer: "433.05–434.79 MHz is licence-free for short-range devices, so it is full \
-                    of weather sensors, car remotes, tyre-pressure monitors and doorbells \
-                    sending a few bytes at a time. The sub-GHz decoder reports the raw pulse \
-                    train of on-off keyed bursts. Alongside it, the identifier watches the \
-                    same span and names the modulation of anything it sees, which is the \
-                    quickest way to tell an unknown burst apart from noise.",
-        center_hz: 433_920_000.0,
-        sample_rate: 1_024_000.0,
-        channels: &[
-            Channel::at(
-                433_920_000.0,
-                || ChannelParams::Subghz(SubghzParams::default()),
-                LOG,
-            ),
-            Channel::at(
-                433_920_000.0,
-                || ChannelParams::Ident(IdentParams::default()),
-                LOG_READ,
             ),
         ],
     },

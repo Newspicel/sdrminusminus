@@ -218,10 +218,6 @@ const RTTY_SHIFTS_HZ: Options<number> = [
   { value: 450, label: "450" },
   { value: 850, label: "850" },
 ];
-const SUBGHZ_MODULATIONS: Options<NonNullable<ChannelParamsOf<"subghz">["modulation"]>> = [
-  { value: "ook", label: "OOK/ASK" },
-  { value: "fsk", label: "FSK" },
-];
 const PSK_BAUDS: Options<NonNullable<ChannelParamsOf<"psk">["baud"]>> = [
   { value: "psk31", label: "PSK31" },
   { value: "psk63", label: "PSK63" },
@@ -1045,52 +1041,6 @@ function ModeControls({
             }
           />
         </SettingRow>
-      );
-    case "subghz":
-      return (
-        <>
-          <SettingRow label="Modulation">
-            <Segmented
-              label="Modulation"
-              value={params.settings.modulation ?? "ook"}
-              options={SUBGHZ_MODULATIONS}
-              onChange={(modulation) =>
-                onParams({ type: "subghz", settings: { ...params.settings, modulation } })
-              }
-            />
-          </SettingRow>
-          <SettingRow label="Bandwidth">
-            <BandwidthSelect
-              valueHz={params.settings.bandwidth_hz ?? 150_000}
-              optionsHz={[50_000, 100_000, 150_000]}
-              onCommit={(bandwidth_hz) =>
-                onParams({ type: "subghz", settings: { ...params.settings, bandwidth_hz } })
-              }
-            />
-          </SettingRow>
-          <SettingRow label="Min pulse">
-            <NumberField
-              label="Shortest keying edge accepted"
-              value={params.settings.min_pulse_us ?? 80}
-              {...limitOf(limits, "min_pulse_us")}
-              onCommit={(min_pulse_us) =>
-                onParams({ type: "subghz", settings: { ...params.settings, min_pulse_us } })
-              }
-              unit="µs"
-            />
-          </SettingRow>
-          <SettingRow label="Frame gap">
-            <NumberField
-              label="Silence that ends a frame"
-              value={params.settings.frame_gap_us ?? 5_000}
-              {...limitOf(limits, "frame_gap_us")}
-              onCommit={(frame_gap_us) =>
-                onParams({ type: "subghz", settings: { ...params.settings, frame_gap_us } })
-              }
-              unit="µs"
-            />
-          </SettingRow>
-        </>
       );
     case "atv":
       return (
