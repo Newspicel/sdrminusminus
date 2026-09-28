@@ -469,8 +469,8 @@ async fn a_hunt_streams_a_strength_a_walker_can_follow() {
         .start_hunt(
             ds,
             sdrmm_wire::HuntSettings {
-                channel: ch,
                 interval_ms: 20,
+                ..sdrmm_wire::HuntSettings::for_channel(ch)
             },
         )
         .unwrap();

@@ -96,7 +96,7 @@ pub use device::{
     Agc, AgcGain, AgcReach, AgcSetting, ArgumentInfo, ArgumentOption, ArgumentType,
     BandwidthSetting, Capabilities, ChannelCapabilities, Coherence, DcArtifact, DeviceInfo,
     DeviceProfile, DeviceSettings, Direction, DirectionalCapabilities, Duplex, ExtraSetting,
-    ExtraValue, GainKind, GainStage, GainUnit, GainValue, MAX_RECORDING_STEM_LEN,
+    ExtraValue, GainKind, GainStage, GainUnit, GainValue, MAX_RECORDING_STEM_LEN, NoiseSource,
     RECORDING_DRIVER_ID, Range, SIGGEN_DRIVER_ID, StreamScope, StreamSettings, Tuning,
     any_range_holds, recording_stem_valid,
 };
@@ -115,10 +115,7 @@ pub use frame::{
     AudioFrame, FrameKind, HEADER_LEN, IqFrame, PROTOCOL_VERSION, RangeDopplerFrame, SpectrumFrame,
     SymbolFrame, SymbolPlane, VideoData, VideoFrame, typescript_frames,
 };
-pub use fusion::{
-    DfBearing, DfEstimate, DfFusionState, DfGuidance, DfStation, GuidanceMode, NavTarget,
-    NavTargetKind,
-};
+pub use fusion::{DfBearing, DfEstimate, DfFusionState, DfStation, NavTarget, NavTargetKind};
 pub use geo::LatLon;
 pub use hunt::{HuntAction, HuntRequest, HuntSettings, HuntStatus};
 pub use network::{
@@ -849,7 +846,8 @@ mod contract_tests {
                 dc_artifact: DcArtifact::Operator,
                 hardware_sweep: false,
                 coherence: Coherence::None,
-                noise_source: false,
+                noise_source: crate::device::NoiseSource::None,
+                retune_keeps_phase: false,
             },
             settings: DeviceSettings::default(),
             status: DeviceSetStatus::Running,
@@ -1190,10 +1188,7 @@ mod contract_tests {
         let ev = ServerEvent::HuntUpdate {
             device_set: 2,
             status: Box::new(hunt::HuntStatus {
-                settings: hunt::HuntSettings {
-                    channel: 7,
-                    interval_ms: 50,
-                },
+                settings: hunt::HuntSettings::for_channel(7),
                 freq_hz: 433_920_000.0,
                 bw_hz: 12_500.0,
                 level_db: Some(-58.5),
@@ -1203,6 +1198,9 @@ mod contract_tests {
                 strength: 0.63,
                 closing: true,
                 readings: 17,
+                at_ms: 0,
+                pose_drops: 0,
+                sweep: None,
                 error: None,
             }),
         };

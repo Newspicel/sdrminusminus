@@ -22,6 +22,18 @@ fn bearing(bearing_deg: f32) -> DfBearing {
         lat: None,
         lon: None,
         station_id: None,
+        node: String::new(),
+        sigma_deg: 10.0,
+        accuracy_m: None,
+        heading_deg: None,
+        heading_sigma_deg: None,
+        relative_deg: None,
+        mirror_deg: None,
+        freq_hz: None,
+        source: sdrmm_wire::fusion::BearingSource::Array,
+        moving: false,
+        others: Vec::new(),
+        likelihood: Vec::new(),
     }
 }
 

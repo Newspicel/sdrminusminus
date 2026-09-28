@@ -215,7 +215,8 @@ pub(crate) fn capabilities(directional: DirectionalCapabilities) -> Capabilities
         dc_artifact: DcArtifact::Operator,
         hardware_sweep: false,
         coherence,
-        noise_source: false,
+        noise_source: sdrmm_wire::NoiseSource::None,
+        retune_keeps_phase: false,
     }
 }
 

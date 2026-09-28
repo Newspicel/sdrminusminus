@@ -29,6 +29,9 @@ pub enum StreamKind {
     Iq,
     Symbols,
     RangeDoppler,
+    SpatialSpectrum,
+    Visibility,
+    FusionGrid,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]

@@ -80,7 +80,8 @@ pub fn capabilities() -> Capabilities {
         dc_artifact: DcArtifact::Operator,
         hardware_sweep: false,
         coherence: Coherence::PhaseCoherent,
-        noise_source: false,
+        noise_source: sdrmm_wire::NoiseSource::None,
+        retune_keeps_phase: false,
     }
 }
 
@@ -95,5 +96,7 @@ pub fn profile() -> DeviceProfile {
         rx_streams: capabilities.rx_streams,
         tx_streams: 0,
         per_stream: capabilities.per_stream,
+        coherence: capabilities.coherence,
+        noise_source: capabilities.noise_source,
     }
 }

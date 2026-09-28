@@ -25,6 +25,10 @@ pub struct DeviceProfile {
     pub tx_streams: u32,
     #[serde(default)]
     pub per_stream: StreamScope,
+    #[serde(default)]
+    pub coherence: Coherence,
+    #[serde(default)]
+    pub noise_source: NoiseSource,
 }
 
 impl DeviceProfile {
@@ -797,11 +801,47 @@ pub struct Capabilities {
     pub hardware_sweep: bool,
     #[serde(default)]
     pub coherence: Coherence,
-    /// Whether the radio can switch a calibration reference into every lane at once. An array
-    /// that carries its own is calibrated without an operator reaching for a splitter, and
-    /// without one it has to be told what to solve against.
     #[serde(default)]
-    pub noise_source: bool,
+    pub noise_source: NoiseSource,
+    #[serde(default)]
+    pub retune_keeps_phase: bool,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum NoiseSource {
+    #[default]
+    None,
+    Isolated,
+    Unisolated,
+    Replayed,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum NoiseName {
+    None,
+    Isolated,
+    Unisolated,
+    Replayed,
+}
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum NoiseRepr {
+    Legacy(bool),
+    Named(NoiseName),
+}
+
+impl<'de> Deserialize<'de> for NoiseSource {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        Ok(match NoiseRepr::deserialize(deserializer)? {
+            NoiseRepr::Legacy(false) | NoiseRepr::Named(NoiseName::None) => Self::None,
+            NoiseRepr::Legacy(true) | NoiseRepr::Named(NoiseName::Isolated) => Self::Isolated,
+            NoiseRepr::Named(NoiseName::Unisolated) => Self::Unisolated,
+            NoiseRepr::Named(NoiseName::Replayed) => Self::Replayed,
+        })
+    }
 }
 
 /// How much of the relationship between two of a radio's receive lanes survives calibration.
@@ -889,6 +929,8 @@ impl Capabilities {
             rx_streams: self.rx_streams,
             tx_streams: self.tx_streams,
             per_stream: self.per_stream,
+            coherence: self.coherence,
+            noise_source: self.noise_source,
         }
     }
 }
@@ -1296,7 +1338,8 @@ mod tests {
             dc_artifact: DcArtifact::Operator,
             hardware_sweep: false,
             coherence: Coherence::None,
-            noise_source: false,
+            noise_source: NoiseSource::None,
+            retune_keeps_phase: false,
         }
     }
 
@@ -1327,6 +1370,49 @@ mod tests {
         assert_eq!(profile.duplex, Duplex::Half);
         assert_eq!(profile.rx_streams, 1);
         assert_eq!(profile.per_stream, full.per_stream);
+    }
+
+    #[test]
+    fn noise_source_reads_the_legacy_bool() {
+        let read = |json: &str| serde_json::from_str::<NoiseSource>(json).expect(json);
+        assert_eq!(read("true"), NoiseSource::Isolated);
+        assert_eq!(read("false"), NoiseSource::None);
+        assert_eq!(read(r#""none""#), NoiseSource::None);
+        assert_eq!(read(r#""isolated""#), NoiseSource::Isolated);
+        assert_eq!(read(r#""unisolated""#), NoiseSource::Unisolated);
+        assert_eq!(read(r#""replayed""#), NoiseSource::Replayed);
+        assert!(serde_json::from_str::<NoiseSource>(r#""loud""#).is_err());
+        assert_eq!(
+            serde_json::to_value(NoiseSource::Unisolated).expect("serialize"),
+            "unisolated"
+        );
+        let mut legacy =
+            serde_json::to_value(caps(Vec::new(), Vec::new(), Duplex::RxOnly)).expect("serialize");
+        legacy["noise_source"] = serde_json::Value::Bool(true);
+        legacy
+            .as_object_mut()
+            .expect("object")
+            .remove("retune_keeps_phase");
+        let parsed: Capabilities = serde_json::from_value(legacy).expect("legacy capabilities");
+        assert_eq!(parsed.noise_source, NoiseSource::Isolated);
+        assert!(!parsed.retune_keeps_phase);
+    }
+
+    #[test]
+    fn device_profile_carries_coherence_and_noise_source() {
+        let mut kraken = caps(vec![range(24e6, 1.766e9)], vec![2.4e6], Duplex::RxOnly);
+        kraken.rx_streams = 5;
+        kraken.coherence = Coherence::TimeSync;
+        kraken.noise_source = NoiseSource::Isolated;
+        let profile = kraken.profile();
+        assert_eq!(profile.coherence, Coherence::TimeSync);
+        assert_eq!(profile.noise_source, NoiseSource::Isolated);
+        let old: DeviceProfile = serde_json::from_str(
+            r#"{"freq_ranges":[],"sample_rates":[],"duplex":"rx_only","rx_streams":1,"tx_streams":0}"#,
+        )
+        .expect("old profile");
+        assert_eq!(old.coherence, Coherence::None);
+        assert_eq!(old.noise_source, NoiseSource::None);
     }
 
     #[test]

@@ -223,7 +223,8 @@ mod tests {
                 dc_artifact: DcArtifact::Operator,
                 hardware_sweep: false,
                 coherence: sdrmm_wire::Coherence::None,
-                noise_source: false,
+                noise_source: sdrmm_wire::NoiseSource::None,
+                retune_keeps_phase: false,
             })
         }
 

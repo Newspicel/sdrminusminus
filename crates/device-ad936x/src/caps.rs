@@ -322,7 +322,8 @@ pub(crate) fn capabilities(front: &Front, layout: &Layout) -> Capabilities {
         } else {
             Coherence::None
         },
-        noise_source: false,
+        noise_source: sdrmm_wire::NoiseSource::None,
+        retune_keeps_phase: false,
     }
 }
 

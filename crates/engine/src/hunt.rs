@@ -166,7 +166,7 @@ pub(crate) fn spawn(
     decoder: Decoder,
 ) -> Result<HuntState, EngineError> {
     let status = Arc::new(Mutex::new(HuntStatus {
-        settings,
+        settings: settings.clone(),
         freq_hz: decoder.freq_hz,
         bw_hz: decoder.bw_hz,
         level_db: None,
@@ -176,6 +176,9 @@ pub(crate) fn spawn(
         strength: 0.0,
         closing: false,
         readings: 0,
+        at_ms: 0,
+        pose_drops: 0,
+        sweep: None,
         error: None,
     }));
     let stop = Arc::new(AtomicBool::new(false));

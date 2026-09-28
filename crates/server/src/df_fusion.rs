@@ -4,8 +4,8 @@ use std::{
 };
 
 use sdrmm_wire::{
-    DfBearing, DfEstimate, DfFusionState, DfGuidance, DfStation, GuidanceMode, NavTarget,
-    NavTargetKind, PatchGraph, PositionFix,
+    DfBearing, DfEstimate, DfFusionState, DfStation, NavTarget, NavTargetKind, PatchGraph,
+    PositionFix,
 };
 
 use crate::AppState;
@@ -30,6 +30,7 @@ const MIN_SAMPLES: u32 = 6;
 /// How far ahead the crossing waypoint is placed. Far enough that the bearing genuinely changes,
 /// near enough to be one leg of a drive.
 const CROSSING_M: f64 = 1_500.0;
+const NAV_MOVE_M: f64 = 50.0;
 
 #[must_use]
 pub fn destination(lat: f64, lon: f64, bearing_deg: f64, distance_m: f64) -> (f64, f64) {
@@ -230,34 +231,27 @@ impl FusionGrid {
             ellipse_bearing_deg: ellipse_bearing,
             converged: major * 2.0 <= CONVERGED_M && self.samples >= MIN_SAMPLES,
             samples: self.samples,
+            mass: 0.0,
         })
     }
 }
 
-/// What to do next, given where the vehicle is, where it last heard the signal, and how sure the
-/// grid is.
-///
-/// While the ellipse is long there is nothing to drive at: two bearings taken from the same road
-/// say the same thing. Driving across the bearing is what makes the next one different, and that
-/// is what the guidance asks for until the ellipse closes.
 #[must_use]
-pub(crate) fn guidance(
+pub(crate) fn nav_target(
     fix: &PositionFix,
     bearing_deg: f64,
     estimate: Option<DfEstimate>,
-) -> DfGuidance {
+) -> NavTarget {
     let here = (fix.latitude, fix.longitude);
     if let Some(estimate) = estimate.filter(|estimate| estimate.converged) {
         let target = (estimate.lat, estimate.lon);
-        return DfGuidance {
-            heading_deg: bearing_between(here, target),
-            mode: GuidanceMode::Approach,
+        return NavTarget {
+            lat: estimate.lat,
+            lon: estimate.lon,
+            kind: NavTargetKind::Estimate,
+            revision: 0,
             distance_m: distance_m(here, target),
-            nav_target: NavTarget {
-                lat: estimate.lat,
-                lon: estimate.lon,
-                kind: NavTargetKind::Target,
-            },
+            bearing_deg: bearing_between(here, target),
         };
     }
     let track = fix.track_deg.unwrap_or(bearing_deg);
@@ -269,42 +263,70 @@ pub(crate) fn guidance(
         right
     };
     let (lat, lon) = destination(here.0, here.1, heading, CROSSING_M);
-    DfGuidance {
-        heading_deg: heading,
-        mode: GuidanceMode::Cross,
+    NavTarget {
+        lat,
+        lon,
+        kind: NavTargetKind::Probe,
+        revision: 0,
         distance_m: CROSSING_M,
-        nav_target: NavTarget {
-            lat,
-            lon,
-            kind: NavTargetKind::Cross,
-        },
+        bearing_deg: heading,
     }
+}
+
+fn revise(issued: Option<NavTarget>, next: NavTarget) -> NavTarget {
+    let revision = match issued {
+        None => 0,
+        Some(issued)
+            if issued.kind == next.kind
+                && distance_m((issued.lat, issued.lon), (next.lat, next.lon)) <= NAV_MOVE_M =>
+        {
+            issued.revision
+        }
+        Some(issued) => issued.revision.wrapping_add(1),
+    };
+    NavTarget { revision, ..next }
 }
 
 #[derive(Default)]
 struct NodeFusion {
     grid: FusionGrid,
     stations: HashMap<String, DfStation>,
-    guidance: Option<DfGuidance>,
+    nav: Option<NavTarget>,
+    issued: Option<NavTarget>,
     announced: bool,
 }
 
 impl NodeFusion {
-    fn see(&mut self, station: &str, lat: f64, lon: f64, at: &str) {
+    fn steer(&mut self, next: NavTarget) -> NavTarget {
+        let nav = revise(self.issued, next);
+        if self
+            .issued
+            .is_none_or(|issued| issued.revision != nav.revision)
+        {
+            self.issued = Some(nav);
+        }
+        self.nav = Some(nav);
+        nav
+    }
+}
+
+impl NodeFusion {
+    fn see(&mut self, station: &str, bearing: &DfBearing, fix: &PositionFix, at: &str) {
         let entry = self
             .stations
             .entry(station.to_owned())
             .or_insert_with(|| DfStation {
                 station_id: station.to_owned(),
-                lat,
-                lon,
-                bearings: 0,
-                last_seen: at.to_owned(),
+                ..DfStation::default()
             });
-        entry.lat = lat;
-        entry.lon = lon;
+        entry.lat = fix.latitude;
+        entry.lon = fix.longitude;
         entry.bearings = entry.bearings.saturating_add(1);
         entry.last_seen = at.to_owned();
+        entry.last_bearing_deg = bearing.bearing_deg;
+        entry.sigma_deg = bearing.sigma_deg;
+        entry.source = bearing.source;
+        entry.moving = bearing.moving;
     }
 }
 
@@ -332,7 +354,8 @@ impl FusionHub {
         if let Some(fusion) = self.lock().get_mut(node) {
             fusion.grid.reset();
             fusion.stations.clear();
-            fusion.guidance = None;
+            fusion.nav = None;
+            fusion.issued = None;
             fusion.announced = false;
         }
     }
@@ -342,9 +365,10 @@ impl FusionHub {
         let fusion = nodes.get(node)?;
         Some(DfFusionState {
             estimate: fusion.grid.estimate(),
-            guidance: fusion.guidance,
+            nav: fusion.nav,
             stations: fusion.stations.values().cloned().collect(),
             samples: fusion.grid.samples(),
+            ..DfFusionState::default()
         })
     }
 
@@ -370,10 +394,9 @@ impl FusionHub {
             f64::from(bearing.bearing_deg),
             bearing.confidence,
         );
-        fusion.see(station, fix.latitude, fix.longitude, at);
+        fusion.see(station, bearing, fix, at);
         let estimate = fusion.grid.estimate();
-        let guidance = guidance(fix, f64::from(bearing.bearing_deg), estimate);
-        fusion.guidance = Some(guidance);
+        let nav = fusion.steer(nav_target(fix, f64::from(bearing.bearing_deg), estimate));
         let first_fix = match estimate {
             Some(estimate) if estimate.converged && !fusion.announced => {
                 fusion.announced = true;
@@ -388,9 +411,10 @@ impl FusionHub {
         Some(FusionOutcome {
             state: DfFusionState {
                 estimate,
-                guidance: Some(guidance),
+                nav: Some(nav),
                 stations: fusion.stations.values().cloned().collect(),
                 samples: fusion.grid.samples(),
+                ..DfFusionState::default()
             },
             first_fix,
         })
@@ -432,6 +456,18 @@ mod tests {
             lat: None,
             lon: None,
             station_id: None,
+            node: String::new(),
+            sigma_deg: 10.0,
+            accuracy_m: None,
+            heading_deg: None,
+            heading_sigma_deg: None,
+            relative_deg: None,
+            mirror_deg: None,
+            freq_hz: None,
+            source: sdrmm_wire::fusion::BearingSource::Array,
+            moving: false,
+            others: Vec::new(),
+            likelihood: Vec::new(),
         }
     }
 
@@ -481,7 +517,7 @@ mod tests {
     }
 
     #[test]
-    fn guidance_crosses_the_bearing_until_the_fix_closes_up() {
+    fn the_nav_target_probes_across_the_bearing_until_the_fix_closes_up() {
         let hub = FusionHub::default();
         let target = destination(HOME.0, HOME.1, 45.0, 6_000.0);
         let bearing = bearing_between(HOME, target);
@@ -494,20 +530,16 @@ mod tests {
                 AT,
             )
             .expect("a fix is enough to guide");
-        let guidance = outcome.state.guidance.expect("guidance");
-        assert_eq!(guidance.mode, GuidanceMode::Cross);
-        let across = wrap_deg(guidance.heading_deg - bearing).abs();
-        assert!((across - 90.0).abs() < 1e-6, "{guidance:?}");
-        assert_eq!(guidance.nav_target.kind, NavTargetKind::Cross);
-        assert!(
-            (distance_m(HOME, (guidance.nav_target.lat, guidance.nav_target.lon)) - CROSSING_M)
-                .abs()
-                < 5.0
-        );
+        let nav = outcome.state.nav.expect("nav target");
+        assert_eq!(nav.kind, NavTargetKind::Probe);
+        let across = wrap_deg(nav.bearing_deg - bearing).abs();
+        assert!((across - 90.0).abs() < 1e-6, "{nav:?}");
+        assert_eq!(nav.distance_m, CROSSING_M);
+        assert!((distance_m(HOME, (nav.lat, nav.lon)) - CROSSING_M).abs() < 5.0);
     }
 
     #[test]
-    fn a_converged_fix_turns_the_guidance_towards_it() {
+    fn a_converged_fix_turns_the_nav_target_towards_it() {
         let target = destination(HOME.0, HOME.1, 45.0, 6_000.0);
         let estimate = DfEstimate {
             lat: target.0,
@@ -517,12 +549,35 @@ mod tests {
             ellipse_bearing_deg: 0.0,
             converged: true,
             samples: 20,
+            mass: 0.9,
         };
-        let guidance = guidance(&fix(HOME.0, HOME.1, Some(0.0)), 45.0, Some(estimate));
-        assert_eq!(guidance.mode, GuidanceMode::Approach);
-        assert_eq!(guidance.nav_target.kind, NavTargetKind::Target);
-        assert!(wrap_deg(guidance.heading_deg - bearing_between(HOME, target)).abs() < 1e-6);
-        assert!((guidance.distance_m - 6_000.0).abs() < 5.0);
+        let nav = nav_target(&fix(HOME.0, HOME.1, Some(0.0)), 45.0, Some(estimate));
+        assert_eq!(nav.kind, NavTargetKind::Estimate);
+        assert!(wrap_deg(nav.bearing_deg - bearing_between(HOME, target)).abs() < 1e-6);
+        assert!((nav.distance_m - 6_000.0).abs() < 5.0);
+        let probe = nav_target(&fix(HOME.0, HOME.1, Some(0.0)), 45.0, None);
+        let first = revise(None, probe);
+        assert_eq!(first.revision, 0);
+        assert_eq!(revise(Some(first), probe).revision, 0);
+        assert_eq!(revise(Some(first), nav).revision, 1);
+    }
+
+    #[test]
+    fn a_creeping_target_is_revised_once_it_leaves_50_m() {
+        let mut fusion = NodeFusion::default();
+        let probe = nav_target(&fix(HOME.0, HOME.1, Some(0.0)), 45.0, None);
+        let step = |metres: f64| {
+            let (lat, lon) = destination(probe.lat, probe.lon, 0.0, metres);
+            NavTarget { lat, lon, ..probe }
+        };
+        assert_eq!(fusion.steer(probe).revision, 0);
+        assert_eq!(fusion.steer(step(30.0)).revision, 0);
+        assert_eq!(fusion.steer(step(45.0)).revision, 0);
+        let moved = fusion.steer(step(60.0));
+        assert_eq!(moved.revision, 1);
+        assert_eq!(fusion.nav, Some(moved));
+        assert_eq!(fusion.steer(step(90.0)).revision, 1);
+        assert_eq!(fusion.steer(step(120.0)).revision, 2);
     }
 
     #[test]

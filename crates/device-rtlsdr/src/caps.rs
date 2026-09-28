@@ -161,7 +161,8 @@ pub(crate) fn capabilities(board: BoardVariant, gains: &[i32]) -> Capabilities {
         dc_artifact: DcArtifact::Managed,
         hardware_sweep: false,
         coherence: sdrmm_wire::Coherence::None,
-        noise_source: false,
+        noise_source: sdrmm_wire::NoiseSource::None,
+        retune_keeps_phase: false,
     }
 }
 
@@ -186,7 +187,7 @@ pub(crate) fn kraken_capabilities(lanes: u32, gains: &[i32]) -> Capabilities {
             step: None,
         }],
         extra: Vec::new(),
-        noise_source: true,
+        noise_source: sdrmm_wire::NoiseSource::Isolated,
         rx_streams: lanes,
         per_stream: StreamScope {
             tuning: true,
@@ -585,7 +586,11 @@ mod tests {
         assert_eq!(caps.coherence, sdrmm_wire::Coherence::TimeSync);
         assert!(caps.per_stream.tuning, "every lane has its own synthesizer");
         assert!(caps.per_stream.gain);
-        assert!(caps.noise_source, "the bank calibrates against its own");
+        assert_eq!(
+            caps.noise_source,
+            sdrmm_wire::NoiseSource::Isolated,
+            "the bank calibrates against its own"
+        );
         assert!(caps.extra.is_empty(), "the bank has no oddities of its own");
         assert!(caps.bias_tee);
         assert_eq!(caps.agc, Agc::Switch);

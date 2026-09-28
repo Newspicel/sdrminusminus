@@ -36,6 +36,7 @@ const FACETS: &[(&str, &[EventFacet])] = &[
     ("inmarsat_aero", &[EventFacet::Position]),
     ("inmarsat_stdc", &[EventFacet::Position]),
     ("iridium", &[EventFacet::Position]),
+    ("radar", &[EventFacet::Position]),
     ("vdl2", &[EventFacet::Position]),
 ];
 
@@ -497,6 +498,7 @@ mod tests {
             &[EventFacet::Voice, EventFacet::Duration]
         );
         assert_eq!(facets_of("dv"), &[EventFacet::Position, EventFacet::Voice]);
+        assert_eq!(facets_of("radar"), &[EventFacet::Position]);
         let listed = event_facets();
         assert!(listed.iter().any(|entry| entry.kind == "ais"));
         assert!(listed.iter().all(|entry| !entry.facets.is_empty()));

@@ -178,7 +178,8 @@ fn siggen_capabilities() -> Capabilities {
         dc_artifact: DcArtifact::Operator,
         hardware_sweep: true,
         coherence: sdrmm_wire::Coherence::None,
-        noise_source: false,
+        noise_source: sdrmm_wire::NoiseSource::None,
+        retune_keeps_phase: false,
     }
 }
 
@@ -419,7 +420,7 @@ fn marker_capabilities(shape: &MarkerShape) -> Capabilities {
         tx_streams: shape.tx_streams,
         per_stream: shape.per_stream,
         coherence: shape.coherence,
-        noise_source: false,
+        noise_source: sdrmm_wire::NoiseSource::None,
         extra: Vec::new(),
         hardware_sweep: false,
         ..siggen_capabilities()
@@ -1192,7 +1193,11 @@ mod tests {
         for key in ["array4", "transceiver"] {
             let mut dev = open_virtual(key);
             assert!(dev.capabilities().extra.is_empty(), "{key}");
-            assert!(!dev.capabilities().noise_source, "{key}");
+            assert_eq!(
+                dev.capabilities().noise_source,
+                sdrmm_wire::NoiseSource::None,
+                "{key}"
+            );
             let err = dev.apply(&DeviceSettings {
                 extra: vec![sdrmm_wire::ExtraValue {
                     name: "bearing_deg".to_string(),

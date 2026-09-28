@@ -78,7 +78,8 @@ pub(crate) fn capabilities(sample_rates: &[u32], low_if: bool) -> Capabilities {
         dc_artifact: dc_artifact(low_if),
         hardware_sweep: false,
         coherence: Coherence::None,
-        noise_source: false,
+        noise_source: sdrmm_wire::NoiseSource::None,
+        retune_keeps_phase: false,
     }
 }
 

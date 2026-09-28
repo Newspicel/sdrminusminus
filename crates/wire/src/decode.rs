@@ -1137,6 +1137,7 @@ pub enum DecoderEvent {
     Iridium(DataLinkMessage),
     Df(crate::fusion::DfBearing),
     DfFix(crate::fusion::DfEstimate),
+    Radar(crate::radar::RadarTrackEvent),
     Dect(DectFrame),
 }
 
@@ -1376,6 +1377,7 @@ impl DecoderEvent {
             Self::Transmission(_) => "transmission",
             Self::Df(_) => "df",
             Self::DfFix(_) => "df_fix",
+            Self::Radar(_) => "radar",
             Self::Dect(_) => "dect",
         }
     }
@@ -1553,6 +1555,13 @@ impl DecoderEvent {
                 b.confidence * 100.0
             ),
             Self::DfFix(e) => format!("{:.5}, {:.5} · ±{:.0} m", e.lat, e.lon, e.ellipse_major_m),
+            Self::Radar(t) => format!(
+                "T{} {} {:.1} km {:+.0} m/s",
+                t.track_id,
+                t.change.as_str(),
+                t.range_km,
+                t.range_rate_mps
+            ),
             Self::Ils(i) => {
                 let component = match i.component {
                     crate::channel::IlsComponent::Localizer => "localizer",
@@ -1582,6 +1591,7 @@ impl DecoderEvent {
             Self::Dv(f) => (f.lat, f.lon),
             Self::Df(b) => (b.lat, b.lon),
             Self::DfFix(e) => (Some(e.lat), Some(e.lon)),
+            Self::Radar(t) => (t.lat, t.lon),
             Self::Dsc(m)
             | Self::InmarsatStdc(m)
             | Self::InmarsatAero(m)
@@ -1632,6 +1642,7 @@ impl DecoderEvent {
             Self::Vor(v) => v.station.clone(),
             Self::Df(b) => b.station_id.clone(),
             Self::DfFix(_) => None,
+            Self::Radar(t) => t.icao.clone(),
             Self::Dsc(m)
             | Self::InmarsatStdc(m)
             | Self::InmarsatAero(m)
@@ -1862,10 +1873,50 @@ mod tests {
             DecoderEvent::Vdl2(link()),
             DecoderEvent::Hfdl(link()),
             DecoderEvent::Iridium(link()),
+            DecoderEvent::Radar(radar_event()),
         ] {
             let json = serde_json::to_value(&ev).unwrap();
             assert_eq!(json["kind"], ev.kind());
         }
+    }
+
+    fn radar_event() -> crate::radar::RadarTrackEvent {
+        crate::radar::RadarTrackEvent {
+            track_id: 7,
+            change: crate::radar::TrackChange::Confirmed,
+            range_km: 32.46,
+            range_rate_mps: -365.2,
+            doppler_hz: 120.0,
+            snr_db: 17.0,
+            bearing_deg: Some(98.0),
+            lat: None,
+            lon: None,
+            icao: Some("3C6444".to_owned()),
+        }
+    }
+
+    #[test]
+    fn a_radar_track_event_names_its_track_and_place() {
+        let event = DecoderEvent::Radar(radar_event());
+        assert_eq!(event.summary(), "T7 confirmed 32.5 km -365 m/s");
+        assert_eq!(event.position(), None);
+        assert_eq!(event.station().as_deref(), Some("3C6444"));
+        let placed = DecoderEvent::Radar(crate::radar::RadarTrackEvent {
+            change: crate::radar::TrackChange::Lost,
+            range_rate_mps: 12.0,
+            lat: Some(52.4),
+            lon: Some(13.2),
+            ..radar_event()
+        });
+        assert_eq!(placed.summary(), "T7 lost 32.5 km +12 m/s");
+        assert_eq!(placed.position(), Some((52.4, 13.2)));
+        let json = serde_json::to_value(&placed).unwrap();
+        assert_eq!(json["kind"], "radar");
+        assert_eq!(json["data"]["track_id"], 7);
+        assert_eq!(
+            serde_json::from_value::<DecoderEvent>(json).unwrap(),
+            placed
+        );
     }
 
     #[test]

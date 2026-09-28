@@ -92,6 +92,7 @@ pub(super) async fn hunt_channel(
                 )?)
             }
             HuntAction::Stop => Ok(engine.stop_hunt(ds, ch)?),
+            HuntAction::Sweep | HuntAction::Mark => Err(AppError::unavailable("Not built yet")),
         }
     })
     .await??;

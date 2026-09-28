@@ -957,7 +957,8 @@ impl sdrmm_device::DeviceDriver for FaultingDriver {
                 dc_artifact: sdrmm_wire::DcArtifact::Operator,
                 hardware_sweep: false,
                 coherence: sdrmm_wire::Coherence::None,
-                noise_source: false,
+                noise_source: sdrmm_wire::NoiseSource::None,
+                retune_keeps_phase: false,
             },
             settings: sdrmm_wire::DeviceSettings {
                 sample_rate: Some(2_048_000.0),

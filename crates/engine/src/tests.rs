@@ -91,7 +91,8 @@ fn empty_capabilities() -> Capabilities {
         dc_artifact: DcArtifact::Operator,
         hardware_sweep: false,
         coherence: sdrmm_wire::Coherence::None,
-        noise_source: false,
+        noise_source: sdrmm_wire::NoiseSource::None,
+        retune_keeps_phase: false,
     }
 }
 
@@ -568,7 +569,7 @@ impl DeviceDriver for RefusedSweepDriver {
                 sample_rates: vec![SIGNAL_RATE_HZ],
                 hardware_sweep: true,
                 coherence: sdrmm_wire::Coherence::None,
-                noise_source: false,
+                noise_source: sdrmm_wire::NoiseSource::None,
                 ..empty_capabilities()
             },
             settings: DeviceSettings {
@@ -1138,7 +1139,7 @@ fn managed_caps() -> Capabilities {
         dc_artifact: DcArtifact::Managed,
         hardware_sweep: false,
         coherence: sdrmm_wire::Coherence::None,
-        noise_source: false,
+        noise_source: sdrmm_wire::NoiseSource::None,
         ..tuner_caps()
     }
 }
