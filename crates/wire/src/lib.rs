@@ -18,6 +18,7 @@ pub mod geo;
 mod pipeline;
 pub use pipeline::{PipelineQueue, PipelineStage, QueueHealth};
 pub mod hunt;
+pub mod labels;
 pub mod mission;
 pub mod network;
 pub mod patch;
@@ -38,7 +39,14 @@ pub mod workspace;
 pub mod workspace_state;
 pub mod ws;
 
-pub use about::{AboutResponse, Attribution, ComponentSource, LicenseTextResponse};
+pub use about::{API_PROTOCOL, AboutResponse, Attribution, ComponentSource, LicenseTextResponse};
+pub use array::{
+    ArrayCal, ArrayCalRecord, ArrayCalSource, ArrayElement, ArrayFailure, ArrayGain, ArrayGeometry,
+    ArrayLaneStatus, ArrayNode, ArrayOrientation, ArrayRecordingRequest, ArrayRecordingStarted,
+    ArrayRecordingStatus, ArrayStatus, ArrayTune, ArrayTuneRequest, ArrayTuningMode, CalPhase,
+    CalSourceKind, GeometryError, HeldLane, LaneKey, LaneSolution, ProcessorGate, ProcessorStatus,
+    SyncState, VirtualLane, Winding, WorkspaceArray,
+};
 pub use audio::{
     AudioAgcMode, AudioFilterSettings, AudioFxNode, AudioProcessing, AudioRoute,
     ClickRemovalSettings, DenoiseMode, DenoiseSettings, MAX_AUDIO_FX_CHAIN, MAX_AUDIO_NOTCHES,
@@ -87,9 +95,9 @@ pub use decode::{
     DecodedRecord, DecoderEvent, DectArc, DectCapability, DectCipherState, DectFrame, DectIdentity,
     DectSecurity, DectSide, DectUpdate, DvChannelDefinition, DvFrame, DvFrameKind, DvMode,
     DvSlotActivity, DvTrunkProtocol, ErmesMessage, FlexMessage, GnssFrame, IdentFeatures,
-    IdentReport, IdentSignal, IlsReading, Modulation, MorseText, NavtexMessage, PagerPayload,
-    PocsagMessage, PocsagPayload, ProtocolMatch, PskText, RadioClockFrame, RdsUpdate, RttyText,
-    ScramblerStatus, SelcallSequence, SstvPicture, ToneSquelchStatus, Vendor, VorReading,
+    IdentReport, IdentSignal, IlsReading, Modulation, MorseText, NO_CHANNEL, NavtexMessage,
+    PagerPayload, PocsagMessage, PocsagPayload, ProtocolMatch, PskText, RadioClockFrame, RdsUpdate,
+    RttyText, ScramblerStatus, SelcallSequence, SstvPicture, ToneSquelchStatus, Vendor, VorReading,
     WsjtMessage, WsprSpot,
 };
 pub use device::{
@@ -112,28 +120,51 @@ pub use filter::{
     MAX_FILTER_IDS, MAX_FILTER_KINDS, MAX_FILTER_TEXT_LEN, event_facets, facets_of,
 };
 pub use frame::{
-    AudioFrame, FrameKind, HEADER_LEN, IqFrame, PROTOCOL_VERSION, RangeDopplerFrame, SpectrumFrame,
-    SymbolFrame, SymbolPlane, VideoData, VideoFrame, typescript_frames,
+    AudioFrame, FrameError, FrameHeader, FrameKind, FusionGridFrame, FusionGridOwned, HEADER_LEN,
+    IqFrame, PROTOCOL_VERSION, RangeDopplerFrame, RangeDopplerOwned, SpatialSpectrumFrame,
+    SpatialSpectrumOwned, SpectrumFrame, SurfaceFrame, SymbolFrame, SymbolPlane, VideoData,
+    VideoFrame, VisibilityFrame, VisibilityOwned, peek_header, typescript_frames,
 };
-pub use fusion::{DfBearing, DfEstimate, DfFusionState, DfStation, NavTarget, NavTargetKind};
+pub use fusion::{
+    BearingSource, DfBearing, DfEstimate, DfFusionState, DfOtherPeak, DfStation, FusionDecay,
+    NavMode, NavTarget, NavTargetKind, TriangulationParams,
+};
 pub use geo::LatLon;
-pub use hunt::{HuntAction, HuntRequest, HuntSettings, HuntStatus};
+pub use hunt::{
+    HuntAction, HuntRequest, HuntSettings, HuntStatus, HuntSweep, HuntSweepParams, SweepState,
+};
+pub use mission::{
+    ChannelTarget, DfMission, HuntMission, Mission, MissionAction, MissionActionResponse,
+    MissionBody, MissionControl, MissionProblem, MissionWorkspace, MissionsResponse, PositionLink,
+    RadarMission, SurveyMission, SwitchWorkspaceRequest, TriangulationMission,
+};
 pub use network::{
     ChannelNetworkExportRequest, MAX_NETWORK_ADDRESS_LEN, NetworkExportAction, NetworkExportNode,
     NetworkExportRequest, NetworkExportSettings, NetworkExportStatus, NetworkSampleFormat,
     NetworkTransport,
 };
 pub use patch::{
-    ChannelNode, DEFAULT_DMR_PROBES, DEFAULT_SIGNAL_MAP_BANDWIDTH_HZ, DEFAULT_SIGNAL_MAP_OFFSET_HZ,
-    DV_DECODER_KIND, DeviceNode, DeviceRef, DmrChannelEntry, DmrDiscovery, DmrSearchRange,
-    DmrTrunkNode, DmrTrunkProtocol, MAX_DMR_CHANNEL_MAP, MAX_DMR_LOGICAL_CHANNEL, MAX_DMR_PROBES,
-    MAX_DMR_SEARCH_CANDIDATES, MAX_DMR_SEARCH_RANGES, MAX_EDGES, MAX_NODES,
-    MAX_SIGNAL_MAP_BANDWIDTH_HZ, MAX_SIGNAL_MAP_OFFSET_HZ, MAX_STREAMS, MIN_DMR_SEARCH_STEP_HZ,
-    NodeBody, NodeCategory, NodeTypeInfo, PatchCatalog, PatchEdge, PatchError, PatchGraph,
-    PatchNode, PortBacking, PortCondition, PortDirection, PortRef, PortRepeat, PortSpec, PortType,
-    Position, RACK_COLS, RACK_ROWS, RackCell, RackLayout, RackSlot, RecorderNode, RecordingNode,
-    STITCH_WIDE_PORT, SignalGenNode, SignalMapNode, Size, TriangulationNode, port_stream,
-    siggen_key, stream_port,
+    ARRAY_LANE_PORT, ARRAY_PORT, BEAM_PORT, BeamformerNode, CONTROL_PORT, ChannelNode,
+    CorrelatorNode, DEFAULT_DMR_PROBES, DEFAULT_SIGNAL_MAP_BANDWIDTH_HZ,
+    DEFAULT_SIGNAL_MAP_OFFSET_HZ, DV_DECODER_KIND, DeviceNode, DeviceRef, DfNode, DmrChannelEntry,
+    DmrDiscovery, DmrSearchRange, DmrTrunkNode, DmrTrunkProtocol, EVENTS_PORT, HuntNode,
+    MAX_DMR_CHANNEL_MAP, MAX_DMR_LOGICAL_CHANNEL, MAX_DMR_PROBES, MAX_DMR_SEARCH_CANDIDATES,
+    MAX_DMR_SEARCH_RANGES, MAX_EDGES, MAX_NODES, MAX_SIGNAL_MAP_BANDWIDTH_HZ,
+    MAX_SIGNAL_MAP_OFFSET_HZ, MAX_STREAMS, MIN_DMR_SEARCH_STEP_HZ, NodeBody, NodeCategory,
+    NodeTypeInfo, POSITION_PORT, PassiveRadarNode, PatchCatalog, PatchEdge, PatchError, PatchGraph,
+    PatchNode, PolarimeterNode, PortBacking, PortCondition, PortDirection, PortRef, PortRepeat,
+    PortSpec, PortType, Position, RACK_COLS, RACK_ROWS, RADAR_TRUTH_PORT, RADAR_TX_PORT,
+    REFUSAL_ADSB, REFUSAL_ARRAY_LANE, REFUSAL_LANE_TAKEN, REFUSAL_SHARED_CLOCK, REFUSAL_STEER,
+    REFUSAL_TRIANGULATION, REFUSAL_UNNAMED_ARRAY, RackCell, RackLayout, RackSlot, RecorderNode,
+    RecordingNode, STEER_PORT, STITCH_WIDE_PORT, SignalGenNode, SignalMapNode, Size,
+    SpatialSpectrumNode, StitchNode, TriangulationNode, port_stream, siggen_key, stream_port,
+};
+#[cfg(feature = "pin")]
+pub use phone::PinError;
+pub use phone::{
+    CreateOfferRequest, MdnsState, OfferState, PairRequest, PairResponse, PairUri, PairUriError,
+    PairingOffer, PairingOfferStatus, Phone, PhoneAccess, PhoneAccessStatus, PhoneEndpoint,
+    PhoneListenerState, PhonePlatform, PhoneSelf, PhoneToken, PhonesResponse, RenamePhoneRequest,
 };
 pub use position::{
     Attitude, DEFAULT_GPSD_ADDRESS, DEFAULT_NMEA_BAUD, DEFAULT_NMEA_UPDATE_INTERVAL_MS, GpsNode,
@@ -141,11 +172,30 @@ pub use position::{
     MAX_POSITION_ENDPOINT_LEN, MAX_YAW_RATE_DPS, MIN_NMEA_BAUD, MIN_NMEA_UPDATE_INTERVAL_MS,
     NmeaDeviceInfo, NmeaDevicesResponse, PositionFix, PositionSource, normalize_heading,
 };
+pub use processor::{
+    ProcessorParams, ProcessorReading,
+    beamformer::{
+        Adaptation, BeamMode, BeamformerParams, BeamformerReading, LaneWeight, NoiseModel,
+        SteerSource,
+    },
+    correlator::{Baseline, CorrelatorParams, CorrelatorReading},
+    df::{DfAlgorithm, DfParams, DfPeak, DfReading, SourceRule, UlaSide},
+    polarimeter::{Hand, PolarimeterParams, PolarimeterReading},
+    spatial::{SpatialMethod, SpatialPeak, SpatialReading, SpatialSpectrumParams},
+    stitch::{StitchBlend, StitchLane, StitchParams, StitchReading},
+};
 pub use propagation::{
     DEFAULT_PROPAGATION_HALF_LIFE_MIN, DEFAULT_REFLECTION_HEIGHT_KM, IONOSONDE_MAX_STATIONS,
     IONOSONDE_SOURCE, IONOSONDE_URL, IonosondeReport, IonosondeStation,
     MAX_PROPAGATION_HALF_LIFE_MIN, MAX_REFLECTION_HEIGHT_KM, MIN_PROPAGATION_HALF_LIFE_MIN,
     MIN_REFLECTION_HEIGHT_KM, PropagationNode,
+};
+pub use radar::{
+    AdsbMatch, AdsbTruth, AoaState, CfarKind, CfarParams, CfarWindow, ClutterMethod, ClutterParams,
+    DopplerWindow, GpuUse, Illuminator, PassiveRadarParams, RadarAoa, RadarAxes, RadarDetection,
+    RadarFix, RadarGeometry, RadarHealth, RadarProblem, RadarSite, RadarTrack, RadarTrackEvent,
+    RadarTrailPoint, RadarUpdate, ReferenceCleaning, ReferenceHealth, ReferenceMode,
+    SurveillanceSet, TrackChange, TrackState, TrackerParams,
 };
 pub use rest::{
     AnnotationError, ApiError, ApplyTemplateRequest, AudioRecordingInfo, AudioRecordingsResponse,
@@ -175,6 +225,7 @@ pub use state::{
     RecordingStatus, SettingsRefused, StateSnapshot, TrunkChannel, TrunkChannelSource,
     TrunkControl, TrunkFollower, TrunkProbe, TrunkProblem, TrunkSystemStatus,
 };
+pub use survey::{SurveyAction, SurveyCell, SurveyGrid, SurveyRequest, SurveyStop, SurveyUpdate};
 pub use timemachine::{
     DEFAULT_TIME_MACHINE_SECONDS, MAX_TIME_MACHINE_BYTES, MAX_TIME_MACHINE_SECONDS,
     MIN_TIME_MACHINE_SECONDS, TimeMachineAction, TimeMachineNode, TimeMachineRequest,
@@ -204,7 +255,10 @@ pub use workspace::{
 pub use workspace_state::{
     WORKSPACE_STATE_VERSION, WorkspaceChannel, WorkspaceDevice, WorkspaceState, WorkspaceTrunk,
 };
-pub use ws::{ClientCommand, ServerEvent, StateScope, StreamKind};
+pub use ws::{
+    ClientCommand, ServerEvent, StateScope, StreamKind, SurfaceFit, WS_BEARER_PROTOCOL_PREFIX,
+    WS_CLOSE_REVOKED, WS_SUBPROTOCOL,
+};
 
 #[cfg(test)]
 mod contract_tests {
@@ -220,7 +274,11 @@ mod contract_tests {
         assert_eq!(json["data"]["scope"]["scope"], "device_set");
         assert_eq!(json["data"]["scope"]["id"], 3);
 
-        let hello = ServerEvent::Hello { revision: 9 };
+        let hello = ServerEvent::Hello {
+            revision: 9,
+            protocol: API_PROTOCOL,
+            phone: None,
+        };
         let json = serde_json::to_value(&hello).unwrap();
         assert_eq!(json["type"], "Hello");
         assert_eq!(json["data"]["revision"], 9);
@@ -815,7 +873,7 @@ mod contract_tests {
         assert!(back.can_transmit);
     }
 
-    fn sample_device_set() -> DeviceSet {
+    pub(crate) fn sample_device_set() -> DeviceSet {
         DeviceSet {
             id: 1,
             device: DeviceInfo {
@@ -864,6 +922,8 @@ mod contract_tests {
             hunts: Vec::new(),
             playback: None,
             agc_gains: Vec::new(),
+            virtual_lanes: Vec::new(),
+            held: Vec::new(),
         }
     }
 

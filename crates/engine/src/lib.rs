@@ -623,6 +623,8 @@ impl DeviceSetState {
             hunts: self.hunt_statuses(),
             playback: self.playback.as_deref().map(PlaybackShared::status),
             agc_gains: self.agc_gains.clone(),
+            virtual_lanes: Vec::new(),
+            held: Vec::new(),
         }
     }
 
@@ -1283,6 +1285,7 @@ impl Engine {
                 .map(|(id, s)| s.project(*id))
                 .collect(),
             trunk_systems,
+            arrays: Vec::new(),
             revision: inner.revision,
         }
     }

@@ -232,6 +232,16 @@ fn codegen(root: &Path) -> Result<()> {
         serde_json::to_string_pretty(&frame_fixtures::frames())?,
     )
     .context("write binary frame fixtures")?;
+    std::fs::write(
+        root.join("web/src/generated/patch-catalog.json"),
+        serde_json::to_string_pretty(&sdrmm_wire::PatchCatalog::build())?,
+    )
+    .context("write patch catalog")?;
+    std::fs::write(
+        root.join("web/src/generated/labels.json"),
+        serde_json::to_string_pretty(&sdrmm_wire::labels::generated()?)?,
+    )
+    .context("write labels")?;
     let frames = root.join("web/src/generated/frame.ts");
     std::fs::write(&frames, sdrmm_wire::typescript_frames()).context("write binary frame codec")?;
     let spec = sdrmm_server::openapi()

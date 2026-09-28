@@ -449,6 +449,20 @@ const DETAIL: {
     ]),
     body: null,
   }),
+  radar: (t) => ({
+    fields: fields([
+      ["Track", `T${t.track_id}`],
+      ["Change", t.change],
+      ["Range", `${t.range_km.toFixed(2)} km`],
+      ["Range rate", `${signed(t.range_rate_mps, 0)} m/s`],
+      ["Doppler", `${signed(t.doppler_hz, 1)} Hz`],
+      ["SNR", `${t.snr_db.toFixed(1)} dB`],
+      ["Bearing", t.bearing_deg == null ? undefined : `${t.bearing_deg.toFixed(1)}°`],
+      ["Position", position(t.lat, t.lon)],
+      ["ICAO", t.icao],
+    ]),
+    body: null,
+  }),
   df_fix: (e) => ({
     fields: fields([
       ["Position", position(e.lat, e.lon)],

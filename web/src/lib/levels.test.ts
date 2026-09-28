@@ -91,7 +91,7 @@ describe("useLevelStore", () => {
   });
 
   it("ignores events that are not levels", () => {
-    useLevelStore.getState().observe({ type: "Hello", data: { revision: 1 } });
+    useLevelStore.getState().observe({ type: "Hello", data: { revision: 1, protocol: 1 } });
     vi.advanceTimersByTime(FLUSH_MS);
     expect(useLevelStore.getState().byDeviceSet).toEqual({});
   });

@@ -390,6 +390,7 @@ async fn a_partial_restore_lands_what_fits_and_keeps_remembering_the_rest() {
     let workspace = store_siggen_workspace(&app).await;
     let planted = sdrmm_wire::WorkspaceState {
         trunks: Vec::new(),
+        arrays: Vec::new(),
         version: sdrmm_wire::WORKSPACE_STATE_VERSION,
         channels: Vec::new(),
         devices: vec![sdrmm_wire::WorkspaceDevice {
@@ -764,6 +765,7 @@ fn tuned_state(center_hz: f64) -> sdrmm_wire::WorkspaceState {
     sdrmm_wire::WorkspaceState {
         version: sdrmm_wire::WORKSPACE_STATE_VERSION,
         trunks: Vec::new(),
+        arrays: Vec::new(),
         channels: Vec::new(),
         devices: vec![sdrmm_wire::WorkspaceDevice {
             node: "device".to_string(),

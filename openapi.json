@@ -68,6 +68,235 @@
         }
       }
     },
+    "/api/arrays": {
+      "get": {
+        "operationId": "list_arrays",
+        "responses": {
+          "200": {
+            "description": "Every Array node of the active workspace",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ArrayStatus"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/arrays/{node}/calibrate": {
+      "post": {
+        "operationId": "calibrate_array",
+        "parameters": [
+          {
+            "name": "node",
+            "in": "path",
+            "description": "Array node id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Calibration started; the result arrives as `ArrayUpdate`"
+          },
+          "404": {
+            "description": "No Array node with that id",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The Array cannot calibrate now",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/arrays/{node}/recording": {
+      "post": {
+        "operationId": "start_array_recording",
+        "parameters": [
+          {
+            "name": "node",
+            "in": "path",
+            "description": "Array node id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ArrayRecordingRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Recording every lane",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArrayRecordingStarted"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No Array node with that id",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The Array is not running or already records",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Malformed request body",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "operationId": "stop_array_recording",
+        "parameters": [
+          {
+            "name": "node",
+            "in": "path",
+            "description": "Array node id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Recording stopped"
+          },
+          "404": {
+            "description": "No Array node with that id or no recording",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/arrays/{node}/tune": {
+      "patch": {
+        "operationId": "tune_array",
+        "parameters": [
+          {
+            "name": "node",
+            "in": "path",
+            "description": "Array node id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ArrayTuneRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Every member lane follows"
+          },
+          "400": {
+            "description": "Gain out of range",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No Array node with that id",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "A lane is held or cannot follow",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Malformed request body",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/audiorecordings": {
       "get": {
         "operationId": "list_audio_recordings",
@@ -2723,6 +2952,158 @@
         }
       }
     },
+    "/api/missions": {
+      "get": {
+        "operationId": "list_missions",
+        "responses": {
+          "200": {
+            "description": "What a phone can do in the active workspace",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MissionsResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/missions/workspace": {
+      "post": {
+        "operationId": "switch_mission_workspace",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SwitchWorkspaceRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Missions of the workspace now active",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MissionsResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No workspace with that id",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Malformed request body",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/missions/{node}/actions": {
+      "post": {
+        "operationId": "run_mission_action",
+        "parameters": [
+          {
+            "name": "node",
+            "in": "path",
+            "description": "Mission node id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MissionAction"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The action was taken",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MissionActionResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Not a control of this mission",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No mission with that id",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The mission cannot do that now",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Malformed request body",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The part that runs it is not up",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/occupancy": {
       "get": {
         "operationId": "get_occupancy",
@@ -2763,6 +3144,374 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/PatchCatalog"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/phones": {
+      "get": {
+        "operationId": "list_phones",
+        "responses": {
+          "200": {
+            "description": "Paired phones, the live offer and phone access",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PhonesResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/phones/access": {
+      "put": {
+        "operationId": "set_phone_access",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PhoneAccess"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The phone listener as it now runs",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PhoneAccessStatus"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Port 0 or the main port",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Malformed request body",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/phones/offers": {
+      "post": {
+        "operationId": "create_pairing_offer",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateOfferRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "A one-time pairing code",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PairingOffer"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Name not valid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Turn on Allow phones",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Malformed request body",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "operationId": "cancel_pairing_offer",
+        "responses": {
+          "204": {
+            "description": "The offer is gone"
+          },
+          "404": {
+            "description": "No live offer",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/phones/pair": {
+      "post": {
+        "operationId": "pair_phone",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PairRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The phone is paired",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PairResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Name not valid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Wrong code",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Pair over HTTPS",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No live offer or the code expired",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Offer burned or protocol needed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Malformed request body",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/phones/self": {
+      "get": {
+        "operationId": "get_phone_self",
+        "responses": {
+          "200": {
+            "description": "The calling phone",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PhoneSelf"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Phone not paired",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "operationId": "unpair_phone_self",
+        "responses": {
+          "204": {
+            "description": "The calling phone is unpaired"
+          },
+          "401": {
+            "description": "Phone not paired",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/phones/{id}": {
+      "delete": {
+        "operationId": "revoke_phone",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Phone id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "The phone is revoked and its sockets close"
+          },
+          "404": {
+            "description": "No phone with that id",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "operationId": "rename_phone",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Phone id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RenamePhoneRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The renamed phone",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Phone"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Name not valid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No phone with that id",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Malformed request body",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
                 }
               }
             }
@@ -2935,6 +3684,85 @@
           },
           "404": {
             "description": "Preset not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/radar/{node}": {
+      "get": {
+        "operationId": "get_radar",
+        "parameters": [
+          {
+            "name": "node",
+            "in": "path",
+            "description": "Passive radar node id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The latest radar picture",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RadarUpdate"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No radar with that id",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/radar/{node}/tracks": {
+      "delete": {
+        "operationId": "clear_radar_tracks",
+        "parameters": [
+          {
+            "name": "node",
+            "in": "path",
+            "description": "Passive radar node id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Every track dropped"
+          },
+          "404": {
+            "description": "No radar with that id",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The radar cannot drop its tracks now",
             "content": {
               "application/json": {
                 "schema": {
@@ -3455,6 +4283,110 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/StateSnapshot"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/survey/{node}": {
+      "get": {
+        "operationId": "get_survey",
+        "parameters": [
+          {
+            "name": "node",
+            "in": "path",
+            "description": "Signal survey node id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Every surveyed cell",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SurveyGrid"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No survey with that id",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "control_survey",
+        "parameters": [
+          {
+            "name": "node",
+            "in": "path",
+            "description": "Signal survey node id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SurveyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The grid after the action",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SurveyGrid"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No survey with that id",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The survey cannot do that now",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Malformed request body",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
                 }
               }
             }
@@ -4308,6 +5240,9 @@
         "required": [
           "name",
           "version",
+          "protocol",
+          "server_id",
+          "server_name",
           "license",
           "license_text",
           "repository",
@@ -4329,11 +5264,22 @@
           "name": {
             "type": "string"
           },
+          "protocol": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
           "repository": {
             "type": "string"
           },
           "reveal": {
             "type": "boolean"
+          },
+          "server_id": {
+            "type": "string"
+          },
+          "server_name": {
+            "type": "string"
           },
           "version": {
             "type": "string"
@@ -4402,6 +5348,13 @@
           }
         }
       },
+      "Adaptation": {
+        "type": "string",
+        "enum": [
+          "nlms",
+          "rls"
+        ]
+      },
       "Admit": {
         "type": "string",
         "enum": [
@@ -4411,6 +5364,23 @@
           "different_color_code",
           "tone_free"
         ]
+      },
+      "AdsbMatch": {
+        "type": "object",
+        "required": [
+          "icao"
+        ],
+        "properties": {
+          "callsign": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "icao": {
+            "type": "string"
+          }
+        }
       },
       "AdsbMessage": {
         "type": "object",
@@ -4536,6 +5506,70 @@
               "null"
             ],
             "format": "double"
+          }
+        }
+      },
+      "AdsbTruth": {
+        "type": "object",
+        "required": [
+          "icao",
+          "range_km",
+          "doppler_hz",
+          "bearing_deg",
+          "lat",
+          "lon",
+          "altitude_m",
+          "age_s",
+          "in_view"
+        ],
+        "properties": {
+          "age_s": {
+            "type": "number",
+            "format": "float"
+          },
+          "altitude_m": {
+            "type": "number",
+            "format": "float"
+          },
+          "bearing_deg": {
+            "type": "number",
+            "format": "float"
+          },
+          "callsign": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "doppler_hz": {
+            "type": "number",
+            "format": "float"
+          },
+          "icao": {
+            "type": "string"
+          },
+          "in_view": {
+            "type": "boolean"
+          },
+          "lat": {
+            "type": "number",
+            "format": "double"
+          },
+          "lon": {
+            "type": "number",
+            "format": "double"
+          },
+          "range_km": {
+            "type": "number",
+            "format": "float"
+          },
+          "track_id": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
           }
         }
       },
@@ -5131,6 +6165,15 @@
           "structure"
         ]
       },
+      "AoaState": {
+        "type": "string",
+        "enum": [
+          "off",
+          "ready",
+          "phase_unknown",
+          "one_lane"
+        ]
+      },
       "ApiError": {
         "type": "object",
         "required": [
@@ -5349,6 +6392,1100 @@
           "float",
           "int",
           "string"
+        ]
+      },
+      "ArrayCal": {
+        "type": "object",
+        "properties": {
+          "check_s": {
+            "type": "integer",
+            "format": "int32",
+            "default": 60,
+            "minimum": 0
+          },
+          "equaliser": {
+            "type": "boolean",
+            "default": false
+          },
+          "source": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ArrayCalSource"
+              }
+            ],
+            "default": {
+              "kind": "noise"
+            }
+          },
+          "warm_start": {
+            "type": "boolean",
+            "default": true
+          }
+        }
+      },
+      "ArrayCalSource": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "noise"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "offset_hz",
+              "bandwidth_hz",
+              "kind"
+            ],
+            "properties": {
+              "bandwidth_hz": {
+                "type": "number",
+                "format": "double"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "pilot"
+                ]
+              },
+              "offset_hz": {
+                "type": "number",
+                "format": "double"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "offset_hz",
+              "bandwidth_hz",
+              "bearing_deg",
+              "kind"
+            ],
+            "properties": {
+              "bandwidth_hz": {
+                "type": "number",
+                "format": "double"
+              },
+              "bearing_deg": {
+                "type": "number",
+                "format": "double"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "emitter"
+                ]
+              },
+              "offset_hz": {
+                "type": "number",
+                "format": "double"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "off"
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "ArrayElement": {
+        "type": "object",
+        "required": [
+          "x_m",
+          "y_m"
+        ],
+        "properties": {
+          "x_m": {
+            "type": "number",
+            "format": "double"
+          },
+          "y_m": {
+            "type": "number",
+            "format": "double"
+          },
+          "z_m": {
+            "type": "number",
+            "format": "double"
+          }
+        }
+      },
+      "ArrayFailure": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "unwired"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "lane",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "lane_gap"
+                ]
+              },
+              "lane": {
+                "type": "integer",
+                "format": "int32",
+                "minimum": 0
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "lane",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "duplicate_lane"
+                ]
+              },
+              "lane": {
+                "type": "integer",
+                "format": "int32",
+                "minimum": 0
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "too_many_lanes"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "lane",
+              "by",
+              "kind"
+            ],
+            "properties": {
+              "by": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "lane_held"
+                ]
+              },
+              "lane": {
+                "type": "integer",
+                "format": "int32",
+                "minimum": 0
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "lane",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "device_down"
+                ]
+              },
+              "lane": {
+                "type": "integer",
+                "format": "int32",
+                "minimum": 0
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "not_coherent"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "rates_differ"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "spread_unsupported"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "no_noise_source"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "noise_shared"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "noise_not_seen"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "lane",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "noise_clips"
+                ]
+              },
+              "lane": {
+                "type": "integer",
+                "format": "int32",
+                "minimum": 0
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "lane",
+              "coherence",
+              "kind"
+            ],
+            "properties": {
+              "coherence": {
+                "type": "number",
+                "format": "float"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "low_coherence"
+                ]
+              },
+              "lane": {
+                "type": "integer",
+                "format": "int32",
+                "minimum": 0
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "no_common_signal"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "ppm",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "clock_drift"
+                ]
+              },
+              "ppm": {
+                "type": "number",
+                "format": "double"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "slips_repeated"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "positions",
+              "lanes",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "geometry_mismatch"
+                ]
+              },
+              "lanes": {
+                "type": "integer",
+                "format": "int32",
+                "minimum": 0
+              },
+              "positions": {
+                "type": "integer",
+                "format": "int32",
+                "minimum": 0
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "needs_position"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "message",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "stopped"
+                ]
+              },
+              "message": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "busy"
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "ArrayGain": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "db",
+              "kind"
+            ],
+            "properties": {
+              "db": {
+                "type": "number",
+                "format": "double"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "manual"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "auto"
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "ArrayGeometry": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "radius_m",
+              "kind"
+            ],
+            "properties": {
+              "first_deg": {
+                "type": "number",
+                "format": "double"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "uca"
+                ]
+              },
+              "radius_m": {
+                "type": "number",
+                "format": "double"
+              },
+              "winding": {
+                "$ref": "#/components/schemas/Winding"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "spacing_m",
+              "axis_deg",
+              "kind"
+            ],
+            "properties": {
+              "axis_deg": {
+                "type": "number",
+                "format": "double"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "ula"
+                ]
+              },
+              "spacing_m": {
+                "type": "number",
+                "format": "double"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "positions",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "explicit"
+                ]
+              },
+              "positions": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/ArrayElement"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "ArrayLaneStatus": {
+        "type": "object",
+        "required": [
+          "lane",
+          "stream",
+          "sync",
+          "delay_samples",
+          "phase_deg",
+          "gain_db",
+          "coherence",
+          "level_dbfs",
+          "clipping",
+          "gaps",
+          "gap_samples",
+          "uncertain"
+        ],
+        "properties": {
+          "clipping": {
+            "type": "boolean"
+          },
+          "coherence": {
+            "type": "number",
+            "format": "float"
+          },
+          "delay_samples": {
+            "type": "number",
+            "format": "double"
+          },
+          "device_set": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "gain_db": {
+            "type": "number",
+            "format": "float"
+          },
+          "gap_samples": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "gaps": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "lane": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "level_dbfs": {
+            "type": "number",
+            "format": "float"
+          },
+          "phase_deg": {
+            "type": "number",
+            "format": "float"
+          },
+          "residual_delay": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "float"
+          },
+          "residual_phase_deg": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "float"
+          },
+          "stream": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "sync": {
+            "$ref": "#/components/schemas/SyncState"
+          },
+          "uncertain": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
+      "ArrayNode": {
+        "type": "object",
+        "properties": {
+          "cal": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ArrayCal"
+              }
+            ],
+            "default": {
+              "check_s": 60,
+              "equaliser": false,
+              "source": {
+                "kind": "noise"
+              },
+              "warm_start": true
+            }
+          },
+          "declared": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Coherence"
+              }
+            ],
+            "default": "time_sync"
+          },
+          "geometry": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ArrayGeometry"
+              }
+            ],
+            "default": {
+              "first_deg": 0.0,
+              "kind": "uca",
+              "radius_m": 0.35,
+              "winding": "clockwise"
+            }
+          },
+          "orientation": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ArrayOrientation"
+              }
+            ],
+            "default": {
+              "azimuth_deg": 0.0,
+              "kind": "fixed"
+            }
+          },
+          "tuning": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ArrayTuningMode"
+              }
+            ],
+            "default": "together"
+          }
+        }
+      },
+      "ArrayOrientation": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "azimuth_deg",
+              "kind"
+            ],
+            "properties": {
+              "azimuth_deg": {
+                "type": "number",
+                "format": "double"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "fixed"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "mount_offset_deg",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "heading"
+                ]
+              },
+              "mount_offset_deg": {
+                "type": "number",
+                "format": "double"
+              }
+            }
+          }
+        ]
+      },
+      "ArrayRecordingRequest": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "ArrayRecordingStarted": {
+        "type": "object",
+        "required": [
+          "stem"
+        ],
+        "properties": {
+          "stem": {
+            "type": "string"
+          }
+        }
+      },
+      "ArrayRecordingStatus": {
+        "type": "object",
+        "required": [
+          "stem",
+          "started_at",
+          "samples",
+          "dropped"
+        ],
+        "properties": {
+          "dropped": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "samples": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "started_at": {
+            "type": "string"
+          },
+          "stem": {
+            "type": "string"
+          }
+        }
+      },
+      "ArrayStatus": {
+        "type": "object",
+        "required": [
+          "node",
+          "lanes",
+          "tier",
+          "declared",
+          "tier_capped",
+          "sync",
+          "cal",
+          "phase_ready",
+          "center_hz",
+          "sample_rate",
+          "tuning",
+          "gain",
+          "generation",
+          "realigns",
+          "dropped_samples",
+          "events_lost"
+        ],
+        "properties": {
+          "anchor": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "azimuth_deg": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "cal": {
+            "$ref": "#/components/schemas/CalPhase"
+          },
+          "center_hz": {
+            "type": "number",
+            "format": "double"
+          },
+          "declared": {
+            "$ref": "#/components/schemas/Coherence"
+          },
+          "drift_ppm": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "dropped_samples": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "events_lost": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "failure": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ArrayFailure"
+              }
+            ]
+          },
+          "gain": {
+            "$ref": "#/components/schemas/ArrayGain"
+          },
+          "gain_db": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "gain_range_db": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/Range"
+              }
+            ]
+          },
+          "generation": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "heading_source": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/HeadingSource"
+              }
+            ]
+          },
+          "lanes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ArrayLaneStatus"
+            }
+          },
+          "last_solve_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "next_check_in_s": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "node": {
+            "type": "string"
+          },
+          "phase_ready": {
+            "type": "boolean"
+          },
+          "position": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/LatLon"
+              }
+            ]
+          },
+          "processors": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProcessorStatus"
+            }
+          },
+          "realigns": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "recording": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ArrayRecordingStatus"
+              }
+            ]
+          },
+          "sample_rate": {
+            "type": "number",
+            "format": "double"
+          },
+          "sync": {
+            "$ref": "#/components/schemas/SyncState"
+          },
+          "tier": {
+            "$ref": "#/components/schemas/Coherence"
+          },
+          "tier_capped": {
+            "type": "boolean"
+          },
+          "tuning": {
+            "$ref": "#/components/schemas/ArrayTuningMode"
+          },
+          "unambiguous_hz": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          }
+        }
+      },
+      "ArrayTune": {
+        "type": "object",
+        "required": [
+          "center_hz",
+          "gain"
+        ],
+        "properties": {
+          "center_hz": {
+            "type": "number",
+            "format": "double"
+          },
+          "gain": {
+            "$ref": "#/components/schemas/ArrayGain"
+          }
+        }
+      },
+      "ArrayTuneRequest": {
+        "type": "object",
+        "properties": {
+          "center_hz": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "gain": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ArrayGain"
+              }
+            ]
+          }
+        }
+      },
+      "ArrayTuningMode": {
+        "type": "string",
+        "enum": [
+          "together",
+          "spread"
         ]
       },
       "Attitude": {
@@ -6046,6 +8183,319 @@
           }
         ]
       },
+      "Baseline": {
+        "type": "object",
+        "required": [
+          "a",
+          "b",
+          "delay_ns",
+          "coherence"
+        ],
+        "properties": {
+          "a": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "azimuth_deg": {
+            "type": "number",
+            "format": "float"
+          },
+          "b": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "coherence": {
+            "type": "number",
+            "format": "float"
+          },
+          "delay_ns": {
+            "type": "number",
+            "format": "float"
+          },
+          "length_m": {
+            "type": "number",
+            "format": "float"
+          },
+          "phase_deg": {
+            "type": "number",
+            "format": "float"
+          },
+          "snr_db": {
+            "type": "number",
+            "format": "float"
+          }
+        }
+      },
+      "BeamMode": {
+        "type": "string",
+        "enum": [
+          "mrc",
+          "das",
+          "mvdr",
+          "lcmv",
+          "gsc",
+          "canceller",
+          "cma"
+        ]
+      },
+      "BeamformerNode": {
+        "type": "object",
+        "properties": {
+          "settings": {
+            "$ref": "#/components/schemas/BeamformerParams"
+          }
+        }
+      },
+      "BeamformerParams": {
+        "type": "object",
+        "properties": {
+          "adaptation": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Adaptation"
+              }
+            ],
+            "default": "nlms"
+          },
+          "auto_nulls": {
+            "type": "boolean",
+            "default": false
+          },
+          "bandwidth_hz": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double",
+            "default": 200000.0
+          },
+          "carry_over": {
+            "type": "number",
+            "format": "float",
+            "default": 0.699999988079071
+          },
+          "crossfade_ms": {
+            "type": "integer",
+            "format": "int32",
+            "default": 20,
+            "minimum": 0
+          },
+          "forget": {
+            "type": "number",
+            "format": "float",
+            "default": 0.9990000128746033
+          },
+          "loading": {
+            "type": "number",
+            "format": "float",
+            "default": 0.10000000149011612
+          },
+          "main_lane": {
+            "type": "integer",
+            "format": "int32",
+            "default": 0,
+            "minimum": 0
+          },
+          "mode": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/BeamMode"
+              }
+            ],
+            "default": "mrc"
+          },
+          "noise": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/NoiseModel"
+              }
+            ],
+            "default": "measured"
+          },
+          "nulls_deg": {
+            "type": "array",
+            "items": {
+              "type": "number",
+              "format": "double"
+            },
+            "default": []
+          },
+          "offset_hz": {
+            "type": "number",
+            "format": "double",
+            "default": 0.0
+          },
+          "reference_lanes": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            },
+            "default": []
+          },
+          "steer": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/SteerSource"
+              }
+            ],
+            "default": {
+              "kind": "wired"
+            }
+          },
+          "steer_timeout_ms": {
+            "type": "integer",
+            "format": "int32",
+            "default": 5000,
+            "minimum": 0
+          },
+          "step": {
+            "type": "number",
+            "format": "float",
+            "default": 0.05000000074505806
+          },
+          "taps": {
+            "type": "integer",
+            "format": "int32",
+            "default": 1,
+            "minimum": 0
+          },
+          "update_ms": {
+            "type": "integer",
+            "format": "int32",
+            "default": 200,
+            "minimum": 0
+          }
+        }
+      },
+      "BeamformerReading": {
+        "type": "object",
+        "required": [
+          "at",
+          "output_db",
+          "nulls_deg",
+          "weights"
+        ],
+        "properties": {
+          "at": {
+            "type": "string"
+          },
+          "band_full": {
+            "type": "boolean"
+          },
+          "cancelled_db": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "float"
+          },
+          "diverged": {
+            "type": "boolean"
+          },
+          "loading_used": {
+            "type": "number",
+            "format": "float"
+          },
+          "mode": {
+            "$ref": "#/components/schemas/BeamMode"
+          },
+          "no_steer": {
+            "type": "boolean"
+          },
+          "null_depths_db": {
+            "type": "array",
+            "items": {
+              "type": "number",
+              "format": "float"
+            }
+          },
+          "nulls_deg": {
+            "type": "array",
+            "items": {
+              "type": "number",
+              "format": "float"
+            }
+          },
+          "out_center_hz": {
+            "type": "number",
+            "format": "double"
+          },
+          "out_rate": {
+            "type": "number",
+            "format": "double"
+          },
+          "output_db": {
+            "type": "number",
+            "format": "float"
+          },
+          "pattern": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          },
+          "resets": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "singular": {
+            "type": "boolean"
+          },
+          "sinr_gain_db": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "float"
+          },
+          "snr_db": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "float"
+          },
+          "steer_age_ms": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "steer_deg": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "float"
+          },
+          "steer_stale": {
+            "type": "boolean"
+          },
+          "weights": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LaneWeight"
+            }
+          }
+        }
+      },
+      "BearingSource": {
+        "type": "string",
+        "enum": [
+          "array",
+          "sweep",
+          "mark"
+        ]
+      },
       "BeastExportStatus": {
         "type": "object",
         "required": [
@@ -6380,6 +8830,18 @@
           "drm_plus"
         ]
       },
+      "CalPhase": {
+        "type": "string",
+        "enum": [
+          "none",
+          "waiting",
+          "measuring",
+          "solved",
+          "warm",
+          "stale",
+          "failed"
+        ]
+      },
       "Capabilities": {
         "type": "object",
         "required": [
@@ -6461,13 +8923,15 @@
             "description": "Whether the radio sweeps in its own firmware, delivering blocks stamped with the frequency\neach was taken at instead of a stream at one tuning."
           },
           "noise_source": {
-            "type": "boolean",
-            "description": "Whether the radio can switch a calibration reference into every lane at once. An array\nthat carries its own is calibrated without an operator reaching for a splitter, and\nwithout one it has to be told what to solve against."
+            "$ref": "#/components/schemas/NoiseSource"
           },
           "per_stream": {
             "$ref": "#/components/schemas/StreamScope"
           },
           "ppm": {
+            "type": "boolean"
+          },
+          "retune_keeps_phase": {
             "type": "boolean"
           },
           "rx_streams": {
@@ -6608,6 +9072,131 @@
             "type": "string"
           }
         }
+      },
+      "CfarKind": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "ca"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "rank",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "os"
+                ]
+              },
+              "rank": {
+                "type": "number",
+                "format": "float"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "go"
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "CfarParams": {
+        "type": "object",
+        "properties": {
+          "guard_doppler": {
+            "type": "integer",
+            "format": "int32",
+            "default": 1,
+            "minimum": 0
+          },
+          "guard_range": {
+            "type": "integer",
+            "format": "int32",
+            "default": 2,
+            "minimum": 0
+          },
+          "kind": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/CfarKind"
+              }
+            ],
+            "default": {
+              "kind": "ca"
+            }
+          },
+          "min_doppler_hz": {
+            "type": "number",
+            "format": "float",
+            "default": 5.0
+          },
+          "min_range_km": {
+            "type": "number",
+            "format": "float",
+            "default": 1.0
+          },
+          "min_snr_db": {
+            "type": "number",
+            "format": "float",
+            "default": 8.0
+          },
+          "pfa": {
+            "type": "number",
+            "format": "double",
+            "default": 0.00001
+          },
+          "train_doppler": {
+            "type": "integer",
+            "format": "int32",
+            "default": 4,
+            "minimum": 0
+          },
+          "train_range": {
+            "type": "integer",
+            "format": "int32",
+            "default": 8,
+            "minimum": 0
+          },
+          "window": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/CfarWindow"
+              }
+            ],
+            "default": "range"
+          }
+        }
+      },
+      "CfarWindow": {
+        "type": "string",
+        "enum": [
+          "range",
+          "plane"
+        ]
       },
       "Channel": {
         "allOf": [
@@ -7872,6 +10461,43 @@
           }
         }
       },
+      "ChannelTarget": {
+        "type": "object",
+        "required": [
+          "device_set",
+          "channel",
+          "channel_node",
+          "channel_type",
+          "frequency_hz",
+          "bandwidth_hz"
+        ],
+        "properties": {
+          "bandwidth_hz": {
+            "type": "number",
+            "format": "double"
+          },
+          "channel": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "channel_node": {
+            "type": "string"
+          },
+          "channel_type": {
+            "type": "string"
+          },
+          "device_set": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "frequency_hz": {
+            "type": "number",
+            "format": "double"
+          }
+        }
+      },
       "ChannelTypesResponse": {
         "type": "object",
         "required": [
@@ -8311,10 +10937,56 @@
             "properties": {
               "data": {
                 "type": "object",
+                "properties": {
+                  "error": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "fix": {
+                    "oneOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "$ref": "#/components/schemas/PositionFix"
+                      }
+                    ]
+                  }
+                }
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "PublishPose"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "data",
+              "type"
+            ],
+            "properties": {
+              "data": {
+                "type": "object",
                 "required": [
                   "node"
                 ],
                 "properties": {
+                  "fit": {
+                    "oneOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "$ref": "#/components/schemas/SurfaceFit"
+                      }
+                    ]
+                  },
                   "node": {
                     "type": "string"
                   }
@@ -8366,6 +11038,70 @@
             "type": "integer",
             "format": "int32",
             "minimum": 0
+          }
+        }
+      },
+      "ClutterMethod": {
+        "type": "string",
+        "enum": [
+          "eca_batch",
+          "eca_sliding",
+          "nlms",
+          "block_nlms",
+          "off"
+        ]
+      },
+      "ClutterParams": {
+        "type": "object",
+        "properties": {
+          "batch_ms": {
+            "type": "number",
+            "format": "float",
+            "default": 50.0
+          },
+          "doppler_taps": {
+            "type": "integer",
+            "format": "int32",
+            "default": 0,
+            "minimum": 0
+          },
+          "extension_ms": {
+            "type": "number",
+            "format": "float",
+            "default": 25.0
+          },
+          "lead": {
+            "type": "integer",
+            "format": "int32",
+            "default": 2,
+            "minimum": 0
+          },
+          "loading": {
+            "type": "number",
+            "format": "float",
+            "default": 0.00009999999747378752
+          },
+          "method": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ClutterMethod"
+              }
+            ],
+            "default": "eca_batch"
+          },
+          "reach_km": {
+            "type": "number",
+            "format": "float",
+            "default": 15.0
+          },
+          "step": {
+            "type": "number",
+            "format": "float",
+            "default": 0.05000000074505806
+          },
+          "taper": {
+            "type": "boolean",
+            "default": true
           }
         }
       },
@@ -8611,6 +11347,81 @@
           },
           "target_model": {
             "type": "string"
+          }
+        }
+      },
+      "CorrelatorNode": {
+        "type": "object",
+        "properties": {
+          "settings": {
+            "$ref": "#/components/schemas/CorrelatorParams"
+          }
+        }
+      },
+      "CorrelatorParams": {
+        "type": "object",
+        "properties": {
+          "bandwidth_hz": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double",
+            "default": null
+          },
+          "bins": {
+            "type": "integer",
+            "format": "int32",
+            "default": 1024,
+            "minimum": 0
+          },
+          "channels": {
+            "type": "integer",
+            "format": "int32",
+            "default": 256,
+            "minimum": 0
+          },
+          "integrate_s": {
+            "type": "number",
+            "format": "float",
+            "default": 1.0
+          },
+          "offset_hz": {
+            "type": "number",
+            "format": "double",
+            "default": 0.0
+          },
+          "overlap": {
+            "type": "boolean",
+            "default": false
+          }
+        }
+      },
+      "CorrelatorReading": {
+        "type": "object",
+        "required": [
+          "at",
+          "integrated_s",
+          "baselines"
+        ],
+        "properties": {
+          "at": {
+            "type": "string"
+          },
+          "baselines": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Baseline"
+            }
+          },
+          "frames": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "integrated_s": {
+            "type": "number",
+            "format": "float"
           }
         }
       },
@@ -9339,6 +12150,17 @@
         "properties": {
           "device_id": {
             "type": "string"
+          }
+        }
+      },
+      "CreateOfferRequest": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         }
       },
@@ -10374,6 +13196,24 @@
             ],
             "properties": {
               "data": {
+                "$ref": "#/components/schemas/RadarTrackEvent"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "radar"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "data",
+              "kind"
+            ],
+            "properties": {
+              "data": {
                 "$ref": "#/components/schemas/DectFrame"
               },
               "kind": {
@@ -10995,6 +13835,9 @@
           "tx_streams"
         ],
         "properties": {
+          "coherence": {
+            "$ref": "#/components/schemas/Coherence"
+          },
           "duplex": {
             "$ref": "#/components/schemas/Duplex"
           },
@@ -11003,6 +13846,9 @@
             "items": {
               "$ref": "#/components/schemas/Range"
             }
+          },
+          "noise_source": {
+            "$ref": "#/components/schemas/NoiseSource"
           },
           "per_stream": {
             "$ref": "#/components/schemas/StreamScope"
@@ -11108,6 +13954,12 @@
               }
             ]
           },
+          "held": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/HeldLane"
+            }
+          },
           "hunts": {
             "type": "array",
             "items": {
@@ -11187,6 +14039,12 @@
                 "$ref": "#/components/schemas/TimeMachineStatus"
               }
             ]
+          },
+          "virtual_lanes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/VirtualLane"
+            }
           }
         }
       },
@@ -11311,6 +14169,16 @@
           }
         }
       },
+      "DfAlgorithm": {
+        "type": "string",
+        "enum": [
+          "bartlett",
+          "capon",
+          "music",
+          "root_music",
+          "esprit"
+        ]
+      },
       "DfBearing": {
         "type": "object",
         "required": [
@@ -11318,12 +14186,40 @@
           "confidence"
         ],
         "properties": {
+          "accuracy_m": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "float"
+          },
           "bearing_deg": {
             "type": "number",
             "format": "float"
           },
           "confidence": {
             "type": "number",
+            "format": "float"
+          },
+          "freq_hz": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "heading_deg": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "float"
+          },
+          "heading_sigma_deg": {
+            "type": [
+              "number",
+              "null"
+            ],
             "format": "float"
           },
           "lat": {
@@ -11333,12 +14229,53 @@
             ],
             "format": "double"
           },
+          "likelihood": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          },
           "lon": {
             "type": [
               "number",
               "null"
             ],
             "format": "double"
+          },
+          "mirror_deg": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "float"
+          },
+          "moving": {
+            "type": "boolean"
+          },
+          "node": {
+            "type": "string"
+          },
+          "others": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DfOtherPeak"
+            }
+          },
+          "relative_deg": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "float"
+          },
+          "sigma_deg": {
+            "type": "number",
+            "format": "float"
+          },
+          "source": {
+            "$ref": "#/components/schemas/BearingSource"
           },
           "station_id": {
             "type": [
@@ -11383,6 +14320,10 @@
             "type": "number",
             "format": "double"
           },
+          "mass": {
+            "type": "number",
+            "format": "float"
+          },
           "samples": {
             "type": "integer",
             "format": "int32",
@@ -11396,6 +14337,17 @@
           "samples"
         ],
         "properties": {
+          "dropped": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "emitters": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DfEstimate"
+            }
+          },
           "estimate": {
             "oneOf": [
               {
@@ -11406,15 +14358,31 @@
               }
             ]
           },
-          "guidance": {
+          "half_life_s": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "nav": {
             "oneOf": [
               {
                 "type": "null"
               },
               {
-                "$ref": "#/components/schemas/DfGuidance"
+                "$ref": "#/components/schemas/NavTarget"
               }
             ]
+          },
+          "no_bearings": {
+            "type": "boolean"
+          },
+          "no_guide_position": {
+            "type": "boolean"
+          },
+          "refused": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
           },
           "samples": {
             "type": "integer",
@@ -11429,28 +14397,386 @@
           }
         }
       },
-      "DfGuidance": {
+      "DfMission": {
+        "type": "object",
+        "properties": {
+          "array": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "center_hz": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "device_sets": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          },
+          "position": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PositionLink"
+              }
+            ]
+          },
+          "triangulations": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "DfNode": {
+        "type": "object",
+        "properties": {
+          "settings": {
+            "$ref": "#/components/schemas/DfParams"
+          }
+        }
+      },
+      "DfOtherPeak": {
         "type": "object",
         "required": [
-          "heading_deg",
-          "mode",
-          "distance_m",
-          "nav_target"
+          "bearing_deg",
+          "sigma_deg",
+          "confidence"
         ],
         "properties": {
-          "distance_m": {
+          "bearing_deg": {
+            "type": "number",
+            "format": "float"
+          },
+          "confidence": {
+            "type": "number",
+            "format": "float"
+          },
+          "sigma_deg": {
+            "type": "number",
+            "format": "float"
+          }
+        }
+      },
+      "DfParams": {
+        "type": "object",
+        "properties": {
+          "algorithm": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/DfAlgorithm"
+              }
+            ],
+            "default": "music"
+          },
+          "azimuth_step_deg": {
+            "type": "number",
+            "format": "double",
+            "default": 1.0
+          },
+          "bandwidth_hz": {
+            "type": "number",
+            "format": "double",
+            "default": 20000.0
+          },
+          "carry_over": {
+            "type": "number",
+            "format": "float",
+            "default": 0.5
+          },
+          "elevation": {
+            "type": "boolean",
+            "default": false
+          },
+          "forward_backward": {
+            "type": "boolean",
+            "default": false
+          },
+          "loading": {
+            "type": "number",
+            "format": "float",
+            "default": 0.0010000000474974513
+          },
+          "max_peaks": {
+            "type": "integer",
+            "format": "int32",
+            "default": 2,
+            "minimum": 0
+          },
+          "offset_hz": {
+            "type": "number",
+            "format": "double",
+            "default": 0.0
+          },
+          "report_ms": {
+            "type": "integer",
+            "format": "int32",
+            "default": 500,
+            "minimum": 0
+          },
+          "smoothing": {
+            "type": "integer",
+            "format": "int32",
+            "default": 0,
+            "minimum": 0
+          },
+          "source_rule": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/SourceRule"
+              }
+            ],
+            "default": "dominance"
+          },
+          "sources": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "default": null,
+            "minimum": 0
+          },
+          "squelch_db": {
+            "type": "number",
+            "format": "float",
+            "default": 6.0
+          },
+          "station_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "default": null
+          },
+          "ula_side": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/UlaSide"
+              }
+            ],
+            "default": "both"
+          },
+          "yaw_gate_dps": {
+            "type": "number",
+            "format": "float",
+            "default": 20.0
+          }
+        }
+      },
+      "DfPeak": {
+        "type": "object",
+        "required": [
+          "relative_deg",
+          "power_db",
+          "confidence",
+          "sigma_deg"
+        ],
+        "properties": {
+          "confidence": {
+            "type": "number",
+            "format": "float"
+          },
+          "elevation_deg": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "float"
+          },
+          "fit": {
+            "type": "number",
+            "format": "float"
+          },
+          "mirror_deg": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "float"
+          },
+          "mirror_true_deg": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "float"
+          },
+          "power_db": {
+            "type": "number",
+            "format": "float"
+          },
+          "relative_deg": {
+            "type": "number",
+            "format": "float"
+          },
+          "sigma_deg": {
+            "type": "number",
+            "format": "float"
+          },
+          "true_deg": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "float"
+          }
+        }
+      },
+      "DfReading": {
+        "type": "object",
+        "required": [
+          "at",
+          "peaks",
+          "pseudospectrum",
+          "sources",
+          "sources_auto",
+          "squelched",
+          "aliasing"
+        ],
+        "properties": {
+          "algorithm": {
+            "$ref": "#/components/schemas/DfAlgorithm"
+          },
+          "aliasing": {
+            "type": "boolean"
+          },
+          "aperture_wavelengths": {
+            "type": "number",
+            "format": "float"
+          },
+          "at": {
+            "type": "string"
+          },
+          "azimuth_deg": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "eig_ratio_db": {
+            "type": "number",
+            "format": "float"
+          },
+          "eigenvalues_db": {
+            "type": "array",
+            "items": {
+              "type": "number",
+              "format": "float"
+            }
+          },
+          "fit": {
+            "type": "number",
+            "format": "float"
+          },
+          "freq_hz": {
             "type": "number",
             "format": "double"
           },
-          "heading_deg": {
+          "gated_blocks": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "heading_sigma_deg": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "float"
+          },
+          "lambda12_db": {
             "type": "number",
-            "format": "double"
+            "format": "float"
           },
-          "mode": {
-            "$ref": "#/components/schemas/GuidanceMode"
+          "likelihood": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
           },
-          "nav_target": {
-            "$ref": "#/components/schemas/NavTarget"
+          "likelihood_true": {
+            "type": "boolean"
+          },
+          "mirror": {
+            "type": "boolean"
+          },
+          "mode_aliasing": {
+            "type": "boolean"
+          },
+          "peaks": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DfPeak"
+            }
+          },
+          "pseudospectrum": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          },
+          "rotating": {
+            "type": "boolean"
+          },
+          "singular": {
+            "type": "boolean"
+          },
+          "snapshots": {
+            "type": "number",
+            "format": "float"
+          },
+          "snr_db": {
+            "type": "number",
+            "format": "float"
+          },
+          "sources": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "sources_auto": {
+            "type": "boolean"
+          },
+          "spacing_ratio": {
+            "type": "number",
+            "format": "float"
+          },
+          "span_db": {
+            "type": "number",
+            "format": "float"
+          },
+          "squelched": {
+            "type": "boolean"
+          },
+          "station": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/LatLon"
+              }
+            ]
+          },
+          "table_out_of_range": {
+            "type": "boolean"
           }
         }
       },
@@ -11469,6 +14795,10 @@
             "format": "int32",
             "minimum": 0
           },
+          "last_bearing_deg": {
+            "type": "number",
+            "format": "float"
+          },
           "last_seen": {
             "type": "string"
           },
@@ -11479,6 +14809,16 @@
           "lon": {
             "type": "number",
             "format": "double"
+          },
+          "moving": {
+            "type": "boolean"
+          },
+          "sigma_deg": {
+            "type": "number",
+            "format": "float"
+          },
+          "source": {
+            "$ref": "#/components/schemas/BearingSource"
           },
           "station_id": {
             "type": "string"
@@ -11801,6 +15141,14 @@
             "type": "string"
           }
         }
+      },
+      "DopplerWindow": {
+        "type": "string",
+        "enum": [
+          "hann",
+          "blackman_harris",
+          "rectangular"
+        ]
       },
       "DpmrParams": {
         "type": "object"
@@ -12339,7 +15687,7 @@
       },
       "ErrorCode": {
         "type": "string",
-        "description": "Which part of the server refused, independent of the wording. A client groups repeats and\ntitles a bug report by this; the prose in `error` is free to change.",
+        "description": "Which part of the server refused. Stable, unlike the wording in `error`.",
         "enum": [
           "request",
           "not_found",
@@ -12348,7 +15696,9 @@
           "engine",
           "storage",
           "tool",
-          "internal"
+          "internal",
+          "auth",
+          "rate_limited"
         ]
       },
       "EventAudio": {
@@ -12981,6 +16331,72 @@
           }
         }
       },
+      "FusionDecay": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "auto"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "fixed"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "moving"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "seconds",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "half_life"
+                ]
+              },
+              "seconds": {
+                "type": "integer",
+                "format": "int32",
+                "minimum": 0
+              }
+            }
+          }
+        ]
+      },
       "GainKind": {
         "type": "string",
         "enum": [
@@ -13196,6 +16612,13 @@
           }
         }
       },
+      "GpuUse": {
+        "type": "string",
+        "enum": [
+          "auto",
+          "off"
+        ]
+      },
       "GroundPlaneParams": {
         "type": "object",
         "properties": {
@@ -13227,11 +16650,12 @@
           }
         }
       },
-      "GuidanceMode": {
+      "Hand": {
         "type": "string",
         "enum": [
-          "cross",
-          "approach"
+          "right",
+          "left",
+          "linear"
         ]
       },
       "HeadingSource": {
@@ -13244,6 +16668,23 @@
           "sensor"
         ]
       },
+      "HeldLane": {
+        "type": "object",
+        "required": [
+          "stream",
+          "array"
+        ],
+        "properties": {
+          "array": {
+            "type": "string"
+          },
+          "stream": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
       "HfdlParams": {
         "type": "object"
       },
@@ -13251,15 +16692,66 @@
         "type": "string",
         "enum": [
           "start",
-          "stop"
+          "stop",
+          "sweep",
+          "mark"
         ]
       },
-      "HuntNode": {
+      "HuntMission": {
         "type": "object",
-        "description": "What a hunt node remembers between sessions: whether the operator wanted a click track.",
+        "required": [
+          "clicks"
+        ],
         "properties": {
           "clicks": {
             "type": "boolean"
+          },
+          "position": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PositionLink"
+              }
+            ]
+          },
+          "status": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/HuntStatus"
+              }
+            ]
+          },
+          "target": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ChannelTarget"
+              }
+            ]
+          },
+          "triangulations": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "HuntNode": {
+        "type": "object",
+        "properties": {
+          "clicks": {
+            "type": "boolean"
+          },
+          "sweep": {
+            "$ref": "#/components/schemas/HuntSweepParams"
           }
         }
       },
@@ -13293,14 +16785,21 @@
           "channel": {
             "type": "integer",
             "format": "int32",
-            "description": "The decoder being hunted. Its frequency and bandwidth are what the readings measure, so\nretuning it retunes the hunt.",
             "minimum": 0
           },
           "interval_ms": {
             "type": "integer",
             "format": "int32",
-            "description": "How often a reading is published. A hunt is walked with, so the feedback has to keep up\nwith the steps rather than with a status panel.",
             "minimum": 0
+          },
+          "node": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "sweep": {
+            "$ref": "#/components/schemas/HuntSweepParams"
           }
         }
       },
@@ -13311,6 +16810,11 @@
           "readings"
         ],
         "properties": {
+          "at_ms": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
           "best_db": {
             "type": [
               "number",
@@ -13323,8 +16827,7 @@
             "format": "double"
           },
           "closing": {
-            "type": "boolean",
-            "description": "Whether the last few readings are climbing: the answer to \"warmer or colder\"."
+            "type": "boolean"
           },
           "error": {
             "type": [
@@ -13337,21 +16840,23 @@
               "number",
               "null"
             ],
-            "format": "float",
-            "description": "The quietest and loudest this hunt has seen, so a meter can scale itself to the ground\nactually covered instead of to a guess about how loud the transmitter is."
+            "format": "float"
           },
           "freq_hz": {
             "type": "number",
-            "format": "double",
-            "description": "The frequency the readings are taken on: the decoder's, as of the last reading."
+            "format": "double"
           },
           "level_db": {
             "type": [
               "number",
               "null"
             ],
-            "format": "float",
-            "description": "The strongest reading in the last interval."
+            "format": "float"
+          },
+          "pose_drops": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
           },
           "readings": {
             "type": "integer",
@@ -13366,13 +16871,118 @@
               "number",
               "null"
             ],
-            "format": "float",
-            "description": "The reading with the jitter taken out, which is what a walking operator can act on."
+            "format": "float"
           },
           "strength": {
             "type": "number",
+            "format": "float"
+          },
+          "sweep": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/HuntSweep"
+              }
+            ]
+          }
+        }
+      },
+      "HuntSweep": {
+        "type": "object",
+        "required": [
+          "bins",
+          "covered_deg"
+        ],
+        "properties": {
+          "bins": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          },
+          "contrast_db": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "float"
+          },
+          "covered_deg": {
+            "type": "number",
+            "format": "float"
+          },
+          "fit": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "float"
+          },
+          "heading_deg": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "float"
+          },
+          "lag_ms": {
+            "type": "number",
+            "format": "float"
+          },
+          "peak_deg": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "float"
+          },
+          "rate_dps": {
+            "type": "number",
+            "format": "float"
+          },
+          "sigma_deg": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "float"
+          },
+          "state": {
+            "$ref": "#/components/schemas/SweepState"
+          }
+        }
+      },
+      "HuntSweepParams": {
+        "type": "object",
+        "properties": {
+          "beamwidth_deg": {
+            "type": "number",
+            "format": "double",
+            "default": 60.0
+          },
+          "front_back_db": {
+            "type": "number",
+            "format": "double",
+            "default": 15.0
+          },
+          "min_contrast_db": {
+            "type": "number",
             "format": "float",
-            "description": "Where the current reading sits between `floor_db` and `best_db`, from 0 to 1."
+            "default": 6.0
+          },
+          "min_span_deg": {
+            "type": "number",
+            "format": "double",
+            "default": 180.0
+          },
+          "mount_offset_deg": {
+            "type": "number",
+            "format": "double",
+            "default": 0.0
           }
         }
       },
@@ -13569,6 +17179,76 @@
             "format": "double"
           }
         }
+      },
+      "Illuminator": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "fm"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "dab"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "bandwidth_hz",
+              "kind"
+            ],
+            "properties": {
+              "bandwidth_hz": {
+                "type": "number",
+                "format": "double"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "dvbt_partial"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "bandwidth_hz",
+              "kind"
+            ],
+            "properties": {
+              "bandwidth_hz": {
+                "type": "number",
+                "format": "double"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "custom"
+                ]
+              }
+            }
+          }
+        ]
       },
       "IlsComponent": {
         "type": "string",
@@ -13783,6 +17463,40 @@
           "r3"
         ]
       },
+      "LaneWeight": {
+        "type": "object",
+        "required": [
+          "amplitude_db",
+          "phase_deg"
+        ],
+        "properties": {
+          "amplitude_db": {
+            "type": "number",
+            "format": "float"
+          },
+          "phase_deg": {
+            "type": "number",
+            "format": "float"
+          }
+        }
+      },
+      "LatLon": {
+        "type": "object",
+        "required": [
+          "lat",
+          "lon"
+        ],
+        "properties": {
+          "lat": {
+            "type": "number",
+            "format": "double"
+          },
+          "lon": {
+            "type": "number",
+            "format": "double"
+          }
+        }
+      },
       "LicenseTextResponse": {
         "type": "object",
         "required": [
@@ -13834,6 +17548,60 @@
       "M17Params": {
         "type": "object"
       },
+      "MdnsState": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "state"
+            ],
+            "properties": {
+              "state": {
+                "type": "string",
+                "enum": [
+                  "off"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "instance",
+              "state"
+            ],
+            "properties": {
+              "instance": {
+                "type": "string"
+              },
+              "state": {
+                "type": "string",
+                "enum": [
+                  "on"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "reason",
+              "state"
+            ],
+            "properties": {
+              "reason": {
+                "type": "string"
+              },
+              "state": {
+                "type": "string",
+                "enum": [
+                  "failed"
+                ]
+              }
+            }
+          }
+        ]
+      },
       "MergeMode": {
         "type": "string",
         "enum": [
@@ -13853,6 +17621,518 @@
           "radio_ids",
           "settings"
         ]
+      },
+      "Mission": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/MissionBody"
+          },
+          {
+            "type": "object",
+            "required": [
+              "node",
+              "label",
+              "ready"
+            ],
+            "properties": {
+              "controls": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/MissionControl"
+                }
+              },
+              "label": {
+                "type": "string"
+              },
+              "node": {
+                "type": "string"
+              },
+              "problems": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/MissionProblem"
+                }
+              },
+              "ready": {
+                "type": "boolean"
+              }
+            }
+          }
+        ]
+      },
+      "MissionAction": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "frequency_hz",
+              "action"
+            ],
+            "properties": {
+              "action": {
+                "type": "string",
+                "enum": [
+                  "tune"
+                ]
+              },
+              "frequency_hz": {
+                "type": "number",
+                "format": "double"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "action"
+            ],
+            "properties": {
+              "action": {
+                "type": "string",
+                "enum": [
+                  "calibrate"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "action"
+            ],
+            "properties": {
+              "action": {
+                "type": "string",
+                "enum": [
+                  "start_hunt"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "action"
+            ],
+            "properties": {
+              "action": {
+                "type": "string",
+                "enum": [
+                  "stop_hunt"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "action"
+            ],
+            "properties": {
+              "action": {
+                "type": "string",
+                "enum": [
+                  "start_sweep"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "action"
+            ],
+            "properties": {
+              "action": {
+                "type": "string",
+                "enum": [
+                  "stop_sweep"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "action"
+            ],
+            "properties": {
+              "action": {
+                "type": "string",
+                "enum": [
+                  "mark"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "action"
+            ],
+            "properties": {
+              "action": {
+                "type": "string",
+                "enum": [
+                  "clear_fusion"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "action"
+            ],
+            "properties": {
+              "action": {
+                "type": "string",
+                "enum": [
+                  "start_survey"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "action"
+            ],
+            "properties": {
+              "action": {
+                "type": "string",
+                "enum": [
+                  "stop_survey"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "action"
+            ],
+            "properties": {
+              "action": {
+                "type": "string",
+                "enum": [
+                  "clear_survey"
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "MissionActionResponse": {
+        "type": "object",
+        "required": [
+          "mission"
+        ],
+        "properties": {
+          "mission": {
+            "$ref": "#/components/schemas/Mission"
+          }
+        }
+      },
+      "MissionBody": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "data",
+              "kind"
+            ],
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/HuntMission"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "hunt"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "data",
+              "kind"
+            ],
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/DfMission"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "df"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "data",
+              "kind"
+            ],
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/RadarMission"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "radar"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "data",
+              "kind"
+            ],
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/SurveyMission"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "survey"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "data",
+              "kind"
+            ],
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/TriangulationMission"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "triangulation"
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "MissionControl": {
+        "type": "string",
+        "enum": [
+          "tune",
+          "calibrate",
+          "start_hunt",
+          "stop_hunt",
+          "start_sweep",
+          "stop_sweep",
+          "mark",
+          "clear_fusion",
+          "start_survey",
+          "stop_survey",
+          "clear_survey"
+        ]
+      },
+      "MissionProblem": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "port",
+              "problem"
+            ],
+            "properties": {
+              "port": {
+                "type": "string"
+              },
+              "problem": {
+                "type": "string",
+                "enum": [
+                  "unwired"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "problem"
+            ],
+            "properties": {
+              "problem": {
+                "type": "string",
+                "enum": [
+                  "not_running"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "problem"
+            ],
+            "properties": {
+              "problem": {
+                "type": "string",
+                "enum": [
+                  "no_position"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "phone",
+              "problem"
+            ],
+            "properties": {
+              "phone": {
+                "type": "string"
+              },
+              "problem": {
+                "type": "string",
+                "enum": [
+                  "phone_offline"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "phone",
+              "problem"
+            ],
+            "properties": {
+              "phone": {
+                "type": "string"
+              },
+              "problem": {
+                "type": "string",
+                "enum": [
+                  "phone_not_paired"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "problem"
+            ],
+            "properties": {
+              "problem": {
+                "type": "string",
+                "enum": [
+                  "scanning"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "problem"
+            ],
+            "properties": {
+              "problem": {
+                "type": "string",
+                "enum": [
+                  "out_of_band"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "reason",
+              "problem"
+            ],
+            "properties": {
+              "problem": {
+                "type": "string",
+                "enum": [
+                  "refused"
+                ]
+              },
+              "reason": {
+                "type": "string"
+              }
+            }
+          }
+        ]
+      },
+      "MissionWorkspace": {
+        "type": "object",
+        "required": [
+          "id",
+          "name"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
+      "MissionsResponse": {
+        "type": "object",
+        "required": [
+          "revision",
+          "workspaces",
+          "missions"
+        ],
+        "properties": {
+          "missions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Mission"
+            }
+          },
+          "revision": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "truncated": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "workspace": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/MissionWorkspace"
+              }
+            ]
+          },
+          "workspaces": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MissionWorkspace"
+            }
+          }
+        }
       },
       "Modulation": {
         "type": "string",
@@ -14649,14 +18929,33 @@
           }
         }
       },
+      "NavMode": {
+        "type": "string",
+        "enum": [
+          "auto",
+          "direct",
+          "off"
+        ]
+      },
       "NavTarget": {
         "type": "object",
         "required": [
           "lat",
           "lon",
-          "kind"
+          "kind",
+          "revision",
+          "distance_m",
+          "bearing_deg"
         ],
         "properties": {
+          "bearing_deg": {
+            "type": "number",
+            "format": "double"
+          },
+          "distance_m": {
+            "type": "number",
+            "format": "double"
+          },
           "kind": {
             "$ref": "#/components/schemas/NavTargetKind"
           },
@@ -14667,14 +18966,19 @@
           "lon": {
             "type": "number",
             "format": "double"
+          },
+          "revision": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
           }
         }
       },
       "NavTargetKind": {
         "type": "string",
         "enum": [
-          "cross",
-          "target"
+          "probe",
+          "estimate"
         ]
       },
       "NavtexMessage": {
@@ -15045,6 +19349,24 @@
                 "type": "string",
                 "enum": [
                   "signal_gen"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "data",
+              "kind"
+            ],
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/ArrayNode"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "array"
                 ]
               }
             }
@@ -15471,6 +19793,132 @@
             ],
             "properties": {
               "data": {
+                "$ref": "#/components/schemas/DfNode"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "df"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "data",
+              "kind"
+            ],
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/BeamformerNode"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "beamformer"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "data",
+              "kind"
+            ],
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/PassiveRadarNode"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "passive_radar"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "data",
+              "kind"
+            ],
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/StitchNode"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "stitch"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "data",
+              "kind"
+            ],
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/SpatialSpectrumNode"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "spatial_spectrum"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "data",
+              "kind"
+            ],
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/CorrelatorNode"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "correlator"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "data",
+              "kind"
+            ],
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/PolarimeterNode"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "polarimeter"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "data",
+              "kind"
+            ],
+            "properties": {
+              "data": {
                 "$ref": "#/components/schemas/TriangulationNode"
               },
               "kind": {
@@ -15498,11 +19946,15 @@
           "kind",
           "name",
           "category",
-          "ports"
+          "ports",
+          "default_body"
         ],
         "properties": {
           "category": {
             "$ref": "#/components/schemas/NodeCategory"
+          },
+          "default_body": {
+            "$ref": "#/components/schemas/NodeBody"
           },
           "kind": {
             "type": "string"
@@ -15535,6 +19987,22 @@
             "format": "float"
           }
         }
+      },
+      "NoiseModel": {
+        "type": "string",
+        "enum": [
+          "measured",
+          "white"
+        ]
+      },
+      "NoiseSource": {
+        "type": "string",
+        "enum": [
+          "none",
+          "isolated",
+          "unisolated",
+          "replayed"
+        ]
       },
       "NotchSettings": {
         "type": "object",
@@ -15624,6 +20092,98 @@
           }
         }
       },
+      "OfferState": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "state"
+            ],
+            "properties": {
+              "state": {
+                "type": "string",
+                "enum": [
+                  "live"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "phone",
+              "state"
+            ],
+            "properties": {
+              "phone": {
+                "type": "string"
+              },
+              "state": {
+                "type": "string",
+                "enum": [
+                  "used"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "state"
+            ],
+            "properties": {
+              "state": {
+                "type": "string",
+                "enum": [
+                  "burned"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "state"
+            ],
+            "properties": {
+              "state": {
+                "type": "string",
+                "enum": [
+                  "expired"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "state"
+            ],
+            "properties": {
+              "state": {
+                "type": "string",
+                "enum": [
+                  "cancelled"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "state"
+            ],
+            "properties": {
+              "state": {
+                "type": "string",
+                "enum": [
+                  "superseded"
+                ]
+              }
+            }
+          }
+        ]
+      },
       "P25Params": {
         "type": "object"
       },
@@ -15635,6 +20195,134 @@
           "alpha",
           "binary"
         ]
+      },
+      "PairRequest": {
+        "type": "object",
+        "required": [
+          "code",
+          "name",
+          "platform",
+          "protocol"
+        ],
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "platform": {
+            "$ref": "#/components/schemas/PhonePlatform"
+          },
+          "protocol": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "rebind": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "PairResponse": {
+        "type": "object",
+        "required": [
+          "phone",
+          "token",
+          "server_id",
+          "server_name",
+          "protocol"
+        ],
+        "properties": {
+          "phone": {
+            "$ref": "#/components/schemas/Phone"
+          },
+          "protocol": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "server_id": {
+            "type": "string"
+          },
+          "server_name": {
+            "type": "string"
+          },
+          "token": {
+            "type": "string"
+          }
+        }
+      },
+      "PairingOffer": {
+        "type": "object",
+        "required": [
+          "id",
+          "code",
+          "uri",
+          "key_check",
+          "expires_at",
+          "endpoint"
+        ],
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "endpoint": {
+            "$ref": "#/components/schemas/PhoneEndpoint"
+          },
+          "expires_at": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "key_check": {
+            "type": "string"
+          },
+          "uri": {
+            "type": "string"
+          }
+        }
+      },
+      "PairingOfferStatus": {
+        "type": "object",
+        "required": [
+          "id",
+          "state",
+          "expires_at",
+          "failures"
+        ],
+        "properties": {
+          "code": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "expires_at": {
+            "type": "string"
+          },
+          "failures": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "id": {
+            "type": "string"
+          },
+          "state": {
+            "$ref": "#/components/schemas/OfferState"
+          },
+          "uri": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
       },
       "ParamLimit": {
         "type": "object",
@@ -15662,6 +20350,162 @@
               "null"
             ],
             "format": "double"
+          }
+        }
+      },
+      "PassiveRadarNode": {
+        "type": "object",
+        "properties": {
+          "settings": {
+            "$ref": "#/components/schemas/PassiveRadarParams"
+          }
+        }
+      },
+      "PassiveRadarParams": {
+        "type": "object",
+        "properties": {
+          "aoa": {
+            "type": "boolean",
+            "default": true
+          },
+          "assumed_altitude_m": {
+            "type": "number",
+            "format": "float",
+            "default": 8000.0
+          },
+          "cfar": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/CfarParams"
+              }
+            ],
+            "default": {
+              "guard_doppler": 1,
+              "guard_range": 2,
+              "kind": {
+                "kind": "ca"
+              },
+              "min_doppler_hz": 5.0,
+              "min_range_km": 1.0,
+              "min_snr_db": 8.0,
+              "pfa": 0.00001,
+              "train_doppler": 4,
+              "train_range": 8,
+              "window": "range"
+            }
+          },
+          "clutter": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ClutterParams"
+              }
+            ],
+            "default": {
+              "batch_ms": 50.0,
+              "doppler_taps": 0,
+              "extension_ms": 25.0,
+              "lead": 2,
+              "loading": 0.00009999999747378752,
+              "method": "eca_batch",
+              "reach_km": 15.0,
+              "step": 0.05000000074505806,
+              "taper": true
+            }
+          },
+          "cpi_ms": {
+            "type": "integer",
+            "format": "int32",
+            "default": 500,
+            "minimum": 0
+          },
+          "gpu": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/GpuUse"
+              }
+            ],
+            "default": "auto"
+          },
+          "illuminator": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Illuminator"
+              }
+            ],
+            "default": {
+              "kind": "fm"
+            }
+          },
+          "max_range_km": {
+            "type": "number",
+            "format": "float",
+            "default": 80.0
+          },
+          "max_speed_mps": {
+            "type": "number",
+            "format": "float",
+            "default": 400.0
+          },
+          "offset_hz": {
+            "type": "number",
+            "format": "double",
+            "default": 0.0
+          },
+          "overlap": {
+            "type": "number",
+            "format": "float",
+            "default": 0.0
+          },
+          "reference": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ReferenceCleaning"
+              }
+            ],
+            "default": {
+              "kind": "cma",
+              "step": 0.0010000000474974513,
+              "taps": 16
+            }
+          },
+          "reference_element": {
+            "type": "integer",
+            "format": "int32",
+            "default": 0,
+            "minimum": 0
+          },
+          "surveillance": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/SurveillanceSet"
+              }
+            ],
+            "default": {
+              "kind": "all_others"
+            }
+          },
+          "tracker": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/TrackerParams"
+              }
+            ],
+            "default": {
+              "coast_looks": 10,
+              "confirm_hits": 3,
+              "confirm_window": 5,
+              "gate": 11.800000190734863,
+              "jerk": 5.0,
+              "max_accel_mps2": 30.0
+            }
+          },
+          "window": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/DopplerWindow"
+              }
+            ],
+            "default": "hann"
           }
         }
       },
@@ -15834,6 +20678,245 @@
           },
           "reason": {
             "type": "string"
+          }
+        }
+      },
+      "Phone": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "platform",
+          "created_at",
+          "online"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "string"
+          },
+          "gps_nodes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "id": {
+            "type": "string"
+          },
+          "last_seen": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "online": {
+            "type": "boolean"
+          },
+          "platform": {
+            "$ref": "#/components/schemas/PhonePlatform"
+          }
+        }
+      },
+      "PhoneAccess": {
+        "type": "object",
+        "required": [
+          "enabled",
+          "port"
+        ],
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "port": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "PhoneAccessStatus": {
+        "type": "object",
+        "required": [
+          "access",
+          "listener",
+          "mdns",
+          "protocol"
+        ],
+        "properties": {
+          "access": {
+            "$ref": "#/components/schemas/PhoneAccess"
+          },
+          "endpoint": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PhoneEndpoint"
+              }
+            ]
+          },
+          "listener": {
+            "$ref": "#/components/schemas/PhoneListenerState"
+          },
+          "mdns": {
+            "$ref": "#/components/schemas/MdnsState"
+          },
+          "protocol": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "PhoneEndpoint": {
+        "type": "object",
+        "required": [
+          "port",
+          "hosts",
+          "pin",
+          "key_check",
+          "dedicated"
+        ],
+        "properties": {
+          "dedicated": {
+            "type": "boolean"
+          },
+          "hosts": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "key_check": {
+            "type": "string"
+          },
+          "pin": {
+            "type": "string"
+          },
+          "port": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "PhoneListenerState": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "state"
+            ],
+            "properties": {
+              "state": {
+                "type": "string",
+                "enum": [
+                  "off"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "port",
+              "state"
+            ],
+            "properties": {
+              "port": {
+                "type": "integer",
+                "format": "int32",
+                "minimum": 0
+              },
+              "state": {
+                "type": "string",
+                "enum": [
+                  "on"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "port",
+              "reason",
+              "state"
+            ],
+            "properties": {
+              "port": {
+                "type": "integer",
+                "format": "int32",
+                "minimum": 0
+              },
+              "reason": {
+                "type": "string"
+              },
+              "state": {
+                "type": "string",
+                "enum": [
+                  "failed"
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "PhonePlatform": {
+        "type": "string",
+        "enum": [
+          "ios",
+          "android"
+        ]
+      },
+      "PhoneSelf": {
+        "type": "object",
+        "required": [
+          "phone",
+          "server_id",
+          "server_name"
+        ],
+        "properties": {
+          "phone": {
+            "$ref": "#/components/schemas/Phone"
+          },
+          "server_id": {
+            "type": "string"
+          },
+          "server_name": {
+            "type": "string"
+          }
+        }
+      },
+      "PhonesResponse": {
+        "type": "object",
+        "required": [
+          "phones",
+          "access"
+        ],
+        "properties": {
+          "access": {
+            "$ref": "#/components/schemas/PhoneAccessStatus"
+          },
+          "offer": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PairingOfferStatus"
+              }
+            ]
+          },
+          "phones": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Phone"
+            }
           }
         }
       },
@@ -16021,6 +21104,131 @@
           "alpha"
         ]
       },
+      "PolarimeterNode": {
+        "type": "object",
+        "properties": {
+          "settings": {
+            "$ref": "#/components/schemas/PolarimeterParams"
+          }
+        }
+      },
+      "PolarimeterParams": {
+        "type": "object",
+        "properties": {
+          "average_ms": {
+            "type": "integer",
+            "format": "int32",
+            "default": 500,
+            "minimum": 0
+          },
+          "bandwidth_hz": {
+            "type": "number",
+            "format": "double",
+            "default": 20000.0
+          },
+          "crossfade_ms": {
+            "type": "integer",
+            "format": "int32",
+            "default": 20,
+            "minimum": 0
+          },
+          "flip_hand": {
+            "type": "boolean",
+            "default": false
+          },
+          "h_lane": {
+            "type": "integer",
+            "format": "int32",
+            "default": 0,
+            "minimum": 0
+          },
+          "matched": {
+            "type": "boolean",
+            "default": true
+          },
+          "offset_hz": {
+            "type": "number",
+            "format": "double",
+            "default": 0.0
+          },
+          "report_ms": {
+            "type": "integer",
+            "format": "int32",
+            "default": 250,
+            "minimum": 0
+          },
+          "v_lane": {
+            "type": "integer",
+            "format": "int32",
+            "default": 1,
+            "minimum": 0
+          }
+        }
+      },
+      "PolarimeterReading": {
+        "type": "object",
+        "required": [
+          "at",
+          "i_db",
+          "q",
+          "u",
+          "v",
+          "degree",
+          "angle_deg",
+          "ellipticity_deg"
+        ],
+        "properties": {
+          "angle_deg": {
+            "type": "number",
+            "format": "float"
+          },
+          "at": {
+            "type": "string"
+          },
+          "degree": {
+            "type": "number",
+            "format": "float"
+          },
+          "ellipticity_deg": {
+            "type": "number",
+            "format": "float"
+          },
+          "hand": {
+            "$ref": "#/components/schemas/Hand"
+          },
+          "i_db": {
+            "type": "number",
+            "format": "float"
+          },
+          "out_center_hz": {
+            "type": "number",
+            "format": "double"
+          },
+          "out_rate": {
+            "type": "number",
+            "format": "double"
+          },
+          "q": {
+            "type": "number",
+            "format": "float"
+          },
+          "snr_db": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "float"
+          },
+          "u": {
+            "type": "number",
+            "format": "float"
+          },
+          "v": {
+            "type": "number",
+            "format": "float"
+          }
+        }
+      },
       "PortCondition": {
         "type": "string",
         "enum": [
@@ -16067,7 +21275,8 @@
         "enum": [
           "once",
           "per_rx_stream",
-          "per_tx_stream"
+          "per_tx_stream",
+          "per_lane"
         ]
       },
       "PortSpec": {
@@ -16115,7 +21324,8 @@
           "video",
           "control",
           "position",
-          "tx"
+          "tx",
+          "array"
         ]
       },
       "Position": {
@@ -16191,8 +21401,43 @@
           }
         ]
       },
+      "PositionLink": {
+        "type": "object",
+        "required": [
+          "node"
+        ],
+        "properties": {
+          "node": {
+            "type": "string"
+          },
+          "phone": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
       "PositionSource": {
         "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "phone",
+              "type"
+            ],
+            "properties": {
+              "phone": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "phone"
+                ]
+              }
+            }
+          },
           {
             "type": "object",
             "required": [
@@ -16350,6 +21595,230 @@
           "version": {
             "type": "integer",
             "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "ProcessorGate": {
+        "type": "string",
+        "enum": [
+          "sync",
+          "phase",
+          "gain",
+          "calibrating",
+          "retuning",
+          "tier",
+          "tuning_mode"
+        ]
+      },
+      "ProcessorReading": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "reading",
+              "type"
+            ],
+            "properties": {
+              "reading": {
+                "$ref": "#/components/schemas/DfReading"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "Df"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "reading",
+              "type"
+            ],
+            "properties": {
+              "reading": {
+                "$ref": "#/components/schemas/BeamformerReading"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "Beamformer"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "reading",
+              "type"
+            ],
+            "properties": {
+              "reading": {
+                "$ref": "#/components/schemas/RadarUpdate"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "PassiveRadar"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "reading",
+              "type"
+            ],
+            "properties": {
+              "reading": {
+                "$ref": "#/components/schemas/StitchReading"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "Stitch"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "reading",
+              "type"
+            ],
+            "properties": {
+              "reading": {
+                "$ref": "#/components/schemas/SpatialReading"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "SpatialSpectrum"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "reading",
+              "type"
+            ],
+            "properties": {
+              "reading": {
+                "$ref": "#/components/schemas/CorrelatorReading"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "Correlator"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "reading",
+              "type"
+            ],
+            "properties": {
+              "reading": {
+                "$ref": "#/components/schemas/PolarimeterReading"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "Polarimeter"
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "ProcessorStatus": {
+        "type": "object",
+        "required": [
+          "node",
+          "kind",
+          "running",
+          "gated_samples",
+          "dropped_samples",
+          "dropped_reports",
+          "lane_overflows",
+          "lane_mismatch",
+          "solver_failures",
+          "resets"
+        ],
+        "properties": {
+          "dropped_reports": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "dropped_samples": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "gated": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ProcessorGate"
+              }
+            ]
+          },
+          "gated_samples": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "kind": {
+            "type": "string"
+          },
+          "lane_mismatch": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "lane_overflows": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "node": {
+            "type": "string"
+          },
+          "resets": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "running": {
+            "type": "boolean"
+          },
+          "solver_failures": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "truncated": {
+            "type": "integer",
+            "format": "int64",
             "minimum": 0
           }
         }
@@ -16532,6 +22001,775 @@
             }
           }
         ]
+      },
+      "RadarAoa": {
+        "type": "object",
+        "required": [
+          "azimuth_deg",
+          "sigma_deg",
+          "quality"
+        ],
+        "properties": {
+          "azimuth_deg": {
+            "type": "number",
+            "format": "float"
+          },
+          "bearing_deg": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "float"
+          },
+          "mirror_deg": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "float"
+          },
+          "quality": {
+            "type": "number",
+            "format": "float"
+          },
+          "sigma_deg": {
+            "type": "number",
+            "format": "float"
+          }
+        }
+      },
+      "RadarAxes": {
+        "type": "object",
+        "required": [
+          "sample_rate_hz",
+          "carrier_hz",
+          "range_step_m",
+          "gates",
+          "doppler_step_hz",
+          "doppler_rows",
+          "batches",
+          "cpi_ms",
+          "hop_ms",
+          "lanes"
+        ],
+        "properties": {
+          "batches": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "carrier_hz": {
+            "type": "number",
+            "format": "double"
+          },
+          "cpi_ms": {
+            "type": "number",
+            "format": "float"
+          },
+          "doppler_rows": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "doppler_step_hz": {
+            "type": "number",
+            "format": "float"
+          },
+          "gates": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "hop_ms": {
+            "type": "number",
+            "format": "float"
+          },
+          "lanes": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "range_step_m": {
+            "type": "number",
+            "format": "float"
+          },
+          "sample_rate_hz": {
+            "type": "number",
+            "format": "double"
+          }
+        }
+      },
+      "RadarDetection": {
+        "type": "object",
+        "required": [
+          "range_km",
+          "doppler_hz",
+          "range_rate_mps",
+          "snr_db",
+          "cells"
+        ],
+        "properties": {
+          "aoa": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/RadarAoa"
+              }
+            ]
+          },
+          "cells": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "doppler_hz": {
+            "type": "number",
+            "format": "float"
+          },
+          "range_km": {
+            "type": "number",
+            "format": "float"
+          },
+          "range_rate_mps": {
+            "type": "number",
+            "format": "float"
+          },
+          "snr_db": {
+            "type": "number",
+            "format": "float"
+          },
+          "track_id": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "RadarFix": {
+        "type": "object",
+        "required": [
+          "lat",
+          "lon",
+          "alt_m",
+          "major_m",
+          "minor_m",
+          "orientation_deg"
+        ],
+        "properties": {
+          "alt_from_adsb": {
+            "type": "boolean"
+          },
+          "alt_m": {
+            "type": "number",
+            "format": "float"
+          },
+          "lat": {
+            "type": "number",
+            "format": "double"
+          },
+          "lon": {
+            "type": "number",
+            "format": "double"
+          },
+          "major_m": {
+            "type": "number",
+            "format": "float"
+          },
+          "minor_m": {
+            "type": "number",
+            "format": "float"
+          },
+          "orientation_deg": {
+            "type": "number",
+            "format": "float"
+          }
+        }
+      },
+      "RadarGeometry": {
+        "type": "object",
+        "required": [
+          "receiver",
+          "transmitter",
+          "baseline_km"
+        ],
+        "properties": {
+          "baseline_km": {
+            "type": "number",
+            "format": "float"
+          },
+          "heading_deg": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "float"
+          },
+          "receiver": {
+            "$ref": "#/components/schemas/RadarSite"
+          },
+          "transmitter": {
+            "$ref": "#/components/schemas/RadarSite"
+          }
+        }
+      },
+      "RadarHealth": {
+        "type": "object",
+        "required": [
+          "suppression_db",
+          "unsuppressed_groups",
+          "dropped_samples",
+          "dropped_cpis",
+          "discarded_cpis",
+          "dropped_reports",
+          "lagged_updates",
+          "truncated_detections",
+          "dropped_tracks",
+          "gpu_failures",
+          "load",
+          "front_load",
+          "compute_ms",
+          "noise_floor_db",
+          "gpu",
+          "threads",
+          "aoa",
+          "reference"
+        ],
+        "properties": {
+          "aoa": {
+            "$ref": "#/components/schemas/AoaState"
+          },
+          "cfar_looks": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "compute_ms": {
+            "type": "number",
+            "format": "float"
+          },
+          "discarded_cpis": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "dropped_cpis": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "dropped_reports": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "dropped_samples": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "dropped_tracks": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "front_load": {
+            "type": "number",
+            "format": "float"
+          },
+          "gpu": {
+            "type": "boolean"
+          },
+          "gpu_failures": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "lagged_updates": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "load": {
+            "type": "number",
+            "format": "float"
+          },
+          "noise_floor_db": {
+            "type": "number",
+            "format": "float"
+          },
+          "range_correlation": {
+            "type": "number",
+            "format": "float"
+          },
+          "reference": {
+            "$ref": "#/components/schemas/ReferenceHealth"
+          },
+          "suppression_db": {
+            "type": "array",
+            "items": {
+              "type": "number",
+              "format": "float"
+            }
+          },
+          "threads": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "truncated_detections": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "unsuppressed_groups": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
+      "RadarMission": {
+        "type": "object",
+        "required": [
+          "surface"
+        ],
+        "properties": {
+          "array": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "center_hz": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "device_sets": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          },
+          "position": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PositionLink"
+              }
+            ]
+          },
+          "surface": {
+            "type": "boolean"
+          },
+          "transmitter": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PositionLink"
+              }
+            ]
+          }
+        }
+      },
+      "RadarProblem": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "no_array"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "no_transmitter"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "no_receiver"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "no_heading"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "phase_unknown"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "overloaded"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "reference_lost"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "detail",
+              "kind"
+            ],
+            "properties": {
+              "detail": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "refused"
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "RadarSite": {
+        "type": "object",
+        "required": [
+          "lat",
+          "lon",
+          "altitude_m"
+        ],
+        "properties": {
+          "altitude_m": {
+            "type": "number",
+            "format": "double"
+          },
+          "lat": {
+            "type": "number",
+            "format": "double"
+          },
+          "lon": {
+            "type": "number",
+            "format": "double"
+          }
+        }
+      },
+      "RadarTrack": {
+        "type": "object",
+        "required": [
+          "id",
+          "state",
+          "range_km",
+          "range_rate_mps",
+          "doppler_hz",
+          "accel_mps2",
+          "range_sigma_m",
+          "rate_sigma_mps",
+          "snr_db",
+          "looks",
+          "misses",
+          "trail"
+        ],
+        "properties": {
+          "accel_mps2": {
+            "type": "number",
+            "format": "float"
+          },
+          "adsb": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AdsbMatch"
+              }
+            ]
+          },
+          "aoa": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/RadarAoa"
+              }
+            ]
+          },
+          "doppler_hz": {
+            "type": "number",
+            "format": "float"
+          },
+          "fix": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/RadarFix"
+              }
+            ]
+          },
+          "id": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "looks": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "misses": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "range_km": {
+            "type": "number",
+            "format": "float"
+          },
+          "range_rate_mps": {
+            "type": "number",
+            "format": "float"
+          },
+          "range_sigma_m": {
+            "type": "number",
+            "format": "float"
+          },
+          "rate_sigma_mps": {
+            "type": "number",
+            "format": "float"
+          },
+          "snr_db": {
+            "type": "number",
+            "format": "float"
+          },
+          "state": {
+            "$ref": "#/components/schemas/TrackState"
+          },
+          "trail": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RadarTrailPoint"
+            }
+          }
+        }
+      },
+      "RadarTrackEvent": {
+        "type": "object",
+        "required": [
+          "track_id",
+          "change",
+          "range_km",
+          "range_rate_mps",
+          "doppler_hz",
+          "snr_db"
+        ],
+        "properties": {
+          "bearing_deg": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "float"
+          },
+          "change": {
+            "$ref": "#/components/schemas/TrackChange"
+          },
+          "doppler_hz": {
+            "type": "number",
+            "format": "float"
+          },
+          "icao": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "lat": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "lon": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "range_km": {
+            "type": "number",
+            "format": "float"
+          },
+          "range_rate_mps": {
+            "type": "number",
+            "format": "float"
+          },
+          "snr_db": {
+            "type": "number",
+            "format": "float"
+          },
+          "track_id": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "RadarTrailPoint": {
+        "type": "object",
+        "required": [
+          "range_km",
+          "doppler_hz"
+        ],
+        "properties": {
+          "doppler_hz": {
+            "type": "number",
+            "format": "float"
+          },
+          "range_km": {
+            "type": "number",
+            "format": "float"
+          }
+        }
+      },
+      "RadarUpdate": {
+        "type": "object",
+        "required": [
+          "seq",
+          "at",
+          "axes",
+          "detections",
+          "tracks",
+          "truth",
+          "health"
+        ],
+        "properties": {
+          "at": {
+            "type": "string"
+          },
+          "axes": {
+            "$ref": "#/components/schemas/RadarAxes"
+          },
+          "detections": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RadarDetection"
+            }
+          },
+          "geometry": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/RadarGeometry"
+              }
+            ]
+          },
+          "health": {
+            "$ref": "#/components/schemas/RadarHealth"
+          },
+          "problems": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RadarProblem"
+            }
+          },
+          "seq": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "tracks": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RadarTrack"
+            }
+          },
+          "truth": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AdsbTruth"
+            }
+          }
+        }
       },
       "RadioClockFrame": {
         "type": "object",
@@ -17166,14 +23404,115 @@
             "type": [
               "string",
               "null"
-            ],
-            "description": "Where the files live on the machine running the server, so the library can say it rather\nthan leave the operator hunting for the folder. Absent when nothing is recorded to disk."
+            ]
           },
           "recordings": {
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/RecordingInfo"
             }
+          }
+        }
+      },
+      "ReferenceCleaning": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "off"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "taps",
+              "step",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "cma"
+                ]
+              },
+              "step": {
+                "type": "number",
+                "format": "float"
+              },
+              "taps": {
+                "type": "integer",
+                "format": "int32",
+                "minimum": 0
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "dab_remod"
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "ReferenceHealth": {
+        "type": "object",
+        "required": [
+          "mode",
+          "locked",
+          "quality_db",
+          "fallback_frames"
+        ],
+        "properties": {
+          "fallback_frames": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "locked": {
+            "type": "boolean"
+          },
+          "mode": {
+            "$ref": "#/components/schemas/ReferenceMode"
+          },
+          "quality_db": {
+            "type": "number",
+            "format": "float"
+          }
+        }
+      },
+      "ReferenceMode": {
+        "type": "string",
+        "enum": [
+          "raw",
+          "cma",
+          "dab_remod"
+        ]
+      },
+      "RenamePhoneRequest": {
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
           }
         }
       },
@@ -17867,9 +24206,21 @@
               "data": {
                 "type": "object",
                 "required": [
-                  "revision"
+                  "revision",
+                  "protocol"
                 ],
                 "properties": {
+                  "phone": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "protocol": {
+                    "type": "integer",
+                    "format": "int32",
+                    "minimum": 0
+                  },
                   "revision": {
                     "type": "integer",
                     "format": "int64",
@@ -18112,6 +24463,42 @@
                 "type": "string",
                 "enum": [
                   "SymbolStreamStarted"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "data",
+              "type"
+            ],
+            "properties": {
+              "data": {
+                "type": "object",
+                "required": [
+                  "stream_id",
+                  "node",
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "$ref": "#/components/schemas/StreamKind"
+                  },
+                  "node": {
+                    "type": "string"
+                  },
+                  "stream_id": {
+                    "type": "integer",
+                    "format": "int32",
+                    "minimum": 0
+                  }
+                }
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "SurfaceStreamStarted"
                 ]
               }
             }
@@ -18418,30 +24805,48 @@
               "data": {
                 "type": "object",
                 "required": [
-                  "stream_id",
-                  "device_set",
-                  "node"
+                  "status"
                 ],
                 "properties": {
-                  "device_set": {
-                    "type": "integer",
-                    "format": "int32",
-                    "minimum": 0
-                  },
-                  "node": {
-                    "type": "string"
-                  },
-                  "stream_id": {
-                    "type": "integer",
-                    "format": "int32",
-                    "minimum": 0
+                  "status": {
+                    "$ref": "#/components/schemas/ArrayStatus"
                   }
                 }
               },
               "type": {
                 "type": "string",
                 "enum": [
-                  "SurfaceStreamStarted"
+                  "ArrayUpdate"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "data",
+              "type"
+            ],
+            "properties": {
+              "data": {
+                "type": "object",
+                "required": [
+                  "node",
+                  "reading"
+                ],
+                "properties": {
+                  "node": {
+                    "type": "string"
+                  },
+                  "reading": {
+                    "$ref": "#/components/schemas/ProcessorReading"
+                  }
+                }
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "ProcessorUpdate"
                 ]
               }
             }
@@ -18472,6 +24877,36 @@
                 "type": "string",
                 "enum": [
                   "DfFusionUpdate"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "data",
+              "type"
+            ],
+            "properties": {
+              "data": {
+                "type": "object",
+                "required": [
+                  "node",
+                  "update"
+                ],
+                "properties": {
+                  "node": {
+                    "type": "string"
+                  },
+                  "update": {
+                    "$ref": "#/components/schemas/SurveyUpdate"
+                  }
+                }
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "SurveyUpdate"
                 ]
               }
             }
@@ -18568,6 +25003,153 @@
           "w": {
             "type": "number",
             "format": "float"
+          }
+        }
+      },
+      "SourceRule": {
+        "type": "string",
+        "enum": [
+          "dominance",
+          "mdl"
+        ]
+      },
+      "SpatialMethod": {
+        "type": "string",
+        "enum": [
+          "bartlett",
+          "capon",
+          "music"
+        ]
+      },
+      "SpatialPeak": {
+        "type": "object",
+        "required": [
+          "freq_hz",
+          "bearing_deg",
+          "db"
+        ],
+        "properties": {
+          "bearing_deg": {
+            "type": "number",
+            "format": "float"
+          },
+          "db": {
+            "type": "number",
+            "format": "float"
+          },
+          "freq_hz": {
+            "type": "number",
+            "format": "double"
+          },
+          "true_deg": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "float"
+          }
+        }
+      },
+      "SpatialReading": {
+        "type": "object",
+        "required": [
+          "at",
+          "peaks"
+        ],
+        "properties": {
+          "at": {
+            "type": "string"
+          },
+          "azimuth_deg": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "dropped_frames": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "frames": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "peaks": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SpatialPeak"
+            }
+          }
+        }
+      },
+      "SpatialSpectrumNode": {
+        "type": "object",
+        "properties": {
+          "settings": {
+            "$ref": "#/components/schemas/SpatialSpectrumParams"
+          }
+        }
+      },
+      "SpatialSpectrumParams": {
+        "type": "object",
+        "properties": {
+          "average_ms": {
+            "type": "integer",
+            "format": "int32",
+            "default": 300,
+            "minimum": 0
+          },
+          "azimuth_step_deg": {
+            "type": "number",
+            "format": "double",
+            "default": 2.0
+          },
+          "bandwidth_hz": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double",
+            "default": null
+          },
+          "bins": {
+            "type": "integer",
+            "format": "int32",
+            "default": 1024,
+            "minimum": 0
+          },
+          "columns": {
+            "type": "integer",
+            "format": "int32",
+            "default": 256,
+            "minimum": 0
+          },
+          "method": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/SpatialMethod"
+              }
+            ],
+            "default": "bartlett"
+          },
+          "offset_hz": {
+            "type": "number",
+            "format": "double",
+            "default": 0.0
+          },
+          "report_ms": {
+            "type": "integer",
+            "format": "int32",
+            "default": 100,
+            "minimum": 0
+          },
+          "span_db": {
+            "type": "number",
+            "format": "float",
+            "default": 30.0
           }
         }
       },
@@ -18921,6 +25503,48 @@
                 ]
               }
             }
+          },
+          {
+            "type": "object",
+            "required": [
+              "scope"
+            ],
+            "properties": {
+              "scope": {
+                "type": "string",
+                "enum": [
+                  "arrays"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "scope"
+            ],
+            "properties": {
+              "scope": {
+                "type": "string",
+                "enum": [
+                  "phones"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "scope"
+            ],
+            "properties": {
+              "scope": {
+                "type": "string",
+                "enum": [
+                  "missions"
+                ]
+              }
+            }
           }
         ]
       },
@@ -18931,6 +25555,12 @@
           "revision"
         ],
         "properties": {
+          "arrays": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ArrayStatus"
+            }
+          },
           "device_sets": {
             "type": "array",
             "items": {
@@ -18950,6 +25580,166 @@
           }
         }
       },
+      "SteerSource": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "wired"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "azimuth_deg",
+              "kind"
+            ],
+            "properties": {
+              "azimuth_deg": {
+                "type": "number",
+                "format": "double"
+              },
+              "elevation_deg": {
+                "type": "number",
+                "format": "double"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "fixed"
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "StitchBlend": {
+        "type": "string",
+        "enum": [
+          "snr",
+          "equal"
+        ]
+      },
+      "StitchLane": {
+        "type": "object",
+        "required": [
+          "lane",
+          "center_hz",
+          "noise_eq_db"
+        ],
+        "properties": {
+          "center_hz": {
+            "type": "number",
+            "format": "double"
+          },
+          "coherence": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "float"
+          },
+          "lane": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "noise_eq_db": {
+            "type": "number",
+            "format": "float"
+          },
+          "phase_deg": {
+            "type": "number",
+            "format": "float"
+          },
+          "spur_bins": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "StitchNode": {
+        "type": "object",
+        "properties": {
+          "settings": {
+            "$ref": "#/components/schemas/StitchParams"
+          }
+        }
+      },
+      "StitchParams": {
+        "type": "object",
+        "properties": {
+          "blend": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/StitchBlend"
+              }
+            ],
+            "default": "snr"
+          },
+          "flatten": {
+            "type": "boolean",
+            "default": true
+          },
+          "match_phase": {
+            "type": "boolean",
+            "default": true
+          },
+          "noise_equalise": {
+            "type": "boolean",
+            "default": true
+          },
+          "spur_reject": {
+            "type": "boolean",
+            "default": true
+          }
+        }
+      },
+      "StitchReading": {
+        "type": "object",
+        "required": [
+          "at",
+          "center_hz",
+          "span_hz",
+          "lanes"
+        ],
+        "properties": {
+          "at": {
+            "type": "string"
+          },
+          "center_hz": {
+            "type": "number",
+            "format": "double"
+          },
+          "dropped_blocks": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "lanes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/StitchLane"
+            }
+          },
+          "no_overlap": {
+            "type": "boolean"
+          },
+          "span_hz": {
+            "type": "number",
+            "format": "double"
+          }
+        }
+      },
       "StreamKind": {
         "type": "string",
         "enum": [
@@ -18958,7 +25748,10 @@
           "video",
           "iq",
           "symbols",
-          "range_doppler"
+          "range_doppler",
+          "spatial_spectrum",
+          "visibility",
+          "fusion_grid"
         ]
       },
       "StreamScope": {
@@ -19029,6 +25822,332 @@
             ]
           }
         }
+      },
+      "SurfaceFit": {
+        "type": "object",
+        "required": [
+          "cols",
+          "rows"
+        ],
+        "properties": {
+          "cols": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "rows": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "SurveillanceSet": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "all_others"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "mask",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "mask"
+                ]
+              },
+              "mask": {
+                "type": "integer",
+                "format": "int32",
+                "minimum": 0
+              }
+            }
+          }
+        ]
+      },
+      "SurveyAction": {
+        "type": "string",
+        "enum": [
+          "start",
+          "stop",
+          "clear"
+        ]
+      },
+      "SurveyCell": {
+        "type": "object",
+        "required": [
+          "latitude",
+          "longitude",
+          "frequency_hz",
+          "level_dbfs",
+          "measured_at",
+          "observations"
+        ],
+        "properties": {
+          "accuracy_m": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "frequency_hz": {
+            "type": "number",
+            "format": "double"
+          },
+          "latitude": {
+            "type": "number",
+            "format": "double"
+          },
+          "level_dbfs": {
+            "type": "number",
+            "format": "float"
+          },
+          "longitude": {
+            "type": "number",
+            "format": "double"
+          },
+          "measured_at": {
+            "type": "string"
+          },
+          "observations": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "SurveyGrid": {
+        "type": "object",
+        "required": [
+          "node",
+          "offset_hz",
+          "bandwidth_hz",
+          "recording",
+          "cells"
+        ],
+        "properties": {
+          "bandwidth_hz": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "cells": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SurveyCell"
+            }
+          },
+          "dropped": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "frequency_hz": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "node": {
+            "type": "string"
+          },
+          "offset_hz": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "recording": {
+            "type": "boolean"
+          }
+        }
+      },
+      "SurveyMission": {
+        "type": "object",
+        "required": [
+          "stream",
+          "offset_hz",
+          "bandwidth_hz",
+          "recording",
+          "cells"
+        ],
+        "properties": {
+          "bandwidth_hz": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "cells": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "device_set": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "frequency_hz": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "offset_hz": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "position": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PositionLink"
+              }
+            ]
+          },
+          "recording": {
+            "type": "boolean"
+          },
+          "stream": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "SurveyRequest": {
+        "type": "object",
+        "required": [
+          "action"
+        ],
+        "properties": {
+          "action": {
+            "$ref": "#/components/schemas/SurveyAction"
+          }
+        }
+      },
+      "SurveyStop": {
+        "type": "string",
+        "enum": [
+          "retuned",
+          "unwired",
+          "radio_gone"
+        ]
+      },
+      "SurveyUpdate": {
+        "type": "object",
+        "required": [
+          "recording",
+          "cells",
+          "dropped"
+        ],
+        "properties": {
+          "cell": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/SurveyCell"
+              }
+            ]
+          },
+          "cells": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "dropped": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "level_dbfs": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "float"
+          },
+          "recording": {
+            "type": "boolean"
+          },
+          "stopped": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/SurveyStop"
+              }
+            ]
+          },
+          "target_hz": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          }
+        }
+      },
+      "SweepState": {
+        "type": "string",
+        "enum": [
+          "off",
+          "idle",
+          "sweeping",
+          "no_heading",
+          "short_span",
+          "low_contrast",
+          "poor_fit",
+          "heading_poor",
+          "too_fast",
+          "done"
+        ]
+      },
+      "SwitchWorkspaceRequest": {
+        "type": "object",
+        "required": [
+          "workspace"
+        ],
+        "properties": {
+          "workspace": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "SyncState": {
+        "type": "string",
+        "enum": [
+          "idle",
+          "searching",
+          "locked",
+          "drifting",
+          "lost"
+        ]
       },
       "TemplateInfo": {
         "type": "object",
@@ -19434,6 +26553,59 @@
           }
         }
       },
+      "TrackChange": {
+        "type": "string",
+        "enum": [
+          "confirmed",
+          "update",
+          "lost"
+        ]
+      },
+      "TrackState": {
+        "type": "string",
+        "enum": [
+          "confirmed",
+          "coasting"
+        ]
+      },
+      "TrackerParams": {
+        "type": "object",
+        "properties": {
+          "coast_looks": {
+            "type": "integer",
+            "format": "int32",
+            "default": 10,
+            "minimum": 0
+          },
+          "confirm_hits": {
+            "type": "integer",
+            "format": "int32",
+            "default": 3,
+            "minimum": 0
+          },
+          "confirm_window": {
+            "type": "integer",
+            "format": "int32",
+            "default": 5,
+            "minimum": 0
+          },
+          "gate": {
+            "type": "number",
+            "format": "float",
+            "default": 11.800000190734863
+          },
+          "jerk": {
+            "type": "number",
+            "format": "float",
+            "default": 5.0
+          },
+          "max_accel_mps2": {
+            "type": "number",
+            "format": "float",
+            "default": 30.0
+          }
+        }
+      },
       "Transmission": {
         "type": "object",
         "required": [
@@ -19582,8 +26754,91 @@
           }
         }
       },
+      "TriangulationMission": {
+        "type": "object",
+        "required": [
+          "sources"
+        ],
+        "properties": {
+          "position": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PositionLink"
+              }
+            ]
+          },
+          "sources": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "state": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/DfFusionState"
+              }
+            ]
+          }
+        }
+      },
       "TriangulationNode": {
-        "type": "object"
+        "type": "object",
+        "properties": {
+          "settings": {
+            "$ref": "#/components/schemas/TriangulationParams"
+          }
+        }
+      },
+      "TriangulationParams": {
+        "type": "object",
+        "properties": {
+          "decay": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/FusionDecay"
+              }
+            ],
+            "default": {
+              "kind": "auto"
+            }
+          },
+          "extent_km": {
+            "type": "number",
+            "format": "double",
+            "default": 12.8
+          },
+          "max_emitters": {
+            "type": "integer",
+            "format": "int32",
+            "default": 3,
+            "minimum": 0
+          },
+          "min_confidence": {
+            "type": "number",
+            "format": "float",
+            "default": 0.05000000074505806
+          },
+          "nav": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/NavMode"
+              }
+            ],
+            "default": "auto"
+          },
+          "probe_km": {
+            "type": "number",
+            "format": "double",
+            "default": 5.0
+          }
+        }
       },
       "TrunkChannel": {
         "type": "object",
@@ -19851,6 +27106,14 @@
           "manual"
         ]
       },
+      "UlaSide": {
+        "type": "string",
+        "enum": [
+          "both",
+          "front",
+          "back"
+        ]
+      },
       "UpdateWorkspaceRequest": {
         "type": "object",
         "required": [
@@ -19918,6 +27181,37 @@
           "prod_el",
           "unknown"
         ]
+      },
+      "VirtualLane": {
+        "type": "object",
+        "required": [
+          "stream",
+          "node",
+          "port",
+          "center_hz",
+          "sample_rate"
+        ],
+        "properties": {
+          "center_hz": {
+            "type": "number",
+            "format": "double"
+          },
+          "node": {
+            "type": "string"
+          },
+          "port": {
+            "type": "string"
+          },
+          "sample_rate": {
+            "type": "number",
+            "format": "double"
+          },
+          "stream": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
       },
       "VoiceCall": {
         "type": "object",
@@ -20159,6 +27453,28 @@
           },
           "stereo": {
             "type": "boolean"
+          }
+        }
+      },
+      "Winding": {
+        "type": "string",
+        "enum": [
+          "clockwise",
+          "counter_clockwise"
+        ]
+      },
+      "WorkspaceArray": {
+        "type": "object",
+        "required": [
+          "node",
+          "tune"
+        ],
+        "properties": {
+          "node": {
+            "type": "string"
+          },
+          "tune": {
+            "$ref": "#/components/schemas/ArrayTune"
           }
         }
       },
@@ -20425,6 +27741,12 @@
           "version"
         ],
         "properties": {
+          "arrays": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WorkspaceArray"
+            }
+          },
           "channels": {
             "type": "array",
             "items": {

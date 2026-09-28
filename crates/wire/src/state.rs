@@ -105,6 +105,10 @@ pub struct DeviceSet {
     pub hunts: Vec<HuntStatus>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub playback: Option<PlaybackStatus>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub virtual_lanes: Vec<crate::array::VirtualLane>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub held: Vec<crate::array::HeldLane>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
@@ -200,5 +204,66 @@ pub struct StateSnapshot {
     pub device_sets: Vec<DeviceSet>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub trunk_systems: Vec<TrunkSystemStatus>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub arrays: Vec<crate::array::ArrayStatus>,
     pub revision: u64,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::array::{ArrayStatus, HeldLane, VirtualLane};
+
+    #[test]
+    fn a_device_set_names_virtual_and_held_lanes_only_when_there_are_any() {
+        let bare = crate::contract_tests::sample_device_set();
+        let json = serde_json::to_value(&bare).expect("device set json");
+        assert!(json.get("virtual_lanes").is_none());
+        assert!(json.get("held").is_none());
+
+        let lanes = DeviceSet {
+            virtual_lanes: vec![VirtualLane {
+                stream: 5,
+                node: "beam".to_owned(),
+                port: "beam".to_owned(),
+                center_hz: 433_920_000.0,
+                sample_rate: 48_000.0,
+            }],
+            held: vec![HeldLane {
+                stream: 0,
+                array: "array".to_owned(),
+            }],
+            ..bare
+        };
+        let json = serde_json::to_value(&lanes).expect("device set json");
+        assert_eq!(json["virtual_lanes"][0]["stream"], 5);
+        assert_eq!(json["held"][0]["array"], "array");
+        let back: DeviceSet = serde_json::from_value(json).expect("device set back");
+        assert_eq!(back, lanes);
+    }
+
+    #[test]
+    fn a_snapshot_carries_array_status_and_loads_without_it() {
+        let snapshot: StateSnapshot =
+            serde_json::from_str(r#"{"device_sets":[],"revision":4}"#).expect("old snapshot");
+        assert!(snapshot.arrays.is_empty());
+        assert!(
+            serde_json::to_value(&snapshot)
+                .expect("snapshot json")
+                .get("arrays")
+                .is_none()
+        );
+
+        let with_array = StateSnapshot {
+            arrays: vec![ArrayStatus {
+                node: "array".to_owned(),
+                ..ArrayStatus::default()
+            }],
+            ..snapshot
+        };
+        let json = serde_json::to_value(&with_array).expect("snapshot json");
+        assert_eq!(json["arrays"][0]["node"], "array");
+        let back: StateSnapshot = serde_json::from_value(json).expect("snapshot back");
+        assert_eq!(back, with_array);
+    }
 }

@@ -3,6 +3,10 @@ use utoipa::ToSchema;
 
 use crate::{decode::DecodedRecord, position::PositionFix};
 
+pub const WS_SUBPROTOCOL: &str = "sdrmm";
+pub const WS_BEARER_PROTOCOL_PREFIX: &str = "sdrmm.bearer.";
+pub const WS_CLOSE_REVOKED: u16 = 4003;
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(tag = "scope", content = "id", rename_all = "snake_case")]
 pub enum StateScope {
@@ -18,6 +22,9 @@ pub enum StateScope {
     Calls,
     Images,
     Workspaces,
+    Arrays,
+    Phones,
+    Missions,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
@@ -34,6 +41,12 @@ pub enum StreamKind {
     FusionGrid,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct SurfaceFit {
+    pub cols: u16,
+    pub rows: u16,
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 #[serde(tag = "type", content = "data")]
 pub enum ServerEvent {
@@ -44,6 +57,9 @@ pub enum ServerEvent {
     },
     Hello {
         revision: u64,
+        protocol: u32,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        phone: Option<String>,
     },
     StateChanged {
         scope: StateScope,
@@ -75,6 +91,11 @@ pub enum ServerEvent {
         stream_id: u16,
         device_set: u32,
         channel: u32,
+    },
+    SurfaceStreamStarted {
+        stream_id: u16,
+        node: String,
+        kind: StreamKind,
     },
     StreamStopped {
         stream_id: u16,
@@ -110,14 +131,20 @@ pub enum ServerEvent {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         error: Option<String>,
     },
-    SurfaceStreamStarted {
-        stream_id: u16,
-        device_set: u32,
+    ArrayUpdate {
+        status: Box<crate::array::ArrayStatus>,
+    },
+    ProcessorUpdate {
         node: String,
+        reading: Box<crate::processor::ProcessorReading>,
     },
     DfFusionUpdate {
         node: String,
         state: Box<crate::fusion::DfFusionState>,
+    },
+    SurveyUpdate {
+        node: String,
+        update: Box<crate::survey::SurveyUpdate>,
     },
     Error {
         message: String,
@@ -178,10 +205,21 @@ pub enum ClientCommand {
         device_set: u32,
         channel: u32,
     },
+    PublishPose {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        fix: Option<PositionFix>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        error: Option<String>,
+    },
     SubscribeSurface {
         node: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        fit: Option<SurfaceFit>,
     },
     UnsubscribeSurface {
         node: String,
     },
 }
+
+#[cfg(test)]
+mod tests;

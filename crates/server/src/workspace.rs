@@ -876,6 +876,8 @@ mod tests {
             hunts: Vec::new(),
             playback: None,
             agc_gains: Vec::new(),
+            virtual_lanes: Vec::new(),
+            held: Vec::new(),
         }
     }
 
@@ -940,6 +942,7 @@ mod tests {
                 other_control_hz: Vec::new(),
                 color_code: None,
             }],
+            arrays: Vec::new(),
             revision: 1,
         };
         assert_eq!(trunk_channels(&state, 1), HashSet::from([4]));

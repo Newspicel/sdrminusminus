@@ -1,5 +1,18 @@
 import { DEFAULT_HISTORY_SECONDS } from "../components/timeMachine";
-import type { NodeBody, NodeKind } from "../lib/types";
+import catalog from "../generated/patch-catalog.json";
+import type { NodeBody, NodeKind, PatchCatalog } from "../lib/types";
+
+const CATALOG_BODIES = new Map<string, NodeBody>(
+  (catalog as unknown as PatchCatalog).nodes.map((entry) => [entry.kind, entry.default_body]),
+);
+
+function catalogBody(kind: NodeKind): NodeBody {
+  const body = CATALOG_BODIES.get(kind);
+  if (body === undefined) {
+    throw new Error(`the catalog has no ${kind}`);
+  }
+  return structuredClone(body);
+}
 
 export interface NewNodeSeed {
   channelType?: string;
@@ -75,6 +88,15 @@ export function newNodeBody(kind: NodeKind, seed: NewNodeSeed = {}): NodeBody {
       return { kind, data: { target: { service: "webhook", url: "", format: "json" } } };
     case "triangulation":
       return { kind, data: {} };
+    case "array":
+    case "df":
+    case "beamformer":
+    case "passive_radar":
+    case "stitch":
+    case "spatial_spectrum":
+    case "correlator":
+    case "polarimeter":
+      return catalogBody(kind);
     default:
       return { kind };
   }

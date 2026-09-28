@@ -14,8 +14,8 @@ use futures::{SinkExt, StreamExt};
 use sdrmm_dsp::{DbWindowSmoother, adaptive_db_window, decimate_max, quantize_db};
 use sdrmm_engine::{AudioPacket, Engine, IqBlock, SpectrumSnapshot, SymbolBlock, VideoPacket};
 use sdrmm_wire::{
-    AudioFrame, AudioRoute, ClientCommand, IqFrame, ServerEvent, SpectrumFrame, StateScope,
-    StreamKind, SymbolFrame, VideoData, VideoFrame,
+    API_PROTOCOL, AudioFrame, AudioRoute, ClientCommand, IqFrame, ServerEvent, SpectrumFrame,
+    StateScope, StreamKind, SymbolFrame, VideoData, VideoFrame,
 };
 use tokio::sync::broadcast;
 
@@ -29,6 +29,7 @@ const MAX_BINS: usize = 4096;
 const MAX_FPS: u16 = 60;
 const MEDIA_ID_BASE: u16 = 0x8000;
 const SPECTRUM_ID_BASE: u16 = 0;
+const POSE_NEEDS_PHONE: &str = "only a paired phone can publish a pose";
 
 pub(crate) async fn handler(ws: WebSocketUpgrade, State(state): State<AppState>) -> Response {
     ws.on_upgrade(move |socket| handle_socket(socket, state))
@@ -168,9 +169,17 @@ impl Session {
                 device_set,
                 channel,
             } => self.unsubscribe_symbols(device_set, channel).await,
-            ClientCommand::SubscribeSurface { node } => self.refuse_surface(&node).await,
+            ClientCommand::SubscribeSurface { node, .. } => self.refuse_surface(&node).await,
             ClientCommand::UnsubscribeSurface { .. } => {}
+            ClientCommand::PublishPose { .. } => self.refuse_pose().await,
         }
+    }
+
+    async fn refuse_pose(&self) {
+        let err = ServerEvent::Error {
+            message: POSE_NEEDS_PHONE.to_owned(),
+        };
+        let _ = self.out.send(text_event(&err)).await;
     }
 
     async fn refuse_surface(&self, node: &str) {
@@ -523,6 +532,8 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
     let position_rx = state.gps.subscribe();
     let hello = ServerEvent::Hello {
         revision: engine.snapshot().revision,
+        protocol: API_PROTOCOL,
+        phone: None,
     };
     let _ = out_tx.send(text_event(&hello)).await;
     for position in state.gps.snapshot() {

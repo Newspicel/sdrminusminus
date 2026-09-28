@@ -7,7 +7,7 @@ import type { PatchNode } from "../../lib/types";
 import { useNow } from "../../lib/useNow";
 import { useWorkspaceContext } from "../context";
 import { FaceBody, NodeShell } from "./NodeShell";
-import { GUIDANCE_TEXT, spreadLabel, stationAge } from "./triangulation";
+import { NAV_TEXT, spreadLabel, stationAge } from "./triangulation";
 
 const AGE_TICK_MS = 1_000;
 
@@ -46,9 +46,9 @@ export function TriangulationFace({ node }: { node: PatchNode }) {
               {spreadLabel(estimate)}
             </ReadoutRow>
             <ReadoutRow label="Guidance">
-              {fusion?.guidance === undefined || fusion.guidance === null
+              {fusion?.nav === undefined || fusion.nav === null
                 ? "-"
-                : `${GUIDANCE_TEXT[fusion.guidance.mode]} · ${Math.round(fusion.guidance.heading_deg)}°`}
+                : `${NAV_TEXT[fusion.nav.kind]} · ${Math.round(fusion.nav.bearing_deg)}°`}
             </ReadoutRow>
             <ReadoutRow label="Bearings">{fusion?.samples ?? 0}</ReadoutRow>
           </Readout>

@@ -13,6 +13,7 @@ import { EventOutputFace } from "./EventOutputFace";
 import { GpsFace } from "./GpsFace";
 import { NetworkExportFace } from "./NetworkExportFace";
 import { CanvasSurface } from "./NodeShell";
+import { PendingFace } from "./PendingFace";
 import { PropagationFace } from "./PropagationFace";
 import { RecordingFace } from "./RecordingFace";
 import { SatelliteFace } from "./SatelliteFace";
@@ -78,6 +79,14 @@ export const NODE_TYPES: Record<NodeKind, ComponentType<NodeProps<Node<FlowData>
   hunt: mount(HuntFace),
   satellite: mount(SatelliteFace),
   triangulation: mount(TriangulationFace),
+  array: mount(PendingFace),
+  df: mount(PendingFace),
+  beamformer: mount(PendingFace),
+  passive_radar: mount(PendingFace),
+  stitch: mount(PendingFace),
+  spatial_spectrum: mount(PendingFace),
+  correlator: mount(PendingFace),
+  polarimeter: mount(PendingFace),
 };
 
 export const FACES: Record<NodeKind, Face> = {
@@ -110,6 +119,14 @@ export const FACES: Record<NodeKind, Face> = {
   hunt: HuntFace,
   satellite: SatelliteFace,
   triangulation: TriangulationFace,
+  array: PendingFace,
+  df: PendingFace,
+  beamformer: PendingFace,
+  passive_radar: PendingFace,
+  stitch: PendingFace,
+  spatial_spectrum: PendingFace,
+  correlator: PendingFace,
+  polarimeter: PendingFace,
 };
 
 export function faceSize(node: PatchNode): CSSProperties {

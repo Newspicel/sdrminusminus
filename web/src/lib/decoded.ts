@@ -301,6 +301,8 @@ function stationId(event: DecoderEvent): string | null {
       return event.data.identity?.rfpi ?? null;
     case "df":
       return event.data.station_id ?? null;
+    case "radar":
+      return event.data.icao ?? null;
   }
 }
 

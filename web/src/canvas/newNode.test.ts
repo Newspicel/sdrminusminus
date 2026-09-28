@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import catalog from "../generated/patch-catalog.json";
 import type { NodeKind } from "../lib/types";
 import { carriesSettings, newNodeBody } from "./newNode";
 
@@ -32,6 +33,14 @@ const EVERY_KIND: Record<NodeKind, true> = {
   hunt: true,
   satellite: true,
   triangulation: true,
+  array: true,
+  df: true,
+  beamformer: true,
+  passive_radar: true,
+  stitch: true,
+  spatial_spectrum: true,
+  correlator: true,
+  polarimeter: true,
 };
 
 const KINDS = Object.keys(EVERY_KIND) as NodeKind[];
@@ -80,6 +89,24 @@ describe("newNodeBody", () => {
       kind: "channel",
       data: { channel_type: "dmr", record_calls: false },
     });
+  });
+
+  it.each([
+    "array",
+    "df",
+    "beamformer",
+    "passive_radar",
+    "stitch",
+    "spatial_spectrum",
+    "correlator",
+    "polarimeter",
+  ] as const)("starts a %s from a fresh copy of the catalog default", (kind) => {
+    const listed = catalog.nodes.find((entry) => entry.kind === kind)?.default_body;
+    const body = newNodeBody(kind);
+    expect(listed).toBeDefined();
+    expect(body).toEqual(listed);
+    expect(body).not.toBe(listed);
+    expect(newNodeBody(kind)).not.toBe(body);
   });
 
   it("gives a triangulation empty data", () => {

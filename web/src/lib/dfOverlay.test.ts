@@ -29,11 +29,13 @@ const FUSED: DfFusionState = {
     converged: true,
     samples: 4,
   },
-  guidance: {
-    heading_deg: 135,
-    mode: "approach",
+  nav: {
+    lat: 51.6,
+    lon: 7.1,
+    kind: "estimate",
+    revision: 3,
     distance_m: 900,
-    nav_target: { lat: 51.6, lon: 7.1, kind: "target" },
+    bearing_deg: 135,
   },
   stations: [{ station_id: "east", lat: 51.4, lon: 7.4, bearings: 2, last_seen: "now" }],
 };
@@ -50,10 +52,10 @@ describe("dfOverlay", () => {
     expect(dfOverlay([], {}, HERE)).toBeUndefined();
   });
 
-  it("takes the estimate, guidance and stations from where the bearings cross", () => {
+  it("takes the estimate, nav target and stations from where the bearings cross", () => {
     const overlay = dfOverlay(["cross"], { cross: FUSED }, HERE);
     expect(overlay?.estimate?.converged).toBe(true);
-    expect(overlay?.guidance?.mode).toBe("approach");
+    expect(overlay?.nav?.kind).toBe("estimate");
     expect(overlay?.stations).toHaveLength(1);
     expect(overlay?.rays).toEqual([]);
     expect(overlay?.maxAgeMs).toBe(BEARING_MAX_AGE_MS);

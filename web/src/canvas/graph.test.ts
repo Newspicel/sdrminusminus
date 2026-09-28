@@ -45,11 +45,13 @@ import {
   tuningLocked,
   unpin,
 } from "./graph";
+import { newNodeBody } from "./newNode";
 
 const CATALOG: PatchCatalog = {
   nodes: [
     {
       kind: "device",
+      default_body: newNodeBody("device"),
       name: "Device",
       category: "source",
       ports: [
@@ -67,6 +69,7 @@ const CATALOG: PatchCatalog = {
     },
     {
       kind: "channel",
+      default_body: newNodeBody("channel"),
       name: "Channel",
       category: "channel",
       needs_channel_type: true,
@@ -105,18 +108,21 @@ const CATALOG: PatchCatalog = {
     },
     {
       kind: "scope",
+      default_body: newNodeBody("scope"),
       name: "Scope",
       category: "output",
       ports: [{ name: "iq", port_type: "iq", direction: "in", multi: false }],
     },
     {
       kind: "speaker",
+      default_body: newNodeBody("speaker"),
       name: "Speaker",
       category: "output",
       ports: [{ name: "audio", port_type: "audio", direction: "in", multi: true }],
     },
     {
       kind: "scanner",
+      default_body: newNodeBody("scanner"),
       name: "Scanner",
       category: "tool",
       ports: [{ name: "control", port_type: "control", direction: "out", multi: false }],

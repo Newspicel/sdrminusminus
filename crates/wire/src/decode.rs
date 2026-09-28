@@ -3,6 +3,8 @@ use utoipa::ToSchema;
 
 use crate::{PskBaud, RadioClockStandard, channel::SstvMode};
 
+pub const NO_CHANNEL: u32 = u32::MAX;
+
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct RdsUpdate {
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1550,8 +1552,9 @@ impl DecoderEvent {
                 )
             }
             Self::Df(b) => format!(
-                "{:03.1}° bearing · {:.0}%",
+                "{:.0}° ±{:.0}° · {:.0}%",
                 b.bearing_deg,
+                b.sigma_deg,
                 b.confidence * 100.0
             ),
             Self::DfFix(e) => format!("{:.5}, {:.5} · ±{:.0} m", e.lat, e.lon, e.ellipse_major_m),
@@ -1893,6 +1896,47 @@ mod tests {
             lon: None,
             icao: Some("3C6444".to_owned()),
         }
+    }
+
+    fn bearing() -> crate::fusion::DfBearing {
+        serde_json::from_value(serde_json::json!({
+            "bearing_deg": 87.4,
+            "confidence": 0.83,
+            "sigma_deg": 4.6,
+            "lat": 52.5,
+            "lon": 13.4,
+            "node": "df"
+        }))
+        .expect("a bearing")
+    }
+
+    #[test]
+    fn a_df_bearing_states_its_spread_and_confidence() {
+        let event = DecoderEvent::Df(bearing());
+        assert_eq!(event.summary(), "87° ±5° · 83%");
+        assert_eq!(event.position(), Some((52.5, 13.4)));
+        assert_eq!(event.kind(), "df");
+    }
+
+    #[test]
+    fn a_processor_record_names_no_channel_and_its_node() {
+        let record = DecodedRecord {
+            origin: Some(crate::EventOrigin {
+                node: "df".to_owned(),
+                transmission: 0,
+            }),
+            device_set: 3,
+            channel: NO_CHANNEL,
+            at: "2026-09-28T12:00:00Z".to_owned(),
+            freq_hz: 433_920_000.0,
+            event: DecoderEvent::Df(bearing()),
+            sinks: Vec::new(),
+        };
+        let json = serde_json::to_value(&record).expect("record json");
+        assert_eq!(json["channel"], u64::from(u32::MAX));
+        assert_eq!(json["origin"]["node"], "df");
+        let back: DecodedRecord = serde_json::from_value(json).expect("record back");
+        assert_eq!(back, record);
     }
 
     #[test]

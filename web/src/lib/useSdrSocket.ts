@@ -156,6 +156,7 @@ function invalidateScope(queryClient: QueryClient, scope: StateScope): void {
       void queryClient.invalidateQueries({ queryKey: TEMPLATES_KEY });
       break;
     case "device_set":
+    case "arrays":
       void queryClient.invalidateQueries({ queryKey: STATE_KEY });
       break;
     case "presets":

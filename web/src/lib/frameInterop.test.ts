@@ -2,11 +2,14 @@ import { describe, expect, it } from "vitest";
 import fixtures from "../generated/frame-fixtures.json";
 import {
   decodeAudio,
+  decodeFusionGrid,
   decodeIq,
   decodeRangeDoppler,
+  decodeSpatialSpectrum,
   decodeSpectrum,
   decodeSymbols,
   decodeVideo,
+  decodeVisibility,
 } from "./frame";
 
 const decoders = {
@@ -17,6 +20,9 @@ const decoders = {
   surface: decodeRangeDoppler,
   gray: decodeVideo,
   rgb: decodeVideo,
+  spatial_spectrum: decodeSpatialSpectrum,
+  visibility: decodeVisibility,
+  fusion_grid: decodeFusionGrid,
 };
 
 describe("Rust binary frames", () => {

@@ -18,7 +18,7 @@ function fakeSocket() {
     started: (streamId: number, node: string) =>
       registry.emit("event", {
         type: "SurfaceStreamStarted",
-        data: { stream_id: streamId, device_set: 1, node },
+        data: { stream_id: streamId, node, kind: "range_doppler" },
       }),
     stopped: (streamId: number) =>
       registry.emit("event", {
@@ -32,8 +32,11 @@ function fakeSocket() {
         timestamp: 0n,
         ranges: 4,
         dopplers: 3,
-        rangeStepUs: 1,
+        rangeFirstM: 0,
+        rangeStepM: 150,
+        dopplerFirstHz: -75,
         dopplerStepHz: 50,
+        carrierHz: 98_000_000,
         dbMin: -40,
         dbMax: 0,
         cells: new Uint8Array(12),

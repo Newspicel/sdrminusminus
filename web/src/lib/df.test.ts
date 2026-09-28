@@ -38,7 +38,7 @@ describe("useDfStore", () => {
   });
 
   it("ignores events that are not fusion updates", () => {
-    useDfStore.getState().observe({ type: "Hello", data: { revision: 1 } });
+    useDfStore.getState().observe({ type: "Hello", data: { revision: 1, protocol: 1 } });
     expect(useDfStore.getState().byNode).toEqual({});
   });
 

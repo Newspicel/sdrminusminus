@@ -112,7 +112,6 @@ macro_rules! processors {
     };
 }
 
-#[cfg_attr(not(test), expect(unused_imports))]
 pub(crate) use processors;
 
 macro_rules! define_processor_enums {

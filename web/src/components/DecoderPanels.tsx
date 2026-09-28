@@ -811,6 +811,7 @@ const VIEWS: Record<DecoderKind, ((scope: DecoderScope) => ReactNode) | null> = 
   ils: null,
   df: null,
   df_fix: null,
+  radar: null,
   dsc: null,
   inmarsat_stdc: null,
   inmarsat_aero: null,

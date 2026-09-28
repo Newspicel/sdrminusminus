@@ -388,6 +388,7 @@ async fn a_surface_nothing_draws_is_refused_out_loud() {
         &mut ws,
         &ClientCommand::SubscribeSurface {
             node: "radar".to_owned(),
+            fit: None,
         },
     )
     .await;
@@ -395,6 +396,41 @@ async fn a_surface_nothing_draws_is_refused_out_loud() {
         ServerEvent::Error { message } => {
             assert_eq!(message, "radar produces no surface");
         }
+        other => panic!("expected a refusal, got {other:?}"),
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_browser_hello_names_the_protocol_and_no_phone() {
+    let mut ws = connect(test_engine()).await;
+    match next_event(&mut ws).await {
+        ServerEvent::Hello {
+            protocol, phone, ..
+        } => {
+            assert_eq!(protocol, API_PROTOCOL);
+            assert_eq!(phone, None);
+        }
+        other => panic!("expected Hello, got {other:?}"),
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_pose_from_a_browser_is_refused_out_loud() {
+    let mut ws = connect(test_engine()).await;
+    assert!(matches!(
+        next_event(&mut ws).await,
+        ServerEvent::Hello { .. }
+    ));
+    send(
+        &mut ws,
+        &ClientCommand::PublishPose {
+            fix: None,
+            error: Some("No GPS".to_owned()),
+        },
+    )
+    .await;
+    match next_event(&mut ws).await {
+        ServerEvent::Error { message } => assert_eq!(message, POSE_NEEDS_PHONE),
         other => panic!("expected a refusal, got {other:?}"),
     }
 }

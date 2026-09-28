@@ -1,6 +1,6 @@
 import type { GeoJSONSource, Map as MapLibreMap } from "maplibre-gl";
 import { bearingDeg, greatCircleKm } from "../propagation";
-import type { DfEstimate, DfGuidance, DfStation } from "../types";
+import type { DfEstimate, DfStation, NavTarget } from "../types";
 
 export const DF_SOURCES = {
   rays: "df-rays",
@@ -218,9 +218,9 @@ export function bistaticCollection(
 
 export function navCollection(
   from: { lat: number; lon: number } | null,
-  guidance: DfGuidance | null,
+  nav: NavTarget | null,
 ): Collection<Line, { kind: string }> {
-  if (from === null || guidance === null) {
+  if (from === null || nav === null) {
     return { type: "FeatureCollection", features: [] };
   }
   return {
@@ -232,10 +232,10 @@ export function navCollection(
           type: "LineString",
           coordinates: [
             [from.lon, from.lat],
-            [guidance.nav_target.lon, guidance.nav_target.lat],
+            [nav.lon, nav.lat],
           ],
         },
-        properties: { kind: guidance.nav_target.kind },
+        properties: { kind: nav.kind },
       },
     ],
   };
@@ -245,7 +245,7 @@ export interface DfOverlay {
   rays: readonly BearingRay[];
   maxAgeMs: number;
   estimate: DfEstimate | null;
-  guidance: DfGuidance | null;
+  nav: NavTarget | null;
   stations: readonly DfStation[];
   bistatic: readonly BistaticEchoes[];
   from: { lat: number; lon: number } | null;
@@ -355,5 +355,5 @@ export function drawDfOverlay(map: MapLibreMap, overlay: DfOverlay): void {
     ?.setData(bistaticCollection(overlay.bistatic));
   void map
     .getSource<GeoJSONSource>(DF_SOURCES.nav)
-    ?.setData(navCollection(overlay.from, overlay.guidance));
+    ?.setData(navCollection(overlay.from, overlay.nav));
 }

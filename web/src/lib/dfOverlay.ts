@@ -20,19 +20,19 @@ export function dfOverlay(
     return undefined;
   }
   let estimate = null;
-  let guidance = null;
+  let nav = null;
   const stations: DfStation[] = [];
   for (const node of crossings) {
     const fusion = byNode[node];
     estimate ??= fusion?.estimate ?? null;
-    guidance ??= fusion?.guidance ?? null;
+    nav ??= fusion?.nav ?? null;
     stations.push(...(fusion?.stations ?? []));
   }
   return {
     rays: [],
     maxAgeMs: BEARING_MAX_AGE_MS,
     estimate,
-    guidance,
+    nav,
     stations,
     bistatic: [],
     from,

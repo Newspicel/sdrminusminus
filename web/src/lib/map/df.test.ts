@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { greatCircleKm } from "../propagation";
-import type { DfEstimate, DfGuidance } from "../types";
+import type { DfEstimate, NavTarget } from "../types";
 import {
   type BearingRay,
   bistaticCollection,
@@ -96,19 +96,21 @@ describe("stationCollection", () => {
 
 describe("navCollection", () => {
   it("draws the leg to the nav target and nothing without one", () => {
-    const guidance: DfGuidance = {
-      heading_deg: 135,
-      mode: "cross",
+    const nav: NavTarget = {
+      lat: 51.51,
+      lon: 7.02,
+      kind: "probe",
+      revision: 1,
       distance_m: 1_500,
-      nav_target: { lat: 51.51, lon: 7.02, kind: "cross" },
+      bearing_deg: 135,
     };
-    const collection = navCollection(HOME, guidance);
+    const collection = navCollection(HOME, nav);
     expect(collection.features[0]?.geometry.coordinates).toEqual([
       [7.0, 51.5],
       [7.02, 51.51],
     ]);
-    expect(collection.features[0]?.properties.kind).toBe("cross");
-    expect(navCollection(null, guidance).features).toHaveLength(0);
+    expect(collection.features[0]?.properties.kind).toBe("probe");
+    expect(navCollection(null, nav).features).toHaveLength(0);
     expect(navCollection(HOME, null).features).toHaveLength(0);
   });
 });

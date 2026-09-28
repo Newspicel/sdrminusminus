@@ -724,7 +724,7 @@ fn the_only_type_level_cycles_are_the_guarded_transforms() {
             .filter(|port| port.direction == PortDirection::Out)
             .any(|out| {
                 to.ports.iter().any(|input| {
-                    input.direction == PortDirection::In && input.port_type == out.port_type
+                    input.direction == PortDirection::In && wire_allowed(from, out, to, input)
                 })
             })
     };
@@ -746,18 +746,39 @@ fn the_only_type_level_cycles_are_the_guarded_transforms() {
         .filter(|&kind| reachable[kind][kind])
         .map(|kind| catalog.nodes[kind].kind.as_str())
         .collect();
-    assert_eq!(cycle, vec!["event_filter", "audio_fx", "triangulation"]);
+    assert_eq!(
+        cycle,
+        vec!["event_filter", "audio_fx", "passive_radar", "triangulation"]
+    );
+}
+
+fn wire_allowed(from: &NodeTypeInfo, out: &PortSpec, to: &NodeTypeInfo, input: &PortSpec) -> bool {
+    if out.port_type != input.port_type {
+        return false;
+    }
+    let body = |info: &NodeTypeInfo| {
+        let mut body = info.default_body.clone();
+        if let NodeBody::Channel(channel) = &mut body {
+            channel.channel_type = "adsb".to_owned();
+        }
+        body
+    };
+    let graph = PatchGraph {
+        nodes: vec![node("a", body(from)), node("b", body(to))],
+        edges: vec![edge(("a", &out.name), ("b", &input.name))],
+    };
+    !matches!(graph.validate(), Err(PatchError::Wire { .. }))
 }
 
 #[test]
 fn every_node_the_palette_offers_round_trips_and_validates_on_its_own() {
     for entry in PatchCatalog::build().nodes {
-        let body = default_body(&entry.kind);
-        let json = serde_json::to_string(&body).expect("serialize the body");
+        let json = serde_json::to_string(&entry.default_body).expect("serialize the body");
         let back: NodeBody = serde_json::from_str(&json).unwrap_or_else(|error| {
             panic!("{} does not survive a round trip: {error}", entry.kind)
         });
         assert_eq!(back.kind(), entry.kind);
+        assert_eq!(back, entry.default_body);
 
         let mut node = node("solo", back);
         if let NodeBody::Channel(channel) = &mut node.body {
@@ -770,45 +791,6 @@ fn every_node_the_palette_offers_round_trips_and_validates_on_its_own() {
         graph
             .validate()
             .unwrap_or_else(|error| panic!("a fresh {} is invalid: {error}", entry.kind));
-    }
-}
-
-fn default_body(kind: &str) -> NodeBody {
-    match kind {
-        "device" => NodeBody::Device(DeviceNode::default()),
-        "recording" => NodeBody::Recording(RecordingNode::default()),
-        "signal_gen" => NodeBody::SignalGen(SignalGenNode::default()),
-        "gps" => NodeBody::Gps(GpsNode::default()),
-        "channel" => NodeBody::Channel(ChannelNode {
-            channel_type: "nfm".to_owned(),
-            record_calls: false,
-            tuning_locked: false,
-        }),
-        "scope" => NodeBody::Scope,
-        "baseband_scope" => NodeBody::BasebandScope,
-        "speaker" => NodeBody::Speaker,
-        "map" => NodeBody::Map,
-        "signal_map" => NodeBody::SignalMap(SignalMapNode::default()),
-        "propagation" => NodeBody::Propagation(PropagationNode::default()),
-        "readout" => NodeBody::Readout,
-        "decoder_log" => NodeBody::DecoderLog,
-        "dmr_trunk" => NodeBody::DmrTrunk(DmrTrunkNode::default()),
-        "spectrum_monitor" => NodeBody::SpectrumMonitor(crate::SpectrumMonitorNode::default()),
-        "event_filter" => NodeBody::EventFilter(EventFilterNode::default()),
-        "audio_fx" => NodeBody::AudioFx(crate::AudioFxNode::default()),
-        "event_output" => NodeBody::EventOutput(EventOutputNode::default()),
-        "video" => NodeBody::Video,
-        "recorder" => NodeBody::Recorder(RecorderNode::default()),
-        "audio_recorder" => NodeBody::AudioRecorder(RecorderNode::default()),
-        "baseband_recorder" => NodeBody::BasebandRecorder(RecorderNode::default()),
-        "time_machine" => NodeBody::TimeMachine(TimeMachineNode::default()),
-        "network_export" => NodeBody::NetworkExport(NetworkExportNode::default()),
-        "export" => NodeBody::Export,
-        "scanner" => NodeBody::Scanner,
-        "hunt" => NodeBody::Hunt(HuntNode::default()),
-        "satellite" => NodeBody::Satellite(crate::SatelliteNode::default()),
-        "triangulation" => NodeBody::Triangulation(TriangulationNode::default()),
-        other => panic!("the palette offers {other}, which this test does not build"),
     }
 }
 
@@ -2069,13 +2051,14 @@ fn a_device_node_releases_its_radio_when_it_forgets_or_swaps_it() {
 }
 
 #[test]
-fn a_triangulation_body_round_trips_with_empty_data() {
-    let body = NodeBody::Triangulation(TriangulationNode::default());
+fn triangulation_without_data_loads_with_defaults() {
+    let stored = serde_json::json!({ "kind": "triangulation", "data": {} });
+    let body: NodeBody = serde_json::from_value(stored).expect("deserialize");
+    assert_eq!(body, NodeBody::Triangulation(TriangulationNode::default()));
     let json = serde_json::to_value(&body).expect("serialize");
-    assert_eq!(
-        json,
-        serde_json::json!({ "kind": "triangulation", "data": {} })
-    );
+    assert_eq!(json["data"]["settings"]["nav"], "auto");
     let back: NodeBody = serde_json::from_value(json).expect("deserialize");
     assert_eq!(back, body);
 }
+
+mod arrays;

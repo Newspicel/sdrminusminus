@@ -87,6 +87,7 @@ const PORT_COLOR: Record<PortType, string> = {
   control: "text-port-control",
   position: "text-accent",
   tx: "text-port-tx",
+  array: "text-port-array",
 };
 
 function PortGlyph({ type }: { type: PortType }) {

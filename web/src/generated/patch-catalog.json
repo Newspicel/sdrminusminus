@@ -1,0 +1,1168 @@
+{
+  "nodes": [
+    {
+      "kind": "device",
+      "name": "Device",
+      "category": "source",
+      "summary": "A radio, where every patch starts",
+      "ports": [
+        {
+          "name": "tx",
+          "port_type": "tx",
+          "direction": "in",
+          "multi": false,
+          "condition": "device_is_tx_capable",
+          "repeat": "per_tx_stream",
+          "note": "reserved: transmit is not built (), so nothing in this build emits a signal to key a radio with"
+        },
+        {
+          "name": "iq",
+          "port_type": "iq",
+          "direction": "out",
+          "multi": true,
+          "repeat": "per_rx_stream"
+        }
+      ],
+      "needs_channel_type": false,
+      "default_body": {
+        "kind": "device",
+        "data": {}
+      }
+    },
+    {
+      "kind": "recording",
+      "name": "Recording",
+      "category": "source",
+      "summary": "Plays back a recorded IQ file",
+      "ports": [
+        {
+          "name": "iq",
+          "port_type": "iq",
+          "direction": "out",
+          "multi": true
+        }
+      ],
+      "needs_channel_type": false,
+      "default_body": {
+        "kind": "recording",
+        "data": {}
+      }
+    },
+    {
+      "kind": "signal_gen",
+      "name": "Signal generator",
+      "category": "source",
+      "summary": "Test signals without a radio",
+      "ports": [
+        {
+          "name": "iq",
+          "port_type": "iq",
+          "direction": "out",
+          "multi": true
+        }
+      ],
+      "needs_channel_type": false,
+      "default_body": {
+        "kind": "signal_gen",
+        "data": {
+          "running": true
+        }
+      }
+    },
+    {
+      "kind": "gps",
+      "name": "GPS position",
+      "category": "source",
+      "summary": "Your station location, live or fixed",
+      "ports": [
+        {
+          "name": "position",
+          "port_type": "position",
+          "direction": "out",
+          "multi": true
+        }
+      ],
+      "needs_channel_type": false,
+      "default_body": {
+        "kind": "gps",
+        "data": {}
+      }
+    },
+    {
+      "kind": "array",
+      "name": "Array",
+      "category": "tool",
+      "summary": "Radio lanes as one antenna array",
+      "ports": [
+        {
+          "name": "lane",
+          "port_type": "iq",
+          "direction": "in",
+          "multi": false,
+          "repeat": "per_lane",
+          "note": "One radio lane per antenna, in antenna order"
+        },
+        {
+          "name": "position",
+          "port_type": "position",
+          "direction": "in",
+          "multi": false,
+          "note": "Array place and heading"
+        },
+        {
+          "name": "array",
+          "port_type": "array",
+          "direction": "out",
+          "multi": true
+        }
+      ],
+      "needs_channel_type": false,
+      "default_body": {
+        "kind": "array",
+        "data": {
+          "geometry": {
+            "kind": "uca",
+            "radius_m": 0.35,
+            "first_deg": 0.0,
+            "winding": "clockwise"
+          },
+          "orientation": {
+            "kind": "fixed",
+            "azimuth_deg": 0.0
+          },
+          "declared": "time_sync",
+          "tuning": "together",
+          "cal": {
+            "source": {
+              "kind": "noise"
+            },
+            "check_s": 60,
+            "equaliser": false,
+            "warm_start": true
+          }
+        }
+      }
+    },
+    {
+      "kind": "channel",
+      "name": "Channel",
+      "category": "channel",
+      "summary": "Tunes and decodes one signal",
+      "ports": [
+        {
+          "name": "iq",
+          "port_type": "iq",
+          "direction": "in",
+          "multi": true,
+          "note": "every radio that may carry this decoder; it runs on the one that hears it"
+        },
+        {
+          "name": "control",
+          "port_type": "control",
+          "direction": "in",
+          "multi": false,
+          "note": "a scanner, signal hunt or satellite drives this decoder; its radio follows"
+        },
+        {
+          "name": "position",
+          "port_type": "position",
+          "direction": "in",
+          "multi": false,
+          "condition": "channel_needs_position"
+        },
+        {
+          "name": "baseband",
+          "port_type": "baseband",
+          "direction": "out",
+          "multi": true
+        },
+        {
+          "name": "audio",
+          "port_type": "audio",
+          "direction": "out",
+          "multi": true,
+          "condition": "channel_has_audio"
+        },
+        {
+          "name": "events",
+          "port_type": "events",
+          "direction": "out",
+          "multi": true,
+          "condition": "channel_is_decoder"
+        },
+        {
+          "name": "video",
+          "port_type": "video",
+          "direction": "out",
+          "multi": true,
+          "condition": "channel_has_video"
+        }
+      ],
+      "needs_channel_type": true,
+      "default_body": {
+        "kind": "channel",
+        "data": {
+          "channel_type": "",
+          "record_calls": false,
+          "tuning_locked": false
+        }
+      }
+    },
+    {
+      "kind": "scope",
+      "name": "Scope",
+      "category": "output",
+      "summary": "Spectrum and waterfall",
+      "ports": [
+        {
+          "name": "iq",
+          "port_type": "iq",
+          "direction": "in",
+          "multi": false
+        }
+      ],
+      "needs_channel_type": false,
+      "default_body": {
+        "kind": "scope"
+      }
+    },
+    {
+      "kind": "baseband_scope",
+      "name": "Baseband scope",
+      "category": "output",
+      "summary": "Constellation and eye of one channel",
+      "ports": [
+        {
+          "name": "baseband",
+          "port_type": "baseband",
+          "direction": "in",
+          "multi": false
+        }
+      ],
+      "needs_channel_type": false,
+      "default_body": {
+        "kind": "baseband_scope"
+      }
+    },
+    {
+      "kind": "speaker",
+      "name": "Speaker",
+      "category": "output",
+      "summary": "Plays channel audio",
+      "ports": [
+        {
+          "name": "audio",
+          "port_type": "audio",
+          "direction": "in",
+          "multi": true
+        }
+      ],
+      "needs_channel_type": false,
+      "default_body": {
+        "kind": "speaker"
+      }
+    },
+    {
+      "kind": "map",
+      "name": "Map",
+      "category": "output",
+      "summary": "Decoded positions on a map",
+      "ports": [
+        {
+          "name": "events",
+          "port_type": "events",
+          "direction": "in",
+          "multi": true
+        },
+        {
+          "name": "position",
+          "port_type": "position",
+          "direction": "in",
+          "multi": true
+        }
+      ],
+      "needs_channel_type": false,
+      "default_body": {
+        "kind": "map"
+      }
+    },
+    {
+      "kind": "signal_map",
+      "name": "Signal survey",
+      "category": "output",
+      "summary": "Maps signal strength while you move",
+      "ports": [
+        {
+          "name": "iq",
+          "port_type": "iq",
+          "direction": "in",
+          "multi": false
+        },
+        {
+          "name": "position",
+          "port_type": "position",
+          "direction": "in",
+          "multi": false
+        }
+      ],
+      "needs_channel_type": false,
+      "default_body": {
+        "kind": "signal_map",
+        "data": {
+          "offset_hz": 0,
+          "bandwidth_hz": 12500
+        }
+      }
+    },
+    {
+      "kind": "propagation",
+      "name": "Propagation map",
+      "category": "output",
+      "summary": "Where FT8, FT4 and WSPR signals came from",
+      "ports": [
+        {
+          "name": "events",
+          "port_type": "events",
+          "direction": "in",
+          "multi": true
+        },
+        {
+          "name": "position",
+          "port_type": "position",
+          "direction": "in",
+          "multi": false
+        }
+      ],
+      "needs_channel_type": false,
+      "default_body": {
+        "kind": "propagation",
+        "data": {
+          "half_life_minutes": 30,
+          "reflection_height_km": 300,
+          "show_paths": false,
+          "compare_forecast": true
+        }
+      }
+    },
+    {
+      "kind": "readout",
+      "name": "Readout",
+      "category": "output",
+      "summary": "Current decoder state",
+      "ports": [
+        {
+          "name": "events",
+          "port_type": "events",
+          "direction": "in",
+          "multi": true
+        }
+      ],
+      "needs_channel_type": false,
+      "default_body": {
+        "kind": "readout"
+      }
+    },
+    {
+      "kind": "decoder_log",
+      "name": "Decoder log",
+      "category": "output",
+      "summary": "Every decoded message in a table",
+      "ports": [
+        {
+          "name": "events",
+          "port_type": "events",
+          "direction": "in",
+          "multi": true
+        }
+      ],
+      "needs_channel_type": false,
+      "default_body": {
+        "kind": "decoder_log"
+      }
+    },
+    {
+      "kind": "spectrum_monitor",
+      "name": "Spectrum monitor",
+      "category": "tool",
+      "summary": "Catches and decodes everything in view",
+      "ports": [
+        {
+          "name": "iq",
+          "port_type": "iq",
+          "direction": "in",
+          "multi": false
+        },
+        {
+          "name": "events",
+          "port_type": "events",
+          "direction": "out",
+          "multi": true
+        }
+      ],
+      "needs_channel_type": false,
+      "default_body": {
+        "kind": "spectrum_monitor",
+        "data": {
+          "record_audio": true,
+          "min_confidence": 0.7,
+          "report_unidentified": true
+        }
+      }
+    },
+    {
+      "kind": "dmr_trunk",
+      "name": "DMR trunk system",
+      "category": "tool",
+      "summary": "Follows calls across a DMR trunk system",
+      "ports": [
+        {
+          "name": "iq",
+          "port_type": "iq",
+          "direction": "in",
+          "multi": false,
+          "note": "the radio the control channel sits on; the system runs its own decoders"
+        },
+        {
+          "name": "events",
+          "port_type": "events",
+          "direction": "out",
+          "multi": true
+        }
+      ],
+      "needs_channel_type": false,
+      "default_body": {
+        "kind": "dmr_trunk",
+        "data": {
+          "protocol": "auto",
+          "record_calls": true,
+          "discovery": {
+            "enabled": false,
+            "max_probes": 0
+          },
+          "ignore_crc": false
+        }
+      }
+    },
+    {
+      "kind": "event_filter",
+      "name": "Event filter",
+      "category": "tool",
+      "summary": "Passes only matching events",
+      "ports": [
+        {
+          "name": "events",
+          "port_type": "events",
+          "direction": "in",
+          "multi": true
+        },
+        {
+          "name": "events",
+          "port_type": "events",
+          "direction": "out",
+          "multi": true
+        }
+      ],
+      "needs_channel_type": false,
+      "default_body": {
+        "kind": "event_filter",
+        "data": {
+          "mode": "keep",
+          "kinds": [],
+          "stations": [],
+          "talkgroups": [],
+          "radios": [],
+          "min_duration_ms": 0
+        }
+      }
+    },
+    {
+      "kind": "audio_fx",
+      "name": "Audio FX",
+      "category": "tool",
+      "summary": "Filters, denoise and AGC",
+      "ports": [
+        {
+          "name": "audio",
+          "port_type": "audio",
+          "direction": "in",
+          "multi": true
+        },
+        {
+          "name": "audio",
+          "port_type": "audio",
+          "direction": "out",
+          "multi": true
+        }
+      ],
+      "needs_channel_type": false,
+      "default_body": {
+        "kind": "audio_fx",
+        "data": {
+          "settings": {
+            "click_removal": {
+              "enabled": false,
+              "threshold": 6.0
+            },
+            "filter": {
+              "enabled": false,
+              "low_hz": 300.0,
+              "high_hz": 3000.0
+            },
+            "notches": [],
+            "auto_notch": false,
+            "denoise": {
+              "enabled": false,
+              "mode": "spectral",
+              "strength": 0.5
+            },
+            "agc": "off"
+          }
+        }
+      }
+    },
+    {
+      "kind": "event_output",
+      "name": "Event output",
+      "category": "output",
+      "summary": "Sends events to other programs",
+      "ports": [
+        {
+          "name": "events",
+          "port_type": "events",
+          "direction": "in",
+          "multi": true
+        }
+      ],
+      "needs_channel_type": false,
+      "default_body": {
+        "kind": "event_output",
+        "data": {
+          "target": {
+            "service": "webhook",
+            "url": "",
+            "format": "json"
+          }
+        }
+      }
+    },
+    {
+      "kind": "video",
+      "name": "Video",
+      "category": "output",
+      "summary": "ATV frames and SSTV pictures",
+      "ports": [
+        {
+          "name": "video",
+          "port_type": "video",
+          "direction": "in",
+          "multi": true
+        }
+      ],
+      "needs_channel_type": false,
+      "default_body": {
+        "kind": "video"
+      }
+    },
+    {
+      "kind": "recorder",
+      "name": "Recorder",
+      "category": "output",
+      "summary": "Records a radio's full IQ",
+      "ports": [
+        {
+          "name": "iq",
+          "port_type": "iq",
+          "direction": "in",
+          "multi": false
+        },
+        {
+          "name": "position",
+          "port_type": "position",
+          "direction": "in",
+          "multi": false
+        }
+      ],
+      "needs_channel_type": false,
+      "default_body": {
+        "kind": "recorder",
+        "data": {
+          "recording": false
+        }
+      }
+    },
+    {
+      "kind": "audio_recorder",
+      "name": "Audio recorder",
+      "category": "output",
+      "summary": "Records channel audio to WAV",
+      "ports": [
+        {
+          "name": "audio",
+          "port_type": "audio",
+          "direction": "in",
+          "multi": true
+        }
+      ],
+      "needs_channel_type": false,
+      "default_body": {
+        "kind": "audio_recorder",
+        "data": {
+          "recording": false
+        }
+      }
+    },
+    {
+      "kind": "baseband_recorder",
+      "name": "Baseband recorder",
+      "category": "output",
+      "summary": "Records one channel's IQ",
+      "ports": [
+        {
+          "name": "baseband",
+          "port_type": "baseband",
+          "direction": "in",
+          "multi": true
+        }
+      ],
+      "needs_channel_type": false,
+      "default_body": {
+        "kind": "baseband_recorder",
+        "data": {
+          "recording": false
+        }
+      }
+    },
+    {
+      "kind": "time_machine",
+      "name": "Time machine",
+      "category": "output",
+      "summary": "Saves IQ from before you pressed record",
+      "ports": [
+        {
+          "name": "iq",
+          "port_type": "iq",
+          "direction": "in",
+          "multi": false
+        },
+        {
+          "name": "position",
+          "port_type": "position",
+          "direction": "in",
+          "multi": false
+        }
+      ],
+      "needs_channel_type": false,
+      "default_body": {
+        "kind": "time_machine",
+        "data": {
+          "history_seconds": 10
+        }
+      }
+    },
+    {
+      "kind": "network_export",
+      "name": "Network IQ",
+      "category": "output",
+      "summary": "Streams IQ to other programs",
+      "ports": [
+        {
+          "name": "iq",
+          "port_type": "iq",
+          "direction": "in",
+          "multi": false
+        },
+        {
+          "name": "baseband",
+          "port_type": "baseband",
+          "direction": "in",
+          "multi": false
+        }
+      ],
+      "needs_channel_type": false,
+      "default_body": {
+        "kind": "network_export",
+        "data": {
+          "transport": "udp",
+          "format": "cf32_le",
+          "address": "127.0.0.1:7355"
+        }
+      }
+    },
+    {
+      "kind": "export",
+      "name": "Export",
+      "category": "output",
+      "summary": "Saves logged rows as CSV or JSON",
+      "ports": [
+        {
+          "name": "events",
+          "port_type": "events",
+          "direction": "in",
+          "multi": true
+        }
+      ],
+      "needs_channel_type": false,
+      "default_body": {
+        "kind": "export"
+      }
+    },
+    {
+      "kind": "scanner",
+      "name": "Scanner",
+      "category": "tool",
+      "summary": "Steps through frequencies, stops on activity",
+      "ports": [
+        {
+          "name": "control",
+          "port_type": "control",
+          "direction": "out",
+          "multi": false
+        }
+      ],
+      "needs_channel_type": false,
+      "default_body": {
+        "kind": "scanner"
+      }
+    },
+    {
+      "kind": "hunt",
+      "name": "Signal hunt",
+      "category": "tool",
+      "summary": "Walks you towards a transmitter",
+      "ports": [
+        {
+          "name": "control",
+          "port_type": "control",
+          "direction": "out",
+          "multi": false
+        },
+        {
+          "name": "position",
+          "port_type": "position",
+          "direction": "in",
+          "multi": false,
+          "note": "Where you stand and which way you point"
+        },
+        {
+          "name": "events",
+          "port_type": "events",
+          "direction": "out",
+          "multi": true,
+          "note": "Sweep and mark bearings"
+        }
+      ],
+      "needs_channel_type": false,
+      "default_body": {
+        "kind": "hunt",
+        "data": {
+          "clicks": true,
+          "sweep": {
+            "beamwidth_deg": 60.0,
+            "front_back_db": 15.0,
+            "min_span_deg": 180.0,
+            "min_contrast_db": 6.0,
+            "mount_offset_deg": 0.0
+          }
+        }
+      }
+    },
+    {
+      "kind": "satellite",
+      "name": "Satellite",
+      "category": "tool",
+      "summary": "Predicts passes and follows Doppler",
+      "ports": [
+        {
+          "name": "position",
+          "port_type": "position",
+          "direction": "in",
+          "multi": false
+        },
+        {
+          "name": "control",
+          "port_type": "control",
+          "direction": "out",
+          "multi": true,
+          "note": "every decoder listening to this satellite; each is tuned and Doppler corrected"
+        }
+      ],
+      "needs_channel_type": false,
+      "default_body": {
+        "kind": "satellite",
+        "data": {
+          "tuning_locked": false
+        }
+      }
+    },
+    {
+      "kind": "df",
+      "name": "Direction finder",
+      "category": "tool",
+      "summary": "Bearings from an array",
+      "ports": [
+        {
+          "name": "array",
+          "port_type": "array",
+          "direction": "in",
+          "multi": false
+        },
+        {
+          "name": "events",
+          "port_type": "events",
+          "direction": "out",
+          "multi": true,
+          "note": "True bearings"
+        }
+      ],
+      "needs_channel_type": false,
+      "default_body": {
+        "kind": "df",
+        "data": {
+          "settings": {
+            "algorithm": "music",
+            "source_rule": "dominance",
+            "max_peaks": 2,
+            "smoothing": 0,
+            "forward_backward": false,
+            "elevation": false,
+            "ula_side": "both",
+            "offset_hz": 0.0,
+            "bandwidth_hz": 20000.0,
+            "report_ms": 500,
+            "carry_over": 0.5,
+            "squelch_db": 6.0,
+            "loading": 0.001,
+            "azimuth_step_deg": 1.0,
+            "yaw_gate_dps": 20.0
+          }
+        }
+      }
+    },
+    {
+      "kind": "beamformer",
+      "name": "Beamformer",
+      "category": "tool",
+      "summary": "Steer, null or combine an array",
+      "ports": [
+        {
+          "name": "array",
+          "port_type": "array",
+          "direction": "in",
+          "multi": false
+        },
+        {
+          "name": "steer",
+          "port_type": "events",
+          "direction": "in",
+          "multi": false,
+          "note": "A direction finder to steer at"
+        },
+        {
+          "name": "beam",
+          "port_type": "iq",
+          "direction": "out",
+          "multi": true,
+          "note": "The combined lane"
+        }
+      ],
+      "needs_channel_type": false,
+      "default_body": {
+        "kind": "beamformer",
+        "data": {
+          "settings": {
+            "mode": "mrc",
+            "steer": {
+              "kind": "wired"
+            },
+            "nulls_deg": [],
+            "auto_nulls": false,
+            "main_lane": 0,
+            "reference_lanes": [],
+            "taps": 1,
+            "adaptation": "nlms",
+            "step": 0.05,
+            "forget": 0.999,
+            "crossfade_ms": 20,
+            "update_ms": 200,
+            "carry_over": 0.7,
+            "loading": 0.1,
+            "noise": "measured",
+            "offset_hz": 0.0,
+            "bandwidth_hz": 200000.0,
+            "steer_timeout_ms": 5000
+          }
+        }
+      }
+    },
+    {
+      "kind": "passive_radar",
+      "name": "Passive radar",
+      "category": "tool",
+      "summary": "Aircraft echoes of FM, DAB or DVB-T",
+      "ports": [
+        {
+          "name": "array",
+          "port_type": "array",
+          "direction": "in",
+          "multi": false
+        },
+        {
+          "name": "tx",
+          "port_type": "position",
+          "direction": "in",
+          "multi": false,
+          "note": "GPS node fixed at the transmitter"
+        },
+        {
+          "name": "adsb",
+          "port_type": "events",
+          "direction": "in",
+          "multi": true,
+          "note": "ADS-B decoder used as truth"
+        },
+        {
+          "name": "events",
+          "port_type": "events",
+          "direction": "out",
+          "multi": true,
+          "note": "Track events"
+        }
+      ],
+      "needs_channel_type": false,
+      "default_body": {
+        "kind": "passive_radar",
+        "data": {
+          "settings": {
+            "reference_element": 0,
+            "surveillance": {
+              "kind": "all_others"
+            },
+            "illuminator": {
+              "kind": "fm"
+            },
+            "offset_hz": 0.0,
+            "cpi_ms": 500,
+            "overlap": 0.0,
+            "max_range_km": 80.0,
+            "max_speed_mps": 400.0,
+            "window": "hann",
+            "reference": {
+              "kind": "cma",
+              "taps": 16,
+              "step": 0.001
+            },
+            "clutter": {
+              "method": "eca_batch",
+              "reach_km": 15.0,
+              "lead": 2,
+              "doppler_taps": 0,
+              "batch_ms": 50.0,
+              "taper": true,
+              "extension_ms": 25.0,
+              "step": 0.05,
+              "loading": 0.0001
+            },
+            "cfar": {
+              "kind": {
+                "kind": "ca"
+              },
+              "window": "range",
+              "pfa": 0.00001,
+              "guard_range": 2,
+              "train_range": 8,
+              "guard_doppler": 1,
+              "train_doppler": 4,
+              "min_doppler_hz": 5.0,
+              "min_range_km": 1.0,
+              "min_snr_db": 8.0
+            },
+            "tracker": {
+              "confirm_hits": 3,
+              "confirm_window": 5,
+              "coast_looks": 10,
+              "max_accel_mps2": 30.0,
+              "gate": 11.8,
+              "jerk": 5.0
+            },
+            "aoa": true,
+            "assumed_altitude_m": 8000.0,
+            "gpu": "auto"
+          }
+        }
+      }
+    },
+    {
+      "kind": "stitch",
+      "name": "Stitch",
+      "category": "tool",
+      "summary": "Spread lanes joined into one wide band",
+      "ports": [
+        {
+          "name": "array",
+          "port_type": "array",
+          "direction": "in",
+          "multi": false
+        },
+        {
+          "name": "wide",
+          "port_type": "iq",
+          "direction": "out",
+          "multi": true,
+          "note": "Every lane joined"
+        }
+      ],
+      "needs_channel_type": false,
+      "default_body": {
+        "kind": "stitch",
+        "data": {
+          "settings": {
+            "blend": "snr",
+            "noise_equalise": true,
+            "flatten": true,
+            "spur_reject": true,
+            "match_phase": true
+          }
+        }
+      }
+    },
+    {
+      "kind": "spatial_spectrum",
+      "name": "Spatial spectrum",
+      "category": "tool",
+      "summary": "Bearing over frequency",
+      "ports": [
+        {
+          "name": "array",
+          "port_type": "array",
+          "direction": "in",
+          "multi": false
+        }
+      ],
+      "needs_channel_type": false,
+      "default_body": {
+        "kind": "spatial_spectrum",
+        "data": {
+          "settings": {
+            "bins": 1024,
+            "columns": 256,
+            "average_ms": 300,
+            "report_ms": 100,
+            "azimuth_step_deg": 2.0,
+            "method": "bartlett",
+            "span_db": 30.0,
+            "offset_hz": 0.0
+          }
+        }
+      }
+    },
+    {
+      "kind": "correlator",
+      "name": "Correlator",
+      "category": "tool",
+      "summary": "Baseline visibilities",
+      "ports": [
+        {
+          "name": "array",
+          "port_type": "array",
+          "direction": "in",
+          "multi": false
+        }
+      ],
+      "needs_channel_type": false,
+      "default_body": {
+        "kind": "correlator",
+        "data": {
+          "settings": {
+            "bins": 1024,
+            "integrate_s": 1.0,
+            "offset_hz": 0.0,
+            "overlap": false,
+            "channels": 256
+          }
+        }
+      }
+    },
+    {
+      "kind": "polarimeter",
+      "name": "Polarimeter",
+      "category": "tool",
+      "summary": "Polarisation of two crossed antennas",
+      "ports": [
+        {
+          "name": "array",
+          "port_type": "array",
+          "direction": "in",
+          "multi": false
+        },
+        {
+          "name": "beam",
+          "port_type": "iq",
+          "direction": "out",
+          "multi": true,
+          "note": "Matched to the wave"
+        }
+      ],
+      "needs_channel_type": false,
+      "default_body": {
+        "kind": "polarimeter",
+        "data": {
+          "settings": {
+            "h_lane": 0,
+            "v_lane": 1,
+            "offset_hz": 0.0,
+            "bandwidth_hz": 20000.0,
+            "matched": true,
+            "report_ms": 250,
+            "average_ms": 500,
+            "crossfade_ms": 20,
+            "flip_hand": false
+          }
+        }
+      }
+    },
+    {
+      "kind": "triangulation",
+      "name": "Triangulation",
+      "category": "tool",
+      "summary": "Crosses bearings into a position",
+      "ports": [
+        {
+          "name": "events",
+          "port_type": "events",
+          "direction": "in",
+          "multi": true,
+          "note": "Bearings"
+        },
+        {
+          "name": "position",
+          "port_type": "position",
+          "direction": "in",
+          "multi": false,
+          "note": "Vehicle to guide"
+        },
+        {
+          "name": "events",
+          "port_type": "events",
+          "direction": "out",
+          "multi": true
+        }
+      ],
+      "needs_channel_type": false,
+      "default_body": {
+        "kind": "triangulation",
+        "data": {
+          "settings": {
+            "decay": {
+              "kind": "auto"
+            },
+            "extent_km": 12.8,
+            "nav": "auto",
+            "probe_km": 5.0,
+            "min_confidence": 0.05,
+            "max_emitters": 3
+          }
+        }
+      }
+    }
+  ]
+}

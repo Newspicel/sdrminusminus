@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ChannelDescriptor, NodeKind, PatchCatalog } from "../lib/types";
+import { newNodeBody } from "./newNode";
 import {
   channelPicker,
   decoderGroups,
@@ -11,15 +12,71 @@ import {
 
 const CATALOG: PatchCatalog = {
   nodes: [
-    { kind: "device", name: "Device", summary: "A radio", category: "source", ports: [] },
-    { kind: "gps", name: "GPS position", category: "source", ports: [] },
-    { kind: "channel", name: "Channel", category: "channel", ports: [], needs_channel_type: true },
-    { kind: "scope", name: "Scope", category: "output", ports: [] },
-    { kind: "speaker", name: "Speaker", category: "output", ports: [] },
-    { kind: "event_output", name: "Event output", category: "output", ports: [] },
-    { kind: "scanner", name: "Scanner", category: "tool", ports: [] },
-    { kind: "hunt", name: "Signal hunt", category: "tool", ports: [] },
-    { kind: "triangulation", name: "Triangulation", category: "tool", ports: [] },
+    {
+      kind: "device",
+      default_body: newNodeBody("device"),
+      name: "Device",
+      summary: "A radio",
+      category: "source",
+      ports: [],
+    },
+    {
+      kind: "gps",
+      default_body: newNodeBody("gps"),
+      name: "GPS position",
+      category: "source",
+      ports: [],
+    },
+    {
+      kind: "channel",
+      default_body: newNodeBody("channel"),
+      name: "Channel",
+      category: "channel",
+      ports: [],
+      needs_channel_type: true,
+    },
+    {
+      kind: "scope",
+      default_body: newNodeBody("scope"),
+      name: "Scope",
+      category: "output",
+      ports: [],
+    },
+    {
+      kind: "speaker",
+      default_body: newNodeBody("speaker"),
+      name: "Speaker",
+      category: "output",
+      ports: [],
+    },
+    {
+      kind: "event_output",
+      default_body: newNodeBody("event_output"),
+      name: "Event output",
+      category: "output",
+      ports: [],
+    },
+    {
+      kind: "scanner",
+      default_body: newNodeBody("scanner"),
+      name: "Scanner",
+      category: "tool",
+      ports: [],
+    },
+    {
+      kind: "hunt",
+      default_body: newNodeBody("hunt"),
+      name: "Signal hunt",
+      category: "tool",
+      ports: [],
+    },
+    {
+      kind: "triangulation",
+      default_body: newNodeBody("triangulation"),
+      name: "Triangulation",
+      category: "tool",
+      ports: [],
+    },
   ],
 };
 

@@ -1,8 +1,8 @@
-import type { DfEstimate, DfStation, GuidanceMode } from "../../lib/types";
+import type { DfEstimate, DfStation, NavTargetKind } from "../../lib/types";
 
-export const GUIDANCE_TEXT: Record<GuidanceMode, string> = {
-  cross: "Drive across",
-  approach: "Drive at it",
+export const NAV_TEXT: Record<NavTargetKind, string> = {
+  probe: "Drive across",
+  estimate: "Drive at it",
 };
 
 export function spreadLabel(estimate: DfEstimate | null): string {
@@ -16,8 +16,6 @@ function metres(value: number): string {
   return value >= 1_000 ? `${(value / 1_000).toFixed(1)} km` : `${Math.round(value)} m`;
 }
 
-/// How long ago a station was last heard from, so a finder that has gone quiet is visibly quiet
-/// rather than silently stale.
 export function stationAge(station: DfStation, now: number): string {
   const seen = Date.parse(station.last_seen);
   if (Number.isNaN(seen)) {

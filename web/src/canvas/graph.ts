@@ -268,9 +268,17 @@ export const NODE_SIZE: Record<NodeKind, NodeSize> = {
   network_export: { w: 380 },
   export: { w: 320 },
   scanner: { w: 400 },
-  hunt: { w: 340 },
+  hunt: { w: 360 },
   satellite: { w: 380 },
-  triangulation: { w: 380 },
+  triangulation: { w: 400 },
+  array: { w: 460 },
+  df: { w: 400 },
+  beamformer: { w: 400 },
+  passive_radar: { w: 560, h: 540 },
+  spatial_spectrum: { w: 560, h: 420 },
+  correlator: { w: 520, h: 460 },
+  polarimeter: { w: 360 },
+  stitch: { w: 360 },
 };
 
 export const FIT_MIN_W = 280;
