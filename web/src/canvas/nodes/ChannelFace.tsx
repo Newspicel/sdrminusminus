@@ -73,7 +73,7 @@ export function ChannelFace({ node }: { node: PatchNode }) {
   const settings = channelSettingsOf(workspace, node.id);
   const onEdit = (edit: ChannelEdit): void => editChannel(node.id, edit);
   const frequencyHz = settings?.frequency_hz ?? null;
-  const spanHz = set === null ? undefined : laneRateHz(set, source?.stream ?? 0);
+  const spanHz = set === null ? undefined : laneRateHz(set);
   const window = radioWindowHz(centerHz, spanHz, descriptor);
   const unreachable =
     set !== null &&

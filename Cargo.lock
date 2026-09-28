@@ -5851,16 +5851,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "sdrmm-device-array"
-version = "0.0.0"
-dependencies = [
- "num-complex",
- "sdrmm-device",
- "sdrmm-device-virtual",
- "sdrmm-wire",
-]
-
-[[package]]
 name = "sdrmm-device-cr8"
 version = "0.0.0"
 dependencies = [
@@ -6002,7 +5992,6 @@ dependencies = [
  "sdrmm-device",
  "sdrmm-recorder",
  "sdrmm-wire",
- "serde_json",
  "tempfile",
 ]
 
@@ -6033,7 +6022,6 @@ dependencies = [
  "sdrmm-device-ad936x",
  "sdrmm-device-airspy",
  "sdrmm-device-airspyhf",
- "sdrmm-device-array",
  "sdrmm-device-cr8",
  "sdrmm-device-hackrf",
  "sdrmm-device-kiwisdr",

@@ -1,4 +1,4 @@
-import { iqLanesOf, tunedStream } from "../canvas/binding";
+import { iqLanesOf } from "../canvas/binding";
 import { useWorkspaceContext, type Workspace } from "../canvas/context";
 import { descriptorOf, nodeOf } from "../canvas/graph";
 import type { ChannelTarget, TuneTarget } from "../canvas/libraryTarget";
@@ -58,19 +58,13 @@ export function radioPullFor(
   if (laneCount > 1 || autoTuning(set, lane.tunes)) {
     return null;
   }
-  const window = radioWindowHz(
-    laneCenterHz(set, lane.stream),
-    laneRateHz(set, lane.stream),
-    descriptor,
-  );
+  const window = radioWindowHz(laneCenterHz(set, lane.stream), laneRateHz(set), descriptor);
   return reachesHz(hz, window) ? null : tuneDelta(set.capabilities, lane.tunes, hz);
 }
 
 function tunedLane(workspace: Workspace, node: string): { stream: number; tunes: number } {
   const lane = laneOf(workspace, node);
-  return lane === null
-    ? { stream: 0, tunes: 0 }
-    : { stream: lane.stream, tunes: tunedStream(lane) };
+  return lane === null ? { stream: 0, tunes: 0 } : { stream: lane.stream, tunes: lane.stream };
 }
 
 function frequencyOf(workspace: Workspace, target: TuneTarget): number | null {

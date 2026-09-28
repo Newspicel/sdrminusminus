@@ -5,10 +5,9 @@ use crate::{
     EventOutputNode, GpsNode, MAX_NMEA_BAUD, MAX_NMEA_UPDATE_INTERVAL_MS,
     MAX_POSITION_ENDPOINT_LEN, MIN_NMEA_BAUD, MIN_NMEA_UPDATE_INTERVAL_MS, PositionSource,
     channel::{ChannelDescriptor, ChannelParams},
-    coherent::{CombinerParams, DfParams, PassiveRadarParams, StitchParams},
     device::{
-        ArrayDefinition, Capabilities, Coherence, DeviceInfo, Direction, RECORDING_DRIVER_ID,
-        SIGGEN_DRIVER_ID, recording_stem_valid,
+        Capabilities, DeviceInfo, Direction, RECORDING_DRIVER_ID, SIGGEN_DRIVER_ID,
+        recording_stem_valid,
     },
     filter::EventFilterNode,
     network::{MAX_NETWORK_ADDRESS_LEN, NetworkExportNode},
@@ -177,19 +176,6 @@ impl PortSpec {
     fn repeated(mut self, repeat: PortRepeat) -> Self {
         self.repeat = repeat;
         self
-    }
-
-    fn named(
-        name: &str,
-        port_type: PortType,
-        direction: PortDirection,
-        multi: bool,
-        condition: PortCondition,
-    ) -> Self {
-        Self {
-            name: name.to_owned(),
-            ..Self::new(port_type, direction, multi, condition)
-        }
     }
 
     #[must_use]
@@ -511,88 +497,10 @@ impl Default for HuntNode {
     }
 }
 
-/// A bank of separate radios the operator has wired to one clock, standing on the canvas as the
-/// one radio they add up to.
-///
-/// Nothing here is discovered: which radios belong together, and whether their clock alone is
-/// shared or their synthesizer too, is a fact about the bench that only the operator knows.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(default)]
-pub struct ArrayNode {
-    /// How many radios are wired in. The node always draws one more input than that, so there is
-    /// somewhere to put the next one.
-    pub members: u32,
-    pub coherence: Coherence,
-    pub shared_tuning: bool,
-}
+pub struct TriangulationNode {}
 
-impl Default for ArrayNode {
-    fn default() -> Self {
-        Self {
-            members: 0,
-            coherence: Coherence::TimeSync,
-            shared_tuning: true,
-        }
-    }
-}
-
-impl ArrayNode {
-    /// The composite this node describes, given the radios wired into it. Its key comes from the
-    /// node itself, so an array is set up by drawing it rather than by naming it somewhere else.
-    #[must_use]
-    pub fn definition(
-        &self,
-        node_id: &str,
-        label: Option<&str>,
-        members: Vec<String>,
-    ) -> ArrayDefinition {
-        ArrayDefinition {
-            key: array_key(node_id),
-            label: label.unwrap_or("Array").to_owned(),
-            members,
-            coherence: self.coherence,
-            shared_tuning: self.shared_tuning,
-        }
-    }
-}
-
-/// A node name made safe to use as a device key, so the array a patch draws is the array the
-/// driver opens without anything in between deciding what it is called.
-#[must_use]
-pub fn array_key(node_id: &str) -> String {
-    node_id.replace(':', "-")
-}
-
-/// A direction finder bound to every lane of one coherent radio.
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, ToSchema)]
-pub struct DfNode {
-    #[serde(default)]
-    pub settings: DfParams,
-}
-
-/// A passive radar: one lane watching the illuminator, one watching the sky.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize, ToSchema)]
-pub struct PassiveRadarNode {
-    #[serde(default)]
-    pub settings: PassiveRadarParams,
-}
-
-/// A bank of antennas added into one signal: either to hear better, or to stop hearing something.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize, ToSchema)]
-pub struct CombinerNode {
-    #[serde(default)]
-    pub settings: CombinerParams,
-}
-
-#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize, ToSchema)]
-pub struct StitchNode {
-    #[serde(default)]
-    pub settings: StitchParams,
-}
-
-pub const RADAR_REFERENCE_PORT: &str = "ref";
-pub const RADAR_SURVEILLANCE_PORT: &str = "surv";
-pub const DF_BEAM_PORT: &str = "beam";
 pub const STITCH_WIDE_PORT: &str = "wide";
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
@@ -601,7 +509,6 @@ pub enum NodeBody {
     Device(DeviceNode),
     Recording(RecordingNode),
     SignalGen(SignalGenNode),
-    Array(ArrayNode),
     Gps(GpsNode),
     Channel(ChannelNode),
     Scope,
@@ -627,23 +534,10 @@ pub enum NodeBody {
     Scanner,
     Hunt(HuntNode),
     Satellite(SatelliteNode),
-    Df(DfNode),
-    PassiveRadar(PassiveRadarNode),
-    Combiner(CombinerNode),
-    Stitch(StitchNode),
-    Triangulation,
+    Triangulation(TriangulationNode),
 }
 
 impl NodeBody {
-    #[must_use]
-    pub const fn lane_output(&self) -> Option<&'static str> {
-        match self {
-            Self::Df(_) | Self::Combiner(_) => Some(DF_BEAM_PORT),
-            Self::Stitch(_) => Some(STITCH_WIDE_PORT),
-            _ => None,
-        }
-    }
-
     #[must_use]
     pub const fn kind(&self) -> &'static str {
         match self {
@@ -675,12 +569,7 @@ impl NodeBody {
             Self::Scanner => "scanner",
             Self::Hunt(_) => "hunt",
             Self::Satellite(_) => "satellite",
-            Self::Df(_) => "df",
-            Self::PassiveRadar(_) => "passive_radar",
-            Self::Array(_) => "array",
-            Self::Combiner(_) => "combiner",
-            Self::Stitch(_) => "stitch",
-            Self::Triangulation => "triangulation",
+            Self::Triangulation(_) => "triangulation",
         }
     }
 
@@ -691,19 +580,14 @@ impl NodeBody {
                 NodeCategory::Source
             }
             Self::Channel(_) => NodeCategory::Channel,
-            Self::Array(_)
-            | Self::Df(_)
-            | Self::PassiveRadar(_)
-            | Self::Combiner(_)
-            | Self::Stitch(_)
-            | Self::Scanner
+            Self::Scanner
             | Self::Hunt(_)
             | Self::Satellite(_)
             | Self::SpectrumMonitor(_)
             | Self::DmrTrunk(_)
             | Self::EventFilter(_)
             | Self::AudioFx(_)
-            | Self::Triangulation => NodeCategory::Tool,
+            | Self::Triangulation(_) => NodeCategory::Tool,
             Self::Scope
             | Self::BasebandScope
             | Self::Map
@@ -723,13 +607,11 @@ impl NodeBody {
         }
     }
 
-    /// The radio a node opens, if it opens one. An array names itself, because the composite it
-    /// describes exists only as long as the node drawing it does.
     #[must_use]
     pub const fn opens_device(&self) -> bool {
         matches!(
             self,
-            Self::Device(_) | Self::Recording(_) | Self::SignalGen(_) | Self::Array(_)
+            Self::Device(_) | Self::Recording(_) | Self::SignalGen(_)
         )
     }
 
@@ -743,25 +625,13 @@ impl NodeBody {
                 serial: None,
                 key: Some(siggen_key(node_id)),
             }),
-            Self::Array(array) => (array.members > 0).then(|| DeviceRef {
-                backend: crate::device::ARRAY_DRIVER_ID.to_owned(),
-                serial: None,
-                key: Some(array_key(node_id)),
-            }),
             _ => None,
         }
     }
 
     #[must_use]
     pub fn ports(&self) -> Vec<PortSpec> {
-        let specs = ports_for(self.kind());
-        match self {
-            Self::Df(df) => spread_lanes(specs, df.settings.geometry.count()),
-            Self::Combiner(combiner) => spread_lanes(specs, combiner.settings.lanes),
-            Self::Stitch(stitch) => spread_lanes(specs, stitch.settings.lanes),
-            Self::Array(array) => spread_array(specs, array.members),
-            _ => specs,
-        }
+        ports_for(self.kind())
     }
 
     #[must_use]
@@ -786,52 +656,6 @@ impl NodeBody {
     }
 }
 
-/// Turns a per-lane port into one concrete port per element, because a direction finder's lane
-/// order is the array's element order and a wire that could land on any of them would lose it.
-fn spread_lanes(specs: Vec<PortSpec>, lanes: u32) -> Vec<PortSpec> {
-    let lanes = lanes.clamp(1, MAX_STREAMS);
-    let mut out = Vec::with_capacity(specs.len() + lanes as usize);
-    for spec in specs {
-        if spec.repeat != PortRepeat::PerRxStream {
-            out.push(spec);
-            continue;
-        }
-        for lane in 0..lanes {
-            out.push(PortSpec {
-                name: stream_port(&spec.name, lane),
-                repeat: PortRepeat::Once,
-                ..spec.clone()
-            });
-        }
-    }
-    out
-}
-
-/// An array draws one input more than it has radios, so the next one has somewhere to go, and one
-/// output per radio it already has.
-fn spread_array(specs: Vec<PortSpec>, members: u32) -> Vec<PortSpec> {
-    let mut out = Vec::new();
-    for spec in specs {
-        if spec.repeat != PortRepeat::PerRxStream {
-            out.push(spec);
-            continue;
-        }
-        let lanes = match spec.direction {
-            PortDirection::In => members.saturating_add(1),
-            PortDirection::Out => members,
-        }
-        .min(MAX_STREAMS);
-        for lane in 0..lanes {
-            out.push(PortSpec {
-                name: stream_port(&spec.name, lane),
-                repeat: PortRepeat::Once,
-                ..spec.clone()
-            });
-        }
-    }
-    out
-}
-
 fn ports_for(kind: &str) -> Vec<PortSpec> {
     use PortCondition::{
         Always, ChannelHasAudio, ChannelHasVideo, ChannelIsDecoder, ChannelNeedsPosition,
@@ -851,12 +675,6 @@ fn ports_for(kind: &str) -> Vec<PortSpec> {
         ],
         "recording" => vec![PortSpec::new(Iq, Out, true, Always)],
         "signal_gen" => vec![PortSpec::new(Iq, Out, true, Always)],
-        "array" => vec![
-            PortSpec::new(Iq, In, false, Always)
-                .repeated(PortRepeat::PerRxStream)
-                .noted("one radio per input, in the order their antennas sit in the array"),
-            PortSpec::new(Iq, Out, true, Always).repeated(PortRepeat::PerRxStream),
-        ],
         "gps" => vec![PortSpec::new(Position, Out, true, Always)],
         "channel" => vec![
             PortSpec::new(Iq, In, true, Always)
@@ -933,33 +751,6 @@ fn ports_for(kind: &str) -> Vec<PortSpec> {
                 .noted("every direction finder whose bearings should be crossed together"),
             PortSpec::new(Events, Out, true, Always),
         ],
-        "df" => vec![
-            PortSpec::new(Iq, In, false, Always).repeated(PortRepeat::PerRxStream),
-            PortSpec::new(Position, In, false, Always),
-            PortSpec::new(Events, Out, true, Always),
-            PortSpec::named(DF_BEAM_PORT, Iq, Out, true, Always)
-                .noted("the array summed towards the bearing it found, as one more radio lane"),
-        ],
-        "combiner" => vec![
-            PortSpec::new(Iq, In, false, Always)
-                .repeated(PortRepeat::PerRxStream)
-                .noted("lane one is the antenna pointed at what you want"),
-            PortSpec::named(DF_BEAM_PORT, Iq, Out, true, Always)
-                .noted("the antennas added together, as one more radio lane"),
-        ],
-        "stitch" => vec![
-            PortSpec::new(Iq, In, false, Always).repeated(PortRepeat::PerRxStream),
-            PortSpec::named(STITCH_WIDE_PORT, Iq, Out, true, Always)
-                .noted("every lane joined into one wide stream, as one more radio lane"),
-        ],
-        "passive_radar" => vec![
-            PortSpec::named(RADAR_REFERENCE_PORT, Iq, In, false, Always)
-                .noted("the antenna pointed at the illuminator"),
-            PortSpec::named(RADAR_SURVEILLANCE_PORT, Iq, In, false, Always)
-                .noted("the antenna pointed at the sky the targets are in"),
-            PortSpec::new(Position, In, false, Always),
-            PortSpec::new(Events, Out, true, Always),
-        ],
         _ => Vec::new(),
     }
 }
@@ -1011,11 +802,6 @@ impl PatchCatalog {
                     &NodeBody::SignalGen(SignalGenNode::default()),
                     "Signal generator",
                     "Test signals without a radio",
-                ),
-                entry(
-                    &NodeBody::Array(ArrayNode::default()),
-                    "Array",
-                    "Several radios as one coherent array",
                 ),
                 entry(
                     &NodeBody::Gps(GpsNode::default()),
@@ -1127,27 +913,7 @@ impl PatchCatalog {
                     "Predicts passes and follows Doppler",
                 ),
                 entry(
-                    &NodeBody::Df(DfNode::default()),
-                    "Direction finder",
-                    "Bearing to a transmitter",
-                ),
-                entry(
-                    &NodeBody::PassiveRadar(PassiveRadarNode::default()),
-                    "Passive radar",
-                    "Finds aircraft in broadcast reflections",
-                ),
-                entry(
-                    &NodeBody::Combiner(CombinerNode::default()),
-                    "Combiner",
-                    "Adds antennas together",
-                ),
-                entry(
-                    &NodeBody::Stitch(StitchNode::default()),
-                    "Stitch",
-                    "Joins lanes into one wide stream",
-                ),
-                entry(
-                    &NodeBody::Triangulation,
+                    &NodeBody::Triangulation(TriangulationNode::default()),
                     "Triangulation",
                     "Crosses bearings into a position",
                 ),
@@ -1330,39 +1096,6 @@ impl PatchGraph {
             .collect()
     }
 
-    /// The radios wired into an array, in the order of the ports they arrive on, which is the
-    /// order their lanes are numbered.
-    #[must_use]
-    pub fn array_members(&self, node: &str) -> Vec<&str> {
-        let Some(PatchNode {
-            body: NodeBody::Array(array),
-            ..
-        }) = self.node(node)
-        else {
-            return Vec::new();
-        };
-        (0..array.members.saturating_add(1))
-            .filter_map(|element| {
-                let port = stream_port("iq", element);
-                self.edges
-                    .iter()
-                    .find(|edge| edge.to.node == node && edge.to.port == port)
-                    .map(|edge| edge.from.node.as_str())
-            })
-            .collect()
-    }
-
-    /// The array a radio belongs to, if one has taken it. A radio in an array is tuned by the
-    /// array and opened by it, so nothing else may claim it at the same time.
-    #[must_use]
-    pub fn array_holding(&self, device_node: &str) -> Option<&str> {
-        self.nodes
-            .iter()
-            .filter(|node| matches!(node.body, NodeBody::Array(_)))
-            .find(|array| self.array_members(&array.id).contains(&device_node))
-            .map(|array| array.id.as_str())
-    }
-
     #[must_use]
     pub fn lanes_of(&self, channel_node: &str) -> Vec<(&str, u32)> {
         self.edges
@@ -1528,13 +1261,7 @@ impl PatchGraph {
                 NodeBody::EventOutput(settings) if !settings.target.valid() => {
                     return Err(PatchError::NodeSettings(node.id.clone()));
                 }
-                NodeBody::Df(df) if !df.settings.valid() => {
-                    return Err(PatchError::NodeSettings(node.id.clone()));
-                }
                 NodeBody::Satellite(satellite) if !satellite.valid() => {
-                    return Err(PatchError::NodeSettings(node.id.clone()));
-                }
-                NodeBody::PassiveRadar(radar) if !radar.settings.valid() => {
                     return Err(PatchError::NodeSettings(node.id.clone()));
                 }
                 _ => {}

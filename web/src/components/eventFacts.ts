@@ -283,15 +283,6 @@ export function eventSummary(event: DecoderEvent): string {
         `${fix.samples} bearings`,
       ]);
     }
-    case "radar": {
-      const hit = event.data;
-      return join([
-        `range bin ${hit.range_bin}`,
-        `${hit.range_km.toFixed(1)} km`,
-        `${hit.doppler_hz >= 0 ? "+" : ""}${hit.doppler_hz.toFixed(1)} Hz`,
-        `${hit.snr_db.toFixed(1)} dB`,
-      ]);
-    }
     case "ils": {
       const reading = event.data;
       return join([
@@ -364,7 +355,6 @@ export function eventStation(event: DecoderEvent): string | null {
     case "df":
       return event.data.station_id ?? null;
     case "df_fix":
-    case "radar":
       return null;
     case "dsc":
     case "inmarsat_stdc":

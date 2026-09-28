@@ -260,38 +260,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/coherent/{node}/calibrate": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post: operations["calibrate_coherent"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/coherent/{node}/fusion": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: operations["get_fusion"];
-        put?: never;
-        post?: never;
-        delete: operations["reset_fusion"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/cps/codeplugs": {
         parameters: {
             query?: never;
@@ -799,6 +767,22 @@ export interface paths {
         put?: never;
         post?: never;
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/fusion/{node}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_fusion"];
+        put?: never;
+        post?: never;
+        delete: operations["reset_fusion"];
         options?: never;
         head?: never;
         patch?: never;
@@ -1600,52 +1584,6 @@ export interface components {
         };
         /** @enum {string} */
         ArgumentType: "bool" | "float" | "int" | "string";
-        ArrayElement: {
-            /** Format: double */
-            x_m: number;
-            /** Format: double */
-            y_m: number;
-        };
-        /** @description Where the elements are, in the terms an operator can measure with a tape. */
-        ArrayGeometry: {
-            /** Format: int32 */
-            count: number;
-            /** @enum {string} */
-            kind: "uca";
-            /** Format: double */
-            radius_m: number;
-        } | {
-            /** Format: int32 */
-            count: number;
-            /** @enum {string} */
-            kind: "ula";
-            /** Format: double */
-            spacing_m: number;
-        } | {
-            /** @enum {string} */
-            kind: "explicit";
-            positions: components["schemas"]["ArrayElement"][];
-        };
-        /**
-         * @description A bank of separate radios the operator has wired to one clock, standing on the canvas as the
-         *     one radio they add up to.
-         *
-         *     Nothing here is discovered: which radios belong together, and whether their clock alone is
-         *     shared or their synthesizer too, is a fact about the bench that only the operator knows.
-         */
-        ArrayNode: {
-            /** @default time_sync */
-            coherence: components["schemas"]["Coherence"];
-            /**
-             * Format: int32
-             * @description How many radios are wired in. The node always draws one more input than that, so there is
-             *     somewhere to put the next one.
-             * @default 0
-             */
-            members: number;
-            /** @default true */
-            shared_tuning: boolean;
-        };
         Attribution: {
             license: string;
             name: string;
@@ -1898,47 +1836,6 @@ export interface components {
         };
         /** @enum {string} */
         BroadcastSystem: "dab" | "dab_plus" | "dvb_s" | "dvb_s2" | "dvb_t" | "dvb_t2" | "drm30" | "drm_plus";
-        CalParams: {
-            /**
-             * Format: double
-             * @description The width around the tuned centre the solve looks at.
-             * @default 200000
-             */
-            bandwidth_hz: number;
-            /**
-             * Format: double
-             * @description A continuous carrier that lets a time-synced array re-solve phase after every retune.
-             *     Without one such an array reports `phase_unknown` and refuses to guess a bearing.
-             * @default null
-             */
-            pilot_hz: number | null;
-            /** @default signal */
-            source: components["schemas"]["CalSource"];
-            /**
-             * @description Whether the solution keeps being refined once it is good, rather than being frozen.
-             * @default true
-             */
-            track: boolean;
-        };
-        /** @enum {string} */
-        CalSource: "signal" | "noise";
-        /** @description What the calibration currently knows, published whether or not it is good news. */
-        CalState: {
-            lanes: components["schemas"]["LaneCal"][];
-            /**
-             * @description Set when inter-lane phase cannot be trusted: a time-synced array with no pilot to
-             *     re-solve against. Everything that depends on phase stays off while it is set.
-             */
-            phase_unknown: boolean;
-            /**
-             * @description Set while the radio's own reference is switched into the lanes. The array is looking at
-             *     itself rather than at the air, so nothing it reads in that moment is a report about the
-             *     world and none is published.
-             */
-            reference_on?: boolean;
-            solved: boolean;
-            tier: components["schemas"]["Coherence"];
-        };
         Capabilities: {
             agc?: components["schemas"]["Agc"];
             antennas: string[];
@@ -2008,45 +1905,6 @@ export interface components {
             catalog: string;
             name: string;
             tle: string;
-        };
-        CfarParams: {
-            /**
-             * Format: int32
-             * @default 1
-             */
-            guard_doppler: number;
-            /**
-             * Format: int32
-             * @default 2
-             */
-            guard_range: number;
-            /**
-             * Format: float
-             * @default 6
-             */
-            min_snr_db: number;
-            /**
-             * Format: float
-             * @default 0.00009999999747378752
-             */
-            probability_false_alarm: number;
-            /**
-             * Format: int32
-             * @default 4
-             */
-            train_doppler: number;
-            /**
-             * Format: int32
-             * @default 8
-             */
-            train_range: number;
-            /**
-             * Format: int32
-             * @description Doppler rows either side of zero that are never reported: the direct path and the ground
-             *     live there, and neither is a target.
-             * @default 1
-             */
-            zero_doppler_guard: number;
         };
         Channel: components["schemas"]["ChannelMode"] & {
             name: string;
@@ -2521,49 +2379,6 @@ export interface components {
          */
         Coherence: "none" | "time_sync" | "phase_coherent";
         /** @enum {string} */
-        CombineMode: "diversity" | "cancel";
-        /** @description A bank of antennas added into one signal: either to hear better, or to stop hearing something. */
-        CombinerNode: {
-            settings?: components["schemas"]["CombinerParams"];
-        };
-        CombinerParams: {
-            /**
-             * Format: double
-             * @default 200000
-             */
-            bandwidth_hz: number;
-            /**
-             * @default {
-             *       "bandwidth_hz": 200000,
-             *       "pilot_hz": null,
-             *       "source": "signal",
-             *       "track": true
-             *     }
-             */
-            cal: components["schemas"]["CalParams"];
-            /**
-             * Format: int32
-             * @description How many antennas are wired in. Lane zero is the one pointed at what you want.
-             * @default 2
-             */
-            lanes: number;
-            /** @default diversity */
-            mode: components["schemas"]["CombineMode"];
-            /**
-             * Format: double
-             * @description Where in the tuned span the signal of interest sits, and how much of it to take.
-             * @default 0
-             */
-            offset_hz: number;
-            /**
-             * Format: int32
-             * @description How often the weights are solved again. A scene that changes wants this short; one that
-             *     does not wants it long, because every solve is an estimate off a finite window.
-             * @default 500
-             */
-            update_ms: number;
-        };
-        /** @enum {string} */
         ComponentSource: "rust" | "web" | "native";
         Contact: {
             kind?: components["schemas"]["ContactKind"];
@@ -3016,10 +2831,6 @@ export interface components {
             /** @enum {string} */
             kind: "df_fix";
         } | {
-            data: components["schemas"]["RadarDetection"];
-            /** @enum {string} */
-            kind: "radar";
-        } | {
             data: components["schemas"]["DectFrame"];
             /** @enum {string} */
             kind: "dect";
@@ -3189,7 +3000,6 @@ export interface components {
             clipping?: number[];
             device: components["schemas"]["DeviceInfo"];
             error?: string | null;
-            extra_lane?: null | components["schemas"]["ExtraLane"];
             fault?: null | components["schemas"]["DeviceFault"];
             /** @description One hunt per decoder that is being hunted. */
             hunts?: components["schemas"]["HuntStatus"][];
@@ -3231,13 +3041,6 @@ export interface components {
         DevicesResponse: {
             devices: components["schemas"]["DeviceInfo"][];
         };
-        /** @enum {string} */
-        DfAlgorithm: "correlative" | "music";
-        /**
-         * @description One bearing as an event, so it reaches the map, the log and every event output the same way a
-         *     decoded packet does, and so a remote station's webhook can post one straight into a
-         *     central fusion grid.
-         */
         DfBearing: {
             /** Format: float */
             bearing_deg: number;
@@ -3249,7 +3052,6 @@ export interface components {
             lon?: number | null;
             station_id?: string | null;
         };
-        /** @description Where the fusion grid says the transmitter is, and how sure of itself it is. */
         DfEstimate: {
             converged: boolean;
             /** Format: double */
@@ -3279,77 +3081,6 @@ export interface components {
             heading_deg: number;
             mode: components["schemas"]["GuidanceMode"];
             nav_target: components["schemas"]["NavTarget"];
-        };
-        /** @description A direction finder bound to every lane of one coherent radio. */
-        DfNode: {
-            settings?: components["schemas"]["DfParams"];
-        };
-        DfParams: {
-            /** @default correlative */
-            algorithm: components["schemas"]["DfAlgorithm"];
-            /**
-             * Format: double
-             * @default 20000
-             */
-            bandwidth_hz: number;
-            /**
-             * Format: double
-             * @description Where to point the summed beam. Unset follows whatever bearing the array found, which is
-             *     the whole point of having both on one node.
-             * @default null
-             */
-            beam_bearing_deg: number | null;
-            /**
-             * @default {
-             *       "bandwidth_hz": 200000,
-             *       "pilot_hz": null,
-             *       "source": "signal",
-             *       "track": true
-             *     }
-             */
-            cal: components["schemas"]["CalParams"];
-            /**
-             * @default {
-             *       "count": 4,
-             *       "kind": "uca",
-             *       "radius_m": 0.35
-             *     }
-             */
-            geometry: components["schemas"]["ArrayGeometry"];
-            /**
-             * Format: double
-             * @description Where in the tuned span the signal of interest sits, and how much of it to take.
-             * @default 0
-             */
-            offset_hz: number;
-            /**
-             * Format: int32
-             * @default 500
-             */
-            report_ms: number;
-            /**
-             * Format: int32
-             * @description How many arrivals MUSIC should assume. One is right far more often than not.
-             * @default 1
-             */
-            sources: number;
-            /**
-             * @description What this receiver is called where its bearings are crossed with other receivers'. Unset
-             *     falls back to the node's own name.
-             * @default null
-             */
-            station_id: string | null;
-        };
-        /** @description One bearing, and the whole circle it was read off. */
-        DfReading: {
-            /** Format: float */
-            bearing_deg: number;
-            /** Format: float */
-            confidence: number;
-            /** Format: float */
-            peak_to_floor_db: number;
-            /** @description One byte per degree, full scale at the peak. */
-            pseudospectrum: number[];
         };
         DfStation: {
             /** Format: int32 */
@@ -3565,28 +3296,6 @@ export interface components {
         };
         /** @enum {string} */
         DvTrunkProtocol: "capacity_plus" | "hytera_xpt" | "tier_three";
-        EcaParams: {
-            /**
-             * Format: int32
-             * @default 16384
-             */
-            batch_samples: number;
-            /**
-             * Format: int32
-             * @default 32
-             */
-            delay_taps: number;
-            /**
-             * Format: int32
-             * @default 0
-             */
-            doppler_bins: number;
-            /**
-             * Format: float
-             * @default 0.00009999999747378752
-             */
-            loading: number;
-        };
         ErmesMessage: {
             /** Format: int32 */
             alert: number;
@@ -3694,14 +3403,6 @@ export interface components {
         };
         /** @enum {string} */
         ExportFormat: "csv" | "json";
-        ExtraLane: {
-            /** Format: double */
-            center_hz: number;
-            /** Format: double */
-            sample_rate: number;
-            /** Format: int32 */
-            stream: number;
-        };
         ExtraSetting: {
             default: boolean;
             /** @enum {string} */
@@ -3978,15 +3679,6 @@ export interface components {
             /** Format: double */
             symbol_rate_hz?: number | null;
         };
-        /** @description The transmitter being borrowed, so a bistatic range can be drawn on a map. */
-        Illuminator: {
-            /** Format: double */
-            freq_hz: number;
-            /** Format: double */
-            lat: number;
-            /** Format: double */
-            lon: number;
-        };
         /** @enum {string} */
         IlsComponent: "localizer" | "glideslope";
         IlsParams: {
@@ -4050,19 +3742,6 @@ export interface components {
         IssueSeverity: "note" | "adjusted" | "dropped";
         /** @enum {string} */
         ItuRegion: "r1" | "r2" | "r3";
-        LaneCal: {
-            /** Format: float */
-            delay_samples: number;
-            /** Format: float */
-            gain_db: number;
-            /** Format: float */
-            phase_deg: number;
-            /**
-             * Format: float
-             * @description Magnitude-squared coherence against lane zero, in `0..=1`.
-             */
-            quality: number;
-        };
         LicenseTextResponse: {
             id: string;
             text: string;
@@ -4366,10 +4045,6 @@ export interface components {
             /** @enum {string} */
             kind: "signal_gen";
         } | {
-            data: components["schemas"]["ArrayNode"];
-            /** @enum {string} */
-            kind: "array";
-        } | {
             data: components["schemas"]["GpsNode"];
             /** @enum {string} */
             kind: "gps";
@@ -4461,22 +4136,7 @@ export interface components {
             /** @enum {string} */
             kind: "satellite";
         } | {
-            data: components["schemas"]["DfNode"];
-            /** @enum {string} */
-            kind: "df";
-        } | {
-            data: components["schemas"]["PassiveRadarNode"];
-            /** @enum {string} */
-            kind: "passive_radar";
-        } | {
-            data: components["schemas"]["CombinerNode"];
-            /** @enum {string} */
-            kind: "combiner";
-        } | {
-            data: components["schemas"]["StitchNode"];
-            /** @enum {string} */
-            kind: "stitch";
-        } | {
+            data: components["schemas"]["TriangulationNode"];
             /** @enum {string} */
             kind: "triangulation";
         };
@@ -4534,50 +4194,6 @@ export interface components {
             name: string;
             /** Format: double */
             step?: number | null;
-        };
-        /** @description A passive radar: one lane watching the illuminator, one watching the sky. */
-        PassiveRadarNode: {
-            settings?: components["schemas"]["PassiveRadarParams"];
-        };
-        PassiveRadarParams: {
-            /**
-             * @default {
-             *       "guard_doppler": 1,
-             *       "guard_range": 2,
-             *       "min_snr_db": 6,
-             *       "probability_false_alarm": 0.00009999999747378752,
-             *       "train_doppler": 4,
-             *       "train_range": 8,
-             *       "zero_doppler_guard": 1
-             *     }
-             */
-            cfar: components["schemas"]["CfarParams"];
-            /**
-             * Format: int32
-             * @default 200
-             */
-            cpi_ms: number;
-            /**
-             * Format: double
-             * @default 200
-             */
-            doppler_span_hz: number;
-            /**
-             * @default {
-             *       "batch_samples": 16384,
-             *       "delay_taps": 32,
-             *       "doppler_bins": 0,
-             *       "loading": 0.00009999999747378752
-             *     }
-             */
-            eca: components["schemas"]["EcaParams"];
-            /** @default null */
-            illuminator: null | components["schemas"]["Illuminator"];
-            /**
-             * Format: int32
-             * @default 256
-             */
-            max_range_bins: number;
         };
         PatchApplyReport: {
             absent?: string[];
@@ -4817,25 +4433,6 @@ export interface components {
         };
         RackSlot: components["schemas"]["RackCell"] & {
             node: string;
-        };
-        RadarDetection: {
-            /** Format: float */
-            doppler_hz: number;
-            /** Format: int32 */
-            range_bin: number;
-            /**
-             * Format: float
-             * @description Bistatic range in kilometres: how much further the echo travelled than the direct path.
-             */
-            range_km: number;
-            /** Format: float */
-            snr_db: number;
-            /**
-             * Format: int32
-             * @description Which target this echo belongs to, once it has been seen often enough to be one. An echo
-             *     with no track is a single look the tracker has not made up its mind about.
-             */
-            track_id?: number | null;
         };
         RadioClockFrame: {
             datetime: string;
@@ -5367,30 +4964,11 @@ export interface components {
             type: "SurfaceStreamStarted";
         } | {
             data: {
-                cal: components["schemas"]["CalState"];
-                /** Format: int32 */
-                device_set: number;
-                node: string;
-                reading: components["schemas"]["DfReading"];
-            };
-            /** @enum {string} */
-            type: "DfUpdate";
-        } | {
-            data: {
                 node: string;
                 state: components["schemas"]["DfFusionState"];
             };
             /** @enum {string} */
             type: "DfFusionUpdate";
-        } | {
-            data: {
-                detections: components["schemas"]["RadarDetection"][];
-                /** Format: int32 */
-                device_set: number;
-                node: string;
-            };
-            /** @enum {string} */
-            type: "RadarDetections";
         } | {
             data: {
                 message: string;
@@ -5521,20 +5099,6 @@ export interface components {
             /** Format: int64 */
             revision: number;
             trunk_systems?: components["schemas"]["TrunkSystemStatus"][];
-        };
-        /** @enum {string} */
-        StitchMode: "auto" | "manual";
-        StitchNode: {
-            settings?: components["schemas"]["StitchParams"];
-        };
-        StitchParams: {
-            /**
-             * Format: int32
-             * @default 2
-             */
-            lanes: number;
-            /** @default auto */
-            mode: components["schemas"]["StitchMode"];
         };
         /** @enum {string} */
         StreamKind: "spectrum" | "audio" | "video" | "iq" | "symbols" | "range_doppler";
@@ -5697,6 +5261,7 @@ export interface components {
             source: string;
             transmitters: components["schemas"]["Transmitter"][];
         };
+        TriangulationNode: Record<string, never>;
         TrunkChannel: {
             /** Format: int32 */
             confidence: number;
@@ -6493,98 +6058,6 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["ClientsResponse"];
                 };
-            };
-        };
-    };
-    calibrate_coherent: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description Patch node id of the coherent processor */
-                node: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The calibration will be solved again from scratch */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description The radio cannot calibrate */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiError"];
-                };
-            };
-            /** @description No coherent node of that name is running */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiError"];
-                };
-            };
-        };
-    };
-    get_fusion: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description Patch node id of the direction finder */
-                node: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Where the bearings so far say the transmitter is */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["DfFusionState"];
-                };
-            };
-            /** @description Nothing has been fused for that node */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiError"];
-                };
-            };
-        };
-    };
-    reset_fusion: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description Patch node id of the direction finder */
-                node: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The grid is empty again */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
             };
         };
     };
@@ -8115,6 +7588,59 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["DoctorReport"];
                 };
+            };
+        };
+    };
+    get_fusion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Triangulation node id */
+                node: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Where the bearings so far say the transmitter is */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DfFusionState"];
+                };
+            };
+            /** @description Nothing has been fused for that node */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    reset_fusion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Triangulation node id */
+                node: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The grid is empty again */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

@@ -668,17 +668,9 @@ export function toolRunQuery(request: ToolRequest | null) {
   });
 }
 
-export async function calibrateCoherent(node: string): Promise<void> {
-  unwrap(
-    await client.POST("/api/coherent/{node}/calibrate", {
-      params: { path: { node } },
-    }),
-  );
-}
-
 export async function fusionState(node: string): Promise<DfFusionState> {
   return unwrap(
-    await client.GET("/api/coherent/{node}/fusion", {
+    await client.GET("/api/fusion/{node}", {
       params: { path: { node } },
     }),
   );
@@ -686,7 +678,7 @@ export async function fusionState(node: string): Promise<DfFusionState> {
 
 export async function resetFusion(node: string): Promise<void> {
   unwrap(
-    await client.DELETE("/api/coherent/{node}/fusion", {
+    await client.DELETE("/api/fusion/{node}", {
       params: { path: { node } },
     }),
   );

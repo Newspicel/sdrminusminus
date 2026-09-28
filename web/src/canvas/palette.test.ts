@@ -12,16 +12,14 @@ import {
 const CATALOG: PatchCatalog = {
   nodes: [
     { kind: "device", name: "Device", summary: "A radio", category: "source", ports: [] },
-    { kind: "array", name: "Array", category: "tool", ports: [] },
     { kind: "gps", name: "GPS position", category: "source", ports: [] },
     { kind: "channel", name: "Channel", category: "channel", ports: [], needs_channel_type: true },
     { kind: "scope", name: "Scope", category: "output", ports: [] },
     { kind: "speaker", name: "Speaker", category: "output", ports: [] },
     { kind: "event_output", name: "Event output", category: "output", ports: [] },
     { kind: "scanner", name: "Scanner", category: "tool", ports: [] },
-    { kind: "df", name: "Direction finder", category: "tool", ports: [] },
-    { kind: "passive_radar", name: "Passive radar", category: "tool", ports: [] },
-    { kind: "combiner", name: "Combiner", category: "tool", ports: [] },
+    { kind: "hunt", name: "Signal hunt", category: "tool", ports: [] },
+    { kind: "triangulation", name: "Triangulation", category: "tool", ports: [] },
   ],
 };
 
@@ -66,13 +64,7 @@ describe("paletteGroups", () => {
         type: TYPES[0],
       },
     ]);
-    expect(groups[3]?.items.map((item) => item.id)).toEqual([
-      "array",
-      "scanner",
-      "df",
-      "passive_radar",
-      "combiner",
-    ]);
+    expect(groups[3]?.items.map((item) => item.id)).toEqual(["scanner", "hunt", "triangulation"]);
     expect(groups[4]?.items.map((item) => item.id)).toContain("event_output");
     expect(groups[0]?.items.map((item) => item.id)).toEqual(["device", "gps"]);
   });

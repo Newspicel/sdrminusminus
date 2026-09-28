@@ -26,13 +26,7 @@ import { monitorKey } from "../../lib/audio/monitor";
 import { useChannelAudio } from "../../lib/audio/useChannelAudio";
 import { SAMPLE_RATE as AUDIO_RATE_HZ } from "../../lib/audio/worklet";
 import { useDfStore } from "../../lib/df";
-import {
-  crossingSourcesOf,
-  dfOverlay,
-  dfSourcesOf,
-  type RadarSource,
-  radarSourcesOf,
-} from "../../lib/dfOverlay";
+import { crossingSourcesOf, dfOverlay } from "../../lib/dfOverlay";
 import { type MapKind, mapKindsOf } from "../../lib/map/layers";
 import { positionSourcesOf, usePositionStore } from "../../lib/position";
 import type {
@@ -42,7 +36,6 @@ import type {
   RecordingStatus,
   VoiceCall,
 } from "../../lib/types";
-import { useNow } from "../../lib/useNow";
 import { eventSourcesOf, type Input, inputsOf, wiredSourcesOf } from "../binding";
 import { useWorkspaceContext } from "../context";
 import { patchNode } from "../graph";
@@ -222,48 +215,32 @@ export function MapFace({ node }: { node: PatchNode }) {
   const wired = useWiredKinds(node.id);
   const kinds = mapKindsOf(wired);
   const positions = positionSourcesOf(workspace.graph, node.id);
-  const finders = dfSourcesOf(workspace.graph, node.id);
   const crossings = crossingSourcesOf(workspace.graph, node.id);
-  const radars = radarSourcesOf(workspace.graph, node.id);
   return (
     <NodeShell node={node} title="Map" category="output">
       <FaceBody scroll={false}>
-        <Plot
-          kinds={kinds}
-          positionNodes={positions}
-          finders={finders}
-          crossings={crossings}
-          radars={radars}
-        />
+        <Plot kinds={kinds} positionNodes={positions} crossings={crossings} />
       </FaceBody>
     </NodeShell>
   );
 }
 
-const OVERLAY_TICK_MS = 1_000;
-
 function Plot({
   kinds,
   positionNodes,
-  finders,
   crossings,
-  radars,
 }: {
   kinds: readonly MapKind[];
   positionNodes: readonly string[];
-  finders: readonly string[];
   crossings: readonly string[];
-  radars: readonly RadarSource[];
 }) {
   const byNode = useDfStore((store) => store.byNode);
-  const now = useNow(OVERLAY_TICK_MS);
   const here = usePositionStore((store) =>
     positionNodes.length === 0 ? undefined : store.sources[positionNodes[0] ?? ""]?.fix,
   );
   const df = dfOverlay(
-    { finders, crossings, radars },
+    crossings,
     byNode,
-    now,
     here === undefined || here === null ? null : { lat: here.latitude, lon: here.longitude },
   );
   return (

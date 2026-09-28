@@ -47,7 +47,6 @@ pub(crate) struct Radio {
     pub capabilities: Capabilities,
     pub settings: DeviceSettings,
     pub tunes_freely: bool,
-    pub group: Vec<u32>,
     pub fixed: Vec<ChannelInfo>,
 }
 
@@ -59,7 +58,7 @@ impl Radio {
     fn settled(&self, carried: &[ChannelInfo]) -> DeviceSettings {
         let mut settings = self.settings.clone();
         if self.tunes_freely
-            && let Some(delta) = plan_center(&self.capabilities, &settings, carried, &self.group)
+            && let Some(delta) = plan_center(&self.capabilities, &settings, carried)
         {
             settings.merge_from(&delta);
         }
@@ -90,12 +89,6 @@ impl Engine {
         let nodes: HashSet<&str> = decoders.iter().map(|d| d.node.as_str()).collect();
         let radios: Vec<Radio> = {
             let inner = self.lock();
-            let arrayed: HashSet<u32> = inner
-                .device_sets
-                .values()
-                .filter_map(|state| state.array.as_ref())
-                .flat_map(|array| array.member_sets())
-                .collect();
             inner
                 .device_sets
                 .iter()
@@ -103,8 +96,7 @@ impl Engine {
                     device_set: *id,
                     capabilities: state.capabilities.clone(),
                     settings: state.settings.clone(),
-                    tunes_freely: state.tunes_freely() && !arrayed.contains(id),
-                    group: state.coherent_lanes(),
+                    tunes_freely: state.tunes_freely(),
                     fixed: state
                         .channels
                         .iter()

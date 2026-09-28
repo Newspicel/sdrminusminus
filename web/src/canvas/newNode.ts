@@ -1,9 +1,5 @@
 import { DEFAULT_HISTORY_SECONDS } from "../components/timeMachine";
 import type { NodeBody, NodeKind } from "../lib/types";
-import { DEFAULT_COMBINER_PARAMS } from "./nodes/combiner";
-import { DEFAULT_DF_PARAMS } from "./nodes/df";
-import { DEFAULT_RADAR_PARAMS } from "./nodes/radar";
-import { DEFAULT_STITCH_PARAMS } from "./nodes/stitch";
 
 export interface NewNodeSeed {
   channelType?: string;
@@ -19,7 +15,6 @@ const WITHOUT_DATA = new Set<NodeKind>([
   "video",
   "export",
   "scanner",
-  "triangulation",
 ]);
 
 export function newNodeBody(kind: NodeKind, seed: NewNodeSeed = {}): NodeBody {
@@ -32,8 +27,6 @@ export function newNodeBody(kind: NodeKind, seed: NewNodeSeed = {}): NodeBody {
       return { kind, data: {} };
     case "signal_gen":
       return { kind, data: { running: true } };
-    case "array":
-      return { kind, data: { members: 0, coherence: "time_sync", shared_tuning: true } };
     case "gps":
       return { kind, data: {} };
     case "signal_map":
@@ -80,14 +73,8 @@ export function newNodeBody(kind: NodeKind, seed: NewNodeSeed = {}): NodeBody {
       return { kind, data: { history_seconds: DEFAULT_HISTORY_SECONDS } };
     case "event_output":
       return { kind, data: { target: { service: "webhook", url: "", format: "json" } } };
-    case "df":
-      return { kind, data: { settings: DEFAULT_DF_PARAMS } };
-    case "passive_radar":
-      return { kind, data: { settings: DEFAULT_RADAR_PARAMS } };
-    case "combiner":
-      return { kind, data: { settings: DEFAULT_COMBINER_PARAMS } };
-    case "stitch":
-      return { kind, data: { settings: DEFAULT_STITCH_PARAMS } };
+    case "triangulation":
+      return { kind, data: {} };
     default:
       return { kind };
   }

@@ -5,7 +5,6 @@ use rtrb::{Consumer, Producer, RingBuffer};
 use crate::metrics::QueueMetrics;
 
 pub(crate) mod channel;
-pub(crate) mod coherent;
 pub(crate) mod recording;
 pub(crate) mod spectrum;
 

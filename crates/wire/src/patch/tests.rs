@@ -745,18 +745,7 @@ fn the_only_type_level_cycles_are_the_guarded_transforms() {
         .filter(|&kind| reachable[kind][kind])
         .map(|kind| catalog.nodes[kind].kind.as_str())
         .collect();
-    assert_eq!(
-        cycle,
-        vec![
-            "array",
-            "event_filter",
-            "audio_fx",
-            "df",
-            "combiner",
-            "stitch",
-            "triangulation"
-        ]
-    );
+    assert_eq!(cycle, vec!["event_filter", "audio_fx", "triangulation"]);
 }
 
 #[test]
@@ -788,7 +777,6 @@ fn default_body(kind: &str) -> NodeBody {
         "device" => NodeBody::Device(DeviceNode::default()),
         "recording" => NodeBody::Recording(RecordingNode::default()),
         "signal_gen" => NodeBody::SignalGen(SignalGenNode::default()),
-        "array" => NodeBody::Array(ArrayNode::default()),
         "gps" => NodeBody::Gps(GpsNode::default()),
         "channel" => NodeBody::Channel(ChannelNode {
             channel_type: "nfm".to_owned(),
@@ -818,11 +806,7 @@ fn default_body(kind: &str) -> NodeBody {
         "scanner" => NodeBody::Scanner,
         "hunt" => NodeBody::Hunt(HuntNode::default()),
         "satellite" => NodeBody::Satellite(crate::SatelliteNode::default()),
-        "df" => NodeBody::Df(DfNode::default()),
-        "passive_radar" => NodeBody::PassiveRadar(PassiveRadarNode::default()),
-        "combiner" => NodeBody::Combiner(CombinerNode::default()),
-        "stitch" => NodeBody::Stitch(crate::StitchNode::default()),
-        "triangulation" => NodeBody::Triangulation,
+        "triangulation" => NodeBody::Triangulation(TriangulationNode::default()),
         other => panic!("the palette offers {other}, which this test does not build"),
     }
 }
@@ -1128,27 +1112,6 @@ fn a_channel_takes_every_radio_that_may_carry_it() {
         .map(|device| device.id.as_str())
         .collect();
     assert_eq!(on_both, vec!["dev", "dev2"]);
-}
-
-#[test]
-fn lanes_come_only_from_nodes_that_open_a_radio() {
-    let mut graph = workspace();
-    graph
-        .nodes
-        .push(node("df", NodeBody::Df(DfNode::default())));
-    graph.edges.push(edge(("df", DF_BEAM_PORT), ("ch", "iq")));
-    assert_eq!(
-        graph.validate(),
-        Err(PatchError::PortOccupied(PortRef {
-            node: "ch".to_owned(),
-            port: "iq".to_owned(),
-        }))
-    );
-    graph
-        .edges
-        .retain(|edge| edge.from.node != "dev" || edge.to.node != "ch");
-    graph.validate().expect("a beam feeds a channel alone");
-    assert!(graph.lanes_of("ch").is_empty());
 }
 
 #[test]
@@ -1762,124 +1725,6 @@ fn default_params_come_from_the_type_id() {
     assert_eq!(ChannelSettings::default_for("wefax"), None);
 }
 
-#[test]
-fn an_array_node_describes_the_composite_it_draws() {
-    let node = ArrayNode {
-        members: 2,
-        coherence: crate::device::Coherence::TimeSync,
-        shared_tuning: true,
-    };
-    let members = vec!["rtlsdr:0001".to_owned(), "rtlsdr:0002".to_owned()];
-    let definition = node.definition("array:9f2c", Some("Roof pair"), members);
-    assert_eq!(definition.key, "array-9f2c");
-    assert_eq!(definition.id(), "array:array-9f2c");
-    assert_eq!(definition.label, "Roof pair");
-    assert!(definition.valid());
-
-    let body = NodeBody::Array(node);
-    assert_eq!(
-        body.device_ref("array:9f2c")
-            .and_then(|reference| reference.key),
-        Some("array-9f2c".to_owned()),
-        "an array opens itself as one radio"
-    );
-    assert!(
-        NodeBody::Array(ArrayNode::default())
-            .device_ref("array:9f2c")
-            .is_none(),
-        "an array with nothing wired in has no radio to open"
-    );
-}
-
-#[test]
-fn an_array_draws_one_more_input_than_it_has_radios() {
-    let ports = |members: u32| {
-        NodeBody::Array(ArrayNode {
-            members,
-            ..ArrayNode::default()
-        })
-        .ports()
-    };
-    let named = |members: u32, direction: PortDirection| {
-        ports(members)
-            .into_iter()
-            .filter(|port| port.direction == direction)
-            .map(|port| port.name)
-            .collect::<Vec<_>>()
-    };
-    assert_eq!(named(0, PortDirection::In), vec!["iq".to_owned()]);
-    assert!(named(0, PortDirection::Out).is_empty());
-    assert_eq!(
-        named(2, PortDirection::In),
-        vec!["iq".to_owned(), "iq2".to_owned(), "iq3".to_owned()]
-    );
-    assert_eq!(
-        named(2, PortDirection::Out),
-        vec!["iq".to_owned(), "iq2".to_owned()],
-        "one lane out per radio in"
-    );
-}
-
-#[test]
-fn the_wires_say_which_radios_are_in_an_array_and_in_what_order() {
-    let mut graph = PatchGraph {
-        nodes: vec![
-            node("one", NodeBody::Device(DeviceNode::default())),
-            node("two", NodeBody::Device(DeviceNode::default())),
-            node(
-                "bench",
-                NodeBody::Array(ArrayNode {
-                    members: 2,
-                    ..ArrayNode::default()
-                }),
-            ),
-        ],
-        edges: vec![
-            edge(("two", "iq"), ("bench", "iq2")),
-            edge(("one", "iq"), ("bench", "iq")),
-        ],
-    };
-    assert_eq!(graph.array_members("bench"), vec!["one", "two"]);
-    assert_eq!(graph.array_holding("two"), Some("bench"));
-    assert_eq!(graph.array_holding("bench"), None);
-
-    graph.edges.retain(|wire| wire.from.node != "one");
-    assert_eq!(
-        graph.array_members("bench"),
-        vec!["two"],
-        "a radio taken out leaves the rest where they were wired"
-    );
-    assert_eq!(graph.array_holding("one"), None);
-}
-
-#[test]
-fn an_array_with_one_radio_in_it_is_not_an_array() {
-    let alone = ArrayNode {
-        members: 1,
-        ..ArrayNode::default()
-    };
-    assert!(
-        !alone
-            .definition("array:9f2c", None, vec!["rtlsdr:0001".to_owned()])
-            .valid()
-    );
-    let apart = ArrayNode {
-        members: 2,
-        coherence: crate::device::Coherence::None,
-        shared_tuning: true,
-    };
-    assert!(
-        !apart
-            .definition(
-                "array:9f2c",
-                None,
-                vec!["rtlsdr:0001".to_owned(), "rtlsdr:0002".to_owned()]
-            )
-            .valid(),
-        "radios that share no clock are a bank of receivers, not an array"
-    );
-}
-
 fn recording(id: &str, stem: Option<&str>) -> PatchNode {
     node(
         id,
@@ -1948,13 +1793,12 @@ fn every_source_that_opens_a_radio_is_bound_like_one() {
             node("dev", NodeBody::Device(DeviceNode::default())),
             recording("rec", Some("take")),
             node("gen", NodeBody::SignalGen(SignalGenNode::default())),
-            node("arr", NodeBody::Array(ArrayNode::default())),
             node("scope", NodeBody::Scope),
         ],
         edges: Vec::new(),
     };
     let bound: Vec<&str> = graph.device_nodes().map(|node| node.id.as_str()).collect();
-    assert_eq!(bound, ["dev", "rec", "gen", "arr"]);
+    assert_eq!(bound, ["dev", "rec", "gen"]);
     assert!(!NodeBody::Scope.opens_device());
 }
 
@@ -2198,4 +2042,16 @@ fn a_device_node_releases_its_radio_when_it_forgets_or_swaps_it() {
     assert_eq!(holding(radio("b:1234")).released_radios(&before), ["dev"]);
     assert!(holding(radio("a:1234")).released_radios(&before).is_empty());
     assert!(before.released_radios(&workspace()).is_empty());
+}
+
+#[test]
+fn a_triangulation_body_round_trips_with_empty_data() {
+    let body = NodeBody::Triangulation(TriangulationNode::default());
+    let json = serde_json::to_value(&body).expect("serialize");
+    assert_eq!(
+        json,
+        serde_json::json!({ "kind": "triangulation", "data": {} })
+    );
+    let back: NodeBody = serde_json::from_value(json).expect("deserialize");
+    assert_eq!(back, body);
 }

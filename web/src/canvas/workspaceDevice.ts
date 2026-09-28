@@ -8,7 +8,7 @@ export function deviceSetOf(workspace: Workspace, node: string): DeviceSet | nul
 }
 
 export function laneOf(workspace: Workspace, node: string): IqLane | null {
-  const wired = iqSourceOf(workspace.graph, node, workspace.devices);
+  const wired = iqSourceOf(workspace.graph, node);
   const owner = workspace.owners.get(node);
   const channel = workspace.channels.get(node);
   if (owner !== undefined && channel !== undefined) {

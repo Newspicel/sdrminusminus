@@ -24,7 +24,7 @@ export async function closeEngineObjects(
 ): Promise<void> {
   for (const id of ids) {
     const node = nodeOf(workspace.graph, id);
-    if (node !== undefined && opensDevice(node.kind) && node.kind !== "array") {
+    if (node !== undefined && opensDevice(node.kind)) {
       const set = workspace.devices.get(id);
       if (set !== undefined) {
         await deleteDeviceSet(set.id);

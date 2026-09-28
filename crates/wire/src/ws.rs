@@ -112,20 +112,9 @@ pub enum ServerEvent {
         device_set: u32,
         node: String,
     },
-    DfUpdate {
-        device_set: u32,
-        node: String,
-        reading: Box<crate::coherent::DfReading>,
-        cal: Box<crate::coherent::CalState>,
-    },
     DfFusionUpdate {
         node: String,
-        state: Box<crate::coherent::DfFusionState>,
-    },
-    RadarDetections {
-        device_set: u32,
-        node: String,
-        detections: Vec<crate::coherent::RadarDetection>,
+        state: Box<crate::fusion::DfFusionState>,
     },
     Error {
         message: String,

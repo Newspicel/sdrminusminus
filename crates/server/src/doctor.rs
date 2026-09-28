@@ -63,10 +63,7 @@ fn backends_check(registry: &sdrmm_device::DeviceRegistry) -> DoctorCheck {
         .filter(|id| {
             !matches!(
                 *id,
-                "virtual"
-                    | sdrmm_wire::ARRAY_DRIVER_ID
-                    | sdrmm_wire::RECORDING_DRIVER_ID
-                    | sdrmm_wire::SIGGEN_DRIVER_ID
+                "virtual" | sdrmm_wire::RECORDING_DRIVER_ID | sdrmm_wire::SIGGEN_DRIVER_ID
             )
         })
         .collect();

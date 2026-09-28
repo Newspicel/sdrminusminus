@@ -13,12 +13,11 @@ const AGE_TICK_MS = 1_000;
 
 export function TriangulationFace({ node }: { node: PatchNode }) {
   const workspace = useWorkspaceContext();
-  const state = useDfStore((store) => store.byNode[node.id]);
+  const fusion = useDfStore((store) => store.byNode[node.id]);
   const now = useNow(AGE_TICK_MS);
   if (node.kind !== "triangulation") {
     return null;
   }
-  const fusion = state?.fusion;
   const estimate = fusion?.estimate ?? null;
   const stations = fusion?.stations ?? [];
   const finders = (workspace.graph.edges ?? []).filter(

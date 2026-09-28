@@ -32,7 +32,6 @@ fn radio(device_set: u32, settings: DeviceSettings) -> Radio {
         capabilities: tuner_caps(),
         settings,
         tunes_freely: true,
-        group: Vec::new(),
         fixed: Vec::new(),
     }
 }
@@ -63,9 +62,7 @@ fn heard_by(radio: &Radio, carried: &[&Placeable], decoder: &Placeable) -> bool 
         })
         .collect();
     let mut settings = radio.settings.clone();
-    if let Some(delta) =
-        crate::planning::plan_center(&radio.capabilities, &settings, &channels, &[])
-    {
+    if let Some(delta) = crate::planning::plan_center(&radio.capabilities, &settings, &channels) {
         settings.merge_from(&delta);
     }
     crate::planning::hears(&radio.capabilities, &settings, 0, &decoder.settings)

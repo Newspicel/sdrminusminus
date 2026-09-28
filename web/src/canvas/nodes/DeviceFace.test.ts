@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { agcTip } from "../../components/AgcAuto";
-import type { Capabilities, DeviceSet, PatchGraph } from "../../lib/types";
+import type { Capabilities, DeviceSet } from "../../lib/types";
 import { mergeSettings } from "../../lib/useDevicePatch";
 import {
   agcDelta,
@@ -8,7 +8,6 @@ import {
   autoTuning,
   bondSaid,
   clippingSaid,
-  coherentLanes,
   faultSaid,
   hasLaneControls,
   hearing,
@@ -371,30 +370,6 @@ describe("lane AGC", () => {
     });
     expect(agcGainDb(set, 1)).toBe(28);
     expect(agcGainDb(set, 0)).toBeNull();
-  });
-});
-
-describe("coherentLanes", () => {
-  it("names the lanes a coherent node or an Array uses", () => {
-    const at = { x: 0, y: 0 };
-    const graph: PatchGraph = {
-      nodes: [
-        { id: "kraken", kind: "device", data: {}, position: at },
-        {
-          id: "bench",
-          kind: "array",
-          data: { members: 1, coherence: "time_sync", shared_tuning: true },
-          position: at,
-        },
-        { id: "fm", kind: "channel", data: {}, position: at },
-      ] as PatchGraph["nodes"],
-      edges: [
-        { from: { node: "kraken", port: "iq2" }, to: { node: "bench", port: "iq" } },
-        { from: { node: "kraken", port: "iq4" }, to: { node: "bench", port: "iq2" } },
-        { from: { node: "kraken", port: "iq" }, to: { node: "fm", port: "iq" } },
-      ],
-    };
-    expect([...coherentLanes(graph, "kraken")].toSorted((a, b) => a - b)).toEqual([1, 3]);
   });
 });
 

@@ -3,13 +3,10 @@ import type { ComponentType, CSSProperties } from "react";
 import type { NodeKind, PatchNode } from "../../lib/types";
 import type { FlowData } from "../Canvas";
 import { NODE_SIZE } from "../graph";
-import { ArrayFace } from "./ArrayFace";
 import { AudioFxFace } from "./AudioFxFace";
 import { BasebandScopeFace } from "./BasebandScopeFace";
 import { ChannelFace } from "./ChannelFace";
-import { CombinerFace } from "./CombinerFace";
 import { DeviceFace } from "./DeviceFace";
-import { DfFace } from "./DfFace";
 import { DmrTrunkFace } from "./DmrTrunkFace";
 import { EventFilterFace } from "./EventFilterFace";
 import { EventOutputFace } from "./EventOutputFace";
@@ -17,7 +14,6 @@ import { GpsFace } from "./GpsFace";
 import { NetworkExportFace } from "./NetworkExportFace";
 import { CanvasSurface } from "./NodeShell";
 import { PropagationFace } from "./PropagationFace";
-import { RangeDopplerFace } from "./RangeDopplerFace";
 import { RecordingFace } from "./RecordingFace";
 import { SatelliteFace } from "./SatelliteFace";
 import { ScopeFace } from "./ScopeFace";
@@ -37,7 +33,6 @@ import {
   VideoFace,
 } from "./SinkFaces";
 import { SpectrumMonitorFace } from "./SpectrumMonitorFace";
-import { StitchFace } from "./StitchFace";
 import { TimeMachineFace } from "./TimeMachineFace";
 import { TriangulationFace } from "./TriangulationFace";
 
@@ -57,7 +52,6 @@ export const NODE_TYPES: Record<NodeKind, ComponentType<NodeProps<Node<FlowData>
   device: mount(DeviceFace),
   recording: mount(RecordingFace),
   signal_gen: mount(SignalGenFace),
-  array: mount(ArrayFace),
   gps: mount(GpsFace),
   channel: mount(ChannelFace),
   event_output: mount(EventOutputFace),
@@ -83,10 +77,6 @@ export const NODE_TYPES: Record<NodeKind, ComponentType<NodeProps<Node<FlowData>
   scanner: mount(ScannerFace),
   hunt: mount(HuntFace),
   satellite: mount(SatelliteFace),
-  df: mount(DfFace),
-  passive_radar: mount(RangeDopplerFace),
-  combiner: mount(CombinerFace),
-  stitch: mount(StitchFace),
   triangulation: mount(TriangulationFace),
 };
 
@@ -94,7 +84,6 @@ export const FACES: Record<NodeKind, Face> = {
   device: DeviceFace,
   recording: RecordingFace,
   signal_gen: SignalGenFace,
-  array: ArrayFace,
   gps: GpsFace,
   channel: ChannelFace,
   event_output: EventOutputFace,
@@ -120,10 +109,6 @@ export const FACES: Record<NodeKind, Face> = {
   scanner: ScannerFace,
   hunt: HuntFace,
   satellite: SatelliteFace,
-  df: DfFace,
-  passive_radar: RangeDopplerFace,
-  combiner: CombinerFace,
-  stitch: StitchFace,
   triangulation: TriangulationFace,
 };
 

@@ -1,5 +1,3 @@
-use std::collections::HashSet;
-
 use super::*;
 use crate::workspace::Restored;
 
@@ -174,15 +172,11 @@ pub(super) fn bring_up(
 ) -> Result<PatchApplyReport, AppError> {
     let engine = &app.engine;
     let mut report = PatchApplyReport::default();
-    workspace::describe_arrays(engine, &snapshot.graph);
-    engine.reconcile_arrays()?;
     let mut state = engine.snapshot();
     forget_closed_bindings(app, &state);
-    let mut fresh: HashSet<String> = HashSet::new();
 
     for (node, device_set) in workspace::bind_devices(&snapshot.graph, &state) {
         if first_binding(app, workspace, &node, device_set) {
-            fresh.insert(node.clone());
             match workspace::restore_device(engine, &app.store, device_set, &node, saved) {
                 Ok(whole) => note_restore(app, &node, whole == Restored::Whole),
                 Err(reason) => {
@@ -199,9 +193,6 @@ pub(super) fn bring_up(
 
     let mut attached: Option<Vec<DeviceInfo>> = None;
     for node in snapshot.graph.device_nodes() {
-        if matches!(node.body, NodeBody::Array(_)) {
-            continue;
-        }
         let Some(reference) = node.body.device_ref(&node.id) else {
             continue;
         };
@@ -230,9 +221,7 @@ pub(super) fn bring_up(
             Some(device_id) => match engine.create_device_set(&device_id) {
                 Ok(id) => {
                     report.opened += 1;
-                    if first_binding(app, workspace, &node.id, id) {
-                        fresh.insert(node.id.clone());
-                    }
+                    first_binding(app, workspace, &node.id, id);
                     match workspace::restore_device(engine, &app.store, id, &node.id, saved) {
                         Ok(whole) => note_restore(app, &node.id, whole == Restored::Whole),
                         Err(reason) => {
@@ -258,8 +247,6 @@ pub(super) fn bring_up(
         }
     }
 
-    workspace::describe_arrays(engine, &snapshot.graph);
-    open_arrays(app, workspace, snapshot, saved, &mut report, &mut fresh);
     crate::placement::settle_workspace(app, &snapshot.graph, saved, &mut report);
     state = engine.snapshot();
     for binding in &report.bound {
@@ -284,99 +271,7 @@ pub(super) fn bring_up(
             }
         }
     }
-    let bound: Vec<(String, u32)> = report
-        .bound
-        .iter()
-        .map(|binding| (binding.node.clone(), binding.device_set))
-        .collect();
-    for (node, reason) in crate::coherent::apply(app, &snapshot.graph, &bound) {
-        report.refused.push(PatchRefusal { node, reason });
-    }
-    let live = engine.snapshot();
-    for (node, device_set, stream) in crate::coherent::beam_channels(app, &snapshot.graph, &live) {
-        let Some(patch) = snapshot.graph.node(&node) else {
-            continue;
-        };
-        let NodeBody::Channel(channel) = &patch.body else {
-            continue;
-        };
-        let already = live
-            .device_sets
-            .iter()
-            .find(|set| set.id == device_set)
-            .is_some_and(|set| {
-                set.channels.iter().any(|existing| {
-                    existing.stream == stream
-                        && existing.node.as_deref() == Some(node.as_str())
-                        && existing.settings.params.type_id() == channel.channel_type
-                })
-            });
-        if already {
-            continue;
-        }
-        let Some(settings) = workspace::channel_settings(&node, &channel.channel_type, saved)
-        else {
-            report.refused.push(PatchRefusal {
-                node: node.clone(),
-                reason: format!("this build has no channel type {:?}", channel.channel_type),
-            });
-            continue;
-        };
-        match engine.add_channel_for(device_set, stream, settings, Some(&node)) {
-            Ok(_) => report.created += 1,
-            Err(err) => report.refused.push(PatchRefusal {
-                node,
-                reason: err.to_string(),
-            }),
-        }
-    }
     Ok(report)
-}
-
-fn open_arrays(
-    app: &AppState,
-    workspace: i64,
-    snapshot: &WorkspaceSnapshot,
-    saved: &WorkspaceState,
-    report: &mut PatchApplyReport,
-    fresh: &mut HashSet<String>,
-) {
-    let engine = &app.engine;
-    for node in snapshot
-        .graph
-        .device_nodes()
-        .filter(|node| matches!(node.body, NodeBody::Array(_)))
-    {
-        if report.bound.iter().any(|bound| bound.node == node.id) {
-            continue;
-        }
-        let key = sdrmm_wire::patch::array_key(&node.id);
-        if engine.arrays().get(&key).is_none() {
-            continue;
-        }
-        match engine.create_array_set(&key) {
-            Ok(id) => {
-                if first_binding(app, workspace, &node.id, id) {
-                    fresh.insert(node.id.clone());
-                }
-                match workspace::restore_device(engine, &app.store, id, &node.id, saved) {
-                    Ok(whole) => note_restore(app, &node.id, whole == Restored::Whole),
-                    Err(reason) => report.refused.push(PatchRefusal {
-                        node: node.id.clone(),
-                        reason,
-                    }),
-                }
-                report.bound.push(PatchBinding {
-                    node: node.id.clone(),
-                    device_set: id,
-                });
-            }
-            Err(error) => report.refused.push(PatchRefusal {
-                node: node.id.clone(),
-                reason: error.to_string(),
-            }),
-        }
-    }
 }
 
 #[utoipa::path(
@@ -574,10 +469,6 @@ pub(super) async fn update_workspace(
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         let info = store.update_workspace(id, &req)?;
-        if store.active_workspace_id()? == Some(id) {
-            let graph = store.workspace(id)?.snapshot.graph;
-            crate::coherent::drop_undrawn(&app, &graph);
-        }
         engine.emit_scope(StateScope::Workspaces);
         Ok(info)
     })

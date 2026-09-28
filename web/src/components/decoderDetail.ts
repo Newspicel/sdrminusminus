@@ -458,15 +458,6 @@ const DETAIL: {
     ]),
     body: null,
   }),
-  radar: (d) => ({
-    fields: fields([
-      ["Range bin", String(d.range_bin)],
-      ["Bistatic range", `${d.range_km.toFixed(2)} km`],
-      ["Doppler", `${signed(d.doppler_hz, 1)} Hz`],
-      ["SNR", `${d.snr_db.toFixed(1)} dB`],
-    ]),
-    body: null,
-  }),
   ils: (i) => ({
     fields: fields([
       ["Component", i.component === "localizer" ? "localizer" : "glideslope"],

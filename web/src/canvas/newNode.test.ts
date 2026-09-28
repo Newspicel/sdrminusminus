@@ -6,7 +6,6 @@ const EVERY_KIND: Record<NodeKind, true> = {
   device: true,
   recording: true,
   signal_gen: true,
-  array: true,
   gps: true,
   channel: true,
   scope: true,
@@ -30,13 +29,9 @@ const EVERY_KIND: Record<NodeKind, true> = {
   network_export: true,
   export: true,
   scanner: true,
-  df: true,
-  passive_radar: true,
   hunt: true,
   satellite: true,
   triangulation: true,
-  combiner: true,
-  stitch: true,
 };
 
 const KINDS = Object.keys(EVERY_KIND) as NodeKind[];
@@ -85,6 +80,10 @@ describe("newNodeBody", () => {
       kind: "channel",
       data: { channel_type: "dmr", record_calls: false },
     });
+  });
+
+  it("gives a triangulation empty data", () => {
+    expect(newNodeBody("triangulation")).toEqual({ kind: "triangulation", data: {} });
   });
 
   it("starts a monitor with a 70% minimum confidence", () => {

@@ -687,7 +687,6 @@ fn bytes_for<T>(len: usize) -> Result<u64, String> {
 #[cfg(test)]
 pub(crate) mod benchmarks;
 
-pub(crate) mod caf;
 mod compute;
 mod fft;
 

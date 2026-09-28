@@ -1135,9 +1135,8 @@ pub enum DecoderEvent {
     Vdl2(DataLinkMessage),
     Hfdl(DataLinkMessage),
     Iridium(DataLinkMessage),
-    Df(crate::coherent::DfBearing),
-    DfFix(crate::coherent::DfEstimate),
-    Radar(crate::coherent::RadarDetection),
+    Df(crate::fusion::DfBearing),
+    DfFix(crate::fusion::DfEstimate),
     Dect(DectFrame),
 }
 
@@ -1377,7 +1376,6 @@ impl DecoderEvent {
             Self::Transmission(_) => "transmission",
             Self::Df(_) => "df",
             Self::DfFix(_) => "df_fix",
-            Self::Radar(_) => "radar",
             Self::Dect(_) => "dect",
         }
     }
@@ -1555,10 +1553,6 @@ impl DecoderEvent {
                 b.confidence * 100.0
             ),
             Self::DfFix(e) => format!("{:.5}, {:.5} · ±{:.0} m", e.lat, e.lon, e.ellipse_major_m),
-            Self::Radar(d) => format!(
-                "range bin {} · {:.1} km · {:+.1} Hz · {:.1} dB",
-                d.range_bin, d.range_km, d.doppler_hz, d.snr_db
-            ),
             Self::Ils(i) => {
                 let component = match i.component {
                     crate::channel::IlsComponent::Localizer => "localizer",
@@ -1637,7 +1631,7 @@ impl DecoderEvent {
             Self::Sstv(p) => Some(p.mode.label().to_owned()),
             Self::Vor(v) => v.station.clone(),
             Self::Df(b) => b.station_id.clone(),
-            Self::DfFix(_) | Self::Radar(_) => None,
+            Self::DfFix(_) => None,
             Self::Dsc(m)
             | Self::InmarsatStdc(m)
             | Self::InmarsatAero(m)

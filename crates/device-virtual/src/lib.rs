@@ -13,8 +13,6 @@ use sdrmm_wire::{
     Capabilities, Coherence, DcArtifact, DeviceInfo, DeviceSettings, Duplex, Range, StreamScope,
 };
 
-pub mod array;
-
 const DRIVER_ID: &str = "virtual";
 const SIGGEN_KEY: &str = "siggen";
 const BLOCK_SECS: f64 = 0.025;
@@ -353,9 +351,6 @@ pub struct MarkerShape {
     pub tx_streams: u32,
     pub per_stream: StreamScope,
     pub coherence: Coherence,
-    /// Whether the instrument can switch a reference into its lanes, as a bank of receivers on
-    /// one clock carries one so that its phase can be solved again after every retune.
-    pub noise_source: bool,
 }
 
 pub const MARKER_SHAPES: [MarkerShape; 4] = [
@@ -372,7 +367,6 @@ pub const MARKER_SHAPES: [MarkerShape; 4] = [
             agc: false,
         },
         coherence: Coherence::PhaseCoherent,
-        noise_source: true,
     },
     MarkerShape {
         key: "transceiver",
@@ -387,7 +381,6 @@ pub const MARKER_SHAPES: [MarkerShape; 4] = [
             agc: false,
         },
         coherence: Coherence::None,
-        noise_source: false,
     },
     MarkerShape {
         key: "halfduplex",
@@ -402,7 +395,6 @@ pub const MARKER_SHAPES: [MarkerShape; 4] = [
             agc: false,
         },
         coherence: Coherence::None,
-        noise_source: false,
     },
     MarkerShape {
         key: "bank5",
@@ -417,7 +409,6 @@ pub const MARKER_SHAPES: [MarkerShape; 4] = [
             agc: false,
         },
         coherence: Coherence::TimeSync,
-        noise_source: false,
     },
 ];
 
@@ -428,12 +419,8 @@ fn marker_capabilities(shape: &MarkerShape) -> Capabilities {
         tx_streams: shape.tx_streams,
         per_stream: shape.per_stream,
         coherence: shape.coherence,
-        noise_source: shape.noise_source,
-        extra: if shape.coherence.has_phase() {
-            array::extra_settings()
-        } else {
-            Vec::new()
-        },
+        noise_source: false,
+        extra: Vec::new(),
         hardware_sweep: false,
         ..siggen_capabilities()
     }
@@ -456,71 +443,35 @@ pub struct MarkerGen {
     capabilities: Capabilities,
     settings: DeviceSettings,
     shared: Arc<ArcSwap<MarkerParams>>,
-    reference_on: bool,
     worker: Worker,
 }
 
 struct MarkerParams {
     sample_rate: f64,
     marker_offsets: Vec<f64>,
-    array: array::ArrayParams,
-    lane_phase: Vec<f64>,
-    reference_on: bool,
 }
 
 impl MarkerGen {
     fn new(shape: &MarkerShape) -> Self {
         let capabilities = marker_capabilities(shape);
-        let mut settings = default_settings();
-        if capabilities.coherence.has_phase() {
-            settings.extra = array::default_extra();
-        }
+        let settings = default_settings();
         let shared = Arc::new(ArcSwap::from_pointee(marker_params(
             &settings,
             &capabilities,
-            false,
         )));
         Self {
             capabilities,
             settings,
             shared,
-            reference_on: false,
             worker: Worker::new(),
         }
     }
 }
 
-/// The instrument's own reference reaches the lanes past the antennas, so while it is switched
-/// in there is no wavefront to steer and what is left on each lane is the receiver's own phase,
-/// which is the whole of what a calibration is there to measure.
-fn marker_params(
-    settings: &DeviceSettings,
-    capabilities: &Capabilities,
-    reference_on: bool,
-) -> MarkerParams {
-    let params = array::read(settings);
-    let lanes = capabilities.rx_streams as usize;
-    let center_hz = settings.center_hz.unwrap_or(DEFAULT_CENTER_HZ);
-    let lane_phase = (0..lanes)
-        .map(|lane| {
-            let steer = if reference_on {
-                0.0
-            } else {
-                array::steering_phase(lane, lanes, &params, center_hz)
-            };
-            if params.scramble {
-                steer + array::scramble_phase(lane, center_hz)
-            } else {
-                steer
-            }
-        })
-        .collect();
+fn marker_params(settings: &DeviceSettings, capabilities: &Capabilities) -> MarkerParams {
     MarkerParams {
         sample_rate: settings.sample_rate.unwrap_or(DEFAULT_SAMPLE_RATE_HZ),
         marker_offsets: marker_offsets(settings, capabilities),
-        array: params,
-        lane_phase,
-        reference_on,
     }
 }
 
@@ -535,40 +486,12 @@ impl SdrDevice for MarkerGen {
 
     fn apply(&mut self, settings: &DeviceSettings) -> Result<(), DeviceError> {
         validate_tune(&self.capabilities, settings)?;
-        if self.capabilities.coherence == Coherence::None && !settings.extra.is_empty() {
-            return Err(DeviceError::Unsupported(format!(
-                "extra `{}`",
-                settings.extra[0].name
-            )));
-        }
-        if self.capabilities.coherence != Coherence::None {
-            array::validate(settings)?;
+        if let Some(extra) = settings.extra.first() {
+            return Err(DeviceError::Unsupported(format!("extra `{}`", extra.name)));
         }
         self.settings.merge_from(settings);
-        let params = marker_params(&self.settings, &self.capabilities, self.reference_on);
-        if self.capabilities.coherence != Coherence::None {
-            self.capabilities.coherence = if params.array.scramble {
-                Coherence::TimeSync
-            } else {
-                Coherence::PhaseCoherent
-            };
-        }
-        self.shared.store(Arc::new(params));
-        Ok(())
-    }
-
-    fn set_noise_source(&mut self, on: bool) -> Result<(), DeviceError> {
-        if !self.capabilities.noise_source {
-            return Err(DeviceError::Unsupported(
-                "this instrument carries no calibration reference".to_string(),
-            ));
-        }
-        self.reference_on = on;
-        self.shared.store(Arc::new(marker_params(
-            &self.settings,
-            &self.capabilities,
-            on,
-        )));
+        self.shared
+            .store(Arc::new(marker_params(&self.settings, &self.capabilities)));
         Ok(())
     }
 
@@ -581,7 +504,6 @@ impl SdrDevice for MarkerGen {
             )));
         }
         let shared = self.shared.clone();
-        let coherent = self.capabilities.coherence != Coherence::None;
         self.worker.start("sdrmm-marker-rx", move |running| {
             let mut lanes: Vec<(Generator, RxSink)> = sinks
                 .into_iter()
@@ -589,18 +511,11 @@ impl SdrDevice for MarkerGen {
                 .map(|(stream, sink)| (Generator::stream_marker(stream as u32), sink))
                 .collect();
             let mut block: Vec<Complex<f32>> = Vec::new();
-            let mut field = array::ArrayField::new();
-            let mut common: Vec<Complex<f64>> = Vec::new();
             let mut next = Instant::now();
             while running.load(Ordering::Acquire) {
                 let params = shared.load_full();
                 let n = ((params.sample_rate * BLOCK_SECS).round() as usize).max(1);
                 block.resize(n, Complex::new(0.0, 0.0));
-                let wavefront =
-                    coherent && (params.array.carries_wavefront() || params.reference_on);
-                if wavefront {
-                    field.fill(&mut common, n, params.sample_rate);
-                }
                 for (stream, (generator, sink)) in lanes.iter_mut().enumerate() {
                     let offset = params
                         .marker_offsets
@@ -609,21 +524,7 @@ impl SdrDevice for MarkerGen {
                         .unwrap_or_else(|| stream_marker_offset_hz(stream as u32));
                     generator.set_marker_offset_hz(offset);
                     generator.fill(&mut block, params.sample_rate);
-                    if wavefront {
-                        let phase = params.lane_phase.get(stream).copied().unwrap_or(0.0);
-                        field.add_lane(
-                            stream,
-                            &mut block,
-                            &common,
-                            phase,
-                            &params.array,
-                            params.sample_rate,
-                        );
-                    }
                     sink.push(&block);
-                }
-                if wavefront {
-                    field.commit(&common);
                 }
 
                 next += Duration::from_secs_f64(n as f64 / params.sample_rate);
@@ -1286,220 +1187,28 @@ mod tests {
         );
     }
 
-    fn capture_lanes(
-        dev: &mut Box<dyn SdrDevice>,
-        lanes: usize,
-        want: usize,
-    ) -> Vec<Vec<Complex<f32>>> {
-        let mut receivers = Vec::new();
-        let sinks = (0..lanes)
-            .map(|_| {
-                let (tx, rx) = mpsc::channel::<Vec<Complex<f32>>>();
-                receivers.push(rx);
-                RxSink::new(move |s, _| {
-                    let _ = tx.send(s.to_vec());
-                })
-            })
-            .collect();
-        dev.rx_start(sinks).unwrap();
-        let captured = receivers
-            .iter()
-            .map(|rx| {
-                let mut samples = Vec::new();
-                while samples.len() < want {
-                    samples.extend(rx.recv_timeout(Duration::from_secs(5)).unwrap());
-                }
-                samples.truncate(want);
-                samples
-            })
-            .collect();
-        dev.rx_stop();
-        captured
-    }
-
-    fn cross_spectrum(
-        reference: &[Complex<f32>],
-        lane: &[Complex<f32>],
-        rate: f64,
-    ) -> Vec<Complex<f64>> {
-        let n = reference.len();
-        let bin = |samples: &[Complex<f32>]| -> Vec<Complex<f64>> {
-            let mut buf: Vec<Complex<f64>> = samples
-                .iter()
-                .map(|s| Complex::new(f64::from(s.re), f64::from(s.im)))
-                .collect();
-            rustfft::FftPlanner::new()
-                .plan_fft_forward(n)
-                .process(&mut buf);
-            buf
-        };
-        let a = bin(reference);
-        let b = bin(lane);
-        let bin_hz = rate / n as f64;
-        let low = ((array::WAVEFRONT_OFFSET_HZ - 2.0 * array::WAVEFRONT_WINDOW_HZ) / bin_hz).floor()
-            as usize;
-        let high = ((array::WAVEFRONT_OFFSET_HZ + 2.0 * array::WAVEFRONT_WINDOW_HZ) / bin_hz).ceil()
-            as usize;
-        (low..=high).map(|k| b[k] * a[k].conj()).collect()
-    }
-
-    fn wavefront_phase(reference: &[Complex<f32>], lane: &[Complex<f32>], rate: f64) -> f64 {
-        cross_spectrum(reference, lane, rate)
-            .iter()
-            .sum::<Complex<f64>>()
-            .arg()
-    }
-
-    /// A pure phase offset leaves the cross spectrum flat; a delay tilts it, one bin at a time.
-    fn wavefront_delay_samples(
-        reference: &[Complex<f32>],
-        lane: &[Complex<f32>],
-        rate: f64,
-    ) -> f64 {
-        let cross = cross_spectrum(reference, lane, rate);
-        let floor = cross.iter().map(|c| c.norm()).fold(0.0, f64::max) * 0.1;
-        let tilt: Complex<f64> = cross
-            .windows(2)
-            .filter(|w| w[0].norm() > floor && w[1].norm() > floor)
-            .map(|w| w[1] * w[0].conj())
-            .sum();
-        -tilt.arg() * reference.len() as f64 / TAU
-    }
-
-    fn wrap(angle: f64) -> f64 {
-        let mut a = angle;
-        while a > std::f64::consts::PI {
-            a -= TAU;
-        }
-        while a < -std::f64::consts::PI {
-            a += TAU;
-        }
-        a
-    }
-
-    fn array_settings(extra: Vec<(&str, serde_json::Value)>) -> DeviceSettings {
-        DeviceSettings {
-            extra: extra
-                .into_iter()
-                .map(|(name, value)| sdrmm_wire::ExtraValue {
-                    name: name.to_string(),
-                    value,
-                })
-                .collect(),
-            ..DeviceSettings::default()
-        }
-    }
-
     #[test]
-    fn a_set_wavefront_bearing_lands_on_the_analytic_steering_vector() {
-        const N: usize = 1 << 15;
-        let bearing = 137.0;
-        let radius = 0.35;
-        let mut dev = open_virtual("array4");
-        dev.apply(&DeviceSettings {
-            sample_rate: Some(1_024_000.0),
-            center_hz: Some(300_000_000.0),
-            ..array_settings(vec![
-                (array::BEARING_SETTING, bearing.into()),
-                (array::RADIUS_SETTING, radius.into()),
-            ])
-        })
-        .unwrap();
-        let rate = dev.settings().sample_rate.unwrap();
-        let lanes = capture_lanes(&mut dev, 4, N);
-
-        let params = array::ArrayParams {
-            bearing_deg: bearing,
-            radius_m: radius,
-            ..array::ArrayParams::default()
-        };
-        for lane in 1..4 {
-            let measured = wavefront_phase(&lanes[0], &lanes[lane], rate);
-            let want = array::steering_phase(lane, 4, &params, 300_000_000.0)
-                - array::steering_phase(0, 4, &params, 300_000_000.0);
-            assert!(
-                wrap(measured - want).abs() < 0.05,
-                "lane {lane}: measured {measured:.4} rad, steering vector says {want:.4}"
-            );
-        }
-    }
-
-    #[test]
-    fn the_reference_reaches_the_lanes_past_the_antennas() {
-        const N: usize = 1 << 15;
-        const CENTRE: f64 = 300_000_000.0;
-        let mut dev = open_virtual("array4");
-        assert!(
-            dev.capabilities().noise_source,
-            "the bank carries a reference"
-        );
-        dev.apply(&DeviceSettings {
-            sample_rate: Some(1_024_000.0),
-            center_hz: Some(CENTRE),
-            ..array_settings(vec![
-                (array::BEARING_SETTING, 137.0.into()),
-                (array::RADIUS_SETTING, 0.35.into()),
-                (array::SCRAMBLE_SETTING, true.into()),
-            ])
-        })
-        .unwrap();
-        let rate = dev.settings().sample_rate.unwrap();
-        dev.set_noise_source(true).unwrap();
-        let lanes = capture_lanes(&mut dev, 4, N);
-
-        for lane in 1..4 {
-            let measured = wavefront_phase(&lanes[0], &lanes[lane], rate);
-            let want = array::scramble_phase(lane, CENTRE) - array::scramble_phase(0, CENTRE);
-            assert!(
-                wrap(measured - want).abs() < 0.05,
-                "lane {lane}: measured {measured:.4} rad, the receiver's own phase is {want:.4}"
-            );
-        }
-    }
-
-    #[test]
-    fn scrambling_moves_phase_on_every_retune_and_leaves_the_lanes_aligned() {
-        const N: usize = 1 << 14;
-        let mut dev = open_virtual("array4");
-        let base = DeviceSettings {
-            sample_rate: Some(1_024_000.0),
-            ..array_settings(vec![
-                (array::SCRAMBLE_SETTING, true.into()),
-                (array::RADIUS_SETTING, 0.35.into()),
-            ])
-        };
-        dev.apply(&base).unwrap();
-        assert_eq!(dev.capabilities().coherence, Coherence::TimeSync);
-        let rate = dev.settings().sample_rate.unwrap();
-
-        let mut phases = Vec::new();
-        for center in [200_000_000.0, 240_000_000.0] {
-            dev.apply(&DeviceSettings {
-                center_hz: Some(center),
+    fn a_marker_radio_takes_no_extra_settings() {
+        for key in ["array4", "transceiver"] {
+            let mut dev = open_virtual(key);
+            assert!(dev.capabilities().extra.is_empty(), "{key}");
+            assert!(!dev.capabilities().noise_source, "{key}");
+            let err = dev.apply(&DeviceSettings {
+                extra: vec![sdrmm_wire::ExtraValue {
+                    name: "bearing_deg".to_string(),
+                    value: 10.0.into(),
+                }],
                 ..DeviceSettings::default()
-            })
-            .unwrap();
-            let lanes = capture_lanes(&mut dev, 4, N);
-            phases.push(wavefront_phase(&lanes[0], &lanes[1], rate));
-            let delay = wavefront_delay_samples(&lanes[0], &lanes[1], rate);
+            });
             assert!(
-                delay.abs() < 5.0,
-                "a shared clock leaves no delay the wavefront could resolve, measured {delay}"
+                matches!(err, Err(DeviceError::Unsupported(_))),
+                "{key}: {err:?}"
+            );
+            assert!(
+                matches!(dev.set_noise_source(true), Err(DeviceError::Unsupported(_))),
+                "{key}"
             );
         }
-        assert!(
-            wrap(phases[0] - phases[1]).abs() > 0.1,
-            "phase survived a retune: {phases:?}"
-        );
-    }
-
-    #[test]
-    fn a_non_coherent_marker_radio_takes_no_array_settings() {
-        let mut dev = open_virtual("transceiver");
-        assert_eq!(dev.capabilities().coherence, Coherence::None);
-        assert!(dev.capabilities().extra.is_empty());
-        let err = dev.apply(&array_settings(vec![(array::BEARING_SETTING, 10.0.into())]));
-        assert!(matches!(err, Err(DeviceError::Unsupported(_))), "{err:?}");
     }
 
     #[test]

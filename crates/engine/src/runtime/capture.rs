@@ -12,7 +12,7 @@ use arc_swap::ArcSwap;
 use num_complex::Complex;
 use sdrmm_device::{DeviceError, RxSink, SdrDevice, SweepPlan, SweepSink};
 use sdrmm_dsp::SpectrumAnalyzer as CpuSpectrumAnalyzer;
-use sdrmm_wire::{Coherence, DeviceSettings, MAX_STREAMS, StreamScope};
+use sdrmm_wire::{DeviceSettings, MAX_STREAMS, StreamScope};
 use tokio::sync::broadcast;
 
 use super::{
@@ -23,7 +23,6 @@ use super::{
 };
 use crate::{
     capture_ring::{CaptureConsumer, capture_ring},
-    coherent::CoherentTaps,
     publishing::spectrum::SpectrumPublisher,
     spectrum::{SpectrumAnalyzer, SpectrumFrame, SpectrumPlan},
 };
@@ -86,8 +85,6 @@ pub struct CaptureRuntime {
     lanes: Vec<Lane>,
     per_stream: StreamScope,
     sweeping: bool,
-    coherent: Option<CoherentTaps>,
-    beam_lane: Option<usize>,
     _awake: sdrmm_device::schedule::Awake,
 }
 
@@ -138,34 +135,18 @@ impl CaptureRuntime {
             ));
         };
         let fatal: Arc<Mutex<Option<FatalReport>>> = Arc::new(Mutex::new(Some(Box::new(on_fatal))));
-        let (mut lane_taps, mut coherent) = match device.capabilities().coherence {
-            Coherence::None => (Vec::new(), None),
-            _ if lane_count < 2 => (Vec::new(), None),
-            _ => {
-                let (taps, shared) = crate::coherent::lane_taps(lane_count, sample_rate);
-                (taps, Some(shared))
-            }
-        };
-        lane_taps.reverse();
-        let total_lanes = lane_count + usize::from(coherent.is_some());
-        let mut beam_lane = None;
-        let spectrum_plan = SpectrumPlan::new(FFT_SIZE, total_lanes);
+        let spectrum_plan = SpectrumPlan::new(FFT_SIZE, lane_count);
 
         let mut sinks: Vec<RxSink> = Vec::with_capacity(lane_count);
-        let mut lanes: Vec<Lane> = Vec::with_capacity(total_lanes);
+        let mut lanes: Vec<Lane> = Vec::with_capacity(lane_count);
         let mut tails: Vec<(
             CaptureConsumer,
             mpsc::Receiver<DspCommand>,
             SpectrumAnalyzer,
         )> = Vec::with_capacity(lane_count);
         let ring = ring_capacity(sample_rate);
-        let wide_ring = ring_capacity(sample_rate * lane_count as f64);
-        for stream in 0..total_lanes {
-            let (mut producer, consumer) = capture_ring(if stream >= lane_count {
-                wide_ring
-            } else {
-                ring
-            });
+        for stream in 0..lane_count {
+            let (mut producer, consumer) = capture_ring(ring);
             let overruns = consumer.metrics.dropped_counter();
             let stalled_us = Arc::new(AtomicU64::new(0));
             let clip = Arc::new(ClipMeter::default());
@@ -173,40 +154,26 @@ impl CaptureRuntime {
             let waker = Arc::new(Waker::default());
             let wake = waker.clone();
             let fatal = fatal.clone();
-            let mut lane_tap = lane_taps.pop();
-            if stream >= lane_count {
-                if let Some(taps) = coherent.as_mut() {
-                    beam_lane = Some(stream);
-                    taps.beam = Some(crate::coherent::BeamSink {
-                        producer,
-                        waker: waker.clone(),
-                    });
-                }
-            } else {
-                let room = producer.room();
-                sinks.push(
-                    RxSink::with_fatal_handler(
-                        move |samples: &[Complex<f32>], index: u64| {
-                            if let Some(tap) = lane_tap.as_mut() {
-                                tap.push(samples, index);
-                            }
-                            meter.measure(samples);
-                            producer.push(samples, index);
-                            wake.wake();
-                        },
-                        move |err| {
-                            if let Some(report) = fatal
-                                .lock()
-                                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                                .take()
-                            {
-                                report(err);
-                            }
-                        },
-                    )
-                    .with_room(room),
-                );
-            }
+            let room = producer.room();
+            sinks.push(
+                RxSink::with_fatal_handler(
+                    move |samples: &[Complex<f32>], index: u64| {
+                        meter.measure(samples);
+                        producer.push(samples, index);
+                        wake.wake();
+                    },
+                    move |err| {
+                        if let Some(report) = fatal
+                            .lock()
+                            .unwrap_or_else(std::sync::PoisonError::into_inner)
+                            .take()
+                        {
+                            report(err);
+                        }
+                    },
+                )
+                .with_room(room),
+            );
             let spectrum_tx = taps
                 .get(stream)
                 .cloned()
@@ -241,8 +208,6 @@ impl CaptureRuntime {
             lanes,
             per_stream,
             sweeping: false,
-            coherent,
-            beam_lane,
             _awake: sdrmm_device::schedule::stay_awake("a radio is streaming"),
         };
 
@@ -290,21 +255,6 @@ impl CaptureRuntime {
         Ok(runtime)
     }
 
-    pub(crate) fn take_coherent(&mut self) -> Option<CoherentTaps> {
-        self.coherent.take()
-    }
-
-    pub(crate) fn return_coherent(&mut self, taps: Option<CoherentTaps>) {
-        if taps.is_some() {
-            self.coherent = taps;
-        }
-    }
-
-    #[must_use]
-    pub fn is_coherent(&self) -> bool {
-        self.coherent.is_some()
-    }
-
     #[must_use]
     pub fn capabilities(&self) -> Option<sdrmm_wire::Capabilities> {
         self.device
@@ -342,30 +292,13 @@ impl CaptureRuntime {
 
     pub fn set_meta(&mut self, settings: &DeviceSettings, dc_block: bool) {
         let sample_rate = crate::sample_rate_of(settings);
-        if let Some(taps) = &mut self.coherent {
-            taps.sample_rate = sample_rate;
-        }
         for (stream, lane) in self.lanes.iter().enumerate() {
-            if self.beam_lane == Some(stream) {
-                let meta = lane.meta.load();
-                lane.meta.store(Arc::new(DspMeta { dc_block, ..**meta }));
-                continue;
-            }
             let center_hz = settings
                 .for_stream(stream as u32, &self.per_stream)
                 .center_hz
                 .unwrap_or(crate::DEFAULT_CENTER_HZ);
             lane.set(center_hz, sample_rate, dc_block);
         }
-    }
-
-    pub fn set_beam_meta(&mut self, center_hz: f64, sample_rate: f64) -> bool {
-        let Some(lane) = self.beam_lane.and_then(|stream| self.lanes.get(stream)) else {
-            return false;
-        };
-        let meta = *lane.meta.load_full();
-        lane.set(center_hz, sample_rate, meta.dc_block);
-        meta.sample_rate != sample_rate
     }
 
     pub fn device_settings(&self) -> Option<DeviceSettings> {
@@ -383,13 +316,6 @@ impl CaptureRuntime {
         self.device
             .as_ref()
             .map_or_else(|| Ok(Vec::new()), |device| device.agc_gains())
-    }
-
-    pub fn set_noise_source(&mut self, on: bool) -> Result<(), DeviceError> {
-        self.device
-            .as_mut()
-            .ok_or_else(|| DeviceError::Io("the device has been stopped".to_string()))?
-            .set_noise_source(on)
     }
 
     pub fn stop(&mut self) {
@@ -484,8 +410,6 @@ impl CaptureRuntime {
             lanes,
             per_stream,
             sweeping: true,
-            coherent: None,
-            beam_lane: None,
             _awake: sdrmm_device::schedule::stay_awake("a radio is sweeping"),
         })
     }

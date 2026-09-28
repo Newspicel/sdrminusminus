@@ -24,12 +24,10 @@ import { claimedDevices, deviceRefOf, refMatches } from "../binding";
 import { useWorkspaceContext } from "../context";
 import { patchNode } from "../graph";
 import { releaseRadio } from "../remove";
-import { arrayHolding } from "./arrayNode";
 import {
   autoTuning,
   bondSaid,
   clippingSaid,
-  coherentLanes,
   faultSaid,
   type Hearing,
   hasLaneControls,
@@ -73,8 +71,6 @@ interface TunerProps {
   set: DeviceSet;
   lockedStreams: readonly number[];
   onLock: (stream: number, locked: boolean) => void;
-  arrayTuning: boolean;
-  advised: ReadonlySet<number>;
 }
 
 function DialRow({
@@ -83,7 +79,7 @@ function DialRow({
   dial,
   locked,
   onLock,
-}: Omit<TunerProps, "lockedStreams" | "onLock" | "arrayTuning" | "advised"> & {
+}: Omit<TunerProps, "lockedStreams" | "onLock"> & {
   dial: TunerDial;
   locked: boolean;
   onLock: (locked: boolean) => void;
@@ -125,7 +121,7 @@ function DialRow({
 }
 
 function Tuner(props: TunerProps) {
-  const { set, lockedStreams, onLock, arrayTuning, advised } = props;
+  const { set, lockedStreams, onLock } = props;
   const merged = lanesMerged(set);
   const bond = merged ? bondSaid(set.capabilities.coherence) : null;
   const controls = merged && hasLaneControls(set.capabilities);
@@ -142,15 +138,9 @@ function Tuner(props: TunerProps) {
                 ? "before:absolute before:inset-y-0 before:-left-2 before:w-0.5 before:bg-accent"
                 : ""
             }`}
-            title={arrayTuning && !merged ? ARRAY_TUNED : undefined}
           >
             {merged && (
-              <LaneRule
-                port={dial.port}
-                locked={locked}
-                bond={index === 0 ? bond : null}
-                arrayTuning={index === 0 && arrayTuning}
-              />
+              <LaneRule port={dial.port} locked={locked} bond={index === 0 ? bond : null} />
             )}
             <div className="@container col-span-2 min-w-0">
               <DialRow
@@ -160,9 +150,7 @@ function Tuner(props: TunerProps) {
                 onLock={(next) => onLock(dial.stream, next)}
               />
             </div>
-            {controls && (
-              <LaneControls active={set} stream={dial.stream} advised={advised.has(dial.stream)} />
-            )}
+            {controls && <LaneControls active={set} stream={dial.stream} />}
           </div>
         );
       })}
@@ -175,12 +163,10 @@ function LaneRule({
   port,
   locked,
   bond,
-  arrayTuning,
 }: {
   port: string | null;
   locked: boolean;
   bond: string | null;
-  arrayTuning: boolean;
 }) {
   return (
     <div className="legend col-span-2 flex items-center gap-2 leading-none">
@@ -203,17 +189,9 @@ function LaneRule({
           {bond}
         </span>
       )}
-      {arrayTuning && (
-        <span className="flex items-center gap-1 text-port-iq" title={ARRAY_TUNED}>
-          <Icon glyph={Link2} size={12} />
-          Array
-        </span>
-      )}
     </div>
   );
 }
-
-const ARRAY_TUNED = "Tuning moves the whole Array";
 
 const TONE: Record<Hearing["tone"], string> = {
   ok: "text-ok",
@@ -392,10 +370,6 @@ export function DeviceFace({ node }: { node: PatchNode }) {
     );
   }
 
-  const array = arrayHolding(workspace.graph, node.id);
-  const arrayTuning = array !== null && workspace.devices.has(array);
-  const advised = coherentLanes(workspace.graph, node.id);
-
   return (
     <NodeShell
       node={node}
@@ -408,13 +382,10 @@ export function DeviceFace({ node }: { node: PatchNode }) {
           active={set}
           className="p-2"
           lanesShown={lanesMerged(set)}
-          advised={advised}
           lead={
             <Tuner
               node={node.id}
               set={set}
-              arrayTuning={arrayTuning}
-              advised={advised}
               lockedStreams={lockedStreams}
               onLock={(stream, next) =>
                 editNode({ locked_streams: lockStream(lockedStreams, stream, next) })

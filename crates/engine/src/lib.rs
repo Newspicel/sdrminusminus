@@ -25,15 +25,12 @@ use sdrmm_wire::{
 };
 use tokio::sync::broadcast;
 
-mod arrays;
 pub mod audio;
 mod audio_fx;
 pub mod audio_recording;
 mod capture_ops;
 mod capture_ring;
 mod channel_ops;
-pub mod coherent;
-mod coherent_ops;
 mod device_ops;
 mod discovery;
 mod doppler;
@@ -57,7 +54,6 @@ pub mod runtime;
 pub mod scanner;
 mod sinks;
 mod spectrum;
-mod stitching;
 mod streams;
 pub mod symbols;
 mod time_machine;
@@ -71,7 +67,6 @@ pub use placement::{Allocation, Lane, Placeable, Placement};
 pub(crate) use planning::{dc_block, descriptor_for};
 pub use recording::FinalizedRecording;
 pub use runtime::SpectrumSnapshot;
-pub use sdrmm_device_array::ArrayCatalog;
 pub use symbols::{SYMBOL_BLOCKS_PER_SEC, SymbolBlock};
 pub use trunking::TrunkSystem;
 pub use video::{VideoPacket, VideoPicture};
@@ -108,8 +103,6 @@ const NATIVE_PRIORITY: u8 = 25;
 #[cfg(feature = "net-client")]
 const NET_PRIORITY: u8 = 30;
 
-/// A composite the operator described by hand beats anything discovered, because it is the only
-/// thing that knows those radios belong together.
 const EVENT_CHANNEL_CAP: usize = 256;
 const DECODED_QUEUE_CAP: usize = 4096;
 const DECODED_CHANNEL_CAP: usize = 1024;
@@ -258,8 +251,6 @@ pub enum EngineError {
     Scan(String),
     #[error("occupancy: {0}")]
     Occupancy(String),
-    #[error("coherent: {0}")]
-    Coherent(String),
 }
 
 impl EngineError {
@@ -281,7 +272,6 @@ impl EngineError {
                 | Self::Recording(_)
                 | Self::NetworkExport(_)
                 | Self::Scan(_)
-                | Self::Coherent(_)
                 | Self::StreamOutOfRange { .. }
         )
     }
@@ -311,58 +301,6 @@ fn center_of(settings: &DeviceSettings, stream: u32, scope: &StreamScope) -> f64
         .for_stream(stream, scope)
         .center_hz
         .unwrap_or(DEFAULT_CENTER_HZ)
-}
-
-fn tune_together(delta: &mut DeviceSettings, group: &[u32]) {
-    let Some(leader) = delta
-        .streams
-        .iter()
-        .filter(|entry| group.contains(&entry.stream))
-        .filter(|entry| entry.center_hz.is_some() || entry.tuning.is_some())
-        .min_by_key(|entry| entry.stream)
-        .map(|entry| (entry.center_hz, entry.tuning))
-    else {
-        return;
-    };
-    for lane in group {
-        let entry = match delta.streams.iter().position(|entry| entry.stream == *lane) {
-            Some(at) => &mut delta.streams[at],
-            None => {
-                delta.streams.push(sdrmm_wire::StreamSettings {
-                    stream: *lane,
-                    ..sdrmm_wire::StreamSettings::default()
-                });
-                let Some(last) = delta.streams.last_mut() else {
-                    return;
-                };
-                last
-            }
-        };
-        if leader.0.is_some() {
-            entry.center_hz = leader.0;
-        }
-        if leader.1.is_some() {
-            entry.tuning = leader.1;
-        }
-    }
-}
-
-fn retuned_to(capabilities: &Capabilities, stream: u32, center_hz: f64) -> DeviceSettings {
-    if capabilities.per_stream.tuning {
-        DeviceSettings {
-            streams: vec![sdrmm_wire::StreamSettings {
-                stream,
-                center_hz: Some(center_hz),
-                ..sdrmm_wire::StreamSettings::default()
-            }],
-            ..DeviceSettings::default()
-        }
-    } else {
-        DeviceSettings {
-            center_hz: Some(center_hz),
-            ..DeviceSettings::default()
-        }
-    }
 }
 
 fn ids_of(devices: &[DeviceInfo]) -> Vec<String> {
@@ -587,7 +525,6 @@ impl RecordingState {
 }
 
 struct DeviceSetState {
-    array: Option<arrays::ArrayBinding>,
     info: DeviceInfo,
     capabilities: Capabilities,
     settings: DeviceSettings,
@@ -615,7 +552,6 @@ struct DeviceSetState {
     clipping: Vec<u32>,
     agc_gains: Vec<sdrmm_wire::AgcGain>,
     playback: Option<Arc<PlaybackShared>>,
-    coherent: Option<crate::coherent_ops::CoherentState>,
     runtime: Arc<DeviceRuntime>,
 }
 
@@ -635,14 +571,11 @@ impl DeviceSetState {
     }
 
     fn hears_with(&self, tuning: &DeviceSettings, stream: u32, settings: &ChannelSettings) -> bool {
-        if self.is_extra_lane(stream) {
-            return planning::hears_at(
-                self.lane_center(tuning, stream),
-                self.lane_rate(tuning, stream),
-                settings,
-            );
-        }
         planning::hears(&self.capabilities, tuning, stream, settings)
+    }
+
+    fn lane_center(&self, stream: u32) -> f64 {
+        center_of(&self.settings, stream, &self.capabilities.per_stream)
     }
 
     fn project(&self, id: u32) -> DeviceSet {
@@ -688,7 +621,6 @@ impl DeviceSetState {
             hunts: self.hunt_statuses(),
             playback: self.playback.as_deref().map(PlaybackShared::status),
             agc_gains: self.agc_gains.clone(),
-            extra_lane: self.extra_lane(),
         }
     }
 
@@ -726,34 +658,6 @@ impl DeviceSetState {
             .iter()
             .map(|counter| counter.load(Ordering::Relaxed))
             .sum()
-    }
-
-    fn coherent_lanes(&self) -> Vec<u32> {
-        self.coherent
-            .as_ref()
-            .map(|coherent| {
-                coherent
-                    .members()
-                    .into_iter()
-                    .map(|lane| lane as u32)
-                    .collect()
-            })
-            .unwrap_or_default()
-    }
-
-    fn coherent_centers(&self) -> Vec<f64> {
-        let lanes = self.coherent_lanes();
-        if lanes.is_empty() {
-            return vec![center_of(&self.settings, 0, &self.capabilities.per_stream)];
-        }
-        lanes
-            .iter()
-            .map(|lane| center_of(&self.settings, *lane, &self.capabilities.per_stream))
-            .collect()
-    }
-
-    fn tune_group_together(&self, delta: &mut DeviceSettings) {
-        self.lay_out(delta);
     }
 
     fn runs_agc(&self) -> bool {
@@ -875,9 +779,7 @@ struct Inner {
 }
 
 pub struct Engine {
-    array_edits: Mutex<()>,
     registry: DeviceRegistry,
-    arrays: ArrayCatalog,
     inner: Mutex<Inner>,
     audio_fx: Mutex<audio_fx::AudioFxHub>,
     event_tx: broadcast::Sender<ServerEvent>,
@@ -905,20 +807,6 @@ impl Engine {
 
     #[must_use]
     pub fn with_registry(registry: DeviceRegistry, recordings_dir: Option<PathBuf>) -> Arc<Self> {
-        Self::with_arrays(registry, recordings_dir, ArrayCatalog::new())
-    }
-
-    #[must_use]
-    pub fn arrays(&self) -> &ArrayCatalog {
-        &self.arrays
-    }
-
-    #[must_use]
-    pub fn with_arrays(
-        registry: DeviceRegistry,
-        recordings_dir: Option<PathBuf>,
-        arrays: ArrayCatalog,
-    ) -> Arc<Self> {
         let (event_tx, _) = broadcast::channel(EVENT_CHANNEL_CAP);
         let (fault_tx, fault_rx) = mpsc::channel();
         let (decoded_tx, decoded_rx) = mpsc::sync_channel(DECODED_QUEUE_CAP);
@@ -928,9 +816,7 @@ impl Engine {
         let (trunk_tx, trunk_rx) = mpsc::channel();
         let trunk_status = Arc::new(Mutex::new(Vec::new()));
         let engine = Arc::new(Self {
-            array_edits: Mutex::new(()),
             registry,
-            arrays,
             inner: Mutex::new(Inner::default()),
             audio_fx: Mutex::new(audio_fx::AudioFxHub::default()),
             event_tx,
@@ -1086,12 +972,6 @@ impl Engine {
     }
 
     fn mark_device_fault(&self, ds: u32, err: DeviceError) {
-        for array in self.arrays_using(ds) {
-            self.mark_device_fault(
-                array,
-                DeviceError::Io(format!("array member {ds} failed: {err}")),
-            );
-        }
         let mut inner = self.lock();
         if let Some(state) = inner.device_sets.get_mut(&ds) {
             state.status = DeviceSetStatus::Error;

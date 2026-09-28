@@ -27,7 +27,6 @@ mod auth;
 mod bandplan;
 mod calibration;
 mod calls;
-pub(crate) mod coherent;
 pub(crate) mod cps;
 mod decoded;
 mod decoderlog;
@@ -90,7 +89,6 @@ pub(crate) struct AppState {
     pub(crate) restored: Arc<std::sync::Mutex<HashSet<(i64, String, u32)>>>,
     pub(crate) gps: Arc<gps::GpsHub>,
     pub(crate) satellites: Arc<satellites::SatelliteHub>,
-    pub(crate) coherent: Arc<coherent::CoherentHub>,
     pub(crate) cps: Arc<cps::CpsHub>,
     pub(crate) fusion: df_fusion::SharedFusion,
     pub(crate) shell: Option<Arc<dyn NativeShell>>,
@@ -118,7 +116,6 @@ impl AppState {
             restored: Arc::new(std::sync::Mutex::new(HashSet::new())),
             gps: Arc::new(gps::GpsHub::default()),
             satellites: Arc::new(satellites::SatelliteHub::default()),
-            coherent: Arc::new(coherent::CoherentHub::default()),
             cps: Arc::new(cps::CpsHub::default()),
             fusion: Arc::new(df_fusion::FusionHub::default()),
             shell: None,

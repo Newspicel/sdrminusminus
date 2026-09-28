@@ -1,10 +1,7 @@
 use std::hint::black_box;
 
 use num_complex::Complex;
-use sdrmm_dsp::{
-    FracResampler, NoiseFloor, SpectrumAnalyzer,
-    cfar::{Detection, cluster},
-};
+use sdrmm_dsp::{FracResampler, NoiseFloor, SpectrumAnalyzer};
 use sdrmm_test_support::{CountingAlloc, assert_no_alloc, measure_throughput};
 
 #[global_allocator]
@@ -103,29 +100,5 @@ fn fractional_resampling_reuses_storage_and_exceeds_audio_realtime() {
     assert!(
         msps > 0.48,
         "resampler must sustain twice realtime: {msps} MS/s"
-    );
-}
-
-#[test]
-fn clustering_is_deterministic_and_does_not_allocate_even_for_large_inputs() {
-    let original: Vec<_> = (0..2048)
-        .map(|index| Detection {
-            range_bin: index / 4,
-            doppler_bin: index % 8,
-            snr_db: (index % 17) as f32,
-        })
-        .collect();
-    let mut expected = original.clone();
-    cluster(&mut expected);
-    let mut input = original.clone();
-    input.reverse();
-    let allocation = input.as_ptr();
-    assert_no_alloc("CFAR clustering", || cluster(&mut input));
-    assert_eq!(input, expected);
-    assert_eq!(input.as_ptr(), allocation);
-    assert!(
-        input
-            .windows(2)
-            .all(|pair| pair[0].snr_db >= pair[1].snr_db)
     );
 }

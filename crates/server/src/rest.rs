@@ -40,10 +40,10 @@ use utoipa_axum::{router::OpenApiRouter, routes};
 
 mod audio_recordings;
 mod capture;
-mod coherent;
 mod cps;
 mod decoderlog;
 mod devices;
+mod fusion;
 mod info;
 mod media;
 mod presets;
@@ -54,10 +54,10 @@ mod workspaces;
 
 use audio_recordings::*;
 use capture::*;
-use coherent::*;
 use cps::*;
 use decoderlog::*;
 use devices::*;
+use fusion::*;
 use info::*;
 use media::*;
 pub(crate) use media::{call_audio_path, captured_image_path};
@@ -431,7 +431,6 @@ pub(crate) fn openapi_router() -> OpenApiRouter<AppState> {
         .routes(routes!(get_cps_job, cancel_cps_job))
         .routes(routes!(list_tools))
         .routes(routes!(run_tool))
-        .routes(routes!(calibrate_coherent))
         .routes(routes!(get_fusion, reset_fusion))
         .routes(routes!(get_about))
         .routes(routes!(get_license_text))

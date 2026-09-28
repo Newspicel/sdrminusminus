@@ -45,7 +45,6 @@ import {
   tuningLocked,
   unpin,
 } from "./graph";
-import { DEFAULT_COMBINER_PARAMS } from "./nodes/combiner";
 
 const CATALOG: PatchCatalog = {
   nodes: [
@@ -115,15 +114,6 @@ const CATALOG: PatchCatalog = {
       name: "Speaker",
       category: "output",
       ports: [{ name: "audio", port_type: "audio", direction: "in", multi: true }],
-    },
-    {
-      kind: "combiner",
-      name: "Combiner",
-      category: "tool",
-      ports: [
-        { name: "iq", port_type: "iq", direction: "in", multi: false, repeat: "per_rx_stream" },
-        { name: "beam", port_type: "iq", direction: "out", multi: true },
-      ],
     },
     {
       kind: "scanner",
@@ -226,18 +216,13 @@ describe("portLabel", () => {
   });
 });
 
-const combiner = (lanes: number): PatchNode =>
-  node("comb", { kind: "combiner", data: { settings: { ...DEFAULT_COMBINER_PARAMS, lanes } } });
-
 describe("handleSignature", () => {
-  it("changes when a combiner gains antennas", () => {
-    const two = handleSignature(portsOf(context, { nodes: [combiner(2)], edges: [] }, combiner(2)));
-    const five = handleSignature(
-      portsOf(context, { nodes: [combiner(5)], edges: [] }, combiner(5)),
-    );
-    expect(five).not.toBe(two);
-    expect(five).toContain("in:iq3");
-    expect(two).not.toContain("in:iq3");
+  it("changes when a node gains a port", () => {
+    const iq = { name: "iq", port_type: "iq", direction: "out", multi: true } as const;
+    const one = handleSignature([iq]);
+    const two = handleSignature([iq, { ...iq, name: "iq2" }]);
+    expect(two).not.toBe(one);
+    expect(two).toContain("out:iq2");
   });
 });
 
@@ -419,33 +404,6 @@ describe("connectionRefusal", () => {
       nodes: [...workspace().nodes, node("dev2", { kind: "device", data: {} })],
     };
     expect(connectionRefusal(context, graph, port("dev2", "iq"), port("nfm", "iq"))).toBeNull();
-  });
-
-  it("keeps a beam exclusive in either connection order", () => {
-    const beamContext: GraphContext = {
-      ...context,
-      catalog: {
-        ...CATALOG,
-        nodes: [
-          ...CATALOG.nodes,
-          {
-            kind: "df",
-            name: "DF",
-            category: "tool",
-            ports: [{ name: "beam", port_type: "iq", direction: "out", multi: false }],
-          },
-        ],
-      },
-    };
-    const graph = workspace();
-    graph.nodes.push(node("df", { kind: "df", data: {} }));
-    expect(connectionRefusal(beamContext, graph, port("df", "beam"), port("nfm", "iq"))).toMatch(
-      /one wire/,
-    );
-    graph.edges = [{ from: port("df", "beam"), to: port("nfm", "iq") }];
-    expect(connectionRefusal(beamContext, graph, port("dev", "iq"), port("nfm", "iq"))).toMatch(
-      /one wire/,
-    );
   });
 
   it("wires a scanner into the decoder it drives, and only one", () => {

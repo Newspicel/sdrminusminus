@@ -40,7 +40,6 @@ describe("visibleDevices", () => {
     device("virtual", "array4", "Coherent Array"),
     device("recording", "airband", "airband"),
     device("siggen", "signal_gen-a1b2", "Signal generator"),
-    device("array", "array-9f2c", "Array"),
     device("rtlsdr", "00000001", "RTL-SDR 00000001"),
   ];
 

@@ -4,7 +4,6 @@ pub mod about;
 pub mod audio;
 pub mod bandplan;
 pub mod channel;
-pub mod coherent;
 pub mod cps;
 pub mod decode;
 pub mod device;
@@ -13,6 +12,7 @@ pub mod doctor;
 pub mod event_output;
 pub mod filter;
 pub mod frame;
+pub mod fusion;
 mod pipeline;
 pub use pipeline::{PipelineQueue, PipelineStage, QueueHealth};
 pub mod hunt;
@@ -62,15 +62,6 @@ pub use channel::{
     Vdl2Params, VorParams, WfmParams, WsjtParams, WsprParams, YsfParams, home_frequency_hz,
     param_limits, retired_channel_type,
 };
-pub use coherent::{
-    ArrayElement, ArrayGeometry, CalParams, CalSource, CalState, CfarParams, CoherentParams,
-    CombineMode, CombinerParams, DF_SPECTRUM_POINTS, DfAlgorithm, DfBearing, DfEstimate,
-    DfFusionState, DfGuidance, DfParams, DfReading, DfStation, EcaParams, GuidanceMode,
-    Illuminator, LaneCal, MAX_ARRAY_ELEMENTS, MAX_ARRAY_EXTENT_M, MAX_CPI_MS, MAX_DF_BANDWIDTH_HZ,
-    MAX_DF_REPORT_MS, MAX_RANGE_BINS, MAX_STATION_ID_LEN, MIN_ARRAY_ELEMENTS, MIN_CPI_MS,
-    MIN_DF_BANDWIDTH_HZ, MIN_DF_REPORT_MS, NavTarget, NavTargetKind, PassiveRadarParams,
-    RadarDetection, StitchMode, StitchParams,
-};
 pub use cps::{
     ALL_CALL_NUMBER, Admit, Bandwidth, CODEPLUG_VERSION, ChannelKind, ChannelMode, Codeplug,
     CodeplugCounts, CodeplugMeta, Contact, ContactKind, ConversionIssue, ConversionReport,
@@ -95,12 +86,12 @@ pub use decode::{
     WsjtMessage, WsprSpot,
 };
 pub use device::{
-    ARRAY_DRIVER_ID, Agc, AgcGain, AgcReach, AgcSetting, ArgumentInfo, ArgumentOption,
-    ArgumentType, ArrayDefinition, BandwidthSetting, Capabilities, ChannelCapabilities, Coherence,
-    DcArtifact, DeviceInfo, DeviceProfile, DeviceSettings, Direction, DirectionalCapabilities,
-    Duplex, ExtraSetting, ExtraValue, GainKind, GainStage, GainUnit, GainValue, MAX_ARRAY_KEY_LEN,
-    MAX_ARRAY_MEMBERS, MAX_RECORDING_STEM_LEN, RECORDING_DRIVER_ID, Range, SIGGEN_DRIVER_ID,
-    StreamScope, StreamSettings, Tuning, any_range_holds, recording_stem_valid,
+    Agc, AgcGain, AgcReach, AgcSetting, ArgumentInfo, ArgumentOption, ArgumentType,
+    BandwidthSetting, Capabilities, ChannelCapabilities, Coherence, DcArtifact, DeviceInfo,
+    DeviceProfile, DeviceSettings, Direction, DirectionalCapabilities, Duplex, ExtraSetting,
+    ExtraValue, GainKind, GainStage, GainUnit, GainValue, MAX_RECORDING_STEM_LEN,
+    RECORDING_DRIVER_ID, Range, SIGGEN_DRIVER_ID, StreamScope, StreamSettings, Tuning,
+    any_range_holds, recording_stem_valid,
 };
 pub use diagnostics::{DiagnosticsReport, LogLevel, LogLine, MAX_LOG_LINES, MAX_LOG_MESSAGE_LEN};
 pub use doctor::{CheckStatus, DoctorCheck, DoctorReport};
@@ -117,6 +108,10 @@ pub use frame::{
     AudioFrame, FrameKind, HEADER_LEN, IqFrame, PROTOCOL_VERSION, RangeDopplerFrame, SpectrumFrame,
     SymbolFrame, SymbolPlane, VideoData, VideoFrame, typescript_frames,
 };
+pub use fusion::{
+    DfBearing, DfEstimate, DfFusionState, DfGuidance, DfStation, GuidanceMode, NavTarget,
+    NavTargetKind,
+};
 pub use hunt::{HuntAction, HuntRequest, HuntSettings, HuntStatus};
 pub use network::{
     ChannelNetworkExportRequest, MAX_NETWORK_ADDRESS_LEN, NetworkExportAction, NetworkExportNode,
@@ -124,17 +119,16 @@ pub use network::{
     NetworkTransport,
 };
 pub use patch::{
-    ArrayNode, ChannelNode, CombinerNode, DEFAULT_DMR_PROBES, DEFAULT_SIGNAL_MAP_BANDWIDTH_HZ,
-    DEFAULT_SIGNAL_MAP_OFFSET_HZ, DF_BEAM_PORT, DV_DECODER_KIND, DeviceNode, DeviceRef, DfNode,
-    DmrChannelEntry, DmrDiscovery, DmrSearchRange, DmrTrunkNode, DmrTrunkProtocol,
-    MAX_DMR_CHANNEL_MAP, MAX_DMR_LOGICAL_CHANNEL, MAX_DMR_PROBES, MAX_DMR_SEARCH_CANDIDATES,
-    MAX_DMR_SEARCH_RANGES, MAX_EDGES, MAX_NODES, MAX_SIGNAL_MAP_BANDWIDTH_HZ,
-    MAX_SIGNAL_MAP_OFFSET_HZ, MAX_STREAMS, MIN_DMR_SEARCH_STEP_HZ, NodeBody, NodeCategory,
-    NodeTypeInfo, PassiveRadarNode, PatchCatalog, PatchEdge, PatchError, PatchGraph, PatchNode,
-    PortBacking, PortCondition, PortDirection, PortRef, PortRepeat, PortSpec, PortType, Position,
-    RACK_COLS, RACK_ROWS, RADAR_REFERENCE_PORT, RADAR_SURVEILLANCE_PORT, RackCell, RackLayout,
-    RackSlot, RecorderNode, RecordingNode, STITCH_WIDE_PORT, SignalGenNode, SignalMapNode, Size,
-    StitchNode, port_stream, siggen_key, stream_port,
+    ChannelNode, DEFAULT_DMR_PROBES, DEFAULT_SIGNAL_MAP_BANDWIDTH_HZ, DEFAULT_SIGNAL_MAP_OFFSET_HZ,
+    DV_DECODER_KIND, DeviceNode, DeviceRef, DmrChannelEntry, DmrDiscovery, DmrSearchRange,
+    DmrTrunkNode, DmrTrunkProtocol, MAX_DMR_CHANNEL_MAP, MAX_DMR_LOGICAL_CHANNEL, MAX_DMR_PROBES,
+    MAX_DMR_SEARCH_CANDIDATES, MAX_DMR_SEARCH_RANGES, MAX_EDGES, MAX_NODES,
+    MAX_SIGNAL_MAP_BANDWIDTH_HZ, MAX_SIGNAL_MAP_OFFSET_HZ, MAX_STREAMS, MIN_DMR_SEARCH_STEP_HZ,
+    NodeBody, NodeCategory, NodeTypeInfo, PatchCatalog, PatchEdge, PatchError, PatchGraph,
+    PatchNode, PortBacking, PortCondition, PortDirection, PortRef, PortRepeat, PortSpec, PortType,
+    Position, RACK_COLS, RACK_ROWS, RackCell, RackLayout, RackSlot, RecorderNode, RecordingNode,
+    STITCH_WIDE_PORT, SignalGenNode, SignalMapNode, Size, TriangulationNode, port_stream,
+    siggen_key, stream_port,
 };
 pub use position::{
     DEFAULT_GPSD_ADDRESS, DEFAULT_NMEA_BAUD, DEFAULT_NMEA_UPDATE_INTERVAL_MS, GpsNode,
@@ -171,9 +165,9 @@ pub use scan::{
     ScannerStatus,
 };
 pub use state::{
-    AudioRecordingStatus, ChannelLevel, DeviceFault, DeviceSet, DeviceSetStatus, ExtraLane,
-    PlaybackStatus, RecordingStatus, SettingsRefused, StateSnapshot, TrunkChannel,
-    TrunkChannelSource, TrunkControl, TrunkFollower, TrunkProbe, TrunkProblem, TrunkSystemStatus,
+    AudioRecordingStatus, ChannelLevel, DeviceFault, DeviceSet, DeviceSetStatus, PlaybackStatus,
+    RecordingStatus, SettingsRefused, StateSnapshot, TrunkChannel, TrunkChannelSource,
+    TrunkControl, TrunkFollower, TrunkProbe, TrunkProblem, TrunkSystemStatus,
 };
 pub use timemachine::{
     DEFAULT_TIME_MACHINE_SECONDS, MAX_TIME_MACHINE_BYTES, MAX_TIME_MACHINE_SECONDS,
@@ -861,7 +855,6 @@ mod contract_tests {
             scanners: Vec::new(),
             hunts: Vec::new(),
             playback: None,
-            extra_lane: None,
             agc_gains: Vec::new(),
         }
     }

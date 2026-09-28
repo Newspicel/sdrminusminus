@@ -378,6 +378,28 @@ async fn video_lifecycle_shares_the_media_id_space_and_refuses_silent_channels()
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn a_surface_nothing_draws_is_refused_out_loud() {
+    let mut ws = connect(test_engine()).await;
+    assert!(matches!(
+        next_event(&mut ws).await,
+        ServerEvent::Hello { .. }
+    ));
+    send(
+        &mut ws,
+        &ClientCommand::SubscribeSurface {
+            node: "radar".to_owned(),
+        },
+    )
+    .await;
+    match next_event(&mut ws).await {
+        ServerEvent::Error { message } => {
+            assert_eq!(message, "radar produces no surface");
+        }
+        other => panic!("expected a refusal, got {other:?}"),
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn two_lanes_of_one_radio_stream_independently() {
     let engine = test_engine();
     let ds = engine

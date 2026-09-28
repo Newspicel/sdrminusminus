@@ -303,6 +303,7 @@ const MIGRATIONS: &[&str] = &[
         offset_hz REAL
     ) WITHOUT ROWID;
     ",
+    "DELETE FROM decoder_log WHERE kind = 'radar';",
 ];
 
 pub const WORKSPACE_HISTORY_DEPTH: i64 = 100;

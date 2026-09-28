@@ -71,7 +71,7 @@ import type { Bookmark, ChannelInfo, ChannelParams, DeviceSet, PatchNode } from 
 import { useBandPlan } from "../../lib/useBandPlan";
 import { useChannelPatch } from "../../lib/useChannelPatch";
 import { useRadioTune } from "../../lib/useRadioTune";
-import { channelNodesOf, type IqLane, iqSourceOf, tunedStream } from "../binding";
+import { channelNodesOf, type IqLane, iqSourceOf } from "../binding";
 import { useWorkspaceContext } from "../context";
 import {
   addEdge,
@@ -140,7 +140,7 @@ interface Gesture {
 export function ScopeFace({ node }: { node: PatchNode }) {
   const workspace = useWorkspaceContext();
   const set = deviceSetOf(workspace, node.id);
-  const source = iqSourceOf(workspace.graph, node.id, workspace.devices);
+  const source = iqSourceOf(workspace.graph, node.id);
   return (
     <NodeShell node={node} title="Scope" category="output">
       <FaceBody scroll={false}>
@@ -153,7 +153,6 @@ export function ScopeFace({ node }: { node: PatchNode }) {
 function Spectrum({ set, source }: { set: DeviceSet | null; source: IqLane | null }) {
   const workspace = useWorkspaceContext();
   const stream = source?.stream ?? 0;
-  const tuned = source === null ? 0 : tunedStream(source);
   const setId = set?.id ?? null;
   const channels = useMemo(
     () => streamChannels(set?.channels ?? NO_CHANNELS, stream),
@@ -229,7 +228,7 @@ function Spectrum({ set, source }: { set: DeviceSet | null; source: IqLane | nul
   const deviceNode = source?.source;
   const onStream = new Set(channels.map((channel) => channel.id));
   if (deviceNode !== undefined) {
-    for (const wired of channelNodesOf(workspace.graph, deviceNode, workspace.devices)) {
+    for (const wired of channelNodesOf(workspace.graph, deviceNode)) {
       const channel = workspace.channels.get(wired.node.id);
       const carried = (workspace.owners.get(wired.node.id) ?? deviceNode) === deviceNode;
       if (carried && wired.stream === stream && channel !== undefined && onStream.has(channel.id)) {
@@ -245,8 +244,8 @@ function Spectrum({ set, source }: { set: DeviceSet | null; source: IqLane | nul
   }
   const locked = lockedChannels(workspace.graph, faces);
   const heldChannel = (channel: number): boolean => owners.has(channel) || locked.has(channel);
-  const centerHeld = deviceNode !== undefined && tuningLocked(workspace.graph, deviceNode, tuned);
-  const onAuto = set !== null && autoTuning(set, tuned);
+  const centerHeld = deviceNode !== undefined && tuningLocked(workspace.graph, deviceNode, stream);
+  const onAuto = set !== null && autoTuning(set, stream);
 
   const workspaceChannel = [...faces].find(([, id]) => id === workspace.selected)?.[0] ?? null;
   const selectedChannel =
@@ -266,7 +265,7 @@ function Spectrum({ set, source }: { set: DeviceSet | null; source: IqLane | nul
     if (set === null || centerHeld) {
       return;
     }
-    tuneRadio(set, tuned, hz);
+    tuneRadio(set, stream, hz);
   };
   const tuneChannel = (channel: number, frequencyHz: number): void => {
     if (setId === null || heldChannel(channel)) {
@@ -281,7 +280,7 @@ function Spectrum({ set, source }: { set: DeviceSet | null; source: IqLane | nul
       tuneCenter(hz);
       return;
     }
-    const held = set === null || !autoTuning(set, tuned);
+    const held = set === null || !autoTuning(set, stream);
     if (held && (meta === null || Math.abs(hz - meta.centerHz) >= meta.spanHz / 2)) {
       tuneCenter(hz);
     }
@@ -328,10 +327,7 @@ function Spectrum({ set, source }: { set: DeviceSet | null; source: IqLane | nul
           position: placeNode(snapshot.graph, "channel"),
         }),
         {
-          from:
-            source?.beam === undefined
-              ? { node: deviceNode, port: streamPort("iq", stream) }
-              : { node: source.beam.node, port: source.beam.port },
+          from: { node: deviceNode, port: streamPort("iq", stream) },
           to: { node: id, port: "iq" },
         },
       ),

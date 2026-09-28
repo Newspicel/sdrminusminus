@@ -4,7 +4,7 @@ use std::{
 };
 
 use sdrmm_wire::{
-    DfEstimate, DfFusionState, DfGuidance, DfReading, DfStation, GuidanceMode, NavTarget,
+    DfBearing, DfEstimate, DfFusionState, DfGuidance, DfStation, GuidanceMode, NavTarget,
     NavTargetKind, PositionFix,
 };
 
@@ -313,8 +313,7 @@ pub(crate) struct FusionHub {
     nodes: Mutex<HashMap<String, NodeFusion>>,
 }
 
-/// What one new bearing changed: the state to publish, and whether this was the moment the fix
-/// closed up: the one worth telling everyone about.
+#[cfg_attr(not(test), expect(dead_code))]
 pub(crate) struct FusionOutcome {
     pub(crate) state: DfFusionState,
     pub(crate) first_fix: Option<DfEstimate>,
@@ -347,17 +346,17 @@ impl FusionHub {
         })
     }
 
-    /// Folds in a bearing one of the wired finders measured, from wherever it was standing.
+    #[cfg_attr(not(test), expect(dead_code))]
     pub(crate) fn observe(
         &self,
         node: &str,
         station: &str,
-        reading: &DfReading,
+        bearing: &DfBearing,
         fix: Option<&PositionFix>,
         at: &str,
     ) -> Option<FusionOutcome> {
         let fix = fix?;
-        if reading.confidence <= 0.0 {
+        if bearing.confidence <= 0.0 {
             return None;
         }
         let mut nodes = self.lock();
@@ -366,12 +365,12 @@ impl FusionHub {
         fusion.grid.paint(
             fix.latitude,
             fix.longitude,
-            f64::from(reading.bearing_deg),
-            reading.confidence,
+            f64::from(bearing.bearing_deg),
+            bearing.confidence,
         );
         fusion.see(station, fix.latitude, fix.longitude, at);
         let estimate = fusion.grid.estimate();
-        let guidance = guidance(fix, f64::from(reading.bearing_deg), estimate);
+        let guidance = guidance(fix, f64::from(bearing.bearing_deg), estimate);
         fusion.guidance = Some(guidance);
         let first_fix = match estimate {
             Some(estimate) if estimate.converged && !fusion.announced => {
@@ -417,12 +416,13 @@ mod tests {
         }
     }
 
-    fn reading(bearing_deg: f32) -> DfReading {
-        DfReading {
+    fn reading(bearing_deg: f32) -> DfBearing {
+        DfBearing {
             bearing_deg,
             confidence: 0.9,
-            peak_to_floor_db: 20.0,
-            pseudospectrum: vec![0; 360],
+            lat: None,
+            lon: None,
+            station_id: None,
         }
     }
 
@@ -592,5 +592,40 @@ mod tests {
                 .is_none()
         );
         assert!(hub.state("cross").is_none());
+    }
+
+    #[test]
+    fn a_fix_that_closes_up_is_announced_once() {
+        let hub = FusionHub::default();
+        let target = destination(HOME.0, HOME.1, 45.0, 6_000.0);
+        let stations: Vec<(f64, f64)> = [0.0f64, 120.0, 240.0]
+            .iter()
+            .map(|offset| destination(target.0, target.1, *offset, 3_000.0))
+            .collect();
+        let mut announced = Vec::new();
+        for round in 0..20 {
+            for from in &stations {
+                let exact = DfBearing {
+                    confidence: 1.0,
+                    ..reading(bearing_between(*from, target) as f32)
+                };
+                let outcome = hub
+                    .observe(
+                        "cross",
+                        "roof",
+                        &exact,
+                        Some(&fix(from.0, from.1, None)),
+                        AT,
+                    )
+                    .expect("a fix and a bearing");
+                if let Some(first) = outcome.first_fix {
+                    announced.push((round, first));
+                }
+            }
+        }
+        assert_eq!(announced.len(), 1, "{announced:?}");
+        let (_, first) = announced[0];
+        assert!(first.converged);
+        assert!(distance_m((first.lat, first.lon), target) < CONVERGED_M);
     }
 }

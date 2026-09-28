@@ -52,7 +52,6 @@ export const KIND_LABELS: Record<DecoderKind, string> = {
   dect: "DECT",
   df: "Bearing",
   df_fix: "Fix",
-  radar: "Radar",
 };
 
 export const DECODER_KINDS = Object.keys(KIND_LABELS) as DecoderKind[];

@@ -30,9 +30,6 @@ pub(crate) fn adopt_named_devices(engine: &Engine, store: &Store) {
             continue;
         };
         for node in detail.snapshot.graph.device_nodes() {
-            if matches!(node.body, NodeBody::Array(_)) {
-                continue;
-            }
             let Some(reference) = node.body.device_ref(&node.id) else {
                 continue;
             };
@@ -42,35 +39,6 @@ pub(crate) fn adopt_named_devices(engine: &Engine, store: &Store) {
             }
         }
     }
-}
-
-pub(crate) fn describe_arrays(engine: &Engine, graph: &PatchGraph) {
-    let state = engine.snapshot();
-    let bound = bind_devices(graph, &state);
-    let definitions = graph
-        .nodes
-        .iter()
-        .filter_map(|node| {
-            let NodeBody::Array(array) = &node.body else {
-                return None;
-            };
-            let members = graph
-                .array_members(&node.id)
-                .iter()
-                .map(|member| {
-                    let (_, id) = bound.iter().find(|(node, _)| node == member)?;
-                    state
-                        .device_sets
-                        .iter()
-                        .find(|set| set.id == *id)
-                        .map(|set| set.device.id())
-                })
-                .collect::<Option<Vec<_>>>()?;
-            Some(array.definition(&node.id, node.label.as_deref(), members))
-        })
-        .filter(sdrmm_wire::ArrayDefinition::valid)
-        .collect();
-    engine.arrays().replace(definitions);
 }
 
 pub(crate) fn bind_devices(graph: &PatchGraph, state: &StateSnapshot) -> Vec<(String, u32)> {
@@ -88,37 +56,6 @@ pub(crate) fn bind_devices(graph: &PatchGraph, state: &StateSnapshot) -> Vec<(St
         {
             claimed.push(set.id);
             bound.push((node.id.clone(), set.id));
-        }
-    }
-    bound
-}
-
-/// Channels wired to a direction finder's beam rather than to an antenna, which sit on the lane
-/// one past the radio's own.
-fn beam_bound(graph: &PatchGraph, device_node: &str, set: &DeviceSet) -> Vec<(String, u32)> {
-    let mut bound = Vec::new();
-    for node in &graph.nodes {
-        if node.body.lane_output().is_none() {
-            continue;
-        }
-        let from_device = graph
-            .edges
-            .iter()
-            .any(|edge| edge.to.node == node.id && edge.from.node == device_node);
-        if !from_device {
-            continue;
-        }
-        for listener in crate::coherent::beam_listeners(graph, &node.id) {
-            let Some(NodeBody::Channel(wanted)) = graph.node(&listener).map(|node| &node.body)
-            else {
-                continue;
-            };
-            if let Some(channel) = set.channels.iter().find(|channel| {
-                channel.node.as_deref() == Some(listener.as_str())
-                    && carries(channel, &wanted.channel_type, set.capabilities.rx_streams)
-            }) {
-                bound.push((listener, channel.id));
-            }
         }
     }
     bound
@@ -172,7 +109,6 @@ pub(crate) fn bind_channels(
             bound.push(((*node).to_owned(), free.remove(at).id));
         }
     }
-    bound.extend(beam_bound(graph, device_node, set));
     bound
 }
 
@@ -506,7 +442,6 @@ pub(crate) fn reconcile(
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
         .clear();
-    crate::coherent::drop_undrawn(state, incoming);
 
     for set in &snapshot.device_sets {
         if bindings.iter().any(|bound| bound.device_set == set.id) {
@@ -939,7 +874,6 @@ mod tests {
             scanners: Vec::new(),
             hunts: Vec::new(),
             playback: None,
-            extra_lane: None,
             agc_gains: Vec::new(),
         }
     }

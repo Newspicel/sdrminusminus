@@ -8,8 +8,6 @@ use std::{
 };
 
 use arc_swap::ArcSwap;
-use num_complex::Complex;
-use sdrmm_device::RxSink;
 
 use super::{
     ChannelHost, DspCommand, DspMeta, FFT_SIZE, dsp_block_len,
@@ -54,22 +52,6 @@ pub(super) struct LaneShared {
     pub(super) max_age: Duration,
 }
 
-struct ArrayOutput {
-    id: u32,
-    sink: RxSink,
-    next: Option<u64>,
-}
-
-impl ArrayOutput {
-    fn push(&mut self, samples: &[Complex<f32>], index: u64) {
-        if let Some(next) = self.next {
-            self.sink.dropped(index.saturating_sub(next));
-        }
-        self.next = Some(index + samples.len() as u64);
-        self.sink.push(samples);
-    }
-}
-
 pub(super) enum Retired {
     Subbands(Box<Subbands>),
     Monitor(Box<crate::monitor::MonitorTap>),
@@ -112,7 +94,6 @@ pub(super) fn dsp_loop(
     let mut frame_average = FrameAverage::new(FFT_SIZE);
     let mut averaged = vec![0.0f32; FFT_SIZE];
     let mut channels: Vec<(u32, Box<ChannelHost>)> = Vec::new();
-    let mut arrays: Vec<ArrayOutput> = Vec::new();
     let mut monitors = Vec::with_capacity(128);
     let mut tap: Option<RecorderTap> = None;
     let mut recording_publisher: Option<RecordingPublisher> = None;
@@ -128,7 +109,6 @@ pub(super) fn dsp_loop(
         drain_commands(
             commands,
             &mut channels,
-            &mut arrays,
             &mut subbands,
             CommandSinks {
                 monitors: &mut monitors,
@@ -156,9 +136,6 @@ pub(super) fn dsp_loop(
             subbands.process(slice, total);
             for (_, monitor) in &mut monitors {
                 monitor.push(slice, total, snapshot);
-            }
-            for array in &mut arrays {
-                array.push(slice, total);
             }
             if tap.as_ref().is_some_and(|t| {
                 recording_publisher
@@ -239,7 +216,6 @@ struct CommandSinks<'a> {
 fn drain_commands(
     commands: &mpsc::Receiver<DspCommand>,
     channels: &mut Vec<(u32, Box<ChannelHost>)>,
-    arrays: &mut Vec<ArrayOutput>,
     subbands: &mut Box<Subbands>,
     sinks: CommandSinks<'_>,
     retirement: &mut Reclaimer<Retired>,
@@ -271,15 +247,6 @@ fn drain_commands(
             DspCommand::SetSubbands(bands) => {
                 retirement.retire(Retired::Subbands(std::mem::replace(subbands, bands)));
             }
-            DspCommand::ConnectArray { id, sink } => {
-                arrays.retain(|array| array.id != id);
-                arrays.push(ArrayOutput {
-                    id,
-                    sink,
-                    next: None,
-                });
-            }
-            DspCommand::DisconnectArray { id } => arrays.retain(|array| array.id != id),
             DspCommand::AddChannel {
                 id,
                 mut host,
@@ -392,16 +359,15 @@ fn drain_commands(
                     retirement.retire(Retired::History(old));
                 }
             }
+            #[cfg(test)]
+            DspCommand::Hold(hold) => hold(),
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use tokio::sync::broadcast;
-
     use super::*;
-    use crate::{capture_ring::capture_ring, spectrum::SpectrumPlan};
 
     #[test]
     fn each_published_frame_averages_the_transforms_that_fit_its_period() {
@@ -466,89 +432,5 @@ mod tests {
             worst,
             "a short gap must not erase the worst one"
         );
-    }
-
-    #[test]
-    fn array_forwarding_keeps_buffered_samples_before_a_later_overflow_gap() {
-        let (mut producer, mut consumer) = capture_ring(8);
-        let (commands, command_rx) = mpsc::channel();
-        let (received, output) = mpsc::channel();
-        let (release, blocked) = mpsc::channel();
-        let stop = Arc::new(AtomicBool::new(false));
-        let waker = Arc::new(Waker::default());
-        let shared = LaneShared {
-            meta: Arc::new(ArcSwap::from_pointee(DspMeta {
-                center_hz: 100e6,
-                sample_rate: 48_000.0,
-                dc_block: false,
-            })),
-            stop: stop.clone(),
-            stalled_us: Arc::new(AtomicU64::new(0)),
-            waker: waker.clone(),
-            max_age: Duration::MAX,
-        };
-        let mut first = true;
-        commands
-            .send(DspCommand::ConnectArray {
-                id: 1,
-                sink: RxSink::new(move |samples, index| {
-                    if samples.is_empty() {
-                        return;
-                    }
-                    received
-                        .send((index, samples.to_vec()))
-                        .expect("receive array block");
-                    if first {
-                        first = false;
-                        blocked
-                            .recv_timeout(Duration::from_secs(5))
-                            .expect("release DSP");
-                    }
-                }),
-            })
-            .expect("connect array");
-        assert_eq!(producer.push(&[Complex::new(0.0, 0.0); 2], 0), 2);
-        let (spectrum, _) = broadcast::channel(8);
-        let publisher = SpectrumPublisher::new(spectrum, FFT_SIZE).expect("publisher");
-        let worker = std::thread::spawn(move || {
-            shared.waker.adopt_current();
-            dsp_loop(
-                &mut consumer,
-                &command_rx,
-                &shared,
-                SpectrumPlan::new(FFT_SIZE, 1).analyzer(),
-                publisher,
-                Reclaimer::new(Retired::release).expect("retirement"),
-            );
-        });
-        let initial = output
-            .recv_timeout(Duration::from_secs(5))
-            .expect("DSP is blocked");
-        let input: Vec<_> = (2..12)
-            .map(|index| Complex::new(index as f32, 0.0))
-            .collect();
-        let count = producer.push(&input, 2);
-        release.send(()).expect("resume DSP");
-        waker.wake();
-        let buffered = output
-            .recv_timeout(Duration::from_secs(5))
-            .expect("buffered array samples");
-        let following = [Complex::new(12.0, 0.0), Complex::new(13.0, 0.0)];
-        assert_eq!(producer.push(&following, 12), following.len());
-        waker.wake();
-        let after_gap = output
-            .recv_timeout(Duration::from_secs(5))
-            .expect("samples after the gap");
-        stop.store(true, Ordering::Release);
-        waker.wake();
-        worker.join().expect("DSP exits");
-        assert_eq!(initial.0, 0);
-        assert_eq!(count, 6);
-        assert_eq!(buffered.1, input[..count]);
-        assert_eq!(
-            buffered.0, 2,
-            "the dropped tail must not shift the buffered prefix"
-        );
-        assert_eq!(after_gap, (12, following.to_vec()));
     }
 }

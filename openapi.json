@@ -549,104 +549,6 @@
         }
       }
     },
-    "/api/coherent/{node}/calibrate": {
-      "post": {
-        "operationId": "calibrate_coherent",
-        "parameters": [
-          {
-            "name": "node",
-            "in": "path",
-            "description": "Patch node id of the coherent processor",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "The calibration will be solved again from scratch"
-          },
-          "400": {
-            "description": "The radio cannot calibrate",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "No coherent node of that name is running",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/coherent/{node}/fusion": {
-      "get": {
-        "operationId": "get_fusion",
-        "parameters": [
-          {
-            "name": "node",
-            "in": "path",
-            "description": "Patch node id of the direction finder",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Where the bearings so far say the transmitter is",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/DfFusionState"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Nothing has been fused for that node",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          }
-        }
-      },
-      "delete": {
-        "operationId": "reset_fusion",
-        "parameters": [
-          {
-            "name": "node",
-            "in": "path",
-            "description": "Patch node id of the direction finder",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "204": {
-            "description": "The grid is empty again"
-          }
-        }
-      }
-    },
     "/api/cps/codeplugs": {
       "post": {
         "operationId": "create_cps_codeplug",
@@ -2690,6 +2592,63 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "/api/fusion/{node}": {
+      "get": {
+        "operationId": "get_fusion",
+        "parameters": [
+          {
+            "name": "node",
+            "in": "path",
+            "description": "Triangulation node id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Where the bearings so far say the transmitter is",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DfFusionState"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Nothing has been fused for that node",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "operationId": "reset_fusion",
+        "parameters": [
+          {
+            "name": "node",
+            "in": "path",
+            "description": "Triangulation node id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "The grid is empty again"
           }
         }
       }
@@ -5340,127 +5299,6 @@
           "string"
         ]
       },
-      "ArrayElement": {
-        "type": "object",
-        "required": [
-          "x_m",
-          "y_m"
-        ],
-        "properties": {
-          "x_m": {
-            "type": "number",
-            "format": "double"
-          },
-          "y_m": {
-            "type": "number",
-            "format": "double"
-          }
-        }
-      },
-      "ArrayGeometry": {
-        "oneOf": [
-          {
-            "type": "object",
-            "description": "A circle of evenly spaced elements, element zero due north.",
-            "required": [
-              "radius_m",
-              "count",
-              "kind"
-            ],
-            "properties": {
-              "count": {
-                "type": "integer",
-                "format": "int32",
-                "minimum": 0
-              },
-              "kind": {
-                "type": "string",
-                "enum": [
-                  "uca"
-                ]
-              },
-              "radius_m": {
-                "type": "number",
-                "format": "double"
-              }
-            }
-          },
-          {
-            "type": "object",
-            "description": "A straight line laid out east–west, centred on the operator's position.",
-            "required": [
-              "spacing_m",
-              "count",
-              "kind"
-            ],
-            "properties": {
-              "count": {
-                "type": "integer",
-                "format": "int32",
-                "minimum": 0
-              },
-              "kind": {
-                "type": "string",
-                "enum": [
-                  "ula"
-                ]
-              },
-              "spacing_m": {
-                "type": "number",
-                "format": "double"
-              }
-            }
-          },
-          {
-            "type": "object",
-            "description": "Anything else, one position per lane in metres east and north of the array centre.",
-            "required": [
-              "positions",
-              "kind"
-            ],
-            "properties": {
-              "kind": {
-                "type": "string",
-                "enum": [
-                  "explicit"
-                ]
-              },
-              "positions": {
-                "type": "array",
-                "items": {
-                  "$ref": "#/components/schemas/ArrayElement"
-                }
-              }
-            }
-          }
-        ],
-        "description": "Where the elements are, in the terms an operator can measure with a tape."
-      },
-      "ArrayNode": {
-        "type": "object",
-        "description": "A bank of separate radios the operator has wired to one clock, standing on the canvas as the\none radio they add up to.\n\nNothing here is discovered: which radios belong together, and whether their clock alone is\nshared or their synthesizer too, is a fact about the bench that only the operator knows.",
-        "properties": {
-          "coherence": {
-            "oneOf": [
-              {
-                "$ref": "#/components/schemas/Coherence"
-              }
-            ],
-            "default": "time_sync"
-          },
-          "members": {
-            "type": "integer",
-            "format": "int32",
-            "description": "How many radios are wired in. The node always draws one more input than that, so there is\nsomewhere to put the next one.",
-            "default": 0,
-            "minimum": 0
-          },
-          "shared_tuning": {
-            "type": "boolean",
-            "default": true
-          }
-        }
-      },
       "Attribution": {
         "type": "object",
         "required": [
@@ -6440,78 +6278,6 @@
           "drm_plus"
         ]
       },
-      "CalParams": {
-        "type": "object",
-        "properties": {
-          "bandwidth_hz": {
-            "type": "number",
-            "format": "double",
-            "description": "The width around the tuned centre the solve looks at.",
-            "default": 200000.0
-          },
-          "pilot_hz": {
-            "type": [
-              "number",
-              "null"
-            ],
-            "format": "double",
-            "description": "A continuous carrier that lets a time-synced array re-solve phase after every retune.\nWithout one such an array reports `phase_unknown` and refuses to guess a bearing.",
-            "default": null
-          },
-          "source": {
-            "oneOf": [
-              {
-                "$ref": "#/components/schemas/CalSource"
-              }
-            ],
-            "default": "signal"
-          },
-          "track": {
-            "type": "boolean",
-            "description": "Whether the solution keeps being refined once it is good, rather than being frozen.",
-            "default": true
-          }
-        }
-      },
-      "CalSource": {
-        "type": "string",
-        "enum": [
-          "signal",
-          "noise"
-        ]
-      },
-      "CalState": {
-        "type": "object",
-        "description": "What the calibration currently knows, published whether or not it is good news.",
-        "required": [
-          "tier",
-          "lanes",
-          "phase_unknown",
-          "solved"
-        ],
-        "properties": {
-          "lanes": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/LaneCal"
-            }
-          },
-          "phase_unknown": {
-            "type": "boolean",
-            "description": "Set when inter-lane phase cannot be trusted: a time-synced array with no pilot to\nre-solve against. Everything that depends on phase stays off while it is set."
-          },
-          "reference_on": {
-            "type": "boolean",
-            "description": "Set while the radio's own reference is switched into the lanes. The array is looking at\nitself rather than at the air, so nothing it reads in that moment is a report about the\nworld and none is published."
-          },
-          "solved": {
-            "type": "boolean"
-          },
-          "tier": {
-            "$ref": "#/components/schemas/Coherence"
-          }
-        }
-      },
       "Capabilities": {
         "type": "object",
         "required": [
@@ -6738,52 +6504,6 @@
           },
           "tle": {
             "type": "string"
-          }
-        }
-      },
-      "CfarParams": {
-        "type": "object",
-        "properties": {
-          "guard_doppler": {
-            "type": "integer",
-            "format": "int32",
-            "default": 1,
-            "minimum": 0
-          },
-          "guard_range": {
-            "type": "integer",
-            "format": "int32",
-            "default": 2,
-            "minimum": 0
-          },
-          "min_snr_db": {
-            "type": "number",
-            "format": "float",
-            "default": 6.0
-          },
-          "probability_false_alarm": {
-            "type": "number",
-            "format": "float",
-            "default": 0.00009999999747378752
-          },
-          "train_doppler": {
-            "type": "integer",
-            "format": "int32",
-            "default": 4,
-            "minimum": 0
-          },
-          "train_range": {
-            "type": "integer",
-            "format": "int32",
-            "default": 8,
-            "minimum": 0
-          },
-          "zero_doppler_guard": {
-            "type": "integer",
-            "format": "int32",
-            "description": "Doppler rows either side of zero that are never reported: the direct path and the ground\nlive there, and neither is a target.",
-            "default": 1,
-            "minimum": 0
           }
         }
       },
@@ -8690,73 +8410,6 @@
           "phase_coherent"
         ]
       },
-      "CombineMode": {
-        "type": "string",
-        "enum": [
-          "diversity",
-          "cancel"
-        ]
-      },
-      "CombinerNode": {
-        "type": "object",
-        "description": "A bank of antennas added into one signal: either to hear better, or to stop hearing something.",
-        "properties": {
-          "settings": {
-            "$ref": "#/components/schemas/CombinerParams"
-          }
-        }
-      },
-      "CombinerParams": {
-        "type": "object",
-        "properties": {
-          "bandwidth_hz": {
-            "type": "number",
-            "format": "double",
-            "default": 200000.0
-          },
-          "cal": {
-            "oneOf": [
-              {
-                "$ref": "#/components/schemas/CalParams"
-              }
-            ],
-            "default": {
-              "bandwidth_hz": 200000.0,
-              "pilot_hz": null,
-              "source": "signal",
-              "track": true
-            }
-          },
-          "lanes": {
-            "type": "integer",
-            "format": "int32",
-            "description": "How many antennas are wired in. Lane zero is the one pointed at what you want.",
-            "default": 2,
-            "minimum": 0
-          },
-          "mode": {
-            "oneOf": [
-              {
-                "$ref": "#/components/schemas/CombineMode"
-              }
-            ],
-            "default": "diversity"
-          },
-          "offset_hz": {
-            "type": "number",
-            "format": "double",
-            "description": "Where in the tuned span the signal of interest sits, and how much of it to take.",
-            "default": 0.0
-          },
-          "update_ms": {
-            "type": "integer",
-            "format": "int32",
-            "description": "How often the weights are solved again. A scene that changes wants this short; one that\ndoes not wants it long, because every solve is an estimate off a finite window.",
-            "default": 500,
-            "minimum": 0
-          }
-        }
-      },
       "ComponentSource": {
         "type": "string",
         "enum": [
@@ -10619,24 +10272,6 @@
             ],
             "properties": {
               "data": {
-                "$ref": "#/components/schemas/RadarDetection"
-              },
-              "kind": {
-                "type": "string",
-                "enum": [
-                  "radar"
-                ]
-              }
-            }
-          },
-          {
-            "type": "object",
-            "required": [
-              "data",
-              "kind"
-            ],
-            "properties": {
-              "data": {
                 "$ref": "#/components/schemas/DectFrame"
               },
               "kind": {
@@ -11361,16 +10996,6 @@
               "null"
             ]
           },
-          "extra_lane": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/ExtraLane"
-              }
-            ]
-          },
           "fault": {
             "oneOf": [
               {
@@ -11584,16 +11209,8 @@
           }
         }
       },
-      "DfAlgorithm": {
-        "type": "string",
-        "enum": [
-          "correlative",
-          "music"
-        ]
-      },
       "DfBearing": {
         "type": "object",
-        "description": "One bearing as an event, so it reaches the map, the log and every event output the same way a\ndecoded packet does, and so a remote station's webhook can post one straight into a\ncentral fusion grid.",
         "required": [
           "bearing_deg",
           "confidence"
@@ -11631,7 +11248,6 @@
       },
       "DfEstimate": {
         "type": "object",
-        "description": "Where the fusion grid says the transmitter is, and how sure of itself it is.",
         "required": [
           "lat",
           "lon",
@@ -11733,127 +11349,6 @@
           },
           "nav_target": {
             "$ref": "#/components/schemas/NavTarget"
-          }
-        }
-      },
-      "DfNode": {
-        "type": "object",
-        "description": "A direction finder bound to every lane of one coherent radio.",
-        "properties": {
-          "settings": {
-            "$ref": "#/components/schemas/DfParams"
-          }
-        }
-      },
-      "DfParams": {
-        "type": "object",
-        "properties": {
-          "algorithm": {
-            "oneOf": [
-              {
-                "$ref": "#/components/schemas/DfAlgorithm"
-              }
-            ],
-            "default": "correlative"
-          },
-          "bandwidth_hz": {
-            "type": "number",
-            "format": "double",
-            "default": 20000.0
-          },
-          "beam_bearing_deg": {
-            "type": [
-              "number",
-              "null"
-            ],
-            "format": "double",
-            "description": "Where to point the summed beam. Unset follows whatever bearing the array found, which is\nthe whole point of having both on one node.",
-            "default": null
-          },
-          "cal": {
-            "oneOf": [
-              {
-                "$ref": "#/components/schemas/CalParams"
-              }
-            ],
-            "default": {
-              "bandwidth_hz": 200000.0,
-              "pilot_hz": null,
-              "source": "signal",
-              "track": true
-            }
-          },
-          "geometry": {
-            "oneOf": [
-              {
-                "$ref": "#/components/schemas/ArrayGeometry"
-              }
-            ],
-            "default": {
-              "count": 4,
-              "kind": "uca",
-              "radius_m": 0.35
-            }
-          },
-          "offset_hz": {
-            "type": "number",
-            "format": "double",
-            "description": "Where in the tuned span the signal of interest sits, and how much of it to take.",
-            "default": 0.0
-          },
-          "report_ms": {
-            "type": "integer",
-            "format": "int32",
-            "default": 500,
-            "minimum": 0
-          },
-          "sources": {
-            "type": "integer",
-            "format": "int32",
-            "description": "How many arrivals MUSIC should assume. One is right far more often than not.",
-            "default": 1,
-            "minimum": 0
-          },
-          "station_id": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "What this receiver is called where its bearings are crossed with other receivers'. Unset\nfalls back to the node's own name.",
-            "default": null
-          }
-        }
-      },
-      "DfReading": {
-        "type": "object",
-        "description": "One bearing, and the whole circle it was read off.",
-        "required": [
-          "bearing_deg",
-          "confidence",
-          "peak_to_floor_db",
-          "pseudospectrum"
-        ],
-        "properties": {
-          "bearing_deg": {
-            "type": "number",
-            "format": "float"
-          },
-          "confidence": {
-            "type": "number",
-            "format": "float"
-          },
-          "peak_to_floor_db": {
-            "type": "number",
-            "format": "float"
-          },
-          "pseudospectrum": {
-            "type": "array",
-            "items": {
-              "type": "integer",
-              "format": "int32",
-              "minimum": 0
-            },
-            "description": "One byte per degree, full scale at the peak."
           }
         }
       },
@@ -12664,34 +12159,6 @@
           "dvb_t2"
         ]
       },
-      "EcaParams": {
-        "type": "object",
-        "properties": {
-          "batch_samples": {
-            "type": "integer",
-            "format": "int32",
-            "default": 16384,
-            "minimum": 0
-          },
-          "delay_taps": {
-            "type": "integer",
-            "format": "int32",
-            "default": 32,
-            "minimum": 0
-          },
-          "doppler_bins": {
-            "type": "integer",
-            "format": "int32",
-            "default": 0,
-            "minimum": 0
-          },
-          "loading": {
-            "type": "number",
-            "format": "float",
-            "default": 0.00009999999747378752
-          }
-        }
-      },
       "ErmesMessage": {
         "type": "object",
         "required": [
@@ -13101,29 +12568,6 @@
           "csv",
           "json"
         ]
-      },
-      "ExtraLane": {
-        "type": "object",
-        "required": [
-          "stream",
-          "center_hz",
-          "sample_rate"
-        ],
-        "properties": {
-          "center_hz": {
-            "type": "number",
-            "format": "double"
-          },
-          "sample_rate": {
-            "type": "number",
-            "format": "double"
-          },
-          "stream": {
-            "type": "integer",
-            "format": "int32",
-            "minimum": 0
-          }
-        }
       },
       "ExtraSetting": {
         "oneOf": [
@@ -13993,29 +13437,6 @@
           }
         }
       },
-      "Illuminator": {
-        "type": "object",
-        "description": "The transmitter being borrowed, so a bistatic range can be drawn on a map.",
-        "required": [
-          "lat",
-          "lon",
-          "freq_hz"
-        ],
-        "properties": {
-          "freq_hz": {
-            "type": "number",
-            "format": "double"
-          },
-          "lat": {
-            "type": "number",
-            "format": "double"
-          },
-          "lon": {
-            "type": "number",
-            "format": "double"
-          }
-        }
-      },
       "IlsComponent": {
         "type": "string",
         "enum": [
@@ -14228,34 +13649,6 @@
           "r2",
           "r3"
         ]
-      },
-      "LaneCal": {
-        "type": "object",
-        "required": [
-          "delay_samples",
-          "phase_deg",
-          "gain_db",
-          "quality"
-        ],
-        "properties": {
-          "delay_samples": {
-            "type": "number",
-            "format": "float"
-          },
-          "gain_db": {
-            "type": "number",
-            "format": "float"
-          },
-          "phase_deg": {
-            "type": "number",
-            "format": "float"
-          },
-          "quality": {
-            "type": "number",
-            "format": "float",
-            "description": "Magnitude-squared coherence against lane zero, in `0..=1`."
-          }
-        }
       },
       "LicenseTextResponse": {
         "type": "object",
@@ -15531,24 +14924,6 @@
             ],
             "properties": {
               "data": {
-                "$ref": "#/components/schemas/ArrayNode"
-              },
-              "kind": {
-                "type": "string",
-                "enum": [
-                  "array"
-                ]
-              }
-            }
-          },
-          {
-            "type": "object",
-            "required": [
-              "data",
-              "kind"
-            ],
-            "properties": {
-              "data": {
                 "$ref": "#/components/schemas/GpsNode"
               },
               "kind": {
@@ -15963,76 +15338,8 @@
             ],
             "properties": {
               "data": {
-                "$ref": "#/components/schemas/DfNode"
+                "$ref": "#/components/schemas/TriangulationNode"
               },
-              "kind": {
-                "type": "string",
-                "enum": [
-                  "df"
-                ]
-              }
-            }
-          },
-          {
-            "type": "object",
-            "required": [
-              "data",
-              "kind"
-            ],
-            "properties": {
-              "data": {
-                "$ref": "#/components/schemas/PassiveRadarNode"
-              },
-              "kind": {
-                "type": "string",
-                "enum": [
-                  "passive_radar"
-                ]
-              }
-            }
-          },
-          {
-            "type": "object",
-            "required": [
-              "data",
-              "kind"
-            ],
-            "properties": {
-              "data": {
-                "$ref": "#/components/schemas/CombinerNode"
-              },
-              "kind": {
-                "type": "string",
-                "enum": [
-                  "combiner"
-                ]
-              }
-            }
-          },
-          {
-            "type": "object",
-            "required": [
-              "data",
-              "kind"
-            ],
-            "properties": {
-              "data": {
-                "$ref": "#/components/schemas/StitchNode"
-              },
-              "kind": {
-                "type": "string",
-                "enum": [
-                  "stitch"
-                ]
-              }
-            }
-          },
-          {
-            "type": "object",
-            "required": [
-              "kind"
-            ],
-            "properties": {
               "kind": {
                 "type": "string",
                 "enum": [
@@ -16222,77 +15529,6 @@
               "null"
             ],
             "format": "double"
-          }
-        }
-      },
-      "PassiveRadarNode": {
-        "type": "object",
-        "description": "A passive radar: one lane watching the illuminator, one watching the sky.",
-        "properties": {
-          "settings": {
-            "$ref": "#/components/schemas/PassiveRadarParams"
-          }
-        }
-      },
-      "PassiveRadarParams": {
-        "type": "object",
-        "properties": {
-          "cfar": {
-            "oneOf": [
-              {
-                "$ref": "#/components/schemas/CfarParams"
-              }
-            ],
-            "default": {
-              "guard_doppler": 1,
-              "guard_range": 2,
-              "min_snr_db": 6.0,
-              "probability_false_alarm": 0.00009999999747378752,
-              "train_doppler": 4,
-              "train_range": 8,
-              "zero_doppler_guard": 1
-            }
-          },
-          "cpi_ms": {
-            "type": "integer",
-            "format": "int32",
-            "default": 200,
-            "minimum": 0
-          },
-          "doppler_span_hz": {
-            "type": "number",
-            "format": "double",
-            "default": 200.0
-          },
-          "eca": {
-            "oneOf": [
-              {
-                "$ref": "#/components/schemas/EcaParams"
-              }
-            ],
-            "default": {
-              "batch_samples": 16384,
-              "delay_taps": 32,
-              "doppler_bins": 0,
-              "loading": 0.00009999999747378752
-            }
-          },
-          "illuminator": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/Illuminator"
-              }
-            ],
-            "default": null
-          },
-          "max_range_bins": {
-            "type": "integer",
-            "format": "int32",
-            "default": 256,
-            "minimum": 0
           }
         }
       },
@@ -17156,44 +16392,6 @@
             }
           }
         ]
-      },
-      "RadarDetection": {
-        "type": "object",
-        "required": [
-          "range_bin",
-          "range_km",
-          "doppler_hz",
-          "snr_db"
-        ],
-        "properties": {
-          "doppler_hz": {
-            "type": "number",
-            "format": "float"
-          },
-          "range_bin": {
-            "type": "integer",
-            "format": "int32",
-            "minimum": 0
-          },
-          "range_km": {
-            "type": "number",
-            "format": "float",
-            "description": "Bistatic range in kilometres: how much further the echo travelled than the direct path."
-          },
-          "snr_db": {
-            "type": "number",
-            "format": "float"
-          },
-          "track_id": {
-            "type": [
-              "integer",
-              "null"
-            ],
-            "format": "int32",
-            "description": "Which target this echo belongs to, once it has been seen often enough to be one. An echo\nwith no track is a single look the tracker has not made up its mind about.",
-            "minimum": 0
-          }
-        }
       },
       "RadioClockFrame": {
         "type": "object",
@@ -19118,46 +18316,6 @@
               "data": {
                 "type": "object",
                 "required": [
-                  "device_set",
-                  "node",
-                  "reading",
-                  "cal"
-                ],
-                "properties": {
-                  "cal": {
-                    "$ref": "#/components/schemas/CalState"
-                  },
-                  "device_set": {
-                    "type": "integer",
-                    "format": "int32",
-                    "minimum": 0
-                  },
-                  "node": {
-                    "type": "string"
-                  },
-                  "reading": {
-                    "$ref": "#/components/schemas/DfReading"
-                  }
-                }
-              },
-              "type": {
-                "type": "string",
-                "enum": [
-                  "DfUpdate"
-                ]
-              }
-            }
-          },
-          {
-            "type": "object",
-            "required": [
-              "data",
-              "type"
-            ],
-            "properties": {
-              "data": {
-                "type": "object",
-                "required": [
                   "node",
                   "state"
                 ],
@@ -19174,45 +18332,6 @@
                 "type": "string",
                 "enum": [
                   "DfFusionUpdate"
-                ]
-              }
-            }
-          },
-          {
-            "type": "object",
-            "required": [
-              "data",
-              "type"
-            ],
-            "properties": {
-              "data": {
-                "type": "object",
-                "required": [
-                  "device_set",
-                  "node",
-                  "detections"
-                ],
-                "properties": {
-                  "detections": {
-                    "type": "array",
-                    "items": {
-                      "$ref": "#/components/schemas/RadarDetection"
-                    }
-                  },
-                  "device_set": {
-                    "type": "integer",
-                    "format": "int32",
-                    "minimum": 0
-                  },
-                  "node": {
-                    "type": "string"
-                  }
-                }
-              },
-              "type": {
-                "type": "string",
-                "enum": [
-                  "RadarDetections"
                 ]
               }
             }
@@ -19688,40 +18807,6 @@
             "items": {
               "$ref": "#/components/schemas/TrunkSystemStatus"
             }
-          }
-        }
-      },
-      "StitchMode": {
-        "type": "string",
-        "enum": [
-          "auto",
-          "manual"
-        ]
-      },
-      "StitchNode": {
-        "type": "object",
-        "properties": {
-          "settings": {
-            "$ref": "#/components/schemas/StitchParams"
-          }
-        }
-      },
-      "StitchParams": {
-        "type": "object",
-        "properties": {
-          "lanes": {
-            "type": "integer",
-            "format": "int32",
-            "default": 2,
-            "minimum": 0
-          },
-          "mode": {
-            "oneOf": [
-              {
-                "$ref": "#/components/schemas/StitchMode"
-              }
-            ],
-            "default": "auto"
           }
         }
       },
@@ -20356,6 +19441,9 @@
             }
           }
         }
+      },
+      "TriangulationNode": {
+        "type": "object"
       },
       "TrunkChannel": {
         "type": "object",

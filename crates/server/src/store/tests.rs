@@ -2228,6 +2228,31 @@ fn a_stored_retired_decoder_event_leaves_the_log() {
 }
 
 #[test]
+fn an_old_radar_detection_leaves_the_log() {
+    let store = Store::open(None).expect("open");
+    seed(&store);
+    {
+        let conn = store.lock();
+        conn.execute(
+            "INSERT INTO decoder_log (at, device_set, channel, kind, freq_hz, summary, event) \
+             VALUES ('2026-08-09T12:00:03Z', 0, 0, 'radar', 98000000.0, 'range bin 4', \
+             '{\"kind\":\"radar\",\"data\":{\"range_bin\":4,\"range_km\":1.2,\
+             \"doppler_hz\":10.0,\"snr_db\":12.0}}')",
+            [],
+        )
+        .expect("an old row");
+        let retiring = MIGRATIONS
+            .iter()
+            .find(|migration| migration.contains("kind = 'radar'"))
+            .expect("the retiring migration");
+        conn.execute_batch(retiring).expect("retire");
+    }
+    let (entries, total) = query(&store, DecoderLogQuery::default());
+    assert_eq!(total, 3);
+    assert!(entries.iter().all(|entry| entry.kind != "radar"));
+}
+
+#[test]
 fn forgetting_a_radio_drops_the_settings_it_left_on_the_node() {
     let store = Store::open(None).expect("open");
     let id = store.list_workspaces().expect("list").workspaces[0].id;
