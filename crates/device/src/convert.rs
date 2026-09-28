@@ -4,6 +4,10 @@ pub trait SampleConverter: Send + 'static {
     fn convert(&mut self, bytes: &[u8]) -> &[Sample];
 
     fn reset(&mut self);
+
+    fn bytes_per_sample(&self) -> u64 {
+        2
+    }
 }
 
 #[derive(Debug)]

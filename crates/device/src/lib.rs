@@ -88,11 +88,9 @@ pub fn check_stream_settings(
 }
 
 type PushFn = Box<dyn FnMut(&[Sample], u64) + Send>;
+type ItemFn = Box<dyn FnMut(SinkItem<'_>) + Send>;
 type FatalFn = Box<dyn FnOnce(DeviceError) + Send>;
 
-/// How many samples the consumer behind a sink can still take. A radio cannot be asked to wait,
-/// so live backends ignore it; a source that reads from storage uses it to hand over only what
-/// fits instead of overwriting what has not been processed yet.
 #[derive(Debug)]
 pub struct SinkRoom {
     free: AtomicIsize,
@@ -121,22 +119,57 @@ impl SinkRoom {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum SinkItem<'a> {
+    Samples { samples: &'a [Sample], index: u64 },
+    Event(LaneEvent),
+}
+
+enum Handler {
+    Samples(PushFn),
+    Items(ItemFn),
+}
+
+impl Handler {
+    fn samples(&mut self, samples: &[Sample], index: u64) {
+        match self {
+            Self::Samples(push_fn) => push_fn(samples, index),
+            Self::Items(handler) => handler(SinkItem::Samples { samples, index }),
+        }
+    }
+
+    fn event(&mut self, event: LaneEvent) {
+        if let Self::Items(handler) = self {
+            handler(SinkItem::Event(event));
+        }
+    }
+}
+
 pub struct RxSink {
-    push_fn: PushFn,
+    handler: Handler,
     fatal_fn: Option<FatalFn>,
     room: Option<Arc<SinkRoom>>,
     index: u64,
+    marks: rtrb::Consumer<LaneMark>,
+    poster: MarkPoster,
 }
 
 impl RxSink {
-    #[must_use]
-    pub fn new(push_fn: impl FnMut(&[Sample], u64) + Send + 'static) -> Self {
+    fn build(handler: Handler, fatal_fn: Option<FatalFn>) -> Self {
+        let (poster, marks) = MarkPoster::channel();
         Self {
-            push_fn: Box::new(push_fn),
-            fatal_fn: None,
+            handler,
+            fatal_fn,
             room: None,
             index: 0,
+            marks,
+            poster,
         }
+    }
+
+    #[must_use]
+    pub fn new(push_fn: impl FnMut(&[Sample], u64) + Send + 'static) -> Self {
+        Self::build(Handler::Samples(Box::new(push_fn)), None)
     }
 
     #[must_use]
@@ -144,12 +177,18 @@ impl RxSink {
         push_fn: impl FnMut(&[Sample], u64) + Send + 'static,
         fatal_fn: impl FnOnce(DeviceError) + Send + 'static,
     ) -> Self {
-        Self {
-            push_fn: Box::new(push_fn),
-            fatal_fn: Some(Box::new(fatal_fn)),
-            room: None,
-            index: 0,
-        }
+        Self::build(
+            Handler::Samples(Box::new(push_fn)),
+            Some(Box::new(fatal_fn)),
+        )
+    }
+
+    #[must_use]
+    pub fn with_items(
+        handler: impl FnMut(SinkItem<'_>) + Send + 'static,
+        fatal_fn: impl FnOnce(DeviceError) + Send + 'static,
+    ) -> Self {
+        Self::build(Handler::Items(Box::new(handler)), Some(Box::new(fatal_fn)))
     }
 
     #[must_use]
@@ -158,22 +197,55 @@ impl RxSink {
         self
     }
 
-    /// What the consumer can still take, for a source that is able to hold back.
     #[must_use]
     pub fn room(&self) -> Option<&Arc<SinkRoom>> {
         self.room.as_ref()
     }
 
-    /// Hands over a block together with the index its first sample carries since `rx_start`.
     pub fn push(&mut self, samples: &[Sample]) {
-        (self.push_fn)(samples, self.index);
+        while let Ok(mark) = self.marks.pop() {
+            self.handler.event(LaneEvent::Mark {
+                at: self.index,
+                mark,
+            });
+        }
+        self.handler.samples(samples, self.index);
         self.index += samples.len() as u64;
     }
 
-    /// Steps the index over samples the radio itself lost, so a device-side gap reaches the
-    /// engine as a jump rather than silently shortening the lane against its neighbours.
     pub fn dropped(&mut self, samples: u64) {
-        self.index += samples;
+        self.index = self.index.saturating_add(samples);
+    }
+
+    pub fn dropped_estimate(&mut self, samples: u64, error: u64, scope: GapScope) {
+        self.index = self.index.saturating_add(samples);
+        self.realigned(Uncertainty::EstimatedGap, error, scope);
+    }
+
+    pub fn realigned(&mut self, cause: Uncertainty, error: u64, scope: GapScope) {
+        self.handler.event(LaneEvent::Uncertain {
+            at: self.index,
+            error,
+            scope,
+            cause,
+        });
+    }
+
+    pub fn mark(&mut self, mark: LaneMark) {
+        self.handler.event(LaneEvent::Mark {
+            at: self.index,
+            mark,
+        });
+    }
+
+    pub fn stamp_hardware(&mut self, ns: i64) {
+        self.handler
+            .event(LaneEvent::HardwareTime { at: self.index, ns });
+    }
+
+    #[must_use]
+    pub fn mark_poster(&self) -> MarkPoster {
+        self.poster.clone()
     }
 
     #[must_use]
@@ -187,17 +259,12 @@ impl RxSink {
         }
     }
 
-    /// Moves this sink's fatal handler somewhere it can be reached from outside the push path.
-    ///
-    /// A composite device forwards samples through a closure that owns the sink, so nothing else
-    /// can reach the handler afterwards; the child that dies is not the one holding it.
     #[must_use]
     pub fn share_failure(&mut self) -> FatalHandle {
         FatalHandle(Arc::new(Mutex::new(self.fatal_fn.take())))
     }
 }
 
-/// A sink's fatal handler, held apart from the sink and callable once from anywhere.
 #[derive(Clone)]
 pub struct FatalHandle(Arc<Mutex<Option<FatalFn>>>);
 
@@ -224,12 +291,8 @@ impl std::fmt::Debug for RxSink {
 pub trait DeviceDriver: Send + Sync {
     fn id(&self) -> &'static str;
 
-    /// Reports the radios this driver can see without searching beyond the machine, which is what
-    /// a hotplug tick and a device list are allowed to cost.
     fn probe(&self) -> Vec<DeviceInfo>;
 
-    /// Searches as far as the driver can reach, network discovery included. Seconds are allowed
-    /// here, so it belongs behind a request someone is waiting on, never on a timer.
     fn probe_deep(&self) -> Vec<DeviceInfo> {
         self.probe()
     }
@@ -272,6 +335,12 @@ pub trait SdrDevice: Send {
         self.capabilities().duplex
     }
 
+    fn in_flight_samples(&self) -> u64 {
+        self.settings()
+            .sample_rate
+            .map_or(0, |rate| (rate * 0.1) as u64)
+    }
+
     fn tx_start(&mut self) -> Result<Box<dyn TxStream>, DeviceError> {
         self.tx_start_channels(&[0])
     }
@@ -290,19 +359,12 @@ pub trait SdrDevice: Send {
         Ok(Vec::new())
     }
 
-    /// Switches this radio's own calibration reference into every lane at once.
-    ///
-    /// The reference has to reach the lanes at one point in the chain for what is measured
-    /// against it to be the receiver rather than the room, which is why it is the radio's switch
-    /// and not something wired up per lane.
     fn set_noise_source(&mut self, _on: bool) -> Result<(), DeviceError> {
         Err(DeviceError::Unsupported(
             "this radio carries no calibration noise source".to_string(),
         ))
     }
 
-    /// Hands the sweep to the radio's own firmware, which retunes between blocks faster than any
-    /// host round trip and stamps each block with the frequency it was taken at.
     fn sweep_start(&mut self, _plan: &SweepPlan, _sink: SweepSink) -> Result<(), DeviceError> {
         Err(DeviceError::Unsupported(
             "this radio has no firmware sweep; the scanner has to retune for every step"
@@ -314,8 +376,10 @@ pub trait SdrDevice: Send {
 }
 
 pub mod capture;
+mod clock;
 pub mod convert;
 pub mod duplex;
+mod marks;
 #[cfg(feature = "net")]
 pub mod net;
 pub mod playback;
@@ -327,11 +391,15 @@ pub mod sweep;
 pub mod usb;
 pub mod worker;
 pub use capture::{
-    Capture, CaptureConfig, CaptureRadio, CaptureStream, Next, StopHandle, StreamFailure,
+    BlockGap, Capture, CaptureConfig, CaptureRadio, CaptureStream, Next, StopHandle, StreamFailure,
     drain_stream,
 };
+pub use clock::{init_clock, now_ns};
 pub use convert::{LutConverter, SampleConverter};
 pub use duplex::DuplexState;
+pub use marks::{
+    GapScope, LaneEvent, LaneMark, MARK_SLOTS, MarkPoster, UNKNOWN_ERROR, Uncertainty,
+};
 pub use playback::PlaybackShared;
 pub use pool::{Block, BlockPool};
 pub use registry::DeviceRegistry;
@@ -477,6 +545,177 @@ mod tests {
         sink.push(&block);
         assert_eq!(*lock(&seen), vec![(0, 4), (1_004, 4)]);
         assert_eq!(sink.index(), 1_008);
+    }
+
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    enum Seen {
+        Samples { index: u64, len: usize },
+        Event(LaneEvent),
+    }
+
+    fn item_sink() -> (RxSink, Arc<Mutex<Vec<Seen>>>) {
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let log = seen.clone();
+        let sink = RxSink::with_items(
+            move |item: SinkItem<'_>| {
+                lock(&log).push(match item {
+                    SinkItem::Samples { samples, index } => Seen::Samples {
+                        index,
+                        len: samples.len(),
+                    },
+                    SinkItem::Event(event) => Seen::Event(event),
+                });
+            },
+            |_| {},
+        );
+        (sink, seen)
+    }
+
+    #[test]
+    fn a_mark_posted_between_blocks_lands_on_the_next_block_index() {
+        let (mut sink, seen) = item_sink();
+        let poster = sink.mark_poster();
+        let block = [Sample::new(0.0, 0.0); 8];
+        sink.push(&block);
+        let mark = LaneMark::NoiseSource {
+            on: true,
+            in_flight: 393_216,
+        };
+        poster.post(mark).expect("a free slot");
+        sink.push(&block[..4]);
+        sink.push(&block);
+        assert_eq!(
+            *lock(&seen),
+            vec![
+                Seen::Samples { index: 0, len: 8 },
+                Seen::Event(LaneEvent::Mark { at: 8, mark }),
+                Seen::Samples { index: 8, len: 4 },
+                Seen::Samples { index: 12, len: 8 },
+            ]
+        );
+    }
+
+    #[test]
+    fn an_estimated_gap_moves_the_index_and_reports_its_error() {
+        let (mut sink, seen) = item_sink();
+        let block = [Sample::new(0.0, 0.0); 4];
+        sink.push(&block);
+        sink.dropped_estimate(1_000, 250, GapScope::Lane);
+        sink.push(&block);
+        sink.realigned(Uncertainty::Rearmed, UNKNOWN_ERROR, GapScope::Device);
+        assert_eq!(sink.index(), 1_008);
+        assert_eq!(
+            *lock(&seen),
+            vec![
+                Seen::Samples { index: 0, len: 4 },
+                Seen::Event(LaneEvent::Uncertain {
+                    at: 1_004,
+                    error: 250,
+                    scope: GapScope::Lane,
+                    cause: Uncertainty::EstimatedGap,
+                }),
+                Seen::Samples {
+                    index: 1_004,
+                    len: 4
+                },
+                Seen::Event(LaneEvent::Uncertain {
+                    at: 1_008,
+                    error: UNKNOWN_ERROR,
+                    scope: GapScope::Device,
+                    cause: Uncertainty::Rearmed,
+                }),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_driver_mark_and_a_hardware_stamp_land_on_the_current_index() {
+        let (mut sink, seen) = item_sink();
+        let block = [Sample::new(0.0, 0.0); 4];
+        sink.push(&block);
+        sink.dropped(6);
+        sink.mark(LaneMark::Retuned { in_flight: 0 });
+        sink.stamp_hardware(-42);
+        sink.push(&block);
+        assert_eq!(
+            *lock(&seen),
+            vec![
+                Seen::Samples { index: 0, len: 4 },
+                Seen::Event(LaneEvent::Mark {
+                    at: 10,
+                    mark: LaneMark::Retuned { in_flight: 0 },
+                }),
+                Seen::Event(LaneEvent::HardwareTime { at: 10, ns: -42 }),
+                Seen::Samples { index: 10, len: 4 },
+            ]
+        );
+    }
+
+    #[test]
+    fn a_sample_only_sink_ignores_lane_events() {
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let log = seen.clone();
+        let mut sink = RxSink::new(move |samples: &[Sample], index| {
+            lock(&log).push((index, samples.len()));
+        });
+        let poster = sink.mark_poster();
+        for _ in 0..MARK_SLOTS {
+            poster
+                .post(LaneMark::GainChanged { in_flight: 1 })
+                .expect("a free slot");
+        }
+        let block = [Sample::new(0.0, 0.0); 4];
+        sink.mark(LaneMark::Retuned { in_flight: 0 });
+        sink.stamp_hardware(7);
+        sink.realigned(Uncertainty::Reset, 3, GapScope::Device);
+        sink.dropped_estimate(10, 10, GapScope::Lane);
+        sink.push(&block);
+        poster
+            .post(LaneMark::GainChanged { in_flight: 1 })
+            .expect("the push emptied the queue");
+        assert_eq!(*lock(&seen), vec![(10, 4)]);
+    }
+
+    #[test]
+    fn a_full_mark_queue_is_an_error_not_a_loss() {
+        let (mut sink, seen) = item_sink();
+        let poster = sink.mark_poster();
+        for in_flight in 0..MARK_SLOTS as u64 {
+            poster
+                .post(LaneMark::GainChanged { in_flight })
+                .expect("a free slot");
+        }
+        match poster.post(LaneMark::GainChanged { in_flight: 99 }) {
+            Err(DeviceError::Io(message)) => assert_eq!(message, "lane marks full"),
+            other => panic!("a full queue must be an Io error, got {other:?}"),
+        }
+        sink.push(&[Sample::new(0.0, 0.0)]);
+        let marks: Vec<u64> = lock(&seen)
+            .iter()
+            .filter_map(|seen| match seen {
+                Seen::Event(LaneEvent::Mark {
+                    at: 0,
+                    mark: LaneMark::GainChanged { in_flight },
+                }) => Some(*in_flight),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(marks, (0..MARK_SLOTS as u64).collect::<Vec<_>>());
+        poster
+            .post(LaneMark::GainChanged { in_flight: 99 })
+            .expect("room again after the push");
+    }
+
+    #[test]
+    fn in_flight_defaults_to_a_tenth_of_a_second_of_samples() {
+        let mut device = MultiTxDevice {
+            capabilities: caps(1, StreamScope::default()),
+            settings: DeviceSettings::default(),
+            opened: Vec::new(),
+        };
+        assert_eq!(device.in_flight_samples(), 0);
+        device.settings.sample_rate = Some(2_400_000.0);
+        assert_eq!(device.in_flight_samples(), 240_000);
     }
 
     #[test]

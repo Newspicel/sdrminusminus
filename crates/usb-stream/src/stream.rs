@@ -24,8 +24,6 @@ pub struct StreamConfig {
     pub channel_depth: usize,
     pub poll_interval: Duration,
     pub thread_name: &'static str,
-    /// Runs on the pump thread before the first transfer completes, for the scheduling class a
-    /// backend wants it to hold. This crate carries no I/O policy of its own, so the caller owns it.
     pub on_thread_start: Option<fn()>,
 }
 
@@ -73,12 +71,34 @@ impl Shared {
 pub struct Block {
     bytes: Vec<u8>,
     recycle: Sender<Vec<u8>>,
-    missing_bytes: u64,
+    missing: Missing,
 }
 
 impl Block {
-    pub fn missing_bytes(&self) -> u64 {
-        self.missing_bytes
+    #[must_use]
+    pub const fn missing_exact_bytes(&self) -> u64 {
+        self.missing.exact
+    }
+
+    #[must_use]
+    pub const fn missing_estimated_bytes(&self) -> u64 {
+        self.missing.estimated
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+struct Missing {
+    exact: u64,
+    estimated: u64,
+}
+
+impl Missing {
+    fn add_exact(&mut self, bytes: usize) {
+        self.exact = self.exact.saturating_add(bytes as u64);
+    }
+
+    fn add_estimated(&mut self, bytes: usize) {
+        self.estimated = self.estimated.saturating_add(bytes as u64);
     }
 }
 
@@ -162,9 +182,6 @@ pub fn start<B: BulkIn>(mut bulk_in: B, config: StreamConfig) -> Result<RxStream
     if config.transfer_size == 0 {
         return Err(StreamError::Config("transfer_size must be at least 1"));
     }
-    // A misaligned IN length makes every transfer complete with InvalidArgument, which would
-    // surface as a stream that failed rather than as the configuration error it is.
-    // Zero means the transport does not report a packet size, which only the test endpoints do.
     let max_packet = bulk_in.max_packet_size();
     if max_packet > 0 && !config.transfer_size.is_multiple_of(max_packet) {
         return Err(StreamError::Config(
@@ -192,7 +209,7 @@ pub fn start<B: BulkIn>(mut bulk_in: B, config: StreamConfig) -> Result<RxStream
         recycle_tx,
         recycle_rx,
         transfer_size: config.transfer_size,
-        missing_bytes: 0,
+        missing: Missing::default(),
         queue_depth: config.queue_depth,
         poll_interval: config.poll_interval,
     };
@@ -229,7 +246,7 @@ struct Pump<B: BulkIn> {
     recycle_rx: Receiver<Vec<u8>>,
     queue_depth: usize,
     transfer_size: usize,
-    missing_bytes: u64,
+    missing: Missing,
     poll_interval: Duration,
 }
 
@@ -262,7 +279,7 @@ impl<B: BulkIn> Pump<B> {
                 Step::Ended
             }
             Action::Resubmit => {
-                self.missing_bytes = self.missing_bytes.saturating_add(self.transfer_size as u64);
+                self.missing.add_estimated(self.transfer_size);
                 self.shared.dropped.fetch_add(1, Ordering::Relaxed);
                 if status == Err(TransferError::Cancelled) {
                     tracing::debug!("usb transfer cancelled by a fault ahead of it; resubmitting");
@@ -282,7 +299,7 @@ impl<B: BulkIn> Pump<B> {
                     return Step::Progress;
                 }
                 let Ok(mut bytes) = self.recycle_rx.try_recv() else {
-                    self.missing_bytes = self.missing_bytes.saturating_add(len as u64);
+                    self.missing.add_exact(len);
                     self.shared.dropped.fetch_add(1, Ordering::Relaxed);
                     self.bulk_in.submit(completion.buffer);
                     return Step::Progress;
@@ -293,15 +310,15 @@ impl<B: BulkIn> Pump<B> {
                 let block = Block {
                     bytes,
                     recycle: self.recycle_tx.clone(),
-                    missing_bytes: self.missing_bytes,
+                    missing: self.missing,
                 };
                 match tx.try_send(block) {
                     Ok(()) => {
-                        self.missing_bytes = 0;
+                        self.missing = Missing::default();
                         self.shared.processed.fetch_add(1, Ordering::Relaxed);
                     }
                     Err(TrySendError::Full(_)) => {
-                        self.missing_bytes = self.missing_bytes.saturating_add(len as u64);
+                        self.missing.add_exact(len);
                         self.shared.dropped.fetch_add(1, Ordering::Relaxed);
                     }
                     Err(TrySendError::Disconnected(_)) => return Step::Ended,
@@ -463,7 +480,7 @@ mod tests {
             recycle_rx,
             queue_depth: DEPTH,
             transfer_size: TRANSFER_SIZE,
-            missing_bytes: 0,
+            missing: Missing::default(),
             poll_interval: Duration::from_millis(1),
         };
         (pump, tx, rx)
@@ -480,14 +497,91 @@ mod tests {
         }
         assert_eq!(pump.shared.stats().dropped, 3);
         for _ in 0..DEPTH {
-            assert_eq!(rx.try_recv().expect("buffered block").missing_bytes(), 0);
+            assert_eq!(missing(&rx.try_recv().expect("buffered block")), (0, 0));
         }
         fake.push_data([99; 4]);
         assert_eq!(pump.step(&tx), Step::Progress);
-        assert_eq!(rx.try_recv().expect("after gap").missing_bytes(), 12);
+        assert_eq!(missing(&rx.try_recv().expect("after gap")), (12, 0));
         fake.push_data([100; 4]);
         assert_eq!(pump.step(&tx), Step::Progress);
-        assert_eq!(rx.try_recv().expect("continuous").missing_bytes(), 0);
+        assert_eq!(missing(&rx.try_recv().expect("continuous")), (0, 0));
+    }
+
+    fn missing(block: &Block) -> (u64, u64) {
+        (block.missing_exact_bytes(), block.missing_estimated_bytes())
+    }
+
+    #[test]
+    fn a_full_channel_is_counted_as_exact_missing() {
+        let fake = FakeBulkIn::default();
+        let (mut pump, tx, rx) = pump(fake.clone());
+        for value in 0..DEPTH + 2 {
+            fake.push_data([value as u8; 4]);
+            assert_eq!(pump.step(&tx), Step::Progress);
+        }
+        for _ in 0..DEPTH {
+            rx.try_recv().expect("buffered block");
+        }
+        fake.push_data([9; 4]);
+        assert_eq!(pump.step(&tx), Step::Progress);
+        assert_eq!(missing(&rx.try_recv().expect("after the gap")), (8, 0));
+    }
+
+    #[test]
+    fn an_empty_buffer_pool_is_counted_as_exact_missing() {
+        let fake = FakeBulkIn::default();
+        let (mut pump, tx, rx) = pump(fake.clone());
+        let mut held = Vec::new();
+        for value in 0..=DEPTH {
+            fake.push_data([value as u8; 4]);
+            assert_eq!(pump.step(&tx), Step::Progress);
+            held.push(rx.try_recv().expect("delivered block"));
+        }
+        fake.push_data([7; 6]);
+        assert_eq!(pump.step(&tx), Step::Progress);
+        assert!(rx.try_recv().is_err(), "no buffer left to deliver into");
+        held.clear();
+        fake.push_data([8; 4]);
+        assert_eq!(pump.step(&tx), Step::Progress);
+        assert_eq!(missing(&rx.try_recv().expect("after the gap")), (6, 0));
+    }
+
+    #[test]
+    fn a_failed_transfer_is_counted_as_estimated_missing() {
+        let fake = FakeBulkIn::default();
+        fake.push_error(TransferError::Fault);
+        fake.push_data([1, 2, 3, 4]);
+        let (mut pump, tx, rx) = pump(fake);
+        assert_eq!(pump.step(&tx), Step::Progress);
+        assert_eq!(pump.step(&tx), Step::Progress);
+        assert_eq!(
+            missing(&rx.try_recv().expect("the stream recovered")),
+            (0, TRANSFER_SIZE as u64)
+        );
+        pump.bulk_in.push_data([5, 6]);
+        assert_eq!(pump.step(&tx), Step::Progress);
+        assert_eq!(missing(&rx.try_recv().expect("next block")), (0, 0));
+    }
+
+    #[test]
+    fn one_gap_keeps_its_exact_and_estimated_parts_apart() {
+        let fake = FakeBulkIn::default();
+        let (mut pump, tx, rx) = pump(fake.clone());
+        for value in 0..=DEPTH {
+            fake.push_data([value as u8; 4]);
+            assert_eq!(pump.step(&tx), Step::Progress);
+        }
+        fake.push_error(TransferError::Fault);
+        assert_eq!(pump.step(&tx), Step::Progress);
+        for _ in 0..DEPTH {
+            rx.try_recv().expect("buffered block");
+        }
+        fake.push_data([9; 4]);
+        assert_eq!(pump.step(&tx), Step::Progress);
+        assert_eq!(
+            missing(&rx.try_recv().expect("after the gap")),
+            (4, TRANSFER_SIZE as u64)
+        );
     }
 
     #[test]
