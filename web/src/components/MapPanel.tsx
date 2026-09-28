@@ -6,7 +6,7 @@ import { type DfOverlay, overlayCounts } from "../lib/map/df";
 import { type MapKind, type TargetDetail, targetDetail } from "../lib/map/layers";
 import type { PropagationOverlay } from "../lib/map/propagation";
 import { highlight, type Selection } from "../lib/map/targets";
-import type { SignalSurveySample } from "../lib/signalSurvey";
+import type { SurveyCell } from "../lib/types";
 import { MapLegend } from "./map/MapLegend";
 import { type Counts, type MapInputs, type MapSinks, ZERO_COUNTS } from "./map/mapState";
 import { TargetCard } from "./map/TargetCard";
@@ -37,7 +37,7 @@ export function MapPanel({
   kinds: readonly MapKind[];
   references?: readonly (readonly [number, number])[];
   positionNodes?: readonly string[];
-  signalSamples?: readonly SignalSurveySample[];
+  signalSamples?: readonly SurveyCell[];
   propagation?: PropagationOverlay;
   df?: DfOverlay;
   heat?: FusionGridFrame | null;

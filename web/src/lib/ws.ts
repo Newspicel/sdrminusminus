@@ -1,4 +1,4 @@
-import { withToken } from "./auth";
+import { getToken } from "./auth";
 import { recordEvent } from "./diagnostics";
 import {
   decodeAudio,
@@ -21,7 +21,10 @@ import {
   FRAME_KIND_VIDEO_RGB,
   FRAME_KIND_VISIBILITY,
   frameKind,
+  WS_BEARER_PROTOCOL_PREFIX,
+  WS_SUBPROTOCOL,
 } from "./frame";
+import { hexUtf8 } from "./hex";
 import {
   type Listener,
   ListenerRegistry,
@@ -35,6 +38,12 @@ import type { ClientCommand, ServerEvent } from "./types";
 const RECONNECT_MS = 1000;
 const RECONNECT_MAX_MS = 30_000;
 const STABLE_MS = 10_000;
+
+export function socketProtocols(token: string | null): string[] {
+  return token === null
+    ? [WS_SUBPROTOCOL]
+    : [WS_SUBPROTOCOL, WS_BEARER_PROTOCOL_PREFIX + hexUtf8(token)];
+}
 
 export class SdrSocket {
   private ws: WebSocket | null = null;
@@ -51,7 +60,7 @@ export class SdrSocket {
 
   private url(): string {
     const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
-    return withToken(`${proto}//${window.location.host}${this.path}`);
+    return `${proto}//${window.location.host}${this.path}`;
   }
 
   connect(): void {
@@ -103,7 +112,7 @@ export class SdrSocket {
 
   private open(): void {
     this.detach();
-    const ws = new WebSocket(this.url());
+    const ws = new WebSocket(this.url(), socketProtocols(getToken()));
     ws.binaryType = "arraybuffer";
     ws.onopen = () => {
       this.openedAt = Date.now();

@@ -160,7 +160,7 @@ function appendImage(queryClient: QueryClient, image: CapturedImage) {
   }));
 }
 
-function invalidateScope(queryClient: QueryClient, scope: StateScope): void {
+export function invalidateScope(queryClient: QueryClient, scope: StateScope): void {
   switch (scope.scope) {
     case "all":
       void queryClient.invalidateQueries();

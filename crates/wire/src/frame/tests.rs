@@ -498,6 +498,8 @@ fn typescript_frames_include_the_new_kinds() {
         "reader.bytes(baselines * bins)",
         "reader.bytes(cols * rows)",
         "if (cols > FUSION_FRAME_CELLS || rows > FUSION_FRAME_CELLS) return null;",
+        "export const WS_SUBPROTOCOL = \"sdrmm\";",
+        "export const WS_BEARER_PROTOCOL_PREFIX = \"sdrmm.bearer.\";",
     ] {
         assert!(ts.contains(needle), "missing {needle}");
     }

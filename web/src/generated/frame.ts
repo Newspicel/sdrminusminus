@@ -1,6 +1,8 @@
 export const PROTOCOL_VERSION = 1;
 const HEADER_LEN = 16;
 export const FUSION_FRAME_CELLS = 128;
+export const WS_SUBPROTOCOL = "sdrmm";
+export const WS_BEARER_PROTOCOL_PREFIX = "sdrmm.bearer.";
 export const FRAME_KIND_SPECTRUM = 0;
 export const FRAME_KIND_AUDIO_OPUS = 1;
 export const FRAME_KIND_IQ_F32 = 2;

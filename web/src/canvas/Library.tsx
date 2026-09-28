@@ -12,6 +12,7 @@ import { useWorkspaceContext } from "./context";
 import { addNode, newNodeId, nodeIds } from "./graph";
 import { libraryTarget } from "./libraryTarget";
 import { recordingNodeFor } from "./nodes/recordingNode";
+import { PhonesPanel } from "./PhonesPanel";
 import { useNodePlacement } from "./placement";
 
 const TABS = [
@@ -22,6 +23,7 @@ const TABS = [
   { id: "occupancy", label: "Occupancy" },
   { id: "recordings", label: "Recordings" },
   { id: "tools", label: "Tools" },
+  { id: "phones", label: "Phones" },
 ] as const;
 
 export function Library({ onOpenTool }: { onOpenTool: (id: string) => void }) {
@@ -81,6 +83,9 @@ export function Library({ onOpenTool }: { onOpenTool: (id: string) => void }) {
       </Tabs.Panel>
       <Tabs.Panel value="tools" className="max-h-[28rem] overflow-y-auto">
         <ToolsPanel onOpen={onOpenTool} />
+      </Tabs.Panel>
+      <Tabs.Panel value="phones" className="max-h-[28rem] overflow-y-auto">
+        <PhonesPanel />
       </Tabs.Panel>
     </Tabs.Root>
   );

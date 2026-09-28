@@ -746,11 +746,10 @@ export async function clearRadarTracks(node: string): Promise<void> {
   unwrap(await client.DELETE("/api/radar/{node}/tracks", { params: { path: { node } } }));
 }
 
-export function phonesQuery(live = false) {
+export function phonesQuery() {
   return queryOptions({
     queryKey: PHONES_KEY,
     queryFn: async (): Promise<PhonesResponse> => unwrap(await client.GET("/api/phones")),
-    refetchInterval: live ? 2_000 : false,
   });
 }
 

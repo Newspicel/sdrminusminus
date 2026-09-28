@@ -46,7 +46,15 @@ describe("useSurveyStore", () => {
     });
     store.observe({
       type: "SurveyUpdate",
-      data: { node: "map", update: update({ cell: cell(52.01, -35), level_dbfs: -35, cells: 2 }) },
+      data: {
+        node: "map",
+        update: update({
+          cell: cell(52.01, -35),
+          level_dbfs: -35,
+          target_hz: 145_000_000,
+          cells: 2,
+        }),
+      },
     });
     const state = useSurveyStore.getState().byNode.map;
     expect(state?.cells).toHaveLength(2);
@@ -60,9 +68,13 @@ describe("useSurveyStore", () => {
     expect(useSurveyStore.getState().byNode.map?.cells).toHaveLength(2);
     store.observe({
       type: "SurveyUpdate",
-      data: { node: "map", update: update({ recording: false, cells: 2, level_dbfs: -50 }) },
+      data: {
+        node: "map",
+        update: update({ recording: false, cells: 2, level_dbfs: -50, target_hz: 146_000_000 }),
+      },
     });
     expect(useSurveyStore.getState().byNode.map?.stopped).toBe("retuned");
+    expect(useSurveyStore.getState().byNode.map?.targetHz).toBe(146_000_000);
     store.observe({
       type: "SurveyUpdate",
       data: { node: "map", update: update({ recording: true, cells: 2 }) },
@@ -86,5 +98,82 @@ describe("useSurveyStore", () => {
       data: { node: "map", update: update({ cell: cell(52.03, -45), cells: 1 }) },
     });
     expect(useSurveyStore.getState().byNode.map?.cells.map((c) => c.level_dbfs)).toEqual([-45]);
+  });
+});
+
+describe("useSurveyStore levels", () => {
+  it("keeps the last level through an action and drops it when the radio goes", () => {
+    const store = useSurveyStore.getState();
+    const level = (overrides: Partial<SurveyUpdate>) =>
+      store.observe({ type: "SurveyUpdate", data: { node: "map", update: update(overrides) } });
+    level({ recording: false, level_dbfs: -42, target_hz: 145_000_000 });
+    level({ recording: true });
+    expect(useSurveyStore.getState().byNode.map).toMatchObject({
+      recording: true,
+      levelDbfs: -42,
+      targetHz: 145_000_000,
+    });
+    level({ recording: true, target_hz: 145_000_000 });
+    expect(useSurveyStore.getState().byNode.map?.levelDbfs).toBeNull();
+    level({ recording: false, level_dbfs: -40, target_hz: 145_000_000 });
+    level({ recording: false, stopped: "radio_gone" });
+    expect(useSurveyStore.getState().byNode.map).toMatchObject({
+      levelDbfs: null,
+      targetHz: null,
+      stopped: "radio_gone",
+    });
+    level({ recording: false, level_dbfs: -38, target_hz: 145_000_000 });
+    expect(useSurveyStore.getState().byNode.map).toMatchObject({
+      levelDbfs: -38,
+      targetHz: 145_000_000,
+    });
+  });
+
+  it("seeds the cells without taking the surveyed frequency for the live target", () => {
+    const store = useSurveyStore.getState();
+    store.seed({
+      node: "map",
+      frequency_hz: 145_000_000,
+      bandwidth_hz: 12_500,
+      offset_hz: 0,
+      recording: false,
+      cells: [cell(52, -40)],
+      dropped: 3,
+    });
+    expect(useSurveyStore.getState().byNode.map).toMatchObject({
+      targetHz: null,
+      levelDbfs: null,
+      dropped: 3,
+    });
+    expect(useSurveyStore.getState().byNode.map?.cells).toHaveLength(1);
+  });
+});
+
+describe("useSurveyStore catching up", () => {
+  it("marks a node behind when the server counts cells it never sent, until the next seed", () => {
+    const store = useSurveyStore.getState();
+    const grid = {
+      node: "map",
+      bandwidth_hz: 12_500,
+      offset_hz: 0,
+      recording: true,
+      cells: [cell(52, -40)],
+    };
+    store.observe({
+      type: "SurveyUpdate",
+      data: { node: "map", update: update({ cell: cell(52, -40), cells: 1 }) },
+    });
+    store.seed({ ...grid, cells: [] });
+    expect(useSurveyStore.getState().byNode.map?.behind).toBe(false);
+    store.observe({
+      type: "SurveyUpdate",
+      data: { node: "map", update: update({ level_dbfs: -40, target_hz: 1, cells: 1 }) },
+    });
+    expect(useSurveyStore.getState().byNode.map?.behind).toBe(true);
+    store.seed(grid);
+    expect(useSurveyStore.getState().byNode.map).toMatchObject({ behind: false });
+    expect(useSurveyStore.getState().byNode.map?.cells).toHaveLength(1);
+    store.observe({ type: "SurveyUpdate", data: { node: "map", update: update({ cells: 0 }) } });
+    expect(useSurveyStore.getState().byNode.map).toMatchObject({ behind: false, cells: [] });
   });
 });

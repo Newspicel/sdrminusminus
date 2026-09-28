@@ -327,6 +327,7 @@ export type PhoneAccess = components["schemas"]["PhoneAccess"];
 export type PhoneAccessStatus = components["schemas"]["PhoneAccessStatus"];
 export type CreateOfferRequest = components["schemas"]["CreateOfferRequest"];
 export type RenamePhoneRequest = components["schemas"]["RenamePhoneRequest"];
+export type PairResponse = components["schemas"]["PairResponse"];
 export type SurveyGrid = components["schemas"]["SurveyGrid"];
 export type SurveyRequest = components["schemas"]["SurveyRequest"];
 export type SurveyAction = components["schemas"]["SurveyAction"];

@@ -98,6 +98,11 @@ pub fn typescript_frames() -> String {
     let mut out = format!(
         "export const PROTOCOL_VERSION = {PROTOCOL_VERSION};\nconst HEADER_LEN = {HEADER_LEN};\nexport const FUSION_FRAME_CELLS = {FUSION_FRAME_CELLS};\n"
     );
+    out.push_str(&format!(
+        "export const WS_SUBPROTOCOL = {:?};\nexport const WS_BEARER_PROTOCOL_PREFIX = {:?};\n",
+        crate::WS_SUBPROTOCOL,
+        crate::WS_BEARER_PROTOCOL_PREFIX
+    ));
     for (name, kind) in KINDS {
         out.push_str(&format!(
             "export const FRAME_KIND_{name} = {};\n",

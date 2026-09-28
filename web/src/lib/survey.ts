@@ -1,4 +1,5 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
+import { useEffect } from "react";
 import { create } from "zustand";
 import { controlSurvey, surveyQuery } from "./api";
 import { omitNodes } from "./byNode";
@@ -20,6 +21,7 @@ export interface SurveyState {
   targetHz: number | null;
   dropped: number;
   stopped: SurveyStop | null;
+  behind: boolean;
 }
 
 export interface SurveyStore {
@@ -37,6 +39,7 @@ export const EMPTY_SURVEY: SurveyState = {
   targetHz: null,
   dropped: 0,
   stopped: null,
+  behind: false,
 };
 
 const METRES_PER_DEG_LON = 111_320;
@@ -62,18 +65,31 @@ export function withCell(
   return merged.length > held ? merged.slice(merged.length - held) : merged;
 }
 
+function measured(
+  previous: SurveyState,
+  update: SurveyUpdate,
+): Pick<SurveyState, "levelDbfs" | "targetHz"> {
+  if (update.stopped === "radio_gone") {
+    return { levelDbfs: null, targetHz: null };
+  }
+  if (update.target_hz == null) {
+    return { levelDbfs: previous.levelDbfs, targetHz: previous.targetHz };
+  }
+  return { levelDbfs: update.level_dbfs ?? null, targetHz: update.target_hz };
+}
+
 function followed(previous: SurveyState, update: SurveyUpdate): SurveyState {
   const cells =
     update.cell == null
       ? previous.cells.slice(Math.max(0, previous.cells.length - update.cells))
       : withCell(previous.cells, update.cell, update.cells);
   return {
+    ...measured(previous, update),
     cells,
     recording: update.recording,
-    levelDbfs: update.level_dbfs ?? null,
-    targetHz: update.target_hz ?? previous.targetHz,
     dropped: update.dropped,
     stopped: update.stopped ?? (update.recording ? null : previous.stopped),
+    behind: update.cells > cells.length,
   };
 }
 
@@ -96,8 +112,8 @@ export const useSurveyStore = create<SurveyStore>((set) => ({
           ...(state.byNode[grid.node] ?? EMPTY_SURVEY),
           cells: grid.cells,
           recording: grid.recording,
-          targetHz: grid.frequency_hz ?? null,
           dropped: grid.dropped ?? 0,
+          behind: false,
         },
       },
     })),
@@ -114,7 +130,19 @@ function seedSurvey(grid: SurveyGrid): void {
 export function useSurveySeed(node: string): void {
   const query = useQuery(surveyQuery(node));
   const held = useSurveyStore((store) => store.byNode[node] !== undefined);
+  const behind = useSurveyStore((store) => store.byNode[node]?.behind ?? false);
   useSeed(node, SURVEY_ACTION, query, held, seedSurvey);
+  const { refetch } = query;
+  useEffect(() => {
+    if (!behind) {
+      return;
+    }
+    void refetch().then((result) => {
+      if (result.isSuccess) {
+        seedSurvey(result.data);
+      }
+    });
+  }, [behind, refetch]);
 }
 
 export function useSurveyControl(node: string): {

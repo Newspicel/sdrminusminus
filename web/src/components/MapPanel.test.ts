@@ -67,9 +67,9 @@ describe("MapPanel signal survey data", () => {
       {
         latitude: 52.52,
         longitude: 13.405,
-        frequencyHz: 145_500_000,
-        levelDbfs: -64.5,
-        measuredAt: 1,
+        frequency_hz: 145_500_000,
+        level_dbfs: -64.5,
+        measured_at: "2026-09-29T12:00:00Z",
         observations: 2,
       },
     ];
@@ -127,9 +127,9 @@ describe("MapPanel auto framing", () => {
       {
         latitude: 48.1,
         longitude: 11.5,
-        frequencyHz: 145_500_000,
-        levelDbfs: -70,
-        measuredAt: 1,
+        frequency_hz: 145_500_000,
+        level_dbfs: -70,
+        measured_at: "2026-09-29T12:00:00Z",
         observations: 1,
       },
     ]);

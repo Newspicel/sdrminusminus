@@ -6,9 +6,20 @@ import { Readout, ReadoutRow } from "../../components/Readout";
 import { Select } from "../../components/Select";
 import { SettingNote, SettingRow, Settings } from "../../components/Settings";
 import { TextAutocomplete } from "../../components/TextAutocomplete";
-import { nmeaDevicesQuery } from "../../lib/api";
+import { nmeaDevicesQuery, phonesQuery } from "../../lib/api";
+import {
+  fixAgeLabel,
+  headingLabel,
+  PHONE_NOT_PAIRED,
+  PHONE_OFFLINE,
+  type PhoneStanding,
+  phoneStanding,
+  STANDING_LABEL,
+  tiltLabel,
+} from "../../lib/phones";
 import { gridLocator, usePositionStore } from "../../lib/position";
-import type { PatchNode, PositionSource } from "../../lib/types";
+import type { PatchNode, PositionFix, PositionSource } from "../../lib/types";
+import { useNow } from "../../lib/useNow";
 import { useWorkspaceContext } from "../context";
 import { patchNode } from "../graph";
 import { GpsChoices } from "./GpsChoices";
@@ -33,6 +44,7 @@ export function GpsFace({ node }: { node: PatchNode }) {
     }));
   };
   const fix = state?.fix ?? null;
+  const error = state?.error ?? null;
   if (source === null) {
     return (
       <NodeShell node={node} title="GPS position" category="source">
@@ -48,27 +60,17 @@ export function GpsFace({ node }: { node: PatchNode }) {
     <NodeShell node={node} title="GPS position" category="source">
       <FaceBody>
         <Settings className="p-2">
-          <SourceSettings source={source} onChange={setSource} />
+          <SourceSettings source={source} error={error} onChange={setSource} />
         </Settings>
         {fix === null ? (
-          state?.error != null && (
+          error !== null &&
+          !shownAsStanding(source, error) && (
             <p role="alert" className="border-t border-line p-2 text-xs text-danger">
-              {state.error}
+              {error}
             </p>
           )
         ) : (
-          <Readout>
-            <ReadoutRow label="Position">
-              {fix.latitude.toFixed(6)}, {fix.longitude.toFixed(6)}
-            </ReadoutRow>
-            <ReadoutRow label="Grid">{gridLocator(fix.latitude, fix.longitude)}</ReadoutRow>
-            {fix.accuracy_m != null && (
-              <ReadoutRow label="Accuracy">±{fix.accuracy_m.toFixed(0)} m</ReadoutRow>
-            )}
-            {fix.speed_mps != null && (
-              <ReadoutRow label="Speed">{(fix.speed_mps * 3.6).toFixed(1)} km/h</ReadoutRow>
-            )}
-          </Readout>
+          <FixReadout fix={fix} phone={source.type === "phone"} />
         )}
       </FaceBody>
       <FaceFooter>
@@ -85,11 +87,97 @@ export function GpsFace({ node }: { node: PatchNode }) {
   );
 }
 
+const STANDING_TONE: Record<PhoneStanding, string> = {
+  online: "text-ok",
+  offline: "text-ink-dim",
+  not_paired: "text-danger",
+};
+
+const STANDING_CHIP =
+  "inline-flex h-5 items-center rounded-[3px] border border-line bg-well px-1.5 font-mono text-[10px]";
+
+const FIX_TICK_MS = 1_000;
+
+function shownAsStanding(source: PositionSource, error: string): boolean {
+  return source.type === "phone" && (error === PHONE_OFFLINE || error === PHONE_NOT_PAIRED);
+}
+
+function FixReadout({ fix, phone }: { fix: PositionFix; phone: boolean }) {
+  const tilt = tiltLabel(fix);
+  return (
+    <Readout>
+      <ReadoutRow label="Position">
+        {fix.latitude.toFixed(6)}, {fix.longitude.toFixed(6)}
+      </ReadoutRow>
+      <ReadoutRow label="Grid">{gridLocator(fix.latitude, fix.longitude)}</ReadoutRow>
+      {fix.accuracy_m != null && (
+        <ReadoutRow label="Accuracy">±{fix.accuracy_m.toFixed(0)} m</ReadoutRow>
+      )}
+      {fix.speed_mps != null && (
+        <ReadoutRow label="Speed">{(fix.speed_mps * 3.6).toFixed(1)} km/h</ReadoutRow>
+      )}
+      {(phone || fix.heading_deg != null) && (
+        <ReadoutRow label="Heading" title="True north">
+          {headingLabel(fix)}
+        </ReadoutRow>
+      )}
+      {tilt !== null && (
+        <ReadoutRow label="Tilt" title="Pitch and roll">
+          {tilt}
+        </ReadoutRow>
+      )}
+      {phone && <FixAge time={fix.time} />}
+    </Readout>
+  );
+}
+
+function FixAge({ time }: { time: string }) {
+  const now = useNow(FIX_TICK_MS);
+  return <ReadoutRow label="Fix">{fixAgeLabel(time, now)}</ReadoutRow>;
+}
+
+function PhoneSettings({
+  source,
+  error,
+  onChange,
+}: {
+  source: Extract<PositionSource, { type: "phone" }>;
+  error: string | null;
+  onChange: (source: PositionSource) => void;
+}) {
+  const phones = useQuery(phonesQuery());
+  const listed = phones.data?.phones;
+  const standing = phoneStanding(listed, source.phone, error);
+  const options = (listed ?? []).map((phone) => ({ value: phone.id, label: phone.name }));
+  if (!options.some((option) => option.value === source.phone)) {
+    options.push({ value: source.phone, label: source.phone });
+  }
+  return (
+    <SettingRow label="Phone">
+      <Select
+        label="Phone"
+        value={source.phone}
+        options={options}
+        className="w-full max-w-40"
+        onChange={(phone) => onChange({ type: "phone", phone })}
+      />
+      {standing !== null && (
+        <span className={`${STANDING_CHIP} ${STANDING_TONE[standing]}`}>
+          {STANDING_LABEL[standing]}
+        </span>
+      )}
+      {phones.isError && <span className="text-xs text-danger">Phone list failed</span>}
+    </SettingRow>
+  );
+}
+
 function SourceSettings({
   source,
+  error,
   onChange,
 }: {
   source: PositionSource;
+  error: string | null;
   onChange: (source: PositionSource) => void;
 }) {
   switch (source.type) {
@@ -119,11 +207,7 @@ function SourceSettings({
     case "nmea":
       return <NmeaSettings source={source} onChange={onChange} />;
     case "phone":
-      return (
-        <SettingRow label="Phone">
-          <span className="font-mono text-sm">{source.phone}</span>
-        </SettingRow>
-      );
+      return <PhoneSettings source={source} error={error} onChange={onChange} />;
   }
 }
 

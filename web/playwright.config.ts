@@ -1,6 +1,10 @@
 import { defineConfig, devices } from "@playwright/test";
 
-const PORT = 8099;
+declare const process: { readonly env: Readonly<Record<string, string | undefined>> };
+
+const PORT = Number(process.env.E2E_PORT ?? 8099);
+const TLS = process.env.E2E_TLS === "1";
+const ORIGIN = `${TLS ? "https" : "http"}://127.0.0.1:${PORT}`;
 const SCRATCH = ".e2e-tmp";
 
 export default defineConfig({
@@ -9,7 +13,8 @@ export default defineConfig({
   retries: 0,
   workers: 1,
   use: {
-    baseURL: `http://127.0.0.1:${PORT}`,
+    baseURL: ORIGIN,
+    ignoreHTTPSErrors: TLS,
     trace: "retain-on-failure",
   },
   projects: [{ name: "chromium", use: devices["Desktop Chrome"] }],
@@ -18,10 +23,12 @@ export default defineConfig({
       `pnpm --dir web build && rm -rf web/${SCRATCH} ` +
       `&& cargo xtask broadcast-fixtures --out web/${SCRATCH}/recordings ` +
       `&& cargo run -q -p sdrmm --no-default-features -- --bind 127.0.0.1:${PORT} ` +
-      `--db web/${SCRATCH}/e2e.db --recordings-dir web/${SCRATCH}/recordings`,
+      `--db web/${SCRATCH}/e2e.db --recordings-dir web/${SCRATCH}/recordings` +
+      (TLS ? " --tls-self-signed" : ""),
     cwd: "..",
     env: { VITE_ENABLE_SYNTHETIC_DEVICES: "true" },
-    url: `http://127.0.0.1:${PORT}/api/state`,
+    url: `${ORIGIN}/api/state`,
+    ignoreHTTPSErrors: TLS,
     reuseExistingServer: false,
     timeout: 300_000,
   },

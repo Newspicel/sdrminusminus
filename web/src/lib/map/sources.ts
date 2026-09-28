@@ -1,7 +1,7 @@
 import type { GeoJSONSource, Map as MapLibreMap } from "maplibre-gl";
 import { describeError, recordEvent } from "../diagnostics";
 import type { PositionSample } from "../position";
-import type { SignalSurveySample } from "../signalSurvey";
+import type { SurveyCell } from "../types";
 import { trailBounds, unwrapTrail } from "./bounds";
 import type { TargetCollection } from "./layers";
 
@@ -101,22 +101,22 @@ export interface SignalCollection {
   features: SignalFeature[];
 }
 
-export function signalCollection(samples: readonly SignalSurveySample[]): SignalCollection {
+export function signalCollection(cells: readonly SurveyCell[]): SignalCollection {
   return {
     type: "FeatureCollection",
-    features: samples.map((sample) => ({
+    features: cells.map((cell) => ({
       type: "Feature",
-      geometry: { type: "Point", coordinates: [sample.longitude, sample.latitude] },
-      properties: { level: sample.levelDbfs, observations: sample.observations },
+      geometry: { type: "Point", coordinates: [cell.longitude, cell.latitude] },
+      properties: { level: cell.level_dbfs, observations: cell.observations },
     })),
   };
 }
 
 export function updateSignalSource(
   source: Pick<GeoJSONSource, "setData"> | undefined,
-  samples: readonly SignalSurveySample[],
+  cells: readonly SurveyCell[],
 ): SignalCollection {
-  const collection = signalCollection(samples);
+  const collection = signalCollection(cells);
   setSourceData(source, collection);
   return collection;
 }

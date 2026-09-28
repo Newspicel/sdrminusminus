@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { setToken } from "./auth";
 import { clientEvents, resetEvents } from "./diagnostics";
-import { SdrSocket } from "./ws";
+import { SdrSocket, socketProtocols } from "./ws";
 
 const RECONNECT_CEILING = 30_000;
 
@@ -15,7 +16,10 @@ class FakeWebSocket {
   onerror: (() => void) | null = null;
   onmessage: ((event: MessageEvent) => void) | null = null;
 
-  constructor(readonly url: string) {
+  constructor(
+    readonly url: string,
+    readonly protocols: string[] = [],
+  ) {
     sockets.push(this);
   }
 
@@ -250,5 +254,36 @@ describe("SdrSocket messages", () => {
       "unreadable event",
       "unknown frame 42",
     ]);
+  });
+});
+
+describe("SdrSocket credentials", () => {
+  beforeEach(() => {
+    sockets.length = 0;
+    Object.defineProperty(globalThis, "WebSocket", {
+      configurable: true,
+      value: FakeWebSocket,
+    });
+    fakeWindow();
+  });
+
+  afterEach(() => setToken(null));
+
+  it("offers the token as a subprotocol and keeps it out of the URL", () => {
+    setToken("s3cret/ä");
+    const socket = new SdrSocket();
+    socket.connect();
+    socket.close();
+    expect(latest().url).toBe("ws://sdr.local/api/ws");
+    expect(latest().protocols).toEqual(["sdrmm", "sdrmm.bearer.7333637265742fc3a4"]);
+  });
+
+  it("offers only the plain subprotocol without a token", () => {
+    const socket = new SdrSocket();
+    socket.connect();
+    socket.close();
+    expect(latest().url).toBe("ws://sdr.local/api/ws");
+    expect(latest().protocols).toEqual(["sdrmm"]);
+    expect(socketProtocols(null)).toEqual(["sdrmm"]);
   });
 });

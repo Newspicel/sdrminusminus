@@ -27,7 +27,7 @@ import {
 } from "../../lib/map/sources";
 import { highlight } from "../../lib/map/targets";
 import { type PositionSample, usePositionStore } from "../../lib/position";
-import type { SignalSurveySample } from "../../lib/signalSurvey";
+import type { SurveyCell } from "../../lib/types";
 import {
   type Counts,
   type MapCore,
@@ -46,7 +46,7 @@ interface Drawn {
   generation: number;
   targets: Partial<Record<MapKind, readonly Target[]>>;
   position: string;
-  signal: readonly SignalSurveySample[] | null;
+  signal: readonly SurveyCell[] | null;
   propagation: PropagationOverlay | null;
   df: DfOverlay | null;
   heat: FusionGridFrame | null;

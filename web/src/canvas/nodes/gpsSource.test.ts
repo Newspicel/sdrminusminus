@@ -9,8 +9,8 @@ import {
 } from "./gpsSource";
 
 describe("gpsTabs", () => {
-  it("offers receiver, network and fixed sources, not the browser's location", () => {
-    expect(gpsTabs().map((tab) => tab.value)).toEqual(["receiver", "network", "fixed"]);
+  it("offers receiver, network, fixed and phone", () => {
+    expect(gpsTabs().map((tab) => tab.value)).toEqual(["receiver", "network", "fixed", "phone"]);
   });
 
   it("explains every source on hover", () => {

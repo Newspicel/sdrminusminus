@@ -4,7 +4,7 @@ import type { DfOverlay } from "../../lib/map/df";
 import type { MapKind, TargetDetail } from "../../lib/map/layers";
 import type { PropagationOverlay } from "../../lib/map/propagation";
 import type { Selection } from "../../lib/map/targets";
-import type { SignalSurveySample } from "../../lib/signalSurvey";
+import type { SurveyCell } from "../../lib/types";
 
 export type Counts = Record<MapKind, number>;
 
@@ -14,7 +14,7 @@ export interface MapInputs {
   kinds: readonly MapKind[];
   references: readonly (readonly [number, number])[];
   positionNodes: readonly string[];
-  signalSamples: readonly SignalSurveySample[] | null;
+  signalSamples: readonly SurveyCell[] | null;
   propagation: PropagationOverlay | null;
   df: DfOverlay | null;
   heat: FusionGridFrame | null;

@@ -633,7 +633,10 @@ test.describe("the workspace", () => {
     await expect(fixed.getByText("JO62qm")).toHaveCount(2);
 
     await fixed.getByRole("button", { name: "Forget source" }).click();
-    await expect(fixed.getByRole("group", { name: "Position source" })).toBeVisible();
+    const sources = fixed.getByRole("group", { name: "Position source" });
+    await expect(sources).toBeVisible();
+    await sources.getByText("Phone", { exact: true }).click();
+    await expect(fixed.getByText("No phones", { exact: true })).toBeVisible();
   });
 
   test("keeps the band plan in the workspace, not in the browser", async ({ page }) => {

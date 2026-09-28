@@ -1,95 +1,16 @@
-import { create } from "zustand";
-import type { SpectrumFrame } from "./frame";
+import type { SurveyCell } from "./types";
 
 export const SIGNAL_MIN_DBFS = -120;
 export const SIGNAL_MAX_DBFS = -20;
-const CELL_SIZE_M = 10;
-const MAX_CELLS = 5_000;
 
-export interface SignalSurveySample {
-  latitude: number;
-  longitude: number;
-  frequencyHz: number;
-  levelDbfs: number;
-  measuredAt: number;
-  observations: number;
-  accuracyM?: number;
-}
-
-export interface SignalSurveySession {
+export interface SurveyView {
+  radioWired: boolean;
+  positionWired: boolean;
+  positioned: boolean;
+  targetHz: number | null;
+  levelDbfs: number | null;
   recording: boolean;
-  samples: readonly SignalSurveySample[];
-}
-
-interface SignalSurveyStore {
-  sessions: Record<string, SignalSurveySession>;
-  setRecording: (node: string, recording: boolean) => void;
-  observe: (node: string, sample: Omit<SignalSurveySample, "observations">) => void;
-  clear: (node: string) => void;
-}
-
-const EMPTY_SESSION: SignalSurveySession = { recording: false, samples: [] };
-
-export const useSignalSurveyStore = create<SignalSurveyStore>((set) => ({
-  sessions: {},
-  setRecording: (node, recording) =>
-    set((state) => ({
-      sessions: {
-        ...state.sessions,
-        [node]: { ...(state.sessions[node] ?? EMPTY_SESSION), recording },
-      },
-    })),
-  observe: (node, sample) =>
-    set((state) => {
-      const session = state.sessions[node] ?? EMPTY_SESSION;
-      return {
-        sessions: {
-          ...state.sessions,
-          [node]: { ...session, samples: mergeSurveySample(session.samples, sample) },
-        },
-      };
-    }),
-  clear: (node) =>
-    set((state) => ({
-      sessions: {
-        ...state.sessions,
-        [node]: { ...(state.sessions[node] ?? EMPTY_SESSION), samples: [] },
-      },
-    })),
-}));
-
-export function measureSignalDbfs(
-  frame: SpectrumFrame,
-  frequencyHz: number,
-  bandwidthHz: number,
-): number | null {
-  const count = frame.bins.length;
-  if (
-    count === 0 ||
-    !(frame.spanHz > 0) ||
-    !(frame.dbMax > frame.dbMin) ||
-    !Number.isFinite(frequencyHz) ||
-    !Number.isFinite(bandwidthHz) ||
-    !(bandwidthHz > 0)
-  ) {
-    return null;
-  }
-  const frameLow = frame.centerHz - frame.spanHz / 2;
-  const frameHigh = frame.centerHz + frame.spanHz / 2;
-  if (frequencyHz < frameLow || frequencyHz > frameHigh) {
-    return null;
-  }
-
-  const binHz = frame.spanHz / count;
-  const sliceLow = Math.max(frameLow, frequencyHz - bandwidthHz / 2);
-  const sliceHigh = Math.min(frameHigh, frequencyHz + bandwidthHz / 2);
-  const first = Math.max(0, Math.min(count - 1, Math.floor((sliceLow - frameLow) / binHz)));
-  const last = Math.max(first, Math.min(count - 1, Math.ceil((sliceHigh - frameLow) / binHz) - 1));
-  let peak = 0;
-  for (let index = first; index <= last; index += 1) {
-    peak = Math.max(peak, frame.bins[index] ?? 0);
-  }
-  return frame.dbMin + (peak / 255) * (frame.dbMax - frame.dbMin);
+  retuned: boolean;
 }
 
 export function signalOffsetLimitHz(spanHz: number, bandwidthHz: number): number {
@@ -99,70 +20,67 @@ export function signalOffsetLimitHz(spanHz: number, bandwidthHz: number): number
   return Math.max(0, Math.floor((spanHz - bandwidthHz) / 2));
 }
 
-export function mergeSurveySample(
-  samples: readonly SignalSurveySample[],
-  incoming: Omit<SignalSurveySample, "observations">,
-): readonly SignalSurveySample[] {
-  const key = cellKey(incoming.latitude, incoming.longitude, incoming.frequencyHz);
-  const index = samples.findIndex(
-    (sample) => cellKey(sample.latitude, sample.longitude, sample.frequencyHz) === key,
-  );
-  if (index < 0) {
-    const next = [...samples, { ...incoming, observations: 1 }];
-    return next.length > MAX_CELLS ? next.slice(next.length - MAX_CELLS) : next;
-  }
+export function surveyFrequencyHz(cells: readonly SurveyCell[]): number | null {
+  return cells[0]?.frequency_hz ?? null;
+}
 
-  const previous = samples[index];
-  if (previous === undefined) {
-    return samples;
+export function retunedSince(cells: readonly SurveyCell[], targetHz: number | null): boolean {
+  const surveyed = surveyFrequencyHz(cells);
+  return surveyed !== null && targetHz !== null && Math.round(surveyed) !== Math.round(targetHz);
+}
+
+export function canStart(view: SurveyView): boolean {
+  return (
+    view.radioWired &&
+    view.positionWired &&
+    view.positioned &&
+    view.levelDbfs !== null &&
+    !view.retuned
+  );
+}
+
+export function surveyStatus(view: SurveyView): string {
+  if (!view.radioWired) {
+    return "Wire a radio";
   }
-  const observations = previous.observations + 1;
-  const meanPower =
-    (dbToPower(previous.levelDbfs) * previous.observations + dbToPower(incoming.levelDbfs)) /
-    observations;
-  const merged: SignalSurveySample = {
-    latitude: (previous.latitude * previous.observations + incoming.latitude) / observations,
-    longitude: (previous.longitude * previous.observations + incoming.longitude) / observations,
-    frequencyHz: incoming.frequencyHz,
-    levelDbfs: 10 * Math.log10(meanPower),
-    measuredAt: incoming.measuredAt,
-    observations,
-    ...(incoming.accuracyM === undefined ? {} : { accuracyM: incoming.accuracyM }),
-  };
-  return samples.with(index, merged);
+  if (!view.positionWired) {
+    return "Wire a position";
+  }
+  if (view.recording) {
+    return "Recording each new GPS fix";
+  }
+  if (view.targetHz === null) {
+    return "Waiting for the radio";
+  }
+  if (view.retuned) {
+    return "Retuned: clear to start again";
+  }
+  if (view.levelDbfs === null) {
+    return "Offset is outside the IQ span";
+  }
+  return view.positioned ? "Ready" : "Waiting for GPS";
 }
 
 export function signalSurveyCsv(
-  samples: readonly SignalSurveySample[],
+  cells: readonly SurveyCell[],
   offsetHz: number,
   bandwidthHz: number,
 ): string {
-  const rows = samples.map((sample) =>
+  const rows = cells.map((cell) =>
     [
-      new Date(sample.measuredAt).toISOString(),
-      sample.frequencyHz,
+      cell.measured_at,
+      cell.frequency_hz,
       offsetHz,
       bandwidthHz,
-      sample.latitude.toFixed(7),
-      sample.longitude.toFixed(7),
-      sample.accuracyM?.toFixed(1) ?? "",
-      sample.levelDbfs.toFixed(2),
-      sample.observations,
+      cell.latitude.toFixed(7),
+      cell.longitude.toFixed(7),
+      cell.accuracy_m?.toFixed(1) ?? "",
+      cell.level_dbfs.toFixed(2),
+      cell.observations,
     ].join(","),
   );
   return [
     "time,frequency_hz,offset_hz,bandwidth_hz,latitude,longitude,accuracy_m,level_dbfs,observations",
     ...rows,
   ].join("\n");
-}
-
-function cellKey(latitude: number, longitude: number, frequencyHz: number): string {
-  const latitudeRad = (latitude * Math.PI) / 180;
-  const x = longitude * 111_320 * Math.max(0.01, Math.cos(latitudeRad));
-  const y = latitude * 110_540;
-  return `${Math.round(frequencyHz)}:${Math.round(x / CELL_SIZE_M)}:${Math.round(y / CELL_SIZE_M)}`;
-}
-
-function dbToPower(db: number): number {
-  return 10 ** (db / 10);
 }
