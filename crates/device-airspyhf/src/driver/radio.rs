@@ -13,6 +13,7 @@ use super::{
 const RX_ENDPOINT: u8 = 0x81;
 const USB_CONFIGURATION: u8 = 1;
 const USB_INTERFACE: u8 = 0;
+const USB_ALT_SETTING: u8 = 1;
 
 pub(crate) const RX_TRANSFER_SIZE: usize = 65_536;
 const RX_CHANNEL_DEPTH: usize = 8;
@@ -56,6 +57,10 @@ impl AirspyHf {
             .detach_and_claim_interface(USB_INTERFACE)
             .wait()
             .map_err(|e| Error::usb("claiming Airspy HF+ USB interface 0", e))?;
+        interface
+            .set_alt_setting(USB_ALT_SETTING)
+            .wait()
+            .map_err(|e| Error::usb("selecting Airspy HF+ alternate setting 1", e))?;
 
         let control = Control::new(device, interface);
         control.control_out(&VendorControlRequest::receiver_mode(ReceiverMode::Off))?;
@@ -93,7 +98,6 @@ impl AirspyHf {
         opened.set_lna(defaults.lna)?;
         opened.set_agc(defaults.agc)?;
         opened.set_agc_high_threshold(defaults.agc_high_threshold)?;
-        opened.set_bias_tee(defaults.bias_tee)?;
         Ok(opened)
     }
 
@@ -182,13 +186,6 @@ impl AirspyHf {
         self.control
             .control_out(&VendorControlRequest::set_agc_threshold(high))?;
         self.config.agc_high_threshold = high;
-        Ok(())
-    }
-
-    pub(crate) fn set_bias_tee(&mut self, enabled: bool) -> Result<()> {
-        self.control
-            .control_out(&VendorControlRequest::set_bias_tee(enabled))?;
-        self.config.bias_tee = enabled;
         Ok(())
     }
 

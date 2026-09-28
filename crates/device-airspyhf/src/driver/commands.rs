@@ -12,7 +12,6 @@ pub(crate) enum VendorRequest {
     SetAtt = 12,
     SetLna = 13,
     GetSampleRateArchitectures = 14,
-    SetBiasTee = 22,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -35,6 +34,5 @@ mod tests {
         assert_eq!(VendorRequest::GetSerialNoBoardId as u8, 7);
         assert_eq!(VendorRequest::GetVersionString as u8, 9);
         assert_eq!(VendorRequest::SetAtt as u8, 12);
-        assert_eq!(VendorRequest::SetBiasTee as u8, 22);
     }
 }

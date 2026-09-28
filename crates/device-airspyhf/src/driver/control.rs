@@ -115,10 +115,6 @@ impl VendorControlRequest {
         Self::out_request(VendorRequest::SetLna, u16::from(enabled), 0, Vec::new())
     }
 
-    pub(crate) fn set_bias_tee(enabled: bool) -> Self {
-        Self::out_request(VendorRequest::SetBiasTee, u16::from(enabled), 0, Vec::new())
-    }
-
     pub(crate) fn version_string_read() -> Self {
         Self::in_request(VendorRequest::GetVersionString, 0, 0, VERSION_STRING_SIZE)
     }
@@ -254,7 +250,6 @@ mod tests {
     fn switches_travel_in_the_value() {
         assert_eq!(VendorControlRequest::set_agc(true).value, 1);
         assert_eq!(VendorControlRequest::set_lna(false).value, 0);
-        assert_eq!(VendorControlRequest::set_bias_tee(true).value, 1);
         assert_eq!(VendorControlRequest::set_attenuation(6).value, 6);
         assert_eq!(VendorControlRequest::set_agc_threshold(true).value, 1);
     }

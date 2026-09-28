@@ -203,9 +203,6 @@ fn write_to_hardware(
         }
         device.set_agc(writes.on).map_err(map_err)?;
     }
-    if let Some(enabled) = delta.bias_tee {
-        device.set_bias_tee(enabled).map_err(map_err)?;
-    }
     if let Some(extra) = delta.extra.first() {
         return Err(DeviceError::Unsupported(format!(
             "no {} setting",

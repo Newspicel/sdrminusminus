@@ -16,7 +16,6 @@ pub(crate) struct Config {
     pub(crate) lna: bool,
     pub(crate) agc: bool,
     pub(crate) agc_high_threshold: bool,
-    pub(crate) bias_tee: bool,
 }
 
 impl Default for Config {
@@ -28,7 +27,6 @@ impl Default for Config {
             lna: false,
             agc: true,
             agc_high_threshold: false,
-            bias_tee: false,
         }
     }
 }
