@@ -238,7 +238,7 @@ mod tests {
     use num_complex::Complex;
     use sdrmm_device::{DeviceRegistry, RxSink, SinkRoom, lock};
     use sdrmm_device_virtual::VirtualDriver;
-    use sdrmm_wire::{Agc, Coherence, GainKind, GainStage, GainValue, Range};
+    use sdrmm_wire::{Agc, AgcReach, Coherence, GainKind, GainStage, GainValue, Range};
 
     use super::*;
 
@@ -490,5 +490,34 @@ mod tests {
         assert!(alike.bias_tee);
         assert_eq!(alike.agc, Agc::Switch);
         assert!(alike.bandwidth_auto);
+    }
+
+    #[test]
+    fn a_stage_no_member_agc_reaches_stays_manual_in_the_array() {
+        let (device, _) = pair();
+        let mut member = device.capabilities().clone();
+        member.rx_streams = 1;
+        member.agc = Agc::Modes {
+            options: ["both", "lna"]
+                .map(sdrmm_wire::ArgumentOption::plain)
+                .to_vec(),
+        };
+        member.gains = vec![
+            stage(GainKind::Lna, 0.0, 14.0, Some(1.0)).with_agc(AgcReach::Modes {
+                modes: vec!["both".into(), "lna".into()],
+            }),
+            stage(GainKind::Mixer, 0.0, 15.0, Some(1.0)).with_agc(AgcReach::Modes {
+                modes: vec!["mixer".into()],
+            }),
+            stage(GainKind::Vga, 0.0, 15.0, Some(1.0)).with_agc(AgcReach::Never),
+        ];
+        let composed = composite(
+            &[&member, &member.clone()],
+            &definition(&["virtual:one", "virtual:two"], Coherence::TimeSync),
+        );
+        let reach = |kind: GainKind| composed.stage(kind.name()).map(|s| s.agc.clone());
+        assert_eq!(reach(GainKind::Lna), Some(AgcReach::Always));
+        assert_eq!(reach(GainKind::Mixer), Some(AgcReach::Never));
+        assert_eq!(reach(GainKind::Vga), Some(AgcReach::Never));
     }
 }

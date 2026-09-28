@@ -1,5 +1,6 @@
 use sdrmm_wire::{
-    Agc, ArrayDefinition, Capabilities, DeviceProfile, Duplex, GainStage, Range, StreamScope,
+    Agc, AgcReach, AgcSetting, ArrayDefinition, Capabilities, DeviceProfile, Duplex, GainStage,
+    Range, StreamScope,
 };
 
 /// What every member can do, which is all a composite can promise.
@@ -66,9 +67,28 @@ fn shared_gains(members: &[&Capabilities]) -> Vec<GainStage> {
                 .iter()
                 .map(|member| member.stage(&stage.name))
                 .collect::<Option<Vec<_>>>()?;
-            shared_stage(stage, &others)
+            shared_stage(stage, &others).map(|shared| shared.with_agc(shared_reach(members, stage)))
         })
         .collect()
+}
+
+fn shared_reach(members: &[&Capabilities], stage: &GainStage) -> AgcReach {
+    let switched_on = |agc: &Agc| {
+        agc.first_mode().map_or_else(
+            || AgcSetting::switched(true),
+            |mode| AgcSetting::in_mode(true, mode),
+        )
+    };
+    let driven = members.iter().any(|member| {
+        member
+            .stage(&stage.name)
+            .is_some_and(|own| own.agc.drives(&switched_on(&member.agc)))
+    });
+    if driven {
+        AgcReach::Always
+    } else {
+        AgcReach::Never
+    }
 }
 
 fn shared_stage(stage: &GainStage, others: &[&GainStage]) -> Option<GainStage> {
@@ -85,13 +105,11 @@ fn shared_stage(stage: &GainStage, others: &[&GainStage]) -> Option<GainStage> {
     } else {
         Vec::new()
     };
-    Some(GainStage {
-        name: stage.name.clone(),
-        kind: stage.kind,
-        unit: stage.unit,
-        range,
-        values,
-    })
+    Some(
+        GainStage::named(stage.name.clone(), stage.kind, range)
+            .with_unit(stage.unit)
+            .with_values(values),
+    )
 }
 
 fn shared_agc(members: &[&Capabilities]) -> Agc {

@@ -1454,6 +1454,17 @@ export interface components {
             /** Format: double */
             value_db: number;
         };
+        AgcReach: {
+            /** @enum {string} */
+            kind: "always";
+        } | {
+            /** @enum {string} */
+            kind: "never";
+        } | {
+            /** @enum {string} */
+            kind: "modes";
+            modes: string[];
+        };
         AgcSetting: {
             mode?: string | null;
             on: boolean;
@@ -3815,6 +3826,7 @@ export interface components {
         /** @enum {string} */
         GainKind: "lna" | "mixer" | "vga" | "if" | "rf" | "tuner" | "amp" | "attenuator" | "tx" | "other";
         GainStage: {
+            agc?: components["schemas"]["AgcReach"];
             kind: components["schemas"]["GainKind"];
             name: string;
             range: components["schemas"]["Range"];

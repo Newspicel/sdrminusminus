@@ -1,7 +1,7 @@
 use sdrmm_device::DeviceError;
 use sdrmm_wire::{
-    Agc, ArgumentOption, Capabilities, DcArtifact, ExtraSetting, GainKind, GainStage, Range,
-    StreamScope,
+    Agc, AgcReach, ArgumentOption, Capabilities, DcArtifact, ExtraSetting, GainKind, GainStage,
+    Range, StreamScope,
 };
 
 use crate::{
@@ -475,7 +475,8 @@ pub fn capabilities(model: Model, mode: Option<DuoMode>, band: Band) -> Capabili
                     max: max_lna_reduction(band),
                     step: None,
                 },
-            ),
+            )
+            .with_agc(AgcReach::Never),
             GainStage::new(
                 GainKind::If,
                 Range {
@@ -754,6 +755,15 @@ mod tests {
             caps.stage(GainKind::If.name()).map(|s| s.range.step),
             Some(Some(1.0))
         );
+    }
+
+    #[test]
+    fn the_agc_runs_the_if_gain_and_leaves_the_lna_state_alone() {
+        let caps = capabilities(Model::Rsp1a, None, band(Model::Rsp1a, 100e6));
+        let agc = sdrmm_wire::AgcSetting::in_mode(true, AGC_5HZ);
+        let run = |kind: GainKind| caps.stage(kind.name()).map(|s| s.agc.drives(&agc));
+        assert_eq!(run(GainKind::Rf), Some(false));
+        assert_eq!(run(GainKind::If), Some(true));
     }
 
     #[test]

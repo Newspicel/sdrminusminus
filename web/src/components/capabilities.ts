@@ -126,6 +126,28 @@ export function agcState(
   };
 }
 
+export function agcDrives(stage: Pick<GainStage, "agc">, agc: AgcSetting): boolean {
+  if (!agc.on) {
+    return false;
+  }
+  const reach = stage.agc ?? { kind: "always" };
+  switch (reach.kind) {
+    case "always":
+      return true;
+    case "never":
+      return false;
+    case "modes":
+      return agc.mode != null && reach.modes.includes(agc.mode);
+  }
+}
+
+export function agcStageIndex(stages: readonly Pick<GainStage, "agc">[]): number {
+  return Math.max(
+    stages.findIndex((stage) => stage.agc?.kind !== "never"),
+    0,
+  );
+}
+
 export function automaticGainIsOn(
   caps: Pick<Capabilities, "agc">,
   settings: Pick<DeviceSettings, "agc">,

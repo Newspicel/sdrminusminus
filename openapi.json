@@ -4683,6 +4683,59 @@
           }
         }
       },
+      "AgcReach": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "always"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "never"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "modes",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "modes"
+                ]
+              },
+              "modes": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        ]
+      },
       "AgcSetting": {
         "type": "object",
         "required": [
@@ -13502,6 +13555,9 @@
           "range"
         ],
         "properties": {
+          "agc": {
+            "$ref": "#/components/schemas/AgcReach"
+          },
           "kind": {
             "$ref": "#/components/schemas/GainKind"
           },

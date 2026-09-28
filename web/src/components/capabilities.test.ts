@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { GainStage } from "../lib/types";
 import {
+  agcDrives,
+  agcStageIndex,
   agcState,
   automaticGainIsOn,
   dcBlockOn,
@@ -39,6 +41,42 @@ describe("isSwitch", () => {
     expect(isSwitch(stage({ min: 0, max: 14, step: 14 }))).toBe(false);
     expect(isSwitch(stage({ min: 0, max: 14 }, [0, 14]))).toBe(false);
     expect(isSwitch(TUNER)).toBe(false);
+  });
+});
+
+const agcOn = (mode?: string) => ({ on: true, ...(mode == null ? {} : { mode }) });
+
+describe("agcDrives", () => {
+  const lna: GainStage = {
+    ...stage({ min: 0, max: 14, step: 1 }),
+    agc: { kind: "modes", modes: ["both", "lna"] },
+  };
+  const vga: GainStage = {
+    ...stage({ min: 0, max: 15, step: 1 }, undefined, "vga"),
+    agc: { kind: "never" },
+  };
+
+  it("leaves every stage free while the AGC is off", () => {
+    expect(agcDrives(TUNER, { on: false })).toBe(false);
+    expect(agcDrives(lna, { on: false, mode: "lna" })).toBe(false);
+  });
+
+  it("takes a stage that names no reach whenever the AGC runs", () => {
+    expect(agcDrives(TUNER, agcOn())).toBe(true);
+  });
+
+  it("takes only the stages the running mode drives", () => {
+    expect(agcDrives(lna, agcOn("both"))).toBe(true);
+    expect(agcDrives(lna, agcOn("mixer"))).toBe(false);
+    expect(agcDrives(lna, agcOn())).toBe(false);
+    expect(agcDrives(vga, agcOn("both"))).toBe(false);
+  });
+
+  it("puts Auto on the first stage an AGC can reach", () => {
+    expect(agcStageIndex([vga, lna])).toBe(1);
+    expect(agcStageIndex([TUNER, vga])).toBe(0);
+    expect(agcStageIndex([vga])).toBe(0);
+    expect(agcStageIndex([])).toBe(0);
   });
 });
 

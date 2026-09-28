@@ -283,6 +283,34 @@ pub enum GainUnit {
     Index,
 }
 
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, ToSchema)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum AgcReach {
+    #[default]
+    Always,
+    Never,
+    Modes {
+        modes: Vec<String>,
+    },
+}
+
+impl AgcReach {
+    #[must_use]
+    pub fn is_always(&self) -> bool {
+        matches!(self, Self::Always)
+    }
+
+    #[must_use]
+    pub fn drives(&self, agc: &AgcSetting) -> bool {
+        agc.on
+            && match self {
+                Self::Always => true,
+                Self::Never => false,
+                Self::Modes { modes } => agc.mode.as_ref().is_some_and(|mode| modes.contains(mode)),
+            }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct GainStage {
     pub name: String,
@@ -292,6 +320,8 @@ pub struct GainStage {
     pub range: Range,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub values: Vec<f64>,
+    #[serde(default, skip_serializing_if = "AgcReach::is_always")]
+    pub agc: AgcReach,
 }
 
 impl GainStage {
@@ -308,7 +338,14 @@ impl GainStage {
             unit: GainUnit::Db,
             range,
             values: Vec::new(),
+            agc: AgcReach::Always,
         }
+    }
+
+    #[must_use]
+    pub fn with_agc(mut self, agc: AgcReach) -> Self {
+        self.agc = agc;
+        self
     }
 
     #[must_use]
@@ -1448,6 +1485,37 @@ mod tests {
         assert!(modes.admits(&AgcSetting::off()));
         assert!(!modes.admits(&AgcSetting::in_mode(true, "hybrid")));
         assert_eq!(modes.first_mode(), Some("fast"));
+    }
+
+    #[test]
+    fn agc_reaches_a_stage_only_where_the_radio_says() {
+        let lna_only = AgcReach::Modes {
+            modes: vec!["lna".to_string()],
+        };
+        assert!(AgcReach::Always.drives(&AgcSetting::switched(true)));
+        assert!(!AgcReach::Always.drives(&AgcSetting::off()));
+        assert!(!AgcReach::Never.drives(&AgcSetting::switched(true)));
+        assert!(lna_only.drives(&AgcSetting::in_mode(true, "lna")));
+        assert!(!lna_only.drives(&AgcSetting::in_mode(true, "mixer")));
+        assert!(!lna_only.drives(&AgcSetting::in_mode(false, "lna")));
+    }
+
+    #[test]
+    fn a_stage_every_agc_drives_carries_no_reach_on_the_wire() {
+        let range = Range {
+            min: 0.0,
+            max: 10.0,
+            step: None,
+        };
+        let plain = serde_json::to_value(GainStage::new(GainKind::Lna, range)).expect("json");
+        assert!(plain.get("agc").is_none());
+        let manual = GainStage::new(GainKind::Vga, range).with_agc(AgcReach::Never);
+        let json = serde_json::to_value(&manual).expect("json");
+        assert_eq!(json["agc"], serde_json::json!({ "kind": "never" }));
+        let back: GainStage = serde_json::from_value(json).expect("round trip");
+        assert_eq!(back, manual);
+        let older: GainStage = serde_json::from_value(plain).expect("a stage without the field");
+        assert_eq!(older.agc, AgcReach::Always);
     }
 
     #[test]

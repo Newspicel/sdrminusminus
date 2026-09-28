@@ -95,10 +95,10 @@ pub use decode::{
     WsjtMessage, WsprSpot,
 };
 pub use device::{
-    ARRAY_DRIVER_ID, Agc, AgcGain, AgcSetting, ArgumentInfo, ArgumentOption, ArgumentType,
-    ArrayDefinition, BandwidthSetting, Capabilities, ChannelCapabilities, Coherence, DcArtifact,
-    DeviceInfo, DeviceProfile, DeviceSettings, Direction, DirectionalCapabilities, Duplex,
-    ExtraSetting, ExtraValue, GainKind, GainStage, GainUnit, GainValue, MAX_ARRAY_KEY_LEN,
+    ARRAY_DRIVER_ID, Agc, AgcGain, AgcReach, AgcSetting, ArgumentInfo, ArgumentOption,
+    ArgumentType, ArrayDefinition, BandwidthSetting, Capabilities, ChannelCapabilities, Coherence,
+    DcArtifact, DeviceInfo, DeviceProfile, DeviceSettings, Direction, DirectionalCapabilities,
+    Duplex, ExtraSetting, ExtraValue, GainKind, GainStage, GainUnit, GainValue, MAX_ARRAY_KEY_LEN,
     MAX_ARRAY_MEMBERS, MAX_RECORDING_STEM_LEN, RECORDING_DRIVER_ID, Range, SIGGEN_DRIVER_ID,
     StreamScope, StreamSettings, Tuning, any_range_holds, recording_stem_valid,
 };

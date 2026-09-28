@@ -1,7 +1,7 @@
 use sdrmm_device::{DeviceError, check_stream_settings};
 use sdrmm_wire::{
-    Agc, AgcSetting, ArgumentOption, Capabilities, Coherence, DcArtifact, DeviceSettings, Duplex,
-    GainKind, GainStage, GainValue, Range, StreamScope,
+    Agc, AgcReach, AgcSetting, ArgumentOption, Capabilities, Coherence, DcArtifact, DeviceSettings,
+    Duplex, GainKind, GainStage, GainValue, Range, StreamScope,
 };
 
 use crate::driver::{ATTENUATION_STEP_DB, Config, MAX_ATTENUATION_STEP, MAX_PPM};
@@ -46,7 +46,8 @@ pub(crate) fn capabilities(sample_rates: &[u32], low_if: bool) -> Capabilities {
                     max: PREAMP_DB,
                     step: Some(PREAMP_DB),
                 },
-            ),
+            )
+            .with_agc(AgcReach::Never),
             GainStage::new(
                 GainKind::Attenuator,
                 Range {
@@ -400,6 +401,15 @@ mod tests {
             DcArtifact::Managed
         );
         assert_eq!(capabilities(&[384_000], true).dc_artifact, DcArtifact::None);
+    }
+
+    #[test]
+    fn the_agc_runs_the_attenuator_and_leaves_the_preamp_alone() {
+        let caps = caps();
+        let agc = AgcSetting::in_mode(true, AGC_LOW);
+        let run = |kind: GainKind| caps.stage(kind.name()).map(|s| s.agc.drives(&agc));
+        assert_eq!(run(GainKind::Amp), Some(false));
+        assert_eq!(run(GainKind::Attenuator), Some(true));
     }
 
     #[test]

@@ -8,9 +8,10 @@ import { Input } from "./BaseControls";
 import { Checkbox } from "./Checkbox";
 import {
   AUTO_FILTER,
+  agcDrives,
   agcOffered,
+  agcStageIndex,
   agcState,
-  automaticGainIsOn,
   dcBlockOn,
   filterHz,
   filterIsAuto,
@@ -72,8 +73,8 @@ export function RadioSettings({
   const scope = caps.per_stream;
   const streamedAntenna = scope?.antenna === true && caps.antennas.length > 1;
   const streamedGain = scope?.gain === true && caps.gains.length > 0;
-  const automaticGain = automaticGainIsOn(caps, settings);
-  const agcModes = caps.agc?.kind === "modes" && automaticGain;
+  const automatic = agcState(caps, settings);
+  const agcModes = caps.agc?.kind === "modes" && automatic.on;
   const agcOnGain = agcOffered(caps) && caps.gains.length > 0;
   const streams =
     !lanesShown && (streamedAntenna || streamedGain)
@@ -121,11 +122,13 @@ export function RadioSettings({
           <GainControl
             key={stage.name}
             stage={stage}
-            disabled={automaticGain}
+            disabled={agcDrives(stage, automatic)}
             measured={agcGainDb(active, 0)}
             agc={
               agcOnGain &&
-              index === 0 && <AgcAuto set={active} stream={0} advised={advised.has(0)} />
+              index === agcStageIndex(caps.gains) && (
+                <AgcAuto set={active} stream={0} advised={advised.has(0)} />
+              )
             }
             value={settings.gains?.find((g) => g.stage === stage.name)?.value_db ?? stage.range.min}
             onCommit={(db) => patch({ gains: [{ stage: stage.name, value_db: db }] })}
@@ -149,7 +152,10 @@ export function RadioSettings({
       )}
 
       {caps.ppm && (
-        <SettingRow label="PPM" title="Frequency correction in parts per million, kept for this radio">
+        <SettingRow
+          label="PPM"
+          title="Frequency correction in parts per million, kept for this radio"
+        >
           <NumberField
             className={WIDE}
             label="Frequency correction"
@@ -213,7 +219,7 @@ export function LaneControls({
   const scope = caps.per_stream;
   const port = streamLabel("iq", stream, rxStreamCount(caps));
   const lane = forStream(active.settings, stream, scope);
-  const automaticGain = laneAgc(active, stream).on;
+  const agc = laneAgc(active, stream);
   const agcHere = agcOffered(caps) && (scope?.agc === true || stream === 0);
   const patch = (delta: Parameters<typeof applyPatch>[1]): void => applyPatch(active.id, delta);
   return (
@@ -235,11 +241,13 @@ export function LaneControls({
             key={stage.name}
             stage={stage}
             port={port}
-            disabled={automaticGain}
+            disabled={agcDrives(stage, agc)}
             measured={agcGainDb(active, stream)}
             agc={
               agcHere &&
-              index === 0 && <AgcAuto set={active} stream={stream} port={port} advised={advised} />
+              index === agcStageIndex(caps.gains) && (
+                <AgcAuto set={active} stream={stream} port={port} advised={advised} />
+              )
             }
             value={lane.gains?.find((g) => g.stage === stage.name)?.value_db ?? stage.range.min}
             onCommit={(db) =>

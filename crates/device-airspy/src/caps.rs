@@ -1,7 +1,7 @@
 use sdrmm_device::{DeviceError, check_stream_settings};
 use sdrmm_wire::{
-    Agc, AgcSetting, ArgumentOption, Capabilities, Coherence, DcArtifact, DeviceSettings, Duplex,
-    GainKind, GainStage, GainUnit, GainValue, Range, StreamScope, any_range_holds,
+    Agc, AgcReach, AgcSetting, ArgumentOption, Capabilities, Coherence, DcArtifact, DeviceSettings,
+    Duplex, GainKind, GainStage, GainUnit, GainValue, Range, StreamScope, any_range_holds,
 };
 
 use crate::driver::{Config, FREQ_MAX_HZ, FREQ_MIN_HZ, MAX_LNA_GAIN, MAX_MIXER_GAIN, MAX_VGA_GAIN};
@@ -11,7 +11,7 @@ pub(crate) const AGC_BOTH: &str = "both";
 pub(crate) const AGC_LNA: &str = "lna";
 pub(crate) const AGC_MIXER: &str = "mixer";
 
-fn stage(kind: GainKind, max: u8) -> GainStage {
+fn stage(kind: GainKind, max: u8, agc: AgcReach) -> GainStage {
     GainStage::new(
         kind,
         Range {
@@ -21,6 +21,13 @@ fn stage(kind: GainKind, max: u8) -> GainStage {
         },
     )
     .with_unit(GainUnit::Index)
+    .with_agc(agc)
+}
+
+fn run_by(modes: [&str; 2]) -> AgcReach {
+    AgcReach::Modes {
+        modes: modes.map(str::to_string).to_vec(),
+    }
 }
 
 fn agc_mode(value: &str, label: &str) -> ArgumentOption {
@@ -40,9 +47,13 @@ pub(crate) fn capabilities(sample_rates: &[u32]) -> Capabilities {
         sample_rates: sample_rates.iter().copied().map(f64::from).collect(),
         sample_rate_ranges: Vec::new(),
         gains: vec![
-            stage(GainKind::Lna, MAX_LNA_GAIN),
-            stage(GainKind::Mixer, MAX_MIXER_GAIN),
-            stage(GainKind::Vga, MAX_VGA_GAIN),
+            stage(GainKind::Lna, MAX_LNA_GAIN, run_by([AGC_BOTH, AGC_LNA])),
+            stage(
+                GainKind::Mixer,
+                MAX_MIXER_GAIN,
+                run_by([AGC_BOTH, AGC_MIXER]),
+            ),
+            stage(GainKind::Vga, MAX_VGA_GAIN, AgcReach::Never),
         ],
         antennas: vec![ANTENNA.to_string()],
         bandwidths: Vec::new(),
@@ -374,6 +385,29 @@ mod tests {
         }
         assert!(validate(&with_agc(AgcSetting::in_mode(true, "vga")), &caps).is_err());
         assert!(agc_switches(&AgcSetting::in_mode(true, "vga")).is_err());
+    }
+
+    #[test]
+    fn each_agc_mode_runs_only_its_own_stages() {
+        let caps = caps();
+        let run = |agc: AgcSetting| {
+            caps.gains
+                .iter()
+                .filter(|stage| stage.agc.drives(&agc))
+                .map(|stage| stage.kind)
+                .collect::<Vec<_>>()
+        };
+        for (reported, expected) in [
+            (
+                agc_setting(true, true),
+                vec![GainKind::Lna, GainKind::Mixer],
+            ),
+            (agc_setting(true, false), vec![GainKind::Lna]),
+            (agc_setting(false, true), vec![GainKind::Mixer]),
+            (agc_setting(false, false), vec![]),
+        ] {
+            assert_eq!(run(reported.clone()), expected, "{reported:?}");
+        }
     }
 
     #[test]

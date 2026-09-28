@@ -1,7 +1,7 @@
 use sdrmm_device::DeviceError;
 use sdrmm_wire::{
-    Agc, ArgumentOption, Capabilities, Coherence, DcArtifact, Duplex, ExtraSetting, GainKind,
-    GainStage, Range, StreamScope,
+    Agc, AgcReach, ArgumentOption, Capabilities, Coherence, DcArtifact, Duplex, ExtraSetting,
+    GainKind, GainStage, Range, StreamScope,
 };
 
 use crate::{
@@ -329,7 +329,7 @@ pub(crate) fn capabilities(front: &Front, layout: &Layout) -> Capabilities {
 fn gain_stages(front: &Front) -> Vec<GainStage> {
     let mut stages = vec![GainStage::new(GainKind::Tuner, front.rx_gain)];
     if let Some(range) = front.tx_gain {
-        stages.push(GainStage::new(GainKind::Tx, range));
+        stages.push(GainStage::new(GainKind::Tx, range).with_agc(AgcReach::Never));
     }
     stages
 }
@@ -513,6 +513,12 @@ pub(crate) mod tests {
         assert_eq!(kinds, vec![GainKind::Tuner, GainKind::Tx]);
         assert_eq!(caps.gains[0].name, "TUNER");
         assert_eq!(caps.gains[1].name, "TX");
+        assert_eq!(caps.gains[0].agc, AgcReach::Always);
+        assert_eq!(
+            caps.gains[1].agc,
+            AgcReach::Never,
+            "receive AGC leaves TX alone"
+        );
 
         let mut receive_only = front();
         receive_only.tx_gain = None;
