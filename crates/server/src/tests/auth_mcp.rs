@@ -2,18 +2,11 @@ use super::*;
 
 #[tokio::test]
 async fn token_auth_gates_the_api_and_advertises_itself() {
-    let mut registry = sdrmm_device::DeviceRegistry::new();
-    registry.register(1, Box::new(sdrmm_device_virtual::VirtualDriver::new()));
-    let store = Store::open(None).expect("in-memory store");
-    let app = router(
-        Engine::with_registry(registry, None),
-        store,
-        &ServerOptions {
-            dev_cors: false,
-            token: Some("s3cret".to_string()),
-            ..ServerOptions::default()
-        },
-    );
+    let app = test_router_with_options(&ServerOptions {
+        dev_cors: false,
+        token: Some("s3cret".to_string()),
+        ..ServerOptions::default()
+    });
 
     let (status, body) = request(app.clone(), "GET", "/api/auth", None).await;
     assert_eq!(status, StatusCode::OK);
@@ -39,17 +32,11 @@ async fn auth_reports_not_required_by_default() {
 
 #[tokio::test]
 async fn mcp_is_mounted_and_shares_the_token_gate() {
-    let mut registry = sdrmm_device::DeviceRegistry::new();
-    registry.register(1, Box::new(sdrmm_device_virtual::VirtualDriver::new()));
-    let app = router(
-        Engine::with_registry(registry, None),
-        Store::open(None).expect("in-memory store"),
-        &ServerOptions {
-            dev_cors: false,
-            token: Some("s3cret".to_string()),
-            ..ServerOptions::default()
-        },
-    );
+    let app = test_router_with_options(&ServerOptions {
+        dev_cors: false,
+        token: Some("s3cret".to_string()),
+        ..ServerOptions::default()
+    });
     let call = r#"{"jsonrpc":"2.0","id":1,"method":"tools/list"}"#;
     let (status, _) = request(app.clone(), "POST", "/mcp", Some(call)).await;
     assert_eq!(status, StatusCode::UNAUTHORIZED);

@@ -58,9 +58,7 @@ pub enum TlsError {
 
 pub(crate) struct Served {
     pub(crate) config: Arc<ServerConfig>,
-    #[cfg_attr(not(test), expect(dead_code))]
     pub(crate) pin: String,
-    #[cfg_attr(not(test), expect(dead_code))]
     pub(crate) names: Vec<String>,
 }
 

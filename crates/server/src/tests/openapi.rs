@@ -131,14 +131,7 @@ fn openapi_registers_paths_and_ws_schemas() {
 
 #[test]
 fn router_builds_outside_a_tokio_runtime() {
-    let mut registry = sdrmm_device::DeviceRegistry::new();
-    registry.register(1, Box::new(sdrmm_device_virtual::VirtualDriver::new()));
-    let store = Store::open(None).expect("in-memory store");
-    let _router = router(
-        Engine::with_registry(registry, None),
-        store,
-        &ServerOptions::default(),
-    );
+    let _router = test_router_with_options(&ServerOptions::default());
 }
 
 #[test]
@@ -228,9 +221,7 @@ fn every_new_route_is_in_the_contract() {
 #[tokio::test]
 async fn a_route_whose_owner_has_not_landed_says_so() {
     for (method, path, body) in NEW_ROUTES {
-        if path == "/api/fusion/{node}"
-            || (path.starts_with("/api/phones") && path != "/api/phones/access")
-        {
+        if path == "/api/fusion/{node}" || path.starts_with("/api/phones") {
             continue;
         }
         let uri = path.replace("{node}", "arr").replace("{id}", "ab12");

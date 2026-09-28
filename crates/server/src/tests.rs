@@ -93,6 +93,18 @@ fn test_router_with_state() -> (Router, AppState) {
     (router, state)
 }
 
+fn test_router_with_options(options: &ServerOptions) -> Router {
+    let mut registry = sdrmm_device::DeviceRegistry::new();
+    registry.register(1, Box::new(sdrmm_device_virtual::VirtualDriver::new()));
+    let state = AppState::new(
+        Engine::with_registry(registry, None),
+        Arc::new(Store::open(None).expect("in-memory store")),
+    );
+    let (router, background) = router_with_state(state, options);
+    background.detach();
+    router
+}
+
 fn tls_router_with_state() -> (Router, AppState) {
     let store = Arc::new(Store::open(None).expect("in-memory store"));
     let state = state_over(store);

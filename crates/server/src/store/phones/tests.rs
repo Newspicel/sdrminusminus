@@ -211,3 +211,19 @@ fn a_corrupt_phone_row_is_an_error_not_a_guess() {
         .expect("insert");
     assert!(matches!(store.phones(), Err(StoreError::Db(_))));
 }
+
+#[test]
+fn server_meta_keeps_the_last_value_of_a_key() {
+    let store = store();
+    assert_eq!(store.meta("phone_access").expect("read"), None);
+    store.put_meta("phone_access", "one").expect("write");
+    store.put_meta("phone_access", "two").expect("write");
+    assert_eq!(
+        store.meta("phone_access").expect("read").as_deref(),
+        Some("two")
+    );
+    assert_eq!(
+        store.meta("server_id").expect("read"),
+        Some(store.server_id().to_string())
+    );
+}

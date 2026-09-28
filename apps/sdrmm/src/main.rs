@@ -1,6 +1,7 @@
 use std::{
     net::SocketAddr,
     path::{Path, PathBuf},
+    process::ExitCode,
 };
 
 use anyhow::Context;
@@ -8,9 +9,13 @@ use clap::Parser;
 use sdrmm_engine::Engine;
 use sdrmm_server::{Config, ServerOptions, serve, tls::Tls};
 
+mod pair;
+
 #[derive(Parser, Debug)]
 #[command(name = "sdrmm", version, about)]
 struct Args {
+    #[command(subcommand)]
+    command: Option<Command>,
     #[arg(long, default_value = "0.0.0.0:8080")]
     bind: SocketAddr,
     #[arg(long)]
@@ -40,6 +45,22 @@ struct Args {
     doctor: bool,
     #[arg(long)]
     doctor_rates: bool,
+}
+
+#[derive(clap::Subcommand, Debug)]
+enum Command {
+    #[command(about = "Show a QR code that pairs a phone")]
+    Pair(pair::PairArgs),
+}
+
+impl Args {
+    fn pair(&mut self) -> Option<pair::PairArgs> {
+        let Some(Command::Pair(mut pair)) = self.command.take() else {
+            return None;
+        };
+        pair.db = pair.db.or_else(|| self.db.take());
+        Some(pair)
+    }
 }
 
 fn resolve_db_path(cli: Option<PathBuf>) -> anyhow::Result<PathBuf> {
@@ -94,14 +115,24 @@ fn resolve_recordings_dir(cli: Option<PathBuf>) -> anyhow::Result<PathBuf> {
     std::path::absolute(&path).with_context(|| format!("cannot resolve {}", path.display()))
 }
 
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {
+fn main() -> ExitCode {
     #[cfg(feature = "soapy")]
     sdrmm_device_soapy::enable_isolated_probes();
 
-    sdrmm_server::diagnostics::install_tracing()?;
+    match run(Args::parse()) {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(error) => {
+            eprintln!("{error:#}");
+            ExitCode::FAILURE
+        }
+    }
+}
 
-    let mut args = Args::parse();
+fn run(mut args: Args) -> anyhow::Result<()> {
+    if let Some(pair) = args.pair() {
+        return pair::run(pair);
+    }
+    sdrmm_server::diagnostics::install_tracing()?;
     let db_path = resolve_db_path(args.db.take())?;
     let recordings_dir = resolve_recordings_dir(args.recordings_dir.take())?;
     if args.doctor {
@@ -127,7 +158,6 @@ async fn main() -> anyhow::Result<()> {
         std::fs::create_dir_all(parent)
             .with_context(|| format!("cannot create {}", parent.display()))?;
     }
-
     let engine = Engine::with_registry(
         sdrmm_engine::builtin_registry_accelerated(
             Some(recordings_dir.clone()),
@@ -145,7 +175,11 @@ async fn main() -> anyhow::Result<()> {
             shell: None,
         },
     };
+    serve_until_stopped(config, engine)
+}
 
+#[tokio::main]
+async fn serve_until_stopped(config: Config, engine: std::sync::Arc<Engine>) -> anyhow::Result<()> {
     let handle = serve(config, engine.clone())
         .await
         .context("failed to start server")?;
@@ -321,6 +355,51 @@ mod tests {
             ])
             .is_err()
         );
+    }
+
+    #[test]
+    fn the_server_flags_still_parse_without_a_subcommand() {
+        let args = Args::try_parse_from(["sdrmm", "--bind", "127.0.0.1:1"]).expect("parse");
+        assert!(args.command.is_none());
+        assert_eq!(
+            args.bind,
+            "127.0.0.1:1".parse::<SocketAddr>().expect("addr")
+        );
+    }
+
+    #[test]
+    fn pair_parses_its_flags() {
+        let args = Args::try_parse_from(["sdrmm", "pair", "--db", "x", "--name", "y", "--plain"])
+            .expect("parse");
+        let Some(Command::Pair(pair)) = args.command else {
+            panic!("no pair command");
+        };
+        assert_eq!(pair.db, Some(PathBuf::from("x")));
+        assert_eq!(pair.name.as_deref(), Some("y"));
+        assert!(pair.plain);
+        let bare = Args::try_parse_from(["sdrmm", "pair"]).expect("parse");
+        let Some(Command::Pair(bare)) = bare.command else {
+            panic!("no pair command");
+        };
+        assert_eq!((bare.db, bare.name, bare.plain), (None, None, false));
+    }
+
+    #[test]
+    fn pair_reads_the_server_db_flag() {
+        let mut args = Args::try_parse_from(["sdrmm", "--db", "x", "pair"]).expect("parse");
+        assert_eq!(
+            args.pair().and_then(|pair| pair.db),
+            Some(PathBuf::from("x"))
+        );
+        let mut own =
+            Args::try_parse_from(["sdrmm", "--db", "x", "pair", "--db", "y"]).expect("parse");
+        assert_eq!(
+            own.pair().and_then(|pair| pair.db),
+            Some(PathBuf::from("y"))
+        );
+        let mut server = Args::try_parse_from(["sdrmm", "--db", "x"]).expect("parse");
+        assert!(server.pair().is_none());
+        assert_eq!(server.db, Some(PathBuf::from("x")));
     }
 
     #[test]

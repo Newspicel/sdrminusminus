@@ -5941,7 +5941,6 @@ name = "sdrmm-desktop"
 version = "0.0.0"
 dependencies = [
  "anyhow",
- "axum",
  "sdrmm-device-soapy",
  "sdrmm-engine",
  "sdrmm-server",

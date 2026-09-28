@@ -8,7 +8,10 @@ use sdrmm_wire::{
 };
 
 use super::*;
-use crate::{auth::Identity, phones::PairError};
+use crate::{
+    auth::Identity,
+    phones::{PairError, gate::AccessError},
+};
 
 const NO_OFFER: &str = "No pairing code is open";
 
@@ -101,14 +104,35 @@ pub(super) async fn list_phones(
     responses(
         (status = 200, description = "The phone listener as it now runs", body = PhoneAccessStatus),
         (status = 400, description = "Port 0 or the main port", body = ApiError),
+        (status = 403, description = "Not allowed", body = ApiError),
         (status = 422, description = "Malformed request body", body = ApiError),
     ),
 )]
 pub(super) async fn set_phone_access(
-    State(_state): State<AppState>,
-    Json(_access): Json<PhoneAccess>,
+    State(state): State<AppState>,
+    Extension(identity): Extension<Identity>,
+    Json(access): Json<PhoneAccess>,
 ) -> Result<Json<PhoneAccessStatus>, AppError> {
-    Err(AppError::not_built())
+    operator(&identity)?;
+    Ok(Json(state.gate.apply(&state, access).await?))
+}
+
+impl From<AccessError> for AppError {
+    fn from(error: AccessError) -> Self {
+        match error {
+            AccessError::Port => Self::new(
+                StatusCode::BAD_REQUEST,
+                ErrorCode::Request,
+                error.to_string(),
+            ),
+            AccessError::Store(store) => store.into(),
+            AccessError::Stopped(_) => Self::new(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                ErrorCode::Internal,
+                error.to_string(),
+            ),
+        }
+    }
 }
 
 #[utoipa::path(

@@ -215,24 +215,23 @@ fn openapi_route(api: &utoipa::openapi::OpenApi) -> axum::routing::MethodRouter<
     })
 }
 
-pub fn router(engine: Arc<Engine>, store: Store, options: &ServerOptions) -> Router {
-    let mut state = AppState::new(engine, Arc::new(store));
+fn configure(state: &mut AppState, options: &ServerOptions) {
     state.auth = auth::Auth::new(options.token.as_deref());
-    let (router, background) = router_with_state(state, options);
-    background.detach();
-    router
-}
-
-fn router_with_state(state: AppState, options: &ServerOptions) -> (Router, Background) {
-    main_router(state, options, false)
-}
-
-fn main_router(mut state: AppState, options: &ServerOptions, tls: bool) -> (Router, Background) {
     state.shell = options.shell.clone();
     state.dev_cors = options.dev_cors;
     if let Some(token) = &options.token {
         diagnostics::hide_secret(token);
     }
+}
+
+#[cfg(test)]
+fn router_with_state(state: AppState, options: &ServerOptions) -> (Router, Background) {
+    main_router(state, options, false)
+}
+
+#[cfg(test)]
+fn main_router(mut state: AppState, options: &ServerOptions, tls: bool) -> (Router, Background) {
+    configure(&mut state, options);
     let background = start_runtime(&state);
     (app(&state, auth::ListenerRole::Main, tls), background)
 }
@@ -301,6 +300,7 @@ enum BackgroundTask {
     Owned,
 }
 
+#[cfg(test)]
 impl Background {
     fn detach(mut self) {
         self.detached = true;
@@ -425,49 +425,35 @@ pub struct ServerHandle {
     pub local_addr: SocketAddr,
     pub scheme: &'static str,
     task: tokio::task::JoinHandle<std::io::Result<()>>,
+    _gate: phones::gate::GateGuard,
     _background: Background,
 }
 
 impl ServerHandle {
-    pub async fn join(self) -> std::io::Result<()> {
-        match self.task.await {
+    pub async fn join(mut self) -> std::io::Result<()> {
+        match (&mut self.task).await {
             Ok(res) => res,
             Err(join_err) => Err(std::io::Error::other(join_err)),
         }
     }
 }
 
-pub async fn serve(config: Config, engine: Arc<Engine>) -> std::io::Result<ServerHandle> {
-    if config
-        .options
-        .token
-        .as_deref()
-        .is_some_and(|token| token.starts_with(sdrmm_wire::phone::PHONE_TOKEN_PREFIX))
-    {
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::InvalidInput,
-            "the token must not start with sdrmm-phone.",
-        ));
+impl Drop for ServerHandle {
+    fn drop(&mut self) {
+        self.task.abort();
     }
+}
+
+pub async fn serve(config: Config, engine: Arc<Engine>) -> std::io::Result<ServerHandle> {
+    refuse_phone_token(&config.options)?;
     engine.start_hotplug_prober(HOTPLUG_INTERVAL)?;
     engine.start_level_meter(LEVEL_INTERVAL)?;
     engine.start_occupancy_collector(HOTPLUG_INTERVAL)?;
-    match &config.db_path {
-        Some(path) => tracing::info!(db = %path.display(), "opening database"),
-        None => tracing::info!("using in-memory database (nothing will persist)"),
-    }
-    match engine.recordings_dir() {
-        Some(dir) => tracing::info!(dir = %dir.display(), "recordings directory"),
-        None => tracing::info!("recording disabled (engine has no recordings directory)"),
-    }
-    match &config.options.token {
-        Some(_) => tracing::info!("shared-token auth enabled"),
-        None => tracing::info!("no token: LAN-trusted, unauthenticated"),
-    }
+    log_start(&config, &engine);
     let store = Store::open(config.db_path.as_deref()).map_err(std::io::Error::other)?;
     workspace::adopt_named_devices(&engine, &store);
     let mut state = AppState::new(engine, Arc::new(store));
-    state.auth = auth::Auth::new(config.options.token.as_deref());
+    configure(&mut state, &config.options);
     state.db_path = config.db_path.clone();
     state.data_dir = config
         .db_path
@@ -480,22 +466,23 @@ pub async fn serve(config: Config, engine: Arc<Engine>) -> std::io::Result<Serve
         .map(tls::load)
         .transpose()
         .map_err(std::io::Error::other)?;
-    let (app, background) = main_router(state, &config.options, served.is_some());
-    let tls_config = served.map(|served| served.config);
     let listener = std::net::TcpListener::bind(config.bind)?;
     listener.set_nonblocking(true)?;
     let local_addr = listener.local_addr()?;
-    let scheme = if tls_config.is_some() {
-        "https"
-    } else {
-        "http"
-    };
+    state.gate.set_main(main_listener(
+        local_addr,
+        config.tls.as_ref(),
+        served.as_ref(),
+    ));
+    let background = start_runtime(&state);
+    let app = app(&state, auth::ListenerRole::Main, served.is_some());
+    let scheme = if served.is_some() { "https" } else { "http" };
     tracing::info!(%local_addr, scheme, "SDR-- server listening");
-    let task = match tls_config {
-        Some(tls_config) => {
+    let task = match served {
+        Some(served) => {
             let server = axum_server::from_tcp_rustls(
                 listener,
-                axum_server::tls_rustls::RustlsConfig::from_config(tls_config),
+                axum_server::tls_rustls::RustlsConfig::from_config(served.config),
             )?;
             tokio::spawn(async move { server.serve(app.into_make_service()).await })
         }
@@ -504,12 +491,69 @@ pub async fn serve(config: Config, engine: Arc<Engine>) -> std::io::Result<Serve
             tokio::spawn(async move { axum::serve(listener, app).await })
         }
     };
+    let gate = phones::gate::GateGuard::new(state.gate.clone());
+    state.gate.restore(&state).await;
     Ok(ServerHandle {
         local_addr,
         scheme,
         task,
+        _gate: gate,
         _background: background,
     })
+}
+
+fn refuse_phone_token(options: &ServerOptions) -> std::io::Result<()> {
+    if options
+        .token
+        .as_deref()
+        .is_some_and(|token| token.starts_with(sdrmm_wire::phone::PHONE_TOKEN_PREFIX))
+    {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "the token must not start with sdrmm-phone.",
+        ));
+    }
+    Ok(())
+}
+
+fn log_start(config: &Config, engine: &Engine) {
+    match &config.db_path {
+        Some(path) => tracing::info!(db = %path.display(), "opening database"),
+        None => tracing::info!("using in-memory database (nothing will persist)"),
+    }
+    match engine.recordings_dir() {
+        Some(dir) => tracing::info!(dir = %dir.display(), "recordings directory"),
+        None => tracing::info!("recording disabled (engine has no recordings directory)"),
+    }
+    match &config.options.token {
+        Some(_) => tracing::info!("shared-token auth enabled"),
+        None => tracing::info!("no token: LAN-trusted, unauthenticated"),
+    }
+}
+
+fn main_listener(
+    local_addr: SocketAddr,
+    asked: Option<&tls::Tls>,
+    served: Option<&tls::Served>,
+) -> phones::gate::MainListener {
+    let own_key = matches!(asked, Some(tls::Tls::SelfSigned { .. }));
+    let named = matches!(asked, Some(tls::Tls::SelfSigned { names, .. }) if !names.is_empty());
+    phones::gate::MainListener {
+        record: phones::gate::ListenerRecord {
+            role: auth::ListenerRole::Main,
+            port: local_addr.port(),
+            bound: local_addr.ip(),
+            pin: served.map(|served| served.pin.clone()),
+            stable_key: own_key && served.is_some(),
+            names: served
+                .filter(|_| named)
+                .map(|served| served.names.clone())
+                .unwrap_or_default(),
+        },
+        own_key: served
+            .filter(|_| own_key)
+            .map(|served| served.config.clone()),
+    }
 }
 
 #[cfg(test)]

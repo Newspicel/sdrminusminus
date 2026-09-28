@@ -1,10 +1,14 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use std::sync::Arc;
+use std::{
+    net::{Ipv4Addr, SocketAddr},
+    sync::Arc,
+};
 
 use anyhow::Context;
 use sdrmm_engine::Engine;
 use tauri::{Manager, RunEvent, WebviewUrl, WebviewWindowBuilder};
+use tauri_plugin_dialog::DialogExt;
 
 mod graphics;
 mod reveal;
@@ -22,36 +26,32 @@ fn main() -> anyhow::Result<()> {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
-            let listener =
-                tauri::async_runtime::block_on(tokio::net::TcpListener::bind(("127.0.0.1", 0u16)))?;
-            let port = listener.local_addr()?.port();
-
             let data_dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&data_dir)?;
             let engine = Engine::new(Some(data_dir.join("recordings")));
-            engine.start_hotplug_prober(sdrmm_server::HOTPLUG_INTERVAL)?;
-            engine.start_level_meter(sdrmm_server::LEVEL_INTERVAL)?;
-            engine.start_occupancy_collector(sdrmm_server::HOTPLUG_INTERVAL)?;
             app.manage(engine.clone());
-            let store = sdrmm_server::Store::open(Some(&data_dir.join("sdrmm.db")))?;
-            let router = {
-                let _entered = tauri::async_runtime::handle().inner().enter();
-                sdrmm_server::router(
-                    engine,
-                    store,
-                    &sdrmm_server::ServerOptions {
-                        shell: Some(Arc::new(reveal::Shell)),
-                        ..sdrmm_server::ServerOptions::default()
-                    },
-                )
+            let config = sdrmm_server::Config {
+                bind: SocketAddr::from((Ipv4Addr::LOCALHOST, 0)),
+                db_path: Some(data_dir.join("sdrmm.db")),
+                tls: None,
+                options: sdrmm_server::ServerOptions {
+                    shell: Some(Arc::new(reveal::Shell)),
+                    ..sdrmm_server::ServerOptions::default()
+                },
             };
+            let handle = tauri::async_runtime::block_on(sdrmm_server::serve(config, engine))?;
+            let url: tauri::Url = format!("http://{}", handle.local_addr).parse()?;
+            let dialogs = app.handle().clone();
             tauri::async_runtime::spawn(async move {
-                if let Err(e) = axum::serve(listener, router).await {
-                    tracing::error!("embedded server exited: {e}");
+                if let Err(error) = handle.join().await {
+                    tracing::error!(%error, "embedded server exited");
+                    dialogs
+                        .dialog()
+                        .message(format!("Server stopped: {error}"))
+                        .show(|_| {});
                 }
             });
 
-            let url: tauri::Url = format!("http://127.0.0.1:{port}").parse()?;
             WebviewWindowBuilder::new(app, "main", WebviewUrl::External(url))
                 .title("SDR--")
                 .inner_size(1280.0, 800.0)

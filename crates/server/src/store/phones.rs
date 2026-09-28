@@ -335,6 +335,26 @@ impl Store {
         )?;
         Ok(changed > 0)
     }
+
+    pub(crate) fn meta(&self, key: &str) -> Result<Option<String>, StoreError> {
+        Ok(self
+            .lock()
+            .query_row(
+                "SELECT value FROM server_meta WHERE key = ?1",
+                params![key],
+                |row| row.get(0),
+            )
+            .optional()?)
+    }
+
+    pub(crate) fn put_meta(&self, key: &str, value: &str) -> Result<(), StoreError> {
+        self.lock().execute(
+            "INSERT INTO server_meta (key, value) VALUES (?1, ?2)
+             ON CONFLICT (key) DO UPDATE SET value = excluded.value",
+            params![key, value],
+        )?;
+        Ok(())
+    }
 }
 
 fn insert_phone(tx: &rusqlite::Transaction<'_>, row: &PhoneRow) -> Result<(), rusqlite::Error> {
