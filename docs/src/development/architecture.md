@@ -154,8 +154,7 @@ Some decoder constants are copied from the standards:
 Sources: ETSI EN 300 401 (DAB), TS 102 563 (DAB+), EN 300 421 (DVB-S), EN 302 307-1 and -2
 (DVB-S2/S2X), EN 300 744 (DVB-T), EN 302 755 (DVB-T2), TS 102 606 (GSE), and ES 201 980 (DRM).
 
-The DAB values were cross-checked against [welle.io](https://github.com/AlbrechtL/welle.io)
-(GPL-2.0-or-later). No decoder code was copied. The DVB-S2/S2X tables are generated from and
+The DVB-S2/S2X tables are generated from and
 checked against the ETSI PDF text by `s2x_tables.py` and `dvbs2_spec_check.py` in
 `crates/modem-test-support/scripts/`. `dvbt_tables.py` generates the DVB-T and DVB-T2 tables the
 same way. CI runs all three. The VL-SNR seed and Walsh-Hadamard rows were

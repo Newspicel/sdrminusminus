@@ -3,7 +3,7 @@
     "core:datatype": "cf32_le",
     "core:sample_rate": 2048000,
     "core:version": "1.2.5",
-    "core:license": "https://www.gnu.org/licenses/gpl-3.0.html",
+    "core:license": "https://www.gnu.org/licenses/agpl-3.0.html",
     "core:description": "Frozen independent Python/NumPy synthetic DAB Mode II frame; EN 300 401 V1.4.1 clauses 11.2 and 14. Not an off-air recording. MSC is random data.",
     "core:sha512": "0a90babcb90e7226f8f846b37c436266ffe2464ff353807b3bc5dc31b6867c5803493d67ff71972e2e63b9f6562c0d146c4d21b81fa20ae9aba3e5a156c067d4"
   },
