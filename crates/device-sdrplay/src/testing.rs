@@ -128,6 +128,12 @@ impl FakeApi {
         )])
     }
 
+    pub fn drop_tuner_a(&self) {
+        unsafe {
+            (*self.tree.get()).rx_channel_a = std::ptr::null_mut();
+        }
+    }
+
     pub fn require_master_before_start(&self, inits: u32) {
         self.pending_inits.store(inits, Ordering::Release);
     }
