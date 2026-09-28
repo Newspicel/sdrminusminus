@@ -96,6 +96,18 @@ impl SteeringGrid {
         Ok(())
     }
 
+    pub fn respan(&mut self, manifold: &Manifold, span: AzimuthSpan) -> Result<(), ManifoldError> {
+        let spec = GridSpec { span, ..self.spec };
+        if shape_of(spec)? != (self.azimuths, self.elevations) {
+            return Err(ManifoldError::GridStep);
+        }
+        let previous = self.spec;
+        self.spec = spec;
+        self.rebuild(manifold, self.freq_hz).inspect_err(|_| {
+            self.spec = previous;
+        })
+    }
+
     #[must_use]
     pub const fn points(&self) -> usize {
         self.azimuths * self.elevations
@@ -228,6 +240,28 @@ mod tests {
         assert!((half.direction(0).azimuth_deg - 270.0).abs() < 1e-9);
         assert!((half.direction(90).azimuth_deg).abs() < 1e-9);
         assert!((half.direction(180).azimuth_deg - 90.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn respan_moves_a_half_plane_in_place() {
+        let manifold = kraken();
+        let spec = GridSpec {
+            azimuth_step_deg: 1.0,
+            span: AzimuthSpan::Half { centre_deg: 0.0 },
+            elevation: None,
+        };
+        let mut grid = SteeringGrid::new(&manifold, spec, 433.92e6).unwrap();
+        grid.respan(&manifold, AzimuthSpan::Half { centre_deg: 180.0 })
+            .unwrap();
+        assert!((grid.direction(0).azimuth_deg - 90.0).abs() < 1e-9);
+        let mut expected = [Complex::new(0.0f32, 0.0); 5];
+        manifold.steer(433.92e6, Direction::horizon(90.0), &mut expected);
+        assert_eq!(grid.vector(0), &expected);
+        assert_eq!(
+            grid.respan(&manifold, AzimuthSpan::Full),
+            Err(ManifoldError::GridStep)
+        );
+        assert_eq!(grid.spec().span, AzimuthSpan::Half { centre_deg: 180.0 });
     }
 
     #[test]
