@@ -140,7 +140,8 @@ a:hover {
   color: var(--ink-dim);
   text-decoration: none;
 }
-.bar nav a:hover {
+.bar nav a:hover,
+.bar nav a[aria-current] {
   color: var(--ink);
 }
 .bar nav a.get {
@@ -389,6 +390,7 @@ footer a:hover {
     gap: 16px;
   }
   .bar nav a.hardware,
+  .bar nav a.business,
   .bar nav a.discord {
     display: none;
   }

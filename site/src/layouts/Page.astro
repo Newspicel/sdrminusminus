@@ -5,7 +5,7 @@ interface Props {
   title: string;
   description: string;
   summary: string;
-  current?: "download";
+  current?: "download" | "business";
 }
 
 const { title, description, summary, current } = Astro.props;
@@ -39,6 +39,7 @@ const image = new URL("/screens/patch.png", Astro.site);
         <nav>
           <a href="/introduction.html">Docs</a>
           <a class="hardware" href="/hardware.html">Hardware</a>
+          <a class="business" href="/business.html" aria-current={current === "business" ? "page" : undefined}>Business</a>
           <a href="https://github.com/Newspicel/sdrminusminus">GitHub</a>
           <a class="discord" href="https://discord.gg/dYaRyGwBNw">Discord</a>
           <a class="get" href="/download.html" aria-current={current === "download" ? "page" : undefined}>Download</a>
@@ -59,8 +60,11 @@ const image = new URL("/screens/patch.png", Astro.site);
           <a href="/hardware.html">Hardware</a>
           <a href="/troubleshooting.html">Troubleshooting</a>
           <a href="/development/building.html">Build from source</a>
+          <a href="/business.html">Business</a>
           <a href="https://github.com/Newspicel/sdrminusminus">GitHub</a>
           <a href="https://discord.gg/dYaRyGwBNw">Discord</a>
+          <a href="/imprint.html">Imprint</a>
+          <a href="/privacy.html">Privacy</a>
         </nav>
       </div>
     </footer>

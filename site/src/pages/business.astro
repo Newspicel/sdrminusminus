@@ -1,0 +1,67 @@
+---
+import Page from "../layouts/Page.astro";
+
+const mail = "mailto:hi@jhaag.me?subject=SDR--%20business";
+
+const offers = [
+  {
+    title: "Commercial license",
+    text: "Ship SDR-- in a closed product or service, on terms other than the AGPL.",
+  },
+  {
+    title: "Custom work",
+    text: "A decoder, a protocol or a node you need, built and tested.",
+  },
+  {
+    title: "Radio makers",
+    text: "Get your hardware supported, tested and listed.",
+  },
+  {
+    title: "Deployments",
+    text: "Receivers at remote sites, set up and kept running.",
+  },
+];
+---
+
+<Page
+  title="SDR-- for business"
+  description="Commercial licenses, custom decoders, radio support and deployments for SDR--."
+  summary="Commercial licenses, custom work and support for SDR--."
+  current="business"
+>
+  <div class="wrap top">
+    <h1>SDR-- for business</h1>
+    <p class="lede">Building a product, a monitoring station or a radio? Tell us what you need.</p>
+    <div class="actions">
+      <a class="btn primary" href={mail}>hi@jhaag.me</a>
+    </div>
+  </div>
+
+  <section class="wrap offers">
+    <div class="install">
+      {
+        offers.map((offer) => (
+          <div class="lane">
+            <h3>{offer.title}</h3>
+            <p>{offer.text}</p>
+          </div>
+        ))
+      }
+    </div>
+    <p class="note">Something else? Rough ideas welcome.</p>
+  </section>
+</Page>
+
+<style>
+  .top {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    padding-top: clamp(56px, 9vw, 112px);
+  }
+  .top .lede { margin-inline: auto; }
+  .top .actions { justify-content: center; }
+  .offers { padding-top: clamp(48px, 7vw, 80px); }
+  .offers .note { margin-inline: auto; text-align: center; }
+</style>

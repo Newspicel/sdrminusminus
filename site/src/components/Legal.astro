@@ -1,0 +1,37 @@
+---
+import Page from "../layouts/Page.astro";
+import type { LegalEntry } from "../legal";
+
+interface Props {
+  heading: string;
+  entries: LegalEntry[];
+}
+
+const { heading, entries } = Astro.props;
+const summary = `${heading} for sdrmm.newspicel.dev.`;
+---
+
+<Page title={`${heading} · SDR--`} description={summary} summary={summary}>
+  <div class="wrap legal">
+    <h1>{heading}</h1>
+    {
+      entries.map((entry) => (
+        <div class="entry">
+          <h2>{entry.title}</h2>
+          <p>{entry.body}</p>
+        </div>
+      ))
+    }
+  </div>
+</Page>
+
+<style>
+  .legal {
+    max-width: calc(var(--measure) + 2 * var(--pad));
+    padding-block: clamp(56px, 9vw, 112px);
+  }
+  .legal h1 { font-size: clamp(2rem, 5vw, 3.2rem); }
+  .entry + .entry { margin-top: 28px; }
+  .entry h2 { margin: 0 0 6px; font-size: 1rem; letter-spacing: 0; }
+  .entry p { margin: 0; color: var(--ink-dim); white-space: pre-line; }
+</style>
