@@ -165,7 +165,7 @@ the global position solved from the full recording.
 
 A 15-second 20 m slot recorded on 2019-11-11 at 11:06:15 UTC. The source is the MIT-licensed
 `ft8_lib` test recording `191111_110615.wav`, pinned in the SigMF annotation. Its 12 kHz mono audio
-was converted to `cf32_le` with zero quadrature.
+was converted to `cf32_le` with zero quadrature, centered on the 14.074 MHz dial frequency.
 
 The upstream expected output contains twenty messages; this integration decodes nineteen.
 `weak_signal::tests::a_recorded_slot_reads_the_band_the_reference_decoder_published` appends a
