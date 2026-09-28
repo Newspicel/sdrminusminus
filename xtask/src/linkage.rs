@@ -23,13 +23,12 @@ pub fn check(path: &Path, external: &[String]) -> Result<()> {
         "{} holds no Mach-O files: this check reads macOS artifacts",
         path.display()
     );
-    let executable_dir = executable_dir(path);
-
     let mut edges = 0usize;
     let mut failures = Vec::new();
     for image in &images {
         let loaded = Image::read(image)?;
         let loader_dir = image.parent().unwrap_or(Path::new("."));
+        let executable_dir = executable_dir(path, image);
         for dependency in &loaded.dependencies {
             edges += 1;
             if external
@@ -84,9 +83,12 @@ pub fn check(path: &Path, external: &[String]) -> Result<()> {
     Ok(())
 }
 
-fn executable_dir(path: &Path) -> PathBuf {
-    if path.extension().is_some_and(|ext| ext == "app") {
-        return path.join("Contents/MacOS");
+fn executable_dir(path: &Path, image: &Path) -> PathBuf {
+    if let Some(app) = image
+        .ancestors()
+        .find(|dir| dir.extension().is_some_and(|ext| ext == "app"))
+    {
+        return app.join("Contents/MacOS");
     }
     if path.is_dir() {
         return path.to_path_buf();
@@ -337,6 +339,18 @@ Load command 13
         .unwrap();
         assert_eq!(found, dir.join("libSoapySDR.0.8.dylib"));
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn an_app_in_the_checked_folder_runs_from_its_own_contents() {
+        let root = Path::new("bundle/macos");
+        let macos = root.join("SDR--.app/Contents/MacOS");
+        for image in [
+            macos.join("sdrmm-desktop"),
+            root.join("SDR--.app/Contents/Frameworks/libavcodec.63.dylib"),
+        ] {
+            assert_eq!(executable_dir(root, &image), macos);
+        }
     }
 
     #[test]
