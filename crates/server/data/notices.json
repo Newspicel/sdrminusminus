@@ -602,7 +602,7 @@
       "texts": [
         "602aca57fd3b5a3a"
       ],
-      "note": "MIT, but the AMBE+2 vocoder it implements is covered by patents held by Digital Voice Systems, Inc. in some jurisdictions. A software license grants no patent rights it does not hold: check your own position before distributing DMR voice decoding."
+      "note": "MIT. A reverse-engineered AMBE+2 vocoder. The Digital Voice Systems, Inc. patents on AMBE+2 have expired in Europe but may still apply elsewhere."
     },
     {
       "name": "block-buffer",
@@ -9279,16 +9279,6 @@
         "8b1ba204bb69a0ad"
       ],
       "note": "The tuner register that stops the PLL dithering, without which two dongles on one clock have no stable phase between them, is documented only in KrakenRF's fork of librtlsdr. The write in `crates/device-rtlsdr/src/driver/tuner.rs` follows it and is a derived work on the same terms as librtlsdr above."
-    },
-    {
-      "name": "NanoVNA-Saver",
-      "license": "GPL-3.0-or-later",
-      "source": "native",
-      "url": "https://github.com/NanoVNA-Saver/nanovna-saver",
-      "texts": [
-        "8b1ba204bb69a0ad"
-      ],
-      "note": "The NanoVNA serial protocol handling and RF measurement formulas in `crates/tools/src/nanovna` were translated from NanoVNA-Saver, Copyright 2019, 2020 Rune B. Broberg and 2020-2026 the NanoVNA-Saver Authors, and are a derived work combined with SDR--'s AGPL-3.0-or-later under GPL-3.0 section 13."
     },
     {
       "name": "qdmr (libdmrconf)",

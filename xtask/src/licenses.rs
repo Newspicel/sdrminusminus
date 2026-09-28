@@ -26,9 +26,8 @@ const NOTES: &[(&str, &str)] = &[
     ),
     (
         "blip25-vocoder",
-        "MIT, but the AMBE+2 vocoder it implements is covered by patents held by Digital Voice \
-         Systems, Inc. in some jurisdictions. A software license grants no patent rights it \
-         does not hold: check your own position before distributing DMR voice decoding.",
+        "MIT. A reverse-engineered AMBE+2 vocoder. The Digital Voice Systems, Inc. patents on \
+         AMBE+2 have expired in Europe but may still apply elsewhere.",
     ),
     (
         "cssparser",
@@ -206,18 +205,6 @@ const NATIVE: &[Native] = &[
              AGPL-3.0-or-later under GPL-3.0 section 13. The AnyTone AT-D890UV memory map and \
              channel element were worked out from a radio and checked against \
              `fixtures/cps/anytone-d890uv-v100.img`.",
-        ),
-        files: &["GPL-3.0.txt"],
-    },
-    Native {
-        name: "NanoVNA-Saver",
-        license: "GPL-3.0-or-later",
-        url: "https://github.com/NanoVNA-Saver/nanovna-saver",
-        note: Some(
-            "The NanoVNA serial protocol handling and RF measurement formulas in \
-             `crates/tools/src/nanovna` were translated from NanoVNA-Saver, Copyright 2019, 2020 \
-             Rune B. Broberg and 2020-2026 the NanoVNA-Saver Authors, and are a derived work \
-             combined with SDR--'s AGPL-3.0-or-later under GPL-3.0 section 13.",
         ),
         files: &["GPL-3.0.txt"],
     },

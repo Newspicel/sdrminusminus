@@ -14,7 +14,7 @@ Everything else in this file is a permissive license that asks only for attribut
 
 **blip25-vocoder**: MIT
 
-MIT, but the AMBE+2 vocoder it implements is covered by patents held by Digital Voice Systems, Inc. in some jurisdictions. A software license grants no patent rights it does not hold: check your own position before distributing DMR voice decoding.
+MIT. A reverse-engineered AMBE+2 vocoder. The Digital Voice Systems, Inc. patents on AMBE+2 have expired in Europe but may still apply elsewhere.
 
 **codec2**: LGPL-2.1-only AND MIT
 
@@ -75,10 +75,6 @@ As with libairspy: nothing of libairspyhf is linked or shipped, but the vendor r
 **librtlsdr (KrakenRF fork)**: GPL-2.0-or-later
 
 The tuner register that stops the PLL dithering, without which two dongles on one clock have no stable phase between them, is documented only in KrakenRF's fork of librtlsdr. The write in `crates/device-rtlsdr/src/driver/tuner.rs` follows it and is a derived work on the same terms as librtlsdr above.
-
-**NanoVNA-Saver**: GPL-3.0-or-later
-
-The NanoVNA serial protocol handling and RF measurement formulas in `crates/tools/src/nanovna` were translated from NanoVNA-Saver, Copyright 2019, 2020 Rune B. Broberg and 2020-2026 the NanoVNA-Saver Authors, and are a derived work combined with SDR--'s AGPL-3.0-or-later under GPL-3.0 section 13.
 
 **qdmr (libdmrconf)**: GPL-3.0-or-later
 
@@ -984,7 +980,7 @@ The ACARS application layer and the VDL2, HFDL, Inmarsat Aero, Inmarsat STD-C, D
 | [use-sync-external-store](https://github.com/react/react#readme) | 1.7.0 | MIT |
 | [zustand](https://github.com/pmndrs/zustand) | 4.5.7, 5.0.15 | MIT |
 
-## Hardware libraries (16)
+## Hardware libraries (15)
 
 | Component | Version | License |
 | --- | --- | --- |
@@ -998,7 +994,6 @@ The ACARS application layer and the VDL2, HFDL, Inmarsat Aero, Inmarsat STD-C, D
 | [libairspy](https://github.com/airspy/airspyone_host) | - | BSD-3-Clause |
 | [libairspyhf](https://github.com/airspy/airspyhf) | - | BSD-3-Clause |
 | [librtlsdr (KrakenRF fork)](https://github.com/krakenrf/librtlsdr) | - | GPL-2.0-or-later |
-| [NanoVNA-Saver](https://github.com/NanoVNA-Saver/nanovna-saver) | - | GPL-3.0-or-later |
 | [qdmr (libdmrconf)](https://github.com/hmatuschek/qdmr) | - | GPL-3.0-or-later |
 | [rs-rtl 0.4.2 (desperado)](https://github.com/xoolive/desperado) | - | MIT |
 | [rtl-sdr (librtlsdr)](https://gitea.osmocom.org/sdr/rtl-sdr) | - | GPL-2.0-or-later |
