@@ -140,6 +140,7 @@ export type WorkspaceDetail = components["schemas"]["WorkspaceDetail"];
 export type WorkspaceSnapshot = components["schemas"]["WorkspaceSnapshot"];
 export type WorkspaceSettings = components["schemas"]["WorkspaceSettings"];
 export type WorkspaceExport = components["schemas"]["WorkspaceExport"];
+export type WorkspaceNotice = components["schemas"]["WorkspaceNotice"];
 export type PatchGraph = components["schemas"]["PatchGraph"];
 export type PatchNode = components["schemas"]["PatchNode"];
 export type Position = components["schemas"]["Position"];

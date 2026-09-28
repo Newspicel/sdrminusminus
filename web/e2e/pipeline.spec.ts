@@ -168,7 +168,7 @@ for (const { fallback, delayOutput, wideband } of [
     }
     await instrumentPlayback(page, delayOutput);
     const snapshot: WorkspaceSnapshot = {
-      version: 3,
+      version: 4,
       graph: {
         nodes: [
           {

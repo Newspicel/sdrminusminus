@@ -1268,6 +1268,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/workspaces/{id}/notices/{notice}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: operations["dismiss_workspace_notice"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/workspaces/{id}/redo": {
         parameters: {
             query?: never;
@@ -3193,6 +3209,11 @@ export interface components {
             mode?: components["schemas"]["DrmMode"];
             /** Format: int32 */
             service?: number | null;
+        };
+        DroppedNode: {
+            id: string;
+            kind: string;
+            label?: string | null;
         };
         DscParams: Record<string, never>;
         DstarParams: Record<string, never>;
@@ -5429,6 +5450,7 @@ export interface components {
         };
         WorkspaceDetail: components["schemas"]["WorkspaceInfo"] & {
             history?: components["schemas"]["WorkspaceHistory"];
+            notices?: components["schemas"]["WorkspaceNotice"][];
             snapshot: components["schemas"]["WorkspaceSnapshot"];
             state?: components["schemas"]["WorkspaceState"];
         };
@@ -5457,6 +5479,24 @@ export interface components {
             /** Format: int64 */
             revision: number;
             updated_at: string;
+        };
+        WorkspaceNotice: components["schemas"]["WorkspaceNoticeKind"] & {
+            at: string;
+            /** Format: int64 */
+            id: number;
+        };
+        WorkspaceNoticeKind: {
+            data: {
+                nodes: components["schemas"]["DroppedNode"][];
+            };
+            /** @enum {string} */
+            kind: "dropped_nodes";
+        } | {
+            data: {
+                nodes: string[];
+            };
+            /** @enum {string} */
+            kind: "cleared_gps";
         };
         WorkspaceSettings: {
             band_region?: string | null;
@@ -8927,6 +8967,47 @@ export interface operations {
             };
             /** @description The stored layout no longer parses: the row is left intact so a newer build can still read it */
             500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    dismiss_workspace_notice: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Workspace id */
+                id: number;
+                /** @description Notice id */
+                notice: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Notice dismissed */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Invalid path parameter */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Workspace or notice not found */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

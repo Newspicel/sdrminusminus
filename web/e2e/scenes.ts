@@ -153,7 +153,7 @@ export async function listen(page: Page, id: string): Promise<void> {
 
 function siggenPatch(): WorkspaceSnapshot {
   return {
-    version: 3,
+    version: 4,
     graph: {
       nodes: [
         node("dev", { kind: "device", data: { device: SIGGEN } }, { x: 0, y: 0, w: 380, h: 420 }),
@@ -177,7 +177,7 @@ const patch: Scene = {
   settleSeconds: 10,
   async stage(page) {
     await stage(page, "Signal generator", {
-      version: 3,
+      version: 4,
       graph: {
         nodes: [
           node("dev", { kind: "device", data: { device: SIGGEN } }, { x: 0, y: 0, w: 380, h: 222 }),
@@ -244,7 +244,7 @@ const adsb: Scene = {
   async stage(page) {
     const device = await recording(page, "adsb_squitters_2m");
     await stage(page, "Aircraft (ADS-B)", {
-      version: 3,
+      version: 4,
       graph: {
         nodes: [
           node("dev", { kind: "device", data: { device } }, { x: 0, y: 0, w: 380, h: 290 }),
@@ -281,7 +281,7 @@ const ais: Scene = {
   async stage(page) {
     const device = await recording(page, "ais_position_240k");
     await stage(page, "Ships (AIS)", {
-      version: 3,
+      version: 4,
       graph: {
         nodes: [
           node("dev", { kind: "device", data: { device } }, { x: 0, y: 0, w: 380, h: 290 }),
@@ -317,7 +317,7 @@ const sstv: Scene = {
   async stage(page) {
     const device = await recording(page, "sstv_robot36_48k");
     await stage(page, "SSTV", {
-      version: 3,
+      version: 4,
       graph: {
         nodes: [
           node("dev", { kind: "device", data: { device } }, { x: 0, y: 0, w: 380, h: 290 }),
@@ -351,7 +351,7 @@ const pocsag: Scene = {
   async stage(page) {
     const device = await recording(page, "pocsag_1200_240k");
     await stage(page, "Pagers (POCSAG)", {
-      version: 3,
+      version: 4,
       graph: {
         nodes: [
           node("dev", { kind: "device", data: { device } }, { x: 0, y: 0, w: 380, h: 290 }),
@@ -400,7 +400,7 @@ const ft8: Scene = {
   async stage(page) {
     const device = await recording(page, "ft8_20m_busy_12k");
     await stage(page, "Weak signal (FT8)", {
-      version: 3,
+      version: 4,
       graph: {
         nodes: [
           node("dev", { kind: "device", data: { device } }, { x: 0, y: 0, w: 380, h: 290 }),
@@ -431,7 +431,7 @@ const rds: Scene = {
   async stage(page) {
     const device = await recording(page, "rds_station_960k");
     await stage(page, "Broadcast FM (RDS)", {
-      version: 3,
+      version: 4,
       graph: {
         nodes: [
           node("dev", { kind: "device", data: { device } }, { x: 0, y: 0, w: 380, h: 290 }),
@@ -467,7 +467,7 @@ const ident: Scene = {
   async stage(page) {
     const device = await recording(page, "pocsag_1200_240k");
     await stage(page, "Signal identification", {
-      version: 3,
+      version: 4,
       graph: {
         nodes: [
           node("dev", { kind: "device", data: { device } }, { x: 0, y: 0, w: 380, h: 290 }),
@@ -501,7 +501,7 @@ const atv: Scene = {
   async stage(page) {
     const device = await recording(page, "atv_ccir625_2m4");
     await stage(page, "Amateur television", {
-      version: 3,
+      version: 4,
       graph: {
         nodes: [
           node("dev", { kind: "device", data: { device } }, { x: 0, y: 0, w: 380, h: 290 }),
@@ -540,7 +540,7 @@ const rack: Scene = {
     const pocsagDevice = await recording(page, "pocsag_1200_240k");
     const sstvDevice = await recording(page, "sstv_robot36_48k");
     await stage(page, "Watch desk", {
-      version: 3,
+      version: 4,
       graph: {
         nodes: [
           node(

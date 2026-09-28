@@ -425,17 +425,52 @@ pub(super) fn export_filename(name: &str, id: i64) -> String {
 )]
 pub(super) async fn import_workspace(
     State(state): State<AppState>,
-    Json(export): Json<WorkspaceExport>,
+    Json(mut document): Json<serde_json::Value>,
 ) -> Result<Json<CreatedRowId>, AppError> {
+    let broken = crate::store::upgrade_export(&mut document);
+    let export: WorkspaceExport = crate::json::from_value(&document).map_err(|err| {
+        rejection(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "invalid request body",
+            err.to_string(),
+        )
+    })?;
     let engine = state.engine.clone();
     let store = state.store.clone();
     let id = tokio::task::spawn_blocking(move || -> Result<i64, AppError> {
-        let id = store.import_workspace(&export)?;
+        let id = store.import_workspace(&export, &broken.notices())?;
         engine.emit_scope(StateScope::Workspaces);
         Ok(id)
     })
     .await??;
     Ok(Json(CreatedRowId { id }))
+}
+
+#[utoipa::path(
+    delete, path = "/api/workspaces/{id}/notices/{notice}",
+    params(
+        ("id" = i64, Path, description = "Workspace id"),
+        ("notice" = i64, Path, description = "Notice id"),
+    ),
+    responses(
+        (status = 204, description = "Notice dismissed"),
+        (status = 400, description = "Invalid path parameter", body = ApiError),
+        (status = 404, description = "Workspace or notice not found", body = ApiError),
+    ),
+)]
+pub(super) async fn dismiss_workspace_notice(
+    State(state): State<AppState>,
+    Path((id, notice)): Path<(i64, i64)>,
+) -> Result<StatusCode, AppError> {
+    let engine = state.engine.clone();
+    let store = state.store.clone();
+    tokio::task::spawn_blocking(move || -> Result<(), AppError> {
+        store.dismiss_notice(id, notice)?;
+        engine.emit_scope(StateScope::Workspaces);
+        Ok(())
+    })
+    .await??;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 #[utoipa::path(

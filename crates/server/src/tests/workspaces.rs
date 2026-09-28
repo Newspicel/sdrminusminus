@@ -1550,3 +1550,143 @@ async fn a_converter_offset_follows_the_radio_into_another_workspace() {
     assert_ne!(sets[0].id, ds, "the radio was not reopened");
     assert_eq!(sets[0].settings.offset_hz, Some(1_000_000.0));
 }
+
+fn kraken_export() -> serde_json::Value {
+    let at = |x: f64| serde_json::json!({ "x": x, "y": 0.0 });
+    serde_json::json!({
+        "version": sdrmm_wire::WORKSPACE_EXPORT_VERSION,
+        "name": "Kraken DF",
+        "snapshot": {
+            "version": 3,
+            "graph": {
+                "nodes": [
+                    { "id": "device", "kind": "device", "data": {}, "position": at(0.0) },
+                    { "id": "arr", "kind": "array", "data": { "members": 1 }, "position": at(300.0) },
+                    { "id": "df1", "kind": "df", "label": "Roof DF", "data": {}, "position": at(600.0) },
+                    { "id": "gps", "kind": "gps", "data": { "source": { "type": "device" } }, "position": at(900.0) },
+                    { "id": "tri", "kind": "triangulation", "position": at(1200.0) }
+                ],
+                "edges": [
+                    { "from": { "node": "device", "port": "iq" }, "to": { "node": "arr", "port": "iq0" } },
+                    { "from": { "node": "arr", "port": "iq0" }, "to": { "node": "df1", "port": "iq0" } }
+                ]
+            },
+            "rack": { "slots": [{ "node": "df1", "x": 0, "y": 0, "w": 2, "h": 2 }] }
+        },
+        "state": {
+            "version": sdrmm_wire::WORKSPACE_STATE_VERSION,
+            "devices": [{ "node": "device", "settings": { "center_hz": 433_920_000.0 } }],
+            "channels": [{
+                "node": "df1",
+                "settings": { "frequency_hz": 433_920_000.0, "params": { "type": "df", "settings": {} } }
+            }]
+        }
+    })
+}
+
+async fn import_kraken(app: &Router) -> i64 {
+    let (status, body) = import_document(app, &kraken_export().to_string()).await;
+    assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
+    serde_json::from_slice::<sdrmm_wire::CreatedRowId>(&body)
+        .expect("json")
+        .id
+}
+
+#[tokio::test]
+async fn an_import_of_an_old_export_carries_the_notice() {
+    let (app, state) = test_router_with_state();
+
+    let imported = import_kraken(&app).await;
+
+    let detail = workspace_detail(&app, imported).await;
+    assert_eq!(
+        detail.snapshot.version,
+        sdrmm_wire::WORKSPACE_SNAPSHOT_VERSION
+    );
+    let ids: Vec<&str> = detail
+        .snapshot
+        .graph
+        .nodes
+        .iter()
+        .map(|node| node.id.as_str())
+        .collect();
+    assert_eq!(ids, vec!["device", "gps", "tri"]);
+    assert!(detail.snapshot.graph.edges.is_empty());
+    assert!(detail.snapshot.rack.slots.is_empty());
+    let notices: Vec<&sdrmm_wire::WorkspaceNoticeKind> =
+        detail.notices.iter().map(|notice| &notice.notice).collect();
+    assert_eq!(
+        notices,
+        vec![
+            &sdrmm_wire::WorkspaceNoticeKind::DroppedNodes {
+                nodes: vec![
+                    sdrmm_wire::DroppedNode {
+                        id: "arr".to_string(),
+                        kind: "array".to_string(),
+                        label: None,
+                    },
+                    sdrmm_wire::DroppedNode {
+                        id: "df1".to_string(),
+                        kind: "df".to_string(),
+                        label: Some("Roof DF".to_string()),
+                    },
+                ]
+            },
+            &sdrmm_wire::WorkspaceNoticeKind::ClearedGps {
+                nodes: vec!["gps".to_string()]
+            },
+        ]
+    );
+    let saved = state.store.workspace_state(imported).expect("settings");
+    assert_eq!(saved.devices.len(), 1);
+    assert!(saved.channels.is_empty());
+}
+
+#[tokio::test]
+async fn dismissing_a_notice_removes_it() {
+    let app = test_router();
+    let imported = import_kraken(&app).await;
+    let notices = workspace_detail(&app, imported).await.notices;
+    assert_eq!(notices.len(), 2);
+
+    let dismiss = async |workspace: i64, notice: i64| {
+        request(
+            app.clone(),
+            "DELETE",
+            &format!("/api/workspaces/{workspace}/notices/{notice}"),
+            None,
+        )
+        .await
+    };
+    let (status, _) = dismiss(imported, notices[0].id).await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    let left = workspace_detail(&app, imported).await.notices;
+    assert_eq!(left, notices[1..]);
+
+    let (status, body) = dismiss(imported, notices[0].id).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    serde_json::from_slice::<ApiError>(&body).expect("ApiError body");
+
+    let other = workspaces(&app).await.workspaces[0].id;
+    let (status, _) = dismiss(other, notices[1].id).await;
+    assert_eq!(
+        status,
+        StatusCode::NOT_FOUND,
+        "a notice belongs to its own workspace"
+    );
+
+    let (status, _) = request(
+        app.clone(),
+        "DELETE",
+        &format!("/api/workspaces/{imported}"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    let (status, _) = dismiss(imported, notices[1].id).await;
+    assert_eq!(
+        status,
+        StatusCode::NOT_FOUND,
+        "deleting a workspace takes its notices"
+    );
+}

@@ -2017,9 +2017,9 @@ fn importing_the_same_workspace_again_keeps_its_name_within_the_limit() {
         sdrmm_wire::WorkspaceState::new(),
     );
 
-    let first = store.import_workspace(&export).expect("first import");
-    let second = store.import_workspace(&export).expect("second import");
-    let third = store.import_workspace(&export).expect("third import");
+    let first = store.import_workspace(&export, &[]).expect("first import");
+    let second = store.import_workspace(&export, &[]).expect("second import");
+    let third = store.import_workspace(&export, &[]).expect("third import");
 
     let name = |id: i64| store.workspace(id).expect("read").info.name;
     assert_eq!(name(first), long);
@@ -2050,7 +2050,7 @@ fn an_exported_workspace_carries_the_tuning_it_was_left_on() {
     assert_eq!(export.snapshot, store.workspace(id).expect("read").snapshot);
     assert_eq!(export.state, state);
 
-    let imported = store.import_workspace(&export).expect("import");
+    let imported = store.import_workspace(&export, &[]).expect("import");
     assert_eq!(
         store.workspace_state(imported).expect("stored state"),
         state,
@@ -2217,8 +2217,11 @@ fn a_stored_retired_decoder_event_leaves_the_log() {
             .expect("the retiring migration");
         conn.pragma_update(None, "user_version", retiring as i64)
             .expect("rewind");
-        conn.execute_batch("DROP TABLE saved_radios; DROP TABLE radio_calibrations;")
-            .expect("drop the later tables");
+        conn.execute_batch(
+            "DROP TABLE saved_radios; DROP TABLE radio_calibrations; \
+             DROP TABLE workspace_notices;",
+        )
+        .expect("drop the later tables");
     }
 
     let store = Store::open(Some(file.path())).expect("reopen");

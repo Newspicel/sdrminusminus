@@ -35,6 +35,7 @@ fn openapi_registers_paths_and_ws_schemas() {
         "/api/workspaces/{id}/apply",
         "/api/workspaces/{id}/undo",
         "/api/workspaces/{id}/redo",
+        "/api/workspaces/{id}/notices/{notice}",
         "/api/patch/catalog",
         "/api/diagnostics",
         "/api/tools",

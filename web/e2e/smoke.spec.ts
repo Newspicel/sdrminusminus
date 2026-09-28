@@ -982,7 +982,7 @@ test.describe("the workspace", () => {
         data: {
           name: "Offline channel",
           snapshot: {
-            version: 3,
+            version: 4,
             graph: {
               nodes: [
                 { id: "dev", kind: "device", position: { x: 0, y: 0 }, data: {} },
@@ -1034,7 +1034,7 @@ test.describe("the workspace", () => {
         data: {
           name: "Replaced decoder",
           snapshot: {
-            version: 3,
+            version: 4,
             graph: {
               nodes: [
                 { id: "dev", kind: "device", position: { x: 0, y: 0 }, data: {} },
@@ -1097,7 +1097,7 @@ test.describe("the workspace", () => {
         data: {
           name: "Typed frequency",
           snapshot: {
-            version: 3,
+            version: 4,
             graph: {
               nodes: [
                 { id: "dev", kind: "device", position: { x: 0, y: 0 }, data: {} },
@@ -1150,7 +1150,7 @@ test.describe("the workspace", () => {
         data: {
           name: "Absent radio",
           snapshot: {
-            version: 3,
+            version: 4,
             graph: {
               nodes: [
                 {

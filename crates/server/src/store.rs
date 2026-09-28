@@ -8,8 +8,9 @@ use rusqlite::{Connection, OptionalExtension, params, params_from_iter, types::V
 use sdrmm_wire::{
     Bookmark, CreateBookmarkRequest, DecoderLogEntry, DecoderLogQuery, DeviceSettings, LogScope,
     PatchGraph, PresetInfo, PresetSnapshot, RecordingInfo, SaveRadioRequest, SavedRadio,
-    UpdateWorkspaceRequest, WorkspaceDetail, WorkspaceError, WorkspaceExport, WorkspaceHistory,
-    WorkspaceInfo, WorkspaceSnapshot, WorkspaceState, WorkspacesResponse,
+    UpdateWorkspaceRequest, WORKSPACE_SNAPSHOT_VERSION, WorkspaceDetail, WorkspaceError,
+    WorkspaceExport, WorkspaceHistory, WorkspaceInfo, WorkspaceNoticeKind, WorkspaceSnapshot,
+    WorkspaceState, WorkspacesResponse,
 };
 
 use crate::events::Routed;
@@ -26,6 +27,8 @@ pub enum StoreError {
     RecordingNotFound(i64),
     #[error("workspace {0} not found")]
     WorkspaceNotFound(i64),
+    #[error("notice {0} not found")]
+    NoticeNotFound(i64),
     #[error("radio operator {0} not found")]
     CpsUserNotFound(i64),
     #[error("radio {0} not found")]
@@ -304,6 +307,15 @@ const MIGRATIONS: &[&str] = &[
     ) WITHOUT ROWID;
     ",
     "DELETE FROM decoder_log WHERE kind = 'radar';",
+    "
+    CREATE TABLE workspace_notices (
+        id INTEGER PRIMARY KEY,
+        workspace_id INTEGER NOT NULL,
+        created_at TEXT NOT NULL,
+        notice TEXT NOT NULL
+    );
+    CREATE INDEX workspace_notices_workspace ON workspace_notices (workspace_id);
+    ",
 ];
 
 pub const WORKSPACE_HISTORY_DEPTH: i64 = 100;
@@ -359,6 +371,7 @@ impl Store {
         };
         migrate(&conn)?;
         audio_fx_lift::lift_audio_chains(&conn)?;
+        coherent_break::break_old_snapshots(&conn)?;
         let store = Self {
             conn: Mutex::new(conn),
             run_start: now_rfc3339(),
@@ -790,7 +803,11 @@ impl Store {
         Ok(export)
     }
 
-    pub fn import_workspace(&self, export: &WorkspaceExport) -> Result<i64, StoreError> {
+    pub fn import_workspace(
+        &self,
+        export: &WorkspaceExport,
+        notices: &[WorkspaceNoticeKind],
+    ) -> Result<i64, StoreError> {
         export.validate()?;
         let mut document = export.clone();
         document.forget_absent_nodes();
@@ -807,6 +824,7 @@ impl Store {
         .map_err(|err| name_taken(err, &name))?;
         let id = tx.last_insert_rowid();
         write_workspace_state(&tx, id, &document.state)?;
+        coherent_break::insert_notices(&tx, id, notices)?;
         tx.commit()?;
         Ok(id)
     }
@@ -998,6 +1016,10 @@ impl Store {
             "DELETE FROM workspace_history WHERE workspace_id = ?1",
             params![id],
         )?;
+        tx.execute(
+            "DELETE FROM workspace_notices WHERE workspace_id = ?1",
+            params![id],
+        )?;
         let active = active_workspace(&tx)?;
         tx.commit()?;
         Ok(active)
@@ -1146,6 +1168,7 @@ fn read_workspace(conn: &Connection, id: i64) -> Result<WorkspaceDetail, StoreEr
         snapshot: parse_workspace_snapshot(&json)?,
         history: read_history(conn, id, at)?,
         state: read_workspace_state(conn, id)?,
+        notices: coherent_break::read_notices(conn, id)?,
     })
 }
 
@@ -1407,7 +1430,13 @@ fn parse_workspace_snapshot(json: &str) -> Result<WorkspaceSnapshot, serde_json:
     migrate_signal_finders(&mut value);
     migrate_baseband_scopes(&mut value);
     migrate_recorders(&mut value);
-    crate::json::from_value(&value)
+    let snapshot: WorkspaceSnapshot = crate::json::from_value(&value)?;
+    if snapshot.version != WORKSPACE_SNAPSHOT_VERSION {
+        return Err(serde::de::Error::custom(WorkspaceError::Version(
+            snapshot.version,
+        )));
+    }
+    Ok(snapshot)
 }
 
 const SPLIT_SCOPE_OFFSET_Y: f64 = 420.0;
@@ -1428,6 +1457,10 @@ fn drop_retired_channels(snapshot: &mut serde_json::Value) {
         })
         .filter_map(|node| node.get("id")?.as_str().map(str::to_owned))
         .collect();
+    remove_nodes(snapshot, &retired);
+}
+
+fn remove_nodes(snapshot: &mut serde_json::Value, retired: &HashSet<String>) {
     if retired.is_empty() {
         return;
     }
@@ -2165,7 +2198,10 @@ pub fn rfc3339_now() -> String {
 }
 
 mod audio_fx_lift;
+mod coherent_break;
 mod cps;
+
+pub(crate) use coherent_break::upgrade_export;
 
 #[cfg(test)]
 mod tests;

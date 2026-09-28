@@ -597,6 +597,14 @@ export async function cloneWorkspace(id: number): Promise<number> {
   return importWorkspace(document);
 }
 
+export async function dismissNotice(workspace: number, notice: number): Promise<void> {
+  unwrap(
+    await client.DELETE("/api/workspaces/{id}/notices/{notice}", {
+      params: { path: { id: workspace, notice } },
+    }),
+  );
+}
+
 export async function deleteWorkspace(id: number): Promise<void> {
   unwrap(await client.DELETE("/api/workspaces/{id}", { params: { path: { id } } }));
 }

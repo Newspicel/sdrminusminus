@@ -3,7 +3,7 @@ import type { WorkspaceSnapshot } from "../src/lib/types";
 
 test("persists all DAB transmission modes separately from audio generation", async ({ page }) => {
   const snapshot: WorkspaceSnapshot = {
-    version: 3,
+    version: 4,
     graph: {
       nodes: [
         { id: "dab", kind: "channel", position: { x: 0, y: 0 }, data: { channel_type: "dab" } },

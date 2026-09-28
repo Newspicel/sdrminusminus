@@ -4130,6 +4130,58 @@
         }
       }
     },
+    "/api/workspaces/{id}/notices/{notice}": {
+      "delete": {
+        "operationId": "dismiss_workspace_notice",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Workspace id",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "notice",
+            "in": "path",
+            "description": "Notice id",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Notice dismissed"
+          },
+          "400": {
+            "description": "Invalid path parameter",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Workspace or notice not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/workspaces/{id}/redo": {
       "post": {
         "operationId": "redo_workspace",
@@ -11728,6 +11780,27 @@
             ],
             "format": "int32",
             "minimum": 0
+          }
+        }
+      },
+      "DroppedNode": {
+        "type": "object",
+        "required": [
+          "id",
+          "kind"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "label": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         }
       },
@@ -20051,6 +20124,12 @@
               "history": {
                 "$ref": "#/components/schemas/WorkspaceHistory"
               },
+              "notices": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/WorkspaceNotice"
+                }
+              },
               "snapshot": {
                 "$ref": "#/components/schemas/WorkspaceSnapshot"
               },
@@ -20150,6 +20229,91 @@
             "type": "string"
           }
         }
+      },
+      "WorkspaceNotice": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/WorkspaceNoticeKind"
+          },
+          {
+            "type": "object",
+            "required": [
+              "id",
+              "at"
+            ],
+            "properties": {
+              "at": {
+                "type": "string"
+              },
+              "id": {
+                "type": "integer",
+                "format": "int64"
+              }
+            }
+          }
+        ]
+      },
+      "WorkspaceNoticeKind": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "data",
+              "kind"
+            ],
+            "properties": {
+              "data": {
+                "type": "object",
+                "required": [
+                  "nodes"
+                ],
+                "properties": {
+                  "nodes": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/components/schemas/DroppedNode"
+                    }
+                  }
+                }
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "dropped_nodes"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "data",
+              "kind"
+            ],
+            "properties": {
+              "data": {
+                "type": "object",
+                "required": [
+                  "nodes"
+                ],
+                "properties": {
+                  "nodes": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                }
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "cleared_gps"
+                ]
+              }
+            }
+          }
+        ]
       },
       "WorkspaceSettings": {
         "type": "object",

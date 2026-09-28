@@ -199,6 +199,7 @@ impl From<StoreError> for AppError {
             | StoreError::SavedRadioNotFound(_)
             | StoreError::RecordingNotFound(_)
             | StoreError::WorkspaceNotFound(_)
+            | StoreError::NoticeNotFound(_)
             | StoreError::CpsUserNotFound(_)
             | StoreError::CpsDeviceNotFound(_)
             | StoreError::CpsCodeplugNotFound(_) => (StatusCode::NOT_FOUND, ErrorCode::NotFound),
@@ -392,6 +393,7 @@ pub(crate) fn openapi_router() -> OpenApiRouter<AppState> {
         .routes(routes!(apply_template))
         .routes(routes!(list_workspaces, create_workspace))
         .routes(routes!(import_workspace))
+        .routes(routes!(dismiss_workspace_notice))
         .routes(routes!(export_workspace))
         .routes(routes!(get_workspace, update_workspace, delete_workspace))
         .routes(routes!(activate_workspace))

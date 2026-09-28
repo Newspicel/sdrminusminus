@@ -18,6 +18,7 @@ import { pruneRack } from "./canvas/graph";
 import { Rack } from "./canvas/Rack";
 import { useWorkspace } from "./canvas/useWorkspace";
 import { type View, WorkspaceBar } from "./canvas/WorkspaceBar";
+import { WorkspaceNotices } from "./canvas/WorkspaceNotices";
 import { WorkspaceStart } from "./canvas/WorkspaceStart";
 import { AboutPanel } from "./components/AboutPanel";
 import { AutoOffDialog } from "./components/AutoOffDialog";
@@ -187,6 +188,13 @@ export function App() {
                 onShowShortcuts={() => setShowShortcuts(true)}
                 onOpenTool={setOpenTool}
               />
+              {workspace.active !== null && (
+                <WorkspaceNotices
+                  workspace={workspace.active.id}
+                  notices={workspace.active.notices ?? []}
+                  catalog={context.catalog}
+                />
+              )}
               <div className="relative flex min-h-0 flex-1 flex-col">
                 {view === "patch" ? <Canvas /> : <Rack />}
                 <FullFace />

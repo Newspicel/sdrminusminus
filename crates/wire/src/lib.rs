@@ -189,10 +189,11 @@ pub use tools::{
     YagiParams,
 };
 pub use workspace::{
-    CreateWorkspaceRequest, MAX_NAME_LEN, MAX_REGION_ID_LEN, PatchApplyReport, PatchBinding,
-    PatchRefusal, PlacementCoverage, UpdateWorkspaceRequest, WORKSPACE_EXPORT_VERSION,
-    WORKSPACE_SNAPSHOT_VERSION, WorkspaceDetail, WorkspaceError, WorkspaceExport, WorkspaceHistory,
-    WorkspaceInfo, WorkspaceSettings, WorkspaceSnapshot, WorkspacesResponse,
+    CreateWorkspaceRequest, DroppedNode, MAX_NAME_LEN, MAX_REGION_ID_LEN, PatchApplyReport,
+    PatchBinding, PatchRefusal, PlacementCoverage, UpdateWorkspaceRequest,
+    WORKSPACE_EXPORT_VERSION, WORKSPACE_SNAPSHOT_VERSION, WorkspaceDetail, WorkspaceError,
+    WorkspaceExport, WorkspaceHistory, WorkspaceInfo, WorkspaceNotice, WorkspaceNoticeKind,
+    WorkspaceSettings, WorkspaceSnapshot, WorkspacesResponse,
 };
 pub use workspace_state::{
     WORKSPACE_STATE_VERSION, WorkspaceChannel, WorkspaceDevice, WorkspaceState, WorkspaceTrunk,
