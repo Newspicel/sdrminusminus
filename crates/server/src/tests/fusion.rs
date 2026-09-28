@@ -1,29 +1,24 @@
-use sdrmm_wire::{DfBearing, DfFusionState, PositionFix};
+use sdrmm_wire::{
+    DfBearing, DfFusionState, ServerEvent, TriangulationParams,
+    geo::{self, LatLon},
+};
 
 use super::*;
 
-fn fix(at: (f64, f64)) -> PositionFix {
-    PositionFix {
-        latitude: at.0,
-        longitude: at.1,
-        altitude_m: None,
-        accuracy_m: None,
-        speed_mps: None,
-        track_deg: None,
-        time: "2026-01-01T00:00:00Z".to_owned(),
-        attitude: sdrmm_wire::Attitude::default(),
-    }
-}
+const HOME: LatLon = LatLon {
+    lat: 51.5,
+    lon: 7.0,
+};
 
-fn bearing(bearing_deg: f32) -> DfBearing {
+fn bearing(station: &str, from: LatLon, bearing_deg: f64) -> DfBearing {
     DfBearing {
-        bearing_deg,
+        bearing_deg: bearing_deg as f32,
         confidence: 0.95,
-        lat: None,
-        lon: None,
-        station_id: None,
+        lat: Some(from.lat),
+        lon: Some(from.lon),
+        station_id: Some(station.to_owned()),
         node: String::new(),
-        sigma_deg: 10.0,
+        sigma_deg: 3.0,
         accuracy_m: None,
         heading_deg: None,
         heading_sigma_deg: None,
@@ -42,31 +37,50 @@ async fn the_fusion_route_serves_and_clears_a_triangulation_grid() {
     let (app, state) = test_router_with_state();
     let (status, _) = request(app.clone(), "GET", "/api/fusion/cross", None).await;
     assert_eq!(status, StatusCode::NOT_FOUND);
+    let (status, _) = request(app.clone(), "DELETE", "/api/fusion/cross", None).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
 
-    let target = crate::df_fusion::destination(51.5, 7.0, 45.0, 6_000.0);
-    let east = crate::df_fusion::destination(51.5, 7.0, 135.0, 6_000.0);
-    for (station, from) in [("north", (51.5, 7.0)), ("east", east)] {
-        let seen = crate::df_fusion::bearing_between(from, target) as f32;
-        for _ in 0..4 {
-            state.fusion.observe(
-                "cross",
-                station,
-                &bearing(seen),
-                Some(&fix(from)),
-                "2026-01-01T00:00:00Z",
-            );
+    state
+        .fusion
+        .configure("cross", &TriangulationParams::default());
+    let target = geo::destination(HOME, 45.0, 6_000.0);
+    let east = geo::destination(HOME, 135.0, 6_000.0);
+    for tick in 0..4u32 {
+        for (station, from) in [("north", HOME), ("east", east)] {
+            let seen = geo::bearing_deg(from, target);
+            state
+                .fusion
+                .observe(
+                    "cross",
+                    &bearing(station, from, seen),
+                    f64::from(tick),
+                    "2026-01-01T00:00:00Z",
+                )
+                .expect("accepted");
         }
     }
     let (status, body) = request(app.clone(), "GET", "/api/fusion/cross", None).await;
     assert_eq!(status, StatusCode::OK);
     let fused: DfFusionState = serde_json::from_slice(&body).expect("json");
     let estimate = fused.estimate.expect("two stations give an estimate");
-    let error = crate::df_fusion::distance_m((estimate.lat, estimate.lon), target);
-    assert!(error < 800.0, "{error} m away: {estimate:?}");
+    let error = geo::distance_m(
+        LatLon {
+            lat: estimate.lat,
+            lon: estimate.lon,
+        },
+        target,
+    );
+    assert!(error < 600.0, "{error} m away: {estimate:?}");
     assert_eq!(fused.stations.len(), 2);
 
+    let mut events = state.engine.subscribe_events();
     let (status, _) = request(app.clone(), "DELETE", "/api/fusion/cross", None).await;
     assert_eq!(status, StatusCode::NO_CONTENT);
+    let told = events.try_recv().expect("the clear is announced");
+    assert!(matches!(
+        told,
+        ServerEvent::DfFusionUpdate { ref node, ref state } if node == "cross" && state.samples == 0
+    ));
     let (_, body) = request(app, "GET", "/api/fusion/cross", None).await;
     let cleared: DfFusionState = serde_json::from_slice(&body).expect("json");
     assert_eq!(cleared.samples, 0);

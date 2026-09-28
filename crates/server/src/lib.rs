@@ -105,9 +105,7 @@ pub(crate) struct AppState {
     pub(crate) arrays: Arc<array::ArrayHub>,
     #[expect(dead_code)]
     pub(crate) radar: Arc<radar::RadarHub>,
-    #[expect(dead_code)]
     pub(crate) surfaces: Arc<surfaces::SurfaceHub>,
-    #[expect(dead_code)]
     pub(crate) survey: Arc<survey::SurveyHub>,
     pub(crate) phones: Arc<phones::Phones>,
     pub(crate) gate: Arc<phones::gate::PhoneGate>,

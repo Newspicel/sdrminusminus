@@ -113,7 +113,7 @@ fn tls_router_with_state() -> (Router, AppState) {
     (router, state)
 }
 
-fn state_over(store: Arc<Store>) -> AppState {
+pub(crate) fn state_over(store: Arc<Store>) -> AppState {
     let mut registry = sdrmm_device::DeviceRegistry::new();
     registry.register(1, Box::new(sdrmm_device_virtual::VirtualDriver::new()));
     registry.register(1, Box::new(sdrmm_device_siggen::SigGenDriver::new()));
@@ -197,7 +197,12 @@ fn recording_state(dir: &Path) -> AppState {
     )
 }
 
-async fn request(app: Router, method: &str, uri: &str, body: Option<&str>) -> (StatusCode, Bytes) {
+pub(crate) async fn request(
+    app: Router,
+    method: &str,
+    uri: &str,
+    body: Option<&str>,
+) -> (StatusCode, Bytes) {
     let (status, _, bytes) = request_parts(app, method, uri, body, &[]).await;
     (status, bytes)
 }

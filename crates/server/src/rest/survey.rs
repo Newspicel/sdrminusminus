@@ -1,9 +1,28 @@
 use sdrmm_wire::{SurveyGrid, SurveyRequest};
 
 use super::*;
+use crate::survey::SurveyRefusal;
 
 pub(super) fn routes() -> OpenApiRouter<AppState> {
     OpenApiRouter::new().routes(routes!(get_survey, control_survey))
+}
+
+impl From<SurveyRefusal> for AppError {
+    fn from(refusal: SurveyRefusal) -> Self {
+        match refusal {
+            SurveyRefusal::Missing(node) => Self::not_found(format!("no survey {node}")),
+            SurveyRefusal::NoRadio => Self::new(
+                StatusCode::CONFLICT,
+                ErrorCode::Conflict,
+                "Wire a radio".to_owned(),
+            ),
+            SurveyRefusal::NoPosition => Self::new(
+                StatusCode::CONFLICT,
+                ErrorCode::Conflict,
+                "Wire a position".to_owned(),
+            ),
+        }
+    }
 }
 
 #[utoipa::path(
@@ -15,10 +34,14 @@ pub(super) fn routes() -> OpenApiRouter<AppState> {
     ),
 )]
 pub(super) async fn get_survey(
-    State(_state): State<AppState>,
-    Path(_node): Path<String>,
+    State(state): State<AppState>,
+    Path(node): Path<String>,
 ) -> Result<Json<SurveyGrid>, AppError> {
-    Err(AppError::not_built())
+    state
+        .survey
+        .grid(&node)
+        .map(Json)
+        .ok_or_else(|| SurveyRefusal::Missing(node).into())
 }
 
 #[utoipa::path(
@@ -33,9 +56,9 @@ pub(super) async fn get_survey(
     ),
 )]
 pub(super) async fn control_survey(
-    State(_state): State<AppState>,
-    Path(_node): Path<String>,
-    Json(_request): Json<SurveyRequest>,
+    State(state): State<AppState>,
+    Path(node): Path<String>,
+    Json(request): Json<SurveyRequest>,
 ) -> Result<Json<SurveyGrid>, AppError> {
-    Err(AppError::not_built())
+    state.survey.act(&state, &node, request.action).map(Json)
 }
