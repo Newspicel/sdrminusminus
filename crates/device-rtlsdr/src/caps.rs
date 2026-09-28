@@ -8,6 +8,7 @@ use sdrmm_wire::{
 use crate::{
     DEFAULT_CENTER_HZ, DRIVER_ID,
     driver::{BoardVariant, DIRECT_SAMPLING_MAX_HZ, DeviceDescriptor, DirectSampling},
+    kraken::Model,
 };
 
 const TUNER_MIN_HZ: f64 = 24e6;
@@ -166,28 +167,49 @@ pub(crate) fn capabilities(board: BoardVariant, gains: &[i32]) -> Capabilities {
     }
 }
 
-/// What a bank of dongles in one case, on one clock, can be asked to do.
-///
-/// The lanes are tuned together because an array measured at two frequencies is not one
-/// measurement, and the tuner is never bypassed because elements are wired to antennas rather
-/// than to a direct-sampling injection point. Gain stays per lane. The noise source is not a
-/// setting: it belongs to the calibration that switches it, not to an operator.
+pub(crate) const KRAKEN_MAX_RATE_HZ: f64 = 2_560_000.0;
+
+fn kraken_rates() -> Vec<f64> {
+    RATE_MENU
+        .iter()
+        .copied()
+        .filter(|rate| *rate <= KRAKEN_MAX_RATE_HZ)
+        .collect()
+}
+
+fn kraken_rate_windows() -> Vec<Range> {
+    RATE_WINDOWS
+        .iter()
+        .filter(|(min, _)| *min <= KRAKEN_MAX_RATE_HZ)
+        .map(|(min, max)| Range {
+            min: *min,
+            max: max.min(KRAKEN_MAX_RATE_HZ),
+            step: None,
+        })
+        .collect()
+}
+
 pub(crate) fn kraken_lane_capabilities(gains: &[i32]) -> Capabilities {
     Capabilities {
         extra: Vec::new(),
+        sample_rates: kraken_rates(),
+        sample_rate_ranges: kraken_rate_windows(),
         ..capabilities(BoardVariant::Generic, gains)
     }
 }
 
-pub(crate) fn kraken_capabilities(lanes: u32, gains: &[i32]) -> Capabilities {
+pub(crate) fn kraken_capabilities(model: Model, lanes: u32, gains: &[i32]) -> Capabilities {
     Capabilities {
         freq_ranges: vec![Range {
             min: TUNER_MIN_HZ,
             max: TUNER_MAX_HZ,
             step: None,
         }],
-        extra: Vec::new(),
-        noise_source: sdrmm_wire::NoiseSource::Isolated,
+        bias_tee: model == Model::Kraken,
+        noise_source: match model {
+            Model::Kraken => sdrmm_wire::NoiseSource::Isolated,
+            Model::Kerberos => sdrmm_wire::NoiseSource::Unisolated,
+        },
         rx_streams: lanes,
         per_stream: StreamScope {
             tuning: true,
@@ -196,7 +218,7 @@ pub(crate) fn kraken_capabilities(lanes: u32, gains: &[i32]) -> Capabilities {
             agc: true,
         },
         coherence: sdrmm_wire::Coherence::TimeSync,
-        ..capabilities(BoardVariant::Generic, gains)
+        ..kraken_lane_capabilities(gains)
     }
 }
 
@@ -575,12 +597,13 @@ mod tests {
             serial: serial.map(str::to_string),
             port_chain: vec![address],
             board_variant: BoardVariant::Generic,
+            hub: None,
         }
     }
 
     #[test]
     fn every_lane_tunes_alone_and_the_bank_carries_the_switches_of_the_whole_unit() {
-        let caps = kraken_capabilities(5, GAIN_VALUES);
+        let caps = kraken_capabilities(Model::Kraken, 5, GAIN_VALUES);
         assert_eq!(caps.rx_streams, 5);
         assert_eq!(caps.tx_streams, 0);
         assert_eq!(caps.coherence, sdrmm_wire::Coherence::TimeSync);
@@ -600,6 +623,40 @@ mod tests {
                 .all(|range| range.min >= TUNER_MIN_HZ),
             "elements are wired to antennas, so the tuner is never bypassed"
         );
+    }
+
+    #[test]
+    fn a_kerberos_calibrates_on_an_unisolated_source_and_offers_no_bias_tee() {
+        let caps = kraken_capabilities(Model::Kerberos, 4, GAIN_VALUES);
+        assert_eq!(caps.rx_streams, 4);
+        assert_eq!(caps.coherence, sdrmm_wire::Coherence::TimeSync);
+        assert_eq!(caps.noise_source, sdrmm_wire::NoiseSource::Unisolated);
+        assert!(!caps.bias_tee);
+    }
+
+    #[test]
+    fn a_bank_offers_no_rate_above_its_cap() {
+        for caps in [
+            kraken_capabilities(Model::Kraken, 5, GAIN_VALUES),
+            kraken_lane_capabilities(GAIN_VALUES),
+        ] {
+            assert!(caps.sample_rates.contains(&KRAKEN_MAX_RATE_HZ));
+            assert!(
+                caps.sample_rates
+                    .iter()
+                    .all(|rate| *rate <= KRAKEN_MAX_RATE_HZ)
+            );
+            assert!(
+                caps.sample_rate_ranges
+                    .iter()
+                    .all(|range| range.max <= KRAKEN_MAX_RATE_HZ)
+            );
+            assert!(sdrmm_wire::any_range_holds(&caps.sample_rate_ranges, 2.4e6));
+            assert!(!sdrmm_wire::any_range_holds(
+                &caps.sample_rate_ranges,
+                2.88e6
+            ));
+        }
     }
 
     #[test]

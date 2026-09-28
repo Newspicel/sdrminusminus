@@ -66,6 +66,11 @@ const BULK_ENDPOINT: u8 = 0x81;
 
 pub(crate) const TRANSFER_BUF_SIZE: usize = 16_384;
 
+const STREAM: StreamConfig = StreamConfig::new(TRANSFER_BUF_SIZE, "sdrmm-rtlsdr-usb");
+
+pub(crate) const IN_FLIGHT_SAMPLES: u64 =
+    ((STREAM.queue_depth + STREAM.channel_depth) * TRANSFER_BUF_SIZE / 2) as u64;
+
 pub(crate) const MAX_PPM: i32 = 488;
 
 const DEFAULT_FIR: [i16; 16] = [
@@ -82,6 +87,7 @@ pub(crate) struct DeviceDescriptor {
     pub(crate) serial: Option<String>,
     pub(crate) port_chain: Vec<u8>,
     pub(crate) board_variant: BoardVariant,
+    pub(crate) hub: Option<(u16, u16)>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -131,7 +137,7 @@ struct EnumeratedDevice {
 }
 
 impl EnumeratedDevice {
-    fn from_usb(index: usize, usb: nusb::DeviceInfo) -> Self {
+    fn from_usb(index: usize, usb: nusb::DeviceInfo, hub: Option<(u16, u16)>) -> Self {
         let descriptor = DeviceDescriptor {
             index,
             bus: usb.bus_id().to_string(),
@@ -141,6 +147,7 @@ impl EnumeratedDevice {
             serial: usb.serial_number().map(str::to_owned),
             port_chain: usb.port_chain().to_vec(),
             board_variant: classify_board_variant(usb.manufacturer_string(), usb.product_string()),
+            hub,
         };
         Self { usb, descriptor }
     }
@@ -216,12 +223,25 @@ fn unsupported_tuner(
     })
 }
 
+fn parent_hub<'a>(
+    attached: impl IntoIterator<Item = (&'a str, &'a [u8], (u16, u16))>,
+    bus: &str,
+    port_chain: &[u8],
+) -> Option<(u16, u16)> {
+    let (_, above) = port_chain.split_last()?;
+    if above.is_empty() {
+        return None;
+    }
+    attached
+        .into_iter()
+        .find(|(other_bus, chain, _)| *other_bus == bus && *chain == above)
+        .map(|(_, _, id)| id)
+}
+
 fn is_known_rtl_device(vendor_id: u16, product_id: u16) -> bool {
     RTL_USB_IDS.contains(&(vendor_id, product_id))
 }
 
-/// Windows reports no USB manufacturer string at all, so the product string the bus read out of
-/// the dongle is the only field that can name the board on every platform.
 fn classify_board_variant(manufacturer: Option<&str>, product: Option<&str>) -> BoardVariant {
     let vendor_fits = manufacturer.is_none_or(|name| name.eq_ignore_ascii_case("RTLSDRBlog"));
     let product = product.map(|name| name.trim().to_ascii_lowercase());
@@ -238,12 +258,28 @@ pub(crate) struct DeviceDescriptors {
 
 impl DeviceDescriptors {
     pub(crate) fn new() -> Result<Self> {
-        let devices = nusb::list_devices()
+        let attached: Vec<nusb::DeviceInfo> = nusb::list_devices()
             .wait()
             .map_err(Error::OpenFailed)?
+            .collect();
+        let devices = attached
+            .iter()
             .filter(|device| is_known_rtl_device(device.vendor_id(), device.product_id()))
             .enumerate()
-            .map(|(index, device)| EnumeratedDevice::from_usb(index, device))
+            .map(|(index, device)| {
+                let hub = parent_hub(
+                    attached.iter().map(|other| {
+                        (
+                            other.bus_id(),
+                            other.port_chain(),
+                            (other.vendor_id(), other.product_id()),
+                        )
+                    }),
+                    device.bus_id(),
+                    device.port_chain(),
+                );
+                EnumeratedDevice::from_usb(index, device.clone(), hub)
+            })
             .collect();
         Ok(Self { devices })
     }
@@ -616,10 +652,6 @@ impl RtlSdr {
         Ok(if_freq)
     }
 
-    /// What the dongle's EEPROM asks the bias tee to come up as. The IR-endpoint bit doubles as
-    /// the flag the RTL-SDR Blog tools clear to power an amplifier on a headless machine, so it
-    /// decides where the bias tee starts, never where it stays, or a shorted feed could not be
-    /// switched off again.
     pub(crate) fn bias_t_at_startup(&self) -> bool {
         self.eeprom_bias_t
     }
@@ -642,14 +674,11 @@ impl RtlSdr {
         Ok(())
     }
 
-    /// Opens the pipe with the endpoint still held in reset, so nothing is sampled until the
-    /// returned gate is opened. Radios that come in banks start on one gate release rather than
-    /// on whenever each of them finished being set up.
     pub(crate) fn hold_stream(&mut self) -> Result<(RxStream, StreamGate)> {
         self.dev
             .write_reg(regs::BLOCK_USB, regs::USB_EPA_CTL, 0x1002, 2)?;
         let endpoint = NusbBulkIn::open(self.dev.interface(), BULK_ENDPOINT)?;
-        let mut config = StreamConfig::new(TRANSFER_BUF_SIZE, "sdrmm-rtlsdr-usb");
+        let mut config = STREAM;
         config.on_thread_start = Some(|| {
             sdrmm_device::schedule::claim(sdrmm_device::Latency::Critical);
         });
@@ -664,7 +693,6 @@ impl RtlSdr {
     }
 }
 
-/// The endpoint reset of one dongle, held apart from it so that several can be released together.
 #[derive(Clone)]
 pub(crate) struct StreamGate(Rtl2832u);
 
@@ -672,6 +700,11 @@ impl StreamGate {
     pub(crate) fn release(&self) -> Result<()> {
         self.0
             .write_reg(regs::BLOCK_USB, regs::USB_EPA_CTL, 0x0000, 2)
+    }
+
+    pub(crate) fn rehold(&self) -> Result<()> {
+        self.0
+            .write_reg(regs::BLOCK_USB, regs::USB_EPA_CTL, 0x1002, 2)
     }
 }
 
@@ -737,6 +770,29 @@ mod tests {
         );
 
         assert_eq!(unsupported_tuner(|_, _| None, || {}), None);
+    }
+
+    #[test]
+    fn a_bank_lane_holds_forty_eight_transfers_in_flight() {
+        assert_eq!(IN_FLIGHT_SAMPLES, (16 + 32) * 8_192);
+    }
+
+    #[test]
+    fn a_dongle_names_the_hub_one_hop_above_it() {
+        let attached = [
+            ("1", &[3u8][..], (0x0424, 0x2517)),
+            ("1", &[3, 2][..], (0x0bda, 0x2838)),
+            ("2", &[3][..], (0x05e3, 0x0610)),
+        ];
+        assert_eq!(parent_hub(attached, "1", &[3, 2]), Some((0x0424, 0x2517)));
+        assert_eq!(parent_hub(attached, "2", &[3, 2]), Some((0x05e3, 0x0610)));
+        assert_eq!(
+            parent_hub(attached, "1", &[3]),
+            None,
+            "a root port has no listed hub"
+        );
+        assert_eq!(parent_hub(attached, "1", &[]), None);
+        assert_eq!(parent_hub(attached, "1", &[4, 1]), None);
     }
 
     #[test]

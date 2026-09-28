@@ -62,8 +62,7 @@ fn connected_kraken_noise_source_levels() {
         .expect("noise off");
 }
 
-fn lane_samples(sdr: &mut RtlSdr, len: usize) -> sdrmm_usb_stream::RxStream {
-    let _ = len;
+fn lane_samples(sdr: &mut RtlSdr) -> sdrmm_usb_stream::RxStream {
     sdr.start_streaming().expect("stream")
 }
 
@@ -115,10 +114,7 @@ fn connected_kraken_noise_source_coherence() {
                 lane.set_center_freq(freq).expect("tune");
                 lane.set_gain_manual(tenths).expect("gain");
             }
-            let streams: Vec<_> = lanes
-                .iter_mut()
-                .map(|lane| lane_samples(lane, FRAME))
-                .collect();
+            let streams: Vec<_> = lanes.iter_mut().map(lane_samples).collect();
             std::thread::sleep(Duration::from_millis(100));
             let a = collect(&streams[0], 2 * FRAME);
             let b = collect(&streams[1], 2 * FRAME);

@@ -8,7 +8,7 @@ pub(crate) use error::Error;
 pub(crate) use sdr::MAX_PPM;
 pub(crate) use sdr::{
     BoardVariant, DIRECT_SAMPLING_MAX_HZ, DeviceDescriptor, DeviceDescriptors, DirectSampling,
-    RtlSdr, TRANSFER_BUF_SIZE,
+    IN_FLIGHT_SAMPLES, RtlSdr, StreamGate, TRANSFER_BUF_SIZE,
 };
 #[cfg(test)]
 pub(crate) use tuner::GAIN_VALUES;

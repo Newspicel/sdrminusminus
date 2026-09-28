@@ -32,10 +32,9 @@ pub struct FakeApi {
     pending_inits: AtomicU32,
     updates: Mutex<Vec<(c_int, c_uint, c_uint)>>,
     callbacks: Mutex<Option<(ffi::CallbackFnsT, ContextPtr)>>,
+    sample_numbers: [AtomicU32; 2],
 }
 
-// The fake owns the parameter tree the real API would own; tests drive it from one thread at a
-// time, the same contract the vendor library documents.
 unsafe impl Send for FakeApi {}
 unsafe impl Sync for FakeApi {}
 
@@ -81,6 +80,7 @@ impl FakeApi {
             pending_inits: AtomicU32::new(0),
             updates: Mutex::new(Vec::new()),
             callbacks: Mutex::new(None),
+            sample_numbers: [AtomicU32::new(0), AtomicU32::new(0)],
         };
         let tree = fake.tree.get();
         unsafe {
@@ -181,8 +181,10 @@ impl FakeApi {
         };
         let mut xi: Vec<i16> = samples.iter().map(|(i, _)| *i).collect();
         let mut xq: Vec<i16> = samples.iter().map(|(_, q)| *q).collect();
+        let count = samples.len() as c_uint;
+        let numbers = &self.sample_numbers[usize::from(tuner == ffi::TUNER_B)];
         let mut params = ffi::StreamCbParamsT {
-            first_sample_num: 0,
+            first_sample_num: numbers.fetch_add(count, Ordering::SeqCst),
             gr_changed: 0,
             rf_changed: 0,
             fs_changed: 0,

@@ -6133,6 +6133,7 @@ dependencies = [
  "libloading 0.9.0",
  "num-complex",
  "sdrmm-device",
+ "sdrmm-test-support",
  "sdrmm-wire",
  "serde",
  "serde_json",

@@ -1,6 +1,7 @@
 use std::{
+    cell::UnsafeCell,
     ffi::{c_int, c_void},
-    sync::{Arc, Mutex, PoisonError},
+    sync::Arc,
 };
 
 use sdrmm_device::{DeviceDriver, DeviceError, RxSink, SdrDevice, check_stream_settings};
@@ -16,9 +17,6 @@ pub use caps::{CLOCK_EXTERNAL, CLOCK_INTERNAL, CLOCK_SETTING, capabilities, prof
 
 pub const DRIVER_ID: &str = "cr8";
 
-/// How many samples per channel the library is asked to hand over at a time. At the CR-8's fixed
-/// 12.5 MS/s this is a little over five milliseconds, short enough that the engine's rings never
-/// see a step change and long enough that eight channels do not thrash the callback.
 const BUFFER_SAMPLES: usize = 65_536;
 
 pub struct Cr8Driver {
@@ -37,8 +35,6 @@ impl Cr8Driver {
         Self { api: None }
     }
 
-    /// A driver over a given API, which is how the translation is tested without the vendor
-    /// library or a radio on the bench.
     #[must_use]
     pub fn with_api(api: Arc<dyn Cr8Api>) -> Self {
         Self { api: Some(api) }
@@ -99,10 +95,18 @@ impl DeviceDriver for Cr8Driver {
     }
 }
 
-/// The lanes a running receiver is delivering to, shared with the vendor library's callback
-/// thread. Nothing else touches it while the receiver runs.
 struct Lanes {
-    sinks: Vec<RxSink>,
+    sinks: UnsafeCell<Vec<RxSink>>,
+}
+
+unsafe impl Sync for Lanes {}
+
+impl Lanes {
+    const fn new(sinks: Vec<RxSink>) -> Self {
+        Self {
+            sinks: UnsafeCell::new(sinks),
+        }
+    }
 }
 
 pub struct Cr8Device {
@@ -110,7 +114,9 @@ pub struct Cr8Device {
     handle: DevHandle,
     capabilities: Capabilities,
     settings: DeviceSettings,
-    lanes: Option<Arc<Mutex<Lanes>>>,
+    lanes: Option<Arc<Lanes>>,
+    retained: Vec<Arc<Lanes>>,
+    stop_failed: bool,
 }
 
 impl Cr8Device {
@@ -124,15 +130,12 @@ impl Cr8Device {
                 ..DeviceSettings::default()
             },
             lanes: None,
+            retained: Vec::new(),
+            stop_failed: false,
         }
     }
 }
 
-/// Hands one buffer of every channel to the lane that owns it.
-///
-/// `drops` counts the samples the library could not deliver before this buffer. Stepping each
-/// lane over them keeps the eight streams on one timeline, which is the whole reason a coherent
-/// radio is worth having.
 unsafe extern "C" fn deliver(
     samples: *mut *mut ffi::Complex,
     count: usize,
@@ -142,9 +145,9 @@ unsafe extern "C" fn deliver(
     if ctx.is_null() || samples.is_null() {
         return;
     }
-    let lanes = unsafe { &*ctx.cast::<Mutex<Lanes>>() };
-    let mut held = lanes.lock().unwrap_or_else(PoisonError::into_inner);
-    for (lane, sink) in held.sinks.iter_mut().enumerate() {
+    let lanes = unsafe { &*ctx.cast::<Lanes>() };
+    let sinks = unsafe { &mut *lanes.sinks.get() };
+    for (lane, sink) in sinks.iter_mut().enumerate() {
         if drops > 0 {
             sink.dropped(drops as u64);
         }
@@ -168,7 +171,14 @@ impl SdrDevice for Cr8Device {
         &self.settings
     }
 
+    fn in_flight_samples(&self) -> u64 {
+        2 * BUFFER_SAMPLES as u64
+    }
+
     fn apply(&mut self, settings: &DeviceSettings) -> Result<(), DeviceError> {
+        if std::mem::take(&mut self.stop_failed) {
+            return Err(DeviceError::Io("CR-8 did not stop".to_owned()));
+        }
         check_stream_settings(settings, &self.capabilities)?;
         let plan = settings::plan(settings, &self.settings, &self.capabilities)?;
         for step in &plan {
@@ -180,6 +190,9 @@ impl SdrDevice for Cr8Device {
     }
 
     fn rx_start(&mut self, sinks: Vec<RxSink>) -> Result<(), DeviceError> {
+        if self.lanes.is_some() {
+            return Err(DeviceError::AlreadyStreaming);
+        }
         let expected = self.capabilities.rx_streams as usize;
         if sinks.len() != expected {
             return Err(DeviceError::Unsupported(format!(
@@ -188,7 +201,7 @@ impl SdrDevice for Cr8Device {
             )));
         }
         self.api.enable(self.handle, ffi::CHAN_ALL)?;
-        let lanes = Arc::new(Mutex::new(Lanes { sinks }));
+        let lanes = Arc::new(Lanes::new(sinks));
         let ctx = Arc::as_ptr(&lanes).cast::<c_void>().cast_mut();
         self.lanes = Some(lanes);
         let started = self.api.start(self.handle, BUFFER_SAMPLES, deliver, ctx);
@@ -200,9 +213,13 @@ impl SdrDevice for Cr8Device {
 
     fn rx_stop(&mut self) {
         if let Err(error) = self.api.stop(self.handle) {
-            tracing::warn!(%error, "the CR-8 did not stop cleanly");
+            tracing::error!(%error, "the CR-8 did not stop");
+            self.retained.extend(self.lanes.take());
+            self.stop_failed = true;
         }
-        let _ = self.api.disable(self.handle, ffi::CHAN_ALL);
+        if let Err(error) = self.api.disable(self.handle, ffi::CHAN_ALL) {
+            tracing::warn!(%error, "the CR-8 kept its channels enabled");
+        }
         self.lanes = None;
     }
 }
@@ -213,6 +230,7 @@ impl Drop for Cr8Device {
             self.rx_stop();
         }
         self.api.close(self.handle);
+        self.retained.clear();
     }
 }
 
@@ -229,7 +247,10 @@ mod tests {
     use std::{
         ffi::{c_int, c_void},
         path::{Path, PathBuf},
-        sync::{Arc, Mutex, PoisonError},
+        sync::{
+            Arc, Mutex, PoisonError,
+            atomic::{AtomicBool, AtomicUsize, Ordering},
+        },
     };
 
     use sdrmm_device::{DeviceError, RxSink};
@@ -246,6 +267,8 @@ mod tests {
         serials: Vec<String>,
         calls: Mutex<Vec<String>>,
         path: PathBuf,
+        refuse_stop: AtomicBool,
+        ctx: AtomicUsize,
     }
 
     impl Recorder {
@@ -295,14 +318,18 @@ mod tests {
             _dev: DevHandle,
             buffer: usize,
             _callback: ffi::Callback,
-            _ctx: *mut c_void,
+            ctx: *mut c_void,
         ) -> Result<(), DeviceError> {
+            self.ctx.store(ctx as usize, Ordering::SeqCst);
             self.note(format!("start {buffer}"));
             Ok(())
         }
 
         fn stop(&self, _dev: DevHandle) -> Result<(), DeviceError> {
             self.note("stop".to_owned());
+            if self.refuse_stop.load(Ordering::SeqCst) {
+                return Err(DeviceError::Io("the worker thread is stuck".to_owned()));
+            }
             Ok(())
         }
 
@@ -611,7 +638,7 @@ mod tests {
                 })
             })
             .collect();
-        let lanes = Arc::new(Mutex::new(Lanes { sinks }));
+        let lanes = Arc::new(Lanes::new(sinks));
         let ctx = Arc::as_ptr(&lanes).cast::<c_void>().cast_mut();
 
         let mut buffers: Vec<Vec<ffi::Complex>> =
@@ -635,6 +662,152 @@ mod tests {
             "the hundred samples the radio lost are stepped over, not silently closed up"
         );
         assert_eq!(seen.len(), 16, "every lane hears about every buffer");
+    }
+
+    struct Buffers {
+        _data: Vec<Vec<ffi::Complex>>,
+        pointers: Vec<*mut ffi::Complex>,
+    }
+
+    fn buffers(count: usize) -> Buffers {
+        let mut data: Vec<Vec<ffi::Complex>> = (0..8)
+            .map(|_| vec![ffi::Complex::default(); count])
+            .collect();
+        let pointers = data.iter_mut().map(|buffer| buffer.as_mut_ptr()).collect();
+        Buffers {
+            _data: data,
+            pointers,
+        }
+    }
+
+    struct Noted(Arc<Recorder>, usize);
+
+    impl Drop for Noted {
+        fn drop(&mut self) {
+            self.0.note(format!("sink {} dropped", self.1));
+        }
+    }
+
+    fn counting_sinks(api: &Arc<Recorder>) -> (Vec<RxSink>, Arc<Vec<AtomicUsize>>) {
+        let counts: Arc<Vec<AtomicUsize>> = Arc::new((0..8).map(|_| AtomicUsize::new(0)).collect());
+        let sinks = (0..8)
+            .map(|lane| {
+                let counts = counts.clone();
+                let noted = Noted(api.clone(), lane);
+                RxSink::new(move |block: &[num_complex::Complex<f32>], _| {
+                    let _ = &noted;
+                    counts[lane].fetch_add(block.len(), Ordering::SeqCst);
+                })
+            })
+            .collect();
+        (sinks, counts)
+    }
+
+    #[test]
+    fn a_failed_stop_keeps_the_callback_context_alive() {
+        let api = recorder(&["DL0001"]);
+        api.refuse_stop.store(true, Ordering::SeqCst);
+        let mut device = Cr8Device::new(api.clone(), DevHandle(std::ptr::dangling_mut()));
+        let (sinks, counts) = counting_sinks(&api);
+        device.rx_start(sinks).expect("starts");
+        device.rx_stop();
+        assert!(device.lanes.is_none());
+        assert_eq!(
+            device.retained.len(),
+            1,
+            "the vendor thread may still call back"
+        );
+        let ctx = api.ctx.load(Ordering::SeqCst) as *mut c_void;
+        let mut block = buffers(16);
+        unsafe { deliver(block.pointers.as_mut_ptr(), 16, 0, ctx) };
+        assert!(
+            counts
+                .iter()
+                .all(|count| count.load(Ordering::SeqCst) == 16)
+        );
+        let Err(DeviceError::Io(message)) = device.apply(&DeviceSettings::default()) else {
+            panic!("the failed stop must surface");
+        };
+        assert_eq!(message, "CR-8 did not stop");
+        device
+            .apply(&DeviceSettings::default())
+            .expect("reported once");
+        drop(device);
+        let calls = api.calls();
+        let closed = calls
+            .iter()
+            .position(|call| call == "close")
+            .expect("closed");
+        let released = calls
+            .iter()
+            .position(|call| call.starts_with("sink"))
+            .expect("sinks released");
+        assert!(closed < released, "{calls:?}");
+    }
+
+    #[test]
+    fn a_second_start_never_frees_the_running_context() {
+        let api = recorder(&["DL0001"]);
+        let mut device = Cr8Device::new(api.clone(), DevHandle(std::ptr::dangling_mut()));
+        let (sinks, counts) = counting_sinks(&api);
+        device.rx_start(sinks).expect("starts");
+        let (again, _) = counting_sinks(&api);
+        assert!(matches!(
+            device.rx_start(again),
+            Err(DeviceError::AlreadyStreaming)
+        ));
+        let ctx = api.ctx.load(Ordering::SeqCst) as *mut c_void;
+        let mut block = buffers(8);
+        unsafe { deliver(block.pointers.as_mut_ptr(), 8, 0, ctx) };
+        assert!(counts.iter().all(|count| count.load(Ordering::SeqCst) == 8));
+        device.rx_stop();
+    }
+
+    #[test]
+    fn a_clean_stop_releases_the_callback_context() {
+        let api = recorder(&["DL0001"]);
+        let mut device = Cr8Device::new(api.clone(), DevHandle(std::ptr::dangling_mut()));
+        let (sinks, _) = counting_sinks(&api);
+        device.rx_start(sinks).expect("starts");
+        device.rx_stop();
+        assert!(device.retained.is_empty());
+        assert_eq!(
+            api.calls()
+                .iter()
+                .filter(|call| call.starts_with("sink"))
+                .count(),
+            8
+        );
+        device
+            .apply(&DeviceSettings::default())
+            .expect("nothing to report");
+    }
+
+    #[test]
+    fn deliver_reaches_every_lane_without_a_lock() {
+        let api = recorder(&[]);
+        let (sinks, counts) = counting_sinks(&api);
+        let lanes = Arc::new(Lanes::new(sinks));
+        let ctx = Arc::as_ptr(&lanes) as usize;
+        let delivering = std::thread::spawn(move || {
+            let mut block = buffers(32);
+            for _ in 0..100 {
+                unsafe { deliver(block.pointers.as_mut_ptr(), 32, 0, ctx as *mut c_void) };
+            }
+        });
+        delivering.join().expect("the vendor thread");
+        assert!(
+            counts
+                .iter()
+                .all(|count| count.load(Ordering::SeqCst) == 3_200)
+        );
+        drop(lanes);
+    }
+
+    #[test]
+    fn a_radio_holds_two_buffers_in_flight() {
+        let device = Cr8Device::new(recorder(&["DL0001"]), DevHandle(std::ptr::dangling_mut()));
+        assert_eq!(device.in_flight_samples(), 2 * BUFFER_SAMPLES as u64);
     }
 
     #[test]

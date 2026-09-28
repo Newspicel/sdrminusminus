@@ -7,10 +7,9 @@ mod types;
 
 pub use args::Args;
 pub use device::Device;
-pub use stream::{RxStream, TxStream};
+pub use stream::{ReadResult, RxStream, TxStream};
 pub use types::{ArgInfo, ArgType, Direction, Error, ErrorCode, Range};
 
-/// Where the SoapySDR runtime was loaded from, and the version it reports.
 pub fn installed() -> Result<(String, std::path::PathBuf), String> {
     api::shared().map(|library| (library.version().to_string(), library.path().to_path_buf()))
 }
@@ -31,13 +30,11 @@ pub fn enumerate(filter: &str) -> Result<Vec<Args>, Error> {
     Ok(args)
 }
 
-/// The module directories the installed SoapySDR core will search.
 #[must_use]
 pub fn module_search_paths() -> Vec<String> {
     string_list(|library, length| unsafe { (library.entries.list_search_paths)(length) })
 }
 
-/// The loadable modules found in those search paths.
 #[must_use]
 pub fn list_modules() -> Vec<String> {
     string_list(|library, length| unsafe { (library.entries.list_modules)(length) })

@@ -510,7 +510,11 @@ pub fn capabilities(model: Model, mode: Option<DuoMode>, band: Band) -> Capabili
         directional: None,
         dc_artifact: DcArtifact::Operator,
         hardware_sweep: false,
-        coherence: sdrmm_wire::Coherence::None,
+        coherence: if streams > 1 {
+            sdrmm_wire::Coherence::TimeSync
+        } else {
+            sdrmm_wire::Coherence::None
+        },
         noise_source: sdrmm_wire::NoiseSource::None,
         retune_keeps_phase: false,
     }
@@ -712,6 +716,20 @@ mod tests {
         assert!(caps.per_stream.tuning);
         assert!(caps.per_stream.gain);
         assert!(!caps.per_stream.antenna);
+    }
+
+    #[test]
+    fn dual_tuner_is_time_sync() {
+        let dual = capabilities(
+            Model::RspDuo,
+            Some(DuoMode::DualTuner),
+            band(Model::RspDuo, 100e6),
+        );
+        assert_eq!(dual.coherence, sdrmm_wire::Coherence::TimeSync);
+        assert_eq!(dual.profile().coherence, sdrmm_wire::Coherence::TimeSync);
+        assert!(!dual.retune_keeps_phase);
+        let single = capabilities(Model::Rsp1a, None, band(Model::Rsp1a, 100e6));
+        assert_eq!(single.coherence, sdrmm_wire::Coherence::None);
     }
 
     #[test]

@@ -7,7 +7,9 @@ use std::{
     },
 };
 
-use sdrmm_device::{DeviceError, RxSink, Sample, lock};
+use sdrmm_device::{
+    DeviceError, GapScope, LaneMark, RxSink, Sample, UNKNOWN_ERROR, Uncertainty, lock,
+};
 
 use crate::{
     api::{DevHandle, Sdrplay},
@@ -15,7 +17,8 @@ use crate::{
 };
 
 const SAMPLE_SCALE: f32 = 1.0 / 32_768.0;
-const DEFAULT_BLOCK: usize = 4096;
+const MAX_CALLBACK: usize = 16_384;
+const BACKWARDS: u32 = 1 << 31;
 
 pub struct StreamState {
     api: Arc<dyn Sdrplay>,
@@ -65,6 +68,7 @@ impl StreamState {
 struct Slot {
     sink: RxSink,
     out: Vec<Sample>,
+    expected: Option<u32>,
 }
 
 pub struct StreamContext {
@@ -72,9 +76,6 @@ pub struct StreamContext {
     state: Arc<StreamState>,
 }
 
-// Each stream callback is driven by its own tuner's API thread and touches only its own slot,
-// and the monitor thread only reclaims the slots after sdrplay_api_Uninit has joined those
-// threads, so the cells are never shared between threads at the same time.
 unsafe impl Send for StreamContext {}
 unsafe impl Sync for StreamContext {}
 
@@ -117,27 +118,64 @@ impl Slot {
     fn new(sink: RxSink) -> Self {
         Self {
             sink,
-            out: Vec::with_capacity(DEFAULT_BLOCK),
+            out: Vec::with_capacity(MAX_CALLBACK),
+            expected: None,
         }
+    }
+
+    fn track(&mut self, params: &ffi::StreamCbParamsT, count: c_uint, reset: bool) {
+        let first = params.first_sample_num;
+        if reset || params.fs_changed != 0 {
+            let cause = if reset {
+                Uncertainty::Reset
+            } else {
+                Uncertainty::RateWrite
+            };
+            self.sink.realigned(cause, UNKNOWN_ERROR, GapScope::Device);
+        } else if let Some(expected) = self.expected {
+            match first.wrapping_sub(expected) {
+                0 => {}
+                gap if gap < BACKWARDS => self.sink.dropped(u64::from(gap)),
+                _ => self
+                    .sink
+                    .realigned(Uncertainty::Reset, UNKNOWN_ERROR, GapScope::Device),
+            }
+        }
+        if params.rf_changed != 0 {
+            self.sink.mark(LaneMark::Retuned { in_flight: 0 });
+        }
+        self.expected = Some(first.wrapping_add(count));
     }
 
     fn deliver(&mut self, xi: *const i16, xq: *const i16, count: usize) {
-        self.out.clear();
-        self.out.reserve(count);
-        for index in 0..count {
-            let i = unsafe { *xi.add(index) };
-            let q = unsafe { *xq.add(index) };
-            self.out.push(Sample::new(
-                f32::from(i) * SAMPLE_SCALE,
-                f32::from(q) * SAMPLE_SCALE,
-            ));
+        let mut start = 0;
+        while start < count {
+            let end = count.min(start + MAX_CALLBACK);
+            self.out.clear();
+            for index in start..end {
+                let i = unsafe { *xi.add(index) };
+                let q = unsafe { *xq.add(index) };
+                self.out.push(Sample::new(
+                    f32::from(i) * SAMPLE_SCALE,
+                    f32::from(q) * SAMPLE_SCALE,
+                ));
+            }
+            self.sink.push(&self.out);
+            start = end;
         }
-        self.sink.push(&self.out);
     }
 }
 
-fn deliver(context: *mut c_void, index: usize, xi: *mut i16, xq: *mut i16, count: c_uint) {
-    if context.is_null() || xi.is_null() || xq.is_null() || count == 0 {
+struct Callback {
+    xi: *const i16,
+    xq: *const i16,
+    params: *const ffi::StreamCbParamsT,
+    count: c_uint,
+    reset: c_uint,
+}
+
+fn deliver(context: *mut c_void, index: usize, callback: &Callback) {
+    if context.is_null() {
         return;
     }
     let context = unsafe { &*context.cast::<StreamContext>() };
@@ -145,35 +183,62 @@ fn deliver(context: *mut c_void, index: usize, xi: *mut i16, xq: *mut i16, count
         return;
     };
     let slot = unsafe { &mut *cell.get() };
-    if let Some(slot) = slot.as_mut() {
-        slot.deliver(xi, xq, count as usize);
+    let Some(slot) = slot.as_mut() else {
+        if !callback.xi.is_null() && !callback.xq.is_null() {
+            context
+                .state
+                .samples
+                .fetch_add(u64::from(callback.count), Ordering::Relaxed);
+        }
+        return;
+    };
+    if let Some(params) = unsafe { callback.params.as_ref() } {
+        slot.track(params, callback.count, callback.reset != 0);
     }
+    if callback.xi.is_null() || callback.xq.is_null() || callback.count == 0 {
+        return;
+    }
+    slot.deliver(callback.xi, callback.xq, callback.count as usize);
     context
         .state
         .samples
-        .fetch_add(u64::from(count), Ordering::Relaxed);
+        .fetch_add(u64::from(callback.count), Ordering::Relaxed);
 }
 
 unsafe extern "C" fn stream_a(
     xi: *mut i16,
     xq: *mut i16,
-    _params: *mut ffi::StreamCbParamsT,
+    params: *mut ffi::StreamCbParamsT,
     num_samples: c_uint,
-    _reset: c_uint,
+    reset: c_uint,
     context: *mut c_void,
 ) {
-    deliver(context, 0, xi, xq, num_samples);
+    let callback = Callback {
+        xi,
+        xq,
+        params,
+        count: num_samples,
+        reset,
+    };
+    deliver(context, 0, &callback);
 }
 
 unsafe extern "C" fn stream_b(
     xi: *mut i16,
     xq: *mut i16,
-    _params: *mut ffi::StreamCbParamsT,
+    params: *mut ffi::StreamCbParamsT,
     num_samples: c_uint,
-    _reset: c_uint,
+    reset: c_uint,
     context: *mut c_void,
 ) {
-    deliver(context, 1, xi, xq, num_samples);
+    let callback = Callback {
+        xi,
+        xq,
+        params,
+        count: num_samples,
+        reset,
+    };
+    deliver(context, 1, &callback);
 }
 
 unsafe extern "C" fn event(
@@ -231,8 +296,20 @@ unsafe extern "C" fn event(
 mod tests {
     use std::sync::mpsc;
 
+    use sdrmm_device::{LaneEvent, SinkItem};
+
     use super::*;
     use crate::testing::FakeApi;
+
+    fn plain(xi: *mut i16, xq: *mut i16, count: c_uint) -> Callback {
+        Callback {
+            xi,
+            xq,
+            params: std::ptr::null(),
+            count,
+            reset: 0,
+        }
+    }
 
     fn state() -> Arc<StreamState> {
         StreamState::new(Arc::new(FakeApi::rsp1a()), DevHandle(std::ptr::null_mut()))
@@ -252,9 +329,7 @@ mod tests {
         deliver(
             std::ptr::from_mut(context.as_mut()).cast(),
             0,
-            xi.as_mut_ptr(),
-            xq.as_mut_ptr(),
-            3,
+            &plain(xi.as_mut_ptr(), xq.as_mut_ptr(), 3),
         );
         let block = rx.try_recv().expect("one block");
         assert_eq!(block.len(), 3);
@@ -278,10 +353,10 @@ mod tests {
         let pointer = std::ptr::from_mut(context.as_mut()).cast();
         let mut xi = [1_i16; 8];
         let mut xq = [1_i16; 8];
-        deliver(pointer, 1, xi.as_mut_ptr(), xq.as_mut_ptr(), 8);
+        deliver(pointer, 1, &plain(xi.as_mut_ptr(), xq.as_mut_ptr(), 8));
         assert!(rx_a.try_recv().is_err());
         assert_eq!(rx_b.try_recv().expect("tuner b block"), 8);
-        deliver(pointer, 0, xi.as_mut_ptr(), xq.as_mut_ptr(), 4);
+        deliver(pointer, 0, &plain(xi.as_mut_ptr(), xq.as_mut_ptr(), 4));
         assert_eq!(rx_a.try_recv().expect("tuner a block"), 4);
     }
 
@@ -293,9 +368,7 @@ mod tests {
         deliver(
             std::ptr::from_mut(context.as_mut()).cast(),
             1,
-            xi.as_mut_ptr(),
-            xq.as_mut_ptr(),
-            4,
+            &plain(xi.as_mut_ptr(), xq.as_mut_ptr(), 4),
         );
         assert_eq!(context.state().samples(), 4);
     }
@@ -308,11 +381,231 @@ mod tests {
         let pointer = std::ptr::from_mut(context.as_mut()).cast();
         let mut xi = [1_i16; 4];
         let mut xq = [1_i16; 4];
-        deliver(pointer, 0, xi.as_mut_ptr(), xq.as_mut_ptr(), 0);
-        deliver(pointer, 0, std::ptr::null_mut(), xq.as_mut_ptr(), 4);
-        deliver(std::ptr::null_mut(), 0, xi.as_mut_ptr(), xq.as_mut_ptr(), 4);
+        deliver(pointer, 0, &plain(xi.as_mut_ptr(), xq.as_mut_ptr(), 0));
+        deliver(pointer, 0, &plain(std::ptr::null_mut(), xq.as_mut_ptr(), 4));
+        deliver(
+            std::ptr::null_mut(),
+            0,
+            &plain(xi.as_mut_ptr(), xq.as_mut_ptr(), 4),
+        );
         assert!(rx.try_recv().is_err());
         assert_eq!(context.state().samples(), 0);
+    }
+
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    enum Seen {
+        Samples { index: u64, len: usize },
+        Event(LaneEvent),
+    }
+
+    fn recorded() -> (RxSink, Arc<Mutex<Vec<Seen>>>) {
+        let seen: Arc<Mutex<Vec<Seen>>> = Arc::default();
+        let log = seen.clone();
+        let sink = RxSink::with_items(
+            move |item: SinkItem<'_>| {
+                lock(&log).push(match item {
+                    SinkItem::Samples { samples, index } => Seen::Samples {
+                        index,
+                        len: samples.len(),
+                    },
+                    SinkItem::Event(event) => Seen::Event(event),
+                });
+            },
+            |_| {},
+        );
+        (sink, seen)
+    }
+
+    fn params(first: u32, count: u32) -> ffi::StreamCbParamsT {
+        ffi::StreamCbParamsT {
+            first_sample_num: first,
+            gr_changed: 0,
+            rf_changed: 0,
+            fs_changed: 0,
+            num_samples: count,
+        }
+    }
+
+    struct Tuner {
+        context: Box<StreamContext>,
+        seen: Arc<Mutex<Vec<Seen>>>,
+        xi: Vec<i16>,
+        xq: Vec<i16>,
+    }
+
+    impl Tuner {
+        fn new(len: usize) -> Self {
+            let (sink, seen) = recorded();
+            Self {
+                context: StreamContext::new(vec![sink], state()),
+                seen,
+                xi: vec![1; len],
+                xq: vec![1; len],
+            }
+        }
+
+        fn callback(&mut self, params: &ffi::StreamCbParamsT, reset: bool) {
+            let callback = Callback {
+                xi: self.xi.as_ptr(),
+                xq: self.xq.as_ptr(),
+                params,
+                count: params.num_samples,
+                reset: c_uint::from(reset),
+            };
+            deliver(
+                std::ptr::from_mut(self.context.as_mut()).cast(),
+                0,
+                &callback,
+            );
+        }
+
+        fn seen(&self) -> Vec<Seen> {
+            lock(&self.seen).clone()
+        }
+    }
+
+    #[test]
+    fn a_skipped_first_sample_num_becomes_a_gap() {
+        let mut tuner = Tuner::new(100);
+        tuner.callback(&params(1_000, 100), false);
+        tuner.callback(&params(1_150, 100), false);
+        tuner.callback(&params(1_250, 100), false);
+        assert_eq!(
+            tuner.seen(),
+            vec![
+                Seen::Samples { index: 0, len: 100 },
+                Seen::Samples {
+                    index: 150,
+                    len: 100
+                },
+                Seen::Samples {
+                    index: 250,
+                    len: 100
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn a_counter_that_wraps_is_not_a_gap() {
+        let mut tuner = Tuner::new(100);
+        tuner.callback(&params(u32::MAX - 49, 100), false);
+        tuner.callback(&params(50, 100), false);
+        assert_eq!(
+            tuner.seen()[1],
+            Seen::Samples {
+                index: 100,
+                len: 100
+            }
+        );
+    }
+
+    #[test]
+    fn a_reset_marks_the_timeline_uncertain() {
+        let mut tuner = Tuner::new(100);
+        tuner.callback(&params(1_000, 100), false);
+        tuner.callback(&params(0, 100), true);
+        tuner.callback(&params(100, 100), false);
+        let mut rate = params(9_000, 100);
+        rate.fs_changed = 1;
+        tuner.callback(&rate, false);
+        tuner.callback(&params(500, 100), false);
+        assert_eq!(
+            tuner.seen(),
+            vec![
+                Seen::Samples { index: 0, len: 100 },
+                Seen::Event(LaneEvent::Uncertain {
+                    at: 100,
+                    error: UNKNOWN_ERROR,
+                    scope: GapScope::Device,
+                    cause: Uncertainty::Reset,
+                }),
+                Seen::Samples {
+                    index: 100,
+                    len: 100
+                },
+                Seen::Samples {
+                    index: 200,
+                    len: 100
+                },
+                Seen::Event(LaneEvent::Uncertain {
+                    at: 300,
+                    error: UNKNOWN_ERROR,
+                    scope: GapScope::Device,
+                    cause: Uncertainty::RateWrite,
+                }),
+                Seen::Samples {
+                    index: 300,
+                    len: 100
+                },
+                Seen::Event(LaneEvent::Uncertain {
+                    at: 400,
+                    error: UNKNOWN_ERROR,
+                    scope: GapScope::Device,
+                    cause: Uncertainty::Reset,
+                }),
+                Seen::Samples {
+                    index: 400,
+                    len: 100
+                },
+            ],
+            "a counter that went backwards is a reset nobody announced"
+        );
+    }
+
+    #[test]
+    fn rf_changed_marks_a_retune() {
+        let mut tuner = Tuner::new(100);
+        tuner.callback(&params(0, 100), false);
+        let mut retuned = params(100, 100);
+        retuned.rf_changed = 1;
+        tuner.callback(&retuned, false);
+        assert_eq!(
+            tuner.seen(),
+            vec![
+                Seen::Samples { index: 0, len: 100 },
+                Seen::Event(LaneEvent::Mark {
+                    at: 100,
+                    mark: LaneMark::Retuned { in_flight: 0 },
+                }),
+                Seen::Samples {
+                    index: 100,
+                    len: 100
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn a_large_callback_is_chunked_without_reserving() {
+        let mut tuner = Tuner::new(40_000);
+        let before = {
+            let slot = unsafe { &*tuner.context.slots[0].get() };
+            let slot = slot.as_ref().expect("a slot");
+            (slot.out.as_ptr(), slot.out.capacity())
+        };
+        tuner.callback(&params(0, 40_000), false);
+        assert_eq!(
+            tuner.seen(),
+            vec![
+                Seen::Samples {
+                    index: 0,
+                    len: MAX_CALLBACK
+                },
+                Seen::Samples {
+                    index: MAX_CALLBACK as u64,
+                    len: MAX_CALLBACK
+                },
+                Seen::Samples {
+                    index: 2 * MAX_CALLBACK as u64,
+                    len: 40_000 - 2 * MAX_CALLBACK
+                },
+            ]
+        );
+        let slot = unsafe { &*tuner.context.slots[0].get() };
+        let slot = slot.as_ref().expect("a slot");
+        assert_eq!((slot.out.as_ptr(), slot.out.capacity()), before);
+        assert_eq!(before.1, MAX_CALLBACK);
     }
 
     #[test]

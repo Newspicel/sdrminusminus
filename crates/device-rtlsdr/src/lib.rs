@@ -54,8 +54,6 @@ fn enumerate() -> Result<Vec<DeviceDescriptor>, driver::Error> {
     Ok(DeviceDescriptors::new()?.iter().cloned().collect())
 }
 
-/// The dongles that are radios in their own right, which is every one that is not a lane of a
-/// coherent bank. A bank is opened as the one radio it is, by the driver that knows how.
 fn standalone() -> Result<Vec<DeviceDescriptor>, driver::Error> {
     Ok(without_banks(enumerate()?))
 }
@@ -291,6 +289,7 @@ mod tests {
             serial: Some(serial.to_string()),
             port_chain: hub.map_or_else(|| vec![port], |hub| vec![hub, port]),
             board_variant: BoardVariant::Generic,
+            hub: None,
         }
     }
 
