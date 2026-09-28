@@ -195,3 +195,72 @@ pub(super) async fn get_channel_types(State(state): State<AppState>) -> Json<Cha
         facets: sdrmm_wire::event_facets(),
     })
 }
+
+#[utoipa::path(
+    get, path = "/api/saved-radios",
+    responses((status = 200, description = "Saved network radios", body = Vec<SavedRadio>)),
+)]
+pub(super) async fn list_saved_radios(
+    State(state): State<AppState>,
+) -> Result<Json<Vec<SavedRadio>>, AppError> {
+    let store = state.store.clone();
+    let radios = tokio::task::spawn_blocking(move || store.list_saved_radios()).await??;
+    Ok(Json(radios))
+}
+
+#[utoipa::path(
+    post, path = "/api/saved-radios",
+    request_body = SaveRadioRequest,
+    responses(
+        (status = 200, description = "Radio saved, or its label updated", body = CreatedRowId),
+        (status = 400, description = "Blank device id or label", body = ApiError),
+        (status = 422, description = "Malformed request body", body = ApiError),
+    ),
+)]
+pub(super) async fn save_radio(
+    State(state): State<AppState>,
+    Json(req): Json<SaveRadioRequest>,
+) -> Result<Json<CreatedRowId>, AppError> {
+    let req = SaveRadioRequest {
+        device_id: req.device_id.trim().to_string(),
+        label: req.label.trim().to_string(),
+    };
+    if req.device_id.is_empty() || req.label.is_empty() {
+        return Err(AppError::bad_request(
+            "a saved radio needs a device id and a label",
+        ));
+    }
+    let engine = state.engine.clone();
+    let store = state.store.clone();
+    let id = tokio::task::spawn_blocking(move || -> Result<i64, AppError> {
+        let id = store.save_radio(&req)?;
+        engine.emit_scope(StateScope::SavedRadios);
+        Ok(id)
+    })
+    .await??;
+    Ok(Json(CreatedRowId { id }))
+}
+
+#[utoipa::path(
+    delete, path = "/api/saved-radios/{id}",
+    params(("id" = i64, Path, description = "Saved radio id")),
+    responses(
+        (status = 204, description = "Saved radio removed"),
+        (status = 400, description = "Invalid path parameter", body = ApiError),
+        (status = 404, description = "Saved radio not found", body = ApiError),
+    ),
+)]
+pub(super) async fn delete_saved_radio(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+) -> Result<StatusCode, AppError> {
+    let engine = state.engine.clone();
+    let store = state.store.clone();
+    tokio::task::spawn_blocking(move || -> Result<(), AppError> {
+        store.delete_saved_radio(id)?;
+        engine.emit_scope(StateScope::SavedRadios);
+        Ok(())
+    })
+    .await??;
+    Ok(StatusCode::NO_CONTENT)
+}

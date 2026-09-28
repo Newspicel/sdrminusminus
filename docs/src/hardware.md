@@ -88,6 +88,9 @@ The address becomes the radio's identity in the workspace. A remote `SoapySDRSer
 the normal radio list instead, through SoapyRemote. Network IQ uses a lot of bandwidth: pick the
 lowest rate that works and watch the drop counter.
 
+The bookmark button next to **Add** saves an address. Saved radios are listed above the form on
+every empty Device node; click one to connect.
+
 ## Other sources
 
 | Node | Gives |

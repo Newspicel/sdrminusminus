@@ -28,12 +28,12 @@ use sdrmm_wire::{
     PatchApplyReport, PatchBinding, PatchCatalog, PatchGraph, PatchRefusal, PlaybackRequest,
     PlaybackStatus, PresetDevice, PresetInfo, PresetSnapshot, RecordingAnnotation,
     RecordingDownloadQuery, RecordingFormat, RecordingInfo, RecordingUpload, RecordingsResponse,
-    Route, RouteRequest, SatelliteCatalogQuery, SatelliteCatalogResponse, ScanAction, ScanRequest,
-    ScanSettings, ScannerStatus, ServerEvent, StateScope, StateSnapshot, TemplateInfo,
-    TemplatesResponse, TimeMachineAction, TimeMachineRequest, TimeMachineStatus, ToolRequest,
-    ToolResponse, ToolsResponse, TransmittersResponse, UpdateWorkspaceRequest, VoiceCallsResponse,
-    WorkspaceDetail, WorkspaceExport, WorkspaceInfo, WorkspaceSnapshot, WorkspaceState,
-    WorkspacesResponse,
+    Route, RouteRequest, SatelliteCatalogQuery, SatelliteCatalogResponse, SaveRadioRequest,
+    SavedRadio, ScanAction, ScanRequest, ScanSettings, ScannerStatus, ServerEvent, StateScope,
+    StateSnapshot, TemplateInfo, TemplatesResponse, TimeMachineAction, TimeMachineRequest,
+    TimeMachineStatus, ToolRequest, ToolResponse, ToolsResponse, TransmittersResponse,
+    UpdateWorkspaceRequest, VoiceCallsResponse, WorkspaceDetail, WorkspaceExport, WorkspaceInfo,
+    WorkspaceSnapshot, WorkspaceState, WorkspacesResponse,
 };
 use utoipa::OpenApi;
 use utoipa_axum::{router::OpenApiRouter, routes};
@@ -196,6 +196,7 @@ impl From<StoreError> for AppError {
         let (status, code) = match err {
             StoreError::PresetNotFound(_)
             | StoreError::BookmarkNotFound(_)
+            | StoreError::SavedRadioNotFound(_)
             | StoreError::RecordingNotFound(_)
             | StoreError::WorkspaceNotFound(_)
             | StoreError::CpsUserNotFound(_)
@@ -361,6 +362,8 @@ pub(crate) fn openapi_router() -> OpenApiRouter<AppState> {
         .routes(routes!(delete_preset))
         .routes(routes!(list_bookmarks, create_bookmark))
         .routes(routes!(delete_bookmark))
+        .routes(routes!(list_saved_radios, save_radio))
+        .routes(routes!(delete_saved_radio))
         .routes(routes!(network_export_channel))
         .routes(routes!(time_machine_device_set))
         .routes(routes!(list_audio_recordings))

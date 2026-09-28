@@ -332,3 +332,45 @@ async fn bookmark_crud_over_http() {
     let (status, _) = request(app, "DELETE", &format!("/api/bookmarks/{id}"), None).await;
     assert_eq!(status, StatusCode::NOT_FOUND);
 }
+
+#[tokio::test]
+async fn saved_radio_crud_over_http() {
+    let app = test_router();
+    let (status, _) = request(
+        app.clone(),
+        "POST",
+        "/api/saved-radios",
+        Some(r#"{"device_id":"rtltcp:10.0.0.5:1234","label":"  "}"#),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+
+    let (status, body) = request(
+        app.clone(),
+        "POST",
+        "/api/saved-radios",
+        Some(r#"{"device_id":" rtltcp:10.0.0.5:1234 ","label":"roof"}"#),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let id = serde_json::from_slice::<CreatedRowId>(&body)
+        .expect("json")
+        .id;
+
+    let (_, body) = request(app.clone(), "GET", "/api/saved-radios", None).await;
+    let listed: Vec<SavedRadio> = serde_json::from_slice(&body).expect("json");
+    assert_eq!(
+        listed,
+        vec![SavedRadio {
+            id,
+            device_id: "rtltcp:10.0.0.5:1234".to_string(),
+            label: "roof".to_string(),
+        }]
+    );
+
+    let path = format!("/api/saved-radios/{id}");
+    let (status, _) = request(app.clone(), "DELETE", &path, None).await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    let (status, _) = request(app, "DELETE", &path, None).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+}

@@ -5,6 +5,7 @@ import {
   groupDevices,
   NETWORK_BACKENDS,
   networkDeviceId,
+  networkRadioLabel,
   rankDevices,
   sourceTabs,
   unclaimedDevices,
@@ -195,5 +196,16 @@ describe("NETWORK_BACKENDS", () => {
       "8073",
       "30431",
     ]);
+  });
+});
+
+describe("networkRadioLabel", () => {
+  it("names the protocol and host, never the password", () => {
+    expect(networkRadioLabel("kiwisdr:pw@kiwi.example.org:8073")).toBe(
+      "KiwiSDR kiwi.example.org:8073",
+    );
+    expect(networkRadioLabel("kiwisdr:https://kiwi.example.org")).toBe("KiwiSDR kiwi.example.org");
+    expect(networkRadioLabel("rtltcp:[::1]:1234")).toBe("rtl_tcp [::1]:1234");
+    expect(networkRadioLabel("mystery:host:1")).toBe("host:1");
   });
 });

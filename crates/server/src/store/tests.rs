@@ -215,6 +215,46 @@ fn bookmark_crud_roundtrip() {
     store.delete_bookmark(bare_id).expect("delete");
 }
 
+#[test]
+fn saving_a_radio_twice_relabels_it() {
+    let store = Store::open(None).expect("open");
+    let save = |device_id: &str, label: &str| {
+        store
+            .save_radio(&SaveRadioRequest {
+                device_id: device_id.to_string(),
+                label: label.to_string(),
+            })
+            .expect("save")
+    };
+    let kiwi = save("kiwisdr:kiwi.example.org:8073", "Kiwi");
+    let spy = save("spyserver:spy.local:5555", "attic");
+    assert_eq!(save("kiwisdr:kiwi.example.org:8073", "Twente"), kiwi);
+
+    let listed = store.list_saved_radios().expect("list");
+    assert_eq!(
+        listed,
+        vec![
+            SavedRadio {
+                id: spy,
+                device_id: "spyserver:spy.local:5555".to_string(),
+                label: "attic".to_string(),
+            },
+            SavedRadio {
+                id: kiwi,
+                device_id: "kiwisdr:kiwi.example.org:8073".to_string(),
+                label: "Twente".to_string(),
+            },
+        ]
+    );
+
+    store.delete_saved_radio(kiwi).expect("delete");
+    assert!(matches!(
+        store.delete_saved_radio(kiwi),
+        Err(StoreError::SavedRadioNotFound(_))
+    ));
+    assert_eq!(store.list_saved_radios().expect("list").len(), 1);
+}
+
 fn recording_row(stem: &str, samples: u64) -> RecordingRow {
     RecordingRow {
         stem: stem.to_string(),

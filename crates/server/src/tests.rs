@@ -10,7 +10,7 @@ use sdrmm_wire::{
     ChannelSettings, ChannelTypesResponse, CreatedId, CreatedRowId, DecodedRecord, DecoderEvent,
     DecoderLogEntry, DecoderLogResponse, DeletedCount, DeviceSettings, NetworkExportStatus,
     NfmParams, NmeaDevicesResponse, PresetInfo, PresetSnapshot, RecordingStatus,
-    RecordingsResponse, StateSnapshot, TimeMachineStatus, VoiceCallsResponse,
+    RecordingsResponse, SavedRadio, StateSnapshot, TimeMachineStatus, VoiceCallsResponse,
 };
 use tower::ServiceExt;
 

@@ -11,6 +11,7 @@ pub enum StateScope {
     DeviceSet(u32),
     Presets,
     Bookmarks,
+    SavedRadios,
     Recordings,
     Clients,
     DecoderLog,

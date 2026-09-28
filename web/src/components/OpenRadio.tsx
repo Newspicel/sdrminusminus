@@ -1,26 +1,82 @@
 import { Collapsible } from "@base-ui/react/collapsible";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { BookmarkPlus, Trash2 } from "lucide-react";
 import { useState } from "react";
-import { devicesQuery, doctorQuery } from "../lib/api";
+import {
+  deleteSavedRadio,
+  devicesQuery,
+  doctorQuery,
+  SAVED_RADIOS_KEY,
+  savedRadiosQuery,
+  saveRadio,
+} from "../lib/api";
+import { pushToast } from "../lib/toasts";
 import type { DeviceInfo, DeviceRef } from "../lib/types";
 import { Button, Form, Input } from "./BaseControls";
-import { BTN, BTN_QUIET, FIELD, LABEL } from "./controls";
+import { BTN, BTN_QUIET, FIELD, ICON_BTN, LABEL } from "./controls";
 import {
   deviceId,
   groupDevices,
   NETWORK_BACKENDS,
   networkDeviceId,
+  networkRadioLabel,
   type SourceTab,
   sourceTabs,
   unclaimedDevices,
   visibleDevices,
 } from "./devices";
+import { Icon } from "./Icon";
+import { List, ListRow, RowAction } from "./ListPanel";
 import { Segmented } from "./Segmented";
 import { Select } from "./Select";
 
 type Choose = (device: DeviceInfo) => void;
 
+function useSavedRadios() {
+  const queryClient = useQueryClient();
+  const saved = useQuery(savedRadiosQuery());
+  const settled = {
+    onError: (error: Error) => pushToast(error.message),
+    onSettled: () => void queryClient.invalidateQueries({ queryKey: SAVED_RADIOS_KEY }),
+  };
+  const save = useMutation({
+    mutationFn: (id: string) => saveRadio({ device_id: id, label: networkRadioLabel(id) }),
+    ...settled,
+  });
+  const forget = useMutation({ mutationFn: deleteSavedRadio, ...settled });
+  return { radios: saved.data ?? [], save, forget };
+}
+
+function SavedRadios({ onAdd, busy }: { onAdd: (id: string) => void; busy: boolean }) {
+  const { radios, forget } = useSavedRadios();
+  if (radios.length === 0) {
+    return null;
+  }
+  return (
+    <List title="Saved">
+      {radios.map((radio) => (
+        <ListRow
+          key={radio.id}
+          primary={radio.label}
+          disabled={busy}
+          onSelect={() => onAdd(radio.device_id)}
+          actions={
+            <RowAction
+              label={`Forget ${radio.label}`}
+              glyph={Trash2}
+              danger
+              disabled={forget.isPending}
+              onClick={() => forget.mutate(radio.id)}
+            />
+          }
+        />
+      ))}
+    </List>
+  );
+}
+
 function AddNetworkRadio({ onAdd, busy }: { onAdd: (id: string) => void; busy: boolean }) {
+  const { save } = useSavedRadios();
   const [driver, setDriver] = useState<string>(NETWORK_BACKENDS[0].driver);
   const [address, setAddress] = useState("");
   const backend = NETWORK_BACKENDS.find((b) => b.driver === driver) ?? NETWORK_BACKENDS[0];
@@ -56,6 +112,16 @@ function AddNetworkRadio({ onAdd, busy }: { onAdd: (id: string) => void; busy: b
           value={address}
           onChange={(event) => setAddress(event.target.value)}
         />
+        <Button
+          type="button"
+          className={ICON_BTN}
+          aria-label="Save radio"
+          title="Save for later"
+          disabled={save.isPending || id === null}
+          onClick={() => id !== null && save.mutate(id)}
+        >
+          <Icon glyph={BookmarkPlus} size={14} />
+        </Button>
         <Button type="submit" className={BTN} disabled={busy || id === null}>
           Add
         </Button>
@@ -166,7 +232,12 @@ export function DeviceChoices({
           onChoose={onChoose}
         />
       )}
-      {shown === "network" && <AddNetworkRadio onAdd={onAddNetwork} busy={busy} />}
+      {shown === "network" && (
+        <>
+          <SavedRadios onAdd={onAddNetwork} busy={busy} />
+          <AddNetworkRadio onAdd={onAddNetwork} busy={busy} />
+        </>
+      )}
       {shown === "virtual" && (
         <RadioList devices={groups.virtual} busy={busy} onChoose={onChoose} />
       )}

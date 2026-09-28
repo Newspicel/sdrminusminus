@@ -9,6 +9,7 @@ import {
   IMAGES_KEY,
   PRESETS_KEY,
   RECORDINGS_KEY,
+  SAVED_RADIOS_KEY,
   STATE_KEY,
   TEMPLATES_KEY,
   WORKSPACES_KEY,
@@ -162,6 +163,9 @@ function invalidateScope(queryClient: QueryClient, scope: StateScope): void {
       break;
     case "bookmarks":
       void queryClient.invalidateQueries({ queryKey: BOOKMARKS_KEY });
+      break;
+    case "saved_radios":
+      void queryClient.invalidateQueries({ queryKey: SAVED_RADIOS_KEY });
       break;
     case "recordings":
       void queryClient.invalidateQueries({ queryKey: RECORDINGS_KEY });

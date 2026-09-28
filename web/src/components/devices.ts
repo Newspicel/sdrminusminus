@@ -102,3 +102,11 @@ export function networkDeviceId(driver: string, address: string): string | null 
   const webDefault = (name === "http" || name === "ws") && !/:\d+$/.test(host);
   return `${driver}:${trimmed}${webDefault ? ":80" : ""}`;
 }
+
+export function networkRadioLabel(id: string): string {
+  const at = id.indexOf(":");
+  const backend = NETWORK_BACKENDS.find((b) => b.driver === id.slice(0, at));
+  const address = id.slice(at + 1).replace(/^https:\/\//, "");
+  const host = address.slice(address.lastIndexOf("@") + 1);
+  return backend === undefined ? host : `${backend.label} ${host}`;
+}

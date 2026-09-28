@@ -60,6 +60,8 @@ import type {
   Route,
   RouteRequest,
   SatelliteCatalogResponse,
+  SavedRadio,
+  SaveRadioRequest,
   ScannerStatus,
   ScanSettings,
   StateSnapshot,
@@ -103,6 +105,7 @@ export const NMEA_DEVICES_KEY = ["get", "/api/position/nmea-devices"] as const;
 export const CHANNEL_TYPES_KEY = ["get", "/api/channeltypes"] as const;
 export const PRESETS_KEY = ["get", "/api/presets"] as const;
 export const BOOKMARKS_KEY = ["get", "/api/bookmarks"] as const;
+export const SAVED_RADIOS_KEY = ["get", "/api/saved-radios"] as const;
 export const RECORDINGS_KEY = ["get", "/api/recordings"] as const;
 export const AUDIO_RECORDINGS_KEY = ["get", "/api/audiorecordings"] as const;
 export const CALLS_KEY = ["get", "/api/calls"] as const;
@@ -320,6 +323,25 @@ export async function createBookmark(bookmark: CreateBookmarkRequest): Promise<n
 export async function deleteBookmark(id: number): Promise<void> {
   unwrap(
     await client.DELETE("/api/bookmarks/{id}", {
+      params: { path: { id } },
+    }),
+  );
+}
+
+export function savedRadiosQuery() {
+  return queryOptions({
+    queryKey: SAVED_RADIOS_KEY,
+    queryFn: async (): Promise<SavedRadio[]> => unwrap(await client.GET("/api/saved-radios")),
+  });
+}
+
+export async function saveRadio(radio: SaveRadioRequest): Promise<number> {
+  return unwrap(await client.POST("/api/saved-radios", { body: radio })).id;
+}
+
+export async function deleteSavedRadio(id: number): Promise<void> {
+  unwrap(
+    await client.DELETE("/api/saved-radios/{id}", {
       params: { path: { id } },
     }),
   );

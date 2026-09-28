@@ -158,8 +158,8 @@ pub use rest::{
     Maneuver, ManeuverKind, OccupancyBucket, OccupancyReport, PRESET_SNAPSHOT_VERSION,
     PlaybackAction, PlaybackRequest, PresetDevice, PresetInfo, PresetSnapshot, RecordingAnnotation,
     RecordingDownloadQuery, RecordingFormat, RecordingInfo, RecordingUpload, RecordingsResponse,
-    Route, RoutePoint, RouteRequest, RoutingBackend, TemplateInfo, TemplatesResponse, VoiceCall,
-    VoiceCallsResponse,
+    Route, RoutePoint, RouteRequest, RoutingBackend, SaveRadioRequest, SavedRadio, TemplateInfo,
+    TemplatesResponse, VoiceCall, VoiceCallsResponse,
 };
 pub use satellite::{
     CatalogSatellite, MAX_CATALOG_RESULTS, MAX_SATELLITE_HZ, MAX_SATELLITE_QUERY_LEN, MAX_TLE_LEN,
@@ -364,6 +364,7 @@ mod contract_tests {
             (StateScope::All, "all"),
             (StateScope::Presets, "presets"),
             (StateScope::Bookmarks, "bookmarks"),
+            (StateScope::SavedRadios, "saved_radios"),
             (StateScope::Recordings, "recordings"),
             (StateScope::DecoderLog, "decoder_log"),
             (StateScope::Workspaces, "workspaces"),

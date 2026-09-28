@@ -3436,6 +3436,113 @@
         }
       }
     },
+    "/api/saved-radios": {
+      "get": {
+        "operationId": "list_saved_radios",
+        "responses": {
+          "200": {
+            "description": "Saved network radios",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/SavedRadio"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "save_radio",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SaveRadioRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Radio saved, or its label updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreatedRowId"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Blank device id or label",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Malformed request body",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/saved-radios/{id}": {
+      "delete": {
+        "operationId": "delete_saved_radio",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Saved radio id",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Saved radio removed"
+          },
+          "400": {
+            "description": "Invalid path parameter",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Saved radio not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/state": {
       "get": {
         "operationId": "get_state",
@@ -18150,6 +18257,41 @@
           }
         }
       },
+      "SaveRadioRequest": {
+        "type": "object",
+        "required": [
+          "device_id",
+          "label"
+        ],
+        "properties": {
+          "device_id": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          }
+        }
+      },
+      "SavedRadio": {
+        "type": "object",
+        "required": [
+          "id",
+          "device_id",
+          "label"
+        ],
+        "properties": {
+          "device_id": {
+            "type": "string"
+          },
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "label": {
+            "type": "string"
+          }
+        }
+      },
       "ScanAction": {
         "type": "string",
         "enum": [
@@ -19600,6 +19742,20 @@
                 "type": "string",
                 "enum": [
                   "bookmarks"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "scope"
+            ],
+            "properties": {
+              "scope": {
+                "type": "string",
+                "enum": [
+                  "saved_radios"
                 ]
               }
             }

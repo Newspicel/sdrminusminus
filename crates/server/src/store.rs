@@ -7,9 +7,9 @@ use std::{
 use rusqlite::{Connection, OptionalExtension, params, params_from_iter, types::Value};
 use sdrmm_wire::{
     Bookmark, CreateBookmarkRequest, DecoderLogEntry, DecoderLogQuery, LogScope, PatchGraph,
-    PresetInfo, PresetSnapshot, RecordingInfo, UpdateWorkspaceRequest, WorkspaceDetail,
-    WorkspaceError, WorkspaceExport, WorkspaceHistory, WorkspaceInfo, WorkspaceSnapshot,
-    WorkspaceState, WorkspacesResponse,
+    PresetInfo, PresetSnapshot, RecordingInfo, SaveRadioRequest, SavedRadio,
+    UpdateWorkspaceRequest, WorkspaceDetail, WorkspaceError, WorkspaceExport, WorkspaceHistory,
+    WorkspaceInfo, WorkspaceSnapshot, WorkspaceState, WorkspacesResponse,
 };
 
 use crate::events::Routed;
@@ -20,6 +20,8 @@ pub enum StoreError {
     PresetNotFound(i64),
     #[error("bookmark {0} not found")]
     BookmarkNotFound(i64),
+    #[error("saved radio {0} not found")]
+    SavedRadioNotFound(i64),
     #[error("recording {0} not found")]
     RecordingNotFound(i64),
     #[error("workspace {0} not found")]
@@ -287,6 +289,13 @@ const MIGRATIONS: &[&str] = &[
     ",
     "ALTER TABLE decoder_log ADD COLUMN origin TEXT;",
     "DELETE FROM decoder_log WHERE kind = 'subghz';",
+    "
+    CREATE TABLE saved_radios (
+        id INTEGER PRIMARY KEY,
+        device_id TEXT NOT NULL UNIQUE,
+        label TEXT NOT NULL
+    );
+    ",
 ];
 
 pub const WORKSPACE_HISTORY_DEPTH: i64 = 100;
@@ -436,6 +445,40 @@ impl Store {
             .execute("DELETE FROM bookmarks WHERE id = ?1", params![id])?;
         if deleted == 0 {
             return Err(StoreError::BookmarkNotFound(id));
+        }
+        Ok(())
+    }
+
+    pub fn save_radio(&self, req: &SaveRadioRequest) -> Result<i64, StoreError> {
+        Ok(self.lock().query_row(
+            "INSERT INTO saved_radios (device_id, label) VALUES (?1, ?2) \
+             ON CONFLICT(device_id) DO UPDATE SET label = excluded.label RETURNING id",
+            params![req.device_id, req.label],
+            |row| row.get(0),
+        )?)
+    }
+
+    pub fn list_saved_radios(&self) -> Result<Vec<SavedRadio>, StoreError> {
+        let conn = self.lock();
+        let mut stmt = conn.prepare(
+            "SELECT id, device_id, label FROM saved_radios ORDER BY label COLLATE NOCASE, id",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok(SavedRadio {
+                id: row.get(0)?,
+                device_id: row.get(1)?,
+                label: row.get(2)?,
+            })
+        })?;
+        Ok(rows.collect::<Result<_, _>>()?)
+    }
+
+    pub fn delete_saved_radio(&self, id: i64) -> Result<(), StoreError> {
+        let deleted = self
+            .lock()
+            .execute("DELETE FROM saved_radios WHERE id = ?1", params![id])?;
+        if deleted == 0 {
+            return Err(StoreError::SavedRadioNotFound(id));
         }
         Ok(())
     }

@@ -1092,6 +1092,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/saved-radios": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_saved_radios"];
+        put?: never;
+        post: operations["save_radio"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/saved-radios/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: operations["delete_saved_radio"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/state": {
         parameters: {
             query?: never;
@@ -5115,6 +5147,16 @@ export interface components {
             uplink_hz?: number | null;
             visible?: boolean;
         };
+        SavedRadio: {
+            device_id: string;
+            /** Format: int64 */
+            id: number;
+            label: string;
+        };
+        SaveRadioRequest: {
+            device_id: string;
+            label: string;
+        };
         /** @enum {string} */
         ScanAction: "start" | "stop" | "skip";
         ScanList: {
@@ -5517,6 +5559,9 @@ export interface components {
         } | {
             /** @enum {string} */
             scope: "bookmarks";
+        } | {
+            /** @enum {string} */
+            scope: "saved_radios";
         } | {
             /** @enum {string} */
             scope: "recordings";
@@ -8810,6 +8855,107 @@ export interface operations {
             };
             /** @description The transmitter database could not be reached */
             503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    list_saved_radios: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Saved network radios */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SavedRadio"][];
+                };
+            };
+        };
+    };
+    save_radio: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SaveRadioRequest"];
+            };
+        };
+        responses: {
+            /** @description Radio saved, or its label updated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CreatedRowId"];
+                };
+            };
+            /** @description Blank device id or label */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Malformed request body */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    delete_saved_radio: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Saved radio id */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Saved radio removed */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Invalid path parameter */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Saved radio not found */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

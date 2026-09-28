@@ -154,6 +154,19 @@ pub struct CreateBookmarkRequest {
     pub group: Option<String>,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct SavedRadio {
+    pub id: i64,
+    pub device_id: String,
+    pub label: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct SaveRadioRequest {
+    pub device_id: String,
+    pub label: String,
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct RecordingInfo {
     pub id: i64,
