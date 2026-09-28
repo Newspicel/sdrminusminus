@@ -13,7 +13,9 @@ mod pairing;
 mod pose;
 mod records;
 mod runtime;
-mod ticks;
+#[cfg(test)]
+#[path = "../tests/support/stub_server.rs"]
+mod stub_server;
 mod tls;
 mod vault;
 
@@ -29,6 +31,7 @@ pub use missions::views::{
     RadarView, Ray, RetargetNotice, RetargetReason, RgbaImage, Station, SurveyPoint, SurveyView,
     SweepPhase, SweepView, TargetMode, Trend, WorkspaceRef,
 };
+pub use pose::{PoseEngine, PoseOut, PoseStep};
 pub use records::{
     AlignHint, AlignState, CoreAbout, CoreConfig, DiscoveredServer, HeadingMode, HeadingSample,
     HeadingSourceKind, LatLon, LicenseEntry, LinkState, LocationSample, MagAccuracy, MotionFrame,

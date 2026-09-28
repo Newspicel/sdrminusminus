@@ -181,7 +181,6 @@ impl Vault {
         Ok(listing)
     }
 
-    #[cfg_attr(not(test), expect(dead_code))]
     pub(crate) fn load(&self, server_id: &str) -> Result<ServerRecord, CoreError> {
         match self.read(server_id) {
             Ok(Some(record)) => Ok(record),
@@ -193,7 +192,6 @@ impl Vault {
         }
     }
 
-    #[cfg_attr(not(test), expect(dead_code))]
     pub(crate) fn store(&self, record: &ServerRecord) -> Result<(), CoreError> {
         record
             .validate()

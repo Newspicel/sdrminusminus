@@ -18,7 +18,6 @@ const CLASSIC_STOPS: [[f64; 3]; 15] = [
 
 pub(crate) const LUT_SIZE: usize = 256;
 
-#[cfg_attr(not(test), expect(dead_code))]
 pub(crate) fn sample(t: f64) -> [f64; 3] {
     let x = if t.is_finite() {
         t.clamp(0.0, 1.0)
@@ -33,7 +32,6 @@ pub(crate) fn sample(t: f64) -> [f64; 3] {
     std::array::from_fn(|channel| (high[channel] - low[channel]).mul_add(fraction, low[channel]))
 }
 
-#[cfg_attr(not(test), expect(dead_code))]
 pub(crate) fn lut() -> [[u8; 4]; LUT_SIZE] {
     std::array::from_fn(|index| {
         let [r, g, b] = sample(index as f64 / (LUT_SIZE - 1) as f64).map(to_byte);

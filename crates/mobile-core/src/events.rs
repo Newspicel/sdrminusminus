@@ -31,7 +31,7 @@ pub enum CoreEvent {
 }
 
 pub(crate) const FIFO_CAPACITY: usize = 128;
-pub(crate) const MAX_PENDING_POINTS: usize = 500;
+pub(crate) const MAX_PENDING_POINTS: usize = sdrmm_wire::survey::MAX_SURVEY_CELLS;
 const STATE_GAP: Duration = Duration::from_millis(100);
 const IMAGE_GAP: Duration = Duration::from_millis(200);
 const SLOT_COUNT: usize = 9;
@@ -130,7 +130,6 @@ impl EventQueue {
         self.shared.wake.notify_waiters();
     }
 
-    #[cfg_attr(not(test), expect(dead_code))]
     pub(crate) fn missed(&self, count: u64) {
         {
             let mut queue = self.lock();

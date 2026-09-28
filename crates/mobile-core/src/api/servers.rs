@@ -18,6 +18,16 @@ impl MobileCore {
     }
 
     pub fn forget_server(&self, id: String) -> Result<(), CoreError> {
+        let live = {
+            let mut link = self.inner.link();
+            match link.as_ref() {
+                Some(handle) if handle.server_id() == id => link.take(),
+                _ => None,
+            }
+        };
+        if let Some(live) = live {
+            live.forget();
+        }
         self.inner.vault.delete(&id)
     }
 }

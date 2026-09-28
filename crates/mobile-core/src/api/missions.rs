@@ -1,27 +1,103 @@
-use super::{MobileCore, not_connected};
-use crate::{error::CoreError, missions::views::MissionCommand};
-
-const FEATURE: &str = "Missions";
+use super::MobileCore;
+use crate::{
+    error::CoreError,
+    missions::{
+        listing::{Route, route},
+        reducer::Input,
+        views::MissionCommand,
+    },
+};
 
 #[uniffi::export]
 impl MobileCore {
     pub async fn refresh_missions(&self) -> Result<(), CoreError> {
-        not_connected(())
+        let session = self.inner.session().ok_or(CoreError::NotConnected)?;
+        let hub = self.inner.missions.clone();
+        self.inner
+            .runtime
+            .run(async move {
+                match session.api.missions().await {
+                    Ok(response) => {
+                        hub.send(Input::Listing(Box::new(response)));
+                        Ok(())
+                    }
+                    Err(error) => {
+                        session.check(&error);
+                        Err(error.into_core(&session.host))
+                    }
+                }
+            })
+            .await
     }
 
     pub async fn switch_workspace(&self, id: String) -> Result<(), CoreError> {
-        not_connected(id)
+        let workspace = id.parse::<i64>().map_err(|_| CoreError::Refused {
+            message: "Bad workspace".to_owned(),
+        })?;
+        let session = self.inner.session().ok_or(CoreError::NotConnected)?;
+        let hub = self.inner.missions.clone();
+        self.inner
+            .runtime
+            .run(async move {
+                match session.api.switch_workspace(workspace).await {
+                    Ok(response) => {
+                        hub.send(Input::Listing(Box::new(response)));
+                        Ok(())
+                    }
+                    Err(error) => {
+                        session.check(&error);
+                        Err(error.into_core(&session.host))
+                    }
+                }
+            })
+            .await
     }
 
     pub fn open_mission(&self, id: String) -> Result<(), CoreError> {
-        not_connected(id)
+        if self.inner.session().is_none() {
+            return Err(CoreError::NotConnected);
+        }
+        if self.inner.missions.shared().find(&id).is_none() {
+            return Err(CoreError::NoMission);
+        }
+        self.inner.missions.send(Input::Open(id));
+        Ok(())
     }
 
     pub fn close_mission(&self) {
-        self.inner.not_built(FEATURE, ());
+        self.inner.missions.send(Input::Close);
     }
 
     pub async fn send(&self, command: MissionCommand) -> Result<(), CoreError> {
-        not_connected(command)
+        let shared = self.inner.missions.shared();
+        let entry = shared
+            .open
+            .as_deref()
+            .and_then(|id| shared.find(id))
+            .ok_or(CoreError::NoMission)?;
+        let (node, action) = match route(entry, command)? {
+            Route::TargetMode(mode) => {
+                self.inner.missions.send(Input::TargetMode(mode));
+                return Ok(());
+            }
+            Route::Server { node, action } => (node, action),
+        };
+        let session = self.inner.session().ok_or(CoreError::NotConnected)?;
+        let hub = self.inner.missions.clone();
+        self.inner
+            .runtime
+            .run(async move {
+                match session.api.act(node, action).await {
+                    Ok(response) => {
+                        hub.send(Input::Acted(Box::new(response.mission)));
+                        Ok(())
+                    }
+                    Err(error) => {
+                        session.check(&error);
+                        Err(error.into_core(&session.host))
+                    }
+                }
+            })
+            .await
     }
 }

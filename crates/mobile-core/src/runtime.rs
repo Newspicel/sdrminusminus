@@ -49,7 +49,10 @@ impl CoreRuntime {
         result.await.map_err(|_| CoreError::stopped())?
     }
 
-    #[cfg_attr(not(test), expect(dead_code))]
+    pub(crate) fn handle(&self) -> &Handle {
+        &self.handle
+    }
+
     pub(crate) fn spawn<F>(&self, task: F) -> JoinHandle<F::Output>
     where
         F: Future + Send + 'static,

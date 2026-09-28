@@ -1,31 +1,32 @@
 use super::MobileCore;
-use crate::records::{HeadingSample, LocationSample, MotionSample, PoseSettings};
-
-const FEATURE: &str = "Pose";
+use crate::{
+    pose::PoseInput,
+    records::{HeadingSample, LocationSample, MotionSample, PoseSettings},
+};
 
 #[uniffi::export]
 impl MobileCore {
     pub fn push_location(&self, sample: LocationSample) {
-        self.inner.not_built(FEATURE, sample);
+        self.inner.pose.push(PoseInput::Location(sample));
     }
 
     pub fn push_heading(&self, sample: HeadingSample) {
-        self.inner.not_built(FEATURE, sample);
+        self.inner.pose.push(PoseInput::Heading(sample));
     }
 
     pub fn push_motion(&self, sample: MotionSample) {
-        self.inner.not_built(FEATURE, sample);
+        self.inner.pose.push(PoseInput::Motion(sample));
     }
 
     pub fn set_pose_settings(&self, settings: PoseSettings) {
-        self.inner.not_built(FEATURE, settings);
+        self.inner.pose.push(PoseInput::Settings(settings));
     }
 
     pub fn start_align(&self) {
-        self.inner.not_built(FEATURE, ());
+        self.inner.pose.push(PoseInput::StartAlign);
     }
 
     pub fn cancel_align(&self) {
-        self.inner.not_built(FEATURE, ());
+        self.inner.pose.push(PoseInput::CancelAlign);
     }
 }

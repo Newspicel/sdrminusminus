@@ -1,16 +1,20 @@
 use std::{
     path::Path,
-    sync::{Arc, Mutex, PoisonError},
+    sync::{Arc, Mutex, MutexGuard, PoisonError},
     time::Instant,
 };
 
 use sdrmm_wire::about::API_PROTOCOL;
+use tokio::sync::{mpsc, watch};
 
 use crate::{
     error::CoreError,
     events::{CoreEvent, EventQueue, Pop},
+    link::{Activity, INBOUND_CAPACITY, LinkCmd, LinkHandle, Net, Session, Subscriptions, Wires},
     logging::{self, LogListener},
+    missions::{MissionHub, MissionWires},
     notices,
+    pose::{PoseHub, PoseWires},
     records::{CoreAbout, CoreConfig, LicenseEntry, LinkState, Notice},
     runtime::CoreRuntime,
     vault::{SecretVault, Vault},
@@ -31,12 +35,17 @@ pub struct MobileCore {
 }
 
 pub(crate) struct Inner {
-    #[expect(dead_code)]
     pub(crate) config: CoreConfig,
     pub(crate) runtime: CoreRuntime,
     pub(crate) events: EventQueue,
     pub(crate) vault: Vault,
-    unbuilt: Mutex<Vec<&'static str>>,
+    pub(crate) net: Net,
+    pub(crate) wires: Wires,
+    pub(crate) sessions: watch::Receiver<Option<Arc<Session>>>,
+    pub(crate) activity: watch::Sender<Activity>,
+    pub(crate) pose: PoseHub,
+    pub(crate) missions: MissionHub,
+    pub(crate) link: Mutex<Option<LinkHandle>>,
 }
 
 #[uniffi::export]
@@ -66,14 +75,9 @@ impl MobileCore {
         events.emit(CoreEvent::Link {
             state: LinkState::Offline,
         });
+        let inner = Inner::wire(config, runtime, events, Vault::new(vault));
         Ok(Arc::new(Self {
-            inner: Arc::new(Inner {
-                config,
-                runtime,
-                events,
-                vault: Vault::new(vault),
-                unbuilt: Mutex::default(),
-            }),
+            inner: Arc::new(inner),
         }))
     }
 
@@ -119,33 +123,91 @@ impl MobileCore {
     }
 
     pub fn shutdown(&self) {
+        if let Some(link) = self.inner.link().take() {
+            link.send(LinkCmd::Stop);
+        }
         self.inner.events.close();
         self.inner.runtime.shutdown();
     }
 }
 
 impl Inner {
+    fn wire(config: CoreConfig, runtime: CoreRuntime, events: EventQueue, vault: Vault) -> Self {
+        let (inbound, inbound_rx) = mpsc::channel(INBOUND_CAPACITY);
+        let (sessions, sessions_rx) = watch::channel(None);
+        let (subs, subs_rx) = watch::channel(Subscriptions::new());
+        let (pose_out, pose_rx) = watch::channel(None);
+        let (snapshot, snapshot_rx) = watch::channel(None);
+        let (needed, needed_rx) = watch::channel(false);
+        let (activity, activity_rx) = watch::channel(Activity::default());
+        let net = Net::new(config.platform);
+        let pose = crate::pose::start(
+            &runtime,
+            PoseWires {
+                events: events.clone(),
+                out: pose_out,
+                snapshot,
+                needed: needed_rx,
+                sessions: sessions_rx.clone(),
+                activity: activity.clone(),
+            },
+        );
+        let missions = crate::missions::start(
+            &runtime,
+            MissionWires {
+                events: events.clone(),
+                inbound: inbound_rx,
+                pose: snapshot_rx,
+                subs,
+                needed,
+                activity: activity.clone(),
+            },
+        );
+        let wires = Wires {
+            events: events.clone(),
+            inbound,
+            sessions,
+            subs: subs_rx,
+            pose: pose_rx,
+            activity: activity_rx,
+            net: net.clone(),
+        };
+        Self {
+            config,
+            runtime,
+            events,
+            vault,
+            net,
+            wires,
+            sessions: sessions_rx,
+            activity,
+            pose,
+            missions,
+            link: Mutex::new(None),
+        }
+    }
+
     pub(crate) fn notice(&self, notice: Notice) {
         self.events.emit(CoreEvent::Notice { notice });
     }
 
-    pub(crate) fn not_built(&self, feature: &'static str, _input: impl Sized) {
-        let first = {
-            let mut seen = self.unbuilt.lock().unwrap_or_else(PoisonError::into_inner);
-            let first = !seen.contains(&feature);
-            if first {
-                seen.push(feature);
-            }
-            first
-        };
-        if first {
-            self.notice(Notice::error(format!("{feature} not built yet")));
-        }
+    pub(crate) fn session(&self) -> Option<Arc<Session>> {
+        self.sessions.borrow().clone()
     }
-}
 
-pub(crate) fn not_connected<T>(_input: impl Sized) -> Result<T, CoreError> {
-    Err(CoreError::NotConnected)
+    pub(crate) fn link(&self) -> MutexGuard<'_, Option<LinkHandle>> {
+        self.link.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    pub(crate) fn start_link(&self, record: crate::vault::ServerRecord) -> LinkHandle {
+        crate::link::start(
+            self.runtime.handle(),
+            record,
+            crate::link::socket::TlsDialer::new(self.wires.clone()),
+            self.wires.clone(),
+            Some(self.vault.clone()),
+        )
+    }
 }
 
 #[cfg(test)]
@@ -306,16 +368,30 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn unbuilt_parts_fail_visibly_once() {
+    async fn commands_while_offline_fail_with_not_connected() {
         let (_, core) = core();
         assert!(next(&core).await.is_some());
-        assert_eq!(
+        assert!(matches!(
             core.connect("00".to_owned()).await,
+            Err(CoreError::Internal { .. })
+        ));
+        assert!(matches!(
+            core.parse_pair_link("sdrmm://pair".to_owned()),
+            Err(CoreError::InvalidLink { .. })
+        ));
+        assert_eq!(core.refresh_missions().await, Err(CoreError::NotConnected));
+        assert_eq!(
+            core.switch_workspace("3".to_owned()).await,
             Err(CoreError::NotConnected)
         );
         assert_eq!(
-            core.parse_pair_link("sdrmm://pair".to_owned()),
+            core.open_mission("hunt1".to_owned()),
             Err(CoreError::NotConnected)
+        );
+        assert_eq!(
+            core.send(crate::missions::views::MissionCommand::Calibrate)
+                .await,
+            Err(CoreError::NoMission)
         );
         core.set_pose_settings(crate::records::PoseSettings {
             heading_mode: crate::records::HeadingMode::Auto,
@@ -325,25 +401,24 @@ mod tests {
         });
         core.cancel_align();
         core.close_mission();
-        assert_eq!(
-            next(&core).await,
-            Some(CoreEvent::Notice {
-                notice: Notice::error("Pose not built yet")
-            })
-        );
-        assert_eq!(
-            next(&core).await,
-            Some(CoreEvent::Notice {
-                notice: Notice::error("Missions not built yet")
-            })
-        );
+        core.network_changed();
+        core.set_foreground(false);
+        core.set_local_network_allowed(true);
         core.disconnect();
-        assert_eq!(
-            next(&core).await,
-            Some(CoreEvent::Link {
-                state: LinkState::Offline
-            })
-        );
+        let mut offline = false;
+        while let Some(event) = next(&core).await {
+            if event
+                == (CoreEvent::Link {
+                    state: LinkState::Offline,
+                })
+            {
+                offline = true;
+                break;
+            }
+            assert!(matches!(event, CoreEvent::Pose { .. }), "{event:?}");
+        }
+        assert!(offline);
+        core.shutdown();
     }
 
     #[test]
