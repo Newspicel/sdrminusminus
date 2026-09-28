@@ -42,8 +42,19 @@ export function processorSubtitle(
   if (state !== undefined && isStale(state.receivedAt, now, periodMs)) {
     return STALE;
   }
-  const lanes = status?.lanes.length ?? arrayWiredLanes(graph, array);
+  const lanes = processorLanes(graph, array, status);
   return `${lanes} ${lanes === 1 ? "lane" : "lanes"}`;
+}
+
+export function processorLanes(
+  graph: PatchGraph,
+  array: string | null,
+  status: ArrayStatus | undefined,
+): number {
+  if (array === null) {
+    return 0;
+  }
+  return status?.lanes.length ?? arrayWiredLanes(graph, array);
 }
 
 export interface FaultRow {

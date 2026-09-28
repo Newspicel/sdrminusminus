@@ -6,6 +6,7 @@ import type {
 import type { PropagationCell, PropagationPath } from "../propagation";
 import type { IonosondeStation } from "../types";
 import { unwrapTrail } from "./bounds";
+import { setSourceData } from "./sources";
 
 export const PROPAGATION_SOURCES = {
   cells: "propagation-cells",
@@ -169,9 +170,9 @@ export function updatePropagationSources(
   const cells = cellCollection(overlay.cells);
   const paths = pathCollection(overlay.paths);
   const sondes = sondeCollection(overlay.sondes);
-  void map.getSource<GeoJSONSource>(PROPAGATION_SOURCES.cells)?.setData(cells);
-  void map.getSource<GeoJSONSource>(PROPAGATION_SOURCES.paths)?.setData(paths);
-  void map.getSource<GeoJSONSource>(PROPAGATION_SOURCES.sondes)?.setData(sondes);
+  setSourceData(map.getSource<GeoJSONSource>(PROPAGATION_SOURCES.cells), cells);
+  setSourceData(map.getSource<GeoJSONSource>(PROPAGATION_SOURCES.paths), paths);
+  setSourceData(map.getSource<GeoJSONSource>(PROPAGATION_SOURCES.sondes), sondes);
   return { cells, paths, sondes };
 }
 

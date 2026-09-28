@@ -5,13 +5,7 @@ import { dismissNotice, WORKSPACES_KEY } from "../lib/api";
 import { toastError } from "../lib/toasts";
 import type { WorkspaceNotice } from "../lib/types";
 
-const RETIRED_NAMES: Readonly<Record<string, string>> = {
-  df: "DF",
-  combiner: "Combiner",
-  array: "Array",
-  passive_radar: "Passive radar",
-  stitch: "Stitch",
-};
+const RETIRED_NAMES: Readonly<Record<string, string>> = { df: "DF" };
 
 const SHOWN_KINDS = 4;
 
@@ -28,7 +22,14 @@ export interface NoticeLine {
 }
 
 function kindName(kind: string, catalog: KindNames): string {
-  return catalog.nodes.find((entry) => entry.kind === kind)?.name ?? RETIRED_NAMES[kind] ?? kind;
+  return (
+    catalog.nodes.find((entry) => entry.kind === kind)?.name ?? RETIRED_NAMES[kind] ?? spoken(kind)
+  );
+}
+
+function spoken(kind: string): string {
+  const words = kind.replaceAll("_", " ");
+  return words.charAt(0).toUpperCase() + words.slice(1);
 }
 
 export function noticeLine(notice: WorkspaceNotice, catalog: KindNames): NoticeLine {

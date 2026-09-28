@@ -15,7 +15,6 @@ import {
 import { formatBytes } from "../../components/format";
 import { HuntPanel } from "../../components/HuntPanel";
 import { Icon } from "../../components/Icon";
-import { MapPanel } from "../../components/MapPanel";
 import { Readout, ReadoutRow } from "../../components/Readout";
 import { formatDuration, recordingElapsedS } from "../../components/recordings";
 import { ScannerPanel } from "../../components/ScannerPanel";
@@ -25,10 +24,9 @@ import { callAudioUrl } from "../../lib/api";
 import { monitorKey } from "../../lib/audio/monitor";
 import { useChannelAudio } from "../../lib/audio/useChannelAudio";
 import { SAMPLE_RATE as AUDIO_RATE_HZ } from "../../lib/audio/worklet";
-import { crossingSourcesOf, dfOverlay } from "../../lib/dfOverlay";
-import { useFusionStore } from "../../lib/fusion";
-import { type MapKind, mapKindsOf } from "../../lib/map/layers";
-import { positionSourcesOf, usePositionStore } from "../../lib/position";
+import { overlaySourcesOf } from "../../lib/dfOverlay";
+import { mapKindsOf } from "../../lib/map/layers";
+import { positionSourcesOf } from "../../lib/position";
 import type {
   AudioRecordingStatus,
   PatchNode,
@@ -43,7 +41,8 @@ import { decoderOf, deviceSetOf } from "../workspaceDevice";
 import { AudioSpectrogramView } from "./AudioSpectrogramView";
 import { recordingFor } from "./audioRecorder";
 import { kindsOffered } from "./eventFilter";
-import { FaceBody, FaceEmpty, FaceFooter, NodeShell, useFaceActive } from "./NodeShell";
+import { MapPlot } from "./MapPlot";
+import { FaceBody, FaceEmpty, FaceFooter, NodeShell } from "./NodeShell";
 
 function useInputs(node: string, port: string): Input[] {
   const workspace = useWorkspaceContext();
@@ -212,45 +211,17 @@ function AudioHealth({
 
 export function MapFace({ node }: { node: PatchNode }) {
   const workspace = useWorkspaceContext();
-  const wired = useWiredKinds(node.id);
-  const kinds = mapKindsOf(wired);
-  const positions = positionSourcesOf(workspace.graph, node.id);
-  const crossings = crossingSourcesOf(workspace.graph, node.id);
+  const kinds = mapKindsOf(useWiredKinds(node.id));
   return (
     <NodeShell node={node} title="Map" category="output">
       <FaceBody scroll={false}>
-        <Plot kinds={kinds} positionNodes={positions} crossings={crossings} />
+        <MapPlot
+          kinds={kinds}
+          positionNodes={positionSourcesOf(workspace.graph, node.id)}
+          sources={overlaySourcesOf(workspace.graph, node.id)}
+        />
       </FaceBody>
     </NodeShell>
-  );
-}
-
-function Plot({
-  kinds,
-  positionNodes,
-  crossings,
-}: {
-  kinds: readonly MapKind[];
-  positionNodes: readonly string[];
-  crossings: readonly string[];
-}) {
-  const byNode = useFusionStore((store) => store.byNode);
-  const here = usePositionStore((store) =>
-    positionNodes.length === 0 ? undefined : store.sources[positionNodes[0] ?? ""]?.fix,
-  );
-  const df = dfOverlay(
-    crossings,
-    byNode,
-    here === undefined || here === null ? null : { lat: here.latitude, lon: here.longitude },
-  );
-  return (
-    <MapPanel
-      kinds={kinds}
-      positionNodes={positionNodes}
-      df={df}
-      active={useFaceActive()}
-      className="h-full min-h-0 w-full flex-1"
-    />
   );
 }
 

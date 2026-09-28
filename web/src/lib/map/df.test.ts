@@ -2,22 +2,38 @@ import { describe, expect, it } from "vitest";
 import { greatCircleKm } from "../propagation";
 import type { DfEstimate, NavTarget } from "../types";
 import {
+  advanceFixTrails,
   type BearingRay,
   bistaticCollection,
   bistaticRing,
   destination,
   ellipseCollection,
   estimateCollection,
+  FIX_TRAIL_POINTS,
+  fixEllipseCollection,
   navCollection,
+  navTargetCollection,
+  overlayCounts,
   RAY_LENGTH_M,
+  type RadarFixPoint,
   rayCollection,
+  siteCollection,
   stationCollection,
+  trailCollection,
 } from "./df";
 
 const HOME = { lat: 51.5, lon: 7.0 };
 
 function ray(over: Partial<BearingRay> = {}): BearingRay {
-  return { lat: HOME.lat, lon: HOME.lon, bearingDeg: 45, confidence: 0.9, ageMs: 0, ...over };
+  return {
+    lat: HOME.lat,
+    lon: HOME.lon,
+    bearingDeg: 45,
+    confidence: 0.9,
+    sigmaDeg: 3,
+    ageMs: 0,
+    ...over,
+  };
 }
 
 function estimate(over: Partial<DfEstimate> = {}): DfEstimate {
@@ -147,5 +163,75 @@ describe("bistaticRing", () => {
     expect(bistaticCollection([set]).features).toHaveLength(1);
     expect(bistaticCollection([]).features).toHaveLength(0);
     expect(bistaticCollection([{ ...set, rangesKm: [0] }]).features).toHaveLength(0);
+  });
+});
+
+function fix(key: string, lat: number, lon: number): RadarFixPoint {
+  return { key, id: 1, lat, lon, majorM: 300, minorM: 100, orientationDeg: 30 };
+}
+
+describe("radar marks", () => {
+  it("marks the receiver and transmitter of every radar", () => {
+    const collection = siteCollection([
+      { node: "radar", receiver: { lat: 52, lon: 13 }, transmitter: { lat: 52.1, lon: 13.2 } },
+    ]);
+    expect(collection.features.map((feature) => feature.properties.role)).toEqual(["rx", "tx"]);
+    expect(collection.features[1]?.geometry.coordinates).toEqual([13.2, 52.1]);
+  });
+
+  it("draws a one sigma ellipse around each fix", () => {
+    const ring = fixEllipseCollection([fix("r:1", 52, 13)]).features[0]?.geometry.coordinates[0];
+    expect(ring?.[0]).toEqual(ring?.at(-1));
+    expect(fixEllipseCollection([{ ...fix("r:1", 52, 13), majorM: 0 }]).features).toEqual([]);
+  });
+
+  it("keeps a short trail of fixes and forgets ended tracks", () => {
+    let trails: ReadonlyMap<string, readonly [number, number][]> = new Map();
+    for (let step = 0; step < FIX_TRAIL_POINTS + 4; step++) {
+      trails = advanceFixTrails(trails, [fix("r:1", 52 + step * 0.01, 13)]);
+    }
+    expect(trails.get("r:1")).toHaveLength(FIX_TRAIL_POINTS);
+    const same = advanceFixTrails(trails, [fix("r:1", 52 + (FIX_TRAIL_POINTS + 3) * 0.01, 13)]);
+    expect(same.get("r:1")).toBe(trails.get("r:1"));
+    expect(advanceFixTrails(trails, []).size).toBe(0);
+    expect(trailCollection(trails).features).toHaveLength(1);
+  });
+
+  it("marks the nav target", () => {
+    const nav: NavTarget = {
+      lat: 51.51,
+      lon: 7.02,
+      kind: "estimate",
+      revision: 1,
+      distance_m: 1_500,
+      bearing_deg: 135,
+    };
+    expect(navTargetCollection(nav).features[0]?.geometry.coordinates).toEqual([7.02, 51.51]);
+    expect(navTargetCollection(null).features).toEqual([]);
+  });
+});
+
+describe("overlayCounts", () => {
+  it("counts live rays, echoes and tracks and lists the unplaced", () => {
+    const counts = overlayCounts({
+      rays: [ray({ ageMs: 0 }), ray({ ageMs: 90_000 })],
+      maxAgeMs: 60_000,
+      estimate: null,
+      emitters: [],
+      nav: null,
+      stations: [],
+      bistatic: [{ receiver: HOME, illuminator: HOME, rangesKm: [3, 0, 5] }],
+      sites: [],
+      tracks: [fix("r:1", 52, 13)],
+      unplaced: ["North DF"],
+      from: null,
+    });
+    expect(counts).toEqual({ bearings: 1, echoes: 2, tracks: 1, unplaced: ["North DF"] });
+    expect(overlayCounts(undefined).bearings).toBe(0);
+  });
+
+  it("draws the estimate and every other emitter", () => {
+    const other = estimate({ lat: 51.7, lon: 7.2 });
+    expect(ellipseCollection(estimate(), [estimate(), other]).features).toHaveLength(2);
   });
 });

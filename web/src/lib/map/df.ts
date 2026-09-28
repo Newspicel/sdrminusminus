@@ -1,6 +1,7 @@
 import type { GeoJSONSource, Map as MapLibreMap } from "maplibre-gl";
 import { bearingDeg, greatCircleKm } from "../propagation";
-import type { DfEstimate, DfStation, NavTarget } from "../types";
+import type { DfEstimate, DfStation, LatLon, NavTarget } from "../types";
+import { setSourceData } from "./sources";
 
 export const DF_SOURCES = {
   rays: "df-rays",
@@ -8,32 +9,84 @@ export const DF_SOURCES = {
   ellipse: "df-ellipse",
   stations: "df-stations",
   nav: "df-nav",
+  target: "df-nav-target",
   bistatic: "df-bistatic",
+  sites: "df-sites",
+  fixes: "df-fix-ellipses",
+  trails: "df-fix-trails",
+  tracks: "df-tracks",
 } as const;
 
 export const DF_LAYERS = [
   "df-rays",
   "df-ellipse-fill",
   "df-ellipse-line",
+  "df-bistatic",
+  "df-fix-ellipses",
+  "df-fix-trails",
+  "df-tracks",
+  "df-sites",
   "df-estimate",
   "df-stations",
   "df-nav",
-  "df-bistatic",
+  "df-nav-target",
 ] as const;
 
+export const TRACK_COLOR = "#7fb2e0";
+export const TRANSMITTER_COLOR = "#e0a458";
+export const STATION_COLOR = "#b07de0";
+
 const EARTH_RADIUS_M = 6_371_000;
-/// How far a bearing ray is drawn. Long enough to cross a town, short enough that a wrong bearing
-/// does not sweep the whole map.
 export const RAY_LENGTH_M = 25_000;
 export const ELLIPSE_POINTS = 48;
+export const FIX_TRAIL_POINTS = 16;
 
 export interface BearingRay {
   lat: number;
   lon: number;
   bearingDeg: number;
   confidence: number;
+  sigmaDeg: number;
   ageMs: number;
 }
+
+export interface BistaticEchoes {
+  receiver: LatLon;
+  illuminator: LatLon;
+  rangesKm: readonly number[];
+}
+
+export interface RadarSites {
+  node: string;
+  receiver: LatLon;
+  transmitter: LatLon;
+}
+
+export interface RadarFixPoint {
+  key: string;
+  id: number;
+  lat: number;
+  lon: number;
+  majorM: number;
+  minorM: number;
+  orientationDeg: number;
+}
+
+export interface DfOverlay {
+  rays: readonly BearingRay[];
+  maxAgeMs: number;
+  estimate: DfEstimate | null;
+  emitters: readonly DfEstimate[];
+  nav: NavTarget | null;
+  stations: readonly DfStation[];
+  bistatic: readonly BistaticEchoes[];
+  sites: readonly RadarSites[];
+  tracks: readonly RadarFixPoint[];
+  unplaced: readonly string[];
+  from: LatLon | null;
+}
+
+export type FixTrails = ReadonlyMap<string, readonly [number, number][]>;
 
 interface Collection<G, P> {
   type: "FeatureCollection";
@@ -43,6 +96,18 @@ interface Collection<G, P> {
 type Line = { type: "LineString"; coordinates: [number, number][] };
 type Point = { type: "Point"; coordinates: [number, number] };
 type Polygon = { type: "Polygon"; coordinates: [number, number][][] };
+
+function collection<G, P>(features: Collection<G, P>["features"]): Collection<G, P> {
+  return { type: "FeatureCollection", features };
+}
+
+function point<P>(lat: number, lon: number, properties: P) {
+  return {
+    type: "Feature" as const,
+    geometry: { type: "Point" as const, coordinates: [lon, lat] as [number, number] },
+    properties,
+  };
+}
 
 export function destination(
   lat: number,
@@ -66,104 +131,96 @@ export function destination(
   return [(((lambda2 * 180) / Math.PI + 540) % 360) - 180, (phi2 * 180) / Math.PI];
 }
 
-/// One line per bearing, newest fully opaque and older ones fading out, so a trail of readings
-/// reads as a trail rather than a fan of equals.
 export function rayCollection(
   rays: readonly BearingRay[],
   maxAgeMs: number,
-): Collection<Line, { weight: number }> {
-  const features = rays
-    .filter((ray) => ray.ageMs <= maxAgeMs)
-    .map((ray) => ({
-      type: "Feature" as const,
-      geometry: {
-        type: "LineString" as const,
-        coordinates: [
-          [ray.lon, ray.lat] as [number, number],
-          destination(ray.lat, ray.lon, ray.bearingDeg, RAY_LENGTH_M),
-        ],
-      },
-      properties: {
-        weight: Math.max(0.05, ray.confidence * (1 - ray.ageMs / Math.max(1, maxAgeMs))),
-      },
-    }));
-  return { type: "FeatureCollection", features };
+): Collection<Line, { weight: number; sigma: number }> {
+  return collection(
+    rays
+      .filter((ray) => ray.ageMs <= maxAgeMs)
+      .map((ray) => ({
+        type: "Feature" as const,
+        geometry: {
+          type: "LineString" as const,
+          coordinates: [
+            [ray.lon, ray.lat] as [number, number],
+            destination(ray.lat, ray.lon, ray.bearingDeg, RAY_LENGTH_M),
+          ],
+        },
+        properties: {
+          weight: Math.max(0.05, ray.confidence * (1 - ray.ageMs / Math.max(1, maxAgeMs))),
+          sigma: ray.sigmaDeg,
+        },
+      })),
+  );
 }
 
 export function estimateCollection(
   estimate: DfEstimate | null,
 ): Collection<Point, { converged: boolean }> {
-  return {
-    type: "FeatureCollection",
-    features:
-      estimate === null
-        ? []
-        : [
-            {
-              type: "Feature",
-              geometry: { type: "Point", coordinates: [estimate.lon, estimate.lat] },
-              properties: { converged: estimate.converged },
-            },
-          ],
-  };
+  return collection(
+    estimate === null ? [] : [point(estimate.lat, estimate.lon, { converged: estimate.converged })],
+  );
 }
 
-/// The uncertainty ellipse as a ring on the ground: its long axis points along the bearing the
-/// estimate is least sure about, which is what tells an operator which way to drive.
-export function ellipseCollection(
-  estimate: DfEstimate | null,
-): Collection<Polygon, Record<string, never>> {
-  if (estimate === null) {
-    return { type: "FeatureCollection", features: [] };
-  }
+export function ellipseRing(
+  lat: number,
+  lon: number,
+  semiMajorM: number,
+  semiMinorM: number,
+  bearing: number,
+): [number, number][] {
+  const radians = (bearing * Math.PI) / 180;
   const ring: [number, number][] = [];
   for (let step = 0; step <= ELLIPSE_POINTS; step++) {
     const angle = (step / ELLIPSE_POINTS) * Math.PI * 2;
-    const along = (estimate.ellipse_major_m / 2) * Math.cos(angle);
-    const across = (estimate.ellipse_minor_m / 2) * Math.sin(angle);
-    const bearing = estimate.ellipse_bearing_deg;
-    const east =
-      along * Math.sin((bearing * Math.PI) / 180) + across * Math.cos((bearing * Math.PI) / 180);
-    const north =
-      along * Math.cos((bearing * Math.PI) / 180) - across * Math.sin((bearing * Math.PI) / 180);
-    const distance = Math.hypot(east, north);
-    const direction = (Math.atan2(east, north) * 180) / Math.PI;
-    ring.push(destination(estimate.lat, estimate.lon, direction, distance));
+    const along = semiMajorM * Math.cos(angle);
+    const across = semiMinorM * Math.sin(angle);
+    const east = along * Math.sin(radians) + across * Math.cos(radians);
+    const north = along * Math.cos(radians) - across * Math.sin(radians);
+    ring.push(
+      destination(lat, lon, (Math.atan2(east, north) * 180) / Math.PI, Math.hypot(east, north)),
+    );
   }
-  return {
-    type: "FeatureCollection",
-    features: [
-      {
-        type: "Feature",
-        geometry: { type: "Polygon", coordinates: [ring] },
-        properties: {},
-      },
-    ],
-  };
+  return ring;
+}
+
+function estimateRing(estimate: DfEstimate): [number, number][] {
+  return ellipseRing(
+    estimate.lat,
+    estimate.lon,
+    estimate.ellipse_major_m / 2,
+    estimate.ellipse_minor_m / 2,
+    estimate.ellipse_bearing_deg,
+  );
+}
+
+function sameSpot(a: DfEstimate, b: DfEstimate): boolean {
+  return a.lat === b.lat && a.lon === b.lon;
+}
+
+export function ellipseCollection(
+  estimate: DfEstimate | null,
+  emitters: readonly DfEstimate[] = [],
+): Collection<Polygon, Record<string, never>> {
+  const others = emitters.filter((entry) => estimate === null || !sameSpot(entry, estimate));
+  return collection(
+    [...(estimate === null ? [] : [estimate]), ...others].map((entry) => ({
+      type: "Feature" as const,
+      geometry: { type: "Polygon" as const, coordinates: [estimateRing(entry)] },
+      properties: {},
+    })),
+  );
 }
 
 export function stationCollection(
   stations: readonly DfStation[],
 ): Collection<Point, { label: string }> {
-  return {
-    type: "FeatureCollection",
-    features: stations.map((station) => ({
-      type: "Feature" as const,
-      geometry: { type: "Point" as const, coordinates: [station.lon, station.lat] },
-      properties: { label: station.station_id },
-    })),
-  };
+  return collection(
+    stations.map((station) => point(station.lat, station.lon, { label: station.station_id })),
+  );
 }
 
-export interface BistaticEchoes {
-  receiver: { lat: number; lon: number };
-  illuminator: { lat: number; lon: number };
-  rangesKm: readonly number[];
-}
-
-/// Everything one echo could have bounced off. A passive radar measures how much further the echo
-/// travelled than the direct path, which puts the reflector somewhere on the ellipse with the
-/// transmitter and the receiver at its foci, not on a bearing, and not at a point.
 export function bistaticRing(set: BistaticEchoes, rangeKm: number): [number, number][] | null {
   const rangeM = rangeKm * 1_000;
   if (!(rangeM > 0)) {
@@ -172,28 +229,15 @@ export function bistaticRing(set: BistaticEchoes, rangeKm: number): [number, num
   const from: [number, number] = [set.receiver.lat, set.receiver.lon];
   const to: [number, number] = [set.illuminator.lat, set.illuminator.lon];
   const baselineM = greatCircleKm(from, to) * 1_000;
-  const along = (baselineM + rangeM) / 2;
-  const across = Math.sqrt(rangeM * (rangeM + 2 * baselineM)) / 2;
   const axis = bearingDeg(from, to);
   const [centreLon, centreLat] = destination(from[0], from[1], axis, baselineM / 2);
-  const ring: [number, number][] = [];
-  for (let step = 0; step <= ELLIPSE_POINTS; step++) {
-    const angle = (step / ELLIPSE_POINTS) * Math.PI * 2;
-    const forward = along * Math.cos(angle);
-    const sideways = across * Math.sin(angle);
-    const radians = (axis * Math.PI) / 180;
-    const east = forward * Math.sin(radians) + sideways * Math.cos(radians);
-    const north = forward * Math.cos(radians) - sideways * Math.sin(radians);
-    ring.push(
-      destination(
-        centreLat,
-        centreLon,
-        (Math.atan2(east, north) * 180) / Math.PI,
-        Math.hypot(east, north),
-      ),
-    );
-  }
-  return ring;
+  return ellipseRing(
+    centreLat,
+    centreLon,
+    (baselineM + rangeM) / 2,
+    Math.sqrt(rangeM * (rangeM + 2 * baselineM)) / 2,
+    axis,
+  );
 }
 
 export function bistaticCollection(
@@ -203,57 +247,135 @@ export function bistaticCollection(
   for (const set of sets) {
     for (const rangeKm of set.rangesKm) {
       const ring = bistaticRing(set, rangeKm);
-      if (ring === null) {
-        continue;
+      if (ring !== null) {
+        features.push({
+          type: "Feature" as const,
+          geometry: { type: "LineString" as const, coordinates: ring },
+          properties: { rangeKm },
+        });
       }
-      features.push({
-        type: "Feature" as const,
-        geometry: { type: "LineString" as const, coordinates: ring },
-        properties: { rangeKm },
-      });
     }
   }
-  return { type: "FeatureCollection", features };
+  return collection(features);
 }
 
 export function navCollection(
-  from: { lat: number; lon: number } | null,
+  from: LatLon | null,
   nav: NavTarget | null,
 ): Collection<Line, { kind: string }> {
   if (from === null || nav === null) {
-    return { type: "FeatureCollection", features: [] };
+    return collection([]);
   }
-  return {
-    type: "FeatureCollection",
-    features: [
-      {
-        type: "Feature",
-        geometry: {
-          type: "LineString",
-          coordinates: [
-            [from.lon, from.lat],
-            [nav.lon, nav.lat],
-          ],
-        },
-        properties: { kind: nav.kind },
+  return collection([
+    {
+      type: "Feature",
+      geometry: {
+        type: "LineString",
+        coordinates: [
+          [from.lon, from.lat],
+          [nav.lon, nav.lat],
+        ],
       },
-    ],
-  };
+      properties: { kind: nav.kind },
+    },
+  ]);
 }
 
-export interface DfOverlay {
-  rays: readonly BearingRay[];
-  maxAgeMs: number;
-  estimate: DfEstimate | null;
-  nav: NavTarget | null;
-  stations: readonly DfStation[];
-  bistatic: readonly BistaticEchoes[];
-  from: { lat: number; lon: number } | null;
+export function navTargetCollection(nav: NavTarget | null): Collection<Point, { kind: string }> {
+  return collection(nav === null ? [] : [point(nav.lat, nav.lon, { kind: nav.kind })]);
+}
+
+export function siteCollection(
+  sites: readonly RadarSites[],
+): Collection<Point, { role: "rx" | "tx" }> {
+  return collection(
+    sites.flatMap((site) => [
+      point<{ role: "rx" | "tx" }>(site.receiver.lat, site.receiver.lon, { role: "rx" }),
+      point<{ role: "rx" | "tx" }>(site.transmitter.lat, site.transmitter.lon, { role: "tx" }),
+    ]),
+  );
+}
+
+export function trackCollection(
+  tracks: readonly RadarFixPoint[],
+): Collection<Point, { id: number }> {
+  return collection(tracks.map((track) => point(track.lat, track.lon, { id: track.id })));
+}
+
+export function fixEllipseCollection(
+  tracks: readonly RadarFixPoint[],
+): Collection<Polygon, { id: number }> {
+  return collection(
+    tracks
+      .filter((track) => track.majorM > 0 && track.minorM > 0)
+      .map((track) => ({
+        type: "Feature" as const,
+        geometry: {
+          type: "Polygon" as const,
+          coordinates: [
+            ellipseRing(track.lat, track.lon, track.majorM, track.minorM, track.orientationDeg),
+          ],
+        },
+        properties: { id: track.id },
+      })),
+  );
+}
+
+export function advanceFixTrails(
+  trails: FixTrails,
+  tracks: readonly RadarFixPoint[],
+  limit = FIX_TRAIL_POINTS,
+): Map<string, readonly [number, number][]> {
+  const next = new Map<string, readonly [number, number][]>();
+  for (const track of tracks) {
+    const held = trails.get(track.key) ?? [];
+    const last = held.at(-1);
+    const moved = last === undefined || last[0] !== track.lon || last[1] !== track.lat;
+    next.set(
+      track.key,
+      moved ? [...held, [track.lon, track.lat] as [number, number]].slice(-limit) : held,
+    );
+  }
+  return next;
+}
+
+export function trailCollection(trails: FixTrails): Collection<Line, { key: string }> {
+  return collection(
+    [...trails]
+      .filter(([, points]) => points.length > 1)
+      .map(([key, points]) => ({
+        type: "Feature" as const,
+        geometry: { type: "LineString" as const, coordinates: [...points] },
+        properties: { key },
+      })),
+  );
+}
+
+export interface OverlayCounts {
+  bearings: number;
+  echoes: number;
+  tracks: number;
+  unplaced: readonly string[];
+}
+
+export function overlayCounts(overlay: DfOverlay | undefined): OverlayCounts {
+  if (overlay === undefined) {
+    return { bearings: 0, echoes: 0, tracks: 0, unplaced: [] };
+  }
+  return {
+    bearings: overlay.rays.filter((ray) => ray.ageMs <= overlay.maxAgeMs).length,
+    echoes: overlay.bistatic.reduce(
+      (sum, set) => sum + set.rangesKm.filter((km) => km > 0).length,
+      0,
+    ),
+    tracks: overlay.tracks.length,
+    unplaced: overlay.unplaced,
+  };
 }
 
 const EMPTY = { type: "FeatureCollection", features: [] } as const;
 
-export function installDfLayers(map: MapLibreMap, accent: string, enabled: boolean): void {
+function removeDfLayers(map: MapLibreMap): void {
   for (const id of DF_LAYERS) {
     if (map.getLayer(id) !== undefined) {
       map.removeLayer(id);
@@ -264,12 +386,9 @@ export function installDfLayers(map: MapLibreMap, accent: string, enabled: boole
       map.removeSource(id);
     }
   }
-  if (!enabled) {
-    return;
-  }
-  for (const id of Object.values(DF_SOURCES)) {
-    map.addSource(id, { type: "geojson", data: EMPTY });
-  }
+}
+
+function addBearingLayers(map: MapLibreMap, accent: string): void {
   map.addLayer({
     id: "df-rays",
     type: "line",
@@ -292,27 +411,57 @@ export function installDfLayers(map: MapLibreMap, accent: string, enabled: boole
     source: DF_SOURCES.ellipse,
     paint: { "line-color": accent, "line-width": 1, "line-opacity": 0.6 },
   });
+}
+
+function addRadarLayers(map: MapLibreMap, accent: string): void {
   map.addLayer({
     id: "df-bistatic",
     type: "line",
     source: DF_SOURCES.bistatic,
     paint: {
-      "line-color": "#7fb2e0",
+      "line-color": TRACK_COLOR,
       "line-width": 1,
       "line-opacity": 0.7,
       "line-dasharray": [3, 2],
     },
   });
   map.addLayer({
-    id: "df-nav",
+    id: "df-fix-ellipses",
+    type: "fill",
+    source: DF_SOURCES.fixes,
+    paint: { "fill-color": TRACK_COLOR, "fill-opacity": 0.15 },
+  });
+  map.addLayer({
+    id: "df-fix-trails",
     type: "line",
-    source: DF_SOURCES.nav,
+    source: DF_SOURCES.trails,
+    paint: { "line-color": TRACK_COLOR, "line-width": 1.5, "line-opacity": 0.6 },
+  });
+  map.addLayer({
+    id: "df-tracks",
+    type: "circle",
+    source: DF_SOURCES.tracks,
     paint: {
-      "line-color": "#e0a458",
-      "line-width": 2,
-      "line-dasharray": [2, 2],
+      "circle-radius": 4,
+      "circle-color": TRACK_COLOR,
+      "circle-stroke-color": "#ffffff",
+      "circle-stroke-width": 1,
     },
   });
+  map.addLayer({
+    id: "df-sites",
+    type: "circle",
+    source: DF_SOURCES.sites,
+    paint: {
+      "circle-radius": 5,
+      "circle-color": ["match", ["get", "role"], "tx", TRANSMITTER_COLOR, accent],
+      "circle-stroke-color": "#ffffff",
+      "circle-stroke-width": 1.5,
+    },
+  });
+}
+
+function addFusionLayers(map: MapLibreMap, accent: string): void {
   map.addLayer({
     id: "df-estimate",
     type: "circle",
@@ -330,30 +479,54 @@ export function installDfLayers(map: MapLibreMap, accent: string, enabled: boole
     source: DF_SOURCES.stations,
     paint: {
       "circle-radius": 4,
-      "circle-color": "#b07de0",
+      "circle-color": STATION_COLOR,
       "circle-stroke-color": "#ffffff",
       "circle-stroke-width": 1,
     },
   });
+  map.addLayer({
+    id: "df-nav",
+    type: "line",
+    source: DF_SOURCES.nav,
+    paint: { "line-color": TRANSMITTER_COLOR, "line-width": 2, "line-dasharray": [2, 2] },
+  });
+  map.addLayer({
+    id: "df-nav-target",
+    type: "circle",
+    source: DF_SOURCES.target,
+    paint: {
+      "circle-radius": 5,
+      "circle-opacity": 0,
+      "circle-stroke-color": TRANSMITTER_COLOR,
+      "circle-stroke-width": 2,
+    },
+  });
 }
 
-export function drawDfOverlay(map: MapLibreMap, overlay: DfOverlay): void {
-  void map
-    .getSource<GeoJSONSource>(DF_SOURCES.rays)
-    ?.setData(rayCollection(overlay.rays, overlay.maxAgeMs));
-  void map
-    .getSource<GeoJSONSource>(DF_SOURCES.estimate)
-    ?.setData(estimateCollection(overlay.estimate));
-  void map
-    .getSource<GeoJSONSource>(DF_SOURCES.ellipse)
-    ?.setData(ellipseCollection(overlay.estimate));
-  void map
-    .getSource<GeoJSONSource>(DF_SOURCES.stations)
-    ?.setData(stationCollection(overlay.stations));
-  void map
-    .getSource<GeoJSONSource>(DF_SOURCES.bistatic)
-    ?.setData(bistaticCollection(overlay.bistatic));
-  void map
-    .getSource<GeoJSONSource>(DF_SOURCES.nav)
-    ?.setData(navCollection(overlay.from, overlay.nav));
+export function installDfLayers(map: MapLibreMap, accent: string, enabled: boolean): void {
+  removeDfLayers(map);
+  if (!enabled) {
+    return;
+  }
+  for (const id of Object.values(DF_SOURCES)) {
+    map.addSource(id, { type: "geojson", data: EMPTY });
+  }
+  addBearingLayers(map, accent);
+  addRadarLayers(map, accent);
+  addFusionLayers(map, accent);
+}
+
+export function drawDfOverlay(map: MapLibreMap, overlay: DfOverlay, trails: FixTrails): void {
+  const source = (id: string) => map.getSource<GeoJSONSource>(id);
+  setSourceData(source(DF_SOURCES.rays), rayCollection(overlay.rays, overlay.maxAgeMs));
+  setSourceData(source(DF_SOURCES.estimate), estimateCollection(overlay.estimate));
+  setSourceData(source(DF_SOURCES.ellipse), ellipseCollection(overlay.estimate, overlay.emitters));
+  setSourceData(source(DF_SOURCES.stations), stationCollection(overlay.stations));
+  setSourceData(source(DF_SOURCES.bistatic), bistaticCollection(overlay.bistatic));
+  setSourceData(source(DF_SOURCES.nav), navCollection(overlay.from, overlay.nav));
+  setSourceData(source(DF_SOURCES.target), navTargetCollection(overlay.nav));
+  setSourceData(source(DF_SOURCES.sites), siteCollection(overlay.sites));
+  setSourceData(source(DF_SOURCES.tracks), trackCollection(overlay.tracks));
+  setSourceData(source(DF_SOURCES.fixes), fixEllipseCollection(overlay.tracks));
+  setSourceData(source(DF_SOURCES.trails), trailCollection(trails));
 }

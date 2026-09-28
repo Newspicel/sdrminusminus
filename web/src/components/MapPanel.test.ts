@@ -1,16 +1,23 @@
 import type { GeoJSONSource, Map as MapLibreMap } from "maplibre-gl";
-import { describe, expect, it, vi } from "vitest";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { clientEvents, resetEvents } from "../lib/diagnostics";
 import type { TargetCollection } from "../lib/map/layers";
 import {
   framePositionOnce,
   frameSignalOnce,
   frameTargetsOnce,
   positionCollection,
+  setSourceData,
   signalCollection,
   updatePositionSources,
   updateSignalSource,
 } from "../lib/map/sources";
+import { installTargetLayers } from "../lib/map/targets";
 import type { PositionSample } from "../lib/position";
+import { MapLegend } from "./map/MapLegend";
+import { ZERO_COUNTS } from "./map/mapState";
 
 function sample(latitude: number, longitude: number, receivedAt: number): PositionSample {
   return {
@@ -132,5 +139,77 @@ describe("MapPanel auto framing", () => {
 
     expect(fitBounds).toHaveBeenCalledTimes(1);
     expect(framed.current).toBe(true);
+  });
+});
+
+describe("MapPanel failures", () => {
+  afterEach(() => {
+    resetEvents();
+    vi.unstubAllGlobals();
+  });
+
+  it("reports map data the map refuses", async () => {
+    const source = { setData: vi.fn(() => Promise.reject(new Error("bad geometry"))) };
+    setSourceData(source, { type: "FeatureCollection", features: [] });
+    await vi.waitFor(() =>
+      expect(clientEvents().some((event) => event.message.includes("bad geometry"))).toBe(true),
+    );
+  });
+
+  it("says when heading icons cannot be drawn", () => {
+    vi.stubGlobal("document", {
+      createElement: () => ({ width: 0, height: 0, getContext: () => null }),
+    });
+    const map = {
+      getLayer: () => undefined,
+      getSource: () => undefined,
+      hasImage: () => false,
+      addImage: vi.fn(),
+      addSource: vi.fn(),
+      addLayer: vi.fn(),
+    };
+    expect(installTargetLayers(map as unknown as MapLibreMap, "#000000", ["adsb"])).toBe(false);
+    expect(clientEvents().some((event) => event.message === "heading icons failed")).toBe(true);
+    expect(map.addLayer).toHaveBeenCalledWith(expect.objectContaining({ id: "targets-adsb-dot" }));
+  });
+});
+
+describe("MapLegend", () => {
+  const quiet = { bearings: 0, echoes: 0, tracks: 0, unplaced: [] };
+
+  function legend(overrides: Partial<Parameters<typeof MapLegend>[0]> = {}): string {
+    return renderToStaticMarkup(
+      createElement(MapLegend, {
+        kinds: [],
+        counts: ZERO_COUNTS,
+        positionCount: null,
+        signalCells: null,
+        overlay: quiet,
+        heat: false,
+        headings: true,
+        basemap: "online",
+        ...overrides,
+      }),
+    );
+  }
+
+  it("shows overlay rows only when they hold something", () => {
+    expect(legend()).toBe(
+      '<div class="pointer-events-none absolute top-2 left-2 flex flex-col items-start gap-1"></div>',
+    );
+    const html = legend({
+      overlay: { bearings: 3, echoes: 2, tracks: 1, unplaced: ["North DF", "Radar"] },
+      heat: true,
+    });
+    for (const row of ["Bearings", "Echoes", "Tracks", "Heat", "No position"]) {
+      expect(html).toContain(row);
+    }
+    expect(html).toMatch(/pointer-events-auto" title="North DF, Radar"/);
+  });
+
+  it("badges a blank basemap and missing headings", () => {
+    const html = legend({ basemap: "blank", headings: false });
+    expect(html).toContain("no basemap");
+    expect(html).toContain("no headings");
   });
 });

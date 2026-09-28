@@ -76,13 +76,13 @@ describe("WorkspaceNotices", () => {
         ["a", "df"],
         ["b", "df"],
         ["c", "array"],
-        ["d", "combiner"],
+        ["d", "old_mixer"],
         ["e", "stitch"],
         ["f", "passive_radar"],
       ]),
       CATALOG,
     );
-    expect(line.text).toBe("Removed old nodes: DF, Array, Combiner, Stitch +1");
+    expect(line.text).toBe("Removed old nodes: DF, Array, Old mixer, Stitch +1");
   });
 
   it("prefers the catalog name of a kind", () => {

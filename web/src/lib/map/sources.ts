@@ -1,4 +1,5 @@
 import type { GeoJSONSource, Map as MapLibreMap } from "maplibre-gl";
+import { describeError, recordEvent } from "../diagnostics";
 import type { PositionSample } from "../position";
 import type { SignalSurveySample } from "../signalSurvey";
 import { trailBounds, unwrapTrail } from "./bounds";
@@ -22,6 +23,18 @@ export interface PositionRouteCollection {
     geometry: { type: "LineString"; coordinates: [number, number][] };
     properties: Record<string, never>;
   }[];
+}
+
+export function setSourceData(
+  source: Pick<GeoJSONSource, "setData"> | undefined,
+  data: Parameters<GeoJSONSource["setData"]>[0],
+): void {
+  if (source === undefined) {
+    return;
+  }
+  Promise.resolve(source.setData(data)).catch((error: unknown) =>
+    recordEvent("warn", "map", `map data: ${describeError(error)}`),
+  );
 }
 
 export function positionCollection(
@@ -72,8 +85,8 @@ export function updatePositionSources(
   tracks: readonly { samples: readonly PositionSample[]; active: boolean }[],
 ): { points: PositionCollection; route: PositionRouteCollection } {
   const collection = positionCollection(tracks);
-  void pointsSource?.setData(collection.points);
-  void routeSource?.setData(collection.route);
+  setSourceData(pointsSource, collection.points);
+  setSourceData(routeSource, collection.route);
   return collection;
 }
 
@@ -104,7 +117,7 @@ export function updateSignalSource(
   samples: readonly SignalSurveySample[],
 ): SignalCollection {
   const collection = signalCollection(samples);
-  void source?.setData(collection);
+  setSourceData(source, collection);
   return collection;
 }
 
