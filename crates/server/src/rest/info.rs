@@ -265,7 +265,7 @@ pub(super) async fn run_tool(
 pub(super) async fn get_about(State(state): State<AppState>) -> Json<AboutResponse> {
     Json(AboutResponse {
         reveal: state.shell.is_some(),
-        ..crate::notices::about()
+        ..crate::notices::about(&state.server_id, &state.server_name)
     })
 }
 

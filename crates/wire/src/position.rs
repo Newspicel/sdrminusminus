@@ -20,6 +20,9 @@ const fn default_nmea_update_interval_ms() -> u32 {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum PositionSource {
+    Phone {
+        phone: String,
+    },
     Fixed {
         lat: f64,
         lon: f64,
@@ -521,6 +524,20 @@ mod tests {
                 source
             );
         }
+    }
+
+    #[test]
+    fn phone_source_roundtrips() {
+        let json = serde_json::json!({"type": "phone", "phone": "p0123456789abcdef"});
+        let source = PositionSource::Phone {
+            phone: "p0123456789abcdef".to_owned(),
+        };
+        assert_eq!(
+            serde_json::from_value::<PositionSource>(json.clone()).unwrap(),
+            source
+        );
+        assert_eq!(serde_json::to_value(&source).unwrap(), json);
+        assert!(serde_json::from_str::<PositionSource>(r#"{"type":"phone"}"#).is_err());
     }
 
     #[test]

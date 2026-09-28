@@ -1,6 +1,6 @@
 use std::{collections::BTreeMap, sync::LazyLock};
 
-use sdrmm_wire::{AboutResponse, Attribution, LicenseTextResponse};
+use sdrmm_wire::{AboutResponse, Attribution, LicenseTextResponse, about::API_PROTOCOL};
 use serde::Deserialize;
 
 use crate::packed::{inflate, packed_data};
@@ -23,10 +23,13 @@ static NOTICES: LazyLock<NoticesDocument> = LazyLock::new(|| {
 });
 
 #[must_use]
-pub fn about() -> AboutResponse {
+pub fn about(server_id: &str, server_name: &str) -> AboutResponse {
     AboutResponse {
         name: "SDR--".to_string(),
         version: env!("CARGO_PKG_VERSION").to_string(),
+        protocol: API_PROTOCOL,
+        server_id: server_id.to_owned(),
+        server_name: server_name.to_owned(),
         license: NOTICES.license.clone(),
         license_text: NOTICES.license_text.clone(),
         repository: NOTICES.repository.clone(),
@@ -72,7 +75,7 @@ mod tests {
 
     #[test]
     fn notices_document_parses() {
-        let about = about();
+        let about = about("id", "host");
         assert_eq!(about.license, "AGPL-3.0-or-later");
         assert!(
             about
@@ -89,7 +92,7 @@ mod tests {
 
     #[test]
     fn every_referenced_text_resolves() {
-        for component in &about().components {
+        for component in &about("id", "host").components {
             for id in &component.texts {
                 assert!(
                     license_text(id).is_some(),
@@ -102,7 +105,7 @@ mod tests {
 
     #[test]
     fn every_text_is_referenced() {
-        let about = about();
+        let about = about("id", "host");
         let referenced: BTreeSet<&str> = about
             .components
             .iter()
@@ -122,7 +125,7 @@ mod tests {
 
     #[test]
     fn copyleft_components_are_annotated() {
-        let about = about();
+        let about = about("id", "host");
         for name in ["codec2", "rtl-sdr (librtlsdr)"] {
             let component = about
                 .components

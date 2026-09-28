@@ -113,9 +113,7 @@ pub(crate) struct AppState {
     pub(crate) phones: Arc<phones::Phones>,
     #[expect(dead_code)]
     pub(crate) gate: Arc<phones::gate::PhoneGate>,
-    #[expect(dead_code)]
     pub(crate) server_id: Arc<str>,
-    #[expect(dead_code)]
     pub(crate) server_name: Arc<str>,
     pub(crate) dev_cors: bool,
     pub(crate) data_dir: Option<PathBuf>,

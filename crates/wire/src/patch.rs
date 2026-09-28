@@ -1398,6 +1398,13 @@ impl PatchGraph {
 
 fn validate_gps_source(source: &PositionSource) -> Result<(), PatchError> {
     match source {
+        PositionSource::Phone { phone } => {
+            if crate::phone::valid_phone_id(phone) {
+                Ok(())
+            } else {
+                Err(PatchError::Gps("phone id is not valid".to_owned()))
+            }
+        }
         PositionSource::Fixed { lat, lon, .. } => {
             if (-90.0..=90.0).contains(lat) && (-180.0..=180.0).contains(lon) {
                 Ok(())

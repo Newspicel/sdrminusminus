@@ -301,8 +301,6 @@ impl RecordingAnnotation {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct RecordingsResponse {
     pub recordings: Vec<RecordingInfo>,
-    /// Where the files live on the machine running the server, so the library can say it rather
-    /// than leave the operator hunting for the folder. Absent when nothing is recorded to disk.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dir: Option<String>,
 }
@@ -565,10 +563,9 @@ pub struct CreatedRowId {
     pub id: i64,
 }
 
-/// Which part of the server refused, independent of the wording. A client groups repeats and
-/// titles a bug report by this; the prose in `error` is free to change.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
+#[schema(description = "Which part of the server refused. Stable, unlike the wording in `error`.")]
 pub enum ErrorCode {
     Request,
     NotFound,
@@ -578,6 +575,8 @@ pub enum ErrorCode {
     Storage,
     Tool,
     Internal,
+    Auth,
+    RateLimited,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
@@ -806,6 +805,20 @@ mod tests {
         .expect("a template from before the direction field");
         assert_eq!(parsed.direction, crate::device::Direction::Rx);
         assert!(parsed.supported_devices.is_empty());
+    }
+
+    #[test]
+    fn error_codes_name_auth_and_rate_limits() {
+        for (code, text) in [
+            (ErrorCode::Auth, "auth"),
+            (ErrorCode::RateLimited, "rate_limited"),
+        ] {
+            assert_eq!(serde_json::to_value(code).unwrap(), text);
+            assert_eq!(
+                serde_json::from_value::<ErrorCode>(serde_json::json!(text)).unwrap(),
+                code
+            );
+        }
     }
 }
 

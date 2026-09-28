@@ -290,11 +290,17 @@ async fn about_serves_the_notices_and_their_texts() {
 
 #[tokio::test]
 async fn about_names_this_build() {
-    let (status, body) = request(test_router(), "GET", "/api/about", None).await;
+    let (router, state) = test_router_with_state();
+    let (status, body) = request(router, "GET", "/api/about", None).await;
     assert_eq!(status, StatusCode::OK);
     let about: sdrmm_wire::AboutResponse = serde_json::from_slice(&body).expect("json");
     assert_eq!(about.name, "SDR--");
     assert_eq!(about.version, env!("CARGO_PKG_VERSION"));
+    assert_eq!(about.protocol, sdrmm_wire::about::API_PROTOCOL);
+    assert_eq!(about.server_id, &*state.server_id);
+    assert_eq!(about.server_id.len(), 32);
+    assert_eq!(about.server_name, &*state.server_name);
+    assert!(!about.server_name.is_empty());
 }
 
 #[tokio::test]

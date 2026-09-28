@@ -1715,6 +1715,29 @@ fn gps_source_settings_are_structurally_bounded() {
 }
 
 #[test]
+fn a_phone_source_needs_a_valid_id() {
+    let gps = |phone: &str| PatchGraph {
+        nodes: vec![node(
+            "gps",
+            NodeBody::Gps(GpsNode {
+                source: Some(PositionSource::Phone {
+                    phone: phone.to_owned(),
+                }),
+            }),
+        )],
+        edges: Vec::new(),
+    };
+    assert_eq!(gps("p0123456789abcdef").validate(), Ok(()));
+    for bad in ["x", "", "p0123456789ABCDEF", "p0123456789abcde"] {
+        assert_eq!(
+            gps(bad).validate(),
+            Err(PatchError::Gps("phone id is not valid".to_owned())),
+            "{bad}"
+        );
+    }
+}
+
+#[test]
 fn default_params_come_from_the_type_id() {
     let params = ChannelParams::default_for("ssb").expect("ssb is a channel type");
     assert_eq!(params.type_id(), "ssb");

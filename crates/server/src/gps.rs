@@ -31,6 +31,7 @@ const READ_TIMEOUT: Duration = Duration::from_secs(30);
 const GPSD_MAX_LINE: usize = 16 * 1024;
 const NMEA_MAX_LINE: usize = 512;
 const MAX_ERROR_LEN: usize = 256;
+const PHONE_SOURCES_PENDING: &str = "phone sources are not built yet";
 
 #[derive(Clone, Debug, PartialEq)]
 struct PositionState {
@@ -280,7 +281,7 @@ impl GpsHub {
                         )
                         .await;
                     }
-                    PositionSource::Fixed { .. } => {}
+                    PositionSource::Fixed { .. } | PositionSource::Phone { .. } => {}
                 }
             });
             tasks.insert(
@@ -292,17 +293,26 @@ impl GpsHub {
             );
         }
         drop(tasks);
-        for (node, source) in &wanted {
-            if let PositionSource::Fixed {
-                lat,
-                lon,
-                altitude_m,
-            } = source
-            {
-                self.publish_state(state, node, Some(fixed_fix(*lat, *lon, *altitude_m)), None);
+        self.publish_standing_sources(state, &wanted);
+        self.route_current(state);
+    }
+
+    fn publish_standing_sources(&self, state: &AppState, wanted: &HashMap<String, PositionSource>) {
+        for (node, source) in wanted {
+            match source {
+                PositionSource::Fixed {
+                    lat,
+                    lon,
+                    altitude_m,
+                } => {
+                    self.publish_state(state, node, Some(fixed_fix(*lat, *lon, *altitude_m)), None);
+                }
+                PositionSource::Phone { .. } => {
+                    self.publish_state(state, node, None, Some(PHONE_SOURCES_PENDING.to_owned()));
+                }
+                PositionSource::Gpsd { .. } | PositionSource::Nmea { .. } => {}
             }
         }
-        self.route_current(state);
     }
 
     fn publish_state(
@@ -1089,6 +1099,37 @@ mod tests {
         assert!(
             fix.track_deg.is_none(),
             "a receiver that never moves has no course"
+        );
+    }
+
+    #[test]
+    fn a_phone_source_says_it_is_not_built_yet() {
+        let store = crate::Store::open(None).expect("store");
+        let mut snapshot = WorkspaceSnapshot::empty();
+        snapshot.graph.nodes.push(PatchNode {
+            id: "car".to_owned(),
+            body: NodeBody::Gps(GpsNode {
+                source: Some(PositionSource::Phone {
+                    phone: "p0123456789abcdef".to_owned(),
+                }),
+            }),
+            position: Position { x: 0.0, y: 0.0 },
+            size: None,
+            label: None,
+        });
+        let workspace_id = store.create_workspace("car", &snapshot).expect("workspace");
+        store.activate_workspace(workspace_id).expect("activate");
+        let app = crate::AppState::new(Engine::new(None), Arc::new(store));
+        app.gps.reconcile(&app);
+        assert!(app.gps.fix("car").is_none());
+        let shown = app.gps.snapshot();
+        assert_eq!(
+            shown,
+            [ServerEvent::PositionChanged {
+                node: "car".to_owned(),
+                fix: None,
+                error: Some(PHONE_SOURCES_PENDING.to_owned()),
+            }]
         );
     }
 }
