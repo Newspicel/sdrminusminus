@@ -12,7 +12,7 @@ workspace = true
 
 [features]
 probe = []
-pin = ["dep:rustls-webpki", "dep:sha2"]
+pin = ["dep:rustls-webpki", "dep:rustls-pki-types", "dep:sha2"]
 
 [dependencies]
 jiff.workspace = true
@@ -22,4 +22,5 @@ utoipa.workspace = true
 url.workspace = true
 thiserror.workspace = true
 rustls-webpki = { workspace = true, optional = true, default-features = false, features = ["alloc"] }
+rustls-pki-types = { workspace = true, optional = true }
 sha2 = { workspace = true, optional = true }

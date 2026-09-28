@@ -134,6 +134,7 @@ tokio-postgres = { version = "0.7.18", default-features = false, features = ["ru
 tokio-postgres-rustls = "0.14"
 rustls-platform-verifier = "0.7"
 rustls-webpki = { version = "0.103.15", default-features = false }
+rustls-pki-types = { version = "1.15.1", default-features = false }
 mdns-sd = "0.21.4"
 gethostname = "1.1.0"
 getrandom = "0.4.3"
