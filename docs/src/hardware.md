@@ -24,6 +24,8 @@ The desktop and portable builds include these drivers:
 
 The Nix package uses SoapySDR for all local radios.
 
+Making a radio? Write to [hi@jhaag.me](mailto:hi@jhaag.me) to get it supported and tested.
+
 ## Check the installation
 
 ```sh
@@ -164,6 +166,8 @@ coherent node tune together. There is no direct sampling. SDR-- runs the noise s
 If the array shows up as separate dongles, one of its tuners is missing: check `sdrmm --doctor`
 or `lsusb`.
 
+Tested on hardware provided by [KrakenRF](https://www.krakenrf.com).
+
 ## HackRF
 
 | Control | Does |
@@ -187,6 +191,8 @@ mixer, or both. Bias tee available.
 calibration stored on the radio. A centre below 180 kHz (84 kHz at the narrower rates) tunes to
 that floor, and the band still shows it. Only the widest rates leave a spike at the centre for the
 DC blocker. Images sit about 50 dB down; the vendor's adaptive IQ balance is not used.
+
+Tested on hardware provided by [Airspy](https://airspy.com).
 
 ## AntSDR, PlutoSDR and other AD936x boards
 

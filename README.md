@@ -110,6 +110,13 @@ every check.
 - Swagger UI: `/api/docs` on a running server
 - OpenAPI: `/api/openapi.json` or [openapi.json](openapi.json)
 
+## Thanks
+
+[KrakenRF](https://www.krakenrf.com) and [Airspy](https://airspy.com) provided hardware for
+development and testing.
+
+Making a radio? Write to [hi@jhaag.me](mailto:hi@jhaag.me) to get it supported and tested.
+
 ## License
 
 Copyright (C) 2026 Julian Haag.
