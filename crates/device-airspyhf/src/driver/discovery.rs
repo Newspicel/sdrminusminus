@@ -77,9 +77,11 @@ fn matches_device(info: &nusb::DeviceInfo, select: &Select) -> bool {
     }
 }
 
-/// The descriptor carries the same 16 hex digits the part-id reply spells out.
+const SERIAL_PREFIX: &str = "AIRSPYHF SN:";
+
 pub(crate) fn parse_serial(value: &str) -> Option<u64> {
     let value = value.trim();
+    let value = value.strip_prefix(SERIAL_PREFIX).unwrap_or(value);
     if value.len() != 16 || !value.bytes().all(|byte| byte.is_ascii_hexdigit()) {
         return None;
     }
@@ -97,6 +99,16 @@ mod tests {
         assert_eq!(text, "004400002e19a5b3");
         assert_eq!(parse_serial(&text), Some(serial));
         assert_eq!(parse_serial(&text.to_uppercase()), Some(serial));
+    }
+
+    #[test]
+    fn the_descriptor_serial_carries_a_prefix() {
+        assert_eq!(
+            parse_serial("AIRSPYHF SN:3B52AA80264946DA"),
+            Some(0x3b52_aa80_2649_46da)
+        );
+        assert_eq!(parse_serial("AIRSPYHF SN:1234"), None);
+        assert_eq!(parse_serial("AIRSPY SN:3B52AA80264946DA"), None);
     }
 
     #[test]

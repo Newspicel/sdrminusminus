@@ -14,7 +14,8 @@ The desktop and portable builds include these drivers:
 | RTL-SDR | Nothing |
 | KrakenSDR, KerberosSDR | Nothing |
 | HackRF | Nothing |
-| Airspy R2, Mini, HF+, HF+ Discovery | Nothing; [experimental](#airspy) |
+| Airspy HF+, HF+ Discovery | Nothing |
+| Airspy R2, Mini | Nothing; [experimental](#airspy) |
 | AntSDR, ADALM-Pluto, other AD936x boards | The board serving [iiod](#antsdr-plutosdr-and-other-ad936x-boards) |
 | SDRplay RSP1, RSP1A, RSP1B, RSP2, RSPduo, RSPdx, RSPdx-R2 | [SDRplay API](#sdrplay) 3.15+, or [SDRconnect](#sdrconnect) on another machine |
 | KiwiSDR | Network access to [one](#kiwisdr) |
@@ -175,15 +176,17 @@ or `lsusb`.
 
 ## Airspy
 
-Built in, no vendor library needed. Both drivers are **experimental**: tests pass, but live
-reception is not yet verified. To use SoapySDR instead, build without `airspy` and `airspyhf`.
+Built in, no vendor library needed. The HF+ driver is verified on live reception; the R2 and Mini
+driver is **experimental**. To use SoapySDR instead, build without `airspy` and `airspyhf`.
 
 **R2 and Mini:** LNA, Mixer, and VGA gain use firmware steps, not dB. AGC can run the LNA, the
 mixer, or both. Bias tee available.
 
 **HF+ and HF+ Discovery:** tunes up to 31 MHz and 60 to 260 MHz. Controls are Amp, attenuation in
-6 dB steps down to −48 dB, AGC with a low or high threshold, and bias tee. The vendor's adaptive
-IQ balance is not implemented, so image rejection can be weaker at zero-IF rates.
+6 dB steps down to −48 dB, AGC with a low or high threshold, and PPM, which starts from the
+calibration stored on the radio. A centre below 180 kHz (84 kHz at the narrower rates) tunes to
+that floor, and the band still shows it. Only the widest rates leave a spike at the centre for the
+DC blocker. Images sit about 50 dB down; the vendor's adaptive IQ balance is not used.
 
 ## AntSDR, PlutoSDR and other AD936x boards
 

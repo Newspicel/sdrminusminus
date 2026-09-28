@@ -4,7 +4,7 @@ use sdrmm_wire::{
     GainKind, GainStage, GainValue, Range, StreamScope,
 };
 
-use crate::driver::{ATTENUATION_STEP_DB, Config, MAX_ATTENUATION_STEP};
+use crate::driver::{ATTENUATION_STEP_DB, Config, MAX_ATTENUATION_STEP, MAX_PPM};
 
 pub(crate) const ANTENNA: &str = "RX";
 pub(crate) const AGC_LOW: &str = "low";
@@ -22,7 +22,7 @@ fn agc_mode(value: &str, label: &str) -> ArgumentOption {
     }
 }
 
-pub(crate) fn capabilities(sample_rates: &[u32]) -> Capabilities {
+pub(crate) fn capabilities(sample_rates: &[u32], low_if: bool) -> Capabilities {
     Capabilities {
         freq_ranges: vec![
             Range {
@@ -68,22 +68,31 @@ pub(crate) fn capabilities(sample_rates: &[u32]) -> Capabilities {
             ],
         },
         extra: Vec::new(),
-        ppm: false,
+        ppm: true,
         duplex: Duplex::RxOnly,
         rx_streams: 1,
         tx_streams: 0,
         per_stream: StreamScope::default(),
         directional: None,
-        dc_artifact: DcArtifact::Managed,
+        dc_artifact: dc_artifact(low_if),
         hardware_sweep: false,
         coherence: Coherence::None,
         noise_source: false,
     }
 }
 
+pub(crate) const fn dc_artifact(low_if: bool) -> DcArtifact {
+    if low_if {
+        DcArtifact::None
+    } else {
+        DcArtifact::Managed
+    }
+}
+
 pub(crate) fn settings(config: &Config) -> DeviceSettings {
     DeviceSettings {
-        center_hz: Some(f64::from(config.frequency_hz)),
+        center_hz: Some(config.center_hz()),
+        ppm: Some(config.ppm),
         sample_rate: Some(f64::from(config.sample_rate_hz)),
         antenna: Some(ANTENNA.to_string()),
         bias_tee: None,
@@ -158,6 +167,13 @@ pub(crate) fn validate(
             "this radio has one input, {ANTENNA}, not {antenna}"
         )));
     }
+    if let Some(ppm) = delta.ppm
+        && !(ppm.is_finite() && (-MAX_PPM..=MAX_PPM).contains(&ppm))
+    {
+        return Err(DeviceError::Unsupported(format!(
+            "ppm {ppm} outside ±{MAX_PPM}"
+        )));
+    }
     if delta.bandwidth.is_some() {
         return Err(DeviceError::Unsupported(
             "this radio has no selectable filter".to_string(),
@@ -219,7 +235,7 @@ mod tests {
     use super::*;
 
     fn caps() -> Capabilities {
-        capabilities(&[768_000, 384_000, 256_000])
+        capabilities(&[768_000, 384_000, 256_000], false)
     }
 
     fn tuned(hz: f64) -> DeviceSettings {
@@ -375,6 +391,45 @@ mod tests {
             settings(&Config::default()).agc,
             Some(AgcSetting::in_mode(true, AGC_LOW))
         );
+    }
+
+    #[test]
+    fn only_a_zero_if_rate_leaves_a_centre_spike_to_block() {
+        assert_eq!(
+            capabilities(&[768_000], false).dc_artifact,
+            DcArtifact::Managed
+        );
+        assert_eq!(capabilities(&[384_000], true).dc_artifact, DcArtifact::None);
+    }
+
+    #[test]
+    fn ppm_is_offered_and_bounded() {
+        let caps = caps();
+        assert!(caps.ppm);
+        for (ppm, ok) in [
+            (0.0, true),
+            (-200.0, true),
+            (200.5, false),
+            (f64::NAN, false),
+        ] {
+            let delta = DeviceSettings {
+                ppm: Some(ppm),
+                ..DeviceSettings::default()
+            };
+            assert_eq!(validate(&delta, &caps).is_ok(), ok, "{ppm}");
+        }
+    }
+
+    #[test]
+    fn settings_report_the_centre_the_correction_lands_on() {
+        let reported = settings(&Config {
+            lo_khz: 99_995,
+            ppm: 50.0,
+            ..Config::default()
+        });
+        assert_eq!(reported.ppm, Some(50.0));
+        let centre = reported.center_hz.expect("centre");
+        assert!((centre - 99_999_999.75).abs() < 1e-3, "{centre}");
     }
 
     #[test]

@@ -5,6 +5,7 @@ pub(crate) enum VendorRequest {
     SetFreq = 2,
     GetSampleRates = 3,
     SetSampleRate = 4,
+    ConfigRead = 5,
     GetSerialNoBoardId = 7,
     GetVersionString = 9,
     SetAgc = 10,
@@ -12,6 +13,7 @@ pub(crate) enum VendorRequest {
     SetAtt = 12,
     SetLna = 13,
     GetSampleRateArchitectures = 14,
+    GetFilterGain = 15,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -31,8 +33,10 @@ mod tests {
         assert_eq!(VendorRequest::SetFreq as u8, 2);
         assert_eq!(VendorRequest::GetSampleRates as u8, 3);
         assert_eq!(VendorRequest::SetSampleRate as u8, 4);
+        assert_eq!(VendorRequest::ConfigRead as u8, 5);
         assert_eq!(VendorRequest::GetSerialNoBoardId as u8, 7);
         assert_eq!(VendorRequest::GetVersionString as u8, 9);
         assert_eq!(VendorRequest::SetAtt as u8, 12);
+        assert_eq!(VendorRequest::GetFilterGain as u8, 15);
     }
 }

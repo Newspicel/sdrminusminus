@@ -26,6 +26,7 @@ pub(crate) struct AirspyHf {
     low_if: Vec<bool>,
     version: String,
     serial: Option<u64>,
+    receiving: bool,
 }
 
 impl AirspyHf {
@@ -71,20 +72,26 @@ impl AirspyHf {
             decode_serial(&control.control_in(&VendorControlRequest::part_id_serial_read())?);
         let sample_rates = read_sample_rates(&control)?;
         let low_if = read_architectures(&control, sample_rates.len());
+        let ppm = read_calibration_ppm(&control)?;
         info!(
             firmware = %version,
             serial = ?serial.map(|serial| format!("{serial:016x}")),
             rates = ?sample_rates,
+            ppm,
             "opened airspy hf+ device"
         );
 
         let mut opened = Self {
             control,
-            config: Config::default(),
+            config: Config {
+                ppm,
+                ..Config::default()
+            },
             sample_rates,
             low_if,
             version,
             serial,
+            receiving: false,
         };
         let defaults = Config::default();
         let rate = opened
@@ -93,7 +100,7 @@ impl AirspyHf {
             .copied()
             .ok_or_else(|| Error::protocol("read sample rates", "the radio published none"))?;
         opened.set_sample_rate_hz(rate)?;
-        opened.set_frequency_hz(defaults.frequency_hz)?;
+        opened.set_frequency_hz(defaults.asked_hz)?;
         opened.set_attenuation_step(defaults.attenuation_step)?;
         opened.set_lna(defaults.lna)?;
         opened.set_agc(defaults.agc)?;
@@ -135,12 +142,28 @@ impl AirspyHf {
 
     pub(crate) fn set_frequency_hz(&mut self, frequency_hz: u32) -> Result<()> {
         config::validate_frequency(frequency_hz)?;
-        // The radio tunes in kilohertz, so the frequency it reports back is the one it can
-        // actually reach rather than the one that was asked for.
-        let khz = ((f64::from(frequency_hz) / 1000.0).round() as u32).max(1);
+        self.config.asked_hz = frequency_hz;
+        self.retune()
+    }
+
+    pub(crate) fn set_ppm(&mut self, ppm: f64) -> Result<()> {
+        config::validate_ppm(ppm)?;
+        self.config.ppm = ppm;
+        self.retune()
+    }
+
+    fn retune(&mut self) -> Result<()> {
+        let khz = config::tuned_khz(self.config.asked_hz, self.is_low_if(), self.config.ppm);
+        if khz == self.config.lo_khz {
+            return Ok(());
+        }
+        self.tune_khz(khz)
+    }
+
+    fn tune_khz(&mut self, khz: u32) -> Result<()> {
         self.control
             .control_out(&VendorControlRequest::set_frequency(khz))?;
-        self.config.frequency_hz = khz.saturating_mul(1_000);
+        self.config.lo_khz = khz;
         Ok(())
     }
 
@@ -152,12 +175,27 @@ impl AirspyHf {
             .ok_or_else(|| {
                 Error::invalid_config("sample rate", "this radio does not publish that rate")
             })?;
-        let index = u16::try_from(index)
+        if !self.receiving {
+            return self.select_rate(index, sample_rate_hz);
+        }
+        self.set_mode(ReceiverMode::Off)?;
+        let selected = self.select_rate(index, sample_rate_hz);
+        self.set_mode(ReceiverMode::On)?;
+        selected
+    }
+
+    fn select_rate(&mut self, index: usize, sample_rate_hz: u32) -> Result<()> {
+        let lowest_khz = config::lowest_lo_khz(self.low_if.get(index).copied().unwrap_or(false));
+        if self.config.lo_khz < lowest_khz {
+            self.tune_khz(lowest_khz)?;
+        }
+        let wire_index = u16::try_from(index)
             .map_err(|_| Error::protocol("set sample rate", "rate index beyond the request"))?;
         self.control
-            .control_out(&VendorControlRequest::set_sample_rate_index(index))?;
+            .control_out(&VendorControlRequest::set_sample_rate_index(wire_index))?;
         self.config.sample_rate_hz = sample_rate_hz;
-        Ok(())
+        self.config.filter_gain_db = read_filter_gain(&self.control)?;
+        self.retune()
     }
 
     pub(crate) fn set_attenuation_step(&mut self, step: u8) -> Result<()> {
@@ -201,15 +239,16 @@ impl AirspyHf {
         Ok(stream)
     }
 
-    pub(crate) fn set_mode_off(&self) -> Result<()> {
-        self.control
-            .control_out(&VendorControlRequest::receiver_mode(ReceiverMode::Off))
+    pub(crate) fn set_mode_off(&mut self) -> Result<()> {
+        self.set_mode(ReceiverMode::Off)
     }
 
     fn set_mode(&mut self, mode: ReceiverMode) -> Result<()> {
         debug!(?mode, "airspy hf+ receiver mode");
         self.control
-            .control_out(&VendorControlRequest::receiver_mode(mode))
+            .control_out(&VendorControlRequest::receiver_mode(mode))?;
+        self.receiving = mode == ReceiverMode::On;
+        Ok(())
     }
 }
 
@@ -238,6 +277,28 @@ fn read_sample_rates(control: &Control) -> Result<Vec<u32>> {
         ));
     }
     Ok(rates)
+}
+
+fn read_calibration_ppm(control: &Control) -> Result<f64> {
+    match control.control_in(&VendorControlRequest::config_read()) {
+        Ok(answer) => Ok(config::decode_calibration_ppm(&answer).unwrap_or(0.0)),
+        Err(e) if e.is_disconnected() => Err(e),
+        Err(e) => {
+            debug!("airspy hf+ keeps no calibration: {e}");
+            Ok(0.0)
+        }
+    }
+}
+
+fn read_filter_gain(control: &Control) -> Result<u8> {
+    match control.control_in(&VendorControlRequest::filter_gain()) {
+        Ok(answer) => Ok(answer.first().copied().unwrap_or(0)),
+        Err(e) if e.is_disconnected() => Err(e),
+        Err(e) => {
+            debug!("airspy hf+ publishes no filter gain: {e}");
+            Ok(0)
+        }
+    }
 }
 
 /// A firmware old enough not to answer this simply leaves every rate reported as zero-IF, which

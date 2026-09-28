@@ -13,6 +13,7 @@ use super::{
 const CONTROL_TIMEOUT: Duration = Duration::from_millis(500);
 pub(crate) const VERSION_STRING_SIZE: usize = 255;
 pub(crate) const PART_ID_SERIAL_SIZE: usize = 20;
+const CONFIG_SIZE: usize = 256;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum Direction {
@@ -92,6 +93,14 @@ impl VendorControlRequest {
             count,
             usize::from(count),
         )
+    }
+
+    pub(crate) fn config_read() -> Self {
+        Self::in_request(VendorRequest::ConfigRead, 0, 0, CONFIG_SIZE)
+    }
+
+    pub(crate) fn filter_gain() -> Self {
+        Self::in_request(VendorRequest::GetFilterGain, 0, 0, 1)
     }
 
     pub(crate) fn set_agc(enabled: bool) -> Self {
@@ -205,14 +214,12 @@ pub(crate) fn decode_c_string(bytes: &[u8]) -> String {
     String::from_utf8_lossy(&bytes[..end]).trim().to_string()
 }
 
-/// The reply is a part id followed by four serial words, of which the last two carry the number
-/// the radio is known by.
 pub(crate) fn decode_serial(bytes: &[u8]) -> Option<u64> {
     if bytes.len() < PART_ID_SERIAL_SIZE {
         return None;
     }
-    let high = u32::from_le_bytes(bytes[12..16].try_into().ok()?);
-    let low = u32::from_le_bytes(bytes[16..20].try_into().ok()?);
+    let high = u32::from_le_bytes(bytes[4..8].try_into().ok()?);
+    let low = u32::from_le_bytes(bytes[8..12].try_into().ok()?);
     Some((u64::from(high) << 32) | u64::from(low))
 }
 
@@ -263,14 +270,26 @@ mod tests {
     }
 
     #[test]
-    fn a_serial_takes_the_last_two_words_of_the_part_id_reply() {
-        let mut bytes = Vec::new();
-        bytes.extend_from_slice(&0x0000_6906_u32.to_le_bytes());
-        bytes.extend_from_slice(&0x1111_1111_u32.to_le_bytes());
-        bytes.extend_from_slice(&0x2222_2222_u32.to_le_bytes());
-        bytes.extend_from_slice(&0x3b2d_4b8b_u32.to_le_bytes());
-        bytes.extend_from_slice(&0x675c_62dc_u32.to_le_bytes());
-        assert_eq!(decode_serial(&bytes), Some(0x3b2d_4b8b_675c_62dc));
+    fn the_stored_configuration_is_read_whole() {
+        let request = VendorControlRequest::config_read();
+        assert_eq!(request.request, VendorRequest::ConfigRead);
+        assert_eq!(request.length, 256);
+    }
+
+    #[test]
+    fn the_filter_gain_is_one_byte_for_the_rate_in_use() {
+        let request = VendorControlRequest::filter_gain();
+        assert_eq!(request.length, 1);
+        assert_eq!(request.index, 0);
+    }
+
+    #[test]
+    fn a_serial_takes_the_first_two_words_of_the_part_id_reply() {
+        let bytes = [
+            0x02, 0x00, 0x00, 0x00, 0x80, 0xaa, 0x52, 0x3b, 0xda, 0x46, 0x49, 0x26, 0x20, 0x33,
+            0x30, 0x31, 0x33, 0x30, 0x31, 0x31,
+        ];
+        assert_eq!(decode_serial(&bytes), Some(0x3b52_aa80_2649_46da));
         assert_eq!(decode_serial(&bytes[..16]), None);
     }
 
