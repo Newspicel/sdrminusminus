@@ -61,6 +61,7 @@ pub mod symbols;
 mod time_machine;
 pub mod trunking;
 pub mod video;
+pub use array::{ArrayEvent, ArraySpec, LaneRef, ProcessorAction, ProcessorSpec};
 pub use audio::{AudioPacket, PcmBlock, PcmPayload};
 pub use doppler::Doppler;
 pub use image::ImageCapture;
@@ -255,6 +256,8 @@ pub enum EngineError {
     Occupancy(String),
     #[error("{0}")]
     Processor(String),
+    #[error("{0}")]
+    Array(sdrmm_wire::ArrayFailure),
 }
 
 impl EngineError {
