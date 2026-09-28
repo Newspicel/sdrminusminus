@@ -11,6 +11,7 @@ use sha2::{Digest, Sha256};
 
 pub const NOTICES_JSON: &str = "crates/server/data/notices.json";
 pub const NOTICES_MARKDOWN: &str = "THIRD_PARTY_NOTICES.md";
+pub const MOBILE_NOTICES_JSON: &str = "crates/mobile-core/data/notices.json";
 
 const NOT_DISTRIBUTED: &[&str] = &["xtask"];
 
@@ -254,7 +255,56 @@ pub fn run(root: &Path, pnpm: &str) -> Result<()> {
         document.components.len(),
         document.texts.len()
     );
+    write(&root.join(MOBILE_NOTICES_JSON), &mobile_notices(root)?)?;
     Ok(())
+}
+
+pub(crate) fn mobile_notices(root: &Path) -> Result<String> {
+    let shipped = crate::mobile::phone_packages(root)?;
+    let metadata = cargo_metadata(root)?;
+    let members: HashSet<&str> = metadata
+        .workspace_members
+        .iter()
+        .map(String::as_str)
+        .collect();
+    let mut pool = TextPool::default();
+    let mut components = Vec::new();
+    for package in &metadata.packages {
+        if members.contains(package.id.as_str())
+            || !shipped.contains(&(package.name.clone(), package.version.clone()))
+        {
+            continue;
+        }
+        components.push(rust_attribution(package, &mut pool)?);
+    }
+    ensure!(
+        !components.is_empty(),
+        "the phone build has no dependencies at all: the generator is broken"
+    );
+    components.sort_by(|a, b| {
+        a.name
+            .to_lowercase()
+            .cmp(&b.name.to_lowercase())
+            .then_with(|| a.version.cmp(&b.version))
+    });
+    let document = NoticesDocument {
+        components,
+        texts: pool.texts,
+        ..own_license(root)?
+    };
+    let json = serde_json::to_string_pretty(&document).context("serialize mobile notices")?;
+    Ok(format!("{json}\n"))
+}
+
+fn own_license(root: &Path) -> Result<NoticesDocument> {
+    let license_text = std::fs::read_to_string(root.join("LICENSE")).context("read LICENSE")?;
+    Ok(NoticesDocument {
+        license: "AGPL-3.0-or-later".to_string(),
+        license_text: normalize(&license_text),
+        repository: "https://github.com/newspicel/sdrminusminus".to_string(),
+        components: Vec::new(),
+        texts: BTreeMap::new(),
+    })
 }
 
 fn write(path: &Path, contents: &str) -> Result<()> {
@@ -291,13 +341,10 @@ fn harvest(root: &Path, pnpm: &str) -> Result<NoticesDocument> {
         }
     }
 
-    let license_text = std::fs::read_to_string(root.join("LICENSE")).context("read LICENSE")?;
     Ok(NoticesDocument {
-        license: "AGPL-3.0-or-later".to_string(),
-        license_text: normalize(&license_text),
-        repository: "https://github.com/newspicel/sdrminusminus".to_string(),
         components,
         texts: pool.texts,
+        ..own_license(root)?
     })
 }
 
@@ -405,7 +452,7 @@ struct MetaDepKind {
     kind: Option<String>,
 }
 
-fn rust_components(root: &Path, pool: &mut TextPool) -> Result<Vec<Attribution>> {
+fn cargo_metadata(root: &Path) -> Result<Metadata> {
     let output = Command::new("cargo")
         .args(["metadata", "--format-version", "1", "--all-features"])
         .current_dir(root)
@@ -418,8 +465,11 @@ fn rust_components(root: &Path, pool: &mut TextPool) -> Result<Vec<Attribution>>
             String::from_utf8_lossy(&output.stderr).trim()
         );
     }
-    let metadata: Metadata =
-        serde_json::from_slice(&output.stdout).context("parse `cargo metadata` output")?;
+    serde_json::from_slice(&output.stdout).context("parse `cargo metadata` output")
+}
+
+fn rust_components(root: &Path, pool: &mut TextPool) -> Result<Vec<Attribution>> {
+    let metadata = cargo_metadata(root)?;
 
     let packages: HashMap<&str, &MetaPackage> = metadata
         .packages
@@ -475,24 +525,28 @@ fn rust_components(root: &Path, pool: &mut TextPool) -> Result<Vec<Attribution>>
         let Some(package) = packages.get(id) else {
             continue;
         };
-        let dir = package
-            .manifest_path
-            .parent()
-            .with_context(|| format!("{} has no manifest directory", package.name))?;
-        components.push(Attribution {
-            name: package.name.clone(),
-            version: Some(package.version.clone()),
-            license: package
-                .license
-                .clone()
-                .unwrap_or_else(|| "See the crate's own license file".to_string()),
-            source: ComponentSource::Rust,
-            url: package.repository.clone(),
-            texts: license_files(dir, pool)?,
-            note: None,
-        });
+        components.push(rust_attribution(package, pool)?);
     }
     Ok(components)
+}
+
+fn rust_attribution(package: &MetaPackage, pool: &mut TextPool) -> Result<Attribution> {
+    let dir = package
+        .manifest_path
+        .parent()
+        .with_context(|| format!("{} has no manifest directory", package.name))?;
+    Ok(Attribution {
+        name: package.name.clone(),
+        version: Some(package.version.clone()),
+        license: package
+            .license
+            .clone()
+            .unwrap_or_else(|| "See the crate's own license file".to_string()),
+        source: ComponentSource::Rust,
+        url: package.repository.clone(),
+        texts: license_files(dir, pool)?,
+        note: None,
+    })
 }
 
 #[derive(Debug, Deserialize)]

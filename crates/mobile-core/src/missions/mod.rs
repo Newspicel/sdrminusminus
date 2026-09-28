@@ -5,4 +5,4 @@ mod heat;
 mod hunt;
 mod radar;
 mod survey;
-mod views;
+pub(crate) mod views;
