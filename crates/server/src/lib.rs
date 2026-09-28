@@ -26,6 +26,7 @@ mod audio_fx;
 mod auth;
 mod bandplan;
 mod basemap;
+mod calibration;
 mod calls;
 pub(crate) mod coherent;
 pub(crate) mod cps;

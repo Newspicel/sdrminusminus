@@ -91,6 +91,12 @@ lowest rate that works and watch the drop counter.
 The bookmark button next to **Add** saves an address. Saved radios are listed above the form on
 every empty Device node; click one to connect.
 
+## Calibration
+
+PPM and the converter offset belong to the radio, not the node: set them once and every Device
+node that opens that radio uses them. A USB radio is known by its serial, a network radio by its
+address.
+
 ## Other sources
 
 | Node | Gives |

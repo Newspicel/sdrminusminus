@@ -68,7 +68,7 @@ use scanning::*;
 use workspaces::*;
 
 use crate::{
-    AppState,
+    AppState, calibration,
     store::{RecordingRow, SteppedWorkspace, Store, StoreError},
     workspace,
 };

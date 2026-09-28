@@ -255,6 +255,49 @@ fn saving_a_radio_twice_relabels_it() {
     assert_eq!(store.list_saved_radios().expect("list").len(), 1);
 }
 
+#[test]
+fn a_radio_calibration_is_kept_per_radio() {
+    let store = Store::open(None).expect("open");
+    assert_eq!(
+        store.radio_calibration("rtlsdr:1").expect("read"),
+        DeviceSettings::default()
+    );
+    let calibration = DeviceSettings {
+        ppm: Some(-3.0),
+        offset_hz: Some(-125e6),
+        ..DeviceSettings::default()
+    };
+    store
+        .put_radio_calibration("rtlsdr:1", &calibration)
+        .expect("put");
+    store
+        .put_radio_calibration(
+            "rtlsdr:2",
+            &DeviceSettings {
+                ppm: Some(7.0),
+                ..DeviceSettings::default()
+            },
+        )
+        .expect("put");
+    assert_eq!(
+        store.radio_calibration("rtlsdr:1").expect("read"),
+        calibration
+    );
+    store
+        .put_radio_calibration(
+            "rtlsdr:1",
+            &DeviceSettings {
+                ppm: Some(2.0),
+                ..DeviceSettings::default()
+            },
+        )
+        .expect("put");
+    assert_eq!(
+        store.radio_calibration("rtlsdr:1").expect("read").offset_hz,
+        None
+    );
+}
+
 fn recording_row(stem: &str, samples: u64) -> RecordingRow {
     RecordingRow {
         stem: stem.to_string(),
@@ -2168,8 +2211,14 @@ fn a_stored_retired_decoder_event_leaves_the_log() {
             [],
         )
         .expect("an old row");
-        conn.pragma_update(None, "user_version", MIGRATIONS.len() as i64 - 1)
+        let retiring = MIGRATIONS
+            .iter()
+            .position(|migration| migration.contains("kind = 'subghz'"))
+            .expect("the retiring migration");
+        conn.pragma_update(None, "user_version", retiring as i64)
             .expect("rewind");
+        conn.execute_batch("DROP TABLE saved_radios; DROP TABLE radio_calibrations;")
+            .expect("drop the later tables");
     }
 
     let store = Store::open(Some(file.path())).expect("reopen");

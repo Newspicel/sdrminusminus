@@ -95,7 +95,11 @@ pub(super) async fn patch_device(
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         let edit = workspace::begin_edit(&state, ds, None);
+        let calibrates = settings.ppm.is_some() || settings.offset_hz.is_some();
         state.engine.patch_device(ds, settings)?;
+        if calibrates {
+            calibration::remember_live(&state.engine, &state.store, ds);
+        }
         if let Some(edit) = edit {
             workspace::finish_edit(&state, edit);
         }

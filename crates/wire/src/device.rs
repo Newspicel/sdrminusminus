@@ -92,6 +92,13 @@ impl DeviceInfo {
             ..self.clone()
         }
     }
+
+    #[must_use]
+    pub fn radio(&self) -> String {
+        self.serial
+            .as_ref()
+            .map_or_else(|| self.id(), |serial| format!("{}:{serial}", self.driver))
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize, ToSchema)]
@@ -1174,6 +1181,22 @@ impl DeviceSettings {
     }
 
     #[must_use]
+    pub fn calibration(&self) -> DeviceSettings {
+        DeviceSettings {
+            ppm: self.ppm,
+            offset_hz: self.offset_hz,
+            ..DeviceSettings::default()
+        }
+    }
+
+    #[must_use]
+    pub fn calibrated(mut self, calibration: &DeviceSettings) -> DeviceSettings {
+        self.ppm = calibration.ppm.or(self.ppm);
+        self.offset_hz = calibration.offset_hz.or(self.offset_hz);
+        self
+    }
+
+    #[must_use]
     pub fn bandwidth_hz(&self) -> Option<f64> {
         self.bandwidth.and_then(BandwidthSetting::hz)
     }
@@ -1505,6 +1528,52 @@ mod tests {
         assert!(stored.profile.is_none());
         assert_eq!(stored.id(), probed.id());
         assert_eq!(stored.label, probed.label);
+    }
+
+    #[test]
+    fn a_radio_is_its_serial_or_else_its_address() {
+        let radio = |driver: &str, key: &str, serial: Option<&str>| DeviceInfo {
+            driver: driver.to_string(),
+            key: key.to_string(),
+            label: String::new(),
+            serial: serial.map(str::to_string),
+            profile: None,
+        };
+        assert_eq!(
+            radio("rtlsdr", "0@rx", Some("00000001")).radio(),
+            "rtlsdr:00000001"
+        );
+        assert_eq!(
+            radio("rtltcp", "10.0.0.5:1234", None).radio(),
+            "rtltcp:10.0.0.5:1234"
+        );
+    }
+
+    #[test]
+    fn a_calibration_overrides_only_what_it_holds() {
+        let node = DeviceSettings {
+            center_hz: Some(100e6),
+            ppm: Some(1.0),
+            offset_hz: Some(-125e6),
+            ..DeviceSettings::default()
+        };
+        let calibration = DeviceSettings {
+            ppm: Some(42.0),
+            ..DeviceSettings::default()
+        };
+        let calibrated = node.clone().calibrated(&calibration);
+        assert_eq!(calibrated.ppm, Some(42.0));
+        assert_eq!(calibrated.offset_hz, Some(-125e6));
+        assert_eq!(calibrated.center_hz, Some(100e6));
+        assert_eq!(
+            calibrated.calibration(),
+            DeviceSettings {
+                ppm: Some(42.0),
+                offset_hz: Some(-125e6),
+                ..DeviceSettings::default()
+            }
+        );
+        assert_eq!(node.clone().calibrated(&DeviceSettings::default()), node);
     }
 
     fn gain(stage: &str, value_db: f64) -> GainValue {

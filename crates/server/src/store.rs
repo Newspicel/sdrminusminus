@@ -6,8 +6,8 @@ use std::{
 
 use rusqlite::{Connection, OptionalExtension, params, params_from_iter, types::Value};
 use sdrmm_wire::{
-    Bookmark, CreateBookmarkRequest, DecoderLogEntry, DecoderLogQuery, LogScope, PatchGraph,
-    PresetInfo, PresetSnapshot, RecordingInfo, SaveRadioRequest, SavedRadio,
+    Bookmark, CreateBookmarkRequest, DecoderLogEntry, DecoderLogQuery, DeviceSettings, LogScope,
+    PatchGraph, PresetInfo, PresetSnapshot, RecordingInfo, SaveRadioRequest, SavedRadio,
     UpdateWorkspaceRequest, WorkspaceDetail, WorkspaceError, WorkspaceExport, WorkspaceHistory,
     WorkspaceInfo, WorkspaceSnapshot, WorkspaceState, WorkspacesResponse,
 };
@@ -296,6 +296,13 @@ const MIGRATIONS: &[&str] = &[
         label TEXT NOT NULL
     );
     ",
+    "
+    CREATE TABLE radio_calibrations (
+        radio TEXT PRIMARY KEY,
+        ppm REAL,
+        offset_hz REAL
+    ) WITHOUT ROWID;
+    ",
 ];
 
 pub const WORKSPACE_HISTORY_DEPTH: i64 = 100;
@@ -480,6 +487,37 @@ impl Store {
         if deleted == 0 {
             return Err(StoreError::SavedRadioNotFound(id));
         }
+        Ok(())
+    }
+
+    pub fn radio_calibration(&self, radio: &str) -> Result<DeviceSettings, StoreError> {
+        Ok(self
+            .lock()
+            .query_row(
+                "SELECT ppm, offset_hz FROM radio_calibrations WHERE radio = ?1",
+                params![radio],
+                |row| {
+                    Ok(DeviceSettings {
+                        ppm: row.get(0)?,
+                        offset_hz: row.get(1)?,
+                        ..DeviceSettings::default()
+                    })
+                },
+            )
+            .optional()?
+            .unwrap_or_default())
+    }
+
+    pub fn put_radio_calibration(
+        &self,
+        radio: &str,
+        calibration: &DeviceSettings,
+    ) -> Result<(), StoreError> {
+        self.lock().execute(
+            "INSERT INTO radio_calibrations (radio, ppm, offset_hz) VALUES (?1, ?2, ?3) \
+             ON CONFLICT(radio) DO UPDATE SET ppm = excluded.ppm, offset_hz = excluded.offset_hz",
+            params![radio, calibration.ppm, calibration.offset_hz],
+        )?;
         Ok(())
     }
 

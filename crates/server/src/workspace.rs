@@ -2,13 +2,13 @@ use std::{collections::HashSet, time::Duration};
 
 use sdrmm_engine::Engine;
 use sdrmm_wire::{
-    ChannelInfo, ChannelSettings, DeviceSet, NodeBody, PatchGraph, ServerEvent, StateScope,
-    StateSnapshot, WorkspaceChannel, WorkspaceDevice, WorkspaceState,
+    ChannelInfo, ChannelSettings, DeviceSet, DeviceSettings, NodeBody, PatchGraph, ServerEvent,
+    StateScope, StateSnapshot, WorkspaceChannel, WorkspaceDevice, WorkspaceState,
 };
 use tokio::{sync::broadcast::error::RecvError, time::Instant};
 
 use crate::{
-    AppState,
+    AppState, calibration,
     store::{SettingsStep, Store, StoreError},
 };
 
@@ -372,7 +372,19 @@ pub(crate) fn finish_edit(state: &AppState, edit: SettingsEdit) {
 pub(crate) fn restore_settings(state: &AppState, graph: &PatchGraph, saved: &WorkspaceState) {
     let engine = &state.engine;
     for binding in bind(graph, &engine.snapshot()) {
-        if let Err(err) = restore_device(engine, binding.device_set, &binding.node, saved) {
+        if let Some(device) = saved.device(&binding.node) {
+            let calibration = device.settings.calibration();
+            if calibration != DeviceSettings::default() {
+                calibration::remember(engine, &state.store, binding.device_set, &calibration);
+            }
+        }
+        if let Err(err) = restore_device(
+            engine,
+            &state.store,
+            binding.device_set,
+            &binding.node,
+            saved,
+        ) {
             tracing::warn!(err, node = binding.node, "could not step a radio back");
         }
         for (node, channel) in binding.channels {
@@ -538,7 +550,7 @@ pub(crate) fn reconcile(
                 }
             }
         }
-        match restore_device(engine, set.id, &binding.node, saved) {
+        match restore_device(engine, &state.store, set.id, &binding.node, saved) {
             Ok(Restored::Whole) => {}
             Ok(Restored::Partial) => report.unrestored.push(binding.node.clone()),
             Err(err) => {
@@ -576,18 +588,24 @@ pub(crate) enum Restored {
 
 pub(crate) fn restore_device(
     engine: &sdrmm_engine::Engine,
+    store: &Store,
     device_set: u32,
     node: &str,
     saved: &WorkspaceState,
 ) -> Result<Restored, String> {
-    let Some(device) = saved.device(node) else {
+    let remembered = saved
+        .device(node)
+        .map(|device| device.settings.clone())
+        .unwrap_or_default()
+        .calibrated(&calibration::of(engine, store, device_set));
+    if remembered == DeviceSettings::default() {
         return Ok(Restored::Whole);
-    };
+    }
     let capabilities = engine
         .capabilities(device_set)
         .ok_or_else(|| format!("device set {device_set} is not open"))?;
-    let taken = device.settings.supported_by(&capabilities);
-    let whole = taken == device.settings;
+    let taken = remembered.supported_by(&capabilities);
+    let whole = taken == remembered;
     engine
         .patch_device(device_set, taken)
         .map_err(|err| err.to_string())?;

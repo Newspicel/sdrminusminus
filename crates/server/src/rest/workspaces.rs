@@ -183,7 +183,7 @@ pub(super) fn bring_up(
     for (node, device_set) in workspace::bind_devices(&snapshot.graph, &state) {
         if first_binding(app, workspace, &node, device_set) {
             fresh.insert(node.clone());
-            match workspace::restore_device(engine, device_set, &node, saved) {
+            match workspace::restore_device(engine, &app.store, device_set, &node, saved) {
                 Ok(whole) => note_restore(app, &node, whole == Restored::Whole),
                 Err(reason) => {
                     note_restore(app, &node, false);
@@ -233,7 +233,7 @@ pub(super) fn bring_up(
                     if first_binding(app, workspace, &node.id, id) {
                         fresh.insert(node.id.clone());
                     }
-                    match workspace::restore_device(engine, id, &node.id, saved) {
+                    match workspace::restore_device(engine, &app.store, id, &node.id, saved) {
                         Ok(whole) => note_restore(app, &node.id, whole == Restored::Whole),
                         Err(reason) => {
                             note_restore(app, &node.id, false);
@@ -359,7 +359,7 @@ fn open_arrays(
                 if first_binding(app, workspace, &node.id, id) {
                     fresh.insert(node.id.clone());
                 }
-                match workspace::restore_device(engine, id, &node.id, saved) {
+                match workspace::restore_device(engine, &app.store, id, &node.id, saved) {
                     Ok(whole) => note_restore(app, &node.id, whole == Restored::Whole),
                     Err(reason) => report.refused.push(PatchRefusal {
                         node: node.id.clone(),

@@ -133,7 +133,9 @@ pub(super) async fn apply_preset(
             apply_configuration(
                 &engine,
                 device_set,
-                device.settings,
+                device
+                    .settings
+                    .calibrated(&calibration::of(&engine, &store, device_set)),
                 device.channels,
                 "preset",
             )

@@ -149,7 +149,7 @@ export function RadioSettings({
       )}
 
       {caps.ppm && (
-        <SettingRow label="PPM" title="Frequency correction in parts per million">
+        <SettingRow label="PPM" title="Frequency correction in parts per million, kept for this radio">
           <NumberField
             className={WIDE}
             label="Frequency correction"
@@ -164,7 +164,7 @@ export function RadioSettings({
       {isTunable(tuningRange(caps)) && (
         <SettingRow
           label="Converter"
-          title="Local oscillator of a converter in front of the radio: positive for a downconverter, negative for an upconverter. Frequencies shown are what the antenna sees"
+          title="Local oscillator of a converter in front of the radio: positive for a downconverter, negative for an upconverter. Frequencies shown are what the antenna sees. Kept for this radio"
         >
           <NumberField
             className={WIDE}

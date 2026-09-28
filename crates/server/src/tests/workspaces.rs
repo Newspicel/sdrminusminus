@@ -1510,3 +1510,43 @@ async fn a_second_stream_on_the_same_radio_can_carry_a_decoder() {
     assert_eq!(carrier_of(&snapshot, "voice").unwrap().1.stream, 1);
     assert_eq!(apply(&app, workspace).await.created, 0);
 }
+
+#[tokio::test]
+async fn a_converter_offset_follows_the_radio_into_another_workspace() {
+    let (app, state) = test_router_with_state();
+    let first = store_siggen_workspace(&app).await;
+    apply(&app, first).await;
+    let ds = get_state(&app).await.device_sets[0].id;
+    let (status, _) = request(
+        app.clone(),
+        "PATCH",
+        &format!("/api/devicesets/{ds}/device"),
+        Some(r#"{"offset_hz":1000000.0}"#),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    assert_eq!(
+        state
+            .store
+            .radio_calibration("virtual:siggen")
+            .expect("calibration")
+            .offset_hz,
+        Some(1_000_000.0)
+    );
+
+    let second = store_second_workspace(&app, "Marine", "am").await;
+    activate(&app, second).await;
+    let (status, _) = request(
+        app.clone(),
+        "DELETE",
+        &format!("/api/devicesets/{ds}"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    apply(&app, second).await;
+
+    let sets = get_state(&app).await.device_sets;
+    assert_ne!(sets[0].id, ds, "the radio was not reopened");
+    assert_eq!(sets[0].settings.offset_hz, Some(1_000_000.0));
+}
