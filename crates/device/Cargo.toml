@@ -27,6 +27,7 @@ sdrmm-usb-stream = { workspace = true, optional = true }
 futures.workspace = true
 num-complex.workspace = true
 nusb.workspace = true
+rtrb.workspace = true
 rustls = { workspace = true, optional = true }
 rustls-platform-verifier = { workspace = true, optional = true }
 thiserror.workspace = true
