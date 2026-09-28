@@ -1,18 +1,25 @@
 import { withToken } from "./auth";
+import { recordEvent } from "./diagnostics";
 import {
   decodeAudio,
+  decodeFusionGrid,
   decodeIq,
   decodeRangeDoppler,
+  decodeSpatialSpectrum,
   decodeSpectrum,
   decodeSymbols,
   decodeVideo,
+  decodeVisibility,
   FRAME_KIND_AUDIO_OPUS,
+  FRAME_KIND_FUSION_GRID,
   FRAME_KIND_IQ_F32,
   FRAME_KIND_RANGE_DOPPLER,
+  FRAME_KIND_SPATIAL_SPECTRUM,
   FRAME_KIND_SPECTRUM,
   FRAME_KIND_SYMBOLS,
   FRAME_KIND_VIDEO_GRAY,
   FRAME_KIND_VIDEO_RGB,
+  FRAME_KIND_VISIBILITY,
   frameKind,
 } from "./frame";
 import {
@@ -22,6 +29,7 @@ import {
   type SocketEvents,
   type Unsubscribe,
 } from "./listeners";
+import type { SurfaceFrame, SurfaceKind } from "./surface";
 import type { ClientCommand, ServerEvent } from "./types";
 
 const RECONNECT_MS = 1000;
@@ -125,41 +133,67 @@ export class SdrSocket {
     try {
       event = JSON.parse(text) as ServerEvent;
     } catch {
+      recordEvent("error", "socket", "unreadable event");
       return;
     }
     this.listeners.emit("event", event);
   }
 
   private dispatchBinary(buffer: ArrayBuffer): void {
-    switch (frameKind(buffer)) {
+    const kind = frameKind(buffer);
+    switch (kind) {
       case FRAME_KIND_SPECTRUM:
-        this.emitFrame("spectrum", decodeSpectrum(buffer));
+        this.emitFrame("spectrum", decodeSpectrum(buffer), kind);
         break;
       case FRAME_KIND_AUDIO_OPUS:
-        this.emitFrame("audio", decodeAudio(buffer));
+        this.emitFrame("audio", decodeAudio(buffer), kind);
         break;
       case FRAME_KIND_IQ_F32:
-        this.emitFrame("iq", decodeIq(buffer));
+        this.emitFrame("iq", decodeIq(buffer), kind);
         break;
       case FRAME_KIND_SYMBOLS:
-        this.emitFrame("symbols", decodeSymbols(buffer));
-        break;
-      case FRAME_KIND_RANGE_DOPPLER:
-        this.emitFrame("surface", decodeRangeDoppler(buffer));
+        this.emitFrame("symbols", decodeSymbols(buffer), kind);
         break;
       case FRAME_KIND_VIDEO_GRAY:
       case FRAME_KIND_VIDEO_RGB:
-        this.emitFrame("video", decodeVideo(buffer));
+        this.emitFrame("video", decodeVideo(buffer), kind);
+        break;
+      case FRAME_KIND_RANGE_DOPPLER:
+        this.emitSurface("range_doppler", decodeRangeDoppler(buffer), kind);
+        break;
+      case FRAME_KIND_SPATIAL_SPECTRUM:
+        this.emitSurface("spatial_spectrum", decodeSpatialSpectrum(buffer), kind);
+        break;
+      case FRAME_KIND_VISIBILITY:
+        this.emitSurface("visibility", decodeVisibility(buffer), kind);
+        break;
+      case FRAME_KIND_FUSION_GRID:
+        this.emitSurface("fusion_grid", decodeFusionGrid(buffer), kind);
         break;
       default:
+        recordEvent("error", "socket", `unknown frame ${kind ?? "without header"}`);
         break;
     }
   }
 
-  private emitFrame<K extends SocketEventKind>(kind: K, frame: SocketEvents[K] | null): void {
-    if (frame !== null) {
-      this.listeners.emit(kind, frame);
+  private emitFrame<K extends SocketEventKind>(
+    kind: K,
+    frame: SocketEvents[K] | null,
+    raw: number,
+  ): void {
+    if (frame === null) {
+      recordEvent("error", "socket", `unreadable frame ${raw}`);
+      return;
     }
+    this.listeners.emit(kind, frame);
+  }
+
+  private emitSurface<K extends SurfaceKind>(
+    kind: K,
+    frame: Extract<SurfaceFrame, { kind: K }>["frame"] | null,
+    raw: number,
+  ): void {
+    this.emitFrame("surface", frame === null ? null : ({ kind, frame } as SurfaceFrame), raw);
   }
 
   private scheduleReconnect(): void {

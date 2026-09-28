@@ -19,19 +19,25 @@ export function AgcAuto({
   stream,
   port,
   advised,
+  heldBy,
 }: {
   set: DeviceSet;
   stream: number;
   port?: string;
   advised: boolean;
+  heldBy?: string;
 }) {
   const { applyPatch } = useDevicePatch();
   const agc = laneAgc(set, stream);
   return (
-    <label className="flex items-center gap-1.5" title={agcTip(set, stream, advised)}>
+    <label
+      className="flex items-center gap-1.5"
+      title={heldBy === undefined ? agcTip(set, stream, advised) : `Set on ${heldBy}`}
+    >
       <Checkbox
         label={`${port === undefined ? "" : `${port} `}automatic gain`}
         checked={agc.on}
+        disabled={heldBy !== undefined}
         onChange={(on) => applyPatch(set.id, agcDelta(set.capabilities, stream, { ...agc, on }))}
       />
       <span className={`legend ${agc.on && advised ? "text-warn" : ""}`}>Auto</span>

@@ -31,7 +31,8 @@ export async function closeEngineObjects(
       }
     } else if (node?.kind === "channel") {
       const channel = workspace.channels.get(id);
-      const owner = workspace.owners.get(id) ?? iqSourceOf(workspace.graph, id)?.source;
+      const owner =
+        workspace.owners.get(id) ?? iqSourceOf(workspace.graph, id, workspace.devices)?.source;
       const set = owner === undefined ? undefined : workspace.devices.get(owner);
       if (channel !== undefined && set !== undefined) {
         await deleteChannel(set.id, channel.id);
@@ -56,13 +57,13 @@ export async function closeEngineObjects(
         }
         continue;
       }
-      const source = iqSourceOf(workspace.graph, id);
+      const source = iqSourceOf(workspace.graph, id, workspace.devices);
       const set = source === null ? undefined : workspace.devices.get(source.source);
       if (set?.network_export?.node === id) {
         await networkExportDeviceSet(set.id, "stop", id, source?.stream ?? 0, node.data);
       }
     } else if (node?.kind === "time_machine") {
-      const source = iqSourceOf(workspace.graph, id);
+      const source = iqSourceOf(workspace.graph, id, workspace.devices);
       const set = source === null ? undefined : workspace.devices.get(source.source);
       if (set?.time_machine?.node === id) {
         await controlTimeMachine(set.id, "disarm", id, source?.stream ?? 0, node.data);

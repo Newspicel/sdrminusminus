@@ -16,7 +16,6 @@ import { useDecodedStore } from "../lib/decoded";
 import { type BasemapKind, chooseBasemap, fetchOnlineStyle } from "../lib/map/basemap";
 import { type DfOverlay, drawDfOverlay, installDfLayers } from "../lib/map/df";
 import {
-  AGE_OUT_INTERVAL_MS,
   DRAW_TICK_MS,
   KIND_STYLE,
   layerId,
@@ -25,7 +24,6 @@ import {
   mapKindsOf,
   referenceCollection,
   sourceId,
-  TARGET_MAX_AGE_MS,
   type Target,
   type TargetCollection,
   type TargetDetail,
@@ -289,13 +287,8 @@ export function MapPanel({
     };
 
     const drawTimer = setInterval(draw, DRAW_TICK_MS);
-    const ageTimer = setInterval(
-      () => useDecodedStore.getState().ageOut(TARGET_MAX_AGE_MS),
-      AGE_OUT_INTERVAL_MS,
-    );
     return () => {
       clearInterval(drawTimer);
-      clearInterval(ageTimer);
     };
   }, []);
 

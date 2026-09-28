@@ -9,6 +9,8 @@ import {
   type OnBeforeDelete,
 } from "@xyflow/react";
 import { useCallback } from "react";
+import { forgetNodes } from "../lib/nodeState";
+import { useRefusalStore } from "../lib/refusals";
 import { pushToast, toastError } from "../lib/toasts";
 import type { PatchEdge, PortRef } from "../lib/types";
 import type { FlowData } from "./Canvas";
@@ -38,6 +40,7 @@ export function useGraphChanges(
             const graph = removeNode(snapshot.graph, change.id);
             return { ...snapshot, graph, rack: pruneRack(snapshot.rack ?? {}, graph) };
           });
+          forgetNodes([change.id]);
         }
       }
     },
@@ -116,12 +119,13 @@ export function useConnections(workspace: Workspace) {
       if (state.isValid !== false || state.fromHandle == null || state.toHandle == null) {
         return;
       }
-      const reason = refusal(
-        { node: state.fromHandle.nodeId, port: state.fromHandle.id ?? "" },
-        { node: state.toHandle.nodeId, port: state.toHandle.id ?? "" },
-      );
+      const start = { node: state.fromHandle.nodeId, port: state.fromHandle.id ?? "" };
+      const end = { node: state.toHandle.nodeId, port: state.toHandle.id ?? "" };
+      const [from, to] = state.fromHandle.type === "target" ? [end, start] : [start, end];
+      const reason = refusal(from, to);
       if (reason !== null) {
         pushToast(reason);
+        useRefusalStore.getState().flag(to.node, reason, "wire");
       }
     },
     [refusal],

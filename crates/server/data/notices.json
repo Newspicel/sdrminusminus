@@ -8936,7 +8936,7 @@
     },
     {
       "name": "@tanstack/query-core",
-      "version": "5.103.2",
+      "version": "5.104.0",
       "license": "MIT",
       "source": "web",
       "url": "https://tanstack.com/query",
@@ -8946,7 +8946,7 @@
     },
     {
       "name": "@tanstack/react-query",
-      "version": "5.103.2",
+      "version": "5.104.0",
       "license": "MIT",
       "source": "web",
       "url": "https://tanstack.com/query",
@@ -9054,7 +9054,7 @@
     },
     {
       "name": "@xyflow/react",
-      "version": "12.11.6",
+      "version": "12.12.0",
       "license": "MIT",
       "source": "web",
       "url": "https://reactflow.dev",
@@ -9064,7 +9064,7 @@
     },
     {
       "name": "@xyflow/system",
-      "version": "0.0.82",
+      "version": "0.0.83",
       "license": "MIT",
       "source": "web",
       "url": "https://github.com/xyflow/xyflow#readme",
@@ -9244,7 +9244,7 @@
     },
     {
       "name": "maplibre-gl",
-      "version": "6.11.0",
+      "version": "6.11.2",
       "license": "BSD-3-Clause",
       "source": "web",
       "url": "https://maplibre.org/",

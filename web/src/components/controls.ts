@@ -100,7 +100,12 @@ export function listItem(selected: boolean, highlighted: boolean): string {
   );
 }
 
-export type Options<T> = readonly { value: T; label: string; title?: string }[];
+export type Options<T> = readonly {
+  value: T;
+  label: string;
+  title?: string;
+  disabled?: boolean;
+}[];
 
 export const DIALOG_TITLE = "font-mono text-sm font-medium text-ink";
 

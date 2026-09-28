@@ -1,4 +1,5 @@
 import type {
+  ArrayElement,
   Capabilities,
   ChannelDescriptor,
   DeviceSet,
@@ -15,6 +16,10 @@ import type {
   RackLayout,
   WorkspaceSnapshot,
 } from "../lib/types";
+import { arrayRefusal } from "./arrayRules";
+import { laneOutputOf } from "./binding";
+
+export const BEAM_TAKES_ONE = "a beam input takes one wire";
 
 export interface GraphContext {
   catalog: PatchCatalog;
@@ -137,10 +142,37 @@ export function portsOf(context: GraphContext, graph: PatchGraph, node: PatchNod
     .flatMap((port) => expandStreams(port, node, graph.edges ?? [], capabilities));
 }
 
-function repeatCount(spec: PortSpec, capabilities: Capabilities | undefined): number {
-  return clampStreams(
-    spec.repeat === "per_rx_stream" ? capabilities?.rx_streams : capabilities?.tx_streams,
-  );
+export const ARRAY_LANE_PORT = "lane";
+
+function wiredStreams(node: string, base: string, edges: readonly PatchEdge[]): number {
+  let highest = 0;
+  for (const edge of edges) {
+    const stream = edge.to.node === node ? portStream(base, edge.to.port) : null;
+    if (stream !== null) {
+      highest = Math.max(highest, stream + 1);
+    }
+  }
+  return highest;
+}
+
+export function arrayWiredLanes(graph: PatchGraph, array: string): number {
+  return wiredStreams(array, ARRAY_LANE_PORT, graph.edges ?? []);
+}
+
+function repeatCount(
+  spec: PortSpec,
+  node: PatchNode,
+  edges: readonly PatchEdge[],
+  capabilities: Capabilities | undefined,
+): number {
+  switch (spec.repeat) {
+    case "per_lane":
+      return clampStreams(wiredStreams(node.id, spec.name, edges) + 1);
+    case "per_rx_stream":
+      return clampStreams(capabilities?.rx_streams);
+    default:
+      return clampStreams(capabilities?.tx_streams);
+  }
 }
 
 function expandStreams(
@@ -153,7 +185,7 @@ function expandStreams(
   if (repeat === "once") {
     return [spec];
   }
-  const count = repeatCount(spec, capabilities);
+  const count = repeatCount(spec, node, edges, capabilities);
   const streams = new Set<number>();
   for (let stream = 0; stream < count; stream++) {
     streams.add(stream);
@@ -219,10 +251,24 @@ export function connectionRefusal(
   if (out.port_type !== input.port_type) {
     return input.note ?? `${out.port_type} cannot feed a ${input.port_type} input`;
   }
+  const rule = arrayRefusal(context, graph, from, to, input);
+  if (rule !== null) {
+    return rule;
+  }
   const edges = graph.edges ?? [];
   const landing = edges.filter((edge) => edge.to.node === to.node && edge.to.port === to.port);
   if (landing.some((edge) => edge.from.node === from.node && edge.from.port === from.port)) {
     return "already wired";
+  }
+  if (
+    input.port_type === "iq" &&
+    nodeOf(graph, to.node)?.kind === "channel" &&
+    landing.length > 0 &&
+    [from, ...landing.map((edge) => edge.from)].some(
+      (source) => laneOutputOf(nodeOf(graph, source.node)?.kind) === source.port,
+    )
+  ) {
+    return BEAM_TAKES_ONE;
   }
   if (!input.multi && landing.length > 0) {
     return "that input takes one wire";
@@ -310,6 +356,9 @@ const RESIZE_FLOOR: Partial<Record<NodeKind, { w: number; h: number }>> = {
   decoder_log: { w: 360, h: 200 },
   dmr_trunk: { w: 380, h: 240 },
   video: { w: 240, h: 200 },
+  passive_radar: { w: 420, h: 380 },
+  spatial_spectrum: { w: 400, h: 300 },
+  correlator: { w: 380, h: 340 },
 };
 
 export const HEADER_PX = 26;
@@ -340,7 +389,7 @@ export function removeNode(graph: PatchGraph, id: string): PatchGraph {
 }
 
 export function addEdge(graph: PatchGraph, edge: PatchEdge): PatchGraph {
-  return { ...graph, edges: [...(graph.edges ?? []), edge] };
+  return settleArrays({ ...graph, edges: [...(graph.edges ?? []), edge] });
 }
 
 export function removeEdge(graph: PatchGraph, key: string): PatchGraph {
@@ -359,6 +408,32 @@ export function patchNode(
     ...graph,
     nodes: graph.nodes.map((node) => (node.id === id ? edit(node) : node)),
   };
+}
+
+const ORIGIN: ArrayElement = { x_m: 0, y_m: 0, z_m: 0 };
+
+function settledArray(graph: PatchGraph, node: PatchNode): PatchNode {
+  if (node.kind !== "array" || node.data.geometry.kind !== "explicit") {
+    return node;
+  }
+  const positions = node.data.geometry.positions;
+  const lanes = arrayWiredLanes(graph, node.id);
+  if (positions.length >= lanes) {
+    return node;
+  }
+  const padded = [
+    ...positions,
+    ...Array.from({ length: lanes - positions.length }, () => ({ ...ORIGIN })),
+  ];
+  return {
+    ...node,
+    data: { ...node.data, geometry: { kind: "explicit", positions: padded } },
+  };
+}
+
+export function settleArrays(graph: PatchGraph): PatchGraph {
+  const nodes = graph.nodes.map((node) => settledArray(graph, node));
+  return nodes.every((node, index) => node === graph.nodes[index]) ? graph : { ...graph, nodes };
 }
 
 export function sameGraph(a: PatchGraph, b: PatchGraph): boolean {
@@ -443,8 +518,6 @@ function decodersFedBy(graph: PatchGraph, device: string): string[] {
     .map((edge) => edge.to.node);
 }
 
-/// A control wire used to land on a radio. It lands on a decoder now, so a wire into a radio
-/// moves onto the one decoder that radio feeds, or goes when there is no single one.
 function repointControlWires(graph: PatchGraph): PatchGraph {
   const radios = new Set(graph.nodes.filter((node) => node.kind === "device").map((n) => n.id));
   const edges = graph.edges ?? [];

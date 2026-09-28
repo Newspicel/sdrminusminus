@@ -1,7 +1,6 @@
+import { BEARING_MAX_AGE_MS } from "./bearings";
 import type { DfOverlay } from "./map/df";
 import type { DfFusionState, DfStation, PatchGraph } from "./types";
-
-export const BEARING_MAX_AGE_MS = 5 * 60_000;
 
 export function crossingSourcesOf(graph: PatchGraph, node: string): string[] {
   const kinds = new Map(graph.nodes.map((entry) => [entry.id, entry.kind]));

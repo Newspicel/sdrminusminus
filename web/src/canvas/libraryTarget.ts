@@ -30,7 +30,7 @@ export function libraryTarget(
       return { kind: "device", node: selected, set, locked: tuningLocked(graph, selected) };
     }
     if (nodeOf(graph, selected)?.kind === "channel") {
-      const owner = deviceNodeOf(graph, selected, owners);
+      const owner = deviceNodeOf(graph, selected, owners, devices);
       return {
         kind: "channel",
         node: selected,

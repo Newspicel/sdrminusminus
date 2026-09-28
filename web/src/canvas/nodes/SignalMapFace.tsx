@@ -28,7 +28,7 @@ const MAX_OFFSET_HZ = 1_000_000_000_000;
 export function SignalMapFace({ node }: { node: PatchNode }) {
   const workspace = useWorkspaceContext();
   const set = deviceSetOf(workspace, node.id);
-  const iq = iqSourceOf(workspace.graph, node.id);
+  const iq = iqSourceOf(workspace.graph, node.id, workspace.devices);
   const positionNode = positionSourcesOf(workspace.graph, node.id)[0];
   const position = usePositionStore((store) =>
     positionNode === undefined ? undefined : store.sources[positionNode]?.history.at(-1),

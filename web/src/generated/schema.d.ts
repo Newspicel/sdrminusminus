@@ -6053,31 +6053,31 @@ export interface components {
         ProcessorReading: {
             reading: components["schemas"]["DfReading"];
             /** @enum {string} */
-            type: "Df";
+            type: "df";
         } | {
             reading: components["schemas"]["BeamformerReading"];
             /** @enum {string} */
-            type: "Beamformer";
+            type: "beamformer";
         } | {
             reading: components["schemas"]["RadarUpdate"];
             /** @enum {string} */
-            type: "PassiveRadar";
+            type: "passive_radar";
         } | {
             reading: components["schemas"]["StitchReading"];
             /** @enum {string} */
-            type: "Stitch";
+            type: "stitch";
         } | {
             reading: components["schemas"]["SpatialReading"];
             /** @enum {string} */
-            type: "SpatialSpectrum";
+            type: "spatial_spectrum";
         } | {
             reading: components["schemas"]["CorrelatorReading"];
             /** @enum {string} */
-            type: "Correlator";
+            type: "correlator";
         } | {
             reading: components["schemas"]["PolarimeterReading"];
             /** @enum {string} */
-            type: "Polarimeter";
+            type: "polarimeter";
         };
         ProcessorStatus: {
             /** Format: int64 */

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ChannelDescriptor, NodeKind, PatchCatalog } from "../lib/types";
-import { newNodeBody } from "./newNode";
+import { catalogBody } from "../test/catalog";
 import {
   channelPicker,
   decoderGroups,
@@ -14,7 +14,7 @@ const CATALOG: PatchCatalog = {
   nodes: [
     {
       kind: "device",
-      default_body: newNodeBody("device"),
+      default_body: catalogBody("device"),
       name: "Device",
       summary: "A radio",
       category: "source",
@@ -22,14 +22,14 @@ const CATALOG: PatchCatalog = {
     },
     {
       kind: "gps",
-      default_body: newNodeBody("gps"),
+      default_body: catalogBody("gps"),
       name: "GPS position",
       category: "source",
       ports: [],
     },
     {
       kind: "channel",
-      default_body: newNodeBody("channel"),
+      default_body: catalogBody("channel"),
       name: "Channel",
       category: "channel",
       ports: [],
@@ -37,42 +37,42 @@ const CATALOG: PatchCatalog = {
     },
     {
       kind: "scope",
-      default_body: newNodeBody("scope"),
+      default_body: catalogBody("scope"),
       name: "Scope",
       category: "output",
       ports: [],
     },
     {
       kind: "speaker",
-      default_body: newNodeBody("speaker"),
+      default_body: catalogBody("speaker"),
       name: "Speaker",
       category: "output",
       ports: [],
     },
     {
       kind: "event_output",
-      default_body: newNodeBody("event_output"),
+      default_body: catalogBody("event_output"),
       name: "Event output",
       category: "output",
       ports: [],
     },
     {
       kind: "scanner",
-      default_body: newNodeBody("scanner"),
+      default_body: catalogBody("scanner"),
       name: "Scanner",
       category: "tool",
       ports: [],
     },
     {
       kind: "hunt",
-      default_body: newNodeBody("hunt"),
+      default_body: catalogBody("hunt"),
       name: "Signal hunt",
       category: "tool",
       ports: [],
     },
     {
       kind: "triangulation",
-      default_body: newNodeBody("triangulation"),
+      default_body: catalogBody("triangulation"),
       name: "Triangulation",
       category: "tool",
       ports: [],

@@ -3,18 +3,23 @@ import type { ComponentType, CSSProperties } from "react";
 import type { NodeKind, PatchNode } from "../../lib/types";
 import type { FlowData } from "../Canvas";
 import { NODE_SIZE } from "../graph";
+import { ArrayFace } from "./ArrayFace";
 import { AudioFxFace } from "./AudioFxFace";
 import { BasebandScopeFace } from "./BasebandScopeFace";
+import { BeamformerFace } from "./BeamformerFace";
 import { ChannelFace } from "./ChannelFace";
+import { CorrelatorFace } from "./CorrelatorFace";
 import { DeviceFace } from "./DeviceFace";
+import { DfFace } from "./DfFace";
 import { DmrTrunkFace } from "./DmrTrunkFace";
 import { EventFilterFace } from "./EventFilterFace";
 import { EventOutputFace } from "./EventOutputFace";
 import { GpsFace } from "./GpsFace";
 import { NetworkExportFace } from "./NetworkExportFace";
 import { CanvasSurface } from "./NodeShell";
-import { PendingFace } from "./PendingFace";
+import { PolarimeterFace } from "./PolarimeterFace";
 import { PropagationFace } from "./PropagationFace";
+import { RadarFace } from "./RadarFace";
 import { RecordingFace } from "./RecordingFace";
 import { SatelliteFace } from "./SatelliteFace";
 import { ScopeFace } from "./ScopeFace";
@@ -33,7 +38,9 @@ import {
   SpeakerFace,
   VideoFace,
 } from "./SinkFaces";
+import { SpatialSpectrumFace } from "./SpatialSpectrumFace";
 import { SpectrumMonitorFace } from "./SpectrumMonitorFace";
+import { StitchFace } from "./StitchFace";
 import { TimeMachineFace } from "./TimeMachineFace";
 import { TriangulationFace } from "./TriangulationFace";
 
@@ -79,14 +86,14 @@ export const NODE_TYPES: Record<NodeKind, ComponentType<NodeProps<Node<FlowData>
   hunt: mount(HuntFace),
   satellite: mount(SatelliteFace),
   triangulation: mount(TriangulationFace),
-  array: mount(PendingFace),
-  df: mount(PendingFace),
-  beamformer: mount(PendingFace),
-  passive_radar: mount(PendingFace),
-  stitch: mount(PendingFace),
-  spatial_spectrum: mount(PendingFace),
-  correlator: mount(PendingFace),
-  polarimeter: mount(PendingFace),
+  array: mount(ArrayFace),
+  df: mount(DfFace),
+  beamformer: mount(BeamformerFace),
+  passive_radar: mount(RadarFace),
+  stitch: mount(StitchFace),
+  spatial_spectrum: mount(SpatialSpectrumFace),
+  correlator: mount(CorrelatorFace),
+  polarimeter: mount(PolarimeterFace),
 };
 
 export const FACES: Record<NodeKind, Face> = {
@@ -119,14 +126,14 @@ export const FACES: Record<NodeKind, Face> = {
   hunt: HuntFace,
   satellite: SatelliteFace,
   triangulation: TriangulationFace,
-  array: PendingFace,
-  df: PendingFace,
-  beamformer: PendingFace,
-  passive_radar: PendingFace,
-  stitch: PendingFace,
-  spatial_spectrum: PendingFace,
-  correlator: PendingFace,
-  polarimeter: PendingFace,
+  array: ArrayFace,
+  df: DfFace,
+  beamformer: BeamformerFace,
+  passive_radar: RadarFace,
+  stitch: StitchFace,
+  spatial_spectrum: SpatialSpectrumFace,
+  correlator: CorrelatorFace,
+  polarimeter: PolarimeterFace,
 };
 
 export function faceSize(node: PatchNode): CSSProperties {

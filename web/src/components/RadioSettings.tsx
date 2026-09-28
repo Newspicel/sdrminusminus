@@ -51,19 +51,24 @@ const WIDE = "min-w-0 flex-1";
 
 const READOUT = "w-14 shrink-0 text-right font-mono text-xs text-ink";
 
+const NOT_HELD: ReadonlyMap<number, string> = new Map();
+
 export function RadioSettings({
   active,
   className,
   lanesShown = false,
   advised = new Set(),
+  heldBy = NOT_HELD,
   lead,
 }: {
   active: DeviceSet;
   className?: string;
   lanesShown?: boolean;
   advised?: ReadonlySet<number>;
+  heldBy?: ReadonlyMap<number, string>;
   lead?: ReactNode;
 }) {
+  const sharedHold = heldBy.values().next().value;
   const { applyPatch } = useDevicePatch();
   const caps = active.capabilities;
   const settings = active.settings;
@@ -123,11 +128,12 @@ export function RadioSettings({
             key={stage.name}
             stage={stage}
             disabled={agcDrives(stage, automatic)}
+            heldBy={sharedHold}
             measured={agcGainDb(active, 0)}
             agc={
               agcOnGain &&
               index === agcStageIndex(caps.gains) && (
-                <AgcAuto set={active} stream={0} advised={advised.has(0)} />
+                <AgcAuto set={active} stream={0} advised={advised.has(0)} heldBy={sharedHold} />
               )
             }
             value={settings.gains?.find((g) => g.stage === stage.name)?.value_db ?? stage.range.min}
@@ -137,7 +143,12 @@ export function RadioSettings({
 
       {streams.map((stream) => (
         <SettingGroup key={stream} label={streamLabel("iq", stream, streams.length)}>
-          <LaneControls active={active} stream={stream} advised={advised.has(stream)} />
+          <LaneControls
+            active={active}
+            stream={stream}
+            advised={advised.has(stream)}
+            heldBy={heldBy.get(stream)}
+          />
         </SettingGroup>
       ))}
 
@@ -209,10 +220,12 @@ export function LaneControls({
   active,
   stream,
   advised = false,
+  heldBy,
 }: {
   active: DeviceSet;
   stream: number;
   advised?: boolean;
+  heldBy?: string;
 }) {
   const { applyPatch } = useDevicePatch();
   const caps = active.capabilities;
@@ -242,11 +255,18 @@ export function LaneControls({
             stage={stage}
             port={port}
             disabled={agcDrives(stage, agc)}
+            heldBy={heldBy}
             measured={agcGainDb(active, stream)}
             agc={
               agcHere &&
               index === agcStageIndex(caps.gains) && (
-                <AgcAuto set={active} stream={stream} port={port} advised={advised} />
+                <AgcAuto
+                  set={active}
+                  stream={stream}
+                  port={port}
+                  advised={advised}
+                  heldBy={heldBy}
+                />
               )
             }
             value={lane.gains?.find((g) => g.stage === stage.name)?.value_db ?? stage.range.min}
@@ -401,12 +421,27 @@ function AgcControl({
   );
 }
 
+function gainTitle(
+  heldBy: string | undefined,
+  agcDriven: boolean,
+  unit: string,
+): string | undefined {
+  if (heldBy !== undefined) {
+    return `Set on ${heldBy}`;
+  }
+  if (agcDriven) {
+    return AGC_HINT;
+  }
+  return unit === "" ? "Firmware step, not dB" : undefined;
+}
+
 function GainControl({
   stage,
   value,
   onCommit,
   port,
-  disabled,
+  disabled: agcDriven,
+  heldBy,
   measured = null,
   agc,
 }: {
@@ -415,15 +450,17 @@ function GainControl({
   onCommit: (db: number) => void;
   port?: string;
   disabled?: boolean;
+  heldBy?: string;
   measured?: number | null;
   agc?: ReactNode;
 }) {
   const { pending, change } = useDebouncedCommit(onCommit);
-  const shown = (disabled ? measured : null) ?? pending ?? value;
+  const disabled = agcDriven === true || heldBy !== undefined;
+  const shown = (agcDriven ? measured : null) ?? pending ?? value;
   const name = gainLabel(stage);
   const unit = gainUnit(stage);
   const label = `${port === undefined ? "" : `${port} `}${name} gain`;
-  const title = disabled ? AGC_HINT : unit === "" ? "Firmware step, not dB" : undefined;
+  const title = gainTitle(heldBy, agcDriven === true, unit);
 
   if (isSwitch(stage)) {
     const on = shown > stage.range.min;

@@ -1,11 +1,5 @@
-import type {
-  AudioFrame,
-  IqFrame,
-  RangeDopplerFrame,
-  SpectrumFrame,
-  SymbolFrame,
-  VideoFrame,
-} from "./frame";
+import type { AudioFrame, IqFrame, SpectrumFrame, SymbolFrame, VideoFrame } from "./frame";
+import type { SurfaceFrame } from "./surface";
 import type { ServerEvent } from "./types";
 
 export interface SocketEvents {
@@ -16,7 +10,7 @@ export interface SocketEvents {
   iq: IqFrame;
   symbols: SymbolFrame;
   video: VideoFrame;
-  surface: RangeDopplerFrame;
+  surface: SurfaceFrame;
 }
 
 export type SocketEventKind = keyof SocketEvents;

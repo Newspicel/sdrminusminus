@@ -2,7 +2,7 @@ import { Collapsible } from "@base-ui/react/collapsible";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link2, Lock, Radar } from "lucide-react";
 import { Button } from "../../components/BaseControls";
-import { BTN_PRIMARY, BTN_QUIET, ICON_BTN } from "../../components/controls";
+import { BTN_PRIMARY, BTN_QUIET, BTN_SM, ICON_BTN } from "../../components/controls";
 import { DevOnly } from "../../components/DevOnly";
 import { deviceId } from "../../components/devices";
 import { inTuningRange, isTunable, tuningRange } from "../../components/dial";
@@ -17,13 +17,16 @@ import { TuneTo } from "../../components/TuneTo";
 import { TuningLock } from "../../components/TuningLock";
 import { createDeviceSet, devicesQuery, STATE_KEY, stateQuery } from "../../lib/api";
 import { queueSummary, usePipelineHealth } from "../../lib/pipeline";
-import { toastError } from "../../lib/toasts";
+import { pushToast, toastError } from "../../lib/toasts";
 import type { DeviceInfo, DeviceRef, DeviceSet, PatchNode, PatchNodeOf } from "../../lib/types";
 import { useRadioTune } from "../../lib/useRadioTune";
 import { claimedDevices, deviceRefOf, refMatches } from "../binding";
 import { useWorkspaceContext } from "../context";
-import { patchNode } from "../graph";
+import { newNodeId, nodeIds, patchNode, rxStreamCount } from "../graph";
+import { canMakeArray, MAKE_ARRAY_TITLE, makeArray } from "../makeArray";
+import { defaultBody } from "../newNode";
 import { releaseRadio } from "../remove";
+import { dialHold, type LaneHold, laneHolds } from "./arrayNode";
 import {
   autoTuning,
   bondSaid,
@@ -71,6 +74,22 @@ interface TunerProps {
   set: DeviceSet;
   lockedStreams: readonly number[];
   onLock: (stream: number, locked: boolean) => void;
+  holds: ReadonlyMap<number, LaneHold>;
+}
+
+function HeldBadge({ hold }: { hold: LaneHold }) {
+  const workspace = useWorkspaceContext();
+  return (
+    <Button
+      type="button"
+      className={`${BTN_SM} text-port-array`}
+      title={`Tuned by ${hold.label}`}
+      onClick={() => workspace.select(hold.array)}
+    >
+      <Icon glyph={Link2} size={12} />
+      Array
+    </Button>
+  );
 }
 
 function DialRow({
@@ -79,19 +98,24 @@ function DialRow({
   dial,
   locked,
   onLock,
-}: Omit<TunerProps, "lockedStreams" | "onLock"> & {
+  hold,
+}: Omit<TunerProps, "lockedStreams" | "onLock" | "holds"> & {
   dial: TunerDial;
   locked: boolean;
   onLock: (locked: boolean) => void;
+  hold: LaneHold | null;
 }) {
   const { tuneRadio } = useRadioTune();
   const active = useFaceActive();
   const range = tuningRange(set.capabilities);
   const pinned = !isTunable(range);
-  const held = pinned || locked;
+  const held = pinned || locked || hold !== null;
   const tune = (hz: number): void => tuneRadio(set, dial.stream, hz);
   return (
-    <div className="flex min-w-0 items-center gap-2">
+    <div
+      className="flex min-w-0 items-center gap-2"
+      title={hold === null ? undefined : `Tuned by ${hold.label}`}
+    >
       <FrequencyDial
         id={dialId(node, dial.stream)}
         hz={dial.hz}
@@ -101,7 +125,8 @@ function DialRow({
         onTune={tune}
       />
       <span className="ml-auto flex shrink-0 items-center gap-1">
-        {!pinned && (
+        {hold !== null && <HeldBadge hold={hold} />}
+        {!pinned && hold === null && (
           <TuneTo
             title={dial.port === null ? "Type a frequency" : `Type a frequency for ${dial.port}`}
             hz={dial.hz}
@@ -111,8 +136,8 @@ function DialRow({
             onTune={tune}
           />
         )}
-        {!pinned && <AutoTuning set={set} stream={dial.stream} />}
-        {!pinned && (
+        {!pinned && hold === null && <AutoTuning set={set} stream={dial.stream} />}
+        {!pinned && hold === null && (
           <TuningLock locked={locked} held="Tuning locked" free="Lock tuning" onLock={onLock} />
         )}
       </span>
@@ -121,7 +146,7 @@ function DialRow({
 }
 
 function Tuner(props: TunerProps) {
-  const { set, lockedStreams, onLock } = props;
+  const { set, lockedStreams, onLock, holds } = props;
   const merged = lanesMerged(set);
   const bond = merged ? bondSaid(set.capabilities.coherence) : null;
   const controls = merged && hasLaneControls(set.capabilities);
@@ -130,6 +155,7 @@ function Tuner(props: TunerProps) {
     <>
       {dials.map((dial, index) => {
         const locked = lockedStreams.includes(dial.stream);
+        const hold = dialHold(holds, dial.stream, merged);
         return (
           <div
             key={dial.stream}
@@ -144,13 +170,22 @@ function Tuner(props: TunerProps) {
             )}
             <div className="@container col-span-2 min-w-0">
               <DialRow
-                {...props}
+                node={props.node}
+                set={set}
                 locked={locked}
                 dial={dial}
+                hold={hold}
                 onLock={(next) => onLock(dial.stream, next)}
               />
             </div>
-            {controls && <LaneControls active={set} stream={dial.stream} />}
+            {controls && (
+              <LaneControls
+                active={set}
+                stream={dial.stream}
+                advised={holds.has(dial.stream)}
+                heldBy={holds.get(dial.stream)?.label}
+              />
+            )}
           </div>
         );
       })}
@@ -370,6 +405,9 @@ export function DeviceFace({ node }: { node: PatchNode }) {
     );
   }
 
+  const holds = laneHolds(workspace.graph, node.id);
+  const heldBy = new Map([...holds].map(([stream, hold]) => [stream, hold.label]));
+
   return (
     <NodeShell
       node={node}
@@ -382,10 +420,13 @@ export function DeviceFace({ node }: { node: PatchNode }) {
           active={set}
           className="p-2"
           lanesShown={lanesMerged(set)}
+          advised={new Set(holds.keys())}
+          heldBy={heldBy}
           lead={
             <Tuner
               node={node.id}
               set={set}
+              holds={holds}
               lockedStreams={lockedStreams}
               onLock={(stream, next) =>
                 editNode({ locked_streams: lockStream(lockedStreams, stream, next) })
@@ -402,6 +443,9 @@ export function DeviceFace({ node }: { node: PatchNode }) {
         <Refused set={set} />
       </FaceBody>
       <FaceFooter>
+        {rxStreamCount(set.capabilities) >= 2 && holds.size === 0 && (
+          <MakeArrayButton node={node.id} set={set} />
+        )}
         <Button
           type="button"
           className={BTN_QUIET}
@@ -414,6 +458,40 @@ export function DeviceFace({ node }: { node: PatchNode }) {
       </FaceFooter>
     </NodeShell>
   );
+}
+
+function MakeArrayButton({ node, set }: { node: string; set: DeviceSet }) {
+  const workspace = useWorkspaceContext();
+  const check = canMakeArray(workspace.graph, node, set);
+  const make = (): void => {
+    const body = defaultBody(workspace.context.catalog, "array");
+    if (body?.kind !== "array") {
+      pushToast("Unknown node: array");
+      return;
+    }
+    if (!check.ok) {
+      return;
+    }
+    const id = newNodeId("array", nodeIds(workspace.graph));
+    workspace.edit((snapshot) => ({
+      ...snapshot,
+      graph: makeArray(snapshot.graph, node, check.lanes, body, id),
+    }));
+    workspace.select(id);
+    workspace.apply();
+  };
+  const button = (
+    <Button
+      type="button"
+      className={BTN_QUIET}
+      title={check.ok ? MAKE_ARRAY_TITLE : check.reason}
+      disabled={!check.ok}
+      onClick={make}
+    >
+      Make array
+    </Button>
+  );
+  return check.ok ? button : <span title={check.reason}>{button}</span>;
 }
 
 function DeviceHealth({ set }: { set: DeviceSet }) {

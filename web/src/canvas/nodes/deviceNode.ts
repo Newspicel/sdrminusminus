@@ -8,6 +8,7 @@ import type {
   DeviceSet,
   DeviceSettings,
   Tuning,
+  VirtualLane,
 } from "../../lib/types";
 import { forStream } from "../../lib/useDevicePatch";
 import { rxStreamCount, streamLabel } from "../graph";
@@ -71,12 +72,20 @@ export function autoTuning(set: DeviceSet, stream = 0): boolean {
   return (resolved.tuning ?? "auto") === "auto";
 }
 
+function virtualLane(set: DeviceSet, stream: number): VirtualLane | undefined {
+  return (set.virtual_lanes ?? []).find((lane) => lane.stream === stream);
+}
+
 export function laneCenterHz(set: DeviceSet, stream: number): number | null {
+  const virtual = virtualLane(set, stream);
+  if (virtual !== undefined) {
+    return virtual.center_hz;
+  }
   return forStream(set.settings, stream, set.capabilities.per_stream).center_hz ?? null;
 }
 
-export function laneRateHz(set: DeviceSet): number | undefined {
-  return set.settings.sample_rate ?? undefined;
+export function laneRateHz(set: DeviceSet, stream: number): number | undefined {
+  return virtualLane(set, stream)?.sample_rate ?? set.settings.sample_rate ?? undefined;
 }
 
 export function tuneDelta(capabilities: Capabilities, stream: number, hz: number): DeviceSettings {
@@ -156,7 +165,6 @@ export function refusalSaid(set: DeviceSet): string | null {
   return `Radio refused the new ${listed}`;
 }
 
-/** What a fault means for the operator, or null when only the raw message can say. */
 export function faultSaid(set: DeviceSet): string | null {
   const said = set.fault == null ? undefined : FAULTS[set.fault];
   return said == null ? null : `${set.device.label} ${said}`;

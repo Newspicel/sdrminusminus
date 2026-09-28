@@ -1,8 +1,7 @@
 import { Button } from "../../components/BaseControls";
 import { BTN } from "../../components/controls";
 import { Readout, ReadoutRow } from "../../components/Readout";
-import { resetFusion } from "../../lib/api";
-import { useDfStore } from "../../lib/df";
+import { useFusionClear, useFusionSeed, useFusionStore } from "../../lib/fusion";
 import type { PatchNode } from "../../lib/types";
 import { useNow } from "../../lib/useNow";
 import { useWorkspaceContext } from "../context";
@@ -13,7 +12,9 @@ const AGE_TICK_MS = 1_000;
 
 export function TriangulationFace({ node }: { node: PatchNode }) {
   const workspace = useWorkspaceContext();
-  const fusion = useDfStore((store) => store.byNode[node.id]);
+  const fusion = useFusionStore((store) => store.byNode[node.id]);
+  useFusionSeed(node.id);
+  const { clear, pending } = useFusionClear(node.id);
   const now = useNow(AGE_TICK_MS);
   if (node.kind !== "triangulation") {
     return null;
@@ -69,9 +70,8 @@ export function TriangulationFace({ node }: { node: PatchNode }) {
             className={BTN}
             type="button"
             title="Throw away every bearing the grid holds and start crossing again"
-            onClick={() => {
-              void resetFusion(node.id);
-            }}
+            disabled={pending}
+            onClick={clear}
           >
             Clear
           </Button>

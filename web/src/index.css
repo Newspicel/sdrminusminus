@@ -218,6 +218,11 @@
   stroke: var(--color-port-control);
 }
 
+.wire-array .react-flow__edge-path {
+  stroke: var(--color-port-array);
+  stroke-width: 3.25;
+}
+
 .react-flow__edge:hover .react-flow__edge-path,
 .react-flow__edge.selected .react-flow__edge-path {
   stroke-width: 2.5;

@@ -954,8 +954,8 @@ The ACARS application layer and the VDL2, HFDL, Inmarsat Aero, Inmarsat STD-C, D
 | [@maplibre/mlt](https://github.com/maplibre/maplibre-tile-spec/#readme) | 1.3.0 | (MIT OR Apache-2.0) |
 | [@maplibre/vt-pbf](https://github.com/maplibre/vt-pbf#readme) | 4.3.2 | MIT |
 | [@scarf/scarf](https://github.com/scarf-sh/scarf-js) | 1.4.0 | Apache-2.0 |
-| [@tanstack/query-core](https://tanstack.com/query) | 5.103.2 | MIT |
-| [@tanstack/react-query](https://tanstack.com/query) | 5.103.2 | MIT |
+| [@tanstack/query-core](https://tanstack.com/query) | 5.104.0 | MIT |
+| [@tanstack/react-query](https://tanstack.com/query) | 5.104.0 | MIT |
 | [@types/d3-color](https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/d3-color) | 3.1.3 | MIT |
 | [@types/d3-drag](https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/d3-drag) | 3.0.7 | MIT |
 | [@types/d3-interpolate](https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/d3-interpolate) | 3.0.4 | MIT |
@@ -966,8 +966,8 @@ The ACARS application layer and the VDL2, HFDL, Inmarsat Aero, Inmarsat STD-C, D
 | [@types/react](https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/react) | 19.3.0 | MIT |
 | [@types/react-dom](https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/react-dom) | 19.3.0 | MIT |
 | [@wasm-audio-decoders/common](https://github.com/eshaz/wasm-audio-decoders/tree/master/src/common) | 9.0.7 | MIT |
-| [@xyflow/react](https://reactflow.dev) | 12.11.6 | MIT |
-| [@xyflow/system](https://github.com/xyflow/xyflow#readme) | 0.0.82 | MIT |
+| [@xyflow/react](https://reactflow.dev) | 12.12.0 | MIT |
+| [@xyflow/system](https://github.com/xyflow/xyflow#readme) | 0.0.83 | MIT |
 | [bidi-js](https://github.com/lojjic/bidi-js#readme) | 1.1.0 | MIT |
 | [classcat](https://github.com/jorgebucaran/classcat#readme) | 5.0.5 | MIT |
 | [csstype](https://github.com/frenic/csstype#readme) | 3.2.3 | MIT |
@@ -985,7 +985,7 @@ The ACARS application layer and the VDL2, HFDL, Inmarsat Aero, Inmarsat STD-C, D
 | [json-stringify-pretty-compact](https://github.com/lydell/json-stringify-pretty-compact#readme) | 4.0.0 | MIT |
 | [kdbush](https://github.com/mourner/kdbush#readme) | 4.1.0 | ISC |
 | [lucide-react](https://lucide.dev) | 1.47.0 | ISC |
-| [maplibre-gl](https://maplibre.org/) | 6.11.0 | BSD-3-Clause |
+| [maplibre-gl](https://maplibre.org/) | 6.11.2 | BSD-3-Clause |
 | [minimist](https://github.com/minimistjs/minimist) | 1.2.8 | MIT |
 | [murmurhash-js](https://github.com/mikolalysenko/murmurhash-js#readme) | 1.0.0 | MIT |
 | [openapi-fetch](https://openapi-ts.dev) | 0.17.0 | MIT |

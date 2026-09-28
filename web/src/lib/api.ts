@@ -6,6 +6,8 @@ import { getToken, rejectToken, withToken } from "./auth";
 import type {
   AboutResponse,
   ApiError,
+  ArrayRecordingStarted,
+  ArrayTuneRequest,
   AudioRecordingsResponse,
   AuthInfo,
   BandPlan,
@@ -46,11 +48,17 @@ import type {
   NetworkExportStatus,
   NmeaDevicesResponse,
   OccupancyReport,
+  PairingOffer,
   PatchApplyReport,
   PatchCatalog,
+  Phone,
+  PhoneAccess,
+  PhoneAccessStatus,
+  PhonesResponse,
   PlaybackAction,
   PlaybackStatus,
   PresetInfo,
+  RadarUpdate,
   RadioIdent,
   RadioModelsResponse,
   RecordingAnnotation,
@@ -63,6 +71,8 @@ import type {
   ScannerStatus,
   ScanSettings,
   StateSnapshot,
+  SurveyAction,
+  SurveyGrid,
   TemplatesResponse,
   TimeMachineAction,
   TimeMachineNode,
@@ -125,6 +135,10 @@ export const CPS_PORTS_KEY = ["get", "/api/cps/ports"] as const;
 export const CPS_LIBRARY_KEY = ["get", "/api/cps/library"] as const;
 export const CPS_JOBS_KEY = ["get", "/api/cps/jobs"] as const;
 export const TOOL_RUN_KEY = ["post", "/api/tools/run"] as const;
+export const PHONES_KEY = ["get", "/api/phones"] as const;
+export const FUSION_KEY = ["get", "/api/fusion/{node}"] as const;
+export const RADAR_KEY = ["get", "/api/radar/{node}"] as const;
+export const SURVEY_KEY = ["get", "/api/survey/{node}"] as const;
 
 export function stateQuery() {
   return queryOptions({
@@ -676,12 +690,14 @@ export function toolRunQuery(request: ToolRequest | null) {
   });
 }
 
-export async function fusionState(node: string): Promise<DfFusionState> {
-  return unwrap(
-    await client.GET("/api/fusion/{node}", {
-      params: { path: { node } },
-    }),
-  );
+export function fusionQuery(node: string) {
+  return queryOptions({
+    queryKey: [...FUSION_KEY, node] as const,
+    queryFn: async (): Promise<DfFusionState> =>
+      unwrap(await client.GET("/api/fusion/{node}", { params: { path: { node } } })),
+    staleTime: Number.POSITIVE_INFINITY,
+    refetchOnWindowFocus: false,
+  });
 }
 
 export async function resetFusion(node: string): Promise<void> {
@@ -689,6 +705,91 @@ export async function resetFusion(node: string): Promise<void> {
     await client.DELETE("/api/fusion/{node}", {
       params: { path: { node } },
     }),
+  );
+}
+
+export async function calibrateArray(node: string): Promise<void> {
+  unwrap(await client.POST("/api/arrays/{node}/calibrate", { params: { path: { node } } }));
+}
+
+export async function tuneArray(node: string, tune: ArrayTuneRequest): Promise<void> {
+  unwrap(await client.PATCH("/api/arrays/{node}/tune", { params: { path: { node } }, body: tune }));
+}
+
+export async function startArrayRecording(
+  node: string,
+  name?: string,
+): Promise<ArrayRecordingStarted> {
+  return unwrap(
+    await client.POST("/api/arrays/{node}/recording", {
+      params: { path: { node } },
+      body: name === undefined ? {} : { name },
+    }),
+  );
+}
+
+export async function stopArrayRecording(node: string): Promise<void> {
+  unwrap(await client.DELETE("/api/arrays/{node}/recording", { params: { path: { node } } }));
+}
+
+export function radarQuery(node: string) {
+  return queryOptions({
+    queryKey: [...RADAR_KEY, node] as const,
+    queryFn: async (): Promise<RadarUpdate> =>
+      unwrap(await client.GET("/api/radar/{node}", { params: { path: { node } } })),
+    staleTime: Number.POSITIVE_INFINITY,
+    refetchOnWindowFocus: false,
+  });
+}
+
+export async function clearRadarTracks(node: string): Promise<void> {
+  unwrap(await client.DELETE("/api/radar/{node}/tracks", { params: { path: { node } } }));
+}
+
+export function phonesQuery(live = false) {
+  return queryOptions({
+    queryKey: PHONES_KEY,
+    queryFn: async (): Promise<PhonesResponse> => unwrap(await client.GET("/api/phones")),
+    refetchInterval: live ? 2_000 : false,
+  });
+}
+
+export async function setPhoneAccess(access: PhoneAccess): Promise<PhoneAccessStatus> {
+  return unwrap(await client.PUT("/api/phones/access", { body: access }));
+}
+
+export async function createPairingOffer(name?: string): Promise<PairingOffer> {
+  return unwrap(
+    await client.POST("/api/phones/offers", { body: name === undefined ? {} : { name } }),
+  );
+}
+
+export async function cancelPairingOffer(): Promise<void> {
+  unwrap(await client.DELETE("/api/phones/offers", {}));
+}
+
+export async function renamePhone(id: string, name: string): Promise<Phone> {
+  return unwrap(
+    await client.PATCH("/api/phones/{id}", { params: { path: { id } }, body: { name } }),
+  );
+}
+
+export async function revokePhone(id: string): Promise<void> {
+  unwrap(await client.DELETE("/api/phones/{id}", { params: { path: { id } } }));
+}
+
+export function surveyQuery(node: string) {
+  return queryOptions({
+    queryKey: [...SURVEY_KEY, node] as const,
+    queryFn: async (): Promise<SurveyGrid> =>
+      unwrap(await client.GET("/api/survey/{node}", { params: { path: { node } } })),
+    refetchOnWindowFocus: false,
+  });
+}
+
+export async function controlSurvey(node: string, action: SurveyAction): Promise<SurveyGrid> {
+  return unwrap(
+    await client.POST("/api/survey/{node}", { params: { path: { node } }, body: { action } }),
   );
 }
 

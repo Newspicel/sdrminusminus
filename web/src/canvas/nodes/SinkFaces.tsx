@@ -25,8 +25,8 @@ import { callAudioUrl } from "../../lib/api";
 import { monitorKey } from "../../lib/audio/monitor";
 import { useChannelAudio } from "../../lib/audio/useChannelAudio";
 import { SAMPLE_RATE as AUDIO_RATE_HZ } from "../../lib/audio/worklet";
-import { useDfStore } from "../../lib/df";
 import { crossingSourcesOf, dfOverlay } from "../../lib/dfOverlay";
+import { useFusionStore } from "../../lib/fusion";
 import { type MapKind, mapKindsOf } from "../../lib/map/layers";
 import { positionSourcesOf, usePositionStore } from "../../lib/position";
 import type {
@@ -234,7 +234,7 @@ function Plot({
   positionNodes: readonly string[];
   crossings: readonly string[];
 }) {
-  const byNode = useDfStore((store) => store.byNode);
+  const byNode = useFusionStore((store) => store.byNode);
   const here = usePositionStore((store) =>
     positionNodes.length === 0 ? undefined : store.sources[positionNodes[0] ?? ""]?.fix,
   );

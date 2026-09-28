@@ -21709,7 +21709,7 @@
               "type": {
                 "type": "string",
                 "enum": [
-                  "Df"
+                  "df"
                 ]
               }
             }
@@ -21727,7 +21727,7 @@
               "type": {
                 "type": "string",
                 "enum": [
-                  "Beamformer"
+                  "beamformer"
                 ]
               }
             }
@@ -21745,7 +21745,7 @@
               "type": {
                 "type": "string",
                 "enum": [
-                  "PassiveRadar"
+                  "passive_radar"
                 ]
               }
             }
@@ -21763,7 +21763,7 @@
               "type": {
                 "type": "string",
                 "enum": [
-                  "Stitch"
+                  "stitch"
                 ]
               }
             }
@@ -21781,7 +21781,7 @@
               "type": {
                 "type": "string",
                 "enum": [
-                  "SpatialSpectrum"
+                  "spatial_spectrum"
                 ]
               }
             }
@@ -21799,7 +21799,7 @@
               "type": {
                 "type": "string",
                 "enum": [
-                  "Correlator"
+                  "correlator"
                 ]
               }
             }
@@ -21817,7 +21817,7 @@
               "type": {
                 "type": "string",
                 "enum": [
-                  "Polarimeter"
+                  "polarimeter"
                 ]
               }
             }

@@ -642,6 +642,26 @@ fn readings_round_trip_through_json() {
 }
 
 #[test]
+fn reading_schema_tags_each_variant_with_its_type_id() {
+    let schema = serde_json::to_string(&<ProcessorReading as utoipa::PartialSchema>::schema())
+        .expect("schema json");
+    for type_id in PROCESSOR_TYPE_IDS {
+        assert!(
+            schema.contains(&format!("\"{type_id}\"")),
+            "{type_id} missing"
+        );
+    }
+    for reading in readings() {
+        let variant = format!("{reading:?}");
+        let name = variant.split('(').next().unwrap_or_default();
+        assert!(
+            !schema.contains(&format!("\"{name}\"")),
+            "{name} leaks into the schema"
+        );
+    }
+}
+
+#[test]
 fn probe_params_exist_only_with_the_feature() {
     let parsed =
         serde_json::from_str::<ProcessorParams>(r#"{"type":"probe","settings":{"phase":true}}"#);

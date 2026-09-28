@@ -23,25 +23,39 @@ export function Segmented<T extends string | number>({
       value={[String(value)]}
       onValueChange={(next) => {
         const picked = options.find((option) => String(option.value) === next[0]);
-        if (picked !== undefined) {
+        if (picked !== undefined && picked.disabled !== true) {
           onChange(picked.value);
         }
       }}
     >
-      {options.map((option) => (
-        <Toggle
-          key={String(option.value)}
-          value={String(option.value)}
-          title={option.title}
-          className={(state) =>
-            `${segment(state.pressed)} tabular-nums ${
-              fill ? "flex-auto justify-center whitespace-nowrap" : ""
-            }`
-          }
-        >
-          {option.label}
-        </Toggle>
-      ))}
+      {options.map((option) => {
+        const toggle = (
+          <Toggle
+            key={String(option.value)}
+            value={String(option.value)}
+            title={option.title}
+            disabled={option.disabled}
+            className={(state) =>
+              `${segment(state.pressed)} tabular-nums ${
+                fill ? "flex-auto justify-center whitespace-nowrap" : ""
+              }`
+            }
+          >
+            {option.label}
+          </Toggle>
+        );
+        return option.disabled === true && option.title !== undefined ? (
+          <span
+            key={String(option.value)}
+            title={option.title}
+            className={`inline-flex ${fill ? "flex-auto" : ""}`}
+          >
+            {toggle}
+          </span>
+        ) : (
+          toggle
+        );
+      })}
     </ToggleGroup>
   );
 }

@@ -5,6 +5,7 @@ overrides:
   # carries no provenance and is refused by the trust policy below. Every semver API Babel
   # calls is unchanged in 7.x.
   semver: "^7.8.5"
+  why-is-node-running: "3.2.1"
 
 # A version whose supply-chain trust evidence (provenance, signatures) is weaker than an
 # earlier-published one is refused rather than accepted quietly, on fresh resolution and on every

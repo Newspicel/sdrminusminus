@@ -118,11 +118,15 @@ function SourceSettings({
       return <FixedSettings source={source} onChange={onChange} />;
     case "nmea":
       return <NmeaSettings source={source} onChange={onChange} />;
+    case "phone":
+      return (
+        <SettingRow label="Phone">
+          <span className="font-mono text-sm">{source.phone}</span>
+        </SettingRow>
+      );
   }
 }
 
-/// A place typed in once. Everything downstream, direction finding, triangulation, geotagging,
-/// asks for a position the same way whether it moves or not.
 function FixedSettings({
   source,
   onChange,

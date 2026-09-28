@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { clientEvents, resetEvents } from "./diagnostics";
 import { SdrSocket } from "./ws";
 
 const RECONNECT_CEILING = 30_000;
@@ -219,5 +220,35 @@ describe("SdrSocket reconnect", () => {
     socket.close();
     vi.advanceTimersByTime(60_000);
     expect(sockets).toHaveLength(opened);
+  });
+});
+
+describe("SdrSocket messages", () => {
+  beforeEach(() => {
+    sockets.length = 0;
+    Object.defineProperty(globalThis, "WebSocket", {
+      configurable: true,
+      value: FakeWebSocket,
+    });
+    fakeWindow();
+    resetEvents();
+  });
+
+  it("records unreadable events and unknown frames instead of dropping them quietly", () => {
+    const socket = new SdrSocket();
+    const events: unknown[] = [];
+    socket.on("event", (event) => events.push(event));
+    socket.connect();
+    latest().onmessage?.({ data: "{not json" } as MessageEvent);
+    const unknown = new Uint8Array(16);
+    unknown[0] = 1;
+    unknown[1] = 42;
+    latest().onmessage?.({ data: unknown.buffer } as MessageEvent);
+    socket.close();
+    expect(events).toEqual([]);
+    expect(clientEvents().map((event) => event.message)).toEqual([
+      "unreadable event",
+      "unknown frame 42",
+    ]);
   });
 });

@@ -36,7 +36,7 @@ export function TimeMachineFace({ node }: { node: PatchNode }) {
 function TimeMachineNodeFace({ node }: { node: PatchNodeOf<"time_machine"> }) {
   const workspace = useWorkspaceContext();
   const set = deviceSetOf(workspace, node.id);
-  const stream = iqSourceOf(workspace.graph, node.id)?.stream ?? 0;
+  const stream = iqSourceOf(workspace.graph, node.id, workspace.devices)?.stream ?? 0;
   const seconds = node.data.history_seconds ?? DEFAULT_HISTORY_SECONDS;
   const phase = timeMachinePhase(set, node.id);
   const status = phase.kind === "armed" || phase.kind === "capturing" ? phase.status : null;

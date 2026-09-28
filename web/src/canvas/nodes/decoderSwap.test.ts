@@ -9,8 +9,8 @@ import type {
   PatchNodeOf,
   WorkspaceSnapshot,
 } from "../../lib/types";
+import { catalogBody } from "../../test/catalog";
 import type { GraphContext } from "../graph";
-import { newNodeBody } from "../newNode";
 import {
   ANALOG_MODES,
   nextAnalogMode,
@@ -23,14 +23,14 @@ const CATALOG: PatchCatalog = {
   nodes: [
     {
       kind: "device",
-      default_body: newNodeBody("device"),
+      default_body: catalogBody("device"),
       name: "Device",
       category: "source",
       ports: [{ name: "iq", port_type: "iq", direction: "out", multi: true }],
     },
     {
       kind: "channel",
-      default_body: newNodeBody("channel"),
+      default_body: catalogBody("channel"),
       name: "Channel",
       category: "channel",
       needs_channel_type: true,
@@ -62,14 +62,14 @@ const CATALOG: PatchCatalog = {
     },
     {
       kind: "speaker",
-      default_body: newNodeBody("speaker"),
+      default_body: catalogBody("speaker"),
       name: "Speaker",
       category: "output",
       ports: [{ name: "audio", port_type: "audio", direction: "in", multi: true }],
     },
     {
       kind: "decoder_log",
-      default_body: newNodeBody("decoder_log"),
+      default_body: catalogBody("decoder_log"),
       name: "Decoder log",
       category: "output",
       ports: [{ name: "events", port_type: "events", direction: "in", multi: true }],

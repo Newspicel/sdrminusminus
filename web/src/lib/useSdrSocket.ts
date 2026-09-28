@@ -7,6 +7,7 @@ import {
   DECODER_LOG_KEY,
   DEVICES_KEY,
   IMAGES_KEY,
+  PHONES_KEY,
   PRESETS_KEY,
   RECORDINGS_KEY,
   SAVED_RADIOS_KEY,
@@ -14,19 +15,24 @@ import {
   TEMPLATES_KEY,
   WORKSPACES_KEY,
 } from "./api";
+import { useArrayStore } from "./arrays";
 import { audioEngine } from "./audio/useChannelAudio";
+import { useBearingStore } from "./bearings";
 import { useDecodedStore } from "./decoded";
-import { useDfStore } from "./df";
 import { recordEvent } from "./diagnostics";
+import { useFusionStore } from "./fusion";
 import { useHuntStore } from "./hunt";
 import { iqHub } from "./iq";
 import { useLevelStore } from "./levels";
+import { AGE_OUT_INTERVAL_MS, TARGET_MAX_AGE_MS } from "./map/layers";
 import { usePipelineHealth } from "./pipeline";
 import { usePositionStore } from "./position";
+import { useProcessorStore } from "./processors";
 import { useSatelliteStore } from "./satellite";
 import { useScannerStore } from "./scanner";
 import { spectrumHub } from "./spectrum";
 import { surfaceHub } from "./surface";
+import { useSurveyStore } from "./survey";
 import { symbolHub } from "./symbols";
 import { pushToast } from "./toasts";
 import type {
@@ -98,7 +104,15 @@ export function useSdrSocket(queryClient: QueryClient, workspaceError: string | 
     s.on("event", usePositionStore.getState().observe);
     s.on("event", useSatelliteStore.getState().observe);
     s.on("event", useLevelStore.getState().observe);
-    s.on("event", useDfStore.getState().observe);
+    s.on("event", useProcessorStore.getState().observe);
+    s.on("event", useArrayStore.getState().observe);
+    s.on("event", useBearingStore.getState().observe);
+    s.on("event", useFusionStore.getState().observe);
+    s.on("event", useSurveyStore.getState().observe);
+    const ageOut = setInterval(
+      () => useDecodedStore.getState().ageOut(TARGET_MAX_AGE_MS),
+      AGE_OUT_INTERVAL_MS,
+    );
     spectrumHub.attach(s);
     iqHub.attach(s);
     symbolHub.attach(s);
@@ -109,6 +123,7 @@ export function useSdrSocket(queryClient: QueryClient, workspaceError: string | 
     setSocket(s);
     s.connect();
     return () => {
+      clearInterval(ageOut);
       spectrumHub.detach();
       iqHub.detach();
       symbolHub.detach();
@@ -183,6 +198,11 @@ function invalidateScope(queryClient: QueryClient, scope: StateScope): void {
       break;
     case "images":
       void queryClient.invalidateQueries({ queryKey: IMAGES_KEY });
+      break;
+    case "phones":
+      void queryClient.invalidateQueries({ queryKey: PHONES_KEY });
+      break;
+    case "missions":
       break;
   }
 }

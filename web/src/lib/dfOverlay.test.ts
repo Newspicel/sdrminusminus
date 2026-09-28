@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { BEARING_MAX_AGE_MS, crossingSourcesOf, dfOverlay } from "./dfOverlay";
+import { BEARING_MAX_AGE_MS } from "./bearings";
+import { crossingSourcesOf, dfOverlay } from "./dfOverlay";
 import type { DfFusionState, PatchGraph } from "./types";
 
 const HERE = { lat: 51.5, lon: 7.0 };

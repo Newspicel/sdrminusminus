@@ -166,7 +166,7 @@ macro_rules! define_processor_enums {
         }
 
         #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
-        #[serde(tag = "type", content = "reading")]
+        #[serde(tag = "type", content = "reading", rename_all = "snake_case")]
         pub enum ProcessorReading {
             $(
                 #[serde(rename = $type_id)]

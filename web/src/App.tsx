@@ -29,10 +29,12 @@ import { Toasts } from "./components/Toasts";
 import { TokenGate } from "./components/TokenGate";
 import { channelTypesQuery, patchCatalogQuery, stateQuery } from "./lib/api";
 import { audioEngine } from "./lib/audio/useChannelAudio";
+import { useRefusalStore } from "./lib/refusals";
 import { pushToast } from "./lib/toasts";
 import type { PatchApplyReport, PatchGraph, WorkspaceSettings } from "./lib/types";
 import { useChannelPatch } from "./lib/useChannelPatch";
 import { useDevicePatch } from "./lib/useDevicePatch";
+import { useNodeStateSync } from "./lib/useNodeStateSync";
 import { useRadioTune } from "./lib/useRadioTune";
 import { useSdrSocket } from "./lib/useSdrSocket";
 import { ToolsDialog } from "./tools/ToolsDialog";
@@ -75,7 +77,10 @@ export function App() {
     for (const message of applyToasts(report, graph.nodes)) {
       pushToast(message);
     }
+    useRefusalStore.getState().fromReport(report);
   }, [workspace.applied, graph.nodes]);
+
+  useNodeStateSync(workspace.active?.id ?? null, graph.nodes, state.data?.arrays);
 
   const rack = useMemo(() => pruneRack(snapshot?.rack ?? {}, graph), [snapshot?.rack, graph]);
   const settings = useMemo(() => snapshot?.settings ?? {}, [snapshot?.settings]);
@@ -116,7 +121,7 @@ export function App() {
 
   const selectedNode = graph.nodes.find((node) => node.id === selected) ?? null;
   const selectedChannel = selected === null ? null : (channels.get(selected) ?? null);
-  const selectedDevice = selected === null ? null : deviceNodeOf(graph, selected, owners);
+  const selectedDevice = selected === null ? null : deviceNodeOf(graph, selected, owners, devices);
   const selectedSet = selectedDevice === null ? null : (devices.get(selectedDevice) ?? null);
 
   const channelNodes = graph.nodes.filter((node) => node.kind === "channel");

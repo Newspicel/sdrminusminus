@@ -3,12 +3,12 @@ import { controlledNodeOf, deviceNodeOf, type IqLane, iqSourceOf } from "./bindi
 import type { Workspace } from "./context";
 
 export function deviceSetOf(workspace: Workspace, node: string): DeviceSet | null {
-  const owner = deviceNodeOf(workspace.graph, node, workspace.owners);
+  const owner = deviceNodeOf(workspace.graph, node, workspace.owners, workspace.devices);
   return owner === null ? null : (workspace.devices.get(owner) ?? null);
 }
 
 export function laneOf(workspace: Workspace, node: string): IqLane | null {
-  const wired = iqSourceOf(workspace.graph, node);
+  const wired = iqSourceOf(workspace.graph, node, workspace.devices);
   const owner = workspace.owners.get(node);
   const channel = workspace.channels.get(node);
   if (owner !== undefined && channel !== undefined) {

@@ -1,122 +1,76 @@
 import { describe, expect, it } from "vitest";
-import catalog from "../generated/patch-catalog.json";
-import type { NodeKind } from "../lib/types";
-import { carriesSettings, newNodeBody } from "./newNode";
+import type { NodeKind, PatchCatalog, PatchNodeOf } from "../lib/types";
+import { CATALOG } from "../test/catalog";
+import { carriesSettings, defaultBody, newNodeBody, settingsOf, startsOnItsOwn } from "./newNode";
 
-const EVERY_KIND: Record<NodeKind, true> = {
-  device: true,
-  recording: true,
-  signal_gen: true,
-  gps: true,
-  channel: true,
-  scope: true,
-  baseband_scope: true,
-  speaker: true,
-  map: true,
-  signal_map: true,
-  propagation: true,
-  readout: true,
-  decoder_log: true,
-  dmr_trunk: true,
-  audio_fx: true,
-  spectrum_monitor: true,
-  event_filter: true,
-  event_output: true,
-  video: true,
-  recorder: true,
-  audio_recorder: true,
-  baseband_recorder: true,
-  time_machine: true,
-  network_export: true,
-  export: true,
-  scanner: true,
-  hunt: true,
-  satellite: true,
-  triangulation: true,
-  array: true,
-  df: true,
-  beamformer: true,
-  passive_radar: true,
-  stitch: true,
-  spatial_spectrum: true,
-  correlator: true,
-  polarimeter: true,
-};
-
-const KINDS = Object.keys(EVERY_KIND) as NodeKind[];
+const KINDS = CATALOG.nodes.map((entry) => entry.kind as NodeKind);
 
 describe("newNodeBody", () => {
-  it.each(KINDS)("gives %s a body the server can parse", (kind) => {
-    const body = newNodeBody(kind);
-    expect(body.kind).toBe(kind);
-    if (carriesSettings(kind)) {
-      expect(body).toHaveProperty("data");
-      expect((body as { data: unknown }).data).not.toBeUndefined();
+  it("takes every body from the catalog", () => {
+    for (const entry of CATALOG.nodes) {
+      if (entry.kind === "channel") {
+        continue;
+      }
+      expect(newNodeBody(CATALOG, entry.kind as NodeKind)).toEqual(entry.default_body);
     }
   });
 
-  it("starts an event filter open, passing everything", () => {
-    const body = newNodeBody("event_filter");
-    expect(body).toEqual({
-      kind: "event_filter",
-      data: {
-        mode: "keep",
-        kinds: [],
-        stations: [],
-        talkgroups: [],
-        radios: [],
-        min_duration_ms: 0,
-      },
-    });
+  it("hands out a fresh copy each time", () => {
+    const listed = CATALOG.nodes.find((entry) => entry.kind === "df")?.default_body;
+    const first = newNodeBody(CATALOG, "df");
+    expect(first).toEqual(listed);
+    expect(first).not.toBe(listed);
+    expect(newNodeBody(CATALOG, "df")).not.toBe(first);
   });
 
-  it("starts a trunk system recording, matching the server default", () => {
-    expect(newNodeBody("dmr_trunk")).toEqual({
-      kind: "dmr_trunk",
-      data: { protocol: "auto", record_calls: true },
-    });
+  it("returns null for an unknown kind", () => {
+    const empty: PatchCatalog = { nodes: [] };
+    expect(newNodeBody(empty, "array")).toBeNull();
+    expect(defaultBody(empty, "scope")).toBeNull();
   });
 
-  it.each(["recorder", "audio_recorder", "baseband_recorder"] as const)(
-    "starts a %s switched off",
-    (kind) => {
-      expect(newNodeBody(kind)).toEqual({ kind, data: { recording: false } });
-    },
-  );
-
-  it("starts a channel not recording", () => {
-    expect(newNodeBody("channel", { channelType: "dmr" })).toEqual({
+  it("starts a channel of the picked type, not recording", () => {
+    expect(newNodeBody(CATALOG, "channel", { channelType: "dmr" })).toEqual({
       kind: "channel",
       data: { channel_type: "dmr", record_calls: false },
     });
-  });
-
-  it.each([
-    "array",
-    "df",
-    "beamformer",
-    "passive_radar",
-    "stitch",
-    "spatial_spectrum",
-    "correlator",
-    "polarimeter",
-  ] as const)("starts a %s from a fresh copy of the catalog default", (kind) => {
-    const listed = catalog.nodes.find((entry) => entry.kind === kind)?.default_body;
-    const body = newNodeBody(kind);
-    expect(listed).toBeDefined();
-    expect(body).toEqual(listed);
-    expect(body).not.toBe(listed);
-    expect(newNodeBody(kind)).not.toBe(body);
-  });
-
-  it("gives a triangulation empty data", () => {
-    expect(newNodeBody("triangulation")).toEqual({ kind: "triangulation", data: {} });
-  });
-
-  it("starts a monitor with a 70% minimum confidence", () => {
-    expect(newNodeBody("spectrum_monitor")).toEqual({
-      kind: "spectrum_monitor",
-      data: { record_audio: true, min_confidence: 0.7 },
+    expect(newNodeBody(CATALOG, "channel")).toEqual({
+      kind: "channel",
+      data: { channel_type: "nfm", record_calls: false },
     });
+  });
+
+  it.each(KINDS)("gives %s a body of its own kind", (kind) => {
+    const body = newNodeBody(CATALOG, kind);
+    expect(body?.kind).toBe(kind);
+    if (carriesSettings(CATALOG, kind)) {
+      expect((body as { data?: unknown }).data).toBeDefined();
+    }
+  });
+
+  it("knows which kinds carry no settings", () => {
+    expect(carriesSettings(CATALOG, "scope")).toBe(false);
+    expect(carriesSettings(CATALOG, "triangulation")).toBe(true);
+    expect(carriesSettings({ nodes: [] }, "df")).toBe(false);
+  });
+
+  it("starts only a signal generator on its own", () => {
+    expect(startsOnItsOwn("signal_gen")).toBe(true);
+    expect(startsOnItsOwn("device")).toBe(false);
+  });
+});
+
+describe("settingsOf", () => {
+  it("reads stored settings and falls back to the catalog default", () => {
+    const stored = newNodeBody(CATALOG, "df") as PatchNodeOf<"df">;
+    const node = {
+      ...stored,
+      id: "df:1",
+      position: { x: 0, y: 0 },
+      data: { settings: { ...stored.data.settings, report_ms: 900 } },
+    } as PatchNodeOf<"df">;
+    expect(settingsOf(node, CATALOG)?.report_ms).toBe(900);
+    const bare = { ...node, data: {} } as PatchNodeOf<"df">;
+    expect(settingsOf(bare, CATALOG)).toEqual(stored.data.settings);
   });
 });
