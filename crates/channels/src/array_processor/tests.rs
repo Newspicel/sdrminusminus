@@ -121,11 +121,22 @@ fn dedicated_processors_are_not_created_here() {
         panic!("a radar is never built here");
     };
     assert_eq!(text, "passive_radar is built by the engine");
-    let df = ProcessorParams::Df(DfParams::default());
-    let Err(ChannelError::Unsupported(text)) = created(&bench, &df) else {
-        panic!("the direction finder has no processor yet");
-    };
-    assert_eq!(text, "Direction finder is not built yet");
+    for entry in registrations()
+        .iter()
+        .filter(|entry| entry.create.is_none())
+    {
+        let descriptor = entry.descriptor;
+        let Some(params) = NodeBody::default_for(descriptor.type_id)
+            .and_then(|body| body.processor_params())
+            .filter(|params| (descriptor.execution)(params, &bench.ctx()) != Execution::Dedicated)
+        else {
+            continue;
+        };
+        assert_eq!(
+            refusal(created(&bench, &params)),
+            format!("{} is not built yet", descriptor.name)
+        );
+    }
 }
 
 #[test]
