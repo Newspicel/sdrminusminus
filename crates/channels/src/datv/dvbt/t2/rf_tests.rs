@@ -5,8 +5,11 @@ use rustfft::FftPlanner;
 
 use super::{
     acquire::{Acquisition, Preamble},
+    en302755::{
+        p1::{ACTIVE_CARRIERS, CSS_S1, CSS_S2},
+        papr::P2_RESERVED_CARRIERS,
+    },
     mapping::Mapping,
-    p1_tables::*,
     signalling::Pre,
 };
 
@@ -14,11 +17,11 @@ pub(super) fn p1(preamble: Preamble) -> Vec<Complex<f32>> {
     let mut spectrum = vec![Complex::default(); 1024];
     let mut differential = 1.0;
     let mut state = 0x4e46_u16;
-    for (i, &carrier) in P1_ACTIVE_CARRIERS.iter().enumerate() {
+    for (i, &carrier) in ACTIVE_CARRIERS.iter().enumerate() {
         let bit = match i {
-            0..64 => S1_PATTERNS[usize::from(preamble.s1)][i / 8] >> (7 - i % 8) & 1,
-            64..320 => S2_PATTERNS[usize::from(preamble.s2)][(i - 64) / 8] >> (7 - i % 8) & 1,
-            _ => S1_PATTERNS[usize::from(preamble.s1)][(i - 320) / 8] >> (7 - i % 8) & 1,
+            0..64 => CSS_S1[usize::from(preamble.s1)][i / 8] >> (7 - i % 8) & 1,
+            64..320 => CSS_S2[usize::from(preamble.s2)][(i - 64) / 8] >> (7 - i % 8) & 1,
+            _ => CSS_S1[usize::from(preamble.s1)][(i - 320) / 8] >> (7 - i % 8) & 1,
         };
         if bit != 0 {
             differential *= -1.0;
@@ -176,7 +179,7 @@ fn data_pilot_counts_match_standard_for_every_symbol_phase() {
                     let reserved = if papr == 0 {
                         0
                     } else {
-                        super::pilot_tables::P2_TONES[fft.ilog2() as usize - 10].len()
+                        P2_RESERVED_CARRIERS[fft.ilog2() as usize - 10].len()
                     };
                     assert_eq!(
                         mapping.data,

@@ -5,6 +5,8 @@ import re
 import struct
 from pathlib import Path
 
+from dvbs2_spec import page_columns
+
 NORMAL_BCH = [
     [0, 2, 3, 5, 16],
     [0, 1, 4, 5, 6, 8, 16],
@@ -36,16 +38,9 @@ SHORT_BCH = [
 
 
 def addresses(document, table):
-    start = document.index(f"Table {table}:")
-    section = document[start:].splitlines()[1:]
-    columns = [[], [], []]
-    for line in section:
-        if re.search(r"Table [AB]\.\d+:|Annex [BC] \(normative\)", line):
-            break
-        if re.fullmatch(r"\s*\d+(?:\s+\d+)+\s*", line):
-            for col, value in enumerate(re.split(r" {2,}", line.strip())):
-                columns[col].append([int(n) for n in value.split()])
-    return [row for column in columns for row in column]
+    section = document[document.index(f"Table {table}:") :].split("\n", 1)[1]
+    end = re.search(r"Table [AB]\.\d+:|Annex [BC] \(normative\)", section)
+    return [values for page in section[: end.start()].split("\f") for _, _, values in page_columns(page)]
 
 
 def polynomial_product(left, right):

@@ -5,6 +5,10 @@ use super::{
     protection::{Eep, Protection, eep_bitrate_kbps, uep_bitrate_kbps, uep_size_cu},
 };
 
+mod ebu;
+
+pub use ebu::ebu_text;
+
 const LABEL_BYTES: usize = 16;
 const END_MARKER: u8 = 0xFF;
 
@@ -373,36 +377,6 @@ pub fn label(bytes: &[u8]) -> Option<String> {
     let text = ebu_text(bytes);
     let trimmed = text.trim().to_owned();
     (!trimmed.is_empty()).then_some(trimmed)
-}
-
-pub fn ebu_text(bytes: &[u8]) -> String {
-    const LOW: [&str; 32] = [
-        "", "Ę", "Į", "Ų", "Ă", "Ė", "Ď", "Ș", "Ț", "Ċ", "", "", "Ġ", "Ĺ", "Ż", "Ń", "ą", "ę", "į",
-        "ų", "ă", "ė", "ď", "ș", "ț", "ċ", "Ň", "Ě", "ġ", "ĺ", "ż", "",
-    ];
-    const HIGH: [&str; 133] = [
-        "«", "ů", "»", "Ľ", "Ħ", "á", "à", "é", "è", "í", "ì", "ó", "ò", "ú", "ù", "Ñ", "Ç", "Ş",
-        "ß", "¡", "Ÿ", "â", "ä", "ê", "ë", "î", "ï", "ô", "ö", "û", "ü", "ñ", "ç", "ş", "ğ", "ı",
-        "ÿ", "Ķ", "Ņ", "©", "Ģ", "Ğ", "ě", "ň", "ő", "Ő", "€", "£", "$", "Ā", "Ē", "Ī", "Ū", "ķ",
-        "ņ", "Ļ", "ģ", "ļ", "İ", "ń", "ű", "Ű", "¿", "ľ", "°", "ā", "ē", "ī", "ū", "Á", "À", "É",
-        "È", "Í", "Ì", "Ó", "Ò", "Ú", "Ù", "Ř", "Č", "Š", "Ž", "Ð", "Ŀ", "Â", "Ä", "Ê", "Ë", "Î",
-        "Ï", "Ô", "Ö", "Û", "Ü", "ř", "č", "š", "ž", "đ", "ŀ", "Ã", "Å", "Æ", "Œ", "ŷ", "Ý", "Õ",
-        "Ø", "Þ", "Ŋ", "Ŕ", "Ć", "Ś", "Ź", "Ť", "ð", "ã", "å", "æ", "œ", "ŵ", "ý", "õ", "ø", "þ",
-        "ŋ", "ŕ", "ć", "ś", "ź", "ť", "ħ",
-    ];
-    let mut text = String::with_capacity(bytes.len());
-    for &byte in bytes {
-        match byte {
-            0..=31 => text.push_str(LOW[usize::from(byte)]),
-            0x7b..=0xff => text.push_str(HIGH[usize::from(byte - 0x7b)]),
-            0x24 => text.push('ł'),
-            0x5c => text.push('Ů'),
-            0x5e => text.push('Ł'),
-            0x60 => text.push('Ą'),
-            other => text.push(char::from(other)),
-        }
-    }
-    text
 }
 
 #[cfg(test)]

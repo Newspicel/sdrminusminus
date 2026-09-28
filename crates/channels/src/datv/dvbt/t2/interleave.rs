@@ -1,6 +1,6 @@
 use num_complex::Complex;
 
-use super::{Coding, DecodeError};
+use super::{Coding, DecodeError, en302755::demux};
 use crate::datv::dvbs2::ldpc::{Frame, Rate};
 
 pub fn bit_permutation(coding: Coding) -> Result<Vec<usize>, DecodeError> {
@@ -66,8 +66,8 @@ fn demux(coding: Coding) -> &'static [usize] {
         (4, Frame::Short, Rate::R2_5) => &[7, 5, 4, 0, 3, 1, 2, 6],
         (6, Frame::Short, Rate::R2_5) => &[4, 0, 1, 6, 2, 3, 5, 8, 7, 10, 9, 11],
         (8, Frame::Short, Rate::R2_5) => &[4, 0, 5, 1, 2, 3, 6, 7],
-        (4, _, _) => &[7, 1, 4, 2, 5, 3, 6, 0],
-        (6, _, _) => &[11, 7, 3, 10, 6, 2, 9, 5, 1, 8, 4, 0],
+        (4, _, _) => &demux::QAM16,
+        (6, _, _) => &demux::QAM64,
         (8, Frame::Short, _) => &[7, 3, 1, 5, 2, 6, 4, 0],
         (8, _, _) => &[15, 1, 13, 3, 8, 11, 9, 5, 10, 6, 4, 7, 12, 2, 14, 0],
         _ => &[],

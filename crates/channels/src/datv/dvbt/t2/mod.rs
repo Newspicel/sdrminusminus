@@ -1,15 +1,13 @@
 pub mod acquire;
 pub mod bicm;
 mod common;
+mod en302755;
 pub mod equalize;
 pub mod interleave;
 pub mod mapping;
-mod p1_tables;
-mod pilot_tables;
 pub mod receiver;
 pub mod schedule;
 pub mod signalling;
-mod tables;
 pub mod transport;
 pub mod transport_clock;
 
@@ -125,9 +123,8 @@ impl Coding {
 
     pub(super) fn addresses(self) -> Result<&'static [&'static [u16]], DecodeError> {
         Ok(match (self.frame, self.rate) {
-            (Frame::Normal, Rate::R3_5) => &tables::NORMAL_R3_5,
-            (Frame::Normal, Rate::R2_3) => &tables::NORMAL_R2_3,
-            (Frame::Short, Rate::R3_5) => &tables::SHORT_R3_5,
+            (Frame::Normal, Rate::R2_3) => &en302755::ldpc::NORMAL_R2_3,
+            (Frame::Short, Rate::R3_5) => &en302755::ldpc::SHORT_R3_5,
             _ => self
                 .rate
                 .addresses(self.frame)

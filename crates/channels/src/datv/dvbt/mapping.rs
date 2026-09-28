@@ -1,14 +1,8 @@
 use num_complex::Complex;
 use sdrmm_dsp::{CONFIDENT, Soft};
 
-const CONTINUAL: [usize; 45] = [
-    0, 48, 54, 87, 141, 156, 192, 201, 255, 279, 282, 333, 432, 450, 483, 525, 531, 618, 636, 714,
-    759, 765, 780, 804, 873, 888, 918, 939, 942, 969, 984, 1050, 1101, 1107, 1110, 1137, 1140,
-    1146, 1206, 1269, 1323, 1377, 1491, 1683, 1704,
-];
-const TPS: [usize; 17] = [
-    34, 50, 209, 346, 413, 569, 595, 688, 790, 901, 1073, 1219, 1262, 1286, 1469, 1594, 1687,
-];
+use super::en300744::{CONTINUAL_PILOTS_2K, CONTINUAL_PILOTS_8K, TPS_CARRIERS_2K, TPS_CARRIERS_8K};
+
 const SHIFTS: [usize; 6] = [0, 63, 105, 42, 21, 84];
 
 pub struct Mapping {
@@ -24,16 +18,12 @@ pub struct Mapping {
 
 impl Mapping {
     pub fn new(fft: usize) -> Self {
-        let copies = fft / 2048;
-        let carriers = 1704 * copies + 1;
-        let mut continual: Vec<_> = (0..copies)
-            .flat_map(|i| CONTINUAL.map(|k| k + i * 1704))
-            .collect();
-        continual.sort_unstable();
-        continual.dedup();
-        let tps: Vec<_> = (0..copies)
-            .flat_map(|i| TPS.map(|k| k + i * 1704))
-            .collect();
+        let carriers = 1704 * (fft / 2048) + 1;
+        let (continual, tps) = if fft == 2048 {
+            (CONTINUAL_PILOTS_2K.to_vec(), TPS_CARRIERS_2K.to_vec())
+        } else {
+            (CONTINUAL_PILOTS_8K.to_vec(), TPS_CARRIERS_8K.to_vec())
+        };
         let mut register = 0x7ffu16;
         let reference = (0..carriers)
             .map(|_| {

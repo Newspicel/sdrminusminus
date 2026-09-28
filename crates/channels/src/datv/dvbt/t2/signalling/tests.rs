@@ -47,12 +47,16 @@ fn shortened_punctured_codes_correct_damaged_signalling() {
     ] {
         let message: Vec<_> = (0..size).map(|i| (i * 13 + i / 11) % 23 < 12).collect();
         let (fec, shortened, punctured) = if is_pre {
-            (&mut decoder.pre, &PRE_SHORTEN[..], &PRE_PUNCTURE[..])
+            (
+                &mut decoder.pre,
+                &PRE_PADDING_ORDER[..],
+                &PRE_PUNCTURING_ORDER[..],
+            )
         } else {
             (
                 &mut decoder.post,
-                &POST_SHORTEN[table][..],
-                &POST_PUNCTURE[table][..],
+                &POST_PADDING_ORDER[table][..],
+                &POST_PUNCTURING_ORDER[table][..],
             )
         };
         let encoded = fec_encode(fec, &message, shortened, punctured, length);
@@ -85,7 +89,7 @@ fn shortened_punctured_codes_correct_damaged_signalling() {
 #[test]
 fn shortening_keeps_exact_information_length() {
     for size in [1, 192, 200, 359, 360, 361, 7032] {
-        for order in POST_SHORTEN {
+        for order in POST_PADDING_ORDER {
             let mut omitted = vec![false; 7032];
             shortening(&mut omitted, size, &order).unwrap();
             assert_eq!(omitted.iter().filter(|&&v| !v).count(), size);
@@ -117,9 +121,9 @@ fn all_l1_constellations_reverse_the_column_interleaver_and_demultiplexer() {
         let mut serial = vec![false; original.len()];
         if bits > 2 {
             let demux = if bits == 4 {
-                &DEMUX16[..]
+                &demux::QAM16[..]
             } else {
-                &DEMUX64[..]
+                &demux::QAM64[..]
             };
             for column in 0..columns {
                 for row in 0..rows {

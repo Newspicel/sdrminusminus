@@ -3,7 +3,10 @@ use std::{f32::consts::TAU, sync::Arc};
 use num_complex::Complex;
 use rustfft::{Fft, FftPlanner};
 
-use super::{DecodeError, p1_tables::*};
+use super::{
+    DecodeError,
+    en302755::p1::{ACTIVE_CARRIERS, CSS_S1, CSS_S2},
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Preamble {
@@ -151,7 +154,7 @@ impl Acquisition {
         let mut confidence = 0.55;
         for offset in -64_isize..=64 {
             let cells: [Complex<f32>; 384] = std::array::from_fn(|i| {
-                let bin = (P1_ACTIVE_CARRIERS[i] as isize - 426 + offset).rem_euclid(1024) as usize;
+                let bin = (ACTIVE_CARRIERS[i] as isize - 426 + offset).rem_euclid(1024) as usize;
                 self.spectrum[bin] * self.signs[i]
             });
             let soft: [f32; 384] = std::array::from_fn(|i| {
@@ -161,8 +164,8 @@ impl Acquisition {
                     (cells[i] * cells[i - 1].conj()).re
                 }
             });
-            let (s1, q1) = strongest(&S1_PATTERNS, &soft[1..64], 1, Some(&soft[320..384]));
-            let (s2, q2) = strongest(&S2_PATTERNS, &soft[64..320], 0, None);
+            let (s1, q1) = strongest(&CSS_S1, &soft[1..64], 1, Some(&soft[320..384]));
+            let (s2, q2) = strongest(&CSS_S2, &soft[64..320], 0, None);
             let quality = q1.min(q2);
             if quality > confidence {
                 confidence = quality;

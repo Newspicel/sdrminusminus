@@ -1,6 +1,14 @@
 use num_complex::Complex;
 
-use super::{Constellation, DecodeError, Frame, Rate, acquire::Preamble, bicm};
+use super::{
+    Constellation, DecodeError, Frame, Rate,
+    acquire::Preamble,
+    bicm,
+    en302755::{
+        demux,
+        l1::{POST_PADDING_ORDER, POST_PUNCTURING_ORDER, PRE_PADDING_ORDER, PRE_PUNCTURING_ORDER},
+    },
+};
 use crate::datv::dvbs2::{
     bb,
     bch::{Bch, BchScratch},
@@ -9,36 +17,6 @@ use crate::datv::dvbs2::{
 
 mod fields;
 pub use fields::{Plp, Post, Pre};
-
-const PRE_SHORTEN: [usize; 9] = [7, 3, 6, 5, 2, 4, 1, 8, 0];
-const PRE_PUNCTURE: [usize; 36] = [
-    27, 13, 29, 32, 5, 0, 11, 21, 33, 20, 25, 28, 18, 35, 8, 3, 9, 31, 22, 24, 7, 14, 17, 4, 2, 26,
-    16, 34, 19, 10, 12, 23, 1, 6, 30, 15,
-];
-const POST_SHORTEN: [[usize; 20]; 3] = [
-    [
-        18, 17, 16, 15, 14, 13, 12, 11, 4, 10, 9, 8, 3, 2, 7, 6, 5, 1, 19, 0,
-    ],
-    [
-        18, 17, 16, 15, 14, 13, 12, 11, 4, 10, 9, 8, 7, 3, 2, 1, 6, 5, 19, 0,
-    ],
-    [
-        18, 17, 16, 4, 15, 14, 13, 12, 3, 11, 10, 9, 2, 8, 7, 1, 6, 5, 19, 0,
-    ],
-];
-const POST_PUNCTURE: [[usize; 25]; 3] = [
-    [
-        6, 4, 18, 9, 13, 8, 15, 20, 5, 17, 2, 24, 10, 22, 12, 3, 16, 23, 1, 14, 0, 21, 19, 7, 11,
-    ],
-    [
-        6, 4, 13, 9, 18, 8, 15, 20, 5, 17, 2, 22, 24, 7, 12, 1, 16, 23, 14, 0, 21, 10, 19, 11, 3,
-    ],
-    [
-        6, 15, 13, 10, 3, 17, 21, 8, 5, 19, 2, 23, 16, 24, 7, 18, 1, 12, 20, 0, 4, 14, 9, 11, 22,
-    ],
-];
-const DEMUX16: [usize; 8] = [7, 1, 4, 2, 5, 3, 6, 0];
-const DEMUX64: [usize; 12] = [11, 7, 3, 10, 6, 2, 9, 5, 1, 8, 4, 0];
 
 struct Fec {
     ldpc: Ldpc,
@@ -102,8 +80,8 @@ impl Signalling {
             &mut self.omitted,
             &mut self.word,
             &mut self.decoded[..200],
-            &PRE_SHORTEN,
-            &PRE_PUNCTURE,
+            &PRE_PADDING_ORDER,
+            &PRE_PUNCTURING_ORDER,
         )?;
         Pre::parse(&self.decoded[..200], preamble)
     }
@@ -125,8 +103,8 @@ impl Signalling {
                 &mut self.omitted,
                 &mut self.word,
                 decoded,
-                &POST_SHORTEN[table],
-                &POST_PUNCTURE[table],
+                &POST_PADDING_ORDER[table],
+                &POST_PUNCTURING_ORDER[table],
             )?;
             if pre.scrambled {
                 bb::scramble(decoded);
@@ -158,9 +136,9 @@ impl Signalling {
                     i * bits + b
                 } else {
                     let demux = if bits == 4 {
-                        &DEMUX16[..]
+                        &demux::QAM16[..]
                     } else {
-                        &DEMUX64[..]
+                        &demux::QAM64[..]
                     };
                     let output = i % 2 * bits + b;
                     let column = demux

@@ -62,7 +62,7 @@ pub const MODES: &[Mode] = &[
         short: false,
         modulation: Modulation::Qpsk,
         rate: Rate::R13_45,
-        order: &[0, 0],
+        order: &[],
         points: m132::POINTS,
     },
     Mode {
@@ -70,7 +70,7 @@ pub const MODES: &[Mode] = &[
         short: false,
         modulation: Modulation::Qpsk,
         rate: Rate::R9_20,
-        order: &[0, 0],
+        order: &[],
         points: m134::POINTS,
     },
     Mode {
@@ -78,7 +78,7 @@ pub const MODES: &[Mode] = &[
         short: false,
         modulation: Modulation::Qpsk,
         rate: Rate::R11_20,
-        order: &[0, 0],
+        order: &[],
         points: m136::POINTS,
     },
     Mode {
@@ -366,7 +366,7 @@ pub const MODES: &[Mode] = &[
         short: true,
         modulation: Modulation::Qpsk,
         rate: Rate::R11_45,
-        order: &[0, 0],
+        order: &[],
         points: m216::POINTS,
     },
     Mode {
@@ -374,7 +374,7 @@ pub const MODES: &[Mode] = &[
         short: true,
         modulation: Modulation::Qpsk,
         rate: Rate::R4_15,
-        order: &[0, 0],
+        order: &[],
         points: m218::POINTS,
     },
     Mode {
@@ -382,7 +382,7 @@ pub const MODES: &[Mode] = &[
         short: true,
         modulation: Modulation::Qpsk,
         rate: Rate::R14_45,
-        order: &[0, 0],
+        order: &[],
         points: m220::POINTS,
     },
     Mode {
@@ -390,7 +390,7 @@ pub const MODES: &[Mode] = &[
         short: true,
         modulation: Modulation::Qpsk,
         rate: Rate::R7_15,
-        order: &[0, 0],
+        order: &[],
         points: m222::POINTS,
     },
     Mode {
@@ -398,7 +398,7 @@ pub const MODES: &[Mode] = &[
         short: true,
         modulation: Modulation::Qpsk,
         rate: Rate::R8_15,
-        order: &[0, 0],
+        order: &[],
         points: m224::POINTS,
     },
     Mode {
@@ -406,7 +406,7 @@ pub const MODES: &[Mode] = &[
         short: true,
         modulation: Modulation::Qpsk,
         rate: Rate::R32_45,
-        order: &[0, 0],
+        order: &[],
         points: m226::POINTS,
     },
     Mode {

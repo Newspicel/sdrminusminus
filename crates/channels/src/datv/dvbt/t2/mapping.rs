@@ -1,4 +1,12 @@
-use super::{DecodeError, acquire::Preamble, pilot_tables::*, signalling::Pre};
+use super::{
+    DecodeError,
+    acquire::Preamble,
+    en302755::{
+        papr::{P2_RESERVED_CARRIERS, RESERVED_CARRIERS},
+        pilots::{CONTINUAL_PILOT_GROUPS, EXTENDED_CONTINUAL_PILOTS, PN_SEQUENCE},
+    },
+    signalling::Pre,
+};
 
 const PERMUTATIONS: [[&[usize]; 2]; 6] = [
     [&[8, 7, 6, 5, 0, 1, 2, 3, 4], &[6, 8, 7, 4, 1, 0, 5, 2, 3]],
@@ -144,11 +152,11 @@ impl Mapping {
                 };
             }
         }
-        for &tone in P2_TONES[self.mode] {
+        for &tone in P2_RESERVED_CARRIERS[self.mode] {
             self.map[tone + extra] = Carrier::Reserved;
         }
         if preamble.miso() {
-            for &tone in P2_TONES[self.mode] {
+            for &tone in P2_RESERVED_CARRIERS[self.mode] {
                 let k = tone + extra;
                 let adjacent = match k % 3 {
                     1 => k + 1,
@@ -217,9 +225,9 @@ impl Mapping {
         }
         if pre.papr >= 2 {
             let tones = if closing {
-                P2_TONES[self.mode]
+                P2_RESERVED_CARRIERS[self.mode]
             } else {
-                DATA_TONES[self.mode]
+                RESERVED_CARRIERS[self.mode]
             };
             let shift = if closing {
                 extra
@@ -243,7 +251,7 @@ impl Mapping {
             };
             CLOSING_ACTIVE[row][pattern]
                 .checked_sub(if pre.papr >= 2 {
-                    P2_TONES[self.mode].len()
+                    P2_RESERVED_CARRIERS[self.mode].len()
                 } else {
                     0
                 })
@@ -268,8 +276,8 @@ impl Mapping {
             2 => 4.0 * 2.0_f32.sqrt() / 3.0,
             _ => 8.0 / 3.0,
         };
-        for group in &CONTINUAL[pattern][..self.mode + 1] {
-            for &index in *group {
+        for group in &CONTINUAL_PILOT_GROUPS[..self.mode + 1] {
+            for &index in group[pattern] {
                 let k = if self.mode == 5 {
                     index
                 } else {
@@ -284,7 +292,7 @@ impl Mapping {
             }
         }
         if extended && self.mode >= 3 {
-            for &k in EXTENDED[pattern][self.mode - 3] {
+            for &k in EXTENDED_CONTINUAL_PILOTS[self.mode - 3][pattern] {
                 self.map[k] = Carrier::Pilot {
                     amplitude,
                     inverted: k % dx == 0 && k / dx % 2 == 1,
@@ -294,9 +302,7 @@ impl Mapping {
     }
 
     fn finish(&mut self, symbol: usize, offset: usize) -> Result<(), DecodeError> {
-        let byte = *PN_SEQUENCE_TABLE
-            .get(symbol / 8)
-            .ok_or(DecodeError::Parameters)?;
+        let byte = *PN_SEQUENCE.get(symbol / 8).ok_or(DecodeError::Parameters)?;
         let pn = byte >> (7 - symbol % 8) & 1 != 0;
         self.data = 0;
         for k in 0..self.carriers {

@@ -4,9 +4,11 @@ import hashlib
 import json
 import math
 import random
-import re
 import struct
 from pathlib import Path
+
+import s2x_tables
+from dvbs2_spec import single
 
 
 def crc8(data):
@@ -98,7 +100,7 @@ def encode(mode, tables, seed, cyclic=False):
         data += [0] * (width * height - len(data))
         data = [data[column * height + row] for row in range(height) for column in mode['order']]
     data += [1] * (mode['slots'] * 90 * width - len(data))
-    constellation = [complex(*point) for point in mode['points']]
+    constellation = [complex(single(real), single(imaginary)) for real, imaginary in mode['points']]
     payload = [constellation[int(''.join(map(str, data[i:i + width])), 2)] for i in range(0, len(data), width)]
     return physical(mode['code'], payload), count
 
@@ -149,16 +151,7 @@ def main():
     parser.add_argument('--cache', type=Path, required=True)
     parser.add_argument('--out', type=Path, required=True)
     args = parser.parse_args()
-    modes = json.loads((args.cache / 'modes.json').read_text())
-    source = (args.cache / 'ldpc.cc').read_text()
-    tables = {}
-    for match in re.finditer(r'ldpc_tab_(\d+_\d+)([NS])\s*\[\d+\]\s*\[\d+\]\s*=\s*\{(.*?)\};', source, re.S):
-        rate, size, raw = match.groups()
-        rows = []
-        for row in re.findall(r'\{([^{}]+)\}', raw):
-            values = list(map(int, re.findall(r'\d+', row)))
-            rows.append(values[1:values[0] + 1])
-        tables[(rate, size)] = rows
+    modes, tables, _ = s2x_tables.load(args.cache)
     args.out.mkdir(parents=True, exist_ok=True)
     randomizer = random.Random(324107)
     for code in [132, 138, 184, 200, 214, 248]:

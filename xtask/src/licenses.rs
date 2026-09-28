@@ -76,31 +76,13 @@ const NATIVE: &[Native] = &[
         files: &[],
     },
     Native {
-        name: "DVB-T, DVB-S2X and DAB packet-mode reference implementations",
-        license: "GPL-3.0-or-later",
-        url: "https://github.com/gnuradio/gnuradio/tree/main/gr-dtv/lib/dvbt",
-        note: Some(
-            "The Rust DVB-T implementation was written from ETSI EN 300 744, with constellation and convolutional-code conventions checked against GNU Radio, Copyright 2015,2016 Free Software Foundation, Inc., GPL-3.0-or-later. DAB packet-mode fields were checked against Qt-DAB, Copyright 2015-2024 Jan van Katwijk, GPL-2.0-or-later, https://github.com/JvanKatwijk/qt-dab. DVB-S2X constellation, interleaver and LDPC tables are adapted from GNU Radio gr-dtv, Copyright 2015-2019 Free Software Foundation, Inc., GPL-3.0-or-later. These reference works are compatible with this project's AGPL-3.0-or-later license through GPL-3.0 section 13.",
-        ),
-        files: &["GPL-3.0.txt"],
-    },
-    Native {
         name: "FFmpeg 9.0.1",
-        license: "GPL-3.0-or-later",
+        license: "LGPL-2.1-or-later",
         url: "https://ffmpeg.org/",
         note: Some(
-            "Broadcast AAC, AC-3, MPEG-2, H.264 and HEVC playback uses FFmpeg. Release libraries are built from the unmodified official 9.0.1 source with GPL and version3 enabled by scripts/build-media.py. The script records the source URL, checksum and complete build configuration. FFmpeg is Copyright (c) the FFmpeg developers. Its GPL-3.0 license text is below.",
+            "Broadcast AAC, AC-3, MPEG-2, H.264 and HEVC playback uses FFmpeg. Release libraries are built from the unmodified official 9.0.1 source by scripts/build-media.py, with only LGPL components enabled. The script records the source URL, checksum and complete build configuration. FFmpeg is Copyright (c) the FFmpeg developers. Its LGPL-2.1 license text is below.",
         ),
-        files: &["GPL-3.0.txt"],
-    },
-    Native {
-        name: "DABlin PAD and MOT reference",
-        license: "GPL-3.0-or-later",
-        url: "https://github.com/Opendigitalradio/dablin",
-        note: Some(
-            "The Rust PAD and MOT decoders in crates/channels/src/dab/pad were written using DABlin's protocol implementation as a reference. DABlin is Copyright (C) 2015-2022 Stefan Pöschel and distributed under GPL-3.0-or-later, which GPL-3.0 section 13 lets SDR-- combine with its AGPL-3.0-or-later.",
-        ),
-        files: &["GPL-3.0.txt"],
+        files: &["FFmpeg-LGPL-2.1.txt"],
     },
     Native {
         name: "SoapySDR",
@@ -122,10 +104,10 @@ const NATIVE: &[Native] = &[
             "SDR-- drives the RTL2832U and its R82xx tuner itself, in Rust, over its own USB \
              stack. No part of librtlsdr is linked or shipped, but the register and I2C \
              encodings, the PLL and filter programming and the tuner gain table in \
-             `crates/device-rtlsdr/src/driver` were written from librtlsdr, which is the only \
-             specification these parts have. That makes them a derived work under \
-             GPL-2.0-or-later. SDR-- exercises the \"or later\" option to take them under GPL-3.0, whose text is \
-             below, and combines them with its own AGPL-3.0-or-later under GPL-3.0 section 13.",
+             `crates/device-rtlsdr/src/driver` come from librtlsdr through rs-rtl, which ports \
+             it. That makes them a derived work under GPL-2.0-or-later. SDR-- exercises the \
+             \"or later\" option to take them under GPL-3.0, whose text is below, and combines \
+             them with its own AGPL-3.0-or-later under GPL-3.0 section 13.",
         ),
         files: &["GPL-3.0.txt"],
     },
@@ -156,18 +138,37 @@ const NATIVE: &[Native] = &[
         files: &["libairspyhf-BSD-3-Clause.txt"],
     },
     Native {
-        name: "hackrf (libhackrf)",
-        license: "GPL-2.0-or-later",
+        name: "hackrf-nusb 0.3.0",
+        license: "MIT OR Apache-2.0",
+        url: "https://github.com/bastibl/hackrf-nusb",
+        note: Some(
+            "The request codes, board types and control request builders in \
+             `crates/device-hackrf/src/driver` contain code from hackrf-nusb 0.3.0, Copyright (c) \
+             2026 hackrf-nusb contributors, used under its MIT license.",
+        ),
+        files: &["hackrf-nusb-MIT.txt"],
+    },
+    Native {
+        name: "hackrf.h (libhackrf API)",
+        license: "BSD-3-Clause",
         url: "https://github.com/greatscottgadgets/hackrf",
         note: Some(
-            "As with librtlsdr: SDR-- speaks the HackRF's USB protocol itself and links nothing, \
-             but the vendor request numbers, the register maps and the sweep framing in \
-             `crates/device-hackrf/src/driver` follow libhackrf and are a derived work on the \
-             same terms, taken under GPL-3.0 exactly as librtlsdr above. The public API \
-             declarations in `hackrf.h` are BSD-3-Clause, whose text is below because that \
-             licence asks to accompany the binary.",
+            "The sweep constants in `crates/device-hackrf/src/driver/sweep.rs` follow the public \
+             API declarations in `hackrf.h`. Its licence asks to accompany the binary, so its \
+             text is below.",
         ),
-        files: &["GPL-3.0.txt", "HackRF-BSD-3-Clause.txt"],
+        files: &["HackRF-BSD-3-Clause.txt"],
+    },
+    Native {
+        name: "rs-rtl 0.4.2 (desperado)",
+        license: "MIT",
+        url: "https://github.com/xoolive/desperado",
+        note: Some(
+            "The R82xx tuner code in `crates/device-rtlsdr/src/driver/tuner.rs` contains code \
+             from rs-rtl 0.4.2, Copyright (c) 2025 Xavier Olive, used under its MIT license. \
+             rs-rtl ports librtlsdr, so the librtlsdr entry above applies to the same code.",
+        ),
+        files: &["rs-rtl-MIT.txt"],
     },
     Native {
         name: "librtlsdr (KrakenRF fork)",
@@ -195,39 +196,48 @@ const NATIVE: &[Native] = &[
         files: &[],
     },
     Native {
-        name: "gr-dtv, gr-dvbs2rx, gr-dvbgse",
-        license: "GPL-3.0-or-later",
-        url: "https://github.com/gnuradio/gnuradio",
-        note: Some(
-            "DVB-S2 is specified by ETSI EN 302 307-1 and -2, and `crates/channels/src/datv` \
-             follows those documents. Three constant tables in it were transcribed from GNU \
-             Radio's gr-dtv rather than retyped from the standard's own pages: the LDPC parity \
-             accumulator addresses in `dvbs2/tables`, the APSK ring ratios and constellation \
-             point order, and the bit interleaver column order. The GSE reader in `dvbs2/gse.rs` \
-             was written against TS 102 606 with drmpeg's gr-dvbgse as a second reading, and the \
-             BCH and VL-SNR block lengths were cross-checked against gr-dvbs2rx. The VL-SNR \
-             header sequence in `dvbs2/vlsnr.rs` is the standard's own, and reproduces gr-dtv's \
-             sixteen patterns exactly, which is how both readings are known to agree. All three \
-             sources are GPL-3.0-or-later, combined with SDR--'s AGPL-3.0-or-later under \
-             GPL-3.0 section 13.",
-        ),
-        files: &["GPL-3.0.txt"],
-    },
-    Native {
         name: "qdmr (libdmrconf)",
         license: "GPL-3.0-or-later",
         url: "https://github.com/hmatuschek/qdmr",
         note: Some(
-            "A codeplug is a vendor binary with no published specification, so the memory maps \
-             and serial protocols in `crates/cps` were written from qdmr, which is where those \
-             formats are documented. That makes them a derived work. qdmr is GPL-3.0-or-later, \
-             combined with SDR--'s AGPL-3.0-or-later under GPL-3.0 section 13. The \
-             AnyTone AT-D890UV channel element is the exception: qdmr's second-generation map \
-             decodes firmware V100's digital channels as analogue, and the field layout in \
-             `crates/cps/src/anytone/channel.rs` was re-derived from a radio and checked against \
+            "The Radtel RT-4D codeplug banks and serial protocol in `crates/cps/src/radtel` and \
+             the AnyTone serial protocol in `crates/cps/src/anytone/protocol.rs` follow qdmr and \
+             are a derived work. qdmr is GPL-3.0-or-later, combined with SDR--'s \
+             AGPL-3.0-or-later under GPL-3.0 section 13. The AnyTone AT-D890UV memory map and \
+             channel element were worked out from a radio and checked against \
              `fixtures/cps/anytone-d890uv-v100.img`.",
         ),
         files: &["GPL-3.0.txt"],
+    },
+    Native {
+        name: "NanoVNA-Saver",
+        license: "GPL-3.0-or-later",
+        url: "https://github.com/NanoVNA-Saver/nanovna-saver",
+        note: Some(
+            "The NanoVNA serial protocol handling and RF measurement formulas in \
+             `crates/tools/src/nanovna` were translated from NanoVNA-Saver, Copyright 2019, 2020 \
+             Rune B. Broberg and 2020-2026 the NanoVNA-Saver Authors, and are a derived work \
+             combined with SDR--'s AGPL-3.0-or-later under GPL-3.0 section 13.",
+        ),
+        files: &["GPL-3.0.txt"],
+    },
+    Native {
+        name: "codec2 FDMDV modem",
+        license: "LGPL-2.1-only",
+        url: "https://github.com/drowe67/codec2",
+        note: Some(
+            "`crates/channels/vendor/codec2-fdmdv` vendors the FreeDV 1600 FDMDV modem from \
+             codec2 and compiles it into the binary. SDR-- satisfies LGPL-2.1 §6 by publishing \
+             its complete source.",
+        ),
+        files: &["codec2-LGPL-2.1.txt"],
+    },
+    Native {
+        name: "Kiss FFT",
+        license: "BSD-3-Clause",
+        url: "https://github.com/mborgerding/kissfft",
+        note: Some("Bundled with the codec2 FDMDV modem. Copyright (c) 2003-2010 Mark Borgerding."),
+        files: &["KissFFT-BSD-3-Clause.txt"],
     },
     Native {
         name: "xng",

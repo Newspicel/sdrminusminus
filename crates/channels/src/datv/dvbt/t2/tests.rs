@@ -221,13 +221,14 @@ fn invalid_profiles_and_buffers_are_rejected() {
 
 #[test]
 fn terrestrial_tables_are_distinct_from_satellite_codes() {
-    assert_eq!(&tables::NORMAL_R2_3[0][..4], &[317, 2255, 2324, 2723]);
-    assert_eq!(&tables::SHORT_R3_5[0][..4], &[71, 1478, 1901, 2240]);
-    assert_eq!(tables::NORMAL_R3_5.len(), 108);
-    assert_eq!(tables::NORMAL_R2_3.len(), 120);
-    assert_eq!(tables::SHORT_R3_5.len(), 27);
+    assert_eq!(
+        &en302755::ldpc::NORMAL_R2_3[0][..4],
+        &[317, 2255, 2324, 2723]
+    );
+    assert_eq!(&en302755::ldpc::SHORT_R3_5[0][..4], &[71, 1478, 1901, 2240]);
+    assert_eq!(en302755::ldpc::NORMAL_R2_3.len(), 120);
+    assert_eq!(en302755::ldpc::SHORT_R3_5.len(), 27);
     for config in [
-        coding(Frame::Normal, Rate::R3_5, Constellation::Qpsk, false),
         coding(Frame::Normal, Rate::R2_3, Constellation::Qpsk, false),
         coding(Frame::Short, Rate::R3_5, Constellation::Qpsk, false),
     ] {
@@ -236,6 +237,13 @@ fn terrestrial_tables_are_distinct_from_satellite_codes() {
             config.rate.addresses(config.frame).unwrap()
         );
     }
+    let normal = coding(Frame::Normal, Rate::R3_5, Constellation::Qpsk, false);
+    assert!(
+        normal.addresses().unwrap()[36..]
+            .iter()
+            .map(|row| usize::from(row[0]))
+            .eq(0..72)
+    );
 }
 
 mod transport_tests;

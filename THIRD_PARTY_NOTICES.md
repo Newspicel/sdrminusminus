@@ -36,33 +36,33 @@ MPL-2.0. File-level copyleft: modifications to the crate's own files must be pub
 
 MPL-2.0. File-level copyleft: modifications to the crate's own files must be published, which reaches nothing in SDR--.
 
-**DABlin PAD and MOT reference**: GPL-3.0-or-later
+**codec2 FDMDV modem**: LGPL-2.1-only
 
-The Rust PAD and MOT decoders in crates/channels/src/dab/pad were written using DABlin's protocol implementation as a reference. DABlin is Copyright (C) 2015-2022 Stefan Pöschel and distributed under GPL-3.0-or-later, which GPL-3.0 section 13 lets SDR-- combine with its AGPL-3.0-or-later.
+`crates/channels/vendor/codec2-fdmdv` vendors the FreeDV 1600 FDMDV modem from codec2 and compiles it into the binary. SDR-- satisfies LGPL-2.1 §6 by publishing its complete source.
 
 **DPDFNet**: Apache-2.0
 
 The neural denoiser of the Audio FX node runs the pretrained dpdfnet2 16 kHz model published by Ceva, executed with tract. `cargo xtask denoise-model` converts the published ONNX file to NNEF with its weights rounded to half precision, shipped as `crates/channels/models/dpdfnet2.nnef.tgz`. Only the weights are used; the STFT and streaming around them in `crates/channels/src/neural_denoise.rs` are this project's own.
 
-**DVB-T, DVB-S2X and DAB packet-mode reference implementations**: GPL-3.0-or-later
+**FFmpeg 9.0.1**: LGPL-2.1-or-later
 
-The Rust DVB-T implementation was written from ETSI EN 300 744, with constellation and convolutional-code conventions checked against GNU Radio, Copyright 2015,2016 Free Software Foundation, Inc., GPL-3.0-or-later. DAB packet-mode fields were checked against Qt-DAB, Copyright 2015-2024 Jan van Katwijk, GPL-2.0-or-later, https://github.com/JvanKatwijk/qt-dab. DVB-S2X constellation, interleaver and LDPC tables are adapted from GNU Radio gr-dtv, Copyright 2015-2019 Free Software Foundation, Inc., GPL-3.0-or-later. These reference works are compatible with this project's AGPL-3.0-or-later license through GPL-3.0 section 13.
+Broadcast AAC, AC-3, MPEG-2, H.264 and HEVC playback uses FFmpeg. Release libraries are built from the unmodified official 9.0.1 source by scripts/build-media.py, with only LGPL components enabled. The script records the source URL, checksum and complete build configuration. FFmpeg is Copyright (c) the FFmpeg developers. Its LGPL-2.1 license text is below.
 
-**FFmpeg 9.0.1**: GPL-3.0-or-later
+**hackrf-nusb 0.3.0**: MIT OR Apache-2.0
 
-Broadcast AAC, AC-3, MPEG-2, H.264 and HEVC playback uses FFmpeg. Release libraries are built from the unmodified official 9.0.1 source with GPL and version3 enabled by scripts/build-media.py. The script records the source URL, checksum and complete build configuration. FFmpeg is Copyright (c) the FFmpeg developers. Its GPL-3.0 license text is below.
+The request codes, board types and control request builders in `crates/device-hackrf/src/driver` contain code from hackrf-nusb 0.3.0, Copyright (c) 2026 hackrf-nusb contributors, used under its MIT license.
 
-**gr-dtv, gr-dvbs2rx, gr-dvbgse**: GPL-3.0-or-later
+**hackrf.h (libhackrf API)**: BSD-3-Clause
 
-DVB-S2 is specified by ETSI EN 302 307-1 and -2, and `crates/channels/src/datv` follows those documents. Three constant tables in it were transcribed from GNU Radio's gr-dtv rather than retyped from the standard's own pages: the LDPC parity accumulator addresses in `dvbs2/tables`, the APSK ring ratios and constellation point order, and the bit interleaver column order. The GSE reader in `dvbs2/gse.rs` was written against TS 102 606 with drmpeg's gr-dvbgse as a second reading, and the BCH and VL-SNR block lengths were cross-checked against gr-dvbs2rx. The VL-SNR header sequence in `dvbs2/vlsnr.rs` is the standard's own, and reproduces gr-dtv's sixteen patterns exactly, which is how both readings are known to agree. All three sources are GPL-3.0-or-later, combined with SDR--'s AGPL-3.0-or-later under GPL-3.0 section 13.
-
-**hackrf (libhackrf)**: GPL-2.0-or-later
-
-As with librtlsdr: SDR-- speaks the HackRF's USB protocol itself and links nothing, but the vendor request numbers, the register maps and the sweep framing in `crates/device-hackrf/src/driver` follow libhackrf and are a derived work on the same terms, taken under GPL-3.0 exactly as librtlsdr above. The public API declarations in `hackrf.h` are BSD-3-Clause, whose text is below because that licence asks to accompany the binary.
+The sweep constants in `crates/device-hackrf/src/driver/sweep.rs` follow the public API declarations in `hackrf.h`. Its licence asks to accompany the binary, so its text is below.
 
 **heimdall_daq_fw**: GPL-3.0-or-later
 
 How a KrakenSDR identifies itself and how its bank is wired, the serial each receive chain carries, the control chain's GPIO pin for the calibration noise source, and the pins for the lanes' bias tees, is published only as KrakenRF's own acquisition firmware. `crates/device-rtlsdr/src/kraken` was written from it. No code was taken and nothing is linked or shipped.
+
+**Kiss FFT**: BSD-3-Clause
+
+Bundled with the codec2 FDMDV modem. Copyright (c) 2003-2010 Mark Borgerding.
 
 **libairspy**: BSD-3-Clause
 
@@ -76,13 +76,21 @@ As with libairspy: nothing of libairspyhf is linked or shipped, but the vendor r
 
 The tuner register that stops the PLL dithering, without which two dongles on one clock have no stable phase between them, is documented only in KrakenRF's fork of librtlsdr. The write in `crates/device-rtlsdr/src/driver/tuner.rs` follows it and is a derived work on the same terms as librtlsdr above.
 
+**NanoVNA-Saver**: GPL-3.0-or-later
+
+The NanoVNA serial protocol handling and RF measurement formulas in `crates/tools/src/nanovna` were translated from NanoVNA-Saver, Copyright 2019, 2020 Rune B. Broberg and 2020-2026 the NanoVNA-Saver Authors, and are a derived work combined with SDR--'s AGPL-3.0-or-later under GPL-3.0 section 13.
+
 **qdmr (libdmrconf)**: GPL-3.0-or-later
 
-A codeplug is a vendor binary with no published specification, so the memory maps and serial protocols in `crates/cps` were written from qdmr, which is where those formats are documented. That makes them a derived work. qdmr is GPL-3.0-or-later, combined with SDR--'s AGPL-3.0-or-later under GPL-3.0 section 13. The AnyTone AT-D890UV channel element is the exception: qdmr's second-generation map decodes firmware V100's digital channels as analogue, and the field layout in `crates/cps/src/anytone/channel.rs` was re-derived from a radio and checked against `fixtures/cps/anytone-d890uv-v100.img`.
+The Radtel RT-4D codeplug banks and serial protocol in `crates/cps/src/radtel` and the AnyTone serial protocol in `crates/cps/src/anytone/protocol.rs` follow qdmr and are a derived work. qdmr is GPL-3.0-or-later, combined with SDR--'s AGPL-3.0-or-later under GPL-3.0 section 13. The AnyTone AT-D890UV memory map and channel element were worked out from a radio and checked against `fixtures/cps/anytone-d890uv-v100.img`.
+
+**rs-rtl 0.4.2 (desperado)**: MIT
+
+The R82xx tuner code in `crates/device-rtlsdr/src/driver/tuner.rs` contains code from rs-rtl 0.4.2, Copyright (c) 2025 Xavier Olive, used under its MIT license. rs-rtl ports librtlsdr, so the librtlsdr entry above applies to the same code.
 
 **rtl-sdr (librtlsdr)**: GPL-2.0-or-later
 
-SDR-- drives the RTL2832U and its R82xx tuner itself, in Rust, over its own USB stack. No part of librtlsdr is linked or shipped, but the register and I2C encodings, the PLL and filter programming and the tuner gain table in `crates/device-rtlsdr/src/driver` were written from librtlsdr, which is the only specification these parts have. That makes them a derived work under GPL-2.0-or-later. SDR-- exercises the "or later" option to take them under GPL-3.0, whose text is below, and combines them with its own AGPL-3.0-or-later under GPL-3.0 section 13.
+SDR-- drives the RTL2832U and its R82xx tuner itself, in Rust, over its own USB stack. No part of librtlsdr is linked or shipped, but the register and I2C encodings, the PLL and filter programming and the tuner gain table in `crates/device-rtlsdr/src/driver` come from librtlsdr through rs-rtl, which ports it. That makes them a derived work under GPL-2.0-or-later. SDR-- exercises the "or later" option to take them under GPL-3.0, whose text is below, and combines them with its own AGPL-3.0-or-later under GPL-3.0 section 13.
 
 **SoapySDR**: BSL-1.0
 
@@ -978,21 +986,23 @@ The ACARS application layer and the VDL2, HFDL, Inmarsat Aero, Inmarsat STD-C, D
 | [use-sync-external-store](https://github.com/react/react#readme) | 1.7.0 | MIT |
 | [zustand](https://github.com/pmndrs/zustand) | 4.5.7, 5.0.15 | MIT |
 
-## Hardware libraries (14)
+## Hardware libraries (16)
 
 | Component | Version | License |
 | --- | --- | --- |
-| [DABlin PAD and MOT reference](https://github.com/Opendigitalradio/dablin) | - | GPL-3.0-or-later |
+| [codec2 FDMDV modem](https://github.com/drowe67/codec2) | - | LGPL-2.1-only |
 | [DPDFNet](https://github.com/ceva-ip/DPDFNet) | - | Apache-2.0 |
-| [DVB-T, DVB-S2X and DAB packet-mode reference implementations](https://github.com/gnuradio/gnuradio/tree/main/gr-dtv/lib/dvbt) | - | GPL-3.0-or-later |
-| [FFmpeg 9.0.1](https://ffmpeg.org/) | - | GPL-3.0-or-later |
-| [gr-dtv, gr-dvbs2rx, gr-dvbgse](https://github.com/gnuradio/gnuradio) | - | GPL-3.0-or-later |
-| [hackrf (libhackrf)](https://github.com/greatscottgadgets/hackrf) | - | GPL-2.0-or-later |
+| [FFmpeg 9.0.1](https://ffmpeg.org/) | - | LGPL-2.1-or-later |
+| [hackrf-nusb 0.3.0](https://github.com/bastibl/hackrf-nusb) | - | MIT OR Apache-2.0 |
+| [hackrf.h (libhackrf API)](https://github.com/greatscottgadgets/hackrf) | - | BSD-3-Clause |
 | [heimdall_daq_fw](https://github.com/krakenrf/heimdall_daq_fw) | - | GPL-3.0-or-later |
+| [Kiss FFT](https://github.com/mborgerding/kissfft) | - | BSD-3-Clause |
 | [libairspy](https://github.com/airspy/airspyone_host) | - | BSD-3-Clause |
 | [libairspyhf](https://github.com/airspy/airspyhf) | - | BSD-3-Clause |
 | [librtlsdr (KrakenRF fork)](https://github.com/krakenrf/librtlsdr) | - | GPL-2.0-or-later |
+| [NanoVNA-Saver](https://github.com/NanoVNA-Saver/nanovna-saver) | - | GPL-3.0-or-later |
 | [qdmr (libdmrconf)](https://github.com/hmatuschek/qdmr) | - | GPL-3.0-or-later |
+| [rs-rtl 0.4.2 (desperado)](https://github.com/xoolive/desperado) | - | MIT |
 | [rtl-sdr (librtlsdr)](https://gitea.osmocom.org/sdr/rtl-sdr) | - | GPL-2.0-or-later |
 | [SoapySDR](https://github.com/pothosware/SoapySDR) | - | BSL-1.0 |
 | [xng](https://github.com/airframesio/xng) | - | MIT OR Apache-2.0 |

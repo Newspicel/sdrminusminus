@@ -146,16 +146,20 @@ Some decoder constants are copied from the standards:
 | DAB phase reference | `crates/channels/src/dab/ofdm.rs` |
 | DVB-S puncturing and Reed-Solomon parameters | `crates/channels/src/datv/dvbs.rs` |
 | DVB-S2 LDPC accumulator addresses | `crates/channels/src/datv/dvbs2/tables/` |
+| DVB-S2X LDPC addresses, constellations and interleavers | `crates/channels/src/datv/dvbs2/s2x/` |
 | VL-SNR header sequence | `crates/channels/src/datv/dvbs2/vlsnr.rs` |
+| DVB-T continual pilot and TPS carriers | `crates/channels/src/datv/dvbt/en300744.rs` |
+| DVB-T2 pilots, reserved carriers, P1, L1 and LDPC tables | `crates/channels/src/datv/dvbt/t2/en302755/` |
 
 Sources: ETSI EN 300 401 (DAB), TS 102 563 (DAB+), EN 300 421 (DVB-S), EN 302 307-1 and -2
-(DVB-S2/S2X), TS 102 606 (GSE), and ES 201 980 (DRM).
+(DVB-S2/S2X), EN 300 744 (DVB-T), EN 302 755 (DVB-T2), TS 102 606 (GSE), and ES 201 980 (DRM).
 
-The values were cross-checked against [welle.io](https://github.com/AlbrechtL/welle.io)
-(GPL-2.0-or-later) and GNU Radio's [gr-dtv](https://github.com/gnuradio/gnuradio)
-(GPL-3.0-or-later). No decoder code was copied. The 7,378 DVB-S2 accumulator addresses were
-converted by script. The VL-SNR seed and Walsh-Hadamard rows were typed from the standard, and the
-sixteen patterns they generate match gr-dtv.
+The DAB values were cross-checked against [welle.io](https://github.com/AlbrechtL/welle.io)
+(GPL-2.0-or-later). No decoder code was copied. The DVB-S2/S2X tables are generated from and
+checked against the ETSI PDF text by `s2x_tables.py` and `dvbs2_spec_check.py` in
+`crates/modem-test-support/scripts/`. `dvbt_tables.py` generates the DVB-T and DVB-T2 tables the
+same way. CI runs all three. The VL-SNR seed and Walsh-Hadamard rows were
+typed from the standard.
 
 Tests catch transcription errors by checking independent properties: puncturing density,
 polynomial roots, published CRC values, and parity of encoded words.

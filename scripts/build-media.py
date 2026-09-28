@@ -80,7 +80,7 @@ def configure(source, prefix, target, env):
         tool("bash", env), str(source / "configure"), f"--prefix={prefix.as_posix()}",
         "--disable-autodetect", "--disable-everything", "--disable-network",
         "--disable-programs", "--disable-doc", "--disable-debug", "--disable-shared",
-        "--enable-static", "--enable-pic", "--enable-gpl", "--enable-version3", "--disable-avdevice", "--disable-avfilter",
+        "--enable-static", "--enable-pic", "--disable-avdevice", "--disable-avfilter",
         "--enable-avcodec", "--enable-avformat", "--enable-swresample", "--enable-swscale",
         "--enable-decoder=aac,aac_latm,ac3,eac3,mp2,mpeg2video,h264,hevc",
         "--enable-parser=aac,aac_latm,ac3,mpegaudio,mpegvideo,h264,hevc",

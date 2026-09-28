@@ -29,6 +29,17 @@ jobs:
           save: ${{ env.SAVE_CACHE }}
       - run: cargo xtask check
 
+  etsi:
+    name: DVB tables vs ETSI (ubuntu)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends poppler-utils
+      - run: rustup show
+      - run: python3 crates/modem-test-support/scripts/dvbs2_spec_check.py --cache "$RUNNER_TEMP/etsi" --dvbs2 crates/channels/src/datv/dvbs2
+      - run: python3 crates/modem-test-support/scripts/s2x_tables.py --cache "$RUNNER_TEMP/etsi" --out crates/channels/src/datv/dvbs2 --check
+      - run: python3 crates/modem-test-support/scripts/dvbt_tables.py --cache "$RUNNER_TEMP/etsi" --out crates/channels/src/datv/dvbt --check
+
   performance:
     name: Performance gates (ubuntu)
     runs-on: ubuntu-24.04
