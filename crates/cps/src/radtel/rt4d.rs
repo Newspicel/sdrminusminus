@@ -1,110 +1,40 @@
-use std::sync::OnceLock;
-
 use sdrmm_wire::cps::{
-    Admit, Bandwidth, Channel, ChannelKind, ChannelMode, Codeplug, CodeplugMeta, Contact,
-    ContactKind, ConversionReport, DmrChannel, FmChannel, FrequencyRange, GroupList, Power,
-    RadioFeatures, RadioId, RadioLimits, RadioModelDescriptor, TimeSlot, Tone, Zone,
+    ChannelKind, ChannelMode, Codeplug, CodeplugMeta, ConversionReport, FrequencyRange, Power,
+    RadioFeatures, RadioId, RadioLimits, RadioModelDescriptor,
 };
 
-use super::protocol::Rt4DSession;
+use super::{
+    channel::{self, Decoded, Links, Targets},
+    layout::{CHANNELS, CONTACTS, GROUP_LISTS, REGIONS, SETTINGS, SlotNames, ZONES},
+    protocol::Rt4DSession,
+    records::{self, GROUP_LIST_MEMBERS, GROUP_LIST_NAME_LEN, Listing, NAME_LEN, ZONE_MEMBERS},
+};
 use crate::{
     CpsError, Image, RadioModel, RadioSession, Region, SerialLink,
-    bits::{
-        get_bcd8_le, get_bit, get_bits, get_u8, get_u16_le, get_u32_le, is_blank, is_erased,
-        read_ascii, set_bcd8_le, set_bit, set_bits, set_u8, set_u16_le, set_u32_le, write_ascii,
-    },
-    catalog::{Catalog, UniqueNames},
+    catalog::{Catalog, NameList, UniqueNames},
     convert::fit,
-    tones::{dcs_from_binary, dcs_to_binary},
 };
 
 pub const MODEL_ID: &str = "radtel-rt4d";
-
-const FIRST_SETTINGS: u32 = 0x0000_2000;
-const FIRST_SETTINGS_LEN: u32 = 0x0000_0400;
-const RADIO_DMR_ID_AT: usize = 0x0180;
-
-const CHANNELS: u32 = 0x0000_4000;
-const CHANNEL_SIZE: u32 = 0x0030;
-const NUM_CHANNELS: u32 = 1024;
-
-const ZONES: u32 = 0x0001_e000;
-const ZONE_SIZE: u32 = 0x0208;
-const NUM_ZONES: u32 = 250;
-const CHANNELS_PER_ZONE: u32 = 200;
-const ZONE_NAME_AT: usize = 0x0004;
-const ZONE_CHANNELS_AT: usize = 0x0014;
-
-const CONTACTS: u32 = 0x0005_e000;
-const CONTACT_SIZE: u32 = 0x15;
-const NUM_CONTACTS: u32 = 10_000;
-
-const GROUP_LISTS: u32 = 0x000c_6000;
-const GROUP_LIST_SIZE: u32 = 0x50;
-const NUM_GROUP_LISTS: u32 = 250;
-const GROUP_LIST_MEMBERS: u32 = 32;
-const GROUP_NAME_LEN: usize = 14;
-const GROUP_MEMBERS_AT: usize = 0x0010;
-
-const NAME_LEN: usize = 16;
-const EOS: u8 = 0xff;
-const NO_INDEX16: u16 = 0xffff;
-const ALL_CALL_RAW: u32 = 0xaaaa_aaaa;
-
-const PROMISCUOUS_BIT: u8 = 0;
-const TIME_SLOT_BIT: u8 = 1;
-const DMR_ID_SOURCE_BIT: u8 = 3;
-const TRX_MODE_BIT: u8 = 4;
-const CHANNEL_TYPE_BIT: u8 = 6;
-const COLOR_CODE_BIT: u8 = 4;
-const POWER_BIT: u8 = 6;
-const FM_ADMIT_BIT: u8 = 3;
-const DMR_ADMIT_BIT: u8 = 5;
-const BANDWIDTH_BIT: u8 = 6;
-
-const RX_FREQUENCY_AT: usize = 0x0005;
-const TX_FREQUENCY_AT: usize = 0x0009;
-const RX_SUBTONE_AT: usize = 0x000d;
-const TX_SUBTONE_AT: usize = 0x000f;
-const CONTACT_INDEX_AT: usize = 0x0011;
-const GROUP_LIST_INDEX_AT: usize = 0x0014;
-const CHANNEL_DMR_ID_AT: usize = 0x0016;
-const CHANNEL_NAME_AT: usize = 0x0020;
+const RADIO_ID_NAME: &str = "Radio ID";
 
 pub struct Rt4D;
-
-fn regions() -> &'static [Region] {
-    static ALL: OnceLock<Vec<Region>> = OnceLock::new();
-    ALL.get_or_init(|| {
-        vec![
-            Region::fixed("settings", FIRST_SETTINGS, FIRST_SETTINGS_LEN),
-            Region::fixed("channels", CHANNELS, NUM_CHANNELS * CHANNEL_SIZE),
-            Region::fixed("zones", ZONES, NUM_ZONES * ZONE_SIZE),
-            Region::fixed("contacts", CONTACTS, NUM_CONTACTS * CONTACT_SIZE),
-            Region::fixed(
-                "group lists",
-                GROUP_LISTS,
-                NUM_GROUP_LISTS * GROUP_LIST_SIZE,
-            ),
-        ]
-    })
-}
 
 #[must_use]
 pub fn limits() -> RadioLimits {
     RadioLimits {
-        channels: NUM_CHANNELS,
-        contacts: NUM_CONTACTS,
-        group_lists: NUM_GROUP_LISTS,
-        group_list_members: GROUP_LIST_MEMBERS,
-        zones: NUM_ZONES,
-        zone_channels: CHANNELS_PER_ZONE,
+        channels: CHANNELS.count,
+        contacts: CONTACTS.count,
+        group_lists: GROUP_LISTS.count,
+        group_list_members: GROUP_LIST_MEMBERS as u32,
+        zones: ZONES.count,
+        zone_channels: ZONE_MEMBERS as u32,
         scan_lists: 0,
         scan_list_members: 0,
         radio_ids: 1,
-        channel_name_len: NAME_LEN as u32,
+        channel_name_len: channel::NAME_LEN as u32,
         contact_name_len: NAME_LEN as u32,
-        group_list_name_len: GROUP_NAME_LEN as u32,
+        group_list_name_len: GROUP_LIST_NAME_LEN as u32,
         zone_name_len: NAME_LEN as u32,
         scan_list_name_len: 0,
         radio_id_name_len: NAME_LEN as u32,
@@ -117,13 +47,10 @@ pub fn limits() -> RadioLimits {
         modes: vec![ChannelKind::Fm, ChannelKind::Dmr],
         frequency_step_hz: 10,
         features: RadioFeatures {
-            dual_zone_lists: false,
             per_channel_radio_id: true,
-            scan_lists: false,
             group_lists: true,
             dcs_tones: true,
-            talkaround: false,
-            named_radio_ids: false,
+            ..RadioFeatures::default()
         },
     }
 }
@@ -134,7 +61,7 @@ impl RadioModel for Rt4D {
             id: MODEL_ID.to_owned(),
             manufacturer: "Radtel".to_owned(),
             model: "RT-4D".to_owned(),
-            family: "radtel-rt4d".to_owned(),
+            family: MODEL_ID.to_owned(),
             usb: Vec::new(),
             needs_explicit_selection: true,
             transfer_bytes: self.transfer_bytes(),
@@ -143,15 +70,15 @@ impl RadioModel for Rt4D {
     }
 
     fn regions(&self) -> &'static [Region] {
-        regions()
+        &REGIONS
     }
 
     fn erased_byte(&self) -> u8 {
-        0xff
+        super::layout::ERASED
     }
 
     fn open(&self, link: Box<dyn SerialLink>) -> Result<Box<dyn RadioSession>, CpsError> {
-        Ok(Box::new(Rt4DSession::open(link, MODEL_ID)?))
+        Ok(Box::new(Rt4DSession::open(link)?))
     }
 
     fn decode(&self, image: &Image) -> Result<Codeplug, CpsError> {
@@ -160,478 +87,371 @@ impl RadioModel for Rt4D {
             source_model: Some(MODEL_ID.to_owned()),
             ..CodeplugMeta::default()
         };
-        decode_radio_id(image, &mut codeplug);
-        decode_contacts(image, &mut codeplug);
-        decode_group_lists(image, &Catalog::of(&codeplug), &mut codeplug);
-        decode_channels(image, &Catalog::of(&codeplug), &mut codeplug);
-        decode_zones(image, &Catalog::of(&codeplug), &mut codeplug);
+        read_radio_id(image, &mut codeplug);
+        let contacts = read_contacts(image, &mut codeplug);
+        let group_lists = read_group_lists(image, &contacts, &mut codeplug);
+        let links = Links {
+            contacts: &contacts,
+            group_lists: &group_lists,
+        };
+        let channels = read_channels(image, &links, &mut codeplug);
+        read_zones(image, &channels, &mut codeplug);
         Ok(codeplug)
     }
 
     fn encode(&self, codeplug: &Codeplug, image: &mut Image) -> Result<ConversionReport, CpsError> {
         let (fitted, report) = fit(codeplug, MODEL_ID, &limits());
         let catalog = Catalog::of(&fitted);
-        encode_radio_id(image, &fitted)?;
-        encode_contacts(image, &fitted)?;
-        encode_group_lists(image, &catalog, &fitted)?;
-        encode_channels(image, &catalog, &fitted)?;
-        encode_zones(image, &catalog, &fitted)?;
+        let default_id = default_radio_number(&fitted);
+        write_radio_id(image, default_id)?;
+        CONTACTS.fill(image, &fitted.contacts, records::put_contact)?;
+        let group_lists = listings(&fitted.group_lists, &catalog.contacts, |list| {
+            (&list.name, &list.contacts)
+        });
+        GROUP_LISTS.fill(image, &group_lists, records::put_group_list)?;
+        CHANNELS.fill(image, &fitted.channels, |record, item| {
+            let targets = targets(item, &catalog, &fitted, default_id);
+            channel::encode(record, item, &targets);
+        })?;
+        let zones = listings(&fitted.zones, &catalog.channels, |zone| {
+            (&zone.name, &zone.channels_a)
+        });
+        ZONES.fill(image, &zones, records::put_zone)?;
         Ok(report)
     }
 }
 
-fn slot(image: &Image, addr: u32, len: u32) -> Option<&[u8]> {
-    image.get(addr, len as usize)
-}
-
-fn prepare(data: &mut [u8]) {
-    if is_erased(data) {
-        data.fill(0);
-    }
-}
-
-fn clear(data: &mut [u8]) {
-    if !is_blank(data) {
-        data.fill(EOS);
-    }
-}
-
-fn slot_mut(image: &mut Image, addr: u32, len: u32) -> Result<&mut [u8], CpsError> {
-    image.allocate(addr, len, EOS);
-    image
-        .get_mut(addr, len as usize)
-        .ok_or(CpsError::MissingRegion {
-            addr,
-            len: len as usize,
-        })
-}
-
-fn decode_radio_id(image: &Image, codeplug: &mut Codeplug) {
-    let Some(data) = slot(image, FIRST_SETTINGS, FIRST_SETTINGS_LEN) else {
+fn read_radio_id(image: &Image, codeplug: &mut Codeplug) {
+    let Some(number) = SETTINGS.record(image, 0).and_then(records::radio_id) else {
         return;
     };
-    let number = get_bcd8_le(data, RADIO_DMR_ID_AT);
-    if number == 0 || number > 0x00ff_ffff {
-        return;
-    }
     codeplug.radio_ids.push(RadioId {
-        name: "Radio ID".to_owned(),
+        name: RADIO_ID_NAME.to_owned(),
         number,
     });
-    codeplug.settings.default_radio_id = Some("Radio ID".to_owned());
+    codeplug.settings.default_radio_id = Some(RADIO_ID_NAME.to_owned());
 }
 
-fn encode_radio_id(image: &mut Image, codeplug: &Codeplug) -> Result<(), CpsError> {
-    let number = codeplug
-        .settings
-        .default_radio_id
-        .as_deref()
-        .and_then(|name| codeplug.radio_ids.iter().find(|id| id.name == name))
-        .or_else(|| codeplug.radio_ids.first())
-        .map(|id| id.number);
-    let Some(number) = number else {
-        return Ok(());
-    };
-    let data = slot_mut(image, FIRST_SETTINGS, FIRST_SETTINGS_LEN)?;
-    set_bcd8_le(data, RADIO_DMR_ID_AT, number);
-    Ok(())
-}
-
-fn read_subtone(data: &[u8], at: usize) -> Option<Tone> {
-    let raw = get_u16_le(data, at);
-    let code = raw & 0x0fff;
-    match raw >> 12 {
-        1 => Some(Tone::Ctcss { decihertz: code }),
-        2 => Some(Tone::Dcs {
-            code: dcs_from_binary(code),
-            inverted: false,
-        }),
-        3 => Some(Tone::Dcs {
-            code: dcs_from_binary(code),
-            inverted: true,
-        }),
-        _ => None,
-    }
-}
-
-fn write_subtone(data: &mut [u8], at: usize, tone: Option<Tone>) {
-    let raw = match tone {
-        None => 0x0fff,
-        Some(Tone::Ctcss { decihertz }) => (1 << 12) | (decihertz & 0x0fff),
-        Some(Tone::Dcs { code, inverted }) => {
-            let kind: u16 = if inverted { 3 } else { 2 };
-            (kind << 12) | (dcs_to_binary(code) & 0x0fff)
-        }
-    };
-    set_u16_le(data, at, raw);
-}
-
-fn fm_admit_from(raw: u8) -> Admit {
-    match raw {
-        1 => Admit::ChannelFree,
-        2 => Admit::ToneFree,
-        _ => Admit::Always,
-    }
-}
-
-fn fm_admit_to(admit: Admit) -> u8 {
-    match admit {
-        Admit::Always => 0,
-        Admit::ToneFree => 2,
-        _ => 1,
-    }
-}
-
-fn dmr_admit_from(raw: u8) -> Admit {
-    match raw {
-        1 => Admit::ChannelFree,
-        2 => Admit::ColorCodeFree,
-        _ => Admit::Always,
-    }
-}
-
-fn dmr_admit_to(admit: Admit) -> u8 {
-    match admit {
-        Admit::Always => 0,
-        Admit::ColorCodeFree | Admit::DifferentColorCode => 2,
-        _ => 1,
-    }
-}
-
-fn decode_channels(image: &Image, catalog: &Catalog, codeplug: &mut Codeplug) {
+fn read_contacts(image: &Image, codeplug: &mut Codeplug) -> SlotNames {
     let mut names = UniqueNames::default();
-    for index in 0..NUM_CHANNELS {
-        let Some(data) = slot(image, CHANNELS + index * CHANNEL_SIZE, CHANNEL_SIZE) else {
-            break;
-        };
-        if is_erased(data) {
+    let mut slots = SlotNames::default();
+    for (slot, record) in CONTACTS.records(image) {
+        let Some(mut contact) = records::contact(record) else {
             continue;
-        }
-        let name = read_ascii(data, CHANNEL_NAME_AT, NAME_LEN, EOS);
-        if name.is_empty() {
-            continue;
-        }
-        let analogue = get_bit(data, 0, CHANNEL_TYPE_BIT);
-        let mode = if analogue {
-            ChannelMode::Fm(FmChannel {
-                bandwidth: if get_bit(data, 4, BANDWIDTH_BIT) {
-                    Bandwidth::Narrow
-                } else {
-                    Bandwidth::Wide
-                },
-                rx_tone: read_subtone(data, RX_SUBTONE_AT),
-                tx_tone: read_subtone(data, TX_SUBTONE_AT),
-                squelch: None,
-                admit: fm_admit_from(get_bits(data, 3, FM_ADMIT_BIT, 2)),
-            })
-        } else {
-            let group_index = get_u8(data, GROUP_LIST_INDEX_AT);
-            ChannelMode::Dmr(DmrChannel {
-                color_code: get_bits(data, 1, COLOR_CODE_BIT, 4),
-                time_slot: if get_bit(data, 0, TIME_SLOT_BIT) {
-                    TimeSlot::Two
-                } else {
-                    TimeSlot::One
-                },
-                contact: catalog
-                    .contacts
-                    .name_at(u32::from(get_u16_le(data, CONTACT_INDEX_AT)))
-                    .map(str::to_owned),
-                group_list: (group_index != 0)
-                    .then(|| catalog.group_lists.name_at(u32::from(group_index) - 1))
-                    .flatten()
-                    .map(str::to_owned),
-                radio_id: get_bit(data, 0, DMR_ID_SOURCE_BIT)
-                    .then(|| get_bcd8_le(data, CHANNEL_DMR_ID_AT))
-                    .filter(|number| *number != 0)
-                    .and_then(|number| {
-                        codeplug
-                            .radio_ids
-                            .iter()
-                            .find(|id| id.number == number)
-                            .map(|id| id.name.clone())
-                    }),
-                admit: dmr_admit_from(get_bits(data, 3, DMR_ADMIT_BIT, 2)),
-            })
         };
-        codeplug.channels.push(Channel {
-            name: names.claim(&name, "Channel"),
-            rx_hz: u64::from(get_u32_le(data, RX_FREQUENCY_AT)) * 10,
-            tx_hz: u64::from(get_u32_le(data, TX_FREQUENCY_AT)) * 10,
-            power: if get_bit(data, 2, POWER_BIT) {
-                Power::High
-            } else {
-                Power::Low
-            },
-            rx_only: get_bits(data, 0, TRX_MODE_BIT, 2) == 1,
-            timeout_s: None,
-            scan_list: None,
-            mode,
+        contact.name = names.claim(&contact.name, "Contact");
+        slots.remember(slot, &contact.name);
+        codeplug.contacts.push(contact);
+    }
+    slots
+}
+
+fn read_group_lists(image: &Image, contacts: &SlotNames, codeplug: &mut Codeplug) -> SlotNames {
+    let mut names = UniqueNames::default();
+    let mut slots = SlotNames::default();
+    for (slot, record) in GROUP_LISTS.records(image) {
+        let Some(listing) = records::group_list(record) else {
+            continue;
+        };
+        let name = names.claim(&listing.name, "Group list");
+        slots.remember(slot, &name);
+        codeplug.group_lists.push(sdrmm_wire::cps::GroupList {
+            name,
+            contacts: resolve(&listing.members, contacts),
         });
     }
+    slots
 }
 
-fn encode_channels(
-    image: &mut Image,
-    catalog: &Catalog,
-    codeplug: &Codeplug,
-) -> Result<(), CpsError> {
-    for index in 0..NUM_CHANNELS {
-        let item = codeplug.channels.get(index as usize).cloned();
-        let data = slot_mut(image, CHANNELS + index * CHANNEL_SIZE, CHANNEL_SIZE)?;
-        let Some(item) = item else {
-            clear(data);
-            continue;
-        };
-        prepare(data);
-        set_bit(data, 0, PROMISCUOUS_BIT, false);
-        set_bits(data, 0, TRX_MODE_BIT, 2, u8::from(item.rx_only));
-        set_bit(data, 2, POWER_BIT, item.power.rank() >= Power::Mid.rank());
-        set_u32_le(data, RX_FREQUENCY_AT, (item.rx_hz / 10) as u32);
-        set_u32_le(data, TX_FREQUENCY_AT, (item.tx_hz / 10) as u32);
-        set_u8(data, GROUP_LIST_INDEX_AT, 0);
-        write_subtone(data, RX_SUBTONE_AT, None);
-        write_subtone(data, TX_SUBTONE_AT, None);
-        match &item.mode {
-            ChannelMode::Fm(fm) => {
-                set_bit(data, 0, CHANNEL_TYPE_BIT, true);
-                set_bit(
-                    data,
-                    4,
-                    BANDWIDTH_BIT,
-                    matches!(fm.bandwidth, Bandwidth::Narrow),
-                );
-                write_subtone(data, RX_SUBTONE_AT, fm.rx_tone);
-                write_subtone(data, TX_SUBTONE_AT, fm.tx_tone);
-                set_bits(data, 3, FM_ADMIT_BIT, 2, fm_admit_to(fm.admit));
-            }
-            ChannelMode::Dmr(dmr) => {
-                set_bit(data, 0, CHANNEL_TYPE_BIT, false);
-                set_bit(data, 4, BANDWIDTH_BIT, true);
-                set_bits(data, 1, COLOR_CODE_BIT, 4, dmr.color_code.min(15));
-                set_bit(
-                    data,
-                    0,
-                    TIME_SLOT_BIT,
-                    matches!(dmr.time_slot, TimeSlot::Two),
-                );
-                set_bits(data, 3, DMR_ADMIT_BIT, 2, dmr_admit_to(dmr.admit));
-                set_u16_le(
-                    data,
-                    CONTACT_INDEX_AT,
-                    dmr.contact
-                        .as_deref()
-                        .and_then(|name| catalog.contacts.index_of(name))
-                        .and_then(|at| u16::try_from(at).ok())
-                        .unwrap_or(0),
-                );
-                if let Some(at) = dmr
-                    .group_list
-                    .as_deref()
-                    .and_then(|name| catalog.group_lists.index_of(name))
-                    .and_then(|at| u8::try_from(at + 1).ok())
-                {
-                    set_u8(data, GROUP_LIST_INDEX_AT, at);
-                }
-                let channel_id = dmr
-                    .radio_id
-                    .as_deref()
-                    .and_then(|name| codeplug.radio_ids.iter().find(|id| id.name == name))
-                    .map(|id| id.number)
-                    .filter(|number| {
-                        codeplug.settings.default_radio_id.as_deref() != dmr.radio_id.as_deref()
-                            && *number != 0
-                    });
-                set_bit(data, 0, DMR_ID_SOURCE_BIT, channel_id.is_some());
-                set_bcd8_le(data, CHANNEL_DMR_ID_AT, channel_id.unwrap_or(0));
-            }
-        }
-        write_ascii(data, CHANNEL_NAME_AT, &item.name, NAME_LEN, EOS);
-    }
-    Ok(())
-}
-
-fn decode_contacts(image: &Image, codeplug: &mut Codeplug) {
+fn read_channels(image: &Image, links: &Links, codeplug: &mut Codeplug) -> SlotNames {
     let mut names = UniqueNames::default();
-    for index in 0..NUM_CONTACTS {
-        let Some(data) = slot(image, CONTACTS + index * CONTACT_SIZE, CONTACT_SIZE) else {
-            break;
-        };
-        if is_erased(data) {
+    let mut slots = SlotNames::default();
+    for (slot, record) in CHANNELS.records(image) {
+        let Some(Decoded {
+            mut channel,
+            own_id,
+        }) = channel::decode(record, links)
+        else {
             continue;
-        }
-        let name = read_ascii(data, 0x0005, NAME_LEN, EOS);
-        if name.is_empty() {
-            continue;
-        }
-        let all_call = get_u32_le(data, 0x0001) == ALL_CALL_RAW;
-        let kind = match get_u8(data, 0) {
-            1 => ContactKind::Group,
-            2 => ContactKind::All,
-            _ => ContactKind::Private,
         };
-        codeplug.contacts.push(Contact {
-            name: names.claim(&name, "Contact"),
-            kind,
-            number: if all_call {
-                sdrmm_wire::cps::ALL_CALL_NUMBER
-            } else {
-                get_bcd8_le(data, 0x0001)
-            },
-            ring: false,
-        });
+        if let ChannelMode::Dmr(dmr) = &mut channel.mode {
+            dmr.radio_id = own_id.and_then(|number| own_radio_id(codeplug, number));
+        }
+        channel.name = names.claim(&channel.name, "Channel");
+        slots.remember(slot, &channel.name);
+        codeplug.channels.push(channel);
     }
+    slots
 }
 
-fn encode_contacts(image: &mut Image, codeplug: &Codeplug) -> Result<(), CpsError> {
-    for index in 0..NUM_CONTACTS {
-        let contact = codeplug.contacts.get(index as usize).cloned();
-        let data = slot_mut(image, CONTACTS + index * CONTACT_SIZE, CONTACT_SIZE)?;
-        let Some(contact) = contact else {
-            clear(data);
-            continue;
-        };
-        prepare(data);
-        set_u8(
-            data,
-            0,
-            match contact.kind {
-                ContactKind::Private => 0,
-                ContactKind::Group => 1,
-                ContactKind::All => 2,
-            },
-        );
-        if matches!(contact.kind, ContactKind::All) {
-            set_u32_le(data, 0x0001, ALL_CALL_RAW);
-        } else {
-            set_bcd8_le(data, 0x0001, contact.number);
-        }
-        write_ascii(data, 0x0005, &contact.name, NAME_LEN, EOS);
+fn own_radio_id(codeplug: &mut Codeplug, number: u32) -> Option<String> {
+    if number == 0 || default_radio_number(codeplug) == Some(number) {
+        return None;
     }
-    Ok(())
+    if let Some(known) = codeplug.radio_ids.iter().find(|id| id.number == number) {
+        return Some(known.name.clone());
+    }
+    let name = format!("ID {number}");
+    codeplug.radio_ids.push(RadioId {
+        name: name.clone(),
+        number,
+    });
+    Some(name)
 }
 
-fn decode_group_lists(image: &Image, catalog: &Catalog, codeplug: &mut Codeplug) {
+fn read_zones(image: &Image, channels: &SlotNames, codeplug: &mut Codeplug) {
     let mut names = UniqueNames::default();
-    for index in 0..NUM_GROUP_LISTS {
-        let Some(data) = slot(
-            image,
-            GROUP_LISTS + index * GROUP_LIST_SIZE,
-            GROUP_LIST_SIZE,
-        ) else {
-            break;
-        };
-        if is_erased(data) {
-            continue;
-        }
-        let name = read_ascii(data, 0, GROUP_NAME_LEN, EOS);
-        if name.is_empty() {
-            continue;
-        }
-        let contacts = (0..GROUP_LIST_MEMBERS)
-            .map(|member| get_u16_le(data, GROUP_MEMBERS_AT + member as usize * 2))
-            .filter(|member| *member != NO_INDEX16)
-            .filter_map(|member| catalog.contacts.name_at(u32::from(member)))
-            .map(str::to_owned)
-            .collect();
-        codeplug.group_lists.push(GroupList {
-            name: names.claim(&name, "Group list"),
-            contacts,
-        });
-    }
-}
-
-fn encode_group_lists(
-    image: &mut Image,
-    catalog: &Catalog,
-    codeplug: &Codeplug,
-) -> Result<(), CpsError> {
-    for index in 0..NUM_GROUP_LISTS {
-        let list = codeplug.group_lists.get(index as usize).cloned();
-        let data = slot_mut(
-            image,
-            GROUP_LISTS + index * GROUP_LIST_SIZE,
-            GROUP_LIST_SIZE,
-        )?;
-        let Some(list) = list else {
-            clear(data);
+    for (_, record) in ZONES.records(image) {
+        let Some(listing) = records::zone(record) else {
             continue;
         };
-        prepare(data);
-        data[GROUP_MEMBERS_AT..].fill(0xff);
-        write_ascii(data, 0, &list.name, GROUP_NAME_LEN, EOS);
-        for (position, contact) in list
-            .contacts
-            .iter()
-            .take(GROUP_LIST_MEMBERS as usize)
-            .enumerate()
-        {
-            if let Some(at) = catalog
-                .contacts
-                .index_of(contact)
-                .and_then(|at| u16::try_from(at).ok())
-            {
-                set_u16_le(data, GROUP_MEMBERS_AT + position * 2, at);
-            }
-        }
-    }
-    Ok(())
-}
-
-fn decode_zones(image: &Image, catalog: &Catalog, codeplug: &mut Codeplug) {
-    let mut names = UniqueNames::default();
-    for index in 0..NUM_ZONES {
-        let Some(data) = slot(image, ZONES + index * ZONE_SIZE, ZONE_SIZE) else {
-            break;
-        };
-        if is_erased(data) {
-            continue;
-        }
-        let name = read_ascii(data, ZONE_NAME_AT, NAME_LEN, EOS);
-        if name.is_empty() {
-            continue;
-        }
-        let channels = (0..CHANNELS_PER_ZONE)
-            .map(|member| get_u16_le(data, ZONE_CHANNELS_AT + member as usize * 2))
-            .filter(|member| *member != NO_INDEX16)
-            .filter_map(|member| catalog.channels.name_at(u32::from(member)))
-            .map(str::to_owned)
-            .collect();
-        codeplug.zones.push(Zone {
-            name: names.claim(&name, "Zone"),
-            channels_a: channels,
+        codeplug.zones.push(sdrmm_wire::cps::Zone {
+            name: names.claim(&listing.name, "Zone"),
+            channels_a: resolve(&listing.members, channels),
             channels_b: Vec::new(),
         });
     }
 }
 
-fn encode_zones(image: &mut Image, catalog: &Catalog, codeplug: &Codeplug) -> Result<(), CpsError> {
-    for index in 0..NUM_ZONES {
-        let zone = codeplug.zones.get(index as usize).cloned();
-        let data = slot_mut(image, ZONES + index * ZONE_SIZE, ZONE_SIZE)?;
-        let Some(zone) = zone else {
-            clear(data);
-            continue;
-        };
-        prepare(data);
-        data[ZONE_CHANNELS_AT..].fill(0xff);
-        set_u16_le(data, 0, 0);
-        set_u16_le(data, 0x0002, 0);
-        write_ascii(data, ZONE_NAME_AT, &zone.name, NAME_LEN, EOS);
-        for (position, name) in zone
-            .channels_a
-            .iter()
-            .take(CHANNELS_PER_ZONE as usize)
-            .enumerate()
-        {
-            if let Some(at) = catalog
-                .channels
-                .index_of(name)
-                .and_then(|at| u16::try_from(at).ok())
-            {
-                set_u16_le(data, ZONE_CHANNELS_AT + position * 2, at);
+fn resolve(members: &[u16], slots: &SlotNames) -> Vec<String> {
+    members
+        .iter()
+        .filter_map(|member| slots.name(usize::from(*member)))
+        .collect()
+}
+
+fn default_radio_number(codeplug: &Codeplug) -> Option<u32> {
+    codeplug
+        .settings
+        .default_radio_id
+        .as_deref()
+        .and_then(|name| codeplug.radio_ids.iter().find(|id| id.name == name))
+        .or_else(|| codeplug.radio_ids.first())
+        .map(|id| id.number)
+}
+
+fn write_radio_id(image: &mut Image, number: Option<u32>) -> Result<(), CpsError> {
+    records::put_radio_id(SETTINGS.whole_mut(image)?, number);
+    Ok(())
+}
+
+fn slot_of(names: &NameList, name: &str) -> Option<u16> {
+    names
+        .index_of(name)
+        .and_then(|index| u16::try_from(index).ok())
+}
+
+fn listings<T>(
+    items: &[T],
+    members: &NameList,
+    parts: impl Fn(&T) -> (&String, &Vec<String>),
+) -> Vec<Listing> {
+    items
+        .iter()
+        .map(|item| {
+            let (name, wanted) = parts(item);
+            Listing {
+                name: name.clone(),
+                members: wanted
+                    .iter()
+                    .filter_map(|member| slot_of(members, member))
+                    .collect(),
             }
+        })
+        .collect()
+}
+
+fn targets(
+    item: &sdrmm_wire::cps::Channel,
+    catalog: &Catalog,
+    codeplug: &Codeplug,
+    default_id: Option<u32>,
+) -> Targets {
+    let ChannelMode::Dmr(dmr) = &item.mode else {
+        return Targets {
+            contact: None,
+            group_list: None,
+            own_id: None,
+        };
+    };
+    let own_id = dmr
+        .radio_id
+        .as_deref()
+        .and_then(|name| codeplug.radio_ids.iter().find(|id| id.name == name))
+        .map(|id| id.number)
+        .filter(|number| *number != 0 && Some(*number) != default_id);
+    Targets {
+        contact: dmr
+            .contact
+            .as_deref()
+            .and_then(|name| slot_of(&catalog.contacts, name)),
+        group_list: dmr
+            .group_list
+            .as_deref()
+            .and_then(|name| slot_of(&catalog.group_lists, name))
+            .and_then(|slot| u8::try_from(slot).ok()),
+        own_id,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use sdrmm_wire::cps::{
+        Channel, Contact, ContactKind, DmrChannel, FmChannel, GroupList, TimeSlot, Zone,
+    };
+
+    use super::*;
+
+    fn contact(name: &str, number: u32) -> Contact {
+        Contact {
+            name: name.to_owned(),
+            kind: ContactKind::Group,
+            number,
+            ring: false,
         }
     }
-    Ok(())
+
+    fn dmr(name: &str, contact: &str, radio_id: Option<&str>) -> Channel {
+        Channel {
+            name: name.to_owned(),
+            rx_hz: 439_000_000,
+            tx_hz: 431_400_000,
+            power: Power::High,
+            rx_only: false,
+            timeout_s: None,
+            scan_list: None,
+            mode: ChannelMode::Dmr(DmrChannel {
+                color_code: 1,
+                time_slot: TimeSlot::One,
+                contact: Some(contact.to_owned()),
+                group_list: Some("Local".to_owned()),
+                radio_id: radio_id.map(str::to_owned),
+                admit: sdrmm_wire::cps::Admit::Always,
+            }),
+        }
+    }
+
+    fn sample() -> Codeplug {
+        let mut codeplug = Codeplug::empty();
+        codeplug.radio_ids = vec![RadioId {
+            name: "Me".to_owned(),
+            number: 2_628_001,
+        }];
+        codeplug.contacts = vec![contact("TG1", 1), contact("TG2", 2)];
+        codeplug.group_lists = vec![GroupList {
+            name: "Local".to_owned(),
+            contacts: vec!["TG2".to_owned(), "TG1".to_owned()],
+        }];
+        codeplug.channels = vec![
+            dmr("One", "TG2", Some("Me")),
+            Channel {
+                name: "Two".to_owned(),
+                rx_hz: 145_500_000,
+                tx_hz: 145_500_000,
+                mode: ChannelMode::Fm(FmChannel::default()),
+                ..Channel::default()
+            },
+        ];
+        codeplug.zones = vec![Zone {
+            name: "Home".to_owned(),
+            channels_a: vec!["Two".to_owned(), "One".to_owned()],
+            channels_b: Vec::new(),
+        }];
+        codeplug
+    }
+
+    #[test]
+    fn a_codeplug_survives_the_image() {
+        let model = Rt4D;
+        let mut image = model.blank_image();
+        model.encode(&sample(), &mut image).expect("encode");
+        let decoded = model.decode(&image).expect("decode");
+        let source = sample();
+        assert_eq!(decoded.radio_ids[0].number, 2_628_001);
+        assert_eq!(
+            decoded.settings.default_radio_id.as_deref(),
+            Some("Radio ID")
+        );
+        assert_eq!(decoded.contacts, source.contacts);
+        assert_eq!(decoded.group_lists, source.group_lists);
+        assert_eq!(decoded.zones, source.zones);
+        let ChannelMode::Dmr(first) = &decoded.channels[0].mode else {
+            panic!("the first channel is DMR");
+        };
+        assert_eq!(first.contact.as_deref(), Some("TG2"));
+        assert_eq!(first.group_list.as_deref(), Some("Local"));
+        assert_eq!(first.radio_id, None);
+        let record = CHANNELS.record(&image, 0).expect("slot");
+        assert_eq!(
+            record[0] & 0x08,
+            0,
+            "the default ID is not written per channel"
+        );
+    }
+
+    #[test]
+    fn a_foreign_per_channel_id_decodes_as_its_own_radio_id() {
+        let model = Rt4D;
+        let mut image = model.blank_image();
+        let mut source = sample();
+        source.radio_ids.push(RadioId {
+            name: "Club".to_owned(),
+            number: 2_628_999,
+        });
+        model.encode(&source, &mut image).expect("encode");
+        let record = CHANNELS.whole_mut(&mut image).expect("channels");
+        record[0] |= 0x08;
+        crate::bits::set_bcd8_le(record, 0x16, 2_628_999);
+        let decoded = model.decode(&image).expect("decode");
+        let ChannelMode::Dmr(first) = &decoded.channels[0].mode else {
+            panic!("the first channel is DMR");
+        };
+        assert_eq!(first.radio_id.as_deref(), Some("ID 2628999"));
+        assert_eq!(decoded.radio_ids.len(), 2);
+    }
+
+    #[test]
+    fn references_follow_slots_across_gaps() {
+        let model = Rt4D;
+        let mut image = model.blank_image();
+        model.encode(&sample(), &mut image).expect("encode");
+        let contacts = CONTACTS.whole_mut(&mut image).expect("contacts");
+        contacts[..0x15].fill(0xff);
+        let decoded = model.decode(&image).expect("decode");
+        assert_eq!(decoded.contacts, vec![contact("TG2", 2)]);
+        let ChannelMode::Dmr(first) = &decoded.channels[0].mode else {
+            panic!("the first channel is DMR");
+        };
+        assert_eq!(first.contact.as_deref(), Some("TG2"));
+    }
+
+    #[test]
+    fn slots_no_longer_used_are_erased() {
+        let model = Rt4D;
+        let mut image = model.blank_image();
+        model.encode(&sample(), &mut image).expect("encode");
+        let mut smaller = sample();
+        smaller.channels.truncate(1);
+        smaller.zones.clear();
+        model.encode(&smaller, &mut image).expect("encode");
+        assert!(super::super::layout::is_vacant(
+            CHANNELS.record(&image, 1).expect("slot")
+        ));
+        assert!(super::super::layout::is_vacant(
+            ZONES.record(&image, 0).expect("slot")
+        ));
+    }
+
+    #[test]
+    fn the_descriptor_names_the_radio() {
+        let descriptor = Rt4D.descriptor();
+        assert_eq!(descriptor.id, MODEL_ID);
+        assert_eq!(descriptor.model, "RT-4D");
+        assert!(descriptor.usb.is_empty());
+        assert_eq!(Rt4D.erased_byte(), 0xff);
+        assert_eq!(
+            descriptor.transfer_bytes,
+            0x400 + 1024 * 0x30 + 250 * 0x208 + 10_000 * 0x15 + 250 * 0x50_u64
+        );
+    }
 }

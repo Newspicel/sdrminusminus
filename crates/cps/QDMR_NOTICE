@@ -1,9 +1,0 @@
-The Radtel RT-4D codeplug banks and serial protocol and the AnyTone serial protocol in this crate
-follow qdmr. The AnyTone AT-D890UV memory map and channel element were worked out from a radio.
-
-qdmr (libdmrconf)
-https://github.com/hmatuschek/qdmr
-Copyright 2019-2026 Hannes Matuschek and the qdmr contributors
-License: GNU General Public License, version 3 or later
-
-The full license text is in packaging/licenses/GPL-3.0.txt.

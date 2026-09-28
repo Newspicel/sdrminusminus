@@ -40,6 +40,10 @@ MPL-2.0. File-level copyleft: modifications to the crate's own files must be pub
 
 `crates/channels/vendor/codec2-fdmdv` vendors the FreeDV 1600 FDMDV modem from codec2 and compiles it into the binary. SDR-- satisfies LGPL-2.1 §6 by publishing its complete source.
 
+**dmrconfig**: BSD-3-Clause
+
+The AnyTone serial protocol in `crates/cps/src/anytone/protocol.rs` follows dmrconfig's `serial.c`, Copyright (C) 2018 Serge Vakulenko, KK6ABQ. The AT-D890UV memory map was worked out from a radio and checked against `fixtures/cps/anytone-d890uv-v100.img`.
+
 **DPDFNet**: Apache-2.0
 
 The neural denoiser of the Audio FX node runs the pretrained dpdfnet2 16 kHz model published by Ceva, executed with tract. `cargo xtask denoise-model` converts the published ONNX file to NNEF with its weights rounded to half precision, shipped as `crates/channels/models/dpdfnet2.nnef.tgz`. Only the weights are used; the STFT and streaming around them in `crates/channels/src/neural_denoise.rs` are this project's own.
@@ -75,10 +79,6 @@ As with libairspy: nothing of libairspyhf is linked or shipped, but the vendor r
 **librtlsdr (KrakenRF fork)**: GPL-2.0-or-later
 
 The tuner register that stops the PLL dithering, without which two dongles on one clock have no stable phase between them, is documented only in KrakenRF's fork of librtlsdr. The write in `crates/device-rtlsdr/src/driver/tuner.rs` follows it and is a derived work on the same terms as librtlsdr above.
-
-**qdmr (libdmrconf)**: GPL-3.0-or-later
-
-The Radtel RT-4D codeplug banks and serial protocol in `crates/cps/src/radtel` and the AnyTone serial protocol in `crates/cps/src/anytone/protocol.rs` follow qdmr and are a derived work. qdmr is GPL-3.0-or-later, combined with SDR--'s AGPL-3.0-or-later under GPL-3.0 section 13. The AnyTone AT-D890UV memory map and channel element were worked out from a radio and checked against `fixtures/cps/anytone-d890uv-v100.img`.
 
 **rs-rtl 0.4.2 (desperado)**: MIT
 
@@ -985,6 +985,7 @@ The ACARS application layer and the VDL2, HFDL, Inmarsat Aero, Inmarsat STD-C, D
 | Component | Version | License |
 | --- | --- | --- |
 | [codec2 FDMDV modem](https://github.com/drowe67/codec2) | - | LGPL-2.1-only |
+| [dmrconfig](https://github.com/OpenRTX/dmrconfig) | - | BSD-3-Clause |
 | [DPDFNet](https://github.com/ceva-ip/DPDFNet) | - | Apache-2.0 |
 | [FFmpeg 9.0.1](https://ffmpeg.org/) | - | LGPL-2.1-or-later |
 | [hackrf-nusb 0.3.0](https://github.com/bastibl/hackrf-nusb) | - | MIT OR Apache-2.0 |
@@ -994,7 +995,6 @@ The ACARS application layer and the VDL2, HFDL, Inmarsat Aero, Inmarsat STD-C, D
 | [libairspy](https://github.com/airspy/airspyone_host) | - | BSD-3-Clause |
 | [libairspyhf](https://github.com/airspy/airspyhf) | - | BSD-3-Clause |
 | [librtlsdr (KrakenRF fork)](https://github.com/krakenrf/librtlsdr) | - | GPL-2.0-or-later |
-| [qdmr (libdmrconf)](https://github.com/hmatuschek/qdmr) | - | GPL-3.0-or-later |
 | [rs-rtl 0.4.2 (desperado)](https://github.com/xoolive/desperado) | - | MIT |
 | [rtl-sdr (librtlsdr)](https://gitea.osmocom.org/sdr/rtl-sdr) | - | GPL-2.0-or-later |
 | [SoapySDR](https://github.com/pothosware/SoapySDR) | - | BSL-1.0 |

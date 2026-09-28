@@ -195,18 +195,16 @@ const NATIVE: &[Native] = &[
         files: &[],
     },
     Native {
-        name: "qdmr (libdmrconf)",
-        license: "GPL-3.0-or-later",
-        url: "https://github.com/hmatuschek/qdmr",
+        name: "dmrconfig",
+        license: "BSD-3-Clause",
+        url: "https://github.com/OpenRTX/dmrconfig",
         note: Some(
-            "The Radtel RT-4D codeplug banks and serial protocol in `crates/cps/src/radtel` and \
-             the AnyTone serial protocol in `crates/cps/src/anytone/protocol.rs` follow qdmr and \
-             are a derived work. qdmr is GPL-3.0-or-later, combined with SDR--'s \
-             AGPL-3.0-or-later under GPL-3.0 section 13. The AnyTone AT-D890UV memory map and \
-             channel element were worked out from a radio and checked against \
+            "The AnyTone serial protocol in `crates/cps/src/anytone/protocol.rs` follows \
+             dmrconfig's `serial.c`, Copyright (C) 2018 Serge Vakulenko, KK6ABQ. The AT-D890UV \
+             memory map was worked out from a radio and checked against \
              `fixtures/cps/anytone-d890uv-v100.img`.",
         ),
-        files: &["GPL-3.0.txt"],
+        files: &["BSD-3-Clause-dmrconfig.txt"],
     },
     Native {
         name: "codec2 FDMDV modem",

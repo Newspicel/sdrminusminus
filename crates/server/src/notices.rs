@@ -132,7 +132,7 @@ mod tests {
     #[test]
     fn copyleft_components_are_annotated() {
         let about = about();
-        for name in ["codec2", "rtl-sdr (librtlsdr)", "qdmr (libdmrconf)"] {
+        for name in ["codec2", "rtl-sdr (librtlsdr)"] {
             let component = about
                 .components
                 .iter()
