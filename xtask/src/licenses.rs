@@ -9,6 +9,10 @@ use sdrmm_wire::{Attribution, ComponentSource};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
+mod android;
+
+pub(crate) use android::{ANDROID_NOTICES, notices as android_notices};
+
 pub const NOTICES_JSON: &str = "crates/server/data/notices.json";
 pub const NOTICES_MARKDOWN: &str = "THIRD_PARTY_NOTICES.md";
 pub const MOBILE_NOTICES_JSON: &str = "crates/mobile-core/data/notices.json";
@@ -256,6 +260,7 @@ pub fn run(root: &Path, pnpm: &str) -> Result<()> {
         document.texts.len()
     );
     write(&root.join(MOBILE_NOTICES_JSON), &mobile_notices(root)?)?;
+    write(&root.join(ANDROID_NOTICES), &android_notices(root)?)?;
     Ok(())
 }
 

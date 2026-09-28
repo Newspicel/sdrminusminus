@@ -50,6 +50,8 @@ pub(crate) enum MobileWhat {
     Android {
         #[arg(long)]
         out: Option<PathBuf>,
+        #[arg(long = "abi")]
+        abis: Vec<String>,
     },
     Check {
         #[arg(long)]
@@ -75,13 +77,14 @@ pub(crate) fn run(root: &Path, args: &Mobile) -> Result<()> {
                 ),
             )
         }
-        MobileWhat::Android { out } => {
+        MobileWhat::Android { out, abis } => {
+            let abis = android_abis(abis)?;
             let ndk = find_ndk(&|name| std::env::var(name).ok(), &home()?)?;
             println!("NDK r{} at {}", ndk.major, ndk.root.display());
             let out = out
                 .clone()
                 .unwrap_or_else(|| layout.mobile().join("android"));
-            execute(root, &android_plan(&layout, &ndk, &out))
+            execute(root, &android_plan(&layout, &ndk, &out, &abis))
         }
         MobileWhat::Check { ios, android } => {
             let both = !ios && !android;
@@ -111,6 +114,13 @@ pub(crate) fn check(root: &Path) -> Result<()> {
     ensure!(
         committed == expected,
         "mobile notices drift: regenerate with `cargo xtask licenses` and commit"
+    );
+    let android = root.join(crate::licenses::ANDROID_NOTICES);
+    let committed =
+        std::fs::read_to_string(&android).with_context(|| format!("read {}", android.display()))?;
+    ensure!(
+        committed == crate::licenses::android_notices(root)?,
+        "Android notices drift: regenerate with `cargo xtask licenses` and commit"
     );
     println!("mobile gate: phone notices current");
     Ok(())
@@ -424,12 +434,32 @@ fn ios_check_plan() -> Plan {
     }
 }
 
-fn android_plan(layout: &Layout, ndk: &Ndk, out_dir: &Path) -> Plan {
+fn android_abis(names: &[String]) -> Result<Vec<&'static AndroidAbi>> {
+    if names.is_empty() {
+        return Ok(ANDROID_ABIS.iter().collect());
+    }
+    let mut picked = Vec::new();
+    for name in names {
+        let abi = ANDROID_ABIS
+            .iter()
+            .find(|abi| abi.abi == name.as_str())
+            .with_context(|| {
+                let known: Vec<&str> = ANDROID_ABIS.iter().map(|abi| abi.abi).collect();
+                format!("unknown Android ABI {name}, pick from {}", known.join(", "))
+            })?;
+        if !picked.iter().any(|seen: &&AndroidAbi| seen.abi == abi.abi) {
+            picked.push(abi);
+        }
+    }
+    Ok(picked)
+}
+
+fn android_plan(layout: &Layout, ndk: &Ndk, out_dir: &Path, abis: &[&AndroidAbi]) -> Plan {
     let kotlin = out_dir.join("kotlin");
     let mut steps = vec![host_library_step(), kotlin_step(layout, &kotlin)];
     let mut outputs = vec![kotlin_output(&kotlin)];
     let library = format!("lib{LIB}.so");
-    for abi in &ANDROID_ABIS {
+    for abi in abis {
         steps.push(Step::Target(abi.triple));
         steps.push(Step::Cargo {
             args: strings([
@@ -869,7 +899,8 @@ mod tests {
 
     #[test]
     fn android_builds_both_abis_into_the_out_dir() {
-        let plan = android_plan(&layout(), &ndk(), Path::new("/out"));
+        let all = android_abis(&[]).expect("all abis");
+        let plan = android_plan(&layout(), &ndk(), Path::new("/out"), &all);
         assert_eq!(
             plan.outputs,
             [
@@ -891,6 +922,28 @@ mod tests {
         for (build, abi) in builds.into_iter().zip(&ANDROID_ABIS) {
             assert!(matches!(build, Step::Cargo { env, .. } if *env == ndk_env(&ndk(), abi)));
         }
+    }
+
+    #[test]
+    fn android_builds_only_the_named_abis() {
+        let picked =
+            android_abis(&["arm64-v8a".to_owned(), "arm64-v8a".to_owned()]).expect("known abi");
+        let plan = android_plan(&layout(), &ndk(), Path::new("/out"), &picked);
+        assert_eq!(
+            plan.outputs,
+            [
+                PathBuf::from("/out/kotlin/dev/newspicel/sdrmm/ffi/sdrmm_mobile_core.kt"),
+                PathBuf::from("/out/jniLibs/arm64-v8a/libsdrmm_mobile_core.so"),
+            ]
+        );
+        let error = android_abis(&["mips".to_owned()])
+            .err()
+            .expect("unknown abi refused")
+            .to_string();
+        assert_eq!(
+            error,
+            "unknown Android ABI mips, pick from arm64-v8a, x86_64"
+        );
     }
 
     #[test]
