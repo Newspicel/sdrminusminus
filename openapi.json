@@ -2324,7 +2324,7 @@
         },
         "responses": {
           "200": {
-            "description": "Hunt status: the initial state after `start`, the final state after `stop`. Readings arrive as the `HuntUpdate` WS event",
+            "description": "Hunt status after `start`, `stop` or `sweep`. Readings arrive as the `HuntUpdate` WS event",
             "content": {
               "application/json": {
                 "schema": {
@@ -2332,6 +2332,9 @@
                 }
               }
             }
+          },
+          "204": {
+            "description": "`mark` sent one bearing event"
           },
           "400": {
             "description": "Set not running, scanning, already hunting, or not hunting",
@@ -2345,6 +2348,16 @@
           },
           "404": {
             "description": "Device set or decoder not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`No heading`, `No position`, `Not running` or `No hunt node`",
             "content": {
               "application/json": {
                 "schema": {

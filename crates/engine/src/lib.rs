@@ -253,6 +253,8 @@ pub enum EngineError {
     Scan(String),
     #[error("occupancy: {0}")]
     Occupancy(String),
+    #[error("{0}")]
+    Processor(String),
 }
 
 impl EngineError {
@@ -282,7 +284,7 @@ impl EngineError {
     pub fn is_conflict(&self) -> bool {
         matches!(
             self,
-            Self::DeviceAlreadyOpen(..) | Self::Device(DeviceError::InUse(_))
+            Self::DeviceAlreadyOpen(..) | Self::Device(DeviceError::InUse(_)) | Self::Processor(_)
         )
     }
 }

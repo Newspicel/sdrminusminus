@@ -9723,7 +9723,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Hunt status: the initial state after `start`, the final state after `stop`. Readings arrive as the `HuntUpdate` WS event */
+            /** @description Hunt status after `start`, `stop` or `sweep`. Readings arrive as the `HuntUpdate` WS event */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -9731,6 +9731,13 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["HuntStatus"];
                 };
+            };
+            /** @description `mark` sent one bearing event */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Set not running, scanning, already hunting, or not hunting */
             400: {
@@ -9743,6 +9750,15 @@ export interface operations {
             };
             /** @description Device set or decoder not found */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description `No heading`, `No position`, `Not running` or `No hunt node` */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

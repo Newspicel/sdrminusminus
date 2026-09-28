@@ -5888,6 +5888,7 @@ dependencies = [
  "codec2",
  "ffmpeg-the-third",
  "flate2",
+ "jiff",
  "libloading 0.9.0",
  "mfsk-core",
  "num-complex",

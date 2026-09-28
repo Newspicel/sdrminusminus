@@ -1,3 +1,5 @@
+use std::sync::atomic::AtomicU32;
+
 use super::*;
 
 fn nfm_decoder(engine: &Engine, ds: u32, frequency_hz: f64) -> u32 {
@@ -962,5 +964,228 @@ async fn scan_rejects_targets_the_tuner_cannot_reach() {
         )
         .unwrap_err();
     assert!(err.is_not_found(), "expected not found, got {err}");
+    engine.remove_device_set(ds).unwrap();
+}
+
+const SWING_SOURCE_DEG: f64 = 123.0;
+const SWING_S: f64 = 5.0;
+const ANTENNA_LAG_S: f64 = 0.08;
+
+struct SweptDriver {
+    gain_db: Arc<AtomicU32>,
+}
+
+impl DeviceDriver for SweptDriver {
+    fn id(&self) -> &'static str {
+        "mock"
+    }
+
+    fn probe(&self) -> Vec<DeviceInfo> {
+        vec![mock_info("swept", Some("MOCK-SWEPT"))]
+    }
+
+    fn open(&self, _info: &DeviceInfo) -> Result<Box<dyn SdrDevice>, DeviceError> {
+        Ok(Box::new(SweptDevice {
+            capabilities: Capabilities {
+                freq_ranges: vec![sdrmm_wire::Range {
+                    min: 80_000_000.0,
+                    max: 120_000_000.0,
+                    step: None,
+                }],
+                sample_rates: vec![SIGNAL_RATE_HZ],
+                ..empty_capabilities()
+            },
+            settings: DeviceSettings {
+                center_hz: Some(100_000_000.0),
+                sample_rate: Some(SIGNAL_RATE_HZ),
+                ..DeviceSettings::default()
+            },
+            center: Arc::new(Mutex::new(100_000_000.0)),
+            gain_db: self.gain_db.clone(),
+            stop: Arc::new(AtomicBool::new(false)),
+            worker: None,
+        }))
+    }
+}
+
+struct SweptDevice {
+    capabilities: Capabilities,
+    settings: DeviceSettings,
+    center: Arc<Mutex<f64>>,
+    gain_db: Arc<AtomicU32>,
+    stop: Arc<AtomicBool>,
+    worker: Option<JoinHandle<()>>,
+}
+
+impl SdrDevice for SweptDevice {
+    fn capabilities(&self) -> &Capabilities {
+        &self.capabilities
+    }
+
+    fn settings(&self) -> &DeviceSettings {
+        &self.settings
+    }
+
+    fn apply(&mut self, settings: &DeviceSettings) -> Result<(), DeviceError> {
+        if let Some(center) = settings.center_hz {
+            *lock(&self.center) = center;
+        }
+        self.settings.merge_from(settings);
+        Ok(())
+    }
+
+    fn rx_start(&mut self, sinks: Vec<RxSink>) -> Result<(), DeviceError> {
+        let mut sink = single_rx_sink(sinks)?;
+        let center = self.center.clone();
+        let gain_db = self.gain_db.clone();
+        let stop = self.stop.clone();
+        stop.store(false, Ordering::SeqCst);
+        self.worker = Some(std::thread::spawn(move || {
+            let mut phase = 0.0f64;
+            let mut block = vec![Complex::new(0.0f32, 0.0); 2_048];
+            while !stop.load(Ordering::SeqCst) {
+                let step = std::f64::consts::TAU * (SIGNAL_HZ - *lock(&center)) / SIGNAL_RATE_HZ;
+                let gain = f32::from_bits(gain_db.load(Ordering::Relaxed));
+                let amplitude = 0.5 * 10f64.powf(f64::from(gain) / 20.0);
+                for slot in &mut block {
+                    phase = (phase + step).rem_euclid(std::f64::consts::TAU);
+                    *slot = Complex::new(
+                        (amplitude * phase.cos()) as f32,
+                        (amplitude * phase.sin()) as f32,
+                    );
+                }
+                sink.push(&block);
+                std::thread::sleep(Duration::from_millis(2));
+            }
+        }));
+        Ok(())
+    }
+
+    fn rx_stop(&mut self) {
+        self.stop.store(true, Ordering::SeqCst);
+        if let Some(handle) = self.worker.take() {
+            let _ = handle.join();
+        }
+    }
+}
+
+fn swing_heading(t: f64) -> f64 {
+    10.0 + 120.0 * (t - 1.0).clamp(0.0, 2.5)
+}
+
+fn antenna_gain_db(offset_deg: f64) -> f64 {
+    let half = 30f64.to_radians().cos();
+    let power = 0.5f64.ln() / ((1.0 + half) / 2.0).ln();
+    let cosine = offset_deg.to_radians().cos();
+    (10.0 * power * ((1.0 + cosine) / 2.0).log10()).max(-15.0)
+}
+
+fn pose_facing(heading_deg: f64) -> sdrmm_wire::PositionFix {
+    sdrmm_wire::PositionFix {
+        latitude: 48.137,
+        longitude: 11.575,
+        altitude_m: None,
+        accuracy_m: Some(5.0),
+        speed_mps: None,
+        track_deg: None,
+        time: jiff::Timestamp::now().to_string(),
+        attitude: sdrmm_wire::Attitude {
+            heading_deg: Some(heading_deg.rem_euclid(360.0)),
+            heading_accuracy_deg: Some(2.0),
+            ..sdrmm_wire::Attitude::default()
+        },
+    }
+}
+
+fn wall_ms() -> u64 {
+    u64::try_from(jiff::Timestamp::now().as_millisecond()).unwrap()
+}
+
+#[tokio::test]
+async fn hunt_sweep_publishes_a_df_event() {
+    let gain_db = Arc::new(AtomicU32::new((-15.0f32).to_bits()));
+    let mut registry = DeviceRegistry::new();
+    registry.register(
+        50,
+        Box::new(SweptDriver {
+            gain_db: gain_db.clone(),
+        }),
+    );
+    let engine = Engine::with_registry(registry, None);
+    let ds = engine.create_device_set("mock:swept").unwrap();
+    let ch = nfm_decoder(&engine, ds, SIGNAL_HZ);
+    let mut decoded = engine.subscribe_decoded();
+    assert!(
+        engine.hunt_mark(ds, ch).is_err(),
+        "no mark before the hunt runs"
+    );
+    let status = engine
+        .sweep_hunt(
+            ds,
+            ch,
+            Some(sdrmm_wire::HuntSettings {
+                interval_ms: 20,
+                node: Some("hunt-1".to_owned()),
+                ..sdrmm_wire::HuntSettings::for_channel(ch)
+            }),
+        )
+        .unwrap();
+    assert_eq!(
+        status.sweep.map(|sweep| sweep.state),
+        Some(sdrmm_wire::SweepState::NoHeading)
+    );
+
+    let started = Instant::now();
+    loop {
+        let t = started.elapsed().as_secs_f64();
+        if t > SWING_S {
+            break;
+        }
+        let facing = antenna_gain_db(swing_heading(t - ANTENNA_LAG_S) - SWING_SOURCE_DEG);
+        gain_db.store((facing as f32).to_bits(), Ordering::Relaxed);
+        engine
+            .hunt_pose(ds, ch, pose_facing(swing_heading(t)), wall_ms())
+            .unwrap();
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+
+    let deadline = Instant::now() + Duration::from_secs(3);
+    let (origin, bearing) = loop {
+        match decoded.try_recv() {
+            Ok(DecodedRecord {
+                origin,
+                event: DecoderEvent::Df(bearing),
+                ..
+            }) => break (origin, bearing),
+            Ok(_) => {}
+            Err(_) => {
+                assert!(Instant::now() < deadline, "the sweep sent no bearing");
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        }
+    };
+    assert_eq!(origin.map(|origin| origin.node).as_deref(), Some("hunt-1"));
+    assert_eq!(bearing.source, sdrmm_wire::BearingSource::Sweep);
+    assert_eq!(bearing.lat, Some(48.137));
+    let error =
+        (f64::from(bearing.bearing_deg) - SWING_SOURCE_DEG + 180.0).rem_euclid(360.0) - 180.0;
+    assert!(error.abs() < 10.0, "{bearing:?}");
+    let hunt = engine.snapshot().device_sets[0].hunts[0].clone();
+    assert_eq!(
+        hunt.sweep.and_then(|sweep| sweep.peak_deg),
+        Some(bearing.bearing_deg)
+    );
+    assert!(hunt.at_ms > 0);
+    assert_eq!(hunt.pose_drops, 0);
+
+    let stopped = engine
+        .start_hunt(ds, sdrmm_wire::HuntSettings::for_channel(ch))
+        .unwrap();
+    assert_eq!(
+        stopped.sweep.map(|sweep| sweep.state),
+        Some(sdrmm_wire::SweepState::Off),
+        "start on a sweeping hunt turns the sweep off"
+    );
+    engine.stop_hunt(ds, ch).unwrap();
     engine.remove_device_set(ds).unwrap();
 }
