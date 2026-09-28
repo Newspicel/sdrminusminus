@@ -232,16 +232,15 @@ code is included.
 
 ## KiwiSDR
 
-Pick **Network → KiwiSDR** and paste the receiver's address, for example
-`http://kiwi.example.org:8073`. Public receivers are listed at [rx.kiwisdr.com](http://rx.kiwisdr.com/).
-A private Kiwi, or one whose time limits a password lifts, takes `password@host:8073`. The password
+Pick **Network → KiwiSDR** and paste the receiver's address, `http://` or `https://`. Public
+receivers are listed at [rx.kiwisdr.com](http://rx.kiwisdr.com/). A private Kiwi, or one whose time limits a password lifts, takes `password@host:8073`. The password
 becomes part of the radio's address in the workspace.
 
 A Kiwi streams 12 or 20 kHz of IQ anywhere in 0 to 30 MHz: enough for SSB, CW, AM and the
 narrowband decoders. Wider channels show out of band. Gain is the Kiwi's AGC or a manual RF gain.
 
 Public Kiwis are shared. When one is full, kicks you, or hits its time limit, SDR-- stops and does
-not reconnect. A dropped connection is retried. Kiwis served only over HTTPS are not supported.
+not reconnect. A dropped connection is retried.
 
 ## Dragon Labs CR-8
 

@@ -8,11 +8,19 @@ use crate::DeviceError;
 
 pub const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 
+const SCHEMES: [(&str, bool, u16); 4] = [
+    ("https://", true, 443),
+    ("wss://", true, 443),
+    ("http://", false, 80),
+    ("ws://", false, 80),
+];
+
 #[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
 pub struct Endpoint {
     host: String,
     port: u16,
     bracketed: bool,
+    secure: bool,
 }
 
 impl Endpoint {
@@ -49,7 +57,43 @@ impl Endpoint {
             bracketed: host.contains(':'),
             host: host.to_ascii_lowercase(),
             port,
+            secure: false,
         })
+    }
+
+    pub fn parse_web(key: &str, default_port: u16) -> Result<Self, DeviceError> {
+        let key = key.trim();
+        let scheme = SCHEMES.iter().find(|(scheme, _, _)| {
+            key.get(..scheme.len())
+                .is_some_and(|head| head.eq_ignore_ascii_case(scheme))
+        });
+        let Some((scheme, secure, port)) = scheme else {
+            return Self::parse(key, default_port);
+        };
+        let rest = key[scheme.len()..].trim_end_matches('/');
+        Ok(Self {
+            secure: *secure,
+            ..Self::parse(rest, *port)?
+        })
+    }
+
+    #[must_use]
+    pub fn host(&self) -> &str {
+        &self.host
+    }
+
+    #[must_use]
+    pub fn authority(&self) -> String {
+        if self.bracketed {
+            format!("[{}]:{}", self.host, self.port)
+        } else {
+            format!("{}:{}", self.host, self.port)
+        }
+    }
+
+    #[must_use]
+    pub const fn secure(&self) -> bool {
+        self.secure
     }
 
     pub fn connect(&self) -> Result<TcpStream, DeviceError> {
@@ -86,11 +130,10 @@ impl Endpoint {
 
 impl fmt::Display for Endpoint {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if self.bracketed {
-            write!(f, "[{}]:{}", self.host, self.port)
-        } else {
-            write!(f, "{}:{}", self.host, self.port)
+        if self.secure {
+            f.write_str("https://")?;
         }
+        f.write_str(&self.authority())
     }
 }
 
@@ -134,6 +177,27 @@ mod tests {
     fn hosts_canonicalize_to_one_key() {
         assert_eq!(key(" Radio.Local:1234 "), "radio.local:1234");
         assert_eq!(key("RADIO.local"), key("radio.local:1234"));
+    }
+
+    #[test]
+    fn a_web_address_picks_tls_and_port_from_its_scheme() {
+        let web = |text: &str| Endpoint::parse_web(text, 8073).expect("parses").to_string();
+        assert_eq!(web("HTTPS://Kiwi.example/"), "https://kiwi.example:443");
+        assert_eq!(
+            Endpoint::parse_web("https://[::1]", 1)
+                .expect("parses")
+                .authority(),
+            "[::1]:443"
+        );
+        assert_eq!(web("wss://kiwi.example:8073"), "https://kiwi.example:8073");
+        assert_eq!(web("http://kiwi.example"), "kiwi.example:80");
+        assert_eq!(web("ws://[::1]:81"), "[::1]:81");
+        assert_eq!(web("kiwi.example"), "kiwi.example:8073");
+        assert_eq!(
+            web(&web("https://kiwi.example")),
+            "https://kiwi.example:443"
+        );
+        assert!(Endpoint::parse("https://kiwi.example", 1).is_err());
     }
 
     #[test]

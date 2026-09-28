@@ -15,8 +15,8 @@ workspace = true
 # native backend never compiles a transport it cannot use.
 usb = ["dep:sdrmm-usb-stream"]
 # `std::net` sockets seen as a capture transport: the endpoint parser and the connection wrapper
-# every network backend shares. Pure std, so it pulls in nothing.
-net = []
+# every network backend shares, with rustls for `https://` servers.
+net = ["dep:rustls", "dep:rustls-platform-verifier"]
 # The loopback server the network backends are tested against. Off outside their own test builds,
 # so nothing ships a listener it does not use.
 test-util = ["net"]
@@ -27,6 +27,8 @@ sdrmm-usb-stream = { workspace = true, optional = true }
 futures.workspace = true
 num-complex.workspace = true
 nusb.workspace = true
+rustls = { workspace = true, optional = true }
+rustls-platform-verifier = { workspace = true, optional = true }
 thiserror.workspace = true
 tracing.workspace = true
 
@@ -40,3 +42,6 @@ objc2-foundation = { workspace = true, features = ["NSProcessInfo", "NSString"] 
 
 [target.'cfg(target_os = "windows")'.dependencies]
 windows-sys.workspace = true
+
+[dev-dependencies]
+rcgen.workspace = true

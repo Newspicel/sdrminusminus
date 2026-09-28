@@ -28,8 +28,8 @@ airspyhf = ["dep:sdrmm-device-airspyhf"]
 # AntSDR, PlutoSDR and every other AD936x board that serves libiio, over ethernet or usb. The
 # protocol is spoken directly, so this links no vendor library either.
 ad936x = ["dep:sdrmm-device-ad936x"]
-# rtl_tcp, SpyServer, SDRconnect and KiwiSDR clients. Pure `std::net`, so it costs a release
-# artifact nothing and is part of the minimal build.
+# rtl_tcp, SpyServer, SDRconnect and KiwiSDR clients. `std::net` plus the rustls the server links
+# anyway, so it costs a release artifact nothing and is part of the minimal build.
 net-client = [
     "dep:sdrmm-device-rtltcp",
     "dep:sdrmm-device-spyserver",

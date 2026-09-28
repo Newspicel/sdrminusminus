@@ -55,16 +55,27 @@ pub(crate) fn follow(from: &Endpoint, location: &str) -> Result<(Endpoint, Strin
     if location.starts_with('/') {
         return Ok((from.clone(), location.to_string()));
     }
-    let Some(rest) = ["http://", "ws://"]
-        .iter()
-        .find_map(|scheme| location.strip_prefix(scheme))
-    else {
+    let Some(at) = location.find("://") else {
         return Err(DeviceError::Io(format!(
             "the server redirects to {location}, which SDR-- cannot follow"
         )));
     };
-    let (authority, path) = rest.find('/').map_or((rest, "/"), |at| rest.split_at(at));
-    Ok((Endpoint::parse(authority, HTTP_PORT)?, path.to_string()))
+    let rest = &location[at + 3..];
+    let split = rest
+        .find('/')
+        .map_or(location.len(), |slash| at + 3 + slash);
+    let (origin, path) = location.split_at(split);
+    let path = if path.is_empty() { "/" } else { path };
+    let scheme = origin[..at].to_ascii_lowercase();
+    let to = Endpoint::parse_web(origin, HTTP_PORT)
+        .ok()
+        .filter(|_| matches!(scheme.as_str(), "http" | "https" | "ws" | "wss"))
+        .ok_or_else(|| {
+            DeviceError::Io(format!(
+                "the server redirects to {location}, which SDR-- cannot follow"
+            ))
+        })?;
+    Ok((to, path.to_string()))
 }
 
 /// Checks the upgrade the server answered with, so a plain HTTP page or a redirect is reported as
@@ -333,7 +344,11 @@ mod tests {
             follow(&from, "/elsewhere").expect("relative").0.to_string(),
             "proxy.example:8073"
         );
-        assert!(follow(&from, "https://secure.example/").is_err());
+        let (secure, path) = follow(&from, "https://secure.example/kiwi").expect("followable");
+        assert_eq!(secure.to_string(), "https://secure.example:443");
+        assert_eq!(path, "/kiwi");
+        assert!(follow(&from, "ftp://other.example/").is_err());
+        assert!(follow(&from, "ftp://other.example:21/").is_err());
         assert!(moved(&upgrade("KEY")).is_none());
         assert!(moved(b"HTTP/1.1 404 Not Found\r\n\r\n").is_none());
     }

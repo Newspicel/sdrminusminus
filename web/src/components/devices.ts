@@ -94,7 +94,11 @@ export function networkDeviceId(driver: string, address: string): string | null 
   if (trimmed === "" || /\s/.test(trimmed)) {
     return null;
   }
+  const name = scheme?.[1]?.toLowerCase() ?? "";
+  if (name === "https" || name === "wss") {
+    return `${driver}:https://${trimmed}`;
+  }
   const host = trimmed.slice(trimmed.lastIndexOf("@") + 1);
-  const webDefault = scheme !== null && /^(http|ws)$/i.test(scheme[1] ?? "") && !/:\d+$/.test(host);
+  const webDefault = (name === "http" || name === "ws") && !/:\d+$/.test(host);
   return `${driver}:${trimmed}${webDefault ? ":80" : ""}`;
 }

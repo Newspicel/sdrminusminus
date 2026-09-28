@@ -82,9 +82,9 @@ impl WebSocket {
     pub fn connect(endpoint: &Endpoint, path: &str) -> Result<Self, DeviceError> {
         let mut target = (endpoint.clone(), path.to_string());
         for _ in 0..=MAX_REDIRECTS {
-            let connection = Connection::new(target.0.connect()?);
+            let connection = Connection::dial(&target.0)?;
             let key = handshake::nonce();
-            connection.send(&handshake::request(&target.0.to_string(), &target.1, &key))?;
+            connection.send(&handshake::request(&target.0.authority(), &target.1, &key))?;
             match Self::upgrade(&connection, &key)? {
                 Upgrade::Open(pending) => return Ok(Self::open(connection, pending)),
                 Upgrade::Moved(location) => {

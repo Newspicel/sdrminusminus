@@ -13,10 +13,18 @@ pub(crate) struct Address {
 impl Address {
     pub(crate) fn parse(key: &str) -> Result<Self, DeviceError> {
         let key = key.trim();
-        let (password, host) = key.rsplit_once('@').unwrap_or(("", key));
-        let host = host.strip_suffix('/').unwrap_or(host);
+        let (scheme, rest) = key
+            .split_once("://")
+            .map_or(("", key), |(scheme, rest)| (scheme, rest));
+        let (password, host) = rest.rsplit_once('@').unwrap_or(("", rest));
+        let host = host.trim_end_matches('/');
+        let origin = if scheme.is_empty() {
+            host.to_string()
+        } else {
+            format!("{scheme}://{host}")
+        };
         Ok(Self {
-            endpoint: Endpoint::parse(host, PORT)?,
+            endpoint: Endpoint::parse_web(&origin, PORT)?,
             password: password.to_string(),
         })
     }
@@ -24,10 +32,12 @@ impl Address {
 
 impl fmt::Display for Address {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if !self.password.is_empty() {
-            write!(f, "{}@", self.password)?;
+        let origin = self.endpoint.to_string();
+        match (self.password.is_empty(), origin.split_once("://")) {
+            (true, _) => f.write_str(&origin),
+            (false, Some((scheme, host))) => write!(f, "{scheme}://{}@{host}", self.password),
+            (false, None) => write!(f, "{}@{origin}", self.password),
         }
-        write!(f, "{}", self.endpoint)
     }
 }
 
@@ -48,6 +58,24 @@ mod tests {
         assert_eq!(address.password, "se@cr@et");
         assert_eq!(address.endpoint.to_string(), "kiwi.local:8074");
         assert_eq!(address.to_string(), "se@cr@et@kiwi.local:8074");
+    }
+
+    #[test]
+    fn https_keeps_its_scheme_around_the_password() {
+        let address = Address::parse("https://pw@kiwi.example/").expect("parses");
+        assert!(address.endpoint.secure());
+        assert_eq!(address.password, "pw");
+        assert_eq!(address.to_string(), "https://pw@kiwi.example:443");
+        assert_eq!(
+            Address::parse(&address.to_string()).expect("round trips"),
+            address
+        );
+        assert_eq!(
+            Address::parse("http://kiwi.example")
+                .expect("parses")
+                .to_string(),
+            "kiwi.example:80"
+        );
     }
 
     #[test]

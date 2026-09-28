@@ -148,6 +148,12 @@ describe("networkDeviceId", () => {
       "kiwisdr:pw@kiwi.example.org:80",
     );
     expect(networkDeviceId("kiwisdr", "kiwi.example.org")).toBe("kiwisdr:kiwi.example.org");
+    expect(networkDeviceId("kiwisdr", "https://kiwi.example.org/")).toBe(
+      "kiwisdr:https://kiwi.example.org",
+    );
+    expect(networkDeviceId("kiwisdr", "WSS://kiwi.example.org:8073")).toBe(
+      "kiwisdr:https://kiwi.example.org:8073",
+    );
   });
 
   it("strips a scheme someone pasted, but never an IPv6 literal's colons", () => {

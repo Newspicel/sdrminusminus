@@ -3,6 +3,7 @@ mod endpoint;
 mod socket;
 #[cfg(any(test, feature = "test-util"))]
 pub mod testing;
+mod tls;
 mod websocket;
 
 pub use adopted::Adopted;
