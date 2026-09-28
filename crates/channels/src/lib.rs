@@ -287,6 +287,10 @@ pub enum ChannelError {
     InvalidPayload(String),
     #[error("{0}")]
     LibraryUnavailable(String),
+    #[error("{0}")]
+    Refused(&'static str),
+    #[error("{0}")]
+    Unsupported(String),
 }
 
 #[derive(Clone, Copy, Debug)]
