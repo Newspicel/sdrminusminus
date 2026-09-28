@@ -1,8 +1,10 @@
-mod echo;
+pub mod echo;
 
 use std::f64::consts::{PI, TAU};
 
 use num_complex::Complex;
+
+pub use echo::SceneEcho;
 
 use crate::manifold::{
     Direction, Geometry, MAX_ELEMENTS, ManifoldError, ManifoldTable, steer, widen,
@@ -19,6 +21,7 @@ const GOLDEN: u64 = 0x9E37_79B9_7F4A_7C15;
 const XORSHIFT_STAR: u64 = 0x2545_F491_4F6C_DD1D;
 const NOISE_SALT: u64 = 0xD1B5_4A32_D192_ED03;
 const MAX_TABLE_AZIMUTHS: f64 = 3600.0;
+const ECHO_FRACTIONS: usize = 256;
 
 type C64 = Complex<f64>;
 
@@ -143,6 +146,8 @@ pub enum SceneError {
     Source(usize),
     #[error("heading must be finite")]
     Heading,
+    #[error("echo {0} copies a missing source or another copy, or has a non-finite setting")]
+    Echo(usize),
 }
 
 pub type Distortion = fn(usize, f64) -> Complex<f32>;
@@ -158,6 +163,7 @@ pub struct ArrayScene {
     pub lane_gain_db: Vec<f32>,
     pub lane_delay_samples: Vec<f32>,
     pub lane_dc: Vec<Complex<f32>>,
+    pub echoes: Vec<SceneEcho>,
     pub distortion: Option<Distortion>,
     pub heading: HeadingTrack,
     pub seed: u64,
@@ -177,6 +183,7 @@ impl ArrayScene {
             lane_gain_db: Vec::new(),
             lane_delay_samples: Vec::new(),
             lane_dc: Vec::new(),
+            echoes: Vec::new(),
             distortion: None,
             heading: HeadingTrack::Fixed(0.0),
             seed: 1,
@@ -187,6 +194,12 @@ impl ArrayScene {
     #[must_use]
     pub fn with_source(mut self, source: SceneSource) -> Self {
         self.sources.push(source);
+        self
+    }
+
+    #[must_use]
+    pub fn with_echo(mut self, echo: SceneEcho) -> Self {
+        self.echoes.push(echo);
         self
     }
 
@@ -244,6 +257,9 @@ impl ArrayScene {
             _ => SceneState::new(self.lanes(), self.seed),
         };
         state.sync_waves(&self.sources, self.seed, self.sample_rate);
+        if !self.echoes.is_empty() && state.fractions.is_empty() {
+            state.fractions = fraction_table();
+        }
         let result = self.render_with(&mut state, len);
         self.state = Some(state);
         Ok(result)
@@ -334,6 +350,12 @@ impl ArrayScene {
                 }
             }
         }
+        for (index, echo) in self.echoes.iter().enumerate() {
+            let original = self.sources.get(echo.source);
+            if !echo.is_valid() || original.is_none_or(|o| o.copy_of.is_some()) {
+                return Err(SceneError::Echo(index));
+            }
+        }
         Ok(())
     }
 
@@ -380,10 +402,49 @@ impl ArrayScene {
             .iter()
             .chain(&lane_plans)
             .map(|plan| plan.whole.abs())
+            .chain(self.echoes.iter().map(|echo| {
+                let delay = self.echo_delay(echo, end).abs().ceil() as i64;
+                delay + DELAY_CENTRE
+            }))
             .max()
             .unwrap_or(0);
         state.trim(end - KEEP_SAMPLES - longest);
         out
+    }
+
+    fn echo_carrier(&self, echo: &SceneEcho) -> f64 {
+        self.center_hz
+            + self
+                .sources
+                .get(echo.source)
+                .map_or(0.0, |source| source.signal.offset_hz())
+    }
+
+    fn echo_delay(&self, echo: &SceneEcho, n: i64) -> f64 {
+        let direct = self
+            .sources
+            .get(echo.source)
+            .map_or(0.0, |source| f64::from(source.delay_samples));
+        direct + echo.delay_at(n, self.echo_carrier(echo))
+    }
+
+    fn echo_value(&self, state: &SceneState, echo: &SceneEcho, n: i64) -> C64 {
+        let source = &self.sources[echo.source];
+        let delay = self.echo_delay(echo, n);
+        state.waves[echo.source].at(n, delay, self.sample_rate, &state.fractions)
+            * amplitude(source)
+            * echo.rotation(n, self.sample_rate)
+    }
+
+    fn ensure_echo_history(&self, state: &mut SceneState, from: i64, upto: i64) {
+        for echo in &self.echoes {
+            let reach = [from, upto - 1]
+                .iter()
+                .map(|&n| n - self.echo_delay(echo, n).floor() as i64 + DELAY_CENTRE + 1)
+                .max()
+                .unwrap_or(upto);
+            state.waves[echo.source].ensure(reach, self.sample_rate);
+        }
     }
 
     fn fill_lanes(&self, state: &mut SceneState, plans: &[DelayPlan], upto: i64) {
@@ -395,9 +456,11 @@ impl ArrayScene {
             let wave = source.copy_of.map_or(index, |copy| copy.source);
             state.waves[wave].ensure(plans[index].reach(upto - 1), self.sample_rate);
         }
+        self.ensure_echo_history(state, from, upto);
         let lanes = self.lanes();
         let rotating = matches!(self.heading, HeadingTrack::Rotating { .. });
         let mut responses = vec![[Complex::new(0.0f32, 0.0); MAX_ELEMENTS]; self.sources.len()];
+        let mut echo_responses = vec![[Complex::new(0.0f32, 0.0); MAX_ELEMENTS]; self.echoes.len()];
         let fs = self.sample_rate;
         for n in from..upto {
             let t_s = n as f64 / fs;
@@ -406,10 +469,20 @@ impl ArrayScene {
                     let freq = self.center_hz + self.source_signal(source).offset_hz();
                     self.element_response(freq, source.direction, t_s, &mut response[..lanes]);
                 }
+                for (response, echo) in echo_responses.iter_mut().zip(&self.echoes) {
+                    let freq = self.echo_carrier(echo);
+                    self.element_response(freq, echo.direction, t_s, &mut response[..lanes]);
+                }
             }
             let mut sums = [C64::new(0.0, 0.0); MAX_ELEMENTS];
             for ((index, source), response) in self.sources.iter().enumerate().zip(&responses) {
                 let value = self.source_value(state, plans, index, source, n);
+                for (sum, element) in sums.iter_mut().zip(&response[..lanes]) {
+                    *sum += widen(*element) * value;
+                }
+            }
+            for (echo, response) in self.echoes.iter().zip(&echo_responses) {
+                let value = self.echo_value(state, echo, n);
                 for (sum, element) in sums.iter_mut().zip(&response[..lanes]) {
                     *sum += widen(*element) * value;
                 }
@@ -467,6 +540,7 @@ struct SceneState {
     waves: Vec<Wave>,
     lanes: Vec<History>,
     noise: Vec<Rng>,
+    fractions: Vec<Vec<f64>>,
 }
 
 impl SceneState {
@@ -478,6 +552,7 @@ impl SceneState {
             noise: (0..lanes)
                 .map(|lane| Rng::seeded(seed ^ NOISE_SALT, lane as u64))
                 .collect(),
+            fractions: Vec::new(),
         }
     }
 
@@ -603,6 +678,12 @@ fn fractional_taps(fraction: f64) -> Vec<f64> {
     taps
 }
 
+fn fraction_table() -> Vec<Vec<f64>> {
+    (0..ECHO_FRACTIONS)
+        .map(|step| fractional_taps(step as f64 / ECHO_FRACTIONS as f64))
+        .collect()
+}
+
 fn sinc(x: f64) -> f64 {
     if x.abs() < 1e-12 {
         1.0
@@ -683,10 +764,34 @@ impl Wave {
     }
 
     fn value(&self, n: i64, plan: &DelayPlan, sample_rate: f64) -> C64 {
-        let t = (n as f64 - plan.delay) / sample_rate;
+        self.analytic(n, plan.delay, sample_rate)
+            .unwrap_or_else(|| plan.read(&self.history, n))
+    }
+
+    fn at(&self, n: i64, delay: f64, sample_rate: f64, fractions: &[Vec<f64>]) -> C64 {
+        if let Some(value) = self.analytic(n, delay, sample_rate) {
+            return value;
+        }
+        let steps = ECHO_FRACTIONS as f64;
+        let quantised = (delay * steps).round() / steps;
+        let whole = quantised.floor();
+        let step = ((quantised - whole) * steps).round() as usize;
+        let at = n - whole as i64;
+        match fractions.get(step).filter(|_| step > 0) {
+            None => self.history.get(at),
+            Some(taps) => taps
+                .iter()
+                .enumerate()
+                .map(|(k, &tap)| self.history.get(at - k as i64 + DELAY_CENTRE) * tap)
+                .sum(),
+        }
+    }
+
+    fn analytic(&self, n: i64, delay: f64, sample_rate: f64) -> Option<C64> {
+        let t = (n as f64 - delay) / sample_rate;
         match self.signal {
             SceneSignal::Tone { offset_hz } => {
-                C64::from_polar(1.0, TAU * offset_hz * t + self.phase)
+                Some(C64::from_polar(1.0, TAU * offset_hz * t + self.phase))
             }
             SceneSignal::Fm {
                 offset_hz,
@@ -698,9 +803,12 @@ impl Wave {
                 } else {
                     0.0
                 };
-                C64::from_polar(1.0, TAU * offset_hz * t + swing + self.phase)
+                Some(C64::from_polar(
+                    1.0,
+                    TAU * offset_hz * t + swing + self.phase,
+                ))
             }
-            SceneSignal::Noise { .. } | SceneSignal::Broadband => plan.read(&self.history, n),
+            SceneSignal::Noise { .. } | SceneSignal::Broadband => None,
         }
     }
 }

@@ -20,4 +20,6 @@ pub enum RadarDspError {
     Singular,
     #[error("radar FFT size is out of range")]
     Size,
+    #[error("radar setting is out of range")]
+    Setting,
 }
