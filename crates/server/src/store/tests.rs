@@ -2137,3 +2137,70 @@ fn a_stored_retired_decoder_event_leaves_the_log() {
     assert_eq!(total, 3);
     assert!(entries.iter().all(|entry| entry.kind != "subghz"));
 }
+
+#[test]
+fn forgetting_a_radio_drops_the_settings_it_left_on_the_node() {
+    let store = Store::open(None).expect("open");
+    let id = store.list_workspaces().expect("list").workspaces[0].id;
+    let holding = |device: Option<sdrmm_wire::DeviceRef>| {
+        let mut snapshot = WorkspaceSnapshot::starter();
+        let node = snapshot
+            .graph
+            .nodes
+            .iter_mut()
+            .find(|node| matches!(node.body, sdrmm_wire::NodeBody::Device(_)))
+            .expect("a device node");
+        node.body = sdrmm_wire::NodeBody::Device(sdrmm_wire::DeviceNode {
+            device,
+            ..Default::default()
+        });
+        (node.id.clone(), snapshot)
+    };
+    let tcp = sdrmm_wire::DeviceRef {
+        backend: "rtltcp".to_string(),
+        serial: None,
+        key: Some("192.168.4.104:1234".to_string()),
+    };
+    let (node, bound) = holding(Some(tcp));
+    let write = |revision, snapshot| {
+        store
+            .update_workspace(
+                id,
+                &UpdateWorkspaceRequest {
+                    revision,
+                    name: None,
+                    snapshot: Some(snapshot),
+                },
+            )
+            .expect("write")
+    };
+    write(1, bound.clone());
+    let mut state = sdrmm_wire::WorkspaceState::new();
+    state.merge(vec![sdrmm_wire::WorkspaceDevice {
+        node: node.clone(),
+        settings: DeviceSettings {
+            ppm: Some(42.0),
+            ..DeviceSettings::default()
+        },
+    }]);
+    store.put_workspace_state(id, &state).expect("plant");
+
+    write(2, bound);
+    assert!(
+        store
+            .workspace_state(id)
+            .expect("state")
+            .device(&node)
+            .is_some()
+    );
+
+    write(3, holding(None).1);
+    assert!(
+        store
+            .workspace_state(id)
+            .expect("state")
+            .device(&node)
+            .is_none(),
+        "the next radio picked here must not inherit the ppm of the last"
+    );
+}

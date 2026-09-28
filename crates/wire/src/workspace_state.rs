@@ -128,6 +128,10 @@ impl WorkspaceState {
         }
     }
 
+    pub fn forget_device(&mut self, node: &str) {
+        self.devices.retain(|device| device.node != node);
+    }
+
     pub fn retain_nodes(&mut self, present: impl Fn(&str) -> bool) {
         self.devices.retain(|device| present(&device.node));
         self.channels.retain(|channel| present(&channel.node));

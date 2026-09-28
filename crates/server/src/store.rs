@@ -6,10 +6,10 @@ use std::{
 
 use rusqlite::{Connection, OptionalExtension, params, params_from_iter, types::Value};
 use sdrmm_wire::{
-    Bookmark, CreateBookmarkRequest, DecoderLogEntry, DecoderLogQuery, LogScope, PresetInfo,
-    PresetSnapshot, RecordingInfo, UpdateWorkspaceRequest, WorkspaceDetail, WorkspaceError,
-    WorkspaceExport, WorkspaceHistory, WorkspaceInfo, WorkspaceSnapshot, WorkspaceState,
-    WorkspacesResponse,
+    Bookmark, CreateBookmarkRequest, DecoderLogEntry, DecoderLogQuery, LogScope, PatchGraph,
+    PresetInfo, PresetSnapshot, RecordingInfo, UpdateWorkspaceRequest, WorkspaceDetail,
+    WorkspaceError, WorkspaceExport, WorkspaceHistory, WorkspaceInfo, WorkspaceSnapshot,
+    WorkspaceState, WorkspacesResponse,
 };
 
 use crate::events::Routed;
@@ -768,6 +768,7 @@ impl Store {
             .map_err(|err| name_taken(err, name))?;
         }
         if let Some(snapshot) = &req.snapshot {
+            forget_released_radios(&tx, id, &snapshot.graph)?;
             let json = serde_json::to_string(snapshot)?;
             record_history(&tx, id, &json, None)?;
             tx.execute(
@@ -1109,6 +1110,27 @@ fn read_workspace_state(
         Some(json) => Ok(serde_json::from_str::<WorkspaceState>(&json)?.current()),
         None => Ok(WorkspaceState::new()),
     }
+}
+
+fn forget_released_radios(
+    conn: &Connection,
+    id: i64,
+    graph: &PatchGraph,
+) -> Result<(), StoreError> {
+    let json: String = conn.query_row(
+        "SELECT snapshot FROM workspaces WHERE id = ?1",
+        params![id],
+        |row| row.get(0),
+    )?;
+    let released = graph.released_radios(&parse_workspace_snapshot(&json)?.graph);
+    if released.is_empty() {
+        return Ok(());
+    }
+    let mut state = read_workspace_state(conn, id)?;
+    for node in &released {
+        state.forget_device(node);
+    }
+    write_workspace_state(conn, id, &state)
 }
 
 fn write_workspace_state(

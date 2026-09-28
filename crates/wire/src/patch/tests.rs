@@ -2170,3 +2170,32 @@ fn audio_fx_with_settings_outside_their_range_is_refused() {
         Err(PatchError::NodeSettings("fx".to_owned()))
     );
 }
+
+fn radio(key: &str) -> DeviceNode {
+    DeviceNode {
+        device: Some(DeviceRef {
+            backend: "rtltcp".to_owned(),
+            serial: None,
+            key: Some(key.to_owned()),
+        }),
+        ..DeviceNode::default()
+    }
+}
+
+fn holding(device: DeviceNode) -> PatchGraph {
+    let mut graph = workspace();
+    graph.nodes[0].body = NodeBody::Device(device);
+    graph
+}
+
+#[test]
+fn a_device_node_releases_its_radio_when_it_forgets_or_swaps_it() {
+    let before = holding(radio("a:1234"));
+    assert_eq!(
+        holding(DeviceNode::default()).released_radios(&before),
+        ["dev"]
+    );
+    assert_eq!(holding(radio("b:1234")).released_radios(&before), ["dev"]);
+    assert!(holding(radio("a:1234")).released_radios(&before).is_empty());
+    assert!(before.released_radios(&workspace()).is_empty());
+}

@@ -569,6 +569,10 @@ pub(super) async fn update_workspace(
     let store = state.store.clone();
     let app = state.clone();
     let info = tokio::task::spawn_blocking(move || -> Result<WorkspaceInfo, AppError> {
+        let _serialized = app
+            .apply_gate
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let info = store.update_workspace(id, &req)?;
         if store.active_workspace_id()? == Some(id) {
             let graph = store.workspace(id)?.snapshot.graph;

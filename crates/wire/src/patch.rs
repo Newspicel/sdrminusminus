@@ -1310,6 +1310,26 @@ impl PatchGraph {
         self.nodes.iter().filter(|node| node.body.opens_device())
     }
 
+    #[must_use]
+    pub fn released_radios(&self, before: &Self) -> Vec<String> {
+        before
+            .nodes
+            .iter()
+            .filter_map(|old| {
+                let NodeBody::Device(DeviceNode {
+                    device: Some(held), ..
+                }) = &old.body
+                else {
+                    return None;
+                };
+                let NodeBody::Device(now) = &self.node(&old.id)?.body else {
+                    return None;
+                };
+                (now.device.as_ref() != Some(held)).then(|| old.id.clone())
+            })
+            .collect()
+    }
+
     /// The radios wired into an array, in the order of the ports they arrive on, which is the
     /// order their lanes are numbered.
     #[must_use]
