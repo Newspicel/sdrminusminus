@@ -108,7 +108,7 @@ impl ChannelRx for M17Channel {
         Ok(Self {
             demod: c4fm_demod(&c4fm_params(ctx.input_rate, BAUD, DEVIATION_HZ, RRC_ALPHA)),
             symbols: Vec::new(),
-            decoder: Decoder::new(),
+            decoder: Decoder::new()?,
         })
     }
 
@@ -157,8 +157,8 @@ struct Decoder {
 }
 
 impl Decoder {
-    fn new() -> Self {
-        Self {
+    fn new() -> Result<Self, ChannelError> {
+        Ok(Self {
             window: SymbolWindow::new(PAYLOAD_SYMBOLS),
             viterbi: Viterbi5::new(),
             pending: None,
@@ -172,8 +172,8 @@ impl Decoder {
             late_chunks: 0,
             stream_coded: Vec::with_capacity(STREAM_CODED_BITS),
             stream_info: Vec::with_capacity(STREAM_BITS + 4),
-            vocoder: Codec2Decoder::new(),
-        }
+            vocoder: Codec2Decoder::new()?,
+        })
     }
 
     fn reset(&mut self) {

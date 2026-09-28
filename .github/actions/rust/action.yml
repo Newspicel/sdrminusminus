@@ -73,6 +73,13 @@ runs:
       run: python3 scripts/build-media.py --target "${{ inputs.target }}"
     - shell: bash
       run: echo "FFMPEG_DIR=$(python3 scripts/build-media.py --print-prefix)" >> "$GITHUB_ENV"
+    - shell: bash
+      run: |
+        case "$RUNNER_OS" in
+          Linux) echo "LD_LIBRARY_PATH=$FFMPEG_DIR/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" >> "$GITHUB_ENV" ;;
+          macOS) echo "DYLD_LIBRARY_PATH=$FFMPEG_DIR/lib" >> "$GITHUB_ENV" ;;
+          Windows) echo "$FFMPEG_DIR/bin" >> "$GITHUB_PATH" ;;
+        esac
     - uses: Swatinem/rust-cache@v2
       with:
         shared-key: ${{ inputs.cache }}

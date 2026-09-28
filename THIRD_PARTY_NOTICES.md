@@ -18,7 +18,7 @@ MIT. A reverse-engineered AMBE+2 vocoder. The Digital Voice Systems, Inc. patent
 
 **codec2**: LGPL-2.1-only AND MIT
 
-LGPL-2.1-only, statically linked into the binary. The LGPL permits this under any outer license provided users can relink the executable against a modified Codec2; SDR-- satisfies that by publishing its complete source, which is the "work that uses the library" LGPL-2.1 §6 asks for.
+LGPL-2.1-only, built into the separate `sdrmm_codec2` shared library that SDR-- loads at runtime. Replace that file with one built from a modified Codec2 to relink.
 
 **cssparser**: MPL-2.0
 
@@ -38,7 +38,7 @@ MPL-2.0. File-level copyleft: modifications to the crate's own files must be pub
 
 **codec2 FDMDV modem**: LGPL-2.1-only
 
-`crates/channels/vendor/codec2-fdmdv` vendors the FreeDV 1600 FDMDV modem from codec2 and compiles it into the binary. SDR-- satisfies LGPL-2.1 §6 by publishing its complete source.
+`crates/codec2/vendor/fdmdv` vendors the FreeDV 1600 FDMDV modem from codec2 into the replaceable `sdrmm_codec2` shared library.
 
 **dmrconfig**: BSD-3-Clause
 
@@ -50,7 +50,7 @@ The neural denoiser of the Audio FX node runs the pretrained dpdfnet2 16 kHz mod
 
 **FFmpeg 9.0.1**: LGPL-2.1-or-later
 
-Broadcast AAC, AC-3, MPEG-2, H.264 and HEVC playback uses FFmpeg. Release libraries are built from the unmodified official 9.0.1 source by scripts/build-media.py, with only LGPL components enabled. The script records the source URL, checksum and complete build configuration. FFmpeg is Copyright (c) the FFmpeg developers. Its LGPL-2.1 license text is below.
+Broadcast AAC, AC-3, MPEG-2, H.264 and HEVC playback uses FFmpeg. Release libraries are built from the unmodified official 9.0.1 source by scripts/build-media.py, with only LGPL components enabled, as shared libraries shipped beside SDR-- that can be replaced. The script records the source URL, checksum and complete build configuration. FFmpeg is Copyright (c) the FFmpeg developers. Its LGPL-2.1 license text is below.
 
 **hackrf-nusb 0.3.0**: MIT OR Apache-2.0
 

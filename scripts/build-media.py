@@ -79,8 +79,8 @@ def configure(source, prefix, target, env):
     args = [
         tool("bash", env), str(source / "configure"), f"--prefix={prefix.as_posix()}",
         "--disable-autodetect", "--disable-everything", "--disable-network",
-        "--disable-programs", "--disable-doc", "--disable-debug", "--disable-shared",
-        "--enable-static", "--enable-pic", "--disable-avdevice", "--disable-avfilter",
+        "--disable-programs", "--disable-doc", "--disable-debug", "--enable-shared",
+        "--disable-static", "--enable-pic", "--disable-avdevice", "--disable-avfilter",
         "--enable-avcodec", "--enable-avformat", "--enable-swresample", "--enable-swscale",
         "--enable-decoder=aac,aac_latm,ac3,eac3,mp2,mpeg2video,h264,hevc",
         "--enable-parser=aac,aac_latm,ac3,mpegaudio,mpegvideo,h264,hevc",
@@ -99,7 +99,10 @@ def configure(source, prefix, target, env):
         if arch == "aarch64":
             args.append("--disable-asm")
     elif "apple-darwin" in target:
-        args.extend(["--target-os=darwin", f"--cc=clang -arch {'arm64' if arch == 'aarch64' else arch}"])
+        args.extend([
+            "--target-os=darwin", "--install-name-dir=@rpath", "--extra-ldsoflags=-Wl,-rpath,@loader_path",
+            f"--cc=clang -arch {'arm64' if arch == 'aarch64' else arch}",
+        ])
         if target != target_name():
             args.append("--enable-cross-compile")
     elif target != target_name():
@@ -131,6 +134,7 @@ def main():
     source = prepare_source(work, args.archive)
     run(configure(source, prefix, args.target, env), work, env)
     run([tool("make", env), "-j", str(os.cpu_count() or 2)], work, env)
+    shutil.rmtree(prefix, ignore_errors=True)
     run([tool("make", env), "install"], work, env)
     marker.write_text(fingerprint)
     print(prefix)

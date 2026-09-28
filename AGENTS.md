@@ -7,7 +7,8 @@
 
 ## Coding structure
 - Respect crate boundaries: `dsp` has no I/O and no internal deps; `modem` builds reusable
-  modulation algorithms on `dsp`; `channels` depends on `dsp`, `modem`, and `wire`.
+  modulation algorithms on `dsp`; `channels` depends on `dsp`, `modem`, `wire`, and `codec2`.
+- LGPL code is never linked statically: it lives in a shared library loaded at runtime.
 - Adding a decoder should touch: one module in `channels`, one settings struct in `wire`,
   optionally one React panel. If it needs more, reconsider the design.
 - One job, one node. Never two nodes, or a node and a device kind, that do the same thing: a radio

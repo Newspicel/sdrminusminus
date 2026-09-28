@@ -107,6 +107,8 @@ rustPlatform.buildRustPackage (finalAttrs: {
   ];
 
   postInstall = ''
+    install -Dm755 -t "$out/lib/sdrmm" \
+      "$(find target -path '*/release/deps/libsdrmm_codec2${stdenv.hostPlatform.extensions.sharedLibrary}' -print -quit)"
     install -Dm644 apps/desktop/icons/128x128.png \
       "$out/share/icons/hicolor/128x128/apps/dev.newspicel.sdrmm.png"
     install -Dm644 apps/desktop/icons/128x128@2x.png \

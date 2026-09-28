@@ -1005,7 +1005,7 @@
       "source": "rust",
       "url": "https://github.com/scriptjunkie/codec2",
       "texts": [],
-      "note": "LGPL-2.1-only, statically linked into the binary. The LGPL permits this under any outer license provided users can relink the executable against a modified Codec2; SDR-- satisfies that by publishing its complete source, which is the \"work that uses the library\" LGPL-2.1 §6 asks for."
+      "note": "LGPL-2.1-only, built into the separate `sdrmm_codec2` shared library that SDR-- loads at runtime. Replace that file with one built from a modified Codec2 to relink."
     },
     {
       "name": "codespan-reporting",
@@ -9192,7 +9192,7 @@
       "texts": [
         "0f35c488bbe244dd"
       ],
-      "note": "`crates/channels/vendor/codec2-fdmdv` vendors the FreeDV 1600 FDMDV modem from codec2 and compiles it into the binary. SDR-- satisfies LGPL-2.1 §6 by publishing its complete source."
+      "note": "`crates/codec2/vendor/fdmdv` vendors the FreeDV 1600 FDMDV modem from codec2 into the replaceable `sdrmm_codec2` shared library."
     },
     {
       "name": "dmrconfig",
@@ -9220,7 +9220,7 @@
       "texts": [
         "9dbeb0f8568e2aa0"
       ],
-      "note": "Broadcast AAC, AC-3, MPEG-2, H.264 and HEVC playback uses FFmpeg. Release libraries are built from the unmodified official 9.0.1 source by scripts/build-media.py, with only LGPL components enabled. The script records the source URL, checksum and complete build configuration. FFmpeg is Copyright (c) the FFmpeg developers. Its LGPL-2.1 license text is below."
+      "note": "Broadcast AAC, AC-3, MPEG-2, H.264 and HEVC playback uses FFmpeg. Release libraries are built from the unmodified official 9.0.1 source by scripts/build-media.py, with only LGPL components enabled, as shared libraries shipped beside SDR-- that can be replaced. The script records the source URL, checksum and complete build configuration. FFmpeg is Copyright (c) the FFmpeg developers. Its LGPL-2.1 license text is below."
     },
     {
       "name": "hackrf-nusb 0.3.0",

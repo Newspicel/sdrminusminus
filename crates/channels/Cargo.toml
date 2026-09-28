@@ -24,7 +24,8 @@ tract-nnef.workspace = true
 rtrb.workspace = true
 thiserror.workspace = true
 blip25-vocoder.workspace = true
-codec2.workspace = true
+sdrmm-codec2.workspace = true
+libloading.workspace = true
 symphonia-core.workspace = true
 symphonia-bundle-mp3.workspace = true
 ffmpeg-the-third.workspace = true
@@ -48,6 +49,7 @@ serde_json.workspace = true
 # which `#[cfg(test)]` alone does not enable for tests/ targets).
 sdrmm-channels = { workspace = true, features = ["test-signals"] }
 blip25-vocoder = { workspace = true, features = ["encode"] }
+codec2.workspace = true
 xng-mode-hfdl.workspace = true
 xng-mode-aero.workspace = true
 xng-acars.workspace = true

@@ -21,6 +21,7 @@ mod bandplan;
 mod ber;
 mod broadcast_fixtures;
 mod bundle;
+mod bundled;
 mod denoise_model;
 mod excerpt;
 mod homebrew;
@@ -101,6 +102,12 @@ enum Cmd {
         #[arg(long)]
         bundles: Option<String>,
     },
+    BundledConfig {
+        #[arg(long)]
+        target: Option<String>,
+        #[arg(long)]
+        out: PathBuf,
+    },
     LinkCheck {
         path: PathBuf,
         #[arg(long = "external")]
@@ -172,6 +179,9 @@ fn main() -> Result<()> {
         Cmd::Dist { target } => dist(&root(), target.as_deref()),
         Cmd::SourceDist => source_dist(&root()),
         Cmd::Desktop { target, bundles } => desktop(&root(), target.as_deref(), bundles.as_deref()),
+        Cmd::BundledConfig { target, out } => {
+            bundled::write_desktop_config(&root(), target.as_deref(), &out)
+        }
         Cmd::LinkCheck { path, external } => linkage::check(&path, &external),
         Cmd::SetVersion { version } => set_version(&root(), &version),
         Cmd::UpdaterManifest {
@@ -845,6 +855,7 @@ fn dist(root: &Path, target: Option<&str>) -> Result<()> {
 
     std::fs::copy(&built, staged.join(exe))
         .with_context(|| format!("cannot stage {}", built.display()))?;
+    bundled::stage(&bundled::libraries(root, target)?, &staged)?;
     for doc in ["README.md", "LICENSE", "THIRD_PARTY_NOTICES.md"] {
         std::fs::copy(root.join(doc), staged.join(doc))
             .with_context(|| format!("cannot stage {doc}"))?;
@@ -1015,14 +1026,25 @@ fn run_against_media(args: &[&str], cwd: &Path, media: Option<&Path>) -> Result<
         1
     };
     retry(attempts, || match media {
-        Some(dir) => run_with_env(
-            "cargo",
-            args,
-            cwd,
-            &[("FFMPEG_DIR", &dir.to_string_lossy())],
-        ),
+        Some(dir) => {
+            let library_path = linux_library_path(dir);
+            let mut env = vec![("FFMPEG_DIR", dir.to_string_lossy().into_owned())];
+            if cfg!(target_os = "linux") {
+                env.push(("LD_LIBRARY_PATH", library_path));
+            }
+            let env: Vec<(&str, &str)> = env.iter().map(|(k, v)| (*k, v.as_str())).collect();
+            run_with_env("cargo", args, cwd, &env)
+        }
         None => run("cargo", args, cwd),
     })
+}
+
+fn linux_library_path(media: &Path) -> String {
+    let lib = media.join("lib").to_string_lossy().into_owned();
+    match std::env::var("LD_LIBRARY_PATH") {
+        Ok(existing) if !existing.is_empty() => format!("{lib}:{existing}"),
+        _ => lib,
+    }
 }
 
 fn retry(attempts: usize, mut run: impl FnMut() -> Result<()>) -> Result<()> {
@@ -1101,6 +1123,7 @@ fn desktop(root: &Path, target: Option<&str>, bundles: Option<&str>) -> Result<(
         installed,
         "the Tauri CLI is missing: `cargo install --locked tauri-cli`"
     );
+    let bundled_config = bundled::desktop_config_for(root, target)?;
     let unsigned = std::env::var_os("TAURI_SIGNING_PRIVATE_KEY").is_none();
     if unsigned {
         println!(
@@ -1111,6 +1134,8 @@ fn desktop(root: &Path, target: Option<&str>, bundles: Option<&str>) -> Result<(
     let mut args = vec![
         "tauri",
         "build",
+        "--config",
+        &bundled_config,
         "--bundles",
         bundles,
         "--",

@@ -123,18 +123,19 @@ jobs:
         run: test -s "$STAGED.tar.gz" || test -s "$STAGED.zip"
       - name: Linking
         if: runner.os == 'macOS'
-        run: cargo xtask link-check "$STAGED/sdrmm"
+        run: cargo xtask link-check "$STAGED"
       - name: Version
         if: ${{ !matrix.cross }}
         shell: bash
-        run: test "$("$STAGED/sdrmm${{ matrix.exe }}" --version)" = "sdrmm $VERSION"
+        run: test "$(env -u LD_LIBRARY_PATH -u DYLD_LIBRARY_PATH "$STAGED/sdrmm${{ matrix.exe }}" --version)" = "sdrmm $VERSION"
       - name: Doctor
         if: ${{ !matrix.cross }}
         shell: bash
         run: |
-          "$STAGED/sdrmm${{ matrix.exe }}" --doctor | tee doctor
+          env -u LD_LIBRARY_PATH -u DYLD_LIBRARY_PATH "$STAGED/sdrmm${{ matrix.exe }}" --doctor | tee doctor
           grep -q 'compiled backends:.*soapy' doctor
           grep -qi 'soapysdr' doctor
+          grep -q '\[ok  \] Codec2 library' doctor
       - uses: actions/upload-artifact@v7
         with:
           name: sdrmm-${{ matrix.target }}
@@ -292,6 +293,7 @@ jobs:
     env:
       TAURI_ARGS: >-
         --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
+        --config ${{ github.workspace }}/bundled.tauri.json
         -- --no-default-features --features soapy,sdrplay,rtlsdr,hackrf,airspy,airspyhf,ad936x,net-client,gpu-fft
       APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
       APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
@@ -316,6 +318,7 @@ jobs:
       - name: UI built
         shell: bash
         run: test -f web/dist/index.html
+      - run: cargo xtask bundled-config --target ${{ matrix.target }} --out bundled.tauri.json
       - if: contains(matrix.bundles, 'appimage')
         run: scripts/ci/prefetch-appimage-tools.sh "${{ runner.arch == 'ARM64' && 'aarch64' || 'x86_64' }}"
       - id: bundle
@@ -341,6 +344,9 @@ jobs:
         with:
           projectPath: apps/desktop
           args: ${{ env.TAURI_ARGS }}
+      - name: App linking
+        if: runner.os == 'macOS'
+        run: cargo xtask link-check "target/${{ matrix.target }}/release/bundle/macos"
       - name: AppImage audio
         if: contains(matrix.bundles, 'appimage')
         run: scripts/ci/check-appimage-audio.sh "target/${{ matrix.target }}/release/bundle/appimage"

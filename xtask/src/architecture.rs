@@ -66,7 +66,7 @@ fn validate(metadata: &Value) -> Result<()> {
         ),
         (
             "sdrmm-channels",
-            &["sdrmm-dsp", "sdrmm-modem", "sdrmm-wire"][..],
+            &["sdrmm-codec2", "sdrmm-dsp", "sdrmm-modem", "sdrmm-wire"][..],
         ),
     ] {
         let package = packages

@@ -1,4 +1,4 @@
-use std::{ffi::c_void, ptr::NonNull, sync::LazyLock};
+use std::sync::LazyLock;
 
 use num_complex::Complex;
 use sdrmm_dsp::{FirC, design_lowpass, golay23_correct};
@@ -7,7 +7,10 @@ use sdrmm_wire::{
     DvFrameKind, DvMode, FreeDvMode, FreeDvParams, Sideband,
 };
 
-use super::vocoder::Codec2Decoder;
+use super::{
+    codec2_library::{Fdmdv, FdmdvResult},
+    vocoder::Codec2Decoder,
+};
 use crate::{ChannelCtx, ChannelError, ChannelFilter, ChannelOutputs, ChannelRx, check_input_rate};
 
 const INPUT_RATE_HZ: f64 = 8_000.0;
@@ -31,65 +34,22 @@ static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescrip
     ..ChannelDescriptor::default()
 });
 
-#[repr(C)]
-#[derive(Clone, Copy, Default)]
-struct FfiComplex {
-    re: f32,
-    im: f32,
-}
-
-#[repr(C)]
-struct FdmdvResult {
-    next_nin: i32,
-    reliable_sync: i32,
-    sync: i32,
-}
-
-unsafe extern "C" {
-    fn sdrmm_fdmdv_create() -> *mut c_void;
-    fn sdrmm_fdmdv_destroy(modem: *mut c_void);
-    fn sdrmm_fdmdv_demod(
-        modem: *mut c_void,
-        input: *const FfiComplex,
-        nin: i32,
-        output: *mut u8,
-    ) -> FdmdvResult;
-}
-
-struct Fdmdv {
-    state: NonNull<c_void>,
+struct Modem {
+    fdmdv: Fdmdv,
     next_nin: usize,
 }
 
-// SAFETY: the opaque modem has no shared global state, is owned by one channel, and every FFI
-// call requires exclusive access to this owner.
-unsafe impl Send for Fdmdv {}
-
-impl Fdmdv {
+impl Modem {
     fn new() -> Result<Self, ChannelError> {
-        // SAFETY: the constructor takes no borrowed state and returns one independently owned
-        // modem, freed by this type's Drop implementation.
-        let state = unsafe { sdrmm_fdmdv_create() };
         Ok(Self {
-            state: NonNull::new(state).ok_or_else(|| {
-                ChannelError::InvalidSettings("FreeDV modem allocation failed".to_owned())
-            })?,
+            fdmdv: Fdmdv::new()?,
             next_nin: 160,
         })
     }
 
-    fn demod(&mut self, input: &[FfiComplex], bits: &mut [u8; MODEM_BITS]) -> FdmdvResult {
+    fn demod(&mut self, input: &[Complex<f32>], bits: &mut [u8; MODEM_BITS]) -> FdmdvResult {
         debug_assert_eq!(input.len(), self.next_nin);
-        // SAFETY: state is live until Drop, `input` contains exactly `next_nin` elements, and
-        // the fixed output has the 32 bytes the wrapper writes.
-        let result = unsafe {
-            sdrmm_fdmdv_demod(
-                self.state.as_ptr(),
-                input.as_ptr(),
-                input.len() as i32,
-                bits.as_mut_ptr(),
-            )
-        };
+        let result = self.fdmdv.demod(input, bits);
         self.next_nin = usize::try_from(result.next_nin)
             .ok()
             .filter(|&nin| (1..=MAX_MODEM_SAMPLES).contains(&nin))
@@ -98,17 +58,10 @@ impl Fdmdv {
     }
 }
 
-impl Drop for Fdmdv {
-    fn drop(&mut self) {
-        // SAFETY: this is the one matching destroy for the live pointer and runs once.
-        unsafe { sdrmm_fdmdv_destroy(self.state.as_ptr()) };
-    }
-}
-
 pub struct FreeDvChannel {
     sideband: Sideband,
-    modem: Fdmdv,
-    modem_input: [FfiComplex; MAX_MODEM_SAMPLES],
+    modem: Modem,
+    modem_input: [Complex<f32>; MAX_MODEM_SAMPLES],
     modem_filled: usize,
     bits: [u8; MODEM_BITS],
     paired_bits: [u8; MODEM_BITS * 2],
@@ -154,21 +107,21 @@ impl ChannelRx for FreeDvChannel {
         let params = params(&settings)?;
         Ok(Self {
             sideband: params.sideband,
-            modem: Fdmdv::new()?,
-            modem_input: [FfiComplex::default(); MAX_MODEM_SAMPLES],
+            modem: Modem::new()?,
+            modem_input: [Complex::default(); MAX_MODEM_SAMPLES],
             modem_filled: 0,
             bits: [0; MODEM_BITS],
             paired_bits: [0; MODEM_BITS * 2],
             even_frame: false,
             synced: false,
-            vocoder: Codec2Decoder::new(),
+            vocoder: Codec2Decoder::new()?,
         })
     }
 
     fn apply(&mut self, settings: ChannelSettings) -> Result<(), ChannelError> {
         let sideband = params(&settings)?.sideband;
         if sideband != self.sideband {
-            self.modem = Fdmdv::new()?;
+            self.modem = Modem::new()?;
             self.sideband = sideband;
             self.reset_stream_state();
         }
@@ -176,7 +129,7 @@ impl ChannelRx for FreeDvChannel {
     }
 
     fn retuned(&mut self) {
-        if let Ok(modem) = Fdmdv::new() {
+        if let Ok(modem) = Modem::new() {
             self.modem = modem;
         }
         self.reset_stream_state();
@@ -188,10 +141,7 @@ impl ChannelRx for FreeDvChannel {
                 Sideband::Usb => sample,
                 Sideband::Lsb => sample.conj(),
             } * MODEM_SCALE;
-            self.modem_input[self.modem_filled] = FfiComplex {
-                re: sample.re,
-                im: sample.im,
-            };
+            self.modem_input[self.modem_filled] = sample;
             self.modem_filled += 1;
             if self.modem_filled == self.modem.next_nin {
                 self.demod_frame(out);
@@ -212,7 +162,7 @@ impl FreeDvChannel {
         let result = self
             .modem
             .demod(&self.modem_input[..self.modem_filled], &mut self.bits);
-        let sync = result.sync != 0;
+        let sync = result.sync;
         if sync && !self.synced {
             let mut frame = DvFrame::new(DvMode::FreeDv, DvFrameKind::Header);
             frame.opcode = Some("1600".to_owned());
@@ -225,7 +175,7 @@ impl FreeDvChannel {
         }
         self.synced = sync;
 
-        if result.reliable_sync != 0 {
+        if result.reliable_sync {
             self.even_frame = true;
         }
         if !sync {

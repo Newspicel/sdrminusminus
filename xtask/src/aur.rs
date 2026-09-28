@@ -124,7 +124,8 @@ fn server(digests: &Digests, version: &str, repo: &str) -> Result<Package> {
         })?,
         install: format!(
             "  cd \"sdrmm-{version}-$CARCH-unknown-linux-gnu\"\n  install -Dm755 sdrmm \
-             \"$pkgdir/usr/bin/sdrmm\"\n  install -Dm644 README.md -t \
+             \"$pkgdir/usr/bin/sdrmm\"\n  install -Dm755 *.so* -t \"$pkgdir/usr/lib/sdrmm/\"\n  \
+             install -Dm644 README.md -t \
              \"$pkgdir/usr/share/doc/sdrmm/\"\n  install -Dm644 LICENSE THIRD_PARTY_NOTICES.md -t \
              \"$pkgdir/usr/share/licenses/$pkgname/\""
         ),

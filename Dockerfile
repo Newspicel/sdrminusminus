@@ -81,7 +81,9 @@ COPY --from=web /web/dist web/dist
 RUN test -f web/dist/index.html \
     && find crates apps xtask -name '*.rs' -exec touch {} + \
     && cargo build --profile "$PROFILE" --locked -p sdrmm --no-default-features --features "$FEATURES" \
-    && install -Dm755 "target/$PROFILE/sdrmm" /out/sdrmm
+    && install -Dm755 "target/$PROFILE/sdrmm" /out/bin/sdrmm \
+    && cargo build --profile "$PROFILE" --locked -p sdrmm-codec2 \
+    && install -Dm755 -t /out/lib/sdrmm "target/$PROFILE/libsdrmm_codec2.so" /opt/sdrmm-media/lib/lib*.so.[0-9]*
 
 
 # --- runtime -----------------------------------------------------------------------------
@@ -103,7 +105,7 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/* \
     && useradd --system --uid 10001 --user-group --create-home --home-dir /home/sdrmm sdrmm
 
-COPY --from=builder /out/sdrmm /usr/local/bin/sdrmm
+COPY --from=builder /out/ /usr/local/
 COPY THIRD_PARTY_NOTICES.md /usr/share/doc/sdrmm/THIRD_PARTY_NOTICES.md
 
 # Docker seeds a fresh named or anonymous volume from the image path, ownership included, so

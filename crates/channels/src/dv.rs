@@ -1,3 +1,4 @@
+pub mod codec2_library;
 pub(crate) mod dmr;
 pub(crate) mod dpmr;
 pub(crate) mod dstar;

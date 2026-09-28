@@ -81,6 +81,7 @@ fn formula(digests: &Digests, version: &str, repo: &str) -> Result<String> {
 
   def install
     bin.install "sdrmm"
+    (lib/"sdrmm").install Dir["*.dylib", "*.so*"]
     doc.install "LICENSE", "README.md", "THIRD_PARTY_NOTICES.md"
 
     if OS.mac?
@@ -88,7 +89,7 @@ fn formula(digests: &Digests, version: &str, repo: &str) -> Result<String> {
       system "codesign", "--sign", "-", "--force", bin/"sdrmm"
     else
       system formula_opt_bin("patchelf")/"patchelf",
-             "--set-rpath", formula_opt_lib("soapysdr"), bin/"sdrmm"
+             "--set-rpath", "#{{formula_opt_lib("soapysdr")}}:#{{lib}}/sdrmm", bin/"sdrmm"
     end
   end
 

@@ -13,11 +13,11 @@ use blip25_vocoder::{
     },
     vocoder::{FrameStatus, Rate, Vocoder},
 };
-use codec2::{Codec2, Codec2Mode};
 use num_complex::Complex;
 use sdrmm_dsp::FracResampler;
 
-use crate::{AUDIO_RATE, ChannelOutputs, clamp_full_scale};
+use super::codec2_library::Codec2;
+use crate::{AUDIO_RATE, ChannelError, ChannelOutputs, clamp_full_scale};
 
 const VOCODER_RATE_HZ: f64 = 8_000.0;
 const MBE_FRAME_SAMPLES: usize = 160;
@@ -309,28 +309,30 @@ impl Drop for DstarVocoder {
 }
 
 pub(crate) struct Codec2Decoder {
-    codec_3200: Codec2,
-    codec_1600: Codec2,
-    codec_1300: Codec2,
+    codec_3200: Codec2<160, 8>,
+    codec_1600: Codec2<320, 8>,
+    codec_1300: Codec2<320, 7>,
     output: PcmOutput,
+    pcm_3200: [i16; 160],
     pcm: [i16; 320],
 }
 
 impl Codec2Decoder {
-    pub(crate) fn new() -> Self {
-        Self {
-            codec_3200: Codec2::new(Codec2Mode::MODE_3200),
-            codec_1600: Codec2::new(Codec2Mode::MODE_1600),
-            codec_1300: Codec2::new(Codec2Mode::MODE_1300),
+    pub(crate) fn new() -> Result<Self, ChannelError> {
+        Ok(Self {
+            codec_3200: Codec2::new(3200)?,
+            codec_1600: Codec2::new(1600)?,
+            codec_1300: Codec2::new(1300)?,
             output: PcmOutput::new(),
+            pcm_3200: [0; 160],
             pcm: [0; 320],
-        }
+        })
     }
 
     pub(crate) fn reset(&mut self) {
-        self.codec_3200 = Codec2::new(Codec2Mode::MODE_3200);
-        self.codec_1600 = Codec2::new(Codec2Mode::MODE_1600);
-        self.codec_1300 = Codec2::new(Codec2Mode::MODE_1300);
+        self.codec_3200.reset();
+        self.codec_1600.reset();
+        self.codec_1300.reset();
         self.output.reset();
     }
 
@@ -345,8 +347,8 @@ impl Codec2Decoder {
             return;
         }
         for frame in payload.as_chunks::<8>().0 {
-            self.codec_3200.decode(&mut self.pcm[..160], frame);
-            self.output.append_i16(&self.pcm[..160], out);
+            self.codec_3200.decode(frame, &mut self.pcm_3200);
+            self.output.append_i16(&self.pcm_3200, out);
         }
     }
 
@@ -360,12 +362,15 @@ impl Codec2Decoder {
             PcmOutput::silence(2, out);
             return;
         }
-        self.codec_1600.decode(&mut self.pcm, &payload[..8]);
+        let Some(frame) = payload.first_chunk::<8>() else {
+            return;
+        };
+        self.codec_1600.decode(frame, &mut self.pcm);
         self.output.append_i16(&self.pcm, out);
     }
 
     pub(crate) fn decode_1300(&mut self, payload: &[u8; 7], out: &mut ChannelOutputs) {
-        self.codec_1300.decode(&mut self.pcm, payload);
+        self.codec_1300.decode(payload, &mut self.pcm);
         self.output.append_i16(&self.pcm, out);
     }
 }

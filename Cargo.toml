@@ -25,6 +25,7 @@ members = [
     "crates/device-rtltcp",
     "crates/device-spyserver",
     "crates/usb-stream",
+    "crates/codec2",
     "crates/channels",
     "crates/cps",
     "crates/recorder",
@@ -61,6 +62,7 @@ default-members = [
     "crates/device-rtltcp",
     "crates/device-spyserver",
     "crates/usb-stream",
+    "crates/codec2",
     "crates/channels",
     "crates/cps",
     "crates/recorder",
@@ -106,6 +108,7 @@ sdrmm-device-hackrf = { path = "crates/device-hackrf" }
 sdrmm-device-rtltcp = { path = "crates/device-rtltcp" }
 sdrmm-device-spyserver = { path = "crates/device-spyserver" }
 sdrmm-usb-stream = { path = "crates/usb-stream" }
+sdrmm-codec2 = { path = "crates/codec2" }
 sdrmm-channels = { path = "crates/channels" }
 sdrmm-cps = { path = "crates/cps" }
 sdrmm-recorder = { path = "crates/recorder" }
