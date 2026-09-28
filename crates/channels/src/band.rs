@@ -27,6 +27,14 @@ pub fn band_capacity(max_block: usize, input_rate: f64, output_rate: f64) -> usi
     (max_block as f64 * output_rate / input_rate).ceil() as usize + BAND_MARGIN
 }
 
+pub fn check_offset(input_rate: f64, offset_hz: f64) -> Result<(), ChannelError> {
+    if offset_hz.is_finite() && offset_hz.abs() <= input_rate / 2.0 {
+        Ok(())
+    } else {
+        Err(ChannelError::Refused("Offset out of range"))
+    }
+}
+
 #[must_use]
 pub fn band_lane_format(
     ctx: &ArrayCtx<'_>,
@@ -43,6 +51,8 @@ pub fn band_lane_format(
 
 pub struct LaneBand {
     lanes: usize,
+    inputs: usize,
+    picks: [usize; MAX_LANES],
     ddc: Vec<Ddc>,
     buffers: Vec<Vec<Complex<f32>>>,
     input_rate: f64,
@@ -61,7 +71,38 @@ impl LaneBand {
         bandwidth_hz: Option<f64>,
         max_block: usize,
     ) -> Result<Self, ChannelError> {
+        if lanes > MAX_LANES {
+            return Err(ChannelError::Refused("Too many elements"));
+        }
+        let mut every = [0; MAX_LANES];
+        for (lane, pick) in every.iter_mut().enumerate() {
+            *pick = lane;
+        }
+        Self::picked(
+            lanes,
+            &every[..lanes],
+            input_rate,
+            offset_hz,
+            bandwidth_hz,
+            max_block,
+        )
+    }
+
+    pub fn picked(
+        inputs: usize,
+        picks: &[usize],
+        input_rate: f64,
+        offset_hz: f64,
+        bandwidth_hz: Option<f64>,
+        max_block: usize,
+    ) -> Result<Self, ChannelError> {
+        let lanes = picks.len();
         check(lanes, input_rate, offset_hz, bandwidth_hz)?;
+        if picks.iter().any(|&pick| pick >= inputs) {
+            return Err(ChannelError::Refused("Lane out of range"));
+        }
+        let mut chosen = [0; MAX_LANES];
+        chosen[..lanes].copy_from_slice(picks);
         let output_rate = band_rate(input_rate, bandwidth_hz);
         let ddc = match bandwidth_hz {
             Some(_) => (0..lanes)
@@ -74,6 +115,8 @@ impl LaneBand {
         };
         let mut band = Self {
             lanes,
+            inputs,
+            picks: chosen,
             ddc,
             buffers: (0..lanes)
                 .map(|_| Vec::with_capacity(max_block + BAND_MARGIN))
@@ -138,7 +181,7 @@ impl LaneBand {
         block: &ArrayBlock<'a>,
         views: &mut [&'a [Complex<f32>]; MAX_LANES],
     ) -> usize {
-        if block.lanes.len() != self.lanes {
+        if block.lanes.len() != self.inputs {
             return 0;
         }
         let correct = !block.corrected;
@@ -146,8 +189,8 @@ impl LaneBand {
             self.refresh(&block.correction);
         }
         if self.ddc.is_empty() && !correct {
-            for (view, &lane) in views.iter_mut().zip(block.lanes) {
-                *view = lane;
+            for (view, &pick) in views.iter_mut().zip(&self.picks[..self.lanes]) {
+                *view = block.lanes[pick];
             }
             return shortest(&views[..self.lanes]);
         }
@@ -160,7 +203,8 @@ impl LaneBand {
     }
 
     fn fill(&mut self, lanes: &[&[Complex<f32>]], correct: bool) {
-        for (lane, input) in lanes.iter().enumerate() {
+        for (lane, &pick) in self.picks[..self.lanes].iter().enumerate() {
+            let input = lanes[pick];
             let buffer = &mut self.buffers[lane];
             match self.ddc.get_mut(lane) {
                 Some(ddc) => ddc.process(input, buffer),
@@ -183,8 +227,8 @@ impl LaneBand {
             return;
         }
         let at = self.center_offset_hz();
-        for (lane, factor) in self.factors.iter_mut().enumerate().take(self.lanes) {
-            *factor = correction.response(lane, at);
+        for (factor, &pick) in self.factors.iter_mut().zip(&self.picks[..self.lanes]) {
+            *factor = correction.response(pick, at);
         }
         self.factors_for = Some(correction.generation);
     }

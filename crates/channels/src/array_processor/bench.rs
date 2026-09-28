@@ -1,6 +1,7 @@
 use num_complex::Complex;
 use sdrmm_wire::{
     ArrayGeometry, ArrayTuningMode, Coherence, DecoderEvent, ProcessorReading, RdsUpdate,
+    SurfaceFrame,
 };
 
 use super::{
@@ -36,6 +37,12 @@ impl Bench {
 
     pub(crate) fn together(node: &str, lanes: usize, rate: f64, max_block: usize) -> Self {
         Self::spread(node, rate, &vec![0.0; lanes], max_block)
+    }
+
+    pub(crate) fn with_geometry(mut self, geometry: ArrayGeometry) -> Self {
+        self.positions = geometry.positions(self.centers.len()).unwrap_or_default();
+        self.geometry = geometry;
+        self
     }
 
     pub(crate) fn ctx(&self) -> ArrayCtx<'_> {
@@ -83,6 +90,7 @@ pub(crate) fn noise(len: usize, seed: u32) -> Vec<Complex<f32>> {
 
 pub(crate) struct Sink {
     pub(crate) report: Option<ProcessorReading>,
+    pub(crate) surface: Option<SurfaceFrame>,
     pub(crate) events: Vec<DecoderEvent>,
     pub(crate) lanes: Vec<LaneBuffer>,
 }
@@ -91,6 +99,7 @@ impl Sink {
     pub(crate) fn new(type_id: &str, lane_capacities: &[usize]) -> Self {
         Self {
             report: ProcessorReading::empty(type_id),
+            surface: None,
             events: vec![DecoderEvent::Rds(RdsUpdate::default()); 2],
             lanes: lane_capacities
                 .iter()
@@ -105,7 +114,7 @@ impl Sink {
         }
         let mut out = ProcessorOutput::new(OutputSlots {
             report: self.report.as_mut(),
-            surface: None,
+            surface: self.surface.as_mut(),
             events: &mut self.events,
             lanes: &mut self.lanes,
         });

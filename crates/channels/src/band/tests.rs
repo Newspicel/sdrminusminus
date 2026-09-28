@@ -235,3 +235,35 @@ fn a_new_correction_generation_refreshes_the_factors() {
         );
     }
 }
+
+#[test]
+fn a_picked_band_reads_its_lanes_and_their_corrections() {
+    let lanes: Vec<Vec<Complex<f32>>> = (0..4)
+        .map(|lane| vec![Complex::new(lane as f32 + 1.0, 0.0); 32])
+        .collect();
+    let views: Vec<&[Complex<f32>]> = lanes.iter().map(Vec::as_slice).collect();
+    let spectra: Vec<Vec<Complex<f32>>> = (0..4)
+        .map(|lane| vec![Complex::from_polar(1.0, 0.25 * lane as f32); 8])
+        .collect();
+    let mut band = LaneBand::picked(4, &[3, 1], RATE, 0.0, None, 64).expect("band");
+    assert_eq!(band.lanes(), 2);
+    let mut out: [&[Complex<f32>]; MAX_LANES] = [&[]; MAX_LANES];
+    assert_eq!(band.process(&block(&views, 0), &mut out), 32);
+    assert_eq!((out[0][0].re, out[1][0].re), (4.0, 2.0));
+    let mut input = block(&views, 0);
+    input.corrected = false;
+    input.correction = CorrectionView::new(1, RATE, &spectra);
+    let mut corrected: [&[Complex<f32>]; MAX_LANES] = [&[]; MAX_LANES];
+    band.process(&input, &mut corrected);
+    assert!((corrected[0][0].arg() - 0.75).abs() < 1e-6);
+    assert!((corrected[1][0].arg() - 0.25).abs() < 1e-6);
+    let two: Vec<&[Complex<f32>]> = views[..2].to_vec();
+    let mut none: [&[Complex<f32>]; MAX_LANES] = [&[]; MAX_LANES];
+    assert_eq!(band.process(&block(&two, 0), &mut none), 0);
+    assert_eq!(
+        LaneBand::picked(2, &[0, 2], RATE, 0.0, None, 16)
+            .err()
+            .map(|error| error.to_string()),
+        Some("Lane out of range".to_owned())
+    );
+}
