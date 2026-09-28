@@ -15,6 +15,7 @@ import type { DeviceInfo, DeviceRef } from "../lib/types";
 import { Button, Form, Input } from "./BaseControls";
 import { BTN, BTN_QUIET, FIELD, ICON_BTN, LABEL } from "./controls";
 import {
+  deviceHint,
   deviceId,
   groupDevices,
   NETWORK_BACKENDS,
@@ -146,6 +147,7 @@ function RadioList({
           key={deviceId(device)}
           type="button"
           className={`${BTN} justify-center`}
+          title={deviceHint(device)}
           disabled={busy}
           onClick={() => onChoose(device)}
         >

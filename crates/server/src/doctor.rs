@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use sdrmm_wire::{CheckStatus, DoctorCheck, DoctorReport};
+use sdrmm_wire::{CheckStatus, DeviceInfo, DoctorCheck, DoctorReport};
 
 #[must_use]
 pub fn collect(db_path: Option<&Path>, recordings_dir: Option<&Path>) -> DoctorReport {
@@ -15,7 +15,7 @@ pub fn report(
     recordings_dir: Option<&Path>,
 ) -> DoctorReport {
     let mut checks = vec![backends_check(registry)];
-    let devices = devices_check(registry);
+    let devices = devices_checks(registry);
     #[cfg(all(feature = "soapy", not(test)))]
     {
         let info = sdrmm_device_soapy::runtime_info();
@@ -26,7 +26,7 @@ pub fn report(
     #[cfg(all(feature = "cr8", not(test)))]
     checks.push(cr8_check(sdrmm_device_cr8::load_error()));
     checks.push(codec2_check(sdrmm_channels::codec2_library::library()));
-    checks.push(devices);
+    checks.extend(devices);
     checks.extend(usb_checks());
     checks.push(path_check(
         "storage.db",
@@ -231,9 +231,43 @@ fn cr8_check(error: Option<String>) -> DoctorCheck {
     }
 }
 
-fn devices_check(registry: &sdrmm_device::DeviceRegistry) -> DoctorCheck {
+fn devices_checks(registry: &sdrmm_device::DeviceRegistry) -> Vec<DoctorCheck> {
     let timings = registry.probe_timings();
     let devices = registry.probe_all_deep();
+    let mut checks = vec![devices_check(&devices, &timings)];
+    checks.extend(port_bound_check(&devices));
+    checks
+}
+
+fn port_bound_check(devices: &[DeviceInfo]) -> Option<DoctorCheck> {
+    let bound: Vec<&str> = devices
+        .iter()
+        .filter(|device| device.driver == "rtlsdr" && device.serial.is_none())
+        .map(|device| device.label.as_str())
+        .collect();
+    if bound.is_empty() {
+        return None;
+    }
+    Some(DoctorCheck {
+        id: "devices.serials".to_string(),
+        name: "RTL-SDR serials".to_string(),
+        status: CheckStatus::Warn,
+        detail: format!(
+            "known by USB port, not serial, so settings may follow the wrong dongle:\n{}",
+            bound.join("\n")
+        ),
+        hint: Some(
+            "give each dongle its own serial: plug in one at a time and run \
+             `rtl_eeprom -s <serial>`, then replug it"
+                .to_string(),
+        ),
+    })
+}
+
+fn devices_check(
+    devices: &[DeviceInfo],
+    timings: &[(&'static str, usize, std::time::Duration)],
+) -> DoctorCheck {
     let mut hardware: Vec<String> = devices
         .iter()
         .filter(|d| d.driver != "virtual")
@@ -594,6 +628,32 @@ mod tests {
             mode,
             openable,
         }
+    }
+
+    #[test]
+    fn an_rtl_sdr_known_by_its_port_is_told_to_get_a_serial() {
+        let dongle = |key: &str, serial: Option<&str>| DeviceInfo {
+            driver: "rtlsdr".to_string(),
+            key: key.to_string(),
+            label: format!("RTL-SDR {key}"),
+            serial: serial.map(str::to_string),
+            profile: None,
+        };
+        let network = DeviceInfo {
+            driver: "rtltcp".to_string(),
+            ..dongle("10.0.0.5:1234", None)
+        };
+        assert!(port_bound_check(&[dongle("00000123", Some("00000123")), network]).is_none());
+
+        let warned =
+            port_bound_check(&[dongle("1/4", None), dongle("1/5", None)]).expect("a warning");
+        assert_eq!(warned.status, CheckStatus::Warn);
+        assert!(warned.detail.contains("RTL-SDR 1/4\nRTL-SDR 1/5"));
+        assert!(
+            warned
+                .hint
+                .is_some_and(|hint| hint.contains("rtl_eeprom -s"))
+        );
     }
 
     #[test]

@@ -95,7 +95,7 @@ every empty Device node; click one to connect.
 
 PPM and the converter offset belong to the radio, not the node: set them once and every Device
 node that opens that radio uses them. A USB radio is known by its serial, a network radio by its
-address.
+address. RTL-SDRs need [serials of their own](#serials).
 
 ## Other sources
 
@@ -140,6 +140,19 @@ sampling changes the tuning range. Transmit is not available yet.
 | Direct sampling | `off`, `i`, or `q`. Not on the RTL-SDR Blog V4 or V4 Lite, which upconvert HF. |
 
 Rates: 225 to 300 kHz, or 900 kHz to 3.2 MHz. Filter: 290 kHz to 8 MHz on R82xx tuners.
+
+### Serials
+
+Many dongles ship with the serial `00000001`. Two dongles with one serial are told apart by USB
+port instead, shown as `RTL-SDR (bus/address)`, and their settings and
+[calibration](#calibration) can follow the wrong one after a replug. Give each its own serial,
+one dongle plugged in at a time:
+
+```sh
+rtl_eeprom -s 00000002
+```
+
+Replug it afterwards. `rtl_eeprom` comes with the `rtl-sdr` package.
 
 ## KrakenSDR
 

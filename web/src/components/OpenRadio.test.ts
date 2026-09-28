@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { DeviceInfo } from "../lib/types";
 import {
+  deviceHint,
   deviceId,
   groupDevices,
   NETWORK_BACKENDS,
@@ -207,5 +208,13 @@ describe("networkRadioLabel", () => {
     expect(networkRadioLabel("kiwisdr:https://kiwi.example.org")).toBe("KiwiSDR kiwi.example.org");
     expect(networkRadioLabel("rtltcp:[::1]:1234")).toBe("rtl_tcp [::1]:1234");
     expect(networkRadioLabel("mystery:host:1")).toBe("host:1");
+  });
+});
+
+describe("deviceHint", () => {
+  it("explains only an RTL-SDR known by its USB port", () => {
+    expect(deviceHint(device("rtlsdr", "1/4"))).toContain("rtl_eeprom -s");
+    expect(deviceHint({ ...device("rtlsdr", "00000002"), serial: "00000002" })).toBeUndefined();
+    expect(deviceHint(device("rtltcp", "10.0.0.5:1234"))).toBeUndefined();
   });
 });

@@ -110,3 +110,9 @@ export function networkRadioLabel(id: string): string {
   const host = address.slice(address.lastIndexOf("@") + 1);
   return backend === undefined ? host : `${backend.label} ${host}`;
 }
+
+export function deviceHint(device: DeviceInfo): string | undefined {
+  return device.driver === "rtlsdr" && device.serial == null
+    ? "Known by USB port, not serial: give it its own serial with rtl_eeprom -s"
+    : undefined;
+}
