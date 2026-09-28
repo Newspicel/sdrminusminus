@@ -12,7 +12,7 @@ use super::{
 
 const CONTROL_TIMEOUT: Duration = Duration::from_millis(500);
 pub(crate) const VERSION_STRING_SIZE: usize = 127;
-pub(crate) const PART_ID_SERIAL_SIZE: usize = 16;
+pub(crate) const PART_ID_SERIAL_SIZE: usize = 24;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum Direction {
@@ -172,7 +172,10 @@ impl Control {
                 CONTROL_TIMEOUT,
             )
             .wait()
-            .map_err(Error::ControlTransfer)
+            .map_err(|source| Error::ControlTransfer {
+                request: request.request,
+                source,
+            })
     }
 
     pub(crate) fn control_out(&self, request: &VendorControlRequest) -> Result<()> {
@@ -190,12 +193,12 @@ impl Control {
                 CONTROL_TIMEOUT,
             )
             .wait()
-            .map_err(Error::ControlTransfer)
+            .map_err(|source| Error::ControlTransfer {
+                request: request.request,
+                source,
+            })
     }
 
-    /// Runs a request the firmware answers with a status byte, which it sets to zero when it
-    /// rejected the value. A refused gain that read as success would leave the reported settings
-    /// describing a radio that is not configured that way.
     pub(crate) fn control_in_accepted(
         &self,
         request: &VendorControlRequest,
@@ -203,8 +206,8 @@ impl Control {
     ) -> Result<()> {
         let response = self.control_in(request)?;
         match response.first() {
-            Some(0) | None => Err(Error::protocol(operation, "the radio refused the value")),
-            Some(_) => Ok(()),
+            Some(&status) if request.request.accepted(status) => Ok(()),
+            _ => Err(Error::protocol(operation, "the radio refused the value")),
         }
     }
 
@@ -229,14 +232,12 @@ pub(crate) fn decode_c_string(bytes: &[u8]) -> String {
     String::from_utf8_lossy(&bytes[..end]).trim().to_string()
 }
 
-/// The last two of the four serial words identify the board; libairspy prints the pair, so a
-/// radio's label here is the one its own tools show.
 pub(crate) fn decode_serial(bytes: &[u8]) -> Option<u64> {
     if bytes.len() < PART_ID_SERIAL_SIZE {
         return None;
     }
-    let high = u32::from_le_bytes(bytes[8..12].try_into().ok()?);
-    let low = u32::from_le_bytes(bytes[12..16].try_into().ok()?);
+    let high = u32::from_le_bytes(bytes[16..20].try_into().ok()?);
+    let low = u32::from_le_bytes(bytes[20..24].try_into().ok()?);
     Some((u64::from(high) << 32) | u64::from(low))
 }
 
@@ -300,12 +301,18 @@ mod tests {
     #[test]
     fn a_serial_takes_the_last_two_words_of_the_part_id_reply() {
         let mut bytes = Vec::new();
-        bytes.extend_from_slice(&0x1111_1111_u32.to_le_bytes());
-        bytes.extend_from_slice(&0x2222_2222_u32.to_le_bytes());
-        bytes.extend_from_slice(&0x6447_0000_u32.to_le_bytes());
-        bytes.extend_from_slice(&0x2e19_a5b3_u32.to_le_bytes());
-        assert_eq!(decode_serial(&bytes), Some(0x6447_0000_2e19_a5b3));
-        assert_eq!(decode_serial(&bytes[..8]), None);
+        for word in [
+            0x1111_1111_u32,
+            0x2222_2222,
+            0x3333_3333,
+            0x4444_4444,
+            0x6378_62dc,
+            0x2e21_22d7,
+        ] {
+            bytes.extend_from_slice(&word.to_le_bytes());
+        }
+        assert_eq!(decode_serial(&bytes), Some(0x6378_62dc_2e21_22d7));
+        assert_eq!(decode_serial(&bytes[..16]), None);
     }
 
     #[test]

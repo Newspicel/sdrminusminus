@@ -16,6 +16,15 @@ pub(crate) enum VendorRequest {
     SetPacking = 26,
 }
 
+impl VendorRequest {
+    pub(crate) const fn accepted(self, status: u8) -> bool {
+        match self {
+            Self::SetSampleRate | Self::SetPacking => status != 0,
+            _ => status == 0,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(u16)]
 pub(crate) enum ReceiverMode {
@@ -39,6 +48,28 @@ mod tests {
     #[test]
     fn the_bias_tee_pin_packs_into_one_index() {
         assert_eq!(bias_tee_port_pin(), 45);
+    }
+
+    #[test]
+    fn rate_and_packing_answer_one_when_accepted() {
+        assert!(VendorRequest::SetSampleRate.accepted(1));
+        assert!(!VendorRequest::SetSampleRate.accepted(0));
+        assert!(VendorRequest::SetPacking.accepted(1));
+        assert!(!VendorRequest::SetPacking.accepted(0));
+    }
+
+    #[test]
+    fn tuner_requests_answer_zero_when_accepted() {
+        for request in [
+            VendorRequest::SetLnaGain,
+            VendorRequest::SetMixerGain,
+            VendorRequest::SetVgaGain,
+            VendorRequest::SetLnaAgc,
+            VendorRequest::SetMixerAgc,
+        ] {
+            assert!(request.accepted(0), "{request:?}");
+            assert!(!request.accepted(0xff), "{request:?}");
+        }
     }
 
     #[test]

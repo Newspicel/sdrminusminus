@@ -1,5 +1,7 @@
 use sdrmm_usb_stream::{StreamError, is_disconnect};
 
+use super::commands::VendorRequest;
+
 pub(crate) type Result<T> = std::result::Result<T, Error>;
 
 #[derive(Debug, thiserror::Error)]
@@ -20,8 +22,12 @@ pub(crate) enum Error {
         source: nusb::Error,
     },
 
-    #[error("control transfer failed: {0}")]
-    ControlTransfer(#[source] nusb::transfer::TransferError),
+    #[error("{request:?} control transfer failed: {source}")]
+    ControlTransfer {
+        request: VendorRequest,
+        #[source]
+        source: nusb::transfer::TransferError,
+    },
 
     #[error("{operation}: {reason}")]
     Protocol {
@@ -49,7 +55,7 @@ impl Error {
     pub(crate) fn is_disconnected(&self) -> bool {
         match self {
             Self::Stream(error) => error.is_disconnected(),
-            Self::ControlTransfer(error) => is_disconnect(error),
+            Self::ControlTransfer { source, .. } => is_disconnect(source),
             Self::Usb { source, .. } => source.kind() == nusb::ErrorKind::Disconnected,
             Self::InvalidConfig { .. } | Self::DeviceNotFound | Self::Protocol { .. } => false,
         }
@@ -59,7 +65,7 @@ impl Error {
         match self {
             Self::Usb { source, .. } => source.kind() == nusb::ErrorKind::PermissionDenied,
             Self::Stream(_)
-            | Self::ControlTransfer(_)
+            | Self::ControlTransfer { .. }
             | Self::InvalidConfig { .. }
             | Self::DeviceNotFound
             | Self::Protocol { .. } => false,

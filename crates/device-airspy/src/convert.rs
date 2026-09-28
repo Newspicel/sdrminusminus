@@ -23,7 +23,7 @@ impl AirspyConverter {
     pub(crate) fn new(samples: usize) -> Self {
         Self {
             dc: DcBlocker::new(),
-            converter: RealToIq::default(),
+            converter: RealToIq::default().inverted(),
             real: Vec::with_capacity(samples),
             out: Vec::with_capacity(samples / 2),
             carry: None,
@@ -69,6 +69,8 @@ fn code_to_f32(word: u16) -> f32 {
 #[cfg(test)]
 mod tests {
     use std::f64::consts::TAU;
+
+    use sdrmm_dsp::fft::FftPair;
 
     use super::*;
 
@@ -134,6 +136,24 @@ mod tests {
             "a constant code should decay away, left {}",
             mean.norm()
         );
+    }
+
+    #[test]
+    fn a_code_above_the_quarter_rate_lands_below_the_tuning() {
+        let input_len = 8192;
+        let above_quarter = 256;
+        let mut converter = AirspyConverter::new(input_len);
+        let bytes = tone_bytes(0.25 + above_quarter as f64 / input_len as f64, input_len);
+        let mut spectrum = converter.convert(&bytes)[1024..3072].to_vec();
+        FftPair::new(spectrum.len()).forward(&mut spectrum);
+        let peak = spectrum
+            .iter()
+            .enumerate()
+            .max_by(|a, b| a.1.norm_sqr().total_cmp(&b.1.norm_sqr()))
+            .map(|(bin, _)| bin)
+            .unwrap_or_default();
+        let offset_bins = 2 * above_quarter * spectrum.len() / input_len;
+        assert_eq!(peak, spectrum.len() - offset_bins);
     }
 
     #[test]

@@ -12,6 +12,8 @@ use crate::driver::{Airspy, DeviceDescriptor, RX_TRANSFER_SIZE};
 mod caps;
 mod convert;
 mod driver;
+#[cfg(test)]
+mod hardware;
 
 const DRIVER_ID: &str = "airspy";
 const NOSERIAL_KEY_PREFIX: &str = "noserial-";

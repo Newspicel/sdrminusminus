@@ -13,9 +13,6 @@ use super::{
 const RX_ENDPOINT: u8 = 0x81;
 const USB_CONFIGURATION: u8 = 1;
 const USB_INTERFACE: u8 = 0;
-/// Alternate setting 1 is the one whose bulk endpoint is wide enough for the sample stream; the
-/// default setting exists so the radio can enumerate without reserving that bandwidth.
-const USB_ALT_SETTING: u8 = 1;
 
 pub(crate) const RX_TRANSFER_SIZE: usize = 262_144;
 const RX_CHANNEL_DEPTH: usize = 8;
@@ -58,10 +55,6 @@ impl Airspy {
             .detach_and_claim_interface(USB_INTERFACE)
             .wait()
             .map_err(|e| Error::usb("claiming Airspy USB interface 0", e))?;
-        interface
-            .set_alt_setting(USB_ALT_SETTING)
-            .wait()
-            .map_err(|e| Error::usb("selecting the Airspy streaming interface", e))?;
 
         let control = Control::new(device, interface);
         control.control_out(&VendorControlRequest::receiver_mode(ReceiverMode::Off))?;
@@ -212,9 +205,13 @@ impl Airspy {
         config.on_thread_start = Some(|| {
             sdrmm_device::schedule::claim(sdrmm_device::Latency::Critical);
         });
-        let stream = sdrmm_usb_stream::start(endpoint, config)?;
         self.set_mode(ReceiverMode::Rx)?;
-        Ok(stream)
+        sdrmm_usb_stream::start(endpoint, config).map_err(|e| {
+            if let Err(off) = self.set_mode_off() {
+                debug!("airspy stop after a failed start: {off}");
+            }
+            e.into()
+        })
     }
 
     pub(crate) fn set_mode_off(&self) -> Result<()> {

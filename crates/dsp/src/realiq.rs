@@ -15,6 +15,7 @@ pub struct RealToIq {
     decimator: Decimator,
     rotated: Vec<Complex<f32>>,
     phase: u8,
+    quadrature_sign: f32,
 }
 
 impl RealToIq {
@@ -32,7 +33,14 @@ impl RealToIq {
             decimator: Decimator::new(&design_lowpass(taps, 0.25), 2),
             rotated: Vec::new(),
             phase: 0,
+            quadrature_sign: -1.0,
         }
+    }
+
+    #[must_use]
+    pub fn inverted(mut self) -> Self {
+        self.quadrature_sign = 1.0;
+        self
     }
 
     pub fn reset(&mut self) {
@@ -47,9 +55,9 @@ impl RealToIq {
         for &sample in input {
             self.rotated.push(match self.phase {
                 0 => Complex::new(sample, 0.0),
-                1 => Complex::new(0.0, -sample),
+                1 => Complex::new(0.0, self.quadrature_sign * sample),
                 2 => Complex::new(-sample, 0.0),
-                _ => Complex::new(0.0, sample),
+                _ => Complex::new(0.0, -self.quadrature_sign * sample),
             });
             self.phase = (self.phase + 1) & 3;
         }
@@ -206,6 +214,25 @@ mod tests {
         let mut again = Vec::new();
         converter.process(&input, &mut again);
         assert_eq!(first, again);
+    }
+
+    #[test]
+    fn an_inverted_converter_mirrors_the_band() {
+        for bin in [160_i64, -800] {
+            let mut converter = RealToIq::default().inverted();
+            let mut out = Vec::new();
+            converter.process(
+                &real_cosine(0.25 + offset_for_bin(bin), 2 * WINDOW + 1024),
+                &mut out,
+            );
+            let (peak, snr) = tone_peak_and_snr(&out[512..512 + WINDOW]);
+            let expected = (-bin).rem_euclid(WINDOW as i64) as usize;
+            assert!(
+                peak.abs_diff(expected) <= 1,
+                "expected {expected}, found {peak}"
+            );
+            assert!(snr > 45.0, "kept only {snr} dB");
+        }
     }
 
     #[test]
