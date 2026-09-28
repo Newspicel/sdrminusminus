@@ -449,6 +449,15 @@ impl Tracker {
         self.tentative.len()
     }
 
+    #[must_use]
+    pub const fn next_id(&self) -> u32 {
+        self.next_id
+    }
+
+    pub fn resume_ids(&mut self, next_id: u32) {
+        self.next_id = self.next_id.max(next_id);
+    }
+
     pub fn reset(&mut self, ended: &mut Vec<u32>) {
         ended.clear();
         ended.extend(self.confirmed.iter().map(|track| track.id));
@@ -877,6 +886,22 @@ mod tests {
             run.step(&[target(look, 20_000.0, 50.0)]);
         }
         assert_eq!(run.views()[0].id, 3);
+    }
+
+    #[test]
+    fn resumed_ids_continue_after_a_rebuild() {
+        let mut first = Run::new(config());
+        for look in 0..3 {
+            first.step(&[target(look, 20_000.0, 50.0)]);
+        }
+        assert_eq!(first.tracker.next_id(), 2);
+        let mut second = Run::new(config());
+        second.tracker.resume_ids(first.tracker.next_id());
+        second.tracker.resume_ids(1);
+        for look in 0..3 {
+            second.step(&[target(look, 30_000.0, 40.0)]);
+        }
+        assert_eq!(second.views()[0].id, 2);
     }
 
     #[test]

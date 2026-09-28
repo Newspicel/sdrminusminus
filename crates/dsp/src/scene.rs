@@ -39,6 +39,11 @@ pub enum SceneSignal {
         deviation_hz: f64,
         rate_hz: f64,
     },
+    NoiseFm {
+        offset_hz: f64,
+        deviation_hz: f64,
+        bandwidth_hz: f64,
+    },
     Broadband,
 }
 
@@ -48,13 +53,17 @@ impl SceneSignal {
         match self {
             Self::Tone { offset_hz }
             | Self::Noise { offset_hz, .. }
-            | Self::Fm { offset_hz, .. } => offset_hz,
+            | Self::Fm { offset_hz, .. }
+            | Self::NoiseFm { offset_hz, .. } => offset_hz,
             Self::Broadband => 0.0,
         }
     }
 
     const fn is_random(self) -> bool {
-        matches!(self, Self::Noise { .. } | Self::Broadband)
+        matches!(
+            self,
+            Self::Noise { .. } | Self::NoiseFm { .. } | Self::Broadband
+        )
     }
 
     fn is_valid(self) -> bool {
@@ -69,6 +78,16 @@ impl SceneSignal {
                 deviation_hz,
                 rate_hz,
             } => offset_hz.is_finite() && deviation_hz.is_finite() && rate_hz.is_finite(),
+            Self::NoiseFm {
+                offset_hz,
+                deviation_hz,
+                bandwidth_hz,
+            } => {
+                offset_hz.is_finite()
+                    && deviation_hz.is_finite()
+                    && bandwidth_hz.is_finite()
+                    && bandwidth_hz > 0.0
+            }
             Self::Broadband => true,
         }
     }
@@ -720,7 +739,9 @@ impl Wave {
     fn new(signal: SceneSignal, mut rng: Rng, sample_rate: f64) -> Self {
         let phase = TAU * rng.uniform();
         let lowpass = match signal {
-            SceneSignal::Noise { bandwidth_hz, .. } if bandwidth_hz < sample_rate => {
+            SceneSignal::Noise { bandwidth_hz, .. } | SceneSignal::NoiseFm { bandwidth_hz, .. }
+                if bandwidth_hz < sample_rate =>
+            {
                 lowpass_taps(bandwidth_hz / (2.0 * sample_rate))
             }
             _ => Vec::new(),
@@ -760,6 +781,11 @@ impl Wave {
                 .sum()
         };
         let mix = TAU * self.signal.offset_hz() * n as f64 / sample_rate;
+        if let SceneSignal::NoiseFm { deviation_hz, .. } = self.signal {
+            let message = shaped.re * std::f64::consts::SQRT_2;
+            self.phase = (self.phase + TAU * deviation_hz * message / sample_rate).rem_euclid(TAU);
+            return C64::from_polar(1.0, self.phase + mix);
+        }
         shaped * C64::from_polar(1.0, mix)
     }
 
@@ -808,7 +834,9 @@ impl Wave {
                     TAU * offset_hz * t + swing + self.phase,
                 ))
             }
-            SceneSignal::Noise { .. } | SceneSignal::Broadband => None,
+            SceneSignal::Noise { .. } | SceneSignal::NoiseFm { .. } | SceneSignal::Broadband => {
+                None
+            }
         }
     }
 }
@@ -931,6 +959,33 @@ mod tests {
 
     fn snapshot(lanes: &[Vec<Complex<f32>>], index: usize) -> Vec<Complex<f32>> {
         lanes.iter().map(|lane| lane[index]).collect()
+    }
+
+    #[test]
+    fn noise_fm_keeps_its_envelope_and_deviation() {
+        let fs = 250e3;
+        let deviation = 25e3;
+        let signal = SceneSignal::NoiseFm {
+            offset_hz: 0.0,
+            deviation_hz: deviation,
+            bandwidth_hz: 15e3,
+        };
+        let mut scene = ArrayScene::new(kraken(), FREQ, fs).with_source(SceneSource::new(
+            Direction::horizon(0.0),
+            0.0,
+            signal,
+        ));
+        let lanes = scene.render(100_000).unwrap();
+        assert!(lanes[0].iter().all(|x| (x.norm() - 1.0).abs() < 1e-4));
+        let squares: f64 = lanes[0]
+            .windows(2)
+            .map(|pair| {
+                let hz = f64::from((pair[1] * pair[0].conj()).arg()) * fs / TAU;
+                hz * hz
+            })
+            .sum();
+        let rms = (squares / (lanes[0].len() - 1) as f64).sqrt();
+        assert!((rms / deviation - 1.0).abs() < 0.1, "{rms}");
     }
 
     #[test]
