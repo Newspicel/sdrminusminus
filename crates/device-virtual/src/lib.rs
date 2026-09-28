@@ -1,3 +1,5 @@
+pub mod bench;
+
 use std::{
     sync::{Arc, atomic::Ordering},
     time::{Duration, Instant},
@@ -11,6 +13,13 @@ use sdrmm_device::{
 };
 use sdrmm_wire::{
     Capabilities, Coherence, DcArtifact, DeviceInfo, DeviceSettings, Duplex, Range, StreamScope,
+};
+
+use bench::BenchDevice;
+pub use bench::{
+    BEARING_SETTING, BLOCK_LEN, BenchDeviceSpec, BenchWorld, Clutter, Echo, Emitter,
+    LaneImpairments, LaneTruth, NOISE_SWITCH_LEAD_S, Path, Pilot, RADIUS_SETTING, ReportedGap,
+    Scene, Slip, Waveform, default_devices, default_scene, default_world,
 };
 
 const DRIVER_ID: &str = "virtual";
@@ -27,8 +36,6 @@ pub const MOD_TONE_HZ: f64 = 1_000.0;
 
 pub const STREAM_MARKER_SPACING_HZ: f64 = 50_000.0;
 
-/// Where the pretend firmware sweep parks its one carrier, so a sweep that works is a sweep that
-/// finds it.
 pub const SWEEP_MARKER_HZ: f64 = 101_000_000.0;
 const SWEEP_BLOCK_SAMPLES: usize = 4_096;
 
@@ -46,6 +53,7 @@ const NOISE_SEED: u64 = 0x5DEE_CE66_D00D_1234;
 
 pub struct VirtualDriver {
     synthetic_devices: bool,
+    world: Arc<BenchWorld>,
 }
 
 impl Default for VirtualDriver {
@@ -57,16 +65,28 @@ impl Default for VirtualDriver {
 impl VirtualDriver {
     #[must_use]
     pub fn new() -> Self {
-        Self {
-            synthetic_devices: true,
-        }
+        Self::with_world(default_world())
     }
 
     #[must_use]
     pub fn for_build() -> Self {
         Self {
             synthetic_devices: cfg!(debug_assertions),
+            world: default_world(),
         }
+    }
+
+    #[must_use]
+    pub fn with_world(world: Arc<BenchWorld>) -> Self {
+        Self {
+            synthetic_devices: true,
+            world,
+        }
+    }
+
+    #[must_use]
+    pub fn world(&self) -> &Arc<BenchWorld> {
+        &self.world
     }
 
     fn siggen_info() -> DeviceInfo {
@@ -100,6 +120,7 @@ impl DeviceDriver for VirtualDriver {
         if self.synthetic_devices {
             infos.push(Self::siggen_info());
             infos.extend(MARKER_SHAPES.iter().map(Self::marker_info));
+            infos.extend(self.world.infos());
         }
         infos
     }
@@ -113,7 +134,7 @@ impl DeviceDriver for VirtualDriver {
         }
         match MARKER_SHAPES.iter().find(|shape| shape.key == info.key) {
             Some(shape) => Ok(Box::new(MarkerGen::new(shape))),
-            None => Err(DeviceError::NotFound(format!("{DRIVER_ID}:{}", info.key))),
+            None => Ok(Box::new(BenchDevice::open(self.world.clone(), &info.key)?)),
         }
     }
 }
@@ -183,7 +204,6 @@ fn siggen_capabilities() -> Capabilities {
     }
 }
 
-/// Every tuning the sweep visits, in the order the firmware would walk them.
 fn sweep_centers(plan: &SweepPlan) -> Vec<f64> {
     let step = plan.sample_rate_hz;
     let mut centers = Vec::new();
@@ -354,10 +374,10 @@ pub struct MarkerShape {
     pub coherence: Coherence,
 }
 
-pub const MARKER_SHAPES: [MarkerShape; 4] = [
+pub const MARKER_SHAPES: [MarkerShape; 3] = [
     MarkerShape {
-        key: "array4",
-        label: "Coherent Array ×4 (virtual)",
+        key: "quad",
+        label: "Receiver ×4 (virtual)",
         duplex: Duplex::RxOnly,
         rx_streams: 4,
         tx_streams: 0,
@@ -367,7 +387,7 @@ pub const MARKER_SHAPES: [MarkerShape; 4] = [
             antenna: false,
             agc: false,
         },
-        coherence: Coherence::PhaseCoherent,
+        coherence: Coherence::None,
     },
     MarkerShape {
         key: "transceiver",
@@ -396,20 +416,6 @@ pub const MARKER_SHAPES: [MarkerShape; 4] = [
             agc: false,
         },
         coherence: Coherence::None,
-    },
-    MarkerShape {
-        key: "bank5",
-        label: "Receiver bank ×5 (virtual)",
-        duplex: Duplex::RxOnly,
-        rx_streams: 5,
-        tx_streams: 0,
-        per_stream: StreamScope {
-            tuning: true,
-            gain: true,
-            antenna: false,
-            agc: false,
-        },
-        coherence: Coherence::TimeSync,
     },
 ];
 
@@ -862,20 +868,29 @@ mod tests {
     }
 
     #[test]
-    fn probe_lists_siggen_and_marker_radios() {
+    fn probe_lists_siggen_marker_and_bench_radios() {
         let d = VirtualDriver::new();
-        let infos = d.probe();
-        assert_eq!(infos.len(), 1 + MARKER_SHAPES.len());
-        assert_eq!(infos[0].id(), "virtual:siggen");
-        assert_eq!(infos[1].id(), "virtual:array4");
-        assert_eq!(infos[2].id(), "virtual:transceiver");
-        assert_eq!(infos[3].id(), "virtual:halfduplex");
+        let ids: Vec<String> = d.probe().iter().map(DeviceInfo::id).collect();
+        assert_eq!(
+            ids,
+            [
+                "virtual:siggen",
+                "virtual:quad",
+                "virtual:transceiver",
+                "virtual:halfduplex",
+                "virtual:kraken5",
+                "virtual:array4",
+                "virtual:dongle1",
+                "virtual:dongle2",
+            ]
+        );
     }
 
     fn assert_synthetic_policy(d: &VirtualDriver, enabled: bool) {
         let infos = d.probe();
         let expected = std::iter::once(VirtualDriver::siggen_info())
-            .chain(MARKER_SHAPES.iter().map(VirtualDriver::marker_info));
+            .chain(MARKER_SHAPES.iter().map(VirtualDriver::marker_info))
+            .chain(d.world().infos());
         for info in expected {
             assert_eq!(
                 infos.iter().any(|probed| probed.key == info.key),
@@ -945,7 +960,7 @@ mod tests {
 
     #[test]
     fn marker_rx_start_requires_one_sink_per_stream() {
-        let mut dev = open_virtual("array4");
+        let mut dev = open_virtual("quad");
         for wrong in [0usize, 1, 3, 5] {
             let sinks = (0..wrong).map(|_| RxSink::new(|_, _| {})).collect();
             match dev.rx_start(sinks) {
@@ -980,7 +995,7 @@ mod tests {
         const STREAMS: usize = 4;
         const N: usize = 1 << 17;
 
-        let mut dev = open_virtual("array4");
+        let mut dev = open_virtual("quad");
         let mut receivers = Vec::new();
         let sinks = (0..STREAMS)
             .map(|_| {
@@ -1053,8 +1068,8 @@ mod tests {
     }
 
     #[test]
-    fn array4_refuses_a_per_stream_center_but_takes_per_stream_gain() {
-        let mut dev = open_virtual("array4");
+    fn quad_refuses_a_per_stream_center_but_takes_per_stream_gain() {
+        let mut dev = open_virtual("quad");
         let retune = DeviceSettings {
             streams: vec![StreamSettings {
                 stream: 1,
@@ -1067,7 +1082,7 @@ mod tests {
             Err(DeviceError::Unsupported(message)) => {
                 assert!(message.contains("center_hz"), "{message}");
             }
-            other => panic!("a per-stream centre on the array must be Unsupported, got {other:?}"),
+            other => panic!("a per-stream centre on the quad must be Unsupported, got {other:?}"),
         }
         assert!(dev.settings().streams.is_empty());
 
@@ -1190,7 +1205,7 @@ mod tests {
 
     #[test]
     fn a_marker_radio_takes_no_extra_settings() {
-        for key in ["array4", "transceiver"] {
+        for key in ["quad", "transceiver"] {
             let mut dev = open_virtual(key);
             assert!(dev.capabilities().extra.is_empty(), "{key}");
             assert_eq!(

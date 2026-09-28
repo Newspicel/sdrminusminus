@@ -393,7 +393,7 @@ fn feasible_tuning_boundaries_match_the_runtime_at_adjacent_floats() {
 #[tokio::test]
 async fn switching_one_lane_to_auto_leaves_the_others_alone() {
     let engine = virtual_engine();
-    let ds = engine.create_device_set("virtual:bank5").unwrap();
+    let ds = engine.create_device_set("virtual:kraken5").unwrap();
     let lane = |stream: u32, tuning: Tuning| DeviceSettings {
         streams: vec![StreamSettings {
             stream,

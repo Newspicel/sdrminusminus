@@ -96,7 +96,10 @@ pub fn sanitize(name: &str) -> Result<String, SigmfError> {
 fn unique_stem(dir: &Path, name: &str) -> PathBuf {
     let mut candidate = dir.join(name);
     let mut n = 2;
-    while meta_path(&candidate).exists() || data_path(&candidate).exists() {
+    while meta_path(&candidate).exists()
+        || data_path(&candidate).exists()
+        || crate::collection::holds(&candidate)
+    {
         candidate = dir.join(format!("{name}-{n}"));
         n += 1;
     }

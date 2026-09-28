@@ -1,10 +1,12 @@
 use std::path::{Path, PathBuf};
 
 use sdrmm_device::{DeviceDriver, DeviceError, SdrDevice};
-use sdrmm_recorder::scan_stems;
+use sdrmm_recorder::{collection_path, lane_of, scan_collections, scan_stems};
 use sdrmm_wire::{DeviceInfo, RECORDING_DRIVER_ID, recording_stem_valid};
 
+mod collection;
 mod playback;
+pub use collection::CollectionPlayback;
 pub use playback::{FilePlayback, LOOP_SETTING};
 
 pub(crate) const DRIVER_ID: &str = RECORDING_DRIVER_ID;
@@ -71,10 +73,17 @@ impl DeviceDriver for RecordingDriver {
         let Some(dir) = &self.dir else {
             return Vec::new();
         };
-        let Ok(stems) = scan_stems(dir) else {
+        let (Ok(stems), Ok(collections)) = (scan_stems(dir), scan_collections(dir)) else {
             return Vec::new();
         };
-        stems
+        let mut playable: Vec<PathBuf> = stems
+            .into_iter()
+            .filter(|stem| collections.iter().all(|c| lane_of(c, stem).is_none()))
+            .collect();
+        playable.extend(collections);
+        playable.sort();
+        playable.dedup();
+        playable
             .iter()
             .filter_map(|stem| stem.file_name()?.to_str().map(Self::info))
             .collect()
@@ -84,6 +93,12 @@ impl DeviceDriver for RecordingDriver {
         let path = self
             .stem_path(&info.key)
             .ok_or_else(|| DeviceError::NotFound(format!("{DRIVER_ID}:{}", info.key)))?;
+        if collection_path(&path).exists() {
+            return Ok(Box::new(CollectionPlayback::open_at_speed(
+                &path,
+                self.playback_speed,
+            )?));
+        }
         Ok(Box::new(FilePlayback::open_at_speed(
             &path,
             self.playback_speed,
@@ -92,7 +107,8 @@ impl DeviceDriver for RecordingDriver {
 
     fn resolve(&self, key: &str) -> Option<DeviceInfo> {
         let path = self.stem_path(key)?;
-        sdrmm_recorder::meta_path(&path).exists().then(|| {
+        let playable = sdrmm_recorder::meta_path(&path).exists() || collection_path(&path).exists();
+        playable.then(|| {
             let mut info = Self::info(key);
             info.label = path.file_name()?.to_str()?.to_string();
             Some(info)
