@@ -1,7 +1,14 @@
 import { describe, expect, it } from "vitest";
 import type { PatchGraph, ProcessorStatus } from "../../lib/types";
 import { arrayStatus, laneStatus, placed, radarUpdate } from "../../test/fixtures";
-import { ageLabel, NO_ARRAY, processorGate, processorSubtitle, STALE } from "./processorFace";
+import {
+  ageLabel,
+  NO_ARRAY,
+  processorFaults,
+  processorGate,
+  processorSubtitle,
+  STALE,
+} from "./processorFace";
 
 const WIRED: PatchGraph = {
   nodes: [placed("arr", { kind: "array" }), placed("df", { kind: "df" })],
@@ -44,10 +51,41 @@ describe("processorSubtitle", () => {
     expect(processorSubtitle(WIRED, "df", FIVE, undefined, 99_000, 500)).toBe("5 lanes");
   });
 
+  it("counts wired lanes before the array reports", () => {
+    const lanes: PatchGraph = {
+      nodes: [...WIRED.nodes, placed("radio", { kind: "device" })],
+      edges: [
+        ...(WIRED.edges ?? []),
+        { from: { node: "radio", port: "iq" }, to: { node: "arr", port: "lane" } },
+        { from: { node: "radio", port: "iq2" }, to: { node: "arr", port: "lane2" } },
+      ],
+    };
+    expect(processorSubtitle(lanes, "df", undefined, undefined, 0, 500)).toBe("2 lanes");
+  });
+
   it("reads the gate from the array's processor list only", () => {
     const other = { ...FIVE, processors: [gated("beam", "sync")] };
     expect(processorGate(other, "df")).toBeNull();
     expect(processorGate(other, "beam")).toBe("sync");
+  });
+});
+
+describe("processorFaults", () => {
+  it("lists only the counters that moved", () => {
+    expect(processorFaults(null)).toEqual([]);
+    expect(processorFaults(gated("df", undefined))).toEqual([]);
+    const faults = processorFaults({
+      ...gated("df", undefined),
+      dropped_samples: 4,
+      lane_overflows: 1,
+      truncated: 2,
+      solver_failures: 5,
+    });
+    expect(faults.map((row) => [row.label, row.count])).toEqual([
+      ["Drops", 4],
+      ["Cut", 3],
+      ["Fails", 5],
+    ]);
   });
 });
 

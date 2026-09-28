@@ -7,10 +7,11 @@ import type {
   PatchNode,
   PatchNodeOf,
   ProcessorGate,
+  ProcessorStatus,
 } from "../../lib/types";
 import { arrayOf } from "../binding";
 import { useWorkspaceContext } from "../context";
-import { patchNode } from "../graph";
+import { arrayWiredLanes, patchNode } from "../graph";
 import { type SettingsKind, type SettingsOf, settingsOf } from "../newNode";
 
 export const NO_ARRAY = "no array";
@@ -30,7 +31,8 @@ export function processorSubtitle(
   now: number,
   periodMs: number,
 ): string {
-  if (arrayOf(graph, node) === null) {
+  const array = arrayOf(graph, node);
+  if (array === null) {
     return NO_ARRAY;
   }
   const gate = processorGate(status, node);
@@ -40,8 +42,31 @@ export function processorSubtitle(
   if (state !== undefined && isStale(state.receivedAt, now, periodMs)) {
     return STALE;
   }
-  const lanes = status?.lanes.length ?? 0;
+  const lanes = status?.lanes.length ?? arrayWiredLanes(graph, array);
   return `${lanes} ${lanes === 1 ? "lane" : "lanes"}`;
+}
+
+export interface FaultRow {
+  label: string;
+  count: number;
+  title: string;
+}
+
+export function processorFaults(status: ProcessorStatus | null): FaultRow[] {
+  if (status === null) {
+    return [];
+  }
+  return [
+    { label: "Drops", count: status.dropped_samples, title: "Samples dropped" },
+    { label: "Lost", count: status.dropped_reports, title: "Reports lost" },
+    {
+      label: "Cut",
+      count: (status.truncated ?? 0) + status.lane_overflows,
+      title: "Results cut at their limit",
+    },
+    { label: "Fails", count: status.solver_failures, title: "Solver failures" },
+    { label: "Mismatch", count: status.lane_mismatch, title: "Blocks with the wrong lane count" },
+  ].filter((row) => row.count > 0);
 }
 
 export function ageLabel(receivedAt: number | undefined, now: number): string {
