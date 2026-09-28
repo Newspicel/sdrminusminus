@@ -222,6 +222,10 @@ pub fn builtin_registry_accelerated(
             NET_PRIORITY,
             Box::new(sdrmm_device_sdrconnect::SdrConnectDriver::new()),
         );
+        registry.register(
+            NET_PRIORITY,
+            Box::new(sdrmm_device_kiwisdr::KiwiSdrDriver::new()),
+        );
     }
     registry
 }

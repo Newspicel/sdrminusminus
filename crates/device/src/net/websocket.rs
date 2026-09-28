@@ -14,6 +14,13 @@ pub(crate) mod handshake;
 
 use frame::{Head, Opcode};
 
+const MAX_REDIRECTS: usize = 3;
+
+enum Upgrade {
+    Open(Vec<u8>),
+    Moved(String),
+}
+
 /// What a poll of the socket produced: one whole message, nothing yet, or the end of the stream.
 #[derive(Debug)]
 pub enum Incoming {
@@ -73,11 +80,26 @@ pub struct WebSocket {
 impl WebSocket {
     /// Dials `endpoint` and completes the upgrade to `path`, or reports why it is not a WebSocket.
     pub fn connect(endpoint: &Endpoint, path: &str) -> Result<Self, DeviceError> {
-        let connection = Connection::new(endpoint.connect()?);
-        let key = handshake::nonce();
-        connection.send(&handshake::request(&endpoint.to_string(), path, &key))?;
-        let pending = Self::upgrade(&connection, &key)?;
-        Ok(Self {
+        let mut target = (endpoint.clone(), path.to_string());
+        for _ in 0..=MAX_REDIRECTS {
+            let connection = Connection::new(target.0.connect()?);
+            let key = handshake::nonce();
+            connection.send(&handshake::request(&target.0.to_string(), &target.1, &key))?;
+            match Self::upgrade(&connection, &key)? {
+                Upgrade::Open(pending) => return Ok(Self::open(connection, pending)),
+                Upgrade::Moved(location) => {
+                    connection.close();
+                    target = handshake::follow(&target.0, &location)?;
+                }
+            }
+        }
+        Err(DeviceError::Io(format!(
+            "the WebSocket upgrade redirected more than {MAX_REDIRECTS} times"
+        )))
+    }
+
+    fn open(connection: Connection, pending: Vec<u8>) -> Self {
+        Self {
             connection: Arc::new(connection),
             pool: BlockPool::default(),
             reader: Mutex::new(Reader {
@@ -86,18 +108,21 @@ impl WebSocket {
                 partial: None,
             }),
             sending: Mutex::new(()),
-        })
+        }
     }
 
-    fn upgrade(connection: &Connection, key: &str) -> Result<Vec<u8>, DeviceError> {
+    fn upgrade(connection: &Connection, key: &str) -> Result<Upgrade, DeviceError> {
         let deadline = Instant::now() + CONNECT_TIMEOUT;
         let mut response = Vec::new();
         let mut buf = [0u8; 1024];
         loop {
             if let Some(at) = find(&response, handshake::TERMINATOR) {
                 let body = response.split_off(at + handshake::TERMINATOR.len());
+                if let Some(location) = handshake::moved(&response) {
+                    return Ok(Upgrade::Moved(location));
+                }
                 handshake::verify(&response, key)?;
-                return Ok(body);
+                return Ok(Upgrade::Open(body));
             }
             if response.len() > handshake::MAX_RESPONSE {
                 return Err(DeviceError::Io(
@@ -426,6 +451,31 @@ mod tests {
             }
         }
         got
+    }
+
+    #[test]
+    fn a_redirected_upgrade_is_followed_to_the_new_host() {
+        let target = upgraded(|stream| {
+            let _ = stream.write_all(&server_frame(0x1, b"here", true));
+        });
+        let location = format!("http://{}/moved", target.endpoint());
+        let redirect = FakeServer::spawn(move |mut stream, _| {
+            let mut buf = [0u8; 512];
+            let _ = stream.read(&mut buf);
+            let _ = stream.write_all(
+                format!("HTTP/1.0 307 Temporary Redirect\r\nLocation: {location}\r\n\r\n")
+                    .as_bytes(),
+            );
+        });
+        let socket = connect(&redirect);
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while Instant::now() < deadline {
+            if let Incoming::Text(text) = socket.next(POLL) {
+                assert_eq!(text, "here");
+                return;
+            }
+        }
+        panic!("no message after the redirect");
     }
 
     #[test]

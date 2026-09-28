@@ -1,7 +1,7 @@
 #![allow(clippy::expect_used)]
 use std::{
     io::{Read as _, Write as _},
-    net::{SocketAddr, TcpListener, TcpStream},
+    net::{Shutdown, SocketAddr, TcpListener, TcpStream},
     sync::{
         Arc, Mutex, PoisonError,
         atomic::{AtomicUsize, Ordering},
@@ -154,6 +154,11 @@ impl WebSocketPeer {
         let (head, tail) = payload.split_at(at.min(payload.len()));
         self.send_raw(0x2, head, false)?;
         self.send_raw(0x0, tail, true)
+    }
+
+    pub fn hang_up(&self) {
+        let writer = self.writer.lock().unwrap_or_else(PoisonError::into_inner);
+        let _ = writer.shutdown(Shutdown::Both);
     }
 
     /// The next text message the backend sent, or nothing within `timeout`.

@@ -137,6 +137,19 @@ describe("networkDeviceId", () => {
     expect(networkDeviceId("rtltcp", "[2001:db8::1]:1234")).toBe("rtltcp:[2001:db8::1]:1234");
   });
 
+  it("reads a pasted web address the way a browser would", () => {
+    expect(networkDeviceId("kiwisdr", "http://kiwi.example.org:8073/")).toBe(
+      "kiwisdr:kiwi.example.org:8073",
+    );
+    expect(networkDeviceId("kiwisdr", "http://kiwi.example.org")).toBe(
+      "kiwisdr:kiwi.example.org:80",
+    );
+    expect(networkDeviceId("kiwisdr", "http://pw@kiwi.example.org")).toBe(
+      "kiwisdr:pw@kiwi.example.org:80",
+    );
+    expect(networkDeviceId("kiwisdr", "kiwi.example.org")).toBe("kiwisdr:kiwi.example.org");
+  });
+
   it("strips a scheme someone pasted, but never an IPv6 literal's colons", () => {
     expect(networkDeviceId("rtltcp", "rtl_tcp://10.0.0.5:1234")).toBe("rtltcp:10.0.0.5:1234");
     expect(networkDeviceId("spyserver", "sdr://spy.local:5555")).toBe("spyserver:spy.local:5555");
@@ -166,12 +179,14 @@ describe("NETWORK_BACKENDS", () => {
       "rtltcp",
       "spyserver",
       "sdrconnect",
+      "kiwisdr",
       "ad936x",
     ]);
     expect(NETWORK_BACKENDS.map((b) => b.placeholder.split(":").pop())).toEqual([
       "1234",
       "5555",
       "5454",
+      "8073",
       "30431",
     ]);
   });

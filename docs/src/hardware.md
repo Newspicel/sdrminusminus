@@ -17,6 +17,7 @@ The desktop and portable builds include these drivers:
 | Airspy R2, Mini, HF+, HF+ Discovery | Nothing; [experimental](#airspy) |
 | AntSDR, ADALM-Pluto, other AD936x boards | The board serving [iiod](#antsdr-plutosdr-and-other-ad936x-boards) |
 | SDRplay RSP1, RSP1A, RSP1B, RSP2, RSPduo, RSPdx, RSPdx-R2 | [SDRplay API](#sdrplay) 3.15+, or [SDRconnect](#sdrconnect) on another machine |
+| KiwiSDR | Network access to [one](#kiwisdr) |
 | Dragon Labs CR-8 | [Vendor library](#dragon-labs-cr-8) and a build with `cr8` |
 | bladeRF, LimeSDR, USRP, others | A [SoapySDR module](#soapysdr) |
 
@@ -80,6 +81,7 @@ On an empty Device node, open the **Network** tab and enter `host:port`:
 | `rtl_tcp` | 1234 |
 | SpyServer | 5555 |
 | SDRconnect | 5454 |
+| KiwiSDR | 8073 |
 | AD936x / iiod | 30431 |
 
 The address becomes the radio's identity in the workspace. A remote `SoapySDRServer` shows up in
@@ -227,6 +229,19 @@ SDR-- receives raw IQ and does its own demodulation. Extra settings:
 
 The driver follows the public [SDRplay API specification](https://www.sdrplay.com/api/). No vendor
 code is included.
+
+## KiwiSDR
+
+Pick **Network → KiwiSDR** and paste the receiver's address, for example
+`http://kiwi.example.org:8073`. Public receivers are listed at [rx.kiwisdr.com](http://rx.kiwisdr.com/).
+A private Kiwi, or one whose time limits a password lifts, takes `password@host:8073`. The password
+becomes part of the radio's address in the workspace.
+
+A Kiwi streams 12 or 20 kHz of IQ anywhere in 0 to 30 MHz: enough for SSB, CW, AM and the
+narrowband decoders. Wider channels show out of band. Gain is the Kiwi's AGC or a manual RF gain.
+
+Public Kiwis are shared. When one is full, kicks you, or hits its time limit, SDR-- stops and does
+not reconnect. A dropped connection is retried. Kiwis served only over HTTPS are not supported.
 
 ## Dragon Labs CR-8
 

@@ -60,7 +60,7 @@ export function sourceTabs(groups: {
     {
       value: "network",
       label: "Network",
-      title: "A radio served over rtl_tcp or SpyServer, or an AntSDR or Pluto on the network",
+      title: "rtl_tcp, SpyServer, SDRconnect, KiwiSDR, AntSDR or Pluto",
     },
   ];
   if (groups.virtual.length > 0) {
@@ -81,13 +81,20 @@ export const NETWORK_BACKENDS = [
   { driver: "rtltcp", label: "rtl_tcp", placeholder: "192.168.1.5:1234" },
   { driver: "spyserver", label: "SpyServer", placeholder: "192.168.1.5:5555" },
   { driver: "sdrconnect", label: "SDRconnect", placeholder: "192.168.1.5:5454" },
+  { driver: "kiwisdr", label: "KiwiSDR", placeholder: "kiwi.example.org:8073" },
   { driver: "ad936x", label: "AntSDR / Pluto", placeholder: "192.168.1.10:30431" },
 ] as const;
 
 export function networkDeviceId(driver: string, address: string): string | null {
-  const trimmed = address.trim().replace(/^[a-z][a-z0-9+._-]*:\/\//i, "");
+  const scheme = /^([a-z][a-z0-9+._-]*):\/\//i.exec(address.trim());
+  const trimmed = address
+    .trim()
+    .slice(scheme?.[0].length ?? 0)
+    .replace(/\/+$/, "");
   if (trimmed === "" || /\s/.test(trimmed)) {
     return null;
   }
-  return `${driver}:${trimmed}`;
+  const host = trimmed.slice(trimmed.lastIndexOf("@") + 1);
+  const webDefault = scheme !== null && /^(http|ws)$/i.test(scheme[1] ?? "") && !/:\d+$/.test(host);
+  return `${driver}:${trimmed}${webDefault ? ":80" : ""}`;
 }

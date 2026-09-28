@@ -5879,6 +5879,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "sdrmm-device-kiwisdr"
+version = "0.0.0"
+dependencies = [
+ "num-complex",
+ "sdrmm-device",
+ "sdrmm-wire",
+ "tracing",
+]
+
+[[package]]
 name = "sdrmm-device-recording"
 version = "0.0.0"
 dependencies = [
@@ -6019,6 +6029,7 @@ dependencies = [
  "sdrmm-device-array",
  "sdrmm-device-cr8",
  "sdrmm-device-hackrf",
+ "sdrmm-device-kiwisdr",
  "sdrmm-device-recording",
  "sdrmm-device-rtlsdr",
  "sdrmm-device-rtltcp",
