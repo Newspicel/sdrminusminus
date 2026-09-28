@@ -122,7 +122,7 @@ fn a_public_kiwi_hears_dcf77_above_the_tuned_center() {
     eprintln!(
         "rate {rate} got {got_rate:.0}/s above {above:.3e} mirror {mirror:.3e} noise {noise:.3e}"
     );
-    assert!(got_rate > rate * 0.6, "only {got_rate:.0} samples/s");
+    assert!(got_rate > rate * 0.6, "only {got_rate:.0} S/s");
     assert!(above > 100.0 * mirror, "carrier on the wrong side");
     assert!(above > 100.0 * noise, "no carrier");
 }

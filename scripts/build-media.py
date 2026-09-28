@@ -110,6 +110,13 @@ def configure(source, prefix, target, env):
     return args
 
 
+def move_import_libraries(prefix):
+    lib = prefix / "lib"
+    lib.mkdir(parents=True, exist_ok=True)
+    for library in (prefix / "bin").glob("*.lib"):
+        library.replace(lib / library.name)
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--target", default=target_name())
@@ -136,6 +143,8 @@ def main():
     run([tool("make", env), "-j", str(os.cpu_count() or 2)], work, env)
     shutil.rmtree(prefix, ignore_errors=True)
     run([tool("make", env), "install"], work, env)
+    if "windows-msvc" in args.target:
+        move_import_libraries(prefix)
     marker.write_text(fingerprint)
     print(prefix)
 
