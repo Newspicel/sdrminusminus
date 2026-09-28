@@ -1,28 +1,12 @@
 ---
-const wires = [
-  { id: "tune", port: "iq", d: "M150 172 H210" },
-  { id: "listen", port: "audio", d: "M360 172 C392 172 388 62 420 62" },
-  { id: "decode", port: "events", d: "M360 196 H420" },
-  { id: "record", port: "iq", d: "M150 172 C204 172 176 302 236 302 H420" },
-];
+import { patchLayout } from "./patch";
 
-const nodes = [
-  { x: 0, y: 150, w: 150, h: 78, title: "RTL-SDR", cat: "source" },
-  { x: 210, y: 150, w: 150, h: 78, title: "Broadcast FM", cat: "channel" },
-  { x: 420, y: 40, w: 140, h: 70, title: "Speaker", cat: "output" },
-  { x: 420, y: 174, w: 140, h: 78, title: "Decoder log", cat: "output" },
-  { x: 420, y: 280, w: 140, h: 70, title: "Recorder", cat: "output" },
-];
+interface Props {
+  narrow?: boolean;
+}
 
-const ports = [
-  { type: "iq", x: 150, y: 172 },
-  { type: "iq", x: 210, y: 172 },
-  { type: "audio", x: 360, y: 172 },
-  { type: "events", x: 360, y: 196 },
-  { type: "audio", x: 420, y: 62 },
-  { type: "events", x: 420, y: 196 },
-  { type: "iq", x: 420, y: 302 },
-];
+const { narrow = false } = Astro.props;
+const { viewBox, nodes, ports, wires, box } = patchLayout(narrow);
 
 const glyphs: Record<string, string> = {
   iq: "M4.5 0A4.5 4.5 0 1 1 -4.5 0A4.5 4.5 0 1 1 4.5 0Z",
@@ -33,11 +17,13 @@ const glyphs: Record<string, string> = {
 const head = (width: number) => `M0 20V4A4 4 0 0 1 4 0H${width - 4}A4 4 0 0 1 ${width} 4V20Z`;
 
 const meter = [0.9, 0.7, 1, 0.8, 0.55, 0.85, 0.65, 0.95, 0.5, 0.75, 0.6, 0.9, 0.4, 0.7];
+const bars = meter.slice(0, Math.floor((box.speaker.w - 20) / 9) + 1);
+const track = box.channel.w - 20;
 ---
 
 <svg
-  class="patch"
-  viewBox="-8 24 576 340"
+  class:list={["patch", narrow ? "narrow" : "wide"]}
+  viewBox={viewBox}
   role="img"
   aria-label="A radio wired to a broadcast FM channel, which feeds a speaker and a decoder log. The radio also feeds a recorder."
 >
@@ -64,30 +50,30 @@ const meter = [0.9, 0.7, 1, 0.8, 0.55, 0.85, 0.65, 0.95, 0.5, 0.75, 0.6, 0.9, 0.
     ))
   }
 
-  <g transform="translate(0 150)">
+  <g transform={`translate(${box.radio.x} ${box.radio.y})`}>
     <text class="freq" x="10" y="48">100.000<tspan class="unit" dx="4">MHz</tspan></text>
     <text class="dim" x="10" y="66">Rate 2.4 MS/s</text>
   </g>
 
-  <g transform="translate(210 150)">
+  <g transform={`translate(${box.channel.x} ${box.channel.y})`}>
     <text class="freq" x="10" y="48">100.000<tspan class="unit" dx="4">MHz</tspan></text>
-    <rect class="track" x="10" y="58" width="130" height="4" rx="2" />
-    <rect class="level" x="10" y="58" width="92" height="4" rx="2" />
+    <rect class="track" x="10" y="58" width={track} height="4" rx="2" />
+    <rect class="level" x="10" y="58" width={Math.round(track * 0.7)} height="4" rx="2" />
   </g>
 
-  <g transform="translate(420 40)" class="meter">
-    {meter.map((height, index) => <rect x={10 + index * 9} y={60 - height * 30} width="5" height={height * 30} rx="1" />)}
+  <g transform={`translate(${box.speaker.x} ${box.speaker.y})`} class="meter">
+    {bars.map((height, index) => <rect x={10 + index * 9} y={60 - height * 30} width="5" height={height * 30} rx="1" />)}
   </g>
 
-  <g transform="translate(420 174)">
+  <g transform={`translate(${box.log.x} ${box.log.y})`}>
     <text class="dim" x="10" y="40">PS<tspan class="ink" dx="10">RADIO 1</tspan></text>
     <text class="dim" x="10" y="58">PTY<tspan class="ink" dx="4">Pop music</tspan></text>
   </g>
 
-  <g transform="translate(420 280)">
-    <circle class="rec" cx="16" cy="44" r="4" />
-    <text class="ink" x="28" y="48">00:42</text>
-    <text class="dim" x="84" y="48">SigMF</text>
+  <g transform={`translate(${box.recorder.x} ${box.recorder.y})`}>
+    <circle class="rec" cx="14" cy="44" r="4" />
+    <text class="ink" x="24" y="48">00:42</text>
+    <text class="dim" x={box.recorder.w - 10} y="48" text-anchor="end">SigMF</text>
   </g>
 
   <g class="ports">
@@ -102,6 +88,12 @@ const meter = [0.9, 0.7, 1, 0.8, 0.55, 0.85, 0.65, 0.95, 0.5, 0.75, 0.6, 0.9, 0.
     height: auto;
     overflow: visible;
     font-family: var(--mono);
+  }
+  .patch.narrow { display: none; }
+
+  @media (max-width: 640px) {
+    .patch.wide { display: none; }
+    .patch.narrow { display: block; }
   }
 
   .wire path {
@@ -130,6 +122,7 @@ const meter = [0.9, 0.7, 1, 0.8, 0.55, 0.85, 0.65, 0.95, 0.5, 0.75, 0.6, 0.9, 0.
   .title { fill: var(--ink); font-size: 9px; font-weight: 500; }
 
   .freq { fill: var(--vfo); font-size: 19px; }
+  .narrow .freq { font-size: 15px; }
   .unit { fill: var(--ink-faint); font-size: 8px; }
   .dim { fill: var(--ink-faint); font-size: 9px; }
   .ink { fill: var(--ink); font-size: 11px; }

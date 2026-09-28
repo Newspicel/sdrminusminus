@@ -24,14 +24,13 @@ covers macOS, Windows, Linux, Homebrew, WinGet, APT, DNF, AUR, Nix, and Docker.
 On macOS:
 
 ```sh
-brew tap newspicel/tap
-brew install --cask sdrminusminus
+brew install newspicel/tap/sdrminusminus
 ```
 
 For a headless server on macOS or Linux, install `sdrmm` from the same tap:
 
 ```sh
-brew install sdrmm
+brew install newspicel/tap/sdrmm
 brew services start sdrmm
 ```
 

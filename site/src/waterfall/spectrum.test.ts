@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { heat, keyed, type Signal, spectrumRow } from "./spectrum";
+import { heat, history, keyed, paintRow, type Signal, spectrumRow } from "./spectrum";
 
 const carrier: Signal = {
   center: 0.5,
@@ -52,5 +52,23 @@ describe("heat", () => {
     heat(1, pixels, 4);
     expect(pixels[3]).toBe(0);
     expect(pixels[7]).toBe(255);
+  });
+});
+
+describe("paintRow", () => {
+  it("paints every bin at its offset", () => {
+    const pixels = new Uint8ClampedArray(12);
+    paintRow(new Float32Array([1, 0, 1]), pixels, 0);
+    expect([pixels[3], pixels[7], pixels[11]]).toEqual([255, 0, 255]);
+  });
+});
+
+describe("history", () => {
+  it("puts the oldest frame at the bottom", () => {
+    const burst = { ...carrier, level: 5, width: 0.001, period: 4, duty: 0.25 };
+    const pixels = history(4, 4, [burst], silent);
+    const alpha = (row: number) => pixels[(row * 4 + 2) * 4 + 3];
+    expect(alpha(3)).toBe(255);
+    expect(alpha(0)).toBeLessThan(255);
   });
 });

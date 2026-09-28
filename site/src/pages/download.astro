@@ -1,4 +1,5 @@
 ---
+import { INSTALLS } from "../installs";
 import Page from "../layouts/Page.astro";
 ---
 
@@ -178,75 +179,21 @@ import Page from "../layouts/Page.astro";
     release unless you are testing one.</p>
 </section>
 
-<section class="wrap">
+<section class="wrap" id="packages">
   <h2>Or install it with a package manager</h2>
   <p class="section-lede">Same releases, updated with the rest of your system.</p>
 
   <div class="install">
-    <div class="lane">
-      <h3>Homebrew</h3>
-      <p>The cask installs the app; the formula installs the headless server.</p>
-      <div class="shell"><pre>brew tap newspicel/tap
-brew install --cask sdrminusminus
-
-<span class="p">or, for a server</span>
-brew install sdrmm
-brew services start sdrmm</pre></div>
-    </div>
-
-    <div class="lane">
-      <h3>WinGet</h3>
-      <p>The Windows desktop app.</p>
-      <div class="shell"><pre>winget install Newspicel.SDRminusminus</pre></div>
-    </div>
-
-    <div class="lane">
-      <h3>Debian and Ubuntu</h3>
-      <p>Signed APT repository for x86-64 and ARM64.</p>
-      <div class="shell"><pre>curl -fsSL https://newspicel.github.io/packages/key.gpg \
-  | sudo tee /usr/share/keyrings/sdrminusminus.gpg > /dev/null
-echo "deb [signed-by=/usr/share/keyrings/sdrminusminus.gpg] \
-https://newspicel.github.io/packages/deb stable main" \
-  | sudo tee /etc/apt/sources.list.d/sdrminusminus.list
-sudo apt update
-sudo apt install sdrminusminus</pre></div>
-    </div>
-
-    <div class="lane">
-      <h3>Fedora</h3>
-      <p>Signed RPM repository for x86-64 and ARM64.</p>
-      <div class="shell"><pre>sudo dnf config-manager addrepo \
-  --from-repofile=https://newspicel.github.io/packages/rpm/sdrminusminus.repo
-sudo dnf install sdrminusminus</pre></div>
-    </div>
-
-    <div class="lane">
-      <h3>Arch Linux</h3>
-      <p>AUR packages for the app and the server.</p>
-      <div class="shell"><pre>yay -S sdrminusminus-bin
-
-<span class="p">or, for a server</span>
-yay -S sdrmm-bin</pre></div>
-    </div>
-
-    <div class="lane">
-      <h3>Nix</h3>
-      <p>Flake package for x86-64 and ARM64 Linux, with SoapySDR modules selectable.</p>
-      <div class="shell"><pre>nix profile install \
-  github:Newspicel/sdrminusminus
-sdrmm-desktop</pre></div>
-      <p class="foot"><a href="/getting-started/install.html#nix">NixOS module options</a></p>
-    </div>
-
-    <div class="lane">
-      <h3>Container</h3>
-      <p>Persists its database and recordings in a volume. Pass through the USB group that owns
-        your radio.</p>
-      <div class="shell"><pre>git clone https://github.com/Newspicel/sdrminusminus.git
-cd sdrminusminus
-docker compose up -d</pre></div>
-      <p class="foot"><a href="/server/deployment.html">Container setup, auth and HTTPS</a></p>
-    </div>
+    {
+      INSTALLS.map((install) => (
+        <div class="lane">
+          <h3>{install.title}</h3>
+          <p>{install.note}</p>
+          <div class="shell"><pre set:html={install.lines} /></div>
+          {install.more && <p class="foot"><a href={install.more.href}>{install.more.label}</a></p>}
+        </div>
+      ))
+    }
   </div>
 </section>
 
@@ -344,7 +291,7 @@ docker compose up -d</pre></div>
 .files {
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
-  background: color-mix(in oklab, var(--panel) 55%, var(--bg));
+  background: color-mix(in oklab, var(--panel) 55%, var(--base));
   overflow: hidden;
 }
 .group {
@@ -359,7 +306,6 @@ docker compose up -d</pre></div>
   display: block;
   margin-bottom: 2px;
   font-family: var(--display);
-  font-stretch: 80%;
   font-size: 1.35rem;
   letter-spacing: -0.02em;
   color: var(--ink);
@@ -398,7 +344,7 @@ docker compose up -d</pre></div>
   padding: 24px;
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
-  background: linear-gradient(180deg, var(--panel), color-mix(in oklab, var(--panel) 40%, var(--bg)));
+  background: linear-gradient(180deg, var(--panel), color-mix(in oklab, var(--panel) 40%, var(--base)));
 }
 .steps li::before {
   content: counter(step);

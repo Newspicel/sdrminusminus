@@ -12,7 +12,8 @@ create-missing = false
 [output.html]
 default-theme = "navy"
 preferred-dark-theme = "navy"
-additional-css = ["custom.css"]
+additional-css = ["tokens.css", "custom.css"]
+additional-js = ["menu.js"]
 no-section-label = true
 smart-punctuation = false
 git-repository-url = "https://github.com/Newspicel/sdrminusminus"

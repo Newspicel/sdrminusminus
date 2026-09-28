@@ -4,7 +4,11 @@ import { App } from "../../../web/src/App";
 import { initTheme, setTheme } from "../../../web/src/lib/theme";
 import { createQueryClient, Root } from "../../../web/src/Root";
 import "./demo.css";
+import { guardWheel } from "./wheel";
 
+if (window.parent !== window) {
+  guardWheel(window, document.documentElement);
+}
 initTheme();
 setTheme("dark");
 const client = createQueryClient();

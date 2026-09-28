@@ -80,3 +80,24 @@ export function heat(value: number, pixels: Uint8ClampedArray, offset: number): 
   pixels[offset + 2] = low[2] + (high[2] - low[2]) * mix;
   pixels[offset + 3] = low[3] + (high[3] - low[3]) * mix;
 }
+
+export function paintRow(levels: Float32Array, pixels: Uint8ClampedArray, offset: number): void {
+  for (let bin = 0; bin < levels.length; bin++) {
+    heat(levels[bin] ?? 0, pixels, offset + bin * 4);
+  }
+}
+
+export function history(
+  width: number,
+  height: number,
+  signals: Signal[],
+  random: Random,
+): Uint8ClampedArray<ArrayBuffer> {
+  const pixels = new Uint8ClampedArray(width * height * 4);
+  const levels = new Float32Array(width);
+  for (let frame = 0; frame < height; frame++) {
+    spectrumRow(levels, frame, signals, random);
+    paintRow(levels, pixels, (height - 1 - frame) * width * 4);
+  }
+  return pixels;
+}

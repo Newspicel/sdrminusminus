@@ -1,25 +1,238 @@
-main a:not(.header) {
-  color: #21b0b0;
+:root {
+  --mono-font: var(--mono);
+  --content-max-width: 760px;
+  --menu-bar-height: 56px;
 }
 
-main table {
+.navy {
+  --bg: var(--base);
+  --fg: oklch(0.86 0.006 240);
+
+  --sidebar-bg: var(--well);
+  --sidebar-fg: var(--ink-dim);
+  --sidebar-non-existant: var(--ink-faint);
+  --sidebar-active: var(--accent);
+  --sidebar-spacer: var(--line);
+  --sidebar-header-border-color: var(--accent);
+
+  --scrollbar: var(--line-strong);
+  --icons: var(--ink-faint);
+  --icons-hover: var(--ink);
+  --links: var(--accent);
+  --inline-code-color: var(--ink);
+
+  --theme-popup-bg: var(--panel);
+  --theme-popup-border: var(--line);
+  --theme-hover: var(--panel-2);
+
+  --quote-bg: var(--panel);
+  --quote-border: var(--line);
+  --warning-border: var(--events);
+
+  --table-border-color: var(--line);
+  --table-header-bg: var(--panel-2);
+  --table-alternate-bg: color-mix(in oklab, var(--panel) 45%, var(--base));
+
+  --searchbar-border-color: var(--line);
+  --searchbar-bg: var(--well);
+  --searchbar-fg: var(--ink);
+  --searchbar-shadow-color: var(--accent);
+  --searchresults-header-fg: var(--ink-faint);
+  --searchresults-border-color: var(--line);
+  --searchresults-li-bg: var(--panel);
+  --search-mark-bg: color-mix(in oklab, var(--accent) 35%, transparent);
+
+  --footnote-highlight: var(--accent);
+  --overlay-bg: oklch(0 0 0 / 0.5);
+
+  --blockquote-note-color: var(--iq);
+  --blockquote-tip-color: var(--audio);
+  --blockquote-important-color: var(--cat-channel);
+  --blockquote-warning-color: var(--events);
+  --blockquote-caution-color: var(--danger);
+}
+
+html {
+  font-family: var(--sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+body {
+  font-size: 1.65rem;
+}
+
+::selection {
+  background: color-mix(in oklab, var(--accent) 32%, transparent);
+}
+
+.content p,
+.content ol,
+.content ul {
+  line-height: 1.65;
+}
+
+.content h1,
+.content h2,
+.content h3,
+.content h4 {
+  font-family: var(--mono);
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: -0.03em;
+  text-wrap: balance;
+}
+
+.content h1 {
+  margin-block: 0.9em 0.6em;
+  font-size: clamp(2.8rem, 4vw, 3.6rem);
+  letter-spacing: -0.045em;
+}
+
+.content h2 {
+  font-size: 2.3rem;
+}
+
+.content h3 {
+  font-size: 1.8rem;
+}
+
+.navy .content .header:link,
+.navy .content .header:visited {
+  color: var(--ink);
+}
+
+.content a:not(.header) {
+  text-decoration: underline;
+  text-decoration-color: color-mix(in oklab, currentColor 40%, transparent);
+  text-underline-offset: 3px;
+}
+
+.content a:not(.header):hover {
+  text-decoration-color: currentColor;
+}
+
+.content code {
+  font-variant-ligatures: none;
+}
+
+.navy pre > code.hljs,
+.navy pre > .hljs {
+  background: var(--well);
+}
+
+.navy .content pre {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
+.content pre > code {
+  padding: 14px 16px;
+  line-height: 1.7;
+}
+
+.navy :not(pre) > code.hljs,
+.navy :not(pre) > code {
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+}
+
+.content table {
   display: table;
   width: 100%;
   font-variant-numeric: tabular-nums;
 }
 
-main table th {
+.content table th {
   text-align: left;
+  font: 500 1.3rem var(--mono);
+  padding-block: 8px;
 }
 
-main code {
-  font-variant-ligatures: none;
+.content table td {
+  padding-block: 6px;
 }
 
-main pre {
-  border-radius: 6px;
+.content blockquote {
+  padding: 2px 20px;
+  border: 0;
+  border-inline-start: 2px solid var(--accent);
+  border-radius: 0 var(--radius) var(--radius) 0;
 }
 
-main blockquote {
-  border-left-color: #21b0b0;
+.navy .sidebar {
+  border-inline-end: 1px solid var(--line);
+  font-size: 1.5rem;
+}
+
+.chapter li.part-title {
+  margin-block: 1.4em 0.2em;
+  font: 600 1.3rem var(--mono);
+  color: var(--ink-faint);
+}
+
+.chapter li a.active {
+  font-weight: 500;
+}
+
+.on-this-page {
+  border-inline-start-width: 2px;
+}
+
+.navy #mdbook-menu-bar {
+  background: color-mix(in oklab, var(--base) 82%, transparent);
+  backdrop-filter: blur(12px);
+}
+
+.menu-title {
+  font: 600 1.5rem / var(--menu-bar-height) var(--mono);
+}
+
+.navy .menu-title,
+.navy .content table th {
+  color: var(--ink);
+}
+
+.menu-home {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  color: inherit;
+  text-decoration: none;
+}
+
+.menu-home img {
+  display: block;
+}
+
+.menu-bar .right-buttons {
+  display: flex;
+  align-items: center;
+}
+
+.menu-bar a.menu-download {
+  margin-inline-end: 8px;
+  padding: 4px 12px;
+  border-radius: var(--radius);
+  background: var(--accent);
+  color: var(--on-accent);
+  font: 600 1.4rem/1.6 var(--sans);
+  text-decoration: none;
+  box-shadow: var(--shadow-raised);
+}
+
+.menu-bar a.menu-download:hover {
+  filter: brightness(1.05);
+}
+
+#mdbook-searchbar {
+  border-radius: var(--radius);
+  font-family: var(--sans);
+}
+
+@media (max-width: 620px) {
+  .right-buttons a[href$="print.html"],
+  .right-buttons a[rel="edit"] {
+    display: none;
+  }
 }

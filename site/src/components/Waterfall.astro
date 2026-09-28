@@ -1,4 +1,4 @@
-<canvas class="waterfall" width="384" height="216" aria-hidden="true"></canvas>
+<canvas class="waterfall" width="768" height="400" aria-hidden="true"></canvas>
 
 <style>
   .waterfall {
@@ -6,14 +6,14 @@
     inset: 0;
     width: 100%;
     height: 100%;
-    opacity: 0.5;
+    opacity: 0.55;
     pointer-events: none;
-    mask-image: radial-gradient(ellipse 70% 80% at 50% 20%, black 25%, transparent 80%);
+    mask-image: radial-gradient(ellipse 75% 85% at 50% 15%, black 30%, transparent 80%);
   }
 </style>
 
 <script>
-  import { heat, SIGNALS, spectrumRow } from "../waterfall/spectrum";
+  import { history, paintRow, SIGNALS, spectrumRow } from "../waterfall/spectrum";
 
   const FRAME_MS = 50;
 
@@ -21,17 +21,17 @@
     const { width, height } = canvas;
     const levels = new Float32Array(width);
     const row = context.createImageData(width, 1);
-    let frame = 0;
+    let frame = height;
     let last = 0;
     let visible = true;
     const still = matchMedia("(prefers-reduced-motion: reduce)");
 
+    context.putImageData(new ImageData(history(width, height, SIGNALS, Math.random), width), 0, 0);
+
     const step = () => {
       context.drawImage(canvas, 0, 0, width, height - 1, 0, 1, width, height - 1);
       spectrumRow(levels, frame, SIGNALS, Math.random);
-      for (let bin = 0; bin < width; bin++) {
-        heat(levels[bin], row.data, bin * 4);
-      }
+      paintRow(levels, row.data, 0);
       context.putImageData(row, 0, 0);
       frame += 1;
     };
@@ -46,10 +46,6 @@
       }
       requestAnimationFrame(tick);
     };
-
-    for (let line = 0; line < height; line++) {
-      step();
-    }
 
     new IntersectionObserver(([entry]) => {
       const was = visible;
