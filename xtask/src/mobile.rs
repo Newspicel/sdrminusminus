@@ -98,7 +98,6 @@ pub(crate) fn run(root: &Path, args: &Mobile) -> Result<()> {
     }
 }
 
-#[expect(dead_code)]
 pub(crate) fn ios_artifacts(root: &Path, out_dir: &Path) -> Result<()> {
     require_xcode()?;
     execute(root, &ios_artifacts_plan(&Layout::find(root)?, out_dir))

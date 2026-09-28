@@ -22,6 +22,11 @@ const ICNS_ENTRIES: &[(&[u8; 4], u32)] = &[
 
 const MACOS_SCALE: f32 = 824.0 / 1024.0;
 
+const IOS_ICON: &str = "apps/ios/App/Resources/Assets.xcassets/AppIcon.appiconset";
+const IOS_ICON_SIZE: u32 = 1024;
+const IOS_ICON_BACKGROUND: (u8, u8, u8) = (0x15, 0x18, 0x1B);
+const IOS_ICON_CONTENTS: &str = "{\"images\":[{\"filename\":\"AppIcon-1024.png\",\"idiom\":\"universal\",\"platform\":\"ios\",\"size\":\"1024x1024\"}],\"info\":{\"author\":\"xcode\",\"version\":1}}\n";
+
 pub fn icons(root: &Path) -> Result<()> {
     let source = root.join(SOURCE);
     let svg = std::fs::read(&source).with_context(|| format!("read {}", source.display()))?;
@@ -57,14 +62,28 @@ pub fn icons(root: &Path) -> Result<()> {
         &ico(&tree, FAVICON_SIZES)?,
     )?;
     write(&root.join("apps/desktop/icons/icon.icns"), &icns(&tree)?)?;
+    write(
+        &root.join(IOS_ICON).join("AppIcon-1024.png"),
+        &ios_icon(&tree)?,
+    )?;
+    write(
+        &root.join(IOS_ICON).join("Contents.json"),
+        IOS_ICON_CONTENTS.as_bytes(),
+    )?;
     Ok(())
 }
 
 fn raster(tree: &usvg::Tree, size: u32, fill: f32) -> Result<tiny_skia::Pixmap> {
     let mut pixmap = tiny_skia::Pixmap::new(size, size).context("allocate pixmap")?;
+    draw(tree, &mut pixmap, fill);
+    Ok(pixmap)
+}
+
+fn draw(tree: &usvg::Tree, pixmap: &mut tiny_skia::Pixmap, fill: f32) {
+    let size = pixmap.width();
     #[expect(
         clippy::cast_precision_loss,
-        reason = "icon sizes are three-digit integers; exact in f32"
+        reason = "icon sizes are at most 1024; exact in f32"
     )]
     let canvas = size as f32;
     let target = canvas * fill;
@@ -75,7 +94,51 @@ fn raster(tree: &usvg::Tree, size: u32, fill: f32) -> Result<tiny_skia::Pixmap> 
         tiny_skia::Transform::from_translate(offset, offset).pre_scale(scale, scale),
         &mut pixmap.as_mut(),
     );
-    Ok(pixmap)
+}
+
+fn ios_icon(tree: &usvg::Tree) -> Result<Vec<u8>> {
+    let mut pixmap =
+        tiny_skia::Pixmap::new(IOS_ICON_SIZE, IOS_ICON_SIZE).context("allocate pixmap")?;
+    let (red, green, blue) = IOS_ICON_BACKGROUND;
+    pixmap.fill(tiny_skia::Color::from_rgba8(red, green, blue, 255));
+    draw(tree, &mut pixmap, 1.0);
+    rgb_png(&pixmap)
+}
+
+fn rgb_png(pixmap: &tiny_skia::Pixmap) -> Result<Vec<u8>> {
+    let width = pixmap.width() as usize;
+    let mut scanlines = Vec::with_capacity((width * 3 + 1) * pixmap.height() as usize);
+    for row in pixmap.pixels().chunks(width) {
+        scanlines.push(0);
+        for pixel in row {
+            let pixel = pixel.demultiply();
+            scanlines.extend_from_slice(&[pixel.red(), pixel.green(), pixel.blue()]);
+        }
+    }
+    let mut encoder = flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::best());
+    std::io::Write::write_all(&mut encoder, &scanlines).context("compress icon")?;
+    let compressed = encoder.finish().context("compress icon")?;
+
+    let mut header = Vec::with_capacity(13);
+    header.extend_from_slice(&pixmap.width().to_be_bytes());
+    header.extend_from_slice(&pixmap.height().to_be_bytes());
+    header.extend_from_slice(&[8, 2, 0, 0, 0]);
+    let mut out = b"\x89PNG\r\n\x1a\n".to_vec();
+    png_chunk(&mut out, b"IHDR", &header)?;
+    png_chunk(&mut out, b"IDAT", &compressed)?;
+    png_chunk(&mut out, b"IEND", &[])?;
+    Ok(out)
+}
+
+fn png_chunk(out: &mut Vec<u8>, kind: &[u8; 4], data: &[u8]) -> Result<()> {
+    out.extend_from_slice(&u32::try_from(data.len())?.to_be_bytes());
+    let mut crc = flate2::Crc::new();
+    crc.update(kind);
+    crc.update(data);
+    out.extend_from_slice(kind);
+    out.extend_from_slice(data);
+    out.extend_from_slice(&crc.sum().to_be_bytes());
+    Ok(())
 }
 
 fn render(tree: &usvg::Tree, size: u32, fill: f32) -> Result<Vec<u8>> {
@@ -273,6 +336,23 @@ mod tests {
             at += len;
         }
         assert_eq!(at, icns.len(), "chunks cover the file exactly");
+    }
+
+    #[test]
+    fn ios_icon_is_an_opaque_rgb_png() {
+        let png = ios_icon(&tree()).expect("ios icon");
+        assert_eq!(&png[1..4], b"PNG");
+        assert_eq!(be32(&png, 16), IOS_ICON_SIZE);
+        assert_eq!(png[25], 2, "colour type RGB without alpha");
+        let pixmap = tiny_skia::Pixmap::decode_png(&png).expect("decode");
+        let corner = pixmap.pixel(0, 0).expect("corner");
+        assert_eq!(
+            (corner.red(), corner.green(), corner.blue(), corner.alpha()),
+            (0x15, 0x18, 0x1B, 255)
+        );
+        let contents: serde_json::Value =
+            serde_json::from_str(IOS_ICON_CONTENTS).expect("contents json");
+        assert_eq!(contents["images"][0]["filename"], "AppIcon-1024.png");
     }
 
     #[test]

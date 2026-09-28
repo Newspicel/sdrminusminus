@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "lineLength": 110,
+  "indentation": { "spaces": 4 },
+  "maximumBlankLines": 1,
+  "respectsExistingLineBreaks": true,
+  "lineBreakBeforeEachArgument": true,
+  "rules": {
+    "AllPublicDeclarationsHaveDocumentation": false,
+    "BeginDocumentationCommentWithOneLineSummary": false,
+    "ValidateDocumentationComments": false,
+    "NeverForceUnwrap": true,
+    "NeverUseForceTry": true,
+    "NeverUseImplicitlyUnwrappedOptionals": true,
+    "OrderedImports": true,
+    "UseLetInEveryBoundCaseVariable": true
+  }
+}

@@ -1,0 +1,81 @@
+name: SDRmm
+options:
+  bundleIdPrefix: dev.newspicel
+  deploymentTarget:
+    iOS: "18.0"
+  xcodeVersion: "27.0"
+  developmentLanguage: en
+  createIntermediateGroups: true
+configs:
+  Debug: debug
+  Release: release
+configFiles:
+  Debug: Config/Debug.xcconfig
+  Release: Config/Release.xcconfig
+targets:
+  SdrmmCore:
+    type: framework
+    platform: iOS
+    sources:
+      - path: Core/Generated
+        type: syncedFolder
+    configFiles:
+      Debug: Config/Core.xcconfig
+      Release: Config/Core.xcconfig
+    dependencies:
+      - framework: Core/Artifacts/SdrmmMobileFFI.xcframework
+        embed: false
+  SDRmm:
+    type: application
+    platform: iOS
+    sources:
+      - path: App
+        type: syncedFolder
+      - path: Support/PrivacyInfo.xcprivacy
+        buildPhase: resources
+    configFiles:
+      Debug: Config/App.xcconfig
+      Release: Config/App.xcconfig
+    dependencies:
+      - target: SdrmmCore
+        embed: true
+      - sdk: CarPlay.framework
+  SDRmmTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: AppTests
+        type: syncedFolder
+    configFiles:
+      Debug: Config/Tests.xcconfig
+      Release: Config/Tests.xcconfig
+    dependencies:
+      - target: SDRmm
+      - target: SdrmmCore
+        embed: false
+  SDRmmUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: AppUITests
+        type: syncedFolder
+    configFiles:
+      Debug: Config/UITests.xcconfig
+      Release: Config/UITests.xcconfig
+    dependencies:
+      - target: SDRmm
+schemes:
+  SDRmm:
+    build:
+      targets:
+        SDRmm: all
+    run:
+      config: Debug
+    test:
+      config: Debug
+      gatherCoverageData: true
+      targets:
+        - SDRmmTests
+        - SDRmmUITests
+    archive:
+      config: Release
