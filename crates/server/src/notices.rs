@@ -31,19 +31,10 @@ pub fn about() -> AboutResponse {
         license_text: NOTICES.license_text.clone(),
         repository: NOTICES.repository.clone(),
         components: NOTICES.components.clone(),
-        lan_addresses: Vec::new(),
-        routing: false,
-        offline_basemap: false,
         reveal: false,
-        local_only: false,
     }
 }
 
-/// Every address a browser on the same network could use to reach this machine.
-///
-/// An operator working on localhost has an origin no phone can follow, so the field-mode handoff
-/// has to offer something else; a machine with no network gets an empty list and the handoff says
-/// so rather than printing a URL that cannot work.
 #[must_use]
 pub fn lan_addresses() -> Vec<String> {
     let mut found: Vec<String> = local_ip_address::list_afinet_netifas()

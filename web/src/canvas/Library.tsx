@@ -9,7 +9,6 @@ import { TemplatesPanel } from "../components/TemplatesPanel";
 import type { RecordingInfo } from "../lib/types";
 import { ToolsPanel } from "../tools/ToolsPanel";
 import { useWorkspaceContext } from "./context";
-import { FieldPanel } from "./FieldPanel";
 import { addNode, newNodeId, nodeIds } from "./graph";
 import { libraryTarget } from "./libraryTarget";
 import { recordingNodeFor } from "./nodes/recordingNode";
@@ -23,7 +22,6 @@ const TABS = [
   { id: "occupancy", label: "Occupancy" },
   { id: "recordings", label: "Recordings" },
   { id: "tools", label: "Tools" },
-  { id: "field", label: "Field" },
 ] as const;
 
 export function Library({ onOpenTool }: { onOpenTool: (id: string) => void }) {
@@ -83,9 +81,6 @@ export function Library({ onOpenTool }: { onOpenTool: (id: string) => void }) {
       </Tabs.Panel>
       <Tabs.Panel value="tools" className="max-h-[28rem] overflow-y-auto">
         <ToolsPanel onOpen={onOpenTool} />
-      </Tabs.Panel>
-      <Tabs.Panel value="field" className="max-h-[28rem] overflow-y-auto">
-        <FieldPanel />
       </Tabs.Panel>
     </Tabs.Root>
   );

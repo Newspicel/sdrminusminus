@@ -277,11 +277,6 @@ export type NavTarget = components["schemas"]["NavTarget"];
 export type NavTargetKind = components["schemas"]["NavTargetKind"];
 export type DfFusionState = components["schemas"]["DfFusionState"];
 export type DfStation = components["schemas"]["DfStation"];
-export type Route = components["schemas"]["Route"];
-export type RoutePoint = components["schemas"]["RoutePoint"];
-export type RouteRequest = components["schemas"]["RouteRequest"];
-export type Maneuver = components["schemas"]["Maneuver"];
-export type ManeuverKind = components["schemas"]["ManeuverKind"];
 export type DoctorCheck = components["schemas"]["DoctorCheck"];
 export type CheckStatus = components["schemas"]["CheckStatus"];
 

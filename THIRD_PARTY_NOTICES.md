@@ -96,7 +96,7 @@ Opened at runtime from whatever SoapySDR the host has installed, and never linke
 
 The ACARS application layer and the VDL2, HFDL, Inmarsat Aero, Inmarsat STD-C, DSC and Iridium decoders in `crates/channels` started as ports of xng, Copyright (c) 2023-2026 Kevin Elliott and the xng contributors, used under its MIT license.
 
-## Rust crates (800)
+## Rust crates (799)
 
 | Component | Version | License |
 | --- | --- | --- |
@@ -351,7 +351,6 @@ The ACARS application layer and the VDL2, HFDL, Inmarsat Aero, Inmarsat STD-C, D
 | [http](https://github.com/hyperium/http) | 1.5.0 | MIT OR Apache-2.0 |
 | [http-body](https://github.com/hyperium/http-body) | 1.1.0 | MIT |
 | [http-body-util](https://github.com/hyperium/http-body) | 0.1.5 | MIT |
-| [http-range-header](https://github.com/MarcusGrass/parse-range-headers) | 0.4.2 | MIT |
 | [httparse](https://github.com/seanmonstar/httparse) | 1.10.1 | MIT OR Apache-2.0 |
 | [httpdate](https://github.com/pyfisch/httpdate) | 1.0.3 | MIT OR Apache-2.0 |
 | [hybrid-array](https://github.com/RustCrypto/hybrid-array) | 0.4.15 | MIT OR Apache-2.0 |
@@ -901,7 +900,7 @@ The ACARS application layer and the VDL2, HFDL, Inmarsat Aero, Inmarsat STD-C, D
 | [zvariant_derive](https://github.com/z-galaxy/zbus/) | 5.15.0 | MIT |
 | [zvariant_utils](https://github.com/z-galaxy/zbus/) | 4.2.0 | MIT |
 
-## Web packages (74)
+## Web packages (72)
 
 | Component | Version | License |
 | --- | --- | --- |
@@ -951,7 +950,6 @@ The ACARS application layer and the VDL2, HFDL, Inmarsat Aero, Inmarsat STD-C, D
 | [d3-transition](https://d3js.org/d3-transition/) | 3.0.1 | ISC |
 | [d3-zoom](https://d3js.org/d3-zoom/) | 3.0.0 | ISC |
 | [earcut](https://github.com/mapbox/earcut#readme) | 3.2.3 | ISC |
-| [fflate](https://101arrowz.github.io/fflate) | 0.8.3 | MIT |
 | [gl-matrix](http://glmatrix.net) | 3.4.4 | MIT |
 | [json-stringify-pretty-compact](https://github.com/lydell/json-stringify-pretty-compact#readme) | 4.0.0 | MIT |
 | [kdbush](https://github.com/mourner/kdbush#readme) | 4.1.0 | ISC |
@@ -963,7 +961,6 @@ The ACARS application layer and the VDL2, HFDL, Inmarsat Aero, Inmarsat STD-C, D
 | [openapi-typescript-helpers](https://openapi-ts.dev) | 0.1.0 | MIT |
 | [opus-decoder](https://github.com/eshaz/wasm-audio-decoders/tree/main/src/opus-decoder) | 0.7.12 | MIT |
 | [pbf](https://github.com/mapbox/pbf) | 5.1.2 | BSD-3-Clause |
-| [pmtiles](https://github.com/protomaps/pmtiles) | 4.5.0 | BSD-3-Clause |
 | [potpack](https://mapbox.github.io/potpack/) | 2.1.0 | ISC |
 | [protocol-buffers-schema](https://github.com/mafintosh/protocol-buffers-schema) | 3.6.1 | MIT |
 | [quickselect](https://github.com/mourner/quickselect#readme) | 3.0.0 | ISC |

@@ -25,7 +25,6 @@ mod assets;
 mod audio_fx;
 mod auth;
 mod bandplan;
-mod basemap;
 mod calibration;
 mod calls;
 pub(crate) mod coherent;
@@ -48,7 +47,6 @@ mod packed;
 mod placement;
 mod recorders;
 mod rest;
-pub mod routing;
 mod satellites;
 mod store;
 mod templates;
@@ -68,7 +66,6 @@ pub trait NativeShell: Send + Sync + std::fmt::Debug {
 pub struct ServerOptions {
     pub dev_cors: bool,
     pub token: Option<String>,
-    pub routing: routing::RoutingOptions,
     pub shell: Option<Arc<dyn NativeShell>>,
 }
 
@@ -96,9 +93,7 @@ pub(crate) struct AppState {
     pub(crate) coherent: Arc<coherent::CoherentHub>,
     pub(crate) cps: Arc<cps::CpsHub>,
     pub(crate) fusion: df_fusion::SharedFusion,
-    pub(crate) routing: Arc<routing::RoutingOptions>,
     pub(crate) shell: Option<Arc<dyn NativeShell>>,
-    pub(crate) local_only: bool,
 }
 
 impl AppState {
@@ -126,9 +121,7 @@ impl AppState {
             coherent: Arc::new(coherent::CoherentHub::default()),
             cps: Arc::new(cps::CpsHub::default()),
             fusion: Arc::new(df_fusion::FusionHub::default()),
-            routing: Arc::new(routing::RoutingOptions::default()),
             shell: None,
-            local_only: false,
         }
     }
 
@@ -193,7 +186,6 @@ fn openapi_route(api: &utoipa::openapi::OpenApi) -> axum::routing::MethodRouter<
 pub fn router(engine: Arc<Engine>, store: Store, options: &ServerOptions) -> Router {
     let mut state = AppState::new(engine, Arc::new(store));
     state.auth = auth::Auth::new(options.token.as_deref());
-    state.routing = Arc::new(options.routing.clone());
     let (router, background) = router_with_state(state, options);
     background.detach();
     router
@@ -215,10 +207,6 @@ fn router_with_state(mut state: AppState, options: &ServerOptions) -> (Router, B
     let mut app = Router::new()
         .merge(api_router)
         .route("/api/ws", axum::routing::get(ws::handler))
-        .route(
-            "/api/basemap.pmtiles",
-            axum::routing::get(basemap::handler).head(basemap::handler),
-        )
         .merge(mcp::router(
             state.engine.clone(),
             state.store.clone(),
@@ -278,7 +266,7 @@ impl Drop for Background {
 
 fn start_background(state: &AppState) -> Background {
     let (recording_tx, recording_rx) = tokio::sync::watch::channel(trunking::Recording::default());
-    let routing = {
+    let decoded = {
         let engine = Arc::downgrade(&state.engine);
         let store = state.store.clone();
         let feed = state.decoded.clone();
@@ -338,7 +326,7 @@ fn start_background(state: &AppState) -> Background {
     };
     Background {
         tasks: vec![
-            routing,
+            decoded,
             log,
             patch,
             calls,
@@ -407,14 +395,13 @@ pub async fn serve(config: Config, engine: Arc<Engine>) -> std::io::Result<Serve
     }
     match &config.options.token {
         Some(_) => tracing::info!("shared-token auth enabled"),
-        None => tracing::info!("no token configured: LAN-trusted, unauthenticated ()"),
+        None => tracing::info!("no token: LAN-trusted, unauthenticated"),
     }
     let store = Store::open(config.db_path.as_deref()).map_err(std::io::Error::other)?;
     workspace::adopt_named_devices(&engine, &store);
     let mut state = AppState::new(engine, Arc::new(store));
     state.auth = auth::Auth::new(config.options.token.as_deref());
     state.db_path = config.db_path.clone();
-    state.local_only = config.bind.ip().is_loopback();
     let (app, background) = router_with_state(state, &config.options);
     let tls_config = config
         .tls

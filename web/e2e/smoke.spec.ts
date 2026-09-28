@@ -529,7 +529,7 @@ test.describe("the workspace", () => {
     await expect(attribution.getByText("Stub basemap credits")).toBeVisible();
   });
 
-  test("configures NMEA GPS and renders a live device fix", async ({ page }) => {
+  test("configures NMEA, gpsd and fixed GPS sources", async ({ page }) => {
     await page.route("**/api/position/nmea-devices", (route) =>
       route.fulfill({
         json: {
@@ -620,88 +620,20 @@ test.describe("the workspace", () => {
     await address.blur();
     await expect(address).toHaveValue("127.0.0.1:2947");
 
-    const own = await addGps();
-    await own.getByRole("group", { name: "Position source" }).getByText("This device").click();
-    await own.getByRole("button", { name: "Use this device's location" }).click();
-    await expect(own.getByText("location sharing is blocked for this browser")).toBeVisible();
-    await expect(page.getByText(/limited to 20 Hz/)).toHaveCount(0);
-    let deviceNode = "";
-    await expect
-      .poll(async () => {
-        const list = await page.request.get("/api/workspaces").then((response) => response.json());
-        const detail: WorkspaceDetail = await page.request
-          .get(`/api/workspaces/${list.active}`)
-          .then((response) => response.json());
-        deviceNode =
-          detail.snapshot.graph.nodes.find(
-            (node) => node.kind === "gps" && node.data.source?.type === "device",
-          )?.id ?? "";
-        return deviceNode;
-      })
-      .not.toBe("");
-    await page.evaluate(async (node) => {
-      await new Promise<void>((resolve, reject) => {
-        const socket = new WebSocket(`ws://${window.location.host}/api/ws`);
-        let published = false;
-        let finished = false;
-        const publishFix = (): void => {
-          if (finished || socket.readyState !== WebSocket.OPEN) {
-            return;
-          }
-          published = true;
-          socket.send(
-            JSON.stringify({
-              type: "PublishPosition",
-              data: {
-                node,
-                fix: {
-                  latitude: 52.52,
-                  longitude: 13.405,
-                  accuracy_m: 4,
-                  time: "2026-08-14T12:00:00Z",
-                },
-              },
-            }),
-          );
-        };
-        const timeout = window.setTimeout(() => {
-          socket.close();
-          reject(new Error("position subscription was not ready"));
-        }, 10_000);
-        socket.onerror = () => {
-          window.clearTimeout(timeout);
-          reject(new Error("position test socket failed"));
-        };
-        socket.onmessage = (message) => {
-          const event = JSON.parse(String(message.data));
-          if (event.type === "Hello" && !published) {
-            publishFix();
-            return;
-          }
-          if (event.type === "Error" && published) {
-            published = false;
-            window.setTimeout(publishFix, 75);
-            return;
-          }
-          if (
-            event.type === "PositionChanged" &&
-            event.data.node === node &&
-            event.data.fix?.latitude === 52.52
-          ) {
-            finished = true;
-            window.clearTimeout(timeout);
-            socket.close();
-            resolve();
-          }
-        };
-      });
-    }, deviceNode);
-    const deviceGps = page.locator(`.react-flow__node[data-id="${deviceNode}"]`);
-    await expect(deviceGps.getByText("52.520000, 13.405000")).toBeVisible();
-    await expect(deviceGps.getByText("JO62qm")).toBeVisible();
+    const fixed = await addGps();
+    await fixed.getByRole("group", { name: "Position source" }).getByText("Fixed").click();
+    const latitude = fixed.getByRole("textbox", { name: "Latitude" });
+    await latitude.fill("52.52");
+    await latitude.press("Tab");
+    const longitude = fixed.getByRole("textbox", { name: "Longitude" });
+    await longitude.fill("13.405");
+    await longitude.press("Tab");
+    await fixed.getByRole("button", { name: "Set" }).click();
+    await expect(fixed.getByText("52.520000, 13.405000")).toBeVisible();
+    await expect(fixed.getByText("JO62qm")).toHaveCount(2);
 
-    await deviceGps.getByRole("button", { name: "Forget source" }).click();
-    await expect(deviceGps.getByRole("group", { name: "Position source" })).toBeVisible();
+    await fixed.getByRole("button", { name: "Forget source" }).click();
+    await expect(fixed.getByRole("group", { name: "Position source" })).toBeVisible();
   });
 
   test("keeps the band plan in the workspace, not in the browser", async ({ page }) => {
@@ -1026,13 +958,6 @@ test.describe("the workspace", () => {
     await page.keyboard.press("Escape");
     await expect(explainer).toHaveCount(0);
     await expect(page.getByRole("tab", { name: "Templates" })).toBeVisible();
-  });
-
-  test("hands the field client to a phone from the library", async ({ page }) => {
-    await page.goto("/");
-    await page.getByRole("button", { name: "Library" }).click();
-    await page.getByRole("tab", { name: "Field" }).click();
-    await expect(page.getByRole("tabpanel").getByText("--bind 0.0.0.0:8080")).toBeVisible();
   });
 
   test("serves the mark to the tab and the top bar", async ({ page }) => {

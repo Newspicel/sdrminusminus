@@ -6,23 +6,7 @@ use std::{
 use anyhow::Context;
 use clap::Parser;
 use sdrmm_engine::Engine;
-use sdrmm_server::{Config, ServerOptions, routing::RoutingOptions, serve, tls::Tls};
-use sdrmm_wire::RoutingBackend;
-
-#[derive(Clone, Copy, Debug, clap::ValueEnum)]
-enum RoutingBackendArg {
-    OpenRouteService,
-    GraphHopper,
-}
-
-impl From<RoutingBackendArg> for RoutingBackend {
-    fn from(value: RoutingBackendArg) -> Self {
-        match value {
-            RoutingBackendArg::OpenRouteService => Self::OpenRouteService,
-            RoutingBackendArg::GraphHopper => Self::GraphHopper,
-        }
-    }
-}
+use sdrmm_server::{Config, ServerOptions, serve, tls::Tls};
 
 #[derive(Parser, Debug)]
 #[command(name = "sdrmm", version, about)]
@@ -52,16 +36,6 @@ struct Args {
         requires = "tls_self_signed"
     )]
     tls_names: Vec<String>,
-    #[arg(
-        long,
-        env = "SDRMM_ROUTING_BACKEND",
-        default_value = "open-route-service"
-    )]
-    routing_backend: RoutingBackendArg,
-    #[arg(long, env = "SDRMM_ROUTING_URL")]
-    routing_url: Option<String>,
-    #[arg(long, env = "SDRMM_ROUTING_KEY", hide_env_values = true)]
-    routing_key: Option<String>,
     #[arg(long)]
     doctor: bool,
     #[arg(long)]
@@ -168,11 +142,6 @@ async fn main() -> anyhow::Result<()> {
         options: ServerOptions {
             dev_cors: args.dev_cors,
             token: args.token,
-            routing: RoutingOptions {
-                backend: args.routing_backend.into(),
-                base_url: args.routing_url,
-                key: args.routing_key,
-            },
             shell: None,
         },
     };
@@ -352,6 +321,16 @@ mod tests {
             ])
             .is_err()
         );
+    }
+
+    #[test]
+    fn routing_flags_are_gone() {
+        for flag in ["--routing-key", "--routing-url", "--routing-backend"] {
+            assert!(
+                Args::try_parse_from(["sdrmm", flag, "x"]).is_err(),
+                "accepted {flag}"
+            );
+        }
     }
 
     #[test]

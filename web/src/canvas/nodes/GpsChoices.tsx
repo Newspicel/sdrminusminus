@@ -21,7 +21,7 @@ type Choose = (source: PositionSource) => void;
 
 export function GpsChoices({ onChoose }: { onChoose: Choose }) {
   const [tab, setTab] = useState<GpsTab>("receiver");
-  const tabs = gpsTabs(navigator.geolocation !== undefined);
+  const tabs = gpsTabs();
 
   return (
     <div className="flex w-full flex-col gap-2">
@@ -29,7 +29,6 @@ export function GpsChoices({ onChoose }: { onChoose: Choose }) {
       {tab === "receiver" && <ReceiverChoices onChoose={onChoose} />}
       {tab === "network" && <GpsdForm onChoose={onChoose} />}
       {tab === "fixed" && <FixedForm onChoose={onChoose} />}
-      {tab === "device" && <DeviceLocation onChoose={onChoose} />}
     </div>
   );
 }
@@ -189,18 +188,5 @@ function FixedForm({ onChoose }: { onChoose: Choose }) {
         Set
       </Button>
     </Form>
-  );
-}
-
-function DeviceLocation({ onChoose }: { onChoose: Choose }) {
-  return (
-    <Button
-      type="button"
-      className={`${BTN} self-start`}
-      title="Follow the location this computer reports; the browser asks for permission first"
-      onClick={() => onChoose({ type: "device" })}
-    >
-      Use this device's location
-    </Button>
   );
 }

@@ -99,8 +99,8 @@ M17, NXDN, P25 and YSF. Only the Signal generator uses the modulators.
 ## 6. Map
 - Layers for sondes, satellites, beacons
 
-## 7. Field mode
-- Redo field mode as its own app
+## 7. Phone apps
+- Native iOS and Android remote heads
 
 ## 8. Automation & API
 - Desktop and push notifications from Event filter

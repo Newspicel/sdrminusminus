@@ -82,13 +82,6 @@ export function segment(selected: boolean): string {
   );
 }
 
-export function segmentSm(selected: boolean): string {
-  return (
-    `${INTERACTIVE} h-5 px-1.5 font-mono text-[10.5px] ` +
-    (selected ? "bg-accent/15 text-accent" : "text-ink-faint hover:bg-panel-2 hover:text-ink")
-  );
-}
-
 export function commitText(
   candidate: string,
   value: string,

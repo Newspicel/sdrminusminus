@@ -4,7 +4,6 @@ import { Icon } from "./Icon";
 import "maplibre-gl/dist/maplibre-gl.css";
 import {
   AttributionControl,
-  addProtocol,
   type GeoJSONSource,
   Map as MapLibreMap,
   type MapMouseEvent,
@@ -12,15 +11,9 @@ import {
   setWorkerUrl,
 } from "maplibre-gl";
 import workerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url";
-import { Protocol } from "pmtiles";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useDecodedStore } from "../lib/decoded";
-import {
-  type BasemapKind,
-  chooseBasemap,
-  fetchOnlineStyle,
-  hasOfflineBasemap,
-} from "../lib/map/basemap";
+import { type BasemapKind, chooseBasemap, fetchOnlineStyle } from "../lib/map/basemap";
 import { type DfOverlay, drawDfOverlay, installDfLayers } from "../lib/map/df";
 import {
   AGE_OUT_INTERVAL_MS,
@@ -58,16 +51,6 @@ import { formatMhz } from "./format";
 setWorkerUrl(workerUrl);
 
 const HIT_SLOP_PX = 9;
-
-let pmtilesRegistered = false;
-
-function registerPmtiles(): void {
-  if (pmtilesRegistered) {
-    return;
-  }
-  pmtilesRegistered = true;
-  addProtocol("pmtiles", new Protocol().tile);
-}
 
 class CollapsedAttributionControl extends AttributionControl {
   override onAdd(map: MapLibreMap): HTMLElement {
@@ -157,16 +140,10 @@ export function MapPanel({
 
     void (async () => {
       const online = await fetchOnlineStyle();
-      const offline = online === null && (await hasOfflineBasemap());
       if (disposed) {
         return;
       }
-      const ink = themeColor(container, "--color-ink", "#e8e8ea");
-      const line = themeColor(container, "--color-line", "#2a2c31");
-      if (offline) {
-        registerPmtiles();
-      }
-      const chosen = chooseBasemap(online, offline, edge, ink, line);
+      const chosen = chooseBasemap(online, edge);
       setBasemap(chosen.kind);
 
       const map = new MapLibreMap({
@@ -464,14 +441,9 @@ export function MapPanel({
             </div>
           )}
         </div>
-        {basemap === "offline" && (
-          <div className="rounded border border-line bg-bg/85 px-2 py-1 font-mono text-[10px] text-ink-dim">
-            offline basemap
-          </div>
-        )}
         {basemap === "blank" && (
           <div className="rounded border border-line bg-bg/85 px-2 py-1 font-mono text-[10px] text-ink-dim">
-            no basemap (offline)
+            no basemap
           </div>
         )}
       </div>

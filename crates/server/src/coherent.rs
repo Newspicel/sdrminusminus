@@ -397,8 +397,7 @@ async fn pump(device_set: u32, mut updates: broadcast::Receiver<CoherentUpdate>,
         let fix = binding
             .position_node
             .as_deref()
-            .and_then(|node| state.gps.fix(node))
-            .or_else(|| state.gps.any_fix());
+            .and_then(|node| state.gps.fix(node));
         let at = format!("{:.9}", jiff::Timestamp::now());
         let station = binding.station(&node);
         if reading.confidence > 0.0 {

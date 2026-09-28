@@ -25,12 +25,11 @@
 - [Keyboard](user-guide/keyboard.md)
 - [Troubleshooting](troubleshooting.md)
 
-# Arrays and field work
+# Arrays
 
 - [Coherent arrays](user-guide/arrays.md)
 - [Direction finding](user-guide/direction-finding.md)
 - [Passive radar](user-guide/passive-radar.md)
-- [Field mode](user-guide/field-mode.md)
 
 # Run a server
 

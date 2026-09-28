@@ -9,18 +9,12 @@ import {
 } from "./gpsSource";
 
 describe("gpsTabs", () => {
-  it("offers this device's own location only where the browser can report one", () => {
-    expect(gpsTabs(true).map((tab) => tab.value)).toEqual([
-      "receiver",
-      "network",
-      "fixed",
-      "device",
-    ]);
-    expect(gpsTabs(false).map((tab) => tab.value)).toEqual(["receiver", "network", "fixed"]);
+  it("offers receiver, network and fixed sources, not the browser's location", () => {
+    expect(gpsTabs().map((tab) => tab.value)).toEqual(["receiver", "network", "fixed"]);
   });
 
   it("explains every source on hover", () => {
-    expect(gpsTabs(true).every((tab) => (tab.title ?? "") !== "")).toBe(true);
+    expect(gpsTabs().every((tab) => (tab.title ?? "") !== "")).toBe(true);
   });
 });
 

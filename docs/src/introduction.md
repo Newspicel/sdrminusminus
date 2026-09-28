@@ -25,7 +25,6 @@ to **Rack** view. An RTL-SDR and a local FM station are enough to start.
 | Decode data | [Decoders](user-guide/decoders.md) |
 | Save and replay signals | [Recording and playback](user-guide/recording.md) |
 | Run the radio somewhere else | [Deployment](server/deployment.md) |
-| Use a phone in the field | [Field mode](user-guide/field-mode.md) |
 | Fix a problem | [Troubleshooting](troubleshooting.md) |
 | Work on SDR-- | [Build and test](development/building.md) |
 

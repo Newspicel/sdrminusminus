@@ -73,8 +73,7 @@ decoders. Anything dropped is reported. Pictures and video are not decoded here.
 ## Hunt a transmitter
 
 **Signal hunt** reads one channel's signal strength fast enough to walk with. Wire its `control`
-to the channel's `control` and start it. Retune the channel to retune the hunt. On a phone, use
-the **Fox hunt** mission in [field mode](field-mode.md).
+to the channel's `control` and start it. Retune the channel to retune the hunt.
 
 ## Survey an area
 

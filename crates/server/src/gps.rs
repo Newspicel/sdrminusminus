@@ -2,10 +2,10 @@ use std::{
     collections::HashMap,
     sync::{
         Arc, Mutex,
-        atomic::{AtomicBool, AtomicU64, Ordering},
+        atomic::{AtomicBool, Ordering},
         mpsc::{SyncSender, TrySendError},
     },
-    time::{Duration, Instant},
+    time::Duration,
 };
 
 use sdrmm_wire::{
@@ -28,7 +28,6 @@ const MAX_RETRY_DELAY: Duration = Duration::from_secs(30);
 const STABLE_SESSION: Duration = Duration::from_secs(30);
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 const READ_TIMEOUT: Duration = Duration::from_secs(30);
-const MIN_DEVICE_PUBLISH_INTERVAL: Duration = Duration::from_millis(50);
 const GPSD_MAX_LINE: usize = 16 * 1024;
 const NMEA_MAX_LINE: usize = 512;
 const MAX_ERROR_LEN: usize = 256;
@@ -67,8 +66,6 @@ impl From<&AppState> for RouteState {
 
 pub(crate) struct GpsHub {
     latest: Arc<Mutex<HashMap<String, PositionState>>>,
-    device_publish_at: Mutex<HashMap<String, Instant>>,
-    device_publish_interval_ms: AtomicU64,
     tasks: Mutex<HashMap<String, SourceTask>>,
     configuration: Mutex<GpsConfiguration>,
     route_signal: Option<SyncSender<RouteState>>,
@@ -108,10 +105,6 @@ impl Default for GpsHub {
         };
         Self {
             latest,
-            device_publish_at: Mutex::new(HashMap::new()),
-            device_publish_interval_ms: AtomicU64::new(
-                MIN_DEVICE_PUBLISH_INTERVAL.as_millis() as u64
-            ),
             tasks: Mutex::new(HashMap::new()),
             configuration: Mutex::new(GpsConfiguration::default()),
             route_signal: Some(route_signal),
@@ -123,32 +116,16 @@ impl Default for GpsHub {
 }
 
 impl GpsHub {
-    #[cfg(test)]
-    pub(crate) fn set_device_publish_interval(&self, interval: Duration) {
-        self.device_publish_interval_ms
-            .store(interval.as_millis() as u64, Ordering::Relaxed);
-    }
-
     pub(crate) fn subscribe(&self) -> broadcast::Receiver<ServerEvent> {
         self.events.subscribe()
     }
 
-    /// The last fix a named source reported.
     pub(crate) fn fix(&self, node: &str) -> Option<PositionFix> {
         self.latest
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .get(node)
             .and_then(|state| state.fix.clone())
-    }
-
-    /// Any fix at all, for consumers that only need to know where the station is standing.
-    pub(crate) fn any_fix(&self) -> Option<PositionFix> {
-        self.latest
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .values()
-            .find_map(|state| state.fix.clone())
     }
 
     pub(crate) fn snapshot(&self) -> Vec<ServerEvent> {
@@ -234,10 +211,6 @@ impl GpsHub {
                 latest.remove(node);
             }
         }
-        self.device_publish_at
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .retain(|node, _| matches!(wanted.get(node), Some(PositionSource::Device)));
         for node in &changed_sources {
             self.publish_state(
                 state,
@@ -272,9 +245,6 @@ impl GpsHub {
             if let Some(old) = tasks.remove(node) {
                 old.handle.abort();
             }
-            if matches!(source, PositionSource::Device) {
-                continue;
-            }
             let Ok(runtime) = tokio::runtime::Handle::try_current() else {
                 self.publish_state(
                     state,
@@ -308,7 +278,7 @@ impl GpsHub {
                         )
                         .await;
                     }
-                    PositionSource::Device | PositionSource::Fixed { .. } => {}
+                    PositionSource::Fixed { .. } => {}
                 }
             });
             tasks.insert(
@@ -331,65 +301,6 @@ impl GpsHub {
             }
         }
         self.route_current(state);
-    }
-
-    pub(crate) fn publish_device(
-        &self,
-        state: &AppState,
-        node: &str,
-        fix: Option<PositionFix>,
-        error: Option<String>,
-    ) -> Result<(), String> {
-        let active = state
-            .store
-            .active_workspace()
-            .map_err(|error| error.to_string())?
-            .ok_or_else(|| "no active workspace".to_owned())?;
-        let valid = active.snapshot.graph.node(node).is_some_and(|candidate| {
-            matches!(
-                &candidate.body,
-                NodeBody::Gps(gps) if gps.source == Some(PositionSource::Device)
-            )
-        });
-        if !valid {
-            return Err(
-                "position node is not a device GPS source in the active workspace".to_owned(),
-            );
-        }
-        validate_update(fix.as_ref(), error.as_deref())?;
-        let next = PositionState {
-            fix,
-            error: error.map(limit_error),
-        };
-        if self
-            .latest
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .get(node)
-            == Some(&next)
-        {
-            return Ok(());
-        }
-        let too_fast = {
-            let mut published = self
-                .device_publish_at
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
-            if published.get(node).is_some_and(|last| {
-                last.elapsed()
-                    < Duration::from_millis(self.device_publish_interval_ms.load(Ordering::Relaxed))
-            }) {
-                true
-            } else {
-                published.insert(node.to_owned(), Instant::now());
-                false
-            }
-        };
-        if too_fast {
-            return Err("position updates are limited to 20 Hz per node".to_owned());
-        }
-        self.publish_state(state, node, next.fix, next.error);
-        Ok(())
     }
 
     fn publish_state(
@@ -457,21 +368,6 @@ impl Drop for GpsHub {
     }
 }
 
-fn validate_update(fix: Option<&PositionFix>, error: Option<&str>) -> Result<(), String> {
-    if fix.is_some() == error.is_some() {
-        return Err("position update needs either a fix or an error".to_owned());
-    }
-    if let Some(fix) = fix {
-        fix.validate().map_err(str::to_owned)?;
-    }
-    if error.is_some_and(str::is_empty) {
-        return Err("position error must not be empty".to_owned());
-    }
-    Ok(())
-}
-
-/// A place that was typed in rather than measured, stamped now so everything downstream treats it
-/// like any other fix.
 fn fixed_fix(lat: f64, lon: f64, altitude_m: Option<f64>) -> PositionFix {
     PositionFix {
         latitude: lat,
@@ -671,7 +567,7 @@ async fn gpsd_session(
             track_deg: tpv.track,
             time: tpv.time.unwrap_or_else(now),
         };
-        if validate_update(Some(&fix), None).is_err() {
+        if fix.validate().is_err() {
             continue;
         }
         hub.publish_state(state, node, Some(fix), None);
@@ -1188,101 +1084,6 @@ mod tests {
         assert!(
             fix.track_deg.is_none(),
             "a receiver that never moves has no course"
-        );
-    }
-
-    #[test]
-    fn device_fixes_are_accepted_only_for_an_active_device_gps_node() {
-        let store = crate::Store::open(None).expect("store");
-        let mut snapshot = WorkspaceSnapshot::empty();
-        snapshot.graph.nodes.push(PatchNode {
-            id: "position".to_owned(),
-            body: NodeBody::Gps(GpsNode {
-                source: Some(PositionSource::Device),
-            }),
-            position: Position { x: 0.0, y: 0.0 },
-            size: None,
-            label: None,
-        });
-        let workspace_id = store
-            .create_workspace("mobile", &snapshot)
-            .expect("workspace");
-        store
-            .activate_workspace(workspace_id)
-            .expect("activate workspace");
-        let app = crate::AppState::new(Engine::new(None), Arc::new(store));
-        let mut events = app.gps.subscribe();
-        app.gps.reconcile(&app);
-        assert_eq!(
-            events.try_recv().expect("waiting event"),
-            ServerEvent::PositionChanged {
-                node: "position".to_owned(),
-                fix: None,
-                error: Some("waiting for a position fix".to_owned()),
-            }
-        );
-        let fix = PositionFix {
-            latitude: 52.52,
-            longitude: 13.405,
-            altitude_m: None,
-            accuracy_m: Some(4.0),
-            speed_mps: None,
-            track_deg: None,
-            time: "2026-08-14T12:00:00Z".to_owned(),
-        };
-        app.gps
-            .publish_device(&app, "position", Some(fix.clone()), None)
-            .expect("accepted");
-        assert_eq!(
-            events.try_recv().expect("event"),
-            ServerEvent::PositionChanged {
-                node: "position".to_owned(),
-                fix: Some(fix),
-                error: None,
-            }
-        );
-        assert!(
-            app.gps
-                .publish_device(&app, "other", None, Some("lost".to_owned()))
-                .is_err()
-        );
-    }
-
-    #[test]
-    fn republishing_an_unchanged_fix_costs_nothing() {
-        let store = crate::Store::open(None).expect("store");
-        let mut snapshot = WorkspaceSnapshot::empty();
-        snapshot.graph.nodes.push(PatchNode {
-            id: "position".to_owned(),
-            body: NodeBody::Gps(GpsNode {
-                source: Some(PositionSource::Device),
-            }),
-            position: Position { x: 0.0, y: 0.0 },
-            size: None,
-            label: None,
-        });
-        let workspace_id = store
-            .create_workspace("mobile", &snapshot)
-            .expect("workspace");
-        store
-            .activate_workspace(workspace_id)
-            .expect("activate workspace");
-        let app = crate::AppState::new(Engine::new(None), Arc::new(store));
-        app.gps.set_device_publish_interval(Duration::from_secs(60));
-        let denied = "the browser will not share this device's location".to_owned();
-        app.gps
-            .publish_device(&app, "position", None, Some(denied.clone()))
-            .expect("accepted");
-        for _ in 0..8 {
-            app.gps
-                .publish_device(&app, "position", None, Some(denied.clone()))
-                .expect("a repeat of what the server already knows is free");
-        }
-        assert!(
-            app.gps
-                .publish_device(&app, "position", None, Some("still nothing".to_owned()))
-                .is_err(),
-            "a changed value still pays the per-node rate"
         );
     }
 }

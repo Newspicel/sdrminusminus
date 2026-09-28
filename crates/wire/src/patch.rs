@@ -1671,7 +1671,6 @@ impl PatchGraph {
 
 fn validate_gps_source(source: &PositionSource) -> Result<(), PatchError> {
     match source {
-        PositionSource::Device => Ok(()),
         PositionSource::Fixed { lat, lon, .. } => {
             if (-90.0..=90.0).contains(lat) && (-180.0..=180.0).contains(lon) {
                 Ok(())

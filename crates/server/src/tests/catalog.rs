@@ -289,46 +289,12 @@ async fn about_serves_the_notices_and_their_texts() {
 }
 
 #[tokio::test]
-async fn about_says_where_a_phone_could_reach_this_machine() {
+async fn about_names_this_build() {
     let (status, body) = request(test_router(), "GET", "/api/about", None).await;
     assert_eq!(status, StatusCode::OK);
     let about: sdrmm_wire::AboutResponse = serde_json::from_slice(&body).expect("json");
-    assert!(!about.local_only);
-    for address in &about.lan_addresses {
-        let parsed: std::net::IpAddr = address.parse().expect("a reachable address");
-        assert!(
-            !parsed.is_loopback(),
-            "{address} is this machine talking to itself"
-        );
-    }
-    assert!(
-        !about.routing,
-        "no routing backend is configured in a test router"
-    );
-    assert!(
-        !about.offline_basemap,
-        "no archive sits beside an in-memory store"
-    );
-}
-
-#[tokio::test]
-async fn an_absent_offline_basemap_is_a_plain_not_found() {
-    let (status, _) = request(test_router(), "GET", "/api/basemap.pmtiles", None).await;
-    assert_eq!(status, StatusCode::NOT_FOUND);
-}
-
-#[tokio::test]
-async fn a_route_cannot_be_asked_for_without_a_backend() {
-    let (status, body) = request(
-        test_router(),
-        "POST",
-        "/api/routing/route",
-        Some(r#"{"from":{"lat":51.5,"lon":7.0},"to":{"lat":51.52,"lon":7.02}}"#),
-    )
-    .await;
-    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
-    let error: ApiError = serde_json::from_slice(&body).expect("json");
-    assert!(error.error.contains("routing"), "{error:?}");
+    assert_eq!(about.name, "SDR--");
+    assert_eq!(about.version, env!("CARGO_PKG_VERSION"));
 }
 
 #[tokio::test]
@@ -345,32 +311,4 @@ async fn doctor_reports_the_running_configuration() {
     assert_eq!(backends.status, sdrmm_wire::CheckStatus::Warn);
     assert!(backends.detail.contains("virtual"));
     assert!(report.checks.iter().any(|c| c.id == "storage.db"));
-}
-
-#[tokio::test]
-async fn a_loopback_server_offers_no_address_a_phone_cannot_reach() {
-    let mut registry = sdrmm_device::DeviceRegistry::new();
-    registry.register(1, Box::new(sdrmm_device_virtual::VirtualDriver::new()));
-    let engine = Engine::with_registry(registry, None);
-    let handle = crate::serve(
-        crate::Config {
-            bind: "127.0.0.1:0".parse().expect("bind"),
-            db_path: None,
-            tls: None,
-            options: ServerOptions::default(),
-        },
-        engine.clone(),
-    )
-    .await
-    .expect("serve");
-    let about: sdrmm_wire::AboutResponse =
-        reqwest::get(format!("http://{}/api/about", handle.local_addr))
-            .await
-            .expect("request")
-            .json()
-            .await
-            .expect("json");
-    assert!(about.local_only);
-    assert!(about.lan_addresses.is_empty(), "{:?}", about.lan_addresses);
-    engine.shutdown();
 }

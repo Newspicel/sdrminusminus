@@ -1,3 +1,5 @@
+import { recordEvent } from "./diagnostics";
+
 const KEY = "sdrmm.v1.token";
 
 let cached: string | null = null;
@@ -32,7 +34,9 @@ export function setToken(token: string | null): void {
     } else {
       store.setItem(KEY, cached);
     }
-  } catch {}
+  } catch (error) {
+    recordEvent("warn", "auth", String(error));
+  }
 }
 
 export function withToken(url: string): string {
@@ -66,24 +70,4 @@ export function rejectToken(): void {
 export function resetTokenCache(): void {
   cached = null;
   loaded = false;
-}
-
-export const TOKEN_PARAM = "token";
-
-/// Takes a token out of the address bar, keeps it, and puts the address back the way it should
-/// have been.
-///
-/// This is how a phone joins: the operator opens a link that carries the token, and the phone
-/// must not be left holding a URL that leaks it into history, a screenshot or a shared link.
-export function adoptTokenFromUrl(location: Location, history: History): string | null {
-  const url = new URL(location.href);
-  const token = url.searchParams.get(TOKEN_PARAM);
-  if (token === null || token.length === 0) {
-    return null;
-  }
-  setToken(token);
-  url.searchParams.delete(TOKEN_PARAM);
-  const search = url.searchParams.toString();
-  history.replaceState(null, "", `${url.pathname}${search === "" ? "" : `?${search}`}${url.hash}`);
-  return token;
 }

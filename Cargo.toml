@@ -126,7 +126,7 @@ axum-server = { version = "0.8", default-features = false, features = ["tls-rust
 rustls = "0.23"
 rcgen = { version = "0.14.10", default-features = false, features = ["aws_lc_rs", "pem"] }
 tower = "0.5"
-tower-http = { version = "0.7", features = ["compression-gzip", "cors", "fs", "trace"] }
+tower-http = { version = "0.7", features = ["compression-gzip", "cors", "trace"] }
 futures = "0.3"
 reqwest = { version = "0.13.4", default-features = false, features = ["json", "multipart", "rustls"] }
 rumqttc = { package = "rumqttc-v4-next", version = "0.34.0", default-features = false, features = ["use-rustls"] }

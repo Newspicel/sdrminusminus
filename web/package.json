@@ -24,7 +24,6 @@
     "maplibre-gl": "6.11.0",
     "openapi-fetch": "0.17.0",
     "opus-decoder": "0.7.12",
-    "pmtiles": "^4.5.0",
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "swagger-ui-dist": "5.33.0",

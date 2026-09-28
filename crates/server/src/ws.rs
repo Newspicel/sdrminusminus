@@ -1,7 +1,6 @@
 use std::{
     collections::HashMap,
     sync::{Arc, atomic},
-    time::Instant,
 };
 
 use axum::{
@@ -18,8 +17,8 @@ use sdrmm_engine::{
     coherent::SurfaceUpdate,
 };
 use sdrmm_wire::{
-    AudioFrame, AudioRoute, ClientCommand, IqFrame, PositionFix, RangeDopplerFrame, ServerEvent,
-    SpectrumFrame, StateScope, StreamKind, SymbolFrame, VideoData, VideoFrame,
+    AudioFrame, AudioRoute, ClientCommand, IqFrame, RangeDopplerFrame, ServerEvent, SpectrumFrame,
+    StateScope, StreamKind, SymbolFrame, VideoData, VideoFrame,
 };
 use tokio::sync::broadcast;
 
@@ -31,8 +30,6 @@ use crate::AppState;
 const MIN_BINS: usize = 16;
 const MAX_BINS: usize = 4096;
 const MAX_FPS: u16 = 60;
-const POSITION_PUBLISH_RATE: f64 = 20.0;
-const POSITION_PUBLISH_BURST: f64 = 16.0;
 const MEDIA_ID_BASE: u16 = 0x8000;
 const SPECTRUM_ID_BASE: u16 = 0;
 
@@ -68,36 +65,6 @@ pub(crate) fn start_decoded_encoder(state: &AppState) {
     });
 }
 
-struct RateBudget {
-    tokens: f64,
-    capacity: f64,
-    per_second: f64,
-    refilled: Instant,
-}
-
-impl RateBudget {
-    fn new(capacity: f64, per_second: f64) -> Self {
-        Self {
-            tokens: capacity,
-            capacity,
-            per_second,
-            refilled: Instant::now(),
-        }
-    }
-
-    fn take(&mut self) -> bool {
-        let now = Instant::now();
-        let earned = now.duration_since(self.refilled).as_secs_f64() * self.per_second;
-        self.tokens = (self.tokens + earned).min(self.capacity);
-        self.refilled = now;
-        if self.tokens < 1.0 {
-            return false;
-        }
-        self.tokens -= 1.0;
-        true
-    }
-}
-
 struct Session {
     engine: Arc<Engine>,
     state: AppState,
@@ -110,7 +77,6 @@ struct Session {
     surfaces: HashMap<String, (u16, tokio::task::JoinHandle<()>)>,
     next_spectrum_id: u16,
     next_media_id: u16,
-    position_budget: RateBudget,
     diagnostics: Option<tokio::task::JoinHandle<()>>,
 }
 
@@ -129,7 +95,6 @@ impl Session {
             next_spectrum_id: SPECTRUM_ID_BASE,
             next_media_id: MEDIA_ID_BASE,
             diagnostics: None,
-            position_budget: RateBudget::new(POSITION_PUBLISH_BURST, POSITION_PUBLISH_RATE),
         }
     }
 
@@ -208,9 +173,6 @@ impl Session {
                 device_set,
                 channel,
             } => self.unsubscribe_symbols(device_set, channel).await,
-            ClientCommand::PublishPosition { node, fix, error } => {
-                self.publish_position(node, fix, error).await;
-            }
             ClientCommand::SubscribeSurface { node } => self.subscribe_surface(node).await,
             ClientCommand::UnsubscribeSurface { node } => self.unsubscribe_surface(&node).await,
         }
@@ -593,55 +555,6 @@ impl Session {
                 kind: StreamKind::Symbols,
             };
             let _ = self.out.send(text_event(&stopped)).await;
-        }
-    }
-
-    async fn publish_position(
-        &mut self,
-        node: String,
-        fix: Option<PositionFix>,
-        error: Option<String>,
-    ) {
-        let too_fast = !self.position_budget.take();
-        if node.is_empty() || node.len() > sdrmm_wire::patch::MAX_NODE_ID_LEN {
-            let _ = self
-                .out
-                .send(text_event(&ServerEvent::Error {
-                    message: "invalid position node id".to_owned(),
-                }))
-                .await;
-        } else if too_fast {
-            let _ = self
-                .out
-                .send(text_event(&ServerEvent::Error {
-                    message: "position updates are limited to 20 Hz per connection".to_owned(),
-                }))
-                .await;
-        } else {
-            let app = self.state.clone();
-            let publish_node = node.clone();
-            let publish = tokio::task::spawn_blocking(move || {
-                app.gps.publish_device(&app, &publish_node, fix, error)
-            })
-            .await;
-            match publish {
-                Ok(Ok(())) => {}
-                Ok(Err(message)) => {
-                    let _ = self
-                        .out
-                        .send(text_event(&ServerEvent::Error { message }))
-                        .await;
-                }
-                Err(error) => {
-                    tracing::error!(%error, "device GPS publish task failed");
-                    let _ = self
-                        .out
-                        .send(text_event(&ServerEvent::Error {
-                            message: "could not publish device position".to_owned(),
-                        }))
-                        .await;
-                }
-            }
         }
     }
 }

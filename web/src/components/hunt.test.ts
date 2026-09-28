@@ -1,14 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { ChannelInfo, DeviceSet, HuntStatus, PatchGraph } from "../lib/types";
-import {
-  bearing,
-  formatHuntDb,
-  formatStrength,
-  huntedHz,
-  huntRefusal,
-  huntTarget,
-  liveHunt,
-} from "./hunt";
+import type { ChannelInfo, DeviceSet, HuntStatus } from "../lib/types";
+import { bearing, formatHuntDb, formatStrength, huntedHz, huntRefusal, liveHunt } from "./hunt";
 
 const HUNT: HuntStatus = {
   settings: { channel: 9, interval_ms: 50 },
@@ -119,36 +111,5 @@ describe("formatting", () => {
     expect(formatHuntDb(null)).toBe("-");
     expect(formatHuntDb(Number.NaN)).toBe("-");
     expect(formatHuntDb(-61.25)).toBe("-61.3 dB");
-  });
-});
-
-describe("the decoder a hunt drives", () => {
-  const graph: PatchGraph = {
-    nodes: [
-      {
-        id: "dev",
-        kind: "device",
-        position: { x: 0, y: 0 },
-        data: { device: { backend: "virtual", key: "siggen" } },
-      },
-      { id: "nfm", kind: "channel", position: { x: 0, y: 0 }, data: { channel_type: "nfm" } },
-      { id: "hunt", kind: "hunt", position: { x: 0, y: 0 }, data: { clicks: false } },
-      { id: "bare", kind: "hunt", position: { x: 0, y: 0 }, data: {} },
-    ],
-    edges: [
-      { from: { node: "dev", port: "iq" }, to: { node: "nfm", port: "iq" } },
-      { from: { node: "hunt", port: "control" }, to: { node: "nfm", port: "control" } },
-    ],
-  };
-
-  it("finds the decoder and its radio, and nothing for a hunt wired to none", () => {
-    const set = deviceSet({ channels: [CHANNEL] });
-    expect(huntTarget(graph, [set], "hunt")).toEqual({ set, channel: CHANNEL });
-    expect(huntTarget(graph, [set], "bare")).toBeNull();
-    expect(huntTarget(graph, [], "hunt")).toBeNull();
-  });
-
-  it("waits for the decoder to be open before offering a target", () => {
-    expect(huntTarget(graph, [deviceSet()], "hunt")).toBeNull();
   });
 });

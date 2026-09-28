@@ -24,15 +24,6 @@ export function crossingSourcesOf(graph: PatchGraph, node: string): string[] {
     .filter((id) => kinds.get(id) === "triangulation");
 }
 
-/// Where a finder's bearings are crossed: the triangulation nodes its events reach.
-export function crossingsFedBy(graph: PatchGraph, node: string): string[] {
-  const kinds = new Map(graph.nodes.map((entry) => [entry.id, entry.kind]));
-  return (graph.edges ?? [])
-    .filter((edge) => edge.from.node === node && edge.from.port === "events")
-    .map((edge) => edge.to.node)
-    .filter((id) => kinds.get(id) === "triangulation");
-}
-
 /// Which passive radars feed a display's events port, and where each one borrows its transmitter
 /// from. A radar with no illuminator written down has nothing to draw an ellipse around.
 export function radarSourcesOf(

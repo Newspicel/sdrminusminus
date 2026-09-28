@@ -13,7 +13,7 @@ export default defineConfig({
       output: {
         codeSplitting: {
           groups: [
-            { name: "maplibre", test: /node_modules\/(maplibre-gl|pmtiles)\// },
+            { name: "maplibre", test: /node_modules\/maplibre-gl\// },
             { name: "flow", test: /node_modules\/@xyflow\// },
             { name: "base-ui", test: /node_modules\/@base-ui\// },
             { name: "react", test: /node_modules\/(react|react-dom|scheduler)\// },

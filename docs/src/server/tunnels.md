@@ -78,6 +78,3 @@ Open the HTTPS address, start a receiver, and check that spectrum and audio move
 - **Page loads, nothing moves:** check the `/api/ws` connection in the browser's developer tools.
 - **Bad gateway:** check `http://127.0.0.1:8080` works on the tunnel machine.
 - **Cloudflare:** open a private window and check the login appears before SDR-- does.
-
-For [field mode](../user-guide/field-mode.md), open **Library → Field** from the HTTPS page so the
-link uses that address.

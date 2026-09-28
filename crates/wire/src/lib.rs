@@ -154,11 +154,10 @@ pub use rest::{
     CreatePresetRequest, CreatedId, CreatedRowId, DecoderLogEntry, DecoderLogQuery,
     DecoderLogResponse, DeletedCount, DevicesResponse, ErrorCode, EventAudio, EventImage,
     ExportFormat, LogScope, MAX_LOG_SOURCES, MAX_RECORDING_NAME_LEN, MAX_RECORDING_NOTE_LEN,
-    MAX_RECORDING_TAG_LEN, MAX_RECORDING_TAGS, MAX_RECORDING_UPLOAD_BYTES, MAX_ROUTE_LEG_M,
-    Maneuver, ManeuverKind, OccupancyBucket, OccupancyReport, PRESET_SNAPSHOT_VERSION,
-    PlaybackAction, PlaybackRequest, PresetDevice, PresetInfo, PresetSnapshot, RecordingAnnotation,
-    RecordingDownloadQuery, RecordingFormat, RecordingInfo, RecordingUpload, RecordingsResponse,
-    Route, RoutePoint, RouteRequest, RoutingBackend, SaveRadioRequest, SavedRadio, TemplateInfo,
+    MAX_RECORDING_TAG_LEN, MAX_RECORDING_TAGS, MAX_RECORDING_UPLOAD_BYTES, OccupancyBucket,
+    OccupancyReport, PRESET_SNAPSHOT_VERSION, PlaybackAction, PlaybackRequest, PresetDevice,
+    PresetInfo, PresetSnapshot, RecordingAnnotation, RecordingDownloadQuery, RecordingFormat,
+    RecordingInfo, RecordingUpload, RecordingsResponse, SaveRadioRequest, SavedRadio, TemplateInfo,
     TemplatesResponse, VoiceCall, VoiceCallsResponse,
 };
 pub use satellite::{

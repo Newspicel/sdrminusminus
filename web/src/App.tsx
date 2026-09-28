@@ -28,7 +28,6 @@ import { Toasts } from "./components/Toasts";
 import { TokenGate } from "./components/TokenGate";
 import { channelTypesQuery, patchCatalogQuery, stateQuery } from "./lib/api";
 import { audioEngine } from "./lib/audio/useChannelAudio";
-import { watchDevicePosition } from "./lib/position";
 import { pushToast } from "./lib/toasts";
 import type { PatchApplyReport, PatchGraph, WorkspaceSettings } from "./lib/types";
 import { useChannelPatch } from "./lib/useChannelPatch";
@@ -65,23 +64,6 @@ export function App() {
     () => snapshot?.graph ?? { nodes: [], edges: [] },
     [snapshot?.graph],
   );
-  const deviceGpsNodeKey = JSON.stringify(
-    graph.nodes
-      .filter((node) => node.kind === "gps" && node.data.source?.type === "device")
-      .map((node) => node.id)
-      .toSorted(),
-  );
-  const deviceGpsNodeIds = useMemo(
-    () => JSON.parse(deviceGpsNodeKey) as string[],
-    [deviceGpsNodeKey],
-  );
-  useEffect(() => {
-    if (socket === null) {
-      return;
-    }
-    return watchDevicePosition(socket, deviceGpsNodeIds);
-    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- a new revision can bind the same node to another radio
-  }, [socket, deviceGpsNodeIds, workspace.active?.revision]);
   const announced = useRef<PatchApplyReport | null>(null);
   useEffect(() => {
     const report = workspace.applied;

@@ -1,26 +1,10 @@
-import { bindCarriers, bindDevices, controlledNodeOf } from "../canvas/binding";
-import type { ChannelInfo, DeviceSet, HuntStatus, PatchGraph } from "../lib/types";
+import type { ChannelInfo, DeviceSet, HuntStatus } from "../lib/types";
 
 export const HUNT_INTERVAL_MS = 50;
 
 export interface HuntTarget {
   set: DeviceSet;
   channel: ChannelInfo;
-}
-
-export function huntTarget(
-  graph: PatchGraph,
-  sets: readonly DeviceSet[],
-  node: string,
-): HuntTarget | null {
-  const decoder = controlledNodeOf(graph, node);
-  if (decoder === null) {
-    return null;
-  }
-  const devices = bindDevices(graph, sets);
-  const carrier = bindCarriers(graph, devices).get(decoder);
-  const set = carrier === undefined ? undefined : devices.get(carrier.owner);
-  return set === undefined || carrier === undefined ? null : { set, channel: carrier.channel };
 }
 
 export function liveHunt(

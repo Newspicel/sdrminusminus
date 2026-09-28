@@ -93,12 +93,6 @@ function SourceSettings({
   onChange: (source: PositionSource) => void;
 }) {
   switch (source.type) {
-    case "device":
-      return (
-        <SettingRow label="Source">
-          <span className="text-xs text-ink-dim">This device's live location provider</span>
-        </SettingRow>
-      );
     case "gpsd":
       return (
         <SettingRow label="GPSD address">

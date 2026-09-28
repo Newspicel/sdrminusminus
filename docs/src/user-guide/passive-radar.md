@@ -34,5 +34,3 @@ map draws an ellipse of possible locations for each echo.
 
 The range is **bistatic**: the extra distance the echo travelled compared with the direct path.
 One echo gives an ellipse, not a point or a bearing.
-
-On a phone, use the **Radar watch** mission in [field mode](field-mode.md).

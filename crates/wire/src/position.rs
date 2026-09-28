@@ -15,13 +15,9 @@ const fn default_nmea_update_interval_ms() -> u32 {
     DEFAULT_NMEA_UPDATE_INTERVAL_MS
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, ToSchema)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum PositionSource {
-    #[default]
-    Device,
-    /// A place typed in rather than measured. A receiver that never moves has no reason to run a
-    /// GPS, and everything downstream still wants to know where it stands.
     Fixed {
         lat: f64,
         lon: f64,
@@ -184,7 +180,11 @@ mod tests {
     #[test]
     fn position_sources_roundtrip_with_explicit_variants() {
         for source in [
-            PositionSource::Device,
+            PositionSource::Fixed {
+                lat: 52.52,
+                lon: 13.405,
+                altitude_m: Some(40.0),
+            },
             PositionSource::Gpsd {
                 address: DEFAULT_GPSD_ADDRESS.to_owned(),
             },
@@ -200,6 +200,11 @@ mod tests {
                 source
             );
         }
+    }
+
+    #[test]
+    fn the_device_source_is_gone() {
+        assert!(serde_json::from_str::<PositionSource>(r#"{"type":"device"}"#).is_err());
     }
 
     #[test]

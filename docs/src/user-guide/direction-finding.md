@@ -41,4 +41,4 @@ driving towards it. **Clear** starts over.
 
 Wire finder or Triangulation `events` to a **Map** to see bearing rays, the estimate, and the
 next waypoint. The first settled fix emits an event that Event output can forward by webhook,
-MQTT, or Matrix. On a phone, use the **DF drive** mission in [field mode](field-mode.md).
+MQTT, or Matrix.

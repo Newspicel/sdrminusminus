@@ -14,9 +14,6 @@ Out of the box it listens on `0.0.0.0:8080` with **no authentication**.
 | `--tls-cert <PATH>`, `--tls-key <PATH>` | None | HTTPS certificate chain and key, PEM |
 | `--tls-self-signed` | Off | HTTPS with a self-signed certificate |
 | `--tls-name <NAME>` | Found addresses | Name the certificate must cover; repeatable |
-| `--routing-backend <NAME>` | `open-route-service` | Routing: `open-route-service` or `graph-hopper` |
-| `--routing-url <URL>` | Public service | Self-hosted routing instance |
-| `--routing-key <KEY>` | None | Routing API key |
 | `--dev-cors` | Off | Allow a separate frontend origin, for development only |
 | `--doctor` | | Print diagnostics and exit |
 | `--doctor-rates` | | Probe connected radios' sample rates and exit |
@@ -88,9 +85,3 @@ certificate.
 - Bind SDR-- to loopback, or firewall its port.
 - Serve it at the root of the origin.
 - Forward WebSocket upgrades on `/api/ws`.
-
-## Turn-by-turn routing
-
-[Field mode](../user-guide/field-mode.md#df-drive) gets driving directions from OpenRouteService or
-GraphHopper. Set `--routing-key`, and `--routing-backend` for GraphHopper. `--routing-url` points
-at a self-hosted instance. The key never leaves the server.

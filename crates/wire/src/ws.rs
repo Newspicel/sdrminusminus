@@ -186,13 +186,6 @@ pub enum ClientCommand {
         device_set: u32,
         channel: u32,
     },
-    PublishPosition {
-        node: String,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        fix: Option<PositionFix>,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        error: Option<String>,
-    },
     SubscribeSurface {
         node: String,
     },

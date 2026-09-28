@@ -57,34 +57,3 @@ pub(super) async fn reset_fusion(
     });
     StatusCode::NO_CONTENT
 }
-
-#[utoipa::path(
-    post, path = "/api/routing/route",
-    request_body = RouteRequest,
-    responses(
-        (status = 200, description = "A drivable route between the two points", body = Route),
-        (status = 400, description = "Not a leg this build will ask for", body = ApiError),
-        (status = 502, description = "The routing service refused or could not be reached", body = ApiError),
-        (status = 503, description = "No routing backend is configured", body = ApiError),
-    ),
-)]
-pub(super) async fn get_route(
-    State(state): State<AppState>,
-    Json(request): Json<RouteRequest>,
-) -> Result<Json<Route>, AppError> {
-    crate::routing::route(&state.routing, &request)
-        .await
-        .map(Json)
-        .map_err(|error| {
-            let (status, code) = match error {
-                crate::routing::RoutingError::NotConfigured => {
-                    (StatusCode::SERVICE_UNAVAILABLE, ErrorCode::Unavailable)
-                }
-                crate::routing::RoutingError::BadRequest(_) => {
-                    (StatusCode::BAD_REQUEST, ErrorCode::Request)
-                }
-                _ => (StatusCode::BAD_GATEWAY, ErrorCode::Unavailable),
-            };
-            AppError::new(status, code, error.to_string())
-        })
-}
