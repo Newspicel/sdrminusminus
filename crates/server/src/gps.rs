@@ -137,6 +137,8 @@ impl GpsHub {
             .collect()
     }
 
+    pub(crate) fn spawn_watchdog(self: &Arc<Self>, _state: &AppState) {}
+
     pub(crate) fn reconcile(self: &Arc<Self>, state: &AppState) {
         let active = match state.store.active_workspace() {
             Ok(active) => active,
@@ -377,6 +379,7 @@ fn fixed_fix(lat: f64, lon: f64, altitude_m: Option<f64>) -> PositionFix {
         speed_mps: None,
         track_deg: None,
         time: crate::store::rfc3339(jiff::Timestamp::now()),
+        attitude: sdrmm_wire::Attitude::default(),
     }
 }
 
@@ -566,6 +569,7 @@ async fn gpsd_session(
             speed_mps: tpv.speed,
             track_deg: tpv.track,
             time: tpv.time.unwrap_or_else(now),
+            attitude: sdrmm_wire::Attitude::default(),
         };
         if fix.validate().is_err() {
             continue;
@@ -838,6 +842,7 @@ impl NmeaState {
             speed_mps: self.speed_mps,
             track_deg: self.track_deg,
             time: now(),
+            attitude: sdrmm_wire::Attitude::default(),
         };
         fix.validate().ok()?;
         Some(fix)

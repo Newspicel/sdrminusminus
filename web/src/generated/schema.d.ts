@@ -1600,6 +1600,19 @@ export interface components {
         };
         /** @enum {string} */
         ArgumentType: "bool" | "float" | "int" | "string";
+        Attitude: {
+            /** Format: double */
+            heading_accuracy_deg?: number | null;
+            /** Format: double */
+            heading_deg?: number | null;
+            heading_source?: null | components["schemas"]["HeadingSource"];
+            /** Format: double */
+            pitch_deg?: number | null;
+            /** Format: double */
+            roll_deg?: number | null;
+            /** Format: double */
+            yaw_rate_dps?: number | null;
+        };
         Attribution: {
             license: string;
             name: string;
@@ -3568,6 +3581,8 @@ export interface components {
         };
         /** @enum {string} */
         GuidanceMode: "cross" | "approach";
+        /** @enum {string} */
+        HeadingSource: "compass" | "course" | "fused" | "gnss" | "sensor";
         HfdlParams: Record<string, never>;
         /** @enum {string} */
         HuntAction: "start" | "stop";
@@ -4337,7 +4352,7 @@ export interface components {
             /** Format: float */
             y: number;
         };
-        PositionFix: {
+        PositionFix: components["schemas"]["Attitude"] & {
             /** Format: double */
             accuracy_m?: number | null;
             /** Format: double */

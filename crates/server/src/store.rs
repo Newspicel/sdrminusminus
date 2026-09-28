@@ -316,7 +316,47 @@ const MIGRATIONS: &[&str] = &[
     );
     CREATE INDEX workspace_notices_workspace ON workspace_notices (workspace_id);
     ",
+    "
+    CREATE TABLE phones (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        platform TEXT NOT NULL,
+        secret_sha256 BLOB NOT NULL,
+        created_at TEXT NOT NULL,
+        last_seen TEXT
+    );
+    ",
+    "
+    CREATE TABLE phone_offers (
+        id TEXT PRIMARY KEY,
+        code TEXT NOT NULL,
+        name TEXT,
+        created_at TEXT NOT NULL,
+        expires_at TEXT NOT NULL,
+        failures INTEGER NOT NULL DEFAULT 0,
+        state TEXT NOT NULL,
+        phone TEXT
+    );
+    ",
+    "
+    CREATE TABLE server_meta (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+    ) WITHOUT ROWID;
+    ",
+    "
+    CREATE TABLE array_calibrations (
+        lanes TEXT NOT NULL,
+        sample_rate REAL NOT NULL,
+        center_hz REAL NOT NULL,
+        record TEXT NOT NULL,
+        saved_at TEXT NOT NULL,
+        PRIMARY KEY (lanes, sample_rate, center_hz)
+    ) WITHOUT ROWID;
+    ",
 ];
+
+const SERVER_ID_KEY: &str = "server_id";
 
 pub const WORKSPACE_HISTORY_DEPTH: i64 = 100;
 
@@ -361,6 +401,7 @@ pub struct RecordingRow {
 pub struct Store {
     conn: Mutex<Connection>,
     run_start: String,
+    server_id: std::sync::Arc<str>,
 }
 
 impl Store {
@@ -372,12 +413,18 @@ impl Store {
         migrate(&conn)?;
         audio_fx_lift::lift_audio_chains(&conn)?;
         coherent_break::break_old_snapshots(&conn)?;
+        let server_id = ensure_server_id(&conn)?.into();
         let store = Self {
             conn: Mutex::new(conn),
             run_start: now_rfc3339(),
+            server_id,
         };
         store.seed_workspaces()?;
         Ok(store)
+    }
+
+    pub(crate) fn server_id(&self) -> std::sync::Arc<str> {
+        self.server_id.clone()
     }
 
     pub fn create_preset(&self, name: &str, snapshot: &PresetSnapshot) -> Result<i64, StoreError> {
@@ -2188,6 +2235,18 @@ fn migrate(conn: &Connection) -> Result<(), rusqlite::Error> {
     Ok(())
 }
 
+fn ensure_server_id(conn: &Connection) -> Result<String, rusqlite::Error> {
+    conn.execute(
+        "INSERT OR IGNORE INTO server_meta (key, value) VALUES (?1, lower(hex(randomblob(16))))",
+        params![SERVER_ID_KEY],
+    )?;
+    conn.query_row(
+        "SELECT value FROM server_meta WHERE key = ?1",
+        params![SERVER_ID_KEY],
+        |row| row.get(0),
+    )
+}
+
 fn now_rfc3339() -> String {
     rfc3339(jiff::Timestamp::now())
 }
@@ -2197,9 +2256,11 @@ pub fn rfc3339_now() -> String {
     now_rfc3339()
 }
 
+mod arrays;
 mod audio_fx_lift;
 mod coherent_break;
 mod cps;
+mod phones;
 
 pub(crate) use coherent_break::upgrade_export;
 

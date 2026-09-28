@@ -713,6 +713,7 @@ mod tests {
             speed_mps: None,
             track_deg: None,
             time: "2026-08-14T12:00:00Z".to_owned(),
+            attitude: sdrmm_wire::Attitude::default(),
         };
 
         writer.set_position(Some(&fix));
@@ -736,6 +737,7 @@ mod tests {
             speed_mps: None,
             track_deg: None,
             time: "2026-08-14T12:00:00Z".to_owned(),
+            attitude: sdrmm_wire::Attitude::default(),
         };
 
         writer.write_block(&samples(12)).unwrap();

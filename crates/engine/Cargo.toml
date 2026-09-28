@@ -39,6 +39,7 @@ net-client = [
 # Headless wgpu compute. Runtime selection still keeps small transforms on rustfft and falls
 # back to it when the host has no suitable hardware adapter.
 gpu-fft = ["dep:bytemuck", "dep:pollster", "dep:wgpu"]
+probe = ["sdrmm-channels/probe"]
 
 [dependencies]
 sdrmm-wire.workspace = true

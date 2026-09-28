@@ -21,6 +21,7 @@ pub const LEVEL_INTERVAL: Duration = Duration::from_millis(100);
 
 const DECODED_TEXT_CAP: usize = 1024;
 
+mod array;
 mod assets;
 mod audio_fx;
 mod auth;
@@ -35,19 +36,27 @@ pub mod diagnostics;
 pub mod doctor;
 mod event_output;
 mod events;
+mod fusion_routes;
 mod gps;
 mod images;
 mod ionosonde;
 mod json;
 mod mcp;
+mod missions;
 mod monitor;
+mod net;
 pub mod notices;
 mod packed;
+pub mod phones;
 mod placement;
+mod radar;
+mod reconcile;
 mod recorders;
 mod rest;
 mod satellites;
 mod store;
+mod surfaces;
+mod survey;
 mod templates;
 pub mod tls;
 mod tracks;
@@ -92,10 +101,29 @@ pub(crate) struct AppState {
     pub(crate) cps: Arc<cps::CpsHub>,
     pub(crate) fusion: df_fusion::SharedFusion,
     pub(crate) shell: Option<Arc<dyn NativeShell>>,
+    #[expect(dead_code)]
+    pub(crate) arrays: Arc<array::ArrayHub>,
+    #[expect(dead_code)]
+    pub(crate) radar: Arc<radar::RadarHub>,
+    #[expect(dead_code)]
+    pub(crate) surfaces: Arc<surfaces::SurfaceHub>,
+    #[expect(dead_code)]
+    pub(crate) survey: Arc<survey::SurveyHub>,
+    #[expect(dead_code)]
+    pub(crate) phones: Arc<phones::Phones>,
+    #[expect(dead_code)]
+    pub(crate) gate: Arc<phones::gate::PhoneGate>,
+    #[expect(dead_code)]
+    pub(crate) server_id: Arc<str>,
+    #[expect(dead_code)]
+    pub(crate) server_name: Arc<str>,
+    pub(crate) dev_cors: bool,
+    pub(crate) data_dir: Option<PathBuf>,
 }
 
 impl AppState {
     fn new(engine: Arc<Engine>, store: Arc<Store>) -> Self {
+        let server_id = store.server_id();
         Self {
             engine,
             store,
@@ -119,6 +147,16 @@ impl AppState {
             cps: Arc::new(cps::CpsHub::default()),
             fusion: Arc::new(df_fusion::FusionHub::default()),
             shell: None,
+            arrays: Arc::default(),
+            radar: Arc::default(),
+            surfaces: Arc::default(),
+            survey: Arc::default(),
+            phones: Arc::default(),
+            gate: Arc::default(),
+            server_id,
+            server_name: net::host_label().into(),
+            dev_cors: false,
+            data_dir: None,
         }
     }
 
@@ -190,15 +228,12 @@ pub fn router(engine: Arc<Engine>, store: Store, options: &ServerOptions) -> Rou
 
 fn router_with_state(mut state: AppState, options: &ServerOptions) -> (Router, Background) {
     state.shell = options.shell.clone();
+    state.dev_cors = options.dev_cors;
     if let Some(token) = &options.token {
         diagnostics::hide_secret(token);
     }
-    let background = start_background(&state);
-    ws::start_decoded_encoder(&state);
-    workspace::spawn_autosave(&state);
-    placement::spawn_settling(&state);
-    state.gps.reconcile(&state);
-    state.satellites.reconcile(&state);
+    let background = start_runtime(&state);
+    let dev_cors = state.dev_cors;
     let (api_router, api) = rest::openapi_router().split_for_parts();
 
     let mut app = Router::new()
@@ -226,10 +261,28 @@ fn router_with_state(mut state: AppState, options: &ServerOptions) -> (Router, B
             ),
         );
 
-    if options.dev_cors {
+    if dev_cors {
         app = app.layer(CorsLayer::very_permissive());
     }
     (app, background)
+}
+
+fn start_runtime(state: &AppState) -> Background {
+    let background = start_background(state);
+    ws::start_decoded_encoder(state);
+    workspace::spawn_autosave(state);
+    placement::spawn_settling(state);
+    state.gps.reconcile(state);
+    state.satellites.reconcile(state);
+    array::start_pump(state);
+    radar::start(state);
+    df_fusion::start(state);
+    fusion_routes::start(state);
+    survey::start(state);
+    missions::watch::spawn(state);
+    state.gps.spawn_watchdog(state);
+    phones::spawn_flusher(state);
+    background
 }
 
 struct Background {
@@ -399,6 +452,11 @@ pub async fn serve(config: Config, engine: Arc<Engine>) -> std::io::Result<Serve
     let mut state = AppState::new(engine, Arc::new(store));
     state.auth = auth::Auth::new(config.options.token.as_deref());
     state.db_path = config.db_path.clone();
+    state.data_dir = config
+        .db_path
+        .as_deref()
+        .and_then(Path::parent)
+        .map(Path::to_path_buf);
     let (app, background) = router_with_state(state, &config.options);
     let tls_config = config
         .tls

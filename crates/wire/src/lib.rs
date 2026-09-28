@@ -1,6 +1,7 @@
 pub mod monitor;
 pub use monitor::{EventOrigin, SpectrumMonitorNode, Transmission, TransmissionState};
 pub mod about;
+pub mod array;
 pub mod audio;
 pub mod bandplan;
 pub mod channel;
@@ -13,17 +14,23 @@ pub mod event_output;
 pub mod filter;
 pub mod frame;
 pub mod fusion;
+pub mod geo;
 mod pipeline;
 pub use pipeline::{PipelineQueue, PipelineStage, QueueHealth};
 pub mod hunt;
+pub mod mission;
 pub mod network;
 pub mod patch;
+pub mod phone;
 pub mod position;
+pub mod processor;
 pub mod propagation;
+pub mod radar;
 pub mod rest;
 pub mod satellite;
 pub mod scan;
 pub mod state;
+pub mod survey;
 pub mod timemachine;
 pub mod tools;
 pub mod units;
@@ -112,6 +119,7 @@ pub use fusion::{
     DfBearing, DfEstimate, DfFusionState, DfGuidance, DfStation, GuidanceMode, NavTarget,
     NavTargetKind,
 };
+pub use geo::LatLon;
 pub use hunt::{HuntAction, HuntRequest, HuntSettings, HuntStatus};
 pub use network::{
     ChannelNetworkExportRequest, MAX_NETWORK_ADDRESS_LEN, NetworkExportAction, NetworkExportNode,
@@ -131,9 +139,10 @@ pub use patch::{
     siggen_key, stream_port,
 };
 pub use position::{
-    DEFAULT_GPSD_ADDRESS, DEFAULT_NMEA_BAUD, DEFAULT_NMEA_UPDATE_INTERVAL_MS, GpsNode,
-    MAX_NMEA_BAUD, MAX_NMEA_UPDATE_INTERVAL_MS, MAX_POSITION_ENDPOINT_LEN, MIN_NMEA_BAUD,
-    MIN_NMEA_UPDATE_INTERVAL_MS, NmeaDeviceInfo, NmeaDevicesResponse, PositionFix, PositionSource,
+    Attitude, DEFAULT_GPSD_ADDRESS, DEFAULT_NMEA_BAUD, DEFAULT_NMEA_UPDATE_INTERVAL_MS, GpsNode,
+    HeadingSource, MAX_HEADING_ACCURACY_DEG, MAX_NMEA_BAUD, MAX_NMEA_UPDATE_INTERVAL_MS,
+    MAX_POSITION_ENDPOINT_LEN, MAX_YAW_RATE_DPS, MIN_NMEA_BAUD, MIN_NMEA_UPDATE_INTERVAL_MS,
+    NmeaDeviceInfo, NmeaDevicesResponse, PositionFix, PositionSource, normalize_heading,
 };
 pub use propagation::{
     DEFAULT_PROPAGATION_HALF_LIFE_MIN, DEFAULT_REFLECTION_HEIGHT_KM, IONOSONDE_MAX_STATIONS,

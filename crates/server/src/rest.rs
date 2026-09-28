@@ -38,6 +38,7 @@ use sdrmm_wire::{
 use utoipa::OpenApi;
 use utoipa_axum::{router::OpenApiRouter, routes};
 
+mod arrays;
 mod audio_recordings;
 mod capture;
 mod cps;
@@ -46,10 +47,14 @@ mod devices;
 mod fusion;
 mod info;
 mod media;
+mod missions;
+mod phones;
 mod presets;
+mod radar;
 mod recordings;
 mod satellites;
 mod scanning;
+mod survey;
 mod workspaces;
 
 use audio_recordings::*;
@@ -57,7 +62,6 @@ use capture::*;
 use cps::*;
 use decoderlog::*;
 use devices::*;
-use fusion::*;
 use info::*;
 use media::*;
 pub(crate) use media::{call_audio_path, captured_image_path};
@@ -433,7 +437,12 @@ pub(crate) fn openapi_router() -> OpenApiRouter<AppState> {
         .routes(routes!(get_cps_job, cancel_cps_job))
         .routes(routes!(list_tools))
         .routes(routes!(run_tool))
-        .routes(routes!(get_fusion, reset_fusion))
         .routes(routes!(get_about))
         .routes(routes!(get_license_text))
+        .merge(arrays::routes())
+        .merge(radar::routes())
+        .merge(phones::routes())
+        .merge(missions::routes())
+        .merge(survey::routes())
+        .merge(fusion::routes())
 }

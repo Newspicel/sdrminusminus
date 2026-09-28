@@ -1,0 +1,9 @@
+[bindings.swift]
+module_name = "SdrmmCore"
+ffi_module_name = "SdrmmMobileFFI"
+ffi_module_filename = "SdrmmMobileFFI"
+generate_immutable_records = true
+
+[bindings.kotlin]
+package_name = "dev.newspicel.sdrmm.ffi"
+cdylib_name = "sdrmm_mobile_core"

@@ -1230,6 +1230,7 @@ mod tests {
             speed_mps: None,
             track_deg: None,
             time: "2026-08-14T12:00:00Z".to_owned(),
+            attitude: sdrmm_wire::Attitude::default(),
         };
         channel.position_changed(Some(&fix));
         assert_eq!(channel.live_reference, Some((LAT, LON)));

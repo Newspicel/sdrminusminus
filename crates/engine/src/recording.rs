@@ -335,6 +335,7 @@ mod tests {
                 speed_mps: None,
                 track_deg: None,
                 time: "2026-08-14T12:00:00Z".to_owned(),
+                attitude: sdrmm_wire::Attitude::default(),
             }))
             .unwrap();
         assert!(tap.push(&block(16), 0, 100_000_000.0));
@@ -367,6 +368,7 @@ mod tests {
                 speed_mps: None,
                 track_deg: None,
                 time: "2026-08-14T12:00:01Z".to_owned(),
+                attitude: sdrmm_wire::Attitude::default(),
             }))
             .unwrap();
         assert!(tap.push(&block(16), 16, 100_000_000.0));

@@ -5,8 +5,10 @@ use std::{
 
 use sdrmm_wire::{
     DfBearing, DfEstimate, DfFusionState, DfGuidance, DfStation, GuidanceMode, NavTarget,
-    NavTargetKind, PositionFix,
+    NavTargetKind, PatchGraph, PositionFix,
 };
+
+use crate::AppState;
 
 pub(crate) const EARTH_RADIUS_M: f64 = 6_371_000.0;
 
@@ -397,6 +399,12 @@ impl FusionHub {
 
 pub(crate) type SharedFusion = Arc<FusionHub>;
 
+pub(crate) fn reconcile(_state: &AppState, _graph: &PatchGraph) -> Vec<(String, String)> {
+    Vec::new()
+}
+
+pub(crate) fn start(_state: &AppState) {}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -413,6 +421,7 @@ mod tests {
             speed_mps: None,
             track_deg,
             time: "2026-01-01T00:00:00Z".to_owned(),
+            attitude: sdrmm_wire::Attitude::default(),
         }
     }
 

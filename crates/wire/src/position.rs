@@ -10,6 +10,8 @@ pub const MIN_NMEA_UPDATE_INTERVAL_MS: u32 = 50;
 pub const MAX_NMEA_UPDATE_INTERVAL_MS: u32 = 60_000;
 pub const MAX_POSITION_ENDPOINT_LEN: usize = 256;
 pub const MAX_POSITION_TIME_LEN: usize = 64;
+pub const MAX_YAW_RATE_DPS: f64 = 1_000.0;
+pub const MAX_HEADING_ACCURACY_DEG: f64 = 180.0;
 
 const fn default_nmea_update_interval_ms() -> u32 {
     DEFAULT_NMEA_UPDATE_INTERVAL_MS
@@ -33,6 +35,87 @@ pub enum PositionSource {
         #[serde(default = "default_nmea_update_interval_ms")]
         update_interval_ms: u32,
     },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum HeadingSource {
+    Compass,
+    Course,
+    Fused,
+    Gnss,
+    Sensor,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct Attitude {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub heading_deg: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub heading_accuracy_deg: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub heading_source: Option<HeadingSource>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pitch_deg: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub roll_deg: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub yaw_rate_dps: Option<f64>,
+}
+
+impl Attitude {
+    pub fn validate(&self) -> Result<(), &'static str> {
+        let values = [
+            self.heading_deg,
+            self.heading_accuracy_deg,
+            self.pitch_deg,
+            self.roll_deg,
+            self.yaw_rate_dps,
+        ];
+        if values.into_iter().flatten().any(|value| !value.is_finite()) {
+            return Err("attitude values must be finite");
+        }
+        if outside(self.heading_deg, |deg| (0.0..360.0).contains(&deg)) {
+            return Err("heading must be within 0°..360°");
+        }
+        if outside(self.heading_accuracy_deg, |deg| {
+            (0.0..=MAX_HEADING_ACCURACY_DEG).contains(&deg)
+        }) {
+            return Err("heading accuracy must be within 0°..180°");
+        }
+        if outside(self.pitch_deg, |deg| (-90.0..=90.0).contains(&deg)) {
+            return Err("pitch must be within ±90°");
+        }
+        if outside(self.roll_deg, |deg| (-180.0..=180.0).contains(&deg)) {
+            return Err("roll must be within ±180°");
+        }
+        if outside(self.yaw_rate_dps, |dps| {
+            (-MAX_YAW_RATE_DPS..=MAX_YAW_RATE_DPS).contains(&dps)
+        }) {
+            return Err("yaw rate must be within ±1000°/s");
+        }
+        let details = self.heading_accuracy_deg.is_some()
+            || self.heading_source.is_some()
+            || self.yaw_rate_dps.is_some();
+        if details && self.heading_deg.is_none() {
+            return Err("heading details need a heading");
+        }
+        Ok(())
+    }
+
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        *self == Self::default()
+    }
+}
+
+fn outside(value: Option<f64>, inside: impl Fn(f64) -> bool) -> bool {
+    value.is_some_and(|value| !inside(value))
+}
+
+#[must_use]
+pub fn normalize_heading(deg: f64) -> f64 {
+    crate::geo::wrap_360(deg)
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, ToSchema)]
@@ -74,9 +157,19 @@ pub struct PositionFix {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub track_deg: Option<f64>,
     pub time: String,
+    #[serde(flatten)]
+    pub attitude: Attitude,
 }
 
 impl PositionFix {
+    #[must_use]
+    pub fn at(&self) -> crate::geo::LatLon {
+        crate::geo::LatLon {
+            lat: self.latitude,
+            lon: self.longitude,
+        }
+    }
+
     pub fn validate(&self) -> Result<(), &'static str> {
         if !self.latitude.is_finite() || !(-90.0..=90.0).contains(&self.latitude) {
             return Err("latitude must be within ±90°");
@@ -115,7 +208,7 @@ impl PositionFix {
         {
             return Err("position time must be an RFC3339 timestamp");
         }
-        Ok(())
+        self.attitude.validate()
     }
 }
 
@@ -132,7 +225,235 @@ mod tests {
             speed_mps: Some(12.0),
             track_deg: Some(180.0),
             time: "2026-08-14T12:00:00Z".to_owned(),
+            attitude: Attitude::default(),
         }
+    }
+
+    fn attitude() -> Attitude {
+        Attitude {
+            heading_deg: Some(87.5),
+            heading_accuracy_deg: Some(4.0),
+            heading_source: Some(HeadingSource::Fused),
+            pitch_deg: Some(-3.0),
+            roll_deg: Some(1.5),
+            yaw_rate_dps: Some(-12.0),
+        }
+    }
+
+    fn refused(bad: Attitude) -> &'static str {
+        match bad.validate() {
+            Err(problem) => problem,
+            Ok(()) => panic!("accepted invalid attitude {bad:?}"),
+        }
+    }
+
+    #[test]
+    fn attitude_rules_accept_a_full_and_an_empty_attitude() {
+        assert_eq!(attitude().validate(), Ok(()));
+        assert_eq!(Attitude::default().validate(), Ok(()));
+        assert!(Attitude::default().is_empty());
+        assert!(!attitude().is_empty());
+        for edge in [0.0, 359.999] {
+            let ok = Attitude {
+                heading_deg: Some(edge),
+                ..attitude()
+            };
+            assert_eq!(ok.validate(), Ok(()));
+        }
+    }
+
+    #[test]
+    fn attitude_rules_refuse_out_of_range_values() {
+        let cases = [
+            (
+                Attitude {
+                    heading_deg: Some(360.0),
+                    ..attitude()
+                },
+                "heading must be within 0°..360°",
+            ),
+            (
+                Attitude {
+                    heading_deg: Some(-0.5),
+                    ..attitude()
+                },
+                "heading must be within 0°..360°",
+            ),
+            (
+                Attitude {
+                    heading_accuracy_deg: Some(-1.0),
+                    ..attitude()
+                },
+                "heading accuracy must be within 0°..180°",
+            ),
+            (
+                Attitude {
+                    heading_accuracy_deg: Some(181.0),
+                    ..attitude()
+                },
+                "heading accuracy must be within 0°..180°",
+            ),
+            (
+                Attitude {
+                    pitch_deg: Some(91.0),
+                    ..attitude()
+                },
+                "pitch must be within ±90°",
+            ),
+            (
+                Attitude {
+                    roll_deg: Some(181.0),
+                    ..attitude()
+                },
+                "roll must be within ±180°",
+            ),
+            (
+                Attitude {
+                    yaw_rate_dps: Some(MAX_YAW_RATE_DPS + 1.0),
+                    ..attitude()
+                },
+                "yaw rate must be within ±1000°/s",
+            ),
+            (
+                Attitude {
+                    pitch_deg: Some(f64::NAN),
+                    ..attitude()
+                },
+                "attitude values must be finite",
+            ),
+        ];
+        for (bad, problem) in cases {
+            assert_eq!(refused(bad), problem, "{bad:?}");
+        }
+    }
+
+    #[test]
+    fn attitude_rules_need_a_heading_for_its_details() {
+        let details = [
+            Attitude {
+                heading_accuracy_deg: Some(5.0),
+                ..Attitude::default()
+            },
+            Attitude {
+                heading_source: Some(HeadingSource::Compass),
+                ..Attitude::default()
+            },
+            Attitude {
+                yaw_rate_dps: Some(3.0),
+                ..Attitude::default()
+            },
+        ];
+        for bad in details {
+            assert_eq!(refused(bad), "heading details need a heading");
+        }
+        let tilt_only = Attitude {
+            pitch_deg: Some(10.0),
+            roll_deg: Some(-10.0),
+            ..Attitude::default()
+        };
+        assert_eq!(tilt_only.validate(), Ok(()));
+    }
+
+    #[test]
+    fn attitude_rules_run_last_in_a_fix() {
+        let bad_both = PositionFix {
+            latitude: 91.0,
+            attitude: Attitude {
+                heading_deg: Some(400.0),
+                ..attitude()
+            },
+            ..fix()
+        };
+        assert_eq!(bad_both.validate(), Err("latitude must be within ±90°"));
+        let bad_heading = PositionFix {
+            attitude: Attitude {
+                heading_deg: Some(400.0),
+                ..attitude()
+            },
+            ..fix()
+        };
+        assert_eq!(
+            bad_heading.validate(),
+            Err("heading must be within 0°..360°")
+        );
+    }
+
+    #[test]
+    fn yaw_rate_must_be_finite() {
+        for rate in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+            let bad = Attitude {
+                yaw_rate_dps: Some(rate),
+                ..attitude()
+            };
+            assert_eq!(refused(bad), "attitude values must be finite");
+        }
+        let edge = Attitude {
+            yaw_rate_dps: Some(-MAX_YAW_RATE_DPS),
+            ..attitude()
+        };
+        assert_eq!(edge.validate(), Ok(()));
+    }
+
+    #[test]
+    fn pose_json_is_flat() {
+        let posed = PositionFix {
+            attitude: Attitude {
+                heading_deg: Some(87.5),
+                heading_source: Some(HeadingSource::Fused),
+                ..Attitude::default()
+            },
+            ..fix()
+        };
+        let json = serde_json::to_value(&posed).unwrap();
+        assert_eq!(json["heading_deg"], 87.5);
+        assert_eq!(json["heading_source"], "fused");
+        assert!(json.get("attitude").is_none());
+        assert!(json.get("pitch_deg").is_none());
+        assert_eq!(serde_json::from_value::<PositionFix>(json).unwrap(), posed);
+
+        let plain: PositionFix = serde_json::from_str(
+            r#"{"latitude":52.52,"longitude":13.405,"time":"2026-08-14T12:00:00Z"}"#,
+        )
+        .unwrap();
+        assert!(plain.attitude.is_empty());
+        let bare = serde_json::to_value(&plain).unwrap();
+        assert_eq!(
+            bare,
+            serde_json::json!({"latitude":52.52,"longitude":13.405,"time":"2026-08-14T12:00:00Z"})
+        );
+    }
+
+    #[test]
+    fn heading_sources_are_snake_case() {
+        for (source, text) in [
+            (HeadingSource::Compass, "compass"),
+            (HeadingSource::Course, "course"),
+            (HeadingSource::Fused, "fused"),
+            (HeadingSource::Gnss, "gnss"),
+            (HeadingSource::Sensor, "sensor"),
+        ] {
+            assert_eq!(serde_json::to_value(source).unwrap(), text);
+        }
+    }
+
+    #[test]
+    fn normalize_heading_wraps() {
+        assert_eq!(normalize_heading(-10.0), 350.0);
+        assert_eq!(normalize_heading(720.0), 0.0);
+        assert_eq!(normalize_heading(359.5), 359.5);
+        assert!(normalize_heading(-0.0).is_sign_positive());
+        assert_eq!(normalize_heading(-0.0), 0.0);
+    }
+
+    #[test]
+    fn a_fix_is_at_its_coordinates() {
+        assert_eq!(
+            fix().at(),
+            crate::geo::LatLon {
+                lat: 52.52,
+                lon: 13.405
+            }
+        );
     }
 
     #[test]

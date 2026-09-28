@@ -1,5 +1,9 @@
 use super::*;
 
+pub(super) fn routes() -> OpenApiRouter<AppState> {
+    OpenApiRouter::new().routes(routes!(get_fusion, reset_fusion))
+}
+
 #[utoipa::path(
     get, path = "/api/fusion/{node}",
     params(("node" = String, Path, description = "Triangulation node id")),

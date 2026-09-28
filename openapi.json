@@ -5351,6 +5351,56 @@
           "string"
         ]
       },
+      "Attitude": {
+        "type": "object",
+        "properties": {
+          "heading_accuracy_deg": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "heading_deg": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "heading_source": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/HeadingSource"
+              }
+            ]
+          },
+          "pitch_deg": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "roll_deg": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "yaw_rate_dps": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          }
+        }
+      },
       "Attribution": {
         "type": "object",
         "required": [
@@ -13184,6 +13234,16 @@
           "approach"
         ]
       },
+      "HeadingSource": {
+        "type": "string",
+        "enum": [
+          "compass",
+          "course",
+          "fused",
+          "gnss",
+          "sensor"
+        ]
+      },
       "HfdlParams": {
         "type": "object"
       },
@@ -16076,53 +16136,60 @@
         }
       },
       "PositionFix": {
-        "type": "object",
-        "required": [
-          "latitude",
-          "longitude",
-          "time"
-        ],
-        "properties": {
-          "accuracy_m": {
-            "type": [
-              "number",
-              "null"
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/Attitude"
+          },
+          {
+            "type": "object",
+            "required": [
+              "latitude",
+              "longitude",
+              "time"
             ],
-            "format": "double"
-          },
-          "altitude_m": {
-            "type": [
-              "number",
-              "null"
-            ],
-            "format": "double"
-          },
-          "latitude": {
-            "type": "number",
-            "format": "double"
-          },
-          "longitude": {
-            "type": "number",
-            "format": "double"
-          },
-          "speed_mps": {
-            "type": [
-              "number",
-              "null"
-            ],
-            "format": "double"
-          },
-          "time": {
-            "type": "string"
-          },
-          "track_deg": {
-            "type": [
-              "number",
-              "null"
-            ],
-            "format": "double"
+            "properties": {
+              "accuracy_m": {
+                "type": [
+                  "number",
+                  "null"
+                ],
+                "format": "double"
+              },
+              "altitude_m": {
+                "type": [
+                  "number",
+                  "null"
+                ],
+                "format": "double"
+              },
+              "latitude": {
+                "type": "number",
+                "format": "double"
+              },
+              "longitude": {
+                "type": "number",
+                "format": "double"
+              },
+              "speed_mps": {
+                "type": [
+                  "number",
+                  "null"
+                ],
+                "format": "double"
+              },
+              "time": {
+                "type": "string"
+              },
+              "track_deg": {
+                "type": [
+                  "number",
+                  "null"
+                ],
+                "format": "double"
+              }
+            }
           }
-        }
+        ]
       },
       "PositionSource": {
         "oneOf": [

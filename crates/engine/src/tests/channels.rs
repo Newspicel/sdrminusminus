@@ -57,6 +57,7 @@ async fn live_position_survives_a_channel_rate_rebuild() {
         speed_mps: Some(12.0),
         track_deg: Some(90.0),
         time: "2026-08-14T12:00:00Z".to_owned(),
+        attitude: sdrmm_wire::Attitude::default(),
     };
     engine
         .update_channel_position(ds, ch, Some(fix.clone()))

@@ -31,6 +31,7 @@ members = [
     "crates/engine",
     "crates/tools",
     "crates/server",
+    "crates/mobile-core",
     "apps/sdrmm",
     "apps/desktop",
     "xtask",
@@ -67,6 +68,7 @@ default-members = [
     "crates/engine",
     "crates/tools",
     "crates/server",
+    "crates/mobile-core",
     "apps/sdrmm",
     "xtask",
 ]
@@ -131,6 +133,10 @@ url = "2.5.8"
 tokio-postgres = { version = "0.7.18", default-features = false, features = ["runtime"] }
 tokio-postgres-rustls = "0.14"
 rustls-platform-verifier = "0.7"
+rustls-webpki = { version = "0.103.15", default-features = false }
+mdns-sd = "0.21.4"
+gethostname = "1.1.0"
+getrandom = "0.4.3"
 tokio-tungstenite = "0.30"
 tokio-serial = "5.5.0"
 serialport = { version = "4.9.0", default-features = false }
@@ -203,6 +209,9 @@ objc2-foundation = { version = "0.3", default-features = false, features = ["std
 # a capture thread that waits its turn loses USB transfers.
 windows-sys = { version = "0.61", features = ["Win32_System_Threading"] }
 
+uniffi = { version = "0.32.2", default-features = false }
+qrcodegen = "1.8.0"
+
 # Errors / logging / util
 libc = "0.2"
 thiserror = "2"
@@ -248,6 +257,13 @@ strip = true
 inherits = "release"
 lto = false
 codegen-units = 16
+
+[profile.mobile]
+inherits = "release"
+lto = "fat"
+codegen-units = 1
+panic = "unwind"
+strip = "debuginfo"
 
 [profile.dev.package."*"]
 opt-level = 3

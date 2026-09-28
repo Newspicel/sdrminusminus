@@ -37,6 +37,23 @@ fn migration_is_idempotent() {
     assert_eq!(version, MIGRATIONS.len() as i64);
 }
 
+#[test]
+fn server_id_is_stable_across_opens() {
+    let file = tempfile::NamedTempFile::new().expect("temp db");
+    let first = Store::open(Some(file.path())).expect("first open");
+    let id = first.server_id();
+    drop(first);
+    let again = Store::open(Some(file.path())).expect("second open");
+    assert_eq!(again.server_id(), id);
+    assert_eq!(id.len(), 32);
+    assert!(
+        id.chars()
+            .all(|c| c.is_ascii_digit() || ('a'..='f').contains(&c))
+    );
+    let other = Store::open(None).expect("in memory");
+    assert_ne!(other.server_id(), id);
+}
+
 fn signal_finder_snapshot() -> serde_json::Value {
     let mut snapshot = serde_json::to_value(WorkspaceSnapshot::starter()).unwrap();
     snapshot["graph"]["nodes"].as_array_mut().unwrap().extend([
@@ -2219,7 +2236,8 @@ fn a_stored_retired_decoder_event_leaves_the_log() {
             .expect("rewind");
         conn.execute_batch(
             "DROP TABLE saved_radios; DROP TABLE radio_calibrations; \
-             DROP TABLE workspace_notices;",
+             DROP TABLE workspace_notices; DROP TABLE phones; DROP TABLE phone_offers; \
+             DROP TABLE server_meta; DROP TABLE array_calibrations;",
         )
         .expect("drop the later tables");
     }

@@ -25,6 +25,8 @@ use sdrmm_wire::{
 };
 use tokio::sync::broadcast;
 
+pub mod array;
+mod array_ops;
 pub mod audio;
 mod audio_fx;
 pub mod audio_recording;

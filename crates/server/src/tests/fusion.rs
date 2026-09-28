@@ -11,6 +11,7 @@ fn fix(at: (f64, f64)) -> PositionFix {
         speed_mps: None,
         track_deg: None,
         time: "2026-01-01T00:00:00Z".to_owned(),
+        attitude: sdrmm_wire::Attitude::default(),
     }
 }
 
