@@ -100,7 +100,7 @@ Opened at runtime from whatever SoapySDR the host has installed, and never linke
 
 The ACARS application layer and the VDL2, HFDL, Inmarsat Aero, Inmarsat STD-C, DSC and Iridium decoders in `crates/channels` started as ports of xng, Copyright (c) 2023-2026 Kevin Elliott and the xng contributors, used under its MIT license.
 
-## Rust crates (802)
+## Rust crates (800)
 
 | Component | Version | License |
 | --- | --- | --- |
@@ -215,8 +215,6 @@ The ACARS application layer and the VDL2, HFDL, Inmarsat Aero, Inmarsat STD-C, D
 | [core_detect](https://github.com/thomcc/core_detect) | 1.0.0 | MIT/Apache-2.0 |
 | [cpufeatures](https://github.com/RustCrypto/utils) | 0.2.17 | MIT OR Apache-2.0 |
 | [cpufeatures](https://github.com/RustCrypto/utils) | 0.3.1 | MIT OR Apache-2.0 |
-| [crc](https://github.com/mrhooray/crc-rs.git) | 3.4.0 | MIT OR Apache-2.0 |
-| [crc-catalog](https://github.com/akhilles/crc-catalog.git) | 2.5.0 | MIT OR Apache-2.0 |
 | [crc32fast](https://github.com/srijs/rust-crc32fast) | 1.5.2 | MIT OR Apache-2.0 |
 | [crossbeam-channel](https://github.com/crossbeam-rs/crossbeam) | 0.5.17 | MIT OR Apache-2.0 |
 | [crossbeam-utils](https://github.com/crossbeam-rs/crossbeam) | 0.8.23 | MIT OR Apache-2.0 |
@@ -439,7 +437,6 @@ The ACARS application layer and the VDL2, HFDL, Inmarsat Aero, Inmarsat STD-C, D
 | [memchr](https://github.com/BurntSushi/memchr) | 2.8.3 | Unlicense OR MIT |
 | [memo-map](https://github.com/mitsuhiko/memo-map) | 0.3.4 | Apache-2.0 |
 | [memoffset](https://github.com/Gilnaa/memoffset) | 0.9.1 | MIT |
-| [mfsk-core](https://github.com/jl1nie/mfsk-core) | 0.11.0 | GPL-3.0-or-later |
 | [mime](https://github.com/hyperium/mime) | 0.3.17 | MIT OR Apache-2.0 |
 | [mime_guess](https://github.com/abonander/mime_guess) | 2.0.5 | MIT |
 | [minijinja](https://github.com/mitsuhiko/minijinja) | 2.24.0 | Apache-2.0 |
@@ -571,6 +568,7 @@ The ACARS application layer and the VDL2, HFDL, Inmarsat Aero, Inmarsat STD-C, D
 | [raw-window-metal](https://github.com/rust-windowing/raw-window-metal) | 1.1.0 | MIT OR Apache-2.0 |
 | [rawpointer](https://github.com/bluss/rawpointer/) | 0.2.1 | MIT/Apache-2.0 |
 | [rcgen](https://github.com/rustls/rcgen) | 0.14.10 | MIT OR Apache-2.0 |
+| [realfft](https://github.com/HEnquist/realfft) | 3.5.0 | MIT |
 | [redox_syscall](https://gitlab.redox-os.org/redox-os/syscall) | 0.5.18 | MIT |
 | [redox_users](https://gitlab.redox-os.org/redox-os/users) | 0.5.3 | MIT |
 | [ref-cast](https://github.com/dtolnay/ref-cast) | 1.0.27 | MIT OR Apache-2.0 |
