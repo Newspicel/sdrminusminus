@@ -1,8 +1,9 @@
 use num_complex::Complex;
 
-use crate::{decim::Decimator, fir::design_lowpass};
+use crate::fir::{Accumulate, design_lowpass};
 
 pub const DEFAULT_TAPS: usize = 47;
+const LANES: usize = 16;
 
 /// Turns the real samples a quadrature-sampling receiver delivers into the complex baseband the
 /// rest of the chain expects, at half the input rate.
@@ -12,8 +13,11 @@ pub const DEFAULT_TAPS: usize = 47;
 /// its mirror at the edge, where a half-band low-pass removes it on the way down by two.
 #[derive(Clone, Debug)]
 pub struct RealToIq {
-    decimator: Decimator,
-    rotated: Vec<Complex<f32>>,
+    even_taps: Vec<f32>,
+    centre_tap: f32,
+    in_phase: Vec<f32>,
+    quadrature: Vec<f32>,
+    quadrature_delay: usize,
     phase: u8,
     quadrature_sign: f32,
 }
@@ -29,12 +33,19 @@ impl RealToIq {
             taps % 4 == 3,
             "a half-band filter has 4k+3 taps, so that every even offset from its centre is zero"
         );
-        Self {
-            decimator: Decimator::new(&design_lowpass(taps, 0.25), 2),
-            rotated: Vec::new(),
+        let lowpass = design_lowpass(taps, 0.25);
+        let centre = taps / 2;
+        let mut converter = Self {
+            even_taps: lowpass.iter().step_by(2).copied().collect(),
+            centre_tap: lowpass[centre],
+            in_phase: Vec::new(),
+            quadrature: Vec::new(),
+            quadrature_delay: centre.div_ceil(2),
             phase: 0,
             quadrature_sign: -1.0,
-        }
+        };
+        converter.reset();
+        converter
     }
 
     #[must_use]
@@ -44,25 +55,97 @@ impl RealToIq {
     }
 
     pub fn reset(&mut self) {
-        self.decimator.reset();
-        self.rotated.clear();
+        self.in_phase.clear();
+        self.in_phase.resize(self.even_taps.len() - 1, 0.0);
+        self.quadrature.clear();
+        self.quadrature.resize(self.quadrature_delay, 0.0);
         self.phase = 0;
     }
 
     pub fn process(&mut self, input: &[f32], out: &mut Vec<Complex<f32>>) {
-        self.rotated.clear();
-        self.rotated.reserve(input.len());
-        for &sample in input {
-            self.rotated.push(match self.phase {
-                0 => Complex::new(sample, 0.0),
-                1 => Complex::new(0.0, self.quadrature_sign * sample),
-                2 => Complex::new(-sample, 0.0),
-                _ => Complex::new(0.0, -self.quadrature_sign * sample),
-            });
-            self.phase = (self.phase + 1) & 3;
+        let lead = usize::from((4 - self.phase) & 3).min(input.len());
+        let (head, aligned) = input.split_at(lead);
+        let (quads, tail) = aligned.as_chunks::<4>();
+        for &sample in head {
+            self.rotate(sample);
         }
-        self.decimator.process(&self.rotated, out);
+        self.rotate_quads(quads);
+        for &sample in tail {
+            self.rotate(sample);
+        }
+        let ready = self.in_phase.len() + 1 - self.even_taps.len();
+        out.clear();
+        out.extend(
+            self.quadrature[..ready]
+                .iter()
+                .map(|&q| Complex::new(0.0, self.centre_tap * q)),
+        );
+        let (blocks, tail) = out.as_chunks_mut::<LANES>();
+        for (index, block) in blocks.iter_mut().enumerate() {
+            let sums = in_phase_block(&self.in_phase[index * LANES..], &self.even_taps);
+            for (sample, sum) in block.iter_mut().zip(sums) {
+                sample.re = sum;
+            }
+        }
+        let done = blocks.len() * LANES;
+        for (index, sample) in tail.iter_mut().enumerate() {
+            sample.re = in_phase_at(&self.in_phase[done + index..], &self.even_taps);
+        }
+        self.in_phase.drain(..out.len());
+        self.quadrature.drain(..out.len());
     }
+}
+
+impl RealToIq {
+    fn rotate(&mut self, sample: f32) {
+        match self.phase {
+            0 => self.in_phase.push(sample),
+            1 => self.quadrature.push(self.quadrature_sign * sample),
+            2 => self.in_phase.push(-sample),
+            _ => self.quadrature.push(-self.quadrature_sign * sample),
+        }
+        self.phase = (self.phase + 1) & 3;
+    }
+
+    fn rotate_quads(&mut self, quads: &[[f32; 4]]) {
+        let sign = self.quadrature_sign;
+        let in_phase = self.in_phase.len();
+        self.in_phase.resize(in_phase + 2 * quads.len(), 0.0);
+        for (pair, quad) in self.in_phase[in_phase..]
+            .as_chunks_mut::<2>()
+            .0
+            .iter_mut()
+            .zip(quads)
+        {
+            *pair = [quad[0], -quad[2]];
+        }
+        let quadrature = self.quadrature.len();
+        self.quadrature.resize(quadrature + 2 * quads.len(), 0.0);
+        for (pair, quad) in self.quadrature[quadrature..]
+            .as_chunks_mut::<2>()
+            .0
+            .iter_mut()
+            .zip(quads)
+        {
+            *pair = [sign * quad[1], -sign * quad[3]];
+        }
+    }
+}
+
+fn in_phase_block(history: &[f32], taps: &[f32]) -> [f32; LANES] {
+    let mut sums = [0.0; LANES];
+    for (offset, &tap) in taps.iter().enumerate() {
+        for (sum, &sample) in sums.iter_mut().zip(&history[offset..offset + LANES]) {
+            *sum = sum.add_product(sample, tap);
+        }
+    }
+    sums
+}
+
+fn in_phase_at(history: &[f32], taps: &[f32]) -> f32 {
+    taps.iter()
+        .zip(history)
+        .fold(0.0, |sum, (&tap, &sample)| sum.add_product(sample, tap))
 }
 
 impl Default for RealToIq {
@@ -232,6 +315,46 @@ mod tests {
                 "expected {expected}, found {peak}"
             );
             assert!(snr > 45.0, "kept only {snr} dB");
+        }
+    }
+
+    fn full_filter(input: &[f32], quadrature_sign: f32) -> Vec<Complex<f32>> {
+        let rotated: Vec<Complex<f32>> = input
+            .iter()
+            .enumerate()
+            .map(|(n, &x)| match n % 4 {
+                0 => Complex::new(x, 0.0),
+                1 => Complex::new(0.0, quadrature_sign * x),
+                2 => Complex::new(-x, 0.0),
+                _ => Complex::new(0.0, -quadrature_sign * x),
+            })
+            .collect();
+        let mut out = Vec::new();
+        crate::decim::Decimator::new(&design_lowpass(DEFAULT_TAPS, 0.25), 2)
+            .process(&rotated, &mut out);
+        out
+    }
+
+    #[test]
+    fn the_half_band_shortcut_matches_the_full_filter() {
+        let input: Vec<f32> = (0..5001)
+            .map(|n| ((n * 7919) % 4096) as f32 / 2048.0 - 1.0)
+            .collect();
+        for (converter, sign) in [
+            (RealToIq::default(), -1.0),
+            (RealToIq::default().inverted(), 1.0),
+        ] {
+            let mut converter = converter;
+            let mut got = Vec::new();
+            converter.process(&input, &mut got);
+            let expected = full_filter(&input, sign);
+            assert_eq!(got.len(), expected.len());
+            let worst = got
+                .iter()
+                .zip(&expected)
+                .map(|(a, b)| (a - b).norm())
+                .fold(0.0f32, f32::max);
+            assert!(worst < 1e-5, "differs by {worst}");
         }
     }
 

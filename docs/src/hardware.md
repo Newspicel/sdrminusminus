@@ -14,8 +14,7 @@ The desktop and portable builds include these drivers:
 | RTL-SDR | Nothing |
 | KrakenSDR, KerberosSDR | Nothing |
 | HackRF | Nothing |
-| Airspy HF+, HF+ Discovery | Nothing |
-| Airspy R2, Mini | Nothing; [experimental](#airspy) |
+| Airspy R2, Mini, HF+, HF+ Discovery | Nothing |
 | AntSDR, ADALM-Pluto, other AD936x boards | The board serving [iiod](#antsdr-plutosdr-and-other-ad936x-boards) |
 | SDRplay RSP1, RSP1A, RSP1B, RSP2, RSPduo, RSPdx, RSPdx-R2 | [SDRplay API](#sdrplay) 3.15+, or [SDRconnect](#sdrconnect) on another machine |
 | KiwiSDR | Network access to [one](#kiwisdr) |
@@ -180,11 +179,11 @@ Tested on hardware provided by [KrakenRF](https://www.krakenrf.com).
 
 ## Airspy
 
-Built in, no vendor library needed. The HF+ driver is verified on live reception; the R2 and Mini
-driver is **experimental**. To use SoapySDR instead, build without `airspy` and `airspyhf`.
+Built in, no vendor library needed. To use SoapySDR instead, build without `airspy` and `airspyhf`.
 
 **R2 and Mini:** LNA, Mixer, and VGA gain use firmware steps, not dB. AGC can run the LNA, the
-mixer, or both. Bias tee available.
+mixer, or both. Bias tee available. Faint carriers on multiples of 10 MHz come from the
+radio's own clock.
 
 **HF+ and HF+ Discovery:** tunes up to 31 MHz and 60 to 260 MHz. Controls are Amp, attenuation in
 6 dB steps down to −48 dB, AGC with a low or high threshold, and PPM, which starts from the

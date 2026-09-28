@@ -4,6 +4,8 @@ use nusb::transfer::TransferError;
 const IOKIT_NOT_RESPONDING: u32 = 0xe000_02ed;
 #[cfg(target_os = "macos")]
 const IOKIT_PORT_WAS_SUSPENDED: u32 = 0xe000_4052;
+#[cfg(target_os = "macos")]
+const IOKIT_EXCLUSIVE_ACCESS: u32 = 0xe000_02c5;
 
 #[must_use]
 pub fn is_disconnect(error: &TransferError) -> bool {
@@ -15,6 +17,21 @@ pub fn is_disconnect(error: &TransferError) -> bool {
         }
         _ => false,
     }
+}
+
+#[must_use]
+pub fn is_busy(error: &nusb::Error) -> bool {
+    error.kind() == nusb::ErrorKind::Busy || is_held_exclusively(error.os_error())
+}
+
+#[cfg(target_os = "macos")]
+fn is_held_exclusively(code: Option<u32>) -> bool {
+    code == Some(IOKIT_EXCLUSIVE_ACCESS)
+}
+
+#[cfg(not(target_os = "macos"))]
+fn is_held_exclusively(_code: Option<u32>) -> bool {
+    false
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -69,6 +86,14 @@ mod tests {
         assert!(is_disconnect(&TransferError::Unknown(
             IOKIT_PORT_WAS_SUSPENDED
         )));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_device_another_program_opened_is_held_exclusively() {
+        assert!(is_held_exclusively(Some(IOKIT_EXCLUSIVE_ACCESS)));
+        assert!(!is_held_exclusively(Some(IOKIT_NOT_RESPONDING)));
+        assert!(!is_held_exclusively(None));
     }
 
     #[cfg(target_os = "macos")]

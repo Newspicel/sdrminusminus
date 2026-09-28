@@ -31,6 +31,9 @@ fn map_err(err: driver::Error) -> DeviceError {
     if err.is_permission_denied() {
         return DeviceError::PermissionDenied(text);
     }
+    if err.is_busy() {
+        return DeviceError::InUse(text);
+    }
     match err {
         driver::Error::DeviceNotFound => DeviceError::NotFound(text),
         driver::Error::InvalidConfig { .. } => DeviceError::Unsupported(text),

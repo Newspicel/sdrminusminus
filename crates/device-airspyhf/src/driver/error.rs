@@ -1,4 +1,4 @@
-use sdrmm_usb_stream::{StreamError, is_disconnect};
+use sdrmm_usb_stream::{StreamError, is_busy, is_disconnect};
 
 pub(crate) type Result<T> = std::result::Result<T, Error>;
 
@@ -56,13 +56,25 @@ impl Error {
     }
 
     pub(crate) fn is_permission_denied(&self) -> bool {
+        self.usb_kind() == Some(nusb::ErrorKind::PermissionDenied)
+    }
+
+    pub(crate) fn is_busy(&self) -> bool {
+        self.usb_error().is_some_and(is_busy)
+    }
+
+    fn usb_kind(&self) -> Option<nusb::ErrorKind> {
+        self.usb_error().map(nusb::Error::kind)
+    }
+
+    fn usb_error(&self) -> Option<&nusb::Error> {
         match self {
-            Self::Usb { source, .. } => source.kind() == nusb::ErrorKind::PermissionDenied,
+            Self::Usb { source, .. } => Some(source),
             Self::Stream(_)
             | Self::ControlTransfer(_)
             | Self::InvalidConfig { .. }
             | Self::DeviceNotFound
-            | Self::Protocol { .. } => false,
+            | Self::Protocol { .. } => None,
         }
     }
 }

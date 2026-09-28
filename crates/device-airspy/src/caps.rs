@@ -4,15 +4,12 @@ use sdrmm_wire::{
     GainKind, GainStage, GainUnit, GainValue, Range, StreamScope, any_range_holds,
 };
 
-use crate::driver::{Config, MAX_LNA_GAIN, MAX_MIXER_GAIN, MAX_VGA_GAIN};
+use crate::driver::{Config, FREQ_MAX_HZ, FREQ_MIN_HZ, MAX_LNA_GAIN, MAX_MIXER_GAIN, MAX_VGA_GAIN};
 
 pub(crate) const ANTENNA: &str = "RX";
 pub(crate) const AGC_BOTH: &str = "both";
 pub(crate) const AGC_LNA: &str = "lna";
 pub(crate) const AGC_MIXER: &str = "mixer";
-
-const FREQ_MIN_HZ: f64 = 24e6;
-const FREQ_MAX_HZ: f64 = 1.8e9;
 
 fn stage(kind: GainKind, max: u8) -> GainStage {
     GainStage::new(
@@ -36,8 +33,8 @@ fn agc_mode(value: &str, label: &str) -> ArgumentOption {
 pub(crate) fn capabilities(sample_rates: &[u32]) -> Capabilities {
     Capabilities {
         freq_ranges: vec![Range {
-            min: FREQ_MIN_HZ,
-            max: FREQ_MAX_HZ,
+            min: f64::from(FREQ_MIN_HZ),
+            max: f64::from(FREQ_MAX_HZ),
             step: None,
         }],
         sample_rates: sample_rates.iter().copied().map(f64::from).collect(),

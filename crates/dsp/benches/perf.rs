@@ -93,6 +93,21 @@ struct SharedBand {
     output: Vec<Complex<f32>>,
 }
 
+fn real_to_iq(c: &mut Criterion) {
+    let input: Vec<f32> = pseudo(65_536, 0xA15).iter().map(|s| s.re).collect();
+    let mut output = Vec::new();
+    let mut converter = sdrmm_dsp::RealToIq::default();
+    let mut group = c.benchmark_group("real_to_iq");
+    group.throughput(Throughput::Elements(input.len() as u64));
+    group.bench_function("half_band", |b| {
+        b.iter(|| {
+            converter.process(black_box(&input), &mut output);
+            black_box(&output);
+        });
+    });
+    group.finish();
+}
+
 fn shared_tuning(c: &mut Criterion) {
     shared_tuning_at_rate(c, 20_000_000.0, 2048, "shared_tuning");
     shared_tuning_at_rate(c, 5_000_000.0, 4096, "shared_tuning_5msps");
@@ -433,6 +448,7 @@ criterion_group!(
     benches,
     resampling,
     tuning,
+    real_to_iq,
     shared_tuning,
     fft_4096,
     xcorr_8192,
