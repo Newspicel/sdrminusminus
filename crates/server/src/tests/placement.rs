@@ -16,7 +16,7 @@ fn app() -> AppState {
 #[test]
 fn a_failed_move_keeps_the_original_decoder() {
     let app = app();
-    let a = app.engine.create_device_set("virtual:siggen").unwrap();
+    let a = app.engine.create_device_set("virtual:band").unwrap();
     let b = app.engine.create_device_set("virtual:halfduplex").unwrap();
     for (id, center) in [(a, 100e6), (b, 400e6)] {
         app.engine
@@ -83,7 +83,7 @@ fn a_failed_move_keeps_the_original_decoder() {
 #[test]
 fn an_exporting_decoder_is_pinned_until_the_export_stops() {
     let app = app();
-    let set = app.engine.create_device_set("virtual:siggen").unwrap();
+    let set = app.engine.create_device_set("virtual:band").unwrap();
     let id = app
         .engine
         .add_channel(set, 0, ChannelSettings::default_for("nfm").unwrap())

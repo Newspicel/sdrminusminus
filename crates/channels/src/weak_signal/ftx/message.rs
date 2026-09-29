@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 
-#[cfg(any(test, feature = "test-signals"))]
+#[cfg(any(test, feature = "synth"))]
 mod pack;
-#[cfg(any(test, feature = "test-signals"))]
+#[cfg(any(test, feature = "synth"))]
 pub(crate) use pack::pack;
 
 pub(crate) const PAYLOAD_BITS: u32 = 77;

@@ -79,6 +79,7 @@ pub(crate) fn capabilities(sample_rates: &[u32]) -> Capabilities {
         coherence: Coherence::None,
         noise_source: sdrmm_wire::NoiseSource::None,
         retune_keeps_phase: false,
+        rx_stream_choices: Vec::new(),
     }
 }
 

@@ -93,7 +93,7 @@ test.describe("the workspace", () => {
     await page.route("**/api/devices", (route) =>
       route.fulfill({
         json: {
-          devices: [{ driver: "virtual", key: "siggen", label: "Signal Generator (virtual)" }],
+          devices: [{ driver: "virtual", key: "band", label: "Test band (virtual)" }],
         },
       }),
     );

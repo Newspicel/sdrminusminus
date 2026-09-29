@@ -663,7 +663,7 @@ mod tests {
     use sdrmm_modem::analog::{AngleDemod, AngleDetector, AngleKind, AngleParams, AngleRx};
 
     use super::*;
-    use crate::testgen::{
+    use crate::synth::{
         add_noise, fm_modulate,
         rds::{Station as TxStation, composite, groups as tx_groups, monophonic},
     };

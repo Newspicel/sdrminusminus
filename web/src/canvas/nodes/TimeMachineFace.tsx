@@ -2,8 +2,7 @@ import { useMutation } from "@tanstack/react-query";
 import { Circle } from "lucide-react";
 import { Button } from "../../components/BaseControls";
 import { BTN, BTN_DANGER } from "../../components/controls";
-import { DevOnly } from "../../components/DevOnly";
-import { formatBytes } from "../../components/format";
+import { DROPS_HINT, formatBytes, formatCount } from "../../components/format";
 import { Icon } from "../../components/Icon";
 import { NumberField } from "../../components/NumberField";
 import { Readout, ReadoutRow } from "../../components/Readout";
@@ -154,9 +153,11 @@ function HistoryReadout({ status }: { status: TimeMachineStatus }) {
       <ReadoutRow label="Memory">
         {formatBytes(status.capacity_samples * HISTORY_BYTES_PER_SAMPLE)}
       </ReadoutRow>
-      <DevOnly>
-        {status.overruns > 0 && <ReadoutRow label="Drops">{status.overruns}</ReadoutRow>}
-      </DevOnly>
+      {status.overruns > 0 && (
+        <ReadoutRow label="Drops" title={DROPS_HINT}>
+          {formatCount(status.overruns)}
+        </ReadoutRow>
+      )}
       {capture !== null && (
         <>
           <ReadoutRow label="Written">{formatBytes(capture.bytes)}</ReadoutRow>

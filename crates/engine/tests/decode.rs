@@ -3,7 +3,7 @@
 use std::{path::Path, sync::Arc, time::Duration};
 
 use num_complex::Complex;
-use sdrmm_channels::{AprsTx, ChannelCtx, ChannelTx, MicE, MicEBit, TxPayload, testgen};
+use sdrmm_channels::{AprsTx, ChannelCtx, ChannelTx, MicE, MicEBit, TxPayload, synth};
 use sdrmm_device::DeviceRegistry;
 use sdrmm_device_recording::RecordingDriver;
 use sdrmm_engine::Engine;
@@ -46,7 +46,7 @@ fn aprs_burst(frame: Vec<u8>) -> Vec<Complex<f32>> {
     )
     .unwrap();
     tx.submit(TxPayload::Frame(frame)).unwrap();
-    testgen::burst(&mut tx)
+    synth::burst(&mut tx)
 }
 
 fn engine_for(dir: &Path) -> Arc<Engine> {
@@ -67,7 +67,7 @@ fn accelerated_engine_for(dir: &Path) -> Arc<Engine> {
 fn plant(dir: &Path, stem: &str, mut iq: Vec<Complex<f32>>, rate: f64) -> String {
     let min_len = rate as usize;
     if iq.len() < min_len {
-        iq.extend(testgen::silence(min_len - iq.len()));
+        iq.extend(synth::silence(min_len - iq.len()));
     }
     let path = dir.join(stem);
     let mut writer = SigmfWriter::create(&path, rate, CENTER_HZ, "decoder fixture").unwrap();
@@ -130,14 +130,14 @@ async fn pocsag_page_survives_the_ddc_and_reaches_the_decoded_stream() {
     let engine = engine_for(dir.path());
     let offset_hz = 50_000.0;
 
-    let pages = [testgen::pocsag::Page {
+    let pages = [synth::pocsag::Page {
         address: 1_234_567,
         function: 3,
         text: "ENGINE E2E".to_owned(),
         numeric: false,
     }];
-    let mut iq = testgen::pocsag::transmission(&pages, 1_200, 4_500.0, NARROW_DEVICE_RATE);
-    testgen::shift(&mut iq, offset_hz, NARROW_DEVICE_RATE);
+    let mut iq = synth::pocsag::transmission(&pages, 1_200, 4_500.0, NARROW_DEVICE_RATE);
+    synth::shift(&mut iq, offset_hz, NARROW_DEVICE_RATE);
 
     let device = plant(dir.path(), "pocsag", iq, NARROW_DEVICE_RATE);
     let record = decode_first(
@@ -170,12 +170,12 @@ async fn flex_page_survives_the_ddc_and_reaches_the_decoded_stream() {
     let dir = TempDir::new().unwrap();
     let engine = engine_for(dir.path());
     let offset_hz = 35_000.0;
-    let page = testgen::flex::Page {
+    let page = synth::flex::Page {
         address: 345_678,
         text: "FLEX ENGINE E2E".to_owned(),
     };
-    let mut iq = testgen::flex::transmission(&page, 4, 72, NARROW_DEVICE_RATE);
-    testgen::shift(&mut iq, offset_hz, NARROW_DEVICE_RATE);
+    let mut iq = synth::flex::transmission(&page, 4, 72, NARROW_DEVICE_RATE);
+    synth::shift(&mut iq, offset_hz, NARROW_DEVICE_RATE);
     let device = plant(dir.path(), "flex", iq, NARROW_DEVICE_RATE);
     let record = decode_first(
         &engine,
@@ -202,15 +202,15 @@ async fn ermes_page_survives_the_ddc_and_reaches_the_decoded_stream() {
     let dir = TempDir::new().unwrap();
     let engine = engine_for(dir.path());
     let offset_hz = -30_000.0;
-    let page = testgen::ermes::Page {
+    let page = synth::ermes::Page {
         local_address: 456_789,
         message_number: 6,
         text: "ERMES ENGINE E2E".to_owned(),
         urgent: true,
         alert: 4,
     };
-    let mut iq = testgen::ermes::transmission(&page, NARROW_DEVICE_RATE);
-    testgen::shift(&mut iq, offset_hz, NARROW_DEVICE_RATE);
+    let mut iq = synth::ermes::transmission(&page, NARROW_DEVICE_RATE);
+    synth::shift(&mut iq, offset_hz, NARROW_DEVICE_RATE);
     let device = plant(dir.path(), "ermes", iq, NARROW_DEVICE_RATE);
     let record = decode_first(
         &engine,
@@ -245,12 +245,12 @@ async fn aprs_packet_survives_the_ddc_and_reaches_the_decoded_stream() {
         &["WIDE1-1"],
         "!5230.00N/01324.00E>engine e2e",
     );
-    let mut iq = testgen::resample(
+    let mut iq = synth::resample(
         &aprs_burst(frame),
         AprsTx::descriptor().input_rate_hz,
         NARROW_DEVICE_RATE,
     );
-    testgen::shift(&mut iq, offset_hz, NARROW_DEVICE_RATE);
+    synth::shift(&mut iq, offset_hz, NARROW_DEVICE_RATE);
 
     let device = plant(dir.path(), "aprs", iq, NARROW_DEVICE_RATE);
     let record = decode_first(
@@ -286,7 +286,7 @@ async fn ais_position_survives_the_ddc_and_reaches_the_decoded_stream() {
     let engine = engine_for(dir.path());
     let offset_hz = 25_000.0;
 
-    let report = testgen::ais::PositionReport {
+    let report = synth::ais::PositionReport {
         mmsi: 211_234_560,
         lat: 53.5413,
         lon: 9.9846,
@@ -295,8 +295,8 @@ async fn ais_position_survives_the_ddc_and_reaches_the_decoded_stream() {
         heading_deg: 179,
         nav_status: 0,
     };
-    let mut iq = testgen::ais::burst(&testgen::ais::position_payload(&report), NARROW_DEVICE_RATE);
-    testgen::shift(&mut iq, offset_hz, NARROW_DEVICE_RATE);
+    let mut iq = synth::ais::burst(&synth::ais::position_payload(&report), NARROW_DEVICE_RATE);
+    synth::shift(&mut iq, offset_hz, NARROW_DEVICE_RATE);
 
     let device = plant(dir.path(), "ais", iq, NARROW_DEVICE_RATE);
     let record = decode_first(
@@ -351,12 +351,12 @@ async fn a_mic_e_packet_survives_the_ddc_and_reaches_the_decoded_stream() {
         &["WIDE2-2"],
         &report.info(),
     );
-    let mut iq = testgen::resample(
+    let mut iq = synth::resample(
         &aprs_burst(frame),
         AprsTx::descriptor().input_rate_hz,
         NARROW_DEVICE_RATE,
     );
-    testgen::shift(&mut iq, offset_hz, NARROW_DEVICE_RATE);
+    synth::shift(&mut iq, offset_hz, NARROW_DEVICE_RATE);
 
     let device = plant(dir.path(), "mice", iq, NARROW_DEVICE_RATE);
     let record = decode_first(
@@ -392,12 +392,12 @@ async fn a_ctcss_tone_survives_the_ddc_and_reaches_the_decoded_stream() {
     let offset_hz = -30_000.0;
 
     let len = (NARROW_DEVICE_RATE * 2.0) as usize;
-    let audio = testgen::nfm::mix(
-        &testgen::nfm::ctcss_audio(88.5, 0.15, NARROW_DEVICE_RATE, len),
-        &testgen::tone_audio(1_000.0, 0.6, NARROW_DEVICE_RATE, len),
+    let audio = synth::nfm::mix(
+        &synth::nfm::ctcss_audio(88.5, 0.15, NARROW_DEVICE_RATE, len),
+        &synth::tone_audio(1_000.0, 0.6, NARROW_DEVICE_RATE, len),
     );
-    let mut iq = testgen::fm_modulate(&audio, 2_500.0, NARROW_DEVICE_RATE);
-    testgen::shift(&mut iq, offset_hz, NARROW_DEVICE_RATE);
+    let mut iq = synth::fm_modulate(&audio, 2_500.0, NARROW_DEVICE_RATE);
+    synth::shift(&mut iq, offset_hz, NARROW_DEVICE_RATE);
 
     let device = plant(dir.path(), "ctcss", iq, NARROW_DEVICE_RATE);
     let record = decode_first(
@@ -431,8 +431,8 @@ async fn selcall_survives_the_ddc_and_reaches_the_decoded_stream() {
     let engine = engine_for(dir.path());
     let offset_hz = 5_000.0;
     let mut iq =
-        testgen::selcall::transmission(SelcallSystem::Ccir1, "12234", AUDIO_DEVICE_RATE).unwrap();
-    testgen::shift(&mut iq, offset_hz, AUDIO_DEVICE_RATE);
+        synth::selcall::transmission(SelcallSystem::Ccir1, "12234", AUDIO_DEVICE_RATE).unwrap();
+    synth::shift(&mut iq, offset_hz, AUDIO_DEVICE_RATE);
     let device = plant(dir.path(), "selcall_ccir1", iq, AUDIO_DEVICE_RATE);
     let record = decode_first(
         &engine,
@@ -504,17 +504,17 @@ async fn adsb_squitter_survives_the_ddc_and_reaches_the_decoded_stream() {
 
     let icao = 0x3C_6444;
     let frames = vec![
-        testgen::adsb::squitter(icao, testgen::adsb::me_identification("DLH123")),
-        testgen::adsb::squitter(
+        synth::adsb::squitter(icao, synth::adsb::me_identification("DLH123")),
+        synth::adsb::squitter(
             icao,
-            testgen::adsb::me_airborne_position(38_000, 52.2572, 3.9190, false),
+            synth::adsb::me_airborne_position(38_000, 52.2572, 3.9190, false),
         ),
-        testgen::adsb::squitter(
+        synth::adsb::squitter(
             icao,
-            testgen::adsb::me_airborne_position(38_000, 52.2657, 3.9184, true),
+            synth::adsb::me_airborne_position(38_000, 52.2657, 3.9184, true),
         ),
     ];
-    let iq = testgen::adsb::transmission(&frames, 500.0, 0.8, ADSB_DEVICE_RATE);
+    let iq = synth::adsb::transmission(&frames, 500.0, 0.8, ADSB_DEVICE_RATE);
 
     let device = plant(dir.path(), "adsb", iq, ADSB_DEVICE_RATE);
     let record = decode_first(
@@ -545,7 +545,7 @@ async fn adsb_squitter_survives_the_ddc_and_reaches_the_decoded_stream() {
 async fn gps_ca_acquisition_survives_virtual_device_playback() {
     let dir = TempDir::new().unwrap();
     let engine = engine_for(dir.path());
-    let iq = testgen::gnss::acquisition(7, 1_000.0, 317, 1_000);
+    let iq = synth::gnss::acquisition(7, 1_000.0, 317, 1_000);
     let device = plant(dir.path(), "gps-l1-ca", iq, GNSS_DEVICE_RATE);
     let record = decode_first(
         &engine,
@@ -575,8 +575,8 @@ async fn gps_ca_acquisition_survives_virtual_device_playback() {
 async fn vor_radial_survives_virtual_device_playback() {
     let dir = TempDir::new().unwrap();
     let engine = engine_for(dir.path());
-    let iq = testgen::vor::transmission(123.0, 2);
-    let device = plant(dir.path(), "vor", iq, testgen::vor::RATE);
+    let iq = synth::vor::transmission(123.0, 2);
+    let device = plant(dir.path(), "vor", iq, synth::vor::RATE);
     let record = decode_first(
         &engine,
         &device,
@@ -606,11 +606,11 @@ async fn a_mode_s_identity_reply_survives_the_ddc_and_reaches_the_decoded_stream
     const RATE: f64 = 4_800_000.0;
 
     let frames = vec![
-        testgen::adsb::all_call_reply(icao, 5, 0),
-        testgen::adsb::identity_reply(icao, "7421", 0),
-        testgen::adsb::altitude_reply(icao, 24_000, 0),
+        synth::adsb::all_call_reply(icao, 5, 0),
+        synth::adsb::identity_reply(icao, "7421", 0),
+        synth::adsb::altitude_reply(icao, 24_000, 0),
     ];
-    let iq = testgen::adsb::transmission(&frames, 500.0, 0.8, RATE);
+    let iq = synth::adsb::transmission(&frames, 500.0, 0.8, RATE);
 
     let device = plant(dir.path(), "modes", iq, RATE);
     let record = decode_first(
@@ -641,14 +641,14 @@ async fn rtty_text_survives_the_ddc_and_reaches_the_decoded_stream() {
     let offset_hz = 5_000.0;
     let params = RttyParams::default();
 
-    let mut iq = testgen::rtty::transmission(
+    let mut iq = synth::rtty::transmission(
         "CQ CQ DE DL1ABC K\r\n",
         params.baud,
         params.shift_hz,
         params.stop_bits.periods(),
         AUDIO_DEVICE_RATE,
     );
-    testgen::shift(&mut iq, offset_hz, AUDIO_DEVICE_RATE);
+    synth::shift(&mut iq, offset_hz, AUDIO_DEVICE_RATE);
 
     let device = plant(dir.path(), "rtty", iq, AUDIO_DEVICE_RATE);
     let record = decode_first(
@@ -679,9 +679,9 @@ async fn psk_text_survives_the_ddc_and_reaches_the_decoded_stream() {
         let dir = TempDir::new().unwrap();
         let engine = accelerated_engine_for(dir.path());
         let offset_hz = 5_000.0;
-        let iq = testgen::psk::transmission(&format!("{want}\n"), baud.rate());
-        let mut iq = testgen::resample(&iq, 8_000.0, AUDIO_DEVICE_RATE);
-        testgen::shift(&mut iq, offset_hz, AUDIO_DEVICE_RATE);
+        let iq = synth::psk::transmission(&format!("{want}\n"), baud.rate());
+        let mut iq = synth::resample(&iq, 8_000.0, AUDIO_DEVICE_RATE);
+        synth::shift(&mut iq, offset_hz, AUDIO_DEVICE_RATE);
         let device = plant(dir.path(), stem, iq, AUDIO_DEVICE_RATE);
         let record = decode_first(
             &engine,
@@ -714,9 +714,9 @@ async fn ft8_message_survives_the_ddc_and_reaches_the_decoded_stream() {
     let dir = TempDir::new().unwrap();
     let engine = accelerated_engine_for(dir.path());
     let offset_hz = -8_000.0;
-    let iq = testgen::weak_signal::ft8_slot("W1AW", "FN42", 1_500.0);
-    let mut iq = testgen::resample(&iq, 12_000.0, AUDIO_DEVICE_RATE);
-    testgen::shift(&mut iq, offset_hz, AUDIO_DEVICE_RATE);
+    let iq = synth::weak_signal::ft8_slot("W1AW", "FN42", 1_500.0);
+    let mut iq = synth::resample(&iq, 12_000.0, AUDIO_DEVICE_RATE);
+    synth::shift(&mut iq, offset_hz, AUDIO_DEVICE_RATE);
     let device = plant(dir.path(), "ft8", iq, AUDIO_DEVICE_RATE);
     let record = decode_first(
         &engine,
@@ -742,9 +742,9 @@ async fn ft4_message_survives_the_ddc_and_reaches_the_decoded_stream() {
     let dir = TempDir::new().unwrap();
     let engine = accelerated_engine_for(dir.path());
     let offset_hz = 8_000.0;
-    let iq = testgen::weak_signal::ft4_slot("JA1ABC", "PM95", 1_000.0);
-    let mut iq = testgen::resample(&iq, 12_000.0, AUDIO_DEVICE_RATE);
-    testgen::shift(&mut iq, offset_hz, AUDIO_DEVICE_RATE);
+    let iq = synth::weak_signal::ft4_slot("JA1ABC", "PM95", 1_000.0);
+    let mut iq = synth::resample(&iq, 12_000.0, AUDIO_DEVICE_RATE);
+    synth::shift(&mut iq, offset_hz, AUDIO_DEVICE_RATE);
     let device = plant(dir.path(), "ft4", iq, AUDIO_DEVICE_RATE);
     let record = decode_first(
         &engine,
@@ -769,8 +769,8 @@ async fn ft4_message_survives_the_ddc_and_reaches_the_decoded_stream() {
 async fn wspr_spot_survives_the_ddc_and_reaches_the_decoded_stream() {
     let dir = TempDir::new().unwrap();
     let engine = accelerated_engine_for(dir.path());
-    let iq = testgen::weak_signal::wspr_slot("K1ABC", "FN42", 37, 1_500.0);
-    let iq = testgen::resample(&iq, 12_000.0, AUDIO_DEVICE_RATE);
+    let iq = synth::weak_signal::wspr_slot("K1ABC", "FN42", 37, 1_500.0);
+    let iq = synth::resample(&iq, 12_000.0, AUDIO_DEVICE_RATE);
     let device = plant(dir.path(), "wspr", iq, AUDIO_DEVICE_RATE);
     let record = decode_first(
         &engine,
@@ -797,8 +797,8 @@ async fn morse_text_survives_the_ddc_and_reaches_the_decoded_stream() {
     let engine = accelerated_engine_for(dir.path());
     let offset_hz = -5_000.0;
 
-    let mut iq = testgen::morse::transmission("CQ DE DL1ABC K", 20.0, 0.0, AUDIO_DEVICE_RATE);
-    testgen::shift(&mut iq, offset_hz, AUDIO_DEVICE_RATE);
+    let mut iq = synth::morse::transmission("CQ DE DL1ABC K", 20.0, 0.0, AUDIO_DEVICE_RATE);
+    synth::shift(&mut iq, offset_hz, AUDIO_DEVICE_RATE);
 
     let device = plant(dir.path(), "morse", iq, AUDIO_DEVICE_RATE);
     let record = decode_first(
@@ -829,8 +829,8 @@ async fn cw_skimmer_spot_survives_the_ddc_and_reaches_the_decoded_stream() {
     let dir = TempDir::new().unwrap();
     let engine = accelerated_engine_for(dir.path());
     let mut iq =
-        testgen::morse::transmission("VVV VVV CQ DE ENGINE K", 20.0, 3_500.0, NARROW_DEVICE_RATE);
-    iq.extend(testgen::silence(NARROW_DEVICE_RATE as usize * 4));
+        synth::morse::transmission("VVV VVV CQ DE ENGINE K", 20.0, 3_500.0, NARROW_DEVICE_RATE);
+    iq.extend(synth::silence(NARROW_DEVICE_RATE as usize * 4));
     let device = plant(dir.path(), "cw-skimmer", iq, NARROW_DEVICE_RATE);
     let record = decode_first(
         &engine,
@@ -864,11 +864,11 @@ async fn navtex_broadcast_survives_the_ddc_and_reaches_the_decoded_stream() {
     let engine = accelerated_engine_for(dir.path());
     let offset_hz = -3_000.0;
 
-    let mut iq = testgen::navtex::transmission(
+    let mut iq = synth::navtex::transmission(
         "ZCZC DA07\r\nGALE WARNING\r\nGERMAN BIGHT\r\nNNNN",
         AUDIO_DEVICE_RATE,
     );
-    testgen::shift(&mut iq, offset_hz, AUDIO_DEVICE_RATE);
+    synth::shift(&mut iq, offset_hz, AUDIO_DEVICE_RATE);
 
     let device = plant(dir.path(), "navtex", iq, AUDIO_DEVICE_RATE);
     let record = decode_first(
@@ -902,7 +902,7 @@ async fn acars_block_survives_the_ddc_and_reaches_the_decoded_stream() {
     let engine = engine_for(dir.path());
     let offset_hz = -40_000.0;
 
-    let block = testgen::acars::Block {
+    let block = synth::acars::Block {
         mode: '2',
         registration: ".D-AIBC",
         ack: '\x15',
@@ -913,8 +913,8 @@ async fn acars_block_survives_the_ddc_and_reaches_the_decoded_stream() {
         text: "ENGINE E2E",
         more: false,
     };
-    let mut iq = testgen::acars::transmission(&block, NARROW_DEVICE_RATE);
-    testgen::shift(&mut iq, offset_hz, NARROW_DEVICE_RATE);
+    let mut iq = synth::acars::transmission(&block, NARROW_DEVICE_RATE);
+    synth::shift(&mut iq, offset_hz, NARROW_DEVICE_RATE);
 
     let device = plant(dir.path(), "acars", iq, NARROW_DEVICE_RATE);
     let record = decode_first(
@@ -944,9 +944,9 @@ async fn acars_block_survives_the_ddc_and_reaches_the_decoded_stream() {
 async fn ysf_callsigns_survive_a_recorded_virtual_device() {
     let dir = TempDir::new().unwrap();
     let engine = engine_for(dir.path());
-    let call = testgen::dv::ysf::Call::default();
-    let iq = testgen::dv::ysf::transmission_with_callsigns(
-        &testgen::dv::ysf::Fich::default(),
+    let call = synth::dv::ysf::Call::default();
+    let iq = synth::dv::ysf::transmission_with_callsigns(
+        &synth::dv::ysf::Fich::default(),
         &call,
         AUDIO_DEVICE_RATE,
     );
@@ -984,13 +984,13 @@ async fn ident_names_an_unknown_transmission_end_to_end() {
     let engine = engine_for(dir.path());
     let offset_hz = 60_000.0;
 
-    let call = testgen::dv::dmr::Call::default();
-    let one = testgen::dv::dmr::transmission(&call, IDENT_DEVICE_RATE);
+    let call = synth::dv::dmr::Call::default();
+    let one = synth::dv::dmr::transmission(&call, IDENT_DEVICE_RATE);
     let mut iq: Vec<Complex<f32>> = Vec::new();
     for _ in 0..3 {
         iq.extend_from_slice(&one);
     }
-    testgen::shift(&mut iq, offset_hz, IDENT_DEVICE_RATE);
+    synth::shift(&mut iq, offset_hz, IDENT_DEVICE_RATE);
 
     let device = plant(dir.path(), "ident", iq, IDENT_DEVICE_RATE);
     let record = decode_first(
@@ -1045,8 +1045,8 @@ async fn a_dab_ensemble_reaches_the_decoded_stream_through_a_virtual_device() {
         const DEVICE_RATE: f64 = 2_400_000.0;
         let dir = TempDir::new().unwrap();
         let engine = engine_for(dir.path());
-        let iq = testgen::resample(
-            &testgen::dab::ensemble_for_mode(mode, 16),
+        let iq = synth::resample(
+            &synth::dab::ensemble_for_mode(mode, 16),
             2_048_000.0,
             DEVICE_RATE,
         );
@@ -1068,12 +1068,9 @@ async fn a_dab_ensemble_reaches_the_decoded_stream_through_a_virtual_device() {
         };
         assert_eq!(
             status.ensemble_label.as_deref(),
-            Some(testgen::dab::ENSEMBLE_LABEL)
+            Some(synth::dab::ENSEMBLE_LABEL)
         );
-        assert_eq!(
-            status.ensemble_id,
-            Some(u32::from(testgen::dab::ENSEMBLE_ID))
-        );
+        assert_eq!(status.ensemble_id, Some(u32::from(synth::dab::ENSEMBLE_ID)));
         assert_eq!(status.services.len(), 2, "{status:?}");
         assert_eq!(status.services[0].label, "Rust FM");
         assert!(status.snr_db > 10.0, "{status:?}");
@@ -1084,7 +1081,7 @@ async fn a_dab_ensemble_reaches_the_decoded_stream_through_a_virtual_device() {
 async fn a_dvb_s_transport_stream_reaches_the_decoded_stream() {
     let dir = TempDir::new().unwrap();
     let engine = engine_for(dir.path());
-    let device = plant(dir.path(), "dvb-s", testgen::datv::dvbs(4), 2_000_000.0);
+    let device = plant(dir.path(), "dvb-s", synth::datv::dvbs(4), 2_000_000.0);
     let record = decode_first(
         &engine,
         &device,
@@ -1093,8 +1090,8 @@ async fn a_dvb_s_transport_stream_reaches_the_decoded_stream() {
             squelch: sdrmm_wire::Squelch::Off,
             params: ChannelParams::Datv(DatvParams {
                 standard: DatvStandard::DvbS,
-                symbol_rate: testgen::datv::SYMBOL_RATE,
-                code_rate: testgen::datv::CODE_RATE,
+                symbol_rate: synth::datv::SYMBOL_RATE,
+                code_rate: synth::datv::CODE_RATE,
                 ..DatvParams::default()
             }),
             blanker: Default::default(),
@@ -1106,7 +1103,7 @@ async fn a_dvb_s_transport_stream_reaches_the_decoded_stream() {
         unreachable!("filtered above")
     };
     assert_eq!(status.system, BroadcastSystem::DvbS);
-    assert_eq!(status.label.as_deref(), Some(testgen::datv::PROGRAM_NAME));
+    assert_eq!(status.label.as_deref(), Some(synth::datv::PROGRAM_NAME));
     assert_eq!(status.code_rate.as_deref(), Some("3/4"));
     assert!(status.frames_ok > 20, "{status:?}");
 }
@@ -1242,17 +1239,17 @@ async fn adsb_decodes_at_an_rtl_sdr_rate_the_ddc_could_not_have_resampled() {
 
     let icao = 0x3C_6444;
     let frames = vec![
-        testgen::adsb::squitter(icao, testgen::adsb::me_identification("DLH123")),
-        testgen::adsb::squitter(
+        synth::adsb::squitter(icao, synth::adsb::me_identification("DLH123")),
+        synth::adsb::squitter(
             icao,
-            testgen::adsb::me_airborne_position(38_000, 52.2572, 3.9190, false),
+            synth::adsb::me_airborne_position(38_000, 52.2572, 3.9190, false),
         ),
-        testgen::adsb::squitter(
+        synth::adsb::squitter(
             icao,
-            testgen::adsb::me_airborne_position(38_000, 52.2657, 3.9184, true),
+            synth::adsb::me_airborne_position(38_000, 52.2657, 3.9184, true),
         ),
     ];
-    let iq = testgen::adsb::transmission_at_phase(&frames, 500.0, 0.8, RTL_RATE, 0.37);
+    let iq = synth::adsb::transmission_at_phase(&frames, 500.0, 0.8, RTL_RATE, 0.37);
 
     let device = plant(dir.path(), "adsb-rtl", iq, RTL_RATE);
     let record = decode_first(
@@ -1282,12 +1279,12 @@ async fn adsb_decodes_from_a_wideband_radio_through_the_resampler() {
     const RATE: f64 = 10_000_000.0;
     let offset_hz = 1_000_000.0;
     let icao = 0x3C_6444;
-    let frames = vec![testgen::adsb::squitter(
+    let frames = vec![synth::adsb::squitter(
         icao,
-        testgen::adsb::me_identification("DLH123"),
+        synth::adsb::me_identification("DLH123"),
     )];
-    let mut iq = testgen::adsb::transmission(&frames, 500.0, 0.8, RATE);
-    testgen::shift(&mut iq, offset_hz, RATE);
+    let mut iq = synth::adsb::transmission(&frames, 500.0, 0.8, RATE);
+    synth::shift(&mut iq, offset_hz, RATE);
     let device = plant(dir.path(), "wideband", iq, RATE);
     let record = decode_first(
         &engine,
@@ -1315,7 +1312,7 @@ async fn rds_station_survives_the_ddc_and_reaches_the_decoded_stream() {
     const RATE: f64 = 960_000.0;
     let offset_hz = 200_000.0;
 
-    let station = testgen::rds::Station {
+    let station = synth::rds::Station {
         pi: 0xD3C2,
         ps: "SDR-M4  ".to_owned(),
         radiotext: "engine end to end".to_owned(),
@@ -1325,8 +1322,8 @@ async fn rds_station_survives_the_ddc_and_reaches_the_decoded_stream() {
         music: true,
         alt_freqs_hz: vec![89_800_000.0, 95_500_000.0],
     };
-    let mut iq = testgen::rds::transmission(&station, 6.0, Some(1_000.0), RATE);
-    testgen::shift(&mut iq, offset_hz, RATE);
+    let mut iq = synth::rds::transmission(&station, 6.0, Some(1_000.0), RATE);
+    synth::shift(&mut iq, offset_hz, RATE);
 
     let device = plant(dir.path(), "rds", iq, RATE);
     let record = decode_first(
@@ -1376,7 +1373,7 @@ async fn retuning_resets_the_decoder_through_the_engine_path() {
     const RATE: f64 = 960_000.0;
     let offset_hz = 200_000.0;
 
-    let station = testgen::rds::Station {
+    let station = synth::rds::Station {
         pi: 0xD3C2,
         ps: "RETUNE  ".to_owned(),
         radiotext: "retune resets the picture".to_owned(),
@@ -1386,8 +1383,8 @@ async fn retuning_resets_the_decoder_through_the_engine_path() {
         music: true,
         alt_freqs_hz: Vec::new(),
     };
-    let mut iq = testgen::rds::transmission(&station, 12.0, Some(1_000.0), RATE);
-    testgen::shift(&mut iq, offset_hz, RATE);
+    let mut iq = synth::rds::transmission(&station, 12.0, Some(1_000.0), RATE);
+    synth::shift(&mut iq, offset_hz, RATE);
     let device = plant(dir.path(), "rds_retune", iq, RATE);
 
     let settings = |offset_hz: f64| ChannelSettings {
@@ -1424,8 +1421,8 @@ async fn retuning_resets_the_decoder_through_the_engine_path() {
 
 #[tokio::test]
 async fn a_dmr_call_reaches_the_symbol_stream_with_its_measurement() {
-    let call = testgen::dv::dmr::Call::default();
-    let iq = testgen::dv::dmr::transmission(&call, AUDIO_DEVICE_RATE);
+    let call = synth::dv::dmr::Call::default();
+    let iq = synth::dv::dmr::transmission(&call, AUDIO_DEVICE_RATE);
     let dir = TempDir::new().unwrap();
     let engine = engine_for(dir.path());
     let device = plant(dir.path(), "dmr_symbols", iq, AUDIO_DEVICE_RATE);
@@ -1482,7 +1479,7 @@ async fn a_dmr_call_reaches_the_symbol_stream_with_its_measurement() {
 
 #[tokio::test]
 async fn an_analog_channel_never_pretends_to_have_symbols() {
-    let iq = testgen::dv::dmr::transmission(&testgen::dv::dmr::Call::default(), AUDIO_DEVICE_RATE);
+    let iq = synth::dv::dmr::transmission(&synth::dv::dmr::Call::default(), AUDIO_DEVICE_RATE);
     let dir = TempDir::new().unwrap();
     let engine = engine_for(dir.path());
     let device = plant(dir.path(), "nfm_no_symbols", iq, AUDIO_DEVICE_RATE);
@@ -1512,15 +1509,15 @@ async fn a_dect_base_station_survives_the_ddc_and_reports_its_identity_and_secur
     let dir = TempDir::new().unwrap();
     let engine = engine_for(dir.path());
 
-    let station = testgen::dect::Station {
+    let station = synth::dect::Station {
         rfpi: 0x0001_234D_5E6D,
         carrier: 4,
         slot: 2,
         slot_pair: 2,
-        capabilities: testgen::dect::capability_bits(&[17, 33, 36, 37]),
-        ..testgen::dect::Station::default()
+        capabilities: synth::dect::capability_bits(&[17, 33, 36, 37]),
+        ..synth::dect::Station::default()
     };
-    let iq = testgen::dect::dummy_bearer(&station, 40);
+    let iq = synth::dect::dummy_bearer(&station, 40);
 
     let device = plant(dir.path(), "dect", iq, DECT_DEVICE_RATE);
     let record = decode_first(
@@ -1550,12 +1547,12 @@ async fn a_dect_capabilities_broadcast_reaches_the_decoded_stream() {
     let dir = TempDir::new().unwrap();
     let engine = engine_for(dir.path());
 
-    let station = testgen::dect::Station {
+    let station = synth::dect::Station {
         rfpi: 0x0001_234D_5E6D,
-        capabilities: testgen::dect::capability_bits(&[17, 33, 36, 37]),
-        ..testgen::dect::Station::default()
+        capabilities: synth::dect::capability_bits(&[17, 33, 36, 37]),
+        ..synth::dect::Station::default()
     };
-    let iq = testgen::dect::dummy_bearer(&station, 40);
+    let iq = synth::dect::dummy_bearer(&station, 40);
 
     let device = plant(dir.path(), "dect_caps", iq, DECT_DEVICE_RATE);
     let record = decode_first(
@@ -1593,7 +1590,7 @@ async fn broadcast_audio_reaches_stereo_opus_through_virtual_devices() {
         let engine = engine_for(dir.path());
         let (iq, rate, params) = match system {
             BroadcastSystem::DabPlus => (
-                testgen::dab::ensemble(30),
+                synth::dab::ensemble(30),
                 2048000.0,
                 ChannelParams::Dab(DabParams {
                     mode: sdrmm_wire::DabMode::DabPlus,
@@ -1601,7 +1598,7 @@ async fn broadcast_audio_reaches_stereo_opus_through_virtual_devices() {
                 }),
             ),
             BroadcastSystem::Dab => (
-                testgen::dab::ensemble(30),
+                synth::dab::ensemble(30),
                 2048000.0,
                 ChannelParams::Dab(DabParams {
                     mode: sdrmm_wire::DabMode::Dab,
@@ -1609,20 +1606,20 @@ async fn broadcast_audio_reaches_stereo_opus_through_virtual_devices() {
                 }),
             ),
             BroadcastSystem::DvbS => (
-                testgen::datv::dvbs(4),
+                synth::datv::dvbs(4),
                 2000000.0,
                 ChannelParams::Datv(DatvParams {
-                    symbol_rate: testgen::datv::SYMBOL_RATE,
-                    code_rate: testgen::datv::CODE_RATE,
+                    symbol_rate: synth::datv::SYMBOL_RATE,
+                    code_rate: synth::datv::CODE_RATE,
                     ..DatvParams::default()
                 }),
             ),
             BroadcastSystem::DvbS2 => (
-                testgen::datv::dvbs2(4),
+                synth::datv::dvbs2(4),
                 2000000.0,
                 ChannelParams::Datv(DatvParams {
                     standard: DatvStandard::DvbS2,
-                    symbol_rate: testgen::datv::SYMBOL_RATE,
+                    symbol_rate: synth::datv::SYMBOL_RATE,
                     ..DatvParams::default()
                 }),
             ),
@@ -1702,7 +1699,7 @@ async fn dab_pad_slideshow_crosses_the_virtual_receiver_and_decoded_event_stream
     let device = plant(
         dir.path(),
         "dab-slideshow",
-        testgen::dab::ensemble(30),
+        synth::dab::ensemble(30),
         2_048_000.0,
     );
     let record = decode_first(

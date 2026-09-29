@@ -468,7 +468,7 @@ pub fn hunt_graph(phone: Option<&str>) -> PatchGraph {
                     device: Some(DeviceRef {
                         backend: "virtual".to_owned(),
                         serial: None,
-                        key: Some("siggen".to_owned()),
+                        key: Some("band".to_owned()),
                     }),
                     locked_streams: Vec::new(),
                 }),

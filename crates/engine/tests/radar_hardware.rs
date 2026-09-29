@@ -166,7 +166,7 @@ fn fm_reference(len: usize) -> Vec<C32> {
 }
 
 fn dab_reference(len: usize) -> Vec<C32> {
-    let native = sdrmm_channels::testgen::dab::ensemble(12);
+    let native = sdrmm_channels::synth::dab::ensemble(12);
     let step = 2_048_000.0 / FULL_RATE;
     (0..len)
         .map(|n| {

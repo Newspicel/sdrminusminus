@@ -75,13 +75,7 @@ impl SdrplayDriver {
     fn api(&self) -> Option<Arc<dyn Sdrplay>> {
         match &self.api {
             Some(api) => Some(api.clone()),
-            None => match shared() {
-                Ok(api) => Some(api),
-                Err(error) => {
-                    tracing::debug!("the SDRplay API is unavailable: {error}");
-                    None
-                }
-            },
+            None => shared().ok(),
         }
     }
 }

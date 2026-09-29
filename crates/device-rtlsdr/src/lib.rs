@@ -1,7 +1,7 @@
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use caps::{GainMode, Plan};
-use driver::{DeviceDescriptor, DeviceDescriptors, RtlSdr};
+use dongle::{Catalog, Dongle, Listing};
 use sdrmm_device::{
     Capture, CaptureConfig, CaptureRadio, DeviceDriver, DeviceError, RxSink, SdrDevice, lock,
     single_rx_sink,
@@ -13,7 +13,7 @@ use sdrmm_wire::{
 
 mod caps;
 mod convert;
-mod driver;
+mod dongle;
 mod kraken;
 
 pub use kraken::KrakenDriver;
@@ -23,48 +23,21 @@ pub(crate) const DRIVER_ID: &str = "rtlsdr";
 const DEFAULT_SAMPLE_RATE_HZ: u32 = 2_048_000;
 pub(crate) const DEFAULT_CENTER_HZ: u32 = 100_000_000;
 
-fn map_err(err: driver::Error) -> DeviceError {
-    let text = err.to_string();
-    if err.is_disconnected() {
-        return DeviceError::Disconnected(text);
-    }
-    if err.is_permission_denied() {
-        return DeviceError::PermissionDenied(text);
-    }
-    if err.is_busy() {
-        return DeviceError::InUse(text);
-    }
-    if err.is_missing() {
-        return DeviceError::NotFound(text);
-    }
-    if err.is_wrong_driver() {
-        return DeviceError::Unsupported(format!("{text}: install the WinUSB driver with Zadig"));
-    }
-    match err {
-        driver::Error::DeviceNotFound => DeviceError::NotFound(text),
-        driver::Error::InvalidSampleRate { .. }
-        | driver::Error::InvalidParam(_)
-        | driver::Error::PllLockFailed { .. }
-        | driver::Error::UnsupportedTuner(_) => DeviceError::Unsupported(text),
-        _ => DeviceError::Io(text),
-    }
+fn enumerate() -> Result<Vec<Listing>, dongle::Error> {
+    Ok(Catalog::scan()?.listings().cloned().collect())
 }
 
-fn enumerate() -> Result<Vec<DeviceDescriptor>, driver::Error> {
-    Ok(DeviceDescriptors::new()?.iter().cloned().collect())
-}
-
-fn standalone() -> Result<Vec<DeviceDescriptor>, driver::Error> {
+fn standalone() -> Result<Vec<Listing>, dongle::Error> {
     Ok(without_banks(enumerate()?))
 }
 
-fn without_banks(attached: Vec<DeviceDescriptor>) -> Vec<DeviceDescriptor> {
+fn without_banks(attached: Vec<Listing>) -> Vec<Listing> {
     let claimed = kraken::claimed(&attached);
     attached
         .into_iter()
         .enumerate()
         .filter(|(position, _)| !claimed.contains(position))
-        .map(|(_, descriptor)| descriptor)
+        .map(|(_, listing)| listing)
         .collect()
 }
 
@@ -104,18 +77,18 @@ impl DeviceDriver for RtlSdrDriver {
             .get(position)
             .ok_or_else(|| DeviceError::NotFound(info.id()))?
             .index;
-        let sdr = RtlSdr::open(index).map_err(map_err)?;
-        Ok(Box::new(RtlSdrDevice::from_sdr(sdr)?))
+        let dongle = Dongle::open(index)?;
+        Ok(Box::new(RtlSdrDevice::from_dongle(dongle)?))
     }
 }
 
 struct RtlRadio {
-    sdr: Mutex<RtlSdr>,
+    dongle: Mutex<Dongle>,
 }
 
 impl RtlRadio {
-    fn lock(&self) -> MutexGuard<'_, RtlSdr> {
-        lock(&self.sdr)
+    fn lock(&self) -> MutexGuard<'_, Dongle> {
+        lock(&self.dongle)
     }
 }
 
@@ -123,7 +96,7 @@ impl CaptureRadio for RtlRadio {
     type Stream = RxStream;
 
     fn arm(&self) -> Result<RxStream, DeviceError> {
-        self.lock().start_streaming().map_err(map_err)
+        Ok(self.lock().start_stream()?)
     }
 }
 
@@ -136,35 +109,34 @@ pub struct RtlSdrDevice {
 }
 
 impl RtlSdrDevice {
-    fn from_sdr(mut sdr: RtlSdr) -> Result<Self, DeviceError> {
-        let capabilities = caps::capabilities(sdr.board_variant(), sdr.gains());
-        let gain_table = sdr.gains().to_vec();
+    fn from_dongle(mut dongle: Dongle) -> Result<Self, DeviceError> {
+        let capabilities = caps::capabilities(dongle.board(), dongle.gain_table());
+        let gain_table = dongle.gain_table().to_vec();
         tracing::info!(
-            tuner = ?sdr.tuner_type(),
-            board = ?sdr.board_variant(),
+            tuner = ?dongle.tuner_kind(),
+            board = ?dongle.board(),
             gain_steps = gain_table.len(),
             "opened rtlsdr device"
         );
 
-        sdr.set_sample_rate(DEFAULT_SAMPLE_RATE_HZ)
-            .map_err(map_err)?;
-        sdr.set_center_freq(DEFAULT_CENTER_HZ).map_err(map_err)?;
-        sdr.set_gain_auto().map_err(map_err)?;
-        let bias_tee = sdr.bias_t_at_startup();
-        sdr.set_bias_t(bias_tee).map_err(map_err)?;
+        dongle.set_sample_rate(DEFAULT_SAMPLE_RATE_HZ)?;
+        dongle.set_center(DEFAULT_CENTER_HZ)?;
+        dongle.set_auto_gain()?;
+        let bias_tee = dongle.bias_tee_at_start();
+        dongle.set_bias_tee(bias_tee)?;
 
-        let extra = (!sdr.board_variant().upconverts_hf())
+        let extra = (!dongle.board().has_upconverter())
             .then(|| ExtraValue {
                 name: caps::DIRECT_SAMPLING.to_string(),
-                value: sdr.direct_sampling().as_str().into(),
+                value: dongle.direct_sampling().wire_name().into(),
             })
             .into_iter()
             .collect();
 
         let settings = DeviceSettings {
-            center_hz: Some(f64::from(sdr.center_freq())),
-            sample_rate: Some(f64::from(sdr.sample_rate())),
-            ppm: Some(f64::from(sdr.freq_correction())),
+            center_hz: dongle.center_hz().map(f64::from),
+            sample_rate: Some(f64::from(dongle.sample_rate())),
+            ppm: Some(f64::from(dongle.ppm())),
             antenna: Some("RX".to_string()),
             bandwidth: Some(BandwidthSetting::Auto),
             bias_tee: Some(bias_tee),
@@ -175,7 +147,7 @@ impl RtlSdrDevice {
 
         Ok(Self {
             radio: Arc::new(RtlRadio {
-                sdr: Mutex::new(sdr),
+                dongle: Mutex::new(dongle),
             }),
             capabilities,
             settings,
@@ -185,31 +157,29 @@ impl RtlSdrDevice {
     }
 }
 
-fn apply_to_hardware(sdr: &mut RtlSdr, plan: &Plan) -> Result<(), DeviceError> {
+fn apply_to_hardware(dongle: &mut Dongle, plan: &Plan) -> Result<(), DeviceError> {
     if let Some(mode) = plan.direct_sampling {
-        sdr.set_direct_sampling(mode).map_err(map_err)?;
+        dongle.set_direct_sampling(mode)?;
     }
     if let Some(rate) = plan.sample_rate {
-        sdr.set_sample_rate(rate).map_err(map_err)?;
+        dongle.set_sample_rate(rate)?;
     }
     if let Some(hz) = plan.center_hz {
-        sdr.set_center_freq(hz).map_err(map_err)?;
+        dongle.set_center(hz)?;
     }
-    if let Some(bw) = plan.bandwidth {
-        sdr.set_bandwidth(bw).map_err(map_err)?;
-        let center = sdr.center_freq();
-        sdr.set_center_freq(center).map_err(map_err)?;
+    if let Some(bandwidth) = plan.bandwidth {
+        dongle.set_bandwidth(bandwidth)?;
     }
     if let Some(ppm) = plan.ppm {
-        sdr.set_freq_correction(ppm).map_err(map_err)?;
+        dongle.set_ppm(ppm)?;
     }
     match plan.gain {
-        Some(GainMode::Auto) => sdr.set_gain_auto().map_err(map_err)?,
-        Some(GainMode::Manual(tenths)) => sdr.set_gain_manual(tenths).map_err(map_err)?,
+        Some(GainMode::Auto) => dongle.set_auto_gain()?,
+        Some(GainMode::Manual(tenths)) => dongle.set_manual_gain(tenths)?,
         None => {}
     }
     if let Some(on) = plan.bias_tee {
-        sdr.set_bias_t(on).map_err(map_err)?;
+        dongle.set_bias_tee(on)?;
     }
     Ok(())
 }
@@ -231,16 +201,16 @@ impl SdrDevice for RtlSdrDevice {
             &self.gain_table,
         )?;
         let (result, center_hz, sample_rate, ppm) = {
-            let mut sdr = self.radio.lock();
-            let result = apply_to_hardware(&mut sdr, &plan);
+            let mut dongle = self.radio.lock();
+            let result = apply_to_hardware(&mut dongle, &plan);
             (
                 result,
-                sdr.center_freq(),
-                sdr.sample_rate(),
-                sdr.freq_correction(),
+                dongle.center_hz(),
+                dongle.sample_rate(),
+                dongle.ppm(),
             )
         };
-        self.settings.center_hz = Some(f64::from(center_hz));
+        self.settings.center_hz = center_hz.map(f64::from);
         self.settings.sample_rate = Some(f64::from(sample_rate));
         self.settings.ppm = Some(f64::from(ppm));
         result?;
@@ -266,7 +236,7 @@ impl SdrDevice for RtlSdrDevice {
         if !self.settings.agc.as_ref().is_some_and(|agc| agc.on) {
             return Ok(Vec::new());
         }
-        let tenths = self.radio.lock().tuner_gain().map_err(map_err)?;
+        let tenths = self.radio.lock().measured_gain()?;
         Ok(vec![AgcGain {
             stream: 0,
             value_db: f64::from(tenths) / 10.0,
@@ -277,10 +247,10 @@ impl SdrDevice for RtlSdrDevice {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::driver::BoardVariant;
+    use crate::dongle::Board;
 
-    fn dongle(serial: &str, port: u8, hub: Option<u8>) -> DeviceDescriptor {
-        DeviceDescriptor {
+    fn dongle(serial: &str, port: u8, hub: Option<u8>) -> Listing {
+        Listing {
             index: usize::from(port),
             bus: "001".to_string(),
             address: port,
@@ -288,14 +258,14 @@ mod tests {
             product: None,
             serial: Some(serial.to_string()),
             port_chain: hub.map_or_else(|| vec![port], |hub| vec![hub, port]),
-            board_variant: BoardVariant::Generic,
+            board: Board::Generic,
             hub: None,
         }
     }
 
     #[test]
     fn a_banks_dongles_are_not_offered_as_radios_of_their_own() {
-        let mut attached: Vec<DeviceDescriptor> = (0..5)
+        let mut attached: Vec<Listing> = (0..5)
             .map(|lane| dongle(&(1000 + lane).to_string(), lane as u8 + 1, Some(4)))
             .collect();
         attached.push(dongle("00000123", 9, None));
@@ -313,35 +283,5 @@ mod tests {
     #[test]
     fn driver_id_is_the_wire_id() {
         assert_eq!(RtlSdrDriver::new().id(), "rtlsdr");
-    }
-
-    fn control_failure(source: nusb::transfer::TransferError) -> driver::Error {
-        driver::Error::ControlTransfer {
-            op: "demod write of page 0x1:0x0001".to_string(),
-            source,
-        }
-    }
-
-    #[test]
-    fn an_unplugged_dongle_reads_as_gone_rather_than_as_a_transfer_that_failed() {
-        assert!(matches!(
-            map_err(control_failure(nusb::transfer::TransferError::Disconnected)),
-            DeviceError::Disconnected(_)
-        ));
-        assert!(matches!(
-            map_err(control_failure(nusb::transfer::TransferError::Stall)),
-            DeviceError::Io(_)
-        ));
-    }
-
-    #[cfg(target_os = "macos")]
-    #[test]
-    fn a_dongle_that_stopped_answering_the_bus_reads_as_gone() {
-        assert!(matches!(
-            map_err(control_failure(nusb::transfer::TransferError::Unknown(
-                0xe000_02ed
-            ))),
-            DeviceError::Disconnected(_)
-        ));
     }
 }

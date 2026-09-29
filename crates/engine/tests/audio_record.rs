@@ -26,7 +26,7 @@ fn engine(dir: &Path) -> Arc<Engine> {
 }
 
 fn set_at_test_rate(engine: &Engine) -> u32 {
-    let ds = engine.create_device_set("virtual:siggen").unwrap();
+    let ds = engine.create_device_set("virtual:band").unwrap();
     engine
         .patch_device(
             ds,

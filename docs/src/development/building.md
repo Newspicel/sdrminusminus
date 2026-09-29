@@ -77,7 +77,7 @@ Recording playback and the signal generator work in every build.
 
 Add a **Signal generator** node, pick a signal, and wire it to a matching channel and a Speaker.
 Debug builds also list synthetic radios on the Device node: a five-lane Kraken bench, a
-four-lane coherent array, two dongles, and test transceivers.
+four-lane coherent array, two dongles, a test band and test transceivers.
 
 ## Checks
 

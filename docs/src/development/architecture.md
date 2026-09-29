@@ -19,7 +19,7 @@ Radio / network / recording → DSP engine → audio, events, spectrum, IQ
 | `sdrmm-wire` | Shared settings, DTOs, events, patch graph, and OpenAPI schemas |
 | `sdrmm-device` | Hardware-independent device traits, capabilities, settings, and registry |
 | `sdrmm-device-recording` | SigMF playback behind the Recording node |
-| `sdrmm-device-siggen` | Test signals behind the Signal generator node |
+| `sdrmm-device-siggen` | Signals for the Signal generator node |
 | `sdrmm-device-virtual` | Synthetic radios for debug builds and tests |
 | `sdrmm-usb-stream` | Bulk USB streaming shared by the native drivers |
 | `sdrmm-device-rtlsdr` | Native RTL-SDR driver |
@@ -33,7 +33,7 @@ Radio / network / recording → DSP engine → audio, events, spectrum, IQ
 | `sdrmm-device-sdrconnect` | SDRplay SDRconnect over its WebSocket API |
 | `sdrmm-device-kiwisdr` | KiwiSDR over its WebSocket API |
 | `sdrmm-device-cr8` | Dragon Labs CR-8 through the vendor SDK, loaded at runtime |
-| `sdrmm-channels` | Analog demodulators, protocol decoders, and their descriptors |
+| `sdrmm-channels` | Analog demodulators, protocol decoders, their descriptors, and signal synthesis |
 | `sdrmm-recorder` | SigMF writing, reading, scanning, and export |
 | `sdrmm-orbit` | SGP4, pass prediction, and Doppler |
 | `sdrmm-tools` | Antenna calculator and NanoVNA |

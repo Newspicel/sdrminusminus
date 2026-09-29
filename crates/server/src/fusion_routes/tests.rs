@@ -343,7 +343,7 @@ async fn a_hunt_position_wire_feeds_hunt_poses() {
     let state = bench(hunted.clone());
     let engine = state.engine.clone();
     let set = engine
-        .create_device_set("virtual:siggen")
+        .create_device_set("virtual:band")
         .expect("virtual radio");
     let channel = engine
         .add_channel(

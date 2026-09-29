@@ -366,7 +366,7 @@ impl InversionDetector {
 mod tests {
     use super::*;
     use crate::{
-        testgen::{nfm::speech_audio, tone_audio},
+        synth::{nfm::speech_audio, tone_audio},
         testutil::{dominant_tone, tone_amplitude},
     };
 

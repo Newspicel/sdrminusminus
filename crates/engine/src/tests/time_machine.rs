@@ -4,7 +4,7 @@ use super::*;
 async fn the_time_machine_captures_the_seconds_that_already_went_past() {
     let dir = tempfile::TempDir::new().unwrap();
     let engine = recording_engine(dir.path());
-    let ds = engine.create_device_set("virtual:siggen").unwrap();
+    let ds = engine.create_device_set("virtual:band").unwrap();
     let settings = TimeMachineNode { history_seconds: 2 };
 
     let armed = engine
@@ -67,7 +67,7 @@ async fn the_time_machine_captures_the_seconds_that_already_went_past() {
 async fn an_armed_time_machine_locks_the_sample_rate_and_refuses_a_window_that_will_not_fit() {
     let dir = tempfile::TempDir::new().unwrap();
     let engine = recording_engine(dir.path());
-    let ds = engine.create_device_set("virtual:siggen").unwrap();
+    let ds = engine.create_device_set("virtual:band").unwrap();
 
     let too_wide = engine
         .control_time_machine(
@@ -133,7 +133,7 @@ async fn an_armed_time_machine_locks_the_sample_rate_and_refuses_a_window_that_w
 async fn a_time_machine_action_names_the_node_that_owns_the_history() {
     let dir = tempfile::TempDir::new().unwrap();
     let engine = recording_engine(dir.path());
-    let ds = engine.create_device_set("virtual:siggen").unwrap();
+    let ds = engine.create_device_set("virtual:band").unwrap();
     let settings = TimeMachineNode { history_seconds: 1 };
 
     let idle = engine

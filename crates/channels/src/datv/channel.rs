@@ -548,7 +548,7 @@ impl ChannelRx for DatvChannel {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{testgen, testutil::realtime_budget};
+    use crate::{synth, testutil::realtime_budget};
 
     fn settings_of(params: DatvParams) -> ChannelSettings {
         ChannelSettings {
@@ -572,7 +572,7 @@ mod tests {
     fn channel(program: Option<u16>) -> DatvChannel {
         open(DatvParams {
             program,
-            ..testgen::datv::params()
+            ..synth::datv::params()
         })
     }
 
@@ -617,30 +617,30 @@ mod tests {
     fn an_iss_wide_carrier_locks_and_decodes() {
         let params = DatvParams {
             symbol_rate: 2_000_000.0,
-            ..testgen::datv::params()
+            ..synth::datv::params()
         };
-        let iq = testgen::datv::dvbs_with(1, &params);
+        let iq = synth::datv::dvbs_with(1, &params);
         let mut channel = open(params);
         let statuses = drive(&mut channel, &iq);
         let status = statuses.last().expect("a broadcast status");
         assert!(status.locked, "{status:?}");
         assert!(status.frames_ok > 0, "{status:?}");
-        assert_eq!(status.label.as_deref(), Some(testgen::datv::PROGRAM_NAME));
+        assert_eq!(status.label.as_deref(), Some(synth::datv::PROGRAM_NAME));
     }
 
     #[test]
     fn a_generated_transport_stream_reaches_the_program_table() {
-        let iq = testgen::datv::dvbs(3);
+        let iq = synth::datv::dvbs(3);
         let mut channel = channel(None);
         let statuses = drive(&mut channel, &iq);
         let status = statuses.last().expect("a broadcast status");
         assert!(status.locked, "{status:?}");
         assert_eq!(status.system, BroadcastSystem::DvbS);
         assert_eq!(status.code_rate.as_deref(), Some("3/4"));
-        assert_eq!(status.label.as_deref(), Some(testgen::datv::PROGRAM_NAME));
+        assert_eq!(status.label.as_deref(), Some(synth::datv::PROGRAM_NAME));
         assert_eq!(
             status.ensemble_label.as_deref(),
-            Some(testgen::datv::PROVIDER)
+            Some(synth::datv::PROVIDER)
         );
         assert_eq!(status.services.len(), 1);
         assert!(status.frames_ok > 20, "{status:?}");
@@ -651,7 +651,7 @@ mod tests {
         while channel.media.video_frames == 0 && std::time::Instant::now() < until {
             channel
                 .media
-                .advance(16384, input_rate_hz(&testgen::datv::params()));
+                .advance(16384, input_rate_hz(&synth::datv::params()));
             channel.media.drain(&mut out);
             std::thread::sleep(std::time::Duration::from_millis(1));
         }
@@ -669,7 +669,7 @@ mod tests {
 
     #[test]
     fn the_stream_kinds_are_named_in_the_status_text() {
-        let iq = testgen::datv::dvbs(3);
+        let iq = synth::datv::dvbs(3);
         let mut channel = channel(None);
         let statuses = drive(&mut channel, &iq);
         let status = statuses.last().expect("a broadcast status");
@@ -680,20 +680,20 @@ mod tests {
     fn second_generation() -> DatvChannel {
         open(DatvParams {
             standard: DatvStandard::DvbS2,
-            symbol_rate: testgen::datv::SYMBOL_RATE,
+            symbol_rate: synth::datv::SYMBOL_RATE,
             ..DatvParams::default()
         })
     }
 
     #[test]
     fn a_generated_second_generation_stream_reaches_the_program_table() {
-        let iq = testgen::datv::dvbs2(3);
+        let iq = synth::datv::dvbs2(3);
         let mut channel = second_generation();
         let statuses = drive(&mut channel, &iq);
         let status = statuses.last().expect("a broadcast status");
         assert_eq!(status.system, BroadcastSystem::DvbS2);
         assert_eq!(status.code_rate.as_deref(), Some("QPSK 3/4"));
-        assert_eq!(status.label.as_deref(), Some(testgen::datv::PROGRAM_NAME));
+        assert_eq!(status.label.as_deref(), Some(synth::datv::PROGRAM_NAME));
         assert!(status.frames_ok > 3, "{status:?}");
         assert_eq!(status.frames_bad, 0, "{status:?}");
         assert!(channel.video_units > 0, "no video access unit arrived");
@@ -708,7 +708,7 @@ mod tests {
             (Modulation::Apsk16, Rate::R3_4, "16APSK 3/4"),
             (Modulation::Apsk32, Rate::R5_6, "32APSK 5/6"),
         ] {
-            let iq = testgen::datv::dvbs2_mode(3, modulation, rate, false, true);
+            let iq = synth::datv::dvbs2_mode(3, modulation, rate, false, true);
             let mut channel = second_generation();
             let statuses = drive(&mut channel, &iq);
             let status = statuses.last().expect("a broadcast status");
@@ -718,7 +718,7 @@ mod tests {
             assert_eq!(status.frames_bad, 0, "{label}: {status:?}");
             assert_eq!(
                 status.label.as_deref(),
-                Some(testgen::datv::PROGRAM_NAME),
+                Some(synth::datv::PROGRAM_NAME),
                 "{status:?}"
             );
             assert!(channel.video_units > 0, "{label} carried no video");
@@ -734,7 +734,7 @@ mod tests {
             (Modulation::Apsk128, Rate::R135_180),
             (Modulation::Apsk256, Rate::R116_180),
         ] {
-            let iq = testgen::datv::dvbs2_mode(2, modulation, rate, false, true);
+            let iq = synth::datv::dvbs2_mode(2, modulation, rate, false, true);
             let mut channel = second_generation();
             let started = std::time::Instant::now();
             let statuses = drive(&mut channel, &iq);
@@ -742,7 +742,7 @@ mod tests {
             let status = statuses.last().expect("broadcast status");
             assert_eq!(
                 status.label.as_deref(),
-                Some(testgen::datv::PROGRAM_NAME),
+                Some(synth::datv::PROGRAM_NAME),
                 "{modulation:?}: {status:?}"
             );
             assert!(status.frames_ok > 0, "{modulation:?}: {status:?}");
@@ -759,7 +759,7 @@ mod tests {
 
     #[test]
     fn an_encapsulated_stream_is_named_and_its_input_streams_listed() {
-        let iq = testgen::datv::dvbs2_generic(3, &[4, 11]);
+        let iq = synth::datv::dvbs2_generic(3, &[4, 11]);
         let mut channel = second_generation();
         let statuses = drive(&mut channel, &iq);
         let status = statuses.last().expect("a broadcast status");
@@ -780,10 +780,10 @@ mod tests {
 
     #[test]
     fn only_the_chosen_input_stream_is_read() {
-        let iq = testgen::datv::dvbs2_generic(3, &[4, 11]);
+        let iq = synth::datv::dvbs2_generic(3, &[4, 11]);
         let mut channel = open(DatvParams {
             standard: DatvStandard::DvbS2,
-            symbol_rate: testgen::datv::SYMBOL_RATE,
+            symbol_rate: synth::datv::SYMBOL_RATE,
             input_stream: Some(11),
             ..DatvParams::default()
         });
@@ -802,7 +802,7 @@ mod tests {
     #[test]
     fn a_very_low_signal_stream_reaches_the_program_table() {
         for (header, label) in [(9u8, "VL-SNR BPSK 1/5"), (0, "VL-SNR QPSK 2/9")] {
-            let iq = testgen::datv::dvbs2_very_low(8, header);
+            let iq = synth::datv::dvbs2_very_low(8, header);
             let mut channel = second_generation();
             let statuses = drive(&mut channel, &iq);
             let status = statuses.last().expect("a broadcast status");
@@ -812,7 +812,7 @@ mod tests {
             assert_eq!(status.frames_bad, 0, "{label}: {status:?}");
             assert_eq!(
                 status.label.as_deref(),
-                Some(testgen::datv::PROGRAM_NAME),
+                Some(synth::datv::PROGRAM_NAME),
                 "{status:?}"
             );
             assert!(channel.video_units > 0, "{label} carried no video");
@@ -822,7 +822,7 @@ mod tests {
     #[test]
     fn noise_reports_neither_a_lock_nor_a_program() {
         let mut state = 0x0bad_c0deu32;
-        let iq: Vec<Complex<f32>> = (0..2 * input_rate_hz(&testgen::datv::params()) as usize)
+        let iq: Vec<Complex<f32>> = (0..2 * input_rate_hz(&synth::datv::params()) as usize)
             .map(|_| {
                 state ^= state << 13;
                 state ^= state >> 17;
@@ -843,12 +843,12 @@ mod tests {
     fn the_higher_order_constellations_keep_ahead_of_the_channel_rate() {
         use crate::datv::dvbs2::{frame::Modulation, ldpc::Rate};
 
-        let iq = testgen::datv::dvbs2_mode(2, Modulation::Apsk32, Rate::R5_6, false, true);
+        let iq = synth::datv::dvbs2_mode(2, Modulation::Apsk32, Rate::R5_6, false, true);
         let mut channel = second_generation();
         let started = std::time::Instant::now();
         let statuses = drive(&mut channel, &iq);
         let elapsed = started.elapsed().as_secs_f64();
-        let seconds = iq.len() as f64 / input_rate_hz(&testgen::datv::params());
+        let seconds = iq.len() as f64 / input_rate_hz(&synth::datv::params());
         assert!(
             statuses.last().is_some_and(|status| status.frames_ok > 0),
             "no 32APSK frame decoded, so the timing proves nothing"
@@ -861,12 +861,12 @@ mod tests {
 
     #[test]
     fn a_very_low_signal_frame_keeps_ahead_of_the_channel_rate() {
-        let iq = testgen::datv::dvbs2_very_low(2, 0);
+        let iq = synth::datv::dvbs2_very_low(2, 0);
         let mut channel = second_generation();
         let started = std::time::Instant::now();
         let statuses = drive(&mut channel, &iq);
         let elapsed = started.elapsed().as_secs_f64();
-        let seconds = iq.len() as f64 / input_rate_hz(&testgen::datv::params());
+        let seconds = iq.len() as f64 / input_rate_hz(&synth::datv::params());
         assert!(
             statuses.last().is_some_and(|status| status.frames_ok > 0),
             "no VL-SNR frame decoded, so the timing proves nothing"
@@ -879,12 +879,12 @@ mod tests {
 
     #[test]
     fn decoding_keeps_ahead_of_the_channel_rate() {
-        let iq = testgen::datv::dvbs(2);
+        let iq = synth::datv::dvbs(2);
         let mut channel = channel(None);
         let started = std::time::Instant::now();
         drive(&mut channel, &iq);
         let elapsed = started.elapsed().as_secs_f64();
-        let seconds = iq.len() as f64 / input_rate_hz(&testgen::datv::params());
+        let seconds = iq.len() as f64 / input_rate_hz(&synth::datv::params());
         assert!(
             elapsed < realtime_budget(seconds),
             "{seconds:.2} s of DATV took {elapsed:.2} s"

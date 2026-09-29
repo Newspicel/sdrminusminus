@@ -160,6 +160,7 @@ mod tests {
             coherence: Coherence::None,
             noise_source: NoiseSource::None,
             retune_keeps_phase: false,
+            rx_stream_choices: Vec::new(),
         }
     }
 
@@ -204,6 +205,7 @@ mod tests {
             playback: None,
             virtual_lanes: Vec::new(),
             held: Vec::new(),
+            loss: None,
         }
     }
 

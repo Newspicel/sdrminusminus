@@ -22,7 +22,7 @@ test("monitors IQ through one node and exports transmission audio", async ({ pag
           id: nodeIds.radio,
           kind: "device",
           position: { x: 0, y: 0 },
-          data: { device: { backend: "virtual", key: "siggen" } },
+          data: { device: { backend: "virtual", key: "band" } },
         },
         {
           id: nodeIds.monitor,

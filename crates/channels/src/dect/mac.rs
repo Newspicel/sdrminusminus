@@ -131,7 +131,7 @@ pub(crate) fn a_field_crc_ok(a: u64) -> bool {
     expected == field(a, 48, 16) as u16
 }
 
-#[cfg(any(test, feature = "test-signals"))]
+#[cfg(any(test, feature = "synth"))]
 #[must_use]
 pub(crate) fn append_r_crc(a: u64) -> u64 {
     let head = a & !((1u64 << 16) - 1);

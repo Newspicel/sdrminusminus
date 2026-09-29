@@ -12,7 +12,7 @@ const SURVEY: WorkspaceSnapshot = {
     nodes: [
       placed(
         "dev",
-        { kind: "device", data: { device: { backend: "virtual", key: "siggen" } } },
+        { kind: "device", data: { device: { backend: "virtual", key: "band" } } },
         0,
         0,
       ),

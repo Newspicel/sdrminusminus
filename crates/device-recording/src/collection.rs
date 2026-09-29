@@ -121,6 +121,7 @@ fn capabilities(reader: &CollectionReader) -> Capabilities {
         coherence: reader.array().tier,
         noise_source: NoiseSource::Replayed,
         retune_keeps_phase: reader.array().retune_keeps_phase,
+        rx_stream_choices: Vec::new(),
     }
 }
 

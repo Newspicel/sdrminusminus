@@ -28,7 +28,7 @@ fn recording_engine(dir: &Path) -> Arc<Engine> {
 }
 
 async fn record_siggen(engine: &Engine, rate: f64, min_samples: u64) -> FinalizedRecording {
-    let ds = engine.create_device_set("virtual:siggen").unwrap();
+    let ds = engine.create_device_set("virtual:band").unwrap();
     engine
         .patch_device(
             ds,

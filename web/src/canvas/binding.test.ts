@@ -83,7 +83,7 @@ describe("device references", () => {
     const byKey = deviceRefOf(file);
     expect(byKey).toEqual({ backend: "virtual", key: "file:/rec/capture" });
     expect(refMatches(byKey, file)).toBe(true);
-    expect(refMatches(byKey, info({ driver: "virtual", key: "siggen" }))).toBe(false);
+    expect(refMatches(byKey, info({ driver: "virtual", key: "band" }))).toBe(false);
 
     const singleton = { backend: "hackrf" };
     expect(refMatches(singleton, info({ driver: "hackrf", key: "0" }))).toBe(true);

@@ -2,7 +2,7 @@
 
 use num_complex::Complex;
 use sdrmm_channels::{
-    ChannelCtx, ChannelOutputs, Dvbs2Modulation as Modulation, Dvbs2Rate as Rate, testgen,
+    ChannelCtx, ChannelOutputs, Dvbs2Modulation as Modulation, Dvbs2Rate as Rate, synth,
 };
 use sdrmm_modem_test_support::ber::perf::measure_throughput;
 use sdrmm_wire::{ChannelParams, ChannelSettings, DatvParams, DatvStandard, DecoderEvent};
@@ -23,7 +23,7 @@ fn settings(standard: DatvStandard) -> ChannelSettings {
         squelch: sdrmm_wire::Squelch::Off,
         params: ChannelParams::Datv(DatvParams {
             standard,
-            ..testgen::datv::params()
+            ..synth::datv::params()
         }),
         blanker: Default::default(),
     }
@@ -79,37 +79,37 @@ fn dvb_s2_modes_against_the_realtime_budget() {
         measure(
             "dvbs_qpsk_3/4",
             DatvStandard::DvbS,
-            &testgen::datv::dvbs(SECONDS),
+            &synth::datv::dvbs(SECONDS),
         ),
         measure(
             "dvbs2_qpsk_3/4_short",
             DatvStandard::DvbS2,
-            &testgen::datv::dvbs2_mode(SECONDS, Modulation::Qpsk, Rate::R3_4, true, false),
+            &synth::datv::dvbs2_mode(SECONDS, Modulation::Qpsk, Rate::R3_4, true, false),
         ),
         measure(
             "dvbs2_qpsk_3/4_normal",
             DatvStandard::DvbS2,
-            &testgen::datv::dvbs2_mode(SECONDS, Modulation::Qpsk, Rate::R3_4, false, true),
+            &synth::datv::dvbs2_mode(SECONDS, Modulation::Qpsk, Rate::R3_4, false, true),
         ),
         measure(
             "dvbs2_qpsk_1/4_normal",
             DatvStandard::DvbS2,
-            &testgen::datv::dvbs2_mode(SECONDS, Modulation::Qpsk, Rate::R1_4, false, true),
+            &synth::datv::dvbs2_mode(SECONDS, Modulation::Qpsk, Rate::R1_4, false, true),
         ),
         measure(
             "dvbs2_8psk_3/4_normal",
             DatvStandard::DvbS2,
-            &testgen::datv::dvbs2_mode(SECONDS, Modulation::Psk8, Rate::R3_4, false, true),
+            &synth::datv::dvbs2_mode(SECONDS, Modulation::Psk8, Rate::R3_4, false, true),
         ),
         measure(
             "dvbs2_16apsk_3/4_normal",
             DatvStandard::DvbS2,
-            &testgen::datv::dvbs2_mode(SECONDS, Modulation::Apsk16, Rate::R3_4, false, true),
+            &synth::datv::dvbs2_mode(SECONDS, Modulation::Apsk16, Rate::R3_4, false, true),
         ),
         measure(
             "dvbs2_32apsk_5/6_normal",
             DatvStandard::DvbS2,
-            &testgen::datv::dvbs2_mode(SECONDS, Modulation::Apsk32, Rate::R5_6, false, true),
+            &synth::datv::dvbs2_mode(SECONDS, Modulation::Apsk32, Rate::R5_6, false, true),
         ),
     ];
     println!(

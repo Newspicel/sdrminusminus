@@ -440,7 +440,7 @@ mod tests {
     use super::{INPUT_RATE_HZ, IdentChannel, MAX_WINDOW};
     use crate::{
         ChannelCtx, ChannelOutputs, ChannelRx,
-        testgen::{self, dv as tgdv},
+        synth::{self, dv as tgdv},
         testutil::{complex_noise, realtime_budget},
     };
 
@@ -676,14 +676,14 @@ mod tests {
 
     #[test]
     fn a_pager_transmission_is_two_level_at_its_own_baud() {
-        let pages = [testgen::pocsag::Page {
+        let pages = [synth::pocsag::Page {
             address: 1_234_567,
             function: 3,
             text: "IDENT TEST".to_owned(),
             numeric: false,
         }];
         let iq = on_air(
-            &testgen::pocsag::transmission(&pages, 1_200, 4_500.0, INPUT_RATE_HZ),
+            &synth::pocsag::transmission(&pages, 1_200, 4_500.0, INPUT_RATE_HZ),
             2.0,
             0x5d90,
         );
@@ -728,14 +728,14 @@ mod tests {
 
     #[test]
     fn a_weak_pager_is_a_shift_and_not_amplitude_modulation() {
-        let pages = [testgen::pocsag::Page {
+        let pages = [synth::pocsag::Page {
             address: 1_234_567,
             function: 3,
             text: "IDENT TEST".to_owned(),
             numeric: false,
         }];
         let iq = in_noise(
-            &testgen::pocsag::transmission(&pages, 1_200, 4_500.0, INPUT_RATE_HZ),
+            &synth::pocsag::transmission(&pages, 1_200, 4_500.0, INPUT_RATE_HZ),
             2.0,
             0x5d90,
             0.8,
@@ -764,7 +764,7 @@ mod tests {
     fn weak_fm_voice_stays_analog() {
         let audio = programme((INPUT_RATE_HZ * 2.2) as usize, 0x4d21);
         let iq = in_noise(
-            &testgen::fm_modulate(&audio, 3_000.0, INPUT_RATE_HZ),
+            &synth::fm_modulate(&audio, 3_000.0, INPUT_RATE_HZ),
             2.0,
             0x2ea7,
             1.2,
@@ -786,7 +786,7 @@ mod tests {
     fn a_broadcast_signal_is_wideband_fm() {
         let audio = programme(48_000, 0x4d21);
         let iq = on_air(
-            &testgen::wfm::transmission(&audio, &audio, true, INPUT_RATE_HZ),
+            &synth::wfm::transmission(&audio, &audio, true, INPUT_RATE_HZ),
             1.6,
             0x6f02,
         );
@@ -816,13 +816,13 @@ mod tests {
 
     fn station(smoothing: f32) -> Vec<Complex<f32>> {
         let len = (INPUT_RATE_HZ * 2.2) as usize;
-        let mut iq = testgen::wfm::transmission(
+        let mut iq = synth::wfm::transmission(
             &broadcast_audio(len, 0x4d21, smoothing),
             &broadcast_audio(len, 0x7712, smoothing),
             true,
             INPUT_RATE_HZ,
         );
-        testgen::add_noise(&mut iq, 0x6f02, 0.004);
+        synth::add_noise(&mut iq, 0x6f02, 0.004);
         iq
     }
 
@@ -856,9 +856,9 @@ mod tests {
     #[test]
     fn a_station_carrying_one_tone_is_still_broadcast_fm() {
         let len = (INPUT_RATE_HZ * 2.2) as usize;
-        let tone = testgen::tone_audio(1_000.0, 1.0, INPUT_RATE_HZ, len);
-        let mut iq = testgen::wfm::transmission(&tone, &tone, true, INPUT_RATE_HZ);
-        testgen::add_noise(&mut iq, 0x6f02, 0.004);
+        let tone = synth::tone_audio(1_000.0, 1.0, INPUT_RATE_HZ, len);
+        let mut iq = synth::wfm::transmission(&tone, &tone, true, INPUT_RATE_HZ);
+        synth::add_noise(&mut iq, 0x6f02, 0.004);
         let reports = run_at(settings_at(params(), 95_500_000.0), &iq);
         assert_eq!(consensus(&reports), Modulation::Fm, "{reports:?}");
         assert!(
@@ -870,8 +870,8 @@ mod tests {
 
     #[test]
     fn a_keyed_carrier_is_morse_rather_than_a_bare_carrier() {
-        let mut iq = testgen::morse::transmission("CQ CQ DE TEST", 20.0, 800.0, INPUT_RATE_HZ);
-        testgen::add_noise(&mut iq, 0x3311, 0.004);
+        let mut iq = synth::morse::transmission("CQ CQ DE TEST", 20.0, 800.0, INPUT_RATE_HZ);
+        synth::add_noise(&mut iq, 0x3311, 0.004);
         let reports = run(params(), &iq);
         assert_eq!(consensus(&reports), Modulation::Ook);
         assert!(
@@ -884,11 +884,11 @@ mod tests {
     #[test]
     fn a_deeply_modulated_carrier_is_amplitude_modulation_not_keying() {
         let len = (INPUT_RATE_HZ * 2.2) as usize;
-        let mut iq: Vec<Complex<f32>> = testgen::tone_audio(1_000.0, 1.0, INPUT_RATE_HZ, len)
+        let mut iq: Vec<Complex<f32>> = synth::tone_audio(1_000.0, 1.0, INPUT_RATE_HZ, len)
             .iter()
             .map(|&a| Complex::new(0.5 * (1.0 + 0.8 * a), 0.0))
             .collect();
-        testgen::add_noise(&mut iq, 0x5511, 0.004);
+        synth::add_noise(&mut iq, 0x5511, 0.004);
         let reports = run(params(), &iq);
         assert_eq!(consensus(&reports), Modulation::Am);
         assert!(
@@ -970,20 +970,20 @@ mod tests {
             seconds,
             0x71a2,
         );
-        testgen::shift(&mut iq, 60_000.0, INPUT_RATE_HZ);
-        let pages = [testgen::pocsag::Page {
+        synth::shift(&mut iq, 60_000.0, INPUT_RATE_HZ);
+        let pages = [synth::pocsag::Page {
             address: 1_234_567,
             function: 3,
             text: "SURVEY".to_owned(),
             numeric: false,
         }];
         let mut pager = in_noise(
-            &testgen::pocsag::transmission(&pages, 1_200, 4_500.0, INPUT_RATE_HZ),
+            &synth::pocsag::transmission(&pages, 1_200, 4_500.0, INPUT_RATE_HZ),
             seconds,
             0x5d90,
             0.0,
         );
-        testgen::shift(&mut pager, -50_000.0, INPUT_RATE_HZ);
+        synth::shift(&mut pager, -50_000.0, INPUT_RATE_HZ);
         for (s, p) in iq.iter_mut().zip(&pager) {
             *s += p;
         }
@@ -1021,7 +1021,7 @@ mod tests {
                 )
             })
             .collect();
-        testgen::add_noise(&mut iq, 0x4411, 0.002);
+        synth::add_noise(&mut iq, 0x4411, 0.002);
         let reports = run_at(settings_at(params(), dial), &iq);
         let signal = loudest(&reports[0]);
         assert!(
@@ -1033,14 +1033,14 @@ mod tests {
 
     #[test]
     fn the_dial_frequency_is_part_of_the_evidence() {
-        let pages = [testgen::pocsag::Page {
+        let pages = [synth::pocsag::Page {
             address: 1_234_567,
             function: 3,
             text: "IDENT TEST".to_owned(),
             numeric: false,
         }];
         let iq = on_air(
-            &testgen::pocsag::transmission(&pages, 1_200, 4_500.0, INPUT_RATE_HZ),
+            &synth::pocsag::transmission(&pages, 1_200, 4_500.0, INPUT_RATE_HZ),
             1.2,
             0x5d90,
         );
@@ -1106,13 +1106,13 @@ mod tests {
             out.extend_from_slice(&symbol[USEFUL - GUARD..]);
             out.extend_from_slice(&symbol);
         }
-        testgen::resample(&out, RATE, INPUT_RATE_HZ)
+        synth::resample(&out, RATE, INPUT_RATE_HZ)
     }
 
     #[test]
     fn a_slice_of_a_dab_ensemble_is_ofdm_with_a_millisecond_symbol() {
         let mut iq = ofdm_like_dab(2.2, 0x0da8);
-        testgen::add_noise(&mut iq, 0x0da8, 0.002);
+        synth::add_noise(&mut iq, 0x0da8, 0.002);
         let reports = run_at(settings_at(params(), 227_360_000.0), &iq);
         assert_eq!(consensus(&reports), Modulation::Ofdm, "{reports:?}");
         let signal = reports
@@ -1129,7 +1129,7 @@ mod tests {
 
     #[test]
     fn a_broadcast_station_is_confirmed_by_its_rds() {
-        let station = testgen::rds::Station {
+        let station = synth::rds::Station {
             pi: 0xD3C2,
             ps: "SDR-M4  ".to_owned(),
             radiotext: "identifier".to_owned(),
@@ -1139,8 +1139,8 @@ mod tests {
             music: true,
             alt_freqs_hz: Vec::new(),
         };
-        let mut iq = testgen::rds::transmission(&station, 2.5, Some(1_000.0), INPUT_RATE_HZ);
-        testgen::add_noise(&mut iq, 0x6f02, 0.002);
+        let mut iq = synth::rds::transmission(&station, 2.5, Some(1_000.0), INPUT_RATE_HZ);
+        synth::add_noise(&mut iq, 0x6f02, 0.002);
         let reports = run_at(settings_at(params(), 95_500_000.0), &iq);
         let confirmed = reports
             .iter()

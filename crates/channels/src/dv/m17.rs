@@ -424,7 +424,7 @@ mod tests {
     use super::*;
     use crate::{
         dv::testutil::{assert_tone_audio, decode, decode_with_audio},
-        testgen::dv::m17 as tx,
+        synth::dv::m17 as tx,
         testutil::settings,
     };
 

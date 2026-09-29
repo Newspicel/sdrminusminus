@@ -23,7 +23,7 @@ pub use bench::{
 };
 
 const DRIVER_ID: &str = "virtual";
-const SIGGEN_KEY: &str = "siggen";
+const BAND_KEY: &str = "band";
 const BLOCK_SECS: f64 = 0.025;
 
 pub const NFM_CARRIER_OFFSET_HZ: f64 = 300_000.0;
@@ -89,13 +89,13 @@ impl VirtualDriver {
         &self.world
     }
 
-    fn siggen_info() -> DeviceInfo {
+    fn band_info() -> DeviceInfo {
         DeviceInfo {
             driver: DRIVER_ID.to_string(),
-            key: SIGGEN_KEY.to_string(),
-            label: "Signal Generator (virtual)".to_string(),
+            key: BAND_KEY.to_string(),
+            label: "Test band (virtual)".to_string(),
             serial: None,
-            profile: Some(siggen_capabilities().profile()),
+            profile: Some(band_capabilities().profile()),
         }
     }
 
@@ -118,7 +118,7 @@ impl DeviceDriver for VirtualDriver {
     fn probe(&self) -> Vec<DeviceInfo> {
         let mut infos = Vec::new();
         if self.synthetic_devices {
-            infos.push(Self::siggen_info());
+            infos.push(Self::band_info());
             infos.extend(MARKER_SHAPES.iter().map(Self::marker_info));
             infos.extend(self.world.infos());
         }
@@ -129,8 +129,8 @@ impl DeviceDriver for VirtualDriver {
         if !self.synthetic_devices {
             return Err(DeviceError::NotFound(format!("{DRIVER_ID}:{}", info.key)));
         }
-        if info.key == SIGGEN_KEY {
-            return Ok(Box::new(SigGen::new()));
+        if info.key == BAND_KEY {
+            return Ok(Box::new(BandGen::new()));
         }
         match MARKER_SHAPES.iter().find(|shape| shape.key == info.key) {
             Some(shape) => Ok(Box::new(MarkerGen::new(shape))),
@@ -147,26 +147,26 @@ pub fn render(sample_rate: f64, n: usize) -> Vec<Complex<f32>> {
 }
 
 #[derive(Clone, Copy)]
-struct SigParams {
+struct BandParams {
     sample_rate: f64,
 }
 
-pub struct SigGen {
+pub struct BandGen {
     capabilities: Capabilities,
     settings: DeviceSettings,
-    shared: Arc<ArcSwap<SigParams>>,
+    shared: Arc<ArcSwap<BandParams>>,
     worker: Worker,
     sweeper: Worker,
 }
 
-impl Default for SigGen {
+impl Default for BandGen {
     fn default() -> Self {
         Self::new()
     }
 }
 
 #[must_use]
-fn siggen_capabilities() -> Capabilities {
+fn band_capabilities() -> Capabilities {
     Capabilities {
         freq_ranges: vec![Range {
             min: 0.0,
@@ -200,6 +200,7 @@ fn siggen_capabilities() -> Capabilities {
         hardware_sweep: true,
         coherence: sdrmm_wire::Coherence::None,
         noise_source: sdrmm_wire::NoiseSource::None,
+        rx_stream_choices: Vec::new(),
         retune_keeps_phase: false,
     }
 }
@@ -217,13 +218,13 @@ fn sweep_centers(plan: &SweepPlan) -> Vec<f64> {
     centers
 }
 
-impl SigGen {
+impl BandGen {
     #[must_use]
     pub fn new() -> Self {
         Self {
-            capabilities: siggen_capabilities(),
+            capabilities: band_capabilities(),
             settings: default_settings(),
-            shared: Arc::new(ArcSwap::from_pointee(SigParams {
+            shared: Arc::new(ArcSwap::from_pointee(BandParams {
                 sample_rate: DEFAULT_SAMPLE_RATE_HZ,
             })),
             worker: Worker::new(),
@@ -280,7 +281,7 @@ fn validate_tune(
     Ok(())
 }
 
-impl SdrDevice for SigGen {
+impl SdrDevice for BandGen {
     fn capabilities(&self) -> &Capabilities {
         &self.capabilities
     }
@@ -292,7 +293,7 @@ impl SdrDevice for SigGen {
     fn apply(&mut self, settings: &DeviceSettings) -> Result<(), DeviceError> {
         validate_tune(&self.capabilities, settings)?;
         self.settings.merge_from(settings);
-        self.shared.store(Arc::new(SigParams {
+        self.shared.store(Arc::new(BandParams {
             sample_rate: self.sample_rate(),
         }));
         Ok(())
@@ -301,7 +302,7 @@ impl SdrDevice for SigGen {
     fn rx_start(&mut self, sinks: Vec<RxSink>) -> Result<(), DeviceError> {
         let mut sink = single_rx_sink(sinks)?;
         let shared = self.shared.clone();
-        self.worker.start("sdrmm-siggen-rx", move |running| {
+        self.worker.start("sdrmm-band-rx", move |running| {
             let mut generator = Generator::new();
             let mut block: Vec<Complex<f32>> = Vec::new();
             let mut next = Instant::now();
@@ -336,7 +337,7 @@ impl SdrDevice for SigGen {
             ));
         }
         let sample_rate = plan.sample_rate_hz;
-        self.sweeper.start("sdrmm-siggen-sweep", move |running| {
+        self.sweeper.start("sdrmm-band-sweep", move |running| {
             let mut generator = Generator::stream_marker(0);
             let mut block = vec![Complex::new(0.0f32, 0.0); SWEEP_BLOCK_SAMPLES];
             let mut next = Instant::now();
@@ -427,9 +428,10 @@ fn marker_capabilities(shape: &MarkerShape) -> Capabilities {
         per_stream: shape.per_stream,
         coherence: shape.coherence,
         noise_source: sdrmm_wire::NoiseSource::None,
+        rx_stream_choices: Vec::new(),
         extra: Vec::new(),
         hardware_sweep: false,
-        ..siggen_capabilities()
+        ..band_capabilities()
     }
 }
 
@@ -868,13 +870,13 @@ mod tests {
     }
 
     #[test]
-    fn probe_lists_siggen_marker_and_bench_radios() {
+    fn probe_lists_band_marker_and_bench_radios() {
         let d = VirtualDriver::new();
         let ids: Vec<String> = d.probe().iter().map(DeviceInfo::id).collect();
         assert_eq!(
             ids,
             [
-                "virtual:siggen",
+                "virtual:band",
                 "virtual:quad",
                 "virtual:transceiver",
                 "virtual:halfduplex",
@@ -888,7 +890,7 @@ mod tests {
 
     fn assert_synthetic_policy(d: &VirtualDriver, enabled: bool) {
         let infos = d.probe();
-        let expected = std::iter::once(VirtualDriver::siggen_info())
+        let expected = std::iter::once(VirtualDriver::band_info())
             .chain(MARKER_SHAPES.iter().map(VirtualDriver::marker_info))
             .chain(d.world().infos());
         for info in expected {
@@ -953,8 +955,8 @@ mod tests {
             assert_eq!(caps.rx_streams, shape.rx_streams, "{}", shape.key);
             assert_eq!(caps.tx_streams, shape.tx_streams, "{}", shape.key);
             assert_eq!(caps.per_stream, shape.per_stream, "{}", shape.key);
-            assert_eq!(caps.sample_rates, siggen_capabilities().sample_rates);
-            assert_eq!(caps.freq_ranges, siggen_capabilities().freq_ranges);
+            assert_eq!(caps.sample_rates, band_capabilities().sample_rates);
+            assert_eq!(caps.freq_ranges, band_capabilities().freq_ranges);
         }
     }
 
@@ -979,8 +981,8 @@ mod tests {
     }
 
     #[test]
-    fn siggen_refuses_more_than_one_sink() {
-        let mut dev = SigGen::new();
+    fn band_refuses_more_than_one_sink() {
+        let mut dev = BandGen::new();
         let sinks = vec![RxSink::new(|_, _| {}), RxSink::new(|_, _| {})];
         assert!(matches!(
             dev.rx_start(sinks),
@@ -1049,8 +1051,8 @@ mod tests {
     }
 
     #[test]
-    fn siggen_refuses_any_streams_entry() {
-        let mut dev = SigGen::new();
+    fn band_refuses_any_streams_entry() {
+        let mut dev = BandGen::new();
         let delta = DeviceSettings {
             streams: vec![StreamSettings {
                 stream: 0,
@@ -1062,7 +1064,7 @@ mod tests {
             Err(DeviceError::Unsupported(message)) => {
                 assert!(message.contains("streams[0]"), "{message}");
             }
-            other => panic!("a streams entry on the siggen must be Unsupported, got {other:?}"),
+            other => panic!("a streams entry on the band must be Unsupported, got {other:?}"),
         }
         assert!(dev.settings().streams.is_empty());
     }
@@ -1271,11 +1273,11 @@ mod tests {
     }
 
     #[test]
-    fn render_matches_the_streamed_siggen() {
+    fn render_matches_the_streamed_band() {
         let n = 8192;
         let rendered = render(250_000.0, n);
 
-        let mut dev = SigGen::new();
+        let mut dev = BandGen::new();
         dev.apply(&DeviceSettings {
             sample_rate: Some(250_000.0),
             ..DeviceSettings::default()
@@ -1302,7 +1304,7 @@ mod tests {
 
     #[test]
     fn rejects_unsupported_rate() {
-        let mut dev = SigGen::new();
+        let mut dev = BandGen::new();
         let bad = DeviceSettings {
             sample_rate: Some(999.0),
             ..DeviceSettings::default()
@@ -1312,7 +1314,7 @@ mod tests {
 
     #[test]
     fn rejects_out_of_range_center() {
-        let mut dev = SigGen::new();
+        let mut dev = BandGen::new();
         for bad in [7_000_000_000.0, -5_000_000_000.0, f64::NAN] {
             let err = dev.apply(&DeviceSettings {
                 center_hz: Some(bad),
@@ -1334,7 +1336,7 @@ mod tests {
 
     #[test]
     fn apply_stores_every_field_for_state_round_trips() {
-        let mut dev = SigGen::new();
+        let mut dev = BandGen::new();
         dev.apply(&DeviceSettings {
             ppm: Some(1.5),
             antenna: Some("RX".to_string()),
@@ -1357,7 +1359,7 @@ mod tests {
 
     #[test]
     fn streams_finite_samples_then_stops() {
-        let mut dev = SigGen::new();
+        let mut dev = BandGen::new();
         dev.apply(&DeviceSettings {
             sample_rate: Some(250_000.0),
             ..DeviceSettings::default()

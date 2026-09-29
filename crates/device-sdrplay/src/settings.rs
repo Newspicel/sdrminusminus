@@ -627,6 +627,7 @@ pub fn read(target: &Target<'_>, bandwidth_auto: bool) -> DeviceSettings {
         ],
         extra,
         streams: Vec::new(),
+        rx_streams: None,
     }
 }
 

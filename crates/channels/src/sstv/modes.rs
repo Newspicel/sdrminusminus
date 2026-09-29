@@ -10,9 +10,9 @@ pub(crate) const LEADER_HZ: f64 = 1_900.0;
 pub(crate) const VIS_ONE_HZ: f64 = 1_100.0;
 pub(crate) const VIS_ZERO_HZ: f64 = 1_300.0;
 
-#[cfg(any(test, feature = "test-signals"))]
+#[cfg(any(test, feature = "synth"))]
 pub(crate) const LEADER_MS: f64 = 300.0;
-#[cfg(any(test, feature = "test-signals"))]
+#[cfg(any(test, feature = "synth"))]
 pub(crate) const BREAK_MS: f64 = 10.0;
 pub(crate) const VIS_BIT_MS: f64 = 30.0;
 
@@ -60,7 +60,7 @@ impl Timing {
         self.mode.size()
     }
 
-    #[cfg(any(test, feature = "test-signals"))]
+    #[cfg(any(test, feature = "synth"))]
     pub(crate) fn lines(&self) -> u16 {
         self.mode.size().1 / self.rows_per_line
     }
@@ -290,7 +290,7 @@ pub(crate) fn longest_line_ms() -> f64 {
         .fold(0.0f64, |acc, ms| acc.max(ms))
 }
 
-#[cfg(any(test, feature = "test-signals"))]
+#[cfg(any(test, feature = "synth"))]
 #[must_use]
 pub(crate) fn level_to_hz(level: u8) -> f64 {
     BLACK_HZ + (WHITE_HZ - BLACK_HZ) * f64::from(level) / 255.0

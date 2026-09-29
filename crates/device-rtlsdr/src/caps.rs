@@ -7,7 +7,7 @@ use sdrmm_wire::{
 
 use crate::{
     DEFAULT_CENTER_HZ, DRIVER_ID,
-    driver::{BoardVariant, DIRECT_SAMPLING_MAX_HZ, DeviceDescriptor, DirectSampling},
+    dongle::{Board, DIRECT_MAX_HZ, DirectSampling, Listing},
     kraken::Model,
 };
 
@@ -18,7 +18,7 @@ const V4_HF_MAX_HZ: f64 = 28.8e6;
 
 const DIRECT_RANGE: Range = Range {
     min: 0.0,
-    max: DIRECT_SAMPLING_MAX_HZ as f64,
+    max: DIRECT_MAX_HZ as f64,
     step: None,
 };
 
@@ -61,7 +61,7 @@ pub(crate) enum GainMode {
     Manual(i32),
 }
 
-pub(crate) fn device_infos(descriptors: &[DeviceDescriptor]) -> Vec<DeviceInfo> {
+pub(crate) fn device_infos(descriptors: &[Listing]) -> Vec<DeviceInfo> {
     descriptors
         .iter()
         .map(|d| {
@@ -78,7 +78,7 @@ pub(crate) fn device_infos(descriptors: &[DeviceDescriptor]) -> Vec<DeviceInfo> 
                 (Some(name), None) | (None, Some(name)) => name.clone(),
                 (None, None) => "RTL-SDR".to_string(),
             };
-            let profile = Some(capabilities(d.board_variant, &[]).profile());
+            let profile = Some(capabilities(d.board, &[]).profile());
             match serial {
                 Some(serial) => DeviceInfo {
                     driver: DRIVER_ID.to_string(),
@@ -113,9 +113,9 @@ fn tuner_stage(gains: &[i32]) -> Option<GainStage> {
     )
 }
 
-pub(crate) fn capabilities(board: BoardVariant, gains: &[i32]) -> Capabilities {
+pub(crate) fn capabilities(board: Board, gains: &[i32]) -> Capabilities {
     let mut freq_ranges = Vec::with_capacity(2);
-    if board.upconverts_hf() {
+    if board.has_upconverter() {
         freq_ranges.push(Range {
             min: V4_HF_MIN_HZ,
             max: V4_HF_MAX_HZ,
@@ -164,6 +164,7 @@ pub(crate) fn capabilities(board: BoardVariant, gains: &[i32]) -> Capabilities {
         coherence: sdrmm_wire::Coherence::None,
         noise_source: sdrmm_wire::NoiseSource::None,
         retune_keeps_phase: false,
+        rx_stream_choices: Vec::new(),
     }
 }
 
@@ -194,7 +195,7 @@ pub(crate) fn kraken_lane_capabilities(gains: &[i32]) -> Capabilities {
         extra: Vec::new(),
         sample_rates: kraken_rates(),
         sample_rate_ranges: kraken_rate_windows(),
-        ..capabilities(BoardVariant::Generic, gains)
+        ..capabilities(Board::Generic, gains)
     }
 }
 
@@ -222,18 +223,18 @@ pub(crate) fn kraken_capabilities(model: Model, lanes: u32, gains: &[i32]) -> Ca
     }
 }
 
-fn extra_settings(board: BoardVariant) -> Vec<ExtraSetting> {
-    if board.upconverts_hf() {
+fn extra_settings(board: Board) -> Vec<ExtraSetting> {
+    if board.has_upconverter() {
         return Vec::new();
     }
     vec![ExtraSetting::choice(
         DIRECT_SAMPLING,
         "Direct sampling",
-        DirectSampling::all()
+        DirectSampling::MODES
             .iter()
-            .map(|mode| ArgumentOption::plain(mode.as_str()))
+            .map(|mode| ArgumentOption::plain(mode.wire_name()))
             .collect(),
-        DirectSampling::Off.as_str(),
+        DirectSampling::Off.wire_name(),
     )]
 }
 
@@ -267,7 +268,7 @@ fn direct_sampling_of(settings: &DeviceSettings) -> DirectSampling {
         .iter()
         .find(|value| value.name == DIRECT_SAMPLING)
         .and_then(|value| value.value.as_str())
-        .and_then(DirectSampling::parse)
+        .and_then(DirectSampling::from_wire)
         .unwrap_or_default()
 }
 
@@ -305,7 +306,7 @@ fn plan_extras(
                 mode = Some(requested);
                 plan.applied.extra.push(ExtraValue {
                     name: DIRECT_SAMPLING.to_string(),
-                    value: requested.as_str().into(),
+                    value: requested.wire_name().into(),
                 });
             }
             other => return Err(DeviceError::Unsupported(format!("extra setting {other}"))),
@@ -566,7 +567,7 @@ fn extra_direct_sampling(
         .value
         .as_str()
         .filter(|text| options.iter().any(|option| option.value == *text))
-        .and_then(DirectSampling::parse)
+        .and_then(DirectSampling::from_wire)
         .ok_or_else(|| {
             DeviceError::Unsupported(format!(
                 "extra setting {}: bad value {}",
@@ -585,10 +586,10 @@ pub(crate) fn current_manual_tenths(current: &DeviceSettings) -> Option<i32> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::driver::GAIN_VALUES;
+    use crate::dongle::GAINS;
 
-    fn descriptor(address: u8, serial: Option<&str>) -> DeviceDescriptor {
-        DeviceDescriptor {
+    fn descriptor(address: u8, serial: Option<&str>) -> Listing {
+        Listing {
             index: usize::from(address),
             bus: "001".to_string(),
             address,
@@ -596,14 +597,14 @@ mod tests {
             product: Some("RTL2838UHIDIR".to_string()),
             serial: serial.map(str::to_string),
             port_chain: vec![address],
-            board_variant: BoardVariant::Generic,
+            board: Board::Generic,
             hub: None,
         }
     }
 
     #[test]
     fn every_lane_tunes_alone_and_the_bank_carries_the_switches_of_the_whole_unit() {
-        let caps = kraken_capabilities(Model::Kraken, 5, GAIN_VALUES);
+        let caps = kraken_capabilities(Model::Kraken, 5, GAINS);
         assert_eq!(caps.rx_streams, 5);
         assert_eq!(caps.tx_streams, 0);
         assert_eq!(caps.coherence, sdrmm_wire::Coherence::TimeSync);
@@ -627,7 +628,7 @@ mod tests {
 
     #[test]
     fn a_kerberos_calibrates_on_an_unisolated_source_and_offers_no_bias_tee() {
-        let caps = kraken_capabilities(Model::Kerberos, 4, GAIN_VALUES);
+        let caps = kraken_capabilities(Model::Kerberos, 4, GAINS);
         assert_eq!(caps.rx_streams, 4);
         assert_eq!(caps.coherence, sdrmm_wire::Coherence::TimeSync);
         assert_eq!(caps.noise_source, sdrmm_wire::NoiseSource::Unisolated);
@@ -637,8 +638,8 @@ mod tests {
     #[test]
     fn a_bank_offers_no_rate_above_its_cap() {
         for caps in [
-            kraken_capabilities(Model::Kraken, 5, GAIN_VALUES),
-            kraken_lane_capabilities(GAIN_VALUES),
+            kraken_capabilities(Model::Kraken, 5, GAINS),
+            kraken_lane_capabilities(GAINS),
         ] {
             assert!(caps.sample_rates.contains(&KRAKEN_MAX_RATE_HZ));
             assert!(
@@ -698,7 +699,7 @@ mod tests {
 
     #[test]
     fn capabilities_expose_the_tuner_envelope() {
-        let caps = capabilities(BoardVariant::Generic, GAIN_VALUES);
+        let caps = capabilities(Board::Generic, GAINS);
         assert_eq!(
             caps.freq_ranges,
             vec![
@@ -741,7 +742,7 @@ mod tests {
 
     #[test]
     fn blog_v4_swaps_direct_sampling_for_its_upconverted_hf_range() {
-        let caps = capabilities(BoardVariant::RtlSdrBlogV4, GAIN_VALUES);
+        let caps = capabilities(Board::BlogV4, GAINS);
         assert_eq!(caps.freq_ranges.len(), 2);
         assert_eq!(caps.freq_ranges[0].min, 500e3);
         assert_eq!(caps.freq_ranges[0].max, 28.8e6);
@@ -752,14 +753,14 @@ mod tests {
     #[test]
     fn the_v4_lite_advertises_the_same_upconverted_hf_range_as_the_v4() {
         assert_eq!(
-            capabilities(BoardVariant::RtlSdrBlogV4Lite, GAIN_VALUES),
-            capabilities(BoardVariant::RtlSdrBlogV4, GAIN_VALUES)
+            capabilities(Board::BlogV4Lite, GAINS),
+            capabilities(Board::BlogV4, GAINS)
         );
     }
 
     #[test]
     fn a_generic_dongle_advertises_the_direct_sampling_zone_and_the_switch_for_it() {
-        let caps = capabilities(BoardVariant::Generic, GAIN_VALUES);
+        let caps = capabilities(Board::Generic, GAINS);
         assert_eq!(caps.freq_ranges[0], DIRECT_RANGE);
         assert_eq!(DIRECT_RANGE.max, 14.4e6, "half the 28.8 MHz crystal");
         assert!(caps.profile().reaches(7.1e6));
@@ -776,14 +777,14 @@ mod tests {
 
     #[test]
     fn gain_stage_follows_the_reported_table() {
-        let caps = capabilities(BoardVariant::Generic, &[0, 87, 213]);
+        let caps = capabilities(Board::Generic, &[0, 87, 213]);
         assert_eq!(caps.gains[0].range.max, 21.3);
-        assert!(capabilities(BoardVariant::Generic, &[]).gains.is_empty());
+        assert!(capabilities(Board::Generic, &[]).gains.is_empty());
     }
 
     #[test]
     fn extras_are_only_what_the_driver_can_drive() {
-        let extra = capabilities(BoardVariant::Generic, GAIN_VALUES).extra;
+        let extra = capabilities(Board::Generic, GAINS).extra;
         let names: Vec<&str> = extra.iter().map(ExtraSetting::name).collect();
         assert_eq!(names, vec![DIRECT_SAMPLING]);
     }
@@ -804,10 +805,10 @@ mod tests {
     fn the_advertised_table_snaps_the_same_way_the_driver_does() {
         let caps = caps();
         let stage = caps.gains.first().expect("a tuner stage");
-        assert_eq!(stage.values.len(), GAIN_VALUES.len());
+        assert_eq!(stage.values.len(), GAINS.len());
         assert!(!stage.is_switch(), "29 settings is not a switch");
         for tenths in (-100..=600).step_by(7) {
-            let driver = nearest_gain(GAIN_VALUES, tenths).expect("a non-empty table");
+            let driver = nearest_gain(GAINS, tenths).expect("a non-empty table");
             let advertised = stage.snap(f64::from(tenths) / 10.0);
             assert!(
                 (advertised - tenths_to_db(driver)).abs() < f64::EPSILON,
@@ -839,11 +840,11 @@ mod tests {
     }
 
     fn caps() -> Capabilities {
-        capabilities(BoardVariant::Generic, GAIN_VALUES)
+        capabilities(Board::Generic, GAINS)
     }
 
     fn plan_for(delta: &DeviceSettings) -> Result<Plan, DeviceError> {
-        validate(delta, &caps(), &DeviceSettings::default(), GAIN_VALUES)
+        validate(delta, &caps(), &DeviceSettings::default(), GAINS)
     }
 
     const fn manual(hz: f64) -> BandwidthSetting {
@@ -880,8 +881,8 @@ mod tests {
             ..DeviceSettings::default()
         };
         assert!(matches!(plan_for(&delta), Err(DeviceError::Unsupported(_))));
-        let v4 = capabilities(BoardVariant::RtlSdrBlogV4, GAIN_VALUES);
-        assert!(validate(&delta, &v4, &DeviceSettings::default(), GAIN_VALUES).is_ok());
+        let v4 = capabilities(Board::BlogV4, GAINS);
+        assert!(validate(&delta, &v4, &DeviceSettings::default(), GAINS).is_ok());
     }
 
     #[test]
@@ -953,7 +954,7 @@ mod tests {
             sample_rate: Some(2_400_000.0),
             ..DeviceSettings::default()
         };
-        let plan = validate(&delta, &caps(), &current, GAIN_VALUES).unwrap();
+        let plan = validate(&delta, &caps(), &current, GAINS).unwrap();
         assert_eq!(plan.bandwidth, Some(1_500_000));
 
         let plan = validate(
@@ -963,7 +964,7 @@ mod tests {
             },
             &caps(),
             &current,
-            GAIN_VALUES,
+            GAINS,
         )
         .unwrap();
         assert_eq!(plan.bandwidth, None);
@@ -1031,7 +1032,7 @@ mod tests {
             gains: vec![tuner(20.7)],
             ..DeviceSettings::default()
         };
-        let plan = validate(&delta, &caps(), &current, GAIN_VALUES).unwrap();
+        let plan = validate(&delta, &caps(), &current, GAINS).unwrap();
         assert_eq!(plan.gain, Some(GainMode::Manual(207)));
 
         let plan = plan_for(&delta).unwrap();
@@ -1091,7 +1092,7 @@ mod tests {
 
     #[test]
     fn the_advertised_ppm_range_fits_the_correction_registers() {
-        assert!(PPM_MAX <= f64::from(crate::driver::MAX_PPM));
+        assert!(PPM_MAX <= f64::from(crate::dongle::PPM_LIMIT));
     }
 
     #[test]
@@ -1169,7 +1170,7 @@ mod tests {
     fn mode_value(mode: DirectSampling) -> ExtraValue {
         ExtraValue {
             name: DIRECT_SAMPLING.to_string(),
-            value: mode.as_str().into(),
+            value: mode.wire_name().into(),
         }
     }
 
@@ -1180,7 +1181,7 @@ mod tests {
             bandwidth: Some(manual(300_000.0)),
             gains: vec![tuner(20.7)],
             agc: Some(AgcSetting::switched(false)),
-            extra: vec![mode_value(DirectSampling::QBranch)],
+            extra: vec![mode_value(DirectSampling::Q)],
             ..DeviceSettings::default()
         }
     }
@@ -1188,23 +1189,20 @@ mod tests {
     #[test]
     fn direct_sampling_swaps_which_ranges_are_reachable() {
         let to_hf = DeviceSettings {
-            extra: vec![mode_value(DirectSampling::QBranch)],
+            extra: vec![mode_value(DirectSampling::Q)],
             center_hz: Some(7_100_000.0),
             ..DeviceSettings::default()
         };
         let plan = plan_for(&to_hf).unwrap();
-        assert_eq!(plan.direct_sampling, Some(DirectSampling::QBranch));
+        assert_eq!(plan.direct_sampling, Some(DirectSampling::Q));
         assert_eq!(plan.center_hz, Some(7_100_000));
-        assert_eq!(
-            plan.applied.extra,
-            vec![mode_value(DirectSampling::QBranch)]
-        );
+        assert_eq!(plan.applied.extra, vec![mode_value(DirectSampling::Q)]);
 
         let too_high = DeviceSettings {
             center_hz: Some(145_500_000.0),
             ..DeviceSettings::default()
         };
-        match validate(&too_high, &caps(), &on_hf(), GAIN_VALUES) {
+        match validate(&too_high, &caps(), &on_hf(), GAINS) {
             Err(DeviceError::Unsupported(message)) => {
                 assert!(message.contains("direct-sampling range"), "{message}");
                 assert!(message.contains("set direct_sampling to off"), "{message}");
@@ -1229,12 +1227,12 @@ mod tests {
             other => panic!("HF without direct sampling must be refused, got {other:?}"),
         }
 
-        let v4 = capabilities(BoardVariant::RtlSdrBlogV4, GAIN_VALUES);
+        let v4 = capabilities(Board::BlogV4, GAINS);
         let too_low = DeviceSettings {
             center_hz: Some(200_000.0),
             ..DeviceSettings::default()
         };
-        match validate(&too_low, &v4, &DeviceSettings::default(), GAIN_VALUES) {
+        match validate(&too_low, &v4, &DeviceSettings::default(), GAINS) {
             Err(DeviceError::Unsupported(message)) => {
                 assert_eq!(message, "center_hz 200000 outside tuner range");
             }
@@ -1250,12 +1248,12 @@ mod tests {
         };
         let plan = validate(
             &DeviceSettings {
-                extra: vec![mode_value(DirectSampling::IBranch)],
+                extra: vec![mode_value(DirectSampling::I)],
                 ..DeviceSettings::default()
             },
             &caps(),
             &current,
-            GAIN_VALUES,
+            GAINS,
         )
         .unwrap();
         assert_eq!(plan.center_hz, Some(14_400_000), "the top of the HF zone");
@@ -1267,7 +1265,7 @@ mod tests {
             },
             &caps(),
             &on_hf(),
-            GAIN_VALUES,
+            GAINS,
         )
         .unwrap();
         assert_eq!(plan.direct_sampling, Some(DirectSampling::Off));
@@ -1275,7 +1273,7 @@ mod tests {
 
         let contradictory = DeviceSettings {
             center_hz: Some(145_500_000.0),
-            extra: vec![mode_value(DirectSampling::QBranch)],
+            extra: vec![mode_value(DirectSampling::Q)],
             ..DeviceSettings::default()
         };
         assert!(matches!(
@@ -1288,20 +1286,17 @@ mod tests {
     fn only_a_changed_mode_is_written() {
         let plan = validate(
             &DeviceSettings {
-                extra: vec![mode_value(DirectSampling::QBranch)],
+                extra: vec![mode_value(DirectSampling::Q)],
                 ..DeviceSettings::default()
             },
             &caps(),
             &on_hf(),
-            GAIN_VALUES,
+            GAINS,
         )
         .unwrap();
         assert_eq!(plan.direct_sampling, None);
         assert_eq!(plan.center_hz, None);
-        assert_eq!(
-            plan.applied.extra,
-            vec![mode_value(DirectSampling::QBranch)]
-        );
+        assert_eq!(plan.applied.extra, vec![mode_value(DirectSampling::Q)]);
     }
 
     #[test]
@@ -1312,11 +1307,11 @@ mod tests {
             bandwidth: Some(manual(300_000.0)),
             gains: vec![tuner(20.7)],
             agc: Some(AgcSetting::switched(false)),
-            extra: vec![mode_value(DirectSampling::QBranch)],
+            extra: vec![mode_value(DirectSampling::Q)],
             ..DeviceSettings::default()
         };
         let plan = plan_for(&restore).unwrap();
-        assert_eq!(plan.direct_sampling, Some(DirectSampling::QBranch));
+        assert_eq!(plan.direct_sampling, Some(DirectSampling::Q));
         assert_eq!(plan.center_hz, Some(7_100_000));
         assert_eq!(plan.sample_rate, Some(1_024_000));
         assert_eq!(plan.gain, None, "the tuner must not be driven in standby");
@@ -1332,14 +1327,14 @@ mod tests {
             center_hz: Some(145_500_000.0),
             ..DeviceSettings::default()
         };
-        let plan = validate(&leave, &caps(), &on_hf(), GAIN_VALUES).unwrap();
+        let plan = validate(&leave, &caps(), &on_hf(), GAINS).unwrap();
         assert_eq!(plan.gain, Some(GainMode::Manual(207)));
         assert_eq!(plan.bandwidth, Some(300_000));
 
         let mut current = on_hf();
         current.bandwidth = None;
         current.agc = Some(AgcSetting::switched(true));
-        let plan = validate(&leave, &caps(), &current, GAIN_VALUES).unwrap();
+        let plan = validate(&leave, &caps(), &current, GAINS).unwrap();
         assert_eq!(plan.gain, Some(GainMode::Auto));
         assert_eq!(plan.bandwidth, Some(0));
         assert_eq!(plan.applied.bandwidth, Some(BandwidthSetting::Auto));
@@ -1371,13 +1366,13 @@ mod tests {
             plan_for(&mistyped),
             Err(DeviceError::Unsupported(_))
         ));
-        let v4 = capabilities(BoardVariant::RtlSdrBlogV4, GAIN_VALUES);
+        let v4 = capabilities(Board::BlogV4, GAINS);
         let on_v4 = DeviceSettings {
-            extra: vec![mode_value(DirectSampling::QBranch)],
+            extra: vec![mode_value(DirectSampling::Q)],
             ..DeviceSettings::default()
         };
         assert!(matches!(
-            validate(&on_v4, &v4, &DeviceSettings::default(), GAIN_VALUES),
+            validate(&on_v4, &v4, &DeviceSettings::default(), GAINS),
             Err(DeviceError::Unsupported(_))
         ));
     }

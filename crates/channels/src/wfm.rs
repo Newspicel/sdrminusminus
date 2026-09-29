@@ -233,7 +233,7 @@ mod tests {
 
     use super::*;
     use crate::{
-        testgen::{
+        synth::{
             rds::{Station, transmission},
             tone_audio,
             wfm::transmission as stereo_transmission,

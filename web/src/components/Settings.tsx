@@ -33,6 +33,28 @@ export function SettingNote({ children }: { children: ReactNode }) {
   return <p className="col-span-2 text-xs text-ink-dim">{children}</p>;
 }
 
+export function GroupLine({
+  label,
+  hint,
+  action,
+}: {
+  label: ReactNode;
+  hint?: string;
+  action?: ReactNode;
+}) {
+  return (
+    <span className="legend col-span-2 flex min-h-5 items-center gap-2">
+      <span aria-hidden className="w-2 shrink-0 border-t border-line" />
+      <span className="flex items-center gap-1">
+        {label}
+        {hint !== undefined && <InfoTip text={hint} />}
+      </span>
+      <span aria-hidden className="min-w-0 flex-1 border-t border-line" />
+      {action}
+    </span>
+  );
+}
+
 export function SettingGroup({
   label,
   hint,
@@ -45,14 +67,8 @@ export function SettingGroup({
   children: ReactNode;
 }) {
   return (
-    <div className={`${ROW} gap-y-2 border-t border-line pt-2 first:border-t-0 first:pt-0`}>
-      <span className="legend col-span-2 flex min-h-5 items-center justify-between gap-2">
-        <span className="flex items-center gap-1">
-          {label}
-          {hint !== undefined && <InfoTip text={hint} />}
-        </span>
-        {action}
-      </span>
+    <div className={`${ROW} gap-y-2`}>
+      <GroupLine label={label} hint={hint} action={action} />
       {children}
     </div>
   );

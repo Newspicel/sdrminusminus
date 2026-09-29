@@ -91,15 +91,15 @@ fn write_csv(name: &str, header: &str, rows: &[String]) {
 
 const OPEN_WAIT: Duration = Duration::from_secs(15);
 
-fn complete_unit(descriptors: &DeviceDescriptors) -> Option<unit::Unit> {
-    let listed: Vec<_> = descriptors.iter().cloned().collect();
+fn complete_unit(descriptors: &Catalog) -> Option<unit::Unit> {
+    let listed: Vec<_> = descriptors.listings().cloned().collect();
     unit::units(&listed).into_iter().find(unit::Unit::complete)
 }
 
-fn opened<T>(mut open: impl FnMut(&DeviceDescriptors, &unit::Unit) -> Result<T, String>) -> T {
+fn opened<T>(mut open: impl FnMut(&Catalog, &unit::Unit) -> Result<T, String>) -> T {
     let started = Instant::now();
     loop {
-        let attempt = DeviceDescriptors::new()
+        let attempt = Catalog::scan()
             .map_err(|error| error.to_string())
             .and_then(|descriptors| {
                 let unit = complete_unit(&descriptors)
@@ -131,7 +131,7 @@ fn kraken() -> KrakenDevice {
     })
 }
 
-fn raw_control() -> RtlSdr {
+fn raw_control() -> Dongle {
     opened(|descriptors, unit| {
         descriptors
             .open(unit.members[0])
@@ -421,8 +421,8 @@ fn median(values: &mut [f64]) -> f64 {
     values.get(values.len() / 2).copied().unwrap_or(f64::NAN)
 }
 
-fn clipped_fraction(control: &mut RtlSdr) -> f64 {
-    let stream = control.start_streaming().expect("stream");
+fn clipped_fraction(control: &mut Dongle) -> f64 {
+    let stream = control.start_stream().expect("stream");
     let started = Instant::now();
     let (mut clipped, mut total) = (0u64, 0u64);
     while started.elapsed() < CLIPPING_WINDOW {
@@ -451,8 +451,8 @@ fn kraken_noise_clipping_levels() {
         for tenths in device.gain_table.clone() {
             let fraction = {
                 let mut control = lock(&device.lanes[0]);
-                control.set_center_freq(freq).expect("tune");
-                control.set_gain_manual(tenths).expect("gain");
+                control.set_center(freq).expect("tune");
+                control.set_manual_gain(tenths).expect("gain");
                 clipped_fraction(&mut control)
             };
             let db = f64::from(tenths) / 10.0;
@@ -867,11 +867,11 @@ fn kraken_bank_restart_in_place() {
 }
 
 fn switch_noise_off() -> Result<(), String> {
-    let descriptors = DeviceDescriptors::new().map_err(|error| error.to_string())?;
+    let descriptors = Catalog::scan().map_err(|error| error.to_string())?;
     let unit = complete_unit(&descriptors).ok_or_else(|| "no complete KrakenSDR".to_owned())?;
     descriptors
         .open(unit.members[0])
-        .and_then(|control| control.set_gpio(apply::NOISE_SOURCE_PIN, false))
+        .and_then(|control| control.set_pin(apply::NOISE_SOURCE_PIN, false))
         .map_err(|error| error.to_string())
 }
 
@@ -887,7 +887,7 @@ impl Drop for NoiseOffOnExit {
 
 fn noise_pin() -> bool {
     raw_control()
-        .gpio(apply::NOISE_SOURCE_PIN)
+        .pin_high(apply::NOISE_SOURCE_PIN)
         .expect("read the noise pin")
 }
 
@@ -915,7 +915,7 @@ fn streaming_with_noise() -> KrakenDevice {
     wait_flowing(&decks);
     assert!(
         lock(&device.lanes[0])
-            .gpio(apply::NOISE_SOURCE_PIN)
+            .pin_high(apply::NOISE_SOURCE_PIN)
             .expect("read the noise pin")
     );
     device
@@ -930,7 +930,7 @@ fn kraken_noise_source_is_off_on_every_exit() {
     let found = noise_pin();
     let (left_on, control_panic) = noise_pin_after(|| {
         raw_control()
-            .set_gpio(apply::NOISE_SOURCE_PIN, true)
+            .set_pin(apply::NOISE_SOURCE_PIN, true)
             .expect("noise on");
     });
     assert_eq!(control_panic, None);

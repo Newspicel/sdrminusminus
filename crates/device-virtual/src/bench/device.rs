@@ -141,6 +141,7 @@ pub(crate) fn capabilities(spec: &BenchDeviceSpec) -> Capabilities {
         coherence: spec.coherence,
         noise_source: spec.noise_source,
         retune_keeps_phase: spec.retune_keeps_phase,
+        rx_stream_choices: Vec::new(),
     }
 }
 

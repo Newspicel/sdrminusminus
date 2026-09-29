@@ -50,7 +50,7 @@ export function SignalGenFace({ node }: { node: PatchNode }) {
           <Button
             type="button"
             className={BTN_PRIMARY}
-            title="Generate a decodable test signal, so a decoder can be tried without a radio"
+            title="Generate a decodable signal to try a decoder without a radio"
             onClick={start}
           >
             Start

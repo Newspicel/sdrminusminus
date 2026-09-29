@@ -669,7 +669,7 @@ mod tests {
             testutil::{assert_tone_audio, decode, decode_with_audio},
             vocoder::testutil::full_rate_frames,
         },
-        testgen::dv::p25 as tx,
+        synth::dv::p25 as tx,
         testutil::settings,
     };
 

@@ -78,6 +78,6 @@ wgpu = { workspace = true, optional = true }
 sdrmm-test-support.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time", "sync"] }
 tempfile.workspace = true
-sdrmm-channels = { workspace = true, features = ["test-signals"] }
+sdrmm-channels = { workspace = true, features = ["synth"] }
 serde_json.workspace = true
 libc.workspace = true

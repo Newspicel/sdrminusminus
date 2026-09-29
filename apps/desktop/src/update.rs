@@ -4,6 +4,7 @@ use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
 use tauri_plugin_updater::UpdaterExt;
 
 const RELEASE: Option<&str> = option_env!("SDRMM_RELEASE");
+const RELEASES: &str = "https://github.com/Newspicel/sdrminusminus/releases";
 
 pub fn spawn(app: &AppHandle) {
     if let Some(reason) = skipped() {
@@ -31,6 +32,31 @@ async fn check(app: &AppHandle) -> Result<()> {
     if !prompt(app, &update.version).await {
         return Ok(());
     }
+    update.download_and_install(|_, _| {}, || {}).await?;
+    app.restart()
+}
+
+pub async fn update_now(app: AppHandle) {
+    let installed = match skipped() {
+        Some(reason) => {
+            tracing::info!("update skipped: {reason}");
+            false
+        }
+        None => install(&app).await.unwrap_or_else(|e| {
+            tracing::warn!("update failed: {e:#}");
+            false
+        }),
+    };
+    if !installed && let Err(e) = tauri_plugin_opener::open_url(RELEASES, None::<&str>) {
+        tracing::warn!("could not open {RELEASES}: {e}");
+    }
+    app.exit(0);
+}
+
+async fn install(app: &AppHandle) -> Result<bool> {
+    let Some(update) = app.updater()?.check().await? else {
+        return Ok(false);
+    };
     update.download_and_install(|_, _| {}, || {}).await?;
     app.restart()
 }

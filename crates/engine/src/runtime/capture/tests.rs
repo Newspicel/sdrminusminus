@@ -48,10 +48,7 @@ fn a_recording_is_held_for_the_dsp_while_a_radio_is_skipped_past() {
         max_age_for(open(&recordings, "aged").as_ref()),
         Duration::MAX
     );
-    assert_eq!(
-        max_age_for(open(&synthetic, "siggen").as_ref()),
-        LIVE_MAX_AGE
-    );
+    assert_eq!(max_age_for(open(&synthetic, "band").as_ref()), LIVE_MAX_AGE);
 }
 
 #[test]
@@ -149,7 +146,7 @@ fn a_virtual_lane_takes_a_free_stream_and_gives_it_back() {
 
 #[test]
 fn a_single_lane_radio_gets_one_tap() {
-    let runtime = started("siggen");
+    let runtime = started("band");
     assert_eq!(runtime.tap_ports().len(), 1);
     assert!(runtime.subscribe(1).is_none());
 }

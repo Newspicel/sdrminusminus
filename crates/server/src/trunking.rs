@@ -200,7 +200,7 @@ mod tests {
 
     fn live_channel_workspace(store: &Store, engine: &Engine, node: PatchNode) {
         let set = engine
-            .create_device_set("virtual:siggen")
+            .create_device_set("virtual:band")
             .expect("open the virtual radio");
         let NodeBody::Channel(channel) = &node.body else {
             panic!("the fixture wires a channel node");
@@ -244,7 +244,7 @@ mod tests {
         device.device = Some(DeviceRef {
             backend: "virtual".to_owned(),
             serial: None,
-            key: Some("siggen".to_owned()),
+            key: Some("band".to_owned()),
         });
         let id = store.create_workspace("w", &snapshot).expect("workspace");
         store.activate_workspace(id).expect("activate");
@@ -265,7 +265,7 @@ mod tests {
     }
 
     fn trunk_on_a_radio(store: &Store, engine: &Engine, control_hz: Option<u64>) {
-        let _ = engine.create_device_set("virtual:siggen");
+        let _ = engine.create_device_set("virtual:band");
         let mut snapshot = WorkspaceSnapshot::starter();
         snapshot.graph.nodes.push(PatchNode {
             id: "trunk".to_owned(),
@@ -301,7 +301,7 @@ mod tests {
         device.device = Some(DeviceRef {
             backend: "virtual".to_owned(),
             serial: None,
-            key: Some("siggen".to_owned()),
+            key: Some("band".to_owned()),
         });
         let id = store.create_workspace("w", &snapshot).expect("workspace");
         store.activate_workspace(id).expect("activate");

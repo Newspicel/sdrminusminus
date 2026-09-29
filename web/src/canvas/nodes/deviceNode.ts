@@ -115,8 +115,37 @@ export function agcDelta(
   return capabilities.per_stream?.agc === true ? { streams: [{ stream, agc }] } : { agc };
 }
 
+export function lossSaid(set: DeviceSet): string | null {
+  const loss = set.loss;
+  return loss == null ? null : `${Math.round(loss * 100)}%`;
+}
+
+export function radioAgc(set: DeviceSet): AgcSetting {
+  const caps = set.capabilities;
+  if (caps.per_stream?.agc !== true) {
+    return agcState(caps, set.settings);
+  }
+  const lanes = Array.from({ length: rxStreamCount(caps) }, (_, stream) => laneAgc(set, stream));
+  const running = lanes.find((lane) => lane.on);
+  return running ?? { ...(lanes[0] ?? agcState(caps, set.settings)), on: false };
+}
+
+export function agcModeDelta(set: DeviceSet, mode: string): DeviceSettings {
+  const caps = set.capabilities;
+  if (caps.per_stream?.agc !== true) {
+    return { agc: { on: true, mode } };
+  }
+  return {
+    streams: Array.from({ length: rxStreamCount(caps) }, (_, stream) => ({
+      stream,
+      agc: { on: laneAgc(set, stream).on, mode },
+    })),
+  };
+}
+
 export function agcGainDb(set: DeviceSet, stream: number): number | null {
-  if (set.capabilities.gains.length !== 1 || !laneAgc(set, stream).on) {
+  const driven = set.capabilities.gains.filter((stage) => stage.agc?.kind !== "never");
+  if (driven.length !== 1 || !laneAgc(set, stream).on) {
     return null;
   }
   return set.agc_gains?.find((reading) => reading.stream === stream)?.value_db ?? null;

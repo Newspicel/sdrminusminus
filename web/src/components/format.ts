@@ -7,6 +7,14 @@ const PREFIXES: ReadonlyArray<readonly [number, string]> = [
 
 const DECIMALS = 9;
 
+const COUNT = new Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 1 });
+
+export const DROPS_HINT = "Samples lost between the radio and here";
+
+export function formatCount(count: number): string {
+  return COUNT.format(count);
+}
+
 export function si(value: number, unit: string): string {
   if (!Number.isFinite(value)) {
     return `? ${unit}`;

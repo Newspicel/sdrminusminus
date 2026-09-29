@@ -5,10 +5,10 @@ use sdrmm_wire::{
 };
 
 use crate::{
-    caps::{BB_DC, FIR, Front, MANUAL_GAIN, QUADRATURE, RF_DC, TX_PORT},
+    caps::{BB_DC, Front, MANUAL_GAIN, QUADRATURE, RF_DC, TX_PORT},
     iio::{Client, Direction},
     layout::{
-        BB_DC_TRACKING, FILTER_FIR_EN, FREQUENCY, GAIN_CONTROL_MODE, HARDWAREGAIN, Layout,
+        BB_DC_TRACKING, CONVERTER_CHANNEL, FREQUENCY, GAIN_CONTROL_MODE, HARDWAREGAIN, Layout,
         QUADRATURE_TRACKING, RF_BANDWIDTH, RF_DC_TRACKING, RF_PORT_SELECT, RX_LO,
         SAMPLING_FREQUENCY, TX_LO, XO_CORRECTION,
     },
@@ -28,6 +28,20 @@ pub(crate) enum Write {
         attr: String,
         value: String,
     },
+    Converter {
+        device: String,
+        output: bool,
+        attr: String,
+        value: String,
+    },
+}
+
+const fn direction(output: bool) -> Direction {
+    if output {
+        Direction::Out
+    } else {
+        Direction::In
+    }
 }
 
 impl Write {
@@ -50,14 +64,16 @@ pub(crate) fn execute(client: &Client, phy: &str, writes: &[Write]) -> Result<()
                 channel,
                 attr,
                 value,
+            } => client.write_channel_attr(phy, direction(*output), channel, attr, value)?,
+            Write::Converter {
+                device,
+                output,
+                attr,
+                value,
             } => client.write_channel_attr(
-                phy,
-                if *output {
-                    Direction::Out
-                } else {
-                    Direction::In
-                },
-                channel,
+                device,
+                direction(*output),
+                CONVERTER_CHANNEL,
                 attr,
                 value,
             )?,
@@ -80,13 +96,12 @@ pub(crate) fn plan(
     let mut next = current.clone();
     next.merge_from(delta);
 
-    plan_rate(delta, capabilities, layout, &mut writes)?;
+    plan_rate(delta, capabilities, front, layout, &mut writes)?;
     plan_bandwidth(delta, capabilities, front, layout, &mut writes)?;
     plan_tuning(delta, capabilities, layout, &mut writes)?;
     plan_trim(delta, front, &mut writes)?;
     plan_lanes(delta, capabilities, layout, &mut writes)?;
-    plan_agc(delta, capabilities, layout, &mut writes)?;
-    plan_extra(delta, capabilities, front, layout, &mut writes)?;
+    plan_extra(delta, capabilities, layout, &mut writes)?;
     settle_lanes(&mut next, delta);
     next.gains = snapped(&next.gains, capabilities);
     for stream in &mut next.streams {
@@ -102,6 +117,9 @@ fn settle_lanes(next: &mut DeviceSettings, delta: &DeviceSettings) {
         let own = delta.streams.iter().find(|s| s.stream == stream.stream);
         if delta.antenna.is_some() && own.is_none_or(|s| s.antenna.is_none()) {
             stream.antenna = None;
+        }
+        if delta.agc.is_some() && own.is_none_or(|s| s.agc.is_none()) {
+            stream.agc = None;
         }
         for gain in &delta.gains {
             if own.is_none_or(|s| s.gains.iter().all(|g| g.stage != gain.stage)) {
@@ -120,17 +138,12 @@ fn plan_lanes(
     writes: &mut Vec<Write>,
 ) -> Result<(), DeviceError> {
     plan_gains(&delta.gains, capabilities, layout, None, writes)?;
-    plan_antenna(delta.antenna.as_deref(), capabilities, layout, None, writes)?;
+    plan_antenna(delta.antenna.as_deref(), capabilities, layout, writes)?;
+    plan_agc(delta.agc.as_ref(), capabilities, layout, None, writes)?;
     for stream in &delta.streams {
         let lane = Some(stream.stream as usize);
         plan_gains(&stream.gains, capabilities, layout, lane, writes)?;
-        plan_antenna(
-            stream.antenna.as_deref(),
-            capabilities,
-            layout,
-            lane,
-            writes,
-        )?;
+        plan_agc(stream.agc.as_ref(), capabilities, layout, lane, writes)?;
     }
     Ok(())
 }
@@ -146,6 +159,7 @@ fn lanes(layout: &Layout, output: bool, lane: Option<usize>) -> std::ops::Range<
 fn plan_rate(
     delta: &DeviceSettings,
     capabilities: &Capabilities,
+    front: &Front,
     layout: &Layout,
     writes: &mut Vec<Write>,
 ) -> Result<(), DeviceError> {
@@ -158,7 +172,24 @@ fn plan_rate(
         )));
     }
     let port = rx_port(layout, 0)?;
-    writes.push(Write::channel(false, port, SAMPLING_FREQUENCY, whole(rate)));
+    writes.push(Write::channel(
+        false,
+        port,
+        SAMPLING_FREQUENCY,
+        whole(front.converter_rate(rate)),
+    ));
+    if let Some(decimation) = &front.decimation {
+        let converters = std::iter::once((false, &decimation.rx))
+            .chain(decimation.tx.iter().map(|tx| (true, tx)));
+        for (output, device) in converters {
+            writes.push(Write::Converter {
+                device: device.clone(),
+                output,
+                attr: SAMPLING_FREQUENCY.to_string(),
+                value: whole(rate),
+            });
+        }
+    }
     Ok(())
 }
 
@@ -293,7 +324,6 @@ fn plan_antenna(
     antenna: Option<&str>,
     capabilities: &Capabilities,
     layout: &Layout,
-    lane: Option<usize>,
     writes: &mut Vec<Write>,
 ) -> Result<(), DeviceError> {
     let Some(antenna) = antenna else {
@@ -305,28 +335,27 @@ fn plan_antenna(
             capabilities.antennas.join(", ")
         )));
     }
-    for lane in lanes(layout, false, lane) {
-        writes.push(Write::channel(
-            false,
-            rx_port(layout, lane)?,
-            RF_PORT_SELECT,
-            antenna.to_string(),
-        ));
-    }
+    writes.push(Write::channel(
+        false,
+        rx_port(layout, 0)?,
+        RF_PORT_SELECT,
+        antenna.to_string(),
+    ));
     Ok(())
 }
 
 fn plan_agc(
-    delta: &DeviceSettings,
+    agc: Option<&AgcSetting>,
     capabilities: &Capabilities,
     layout: &Layout,
+    lane: Option<usize>,
     writes: &mut Vec<Write>,
 ) -> Result<(), DeviceError> {
-    let Some(agc) = &delta.agc else {
+    let Some(agc) = agc else {
         return Ok(());
     };
     let mode = gain_control_mode(agc, capabilities)?;
-    for lane in 0..layout.rx_streams() {
+    for lane in lanes(layout, false, lane) {
         writes.push(Write::channel(
             false,
             rx_port(layout, lane)?,
@@ -361,7 +390,6 @@ fn gain_control_mode<'a>(
 fn plan_extra(
     delta: &DeviceSettings,
     capabilities: &Capabilities,
-    front: &Front,
     layout: &Layout,
     writes: &mut Vec<Write>,
 ) -> Result<(), DeviceError> {
@@ -381,17 +409,13 @@ fn plan_extra(
                 })?;
                 writes.push(Write::channel(true, channel, RF_PORT_SELECT, port));
             }
-            QUADRATURE | RF_DC | BB_DC | FIR => {
-                let attr = tracking_attr(&extra.name);
-                let on = flag(extra)?;
-                for lane in 0..front_lanes(front, layout, &extra.name) {
-                    writes.push(Write::channel(
-                        false,
-                        rx_port(layout, lane)?,
-                        attr,
-                        u8::from(on).to_string(),
-                    ));
-                }
+            QUADRATURE | RF_DC | BB_DC => {
+                writes.push(Write::channel(
+                    false,
+                    rx_port(layout, 0)?,
+                    tracking_attr(&extra.name),
+                    u8::from(flag(extra)?).to_string(),
+                ));
             }
             other => {
                 return Err(DeviceError::Unsupported(format!(
@@ -403,21 +427,11 @@ fn plan_extra(
     Ok(())
 }
 
-/// The corrections are per receive path; the digital filter is one switch for the whole part.
-fn front_lanes(_front: &Front, layout: &Layout, name: &str) -> usize {
-    if name == FIR {
-        1
-    } else {
-        layout.rx_streams().max(1)
-    }
-}
-
 fn tracking_attr(name: &str) -> &'static str {
     match name {
         QUADRATURE => QUADRATURE_TRACKING,
         RF_DC => RF_DC_TRACKING,
-        BB_DC => BB_DC_TRACKING,
-        _ => FILTER_FIR_EN,
+        _ => BB_DC_TRACKING,
     }
 }
 
@@ -502,21 +516,41 @@ pub(crate) fn read_settings(
     };
     DeviceSettings {
         center_hz: read(Direction::Out, RX_LO, FREQUENCY).and_then(|v| number(&v)),
-        sample_rate: rx
-            .and_then(|rx| read(Direction::In, rx, SAMPLING_FREQUENCY))
-            .and_then(|v| number(&v)),
+        sample_rate: read_rate(client, front, rx, &read),
         bandwidth: rx
             .and_then(|rx| read(Direction::In, rx, RF_BANDWIDTH))
             .and_then(|v| number(&v))
             .map(|hz| BandwidthSetting::Manual { hz }),
         antenna: rx.and_then(|rx| read(Direction::In, rx, RF_PORT_SELECT)),
         ppm: read_ppm(client, front, phy),
-        agc: read_agc(capabilities, layout, &read),
-        gains: read_gains(capabilities, layout, &read),
+        agc: read_agc(capabilities, layout, 0, &read),
+        gains: read_lane_gains(capabilities, layout, 0, &read),
         extra: read_extra(capabilities, layout, &read),
         streams: read_streams(capabilities, layout, &read),
         ..DeviceSettings::default()
     }
+}
+
+fn read_rate(
+    client: &Client,
+    front: &Front,
+    rx: Option<&str>,
+    read: &dyn Fn(Direction, &str, &str) -> Option<String>,
+) -> Option<f64> {
+    let converted = front.decimation.as_ref().and_then(|decimation| {
+        client
+            .read_channel_attr(
+                &decimation.rx,
+                Direction::In,
+                CONVERTER_CHANNEL,
+                SAMPLING_FREQUENCY,
+            )
+            .inspect_err(|e| tracing::debug!("{}.{SAMPLING_FREQUENCY}: {e}", decimation.rx))
+            .ok()
+    });
+    converted
+        .or_else(|| read(Direction::In, rx?, SAMPLING_FREQUENCY))
+        .and_then(|v| number(&v))
 }
 
 /// What every lane past the first holds of its own, so a two-lane board whose lanes were set
@@ -526,23 +560,15 @@ fn read_streams(
     layout: &Layout,
     read: &dyn Fn(Direction, &str, &str) -> Option<String>,
 ) -> Vec<StreamSettings> {
-    if !capabilities.per_stream.gain && !capabilities.per_stream.antenna {
+    if !capabilities.per_stream.gain && !capabilities.per_stream.agc {
         return Vec::new();
     }
-    (1..layout.ports(false).len())
-        .filter_map(|lane| {
-            let port = layout.port(false, lane)?;
-            let gain = read(Direction::In, port, HARDWAREGAIN).and_then(|v| number(&v));
-            Some(StreamSettings {
-                stream: lane as u32,
-                center_hz: None,
-                tuning: None,
-                gains: gain
-                    .map(|value_db| vec![GainValue::new(GainKind::Tuner, value_db)])
-                    .unwrap_or_default(),
-                antenna: read(Direction::In, port, RF_PORT_SELECT),
-                agc: None,
-            })
+    (1..capabilities.rx_streams as usize)
+        .map(|lane| StreamSettings {
+            stream: lane as u32,
+            gains: read_lane_gains(capabilities, layout, lane, read),
+            agc: read_agc(capabilities, layout, lane, read),
+            ..StreamSettings::default()
         })
         .collect()
 }
@@ -550,12 +576,13 @@ fn read_streams(
 fn read_agc(
     capabilities: &Capabilities,
     layout: &Layout,
+    lane: usize,
     read: &dyn Fn(Direction, &str, &str) -> Option<String>,
 ) -> Option<AgcSetting> {
     if !capabilities.agc.offered() {
         return None;
     }
-    let mode = read(Direction::In, layout.port(false, 0)?, GAIN_CONTROL_MODE)?;
+    let mode = read(Direction::In, layout.port(false, lane)?, GAIN_CONTROL_MODE)?;
     let mode = mode.trim();
     if mode == MANUAL_GAIN {
         Some(AgcSetting::off())
@@ -573,9 +600,10 @@ fn read_ppm(client: &Client, front: &Front, phy: &str) -> Option<f64> {
     Some(trim.ppm(correction))
 }
 
-fn read_gains(
+pub(crate) fn read_lane_gains(
     capabilities: &Capabilities,
     layout: &Layout,
+    lane: usize,
     read: &dyn Fn(Direction, &str, &str) -> Option<String>,
 ) -> Vec<GainValue> {
     capabilities
@@ -583,15 +611,10 @@ fn read_gains(
         .iter()
         .filter_map(|stage| {
             let output = stage.kind == GainKind::Tx;
-            let port = layout.port(output, 0)?;
-            let direction = if output {
-                Direction::Out
-            } else {
-                Direction::In
-            };
+            let port = layout.port(output, lane)?;
             Some(GainValue {
                 stage: stage.name.clone(),
-                value_db: number(&read(direction, port, HARDWAREGAIN)?)?,
+                value_db: number(&read(direction(output), port, HARDWAREGAIN)?)?,
             })
         })
         .collect()
@@ -612,7 +635,7 @@ fn read_extra(
                 TX_PORT => {
                     serde_value(read(Direction::Out, layout.port(true, 0)?, RF_PORT_SELECT)?)
                 }
-                QUADRATURE | RF_DC | BB_DC | FIR => {
+                QUADRATURE | RF_DC | BB_DC => {
                     let raw = read(Direction::In, rx?, tracking_attr(name))?;
                     serde_json::Value::Bool(number(&raw)? != 0.0)
                 }
@@ -684,6 +707,38 @@ mod tests {
         Write::channel(output, channel, attr, value.to_string())
     }
 
+    fn converter(output: bool, device: &str, value: &str) -> Write {
+        Write::Converter {
+            device: device.to_string(),
+            output,
+            attr: SAMPLING_FREQUENCY.to_string(),
+            value: value.to_string(),
+        }
+    }
+
+    #[test]
+    fn a_rate_below_the_transceivers_floor_runs_it_faster_and_decimates() {
+        let writes = planned(DeviceSettings {
+            sample_rate: Some(500_000.0),
+            ..DeviceSettings::default()
+        });
+        assert_eq!(
+            writes,
+            vec![
+                channel(false, "voltage0", SAMPLING_FREQUENCY, "4000000"),
+                converter(false, "cf-ad9361-lpc", "500000"),
+                converter(true, "cf-ad9361-dds-core-lpc", "500000"),
+            ]
+        );
+        assert!(
+            refused(DeviceSettings {
+                sample_rate: Some(200_000.0),
+                ..DeviceSettings::default()
+            })
+            .contains("converts")
+        );
+    }
+
     #[test]
     fn the_rate_is_written_before_the_filter_and_the_filter_before_the_dial() {
         let writes = planned(DeviceSettings {
@@ -696,6 +751,8 @@ mod tests {
             writes,
             vec![
                 channel(false, "voltage0", SAMPLING_FREQUENCY, "2400000"),
+                converter(false, "cf-ad9361-lpc", "2400000"),
+                converter(true, "cf-ad9361-dds-core-lpc", "2400000"),
                 channel(false, "voltage0", RF_BANDWIDTH, "2000000"),
                 channel(true, "voltage0", RF_BANDWIDTH, "2000000"),
                 channel(true, RX_LO, FREQUENCY, "433920000"),
@@ -747,17 +804,25 @@ mod tests {
     }
 
     #[test]
-    fn a_top_level_antenna_reaches_every_receive_lane() {
+    fn the_antenna_is_one_switch_set_through_the_first_receiver() {
         let writes = planned(DeviceSettings {
             antenna: Some("B_BALANCED".to_string()),
             ..DeviceSettings::default()
         });
         assert_eq!(
             writes,
-            vec![
-                channel(false, "voltage0", RF_PORT_SELECT, "B_BALANCED"),
-                channel(false, "voltage1", RF_PORT_SELECT, "B_BALANCED"),
-            ]
+            vec![channel(false, "voltage0", RF_PORT_SELECT, "B_BALANCED")]
+        );
+        assert!(
+            refused(DeviceSettings {
+                streams: vec![StreamSettings {
+                    stream: 1,
+                    antenna: Some("B_BALANCED".to_string()),
+                    ..StreamSettings::default()
+                }],
+                ..DeviceSettings::default()
+            })
+            .contains("share one antenna")
         );
     }
 
@@ -797,7 +862,7 @@ mod tests {
                     stage: RX_STAGE.to_string(),
                     value_db: 20.0,
                 }],
-                antenna: Some("B_BALANCED".to_string()),
+                agc: Some(AgcSetting::in_mode(true, "fast_attack")),
                 ..sdrmm_wire::StreamSettings::default()
             }],
             ..DeviceSettings::default()
@@ -806,7 +871,7 @@ mod tests {
             writes,
             vec![
                 channel(false, "voltage1", HARDWAREGAIN, "20.000000"),
-                channel(false, "voltage1", RF_PORT_SELECT, "B_BALANCED"),
+                channel(false, "voltage1", GAIN_CONTROL_MODE, "fast_attack"),
             ]
         );
     }
@@ -852,27 +917,17 @@ mod tests {
     }
 
     #[test]
-    fn a_correction_switch_reaches_every_lane_and_the_filter_reaches_the_part_once() {
+    fn a_correction_switch_is_one_for_the_whole_part() {
         let writes = planned(DeviceSettings {
-            extra: vec![
-                ExtraValue {
-                    name: QUADRATURE.to_string(),
-                    value: json!(false),
-                },
-                ExtraValue {
-                    name: FIR.to_string(),
-                    value: json!(true),
-                },
-            ],
+            extra: vec![ExtraValue {
+                name: QUADRATURE.to_string(),
+                value: json!(false),
+            }],
             ..DeviceSettings::default()
         });
         assert_eq!(
             writes,
-            vec![
-                channel(false, "voltage0", QUADRATURE_TRACKING, "0"),
-                channel(false, "voltage1", QUADRATURE_TRACKING, "0"),
-                channel(false, "voltage0", FILTER_FIR_EN, "1"),
-            ]
+            vec![channel(false, "voltage0", QUADRATURE_TRACKING, "0")]
         );
     }
 
@@ -1019,7 +1074,7 @@ mod tests {
         let front = front();
         let capabilities = capabilities(&front, &layout);
         let held = DeviceSettings {
-            antenna: Some("A_BALANCED".to_string()),
+            agc: Some(AgcSetting::off()),
             gains: vec![GainValue {
                 stage: RX_STAGE.to_string(),
                 value_db: 40.0,
@@ -1030,14 +1085,14 @@ mod tests {
                     stage: RX_STAGE.to_string(),
                     value_db: 20.0,
                 }],
-                antenna: Some("B_BALANCED".to_string()),
+                agc: Some(AgcSetting::in_mode(true, "slow_attack")),
                 ..sdrmm_wire::StreamSettings::default()
             }],
             ..DeviceSettings::default()
         };
         let (next, _) = plan(
             &DeviceSettings {
-                antenna: Some("A_BALANCED".to_string()),
+                agc: Some(AgcSetting::off()),
                 gains: vec![GainValue {
                     stage: RX_STAGE.to_string(),
                     value_db: 30.0,
@@ -1059,7 +1114,7 @@ mod tests {
         )
         .expect("planned");
         let lane = next.for_stream(1, &capabilities.per_stream);
-        assert_eq!(lane.antenna.as_deref(), Some("A_BALANCED"));
+        assert_eq!(lane.agc, Some(AgcSetting::off()));
         assert_eq!(lane.gains[0].value_db, 10.0);
     }
 

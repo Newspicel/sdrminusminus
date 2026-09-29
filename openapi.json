@@ -9125,6 +9125,14 @@
           "retune_keeps_phase": {
             "type": "boolean"
           },
+          "rx_stream_choices": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          },
           "rx_streams": {
             "type": "integer",
             "format": "int32",
@@ -14151,6 +14159,13 @@
             "format": "int32",
             "minimum": 0
           },
+          "loss": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "float"
+          },
           "network_export": {
             "oneOf": [
               {
@@ -14308,6 +14323,14 @@
               "null"
             ],
             "format": "double"
+          },
+          "rx_streams": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
           },
           "sample_rate": {
             "type": [

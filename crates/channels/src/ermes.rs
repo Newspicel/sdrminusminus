@@ -369,25 +369,25 @@ impl ChannelRx for ErmesChannel {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{testgen, testutil::settings};
+    use crate::{synth, testutil::settings};
 
     #[test]
     fn decodes_recorded_ermes_iq_in_ragged_blocks() {
-        let page = testgen::ermes::Page {
+        let page = synth::ermes::Page {
             local_address: 234_567,
             message_number: 3,
             text: "ERMES ALPHA PAGE".to_owned(),
             urgent: true,
             alert: 5,
         };
-        let iq = testgen::ermes::transmission(&page, RATE);
+        let iq = synth::ermes::transmission(&page, RATE);
         let mut exact = ErmesChannel::new(
             ChannelCtx { input_rate: RATE },
             settings(ChannelParams::Ermes(ErmesParams::default())),
         )
         .unwrap();
         let mut exact_out = ChannelOutputs::default();
-        for bit in testgen::ermes::bits(&page) {
+        for bit in synth::ermes::bits(&page) {
             exact.bit(bit, &mut exact_out);
         }
         assert_eq!(
@@ -424,14 +424,14 @@ mod tests {
 
     #[test]
     fn a_broken_header_word_emits_no_page() {
-        let page = testgen::ermes::Page {
+        let page = synth::ermes::Page {
             local_address: 234_567,
             message_number: 3,
             text: "ERMES ALPHA PAGE".to_owned(),
             urgent: true,
             alert: 5,
         };
-        let mut bits = testgen::ermes::bits(&page);
+        let mut bits = synth::ermes::bits(&page);
         let block = 30 * (8 + 1 + 3 + 5);
         for bit in 0..6 {
             let at = block + bit * 9 + 1;

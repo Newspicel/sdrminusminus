@@ -57,12 +57,12 @@ fn is_everyday(payload: u128) -> bool {
     matches!(payload & 7, 1 | 2 | 4)
 }
 
-#[cfg(any(test, feature = "test-signals"))]
+#[cfg(any(test, feature = "synth"))]
 pub(crate) fn pack(text: &str) -> Option<u128> {
     message::pack(text)
 }
 
-#[cfg(any(test, feature = "test-signals"))]
+#[cfg(any(test, feature = "synth"))]
 pub(crate) fn waveform(protocol: &Protocol, payload: u128, frequency_hz: f64) -> Vec<f32> {
     let tones = protocol.tones_for(payload);
     let mut wave = Vec::new();

@@ -1,6 +1,6 @@
 use sdrmm_device::LutConverter;
 
-use crate::driver::TRANSFER_BUF_SIZE;
+use crate::dongle::TRANSFER_BYTES;
 
 const DC_OFFSET: f32 = 127.4;
 const FULL_SCALE: f32 = 127.5;
@@ -18,7 +18,7 @@ const fn build_table() -> [f32; 256] {
 }
 
 pub(crate) fn converter() -> LutConverter {
-    LutConverter::new(&CODE_TO_F32, TRANSFER_BUF_SIZE / 2)
+    LutConverter::new(&CODE_TO_F32, TRANSFER_BYTES / 2)
 }
 
 #[cfg(test)]
@@ -70,7 +70,7 @@ mod tests {
 
     #[test]
     fn the_converter_is_sized_for_a_whole_transfer() {
-        let block = vec![0u8; TRANSFER_BUF_SIZE];
+        let block = vec![0u8; TRANSFER_BYTES];
         let mut converter = converter();
         let first = converter.convert(&block).as_ptr();
         assert_eq!(

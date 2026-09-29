@@ -105,7 +105,7 @@ mod tests {
     #[test]
     fn copyleft_components_are_annotated() {
         let about = about("id", "host");
-        for name in ["codec2", "rtl-sdr (librtlsdr)"] {
+        for name in ["codec2", "FFmpeg 9.0.1"] {
             let component = about
                 .components
                 .iter()

@@ -253,7 +253,7 @@ mod tests {
 
     use super::*;
     use crate::{
-        testgen::{
+        synth::{
             add_noise,
             ais::{
                 PositionReport, burst, class_b_payload, corrupted_burst, position_payload,

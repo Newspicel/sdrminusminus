@@ -1175,7 +1175,7 @@ mod tests {
 
     fn control_channel(engine: &Engine) -> (u32, u32, f64) {
         let device_set = engine
-            .create_device_set("virtual:siggen")
+            .create_device_set("virtual:band")
             .expect("virtual device");
         let center_hz = engine.snapshot().device_sets[0]
             .settings
@@ -1572,7 +1572,7 @@ mod tests {
     fn a_system_given_a_radio_opens_its_own_control_channel() {
         let engine = engine();
         let device_set = engine
-            .create_device_set("virtual:siggen")
+            .create_device_set("virtual:band")
             .expect("virtual device");
         let center_hz = engine.snapshot().device_sets[0]
             .settings
@@ -1637,7 +1637,7 @@ mod tests {
     fn moving_the_control_frequency_retunes_the_receiver_in_place() {
         let engine = engine();
         let device_set = engine
-            .create_device_set("virtual:siggen")
+            .create_device_set("virtual:band")
             .expect("virtual device");
         let center_hz = engine.snapshot().device_sets[0]
             .settings
@@ -1690,7 +1690,7 @@ mod tests {
     fn retuning_the_radio_keeps_the_control_receiver_on_its_frequency() {
         let engine = engine();
         let device_set = engine
-            .create_device_set("virtual:siggen")
+            .create_device_set("virtual:band")
             .expect("virtual device");
         let center_hz = engine.snapshot().device_sets[0]
             .settings

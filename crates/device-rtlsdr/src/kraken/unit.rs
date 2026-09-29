@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use crate::driver::DeviceDescriptor;
+use crate::dongle::Listing;
 
 const FIRST_SERIAL: u32 = 1000;
 const KRAKEN_LANES: u32 = 5;
@@ -69,13 +69,13 @@ impl Unit {
     }
 }
 
-fn lane_of(descriptor: &DeviceDescriptor) -> Option<u32> {
+fn lane_of(descriptor: &Listing) -> Option<u32> {
     let serial: u32 = descriptor.serial.as_deref()?.parse().ok()?;
     let lane = serial.checked_sub(FIRST_SERIAL)?;
     (lane < KRAKEN_LANES).then_some(lane)
 }
 
-fn hub_key(descriptor: &DeviceDescriptor) -> String {
+fn hub_key(descriptor: &Listing) -> String {
     let ports = descriptor
         .port_chain
         .split_last()
@@ -113,7 +113,7 @@ fn unit(key: String, behind: Behind) -> Option<Unit> {
     })
 }
 
-pub(crate) fn units(descriptors: &[DeviceDescriptor]) -> Vec<Unit> {
+pub(crate) fn units(descriptors: &[Listing]) -> Vec<Unit> {
     let mut behind: BTreeMap<String, Behind> = BTreeMap::new();
     for (index, descriptor) in descriptors.iter().enumerate() {
         if let Some(lane) = lane_of(descriptor) {
@@ -128,7 +128,7 @@ pub(crate) fn units(descriptors: &[DeviceDescriptor]) -> Vec<Unit> {
         .collect()
 }
 
-pub(crate) fn claimed(descriptors: &[DeviceDescriptor]) -> Vec<usize> {
+pub(crate) fn claimed(descriptors: &[Listing]) -> Vec<usize> {
     units(descriptors)
         .into_iter()
         .flat_map(|unit| unit.members)
@@ -138,12 +138,12 @@ pub(crate) fn claimed(descriptors: &[DeviceDescriptor]) -> Vec<usize> {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
-    use crate::driver::BoardVariant;
+    use crate::dongle::Board;
 
     const OTHER_HUB: (u16, u16) = (0x05e3, 0x0610);
 
-    fn dongle(bus: &str, chain: &[u8], serial: Option<&str>) -> DeviceDescriptor {
-        DeviceDescriptor {
+    fn dongle(bus: &str, chain: &[u8], serial: Option<&str>) -> Listing {
+        Listing {
             index: 0,
             bus: bus.to_owned(),
             address: chain.last().copied().unwrap_or(1),
@@ -151,7 +151,7 @@ pub(crate) mod tests {
             product: None,
             serial: serial.map(str::to_owned),
             port_chain: chain.to_vec(),
-            board_variant: BoardVariant::Generic,
+            board: Board::Generic,
             hub: None,
         }
     }
@@ -161,10 +161,10 @@ pub(crate) mod tests {
         hub: u8,
         id: Option<(u16, u16)>,
         lanes: &[u32],
-    ) -> Vec<DeviceDescriptor> {
+    ) -> Vec<Listing> {
         lanes
             .iter()
-            .map(|lane| DeviceDescriptor {
+            .map(|lane| Listing {
                 hub: id,
                 ..dongle(
                     bus,
@@ -175,7 +175,7 @@ pub(crate) mod tests {
             .collect()
     }
 
-    fn unit_behind(bus: &str, hub: u8, count: u32) -> Vec<DeviceDescriptor> {
+    fn unit_behind(bus: &str, hub: u8, count: u32) -> Vec<Listing> {
         lanes_behind(bus, hub, Some(KRAKEN_HUB), &(0..count).collect::<Vec<_>>())
     }
 
@@ -283,7 +283,7 @@ pub(crate) mod tests {
 
     #[test]
     fn two_units_that_cannot_be_told_apart_are_not_grouped() {
-        let descriptors: Vec<DeviceDescriptor> = (0..10)
+        let descriptors: Vec<Listing> = (0..10)
             .map(|lane| dongle("0", &[], Some(&(FIRST_SERIAL + lane % 5).to_string())))
             .collect();
         assert!(units(&descriptors).is_empty());
@@ -291,7 +291,7 @@ pub(crate) mod tests {
 
     #[test]
     fn a_bus_that_reports_no_topology_still_groups_one_unit() {
-        let descriptors: Vec<DeviceDescriptor> = (0..5)
+        let descriptors: Vec<Listing> = (0..5)
             .map(|lane| dongle("0", &[], Some(&(FIRST_SERIAL + lane).to_string())))
             .collect();
         let found = units(&descriptors);

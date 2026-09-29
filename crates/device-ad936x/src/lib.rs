@@ -9,14 +9,16 @@ use sdrmm_device::{
     TxStream, lock,
     net::{Adopted, Endpoint},
 };
-use sdrmm_wire::{Capabilities, DeviceInfo, DeviceSettings, Duplex};
+use sdrmm_wire::{
+    AgcGain, Capabilities, DeviceInfo, DeviceSettings, Duplex, GainKind, StreamSettings,
+};
 
 use crate::{
-    caps::Front,
+    caps::{Front, parse_range},
     convert::IqConverter,
     discovery::USB_PREFIX,
-    iio::{Client, DEFAULT_PORT, UsbBus},
-    layout::Layout,
+    iio::{Client, DEFAULT_PORT, Direction as Way, UsbBus},
+    layout::{HARDWAREGAIN, Layout, available},
     rx::{RxRadio, fan_out},
     source::Source,
     tx::Ad936xTx,
@@ -28,6 +30,7 @@ mod convert;
 mod discovery;
 mod iio;
 mod layout;
+mod pace;
 mod rx;
 mod source;
 mod tx;
@@ -179,6 +182,43 @@ impl DeviceDriver for Ad936xDriver {
     }
 }
 
+fn split_gains(delta: &DeviceSettings) -> (DeviceSettings, DeviceSettings) {
+    let front = DeviceSettings {
+        gains: Vec::new(),
+        streams: delta
+            .streams
+            .iter()
+            .map(|stream| StreamSettings {
+                gains: Vec::new(),
+                ..stream.clone()
+            })
+            .filter(|stream| *stream != lane_only(stream.stream))
+            .collect(),
+        ..delta.clone()
+    };
+    let gains = DeviceSettings {
+        gains: delta.gains.clone(),
+        streams: delta
+            .streams
+            .iter()
+            .filter(|stream| !stream.gains.is_empty())
+            .map(|stream| StreamSettings {
+                gains: stream.gains.clone(),
+                ..lane_only(stream.stream)
+            })
+            .collect(),
+        ..DeviceSettings::default()
+    };
+    (front, gains)
+}
+
+fn lane_only(stream: u32) -> StreamSettings {
+    StreamSettings {
+        stream,
+        ..StreamSettings::default()
+    }
+}
+
 fn source(key: &str) -> Result<Source, DeviceError> {
     if key.starts_with(USB_PREFIX) {
         let info = discovery::find_usb(key)?;
@@ -213,7 +253,9 @@ impl Ad936xDevice {
         if capabilities.duplex == Duplex::Full && !source.full_duplex() {
             capabilities.duplex = Duplex::Half;
         }
-        let settings = apply::read_settings(&client, &capabilities, &front, &layout);
+        let mut settings = apply::read_settings(&client, &capabilities, &front, &layout);
+        settings.rx_streams =
+            (!capabilities.rx_stream_choices.is_empty()).then_some(capabilities.rx_streams);
         tracing::info!(
             radio = context
                 .attribute("hw_model")
@@ -236,11 +278,92 @@ impl Ad936xDevice {
         })
     }
 
+    fn apply_planned(&mut self, delta: &DeviceSettings) -> Result<(), DeviceError> {
+        let (next, writes) = apply::plan(
+            delta,
+            &self.capabilities,
+            &self.front,
+            &self.layout,
+            &self.settings,
+        )?;
+        match apply::execute(&self.client, &self.layout.phy, &writes) {
+            Ok(()) => {
+                self.settings = next;
+                Ok(())
+            }
+            Err(e) => {
+                self.reread();
+                Err(e)
+            }
+        }
+    }
+
+    fn reread(&mut self) {
+        let held =
+            apply::read_settings(&self.client, &self.capabilities, &self.front, &self.layout);
+        self.settings.merge_from(&held);
+    }
+
+    fn follow_band(&mut self) {
+        let Some(port) = self.layout.port(false, 0) else {
+            return;
+        };
+        let range = self
+            .client
+            .read_channel_attr(&self.layout.phy, Way::In, port, &available(HARDWAREGAIN))
+            .inspect_err(|e| tracing::debug!("{port} gain range: {e}"))
+            .ok()
+            .and_then(|text| parse_range(&text));
+        let Some(stage) = self
+            .capabilities
+            .gains
+            .iter_mut()
+            .find(|stage| stage.kind == GainKind::Tuner)
+        else {
+            return;
+        };
+        if let Some(range) = range.filter(|range| *range != stage.range) {
+            stage.range = range;
+            self.front.rx_gain = range;
+            self.reread();
+        }
+    }
+
+    fn read_gain(&self, lane: usize) -> Result<f64, DeviceError> {
+        let port = self.layout.port(false, lane).ok_or_else(|| {
+            DeviceError::Unsupported(format!("this radio has no receive lane {lane}"))
+        })?;
+        let text = self
+            .client
+            .read_channel_attr(&self.layout.phy, Way::In, port, HARDWAREGAIN)?;
+        text.split_whitespace()
+            .next()
+            .and_then(|value| value.parse().ok())
+            .ok_or_else(|| DeviceError::Io(format!("{port} gain reads {text:?}")))
+    }
+
+    fn stream_lanes(&mut self, lanes: u32) -> Result<(), DeviceError> {
+        if lanes == self.capabilities.rx_streams {
+            return Ok(());
+        }
+        if !self.capabilities.rx_stream_choices.contains(&lanes) {
+            return Err(DeviceError::Unsupported(format!(
+                "this radio streams {:?} lanes, got {lanes}",
+                self.capabilities.rx_stream_choices
+            )));
+        }
+        caps::stream_lanes(&mut self.capabilities, lanes);
+        self.settings.rx_streams = Some(lanes);
+        self.settings.streams.retain(|lane| lane.stream < lanes);
+        self.reread();
+        Ok(())
+    }
+
     fn lanes(&self, output: bool, wanted: usize) -> Result<usize, DeviceError> {
         let have = if output {
             self.layout.tx_streams()
         } else {
-            self.layout.rx_streams()
+            self.capabilities.rx_streams as usize
         };
         if wanted == 0 || wanted > have {
             return Err(DeviceError::Unsupported(format!(
@@ -271,29 +394,34 @@ impl SdrDevice for Ad936xDevice {
     }
 
     fn apply(&mut self, settings: &DeviceSettings) -> Result<(), DeviceError> {
-        let (next, writes) = apply::plan(
-            settings,
-            &self.capabilities,
-            &self.front,
-            &self.layout,
-            &self.settings,
-        )?;
-        match apply::execute(&self.client, &self.layout.phy, &writes) {
-            Ok(()) => {
-                self.settings = next;
-                Ok(())
-            }
-            Err(e) => {
-                let held = apply::read_settings(
-                    &self.client,
-                    &self.capabilities,
-                    &self.front,
-                    &self.layout,
-                );
-                self.settings.merge_from(&held);
-                Err(e)
+        if let Some(lanes) = settings.rx_streams {
+            self.stream_lanes(lanes)?;
+        }
+        let (front, gains) = split_gains(settings);
+        self.apply_planned(&front)?;
+        if settings.center_hz.is_some() {
+            self.follow_band();
+        }
+        if gains != DeviceSettings::default() {
+            self.apply_planned(&gains)?;
+        }
+        Ok(())
+    }
+
+    fn agc_gains(&self) -> Result<Vec<AgcGain>, DeviceError> {
+        let mut gains = Vec::new();
+        for lane in 0..self.capabilities.rx_streams as usize {
+            let resolved = self
+                .settings
+                .for_stream(lane as u32, &self.capabilities.per_stream);
+            if resolved.agc.as_ref().is_some_and(|agc| agc.on) {
+                gains.push(AgcGain {
+                    stream: lane as u32,
+                    value_db: self.read_gain(lane)?,
+                });
             }
         }
+        Ok(gains)
     }
 
     fn rx_start(&mut self, sinks: Vec<RxSink>) -> Result<(), DeviceError> {
@@ -426,6 +554,40 @@ mod tests {
             driver.resolve(&by_name.key).is_some() && driver.resolve(&by_address.key).is_some(),
             "either spelling still opens the radio"
         );
+    }
+
+    #[test]
+    fn gains_are_set_apart_from_the_rest_so_they_land_in_the_new_bands_limits() {
+        let delta = DeviceSettings {
+            center_hz: Some(5.8e9),
+            gains: vec![sdrmm_wire::GainValue::new(GainKind::Tuner, 70.0)],
+            streams: vec![
+                StreamSettings {
+                    stream: 1,
+                    gains: vec![sdrmm_wire::GainValue::new(GainKind::Tuner, 60.0)],
+                    ..lane_only(1)
+                },
+                StreamSettings {
+                    agc: Some(sdrmm_wire::AgcSetting::off()),
+                    ..lane_only(0)
+                },
+            ],
+            ..DeviceSettings::default()
+        };
+        let (front, gains) = split_gains(&delta);
+        assert_eq!(front.center_hz, Some(5.8e9));
+        assert!(front.gains.is_empty());
+        assert_eq!(
+            front.streams.len(),
+            1,
+            "a lane left with nothing is dropped"
+        );
+        assert_eq!(front.streams[0].stream, 0);
+        assert_eq!(gains.center_hz, None);
+        assert_eq!(gains.gains, delta.gains);
+        assert_eq!(gains.streams.len(), 1);
+        assert_eq!(gains.streams[0].gains[0].value_db, 60.0);
+        assert_eq!(gains.streams[0].agc, None);
     }
 
     #[test]

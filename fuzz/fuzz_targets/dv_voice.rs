@@ -3,7 +3,7 @@
 use libfuzzer_sys::fuzz_target;
 use sdrmm_channels::{
     ChannelCtx, ChannelOutputs, ChannelRx, DpmrChannel,
-    testgen::dv::dpmr::{self, Call},
+    synth::dv::dpmr::{self, Call},
 };
 use sdrmm_wire::{ChannelParams, ChannelSettings, DpmrParams, Squelch};
 

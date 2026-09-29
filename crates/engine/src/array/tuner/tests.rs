@@ -40,6 +40,7 @@ fn caps(streams: u32, per_stream: StreamScope, steps: &[f64]) -> Capabilities {
         coherence: Coherence::TimeSync,
         noise_source: NoiseSource::Isolated,
         retune_keeps_phase: false,
+        rx_stream_choices: Vec::new(),
     }
 }
 

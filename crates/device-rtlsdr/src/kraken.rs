@@ -14,8 +14,7 @@ use sdrmm_wire::{
 
 use crate::{
     DEFAULT_CENTER_HZ, apply_to_hardware, caps, convert,
-    driver::{DeviceDescriptors, IN_FLIGHT_SAMPLES, RtlSdr, StreamGate},
-    map_err,
+    dongle::{self, Catalog, Dongle, IN_FLIGHT_SAMPLES, Release},
 };
 
 mod apply;
@@ -153,8 +152,8 @@ fn admit(unit: &unit::Unit, wanted: &DeviceInfo) -> Result<(), DeviceError> {
 }
 
 fn open_bank(wanted: &DeviceInfo) -> Result<Box<dyn SdrDevice>, DeviceError> {
-    let descriptors = DeviceDescriptors::new().map_err(map_err)?;
-    let listed: Vec<_> = descriptors.iter().cloned().collect();
+    let catalog = Catalog::scan()?;
+    let listed: Vec<_> = catalog.listings().cloned().collect();
     let unit = unit::units(&listed)
         .into_iter()
         .find(|unit| unit.key == wanted.key)
@@ -162,26 +161,26 @@ fn open_bank(wanted: &DeviceInfo) -> Result<Box<dyn SdrDevice>, DeviceError> {
     admit(&unit, wanted)?;
     let mut lanes = Vec::with_capacity(unit.members.len());
     for member in &unit.members {
-        lanes.push(descriptors.open(*member).map_err(map_err)?);
+        lanes.push(catalog.open(*member)?);
     }
     tracing::info!(model = unit.model.name(), key = %unit.key, lanes = lanes.len(), "opened a coherent bank");
     Ok(Box::new(KrakenDevice::new(unit.model, lanes)?))
 }
 
-impl BankLane for RtlSdr {
+impl BankLane for Dongle {
     type Stream = RxStream;
-    type Gate = StreamGate;
+    type Gate = Release;
 
-    fn hold(&mut self) -> Result<(RxStream, StreamGate), DeviceError> {
-        self.hold_stream().map_err(map_err)
+    fn hold(&mut self) -> Result<(RxStream, Release), DeviceError> {
+        Ok(self.prime_stream()?)
     }
 
-    fn release(gate: &StreamGate) -> Result<(), DeviceError> {
-        gate.release().map_err(map_err)
+    fn release(gate: &Release) -> Result<(), DeviceError> {
+        Ok(gate.go()?)
     }
 
-    fn rehold(gate: &StreamGate) -> Result<(), DeviceError> {
-        gate.rehold().map_err(map_err)
+    fn rehold(gate: &Release) -> Result<(), DeviceError> {
+        Ok(gate.rehold()?)
     }
 }
 
@@ -199,7 +198,7 @@ fn announce(posters: &[MarkPoster], mark: LaneMark) -> Result<(), DeviceError> {
 
 pub struct KrakenDevice {
     model: Model,
-    lanes: Vec<Arc<Mutex<RtlSdr>>>,
+    lanes: Vec<Arc<Mutex<Dongle>>>,
     capabilities: Capabilities,
     lane_capabilities: Capabilities,
     settings: DeviceSettings,
@@ -208,11 +207,11 @@ pub struct KrakenDevice {
     bank: Option<Bank>,
 }
 
-fn settled_from(sdr: &RtlSdr) -> DeviceSettings {
+fn settled_from(dongle: &Dongle) -> DeviceSettings {
     DeviceSettings {
-        center_hz: Some(f64::from(sdr.center_freq())),
-        sample_rate: Some(f64::from(sdr.sample_rate())),
-        ppm: Some(f64::from(sdr.freq_correction())),
+        center_hz: dongle.center_hz().map(f64::from),
+        sample_rate: Some(f64::from(dongle.sample_rate())),
+        ppm: Some(f64::from(dongle.ppm())),
         antenna: Some("RX".to_owned()),
         bandwidth: Some(BandwidthSetting::Auto),
         agc: Some(AgcSetting::switched(false)),
@@ -225,28 +224,27 @@ fn settled_from(sdr: &RtlSdr) -> DeviceSettings {
 }
 
 impl KrakenDevice {
-    fn new(model: Model, mut lanes: Vec<RtlSdr>) -> Result<Self, DeviceError> {
+    fn new(model: Model, mut lanes: Vec<Dongle>) -> Result<Self, DeviceError> {
         let gain_table = lanes
             .first()
             .ok_or_else(|| DeviceError::NotFound("an empty bank".to_owned()))?
-            .gains()
+            .gain_table()
             .to_vec();
         let mut lane_settings = Vec::with_capacity(lanes.len());
-        for sdr in &mut lanes {
-            sdr.set_dither(false).map_err(map_err)?;
-            sdr.set_sample_rate(DEFAULT_SAMPLE_RATE_HZ)
-                .map_err(map_err)?;
-            sdr.set_center_freq(DEFAULT_CENTER_HZ).map_err(map_err)?;
-            sdr.set_gain_manual(OPENING_GAIN_TENTHS).map_err(map_err)?;
-            lane_settings.push(settled_from(sdr));
+        for dongle in &mut lanes {
+            dongle.set_dither(false)?;
+            dongle.set_sample_rate(DEFAULT_SAMPLE_RATE_HZ)?;
+            dongle.set_center(DEFAULT_CENTER_HZ)?;
+            dongle.set_manual_gain(OPENING_GAIN_TENTHS)?;
+            lane_settings.push(settled_from(dongle));
         }
-        switch_off(model, &lanes[0], lanes.len()).map_err(map_err)?;
+        switch_off(model, &lanes[0], lanes.len())?;
         let count = lanes.len() as u32;
         let mut device = Self {
             model,
             lanes: lanes
                 .into_iter()
-                .map(|sdr| Arc::new(Mutex::new(sdr)))
+                .map(|dongle| Arc::new(Mutex::new(dongle)))
                 .collect(),
             capabilities: caps::kraken_capabilities(model, count, &gain_table),
             lane_capabilities: caps::kraken_lane_capabilities(&gain_table),
@@ -261,16 +259,17 @@ impl KrakenDevice {
     }
 
     fn realign(&mut self, before: &[(Option<f64>, Option<f64>)]) {
-        for ((sdr, settled), tuning) in self.lanes.iter().zip(&mut self.lane_settings).zip(before) {
+        for ((lane, settled), tuning) in self.lanes.iter().zip(&mut self.lane_settings).zip(before)
+        {
             let (Some(center), Some(rate)) = *tuning else {
                 continue;
             };
-            let mut sdr = lock(sdr);
-            if let Err(error) = realign_lane(&mut sdr, center as u32, rate as u32) {
+            let mut dongle = lock(lane);
+            if let Err(error) = realign_lane(&mut dongle, center as u32, rate as u32) {
                 tracing::error!(%error, "a lane is left off its previous tuning");
             }
-            settled.center_hz = Some(f64::from(sdr.center_freq()));
-            settled.sample_rate = Some(f64::from(sdr.sample_rate()));
+            settled.center_hz = dongle.center_hz().map(f64::from);
+            settled.sample_rate = Some(f64::from(dongle.sample_rate()));
         }
     }
 
@@ -304,8 +303,8 @@ impl KrakenDevice {
         let control = lock(&self.lanes[0]);
         let mut failure = None;
         for (pin, on) in gpio {
-            if let Err(error) = control.set_gpio(*pin, *on) {
-                failure.get_or_insert(map_err(error));
+            if let Err(error) = control.set_pin(*pin, *on) {
+                failure.get_or_insert(error.into());
             }
         }
         failure
@@ -343,18 +342,18 @@ impl SdrDevice for KrakenDevice {
             .map(|settled| (settled.center_hz, settled.sample_rate))
             .collect();
         let mut failure = None;
-        for ((sdr, settled), lane) in self
+        for ((dongle, settled), lane) in self
             .lanes
             .iter()
             .zip(&mut self.lane_settings)
             .zip(&plan.lanes)
         {
-            let mut sdr = lock(sdr);
-            let result = apply_to_hardware(&mut sdr, lane);
-            settled.center_hz = Some(f64::from(sdr.center_freq()));
-            settled.sample_rate = Some(f64::from(sdr.sample_rate()));
-            settled.ppm = Some(f64::from(sdr.freq_correction()));
-            drop(sdr);
+            let mut dongle = lock(dongle);
+            let result = apply_to_hardware(&mut dongle, lane);
+            settled.center_hz = dongle.center_hz().map(f64::from);
+            settled.sample_rate = Some(f64::from(dongle.sample_rate()));
+            settled.ppm = Some(f64::from(dongle.ppm()));
+            drop(dongle);
             if let Err(error) = result {
                 failure.get_or_insert(error);
                 continue;
@@ -378,9 +377,7 @@ impl SdrDevice for KrakenDevice {
     }
 
     fn set_noise_source(&mut self, on: bool) -> Result<(), DeviceError> {
-        lock(&self.lanes[0])
-            .set_gpio(apply::NOISE_SOURCE_PIN, on)
-            .map_err(map_err)?;
+        lock(&self.lanes[0]).set_pin(apply::NOISE_SOURCE_PIN, on)?;
         let posters = self.bank.as_ref().map_or(&[][..], Bank::posters);
         announce(
             posters,
@@ -413,7 +410,7 @@ impl SdrDevice for KrakenDevice {
             if !settled.agc.as_ref().is_some_and(|agc| agc.on) {
                 continue;
             }
-            let tenths = lock(lane).tuner_gain().map_err(map_err)?;
+            let tenths = lock(lane).measured_gain()?;
             read.push(AgcGain {
                 stream: stream as u32,
                 value_db: f64::from(tenths) / 10.0,
@@ -429,21 +426,21 @@ impl SdrDevice for KrakenDevice {
     }
 }
 
-fn realign_lane(sdr: &mut RtlSdr, center: u32, rate: u32) -> Result<(), crate::driver::Error> {
-    if sdr.sample_rate() != rate {
-        sdr.set_sample_rate(rate)?;
+fn realign_lane(dongle: &mut Dongle, center: u32, rate: u32) -> Result<(), dongle::Error> {
+    if dongle.sample_rate() != rate {
+        dongle.set_sample_rate(rate)?;
     }
-    if sdr.center_freq() != center {
-        sdr.set_center_freq(center)?;
+    if dongle.center_hz() != Some(center) {
+        dongle.set_center(center)?;
     }
     Ok(())
 }
 
-fn switch_off(model: Model, control: &RtlSdr, lanes: usize) -> Result<(), crate::driver::Error> {
-    control.set_gpio(apply::NOISE_SOURCE_PIN, false)?;
+fn switch_off(model: Model, control: &Dongle, lanes: usize) -> Result<(), dongle::Error> {
+    control.set_pin(apply::NOISE_SOURCE_PIN, false)?;
     if model == Model::Kraken {
         for lane in 0..lanes {
-            control.set_gpio(apply::bias_tee_pin(lane), false)?;
+            control.set_pin(apply::bias_tee_pin(lane), false)?;
         }
     }
     Ok(())
@@ -488,7 +485,7 @@ mod tests {
 
     #[test]
     fn a_bank_opens_on_a_gain_every_tuner_can_hold() {
-        assert!(crate::driver::GAIN_VALUES.contains(&OPENING_GAIN_TENTHS));
+        assert!(crate::dongle::GAINS.contains(&OPENING_GAIN_TENTHS));
     }
 
     #[test]

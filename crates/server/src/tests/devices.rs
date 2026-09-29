@@ -135,7 +135,7 @@ async fn opening_a_radio_that_is_already_open_conflicts() {
         app.clone(),
         "POST",
         "/api/devicesets",
-        Some(r#"{"device_id":"virtual:siggen"}"#),
+        Some(r#"{"device_id":"virtual:band"}"#),
     )
     .await;
     assert_eq!(status, StatusCode::CONFLICT);

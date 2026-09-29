@@ -144,14 +144,155 @@ fn write_attribute(state: &Arc<State>, stream: &mut TcpStream, words: &[&str]) -
     let value = String::from_utf8_lossy(&payload)
         .trim_end_matches('\0')
         .to_string();
-    lock(&state.attributes).insert(key, value);
+    let mut attributes = lock(&state.attributes);
+    if !store(&mut attributes, &key, &value) {
+        return say(stream, "-22\n");
+    }
     say(stream, &format!("{count}\n"))
+}
+
+const SHARED: [&str; 5] = [
+    "rf_bandwidth",
+    "sampling_frequency",
+    "quadrature_tracking_en",
+    "rf_dc_offset_tracking_en",
+    "bb_dc_offset_tracking_en",
+];
+
+fn store(attributes: &mut HashMap<String, String>, key: &str, value: &str) -> bool {
+    let parts: Vec<&str> = key.split('/').collect();
+    let [device, way, channel, attr] = parts[..] else {
+        attributes.insert(key.to_string(), value.to_string());
+        return true;
+    };
+    if device != "ad9361-phy" {
+        attributes.insert(key.to_string(), value.to_string());
+        return true;
+    }
+    match (way, channel, attr) {
+        (_, "voltage0", "rf_port_select") => {
+            same_on_every_lane(attributes, way, attr, value);
+            true
+        }
+        (_, _, "rf_port_select") => false,
+        ("INPUT", _, "hardwaregain") => set_gain(attributes, key, channel, value),
+        ("OUTPUT", "altvoltage0", "frequency") => {
+            attributes.insert(key.to_string(), value.to_string());
+            follow_band(attributes, value.parse().unwrap_or(0.0));
+            true
+        }
+        (_, _, attr) if SHARED.contains(&attr) => {
+            same_on_every_lane(attributes, way, attr, value);
+            if attr == "sampling_frequency" {
+                converters_follow(attributes, value);
+            }
+            true
+        }
+        _ => {
+            attributes.insert(key.to_string(), value.to_string());
+            true
+        }
+    }
+}
+
+fn same_on_every_lane(
+    attributes: &mut HashMap<String, String>,
+    way: &str,
+    attr: &str,
+    value: &str,
+) {
+    let prefix = format!("ad9361-phy/{way}/");
+    let keys: Vec<String> = attributes
+        .keys()
+        .filter(|key| key.starts_with(&prefix) && key.ends_with(&format!("/{attr}")))
+        .cloned()
+        .collect();
+    for key in keys {
+        attributes.insert(key, value.to_string());
+    }
+}
+
+fn gain_limit(attributes: &HashMap<String, String>, channel: &str) -> f64 {
+    attributes
+        .get(&format!(
+            "ad9361-phy/INPUT/{channel}/hardwaregain_available"
+        ))
+        .and_then(|range| {
+            range
+                .trim_matches(['[', ']'])
+                .split_whitespace()
+                .last()?
+                .parse()
+                .ok()
+        })
+        .unwrap_or(f64::MAX)
+}
+
+fn set_gain(
+    attributes: &mut HashMap<String, String>,
+    key: &str,
+    channel: &str,
+    value: &str,
+) -> bool {
+    let wanted: f64 = value.parse().unwrap_or(f64::MAX);
+    if wanted > gain_limit(attributes, channel) {
+        return false;
+    }
+    attributes.insert(key.to_string(), value.to_string());
+    true
+}
+
+fn follow_band(attributes: &mut HashMap<String, String>, hz: f64) {
+    let range = if hz < 1.3e9 {
+        "[-1 1 73]"
+    } else if hz < 4e9 {
+        "[-3 1 71]"
+    } else {
+        "[-10 1 62]"
+    };
+    same_on_every_lane(attributes, "INPUT", "hardwaregain_available", range);
+    let channels: Vec<String> = attributes
+        .keys()
+        .filter_map(|key| {
+            key.strip_prefix("ad9361-phy/INPUT/")?
+                .strip_suffix("/hardwaregain")
+        })
+        .map(str::to_string)
+        .collect();
+    for channel in channels {
+        let limit = gain_limit(attributes, &channel);
+        let key = format!("ad9361-phy/INPUT/{channel}/hardwaregain");
+        let held: f64 = attributes
+            .get(&key)
+            .and_then(|gain| gain.split_whitespace().next()?.parse().ok())
+            .unwrap_or(0.0);
+        if held > limit {
+            attributes.insert(key, format!("{limit:.6} dB"));
+        }
+    }
+}
+
+fn converters_follow(attributes: &mut HashMap<String, String>, value: &str) {
+    let rate: f64 = value.parse().unwrap_or(0.0);
+    let offered = format!("{rate:.0} {:.0}", (rate / 8.0).floor());
+    for (device, way) in [
+        ("cf-ad9361-lpc", "INPUT"),
+        ("cf-ad9361-dds-core-lpc", "OUTPUT"),
+    ] {
+        let base = format!("{device}/{way}/voltage0");
+        attributes.insert(format!("{base}/sampling_frequency"), format!("{rate:.0}"));
+        attributes.insert(
+            format!("{base}/sampling_frequency_available"),
+            offered.clone(),
+        );
+    }
 }
 
 /// `READ dev attr` and `READ dev INPUT chan attr` name the same thing in this store.
 fn attribute_key(words: &[&str]) -> Option<String> {
     let device = words.get(1)?;
     match words.get(2) {
+        Some(&"DEBUG") => Some(format!("{device}/DEBUG/{}", words.get(3)?)),
         Some(way @ (&"INPUT" | &"OUTPUT")) => Some(format!(
             "{device}/{way}/{}/{}",
             words.get(3)?,
@@ -265,7 +406,8 @@ fn buffer_device(id: &str, name: &str, way: &str, format: &str, channels: usize)
     for index in 0..channels {
         xml.push_str(&format!(
             "<channel id=\"voltage{index}\" type=\"{way}\" >\
-             <scan-element index=\"{index}\" format=\"{format}\" /></channel>\n"
+             <scan-element index=\"{index}\" format=\"{format}\" />\
+             <attribute name=\"sampling_frequency\" value=\"2400000\" /></channel>\n"
         ));
     }
     xml.push_str("</device>\n");
@@ -286,6 +428,16 @@ pub fn attributes(lanes: usize) -> HashMap<String, String> {
     );
     put("ad9361-phy/OUTPUT/altvoltage1/frequency", "2400000000");
     put("ad9361-phy//xo_correction", "40000000");
+    for base in [
+        "cf-ad9361-lpc/INPUT/voltage0",
+        "cf-ad9361-dds-core-lpc/OUTPUT/voltage0",
+    ] {
+        put(&format!("{base}/sampling_frequency"), "2400000");
+        put(
+            &format!("{base}/sampling_frequency_available"),
+            "2400000 300000",
+        );
+    }
     put(
         "ad9361-phy//xo_correction_available",
         "[39992159 1 40008159]",

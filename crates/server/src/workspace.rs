@@ -856,8 +856,8 @@ mod tests {
             id: 1,
             device: DeviceInfo {
                 driver: "virtual".to_owned(),
-                key: "siggen".to_owned(),
-                label: "Siggen".to_owned(),
+                key: "band".to_owned(),
+                label: "Test band".to_owned(),
                 serial: None,
                 profile: None,
             },
@@ -884,6 +884,7 @@ mod tests {
                 coherence: sdrmm_wire::Coherence::None,
                 noise_source: sdrmm_wire::NoiseSource::None,
                 retune_keeps_phase: false,
+                rx_stream_choices: Vec::new(),
             },
             settings: sdrmm_wire::DeviceSettings::default(),
             status: sdrmm_wire::DeviceSetStatus::Running,
@@ -902,6 +903,7 @@ mod tests {
             agc_gains: Vec::new(),
             virtual_lanes: Vec::new(),
             held: Vec::new(),
+            loss: None,
         }
     }
 

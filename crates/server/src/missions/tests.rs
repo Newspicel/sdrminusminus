@@ -102,7 +102,7 @@ fn phone(id: &str) -> PositionSource {
 fn hunt_graph(position: Option<PositionSource>) -> PatchGraph {
     let mut graph = PatchGraph {
         nodes: vec![
-            radio("radio", "siggen"),
+            radio("radio", "band"),
             channel(VOICE),
             node(HUNT, NodeBody::Hunt(HuntNode::default())),
         ],
@@ -556,7 +556,7 @@ async fn triangulation_lists_sources_and_clears() {
 fn surveyed(positioned: bool) -> PatchGraph {
     let mut graph = PatchGraph {
         nodes: vec![
-            radio("radio", "siggen"),
+            radio("radio", "band"),
             node("map", NodeBody::SignalMap(SignalMapNode::default())),
             gps("gps", fixed()),
         ],

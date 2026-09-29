@@ -87,13 +87,13 @@ async fn decode_first(
 async fn a_recording_node_plays_its_library_stem_into_a_decoder() {
     let dir = TempDir::new().unwrap();
     let engine = engine_for(dir.path());
-    let pages = [sdrmm_channels::testgen::pocsag::Page {
+    let pages = [sdrmm_channels::synth::pocsag::Page {
         address: 1_234_567,
         function: 3,
         text: "from the library".to_owned(),
         numeric: false,
     }];
-    let iq = sdrmm_channels::testgen::pocsag::transmission(&pages, 1_200, 4_500.0, 240_000.0);
+    let iq = sdrmm_channels::synth::pocsag::transmission(&pages, 1_200, 4_500.0, 240_000.0);
     let device = plant(dir.path(), "pocsag-library", &iq, 240_000.0);
 
     let ds = engine.create_device_set(&device).unwrap();

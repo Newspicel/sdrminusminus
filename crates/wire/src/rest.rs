@@ -692,6 +692,7 @@ mod tests {
             coherence: crate::device::Coherence::None,
             noise_source: crate::device::NoiseSource::None,
             retune_keeps_phase: false,
+            rx_stream_choices: Vec::new(),
         }
         .profile()
     }
@@ -776,7 +777,7 @@ mod tests {
     fn a_v1_preset_is_not_a_workspace_preset() {
         let v1 = serde_json::json!({
             "version": 1,
-            "device_id": "virtual:siggen",
+            "device_id": "virtual:band",
             "settings": {},
             "channels": [],
         });
@@ -791,7 +792,7 @@ mod tests {
             "version": PRESET_SNAPSHOT_VERSION,
             "devices": [{
                 "node": "radio",
-                "device_id": "virtual:siggen",
+                "device_id": "virtual:band",
                 "settings": {},
                 "channels": [
                     { "frequency_hz": 433_920_000.0, "params": { "type": "subghz", "settings": {} } },

@@ -1,6 +1,6 @@
 use num_complex::Complex;
 
-#[cfg(any(test, feature = "test-signals"))]
+#[cfg(any(test, feature = "synth"))]
 use super::frame::modulate;
 use super::{
     bb::{BaseBandData, BaseBandFrame},
@@ -9,7 +9,7 @@ use super::{
     ldpc::{Frame, Ldpc, Rate, Shape},
     pl::{self, Scrambler, Signalling},
 };
-#[cfg(any(test, feature = "test-signals"))]
+#[cfg(any(test, feature = "synth"))]
 use crate::datv::dvbs::PACKET;
 
 const CORRECT: usize = 12;
@@ -81,7 +81,7 @@ impl VlSet {
         }
     }
 
-    #[cfg(any(test, feature = "test-signals"))]
+    #[cfg(any(test, feature = "synth"))]
     #[must_use]
     pub const fn code(self) -> u8 {
         match self {
@@ -237,7 +237,7 @@ impl VlMode {
         CATALOGUE.iter().copied().find(|mode| mode.header == header)
     }
 
-    #[cfg(any(test, feature = "test-signals"))]
+    #[cfg(any(test, feature = "synth"))]
     #[must_use]
     pub const fn signalling(self) -> Signalling {
         Signalling::from_code(self.set.code() | 1)
@@ -258,7 +258,7 @@ pub fn pattern(index: u8) -> [bool; PATTERN_BITS] {
     out
 }
 
-#[cfg(any(test, feature = "test-signals"))]
+#[cfg(any(test, feature = "synth"))]
 pub fn header(index: u8, out: &mut Vec<Complex<f32>>) {
     let bits = pattern(index);
     let start = out.len();
@@ -388,7 +388,7 @@ pub struct VlSnrCodec {
     pub baseband: BaseBandFrame,
     pub layout: Vec<Piece>,
     constellation: Constellation,
-    #[cfg(any(test, feature = "test-signals"))]
+    #[cfg(any(test, feature = "synth"))]
     coded: Vec<bool>,
     bits: Vec<bool>,
     llrs: Vec<f32>,
@@ -409,7 +409,7 @@ impl VlSnrCodec {
             baseband: BaseBandFrame::new(mode.message),
             layout: layout(mode.set),
             constellation: Constellation::new(Modulation::Qpsk, mode.rate),
-            #[cfg(any(test, feature = "test-signals"))]
+            #[cfg(any(test, feature = "synth"))]
             coded: Vec::new(),
             bits: Vec::new(),
             llrs: Vec::new(),
@@ -417,19 +417,19 @@ impl VlSnrCodec {
         })
     }
 
-    #[cfg(any(test, feature = "test-signals"))]
+    #[cfg(any(test, feature = "synth"))]
     #[must_use]
     pub const fn capacity(&self) -> usize {
         self.baseband.capacity()
     }
 
-    #[cfg(any(test, feature = "test-signals"))]
+    #[cfg(any(test, feature = "synth"))]
     #[must_use]
     pub const fn field_bytes(&self) -> usize {
         self.baseband.field_bytes()
     }
 
-    #[cfg(any(test, feature = "test-signals"))]
+    #[cfg(any(test, feature = "synth"))]
     fn map(&self, out: &mut Vec<Complex<f32>>) {
         match self.mode.carrier {
             Carrier::Qpsk => modulate(&self.coded, &self.constellation, out),
@@ -447,7 +447,7 @@ impl VlSnrCodec {
         }
     }
 
-    #[cfg(any(test, feature = "test-signals"))]
+    #[cfg(any(test, feature = "synth"))]
     pub fn encode(&mut self, baseband: &[bool], out: &mut Vec<Complex<f32>>) {
         let mut protected = Vec::new();
         self.bch.encode(baseband, &mut protected);
@@ -496,7 +496,7 @@ impl VlSnrCodec {
     }
 }
 
-#[cfg(any(test, feature = "test-signals"))]
+#[cfg(any(test, feature = "synth"))]
 pub struct VlSnrEncoder {
     codec: VlSnrCodec,
     carry: u8,
@@ -505,7 +505,7 @@ pub struct VlSnrEncoder {
     frame: Vec<Complex<f32>>,
 }
 
-#[cfg(any(test, feature = "test-signals"))]
+#[cfg(any(test, feature = "synth"))]
 impl VlSnrEncoder {
     #[must_use]
     pub fn new(mode: VlMode) -> Option<Self> {

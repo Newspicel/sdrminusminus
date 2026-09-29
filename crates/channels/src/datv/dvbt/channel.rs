@@ -255,9 +255,9 @@ mod tests {
             crate::occupied_band(&channel_settings.params),
             (-half, half)
         );
-        let mut native = crate::testgen::dvbt::waveform(crate::testgen::dvbt::defaults(), 180);
-        crate::testgen::shift(&mut native, 600.0, input_rate);
-        let iq = crate::testgen::resample(&native, input_rate, radio_rate);
+        let mut native = crate::synth::dvbt::waveform(crate::synth::dvbt::defaults(), 180);
+        crate::synth::shift(&mut native, 600.0, input_rate);
+        let iq = crate::synth::resample(&native, input_rate, radio_rate);
         let mut ddc = sdrmm_dsp::Ddc::new(radio_rate, input_rate, 0.0).unwrap();
         let mut filter = crate::channel_filter(&channel_settings.params).unwrap();
         let mut receiver = DvbtChannel::new(ChannelCtx { input_rate }, channel_settings).unwrap();
@@ -307,7 +307,7 @@ mod tests {
             settings(sdrmm_wire::DvbtBandwidth::Mhz8),
         )
         .unwrap();
-        let iq = crate::testgen::dvbt::waveform(crate::testgen::dvbt::defaults(), 180);
+        let iq = crate::synth::dvbt::waveform(crate::synth::dvbt::defaults(), 180);
         let mut out = ChannelOutputs::default();
         receiver.process(&iq, &mut out);
         assert!(receiver.receiver.locked());
@@ -322,7 +322,7 @@ mod tests {
 
     #[test]
     fn every_bandwidth_discovers_services_at_its_native_clock() {
-        let iq = crate::testgen::dvbt::waveform(crate::testgen::dvbt::defaults(), 180);
+        let iq = crate::synth::dvbt::waveform(crate::synth::dvbt::defaults(), 180);
         for bandwidth in [
             sdrmm_wire::DvbtBandwidth::Mhz1_7,
             sdrmm_wire::DvbtBandwidth::Mhz6,
@@ -381,7 +381,7 @@ mod tests {
                 )
             })
             .collect();
-        let iq = crate::testgen::resample(&native, rate, 2_048_000.0);
+        let iq = crate::synth::resample(&native, rate, 2_048_000.0);
         let mut ddc = sdrmm_dsp::Ddc::new(2_048_000.0, rate, 0.0).unwrap();
         let mut filter = channel_filter(&params);
         let mut channel =

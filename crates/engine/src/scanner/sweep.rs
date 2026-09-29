@@ -29,7 +29,7 @@ pub(crate) fn bands(targets: &[f64], span_hz: f64, measure_bw_hz: f64) -> Vec<Sw
     bands
 }
 
-fn fault_handler(
+pub(crate) fn fault_handler(
     engine: &Engine,
     ds: u32,
 ) -> impl FnOnce(sdrmm_device::DeviceError) + Send + 'static {
@@ -148,7 +148,11 @@ pub(crate) fn leave(engine: &Engine, ds: u32) -> Result<(), EngineError> {
     restore_receiving(engine, ds, device, taps)
 }
 
-fn swap_runtime(engine: &Engine, ds: u32, runtime: CaptureRuntime) -> Result<(), EngineError> {
+pub(crate) fn swap_runtime(
+    engine: &Engine,
+    ds: u32,
+    runtime: CaptureRuntime,
+) -> Result<(), EngineError> {
     let cmd_txs = runtime.command_senders();
     let overruns = runtime.overruns_counters();
     let stalls = runtime.stall_counters();
@@ -163,6 +167,9 @@ fn swap_runtime(engine: &Engine, ds: u32, runtime: CaptureRuntime) -> Result<(),
         };
         state.cmd_txs = cmd_txs;
         state.overruns = overruns;
+        state.overruns_seen = 0;
+        state.overruns_polled = None;
+        state.loss = None;
         state.stalls = stalls;
         state.clip_meters = clip_meters;
         state.clipping.clear();
@@ -174,7 +181,7 @@ fn swap_runtime(engine: &Engine, ds: u32, runtime: CaptureRuntime) -> Result<(),
     Ok(())
 }
 
-fn rebuild_channels(engine: &Engine, ds: u32) {
+pub(crate) fn rebuild_channels(engine: &Engine, ds: u32) {
     let rebuilds: Vec<RebuildEntry> = {
         let inner = engine.lock();
         let Some(state) = inner.device_sets.get(&ds) else {

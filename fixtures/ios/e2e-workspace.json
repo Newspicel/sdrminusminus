@@ -8,7 +8,7 @@
         {
           "id": "radio",
           "kind": "device",
-          "data": { "device": { "backend": "virtual", "key": "siggen" } },
+          "data": { "device": { "backend": "virtual", "key": "band" } },
           "position": { "x": 0, "y": 0 }
         },
         {

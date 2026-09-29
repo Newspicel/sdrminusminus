@@ -10,7 +10,7 @@ fn snapshot() -> PresetSnapshot {
         version: PRESET_SNAPSHOT_VERSION,
         devices: vec![PresetDevice {
             node: "device".to_string(),
-            device_id: "virtual:siggen".to_string(),
+            device_id: "virtual:band".to_string(),
             settings: DeviceSettings {
                 center_hz: Some(100_000_000.0),
                 sample_rate: Some(2_048_000.0),
@@ -52,6 +52,20 @@ fn server_id_is_stable_across_opens() {
     );
     let other = Store::open(None).expect("in memory");
     assert_ne!(other.server_id(), id);
+}
+
+#[test]
+fn a_newer_schema_is_refused() {
+    let conn = Connection::open_in_memory().expect("open");
+    migrate(&conn).expect("migrate");
+    let newer = MIGRATIONS.len() + 1;
+    conn.execute_batch(&format!("PRAGMA user_version = {newer};"))
+        .expect("bump");
+    let err = migrate(&conn).expect_err("newer schema");
+    assert!(matches!(
+        err,
+        StoreError::NewerSchema { found, known } if found == newer as i64 && known == MIGRATIONS.len()
+    ));
 }
 
 fn signal_finder_snapshot() -> serde_json::Value {
@@ -320,7 +334,7 @@ fn recording_row(stem: &str, samples: u64) -> RecordingRow {
         stem: stem.to_string(),
         name: None,
         created_at: "2026-08-09T12:00:00Z".to_string(),
-        device_label: "Signal Generator (virtual)".to_string(),
+        device_label: "Test band (virtual)".to_string(),
         center_hz: 100_000_000.0,
         sample_rate: 2_048_000.0,
         samples,
@@ -2018,7 +2032,7 @@ fn a_stored_recording_device_reopens_as_a_recording_node() {
             "id": "instrument",
             "position": { "x": 200.0, "y": 0.0 },
             "kind": "device",
-            "data": { "device": { "backend": "virtual", "key": "siggen" } }
+            "data": { "device": { "backend": "virtual", "key": "band" } }
         }),
     ]);
 

@@ -818,7 +818,7 @@ mod tests {
 
     use super::*;
     use crate::{
-        testgen::{
+        synth::{
             add_noise,
             adsb::{
                 air_air_reply, all_call_reply, altitude_reply, comm_b_altitude_reply,

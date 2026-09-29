@@ -509,7 +509,7 @@ mod tests {
 
     use super::*;
     use crate::{
-        testgen::{
+        synth::{
             burst, fm_modulate,
             nfm::{ctcss_audio, dcs_audio, mix, speech_audio},
             tone_audio,

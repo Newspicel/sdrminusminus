@@ -326,11 +326,11 @@ impl Decoder {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{testgen, testutil::settings};
+    use crate::{synth, testutil::settings};
 
     fn decode(system: SelcallSystem, code: &str) -> Vec<DecoderEvent> {
         let params = SelcallParams { system };
-        let iq = testgen::selcall::transmission(system, code, INPUT_RATE_HZ).unwrap();
+        let iq = synth::selcall::transmission(system, code, INPUT_RATE_HZ).unwrap();
         let mut channel = SelcallChannel::new(
             ChannelCtx {
                 input_rate: INPUT_RATE_HZ,
@@ -373,7 +373,7 @@ mod tests {
     fn noise_and_short_tones_do_not_form_a_call() {
         let mut decoder = Decoder::new(SelcallSystem::Ccir1);
         let mut out = ChannelOutputs::default();
-        for sample in testgen::tone_audio(1_124.0, 0.8, INPUT_RATE_HZ, 800) {
+        for sample in synth::tone_audio(1_124.0, 0.8, INPUT_RATE_HZ, 800) {
             decoder.push(sample, &mut out);
         }
         assert!(out.events.is_empty());

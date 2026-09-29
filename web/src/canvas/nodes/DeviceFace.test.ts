@@ -8,6 +8,7 @@ import { DeviceFace } from "./DeviceFace";
 import {
   agcDelta,
   agcGainDb,
+  agcModeDelta,
   autoTuning,
   bondSaid,
   clippingSaid,
@@ -17,6 +18,8 @@ import {
   laneAgc,
   lanesMerged,
   lockStream,
+  lossSaid,
+  radioAgc,
   refLabel,
   refusalSaid,
   tuneDelta,
@@ -40,7 +43,7 @@ function capabilities(overrides: Partial<Capabilities> = {}): Capabilities {
 function deviceSet(overrides: Partial<DeviceSet> = {}): DeviceSet {
   return {
     id: 1,
-    device: { driver: "virtual", key: "siggen", label: "Signal Generator" },
+    device: { driver: "virtual", key: "band", label: "Test band" },
     capabilities: capabilities(),
     settings: {},
     status: "running",
@@ -53,7 +56,7 @@ function deviceSet(overrides: Partial<DeviceSet> = {}): DeviceSet {
 describe("refLabel", () => {
   it("names the radio by whichever identity the reference carries", () => {
     expect(refLabel({ backend: "rtlsdr", serial: "00000001" })).toBe("rtlsdr · 00000001");
-    expect(refLabel({ backend: "virtual", key: "siggen" })).toBe("virtual · siggen");
+    expect(refLabel({ backend: "virtual", key: "band" })).toBe("virtual · band");
     expect(refLabel({ backend: "soapy", serial: "123456", key: "123456@DT" })).toBe(
       "soapy · 123456@DT",
     );
@@ -181,7 +184,7 @@ describe("faultSaid", () => {
       error: "the radio is no longer attached (control transfer failed: device disconnected)",
     });
     expect(faultSaid(set)).toBe(
-      "Signal Generator is no longer attached. Plug it back in and it picks up where it left off.",
+      "Test band is no longer attached. Plug it back in and it picks up where it left off.",
     );
   });
 
@@ -373,6 +376,61 @@ describe("lane AGC", () => {
     });
     expect(agcGainDb(set, 1)).toBe(28);
     expect(agcGainDb(set, 0)).toBeNull();
+  });
+});
+
+describe("lossSaid", () => {
+  it("says how much of the stream is lost right now, and nothing once it stops", () => {
+    expect(lossSaid(deviceSet({ loss: 0.74 }))).toBe("74%");
+    expect(lossSaid(deviceSet({ overruns: 12 }))).toBeNull();
+  });
+});
+
+describe("AGC modes across lanes", () => {
+  const transceiver = capabilities({
+    agc: {
+      kind: "modes",
+      options: [{ value: "fast_attack" }, { value: "slow_attack" }],
+    },
+    gains: [
+      { name: "TUNER", kind: "tuner", range: { min: -3, max: 71 } },
+      { name: "TX", kind: "tx", range: { min: -89.75, max: 0 }, agc: { kind: "never" } },
+    ],
+    rx_streams: 2,
+    per_stream: { gain: true, agc: true },
+  });
+
+  it("shows the mode of a lane that runs its loop", () => {
+    const set = deviceSet({
+      capabilities: transceiver,
+      settings: {
+        agc: { on: false, mode: "fast_attack" },
+        streams: [{ stream: 1, agc: { on: true, mode: "slow_attack" } }],
+      },
+    });
+    expect(radioAgc(set)).toEqual({ on: true, mode: "slow_attack" });
+  });
+
+  it("sets a mode on every lane and leaves each one's switch alone", () => {
+    const set = deviceSet({
+      capabilities: transceiver,
+      settings: { agc: { on: true }, streams: [{ stream: 1, agc: { on: false } }] },
+    });
+    expect(agcModeDelta(set, "slow_attack")).toEqual({
+      streams: [
+        { stream: 0, agc: { on: true, mode: "slow_attack" } },
+        { stream: 1, agc: { on: false, mode: "slow_attack" } },
+      ],
+    });
+  });
+
+  it("reads back the gain of the one stage the loop drives", () => {
+    const set = deviceSet({
+      capabilities: transceiver,
+      settings: { agc: { on: true } },
+      agc_gains: [{ stream: 0, value_db: 44 }],
+    });
+    expect(agcGainDb(set, 0)).toBe(44);
   });
 });
 

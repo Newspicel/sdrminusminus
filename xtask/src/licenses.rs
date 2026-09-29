@@ -99,21 +99,6 @@ const NATIVE: &[Native] = &[
         files: &[],
     },
     Native {
-        name: "rtl-sdr (librtlsdr)",
-        license: "GPL-2.0-or-later",
-        url: "https://gitea.osmocom.org/sdr/rtl-sdr",
-        note: Some(
-            "SDR-- drives the RTL2832U and its R82xx tuner itself, in Rust, over its own USB \
-             stack. No part of librtlsdr is linked or shipped, but the register and I2C \
-             encodings, the PLL and filter programming and the tuner gain table in \
-             `crates/device-rtlsdr/src/driver` come from librtlsdr through rs-rtl, which ports \
-             it. That makes them a derived work under GPL-2.0-or-later. SDR-- exercises the \
-             \"or later\" option to take them under GPL-3.0, whose text is below, and combines \
-             them with its own AGPL-3.0-or-later under GPL-3.0 section 13.",
-        ),
-        files: &["GPL-3.0.txt"],
-    },
-    Native {
         name: "libairspy",
         license: "BSD-3-Clause",
         url: "https://github.com/airspy/airspyone_host",
@@ -160,42 +145,6 @@ const NATIVE: &[Native] = &[
              text is below.",
         ),
         files: &["HackRF-BSD-3-Clause.txt"],
-    },
-    Native {
-        name: "rs-rtl 0.4.2 (desperado)",
-        license: "MIT",
-        url: "https://github.com/xoolive/desperado",
-        note: Some(
-            "The R82xx tuner code in `crates/device-rtlsdr/src/driver/tuner.rs` contains code \
-             from rs-rtl 0.4.2, Copyright (c) 2025 Xavier Olive, used under its MIT license. \
-             rs-rtl ports librtlsdr, so the librtlsdr entry above applies to the same code.",
-        ),
-        files: &["rs-rtl-MIT.txt"],
-    },
-    Native {
-        name: "librtlsdr (KrakenRF fork)",
-        license: "GPL-2.0-or-later",
-        url: "https://github.com/krakenrf/librtlsdr",
-        note: Some(
-            "The tuner register that stops the PLL dithering, without which two dongles on one \
-             clock have no stable phase between them, is documented only in KrakenRF's fork of \
-             librtlsdr. The write in `crates/device-rtlsdr/src/driver/tuner.rs` follows it and \
-             is a derived work on the same terms as librtlsdr above.",
-        ),
-        files: &["GPL-3.0.txt"],
-    },
-    Native {
-        name: "heimdall_daq_fw",
-        license: "GPL-3.0-or-later",
-        url: "https://github.com/krakenrf/heimdall_daq_fw",
-        note: Some(
-            "How a KrakenSDR identifies itself and how its bank is wired, the serial each \
-             receive chain carries, the control chain's GPIO pin for the calibration noise \
-             source, and the pins for the lanes' bias tees, is published only as KrakenRF's own \
-             acquisition firmware. `crates/device-rtlsdr/src/kraken` was written from it. No \
-             code was taken and nothing is linked or shipped.",
-        ),
-        files: &[],
     },
     Native {
         name: "dmrconfig",

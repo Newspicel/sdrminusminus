@@ -42,6 +42,10 @@ pub(crate) fn read_device_attr(device: &str, attr: &str) -> String {
     format!("READ {device} {attr}{EOL}")
 }
 
+pub(crate) fn read_debug_attr(device: &str, attr: &str) -> String {
+    format!("READ {device} DEBUG {attr}{EOL}")
+}
+
 pub(crate) fn write_device_attr(device: &str, attr: &str, bytes: usize) -> String {
     format!("WRITE {device} {attr} {bytes}{EOL}")
 }
@@ -178,6 +182,10 @@ mod tests {
         assert_eq!(
             read_device_attr("ad9361-phy", "ensm_mode"),
             "READ ad9361-phy ensm_mode\r\n"
+        );
+        assert_eq!(
+            read_debug_attr("ad9361-phy", "adi,rx-rf-port-input-select-lock-enable"),
+            "READ ad9361-phy DEBUG adi,rx-rf-port-input-select-lock-enable\r\n"
         );
         assert_eq!(
             write_device_attr("ad9361-phy", "ensm_mode", 4),

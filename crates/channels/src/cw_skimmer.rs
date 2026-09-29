@@ -441,7 +441,7 @@ impl ChannelRx for CwSkimmerChannel {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{testgen, testutil::settings};
+    use crate::{synth, testutil::settings};
 
     fn channel(params: CwSkimmerParams) -> Result<CwSkimmerChannel, ChannelError> {
         CwSkimmerChannel::new(
@@ -487,14 +487,14 @@ mod tests {
         for sample in &mut iq {
             *sample *= gain;
         }
-        testgen::add_noise(&mut iq, seed, 1.0);
+        synth::add_noise(&mut iq, seed, 1.0);
         iq
     }
 
     #[test]
     fn a_hard_keyed_station_is_the_only_station_its_key_clicks_produce() {
         let iq = loud(
-            testgen::morse::hard_keyed(
+            synth::morse::hard_keyed(
                 "VVV VVV CQ DE DL1AAA K VVV VVV CQ DE DL1AAA K",
                 20.0,
                 3_500.0,
@@ -529,7 +529,7 @@ mod tests {
     #[test]
     fn key_clicks_never_become_a_second_station_even_wide_open() {
         let iq = loud(
-            testgen::morse::hard_keyed(
+            synth::morse::hard_keyed(
                 "VVV VVV CQ DE DL1AAA K VVV VVV CQ DE DL1AAA K",
                 20.0,
                 3_500.0,
@@ -565,10 +565,10 @@ mod tests {
     #[test]
     fn two_stations_sending_the_same_words_are_both_reported() {
         let text = "CQ DE TEST K CQ DE TEST K";
-        let mut iq = testgen::morse::transmission(text, 20.0, -2_000.0, RATE);
+        let mut iq = synth::morse::transmission(text, 20.0, -2_000.0, RATE);
         for (destination, source) in iq
             .iter_mut()
-            .zip(testgen::morse::transmission(text, 20.0, 2_000.0, RATE))
+            .zip(synth::morse::transmission(text, 20.0, 2_000.0, RATE))
         {
             *destination += source;
         }
@@ -592,11 +592,11 @@ mod tests {
     #[test]
     fn a_real_station_takes_the_slot_a_noise_track_is_sitting_on() {
         let mut iq = loud(
-            testgen::morse::transmission("CQ DE G4BBB K", 22.0, 2_000.0, RATE),
+            synth::morse::transmission("CQ DE G4BBB K", 22.0, 2_000.0, RATE),
             25.0,
             5,
         );
-        iq.extend(testgen::silence(RATE as usize));
+        iq.extend(synth::silence(RATE as usize));
         let mut channel = channel(CwSkimmerParams {
             bandwidth_hz: 16_000.0,
             threshold_db: 3.0,
@@ -626,13 +626,13 @@ mod tests {
     #[test]
     fn a_station_that_starts_after_the_band_was_quiet_still_gets_a_decoder() {
         let mut iq = vec![Complex::new(0.0, 0.0); RATE as usize * 10];
-        iq.extend(testgen::morse::transmission(
+        iq.extend(synth::morse::transmission(
             "CQ DE G4BBB K CQ DE G4BBB K",
             22.0,
             2_000.0,
             RATE,
         ));
-        iq.extend(testgen::silence(RATE as usize * 2));
+        iq.extend(synth::silence(RATE as usize * 2));
         let iq = loud(iq, 25.0, 11);
         let mut channel = channel(CwSkimmerParams::default()).unwrap();
         let heard: String = spots(&mut channel, &iq)
@@ -645,8 +645,8 @@ mod tests {
 
     #[test]
     fn decodes_two_cw_signals_in_the_same_passband() {
-        let first = testgen::morse::transmission("VVV VVV CQ DE DL1AAA K", 18.0, -3_500.0, RATE);
-        let second = testgen::morse::transmission("VVV VVV CQ DE G4BBB K", 27.0, 4_200.0, RATE);
+        let first = synth::morse::transmission("VVV VVV CQ DE DL1AAA K", 18.0, -3_500.0, RATE);
+        let second = synth::morse::transmission("VVV VVV CQ DE G4BBB K", 27.0, 4_200.0, RATE);
         let length = first.len().max(second.len()) + RATE as usize * 4;
         let mut iq = vec![Complex::new(0.0, 0.0); length];
         for (destination, source) in iq.iter_mut().zip(first) {
@@ -655,7 +655,7 @@ mod tests {
         for (destination, source) in iq.iter_mut().zip(second) {
             *destination += source * 0.35;
         }
-        testgen::add_noise(&mut iq, 17, 0.002);
+        synth::add_noise(&mut iq, 17, 0.002);
         let mut channel = CwSkimmerChannel::new(
             ChannelCtx { input_rate: RATE },
             settings(ChannelParams::CwSkimmer(CwSkimmerParams {

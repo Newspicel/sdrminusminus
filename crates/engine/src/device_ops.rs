@@ -1,6 +1,7 @@
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
     sync::{Arc, Mutex},
+    time::Instant,
 };
 
 use sdrmm_device::DeviceError;
@@ -20,7 +21,7 @@ use crate::{
 
 #[derive(Default)]
 struct SinkPoll {
-    grown: Vec<(u32, u64, u64)>,
+    grown: Vec<(u32, u64, u64, bool)>,
     recording: Vec<(u32, String)>,
     audio: Vec<(u32, u32, String)>,
     baseband: Vec<(u32, u32, String)>,
@@ -139,7 +140,7 @@ impl Engine {
 
     fn poll_sinks(&self) -> SinkPoll {
         let mut inner = self.lock();
-        let mut grown: Vec<(u32, u64, u64)> = Vec::new();
+        let mut grown: Vec<(u32, u64, u64, bool)> = Vec::new();
         let mut rec_faults: Vec<(u32, String)> = Vec::new();
         let mut audio_rec_faults: Vec<(u32, u32, String)> = Vec::new();
         let mut export_faults: Vec<(u32, String)> = Vec::new();
@@ -148,16 +149,22 @@ impl Engine {
         let mut changed: Vec<u32> = Vec::new();
         for (id, s) in inner.device_sets.iter_mut() {
             let now = s.overruns_total();
-            let delta = now - s.overruns_seen;
+            let delta = now.saturating_sub(s.overruns_seen);
             s.overruns_seen = now;
             let mut dirty = delta > 0;
+            let loss = s.loss_since_poll(delta, Instant::now());
+            let began = s.loss.is_none() && loss.is_some();
+            if loss != s.loss {
+                s.loss = loss;
+                dirty = true;
+            }
             let clipping = s.take_clipping();
             if clipping != s.clipping {
                 s.clipping = clipping;
                 dirty = true;
             }
             if delta > 0 {
-                grown.push((*id, delta, s.take_worst_stall_ms()));
+                grown.push((*id, delta, s.take_worst_stall_ms(), began));
             }
             if let Some(rec) = &mut s.recording {
                 let samples = rec.shared.samples();
@@ -276,13 +283,17 @@ impl Engine {
     }
 
     fn report_sinks(&self, poll: SinkPoll) {
-        for (ds, dropped, stalled_ms) in poll.grown {
-            tracing::warn!(
-                ds,
-                dropped,
-                stalled_ms,
-                "capture loss: reported device gaps, full queues, or stale samples"
-            );
+        for (ds, dropped, stalled_ms, began) in poll.grown {
+            if began {
+                tracing::warn!(
+                    ds,
+                    dropped,
+                    stalled_ms,
+                    "capture loss: reported device gaps, full queues, or stale samples"
+                );
+            } else {
+                tracing::debug!(ds, dropped, stalled_ms, "capture loss continues");
+            }
         }
         for (ds, error) in poll.recording {
             tracing::warn!(ds, error = %error, "recording fault");
@@ -459,6 +470,8 @@ impl Engine {
             state.cmd_txs = cmd_txs;
             state.overruns = overruns;
             state.overruns_seen = 0;
+            state.overruns_polled = None;
+            state.loss = None;
             state.stalls = stalls;
             state.clip_meters = clip_meters;
             state.clipping.clear();
@@ -612,6 +625,8 @@ impl Engine {
                     cmd_txs,
                     overruns,
                     overruns_seen: 0,
+                    overruns_polled: None,
+                    loss: None,
                     stalls,
                     clip_meters,
                     clipping: Vec::new(),
@@ -798,6 +813,12 @@ impl Engine {
                 "the radio is sweeping in firmware; stop the scan first".to_string(),
             ));
         }
+        if delta.rx_streams.is_some() && !self.arrays_on(ds).is_empty() {
+            return Err(EngineError::Device(DeviceError::InUse(
+                "an Array holds this radio's lanes; remove it first".to_string(),
+            )));
+        }
+        let lanes_before = self.lanes_of(ds);
         let (runtime, hardware, _rate_guard) = {
             let mut inner = self.lock();
             let state = inner
@@ -925,10 +946,22 @@ impl Engine {
         for handle in dead {
             handle.shutdown();
         }
+        if self.lanes_of(ds) != lanes_before
+            && let Err(error) = self.restart_lanes(ds)
+        {
+            self.mark_device_fault(ds, DeviceError::Io(format!("lane restart: {error}")));
+        }
         self.emit(ServerEvent::StateChanged {
             scope: StateScope::DeviceSet(ds),
         });
         Ok(patched)
+    }
+
+    fn lanes_of(&self, ds: u32) -> Option<u32> {
+        self.lock()
+            .device_sets
+            .get(&ds)
+            .map(|state| state.capabilities.rx_streams)
     }
 
     fn note_refusal(&self, ds: u32, hardware: &DeviceSettings, error: Option<&DeviceError>) {
@@ -960,6 +993,12 @@ impl DeviceSetState {
         delta: &DeviceSettings,
     ) -> Result<(DeviceSettings, bool), EngineError> {
         let hardware = delta.to_hardware();
+        if let Some(lanes) = delta
+            .rx_streams
+            .filter(|lanes| *lanes != self.capabilities.rx_streams)
+        {
+            self.validate_lane_change(lanes)?;
+        }
         validate_streams(&self.hardware_capabilities(), &hardware)?;
         let rate_change = delta
             .sample_rate
@@ -968,6 +1007,31 @@ impl DeviceSetState {
             self.validate_rate_change()?;
         }
         Ok((hardware, rate_change))
+    }
+
+    fn validate_lane_change(&self, lanes: u32) -> Result<(), EngineError> {
+        if !self.capabilities.rx_stream_choices.contains(&lanes) {
+            return Err(EngineError::Device(DeviceError::Unsupported(format!(
+                "this radio streams {:?} lanes, got {lanes}",
+                self.capabilities.rx_stream_choices
+            ))));
+        }
+        let busy = self
+            .channels
+            .iter()
+            .map(|channel| channel.stream)
+            .chain(self.recording.as_ref().map(|recording| recording.stream))
+            .chain(self.network_export.as_ref().map(|export| export.stream))
+            .chain(self.time_machine.as_ref().map(|history| history.stream))
+            .filter(|stream| *stream >= lanes)
+            .min();
+        match busy {
+            Some(stream) => Err(EngineError::Device(DeviceError::InUse(format!(
+                "iq{} is in use; unwire it first",
+                stream + 1
+            )))),
+            None => Ok(()),
+        }
     }
 
     fn validate_rate_change(&self) -> Result<(), EngineError> {

@@ -3,7 +3,7 @@ use super::*;
 #[tokio::test]
 async fn applying_a_workspace_opens_its_radio_and_adds_its_channels_once() {
     let app = test_router();
-    let snapshot = virtual_snapshot("siggen", &[("nfm", "nfm", "iq"), ("am", "am", "iq")]);
+    let snapshot = virtual_snapshot("band", &[("nfm", "nfm", "iq"), ("am", "am", "iq")]);
     let workspace = put_active_workspace(&app, &snapshot).await;
 
     let first = apply(&app, workspace).await;
@@ -54,10 +54,10 @@ async fn applying_a_workspace_reports_an_absent_radio() {
 async fn undoing_a_workspace_takes_the_engine_back_with_it() {
     let app = test_router();
     let workspace =
-        put_active_workspace(&app, &virtual_snapshot("siggen", &[("nfm", "nfm", "iq")])).await;
+        put_active_workspace(&app, &virtual_snapshot("band", &[("nfm", "nfm", "iq")])).await;
     apply(&app, workspace).await;
 
-    let two = virtual_snapshot("siggen", &[("nfm", "nfm", "iq"), ("am", "am", "iq")]);
+    let two = virtual_snapshot("band", &[("nfm", "nfm", "iq"), ("am", "am", "iq")]);
     let revision = workspace_detail(&app, workspace).await.info.revision;
     let (status, body) = request(
         app.clone(),
@@ -106,7 +106,7 @@ async fn undoing_a_workspace_takes_the_engine_back_with_it() {
 async fn undoing_a_dial_move_puts_the_frequency_back() {
     let app = test_router();
     let workspace =
-        put_active_workspace(&app, &virtual_snapshot("siggen", &[("nfm", "nfm", "iq")])).await;
+        put_active_workspace(&app, &virtual_snapshot("band", &[("nfm", "nfm", "iq")])).await;
     apply(&app, workspace).await;
 
     let opened = get_state(&app).await;
@@ -641,7 +641,7 @@ async fn applying_a_workspace_lands_each_channel_on_the_stream_its_wire_names() 
 async fn a_wire_to_a_stream_the_radio_does_not_have_is_refused_not_moved() {
     let app = test_router();
     let taps = [("voice", "nfm", "iq3")];
-    let workspace = put_active_workspace(&app, &virtual_snapshot("siggen", &taps)).await;
+    let workspace = put_active_workspace(&app, &virtual_snapshot("band", &taps)).await;
 
     let report = apply(&app, workspace).await;
     assert_eq!(report.opened, 1, "the radio itself is fine and must open");
@@ -780,7 +780,7 @@ fn tuned_state(center_hz: f64) -> sdrmm_wire::WorkspaceState {
 #[tokio::test]
 async fn an_exported_workspace_carries_its_layout_its_tuning_and_a_download_name() {
     let (app, state) = test_router_with_state();
-    let snapshot = virtual_snapshot("siggen", &[("nfm", "nfm", "iq")]);
+    let snapshot = virtual_snapshot("band", &[("nfm", "nfm", "iq")]);
     let workspace = create_named_workspace(&app, "Airband Watch", &snapshot).await;
     state
         .store
@@ -833,7 +833,7 @@ async fn exporting_a_workspace_that_is_not_there_says_so() {
 #[tokio::test]
 async fn an_imported_workspace_lands_next_to_the_one_it_came_from_and_opens_its_radio() {
     let (app, state) = test_router_with_state();
-    let snapshot = virtual_snapshot("siggen", &[("nfm", "nfm", "iq")]);
+    let snapshot = virtual_snapshot("band", &[("nfm", "nfm", "iq")]);
     let workspace = create_named_workspace(&app, "Airband Watch", &snapshot).await;
     state
         .store
@@ -978,7 +978,7 @@ async fn an_import_forgets_tuning_for_nodes_the_document_never_draws() {
 #[tokio::test]
 async fn a_radio_nobody_tuned_opens_over_the_decoder_wired_into_it() {
     let app = test_router();
-    let snapshot = virtual_snapshot("siggen", &[("planes", "adsb", "iq")]);
+    let snapshot = virtual_snapshot("band", &[("planes", "adsb", "iq")]);
     let workspace = put_active_workspace(&app, &snapshot).await;
 
     let report = apply(&app, workspace).await;
@@ -1000,7 +1000,7 @@ async fn a_radio_nobody_tuned_opens_over_the_decoder_wired_into_it() {
 #[tokio::test]
 async fn a_decoder_keeps_its_own_frequency_and_the_radio_comes_to_it() {
     let app = test_router();
-    let snapshot = virtual_snapshot("siggen", &[("voice", "nfm", "iq")]);
+    let snapshot = virtual_snapshot("band", &[("voice", "nfm", "iq")]);
     let workspace = put_active_workspace(&app, &snapshot).await;
     apply(&app, workspace).await;
 
@@ -1018,7 +1018,7 @@ async fn a_decoder_keeps_its_own_frequency_and_the_radio_comes_to_it() {
 #[tokio::test]
 async fn a_channel_node_holds_its_settings_before_any_radio_carries_it() {
     let app = test_router();
-    let snapshot = virtual_snapshot("siggen", &[("voice", "nfm", "iq")]);
+    let snapshot = virtual_snapshot("band", &[("voice", "nfm", "iq")]);
     let workspace = put_active_workspace(&app, &snapshot).await;
 
     let mut settings = sdrmm_wire::ChannelSettings::default_for("nfm").expect("nfm is built in");
@@ -1066,7 +1066,7 @@ async fn a_channel_node_holds_its_settings_before_any_radio_carries_it() {
 #[tokio::test]
 async fn settings_of_another_channel_type_are_refused() {
     let app = test_router();
-    let snapshot = virtual_snapshot("siggen", &[("voice", "nfm", "iq")]);
+    let snapshot = virtual_snapshot("band", &[("voice", "nfm", "iq")]);
     let workspace = put_active_workspace(&app, &snapshot).await;
 
     let settings = sdrmm_wire::ChannelSettings::default_for("am").expect("am is built in");
@@ -1110,13 +1110,13 @@ async fn every_channel_type_offers_the_settings_a_node_starts_on() {
 async fn an_open_radio_holds_its_frequency_when_a_decoder_is_wired_in() {
     let app = test_router();
     let workspace =
-        put_active_workspace(&app, &virtual_snapshot("siggen", &[("voice", "nfm", "iq")])).await;
+        put_active_workspace(&app, &virtual_snapshot("band", &[("voice", "nfm", "iq")])).await;
     apply(&app, workspace).await;
     let opened = get_state(&app).await.device_sets[0].settings.center_hz;
 
     put_workspace_revision(
         &app,
-        &virtual_snapshot("siggen", &[("voice", "nfm", "iq"), ("air", "adsb", "iq")]),
+        &virtual_snapshot("band", &[("voice", "nfm", "iq"), ("air", "adsb", "iq")]),
         2,
     )
     .await;
@@ -1184,8 +1184,7 @@ async fn retune(app: &Router, set: u32, channel: u32, frequency_hz: f64) {
 #[tokio::test]
 async fn cutting_one_of_two_alike_decoders_leaves_the_other_where_it_was_set() {
     let app = test_router();
-    let mut snapshot =
-        virtual_snapshot("siggen", &[("first", "nfm", "iq"), ("second", "nfm", "iq")]);
+    let mut snapshot = virtual_snapshot("band", &[("first", "nfm", "iq"), ("second", "nfm", "iq")]);
     let workspace = put_active_workspace(&app, &snapshot).await;
     let opened = apply(&app, workspace).await;
     assert!(opened.refused.is_empty(), "{:?}", opened.refused);
@@ -1224,7 +1223,7 @@ async fn cutting_one_of_two_alike_decoders_leaves_the_other_where_it_was_set() {
 }
 
 fn two_radio_snapshot(taps: &[(&str, &str)]) -> sdrmm_wire::WorkspaceSnapshot {
-    let mut snapshot = virtual_snapshot("siggen", &[]);
+    let mut snapshot = virtual_snapshot("band", &[]);
     snapshot.graph.nodes.push(sdrmm_wire::PatchNode {
         id: "device2".to_string(),
         body: sdrmm_wire::NodeBody::Device(sdrmm_wire::DeviceNode {
@@ -1428,7 +1427,7 @@ async fn a_decoder_wired_to_one_radio_keeps_it_while_the_flexible_ones_move_asid
     let siggen = state
         .device_sets
         .iter()
-        .find(|set| set.device.key == "siggen")
+        .find(|set| set.device.key == "band")
         .expect("the siggen radio")
         .id;
     assert_eq!(fixed_on, siggen);
@@ -1440,7 +1439,7 @@ async fn a_decoder_wired_to_one_radio_keeps_it_while_the_flexible_ones_move_asid
 async fn applying_adopts_an_unnamed_channel_without_copying_it() {
     let (app, state) = test_router_with_state();
     let workspace = put_active_workspace(&app, &two_radio_snapshot(&[("voice", "nfm")])).await;
-    let set = state.engine.create_device_set("virtual:siggen").unwrap();
+    let set = state.engine.create_device_set("virtual:band").unwrap();
     let settings = ChannelSettings::default_for("nfm").unwrap();
     let id = state.engine.add_channel(set, 0, settings).unwrap();
     let report = apply(&app, workspace).await;
@@ -1530,7 +1529,7 @@ async fn a_converter_offset_follows_the_radio_into_another_workspace() {
     assert_eq!(
         state
             .store
-            .radio_calibration("virtual:siggen")
+            .radio_calibration("virtual:band")
             .expect("calibration")
             .offset_hz,
         Some(1_000_000.0)

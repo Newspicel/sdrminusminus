@@ -567,7 +567,7 @@ impl Engine {
         }
     }
 
-    fn arrays_on(&self, ds: u32) -> Vec<String> {
+    pub(crate) fn arrays_on(&self, ds: u32) -> Vec<String> {
         self.lock()
             .arrays
             .iter()

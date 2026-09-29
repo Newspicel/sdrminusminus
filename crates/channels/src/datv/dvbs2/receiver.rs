@@ -1,6 +1,6 @@
 use num_complex::Complex;
 
-#[cfg(any(test, feature = "test-signals"))]
+#[cfg(any(test, feature = "synth"))]
 use super::frame::{interleave, modulate};
 use super::{
     bb::{BaseBandFrame, StreamKind},
@@ -82,7 +82,7 @@ impl Codec {
         })
     }
 
-    #[cfg(any(test, feature = "test-signals"))]
+    #[cfg(any(test, feature = "synth"))]
     #[must_use]
     pub const fn signalling(&self, pilots: bool) -> Signalling {
         Signalling {
@@ -93,7 +93,7 @@ impl Codec {
     }
 }
 
-#[cfg(any(test, feature = "test-signals"))]
+#[cfg(any(test, feature = "synth"))]
 pub struct Dvbs2Encoder {
     codec: Codec,
     pilots: bool,
@@ -104,7 +104,7 @@ pub struct Dvbs2Encoder {
     frame: Vec<Complex<f32>>,
 }
 
-#[cfg(any(test, feature = "test-signals"))]
+#[cfg(any(test, feature = "synth"))]
 impl Dvbs2Encoder {
     #[must_use]
     pub fn new(modcod: ModCod, short: bool, pilots: bool) -> Option<Self> {

@@ -1,5 +1,5 @@
 {
-  "label": "dmr steady uncoded, testgen c4fm (CpmMod) -> channel filter -> CpmDemod at burst timing bw, 88-symbol preamble + 24-symbol sync overhead in Eb, release, uncoded BER, seed 0xd59",
+  "label": "dmr steady uncoded, synth c4fm (CpmMod) -> channel filter -> CpmDemod at burst timing bw, 88-symbol preamble + 24-symbol sync overhead in Eb, release, uncoded BER, seed 0xd59",
   "points": [
     {
       "ebn0_db": 4.0,

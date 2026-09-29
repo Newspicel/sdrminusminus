@@ -2653,6 +2653,7 @@ export interface components {
             per_stream?: components["schemas"]["StreamScope"];
             ppm?: boolean;
             retune_keeps_phase?: boolean;
+            rx_stream_choices?: number[];
             /** Format: int32 */
             rx_streams?: number;
             /**
@@ -3971,6 +3972,8 @@ export interface components {
             hunts?: components["schemas"]["HuntStatus"][];
             /** Format: int32 */
             id: number;
+            /** Format: float */
+            loss?: number | null;
             network_export?: components["schemas"]["NetworkExportStatus"] | null;
             /** Format: int64 */
             overruns?: number;
@@ -4000,6 +4003,8 @@ export interface components {
             offset_hz?: number | null;
             /** Format: double */
             ppm?: number | null;
+            /** Format: int32 */
+            rx_streams?: number | null;
             /** Format: double */
             sample_rate?: number | null;
             streams?: components["schemas"]["StreamSettings"][];

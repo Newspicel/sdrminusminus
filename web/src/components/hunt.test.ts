@@ -39,7 +39,7 @@ const HUNT: HuntStatus = {
 function deviceSet(over: Partial<DeviceSet> = {}): DeviceSet {
   return {
     id: 1,
-    device: { driver: "virtual", key: "siggen", label: "Signal generator" },
+    device: { driver: "virtual", key: "band", label: "Test band" },
     capabilities: {
       freq_ranges: [{ min: 1e6, max: 6e9 }],
       sample_rates: [2_048_000],

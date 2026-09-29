@@ -9,7 +9,7 @@ pub const PACKET: usize = 188;
 pub const CODEWORD: usize = 204;
 pub const SYNC: u8 = 0x47;
 pub const INVERTED_SYNC: u8 = 0xB8;
-#[cfg(any(test, feature = "test-signals"))]
+#[cfg(any(test, feature = "synth"))]
 pub const GROUP: usize = 8;
 pub const GENERATORS: [u16; 2] = [0o171, 0o133];
 
@@ -141,10 +141,10 @@ impl DelayBank {
     }
 }
 
-#[cfg(any(test, feature = "test-signals"))]
+#[cfg(any(test, feature = "synth"))]
 pub struct Interleaver(DelayBank);
 
-#[cfg(any(test, feature = "test-signals"))]
+#[cfg(any(test, feature = "synth"))]
 impl Interleaver {
     #[must_use]
     pub fn new() -> Self {
@@ -156,7 +156,7 @@ impl Interleaver {
     }
 }
 
-#[cfg(any(test, feature = "test-signals"))]
+#[cfg(any(test, feature = "synth"))]
 impl Default for Interleaver {
     fn default() -> Self {
         Self::new()
@@ -173,13 +173,13 @@ impl Deinterleaver {
     }
 }
 
-#[cfg(any(test, feature = "test-signals"))]
+#[cfg(any(test, feature = "synth"))]
 pub struct Dispersal {
     prbs: Prbs,
     packets: usize,
 }
 
-#[cfg(any(test, feature = "test-signals"))]
+#[cfg(any(test, feature = "synth"))]
 impl Dispersal {
     #[must_use]
     pub fn new() -> Self {
@@ -202,7 +202,7 @@ impl Dispersal {
     }
 }
 
-#[cfg(any(test, feature = "test-signals"))]
+#[cfg(any(test, feature = "synth"))]
 impl Default for Dispersal {
     fn default() -> Self {
         Self::new()
@@ -596,10 +596,10 @@ impl DvbsDecoder {
     }
 }
 
-#[cfg(any(test, feature = "test-signals"))]
+#[cfg(any(test, feature = "synth"))]
 const SQRT_HALF: f32 = std::f32::consts::FRAC_1_SQRT_2;
 
-#[cfg(any(test, feature = "test-signals"))]
+#[cfg(any(test, feature = "synth"))]
 #[must_use]
 pub fn map_qpsk(first: bool, second: bool) -> Complex<f32> {
     Complex::new(
@@ -608,7 +608,7 @@ pub fn map_qpsk(first: bool, second: bool) -> Complex<f32> {
     )
 }
 
-#[cfg(any(test, feature = "test-signals"))]
+#[cfg(any(test, feature = "synth"))]
 pub struct DvbsEncoder {
     convolution_state: u8,
     pattern: &'static [bool],
@@ -622,7 +622,7 @@ pub struct DvbsEncoder {
     codeword: Vec<u8>,
 }
 
-#[cfg(any(test, feature = "test-signals"))]
+#[cfg(any(test, feature = "synth"))]
 impl DvbsEncoder {
     #[must_use]
     pub fn new(rate: DatvCodeRate) -> Self {

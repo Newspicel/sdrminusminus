@@ -12,7 +12,7 @@ import type {
 } from "../src/lib/types";
 import { type Box, face, fitPatch, node, stage, wire } from "./canvas";
 
-const SIGGEN: DeviceRef = { backend: "virtual", key: "siggen" };
+const SIGGEN: DeviceRef = { backend: "virtual", key: "band" };
 const SIGGEN_CENTER_HZ = 100_000_000;
 
 export interface Scene {

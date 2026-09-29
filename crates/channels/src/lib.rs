@@ -62,8 +62,8 @@ mod xng_adapter;
 #[cfg(test)]
 mod testutil;
 
-#[cfg(any(test, feature = "test-signals"))]
-pub mod testgen;
+#[cfg(any(test, feature = "synth"))]
+pub mod synth;
 
 pub use acars::AcarsChannel;
 pub use adsb::AdsbChannel;
@@ -74,7 +74,7 @@ pub use atv::AtvChannel;
 pub use audio_chain::{AudioChain, ClickProfile};
 pub use cw_skimmer::CwSkimmerChannel;
 pub use dab::DabChannel;
-#[cfg(any(test, feature = "test-signals"))]
+#[cfg(any(test, feature = "synth"))]
 pub use datv::dvbs2::{frame::Modulation as Dvbs2Modulation, ldpc::Rate as Dvbs2Rate};
 pub use datv::{
     DatvChannel,

@@ -67,7 +67,7 @@ fn host(line_source: &str, marker: &str) -> String {
 
 fn source_of(root: &Path, path: &str) -> PathBuf {
     let public = root.join("site/public").join(path);
-    if public.exists() {
+    if public.is_file() {
         return public;
     }
     match path

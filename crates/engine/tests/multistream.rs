@@ -13,7 +13,7 @@ use std::{
 
 use common::{assert_tone_dominates, collect_packets, settle_then_collect_second};
 use num_complex::Complex;
-use sdrmm_channels::testgen;
+use sdrmm_channels::synth;
 use sdrmm_device::{
     DeviceDriver, DeviceError, DeviceRegistry, RxSink, SdrDevice, check_stream_settings,
 };
@@ -209,7 +209,7 @@ async fn an_out_of_range_stream_is_a_clean_bad_request_naming_the_count() {
     assert!(err.is_bad_request(), "expected bad request, got {err}");
     assert!(err.to_string().contains("4 rx streams"), "unhelpful: {err}");
 
-    let siggen = engine.create_device_set("virtual:siggen").unwrap();
+    let siggen = engine.create_device_set("virtual:band").unwrap();
     let err = engine.add_channel(siggen, 1, nfm(0.0, None)).unwrap_err();
     assert!(err.to_string().contains("1 rx streams"), "unhelpful: {err}");
 
@@ -604,6 +604,7 @@ impl DeviceDriver for PagingDriver {
                 coherence: sdrmm_wire::Coherence::None,
                 noise_source: sdrmm_wire::NoiseSource::None,
                 retune_keeps_phase: false,
+                rx_stream_choices: Vec::new(),
             },
             settings: DeviceSettings {
                 center_hz: Some(DEFAULT_CENTER_HZ),
@@ -683,15 +684,15 @@ impl SdrDevice for PagingDevice {
 #[tokio::test]
 async fn a_decoded_frame_reports_its_lanes_absolute_frequency() {
     const LANE1_HZ: f64 = 433_000_000.0;
-    let pages = [testgen::pocsag::Page {
+    let pages = [synth::pocsag::Page {
         address: 1_234_567,
         function: 3,
         text: "LANES".to_owned(),
         numeric: false,
     }];
-    let mut iq = testgen::pocsag::transmission(&pages, 1_200, 4_500.0, PAGING_RATE);
-    testgen::shift(&mut iq, PAGING_OFFSET_HZ, PAGING_RATE);
-    iq.extend(testgen::silence(PAGING_RATE as usize));
+    let mut iq = synth::pocsag::transmission(&pages, 1_200, 4_500.0, PAGING_RATE);
+    synth::shift(&mut iq, PAGING_OFFSET_HZ, PAGING_RATE);
+    iq.extend(synth::silence(PAGING_RATE as usize));
 
     let mut registry = DeviceRegistry::new();
     registry.register(10, Box::new(PagingDriver { iq: Arc::new(iq) }));

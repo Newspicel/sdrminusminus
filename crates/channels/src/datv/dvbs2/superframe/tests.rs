@@ -170,7 +170,7 @@ fn independent_superframe_recording_keeps_ahead_of_realtime() {
             assert_eq!(value, (214 + index + byte) as u8);
         }
     }
-    let duration = symbols.len() as f64 / crate::testgen::datv::SYMBOL_RATE;
+    let duration = symbols.len() as f64 / crate::synth::datv::SYMBOL_RATE;
     assert!(
         elapsed < realtime_budget(duration),
         "{duration:.3}s of IQ took {elapsed:.3}s to decode"

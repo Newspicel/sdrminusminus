@@ -248,7 +248,7 @@ fn surveyed(with_position: bool) -> WorkspaceSnapshot {
             device.device = Some(DeviceRef {
                 backend: "virtual".to_owned(),
                 serial: None,
-                key: Some("siggen".to_owned()),
+                key: Some("band".to_owned()),
             });
         }
     }

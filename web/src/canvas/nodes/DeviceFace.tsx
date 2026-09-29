@@ -3,11 +3,10 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link2, Lock, Radar } from "lucide-react";
 import { Button } from "../../components/BaseControls";
 import { BTN_PRIMARY, BTN_QUIET, BTN_SM, ICON_BTN } from "../../components/controls";
-import { DevOnly } from "../../components/DevOnly";
 import { deviceId } from "../../components/devices";
 import { inTuningRange, isTunable, tuningRange } from "../../components/dial";
 import { dialId, FrequencyDial } from "../../components/FrequencyDial";
-import { formatMhz } from "../../components/format";
+import { DROPS_HINT, formatCount, formatMhz } from "../../components/format";
 import { Icon } from "../../components/Icon";
 import { DeviceChoices } from "../../components/OpenRadio";
 import { LaneControls, RadioSettings } from "../../components/RadioSettings";
@@ -35,6 +34,7 @@ import {
   hearing,
   lanesMerged,
   lockStream,
+  lossSaid,
   refLabel,
   refusalSaid,
   type TunerDial,
@@ -434,9 +434,7 @@ export function DeviceFace({ node }: { node: PatchNode }) {
           }
         />
 
-        <DevOnly>
-          <DeviceHealth set={set} />
-        </DevOnly>
+        <DeviceHealth set={set} />
 
         {set.error != null && <Fault set={set} />}
         <Refused set={set} />
@@ -459,16 +457,20 @@ export function DeviceFace({ node }: { node: PatchNode }) {
   );
 }
 
+const LOSS_HINT =
+  "The radio sends more than its link or this computer carries. Lower the rate or the lanes";
+
 function DeviceHealth({ set }: { set: DeviceSet }) {
   const health = usePipelineHealth((state) => state.health);
   const summary = queueSummary(health, set.id);
   const overruns = set.overruns ?? 0;
   const clipping = clippingSaid(set);
+  const loss = lossSaid(set);
   if (summary === null && overruns === 0 && clipping === null) {
     return null;
   }
   return (
-    <Readout>
+    <Readout label="Health">
       {clipping !== null && (
         <ReadoutRow label="Clipping" title="The ADC is at full scale. Lower the gain.">
           {clipping}
@@ -479,9 +481,14 @@ function DeviceHealth({ set }: { set: DeviceSet }) {
           {summary.oldestMs.toFixed(0)} ms
         </ReadoutRow>
       )}
+      {loss !== null && (
+        <ReadoutRow label="Lost" title={LOSS_HINT}>
+          <span className="text-warn">{loss}</span>
+        </ReadoutRow>
+      )}
       {overruns > 0 && (
-        <ReadoutRow label="Drops" title="Samples lost since the radio opened">
-          {overruns}
+        <ReadoutRow label="Drops" title={DROPS_HINT}>
+          {formatCount(overruns)}
         </ReadoutRow>
       )}
     </Readout>

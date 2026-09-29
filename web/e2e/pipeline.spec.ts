@@ -175,7 +175,7 @@ for (const { fallback, delayOutput, wideband } of [
             id: "radio",
             kind: "device",
             position: { x: 0, y: 0 },
-            data: { device: { backend: "virtual", key: "siggen" } },
+            data: { device: { backend: "virtual", key: "band" } },
           },
           {
             id: "voice",

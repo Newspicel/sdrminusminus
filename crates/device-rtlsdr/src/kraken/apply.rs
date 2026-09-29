@@ -82,11 +82,11 @@ mod tests {
     use sdrmm_wire::{AgcSetting, ExtraValue, GainKind, GainValue, StreamSettings};
 
     use super::*;
-    use crate::{caps::GainMode, driver::GAIN_VALUES};
+    use crate::{caps::GainMode, dongle::GAINS};
 
     fn fixture(model: Model) -> (Capabilities, Capabilities, Vec<DeviceSettings>) {
-        let capabilities = caps::kraken_capabilities(model, model.lanes(), GAIN_VALUES);
-        let lane_caps = caps::kraken_lane_capabilities(GAIN_VALUES);
+        let capabilities = caps::kraken_capabilities(model, model.lanes(), GAINS);
+        let lane_caps = caps::kraken_lane_capabilities(GAINS);
         let settled = vec![
             DeviceSettings {
                 center_hz: Some(100e6),
@@ -105,7 +105,7 @@ mod tests {
             model,
             capabilities: &capabilities,
             lane_caps: &lane_caps,
-            table: GAIN_VALUES,
+            table: GAINS,
         };
         plan(delta, &limits, &settled)
     }

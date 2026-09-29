@@ -77,6 +77,7 @@ mod tests {
             coherence,
             noise_source: NoiseSource::Isolated,
             retune_keeps_phase,
+            rx_stream_choices: Vec::new(),
         }
     }
 

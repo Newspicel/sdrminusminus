@@ -2,14 +2,14 @@ import { agcDelta, agcGainDb, laneAgc } from "../canvas/nodes/deviceNode";
 import type { DeviceSet } from "../lib/types";
 import { useDevicePatch } from "../lib/useDevicePatch";
 import { Checkbox } from "./Checkbox";
-import { formatGain } from "./capabilities";
+import { agcStageIndex, formatGain } from "./capabilities";
 
 export function agcTip(set: DeviceSet, stream: number, advised: boolean): string {
   if (!laneAgc(set, stream).on) {
     return advised ? "AGC off, as coherent lanes want" : "Let the radio set its own gain";
   }
   const db = agcGainDb(set, stream);
-  const stage = set.capabilities.gains[0];
+  const stage = set.capabilities.gains[agcStageIndex(set.capabilities.gains)];
   const reading = db === null || stage === undefined ? "" : ` at ${formatGain(stage, db)} dB`;
   return `AGC on${reading}${advised ? ". Fixed gain keeps coherent lanes calibrated" : ""}`;
 }

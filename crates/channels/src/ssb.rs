@@ -230,7 +230,7 @@ mod tests {
 
     use super::*;
     use crate::{
-        testgen::{burst, tone_audio},
+        synth::{burst, tone_audio},
         testutil::{complex_tone, component, dominant_tone, rms, run_ragged, settings, tone_power},
     };
 

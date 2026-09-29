@@ -250,7 +250,7 @@ impl From<StoreError> for AppError {
             | StoreError::WorkspaceConflict { .. }
             | StoreError::CpsNameTaken
             | StoreError::WorkspaceHistoryEnd { .. } => (StatusCode::CONFLICT, ErrorCode::Conflict),
-            StoreError::Db(_) | StoreError::Corrupt(_) => {
+            StoreError::Db(_) | StoreError::Corrupt(_) | StoreError::NewerSchema { .. } => {
                 (StatusCode::INTERNAL_SERVER_ERROR, ErrorCode::Storage)
             }
         };

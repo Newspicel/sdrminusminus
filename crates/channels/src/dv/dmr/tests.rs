@@ -4,7 +4,7 @@ use super::*;
 use crate::{
     AUDIO_RATE, ChannelOutputs,
     dv::{testutil::decode, vocoder::testutil::half_rate_frames},
-    testgen::dv::dmr as tx,
+    synth::dv::dmr as tx,
     testutil::settings,
 };
 

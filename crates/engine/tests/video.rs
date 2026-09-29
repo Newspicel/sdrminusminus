@@ -21,7 +21,7 @@ const FIELDS_PER_FULL_FRAME: usize = 2;
 
 #[tokio::test]
 async fn dvb_satellite_video_reaches_the_color_video_stream() {
-    use sdrmm_channels::testgen::datv;
+    use sdrmm_channels::synth::datv;
     use sdrmm_wire::{DatvParams, DatvStandard};
     for (standard, extended, superframes) in [
         (DatvStandard::DvbS, false, false),
@@ -121,8 +121,7 @@ async fn dvbt_media_crosses_a_virtual_device_and_reaches_audio_and_video() {
         Box::new(RecordingDriver::new(Some(dir.path().to_path_buf()))),
     );
     let engine = Engine::with_registry(registry, Some(dir.path().to_path_buf()));
-    let iq =
-        sdrmm_channels::testgen::dvbt::waveform(sdrmm_channels::testgen::dvbt::defaults(), 544);
+    let iq = sdrmm_channels::synth::dvbt::waveform(sdrmm_channels::synth::dvbt::defaults(), 544);
     let path = dir.path().join("dvbt-video");
     let mut writer =
         SigmfWriter::create(&path, 64_000_000.0 / 7.0, CENTER_HZ, "DVB-T media fixture").unwrap();
@@ -184,9 +183,9 @@ async fn an_atv_transmission_reaches_the_video_stream_as_a_picture() {
     ));
 
     let params = atv_params();
-    let source = sdrmm_channels::testgen::atv::AtvSource::new(&params, DEVICE_RATE);
-    let mut iq = sdrmm_channels::testgen::atv::bars(&source, 8);
-    sdrmm_channels::testgen::shift(&mut iq, OFFSET_HZ, DEVICE_RATE);
+    let source = sdrmm_channels::synth::atv::AtvSource::new(&params, DEVICE_RATE);
+    let mut iq = sdrmm_channels::synth::atv::bars(&source, 8);
+    sdrmm_channels::synth::shift(&mut iq, OFFSET_HZ, DEVICE_RATE);
 
     let path = dir.path().join("atv");
     let mut writer = SigmfWriter::create(&path, DEVICE_RATE, CENTER_HZ, "atv fixture").unwrap();
@@ -264,7 +263,7 @@ async fn a_channel_without_video_refuses_the_subscription() {
         Some(dir.path().to_path_buf()),
     ));
 
-    let ds = engine.create_device_set("virtual:siggen").unwrap();
+    let ds = engine.create_device_set("virtual:band").unwrap();
     let ch = engine
         .add_channel(
             ds,
@@ -310,13 +309,13 @@ async fn an_sstv_transmission_reaches_the_image_stream_as_a_finished_picture() {
         Some(dir.path().to_path_buf()),
     ));
 
-    let sent = sdrmm_channels::testgen::sstv::bars(mode);
-    let native = sdrmm_channels::testgen::sstv::transmission(mode, &sent, 16_000.0);
-    let mut iq = sdrmm_channels::testgen::resample(&native, 16_000.0, SSTV_DEVICE_RATE);
-    iq.extend(sdrmm_channels::testgen::silence(
+    let sent = sdrmm_channels::synth::sstv::bars(mode);
+    let native = sdrmm_channels::synth::sstv::transmission(mode, &sent, 16_000.0);
+    let mut iq = sdrmm_channels::synth::resample(&native, 16_000.0, SSTV_DEVICE_RATE);
+    iq.extend(sdrmm_channels::synth::silence(
         SSTV_DEVICE_RATE as usize * 3,
     ));
-    sdrmm_channels::testgen::shift(&mut iq, SSTV_OFFSET_HZ, SSTV_DEVICE_RATE);
+    sdrmm_channels::synth::shift(&mut iq, SSTV_OFFSET_HZ, SSTV_DEVICE_RATE);
 
     let path = dir.path().join("sstv");
     let mut writer =

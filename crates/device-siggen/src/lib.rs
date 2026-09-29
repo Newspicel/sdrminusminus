@@ -5,7 +5,7 @@ use std::{
 
 use arc_swap::ArcSwap;
 use num_complex::Complex;
-use sdrmm_channels::testgen;
+use sdrmm_channels::synth;
 use sdrmm_device::{
     DeviceDriver, DeviceError, RxSink, SdrDevice, Worker, check_stream_settings, lock,
     single_rx_sink,
@@ -27,10 +27,10 @@ pub const GAP_SETTING: &str = "gap_s";
 
 pub const MAX_GENERATORS: usize = 64;
 pub const NOISE_OFF_DB: f64 = -140.0;
+const MIN_LEVEL_DB: f64 = -60.0;
 
 const DRIVER_ID: &str = SIGGEN_DRIVER_ID;
 const BLOCK_SECS: f64 = 0.025;
-const DEFAULT_CENTER_HZ: f64 = 145_000_000.0;
 const DEFAULT_LEVEL_DB: f64 = -12.0;
 const DEFAULT_NOISE_DB: f64 = -60.0;
 const MAX_OFFSET_HZ: f64 = 10_000_000.0;
@@ -134,7 +134,7 @@ pub fn capabilities() -> Capabilities {
                 LEVEL_SETTING,
                 "Level",
                 Range {
-                    min: -60.0,
+                    min: MIN_LEVEL_DB,
                     max: 0.0,
                     step: Some(1.0),
                 },
@@ -172,6 +172,7 @@ pub fn capabilities() -> Capabilities {
         coherence: Coherence::None,
         noise_source: sdrmm_wire::NoiseSource::None,
         retune_keeps_phase: false,
+        rx_stream_choices: Vec::new(),
     }
 }
 
@@ -240,7 +241,7 @@ impl SignalGen {
 
 fn settings_of(params: &Params) -> DeviceSettings {
     DeviceSettings {
-        center_hz: Some(DEFAULT_CENTER_HZ),
+        center_hz: Some(signals::CENTER_HZ),
         sample_rate: Some(params.rate_hz),
         extra: vec![
             ExtraValue {
@@ -312,7 +313,9 @@ impl SdrDevice for SignalGen {
                     next.offset_hz =
                         ranged(OFFSET_SETTING, &extra.value, -MAX_OFFSET_HZ, MAX_OFFSET_HZ)?;
                 }
-                LEVEL_SETTING => next.level_db = ranged(LEVEL_SETTING, &extra.value, -60.0, 0.0)?,
+                LEVEL_SETTING => {
+                    next.level_db = ranged(LEVEL_SETTING, &extra.value, MIN_LEVEL_DB, 0.0)?
+                }
                 NOISE_SETTING => {
                     next.noise_db = ranged(NOISE_SETTING, &extra.value, NOISE_OFF_DB, 0.0)?;
                 }
@@ -405,14 +408,14 @@ fn render(params: &Params) -> Vec<Complex<f32>> {
         return iq;
     }
     if params.rate_hz != params.signal.rate_hz {
-        iq = testgen::resample(&iq, params.signal.rate_hz, params.rate_hz);
+        iq = synth::resample(&iq, params.signal.rate_hz, params.rate_hz);
     }
     if params.offset_hz != 0.0 {
-        testgen::shift(&mut iq, params.offset_hz, params.rate_hz);
+        synth::shift(&mut iq, params.offset_hz, params.rate_hz);
     }
-    testgen::scale(&mut iq, amplitude(params.level_db));
+    synth::scale(&mut iq, amplitude(params.level_db));
     if params.noise_db > NOISE_OFF_DB {
-        testgen::add_noise(&mut iq, 0x5DEE_CE66, amplitude(params.noise_db));
+        synth::add_noise(&mut iq, 0x5DEE_CE66, amplitude(params.noise_db));
     }
     iq
 }

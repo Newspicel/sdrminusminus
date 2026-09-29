@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { InfoTip } from "./InfoTip";
+import { GroupLine } from "./Settings";
 import { WithUnit } from "./Unit";
 
 const GRID = "grid items-baseline gap-x-3 gap-y-1";
@@ -11,18 +12,22 @@ export function Readout({
   separated = true,
   className,
   columns = COLUMNS,
+  label,
 }: {
   children: ReactNode;
   separated?: boolean;
   className?: string;
   columns?: string;
+  label?: ReactNode;
 }) {
+  const ruled = separated && label === undefined;
   return (
     <div
-      className={`flex flex-col gap-1 p-2 ${separated ? "border-t border-line" : ""} ${
+      className={`flex flex-col gap-1 p-2 ${ruled ? "border-t border-line" : ""} ${
         className ?? ""
       }`}
     >
+      {label !== undefined && <GroupLine label={label} />}
       <div className={`${GRID} ${columns}`}>{children}</div>
     </div>
   );

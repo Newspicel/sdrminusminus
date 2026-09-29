@@ -12,6 +12,7 @@ use tauri_plugin_dialog::DialogExt;
 
 mod browser;
 mod graphics;
+mod newer_db;
 mod reveal;
 mod update;
 
@@ -29,11 +30,18 @@ fn main() -> anyhow::Result<()> {
         .setup(|app| {
             let data_dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&data_dir)?;
+            let db = data_dir.join("sdrmm.db");
+            if let Err(error @ sdrmm_server::StoreError::NewerSchema { .. }) =
+                sdrmm_server::Store::open(Some(&db))
+            {
+                newer_db::ask(app.handle(), db, &error);
+                return Ok(());
+            }
             let engine = Engine::new(Some(data_dir.join("recordings")));
             app.manage(engine.clone());
             let config = sdrmm_server::Config {
                 bind: SocketAddr::from((Ipv4Addr::LOCALHOST, 0)),
-                db_path: Some(data_dir.join("sdrmm.db")),
+                db_path: Some(db),
                 tls: None,
                 options: sdrmm_server::ServerOptions {
                     shell: Some(Arc::new(reveal::Shell)),

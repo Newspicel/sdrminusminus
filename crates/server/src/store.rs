@@ -59,6 +59,11 @@ pub enum StoreError {
     Db(#[from] rusqlite::Error),
     #[error("stored snapshot corrupt: {0}")]
     Corrupt(#[from] serde_json::Error),
+    #[error(
+        "this database is newer than SDR-- (schema {found}, supported {known}); update SDR-- or \
+         delete the database"
+    )]
+    NewerSchema { found: i64, known: usize },
 }
 
 pub const DECODER_LOG_LIMIT_DEFAULT: u32 = 200;
@@ -2241,9 +2246,15 @@ pub(crate) fn rfc3339(ts: jiff::Timestamp) -> String {
     format!("{ts:.9}")
 }
 
-fn migrate(conn: &Connection) -> Result<(), rusqlite::Error> {
+fn migrate(conn: &Connection) -> Result<(), StoreError> {
     let version: i64 = conn.query_row("PRAGMA user_version", [], |row| row.get(0))?;
     let done = usize::try_from(version).unwrap_or(0);
+    if done > MIGRATIONS.len() {
+        return Err(StoreError::NewerSchema {
+            found: version,
+            known: MIGRATIONS.len(),
+        });
+    }
     for (i, migration) in MIGRATIONS.iter().enumerate().skip(done) {
         conn.execute_batch(&format!(
             "BEGIN;\n{migration}\nPRAGMA user_version = {};\nCOMMIT;",

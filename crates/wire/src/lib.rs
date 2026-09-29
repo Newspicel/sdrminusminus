@@ -885,8 +885,8 @@ mod contract_tests {
             id: 1,
             device: DeviceInfo {
                 driver: "virtual".to_owned(),
-                key: "siggen".to_owned(),
-                label: "Signal Generator".to_owned(),
+                key: "band".to_owned(),
+                label: "Test band".to_owned(),
                 serial: None,
                 profile: None,
             },
@@ -913,6 +913,7 @@ mod contract_tests {
                 coherence: Coherence::None,
                 noise_source: crate::device::NoiseSource::None,
                 retune_keeps_phase: false,
+                rx_stream_choices: Vec::new(),
             },
             settings: DeviceSettings::default(),
             status: DeviceSetStatus::Running,
@@ -931,6 +932,7 @@ mod contract_tests {
             agc_gains: Vec::new(),
             virtual_lanes: Vec::new(),
             held: Vec::new(),
+            loss: None,
         }
     }
 

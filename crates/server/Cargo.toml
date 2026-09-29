@@ -98,7 +98,7 @@ tokio = { workspace = true, features = ["rt-multi-thread", "macros", "sync", "ti
 sdrmm-device-virtual.workspace = true
 sdrmm-device-recording.workspace = true
 sdrmm-device-siggen.workspace = true
-sdrmm-channels = { workspace = true, features = ["test-signals"] }
+sdrmm-channels = { workspace = true, features = ["synth"] }
 tokio-tungstenite.workspace = true
 serialport.workspace = true
 num-complex.workspace = true

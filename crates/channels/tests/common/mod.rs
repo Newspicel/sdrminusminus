@@ -3,7 +3,7 @@
 use std::path::PathBuf;
 
 use num_complex::Complex;
-use sdrmm_channels::{channel_filter, testgen::dv as tg};
+use sdrmm_channels::{channel_filter, synth::dv as tg};
 use sdrmm_modem::{
     cpm::{CpmDemod, CpmParams, Mapping},
     pulse::{self, Norm},

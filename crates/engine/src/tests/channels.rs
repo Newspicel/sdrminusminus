@@ -4,7 +4,7 @@ use super::*;
 async fn create_emits_state_changed() {
     let engine = virtual_engine();
     let mut events = engine.subscribe_events();
-    let ds = engine.create_device_set("virtual:siggen").unwrap();
+    let ds = engine.create_device_set("virtual:band").unwrap();
 
     let ev = tokio::time::timeout(Duration::from_secs(1), events.recv())
         .await
@@ -22,7 +22,7 @@ async fn create_emits_state_changed() {
 #[tokio::test]
 async fn channel_crud_updates_state() {
     let engine = virtual_engine();
-    let ds = engine.create_device_set("virtual:siggen").unwrap();
+    let ds = engine.create_device_set("virtual:band").unwrap();
     let ch = engine.add_channel(ds, 0, nfm_settings(0.0)).unwrap();
     assert_eq!(engine.snapshot().device_sets[0].channels.len(), 1);
     engine.remove_channel(ds, ch).unwrap();
@@ -121,7 +121,7 @@ async fn live_position_survives_a_channel_rate_rebuild() {
 #[tokio::test]
 async fn a_channel_the_radio_cannot_reach_opens_silent_rather_than_refused() {
     let engine = virtual_engine();
-    let ds = engine.create_device_set("virtual:siggen").unwrap();
+    let ds = engine.create_device_set("virtual:band").unwrap();
     hold_tuning(&engine, ds);
     let ch = engine
         .add_channel(ds, 0, nfm_settings(1_100_000.0))
@@ -159,7 +159,7 @@ async fn a_channel_the_radio_cannot_reach_opens_silent_rather_than_refused() {
 #[tokio::test]
 async fn add_channel_rejects_a_blanker_outside_its_range() {
     let engine = virtual_engine();
-    let ds = engine.create_device_set("virtual:siggen").unwrap();
+    let ds = engine.create_device_set("virtual:band").unwrap();
     let settings = ChannelSettings {
         blanker: sdrmm_wire::NoiseBlankerSettings {
             enabled: true,
@@ -176,7 +176,7 @@ async fn add_channel_rejects_a_blanker_outside_its_range() {
 #[tokio::test]
 async fn a_channel_with_no_audio_refuses_a_blanker() {
     let engine = virtual_engine();
-    let ds = engine.create_device_set("virtual:siggen").unwrap();
+    let ds = engine.create_device_set("virtual:band").unwrap();
     let settings = ChannelSettings {
         frequency_hz: TEST_CENTER_HZ,
         squelch: sdrmm_wire::Squelch::Off,
@@ -194,7 +194,7 @@ async fn a_channel_with_no_audio_refuses_a_blanker() {
 #[tokio::test]
 async fn patching_the_blanker_reaches_the_running_channel() {
     let engine = virtual_engine();
-    let ds = engine.create_device_set("virtual:siggen").unwrap();
+    let ds = engine.create_device_set("virtual:band").unwrap();
     let ch = engine.add_channel(ds, 0, nfm_settings(0.0)).unwrap();
     let patched = ChannelSettings {
         blanker: sdrmm_wire::NoiseBlankerSettings {
@@ -227,7 +227,7 @@ async fn audio_fx_refuses_settings_outside_their_controls() {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_route_through_audio_fx_carries_the_channel_audio() {
     let engine = virtual_engine();
-    let ds = engine.create_device_set("virtual:siggen").unwrap();
+    let ds = engine.create_device_set("virtual:band").unwrap();
     let ch = engine.add_channel(ds, 0, nfm_settings(0.0)).unwrap();
     engine
         .set_audio_fx(
@@ -259,7 +259,7 @@ async fn a_route_through_audio_fx_carries_the_channel_audio() {
 #[tokio::test]
 async fn patch_channel_rejects_missing_channel() {
     let engine = virtual_engine();
-    let ds = engine.create_device_set("virtual:siggen").unwrap();
+    let ds = engine.create_device_set("virtual:band").unwrap();
     let err = engine.patch_channel(ds, 7, nfm_settings(0.0)).unwrap_err();
     assert!(err.is_not_found(), "expected not found, got {err}");
     engine.remove_device_set(ds).unwrap();
@@ -268,7 +268,7 @@ async fn patch_channel_rejects_missing_channel() {
 #[tokio::test]
 async fn narrowing_the_window_past_a_channel_mutes_it_without_moving_it() {
     let engine = virtual_engine();
-    let ds = engine.create_device_set("virtual:siggen").unwrap();
+    let ds = engine.create_device_set("virtual:band").unwrap();
     hold_tuning(&engine, ds);
     let ch = engine.add_channel(ds, 0, nfm_settings(900_000.0)).unwrap();
     engine
@@ -296,7 +296,7 @@ async fn narrowing_the_window_past_a_channel_mutes_it_without_moving_it() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn concurrent_rate_rebuild_and_remove_never_strands_a_channel() {
     let engine = virtual_engine();
-    let ds = engine.create_device_set("virtual:siggen").unwrap();
+    let ds = engine.create_device_set("virtual:band").unwrap();
     for i in 0..40u32 {
         let ch = engine.add_channel(ds, 0, nfm_settings(100_000.0)).unwrap();
         let rate = if i % 2 == 0 { 2_400_000.0 } else { 2_048_000.0 };
@@ -413,7 +413,7 @@ fn device_reported_gaps_reach_the_drop_badge_without_ring_overflow() {
 async fn virtual_capture_recovers_from_a_stalled_dsp_with_an_audio_timestamp_gap() {
     let engine = virtual_engine();
     let ds = engine
-        .create_device_set("virtual:siggen")
+        .create_device_set("virtual:band")
         .expect("virtual radio");
     let ch = engine
         .add_channel(ds, 0, nfm_settings(0.0))
@@ -478,7 +478,7 @@ async fn virtual_capture_recovers_from_a_stalled_dsp_with_an_audio_timestamp_gap
 #[tokio::test]
 async fn a_channel_keeps_the_node_it_was_opened_for_through_a_retune() {
     let engine = virtual_engine();
-    let ds = engine.create_device_set("virtual:siggen").unwrap();
+    let ds = engine.create_device_set("virtual:band").unwrap();
     let ch = engine
         .add_channel_for(ds, 0, nfm_settings(0.0), Some("voice"))
         .unwrap();

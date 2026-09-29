@@ -1,4 +1,4 @@
-use sdrmm_channels::testgen::ident_fixtures::{Expect, FIXTURES, identify, judge, samples};
+use sdrmm_channels::synth::ident_fixtures::{Expect, FIXTURES, identify, judge, samples};
 
 fn fixture_bytes(file: &str) -> Vec<u8> {
     let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/");

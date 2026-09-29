@@ -232,7 +232,7 @@ impl Container {
     }
 }
 
-#[cfg(any(test, feature = "test-signals"))]
+#[cfg(any(test, feature = "synth"))]
 pub fn wrap(payload: &[Complex<f32>], code: u8, pilots: bool, count: usize) -> Vec<Complex<f32>> {
     let reference = sequence();
     let mut output = Vec::with_capacity(LENGTH * count);
