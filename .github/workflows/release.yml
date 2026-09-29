@@ -299,7 +299,7 @@ jobs:
       TAURI_ARGS: >-
         --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
         --config ${{ github.workspace }}/bundled.tauri.json
-        -- --no-default-features --features soapy,sdrplay,rtlsdr,hackrf,airspy,airspyhf,ad936x,net-client,gpu-fft
+        -- --no-default-features --features soapy,sdrplay,rtlsdr,hackrf,airspy,airspyhf,ad936x,antsdr,net-client,gpu-fft
       APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
       APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
       APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}

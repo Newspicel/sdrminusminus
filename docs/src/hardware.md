@@ -46,6 +46,7 @@ On an empty Device node, open the **Network** tab and enter `host:port`:
 | SDRconnect | 5454 |
 | KiwiSDR | 8073 |
 | AD936x / iiod | 30431 |
+| AntSDR UHD | 49200 |
 
 The address becomes the radio's identity in the workspace. The bookmark button next to **Add**
 saves it; saved radios are listed above the form on every empty Device node.
@@ -160,10 +161,10 @@ Tested on hardware provided by [Airspy](https://airspy.com). Thank you.
 
 ## AntSDR
 
-SDR-- talks to the iiod server of the AntSDR's Pluto firmware directly, with no libiio. It is tested
-on the E310: an AD9361 from 70 MHz to 6 GHz with up to 56 MHz of bandwidth, and two receive and two
-transmit lanes on one synthesizer, so both receive lanes are phase coherent. Support for the UHD
-firmware is planned.
+The E310 is an AD9361 from 70 MHz to 6 GHz with up to 56 MHz of bandwidth, and two receive and two
+transmit lanes on one synthesizer, so both receive lanes are phase coherent. SDR-- speaks both of
+its firmwares directly: the Pluto firmware through iiod with no libiio, and the UHD firmware with no
+UHD.
 
 **USB:** connect the USB 2.0 port and the board appears on its own, with no network setup. Windows
 needs the [PlutoSDR drivers](https://wiki.analog.com/university/tools/pluto/drivers/windows). USB
@@ -191,6 +192,25 @@ computer's address.
 Gigabit Ethernet carries about 60 MB/s from the E310: 15 MS/s on one lane, or 7.5 MS/s per lane on
 two. Set **Lanes** to 1 for one wide lane. The E310 locks its antenna and TX ports in firmware, so
 those menus are hidden. The other controls are the [AD936x ones](#plutosdr-and-other-ad936x-boards).
+
+### UHD firmware
+
+With the [UHD image](https://github.com/MicroPhase/antsdr_uhd) on the SD card the board appears as
+**AntSDR E310** after **Search**, or enter `192.168.1.10` as **AntSDR UHD** in the **Network** tab.
+Ethernet only, at 1000 Mbit/s; the network setup is the same as above.
+
+SDR-- drives the AD9361 itself: calibration, filters, gain tables and the FPGA's decimation. Rates
+run from 100 kS/s to 25 MS/s on one lane and 12.5 MS/s per lane on two. A lost packet or an overflow
+reaches the flowgraph as a gap of the exact length.
+
+| Control | Does |
+|---|---|
+| Lanes | 1 or 2. Two receive lanes run with no transmitter or with two |
+| Gain | 0 to 76 dB per lane, or slow or fast AGC |
+| TX gain | -89.75 to 0 dB in 0.25 dB steps |
+| Bandwidth | Analog filter, 200 kHz to 56 MHz. **Auto** follows the rate |
+| PPM | Corrects both synthesizers |
+| Quadrature, Baseband DC tracking | The transceiver's own corrections, on by default |
 
 Tested on hardware provided by [MicroPhase](https://www.microphase.cn/). Thank you.
 

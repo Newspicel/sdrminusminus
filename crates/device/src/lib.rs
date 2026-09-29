@@ -316,6 +316,7 @@ pub trait SdrDevice: Send {
 pub mod capture;
 pub mod convert;
 pub mod duplex;
+mod fan_out;
 #[cfg(feature = "net")]
 pub mod net;
 pub mod playback;
@@ -332,6 +333,7 @@ pub use capture::{
 };
 pub use convert::{LutConverter, SampleConverter};
 pub use duplex::DuplexState;
+pub use fan_out::fan_out;
 pub use playback::PlaybackShared;
 pub use pool::{Block, BlockPool};
 pub use registry::DeviceRegistry;

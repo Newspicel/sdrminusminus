@@ -26,6 +26,7 @@ Radio / network / recording → DSP engine → audio, events, spectrum, IQ
 | `sdrmm-device-airspy`, `sdrmm-device-airspyhf` | Native Airspy drivers |
 | `sdrmm-device-hackrf` | Native HackRF driver |
 | `sdrmm-device-ad936x` | AntSDR, PlutoSDR and other AD936x boards, speaking iiod over Ethernet or USB |
+| `sdrmm-device-antsdr` | AntSDR boards on the UHD firmware, driving their AD9361 and FPGA over UDP |
 | `sdrmm-device-soapy` | Local hardware through SoapySDR |
 | `sdrmm-device-sdrplay` | SDRplay RSP receivers through the vendor API, loaded at runtime |
 | `sdrmm-device-rtltcp` | Direct `rtl_tcp` client |

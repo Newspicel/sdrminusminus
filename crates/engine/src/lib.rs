@@ -103,7 +103,8 @@ const SDRPLAY_PRIORITY: u8 = 25;
     feature = "cr8",
     feature = "rtlsdr",
     feature = "hackrf",
-    feature = "ad936x"
+    feature = "ad936x",
+    feature = "antsdr"
 ))]
 const NATIVE_PRIORITY: u8 = 25;
 #[cfg(feature = "net-client")]
@@ -208,6 +209,11 @@ pub fn builtin_registry_accelerated(
     registry.register(
         NATIVE_PRIORITY,
         Box::new(sdrmm_device_ad936x::Ad936xDriver::new()),
+    );
+    #[cfg(feature = "antsdr")]
+    registry.register(
+        NATIVE_PRIORITY,
+        Box::new(sdrmm_device_antsdr::AntsdrDriver::new()),
     );
     #[cfg(feature = "net-client")]
     {

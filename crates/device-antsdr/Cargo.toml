@@ -1,0 +1,22 @@
+[package]
+name = "sdrmm-device-antsdr"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+sdrmm-wire.workspace = true
+sdrmm-device = { workspace = true, features = ["net"] }
+num-complex.workspace = true
+serde_json.workspace = true
+socket2.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+sdrmm-device = { workspace = true, features = ["net", "test-util"] }

@@ -13,6 +13,7 @@ members = [
     "crates/device-siggen",
     "crates/device-array",
     "crates/device-ad936x",
+    "crates/device-antsdr",
     "crates/device-airspy",
     "crates/device-airspyhf",
     "crates/device-soapy",
@@ -51,6 +52,7 @@ default-members = [
     "crates/device-siggen",
     "crates/device-array",
     "crates/device-ad936x",
+    "crates/device-antsdr",
     "crates/device-airspy",
     "crates/device-airspyhf",
     "crates/device-soapy",
@@ -98,6 +100,7 @@ sdrmm-device-recording = { path = "crates/device-recording" }
 sdrmm-device-siggen = { path = "crates/device-siggen" }
 sdrmm-device-array = { path = "crates/device-array" }
 sdrmm-device-ad936x = { path = "crates/device-ad936x" }
+sdrmm-device-antsdr = { path = "crates/device-antsdr" }
 sdrmm-device-airspy = { path = "crates/device-airspy" }
 sdrmm-device-airspyhf = { path = "crates/device-airspyhf" }
 sdrmm-device-soapy = { path = "crates/device-soapy" }
@@ -157,6 +160,7 @@ mime_guess = "2"
 # Reads the USB bus without opening devices, so a hotplug check cannot disturb a running stream
 # or wake the vendor SoapySDR modules.
 nusb = "0.2.7"
+socket2 = "0.6"
 # SoapySDR, the SDRplay API and the CR-8 library are all resolved at runtime from wherever their
 # installers put them, so nothing here links or ships them and a machine without one simply
 # reports no hardware of that kind.
@@ -298,6 +302,9 @@ opt-level = 3
 opt-level = 3
 
 [profile.dev.package.sdrmm-device-ad936x]
+opt-level = 3
+
+[profile.dev.package.sdrmm-device-antsdr]
 opt-level = 3
 
 [profile.dev.package.sdrmm-device-virtual]

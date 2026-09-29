@@ -83,6 +83,11 @@ impl Endpoint {
     }
 
     #[must_use]
+    pub const fn port(&self) -> u16 {
+        self.port
+    }
+
+    #[must_use]
     pub fn authority(&self) -> String {
         if self.bracketed {
             format!("[{}]:{}", self.host, self.port)

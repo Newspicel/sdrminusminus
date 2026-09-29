@@ -5842,6 +5842,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "sdrmm-device-antsdr"
+version = "0.0.0"
+dependencies = [
+ "num-complex",
+ "sdrmm-device",
+ "sdrmm-wire",
+ "serde_json",
+ "socket2",
+ "tracing",
+]
+
+[[package]]
 name = "sdrmm-device-array"
 version = "0.0.0"
 dependencies = [
@@ -6024,6 +6036,7 @@ dependencies = [
  "sdrmm-device-ad936x",
  "sdrmm-device-airspy",
  "sdrmm-device-airspyhf",
+ "sdrmm-device-antsdr",
  "sdrmm-device-array",
  "sdrmm-device-cr8",
  "sdrmm-device-hackrf",
