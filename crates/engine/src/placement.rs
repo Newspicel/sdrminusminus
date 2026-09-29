@@ -100,6 +100,7 @@ impl Engine {
                     fixed: state
                         .channels
                         .iter()
+                        .filter(|channel| channel.stream < state.physical_streams())
                         .filter(|channel| {
                             channel
                                 .node

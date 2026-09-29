@@ -389,17 +389,14 @@ impl CaptureRuntime {
             .collect()
     }
 
-    #[cfg_attr(not(test), expect(dead_code))]
     pub(crate) fn tap_ports(&self) -> Vec<Arc<TapPort>> {
         self.tap_ports.clone()
     }
 
-    #[cfg_attr(not(test), expect(dead_code))]
     pub(crate) fn mark_posters(&self) -> Vec<MarkPoster> {
         self.mark_posters.clone()
     }
 
-    #[cfg_attr(not(test), expect(dead_code))]
     pub(crate) fn add_virtual_lane(
         &mut self,
         stream: u32,
@@ -452,7 +449,6 @@ impl CaptureRuntime {
         Ok((sink, cmd_tx))
     }
 
-    #[cfg_attr(not(test), expect(dead_code))]
     pub(crate) fn set_virtual_meta(
         &mut self,
         stream: u32,
@@ -469,7 +465,6 @@ impl CaptureRuntime {
         }
     }
 
-    #[cfg_attr(not(test), expect(dead_code))]
     pub(crate) fn remove_virtual_lane(&mut self, stream: u32) -> Option<RetiredLane> {
         let lane = self.virtual_lanes.remove(&stream)?;
         lane.signal();
@@ -490,6 +485,19 @@ impl CaptureRuntime {
                 .unwrap_or(crate::DEFAULT_CENTER_HZ);
             lane.set(center_hz, sample_rate, dc_block);
         }
+    }
+
+    pub(crate) fn in_flight_samples(&self) -> u64 {
+        self.device
+            .as_ref()
+            .map_or(0, |device| device.in_flight_samples())
+    }
+
+    pub(crate) fn set_noise_source(&mut self, on: bool) -> Result<(), DeviceError> {
+        self.device
+            .as_mut()
+            .ok_or_else(|| DeviceError::Io("the device has been stopped".to_string()))?
+            .set_noise_source(on)
     }
 
     pub fn device_settings(&self) -> Option<DeviceSettings> {

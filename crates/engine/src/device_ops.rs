@@ -1,10 +1,13 @@
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet},
     sync::{Arc, Mutex},
 };
 
 use sdrmm_device::DeviceError;
-use sdrmm_wire::{Capabilities, DeviceSetStatus, DeviceSettings, ServerEvent, StateScope, Tuning};
+use sdrmm_wire::{
+    AgcSetting, Capabilities, DeviceSetStatus, DeviceSettings, GainValue, ServerEvent, StateScope,
+    StreamScope, Tuning,
+};
 
 use crate::{
     ChannelMedia, DEFAULT_CENTER_HZ, DeviceSetState, Engine, EngineError, FaultGate,
@@ -24,6 +27,45 @@ struct SinkPoll {
     export: Vec<(u32, String)>,
     history: Vec<(u32, String)>,
     changed: Vec<u32>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct FrontEnd {
+    gains: Vec<GainValue>,
+    agc: Option<AgcSetting>,
+    streams: Vec<(u32, Vec<GainValue>, Option<AgcSetting>)>,
+}
+
+pub(crate) fn front_end(settings: &DeviceSettings) -> FrontEnd {
+    FrontEnd {
+        gains: settings.gains.clone(),
+        agc: settings.agc.clone(),
+        streams: settings
+            .streams
+            .iter()
+            .map(|stream| (stream.stream, stream.gains.clone(), stream.agc.clone()))
+            .collect(),
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct LaneSetup {
+    pub(crate) tuned: (Option<f64>, Option<Tuning>),
+    pub(crate) front_end: FrontEnd,
+}
+
+pub(crate) fn lane_setup(settings: &DeviceSettings, stream: u32, scope: &StreamScope) -> LaneSetup {
+    let lane = settings.for_stream(stream, scope);
+    LaneSetup {
+        tuned: (lane.center_hz, lane.tuning),
+        front_end: front_end(&lane),
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct Patched {
+    pub(crate) rate_changed: bool,
+    pub(crate) capabilities_changed: bool,
 }
 
 fn take_the_wheel(mut delta: DeviceSettings) -> DeviceSettings {
@@ -303,9 +345,6 @@ impl Engine {
 
         let changed = known.as_ref().is_some_and(|prev| *prev != ids);
         *known = Some(ids);
-        // A radio the quick search cannot name, one that answers over the network, or one whose
-        // vendor module only the deep search loads, still moved on the bus, and whoever has the
-        // device list open is the one who should find out.
         if changed || reason == hotplug::Probe::BusChanged {
             self.emit(ServerEvent::StateChanged {
                 scope: StateScope::Devices,
@@ -314,9 +353,6 @@ impl Engine {
         changed
     }
 
-    /// Whether the cheap search left a question only a full one can answer: a radio that is
-    /// streaming but nothing found, or a faulted one that may have come back. Both are worth
-    /// seconds; a healthy machine never gets here.
     fn wants_a_deeper_look(&self, ids: &[String]) -> bool {
         let inner = self.lock();
         inner.device_sets.values().any(|s| match s.status {
@@ -360,7 +396,6 @@ impl Engine {
             device.settings().clone(),
             stored_settings.offset_hz,
         ));
-        let rate = sample_rate_of(&settings);
         let blocking = dc_block(&capabilities, &settings);
         let gate = Arc::new(Mutex::new(FaultGate::Pending(None)));
         let fault_tx = self.fault_tx.clone();
@@ -422,6 +457,7 @@ impl Engine {
             state.status = DeviceSetStatus::Running;
             state.error = None;
             state.playback = playback;
+            state.runtime_epoch += 1;
             let rebuilds: Vec<RebuildEntry> = state
                 .channels
                 .iter()
@@ -441,8 +477,9 @@ impl Engine {
         drop(old_runtime);
 
         let mut dead: Vec<ChannelMedia> = Vec::new();
+        self.arrays_after_reconnect(ds);
         for rebuild in rebuilds {
-            self.rebuild_channel(ds, rebuild, rate, &mut dead);
+            self.rebuild_channel(ds, rebuild, &mut dead);
         }
         for handle in dead {
             handle.shutdown();
@@ -571,6 +608,9 @@ impl Engine {
                     agc_gains: Vec::new(),
                     playback,
                     runtime: Arc::new(DeviceRuntime::new(runtime)),
+                    runtime_epoch: 0,
+                    held: BTreeMap::new(),
+                    virtual_lanes: BTreeMap::new(),
                 },
             );
             inner.revision += 1;
@@ -609,6 +649,7 @@ impl Engine {
             removed
         };
         let removed = removed.ok_or(EngineError::DeviceSetNotFound(ds))?;
+        self.arrays_lanes_lost(ds);
         let finalized = teardown_set(removed);
         self.emit(ServerEvent::StateChanged {
             scope: StateScope::All,
@@ -622,6 +663,7 @@ impl Engine {
     }
 
     pub fn shutdown(&self) {
+        self.shutdown_arrays();
         let removed: Vec<DeviceSetState> = {
             let mut inner = self.lock();
             if inner.device_sets.is_empty() {
@@ -648,10 +690,35 @@ impl Engine {
 
     pub fn patch_device(&self, ds: u32, delta: DeviceSettings) -> Result<(), EngineError> {
         if delta != DeviceSettings::default() {
-            self.patch_device_from(ds, take_the_wheel(delta))?;
+            let delta = take_the_wheel(delta);
+            self.refuse_held(ds, &delta)?;
+            self.patch_device_from(ds, delta)?;
         }
         self.settle_tuning(ds);
         Ok(())
+    }
+
+    fn refuse_held(&self, ds: u32, delta: &DeviceSettings) -> Result<(), EngineError> {
+        let inner = self.lock();
+        let Some(state) = inner.device_sets.get(&ds) else {
+            return Ok(());
+        };
+        if state.held.is_empty() {
+            return Ok(());
+        }
+        let mut delta = delta.clone();
+        state.settings.carry_offset(&mut delta);
+        let mut after = state.settings.clone();
+        after.merge_from(&delta);
+        let scope = state.capabilities.per_stream;
+        match state.held.iter().find(|(stream, _)| {
+            lane_setup(&state.settings, **stream, &scope) != lane_setup(&after, **stream, &scope)
+        }) {
+            Some((_, array)) => Err(EngineError::Held {
+                array: array.clone(),
+            }),
+            None => Ok(()),
+        }
     }
 
     fn runtime_of(&self, ds: u32) -> Option<Arc<DeviceRuntime>> {
@@ -661,8 +728,6 @@ impl Engine {
             .map(|state| state.runtime.clone())
     }
 
-    /// What the radio open on this set can do by itself, for a caller deciding what to ask of
-    /// it. Frequencies are the radio's own; the snapshot shows them through the converter.
     #[must_use]
     pub fn capabilities(&self, ds: u32) -> Option<Capabilities> {
         self.lock()
@@ -696,8 +761,23 @@ impl Engine {
     pub(crate) fn patch_device_from(
         &self,
         ds: u32,
-        mut delta: DeviceSettings,
+        delta: DeviceSettings,
     ) -> Result<(), EngineError> {
+        let patched = self.patch_device_quietly(ds, delta)?;
+        if patched.rate_changed {
+            self.arrays_rate_changed(ds);
+        }
+        if patched.capabilities_changed {
+            self.arrays_capabilities_changed(ds);
+        }
+        Ok(())
+    }
+
+    pub(crate) fn patch_device_quietly(
+        &self,
+        ds: u32,
+        mut delta: DeviceSettings,
+    ) -> Result<Patched, EngineError> {
         let serialized = self
             .runtime_of(ds)
             .ok_or(EngineError::DeviceSetNotFound(ds))?;
@@ -725,7 +805,7 @@ impl Engine {
         let applied = runtime.apply(&hardware);
         self.note_refusal(ds, &hardware, applied.as_ref().err());
         let actual = applied?.map(|actual| DeviceSettings::from_hardware(actual, delta.offset_hz));
-        let (settings, blocking, rate, rebuilds) = {
+        let (settings, blocking, patched, rebuilds) = {
             let mut inner = self.lock();
             let state = inner
                 .device_sets
@@ -813,18 +893,23 @@ impl Engine {
                     })
                     .collect()
             };
+            let old_capabilities = state.capabilities.clone();
             if let Some(current) = lock_runtime(&state.runtime).capabilities() {
                 state.capabilities = current.shifted_by(state.settings.offset());
             }
             let settings = state.settings.clone();
             let blocking = dc_block(&state.capabilities, &settings);
+            let patched = Patched {
+                rate_changed: rate != old_rate,
+                capabilities_changed: state.capabilities != old_capabilities,
+            };
             inner.revision += 1;
-            (settings, blocking, rate, rebuilds)
+            (settings, blocking, patched, rebuilds)
         };
         lock_runtime(&runtime).set_meta(&settings, blocking);
         let mut dead: Vec<ChannelMedia> = Vec::new();
         for rebuild in rebuilds {
-            self.rebuild_channel(ds, rebuild, rate, &mut dead);
+            self.rebuild_channel(ds, rebuild, &mut dead);
         }
         for handle in dead {
             handle.shutdown();
@@ -832,7 +917,7 @@ impl Engine {
         self.emit(ServerEvent::StateChanged {
             scope: StateScope::DeviceSet(ds),
         });
-        Ok(())
+        Ok(patched)
     }
 
     fn note_refusal(&self, ds: u32, hardware: &DeviceSettings, error: Option<&DeviceError>) {
@@ -856,7 +941,7 @@ impl Engine {
 
 impl DeviceSetState {
     pub(crate) fn tunes_freely(&self) -> bool {
-        self.recording.is_none() && !self.runtime.sweeping()
+        self.recording.is_none() && !self.runtime.sweeping() && self.held.is_empty()
     }
 
     fn validate_patch(
@@ -894,3 +979,6 @@ impl DeviceSetState {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests;

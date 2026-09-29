@@ -25,6 +25,14 @@ impl ArrayControl for Quiet {
     fn tune_array_internal(&self, _node: &str, _tune: ArrayTune) -> Result<(), EngineError> {
         Ok(())
     }
+
+    fn sync_context(&self, node: &str) -> Result<SyncContext, EngineError> {
+        Err(EngineError::ArrayNotFound(node.to_owned()))
+    }
+
+    fn clock_drift(&self, _node: &str, _ppm: Option<f64>) -> Result<(), EngineError> {
+        Ok(())
+    }
 }
 
 #[test]
@@ -183,6 +191,14 @@ impl ArrayControl for Bench {
     }
 
     fn tune_array_internal(&self, _node: &str, _tune: ArrayTune) -> Result<(), EngineError> {
+        Ok(())
+    }
+
+    fn sync_context(&self, node: &str) -> Result<SyncContext, EngineError> {
+        Err(EngineError::ArrayNotFound(node.to_owned()))
+    }
+
+    fn clock_drift(&self, _node: &str, _ppm: Option<f64>) -> Result<(), EngineError> {
         Ok(())
     }
 }

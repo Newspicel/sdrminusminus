@@ -13,7 +13,6 @@ impl Engine {
         &self,
         ds: u32,
         rebuild: RebuildEntry,
-        rate: f64,
         dead: &mut Vec<ChannelMedia>,
     ) {
         let RebuildEntry {
@@ -27,7 +26,7 @@ impl Engine {
             let Some(state) = inner.device_sets.get(&ds) else {
                 return;
             };
-            (rate, state.lane_center(stream))
+            (state.lane_rate(stream), state.lane_center(stream))
         };
         loop {
             let built = descriptor_for(&settings.params)
@@ -46,7 +45,7 @@ impl Engine {
             let Some(state) = inner.device_sets.get_mut(&ds) else {
                 return;
             };
-            let current_rate = crate::sample_rate_of(&state.settings);
+            let current_rate = state.lane_rate(stream);
             let current_center = state.lane_center(stream);
             let Some(info) = state.channels.iter().find(|c| c.id == id) else {
                 return;
@@ -151,11 +150,7 @@ impl Engine {
             state.check_stream(stream)?;
             let id = state.next_channel_id;
             state.next_channel_id += 1;
-            (
-                crate::sample_rate_of(&state.settings),
-                state.lane_center(stream),
-                id,
-            )
+            (state.lane_rate(stream), state.lane_center(stream), id)
         };
         let created = ChannelMedia::new(
             sdrmm_channels::audio_channels(&settings.params),
@@ -186,7 +181,7 @@ impl Engine {
             if let Err(e) = state.check_stream(stream) {
                 break Err(e);
             }
-            let current_rate = crate::sample_rate_of(&state.settings);
+            let current_rate = state.lane_rate(stream);
             let current_center = state.lane_center(stream);
             if current_rate != device_rate || current_center != center_hz {
                 device_rate = current_rate;
@@ -288,7 +283,7 @@ impl Engine {
             (
                 info.settings.clone(),
                 handle.sinks.clone(),
-                crate::sample_rate_of(&state.settings),
+                state.lane_rate(info.stream),
                 state.lane_center(info.stream),
             )
         };
@@ -325,7 +320,7 @@ impl Engine {
                 .iter()
                 .find(|c| c.id == ch)
                 .map_or(0, |c| c.stream);
-            let current_rate = crate::sample_rate_of(&state.settings);
+            let current_rate = state.lane_rate(stream);
             let current_center = state.lane_center(stream);
             if current_rate != device_rate || current_center != center_hz {
                 device_rate = current_rate;

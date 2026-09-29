@@ -11,9 +11,9 @@ mod host;
 mod radar;
 mod record;
 mod tap;
-mod tier;
+pub(crate) mod tier;
 mod track;
-mod tuner;
+pub(crate) mod tuner;
 mod warm;
 mod window;
 mod worker;
@@ -41,15 +41,21 @@ pub use sdrmm_channels::array_processor::ProcessorAction;
 use crate::EngineError;
 
 pub(crate) use aggregator::AggregatorExit;
+#[cfg(test)]
+pub(crate) use aggregator::{PoseRing, oriented};
 pub(crate) use board::StatusBoard;
 pub(crate) use capture::{
     CaptureBuffers, CaptureJob, CaptureRequest, Solution, SolveFailure, SolveSummary,
 };
-pub(crate) use controller::{ControlCommand, ControlConfig, spawn_controller};
+pub(crate) use controller::{
+    ControlCommand, ControlConfig, NoiseSwitch, SyncContext, spawn_controller,
+};
 pub(crate) use correct::CorrectionSet;
-pub(crate) use host::ProcessorHost;
-pub(crate) use radar::{DedicatedRunner, Prepared};
-pub(crate) use record::RecordTap;
+pub(crate) use host::{
+    ArrayShape, HostPlan, HostSinks, ProcessorHost, ProcessorStats, SteerInput, SteerMailbox,
+};
+pub(crate) use radar::{DedicatedRunner, Prepared, RadarPlan, prepare_dedicated};
+pub(crate) use record::{ArrayRecording, RecordTap, record_tap};
 pub(crate) use tap::{LaneFeed, TapPort, TapWriter};
 pub(crate) use tier::TierDecision;
 pub(crate) use window::BlankCause;
@@ -57,7 +63,6 @@ pub(crate) use worker::spawn_worker;
 
 pub(crate) const COMMAND_SLOTS: usize = 64;
 pub(crate) const CONTROL_EVENT_SLOTS: usize = 256;
-pub(crate) const CONTEXT_MISSING: &str = "array sync context is not built yet";
 
 static NEXT_RUNTIME: AtomicU64 = AtomicU64::new(0);
 
@@ -123,13 +128,8 @@ pub(crate) trait ArrayControl: Send + Sync {
     fn switch_array_noise(&self, node: &str, on: bool) -> Result<(), EngineError>;
     fn tune_array_internal(&self, node: &str, tune: ArrayTune) -> Result<(), EngineError>;
 
-    fn sync_context(&self, _node: &str) -> Result<controller::SyncContext, EngineError> {
-        Err(EngineError::Processor(CONTEXT_MISSING.to_owned()))
-    }
-
-    fn clock_drift(&self, _node: &str, _ppm: Option<f64>) -> Result<(), EngineError> {
-        Err(EngineError::Processor(CONTEXT_MISSING.to_owned()))
-    }
+    fn sync_context(&self, node: &str) -> Result<SyncContext, EngineError>;
+    fn clock_drift(&self, node: &str, ppm: Option<f64>) -> Result<(), EngineError>;
 }
 
 pub(crate) struct CommandQueue {

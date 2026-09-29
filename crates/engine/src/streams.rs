@@ -279,7 +279,6 @@ impl Engine {
         scanner::session::skip(self, ds, channel)
     }
 
-    /// Parks the radio on one frequency and streams how strong it is, fast enough to walk with.
     pub fn start_hunt(
         self: &Arc<Self>,
         ds: u32,
@@ -437,7 +436,7 @@ impl Engine {
                 .device_sets
                 .get(&ds)
                 .ok_or(EngineError::DeviceSetNotFound(ds))?;
-            (state.runtime.clone(), state.rx_streams())
+            (state.runtime.clone(), state.physical_streams())
         };
         lock_runtime(&runtime)
             .subscribe(stream)
