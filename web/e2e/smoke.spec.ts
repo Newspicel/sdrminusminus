@@ -140,9 +140,9 @@ test.describe("the workspace", () => {
     await expect(receiver.getByRole("button", { name: /capture-099/i })).toHaveCount(0);
     await expect(source.getByText(/Recordings/)).toHaveCount(0);
 
-    await expect(receiver.getByRole("button", { name: /signal generator/i })).toHaveCount(0);
+    await expect(receiver.getByRole("button", { name: /test band/i })).toHaveCount(0);
     await source.getByText("Virtual (1)").click();
-    await receiver.getByRole("button", { name: /signal generator/i }).click();
+    await receiver.getByRole("button", { name: /test band/i }).click();
     await expect(receiver.locator('[id^="frequency-dial"]')).toBeVisible();
 
     await addNode(page, "Recording");

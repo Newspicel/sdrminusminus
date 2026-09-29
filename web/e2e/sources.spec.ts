@@ -49,7 +49,11 @@ test.describe("the source nodes", () => {
     await expect(recording.getByRole("searchbox", { name: "Search recordings" })).toBeVisible();
     await expect(recording.getByRole("button", { name: "Upload SigMF" })).toBeVisible();
 
-    const first = recording.locator("button").filter({ hasText: /MHz/ }).first();
+    const first = recording
+      .locator("button")
+      .filter({ hasText: /MHz/ })
+      .filter({ hasNotText: "array_" })
+      .first();
     await expect(first).toBeVisible();
     await first.click();
 
