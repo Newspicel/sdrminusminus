@@ -10,6 +10,7 @@ pub enum LaneMark {
     NoiseSource { on: bool, in_flight: u64 },
     Retuned { in_flight: u64 },
     GainChanged { in_flight: u64 },
+    Ended,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

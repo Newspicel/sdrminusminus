@@ -620,6 +620,8 @@ pub struct RadarHealth {
     pub gpu: bool,
     pub threads: u32,
     pub aoa: AoaState,
+    #[serde(default)]
+    pub table_out_of_range: bool,
     pub reference: ReferenceHealth,
 }
 
@@ -647,18 +649,20 @@ pub enum RadarProblem {
     NoReceiver,
     NoHeading,
     PhaseUnknown,
+    TableOutOfRange,
     Overloaded,
     ReferenceLost,
     Refused(String),
 }
 
 impl RadarProblem {
-    pub const ALL: [Self; 8] = [
+    pub const ALL: [Self; 9] = [
         Self::NoArray,
         Self::NoTransmitter,
         Self::NoReceiver,
         Self::NoHeading,
         Self::PhaseUnknown,
+        Self::TableOutOfRange,
         Self::Overloaded,
         Self::ReferenceLost,
         Self::Refused(String::new()),
@@ -672,6 +676,7 @@ impl RadarProblem {
             Self::NoReceiver => "no_receiver",
             Self::NoHeading => "no_heading",
             Self::PhaseUnknown => "phase_unknown",
+            Self::TableOutOfRange => "table_out_of_range",
             Self::Overloaded => "overloaded",
             Self::ReferenceLost => "reference_lost",
             Self::Refused(_) => "refused",
@@ -686,6 +691,7 @@ impl RadarProblem {
             Self::NoReceiver => "No array position",
             Self::NoHeading => "No heading",
             Self::PhaseUnknown => "Phase unknown",
+            Self::TableOutOfRange => "Outside cal table",
             Self::Overloaded => "Overloaded",
             Self::ReferenceLost => "Reference lost",
             Self::Refused(text) => text,

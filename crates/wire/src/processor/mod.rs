@@ -8,19 +8,22 @@ pub mod polarimeter;
 pub mod spatial;
 pub mod stitch;
 
+use crate::limits::{BandLimits, Bounds};
+
 pub const MAX_AT_LEN: usize = 40;
 pub const MIN_BAND_HZ: f64 = 1_000.0;
+pub const DEFAULT_BAND_HZ: f64 = 200_000.0;
 
 pub(crate) fn reserved_at() -> String {
     String::with_capacity(MAX_AT_LEN)
 }
 
-pub(crate) fn finite_within(value: f64, limit: f64) -> bool {
-    (-limit..=limit).contains(&value)
+pub(crate) fn power_of_two_in(value: u32, bounds: Bounds<u32>) -> bool {
+    value.is_power_of_two() && bounds.contains(value)
 }
 
-pub(crate) fn power_of_two_in(value: u32, min: u32, max: u32) -> bool {
-    value.is_power_of_two() && (min..=max).contains(&value)
+pub(crate) fn band_holds(band: BandLimits, bandwidth_hz: Option<f64>) -> bool {
+    bandwidth_hz.is_none_or(|hz| band.bandwidth_hz.contains(hz))
 }
 
 macro_rules! processors {

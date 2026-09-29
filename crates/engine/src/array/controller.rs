@@ -227,6 +227,7 @@ pub(crate) struct Controller {
     skipped_checks: u64,
     warned_context: bool,
     running: bool,
+    ended: bool,
     rebuild_at: Instant,
     rebuild_failures: usize,
 }
@@ -272,6 +273,7 @@ impl Controller {
             skipped_checks: 0,
             warned_context: false,
             running: false,
+            ended: false,
             rebuild_at: now,
             rebuild_failures: 0,
         };
@@ -373,7 +375,7 @@ impl Controller {
     }
 
     fn blocked(&self) -> bool {
-        self.config.tier.tier == Coherence::None || self.clock_failed
+        self.config.tier.tier == Coherence::None || self.clock_failed || self.ended
     }
 
     fn checks_enabled(&self) -> bool {
@@ -913,12 +915,28 @@ impl Controller {
                     self.gain.last_clip = Some(now);
                 }
             }
+            AggregatorEvent::Ended => self.stream_ended(),
+            AggregatorEvent::Resumed => {
+                self.ended = false;
+                self.want = self.want.max(Want::Solve);
+            }
             AggregatorEvent::NoiseOnset { .. }
             | AggregatorEvent::Captured { .. }
             | AggregatorEvent::CaptureRefused { .. }
             | AggregatorEvent::Solved { .. }
             | AggregatorEvent::SolveFailed { .. } => {}
         }
+    }
+
+    fn stream_ended(&mut self) {
+        self.ended = true;
+        self.want = Want::Nothing;
+        self.cooling = None;
+        self.next_check = None;
+        if self.run.is_some_and(|run| !run.captured) {
+            self.abort_run();
+        }
+        tracing::info!(node = %self.node, cal = ?self.board.cal(), "array stream ended, calibration kept");
     }
 
     fn captured(&mut self) {

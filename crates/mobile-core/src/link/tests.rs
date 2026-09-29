@@ -14,7 +14,10 @@ use sdrmm_wire::{
     radar::RadarUpdate,
     state::StateSnapshot,
     survey::SurveyGrid,
-    ws::{ClientCommand, ServerEvent, StateScope, SurfaceFit, WS_CLOSE_REVOKED},
+    ws::{
+        ClientCommand, ServerEvent, StateScope, StreamKind, SurfaceFit, SurfaceRefusal,
+        WS_CLOSE_REVOKED,
+    },
 };
 use tokio::{
     io::DuplexStream,
@@ -667,6 +670,92 @@ async fn subscriptions_are_replayed_after_every_reconnect() {
             fit: None
         }]
     );
+}
+
+async fn tell(server: &mut WebSocketStream<DuplexStream>, event: &ServerEvent) {
+    let text = serde_json::to_string(event).expect("event encodes");
+    server.send(Message::text(text)).await.expect("sent");
+}
+
+fn refused(node: &str) -> ServerEvent {
+    ServerEvent::SurfaceRefused {
+        node: node.to_owned(),
+        reason: SurfaceRefusal::NoSurface,
+    }
+}
+
+fn changed(scope: StateScope) -> ServerEvent {
+    ServerEvent::StateChanged { scope }
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_refused_surface_is_asked_again_after_a_workspace_change() {
+    let rig = Rig::new();
+    let fit = SurfaceFit {
+        cols: 256,
+        rows: 128,
+    };
+    rig.subs
+        .send_replace(Subscriptions::from([("pr1".to_owned(), Some(fit))]));
+    let (mut server, _stop, _run) = connect(&rig).await;
+    let subscribe = ClientCommand::SubscribeSurface {
+        node: "pr1".to_owned(),
+        fit: Some(fit),
+    };
+    let wait = Duration::from_millis(100);
+    assert_eq!(
+        commands(&mut server, wait).await,
+        std::slice::from_ref(&subscribe)
+    );
+    tell(&mut server, &changed(StateScope::Workspaces)).await;
+    tell(&mut server, &refused("ghost")).await;
+    tell(&mut server, &changed(StateScope::Workspaces)).await;
+    assert!(commands(&mut server, wait).await.is_empty());
+    tell(&mut server, &refused("pr1")).await;
+    tell(&mut server, &changed(StateScope::Devices)).await;
+    assert!(commands(&mut server, wait).await.is_empty());
+    tell(&mut server, &changed(StateScope::Workspaces)).await;
+    assert_eq!(
+        commands(&mut server, wait).await,
+        std::slice::from_ref(&subscribe)
+    );
+    tell(&mut server, &changed(StateScope::All)).await;
+    assert!(commands(&mut server, wait).await.is_empty());
+    tell(&mut server, &refused("pr1")).await;
+    tell(&mut server, &changed(StateScope::Missions)).await;
+    assert_eq!(commands(&mut server, wait).await, [subscribe]);
+    tell(
+        &mut server,
+        &ServerEvent::SurfaceStreamStarted {
+            stream_id: 2,
+            node: "pr1".to_owned(),
+            kind: StreamKind::RangeDoppler,
+        },
+    )
+    .await;
+    tell(&mut server, &changed(StateScope::Workspaces)).await;
+    assert!(commands(&mut server, wait).await.is_empty());
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_refused_surface_no_longer_wanted_is_not_asked_again() {
+    let rig = Rig::new();
+    rig.subs
+        .send_replace(Subscriptions::from([("tri1".to_owned(), None)]));
+    let (mut server, _stop, _run) = connect(&rig).await;
+    let wait = Duration::from_millis(100);
+    assert_eq!(commands(&mut server, wait).await.len(), 1);
+    tell(&mut server, &refused("tri1")).await;
+    tokio::time::sleep(wait).await;
+    rig.subs.send_replace(Subscriptions::new());
+    assert_eq!(
+        commands(&mut server, wait).await,
+        [ClientCommand::UnsubscribeSurface {
+            node: "tri1".to_owned()
+        }]
+    );
+    tell(&mut server, &changed(StateScope::Workspaces)).await;
+    assert!(commands(&mut server, wait).await.is_empty());
 }
 
 #[tokio::test(start_paused = true)]

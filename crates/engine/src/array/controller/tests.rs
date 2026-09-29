@@ -560,6 +560,71 @@ fn a_single_phase_coherent_device_locks_without_coarse() {
     rig.expect_capture(CaptureKind::Solve);
 }
 
+fn replay_rig(check_s: u32) -> Rig {
+    let mut settings = config(ArrayCalSource::Noise, check_s, 1);
+    settings.tier = TierDecision {
+        tier: Coherence::TimeSync,
+        devices: 1,
+        keeps_phase: true,
+        structural_zero_delay: true,
+    };
+    let mut rig = rig(3, settings);
+    rig.command(
+        ControlCommand::NoiseSwitch(Some(NoiseSwitch {
+            device_set: 1,
+            kind: NoiseSource::Replayed,
+            all_lanes_held: true,
+        })),
+        0.0,
+    );
+    rig.start(0.0);
+    rig
+}
+
+#[test]
+fn an_ended_replay_keeps_its_recorded_calibration() {
+    let mut rig = replay_rig(10);
+    let first = rig.expect_capture(CaptureKind::Solve);
+    assert_eq!(first.start, CaptureStart::NoiseWindow);
+    assert_eq!(rig.status().cal, CalPhase::Measuring);
+    rig.solve(&first, &[0.0, 0.0, 0.0], 0.0);
+    assert_eq!(rig.status().cal, CalPhase::Solved);
+    rig.poll(10.0);
+    let check = rig.expect_capture(CaptureKind::Solve);
+    assert_eq!(check.start, CaptureStart::NoiseWindow);
+    assert_eq!(rig.status().cal, CalPhase::Measuring);
+    rig.event(AggregatorEvent::Ended);
+    rig.poll(11.0);
+    let ended = rig.status();
+    assert_eq!(ended.cal, CalPhase::Solved);
+    assert_eq!(ended.sync, SyncState::Locked);
+    assert_eq!(ended.next_check_in_s, None);
+    rig.command(ControlCommand::Recalibrate, 12.0);
+    rig.poll(40.0);
+    assert!(rig.capture().is_none());
+    assert_eq!(rig.status().cal, CalPhase::Solved);
+    assert!(rig.engine.noise_calls().is_empty());
+    rig.event(AggregatorEvent::Resumed);
+    rig.poll(41.0);
+    let resumed = rig.expect_capture(CaptureKind::Solve);
+    assert_eq!(resumed.start, CaptureStart::NoiseWindow);
+}
+
+#[test]
+fn a_captured_solve_still_lands_after_the_replay_ends() {
+    let mut rig = replay_rig(0);
+    let first = rig.expect_capture(CaptureKind::Solve);
+    rig.event(AggregatorEvent::Captured { id: first.id });
+    rig.poll(0.5);
+    rig.event(AggregatorEvent::Ended);
+    rig.poll(1.0);
+    assert_eq!(rig.status().cal, CalPhase::Measuring);
+    rig.solve(&first, &[0.0, 0.0, 0.0], 1.5);
+    assert_eq!(rig.status().cal, CalPhase::Solved);
+    rig.poll(2.0);
+    assert!(rig.capture().is_none());
+}
+
 #[test]
 fn a_missing_noise_switch_is_shown_and_time_still_syncs() {
     let mut rig = rig(2, config(ArrayCalSource::Noise, 0, 1));

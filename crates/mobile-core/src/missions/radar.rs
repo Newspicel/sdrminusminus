@@ -231,4 +231,15 @@ pub(crate) mod tests {
         assert_eq!(view.problems, ["No heading", "Tuned by arr"]);
         assert!(empty("pr1").stale);
     }
+
+    #[test]
+    fn a_carrier_outside_the_array_table_is_told() {
+        let update = RadarUpdate {
+            problems: vec![RadarProblem::TableOutOfRange],
+            ..RadarUpdate::default()
+        };
+        let view = view("pr1", &update, false);
+        assert_eq!(view.problems, [RadarProblem::TableOutOfRange.label()]);
+        assert_eq!(view.problems, ["Outside cal table"]);
+    }
 }

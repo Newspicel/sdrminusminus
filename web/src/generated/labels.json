@@ -54,7 +54,8 @@
     "overloaded": "Overloaded",
     "phase_unknown": "Phase unknown",
     "reference_lost": "Reference lost",
-    "refused": "{text}"
+    "refused": "{text}",
+    "table_out_of_range": "Outside cal table"
   },
   "refusal": {
     "adsb": "adsb takes ADS-B events",

@@ -543,6 +543,41 @@ fn a_refused_surface_is_told() {
 }
 
 #[test]
+fn a_surface_refused_again_on_retry_is_told_once() {
+    let mut reducer = listed(vec![
+        df("df1", &["tri1"]),
+        triangulation("tri1", &["df1"], true),
+    ]);
+    reducer.handle(Input::Open("df1".to_owned()), T0);
+    let refusal = |reason| {
+        event(ServerEvent::SurfaceRefused {
+            node: "tri1".to_owned(),
+            reason,
+        })
+    };
+    let first = reducer.handle(refusal(SurfaceRefusal::NoSurface), T0);
+    assert_eq!(notices(&first), [SurfaceRefusal::NoSurface.label()]);
+    let again = reducer.handle(refusal(SurfaceRefusal::NoSurface), T0 + 10);
+    assert!(notices(&again).is_empty());
+    let other = reducer.handle(refusal(SurfaceRefusal::NoStreamIds), T0 + 20);
+    assert_eq!(notices(&other), [SurfaceRefusal::NoStreamIds.label()]);
+    reducer.handle(
+        event(ServerEvent::SurfaceStreamStarted {
+            stream_id: 3,
+            node: "tri1".to_owned(),
+            kind: StreamKind::FusionGrid,
+        }),
+        T0 + 30,
+    );
+    let later = reducer.handle(refusal(SurfaceRefusal::NoStreamIds), T0 + 40);
+    assert_eq!(notices(&later), [SurfaceRefusal::NoStreamIds.label()]);
+    reducer.handle(Input::Close, T0 + 50);
+    reducer.handle(Input::Open("df1".to_owned()), T0 + 60);
+    let reopened = reducer.handle(refusal(SurfaceRefusal::NoStreamIds), T0 + 70);
+    assert_eq!(notices(&reopened), [SurfaceRefusal::NoStreamIds.label()]);
+}
+
+#[test]
 fn survey_updates_add_points() {
     let mut reducer = listed(vec![survey("map1")]);
     let opened = reducer.handle(Input::Open("map1".to_owned()), T0);

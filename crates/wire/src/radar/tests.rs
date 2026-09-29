@@ -210,6 +210,7 @@ fn radar_problems_name_their_labels() {
             "No array position",
             "No heading",
             "Phase unknown",
+            "Outside cal table",
             "Overloaded",
             "Reference lost",
             "",
@@ -322,6 +323,7 @@ fn full_update() -> RadarUpdate {
             gpu: true,
             threads: 4,
             aoa: AoaState::Ready,
+            table_out_of_range: true,
             reference: ReferenceHealth {
                 mode: ReferenceMode::Cma,
                 locked: true,
@@ -355,8 +357,20 @@ fn radar_update_round_trips_json() {
     assert_eq!(json["problems"][0]["kind"], "no_heading");
     assert_eq!(json["tracks"][0]["state"], "coasting");
     assert!(json.get("events").is_none());
+    assert_eq!(json["health"]["table_out_of_range"], true);
     let back: RadarUpdate = serde_json::from_value(json).expect("deserialize");
     assert_eq!(back, update);
+}
+
+#[test]
+fn a_health_written_before_the_table_flag_reads_as_covered() {
+    let mut json = serde_json::to_value(full_update().health).expect("serialize");
+    json.as_object_mut()
+        .map(|health| health.remove("table_out_of_range"));
+    let health: RadarHealth = serde_json::from_value(json).expect("deserialize");
+    assert!(!health.table_out_of_range);
+    let problem = serde_json::to_value(RadarProblem::TableOutOfRange).expect("serialize");
+    assert_eq!(problem, serde_json::json!({"kind": "table_out_of_range"}));
 }
 
 #[test]

@@ -221,6 +221,7 @@ impl Windows {
                 LaneMark::GainChanged { in_flight } => {
                     self.blank(at, in_flight, BlankCause::Gain, seen);
                 }
+                LaneMark::Ended => {}
             },
         }
     }

@@ -246,7 +246,10 @@ fn play(stem: &Path, mut sinks: Vec<RxSink>, pace: Pace, running: &AtomicBool) {
             }
             Ok(ReadChunk::Retuned(_)) => mark_all(&mut sinks, LaneMark::Retuned { in_flight: 0 }),
             Ok(ReadChunk::Offsets(now)) => realign_moved(&mut sinks, &mut offsets, now),
-            Ok(ReadChunk::End) => return idle(running),
+            Ok(ReadChunk::End) => {
+                mark_all(&mut sinks, LaneMark::Ended);
+                return idle(running);
+            }
             Err(err) => return fail_all(&mut sinks, &err),
         }
     }

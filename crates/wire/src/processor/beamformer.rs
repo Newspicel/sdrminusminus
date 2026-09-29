@@ -2,8 +2,9 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 use crate::array::MAX_ARRAY_LANES;
-use crate::processor::df::{DF_POINTS, MAX_DF_BANDWIDTH_HZ, MAX_DF_OFFSET_HZ};
-use crate::processor::{MIN_BAND_HZ, finite_within, reserved_at};
+use crate::limits::BEAMFORMER_LIMITS as LIMITS;
+use crate::processor::df::DF_POINTS;
+use crate::processor::{DEFAULT_BAND_HZ, band_holds, reserved_at};
 
 pub const MAX_BEAM_NULLS: usize = 3;
 pub const MAX_BEAM_TAPS: u32 = 32;
@@ -92,7 +93,7 @@ impl Default for BeamformerParams {
             loading: 0.1,
             noise: NoiseModel::Measured,
             offset_hz: 0.0,
-            bandwidth_hz: Some(200_000.0),
+            bandwidth_hz: Some(DEFAULT_BAND_HZ),
             steer_timeout_ms: 5_000,
         }
     }
@@ -105,7 +106,7 @@ impl BeamformerParams {
             SteerSource::Fixed {
                 azimuth_deg,
                 elevation_deg,
-            } => azimuth_deg.is_finite() && (0.0..=90.0).contains(&elevation_deg),
+            } => azimuth_deg.is_finite() && LIMITS.elevation_deg.contains(elevation_deg),
         }
     }
 
@@ -121,7 +122,7 @@ impl BeamformerParams {
         let checks = [
             (self.steer_ok(), "Steer out of range"),
             (
-                self.nulls_deg.len() <= MAX_BEAM_NULLS
+                self.nulls_deg.len() <= LIMITS.nulls
                     && self.nulls_deg.iter().all(|deg| deg.is_finite()),
                 "Nulls out of range",
             ),
@@ -133,39 +134,35 @@ impl BeamformerParams {
                 "References out of range",
             ),
             (self.references_differ(), "Lanes must differ"),
+            (LIMITS.taps.contains(self.taps), "Taps out of range"),
+            (LIMITS.step.contains(self.step), "Step out of range"),
+            (LIMITS.forget.contains(self.forget), "Forget out of range"),
             (
-                (1..=MAX_BEAM_TAPS).contains(&self.taps),
-                "Taps out of range",
-            ),
-            ((1e-5..=1.9).contains(&self.step), "Step out of range"),
-            (
-                (0.9..=0.99999).contains(&self.forget),
-                "Forget out of range",
-            ),
-            (
-                (0..=500).contains(&self.crossfade_ms),
+                LIMITS.crossfade_ms.contains(self.crossfade_ms),
                 "Crossfade out of range",
             ),
             (
-                (50..=10_000).contains(&self.update_ms),
+                LIMITS.update_ms.contains(self.update_ms),
                 "Update out of range",
             ),
             (
-                (0.0..=0.99).contains(&self.carry_over),
+                LIMITS.carry_over.contains(self.carry_over),
                 "Carry over out of range",
             ),
-            ((0.0..=10.0).contains(&self.loading), "Loading out of range"),
             (
-                finite_within(self.offset_hz, MAX_DF_OFFSET_HZ),
+                LIMITS.loading.contains(self.loading),
+                "Loading out of range",
+            ),
+            (
+                LIMITS.band.offset_hz.contains(self.offset_hz),
                 "Offset out of range",
             ),
             (
-                self.bandwidth_hz
-                    .is_none_or(|hz| (MIN_BAND_HZ..=MAX_DF_BANDWIDTH_HZ).contains(&hz)),
+                band_holds(LIMITS.band, self.bandwidth_hz),
                 "Bandwidth out of range",
             ),
             (
-                (100..=60_000).contains(&self.steer_timeout_ms),
+                LIMITS.steer_timeout_ms.contains(self.steer_timeout_ms),
                 "Steer timeout out of range",
             ),
         ];

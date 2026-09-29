@@ -1,5 +1,6 @@
 import type { Options } from "../../components/controls";
 import type { VisibilityFrame } from "../../lib/frame";
+import { CORRELATOR_LIMITS as LIMITS, powersOfTwo } from "../../lib/limits";
 import type { Baseline } from "../../lib/types";
 
 export const FRINGE_POINTS = 60;
@@ -95,12 +96,13 @@ export function fringePath(history: readonly number[], box: { w: number; h: numb
   return phasePath(xs, history, box, { lo: 0, hi: Math.max(1, FRINGE_POINTS - 1) });
 }
 
-export const BIN_OPTIONS: Options<number> = [64, 128, 256, 512, 1024, 2048, 4096, 8192].map(
-  (value) => ({ value, label: String(value) }),
-);
+export const BIN_OPTIONS: Options<number> = powersOfTwo(LIMITS.bins).map((value) => ({
+  value,
+  label: String(value),
+}));
 
 export function channelOptions(bins: number): Options<number> {
-  return [16, 32, 64, 128, 256, 512, 1024].map((value) => ({
+  return powersOfTwo(LIMITS.channels).map((value) => ({
     value,
     label: String(value),
     disabled: value > bins,

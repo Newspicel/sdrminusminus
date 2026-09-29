@@ -1,8 +1,8 @@
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-use crate::processor::df::{MAX_DF_BANDWIDTH_HZ, MAX_DF_OFFSET_HZ};
-use crate::processor::{MIN_BAND_HZ, finite_within, power_of_two_in, reserved_at};
+use crate::limits::SPATIAL_LIMITS as LIMITS;
+use crate::processor::{band_holds, power_of_two_in, reserved_at};
 
 pub const MAX_SPATIAL_PEAKS: usize = 8;
 
@@ -48,35 +48,34 @@ impl Default for SpatialSpectrumParams {
 
 fn divides_circle(step_deg: f64) -> bool {
     let count = 360.0 / step_deg;
-    (1.0..=10.0).contains(&step_deg) && (count - count.round()).abs() < 1e-9
+    LIMITS.azimuth_step_deg.contains(step_deg) && (count - count.round()).abs() < 1e-9
 }
 
 impl SpatialSpectrumParams {
     #[must_use]
     pub fn problem(&self) -> Option<&'static str> {
         let checks = [
-            (power_of_two_in(self.bins, 256, 4096), "Bins out of range"),
+            (power_of_two_in(self.bins, LIMITS.bins), "Bins out of range"),
             (
-                power_of_two_in(self.columns, 64, 1024) && self.columns <= self.bins,
+                power_of_two_in(self.columns, LIMITS.columns) && self.columns <= self.bins,
                 "Columns out of range",
             ),
             (
-                (50..=10_000).contains(&self.average_ms),
+                LIMITS.average_ms.contains(self.average_ms),
                 "Average out of range",
             ),
             (
-                (50..=2_000).contains(&self.report_ms),
+                LIMITS.report_ms.contains(self.report_ms),
                 "Report out of range",
             ),
             (divides_circle(self.azimuth_step_deg), "Step out of range"),
-            ((10.0..=80.0).contains(&self.span_db), "Span out of range"),
+            (LIMITS.span_db.contains(self.span_db), "Span out of range"),
             (
-                finite_within(self.offset_hz, MAX_DF_OFFSET_HZ),
+                LIMITS.band.offset_hz.contains(self.offset_hz),
                 "Offset out of range",
             ),
             (
-                self.bandwidth_hz
-                    .is_none_or(|hz| (MIN_BAND_HZ..=MAX_DF_BANDWIDTH_HZ).contains(&hz)),
+                band_holds(LIMITS.band, self.bandwidth_hz),
                 "Bandwidth out of range",
             ),
         ];

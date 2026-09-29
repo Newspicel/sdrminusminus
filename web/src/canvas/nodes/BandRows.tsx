@@ -1,86 +1,88 @@
 import { Checkbox } from "../../components/Checkbox";
 import { NumberField } from "../../components/NumberField";
 import { SettingRow } from "../../components/Settings";
-
-export const MAX_OFFSET_KHZ = 100_000;
-export const MAX_BAND_KHZ = 20_000;
-export const DEFAULT_BAND_HZ = 200_000;
+import { BAND_SEED_HZ, type BandLimits, type Bounds, scaled } from "../../lib/limits";
 
 const SMALL = "w-24";
+const KHZ = 1_000;
 
 export function BandRows({
+  band,
   offsetHz,
   bandwidthHz,
   onOffset,
   onBandwidth,
-  minBandHz = 1_000,
 }: {
+  band: BandLimits;
   offsetHz: number;
   bandwidthHz: number | null;
   onOffset: (hz: number) => void;
   onBandwidth: (hz: number | null) => void;
-  minBandHz?: number;
 }) {
   return (
     <>
-      <OffsetRow offsetHz={offsetHz} onOffset={onOffset} />
+      <OffsetRow limit={band.offset_hz} offsetHz={offsetHz} onOffset={onOffset} />
       <SettingRow label="Full band" title="Use every lane sample, no filter">
         <Checkbox
           label="Full band"
           checked={bandwidthHz === null}
-          onChange={(full) => onBandwidth(full ? null : DEFAULT_BAND_HZ)}
+          onChange={(full) => onBandwidth(full ? null : BAND_SEED_HZ)}
         />
       </SettingRow>
       {bandwidthHz !== null && (
-        <WidthRow bandwidthHz={bandwidthHz} onBandwidth={onBandwidth} minBandHz={minBandHz} />
+        <WidthRow limit={band.bandwidth_hz} bandwidthHz={bandwidthHz} onBandwidth={onBandwidth} />
       )}
     </>
   );
 }
 
 export function WidthRow({
+  limit,
   bandwidthHz,
   onBandwidth,
-  minBandHz = 1_000,
 }: {
+  limit: Bounds;
   bandwidthHz: number;
   onBandwidth: (hz: number) => void;
-  minBandHz?: number;
 }) {
+  const khz = scaled(limit, 1 / KHZ);
   return (
     <SettingRow label="Width" title="Band around the offset">
       <NumberField
         label="Width"
-        value={bandwidthHz / 1_000}
-        min={minBandHz / 1_000}
-        max={MAX_BAND_KHZ}
+        value={bandwidthHz / KHZ}
+        min={khz.min}
+        max={khz.max}
         step={0.1}
         unit="kHz"
         className={SMALL}
-        onCommit={(khz) => onBandwidth(khz * 1_000)}
+        onCommit={(value) => onBandwidth(value * KHZ)}
       />
     </SettingRow>
   );
 }
 
 export function OffsetRow({
+  limit,
   offsetHz,
   onOffset,
 }: {
+  limit: Bounds;
   offsetHz: number;
   onOffset: (hz: number) => void;
 }) {
+  const khz = scaled(limit, 1 / KHZ);
   return (
     <SettingRow label="Offset" title="From the array centre">
       <NumberField
         label="Offset"
-        value={offsetHz / 1_000}
-        min={-MAX_OFFSET_KHZ}
-        max={MAX_OFFSET_KHZ}
+        value={offsetHz / KHZ}
+        min={khz.min}
+        max={khz.max}
         step={0.1}
         unit="kHz"
         className={SMALL}
-        onCommit={(khz) => onOffset(khz * 1_000)}
+        onCommit={(value) => onOffset(value * KHZ)}
       />
     </SettingRow>
   );

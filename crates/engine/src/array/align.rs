@@ -230,6 +230,10 @@ impl Aligner {
         Some(count)
     }
 
+    pub(crate) fn ended(&self) -> bool {
+        self.feeds.iter().flatten().any(LaneFeed::ended)
+    }
+
     pub(crate) fn settle(&mut self, notes: &mut AlignNotes) {
         for (lane, feed) in self.feeds.iter_mut().enumerate() {
             if let Some(feed) = feed {

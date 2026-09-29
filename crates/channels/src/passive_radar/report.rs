@@ -122,6 +122,7 @@ pub struct RadarPod {
     pub gpu: bool,
     pub threads: u32,
     pub aoa: AoaState,
+    pub table_out_of_range: bool,
     pub reference: ReferenceHealth,
     pub surface: RangeDopplerSurface,
 }
@@ -152,6 +153,7 @@ impl RadarPod {
             gpu: false,
             threads: 0,
             aoa: AoaState::Off,
+            table_out_of_range: false,
             reference: ReferenceHealth::default(),
             surface: RangeDopplerSurface::new(plan),
         })
@@ -344,5 +346,6 @@ fn fill_health(pod: &RadarPod, health: &mut RadarHealth) {
     health.gpu = pod.gpu;
     health.threads = pod.threads;
     health.aoa = pod.aoa;
+    health.table_out_of_range = pod.table_out_of_range;
     health.reference = pod.reference;
 }

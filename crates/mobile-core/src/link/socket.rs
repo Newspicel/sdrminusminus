@@ -1,4 +1,8 @@
-use std::{collections::HashSet, sync::Arc, time::Duration};
+use std::{
+    collections::{BTreeSet, HashSet},
+    sync::Arc,
+    time::Duration,
+};
 
 use futures::{SinkExt, StreamExt, future::BoxFuture};
 use rustls::{ClientConfig, pki_types::ServerName};
@@ -6,7 +10,7 @@ use sdrmm_wire::{
     about::API_PROTOCOL,
     frame::{self, FrameKind},
     rest::ApiError,
-    ws::{ClientCommand, ServerEvent, WS_CLOSE_REVOKED, WS_SUBPROTOCOL},
+    ws::{ClientCommand, ServerEvent, StateScope, WS_CLOSE_REVOKED, WS_SUBPROTOCOL},
 };
 use serde::Deserialize;
 use tokio::{net::TcpStream, sync::oneshot, time::Instant};
@@ -209,6 +213,8 @@ pub(crate) struct Connection<S> {
     stopped: oneshot::Receiver<()>,
     wires: Wires,
     sent: Subscriptions,
+    refused: BTreeSet<String>,
+    retry_refused: bool,
     unknown: HashSet<String>,
     odd_frames: HashSet<Option<u8>>,
     started: Instant,
@@ -234,6 +240,8 @@ where
             stopped,
             wires,
             sent: Subscriptions::new(),
+            refused: BTreeSet::new(),
+            retry_refused: false,
             unknown: HashSet::new(),
             odd_frames: HashSet::new(),
             started: now,
@@ -272,6 +280,7 @@ where
                 message = self.socket.next() => {
                     self.last_rx = Instant::now();
                     self.receive(message)?;
+                    self.resubscribe_refused().await?;
                 }
                 _ = &mut self.stopped => return Ok(()),
                 changed = self.wires.subs.changed(), if self.subs_open => {
@@ -332,8 +341,41 @@ where
                 self.send(&command).await?;
             }
         }
+        let sent = &self.sent;
+        self.refused.retain(|node| {
+            sent.get(node)
+                .is_some_and(|fit| wanted.get(node) == Some(fit))
+        });
         self.sent = wanted;
         Ok(())
+    }
+
+    async fn resubscribe_refused(&mut self) -> Result<(), DialError> {
+        if !std::mem::take(&mut self.retry_refused) {
+            return Ok(());
+        }
+        for node in std::mem::take(&mut self.refused) {
+            if let Some(fit) = self.sent.get(&node).copied() {
+                self.send(&ClientCommand::SubscribeSurface { node, fit })
+                    .await?;
+            }
+        }
+        Ok(())
+    }
+
+    fn watch_surfaces(&mut self, event: &ServerEvent) {
+        match event {
+            ServerEvent::SurfaceRefused { node, .. } if self.sent.contains_key(node) => {
+                self.refused.insert(node.clone());
+            }
+            ServerEvent::SurfaceStreamStarted { node, .. } => {
+                self.refused.remove(node);
+            }
+            ServerEvent::StateChanged {
+                scope: StateScope::Workspaces | StateScope::Missions | StateScope::All,
+            } => self.retry_refused |= !self.refused.is_empty(),
+            _ => {}
+        }
     }
 
     async fn flush_pose(&mut self) -> Result<(), DialError> {
@@ -387,7 +429,10 @@ where
 
     fn text(&mut self, text: &str) {
         match serde_json::from_str::<ServerEvent>(text) {
-            Ok(event) => self.wires.forward(Inbound::Event(Box::new(event))),
+            Ok(event) => {
+                self.watch_surfaces(&event);
+                self.wires.forward(Inbound::Event(Box::new(event)));
+            }
             Err(error) => {
                 let kind = serde_json::from_str::<Tag>(text)
                     .map_or_else(|_| "?".to_owned(), |tag| tag.kind);

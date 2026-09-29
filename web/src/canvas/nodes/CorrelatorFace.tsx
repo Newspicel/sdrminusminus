@@ -4,6 +4,7 @@ import { NumberField } from "../../components/NumberField";
 import { Select } from "../../components/Select";
 import { SettingRow } from "../../components/Settings";
 import { processorStatusOf, useArrayStore } from "../../lib/arrays";
+import { CORRELATOR_LIMITS as LIMITS } from "../../lib/limits";
 import { isStale, readingOf, useProcessorStore } from "../../lib/processors";
 import type { CorrelatorParams, CorrelatorReading, PatchNode, PatchNodeOf } from "../../lib/types";
 import { useNow } from "../../lib/useNow";
@@ -162,8 +163,8 @@ function CorrelatorSettings({
         <NumberField
           label="Integrate"
           value={settings.integrate_s}
-          min={0.05}
-          max={600}
+          min={LIMITS.integrate_s.min}
+          max={LIMITS.integrate_s.max}
           step={0.05}
           unit="s"
           className={SMALL}
@@ -178,6 +179,7 @@ function CorrelatorSettings({
         />
       </SettingRow>
       <BandRows
+        band={LIMITS.band}
         offsetHz={settings.offset_hz}
         bandwidthHz={settings.bandwidth_hz ?? null}
         onOffset={(offset_hz) => edit({ offset_hz })}

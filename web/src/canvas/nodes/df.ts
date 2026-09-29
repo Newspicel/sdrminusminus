@@ -7,6 +7,7 @@ import {
   TRUE_MARKS,
 } from "../../components/Rose";
 import { GATE_TEXT } from "../../lib/arrays";
+import { DF_LIMITS } from "../../lib/limits";
 import type {
   DfAlgorithm,
   DfParams,
@@ -16,8 +17,6 @@ import type {
   UlaSide,
 } from "../../lib/types";
 
-export const MAX_DF_SOURCES = 15;
-export const MAX_DF_PEAKS = 4;
 export const NEEDS_HEADING = "Needs heading";
 
 export interface DfAlgorithmInfo {
@@ -62,7 +61,7 @@ export const AUTO_SOURCES = 0;
 export const TOO_MANY_SOURCES = "Too many sources";
 
 export function sourceOptions(lanes: number, stored: number | null = null): Options<number> {
-  const fit = Math.max(1, Math.min(lanes - 1, MAX_DF_SOURCES));
+  const fit = Math.max(DF_LIMITS.sources.min, Math.min(lanes - 1, DF_LIMITS.sources.max));
   const counts = Array.from({ length: Math.max(fit, stored ?? 0) }, (_, index) => index + 1);
   return [
     { value: AUTO_SOURCES, label: "Auto", title: "Count sources from the signal" },
@@ -79,10 +78,13 @@ export const RULE_OPTIONS: Options<DfParams["source_rule"]> = [
   { value: "mdl", label: "MDL", title: "Information criterion" },
 ];
 
-export const PEAK_OPTIONS: Options<number> = Array.from({ length: MAX_DF_PEAKS }, (_, index) => ({
-  value: index + 1,
-  label: String(index + 1),
-}));
+export const PEAK_OPTIONS: Options<number> = Array.from(
+  { length: DF_LIMITS.peaks.max - DF_LIMITS.peaks.min + 1 },
+  (_, index) => ({
+    value: DF_LIMITS.peaks.min + index,
+    label: String(DF_LIMITS.peaks.min + index),
+  }),
+);
 
 export const SIDE_OPTIONS: Options<UlaSide> = [
   { value: "both", label: "Both", title: "Report front and mirror" },

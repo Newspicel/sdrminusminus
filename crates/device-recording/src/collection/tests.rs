@@ -225,6 +225,46 @@ fn recorded_noise_windows_come_back_as_marks() {
 }
 
 #[test]
+fn every_lane_is_told_when_the_collection_ends() {
+    let dir = TempDir::new().unwrap();
+    record(&dir.path().join("short"), |writer| {
+        write(writer, 0, 60);
+        writer.noise(10, 20).unwrap();
+    });
+    let mut device = open(dir.path(), "short");
+    let mut receivers = Vec::new();
+    let sinks = (0..LANES)
+        .map(|_| {
+            let (tx, rx) = mpsc::channel();
+            receivers.push(rx);
+            RxSink::with_items(
+                move |item| {
+                    if let SinkItem::Event(event) = item {
+                        let _ = tx.send(event);
+                    }
+                },
+                |err| panic!("playback failed: {err}"),
+            )
+        })
+        .collect();
+    device.rx_start(sinks).unwrap();
+    for rx in &receivers {
+        let events: Vec<LaneEvent> =
+            std::iter::from_fn(|| rx.recv_timeout(Duration::from_secs(5)).ok())
+                .take(3)
+                .collect();
+        assert_eq!(
+            events.last(),
+            Some(&LaneEvent::Mark {
+                at: 60,
+                mark: LaneMark::Ended
+            })
+        );
+    }
+    device.rx_stop();
+}
+
+#[test]
 fn a_recorded_realignment_unsettles_only_the_lanes_it_moved() {
     let dir = TempDir::new().unwrap();
     record(&dir.path().join("moved"), |writer| {

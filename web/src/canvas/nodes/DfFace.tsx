@@ -9,6 +9,7 @@ import { Select } from "../../components/Select";
 import { SettingRow, Settings } from "../../components/Settings";
 import { TextField } from "../../components/TextField";
 import { processorStatusOf, useArrayStore } from "../../lib/arrays";
+import { DF_LIMITS as LIMITS, scaled } from "../../lib/limits";
 import { isStale, readingOf, useProcessorStore } from "../../lib/processors";
 import type {
   ArrayGeometry,
@@ -62,6 +63,8 @@ import {
 const AGE_TICK_MS = 1_000;
 const ROSE_PX = 220;
 const KHZ = 1_000;
+const OFFSET_KHZ = scaled(LIMITS.band.offset_hz, 1 / KHZ);
+const WIDTH_KHZ = scaled(LIMITS.band.bandwidth_hz, 1 / KHZ);
 
 type Edit = (next: Partial<DfParams>) => void;
 
@@ -244,8 +247,8 @@ function DfSettings({
             label="Offset"
             unit="kHz"
             value={settings.offset_hz / KHZ}
-            min={-100_000}
-            max={100_000}
+            min={OFFSET_KHZ.min}
+            max={OFFSET_KHZ.max}
             step={0.1}
             onCommit={(khz) => edit({ offset_hz: Math.round(khz * KHZ) })}
           />
@@ -255,8 +258,8 @@ function DfSettings({
             label="Width"
             unit="kHz"
             value={settings.bandwidth_hz / KHZ}
-            min={0.1}
-            max={20_000}
+            min={WIDTH_KHZ.min}
+            max={WIDTH_KHZ.max}
             step={0.1}
             onCommit={(khz) => edit({ bandwidth_hz: Math.round(khz * KHZ) })}
           />
@@ -313,8 +316,8 @@ function DfMoreSettings({
           label="Report"
           unit="ms"
           value={settings.report_ms}
-          min={100}
-          max={10_000}
+          min={LIMITS.report_ms.min}
+          max={LIMITS.report_ms.max}
           step={100}
           onCommit={(report_ms) => edit({ report_ms })}
         />
@@ -324,8 +327,8 @@ function DfMoreSettings({
           label="Squelch"
           unit="dB"
           value={settings.squelch_db}
-          min={0}
-          max={40}
+          min={LIMITS.squelch_db.min}
+          max={LIMITS.squelch_db.max}
           step={0.5}
           onCommit={(squelch_db) => edit({ squelch_db })}
         />
@@ -341,8 +344,8 @@ function DfMoreSettings({
         <NumberField
           label="Smooth"
           value={settings.smoothing}
-          min={0}
-          max={8}
+          min={LIMITS.smoothing.min}
+          max={LIMITS.smoothing.max}
           step={1}
           disabled={!structured && settings.smoothing === 0}
           onCommit={(smoothing) => edit({ smoothing })}
@@ -352,8 +355,8 @@ function DfMoreSettings({
         <NumberField
           label="Loading"
           value={settings.loading}
-          min={0}
-          max={1}
+          min={LIMITS.loading.min}
+          max={LIMITS.loading.max}
           step={0.001}
           onCommit={(loading) => edit({ loading })}
         />
@@ -363,8 +366,8 @@ function DfMoreSettings({
           label="Step"
           unit="°"
           value={settings.azimuth_step_deg}
-          min={0.25}
-          max={10}
+          min={LIMITS.azimuth_step_deg.min}
+          max={LIMITS.azimuth_step_deg.max}
           step={0.25}
           onCommit={(azimuth_step_deg) => edit({ azimuth_step_deg })}
         />
@@ -394,8 +397,8 @@ function DfMoreSettings({
           label="Yaw gate"
           unit="°/s"
           value={settings.yaw_gate_dps}
-          min={1}
-          max={360}
+          min={LIMITS.yaw_gate_dps.min}
+          max={LIMITS.yaw_gate_dps.max}
           step={1}
           onCommit={(yaw_gate_dps) => edit({ yaw_gate_dps })}
         />
@@ -404,8 +407,8 @@ function DfMoreSettings({
         <NumberField
           label="Carry over"
           value={settings.carry_over}
-          min={0}
-          max={0.99}
+          min={LIMITS.carry_over.min}
+          max={LIMITS.carry_over.max}
           step={0.01}
           onCommit={(carry_over) => edit({ carry_over })}
         />
@@ -414,6 +417,7 @@ function DfMoreSettings({
         <TextField
           label="Station"
           placeholder="unnamed"
+          maxLength={LIMITS.station_len}
           value={settings.station_id ?? ""}
           onCommit={(station) => edit({ station_id: station === "" ? null : station })}
         />

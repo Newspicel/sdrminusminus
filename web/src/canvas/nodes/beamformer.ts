@@ -8,7 +8,6 @@ import type {
   SteerSource,
 } from "../../lib/types";
 
-export const MAX_BEAM_NULLS = 3;
 export const NULL_CLOSE_DEG = 10;
 export const PATTERN_FLOOR_DB = 40;
 

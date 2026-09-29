@@ -1098,3 +1098,61 @@ fn a_lane_output_keeps_the_array_index_when_correction_starts() {
         );
     }
 }
+
+fn ends_and_resumes(events: &[AggregatorEvent]) -> (usize, usize) {
+    let count = |wanted: &AggregatorEvent| events.iter().filter(|event| *event == wanted).count();
+    (
+        count(&AggregatorEvent::Ended),
+        count(&AggregatorEvent::Resumed),
+    )
+}
+
+fn end_every_lane(rig: &mut Rig) {
+    let at = rig.index;
+    for writer in &mut rig.writers {
+        writer.event(LaneEvent::Mark {
+            at,
+            mark: LaneMark::Ended,
+        });
+    }
+}
+
+#[test]
+fn an_ended_stream_is_told_once_until_samples_come_back() {
+    let mut rig = rig(2, frame(2));
+    rig.noise(BLOCK);
+    end_every_lane(&mut rig);
+    rig.settle();
+    assert_eq!(ends_and_resumes(&rig.events()), (1, 0));
+    rig.settle();
+    assert_eq!(ends_and_resumes(&rig.events()), (0, 0));
+    rig.noise(BLOCK);
+    rig.settle();
+    assert_eq!(ends_and_resumes(&rig.events()), (0, 1));
+    rig.noise(BLOCK);
+    end_every_lane(&mut rig);
+    rig.settle();
+    assert_eq!(ends_and_resumes(&rig.events()), (1, 0));
+}
+
+#[test]
+fn an_end_waits_for_room_to_be_told() {
+    let mut rig = rig(2, frame(2));
+    rig.noise(BLOCK);
+    rig.settle();
+    rig.events();
+    while rig
+        .aggregator
+        .io
+        .events
+        .push(AggregatorEvent::Clipped { lane: 0 })
+        .is_ok()
+    {}
+    end_every_lane(&mut rig);
+    rig.settle();
+    let lost = rig.status().events_lost;
+    assert_eq!(ends_and_resumes(&rig.events()), (0, 0));
+    rig.settle();
+    assert_eq!(ends_and_resumes(&rig.events()), (1, 0));
+    assert_eq!(rig.status().events_lost, lost);
+}

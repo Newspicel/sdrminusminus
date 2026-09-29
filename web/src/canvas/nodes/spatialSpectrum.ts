@@ -1,6 +1,7 @@
 import type { Options } from "../../components/controls";
 import { bearingHue } from "../../gl/spatial";
 import type { SpatialSpectrumFrame } from "../../lib/frame";
+import { SPATIAL_LIMITS as LIMITS, powersOfTwo } from "../../lib/limits";
 import type { SpatialMethod, SpatialPeak, SpatialReading } from "../../lib/types";
 
 export { bearingHue, columnArgmax } from "../../gl/spatial";
@@ -34,25 +35,37 @@ export const METHOD_OPTIONS: Options<SpatialMethod> = [
   { value: "music", label: "MUSIC", title: "Sharpest, needs clean signals" },
 ];
 
-function powers(from: number, to: number): Options<number> {
-  const options: { value: number; label: string }[] = [];
-  for (let value = from; value <= to; value *= 2) {
-    options.push({ value, label: String(value) });
-  }
-  return options;
-}
+const FULL_CIRCLE_DEG = 360;
 
-export const BIN_OPTIONS = powers(256, 4096);
+export const BIN_OPTIONS: Options<number> = powersOfTwo(LIMITS.bins).map((value) => ({
+  value,
+  label: String(value),
+}));
 
 export function columnOptions(bins: number): Options<number> {
-  return powers(64, 1024).map((option) => ({
-    ...option,
-    disabled: option.value > bins,
-    title: option.value > bins ? "More than the FFT" : undefined,
+  return powersOfTwo(LIMITS.columns).map((value) => ({
+    value,
+    label: String(value),
+    disabled: value > bins,
+    title: value > bins ? "More than the FFT" : undefined,
   }));
 }
 
-export const STEP_OPTIONS: Options<number> = [1, 2, 3, 4, 5, 6, 8, 9, 10].map((deg) => ({
+function circleSteps(): number[] {
+  const steps: number[] = [];
+  for (
+    let deg = Math.ceil(LIMITS.azimuth_step_deg.min);
+    deg <= LIMITS.azimuth_step_deg.max;
+    deg++
+  ) {
+    if (FULL_CIRCLE_DEG % deg === 0) {
+      steps.push(deg);
+    }
+  }
+  return steps;
+}
+
+export const STEP_OPTIONS: Options<number> = circleSteps().map((deg) => ({
   value: deg,
   label: `${deg}°`,
 }));

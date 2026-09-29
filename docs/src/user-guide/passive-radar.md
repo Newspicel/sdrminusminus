@@ -62,5 +62,7 @@ match, gets a position.
 - The lanes must see the transmitter and the sky. A strong direct path in the surveillance
   antennas limits range.
 - **Overloaded** means the host cannot keep up: shorten **Range** or **CPI**, or turn on **GPU**.
+- **Outside cal table** means the Array's measured table does not cover the carrier. Bearings then
+  use the ideal geometry.
 - A lane rate below the illuminator's bandwidth cuts range resolution.
 - The phone's Radar mission shows the same view and tracks.

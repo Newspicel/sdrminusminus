@@ -120,6 +120,13 @@ pub struct AoaPlan {
     pub grid_step_deg: f32,
 }
 
+impl AoaPlan {
+    #[must_use]
+    pub fn misses_table_at(&self, carrier_hz: f64) -> bool {
+        self.manifold.table().is_some() && !self.manifold.uses_table_at(carrier_hz)
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Alphas {
     table: [[[f32; 2]; RHO_COLUMNS]; MAX_LOOKS],

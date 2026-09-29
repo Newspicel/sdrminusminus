@@ -337,6 +337,8 @@ pub(crate) enum AggregatorEvent {
     Clipped {
         lane: usize,
     },
+    Ended,
+    Resumed,
 }
 
 pub(crate) struct RuntimeSetup {

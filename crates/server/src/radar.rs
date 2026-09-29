@@ -164,6 +164,9 @@ impl RadarNode {
         if self.binding.params.aoa && health.aoa == AoaState::PhaseUnknown {
             update.problems.push(RadarProblem::PhaseUnknown);
         }
+        if self.binding.params.aoa && health.table_out_of_range {
+            update.problems.push(RadarProblem::TableOutOfRange);
+        }
         self.overloaded = if health.load > 1.0 {
             self.overloaded.saturating_add(1)
         } else {

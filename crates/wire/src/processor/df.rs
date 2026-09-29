@@ -3,7 +3,8 @@ use utoipa::ToSchema;
 
 use crate::array::MAX_ARRAY_LANES;
 use crate::geo::LatLon;
-use crate::processor::{finite_within, reserved_at};
+use crate::limits::DF_LIMITS as LIMITS;
+use crate::processor::reserved_at;
 
 pub const DF_POINTS: usize = 360;
 pub const MAX_DF_PEAKS: u8 = 4;
@@ -97,48 +98,50 @@ impl DfParams {
     pub fn problem(&self) -> Option<&'static str> {
         let checks = [
             (
-                self.sources
-                    .is_none_or(|n| (1..=MAX_DF_SOURCES).contains(&n)),
+                self.sources.is_none_or(|n| LIMITS.sources.contains(n)),
                 "Sources out of range",
             ),
+            (LIMITS.peaks.contains(self.max_peaks), "Peaks out of range"),
             (
-                (1..=MAX_DF_PEAKS).contains(&self.max_peaks),
-                "Peaks out of range",
+                LIMITS.smoothing.contains(self.smoothing),
+                "Smoothing out of range",
             ),
-            (self.smoothing <= MAX_DF_SMOOTHING, "Smoothing out of range"),
             (
-                finite_within(self.offset_hz, MAX_DF_OFFSET_HZ),
+                LIMITS.band.offset_hz.contains(self.offset_hz),
                 "Offset out of range",
             ),
             (
-                (MIN_DF_BANDWIDTH_HZ..=MAX_DF_BANDWIDTH_HZ).contains(&self.bandwidth_hz),
+                LIMITS.band.bandwidth_hz.contains(self.bandwidth_hz),
                 "Bandwidth out of range",
             ),
             (
-                (MIN_DF_REPORT_MS..=MAX_DF_REPORT_MS).contains(&self.report_ms),
+                LIMITS.report_ms.contains(self.report_ms),
                 "Report out of range",
             ),
             (
-                (0.0..=0.99).contains(&self.carry_over),
+                LIMITS.carry_over.contains(self.carry_over),
                 "Carry over out of range",
             ),
             (
-                (0.0..=40.0).contains(&self.squelch_db),
+                LIMITS.squelch_db.contains(self.squelch_db),
                 "Squelch out of range",
             ),
-            ((0.0..=1.0).contains(&self.loading), "Loading out of range"),
             (
-                (0.25..=10.0).contains(&self.azimuth_step_deg),
+                LIMITS.loading.contains(self.loading),
+                "Loading out of range",
+            ),
+            (
+                LIMITS.azimuth_step_deg.contains(self.azimuth_step_deg),
                 "Step out of range",
             ),
             (
-                (1.0..=360.0).contains(&self.yaw_gate_dps),
+                LIMITS.yaw_gate_dps.contains(self.yaw_gate_dps),
                 "Yaw gate out of range",
             ),
             (
                 self.station_id
                     .as_deref()
-                    .is_none_or(|id| !id.is_empty() && id.len() <= MAX_STATION_ID_LEN),
+                    .is_none_or(|id| !id.is_empty() && id.len() <= LIMITS.station_len),
                 "Station out of range",
             ),
         ];

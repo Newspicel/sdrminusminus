@@ -287,6 +287,7 @@ pub(crate) struct Aggregator {
     priors: u32,
     stage: Option<CorrectionStage>,
     stage_dropped: u64,
+    ended: bool,
 }
 
 impl Aggregator {
@@ -329,6 +330,7 @@ impl Aggregator {
             frame,
             stage,
             stage_dropped: 0,
+            ended: false,
         }
     }
 
@@ -348,6 +350,7 @@ impl Aggregator {
                 if self.aligner.has_lost_lane() {
                     self.hosts.hold(ProcessorGate::Sync, 0);
                 }
+                self.tell_end();
                 if self.drain_stage() {
                     Step::Worked
                 } else {
@@ -383,7 +386,16 @@ impl Aggregator {
         self.aligner.set_offsets(&offsets[..lanes]);
     }
 
+    fn tell_end(&mut self) {
+        if !self.ended && self.aligner.ended() {
+            self.ended = self.io.events.push(AggregatorEvent::Ended).is_ok();
+        }
+    }
+
     fn block(&mut self, count: usize) {
+        if self.ended {
+            self.ended = self.io.events.push(AggregatorEvent::Resumed).is_err();
+        }
         let index = self.aligner.index();
         self.board.add_aligned(count as u64);
         self.board.add_events_lost(u64::from(self.notes.dropped()));

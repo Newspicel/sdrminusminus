@@ -2,8 +2,8 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 use crate::array::MAX_ARRAY_LANES;
-use crate::processor::df::{MAX_DF_BANDWIDTH_HZ, MAX_DF_OFFSET_HZ};
-use crate::processor::{MIN_BAND_HZ, finite_within, power_of_two_in, reserved_at};
+use crate::limits::CORRELATOR_LIMITS as LIMITS;
+use crate::processor::{band_holds, power_of_two_in, reserved_at};
 
 pub const MAX_BASELINES: usize = (MAX_ARRAY_LANES * (MAX_ARRAY_LANES - 1) / 2) as usize;
 pub const MAX_VISIBILITY_CELLS: u32 = 65_535;
@@ -37,22 +37,21 @@ impl CorrelatorParams {
     #[must_use]
     pub fn problem(&self) -> Option<&'static str> {
         let checks = [
-            (power_of_two_in(self.bins, 64, 8192), "Bins out of range"),
+            (power_of_two_in(self.bins, LIMITS.bins), "Bins out of range"),
             (
-                (0.05..=600.0).contains(&self.integrate_s),
+                LIMITS.integrate_s.contains(self.integrate_s),
                 "Integrate out of range",
             ),
             (
-                finite_within(self.offset_hz, MAX_DF_OFFSET_HZ),
+                LIMITS.band.offset_hz.contains(self.offset_hz),
                 "Offset out of range",
             ),
             (
-                self.bandwidth_hz
-                    .is_none_or(|hz| (MIN_BAND_HZ..=MAX_DF_BANDWIDTH_HZ).contains(&hz)),
+                band_holds(LIMITS.band, self.bandwidth_hz),
                 "Band out of range",
             ),
             (
-                power_of_two_in(self.channels, 16, 1024) && self.channels <= self.bins,
+                power_of_two_in(self.channels, LIMITS.channels) && self.channels <= self.bins,
                 "Channels out of range",
             ),
         ];

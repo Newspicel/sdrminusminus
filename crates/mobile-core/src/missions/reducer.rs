@@ -10,7 +10,7 @@ use sdrmm_wire::{
     processor::ProcessorReading,
     radar::RadarUpdate,
     survey::SurveyGrid,
-    ws::{ServerEvent, StateScope, SurfaceFit},
+    ws::{ServerEvent, StateScope, SurfaceFit, SurfaceRefusal},
 };
 
 use super::{
@@ -118,6 +118,7 @@ pub(crate) struct Reducer {
     live: bool,
     open: Option<Open>,
     streams: HashMap<u16, String>,
+    refusals: HashMap<String, SurfaceRefusal>,
     pose: Option<PoseSnapshot>,
     background: bool,
     refetch_at: Option<i64>,
@@ -140,6 +141,7 @@ impl Reducer {
             live: false,
             open: None,
             streams: HashMap::new(),
+            refusals: HashMap::new(),
             pose: None,
             background: false,
             refetch_at: None,
@@ -212,7 +214,16 @@ impl Reducer {
             Input::Background(background) => self.background = background,
             Input::Tick => self.tick(now_ms),
         }
+        self.forget_unwanted_refusals();
         std::mem::take(&mut self.effects)
+    }
+
+    fn forget_unwanted_refusals(&mut self) {
+        if self.refusals.is_empty() {
+            return;
+        }
+        let wanted = self.subscriptions();
+        self.refusals.retain(|node, _| wanted.contains_key(node));
     }
 
     fn emit(&mut self, event: CoreEvent) {
@@ -227,6 +238,7 @@ impl Reducer {
         self.live = true;
         self.phone_id = Some(phone_id);
         self.streams.clear();
+        self.refusals.clear();
         self.refetch_at = None;
         self.self_stale = false;
         self.effects.push(Effect::FetchListing);
@@ -363,13 +375,16 @@ impl Reducer {
             ServerEvent::SurfaceStreamStarted {
                 stream_id, node, ..
             } => {
+                self.refusals.remove(&node);
                 self.streams.insert(stream_id, node);
             }
             ServerEvent::StreamStopped { stream_id, .. } => {
                 self.streams.remove(&stream_id);
             }
-            ServerEvent::SurfaceRefused { reason, .. } => {
-                self.notice(Notice::warn(reason.label()));
+            ServerEvent::SurfaceRefused { node, reason } => {
+                if self.refusals.insert(node, reason) != Some(reason) {
+                    self.notice(Notice::warn(reason.label()));
+                }
             }
             ServerEvent::Error { message } => self.notice(Notice::warn(message)),
             _ => {}

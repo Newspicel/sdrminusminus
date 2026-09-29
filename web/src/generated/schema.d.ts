@@ -6265,6 +6265,7 @@ export interface components {
             range_correlation?: number;
             reference: components["schemas"]["ReferenceHealth"];
             suppression_db: number[];
+            table_out_of_range?: boolean;
             /** Format: int32 */
             threads: number;
             /** Format: int64 */
@@ -6296,6 +6297,9 @@ export interface components {
         } | {
             /** @enum {string} */
             kind: "phase_unknown";
+        } | {
+            /** @enum {string} */
+            kind: "table_out_of_range";
         } | {
             /** @enum {string} */
             kind: "overloaded";

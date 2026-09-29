@@ -71,7 +71,8 @@ Open a collection as a source. The **Recording** node gets one output per lane, 
 a five-lane array. Press **Make array**, or wire the outputs to an Array's lanes in order. Set the
 Array's geometry as it was when recording. Wire a GPS to the Array's `position` and add a
 processor, such as a [Direction finder](direction-finding.md). Each lane keeps its recorded
-frequency, so the Array cannot retune.
+frequency, so the Array cannot retune. The Array calibrates on the recorded noise windows; when the
+recording ends it keeps the last calibration.
 
 ## Tags and notes
 

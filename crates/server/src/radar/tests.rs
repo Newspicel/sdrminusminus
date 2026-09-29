@@ -346,6 +346,37 @@ fn problems_follow_the_pod_health() {
     assert!(!blind.problems.contains(&RadarProblem::PhaseUnknown));
 }
 
+#[test]
+fn a_carrier_outside_the_array_table_is_a_problem() {
+    let mut node = RadarNode::new(RadarBinding::default());
+    let sites = Sites::default();
+    let steered = |table_out_of_range| RadarUpdate {
+        health: RadarHealth {
+            aoa: AoaState::Ready,
+            table_out_of_range,
+            ..RadarHealth::default()
+        },
+        ..cpi(1, Vec::new(), Vec::new())
+    };
+    let mut outside = steered(true);
+    node.complete(&mut outside, &sites);
+    assert_eq!(
+        outside.problems,
+        [
+            RadarProblem::NoTransmitter,
+            RadarProblem::NoReceiver,
+            RadarProblem::TableOutOfRange,
+        ]
+    );
+    let mut inside = steered(false);
+    node.complete(&mut inside, &sites);
+    assert!(!inside.problems.contains(&RadarProblem::TableOutOfRange));
+    node.binding.params.aoa = false;
+    let mut blind = steered(true);
+    node.complete(&mut blind, &sites);
+    assert!(!blind.problems.contains(&RadarProblem::TableOutOfRange));
+}
+
 struct Wiring {
     array: bool,
     tx: bool,

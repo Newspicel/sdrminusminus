@@ -76,5 +76,24 @@ describe("RadarFace", () => {
     expect(html).toContain("DLH4AB");
     expect(html).toContain('title="Array frame"');
     expect(html).toContain("FM 98.00 MHz");
+    expect(html).not.toContain("Outside cal table");
+  });
+
+  it("shows when AoA steers outside the array table", () => {
+    useProcessorStore.setState({
+      byNode: {
+        radar: {
+          reading: {
+            type: "passive_radar",
+            reading: { ...radarUpdate([]), problems: [{ kind: "table_out_of_range" }] },
+          },
+          receivedAt: Date.now(),
+        },
+      },
+    });
+    const html = renderFace(RadarFace, RADAR, { graph: graph(true) });
+    expect(html.split("Outside cal table")).toHaveLength(2);
+    expect(html).toContain('title="Bearings use the ideal geometry"');
+    expect(html).toContain("FM 98.00 MHz");
   });
 });

@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { MAX_EXTENT_M, MIN_ELEMENTS } from "../canvas/nodes/arrayGeometry";
 import { calSourceOf } from "../canvas/nodes/arrayNode";
+import { BIN_OPTIONS as CORRELATOR_BINS, channelOptions } from "../canvas/nodes/correlator";
+import { PEAK_OPTIONS, sourceOptions } from "../canvas/nodes/df";
 import {
   cfarKindOf,
   cleaningOf,
@@ -8,17 +10,30 @@ import {
   PFA_OPTIONS,
   readingAxes,
 } from "../canvas/nodes/radar";
+import { BIN_OPTIONS, columnOptions, STEP_OPTIONS } from "../canvas/nodes/spatialSpectrum";
 import { DECAY_OPTIONS, decayWith, halfLifeTitle } from "../canvas/nodes/triangulation";
 import {
   ARRAY_LIMITS,
+  BAND_SEED_HZ,
+  BEAMFORMER_LIMITS,
+  CORRELATOR_LIMITS,
+  DF_LIMITS,
   FUSION_LIMITS,
+  HUNT_LIMITS,
   holds,
   LIGHT_SPEED_M_S,
   lowest,
+  POLARIMETER_LIMITS,
+  powersOfTwo,
   RADAR_LIMITS,
+  SPATIAL_LIMITS,
   STITCH_LIMITS,
   scaled,
 } from "./limits";
+
+function values(options: readonly { value: number }[]): number[] {
+  return options.map((option) => option.value);
+}
 
 describe("generated limits", () => {
   it("steps past an open lower bound only", () => {
@@ -99,5 +114,39 @@ describe("generated limits", () => {
     expect(halfLifeTitle(FUSION_LIMITS.moving_half_life_s)).toBe("Half life 30 min");
     expect(halfLifeTitle(45)).toBe("Half life 45 s");
     expect(DECAY_OPTIONS.map((option) => option.title)).toContain("Half life 30 min");
+  });
+
+  it("lists the powers of two a bound holds", () => {
+    expect(powersOfTwo({ min: 64, max: 512 })).toEqual([64, 128, 256, 512]);
+    expect(powersOfTwo({ min: 100, max: 100 })).toEqual([]);
+  });
+
+  it("offers the array processors only what the server takes", () => {
+    expect(values(BIN_OPTIONS)).toEqual([256, 512, 1024, 2048, 4096]);
+    expect(values(columnOptions(4096))).toEqual([64, 128, 256, 512, 1024]);
+    expect(values(STEP_OPTIONS)).toEqual([1, 2, 3, 4, 5, 6, 8, 9, 10]);
+    expect(values(CORRELATOR_BINS)).toEqual(powersOfTwo(CORRELATOR_LIMITS.bins));
+    expect(values(CORRELATOR_BINS)[0]).toBe(64);
+    expect(values(channelOptions(8192))).toEqual([16, 32, 64, 128, 256, 512, 1024]);
+    expect(values(PEAK_OPTIONS)).toEqual([1, 2, 3, 4]);
+    expect(sourceOptions(64)).toHaveLength(DF_LIMITS.sources.max + 1);
+    for (const deg of values(STEP_OPTIONS)) {
+      expect(holds(SPATIAL_LIMITS.azimuth_step_deg, deg)).toBe(true);
+    }
+  });
+
+  it("carries the processor and hunt ranges", () => {
+    expect(DF_LIMITS.report_ms).toEqual({ min: 100, max: 10_000 });
+    expect(scaled(DF_LIMITS.band.bandwidth_hz, 1e-3)).toEqual({ min: 0.1, max: 20_000 });
+    expect(DF_LIMITS.station_len).toBe(64);
+    expect(BEAMFORMER_LIMITS.nulls).toBe(3);
+    expect(BEAMFORMER_LIMITS.band.bandwidth_hz.min).toBe(1_000);
+    expect(POLARIMETER_LIMITS.band.bandwidth_hz.min).toBe(100);
+    expect(SPATIAL_LIMITS.report_ms).toEqual({ min: 50, max: 2_000 });
+    expect(CORRELATOR_LIMITS.integrate_s).toEqual({ min: 0.05, max: 600 });
+    expect(HUNT_LIMITS.mount_offset_deg).toEqual({ min: -180, max: 180 });
+    for (const band of [BEAMFORMER_LIMITS.band, SPATIAL_LIMITS.band, CORRELATOR_LIMITS.band]) {
+      expect(holds(band.bandwidth_hz, BAND_SEED_HZ)).toBe(true);
+    }
   });
 });

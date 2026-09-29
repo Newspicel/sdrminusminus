@@ -5,7 +5,7 @@ use std::sync::{
 
 use num_complex::Complex;
 use rtrb::{Consumer, Producer, PushError, RingBuffer};
-use sdrmm_device::{LaneEvent, lock, now_ns};
+use sdrmm_device::{LaneEvent, LaneMark, lock, now_ns};
 use sdrmm_wire::ArrayFailure;
 
 use super::{
@@ -243,6 +243,7 @@ impl TapPort {
             read_index: None,
             next: None,
             visible: 0,
+            end_at: None,
             origin: OriginEstimate::new(sample_rate),
             events_lost,
         })
@@ -273,6 +274,7 @@ pub(crate) struct LaneFeed {
     read_index: Option<u64>,
     next: Option<TapEvent>,
     visible: usize,
+    end_at: Option<u64>,
     origin: OriginEstimate,
     events_lost: Arc<AtomicU64>,
 }
@@ -339,6 +341,10 @@ impl LaneFeed {
                     cause,
                 });
             }
+            TapEvent::Lane(LaneEvent::Mark {
+                at,
+                mark: LaneMark::Ended,
+            }) if at <= read + PRE_GUARD => self.end_at = Some(at),
             TapEvent::Lane(LaneEvent::Mark { at, mark }) if at <= read + PRE_GUARD => {
                 notes.push(AlignNote::Mark {
                     lane,
@@ -353,6 +359,10 @@ impl LaneFeed {
 
     pub(crate) const fn read_index(&self) -> Option<u64> {
         self.read_index
+    }
+
+    pub(crate) const fn ended(&self) -> bool {
+        self.end_at.is_some()
     }
 
     pub(crate) fn ready(&self) -> usize {
@@ -409,6 +419,13 @@ impl LaneFeed {
         self.visible = self.visible.saturating_sub(count);
         if let Some(read) = self.read_index.as_mut() {
             *read += count as u64;
+        }
+        let resumed = self
+            .end_at
+            .zip(self.read_index)
+            .is_some_and(|(end, read)| read > end);
+        if resumed {
+            self.end_at = None;
         }
     }
 

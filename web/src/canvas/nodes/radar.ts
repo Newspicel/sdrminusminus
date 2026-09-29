@@ -14,6 +14,7 @@ import type {
   RadarTrack,
   RadarUpdate,
 } from "../../lib/types";
+import type { Chip } from "./ProcessorReadout";
 
 export const TRACK_ROWS = 6;
 export const STALE_SLACK_MS = 1_000;
@@ -199,6 +200,17 @@ export function problemLabel(problem: RadarProblem): string {
   return problem.kind === "refused" ? problem.detail : PROBLEM_TEXT[problem.kind];
 }
 
+const CHIP_TITLE: Partial<Readonly<Record<RadarProblem["kind"], string>>> = {
+  table_out_of_range: "Bearings use the ideal geometry",
+};
+
+export function radarChips(update: RadarUpdate | null): Chip[] {
+  return (update?.problems ?? []).flatMap((problem) => {
+    const title = CHIP_TITLE[problem.kind];
+    return title === undefined ? [] : [{ label: problemLabel(problem), title }];
+  });
+}
+
 export const ILLUMINATOR_TEXT: Readonly<Record<IlluminatorKind, string>> = {
   fm: "FM",
   dab: "DAB",
@@ -231,7 +243,7 @@ export function radarSubtitle(state: RadarState): Subtitle {
   if (!state.txWired) {
     return { text: NO_TX, warn: true };
   }
-  const problem = state.update?.problems?.[0];
+  const problem = state.update?.problems?.find((held) => CHIP_TITLE[held.kind] === undefined);
   if (problem !== undefined) {
     return { text: problemLabel(problem), warn: true };
   }

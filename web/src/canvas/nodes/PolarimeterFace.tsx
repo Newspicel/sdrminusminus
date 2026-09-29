@@ -5,6 +5,7 @@ import { Segmented } from "../../components/Segmented";
 import { Select } from "../../components/Select";
 import { SettingRow, Settings } from "../../components/Settings";
 import { processorStatusOf, useArrayStore } from "../../lib/arrays";
+import { POLARIMETER_LIMITS as LIMITS } from "../../lib/limits";
 import { isStale, readingOf, useProcessorStore } from "../../lib/processors";
 import type {
   PatchNode,
@@ -231,18 +232,22 @@ function PolarSettings({
         </Settings>
       </div>
       <SettingsFold label="More">
-        <OffsetRow offsetHz={settings.offset_hz} onOffset={(offset_hz) => edit({ offset_hz })} />
+        <OffsetRow
+          limit={LIMITS.band.offset_hz}
+          offsetHz={settings.offset_hz}
+          onOffset={(offset_hz) => edit({ offset_hz })}
+        />
         <WidthRow
+          limit={LIMITS.band.bandwidth_hz}
           bandwidthHz={settings.bandwidth_hz}
-          minBandHz={100}
           onBandwidth={(bandwidth_hz) => edit({ bandwidth_hz })}
         />
         <SettingRow label="Report">
           <NumberField
             label="Report"
             value={settings.report_ms}
-            min={50}
-            max={10_000}
+            min={LIMITS.report_ms.min}
+            max={LIMITS.report_ms.max}
             step={10}
             unit="ms"
             className={SMALL}
@@ -253,8 +258,8 @@ function PolarSettings({
           <NumberField
             label="Average"
             value={settings.average_ms}
-            min={50}
-            max={10_000}
+            min={LIMITS.average_ms.min}
+            max={LIMITS.average_ms.max}
             step={10}
             unit="ms"
             className={SMALL}
@@ -265,8 +270,8 @@ function PolarSettings({
           <NumberField
             label="Fade"
             value={settings.crossfade_ms}
-            min={0}
-            max={500}
+            min={LIMITS.crossfade_ms.min}
+            max={LIMITS.crossfade_ms.max}
             step={1}
             unit="ms"
             className={SMALL}

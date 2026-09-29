@@ -464,6 +464,7 @@ impl FanOut {
             LaneMark::GainChanged { in_flight } => LaneMark::GainChanged {
                 in_flight: self.per_lane(in_flight),
             },
+            LaneMark::Ended => LaneMark::Ended,
         }
     }
 }

@@ -7,6 +7,7 @@ import { Select } from "../../components/Select";
 import { SettingRow } from "../../components/Settings";
 import { type Colormap, DEFAULT_COLORMAP } from "../../gl/surface";
 import { processorStatusOf, useArrayStore } from "../../lib/arrays";
+import { SPATIAL_LIMITS as LIMITS } from "../../lib/limits";
 import { isStale, readingOf, useProcessorStore } from "../../lib/processors";
 import type {
   PatchNode,
@@ -210,8 +211,8 @@ function SpatialSettings({
         <NumberField
           label="Average"
           value={settings.average_ms}
-          min={50}
-          max={10_000}
+          min={LIMITS.average_ms.min}
+          max={LIMITS.average_ms.max}
           step={10}
           unit="ms"
           className={SMALL}
@@ -222,8 +223,8 @@ function SpatialSettings({
         <NumberField
           label="Rate"
           value={settings.report_ms}
-          min={50}
-          max={2_000}
+          min={LIMITS.report_ms.min}
+          max={LIMITS.report_ms.max}
           step={10}
           unit="ms"
           className={SMALL}
@@ -243,8 +244,8 @@ function SpatialSettings({
         <NumberField
           label="Range"
           value={settings.span_db}
-          min={10}
-          max={80}
+          min={LIMITS.span_db.min}
+          max={LIMITS.span_db.max}
           step={1}
           unit="dB"
           className={SMALL}
@@ -252,6 +253,7 @@ function SpatialSettings({
         />
       </SettingRow>
       <BandRows
+        band={LIMITS.band}
         offsetHz={settings.offset_hz}
         bandwidthHz={settings.bandwidth_hz ?? null}
         onOffset={(offset_hz) => edit({ offset_hz })}

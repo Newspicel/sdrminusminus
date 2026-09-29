@@ -538,6 +538,51 @@ fn a_radar_plan_steers_through_the_array_table() {
     assert!(plan(&misfit, &quiet).unwrap().aoa.is_none());
 }
 
+fn table_ctx(freqs_hz: &[f64]) -> RadarCtx {
+    let mut skewed = scene(false);
+    skewed.distortion = Some(skewed_beam);
+    RadarCtx {
+        manifold: Some(Arc::new(skewed.distortion_table(freqs_hz, 1.0).unwrap())),
+        ..scene_ctx()
+    }
+}
+
+#[test]
+fn a_table_that_misses_the_carrier_is_flagged() {
+    let lanes = ArrayScene::new(surveillance_array(), CENTER_HZ, INPUT_RATE)
+        .with_noise_db(0.0)
+        .with_seed(5)
+        .render(260_000)
+        .unwrap();
+    let params = PassiveRadarParams {
+        reference: ReferenceCleaning::Off,
+        ..PassiveRadarParams::default()
+    };
+    let covering = table_ctx(&[CENTER_HZ - 1e6, CENTER_HZ + 1e6]);
+    let elsewhere = table_ctx(&[CENTER_HZ + 50e6, CENTER_HZ + 52e6]);
+    let blind = PassiveRadarParams {
+        aoa: false,
+        ..params
+    };
+    for (ctx, params, flagged) in [
+        (&scene_ctx(), &params, false),
+        (&covering, &params, false),
+        (&elsewhere, &params, true),
+        (&elsewhere, &blind, false),
+    ] {
+        let mut radar = Radar::new(ctx, params);
+        radar.feed(&lanes, 0..lanes[0].len(), true);
+        assert!(!radar.updates.is_empty());
+        for update in &radar.updates {
+            assert_eq!(update.health.table_out_of_range, flagged);
+        }
+    }
+    let planned = plan(&elsewhere, &params).unwrap();
+    let aoa = planned.aoa.unwrap();
+    assert!(aoa.misses_table_at(planned.carrier_hz));
+    assert!(!aoa.misses_table_at(CENTER_HZ + 51e6));
+}
+
 #[test]
 fn radar_aoa_needs_no_place_for_the_reference_antenna() {
     let mut skewed = scene(false);

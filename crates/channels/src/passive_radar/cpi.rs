@@ -150,6 +150,7 @@ pub struct CpiStage {
     tracking: Tracking,
     live: LiveParams,
     aoa_possible: bool,
+    aoa_off_table: bool,
     generation: Option<u64>,
     counters: RadarCounters,
     last_seq: u64,
@@ -211,6 +212,10 @@ impl CpiStage {
             },
             live: plan.live(),
             aoa_possible: plan.aoa.is_some(),
+            aoa_off_table: plan
+                .aoa
+                .as_ref()
+                .is_some_and(|aoa| aoa.misses_table_at(plan.carrier_hz)),
             generation: None,
             counters: RadarCounters::default(),
             last_seq: 0,
@@ -335,6 +340,7 @@ impl CpiStage {
         pod.threads = self.backend.threads();
         pod.reference = job.reference;
         pod.aoa = self.aoa_state(job.phase_ready);
+        pod.table_out_of_range = self.live.aoa && self.aoa_off_table;
         pod.surface.seq = job.seq;
         pod.surface.unix_ms = pod.cpi_end_unix_ns / 1_000_000;
         self.last_seq = pod.seq;

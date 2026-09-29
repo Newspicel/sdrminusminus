@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
+use crate::limits::HUNT_LIMITS as LIMITS;
+
 pub const HUNT_SWEEP_BINS: usize = 72;
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
@@ -30,23 +32,23 @@ impl HuntSweepParams {
     pub fn problem(&self) -> Option<&'static str> {
         let checks = [
             (
-                (10.0..=180.0).contains(&self.beamwidth_deg),
+                LIMITS.beamwidth_deg.contains(self.beamwidth_deg),
                 "Beamwidth out of range",
             ),
             (
-                (0.0..=40.0).contains(&self.front_back_db),
+                LIMITS.front_back_db.contains(self.front_back_db),
                 "Front/back out of range",
             ),
             (
-                (60.0..=720.0).contains(&self.min_span_deg),
+                LIMITS.min_span_deg.contains(self.min_span_deg),
                 "Min span out of range",
             ),
             (
-                (1.0..=40.0).contains(&self.min_contrast_db),
+                LIMITS.min_contrast_db.contains(self.min_contrast_db),
                 "Min contrast out of range",
             ),
             (
-                (-180.0..=180.0).contains(&self.mount_offset_deg),
+                LIMITS.mount_offset_deg.contains(self.mount_offset_deg),
                 "Mount out of range",
             ),
         ];

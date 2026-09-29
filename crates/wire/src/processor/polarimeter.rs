@@ -2,8 +2,8 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 use crate::array::MAX_ARRAY_LANES;
-use crate::processor::df::{MAX_DF_BANDWIDTH_HZ, MAX_DF_OFFSET_HZ, MIN_DF_BANDWIDTH_HZ};
-use crate::processor::{finite_within, reserved_at};
+use crate::limits::POLARIMETER_LIMITS as LIMITS;
+use crate::processor::reserved_at;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
@@ -52,23 +52,23 @@ impl PolarimeterParams {
             (self.v_lane < MAX_ARRAY_LANES, "V out of range"),
             (self.h_lane != self.v_lane, "Lanes must differ"),
             (
-                finite_within(self.offset_hz, MAX_DF_OFFSET_HZ),
+                LIMITS.band.offset_hz.contains(self.offset_hz),
                 "Offset out of range",
             ),
             (
-                (MIN_DF_BANDWIDTH_HZ..=MAX_DF_BANDWIDTH_HZ).contains(&self.bandwidth_hz),
+                LIMITS.band.bandwidth_hz.contains(self.bandwidth_hz),
                 "Bandwidth out of range",
             ),
             (
-                (50..=10_000).contains(&self.report_ms),
+                LIMITS.report_ms.contains(self.report_ms),
                 "Report out of range",
             ),
             (
-                (50..=10_000).contains(&self.average_ms),
+                LIMITS.average_ms.contains(self.average_ms),
                 "Average out of range",
             ),
             (
-                (0..=500).contains(&self.crossfade_ms),
+                LIMITS.crossfade_ms.contains(self.crossfade_ms),
                 "Crossfade out of range",
             ),
         ];

@@ -5,14 +5,15 @@ mod common;
 use std::{path::Path, time::Duration};
 
 use common::array::{
-    ARRAY, Bench, KRAKEN, LOCK_WAIT, WAIT, kraken_array, lanes, status, wait_calibrated,
-    wait_solve_after, wait_status, wrap_deg,
+    ARRAY, Bench, KRAKEN, LOCK_WAIT, WAIT, calibrated, kraken_array, lanes, status,
+    wait_calibrated, wait_solve_after, wait_status, wrap_deg,
 };
 use sdrmm_device_virtual::ReportedGap;
 use sdrmm_recorder::{lane_stem, meta_path};
-use sdrmm_wire::{ArrayRecordingRequest, ArrayStatus, SyncState};
+use sdrmm_wire::{ArrayRecordingRequest, ArrayStatus, CalPhase, SyncState};
 
 const GAP: u64 = 5_000;
+const TAIL: Duration = Duration::from_secs(2);
 
 fn named(name: &str) -> ArrayRecordingRequest {
     ArrayRecordingRequest {
@@ -119,6 +120,35 @@ fn a_recording_with_one_calibration_replays_without_a_search() {
     replay(&bench, &stem);
     let replayed = wait_calibrated(&bench.engine, LOCK_WAIT);
     same_phases(&original, &replayed);
+}
+
+#[test]
+fn a_finished_replay_settles_to_its_recorded_calibration() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let bench = Bench::recording_into(dir.path().to_path_buf());
+    let ds = bench.open(KRAKEN);
+    bench.engine.apply_array(kraken_array(ds)).unwrap();
+    let first = wait_calibrated(&bench.engine, LOCK_WAIT);
+    let stem = bench
+        .engine
+        .start_array_recording(ARRAY, named("bench-end"))
+        .unwrap();
+    bench.engine.calibrate_array(ARRAY).unwrap();
+    wait_solve_after(&bench.engine, &first, WAIT);
+    std::thread::sleep(TAIL);
+    stop(&bench);
+    replay(&bench, &stem);
+    let recorded = wait_calibrated(&bench.engine, LOCK_WAIT);
+    bench.engine.calibrate_array(ARRAY).unwrap();
+    wait_status(
+        &bench.engine,
+        "a solve the recording cannot finish",
+        WAIT,
+        |now| now.cal == CalPhase::Measuring,
+    );
+    let settled = wait_status(&bench.engine, "the recorded calibration", WAIT, calibrated);
+    assert_eq!(settled.last_solve_at, recorded.last_solve_at);
+    same_phases(&recorded, &settled);
 }
 
 #[test]

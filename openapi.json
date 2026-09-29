@@ -22429,6 +22429,9 @@
               "format": "float"
             }
           },
+          "table_out_of_range": {
+            "type": "boolean"
+          },
           "threads": {
             "type": "integer",
             "format": "int32",
@@ -22566,6 +22569,20 @@
                 "type": "string",
                 "enum": [
                   "phase_unknown"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "table_out_of_range"
                 ]
               }
             }

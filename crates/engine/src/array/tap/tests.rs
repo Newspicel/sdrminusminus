@@ -269,6 +269,38 @@ fn a_gap_forgets_the_origin_estimate() {
 }
 
 #[test]
+fn an_end_mark_ends_the_feed_until_samples_come_back() {
+    let (port, mut writer) = TapPort::new();
+    let mut feed = port.lease(RATE).expect("lease");
+    writer.samples(&block(BLOCK, 1.0), 0);
+    let end = BLOCK as u64;
+    writer.event(LaneEvent::Mark {
+        at: end,
+        mark: LaneMark::Ended,
+    });
+    assert!(settle(&mut feed).is_empty());
+    assert!(!feed.ended());
+    let ready = feed.ready();
+    assert_eq!(ready, BLOCK - PRE_GUARD as usize);
+    let mut out = Vec::with_capacity(2 * BLOCK);
+    feed.take_into(ready, &mut out);
+    assert!(settle(&mut feed).is_empty(), "the end is no note");
+    assert!(feed.ended());
+    assert_eq!(feed.ready(), 0);
+    let held = feed.skippable();
+    assert_eq!(feed.skip(held), PRE_GUARD as usize);
+    assert_eq!(feed.read_index(), Some(end));
+    assert!(feed.ended(), "the held tail is still before the end");
+    writer.samples(&block(BLOCK, 2.0), end);
+    assert!(settle(&mut feed).is_empty());
+    assert!(feed.ended());
+    let ready = feed.ready();
+    assert_eq!(ready, BLOCK - PRE_GUARD as usize);
+    feed.take_into(ready, &mut out);
+    assert!(!feed.ended());
+}
+
+#[test]
 fn stamps_leave_room_for_lane_events() {
     let (port, mut writer) = TapPort::new();
     let mut feed = port.lease(RATE).expect("lease");

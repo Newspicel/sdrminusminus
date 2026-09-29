@@ -23,7 +23,7 @@ import { arrayOf, hasWire } from "../binding";
 import { useWorkspaceContext } from "../context";
 import { settingsOf } from "../newNode";
 import { FaceBody, FaceEmpty, NodeShell } from "./NodeShell";
-import { ProcessorFaults, ProcessorReadout, ReadoutCell } from "./ProcessorReadout";
+import { ProcessorChips, ProcessorFaults, ProcessorReadout, ReadoutCell } from "./ProcessorReadout";
 import {
   ageLabel,
   NO_CATALOG,
@@ -43,6 +43,7 @@ import {
   lostCpis,
   lostTitle,
   RADAR_TX_PORT,
+  radarChips,
   radarSubtitle,
   referenceText,
   sortTracks,
@@ -108,6 +109,7 @@ export function RadarFace({ node }: { node: PatchNode }) {
               selected={selected}
             />
             <RadarStrip update={update} status={status} receivedAt={state?.receivedAt} now={now} />
+            <ProcessorChips chips={radarChips(update)} />
             <ProcessorFaults status={processorStatusOf(status, node.id)} />
             <TrackTable update={update} selected={selected} onSelect={setSelected} />
             <RadarFooter

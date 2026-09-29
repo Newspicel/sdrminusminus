@@ -8,13 +8,13 @@ import { NumberField } from "../../components/NumberField";
 import { Segmented } from "../../components/Segmented";
 import { Select } from "../../components/Select";
 import { SettingRow, Settings } from "../../components/Settings";
+import { BEAMFORMER_LIMITS as LIMITS } from "../../lib/limits";
 import type { BeamformerParams } from "../../lib/types";
 import { BandRows } from "./BandRows";
 import {
   BEAM_MODES,
   type BeamSetting,
   laneOptions,
-  MAX_BEAM_NULLS,
   nullLabel,
   referenceLanes,
   toggledReference,
@@ -63,6 +63,7 @@ export function BeamformerSettings({
         <TuningRows settings={settings} edit={edit} shown={shown} />
         <BlockRows settings={settings} edit={edit} shown={shown} />
         <BandRows
+          band={LIMITS.band}
           offsetHz={settings.offset_hz}
           bandwidthHz={settings.bandwidth_hz}
           onOffset={(offset_hz) => edit({ offset_hz })}
@@ -128,7 +129,7 @@ function SteerRows({
 
 function NullRow({ settings, edit }: { settings: BeamformerParams; edit: Edit }) {
   const [draft, setDraft] = useState(0);
-  const full = settings.nulls_deg.length >= MAX_BEAM_NULLS;
+  const full = settings.nulls_deg.length >= LIMITS.nulls;
   return (
     <SettingRow label="Nulls" title="Azimuths to silence">
       {settings.nulls_deg.map((deg) => (
@@ -159,7 +160,7 @@ function NullRow({ settings, edit }: { settings: BeamformerParams; edit: Edit })
         type="button"
         className={BTN_SM}
         disabled={full}
-        title={full ? `At most ${MAX_BEAM_NULLS}` : undefined}
+        title={full ? `At most ${LIMITS.nulls}` : undefined}
         onClick={() => edit({ nulls_deg: withNull(settings.nulls_deg, draft) })}
       >
         Add
@@ -212,8 +213,8 @@ function CancellerRows({ settings, edit, lanes }: Props) {
         <NumberField
           label="Taps"
           value={settings.taps}
-          min={1}
-          max={32}
+          min={LIMITS.taps.min}
+          max={LIMITS.taps.max}
           step={1}
           className={SMALL}
           onCommit={(taps) => edit({ taps: Math.round(taps) })}
@@ -252,8 +253,8 @@ function TuningRows({
           <NumberField
             label="Step"
             value={settings.step}
-            min={0.00001}
-            max={1.9}
+            min={LIMITS.step.min}
+            max={LIMITS.step.max}
             step={0.00001}
             className={SMALL}
             onCommit={(step) => edit({ step })}
@@ -265,8 +266,8 @@ function TuningRows({
           <NumberField
             label="Forget"
             value={settings.forget}
-            min={0.9}
-            max={0.99999}
+            min={LIMITS.forget.min}
+            max={LIMITS.forget.max}
             step={0.00001}
             className={SMALL}
             onCommit={(forget) => edit({ forget })}
@@ -278,8 +279,8 @@ function TuningRows({
           <NumberField
             label="Loading"
             value={settings.loading}
-            min={0}
-            max={10}
+            min={LIMITS.loading.min}
+            max={LIMITS.loading.max}
             step={0.01}
             className={SMALL}
             onCommit={(loading) => edit({ loading })}
@@ -304,8 +305,8 @@ function TuningRows({
           <NumberField
             label="Timeout"
             value={settings.steer_timeout_ms}
-            min={100}
-            max={60_000}
+            min={LIMITS.steer_timeout_ms.min}
+            max={LIMITS.steer_timeout_ms.max}
             step={100}
             unit="ms"
             className={SMALL}
@@ -333,8 +334,8 @@ function BlockRows({
           <NumberField
             label="Fade"
             value={settings.crossfade_ms}
-            min={0}
-            max={500}
+            min={LIMITS.crossfade_ms.min}
+            max={LIMITS.crossfade_ms.max}
             step={1}
             unit="ms"
             className={SMALL}
@@ -347,8 +348,8 @@ function BlockRows({
           <NumberField
             label="Update"
             value={settings.update_ms}
-            min={50}
-            max={10_000}
+            min={LIMITS.update_ms.min}
+            max={LIMITS.update_ms.max}
             step={10}
             unit="ms"
             className={SMALL}
@@ -361,8 +362,8 @@ function BlockRows({
           <NumberField
             label="Carry over"
             value={settings.carry_over}
-            min={0}
-            max={0.99}
+            min={LIMITS.carry_over.min}
+            max={LIMITS.carry_over.max}
             step={0.01}
             className={SMALL}
             onCommit={(carry_over) => edit({ carry_over })}

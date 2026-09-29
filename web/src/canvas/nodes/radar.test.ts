@@ -14,6 +14,7 @@ import {
   lostCpis,
   problemLabel,
   pxToSurface,
+  radarChips,
   radarSubtitle,
   rangeKmAt,
   referenceText,
@@ -158,6 +159,7 @@ describe("radar health", () => {
       { kind: "no_receiver" },
       { kind: "no_heading" },
       { kind: "phase_unknown" },
+      { kind: "table_out_of_range" },
       { kind: "overloaded" },
       { kind: "reference_lost" },
       { kind: "refused", detail: "CPI out of range" },
@@ -169,6 +171,19 @@ describe("radar health", () => {
       expect(label.includes(String.fromCharCode(0x2014))).toBe(false);
     }
     expect(problemLabel({ kind: "refused", detail: "CPI out of range" })).toBe("CPI out of range");
+  });
+
+  it("flags bearings steered past the array table", () => {
+    const update = radarUpdate([]);
+    expect(radarChips(null)).toEqual([]);
+    expect(radarChips(update)).toEqual([]);
+    const outside = {
+      ...update,
+      problems: [{ kind: "no_heading" as const }, { kind: "table_out_of_range" as const }],
+    };
+    expect(radarChips(outside)).toEqual([
+      { label: "Outside cal table", title: "Bearings use the ideal geometry" },
+    ]);
   });
 });
 
@@ -196,6 +211,20 @@ describe("radarSubtitle", () => {
     const troubled = { ...update, problems: [{ kind: "no_receiver" as const }] };
     expect(radarSubtitle({ ...base, update: troubled }).text).toBe("No array position");
     expect(radarSubtitle(base).text).toBe("5 lanes");
+  });
+
+  it("leaves a problem shown as a chip out of the header", () => {
+    const update = radarUpdate([]);
+    const outside = { ...update, problems: [{ kind: "table_out_of_range" as const }] };
+    expect(radarSubtitle({ ...base, update: outside })).toEqual({
+      text: "FM 98.00 MHz",
+      warn: false,
+    });
+    const both = {
+      ...update,
+      problems: [{ kind: "table_out_of_range" as const }, { kind: "overloaded" as const }],
+    };
+    expect(radarSubtitle({ ...base, update: both }).text).toBe("Overloaded");
   });
 });
 

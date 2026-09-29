@@ -5,6 +5,7 @@ import { NumberField } from "../../components/NumberField";
 import { Readout, ReadoutRow } from "../../components/Readout";
 import { Rose, type RoseNeedle, TRUE_MARKS } from "../../components/Rose";
 import { SettingRow, Settings } from "../../components/Settings";
+import { HUNT_LIMITS as LIMITS } from "../../lib/limits";
 import type { HuntSweepParams, HuntSweep as Sweep } from "../../lib/types";
 
 const ROSE_PX = 160;
@@ -115,8 +116,8 @@ export function HuntSweepSettings({
           label="Beamwidth"
           unit="°"
           value={params.beamwidth_deg}
-          min={10}
-          max={180}
+          min={LIMITS.beamwidth_deg.min}
+          max={LIMITS.beamwidth_deg.max}
           step={1}
           onCommit={(beamwidth_deg) => edit({ beamwidth_deg })}
         />
@@ -126,8 +127,8 @@ export function HuntSweepSettings({
           label="Front/back"
           unit="dB"
           value={params.front_back_db}
-          min={0}
-          max={40}
+          min={LIMITS.front_back_db.min}
+          max={LIMITS.front_back_db.max}
           step={1}
           onCommit={(front_back_db) => edit({ front_back_db })}
         />
@@ -137,8 +138,8 @@ export function HuntSweepSettings({
           label="Min span"
           unit="°"
           value={params.min_span_deg}
-          min={60}
-          max={720}
+          min={LIMITS.min_span_deg.min}
+          max={LIMITS.min_span_deg.max}
           step={10}
           onCommit={(min_span_deg) => edit({ min_span_deg })}
         />
@@ -148,8 +149,8 @@ export function HuntSweepSettings({
           label="Min contrast"
           unit="dB"
           value={params.min_contrast_db}
-          min={1}
-          max={40}
+          min={LIMITS.min_contrast_db.min}
+          max={LIMITS.min_contrast_db.max}
           step={0.5}
           onCommit={(min_contrast_db) => edit({ min_contrast_db })}
         />
@@ -159,8 +160,8 @@ export function HuntSweepSettings({
           label="Mount"
           unit="°"
           value={params.mount_offset_deg}
-          min={-180}
-          max={180}
+          min={LIMITS.mount_offset_deg.min}
+          max={LIMITS.mount_offset_deg.max}
           step={1}
           onCommit={(mount_offset_deg) => edit({ mount_offset_deg })}
         />
