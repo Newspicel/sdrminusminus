@@ -852,6 +852,7 @@ mod contract_tests {
                 hardware_sweep: false,
                 coherence: Coherence::None,
                 noise_source: false,
+                rx_stream_choices: Vec::new(),
             },
             settings: DeviceSettings::default(),
             status: DeviceSetStatus::Running,
@@ -869,6 +870,7 @@ mod contract_tests {
             playback: None,
             extra_lane: None,
             agc_gains: Vec::new(),
+            loss: None,
         }
     }
 

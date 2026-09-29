@@ -16,7 +16,7 @@ use crate::{Engine, EngineError, runtime::SpectrumSnapshot};
 mod close_call;
 mod plan;
 pub(crate) mod session;
-mod sweep;
+pub(crate) mod sweep;
 
 use close_call::CloseCall;
 pub(crate) use plan::ScanPlan;

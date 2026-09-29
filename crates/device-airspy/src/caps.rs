@@ -78,6 +78,7 @@ pub(crate) fn capabilities(sample_rates: &[u32]) -> Capabilities {
         hardware_sweep: false,
         coherence: Coherence::None,
         noise_source: false,
+        rx_stream_choices: Vec::new(),
     }
 }
 

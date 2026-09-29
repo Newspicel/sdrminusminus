@@ -216,6 +216,7 @@ pub(crate) fn capabilities(directional: DirectionalCapabilities) -> Capabilities
         hardware_sweep: false,
         coherence,
         noise_source: false,
+        rx_stream_choices: Vec::new(),
     }
 }
 

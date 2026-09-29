@@ -512,6 +512,7 @@ pub fn capabilities(model: Model, mode: Option<DuoMode>, band: Band) -> Capabili
         hardware_sweep: false,
         coherence: sdrmm_wire::Coherence::None,
         noise_source: false,
+        rx_stream_choices: Vec::new(),
     }
 }
 

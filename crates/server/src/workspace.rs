@@ -924,6 +924,7 @@ mod tests {
                 hardware_sweep: false,
                 coherence: sdrmm_wire::Coherence::None,
                 noise_source: false,
+                rx_stream_choices: Vec::new(),
             },
             settings: sdrmm_wire::DeviceSettings::default(),
             status: sdrmm_wire::DeviceSetStatus::Running,
@@ -941,6 +942,7 @@ mod tests {
             playback: None,
             extra_lane: None,
             agc_gains: Vec::new(),
+            loss: None,
         }
     }
 

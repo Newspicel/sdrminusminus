@@ -760,6 +760,7 @@ mod tests {
             hardware_sweep: false,
             coherence: crate::device::Coherence::None,
             noise_source: false,
+            rx_stream_choices: Vec::new(),
         }
         .profile()
     }

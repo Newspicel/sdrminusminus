@@ -158,6 +158,7 @@ mod tests {
             hardware_sweep: false,
             coherence: Coherence::None,
             noise_source: false,
+            rx_stream_choices: Vec::new(),
         }
     }
 
@@ -201,6 +202,7 @@ mod tests {
             hunts: Vec::new(),
             playback: None,
             extra_lane: None,
+            loss: None,
         }
     }
 

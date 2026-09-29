@@ -183,6 +183,7 @@ pub fn composite(members: &[&Capabilities], definition: &ArrayDefinition) -> Cap
         hardware_sweep: false,
         coherence: definition.coherence,
         noise_source: false,
+        rx_stream_choices: Vec::new(),
     }
 }
 

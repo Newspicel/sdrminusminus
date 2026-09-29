@@ -162,6 +162,7 @@ pub(crate) fn capabilities(board: BoardVariant, gains: &[i32]) -> Capabilities {
         hardware_sweep: false,
         coherence: sdrmm_wire::Coherence::None,
         noise_source: false,
+        rx_stream_choices: Vec::new(),
     }
 }
 
@@ -187,6 +188,7 @@ pub(crate) fn kraken_capabilities(lanes: u32, gains: &[i32]) -> Capabilities {
         }],
         extra: Vec::new(),
         noise_source: true,
+        rx_stream_choices: Vec::new(),
         rx_streams: lanes,
         per_stream: StreamScope {
             tuning: true,

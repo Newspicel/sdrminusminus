@@ -43,6 +43,7 @@ pub(crate) fn capabilities(station: &Station) -> Capabilities {
         hardware_sweep: false,
         coherence: Coherence::None,
         noise_source: false,
+        rx_stream_choices: Vec::new(),
     }
 }
 

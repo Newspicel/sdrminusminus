@@ -604,6 +604,7 @@ impl DeviceDriver for PagingDriver {
                 hardware_sweep: false,
                 coherence: sdrmm_wire::Coherence::None,
                 noise_source: false,
+                rx_stream_choices: Vec::new(),
             },
             settings: DeviceSettings {
                 center_hz: Some(DEFAULT_CENTER_HZ),

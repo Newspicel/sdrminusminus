@@ -62,6 +62,7 @@ fn capabilities(duplex: Duplex, rx_streams: u32, tx_streams: u32) -> Capabilitie
         hardware_sweep: false,
         coherence: crate::device::Coherence::None,
         noise_source: false,
+        rx_stream_choices: Vec::new(),
     }
 }
 

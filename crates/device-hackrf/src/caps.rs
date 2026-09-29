@@ -74,6 +74,7 @@ pub(crate) fn capabilities() -> Capabilities {
         hardware_sweep: true,
         coherence: Coherence::None,
         noise_source: false,
+        rx_stream_choices: Vec::new(),
     }
 }
 
@@ -207,6 +208,7 @@ pub(crate) fn settings_from_config(config: &Config) -> DeviceSettings {
         ],
         extra: Vec::new(),
         streams: Vec::new(),
+        rx_streams: None,
     }
 }
 

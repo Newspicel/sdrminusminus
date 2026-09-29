@@ -81,6 +81,7 @@ pub fn capabilities() -> Capabilities {
         hardware_sweep: false,
         coherence: Coherence::PhaseCoherent,
         noise_source: false,
+        rx_stream_choices: Vec::new(),
     }
 }
 

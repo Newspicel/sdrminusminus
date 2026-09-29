@@ -14,7 +14,7 @@ pub(crate) const SAMPLING_FREQUENCY: &str = "sampling_frequency";
 pub(crate) const QUADRATURE_TRACKING: &str = "quadrature_tracking_en";
 pub(crate) const RF_DC_TRACKING: &str = "rf_dc_offset_tracking_en";
 pub(crate) const BB_DC_TRACKING: &str = "bb_dc_offset_tracking_en";
-pub(crate) const FILTER_FIR_EN: &str = "filter_fir_en";
+pub(crate) const CONVERTER_CHANNEL: &str = "voltage0";
 pub(crate) const XO_CORRECTION: &str = "xo_correction";
 pub(crate) const AVAILABLE: &str = "_available";
 

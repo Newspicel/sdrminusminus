@@ -17,6 +17,12 @@ describe("mergeSettings", () => {
     expect(next.gains).toEqual([gain("LNA", 16.0), gain("VGA", 30.0), gain("AMP", 14.0)]);
   });
 
+  it("takes a new lane count and keeps it when a delta leaves it out", () => {
+    const next = mergeSettings({ rx_streams: 2 }, { rx_streams: 1 });
+    expect(next.rx_streams).toBe(1);
+    expect(mergeSettings(next, { sample_rate: 1e6 }).rx_streams).toBe(1);
+  });
+
   it("patches extra by name", () => {
     const current: DeviceSettings = { extra: [extra("bias_t", false), extra("agc", true)] };
     const next = mergeSettings(current, {

@@ -1119,6 +1119,7 @@ impl sdrmm_device::DeviceDriver for FaultingDriver {
                 hardware_sweep: false,
                 coherence: sdrmm_wire::Coherence::None,
                 noise_source: false,
+                rx_stream_choices: Vec::new(),
             },
             settings: sdrmm_wire::DeviceSettings {
                 sample_rate: Some(2_048_000.0),

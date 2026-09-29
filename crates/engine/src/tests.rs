@@ -28,6 +28,7 @@ mod group_tuning;
 #[cfg(all(feature = "rtlsdr", feature = "hackrf", feature = "soapy"))]
 mod hardware;
 mod hotplug;
+mod lanes;
 mod placement;
 mod recording;
 mod scanning;
@@ -93,6 +94,7 @@ fn empty_capabilities() -> Capabilities {
         hardware_sweep: false,
         coherence: sdrmm_wire::Coherence::None,
         noise_source: false,
+        rx_stream_choices: Vec::new(),
     }
 }
 
@@ -570,6 +572,7 @@ impl DeviceDriver for RefusedSweepDriver {
                 hardware_sweep: true,
                 coherence: sdrmm_wire::Coherence::None,
                 noise_source: false,
+                rx_stream_choices: Vec::new(),
                 ..empty_capabilities()
             },
             settings: DeviceSettings {
@@ -1140,6 +1143,7 @@ fn managed_caps() -> Capabilities {
         hardware_sweep: false,
         coherence: sdrmm_wire::Coherence::None,
         noise_source: false,
+        rx_stream_choices: Vec::new(),
         ..tuner_caps()
     }
 }

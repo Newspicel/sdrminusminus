@@ -1,5 +1,8 @@
 use std::{
-    sync::Mutex,
+    sync::{
+        Mutex,
+        atomic::{AtomicBool, Ordering},
+    },
     time::{Duration, Instant},
 };
 
@@ -14,6 +17,7 @@ use crate::{
         remaining, set_remote_timeout,
     },
     layout::Stream,
+    pace::Pace,
     source::Source,
 };
 
@@ -58,6 +62,7 @@ pub(crate) struct RxRadio {
     stream: Stream,
     lanes: usize,
     samples: usize,
+    rate: Option<f64>,
     pool: BlockPool,
     armed: Mutex<Option<Stopper>>,
 }
@@ -79,6 +84,7 @@ impl RxRadio {
             stream,
             lanes,
             samples,
+            rate,
             pool: BlockPool::default(),
             armed: Mutex::new(None),
         }
@@ -118,6 +124,10 @@ impl CaptureRadio for RxRadio {
             mask_bytes: mask_len(mask.len()),
             pool: self.pool.clone(),
             stopper,
+            frame_bytes: self.stream.sample_bytes(self.lanes),
+            lanes: self.lanes,
+            pace: Mutex::new(Pace::new(self.rate, self.samples)),
+            overran: AtomicBool::new(false),
         })
     }
 
@@ -137,6 +147,10 @@ pub(crate) struct RxStream {
     mask_bytes: usize,
     pool: BlockPool,
     stopper: Stopper,
+    frame_bytes: usize,
+    lanes: usize,
+    pace: Mutex<Pace>,
+    overran: AtomicBool,
 }
 
 struct Inner {
@@ -299,6 +313,8 @@ impl RxStream {
         let Some(done) = pending.take() else {
             return Ok(None);
         };
+        link.send(&self.command)?;
+        *pending = Some(Refill::new(self.pool.take(self.refill)));
         let mut block = done.block;
         block.truncate(done.got);
         Ok(Some(block))
@@ -332,6 +348,23 @@ impl CaptureStream for RxStream {
 
     fn dropped(&self) -> u64 {
         0
+    }
+
+    fn block_gap(&self, block: &Block) -> Option<u64> {
+        let frames = block.len() / self.frame_bytes.max(1);
+        let lost = lock(&self.pace).arrived(frames, Instant::now());
+        if lost == 0 {
+            return None;
+        }
+        if self.overran.swap(true, Ordering::Relaxed) {
+            tracing::debug!(device = self.device, lost, "the radio overran");
+        } else {
+            tracing::warn!(
+                device = self.device,
+                "the radio samples faster than its link carries; lower the rate or the lanes"
+            );
+        }
+        Some(lost * self.lanes as u64)
     }
 
     fn failure(&self) -> StreamFailure {
@@ -417,6 +450,10 @@ mod tests {
             mask_bytes: mask_len(1),
             pool: BlockPool::default(),
             stopper: Stopper::flag(),
+            frame_bytes: 4,
+            lanes: 1,
+            pace: Mutex::new(Pace::new(None, 1)),
+            overran: AtomicBool::new(false),
         }
     }
 
@@ -439,6 +476,18 @@ mod tests {
         };
         assert_eq!(&*block, b"abcdefgh");
         assert!(transport.failed().is_none(), "waiting is not a fault");
+    }
+
+    #[test]
+    fn the_next_refill_is_asked_for_before_the_last_one_is_handed_over() {
+        let transport = Scripted::with(&[b"8\n", b"00000003\n", b"abcdefgh"]);
+        let stream = stream(&transport, 8);
+        assert!(matches!(stream.next_block(POLL), Next::Block(_)));
+        assert_eq!(
+            &*lock(&transport.sent),
+            b"READBUF cf-ad9361-lpc 8\r\nREADBUF cf-ad9361-lpc 8\r\n",
+            "the radio fills the next buffer while this one is converted"
+        );
     }
 
     #[test]

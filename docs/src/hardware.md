@@ -198,17 +198,19 @@ own. **Search** also tries `ant.local`, `192.168.1.10`, `pluto.local`, and `192.
 other addresses in the **Network** tab.
 
 The board reports its range: typically 70 MHz to 6 GHz on an AD9361, 325 MHz to 3.8 GHz on an
-AD9363. Rates run from about 2.1 to 61.44 MS/s, limited by the link: USB 2.0 carries a few MS/s,
-gigabit Ethernet much more. On a 2×2 board both RX lanes share a clock and are phase coherent.
+AD9363. Rates run from about 260 kS/s to 61.44 MS/s (30.72 on a 2×2 board); below 2.08 MS/s the
+FPGA decimates. The link sets the real limit: an AntSDR E310 carries about 60 MB/s, so 15 MS/s on
+one lane or 7.5 on two. Samples lost above that show as drops. On a 2×2 board both RX lanes share
+a clock and are phase coherent.
 
 | Control | Does |
 |---|---|
-| Tuner | Receive gain per lane |
+| Lanes | 1 or 2 on a 2×2 board. One lane gets the whole link |
+| Tuner | Receive gain per lane. The range follows the band |
 | TX | Transmit attenuation per lane |
-| AGC | Off, slow attack, fast attack, or hybrid |
+| AGC | Per lane: slow attack, fast attack, or hybrid |
 | Quadrature, RF DC, baseband DC tracking | Hardware corrections |
-| FIR filter | Programmable decimating filter |
-| Antenna, TX port | Receive and transmit ports |
+| Antenna, TX port | Shown only if the board lets the port change |
 
 Linux needs the libiio udev rules. `sdrmm --doctor` checks for them.
 

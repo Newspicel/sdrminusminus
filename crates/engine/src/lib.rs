@@ -44,6 +44,7 @@ mod hotplug;
 mod hunt;
 pub mod image;
 pub mod iq;
+mod lanes;
 mod metrics;
 mod network_export;
 pub mod occupancy;
@@ -610,6 +611,8 @@ struct DeviceSetState {
     cmd_txs: Vec<mpsc::Sender<DspCommand>>,
     overruns: Vec<Arc<AtomicU64>>,
     overruns_seen: u64,
+    overruns_polled: Option<Instant>,
+    loss: Option<f32>,
     stalls: Vec<Arc<AtomicU64>>,
     clip_meters: Vec<Arc<runtime::clip::ClipMeter>>,
     clipping: Vec<u32>,
@@ -617,6 +620,15 @@ struct DeviceSetState {
     playback: Option<Arc<PlaybackShared>>,
     coherent: Option<crate::coherent_ops::CoherentState>,
     runtime: Arc<DeviceRuntime>,
+}
+
+fn loss_share(lost: u64, span_secs: f64, samples_per_sec: f64) -> Option<f32> {
+    let carried = span_secs * samples_per_sec;
+    if lost == 0 || carried <= 0.0 {
+        return None;
+    }
+    let share = (lost as f64 / carried).clamp(0.01, 1.0);
+    Some(((share * 100.0).round() / 100.0) as f32)
 }
 
 impl DeviceSetState {
@@ -671,6 +683,7 @@ impl DeviceSetState {
                 })
                 .collect(),
             overruns,
+            loss: self.loss,
             clipping: self.clipping.clone(),
             error: self.error.clone(),
             fault: self.fault,
@@ -719,6 +732,15 @@ impl DeviceSetState {
                 streams: self.rx_streams(),
             })
         }
+    }
+
+    fn loss_since_poll(&mut self, lost: u64, now: Instant) -> Option<f32> {
+        let polled = self.overruns_polled.replace(now)?;
+        loss_share(
+            lost,
+            now.duration_since(polled).as_secs_f64(),
+            sample_rate_of(&self.settings) * f64::from(self.capabilities.rx_streams.max(1)),
+        )
     }
 
     fn overruns_total(&self) -> u64 {

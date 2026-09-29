@@ -1,6 +1,6 @@
 import { type ReactNode, useState } from "react";
 import { rxStreamCount, streamLabel } from "../canvas/graph";
-import { agcGainDb, laneAgc } from "../canvas/nodes/deviceNode";
+import { agcGainDb, agcModeDelta, laneAgc, radioAgc } from "../canvas/nodes/deviceNode";
 import type { Capabilities, DeviceSet, ExtraSetting, GainStage, Range } from "../lib/types";
 import { forStream, useDevicePatch } from "../lib/useDevicePatch";
 import { AgcAuto } from "./AgcAuto";
@@ -74,7 +74,7 @@ export function RadioSettings({
   const streamedAntenna = scope?.antenna === true && caps.antennas.length > 1;
   const streamedGain = scope?.gain === true && caps.gains.length > 0;
   const automatic = agcState(caps, settings);
-  const agcModes = caps.agc?.kind === "modes" && automatic.on;
+  const agcModes = caps.agc?.kind === "modes" && radioAgc(active).on;
   const agcOnGain = agcOffered(caps) && caps.gains.length > 0;
   const streams =
     !lanesShown && (streamedAntenna || streamedGain)
@@ -82,17 +82,8 @@ export function RadioSettings({
       : [];
   const patch = (delta: Parameters<typeof applyPatch>[1]): void => applyPatch(active.id, delta);
 
-  return (
-    <Settings className={className}>
-      {lead}
-      <SettingRow label="Rate">
-        <RateControl
-          caps={caps}
-          sampleRate={settings.sample_rate ?? 0}
-          onCommit={(sample_rate) => patch({ sample_rate })}
-        />
-      </SettingRow>
-
+  const shared = (
+    <>
       {hasFilter(caps) && (
         <SettingRow label="Filter" title="Analog bandwidth before the ADC">
           <FilterControl active={active} onCommit={(bandwidth) => patch({ bandwidth })} />
@@ -113,7 +104,12 @@ export function RadioSettings({
 
       {agcOffered(caps) && (!agcOnGain || agcModes) && (
         <SettingRow label="AGC" title="The radio sets its own gain">
-          <AgcControl active={active} toggle={!agcOnGain} onCommit={(agc) => patch({ agc })} />
+          <AgcControl
+            active={active}
+            toggle={!agcOnGain}
+            onCommit={(agc) => patch({ agc })}
+            onMode={(mode) => patch(agcModeDelta(active, mode))}
+          />
         </SettingRow>
       )}
 
@@ -134,12 +130,6 @@ export function RadioSettings({
             onCommit={(db) => patch({ gains: [{ stage: stage.name, value_db: db }] })}
           />
         ))}
-
-      {streams.map((stream) => (
-        <SettingGroup key={stream} label={streamLabel("iq", stream, streams.length)}>
-          <LaneControls active={active} stream={stream} advised={advised.has(stream)} />
-        </SettingGroup>
-      ))}
 
       {caps.bias_tee === true && (
         <SettingRow label="Bias tee" title="Powers an amplifier or active antenna over the coax">
@@ -201,6 +191,47 @@ export function RadioSettings({
           onCommit={(value) => patch({ extra: [{ name: setting.name, value }] })}
         />
       ))}
+    </>
+  );
+
+  return (
+    <Settings className={className}>
+      {lead}
+      <SettingRow label="Rate">
+        <RateControl
+          caps={caps}
+          sampleRate={settings.sample_rate ?? 0}
+          onCommit={(sample_rate) => patch({ sample_rate })}
+        />
+      </SettingRow>
+
+      {(caps.rx_stream_choices?.length ?? 0) > 1 && (
+        <SettingRow label="Lanes" title="Receive lanes streamed. Fewer lanes get more rate each">
+          <Select
+            className={WIDE}
+            label="Lanes"
+            value={caps.rx_streams ?? 1}
+            options={(caps.rx_stream_choices ?? []).map((lanes) => ({
+              value: lanes,
+              label: String(lanes),
+            }))}
+            onChange={(rx_streams) => patch({ rx_streams })}
+          />
+        </SettingRow>
+      )}
+
+      {streams.length > 0 ? (
+        <>
+          {streams.map((stream) => (
+            <SettingGroup key={stream} label={streamLabel("iq", stream, streams.length)}>
+              <LaneControls active={active} stream={stream} advised={advised.has(stream)} />
+            </SettingGroup>
+          ))}
+          <SettingGroup label="All lanes">{shared}</SettingGroup>
+        </>
+      ) : (
+        shared
+      )}
     </Settings>
   );
 }
@@ -370,13 +401,15 @@ function AgcControl({
   active,
   toggle,
   onCommit,
+  onMode,
 }: {
   active: DeviceSet;
   toggle: boolean;
   onCommit: (agc: NonNullable<DeviceSet["settings"]["agc"]>) => void;
+  onMode: (mode: string) => void;
 }) {
   const agc = active.capabilities.agc;
-  const state = agcState(active.capabilities, active.settings);
+  const state = radioAgc(active);
   const modes = agc?.kind === "modes" ? agc.options : [];
   return (
     <>
@@ -394,7 +427,7 @@ function AgcControl({
           value={state.mode ?? ""}
           disabled={!state.on}
           options={modes.map((mode) => ({ value: mode.value, label: mode.label ?? mode.value }))}
-          onChange={(mode) => onCommit({ on: true, mode })}
+          onChange={onMode}
         />
       )}
     </>

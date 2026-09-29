@@ -150,6 +150,13 @@ impl Client {
         take_attr(&mut link, &command, &what)
     }
 
+    pub(crate) fn read_debug_attr(&self, device: &str, attr: &str) -> Result<String, DeviceError> {
+        let mut link = lock(&self.link);
+        let command = proto::read_debug_attr(device, attr);
+        let what = format!("read {device} debug {attr}");
+        take_attr(&mut link, &command, &what)
+    }
+
     pub(crate) fn write_device_attr(
         &self,
         device: &str,

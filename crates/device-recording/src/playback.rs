@@ -93,6 +93,7 @@ impl FilePlayback {
             hardware_sweep: false,
             coherence: sdrmm_wire::Coherence::None,
             noise_source: false,
+            rx_stream_choices: Vec::new(),
         };
         let settings = DeviceSettings {
             center_hz: Some(center_hz),

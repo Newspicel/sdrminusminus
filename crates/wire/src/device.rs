@@ -802,6 +802,8 @@ pub struct Capabilities {
     /// without one it has to be told what to solve against.
     #[serde(default)]
     pub noise_source: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub rx_stream_choices: Vec<u32>,
 }
 
 /// How much of the relationship between two of a radio's receive lanes survives calibration.
@@ -1026,6 +1028,8 @@ pub struct DeviceSettings {
     pub extra: Vec<ExtraValue>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub streams: Vec<StreamSettings>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rx_streams: Option<u32>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, ToSchema)]
@@ -1112,6 +1116,9 @@ impl DeviceSettings {
         if delta.agc.is_some() {
             self.agc.clone_from(&delta.agc);
         }
+        if delta.rx_streams.is_some() {
+            self.rx_streams = delta.rx_streams;
+        }
         merge_gains(&mut self.gains, &delta.gains);
         for extra in &delta.extra {
             match self.extra.iter_mut().find(|e| e.name == extra.name) {
@@ -1187,15 +1194,22 @@ impl DeviceSettings {
                         .antenna
                         .clone()
                         .filter(|a| scope.antenna && capabilities.antennas.contains(a)),
-                    agc: None,
+                    agc: stream
+                        .agc
+                        .clone()
+                        .filter(|agc| scope.agc && capabilities.agc.admits(agc)),
                 })
                 .filter(|stream| {
                     stream.center_hz.is_some()
                         || stream.tuning.is_some()
                         || !stream.gains.is_empty()
                         || stream.antenna.is_some()
+                        || stream.agc.is_some()
                 })
                 .collect(),
+            rx_streams: self
+                .rx_streams
+                .filter(|lanes| capabilities.rx_stream_choices.contains(lanes)),
         }
     }
 
@@ -1357,6 +1371,7 @@ mod tests {
             hardware_sweep: false,
             coherence: Coherence::None,
             noise_source: false,
+            rx_stream_choices: Vec::new(),
         }
     }
 
@@ -1882,6 +1897,37 @@ mod tests {
                 .for_stream(1, &StreamScope::default())
                 .tunes_itself(),
             "a radio with one synthesizer has one tuning mode"
+        );
+    }
+
+    #[test]
+    fn a_lane_count_and_each_lanes_own_agc_survive_replay() {
+        let mut capabilities = tuner(70e6, 6e9);
+        capabilities.agc = Agc::Switch;
+        capabilities.rx_streams = 2;
+        capabilities.rx_stream_choices = vec![1, 2];
+        capabilities.per_stream = StreamScope {
+            agc: true,
+            ..StreamScope::default()
+        };
+        let stored = DeviceSettings {
+            rx_streams: Some(1),
+            streams: vec![StreamSettings {
+                stream: 1,
+                agc: Some(AgcSetting::off()),
+                ..StreamSettings::default()
+            }],
+            ..DeviceSettings::default()
+        };
+        let replayed = stored.supported_by(&capabilities);
+        assert_eq!(replayed.rx_streams, Some(1));
+        assert_eq!(replayed.streams, stored.streams);
+
+        capabilities.rx_stream_choices.clear();
+        assert_eq!(
+            stored.supported_by(&capabilities).rx_streams,
+            None,
+            "a radio with a fixed lane count takes none"
         );
     }
 
