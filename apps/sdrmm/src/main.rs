@@ -10,6 +10,7 @@ use sdrmm_engine::Engine;
 use sdrmm_server::{Config, ServerOptions, serve, tls::Tls};
 
 mod pair;
+mod phone;
 
 #[derive(Parser, Debug)]
 #[command(name = "sdrmm", version, about)]
@@ -22,6 +23,8 @@ struct Args {
     dev_cors: bool,
     #[arg(long)]
     db: Option<PathBuf>,
+    #[arg(long, env = "SDRMM_REMOTE_APP")]
+    remote_app: Option<url::Url>,
     #[arg(long)]
     recordings_dir: Option<PathBuf>,
     #[arg(long, hide = true, default_value_t = 1.0, value_parser = parse_playback_speed)]
@@ -50,16 +53,22 @@ struct Args {
 #[derive(clap::Subcommand, Debug)]
 enum Command {
     #[command(about = "Show a QR code that pairs a phone")]
+    Phone(phone::PhoneArgs),
+    #[command(about = "Pair this server with app.sdrmm.com")]
     Pair(pair::PairArgs),
 }
 
 impl Args {
-    fn pair(&mut self) -> Option<pair::PairArgs> {
-        let Some(Command::Pair(mut pair)) = self.command.take() else {
-            return None;
-        };
-        pair.db = pair.db.or_else(|| self.db.take());
-        Some(pair)
+    fn subcommand(&mut self) -> Option<Command> {
+        let mut command = self.command.take()?;
+        match &mut command {
+            Command::Phone(phone) => phone.db = phone.db.take().or_else(|| self.db.take()),
+            Command::Pair(pair) => {
+                pair.db = pair.db.take().or_else(|| self.db.take());
+                pair.remote_app = pair.remote_app.take().or_else(|| self.remote_app.take());
+            }
+        }
+        Some(command)
     }
 }
 
@@ -129,8 +138,13 @@ fn main() -> ExitCode {
 }
 
 fn run(mut args: Args) -> anyhow::Result<()> {
-    if let Some(pair) = args.pair() {
-        return pair::run(pair);
+    match args.subcommand() {
+        Some(Command::Phone(phone)) => return phone::run(phone),
+        Some(Command::Pair(pair)) => {
+            sdrmm_server::diagnostics::install_tracing()?;
+            return pair::run(pair);
+        }
+        None => {}
     }
     sdrmm_server::diagnostics::install_tracing()?;
     let db_path = resolve_db_path(args.db.take())?;
@@ -173,6 +187,7 @@ fn run(mut args: Args) -> anyhow::Result<()> {
             dev_cors: args.dev_cors,
             token: args.token,
             shell: None,
+            remote_app: args.remote_app,
         },
     };
     serve_until_stopped(config, engine)
@@ -368,38 +383,81 @@ mod tests {
     }
 
     #[test]
-    fn pair_parses_its_flags() {
-        let args = Args::try_parse_from(["sdrmm", "pair", "--db", "x", "--name", "y", "--plain"])
+    fn phone_parses_its_flags() {
+        let args = Args::try_parse_from(["sdrmm", "phone", "--db", "x", "--name", "y", "--plain"])
             .expect("parse");
-        let Some(Command::Pair(pair)) = args.command else {
-            panic!("no pair command");
+        let Some(Command::Phone(phone)) = args.command else {
+            panic!("no phone command");
         };
-        assert_eq!(pair.db, Some(PathBuf::from("x")));
-        assert_eq!(pair.name.as_deref(), Some("y"));
-        assert!(pair.plain);
-        let bare = Args::try_parse_from(["sdrmm", "pair"]).expect("parse");
-        let Some(Command::Pair(bare)) = bare.command else {
-            panic!("no pair command");
+        assert_eq!(phone.db, Some(PathBuf::from("x")));
+        assert_eq!(phone.name.as_deref(), Some("y"));
+        assert!(phone.plain);
+        let bare = Args::try_parse_from(["sdrmm", "phone"]).expect("parse");
+        let Some(Command::Phone(bare)) = bare.command else {
+            panic!("no phone command");
         };
         assert_eq!((bare.db, bare.name, bare.plain), (None, None, false));
     }
 
+    fn phone_db(args: &mut Args) -> Option<PathBuf> {
+        match args.subcommand() {
+            Some(Command::Phone(phone)) => phone.db,
+            _ => None,
+        }
+    }
+
     #[test]
-    fn pair_reads_the_server_db_flag() {
-        let mut args = Args::try_parse_from(["sdrmm", "--db", "x", "pair"]).expect("parse");
-        assert_eq!(
-            args.pair().and_then(|pair| pair.db),
-            Some(PathBuf::from("x"))
-        );
+    fn phone_reads_the_server_db_flag() {
+        let mut args = Args::try_parse_from(["sdrmm", "--db", "x", "phone"]).expect("parse");
+        assert_eq!(phone_db(&mut args), Some(PathBuf::from("x")));
         let mut own =
-            Args::try_parse_from(["sdrmm", "--db", "x", "pair", "--db", "y"]).expect("parse");
-        assert_eq!(
-            own.pair().and_then(|pair| pair.db),
-            Some(PathBuf::from("y"))
-        );
+            Args::try_parse_from(["sdrmm", "--db", "x", "phone", "--db", "y"]).expect("parse");
+        assert_eq!(phone_db(&mut own), Some(PathBuf::from("y")));
         let mut server = Args::try_parse_from(["sdrmm", "--db", "x"]).expect("parse");
-        assert!(server.pair().is_none());
+        assert!(server.subcommand().is_none());
         assert_eq!(server.db, Some(PathBuf::from("x")));
+    }
+
+    #[test]
+    fn pair_links_the_app_and_reads_the_server_flags() {
+        let serve = Args::try_parse_from(["sdrmm"]).expect("parse");
+        assert!(serve.command.is_none());
+        assert!(serve.remote_app.is_none());
+        let mut own = Args::try_parse_from([
+            "sdrmm",
+            "pair",
+            "--db",
+            "x.db",
+            "--remote-app",
+            "http://localhost:5173",
+        ])
+        .expect("parse");
+        let Some(Command::Pair(pair)) = own.subcommand() else {
+            panic!("no pair command");
+        };
+        assert_eq!(pair.db, Some(PathBuf::from("x.db")));
+        assert_eq!(
+            pair.remote_app.map(|url| url.to_string()).as_deref(),
+            Some("http://localhost:5173/")
+        );
+        let mut server = Args::try_parse_from([
+            "sdrmm",
+            "--db",
+            "y.db",
+            "--remote-app",
+            "http://localhost:4000",
+            "pair",
+        ])
+        .expect("parse");
+        let Some(Command::Pair(pair)) = server.subcommand() else {
+            panic!("no pair command");
+        };
+        assert_eq!(pair.db, Some(PathBuf::from("y.db")));
+        assert_eq!(
+            pair.remote_app.map(|url| url.to_string()).as_deref(),
+            Some("http://localhost:4000/")
+        );
+        assert!(Args::try_parse_from(["sdrmm", "--remote-app", "not a url"]).is_err());
     }
 
     #[test]

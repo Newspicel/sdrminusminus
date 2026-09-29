@@ -14,6 +14,7 @@ const CARGO_LOCK: &str = "Cargo.lock";
 const REV_MARKER: &str = "# git rev ";
 const FAKE_HASH: &str = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
 const IMAGE: &str = "nixos/nix:latest";
+const SYSTEMS: [&str; 2] = ["aarch64-linux", "x86_64-linux"];
 
 pub fn check(root: &Path) -> Result<()> {
     let text = read_package(root)?;
@@ -22,11 +23,12 @@ pub fn check(root: &Path) -> Result<()> {
 }
 
 pub fn run(root: &Path) -> Result<()> {
-    let system = linux_system()?;
     let runner = Runner::find()?;
-    println!("$ {} ({system})", runner.describe());
-    take_pnpm_hash(&runner, root, system)?;
-    take_git_hashes(&runner, root, system)
+    for system in SYSTEMS {
+        println!("$ {} ({system})", runner.describe());
+        take_pnpm_hash(&runner, root, system)?;
+    }
+    take_git_hashes(&runner, root, linux_system()?)
 }
 
 fn check_lockfile(text: &str, current: &str) -> Result<()> {
@@ -94,13 +96,13 @@ fn check_revisions(text: &str, lock: &str) -> Result<()> {
 fn take_pnpm_hash(runner: &Runner, root: &Path, system: &str) -> Result<()> {
     let text = read_package(root)?;
     let attribute = format!(".#packages.{system}.default.pnpmDeps");
-    let updated = match runner.build(root, &attribute)? {
+    let updated = match runner.build(root, system, &attribute)? {
         Some(mismatch) => {
-            println!("nix pnpm deps: {}", mismatch.hash);
-            replace_hash(&text, &mismatch.hash)?
+            println!("nix pnpm deps ({system}): {}", mismatch.hash);
+            replace_hash(&text, system, &mismatch.hash)?
         }
         None => {
-            println!("nix pnpm deps: the recorded hash already matches");
+            println!("nix pnpm deps ({system}): the recorded hash already matches");
             text
         }
     };
@@ -118,7 +120,7 @@ fn take_git_hashes(runner: &Runner, root: &Path, system: &str) -> Result<()> {
     let attribute = format!(".#packages.{system}.default.cargoDeps");
     for _ in 0..=sources.len() {
         let text = read_package(root)?;
-        let Some(mismatch) = runner.build(root, &attribute)? else {
+        let Some(mismatch) = runner.build(root, system, &attribute)? else {
             let recorded = record_revisions(&text, &sources)?;
             write_package(root, &recorded)?;
             println!("nix cargo git deps: hashes taken from the current {CARGO_LOCK}");
@@ -162,7 +164,7 @@ impl Runner {
         }
     }
 
-    fn build(&self, root: &Path, attribute: &str) -> Result<Option<Mismatch>> {
+    fn build(&self, root: &Path, system: &str, attribute: &str) -> Result<Option<Mismatch>> {
         let nix = format!(
             "nix --extra-experimental-features 'nix-command flakes' build --no-link \
              --print-out-paths '{attribute}'"
@@ -177,6 +179,8 @@ impl Runner {
                 .args([
                     "run",
                     "--rm",
+                    "--platform",
+                    docker_platform(system)?,
                     "-v",
                     &format!("{}:/work", root.display()),
                     "-w",
@@ -284,14 +288,23 @@ fn recorded_digest(text: &str) -> Option<String> {
     (digest.len() == 64).then_some(digest)
 }
 
-fn replace_hash(text: &str, hash: &str) -> Result<String> {
+fn docker_platform(system: &str) -> Result<&'static str> {
+    match system {
+        "aarch64-linux" => Ok("linux/arm64"),
+        "x86_64-linux" => Ok("linux/amd64"),
+        other => bail!("the flake builds aarch64-linux and x86_64-linux, not {other}"),
+    }
+}
+
+fn replace_hash(text: &str, system: &str, hash: &str) -> Result<String> {
+    let key = format!("        {system} = \"");
     let (before, rest) = text
-        .split_once("    hash = \"")
-        .context("packaging/nix/package.nix declares no pnpm deps hash")?;
+        .split_once(&key)
+        .with_context(|| format!("{PACKAGE_NIX} declares no pnpm deps hash for {system}"))?;
     let (_, after) = rest
         .split_once('"')
         .context("the pnpm deps hash is not a closed string")?;
-    Ok(format!("{before}    hash = \"{hash}\"{after}"))
+    Ok(format!("{before}{key}{hash}\"{after}"))
 }
 
 fn replace_marker(text: &str, digest: &str) -> Result<String> {
@@ -308,7 +321,7 @@ fn replace_marker(text: &str, digest: &str) -> Result<String> {
             Ok(format!("{head}{line}{after}"))
         }
         None => {
-            let anchor = "    hash = \"";
+            let anchor = "    hash =\n";
             let (before, after) = text
                 .split_once(anchor)
                 .context("packaging/nix/package.nix declares no pnpm deps hash")?;
@@ -501,8 +514,10 @@ fn derivation_name(line: &str) -> Option<String> {
 mod tests {
     use super::*;
 
-    const PACKAGE: &str = "  pnpmDeps = fetchPnpmDeps {\n    fetcherVersion = 4;\n    hash = \
-                           \"sha256-old=\";\n  };\n  pnpmRoot = \"web\";\n";
+    const PACKAGE: &str = "  pnpmDeps = fetchPnpmDeps {\n    fetcherVersion = 4;\n    hash =\n      \
+                           {\n        aarch64-linux = \"sha256-arm=\";\n        x86_64-linux = \
+                           \"sha256-x86=\";\n      }\n      .${stdenv.hostPlatform.system};\n  };\n  \
+                           pnpmRoot = \"web\";\n";
 
     const PINNED: &str = "  cargoLock = {\n    lockFile = ../../Cargo.lock;\n    outputHashes = \
                           {\n      # git rev aaaaaaaabbbbbbbbccccccccddddddddeeeeeeee\n      \
@@ -545,13 +560,14 @@ mod tests {
             Some("b".repeat(64).as_str())
         );
         assert_eq!(twice.matches(MARKER).count(), 1);
-        assert!(twice.contains("    hash = \"sha256-old=\";"));
+        assert!(twice.contains(&format!("    {MARKER}{}\n    hash =\n", "b".repeat(64))));
     }
 
     #[test]
-    fn replaces_the_hash_and_nothing_around_it() {
-        let updated = replace_hash(PACKAGE, "sha256-new=").expect("hash");
-        assert!(updated.contains("    hash = \"sha256-new=\";"));
+    fn replaces_one_systems_hash_and_nothing_around_it() {
+        let updated = replace_hash(PACKAGE, "x86_64-linux", "sha256-new=").expect("hash");
+        assert!(updated.contains("        x86_64-linux = \"sha256-new=\";"));
+        assert!(updated.contains("        aarch64-linux = \"sha256-arm=\";"));
         assert!(updated.contains("fetcherVersion = 4;"));
         assert!(updated.ends_with("  pnpmRoot = \"web\";\n"));
     }

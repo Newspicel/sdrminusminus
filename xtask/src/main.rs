@@ -39,6 +39,8 @@ mod sums;
 mod units;
 mod updater;
 
+const HOMEPAGE: &str = "https://sdrmm.com";
+
 #[derive(Parser)]
 #[command(name = "xtask", about = "SDR-- workspace tasks")]
 struct Cli {
@@ -704,6 +706,9 @@ fn check_toolchain_pins(root: &Path) -> Result<()> {
             "node-version",
         )?,
     ));
+
+    let workers = "site/.node-version";
+    node.push((workers.to_string(), file(workers)?.trim().to_string()));
 
     agree("pnpm", &pnpm)?;
     agree("the Node major", &node)

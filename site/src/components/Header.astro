@@ -1,0 +1,290 @@
+---
+import { COMMUNITY, DOWNLOAD, isCurrent, PRIMARY } from "../nav";
+import SignIn from "./SignIn.astro";
+
+const current = (href: string) => (isCurrent(href, Astro.url.pathname) ? "page" : undefined);
+---
+
+<header class="bar">
+  <div class="wrap">
+    <a class="mark" href="/"><img src="/icon.svg" alt="" width="24" height="24" />SDR--</a>
+    <nav class="links" aria-label="Main">
+      <ul>
+        {PRIMARY.map((link) => <li><a href={link.href} aria-current={current(link.href)}>{link.label}</a></li>)}
+      </ul>
+      <ul class="community">
+        {COMMUNITY.map((link) => <li><a href={link.href}>{link.label}</a></li>)}
+      </ul>
+    </nav>
+    <div class="act">
+      <button type="button" class="signin-button" popovertarget="signin">Sign in</button>
+      <a class="get" href={DOWNLOAD.href} aria-current={current(DOWNLOAD.href)}>{DOWNLOAD.label}</a>
+      <button type="button" class="menu-button" popovertarget="menu" aria-label="Menu">
+        <svg viewBox="0 0 20 20" aria-hidden="true"><path class="top" d="M3 7h14" /><path class="bottom" d="M3 13h14" /></svg>
+      </button>
+    </div>
+  </div>
+</header>
+
+<div id="signin" class="signin-pop" popover>
+  <SignIn />
+</div>
+
+<nav id="menu" class="menu" popover aria-label="Menu">
+  <ul>
+    {PRIMARY.map((link) => <li><a href={link.href} aria-current={current(link.href)}>{link.label}</a></li>)}
+  </ul>
+  <ul class="community">
+    {COMMUNITY.map((link) => <li><a href={link.href}>{link.label}</a></li>)}
+  </ul>
+  <SignIn />
+</nav>
+
+<style>
+  .bar {
+    position: sticky;
+    top: 0;
+    z-index: 5;
+    background: color-mix(in oklab, var(--base) 82%, transparent);
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid color-mix(in oklab, var(--line) 60%, transparent);
+  }
+  .bar .wrap {
+    display: flex;
+    align-items: center;
+    gap: 32px;
+    height: 60px;
+  }
+  .mark {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font: 600 15px var(--display);
+    color: var(--ink);
+    text-decoration: none;
+  }
+  .mark img {
+    display: block;
+  }
+
+  ul {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .links {
+    display: flex;
+    flex: 1;
+    align-items: center;
+    justify-content: space-between;
+    gap: 24px;
+  }
+  .links ul {
+    display: flex;
+    gap: 24px;
+  }
+  .links a {
+    font-size: 15px;
+    color: var(--ink-dim);
+    text-decoration: none;
+  }
+  .links a:hover,
+  .links a[aria-current] {
+    color: var(--ink);
+  }
+  .links a[aria-current] {
+    text-decoration: underline;
+    text-decoration-color: var(--accent);
+    text-decoration-thickness: 2px;
+    text-underline-offset: 21px;
+  }
+  .links .community a {
+    color: var(--ink-faint);
+  }
+  .links .community a:hover {
+    color: var(--ink);
+  }
+
+  .act {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding-left: 24px;
+    border-left: 1px solid var(--line);
+  }
+  .signin-button,
+  .get,
+  .menu-button {
+    display: inline-flex;
+    align-items: center;
+    height: 32px;
+    padding-inline: 14px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    font: 500 14px var(--sans);
+    text-decoration: none;
+    cursor: pointer;
+  }
+  .signin-button {
+    background: none;
+    color: var(--ink-dim);
+  }
+  .signin-button:hover {
+    color: var(--ink);
+    border-color: var(--line-strong);
+  }
+  .get {
+    border-color: var(--accent);
+    background: var(--accent);
+    color: var(--on-accent);
+    font-weight: 600;
+    box-shadow: var(--shadow-raised);
+  }
+  .get:hover {
+    filter: brightness(1.05);
+  }
+  .menu-button {
+    display: none;
+    width: 40px;
+    height: 40px;
+    padding: 0;
+    justify-content: center;
+    background: var(--panel);
+    color: var(--ink);
+  }
+  .menu-button svg {
+    width: 20px;
+    height: 20px;
+    overflow: visible;
+  }
+  .menu-button path {
+    stroke: currentColor;
+    stroke-width: 1.6;
+    stroke-linecap: round;
+    transform-box: view-box;
+    transition: transform 0.18s;
+  }
+  .menu-button .top {
+    transform-origin: 10px 7px;
+  }
+  .menu-button .bottom {
+    transform-origin: 10px 13px;
+  }
+  .bar:has(~ .menu:popover-open) .top {
+    transform: translateY(3px) rotate(45deg);
+  }
+  .bar:has(~ .menu:popover-open) .bottom {
+    transform: translateY(-3px) rotate(-45deg);
+  }
+
+  .signin-pop,
+  .menu {
+    margin: 0;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--ink);
+    overflow: visible;
+  }
+  .signin-pop {
+    inset: 68px max(var(--pad), calc((100vw - 1180px) / 2 + var(--pad))) auto auto;
+    width: min(340px, calc(100vw - 2 * var(--pad)));
+  }
+
+  .menu {
+    inset: 60px 0 auto;
+    width: auto;
+    max-height: calc(100dvh - 60px);
+    overflow-y: auto;
+    padding: 4px var(--pad) 28px;
+    border-bottom: 1px solid var(--line);
+    background: var(--base);
+  }
+  .menu::backdrop {
+    top: 60px;
+    background: oklch(0 0 0 / 0.55);
+  }
+  .menu li + li {
+    border-top: 1px solid var(--line);
+  }
+  .menu a {
+    display: flex;
+    align-items: center;
+    min-height: 52px;
+    font-size: 17px;
+    color: var(--ink);
+    text-decoration: none;
+  }
+  .menu a[aria-current] {
+    color: var(--accent);
+  }
+  .menu .community {
+    display: flex;
+    gap: 24px;
+    margin: 4px 0 20px;
+    padding-top: 4px;
+    border-top: 1px solid var(--line);
+  }
+  .menu .community li + li {
+    border-top: 0;
+  }
+  .menu .community a {
+    color: var(--ink-dim);
+    font-size: 15px;
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .signin-pop,
+    .menu {
+      transition:
+        opacity 0.15s,
+        translate 0.15s,
+        display 0.15s allow-discrete,
+        overlay 0.15s allow-discrete;
+    }
+    .signin-pop:not(:popover-open),
+    .menu:not(:popover-open) {
+      opacity: 0;
+      translate: 0 -6px;
+    }
+    @starting-style {
+      .signin-pop:popover-open,
+      .menu:popover-open {
+        opacity: 0;
+        translate: 0 -6px;
+      }
+    }
+  }
+
+  @media (max-width: 960px) {
+    .links,
+    .signin-button {
+      display: none;
+    }
+    .mark {
+      margin-right: auto;
+    }
+    .act {
+      padding-left: 0;
+      border-left: 0;
+    }
+    .menu-button {
+      display: inline-flex;
+    }
+  }
+
+  @media (min-width: 961px) {
+    .menu {
+      display: none;
+    }
+  }
+</style>
+
+<script>
+  const menu = document.querySelector<HTMLElement>("#menu");
+  menu?.addEventListener("click", (event) => {
+    if (event.target instanceof Element && event.target.closest("a") !== null) {
+      menu.hidePopover();
+    }
+  });
+</script>

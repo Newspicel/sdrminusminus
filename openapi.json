@@ -472,6 +472,16 @@
           "204": {
             "description": "The file is selected in the machine's file manager"
           },
+          "403": {
+            "description": "Asked through remote access",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
           "404": {
             "description": "Audio recording not found, or this server has no file manager",
             "content": {
@@ -3966,6 +3976,16 @@
           "204": {
             "description": "The recordings folder is open in the machine's file manager"
           },
+          "403": {
+            "description": "Asked through remote access",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
           "404": {
             "description": "Nothing is recorded to disk, or this server has no file manager",
             "content": {
@@ -4171,8 +4191,100 @@
           "204": {
             "description": "The recording is selected in the machine's file manager"
           },
+          "403": {
+            "description": "Asked through remote access",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
           "404": {
             "description": "Recording not found, or this server has no file manager",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/remote": {
+      "get": {
+        "operationId": "get_remote",
+        "responses": {
+          "200": {
+            "description": "Remote access through the app",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RemoteStatus"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "operationId": "unpair_remote",
+        "responses": {
+          "204": {
+            "description": "Remote access is off and the pairing forgotten"
+          },
+          "403": {
+            "description": "Asked through remote access",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/remote/pair": {
+      "post": {
+        "operationId": "pair_remote",
+        "responses": {
+          "200": {
+            "description": "A code to approve in the app",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RemoteStatus"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Asked through remote access",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Already paired",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "The app refused or could not be reached",
             "content": {
               "application/json": {
                 "schema": {
@@ -6296,10 +6408,10 @@
           "code": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/ErrorCode"
               },
               {
-                "$ref": "#/components/schemas/ErrorCode"
+                "type": "null"
               }
             ]
           },
@@ -6463,10 +6575,10 @@
           "range": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/Range"
               },
               {
-                "$ref": "#/components/schemas/Range"
+                "type": "null"
               }
             ]
           },
@@ -6521,11 +6633,7 @@
             "default": false
           },
           "source": {
-            "oneOf": [
-              {
-                "$ref": "#/components/schemas/ArrayCalSource"
-              }
-            ],
+            "$ref": "#/components/schemas/ArrayCalSource",
             "default": {
               "kind": "noise"
             }
@@ -7214,11 +7322,7 @@
         "type": "object",
         "properties": {
           "cal": {
-            "oneOf": [
-              {
-                "$ref": "#/components/schemas/ArrayCal"
-              }
-            ],
+            "$ref": "#/components/schemas/ArrayCal",
             "default": {
               "check_s": 60,
               "equaliser": false,
@@ -7229,19 +7333,11 @@
             }
           },
           "declared": {
-            "oneOf": [
-              {
-                "$ref": "#/components/schemas/Coherence"
-              }
-            ],
+            "$ref": "#/components/schemas/Coherence",
             "default": "time_sync"
           },
           "geometry": {
-            "oneOf": [
-              {
-                "$ref": "#/components/schemas/ArrayGeometry"
-              }
-            ],
+            "$ref": "#/components/schemas/ArrayGeometry",
             "default": {
               "first_deg": 0.0,
               "kind": "uca",
@@ -7250,22 +7346,14 @@
             }
           },
           "orientation": {
-            "oneOf": [
-              {
-                "$ref": "#/components/schemas/ArrayOrientation"
-              }
-            ],
+            "$ref": "#/components/schemas/ArrayOrientation",
             "default": {
               "azimuth_deg": 0.0,
               "kind": "fixed"
             }
           },
           "tuning": {
-            "oneOf": [
-              {
-                "$ref": "#/components/schemas/ArrayTuningMode"
-              }
-            ],
+            "$ref": "#/components/schemas/ArrayTuningMode",
             "default": "together"
           }
         }
@@ -7433,10 +7521,10 @@
           "failure": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/ArrayFailure"
               },
               {
-                "$ref": "#/components/schemas/ArrayFailure"
+                "type": "null"
               }
             ]
           },
@@ -7453,10 +7541,10 @@
           "gain_range_db": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/Range"
               },
               {
-                "$ref": "#/components/schemas/Range"
+                "type": "null"
               }
             ]
           },
@@ -7468,10 +7556,10 @@
           "heading_source": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/HeadingSource"
               },
               {
-                "$ref": "#/components/schemas/HeadingSource"
+                "type": "null"
               }
             ]
           },
@@ -7503,10 +7591,10 @@
           "position": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/LatLon"
               },
               {
-                "$ref": "#/components/schemas/LatLon"
+                "type": "null"
               }
             ]
           },
@@ -7524,10 +7612,10 @@
           "recording": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/ArrayRecordingStatus"
               },
               {
-                "$ref": "#/components/schemas/ArrayRecordingStatus"
+                "type": "null"
               }
             ]
           },
@@ -7585,10 +7673,10 @@
           "gain": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/ArrayGain"
               },
               {
-                "$ref": "#/components/schemas/ArrayGain"
+                "type": "null"
               }
             ]
           }
@@ -7621,10 +7709,10 @@
           "heading_source": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/HeadingSource"
               },
               {
-                "$ref": "#/components/schemas/HeadingSource"
+                "type": "null"
               }
             ]
           },
@@ -7917,6 +8005,12 @@
           "token_required"
         ],
         "properties": {
+          "login_url": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "token_required": {
             "type": "boolean"
           }
@@ -7994,10 +8088,10 @@
           "suggested": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/ChannelParams"
               },
               {
-                "$ref": "#/components/schemas/ChannelParams"
+                "type": "null"
               }
             ]
           }
@@ -8365,11 +8459,7 @@
         "type": "object",
         "properties": {
           "adaptation": {
-            "oneOf": [
-              {
-                "$ref": "#/components/schemas/Adaptation"
-              }
-            ],
+            "$ref": "#/components/schemas/Adaptation",
             "default": "nlms"
           },
           "auto_nulls": {
@@ -8412,19 +8502,11 @@
             "minimum": 0
           },
           "mode": {
-            "oneOf": [
-              {
-                "$ref": "#/components/schemas/BeamMode"
-              }
-            ],
+            "$ref": "#/components/schemas/BeamMode",
             "default": "mrc"
           },
           "noise": {
-            "oneOf": [
-              {
-                "$ref": "#/components/schemas/NoiseModel"
-              }
-            ],
+            "$ref": "#/components/schemas/NoiseModel",
             "default": "measured"
           },
           "nulls_deg": {
@@ -8450,11 +8532,7 @@
             "default": []
           },
           "steer": {
-            "oneOf": [
-              {
-                "$ref": "#/components/schemas/SteerSource"
-              }
-            ],
+            "$ref": "#/components/schemas/SteerSource",
             "default": {
               "kind": "wired"
             }
@@ -9003,10 +9081,10 @@
           "directional": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/DirectionalCapabilities"
               },
               {
-                "$ref": "#/components/schemas/DirectionalCapabilities"
+                "type": "null"
               }
             ]
           },
@@ -9122,10 +9200,10 @@
           "image": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/EventImage"
               },
               {
-                "$ref": "#/components/schemas/EventImage"
+                "type": "null"
               }
             ]
           },
@@ -9253,11 +9331,7 @@
             "minimum": 0
           },
           "kind": {
-            "oneOf": [
-              {
-                "$ref": "#/components/schemas/CfarKind"
-              }
-            ],
+            "$ref": "#/components/schemas/CfarKind",
             "default": {
               "kind": "ca"
             }
@@ -9295,11 +9369,7 @@
             "minimum": 0
           },
           "window": {
-            "oneOf": [
-              {
-                "$ref": "#/components/schemas/CfarWindow"
-              }
-            ],
+            "$ref": "#/components/schemas/CfarWindow",
             "default": "range"
           }
         }
@@ -9498,11 +9568,11 @@
           "defaults": {
             "oneOf": [
               {
-                "type": "null"
-              },
-              {
                 "$ref": "#/components/schemas/ChannelSettings",
                 "description": "What a fresh channel of this type starts on, so a node can show and edit its settings\nbefore any radio is open to carry it."
+              },
+              {
+                "type": "null"
               }
             ]
           },
@@ -9558,10 +9628,10 @@
           "baseband_recording": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/RecordingStatus"
               },
               {
-                "$ref": "#/components/schemas/RecordingStatus"
+                "type": "null"
               }
             ]
           },
@@ -9573,10 +9643,10 @@
           "network_export": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/NetworkExportStatus"
               },
               {
-                "$ref": "#/components/schemas/NetworkExportStatus"
+                "type": "null"
               }
             ]
           },
@@ -11060,10 +11130,10 @@
                   "fix": {
                     "oneOf": [
                       {
-                        "type": "null"
+                        "$ref": "#/components/schemas/PositionFix"
                       },
                       {
-                        "$ref": "#/components/schemas/PositionFix"
+                        "type": "null"
                       }
                     ]
                   }
@@ -11093,10 +11163,10 @@
                   "fit": {
                     "oneOf": [
                       {
-                        "type": "null"
+                        "$ref": "#/components/schemas/SurfaceFit"
                       },
                       {
-                        "$ref": "#/components/schemas/SurfaceFit"
+                        "type": "null"
                       }
                     ]
                   },
@@ -11195,11 +11265,7 @@
             "default": 0.00009999999747378752
           },
           "method": {
-            "oneOf": [
-              {
-                "$ref": "#/components/schemas/ClutterMethod"
-              }
-            ],
+            "$ref": "#/components/schemas/ClutterMethod",
             "default": "eca_batch"
           },
           "reach_km": {
@@ -11869,20 +11935,20 @@
           "radio": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/RadioIdent"
               },
               {
-                "$ref": "#/components/schemas/RadioIdent"
+                "type": "null"
               }
             ]
           },
           "report": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/ConversionReport"
               },
               {
-                "$ref": "#/components/schemas/ConversionReport"
+                "type": "null"
               }
             ]
           },
@@ -12300,10 +12366,10 @@
           "snapshot": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/WorkspaceSnapshot"
               },
               {
-                "$ref": "#/components/schemas/WorkspaceSnapshot"
+                "type": "null"
               }
             ]
           }
@@ -12600,10 +12666,10 @@
           "origin": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/EventOrigin"
               },
               {
-                "$ref": "#/components/schemas/EventOrigin"
+                "type": "null"
               }
             ]
           },
@@ -13402,10 +13468,10 @@
           "origin": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/EventOrigin"
               },
               {
-                "$ref": "#/components/schemas/EventOrigin"
+                "type": "null"
               }
             ]
           },
@@ -13579,10 +13645,10 @@
           "identity": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/DectIdentity"
               },
               {
-                "$ref": "#/components/schemas/DectIdentity"
+                "type": "null"
               }
             ]
           },
@@ -13900,10 +13966,10 @@
           "profile": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/DeviceProfile"
               },
               {
-                "$ref": "#/components/schemas/DeviceProfile"
+                "type": "null"
               }
             ]
           },
@@ -13921,10 +13987,10 @@
           "device": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/DeviceRef"
               },
               {
-                "$ref": "#/components/schemas/DeviceRef"
+                "type": "null"
               }
             ]
           },
@@ -14060,10 +14126,10 @@
           "fault": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/DeviceFault"
               },
               {
-                "$ref": "#/components/schemas/DeviceFault"
+                "type": "null"
               }
             ]
           },
@@ -14088,10 +14154,10 @@
           "network_export": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/NetworkExportStatus"
               },
               {
-                "$ref": "#/components/schemas/NetworkExportStatus"
+                "type": "null"
               }
             ]
           },
@@ -14103,30 +14169,30 @@
           "playback": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/PlaybackStatus"
               },
               {
-                "$ref": "#/components/schemas/PlaybackStatus"
+                "type": "null"
               }
             ]
           },
           "recording": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/RecordingStatus"
               },
               {
-                "$ref": "#/components/schemas/RecordingStatus"
+                "type": "null"
               }
             ]
           },
           "refused": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/SettingsRefused"
               },
               {
-                "$ref": "#/components/schemas/SettingsRefused"
+                "type": "null"
               }
             ]
           },
@@ -14146,10 +14212,10 @@
           "time_machine": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/TimeMachineStatus"
               },
               {
-                "$ref": "#/components/schemas/TimeMachineStatus"
+                "type": "null"
               }
             ]
           },
@@ -14175,10 +14241,10 @@
           "agc": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/AgcSetting"
               },
               {
-                "$ref": "#/components/schemas/AgcSetting"
+                "type": "null"
               }
             ]
           },
@@ -14191,10 +14257,10 @@
           "bandwidth": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/BandwidthSetting"
               },
               {
-                "$ref": "#/components/schemas/BandwidthSetting"
+                "type": "null"
               }
             ]
           },
@@ -14259,10 +14325,10 @@
           "tuning": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/Tuning"
               },
               {
-                "$ref": "#/components/schemas/Tuning"
+                "type": "null"
               }
             ]
           }
@@ -14464,10 +14530,10 @@
           "estimate": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/DfEstimate"
               },
               {
-                "$ref": "#/components/schemas/DfEstimate"
+                "type": "null"
               }
             ]
           },
@@ -14479,10 +14545,10 @@
           "nav": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/NavTarget"
               },
               {
-                "$ref": "#/components/schemas/NavTarget"
+                "type": "null"
               }
             ]
           },
@@ -14537,10 +14603,10 @@
           "position": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/PositionLink"
               },
               {
-                "$ref": "#/components/schemas/PositionLink"
+                "type": "null"
               }
             ]
           },
@@ -14586,11 +14652,7 @@
         "type": "object",
         "properties": {
           "algorithm": {
-            "oneOf": [
-              {
-                "$ref": "#/components/schemas/DfAlgorithm"
-              }
-            ],
+            "$ref": "#/components/schemas/DfAlgorithm",
             "default": "music"
           },
           "azimuth_step_deg": {
@@ -14645,11 +14707,7 @@
             "minimum": 0
           },
           "source_rule": {
-            "oneOf": [
-              {
-                "$ref": "#/components/schemas/SourceRule"
-              }
-            ],
+            "$ref": "#/components/schemas/SourceRule",
             "default": "dominance"
           },
           "sources": {
@@ -14674,11 +14732,7 @@
             "default": null
           },
           "ula_side": {
-            "oneOf": [
-              {
-                "$ref": "#/components/schemas/UlaSide"
-              }
-            ],
+            "$ref": "#/components/schemas/UlaSide",
             "default": "both"
           },
           "yaw_gate_dps": {
@@ -14881,10 +14935,10 @@
           "station": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/LatLon"
               },
               {
-                "$ref": "#/components/schemas/LatLon"
+                "type": "null"
               }
             ]
           },
@@ -15390,10 +15444,10 @@
           "channel_definition": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/DvChannelDefinition"
               },
               {
-                "$ref": "#/components/schemas/DvChannelDefinition"
+                "type": "null"
               }
             ]
           },
@@ -15598,20 +15652,20 @@
           "trunk_protocol": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/DvTrunkProtocol"
               },
               {
-                "$ref": "#/components/schemas/DvTrunkProtocol"
+                "type": "null"
               }
             ]
           },
           "vendor": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/Vendor"
               },
               {
-                "$ref": "#/components/schemas/Vendor"
+                "type": "null"
               }
             ]
           },
@@ -15698,7 +15752,12 @@
       "DvbtBandwidth": {
         "type": "string",
         "enum": [
+          "khz250",
+          "khz333",
+          "khz500",
+          "mhz1",
           "mhz1_7",
+          "mhz2",
           "mhz5",
           "mhz10",
           "mhz6",
@@ -15809,6 +15868,7 @@
           "engine",
           "storage",
           "tool",
+          "forbidden",
           "internal",
           "auth",
           "rate_limited"
@@ -16381,10 +16441,10 @@
           "rx_tone": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/Tone"
               },
               {
-                "$ref": "#/components/schemas/Tone"
+                "type": "null"
               }
             ]
           },
@@ -16399,10 +16459,10 @@
           "tx_tone": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/Tone"
               },
               {
-                "$ref": "#/components/schemas/Tone"
+                "type": "null"
               }
             ]
           }
@@ -16716,10 +16776,10 @@
           "source": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/PositionSource"
               },
               {
-                "$ref": "#/components/schemas/PositionSource"
+                "type": "null"
               }
             ]
           }
@@ -16822,30 +16882,30 @@
           "position": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/PositionLink"
               },
               {
-                "$ref": "#/components/schemas/PositionLink"
+                "type": "null"
               }
             ]
           },
           "status": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/HuntStatus"
               },
               {
-                "$ref": "#/components/schemas/HuntStatus"
+                "type": "null"
               }
             ]
           },
           "target": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/ChannelTarget"
               },
               {
-                "$ref": "#/components/schemas/ChannelTarget"
+                "type": "null"
               }
             ]
           },
@@ -16880,10 +16940,10 @@
           "settings": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/HuntSettings"
               },
               {
-                "$ref": "#/components/schemas/HuntSettings"
+                "type": "null"
               }
             ]
           }
@@ -16993,10 +17053,10 @@
           "sweep": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/HuntSweep"
               },
               {
-                "$ref": "#/components/schemas/HuntSweep"
+                "type": "null"
               }
             ]
           }
@@ -17273,10 +17333,10 @@
           "sideband": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/Sideband"
               },
               {
-                "$ref": "#/components/schemas/Sideband"
+                "type": "null"
               }
             ]
           },
@@ -18232,10 +18292,10 @@
           "workspace": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/MissionWorkspace"
               },
               {
-                "$ref": "#/components/schemas/MissionWorkspace"
+                "type": "null"
               }
             ]
           },
@@ -18499,10 +18559,10 @@
               "range": {
                 "oneOf": [
                   {
-                    "type": "null"
+                    "$ref": "#/components/schemas/NanoVnaSweepState"
                   },
                   {
-                    "$ref": "#/components/schemas/NanoVnaSweepState"
+                    "type": "null"
                   }
                 ]
               }
@@ -18705,10 +18765,10 @@
           "sweep": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/NanoVnaSweepState"
               },
               {
-                "$ref": "#/components/schemas/NanoVnaSweepState"
+                "type": "null"
               }
             ]
           },
@@ -19194,19 +19254,11 @@
             "default": "127.0.0.1:7355"
           },
           "format": {
-            "oneOf": [
-              {
-                "$ref": "#/components/schemas/NetworkSampleFormat"
-              }
-            ],
+            "$ref": "#/components/schemas/NetworkSampleFormat",
             "default": "cf32_le"
           },
           "transport": {
-            "oneOf": [
-              {
-                "$ref": "#/components/schemas/NetworkTransport"
-              }
-            ],
+            "$ref": "#/components/schemas/NetworkTransport",
             "default": "udp"
           }
         }
@@ -20487,11 +20539,7 @@
             "default": 8000.0
           },
           "cfar": {
-            "oneOf": [
-              {
-                "$ref": "#/components/schemas/CfarParams"
-              }
-            ],
+            "$ref": "#/components/schemas/CfarParams",
             "default": {
               "guard_doppler": 1,
               "guard_range": 2,
@@ -20508,11 +20556,7 @@
             }
           },
           "clutter": {
-            "oneOf": [
-              {
-                "$ref": "#/components/schemas/ClutterParams"
-              }
-            ],
+            "$ref": "#/components/schemas/ClutterParams",
             "default": {
               "batch_ms": 50.0,
               "doppler_taps": 0,
@@ -20532,19 +20576,11 @@
             "minimum": 0
           },
           "gpu": {
-            "oneOf": [
-              {
-                "$ref": "#/components/schemas/GpuUse"
-              }
-            ],
+            "$ref": "#/components/schemas/GpuUse",
             "default": "auto"
           },
           "illuminator": {
-            "oneOf": [
-              {
-                "$ref": "#/components/schemas/Illuminator"
-              }
-            ],
+            "$ref": "#/components/schemas/Illuminator",
             "default": {
               "kind": "fm"
             }
@@ -20570,11 +20606,7 @@
             "default": 0.0
           },
           "reference": {
-            "oneOf": [
-              {
-                "$ref": "#/components/schemas/ReferenceCleaning"
-              }
-            ],
+            "$ref": "#/components/schemas/ReferenceCleaning",
             "default": {
               "kind": "cma",
               "step": 0.0010000000474974513,
@@ -20588,21 +20620,13 @@
             "minimum": 0
           },
           "surveillance": {
-            "oneOf": [
-              {
-                "$ref": "#/components/schemas/SurveillanceSet"
-              }
-            ],
+            "$ref": "#/components/schemas/SurveillanceSet",
             "default": {
               "kind": "all_others"
             }
           },
           "tracker": {
-            "oneOf": [
-              {
-                "$ref": "#/components/schemas/TrackerParams"
-              }
-            ],
+            "$ref": "#/components/schemas/TrackerParams",
             "default": {
               "coast_looks": 10,
               "confirm_hits": 3,
@@ -20613,11 +20637,7 @@
             }
           },
           "window": {
-            "oneOf": [
-              {
-                "$ref": "#/components/schemas/DopplerWindow"
-              }
-            ],
+            "$ref": "#/components/schemas/DopplerWindow",
             "default": "hann"
           }
         }
@@ -20660,10 +20680,10 @@
           "placement": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/PlacementCoverage"
               },
               {
-                "$ref": "#/components/schemas/PlacementCoverage"
+                "type": "null"
               }
             ]
           },
@@ -20768,10 +20788,10 @@
               "size": {
                 "oneOf": [
                   {
-                    "type": "null"
+                    "$ref": "#/components/schemas/Size"
                   },
                   {
-                    "$ref": "#/components/schemas/Size"
+                    "type": "null"
                   }
                 ]
               }
@@ -20865,10 +20885,10 @@
           "endpoint": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/PhoneEndpoint"
               },
               {
-                "$ref": "#/components/schemas/PhoneEndpoint"
+                "type": "null"
               }
             ]
           },
@@ -21018,10 +21038,10 @@
           "offer": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/PairingOfferStatus"
               },
               {
-                "$ref": "#/components/schemas/PairingOfferStatus"
+                "type": "null"
               }
             ]
           },
@@ -21888,10 +21908,10 @@
           "gated": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/ProcessorGate"
               },
               {
-                "$ref": "#/components/schemas/ProcessorGate"
+                "type": "null"
               }
             ]
           },
@@ -22225,10 +22245,10 @@
           "aoa": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/RadarAoa"
               },
               {
-                "$ref": "#/components/schemas/RadarAoa"
+                "type": "null"
               }
             ]
           },
@@ -22479,10 +22499,10 @@
           "position": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/PositionLink"
               },
               {
-                "$ref": "#/components/schemas/PositionLink"
+                "type": "null"
               }
             ]
           },
@@ -22492,10 +22512,10 @@
           "transmitter": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/PositionLink"
               },
               {
-                "$ref": "#/components/schemas/PositionLink"
+                "type": "null"
               }
             ]
           }
@@ -22681,20 +22701,20 @@
           "adsb": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/AdsbMatch"
               },
               {
-                "$ref": "#/components/schemas/AdsbMatch"
+                "type": "null"
               }
             ]
           },
           "aoa": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/RadarAoa"
               },
               {
-                "$ref": "#/components/schemas/RadarAoa"
+                "type": "null"
               }
             ]
           },
@@ -22705,10 +22725,10 @@
           "fix": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/RadarFix"
               },
               {
-                "$ref": "#/components/schemas/RadarFix"
+                "type": "null"
               }
             ]
           },
@@ -22866,10 +22886,10 @@
           "geometry": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/RadarGeometry"
               },
               {
-                "$ref": "#/components/schemas/RadarGeometry"
+                "type": "null"
               }
             ]
           },
@@ -23640,6 +23660,66 @@
           "dab_remod"
         ]
       },
+      "RemoteState": {
+        "type": "string",
+        "enum": [
+          "unpaired",
+          "pairing",
+          "connecting",
+          "online",
+          "retrying",
+          "rejected"
+        ]
+      },
+      "RemoteStatus": {
+        "type": "object",
+        "required": [
+          "state",
+          "app_origin",
+          "via_relay"
+        ],
+        "properties": {
+          "app_origin": {
+            "type": "string"
+          },
+          "device_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "state": {
+            "$ref": "#/components/schemas/RemoteState"
+          },
+          "user_code": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "verification_uri": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "verification_uri_complete": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "via_relay": {
+            "type": "boolean"
+          }
+        }
+      },
       "RenamePhoneRequest": {
         "type": "object",
         "required": [
@@ -23843,10 +23923,10 @@
           "look": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/SatelliteLook"
               },
               {
-                "$ref": "#/components/schemas/SatelliteLook"
+                "type": "null"
               }
             ]
           },
@@ -23859,10 +23939,10 @@
           "next_pass": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/SatellitePass"
               },
               {
-                "$ref": "#/components/schemas/SatellitePass"
+                "type": "null"
               }
             ]
           },
@@ -23965,10 +24045,10 @@
           "primary": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/ScanTarget"
               },
               {
-                "$ref": "#/components/schemas/ScanTarget"
+                "type": "null"
               }
             ]
           },
@@ -23978,10 +24058,10 @@
           "secondary": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/ScanTarget"
               },
               {
-                "$ref": "#/components/schemas/ScanTarget"
+                "type": "null"
               }
             ]
           }
@@ -24029,10 +24109,10 @@
           "settings": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/ScanSettings"
               },
               {
-                "$ref": "#/components/schemas/ScanSettings"
+                "type": "null"
               }
             ]
           }
@@ -24940,10 +25020,10 @@
                   "fix": {
                     "oneOf": [
                       {
-                        "type": "null"
+                        "$ref": "#/components/schemas/PositionFix"
                       },
                       {
-                        "$ref": "#/components/schemas/PositionFix"
+                        "type": "null"
                       }
                     ]
                   },
@@ -25293,11 +25373,7 @@
             "minimum": 0
           },
           "method": {
-            "oneOf": [
-              {
-                "$ref": "#/components/schemas/SpatialMethod"
-              }
-            ],
+            "$ref": "#/components/schemas/SpatialMethod",
             "default": "bartlett"
           },
           "offset_hz": {
@@ -25436,10 +25512,10 @@
           "mode": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/SstvMode"
               },
               {
-                "$ref": "#/components/schemas/SstvMode"
+                "type": "null"
               }
             ]
           },
@@ -25844,11 +25920,7 @@
         "type": "object",
         "properties": {
           "blend": {
-            "oneOf": [
-              {
-                "$ref": "#/components/schemas/StitchBlend"
-              }
-            ],
+            "$ref": "#/components/schemas/StitchBlend",
             "default": "snr"
           },
           "flatten": {
@@ -25945,10 +26017,10 @@
           "agc": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/AgcSetting"
               },
               {
-                "$ref": "#/components/schemas/AgcSetting"
+                "type": "null"
               }
             ]
           },
@@ -25979,10 +26051,10 @@
           "tuning": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/Tuning"
               },
               {
-                "$ref": "#/components/schemas/Tuning"
+                "type": "null"
               }
             ]
           }
@@ -26192,10 +26264,10 @@
           "position": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/PositionLink"
               },
               {
-                "$ref": "#/components/schemas/PositionLink"
+                "type": "null"
               }
             ]
           },
@@ -26239,10 +26311,10 @@
           "cell": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/SurveyCell"
               },
               {
-                "$ref": "#/components/schemas/SurveyCell"
+                "type": "null"
               }
             ]
           },
@@ -26269,10 +26341,10 @@
           "stopped": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/SurveyStop"
               },
               {
-                "$ref": "#/components/schemas/SurveyStop"
+                "type": "null"
               }
             ]
           },
@@ -26372,10 +26444,10 @@
           "patch": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/PatchGraph"
               },
               {
-                "$ref": "#/components/schemas/PatchGraph"
+                "type": "null"
               }
             ]
           },
@@ -26469,10 +26541,10 @@
           "capture": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/RecordingStatus"
               },
               {
-                "$ref": "#/components/schemas/RecordingStatus"
+                "type": "null"
               }
             ]
           },
@@ -26794,10 +26866,10 @@
           "audio": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/EventAudio"
               },
               {
-                "$ref": "#/components/schemas/EventAudio"
+                "type": "null"
               }
             ]
           },
@@ -26936,10 +27008,10 @@
           "position": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/PositionLink"
               },
               {
-                "$ref": "#/components/schemas/PositionLink"
+                "type": "null"
               }
             ]
           },
@@ -26952,10 +27024,10 @@
           "state": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/DfFusionState"
               },
               {
-                "$ref": "#/components/schemas/DfFusionState"
+                "type": "null"
               }
             ]
           }
@@ -26973,11 +27045,7 @@
         "type": "object",
         "properties": {
           "decay": {
-            "oneOf": [
-              {
-                "$ref": "#/components/schemas/FusionDecay"
-              }
-            ],
+            "$ref": "#/components/schemas/FusionDecay",
             "default": {
               "kind": "auto"
             }
@@ -26999,11 +27067,7 @@
             "default": 0.05000000074505806
           },
           "nav": {
-            "oneOf": [
-              {
-                "$ref": "#/components/schemas/NavMode"
-              }
-            ],
+            "$ref": "#/components/schemas/NavMode",
             "default": "auto"
           },
           "probe_km": {
@@ -27218,20 +27282,20 @@
           "control": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/TrunkControl"
               },
               {
-                "$ref": "#/components/schemas/TrunkControl"
+                "type": "null"
               }
             ]
           },
           "detected": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/DvTrunkProtocol"
               },
               {
-                "$ref": "#/components/schemas/DvTrunkProtocol"
+                "type": "null"
               }
             ]
           },
@@ -27307,10 +27371,10 @@
           "snapshot": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/WorkspaceSnapshot"
               },
               {
-                "$ref": "#/components/schemas/WorkspaceSnapshot"
+                "type": "null"
               }
             ]
           }
@@ -27406,10 +27470,10 @@
           "audio": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/EventAudio"
               },
               {
-                "$ref": "#/components/schemas/EventAudio"
+                "type": "null"
               }
             ]
           },

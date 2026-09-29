@@ -1,0 +1,28 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "sdrmm-site",
+  "main": "worker/index.ts",
+  "compatibility_date": "2026-09-26",
+  "routes": [{ "pattern": "sdrmm.com", "custom_domain": true }],
+  "workers_dev": false,
+  "preview_urls": true,
+  "assets": {
+    "directory": "../dist/site",
+    "binding": "ASSETS",
+    "html_handling": "auto-trailing-slash",
+    "not_found_handling": "none"
+  },
+  "send_email": [{ "name": "EMAIL" }],
+  "ratelimits": [
+    {
+      "name": "CONTACT_LIMIT",
+      "namespace_id": "1001",
+      "simple": { "limit": 3, "period": 60 }
+    }
+  ],
+  "vars": {
+    "CONTACT_TO": "hi@jhaag.me",
+    "CONTACT_FROM": "contact@sdrmm.com"
+  },
+  "observability": { "enabled": true }
+}

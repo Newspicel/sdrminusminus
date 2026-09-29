@@ -19,5 +19,5 @@ export function sceneFrom(search: string): string {
 }
 
 export function demoUrl(scene: string): string {
-  return `/demo.html?scene=${encodeURIComponent(scene)}`;
+  return `/demo?scene=${encodeURIComponent(scene)}`;
 }

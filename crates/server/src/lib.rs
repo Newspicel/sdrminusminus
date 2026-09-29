@@ -38,6 +38,7 @@ mod event_output;
 mod events;
 mod fusion_routes;
 mod gps;
+mod health;
 mod images;
 mod ionosonde;
 mod json;
@@ -52,6 +53,7 @@ mod placement;
 mod radar;
 mod reconcile;
 mod recorders;
+mod remote;
 mod rest;
 mod satellites;
 mod store;
@@ -64,7 +66,8 @@ mod trunking;
 mod workspace;
 mod ws;
 
-pub use store::{Store, StoreError};
+pub use remote::device_name;
+pub use store::{RemotePairing, Store, StoreError};
 
 pub trait NativeShell: Send + Sync + std::fmt::Debug {
     fn reveal(&self, path: &Path) -> std::io::Result<()>;
@@ -75,6 +78,7 @@ pub struct ServerOptions {
     pub dev_cors: bool,
     pub token: Option<String>,
     pub shell: Option<Arc<dyn NativeShell>>,
+    pub remote_app: Option<url::Url>,
 }
 
 #[derive(Clone)]
@@ -111,6 +115,7 @@ pub(crate) struct AppState {
     pub(crate) server_name: Arc<str>,
     pub(crate) dev_cors: bool,
     pub(crate) data_dir: Option<PathBuf>,
+    pub(crate) remote: Arc<remote::RemoteHub>,
 }
 
 impl AppState {
@@ -119,6 +124,7 @@ impl AppState {
         let phones = Arc::new(phones::Phones::new(store.clone()));
         Self {
             engine,
+            remote: Arc::new(remote::RemoteHub::new(None, store.clone(), health::idle())),
             store,
             auth: auth::Auth::default(),
             db_path: None,
@@ -211,13 +217,21 @@ fn openapi_route(api: &utoipa::openapi::OpenApi) -> axum::routing::MethodRouter<
     })
 }
 
-fn configure(state: &mut AppState, options: &ServerOptions) {
+fn configure(state: &mut AppState, options: &ServerOptions) -> health::Reporter {
     state.auth = auth::Auth::new(options.token.as_deref());
     state.shell = options.shell.clone();
     state.dev_cors = options.dev_cors;
+    let health = health::Reporter::new(state);
+    health.refresh();
+    state.remote = Arc::new(remote::RemoteHub::new(
+        options.remote_app.as_ref(),
+        state.store.clone(),
+        health.subscribe(),
+    ));
     if let Some(token) = &options.token {
         diagnostics::hide_secret(token);
     }
+    health
 }
 
 #[cfg(test)]
@@ -227,9 +241,11 @@ fn router_with_state(state: AppState, options: &ServerOptions) -> (Router, Backg
 
 #[cfg(test)]
 fn main_router(mut state: AppState, options: &ServerOptions, tls: bool) -> (Router, Background) {
-    configure(&mut state, options);
-    let background = start_runtime(&state);
-    (app(&state, auth::ListenerRole::Main, tls), background)
+    let health = configure(&mut state, options);
+    let background = start_runtime(&state, health);
+    let app = app(&state, auth::ListenerRole::Main, tls);
+    state.remote.attach(app.clone());
+    (app, background)
 }
 
 fn app(state: &AppState, role: auth::ListenerRole, tls: bool) -> Router {
@@ -268,8 +284,8 @@ fn app(state: &AppState, role: auth::ListenerRole, tls: bool) -> Router {
     app
 }
 
-fn start_runtime(state: &AppState) -> Background {
-    let background = start_background(state);
+fn start_runtime(state: &AppState, health: health::Reporter) -> Background {
+    let background = start_background(state, health);
     ws::start_decoded_encoder(state);
     workspace::spawn_autosave(state);
     placement::spawn_settling(state);
@@ -288,6 +304,7 @@ fn start_runtime(state: &AppState) -> Background {
 
 struct Background {
     tasks: Vec<BackgroundTask>,
+    remote: Arc<remote::RemoteHub>,
     detached: bool,
 }
 
@@ -308,6 +325,7 @@ impl Drop for Background {
         if self.detached {
             return;
         }
+        self.remote.shutdown();
         for task in &self.tasks {
             if let BackgroundTask::Task(task) = task {
                 task.abort();
@@ -316,7 +334,7 @@ impl Drop for Background {
     }
 }
 
-fn start_background(state: &AppState) -> Background {
+fn start_background(state: &AppState, health: health::Reporter) -> Background {
     let (recording_tx, recording_rx) = tokio::sync::watch::channel(trunking::Recording::default());
     let decoded = {
         let engine = Arc::downgrade(&state.engine);
@@ -376,6 +394,7 @@ fn start_background(state: &AppState) -> Background {
         });
         spawn_task("sdrmm-recorders", move || audio_fx::run(engine, hooks))
     };
+    let health = spawn_task("sdrmm-health", move || health.run());
     Background {
         tasks: vec![
             decoded,
@@ -386,7 +405,9 @@ fn start_background(state: &AppState) -> Background {
             event_output,
             monitor,
             audio_fx,
+            health,
         ],
+        remote: state.remote.clone(),
         detached: false,
     }
 }
@@ -449,7 +470,7 @@ pub async fn serve(config: Config, engine: Arc<Engine>) -> std::io::Result<Serve
     let store = Store::open(config.db_path.as_deref()).map_err(std::io::Error::other)?;
     workspace::adopt_named_devices(&engine, &store);
     let mut state = AppState::new(engine, Arc::new(store));
-    configure(&mut state, &config.options);
+    let health = configure(&mut state, &config.options);
     state.db_path = config.db_path.clone();
     state.data_dir = config
         .db_path
@@ -470,8 +491,9 @@ pub async fn serve(config: Config, engine: Arc<Engine>) -> std::io::Result<Serve
         config.tls.as_ref(),
         served.as_ref(),
     ));
-    let background = start_runtime(&state);
+    let background = start_runtime(&state, health);
     let app = app(&state, auth::ListenerRole::Main, served.is_some());
+    state.remote.attach(app.clone());
     let scheme = if served.is_some() { "https" } else { "http" };
     tracing::info!(%local_addr, scheme, "SDR-- server listening");
     let task = match served {

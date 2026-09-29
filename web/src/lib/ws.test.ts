@@ -12,7 +12,7 @@ class FakeWebSocket {
   readyState = 0;
   binaryType = "";
   onopen: (() => void) | null = null;
-  onclose: (() => void) | null = null;
+  onclose: ((event: Pick<CloseEvent, "code" | "reason" | "wasClean">) => void) | null = null;
   onerror: (() => void) | null = null;
   onmessage: ((event: MessageEvent) => void) | null = null;
 
@@ -34,9 +34,9 @@ class FakeWebSocket {
     this.onopen?.();
   }
 
-  drop(): void {
+  drop(code = 1006, reason = ""): void {
     this.readyState = 3;
-    this.onclose?.();
+    this.onclose?.({ code, reason, wasClean: false });
   }
 }
 
@@ -224,6 +224,25 @@ describe("SdrSocket reconnect", () => {
     socket.close();
     vi.advanceTimersByTime(60_000);
     expect(sockets).toHaveLength(opened);
+  });
+
+  it("records why a live connection closed", () => {
+    resetEvents();
+    const socket = new SdrSocket();
+    socket.connect();
+
+    latest().drop();
+    expect(clientEvents()).toHaveLength(0);
+
+    vi.advanceTimersByTime(1_000);
+    latest().accept();
+    vi.advanceTimersByTime(58_200);
+    latest().drop(4502, "window overrun");
+    expect(clientEvents().at(-1)).toMatchObject({
+      level: "warn",
+      source: "socket",
+      message: "closed 4502 window overrun after 58.2 s, unclean",
+    });
   });
 });
 

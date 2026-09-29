@@ -21,8 +21,6 @@ The desktop and portable builds include these drivers:
 | Dragon Labs CR-8 | [Vendor library](#dragon-labs-cr-8) and a build with `cr8` |
 | bladeRF, LimeSDR, USRP, others | A [SoapySDR module](#soapysdr) |
 
-The Nix package uses SoapySDR for all local radios.
-
 Making a radio? Write to [hi@jhaag.me](mailto:hi@jhaag.me) to get it supported and tested.
 
 ## Check the installation
@@ -340,12 +338,15 @@ gigabit Ethernet much more. On a 2×2 board both RX lanes share a clock and are 
 
 Linux needs the libiio udev rules. `sdrmm --doctor` checks for them.
 
+Tested on hardware provided by [AntSDR](https://www.microphase.cn/).
+
 ## SDRplay
 
 Install the [SDRplay API](https://www.sdrplay.com/downloads/) 3.15 or newer and keep
 `sdrplay_apiService` running. No SoapySDR module needed. If an RSP is missing, see the
 **SDRplay API** section of `sdrmm --doctor`. For containers, see
-[SDRplay receivers](server/deployment.md#sdrplay-receivers).
+[SDRplay receivers](server/deployment.md#sdrplay-receivers). For NixOS, see
+[Nix](getting-started/install.md#nix).
 
 Both gain sliders raise gain when moved up:
 

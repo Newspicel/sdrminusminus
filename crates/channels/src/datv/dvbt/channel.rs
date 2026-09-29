@@ -233,19 +233,32 @@ mod tests {
     }
 
     #[test]
-    fn narrow_channel_decodes_from_a_two_megasample_radio() {
-        let bandwidth = sdrmm_wire::DvbtBandwidth::Mhz1_7;
+    fn narrow_channels_decode_from_a_two_and_a_half_megasample_radio() {
+        for bandwidth in [
+            sdrmm_wire::DvbtBandwidth::Khz250,
+            sdrmm_wire::DvbtBandwidth::Khz333,
+            sdrmm_wire::DvbtBandwidth::Khz500,
+            sdrmm_wire::DvbtBandwidth::Mhz1,
+            sdrmm_wire::DvbtBandwidth::Mhz1_7,
+            sdrmm_wire::DvbtBandwidth::Mhz2,
+        ] {
+            decodes_through_radio_chain(bandwidth, 2_500_000.0);
+        }
+    }
+
+    fn decodes_through_radio_chain(bandwidth: sdrmm_wire::DvbtBandwidth, radio_rate: f64) {
         let channel_settings = settings(bandwidth);
         let input_rate = crate::input_rate(&channel_settings.params);
         assert_eq!(input_rate, bandwidth.sample_rate_hz());
+        let half = bandwidth.hz() / 2.0;
         assert_eq!(
             crate::occupied_band(&channel_settings.params),
-            (-850_000.0, 850_000.0)
+            (-half, half)
         );
         let mut native = crate::testgen::dvbt::waveform(crate::testgen::dvbt::defaults(), 180);
         crate::testgen::shift(&mut native, 600.0, input_rate);
-        let iq = crate::testgen::resample(&native, input_rate, 2_048_000.0);
-        let mut ddc = sdrmm_dsp::Ddc::new(2_048_000.0, input_rate, 0.0).unwrap();
+        let iq = crate::testgen::resample(&native, input_rate, radio_rate);
+        let mut ddc = sdrmm_dsp::Ddc::new(radio_rate, input_rate, 0.0).unwrap();
         let mut filter = crate::channel_filter(&channel_settings.params).unwrap();
         let mut receiver = DvbtChannel::new(ChannelCtx { input_rate }, channel_settings).unwrap();
         let mut baseband = Vec::new();
@@ -257,17 +270,22 @@ mod tests {
             out.reset();
             receiver.process(&filtered, &mut out);
         }
-        assert!(receiver.receiver.locked());
+        assert!(receiver.receiver.locked(), "{bandwidth:?}");
         assert_eq!(
             receiver.demux.program().and_then(|p| p.name.as_deref()),
-            Some("Rust TV")
+            Some("Rust TV"),
+            "{bandwidth:?}"
         );
         out.reset();
         receiver.report(&mut out);
         let DecoderEvent::Broadcast(status) = &out.events[0] else {
             panic!("broadcast status");
         };
-        assert!((status.frequency_error_hz - 600.0).abs() < 30.0);
+        assert!(
+            (status.frequency_error_hz - 600.0).abs() < 30.0,
+            "{bandwidth:?} {}",
+            status.frequency_error_hz
+        );
         assert!(
             DvbtChannel::new(
                 ChannelCtx {

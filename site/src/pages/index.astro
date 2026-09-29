@@ -1,16 +1,14 @@
 ---
 import Patch from "../components/Patch.astro";
+import Setups from "../components/Setups.astro";
 import Waterfall from "../components/Waterfall.astro";
 import { DEFAULT_SCENE, demoUrl, SCENES } from "../demo/scenes";
 import { INSTALLS } from "../installs";
 import Page from "../layouts/Page.astro";
+import { REPOSITORY, structuredData } from "../seo";
 
-const glyphs: Record<string, string> = {
-  iq: "M10.5 6A4.5 4.5 0 1 1 1.5 6A4.5 4.5 0 1 1 10.5 6Z",
-  audio: "M6 1 11 6 6 11 1 6Z",
-  events: "M3 1h6l2 5-2 5H3L1 6Z",
-  video: "M6 1 11 11H1Z",
-};
+const description =
+  "A software-defined radio application for listening, decoding and recording. Connect a receiver, a channel and a display, on your desk or on a server at the antenna.";
 
 const outputs = [
   {
@@ -173,9 +171,10 @@ const copies = [0, 1, 2, 3];
 ---
 
 <Page
-  title="SDR-- · patch a radio together"
-  description="A software-defined radio application for listening, decoding and recording. Connect a receiver, a channel and a display, on your desk or on a server at the antenna."
+  title="SDR-- · Software-defined radio, patched together"
+  description={description}
   summary="A software-defined radio application for listening, decoding and recording."
+  structured={structuredData(description)}
 >
   <div class="stage">
     <Waterfall />
@@ -184,8 +183,8 @@ const copies = [0, 1, 2, 3];
       <p class="lede">Wire a receiver to a channel, the channel to a speaker, a map or a recorder.
         On your desk, or on a server at the antenna.</p>
       <div class="actions">
-        <a class="btn primary" href="/download.html">Download</a>
-        <a class="btn ghost" href="/getting-started/first-receiver.html">First receiver guide</a>
+        <a class="btn primary" href="/download">Download</a>
+        <a class="btn ghost" href="/docs/getting-started/first-receiver">First receiver guide</a>
       </div>
       <p class="platforms">macOS, Windows, Linux. Free and open source.</p>
     </div>
@@ -237,14 +236,10 @@ const copies = [0, 1, 2, 3];
     <h2>Choose what the signal becomes</h2>
     <p class="section-lede">A channel turns IQ into sound, messages, pictures or a recording.</p>
 
-    <div class="channel">
-      <p class="head">
-        <svg class="glyph in" viewBox="0 0 12 12" aria-hidden="true"><path d={glyphs.iq} /></svg>
-        <span class="dot"></span>Channel
-      </p>
+    <ul class="outputs">
       {
         outputs.map((output) => (
-          <div class={`out ${output.port}`}>
+          <li class={output.port}>
             <p class="port">{output.name}</p>
             <div>
               <h3>{output.title}</h3>
@@ -252,11 +247,10 @@ const copies = [0, 1, 2, 3];
                 {output.modes.map((mode) => <li>{mode}</li>)}
               </ul>
             </div>
-            <svg class="glyph" viewBox="0 0 12 12" aria-hidden="true"><path d={glyphs[output.port]} /></svg>
-          </div>
+          </li>
         ))
       }
-    </div>
+    </ul>
 
     <div class="tools">
       {
@@ -270,7 +264,13 @@ const copies = [0, 1, 2, 3];
     </div>
 
     <p class="note">Modes range from tested on air to experimental. The
-      <a href="/user-guide/decoders.html#catalog">decoder catalog</a> says which.</p>
+      <a href="/docs/user-guide/decoders#catalog">decoder catalog</a> says which.</p>
+  </section>
+
+  <section class="wrap">
+    <h2>Run it where the radio is</h2>
+    <p class="section-lede">The same software on the desk and by the antenna. All of it free.</p>
+    <Setups />
   </section>
 
   <section class="voices">
@@ -305,12 +305,10 @@ const copies = [0, 1, 2, 3];
   <section class="closing">
     <div class="wrap">
       <h2>Plug in a radio. Start patching.</h2>
-      <p class="section-lede">The app runs its own server. Or run the server alone by the antenna and
-        open it from any browser.</p>
+      <p class="section-lede">One command, or an installer for macOS, Windows and Linux.</p>
       <div class="actions">
-        <a class="btn primary" href="/download.html">Download</a>
-        <a class="btn ghost" href="https://github.com/Newspicel/sdrminusminus">Source on GitHub</a>
-        <a class="btn ghost" href="https://discord.gg/dYaRyGwBNw">Join Discord</a>
+        <a class="btn primary" href="/download">Download</a>
+        <a class="btn ghost" href={REPOSITORY}>Source on GitHub</a>
       </div>
 
       <div class="terminal">
@@ -343,9 +341,9 @@ const copies = [0, 1, 2, 3];
       </div>
 
       <p class="note">Then open <code>localhost:8080</code> and pick your radio on a Device node. The
-        server has no auth by default: set <a href="/server/configuration.html">a token and HTTPS</a>
+        server has no auth by default: set <a href="/docs/server/configuration">a token and HTTPS</a>
         before exposing it.</p>
-      <p class="work">Using it at work? <a href="/business.html">Talk to us</a>.</p>
+      <p class="work">Using it at work? <a href="/business">Talk to us</a>.</p>
     </div>
   </section>
 </Page>
@@ -405,75 +403,36 @@ const copies = [0, 1, 2, 3];
   }
   .wiring .section-lede { margin-bottom: 0; }
 
-  .channel {
-    position: relative;
-    border: 1px solid var(--line);
-    border-radius: var(--radius);
-    background: var(--panel);
-    box-shadow: var(--shadow-face);
-  }
-  .channel .head {
-    position: relative;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    height: 32px;
+  .outputs {
     margin: 0;
-    padding-inline: 12px;
-    border-bottom: 1px solid var(--line);
-    border-radius: var(--radius) var(--radius) 0 0;
-    background: color-mix(in oklab, var(--cat-channel) 14%, var(--panel));
-    font: 500 12.5px var(--mono);
+    padding: 0;
+    list-style: none;
+    border-top: 1px solid var(--line);
   }
-  .channel .head::before {
-    content: "";
-    position: absolute;
-    top: 50%;
-    right: 100%;
-    width: min(40px, var(--pad));
-    height: 2px;
-    translate: 0 -50%;
-    background: linear-gradient(90deg, transparent, var(--iq));
-    opacity: 0.85;
-  }
-  .channel .dot {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: var(--cat-channel);
-  }
-  .glyph {
-    position: absolute;
-    top: 50%;
-    right: -7px;
-    width: 13px;
-    height: 13px;
-    translate: 0 -50%;
-    overflow: visible;
-  }
-  .glyph path { fill: var(--port); stroke: var(--line-strong); stroke-width: 1; }
-  .glyph.in { right: auto; left: -7px; --port: var(--iq); }
-  .out {
-    position: relative;
+  .outputs > li {
     display: grid;
     grid-template-columns: 160px minmax(0, 1fr);
     gap: 8px 32px;
-    padding: 24px 28px 26px;
+    align-items: start;
+    padding-block: 24px;
+    border-bottom: 1px solid var(--line);
   }
-  .out + .out { border-top: 1px solid var(--line); }
-  .out .glyph { top: 36px; }
-  .out::after {
+  .outputs .port {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 0;
+    font: 500 14px/28px var(--mono);
+    color: var(--port);
+  }
+  .outputs .port::before {
     content: "";
-    position: absolute;
-    top: 35px;
-    left: 100%;
-    width: min(40px, var(--pad));
-    height: 2px;
-    background: linear-gradient(90deg, var(--port), transparent);
-    opacity: 0.85;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--port);
   }
-  .out .port { margin: 0; font: 500 14px/28px var(--mono); color: var(--port); }
-  .out h3 { margin: 0 0 14px; font-size: 1.2rem; line-height: 28px; font-weight: 600; letter-spacing: -0.01em; }
+  .outputs h3 { margin: 0 0 14px; font-size: 1.2rem; line-height: 28px; font-weight: 600; letter-spacing: -0.01em; }
   .modes { margin: 0; padding: 0; list-style: none; display: flex; flex-wrap: wrap; gap: 4px; }
   .modes li {
     font: 12px/1 var(--mono);
@@ -483,10 +442,10 @@ const copies = [0, 1, 2, 3];
     background: var(--well);
     border: 1px solid var(--line);
   }
-  .out.audio { --port: var(--audio); }
-  .out.events { --port: var(--events); }
-  .out.video { --port: var(--video); }
-  .out.iq { --port: var(--iq); }
+  .outputs .audio { --port: var(--audio); }
+  .outputs .events { --port: var(--events); }
+  .outputs .video { --port: var(--video); }
+  .outputs .iq { --port: var(--iq); }
 
   .tools {
     margin-top: 56px;
@@ -602,9 +561,7 @@ const copies = [0, 1, 2, 3];
   }
 
   @media (max-width: 720px) {
-    .out { grid-template-columns: minmax(0, 1fr); gap: 2px; padding: 18px 20px 22px; }
-    .out .glyph { top: 32px; }
-    .out::after { top: 31px; }
+    .outputs > li { grid-template-columns: minmax(0, 1fr); gap: 2px; padding-block: 18px 22px; }
     .voice { width: 260px; }
   }
 </style>

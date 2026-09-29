@@ -37,6 +37,7 @@ pub fn icons(root: &Path) -> Result<()> {
         root.join("web/public/icon.svg"),
         root.join("docs/src/icon.svg"),
         root.join("docs/theme/favicon.svg"),
+        root.join("site/public/icon.svg"),
     ];
     for path in &copies {
         write(path, &svg)?;
@@ -48,6 +49,7 @@ pub fn icons(root: &Path) -> Result<()> {
         ("apps/desktop/icons/128x128@2x.png", 256),
         ("apps/desktop/icons/icon.png", 512),
         ("docs/theme/favicon.png", 32),
+        ("site/public/apple-touch-icon.png", 180),
     ];
     for (path, size) in pngs {
         write(&root.join(path), &render(&tree, size, 1.0)?)?;
@@ -57,10 +59,9 @@ pub fn icons(root: &Path) -> Result<()> {
         &root.join("apps/desktop/icons/icon.ico"),
         &ico(&tree, ICO_SIZES)?,
     )?;
-    write(
-        &root.join("web/public/favicon.ico"),
-        &ico(&tree, FAVICON_SIZES)?,
-    )?;
+    for favicon in ["web/public/favicon.ico", "site/public/favicon.ico"] {
+        write(&root.join(favicon), &ico(&tree, FAVICON_SIZES)?)?;
+    }
     write(&root.join("apps/desktop/icons/icon.icns"), &icns(&tree)?)?;
     write(
         &root.join(IOS_ICON).join("AppIcon-1024.png"),

@@ -11,13 +11,12 @@ sits somewhere else and you connect from a browser. Both run the same receiver.
 | [WinGet](#winget) | Windows |
 | [APT](#apt) | Debian and Ubuntu |
 | [DNF](#dnf) | Fedora |
-| [AUR](#aur) | Arch Linux |
 | [Nix](#nix) | Linux managed with Nix |
 | [Container](#container) | Docker |
 
 ## Desktop app
 
-Download the installer from the [download page](/download.html) and open SDR--. The app starts
+Download the installer from the [download page](/download) and open SDR--. The app starts
 its own server on a random port only this computer can reach. For a fixed port or access from
 other devices, run the [server](#portable-server) instead.
 
@@ -29,7 +28,7 @@ other devices, run the [server](#portable-server) instead.
 
 ## Portable server
 
-Download and unpack the `sdrmm` archive for your system from the [download page](/download.html),
+Download and unpack the `sdrmm` archive for your system from the [download page](/download),
 then run it:
 
 ```sh
@@ -81,13 +80,6 @@ sudo dnf config-manager addrepo \
 sudo dnf install sdrminusminus
 ```
 
-## AUR
-
-```sh
-yay -S sdrminusminus-bin   # desktop app
-yay -S sdrmm-bin           # server
-```
-
 ## Nix
 
 Install and launch the desktop app on x86_64 or aarch64 Linux:
@@ -101,13 +93,14 @@ sdrmm-desktop
 The flake exports the package as `sdrmm-desktop`, `sdrmm`, and `default`. From a checkout,
 `nix build` produces `result/bin/sdrmm-desktop`.
 
-The Nix package reaches local radios through SoapySDR. Pick the modules with `soapyPlugins`.
-This NixOS example assumes the flake input is named `sdrminusminus`:
+Radios without a built-in driver need SoapySDR modules, picked with `soapyPlugins`. For SDRplay,
+enable `services.sdrplayApi` and pass the unfree `pkgs.sdrplay` as `sdrplayApi`. This NixOS
+example assumes the flake input is named `sdrminusminus`:
 
 ```nix
 environment.systemPackages = [
   (inputs.sdrminusminus.packages.${pkgs.stdenv.hostPlatform.system}.sdrmm.override {
-    soapyPlugins = with pkgs; [ soapyrtlsdr soapyremote ];
+    soapyPlugins = with pkgs; [ soapybladerf soapyremote ];
   })
 ];
 

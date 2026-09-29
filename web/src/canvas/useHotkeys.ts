@@ -14,37 +14,37 @@ export interface HotkeyActions {
   toggleFull: () => void;
   undo: () => void;
   redo: () => void;
-  showShortcuts: () => void;
+  showHelp: () => void;
 }
+
+export type BindingGroup = "Tune" | "Channels" | "Canvas" | "Edit" | "General";
 
 export interface Binding {
   keys: string;
   what: string;
+  group: BindingGroup;
 }
 
 export const BINDINGS: readonly Binding[] = [
-  { keys: "← →", what: "Tune down / up one step" },
-  { keys: "Shift ← →", what: "Tune ten steps" },
-  { keys: "[ ]", what: "Smaller / larger tune step" },
-  { keys: "f", what: "Focus the dial: then Enter to type a frequency" },
-  { keys: ", .", what: "Previous / next channel" },
-  {
-    keys: "m / M",
-    what: "Cycle the selected channel's analog mode: right-click offers every decoder",
-  },
-  { keys: "- / + =", what: "Squelch down / up 2 dB" },
-  { keys: "s", what: "Squelch on / off" },
-  { keys: "1 – 9", what: "Select the nth node" },
-  { keys: "p", what: "Pin / unpin the selected face on the rack" },
-  { keys: "v", what: "Swap the patch and the rack" },
-  { keys: "z", what: "Blow the selected face up to the whole window: Esc brings it back" },
-  { keys: "Ctrl / ⌘ Z", what: "Undo the last change: the workspace's history, so for everyone" },
-  { keys: "Ctrl / ⌘ Shift Z", what: "Redo (Ctrl / ⌘ Y too)" },
-  { keys: "Ctrl / ⌘ C", what: "Copy the selected nodes and the wires between them" },
-  { keys: "Ctrl / ⌘ V", what: "Paste them beside the originals: a copied radio names none" },
-  { keys: "Backspace", what: "Delete the selected node or wire (right-click offers it too)" },
-  { keys: "?", what: "This list" },
-  { keys: "Esc", what: "Close an overlay or a menu, or drop the selection" },
+  { keys: "← →", what: "Tune one step", group: "Tune" },
+  { keys: "Shift ← →", what: "Tune ten steps", group: "Tune" },
+  { keys: "[ ]", what: "Smaller / larger step", group: "Tune" },
+  { keys: "f", what: "Focus the dial, Enter to type", group: "Tune" },
+  { keys: ", .", what: "Previous / next channel", group: "Channels" },
+  { keys: "m / M", what: "Cycle analog mode", group: "Channels" },
+  { keys: "- / +", what: "Squelch down / up 2 dB", group: "Channels" },
+  { keys: "s", what: "Squelch on / off", group: "Channels" },
+  { keys: "1 – 9", what: "Select the nth node", group: "Canvas" },
+  { keys: "p", what: "Pin / unpin on the rack", group: "Canvas" },
+  { keys: "v", what: "Swap patch and rack", group: "Canvas" },
+  { keys: "z", what: "Fill the window, Esc returns", group: "Canvas" },
+  { keys: "Ctrl / ⌘ Z", what: "Undo, shared by every client", group: "Edit" },
+  { keys: "Ctrl / ⌘ Shift Z", what: "Redo", group: "Edit" },
+  { keys: "Ctrl / ⌘ C", what: "Copy nodes and their wires", group: "Edit" },
+  { keys: "Ctrl / ⌘ V", what: "Paste beside the originals", group: "Edit" },
+  { keys: "Backspace", what: "Delete node or wire", group: "Edit" },
+  { keys: "?", what: "Help", group: "General" },
+  { keys: "Esc", what: "Close or deselect", group: "General" },
 ];
 
 export type Chord = Pick<KeyboardEvent, "key" | "ctrlKey" | "metaKey" | "altKey" | "shiftKey">;
@@ -131,7 +131,7 @@ export function useHotkeys(actions: HotkeyActions): void {
           act.toggleFull();
           break;
         case "?":
-          act.showShortcuts();
+          act.showHelp();
           break;
         default:
           if (/^[1-9]$/.test(event.key)) {

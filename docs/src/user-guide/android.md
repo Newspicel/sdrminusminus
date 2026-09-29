@@ -14,7 +14,7 @@ ends it.
 ## Pair
 
 1. On the server, turn on **Allow phones** and press **Pair phone** in **Library → Phones**, or run
-   `sdrmm pair`. See [Phones](phones.md#pair).
+   `sdrmm phone`. See [Phones](phones.md#pair).
 2. In the app, **Scan QR**.
 3. Or pick the server under **Nearby** and type the 8-digit code, or type `host:port` and the code
    under **Manual**.

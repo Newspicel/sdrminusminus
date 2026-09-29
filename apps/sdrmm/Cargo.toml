@@ -29,8 +29,10 @@ net-client = ["sdrmm-server/net-client", "sdrmm-engine/net-client"]
 gpu-fft = ["sdrmm-server/gpu-fft", "sdrmm-engine/gpu-fft"]
 
 [dependencies]
+sdrmm-wire.workspace = true
 sdrmm-server.workspace = true
 sdrmm-engine.workspace = true
+sdrmm-tunnel.workspace = true
 sdrmm-device-soapy = { workspace = true, optional = true }
 
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "signal"] }
@@ -39,3 +41,4 @@ qrcodegen.workspace = true
 anyhow.workspace = true
 dirs.workspace = true
 tracing.workspace = true
+url.workspace = true

@@ -30,6 +30,7 @@ mod openapi;
 mod phones;
 mod presets;
 mod recordings;
+mod remote;
 mod scanning;
 mod templates;
 mod tls;

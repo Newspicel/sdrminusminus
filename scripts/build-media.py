@@ -9,8 +9,8 @@ import tarfile
 import urllib.request
 
 
-VERSION = "9.0.1"
-SHA256 = "cf38e0e28c7e5605942c4a77755349b0145804a397af37eb1fb4c77cb237f635"
+VERSION = "9.0.2"
+SHA256 = "8c3850283eb25fa026482078a04051e0be17347b09ef81a0849bec15a96e002e"
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -110,6 +110,13 @@ def configure(source, prefix, target, env):
     return args
 
 
+def move_import_libraries(prefix):
+    lib = prefix / "lib"
+    lib.mkdir(parents=True, exist_ok=True)
+    for library in (prefix / "bin").glob("*.lib"):
+        library.replace(lib / library.name)
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--target", default=target_name())
@@ -136,6 +143,8 @@ def main():
     run([tool("make", env), "-j", str(os.cpu_count() or 2)], work, env)
     shutil.rmtree(prefix, ignore_errors=True)
     run([tool("make", env), "install"], work, env)
+    if "windows-msvc" in args.target:
+        move_import_libraries(prefix)
     marker.write_text(fingerprint)
     print(prefix)
 

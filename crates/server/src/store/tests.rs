@@ -2257,7 +2257,7 @@ fn a_stored_retired_decoder_event_leaves_the_log() {
         conn.pragma_update(None, "user_version", retiring as i64)
             .expect("rewind");
         conn.execute_batch(
-            "DROP TABLE saved_radios; DROP TABLE radio_calibrations; \
+            "DROP TABLE saved_radios; DROP TABLE radio_calibrations; DROP TABLE remote_access; \
              DROP TABLE workspace_notices; DROP TABLE phones; DROP TABLE phone_offers; \
              DROP TABLE server_meta; DROP TABLE array_calibrations; \
              ALTER TABLE recordings DROP COLUMN lanes;",

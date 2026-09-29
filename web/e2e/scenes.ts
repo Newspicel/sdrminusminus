@@ -13,6 +13,7 @@ import type {
 import { type Box, face, fitPatch, node, stage, wire } from "./canvas";
 
 const SIGGEN: DeviceRef = { backend: "virtual", key: "siggen" };
+const SIGGEN_CENTER_HZ = 100_000_000;
 
 export interface Scene {
   id: string;
@@ -73,9 +74,18 @@ async function amend(
 
 async function tune(page: Page, device: DeviceRef, offsets: Record<string, number>): Promise<void> {
   const set = await deviceSet(page, device);
-  const centerHz = set.settings.center_hz ?? 0;
+  const centerHz = device === SIGGEN ? SIGGEN_CENTER_HZ : (set.settings.center_hz ?? 0);
   for (const [type, offset] of Object.entries(offsets)) {
     await amend(page, device, type, () => ({ frequency_hz: centerHz + offset }));
+  }
+  if (set.settings.center_hz === centerHz) {
+    return;
+  }
+  const response = await page.request.patch(`/api/devicesets/${set.id}/device`, {
+    data: { ...set.settings, center_hz: centerHz },
+  });
+  if (!response.ok()) {
+    throw new Error(`centering ${device.key}: ${await response.text()}`);
   }
 }
 
@@ -87,6 +97,10 @@ async function fitForCapture(page: Page): Promise<void> {
     throw new Error("a pane to click");
   }
   await page.mouse.click(box.x + 12, box.y + 12);
+  await idle(page);
+}
+
+async function idle(page: Page): Promise<void> {
   await page.mouse.move(0, 0);
   await page
     .locator("body")
@@ -108,10 +122,10 @@ function siggenPatch(): WorkspaceSnapshot {
     version: 4,
     graph: {
       nodes: [
-        node("dev", { kind: "device", data: { device: SIGGEN } }, { x: 0, y: 0, w: 380, h: 420 }),
-        node("scope", { kind: "scope" }, { x: 440, y: 0, w: 800, h: 420 }),
-        channel("ch", "nfm", { x: 0, y: 480, w: 560, h: 620 }),
-        node("speaker", { kind: "speaker" }, { x: 620, y: 480, w: 620, h: 300 }),
+        node("dev", { kind: "device", data: { device: SIGGEN } }, { x: 0, y: 0, w: 420, h: 236 }),
+        channel("ch", "nfm", { x: 540, y: 0, w: 460, h: 331 }),
+        node("scope", { kind: "scope" }, { x: 540, y: 371, w: 880, h: 400 }),
+        node("speaker", { kind: "speaker" }, { x: 1140, y: 0, w: 280, h: 204 }),
       ],
       edges: [
         wire(["dev", "iq"], ["scope", "iq"]),
@@ -132,18 +146,18 @@ const patch: Scene = {
       version: 4,
       graph: {
         nodes: [
-          node("dev", { kind: "device", data: { device: SIGGEN } }, { x: 0, y: 0, w: 380, h: 222 }),
-          node("scope", { kind: "scope" }, { x: 440, y: 0, w: 1400, h: 440 }),
-          channel("nfm", "nfm", { x: 0, y: 520, w: 440, h: 541 }),
-          channel("am", "am", { x: 480, y: 520, w: 440, h: 445 }),
-          channel("wfm", "wfm", { x: 960, y: 520, w: 440, h: 469 }),
-          node("speaker", { kind: "speaker" }, { x: 1440, y: 520, w: 320, h: 270 }),
+          node("dev", { kind: "device", data: { device: SIGGEN } }, { x: 0, y: 0, w: 420, h: 236 }),
+          node("scope", { kind: "scope" }, { x: 1140, y: 0, w: 760, h: 400 }),
+          channel("nfm", "nfm", { x: 540, y: 100, w: 460, h: 331 }),
+          channel("am", "am", { x: 540, y: 471, w: 460, h: 229 }),
+          channel("wfm", "wfm", { x: 540, y: 740, w: 460, h: 255 }),
+          node("speaker", { kind: "speaker" }, { x: 1140, y: 440, w: 280, h: 204 }),
+          node("udp", { kind: "network_export", data: {} }, { x: 1140, y: 684, w: 280, h: 242 }),
           node(
             "rec",
             { kind: "audio_recorder", data: { recording: false } },
-            { x: 1440, y: 830, w: 340, h: 70 },
+            { x: 1140, y: 966, w: 280, h: 104 },
           ),
-          node("udp", { kind: "network_export", data: {} }, { x: 1440, y: 940, w: 380, h: 240 }),
         ],
         edges: [
           wire(["dev", "iq"], ["scope", "iq"]),
@@ -167,7 +181,7 @@ const patch: Scene = {
 const spectrum: Scene = {
   id: "spectrum",
   title: "the spectrum and waterfall",
-  settleSeconds: 16,
+  settleSeconds: 26,
   async stage(page) {
     const snapshot = siggenPatch();
     snapshot.rack = { slots: [slot("scope", { x: 0, y: 0, w: 12, h: 8 })] };
@@ -182,7 +196,7 @@ const spectrum: Scene = {
       .getByRole("button", { name: /^viridis$/i })
       .click();
     await page.keyboard.press("Escape");
-    await page.mouse.move(0, 0);
+    await idle(page);
   },
   async ready(page) {
     await expect(page.locator('.grid > [data-id="scope"]').getByText(/MHz/).first()).toBeVisible();
@@ -192,18 +206,18 @@ const spectrum: Scene = {
 const adsb: Scene = {
   id: "adsb",
   title: "aircraft on the map",
-  settleSeconds: 8,
+  settleSeconds: 20,
   async stage(page) {
     const device = await recording(page, "adsb_squitters_2m");
     await stage(page, "Aircraft (ADS-B)", {
       version: 4,
       graph: {
         nodes: [
-          node("dev", { kind: "device", data: { device } }, { x: 0, y: 0, w: 380, h: 290 }),
-          channel("ch", "adsb", { x: 0, y: 350, w: 440, h: 190 }),
-          node("scope", { kind: "scope" }, { x: 480, y: 0, w: 720, h: 540 }),
-          node("map", { kind: "map" }, { x: 1240, y: 0, w: 700, h: 540 }),
-          node("log", { kind: "decoder_log" }, { x: 0, y: 600, w: 1940, h: 560 }),
+          node("dev", { kind: "device", data: { device } }, { x: 0, y: 0, w: 420, h: 160 }),
+          channel("ch", "adsb", { x: 540, y: 0, w: 420, h: 141 }),
+          node("scope", { kind: "scope" }, { x: 540, y: 181, w: 420, h: 819 }),
+          node("map", { kind: "map" }, { x: 1100, y: 0, w: 800, h: 560 }),
+          node("log", { kind: "decoder_log" }, { x: 1100, y: 600, w: 800, h: 400 }),
         ],
         edges: [
           wire(["dev", "iq"], ["scope", "iq"]),
@@ -223,24 +237,26 @@ const adsb: Scene = {
         .getByText(/DLH123/)
         .first(),
     ).toBeVisible({ timeout: 60_000 });
+    await face(page, "map").getByRole("button", { name: "Zoom out" }).click();
+    await idle(page);
   },
 };
 
 const ais: Scene = {
   id: "ais",
   title: "ships on the map",
-  settleSeconds: 8,
+  settleSeconds: 16,
   async stage(page) {
     const device = await recording(page, "ais_position_240k");
     await stage(page, "Ships (AIS)", {
       version: 4,
       graph: {
         nodes: [
-          node("dev", { kind: "device", data: { device } }, { x: 0, y: 0, w: 380, h: 290 }),
-          channel("ch", "ais", { x: 0, y: 350, w: 440, h: 204 }),
-          node("scope", { kind: "scope" }, { x: 0, y: 600, w: 440, h: 300 }),
-          node("map", { kind: "map" }, { x: 480, y: 0, w: 1020, h: 720 }),
-          node("log", { kind: "decoder_log" }, { x: 480, y: 760, w: 1020, h: 140 }),
+          node("dev", { kind: "device", data: { device } }, { x: 0, y: 0, w: 420, h: 160 }),
+          channel("ch", "ais", { x: 540, y: 0, w: 420, h: 153 }),
+          node("scope", { kind: "scope" }, { x: 540, y: 193, w: 420, h: 807 }),
+          node("map", { kind: "map" }, { x: 1100, y: 0, w: 800, h: 760 }),
+          node("log", { kind: "decoder_log" }, { x: 1100, y: 800, w: 800, h: 200 }),
         ],
         edges: [
           wire(["dev", "iq"], ["scope", "iq"]),
@@ -272,15 +288,17 @@ const sstv: Scene = {
       version: 4,
       graph: {
         nodes: [
-          node("dev", { kind: "device", data: { device } }, { x: 0, y: 0, w: 380, h: 290 }),
-          channel("ch", "sstv", { x: 0, y: 350, w: 440, h: 300 }),
-          node("readout", { kind: "readout" }, { x: 500, y: 0, w: 1200, h: 560 }),
-          node("scope", { kind: "scope" }, { x: 0, y: 610, w: 1700, h: 300 }),
+          node("dev", { kind: "device", data: { device } }, { x: 0, y: 0, w: 420, h: 160 }),
+          channel("ch", "sstv", { x: 540, y: 0, w: 420, h: 218 }),
+          node("scope", { kind: "scope" }, { x: 540, y: 258, w: 420, h: 582 }),
+          node("readout", { kind: "readout" }, { x: 1100, y: 0, w: 800, h: 530 }),
+          node("log", { kind: "decoder_log" }, { x: 1100, y: 570, w: 800, h: 270 }),
         ],
         edges: [
           wire(["dev", "iq"], ["scope", "iq"]),
           wire(["dev", "iq"], ["ch", "iq"]),
           wire(["ch", "events"], ["readout", "events"]),
+          wire(["ch", "events"], ["log", "events"]),
         ],
       },
     });
@@ -306,8 +324,8 @@ const pocsag: Scene = {
       version: 4,
       graph: {
         nodes: [
-          node("dev", { kind: "device", data: { device } }, { x: 0, y: 0, w: 380, h: 290 }),
-          channel("ch", "pocsag", { x: 0, y: 350, w: 440, h: 262 }),
+          node("dev", { kind: "device", data: { device } }, { x: 0, y: 0, w: 420, h: 160 }),
+          channel("ch", "pocsag", { x: 540, y: 0, w: 420, h: 217 }),
           node(
             "hook",
             {
@@ -320,10 +338,10 @@ const pocsag: Scene = {
                 },
               },
             },
-            { x: 0, y: 680, w: 420, h: 209 },
+            { x: 1100, y: 803, w: 280, h: 197 },
           ),
-          node("scope", { kind: "scope" }, { x: 480, y: 0, w: 1240, h: 360 }),
-          node("log", { kind: "decoder_log" }, { x: 480, y: 410, w: 1240, h: 620 }),
+          node("scope", { kind: "scope" }, { x: 540, y: 257, w: 420, h: 743 }),
+          node("log", { kind: "decoder_log" }, { x: 1100, y: 0, w: 800, h: 763 }),
         ],
         edges: [
           wire(["dev", "iq"], ["scope", "iq"]),
@@ -348,17 +366,17 @@ const pocsag: Scene = {
 const ft8: Scene = {
   id: "ft8",
   title: "a busy FT8 slot",
-  settleSeconds: 4,
+  settleSeconds: 10,
   async stage(page) {
     const device = await recording(page, "ft8_20m_busy_12k");
     await stage(page, "Weak signal (FT8)", {
       version: 4,
       graph: {
         nodes: [
-          node("dev", { kind: "device", data: { device } }, { x: 0, y: 0, w: 380, h: 290 }),
-          channel("ch", "ft8", { x: 0, y: 350, w: 440, h: 274 }),
-          node("scope", { kind: "scope" }, { x: 480, y: 0, w: 1180, h: 300 }),
-          node("log", { kind: "decoder_log" }, { x: 480, y: 340, w: 1180, h: 620 }),
+          node("dev", { kind: "device", data: { device } }, { x: 0, y: 0, w: 420, h: 160 }),
+          channel("ch", "ft8", { x: 540, y: 0, w: 420, h: 229 }),
+          node("scope", { kind: "scope" }, { x: 540, y: 269, w: 420, h: 731 }),
+          node("log", { kind: "decoder_log" }, { x: 1100, y: 0, w: 800, h: 1000 }),
         ],
         edges: [
           wire(["dev", "iq"], ["scope", "iq"]),
@@ -379,24 +397,26 @@ const rds: Scene = {
   id: "rds",
   title: "broadcast FM with RDS",
   speaker: "speaker",
-  settleSeconds: 8,
+  settleSeconds: 16,
   async stage(page) {
     const device = await recording(page, "rds_station_960k");
     await stage(page, "Broadcast FM (RDS)", {
       version: 4,
       graph: {
         nodes: [
-          node("dev", { kind: "device", data: { device } }, { x: 0, y: 0, w: 380, h: 290 }),
-          channel("ch", "wfm", { x: 0, y: 350, w: 440, h: 469 }),
-          node("speaker", { kind: "speaker" }, { x: 0, y: 860, w: 320, h: 210 }),
-          node("scope", { kind: "scope" }, { x: 480, y: 0, w: 1200, h: 760 }),
-          node("readout", { kind: "readout" }, { x: 480, y: 800, w: 1200, h: 270 }),
+          node("dev", { kind: "device", data: { device } }, { x: 0, y: 0, w: 420, h: 160 }),
+          channel("ch", "wfm", { x: 540, y: 0, w: 460, h: 255 }),
+          node("scope", { kind: "scope" }, { x: 540, y: 295, w: 460, h: 705 }),
+          node("speaker", { kind: "speaker" }, { x: 1140, y: 0, w: 280, h: 204 }),
+          node("readout", { kind: "readout" }, { x: 1140, y: 244, w: 760, h: 220 }),
+          node("log", { kind: "decoder_log" }, { x: 1140, y: 504, w: 760, h: 496 }),
         ],
         edges: [
           wire(["dev", "iq"], ["scope", "iq"]),
           wire(["dev", "iq"], ["ch", "iq"]),
           wire(["ch", "audio"], ["speaker", "audio"]),
           wire(["ch", "events"], ["readout", "events"]),
+          wire(["ch", "events"], ["log", "events"]),
         ],
       },
     });
@@ -415,22 +435,24 @@ const rds: Scene = {
 const ident: Scene = {
   id: "ident",
   title: "an unknown signal identified",
-  settleSeconds: 6,
+  settleSeconds: 14,
   async stage(page) {
     const device = await recording(page, "pocsag_1200_240k");
     await stage(page, "Signal identification", {
       version: 4,
       graph: {
         nodes: [
-          node("dev", { kind: "device", data: { device } }, { x: 0, y: 0, w: 380, h: 290 }),
-          channel("ch", "ident", { x: 0, y: 350, w: 440, h: 274 }),
-          node("readout", { kind: "readout" }, { x: 480, y: 0, w: 1180, h: 470 }),
-          node("scope", { kind: "scope" }, { x: 0, y: 680, w: 1660, h: 300 }),
+          node("dev", { kind: "device", data: { device } }, { x: 0, y: 0, w: 420, h: 160 }),
+          channel("ch", "ident", { x: 540, y: 0, w: 420, h: 229 }),
+          node("scope", { kind: "scope" }, { x: 540, y: 269, w: 420, h: 731 }),
+          node("readout", { kind: "readout" }, { x: 1100, y: 0, w: 800, h: 560 }),
+          node("log", { kind: "decoder_log" }, { x: 1100, y: 600, w: 800, h: 400 }),
         ],
         edges: [
           wire(["dev", "iq"], ["scope", "iq"]),
           wire(["dev", "iq"], ["ch", "iq"]),
           wire(["ch", "events"], ["readout", "events"]),
+          wire(["ch", "events"], ["log", "events"]),
         ],
       },
     });
@@ -456,10 +478,10 @@ const atv: Scene = {
       version: 4,
       graph: {
         nodes: [
-          node("dev", { kind: "device", data: { device } }, { x: 0, y: 0, w: 380, h: 290 }),
-          channel("ch", "atv", { x: 0, y: 350, w: 440, h: 639 }),
-          node("scope", { kind: "scope" }, { x: 480, y: 0, w: 1180, h: 400 }),
-          node("video", { kind: "video" }, { x: 480, y: 440, w: 1180, h: 548 }),
+          node("dev", { kind: "device", data: { device } }, { x: 0, y: 0, w: 420, h: 160 }),
+          node("scope", { kind: "scope" }, { x: 540, y: 0, w: 1360, h: 360 }),
+          channel("ch", "atv", { x: 540, y: 400, w: 460, h: 433 }),
+          node("video", { kind: "video" }, { x: 1140, y: 400, w: 760, h: 596 }),
         ],
         edges: [
           wire(["dev", "iq"], ["scope", "iq"]),
@@ -474,7 +496,7 @@ const atv: Scene = {
       if (params.type !== "atv") {
         throw new Error("an ATV channel");
       }
-      return { params: { ...params, settings: { ...params.settings, interlace: false } } };
+      return { params: { ...params, settings: { ...params.settings, interlace: true } } };
     });
     await fitForCapture(page);
   },
@@ -530,10 +552,10 @@ const rack: Scene = {
       },
       rack: {
         slots: [
-          slot("scope", { x: 0, y: 0, w: 7, h: 4 }),
-          slot("map", { x: 7, y: 0, w: 5, h: 4 }),
-          slot("log", { x: 0, y: 4, w: 7, h: 4 }),
-          slot("readout", { x: 7, y: 4, w: 5, h: 4 }),
+          slot("scope", { x: 0, y: 0, w: 8, h: 3 }),
+          slot("map", { x: 8, y: 0, w: 4, h: 3 }),
+          slot("log", { x: 0, y: 3, w: 8, h: 5 }),
+          slot("readout", { x: 8, y: 3, w: 4, h: 5 }),
         ],
       },
     });

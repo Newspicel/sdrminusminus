@@ -1,4 +1,4 @@
-import { test } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import { listen, SCENES } from "./scenes";
 
 const SHOTS = "../assets/screenshots";
@@ -12,6 +12,11 @@ for (const scene of SCENES) {
       await listen(page, scene.speaker);
     }
     await page.waitForTimeout(scene.settleSeconds * 1000);
-    await page.screenshot({ path: `${SHOTS}/${scene.id}.png` });
+    const toasts = page.getByLabel("Dismiss", { exact: true });
+    await expect(async () => {
+      expect(await toasts.count()).toBe(0);
+      await page.screenshot({ path: `${SHOTS}/${scene.id}.png` });
+      expect(await toasts.count()).toBe(0);
+    }).toPass({ timeout: 90_000 });
   });
 }

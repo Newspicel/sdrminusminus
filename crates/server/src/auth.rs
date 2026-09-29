@@ -105,8 +105,9 @@ impl AuthGate {
         }
     }
 
-    fn admits(&self, headers: &HeaderMap, uri: &Uri) -> Result<(), Refusal> {
-        if self.local_hosts_only && !local_host(headers, uri) {
+    fn admits(&self, request: &Request) -> Result<(), Refusal> {
+        let (headers, uri) = (request.headers(), request.uri());
+        if self.local_hosts_only && !relayed_user(request) && !local_host(headers, uri) {
             return Err(forbidden("Host not allowed"));
         }
         if !self.dev_cors && !same_origin(headers, uri) {
@@ -217,7 +218,7 @@ pub(crate) async fn authenticate(
     mut request: Request,
     next: Next,
 ) -> Response {
-    if let Err(refusal) = gate.admits(request.headers(), request.uri()) {
+    if let Err(refusal) = gate.admits(&request) {
         return refusal.into_response();
     }
     let identity = match gate.claim(&request) {
@@ -250,6 +251,9 @@ impl AuthGate {
         }
         if is_public(path) {
             return Claim::Decided(Ok(Identity::Anonymous));
+        }
+        if relayed_user(request) {
+            return Claim::Decided(Ok(Identity::Operator));
         }
         Claim::Decided(match credential(request, self.role) {
             Some(Credential::Malformed) => Err(unauthorized("Bad credentials")),
@@ -308,6 +312,13 @@ impl AuthGate {
             (Some(_), None) => Err(unauthorized("Token required")),
         }
     }
+}
+
+fn relayed_user(request: &Request) -> bool {
+    request
+        .extensions()
+        .get::<sdrmm_tunnel::Relayed>()
+        .is_some_and(|relayed| !relayed.user.is_empty())
 }
 
 fn is_public(path: &str) -> bool {

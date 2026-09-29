@@ -262,6 +262,8 @@ async fn terrestrial_bandwidth_priority_and_service_round_trip_over_http() {
         ("dvb_t", "mhz6"),
         ("dvb_t", "mhz7"),
         ("dvb_t", "mhz8"),
+        ("dvb_t", "khz333"),
+        ("dvb_t", "mhz2"),
         ("dvb_t2", "mhz1_7"),
         ("dvb_t2", "mhz5"),
         ("dvb_t2", "mhz10"),

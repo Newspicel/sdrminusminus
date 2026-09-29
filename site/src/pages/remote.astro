@@ -1,0 +1,361 @@
+---
+import Page from "../layouts/Page.astro";
+import { APP, CONTACT } from "../nav";
+import { euros, lowest, monthsFree, PLANS, people, sites, TRIAL_DAYS } from "../plans";
+
+const offers = [
+  ...PLANS.map((plan) => ({
+    name: plan.name,
+    price: euros(plan.monthly),
+    unit: plan.perSeat ? "per seat a month" : "a month",
+    note: `Or ${euros(plan.yearly)} a year${plan.perSeat ? " per seat" : ""}, ${monthsFree(plan)} months free.`,
+    terms: [
+      { label: "People", value: people(plan) },
+      { label: "Sites", value: sites(plan) },
+      { label: "Free trial", value: `${TRIAL_DAYS} days` },
+    ],
+    action: { label: "Start trial", href: APP, primary: true },
+  })),
+  {
+    name: "Enterprise",
+    price: "Custom",
+    unit: "",
+    note: "Tell us what you need.",
+    terms: [
+      { label: "People", value: "Any" },
+      { label: "Sites", value: "Any" },
+      { label: "Free trial", value: "On request" },
+    ],
+    action: { label: "Contact us", href: CONTACT, primary: false },
+  },
+];
+
+const steps = [
+  {
+    title: "Press Connect",
+    text: "In SDR--, open Remote in the Library and press Connect to app.sdrmm.com.",
+  },
+  { title: "Approve the code", text: "Sign in at app.sdrmm.com and approve the code SDR-- shows." },
+  { title: "Open your server", text: "It is in your device list there, in any browser." },
+];
+
+const facts = [
+  { title: "Lists your servers", text: "Every SDR-- you paired, ready to open." },
+  {
+    title: "Passes your browser through",
+    text: "Radios, recordings and settings stay on your server. Traffic passes Cloudflare, which terminates HTTPS.",
+  },
+  {
+    title: "Ends when you say",
+    text: "Press Disconnect in SDR--, or remove the server in the app.",
+  },
+];
+---
+
+<Page
+  title="Remote access · SDR--"
+  description="Reach your SDR-- server from anywhere, through a free tunnel you run or the optional app.sdrmm.com subscription."
+  summary="Reach your SDR-- server from anywhere."
+>
+  <div class="wrap top">
+    <h1>Your radio, from anywhere</h1>
+    <p class="lede">At home, any browser on your network opens the server directly. Away from home,
+      pick a route.</p>
+  </div>
+
+  <section class="wrap routes" aria-label="Routes">
+    <div class="route">
+      <h2>Your own tunnel</h2>
+      <p class="cost free">Free</p>
+      <p>Tailscale, Cloudflare Tunnel or your own HTTPS. Set it up once on the server.</p>
+      <a class="btn ghost" href="/docs/server/tunnels">Tunnel guide</a>
+    </div>
+    <div class="route app">
+      <h2>app.sdrmm.com</h2>
+      <p class="cost">From {euros(lowest(PLANS))} a month</p>
+      <p>No port forwarding, no certificates. SDR-- dials out, you sign in from any browser.</p>
+      <div class="go">
+        <a class="btn primary" href={APP}>Sign in</a>
+        <a href="#pricing">Pricing</a>
+      </div>
+    </div>
+  </section>
+
+  <section class="wrap" id="pricing">
+    <header class="pricing-head">
+      <h2>app.sdrmm.com pricing</h2>
+      <p class="section-lede">SDR-- and your own tunnel stay free.</p>
+    </header>
+    <div class="plans">
+      {
+        offers.map((offer) => (
+          <div class="plan">
+            <h3>{offer.name}</h3>
+            <p class="price">
+              {offer.price}
+              {offer.unit && <span>{offer.unit}</span>}
+            </p>
+            <p>{offer.note}</p>
+            <dl>
+              {offer.terms.map((term) => (
+                <div>
+                  <dt>{term.label}</dt>
+                  <dd>{term.value}</dd>
+                </div>
+              ))}
+            </dl>
+            <a class:list={["btn", offer.action.primary ? "primary" : "ghost"]} href={offer.action.href}>
+              {offer.action.label}
+            </a>
+          </div>
+        ))
+      }
+    </div>
+    <p class="fine">Prices include VAT. Cancel during the trial and you pay nothing.</p>
+  </section>
+
+  <section class="wrap" id="connect">
+    <h2>Connect to app.sdrmm.com</h2>
+    <ol class="steps">
+      {
+        steps.map((step) => (
+          <li>
+            <h3>{step.title}</h3>
+            <p>{step.text}</p>
+          </li>
+        ))
+      }
+    </ol>
+    <p class="note">On a headless server, run <code>sdrmm pair</code>, approve the code, then restart
+      <code>sdrmm</code>.</p>
+  </section>
+
+  <section class="wrap">
+    <h2>What signing in does</h2>
+    <ul class="facts">
+      {
+        facts.map((fact) => (
+          <li>
+            <h3>{fact.title}</h3>
+            <p>{fact.text}</p>
+          </li>
+        ))
+      }
+    </ul>
+  </section>
+</Page>
+
+<style>
+  .top {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    padding-top: clamp(56px, 9vw, 112px);
+  }
+  .top .lede {
+    margin-inline: auto;
+  }
+
+  section {
+    padding-block: clamp(40px, 6vw, 72px);
+  }
+  .routes {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 16px;
+    max-width: calc(880px + 2 * var(--pad));
+    padding-top: 0;
+  }
+  .route {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 26px 26px 24px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-lg);
+    background: var(--panel);
+  }
+  .route.app {
+    border-color: var(--line-strong);
+  }
+  .route h2 {
+    margin: 0;
+    font-size: 1.4rem;
+  }
+  .route p {
+    margin: 0;
+    font-size: 1.02rem;
+    line-height: 1.5;
+    color: var(--ink-dim);
+  }
+  .route .cost {
+    margin-bottom: 8px;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--ink-faint);
+  }
+  .route.app .cost {
+    color: var(--ink);
+  }
+  .route .cost.free {
+    color: var(--audio);
+  }
+  .route > p:last-of-type {
+    margin-bottom: 18px;
+  }
+  .route .btn,
+  .go {
+    margin-top: auto;
+  }
+  .go {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    font-size: 15px;
+  }
+  .go a:not(.btn) {
+    color: var(--ink-dim);
+    text-decoration: none;
+  }
+  .go a:not(.btn):hover {
+    color: var(--ink);
+  }
+
+  .pricing-head {
+    text-align: center;
+  }
+  .pricing-head .section-lede {
+    margin-inline: auto;
+  }
+  .plans {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-rows: repeat(5, auto);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-lg);
+    background: var(--panel);
+  }
+  .plan {
+    display: grid;
+    grid-row: span 5;
+    grid-template-rows: subgrid;
+    row-gap: 0;
+    padding: 28px 28px 30px;
+  }
+  .plan + .plan {
+    border-left: 1px solid var(--line);
+  }
+  .plan h3 {
+    margin-bottom: 14px;
+  }
+  .plan p {
+    margin: 0;
+    color: var(--ink-dim);
+    font-size: 15px;
+  }
+  .plan .price {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    margin-bottom: 12px;
+    font: 600 3rem/1 var(--mono);
+    letter-spacing: -0.04em;
+    color: var(--ink);
+  }
+  .price span {
+    font: 400 15px var(--sans);
+    letter-spacing: 0;
+    color: var(--ink-faint);
+  }
+  .plan dl {
+    margin: 22px 0 26px;
+    border-top: 1px solid var(--line);
+  }
+  .plan dl div {
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+    padding-block: 9px;
+    border-bottom: 1px solid var(--line);
+    font-size: 15px;
+  }
+  .plan dt {
+    color: var(--ink-faint);
+  }
+  .plan dd {
+    margin: 0;
+    color: var(--ink);
+  }
+  .plan .btn {
+    justify-content: center;
+  }
+  .fine {
+    margin: 20px 0 0;
+    text-align: center;
+    font-size: 14px;
+    color: var(--ink-faint);
+  }
+
+  .steps {
+    counter-reset: step;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 16px 40px;
+    margin: 32px 0 0;
+    padding: 0;
+    list-style: none;
+  }
+  .steps li {
+    counter-increment: step;
+    padding-top: 16px;
+    border-top: 1px solid var(--line);
+  }
+  .steps li::before {
+    content: counter(step);
+    display: grid;
+    place-items: center;
+    width: 26px;
+    height: 26px;
+    margin-bottom: 14px;
+    border-radius: var(--radius);
+    background: var(--accent);
+    color: var(--on-accent);
+    font: 600 13px var(--mono);
+  }
+  h3 {
+    margin: 0 0 6px;
+    font-size: 1.05rem;
+    font-weight: 600;
+  }
+  .steps p,
+  .facts p {
+    margin: 0;
+    color: var(--ink-dim);
+    font-size: 15px;
+  }
+  .facts {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 28px 40px;
+    margin: 32px 0 0;
+    padding: 0;
+    list-style: none;
+  }
+  .facts li {
+    padding-left: 16px;
+    border-left: 2px solid var(--line-strong);
+  }
+
+  @media (max-width: 860px) {
+    .plans {
+      grid-template-columns: minmax(0, 1fr);
+      grid-template-rows: none;
+    }
+    .plan + .plan {
+      border-left: 0;
+      border-top: 1px solid var(--line);
+    }
+  }
+</style>

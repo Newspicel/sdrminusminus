@@ -1,6 +1,6 @@
 # Summary
 
-[Welcome](introduction.md)
+[Welcome](index.md)
 
 # Get started
 

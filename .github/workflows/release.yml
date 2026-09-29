@@ -48,15 +48,20 @@ jobs:
           TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
           WINGET_TOKEN: ${{ secrets.WINGET_TOKEN }}
           AUR_SSH_KEY: ${{ secrets.AUR_SSH_KEY }}
-          PACKAGES_TOKEN: ${{ secrets.PACKAGES_TOKEN }}
+          PACKAGES_SSH_KEY: ${{ secrets.PACKAGES_SSH_KEY }}
           PACKAGES_GPG_KEY: ${{ secrets.PACKAGES_GPG_KEY }}
         run: |
           {
             echo "tap=${TAP_TOKEN:+true}"
             echo "winget=${WINGET_TOKEN:+true}"
             echo "aur=${AUR_SSH_KEY:+true}"
-            if [ -n "$PACKAGES_TOKEN" ] && [ -n "$PACKAGES_GPG_KEY" ]; then echo "packages=true"; fi
+            if [ -n "$PACKAGES_SSH_KEY" ] && [ -n "$PACKAGES_GPG_KEY" ]; then echo "packages=true"; fi
           } >> "$GITHUB_OUTPUT"
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            for name in tap winget aur packages; do
+              grep -qx "$name=true" "$GITHUB_OUTPUT" || echo "::warning::$name not published: secret missing"
+            done
+          fi
 
   version:
     name: Stamp version
@@ -122,8 +127,8 @@ jobs:
         shell: bash
         run: test -s "$STAGED.tar.gz" || test -s "$STAGED.zip"
       - name: Linking
-        if: runner.os == 'macOS'
-        run: cargo xtask link-check "$STAGED"
+        if: runner.os != 'Linux'
+        run: cargo xtask link-check "${{ env.STAGED }}"
       - name: Version
         if: ${{ !matrix.cross }}
         shell: bash
@@ -347,6 +352,13 @@ jobs:
       - name: App linking
         if: runner.os == 'macOS'
         run: cargo xtask link-check "target/${{ matrix.target }}/release/bundle/macos"
+      - name: Installer linking
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $setup = Get-ChildItem "target/${{ matrix.target }}/release/bundle/nsis/*-setup.exe"
+          Start-Process $setup.FullName -ArgumentList '/S', "/D=$PWD\installed" -Wait
+          cargo xtask link-check installed
       - name: AppImage audio
         if: contains(matrix.bundles, 'appimage')
         run: scripts/ci/check-appimage-audio.sh "target/${{ matrix.target }}/release/bundle/appimage"
@@ -497,11 +509,21 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       VERSION: ${{ needs.version.outputs.version }}
     steps:
+      - name: Listed
+        id: listed
+        run: |
+          if gh api repos/microsoft/winget-pkgs/contents/manifests/n/Newspicel/SDRminusminus --silent; then
+            echo "listed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::Not in winget-pkgs yet, skipping"
+          fi
       - name: Install Komac
+        if: steps.listed.outputs.listed == 'true'
         run: |
           gh release download v2.16.0 --repo russellbanks/Komac \
             --pattern 'komac-2.16.0-x86_64-unknown-linux-gnu.tar.gz' --output - | tar -xz -C "$RUNNER_TEMP" komac
       - name: Submit manifest
+        if: steps.listed.outputs.listed == 'true'
         env:
           GITHUB_TOKEN: ${{ secrets.WINGET_TOKEN }}
         run: |
@@ -558,35 +580,7 @@ jobs:
     name: APT and RPM repository
     if: github.ref_type == 'tag' && needs.plan.outputs.packages == 'true'
     needs: [plan, release]
-    runs-on: ubuntu-24.04
-    env:
-      GH_TOKEN: ${{ github.token }}
-      URL: https://${{ github.repository_owner }}.github.io/packages
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/checkout@v7
-        with:
-          repository: ${{ github.repository_owner }}/packages
-          token: ${{ secrets.PACKAGES_TOKEN }}
-          path: site
-      - name: Tools
-        run: sudo apt-get install -y --no-install-recommends apt-utils createrepo-c rpm
-      - name: Fetch packages
-        run: gh release download "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --pattern '*.deb' --pattern '*.rpm' --dir packages
-      - name: Import signing key
-        env:
-          PACKAGES_GPG_KEY: ${{ secrets.PACKAGES_GPG_KEY }}
-        run: |
-          printf '%s\n' "$PACKAGES_GPG_KEY" | gpg --batch --import
-          echo "KEY=$(gpg --list-secret-keys --with-colons | awk -F: '/^fpr/ {print $10; exit}')" >> "$GITHUB_ENV"
-      - name: Build repository
-        run: scripts/ci/linux-repo.sh packages site "$KEY" "${URL,,}"
-      - name: Publish
-        working-directory: site
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git checkout --orphan next
-          git add -A
-          git commit -m "$GITHUB_REF_NAME"
-          git push --force origin next:main
+    uses: ./.github/workflows/linux-repo.yml
+    with:
+      tag: ${{ github.ref_name }}
+    secrets: inherit

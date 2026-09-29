@@ -1,6 +1,7 @@
 ---
 import Page from "../layouts/Page.astro";
 import type { LegalEntry } from "../legal";
+import { SITE } from "../seo";
 
 interface Props {
   heading: string;
@@ -8,7 +9,7 @@ interface Props {
 }
 
 const { heading, entries } = Astro.props;
-const summary = `${heading} for sdrmm.newspicel.dev.`;
+const summary = `${heading} for ${new URL(SITE).host}.`;
 ---
 
 <Page title={`${heading} · SDR--`} description={summary} summary={summary}>

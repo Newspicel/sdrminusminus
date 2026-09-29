@@ -1268,6 +1268,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/remote": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_remote"];
+        put?: never;
+        post?: never;
+        delete: operations["unpair_remote"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/remote/pair": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["pair_remote"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/satellites": {
         parameters: {
             query?: never;
@@ -1838,7 +1870,7 @@ export interface components {
         /** @enum {string} */
         AoaState: "off" | "ready" | "phase_unknown" | "one_lane";
         ApiError: {
-            code?: null | components["schemas"]["ErrorCode"];
+            code?: components["schemas"]["ErrorCode"] | null;
             detail?: string | null;
             error: string;
         };
@@ -1879,7 +1911,7 @@ export interface components {
             key: string;
             name?: string | null;
             options?: components["schemas"]["ArgumentOption"][];
-            range?: null | components["schemas"]["Range"];
+            range?: components["schemas"]["Range"] | null;
             units?: string | null;
             value_type: components["schemas"]["ArgumentType"];
         };
@@ -2156,25 +2188,25 @@ export interface components {
             dropped_samples: number;
             /** Format: int64 */
             events_lost: number;
-            failure?: null | components["schemas"]["ArrayFailure"];
+            failure?: components["schemas"]["ArrayFailure"] | null;
             gain: components["schemas"]["ArrayGain"];
             /** Format: double */
             gain_db?: number | null;
-            gain_range_db?: null | components["schemas"]["Range"];
+            gain_range_db?: components["schemas"]["Range"] | null;
             /** Format: int32 */
             generation: number;
-            heading_source?: null | components["schemas"]["HeadingSource"];
+            heading_source?: components["schemas"]["HeadingSource"] | null;
             lanes: components["schemas"]["ArrayLaneStatus"][];
             last_solve_at?: string | null;
             /** Format: double */
             next_check_in_s?: number | null;
             node: string;
             phase_ready: boolean;
-            position?: null | components["schemas"]["LatLon"];
+            position?: components["schemas"]["LatLon"] | null;
             processors?: components["schemas"]["ProcessorStatus"][];
             /** Format: int64 */
             realigns: number;
-            recording?: null | components["schemas"]["ArrayRecordingStatus"];
+            recording?: components["schemas"]["ArrayRecordingStatus"] | null;
             /** Format: double */
             sample_rate: number;
             sync: components["schemas"]["SyncState"];
@@ -2192,7 +2224,7 @@ export interface components {
         ArrayTuneRequest: {
             /** Format: double */
             center_hz?: number | null;
-            gain?: null | components["schemas"]["ArrayGain"];
+            gain?: components["schemas"]["ArrayGain"] | null;
         };
         /** @enum {string} */
         ArrayTuningMode: "together" | "spread";
@@ -2201,7 +2233,7 @@ export interface components {
             heading_accuracy_deg?: number | null;
             /** Format: double */
             heading_deg?: number | null;
-            heading_source?: null | components["schemas"]["HeadingSource"];
+            heading_source?: components["schemas"]["HeadingSource"] | null;
             /** Format: double */
             pitch_deg?: number | null;
             /** Format: double */
@@ -2285,6 +2317,7 @@ export interface components {
             started_at: string;
         };
         AuthInfo: {
+            login_url?: string | null;
             token_required: boolean;
         };
         BandAllocation: {
@@ -2304,7 +2337,7 @@ export interface components {
             start_hz: number;
             /** Format: double */
             stop_hz: number;
-            suggested?: null | components["schemas"]["ChannelParams"];
+            suggested?: components["schemas"]["ChannelParams"] | null;
         };
         BandBlock: {
             covered?: number[];
@@ -2606,7 +2639,7 @@ export interface components {
             bias_tee?: boolean;
             coherence?: components["schemas"]["Coherence"];
             dc_artifact?: components["schemas"]["DcArtifact"];
-            directional?: null | components["schemas"]["DirectionalCapabilities"];
+            directional?: components["schemas"]["DirectionalCapabilities"] | null;
             duplex?: components["schemas"]["Duplex"];
             extra?: components["schemas"]["ExtraSetting"][];
             freq_ranges: components["schemas"]["Range"][];
@@ -2645,7 +2678,7 @@ export interface components {
             height: number;
             /** Format: int64 */
             id: number;
-            image?: null | components["schemas"]["EventImage"];
+            image?: components["schemas"]["EventImage"] | null;
             image_error?: string | null;
             /** Format: int32 */
             lines: number;
@@ -2766,7 +2799,7 @@ export interface components {
             bandwidth_hz: number;
             can_transmit?: boolean;
             decoder_kind?: string | null;
-            defaults?: null | components["schemas"]["ChannelSettings"];
+            defaults?: components["schemas"]["ChannelSettings"] | null;
             family?: components["schemas"]["DecoderFamily"];
             has_audio?: boolean;
             has_video?: boolean;
@@ -2781,10 +2814,10 @@ export interface components {
         };
         ChannelInfo: {
             audio_recordings?: components["schemas"]["AudioRecordingStatus"][];
-            baseband_recording?: null | components["schemas"]["RecordingStatus"];
+            baseband_recording?: components["schemas"]["RecordingStatus"] | null;
             /** Format: int32 */
             id: number;
-            network_export?: null | components["schemas"]["NetworkExportStatus"];
+            network_export?: components["schemas"]["NetworkExportStatus"] | null;
             /**
              * @description The patch node this decoder was opened for, so a workspace finds its own decoder again
              *     rather than the next one of the same kind.
@@ -3152,13 +3185,13 @@ export interface components {
         } | {
             data: {
                 error?: string | null;
-                fix?: null | components["schemas"]["PositionFix"];
+                fix?: components["schemas"]["PositionFix"] | null;
             };
             /** @enum {string} */
             type: "PublishPose";
         } | {
             data: {
-                fit?: null | components["schemas"]["SurfaceFit"];
+                fit?: components["schemas"]["SurfaceFit"] | null;
                 node: string;
             };
             /** @enum {string} */
@@ -3407,8 +3440,8 @@ export interface components {
             kind: components["schemas"]["CpsJobKind"];
             model_id: string;
             port: string;
-            radio?: null | components["schemas"]["RadioIdent"];
-            report?: null | components["schemas"]["ConversionReport"];
+            radio?: components["schemas"]["RadioIdent"] | null;
+            report?: components["schemas"]["ConversionReport"] | null;
             started_at: string;
             state: components["schemas"]["CpsJobState"];
             step: string;
@@ -3519,7 +3552,7 @@ export interface components {
         };
         CreateWorkspaceRequest: {
             name: string;
-            snapshot?: null | components["schemas"]["WorkspaceSnapshot"];
+            snapshot?: components["schemas"]["WorkspaceSnapshot"] | null;
         };
         CwSkimmerParams: {
             /** Format: double */
@@ -3601,7 +3634,7 @@ export interface components {
             event: components["schemas"]["DecoderEvent"];
             /** Format: double */
             freq_hz: number;
-            origin?: null | components["schemas"]["EventOrigin"];
+            origin?: components["schemas"]["EventOrigin"] | null;
             sinks?: string[];
         };
         DecoderEvent: {
@@ -3780,7 +3813,7 @@ export interface components {
             id: number;
             kind: string;
             node?: string | null;
-            origin?: null | components["schemas"]["EventOrigin"];
+            origin?: components["schemas"]["EventOrigin"] | null;
             station?: string | null;
             summary: string;
         };
@@ -3813,7 +3846,7 @@ export interface components {
             /** Format: int32 */
             fmid?: number | null;
             handsets?: number[];
-            identity?: null | components["schemas"]["DectIdentity"];
+            identity?: components["schemas"]["DectIdentity"] | null;
             /** Format: float */
             level_dbfs: number;
             /** Format: int32 */
@@ -3900,11 +3933,11 @@ export interface components {
             driver: string;
             key: string;
             label: string;
-            profile?: null | components["schemas"]["DeviceProfile"];
+            profile?: components["schemas"]["DeviceProfile"] | null;
             serial?: string | null;
         };
         DeviceNode: {
-            device?: null | components["schemas"]["DeviceRef"];
+            device?: components["schemas"]["DeviceRef"] | null;
             locked_streams?: number[];
         };
         DeviceProfile: {
@@ -3932,31 +3965,31 @@ export interface components {
             clipping?: number[];
             device: components["schemas"]["DeviceInfo"];
             error?: string | null;
-            fault?: null | components["schemas"]["DeviceFault"];
+            fault?: components["schemas"]["DeviceFault"] | null;
             held?: components["schemas"]["HeldLane"][];
             /** @description One hunt per decoder that is being hunted. */
             hunts?: components["schemas"]["HuntStatus"][];
             /** Format: int32 */
             id: number;
-            network_export?: null | components["schemas"]["NetworkExportStatus"];
+            network_export?: components["schemas"]["NetworkExportStatus"] | null;
             /** Format: int64 */
             overruns?: number;
-            playback?: null | components["schemas"]["PlaybackStatus"];
-            recording?: null | components["schemas"]["RecordingStatus"];
-            refused?: null | components["schemas"]["SettingsRefused"];
+            playback?: components["schemas"]["PlaybackStatus"] | null;
+            recording?: components["schemas"]["RecordingStatus"] | null;
+            refused?: components["schemas"]["SettingsRefused"] | null;
             /** @description One scan per decoder that is being driven. */
             scanners?: components["schemas"]["ScannerStatus"][];
             settings: components["schemas"]["DeviceSettings"];
             status: components["schemas"]["DeviceSetStatus"];
-            time_machine?: null | components["schemas"]["TimeMachineStatus"];
+            time_machine?: components["schemas"]["TimeMachineStatus"] | null;
             virtual_lanes?: components["schemas"]["VirtualLane"][];
         };
         /** @enum {string} */
         DeviceSetStatus: "idle" | "running" | "error";
         DeviceSettings: {
-            agc?: null | components["schemas"]["AgcSetting"];
+            agc?: components["schemas"]["AgcSetting"] | null;
             antenna?: string | null;
-            bandwidth?: null | components["schemas"]["BandwidthSetting"];
+            bandwidth?: components["schemas"]["BandwidthSetting"] | null;
             bias_tee?: boolean | null;
             /** Format: double */
             center_hz?: number | null;
@@ -3970,7 +4003,7 @@ export interface components {
             /** Format: double */
             sample_rate?: number | null;
             streams?: components["schemas"]["StreamSettings"][];
-            tuning?: null | components["schemas"]["Tuning"];
+            tuning?: components["schemas"]["Tuning"] | null;
         };
         DevicesResponse: {
             devices: components["schemas"]["DeviceInfo"][];
@@ -4028,10 +4061,10 @@ export interface components {
             /** Format: int64 */
             dropped?: number;
             emitters?: components["schemas"]["DfEstimate"][];
-            estimate?: null | components["schemas"]["DfEstimate"];
+            estimate?: components["schemas"]["DfEstimate"] | null;
             /** Format: int32 */
             half_life_s?: number;
-            nav?: null | components["schemas"]["NavTarget"];
+            nav?: components["schemas"]["NavTarget"] | null;
             no_bearings?: boolean;
             no_guide_position?: boolean;
             /** Format: int64 */
@@ -4045,7 +4078,7 @@ export interface components {
             /** Format: double */
             center_hz?: number | null;
             device_sets?: number[];
-            position?: null | components["schemas"]["PositionLink"];
+            position?: components["schemas"]["PositionLink"] | null;
             triangulations?: string[];
         };
         DfNode: {
@@ -4189,7 +4222,7 @@ export interface components {
             /** Format: float */
             span_db?: number;
             squelched: boolean;
-            station?: null | components["schemas"]["LatLon"];
+            station?: components["schemas"]["LatLon"] | null;
             table_out_of_range?: boolean;
         };
         DfStation: {
@@ -4322,7 +4355,7 @@ export interface components {
         /** @enum {string} */
         Duplex: "rx_only" | "tx_only" | "half" | "full";
         /** @enum {string} */
-        DvbtBandwidth: "mhz1_7" | "mhz5" | "mhz10" | "mhz6" | "mhz7" | "mhz8";
+        DvbtBandwidth: "khz250" | "khz333" | "khz500" | "mhz1" | "mhz1_7" | "mhz2" | "mhz5" | "mhz10" | "mhz6" | "mhz7" | "mhz8";
         DvbtParams: {
             bandwidth?: components["schemas"]["DvbtBandwidth"];
             low_priority?: boolean;
@@ -4349,7 +4382,7 @@ export interface components {
             algorithm_id?: number | null;
             /** Format: int32 */
             channel?: number | null;
-            channel_definition?: null | components["schemas"]["DvChannelDefinition"];
+            channel_definition?: components["schemas"]["DvChannelDefinition"] | null;
             /** Format: int32 */
             color_code?: number | null;
             /**
@@ -4398,8 +4431,8 @@ export interface components {
             system_id?: number | null;
             talker_alias?: string | null;
             text?: string | null;
-            trunk_protocol?: null | components["schemas"]["DvTrunkProtocol"];
-            vendor?: null | components["schemas"]["Vendor"];
+            trunk_protocol?: components["schemas"]["DvTrunkProtocol"] | null;
+            vendor?: components["schemas"]["Vendor"] | null;
             via?: string | null;
         };
         /** @enum {string} */
@@ -4441,7 +4474,7 @@ export interface components {
          * @description Which part of the server refused. Stable, unlike the wording in `error`.
          * @enum {string}
          */
-        ErrorCode: "request" | "not_found" | "conflict" | "unavailable" | "engine" | "storage" | "tool" | "internal" | "auth" | "rate_limited";
+        ErrorCode: "request" | "not_found" | "conflict" | "unavailable" | "engine" | "storage" | "tool" | "forbidden" | "internal" | "auth" | "rate_limited";
         EventAudio: {
             media_type: string;
             url: string;
@@ -4583,10 +4616,10 @@ export interface components {
         FmChannel: {
             admit?: components["schemas"]["Admit"];
             bandwidth?: components["schemas"]["Bandwidth"];
-            rx_tone?: null | components["schemas"]["Tone"];
+            rx_tone?: components["schemas"]["Tone"] | null;
             /** Format: int32 */
             squelch?: number | null;
-            tx_tone?: null | components["schemas"]["Tone"];
+            tx_tone?: components["schemas"]["Tone"] | null;
         };
         /** @enum {string} */
         FreeDvMode: "mode1600";
@@ -4670,7 +4703,7 @@ export interface components {
             threshold?: number;
         };
         GpsNode: {
-            source?: null | components["schemas"]["PositionSource"];
+            source?: components["schemas"]["PositionSource"] | null;
         };
         /** @enum {string} */
         GpuUse: "auto" | "off";
@@ -4698,9 +4731,9 @@ export interface components {
         HuntAction: "start" | "stop" | "sweep" | "mark";
         HuntMission: {
             clicks: boolean;
-            position?: null | components["schemas"]["PositionLink"];
-            status?: null | components["schemas"]["HuntStatus"];
-            target?: null | components["schemas"]["ChannelTarget"];
+            position?: components["schemas"]["PositionLink"] | null;
+            status?: components["schemas"]["HuntStatus"] | null;
+            target?: components["schemas"]["ChannelTarget"] | null;
             triangulations?: string[];
         };
         HuntNode: {
@@ -4709,7 +4742,7 @@ export interface components {
         };
         HuntRequest: {
             action: components["schemas"]["HuntAction"];
-            settings?: null | components["schemas"]["HuntSettings"];
+            settings?: components["schemas"]["HuntSettings"] | null;
         };
         HuntSettings: {
             /** Format: int32 */
@@ -4743,7 +4776,7 @@ export interface components {
             smooth_db?: number | null;
             /** Format: float */
             strength?: number;
-            sweep?: null | components["schemas"]["HuntSweep"];
+            sweep?: components["schemas"]["HuntSweep"] | null;
         };
         HuntSweep: {
             bins: number[];
@@ -4855,7 +4888,7 @@ export interface components {
             ofdm_guard_us?: number | null;
             /** Format: double */
             ofdm_symbol_us?: number | null;
-            sideband?: null | components["schemas"]["Sideband"];
+            sideband?: components["schemas"]["Sideband"] | null;
             /** Format: float */
             snr_db: number;
             /** Format: double */
@@ -5086,7 +5119,7 @@ export interface components {
             revision: number;
             /** Format: int32 */
             truncated?: number;
-            workspace?: null | components["schemas"]["MissionWorkspace"];
+            workspace?: components["schemas"]["MissionWorkspace"] | null;
             workspaces: components["schemas"]["MissionWorkspace"][];
         };
         MissionWorkspace: {
@@ -5109,7 +5142,7 @@ export interface components {
         };
         NanoVnaCalibrateRequest: components["schemas"]["NanoVnaCalStep"] & {
             port: string;
-            range?: null | components["schemas"]["NanoVnaSweepState"];
+            range?: components["schemas"]["NanoVnaSweepState"] | null;
         };
         NanoVnaCalibration: {
             applied: boolean;
@@ -5197,7 +5230,7 @@ export interface components {
             power?: number | null;
             /** Format: double */
             s21_offset_db?: number | null;
-            sweep?: null | components["schemas"]["NanoVnaSweepState"];
+            sweep?: components["schemas"]["NanoVnaSweepState"] | null;
             /** Format: int64 */
             tcxo_hz?: number | null;
         };
@@ -5745,7 +5778,7 @@ export interface components {
             created: number;
             /** Format: int32 */
             opened: number;
-            placement?: null | components["schemas"]["PlacementCoverage"];
+            placement?: components["schemas"]["PlacementCoverage"] | null;
             refused?: components["schemas"]["PatchRefusal"][];
         };
         PatchBinding: {
@@ -5768,7 +5801,7 @@ export interface components {
             id: string;
             label?: string | null;
             position: components["schemas"]["Position"];
-            size?: null | components["schemas"]["Size"];
+            size?: components["schemas"]["Size"] | null;
         };
         PatchRefusal: {
             node: string;
@@ -5790,7 +5823,7 @@ export interface components {
         };
         PhoneAccessStatus: {
             access: components["schemas"]["PhoneAccess"];
-            endpoint?: null | components["schemas"]["PhoneEndpoint"];
+            endpoint?: components["schemas"]["PhoneEndpoint"] | null;
             listener: components["schemas"]["PhoneListenerState"];
             mdns: components["schemas"]["MdnsState"];
             /** Format: int32 */
@@ -5828,7 +5861,7 @@ export interface components {
         };
         PhonesResponse: {
             access: components["schemas"]["PhoneAccessStatus"];
-            offer?: null | components["schemas"]["PairingOfferStatus"];
+            offer?: components["schemas"]["PairingOfferStatus"] | null;
             phones: components["schemas"]["Phone"][];
         };
         PipelineQueue: {
@@ -6085,7 +6118,7 @@ export interface components {
             /** Format: int64 */
             dropped_samples: number;
             error?: string | null;
-            gated?: null | components["schemas"]["ProcessorGate"];
+            gated?: components["schemas"]["ProcessorGate"] | null;
             /** Format: int64 */
             gated_samples: number;
             kind: string;
@@ -6197,7 +6230,7 @@ export interface components {
             sample_rate_hz: number;
         };
         RadarDetection: {
-            aoa?: null | components["schemas"]["RadarAoa"];
+            aoa?: components["schemas"]["RadarAoa"] | null;
             /** Format: int32 */
             cells: number;
             /** Format: float */
@@ -6278,9 +6311,9 @@ export interface components {
             /** Format: double */
             center_hz?: number | null;
             device_sets?: number[];
-            position?: null | components["schemas"]["PositionLink"];
+            position?: components["schemas"]["PositionLink"] | null;
             surface: boolean;
-            transmitter?: null | components["schemas"]["PositionLink"];
+            transmitter?: components["schemas"]["PositionLink"] | null;
         };
         RadarProblem: {
             /** @enum {string} */
@@ -6322,11 +6355,11 @@ export interface components {
         RadarTrack: {
             /** Format: float */
             accel_mps2: number;
-            adsb?: null | components["schemas"]["AdsbMatch"];
-            aoa?: null | components["schemas"]["RadarAoa"];
+            adsb?: components["schemas"]["AdsbMatch"] | null;
+            aoa?: components["schemas"]["RadarAoa"] | null;
             /** Format: float */
             doppler_hz: number;
-            fix?: null | components["schemas"]["RadarFix"];
+            fix?: components["schemas"]["RadarFix"] | null;
             /** Format: int32 */
             id: number;
             /** Format: int32 */
@@ -6376,7 +6409,7 @@ export interface components {
             at: string;
             axes: components["schemas"]["RadarAxes"];
             detections: components["schemas"]["RadarDetection"][];
-            geometry?: null | components["schemas"]["RadarGeometry"];
+            geometry?: components["schemas"]["RadarGeometry"] | null;
             health: components["schemas"]["RadarHealth"];
             problems?: components["schemas"]["RadarProblem"][];
             /** Format: int64 */
@@ -6586,6 +6619,18 @@ export interface components {
         };
         /** @enum {string} */
         ReferenceMode: "raw" | "cma" | "dab_remod";
+        /** @enum {string} */
+        RemoteState: "unpaired" | "pairing" | "connecting" | "online" | "retrying" | "rejected";
+        RemoteStatus: {
+            app_origin: string;
+            device_id?: string | null;
+            error?: string | null;
+            state: components["schemas"]["RemoteState"];
+            user_code?: string | null;
+            verification_uri?: string | null;
+            verification_uri_complete?: string | null;
+            via_relay: boolean;
+        };
         RenamePhoneRequest: {
             name: string;
         };
@@ -6644,9 +6689,9 @@ export interface components {
             doppler_rate_hz_s?: number | null;
             driving?: string[];
             error?: string | null;
-            look?: null | components["schemas"]["SatelliteLook"];
+            look?: components["schemas"]["SatelliteLook"] | null;
             name?: string | null;
-            next_pass?: null | components["schemas"]["SatellitePass"];
+            next_pass?: components["schemas"]["SatellitePass"] | null;
             node: string;
             /** Format: double */
             tle_age_days?: number | null;
@@ -6673,9 +6718,9 @@ export interface components {
             /** Format: int32 */
             hang_ms?: number | null;
             name: string;
-            primary?: null | components["schemas"]["ScanTarget"];
+            primary?: components["schemas"]["ScanTarget"] | null;
             revert?: components["schemas"]["ScanRevert"];
-            secondary?: null | components["schemas"]["ScanTarget"];
+            secondary?: components["schemas"]["ScanTarget"] | null;
         };
         /**
          * @description What a scan is looking for.
@@ -6716,7 +6761,7 @@ export interface components {
         };
         ScanRequest: {
             action: components["schemas"]["ScanAction"];
-            settings?: null | components["schemas"]["ScanSettings"];
+            settings?: components["schemas"]["ScanSettings"] | null;
         };
         /** @enum {string} */
         ScanRevert: "selected" | "last_called" | "last_used" | "primary" | "secondary";
@@ -6941,7 +6986,7 @@ export interface components {
         } | {
             data: {
                 error?: string | null;
-                fix?: null | components["schemas"]["PositionFix"];
+                fix?: components["schemas"]["PositionFix"] | null;
                 node: string;
             };
             /** @enum {string} */
@@ -7113,7 +7158,7 @@ export interface components {
         SstvMode: "robot36" | "robot72" | "martin_m1" | "martin_m2" | "scottie_s1" | "scottie_s2" | "scottie_dx" | "pd50" | "pd90" | "pd120" | "pd180" | "sc2180";
         SstvParams: {
             keep_partial?: boolean;
-            mode?: null | components["schemas"]["SstvMode"];
+            mode?: components["schemas"]["SstvMode"] | null;
             slant_correction?: boolean;
         };
         SstvPicture: {
@@ -7247,14 +7292,14 @@ export interface components {
             tuning?: boolean;
         };
         StreamSettings: {
-            agc?: null | components["schemas"]["AgcSetting"];
+            agc?: components["schemas"]["AgcSetting"] | null;
             antenna?: string | null;
             /** Format: double */
             center_hz?: number | null;
             gains?: components["schemas"]["GainValue"][];
             /** Format: int32 */
             stream: number;
-            tuning?: null | components["schemas"]["Tuning"];
+            tuning?: components["schemas"]["Tuning"] | null;
         };
         SurfaceFit: {
             /** Format: int32 */
@@ -7314,7 +7359,7 @@ export interface components {
             frequency_hz?: number | null;
             /** Format: int64 */
             offset_hz: number;
-            position?: null | components["schemas"]["PositionLink"];
+            position?: components["schemas"]["PositionLink"] | null;
             recording: boolean;
             /** Format: int32 */
             stream: number;
@@ -7325,7 +7370,7 @@ export interface components {
         /** @enum {string} */
         SurveyStop: "retuned" | "unwired" | "radio_gone";
         SurveyUpdate: {
-            cell?: null | components["schemas"]["SurveyCell"];
+            cell?: components["schemas"]["SurveyCell"] | null;
             /** Format: int32 */
             cells: number;
             /** Format: int64 */
@@ -7333,7 +7378,7 @@ export interface components {
             /** Format: float */
             level_dbfs?: number | null;
             recording: boolean;
-            stopped?: null | components["schemas"]["SurveyStop"];
+            stopped?: components["schemas"]["SurveyStop"] | null;
             /** Format: double */
             target_hz?: number | null;
         };
@@ -7358,7 +7403,7 @@ export interface components {
             /** Format: double */
             min_freq_hz: number;
             name: string;
-            patch?: null | components["schemas"]["PatchGraph"];
+            patch?: components["schemas"]["PatchGraph"] | null;
             /** Format: double */
             sample_rate: number;
             supported_devices?: string[];
@@ -7385,7 +7430,7 @@ export interface components {
         TimeMachineStatus: {
             /** Format: int64 */
             capacity_samples: number;
-            capture?: null | components["schemas"]["RecordingStatus"];
+            capture?: components["schemas"]["RecordingStatus"] | null;
             /** Format: int64 */
             center_hz: number;
             error?: string | null;
@@ -7489,7 +7534,7 @@ export interface components {
         /** @enum {string} */
         TrackState: "confirmed" | "coasting";
         Transmission: {
-            audio?: null | components["schemas"]["EventAudio"];
+            audio?: components["schemas"]["EventAudio"] | null;
             decoder?: string | null;
             decoder_confirmed?: boolean;
             /** Format: int64 */
@@ -7525,9 +7570,9 @@ export interface components {
             transmitters: components["schemas"]["Transmitter"][];
         };
         TriangulationMission: {
-            position?: null | components["schemas"]["PositionLink"];
+            position?: components["schemas"]["PositionLink"] | null;
             sources: string[];
-            state?: null | components["schemas"]["DfFusionState"];
+            state?: components["schemas"]["DfFusionState"] | null;
         };
         TriangulationNode: {
             settings?: components["schemas"]["TriangulationParams"];
@@ -7625,8 +7670,8 @@ export interface components {
             channel_map?: components["schemas"]["TrunkChannel"][];
             /** Format: int32 */
             color_code?: number | null;
-            control?: null | components["schemas"]["TrunkControl"];
-            detected?: null | components["schemas"]["DvTrunkProtocol"];
+            control?: components["schemas"]["TrunkControl"] | null;
+            detected?: components["schemas"]["DvTrunkProtocol"] | null;
             followers: components["schemas"]["TrunkFollower"][];
             node: string;
             /** @description Other frequencies the site runs a control channel on, found while searching. */
@@ -7644,7 +7689,7 @@ export interface components {
             name?: string | null;
             /** Format: int64 */
             revision: number;
-            snapshot?: null | components["schemas"]["WorkspaceSnapshot"];
+            snapshot?: components["schemas"]["WorkspaceSnapshot"] | null;
         };
         UsbMatch: {
             /** Format: int32 */
@@ -7666,7 +7711,7 @@ export interface components {
             stream: number;
         };
         VoiceCall: {
-            audio?: null | components["schemas"]["EventAudio"];
+            audio?: components["schemas"]["EventAudio"] | null;
             audio_error?: string | null;
             /** Format: int32 */
             channel: number;
@@ -8312,6 +8357,15 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Asked through remote access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
             };
             /** @description Audio recording not found, or this server has no file manager */
             404: {
@@ -11366,6 +11420,15 @@ export interface operations {
                 };
                 content?: never;
             };
+            /** @description Asked through remote access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
             /** @description Recording not found, or this server has no file manager */
             404: {
                 headers: {
@@ -11393,8 +11456,111 @@ export interface operations {
                 };
                 content?: never;
             };
+            /** @description Asked through remote access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
             /** @description Nothing is recorded to disk, or this server has no file manager */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    get_remote: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Remote access through the app */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RemoteStatus"];
+                };
+            };
+        };
+    };
+    unpair_remote: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Remote access is off and the pairing forgotten */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Asked through remote access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    pair_remote: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A code to approve in the app */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RemoteStatus"];
+                };
+            };
+            /** @description Asked through remote access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Already paired */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description The app refused or could not be reached */
+            502: {
                 headers: {
                     [name: string]: unknown;
                 };

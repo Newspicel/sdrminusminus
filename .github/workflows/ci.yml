@@ -326,6 +326,8 @@ jobs:
           grep -q 'SOAPY_SDR_PLUGIN_PATH' result/bin/sdrmm-desktop
           grep -q 'soapybladerf' result/bin/sdrmm-desktop
           grep -q 'soapyremote' result/bin/sdrmm-desktop
+          grep -q 'vulkan-loader' result/bin/sdrmm-desktop
+          grep -q 'libglvnd' result/bin/sdrmm-desktop
       - name: Launch
         run: |
           status=0

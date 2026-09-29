@@ -26,7 +26,7 @@ Tailscale Serve or a Cloudflare Tunnel, carry only the browser, never a phone.
    `host:port` and the code under **Manual**.
 3. Check the phone shows the same **Key**, then **Trust**.
 
-On a server without a browser, `sdrmm pair` prints the same QR code in the terminal. Use the same
+On a server without a browser, `sdrmm phone` prints the same QR code in the terminal. Use the same
 `--db` as the running server.
 
 Five wrong codes end the offer. Each phone gets its own token: rename or revoke the phone in the

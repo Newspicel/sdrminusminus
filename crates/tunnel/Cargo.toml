@@ -1,0 +1,37 @@
+[package]
+name = "sdrmm-tunnel"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+aws-lc-rs = "1.18.1"
+axum.workspace = true
+base64 = "0.22.1"
+bytes = "1.12.1"
+futures.workspace = true
+http = "1.5.0"
+http-body-util = "0.1.5"
+hyper = { version = "1.11.1", features = ["client", "server", "http1"] }
+hyper-util = { version = "0.1.21", features = ["tokio", "service"] }
+reqwest.workspace = true
+rustls.workspace = true
+rustls-platform-verifier.workspace = true
+serde.workspace = true
+serde_json = { workspace = true, features = ["raw_value"] }
+thiserror.workspace = true
+tokio = { workspace = true, features = ["rt", "macros", "sync", "time", "net", "io-util"] }
+tokio-rustls = { version = "0.26.6", default-features = false }
+tokio-tungstenite.workspace = true
+tower = { workspace = true, features = ["util"] }
+tracing.workspace = true
+url.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "sync", "time", "net", "test-util"] }

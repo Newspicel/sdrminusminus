@@ -28,17 +28,17 @@ net-client = ["sdrmm-server/net-client", "sdrmm-engine/net-client"]
 gpu-fft = ["sdrmm-server/gpu-fft", "sdrmm-engine/gpu-fft"]
 
 [build-dependencies]
-tauri-build = { version = "2", features = [] }
+tauri-build = { version = "2.7", features = [] }
 
 [dependencies]
 sdrmm-server.workspace = true
 sdrmm-engine.workspace = true
 sdrmm-device-soapy = { workspace = true, optional = true }
 anyhow.workspace = true
-tauri = { version = "2", features = [] }
-tauri-plugin-updater = { version = "2.12", default-features = false, features = ["zip", "system-proxy"] }
+tauri = { version = "2.12", features = [] }
+tauri-plugin-updater = { version = "2.13", default-features = false, features = ["zip", "system-proxy"] }
 tauri-plugin-dialog = "2"
 serde_json.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "net"] }
 tracing.workspace = true
-tauri-plugin-opener = "2.5.5"
+tauri-plugin-opener = "2.6.0"

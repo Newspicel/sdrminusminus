@@ -16,6 +16,7 @@
   glib,
   gtk3,
   libayatana-appindicator,
+  libGL,
   libopus,
   ffmpeg,
   librsvg,
@@ -23,11 +24,20 @@
   openssl,
   pango,
   soapysdr,
+  vulkan-loader,
   webkitgtk_4_1,
   xdotool,
   soapyPlugins ? [ ],
+  sdrplayApi ? null,
 }:
 
+let
+  runtimeLibraries = [
+    libGL
+    vulkan-loader
+  ]
+  ++ lib.optional (sdrplayApi != null) sdrplayApi;
+in
 rustPlatform.buildRustPackage (finalAttrs: {
   pname = "sdrmm-desktop";
   version = (builtins.fromTOML (builtins.readFile ../../Cargo.toml)).workspace.package.version;
@@ -47,8 +57,13 @@ rustPlatform.buildRustPackage (finalAttrs: {
     inherit pnpm;
     sourceRoot = "${finalAttrs.src.name}/web";
     fetcherVersion = 4;
-    # web/pnpm-lock.yaml sha256:8d6f246c4209bcba6ccbaa39558c2acd97e19e2844426cd9e3553f73a2ffbfdf
-    hash = "sha256-L3Pojt/LfOOKJ2tP9ZQWM0Fw3l3hKf1m7/pOiR1lT7c=";
+    # web/pnpm-lock.yaml sha256:c0b2cdd590e26a264483e26b55acdd694652d1cc44c25f9bed9fe7b629a578cf
+    hash =
+      {
+        aarch64-linux = "sha256-XPmjjJljdZLHR0T0zSHX4uxkRC+9RM/EXrOLYIKY5dk=";
+        x86_64-linux = "sha256-EwXdSVBd6Vfbhppd5y2MocbDkgT79E8IXSipAtnib58=";
+      }
+      .${stdenv.hostPlatform.system};
   };
   pnpmRoot = "web";
 
@@ -80,15 +95,13 @@ rustPlatform.buildRustPackage (finalAttrs: {
   ];
 
   preBuild = ''
+    find web/node_modules -path '*/.bin/*' -type f -exec sed -i 's/command -p /command /g' {} +
     pnpm --dir web build
   '';
 
   cargoBuildFlags = [
     "--package"
     "sdrmm-desktop"
-    "--no-default-features"
-    "--features"
-    "soapy,net-client"
   ];
   cargoTestFlags = finalAttrs.cargoBuildFlags;
 
@@ -121,6 +134,7 @@ rustPlatform.buildRustPackage (finalAttrs: {
   preFixup = ''
     gappsWrapperArgs+=(
       --set-default SDRMM_SOAPY_LIBRARY "${soapysdr}/lib/libSoapySDR${stdenv.hostPlatform.extensions.sharedLibrary}"
+      --prefix LD_LIBRARY_PATH : "${lib.makeLibraryPath runtimeLibraries}"
     )
   '' + lib.optionalString (soapyPlugins != [ ]) ''
     gappsWrapperArgs+=(
@@ -129,12 +143,12 @@ rustPlatform.buildRustPackage (finalAttrs: {
   '';
 
   passthru = {
-    inherit soapyPlugins;
+    inherit soapyPlugins sdrplayApi;
   };
 
   meta = {
     description = "Modular software-defined radio receiver desktop application";
-    homepage = "https://github.com/Newspicel/sdrminusminus";
+    homepage = "https://sdrmm.com";
     license = lib.licenses.agpl3Plus;
     mainProgram = "sdrmm-desktop";
     platforms = lib.platforms.linux;

@@ -70,14 +70,36 @@ fn source_of(root: &Path, path: &str) -> PathBuf {
     if public.exists() {
         return public;
     }
-    let stem = path
-        .strip_suffix(".html")
-        .unwrap_or_else(|| panic!("`{path}` is neither a page nor a file in site/public"));
-    let page = root.join("site/src/pages").join(format!("{stem}.astro"));
-    if page.is_file() {
-        return page;
+    match path
+        .strip_prefix("docs")
+        .filter(|rest| rest.is_empty() || rest.starts_with('/'))
+    {
+        Some(doc) => {
+            let doc = doc.trim_matches('/');
+            let doc = if doc.is_empty() { "index" } else { doc };
+            root.join("docs/src").join(format!("{doc}.md"))
+        }
+        None => root.join("site/src/pages").join(format!("{path}.astro")),
     }
-    root.join("docs/src").join(format!("{stem}.md"))
+}
+
+#[test]
+fn clean_links_resolve_to_pages_and_docs() {
+    let root = root();
+    assert_eq!(
+        source_of(&root, "remote"),
+        root.join("site/src/pages/remote.astro")
+    );
+    assert_eq!(
+        source_of(&root, "docs/server/tunnels"),
+        root.join("docs/src/server/tunnels.md")
+    );
+    assert_eq!(source_of(&root, "docs/"), root.join("docs/src/index.md"));
+    assert_eq!(
+        source_of(&root, "favicon.ico"),
+        root.join("site/public/favicon.ico")
+    );
+    assert!(!source_of(&root, "remote.html").exists());
 }
 
 #[test]
@@ -112,13 +134,26 @@ fn every_local_reference_resolves_to_a_file_the_build_publishes() {
 #[test]
 fn the_published_host_matches_the_site_astro_builds() {
     let root = root();
-    let script = read(&root.join("scripts/build-site.sh"));
-    let config = read(&root.join("site/astro.config.mjs"));
-    assert_eq!(
-        host(&config, "site: \"https://"),
-        host(&script, "printf '"),
-        "site/astro.config.mjs and the CNAME the build writes name different hosts"
-    );
+    let site = host(&read(&root.join("site/src/seo.ts")), "SITE = \"https://");
+    let published = [
+        (
+            "site/wrangler.jsonc",
+            host(&read(&root.join("site/wrangler.jsonc")), "\"pattern\": \""),
+        ),
+        (
+            "docs/theme/head.hbs",
+            host(
+                &read(&root.join("docs/theme/head.hbs")),
+                "content=\"https://",
+            ),
+        ),
+    ];
+    for (file, published) in published {
+        assert_eq!(
+            site, published,
+            "site/src/seo.ts and {file} name different hosts"
+        );
+    }
 }
 
 #[test]
@@ -129,9 +164,18 @@ fn the_download_button_leads_to_the_download_page() {
         "the download page is what the Download button points at"
     );
     assert!(
-        read(&root.join("site/src/layouts/Page.astro"))
-            .contains("class=\"get\" href=\"/download.html\""),
-        "the page layout sends its Download button somewhere other than the download page"
+        read(&root.join("site/src/layouts/Page.astro")).contains("<Header />"),
+        "the page layout carries the header with the Download button"
+    );
+    assert!(
+        read(&root.join("site/src/components/Header.astro"))
+            .contains("class=\"get\" href={DOWNLOAD.href}"),
+        "the header's Download button is not the DOWNLOAD link"
+    );
+    assert!(
+        read(&root.join("site/src/nav.ts"))
+            .contains("DOWNLOAD: Link = { label: \"Download\", href: \"/download\" }"),
+        "the DOWNLOAD link points somewhere other than the download page"
     );
 }
 

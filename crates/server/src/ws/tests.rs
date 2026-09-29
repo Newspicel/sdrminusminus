@@ -1263,7 +1263,34 @@ async fn audio_forwarder_discards_packets_older_than_the_live_budget() {
     task.await.expect("forwarder");
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
+async fn a_briefly_stalled_socket_writer_keeps_the_connection() {
+    let (out, output) = outbox::channel();
+    out.send(Message::Text("first".into()))
+        .await
+        .expect("queued");
+    let (delivered, mut received) = tokio::sync::mpsc::unbounded_channel();
+    let sink = Box::pin(futures::sink::unfold(
+        delivered,
+        |delivered, message: Message| async move {
+            tokio::time::sleep(Duration::from_secs(2)).await;
+            delivered.send(message).map_err(|_| ())?;
+            Ok::<_, ()>(delivered)
+        },
+    ));
+    let writer = tokio::spawn(async move {
+        write_output(sink, output).await;
+    });
+    assert_eq!(received.recv().await, Some(Message::Text("first".into())));
+    out.send(Message::Text("second".into()))
+        .await
+        .expect("a two second stall must not close the connection");
+    assert_eq!(received.recv().await, Some(Message::Text("second".into())));
+    drop(out);
+    writer.await.expect("writer");
+}
+
+#[tokio::test(start_paused = true)]
 async fn a_stalled_socket_writer_expires_and_closes_its_output_queue() {
     let (out, output) = outbox::channel();
     out.send(Message::Text("queued".into()))

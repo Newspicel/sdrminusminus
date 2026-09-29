@@ -15,7 +15,7 @@ if (title !== null) {
 const buttons = document.querySelector(".right-buttons");
 if (buttons !== null) {
   const download = document.createElement("a");
-  download.href = "/download.html";
+  download.href = "/download";
   download.className = "menu-download";
   download.textContent = "Download";
   buttons.prepend(download);

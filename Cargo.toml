@@ -30,6 +30,7 @@ members = [
     "crates/recorder",
     "crates/engine",
     "crates/tools",
+    "crates/tunnel",
     "crates/server",
     "crates/mobile-core",
     "apps/sdrmm",
@@ -67,6 +68,7 @@ default-members = [
     "crates/recorder",
     "crates/engine",
     "crates/tools",
+    "crates/tunnel",
     "crates/server",
     "crates/mobile-core",
     "apps/sdrmm",
@@ -82,7 +84,7 @@ repository = "https://github.com/newspicel/sdrminusminus"
 rust-version = "1.98"
 
 [workspace.dependencies]
-tun-rs = { version = "2.8.10", features = ["async"] }
+tun-rs = { version = "2.8.11", features = ["async"] }
 sdrmm-test-support = { path = "crates/test-support" }
 # Internal crates
 sdrmm-wire = { path = "crates/wire" }
@@ -112,6 +114,7 @@ sdrmm-channels = { path = "crates/channels" }
 sdrmm-cps = { path = "crates/cps" }
 sdrmm-recorder = { path = "crates/recorder" }
 sdrmm-tools = { path = "crates/tools" }
+sdrmm-tunnel = { path = "crates/tunnel" }
 # default-features = false so binaries opt into `soapy` themselves: a member manifest cannot
 # disable a workspace dep's defaults, only add to them (needed for the minimal build).
 sdrmm-engine = { path = "crates/engine", default-features = false }
@@ -127,7 +130,7 @@ rcgen = { version = "0.14.10", default-features = false, features = ["aws_lc_rs"
 tower = "0.5"
 tower-http = { version = "0.7", features = ["compression-gzip", "cors", "trace"] }
 futures = "0.3"
-reqwest = { version = "0.13.4", default-features = false, features = ["json", "multipart", "rustls"] }
+reqwest = { version = "0.13.5", default-features = false, features = ["json", "multipart", "rustls"] }
 rumqttc = { package = "rumqttc-v4-next", version = "0.34.0", default-features = false, features = ["use-rustls"] }
 url = "2.5.8"
 tokio-postgres = { version = "0.7.18", default-features = false, features = ["runtime"] }
@@ -140,18 +143,18 @@ gethostname = "1.1.0"
 getrandom = "0.4.3"
 tokio-tungstenite = "0.30"
 tokio-serial = "5.5.0"
-serialport = { version = "4.9.0", default-features = false }
+serialport = { version = "4.10.1", default-features = false }
 
 # MCP server (, §18): streamable HTTP mounted on the same axum app. `schemars` derives
 # the tool argument schemas and must match the version rmcp itself depends on.
-rmcp = { version = "3.1", features = ["server", "macros", "transport-streamable-http-server"] }
+rmcp = { version = "3.5", features = ["server", "macros", "transport-streamable-http-server"] }
 schemars = "1.2"
 
 # Serde + OpenAPI
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-utoipa = { version = "5", features = ["axum_extras"] }
-utoipa-axum = "0.2"
+utoipa = { version = "6", features = ["axum_extras"] }
+utoipa-axum = "0.3"
 mime_guess = "2"
 
 # Device backends

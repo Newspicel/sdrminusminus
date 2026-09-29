@@ -1,0 +1,54 @@
+name: Linux repository
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        type: string
+        required: true
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    name: Publish
+    runs-on: ubuntu-24.04
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ inputs.tag }}
+      URL: https://${{ github.repository_owner }}.github.io/packages
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7
+        with:
+          repository: ${{ github.repository_owner }}/packages
+          ssh-key: ${{ secrets.PACKAGES_SSH_KEY }}
+          path: site
+      - name: Tools
+        run: sudo apt-get install -y --no-install-recommends apt-utils createrepo-c rpm
+      - name: Fetch packages
+        run: gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern '*.deb' --pattern '*.rpm' --dir packages
+      - name: Import signing key
+        env:
+          PACKAGES_GPG_KEY: ${{ secrets.PACKAGES_GPG_KEY }}
+        run: |
+          printf '%s\n' "$PACKAGES_GPG_KEY" | gpg --batch --import
+          echo "KEY=$(gpg --list-secret-keys --with-colons | awk -F: '/^fpr/ {print $10; exit}')" >> "$GITHUB_ENV"
+      - name: Build repository
+        run: scripts/ci/linux-repo.sh packages site "$KEY" "${URL,,}"
+      - name: Publish
+        working-directory: site
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout --orphan next
+          git add -A
+          git commit -m "$TAG"
+          git push --force origin next:main

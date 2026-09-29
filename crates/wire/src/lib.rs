@@ -28,6 +28,7 @@ pub mod position;
 pub mod processor;
 pub mod propagation;
 pub mod radar;
+pub mod remote;
 pub mod rest;
 pub mod satellite;
 pub mod scan;
@@ -197,6 +198,10 @@ pub use radar::{
     RadarFix, RadarGeometry, RadarHealth, RadarProblem, RadarSite, RadarTrack, RadarTrackEvent,
     RadarTrailPoint, RadarUpdate, ReferenceCleaning, ReferenceHealth, ReferenceMode,
     SurveillanceSet, TrackChange, TrackState, TrackerParams,
+};
+pub use remote::{
+    DEFAULT_REMOTE_APP, MAX_HEALTH_LABEL_CHARS, MAX_HEALTH_RADIOS, RadioHealth, RemoteState,
+    RemoteStatus, SiteHealth,
 };
 pub use rest::{
     AnnotationError, ApiError, ApplyTemplateRequest, AudioRecordingInfo, AudioRecordingsResponse,

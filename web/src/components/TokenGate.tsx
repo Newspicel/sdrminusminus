@@ -1,7 +1,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { type ReactNode, useEffect, useState } from "react";
 import { authQuery } from "../lib/api";
-import { getToken, onTokenRejected, setToken } from "../lib/auth";
+import { getToken, loginRedirect, onTokenRejected, setToken } from "../lib/auth";
 import { Button, Form, Input } from "./BaseControls";
 import { BTN, FIELD } from "./controls";
 
@@ -21,8 +21,19 @@ export function TokenGate({ onToken, children }: { onToken: () => void; children
     [],
   );
 
+  const login = loginRedirect(auth.data, saved);
+
+  useEffect(() => {
+    if (login !== null) {
+      window.location.replace(login);
+    }
+  }, [login]);
+
   if (auth.data?.token_required !== true || saved) {
     return children;
+  }
+  if (login !== null) {
+    return null;
   }
 
   return (

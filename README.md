@@ -10,6 +10,8 @@ channels, and displays in **Patch** view, then pin your everyday controls to **R
 Run the desktop app with a local SDR, or place the server near your antenna and connect through
 a browser. Both use the same receiver engine and interface.
 
+Questions or ideas? Join the [Discord](https://discord.gg/dYaRyGwBNw).
+
 <p align="center">
   <img src="assets/screenshots/patch.png" alt="A receiver patch with three channels, a speaker, recording, and network IQ output">
 </p>
@@ -18,8 +20,8 @@ a browser. Both use the same receiver engine and interface.
 
 Download a desktop installer or portable server from
 [GitHub Releases](https://github.com/Newspicel/sdrminusminus/releases).
-The [installation guide](https://sdrmm.newspicel.dev/getting-started/install.html)
-covers macOS, Windows, Linux, Homebrew, WinGet, APT, DNF, AUR, Nix, and Docker.
+The [installation guide](https://sdrmm.com/docs/getting-started/install)
+covers macOS, Windows, Linux, Homebrew, WinGet, APT, DNF, Nix, and Docker.
 
 On macOS:
 
@@ -35,7 +37,7 @@ brew services start sdrmm
 ```
 
 Open <http://localhost:8080>. For remote access, configure
-[authentication and HTTPS](https://sdrmm.newspicel.dev/server/configuration.html).
+[authentication and HTTPS](https://sdrmm.com/docs/server/configuration).
 
 ## Start with an RTL-SDR
 
@@ -44,8 +46,8 @@ Open <http://localhost:8080>. For remote access, configure
 3. Wire Device `iq` to WFM `iq`, and WFM `audio` to the Speaker.
 4. Start the Speaker. Press `p` on a node to pin it to the Rack.
 
-[Your first receiver](https://sdrmm.newspicel.dev/getting-started/first-receiver.html) walks
-through it. [Radios](https://sdrmm.newspicel.dev/hardware.html) covers other hardware.
+[Your first receiver](https://sdrmm.com/docs/getting-started/first-receiver) walks
+through it. [Radios](https://sdrmm.com/docs/hardware) covers other hardware.
 
 ## What it supports
 
@@ -57,7 +59,7 @@ through it. [Radios](https://sdrmm.newspicel.dev/hardware.html) covers other har
 - **Automation:** REST, WebSocket, MCP, network IQ export, and event forwarding.
 
 SDR-- is under active development. The
-[decoder catalog](https://sdrmm.newspicel.dev/user-guide/decoders.html#catalog) shows how well
+[decoder catalog](https://sdrmm.com/docs/user-guide/decoders#catalog) shows how well
 each mode is tested.
 
 ## Screenshots
@@ -100,19 +102,19 @@ cargo run -p sdrmm
 Open <http://localhost:8080>, or run `cargo xtask dev --watch` and open <http://localhost:5173>
 for hot reload. `cargo xtask check` and `cargo xtask test` are the main gates.
 
-The [build guide](https://sdrmm.newspicel.dev/development/building.html) lists prerequisites and
+The [build guide](https://sdrmm.com/docs/development/building) lists prerequisites and
 every check.
 
 ## Documentation and API
 
-- [User and developer guide](https://sdrmm.newspicel.dev/introduction.html)
+- [User and developer guide](https://sdrmm.com/docs/)
 - Swagger UI: `/api/docs` on a running server
 - OpenAPI: `/api/openapi.json` or [openapi.json](openapi.json)
 
 ## Thanks
 
-[KrakenRF](https://www.krakenrf.com) and [Airspy](https://airspy.com) provided hardware for
-development and testing.
+[KrakenRF](https://www.krakenrf.com), [Airspy](https://airspy.com) and
+[AntSDR](https://www.microphase.cn/) provided hardware for development and testing.
 
 Making a radio? Write to [hi@jhaag.me](mailto:hi@jhaag.me) to get it supported and tested.
 

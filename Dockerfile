@@ -1,7 +1,7 @@
 # --- web UI ------------------------------------------------------------------------------
 FROM node:26-slim AS web
 WORKDIR /web
-RUN npm install -g pnpm@11.15.1
+RUN npm install -g pnpm@12.8.0
 
 # Manifests first: the install layer then survives every UI source edit.
 COPY web/package.json web/pnpm-lock.yaml web/pnpm-workspace.yaml ./
@@ -88,7 +88,8 @@ RUN test -f web/dist/index.html \
 
 # --- runtime -----------------------------------------------------------------------------
 FROM debian:trixie-slim AS runtime
-LABEL org.opencontainers.image.source="https://github.com/newspicel/sdrminusminus" \
+LABEL org.opencontainers.image.url="https://sdrmm.com" \
+      org.opencontainers.image.source="https://github.com/newspicel/sdrminusminus" \
       org.opencontainers.image.description="SDR--: headless SDR server with embedded web UI" \
       org.opencontainers.image.licenses="AGPL-3.0-or-later"
 

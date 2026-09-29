@@ -2,6 +2,7 @@ use std::path::Path;
 
 use anyhow::{Context, Result};
 
+use crate::HOMEPAGE;
 use crate::sums::{Digests, digest, parse};
 
 const ARCHES: [Arch; 2] = [
@@ -27,7 +28,7 @@ struct Arch {
 
 struct Package {
     name: &'static str,
-    url: String,
+    url: &'static str,
     provides: &'static str,
     desc: &'static str,
     depends: &'static [&'static str],
@@ -88,7 +89,7 @@ fn sources(
 fn desktop(digests: &Digests, version: &str, repo: &str) -> Result<Package> {
     Ok(Package {
         name: "sdrminusminus-bin",
-        url: format!("https://github.com/{repo}"),
+        url: HOMEPAGE,
         provides: "sdrminusminus",
         desc: "Modular software-defined radio, desktop app",
         depends: &[
@@ -115,7 +116,7 @@ fn desktop(digests: &Digests, version: &str, repo: &str) -> Result<Package> {
 fn server(digests: &Digests, version: &str, repo: &str) -> Result<Package> {
     Ok(Package {
         name: "sdrmm-bin",
-        url: format!("https://github.com/{repo}"),
+        url: HOMEPAGE,
         provides: "sdrmm",
         desc: "Modular software-defined radio, headless server",
         depends: &["gcc-libs", "glibc"],
@@ -252,6 +253,7 @@ mod tests {
         assert!(srcinfo.starts_with("pkgbase = sdrmm-bin\n"));
         assert!(srcinfo.ends_with("\npkgname = sdrmm-bin\n"));
         assert!(srcinfo.contains("\tarch = aarch64\n"));
+        assert!(srcinfo.contains("\turl = https://sdrmm.com\n"));
         assert!(srcinfo.contains(&format!("\tsha256sums_aarch64 = {}\n", "e".repeat(64))));
         assert!(
             pkgbuild(&package, "1.2.3").contains("cd \"sdrmm-1.2.3-$CARCH-unknown-linux-gnu\"")

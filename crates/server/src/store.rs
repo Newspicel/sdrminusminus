@@ -310,6 +310,15 @@ const MIGRATIONS: &[&str] = &[
         offset_hz REAL
     ) WITHOUT ROWID;
     ",
+    "
+    CREATE TABLE remote_access (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        device_id TEXT NOT NULL,
+        relay_url TEXT NOT NULL,
+        key BLOB NOT NULL,
+        paired_at TEXT NOT NULL
+    );
+    ",
     "DELETE FROM decoder_log WHERE kind = 'radar';",
     "
     CREATE TABLE workspace_notices (
@@ -2270,9 +2279,11 @@ mod audio_fx_lift;
 mod coherent_break;
 mod cps;
 mod phones;
+mod remote;
 
 pub(crate) use coherent_break::upgrade_export;
 pub(crate) use phones::{OfferFailure, OfferRow, PairWrite, PhoneRow};
+pub use remote::RemotePairing;
 
 #[cfg(test)]
 mod tests;

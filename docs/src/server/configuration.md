@@ -14,6 +14,7 @@ Out of the box it listens on `0.0.0.0:8080` with **no authentication**.
 | `--tls-cert <PATH>`, `--tls-key <PATH>` | None | HTTPS certificate chain and key, PEM |
 | `--tls-self-signed` | Off | HTTPS with a self-signed certificate |
 | `--tls-name <NAME>` | Found addresses | Name the certificate must cover; repeatable |
+| `--remote-app <URL>` | `https://app.sdrmm.com` | App for [remote access](tunnels.md#appsdrmmcom) |
 | `--dev-cors` | Off | Allow a separate frontend origin, for development only |
 | `--doctor` | | Print diagnostics and exit |
 | `--doctor-rates` | | Probe connected radios' sample rates and exit |
@@ -97,8 +98,8 @@ shared token.
 Pair from a terminal while the server runs:
 
 ```sh
-sdrmm pair
-sdrmm pair --name van --db /var/lib/sdrmm/sdrmm.db
+sdrmm phone
+sdrmm phone --name van --db /var/lib/sdrmm/sdrmm.db
 ```
 
 It prints a QR code, the code, the key and the hosts. `--db` must match the running server,

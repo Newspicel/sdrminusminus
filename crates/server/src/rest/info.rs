@@ -153,6 +153,7 @@ pub(super) async fn get_ionosonde(State(state): State<AppState>) -> Json<Ionoson
 pub(super) async fn get_auth(State(state): State<AppState>) -> Json<AuthInfo> {
     Json(AuthInfo {
         token_required: state.auth.required(),
+        login_url: None,
     })
 }
 

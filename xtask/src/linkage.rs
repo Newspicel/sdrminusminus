@@ -6,6 +6,8 @@ use std::{
 
 use anyhow::{Context, Result, ensure};
 
+mod pe;
+
 const SYSTEM_PREFIXES: [&str; 3] = ["/usr/lib/", "/System/", "/Library/Frameworks/"];
 
 const MAGICS: [[u8; 4]; 4] = [
@@ -17,19 +19,22 @@ const MAGICS: [[u8; 4]; 4] = [
 
 pub fn check(path: &Path, external: &[String]) -> Result<()> {
     ensure!(path.exists(), "{} does not exist", path.display());
-    let images = mach_o_under(path)?;
+    let portable = images_under(path, pe::is_pe)?;
+    if !portable.is_empty() {
+        return pe::check(path, &portable, external);
+    }
+    let images = images_under(path, |head| MAGICS.contains(head))?;
     ensure!(
         !images.is_empty(),
-        "{} holds no Mach-O files: this check reads macOS artifacts",
+        "{} holds no Mach-O or PE files",
         path.display()
     );
-    let executable_dir = executable_dir(path);
-
     let mut edges = 0usize;
     let mut failures = Vec::new();
     for image in &images {
         let loaded = Image::read(image)?;
         let loader_dir = image.parent().unwrap_or(Path::new("."));
+        let executable_dir = executable_dir(path, image);
         for dependency in &loaded.dependencies {
             edges += 1;
             if external
@@ -84,9 +89,12 @@ pub fn check(path: &Path, external: &[String]) -> Result<()> {
     Ok(())
 }
 
-fn executable_dir(path: &Path) -> PathBuf {
-    if path.extension().is_some_and(|ext| ext == "app") {
-        return path.join("Contents/MacOS");
+fn executable_dir(path: &Path, image: &Path) -> PathBuf {
+    if let Some(app) = image
+        .ancestors()
+        .find(|dir| dir.extension().is_some_and(|ext| ext == "app"))
+    {
+        return app.join("Contents/MacOS");
     }
     if path.is_dir() {
         return path.to_path_buf();
@@ -206,37 +214,37 @@ fn strip_offset(value: &str) -> String {
     }
 }
 
-fn mach_o_under(path: &Path) -> Result<Vec<PathBuf>> {
+fn images_under(path: &Path, accept: fn(&[u8; 4]) -> bool) -> Result<Vec<PathBuf>> {
     let mut found = Vec::new();
-    collect(path, &mut found)?;
+    collect(path, accept, &mut found)?;
     found.sort();
     Ok(found)
 }
 
-fn collect(path: &Path, found: &mut Vec<PathBuf>) -> Result<()> {
+fn collect(path: &Path, accept: fn(&[u8; 4]) -> bool, found: &mut Vec<PathBuf>) -> Result<()> {
     if path.is_symlink() {
         return Ok(());
     }
     if path.is_dir() {
         for entry in std::fs::read_dir(path).with_context(|| format!("read {}", path.display()))? {
-            collect(&entry?.path(), found)?;
+            collect(&entry?.path(), accept, found)?;
         }
         return Ok(());
     }
-    if is_mach_o(path)? {
+    if head(path)?.is_some_and(|head| accept(&head)) {
         found.push(path.to_path_buf());
     }
     Ok(())
 }
 
-fn is_mach_o(path: &Path) -> Result<bool> {
+fn head(path: &Path) -> Result<Option<[u8; 4]>> {
     use std::io::Read;
 
     let mut head = [0u8; 4];
     let mut file = std::fs::File::open(path).with_context(|| format!("open {}", path.display()))?;
     match file.read_exact(&mut head) {
-        Ok(()) => Ok(MAGICS.contains(&head)),
-        Err(err) if err.kind() == std::io::ErrorKind::UnexpectedEof => Ok(false),
+        Ok(()) => Ok(Some(head)),
+        Err(err) if err.kind() == std::io::ErrorKind::UnexpectedEof => Ok(None),
         Err(err) => Err(err).with_context(|| format!("read {}", path.display())),
     }
 }
@@ -337,6 +345,18 @@ Load command 13
         .unwrap();
         assert_eq!(found, dir.join("libSoapySDR.0.8.dylib"));
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn an_app_in_the_checked_folder_runs_from_its_own_contents() {
+        let root = Path::new("bundle/macos");
+        let macos = root.join("SDR--.app/Contents/MacOS");
+        for image in [
+            macos.join("sdrmm-desktop"),
+            root.join("SDR--.app/Contents/Frameworks/libavcodec.63.dylib"),
+        ] {
+            assert_eq!(executable_dir(root, &image), macos);
+        }
     }
 
     #[test]

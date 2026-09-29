@@ -2,6 +2,7 @@ use std::path::Path;
 
 use anyhow::{Context, Result};
 
+use crate::HOMEPAGE;
 use crate::sums::{Digests, digest, parse};
 
 const FORMULA_TRIPLES: [&str; 4] = [
@@ -49,7 +50,7 @@ fn formula(digests: &Digests, version: &str, repo: &str) -> Result<String> {
     Ok(format!(
         r##"class Sdrmm < Formula
   desc "Modular, client-server software-defined radio"
-  homepage "https://github.com/{repo}"
+  homepage "{HOMEPAGE}"
   license "AGPL-3.0-or-later"
 
   livecheck do
@@ -138,7 +139,7 @@ fn cask(digests: &Digests, version: &str, repo: &str) -> Result<String> {
   name "SDR--"
   name "sdr minus minus"
   desc "Modular, client-server software-defined radio"
-  homepage "https://github.com/{repo}"
+  homepage "{HOMEPAGE}"
 
   livecheck do
     url :url
@@ -193,6 +194,7 @@ mod tests {
             );
         }
         assert_eq!(formula.matches(&"a".repeat(64)).count(), 4);
+        assert!(formula.contains("homepage \"https://sdrmm.com\""));
     }
 
     #[test]
@@ -201,6 +203,7 @@ mod tests {
         assert!(cask.contains(&format!("arm:   \"{}\"", "b".repeat(64))));
         assert!(cask.contains("SDR--_#{version}_#{arch}.dmg"));
         assert!(cask.contains("app \"SDR--.app\""));
+        assert!(cask.contains("homepage \"https://sdrmm.com\""));
     }
 
     #[test]

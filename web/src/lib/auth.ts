@@ -71,3 +71,13 @@ export function resetTokenCache(): void {
   cached = null;
   loaded = false;
 }
+
+export function loginRedirect(
+  auth: { token_required: boolean; login_url?: string | null } | undefined,
+  hasToken: boolean,
+): string | null {
+  if (auth?.token_required !== true || hasToken) {
+    return null;
+  }
+  return auth.login_url ?? null;
+}

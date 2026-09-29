@@ -231,7 +231,7 @@ body {
 }
 
 @media (max-width: 620px) {
-  .right-buttons a[href$="print.html"],
+  .right-buttons a[href$="print"],
   .right-buttons a[rel="edit"] {
     display: none;
   }

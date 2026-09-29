@@ -324,7 +324,7 @@ impl PhoneGate {
     async fn record_listeners(&self, state: &AppState) {
         let records = self.records();
         if let Err(error) = on_store(state, move |store| save_listeners(store, &records)).await {
-            tracing::warn!(%error, "listeners not saved: sdrmm pair cannot find them");
+            tracing::warn!(%error, "listeners not saved: sdrmm phone cannot find them");
         }
     }
 
