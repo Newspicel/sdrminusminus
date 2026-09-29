@@ -7,6 +7,21 @@ export interface Seed<T> {
   at: number;
 }
 
+export type SeedAlert = "flag" | "clear" | null;
+
+export function settledSeed<T>(
+  query: Pick<UseQueryResult<T>, "data" | "dataUpdatedAt" | "isFetching">,
+): Seed<T> {
+  return { data: query.isFetching ? undefined : query.data, at: query.dataUpdatedAt };
+}
+
+export function seedAlert(error: unknown, held: boolean): SeedAlert {
+  if (held) {
+    return "clear";
+  }
+  return error === null ? null : "flag";
+}
+
 export function plantSeed<T>(
   planted: { current: Seed<T> | null },
   seed: Seed<T>,
@@ -32,8 +47,7 @@ export function useSeed<T>(
   held: boolean,
   apply: (data: T) => void,
 ): void {
-  const data = query.data;
-  const at = query.dataUpdatedAt;
+  const { data, at } = settledSeed(query);
   const error = query.error;
   const planted = useRef<Seed<T> | null>(null);
   useEffect(() => {
@@ -42,8 +56,11 @@ export function useSeed<T>(
     }
   }, [node, action, data, at, held, apply]);
   useEffect(() => {
-    if (error !== null && !held) {
+    const alert = seedAlert(error, held);
+    if (alert === "flag") {
       flagAction(node, action, error);
+    } else if (alert === "clear") {
+      clearAction(node, action);
     }
   }, [node, action, error, held]);
 }

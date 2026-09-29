@@ -58,8 +58,6 @@ async function dragBy(page: Page, grip: Locator, cells: number, down = 0): Promi
   await page.mouse.up();
 }
 
-/// Records every grid placement the rack renders from here on, so a drop that flashes the old
-/// layout for a frame before the workspace catches up is visible to the test.
 async function watchRackStyles(page: Page): Promise<void> {
   await page.evaluate(() => {
     const host = document.querySelector(".grid");
@@ -817,7 +815,6 @@ test.describe("the workspace", () => {
     await page.mouse.wheel(0, 200);
     await expect.poll(transform).not.toBe(panned);
 
-    // A pan can carry the scope's header up behind the workspace bar, where no click reaches it.
     await fitPatch(page);
     await scope.getByRole("button", { name: "Show full screen" }).click();
     const enlarged = page.locator('[data-full="scope"]');

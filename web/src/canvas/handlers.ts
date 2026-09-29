@@ -9,14 +9,13 @@ import {
   type OnBeforeDelete,
 } from "@xyflow/react";
 import { useCallback } from "react";
-import { forgetNodes } from "../lib/nodeState";
 import { useRefusalStore } from "../lib/refusals";
 import { pushToast, toastError } from "../lib/toasts";
 import type { PatchEdge, PortRef } from "../lib/types";
 import type { FlowData } from "./Canvas";
 import type { Workspace } from "./context";
-import { addEdge, connectionRefusal, pruneRack, removeEdge, removeNode } from "./graph";
-import { closeEngineObjects } from "./remove";
+import { addEdge, connectionRefusal, removeEdge } from "./graph";
+import { closeEngineObjects, dropNodes } from "./remove";
 
 export function useGraphChanges(
   workspace: Workspace,
@@ -31,18 +30,16 @@ export function useGraphChanges(
       if (selects.length > 0) {
         workspace.select(selects.find((change) => change.selected)?.id ?? null);
       }
+      const removed: string[] = [];
       for (const change of changes) {
         if (change.type === "dimensions" && change.resizing === false) {
           queueMicrotask(commitGeometry);
         }
         if (change.type === "remove") {
-          workspace.edit((snapshot) => {
-            const graph = removeNode(snapshot.graph, change.id);
-            return { ...snapshot, graph, rack: pruneRack(snapshot.rack ?? {}, graph) };
-          });
-          forgetNodes([change.id]);
+          removed.push(change.id);
         }
       }
+      dropNodes(workspace, removed);
     },
     [onNodesChange, workspace, commitGeometry],
   );

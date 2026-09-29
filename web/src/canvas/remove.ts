@@ -5,9 +5,25 @@ import {
   networkExportChannel,
   networkExportDeviceSet,
 } from "../lib/api";
+import { forgetNodes } from "../lib/nodeState";
 import { basebandSourceOf, iqSourceOf, opensDevice } from "./binding";
 import type { Workspace } from "./context";
-import { nodeOf } from "./graph";
+import { nodeOf, pruneRack, removeNode } from "./graph";
+
+export function dropNodes(
+  workspace: Pick<Workspace, "edit" | "apply">,
+  ids: readonly string[],
+): void {
+  if (ids.length === 0) {
+    return;
+  }
+  workspace.edit((snapshot) => {
+    const graph = ids.reduce((held, id) => removeNode(held, id), snapshot.graph);
+    return { ...snapshot, graph, rack: pruneRack(snapshot.rack ?? {}, graph) };
+  });
+  forgetNodes(ids);
+  workspace.apply();
+}
 
 export async function releaseRadio(
   workspace: Workspace,

@@ -1,6 +1,13 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { arrayStatus } from "../test/fixtures";
-import { failureText, GATE_TEXT, processorStatusOf, SYNC_TEXT, useArrayStore } from "./arrays";
+import {
+  failureText,
+  GATE_TEXT,
+  processorStatusOf,
+  SYNC_TEXT,
+  shownCenterHz,
+  useArrayStore,
+} from "./arrays";
 
 afterEach(() => useArrayStore.getState().reset());
 
@@ -26,6 +33,38 @@ describe("useArrayStore", () => {
     expect(useArrayStore.getState().byNode.a).toBeUndefined();
     expect(useArrayStore.getState().receivedAt.a).toBeUndefined();
     expect(useArrayStore.getState().byNode.b).toBeDefined();
+  });
+
+  it("shows a tune at once and keeps it over reports sent before the server took it", () => {
+    const store = useArrayStore.getState();
+    store.seed([arrayStatus("a", { center_hz: 145e6 })]);
+    store.retune("a", 145.025e6);
+    expect(shownCenterHz(useArrayStore.getState(), "a")).toBe(145.025e6);
+    store.observe({
+      type: "ArrayUpdate",
+      data: { status: arrayStatus("a", { center_hz: 145e6 }) },
+    });
+    expect(shownCenterHz(useArrayStore.getState(), "a")).toBe(145.025e6);
+    expect(useArrayStore.getState().byNode.a?.center_hz).toBe(145e6);
+    store.tuned("a", 145.025e6);
+    expect(useArrayStore.getState().tuning).toEqual({});
+    expect(shownCenterHz(useArrayStore.getState(), "a")).toBe(145.025e6);
+    store.observe({
+      type: "ArrayUpdate",
+      data: { status: arrayStatus("a", { center_hz: 146e6 }) },
+    });
+    expect(shownCenterHz(useArrayStore.getState(), "a")).toBe(146e6);
+  });
+
+  it("falls back to the reported frequency when a tune fails", () => {
+    const store = useArrayStore.getState();
+    store.seed([arrayStatus("a", { center_hz: 145e6 })]);
+    store.retune("a", 150e6);
+    store.tuned("a", null);
+    expect(shownCenterHz(useArrayStore.getState(), "a")).toBe(145e6);
+    store.retune("gone", 1e6);
+    store.forget(["gone"]);
+    expect(useArrayStore.getState().tuning).toEqual({});
   });
 });
 

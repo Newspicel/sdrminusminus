@@ -11,3 +11,17 @@ export function omitNodes<T>(
   }
   return kept;
 }
+
+export function pickNodes<T>(
+  record: Readonly<Record<string, T>>,
+  nodes: readonly string[],
+): Readonly<Record<string, T>> {
+  const picked: Record<string, T> = {};
+  for (const node of nodes) {
+    const value = record[node];
+    if (value !== undefined) {
+      picked[node] = value;
+    }
+  }
+  return picked;
+}

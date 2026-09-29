@@ -96,13 +96,14 @@ function followed(previous: SurveyState, update: SurveyUpdate): SurveyState {
 export const useSurveyStore = create<SurveyStore>((set) => ({
   byNode: {},
   observe: (event) => {
-    if (event.type !== "SurveyUpdate") {
-      return;
+    if (event.type === "Hello") {
+      set({ byNode: {} });
+    } else if (event.type === "SurveyUpdate") {
+      const { node, update } = event.data;
+      set((state) => ({
+        byNode: { ...state.byNode, [node]: followed(state.byNode[node] ?? EMPTY_SURVEY, update) },
+      }));
     }
-    const { node, update } = event.data;
-    set((state) => ({
-      byNode: { ...state.byNode, [node]: followed(state.byNode[node] ?? EMPTY_SURVEY, update) },
-    }));
   },
   seed: (grid) =>
     set((state) => ({

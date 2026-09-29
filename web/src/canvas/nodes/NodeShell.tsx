@@ -15,7 +15,6 @@ import { ICON_BTN_SM } from "../../components/controls";
 import { FaceAlert } from "../../components/FaceAlert";
 import { Icon } from "../../components/Icon";
 import { PortalContainerProvider } from "../../components/PortalContainer";
-import { forgetNodes } from "../../lib/nodeState";
 import { toastError } from "../../lib/toasts";
 import type { NodeCategory, PatchNode, PortSpec, PortType } from "../../lib/types";
 import { useWorkspaceContext } from "../context";
@@ -30,11 +29,9 @@ import {
   pin,
   portLabel,
   portsOf,
-  pruneRack,
-  removeNode,
   unpin,
 } from "../graph";
-import { closeEngineObjects } from "../remove";
+import { closeEngineObjects, dropNodes } from "../remove";
 import { movesCanvas, wheelStaysOnFace } from "../wheel";
 
 const Surface = createContext<"canvas" | "rack">("rack");
@@ -314,13 +311,7 @@ function useRemoveNode(node: PatchNode): () => void {
   const workspace = useWorkspaceContext();
   const drop = useMutation({
     mutationFn: () => closeEngineObjects(workspace, [node.id]),
-    onSuccess: () => {
-      workspace.edit((snapshot) => {
-        const graph = removeNode(snapshot.graph, node.id);
-        return { ...snapshot, graph, rack: pruneRack(snapshot.rack ?? {}, graph) };
-      });
-      forgetNodes([node.id]);
-    },
+    onSuccess: () => dropNodes(workspace, [node.id]),
     onError: (error: Error) => toastError(error),
   });
 

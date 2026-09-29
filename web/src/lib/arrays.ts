@@ -14,8 +14,11 @@ import type {
 export interface ArrayStore {
   byNode: Readonly<Record<string, ArrayStatus>>;
   receivedAt: Readonly<Record<string, number>>;
+  tuning: Readonly<Record<string, number>>;
   observe: (event: ServerEvent) => void;
   seed: (statuses: readonly ArrayStatus[]) => void;
+  retune: (node: string, centerHz: number) => void;
+  tuned: (node: string, centerHz: number | null) => void;
   forget: (nodes: readonly string[]) => void;
   reset: () => void;
 }
@@ -23,6 +26,7 @@ export interface ArrayStore {
 export const useArrayStore = create<ArrayStore>((set) => ({
   byNode: {},
   receivedAt: {},
+  tuning: {},
   observe: (event) => {
     if (event.type !== "ArrayUpdate") {
       return;
@@ -40,13 +44,33 @@ export const useArrayStore = create<ArrayStore>((set) => ({
       receivedAt: Object.fromEntries(statuses.map((status) => [status.node, now])),
     });
   },
+  retune: (node, centerHz) =>
+    set((state) =>
+      state.tuning[node] === centerHz ? state : { tuning: { ...state.tuning, [node]: centerHz } },
+    ),
+  tuned: (node, centerHz) =>
+    set((state) => {
+      const status = state.byNode[node];
+      const tuning = omitNodes(state.tuning, [node]);
+      return centerHz === null || status === undefined || status.center_hz === centerHz
+        ? { tuning }
+        : { tuning, byNode: { ...state.byNode, [node]: { ...status, center_hz: centerHz } } };
+    }),
   forget: (nodes) =>
     set((state) => ({
       byNode: omitNodes(state.byNode, nodes),
       receivedAt: omitNodes(state.receivedAt, nodes),
+      tuning: omitNodes(state.tuning, nodes),
     })),
-  reset: () => set({ byNode: {}, receivedAt: {} }),
+  reset: () => set({ byNode: {}, receivedAt: {}, tuning: {} }),
 }));
+
+export function shownCenterHz(
+  state: Pick<ArrayStore, "byNode" | "tuning">,
+  node: string,
+): number | undefined {
+  return state.tuning[node] ?? state.byNode[node]?.center_hz;
+}
 
 export const SYNC_TEXT: Readonly<Record<SyncState, string>> = labels.sync;
 

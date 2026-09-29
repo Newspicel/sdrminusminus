@@ -1,5 +1,6 @@
 import type { Options } from "../../components/controls";
 import { CAL_TEXT, failureText, SYNC_TEXT } from "../../lib/arrays";
+import { HEADING_SOURCE_LABEL } from "../../lib/phones";
 import type {
   ArrayCalSource,
   ArrayFailure,
@@ -10,7 +11,6 @@ import type {
   CalPhase,
   Coherence,
   DeviceSet,
-  HeadingSource,
   PatchGraph,
 } from "../../lib/types";
 import { lanesOf } from "../arrayRules";
@@ -209,14 +209,6 @@ export function checkOptions(current: number): Options<number> {
       );
 }
 
-export const HEADING_SOURCE_TEXT: Readonly<Record<HeadingSource, string>> = {
-  compass: "compass",
-  course: "course",
-  fused: "fused",
-  gnss: "GNSS",
-  sensor: "sensor",
-};
-
 function wholeDegrees(deg: number): number {
   return Math.round(((deg % 360) + 360) % 360) % 360;
 }
@@ -252,7 +244,7 @@ export function headingLabel(
   const source = status?.heading_source;
   return source == null
     ? degreesText(azimuth)
-    : `${degreesText(azimuth)} ${HEADING_SOURCE_TEXT[source]}`;
+    : `${degreesText(azimuth)} ${HEADING_SOURCE_LABEL[source]}`;
 }
 
 export function arraySpanHz(

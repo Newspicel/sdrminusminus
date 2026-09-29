@@ -99,6 +99,19 @@ describe("useSurveyStore", () => {
     });
     expect(useSurveyStore.getState().byNode.map?.cells.map((c) => c.level_dbfs)).toEqual([-45]);
   });
+
+  it("drops its cells when the server greets again, so the seed can refill them", () => {
+    const store = useSurveyStore.getState();
+    store.seed({
+      node: "map",
+      bandwidth_hz: 12_500,
+      offset_hz: 0,
+      recording: false,
+      cells: [cell(52, -40)],
+    });
+    store.observe({ type: "Hello", data: { revision: 2, protocol: 1 } });
+    expect(useSurveyStore.getState().byNode).toEqual({});
+  });
 });
 
 describe("useSurveyStore levels", () => {

@@ -58,7 +58,6 @@ import type {
   PlaybackAction,
   PlaybackStatus,
   PresetInfo,
-  RadarUpdate,
   RadioIdent,
   RadioModelsResponse,
   RecordingAnnotation,
@@ -137,7 +136,6 @@ export const CPS_JOBS_KEY = ["get", "/api/cps/jobs"] as const;
 export const TOOL_RUN_KEY = ["post", "/api/tools/run"] as const;
 export const PHONES_KEY = ["get", "/api/phones"] as const;
 export const FUSION_KEY = ["get", "/api/fusion/{node}"] as const;
-export const RADAR_KEY = ["get", "/api/radar/{node}"] as const;
 export const SURVEY_KEY = ["get", "/api/survey/{node}"] as const;
 
 export function stateQuery() {
@@ -730,16 +728,6 @@ export async function startArrayRecording(
 
 export async function stopArrayRecording(node: string): Promise<void> {
   unwrap(await client.DELETE("/api/arrays/{node}/recording", { params: { path: { node } } }));
-}
-
-export function radarQuery(node: string) {
-  return queryOptions({
-    queryKey: [...RADAR_KEY, node] as const,
-    queryFn: async (): Promise<RadarUpdate> =>
-      unwrap(await client.GET("/api/radar/{node}", { params: { path: { node } } })),
-    staleTime: Number.POSITIVE_INFINITY,
-    refetchOnWindowFocus: false,
-  });
 }
 
 export async function clearRadarTracks(node: string): Promise<void> {

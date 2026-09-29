@@ -18,11 +18,12 @@ export interface FusionStore {
 export const useFusionStore = create<FusionStore>((set) => ({
   byNode: {},
   observe: (event) => {
-    if (event.type !== "DfFusionUpdate") {
-      return;
+    if (event.type === "Hello") {
+      set({ byNode: {} });
+    } else if (event.type === "DfFusionUpdate") {
+      const { node, state: fusion } = event.data;
+      set((state) => ({ byNode: { ...state.byNode, [node]: fusion } }));
     }
-    const { node, state: fusion } = event.data;
-    set((state) => ({ byNode: { ...state.byNode, [node]: fusion } }));
   },
   set: (node, fusion) => set((state) => ({ byNode: { ...state.byNode, [node]: fusion } })),
   forget: (nodes) => set((state) => ({ byNode: omitNodes(state.byNode, nodes) })),

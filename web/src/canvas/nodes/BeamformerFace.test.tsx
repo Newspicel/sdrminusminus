@@ -73,6 +73,8 @@ describe("BeamformerFace", () => {
     expect(html).toContain("+6.2 dB");
     expect(html).toContain("137° DF");
     expect(html).toContain('title="L2 -1.2 dB 34°"');
+    expect(html).toContain('role="meter" aria-label="Lane 2 weight"');
+    expect(html).toContain('aria-valuenow="87"');
     expect(html).toContain('aria-label="Beam pattern"');
   });
 });

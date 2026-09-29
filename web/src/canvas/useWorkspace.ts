@@ -49,7 +49,6 @@ export interface WorkspaceStore {
   canRedo: boolean;
   pending: boolean;
   unreachable: string | null;
-  /// What each channel node is set to while no radio carries it.
   savedChannels: ReadonlyMap<string, ChannelSettings>;
   saveChannel: (node: string, settings: ChannelSettings) => void;
 }

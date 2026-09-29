@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { HEADING_SOURCE_LABEL } from "../../lib/phones";
 import type { PatchEdge, PatchGraph } from "../../lib/types";
 import { catalogBody } from "../../test/catalog";
 import { arrayStatus, capabilities, deviceSet, laneStatus, placed } from "../../test/fixtures";
@@ -156,6 +157,13 @@ describe("array labels", () => {
     const fixed = arrayStatus("north", { azimuth_deg: 123.4, heading_source: "compass" });
     expect(headingLabel(heading, fixed)).toBe("123° compass");
     expect(headingLabel(heading, arrayStatus("north", { azimuth_deg: -0.2 }))).toBe("0°");
+  });
+
+  it("names a heading source the way the GPS face does", () => {
+    const heading = { kind: "heading" as const, mount_offset_deg: 0 };
+    const course = arrayStatus("north", { azimuth_deg: 45, heading_source: "course" });
+    expect(headingLabel(heading, course)).toBe(`45° ${HEADING_SOURCE_LABEL.course}`);
+    expect(HEADING_SOURCE_LABEL.course).toBe("GPS course");
   });
 
   it("keeps quality inside the bar and a stored check interval in the list", () => {

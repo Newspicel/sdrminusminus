@@ -18,7 +18,7 @@ import {
 import { EMPTY_SURVEY, useSurveyControl, useSurveySeed, useSurveyStore } from "../../lib/survey";
 import type { PatchNode, PatchNodeOf, SurveyCell } from "../../lib/types";
 import { hasWire, iqSourceOf } from "../binding";
-import { useWorkspaceContext } from "../context";
+import { useWorkspaceContext, type Workspace } from "../context";
 import { patchNode } from "../graph";
 import { deviceSetOf } from "../workspaceDevice";
 import { laneCenterHz, laneRateHz } from "./deviceNode";
@@ -62,6 +62,23 @@ export function SignalMapFace({ node }: { node: PatchNode }) {
   );
 }
 
+export function editSurveyBand(
+  workspace: Pick<Workspace, "edit" | "apply">,
+  node: string,
+  offsetHz: number,
+  bandwidthHz: number,
+): void {
+  workspace.edit((snapshot) => ({
+    ...snapshot,
+    graph: patchNode(snapshot.graph, node, (current) =>
+      current.kind === "signal_map"
+        ? { ...current, data: { offset_hz: offsetHz, bandwidth_hz: bandwidthHz } }
+        : current,
+    ),
+  }));
+  workspace.apply();
+}
+
 function offsetLimitHz(spanHz: number | null, bandwidthHz: number): number {
   return spanHz === null
     ? MAX_OFFSET_HZ
@@ -103,16 +120,8 @@ function SignalSurvey({
     retuned: retunedSince(cells, targetHz),
   };
 
-  const updateSettings = (offsetHz: number, bandwidthHz: number): void => {
-    workspace.edit((snapshot) => ({
-      ...snapshot,
-      graph: patchNode(snapshot.graph, node.id, (current) =>
-        current.kind === "signal_map"
-          ? { ...current, data: { offset_hz: offsetHz, bandwidth_hz: bandwidthHz } }
-          : current,
-      ),
-    }));
-  };
+  const updateSettings = (offsetHz: number, bandwidthHz: number): void =>
+    editSurveyBand(workspace, node.id, offsetHz, bandwidthHz);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">

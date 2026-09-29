@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { omitNodes } from "./byNode";
 import type { PatchGraph, PositionFix, ServerEvent } from "./types";
 
 const HISTORY_CAPACITY = 5_000;
@@ -14,8 +15,9 @@ export interface PositionState {
 }
 
 interface PositionStore {
-  sources: Record<string, PositionState>;
+  sources: Readonly<Record<string, PositionState>>;
   observe: (event: ServerEvent) => void;
+  forget: (nodes: readonly string[]) => void;
   clear: () => void;
 }
 
@@ -44,6 +46,7 @@ export const usePositionStore = create<PositionStore>((set) => ({
       };
     });
   },
+  forget: (nodes) => set((state) => ({ sources: omitNodes(state.sources, nodes) })),
   clear: () => set({ sources: {} }),
 }));
 

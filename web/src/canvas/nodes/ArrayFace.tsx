@@ -7,7 +7,7 @@ import { formatMhz } from "../../components/format";
 import { Readout, ReadoutRow } from "../../components/Readout";
 import { Segmented } from "../../components/Segmented";
 import { calibrateArray, startArrayRecording, stopArrayRecording } from "../../lib/api";
-import { failureText, useArrayStore } from "../../lib/arrays";
+import { failureText, shownCenterHz, useArrayStore } from "../../lib/arrays";
 import { clearAction, failAction } from "../../lib/refusals";
 import type {
   ArrayNode,
@@ -161,12 +161,13 @@ function ArrayDial({
   edit: (next: Partial<ArrayNode>) => void;
 }) {
   const { tuneArray } = useArrayTune();
+  const centerHz = useArrayStore((store) => shownCenterHz(store, node));
   const active = useFaceActive();
   return (
     <div className="@container flex min-w-0 flex-col gap-2 p-2">
       <FrequencyDial
         id={dialId(node, 0)}
-        hz={status?.center_hz ?? 0}
+        hz={centerHz ?? 0}
         range={lead === undefined ? ANY_FREQUENCY : tuningRange(lead.capabilities)}
         disabled={status === undefined}
         wheelTunes={active}

@@ -40,11 +40,20 @@ interface Watched {
   fit: SurfaceFit | undefined;
 }
 
+export const NO_SURFACE = "no surface ";
+
+export function refusedSurface(event: ServerEvent): string | null {
+  return event.type === "Error" && event.data.message.startsWith(NO_SURFACE)
+    ? event.data.message.slice(NO_SURFACE.length)
+    : null;
+}
+
 export class SurfaceHub {
   private socket: SurfaceSocket | null = null;
   private unsubscribes: Unsubscribe[] = [];
   private readonly nodes = new Map<string, Watched>();
   private readonly ids = new Map<number, string>();
+  private readonly awaiting = new Set<string>();
 
   private readonly onFrame = (surface: SurfaceFrame): void => {
     const node = this.ids.get(surface.frame.streamId);
@@ -61,8 +70,14 @@ export class SurfaceHub {
   private readonly onEvent = (event: ServerEvent): void => {
     if (event.type === "SurfaceStreamStarted") {
       this.ids.set(event.data.stream_id, event.data.node);
+      this.awaiting.delete(event.data.node);
     } else if (event.type === "StreamStopped" && isSurfaceKind(event.data.kind)) {
       this.ids.delete(event.data.stream_id);
+    } else {
+      const refused = refusedSurface(event);
+      if (refused !== null) {
+        this.awaiting.delete(refused);
+      }
     }
   };
 
@@ -129,7 +144,7 @@ export class SurfaceHub {
   retry(): void {
     const started = new Set(this.ids.values());
     for (const node of this.nodes.keys()) {
-      if (!started.has(node)) {
+      if (!started.has(node) && !this.awaiting.has(node)) {
         this.send(node, true);
       }
     }
@@ -137,6 +152,7 @@ export class SurfaceHub {
 
   private resubscribe(): void {
     this.ids.clear();
+    this.awaiting.clear();
     for (const node of this.nodes.keys()) {
       this.send(node, true);
     }
@@ -147,9 +163,11 @@ export class SurfaceHub {
       return;
     }
     if (!on) {
+      this.awaiting.delete(node);
       this.socket.send({ type: "UnsubscribeSurface", data: { node } });
       return;
     }
+    this.awaiting.add(node);
     const fit = this.nodes.get(node)?.fit;
     this.socket.send({
       type: "SubscribeSurface",

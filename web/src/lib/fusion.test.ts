@@ -19,6 +19,13 @@ describe("useFusionStore", () => {
   });
 
   it("ignores other events", () => {
+    useFusionStore.getState().set("tri", STATE);
+    useFusionStore.getState().observe({ type: "Error", data: { message: "no surface tri" } });
+    expect(useFusionStore.getState().byNode.tri).toBe(STATE);
+  });
+
+  it("drops what it held when the server greets again, so the seed can refill it", () => {
+    useFusionStore.getState().set("tri", STATE);
     useFusionStore.getState().observe({ type: "Hello", data: { revision: 1, protocol: 1 } });
     expect(useFusionStore.getState().byNode).toEqual({});
   });

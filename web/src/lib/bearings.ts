@@ -62,6 +62,16 @@ export function keepRecent(
     .slice(-BEARING_HISTORY);
 }
 
+function sameSample(a: BearingSample, b: BearingSample): boolean {
+  return (
+    a.at === b.at &&
+    a.trueDeg === b.trueDeg &&
+    a.lat === b.lat &&
+    a.lon === b.lon &&
+    a.stationId === b.stationId
+  );
+}
+
 function merge(
   byNode: Readonly<Record<string, readonly BearingSample[]>>,
   records: readonly DecodedRecord[],
@@ -73,12 +83,16 @@ function merge(
     if (sample === null) {
       continue;
     }
-    const list = added.get(sample.node);
-    if (list === undefined) {
-      added.set(sample.node, [sample]);
-    } else {
-      list.push(sample);
+    const list = added.get(sample.node) ?? [];
+    const held = byNode[sample.node] ?? [];
+    if (
+      held.some((kept) => sameSample(kept, sample)) ||
+      list.some((kept) => sameSample(kept, sample))
+    ) {
+      continue;
     }
+    list.push(sample);
+    added.set(sample.node, list);
   }
   if (added.size === 0) {
     return byNode;

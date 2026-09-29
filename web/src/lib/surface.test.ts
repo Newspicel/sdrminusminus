@@ -45,6 +45,8 @@ function fakeSocket(connected = true) {
       }),
     stopped: (streamId: number, kind: "range_doppler" | "fusion_grid" = "range_doppler") =>
       registry.emit("event", { type: "StreamStopped", data: { stream_id: streamId, kind } }),
+    refused: (node: string) =>
+      registry.emit("event", { type: "Error", data: { message: `no surface ${node}` } }),
     push: (streamId: number, seq = 1) => registry.emit("surface", rangeDoppler(streamId, seq)),
     reconnect: () => registry.emit("status", true),
   };
@@ -154,20 +156,37 @@ describe("SurfaceHub", () => {
     expect(fake.subscribes()).toHaveLength(1);
   });
 
-  it("asks again only for nodes the server has not started", () => {
+  it("asks again only for nodes the server refused or stopped", () => {
     const fake = fakeSocket();
     const hub = new SurfaceHub();
     hub.attach(fake.socket);
     hub.subscribe("radar", () => {});
     hub.subscribe("grid", () => {});
     fake.started(9, "radar");
+    fake.refused("grid");
     fake.sent.length = 0;
     hub.retry();
     expect(fake.sent).toEqual([{ type: "SubscribeSurface", data: { node: "grid" } }]);
     fake.started(10, "grid");
+    fake.stopped(9);
     fake.sent.length = 0;
     hub.retry();
-    expect(fake.sent).toEqual([]);
+    expect(fake.sent).toEqual([{ type: "SubscribeSurface", data: { node: "radar" } }]);
+  });
+
+  it("does not ask twice while the first answer is still on its way", () => {
+    const fake = fakeSocket();
+    const hub = new SurfaceHub();
+    hub.attach(fake.socket);
+    hub.subscribe("radar", () => {});
+    hub.retry();
+    expect(fake.subscribes()).toHaveLength(1);
+    fake.reconnect();
+    hub.retry();
+    expect(fake.subscribes()).toHaveLength(2);
+    fake.started(11, "radar");
+    hub.retry();
+    expect(fake.subscribes()).toHaveLength(2);
   });
 
   it("forgets nothing but sends nothing while detached", () => {

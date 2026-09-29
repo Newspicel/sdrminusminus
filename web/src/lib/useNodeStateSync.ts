@@ -1,12 +1,12 @@
 import { type QueryClient, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
-import { FUSION_KEY, RADAR_KEY, SURVEY_KEY } from "./api";
+import { FUSION_KEY, SURVEY_KEY } from "./api";
 import { useArrayStore } from "./arrays";
 import { forgetNodes, resetNodeState } from "./nodeState";
 import { surfaceHub } from "./surface";
 import type { ArrayStatus, PatchNode } from "./types";
 
-const NODE_QUERIES = [FUSION_KEY, RADAR_KEY, SURVEY_KEY] as const;
+const NODE_QUERIES = [FUSION_KEY, SURVEY_KEY] as const;
 
 export function switchedWorkspace(last: number | null, next: number | null): boolean {
   return last !== null && next !== null && last !== next;

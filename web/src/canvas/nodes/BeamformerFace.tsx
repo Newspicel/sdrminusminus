@@ -174,11 +174,19 @@ function WeightBars({ reading }: { reading: BeamformerReading | null }) {
   }
   const percent = amplitudePercent(weights);
   return (
-    <div className="flex flex-col gap-0.5" aria-label="Lane weights">
+    <div role="group" className="flex flex-col gap-0.5" aria-label="Lane weights">
       {weights.map((weight, lane) => (
         <div key={lane} className="flex items-center gap-1.5" title={weightTitle(lane, weight)}>
           <span className="w-4 font-mono text-[10px] text-ink-faint">{lane + 1}</span>
-          <span className="h-1.5 flex-1 rounded-full bg-well">
+          <span
+            role="meter"
+            aria-label={`Lane ${lane + 1} weight`}
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={percent[lane] ?? 0}
+            aria-valuetext={weightTitle(lane, weight)}
+            className="h-1.5 flex-1 rounded-full bg-well"
+          >
             <span
               className="block h-full rounded-full bg-accent"
               style={{ width: `${percent[lane] ?? 0}%` }}

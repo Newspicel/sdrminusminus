@@ -1,6 +1,7 @@
 import { useArrayStore } from "./arrays";
 import { useBearingStore } from "./bearings";
 import { useFusionStore } from "./fusion";
+import { usePositionStore } from "./position";
 import { useProcessorStore } from "./processors";
 import { useRefusalStore } from "./refusals";
 import { useSurveyStore } from "./survey";
@@ -21,6 +22,7 @@ export function forgetNodes(ids: readonly string[]): void {
   for (const store of STORES) {
     store.getState().forget(ids);
   }
+  usePositionStore.getState().forget(ids);
 }
 
 export function resetNodeState(): void {

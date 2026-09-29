@@ -84,6 +84,24 @@ describe("useBearingStore", () => {
     expect(Object.keys(useBearingStore.getState().byNode).toSorted()).toEqual(["a", "b"]);
   });
 
+  it("keeps one copy of a bearing the reconnect backlog sends again", () => {
+    const now = Date.now();
+    const first = bearingRecord("df", { bearing_deg: 10 }, new Date(now - 2_000).toISOString());
+    const second = bearingRecord("df", { bearing_deg: 20 }, new Date(now - 1_000).toISOString());
+    const store = useBearingStore.getState();
+    store.observe({ type: "Decoded", data: first });
+    store.observe({ type: "Decoded", data: second });
+    const before = useBearingStore.getState().byNode;
+    store.observe({ type: "DecodedBacklog", data: { records: [first, second, second] } });
+    expect(useBearingStore.getState().byNode).toBe(before);
+    store.observe({ type: "Decoded", data: second });
+    const third = bearingRecord("df", { bearing_deg: 30 }, new Date(now).toISOString());
+    store.observe({ type: "DecodedBacklog", data: { records: [first, second, third, third] } });
+    expect(useBearingStore.getState().byNode.df?.map((sample) => sample.trueDeg)).toEqual([
+      10, 20, 30,
+    ]);
+  });
+
   it("forgets a node", () => {
     useBearingStore.getState().observe({
       type: "Decoded",

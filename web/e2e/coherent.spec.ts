@@ -267,3 +267,39 @@ test("a spatial spectrum added by hand streams its surface", async ({ page }) =>
     .toBe(true);
   expect(refusedSurfaces(frames)).toEqual([]);
 });
+
+async function arrayStatus(request: APIRequestContext, array: string): Promise<ArrayStatus | null> {
+  const statuses: ArrayStatus[] = await request.get("/api/arrays").then((r) => r.json());
+  return statuses.find((status) => status.node === array) ?? null;
+}
+
+async function processorsOn(request: APIRequestContext, array: string): Promise<string[]> {
+  return ((await arrayStatus(request, array))?.processors ?? []).map((held) => held.node);
+}
+
+test("steps the array dial once per key press, even between status updates", async ({ page }) => {
+  await stage(page, "Array dial", finding());
+  const dial = face(page, "arr").getByRole("spinbutton", { name: "Tuned frequency" });
+  await expect(dial).not.toHaveAttribute("aria-disabled", "true", { timeout: SOLVE_MS });
+  const start = (await arrayStatus(page.request, "arr"))?.center_hz ?? 0;
+  await dial.focus();
+  await page.keyboard.press("ArrowUp");
+  await page.keyboard.press("ArrowUp");
+  await page.keyboard.press("ArrowUp");
+  await expect
+    .poll(async () => (await arrayStatus(page.request, "arr"))?.center_hz, { timeout: SETTLE_MS })
+    .toBe(start + 3_000_000);
+  await expect(dial).toHaveAttribute("aria-valuenow", String(start + 3_000_000));
+});
+
+test("removing a finder on its face stops it on the server", async ({ page }) => {
+  await stage(page, "Finder removal", finding());
+  await expect
+    .poll(() => processorsOn(page.request, "arr"), { timeout: SOLVE_MS })
+    .toContain("finder");
+  await face(page, "finder").getByRole("button", { name: "Remove Direction finder" }).click();
+  await expect(face(page, "finder")).toHaveCount(0);
+  await expect
+    .poll(() => processorsOn(page.request, "arr"), { timeout: SETTLE_MS })
+    .not.toContain("finder");
+});

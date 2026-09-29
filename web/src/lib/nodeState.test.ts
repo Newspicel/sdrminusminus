@@ -6,6 +6,7 @@ import { useArrayStore } from "./arrays";
 import { useBearingStore } from "./bearings";
 import { useFusionStore } from "./fusion";
 import { forgetNodes, resetNodeState } from "./nodeState";
+import { usePositionStore } from "./position";
 import { useProcessorStore } from "./processors";
 import { useRefusalStore } from "./refusals";
 import { useSurveyStore } from "./survey";
@@ -32,6 +33,13 @@ function fill(node: string): void {
   useRefusalStore.getState().flag(node, "broken", "action");
 }
 
+function fixAt(node: string): void {
+  usePositionStore.getState().observe({
+    type: "PositionChanged",
+    data: { node, fix: { latitude: 52, longitude: 13, time: "2026-09-29T12:00:00Z" } },
+  });
+}
+
 const STORES = [
   () => useProcessorStore.getState().byNode,
   () => useArrayStore.getState().byNode,
@@ -52,6 +60,17 @@ describe("nodeState", () => {
       expect(byNode().gone).toBeUndefined();
       expect(byNode().kept).toBeDefined();
     }
+  });
+
+  it("forgetNodes drops the fix of a removed position node but a reset keeps fixes", () => {
+    fixAt("gone");
+    fixAt("kept");
+    forgetNodes(["gone"]);
+    expect(usePositionStore.getState().sources.gone).toBeUndefined();
+    expect(usePositionStore.getState().sources.kept?.fix?.latitude).toBe(52);
+    resetNodeState();
+    expect(usePositionStore.getState().sources.kept).toBeDefined();
+    usePositionStore.getState().clear();
   });
 
   it("resetNodeState empties every store", () => {
