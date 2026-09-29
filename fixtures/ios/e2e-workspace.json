@@ -1,0 +1,34 @@
+{
+  "version": 1,
+  "name": "iPhone e2e",
+  "snapshot": {
+    "version": 4,
+    "graph": {
+      "nodes": [
+        {
+          "id": "radio",
+          "kind": "device",
+          "data": { "device": { "backend": "virtual", "key": "siggen" } },
+          "position": { "x": 0, "y": 0 }
+        },
+        {
+          "id": "voice",
+          "kind": "channel",
+          "data": { "channel_type": "nfm" },
+          "position": { "x": 360, "y": 0 }
+        },
+        {
+          "id": "hunt",
+          "kind": "hunt",
+          "data": {},
+          "position": { "x": 720, "y": 0 },
+          "label": "Fox"
+        }
+      ],
+      "edges": [
+        { "from": { "node": "radio", "port": "iq" }, "to": { "node": "voice", "port": "iq" } },
+        { "from": { "node": "hunt", "port": "control" }, "to": { "node": "voice", "port": "control" } }
+      ]
+    }
+  }
+}

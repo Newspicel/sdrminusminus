@@ -1,4 +1,5 @@
 import AVFAudio
+import Synchronization
 import XCTest
 
 @testable import SDRmm
@@ -6,18 +7,36 @@ import XCTest
 @MainActor
 final class AudioDuckTests: XCTestCase {
     private final class CategoryRecorder: AudioSessionPort {
-        private(set) var categories: [(AVAudioSession.Mode, AVAudioSession.CategoryOptions)] = []
-        var fail = false
+        private struct State {
+            var categories: [(AVAudioSession.Mode, AVAudioSession.CategoryOptions)] = []
+            var fail = false
+        }
+
+        private let state = Mutex(State())
+
+        var categories: [(AVAudioSession.Mode, AVAudioSession.CategoryOptions)] {
+            state.withLock { $0.categories }
+        }
+
+        var fail: Bool {
+            get { state.withLock { $0.fail } }
+            set { state.withLock { $0.fail = newValue } }
+        }
 
         func setCategory(
             _ category: AVAudioSession.Category,
             mode: AVAudioSession.Mode,
             options: AVAudioSession.CategoryOptions
         ) throws {
-            if fail {
+            let refused = state.withLock { state in
+                if !state.fail {
+                    state.categories.append((mode, options))
+                }
+                return state.fail
+            }
+            if refused {
                 throw NotBuilt(feature: "Audio")
             }
-            categories.append((mode, options))
         }
 
         func setActive(_ active: Bool, options: AVAudioSession.SetActiveOptions) throws {}

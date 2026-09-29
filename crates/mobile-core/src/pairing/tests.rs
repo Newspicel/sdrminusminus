@@ -118,7 +118,7 @@ fn a_qr_link_becomes_a_verified_offer() {
             hosts: vec!["192.168.1.20:8443".to_owned(), "[fe80::1]:8443".to_owned()],
             code: CODE.to_owned(),
             fingerprint: Some("ab".repeat(32)),
-            fingerprint_short: None,
+            fingerprint_short: Some(phone::key_check(&"ab".repeat(32))),
             protocol: API_PROTOCOL,
             server_name: Some("Shack".to_owned()),
         }

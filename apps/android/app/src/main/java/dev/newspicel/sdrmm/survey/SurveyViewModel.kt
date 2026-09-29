@@ -38,7 +38,10 @@ data class SurveyUiState(
     val background: BackgroundState,
     val fitRequest: Int,
     val tilesFailed: Boolean,
-)
+) {
+    val scale: SurveyView?
+        get() = view?.takeIf { it.total > 0uL }
+}
 
 class SurveyViewModel(
     private val missionId: String,

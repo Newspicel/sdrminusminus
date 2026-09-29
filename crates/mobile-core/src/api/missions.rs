@@ -18,7 +18,7 @@ impl MobileCore {
             .run(async move {
                 match session.api.missions().await {
                     Ok(response) => {
-                        hub.send(Input::Listing(Box::new(response)));
+                        hub.apply(Input::Listing(Box::new(response))).await;
                         Ok(())
                     }
                     Err(error) => {
@@ -41,7 +41,7 @@ impl MobileCore {
             .run(async move {
                 match session.api.switch_workspace(workspace).await {
                     Ok(response) => {
-                        hub.send(Input::Listing(Box::new(response)));
+                        hub.apply(Input::Listing(Box::new(response))).await;
                         Ok(())
                     }
                     Err(error) => {
@@ -60,12 +60,12 @@ impl MobileCore {
         if self.inner.missions.shared().find(&id).is_none() {
             return Err(CoreError::NoMission);
         }
-        self.inner.missions.send(Input::Open(id));
+        self.inner.missions.open(Some(id));
         Ok(())
     }
 
     pub fn close_mission(&self) {
-        self.inner.missions.send(Input::Close);
+        self.inner.missions.open(None);
     }
 
     pub async fn send(&self, command: MissionCommand) -> Result<(), CoreError> {
@@ -89,7 +89,7 @@ impl MobileCore {
             .run(async move {
                 match session.api.act(node, action).await {
                     Ok(response) => {
-                        hub.send(Input::Acted(Box::new(response.mission)));
+                        hub.apply(Input::Acted(Box::new(response.mission))).await;
                         Ok(())
                     }
                     Err(error) => {

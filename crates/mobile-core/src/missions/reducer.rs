@@ -121,6 +121,7 @@ pub(crate) struct Reducer {
     pose: Option<PoseSnapshot>,
     background: bool,
     refetch_at: Option<i64>,
+    self_stale: bool,
     listing_failed: bool,
     guide_ms: Option<i64>,
     heat_ms: Option<i64>,
@@ -141,6 +142,7 @@ impl Reducer {
             pose: None,
             background: false,
             refetch_at: None,
+            self_stale: false,
             listing_failed: false,
             guide_ms: None,
             heat_ms: None,
@@ -224,6 +226,7 @@ impl Reducer {
         self.phone_id = Some(phone_id);
         self.streams.clear();
         self.refetch_at = None;
+        self.self_stale = false;
         self.effects.push(Effect::FetchListing);
         self.effects.push(Effect::FetchSelf);
         if let Some(open) = &self.open {
@@ -261,6 +264,9 @@ impl Reducer {
             self.refetch_at = None;
             if self.live {
                 self.effects.push(Effect::FetchListing);
+                if std::mem::take(&mut self.self_stale) {
+                    self.effects.push(Effect::FetchSelf);
+                }
             }
         }
         let stale_radar = match &mut self.open {
@@ -367,7 +373,9 @@ impl Reducer {
 
     fn state_changed(&mut self, scope: &StateScope, now_ms: i64) {
         match scope {
-            StateScope::Missions | StateScope::Workspaces | StateScope::All => {
+            StateScope::Missions => self.schedule_refetch(now_ms),
+            StateScope::Workspaces | StateScope::All => {
+                self.self_stale = true;
                 self.schedule_refetch(now_ms);
             }
             StateScope::Phones => {

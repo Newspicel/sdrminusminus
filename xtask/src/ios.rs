@@ -7,6 +7,7 @@ use std::{
 use anyhow::{Context, Result, bail, ensure};
 use sha2::{Digest, Sha256};
 
+mod e2e;
 mod privacy;
 mod scan;
 
@@ -86,7 +87,7 @@ struct TestRun {
 pub(crate) fn run(root: &Path, action: &IosAction) -> Result<()> {
     match action {
         IosAction::Lint => lint(root),
-        IosAction::E2e => bail!("xtask ios e2e: not built yet"),
+        IosAction::E2e => on_mac(|| e2e(root)),
         IosAction::Generate => on_mac(|| generate(root)),
         IosAction::Build => on_mac(|| build(root)),
         IosAction::Test { ui, floor, only } => on_mac(|| test(root, &test_runs(*ui, *floor, only))),
@@ -261,7 +262,7 @@ fn verify_sha256(bytes: &[u8], expected: &str) -> Result<()> {
     Ok(())
 }
 
-fn xcodebuild(root: &Path, args: &[&str]) -> Result<()> {
+fn xcodebuild(root: &Path, args: &[&str], env: &[(&str, &str)]) -> Result<()> {
     let project = display(&root.join(PROJECT));
     let derived = display(&derived_data(root));
     let mut all = vec![
@@ -274,7 +275,7 @@ fn xcodebuild(root: &Path, args: &[&str]) -> Result<()> {
         "-quiet",
     ];
     all.extend_from_slice(args);
-    crate::run("xcodebuild", &all, root)
+    crate::run_with_env("xcodebuild", &all, root, env)
 }
 
 fn build(root: &Path) -> Result<()> {
@@ -288,6 +289,7 @@ fn build(root: &Path) -> Result<()> {
             "generic/platform=iOS Simulator",
             "build-for-testing",
         ],
+        &[],
     )
 }
 
@@ -318,40 +320,64 @@ fn test_runs(ui: bool, floor: bool, only: &[String]) -> Vec<TestRun> {
 fn test(root: &Path, runs: &[TestRun]) -> Result<()> {
     build(root)?;
     let custom = std::env::var(SIMULATOR_ENV).ok();
+    for run in runs {
+        let udid = ensure_simulator(&Simulator::of(run.device, custom.as_deref()))?;
+        run_tests(root, &udid, run.label, &run.selection, &[])?.require_tests(&run.selection)?;
+    }
+    Ok(())
+}
+
+fn e2e(root: &Path) -> Result<()> {
+    build(root)?;
+    let custom = std::env::var(SIMULATOR_ENV).ok();
+    let udid = ensure_simulator(&Simulator::of(Device::Primary, custom.as_deref()))?;
+    let server = e2e::Server::start(root, &target_dir(root))?;
+    let link = server.pairing_link(root)?;
+    println!("pairing link {link}");
+    let selection = [e2e::SELECTION.to_owned()];
+    let counts = run_tests(root, &udid, "e2e", &selection, &[(e2e::LINK_ENV, &link)])?;
+    drop(server);
+    counts.require_passed(&selection)
+}
+
+fn run_tests(
+    root: &Path,
+    udid: &str,
+    label: &str,
+    selection: &[String],
+    env: &[(&str, &str)],
+) -> Result<Counts> {
     let results = target_dir(root).join("ios/results");
     std::fs::create_dir_all(&results).with_context(|| format!("create {}", results.display()))?;
     let stamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .context("clock before 1970")?
         .as_secs();
-    for run in runs {
-        let udid = ensure_simulator(&Simulator::of(run.device, custom.as_deref()))?;
-        let destination = format!("platform=iOS Simulator,id={udid}");
-        let bundle = display(&results.join(format!("{}-{stamp}.xcresult", run.label)));
-        let selection: Vec<String> = run
-            .selection
-            .iter()
-            .map(|selected| format!("-only-testing:{selected}"))
-            .collect();
-        let mut args = vec![
-            "-destination",
-            &destination,
-            "-resultBundlePath",
-            &bundle,
-            "-parallel-testing-enabled",
-            "NO",
-        ];
-        args.extend(selection.iter().map(String::as_str));
-        args.push("test-without-building");
-        let ran = xcodebuild(root, &args);
-        let counts = results_summary(&bundle);
-        if let Ok(counts) = &counts {
-            println!("{}: {counts}", run.label);
-        }
-        ran?;
-        counts?.require_tests(&run.selection)?;
+    let destination = format!("platform=iOS Simulator,id={udid}");
+    let bundle = display(&results.join(format!("{label}-{stamp}.xcresult")));
+    let only: Vec<String> = selection
+        .iter()
+        .map(|selected| format!("-only-testing:{selected}"))
+        .collect();
+    let mut args = vec![
+        "-destination",
+        &destination,
+        "-resultBundlePath",
+        &bundle,
+        "-parallel-testing-enabled",
+        "NO",
+        "-collect-test-diagnostics",
+        "never",
+    ];
+    args.extend(only.iter().map(String::as_str));
+    args.push("test-without-building");
+    let ran = xcodebuild(root, &args, env);
+    let counts = results_summary(&bundle);
+    if let Ok(counts) = &counts {
+        println!("{label}: {counts}");
     }
-    Ok(())
+    ran?;
+    counts
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -379,6 +405,15 @@ impl Counts {
         ensure!(
             self.passed + self.failed + self.skipped > 0,
             "no tests ran for {}",
+            selection.join(", ")
+        );
+        Ok(())
+    }
+
+    fn require_passed(self, selection: &[String]) -> Result<()> {
+        ensure!(
+            self.passed > 0 && self.failed == 0 && self.skipped == 0,
+            "{} did not pass: {self}",
             selection.join(", ")
         );
         Ok(())
@@ -487,6 +522,7 @@ fn archive(root: &Path) -> Result<()> {
             "-allowProvisioningUpdates",
             "archive",
         ],
+        &[],
     )
 }
 
@@ -605,8 +641,30 @@ mod tests {
     }
 
     #[test]
-    fn e2e_waits_for_its_package() {
-        let error = run(Path::new("."), &IosAction::E2e).expect_err("not built");
-        assert!(error.to_string().ends_with("not built yet"), "{error}");
+    fn e2e_needs_every_selected_test_to_pass() {
+        let selection = [e2e::SELECTION.to_owned()];
+        let passed = Counts {
+            passed: 1,
+            failed: 0,
+            skipped: 0,
+        };
+        passed.require_passed(&selection).expect("passed");
+        for counts in [
+            Counts {
+                skipped: 1,
+                ..passed
+            },
+            Counts {
+                failed: 1,
+                ..passed
+            },
+            Counts {
+                passed: 0,
+                ..passed
+            },
+        ] {
+            let error = counts.require_passed(&selection).expect_err("not passed");
+            assert!(error.to_string().contains(e2e::SELECTION), "{error}");
+        }
     }
 }

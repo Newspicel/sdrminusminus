@@ -32,6 +32,13 @@ final class SurveyModel {
 
     var pointCount: Int { points.count }
 
+    var scale: LevelRange? {
+        guard let view, view.total > 0 else {
+            return nil
+        }
+        return LevelRange(min: view.minDb, max: view.maxDb)
+    }
+
     func apply(_ view: SurveyView) {
         let before = self.view?.total ?? 0
         self.view = view

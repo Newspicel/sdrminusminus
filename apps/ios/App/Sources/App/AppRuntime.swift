@@ -23,6 +23,9 @@ private struct Boot {
             if let scenario = AppRuntime.environment["SDRMM_FAKE_CORE"].flatMap(FakeCore.Scenario.init) {
                 return fake(scenario)
             }
+            if AppRuntime.environment["SDRMM_E2E"] == "1" {
+                return endToEnd()
+            }
         #endif
         if AppRuntime.isUnitTestHost {
             return Boot(
@@ -30,12 +33,13 @@ private struct Boot {
                 failure: nil
             )
         }
+        return live(vault: KeychainVault(), settings: SettingsStore(defaults: .standard))
+    }
+
+    private static func live(vault: KeychainVault, settings: SettingsStore) -> Boot {
         do {
-            let core = try LiveCore(config: try config(), vault: KeychainVault())
-            return Boot(
-                model: AppAssembly.model(core: core, settings: SettingsStore(defaults: .standard)),
-                failure: nil
-            )
+            let core = try LiveCore(config: try config(), vault: vault)
+            return Boot(model: AppAssembly.model(core: core, settings: settings), failure: nil)
         } catch {
             Log.core.fault("core failed: \(CoreErrorText.detail(error), privacy: .public)")
             let inert = AppAssembly.model(core: FakeCore(scenario: .fresh), settings: scratch("inert"))
@@ -44,15 +48,34 @@ private struct Boot {
     }
 
     #if DEBUG
+        private static func endToEnd() -> Boot {
+            let vault = KeychainVault(service: "dev.newspicel.sdrmm.e2e")
+            let settings = scratch("e2e")
+            quiet(settings)
+            do {
+                for key in try vault.keys() {
+                    try vault.delete(key: key)
+                }
+            } catch {
+                let inert = AppAssembly.model(core: FakeCore(scenario: .fresh), settings: scratch("inert"))
+                return Boot(model: inert, failure: CoreErrorText.detail(error))
+            }
+            return live(vault: vault, settings: settings)
+        }
+
+        private static func quiet(_ settings: SettingsStore) {
+            settings.voiceOn = false
+            settings.hapticsOn = false
+            settings.clicksOn = false
+        }
+
         private static func fake(_ scenario: FakeCore.Scenario) -> Boot {
             let settings = scratch("fake")
             if scenario != .fresh {
                 settings.activeServerID = FakeScenarios.server().id
             }
             if AppRuntime.isUITest {
-                settings.voiceOn = false
-                settings.hapticsOn = false
-                settings.clicksOn = false
+                quiet(settings)
             }
             let ticking = AppRuntime.environment["SDRMM_UITEST_STATIC"] != "1"
             let core = FakeCore(scenario: scenario, ticking: ticking)

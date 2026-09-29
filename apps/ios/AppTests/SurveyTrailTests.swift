@@ -156,6 +156,15 @@ final class SurveyTrailTests: XCTestCase {
     }
 
     @MainActor
+    func testScaleWaitsForTheFirstCell() {
+        let fixture = SurveyFixture()
+        fixture.model.apply(Self.view(min: 0, max: 0, total: 0))
+        XCTAssertNil(fixture.model.scale)
+        fixture.model.apply(Self.view(min: -90, max: -10))
+        XCTAssertEqual(fixture.model.scale, LevelRange(min: -90, max: -10))
+    }
+
+    @MainActor
     func testClearTrailIsLocalOnly() {
         let fixture = SurveyFixture()
         fixture.model.apply(Self.view(min: -90, max: -10))

@@ -3,14 +3,18 @@ import XCTest
 @MainActor
 extension XCUIElement {
     func waitForLabel(_ label: String, timeout: TimeInterval = Launch.timeout) -> Bool {
+        waitForLabel(timeout: timeout) { $0 == label }
+    }
+
+    func waitForLabel(timeout: TimeInterval = Launch.timeout, where matches: (String) -> Bool) -> Bool {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
-            if exists, self.label == label {
+            if exists, matches(label) {
                 return true
             }
             RunLoop.current.run(until: Date().addingTimeInterval(0.1))
         }
-        return exists && self.label == label
+        return exists && matches(label)
     }
 }
 

@@ -1,9 +1,9 @@
 use std::{
-    sync::{Arc, Mutex, PoisonError},
+    sync::{Arc, Mutex, MutexGuard, PoisonError},
     time::Duration,
 };
 
-use tokio::sync::{mpsc, watch};
+use tokio::sync::{mpsc, oneshot, watch};
 
 use crate::{
     events::{CoreEvent, EventQueue},
@@ -33,6 +33,7 @@ const TICK: Duration = Duration::from_millis(100);
 pub(crate) struct Shared {
     pub(crate) entries: Vec<Entry>,
     pub(crate) open: Option<String>,
+    requested: u64,
 }
 
 impl Shared {
@@ -41,24 +42,46 @@ impl Shared {
     }
 }
 
+type Posted = (Input, Option<oneshot::Sender<()>>);
+
 #[derive(Clone)]
 pub(crate) struct MissionHub {
-    input: mpsc::UnboundedSender<Input>,
+    input: mpsc::UnboundedSender<Posted>,
     shared: Arc<Mutex<Shared>>,
 }
 
 impl MissionHub {
     pub(crate) fn send(&self, input: Input) {
-        if self.input.send(input).is_err() {
+        self.post(input, None);
+    }
+
+    pub(crate) async fn apply(&self, input: Input) {
+        let (done, applied) = oneshot::channel();
+        self.post(input, Some(done));
+        if applied.await.is_err() {
+            tracing::debug!("missions stopped before applying");
+        }
+    }
+
+    fn post(&self, input: Input, done: Option<oneshot::Sender<()>>) {
+        if self.input.send((input, done)).is_err() {
             tracing::debug!("missions already stopped");
         }
     }
 
     pub(crate) fn shared(&self) -> Shared {
-        self.shared
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .clone()
+        self.lock().clone()
+    }
+
+    pub(crate) fn open(&self, id: Option<String>) {
+        let mut shared = self.lock();
+        shared.open.clone_from(&id);
+        shared.requested += 1;
+        self.send(id.map_or(Input::Close, Input::Open));
+    }
+
+    fn lock(&self) -> MutexGuard<'_, Shared> {
+        self.shared.lock().unwrap_or_else(PoisonError::into_inner)
     }
 }
 
@@ -86,11 +109,12 @@ struct Loop {
     hub: MissionHub,
     wires: MissionWires,
     session: Option<Arc<Session>>,
+    applied: u64,
 }
 
 async fn run(
     reducer: Reducer,
-    mut inputs: mpsc::UnboundedReceiver<Input>,
+    mut inputs: mpsc::UnboundedReceiver<Posted>,
     hub: MissionHub,
     wires: MissionWires,
 ) {
@@ -99,19 +123,24 @@ async fn run(
         hub,
         wires,
         session: None,
+        applied: 0,
     };
     let mut activity = state.wires.activity.subscribe();
     let mut tick = tokio::time::interval(TICK);
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     let mut pose_open = true;
     loop {
+        let mut done = None;
         let input = tokio::select! {
             inbound = state.wires.inbound.recv() => match inbound {
                 Some(inbound) => state.inbound(inbound),
                 None => break,
             },
-            input = inputs.recv() => match input {
-                Some(input) => input,
+            posted = inputs.recv() => match posted {
+                Some((input, waiting)) => {
+                    done = waiting;
+                    input
+                }
                 None => break,
             },
             changed = state.wires.pose.changed(), if pose_open => {
@@ -127,6 +156,9 @@ async fn run(
             _ = tick.tick() => Input::Tick,
         };
         state.step(input);
+        if done.is_some_and(|done| done.send(()).is_err()) {
+            tracing::debug!("nobody waits for the applied input");
+        }
     }
 }
 
@@ -148,6 +180,9 @@ impl Loop {
     }
 
     fn step(&mut self, input: Input) {
+        if matches!(input, Input::Open(_) | Input::Close) {
+            self.applied += 1;
+        }
         let effects = self.reducer.handle(input, now_ms());
         for effect in effects {
             self.perform(effect);
@@ -255,17 +290,13 @@ impl Loop {
             activity.mission_open = open;
             changed
         });
-        let shared = Shared {
-            entries: self.reducer.listing().entries.clone(),
-            open: self.reducer.open_id().map(str::to_owned),
-        };
-        let mut current = self
-            .hub
-            .shared
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner);
-        if *current != shared {
-            *current = shared;
+        let entries = &self.reducer.listing().entries;
+        let mut shared = self.hub.lock();
+        if shared.entries != *entries {
+            shared.entries.clone_from(entries);
+        }
+        if shared.requested == self.applied {
+            shared.open = self.reducer.open_id().map(str::to_owned);
         }
     }
 }

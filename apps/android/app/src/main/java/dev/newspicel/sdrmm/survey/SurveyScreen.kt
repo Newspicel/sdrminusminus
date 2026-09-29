@@ -99,7 +99,7 @@ fun SurveyContent(
                 BigReadout(state.view?.let { Format.frequency(it.freqHz) } ?: "-", size = MaterialTheme.typography.headlineMedium.fontSize)
                 BigReadout(Format.db(state.view?.levelDb), size = MaterialTheme.typography.headlineMedium.fontSize)
             }
-            Legend(state.view?.minDb, state.view?.maxDb)
+            Legend(state.scale?.minDb, state.scale?.maxDb)
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (MissionControl.SURVEY_RUN in state.controls) {
                     Button(onClick = model::toggleRecord) {

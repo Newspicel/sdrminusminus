@@ -360,6 +360,41 @@ fn state_changed_refetches_missions_once_per_300_ms() {
 }
 
 #[test]
+fn a_workspace_change_refetches_the_phone_with_the_listing() {
+    let mut reducer = listed(vec![]);
+    let scope = |scope| event(ServerEvent::StateChanged { scope });
+    assert!(
+        !reducer
+            .handle(scope(StateScope::Missions), T0)
+            .contains(&Effect::FetchSelf)
+    );
+    assert!(
+        !reducer
+            .handle(Input::Tick, T0 + 300)
+            .contains(&Effect::FetchSelf)
+    );
+    for step in 0..3 {
+        let effects = reducer.handle(scope(StateScope::Workspaces), T0 + 400 + step * 10);
+        assert!(!effects.contains(&Effect::FetchSelf));
+    }
+    let fired = reducer.handle(Input::Tick, T0 + 700);
+    assert!(fired.contains(&Effect::FetchListing));
+    assert_eq!(
+        fired
+            .iter()
+            .filter(|effect| **effect == Effect::FetchSelf)
+            .count(),
+        1
+    );
+    reducer.handle(scope(StateScope::Missions), T0 + 800);
+    assert!(
+        !reducer
+            .handle(Input::Tick, T0 + 1_100)
+            .contains(&Effect::FetchSelf)
+    );
+}
+
+#[test]
 fn link_down_marks_radar_stale_and_live_seeds_again() {
     let mut reducer = listed(vec![radar("pr1")]);
     reducer.handle(Input::Open("pr1".to_owned()), T0);
@@ -829,12 +864,18 @@ fn the_hub_fetches_missions_when_live_and_publishes_its_state() {
     }
     assert!(hub.shared().find("hunt1").is_some());
     assert!(*needed_rx.borrow());
-    hub.send(Input::Open("hunt1".to_owned()));
-    while hub.shared().open.is_none() && std::time::Instant::now() < deadline {
+    hub.open(Some("hunt1".to_owned()));
+    assert_eq!(hub.shared().open.as_deref(), Some("hunt1"));
+    while !activity_rx.borrow().mission_open && std::time::Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert!(activity_rx.borrow().mission_open);
+    hub.open(Some("ghost".to_owned()));
+    assert_eq!(hub.shared().open.as_deref(), Some("ghost"));
+    while hub.shared().open.as_deref() == Some("ghost") && std::time::Instant::now() < deadline {
         std::thread::sleep(Duration::from_millis(10));
     }
     assert_eq!(hub.shared().open.as_deref(), Some("hunt1"));
-    assert!(activity_rx.borrow().mission_open);
     let mut seen = Vec::new();
     let mut clock = std::time::Instant::now();
     while seen.len() < 2 && std::time::Instant::now() < deadline {
@@ -847,6 +888,20 @@ fn the_hub_fetches_missions_when_live_and_publishes_its_state() {
     }
     assert!(matches!(seen[0], CoreEvent::Missions { .. }));
     assert!(matches!(seen[1], CoreEvent::Hunt { .. }));
+    futures::executor::block_on(hub.apply(Input::Acted(Box::new(hunt(
+        "hunt1",
+        &[Wire::StopHunt, Wire::Mark],
+        &[],
+    )))));
+    let acted = hub.shared().find("hunt1").cloned().expect("listed");
+    assert!(
+        acted
+            .mission
+            .controls
+            .contains(&views::MissionControl::Mark)
+    );
+    hub.open(None);
+    assert_eq!(hub.shared().open, None);
     let phone_failure = CoreEvent::Notice {
         notice: Notice::warn("Phone details unavailable"),
     };

@@ -40,8 +40,8 @@ pub(crate) fn offer_from_link(link: &str) -> Result<PairOffer, CoreError> {
     Ok(PairOffer {
         hosts: uri.hosts,
         code: uri.code,
+        fingerprint_short: Some(phone::key_check(&uri.pin)),
         fingerprint: Some(uri.pin),
-        fingerprint_short: None,
         protocol: uri.protocol,
         server_name: uri.name,
     })

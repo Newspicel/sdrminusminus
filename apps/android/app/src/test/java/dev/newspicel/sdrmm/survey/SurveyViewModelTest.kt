@@ -45,6 +45,17 @@ class SurveyViewModelTest {
     }
 
     @Test
+    fun scale_waits_for_the_first_cell() {
+        core.missions.value = Samples.missions(Samples.mission("s1", MissionKind.SURVEY, "Walk"))
+        val model = SurveyViewModel("s1", core, graph.sensors, graph.runner, graph.surveyTrail, graph.router)
+        core.survey.value = SurveyView("s1", 433.92e6, null, 0f, 0f, 0u, true)
+        assertThat(model.state.value.scale).isNull()
+        core.survey.value = SurveyView("s1", 433.92e6, -60f, -90f, -40f, 2u, true)
+        assertThat(model.state.value.scale?.minDb).isEqualTo(-90f)
+        assertThat(model.state.value.scale?.maxDb).isEqualTo(-40f)
+    }
+
+    @Test
     fun record_toggles_the_server_survey() {
         core.missions.value = Samples.missions(Samples.mission("s1", MissionKind.SURVEY, "Walk").copy(controls = listOf(MissionControl.SURVEY_RUN)))
         val model = SurveyViewModel("s1", core, graph.sensors, graph.runner, graph.surveyTrail, graph.router)

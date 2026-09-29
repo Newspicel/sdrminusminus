@@ -46,12 +46,12 @@ private struct SurveyHeader: View {
                     .accessibilityIdentifier(A11y.surveyLevel)
             }
             HStack(spacing: 6) {
-                Text(LevelText.db(view?.minDb))
+                Text(LevelText.db(survey.scale?.min))
                 LinearGradient(colors: Palette.survey, startPoint: .leading, endPoint: .trailing)
                     .frame(height: 8)
                     .clipShape(Capsule())
                     .accessibilityHidden(true)
-                Text(LevelText.db(view?.maxDb))
+                Text(LevelText.db(survey.scale?.max))
             }
             .font(.caption.monospacedDigit())
             .foregroundStyle(.secondary)
