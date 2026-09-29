@@ -1,7 +1,7 @@
 # Keyboard controls
 
 Shortcuts act on the selected node or its connected Device. They are inactive while editing a
-text field or control. Press `?` to open the reference in the app.
+text field or control. Press `?` to open help in the app.
 
 | Keys | Action |
 |---|---|
@@ -21,7 +21,7 @@ text field or control. Press `?` to open the reference in the app.
 | `Ctrl`/`⌘ C` | Copy the selected nodes and the wires between them |
 | `Ctrl`/`⌘ V` | Paste them beside the originals |
 | Backspace | Delete the selected node or wire |
-| `?` | Open the keyboard reference |
+| `?` | Open help |
 | Escape | Close an overlay or menu |
 
 ## Dial controls

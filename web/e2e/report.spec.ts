@@ -20,9 +20,7 @@ async function openedUrl(page: Page): Promise<URL> {
 }
 
 async function openReport(page: Page) {
-  await page
-    .getByRole("button", { name: "Keyboard shortcuts, licenses and problem reports" })
-    .click();
+  await page.getByRole("button", { name: "Help" }).click();
   await page.getByRole("button", { name: "Report a problem" }).click();
   return page.getByRole("dialog").filter({ hasText: "Report a problem" });
 }

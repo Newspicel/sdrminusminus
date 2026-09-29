@@ -21,9 +21,9 @@ import { type View, WorkspaceBar } from "./canvas/WorkspaceBar";
 import { WorkspaceStart } from "./canvas/WorkspaceStart";
 import { AboutPanel } from "./components/AboutPanel";
 import { AutoOffDialog } from "./components/AutoOffDialog";
+import { HelpPanel } from "./components/HelpPanel";
 import { ReportProblem } from "./components/ReportProblem";
 import { ServerDown } from "./components/ServerDown";
-import { Shortcuts } from "./components/Shortcuts";
 import { Toasts } from "./components/Toasts";
 import { TokenGate } from "./components/TokenGate";
 import { channelTypesQuery, patchCatalogQuery, stateQuery } from "./lib/api";
@@ -43,7 +43,7 @@ export function App() {
   const [expanded, setExpanded] = useState<string | null>(null);
   const [view, setView] = useState<View>("patch");
   const [stepHz, setStepHz] = useState(100_000);
-  const [showShortcuts, setShowShortcuts] = useState(false);
+  const [showHelp, setShowHelp] = useState(false);
   const [showAbout, setShowAbout] = useState(false);
   const [showReport, setShowReport] = useState(false);
   const [openTool, setOpenTool] = useState<string | null>(null);
@@ -156,7 +156,7 @@ export function App() {
     applyEdit,
     setView,
     setExpanded,
-    setShowShortcuts,
+    setShowHelp,
   });
 
   return (
@@ -202,7 +202,7 @@ export function App() {
                 onRedo={workspace.redo}
                 canUndo={workspace.canUndo}
                 canRedo={workspace.canRedo}
-                onShowShortcuts={() => setShowShortcuts(true)}
+                onShowHelp={() => setShowHelp(true)}
                 onOpenTool={setOpenTool}
               />
               <div className="relative flex min-h-0 flex-1 flex-col">
@@ -225,9 +225,9 @@ export function App() {
           <WorkspaceStart onCreate={workspace.create} />
         )}
 
-        <Shortcuts
-          open={showShortcuts}
-          onOpenChange={setShowShortcuts}
+        <HelpPanel
+          open={showHelp}
+          onOpenChange={setShowHelp}
           onShowAbout={() => setShowAbout(true)}
           onShowReport={() => setShowReport(true)}
         />

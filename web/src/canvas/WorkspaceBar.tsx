@@ -40,7 +40,7 @@ export function WorkspaceBar({
   onRedo,
   canUndo,
   canRedo,
-  onShowShortcuts,
+  onShowHelp,
   onOpenTool,
 }: {
   view: View;
@@ -57,7 +57,7 @@ export function WorkspaceBar({
   onRedo: () => void;
   canUndo: boolean;
   canRedo: boolean;
-  onShowShortcuts: () => void;
+  onShowHelp: () => void;
   onOpenTool: (id: string) => void;
 }) {
   const workspace = useWorkspaceContext();
@@ -188,12 +188,7 @@ export function WorkspaceBar({
         </Popover>
         <Rule />
         <ThemeControl />
-        <Button
-          type="button"
-          className={ICON_BTN}
-          aria-label="Keyboard shortcuts, licenses and problem reports"
-          onClick={onShowShortcuts}
-        >
+        <Button type="button" className={ICON_BTN} aria-label="Help" onClick={onShowHelp}>
           <Icon glyph={CircleQuestionMark} />
         </Button>
       </span>

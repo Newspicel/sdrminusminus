@@ -29,7 +29,7 @@ export interface AppHotkeys {
   applyEdit: ReturnType<typeof useChannelPatch>["applyEdit"];
   setView: (update: (current: View) => View) => void;
   setExpanded: (update: (current: string | null) => string | null) => void;
-  setShowShortcuts: (show: boolean) => void;
+  setShowHelp: (show: boolean) => void;
 }
 
 export function useAppHotkeys(b: AppHotkeys) {
@@ -131,6 +131,6 @@ export function useAppHotkeys(b: AppHotkeys) {
     },
     undo: b.workspace.undo,
     redo: b.workspace.redo,
-    showShortcuts: () => b.setShowShortcuts(true),
+    showHelp: () => b.setShowHelp(true),
   });
 }
