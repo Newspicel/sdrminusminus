@@ -146,55 +146,35 @@ fn openapi_matches_the_committed_snapshot() {
     );
 }
 
-const NEW_ROUTES: [(&str, &str, Option<&str>); 22] = [
-    ("GET", "/api/arrays", None),
-    ("POST", "/api/arrays/{node}/calibrate", None),
-    (
-        "PATCH",
-        "/api/arrays/{node}/tune",
-        Some(r#"{"center_hz":433920000}"#),
-    ),
-    ("POST", "/api/arrays/{node}/recording", Some("{}")),
-    ("DELETE", "/api/arrays/{node}/recording", None),
-    ("GET", "/api/radar/{node}", None),
-    ("DELETE", "/api/radar/{node}/tracks", None),
-    ("GET", "/api/phones", None),
-    (
-        "PUT",
-        "/api/phones/access",
-        Some(r#"{"enabled":false,"port":8443}"#),
-    ),
-    ("POST", "/api/phones/offers", Some("{}")),
-    ("DELETE", "/api/phones/offers", None),
-    (
-        "POST",
-        "/api/phones/pair",
-        Some(r#"{"code":"12345678","name":"Pixel","platform":"android","protocol":1}"#),
-    ),
-    ("GET", "/api/phones/self", None),
-    ("DELETE", "/api/phones/self", None),
-    ("PATCH", "/api/phones/{id}", Some(r#"{"name":"Pixel"}"#)),
-    ("DELETE", "/api/phones/{id}", None),
-    ("GET", "/api/missions", None),
-    (
-        "POST",
-        "/api/missions/{node}/actions",
-        Some(r#"{"action":"mark"}"#),
-    ),
-    (
-        "POST",
-        "/api/missions/workspace",
-        Some(r#"{"workspace":1}"#),
-    ),
-    ("GET", "/api/survey/{node}", None),
-    ("POST", "/api/survey/{node}", Some(r#"{"action":"start"}"#)),
-    ("GET", "/api/fusion/{node}", None),
+const NEW_ROUTES: [(&str, &str); 22] = [
+    ("GET", "/api/arrays"),
+    ("POST", "/api/arrays/{node}/calibrate"),
+    ("PATCH", "/api/arrays/{node}/tune"),
+    ("POST", "/api/arrays/{node}/recording"),
+    ("DELETE", "/api/arrays/{node}/recording"),
+    ("GET", "/api/radar/{node}"),
+    ("DELETE", "/api/radar/{node}/tracks"),
+    ("GET", "/api/phones"),
+    ("PUT", "/api/phones/access"),
+    ("POST", "/api/phones/offers"),
+    ("DELETE", "/api/phones/offers"),
+    ("POST", "/api/phones/pair"),
+    ("GET", "/api/phones/self"),
+    ("DELETE", "/api/phones/self"),
+    ("PATCH", "/api/phones/{id}"),
+    ("DELETE", "/api/phones/{id}"),
+    ("GET", "/api/missions"),
+    ("POST", "/api/missions/{node}/actions"),
+    ("POST", "/api/missions/workspace"),
+    ("GET", "/api/survey/{node}"),
+    ("POST", "/api/survey/{node}"),
+    ("GET", "/api/fusion/{node}"),
 ];
 
 #[test]
 fn every_new_route_is_in_the_contract() {
     let spec = serde_json::to_value(openapi()).expect("OpenAPI");
-    for (method, path, _) in NEW_ROUTES {
+    for (method, path) in NEW_ROUTES {
         assert!(
             spec["paths"][path][method.to_lowercase()].is_object(),
             "{method} {path} missing from the contract"
@@ -215,30 +195,5 @@ fn every_new_route_is_in_the_contract() {
         "NodeTypeInfo",
     ] {
         assert!(schemas[schema].is_object(), "{schema} schema missing");
-    }
-}
-
-#[tokio::test]
-async fn a_route_whose_owner_has_not_landed_says_so() {
-    for (method, path, body) in NEW_ROUTES {
-        if path == "/api/fusion/{node}"
-            || path.starts_with("/api/arrays")
-            || path.starts_with("/api/phones")
-            || path.starts_with("/api/survey/")
-            || path.starts_with("/api/missions")
-            || path.starts_with("/api/radar/")
-        {
-            continue;
-        }
-        let uri = path.replace("{node}", "arr").replace("{id}", "ab12");
-        let (status, answer) = request(test_router(), method, &uri, body).await;
-        assert_eq!(
-            status,
-            StatusCode::SERVICE_UNAVAILABLE,
-            "{method} {uri}: {}",
-            String::from_utf8_lossy(&answer)
-        );
-        let error: ApiError = serde_json::from_slice(&answer).expect("error body");
-        assert_eq!(error.error, "Not built yet", "{method} {uri}");
     }
 }

@@ -119,10 +119,6 @@ impl AppError {
         )
     }
 
-    fn not_built() -> Self {
-        Self::unavailable("Not built yet")
-    }
-
     fn too_large(message: impl Into<String>) -> Self {
         Self::new(
             StatusCode::PAYLOAD_TOO_LARGE,
