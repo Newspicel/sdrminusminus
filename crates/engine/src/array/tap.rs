@@ -67,7 +67,7 @@ impl TapRing {
             Some(_) => {}
         }
         let end = index + block.len() as u64;
-        if !self.flush() {
+        if self.samples.slots() == 0 || !self.flush() {
             self.hold(index, block.len() as u64);
             self.ring_index = Some(end);
             return;
@@ -119,7 +119,6 @@ impl TapRing {
             },
             _ => TapEvent::Gap { at, missing },
         });
-        self.flush();
     }
 
     fn flush(&mut self) -> bool {

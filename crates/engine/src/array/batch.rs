@@ -18,7 +18,7 @@ use sdrmm_wire::{Coherence, ProcessorParams};
 use super::{
     CorrectionSet, LiveFrame,
     correct::CORR_FFT,
-    host::{ArrayShape, Outputs, ProcessorStats},
+    host::{ArrayShape, Outputs, ProcessorStats, SteerMailbox},
 };
 use crate::{EngineError, runtime::VirtualLaneSink};
 
@@ -156,16 +156,27 @@ pub(crate) struct BatchRunner {
     worker: Option<JoinHandle<()>>,
 }
 
+pub(crate) struct BatchStart {
+    pub(crate) node: String,
+    pub(crate) processor: Box<dyn ArrayProcessor>,
+    pub(crate) outputs: Box<Outputs>,
+    pub(crate) shape: ArrayShape,
+    pub(crate) batch: usize,
+    pub(crate) stats: Arc<ProcessorStats>,
+    pub(crate) steer_out: Arc<SteerMailbox>,
+}
+
 impl BatchRunner {
-    pub(crate) fn start(
-        node: String,
-        processor: Box<dyn ArrayProcessor>,
-        outputs: Box<Outputs>,
-        shape: ArrayShape,
-        frame: &LiveFrame,
-        batch: usize,
-        stats: Arc<ProcessorStats>,
-    ) -> Result<Self, EngineError> {
+    pub(crate) fn start(start: BatchStart, frame: &LiveFrame) -> Result<Self, EngineError> {
+        let BatchStart {
+            node,
+            processor,
+            outputs,
+            shape,
+            batch,
+            stats,
+            steer_out,
+        } = start;
         let batch = batch.max(1);
         let lanes = frame.lanes();
         let (mut free_tx, free_rx) = RingBuffer::new(BATCH_JOBS);
@@ -189,6 +200,7 @@ impl BatchRunner {
             stats: stats.clone(),
             base: stats.faults(),
             stop: stop.clone(),
+            steer_out,
         };
         let handle = std::thread::Builder::new()
             .name("sdrmm-array-batch".to_owned())
@@ -378,6 +390,7 @@ struct Worker {
     stats: Arc<ProcessorStats>,
     base: ProcessorFaults,
     stop: Arc<AtomicBool>,
+    steer_out: Arc<SteerMailbox>,
 }
 
 impl Worker {
@@ -393,7 +406,9 @@ impl Worker {
             }
             let freq_hz = self.frame.center_hz;
             let processor = &mut self.processor;
-            self.outputs.run(|out| processor.poll(out), freq_hz);
+            if let Some(steer) = self.outputs.run(|out| processor.poll(out), freq_hz) {
+                self.steer_out.post(&steer);
+            }
             std::thread::park_timeout(IDLE);
         }
     }
@@ -468,8 +483,12 @@ impl Worker {
         };
         let freq_hz = job.centers[0];
         let processor = &mut self.processor;
-        self.outputs
+        let steer = self
+            .outputs
             .run(|out| processor.process(&block, out), freq_hz);
+        if let Some(steer) = steer {
+            self.steer_out.post(&steer);
+        }
         self.stats
             .record_faults(&self.base, self.processor.faults());
     }

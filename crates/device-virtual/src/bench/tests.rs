@@ -94,6 +94,7 @@ fn setup<'a>(
         scramble_rad: 0.0,
         pilot: None,
         noise_seed: None,
+        isolated: false,
     }
 }
 
@@ -103,6 +104,121 @@ fn render(scene: &Scene, setup: &LaneSetup<'_>, n: usize) -> Vec<C32> {
     let mut out = vec![C32::new(0.0, 0.0); n];
     renderer.render(0, 0.0, 1.0 / RATE, false, &mut out);
     out
+}
+
+fn power_of(samples: &[C32]) -> f64 {
+    samples.iter().map(|s| f64::from(s.norm_sqr())).sum::<f64>() / samples.len().max(1) as f64
+}
+
+#[test]
+fn an_isolated_noise_source_disconnects_the_antennas() {
+    let quiet = LaneImpairments::default();
+    let lit = scene(vec![[0.0; 3]], vec![tone_emitter(0.0, 1_000.0)]);
+    let noise_power = 10f64.powf(lit.noise_source_dbfs / 10.0);
+    for (isolated, expected) in [(true, noise_power), (false, 1.0 + noise_power)] {
+        let setup = LaneSetup {
+            noise_seed: Some(5),
+            isolated,
+            ..setup([0.0; 3], 100e6, &quiet)
+        };
+        let mut renderer = LaneRenderer::new(1);
+        renderer.configure(&lit, &setup);
+        let mut out = vec![C32::new(0.0, 0.0); 20_000];
+        renderer.render(0, 0.0, 1.0 / RATE, true, &mut out);
+        let power = power_of(&out);
+        assert!(
+            (power / expected - 1.0).abs() < 0.2,
+            "isolated {isolated}: power {power}, expected {expected}"
+        );
+        renderer.render(0, 0.0, 1.0 / RATE, false, &mut out);
+        assert!((power_of(&out) - 1.0).abs() < 1e-3);
+    }
+}
+
+#[test]
+fn a_wide_noise_source_stays_inside_the_lane_band() {
+    let quiet = LaneImpairments::default();
+    let mut wide = scene(vec![[0.0; 3]], Vec::new());
+    wide.noise_bandwidth = 10.0 * RATE;
+    let setup = LaneSetup {
+        noise_seed: Some(9),
+        ..setup([0.0; 3], 100e6, &quiet)
+    };
+    let mut renderer = LaneRenderer::new(1);
+    renderer.configure(&wide, &setup);
+    let len = 1 << 15;
+    let mut out = vec![C32::new(0.0, 0.0); len];
+    renderer.render(0, 0.0, 1.0 / RATE, true, &mut out);
+    rustfft::FftPlanner::new()
+        .plan_fft_forward(len)
+        .process(&mut out);
+    let band = |low: f64, high: f64| {
+        let bins: Vec<f64> = out
+            .iter()
+            .enumerate()
+            .filter(|(bin, _)| {
+                let f = (*bin as f64 / len as f64 + 0.5).rem_euclid(1.0) - 0.5;
+                (low..high).contains(&f.abs())
+            })
+            .map(|(_, value)| f64::from(value.norm_sqr()))
+            .collect();
+        bins.iter().sum::<f64>() / bins.len() as f64
+    };
+    let inside = band(0.0, 0.4);
+    let edge = band(0.48, 0.51);
+    assert!(
+        10.0 * (edge / inside).log10() < -20.0,
+        "edge {edge}, inside {inside}"
+    );
+}
+
+fn noise_spectrum(ripple: Option<Ripple>, len: usize) -> Vec<f64> {
+    let rippled = LaneImpairments {
+        ripple,
+        ..LaneImpairments::default()
+    };
+    let mut wide = scene(vec![[0.0; 3]], Vec::new());
+    wide.noise_bandwidth = RATE;
+    let setup = LaneSetup {
+        noise_seed: Some(21),
+        ..setup([0.0; 3], 100e6, &rippled)
+    };
+    let mut renderer = LaneRenderer::new(1);
+    renderer.configure(&wide, &setup);
+    let mut out = vec![C32::new(0.0, 0.0); len];
+    renderer.render(0, 0.0, 1.0 / RATE, true, &mut out);
+    rustfft::FftPlanner::new()
+        .plan_fft_forward(len)
+        .process(&mut out);
+    out.iter()
+        .map(|value| f64::from(value.norm_sqr()))
+        .collect()
+}
+
+#[test]
+fn a_lane_ripple_shapes_what_enters_the_lane() {
+    let ripple = Ripple {
+        depth_db: 1.0,
+        cycles: 3,
+    };
+    let len = 1 << 14;
+    let flat = noise_spectrum(None, len);
+    let shaped = noise_spectrum(Some(ripple), len);
+    let bands = 64;
+    let width = len / bands;
+    for band in 0..bands {
+        let bins = band * width..(band + 1) * width;
+        let centre = (band as f64 + 0.5) / bands as f64;
+        let f = (centre + 0.5).rem_euclid(1.0) - 0.5;
+        if f.abs() > 0.4 {
+            continue;
+        }
+        let ratio = shaped[bins.clone()].iter().sum::<f64>() / flat[bins].iter().sum::<f64>();
+        let expected = ripple.gain_at(f).powi(2);
+        let error_db = 10.0 * (ratio / expected).log10();
+        assert!(error_db.abs() < 0.2, "at {f}: {error_db} dB");
+    }
+    assert!((ripple.gain_at(0.0) - 10f64.powf(0.05)).abs() < 1e-12);
 }
 
 fn widen(value: C32) -> C64 {

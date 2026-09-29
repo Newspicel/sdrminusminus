@@ -106,6 +106,7 @@ fn a_full_ring_records_an_exact_gap() {
     assert!(settle(&mut feed).is_empty());
     assert_eq!(feed.skippable(), capacity);
     assert_eq!(feed.skip(capacity), capacity);
+    writer.samples(&block(10, 3.0), capacity as u64 + 100);
     assert_eq!(
         settle(&mut feed),
         [AlignNote::Gap {
@@ -115,6 +116,32 @@ fn a_full_ring_records_an_exact_gap() {
         }]
     );
     assert_eq!(feed.read_index(), Some(capacity as u64 + 100));
+    assert_eq!(feed.skippable(), 10);
+}
+
+#[test]
+fn a_long_stall_is_one_gap_not_one_per_block() {
+    let (port, mut writer) = TapPort::new(0);
+    let mut feed = port.lease(RATE, 1).expect("lease");
+    let capacity = tap_capacity(RATE);
+    writer.samples(&block(capacity, 1.0), 0);
+    let mut at = capacity as u64;
+    for _ in 0..40 {
+        writer.samples(&block(BLOCK, 2.0), at);
+        at += BLOCK as u64;
+    }
+    settle(&mut feed);
+    feed.skip(capacity);
+    writer.samples(&block(BLOCK, 3.0), at);
+    assert_eq!(
+        settle(&mut feed),
+        [AlignNote::Gap {
+            lane: 0,
+            at: capacity as u64,
+            missing: 40 * BLOCK as u64
+        }]
+    );
+    assert_eq!(feed.skippable(), BLOCK);
 }
 
 #[test]

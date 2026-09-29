@@ -41,9 +41,26 @@ struct Rig {
     frame: LiveFrame,
     index: u64,
     taps: Taps,
+    _stage: StageGuard,
+}
+
+struct StageGuard(Option<(Arc<AtomicBool>, std::thread::JoinHandle<()>)>);
+
+impl Drop for StageGuard {
+    fn drop(&mut self) {
+        if let Some((stop, handle)) = self.0.take() {
+            stop.store(true, Ordering::Release);
+            handle.thread().unpark();
+            let _ = handle.join();
+        }
+    }
 }
 
 fn rig(lanes: usize, frame: LiveFrame) -> Rig {
+    rig_with(lanes, frame, false)
+}
+
+fn rig_with(lanes: usize, frame: LiveFrame, staged: bool) -> Rig {
     let (queue, commands) = CommandQueue::new();
     let board = Arc::new(StatusBoard::new(lanes));
     let wiring = wire(lanes, frame.sample_rate, Arc::new(AtomicBool::new(false))).expect("wire");
@@ -56,6 +73,19 @@ fn rig(lanes: usize, frame: LiveFrame) -> Rig {
         ports.push(port);
         writers.push(writer);
     }
+    let stop = Arc::new(AtomicBool::new(false));
+    let (stage, handle) = if staged {
+        let (stage, worker) = crate::array::correct::correction_stage(
+            lanes,
+            stop.clone(),
+            Arc::new(std::sync::OnceLock::new()),
+        );
+        let handle = crate::array::correct::spawn_stage("sdrmm-test-stage".to_owned(), worker)
+            .expect("a stage");
+        (Some(stage), Some((stop, handle)))
+    } else {
+        (None, None)
+    };
     let aggregator = Aggregator::new(
         feeds,
         Box::new(frame.clone()),
@@ -63,6 +93,7 @@ fn rig(lanes: usize, frame: LiveFrame) -> Rig {
         commands,
         wiring.aggregator,
         None,
+        stage,
     );
     Rig {
         _ports: ports,
@@ -75,6 +106,7 @@ fn rig(lanes: usize, frame: LiveFrame) -> Rig {
         frame,
         index: 0,
         taps: taps(3),
+        _stage: StageGuard(handle),
     }
 }
 
@@ -191,7 +223,7 @@ fn timestamps_seed_the_offsets_of_lanes_on_other_radios() {
 }
 
 #[test]
-fn pose_ring_interpolates_the_heading_at_capture_time() {
+fn pose_ring_interpolates_the_heading_and_turns_it_ahead_of_late_poses() {
     let mut ring = PoseRing::new();
     let sample = |host_ns: i64, heading: f64, yaw: f32| PoseSample {
         host_ns,
@@ -208,8 +240,15 @@ fn pose_ring_interpolates_the_heading_at_capture_time() {
     assert_eq!(middle.yaw_rate_dps, Some(7.0));
     let quarter = ring.at(1_250_000_000);
     assert!((quarter.heading_deg.expect("heading") - 355.0).abs() < 1e-9);
-    assert_eq!(ring.at(2_500_000_000).heading_deg, Some(10.0));
+    let ahead = ring.at(2_500_000_000).heading_deg.expect("heading");
+    assert!((ahead - 13.5).abs() < 1e-9, "{ahead}");
     assert_eq!(ring.at(4_500_000_000).heading_deg, None);
+    let mut still = PoseRing::new();
+    still.push(PoseSample {
+        yaw_rate_dps: None,
+        ..sample(1_000_000_000, 40.0, 0.0)
+    });
+    assert_eq!(still.at(1_900_000_000).heading_deg, Some(40.0));
     assert_eq!(ring.at(0).heading_deg, Some(350.0));
     let mounted = oriented(
         middle,
@@ -291,6 +330,41 @@ fn the_corrector_is_skipped_without_a_wideband_host() {
         .gated_samples
         .load(Ordering::Relaxed);
     assert_eq!(gated, crate::array::correct::CORR_TAPS as u64);
+}
+
+fn heard_through(staged: bool) -> Vec<Heard> {
+    let mut rig = rig_with(2, frame(2), staged);
+    rig.board.set_sync(SyncState::Locked);
+    let mut wide = rig.talker("wide", Talk::default(), &WIDE);
+    rig.noise(4 * BLOCK);
+    let mut heard = Vec::new();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while heard.iter().map(|block: &Heard| block.len).sum::<usize>() < 3 * BLOCK {
+        rig.aggregator.step();
+        heard.extend(drain(&mut wide));
+        assert!(Instant::now() < deadline, "the wide host heard {heard:?}");
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    heard
+}
+
+#[test]
+fn a_correction_stage_delivers_what_inline_correction_does() {
+    let inline = heard_through(false);
+    let staged = heard_through(true);
+    let common = inline.len().min(staged.len());
+    assert!(common > 1);
+    assert!(staged.iter().all(|block| block.corrected));
+    for (a, b) in inline.iter().zip(&staged).take(common - 1) {
+        assert_eq!((a.first_index, a.len), (b.first_index, b.len));
+        assert_eq!(a.first, b.first);
+    }
+    for pair in staged.windows(2) {
+        assert_eq!(
+            pair[0].first_index + pair[0].len as u64,
+            pair[1].first_index
+        );
+    }
 }
 
 #[test]

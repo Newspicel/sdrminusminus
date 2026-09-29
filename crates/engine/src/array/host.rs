@@ -27,7 +27,7 @@ use tokio::sync::broadcast;
 use super::{
     ArrayEvent, CorrectionSet, LiveFrame,
     align::ALIGN_BLOCK,
-    batch::BatchRunner,
+    batch::{BatchRunner, BatchStart},
     board::{gate_code, gate_of},
     correct::CORR_HOP,
     radar::{DedicatedRunner, Prepared, RadarPlan, build_dedicated},
@@ -624,6 +624,7 @@ pub(crate) struct ProcessorHost {
     steer_in: SteerInput,
     steer_seen: u64,
     steer_out: Arc<SteerMailbox>,
+    steer_out_seen: u64,
     shape: ArrayShape,
 }
 
@@ -695,13 +696,16 @@ impl ProcessorHost {
             Outputs::new(&mut plan, descriptor, &ctx).map_err(publisher_error)?
         };
         let runner = BatchRunner::start(
-            plan.node.clone(),
-            processor,
-            Box::new(outputs),
-            plan.shape.clone(),
+            BatchStart {
+                node: plan.node.clone(),
+                processor,
+                outputs: Box::new(outputs),
+                shape: plan.shape.clone(),
+                batch,
+                stats: plan.stats.clone(),
+                steer_out: plan.steer_out.clone(),
+            },
             frame,
-            batch,
-            plan.stats.clone(),
         )?;
         Self::assemble(plan, frame, descriptor, Runner::Batched(runner), false)
     }
@@ -741,8 +745,16 @@ impl ProcessorHost {
             steer_in: plan.steer_in,
             steer_seen: 0,
             steer_out: plan.steer_out,
+            steer_out_seen: 0,
             shape: plan.shape,
         }))
+    }
+
+    fn worker_steer(&mut self) -> Option<Steer> {
+        match self.runner {
+            Runner::Batched(_) => self.steer_out.read(&mut self.steer_out_seen),
+            _ => None,
+        }
     }
 
     pub(crate) fn node(&self) -> &str {
@@ -1101,7 +1113,9 @@ impl HostList {
         correction: &CorrectionSet,
     ) {
         for (host, steer) in self.hosts.iter_mut().zip(&mut self.steers) {
-            *steer = host.process(block, inputs, correction);
+            *steer = host
+                .process(block, inputs, correction)
+                .or_else(|| host.worker_steer());
         }
         self.deliver_steers();
     }

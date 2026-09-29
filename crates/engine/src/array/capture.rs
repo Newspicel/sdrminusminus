@@ -1,7 +1,7 @@
 use num_complex::Complex;
 use rtrb::Consumer;
 use sdrmm_channels::array_processor::MAX_LANES;
-use sdrmm_wire::{ArrayCalSource, CalSourceKind};
+use sdrmm_wire::{ArrayCalSource, CalSourceKind, ProcessorGate};
 
 use super::{correct::CorrectionSet, window::Windows};
 
@@ -336,6 +336,9 @@ fn usable(start: CaptureStart, windows: &Windows, index: u64, end: u64) -> Optio
             Some((index, until))
         }
         CaptureStart::NoiseWindow => {
+            if windows.gate_at(index) == Some(ProcessorGate::Retuning) {
+                return None;
+            }
             let (from, until) = windows.reference()?;
             let from = from.max(index);
             let until = until.min(end);

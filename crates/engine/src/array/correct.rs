@@ -4,6 +4,10 @@ use sdrmm_dsp::array_sync::{FastConvolver, design_correction};
 
 use super::align::ALIGN_BLOCK;
 
+mod stage;
+
+pub(crate) use stage::{CorrectionStage, Label, StageJob, correction_stage, spawn_stage};
+
 pub(crate) const CORR_FFT: usize = 4_096;
 pub(crate) const CORR_TAPS: usize = 129;
 pub(crate) const CORR_DELAY: usize = (CORR_TAPS - 1) / 2;
@@ -94,6 +98,17 @@ impl Corrector {
             }
         }
         Ok(std::mem::replace(&mut self.active, next))
+    }
+
+    pub(crate) fn load(&mut self, set: &CorrectionSet) -> bool {
+        if !set.fits(self.lanes.len()) {
+            return false;
+        }
+        self.active.copy_from(set);
+        self.lanes
+            .iter_mut()
+            .zip(&self.active.spectra)
+            .all(|(convolver, spectrum)| convolver.set_response(spectrum).is_ok())
     }
 
     pub(crate) fn clear_to_identity(&mut self, generation: u32) {

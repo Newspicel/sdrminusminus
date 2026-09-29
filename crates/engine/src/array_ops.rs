@@ -315,6 +315,15 @@ impl Engine {
         self.array_tx.subscribe()
     }
 
+    #[cfg(feature = "probe")]
+    pub fn hold_array(
+        &self,
+        node: &str,
+        hold: impl FnOnce() + Send + 'static,
+    ) -> Result<(), EngineError> {
+        find(&self.lock(), node)?.send(Command::Hold(Box::new(hold)))
+    }
+
     fn start_array(self: &Arc<Self>, spec: ArraySpec, carried: Carried) -> Result<(), EngineError> {
         let survey = members::survey(&self.lock(), &spec)?;
         let tune = spec.tune.unwrap_or_else(|| survey.default_tune());

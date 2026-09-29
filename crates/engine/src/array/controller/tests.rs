@@ -118,6 +118,12 @@ fn context(lanes: usize) -> SyncContext {
 }
 
 fn rig(lanes: usize, config: ControlConfig) -> Rig {
+    let rig = cold_rig(lanes, config);
+    rig.board.add_aligned(NOISE_WARMUP);
+    rig
+}
+
+fn cold_rig(lanes: usize, config: ControlConfig) -> Rig {
     let engine = Arc::new(Engine::default());
     *lock(&engine.context) = Some(context(lanes));
     let control: Weak<dyn ArrayControl> =
@@ -226,6 +232,7 @@ impl Rig {
             })));
         self.event(AggregatorEvent::Captured { id: request.id });
         self.poll(seconds);
+        self.rest(seconds);
         self.event(AggregatorEvent::Solved {
             id: request.id,
             summary,
@@ -236,11 +243,18 @@ impl Rig {
     fn fail(&mut self, request: &CaptureRequest, failure: SolveFailure, seconds: f64) {
         self.event(AggregatorEvent::Captured { id: request.id });
         self.poll(seconds);
+        self.rest(seconds);
         self.event(AggregatorEvent::SolveFailed {
             id: request.id,
             failure,
         });
         self.poll(seconds);
+    }
+
+    fn rest(&mut self, seconds: f64) {
+        self.event(AggregatorEvent::NoiseEnded { at: 0 });
+        self.poll(seconds);
+        self.board.add_aligned(NOISE_WARMUP);
     }
 
     fn status(&self) -> ArrayStatus {
@@ -267,6 +281,93 @@ impl Rig {
         assert_eq!(solve.start, CaptureStart::NoiseWindow);
         self.solve(&solve, &[0.0, 10.25, 20.5], seconds);
     }
+}
+
+#[test]
+fn a_new_burst_waits_for_the_last_one_to_end() {
+    let mut rig = rig(3, config(ArrayCalSource::Noise, 0, 1));
+    rig.lock_up(0.0);
+    rig.command(ControlCommand::Recalibrate, 1.0);
+    let solve = rig.expect_capture(CaptureKind::Solve);
+    rig.event(AggregatorEvent::Captured { id: solve.id });
+    rig.poll(1.0);
+    assert_eq!(rig.engine.noise_calls(), [true, false, true, false]);
+    rig.event(AggregatorEvent::SolveFailed {
+        id: solve.id,
+        failure: SolveFailure::NoPeak { lane: 1 },
+    });
+    rig.poll(1.0);
+    assert!(
+        rig.capture().is_none(),
+        "no burst before the last one ended"
+    );
+    assert_eq!(rig.engine.noise_calls().len(), 4);
+    rig.event(AggregatorEvent::NoiseEnded { at: 0 });
+    rig.poll(1.0);
+    assert!(
+        rig.capture().is_none(),
+        "no burst before quiet samples arrive"
+    );
+    rig.board.add_aligned(NOISE_WARMUP);
+    rig.poll(1.0);
+    assert_eq!(
+        rig.expect_capture(CaptureKind::Coarse).start,
+        CaptureStart::NoiseWindow
+    );
+    assert_eq!(rig.engine.noise_calls().last(), Some(&true));
+}
+
+#[test]
+fn a_burst_with_an_unseen_end_waits_out_the_timeout() {
+    let mut rig = rig(3, config(ArrayCalSource::Noise, 0, 1));
+    rig.lock_up(0.0);
+    rig.command(ControlCommand::Recalibrate, 0.0);
+    let solve = rig.expect_capture(CaptureKind::Solve);
+    rig.event(AggregatorEvent::Captured { id: solve.id });
+    rig.poll(0.0);
+    rig.event(AggregatorEvent::SolveFailed {
+        id: solve.id,
+        failure: SolveFailure::NoPeak { lane: 1 },
+    });
+    rig.board.add_aligned(NOISE_WARMUP);
+    rig.poll(0.5);
+    assert!(rig.capture().is_none(), "the burst end is still pending");
+    rig.poll(1.5);
+    assert!(
+        rig.capture().is_none(),
+        "quiet samples start at the timeout"
+    );
+    rig.board.add_aligned(NOISE_WARMUP);
+    rig.poll(1.6);
+    rig.expect_capture(CaptureKind::Coarse);
+}
+
+#[test]
+fn a_blank_before_the_capture_needs_no_second_solve() {
+    let mut rig = rig(3, config(ArrayCalSource::Noise, 0, 1));
+    rig.lock_up(0.0);
+    rig.command(ControlCommand::Recalibrate, 1.0);
+    let solve = rig.expect_capture(CaptureKind::Solve);
+    rig.event(AggregatorEvent::BlankEnded {
+        cause: crate::array::BlankCause::Gain,
+        at: 0,
+    });
+    rig.poll(1.0);
+    rig.solve(&solve, &[0.0, 10.25, 20.5], 1.0);
+    rig.poll(2.0);
+    assert!(
+        rig.capture().is_none(),
+        "the capture after the blank covers it"
+    );
+    rig.event(AggregatorEvent::BlankEnded {
+        cause: crate::array::BlankCause::Gain,
+        at: 0,
+    });
+    rig.poll(3.0);
+    assert_eq!(
+        rig.expect_capture(CaptureKind::Solve).kind,
+        CaptureKind::Solve
+    );
 }
 
 #[test]
@@ -298,6 +399,27 @@ fn controller_runs_noise_bursts_at_check_s() {
     }
     assert_eq!(rig.status().sync, SyncState::Locked);
     assert!(rig.status().lanes[1].residual_delay.is_some());
+}
+
+#[test]
+fn a_noise_run_waits_for_quiet_samples_before_the_switch() {
+    let mut rig = cold_rig(3, config(ArrayCalSource::Noise, 0, 1));
+    rig.command(
+        ControlCommand::NoiseSwitch(Some(NoiseSwitch {
+            device_set: 1,
+            kind: NoiseSource::Isolated,
+            all_lanes_held: true,
+        })),
+        0.0,
+    );
+    rig.start(0.0);
+    rig.poll(0.02);
+    assert!(rig.engine.noise_calls().is_empty());
+    assert!(rig.capture().is_none());
+    rig.board.add_aligned(NOISE_WARMUP);
+    rig.poll(0.04);
+    assert_eq!(rig.engine.noise_calls(), [true]);
+    rig.expect_capture(CaptureKind::Coarse);
 }
 
 #[test]

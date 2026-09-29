@@ -3,7 +3,10 @@ use std::f64::consts::TAU;
 use num_complex::Complex;
 use sdrmm_dsp::{array_sync::BinSolver, fft::FftPair};
 
-use super::*;
+use super::{
+    stage::{STAGE_JOBS, StageJob},
+    *,
+};
 
 const LEN: usize = 65_536;
 
@@ -193,4 +196,209 @@ fn a_stream_starting_at_index_zero_has_no_labels_before_it() {
     corrector.push(&[&source[..CORR_HOP]], ALIGN_BLOCK as u64);
     let next = corrector.with_corrected(|_, first| first);
     assert_eq!(next, first + out.len() as u64);
+}
+
+struct StageRig {
+    stage: CorrectionStage,
+    stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    handle: Option<std::thread::JoinHandle<()>>,
+}
+
+impl StageRig {
+    fn new(lanes: usize) -> Self {
+        let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let (stage, worker) = correction_stage(
+            lanes,
+            stop.clone(),
+            std::sync::Arc::new(std::sync::OnceLock::new()),
+        );
+        let handle = spawn_stage("sdrmm-test-correct".to_owned(), worker).expect("a stage");
+        Self {
+            stage,
+            stop,
+            handle: Some(handle),
+        }
+    }
+
+    fn next(&mut self) -> Box<StageJob> {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        loop {
+            if let Some(job) = self.stage.finished() {
+                return job;
+            }
+            assert!(std::time::Instant::now() < deadline, "the stage answered");
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+    }
+}
+
+impl Drop for StageRig {
+    fn drop(&mut self) {
+        self.stop.store(true, std::sync::atomic::Ordering::Release);
+        if let Some(handle) = self.handle.take() {
+            handle.thread().unpark();
+            let _ = handle.join();
+        }
+    }
+}
+
+#[test]
+fn the_correction_stage_matches_inline_correction() {
+    let source = gaussian(4 * ALIGN_BLOCK, 31);
+    let lane = shaped(&source, |nu| Complex::from_polar(0.9, 1.0 - TAU * nu * 0.3));
+    let mut set = CorrectionSet::identity(2);
+    set.generation = 4;
+    design_correction(
+        CORR_FFT,
+        CORR_TAPS,
+        CORR_BETA,
+        0.3,
+        Complex::from_polar(1.1, -1.0),
+        None,
+        &mut set.spectra[1],
+    );
+    let mut inline = Corrector::new(2);
+    assert!(inline.load(&set));
+    let mut rig = StageRig::new(2);
+    rig.stage.load();
+    let mut expected = vec![Vec::new(); 2];
+    let mut staged = vec![Vec::new(); 2];
+    for block in 0..4usize {
+        let span = block * ALIGN_BLOCK..(block + 1) * ALIGN_BLOCK;
+        let raw = [&source[span.clone()], &lane[span]];
+        let index = (block * ALIGN_BLOCK) as u64;
+        inline.push(&raw, index);
+        let first = inline.with_corrected(|lanes, first| {
+            for (out, lane) in expected.iter_mut().zip(lanes) {
+                out.extend_from_slice(lane);
+            }
+            first
+        });
+        let transient = inline.transient();
+        inline.consume();
+        let label = Label {
+            generation: block as u32,
+            ..Label::default()
+        };
+        assert!(rig.stage.submit(&raw, index, label, &set));
+        let job = rig.next();
+        assert_eq!(job.first_index(), first);
+        assert_eq!(job.label().generation, block as u32);
+        assert!(job.transient() >= transient);
+        job.with_lanes(|lanes| {
+            for (out, lane) in staged.iter_mut().zip(lanes) {
+                out.extend_from_slice(lane);
+            }
+        });
+        rig.stage.keep(job);
+    }
+    assert_eq!(expected, staged);
+}
+
+#[test]
+fn a_stage_reset_restarts_the_filter() {
+    let source = gaussian(3 * ALIGN_BLOCK, 32);
+    let mut rig = StageRig::new(1);
+    let identity = CorrectionSet::identity(1);
+    let send = |rig: &mut StageRig, block: usize| {
+        let span = block * ALIGN_BLOCK..(block + 1) * ALIGN_BLOCK;
+        let index = (block * ALIGN_BLOCK) as u64;
+        assert!(
+            rig.stage
+                .submit(&[&source[span]], index, Label::default(), &identity)
+        );
+        let job = rig.next();
+        let seen = (job.transient(), job.first_index());
+        rig.stage.keep(job);
+        seen
+    };
+    send(&mut rig, 0);
+    let (steady, _) = send(&mut rig, 1);
+    assert_eq!(steady, 0);
+    rig.stage.reset();
+    let (transient, first) = send(&mut rig, 2);
+    assert_eq!(transient, CORR_TAPS);
+    assert_eq!(first, 2 * ALIGN_BLOCK as u64 - CORR_DELAY as u64);
+}
+
+#[test]
+fn submitting_to_the_stage_does_not_allocate() {
+    let source = gaussian(ALIGN_BLOCK, 33);
+    let identity = CorrectionSet::identity(2);
+    let mut rig = StageRig::new(2);
+    let mut index = 0u64;
+    let mut round = |rig: &mut StageRig| {
+        let sent = rig
+            .stage
+            .submit(&[&source, &source], index, Label::default(), &identity);
+        index += ALIGN_BLOCK as u64;
+        let job = rig.next();
+        rig.stage.keep(job);
+        sent
+    };
+    assert!(round(&mut rig));
+    let mut sent = true;
+    sdrmm_test_support::assert_no_alloc("correction stage", || {
+        for _ in 0..8 {
+            sent &= round(&mut rig);
+        }
+    });
+    assert!(sent);
+}
+
+#[test]
+fn a_full_stage_refuses_the_block() {
+    let source = gaussian(ALIGN_BLOCK, 34);
+    let identity = CorrectionSet::identity(1);
+    let (mut stage, _worker) = correction_stage(
+        1,
+        std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        std::sync::Arc::new(std::sync::OnceLock::new()),
+    );
+    for block in 0..STAGE_JOBS {
+        assert!(stage.submit(
+            &[&source],
+            (block * ALIGN_BLOCK) as u64,
+            Label::default(),
+            &identity
+        ));
+    }
+    assert!(!stage.submit(&[&source], 0, Label::default(), &identity));
+}
+
+#[test]
+fn correcting_a_stage_job_does_not_allocate() {
+    let source = gaussian(9 * ALIGN_BLOCK, 35);
+    let lane = shaped(&source, |nu| Complex::from_polar(0.9, 1.0 - TAU * nu * 0.3));
+    let mut corrector = Corrector::new(2);
+    let mut set = CorrectionSet::identity(2);
+    design_correction(
+        CORR_FFT,
+        CORR_TAPS,
+        CORR_BETA,
+        0.3,
+        Complex::from_polar(1.1, -1.0),
+        None,
+        &mut set.spectra[1],
+    );
+    assert!(corrector.load(&set));
+    let mut job = StageJob::new(2);
+    let block = |job: &mut StageJob, corrector: &mut Corrector, at: usize| {
+        let span = at * ALIGN_BLOCK..(at + 1) * ALIGN_BLOCK;
+        job.fill(
+            &[&source[span.clone()], &lane[span]],
+            (at * ALIGN_BLOCK) as u64,
+            Label::default(),
+        );
+        job.correct(corrector);
+        job.ready()
+    };
+    assert!(block(&mut job, &mut corrector, 0) > 0);
+    let mut delivered = 0;
+    sdrmm_test_support::assert_no_alloc("correcting a stage job", || {
+        for at in 1..9 {
+            delivered += block(&mut job, &mut corrector, at);
+        }
+    });
+    assert!(delivered > 7 * ALIGN_BLOCK, "{delivered}");
 }

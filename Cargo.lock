@@ -6183,6 +6183,7 @@ dependencies = [
  "arc-swap",
  "bytemuck",
  "jiff",
+ "libc",
  "num-complex",
  "opus",
  "pollster",

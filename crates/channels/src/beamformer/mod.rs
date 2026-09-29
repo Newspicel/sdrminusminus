@@ -22,7 +22,8 @@ use crate::ChannelError;
 use crate::array_processor::{
     ArrayBlock, ArrayCtx, ArrayProcessor, Execution, LaneFormat, MAX_LANES, ProcessorAction,
     ProcessorDescriptor, ProcessorFaults, ProcessorNeeds, ProcessorOutput, Registration,
-    ResetCause, Steer, TuningNeed, boxed, check_tuning, geometry_of, no_lane_format,
+    ResetCause, Steer, TuningNeed, banded_execution, boxed, check_tuning, geometry_of,
+    no_lane_format,
 };
 use crate::band::{LaneBand, band_lane_format, check_offset};
 
@@ -109,7 +110,7 @@ fn execution(params: &ProcessorParams, ctx: &ArrayCtx<'_>) -> Execution {
             batch: ctx.max_block,
         }
     } else {
-        Execution::Inline
+        banded_execution(ctx)
     }
 }
 

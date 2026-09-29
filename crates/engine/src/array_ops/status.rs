@@ -75,6 +75,11 @@ impl ArrayState {
         if self.failure.is_some() && self.board.alive() {
             status.failure.clone_from(&self.failure);
         }
+        if !self.board.alive() {
+            for processor in &mut status.processors {
+                processor.running = false;
+            }
+        }
         status.recording = self.recording.as_ref().map(super::ArrayRecording::status);
         self.orientation(&mut status);
         status

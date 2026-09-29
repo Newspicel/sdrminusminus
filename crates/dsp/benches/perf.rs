@@ -1,8 +1,13 @@
 #![allow(clippy::expect_used)]
 
+#[path = "perf/array.rs"]
+mod array;
+#[path = "perf/radar.rs"]
+mod radar;
+
 use std::hint::black_box;
 
-use criterion::{Criterion, Throughput, criterion_group, criterion_main};
+use criterion::{Criterion, Throughput};
 use num_complex::Complex;
 use sdrmm_dsp::{fft::FftPair, xcorr::XCorr};
 
@@ -203,7 +208,7 @@ fn protected_offset(plan: sdrmm_dsp::subband::SubbandPlan, offset: f64, rate: f6
     center + (offset - center).clamp(-margin, margin)
 }
 
-fn pseudo(len: usize, seed: u64) -> Vec<Complex<f32>> {
+pub(crate) fn pseudo(len: usize, seed: u64) -> Vec<Complex<f32>> {
     let mut state = seed | 1;
     (0..len)
         .map(|_| {
@@ -244,13 +249,27 @@ fn xcorr_8192(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(
-    benches,
-    resampling,
-    tuning,
-    real_to_iq,
-    shared_tuning,
-    fft_4096,
-    xcorr_8192
-);
-criterion_main!(benches);
+fn filter_from_args() -> String {
+    let filters: Vec<String> = std::env::args()
+        .skip(1)
+        .filter(|arg| !arg.starts_with('-'))
+        .collect();
+    if filters.is_empty() {
+        ".*".to_owned()
+    } else {
+        filters.join("|")
+    }
+}
+
+fn main() {
+    let mut criterion = Criterion::default().with_filter(filter_from_args());
+    resampling(&mut criterion);
+    tuning(&mut criterion);
+    real_to_iq(&mut criterion);
+    shared_tuning(&mut criterion);
+    fft_4096(&mut criterion);
+    xcorr_8192(&mut criterion);
+    array::benches(&mut criterion);
+    radar::benches(&mut criterion);
+    criterion.final_summary();
+}

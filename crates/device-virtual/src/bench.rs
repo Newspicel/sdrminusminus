@@ -17,8 +17,8 @@ use sdrmm_wire::{DeviceInfo, NoiseSource};
 pub(crate) use device::BenchDevice;
 pub use scene::{
     BenchDeviceSpec, Clutter, Echo, Emitter, LaneImpairments, MAX_BENCH_LANES,
-    MAX_CLUTTER_DELAY_SAMPLES, MAX_CLUTTER_ECHOES, MAX_PPM, Path, Pilot, ReportedGap, Scene, Slip,
-    Waveform, default_devices, default_scene,
+    MAX_CLUTTER_DELAY_SAMPLES, MAX_CLUTTER_ECHOES, MAX_PPM, MAX_RIPPLE_CYCLES, MAX_RIPPLE_DB, Path,
+    Pilot, ReportedGap, Ripple, Scene, Slip, Waveform, default_devices, default_scene,
 };
 
 pub const BLOCK_LEN: usize = 8_192;

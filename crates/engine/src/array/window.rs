@@ -100,6 +100,8 @@ pub(crate) struct Windows {
     events: [Option<AggregatorEvent>; WINDOW_EVENTS],
     event_count: usize,
     events_lost: u64,
+    block_energy: [f32; MAX_LANES],
+    block_peak: [f32; MAX_LANES],
 }
 
 impl Windows {
@@ -123,6 +125,8 @@ impl Windows {
             events: [None; WINDOW_EVENTS],
             event_count: 0,
             events_lost: 0,
+            block_energy: [0.0; MAX_LANES],
+            block_peak: [0.0; MAX_LANES],
         }
     }
 
@@ -342,6 +346,8 @@ impl Windows {
 
     fn powers(&mut self, lanes: &[&[Complex<f32>]], index: u64, seen: &mut Observation) {
         let count = lanes.first().map_or(0, |lane| lane.len());
+        self.block_energy = [0.0; MAX_LANES];
+        self.block_peak = [0.0; MAX_LANES];
         let mut at = 0;
         while at < count {
             if self.acc_len == 0 {
@@ -349,9 +355,12 @@ impl Windows {
                 self.acc = [0.0; MAX_LANES];
             }
             let take = (SUB_BLOCK - self.acc_len).min(count - at);
-            for (acc, lane) in self.acc.iter_mut().zip(lanes) {
-                let energy: f32 = lane[at..at + take].iter().map(Complex::norm_sqr).sum();
+            let totals = self.block_energy.iter_mut().zip(self.block_peak.iter_mut());
+            for ((acc, lane), (total, peak)) in self.acc.iter_mut().zip(lanes).zip(totals) {
+                let (energy, loudest) = energy_and_peak(&lane[at..at + take]);
                 *acc += f64::from(energy);
+                *total += energy;
+                *peak = peak.max(loudest);
             }
             self.acc_len += take;
             at += take;
@@ -380,7 +389,7 @@ impl Windows {
                 baseline,
             } if start >= gate_from => match baseline {
                 Some(baseline) => self.seek(start, end, deadline, &power, &baseline, seen),
-                None if end <= mark => {
+                None if end <= deadline => {
                     self.noise = Noise::Seeking {
                         gate_from,
                         mark,
@@ -522,6 +531,13 @@ impl Windows {
         }
     }
 
+    pub(crate) fn block_level(&self, lane: usize) -> (f32, f32) {
+        (
+            self.block_energy.get(lane).copied().unwrap_or(0.0),
+            self.block_peak.get(lane).copied().unwrap_or(0.0),
+        )
+    }
+
     pub(crate) const fn reference(&self) -> Option<(u64, u64)> {
         self.reference
     }
@@ -555,6 +571,34 @@ impl Windows {
         lost
     }
 }
+
+fn energy_and_peak(samples: &[Complex<f32>]) -> (f32, f32) {
+    let (chunks, tail) = samples.as_chunks::<LEVEL_LANES>();
+    let mut energy = [0.0f32; LEVEL_LANES];
+    let mut peak_re = [0.0f32; LEVEL_LANES];
+    let mut peak_im = [0.0f32; LEVEL_LANES];
+    for chunk in chunks {
+        for slot in 0..LEVEL_LANES {
+            let sample = chunk[slot];
+            energy[slot] += sample.re * sample.re + sample.im * sample.im;
+            peak_re[slot] = peak_re[slot].max(sample.re.abs());
+            peak_im[slot] = peak_im[slot].max(sample.im.abs());
+        }
+    }
+    let mut total = energy.iter().sum::<f32>();
+    let mut peak = peak_re
+        .iter()
+        .chain(&peak_im)
+        .copied()
+        .fold(0.0f32, f32::max);
+    for sample in tail {
+        total += sample.norm_sqr();
+        peak = peak.max(sample.re.abs()).max(sample.im.abs());
+    }
+    (total, peak)
+}
+
+const LEVEL_LANES: usize = 8;
 
 #[cfg(test)]
 mod tests;

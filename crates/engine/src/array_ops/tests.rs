@@ -306,6 +306,37 @@ fn a_pose_without_a_yaw_rate_takes_one_from_its_headings() {
 }
 
 #[test]
+fn a_plausible_phone_clock_places_a_late_pose_at_its_own_time() {
+    let wall_ns = |at: std::time::SystemTime| {
+        i64::try_from(
+            at.duration_since(std::time::UNIX_EPOCH)
+                .expect("after the epoch")
+                .as_nanos(),
+        )
+        .expect("fits")
+    };
+    let stamped = |at: std::time::SystemTime| PositionFix {
+        time: jiff::Timestamp::from_nanosecond(i128::from(wall_ns(at)))
+            .expect("a valid instant")
+            .to_string(),
+        ..fix(0, 10.0, None)
+    };
+    let mut track = PoseTrack::default();
+    let received = i64::try_from(sdrmm_device::now_ns()).expect("fits");
+    let late = std::time::SystemTime::now() - Duration::from_millis(400);
+    let placed = track.sample(Some(&stamped(late)), received);
+    let lag = received - placed.host_ns;
+    assert!((390_000_000..410_000_000).contains(&lag), "lag {lag}");
+    let ahead = std::time::SystemTime::now() + Duration::from_secs(30);
+    let received = i64::try_from(sdrmm_device::now_ns()).expect("fits");
+    let clamped = track.sample(Some(&stamped(ahead)), received);
+    assert!(
+        clamped.host_ns <= received,
+        "a pose never lands in the future"
+    );
+}
+
+#[test]
 fn a_failed_retune_puts_back_only_what_it_touched() {
     let previous = DeviceSettings {
         center_hz: Some(100e6),

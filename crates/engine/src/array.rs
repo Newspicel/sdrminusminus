@@ -28,7 +28,7 @@ use std::{
 };
 
 use rtrb::{Consumer, Producer, RingBuffer};
-use sdrmm_channels::array_processor::{GeoFix, MAX_LANES};
+use sdrmm_channels::array_processor::{GeoFix, INLINE_INPUT_LIMIT, MAX_LANES};
 use sdrmm_device::{GapScope, lock};
 use sdrmm_wire::{
     ArrayCalRecord, ArrayFailure, ArrayNode, ArrayOrientation, ArrayTune, ArrayTuningMode,
@@ -51,6 +51,7 @@ pub(crate) use controller::{
     ControlCommand, ControlConfig, NoiseSwitch, SyncContext, spawn_controller,
 };
 pub(crate) use correct::CorrectionSet;
+use correct::{correction_stage, spawn_stage};
 pub(crate) use host::{
     ArrayShape, HostPlan, HostSinks, ProcessorHost, ProcessorStats, SteerInput, SteerMailbox,
 };
@@ -210,7 +211,7 @@ pub(crate) enum Command {
         node: String,
         prepared: Prepared,
     },
-    #[cfg(test)]
+    #[cfg(any(test, feature = "probe"))]
     Hold(Box<dyn FnOnce() + Send>),
 }
 
@@ -360,7 +361,12 @@ pub(crate) struct ArrayRuntime {
     aggregator: Option<JoinHandle<AggregatorExit>>,
     worker: Option<JoinHandle<()>>,
     controller: Option<JoinHandle<()>>,
+    corrector: Option<JoinHandle<()>>,
     controller_tx: mpsc::Sender<ControlCommand>,
+}
+
+fn heavy(frame: &LiveFrame) -> bool {
+    frame.lanes() as f64 * frame.sample_rate > INLINE_INPUT_LIMIT
 }
 
 impl ArrayRuntime {
@@ -405,6 +411,24 @@ impl ArrayRuntime {
                 return Err(error);
             }
         };
+        let aggregator_thread = Arc::new(OnceLock::new());
+        let (stage, corrector) = if heavy(&frame) {
+            let (stage, stage_worker) =
+                correction_stage(feeds.len(), stop.clone(), aggregator_thread.clone());
+            match spawn_stage(format!("sdrmm-array-correct-{serial}"), stage_worker) {
+                Ok(handle) => (Some(stage), Some(handle)),
+                Err(error) => {
+                    stop.store(true, Ordering::Release);
+                    let _ = controller_tx.send(ControlCommand::Stop);
+                    worker.thread().unpark();
+                    join_quietly(controller, "array controller");
+                    join_quietly(worker, "array sync worker");
+                    return Err(error);
+                }
+            }
+        } else {
+            (None, None)
+        };
         let aggregator = aggregator::Aggregator::new(
             feeds,
             Box::new(frame),
@@ -412,6 +436,7 @@ impl ArrayRuntime {
             commands,
             wiring.aggregator,
             Some(worker.thread().clone()),
+            stage,
         );
         let spawned = aggregator::spawn(format!("sdrmm-array-{serial}"), aggregator, stop.clone());
         let aggregator = match spawned {
@@ -422,9 +447,14 @@ impl ArrayRuntime {
                 worker.thread().unpark();
                 join_quietly(controller, "array controller");
                 join_quietly(worker, "array sync worker");
+                if let Some(corrector) = corrector {
+                    corrector.thread().unpark();
+                    join_quietly(corrector, "array correction");
+                }
                 return Err(error);
             }
         };
+        let _ = aggregator_thread.set(aggregator.thread().clone());
         queue.wake(aggregator.thread().clone());
         Ok(Self {
             node,
@@ -434,6 +464,7 @@ impl ArrayRuntime {
             aggregator: Some(aggregator),
             worker: Some(worker),
             controller: Some(controller),
+            corrector,
             controller_tx,
         })
     }
@@ -479,6 +510,10 @@ impl ArrayRuntime {
         if let Some(worker) = self.worker.take() {
             worker.thread().unpark();
             join_quietly(worker, "array sync worker");
+        }
+        if let Some(corrector) = self.corrector.take() {
+            corrector.thread().unpark();
+            join_quietly(corrector, "array correction");
         }
         exit
     }

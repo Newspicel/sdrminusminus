@@ -26,6 +26,7 @@ use super::{
     capture::{CaptureKind, CaptureRequest, CaptureStart, SolveFailure, SolveSummary},
     track::{Measured, Observation, Tracker, Verdict},
     warm::{self, Band},
+    window::{BASELINE_SUBS, PRE_GUARD, SUB_BLOCK},
     worker::{
         COARSE_CAPTURE, CheckDetail, FINE_MARGIN, PILOT_CAPTURE, SOLVE_CAPTURE, SolveDetail,
         SyncLink, WarmOrder, WorkerOrder, WorkerReport,
@@ -50,6 +51,8 @@ const WARM_TIMEOUT: Duration = Duration::from_secs(2);
 const REFUSED_RETRIES: u32 = 3;
 const DETAILS_KEPT: usize = 8;
 const STEP_EPSILON_DB: f64 = 0.01;
+const NOISE_WARMUP: u64 = 2 * (BASELINE_SUBS * SUB_BLOCK) as u64 + PRE_GUARD;
+const NOISE_END_TIMEOUT: Duration = Duration::from_secs(1);
 
 pub(crate) enum ControlCommand {
     Configure(Box<ControlConfig>),
@@ -169,6 +172,7 @@ struct Run {
     timeout: Option<Duration>,
     refused: u32,
     escalated: bool,
+    pending: bool,
     cal_before: CalPhase,
 }
 
@@ -202,6 +206,7 @@ pub(crate) struct Controller {
     noise: Option<NoiseSwitch>,
     noise_on: bool,
     noise_off_at: Option<Instant>,
+    quiet_from: Option<u64>,
     next_id: u32,
     run: Option<Run>,
     problem: Option<ArrayFailure>,
@@ -239,6 +244,7 @@ impl Controller {
             noise: None,
             noise_on: false,
             noise_off_at: None,
+            quiet_from: Some(0),
             next_id: 0,
             run: None,
             problem: None,
@@ -317,6 +323,9 @@ impl Controller {
         self.timers(now);
         self.auto_gain(now);
         self.flush_record(now, false);
+        if self.run.is_some_and(|run| run.pending) {
+            self.launch(now);
+        }
         if self.cooling.is_none() {
             self.poll_begin(now);
         }
@@ -516,6 +525,7 @@ impl Controller {
             timeout: Some(WARM_TIMEOUT),
             refused: 0,
             escalated: false,
+            pending: false,
             cal_before: self.board.cal(),
         });
     }
@@ -551,7 +561,7 @@ impl Controller {
             Want::Check if matches!(source, ArrayCalSource::Off) => Stage::Check,
             _ => Stage::Solve,
         };
-        let mut run = Run {
+        let run = Run {
             want,
             stage,
             id: 0,
@@ -562,14 +572,10 @@ impl Controller {
             timeout: None,
             refused: 0,
             escalated: false,
+            pending: false,
             cal_before: self.board.cal(),
         };
         self.problem = problem;
-        if run.switches() && !self.switch_noise(true) {
-            run.noise = None;
-            run.source = ArrayCalSource::Off;
-            self.problem = Some(ArrayFailure::NoNoiseSource);
-        }
         if let Some(problem) = self.problem.clone() {
             self.set_failure(Some(problem));
         }
@@ -582,8 +588,50 @@ impl Controller {
         } else if !self.locked() {
             self.board.set_sync(SyncState::Searching);
         }
+        self.start_run(run, now);
+    }
+
+    fn start_run(&mut self, mut run: Run, now: Instant) {
+        run.pending = run.switches() && !self.noise_on;
         self.run = Some(run);
+        self.launch(now);
+    }
+
+    fn launch(&mut self, now: Instant) {
+        let Some(mut run) = self.run else {
+            return;
+        };
+        if run.pending {
+            if !self.noise_rested(now) {
+                return;
+            }
+            run.pending = false;
+            if !self.switch_noise(true) {
+                run.noise = None;
+                run.source = ArrayCalSource::Off;
+                self.problem = Some(ArrayFailure::NoNoiseSource);
+                self.set_failure(Some(ArrayFailure::NoNoiseSource));
+                if self.config.tier.structural_zero_delay {
+                    self.run = None;
+                    self.board.set_all_lanes(SyncState::Locked);
+                    return;
+                }
+            }
+            self.run = Some(run);
+        }
         self.capture(now);
+    }
+
+    fn noise_rested(&mut self, now: Instant) -> bool {
+        let aligned = self.board.aligned();
+        let overdue = self
+            .noise_off_at
+            .is_some_and(|off| now.saturating_duration_since(off) >= NOISE_END_TIMEOUT);
+        if self.quiet_from.is_none() && overdue {
+            self.quiet_from = Some(aligned);
+        }
+        self.quiet_from
+            .is_some_and(|from| aligned >= from.saturating_add(NOISE_WARMUP))
     }
 
     fn locked(&self) -> bool {
@@ -734,6 +782,7 @@ impl Controller {
             let _ = self.switch_noise(false);
             self.noise_on = false;
             self.noise_off_at = Some(Instant::now());
+            self.quiet_from = None;
         }
     }
 
@@ -794,12 +843,24 @@ impl Controller {
             AggregatorEvent::NoiseNotSeen => {
                 if self
                     .run
-                    .is_some_and(|run| run.noise.is_some() && !run.captured)
+                    .is_some_and(|run| run.noise.is_some() && !run.captured && !run.pending)
                 {
                     self.retry(ArrayFailure::NoiseNotSeen, now);
                 }
             }
-            AggregatorEvent::BlankEnded { .. } => self.want = self.want.max(Want::Solve),
+            AggregatorEvent::BlankEnded { .. } => {
+                let covered = self.run.is_some_and(|run| {
+                    !run.captured && matches!(run.stage, Stage::Coarse | Stage::Solve)
+                });
+                if !covered {
+                    self.want = self.want.max(Want::Solve);
+                }
+            }
+            AggregatorEvent::NoiseEnded { .. } => {
+                if self.quiet_from.is_none() && !self.noise_on {
+                    self.quiet_from = Some(self.board.aligned());
+                }
+            }
             AggregatorEvent::Uncertain { lane, error, .. } => {
                 if error > FINE_MARGIN as u64 {
                     self.tracker.reset();
@@ -821,7 +882,6 @@ impl Controller {
                 }
             }
             AggregatorEvent::NoiseOnset { .. }
-            | AggregatorEvent::NoiseEnded { .. }
             | AggregatorEvent::Captured { .. }
             | AggregatorEvent::CaptureRefused { .. }
             | AggregatorEvent::Solved { .. }
@@ -999,20 +1059,15 @@ impl Controller {
                     && !self.config.tier.structural_zero_delay =>
             {
                 self.tracker.reset();
-                let mut coarse = Run {
+                let coarse = Run {
                     want: Want::Coarse,
                     stage: Stage::Coarse,
                     escalated: true,
                     refused: 0,
                     ..run
                 };
-                if coarse.switches() && !self.switch_noise(true) {
-                    coarse.noise = None;
-                    coarse.source = ArrayCalSource::Off;
-                }
                 self.board.set_all_lanes(SyncState::Searching);
-                self.run = Some(coarse);
-                self.capture(now);
+                self.start_run(coarse, now);
             }
             _ => self.retry(array_failure(failure), now),
         }

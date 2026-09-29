@@ -174,8 +174,16 @@ impl CoarseSearch {
             &lane[..self.span()],
             reach,
         );
-        let index = self.incoherent_peak(reference, lane, rough);
-        let cycles = rough + self.residual(reference, lane, index, rough);
+        let cycles = match rough {
+            Some(rough) => {
+                let index = self.incoherent_peak(reference, lane, rough);
+                rough + self.residual(reference, lane, index, rough)
+            }
+            None => {
+                let index = self.envelope_peak(reference, lane);
+                self.product_offset(reference, lane, index, MAX_CFO_HZ / rate_hz)
+            }
+        };
         let found = self.coherent(reference, lane, cycles)?;
         Ok(CoarseLag {
             cfo_hz: cycles * rate_hz,
@@ -287,6 +295,60 @@ impl CoarseSearch {
             .map_or(self.lags, |(index, _)| index)
     }
 
+    fn envelope_peak(&mut self, reference: &[Complex<f32>], lane: &[Complex<f32>]) -> usize {
+        let span = self.span();
+        let frame = &reference[self.lags..self.lags + self.frame];
+        let reference_mean = mean_power(frame);
+        self.a.fill(Complex::default());
+        for (value, sample) in self.a.iter_mut().zip(frame) {
+            *value = Complex::new(sample.norm_sqr() - reference_mean, 0.0);
+        }
+        self.fft.forward(&mut self.a);
+        let lane_mean = mean_power(&lane[..span]);
+        self.b.fill(Complex::default());
+        for (value, sample) in self.b.iter_mut().zip(&lane[..span]) {
+            *value = Complex::new(sample.norm_sqr() - lane_mean, 0.0);
+        }
+        self.fft.forward(&mut self.b);
+        for (value, reference) in self.b.iter_mut().zip(&self.a) {
+            *value *= reference.conj();
+        }
+        self.fft.inverse(&mut self.b);
+        self.b[..self.power.len()]
+            .iter()
+            .enumerate()
+            .max_by(|a, b| a.1.re.total_cmp(&b.1.re))
+            .map_or(self.lags, |(index, _)| index)
+    }
+
+    fn product_offset(
+        &mut self,
+        reference: &[Complex<f32>],
+        lane: &[Complex<f32>],
+        index: usize,
+        reach_cycles: f64,
+    ) -> f64 {
+        let frame = self.frame;
+        self.b.fill(Complex::default());
+        for ((value, sample), reference) in self
+            .b
+            .iter_mut()
+            .zip(&lane[index..index + frame])
+            .zip(&reference[self.lags..self.lags + frame])
+        {
+            *value = sample * reference.conj();
+        }
+        self.fft.forward(&mut self.b);
+        let size = self.b.len() as isize;
+        let reach = ((reach_cycles * size as f64).ceil() as isize).clamp(1, size / 2 - 1);
+        let magnitude = |bin: isize| f64::from(self.b[bin.rem_euclid(size) as usize].norm());
+        let best = (-reach..=reach)
+            .max_by(|a, b| magnitude(*a).total_cmp(&magnitude(*b)))
+            .unwrap_or(0);
+        let fraction = parabolic(magnitude(best - 1), magnitude(best), magnitude(best + 1));
+        (best as f64 + fraction) / size as f64
+    }
+
     fn residual(
         &mut self,
         reference: &[Complex<f32>],
@@ -318,6 +380,10 @@ impl CoarseSearch {
         let fraction = parabolic(magnitude(best - 1), magnitude(best), magnitude(best + 1));
         (best as f64 + fraction) / size as f64
     }
+}
+
+fn mean_power(samples: &[Complex<f32>]) -> f32 {
+    samples.iter().map(Complex::norm_sqr).sum::<f32>() / samples.len().max(1) as f32
 }
 
 #[cfg(test)]
@@ -455,6 +521,19 @@ mod tests {
         let pair = decimated_pair(1_000.0, &lines, 2);
         let mut search = CoarseSearch::new(COARSE_FRAME, COARSE_LAGS);
         assert!(search.lag(&pair.reference, &pair.lane).is_err());
+        let rate = RATE / pair.factor as f64;
+        let found = search
+            .lag_across_clocks(&pair.reference, &pair.lane, rate)
+            .unwrap();
+        assert_eq!(found.lag * pair.factor as i64, SHIFT as i64);
+        assert!((found.cfo_hz - 1_000.0).abs() < 2.0, "{found:?}");
+        assert!(found.peak_db > 20.0, "{found:?}");
+    }
+
+    #[test]
+    fn coarse_finds_a_lag_on_bare_noise_under_a_1_khz_cfo() {
+        let pair = decimated_pair(1_000.0, &[], 4);
+        let mut search = CoarseSearch::new(COARSE_FRAME, COARSE_LAGS);
         let rate = RATE / pair.factor as f64;
         let found = search
             .lag_across_clocks(&pair.reference, &pair.lane, rate)

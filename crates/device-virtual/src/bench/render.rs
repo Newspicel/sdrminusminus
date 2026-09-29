@@ -7,7 +7,7 @@ use std::{
 use num_complex::Complex;
 use sdrmm_dsp::manifold::{Direction, LIGHT_SPEED_M_S, Vec3, steer};
 
-use super::scene::{Echo, Emitter, LaneImpairments, Pilot, Scene, Waveform, mix};
+use super::scene::{Echo, Emitter, LaneImpairments, Pilot, Ripple, Scene, Waveform, mix};
 
 type C32 = Complex<f32>;
 type C64 = Complex<f64>;
@@ -20,6 +20,7 @@ const TAP_LEAD: i64 = 15;
 const PHASES: usize = 1_024;
 const KAISER_BETA: f64 = 8.0;
 const CLUTTER_SALT: u64 = 0xC1_0773_2000;
+const ANTI_ALIAS: f64 = 0.9;
 
 #[derive(Clone, Debug)]
 pub(crate) struct LaneSetup<'a> {
@@ -32,6 +33,7 @@ pub(crate) struct LaneSetup<'a> {
     pub(crate) scramble_rad: f64,
     pub(crate) pilot: Option<Pilot>,
     pub(crate) noise_seed: Option<u64>,
+    pub(crate) isolated: bool,
 }
 
 impl LaneSetup<'_> {
@@ -533,7 +535,9 @@ pub(crate) struct LaneRenderer {
     rays: Vec<Ray>,
     clutter: Option<ClutterField>,
     noise: Option<NoiseFeed>,
+    isolated: bool,
     pilot: Option<Tone>,
+    ripple: Option<Ripple>,
     response: C64,
     hardware_delay_s: f64,
     carrier_error_hz: f64,
@@ -541,6 +545,7 @@ pub(crate) struct LaneRenderer {
     dc: C32,
     rng: Rng,
     antenna: Vec<C32>,
+    echo: Vec<C32>,
 }
 
 impl LaneRenderer {
@@ -549,7 +554,9 @@ impl LaneRenderer {
             rays: Vec::new(),
             clutter: None,
             noise: None,
+            isolated: false,
             pilot: None,
+            ripple: None,
             response: C64::new(1.0, 0.0),
             hardware_delay_s: 0.0,
             carrier_error_hz: 0.0,
@@ -557,6 +564,7 @@ impl LaneRenderer {
             dc: C32::new(0.0, 0.0),
             rng: Rng::new(thermal_seed),
             antenna: vec![C32::new(0.0, 0.0); CHUNK],
+            echo: vec![C32::new(0.0, 0.0); CHUNK],
         }
     }
 
@@ -564,10 +572,12 @@ impl LaneRenderer {
         let lane = setup.impairments;
         self.rays = rays(scene, setup);
         self.clutter = ClutterField::of(scene, setup);
+        let noise_rate = scene.noise_bandwidth.min(ANTI_ALIAS * setup.sample_rate);
         self.noise = setup.noise_seed.map(|seed| NoiseFeed {
-            master: Master::new(seed, scene.noise_bandwidth, Symbols::Gaussian),
+            master: Master::new(seed, noise_rate, Symbols::Gaussian),
             level: amplitude(scene.noise_source_dbfs),
         });
+        self.isolated = setup.isolated;
         self.pilot = setup
             .pilot
             .filter(|pilot| setup.in_band(pilot.offset_hz, 0.0))
@@ -577,6 +587,9 @@ impl LaneRenderer {
             });
         let turn = (lane.phase_deg + lane.phase_per_db * setup.gain_setting_db).to_radians();
         self.response = amplitude(lane.gain_db) * cis(turn + setup.scramble_rad);
+        self.ripple = lane
+            .ripple
+            .filter(|ripple| ripple.cycles > 0 && ripple.depth_db > 0.0);
         self.hardware_delay_s = lane.frac_delay / setup.sample_rate;
         self.carrier_error_hz = lane.ppm * 1e-6 * setup.center_hz;
         self.thermal_sigma = (amplitude(scene.thermal_dbfs) as f32) * FRAC_1_SQRT_2;
@@ -600,24 +613,50 @@ impl LaneRenderer {
         }
     }
 
-    fn render_chunk(&mut self, h: i64, start_s: f64, step_s: f64, noise_on: bool, out: &mut [C32]) {
-        let antenna = &mut self.antenna[..out.len()];
-        antenna.fill(C32::new(0.0, 0.0));
-        let arrival_s = start_s - self.hardware_delay_s;
-        for ray in &mut self.rays {
-            ray.add(arrival_s, step_s, antenna);
+    fn front(&mut self, arrival_s: f64, step_s: f64, noise_on: bool, len: usize) {
+        let mut antenna = std::mem::take(&mut self.antenna);
+        self.sources(arrival_s, step_s, noise_on, &mut antenna[..len]);
+        if let Some(ripple) = self.ripple {
+            let reach = f64::from(ripple.cycles) * step_s;
+            let half = 0.5 * ripple.depth();
+            let mut echo = std::mem::take(&mut self.echo);
+            for shift in [-reach, reach] {
+                self.sources(arrival_s + shift, step_s, noise_on, &mut echo[..len]);
+                for (slot, value) in antenna.iter_mut().zip(&echo[..len]) {
+                    *slot += value * half as f32;
+                }
+            }
+            self.echo = echo;
         }
-        if let Some(clutter) = &mut self.clutter {
-            clutter.add(h, arrival_s, step_s, antenna);
+        self.antenna = antenna;
+    }
+
+    fn sources(&mut self, arrival_s: f64, step_s: f64, noise_on: bool, out: &mut [C32]) {
+        out.fill(C32::new(0.0, 0.0));
+        if !(noise_on && self.noise.is_some() && self.isolated) {
+            for ray in &mut self.rays {
+                ray.add(arrival_s, step_s, out);
+            }
         }
         if noise_on && let Some(noise) = &mut self.noise {
-            noise.add(arrival_s, step_s, antenna);
+            noise.add(arrival_s, step_s, out);
         }
         if let Some(pilot) = self.pilot {
             let mut tone = Rotor::new(pilot.offset_hz, arrival_s, step_s);
-            for slot in antenna.iter_mut() {
+            for slot in out.iter_mut() {
                 *slot += narrow(tone.next() * pilot.level);
             }
+        }
+    }
+
+    fn render_chunk(&mut self, h: i64, start_s: f64, step_s: f64, noise_on: bool, out: &mut [C32]) {
+        let arrival_s = start_s - self.hardware_delay_s;
+        self.front(arrival_s, step_s, noise_on, out.len());
+        let antenna = &mut self.antenna[..out.len()];
+        if !(noise_on && self.noise.is_some() && self.isolated)
+            && let Some(clutter) = &mut self.clutter
+        {
+            clutter.add(h, arrival_s, step_s, antenna);
         }
         let mut error = Rotor::new(self.carrier_error_hz, start_s, step_s);
         for (slot, value) in out.iter_mut().zip(antenna.iter()) {

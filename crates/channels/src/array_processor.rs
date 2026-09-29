@@ -22,6 +22,7 @@ pub const MAX_LANES: usize = MAX_ARRAY_LANES as usize;
 pub const MAX_LANE_PORTS: usize = 2;
 pub const MAX_EVENTS_PER_BLOCK: usize = 8;
 pub const TUNING_TOLERANCE_HZ: f64 = 1.0;
+pub const INLINE_INPUT_LIMIT: f64 = 2e6;
 
 const ONE: Complex<f32> = Complex::new(1.0, 0.0);
 const NANOS_PER_MILLI: u64 = 1_000_000;
@@ -611,6 +612,17 @@ pub fn no_lane_format(_: &ProcessorParams, ctx: &ArrayCtx<'_>, _: usize) -> Lane
         center_hz: ctx.center_hz,
         sample_rate: ctx.sample_rate,
         capacity: 0,
+    }
+}
+
+#[must_use]
+pub fn banded_execution(ctx: &ArrayCtx<'_>) -> Execution {
+    if ctx.lanes as f64 * ctx.sample_rate <= INLINE_INPUT_LIMIT {
+        Execution::Inline
+    } else {
+        Execution::Worker {
+            batch: ctx.max_block,
+        }
     }
 }
 

@@ -10,6 +10,7 @@ use std::{
 use arc_swap::ArcSwap;
 use num_complex::Complex;
 use sdrmm_device::{GapScope, LaneMark, RxSink, UNKNOWN_ERROR, Uncertainty};
+use sdrmm_wire::NoiseSource;
 
 use super::{
     BLOCK_LEN, BenchWorld, LaneTruth, NoiseSchedule,
@@ -257,6 +258,9 @@ impl LaneRun {
             noise_seed: self
                 .feed
                 .map(|feed| mix_key(self.scene.seed, &world.spec(feed).key)),
+            isolated: self
+                .feed
+                .is_some_and(|feed| world.spec(feed).noise_source == NoiseSource::Isolated),
         };
         self.renderer.configure(&self.scene, &setup);
         self.stale_truth = true;

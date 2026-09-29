@@ -114,13 +114,18 @@ impl Ddc {
     }
 
     pub fn process(&mut self, input: &[Complex<f32>], out: &mut Vec<Complex<f32>>) {
-        self.mixed.resize(input.len(), Complex::new(0.0, 0.0));
-        self.nco.mix_into(input, &mut self.mixed);
+        let mixed = if self.nco.is_identity() {
+            input
+        } else {
+            self.mixed.resize(input.len(), Complex::new(0.0, 0.0));
+            self.nco.mix_into(input, &mut self.mixed);
+            &self.mixed
+        };
         let Some((first, rest)) = self.stages.split_first_mut() else {
-            self.fraction.process(&self.mixed, out);
+            self.fraction.process(mixed, out);
             return;
         };
-        first.process(&self.mixed, &mut self.work_in);
+        first.process(mixed, &mut self.work_in);
         for stage in rest {
             stage.process(&self.work_in, &mut self.work_out);
             std::mem::swap(&mut self.work_in, &mut self.work_out);

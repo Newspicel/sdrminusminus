@@ -4,8 +4,9 @@ use num_complex::Complex;
 use sdrmm_dsp::manifold::Geometry;
 use sdrmm_wire::processor::PROCESSOR_TYPE_IDS;
 use sdrmm_wire::{
-    ArrayElement, ArrayGeometry, DfParams, NodeBody, PassiveRadarParams, PatchCatalog,
-    PortDirection, ProcessorParams, STEER_PORT, StitchParams, Winding,
+    ArrayElement, ArrayGeometry, BeamformerParams, DfParams, NodeBody, PassiveRadarParams,
+    PatchCatalog, PolarimeterParams, PortDirection, ProcessorParams, STEER_PORT, StitchParams,
+    Winding,
 };
 
 use super::bench::{Bench, Sink, block};
@@ -440,5 +441,31 @@ mod probe_tests {
         });
         assert!((descriptor.in_place)(&params, &probe(1)));
         assert!(!(descriptor.in_place)(&params, &rebuilt));
+    }
+}
+
+#[test]
+fn banded_processors_leave_the_aggregator_above_the_inline_limit() {
+    let light = Bench::together("light", 2, 1e6, 4_096);
+    assert_eq!(banded_execution(&light.ctx()), Execution::Inline);
+    let heavy = Bench::together("heavy", 5, 2.4e6, 4_096);
+    assert_eq!(
+        banded_execution(&heavy.ctx()),
+        Execution::Worker { batch: 4_096 }
+    );
+    for params in [
+        ProcessorParams::Df(DfParams::default()),
+        ProcessorParams::Beamformer(BeamformerParams::default()),
+        ProcessorParams::Polarimeter(PolarimeterParams::default()),
+    ] {
+        let descriptor = processor_descriptor(params.type_id()).expect("a descriptor");
+        assert_eq!(
+            (descriptor.execution)(&params, &light.ctx()),
+            Execution::Inline
+        );
+        assert!(matches!(
+            (descriptor.execution)(&params, &heavy.ctx()),
+            Execution::Worker { .. }
+        ));
     }
 }

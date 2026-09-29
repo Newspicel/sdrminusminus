@@ -454,6 +454,42 @@ fn a_steer_reaches_the_beamformer_before_the_next_block() {
 }
 
 #[test]
+fn a_steer_from_a_batched_direction_finder_reaches_the_beamformer() {
+    let taps = taps(0);
+    let (mut beam, mut beam_log) = talker_host("beam", Talk::default(), &taps.sinks);
+    beam.steer_in = SteerInput::Local("df".to_owned());
+    let (talker, _df_log) = Talker::new(Talk {
+        steer: Some(40.0),
+        ..Talk::default()
+    });
+    let df = ProcessorHost::batched(
+        plan(
+            "df",
+            ProcessorParams::Df(DfParams::default()),
+            &taps.sinks,
+            LANES,
+        ),
+        &frame(LANES),
+        &TALKER,
+        talker,
+        64,
+    )
+    .expect("host");
+    let mut hosts = HostList::new();
+    assert!(hosts.add(df).is_ok());
+    assert!(hosts.add(beam).is_ok());
+    let samples = [Complex::new(0.1, 0.0); 64];
+    let mut first_index = 0;
+    let steer = wait_for(|| {
+        run(&mut hosts, first_index, &samples);
+        first_index += 64;
+        std::iter::from_fn(|| beam_log.pop().ok()).find_map(|heard| heard.steered)
+    });
+    assert!(steer.same_array);
+    assert_eq!(steer.relative_deg, 40.0);
+}
+
+#[test]
 fn a_steer_from_another_array_arrives_through_the_mailbox() {
     let taps = taps(0);
     let mailbox = Arc::new(SteerMailbox::default());

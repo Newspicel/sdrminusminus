@@ -22,9 +22,9 @@ use sdrmm_wire::{DfAlgorithm, DfParams, ProcessorParams, SourceRule, UlaSide};
 
 use crate::ChannelError;
 use crate::array_processor::{
-    ArrayBlock, ArrayCtx, ArrayProcessor, CalView, Execution, MAX_LANES, Pose, ProcessorAction,
+    ArrayBlock, ArrayCtx, ArrayProcessor, CalView, MAX_LANES, Pose, ProcessorAction,
     ProcessorDescriptor, ProcessorFaults, ProcessorNeeds, ProcessorOutput, Registration,
-    ResetCause, TuningNeed, boxed, check_tuning, geometry_of, no_lane_format,
+    ResetCause, TuningNeed, banded_execution, boxed, check_tuning, geometry_of, no_lane_format,
 };
 use crate::band::LaneBand;
 
@@ -42,7 +42,7 @@ static DESCRIPTOR: ProcessorDescriptor = ProcessorDescriptor {
     band: |params| settings(params).map(|df| (df.offset_hz, df.bandwidth_hz)),
     tuning: |_| TuningNeed::Together,
     lane_format: no_lane_format,
-    execution: |_, _| Execution::Inline,
+    execution: |_, ctx| banded_execution(ctx),
     in_place,
 };
 

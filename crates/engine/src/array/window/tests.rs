@@ -76,6 +76,19 @@ const QUIET: f32 = 1e-4;
 const LOUD: f32 = 1e-2;
 
 #[test]
+fn block_levels_carry_energy_and_the_loudest_component() {
+    let mut feed = Feed::new(2, &[0, 0]);
+    feed.block(&[], |_| QUIET);
+    let (energy, peak) = feed.windows.block_level(1);
+    assert!((energy - QUIET * BLOCK as f32).abs() < QUIET * BLOCK as f32 * 1e-3);
+    assert!((peak - QUIET.sqrt()).abs() < 1e-6);
+    feed.block(&[], |at| if at % 1_000 == 7 { 0.998 } else { LOUD });
+    let (_, peak) = feed.windows.block_level(0);
+    assert!((peak - 0.998f32.sqrt()).abs() < 1e-6);
+    assert_eq!(feed.windows.block_level(9), (0.0, 0.0));
+}
+
+#[test]
 fn noise_onset_is_found_by_power_after_the_mark() {
     let mut feed = Feed::new(2, &[0, 0]);
     let step = 26_000;
@@ -342,7 +355,26 @@ fn a_mark_with_no_quiet_samples_before_it_is_noise_not_seen() {
         },
     );
     feed.block(&[on], |_| LOUD);
+    while feed.index < 200_000 {
+        feed.block(&[], |_| LOUD);
+    }
     assert_eq!(feed.events, [AggregatorEvent::NoiseNotSeen]);
+}
+
+#[test]
+fn a_mark_at_the_first_sample_takes_the_quiet_start_as_baseline() {
+    let mut feed = Feed::new(2, &[0, 0]);
+    let power = |at: u64| if at < 6_144 { QUIET } else { LOUD };
+    let on = mark(
+        0,
+        LaneMark::NoiseSource {
+            on: true,
+            in_flight: 8_192,
+        },
+    );
+    feed.block(&[on], power);
+    feed.block(&[], power);
+    assert_eq!(feed.events, [AggregatorEvent::NoiseOnset { at: 6_144 }]);
 }
 
 #[test]

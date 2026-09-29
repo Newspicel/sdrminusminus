@@ -1,7 +1,13 @@
 use std::hint::black_box;
 
 use num_complex::Complex;
-use sdrmm_dsp::{FracResampler, NoiseFloor, SpectrumAnalyzer};
+use sdrmm_dsp::{
+    FracResampler, NoiseFloor, SpectrumAnalyzer,
+    radar::{
+        cfar::Hit,
+        cluster::{Cluster, Clusterer},
+    },
+};
 use sdrmm_test_support::{CountingAlloc, assert_no_alloc, measure_throughput};
 
 #[global_allocator]
@@ -100,5 +106,46 @@ fn fractional_resampling_reuses_storage_and_exceeds_audio_realtime() {
     assert!(
         msps > 0.48,
         "resampler must sustain twice realtime: {msps} MS/s"
+    );
+}
+
+#[test]
+fn clustering_is_deterministic_and_does_not_allocate_even_for_large_inputs() {
+    let (rows, gates) = (512, 80);
+    let mut power = vec![1.0f32; rows * gates];
+    let hits: Vec<Hit> = (0..2_048u32)
+        .map(|index| {
+            let (row, gate) = ((index * 7) % rows as u32, (index * 13) % gates as u32);
+            let cell = 20.0 + index as f32 * 0.01;
+            power[row as usize * gates + gate as usize] = cell;
+            Hit {
+                row,
+                gate,
+                power: cell,
+                noise: 1.0,
+            }
+        })
+        .collect();
+    let mut clusterer = Clusterer::new(gates, rows).unwrap();
+    let mut expected: Vec<Cluster> = Vec::new();
+    clusterer
+        .cluster(&hits, &power, 8, &mut expected, 4_096)
+        .unwrap();
+    let mut reversed = hits.clone();
+    reversed.reverse();
+    let mut clusters: Vec<Cluster> = Vec::with_capacity(4_096);
+    let mut dropped = 0;
+    assert_no_alloc("radar clustering", || {
+        dropped = clusterer
+            .cluster(&reversed, &power, 8, &mut clusters, 4_096)
+            .unwrap();
+    });
+    assert_eq!(dropped, 0);
+    assert!(clusters.len() > 100, "{}", clusters.len());
+    assert_eq!(clusters, expected);
+    assert!(
+        clusters
+            .windows(2)
+            .all(|pair| pair[0].power >= pair[1].power)
     );
 }

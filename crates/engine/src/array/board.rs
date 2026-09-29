@@ -127,6 +127,7 @@ pub(crate) struct StatusBoard {
     pub(crate) realigns: AtomicU64,
     pub(crate) dropped_samples: AtomicU64,
     pub(crate) events_lost: AtomicU64,
+    pub(crate) aligned: AtomicU64,
     pub(crate) alive: AtomicBool,
     pub(crate) busy: AtomicBool,
     pub(crate) control: Mutex<ControlStatus>,
@@ -145,6 +146,7 @@ impl StatusBoard {
             realigns: AtomicU64::new(0),
             dropped_samples: AtomicU64::new(0),
             events_lost: AtomicU64::new(0),
+            aligned: AtomicU64::new(0),
             alive: AtomicBool::new(true),
             busy: AtomicBool::new(false),
             control: Mutex::new(ControlStatus::default()),
@@ -198,6 +200,14 @@ impl StatusBoard {
         if count > 0 {
             self.events_lost.fetch_add(count, Ordering::Relaxed);
         }
+    }
+
+    pub(crate) fn add_aligned(&self, samples: u64) {
+        self.aligned.fetch_add(samples, Ordering::Relaxed);
+    }
+
+    pub(crate) fn aligned(&self) -> u64 {
+        self.aligned.load(Ordering::Relaxed)
     }
 
     pub(crate) fn alive(&self) -> bool {

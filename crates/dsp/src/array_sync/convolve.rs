@@ -9,6 +9,8 @@ pub struct SpectrumLength {
     pub got: usize,
 }
 
+const DELAY_MATCH: f32 = 1e-5;
+
 pub struct FastConvolver {
     fft: FftPair,
     len: usize,
@@ -16,7 +18,8 @@ pub struct FastConvolver {
     response: Vec<Complex<f32>>,
     history: Vec<Complex<f32>>,
     work: Vec<Complex<f32>>,
-    pending: Vec<Complex<f32>>,
+    filled: usize,
+    delay_only: Option<Complex<f32>>,
 }
 
 impl FastConvolver {
@@ -24,7 +27,6 @@ impl FastConvolver {
     pub fn new(fft_len: usize, taps: usize) -> Self {
         let len = fft_len.max(1);
         let taps = taps.clamp(1, len);
-        let hop = len - taps + 1;
         let mut convolver = Self {
             fft: FftPair::new(len),
             len,
@@ -32,10 +34,21 @@ impl FastConvolver {
             response: vec![Complex::default(); len],
             history: vec![Complex::default(); taps - 1],
             work: vec![Complex::default(); len],
-            pending: Vec::with_capacity(hop),
+            filled: 0,
+            delay_only: None,
         };
         convolver.set_delay((taps - 1) / 2);
         convolver
+    }
+
+    #[must_use]
+    pub const fn delay(&self) -> usize {
+        (self.taps - 1) / 2
+    }
+
+    #[must_use]
+    pub const fn is_delay_only(&self) -> bool {
+        self.delay_only.is_some()
     }
 
     #[must_use]
@@ -54,8 +67,8 @@ impl FastConvolver {
     }
 
     #[must_use]
-    pub fn pending(&self) -> usize {
-        self.pending.len()
+    pub const fn pending(&self) -> usize {
+        self.filled
     }
 
     pub fn set_response(&mut self, spectrum: &[Complex<f32>]) -> Result<(), SpectrumLength> {
@@ -69,23 +82,43 @@ impl FastConvolver {
         for (bin, value) in self.response.iter_mut().zip(spectrum) {
             *bin = value * scale;
         }
+        self.delay_only = self.plain_delay(spectrum);
         Ok(())
+    }
+
+    fn plain_delay(&self, spectrum: &[Complex<f32>]) -> Option<Complex<f32>> {
+        let weight = *spectrum.first()?;
+        let tolerance = DELAY_MATCH * weight.norm().max(f32::MIN_POSITIVE);
+        let delay = self.delay();
+        spectrum
+            .iter()
+            .enumerate()
+            .all(|(bin, value)| {
+                let turn = ((bin * delay) % self.len) as f64 / self.len as f64;
+                let (sin, cos) = (-std::f64::consts::TAU * turn).sin_cos();
+                let expected = weight * Complex::new(cos as f32, sin as f32);
+                (value - expected).norm() <= tolerance
+            })
+            .then_some(weight)
     }
 
     pub fn reset(&mut self) {
         self.history.fill(Complex::default());
-        self.pending.clear();
+        self.filled = 0;
     }
 
     pub fn push(&mut self, input: &[Complex<f32>], out: &mut Vec<Complex<f32>>) {
         let hop = self.hop();
+        let keep = self.taps - 1;
         let mut rest = input;
         while !rest.is_empty() {
-            let take = (hop - self.pending.len()).min(rest.len());
+            let take = (hop - self.filled).min(rest.len());
             let (head, tail) = rest.split_at(take);
-            self.pending.extend_from_slice(head);
+            let at = keep + self.filled;
+            self.work[at..at + take].copy_from_slice(head);
+            self.filled += take;
             rest = tail;
-            if self.pending.len() == hop {
+            if self.filled == hop {
                 self.convolve_block(out);
             }
         }
@@ -94,9 +127,18 @@ impl FastConvolver {
     fn convolve_block(&mut self, out: &mut Vec<Complex<f32>>) {
         let keep = self.taps - 1;
         self.work[..keep].copy_from_slice(&self.history);
-        self.work[keep..].copy_from_slice(&self.pending);
         self.history.copy_from_slice(&self.work[self.len - keep..]);
-        self.pending.clear();
+        self.filled = 0;
+        if let Some(weight) = self.delay_only {
+            let from = keep - self.delay();
+            let hop = self.hop();
+            out.extend(
+                self.work[from..from + hop]
+                    .iter()
+                    .map(|value| value * weight),
+            );
+            return;
+        }
         self.fft.forward(&mut self.work);
         for (bin, response) in self.work.iter_mut().zip(&self.response) {
             *bin *= response;
@@ -112,6 +154,7 @@ impl FastConvolver {
                 -std::f64::consts::TAU * ((bin * delay) % self.len) as f64 / self.len as f64;
             *value = Complex::new((angle.cos() * scale) as f32, (angle.sin() * scale) as f32);
         }
+        self.delay_only = (delay == self.delay()).then_some(Complex::new(1.0, 0.0));
     }
 }
 
@@ -209,6 +252,29 @@ mod tests {
             assert!((value - input[index - 16]).norm() < 1e-5);
         }
         assert!(output[..16].iter().all(|value| value.norm() < 1e-5));
+    }
+
+    #[test]
+    fn a_weighted_delay_skips_the_transform_and_matches_it() {
+        let weight = Complex::from_polar(0.8, 1.1);
+        let mut taps = vec![Complex::default(); 129];
+        taps[64] = weight;
+        let input = Gaussian::new(12).block(12_000);
+        let mut quick = FastConvolver::new(4096, 129);
+        quick.set_response(&spectrum_of(&taps, 4096)).unwrap();
+        assert!(quick.is_delay_only());
+        let output = push_ragged(&mut quick, &input, &[1, 999, 5000]);
+        let expected = direct(&taps, &input);
+        assert!(
+            output
+                .iter()
+                .zip(&expected)
+                .all(|(a, b)| (a - b).norm() < 1e-5)
+        );
+        taps[65] = Complex::new(0.01, 0.0);
+        quick.set_response(&spectrum_of(&taps, 4096)).unwrap();
+        assert!(!quick.is_delay_only());
+        assert!(FastConvolver::new(4096, 129).is_delay_only());
     }
 
     #[test]

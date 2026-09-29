@@ -5,6 +5,8 @@ pub const MAX_BENCH_LANES: usize = 16;
 pub const MAX_CLUTTER_ECHOES: u32 = 64;
 pub const MAX_CLUTTER_DELAY_SAMPLES: u32 = 65_536;
 pub const MAX_PPM: f64 = 1_000.0;
+pub const MAX_RIPPLE_DB: f64 = 6.0;
+pub const MAX_RIPPLE_CYCLES: u32 = 64;
 
 const DEFAULT_SEED: u64 = 0x5EED_BE7C_0000_0137;
 const IMPAIRMENT_SEED: u64 = 0xB1A5_ED00_0000_0005;
@@ -79,8 +81,28 @@ pub struct LaneImpairments {
     pub dc_dbfs: Option<f64>,
     pub dc_phase_deg: f64,
     pub scramble_on_retune: bool,
+    pub ripple: Option<Ripple>,
     pub slips: Vec<Slip>,
     pub gaps: Vec<ReportedGap>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Ripple {
+    pub depth_db: f64,
+    pub cycles: u32,
+}
+
+impl Ripple {
+    #[must_use]
+    pub fn depth(&self) -> f64 {
+        10f64.powf(self.depth_db / 20.0) - 1.0
+    }
+
+    #[must_use]
+    pub fn gain_at(&self, cycles_per_sample: f64) -> f64 {
+        1.0 + self.depth()
+            * (std::f64::consts::TAU * f64::from(self.cycles) * cycles_per_sample).cos()
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -245,6 +267,11 @@ impl LaneImpairments {
         ]) && self.dc_dbfs.is_none_or(f64::is_finite);
         if !sound {
             return Some("lane impairments must be finite");
+        }
+        if self.ripple.is_some_and(|ripple| {
+            !(0.0..MAX_RIPPLE_DB).contains(&ripple.depth_db) || ripple.cycles > MAX_RIPPLE_CYCLES
+        }) {
+            return Some("a lane ripple is 0 to 6 dB deep with at most 64 cycles");
         }
         (self.ppm.abs() > MAX_PPM).then_some("a lane clock is off by at most 1000 ppm")
     }

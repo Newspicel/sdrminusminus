@@ -23,7 +23,7 @@ use super::{
         CAPTURE_MAX, CAPTURE_POOL, CalQuality, CaptureBuffers, CaptureJob, CaptureSlot,
         FillContext, Filled, Solution, SolveFailure, SolveSummary,
     },
-    correct::{CorrectionSet, Corrector},
+    correct::{CorrectionSet, CorrectionStage, Corrector, Label, StageJob},
     host::{GateInputs, HostList, ProcessorHost},
     record::{RecordNote, RecordTap},
     tap::LaneFeed,
@@ -83,14 +83,7 @@ impl PoseRing {
         }
         match (before, after) {
             (Some(early), Some(late)) => between(&early, &late, host_ns),
-            (Some(newest), None) => {
-                let mut pose = pose_of(&newest);
-                if host_ns - newest.host_ns > POSE_HOLD_NS {
-                    pose.heading_deg = None;
-                    pose.yaw_rate_dps = None;
-                }
-                pose
-            }
+            (Some(newest), None) => ahead_of(&newest, host_ns - newest.host_ns),
             (None, Some(oldest)) => pose_of(&oldest),
             (None, None) => Pose::default(),
         }
@@ -106,6 +99,18 @@ fn pose_of(sample: &PoseSample) -> Pose {
         moving: sample.moving,
         follows: false,
     }
+}
+
+fn ahead_of(newest: &PoseSample, ahead_ns: i64) -> Pose {
+    let mut pose = pose_of(newest);
+    if ahead_ns > POSE_HOLD_NS {
+        pose.heading_deg = None;
+        pose.yaw_rate_dps = None;
+    } else if let (Some(heading), Some(rate)) = (pose.heading_deg, pose.yaw_rate_dps) {
+        let turned = f64::from(rate) * ahead_ns as f64 / NANOS_PER_SECOND;
+        pose.heading_deg = Some((heading + turned).rem_euclid(360.0));
+    }
+    pose
 }
 
 fn between(early: &PoseSample, late: &PoseSample, host_ns: i64) -> Pose {
@@ -273,6 +278,8 @@ pub(crate) struct Aggregator {
     clipped: u32,
     feed_losses: u64,
     priors: u32,
+    stage: Option<CorrectionStage>,
+    stage_dropped: u64,
 }
 
 impl Aggregator {
@@ -283,6 +290,7 @@ impl Aggregator {
         commands: Consumer<Command>,
         io: AggregatorIo,
         worker: Option<Thread>,
+        stage: Option<CorrectionStage>,
     ) -> Self {
         let lanes = feeds.len().min(MAX_LANES);
         Self {
@@ -312,6 +320,8 @@ impl Aggregator {
             feed_losses: 0,
             priors: foreign_lanes(&frame),
             frame,
+            stage,
+            stage_dropped: 0,
         }
     }
 
@@ -331,7 +341,11 @@ impl Aggregator {
                 if self.aligner.has_lost_lane() {
                     self.hosts.hold(ProcessorGate::Sync, 0);
                 }
-                Step::Idle
+                if self.drain_stage() {
+                    Step::Worked
+                } else {
+                    Step::Idle
+                }
             }
         };
         self.hosts.poll(self.frame.center_hz);
@@ -364,6 +378,7 @@ impl Aggregator {
 
     fn block(&mut self, count: usize) {
         let index = self.aligner.index();
+        self.board.add_aligned(count as u64);
         self.board.add_events_lost(u64::from(self.notes.dropped()));
         let seen = {
             let (windows, notes, frame, board) =
@@ -420,6 +435,9 @@ impl Aggregator {
 
     fn discontinuity(&mut self) {
         self.corrector.reset();
+        if let Some(stage) = self.stage.as_mut() {
+            stage.reset();
+        }
         self.dc.reset();
         self.gap_before = true;
     }
@@ -442,15 +460,10 @@ impl Aggregator {
 
     fn meter(&mut self, count: usize) {
         let mut clipped = 0u32;
-        for (lane, samples) in self.aligner.raw().iter().enumerate() {
-            let samples = &samples[..count.min(samples.len())];
-            let mut energy = 0.0f32;
-            let mut clip = false;
-            for sample in samples {
-                energy += sample.norm_sqr();
-                clip |= sample.re.abs() >= CLIP_LEVEL || sample.im.abs() >= CLIP_LEVEL;
-            }
-            let power = energy / samples.len().max(1) as f32;
+        for lane in 0..self.aligner.lanes() {
+            let (energy, peak) = self.windows.block_level(lane);
+            let clip = peak >= CLIP_LEVEL;
+            let power = energy / count.max(1) as f32;
             let level = 10.0 * power.max(LEVEL_FLOOR).log10();
             if let Some(board) = self.board.lane(lane) {
                 board.set_level(level, clip);
@@ -493,7 +506,9 @@ impl Aggregator {
         let outcome = {
             let context = FillContext {
                 windows: &self.windows,
-                discontinuous: seen.discontinuity,
+                discontinuous: seen.discontinuity
+                    || seen.blank_began.is_some()
+                    || seen.blank_ended.is_some(),
                 generation: self.generation,
                 sample_rate: self.frame.sample_rate,
                 offsets: self.aligner.offsets(),
@@ -532,15 +547,18 @@ impl Aggregator {
         if needs != self.correcting {
             self.correcting = needs;
             self.corrector.reset();
+            if let Some(stage) = self.stage.as_mut() {
+                stage.reset();
+            }
             self.gap_before = true;
             self.hosts.reset(ResetCause::Realigned);
         }
         self.aligner.origins(&mut self.origins);
-        let clock = self
-            .origins
-            .iter()
-            .zip(self.aligner.offsets())
-            .find_map(|(origin, offset)| origin.map(|origin| (origin, *offset)));
+        if self.correcting && self.stage.is_some() {
+            self.stage_block(count, index);
+            return;
+        }
+        let clock = self.clock();
         if self.correcting {
             let corrector = &mut self.corrector;
             let produced = self
@@ -583,6 +601,80 @@ impl Aggregator {
         self.corrected_index = end;
     }
 
+    fn clock(&self) -> Option<(i64, i64)> {
+        self.origins
+            .iter()
+            .zip(self.aligner.offsets())
+            .find_map(|(origin, offset)| origin.map(|origin| (origin, *offset)))
+    }
+
+    fn stage_block(&mut self, count: usize, index: u64) {
+        let label = Label {
+            generation: self.generation,
+            gap_before: std::mem::take(&mut self.gap_before),
+            phase_ready: self.phase_ready,
+            gain_ready: self.gain_ready,
+            quality: self.quality,
+        };
+        let sent = match self.stage.as_mut() {
+            Some(stage) => {
+                let active = self.corrector.active();
+                self.aligner
+                    .with_raw(count, |raw| stage.submit(raw, index, label, active))
+            }
+            None => false,
+        };
+        if !sent {
+            self.stage_dropped += count as u64;
+            self.discontinuity();
+        }
+        self.drain_stage();
+    }
+
+    fn drain_stage(&mut self) -> bool {
+        let mut worked = false;
+        while let Some(job) = self.stage.as_mut().and_then(CorrectionStage::finished) {
+            if self.correcting {
+                self.run_job(&job);
+            } else {
+                self.stage_dropped += job.ready() as u64;
+            }
+            if let Some(stage) = self.stage.as_mut() {
+                stage.keep(job);
+            }
+            worked = true;
+        }
+        worked
+    }
+
+    fn run_job(&mut self, job: &StageJob) {
+        if job.ready() == 0 {
+            return;
+        }
+        let label = job.label();
+        let mut gap_before = label.gap_before;
+        let clock = self.clock();
+        let mut run = HostRun {
+            hosts: &mut self.hosts,
+            windows: &self.windows,
+            frame: &self.frame,
+            board: &self.board,
+            poses: &self.poses,
+            timing: &self.timing,
+            clock,
+            corrector: &self.corrector,
+            generation: label.generation,
+            gap_before: &mut gap_before,
+            phase_ready: label.phase_ready,
+            gain_ready: label.gain_ready,
+            quality: label.quality,
+        };
+        let first = job.first_index();
+        job.with_lanes(|lanes| run.hosts(lanes, first, true, job.transient()));
+        self.corrected_index = first + job.ready() as u64;
+        self.windows.prune(self.corrected_index);
+    }
+
     fn counters(&mut self) {
         self.board
             .realigns
@@ -590,9 +682,10 @@ impl Aggregator {
         self.board
             .generation
             .store(self.generation, Ordering::Relaxed);
-        self.board
-            .dropped_samples
-            .store(self.aligner.skipped(), Ordering::Relaxed);
+        self.board.dropped_samples.store(
+            self.aligner.skipped() + self.stage_dropped,
+            Ordering::Relaxed,
+        );
         let losses = self.aligner.events_lost();
         if losses > self.feed_losses {
             self.board.add_events_lost(losses - self.feed_losses);
@@ -699,7 +792,7 @@ impl Aggregator {
                 }
                 self.retire(Retired::Node(node));
             }
-            #[cfg(test)]
+            #[cfg(any(test, feature = "probe"))]
             Command::Hold(hold) => hold(),
         }
     }
@@ -744,6 +837,9 @@ impl Aggregator {
     fn recalibrate(&mut self) {
         self.bump_generation();
         self.corrector.clear_to_identity(self.generation);
+        if let Some(stage) = self.stage.as_mut() {
+            stage.load();
+        }
         self.phase_ready = false;
         self.gain_ready = false;
         self.quality = CalQuality::default();
@@ -839,6 +935,9 @@ impl Aggregator {
         match self.corrector.swap(set) {
             Ok(old) => {
                 self.recycle(old);
+                if let Some(stage) = self.stage.as_mut() {
+                    stage.load();
+                }
                 true
             }
             Err(rejected) => {

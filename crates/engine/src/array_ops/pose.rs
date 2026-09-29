@@ -1,4 +1,7 @@
+use std::time::{SystemTime, UNIX_EPOCH};
+
 use sdrmm_channels::{array_processor::GeoFix, pose_clock::PoseClock};
+use sdrmm_device::now_ns;
 use sdrmm_wire::{HeadingSource, LatLon, PositionFix};
 
 use crate::array::PoseSample;
@@ -7,6 +10,7 @@ const MIN_RATE_SPAN_NS: i64 = 20_000_000;
 const MAX_RATE_SPAN_NS: i64 = 2_000_000_000;
 const HEADING_SIGMA_DEG: f64 = 10.0;
 const MOVING_MPS: f64 = 1.0;
+const MAX_POSE_LAG_NS: i64 = 2_000_000_000;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct PoseView {
@@ -25,6 +29,15 @@ pub(crate) struct PoseTrack {
 fn fix_time_ns(time: &str) -> Option<i64> {
     let stamp: jiff::Timestamp = time.parse().ok()?;
     i64::try_from(stamp.as_nanosecond()).ok()
+}
+
+fn wall_minus_host_ns() -> i64 {
+    let wall = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |since| {
+            i64::try_from(since.as_nanos()).unwrap_or(i64::MAX)
+        });
+    wall.saturating_sub(i64::try_from(now_ns()).unwrap_or(i64::MAX))
 }
 
 fn turn_deg(from: f64, to: f64) -> f64 {
@@ -60,7 +73,7 @@ impl PoseTrack {
             };
         };
         let host_ns = fix_time_ns(&fix.time)
-            .map_or(received_ns, |fix_ns| self.clock.map(fix_ns, received_ns));
+            .map_or(received_ns, |fix_ns| self.host_time(fix_ns, received_ns));
         let heading_deg = fix
             .attitude
             .heading_deg
@@ -88,6 +101,16 @@ impl PoseTrack {
             yaw_rate_dps,
             fix: Some(geo(fix)),
             moving: fix.speed_mps.is_some_and(|speed| speed > MOVING_MPS),
+        }
+    }
+
+    fn host_time(&mut self, fix_ns: i64, received_ns: i64) -> i64 {
+        let mapped = self.clock.map(fix_ns, received_ns);
+        let trusted = fix_ns.saturating_sub(wall_minus_host_ns());
+        if (0..=MAX_POSE_LAG_NS).contains(&received_ns.saturating_sub(trusted)) {
+            trusted
+        } else {
+            mapped
         }
     }
 

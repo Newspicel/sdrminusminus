@@ -701,6 +701,7 @@ fn a_replaced_radar_retires_off_the_aggregator() {
         commands,
         wiring.aggregator,
         None,
+        None,
     );
     let taps = taps(0);
     let mut send = |command: Command| {

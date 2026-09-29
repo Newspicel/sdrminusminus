@@ -19,7 +19,7 @@ use bench::BenchDevice;
 pub use bench::{
     BEARING_SETTING, BLOCK_LEN, BenchDeviceSpec, BenchWorld, Clutter, Echo, Emitter,
     LaneImpairments, LaneTruth, NOISE_SWITCH_LEAD_S, Path, Pilot, RADIUS_SETTING, ReportedGap,
-    Scene, Slip, Waveform, default_devices, default_scene, default_world,
+    Ripple, Scene, Slip, Waveform, default_devices, default_scene, default_world,
 };
 
 const DRIVER_ID: &str = "virtual";

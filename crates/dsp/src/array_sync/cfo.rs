@@ -38,7 +38,7 @@ impl SpectralShift {
         reference: &[Complex<f32>],
         lane: &[Complex<f32>],
         reach: usize,
-    ) -> f64 {
+    ) -> Option<f64> {
         let bins = self.bins();
         welch(
             &mut self.fft,
@@ -57,12 +57,12 @@ impl SpectralShift {
         if !structured(&mut self.reference, &mut self.sorted)
             || !structured(&mut self.lane, &mut self.sorted)
         {
-            return 0.0;
+            return None;
         }
         centre(&mut self.reference);
         centre(&mut self.lane);
         best_shift(&self.reference, &self.lane, reach.min(bins / 2 - 1))
-            .map_or(0.0, |shift| shift / bins as f64)
+            .map(|shift| shift / bins as f64)
     }
 }
 
@@ -194,7 +194,7 @@ mod tests {
         let reference = tones(32_768, &lines, 0.0, &mut noise);
         let lane = tones(65_536, &lines, 0.0137, &mut noise);
         let mut shift = SpectralShift::new(1024);
-        let estimate = shift.estimate(&reference, &lane, 140);
+        let estimate = shift.estimate(&reference, &lane, 140).unwrap_or(f64::NAN);
         assert!(
             (estimate - 0.0137).abs() < 0.2 / 1024.0,
             "{}",
@@ -208,7 +208,7 @@ mod tests {
         let reference = noise.block(32_768);
         let lane = noise.block(65_536);
         let mut shift = SpectralShift::new(1024);
-        assert!(shift.estimate(&reference, &lane, 140).abs() < f64::EPSILON);
+        assert_eq!(shift.estimate(&reference, &lane, 140), None);
     }
 
     #[test]
@@ -222,7 +222,7 @@ mod tests {
         let reference = spike(32_768, &mut noise);
         let lane = spike(65_536, &mut noise);
         let mut shift = SpectralShift::new(1024);
-        assert!(shift.estimate(&reference, &lane, 140).abs() < f64::EPSILON);
+        assert_eq!(shift.estimate(&reference, &lane, 140), None);
     }
 
     #[test]
