@@ -245,8 +245,9 @@ function Spectrum({ set, source }: { set: DeviceSet | null; source: IqLane | nul
   }
   const locked = lockedChannels(workspace.graph, faces);
   const heldChannel = (channel: number): boolean => owners.has(channel) || locked.has(channel);
-  const centerHeld = deviceNode !== undefined && tuningLocked(workspace.graph, deviceNode, tuned);
   const onAuto = set !== null && autoTuning(set, tuned);
+  const centerHeld =
+    onAuto || (deviceNode !== undefined && tuningLocked(workspace.graph, deviceNode, tuned));
 
   const workspaceChannel = [...faces].find(([, id]) => id === workspace.selected)?.[0] ?? null;
   const selectedChannel =
@@ -281,8 +282,7 @@ function Spectrum({ set, source }: { set: DeviceSet | null; source: IqLane | nul
       tuneCenter(hz);
       return;
     }
-    const held = set === null || !autoTuning(set, tuned);
-    if (held && (meta === null || Math.abs(hz - meta.centerHz) >= meta.spanHz / 2)) {
+    if (meta === null || Math.abs(hz - meta.centerHz) >= meta.spanHz / 2) {
       tuneCenter(hz);
     }
     applyEdit(setId, tunableChannel, { frequency_hz: Math.round(hz), ...params });
@@ -646,7 +646,7 @@ function Spectrum({ set, source }: { set: DeviceSet | null; source: IqLane | nul
       return;
     }
     const rect = plotRef.current?.getBoundingClientRect();
-    if (isFullView(gesture.view) && (centerHeld || onAuto)) {
+    if (isFullView(gesture.view) && centerHeld) {
       return;
     }
     setPanning(true);
@@ -683,7 +683,12 @@ function Spectrum({ set, source }: { set: DeviceSet | null; source: IqLane | nul
     if (gesture.moved) {
       if (gesture.channel !== null && preview !== null && meta !== null) {
         tuneChannel(gesture.channel, meta.centerHz + preview.offsetHz);
-      } else if (gesture.channel === null && isFullView(gesture.view) && !onAuto && meta !== null) {
+      } else if (
+        gesture.channel === null &&
+        isFullView(gesture.view) &&
+        !centerHeld &&
+        meta !== null
+      ) {
         const rect = plotRef.current?.getBoundingClientRect();
         const hz = dragTuneHz(
           gesture.centerHz,
