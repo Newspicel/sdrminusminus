@@ -27,8 +27,9 @@ mdbook build "$root/docs"
 pnpm --dir "$root/site" build
 
 rm -rf "$out"
-mkdir -p "$out"
-cp -R "$root/docs/book/." "$out/"
+mkdir -p "$out/docs"
+cp -R "$root/docs/book/." "$out/docs/"
+node "$root/site/scripts/clean-docs.mjs" "$out/docs"
 cp -R "$root/site/dist/." "$out/"
 
 echo "site assembled in $out"

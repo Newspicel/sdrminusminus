@@ -14,10 +14,12 @@ describe("canonical", () => {
   it("drops index.html so the home page has one address", () => {
     expect(canonical("/index.html").href).toBe(`${SITE}/`);
     expect(canonical("/").href).toBe(`${SITE}/`);
+    expect(canonical("/docs/index.html").href).toBe(`${SITE}/docs/`);
   });
 
-  it("keeps page extensions", () => {
-    expect(canonical("/download.html").href).toBe(`${SITE}/download.html`);
+  it("drops page extensions", () => {
+    expect(canonical("/download.html").href).toBe(`${SITE}/download`);
+    expect(canonical("/download").href).toBe(`${SITE}/download`);
   });
 });
 
@@ -25,28 +27,25 @@ describe("sitePages", () => {
   it("lists every page but the demo", () => {
     expect(sitePages(["./index.astro", "./download.astro", "./demo.astro"])).toEqual([
       `${SITE}/`,
-      `${SITE}/download.html`,
+      `${SITE}/download`,
     ]);
   });
 });
 
 describe("docPages", () => {
-  it("lists the chapters of the book summary", () => {
+  it("lists the chapters of the book summary under the docs", () => {
     const summary =
-      "[Welcome](introduction.md)\n\n# Get started\n\n- [Install](getting-started/install.md)\n- [Draft]()";
-    expect(docPages(summary)).toEqual([
-      `${SITE}/introduction.html`,
-      `${SITE}/getting-started/install.html`,
-    ]);
+      "[Welcome](index.md)\n\n# Get started\n\n- [Install](getting-started/install.md)\n- [Draft]()";
+    expect(docPages(summary)).toEqual([`${SITE}/docs/`, `${SITE}/docs/getting-started/install`]);
   });
 });
 
 describe("sitemap", () => {
   it("writes each address once, sorted", () => {
-    const xml = sitemap([`${SITE}/b.html`, `${SITE}/a.html`, `${SITE}/b.html`]);
+    const xml = sitemap([`${SITE}/b`, `${SITE}/a`, `${SITE}/b`]);
     expect(xml).toContain('<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">');
     expect(xml.match(/<loc>/g)).toHaveLength(2);
-    expect(xml.indexOf("a.html")).toBeLessThan(xml.indexOf("b.html"));
+    expect(xml.indexOf(`${SITE}/a`)).toBeLessThan(xml.indexOf(`${SITE}/b`));
   });
 
   it("escapes XML", () => {

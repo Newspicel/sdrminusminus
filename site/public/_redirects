@@ -1,1 +1,5 @@
-/ /index.html 200
+/index.html / 301
+/docs/index.html /docs/ 301
+/introduction.html /docs/ 301
+/introduction /docs/ 301
+/*.html /:splat 301

@@ -4,22 +4,24 @@ export const ALTERNATE_NAMES = ["SDRmm", "SDR minus minus", "sdrminusminus"];
 export const REPOSITORY = "https://github.com/Newspicel/sdrminusminus";
 export const SHARE_IMAGE = { path: "/og.png", width: 1200, height: 630 } as const;
 
+export const DOCS = "/docs/";
+
 const UNLISTED = new Set(["demo"]);
 
 export function canonical(pathname: string): URL {
-  return new URL(pathname.replace(/(^|\/)index\.html$/, "$1"), SITE);
+  return new URL(pathname.replace(/\.html$/, "").replace(/(^|\/)index$/, "$1"), SITE);
 }
 
 export function sitePages(sources: readonly string[]): string[] {
   return sources
     .map((source) => source.replace(/^.*\//, "").replace(/\.astro$/, ""))
     .filter((page) => !UNLISTED.has(page))
-    .map((page) => canonical(`/${page}.html`).href);
+    .map((page) => canonical(`/${page}`).href);
 }
 
 export function docPages(summary: string): string[] {
   return [...summary.matchAll(/\]\(([^)#\s]+)\.md\)/g)].flatMap((match) =>
-    match[1] === undefined ? [] : [canonical(`/${match[1]}.html`).href],
+    match[1] === undefined ? [] : [canonical(`${DOCS}${match[1]}`).href],
   );
 }
 
@@ -53,7 +55,7 @@ export function structuredData(description: string) {
         url: home,
         applicationCategory: "MultimediaApplication",
         operatingSystem: "Windows, macOS, Linux",
-        downloadUrl: canonical("/download.html").href,
+        downloadUrl: canonical("/download").href,
         image: canonical(SHARE_IMAGE.path).href,
         screenshot: canonical("/screens/patch.png").href,
         license: "https://www.gnu.org/licenses/agpl-3.0.html",

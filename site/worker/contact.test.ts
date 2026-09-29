@@ -61,7 +61,7 @@ describe("contact form", () => {
     const { env } = environment();
     const response = await send(post(valid, { accept: "text/html" }), env);
     expect(response.status).toBe(303);
-    expect(response.headers.get("location")).toBe("/business.html#sent");
+    expect(response.headers.get("location")).toBe("/business#sent");
   });
 
   it("rejects an invalid message without sending", async () => {

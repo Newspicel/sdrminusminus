@@ -12,15 +12,15 @@ export interface LinkGroup {
 
 export const APP = "https://app.sdrmm.com";
 export const DISCORD = "https://discord.gg/dYaRyGwBNw";
-export const DOWNLOAD: Link = { label: "Download", href: "/download.html" };
-export const REMOTE: Link = { label: "Remote access", href: "/remote.html" };
-export const BUSINESS: Link = { label: "Business", href: "/business.html" };
+export const DOWNLOAD: Link = { label: "Download", href: "/download" };
+export const REMOTE: Link = { label: "Remote access", href: "/remote" };
+export const BUSINESS: Link = { label: "Business", href: "/business" };
 export const CONTACT = `${BUSINESS.href}#contact`;
 export const SIGN_IN: Link = { label: "Sign in", href: APP };
 
 export const PRIMARY: Link[] = [
-  { label: "Docs", href: "/introduction.html" },
-  { label: "Hardware", href: "/hardware.html" },
+  { label: "Docs", href: "/docs/" },
+  { label: "Hardware", href: "/docs/hardware" },
   REMOTE,
   BUSINESS,
 ];
@@ -35,10 +35,10 @@ export const FOOTER: LinkGroup[] = [
     title: "Software",
     links: [
       DOWNLOAD,
-      { label: "Docs", href: "/introduction.html" },
-      { label: "First receiver", href: "/getting-started/first-receiver.html" },
-      { label: "Troubleshooting", href: "/troubleshooting.html" },
-      { label: "Build from source", href: "/development/building.html" },
+      { label: "Docs", href: "/docs/" },
+      { label: "First receiver", href: "/docs/getting-started/first-receiver" },
+      { label: "Troubleshooting", href: "/docs/troubleshooting" },
+      { label: "Build from source", href: "/docs/development/building" },
     ],
   },
   {
@@ -49,8 +49,8 @@ export const FOOTER: LinkGroup[] = [
 ];
 
 export const LEGAL: Link[] = [
-  { label: "Imprint", href: "/imprint.html" },
-  { label: "Privacy", href: "/privacy.html" },
+  { label: "Imprint", href: "/imprint" },
+  { label: "Privacy", href: "/privacy" },
 ];
 
 function page(path: string): string {

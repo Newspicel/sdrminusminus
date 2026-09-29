@@ -5,6 +5,24 @@ import { canonical, docPages, sitePages } from "./seo";
 
 const pages = Object.keys(import.meta.glob("./pages/*.astro"));
 const known = new Set([...sitePages(pages), ...docPages(summary)]);
+const sources = import.meta.glob<string>(["./pages/*.astro", "./components/*.astro"], {
+  query: "?raw",
+  import: "default",
+  eager: true,
+});
+
+describe("page sources", () => {
+  it("link to a page or a docs chapter", () => {
+    const hrefs = Object.values(sources).flatMap((source) =>
+      [...source.matchAll(/href="(\/[^"#?]*)/g)].flatMap((match) => match[1] ?? []),
+    );
+    const internal = hrefs.filter((href) => !/\.[^/]*$/.test(href));
+    expect(internal.length).toBeGreaterThan(0);
+    for (const href of internal) {
+      expect(known, href).toContain(canonical(href).href);
+    }
+  });
+});
 
 describe("links", () => {
   const links = [PRIMARY, COMMUNITY, LEGAL, ...FOOTER.map((group) => group.links)].flat();
@@ -26,9 +44,9 @@ describe("links", () => {
 
 describe("isCurrent", () => {
   it("matches with or without the extension", () => {
-    expect(isCurrent("/download.html", "/download.html")).toBe(true);
-    expect(isCurrent("/download.html", "/download")).toBe(true);
-    expect(isCurrent("/download.html", "/download/")).toBe(true);
+    expect(isCurrent("/download", "/download")).toBe(true);
+    expect(isCurrent("/download", "/download.html")).toBe(true);
+    expect(isCurrent("/download", "/download/")).toBe(true);
   });
 
   it("treats the index as the root", () => {
@@ -36,7 +54,7 @@ describe("isCurrent", () => {
   });
 
   it("never marks other pages or external links", () => {
-    expect(isCurrent("/remote.html", "/download.html")).toBe(false);
+    expect(isCurrent("/remote", "/download")).toBe(false);
     expect(isCurrent("https://app.sdrmm.com", "/")).toBe(false);
   });
 });

@@ -1,15 +1,17 @@
-const NOT_FOUND = "/404.html";
+const NOT_FOUND = "/docs/404";
+const DOCS = "/docs";
 
-export function pagePath(pathname: string): string | null {
-  const trimmed = pathname.replace(/\/+$/, "");
-  if (trimmed === "" || /\.[^/]*$/.test(trimmed)) {
+export function docsPath(pathname: string): string | null {
+  const page = pathname.replace(/\/+$/, "").replace(/\.html$/, "");
+  const inDocs = page === DOCS || page.startsWith(`${DOCS}/`);
+  if (page === "" || inDocs || /\.[^/]*$/.test(page)) {
     return null;
   }
-  return `${trimmed}.html`;
+  return `${DOCS}${page}`;
 }
 
-async function page(url: URL, env: Env): Promise<URL | null> {
-  const path = pagePath(url.pathname);
+async function movedToDocs(url: URL, env: Env): Promise<URL | null> {
+  const path = docsPath(url.pathname);
   if (path === null) {
     return null;
   }
@@ -21,7 +23,7 @@ async function page(url: URL, env: Env): Promise<URL | null> {
 
 export async function missing(request: Request, env: Env): Promise<Response> {
   const url = new URL(request.url);
-  const target = await page(url, env);
+  const target = await movedToDocs(url, env);
   if (target !== null) {
     return Response.redirect(target.href, 301);
   }

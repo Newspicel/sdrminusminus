@@ -1,5 +1,5 @@
 export const CONTACT_PATH = "/api/contact";
-export const CONTACT_PAGE = "/business.html";
+export const CONTACT_PAGE = "/business";
 
 export const FIELDS = {
   name: "name",

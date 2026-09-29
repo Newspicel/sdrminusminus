@@ -18,7 +18,7 @@ no-section-label = true
 smart-punctuation = false
 git-repository-url = "https://github.com/Newspicel/sdrminusminus"
 edit-url-template = "https://github.com/Newspicel/sdrminusminus/edit/main/docs/{path}"
-site-url = "/"
+site-url = "/docs/"
 
 [output.html.fold]
 enable = true

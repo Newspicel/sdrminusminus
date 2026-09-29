@@ -56,7 +56,7 @@ sudo dnf install sdrminusminus`,
     lines: `nix --extra-experimental-features 'nix-command flakes' \\
   profile install github:Newspicel/sdrminusminus
 sdrmm-desktop`,
-    more: { href: "/getting-started/install.html#nix", label: "NixOS module options" },
+    more: { href: "/docs/getting-started/install#nix", label: "NixOS module options" },
   },
   {
     id: "container",
@@ -66,7 +66,7 @@ sdrmm-desktop`,
     lines: `git clone https://github.com/Newspicel/sdrminusminus.git
 cd sdrminusminus
 docker compose up -d`,
-    more: { href: "/server/deployment.html", label: "Container setup, auth and HTTPS" },
+    more: { href: "/docs/server/deployment", label: "Container setup, auth and HTTPS" },
   },
 ];
 

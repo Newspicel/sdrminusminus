@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { pagePath } from "./assets";
+import { docsPath } from "./assets";
 import worker from "./index";
 
 function environment(pages: Record<string, string>) {
@@ -25,26 +25,28 @@ async function get(path: string, env: Env) {
   );
 }
 
-describe("pagePath", () => {
-  it("maps extensionless paths to their page", () => {
-    expect(pagePath("/download")).toBe("/download.html");
-    expect(pagePath("/user-guide/decoders/")).toBe("/user-guide/decoders.html");
+describe("docsPath", () => {
+  it("maps old chapter addresses into the docs", () => {
+    expect(docsPath("/hardware")).toBe("/docs/hardware");
+    expect(docsPath("/hardware.html")).toBe("/docs/hardware");
+    expect(docsPath("/user-guide/decoders/")).toBe("/docs/user-guide/decoders");
   });
 
-  it("leaves the root and files alone", () => {
-    expect(pagePath("/")).toBeNull();
-    expect(pagePath("/icon.svg")).toBeNull();
-    expect(pagePath("/download.html")).toBeNull();
+  it("leaves the root, the docs and files alone", () => {
+    expect(docsPath("/")).toBeNull();
+    expect(docsPath("/docs")).toBeNull();
+    expect(docsPath("/docs/nowhere")).toBeNull();
+    expect(docsPath("/icon.svg")).toBeNull();
   });
 });
 
 describe("missing assets", () => {
-  const env = environment({ "/download.html": "download", "/404.html": "not found" });
+  const env = environment({ "/docs/hardware": "hardware", "/docs/404": "not found" });
 
-  it("moves a page without its extension to the page, keeping the query", async () => {
-    const response = await get("/download?from=readme", env);
+  it("moves an old chapter into the docs, keeping the query", async () => {
+    const response = await get("/hardware.html?from=readme", env);
     expect(response.status).toBe(301);
-    expect(response.headers.get("location")).toBe("https://sdrmm.com/download.html?from=readme");
+    expect(response.headers.get("location")).toBe("https://sdrmm.com/docs/hardware?from=readme");
   });
 
   it("answers anything else with the 404 page", async () => {

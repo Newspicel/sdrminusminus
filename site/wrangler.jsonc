@@ -9,7 +9,7 @@
   "assets": {
     "directory": "../dist/site",
     "binding": "ASSETS",
-    "html_handling": "none",
+    "html_handling": "auto-trailing-slash",
     "not_found_handling": "none"
   },
   "send_email": [{ "name": "EMAIL" }],
