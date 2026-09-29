@@ -1,4 +1,6 @@
 ---
+import Footer from "../components/Footer.astro";
+import Header from "../components/Header.astro";
 import { canonical, jsonLd, NAME, SHARE_IMAGE } from "../seo";
 import "../styles/site.css";
 
@@ -6,11 +8,10 @@ interface Props {
   title: string;
   description: string;
   summary: string;
-  current?: "download" | "business";
   structured?: unknown;
 }
 
-const { title, description, summary, current, structured } = Astro.props;
+const { title, description, summary, structured } = Astro.props;
 const url = canonical(Astro.url.pathname);
 const image = canonical(SHARE_IMAGE.path);
 ---
@@ -43,43 +44,13 @@ const image = canonical(SHARE_IMAGE.path);
   <body>
     <a class="skip" href="#main">Skip to content</a>
 
-    <div class="bar">
-      <div class="wrap">
-        <a class="mark" href="/"><img src="/icon.svg" alt="" width="24" height="24" />SDR--</a>
-        <nav>
-          <a href="/introduction.html">Docs</a>
-          <a class="hardware" href="/hardware.html">Hardware</a>
-          <a class="business" href="/business.html" aria-current={current === "business" ? "page" : undefined}>Business</a>
-          <a href="https://github.com/Newspicel/sdrminusminus">GitHub</a>
-          <a class="discord" href="https://discord.gg/dYaRyGwBNw">Discord</a>
-          <a class="app" href="https://app.sdrmm.com">Sign in</a>
-          <a class="get" href="/download.html" aria-current={current === "download" ? "page" : undefined}>Download</a>
-        </nav>
-      </div>
-    </div>
+    <Header />
 
     <main id="main">
       <slot />
     </main>
 
-    <footer>
-      <div class="wrap">
-        <span>SDR-- · AGPL-3.0-or-later</span>
-        <nav>
-          <a href="/download.html">Download</a>
-          <a href="/introduction.html">Docs</a>
-          <a href="/hardware.html">Hardware</a>
-          <a href="/troubleshooting.html">Troubleshooting</a>
-          <a href="/development/building.html">Build from source</a>
-          <a href="/business.html">Business</a>
-          <a href="https://app.sdrmm.com">Remote access</a>
-          <a href="https://github.com/Newspicel/sdrminusminus">GitHub</a>
-          <a href="https://discord.gg/dYaRyGwBNw">Discord</a>
-          <a href="/imprint.html">Imprint</a>
-          <a href="/privacy.html">Privacy</a>
-        </nav>
-      </div>
-    </footer>
+    <Footer />
 
     <script>
       for (const shell of document.querySelectorAll<HTMLElement>(".shell")) {

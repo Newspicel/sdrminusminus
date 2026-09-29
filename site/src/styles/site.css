@@ -65,65 +65,6 @@ a:hover {
   padding-inline: var(--pad);
 }
 
-.bar {
-  position: sticky;
-  top: 0;
-  z-index: 5;
-  background: color-mix(in oklab, var(--base) 80%, transparent);
-  backdrop-filter: blur(12px);
-  border-bottom: 1px solid color-mix(in oklab, var(--line) 60%, transparent);
-}
-.bar .wrap {
-  display: flex;
-  align-items: center;
-  gap: 24px;
-  height: 60px;
-}
-.mark {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  font-family: var(--display);
-  font-weight: 600;
-  font-size: 15px;
-  color: var(--ink);
-  text-decoration: none;
-  margin-right: auto;
-}
-.mark img {
-  width: 24px;
-  height: 24px;
-  display: block;
-}
-.bar nav {
-  display: flex;
-  align-items: center;
-  gap: 24px;
-}
-.bar nav a {
-  font-size: 15px;
-  color: var(--ink-dim);
-  text-decoration: none;
-}
-.bar nav a:hover,
-.bar nav a[aria-current] {
-  color: var(--ink);
-}
-.bar nav a.get {
-  color: var(--on-accent);
-  background: var(--accent);
-  border: 1px solid var(--accent);
-  border-radius: var(--radius);
-  padding: 4px 14px;
-  font-weight: 600;
-  box-shadow: var(--shadow-raised);
-}
-.bar nav a.get:hover,
-.bar nav a.get[aria-current] {
-  color: var(--on-accent);
-  filter: brightness(1.05);
-}
-
 h1 {
   font-family: var(--display);
   font-weight: 600;
@@ -265,31 +206,17 @@ h2 {
 .lane {
   background: var(--panel);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow-face);
-  padding: 0 20px 20px;
+  border-radius: var(--radius-lg);
+  padding: 22px 22px 20px;
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 10px;
 }
 .lane h3 {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  height: 32px;
-  margin: 0 -20px 4px;
-  padding-inline: 12px;
-  border-bottom: 1px solid var(--line);
-  border-radius: 3px 3px 0 0;
-  background: color-mix(in oklab, var(--cat-output) 14%, var(--panel));
-  font: 500 12.5px var(--mono);
-}
-.lane h3::before {
-  content: "";
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--cat-output);
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
 }
 .lane p {
   margin: 0;
@@ -302,6 +229,9 @@ h2 {
   color: var(--ink);
 }
 .lane .foot {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 20px;
   margin-top: auto;
   padding-top: 4px;
   font-size: 14px;
@@ -349,49 +279,11 @@ h2 {
   color: var(--ink);
 }
 
-footer {
-  border-top: 1px solid var(--line);
-  padding-block: 40px 56px;
-  color: var(--ink-faint);
-  font-size: 14px;
-}
-footer .wrap {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px 28px;
-  align-items: baseline;
-}
-footer nav {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px 22px;
-  margin-left: auto;
-}
-footer a {
-  color: var(--ink-dim);
-  text-decoration: none;
-}
-footer a:hover {
-  color: var(--ink);
-}
-
 @media (hover: none) {
   .shell .copy {
     opacity: 1;
   }
   .shell pre {
     padding-right: 72px;
-  }
-}
-
-@media (max-width: 720px) {
-  .bar nav {
-    gap: 16px;
-  }
-  .bar nav a.hardware,
-  .bar nav a.business,
-  .bar nav a.discord,
-  .bar nav a.app {
-    display: none;
   }
 }

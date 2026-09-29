@@ -1,0 +1,74 @@
+---
+import { APP, REMOTE } from "../nav";
+import { euros, lowest, PLANS } from "../plans";
+---
+
+<ul class="setups">
+  <li>
+    <h3>On your desk</h3>
+    <p>The radio plugs into this computer. Install the app.</p>
+    <p class="cost"><span class="free">Free</span></p>
+  </li>
+  <li>
+    <h3>By the antenna</h3>
+    <p>A Pi in the loft runs the server. Open it from any browser at home.</p>
+    <p class="cost"><span class="free">Free</span></p>
+  </li>
+  <li>
+    <h3>Away from home</h3>
+    <p>Reach the server through your own tunnel, or sign in at app.sdrmm.com.
+      <a href={REMOTE.href}>Compare both</a></p>
+    <p class="cost">
+      <span><span class="free">Free</span> with your own tunnel</span>
+      <span>From {euros(lowest(PLANS))} a month with <a href={APP}>app.sdrmm.com</a></span>
+    </p>
+  </li>
+</ul>
+
+<style>
+  .setups {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    border-top: 1px solid var(--line);
+  }
+  li {
+    display: grid;
+    grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.6fr) minmax(0, 1fr);
+    gap: 6px 40px;
+    align-items: baseline;
+    padding-block: 24px;
+    border-bottom: 1px solid var(--line);
+  }
+  h3 {
+    margin: 0;
+    font-size: 1.15rem;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+  p {
+    margin: 0;
+    color: var(--ink-dim);
+    font-size: 15px;
+  }
+  .cost {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 14px;
+  }
+  .free {
+    color: var(--audio);
+    font-weight: 600;
+  }
+
+  @media (max-width: 800px) {
+    li {
+      grid-template-columns: minmax(0, 1fr);
+      padding-block: 20px;
+    }
+    .cost {
+      margin-top: 6px;
+    }
+  }
+</style>

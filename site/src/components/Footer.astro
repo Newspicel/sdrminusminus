@@ -1,0 +1,107 @@
+---
+import { APP, FOOTER, LEGAL } from "../nav";
+---
+
+<footer>
+  <div class="wrap">
+    <div class="about">
+      <a class="mark" href="/"><img src="/icon.svg" alt="" width="22" height="22" />SDR--</a>
+      <p>Free and open source under AGPL-3.0-or-later.</p>
+      <p><a href={APP}>app.sdrmm.com</a> is an optional paid service. SDR-- never needs it.</p>
+    </div>
+    {
+      FOOTER.map((group) => (
+        <nav aria-label={group.title}>
+          <h2>{group.title}</h2>
+          <ul>
+            {group.links.map((link) => (
+              <li>
+                <a href={link.href}>{link.label}</a>
+              </li>
+            ))}
+          </ul>
+        </nav>
+      ))
+    }
+    <ul class="legal">
+      {
+        LEGAL.map((link) => (
+          <li>
+            <a href={link.href}>{link.label}</a>
+          </li>
+        ))
+      }
+    </ul>
+  </div>
+</footer>
+
+<style>
+  footer {
+    border-top: 1px solid var(--line);
+    padding-block: 48px 40px;
+    background: var(--well);
+    color: var(--ink-faint);
+    font-size: 14px;
+  }
+  .wrap {
+    display: grid;
+    grid-template-columns: minmax(0, 1.6fr) repeat(3, minmax(0, 1fr));
+    gap: 40px 32px;
+  }
+  .mark {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 14px;
+    font: 600 15px var(--display);
+    color: var(--ink);
+    text-decoration: none;
+  }
+  .about p {
+    max-width: 36ch;
+    margin: 0 0 6px;
+  }
+  .about p a {
+    color: var(--ink-dim);
+  }
+  h2 {
+    margin: 0 0 12px;
+    font: 500 12.5px var(--mono);
+    letter-spacing: 0;
+    color: var(--ink);
+  }
+  ul {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  li a {
+    color: var(--ink-dim);
+    text-decoration: none;
+  }
+  li a:hover {
+    color: var(--ink);
+  }
+  .legal {
+    grid-column: 1 / -1;
+    flex-direction: row;
+    gap: 22px;
+    padding-top: 20px;
+    border-top: 1px solid var(--line);
+  }
+  .legal a {
+    color: var(--ink-faint);
+  }
+
+  @media (max-width: 800px) {
+    .wrap {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+    .about {
+      grid-column: 1 / -1;
+    }
+  }
+</style>

@@ -1,0 +1,59 @@
+---
+import { APP, REMOTE } from "../nav";
+import { euros, lowest, PLANS } from "../plans";
+---
+
+<div class="signin">
+  <p class="title">app.sdrmm.com</p>
+  <p>Open your SDR-- servers from any browser, without port forwarding.</p>
+  <p class="optional">Optional, from {euros(lowest(PLANS))} a month. SDR-- works fully without it.</p>
+  <div class="go">
+    <a class="btn primary" href={APP}>Sign in</a>
+    <a class="how" href={REMOTE.href}>How it works</a>
+  </div>
+</div>
+
+<style>
+  .signin {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 18px 20px 20px;
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius-lg);
+    background: var(--panel);
+    box-shadow: var(--shadow-face);
+    text-align: left;
+  }
+  p {
+    margin: 0;
+    font-size: 15px;
+    line-height: 1.5;
+    color: var(--ink-dim);
+  }
+  .title {
+    font-weight: 600;
+    color: var(--ink);
+  }
+  .optional {
+    font-size: 14px;
+    color: var(--ink-faint);
+  }
+  .go {
+    display: flex;
+    align-items: center;
+    gap: 18px;
+    margin-top: 12px;
+  }
+  .go .btn {
+    padding: 8px 18px;
+  }
+  .how {
+    font-size: 14px;
+    color: var(--ink-dim);
+    text-decoration: none;
+  }
+  .how:hover {
+    color: var(--ink);
+  }
+</style>
