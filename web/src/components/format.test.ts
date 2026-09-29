@@ -3,6 +3,7 @@ import {
   formatBaud,
   formatBitRate,
   formatBytes,
+  formatCount,
   formatHz,
   formatMhz,
   formatSampleRate,
@@ -10,6 +11,13 @@ import {
   fractionDigits,
   si,
 } from "./format";
+
+describe("formatCount", () => {
+  it("keeps a large count short enough to read", () => {
+    expect(formatCount(12)).toBe("12");
+    expect(formatCount(740_073_332)).toBe("740.1M");
+  });
+});
 
 describe("si", () => {
   it("picks the prefix from the magnitude and trims trailing zeros", () => {

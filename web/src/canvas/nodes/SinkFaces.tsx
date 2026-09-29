@@ -4,7 +4,6 @@ import { Button } from "../../components/BaseControls";
 import { BTN, BTN_DANGER, CHIP } from "../../components/controls";
 import { DecoderLogPanel } from "../../components/DecoderLogPanel";
 import { DecoderView, hasDecoderView } from "../../components/DecoderPanels";
-import { DevOnly } from "../../components/DevOnly";
 import { DownloadMenu } from "../../components/DownloadMenu";
 import {
   DEFAULT_LOG_FILTER,
@@ -12,7 +11,7 @@ import {
   toQuery,
   type WireScope,
 } from "../../components/decoderLog";
-import { formatBytes } from "../../components/format";
+import { DROPS_HINT, formatBytes, formatCount } from "../../components/format";
 import { HuntPanel } from "../../components/HuntPanel";
 import { Icon } from "../../components/Icon";
 import { MapPanel } from "../../components/MapPanel";
@@ -152,14 +151,12 @@ function AudioInput({ input }: { input: Input }) {
         source={monitorKey(input.deviceSet, input.channel.id, input.fx)}
         playing={audio.playing}
       />
-      <DevOnly>
-        <AudioHealth
-          lostFrames={audio.lostFrames}
-          underruns={audio.underruns}
-          bufferedMs={audio.bufferedMs}
-          trimmedMs={audio.trimmedMs}
-        />
-      </DevOnly>
+      <AudioHealth
+        lostFrames={audio.lostFrames}
+        underruns={audio.underruns}
+        bufferedMs={import.meta.env.DEV ? audio.bufferedMs : 0}
+        trimmedMs={import.meta.env.DEV ? audio.trimmedMs : 0}
+      />
       {audio.error !== null && (
         <p role="alert" className="text-xs text-danger">
           {audio.error}
@@ -504,9 +501,11 @@ function RecordingReadout({ status, sampleRate }: { status: RecordingStatus; sam
         {formatDuration(recordingElapsedS(status, now, sampleRate))}
       </ReadoutRow>
       <ReadoutRow label="Written">{formatBytes(status.bytes)}</ReadoutRow>
-      <DevOnly>
-        {status.overruns > 0 && <ReadoutRow label="Drops">{status.overruns}</ReadoutRow>}
-      </DevOnly>
+      {status.overruns > 0 && (
+        <ReadoutRow label="Drops" title={DROPS_HINT}>
+          {formatCount(status.overruns)}
+        </ReadoutRow>
+      )}
       <ReadoutRow label="File">
         <span className="block truncate" title={status.file}>
           {status.file}
@@ -642,9 +641,11 @@ function BasebandRecordingReadout({ status }: { status: RecordingStatus }) {
     <Readout separated={false}>
       <ReadoutRow label="Written">{formatBytes(status.bytes)}</ReadoutRow>
       <ReadoutRow label="Samples">{status.samples.toLocaleString()}</ReadoutRow>
-      <DevOnly>
-        {status.overruns > 0 && <ReadoutRow label="Drops">{status.overruns}</ReadoutRow>}
-      </DevOnly>
+      {status.overruns > 0 && (
+        <ReadoutRow label="Drops" title={DROPS_HINT}>
+          {formatCount(status.overruns)}
+        </ReadoutRow>
+      )}
       <ReadoutRow label="File">
         <span className="block truncate" title={status.file}>
           {status.file}
