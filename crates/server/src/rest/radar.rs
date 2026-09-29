@@ -1,11 +1,22 @@
 use sdrmm_wire::RadarUpdate;
 
 use super::*;
+use crate::radar::{self, RadarRefusal};
 
 pub(super) fn routes() -> OpenApiRouter<AppState> {
     OpenApiRouter::new()
         .routes(routes!(get_radar))
         .routes(routes!(clear_radar_tracks))
+}
+
+impl From<RadarRefusal> for AppError {
+    fn from(refusal: RadarRefusal) -> Self {
+        let text = refusal.to_string();
+        match refusal {
+            RadarRefusal::NoRadar(_) => Self::not_found(text),
+            RadarRefusal::Refused(_) => Self::new(StatusCode::CONFLICT, ErrorCode::Conflict, text),
+        }
+    }
 }
 
 #[utoipa::path(
@@ -17,10 +28,13 @@ pub(super) fn routes() -> OpenApiRouter<AppState> {
     ),
 )]
 pub(super) async fn get_radar(
-    State(_state): State<AppState>,
-    Path(_node): Path<String>,
+    State(state): State<AppState>,
+    Path(node): Path<String>,
 ) -> Result<Json<RadarUpdate>, AppError> {
-    Err(AppError::not_built())
+    match state.radar.latest(&node) {
+        Some(update) => Ok(Json(update)),
+        None => Err(RadarRefusal::NoRadar(node).into()),
+    }
 }
 
 #[utoipa::path(
@@ -33,8 +47,9 @@ pub(super) async fn get_radar(
     ),
 )]
 pub(super) async fn clear_radar_tracks(
-    State(_state): State<AppState>,
-    Path(_node): Path<String>,
+    State(state): State<AppState>,
+    Path(node): Path<String>,
 ) -> Result<StatusCode, AppError> {
-    Err(AppError::not_built())
+    tokio::task::spawn_blocking(move || radar::clear(&state, &node)).await??;
+    Ok(StatusCode::NO_CONTENT)
 }

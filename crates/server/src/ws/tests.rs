@@ -379,29 +379,6 @@ async fn video_lifecycle_shares_the_media_id_space_and_refuses_silent_channels()
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn a_surface_nothing_draws_is_refused_out_loud() {
-    let mut ws = connect(test_engine()).await;
-    assert!(matches!(
-        next_event(&mut ws).await,
-        ServerEvent::Hello { .. }
-    ));
-    send(
-        &mut ws,
-        &ClientCommand::SubscribeSurface {
-            node: "radar".to_owned(),
-            fit: None,
-        },
-    )
-    .await;
-    match next_event(&mut ws).await {
-        ServerEvent::Error { message } => {
-            assert_eq!(message, "radar produces no surface");
-        }
-        other => panic!("expected a refusal, got {other:?}"),
-    }
-}
-
-#[tokio::test(flavor = "multi_thread")]
 async fn a_browser_hello_names_the_protocol_and_no_phone() {
     let mut ws = connect(test_engine()).await;
     match next_event(&mut ws).await {

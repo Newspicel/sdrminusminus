@@ -745,7 +745,10 @@ async fn calibrate_and_tune_endpoints_reach_the_engine() {
     assert_eq!(calibrate(&app, "ghost").await.0, StatusCode::NOT_FOUND);
 
     let graph = snapshot(kraken_graph(ArrayNode::default())).graph;
-    let summary = array::summary(&state, &graph, ARRAY).expect("an array");
+    let summary = wait_for("a settled calibration", || {
+        array::summary(&state, &graph, ARRAY).filter(|summary| summary.problem.is_none())
+    })
+    .await;
     assert_eq!(
         summary.device_sets,
         vec![get_state(&app).await.device_sets[0].id]
@@ -835,7 +838,7 @@ async fn processor_reports_and_surfaces_are_forwarded() {
     let (app, state) = test_router_with_state();
     put_and_apply(&app, radar_graph(), 1).await;
     let mut events = state.engine.subscribe_events();
-    let mut surface = state.surfaces.subscribe("radar").expect("an open surface");
+    let (_, mut surface) = state.surfaces.subscribe("radar").expect("an open surface");
     let update = RadarUpdate {
         seq: 3,
         events: vec![RadarTrackEvent {
@@ -871,14 +874,17 @@ async fn processor_reports_and_surfaces_are_forwarded() {
                 reading: sent,
             }) = events.recv().await
                 && node == "radar"
-                && *sent == reading
+                && matches!(
+                    &*sent,
+                    ProcessorReading::PassiveRadar(done) if done.seq == 3 && done.events.is_empty()
+                )
             {
                 return;
             }
         }
     })
     .await
-    .expect("the report goes out as a ProcessorUpdate");
+    .expect("the report goes out as a ProcessorUpdate through the radar hub");
     tokio::time::timeout(WAIT, async {
         loop {
             match surface.recv().await {

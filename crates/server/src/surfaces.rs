@@ -3,41 +3,65 @@ use std::{
     sync::{Arc, Mutex, MutexGuard, PoisonError},
 };
 
-use sdrmm_wire::SurfaceFrame;
+use sdrmm_wire::{StreamKind, SurfaceFrame};
 use tokio::sync::broadcast;
 
 pub(crate) const SURFACE_BACKLOG: usize = 4;
 
 pub(crate) type SurfaceItem = (u32, Arc<SurfaceFrame>);
 
+struct Surface {
+    kind: StreamKind,
+    frames: broadcast::Sender<SurfaceItem>,
+}
+
+impl Surface {
+    fn new(kind: StreamKind) -> Self {
+        Self {
+            kind,
+            frames: broadcast::channel(SURFACE_BACKLOG).0,
+        }
+    }
+}
+
 #[derive(Default)]
 pub(crate) struct SurfaceHub {
-    nodes: Mutex<HashMap<String, broadcast::Sender<SurfaceItem>>>,
+    nodes: Mutex<HashMap<String, Surface>>,
 }
 
 impl SurfaceHub {
-    fn lock(&self) -> MutexGuard<'_, HashMap<String, broadcast::Sender<SurfaceItem>>> {
+    fn lock(&self) -> MutexGuard<'_, HashMap<String, Surface>> {
         self.nodes.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    fn sender(&self, node: &str) -> broadcast::Sender<SurfaceItem> {
-        self.lock()
-            .entry(node.to_owned())
-            .or_insert_with(|| broadcast::channel(SURFACE_BACKLOG).0)
-            .clone()
-    }
-
-    pub(crate) fn open(&self, node: &str) {
-        self.sender(node);
+    pub(crate) fn open(&self, node: &str, kind: StreamKind) {
+        let mut nodes = self.lock();
+        match nodes.get_mut(node) {
+            Some(surface) if surface.kind == kind => {}
+            Some(surface) => *surface = Surface::new(kind),
+            None => {
+                nodes.insert(node.to_owned(), Surface::new(kind));
+            }
+        }
     }
 
     pub(crate) fn publish(&self, node: &str, seq: u32, frame: Arc<SurfaceFrame>) {
-        let _unwatched = self.sender(node).send((seq, frame));
+        let frames = self
+            .lock()
+            .entry(node.to_owned())
+            .or_insert_with(|| Surface::new(frame.kind()))
+            .frames
+            .clone();
+        let _unwatched = frames.send((seq, frame));
     }
 
-    #[cfg_attr(not(test), expect(dead_code))]
-    pub(crate) fn subscribe(&self, node: &str) -> Option<broadcast::Receiver<SurfaceItem>> {
-        self.lock().get(node).map(broadcast::Sender::subscribe)
+    pub(crate) fn subscribe(
+        &self,
+        node: &str,
+    ) -> Option<(StreamKind, broadcast::Receiver<SurfaceItem>)> {
+        self.lock()
+            .get(node)
+            .map(|surface| (surface.kind, surface.frames.subscribe()))
     }
 
     pub(crate) fn forget(&self, node: &str) {
@@ -71,11 +95,11 @@ mod tests {
     fn surface_hub_fans_out_by_node() {
         let hub = SurfaceHub::default();
         assert!(hub.subscribe("tri").is_none());
-        hub.open("tri");
-        hub.open("radar");
-        let mut first = hub.subscribe("tri").expect("an opened node has a surface");
-        let mut second = hub.subscribe("tri").expect("a second viewer");
-        let mut other = hub.subscribe("radar").expect("radar surface");
+        hub.open("tri", StreamKind::FusionGrid);
+        hub.open("radar", StreamKind::RangeDoppler);
+        let (_, mut first) = hub.subscribe("tri").expect("an opened node has a surface");
+        let (_, mut second) = hub.subscribe("tri").expect("a second viewer");
+        let (_, mut other) = hub.subscribe("radar").expect("radar surface");
 
         hub.publish("tri", 7, grid(7));
         for receiver in [&mut first, &mut second] {
@@ -86,7 +110,15 @@ mod tests {
         assert!(matches!(other.try_recv(), Err(TryRecvError::Empty)));
 
         hub.publish("late", 1, grid(1));
-        assert!(hub.subscribe("late").is_some());
+        assert_eq!(
+            hub.subscribe("late").map(|(kind, _)| kind),
+            Some(StreamKind::FusionGrid),
+            "a published frame names its own kind"
+        );
+        assert_eq!(
+            hub.subscribe("radar").map(|(kind, _)| kind),
+            Some(StreamKind::RangeDoppler)
+        );
 
         hub.forget("tri");
         assert!(hub.subscribe("tri").is_none());
@@ -97,8 +129,8 @@ mod tests {
     #[tokio::test]
     async fn a_slow_viewer_learns_how_many_frames_it_missed() {
         let hub = SurfaceHub::default();
-        hub.open("tri");
-        let mut slow = hub.subscribe("tri").expect("surface");
+        hub.open("tri", StreamKind::FusionGrid);
+        let (_, mut slow) = hub.subscribe("tri").expect("surface");
         let sent = u32::try_from(SURFACE_BACKLOG).expect("small backlog") + 3;
         for seq in 0..sent {
             hub.publish("tri", seq, grid(seq));

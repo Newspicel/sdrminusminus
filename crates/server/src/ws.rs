@@ -26,8 +26,10 @@ use tokio::sync::{broadcast, watch};
 
 mod outbox;
 mod phone;
+mod surfaces;
 use outbox::Outbox;
 use phone::{PhoneLink, RateBudget, revoked};
+use surfaces::Surfaces;
 
 use crate::{
     AppState,
@@ -117,6 +119,7 @@ struct Session {
     video: HashMap<(u32, u32), (u16, tokio::task::JoinHandle<()>)>,
     iq: HashMap<(u32, u32), (u16, tokio::task::JoinHandle<()>)>,
     symbols: HashMap<(u32, u32), (u16, tokio::task::JoinHandle<()>)>,
+    surfaces: Surfaces,
     next_spectrum_id: u16,
     next_media_id: u16,
     diagnostics: Option<tokio::task::JoinHandle<()>>,
@@ -136,6 +139,7 @@ impl Session {
             video: HashMap::new(),
             iq: HashMap::new(),
             symbols: HashMap::new(),
+            surfaces: Surfaces::default(),
             next_spectrum_id: SPECTRUM_ID_BASE,
             next_media_id: MEDIA_ID_BASE,
             diagnostics: None,
@@ -228,8 +232,10 @@ impl Session {
                 device_set,
                 channel,
             } => self.unsubscribe_symbols(device_set, channel).await,
-            ClientCommand::SubscribeSurface { node, .. } => self.refuse_surface(&node).await,
-            ClientCommand::UnsubscribeSurface { .. } => {}
+            ClientCommand::SubscribeSurface { node, fit } => {
+                self.subscribe_surface(node, fit).await;
+            }
+            ClientCommand::UnsubscribeSurface { node } => self.unsubscribe_surface(&node).await,
             ClientCommand::PublishPose { fix, error } => self.publish_pose(fix, error).await,
         }
     }
@@ -264,13 +270,6 @@ impl Session {
         }
     }
 
-    async fn refuse_surface(&self, node: &str) {
-        let err = ServerEvent::Error {
-            message: format!("{node} produces no surface"),
-        };
-        let _ = self.out.send(text_event(&err)).await;
-    }
-
     fn abort_streams(self) {
         if let Some(task) = self.diagnostics {
             task.abort();
@@ -290,6 +289,7 @@ impl Session {
         for (_, (_, task)) in self.symbols {
             task.abort();
         }
+        self.surfaces.abort();
     }
 
     async fn subscribe_spectrum(&mut self, device_set: u32, fps: u16, bins: u16, stream: u32) {
@@ -387,8 +387,16 @@ impl Session {
                     };
                     let _ = self.out.send(text_event(&stopped)).await;
                 }
-                let live =
-                    |id: u16| media_id_live(&self.audio, &self.video, &self.iq, &self.symbols, id);
+                let live = |id: u16| {
+                    media_id_live(
+                        &self.audio,
+                        &self.video,
+                        &self.iq,
+                        &self.symbols,
+                        &self.surfaces,
+                        id,
+                    )
+                };
                 match alloc_stream_id(&mut self.next_media_id, MEDIA_ID_BASE..=u16::MAX, live) {
                     Some(stream_id) => {
                         let started = ServerEvent::AudioStreamStarted {
@@ -444,8 +452,16 @@ impl Session {
                     };
                     let _ = self.out.send(text_event(&stopped)).await;
                 }
-                let live =
-                    |id: u16| media_id_live(&self.audio, &self.video, &self.iq, &self.symbols, id);
+                let live = |id: u16| {
+                    media_id_live(
+                        &self.audio,
+                        &self.video,
+                        &self.iq,
+                        &self.symbols,
+                        &self.surfaces,
+                        id,
+                    )
+                };
                 match alloc_stream_id(&mut self.next_media_id, MEDIA_ID_BASE..=u16::MAX, live) {
                     Some(stream_id) => {
                         let started = ServerEvent::VideoStreamStarted {
@@ -500,8 +516,16 @@ impl Session {
                     };
                     let _ = self.out.send(text_event(&stopped)).await;
                 }
-                let live =
-                    |id: u16| media_id_live(&self.audio, &self.video, &self.iq, &self.symbols, id);
+                let live = |id: u16| {
+                    media_id_live(
+                        &self.audio,
+                        &self.video,
+                        &self.iq,
+                        &self.symbols,
+                        &self.surfaces,
+                        id,
+                    )
+                };
                 match alloc_stream_id(&mut self.next_media_id, MEDIA_ID_BASE..=u16::MAX, live) {
                     Some(stream_id) => {
                         let started = ServerEvent::IqStreamStarted {
@@ -556,8 +580,16 @@ impl Session {
                     };
                     let _ = self.out.send(text_event(&stopped)).await;
                 }
-                let live =
-                    |id: u16| media_id_live(&self.audio, &self.video, &self.iq, &self.symbols, id);
+                let live = |id: u16| {
+                    media_id_live(
+                        &self.audio,
+                        &self.video,
+                        &self.iq,
+                        &self.symbols,
+                        &self.surfaces,
+                        id,
+                    )
+                };
                 match alloc_stream_id(&mut self.next_media_id, MEDIA_ID_BASE..=u16::MAX, live) {
                     Some(stream_id) => {
                         let started = ServerEvent::SymbolStreamStarted {
@@ -981,14 +1013,16 @@ fn media_id_live(
     video: &HashMap<(u32, u32), (u16, tokio::task::JoinHandle<()>)>,
     iq: &HashMap<(u32, u32), (u16, tokio::task::JoinHandle<()>)>,
     symbols: &HashMap<(u32, u32), (u16, tokio::task::JoinHandle<()>)>,
+    surfaces: &Surfaces,
     id: u16,
 ) -> bool {
-    audio
-        .values()
-        .chain(symbols.values())
-        .chain(video.values())
-        .chain(iq.values())
-        .any(|(sid, _)| *sid == id)
+    surfaces.holds(id)
+        || audio
+            .values()
+            .chain(symbols.values())
+            .chain(video.values())
+            .chain(iq.values())
+            .any(|(sid, _)| *sid == id)
 }
 
 fn spawn_symbols(

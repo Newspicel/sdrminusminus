@@ -7,13 +7,14 @@ use std::{
     time::{Duration, Instant},
 };
 
+use sdrmm_channels::array_processor::processor_descriptor;
 use sdrmm_engine::{ArraySpec, EngineError, LaneRef, ProcessorSpec};
 use sdrmm_wire::{
     ArrayCalRecord, ArrayCalSource, ArrayFailure, ArrayNode, ArrayOrientation,
     ArrayRecordingRequest, ArrayRecordingStarted, ArrayTune, ArrayTuneRequest, ChannelSettings,
     DeviceSet, HeadingSource, LaneKey, NodeBody, PatchApplyReport, PatchGraph, PatchNode,
-    PatchRefusal, PositionFix, ServerEvent, StateSnapshot, WorkspaceArray, WorkspaceState,
-    array::MAX_ARRAY_LANES,
+    PatchRefusal, PositionFix, ServerEvent, StateSnapshot, StreamKind, WorkspaceArray,
+    WorkspaceState, array::MAX_ARRAY_LANES,
 };
 
 use crate::{AppState, rest::AppError};
@@ -75,7 +76,6 @@ pub(crate) struct ArraySummary {
     pub(crate) problem: Option<String>,
 }
 
-#[cfg_attr(not(test), expect(dead_code))]
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct ArrayPose {
     pub(crate) lat: f64,
@@ -433,6 +433,7 @@ pub(crate) fn release(state: &AppState, graph: &PatchGraph) {
     for node in state.arrays.keep(&arrays, &processors) {
         state.surfaces.forget(&node);
     }
+    crate::radar::release(state, graph);
 }
 
 fn wired_lane_ports(graph: &PatchGraph, node: &PatchNode) -> Vec<String> {
@@ -449,11 +450,9 @@ fn wired_lane_ports(graph: &PatchGraph, node: &PatchNode) -> Vec<String> {
         .collect()
 }
 
-const fn draws_surface(body: &NodeBody) -> bool {
-    matches!(
-        body,
-        NodeBody::PassiveRadar(_) | NodeBody::SpatialSpectrum(_) | NodeBody::Correlator(_)
-    )
+fn surface_kind(body: &NodeBody) -> Option<StreamKind> {
+    let params = body.processor_params()?;
+    processor_descriptor(params.type_id())?.surface
 }
 
 pub(crate) fn reconcile(
@@ -501,11 +500,8 @@ fn open_surfaces(
     processors: &HashMap<String, ProcessorBinding>,
 ) {
     for node in processors.keys() {
-        if graph
-            .node(node)
-            .is_some_and(|patch| draws_surface(&patch.body))
-        {
-            state.surfaces.open(node);
+        if let Some(kind) = graph.node(node).and_then(|patch| surface_kind(&patch.body)) {
+            state.surfaces.open(node, kind);
         }
     }
 }
@@ -777,7 +773,6 @@ pub(crate) fn stop_recording(state: &AppState, node: &str) -> Result<(), AppErro
         .map_err(|error| refusal(state, node, error))
 }
 
-#[cfg_attr(not(test), expect(dead_code))]
 pub(crate) fn array_pose(state: &AppState, node: &str) -> Option<ArrayPose> {
     let binding = state.arrays.binding(node)?;
     let orientation = binding.spec?.settings.orientation;
@@ -804,7 +799,6 @@ pub(crate) fn array_pose(state: &AppState, node: &str) -> Option<ArrayPose> {
     })
 }
 
-#[cfg_attr(not(test), expect(dead_code))]
 pub(crate) fn processor_array(state: &AppState, processor: &str) -> Option<String> {
     state
         .arrays

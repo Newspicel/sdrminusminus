@@ -8,7 +8,7 @@ use std::{
 
 use sdrmm_wire::{
     DfBearing, DfEstimate, DfFusionState, DfStation, FusionGridOwned, NavTarget, NodeBody,
-    PatchGraph, PositionFix, TriangulationParams,
+    PatchGraph, PositionFix, StreamKind, TriangulationParams,
     fusion::{FUSION_FIXED_HALF_LIFE_S, FUSION_MOVING_HALF_LIFE_S, FusionDecay},
     geo::{self, LatLon},
 };
@@ -654,7 +654,7 @@ pub(crate) fn reconcile(state: &AppState, graph: &PatchGraph) -> Vec<(String, St
         }
         wanted.insert(node.id.as_str());
         state.fusion.configure(&node.id, &triangulation.settings);
-        state.surfaces.open(&node.id);
+        state.surfaces.open(&node.id, StreamKind::FusionGrid);
     }
     for node in state.fusion.nodes() {
         if !wanted.contains(node.as_str()) {
