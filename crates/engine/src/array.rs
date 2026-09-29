@@ -124,8 +124,8 @@ pub enum ArrayEvent {
 }
 
 pub(crate) trait ArrayControl: Send + Sync {
-    fn switch_array_noise(&self, node: &str, on: bool) -> Result<(), EngineError>;
-    fn tune_array_internal(&self, node: &str, tune: ArrayTune) -> Result<(), EngineError>;
+    fn switch_array_noise(&self, node: &str, device_set: u32, on: bool) -> Result<(), EngineError>;
+    fn step_array_gain(&self, node: &str, db: f64) -> Result<(), EngineError>;
 
     fn sync_context(&self, node: &str) -> Result<SyncContext, EngineError>;
     fn clock_drift(&self, node: &str, ppm: Option<f64>) -> Result<(), EngineError>;

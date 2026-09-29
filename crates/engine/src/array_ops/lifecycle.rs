@@ -11,18 +11,24 @@ use crate::{
 };
 
 impl Engine {
-    pub(crate) fn switch_array_noise(&self, node: &str, on: bool) -> Result<(), EngineError> {
+    pub(crate) fn switch_array_noise(
+        &self,
+        node: &str,
+        ds: u32,
+        on: bool,
+    ) -> Result<(), EngineError> {
         let runtime = {
             let inner = self.lock();
-            let state = find(&inner, node)?;
-            let source = state
-                .spec
-                .lanes
-                .iter()
-                .flatten()
-                .filter_map(|lane| inner.device_sets.get(&lane.device_set))
-                .find(|device| device.capabilities.noise_source != NoiseSource::None)
-                .ok_or(EngineError::Array(sdrmm_wire::ArrayFailure::NoNoiseSource))?;
+            if on && !find(&inner, node)?.uses(ds) {
+                return Err(EngineError::Array(sdrmm_wire::ArrayFailure::NoNoiseSource));
+            }
+            let source = inner
+                .device_sets
+                .get(&ds)
+                .ok_or(EngineError::DeviceSetNotFound(ds))?;
+            if source.capabilities.noise_source == NoiseSource::None {
+                return Err(EngineError::Array(sdrmm_wire::ArrayFailure::NoNoiseSource));
+            }
             source.runtime.clone()
         };
         lock_runtime(&runtime)

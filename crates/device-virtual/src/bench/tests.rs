@@ -623,6 +623,33 @@ fn power_db(values: &[(u64, C32)]) -> f64 {
 }
 
 #[test]
+fn a_radio_closed_mid_burst_comes_back_with_its_noise_source_off() {
+    let mut quiet = scene(vec![[0.0; 3]; 2], Vec::new());
+    quiet.thermal_dbfs = -80.0;
+    let bench = driver(
+        quiet,
+        vec![bench_spec("bank", 0, vec![LaneImpairments::default(); 2])],
+    );
+    let mut device = open(&bench, "bank");
+    let receivers = start(device.as_mut());
+    device.set_noise_source(true).unwrap();
+    let lit = collect_until(&receivers[0], |lane| {
+        lane.samples
+            .iter()
+            .any(|(_, value)| f64::from(value.norm_sqr()) > 1e-6)
+    });
+    assert!(!lit.events.is_empty(), "the burst was marked");
+    device.rx_stop();
+    drop(device);
+    let mut device = open(&bench, "bank");
+    let lanes = run(device.as_mut(), 4 * BLOCK_LEN);
+    for lane in &lanes {
+        assert!(lane.events.is_empty(), "{:?}", lane.events);
+        assert!(power_of(&lane.values()) < 1e-6);
+    }
+}
+
+#[test]
 fn the_noise_source_reaches_every_lane_through_its_response() {
     let gains = [0.0, -3.0, 2.0];
     let phases = [0.0, 40.0, -70.0];

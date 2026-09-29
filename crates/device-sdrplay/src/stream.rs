@@ -147,6 +147,10 @@ impl Slot {
         self.expected = Some(first.wrapping_add(count));
     }
 
+    fn pass(&mut self, count: c_uint) {
+        self.expected = self.expected.map(|expected| expected.wrapping_add(count));
+    }
+
     fn deliver(&mut self, xi: *const i16, xq: *const i16, count: usize) {
         let mut start = 0;
         while start < count {
@@ -192,10 +196,12 @@ fn deliver(context: *mut c_void, index: usize, callback: &Callback) {
         }
         return;
     };
-    if let Some(params) = unsafe { callback.params.as_ref() } {
-        slot.track(params, callback.count, callback.reset != 0);
+    match unsafe { callback.params.as_ref() } {
+        Some(params) => slot.track(params, callback.count, callback.reset != 0),
+        None => slot.pass(callback.count),
     }
     if callback.xi.is_null() || callback.xq.is_null() || callback.count == 0 {
+        slot.sink.dropped(u64::from(callback.count));
         return;
     }
     slot.deliver(callback.xi, callback.xq, callback.count as usize);
@@ -484,6 +490,38 @@ mod tests {
                 },
             ]
         );
+    }
+
+    #[test]
+    fn a_block_the_api_gave_no_samples_for_still_moves_the_index() {
+        let mut tuner = Tuner::new(100);
+        tuner.callback(&params(0, 100), false);
+        let pointer = std::ptr::from_mut(tuner.context.as_mut()).cast();
+        let hollow = params(100, 100);
+        deliver(
+            pointer,
+            0,
+            &Callback {
+                xi: std::ptr::null(),
+                xq: std::ptr::null(),
+                params: &hollow,
+                count: 100,
+                reset: 0,
+            },
+        );
+        tuner.callback(&params(200, 100), false);
+        let (mut xi, mut xq) = ([1_i16; 100], [1_i16; 100]);
+        deliver(pointer, 0, &plain(xi.as_mut_ptr(), xq.as_mut_ptr(), 100));
+        tuner.callback(&params(400, 100), false);
+        let starts: Vec<u64> = tuner
+            .seen()
+            .into_iter()
+            .map(|seen| match seen {
+                Seen::Samples { index, .. } => index,
+                Seen::Event(event) => panic!("no event expected, got {event:?}"),
+            })
+            .collect();
+        assert_eq!(starts, [0, 200, 300, 400]);
     }
 
     #[test]

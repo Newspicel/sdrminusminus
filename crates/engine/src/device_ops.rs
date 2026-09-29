@@ -62,6 +62,17 @@ pub(crate) fn lane_setup(settings: &DeviceSettings, stream: u32, scope: &StreamS
     }
 }
 
+fn reached(
+    settings: &DeviceSettings,
+    delta: &DeviceSettings,
+    stream: u32,
+    scope: &StreamScope,
+) -> LaneSetup {
+    let mut lane = settings.for_stream(stream, scope);
+    lane.merge_from(&delta.for_stream(stream, scope));
+    lane_setup(&lane, stream, scope)
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) struct Patched {
     pub(crate) rate_changed: bool,
@@ -710,7 +721,9 @@ impl Engine {
         after.merge_from(&delta);
         let scope = state.capabilities.per_stream;
         match state.held.iter().find(|(stream, _)| {
-            lane_setup(&state.settings, **stream, &scope) != lane_setup(&after, **stream, &scope)
+            let now = lane_setup(&state.settings, **stream, &scope);
+            now != lane_setup(&after, **stream, &scope)
+                || now != reached(&state.settings, &delta, **stream, &scope)
         }) {
             Some((_, array)) => Err(EngineError::Held {
                 array: array.clone(),

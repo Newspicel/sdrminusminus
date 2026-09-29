@@ -14,8 +14,8 @@ const RATE: f64 = 2_400_000.0;
 
 #[derive(Clone, Debug, PartialEq)]
 enum Call {
-    Noise(bool),
-    Tune(ArrayTune),
+    Noise { device_set: u32, on: bool },
+    Gain(f64),
     Drift(Option<f64>),
     Rebuild,
 }
@@ -25,6 +25,7 @@ struct Engine {
     calls: Mutex<Vec<Call>>,
     context: Mutex<Option<SyncContext>>,
     rebuild_fails: AtomicBool,
+    switch_on_fails: AtomicBool,
 }
 
 impl Engine {
@@ -43,7 +44,7 @@ impl Engine {
         self.calls()
             .into_iter()
             .filter_map(|call| match call {
-                Call::Noise(on) => Some(on),
+                Call::Noise { on, .. } => Some(on),
                 _ => None,
             })
             .collect()
@@ -51,13 +52,22 @@ impl Engine {
 }
 
 impl ArrayControl for Engine {
-    fn switch_array_noise(&self, _node: &str, on: bool) -> Result<(), EngineError> {
-        lock(&self.calls).push(Call::Noise(on));
-        Ok(())
+    fn switch_array_noise(
+        &self,
+        _node: &str,
+        device_set: u32,
+        on: bool,
+    ) -> Result<(), EngineError> {
+        lock(&self.calls).push(Call::Noise { device_set, on });
+        if on && self.switch_on_fails.load(Ordering::Relaxed) {
+            Err(EngineError::Processor("lane marks full".to_owned()))
+        } else {
+            Ok(())
+        }
     }
 
-    fn tune_array_internal(&self, _node: &str, tune: ArrayTune) -> Result<(), EngineError> {
-        lock(&self.calls).push(Call::Tune(tune));
+    fn step_array_gain(&self, _node: &str, db: f64) -> Result<(), EngineError> {
+        lock(&self.calls).push(Call::Gain(db));
         Ok(())
     }
 
@@ -861,10 +871,7 @@ fn the_controller_steps_the_array_gain_through_the_engine() {
     rig.lock_up(0.0);
     rig.board.lanes[1].set_level(-2.0, true);
     rig.poll(2.5);
-    assert!(rig.engine.calls().contains(&Call::Tune(ArrayTune {
-        center_hz: 433.92e6,
-        gain: ArrayGain::Manual { db: 20.0 },
-    })));
+    assert!(rig.engine.calls().contains(&Call::Gain(20.0)));
 }
 
 #[test]
@@ -911,4 +918,76 @@ fn processors_are_rebuilt_on_the_tick_and_a_failure_backs_off() {
     assert_eq!(rig.engine.rebuilds(), 5);
     rig.poll(6.85);
     assert_eq!(rig.engine.rebuilds(), 6);
+}
+
+#[test]
+fn a_noise_source_that_moves_is_switched_off_on_the_radio_that_had_it() {
+    let mut rig = rig(3, config(ArrayCalSource::Noise, 0, 1));
+    let switch = |device_set| {
+        ControlCommand::NoiseSwitch(Some(NoiseSwitch {
+            device_set,
+            kind: NoiseSource::Isolated,
+            all_lanes_held: true,
+        }))
+    };
+    rig.command(switch(1), 0.0);
+    rig.start(0.0);
+    rig.expect_capture(CaptureKind::Coarse);
+    rig.command(switch(2), 0.1);
+    rig.controller.stop();
+    let noise: Vec<Call> = rig
+        .engine
+        .calls()
+        .into_iter()
+        .filter(|call| matches!(call, Call::Noise { .. }))
+        .collect();
+    assert_eq!(
+        noise,
+        [
+            Call::Noise {
+                device_set: 1,
+                on: true
+            },
+            Call::Noise {
+                device_set: 1,
+                on: false
+            },
+        ]
+    );
+}
+
+#[test]
+fn a_source_that_failed_to_announce_its_switch_on_is_switched_off_again() {
+    let mut rig = rig(3, config(ArrayCalSource::Noise, 0, 1));
+    rig.engine.switch_on_fails.store(true, Ordering::Relaxed);
+    rig.command(
+        ControlCommand::NoiseSwitch(Some(NoiseSwitch {
+            device_set: 4,
+            kind: NoiseSource::Isolated,
+            all_lanes_held: true,
+        })),
+        0.0,
+    );
+    rig.start(0.0);
+    let noise: Vec<Call> = rig
+        .engine
+        .calls()
+        .into_iter()
+        .filter(|call| matches!(call, Call::Noise { .. }))
+        .collect();
+    assert_eq!(
+        noise,
+        [
+            Call::Noise {
+                device_set: 4,
+                on: true
+            },
+            Call::Noise {
+                device_set: 4,
+                on: false
+            },
+        ]
+    );
+    rig.controller.stop();
+    assert_eq!(rig.engine.noise_calls(), [true, false]);
 }

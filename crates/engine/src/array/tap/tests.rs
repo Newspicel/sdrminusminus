@@ -293,3 +293,48 @@ fn stamps_leave_room_for_lane_events() {
     feed.settle(&mut notes, 0, 0);
     assert_eq!(notes.as_slice(), [AlignNote::Mark { lane: 0, at, mark }]);
 }
+
+#[test]
+fn samples_that_land_after_a_settle_never_run_past_an_unseen_gap_or_mark() {
+    let (port, mut writer) = TapPort::new();
+    let mut feed = port.lease(RATE).expect("lease");
+    writer.samples(&block(BLOCK, 1.0), 0);
+    assert!(settle(&mut feed).is_empty());
+    let resumed = BLOCK as u64 + 500;
+    let marked = resumed + BLOCK as u64;
+    let mark = LaneMark::NoiseSource {
+        on: true,
+        in_flight: 0,
+    };
+    writer.samples(&block(BLOCK, 2.0), resumed);
+    writer.event(LaneEvent::Mark { at: marked, mark });
+    writer.samples(&block(BLOCK, 3.0), marked);
+    assert_eq!(feed.skippable(), BLOCK);
+    assert_eq!(feed.ready(), BLOCK - PRE_GUARD as usize);
+    let mut out = Vec::with_capacity(4 * BLOCK);
+    feed.take_into(4 * BLOCK, &mut out);
+    assert_eq!(out.len(), BLOCK);
+    assert!(out.iter().all(|sample| sample.re == 1.0));
+    assert_eq!(feed.read_index(), Some(BLOCK as u64));
+    assert_eq!(
+        settle(&mut feed),
+        [AlignNote::Gap {
+            lane: 0,
+            at: BLOCK as u64,
+            missing: 500
+        }]
+    );
+    assert_eq!(feed.read_index(), Some(resumed));
+    let ready = feed.ready();
+    assert_eq!(ready, BLOCK - PRE_GUARD as usize);
+    feed.take_into(ready, &mut out);
+    assert!(out.iter().all(|sample| sample.re == 2.0));
+    assert_eq!(
+        settle(&mut feed),
+        [AlignNote::Mark {
+            lane: 0,
+            at: marked,
+            mark
+        }]
+    );
+}

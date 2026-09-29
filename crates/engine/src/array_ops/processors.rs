@@ -280,23 +280,36 @@ impl Engine {
     }
 
     fn drop_processor(&self, node: &str) -> Result<(), EngineError> {
-        let (record, sent) = {
+        let record = {
             let mut inner = self.lock();
             let missing = || EngineError::ProcessorNotFound(node.to_owned());
-            let array = inner.processor_index.remove(node).ok_or_else(missing)?;
+            let array = inner
+                .processor_index
+                .get(node)
+                .cloned()
+                .ok_or_else(missing)?;
             let state = inner.arrays.get_mut(&array).ok_or_else(missing)?;
-            let record = state.processors.remove(node).ok_or_else(missing)?;
-            let sent = if record.installed {
-                state.send(Command::RemoveHost {
+            let installed = state.processors.get(node).ok_or_else(missing)?.installed;
+            if installed {
+                let sent = state.send(Command::RemoveHost {
                     node: node.to_owned(),
-                })
-            } else {
-                Ok(())
-            };
+                });
+                let running = state
+                    .runtime
+                    .as_ref()
+                    .is_some_and(|runtime| !runtime.is_finished());
+                if let Err(error) = sent
+                    && running
+                {
+                    return Err(error);
+                }
+            }
+            let record = state.processors.remove(node).ok_or_else(missing)?;
             update_needs(state);
+            inner.processor_index.remove(node);
             prune_steer_boxes(&mut inner);
             inner.revision += 1;
-            (record, sent)
+            record
         };
         for lane in &record.lanes {
             self.close_lane(lane.device_set, lane.stream);
@@ -304,7 +317,7 @@ impl Engine {
         self.emit(ServerEvent::StateChanged {
             scope: StateScope::Arrays,
         });
-        sent
+        Ok(())
     }
 
     pub(super) fn forget_processors(&self, records: &[ProcessorRecord]) {

@@ -299,6 +299,7 @@ impl BenchDevice {
         if let Some(problem) = world.problem(slot) {
             return Err(DeviceError::Unsupported(problem));
         }
+        world.quiet(slot);
         let spec = world.spec(slot);
         let capabilities = capabilities(spec);
         let settings = default_settings(spec, &world.scene());
@@ -395,5 +396,6 @@ impl SdrDevice for BenchDevice {
 impl Drop for BenchDevice {
     fn drop(&mut self) {
         self.threads.stop();
+        self.world.quiet(self.slot);
     }
 }

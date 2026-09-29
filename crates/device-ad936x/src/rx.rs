@@ -375,13 +375,15 @@ impl FanOut {
         }
         self.expected = index + samples.len() as u64;
         let lanes = self.sinks.len();
+        let mut phase = (index % self.lanes()) as usize;
         for chunk in samples.chunks(self.lane_samples * lanes) {
             for lane in &mut self.lane_buffers {
                 lane.clear();
             }
             for (slot, sample) in chunk.iter().enumerate() {
-                self.lane_buffers[slot % lanes].push(*sample);
+                self.lane_buffers[(phase + slot) % lanes].push(*sample);
             }
+            phase = (phase + chunk.len()) % lanes;
             for (sink, lane) in self.sinks.iter_mut().zip(&self.lane_buffers) {
                 sink.push(lane);
             }
@@ -620,6 +622,23 @@ mod tests {
         assert_eq!(right.try_recv().expect("lane 1"), (0, vec![2.0, 4.0, 6.0]));
         assert_eq!(left.try_recv().expect("lane 0"), (3, vec![1.0, 3.0, 5.0]));
         assert_eq!(right.try_recv().expect("lane 1"), (3, vec![2.0, 4.0, 6.0]));
+    }
+
+    #[test]
+    fn a_block_that_ends_between_lanes_keeps_the_next_one_on_its_lanes() {
+        let (first, left) = recording();
+        let (second, right) = recording();
+        let mut sink = fan_out(vec![first, second], 4);
+        let samples: Vec<Sample> = (1..=6).map(|n| Sample::new(n as f32, 0.0)).collect();
+        sink.push(&samples[..3]);
+        sink.push(&samples[3..]);
+        let lane = |seen: &mpsc::Receiver<(u64, Vec<f32>)>| {
+            seen.try_iter()
+                .flat_map(|(_, values)| values)
+                .collect::<Vec<f32>>()
+        };
+        assert_eq!(lane(&left), [1.0, 3.0, 5.0]);
+        assert_eq!(lane(&right), [2.0, 4.0, 6.0]);
     }
 
     #[test]

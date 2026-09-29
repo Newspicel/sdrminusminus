@@ -5,7 +5,9 @@ use std::{
 };
 
 use num_complex::Complex;
-use sdrmm_device::{DeviceError, LaneMark, RxSink, SdrDevice, Worker, check_stream_settings};
+use sdrmm_device::{
+    DeviceError, GapScope, LaneMark, RxSink, SdrDevice, Uncertainty, Worker, check_stream_settings,
+};
 use sdrmm_recorder::{CollectionReader, ReadChunk, SigmfError};
 use sdrmm_wire::{
     Capabilities, DeviceSettings, Duplex, NoiseSource, Range, StreamScope, StreamSettings,
@@ -228,6 +230,7 @@ fn play(stem: &Path, mut sinks: Vec<RxSink>, pace: Pace, running: &AtomicBool) {
     };
     let piece = pace.piece();
     let mut lanes: Vec<Vec<Complex<f32>>> = vec![Vec::with_capacity(piece); sinks.len()];
+    let mut offsets: Option<Vec<i64>> = None;
     let mut next = Instant::now();
     while running.load(Ordering::Acquire) {
         match reader.read(&mut lanes, piece) {
@@ -242,7 +245,7 @@ fn play(stem: &Path, mut sinks: Vec<RxSink>, pace: Pace, running: &AtomicBool) {
                 mark_all(&mut sinks, LaneMark::NoiseSource { on, in_flight: 0 })
             }
             Ok(ReadChunk::Retuned(_)) => mark_all(&mut sinks, LaneMark::Retuned { in_flight: 0 }),
-            Ok(ReadChunk::Offsets(_)) => {}
+            Ok(ReadChunk::Offsets(now)) => realign_moved(&mut sinks, &mut offsets, now),
             Ok(ReadChunk::End) => return idle(running),
             Err(err) => return fail_all(&mut sinks, &err),
         }
@@ -268,6 +271,21 @@ fn hand_over(
         sink.push(&lane[..n]);
     }
     true
+}
+
+fn realign_moved(sinks: &mut [RxSink], held: &mut Option<Vec<i64>>, now: Vec<i64>) {
+    if let Some(before) = held.as_ref() {
+        for ((sink, was), offset) in sinks.iter_mut().zip(before).zip(&now) {
+            if was != offset {
+                sink.realigned(
+                    Uncertainty::Unaligned,
+                    offset.abs_diff(*was),
+                    GapScope::Lane,
+                );
+            }
+        }
+    }
+    *held = Some(now);
 }
 
 fn mark_all(sinks: &mut [RxSink], mark: LaneMark) {

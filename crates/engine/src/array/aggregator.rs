@@ -731,16 +731,19 @@ impl Aggregator {
         match command {
             Command::SwapFeeds { mut slots } => {
                 self.priors |= foreign_lanes(&self.frame);
+                self.windows.forget();
                 for (slot, feed) in slots.drain(..) {
                     self.swap_feed(slot, Some(feed));
                     if let Some(lane) = self.board.lane(slot) {
                         lane.set_sync(SyncState::Searching);
                     }
                 }
+                self.board.set_sync(SyncState::Searching);
                 self.discontinuity();
                 self.retire(Retired::Command(Command::SwapFeeds { slots }));
             }
             Command::LanesLost { slots } => {
+                self.windows.forget();
                 for slot in &slots {
                     self.swap_feed(*slot, None);
                     if let Some(lane) = self.board.lane(*slot) {

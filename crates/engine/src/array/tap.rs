@@ -242,6 +242,7 @@ impl TapPort {
             events: events_rx,
             read_index: None,
             next: None,
+            visible: 0,
             origin: OriginEstimate::new(sample_rate),
             events_lost,
         })
@@ -271,6 +272,7 @@ pub(crate) struct LaneFeed {
     events: Consumer<TapEvent>,
     read_index: Option<u64>,
     next: Option<TapEvent>,
+    visible: usize,
     origin: OriginEstimate,
     events_lost: Arc<AtomicU64>,
 }
@@ -285,6 +287,7 @@ impl LaneFeed {
     }
 
     pub(crate) fn settle(&mut self, notes: &mut AlignNotes, lane: usize, offset: i64) {
+        self.visible = self.samples.slots();
         loop {
             if self.next.is_none() {
                 self.next = self.events.pop().ok();
@@ -356,7 +359,7 @@ impl LaneFeed {
         let Some(read) = self.read_index else {
             return 0;
         };
-        let held = self.samples.slots();
+        let held = self.visible;
         match self.next {
             Some(TapEvent::Lane(LaneEvent::Mark { at, .. })) => {
                 held.min(at.saturating_sub(PRE_GUARD).saturating_sub(read) as usize)
@@ -370,14 +373,14 @@ impl LaneFeed {
         let Some(read) = self.read_index else {
             return 0;
         };
-        let held = self.samples.slots();
+        let held = self.visible;
         self.next.map_or(held, |event| {
             held.min(event.at().saturating_sub(read) as usize)
         })
     }
 
     pub(crate) fn skip(&mut self, count: usize) -> usize {
-        let count = count.min(self.samples.slots());
+        let count = count.min(self.visible);
         if count == 0 {
             return 0;
         }
@@ -391,7 +394,7 @@ impl LaneFeed {
 
     pub(crate) fn take_into(&mut self, count: usize, out: &mut Vec<Complex<f32>>) {
         out.clear();
-        let count = count.min(self.samples.slots()).min(out.capacity());
+        let count = count.min(self.visible).min(out.capacity());
         let Ok(chunk) = self.samples.read_chunk(count) else {
             return;
         };
@@ -403,6 +406,7 @@ impl LaneFeed {
     }
 
     fn advance(&mut self, count: usize) {
+        self.visible = self.visible.saturating_sub(count);
         if let Some(read) = self.read_index.as_mut() {
             *read += count as u64;
         }

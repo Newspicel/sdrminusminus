@@ -1243,3 +1243,353 @@ fn a_probe_whose_retune_failed_comes_back_as_a_new_build() {
     engine.remove_array(ARRAY).expect("the array stops");
     engine.remove_device_set(ds).expect("closes");
 }
+
+type NoiseLog = Arc<std::sync::Mutex<Vec<bool>>>;
+
+struct Watched {
+    inner: Box<dyn sdrmm_device::SdrDevice>,
+    noise: NoiseLog,
+}
+
+impl sdrmm_device::SdrDevice for Watched {
+    fn capabilities(&self) -> &sdrmm_wire::Capabilities {
+        self.inner.capabilities()
+    }
+
+    fn settings(&self) -> &DeviceSettings {
+        self.inner.settings()
+    }
+
+    fn apply(&mut self, settings: &DeviceSettings) -> Result<(), sdrmm_device::DeviceError> {
+        self.inner.apply(settings)
+    }
+
+    fn rx_start(
+        &mut self,
+        sinks: Vec<sdrmm_device::RxSink>,
+    ) -> Result<(), sdrmm_device::DeviceError> {
+        self.inner.rx_start(sinks)
+    }
+
+    fn rx_stop(&mut self) {
+        self.inner.rx_stop();
+    }
+
+    fn in_flight_samples(&self) -> u64 {
+        self.inner.in_flight_samples()
+    }
+
+    fn set_noise_source(&mut self, on: bool) -> Result<(), sdrmm_device::DeviceError> {
+        self.inner.set_noise_source(on)?;
+        lock(&self.noise).push(on);
+        Ok(())
+    }
+}
+
+struct Watching {
+    inner: VirtualDriver,
+    noise: NoiseLog,
+}
+
+impl sdrmm_device::DeviceDriver for Watching {
+    fn id(&self) -> &'static str {
+        self.inner.id()
+    }
+
+    fn probe(&self) -> Vec<sdrmm_wire::DeviceInfo> {
+        self.inner.probe()
+    }
+
+    fn open(
+        &self,
+        info: &sdrmm_wire::DeviceInfo,
+    ) -> Result<Box<dyn sdrmm_device::SdrDevice>, sdrmm_device::DeviceError> {
+        Ok(Box::new(Watched {
+            inner: self.inner.open(info)?,
+            noise: self.noise.clone(),
+        }))
+    }
+}
+
+#[test]
+fn removing_an_array_during_a_noise_burst_switches_the_source_off() {
+    let noise = NoiseLog::default();
+    let mut registry = DeviceRegistry::new();
+    registry.register(
+        10,
+        Box::new(Watching {
+            inner: VirtualDriver::new(),
+            noise: noise.clone(),
+        }),
+    );
+    let engine = Engine::with_registry(registry, None);
+    let ds = engine
+        .create_device_set("virtual:kraken5")
+        .expect("the bench kraken opens");
+    engine
+        .apply_array(kraken_spec(ds))
+        .expect("the array starts");
+    wait_for("the noise burst", || {
+        (lock(&noise).last() == Some(&true)).then_some(())
+    });
+    engine.remove_array(ARRAY).expect("the array stops");
+    assert_eq!(
+        lock(&noise).last(),
+        Some(&false),
+        "the source stays on for everyone else"
+    );
+    engine.remove_device_set(ds).expect("closes");
+}
+
+#[test]
+fn an_auto_gain_step_keeps_the_operators_center_and_waits_its_turn() {
+    let (engine, ds) = bench();
+    let spec = ArraySpec {
+        tune: Some(ArrayTune {
+            center_hz: 433.92e6,
+            gain: ArrayGain::Auto,
+        }),
+        ..kraken_spec(ds)
+    };
+    engine.apply_array(spec).expect("the array starts");
+    engine
+        .tune_array(
+            ARRAY,
+            ArrayTuneRequest {
+                center_hz: Some(434.5e6),
+                gain: None,
+            },
+        )
+        .expect("the operator retunes");
+    {
+        let _edits = lock(&engine.array_edits);
+        assert!(matches!(
+            engine.step_array_gain(ARRAY, 20.0),
+            Err(EngineError::Array(sdrmm_wire::ArrayFailure::Busy))
+        ));
+    }
+    engine.step_array_gain(ARRAY, 20.0).expect("a gain step");
+    let status = engine.array_statuses().remove(0);
+    assert_eq!(status.center_hz, 434.5e6);
+    assert_eq!(status.gain, ArrayGain::Auto);
+    assert_eq!(status.gain_db, Some(20.0));
+    assert_eq!(held_lane_center(&engine, ds, 0), Some(434.5e6));
+    engine
+        .tune_array(
+            ARRAY,
+            ArrayTuneRequest {
+                center_hz: None,
+                gain: Some(ArrayGain::Manual { db: 30.0 }),
+            },
+        )
+        .expect("the operator takes the gain");
+    engine
+        .step_array_gain(ARRAY, 10.0)
+        .expect("a late step is dropped");
+    assert_eq!(engine.array_statuses()[0].gain_db, Some(30.0));
+    engine.remove_array(ARRAY).expect("the array stops");
+    engine.remove_device_set(ds).expect("closes");
+}
+
+#[test]
+fn a_processor_the_array_had_no_room_to_drop_stays_until_it_can() {
+    let (engine, ds) = bench();
+    engine
+        .apply_array(kraken_spec(ds))
+        .expect("the array starts");
+    engine
+        .apply_processor(ProcessorSpec {
+            node: "df-busy".to_owned(),
+            array: ARRAY.to_owned(),
+            params: ProcessorParams::Df(DfParams::default()),
+            lane_ports: Vec::new(),
+            steer_from: None,
+        })
+        .expect("a df starts");
+    let (entered_tx, entered) = mpsc::channel::<()>();
+    let (release, held) = mpsc::channel::<()>();
+    engine.lock().arrays[ARRAY]
+        .send(Command::Hold(Box::new(move || {
+            let _ = entered_tx.send(());
+            let _ = held.recv();
+        })))
+        .expect("the hold is queued");
+    entered.recv_timeout(WAIT).expect("the aggregator is held");
+    let full = (0..=COMMAND_SLOTS as i64).any(|at| {
+        engine
+            .update_array_pose(ARRAY, Some(fix(at, 90.0, None)), host_ns(at))
+            .is_err()
+    });
+    assert!(full, "the command queue fills");
+    assert!(matches!(
+        engine.remove_processor("df-busy"),
+        Err(EngineError::Array(sdrmm_wire::ArrayFailure::Busy))
+    ));
+    let listed = |engine: &Engine| {
+        engine.array_statuses()[0]
+            .processors
+            .iter()
+            .any(|processor| processor.node == "df-busy")
+    };
+    assert!(listed(&engine), "a host still running stays listed");
+    release.send(()).expect("the aggregator lets go");
+    wait_for("room to drop the df", || {
+        engine.remove_processor("df-busy").ok()
+    });
+    assert!(!listed(&engine));
+    engine.remove_array(ARRAY).expect("the array stops");
+    engine.remove_device_set(ds).expect("closes");
+}
+
+type Parked = Arc<std::sync::Mutex<std::collections::HashMap<String, Vec<sdrmm_device::RxSink>>>>;
+
+struct Stalled {
+    inner: Box<dyn sdrmm_device::SdrDevice>,
+    key: String,
+    refused: Arc<std::sync::Mutex<Option<String>>>,
+    parked: Parked,
+}
+
+impl sdrmm_device::SdrDevice for Stalled {
+    fn capabilities(&self) -> &sdrmm_wire::Capabilities {
+        self.inner.capabilities()
+    }
+
+    fn settings(&self) -> &DeviceSettings {
+        self.inner.settings()
+    }
+
+    fn apply(&mut self, settings: &DeviceSettings) -> Result<(), sdrmm_device::DeviceError> {
+        if lock(&self.refused).as_deref() == Some(self.key.as_str()) {
+            return Err(sdrmm_device::DeviceError::Io(
+                "the radio went quiet".to_owned(),
+            ));
+        }
+        self.inner.apply(settings)
+    }
+
+    fn rx_start(
+        &mut self,
+        sinks: Vec<sdrmm_device::RxSink>,
+    ) -> Result<(), sdrmm_device::DeviceError> {
+        lock(&self.parked).insert(self.key.clone(), sinks);
+        Ok(())
+    }
+
+    fn rx_stop(&mut self) {
+        lock(&self.parked).remove(&self.key);
+    }
+}
+
+struct Stalling {
+    inner: VirtualDriver,
+    refused: Arc<std::sync::Mutex<Option<String>>>,
+    parked: Parked,
+}
+
+impl sdrmm_device::DeviceDriver for Stalling {
+    fn id(&self) -> &'static str {
+        self.inner.id()
+    }
+
+    fn probe(&self) -> Vec<sdrmm_wire::DeviceInfo> {
+        self.inner.probe()
+    }
+
+    fn open(
+        &self,
+        info: &sdrmm_wire::DeviceInfo,
+    ) -> Result<Box<dyn sdrmm_device::SdrDevice>, sdrmm_device::DeviceError> {
+        Ok(Box::new(Stalled {
+            inner: self.inner.open(info)?,
+            key: info.key.clone(),
+            refused: self.refused.clone(),
+            parked: self.parked.clone(),
+        }))
+    }
+}
+
+fn flush_marks(parked: &Parked, key: &str) {
+    if let Some(sinks) = lock(parked).get_mut(key) {
+        for sink in sinks {
+            sink.push(&[]);
+        }
+    }
+}
+
+fn pending_marks(parked: &Parked, key: &str) -> usize {
+    let poster = lock(parked).get(key).expect("the radio streams")[0].mark_poster();
+    let room = (0..sdrmm_device::MARK_SLOTS)
+        .take_while(|_| {
+            poster
+                .post(sdrmm_device::LaneMark::Retuned { in_flight: 0 })
+                .is_ok()
+        })
+        .count();
+    sdrmm_device::MARK_SLOTS - room
+}
+
+#[test]
+fn a_retune_that_is_undone_marks_its_lanes_again() {
+    let refused = Arc::new(std::sync::Mutex::new(None));
+    let parked = Parked::default();
+    let mut registry = DeviceRegistry::new();
+    registry.register(
+        10,
+        Box::new(Stalling {
+            inner: VirtualDriver::new(),
+            refused: refused.clone(),
+            parked: parked.clone(),
+        }),
+    );
+    let engine = Engine::with_registry(registry, None);
+    let first = engine
+        .create_device_set("virtual:dongle1")
+        .expect("dongle1");
+    let second = engine
+        .create_device_set("virtual:dongle2")
+        .expect("dongle2");
+    let mut members = lanes(first, [0]);
+    members.extend(lanes(second, [0]));
+    engine
+        .apply_array(ArraySpec {
+            node: ARRAY.to_owned(),
+            lanes: members,
+            settings: ArrayNode {
+                geometry: ArrayGeometry::Ula {
+                    spacing_m: 0.5,
+                    axis_deg: 90.0,
+                },
+                ..ArrayNode::default()
+            },
+            tune: None,
+            warm: None,
+        })
+        .expect("the pair starts");
+    let retune = |center_hz: f64| {
+        engine.tune_array(
+            ARRAY,
+            ArrayTuneRequest {
+                center_hz: Some(center_hz),
+                gain: None,
+            },
+        )
+    };
+    flush_marks(&parked, "dongle1");
+    retune(434e6).expect("both radios move");
+    let moved = pending_marks(&parked, "dongle1");
+    assert!(moved > 0);
+    flush_marks(&parked, "dongle1");
+    *lock(&refused) = Some("dongle2".to_owned());
+    assert!(retune(435e6).is_err());
+    assert_eq!(held_lane_center(&engine, first, 0), Some(434e6));
+    assert_eq!(
+        pending_marks(&parked, "dongle1"),
+        2 * moved,
+        "the move and its undo are both marked"
+    );
+    *lock(&refused) = None;
+    engine.remove_array(ARRAY).expect("the array stops");
+    engine.remove_device_set(first).expect("closes");
+    engine.remove_device_set(second).expect("closes");
+}

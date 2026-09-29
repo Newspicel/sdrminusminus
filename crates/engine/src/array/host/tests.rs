@@ -6,7 +6,7 @@ use std::{
 use num_complex::Complex;
 use rtrb::{Consumer, Producer, RingBuffer};
 use sdrmm_channels::array_processor::{
-    ArrayBlock, ArrayCtx, ArrayProcessor, CalView, CorrectionView, Execution, Pose,
+    ArrayBlock, ArrayCtx, ArrayProcessor, CalView, CorrectionView, Execution, LaneFormat, Pose,
     ProcessorAction, ProcessorDescriptor, ProcessorFaults, ProcessorNeeds, ProcessorOutput,
     ResetCause, Steer, TuningNeed, no_lane_format,
 };
@@ -50,6 +50,16 @@ pub(crate) static WIDE: ProcessorDescriptor = ProcessorDescriptor {
     ..TALKER
 };
 
+pub(crate) static LANED: ProcessorDescriptor = ProcessorDescriptor {
+    lane_ports: &["out"],
+    lane_format: |_, ctx, _| LaneFormat {
+        center_hz: ctx.center_hz,
+        sample_rate: ctx.sample_rate,
+        capacity: HOST_BLOCK,
+    },
+    ..TALKER
+};
+
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub(crate) struct Heard {
     pub(crate) first_index: u64,
@@ -68,6 +78,7 @@ pub(crate) struct Talk {
     pub(crate) event: bool,
     pub(crate) steer: Option<f64>,
     pub(crate) refuse_retune: bool,
+    pub(crate) lanes: bool,
 }
 
 pub(crate) struct Talker {
@@ -132,6 +143,11 @@ impl Talker {
             bearing.node.clear();
             bearing.node.push_str("talker");
             out.publish_event();
+        }
+        if self.talk.lanes
+            && let (Some(mut lane), Some(samples)) = (out.lane(0), block.lanes.first())
+        {
+            lane.extend(samples);
         }
         if let Some(relative_deg) = self.talk.steer {
             out.steer(Steer {
@@ -663,4 +679,99 @@ fn a_passive_radar_host_refuses_a_plan_its_capture_cannot_hold() {
         Err(other) => panic!("unexpected refusal {other}"),
         Ok(_) => panic!("FM radar started on a 48 kHz capture"),
     }
+}
+
+fn laned_plan(node: &str, sinks: &HostSinks, sink: VirtualLaneSink) -> HostPlan {
+    let mut plan = plan(node, ProcessorParams::Df(DfParams::default()), sinks, LANES);
+    plan.sinks = vec![Some(sink)];
+    plan
+}
+
+fn block_at(first_index: u64, samples: &[Complex<f32>], run: impl FnOnce(&ArrayBlock<'_>)) {
+    let lanes = [samples, samples];
+    run(&ArrayBlock {
+        lanes: &lanes,
+        corrected: false,
+        correction: CorrectionView::identity(),
+        first_index,
+        unix_ns: 0,
+        generation: 0,
+        gap_before: false,
+        centers_hz: &[100e6, 100e6],
+        cal: CalView::default(),
+        pose: Pose::default(),
+    });
+}
+
+fn pushed_at(ring: &mut crate::capture_ring::CaptureConsumer) -> Vec<u64> {
+    let mut starts = Vec::new();
+    while ring.consume(usize::MAX, |_, index| starts.push(index)) > 0 {}
+    starts
+}
+
+#[test]
+fn a_lane_output_steps_over_a_jump_in_the_array_index() {
+    let taps = taps(0);
+    let (sink, mut ring) = VirtualLaneSink::detached(1 << 16);
+    let (talker, _log) = Talker::new(Talk {
+        lanes: true,
+        ..Talk::default()
+    });
+    let mut host = ProcessorHost::with_processor(
+        laned_plan("laned", &taps.sinks, sink),
+        &frame(LANES),
+        &LANED,
+        talker,
+    )
+    .expect("host");
+    let samples = [Complex::new(0.3, 0.0); 100];
+    let identity = CorrectionSet::identity(LANES);
+    for first_index in [0, 100, 600] {
+        block_at(first_index, &samples, |block| {
+            host.process(block, &open(), &identity);
+        });
+    }
+    assert_eq!(pushed_at(&mut ring), [0, 100, 600]);
+}
+
+#[test]
+fn a_batch_the_worker_had_no_room_for_is_skipped_on_its_lane() {
+    let taps = taps(0);
+    let (sink, mut ring) = VirtualLaneSink::detached(1 << 16);
+    let pause = Arc::new(Mutex::new(()));
+    let (talker, _log) = Talker::paused(
+        Talk {
+            lanes: true,
+            ..Talk::default()
+        },
+        pause.clone(),
+    );
+    let held = pause.lock().unwrap_or_else(PoisonError::into_inner);
+    let mut host = ProcessorHost::batched(
+        laned_plan("laned-busy", &taps.sinks, sink),
+        &frame(LANES),
+        &LANED,
+        talker,
+        100,
+    )
+    .expect("host");
+    let samples = [Complex::new(0.2, 0.0); 100];
+    let identity = CorrectionSet::identity(LANES);
+    for block in 0..10u64 {
+        block_at(block * 100, &samples, |block| {
+            host.process(block, &open(), &identity);
+        });
+    }
+    assert!(host.stats().dropped_samples.load(Ordering::Relaxed) >= 500);
+    drop(held);
+    let mut starts = Vec::new();
+    wait_for(|| {
+        starts.extend(pushed_at(&mut ring));
+        (starts.len() >= 3).then_some(())
+    });
+    block_at(1_000, &samples, |block| {
+        host.process(block, &open(), &identity);
+    });
+    let last = wait_for(|| pushed_at(&mut ring).last().copied());
+    assert_eq!(last, 1_000, "{starts:?}");
 }

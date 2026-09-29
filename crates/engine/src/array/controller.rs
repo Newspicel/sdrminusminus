@@ -16,8 +16,8 @@ use sdrmm_dsp::{
     manifold::{Direction, Vec3, steer},
 };
 use sdrmm_wire::{
-    ArrayCal, ArrayCalRecord, ArrayCalSource, ArrayFailure, ArrayGain, ArrayTune, CalPhase,
-    Coherence, LaneKey, NoiseSource, SyncState,
+    ArrayCal, ArrayCalRecord, ArrayCalSource, ArrayFailure, ArrayGain, CalPhase, Coherence,
+    LaneKey, NoiseSource, SyncState,
 };
 use tokio::sync::broadcast;
 
@@ -785,17 +785,24 @@ impl Controller {
         if on == self.noise_on {
             return true;
         }
-        let Some(control) = self.control.upgrade() else {
+        let (Some(control), Some(device_set)) = (
+            self.control.upgrade(),
+            self.noise.map(|switch| switch.device_set),
+        ) else {
             self.noise_on = false;
             return !on;
         };
-        match control.switch_array_noise(&self.node, on) {
+        match control.switch_array_noise(&self.node, device_set, on) {
             Ok(()) => {
                 self.noise_on = on;
                 true
             }
             Err(error) => {
                 tracing::warn!(node = %self.node, %error, on, "array noise switch failed");
+                if on && let Err(error) = control.switch_array_noise(&self.node, device_set, false)
+                {
+                    tracing::warn!(node = %self.node, %error, "array noise source may still be on");
+                }
                 self.noise_on = false;
                 false
             }
@@ -1294,11 +1301,7 @@ impl Controller {
         let Some(control) = self.control.upgrade() else {
             return;
         };
-        let tune = ArrayTune {
-            center_hz: context.center_hz,
-            gain: ArrayGain::Manual { db },
-        };
-        match control.tune_array_internal(&self.node, tune) {
+        match control.step_array_gain(&self.node, db) {
             Ok(()) if db > current => self.gain.last_up = Some(now),
             Ok(()) => {}
             Err(error) => {

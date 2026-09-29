@@ -3,7 +3,7 @@ use std::{
     time::Duration,
 };
 
-use sdrmm_device::{DeviceDriver, LaneEvent, SinkItem, SinkRoom};
+use sdrmm_device::{DeviceDriver, GapScope, LaneEvent, SinkItem, SinkRoom, Uncertainty};
 use sdrmm_recorder::{CollectionArray, CollectionWriter, LaneMeta};
 use sdrmm_wire::{ArrayGeometry, Coherence, DcArtifact, DeviceInfo, LaneKey};
 use tempfile::TempDir;
@@ -222,6 +222,30 @@ fn recorded_noise_windows_come_back_as_marks() {
             ]
         );
     }
+}
+
+#[test]
+fn a_recorded_realignment_unsettles_only_the_lanes_it_moved() {
+    let dir = TempDir::new().unwrap();
+    record(&dir.path().join("moved"), |writer| {
+        writer.offsets(&[0, 5, 9]).unwrap();
+        write(writer, 0, 100);
+        writer.offsets(&[0, 7, 9]).unwrap();
+        write(writer, 100, 100);
+    });
+    let mut device = open(dir.path(), "moved");
+    let lanes = play(device.as_mut(), 200);
+    assert_eq!(
+        events_of(&lanes[1]),
+        vec![LaneEvent::Uncertain {
+            at: 100,
+            error: 2,
+            scope: GapScope::Lane,
+            cause: Uncertainty::Unaligned,
+        }]
+    );
+    assert!(events_of(&lanes[0]).is_empty());
+    assert!(events_of(&lanes[2]).is_empty());
 }
 
 #[test]

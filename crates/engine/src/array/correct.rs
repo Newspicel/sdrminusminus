@@ -158,18 +158,22 @@ impl Corrector {
         self.out.iter().map(Vec::len).min().unwrap_or(0)
     }
 
+    fn start(&self) -> i128 {
+        i128::from(self.in_index.unwrap_or(0))
+    }
+
     fn first_label(&self) -> i128 {
-        i128::from(self.in_index.unwrap_or(0)) + i128::from(self.produced) - CORR_DELAY as i128
+        self.start() + i128::from(self.produced) - CORR_DELAY as i128
     }
 
     fn lead(&self) -> usize {
-        usize::try_from(-self.first_label())
+        usize::try_from(self.start() - self.first_label())
             .unwrap_or(0)
             .min(self.ready())
     }
 
     pub(crate) fn first_index(&self) -> u64 {
-        u64::try_from(self.first_label().max(0)).unwrap_or(u64::MAX)
+        u64::try_from(self.first_label().max(self.start())).unwrap_or(u64::MAX)
     }
 
     pub(crate) fn transient(&self) -> usize {

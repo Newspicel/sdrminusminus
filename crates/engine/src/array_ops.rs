@@ -578,12 +578,12 @@ impl Engine {
 }
 
 impl ArrayControl for Engine {
-    fn switch_array_noise(&self, node: &str, on: bool) -> Result<(), EngineError> {
-        Self::switch_array_noise(self, node, on)
+    fn switch_array_noise(&self, node: &str, device_set: u32, on: bool) -> Result<(), EngineError> {
+        Self::switch_array_noise(self, node, device_set, on)
     }
 
-    fn tune_array_internal(&self, node: &str, tune: ArrayTune) -> Result<(), EngineError> {
-        Self::tune_array_internal(self, node, tune)
+    fn step_array_gain(&self, node: &str, db: f64) -> Result<(), EngineError> {
+        Self::step_array_gain(self, node, db)
     }
 
     fn sync_context(&self, node: &str) -> Result<SyncContext, EngineError> {

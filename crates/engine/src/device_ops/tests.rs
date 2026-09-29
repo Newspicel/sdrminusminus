@@ -247,6 +247,56 @@ fn per_lane_agc_on_a_held_lane_is_refused() {
 }
 
 #[test]
+fn a_radio_wide_setting_is_refused_when_it_would_reach_a_held_lane_past_its_own() {
+    let engine = engine();
+    let ds = open(&engine, LANE_AGC);
+    let array_owned = StreamSettings {
+        center_hz: Some(CENTER_HZ),
+        gains: vec![GainValue::new(GainKind::Tuner, 20.0)],
+        agc: Some(AgcSetting::switched(false)),
+        ..StreamSettings::default()
+    };
+    engine
+        .patch_device(ds, lane(1, array_owned))
+        .expect("the array tunes its lane");
+    hold(&engine, ds, 1);
+    let wide = [
+        DeviceSettings {
+            agc: Some(AgcSetting::switched(true)),
+            ..DeviceSettings::default()
+        },
+        DeviceSettings {
+            gains: vec![GainValue::new(GainKind::Tuner, 40.0)],
+            ..DeviceSettings::default()
+        },
+        DeviceSettings {
+            center_hz: Some(CENTER_HZ + 3e6),
+            ..DeviceSettings::default()
+        },
+    ];
+    for delta in wide {
+        assert_eq!(
+            held_by(engine.patch_device(ds, delta.clone())),
+            Some(ARRAY.to_owned()),
+            "{delta:?} reaches the held lane in the radio"
+        );
+    }
+    let kept = DeviceSettings {
+        gains: vec![GainValue::new(GainKind::Tuner, 20.0)],
+        streams: vec![StreamSettings {
+            stream: 0,
+            gains: vec![GainValue::new(GainKind::Tuner, 35.0)],
+            ..StreamSettings::default()
+        }],
+        ..DeviceSettings::default()
+    };
+    engine
+        .patch_device(ds, kept)
+        .expect("a value the held lane already has changes nothing there");
+    engine.remove_device_set(ds).expect("closes");
+}
+
+#[test]
 fn per_stream_agc_is_a_front_end_change() {
     let with = |on: bool| {
         lane(

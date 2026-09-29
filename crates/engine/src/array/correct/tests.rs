@@ -87,7 +87,7 @@ fn identity_only_delays_by_the_group_delay() {
     let source = gaussian(LEN, 3);
     let mut corrector = Corrector::new(2);
     let (out, first) = run(&mut corrector, &[&source, &source], 10_000);
-    assert_eq!(first, 10_000 - CORR_DELAY as u64);
+    assert_eq!(first, 10_000);
     for (k, sample) in out[0].iter().enumerate().skip(CORR_TAPS) {
         let raw = (first + k as u64 - 10_000) as usize;
         assert!((sample - source[raw]).norm() < 1e-4, "sample {k}");
@@ -142,11 +142,8 @@ fn a_reset_gates_the_filter_transient() {
     corrector.consume();
     assert_eq!(corrector.transient(), 0);
     corrector.push(&[&source[..CORR_HOP]], 5 * CORR_HOP as u64);
-    assert_eq!(corrector.transient(), CORR_TAPS);
-    assert_eq!(
-        corrector.first_index(),
-        5 * CORR_HOP as u64 - CORR_DELAY as u64
-    );
+    assert_eq!(corrector.transient(), CORR_TAPS - CORR_DELAY);
+    assert_eq!(corrector.first_index(), 5 * CORR_HOP as u64);
     corrector.reset();
     assert_eq!(corrector.ready(), 0);
     assert_eq!(corrector.transient(), CORR_TAPS);
@@ -317,8 +314,8 @@ fn a_stage_reset_restarts_the_filter() {
     assert_eq!(steady, 0);
     rig.stage.reset();
     let (transient, first) = send(&mut rig, 2);
-    assert_eq!(transient, CORR_TAPS);
-    assert_eq!(first, 2 * ALIGN_BLOCK as u64 - CORR_DELAY as u64);
+    assert_eq!(transient, CORR_TAPS - CORR_DELAY);
+    assert_eq!(first, 2 * ALIGN_BLOCK as u64);
 }
 
 #[test]

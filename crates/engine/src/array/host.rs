@@ -627,6 +627,7 @@ pub(crate) struct ProcessorHost {
     base_dropped: u64,
     gated: Option<ProcessorGate>,
     gap_pending: bool,
+    expected: Option<u64>,
     steer_in: SteerInput,
     steer_seen: u64,
     steer_out: Arc<SteerMailbox>,
@@ -748,6 +749,7 @@ impl ProcessorHost {
             base_dropped,
             gated: None,
             gap_pending: false,
+            expected: None,
             steer_in: plan.steer_in,
             steer_seen: 0,
             steer_out: plan.steer_out,
@@ -816,6 +818,7 @@ impl ProcessorHost {
     ) -> Option<Steer> {
         self.pull_remote_steer();
         let count = block.len();
+        self.keep_pace(block.first_index, count);
         if let Some(gate) = self.gate_for(inputs) {
             self.gap_pending |= block.gap_before;
             self.hold(gate, count as u64);
@@ -875,6 +878,19 @@ impl ProcessorHost {
         self.stats
             .gated_samples
             .fetch_add(samples, Ordering::Relaxed);
+        self.skip_lanes(samples);
+    }
+
+    fn keep_pace(&mut self, first_index: u64, count: usize) {
+        if let Some(expected) = self.expected
+            && first_index > expected
+        {
+            self.skip_lanes(first_index - expected);
+        }
+        self.expected = Some(first_index + count as u64);
+    }
+
+    fn skip_lanes(&mut self, samples: u64) {
         match (&mut self.runner, self.outputs.as_deref_mut()) {
             (Runner::Batched(batch), _) => batch.skip(samples),
             (_, Some(outputs)) => outputs.skip(samples),

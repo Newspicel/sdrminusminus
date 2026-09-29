@@ -221,12 +221,29 @@ impl BenchWorld {
     pub(crate) fn switch_noise(&self, slot: usize, on: bool) -> f64 {
         let _edit = lock(&self.edits);
         let at_s = self.true_time_s() + NOISE_SWITCH_LEAD_S;
+        self.schedule_switch(slot, NoiseSwitch { at_s, on });
+        at_s
+    }
+
+    pub(crate) fn quiet(&self, slot: usize) {
+        let _edit = lock(&self.edits);
+        let lit = self
+            .schedule(slot)
+            .switches
+            .last()
+            .is_some_and(|switch| switch.on);
+        if lit {
+            let at_s = self.true_time_s();
+            self.schedule_switch(slot, NoiseSwitch { at_s, on: false });
+        }
+    }
+
+    fn schedule_switch(&self, slot: usize, switch: NoiseSwitch) {
         let mut schedule = NoiseSchedule::clone(&self.schedule(slot));
-        schedule.switches.push(NoiseSwitch { at_s, on });
+        schedule.switches.push(switch);
         let excess = schedule.switches.len().saturating_sub(KEPT_SWITCHES);
         schedule.switches.drain(..excess);
         self.slots[slot].schedule.store(Arc::new(schedule));
-        at_s
     }
 
     pub(crate) fn place(

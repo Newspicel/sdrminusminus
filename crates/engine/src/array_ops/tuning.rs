@@ -1,7 +1,9 @@
+use std::sync::TryLockError;
+
 use sdrmm_device::{DeviceError, LaneMark, lock};
 use sdrmm_wire::{
-    ArrayGain, ArrayTune, ArrayTuneRequest, DeviceSettings, GainValue, ServerEvent, StateScope,
-    StreamScope, StreamSettings,
+    ArrayFailure, ArrayGain, ArrayTune, ArrayTuneRequest, DeviceSettings, GainValue, ServerEvent,
+    StateScope, StreamScope, StreamSettings,
 };
 
 use super::{check_tune, find, find_mut, members};
@@ -69,18 +71,21 @@ impl Engine {
         self.retune(node, tune, tune.gain)
     }
 
-    pub(crate) fn tune_array_internal(
-        &self,
-        node: &str,
-        tune: ArrayTune,
-    ) -> Result<(), EngineError> {
-        let mode = find(&self.lock(), node)?.tune.gain;
-        let kept = if mode == ArrayGain::Auto {
-            ArrayGain::Auto
-        } else {
-            tune.gain
+    pub(crate) fn step_array_gain(&self, node: &str, db: f64) -> Result<(), EngineError> {
+        let _edits = match self.array_edits.try_lock() {
+            Ok(edits) => edits,
+            Err(TryLockError::Poisoned(poisoned)) => poisoned.into_inner(),
+            Err(TryLockError::WouldBlock) => return Err(EngineError::Array(ArrayFailure::Busy)),
         };
-        self.retune(node, tune, kept)
+        let current = find(&self.lock(), node)?.tune;
+        if current.gain != ArrayGain::Auto {
+            return Ok(());
+        }
+        let step = ArrayTune {
+            center_hz: current.center_hz,
+            gain: ArrayGain::Manual { db },
+        };
+        self.retune(node, step, ArrayGain::Auto)
     }
 
     pub(super) fn retune(
@@ -152,7 +157,7 @@ impl Engine {
             match self.patch_device_quietly(*ds, delta.clone()) {
                 Ok(patched) => capabilities_changed |= patched.capabilities_changed,
                 Err(error) => {
-                    self.roll_back(&done, plan);
+                    self.roll_back(&done, plan, marks);
                     return Err(error);
                 }
             }
@@ -164,16 +169,22 @@ impl Engine {
         Ok(capabilities_changed)
     }
 
-    fn roll_back(&self, done: &[(u32, DeviceSettings)], plan: &TunePlan) {
+    fn roll_back(&self, done: &[(u32, DeviceSettings)], plan: &TunePlan, marks: Option<&str>) {
         for (ds, previous) in done.iter().rev() {
             let Some((_, delta)) = plan.deltas.iter().find(|(planned, _)| planned == ds) else {
                 continue;
             };
-            if let Err(error) = self.patch_device_quietly(*ds, restore(previous, delta)) {
-                self.mark_device_fault(
+            let patched = self.device_settings(*ds);
+            match self.patch_device_quietly(*ds, restore(previous, delta)) {
+                Ok(_) => {
+                    if let (Some(node), Ok(patched)) = (marks, &patched) {
+                        self.mark_retune(node, *ds, patched);
+                    }
+                }
+                Err(error) => self.mark_device_fault(
                     *ds,
                     DeviceError::Io(format!("an array retune could not be undone: {error}")),
-                );
+                ),
             }
         }
     }

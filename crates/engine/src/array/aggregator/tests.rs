@@ -122,10 +122,7 @@ impl Rig {
     }
 
     fn noise(&mut self, len: usize) {
-        self.write(len, |lane, at| {
-            let phase = (at as f32 * 0.37 + lane as f32).sin();
-            Complex::new(0.1 * phase, 0.05 * (at as f32 * 0.11).cos())
-        });
+        self.write(len, noise_at);
     }
 
     fn settle(&mut self) -> usize {
@@ -329,7 +326,10 @@ fn the_corrector_is_skipped_without_a_wideband_host() {
         .stats()
         .gated_samples
         .load(Ordering::Relaxed);
-    assert_eq!(gated, crate::array::correct::CORR_TAPS as u64);
+    assert_eq!(
+        gated,
+        (crate::array::correct::CORR_TAPS - crate::array::correct::CORR_DELAY) as u64
+    );
 }
 
 fn heard_through(staged: bool) -> Vec<Heard> {
@@ -465,6 +465,7 @@ fn step_does_not_allocate_after_warmup() {
             event: true,
             steer: Some(20.0),
             refuse_retune: false,
+            lanes: false,
         },
         &WIDE,
     );
@@ -954,5 +955,146 @@ mod probe {
         rig.noise(BLOCK);
         rig.settle();
         assert!(started.elapsed() < Duration::from_millis(250));
+    }
+}
+
+impl Rig {
+    fn replug(&mut self) {
+        let lanes = self.writers.len();
+        let mut slots = Vec::with_capacity(lanes);
+        let mut ports = Vec::with_capacity(lanes);
+        let mut writers = Vec::with_capacity(lanes);
+        for lane in 0..lanes {
+            let (port, writer) = TapPort::new();
+            slots.push((lane, port.lease(self.frame.sample_rate).expect("lease")));
+            ports.push(port);
+            writers.push(writer);
+        }
+        self.send(Command::LanesLost {
+            slots: (0..lanes).collect(),
+        });
+        self.send(Command::SwapFeeds { slots });
+        self._ports = ports;
+        self.writers = writers;
+        self.index = 0;
+    }
+
+    fn mark(&mut self, mark: LaneMark) {
+        let at = self.index;
+        for writer in &mut self.writers {
+            writer.event(LaneEvent::Mark { at, mark });
+        }
+    }
+
+    fn loud(&mut self, len: usize) {
+        self.write(len, |lane, at| {
+            Complex::new(0.6, 0.6) + Complex::from_polar(0.3, at as f32 * 0.7 + lane as f32)
+        });
+    }
+}
+
+#[test]
+fn a_replug_mid_burst_leaves_no_stale_window_behind() {
+    let mut rig = rig(2, frame(2));
+    for _ in 0..8 {
+        rig.noise(BLOCK);
+        rig.settle();
+    }
+    rig.mark(LaneMark::NoiseSource {
+        on: true,
+        in_flight: 0,
+    });
+    rig.mark(LaneMark::Retuned {
+        in_flight: 20 * BLOCK as u64,
+    });
+    rig.loud(BLOCK);
+    rig.settle();
+    rig.replug();
+    assert_eq!(rig.status().sync, SyncState::Searching);
+    for _ in 0..4 {
+        rig.noise(BLOCK);
+        rig.settle();
+    }
+    rig.events();
+    rig.mark(LaneMark::Retuned { in_flight: 100 });
+    rig.noise(2 * BLOCK);
+    rig.settle();
+    assert!(
+        rig.events()
+            .iter()
+            .any(|event| matches!(event, AggregatorEvent::BlankEnded { .. })),
+        "a retune after the replug ends on its own timeline"
+    );
+    rig.mark(LaneMark::NoiseSource {
+        on: true,
+        in_flight: 0,
+    });
+    rig.loud(2 * BLOCK);
+    rig.settle();
+    assert!(
+        rig.events()
+            .iter()
+            .any(|event| matches!(event, AggregatorEvent::NoiseOnset { .. })),
+        "a burst after the replug is seen"
+    );
+}
+
+static LANE_OUT: ProcessorDescriptorRef = ProcessorDescriptorRef {
+    lane_ports: &["out"],
+    lane_format: |_, ctx, _| sdrmm_channels::array_processor::LaneFormat {
+        center_hz: ctx.center_hz,
+        sample_rate: ctx.sample_rate,
+        capacity: 1 << 16,
+    },
+    ..TALKER
+};
+
+fn noise_at(lane: usize, at: u64) -> Complex<f32> {
+    let phase = (at as f32 * 0.37 + lane as f32).sin();
+    Complex::new(0.1 * phase, 0.05 * (at as f32 * 0.11).cos())
+}
+
+#[test]
+fn a_lane_output_keeps_the_array_index_when_correction_starts() {
+    let mut rig = rig(2, frame(2));
+    rig.board.set_sync(SyncState::Locked);
+    let (sink, mut ring) = crate::runtime::VirtualLaneSink::detached(1 << 18);
+    let (talker, _heard) = Talker::new(Talk {
+        lanes: true,
+        ..Talk::default()
+    });
+    let mut plan = plan(
+        "lanes",
+        ProcessorParams::Df(DfParams::default()),
+        &rig.taps.sinks,
+        rig.frame.lanes(),
+    );
+    plan.sinks = vec![Some(sink)];
+    let host = ProcessorHost::with_processor(plan, &rig.frame, &LANE_OUT, talker).expect("host");
+    rig.send(Command::ReplaceHost { host });
+    rig.noise(3 * BLOCK);
+    rig.settle();
+    let _wide = rig.talker("wide", Talk::default(), &WIDE);
+    rig.noise(3 * BLOCK);
+    rig.settle();
+    assert!(rig.aggregator.correcting);
+    let mut last = (0, Vec::new());
+    while ring.consume(usize::MAX, |samples, index| {
+        last = (index, samples.to_vec())
+    }) > 0
+    {}
+    let (index, samples) = last;
+    assert!(!samples.is_empty());
+    assert_eq!(
+        index + samples.len() as u64,
+        rig.aggregator.corrected_index,
+        "the lane ends where the array does"
+    );
+    for (at, sample) in (index..).zip(&samples) {
+        assert!(
+            (sample - noise_at(0, at)).norm() < 1e-3,
+            "lane sample {at} is {sample}, the array had {}",
+            noise_at(0, at)
+        );
     }
 }

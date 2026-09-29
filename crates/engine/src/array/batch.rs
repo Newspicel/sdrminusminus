@@ -293,6 +293,7 @@ impl BatchRunner {
                 }
             }
             Err(PushError::Full(mut job)) => {
+                self.pending_skip += job.skip_before;
                 self.drop_samples(job.count);
                 job.clear();
                 self.filling = Some(job);
@@ -304,6 +305,7 @@ impl BatchRunner {
         self.stats
             .dropped_samples
             .fetch_add(samples as u64, Ordering::Relaxed);
+        self.pending_skip += samples as u64;
         self.gap = true;
     }
 

@@ -134,6 +134,18 @@ impl Windows {
         self.rate = rate;
     }
 
+    pub(crate) const fn forget(&mut self) {
+        self.acc_len = 0;
+        self.head = 0;
+        self.filled = 0;
+        self.noise = Noise::Idle;
+        self.noise_gate = None;
+        self.reference = None;
+        self.blank = None;
+        self.closed = [None; CLOSED];
+        self.closed_at = 0;
+    }
+
     pub(crate) fn observe(
         &mut self,
         notes: &AlignNotes,

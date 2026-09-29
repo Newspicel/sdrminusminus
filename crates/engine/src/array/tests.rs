@@ -10,7 +10,7 @@ use std::{
 use num_complex::Complex;
 use sdrmm_device::lock;
 use sdrmm_dsp::fft::FftPair;
-use sdrmm_wire::{ArrayCal, ArrayCalSource, ArrayGain, ArrayTune, CalPhase, Coherence, SyncState};
+use sdrmm_wire::{ArrayCal, ArrayCalSource, ArrayGain, CalPhase, Coherence, SyncState};
 use tokio::sync::broadcast;
 
 use super::*;
@@ -19,11 +19,16 @@ use crate::array::host::tests::frame;
 struct Quiet;
 
 impl ArrayControl for Quiet {
-    fn switch_array_noise(&self, _node: &str, _on: bool) -> Result<(), EngineError> {
+    fn switch_array_noise(
+        &self,
+        _node: &str,
+        _device_set: u32,
+        _on: bool,
+    ) -> Result<(), EngineError> {
         Ok(())
     }
 
-    fn tune_array_internal(&self, _node: &str, _tune: ArrayTune) -> Result<(), EngineError> {
+    fn step_array_gain(&self, _node: &str, _db: f64) -> Result<(), EngineError> {
         Ok(())
     }
 
@@ -61,11 +66,16 @@ struct LastOwner {
 }
 
 impl ArrayControl for LastOwner {
-    fn switch_array_noise(&self, _node: &str, _on: bool) -> Result<(), EngineError> {
+    fn switch_array_noise(
+        &self,
+        _node: &str,
+        _device_set: u32,
+        _on: bool,
+    ) -> Result<(), EngineError> {
         Ok(())
     }
 
-    fn tune_array_internal(&self, _node: &str, _tune: ArrayTune) -> Result<(), EngineError> {
+    fn step_array_gain(&self, _node: &str, _db: f64) -> Result<(), EngineError> {
         Ok(())
     }
 
@@ -239,13 +249,18 @@ struct Bench {
 }
 
 impl ArrayControl for Bench {
-    fn switch_array_noise(&self, _node: &str, on: bool) -> Result<(), EngineError> {
+    fn switch_array_noise(
+        &self,
+        _node: &str,
+        _device_set: u32,
+        on: bool,
+    ) -> Result<(), EngineError> {
         self.on.store(on, Ordering::SeqCst);
         self.flips.fetch_add(1, Ordering::SeqCst);
         Ok(())
     }
 
-    fn tune_array_internal(&self, _node: &str, _tune: ArrayTune) -> Result<(), EngineError> {
+    fn step_array_gain(&self, _node: &str, _db: f64) -> Result<(), EngineError> {
         Ok(())
     }
 
