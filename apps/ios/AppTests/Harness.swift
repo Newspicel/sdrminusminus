@@ -39,8 +39,15 @@ final class NotifierRecorder: RetargetNotifying {
     private(set) var authorizations = 0
     private(set) var posted: [(RetargetNotice, String)] = []
 
-    func requestAuthorization() async {
+    var allow = true
+
+    func requestAuthorization() async -> Bool {
         authorizations += 1
+        return allow
+    }
+
+    func takeFailure() -> String? {
+        nil
     }
 
     func post(_ notice: RetargetNotice, distance: String) {

@@ -9,6 +9,9 @@ nonisolated enum CoreErrorText {
         if let missing = error as? NotBuilt {
             return "\(missing.feature) not built yet"
         }
+        if let route = error as? RouteError {
+            return route.label
+        }
         guard let error = error as? CoreError else {
             return "Error"
         }
@@ -36,6 +39,9 @@ nonisolated enum CoreErrorText {
         }
         if error is NotBuilt {
             return short(error)
+        }
+        if let route = error as? RouteError {
+            return route.detail
         }
         guard let error = error as? CoreError else {
             return error.localizedDescription

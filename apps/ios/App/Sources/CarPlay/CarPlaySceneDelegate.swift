@@ -1,29 +1,20 @@
 import CarPlay
 import UIKit
-import os
 
 final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegate {
+    private var controller: CarPlayController?
+
     func templateApplicationScene(
         _ scene: CPTemplateApplicationScene,
         didConnect interfaceController: CPInterfaceController,
         to window: CPWindow
     ) {
-        AppRuntime.model.setCarPlay(connected: true)
-        window.rootViewController = UIViewController()
-        interfaceController.setRootTemplate(CPMapTemplate(), animated: false) { _, error in
-            if let error {
-                Log.carplay.error("root template: \(error.localizedDescription, privacy: .public)")
-            }
-        }
-        let alert = CPAlertTemplate(
-            titleVariants: ["Not built yet"],
-            actions: [
-                CPAlertAction(title: "OK", style: .cancel) { _ in
-                    interfaceController.dismissTemplate(animated: true, completion: nil)
-                }
-            ]
-        )
-        interfaceController.presentTemplate(alert, animated: false, completion: nil)
+        let model = AppRuntime.model
+        model.setCarPlay(connected: true)
+        let controller = CarPlayController(model: model, interface: interfaceController, window: window)
+        self.controller = controller
+        controller.styleChanged(interfaceController.carTraitCollection.userInterfaceStyle)
+        Task { await controller.start() }
     }
 
     func templateApplicationScene(
@@ -31,6 +22,12 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
         didDisconnect interfaceController: CPInterfaceController,
         from window: CPWindow
     ) {
+        controller?.teardown()
+        controller = nil
         AppRuntime.model.setCarPlay(connected: false)
+    }
+
+    func contentStyleDidChange(_ contentStyle: UIUserInterfaceStyle) {
+        controller?.styleChanged(contentStyle)
     }
 }

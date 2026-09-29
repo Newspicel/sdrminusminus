@@ -117,7 +117,7 @@ nonisolated enum RoutePlanBuilder {
     }
 }
 
-extension RoutePlanBuilder {
+nonisolated extension RoutePlanBuilder {
     static func plan(_ route: MKRoute) -> RoutePlan {
         let steps = route.steps.map { step in
             let polyline = step.polyline

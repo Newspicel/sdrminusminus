@@ -250,6 +250,7 @@ final class AppModel {
         switch phase {
         case .active:
             core.setForeground(true)
+            surfaceAlertFailure()
         case .background:
             core.setForeground(false)
         default:
@@ -275,7 +276,7 @@ final class AppModel {
         banner = nil
     }
 
-    private func show(level: NoticeLevel, text: String, detail: String?) {
+    func show(level: NoticeLevel, text: String, detail: String?) {
         bannerCount += 1
         show(Banner(id: bannerCount, level: level, text: text, detail: detail))
     }
@@ -304,6 +305,7 @@ final class AppModel {
         case .hunt:
             hunt.missionOpened()
         case .dfDrive:
+            df.missionOpened()
             askForAlertsOnce()
         case .radarWatch:
             radar.missionOpened()
@@ -324,7 +326,17 @@ final class AppModel {
             return
         }
         askedAlerts = true
-        Task { await notifier.requestAuthorization() }
+        Task {
+            if await !notifier.requestAuthorization() {
+                show(level: .info, text: "Alerts off", detail: nil)
+            }
+        }
+    }
+
+    private func surfaceAlertFailure() {
+        if let failure = notifier.takeFailure() {
+            show(level: .warn, text: "Alert failed", detail: failure)
+        }
     }
 
     private func surfaceDrops() {
@@ -425,14 +437,13 @@ extension AppModel {
     private func applyRetarget(_ notice: RetargetNotice) {
         navigation.retarget(notice)
         df.retargeted(notice)
-        guard phase != .active else {
-            return
+        let distance = navigation.distance(to: notice.target).map {
+            DistanceText.short($0, settings.unitSystem)
         }
-        let distance = navigation.lastLocation.map { location in
-            DistanceText.short(
-                geoDistanceM(from: LatLon(location.coordinate), to: notice.target.at),
-                settings.unitSystem
-            )
+        guard phase != .active else {
+            let text = distance.map { "New target \($0)" } ?? "New target"
+            show(level: .info, text: text, detail: nil)
+            return
         }
         notifier.post(notice, distance: distance ?? "-")
     }

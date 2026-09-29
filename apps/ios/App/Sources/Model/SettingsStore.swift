@@ -16,7 +16,7 @@ nonisolated enum UnitSystem: Equatable, Sendable {
 final class SettingsStore {
     private enum Key: String {
         case headingMode, mount, mountOffsetDeg, units, voiceOn, voiceID, clicksOn, hapticsOn, phoneName
-        case activeServerID
+        case activeServerID, routeNoticeAccepted
 
         var name: String { "sdrmm." + rawValue }
     }
@@ -33,6 +33,7 @@ final class SettingsStore {
     private var storedHapticsOn: Bool
     private var storedPhoneName: String
     private var storedActiveServerID: String?
+    private var storedRouteNoticeAccepted: Bool
 
     init(defaults: UserDefaults) {
         self.defaults = defaults
@@ -46,6 +47,7 @@ final class SettingsStore {
         storedHapticsOn = defaults.object(forKey: Key.hapticsOn.name) as? Bool ?? true
         storedPhoneName = defaults.string(forKey: Key.phoneName.name) ?? "iPhone"
         storedActiveServerID = defaults.string(forKey: Key.activeServerID.name)
+        storedRouteNoticeAccepted = defaults.bool(forKey: Key.routeNoticeAccepted.name)
     }
 
     var headingMode: HeadingMode {
@@ -128,6 +130,14 @@ final class SettingsStore {
         set {
             storedActiveServerID = newValue
             defaults.set(newValue, forKey: Key.activeServerID.name)
+        }
+    }
+
+    var routeNoticeAccepted: Bool {
+        get { storedRouteNoticeAccepted }
+        set {
+            storedRouteNoticeAccepted = newValue
+            defaults.set(newValue, forKey: Key.routeNoticeAccepted.name)
         }
     }
 
