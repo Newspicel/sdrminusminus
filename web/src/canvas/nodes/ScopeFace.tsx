@@ -802,7 +802,7 @@ function Spectrum({ set, source }: { set: DeviceSet | null; source: IqLane | nul
         className="pointer-events-none absolute inset-x-0 bottom-0 flex flex-col justify-between p-1.5"
         style={{ top: bandRuler && plan !== null ? BAND_RULER_H : 0 }}
       >
-        <span className="legend self-end text-right whitespace-pre text-plot-ink-dim">
+        <span className="legend self-end font-mono text-[10.5px] text-right whitespace-pre text-plot-ink-dim">
           {meta !== null && `${formatCentre(meta, view)}${formatRange(shownRange)}`}
           {range !== null && " · manual"}
         </span>

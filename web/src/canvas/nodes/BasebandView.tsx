@@ -255,7 +255,7 @@ export function BasebandView({
         <div className="relative min-h-0 min-w-0 flex-1 bg-plot-bg">
           <canvas ref={canvasRef} className="absolute inset-0 h-full w-full" />
           {hint !== null && (
-            <span className="legend pointer-events-none absolute inset-0 flex items-center justify-center text-plot-ink-dim">
+            <span className="legend font-mono text-[10.5px] pointer-events-none absolute inset-0 flex items-center justify-center text-plot-ink-dim">
               {hint}
             </span>
           )}

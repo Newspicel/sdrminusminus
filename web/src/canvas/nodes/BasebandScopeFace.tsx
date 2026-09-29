@@ -18,7 +18,7 @@ export function BasebandScopeFace({ node }: { node: PatchNode }) {
     <NodeShell node={node} title="Baseband scope" category="output">
       <FaceBody scroll={false}>
         {tap === null ? (
-          <div className="flex h-full items-center justify-center bg-plot-bg legend text-plot-ink-dim">
+          <div className="flex h-full items-center justify-center bg-plot-bg legend font-mono text-[10.5px] text-plot-ink-dim">
             Wire a channel's baseband
           </div>
         ) : (
