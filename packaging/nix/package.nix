@@ -47,8 +47,8 @@ rustPlatform.buildRustPackage (finalAttrs: {
     inherit pnpm;
     sourceRoot = "${finalAttrs.src.name}/web";
     fetcherVersion = 4;
-    # web/pnpm-lock.yaml sha256:fff4d88d11013d35b0b7cdbd7ff58060885367fd61be23fc45e49108e7d5ed7b
-    hash = "sha256-2ydtwlDG8Q+dM9fxQPJAMjIpKCNaUTfILR2lhcrLOLE=";
+    # web/pnpm-lock.yaml sha256:274aab8b99093cfcc103208e874e6964e6adfcf5aa0cfc6589c88dde4a09df41
+    hash = "sha256-hDxTb0J/U1m2SP3zEDu9E8YP6Jz2Kv8XBYhy1VB9+2A=";
   };
   pnpmRoot = "web";
 
@@ -80,6 +80,7 @@ rustPlatform.buildRustPackage (finalAttrs: {
   ];
 
   preBuild = ''
+    find web/node_modules -path '*/.bin/*' -type f -exec sed -i 's/command -p /command /g' {} +
     pnpm --dir web build
   '';
 
