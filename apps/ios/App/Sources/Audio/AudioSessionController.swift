@@ -89,18 +89,6 @@ final class AudioSessionController {
         }
     }
 
-    func duck(_ on: Bool) throws {
-        if on {
-            try session.setCategory(
-                .playback,
-                mode: .voicePrompt,
-                options: [.mixWithOthers, .duckOthers, .interruptSpokenAudioAndMixWithOthers]
-            )
-        } else {
-            try session.setCategory(.playback, mode: .default, options: [.mixWithOthers])
-        }
-    }
-
     func deactivate() {
         let session = session
         queue.async {
