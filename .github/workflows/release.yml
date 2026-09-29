@@ -123,8 +123,7 @@ jobs:
         run: test -s "$STAGED.tar.gz" || test -s "$STAGED.zip"
       - name: Linking
         if: runner.os != 'Linux'
-        shell: bash
-        run: cargo xtask link-check "$STAGED"
+        run: cargo xtask link-check "${{ env.STAGED }}"
       - name: Version
         if: ${{ !matrix.cross }}
         shell: bash
