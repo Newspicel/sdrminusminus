@@ -102,6 +102,19 @@ const IRIDIUM_SPANS: Options<NonNullable<ChannelParamsOf<"iridium">["span"]>> = 
   { value: "mhz5", label: "5 MHz", title: "Radio at 5 MS/s, decodes the middle 4 MHz" },
   { value: "mhz10", label: "10 MHz", title: "Radio at 10 MS/s, decodes the middle 8 MHz" },
 ];
+const DVBT_BANDWIDTHS: Options<NonNullable<ChannelParamsOf<"dvbt">["bandwidth"]>> = [
+  { value: "khz250", label: "250 kHz" },
+  { value: "khz333", label: "333 kHz" },
+  { value: "khz500", label: "500 kHz" },
+  { value: "mhz1", label: "1 MHz" },
+  { value: "mhz1_7", label: "1.7 MHz" },
+  { value: "mhz2", label: "2 MHz" },
+  { value: "mhz5", label: "5 MHz" },
+  { value: "mhz6", label: "6 MHz" },
+  { value: "mhz7", label: "7 MHz" },
+  { value: "mhz8", label: "8 MHz" },
+  { value: "mhz10", label: "10 MHz" },
+];
 const APRS_MODES: Options<NonNullable<ChannelParamsOf<"aprs">["mode"]>> = [
   { value: "afsk1200", label: "AFSK 1200" },
   { value: "g3ruh9600", label: "G3RUH 9600" },
@@ -1301,17 +1314,10 @@ function ModeControls({
             />
           </SettingRow>
           <SettingRow label="Bandwidth">
-            <Segmented
+            <Select
               label="DVB-T bandwidth"
               value={params.settings.bandwidth ?? "mhz8"}
-              options={[
-                { value: "mhz1_7", label: "1.7 MHz" },
-                { value: "mhz5", label: "5 MHz" },
-                { value: "mhz6", label: "6 MHz" },
-                { value: "mhz7", label: "7 MHz" },
-                { value: "mhz8", label: "8 MHz" },
-                { value: "mhz10", label: "10 MHz" },
-              ]}
+              options={DVBT_BANDWIDTHS}
               onChange={(bandwidth) =>
                 onParams({ type: "dvbt", settings: { ...params.settings, bandwidth } })
               }

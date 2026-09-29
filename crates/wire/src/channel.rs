@@ -946,7 +946,12 @@ impl Default for DatvParams {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum DvbtBandwidth {
+    Khz250,
+    Khz333,
+    Khz500,
+    Mhz1,
     Mhz1_7,
+    Mhz2,
     Mhz5,
     Mhz10,
     Mhz6,
@@ -958,7 +963,12 @@ pub enum DvbtBandwidth {
 impl DvbtBandwidth {
     pub const fn hz(self) -> f64 {
         match self {
+            Self::Khz250 => 250_000.0,
+            Self::Khz333 => 333_000.0,
+            Self::Khz500 => 500_000.0,
+            Self::Mhz1 => 1_000_000.0,
             Self::Mhz1_7 => 1_700_000.0,
+            Self::Mhz2 => 2_000_000.0,
             Self::Mhz5 => 5_000_000.0,
             Self::Mhz10 => 10_000_000.0,
             Self::Mhz6 => 6_000_000.0,
@@ -1831,7 +1841,12 @@ mod dvbt_tests {
     #[test]
     fn dvbt_bandwidths_roundtrip_with_native_clocks() {
         for (bandwidth, json, hz) in [
+            (DvbtBandwidth::Khz250, "khz250", 250_000.0),
+            (DvbtBandwidth::Khz333, "khz333", 333_000.0),
+            (DvbtBandwidth::Khz500, "khz500", 500_000.0),
+            (DvbtBandwidth::Mhz1, "mhz1", 1_000_000.0),
             (DvbtBandwidth::Mhz1_7, "mhz1_7", 1_700_000.0),
+            (DvbtBandwidth::Mhz2, "mhz2", 2_000_000.0),
             (DvbtBandwidth::Mhz5, "mhz5", 5_000_000.0),
             (DvbtBandwidth::Mhz10, "mhz10", 10_000_000.0),
             (DvbtBandwidth::Mhz6, "mhz6", 6_000_000.0),

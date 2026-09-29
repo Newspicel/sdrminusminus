@@ -12827,7 +12827,12 @@
       "DvbtBandwidth": {
         "type": "string",
         "enum": [
+          "khz250",
+          "khz333",
+          "khz500",
+          "mhz1",
           "mhz1_7",
+          "mhz2",
           "mhz5",
           "mhz10",
           "mhz6",
