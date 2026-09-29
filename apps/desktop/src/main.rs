@@ -8,6 +8,7 @@ use tauri::{Manager, RunEvent, WebviewUrl, WebviewWindowBuilder};
 
 mod browser;
 mod graphics;
+mod newer_db;
 mod reveal;
 mod update;
 
@@ -29,12 +30,20 @@ fn main() -> anyhow::Result<()> {
 
             let data_dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&data_dir)?;
+            let db = data_dir.join("sdrmm.db");
+            let store = match sdrmm_server::Store::open(Some(&db)) {
+                Ok(store) => store,
+                Err(error @ sdrmm_server::StoreError::NewerSchema { .. }) => {
+                    newer_db::ask(app.handle(), db, &error);
+                    return Ok(());
+                }
+                Err(error) => return Err(error.into()),
+            };
             let engine = Engine::new(Some(data_dir.join("recordings")));
             engine.start_hotplug_prober(sdrmm_server::HOTPLUG_INTERVAL)?;
             engine.start_level_meter(sdrmm_server::LEVEL_INTERVAL)?;
             engine.start_occupancy_collector(sdrmm_server::HOTPLUG_INTERVAL)?;
             app.manage(engine.clone());
-            let store = sdrmm_server::Store::open(Some(&data_dir.join("sdrmm.db")))?;
             let router = {
                 let _entered = tauri::async_runtime::handle().inner().enter();
                 sdrmm_server::router(

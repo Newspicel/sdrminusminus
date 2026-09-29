@@ -37,6 +37,20 @@ fn migration_is_idempotent() {
     assert_eq!(version, MIGRATIONS.len() as i64);
 }
 
+#[test]
+fn a_newer_schema_is_refused() {
+    let conn = Connection::open_in_memory().expect("open");
+    migrate(&conn).expect("migrate");
+    let newer = MIGRATIONS.len() + 1;
+    conn.execute_batch(&format!("PRAGMA user_version = {newer};"))
+        .expect("bump");
+    let err = migrate(&conn).expect_err("newer schema");
+    assert!(matches!(
+        err,
+        StoreError::NewerSchema { found, known } if found == newer as i64 && known == MIGRATIONS.len()
+    ));
+}
+
 fn signal_finder_snapshot() -> serde_json::Value {
     let mut snapshot = serde_json::to_value(WorkspaceSnapshot::starter()).unwrap();
     snapshot["graph"]["nodes"].as_array_mut().unwrap().extend([
