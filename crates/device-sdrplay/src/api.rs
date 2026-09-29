@@ -427,10 +427,21 @@ impl Loader {
                 Ok(api)
             }
             Err(error) => {
-                self.failure = Some((error.clone(), now));
+                if self.record_failure(&error, now) {
+                    tracing::warn!("the SDRplay API is unavailable: {error}");
+                }
                 Err(error)
             }
         }
+    }
+
+    fn record_failure(&mut self, error: &str, now: Instant) -> bool {
+        let repeated = self
+            .failure
+            .as_ref()
+            .is_some_and(|(previous, _)| previous == error);
+        self.failure = Some((error.to_string(), now));
+        !repeated
     }
 }
 
@@ -540,5 +551,14 @@ mod tests {
             2,
             "the window expiring allows another attempt"
         );
+    }
+
+    #[test]
+    fn a_failure_is_reported_once_until_its_reason_changes() {
+        let mut loader = Loader::default();
+        let now = Instant::now();
+        assert!(loader.record_failure("not installed", now));
+        assert!(!loader.record_failure("not installed", now + RETRY_AFTER));
+        assert!(loader.record_failure("service down", now + RETRY_AFTER * 2));
     }
 }
