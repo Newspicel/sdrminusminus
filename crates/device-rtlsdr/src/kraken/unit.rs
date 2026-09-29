@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use crate::driver::DeviceDescriptor;
+use crate::dongle::Listing;
 
 /// The serial KrakenRF gives the first receive chain of a unit; the rest count up from it.
 const FIRST_SERIAL: u32 = 1000;
@@ -26,7 +26,7 @@ impl Unit {
     }
 }
 
-fn lane_of(descriptor: &DeviceDescriptor) -> Option<usize> {
+fn lane_of(descriptor: &Listing) -> Option<usize> {
     let serial: u32 = descriptor.serial.as_deref()?.parse().ok()?;
     let lane = serial.checked_sub(FIRST_SERIAL)? as usize;
     (lane < KRAKEN_LANES).then_some(lane)
@@ -35,7 +35,7 @@ fn lane_of(descriptor: &DeviceDescriptor) -> Option<usize> {
 /// What the dongle hangs off, which for these units is the hub built into the case. Two units on
 /// one machine carry the same serials, so where they are plugged in is the only thing that tells
 /// them apart.
-fn hub(descriptor: &DeviceDescriptor) -> String {
+fn hub(descriptor: &Listing) -> String {
     let ports = descriptor
         .port_chain
         .split_last()
@@ -52,7 +52,7 @@ fn hub(descriptor: &DeviceDescriptor) -> String {
 /// A unit is a full run of KrakenRF serials behind one hub. A partial run is left alone: four of
 /// five chains is a broken radio, not a smaller one, and grouping it would hide the fault behind
 /// an array that quietly measures the wrong thing.
-pub(crate) fn units(descriptors: &[DeviceDescriptor]) -> Vec<Unit> {
+pub(crate) fn units(descriptors: &[Listing]) -> Vec<Unit> {
     let mut behind: BTreeMap<String, Vec<(usize, usize)>> = BTreeMap::new();
     for (index, descriptor) in descriptors.iter().enumerate() {
         if let Some(lane) = lane_of(descriptor) {
@@ -82,7 +82,7 @@ pub(crate) fn units(descriptors: &[DeviceDescriptor]) -> Vec<Unit> {
 }
 
 /// The dongles that belong to a unit, which the single-dongle driver stops offering on its own.
-pub(crate) fn claimed(descriptors: &[DeviceDescriptor]) -> Vec<usize> {
+pub(crate) fn claimed(descriptors: &[Listing]) -> Vec<usize> {
     units(descriptors)
         .into_iter()
         .flat_map(|unit| unit.members)
@@ -92,10 +92,10 @@ pub(crate) fn claimed(descriptors: &[DeviceDescriptor]) -> Vec<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::driver::BoardVariant;
+    use crate::dongle::Board;
 
-    fn dongle(bus: &str, chain: &[u8], serial: Option<&str>) -> DeviceDescriptor {
-        DeviceDescriptor {
+    fn dongle(bus: &str, chain: &[u8], serial: Option<&str>) -> Listing {
+        Listing {
             index: 0,
             bus: bus.to_owned(),
             address: chain.last().copied().unwrap_or(1),
@@ -103,11 +103,11 @@ mod tests {
             product: None,
             serial: serial.map(str::to_owned),
             port_chain: chain.to_vec(),
-            board_variant: BoardVariant::Generic,
+            board: Board::Generic,
         }
     }
 
-    fn unit_behind(bus: &str, hub: u8, count: u32) -> Vec<DeviceDescriptor> {
+    fn unit_behind(bus: &str, hub: u8, count: u32) -> Vec<Listing> {
         (0..count)
             .map(|lane| {
                 dongle(
@@ -176,7 +176,7 @@ mod tests {
 
     #[test]
     fn a_bus_that_reports_no_topology_still_groups_one_unit() {
-        let descriptors: Vec<DeviceDescriptor> = (0..5)
+        let descriptors: Vec<Listing> = (0..5)
             .map(|lane| dongle("0", &[], Some(&(FIRST_SERIAL + lane).to_string())))
             .collect();
         let found = units(&descriptors);

@@ -60,10 +60,6 @@ The request codes, board types and control request builders in `crates/device-ha
 
 The sweep constants in `crates/device-hackrf/src/driver/sweep.rs` follow the public API declarations in `hackrf.h`. Its licence asks to accompany the binary, so its text is below.
 
-**heimdall_daq_fw**: GPL-3.0-or-later
-
-How a KrakenSDR identifies itself and how its bank is wired, the serial each receive chain carries, the control chain's GPIO pin for the calibration noise source, and the pins for the lanes' bias tees, is published only as KrakenRF's own acquisition firmware. `crates/device-rtlsdr/src/kraken` was written from it. No code was taken and nothing is linked or shipped.
-
 **Kiss FFT**: BSD-3-Clause
 
 Bundled with the codec2 FDMDV modem. Copyright (c) 2003-2010 Mark Borgerding.
@@ -75,18 +71,6 @@ SDR-- drives the Airspy R2 and Mini itself, in Rust, over its own USB stack, and
 **libairspyhf**: BSD-3-Clause
 
 As with libairspy: nothing of libairspyhf is linked or shipped, but the vendor request numbers, the big-endian kilohertz tuning field and the sample layout in `crates/device-airspyhf/src/driver` were written from it. Its adaptive IQ balancer was not translated, and this driver does not reproduce it.
-
-**librtlsdr (KrakenRF fork)**: GPL-2.0-or-later
-
-The tuner register that stops the PLL dithering, without which two dongles on one clock have no stable phase between them, is documented only in KrakenRF's fork of librtlsdr. The write in `crates/device-rtlsdr/src/driver/tuner.rs` follows it and is a derived work on the same terms as librtlsdr above.
-
-**rs-rtl 0.4.2 (desperado)**: MIT
-
-The R82xx tuner code in `crates/device-rtlsdr/src/driver/tuner.rs` contains code from rs-rtl 0.4.2, Copyright (c) 2025 Xavier Olive, used under its MIT license. rs-rtl ports librtlsdr, so the librtlsdr entry above applies to the same code.
-
-**rtl-sdr (librtlsdr)**: GPL-2.0-or-later
-
-SDR-- drives the RTL2832U and its R82xx tuner itself, in Rust, over its own USB stack. No part of librtlsdr is linked or shipped, but the register and I2C encodings, the PLL and filter programming and the tuner gain table in `crates/device-rtlsdr/src/driver` come from librtlsdr through rs-rtl, which ports it. That makes them a derived work under GPL-2.0-or-later. SDR-- exercises the "or later" option to take them under GPL-3.0, whose text is below, and combines them with its own AGPL-3.0-or-later under GPL-3.0 section 13.
 
 **SoapySDR**: BSL-1.0
 
@@ -970,7 +954,7 @@ The ACARS application layer and the VDL2, HFDL, Inmarsat Aero, Inmarsat STD-C, D
 | [use-sync-external-store](https://github.com/react/react#readme) | 1.7.0 | MIT |
 | [zustand](https://github.com/pmndrs/zustand) | 4.5.7, 5.0.15 | MIT |
 
-## Hardware libraries (15)
+## Hardware libraries (11)
 
 | Component | Version | License |
 | --- | --- | --- |
@@ -980,13 +964,9 @@ The ACARS application layer and the VDL2, HFDL, Inmarsat Aero, Inmarsat STD-C, D
 | [FFmpeg 9.0.1](https://ffmpeg.org/) | - | LGPL-2.1-or-later |
 | [hackrf-nusb 0.3.0](https://github.com/bastibl/hackrf-nusb) | - | MIT OR Apache-2.0 |
 | [hackrf.h (libhackrf API)](https://github.com/greatscottgadgets/hackrf) | - | BSD-3-Clause |
-| [heimdall_daq_fw](https://github.com/krakenrf/heimdall_daq_fw) | - | GPL-3.0-or-later |
 | [Kiss FFT](https://github.com/mborgerding/kissfft) | - | BSD-3-Clause |
 | [libairspy](https://github.com/airspy/airspyone_host) | - | BSD-3-Clause |
 | [libairspyhf](https://github.com/airspy/airspyhf) | - | BSD-3-Clause |
-| [librtlsdr (KrakenRF fork)](https://github.com/krakenrf/librtlsdr) | - | GPL-2.0-or-later |
-| [rs-rtl 0.4.2 (desperado)](https://github.com/xoolive/desperado) | - | MIT |
-| [rtl-sdr (librtlsdr)](https://gitea.osmocom.org/sdr/rtl-sdr) | - | GPL-2.0-or-later |
 | [SoapySDR](https://github.com/pothosware/SoapySDR) | - | BSL-1.0 |
 | [xng](https://github.com/airframesio/xng) | - | MIT OR Apache-2.0 |
 

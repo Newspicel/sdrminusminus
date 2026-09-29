@@ -14,8 +14,8 @@ const FREQUENCIES_HZ: [u32; 9] = [
     1_700_000_000,
 ];
 
-fn clipped_fraction(sdr: &mut RtlSdr) -> f64 {
-    let stream = sdr.start_streaming().expect("stream");
+fn clipped_fraction(dongle: &mut Dongle) -> f64 {
+    let stream = dongle.start_stream().expect("stream");
     let started = Instant::now();
     let (mut clipped, mut total) = (0u64, 0u64);
     while started.elapsed() < Duration::from_millis(300) {
@@ -33,22 +33,22 @@ fn clipped_fraction(sdr: &mut RtlSdr) -> f64 {
 #[test]
 #[ignore = "requires an idle KrakenSDR; prints how hard its noise source drives each gain"]
 fn connected_kraken_noise_source_levels() {
-    let descriptors = DeviceDescriptors::new().expect("enumerate");
-    let listed: Vec<_> = descriptors.iter().cloned().collect();
+    let catalog = Catalog::scan().expect("enumerate");
+    let listed: Vec<_> = catalog.listings().cloned().collect();
     let unit = unit::units(&listed)
         .into_iter()
         .next()
         .expect("a KrakenSDR");
-    let mut control = descriptors.open(unit.members[0]).expect("open lane 0");
+    let mut control = catalog.open(unit.members[0]).expect("open lane 0");
     control.set_sample_rate(2_400_000).expect("rate");
     control
-        .set_gpio(apply::NOISE_SOURCE_PIN, true)
+        .set_pin(apply::NOISE_SOURCE_PIN, true)
         .expect("noise on");
     for freq in FREQUENCIES_HZ {
-        control.set_center_freq(freq).expect("tune");
+        control.set_center(freq).expect("tune");
         let mut row = Vec::new();
-        for &tenths in crate::driver::GAIN_VALUES.iter().take(19) {
-            control.set_gain_manual(tenths).expect("gain");
+        for &tenths in crate::dongle::GAINS.iter().take(19) {
+            control.set_manual_gain(tenths).expect("gain");
             row.push(format!(
                 "{:.1}dB:{:.4}",
                 f64::from(tenths) / 10.0,
@@ -58,13 +58,13 @@ fn connected_kraken_noise_source_levels() {
         println!("{} MHz {}", freq / 1_000_000, row.join(" "));
     }
     control
-        .set_gpio(apply::NOISE_SOURCE_PIN, false)
+        .set_pin(apply::NOISE_SOURCE_PIN, false)
         .expect("noise off");
 }
 
-fn lane_samples(sdr: &mut RtlSdr, len: usize) -> sdrmm_usb_stream::RxStream {
+fn lane_samples(dongle: &mut Dongle, len: usize) -> sdrmm_usb_stream::RxStream {
     let _ = len;
-    sdr.start_streaming().expect("stream")
+    dongle.start_stream().expect("stream")
 }
 
 fn collect(stream: &sdrmm_usb_stream::RxStream, len: usize) -> Vec<num_complex::Complex<f32>> {
@@ -84,22 +84,22 @@ fn collect(stream: &sdrmm_usb_stream::RxStream, len: usize) -> Vec<num_complex::
 #[ignore = "requires an idle KrakenSDR; prints how well two lanes agree on the noise source per gain"]
 fn connected_kraken_noise_source_coherence() {
     const FRAME: usize = 32_768;
-    let descriptors = DeviceDescriptors::new().expect("enumerate");
-    let listed: Vec<_> = descriptors.iter().cloned().collect();
+    let catalog = Catalog::scan().expect("enumerate");
+    let listed: Vec<_> = catalog.listings().cloned().collect();
     let unit = unit::units(&listed)
         .into_iter()
         .next()
         .expect("a KrakenSDR");
-    let mut lanes: Vec<RtlSdr> = unit.members[..2]
+    let mut lanes: Vec<Dongle> = unit.members[..2]
         .iter()
-        .map(|member| descriptors.open(*member).expect("open lane"))
+        .map(|member| catalog.open(*member).expect("open lane"))
         .collect();
     for lane in &mut lanes {
         lane.set_sample_rate(2_400_000).expect("rate");
         lane.set_dither(false).expect("dither");
     }
     lanes[0]
-        .set_gpio(apply::NOISE_SOURCE_PIN, true)
+        .set_pin(apply::NOISE_SOURCE_PIN, true)
         .expect("noise on");
     let mut xcorr = sdrmm_dsp::xcorr::XCorr::new(FRAME);
     for freq in [
@@ -112,8 +112,8 @@ fn connected_kraken_noise_source_coherence() {
         let mut row = Vec::new();
         for tenths in [0, 9, 14, 27, 37, 77, 125, 166, 207, 297] {
             for lane in &mut lanes {
-                lane.set_center_freq(freq).expect("tune");
-                lane.set_gain_manual(tenths).expect("gain");
+                lane.set_center(freq).expect("tune");
+                lane.set_manual_gain(tenths).expect("gain");
             }
             let streams: Vec<_> = lanes
                 .iter_mut()
@@ -133,6 +133,6 @@ fn connected_kraken_noise_source_coherence() {
         println!("{} MHz {}", freq / 1_000_000, row.join(" "));
     }
     lanes[0]
-        .set_gpio(apply::NOISE_SOURCE_PIN, false)
+        .set_pin(apply::NOISE_SOURCE_PIN, false)
         .expect("noise off");
 }

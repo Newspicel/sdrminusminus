@@ -74,13 +74,13 @@ mod tests {
     use sdrmm_wire::{AgcSetting, ExtraValue, GainKind, GainValue, StreamSettings};
 
     use super::*;
-    use crate::{caps::GainMode, driver::GAIN_VALUES};
+    use crate::{caps::GainMode, dongle::GAINS};
 
     const LANES: usize = 5;
 
     fn fixture() -> (Capabilities, Capabilities, Vec<DeviceSettings>) {
-        let capabilities = caps::kraken_capabilities(LANES as u32, GAIN_VALUES);
-        let lane_caps = caps::kraken_lane_capabilities(GAIN_VALUES);
+        let capabilities = caps::kraken_capabilities(LANES as u32, GAINS);
+        let lane_caps = caps::kraken_lane_capabilities(GAINS);
         let settled = vec![
             DeviceSettings {
                 center_hz: Some(100e6),
@@ -95,7 +95,7 @@ mod tests {
 
     fn planned(delta: &DeviceSettings) -> Result<Plan, DeviceError> {
         let (capabilities, lane_caps, settled) = fixture();
-        plan(delta, &capabilities, &lane_caps, &settled, GAIN_VALUES)
+        plan(delta, &capabilities, &lane_caps, &settled, GAINS)
     }
 
     #[test]
@@ -134,10 +134,10 @@ mod tests {
 
     #[test]
     fn the_noise_source_is_taken_in_quietly_low_and_loudly_high() {
-        assert_eq!(calibration_gain(98e6, GAIN_VALUES), Some(0));
-        assert_eq!(calibration_gain(868e6, GAIN_VALUES), Some(0));
-        assert_eq!(calibration_gain(1_090e6, GAIN_VALUES), Some(87));
-        assert_eq!(calibration_gain(1_700e6, GAIN_VALUES), Some(125));
+        assert_eq!(calibration_gain(98e6, GAINS), Some(0));
+        assert_eq!(calibration_gain(868e6, GAINS), Some(0));
+        assert_eq!(calibration_gain(1_090e6, GAINS), Some(87));
+        assert_eq!(calibration_gain(1_700e6, GAINS), Some(125));
     }
 
     #[test]
