@@ -557,21 +557,21 @@ impl ChannelRx for FlexChannel {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{testgen, testutil::settings};
+    use crate::{synth, testutil::settings};
 
     #[test]
     fn decodes_all_flex_modes_from_recorded_iq_in_ragged_blocks() {
-        let page = testgen::flex::Page {
+        let page = synth::flex::Page {
             address: 123_456,
             text: "FLEX ALPHA PAGE".to_owned(),
         };
         for (mode, baud, levels) in [
-            (testgen::flex::Mode::Flex1600_2, 1_600, 2),
-            (testgen::flex::Mode::Flex1600_4, 3_200, 4),
-            (testgen::flex::Mode::Flex3200_2, 3_200, 2),
-            (testgen::flex::Mode::Flex3200_4, 6_400, 4),
+            (synth::flex::Mode::Flex1600_2, 1_600, 2),
+            (synth::flex::Mode::Flex1600_4, 3_200, 4),
+            (synth::flex::Mode::Flex3200_2, 3_200, 2),
+            (synth::flex::Mode::Flex3200_4, 6_400, 4),
         ] {
-            let iq = testgen::flex::transmission_mode(&page, 7, 83, RATE, mode);
+            let iq = synth::flex::transmission_mode(&page, 7, 83, RATE, mode);
             let mut channel = FlexChannel::new(
                 ChannelCtx { input_rate: RATE },
                 settings(ChannelParams::Flex(FlexParams::default())),

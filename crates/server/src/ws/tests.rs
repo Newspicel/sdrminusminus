@@ -144,7 +144,7 @@ fn atv_channel() -> ChannelSettings {
 async fn iq_lifecycle_shares_the_media_id_space_and_streams_baseband() {
     let engine = test_engine();
     let ds = engine
-        .create_device_set("virtual:siggen")
+        .create_device_set("virtual:band")
         .expect("device set");
     let voice = engine
         .add_channel(ds, 0, nfm_channel(0.0))
@@ -227,7 +227,7 @@ async fn iq_lifecycle_shares_the_media_id_space_and_streams_baseband() {
 async fn symbol_lifecycle_shares_the_media_id_space_with_the_other_streams() {
     let engine = test_engine();
     let ds = engine
-        .create_device_set("virtual:siggen")
+        .create_device_set("virtual:band")
         .expect("device set");
     let voice = engine
         .add_channel(ds, 0, nfm_channel(0.0))
@@ -301,7 +301,7 @@ async fn symbol_lifecycle_shares_the_media_id_space_with_the_other_streams() {
 async fn a_symbol_subscription_to_a_channel_that_is_gone_is_refused_not_dropped() {
     let engine = test_engine();
     let ds = engine
-        .create_device_set("virtual:siggen")
+        .create_device_set("virtual:band")
         .expect("device set");
     let mut ws = connect(engine).await;
 
@@ -328,7 +328,7 @@ async fn a_symbol_subscription_to_a_channel_that_is_gone_is_refused_not_dropped(
 async fn video_lifecycle_shares_the_media_id_space_and_refuses_silent_channels() {
     let engine = test_engine();
     let ds = engine
-        .create_device_set("virtual:siggen")
+        .create_device_set("virtual:band")
         .expect("device set");
     let voice = engine
         .add_channel(ds, 0, nfm_channel(0.0))
@@ -494,7 +494,7 @@ async fn two_lanes_of_one_radio_stream_independently() {
 async fn spectrum_lifecycle_reports_kind_and_streams_frames() {
     let engine = test_engine();
     let ds = engine
-        .create_device_set("virtual:siggen")
+        .create_device_set("virtual:band")
         .expect("device set");
     let mut ws = connect(engine).await;
 
@@ -565,7 +565,7 @@ async fn spectrum_lifecycle_reports_kind_and_streams_frames() {
 async fn spectrum_subscribe_routes_the_named_stream_to_the_engine() {
     let engine = test_engine();
     let ds = engine
-        .create_device_set("virtual:siggen")
+        .create_device_set("virtual:band")
         .expect("device set");
     let mut ws = connect(engine).await;
     assert!(matches!(
@@ -595,7 +595,7 @@ async fn spectrum_subscribe_routes_the_named_stream_to_the_engine() {
 async fn audio_ids_disjoint_from_spectrum_and_duplicate_subscribe_stops_old() {
     let engine = test_engine();
     let ds = engine
-        .create_device_set("virtual:siggen")
+        .create_device_set("virtual:band")
         .expect("device set");
     let ch = engine
         .add_channel(ds, 0, nfm_channel(0.0))
@@ -1345,7 +1345,7 @@ async fn event_forwarder_lag_synthesizes_full_invalidation() {
 #[tokio::test(flavor = "multi_thread")]
 async fn diagnostics_report_capture_and_connection_queues_only_when_subscribed() {
     let engine = test_engine();
-    let ds = engine.create_device_set("virtual:siggen").expect("radio");
+    let ds = engine.create_device_set("virtual:band").expect("radio");
     let mut socket = connect(engine.clone()).await;
     send(
         &mut socket,

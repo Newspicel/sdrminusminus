@@ -26,7 +26,7 @@ const HUNT: HuntStatus = {
 function deviceSet(over: Partial<DeviceSet> = {}): DeviceSet {
   return {
     id: 1,
-    device: { driver: "virtual", key: "siggen", label: "Signal generator" },
+    device: { driver: "virtual", key: "band", label: "Test band" },
     capabilities: {
       freq_ranges: [{ min: 1e6, max: 6e9 }],
       sample_rates: [2_048_000],
@@ -129,7 +129,7 @@ describe("the decoder a hunt drives", () => {
         id: "dev",
         kind: "device",
         position: { x: 0, y: 0 },
-        data: { device: { backend: "virtual", key: "siggen" } },
+        data: { device: { backend: "virtual", key: "band" } },
       },
       { id: "nfm", kind: "channel", position: { x: 0, y: 0 }, data: { channel_type: "nfm" } },
       { id: "hunt", kind: "hunt", position: { x: 0, y: 0 }, data: { clicks: false } },

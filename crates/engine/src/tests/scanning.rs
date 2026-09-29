@@ -322,7 +322,7 @@ async fn skipping_a_held_frequency_resumes_and_never_holds_there_again() {
 #[tokio::test]
 async fn a_firmware_sweep_finds_a_carrier_without_the_scanner_retuning() {
     let engine = virtual_engine();
-    let ds = engine.create_device_set("virtual:siggen").unwrap();
+    let ds = engine.create_device_set("virtual:band").unwrap();
     assert!(
         engine.sweeps_in_firmware(ds),
         "the virtual radio has to offer a firmware sweep for this to test anything"
@@ -401,7 +401,7 @@ async fn a_firmware_sweep_finds_a_carrier_without_the_scanner_retuning() {
 #[tokio::test]
 async fn a_radio_sweeping_in_firmware_refuses_a_retune_by_name() {
     let engine = virtual_engine();
-    let ds = engine.create_device_set("virtual:siggen").unwrap();
+    let ds = engine.create_device_set("virtual:band").unwrap();
     let ch = nfm_decoder(&engine, ds, TEST_CENTER_HZ);
     let marker = sdrmm_device_virtual::SWEEP_MARKER_HZ;
     engine
@@ -636,7 +636,7 @@ async fn a_hunt_and_a_scan_do_not_share_a_decoder() {
 #[tokio::test]
 async fn close_call_holds_on_the_loudest_carrier_nobody_named() {
     let engine = virtual_engine();
-    let ds = engine.create_device_set("virtual:siggen").unwrap();
+    let ds = engine.create_device_set("virtual:band").unwrap();
     let ch = nfm_decoder(&engine, ds, TEST_CENTER_HZ);
     let marker = sdrmm_device_virtual::SWEEP_MARKER_HZ;
     let status = engine
@@ -800,7 +800,7 @@ async fn a_refused_firmware_sweep_falls_back_to_retuning_without_losing_the_radi
 #[tokio::test]
 async fn stopping_mid_sweep_hands_the_radio_back() {
     let engine = virtual_engine();
-    let ds = engine.create_device_set("virtual:siggen").unwrap();
+    let ds = engine.create_device_set("virtual:band").unwrap();
     let ch = nfm_decoder(&engine, ds, TEST_CENTER_HZ);
     let marker = sdrmm_device_virtual::SWEEP_MARKER_HZ;
     let status = engine
@@ -861,7 +861,7 @@ async fn stopping_mid_sweep_hands_the_radio_back() {
 #[tokio::test]
 async fn a_sweep_hands_back_a_working_channel() {
     let engine = virtual_engine();
-    let ds = engine.create_device_set("virtual:siggen").unwrap();
+    let ds = engine.create_device_set("virtual:band").unwrap();
     let marker = sdrmm_device_virtual::SWEEP_MARKER_HZ;
     let channel = nfm_decoder(&engine, ds, TEST_CENTER_HZ);
     engine

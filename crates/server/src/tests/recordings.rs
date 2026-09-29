@@ -243,7 +243,7 @@ async fn record_start_stop_index_and_delete_roundtrip_over_http() {
     assert!(rec.samples > 0);
     assert_eq!(rec.sample_rate, 2_048_000.0);
     assert_eq!(rec.center_hz, 100_000_000.0);
-    assert_eq!(rec.device_label, "Signal Generator (virtual)");
+    assert_eq!(rec.device_label, "Test band (virtual)");
     assert!(rec.duration_s > 0.0);
     assert_eq!(rec.device_id, format!("recording:{}", rec.file));
 

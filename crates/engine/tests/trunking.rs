@@ -3,7 +3,7 @@
 use std::{path::Path, sync::Arc, time::Duration};
 
 use num_complex::Complex;
-use sdrmm_channels::testgen;
+use sdrmm_channels::synth;
 use sdrmm_device::DeviceRegistry;
 use sdrmm_device_recording::RecordingDriver;
 use sdrmm_engine::{Engine, TrunkSystem, trunking::TrunkRadio};
@@ -23,7 +23,7 @@ const SOURCE: u32 = 9_999;
 const FOUND_TIMEOUT: Duration = Duration::from_secs(30);
 
 fn band(dir: &Path) -> String {
-    let mut control = testgen::dv::dmr::tier_three_grant(
+    let mut control = synth::dv::dmr::tier_three_grant(
         COLOR_CODE,
         LOGICAL_CHANNEL,
         1,
@@ -32,7 +32,7 @@ fn band(dir: &Path) -> String {
         24,
         DEVICE_RATE,
     );
-    let call = testgen::dv::dmr::Call {
+    let call = synth::dv::dmr::Call {
         color_code: COLOR_CODE,
         group: true,
         encrypted: false,
@@ -41,22 +41,18 @@ fn band(dir: &Path) -> String {
     };
     let mut traffic = Vec::new();
     while traffic.len() < control.len() {
-        traffic.extend(testgen::dv::dmr::repeater_transmission(
-            &call,
-            1,
-            DEVICE_RATE,
-        ));
+        traffic.extend(synth::dv::dmr::repeater_transmission(&call, 1, DEVICE_RATE));
     }
     traffic.truncate(control.len());
 
-    testgen::shift(&mut control, CONTROL_HZ as f64 - CENTER_HZ, DEVICE_RATE);
-    testgen::shift(&mut traffic, TRAFFIC_HZ as f64 - CENTER_HZ, DEVICE_RATE);
+    synth::shift(&mut control, CONTROL_HZ as f64 - CENTER_HZ, DEVICE_RATE);
+    synth::shift(&mut traffic, TRAFFIC_HZ as f64 - CENTER_HZ, DEVICE_RATE);
     let mut iq: Vec<Complex<f32>> = control
         .iter()
         .zip(&traffic)
         .map(|(control, traffic)| control + traffic)
         .collect();
-    testgen::scale(&mut iq, 0.5);
+    synth::scale(&mut iq, 0.5);
 
     let path = dir.join("dmr_tier3_band");
     let mut writer = SigmfWriter::create(&path, DEVICE_RATE, CENTER_HZ, "trunk fixture").unwrap();
@@ -125,8 +121,8 @@ const REST_TWO: u8 = 4;
 /// do on the air: the rest channel the system is parked on, and the move when it changes.
 fn capacity_plus_band(dir: &Path) -> String {
     let mut announcement =
-        testgen::dv::dmr::capacity_plus_status(COLOR_CODE, REST_ONE, 8, DEVICE_RATE);
-    announcement.extend(testgen::dv::dmr::capacity_plus_status(
+        synth::dv::dmr::capacity_plus_status(COLOR_CODE, REST_ONE, 8, DEVICE_RATE);
+    announcement.extend(synth::dv::dmr::capacity_plus_status(
         COLOR_CODE,
         REST_TWO,
         8,
@@ -134,14 +130,14 @@ fn capacity_plus_band(dir: &Path) -> String {
     ));
     let mut control = announcement.clone();
     let mut repeater = announcement;
-    testgen::shift(&mut control, CONTROL_HZ as f64 - CENTER_HZ, DEVICE_RATE);
-    testgen::shift(&mut repeater, REPEATER_HZ as f64 - CENTER_HZ, DEVICE_RATE);
+    synth::shift(&mut control, CONTROL_HZ as f64 - CENTER_HZ, DEVICE_RATE);
+    synth::shift(&mut repeater, REPEATER_HZ as f64 - CENTER_HZ, DEVICE_RATE);
     let mut iq: Vec<Complex<f32>> = control
         .iter()
         .zip(&repeater)
         .map(|(control, repeater)| control + repeater)
         .collect();
-    testgen::scale(&mut iq, 0.5);
+    synth::scale(&mut iq, 0.5);
 
     let path = dir.join("dmr_capacity_plus_band");
     let mut writer = SigmfWriter::create(&path, DEVICE_RATE, CENTER_HZ, "trunk fixture").unwrap();

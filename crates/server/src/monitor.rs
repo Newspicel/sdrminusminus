@@ -209,7 +209,7 @@ mod tests {
         let mut registry = DeviceRegistry::new();
         registry.register(1, Box::new(sdrmm_device_virtual::VirtualDriver::new()));
         let engine = Engine::with_registry(registry, None);
-        let set = engine.create_device_set("virtual:siggen").unwrap();
+        let set = engine.create_device_set("virtual:band").unwrap();
         let store = Store::open(None).unwrap();
         let calls = Arc::new(Calls::default());
         let mut snapshot = WorkspaceSnapshot::starter();
@@ -226,7 +226,7 @@ mod tests {
         device.device = Some(DeviceRef {
             backend: "virtual".to_owned(),
             serial: None,
-            key: Some("siggen".to_owned()),
+            key: Some("band".to_owned()),
         });
         snapshot.graph.nodes.push(PatchNode {
             id: "monitor".to_owned(),

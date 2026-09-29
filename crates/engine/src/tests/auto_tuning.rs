@@ -398,7 +398,7 @@ async fn tuning_one_stream_by_hand_leaves_the_other_following_its_decoders() {
 #[tokio::test]
 async fn a_decoder_added_off_the_window_pulls_an_auto_radio_over_to_it() {
     let engine = virtual_engine();
-    let ds = engine.create_device_set("virtual:siggen").unwrap();
+    let ds = engine.create_device_set("virtual:band").unwrap();
     engine
         .add_channel(ds, 0, nfm_settings(1_100_000.0))
         .unwrap();
@@ -419,7 +419,7 @@ async fn a_decoder_added_off_the_window_pulls_an_auto_radio_over_to_it() {
 #[tokio::test]
 async fn a_held_radio_stays_where_the_operator_put_it() {
     let engine = virtual_engine();
-    let ds = engine.create_device_set("virtual:siggen").unwrap();
+    let ds = engine.create_device_set("virtual:band").unwrap();
     hold_tuning(&engine, ds);
     let before = engine.snapshot().device_sets[0].settings.center_hz;
     engine.add_channel(ds, 0, nfm_settings(900_000.0)).unwrap();
@@ -430,7 +430,7 @@ async fn a_held_radio_stays_where_the_operator_put_it() {
 #[tokio::test]
 async fn a_decoder_beyond_the_window_is_left_silent_rather_than_costing_the_others() {
     let engine = virtual_engine();
-    let ds = engine.create_device_set("virtual:siggen").unwrap();
+    let ds = engine.create_device_set("virtual:band").unwrap();
     for offset_hz in [0.0, 400_000.0, 20_000_000.0] {
         engine.add_channel(ds, 0, nfm_settings(offset_hz)).unwrap();
     }

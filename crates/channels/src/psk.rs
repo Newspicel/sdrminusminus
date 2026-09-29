@@ -369,7 +369,7 @@ mod tests {
     use std::collections::HashSet;
 
     use super::*;
-    use crate::{testgen, testutil::settings};
+    use crate::{synth, testutil::settings};
 
     #[test]
     fn varicode_is_complete_prefix_safe_and_unique() {
@@ -425,8 +425,8 @@ mod tests {
     #[test]
     fn a_quiet_band_decodes_to_nothing() {
         for seed in [0x0c0f_fee1, 0x1234_5678, 0xdead_beef] {
-            let mut iq = testgen::silence((30.0 * INPUT_RATE_HZ) as usize);
-            testgen::add_noise(&mut iq, seed, 0.3);
+            let mut iq = synth::silence((30.0 * INPUT_RATE_HZ) as usize);
+            synth::add_noise(&mut iq, seed, 0.3);
             assert_eq!(
                 decoded(PskBaud::Psk31, &iq),
                 Vec::new(),
@@ -443,7 +443,7 @@ mod tests {
             PskBaud::Psk125,
             PskBaud::Psk250,
         ] {
-            let iq = testgen::psk::transmission("CQ de DL1ABC\n", baud.rate());
+            let iq = synth::psk::transmission("CQ de DL1ABC\n", baud.rate());
             let events = decoded(baud, &iq);
             let text: String = events.iter().map(|e| e.text.as_str()).collect();
             assert!(text.contains("DL1ABC"), "{baud:?} decoded {text:?}");

@@ -259,13 +259,10 @@ mod tests {
     fn pair() -> (StreamArray, ArrayIngress) {
         let mut registry = DeviceRegistry::new();
         registry.register(10, Box::new(VirtualDriver::new()));
-        let (_, one) = registry.open("virtual:siggen").expect("first source");
+        let (_, one) = registry.open("virtual:band").expect("first source");
         let (_, two) = registry.open("virtual:halfduplex").expect("second source");
         StreamArray::new(
-            &definition(
-                &["virtual:siggen", "virtual:halfduplex"],
-                Coherence::TimeSync,
-            ),
+            &definition(&["virtual:band", "virtual:halfduplex"], Coherence::TimeSync),
             &[
                 (one.capabilities(), one.settings()),
                 (two.capabilities(), two.settings()),
@@ -276,26 +273,20 @@ mod tests {
 
     #[test]
     fn a_definition_needs_at_least_two_named_radios_and_a_shared_clock() {
-        let mut good = definition(
-            &["virtual:siggen", "virtual:halfduplex"],
-            Coherence::TimeSync,
-        );
+        let mut good = definition(&["virtual:band", "virtual:halfduplex"], Coherence::TimeSync);
         assert!(good.valid());
         good.members.pop();
         assert!(!good.valid(), "one radio is not an array");
-        let duplicated = definition(&["virtual:siggen", "virtual:siggen"], Coherence::TimeSync);
+        let duplicated = definition(&["virtual:band", "virtual:band"], Coherence::TimeSync);
         assert!(!duplicated.valid(), "the same radio cannot be two lanes");
-        let unlocked = definition(&["virtual:siggen", "virtual:halfduplex"], Coherence::None);
+        let unlocked = definition(&["virtual:band", "virtual:halfduplex"], Coherence::None);
         assert!(
             !unlocked.valid(),
             "a bank with no shared clock is not an array"
         );
         let named = ArrayDefinition {
             key: "a key with spaces".to_owned(),
-            ..definition(
-                &["virtual:siggen", "virtual:halfduplex"],
-                Coherence::TimeSync,
-            )
+            ..definition(&["virtual:band", "virtual:halfduplex"], Coherence::TimeSync)
         };
         assert!(!named.valid());
     }

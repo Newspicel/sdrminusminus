@@ -2,7 +2,7 @@ use std::sync::LazyLock;
 
 use num_complex::Complex;
 use sdrmm_dsp::{BitSync, Decimator, FmDemod, RealDecimator, design_lowpass};
-#[cfg(any(test, feature = "test-signals"))]
+#[cfg(any(test, feature = "synth"))]
 use sdrmm_modem::cpm::{CpmParams, Mapping};
 use sdrmm_modem::pulse::{self, Norm};
 use sdrmm_wire::{
@@ -74,7 +74,7 @@ pub(crate) fn ita2_for(code: u8) -> Option<u8> {
         .find_map(|&(ccir, ita2)| (ccir == code).then_some(ita2))
 }
 
-#[cfg(any(test, feature = "test-signals"))]
+#[cfg(any(test, feature = "synth"))]
 pub(crate) fn ccir_for(ita2: u8) -> Option<u8> {
     CCIR476
         .iter()
@@ -136,7 +136,7 @@ pub(crate) fn channel_filter() -> ChannelFilter {
     ))
 }
 
-#[cfg(any(test, feature = "test-signals"))]
+#[cfg(any(test, feature = "synth"))]
 pub(crate) fn cpm_params(rate: f64) -> CpmParams {
     let sps = rate / BAUD;
     CpmParams::from_deviation(
@@ -455,7 +455,7 @@ mod tests {
 
     use super::*;
     use crate::{
-        testgen::{self, navtex::transmission},
+        synth::{self, navtex::transmission},
         testutil::{complex_noise, settings},
     };
 
@@ -588,7 +588,7 @@ mod tests {
     #[test]
     fn decodes_through_additive_noise() {
         let mut iq = transmission(BROADCAST, RATE);
-        testgen::add_noise(&mut iq, 0xabad_1dea, 0.5);
+        synth::add_noise(&mut iq, 0xabad_1dea, 0.5);
         let mut filtered = Vec::new();
         channel_filter().process(&iq, &mut filtered);
         let messages = decode(&filtered);
@@ -598,7 +598,7 @@ mod tests {
 
     #[test]
     fn tracks_a_sample_clock_error_through_the_broadcast() {
-        let iq = testgen::resample(&transmission(BROADCAST, RATE), RATE, RATE * 1.003);
+        let iq = synth::resample(&transmission(BROADCAST, RATE), RATE, RATE * 1.003);
         let messages = decode(&iq);
         assert_eq!(messages.len(), 1, "{messages:?}");
         assert_eq!(messages[0].text, "GALE WARNING\nGERMAN BIGHT");
@@ -634,7 +634,7 @@ mod tests {
 
     #[test]
     fn phasing_and_idle_produce_no_message() {
-        let iq = testgen::navtex::phasing(6.0, RATE);
+        let iq = synth::navtex::phasing(6.0, RATE);
         assert_eq!(decode(&iq), Vec::new());
     }
 
@@ -642,7 +642,7 @@ mod tests {
     fn a_broadcast_cut_short_is_reported_incomplete() {
         let full = transmission(BROADCAST, RATE);
         let mut iq = full[..full.len() * 3 / 4].to_vec();
-        iq.extend(testgen::silence((6.0 * RATE) as usize));
+        iq.extend(synth::silence((6.0 * RATE) as usize));
         let messages = decode(&iq);
         assert_eq!(messages.len(), 1, "{messages:?}");
         assert!(!messages[0].complete);

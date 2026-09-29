@@ -13,7 +13,7 @@ workspace = true
 [dependencies]
 sdrmm-wire.workspace = true
 sdrmm-device.workspace = true
-sdrmm-channels = { workspace = true, features = ["test-signals"] }
+sdrmm-channels = { workspace = true, features = ["synth"] }
 num-complex.workspace = true
 arc-swap.workspace = true
 serde_json.workspace = true

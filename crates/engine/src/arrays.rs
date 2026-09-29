@@ -482,11 +482,11 @@ mod tests {
         engine.arrays().replace(vec![ArrayDefinition {
             key: "recovery".into(),
             label: "Recovery".into(),
-            members: vec!["virtual:siggen".into(), "virtual:halfduplex".into()],
+            members: vec!["virtual:band".into(), "virtual:halfduplex".into()],
             coherence: sdrmm_wire::Coherence::TimeSync,
             shared_tuning: true,
         }]);
-        let source = engine.create_device_set("virtual:siggen").expect("source");
+        let source = engine.create_device_set("virtual:band").expect("source");
         let other = engine
             .create_device_set("virtual:halfduplex")
             .expect("other source");

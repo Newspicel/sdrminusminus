@@ -1049,10 +1049,10 @@ fn device_refs_match_by_serial_then_key_then_singleton() {
         serial: None,
         profile: None,
     };
-    let siggen = DeviceInfo {
+    let band = DeviceInfo {
         driver: "virtual".to_owned(),
-        key: "siggen".to_owned(),
-        label: "Signal Generator".to_owned(),
+        key: "band".to_owned(),
+        label: "Test band".to_owned(),
         serial: None,
         profile: None,
     };
@@ -1089,7 +1089,7 @@ fn device_refs_match_by_serial_then_key_then_singleton() {
     assert_eq!(by_key.key.as_deref(), Some("file:/rec/capture"));
     assert!(by_key.matches(&file));
     assert!(
-        !by_key.matches(&siggen),
+        !by_key.matches(&band),
         "two serial-less devices of one backend stay distinct"
     );
 

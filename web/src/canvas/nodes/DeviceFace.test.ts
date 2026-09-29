@@ -38,7 +38,7 @@ function capabilities(overrides: Partial<Capabilities> = {}): Capabilities {
 function deviceSet(overrides: Partial<DeviceSet> = {}): DeviceSet {
   return {
     id: 1,
-    device: { driver: "virtual", key: "siggen", label: "Signal Generator" },
+    device: { driver: "virtual", key: "band", label: "Test band" },
     capabilities: capabilities(),
     settings: {},
     status: "running",
@@ -51,7 +51,7 @@ function deviceSet(overrides: Partial<DeviceSet> = {}): DeviceSet {
 describe("refLabel", () => {
   it("names the radio by whichever identity the reference carries", () => {
     expect(refLabel({ backend: "rtlsdr", serial: "00000001" })).toBe("rtlsdr · 00000001");
-    expect(refLabel({ backend: "virtual", key: "siggen" })).toBe("virtual · siggen");
+    expect(refLabel({ backend: "virtual", key: "band" })).toBe("virtual · band");
     expect(refLabel({ backend: "soapy", serial: "123456", key: "123456@DT" })).toBe(
       "soapy · 123456@DT",
     );
@@ -179,7 +179,7 @@ describe("faultSaid", () => {
       error: "the radio is no longer attached (control transfer failed: device disconnected)",
     });
     expect(faultSaid(set)).toBe(
-      "Signal Generator is no longer attached. Plug it back in and it picks up where it left off.",
+      "Test band is no longer attached. Plug it back in and it picks up where it left off.",
     );
   });
 

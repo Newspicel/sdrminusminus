@@ -3,7 +3,7 @@ use sdrmm_modem::cpm::CpmMod;
 
 use crate::{
     navtex::{ccir_for, cpm_params},
-    testgen::rtty::ita2_codes,
+    synth::rtty::ita2_codes,
 };
 
 const BAUD: f64 = 100.0;

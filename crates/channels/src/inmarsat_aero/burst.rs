@@ -393,7 +393,7 @@ mod tests {
         let mut iq = burst_iq(&burst_bits(&t_burst_bytes()), 1200.0, 180.0, 2000, 126.0);
         Noise(0xfeed_f00d_dead_c0de).add(&mut iq, 0.01);
         let wide =
-            crate::testgen::resample(&iq, CHANNEL_RATE, crate::inmarsat_aero::decoder::INPUT_RATE);
+            crate::synth::resample(&iq, CHANNEL_RATE, crate::inmarsat_aero::decoder::INPUT_RATE);
         let mut padded = wide;
         padded.extend(std::iter::repeat_n(Complex::new(0.0, 0.0), 48_000));
         let bursts =

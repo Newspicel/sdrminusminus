@@ -26,7 +26,7 @@ struct Row {
 fn searching_signal(rate: f64) -> Vec<Complex<f32>> {
     let len = (rate * SURVEY_SECONDS) as usize;
     let mut iq = vec![Complex::new(0.0f32, 0.0); len.max(BLOCK)];
-    sdrmm_channels::testgen::add_noise(&mut iq, 0x5EED, NOISE_AMPLITUDE);
+    sdrmm_channels::synth::add_noise(&mut iq, 0x5EED, NOISE_AMPLITUDE);
     iq
 }
 
@@ -53,7 +53,7 @@ fn survey() -> Vec<Row> {
             _ => SURVEY_SECONDS,
         };
         let mut iq = vec![Complex::new(0.0, 0.0); ((rate * seconds) as usize).max(BLOCK)];
-        sdrmm_channels::testgen::add_noise(&mut iq, 0x5EED, NOISE_AMPLITUDE);
+        sdrmm_channels::synth::add_noise(&mut iq, 0x5EED, NOISE_AMPLITUDE);
         let mut outputs = ChannelOutputs::default();
         drive(rx.as_mut(), &iq, &mut outputs);
         let msamples_per_s = measure_throughput(
@@ -173,7 +173,7 @@ fn the_cw_skimmer_allocates_nothing_while_it_searches_an_empty_band() {
     let mut rx =
         sdrmm_channels::create(ChannelCtx { input_rate: rate }, &settings).expect("receiver");
     let mut iq = vec![Complex::new(0.0, 0.0); (rate as usize).max(BLOCK)];
-    sdrmm_channels::testgen::add_noise(&mut iq, 0x5EED, NOISE_AMPLITUDE);
+    sdrmm_channels::synth::add_noise(&mut iq, 0x5EED, NOISE_AMPLITUDE);
     let mut outputs = ChannelOutputs::default();
     for _ in 0..4 {
         drive(rx.as_mut(), &iq, &mut outputs);

@@ -12,7 +12,7 @@ async fn templates_report_the_radios_that_can_run_them() {
         assert!(
             template
                 .supported_devices
-                .contains(&"virtual:siggen".to_string()),
+                .contains(&"virtual:band".to_string()),
             "{} does not offer the signal generator: {:?}",
             template.id,
             template.supported_devices
@@ -278,5 +278,5 @@ async fn an_open_radio_the_driver_no_longer_lists_can_still_run_templates() {
         .iter()
         .find(|t| t.id == "fm-radio")
         .expect("fm-radio");
-    assert_eq!(fm.supported_devices, vec!["virtual:siggen".to_string()]);
+    assert_eq!(fm.supported_devices, vec!["virtual:band".to_string()]);
 }

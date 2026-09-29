@@ -1,7 +1,7 @@
 use std::{collections::BTreeMap, path::Path};
 
 use anyhow::{Context, Result, bail};
-use sdrmm_channels::testgen::ident_fixtures::{Expect, FIXTURES, identify, judge, samples};
+use sdrmm_channels::synth::ident_fixtures::{Expect, FIXTURES, identify, judge, samples};
 
 pub fn run(root: &Path) -> Result<()> {
     let dir = root.join("fixtures");

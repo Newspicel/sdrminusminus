@@ -592,10 +592,7 @@ mod tests {
             max_age_for(open(&recordings, "aged").as_ref()),
             Duration::MAX
         );
-        assert_eq!(
-            max_age_for(open(&synthetic, "siggen").as_ref()),
-            LIVE_MAX_AGE
-        );
+        assert_eq!(max_age_for(open(&synthetic, "band").as_ref()), LIVE_MAX_AGE);
     }
 
     #[test]

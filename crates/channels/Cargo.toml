@@ -11,7 +11,8 @@ rust-version.workspace = true
 workspace = true
 
 [features]
-test-signals = []
+synth = []
+fixtures = ["synth"]
 
 [dependencies]
 sdrmm-wire.workspace = true
@@ -45,9 +46,9 @@ sdrmm-modem-test-support.workspace = true
 # file, a shape `sweep::save_json` (one bare Curve) does not cover.
 serde.workspace = true
 serde_json.workspace = true
-# Dev-dependency on ourselves so integration tests see `testgen` (gated on `test-signals`,
-# which `#[cfg(test)]` alone does not enable for tests/ targets).
-sdrmm-channels = { workspace = true, features = ["test-signals"] }
+# Dev-dependency on ourselves so integration tests see `synth` and its fixtures,
+# which `#[cfg(test)]` alone does not enable for tests/ targets.
+sdrmm-channels = { workspace = true, features = ["fixtures"] }
 blip25-vocoder = { workspace = true, features = ["encode"] }
 codec2.workspace = true
 xng-mode-hfdl.workspace = true

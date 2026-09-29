@@ -18,7 +18,7 @@ const WAIT: Duration = Duration::from_secs(10);
 fn a_stalled_tcp_reader_reports_failure_while_radio_audio_stays_continuous() {
     let listener = TcpListener::bind("127.0.0.1:0").expect("listener");
     let engine = engine();
-    let ds = engine.create_device_set("virtual:siggen").expect("source");
+    let ds = engine.create_device_set("virtual:band").expect("source");
     let channel = engine
         .add_channel(
             ds,
@@ -110,7 +110,7 @@ fn virtual_device_exports_mtu_safe_ci16_udp() {
     receiver.set_read_timeout(Some(WAIT)).expect("timeout");
     let engine = engine();
     let ds = engine
-        .create_device_set("virtual:siggen")
+        .create_device_set("virtual:band")
         .expect("virtual set");
     let settings = NetworkExportSettings {
         transport: NetworkTransport::Udp,
@@ -196,7 +196,7 @@ fn virtual_device_exports_an_unframed_cf32_tcp_stream() {
     });
     let engine = engine();
     let ds = engine
-        .create_device_set("virtual:siggen")
+        .create_device_set("virtual:band")
         .expect("virtual set");
     engine
         .start_network_export(
@@ -235,7 +235,7 @@ fn rtl_tcp_listens_without_clients_streams_and_releases_its_port() {
     let address = reservation.local_addr().unwrap();
     drop(reservation);
     let engine = engine();
-    let ds = engine.create_device_set("virtual:siggen").unwrap();
+    let ds = engine.create_device_set("virtual:band").unwrap();
     let settings = NetworkExportSettings {
         address: address.to_string(),
         transport: NetworkTransport::RtlTcp,
@@ -277,7 +277,7 @@ fn rtl_433_consumes_the_live_export() {
     let address = reservation.local_addr().unwrap();
     drop(reservation);
     let engine = engine();
-    let ds = engine.create_device_set("virtual:siggen").unwrap();
+    let ds = engine.create_device_set("virtual:band").unwrap();
     let settings = NetworkExportSettings {
         address: address.to_string(),
         transport: NetworkTransport::RtlTcp,

@@ -85,7 +85,7 @@ const STATUS: ScannerStatus = {
 function deviceSet(overrides: Partial<DeviceSet> = {}): DeviceSet {
   return {
     id: 1,
-    device: { driver: "virtual", key: "siggen", label: "Signal Generator" },
+    device: { driver: "virtual", key: "band", label: "Test band" },
     capabilities: {
       freq_ranges: [],
       sample_rates: [],
@@ -171,7 +171,7 @@ describe("templatesHint", () => {
 describe("rankDevices", () => {
   it("puts real hardware above the virtual devices", () => {
     const ranked = rankDevices([
-      { driver: "virtual", key: "siggen", label: "Signal Generator" },
+      { driver: "virtual", key: "band", label: "Test band" },
       { driver: "rtlsdr", key: "0001", label: "RTL-SDR" },
       { driver: "virtual", key: "file:a", label: "A recording" },
       { driver: "hackrf", key: "abcd", label: "HackRF One" },
@@ -180,7 +180,7 @@ describe("rankDevices", () => {
       "HackRF One",
       "RTL-SDR",
       "A recording",
-      "Signal Generator",
+      "Test band",
     ]);
   });
 });

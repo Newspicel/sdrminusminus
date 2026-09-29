@@ -3,7 +3,7 @@ use super::*;
 #[tokio::test]
 async fn validate_honors_configured_bandwidth_and_sideband() {
     let engine = virtual_engine();
-    let ds = engine.create_device_set("virtual:siggen").unwrap();
+    let ds = engine.create_device_set("virtual:band").unwrap();
     engine
         .patch_device(
             ds,
@@ -57,7 +57,7 @@ async fn validate_honors_configured_bandwidth_and_sideband() {
 #[tokio::test]
 async fn patch_retunes_without_error() {
     let engine = virtual_engine();
-    let ds = engine.create_device_set("virtual:siggen").unwrap();
+    let ds = engine.create_device_set("virtual:band").unwrap();
     engine
         .patch_device(
             ds,
@@ -373,7 +373,7 @@ async fn a_channel_added_mid_tune_does_not_drag_the_radio_back_to_where_it_was()
 #[tokio::test]
 async fn a_converter_offset_moves_what_is_shown_and_leaves_the_radio_still() {
     let engine = virtual_engine();
-    let ds = engine.create_device_set("virtual:siggen").unwrap();
+    let ds = engine.create_device_set("virtual:band").unwrap();
     engine
         .patch_device(
             ds,
@@ -406,7 +406,7 @@ async fn a_converter_offset_moves_what_is_shown_and_leaves_the_radio_still() {
 #[tokio::test]
 async fn tuning_through_a_converter_reaches_what_the_radio_alone_cannot() {
     let engine = virtual_engine();
-    let ds = engine.create_device_set("virtual:siggen").unwrap();
+    let ds = engine.create_device_set("virtual:band").unwrap();
     engine
         .patch_device(
             ds,

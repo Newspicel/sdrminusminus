@@ -3,7 +3,7 @@ use num_complex::Complex;
 pub const RATE: f64 = 2_000.0;
 
 #[must_use]
-pub fn dcf77_example() -> Vec<Complex<f32>> {
+pub fn dcf77() -> Vec<Complex<f32>> {
     let mut bits = [false; 59];
     bits[18] = true;
     bits[20] = true;

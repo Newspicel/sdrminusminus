@@ -6,7 +6,7 @@ pub(crate) const SPS: usize = 2;
 pub(crate) const INPUT_RATE_HZ: f64 = BIT_RATE_HZ * SPS as f64;
 pub(crate) const OCCUPIED_BANDWIDTH_HZ: f64 = 1_728_000.0;
 pub(crate) const DEVIATION_HZ: f64 = 288_000.0;
-#[cfg(any(test, feature = "test-signals"))]
+#[cfg(any(test, feature = "synth"))]
 pub(crate) const SLOTS_PER_FRAME: u64 = 24;
 pub(crate) const FRAME_SAMPLES: u64 = (INPUT_RATE_HZ / 100.0) as u64;
 

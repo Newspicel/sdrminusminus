@@ -286,7 +286,7 @@ fn array_node_snapshot(members: &[&str]) -> WorkspaceSnapshot {
 #[tokio::test]
 async fn an_array_drawn_on_the_canvas_composes_open_device_nodes() {
     let (app, state) = test_router_with_state();
-    let snapshot = array_node_snapshot(&["virtual:siggen", "virtual:halfduplex"]);
+    let snapshot = array_node_snapshot(&["virtual:band", "virtual:halfduplex"]);
     let workspace = put_active_workspace(&app, &snapshot).await;
     let report = apply(&app, workspace).await;
     assert!(report.refused.is_empty(), "{report:?}");
@@ -309,7 +309,7 @@ async fn an_array_drawn_on_the_canvas_composes_open_device_nodes() {
 #[tokio::test]
 async fn an_incomplete_array_keeps_its_device_node_live() {
     let (app, state) = test_router_with_state();
-    let snapshot = array_node_snapshot(&["virtual:siggen"]);
+    let snapshot = array_node_snapshot(&["virtual:band"]);
     let workspace = put_active_workspace(&app, &snapshot).await;
     let report = apply(&app, workspace).await;
     assert!(report.refused.is_empty(), "{report:?}");
@@ -330,7 +330,7 @@ async fn an_unwired_array_is_not_an_error() {
 #[tokio::test]
 async fn a_radio_in_an_array_is_not_opened_a_second_time_on_its_own() {
     let (app, state) = test_router_with_state();
-    let snapshot = array_node_snapshot(&["virtual:siggen", "virtual:halfduplex"]);
+    let snapshot = array_node_snapshot(&["virtual:band", "virtual:halfduplex"]);
     let workspace = put_active_workspace(&app, &snapshot).await;
     let report = apply(&app, workspace).await;
     assert!(report.refused.is_empty(), "{report:?}");
@@ -346,7 +346,7 @@ async fn a_radio_in_an_array_is_not_opened_a_second_time_on_its_own() {
     assert_eq!(
         live.device_sets
             .iter()
-            .filter(|set| set.device.id() == "virtual:siggen")
+            .filter(|set| set.device.id() == "virtual:band")
             .count(),
         1
     );
@@ -355,7 +355,7 @@ async fn a_radio_in_an_array_is_not_opened_a_second_time_on_its_own() {
 #[tokio::test]
 async fn composing_an_array_preserves_the_original_device_set() {
     let (app, state) = test_router_with_state();
-    let alone = virtual_snapshot("siggen", &[]);
+    let alone = virtual_snapshot("band", &[]);
     let workspace = put_active_workspace(&app, &alone).await;
     apply(&app, workspace).await;
     assert_eq!(
@@ -365,7 +365,7 @@ async fn composing_an_array_preserves_the_original_device_set() {
     );
 
     let original = state.engine.snapshot().device_sets[0].id;
-    let joined = array_node_snapshot(&["virtual:siggen", "virtual:halfduplex"]);
+    let joined = array_node_snapshot(&["virtual:band", "virtual:halfduplex"]);
     let workspace = put_workspace_revision(&app, &joined, 2).await;
     let report = apply(&app, workspace).await;
     assert!(report.refused.is_empty(), "{report:?}");
@@ -374,7 +374,7 @@ async fn composing_an_array_preserves_the_original_device_set() {
     assert!(
         live.device_sets
             .iter()
-            .any(|set| set.id == original && set.device.id() == "virtual:siggen")
+            .any(|set| set.id == original && set.device.id() == "virtual:band")
     );
     assert!(
         live.device_sets

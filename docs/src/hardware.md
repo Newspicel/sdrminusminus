@@ -1,7 +1,7 @@
 # Radios
 
 A **Device** node opens one radio: over USB, through SoapySDR, or over the network. Recordings
-and test signals have nodes of their own, see [Other sources](#other-sources).
+and generated signals have nodes of their own, see [Other sources](#other-sources).
 
 Radio missing? Press **Check hardware** on an empty Device node, or run `sdrmm --doctor`.
 
@@ -102,9 +102,9 @@ address. RTL-SDRs need [serials of their own](#serials).
 | Node | Gives |
 |---|---|
 | Recording | Plays a [SigMF recording](user-guide/recording.md#play-a-recording) |
-| Signal generator | Test signals in 44 modes, from a plain tone to DVB-T |
+| Signal generator | 44 signals, from a plain tone to DVB-T |
 
-Debug builds also list synthetic radios: a four-lane coherent array and test transceivers.
+Debug builds also list synthetic radios: a four-lane coherent array, a test band and test transceivers.
 
 ## Device controls
 

@@ -508,7 +508,7 @@ mod tests {
             testutil::{assert_tone_audio, decode, decode_with_audio},
             vocoder::testutil::{full_rate_frames, half_rate_frames, natural_half_rate_frames},
         },
-        testgen::dv::ysf as tx,
+        synth::dv::ysf as tx,
         testutil::settings,
     };
 

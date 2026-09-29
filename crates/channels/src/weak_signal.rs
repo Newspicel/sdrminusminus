@@ -1,9 +1,9 @@
 mod ftx;
 mod wspr;
 
-#[cfg(any(test, feature = "test-signals"))]
+#[cfg(any(test, feature = "synth"))]
 pub(crate) use ftx::{FT4, FT8, pack as pack_ftx, waveform as ftx_waveform};
-#[cfg(any(test, feature = "test-signals"))]
+#[cfg(any(test, feature = "synth"))]
 pub(crate) use wspr::waveform as wspr_waveform;
 
 use ftx::FtxDecoder;
@@ -527,7 +527,7 @@ mod tests {
 
     use super::*;
     use crate::{
-        testgen,
+        synth,
         testutil::{realtime_budget, settings},
     };
 
@@ -551,7 +551,7 @@ mod tests {
                 settings(ChannelParams::Ft8(WsjtParams::default())),
             )
             .unwrap(),
-            &testgen::weak_signal::ft8_slot("W1AW", "FN42", 1_500.0)
+            &synth::weak_signal::ft8_slot("W1AW", "FN42", 1_500.0)
         );
         let message = events.iter().find_map(|event| match event {
             DecoderEvent::Ft8(message) if message.text.contains("W1AW") => Some(message),
@@ -572,7 +572,7 @@ mod tests {
                 settings(ChannelParams::Ft4(WsjtParams::default())),
             )
             .unwrap(),
-            &testgen::weak_signal::ft4_slot("JA1ABC", "PM95", 1_000.0)
+            &synth::weak_signal::ft4_slot("JA1ABC", "PM95", 1_000.0)
         );
         let message = events.iter().find_map(|event| match event {
             DecoderEvent::Ft4(message) if message.text.contains("JA1ABC") => Some(message),
@@ -593,7 +593,7 @@ mod tests {
                 settings(ChannelParams::Wspr(WsprParams::default())),
             )
             .unwrap(),
-            &testgen::weak_signal::wspr_slot("K1ABC", "FN42", 37, 1_500.0)
+            &synth::weak_signal::wspr_slot("K1ABC", "FN42", 37, 1_500.0)
         );
         let spot = events.iter().find_map(|event| match event {
             DecoderEvent::Wspr(spot) if spot.callsign == "K1ABC" => Some(spot),
@@ -607,7 +607,7 @@ mod tests {
 
     #[test]
     fn a_slot_decode_never_blocks_the_sample_path() {
-        let iq = testgen::weak_signal::ft8_slot("W1AW", "FN42", 1_500.0);
+        let iq = synth::weak_signal::ft8_slot("W1AW", "FN42", 1_500.0);
         let mut channel = Ft8Channel::new(
             ChannelCtx {
                 input_rate: INPUT_RATE_HZ,

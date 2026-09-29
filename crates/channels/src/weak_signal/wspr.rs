@@ -675,7 +675,7 @@ fn box_average(input: &[Complex<f32>], half: usize) -> Vec<Complex<f32>> {
         .collect()
 }
 
-#[cfg(any(test, feature = "test-signals"))]
+#[cfg(any(test, feature = "synth"))]
 pub(crate) fn waveform(text: &str, audio_hz: f32) -> Option<Vec<f32>> {
     let tones = fano::tones(message::pack(text)?);
     let mut wave = Vec::with_capacity(CODED_BITS * SYMBOL_SAMPLES);

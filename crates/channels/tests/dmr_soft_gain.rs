@@ -9,7 +9,7 @@ use common::{
     baseline_path, dmr_entry, find_uw, recovered_symbols, uw_dibits,
 };
 use num_complex::Complex;
-use sdrmm_channels::testgen::dv as tg;
+use sdrmm_channels::synth::dv as tg;
 use sdrmm_dsp::{
     Bptc196,
     fec::conv::{CONFIDENT, Soft},

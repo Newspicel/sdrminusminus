@@ -221,7 +221,7 @@ async fn create_virtual_set(app: &Router) -> u32 {
         app.clone(),
         "POST",
         "/api/devicesets",
-        Some(r#"{"device_id":"virtual:siggen"}"#),
+        Some(r#"{"device_id":"virtual:band"}"#),
     )
     .await;
     assert_eq!(status, StatusCode::OK);
@@ -239,7 +239,7 @@ fn preset_250k(channels: Vec<ChannelSettings>) -> PresetSnapshot {
         version: sdrmm_wire::PRESET_SNAPSHOT_VERSION,
         devices: vec![sdrmm_wire::PresetDevice {
             node: "device".to_string(),
-            device_id: "virtual:siggen".to_string(),
+            device_id: "virtual:band".to_string(),
             settings: DeviceSettings {
                 center_hz: Some(100_000_000.0),
                 sample_rate: Some(250_000.0),
@@ -696,7 +696,7 @@ async fn put_workspace_revision(
 }
 
 async fn store_siggen_workspace(app: &Router) -> i64 {
-    put_active_workspace(app, &virtual_snapshot("siggen", &[("voice", "nfm", "iq")])).await
+    put_active_workspace(app, &virtual_snapshot("band", &[("voice", "nfm", "iq")])).await
 }
 
 async fn apply(app: &Router, workspace: i64) -> sdrmm_wire::PatchApplyReport {
@@ -712,7 +712,7 @@ async fn apply(app: &Router, workspace: i64) -> sdrmm_wire::PatchApplyReport {
 }
 
 async fn store_second_workspace(app: &Router, name: &str, channel_type: &str) -> i64 {
-    let snapshot = virtual_snapshot("siggen", &[("other", channel_type, "iq")]);
+    let snapshot = virtual_snapshot("band", &[("other", channel_type, "iq")]);
     let (status, body) = request(
         app.clone(),
         "POST",

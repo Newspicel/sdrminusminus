@@ -117,7 +117,7 @@ mod tests {
     };
     use crate::{
         ChannelCtx, ChannelRx,
-        testgen::dect as sig,
+        synth::dect as sig,
         testutil::{run_events, settings},
     };
 
@@ -390,7 +390,7 @@ mod tests {
             ..sig::Station::default()
         };
         let mut iq = sig::dummy_bearer(&station, 9);
-        crate::testgen::add_noise(&mut iq, 0x5EED, 0.12);
+        crate::synth::add_noise(&mut iq, 0x5EED, 0.12);
         let mut chan = channel(DectParams::default());
         let decoded = frames(&run_events(&mut chan, &iq));
         assert!(
@@ -458,7 +458,7 @@ mod tests {
         };
         for offset_hz in [-40_000.0, 40_000.0] {
             let mut iq = sig::dummy_bearer(&station, 9);
-            crate::testgen::shift(&mut iq, offset_hz, INPUT_RATE_HZ);
+            crate::synth::shift(&mut iq, offset_hz, INPUT_RATE_HZ);
             let mut chan = channel(DectParams::default());
             let decoded = frames(&run_events(&mut chan, &iq));
             assert!(

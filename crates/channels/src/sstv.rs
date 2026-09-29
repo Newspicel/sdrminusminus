@@ -691,7 +691,7 @@ mod tests {
         *,
     };
     use crate::{
-        testgen::{
+        synth::{
             self,
             sstv::{Frame, bars, header, transmission},
         },
@@ -744,7 +744,7 @@ mod tests {
     }
 
     fn tail(ms: f64) -> Vec<Complex<f32>> {
-        testgen::silence(samples(ms, RATE) as usize)
+        synth::silence(samples(ms, RATE) as usize)
     }
 
     fn decode(mode: SstvMode, frame: &Frame) -> DecodedImage {
@@ -844,7 +844,7 @@ mod tests {
         let bit = samples(VIS_BIT_MS, RATE) as usize;
         let leaders = samples(LEADER_MS * 2.0 + BREAK_MS, RATE) as usize;
         let parity = leaders + bit * 8;
-        let flipped = testgen::sstv::header(SstvMode::MartinM2, RATE);
+        let flipped = synth::sstv::header(SstvMode::MartinM2, RATE);
         iq[parity..parity + bit].copy_from_slice(&flipped[parity..parity + bit]);
         iq.extend_from_slice(&tail(50.0));
 
@@ -928,7 +928,7 @@ mod tests {
         let full = transmission(mode, &sent, RATE);
         let half = full.len() / 2;
         let mut iq = full[..half].to_vec();
-        iq.extend_from_slice(&testgen::silence(samples(20_000.0, RATE) as usize));
+        iq.extend_from_slice(&synth::silence(samples(20_000.0, RATE) as usize));
 
         let mut chan = channel(SstvParams::default());
         let received = run(&mut chan, &iq, &BLOCKS);
@@ -951,7 +951,7 @@ mod tests {
         let mode = SstvMode::Robot36;
         let full = transmission(mode, &bars(mode), RATE);
         let mut iq = full[..full.len() / 2].to_vec();
-        iq.extend_from_slice(&testgen::silence(samples(20_000.0, RATE) as usize));
+        iq.extend_from_slice(&synth::silence(samples(20_000.0, RATE) as usize));
 
         let mut chan = channel(SstvParams {
             keep_partial: false,
@@ -983,7 +983,7 @@ mod tests {
         let mode = SstvMode::MartinM2;
         let sent = bars(mode);
         let straight = transmission(mode, &sent, RATE);
-        let slanted = testgen::resample(&straight, RATE, RATE * 1.0005);
+        let slanted = synth::resample(&straight, RATE, RATE * 1.0005);
         let mut iq = slanted;
         iq.extend_from_slice(&tail(2_000.0));
 
@@ -1011,7 +1011,7 @@ mod tests {
         let mode = SstvMode::MartinM2;
         let sent = bars(mode);
         let mut iq = transmission(mode, &sent, RATE);
-        testgen::add_noise(&mut iq, 0xabad_1dea, 0.25);
+        synth::add_noise(&mut iq, 0xabad_1dea, 0.25);
         let mut filtered = Vec::new();
         channel_filter(&SstvParams::default())
             .expect("filter")

@@ -76,8 +76,8 @@ Recording playback and the signal generator work in every build.
 ## Test without a radio
 
 Add a **Signal generator** node, pick a signal, and wire it to a matching channel and a Speaker.
-Debug builds also list synthetic radios on the Device node: a four-lane coherent array and test
-transceivers.
+Debug builds also list synthetic radios on the Device node: a four-lane coherent array, a test
+band and test transceivers.
 
 ## Checks
 

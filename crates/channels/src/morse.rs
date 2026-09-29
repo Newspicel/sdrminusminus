@@ -480,7 +480,7 @@ mod tests {
     use sdrmm_wire::RttyParams;
 
     use super::*;
-    use crate::{testgen, testutil::settings};
+    use crate::{synth, testutil::settings};
 
     const RATE: f64 = 8_000.0;
     const CALL: &str = "CQ CQ DE DL1ABC K";
@@ -497,9 +497,9 @@ mod tests {
     }
 
     fn burst(text: &str, wpm: f32, tone_hz: f64) -> Vec<Complex<f32>> {
-        let mut iq = testgen::silence((0.5 * RATE) as usize);
-        iq.extend(testgen::morse::transmission(text, wpm, tone_hz, RATE));
-        iq.extend(testgen::silence(((IDLE_FLUSH_S + 0.5) * RATE) as usize));
+        let mut iq = synth::silence((0.5 * RATE) as usize);
+        iq.extend(synth::morse::transmission(text, wpm, tone_hz, RATE));
+        iq.extend(synth::silence(((IDLE_FLUSH_S + 0.5) * RATE) as usize));
         iq
     }
 
@@ -608,16 +608,16 @@ mod tests {
             }
             env.resize(env.len() + dot, 1.0);
         }
-        let mut iq = testgen::silence((0.5 * RATE) as usize);
-        iq.extend(testgen::ook(&env, 0.0, RATE));
-        iq.extend(testgen::silence(((IDLE_FLUSH_S + 0.5) * RATE) as usize));
+        let mut iq = synth::silence((0.5 * RATE) as usize);
+        iq.extend(synth::ook(&env, 0.0, RATE));
+        iq.extend(synth::silence(((IDLE_FLUSH_S + 0.5) * RATE) as usize));
         assert_eq!(decode(&mut channel(None), &iq), UNKNOWN);
     }
 
     #[test]
     fn pure_noise_decodes_to_nothing() {
-        let mut iq = testgen::silence((20.0 * RATE) as usize);
-        testgen::add_noise(&mut iq, 0x0c0f_fee1, 0.3);
+        let mut iq = synth::silence((20.0 * RATE) as usize);
+        synth::add_noise(&mut iq, 0x0c0f_fee1, 0.3);
         let mut channel = channel(None);
         let mut out = ChannelOutputs::default();
         for block in iq.chunks(1_024) {
@@ -637,8 +637,8 @@ mod tests {
             keyed.element_fit()
         );
 
-        let mut iq = testgen::silence((20.0 * RATE) as usize);
-        testgen::add_noise(&mut iq, 0x0c0f_fee1, 0.3);
+        let mut iq = synth::silence((20.0 * RATE) as usize);
+        synth::add_noise(&mut iq, 0x0c0f_fee1, 0.3);
         let mut noisy = channel(None);
         let mut out = ChannelOutputs::default();
         for block in iq.chunks(1_024) {

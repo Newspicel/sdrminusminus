@@ -369,7 +369,7 @@ mod tests {
     use super::*;
     use crate::{
         dv::testutil::{decode, decode_with_audio},
-        testgen::dv::dstar as tx,
+        synth::dv::dstar as tx,
         testutil::settings,
     };
 

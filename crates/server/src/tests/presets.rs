@@ -105,7 +105,7 @@ async fn preset_capture_apply_delete_roundtrip() {
 #[tokio::test]
 async fn a_preset_carries_every_radio_the_workspace_draws() {
     let app = test_router();
-    let mut snapshot = virtual_snapshot("siggen", &[]);
+    let mut snapshot = virtual_snapshot("band", &[]);
     snapshot.graph.nodes.push(sdrmm_wire::PatchNode {
         id: "second".to_string(),
         body: sdrmm_wire::NodeBody::Device(sdrmm_wire::DeviceNode {
@@ -207,7 +207,7 @@ async fn saving_a_preset_with_no_radio_open_is_refused() {
 #[tokio::test]
 async fn apply_preset_replaces_channels_that_do_not_fit_the_preset_rate() {
     let (app, store) = test_router_with_store();
-    let workspace = put_active_workspace(&app, &virtual_snapshot("siggen", &[])).await;
+    let workspace = put_active_workspace(&app, &virtual_snapshot("band", &[])).await;
     apply(&app, workspace).await;
     let ds = get_state(&app).await.device_sets[0].id;
     let (status, _) = request(
@@ -250,7 +250,7 @@ async fn apply_preset_replaces_channels_that_do_not_fit_the_preset_rate() {
 #[tokio::test]
 async fn apply_preset_rejected_up_front_leaves_the_set_untouched() {
     let (app, store) = test_router_with_store();
-    let workspace = put_active_workspace(&app, &virtual_snapshot("siggen", &[])).await;
+    let workspace = put_active_workspace(&app, &virtual_snapshot("band", &[])).await;
     apply(&app, workspace).await;
     let ds = get_state(&app).await.device_sets[0].id;
     let (status, _) = request(

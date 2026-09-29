@@ -100,7 +100,7 @@ impl ModCod {
             })
     }
 
-    #[cfg(any(test, feature = "test-signals"))]
+    #[cfg(any(test, feature = "synth"))]
     #[must_use]
     pub fn find(modulation: Modulation, rate: Rate) -> Option<Self> {
         CATALOGUE
@@ -115,7 +115,7 @@ impl ModCod {
             })
     }
 
-    #[cfg(any(test, feature = "test-signals"))]
+    #[cfg(any(test, feature = "synth"))]
     pub fn find_for_frame(modulation: Modulation, rate: Rate, short: bool) -> Option<Self> {
         Self::find(modulation, rate)
             .filter(|mode| mode.rate.information(super::ldpc::Frame::of(short)) > 0)
@@ -174,7 +174,7 @@ fn column_order(modulation: Modulation, rate: Rate) -> &'static [usize] {
     }
 }
 
-#[cfg(any(test, feature = "test-signals"))]
+#[cfg(any(test, feature = "synth"))]
 #[must_use]
 pub fn interleave(coded: &[bool], modulation: Modulation, rate: Rate) -> Vec<bool> {
     let order = column_order(modulation, rate);
@@ -335,7 +335,7 @@ impl Constellation {
     }
 }
 
-#[cfg(any(test, feature = "test-signals"))]
+#[cfg(any(test, feature = "synth"))]
 pub fn modulate(bits: &[bool], constellation: &Constellation, out: &mut Vec<Complex<f32>>) {
     let width = constellation.bits();
     for chunk in bits.chunks_exact(width) {

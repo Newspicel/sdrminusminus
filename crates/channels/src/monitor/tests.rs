@@ -1,5 +1,5 @@
 use super::*;
-use crate::testgen;
+use crate::synth;
 
 const RATE: f64 = 1_024_000.0;
 const CENTER: f64 = 145_000_000.0;
@@ -102,17 +102,17 @@ fn invalid_confidence_is_rejected_before_capture() {
 #[test]
 fn concurrent_am_and_fm_outside_identifier_span_have_separate_audio_events() {
     let mut iq = noise(0.7, 42);
-    let mut audio = testgen::tone_audio(900.0, 0.6, RATE, iq.len());
+    let mut audio = synth::tone_audio(900.0, 0.6, RATE, iq.len());
     for (index, sample) in audio.iter_mut().enumerate() {
         *sample += 0.2 * (std::f64::consts::TAU * 1437.0 * index as f64 / RATE).sin() as f32;
     }
-    let mut fm = testgen::fm_modulate(&audio, 3000.0, RATE);
-    testgen::shift(&mut fm, 250_000.0, RATE);
+    let mut fm = synth::fm_modulate(&audio, 3000.0, RATE);
+    synth::shift(&mut fm, 250_000.0, RATE);
     let mut am: Vec<_> = audio
         .iter()
         .map(|sample| Complex::new(0.4 * (1.0 + sample), 0.0))
         .collect();
-    testgen::shift(&mut am, -250_000.0, RATE);
+    synth::shift(&mut am, -250_000.0, RATE);
     for ((sample, fm), am) in iq.iter_mut().zip(fm).zip(am) {
         *sample += fm + am;
     }
@@ -146,15 +146,15 @@ fn concurrent_am_and_fm_outside_identifier_span_have_separate_audio_events() {
 
 #[test]
 fn buffered_pager_decodes_the_first_message_and_retains_its_origin() {
-    let pages = [testgen::pocsag::Page {
+    let pages = [synth::pocsag::Page {
         address: 1_234_567,
         function: 3,
         text: "MONITOR FIRST FRAME".to_owned(),
         numeric: false,
     }];
-    let mut iq = testgen::pocsag::transmission(&pages, 1200, 4500.0, RATE);
-    testgen::shift(&mut iq, 300_000.0, RATE);
-    testgen::add_noise(&mut iq, 44, 0.002);
+    let mut iq = synth::pocsag::transmission(&pages, 1200, 4500.0, RATE);
+    synth::shift(&mut iq, 300_000.0, RATE);
+    synth::add_noise(&mut iq, 44, 0.002);
     let mut monitor = monitor();
     let mut output = run(&mut monitor, &iq, 0);
     output.extend(run(&mut monitor, &noise(0.5, 45), iq.len() as u64));
@@ -170,15 +170,15 @@ fn buffered_pager_decodes_the_first_message_and_retains_its_origin() {
 
 #[test]
 fn a_disabled_protocol_is_neither_decoded_nor_reported() {
-    let pages = [testgen::pocsag::Page {
+    let pages = [synth::pocsag::Page {
         address: 1_234_567,
         function: 3,
         text: "MUTED".to_owned(),
         numeric: false,
     }];
-    let mut iq = testgen::pocsag::transmission(&pages, 1200, 4500.0, RATE);
-    testgen::shift(&mut iq, 300_000.0, RATE);
-    testgen::add_noise(&mut iq, 44, 0.002);
+    let mut iq = synth::pocsag::transmission(&pages, 1200, 4500.0, RATE);
+    synth::shift(&mut iq, 300_000.0, RATE);
+    synth::add_noise(&mut iq, 44, 0.002);
     let settings = SpectrumMonitorNode {
         disabled_protocols: vec!["pocsag".to_owned()],
         ..Default::default()
@@ -202,10 +202,10 @@ fn a_disabled_protocol_is_neither_decoded_nor_reported() {
 
 #[test]
 fn unidentified_signals_can_be_hidden() {
-    let bits = testgen::dv::filler(720, 85);
-    let mut iq = testgen::fsk(&bits, 1200.0, 4500.0, RATE);
-    testgen::shift(&mut iq, 250_000.0, RATE);
-    testgen::add_noise(&mut iq, 86, 0.002);
+    let bits = synth::dv::filler(720, 85);
+    let mut iq = synth::fsk(&bits, 1200.0, 4500.0, RATE);
+    synth::shift(&mut iq, 250_000.0, RATE);
+    synth::add_noise(&mut iq, 86, 0.002);
     let settings = SpectrumMonitorNode {
         report_unidentified: false,
         disabled_protocols: crate::descriptors()
@@ -226,10 +226,10 @@ fn unidentified_signals_can_be_hidden() {
 
 #[test]
 fn simplex_dmr_at_435_125_mhz_is_confirmed() {
-    let call = testgen::dv::dmr::Call::default();
-    let mut iq = testgen::dv::dmr::simplex_transmission(&call, RATE);
-    testgen::shift(&mut iq, 125_000.0, RATE);
-    testgen::add_noise(&mut iq, 84, 0.02);
+    let call = synth::dv::dmr::Call::default();
+    let mut iq = synth::dv::dmr::simplex_transmission(&call, RATE);
+    synth::shift(&mut iq, 125_000.0, RATE);
+    synth::add_noise(&mut iq, 84, 0.02);
     let mut monitor =
         SpectrumMonitor::new(RATE, 435_000_000.0, SpectrumMonitorNode::default()).unwrap();
     let lead = noise(0.2, 87);
@@ -257,10 +257,10 @@ fn simplex_dmr_at_435_125_mhz_is_confirmed() {
 
 #[test]
 fn unrecognized_fsk_does_not_create_nfm_audio() {
-    let bits = testgen::dv::filler(720, 85);
-    let mut iq = testgen::fsk(&bits, 1200.0, 4500.0, RATE);
-    testgen::shift(&mut iq, 250_000.0, RATE);
-    testgen::add_noise(&mut iq, 86, 0.002);
+    let bits = synth::dv::filler(720, 85);
+    let mut iq = synth::fsk(&bits, 1200.0, 4500.0, RATE);
+    synth::shift(&mut iq, 250_000.0, RATE);
+    synth::add_noise(&mut iq, 86, 0.002);
     let mut monitor = monitor();
     let mut output = run(&mut monitor, &iq, 0);
     output.extend(monitor.finish(TransmissionState::Completed, None));

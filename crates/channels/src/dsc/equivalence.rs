@@ -99,7 +99,7 @@ pub(super) fn offset_transmission(
         }
         iq.extend(vec![Complex::new(0.0, 0.0); 3_000]);
     }
-    crate::testgen::shift(&mut iq, offset_hz, RATE);
+    crate::synth::shift(&mut iq, offset_hz, RATE);
     add_awgn(&mut iq, sigma, seed);
     let mut filtered = Vec::with_capacity(iq.len());
     super::channel_filter().process(&iq, &mut filtered);

@@ -347,7 +347,7 @@ mod tests {
 
     use super::*;
     use crate::{
-        testgen::{
+        synth::{
             self,
             acars::{Block, transmission},
         },
@@ -499,7 +499,7 @@ mod tests {
     #[test]
     fn decodes_through_additive_noise() {
         let mut iq = transmission(&downlink(), RATE);
-        testgen::add_noise(&mut iq, 0xabad_1dea, 0.15);
+        synth::add_noise(&mut iq, 0xabad_1dea, 0.15);
         let messages = decode(&filtered(&iq));
         assert_eq!(messages.len(), 1, "{messages:?}");
         assert_eq!(messages[0].text, "REPORT ENGINE 1 OK");
@@ -575,7 +575,7 @@ mod tests {
             let heard = decode(&transmission(&block, RATE));
             assert_eq!(heard.len(), 1, "{heard:?}");
             let m = &heard[0];
-            let bytes = testgen::acars::block_bytes(&block);
+            let bytes = synth::acars::block_bytes(&block);
             let parsed = block::parse(&bytes[2..]).expect("vhf block parses");
             assert!(parsed.crc_ok);
             assert_eq!(parsed.parity_errors, 0);
@@ -604,7 +604,7 @@ mod tests {
     #[test]
     fn a_corrupted_block_is_dropped_rather_than_guessed() {
         let mut framer = Framer::new();
-        let good = testgen::acars::block_bytes(&downlink());
+        let good = synth::acars::block_bytes(&downlink());
         let mut out = ChannelOutputs::default();
         feed_bytes(&mut framer, &good, &mut out);
         assert_eq!(out.events.len(), 1, "the intact block must decode");

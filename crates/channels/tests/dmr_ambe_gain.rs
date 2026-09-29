@@ -13,7 +13,7 @@ use common::{
     baseline_path, dmr_entry, find_uw, recovered_symbols, uw_dibits,
 };
 use num_complex::Complex;
-use sdrmm_channels::testgen::dv as tg;
+use sdrmm_channels::synth::dv as tg;
 use sdrmm_modem::cpm::TIMING_BW_BURST;
 use sdrmm_modem_test_support::ber::{
     Curve, CurvePoint,

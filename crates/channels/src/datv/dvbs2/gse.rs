@@ -35,7 +35,7 @@ pub const fn protocol_name(protocol: u16) -> &'static str {
 }
 
 impl GsePdu {
-    #[cfg(any(test, feature = "test-signals"))]
+    #[cfg(any(test, feature = "synth"))]
     #[must_use]
     pub fn label_type(&self) -> u8 {
         match self.label.len() {
@@ -284,12 +284,12 @@ impl Default for Gse {
     }
 }
 
-#[cfg(any(test, feature = "test-signals"))]
+#[cfg(any(test, feature = "synth"))]
 pub struct GseWriter {
     next: u8,
 }
 
-#[cfg(any(test, feature = "test-signals"))]
+#[cfg(any(test, feature = "synth"))]
 impl GseWriter {
     #[must_use]
     pub const fn new() -> Self {
@@ -360,7 +360,7 @@ impl GseWriter {
     }
 }
 
-#[cfg(any(test, feature = "test-signals"))]
+#[cfg(any(test, feature = "synth"))]
 impl Default for GseWriter {
     fn default() -> Self {
         Self::new()

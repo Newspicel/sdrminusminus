@@ -788,9 +788,9 @@ impl SdrDevice for AdsbTestDevice {
 
     fn rx_start(&mut self, sinks: Vec<RxSink>) -> Result<(), DeviceError> {
         let mut sink = single_rx_sink(sinks)?;
-        let frame = sdrmm_channels::testgen::adsb::squitter(
+        let frame = sdrmm_channels::synth::adsb::squitter(
             0x3C_6444,
-            sdrmm_channels::testgen::adsb::me_airborne_position(9_000, 52.52, 13.405, false),
+            sdrmm_channels::synth::adsb::me_airborne_position(9_000, 52.52, 13.405, false),
         );
         let frames = std::iter::repeat_n(frame, 16).collect::<Vec<_>>();
         let rate = self.rate.clone();
@@ -802,7 +802,7 @@ impl SdrDevice for AdsbTestDevice {
                     .lock()
                     .unwrap_or_else(std::sync::PoisonError::into_inner);
                 let samples =
-                    sdrmm_channels::testgen::adsb::transmission(&frames, 30.0, 0.8, sample_rate);
+                    sdrmm_channels::synth::adsb::transmission(&frames, 30.0, 0.8, sample_rate);
                 sink.push(&samples);
                 std::thread::sleep(Duration::from_millis(2));
             }

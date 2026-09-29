@@ -47,13 +47,13 @@ impl TimeDeinterleaver {
     }
 }
 
-#[cfg(any(test, feature = "test-signals"))]
+#[cfg(any(test, feature = "synth"))]
 pub struct TimeInterleaver {
     lines: Vec<Vec<bool>>,
     at: usize,
 }
 
-#[cfg(any(test, feature = "test-signals"))]
+#[cfg(any(test, feature = "synth"))]
 impl TimeInterleaver {
     #[must_use]
     pub fn new(fragment: usize) -> Self {
@@ -118,7 +118,7 @@ impl SubChannelDecoder {
     }
 }
 
-#[cfg(any(test, feature = "test-signals"))]
+#[cfg(any(test, feature = "synth"))]
 pub struct SubChannelEncoder {
     protection: Protection,
     interleaver: TimeInterleaver,
@@ -128,7 +128,7 @@ pub struct SubChannelEncoder {
     punctured: Vec<bool>,
 }
 
-#[cfg(any(test, feature = "test-signals"))]
+#[cfg(any(test, feature = "synth"))]
 impl SubChannelEncoder {
     #[must_use]
     pub fn new(protection: Protection) -> Self {

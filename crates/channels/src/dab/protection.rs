@@ -365,7 +365,7 @@ impl Protection {
         }
     }
 
-    #[cfg(any(test, feature = "test-signals"))]
+    #[cfg(any(test, feature = "synth"))]
     pub fn puncture(&self, coded: &[bool], out: &mut Vec<bool>) {
         for (position, keep) in self.mask().enumerate() {
             if keep && let Some(&bit) = coded.get(position) {

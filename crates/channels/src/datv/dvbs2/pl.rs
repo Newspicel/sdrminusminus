@@ -115,7 +115,7 @@ pub fn plsc(index: usize, bit: bool, extended: bool) -> Complex<f32> {
     }
 }
 
-#[cfg(any(test, feature = "test-signals"))]
+#[cfg(any(test, feature = "synth"))]
 pub fn header(signalling: Signalling, out: &mut Vec<Complex<f32>>) {
     let coded = signalling_bits(signalling);
     let jump = extended(signalling);
@@ -257,7 +257,7 @@ impl Scrambler {
         u8::from(xa ^ yb) << 1 | u8::from(xc ^ yc)
     }
 
-    #[cfg(any(test, feature = "test-signals"))]
+    #[cfg(any(test, feature = "synth"))]
     pub fn scramble(&mut self, symbols: &mut [Complex<f32>]) {
         for symbol in symbols {
             *symbol = rotate(*symbol, self.next());

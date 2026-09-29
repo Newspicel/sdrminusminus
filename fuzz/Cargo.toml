@@ -12,7 +12,7 @@ cargo-fuzz = true
 libfuzzer-sys = "0.4"
 num-complex = "0.4"
 serde_json = "1"
-sdrmm-channels = { path = "../crates/channels", features = ["test-signals"] }
+sdrmm-channels = { path = "../crates/channels", features = ["synth"] }
 sdrmm-wire = { path = "../crates/wire" }
 
 [lints.clippy]

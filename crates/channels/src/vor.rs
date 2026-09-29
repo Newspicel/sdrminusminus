@@ -220,7 +220,7 @@ mod tests {
                 settings(ChannelParams::Vor(params)),
             )
             .expect("channel");
-            let events = run_events(&mut channel, &crate::testgen::vor::transmission(radial, 2));
+            let events = run_events(&mut channel, &crate::synth::vor::transmission(radial, 2));
             let reading = events
                 .iter()
                 .filter_map(|event| match event {
@@ -237,7 +237,7 @@ mod tests {
 
     #[test]
     fn processing_keeps_ahead_of_the_channel_rate() {
-        let iq = crate::testgen::vor::transmission(45.0, 5);
+        let iq = crate::synth::vor::transmission(45.0, 5);
         let mut channel = VorChannel::new(
             ChannelCtx { input_rate: RATE },
             settings(ChannelParams::Vor(VorParams::default())),

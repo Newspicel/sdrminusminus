@@ -1,7 +1,7 @@
 use sdrmm_wire::DatvCodeRate;
 
 use super::*;
-use crate::{testgen, testutil::realtime_budget};
+use crate::{synth, testutil::realtime_budget};
 
 #[test]
 fn carrier_grid_and_permutations_match_the_standard() {
@@ -29,7 +29,7 @@ fn carrier_grid_and_permutations_match_the_standard() {
 
 #[test]
 fn tps_repairs_two_errors_and_rejects_invalid_modes() {
-    let params = testgen::dvbt::defaults();
+    let params = synth::dvbt::defaults();
     let mut bits = tps::encode(params);
     bits[28] = !bits[28];
     bits[53] = !bits[53];
@@ -53,9 +53,9 @@ fn every_constellation_and_rate_delivers_transport_packets() {
         let params = tps::Parameters {
             bits,
             high_rate: rate,
-            ..testgen::dvbt::defaults()
+            ..synth::dvbt::defaults()
         };
-        let iq = testgen::dvbt::waveform(params, 160);
+        let iq = synth::dvbt::waveform(params, 160);
         let mut decoder = receiver::Receiver::new(false);
         let mut packets = Vec::new();
         for block in iq.chunks(1009) {
@@ -90,15 +90,15 @@ fn eight_kilocarriers_and_all_guards_survive_carrier_offset_and_echoes() {
             fft: 8192,
             guard: 8192 / denominator,
             bits: 4,
-            ..testgen::dvbt::defaults()
+            ..synth::dvbt::defaults()
         };
-        let mut iq = testgen::dvbt::waveform(params, 145);
+        let mut iq = synth::dvbt::waveform(params, 145);
         for i in (17..iq.len()).rev() {
             let echo = iq[i - 17] * num_complex::Complex::new(0.12, 0.06);
             iq[i] += echo;
         }
-        testgen::shift(&mut iq, 1234.0, 64_000_000.0 / 7.0);
-        testgen::add_noise(&mut iq, 0x92a1, 0.03);
+        synth::shift(&mut iq, 1234.0, 64_000_000.0 / 7.0);
+        synth::add_noise(&mut iq, 0x92a1, 0.03);
         let mut decoder = receiver::Receiver::new(false);
         let mut packets = Vec::new();
         for block in iq.chunks(8191) {
@@ -123,9 +123,9 @@ fn hierarchical_streams_select_high_and_low_priority() {
             bits: 6,
             alpha,
             hierarchical: true,
-            ..testgen::dvbt::defaults()
+            ..synth::dvbt::defaults()
         };
-        let iq = testgen::dvbt::waveform(params, 150);
+        let iq = synth::dvbt::waveform(params, 150);
         for low in [false, true] {
             let mut decoder = receiver::Receiver::new(low);
             let mut packets = Vec::new();
@@ -181,9 +181,9 @@ fn highest_order_terrestrial_demodulation_has_bounded_cost() {
         guard: 256,
         bits: 6,
         high_rate: DatvCodeRate::SevenEighths,
-        ..testgen::dvbt::defaults()
+        ..synth::dvbt::defaults()
     };
-    let iq = testgen::dvbt::waveform(params, 340);
+    let iq = synth::dvbt::waveform(params, 340);
     let mut receiver = receiver::Receiver::new(false);
     let mut packets = Vec::new();
     let start = std::time::Instant::now();

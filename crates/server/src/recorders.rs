@@ -580,7 +580,7 @@ mod tests {
             gate: Arc::new(Mutex::new(())),
             gps: Arc::new(GpsHub::default()),
         };
-        let ds = engine.create_device_set("virtual:siggen").expect("radio");
+        let ds = engine.create_device_set("virtual:band").expect("radio");
         let settings = sdrmm_wire::ChannelSettings::default_for("nfm").expect("nfm");
         let ch = engine
             .add_channel_for(ds, 0, settings, Some("ch"))

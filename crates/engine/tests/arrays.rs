@@ -102,7 +102,7 @@ fn definition() -> ArrayDefinition {
     ArrayDefinition {
         key: "pair".into(),
         label: "Pair".into(),
-        members: vec!["virtual:siggen".into(), "virtual:halfduplex".into()],
+        members: vec!["virtual:band".into(), "virtual:halfduplex".into()],
         coherence: Coherence::TimeSync,
         shared_tuning: true,
     }
@@ -111,7 +111,7 @@ fn definition() -> ArrayDefinition {
 fn members(engine: &Engine) -> [u32; 2] {
     let sources = [
         engine
-            .create_device_set("virtual:siggen")
+            .create_device_set("virtual:band")
             .expect("source one"),
         engine
             .create_device_set("virtual:halfduplex")

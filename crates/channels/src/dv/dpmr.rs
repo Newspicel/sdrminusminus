@@ -300,7 +300,7 @@ mod tests {
             testutil::{assert_tone_audio, decode, decode_with_audio},
             vocoder::testutil::half_rate_frames,
         },
-        testgen::dv::dpmr as tx,
+        synth::dv::dpmr as tx,
         testutil::settings,
     };
 

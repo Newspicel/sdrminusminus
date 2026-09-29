@@ -1,7 +1,7 @@
 use num_complex::Complex;
 use sdrmm_channels::{
     AmTx, AprsTx, ChannelCtx, ChannelTx, SsbTx, TxPayload,
-    testgen::{self, dv, weak_signal},
+    synth::{self, dv, weak_signal},
 };
 use sdrmm_wire::{
     AmParams, ArgumentOption, AtvModulation, AtvParams, AtvStandard, ChannelParams,
@@ -20,7 +20,7 @@ const NARROW: f64 = 240_000.0;
 const AUDIO: f64 = 48_000.0;
 const WIDE_FM: f64 = 960_000.0;
 const WIDEBAND: f64 = 2_000_000.0;
-const CENTER_HZ: f64 = 145_000_000.0;
+pub const CENTER_HZ: f64 = 145_000_000.0;
 const VOICE_SECONDS: f64 = 3.0;
 
 pub static SIGNALS: &[Signal] = &[
@@ -322,14 +322,14 @@ fn two_tone() -> Vec<Complex<f32>> {
     let len = seconds(NARROW, 1.0);
     let mut low = vec![Complex::new(0.5, 0.0); len];
     let mut high = low.clone();
-    testgen::shift(&mut low, -10_000.0, NARROW);
-    testgen::shift(&mut high, 10_000.0, NARROW);
+    synth::shift(&mut low, -10_000.0, NARROW);
+    synth::shift(&mut high, 10_000.0, NARROW);
     low.iter().zip(high).map(|(a, b)| a + b).collect()
 }
 
 fn noise() -> Vec<Complex<f32>> {
-    let mut iq = testgen::silence(seconds(NARROW, 1.0));
-    testgen::add_noise(&mut iq, 0x5DEE_CE66, 0.5);
+    let mut iq = synth::silence(seconds(NARROW, 1.0));
+    synth::add_noise(&mut iq, 0x5DEE_CE66, 0.5);
     iq
 }
 
@@ -347,29 +347,29 @@ fn sweep() -> Vec<Complex<f32>> {
 }
 
 fn voice_audio(rate: f64) -> Vec<f32> {
-    testgen::nfm::speech_audio(rate, seconds(rate, VOICE_SECONDS))
+    synth::nfm::speech_audio(rate, seconds(rate, VOICE_SECONDS))
 }
 
 fn nfm_voice() -> Vec<Complex<f32>> {
-    testgen::fm_modulate(&voice_audio(NARROW), 2_500.0, NARROW)
+    synth::fm_modulate(&voice_audio(NARROW), 2_500.0, NARROW)
 }
 
 fn nfm_ctcss() -> Vec<Complex<f32>> {
     let len = seconds(NARROW, VOICE_SECONDS);
-    let audio = testgen::nfm::mix(
-        &testgen::nfm::ctcss_audio(88.5, 0.15, NARROW, len),
-        &testgen::nfm::speech_audio(NARROW, len),
+    let audio = synth::nfm::mix(
+        &synth::nfm::ctcss_audio(88.5, 0.15, NARROW, len),
+        &synth::nfm::speech_audio(NARROW, len),
     );
-    testgen::fm_modulate(&audio, 2_500.0, NARROW)
+    synth::fm_modulate(&audio, 2_500.0, NARROW)
 }
 
 fn nfm_dcs() -> Vec<Complex<f32>> {
     let len = seconds(NARROW, VOICE_SECONDS);
-    let audio = testgen::nfm::mix(
-        &testgen::nfm::dcs_audio(23, 0.15, NARROW, len),
-        &testgen::nfm::speech_audio(NARROW, len),
+    let audio = synth::nfm::mix(
+        &synth::nfm::dcs_audio(23, 0.15, NARROW, len),
+        &synth::nfm::speech_audio(NARROW, len),
     );
-    testgen::fm_modulate(&audio, 2_500.0, NARROW)
+    synth::fm_modulate(&audio, 2_500.0, NARROW)
 }
 
 fn voice_settings(params: ChannelParams) -> ChannelSettings {
@@ -397,7 +397,7 @@ fn modulated_voice(
     {
         return Vec::new();
     }
-    testgen::burst(tx.as_mut())
+    synth::burst(tx.as_mut())
 }
 
 fn am_voice() -> Vec<Complex<f32>> {
@@ -411,7 +411,7 @@ fn am_voice() -> Vec<Complex<f32>> {
         },
         ChannelParams::Am(AmParams::default()),
     );
-    testgen::resample(&iq, rate, NARROW)
+    synth::resample(&iq, rate, NARROW)
 }
 
 fn ssb_voice() -> Vec<Complex<f32>> {
@@ -428,24 +428,24 @@ fn ssb_voice() -> Vec<Complex<f32>> {
             ..SsbParams::default()
         }),
     );
-    testgen::resample(&iq, rate, AUDIO)
+    synth::resample(&iq, rate, AUDIO)
 }
 
 fn broadcast_audio(rate: f64) -> (Vec<f32>, Vec<f32>) {
     let len = seconds(rate, 2.0);
     (
-        testgen::tone_audio(440.0, 0.5, rate, len),
-        testgen::tone_audio(660.0, 0.5, rate, len),
+        synth::tone_audio(440.0, 0.5, rate, len),
+        synth::tone_audio(660.0, 0.5, rate, len),
     )
 }
 
 fn wfm_stereo() -> Vec<Complex<f32>> {
     let (left, right) = broadcast_audio(WIDE_FM);
-    testgen::wfm::transmission(&left, &right, true, WIDE_FM)
+    synth::wfm::transmission(&left, &right, true, WIDE_FM)
 }
 
 fn wfm_rds() -> Vec<Complex<f32>> {
-    let station = testgen::rds::Station {
+    let station = synth::rds::Station {
         pi: 0xD3C2,
         ps: "SDR-M4  ".to_owned(),
         radiotext: "signal generator".to_owned(),
@@ -455,40 +455,40 @@ fn wfm_rds() -> Vec<Complex<f32>> {
         music: true,
         alt_freqs_hz: vec![89_800_000.0, 95_500_000.0],
     };
-    testgen::rds::transmission(&station, 6.0, Some(1_000.0), WIDE_FM)
+    synth::rds::transmission(&station, 6.0, Some(1_000.0), WIDE_FM)
 }
 
 fn pocsag() -> Vec<Complex<f32>> {
-    let pages = [testgen::pocsag::Page {
+    let pages = [synth::pocsag::Page {
         address: 1_234_567,
         function: 3,
         text: "SDR-- signal generator".to_owned(),
         numeric: false,
     }];
-    testgen::pocsag::transmission(&pages, 1_200, 4_500.0, NARROW)
+    synth::pocsag::transmission(&pages, 1_200, 4_500.0, NARROW)
 }
 
 fn flex() -> Vec<Complex<f32>> {
-    let page = testgen::flex::Page {
+    let page = synth::flex::Page {
         address: 1_234_567,
         text: "SDR-- signal generator".to_owned(),
     };
-    testgen::flex::transmission(&page, 4, 72, NARROW)
+    synth::flex::transmission(&page, 4, 72, NARROW)
 }
 
 fn ermes() -> Vec<Complex<f32>> {
-    let page = testgen::ermes::Page {
+    let page = synth::ermes::Page {
         local_address: 4_242,
         message_number: 1,
         text: "SDR-- signal generator".to_owned(),
         urgent: false,
         alert: 1,
     };
-    testgen::ermes::transmission(&page, NARROW)
+    synth::ermes::transmission(&page, NARROW)
 }
 
 fn acars() -> Vec<Complex<f32>> {
-    let block = testgen::acars::Block {
+    let block = synth::acars::Block {
         mode: '2',
         registration: ".D-AIBL",
         ack: '\u{15}',
@@ -499,7 +499,7 @@ fn acars() -> Vec<Complex<f32>> {
         text: "SDR-- signal generator",
         more: false,
     };
-    testgen::acars::transmission(&block, NARROW)
+    synth::acars::transmission(&block, NARROW)
 }
 
 fn aprs() -> Vec<Complex<f32>> {
@@ -519,7 +519,7 @@ fn aprs() -> Vec<Complex<f32>> {
     {
         return Vec::new();
     }
-    testgen::resample(&testgen::burst(&mut tx), rate, NARROW)
+    synth::resample(&synth::burst(&mut tx), rate, NARROW)
 }
 
 fn aprs_frame(text: &str) -> Vec<u8> {
@@ -536,7 +536,7 @@ fn aprs_frame(text: &str) -> Vec<u8> {
 }
 
 fn ais() -> Vec<Complex<f32>> {
-    let report = testgen::ais::PositionReport {
+    let report = synth::ais::PositionReport {
         mmsi: 244_010_000,
         lat: 52.3702,
         lon: 4.8952,
@@ -545,62 +545,62 @@ fn ais() -> Vec<Complex<f32>> {
         heading_deg: 88,
         nav_status: 0,
     };
-    testgen::ais::burst(&testgen::ais::position_payload(&report), NARROW)
+    synth::ais::burst(&synth::ais::position_payload(&report), NARROW)
 }
 
 fn adsb_frames() -> Vec<Vec<u8>> {
     let icao = 0x3C_65_AC;
     vec![
-        testgen::adsb::squitter(icao, testgen::adsb::me_identification("DLH123")),
-        testgen::adsb::squitter(
+        synth::adsb::squitter(icao, synth::adsb::me_identification("DLH123")),
+        synth::adsb::squitter(
             icao,
-            testgen::adsb::me_airborne_position(38_000, 52.2572, 3.9190, false),
+            synth::adsb::me_airborne_position(38_000, 52.2572, 3.9190, false),
         ),
-        testgen::adsb::squitter(
+        synth::adsb::squitter(
             icao,
-            testgen::adsb::me_airborne_position(38_000, 52.2657, 3.9184, true),
+            synth::adsb::me_airborne_position(38_000, 52.2657, 3.9184, true),
         ),
-        testgen::adsb::squitter(icao, testgen::adsb::me_velocity(451.0, 87.0, -1_216)),
+        synth::adsb::squitter(icao, synth::adsb::me_velocity(451.0, 87.0, -1_216)),
     ]
 }
 
 fn adsb() -> Vec<Complex<f32>> {
-    testgen::adsb::transmission(&adsb_frames(), 500.0, 0.8, WIDEBAND)
+    synth::adsb::transmission(&adsb_frames(), 500.0, 0.8, WIDEBAND)
 }
 
 fn mode_s() -> Vec<Complex<f32>> {
     let icao = 0x3C_65_AC;
     let frames = vec![
-        testgen::adsb::all_call_reply(icao, 5, 0),
-        testgen::adsb::identity_reply(icao, "7421", 0),
-        testgen::adsb::altitude_reply(icao, 24_000, 0),
+        synth::adsb::all_call_reply(icao, 5, 0),
+        synth::adsb::identity_reply(icao, "7421", 0),
+        synth::adsb::altitude_reply(icao, 24_000, 0),
     ];
-    testgen::adsb::transmission(&frames, 500.0, 0.8, WIDEBAND)
+    synth::adsb::transmission(&frames, 500.0, 0.8, WIDEBAND)
 }
 
 fn morse() -> Vec<Complex<f32>> {
-    testgen::morse::transmission("CQ CQ DE SDR-- K", 20.0, 800.0, AUDIO)
+    synth::morse::transmission("CQ CQ DE SDR-- K", 20.0, 800.0, AUDIO)
 }
 
 fn rtty() -> Vec<Complex<f32>> {
-    testgen::rtty::transmission("RYRYRY DE SDR-- ", 45.45, 170.0, 1.5, AUDIO)
+    synth::rtty::transmission("RYRYRY DE SDR-- ", 45.45, 170.0, 1.5, AUDIO)
 }
 
 fn navtex() -> Vec<Complex<f32>> {
-    testgen::navtex::transmission("ZCZC FA01 SDR-- SIGNAL GENERATOR NNNN", AUDIO)
+    synth::navtex::transmission("ZCZC FA01 SDR-- SIGNAL GENERATOR NNNN", AUDIO)
 }
 
 fn psk31() -> Vec<Complex<f32>> {
-    let iq = testgen::psk::transmission("CQ CQ DE SDR-- \n", PskBaud::Psk31.rate());
-    testgen::resample(&iq, 8_000.0, AUDIO)
+    let iq = synth::psk::transmission("CQ CQ DE SDR-- \n", PskBaud::Psk31.rate());
+    synth::resample(&iq, 8_000.0, AUDIO)
 }
 
 fn selcall() -> Vec<Complex<f32>> {
-    testgen::selcall::transmission(SelcallSystem::Ccir1, "12234", AUDIO).unwrap_or_default()
+    synth::selcall::transmission(SelcallSystem::Ccir1, "12234", AUDIO).unwrap_or_default()
 }
 
 fn weak(slot: Vec<Complex<f32>>) -> Vec<Complex<f32>> {
-    testgen::resample(&slot, 12_000.0, AUDIO)
+    synth::resample(&slot, 12_000.0, AUDIO)
 }
 
 fn ft8() -> Vec<Complex<f32>> {
@@ -617,17 +617,17 @@ fn wspr() -> Vec<Complex<f32>> {
 
 fn sstv() -> Vec<Complex<f32>> {
     let mode = SstvMode::MartinM1;
-    let frame = testgen::sstv::bars(mode);
-    let native = testgen::sstv::transmission(mode, &frame, 16_000.0);
-    testgen::resample(&native, 16_000.0, AUDIO)
+    let frame = synth::sstv::bars(mode);
+    let native = synth::sstv::transmission(mode, &frame, 16_000.0);
+    synth::resample(&native, 16_000.0, AUDIO)
 }
 
 fn vor() -> Vec<Complex<f32>> {
-    testgen::vor::transmission(123.0, 2)
+    synth::vor::transmission(123.0, 2)
 }
 
 fn dcf77() -> Vec<Complex<f32>> {
-    testgen::radio_clock::dcf77_example()
+    synth::radio_clock::dcf77()
 }
 
 fn dmr() -> Vec<Complex<f32>> {
@@ -659,31 +659,31 @@ fn ysf() -> Vec<Complex<f32>> {
 }
 
 fn dect() -> Vec<Complex<f32>> {
-    let station = testgen::dect::Station {
-        capabilities: testgen::dect::capability_bits(&[17, 33, 36, 37]),
-        ..testgen::dect::Station::default()
+    let station = synth::dect::Station {
+        capabilities: synth::dect::capability_bits(&[17, 33, 36, 37]),
+        ..synth::dect::Station::default()
     };
-    testgen::dect::dummy_bearer(&station, 40)
+    synth::dect::dummy_bearer(&station, 40)
 }
 
 fn gnss() -> Vec<Complex<f32>> {
-    testgen::gnss::acquisition(7, 1_000.0, 317, 1_000)
+    synth::gnss::acquisition(7, 1_000.0, 317, 1_000)
 }
 
 fn dab() -> Vec<Complex<f32>> {
-    testgen::dab::ensemble_for_mode(DabTransmissionMode::I, 16)
+    synth::dab::ensemble_for_mode(DabTransmissionMode::I, 16)
 }
 
 fn dvbs() -> Vec<Complex<f32>> {
-    testgen::datv::dvbs(4)
+    synth::datv::dvbs(4)
 }
 
 fn dvbs2() -> Vec<Complex<f32>> {
-    testgen::datv::dvbs2(4)
+    synth::datv::dvbs2(4)
 }
 
 fn dvbt() -> Vec<Complex<f32>> {
-    testgen::dvbt::waveform(testgen::dvbt::defaults(), 544)
+    synth::dvbt::waveform(synth::dvbt::defaults(), 544)
 }
 
 fn atv() -> Vec<Complex<f32>> {
@@ -692,6 +692,6 @@ fn atv() -> Vec<Complex<f32>> {
         standard: AtvStandard::Ccir625,
         ..AtvParams::default()
     };
-    let source = testgen::atv::AtvSource::new(&params, 2_400_000.0);
-    testgen::atv::bars(&source, 8)
+    let source = synth::atv::AtvSource::new(&params, 2_400_000.0);
+    synth::atv::bars(&source, 8)
 }

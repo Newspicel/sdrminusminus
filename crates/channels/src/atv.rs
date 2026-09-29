@@ -738,7 +738,7 @@ mod tests {
 
     use super::*;
     use crate::{
-        testgen::atv::{AtvSource, BAR_LEVELS, COLOR_BARS, bars, color_bars_with_tone},
+        synth::atv::{AtvSource, BAR_LEVELS, COLOR_BARS, bars, color_bars_with_tone},
         testutil::{dominant_tone, realtime_budget, settings},
     };
 
@@ -966,7 +966,7 @@ mod tests {
     fn a_noisy_channel_still_scans_a_recognizable_picture() {
         let p = params_for(AtvStandard::Ccir625, AtvModulation::Am);
         let mut iq = bars(&AtvSource::new(&p, INPUT_RATE_HZ), 4);
-        crate::testgen::add_noise(&mut iq, 0xA7C3, 0.08);
+        crate::synth::add_noise(&mut iq, 0xA7C3, 0.08);
         let mut chan = channel(p);
         let picture = run(&mut chan, &iq).pop().expect("a picture");
         let row = usize::from(picture.height) / 2;

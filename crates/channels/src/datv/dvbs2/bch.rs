@@ -8,7 +8,7 @@ pub struct Bch {
     exp: Vec<u16>,
     log: Vec<u16>,
     order: usize,
-    #[cfg(any(test, feature = "test-signals"))]
+    #[cfg(any(test, feature = "synth"))]
     generator: Vec<bool>,
     correct: usize,
     message: usize,
@@ -21,7 +21,7 @@ pub struct BchScratch {
     saved: Vec<u16>,
 }
 
-#[cfg(any(test, feature = "test-signals"))]
+#[cfg(any(test, feature = "synth"))]
 fn minimal_polynomial(exp: &[u16], log: &[u16], order: usize, power: usize) -> Vec<u16> {
     let mut roots = Vec::new();
     let mut current = power % order;
@@ -70,7 +70,7 @@ impl Bch {
                 value ^= primitive;
             }
         }
-        #[cfg(any(test, feature = "test-signals"))]
+        #[cfg(any(test, feature = "synth"))]
         let generator = {
             let mut generator = vec![true];
             for step in 0..correct {
@@ -85,14 +85,14 @@ impl Bch {
             exp,
             log,
             order,
-            #[cfg(any(test, feature = "test-signals"))]
+            #[cfg(any(test, feature = "synth"))]
             generator,
             correct,
             message,
         }
     }
 
-    #[cfg(any(test, feature = "test-signals"))]
+    #[cfg(any(test, feature = "synth"))]
     #[must_use]
     pub const fn parity(&self) -> usize {
         self.generator.len() - 1
@@ -119,7 +119,7 @@ impl Bch {
         self.power(self.order - usize::from(self.log[usize::from(a)]))
     }
 
-    #[cfg(any(test, feature = "test-signals"))]
+    #[cfg(any(test, feature = "synth"))]
     pub fn encode(&self, message: &[bool], out: &mut Vec<bool>) {
         let parity_len = self.parity();
         let mut remainder = vec![false; parity_len];
@@ -247,7 +247,7 @@ impl Bch {
     }
 }
 
-#[cfg(any(test, feature = "test-signals"))]
+#[cfg(any(test, feature = "synth"))]
 fn multiply(left: &[bool], right: &[u16]) -> Vec<bool> {
     let mut out = vec![false; left.len() + right.len() - 1];
     for (index, &a) in left.iter().enumerate() {
@@ -263,7 +263,7 @@ fn multiply(left: &[bool], right: &[u16]) -> Vec<bool> {
     out
 }
 
-#[cfg(any(test, feature = "test-signals"))]
+#[cfg(any(test, feature = "synth"))]
 fn divides(product: &[bool], factor: &[u16]) -> bool {
     let factor: Vec<bool> = factor.iter().map(|&value| value != 0).collect();
     if factor.len() > product.len() {

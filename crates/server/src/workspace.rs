@@ -897,8 +897,8 @@ mod tests {
             id: 1,
             device: DeviceInfo {
                 driver: "virtual".to_owned(),
-                key: "siggen".to_owned(),
-                label: "Siggen".to_owned(),
+                key: "band".to_owned(),
+                label: "Test band".to_owned(),
                 serial: None,
                 profile: None,
             },

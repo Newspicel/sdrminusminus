@@ -4,7 +4,7 @@ use super::*;
 async fn channel_levels_are_measured_and_pushed_without_invalidating_state() {
     let engine = virtual_engine();
     let ds = engine
-        .create_device_set("virtual:siggen")
+        .create_device_set("virtual:band")
         .expect("device set");
     let mut events = engine.event_tx.subscribe();
     let channel = engine
@@ -72,7 +72,7 @@ async fn channel_levels_are_measured_and_pushed_without_invalidating_state() {
 async fn a_channel_baseband_recording_lands_as_a_sigmf_pair_at_the_channel_rate() {
     let dir = tempfile::TempDir::new().unwrap();
     let engine = recording_engine(dir.path());
-    let ds = engine.create_device_set("virtual:siggen").unwrap();
+    let ds = engine.create_device_set("virtual:band").unwrap();
     let ch = engine.add_channel(ds, 0, nfm_settings(120_000.0)).unwrap();
 
     let live = engine.start_channel_baseband_recording(ds, ch).unwrap();
@@ -113,7 +113,7 @@ async fn a_channel_baseband_recording_lands_as_a_sigmf_pair_at_the_channel_rate(
 async fn removing_a_channel_finishes_the_baseband_it_was_writing() {
     let dir = tempfile::TempDir::new().unwrap();
     let engine = recording_engine(dir.path());
-    let ds = engine.create_device_set("virtual:siggen").unwrap();
+    let ds = engine.create_device_set("virtual:band").unwrap();
     let ch = engine.add_channel(ds, 0, nfm_settings(0.0)).unwrap();
     let live = engine.start_channel_baseband_recording(ds, ch).unwrap();
     wait_for_baseband_samples(&engine, ds, ch, 480).await;
@@ -130,7 +130,7 @@ async fn removing_a_channel_finishes_the_baseband_it_was_writing() {
 #[tokio::test]
 async fn a_channel_network_export_carries_that_channel_and_not_the_radio() {
     let engine = virtual_engine();
-    let ds = engine.create_device_set("virtual:siggen").unwrap();
+    let ds = engine.create_device_set("virtual:band").unwrap();
     let ch = engine.add_channel(ds, 0, nfm_settings(0.0)).unwrap();
     let socket = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
     socket

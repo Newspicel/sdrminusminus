@@ -519,7 +519,7 @@ impl ChannelRx for DabChannel {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{dab::ofdm::FRAME, testgen, testutil::realtime_budget};
+    use crate::{dab::ofdm::FRAME, synth, testutil::realtime_budget};
 
     fn settings(service_id: Option<u32>) -> ChannelSettings {
         ChannelSettings {
@@ -557,7 +557,7 @@ mod tests {
 
     #[test]
     fn a_generated_ensemble_locks_and_names_its_services() {
-        let iq = testgen::dab::ensemble(12);
+        let iq = synth::dab::ensemble(12);
         let mut channel = channel(None);
         let mut out = ChannelOutputs::default();
         for block in iq.chunks(16_384) {
@@ -575,8 +575,8 @@ mod tests {
 
     #[test]
     fn the_selected_service_yields_dab_plus_access_units() {
-        let iq = testgen::dab::ensemble(40);
-        let mut channel = channel(Some(testgen::dab::MUSIC_SERVICE));
+        let iq = synth::dab::ensemble(40);
+        let mut channel = channel(Some(synth::dab::MUSIC_SERVICE));
         let mut out = ChannelOutputs::default();
         for block in iq.chunks(16_384) {
             channel.process(block, &mut out);
@@ -584,7 +584,7 @@ mod tests {
         let status = status(&out);
         assert!(status.locked, "{status:?}");
         assert_eq!(status.system, BroadcastSystem::DabPlus);
-        assert_eq!(status.service_id, Some(testgen::dab::MUSIC_SERVICE));
+        assert_eq!(status.service_id, Some(synth::dab::MUSIC_SERVICE));
         assert_eq!(status.label.as_deref(), Some("Rust FM"));
         assert_eq!(status.bitrate_kbps, Some(96));
         assert!(channel.superframes > 0, "no superframe was assembled");
@@ -616,11 +616,11 @@ mod tests {
     fn all_transmission_modes_decode_fic_and_msc_independently_of_input_blocks() {
         use sdrmm_wire::DabTransmissionMode::{I, Ii, Iii, Iv};
         for mode in [I, Ii, Iii, Iv] {
-            let iq = testgen::dab::ensemble_for_mode(mode, 40);
+            let iq = synth::dab::ensemble_for_mode(mode, 40);
             let mut reference = None;
             for block_size in [997, 16384, iq.len()] {
-                let mut channel = channel(Some(testgen::dab::MUSIC_SERVICE));
-                let mut settings = settings(Some(testgen::dab::MUSIC_SERVICE));
+                let mut channel = channel(Some(synth::dab::MUSIC_SERVICE));
+                let mut settings = settings(Some(synth::dab::MUSIC_SERVICE));
                 if let ChannelParams::Dab(params) = &mut settings.params {
                     params.transmission_mode = mode;
                 }
@@ -656,7 +656,7 @@ mod tests {
     fn changing_transmission_mode_discards_old_ensemble_and_interleaver_state() {
         let mut channel = channel(None);
         let mut out = ChannelOutputs::default();
-        channel.process(&testgen::dab::ensemble(6), &mut out);
+        channel.process(&synth::dab::ensemble(6), &mut out);
         assert!(status(&out).locked);
         let mut settings = settings(None);
         if let ChannelParams::Dab(params) = &mut settings.params {
@@ -668,7 +668,7 @@ mod tests {
         assert!(channel.selection.is_none());
         out.reset();
         channel.process(
-            &testgen::dab::ensemble_for_mode(sdrmm_wire::DabTransmissionMode::Iii, 11),
+            &synth::dab::ensemble_for_mode(sdrmm_wire::DabTransmissionMode::Iii, 11),
             &mut out,
         );
         assert!(status(&out).locked);
@@ -735,7 +735,7 @@ mod tests {
         }
         channel.apply(settings).expect("classic generation");
         let mut out = ChannelOutputs::default();
-        for block in testgen::dab::ensemble(18).chunks(16384) {
+        for block in synth::dab::ensemble(18).chunks(16384) {
             channel.process(block, &mut out);
         }
         let until = std::time::Instant::now() + std::time::Duration::from_secs(2);
@@ -745,7 +745,7 @@ mod tests {
         }
         assert_eq!(
             channel.selection.as_ref().expect("selection").service,
-            testgen::dab::TALK_SERVICE
+            synth::dab::TALK_SERVICE
         );
         assert!(channel.audio.frames_ok > 0, "{:?}", channel.audio.error);
         assert!(out.audio_pcm.iter().any(|value| value.abs() > 0.05));
@@ -762,7 +762,7 @@ mod tests {
     #[test]
     fn an_ensemble_at_the_coverage_edge_still_locks_and_reports_its_carrier_to_noise() {
         for (snr_db, floor_db) in [(20.0f32, 17.0f32), (12.0, 9.0), (8.0, 5.0)] {
-            let iq = crate::testutil::at_snr(&testgen::dab::ensemble(20), snr_db, 7);
+            let iq = crate::testutil::at_snr(&synth::dab::ensemble(20), snr_db, 7);
             let mut channel = channel(None);
             let mut out = ChannelOutputs::default();
             for block in iq.chunks(16_384) {
@@ -782,7 +782,7 @@ mod tests {
     #[test]
     fn an_echo_inside_the_guard_interval_does_not_read_as_noise() {
         const ECHO: usize = 200;
-        let clean = testgen::dab::ensemble(20);
+        let clean = synth::dab::ensemble(20);
         let mut echoed = clean.clone();
         for index in ECHO..echoed.len() {
             echoed[index] += clean[index - ECHO] * 0.7;
@@ -802,20 +802,20 @@ mod tests {
     fn losing_the_carrier_clears_lock_and_pending_audio() {
         let mut channel = channel(None);
         let mut out = ChannelOutputs::default();
-        channel.process(&testgen::dab::ensemble(7), &mut out);
+        channel.process(&synth::dab::ensemble(7), &mut out);
         assert!(status(&out).locked);
         out.reset();
         channel.process(&vec![Complex::new(0.0, 0.0); 5 * FRAME], &mut out);
         assert!(!status(&out).locked);
         assert!(channel.selection.is_none());
-        channel.process(&testgen::dab::ensemble(8), &mut out);
+        channel.process(&synth::dab::ensemble(8), &mut out);
         assert!(status(&out).locked);
     }
 
     #[test]
     fn packet_mode_mot_crosses_fec_and_the_msc() {
-        let mut channel = channel(Some(testgen::dab::DATA_SERVICE));
-        let iq = testgen::dab::ensemble_with_data(sdrmm_wire::DabTransmissionMode::I, 24);
+        let mut channel = channel(Some(synth::dab::DATA_SERVICE));
+        let iq = synth::dab::ensemble_with_data(sdrmm_wire::DabTransmissionMode::I, 24);
         let mut out = ChannelOutputs::default();
         for block in iq.chunks(16384) {
             channel.process(block, &mut out);
@@ -871,7 +871,7 @@ mod tests {
 
     #[test]
     fn decoding_keeps_ahead_of_the_channel_rate() {
-        let iq = testgen::dab::ensemble(11);
+        let iq = synth::dab::ensemble(11);
         let mut channel = channel(None);
         let mut out = ChannelOutputs::default();
         let started = std::time::Instant::now();

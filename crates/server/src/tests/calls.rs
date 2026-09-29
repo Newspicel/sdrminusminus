@@ -18,15 +18,15 @@ async fn a_plain_dmr_channel_records_every_call_without_any_trunk_system() {
     const RATE: f64 = 240_000.0;
     let dir = tempfile::TempDir::new().expect("temp dir");
     let stem = dir.path().join("dmr");
-    let spoken = sdrmm_channels::testgen::dv::dmr::Call::default();
-    let one = sdrmm_channels::testgen::dv::dmr::transmission(&spoken, RATE);
+    let spoken = sdrmm_channels::synth::dv::dmr::Call::default();
+    let one = sdrmm_channels::synth::dv::dmr::transmission(&spoken, RATE);
     let mut iq = Vec::new();
     for _ in 0..6 {
         iq.extend_from_slice(&one);
     }
     let floor = RATE as usize * 2;
     if iq.len() < floor {
-        iq.extend(sdrmm_channels::testgen::silence(floor - iq.len()));
+        iq.extend(sdrmm_channels::synth::silence(floor - iq.len()));
     }
     let mut writer =
         sdrmm_recorder::SigmfWriter::create(&stem, RATE, 145_000_000.0, "conventional dmr fixture")

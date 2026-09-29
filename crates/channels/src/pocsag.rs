@@ -425,7 +425,7 @@ mod tests {
 
     use super::*;
     use crate::{
-        testgen::{
+        synth::{
             add_noise,
             pocsag::{Page, codewords, keyed, transmission},
             silence,

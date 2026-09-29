@@ -51,7 +51,7 @@ impl Mode {
         out
     }
 
-    #[cfg(any(test, feature = "test-signals"))]
+    #[cfg(any(test, feature = "synth"))]
     pub fn interleave(&self, coded: &[bool]) -> Vec<bool> {
         if self.modulation == Modulation::Qpsk {
             return coded.to_vec();

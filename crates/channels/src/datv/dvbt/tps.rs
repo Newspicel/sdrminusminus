@@ -125,7 +125,7 @@ impl Tps {
     }
 }
 
-#[cfg(any(test, feature = "test-signals"))]
+#[cfg(any(test, feature = "synth"))]
 pub fn encode(params: Parameters) -> [bool; 68] {
     let mut word = 0u128;
     let mut put = |start: usize, length: usize, value: usize| {

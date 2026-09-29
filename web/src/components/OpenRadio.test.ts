@@ -20,7 +20,7 @@ function device(driver: string, key: string, label = `${driver} ${key}`): Device
 describe("rankDevices", () => {
   it("puts every real radio above the virtual devices", () => {
     const ranked = rankDevices([
-      device("virtual", "siggen", "Signal Generator"),
+      device("virtual", "band", "Test band"),
       device("rtlsdr", "00000001", "RTL-SDR 00000001"),
       device("rtltcp", "10.0.0.5:1234", "rtl_tcp 10.0.0.5:1234"),
     ]);
@@ -36,7 +36,7 @@ describe("rankDevices", () => {
 
 describe("visibleDevices", () => {
   const devices = [
-    device("virtual", "siggen", "Signal Generator"),
+    device("virtual", "band", "Test band"),
     device("virtual", "array4", "Coherent Array"),
     device("recording", "airband", "airband"),
     device("siggen", "signal_gen-a1b2", "Signal generator"),
@@ -48,7 +48,7 @@ describe("visibleDevices", () => {
     expect(visibleDevices(devices, true).map(deviceId)).toEqual([
       "rtlsdr:00000001",
       "virtual:array4",
-      "virtual:siggen",
+      "virtual:band",
     ]);
   });
 
@@ -61,13 +61,13 @@ describe("unclaimedDevices", () => {
   const devices = [
     device("rtlsdr", "00000001", "RTL-SDR 00000001"),
     device("rtlsdr", "00000002", "RTL-SDR 00000002"),
-    device("virtual", "siggen", "Signal Generator"),
+    device("virtual", "band", "Test band"),
   ];
 
   it("drops the radios another node already names", () => {
     expect(
       unclaimedDevices(devices, [{ backend: "rtlsdr", key: "00000001" }]).map(deviceId),
-    ).toEqual(["rtlsdr:00000002", "virtual:siggen"]);
+    ).toEqual(["rtlsdr:00000002", "virtual:band"]);
     expect(
       unclaimedDevices(
         [{ driver: "rtlsdr", key: "0@rx", label: "RTL-SDR", serial: "0" }],
@@ -77,9 +77,10 @@ describe("unclaimedDevices", () => {
   });
 
   it("matches a keyed reference and a bare backend alike", () => {
-    expect(
-      unclaimedDevices(devices, [{ backend: "virtual", key: "siggen" }]).map(deviceId),
-    ).toEqual(["rtlsdr:00000001", "rtlsdr:00000002"]);
+    expect(unclaimedDevices(devices, [{ backend: "virtual", key: "band" }]).map(deviceId)).toEqual([
+      "rtlsdr:00000001",
+      "rtlsdr:00000002",
+    ]);
     expect(unclaimedDevices(devices, [{ backend: "virtual" }]).map(deviceId)).toEqual([
       "rtlsdr:00000001",
       "rtlsdr:00000002",
@@ -94,7 +95,7 @@ describe("unclaimedDevices", () => {
 describe("groupDevices", () => {
   const devices = [
     device("rtlsdr", "00000001", "RTL-SDR 00000001"),
-    device("virtual", "siggen", "Signal Generator"),
+    device("virtual", "band", "Test band"),
     device("virtual", "array4", "Coherent Array"),
   ];
 
@@ -102,14 +103,14 @@ describe("groupDevices", () => {
     const grouped = groupDevices(devices);
 
     expect(grouped.radios.map(deviceId)).toEqual(["rtlsdr:00000001"]);
-    expect(grouped.virtual.map(deviceId)).toEqual(["virtual:siggen", "virtual:array4"]);
+    expect(grouped.virtual.map(deviceId)).toEqual(["virtual:band", "virtual:array4"]);
   });
 });
 
 describe("sourceTabs", () => {
   const groups = groupDevices([
     device("rtlsdr", "00000001", "RTL-SDR 00000001"),
-    device("virtual", "siggen", "Signal Generator"),
+    device("virtual", "band", "Test band"),
   ]);
 
   it("counts what each tab holds and explains each one on hover", () => {

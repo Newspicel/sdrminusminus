@@ -2,7 +2,7 @@ use std::sync::LazyLock;
 
 use num_complex::Complex;
 use sdrmm_dsp::{Decimator, FmDemod, RealDecimator, design_lowpass};
-#[cfg(any(test, feature = "test-signals"))]
+#[cfg(any(test, feature = "synth"))]
 use sdrmm_modem::cpm::{CpmParams, Mapping};
 use sdrmm_modem::pulse::{self, Norm};
 use sdrmm_wire::{
@@ -108,7 +108,7 @@ fn post_filter(p: &RttyParams) -> RealDecimator {
     RealDecimator::new(&pulse::rect(sps, Norm::Area), 1)
 }
 
-#[cfg(any(test, feature = "test-signals"))]
+#[cfg(any(test, feature = "synth"))]
 pub(crate) fn cell_params(baud: f64, shift_hz: f64, rate: f64) -> CpmParams {
     let cell_baud = 2.0 * baud;
     let sps = rate / cell_baud;
@@ -318,7 +318,7 @@ mod tests {
 
     use super::*;
     use crate::{
-        testgen::{
+        synth::{
             self,
             rtty::{encode_codes, modulate, transmission},
         },
@@ -337,7 +337,7 @@ mod tests {
     }
 
     fn tail(baud: f64) -> Vec<Complex<f32>> {
-        testgen::silence((40.0 * RATE / baud) as usize)
+        synth::silence((40.0 * RATE / baud) as usize)
     }
 
     fn decode_blocks(chan: &mut RttyChannel, iq: &[Complex<f32>], lens: &[usize]) -> Vec<String> {
@@ -505,7 +505,7 @@ mod tests {
     fn decodes_through_additive_noise() {
         let p = RttyParams::default();
         let mut iq = burst("CQ DE DL1ABC", &p);
-        testgen::add_noise(&mut iq, 0xabad_1dea, 0.5);
+        synth::add_noise(&mut iq, 0xabad_1dea, 0.5);
         assert_eq!(decode(p.clone(), &selected(&p, &iq)), "CQ DE DL1ABC");
     }
 

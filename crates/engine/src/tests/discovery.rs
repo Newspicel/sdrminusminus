@@ -7,18 +7,18 @@ async fn probes_virtual_device() {
         engine
             .probe_devices()
             .iter()
-            .any(|d| d.id() == "virtual:siggen")
+            .any(|d| d.id() == "virtual:band")
     );
 }
 
 #[tokio::test]
 async fn one_radio_opens_into_one_device_set() {
     let engine = virtual_engine();
-    let ds = engine.create_device_set("virtual:siggen").unwrap();
-    let refused = engine.create_device_set("virtual:siggen").unwrap_err();
+    let ds = engine.create_device_set("virtual:band").unwrap();
+    let refused = engine.create_device_set("virtual:band").unwrap_err();
     assert!(
         matches!(&refused, EngineError::DeviceAlreadyOpen(device, held)
-            if device == "virtual:siggen" && *held == ds),
+            if device == "virtual:band" && *held == ds),
         "expected a reopen refusal, got {refused}"
     );
     assert!(refused.is_conflict());
@@ -26,13 +26,13 @@ async fn one_radio_opens_into_one_device_set() {
     assert_eq!(engine.snapshot().device_sets.len(), 1);
 
     engine.remove_device_set(ds).unwrap();
-    engine.create_device_set("virtual:siggen").unwrap();
+    engine.create_device_set("virtual:band").unwrap();
 }
 
 #[tokio::test]
 async fn spectrum_flows_with_a_visible_tone() {
     let engine = virtual_engine();
-    let ds = engine.create_device_set("virtual:siggen").unwrap();
+    let ds = engine.create_device_set("virtual:band").unwrap();
     let mut rx = engine.subscribe_spectrum(ds, 0).unwrap();
 
     let snap = tokio::time::timeout(Duration::from_secs(3), rx.recv())

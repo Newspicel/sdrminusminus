@@ -1256,7 +1256,7 @@ mod tests {
     use sdrmm_wire::NfmParams;
 
     use super::*;
-    use crate::{testgen::burst, testutil::settings};
+    use crate::{synth::burst, testutil::settings};
 
     const RATE: f64 = 48_000.0;
 
@@ -1919,7 +1919,7 @@ mod tests {
                 keyed(AprsMode::G3ruh9600, &position_frame()),
             ),
         ] {
-            crate::testgen::add_noise(&mut iq, 0x5eed_1234, 0.4);
+            crate::synth::add_noise(&mut iq, 0x5eed_1234, 0.4);
             assert_position_packet(&only(decode(mode, &iq)));
         }
     }

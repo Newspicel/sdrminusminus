@@ -1,5 +1,5 @@
 {
-  "label": "dmr burst uncoded, testgen c4fm (CpmMod) -> BurstModel 132/156 sym TDMA -> channel filter -> CpmDemod + KnownSymbols, sync+preamble overhead in Eb, dead time excluded, release, uncoded BER, seed 0xd5b",
+  "label": "dmr burst uncoded, synth c4fm (CpmMod) -> BurstModel 132/156 sym TDMA -> channel filter -> CpmDemod + KnownSymbols, sync+preamble overhead in Eb, dead time excluded, release, uncoded BER, seed 0xd5b",
   "points": [
     {
       "ebn0_db": 6.0,

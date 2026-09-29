@@ -5,7 +5,7 @@ async fn record_start_stop_produces_a_finalized_sigmf_pair() {
     let dir = tempfile::TempDir::new().unwrap();
     let engine = recording_engine(dir.path());
     let mut events = engine.subscribe_events();
-    let ds = engine.create_device_set("virtual:siggen").unwrap();
+    let ds = engine.create_device_set("virtual:band").unwrap();
 
     engine.start_recording(ds, 0).unwrap();
     wait_for_deviceset_event(&mut events, ds).await;
@@ -40,7 +40,7 @@ async fn record_start_stop_produces_a_finalized_sigmf_pair() {
 async fn active_recording_persists_live_position_in_sigmf_metadata() {
     let dir = tempfile::TempDir::new().unwrap();
     let engine = recording_engine(dir.path());
-    let ds = engine.create_device_set("virtual:siggen").unwrap();
+    let ds = engine.create_device_set("virtual:band").unwrap();
     engine.start_recording(ds, 0).unwrap();
     wait_for_recorded_samples(&engine, ds, 1).await;
 
@@ -74,7 +74,7 @@ async fn active_recording_persists_live_position_in_sigmf_metadata() {
 async fn recording_position_rejects_an_idle_device_set() {
     let dir = tempfile::TempDir::new().unwrap();
     let engine = recording_engine(dir.path());
-    let ds = engine.create_device_set("virtual:siggen").unwrap();
+    let ds = engine.create_device_set("virtual:band").unwrap();
 
     let error = engine.update_recording_position(ds, None).unwrap_err();
     assert!(matches!(
@@ -88,7 +88,7 @@ async fn recording_position_rejects_an_idle_device_set() {
 async fn recording_position_update_does_not_block_or_panic_during_stop() {
     let dir = tempfile::TempDir::new().unwrap();
     let engine = recording_engine(dir.path());
-    let ds = engine.create_device_set("virtual:siggen").unwrap();
+    let ds = engine.create_device_set("virtual:band").unwrap();
     engine.start_recording(ds, 0).unwrap();
     wait_for_recorded_samples(&engine, ds, 1).await;
 
@@ -122,7 +122,7 @@ async fn recording_position_update_does_not_block_or_panic_during_stop() {
 async fn double_start_and_idle_stop_are_rejected() {
     let dir = tempfile::TempDir::new().unwrap();
     let engine = recording_engine(dir.path());
-    let ds = engine.create_device_set("virtual:siggen").unwrap();
+    let ds = engine.create_device_set("virtual:band").unwrap();
 
     let err = engine.stop_recording(ds).unwrap_err();
     assert!(err.is_bad_request(), "expected bad request, got {err}");
@@ -140,7 +140,7 @@ async fn double_start_and_idle_stop_are_rejected() {
 #[tokio::test]
 async fn start_without_a_recordings_dir_is_rejected() {
     let engine = virtual_engine();
-    let ds = engine.create_device_set("virtual:siggen").unwrap();
+    let ds = engine.create_device_set("virtual:band").unwrap();
     let err = engine.start_recording(ds, 0).unwrap_err();
     assert!(err.is_bad_request(), "expected bad request, got {err}");
     engine.remove_device_set(ds).unwrap();
@@ -150,7 +150,7 @@ async fn start_without_a_recordings_dir_is_rejected() {
 async fn rate_patch_is_rejected_while_recording_center_retune_is_captured() {
     let dir = tempfile::TempDir::new().unwrap();
     let engine = recording_engine(dir.path());
-    let ds = engine.create_device_set("virtual:siggen").unwrap();
+    let ds = engine.create_device_set("virtual:band").unwrap();
     engine.start_recording(ds, 0).unwrap();
     let before = wait_for_recorded_samples(&engine, ds, 1).await;
 
@@ -244,7 +244,7 @@ async fn device_fault_finalizes_the_recording() {
 async fn recording_growth_rides_the_hotplug_tick() {
     let dir = tempfile::TempDir::new().unwrap();
     let engine = recording_engine(dir.path());
-    let ds = engine.create_device_set("virtual:siggen").unwrap();
+    let ds = engine.create_device_set("virtual:band").unwrap();
     engine.start_recording(ds, 0).unwrap();
     wait_for_recorded_samples(&engine, ds, 1).await;
 
@@ -310,7 +310,7 @@ async fn start_during_rate_patch_cannot_commit_a_wrong_rate_recording() {
 async fn engine_drop_finalizes_a_live_recording() {
     let dir = tempfile::TempDir::new().unwrap();
     let engine = recording_engine(dir.path());
-    let ds = engine.create_device_set("virtual:siggen").unwrap();
+    let ds = engine.create_device_set("virtual:band").unwrap();
     engine.start_recording(ds, 0).unwrap();
     let live = wait_for_recorded_samples(&engine, ds, 1).await;
 
@@ -335,7 +335,7 @@ async fn engine_drop_finalizes_a_live_recording() {
 async fn shutdown_finalizes_recordings_emits_scopes_and_is_idempotent() {
     let dir = tempfile::TempDir::new().unwrap();
     let engine = recording_engine(dir.path());
-    let ds = engine.create_device_set("virtual:siggen").unwrap();
+    let ds = engine.create_device_set("virtual:band").unwrap();
     engine.start_recording(ds, 0).unwrap();
     let live = wait_for_recorded_samples(&engine, ds, 1).await;
 
@@ -369,7 +369,7 @@ async fn shutdown_finalizes_recordings_emits_scopes_and_is_idempotent() {
 async fn writer_fault_surfaces_in_state_via_the_hotplug_tick() {
     let dir = tempfile::TempDir::new().unwrap();
     let engine = recording_engine(dir.path());
-    let ds = engine.create_device_set("virtual:siggen").unwrap();
+    let ds = engine.create_device_set("virtual:band").unwrap();
     engine.start_recording(ds, 0).unwrap();
     wait_for_recorded_samples(&engine, ds, 1).await;
 
@@ -417,7 +417,7 @@ async fn record_start_io_failure_is_a_server_error_not_a_bad_request() {
     let mut registry = DeviceRegistry::new();
     registry.register(VIRTUAL_PRIORITY, Box::new(VirtualDriver::new()));
     let engine = Engine::with_registry(registry, Some(blocker.path().join("recordings")));
-    let ds = engine.create_device_set("virtual:siggen").unwrap();
+    let ds = engine.create_device_set("virtual:band").unwrap();
 
     let err = engine.start_recording(ds, 0).unwrap_err();
     assert!(matches!(err, EngineError::RecordingIo(_)), "got {err}");

@@ -8,7 +8,7 @@ use common::{
 };
 use num_complex::Complex;
 use sdrmm_channels::{
-    ChannelCtx, ChannelOutputs, ChannelRx, DmrChannel, channel_filter, testgen::dv as tg,
+    ChannelCtx, ChannelOutputs, ChannelRx, DmrChannel, channel_filter, synth::dv as tg,
 };
 use sdrmm_modem::cpm::{KnownSymbols, TIMING_BW_BURST, TIMING_BW_CONTINUOUS};
 use sdrmm_modem_test_support::ber::{
@@ -40,7 +40,7 @@ const STEADY_BITS: usize = 4096;
 
 fn steady_link() -> Link {
     Link {
-        label: "dmr steady uncoded, testgen c4fm (CpmMod) -> channel filter -> CpmDemod at \
+        label: "dmr steady uncoded, synth c4fm (CpmMod) -> channel filter -> CpmDemod at \
                 burst timing bw, 88-symbol preamble + 24-symbol sync overhead in Eb, release"
             .to_string(),
         bits_per_trial: STEADY_BITS,
@@ -194,7 +194,7 @@ const BURST_FRAMES: usize = 12;
 
 fn burst_link() -> Link {
     BurstRecipe::dmr(BURST_FRAMES).link(
-        "dmr burst uncoded, testgen c4fm (CpmMod) -> BurstModel 132/156 sym TDMA -> channel \
+        "dmr burst uncoded, synth c4fm (CpmMod) -> BurstModel 132/156 sym TDMA -> channel \
          filter -> CpmDemod + KnownSymbols, sync+preamble overhead in Eb, dead time excluded, \
          release",
     )
