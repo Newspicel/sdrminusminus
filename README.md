@@ -10,6 +10,8 @@ channels, and displays in **Patch** view, then pin your everyday controls to **R
 Run the desktop app with a local SDR, or place the server near your antenna and connect through
 a browser. Both use the same receiver engine and interface.
 
+Questions or ideas? Join the [Discord](https://discord.gg/dYaRyGwBNw).
+
 <p align="center">
   <img src="assets/screenshots/patch.png" alt="A receiver patch with three channels, a speaker, recording, and network IQ output">
 </p>
@@ -108,8 +110,6 @@ every check.
 - [User and developer guide](https://sdrmm.com/introduction.html)
 - Swagger UI: `/api/docs` on a running server
 - OpenAPI: `/api/openapi.json` or [openapi.json](openapi.json)
-
-Questions or ideas? Join the [Discord](https://discord.gg/dYaRyGwBNw).
 
 ## Thanks
 

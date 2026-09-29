@@ -3,6 +3,8 @@ import { BINDINGS } from "../canvas/useHotkeys";
 import { Button } from "./BaseControls";
 import { BTN, BTN_QUIET, DIALOG_TITLE, SURFACE } from "./controls";
 
+const DISCORD = "https://discord.gg/dYaRyGwBNw";
+
 export function Shortcuts({
   open,
   onOpenChange,
@@ -54,6 +56,9 @@ export function Shortcuts({
               >
                 Report a problem
               </Button>
+              <a href={DISCORD} target="_blank" rel="noreferrer" className={BTN_QUIET}>
+                Discord
+              </a>
             </div>
             <Dialog.Close className={BTN}>Close</Dialog.Close>
           </div>
