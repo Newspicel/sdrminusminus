@@ -14,7 +14,7 @@ use crate::linalg::{
     CMat, Cholesky, Eigen, HermitianEigen, LinalgError, MAX_ORDER, MAX_POLY_DEGREE, Roots,
 };
 use crate::manifold::{
-    AliasReport, AzimuthSpan, Direction, ElevationSpan, GridSpec, MAX_ELEMENTS, Manifold,
+    AliasReport, AzimuthSpan, Direction, ElevationSpan, Geometry, GridSpec, MAX_ELEMENTS, Manifold,
     ManifoldError, Shape, SteeringGrid, alias_check, wavenumber,
 };
 use crate::special::{brent_max, norm_deg};
@@ -30,7 +30,7 @@ pub use quality::{
 pub use space::{
     ARRAY_CHANGED, ELEVATION_NEEDS_2D, ELEVATION_NEEDS_GRID, FB_NEEDS_SYMMETRY,
     LOADING_OUT_OF_RANGE, NEEDS_LINE_OR_CIRCLE, PEAK_RANGE_OUT_OF_RANGE, PEAKS_OUT_OF_RANGE,
-    SIDE_NEEDS_LINE, SQUELCH_OUT_OF_RANGE, TOO_FEW_ELEMENTS, TOO_MANY_SOURCES,
+    SIDE_NEEDS_LINE, SQUELCH_OUT_OF_RANGE, TABLE_NEEDS_GRID, TOO_FEW_ELEMENTS, TOO_MANY_SOURCES,
 };
 pub use spectrum::{Pseudospectrum, bartlett, capon, music};
 pub use subspace::{EspritSolvers, MAX_ESPRIT_SOURCES, esprit, line_azimuths, root_music};
@@ -249,6 +249,7 @@ pub struct Doa {
     manifold: Manifold,
     layout: Layout,
     phase: Option<PhaseMode>,
+    phase_fault: Option<CovarianceError>,
     plan: Result<Space, DoaError>,
     grid: SteeringGrid,
     ring: SteeringGrid,
@@ -267,15 +268,9 @@ impl Doa {
         }
         let geometry = manifold.geometry();
         let layout = Layout::of(geometry);
-        let phase = match geometry.shape() {
-            Shape::Uca { .. } => match PhaseMode::new(geometry, freq_hz) {
-                Ok(phase) => Some(phase),
-                Err(CovarianceError::NotStructured) => None,
-                Err(other) => return Err(other.into()),
-            },
-            Shape::Ula { .. } | Shape::Explicit => None,
-        };
-        let plan = space::plan(config, &layout, phase.as_ref())?;
+        let (phase, phase_fault) = phase_modes(geometry, freq_hz);
+        let plan = plan_space(config, &layout, phase.as_ref(), phase_fault)?;
+        space::check_table(config, manifold.uses_table_at(freq_hz))?;
         let grid = SteeringGrid::new(manifold, layout.grid_spec(config), freq_hz)?;
         let ring = SteeringGrid::new(manifold, GridSpec::ring(RING_STEP_DEG), freq_hz)?;
         let alias = alias_check(&ring, geometry, freq_hz);
@@ -287,6 +282,7 @@ impl Doa {
             manifold: manifold.clone(),
             layout,
             phase,
+            phase_fault,
             plan: Ok(plan),
             grid,
             ring,
@@ -306,7 +302,8 @@ impl Doa {
         if !self.same_array(manifold) {
             return Ok(Reconfigure::NeedsNew);
         }
-        let plan = space::plan(config, &self.layout, self.phase.as_ref())?;
+        let plan = plan_space(config, &self.layout, self.phase.as_ref(), self.phase_fault)?;
+        space::check_table(config, manifold.uses_table_at(self.freq_hz))?;
         let spec = self.layout.grid_spec(config);
         let current = self.grid.spec();
         let same_storage = spec.azimuth_step_deg == current.azimuth_step_deg
@@ -336,14 +333,22 @@ impl Doa {
             return Err(DoaError::Unsupported(ARRAY_CHANGED));
         }
         if let Some(phase) = self.phase.as_mut() {
-            phase.retune(freq_hz)?;
+            self.phase_fault = phase.retune(freq_hz).err();
         }
         self.grid.rebuild(manifold, freq_hz)?;
         self.ring.rebuild(manifold, freq_hz)?;
         self.freq_hz = freq_hz;
         self.alias = alias_check(&self.ring, manifold.geometry(), freq_hz);
         self.reset();
-        self.plan = space::plan(&self.config, &self.layout, self.phase.as_ref());
+        self.plan = plan_space(
+            &self.config,
+            &self.layout,
+            self.phase.as_ref(),
+            self.phase_fault,
+        )
+        .and_then(|plan| {
+            space::check_table(&self.config, manifold.uses_table_at(freq_hz)).map(|()| plan)
+        });
         self.plan.map(|_| self.alias)
     }
 
@@ -380,8 +385,7 @@ impl Doa {
     #[must_use]
     pub fn mode_bias_deg(&self) -> Option<f32> {
         let uses_modes = matches!(self.plan, Ok(Space::Modes | Space::Vandermonde { .. }));
-        self.phase
-            .as_ref()
+        usable(self.phase.as_ref(), self.phase_fault)
             .filter(|_| uses_modes)
             .map(PhaseMode::mode_bias_deg)
     }
@@ -400,7 +404,7 @@ impl Doa {
             space,
             self.config.forward_backward,
             &self.layout,
-            self.phase.as_ref(),
+            usable(self.phase.as_ref(), self.phase_fault),
             r,
         )?;
         let delta = self.decompose()?;
@@ -451,9 +455,14 @@ impl Doa {
         let top = beam.power(peak);
         let scale =
             report.snapshots.max(1.0) / f64::from(report.noise_power).max(f64::MIN_POSITIVE);
+        let side = self.excluded_side();
         let mut raw = [0.0f32; LIKELIHOOD_POINTS];
         for (degree, value) in raw.iter_mut().enumerate() {
-            *value = (scale * (beam.at_degree(degree) - top)) as f32;
+            *value = if side.is_some_and(|centre| !on_side(degree as f64, centre)) {
+                f32::NEG_INFINITY
+            } else {
+                (scale * (beam.at_degree(degree) - top)) as f32
+            };
         }
         let h = CURVATURE_STEP_DEG.to_radians();
         let bend = beam.power(peak + CURVATURE_STEP_DEG) - 2.0 * top
@@ -466,6 +475,13 @@ impl Doa {
         );
         *out = raw;
         Ok(true)
+    }
+
+    fn excluded_side(&self) -> Option<f64> {
+        match self.config.ula_side {
+            UlaSide::Both => None,
+            side => self.layout.side_centre_deg(side),
+        }
     }
 
     fn same_array(&self, manifold: &Manifold) -> bool {
@@ -580,7 +596,7 @@ impl Doa {
             space,
             workspace: &self.workspace,
             layout: &self.layout,
-            phase: self.phase.as_ref(),
+            phase: usable(self.phase.as_ref(), self.phase_fault),
             manifold,
             freq_hz: self.freq_hz,
         }
@@ -775,7 +791,10 @@ impl Doa {
                 }
             }
         }
-        if let Some(weights) = self.workspace.weights(space, self.phase.as_ref()) {
+        if let Some(weights) = self
+            .workspace
+            .weights(space, usable(self.phase.as_ref(), self.phase_fault))
+        {
             for i in 0..m {
                 for j in 0..m {
                     let value = solvers.projector.get(i, j) * (weights[i] * weights[j]);
@@ -963,6 +982,36 @@ fn pair_weight(first: f32, second: f32) -> f32 {
         first * second / spread.sqrt()
     } else {
         0.0
+    }
+}
+
+fn phase_modes(geometry: &Geometry, freq_hz: f64) -> (Option<PhaseMode>, Option<CovarianceError>) {
+    if !matches!(geometry.shape(), Shape::Uca { .. }) {
+        return (None, None);
+    }
+    match PhaseMode::new(geometry, freq_hz) {
+        Ok(phase) => (Some(phase), None),
+        Err(CovarianceError::NotStructured) => (None, None),
+        Err(fault) => (None, Some(fault)),
+    }
+}
+
+const fn usable(phase: Option<&PhaseMode>, fault: Option<CovarianceError>) -> Option<&PhaseMode> {
+    match (phase, fault) {
+        (Some(phase), None) => Some(phase),
+        _ => None,
+    }
+}
+
+fn plan_space(
+    config: &DoaConfig,
+    layout: &Layout,
+    phase: Option<&PhaseMode>,
+    fault: Option<CovarianceError>,
+) -> Result<Space, DoaError> {
+    match (space::plan(config, layout, usable(phase, fault)), fault) {
+        (Err(DoaError::Unsupported(NEEDS_LINE_OR_CIRCLE)), Some(fault)) => Err(fault.into()),
+        (plan, _) => plan,
     }
 }
 

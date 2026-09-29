@@ -630,8 +630,8 @@ fn detection(
     };
     let table = AlphaTable::new(
         shaped.stat,
-        shaped.cells(),
-        2 * shaped.train_range,
+        shaped.statistic_cells(),
+        shaped.edge_cells(),
         cfar.pfa,
         shape.lanes as u32,
     )

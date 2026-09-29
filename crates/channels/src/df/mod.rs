@@ -115,6 +115,7 @@ const fn refusal(error: DoaError) -> ChannelError {
     ChannelError::Refused(match error {
         DoaError::Unsupported(text) => text,
         DoaError::Covariance(CovarianceError::BesselNull) => "Bessel null here",
+        DoaError::Covariance(CovarianceError::Special(_)) => "Circle too wide here",
         DoaError::Covariance(CovarianceError::NotStructured) => NEEDS_LINE_OR_CIRCLE,
         DoaError::Covariance(CovarianceError::NotSymmetric) => FB_NEEDS_SYMMETRY,
         DoaError::Covariance(CovarianceError::TooFewForSmoothing) => TOO_FEW_ELEMENTS,

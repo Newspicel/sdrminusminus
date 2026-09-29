@@ -3,13 +3,15 @@ use std::ops::Range;
 use num_complex::Complex;
 
 use super::RadarDspError;
-use super::threshold::{CfarStatistic, ThresholdError, alpha, os_order};
+use super::threshold::{CfarStatistic, MAX_ALPHA, ThresholdError, alpha, os_order};
 
 pub const MAX_GUARD: usize = 16;
 pub const MAX_TRAIN_RANGE: usize = 64;
 pub const MAX_TRAIN_DOPPLER: usize = 16;
 pub const MAX_LANES: usize = 15;
-pub const RHO_TABLE: [f64; 10] = [1.0, 1.33, 1.6, 2.0, 2.5, 3.2, 4.0, 5.0, 6.3, 7.0];
+pub const RHO_TABLE: [f64; 14] = [
+    1.0, 1.33, 1.6, 2.0, 2.5, 3.2, 4.0, 5.0, 6.3, 7.0, 8.0, 10.0, 12.6, 14.0,
+];
 pub const CORRELATION_LAGS: usize = 3;
 
 const MAX_PAD: usize = MAX_GUARD + MAX_TRAIN_DOPPLER;
@@ -57,6 +59,23 @@ impl CfarSpec {
             let outer = (2 * (self.guard_range + self.train_range) + 1)
                 * (2 * (self.guard_doppler + self.train_doppler) + 1);
             outer - (2 * self.guard_range + 1) * (2 * self.guard_doppler + 1)
+        } else {
+            2 * self.train_range
+        }
+    }
+
+    #[must_use]
+    pub const fn statistic_cells(&self) -> usize {
+        match self.stat {
+            CfarStatistic::Go if self.plane => 2 * self.train_range * (2 * self.pad() + 1),
+            _ => self.cells(),
+        }
+    }
+
+    #[must_use]
+    pub const fn edge_cells(&self) -> usize {
+        if self.plane {
+            self.cells()
         } else {
             2 * self.train_range
         }
@@ -442,10 +461,10 @@ impl AlphaTable {
         };
         for look in 1..=looks {
             for rho in RHO_TABLE {
-                table.alpha.push(alpha(stat, cells, pfa, look, rho)? as f32);
+                table.alpha.push(design(stat, cells, pfa, look, rho)?);
                 table
                     .edge
-                    .push(alpha(CfarStatistic::Ca, edge_cells, pfa, look, rho)? as f32);
+                    .push(design(CfarStatistic::Ca, edge_cells, pfa, look, rho)?);
             }
         }
         Ok(table)
@@ -460,6 +479,20 @@ impl AlphaTable {
             .position(|&rho| rho >= correlation)
             .unwrap_or(RHO_TABLE.len() - 1);
         (self.alpha[row + column], self.edge[row + column])
+    }
+}
+
+fn design(
+    stat: CfarStatistic,
+    cells: usize,
+    pfa: f64,
+    looks: u32,
+    correlation: f64,
+) -> Result<f32, ThresholdError> {
+    match alpha(stat, cells, pfa, looks, correlation) {
+        Ok(value) => Ok(value as f32),
+        Err(ThresholdError::Unreachable(_)) if correlation > 1.0 => Ok(MAX_ALPHA as f32),
+        Err(error) => Err(error),
     }
 }
 

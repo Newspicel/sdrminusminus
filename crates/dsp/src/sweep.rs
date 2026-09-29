@@ -336,6 +336,7 @@ struct Fit {
     bearing_deg: f64,
     fit: f64,
     sigma_deg: f64,
+    bank_sigma_deg: f64,
     curvature: f64,
     s_ll: f64,
     rss_best: f64,
@@ -744,11 +745,13 @@ impl SweepEstimator {
             WIDEST_SIGMA_DEG * WIDEST_SIGMA_DEG
         };
         let smear = rate * LEVEL_PERIOD_S;
-        let sigma = (raw_var + mean_sigma * mean_sigma + smear * smear).sqrt();
+        let bank = raw_var + smear * smear;
+        let sigma = (bank + mean_sigma * mean_sigma).sqrt();
         Ok(Fit {
             bearing_deg: bearing,
             fit,
             sigma_deg: sigma.min(WIDEST_SIGMA_DEG),
+            bank_sigma_deg: bank.sqrt().min(WIDEST_SIGMA_DEG),
             curvature,
             s_ll,
             rss_best,
@@ -757,7 +760,7 @@ impl SweepEstimator {
     }
 
     fn fill_likelihood(&self, fit: &Fit, out: &mut SweepBearing) {
-        let sigma_sq = fit.sigma_deg * fit.sigma_deg;
+        let sigma_sq = fit.bank_sigma_deg * fit.bank_sigma_deg;
         let temper = if fit.curvature > 0.0 {
             (1.0 / (fit.curvature * sigma_sq)).min(1.0)
         } else {
@@ -1032,6 +1035,20 @@ mod tests {
             sharp.sigma_deg
         );
         assert!(vague.confidence < sharp.confidence);
+    }
+
+    #[test]
+    fn the_sweep_likelihood_leaves_the_heading_to_the_fusion() {
+        let sharp = one_sweep(&Run::default());
+        let vague = one_sweep(&Run {
+            sigma_deg: 10.0,
+            ..Run::default()
+        });
+        assert!(vague.sigma_deg >= sharp.sigma_deg + 5.0);
+        assert_eq!(vague.likelihood, sharp.likelihood);
+        let peak = sharp.bearing_deg.round() as usize % 360;
+        let near = sharp.likelihood[(peak + 3) % 360];
+        assert!(near < sharp.likelihood[peak], "{near}");
     }
 
     #[test]

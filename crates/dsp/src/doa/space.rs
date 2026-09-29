@@ -19,6 +19,7 @@ pub const PEAKS_OUT_OF_RANGE: &str = "Peaks out of range";
 pub const LOADING_OUT_OF_RANGE: &str = "Loading out of range";
 pub const SQUELCH_OUT_OF_RANGE: &str = "Squelch out of range";
 pub const PEAK_RANGE_OUT_OF_RANGE: &str = "Peak range out of range";
+pub const TABLE_NEEDS_GRID: &str = "Table needs a grid method";
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(super) struct Line {
@@ -120,8 +121,7 @@ pub(super) fn plan(
     phase: Option<&PhaseMode>,
 ) -> Result<Space, DoaError> {
     check_scalars(config)?;
-    let structured = matches!(config.estimator, Estimator::RootMusic | Estimator::Esprit)
-        || config.smoothing > 0;
+    let structured = structured(config);
     if config.elevation.is_some() {
         if layout.collinear {
             return Err(unsupported(ELEVATION_NEEDS_2D));
@@ -147,6 +147,23 @@ pub(super) fn plan(
         return Err(unsupported(TOO_MANY_SOURCES));
     }
     Ok(space)
+}
+
+pub(super) fn check_table(config: &DoaConfig, measured: bool) -> Result<(), DoaError> {
+    if !measured {
+        return Ok(());
+    }
+    if structured(config) {
+        return Err(unsupported(TABLE_NEEDS_GRID));
+    }
+    if config.forward_backward {
+        return Err(unsupported(FB_NEEDS_SYMMETRY));
+    }
+    Ok(())
+}
+
+const fn structured(config: &DoaConfig) -> bool {
+    matches!(config.estimator, Estimator::RootMusic | Estimator::Esprit) || config.smoothing > 0
 }
 
 fn check_scalars(config: &DoaConfig) -> Result<(), DoaError> {

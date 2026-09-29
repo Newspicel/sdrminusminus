@@ -2,6 +2,7 @@ use std::f64::consts::TAU;
 
 use super::*;
 use crate::fft::FftPair;
+use crate::radar::batch::DopplerTaper;
 
 const PFA: f64 = 1e-3;
 const STATS: [CfarStatistic; 3] = [
@@ -53,8 +54,13 @@ fn shape(stat: CfarStatistic, plane: bool) -> CfarSpec {
 }
 
 fn designed(stat: CfarStatistic, plane: bool, looks: u32, correlation: f64) -> CfarSpec {
-    let spec = shape(stat, plane);
-    let table = AlphaTable::new(stat, spec.cells(), spec.cells(), PFA, looks).unwrap();
+    designed_from(shape(stat, plane), looks, correlation)
+}
+
+fn designed_from(spec: CfarSpec, looks: u32, correlation: f64) -> CfarSpec {
+    let stat = spec.stat;
+    let table =
+        AlphaTable::new(stat, spec.statistic_cells(), spec.edge_cells(), PFA, looks).unwrap();
     let (alpha, alpha_edge) = table.pick(looks, correlation);
     CfarSpec {
         alpha,
@@ -86,6 +92,55 @@ fn measured_pfa_matches_design() {
             assert!(within(ratio, 0.5, 2.0), "{stat:?} plane {plane}: {ratio}");
         }
     }
+}
+
+fn narrow_plane(stat: CfarStatistic) -> CfarSpec {
+    CfarSpec {
+        guard_range: 3,
+        train_range: 1,
+        guard_doppler: 1,
+        train_doppler: 2,
+        ..shape(stat, true)
+    }
+}
+
+#[test]
+fn a_narrow_plane_window_keeps_the_designed_pfa() {
+    let (rows, gates) = (1000, 1000);
+    let power = exponential_map(rows, gates, 31);
+    for stat in STATS {
+        let ratio = measured_pfa(
+            designed_from(narrow_plane(stat), 1, 1.0),
+            &power,
+            rows,
+            gates,
+        ) / PFA;
+        assert!(within(ratio, 0.75, 1.33), "{stat:?}: {ratio}");
+    }
+}
+
+#[test]
+fn plane_edges_fall_back_at_the_designed_pfa() {
+    let (rows, gates) = (20_000, 9);
+    let power = exponential_map(rows, gates, 32);
+    for stat in [CfarStatistic::Os { rank: 0.75 }, CfarStatistic::Go] {
+        let spec = designed_from(narrow_plane(stat), 1, 1.0);
+        let ratio = measured_pfa(spec, &power, rows, gates) / PFA;
+        assert!(within(ratio, 0.5, 2.0), "{stat:?}: {ratio}");
+    }
+}
+
+#[test]
+fn go_on_a_plane_designs_for_its_two_side_rectangles() {
+    let spec = narrow_plane(CfarStatistic::Go);
+    assert_eq!(spec.cells(), 42);
+    assert_eq!(spec.statistic_cells(), 14);
+    assert_eq!(spec.edge_cells(), 42);
+    let range = shape(CfarStatistic::Go, false);
+    assert_eq!(range.statistic_cells(), 16);
+    assert_eq!(range.edge_cells(), 16);
+    let os = narrow_plane(CfarStatistic::Os { rank: 0.75 });
+    assert_eq!(os.statistic_cells(), 42);
 }
 
 fn oversampled_rows(rows: usize, gates: usize, seed: u64) -> Vec<Vec<Complex<f32>>> {
@@ -482,6 +537,32 @@ fn the_alpha_table_never_picks_below_the_measured_correlation() {
     assert_eq!(table.pick(0, 1.0), table.pick(1, 1.0));
     assert_eq!(table.pick(9, 1.0), table.pick(2, 1.0));
     assert!(table.pick(2, 1.0).0 < table.pick(1, 1.0).0);
+}
+
+#[test]
+fn the_alpha_table_covers_the_largest_plane_correlation() {
+    let widest_range = 1.0 + 2.0 * CORRELATION_LAGS as f64;
+    let widest_plane = widest_range * DopplerTaper::BlackmanHarris.enbw();
+    assert!(RHO_TABLE[RHO_TABLE.len() - 1] >= widest_plane);
+    let table = AlphaTable::new(CfarStatistic::Ca, 216, 216, PFA, 1).unwrap();
+    let needed = alpha(CfarStatistic::Ca, 216, PFA, 1, widest_plane).unwrap() as f32;
+    let below = alpha(CfarStatistic::Ca, 216, PFA, 1, 7.0).unwrap() as f32;
+    assert_eq!(table.pick(1, widest_plane).0, needed);
+    assert_eq!(table.pick(1, 13.0).0, needed);
+    assert!(below < needed);
+    let go = AlphaTable::new(CfarStatistic::Go, 16, 16, PFA, 1).unwrap();
+    let one_cell_a_side = alpha(CfarStatistic::Go, 2, PFA, 1, 1.0).unwrap() as f32;
+    assert_eq!(go.pick(1, widest_plane).0, one_cell_a_side);
+    assert!(AlphaTable::new(CfarStatistic::Go, 1, 1, PFA, 1).is_err());
+}
+
+#[test]
+fn an_unreachable_correlated_column_holds_the_strictest_alpha() {
+    let strictest = crate::radar::threshold::MAX_ALPHA as f32;
+    let table = AlphaTable::new(CfarStatistic::Ca, 2, 2, 1e-9, 1).unwrap();
+    assert!(table.pick(1, 1.0).0 < strictest);
+    assert_eq!(table.pick(1, 1.33), (strictest, strictest));
+    assert!(AlphaTable::new(CfarStatistic::Ca, 1, 1, 1e-9, 1).is_err());
 }
 
 #[test]

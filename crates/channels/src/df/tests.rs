@@ -662,6 +662,33 @@ fn df_measured_table_is_used_and_out_of_range_is_flagged() {
 }
 
 #[test]
+fn df_refuses_root_music_while_a_measured_table_is_in_use() {
+    let mut array = Array::new(kraken(), 5);
+    let mut scene = array.scene(&[], 17);
+    scene.distortion = Some(warp);
+    let freqs = [CENTER_HZ - 1e6, CENTER_HZ + 1e6];
+    array.table = Some(scene.distortion_table(&freqs, 2.0).unwrap());
+    let root = DfParams {
+        algorithm: DfAlgorithm::RootMusic,
+        ..params()
+    };
+    assert_eq!(refused(&array.ctx(), root), "Table needs a grid method");
+    assert_eq!(refused(&array.ctx(), params()), "built");
+}
+
+#[test]
+fn df_keeps_grid_methods_on_a_circle_too_wide_for_phase_modes() {
+    let mut array = Array::new(kraken(), 5);
+    array.tune(12e9);
+    let root = DfParams {
+        algorithm: DfAlgorithm::RootMusic,
+        ..params()
+    };
+    assert_eq!(refused(&array.ctx(), root), "Circle too wide here");
+    assert_eq!(refused(&array.ctx(), params()), "built");
+}
+
+#[test]
 fn df_is_built_through_the_registry_and_counts_lane_mismatch() {
     let array = Array::new(kraken(), 5);
     let mut processor = create_processor(&array.ctx(), &ProcessorParams::Df(params())).unwrap();

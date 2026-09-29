@@ -4,6 +4,7 @@ pub const MIN_ALPHA: f64 = 1e-3;
 pub const MAX_ALPHA: f64 = 1e6;
 
 const BISECTION_STEPS: usize = 60;
+const Z_MIN: f64 = 1e-18;
 const Z_MAX: f64 = 40.0;
 const INTERVALS: usize = 4096;
 const SPREAD_WIDTHS: f64 = 40.0;
@@ -79,8 +80,7 @@ enum Model {
     },
     Integral {
         looks: u32,
-        start: f64,
-        step: f64,
+        nodes: Vec<f64>,
         weights: Vec<f64>,
     },
 }
@@ -124,10 +124,10 @@ impl Model {
                 ))
             }
             CfarStatistic::Go => {
-                let half = 0.5 * effective * per_cell;
-                if half < 1.0 {
+                if cells < 2 {
                     return Err(ThresholdError::Cells(cells));
                 }
+                let half = (0.5 * effective).max(1.0) * per_cell;
                 Ok(Self::integral(looks, span(1.0, half.sqrt().recip()), |z| {
                     greatest_density(z, half)
                 }))
@@ -136,17 +136,17 @@ impl Model {
     }
 
     fn integral(looks: u32, span: (f64, f64), density: impl Fn(f64) -> f64) -> Self {
-        let (start, end) = span;
-        let step = (end - start) / INTERVALS as f64;
-        let weights = (0..=INTERVALS)
+        let low = span.0.max(Z_MIN).ln();
+        let step = (span.1.ln() - low) / INTERVALS as f64;
+        let (nodes, weights) = (0..=INTERVALS)
             .map(|index| {
-                simpson_coefficient(index) * step / 3.0 * density(start + index as f64 * step)
+                let z = (low + index as f64 * step).exp();
+                (z, simpson_coefficient(index) * step / 3.0 * z * density(z))
             })
-            .collect();
+            .unzip();
         Self::Integral {
             looks,
-            start,
-            step,
+            nodes,
             weights,
         }
     }
@@ -160,15 +160,12 @@ impl Model {
             } => closed_pfa(*looks, *shape, alpha / cells),
             Self::Integral {
                 looks,
-                start,
-                step,
+                nodes,
                 weights,
-            } => weights
+            } => nodes
                 .iter()
-                .enumerate()
-                .map(|(index, weight)| {
-                    weight * survival(*looks, alpha * (start + index as f64 * step))
-                })
+                .zip(weights)
+                .map(|(z, weight)| weight * survival(*looks, alpha * z))
                 .sum(),
         }
     }
@@ -472,6 +469,43 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn low_pfa_on_few_cells_meets_the_closed_forms() {
+        for target in [1e-5, 1e-7, 1e-9] {
+            for half in [1, 2, 3] {
+                let factor = alpha(CfarStatistic::Go, 2 * half, target, 1, 1.0).unwrap();
+                let exact = go_closed_form(half, factor);
+                assert!(
+                    (exact / target - 1.0).abs() < 1e-6,
+                    "GO n = {half}, pfa = {target}: {exact}"
+                );
+            }
+            for cells in [2, 3, 4, 6] {
+                let rank = 0.75;
+                let factor = alpha(CfarStatistic::Os { rank }, cells, target, 1, 1.0).unwrap();
+                let exact = os_product(cells, os_order(rank, cells), factor);
+                assert!(
+                    (exact / target - 1.0).abs() < 1e-6,
+                    "OS N = {cells}, pfa = {target}: {exact}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn go_keeps_one_independent_cell_a_side() {
+        let floor = alpha(CfarStatistic::Go, 2, 1e-5, 1, 1.0).unwrap();
+        for (cells, correlation) in [(16, 14.0), (6, 7.0), (4, 2.5)] {
+            let factor = alpha(CfarStatistic::Go, cells, 1e-5, 1, correlation).unwrap();
+            assert!(
+                (factor / floor - 1.0).abs() < 1e-9,
+                "{cells}, {correlation}"
+            );
+        }
+        let wide = alpha(CfarStatistic::Go, 64, 1e-5, 1, 14.0).unwrap();
+        assert!(wide < floor);
     }
 
     #[test]

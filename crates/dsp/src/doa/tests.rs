@@ -587,6 +587,40 @@ fn likelihood_is_bimodal_on_a_ula() {
 }
 
 #[test]
+fn likelihood_keeps_only_the_chosen_ula_side() {
+    let geometry = ula(4, 90.0);
+    let manifold = Manifold::ideal(geometry.clone());
+    let r = covariance(&mut scene(&geometry, &[(30.0, 10.0)], 53), SNAPSHOTS);
+    let floor = LIKELIHOOD_FLOOR.ln();
+    for (side, kept, gone) in [(UlaSide::Front, 30, 150), (UlaSide::Back, 150, 30)] {
+        let config = DoaConfig {
+            ula_side: side,
+            ..DoaConfig::default()
+        };
+        let mut doa = Doa::new(&manifold, &config, FREQ).unwrap();
+        let mut report = DoaReport::default();
+        doa.estimate(
+            &manifold,
+            &r,
+            SNAPSHOTS as f64,
+            NO_CAL_SIGMA_DEG,
+            &mut report,
+        )
+        .unwrap();
+        assert!(error_deg(primary(&report).azimuth_deg, kept as f64) < 1.0);
+        let mut out = [0.0f32; LIKELIHOOD_POINTS];
+        assert!(doa.likelihood(&manifold, &r, &report, &mut out).unwrap());
+        assert!(out[kept] > floor + 1.0, "{side:?}: {}", out[kept]);
+        assert_eq!(out[gone], floor, "{side:?}");
+        let top = maxima(&out)
+            .into_iter()
+            .max_by(|&a, &b| out[a].total_cmp(&out[b]))
+            .unwrap();
+        assert!(error_deg(top as f64, kept as f64) <= 1.0, "{side:?}: {top}");
+    }
+}
+
+#[test]
 fn likelihood_never_drops_below_the_floor() {
     let (out, _) = likelihood_of(&kraken(), 200.0, 55);
     let floor = LIKELIHOOD_FLOOR.ln();
@@ -655,6 +689,83 @@ fn measured_table_corrects_a_distorted_array() {
         NO_CAL_SIGMA_DEG,
     ));
     assert!(error_deg(measured.azimuth_deg, 100.0) < 1.0, "{measured:?}");
+}
+
+#[test]
+fn a_measured_table_refuses_what_would_ignore_it() {
+    let geometry = kraken();
+    let mut warped = scene(&geometry, &[(100.0, 20.0)], 59);
+    warped.distortion = Some(warp);
+    let table = Arc::new(
+        warped
+            .distortion_table(&[FREQ - 1e6, FREQ + 1e6], 1.0)
+            .unwrap(),
+    );
+    let manifold = Manifold::measured(geometry, table).unwrap();
+    for config in [
+        with(Estimator::RootMusic),
+        with(Estimator::Esprit),
+        DoaConfig {
+            smoothing: 1,
+            ..DoaConfig::default()
+        },
+    ] {
+        assert_eq!(
+            Doa::new(&manifold, &config, FREQ).err(),
+            Some(DoaError::Unsupported(TABLE_NEEDS_GRID)),
+            "{config:?}"
+        );
+    }
+    let mut doa = Doa::new(&manifold, &DoaConfig::default(), FREQ).unwrap();
+    assert_eq!(
+        doa.configure(&manifold, &with(Estimator::RootMusic)),
+        Err(DoaError::Unsupported(TABLE_NEEDS_GRID))
+    );
+    let mut outside = Doa::new(&manifold, &with(Estimator::RootMusic), 2.0 * FREQ).unwrap();
+    assert_eq!(
+        outside.retune(&manifold, FREQ),
+        Err(DoaError::Unsupported(TABLE_NEEDS_GRID))
+    );
+    assert!(outside.retune(&manifold, 2.0 * FREQ).is_ok());
+    let square = Geometry::uca(0.2, 4, 0.0, Winding::Clockwise).unwrap();
+    let mut flat = scene(&square, &[(100.0, 20.0)], 60);
+    flat.distortion = Some(warp);
+    let table = Arc::new(flat.distortion_table(&[FREQ], 1.0).unwrap());
+    let measured = Manifold::measured(square.clone(), table).unwrap();
+    let fb = DoaConfig {
+        forward_backward: true,
+        ..DoaConfig::default()
+    };
+    assert!(Doa::new(&Manifold::ideal(square), &fb, FREQ).is_ok());
+    assert_eq!(
+        Doa::new(&measured, &fb, FREQ).err(),
+        Some(DoaError::Unsupported(FB_NEEDS_SYMMETRY))
+    );
+}
+
+#[test]
+fn a_circle_too_wide_for_phase_modes_keeps_the_grid_methods() {
+    let geometry = uca_beta(16, 70.0);
+    let manifold = Manifold::ideal(geometry.clone());
+    let r = covariance(&mut scene(&geometry, &[(137.0, 20.0)], 61), SNAPSHOTS);
+    let found = primary(&estimate(&geometry, &with(Estimator::Music), &r));
+    assert!(error_deg(found.azimuth_deg, 137.0) < 1.0, "{found:?}");
+    assert!(matches!(
+        Doa::new(&manifold, &with(Estimator::RootMusic), FREQ).err(),
+        Some(DoaError::Covariance(CovarianceError::Special(_)))
+    ));
+    let kraken = Manifold::ideal(kraken());
+    let far = 12e9;
+    let mut music = Doa::new(&kraken, &with(Estimator::Music), FREQ).unwrap();
+    assert!(music.retune(&kraken, far).is_ok());
+    let mut root = Doa::new(&kraken, &with(Estimator::RootMusic), FREQ).unwrap();
+    assert!(matches!(
+        root.retune(&kraken, far),
+        Err(DoaError::Covariance(CovarianceError::Special(_)))
+    ));
+    assert_eq!(root.mode_bias_deg(), None);
+    assert!(root.retune(&kraken, FREQ).is_ok());
+    assert!(root.mode_bias_deg().is_some());
 }
 
 #[test]
