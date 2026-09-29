@@ -58,6 +58,7 @@ mod on_gpu {
             },
             elements: ELEMENTS,
             positions_m: Vec::new(),
+            manifold: None,
             tuned_together: true,
         };
         plan(&ctx, &params).expect("plan")

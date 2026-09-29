@@ -63,6 +63,24 @@ impl ManifoldTable {
         })
     }
 
+    pub fn select(&self, elements: &[usize]) -> Result<Self, ManifoldError> {
+        if elements.iter().any(|&element| element >= self.elements) {
+            return Err(ManifoldError::Table);
+        }
+        let data = self
+            .data
+            .chunks_exact(self.elements)
+            .flat_map(|row| elements.iter().map(|&element| row[element]))
+            .collect();
+        Self::new(
+            elements.len(),
+            self.freqs_hz.clone(),
+            self.azimuth_step_deg,
+            self.elevations_deg.clone(),
+            data,
+        )
+    }
+
     #[must_use]
     pub const fn elements(&self) -> usize {
         self.elements
@@ -263,6 +281,28 @@ mod tests {
             .response(433.92e6, Direction::new(40.0, 30.0), &mut raised)
             .unwrap();
         assert_eq!(level, raised);
+    }
+
+    #[test]
+    fn a_selection_keeps_the_rows_of_its_elements() {
+        let geometry = Geometry::uca(0.35, 5, 0.0, Winding::Clockwise).unwrap();
+        let table = ideal_table(&geometry, &[420e6, 440e6], 5.0);
+        let picked = [1, 3, 4];
+        let selected = table.select(&picked).unwrap();
+        assert_eq!(selected.elements(), 3);
+        assert_eq!(selected.freqs_hz(), table.freqs_hz());
+        let mut all = [Complex::new(0.0f32, 0.0); 5];
+        let mut rows = [Complex::new(0.0f32, 0.0); 3];
+        for (freq, azimuth) in [(420e6, 60.0), (440e6, 215.0)] {
+            let direction = Direction::horizon(azimuth);
+            table.response(freq, direction, &mut all).unwrap();
+            selected.response(freq, direction, &mut rows).unwrap();
+            for (&element, row) in picked.iter().zip(&rows) {
+                assert!((all[element] - row).norm() < 1e-5, "{azimuth}: {element}");
+            }
+        }
+        assert_eq!(table.select(&[0, 5]).unwrap_err(), ManifoldError::Table);
+        assert_eq!(table.select(&[2]).unwrap_err(), ManifoldError::Table);
     }
 
     #[test]

@@ -132,7 +132,7 @@ pub fn elevation_rates(positions: &[Vec3], freq_hz: f64, direction: Direction, o
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Manifold {
     geometry: Geometry,
     table: Option<Arc<ManifoldTable>>,

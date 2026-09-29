@@ -146,6 +146,7 @@ fn kraken_stage(center_hz: f64, params: &PassiveRadarParams) -> StagePlan {
         center_hz,
         elements: ELEMENTS,
         positions_m,
+        manifold: None,
         tuned_together: true,
     };
     plan(&ctx, params).expect("plan")

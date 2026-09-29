@@ -23,6 +23,7 @@ fn kraken(center_hz: f64, illuminator: Illuminator) -> RadarPlan {
         center_hz,
         elements: ELEMENTS,
         positions_m: Vec::new(),
+        manifold: None,
         tuned_together: true,
     };
     plan(&ctx, &params).unwrap()

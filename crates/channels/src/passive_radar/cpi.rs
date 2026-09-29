@@ -4,7 +4,6 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use num_complex::Complex;
-use sdrmm_dsp::manifold::Vec3;
 use sdrmm_dsp::radar::aoa::Beamscan;
 use sdrmm_dsp::radar::batch::{BatchShape, MAX_SURVEILLANCE};
 use sdrmm_dsp::radar::cfar::{
@@ -165,14 +164,9 @@ impl CpiStage {
             .aoa
             .as_ref()
             .map(|aoa| {
-                let positions: Vec<Vec3> = aoa
-                    .positions_m
-                    .iter()
-                    .map(|p| Vec3::new(p[0], p[1], p[2]))
-                    .collect();
                 Beamscan::new(
-                    &positions,
-                    plan.wavelength_m,
+                    &aoa.manifold,
+                    plan.carrier_hz,
                     aoa.grid_step_deg,
                     aoa.mirror_axis_deg,
                 )

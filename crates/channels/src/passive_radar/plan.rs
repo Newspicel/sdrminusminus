@@ -1,7 +1,8 @@
 use std::fmt;
 use std::ops::Range;
+use std::sync::Arc;
 
-use sdrmm_dsp::manifold::Geometry;
+use sdrmm_dsp::manifold::{Geometry, Manifold, ManifoldTable, Vec3};
 use sdrmm_dsp::radar::RadarDspError;
 use sdrmm_dsp::radar::batch::{BatchShape, DopplerTaper, MAX_SURVEILLANCE};
 use sdrmm_dsp::radar::cfar::{AlphaTable, CfarSpec, RHO_TABLE};
@@ -39,6 +40,7 @@ pub struct RadarCtx {
     pub center_hz: f64,
     pub elements: usize,
     pub positions_m: Vec<[f64; 3]>,
+    pub manifold: Option<Arc<ManifoldTable>>,
     pub tuned_together: bool,
 }
 
@@ -57,7 +59,27 @@ impl RadarCtx {
             center_hz: ctx.center_hz,
             elements: ctx.lanes,
             positions_m,
+            manifold: ctx.manifold.map(|table| Arc::new(table.clone())),
             tuned_together: !lanes_spread(ctx),
+        }
+    }
+
+    fn steering(&self, elements: &[usize]) -> Option<Manifold> {
+        let points: Option<Vec<Vec3>> = elements
+            .iter()
+            .map(|&element| {
+                let [x, y, z] = *self.positions_m.get(element)?;
+                Some(Vec3::new(x, y, z))
+            })
+            .collect();
+        let geometry = Geometry::explicit(&points?).ok()?;
+        match &self.manifold {
+            Some(table) if table.elements() == self.elements => {
+                let rows = table.select(elements).ok()?;
+                Manifold::measured(geometry, Arc::new(rows)).ok()
+            }
+            Some(_) => None,
+            None => Some(Manifold::ideal(geometry)),
         }
     }
 }
@@ -93,7 +115,7 @@ pub struct FrontPlan {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct AoaPlan {
-    pub positions_m: Vec<[f64; 3]>,
+    pub manifold: Manifold,
     pub mirror_axis_deg: Option<f32>,
     pub grid_step_deg: f32,
 }
@@ -674,14 +696,10 @@ fn aoa_plan(
     if surveillance.len() < 2 {
         return Ok(None);
     }
-    let positions: Option<Vec<[f64; 3]>> = surveillance
-        .iter()
-        .map(|&element| ctx.positions_m.get(element).copied())
-        .collect();
-    match positions {
-        Some(positions_m) => Ok(Some(AoaPlan {
-            mirror_axis_deg: line_axis(&positions_m),
-            positions_m,
+    match ctx.steering(surveillance) {
+        Some(manifold) => Ok(Some(AoaPlan {
+            mirror_axis_deg: line_axis(&positions_of(manifold.geometry())),
+            manifold,
             grid_step_deg: AOA_GRID_STEP_DEG,
         })),
         None if params.aoa => Err(PlanError::Geometry),

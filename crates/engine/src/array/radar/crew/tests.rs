@@ -18,6 +18,7 @@ fn stage(method: ClutterMethod, doppler_taps: u32) -> StagePlan {
         center_hz: 100e6,
         elements: 4,
         positions_m: Vec::new(),
+        manifold: None,
         tuned_together: true,
     };
     let params = PassiveRadarParams {

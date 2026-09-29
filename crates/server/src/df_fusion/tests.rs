@@ -9,7 +9,8 @@ use sdrmm_wire::{
 use super::{
     grid::{CELLS, FRAME_CELLS, LogGrid, look},
     nav::Nav,
-    observation::{BANKS, FLOOR, RING, prepare},
+    observation::{BANKS, FLOOR, RING, prepare, wrap_deg},
+    votes::BIAS_SIGMA_DEG,
     *,
 };
 
@@ -192,7 +193,12 @@ fn crossing_major(heading_sigma_deg: f32) -> f64 {
             let station = around(target, from_deg, 5_000.0);
             let bearing = DfBearing {
                 heading_sigma_deg: Some(heading_sigma_deg),
-                ..toward(&format!("s{index}"), station, target, 1.0)
+                ..toward(
+                    &format!("s{index}"),
+                    station,
+                    target,
+                    1.0f32.hypot(heading_sigma_deg),
+                )
             };
             see(&mut fusion, &bearing, f64::from(round) + index as f64 * 0.5);
         }
@@ -205,6 +211,100 @@ fn heading_uncertainty_widens_the_ellipse() {
     let tight = crossing_major(1.0);
     let loose = crossing_major(10.0);
     assert!(loose >= 2.0 * tight, "{tight} m then {loose} m");
+}
+
+fn painted_width_deg(bearing: &DfBearing) -> f32 {
+    let mut fusion = NodeFusion::new(&TriangulationParams::default());
+    see(&mut fusion, bearing, 0.0);
+    let painted = fusion.votes.keys[0].painted.as_ref().expect("painted");
+    let (mut mass, mut moment) = (0.0f32, 0.0f32);
+    for (index, value) in painted.wedge.ring[0].iter().enumerate() {
+        let excess = value.exp() - FLOOR;
+        let offset = wrap_deg(index as f32 - bearing.bearing_deg);
+        mass += excess;
+        moment += excess * offset * offset;
+    }
+    (moment / mass).sqrt()
+}
+
+fn assert_counted_once(bearing: &DfBearing) {
+    let combined = bearing.sigma_deg.hypot(BIAS_SIGMA_DEG);
+    let width = painted_width_deg(bearing);
+    assert!(
+        (width - combined).abs() <= 0.03 * combined,
+        "{:?}: {width} deg wide, combined sigma {combined} deg",
+        bearing.source
+    );
+}
+
+fn with_heading(bearing: DfBearing, heading_sigma_deg: f32) -> DfBearing {
+    DfBearing {
+        heading_deg: Some(bearing.bearing_deg),
+        heading_sigma_deg: Some(heading_sigma_deg),
+        ..bearing
+    }
+}
+
+fn hunt_mark(heading_accuracy_deg: f64) -> DfBearing {
+    let params = sdrmm_wire::HuntSweepParams::default();
+    let mut hunt =
+        sdrmm_channels::hunt_sweep::SweepDf::new("hunt".to_owned(), "car".to_owned(), &params)
+            .expect("hunt sweep");
+    let at_s = AT.parse::<jiff::Timestamp>().expect("time").as_second() as f64;
+    let fix = PositionFix {
+        attitude: sdrmm_wire::Attitude {
+            heading_deg: Some(100.0),
+            heading_accuracy_deg: Some(heading_accuracy_deg),
+            ..sdrmm_wire::Attitude::default()
+        },
+        ..fix_at(HOME)
+    };
+    hunt.pose(&fix, at_s).expect("pose");
+    hunt.mark(at_s, 433.92e6).expect("mark")
+}
+
+#[test]
+fn heading_counts_once_for_array_bearings_sweeps_and_marks() {
+    let array = with_heading(aimed("roof", HOME, 100.0, 2.0f32.hypot(6.0)), 6.0);
+    assert_counted_once(&array);
+    let sweep = DfBearing {
+        source: BearingSource::Sweep,
+        ..with_heading(aimed("car", HOME, 100.0, 3.0f32.hypot(5.0)), 5.0)
+    };
+    assert_counted_once(&sweep);
+    for heading_accuracy_deg in [8.0, 20.0] {
+        let mark = hunt_mark(heading_accuracy_deg);
+        assert_eq!(mark.source, BearingSource::Mark);
+        assert!(mark.likelihood.is_empty());
+        assert_counted_once(&mark);
+    }
+    let headless = aimed("roof", HOME, 100.0, 4.0);
+    assert_counted_once(&headless);
+}
+
+#[test]
+fn a_synthesised_bank_is_as_wide_as_the_likelihood_it_stands_for() {
+    let (own_deg, heading_deg) = (3.0f32, 6.0f32);
+    let floor = FLOOR.ln();
+    let likelihood: Vec<u8> = (0..RING)
+        .map(|index| {
+            let offset = wrap_deg(index as f32 - 100.0);
+            let linear =
+                (1.0 - FLOOR).mul_add((-offset * offset / (2.0 * own_deg * own_deg)).exp(), FLOOR);
+            (255.0 * (linear.ln() - floor) / -floor).round() as u8
+        })
+        .collect();
+    let bare = aimed("roof", HOME, 100.0, own_deg.hypot(heading_deg));
+    let carried = DfBearing {
+        likelihood,
+        ..bare.clone()
+    };
+    let from_bytes = painted_width_deg(&with_heading(carried, heading_deg));
+    let synthesised = painted_width_deg(&with_heading(bare, heading_deg));
+    assert!(
+        (from_bytes - synthesised).abs() <= 0.02 * from_bytes,
+        "{from_bytes} deg from bytes, {synthesised} deg synthesised"
+    );
 }
 
 fn wedge_drops(accuracy_m: f32) -> (f32, f32) {

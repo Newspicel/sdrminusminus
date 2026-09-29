@@ -67,6 +67,7 @@ fn stage_of(params: &PassiveRadarParams, center_hz: f64) -> StagePlan {
         center_hz,
         elements: ELEMENTS,
         positions_m: Vec::new(),
+        manifold: None,
         tuned_together: true,
     };
     plan(&ctx, params).expect("plan")

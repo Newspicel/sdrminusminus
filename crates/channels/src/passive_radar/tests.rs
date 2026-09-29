@@ -159,6 +159,7 @@ fn scene_ctx() -> RadarCtx {
         center_hz: CENTER_HZ,
         elements: 5,
         positions_m: positions_of(&surveillance_array()),
+        manifold: None,
         tuned_together: true,
     }
 }
@@ -171,6 +172,7 @@ fn kraken_ctx(center_hz: f64) -> RadarCtx {
         center_hz,
         elements: 5,
         positions_m: positions_of(&geometry),
+        manifold: None,
         tuned_together: true,
     }
 }
@@ -461,6 +463,96 @@ fn an_echo_is_detected_tracked_and_located_end_to_end() {
     assert!(detection.aoa.is_some());
 }
 
+const SKEW_DEG: [f64; 5] = [0.0, -15.0, 25.0, 15.0, -25.0];
+
+fn skewed_beam(element: usize, azimuth_deg: f64) -> C32 {
+    let skew = SKEW_DEG[element % SKEW_DEG.len()].to_radians();
+    reference_beam(element, azimuth_deg) * C32::from_polar(1.0, skew as f32)
+}
+
+fn measured_ctx(scene: &ArrayScene) -> RadarCtx {
+    let table = scene
+        .distortion_table(&[CENTER_HZ - 1e6, CENTER_HZ + 1e6], 1.0)
+        .unwrap();
+    RadarCtx {
+        manifold: Some(Arc::new(table)),
+        ..scene_ctx()
+    }
+}
+
+fn tracked_azimuth_error(ctx: &RadarCtx, lanes: &[Vec<C32>]) -> f64 {
+    let mut radar = Radar::new(ctx, &PassiveRadarParams::default());
+    radar.feed(lanes, 0..SCENE_SAMPLES, true);
+    let last = radar.last();
+    assert_eq!(last.tracks.len(), 1, "{:?}", last.tracks);
+    let aoa = last.tracks[0].aoa.unwrap();
+    angle_error(f64::from(aoa.azimuth_deg), TARGET_AZIMUTH_DEG).abs()
+}
+
+#[test]
+fn the_array_table_steers_radar_aoa_past_skewed_elements() {
+    let mut skewed = scene(true);
+    skewed.distortion = Some(skewed_beam);
+    let ctx = measured_ctx(&skewed);
+    let lanes = skewed.render(SCENE_SAMPLES).unwrap();
+    let measured = tracked_azimuth_error(&ctx, &lanes);
+    let ideal = tracked_azimuth_error(&scene_ctx(), &lanes);
+    assert!(measured < 2.0, "{measured} deg off with the table");
+    assert!(ideal > 6.0, "{ideal} deg off without the table");
+}
+
+#[test]
+fn a_radar_plan_steers_through_the_array_table() {
+    let mut skewed = scene(false);
+    skewed.distortion = Some(skewed_beam);
+    let params = PassiveRadarParams::default();
+    let ctx = measured_ctx(&skewed);
+    let measured = plan(&ctx, &params).unwrap();
+    let aoa = measured.aoa.as_ref().unwrap();
+    assert!(aoa.manifold.uses_table_at(measured.carrier_hz));
+    let rows = ctx
+        .manifold
+        .as_ref()
+        .unwrap()
+        .select(&[1, 2, 3, 4])
+        .unwrap();
+    assert_eq!(aoa.manifold.table(), Some(&rows));
+    let ideal = plan(&scene_ctx(), &params).unwrap();
+    assert!(ideal.aoa.as_ref().unwrap().manifold.table().is_none());
+    assert_eq!(change(&ideal, &measured), PlanChange::Rebuild);
+    let mut three = ArrayScene::new(
+        Geometry::uca(1.0, 3, 0.0, sdrmm_dsp::manifold::Winding::Clockwise).unwrap(),
+        CENTER_HZ,
+        INPUT_RATE,
+    );
+    three.distortion = Some(skewed_beam);
+    let misfit = RadarCtx {
+        manifold: measured_ctx(&three).manifold,
+        ..scene_ctx()
+    };
+    assert_eq!(plan(&misfit, &params), Err(PlanError::Geometry));
+    let quiet = PassiveRadarParams {
+        aoa: false,
+        ..params
+    };
+    assert!(plan(&misfit, &quiet).unwrap().aoa.is_none());
+}
+
+#[test]
+fn radar_aoa_needs_no_place_for_the_reference_antenna() {
+    let mut skewed = scene(false);
+    skewed.distortion = Some(skewed_beam);
+    let params = PassiveRadarParams::default();
+    for ctx in [scene_ctx(), measured_ctx(&skewed)] {
+        let mut positions_m = ctx.positions_m.clone();
+        positions_m[0] = positions_m[1];
+        let stacked = RadarCtx { positions_m, ..ctx };
+        let aoa = plan(&stacked, &params).unwrap().aoa.unwrap();
+        assert_eq!(aoa.manifold.len(), 4);
+        assert_eq!(aoa.manifold.table().is_some(), stacked.manifold.is_some());
+    }
+}
+
 #[test]
 fn an_empty_scene_reports_empty_lists_every_cpi() {
     let lanes = scene(false).render(SPLIT).unwrap();
@@ -633,6 +725,7 @@ fn cma_cleaning_raises_suppression_on_a_multipath_reference() {
         center_hz: CENTER_HZ,
         elements: 3,
         positions_m: Vec::new(),
+        manifold: None,
         tuned_together: true,
     };
     let base = PassiveRadarParams {
@@ -914,6 +1007,7 @@ fn canceller_resets_are_counted_as_unsuppressed() {
         center_hz: CENTER_HZ,
         elements: 3,
         positions_m: Vec::new(),
+        manifold: None,
         tuned_together: true,
     };
     let params = PassiveRadarParams {
@@ -978,6 +1072,7 @@ fn dab_echo_run(method: ClutterMethod) {
         center_hz: 220e6,
         elements: 3,
         positions_m: Vec::new(),
+        manifold: None,
         tuned_together: true,
     };
     let params = PassiveRadarParams {

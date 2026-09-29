@@ -57,10 +57,11 @@ pub(crate) fn prepare(
         return Err(Refusal::Weak);
     }
     let sigma_deg = clamp_sigma(bearing.sigma_deg);
+    let heading_sigma_deg = heading_sigma_of(bearing);
     let bank = if bearing.likelihood.len() == RING {
         from_bytes(&bearing.likelihood)
     } else {
-        synthesised(bearing, sigma_deg)
+        synthesised(bearing, sigma_deg, heading_sigma_deg)
     };
     Ok(Observation {
         station: station_of(bearing),
@@ -74,10 +75,7 @@ pub(crate) fn prepare(
         bearing_deg: bearing.bearing_deg.rem_euclid(360.0),
         sigma_deg,
         confidence: bearing.confidence.clamp(0.0, 1.0),
-        heading_sigma_deg: bearing
-            .heading_sigma_deg
-            .filter(|sigma| sigma.is_finite())
-            .map_or(0.0, |sigma| sigma.clamp(0.0, MAX_SIGMA_DEG)),
+        heading_sigma_deg,
         source: bearing.source,
         moving: bearing.moving,
         bank,
@@ -92,6 +90,20 @@ fn station_of(bearing: &DfBearing) -> String {
         .or_else(|| Some(bearing.node.as_str()).filter(|node| !node.is_empty()))
         .unwrap_or(UNNAMED_STATION)
         .to_owned()
+}
+
+fn heading_sigma_of(bearing: &DfBearing) -> f32 {
+    bearing
+        .heading_sigma_deg
+        .filter(|sigma| sigma.is_finite())
+        .map_or(0.0, |sigma| sigma.clamp(0.0, MAX_SIGMA_DEG))
+}
+
+fn without_heading(sigma_deg: f32, heading_sigma_deg: f32) -> f32 {
+    sigma_deg
+        .mul_add(sigma_deg, -heading_sigma_deg * heading_sigma_deg)
+        .max(MIN_SIGMA_DEG * MIN_SIGMA_DEG)
+        .sqrt()
 }
 
 fn clamp_sigma(sigma_deg: f32) -> f32 {
@@ -118,18 +130,19 @@ struct Peak {
     weight: f32,
 }
 
-fn peaks(bearing: &DfBearing, sigma_deg: f32) -> Vec<Peak> {
+fn peaks(bearing: &DfBearing, sigma_deg: f32, heading_sigma_deg: f32) -> Vec<Peak> {
     let mirror = bearing.mirror_deg.filter(|mirror| mirror.is_finite());
     let main = if mirror.is_some() { MIRROR_WEIGHT } else { 1.0 };
+    let own = without_heading(sigma_deg, heading_sigma_deg);
     let mut peaks = vec![Peak {
         deg: bearing.bearing_deg,
-        sigma: sigma_deg,
+        sigma: own,
         weight: main,
     }];
     if let Some(mirror) = mirror {
         peaks.push(Peak {
             deg: mirror,
-            sigma: sigma_deg,
+            sigma: own,
             weight: MIRROR_WEIGHT,
         });
     }
@@ -140,7 +153,7 @@ fn peaks(bearing: &DfBearing, sigma_deg: f32) -> Vec<Peak> {
             .filter(|other| other.bearing_deg.is_finite() && other.confidence > 0.0)
             .map(|other| Peak {
                 deg: other.bearing_deg,
-                sigma: clamp_sigma(other.sigma_deg),
+                sigma: without_heading(clamp_sigma(other.sigma_deg), heading_sigma_deg),
                 weight: other.confidence.min(1.0),
             }),
     );
@@ -162,8 +175,8 @@ fn degree(index: usize) -> f32 {
     f32::from(u16::try_from(index).unwrap_or(u16::MAX))
 }
 
-fn synthesised(bearing: &DfBearing, sigma_deg: f32) -> Box<Rings> {
-    let peaks = peaks(bearing, sigma_deg);
+fn synthesised(bearing: &DfBearing, sigma_deg: f32, heading_sigma_deg: f32) -> Box<Rings> {
+    let peaks = peaks(bearing, sigma_deg, heading_sigma_deg);
     let top = (0..RING)
         .map(|index| peak_sum(&peaks, degree(index), 0.0))
         .fold(0.0f32, f32::max)

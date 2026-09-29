@@ -248,7 +248,7 @@ mod radar {
     }
 
     mod aoa {
-        use sdrmm_dsp::manifold::{Geometry, LIGHT_SPEED_M_S, Winding};
+        use sdrmm_dsp::manifold::{Geometry, LIGHT_SPEED_M_S, Manifold, Winding};
         use sdrmm_dsp::radar::aoa::Beamscan;
 
         use super::super::*;
@@ -257,7 +257,8 @@ mod radar {
         fn aoa_does_not_allocate() {
             let lambda = LIGHT_SPEED_M_S / 100e6;
             let geometry = Geometry::uca(0.4 * lambda, 4, 0.0, Winding::Clockwise).unwrap();
-            let mut scan = Beamscan::new(geometry.positions(), lambda, 0.5, Some(90.0)).unwrap();
+            let manifold = Manifold::ideal(geometry);
+            let mut scan = Beamscan::new(&manifold, 100e6, 0.5, Some(90.0)).unwrap();
             let mut rng = Rng(6);
             let snapshots: Vec<Vec<C32>> = (0..5).map(|_| rng.noise(4)).collect();
             let mut sink = 0.0f32;

@@ -204,6 +204,7 @@ mod passive_radar {
             center_hz: CENTER_HZ,
             elements: 3,
             positions_m: Vec::new(),
+            manifold: None,
             tuned_together: true,
         };
         let lanes = scene(&random_fm(1_600_000, 5), 3, rate, false);
@@ -247,6 +248,7 @@ mod passive_radar {
             center_hz: CENTER_HZ,
             elements: 5,
             positions_m: positions(),
+            manifold: None,
             tuned_together: true,
         };
         let params = PassiveRadarParams {
