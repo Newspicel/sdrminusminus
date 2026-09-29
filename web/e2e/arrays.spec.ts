@@ -14,7 +14,7 @@ test("array composition preserves live Device faces and their channels", async (
           id: "left",
           kind: "device",
           position: { x: 0, y: 0 },
-          data: { device: { backend: "virtual", key: "siggen" } },
+          data: { device: { backend: "virtual", key: "band" } },
         },
         {
           id: "right",
@@ -56,7 +56,7 @@ test("array composition preserves live Device faces and their channels", async (
     const before: StateSnapshot = await page.request
       .get("/api/state")
       .then((response) => response.json());
-    const source = before.device_sets.find((set) => set.device.key === "siggen");
+    const source = before.device_sets.find((set) => set.device.key === "band");
     expect(before.device_sets).toHaveLength(3);
     expect(source?.channels).toHaveLength(1);
     const current: WorkspaceDetail = await page.request

@@ -13,8 +13,8 @@ import type {
   WorkspacesResponse,
 } from "../src/lib/types";
 
-const SIGGEN: DeviceRef = { backend: "virtual", key: "siggen" };
-const SIGGEN_CENTER_HZ = 100_000_000;
+const BAND: DeviceRef = { backend: "virtual", key: "band" };
+const BAND_CENTER_HZ = 100_000_000;
 
 export interface Scene {
   id: string;
@@ -121,7 +121,7 @@ async function amend(
 
 async function tune(page: Page, device: DeviceRef, offsets: Record<string, number>): Promise<void> {
   const set = await deviceSet(page, device);
-  const centerHz = device === SIGGEN ? SIGGEN_CENTER_HZ : (set.settings.center_hz ?? 0);
+  const centerHz = device === BAND ? BAND_CENTER_HZ : (set.settings.center_hz ?? 0);
   for (const [type, offset] of Object.entries(offsets)) {
     await amend(page, device, type, () => ({ frequency_hz: centerHz + offset }));
   }
@@ -179,12 +179,12 @@ export async function listen(page: Page, id: string): Promise<void> {
   await shell.getByRole("button", { name: /^play$/i }).click();
 }
 
-function siggenPatch(): WorkspaceSnapshot {
+function bandPatch(): WorkspaceSnapshot {
   return {
     version: 3,
     graph: {
       nodes: [
-        node("dev", { kind: "device", data: { device: SIGGEN } }, { x: 0, y: 0, w: 420, h: 236 }),
+        node("dev", { kind: "device", data: { device: BAND } }, { x: 0, y: 0, w: 420, h: 236 }),
         channel("ch", "nfm", { x: 540, y: 0, w: 460, h: 331 }),
         node("scope", { kind: "scope" }, { x: 540, y: 371, w: 880, h: 400 }),
         node("speaker", { kind: "speaker" }, { x: 1140, y: 0, w: 280, h: 204 }),
@@ -204,11 +204,11 @@ const patch: Scene = {
   speaker: "speaker",
   settleSeconds: 10,
   async stage(page) {
-    await stage(page, "Signal generator", {
+    await stage(page, "Test band", {
       version: 3,
       graph: {
         nodes: [
-          node("dev", { kind: "device", data: { device: SIGGEN } }, { x: 0, y: 0, w: 420, h: 236 }),
+          node("dev", { kind: "device", data: { device: BAND } }, { x: 0, y: 0, w: 420, h: 236 }),
           node("scope", { kind: "scope" }, { x: 1140, y: 0, w: 760, h: 400 }),
           channel("nfm", "nfm", { x: 540, y: 100, w: 460, h: 331 }),
           channel("am", "am", { x: 540, y: 471, w: 460, h: 229 }),
@@ -232,7 +232,7 @@ const patch: Scene = {
         ],
       },
     });
-    await tune(page, SIGGEN, { nfm: 300_000, am: -300_000, wfm: 600_000 });
+    await tune(page, BAND, { nfm: 300_000, am: -300_000, wfm: 600_000 });
     await fitPatch(page);
   },
   async ready(page) {
@@ -245,10 +245,10 @@ const spectrum: Scene = {
   title: "the spectrum and waterfall",
   settleSeconds: 26,
   async stage(page) {
-    const snapshot = siggenPatch();
+    const snapshot = bandPatch();
     snapshot.rack = { slots: [slot("scope", { x: 0, y: 0, w: 12, h: 8 })] };
     await stage(page, "Spectrum", snapshot);
-    await tune(page, SIGGEN, { nfm: 300_000 });
+    await tune(page, BAND, { nfm: 300_000 });
     await showRack(page);
     const scope = page.locator('.grid > [data-id="scope"]');
     await expect(scope).toBeVisible();
