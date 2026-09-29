@@ -281,6 +281,7 @@ pub(super) fn bring_up(
     {
         report.refused.push(PatchRefusal { node, reason });
     }
+    crate::array::open_virtual_lane_channels(app, &snapshot.graph, saved, &mut report);
     Ok(report)
 }
 

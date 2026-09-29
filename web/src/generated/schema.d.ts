@@ -8017,6 +8017,15 @@ export interface operations {
                     "application/json": components["schemas"]["ArrayRecordingStarted"];
                 };
             };
+            /** @description Bad name or no recordings directory */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
             /** @description No Array node with that id */
             404: {
                 headers: {

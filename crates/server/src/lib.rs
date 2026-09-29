@@ -101,7 +101,6 @@ pub(crate) struct AppState {
     pub(crate) cps: Arc<cps::CpsHub>,
     pub(crate) fusion: df_fusion::SharedFusion,
     pub(crate) shell: Option<Arc<dyn NativeShell>>,
-    #[expect(dead_code)]
     pub(crate) arrays: Arc<array::ArrayHub>,
     #[expect(dead_code)]
     pub(crate) radar: Arc<radar::RadarHub>,

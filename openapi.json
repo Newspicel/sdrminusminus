@@ -164,6 +164,16 @@
               }
             }
           },
+          "400": {
+            "description": "Bad name or no recordings directory",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
           "404": {
             "description": "No Array node with that id",
             "content": {

@@ -222,6 +222,7 @@ fn every_new_route_is_in_the_contract() {
 async fn a_route_whose_owner_has_not_landed_says_so() {
     for (method, path, body) in NEW_ROUTES {
         if path == "/api/fusion/{node}"
+            || path.starts_with("/api/arrays")
             || path.starts_with("/api/phones")
             || path.starts_with("/api/survey/")
         {

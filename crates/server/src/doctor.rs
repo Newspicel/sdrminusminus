@@ -1,6 +1,10 @@
 use std::path::Path;
 
-use sdrmm_wire::{CheckStatus, DeviceInfo, DoctorCheck, DoctorReport};
+use sdrmm_wire::{ArrayStatus, CheckStatus, DeviceInfo, DoctorCheck, DoctorReport, SyncState};
+
+const BANK_DRIVER: &str = "kraken";
+const KERBEROS_LABEL: &str = "KerberosSDR";
+const MISSING_SUFFIX: &str = " missing)";
 
 #[must_use]
 pub fn collect(db_path: Option<&Path>, recordings_dir: Option<&Path>) -> DoctorReport {
@@ -233,7 +237,99 @@ fn devices_checks(registry: &sdrmm_device::DeviceRegistry) -> Vec<DoctorCheck> {
     let devices = registry.probe_all_deep();
     let mut checks = vec![devices_check(&devices, &timings)];
     checks.extend(port_bound_check(&devices));
+    checks.extend(banks_check(&devices));
     checks
+}
+
+fn bank_line(device: &DeviceInfo) -> String {
+    let model = if device.label.starts_with(KERBEROS_LABEL) {
+        "kerberos"
+    } else {
+        "kraken"
+    };
+    let missing = device
+        .label
+        .strip_suffix(MISSING_SUFFIX)
+        .and_then(|label| label.rsplit_once(" ("))
+        .map(|(_, serials)| serials);
+    match (missing, &device.profile) {
+        (Some(serials), _) => format!("{model} {}: {serials} missing", device.key),
+        (None, Some(profile)) => format!("{model} {}: {} lanes", device.key, profile.rx_streams),
+        (None, None) => format!("{model} {}", device.key),
+    }
+}
+
+fn banks_check(devices: &[DeviceInfo]) -> Option<DoctorCheck> {
+    let banks: Vec<&DeviceInfo> = devices
+        .iter()
+        .filter(|device| device.driver == BANK_DRIVER)
+        .collect();
+    if banks.is_empty() {
+        return None;
+    }
+    let broken = banks
+        .iter()
+        .any(|device| device.label.ends_with(MISSING_SUFFIX));
+    Some(DoctorCheck {
+        id: "devices.banks".to_string(),
+        name: "Coherent banks".to_string(),
+        status: if broken {
+            CheckStatus::Warn
+        } else {
+            CheckStatus::Ok
+        },
+        detail: banks
+            .iter()
+            .map(|device| bank_line(device))
+            .collect::<Vec<_>>()
+            .join("\n"),
+        hint: broken.then(|| "replug the missing dongles, then power the bank again".to_string()),
+    })
+}
+
+fn array_line(status: &ArrayStatus) -> String {
+    let line = format!(
+        "array {}: {} {}",
+        status.node,
+        status.sync.label(),
+        status.cal.label()
+    );
+    match &status.failure {
+        Some(failure) => format!("{line} ({failure})"),
+        None => line,
+    }
+}
+
+#[must_use]
+pub(crate) fn arrays_check(statuses: &[ArrayStatus]) -> Option<DoctorCheck> {
+    if statuses.is_empty() {
+        return None;
+    }
+    let steady = statuses
+        .iter()
+        .all(|status| status.sync == SyncState::Locked && status.failure.is_none());
+    Some(DoctorCheck {
+        id: "arrays".to_string(),
+        name: "Arrays".to_string(),
+        status: if steady {
+            CheckStatus::Ok
+        } else {
+            CheckStatus::Warn
+        },
+        detail: statuses
+            .iter()
+            .map(array_line)
+            .collect::<Vec<_>>()
+            .join("\n"),
+        hint: None,
+    })
+}
+
+#[must_use]
+pub(crate) fn served(engine: &sdrmm_engine::Engine, db_path: Option<&Path>) -> DoctorReport {
+    let mut report = report(engine.registry(), db_path, engine.recordings_dir());
+    report.checks.extend(arrays_check(&engine.array_statuses()));
+    report
 }
 
 fn port_bound_check(devices: &[DeviceInfo]) -> Option<DoctorCheck> {
@@ -980,5 +1076,69 @@ mod tests {
         assert_eq!(check.status, CheckStatus::Warn);
         assert!(check.detail.contains("not installed"));
         assert!(check.hint.is_some_and(|hint| hint.contains("sdrplay.com")));
+    }
+
+    fn bank(label: &str, lanes: u32) -> DeviceInfo {
+        DeviceInfo {
+            driver: "kraken".to_string(),
+            key: "01/1".to_string(),
+            label: label.to_string(),
+            serial: None,
+            profile: Some(sdrmm_wire::DeviceProfile {
+                rx_streams: lanes,
+                ..sdrmm_wire::DeviceProfile::default()
+            }),
+        }
+    }
+
+    #[test]
+    fn a_whole_bank_lists_its_lanes() {
+        let check = banks_check(&[
+            bank("KrakenSDR (01/1)", 5),
+            DeviceInfo {
+                key: "02/3".to_string(),
+                ..bank("KerberosSDR (02/3)", 4)
+            },
+        ])
+        .expect("banks are listed");
+        assert_eq!(check.status, CheckStatus::Ok);
+        assert_eq!(check.detail, "kraken 01/1: 5 lanes\nkerberos 02/3: 4 lanes");
+        assert!(check.hint.is_none());
+        assert!(banks_check(&[]).is_none(), "no bank, no line");
+    }
+
+    #[test]
+    fn a_bank_short_of_a_dongle_names_its_serial() {
+        let check = banks_check(&[bank("KrakenSDR (1004 missing)", 5)]).expect("listed");
+        assert_eq!(check.status, CheckStatus::Warn);
+        assert_eq!(check.detail, "kraken 01/1: 1004 missing");
+        assert!(check.hint.is_some());
+    }
+
+    #[test]
+    fn arrays_report_their_sync_and_cal() {
+        let locked = ArrayStatus {
+            node: "roof".to_string(),
+            sync: SyncState::Locked,
+            cal: sdrmm_wire::CalPhase::Solved,
+            ..ArrayStatus::default()
+        };
+        let check = arrays_check(std::slice::from_ref(&locked)).expect("one array");
+        assert_eq!(check.status, CheckStatus::Ok);
+        assert_eq!(check.detail, "array roof: Locked Calibrated");
+
+        let lost = ArrayStatus {
+            node: "mast".to_string(),
+            sync: SyncState::Lost,
+            failure: Some(sdrmm_wire::ArrayFailure::DeviceDown { lane: 2 }),
+            ..ArrayStatus::default()
+        };
+        let check = arrays_check(&[locked, lost]).expect("two arrays");
+        assert_eq!(check.status, CheckStatus::Warn);
+        assert_eq!(
+            check.detail,
+            "array roof: Locked Calibrated\narray mast: Lost No cal (Radio 3 down)"
+        );
+        assert!(arrays_check(&[]).is_none());
     }
 }

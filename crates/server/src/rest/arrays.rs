@@ -1,6 +1,7 @@
 use sdrmm_wire::{ArrayRecordingRequest, ArrayRecordingStarted, ArrayStatus, ArrayTuneRequest};
 
 use super::*;
+use crate::array::{self, ArrayRefusal};
 
 pub(super) fn routes() -> OpenApiRouter<AppState> {
     OpenApiRouter::new()
@@ -10,14 +11,24 @@ pub(super) fn routes() -> OpenApiRouter<AppState> {
         .routes(routes!(start_array_recording, stop_array_recording))
 }
 
+impl From<ArrayRefusal> for AppError {
+    fn from(refusal: ArrayRefusal) -> Self {
+        let text = refusal.to_string();
+        match refusal {
+            ArrayRefusal::NoArray(_) | ArrayRefusal::NotRecording => Self::not_found(text),
+            ArrayRefusal::Refused(_) => Self::new(StatusCode::CONFLICT, ErrorCode::Conflict, text),
+        }
+    }
+}
+
 #[utoipa::path(
     get, path = "/api/arrays",
     responses((status = 200, description = "Every Array node of the active workspace", body = Vec<ArrayStatus>)),
 )]
 pub(super) async fn list_arrays(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
 ) -> Result<Json<Vec<ArrayStatus>>, AppError> {
-    Err(AppError::not_built())
+    Ok(Json(state.engine.array_statuses()))
 }
 
 #[utoipa::path(
@@ -30,10 +41,11 @@ pub(super) async fn list_arrays(
     ),
 )]
 pub(super) async fn calibrate_array(
-    State(_state): State<AppState>,
-    Path(_node): Path<String>,
+    State(state): State<AppState>,
+    Path(node): Path<String>,
 ) -> Result<StatusCode, AppError> {
-    Err(AppError::not_built())
+    tokio::task::spawn_blocking(move || array::calibrate(&state, &node)).await??;
+    Ok(StatusCode::ACCEPTED)
 }
 
 #[utoipa::path(
@@ -49,11 +61,12 @@ pub(super) async fn calibrate_array(
     ),
 )]
 pub(super) async fn tune_array(
-    State(_state): State<AppState>,
-    Path(_node): Path<String>,
-    Json(_request): Json<ArrayTuneRequest>,
+    State(state): State<AppState>,
+    Path(node): Path<String>,
+    Json(request): Json<ArrayTuneRequest>,
 ) -> Result<StatusCode, AppError> {
-    Err(AppError::not_built())
+    tokio::task::spawn_blocking(move || array::tune(&state, &node, request)).await??;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 #[utoipa::path(
@@ -62,17 +75,21 @@ pub(super) async fn tune_array(
     request_body = ArrayRecordingRequest,
     responses(
         (status = 200, description = "Recording every lane", body = ArrayRecordingStarted),
+        (status = 400, description = "Bad name or no recordings directory", body = ApiError),
         (status = 404, description = "No Array node with that id", body = ApiError),
         (status = 409, description = "The Array is not running or already records", body = ApiError),
         (status = 422, description = "Malformed request body", body = ApiError),
     ),
 )]
 pub(super) async fn start_array_recording(
-    State(_state): State<AppState>,
-    Path(_node): Path<String>,
-    Json(_request): Json<ArrayRecordingRequest>,
+    State(state): State<AppState>,
+    Path(node): Path<String>,
+    Json(request): Json<ArrayRecordingRequest>,
 ) -> Result<Json<ArrayRecordingStarted>, AppError> {
-    Err(AppError::not_built())
+    let started =
+        tokio::task::spawn_blocking(move || array::start_recording(&state, &node, request))
+            .await??;
+    Ok(Json(started))
 }
 
 #[utoipa::path(
@@ -84,8 +101,9 @@ pub(super) async fn start_array_recording(
     ),
 )]
 pub(super) async fn stop_array_recording(
-    State(_state): State<AppState>,
-    Path(_node): Path<String>,
+    State(state): State<AppState>,
+    Path(node): Path<String>,
 ) -> Result<StatusCode, AppError> {
-    Err(AppError::not_built())
+    tokio::task::spawn_blocking(move || array::stop_recording(&state, &node)).await??;
+    Ok(StatusCode::NO_CONTENT)
 }

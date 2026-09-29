@@ -16,6 +16,7 @@ use tower::ServiceExt;
 
 use super::*;
 
+mod array;
 mod auth_mcp;
 mod calls;
 mod catalog;

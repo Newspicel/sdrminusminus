@@ -8,7 +8,7 @@ use sdrmm_wire::{
 use tokio::{sync::broadcast::error::RecvError, time::Instant};
 
 use crate::{
-    AppState, calibration,
+    AppState, array, calibration,
     store::{SettingsStep, Store, StoreError},
 };
 
@@ -107,6 +107,26 @@ pub(crate) fn bind_channels(
         });
         if let Some(at) = unclaimed {
             bound.push(((*node).to_owned(), free.remove(at).id));
+        }
+    }
+    bound.extend(virtual_bound(graph, set));
+    bound
+}
+
+pub(crate) fn virtual_bound(graph: &PatchGraph, set: &DeviceSet) -> Vec<(String, u32)> {
+    let mut bound = Vec::new();
+    for lane in &set.virtual_lanes {
+        for listener in array::lane_port_listeners(graph, &lane.node, &lane.port) {
+            let Some(NodeBody::Channel(wanted)) = graph.node(&listener).map(|node| &node.body)
+            else {
+                continue;
+            };
+            if let Some(channel) = set.channels.iter().find(|channel| {
+                channel.node.as_deref() == Some(listener.as_str())
+                    && carries(channel, &wanted.channel_type, lane.stream)
+            }) {
+                bound.push((listener, channel.id));
+            }
         }
     }
     bound
@@ -245,6 +265,9 @@ fn live_state(
     let (devices, channels) = capture(graph, &state.engine.snapshot(), &unrestored);
     stored.merge(devices);
     stored.merge_channels(channels);
+    for held in array::capture_tunes(state) {
+        stored.put_array(&held.node, held.tune);
+    }
     Ok(stored)
 }
 
@@ -415,7 +438,7 @@ fn touches_settings(event: &ServerEvent) -> bool {
     matches!(
         event,
         ServerEvent::StateChanged {
-            scope: StateScope::All | StateScope::DeviceSet(_)
+            scope: StateScope::All | StateScope::DeviceSet(_) | StateScope::Arrays
         }
     )
 }
@@ -434,6 +457,7 @@ pub(crate) fn reconcile(
     saved: &WorkspaceState,
 ) -> Reconciled {
     let engine = &state.engine;
+    array::release(state, incoming);
     let snapshot = engine.snapshot();
     let bindings = bind(incoming, &snapshot);
     let mut report = Reconciled::default();

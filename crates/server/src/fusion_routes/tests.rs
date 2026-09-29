@@ -296,7 +296,7 @@ fn identifier(letter: char) -> bool {
 }
 
 #[test]
-fn no_df_update_event_and_no_any_fix_remain() {
+fn no_df_update_event_and_no_fix_fallback_remain() {
     let banned = [["Df", "Update"].concat(), ["any", "_fix"].concat()];
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     let mut pending = vec![root];
