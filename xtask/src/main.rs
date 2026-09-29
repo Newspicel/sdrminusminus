@@ -37,6 +37,8 @@ mod sums;
 mod units;
 mod updater;
 
+const HOMEPAGE: &str = "https://sdrmm.com";
+
 #[derive(Parser)]
 #[command(name = "xtask", about = "SDR-- workspace tasks")]
 struct Cli {

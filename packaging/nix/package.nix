@@ -134,7 +134,7 @@ rustPlatform.buildRustPackage (finalAttrs: {
 
   meta = {
     description = "Modular software-defined radio receiver desktop application";
-    homepage = "https://github.com/Newspicel/sdrminusminus";
+    homepage = "https://sdrmm.com";
     license = lib.licenses.agpl3Plus;
     mainProgram = "sdrmm-desktop";
     platforms = lib.platforms.linux;

@@ -15,7 +15,7 @@
     "active": true,
     "targets": "all",
     "createUpdaterArtifacts": true,
-    "homepage": "https://github.com/Newspicel/sdrminusminus",
+    "homepage": "https://sdrmm.com",
     "license": "AGPL-3.0-or-later",
     "category": "Utility",
     "shortDescription": "Modular software-defined radio",

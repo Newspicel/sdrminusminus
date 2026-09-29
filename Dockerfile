@@ -88,7 +88,8 @@ RUN test -f web/dist/index.html \
 
 # --- runtime -----------------------------------------------------------------------------
 FROM debian:trixie-slim AS runtime
-LABEL org.opencontainers.image.source="https://github.com/newspicel/sdrminusminus" \
+LABEL org.opencontainers.image.url="https://sdrmm.com" \
+      org.opencontainers.image.source="https://github.com/newspicel/sdrminusminus" \
       org.opencontainers.image.description="SDR--: headless SDR server with embedded web UI" \
       org.opencontainers.image.licenses="AGPL-3.0-or-later"
 
