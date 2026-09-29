@@ -93,7 +93,12 @@ export function CorrelatorFace({ node }: { node: PatchNode }) {
                 {baseline === undefined ? "-" : baselineText(baseline)}
               </span>
             </div>
-            <CorrelatorPlots node={node.id} index={index} dim={stale || reading === null} />
+            <CorrelatorPlots
+              node={node.id}
+              known={processorStatusOf(status, node.id) !== null}
+              index={index}
+              dim={stale || reading === null}
+            />
             <div className="flex shrink-0 items-center gap-2 border-t border-line px-2 py-1.5">
               <div className="min-w-0 flex-1">
                 <ProcessorReadout columns={3}>

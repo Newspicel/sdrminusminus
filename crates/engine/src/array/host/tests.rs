@@ -67,6 +67,7 @@ pub(crate) struct Talk {
     pub(crate) peaks: usize,
     pub(crate) event: bool,
     pub(crate) steer: Option<f64>,
+    pub(crate) refuse_retune: bool,
 }
 
 pub(crate) struct Talker {
@@ -157,7 +158,11 @@ impl ArrayProcessor for Talker {
     }
 
     fn retune(&mut self, _ctx: &ArrayCtx<'_>) -> Result<(), ChannelError> {
-        Ok(())
+        if self.talk.refuse_retune {
+            Err(ChannelError::Refused("Array changed"))
+        } else {
+            Ok(())
+        }
     }
 
     fn reset(&mut self, _cause: ResetCause) {

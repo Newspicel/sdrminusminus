@@ -24,6 +24,7 @@ import type {
   WorkspaceSnapshot,
   WorkspacesResponse,
 } from "../lib/types";
+import { retryNodeState } from "../lib/useNodeStateSync";
 import { pruneRack } from "./graph";
 import { savedChannelsOf, withSavedChannel } from "./savedChannels";
 import { WorkspaceDrafts } from "./workspaceDrafts";
@@ -123,7 +124,10 @@ export function useWorkspace(): WorkspaceStore {
     mutationFn: deleteWorkspace,
     onSettled: () => queryClient.invalidateQueries({ queryKey: WORKSPACES_KEY }),
   });
-  const applyMut = useMutation({ mutationFn: applyWorkspace });
+  const applyMut = useMutation({
+    mutationFn: applyWorkspace,
+    onSuccess: () => retryNodeState(queryClient),
+  });
   const applyAsync = applyMut.mutateAsync;
   const stepMut = useMutation({
     mutationFn: (variables: { id: number; step: "undo" | "redo" }) =>

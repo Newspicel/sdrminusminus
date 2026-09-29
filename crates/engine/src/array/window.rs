@@ -542,10 +542,6 @@ impl Windows {
         self.reference
     }
 
-    pub(crate) fn noise_active(&self) -> bool {
-        self.noise != Noise::Idle
-    }
-
     fn push_event(&mut self, event: AggregatorEvent) {
         match self.events.get_mut(self.event_count) {
             Some(slot) => {

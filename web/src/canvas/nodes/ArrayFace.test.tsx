@@ -138,6 +138,15 @@ describe("ArrayFace", () => {
     expect(html).toContain(">Drops<");
   });
 
+  it("fits a Kraken start delay in its column", () => {
+    const spread = fiveLanes({
+      lanes: [0, 1, 2, 3, 4].map((lane) => laneStatus(lane, { delay_samples: -16_803.25 * lane })),
+    });
+    const html = render(wires("kraken", 5), spread);
+    expect(html).toMatch(/<td class="[^"]*truncate[^"]*">-67213<\/td>/);
+    expect(html).not.toContain(">-67213.00<");
+  });
+
   it("names a failure and flags aliasing above the element spacing", () => {
     const failed = fiveLanes({
       failure: { kind: "lane_held", lane: 2, by: "South" },

@@ -15,12 +15,14 @@ const STATION_R = 3.5;
 
 export function FusionHeat({
   node,
+  known,
   estimate,
   emitters,
   stations,
   hint,
 }: {
   node: string;
+  known: boolean;
   estimate: DfEstimate | null;
   emitters: readonly DfEstimate[];
   stations: readonly DfStation[];
@@ -28,7 +30,7 @@ export function FusionHeat({
 }) {
   const [frame, setFrame] = useState<FusionGridFrame | null>(null);
   const [ref, size] = useBoxSize<HTMLDivElement>();
-  useSurface(node, (surface) => {
+  useSurface(known ? node : null, (surface) => {
     if (surface.kind === "fusion_grid") {
       setFrame(surface.frame);
     } else {

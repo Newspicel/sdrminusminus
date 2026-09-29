@@ -233,10 +233,10 @@ Passive radar, median of 10 CPIs, M4 Max shared with other builds:
 | Front, share of a core | 0.05 | 0.10 | 0.11 | 0.15 |
 | CPI, one thread | 6.3 ms | 25 ms | 62 ms | 120 ms |
 | CPI, crew of 3 | 5.2 ms | | 40 ms | 50 ms |
-| CPI, Auto | 5.3 ms on the CPU | | 28 to 36 ms on the GPU | 30 ms |
+| CPI, Auto | 5.3 ms on the CPU | | 23 ms on the GPU | 30 ms |
 
-The DAB CPI on the GPU misses 30 ms while other builds load the machine. Its GPU CAF alone takes
-13 to 15 ms.
+The DAB CPI on the GPU stays under 30 ms at a load average of 20, but other apps busy on the GPU
+can still push it past. Its GPU CAF alone takes 9 to 10 ms.
 
 Not measured yet: bearings against a transmitter at known bearings, radar on a live FM station
 (both need antennas), and a Raspberry Pi 5.

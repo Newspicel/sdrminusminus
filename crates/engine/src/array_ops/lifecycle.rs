@@ -103,7 +103,7 @@ impl Engine {
                 .filter(|member| member.lane.device_set == ds && survey.usable(member))
             {
                 let Some(port) = &member.port else { continue };
-                let feed = port.lease(rate, member.epoch)?;
+                let feed = port.lease(rate)?;
                 let lease = Lease {
                     port: port.clone(),
                     id: feed.lease(),
@@ -179,7 +179,7 @@ impl Engine {
             let port = member.port.as_ref().filter(|_| survey.usable(member));
             match port {
                 Some(port) => {
-                    let feed = port.lease(rate, member.epoch)?;
+                    let feed = port.lease(rate)?;
                     if let Some(slot) = state.leases.get_mut(member.slot) {
                         *slot = Some(Lease {
                             port: port.clone(),

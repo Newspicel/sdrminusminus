@@ -101,6 +101,7 @@ export function RadarFace({ node }: { node: PatchNode }) {
           <div className="flex min-h-0 flex-1 flex-col">
             <RadarPlot
               node={node.id}
+              known={processorStatusOf(status, node.id) !== null}
               update={update}
               dim={stale || update === null}
               colormap={colormap}

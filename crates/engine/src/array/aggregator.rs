@@ -751,11 +751,6 @@ impl Aggregator {
                 self.discontinuity();
                 self.retire(Retired::Command(Command::LanesLost { slots }));
             }
-            Command::AddHost { host } => {
-                if let Err(host) = self.hosts.add(host) {
-                    self.retire(Retired::Host(host));
-                }
-            }
             Command::ReplaceHost { host } => match self.hosts.replace(host) {
                 Ok(Some(old)) | Err(old) => self.retire(Retired::Host(old)),
                 Ok(None) => {}
@@ -866,7 +861,6 @@ impl Aggregator {
         self.gain_ready = false;
         self.quality = CalQuality::default();
         self.board.phase_ready.store(false, Ordering::Relaxed);
-        self.board.gain_ready.store(false, Ordering::Relaxed);
         self.hosts.reset(ResetCause::Calibrated);
         self.gap_before = true;
     }
@@ -941,9 +935,6 @@ impl Aggregator {
         self.board
             .phase_ready
             .store(summary.phase_ready, Ordering::Relaxed);
-        self.board
-            .gain_ready
-            .store(summary.gain_ready, Ordering::Relaxed);
         self.bump_generation();
         self.hosts.reset(ResetCause::Calibrated);
         self.gap_before = true;

@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::sync::{Arc, TryLockError, atomic::Ordering};
 
 use sdrmm_channels::{
     ChannelError,
@@ -331,6 +331,40 @@ impl Engine {
         }
     }
 
+    pub(crate) fn rebuild_processors(&self, array: &str) -> Result<(), EngineError> {
+        let _edits = match self.array_edits.try_lock() {
+            Ok(edits) => edits,
+            Err(TryLockError::Poisoned(poisoned)) => poisoned.into_inner(),
+            Err(TryLockError::WouldBlock) => return Ok(()),
+        };
+        let due: Vec<ProcessorSpec> =
+            self.lock()
+                .arrays
+                .get(array)
+                .map_or_else(Vec::new, |state| {
+                    state
+                        .processors
+                        .values()
+                        .filter(|record| record.installed && record.stats.rebuild_due())
+                        .map(|record| record.spec.clone())
+                        .collect()
+                });
+        if due.is_empty() {
+            return Ok(());
+        }
+        let mut failed = None;
+        for spec in &due {
+            if let Err(error) = self.install_processor(spec, None, true) {
+                self.note_processor_refusal(spec, &error);
+                failed.get_or_insert(error);
+            }
+        }
+        self.emit(ServerEvent::StateChanged {
+            scope: StateScope::Arrays,
+        });
+        failed.map_or(Ok(()), Err)
+    }
+
     pub(super) fn reinstall_all(&self, array: &str, wanted: impl Fn(&ProcessorRecord) -> bool) {
         let specs: Vec<ProcessorSpec> =
             self.lock()
@@ -565,7 +599,11 @@ impl Engine {
     ) -> Result<(), EngineError> {
         let mut inner = self.lock();
         let state = find_mut(&mut inner, &spec.array)?;
-        state.send(Command::ReplaceHost { host })?;
+        record.stats.replacing.store(true, Ordering::Release);
+        if let Err(error) = state.send(Command::ReplaceHost { host }) {
+            record.stats.replacing.store(false, Ordering::Release);
+            return Err(error);
+        }
         let mut lost = None;
         for lane in opened {
             let swapped = state.send(Command::SwapVirtual {

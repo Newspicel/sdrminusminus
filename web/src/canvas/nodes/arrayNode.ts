@@ -291,6 +291,18 @@ export function failureTitle(failure: ArrayFailure): string {
   return failure.kind === "stopped" ? failure.message : failureText(failure);
 }
 
+const DELAY_DIGITS: readonly (readonly [number, number])[] = [
+  [9.995, 2],
+  [999.95, 1],
+  [99_999.5, 0],
+];
+
+export function delayLabel(samples: number): string {
+  const size = Math.abs(samples);
+  const digits = DELAY_DIGITS.find(([below]) => size < below);
+  return digits === undefined ? `${(samples / 1_000).toFixed(0)}k` : samples.toFixed(digits[1]);
+}
+
 export function laneTitle(row: ArrayLaneRow): string {
   const lane = row.status;
   if (lane === null) {

@@ -53,7 +53,9 @@ export function MapPlot({
   const df = dfOverlay(sources, bearings, fusion, processors, now, from);
   return (
     <>
-      {crossing !== null && <HeatFeed key={crossing} node={crossing} onFrame={setHeld} />}
+      {crossing !== null && fusion[crossing] !== undefined && (
+        <HeatFeed key={crossing} node={crossing} onFrame={setHeld} />
+      )}
       <MapPanel
         kinds={kinds}
         positionNodes={positionNodes}

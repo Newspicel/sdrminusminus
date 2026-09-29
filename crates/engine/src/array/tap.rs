@@ -190,11 +190,10 @@ pub(crate) struct TapPort {
     outbox: Mutex<Consumer<Box<TapRing>>>,
     active: Arc<AtomicU64>,
     next_lease: AtomicU64,
-    stream: u32,
 }
 
 impl TapPort {
-    pub(crate) fn new(stream: u32) -> (Arc<Self>, TapWriter) {
+    pub(crate) fn new() -> (Arc<Self>, TapWriter) {
         let (inbox_tx, inbox_rx) = RingBuffer::new(LEASE_SLOTS);
         let (outbox_tx, outbox_rx) = RingBuffer::new(RETIRED_SLOTS);
         let active = Arc::new(AtomicU64::new(0));
@@ -204,7 +203,6 @@ impl TapPort {
                 outbox: Mutex::new(outbox_rx),
                 active: active.clone(),
                 next_lease: AtomicU64::new(0),
-                stream,
             }),
             TapWriter {
                 inbox: inbox_rx,
@@ -215,11 +213,7 @@ impl TapPort {
         )
     }
 
-    pub(crate) const fn stream(&self) -> u32 {
-        self.stream
-    }
-
-    pub(crate) fn lease(&self, sample_rate: f64, epoch: u64) -> Result<LaneFeed, EngineError> {
+    pub(crate) fn lease(&self, sample_rate: f64) -> Result<LaneFeed, EngineError> {
         self.collect();
         let (samples_tx, samples_rx) = RingBuffer::new(tap_capacity(sample_rate));
         let (events_tx, events_rx) = RingBuffer::new(TAP_EVENT_SLOTS);
@@ -242,9 +236,7 @@ impl TapPort {
             return Err(EngineError::Array(ArrayFailure::Busy));
         }
         Ok(LaneFeed {
-            stream: self.stream,
             lease,
-            epoch,
             active: self.active.clone(),
             samples: samples_rx,
             events: events_rx,
@@ -273,9 +265,7 @@ impl TapPort {
 }
 
 pub(crate) struct LaneFeed {
-    stream: u32,
     lease: u64,
-    epoch: u64,
     active: Arc<AtomicU64>,
     samples: Consumer<Complex<f32>>,
     events: Consumer<TapEvent>,
@@ -286,16 +276,8 @@ pub(crate) struct LaneFeed {
 }
 
 impl LaneFeed {
-    pub(crate) const fn stream(&self) -> u32 {
-        self.stream
-    }
-
     pub(crate) const fn lease(&self) -> u64 {
         self.lease
-    }
-
-    pub(crate) const fn epoch(&self) -> u64 {
-        self.epoch
     }
 
     pub(crate) fn events_lost(&self) -> u64 {

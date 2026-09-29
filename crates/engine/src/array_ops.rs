@@ -593,4 +593,8 @@ impl ArrayControl for Engine {
     fn clock_drift(&self, node: &str, ppm: Option<f64>) -> Result<(), EngineError> {
         Self::clock_drift(self, node, ppm)
     }
+
+    fn rebuild_processors(&self, node: &str) -> Result<(), EngineError> {
+        Self::rebuild_processors(self, node)
+    }
 }

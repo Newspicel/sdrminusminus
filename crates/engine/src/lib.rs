@@ -575,7 +575,6 @@ struct DeviceSetState {
     agc_gains: Vec<sdrmm_wire::AgcGain>,
     playback: Option<Arc<PlaybackShared>>,
     runtime: Arc<DeviceRuntime>,
-    runtime_epoch: u64,
     held: BTreeMap<u32, String>,
     virtual_lanes: BTreeMap<u32, VirtualLaneState>,
 }

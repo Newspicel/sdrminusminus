@@ -53,6 +53,7 @@ const DETAILS_KEPT: usize = 8;
 const STEP_EPSILON_DB: f64 = 0.01;
 const NOISE_WARMUP: u64 = 2 * (BASELINE_SUBS * SUB_BLOCK) as u64 + PRE_GUARD;
 const NOISE_END_TIMEOUT: Duration = Duration::from_secs(1);
+const REBUILD_EVERY: Duration = Duration::from_millis(200);
 
 pub(crate) enum ControlCommand {
     Configure(Box<ControlConfig>),
@@ -226,6 +227,8 @@ pub(crate) struct Controller {
     skipped_checks: u64,
     warned_context: bool,
     running: bool,
+    rebuild_at: Instant,
+    rebuild_failures: usize,
 }
 
 impl Controller {
@@ -269,6 +272,8 @@ impl Controller {
             skipped_checks: 0,
             warned_context: false,
             running: false,
+            rebuild_at: now,
+            rebuild_failures: 0,
         };
         (controller, io.commands)
     }
@@ -332,6 +337,26 @@ impl Controller {
         self.board.control().next_check_at = self
             .next_check
             .filter(|_| self.checks_enabled() && !self.blocked());
+        self.rebuild(now);
+    }
+
+    fn rebuild(&mut self, now: Instant) {
+        if now < self.rebuild_at {
+            return;
+        }
+        self.rebuild_at = now + REBUILD_EVERY;
+        let Some(control) = self.control.upgrade() else {
+            return;
+        };
+        match control.rebuild_processors(&self.node) {
+            Ok(()) => self.rebuild_failures = 0,
+            Err(error) => {
+                let delay = RETRY_DELAYS[self.rebuild_failures.min(RETRY_DELAYS.len() - 1)];
+                self.rebuild_failures += 1;
+                self.rebuild_at = now + delay;
+                tracing::warn!(array = %self.node, %error, "a processor could not be rebuilt");
+            }
+        }
     }
 
     pub(crate) fn stop(&mut self) {

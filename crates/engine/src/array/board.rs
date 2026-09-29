@@ -122,7 +122,6 @@ pub(crate) struct StatusBoard {
     pub(crate) sync: AtomicU8,
     pub(crate) cal: AtomicU8,
     pub(crate) phase_ready: AtomicBool,
-    pub(crate) gain_ready: AtomicBool,
     pub(crate) generation: AtomicU32,
     pub(crate) realigns: AtomicU64,
     pub(crate) dropped_samples: AtomicU64,
@@ -141,7 +140,6 @@ impl StatusBoard {
             sync: AtomicU8::new(sync_code(SyncState::Idle)),
             cal: AtomicU8::new(cal_code(CalPhase::None)),
             phase_ready: AtomicBool::new(false),
-            gain_ready: AtomicBool::new(false),
             generation: AtomicU32::new(0),
             realigns: AtomicU64::new(0),
             dropped_samples: AtomicU64::new(0),
@@ -186,10 +184,6 @@ impl StatusBoard {
 
     pub(crate) fn phase_ready(&self) -> bool {
         self.phase_ready.load(Ordering::Relaxed)
-    }
-
-    pub(crate) fn gain_ready(&self) -> bool {
-        self.gain_ready.load(Ordering::Relaxed)
     }
 
     pub(crate) fn generation(&self) -> u32 {

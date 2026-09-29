@@ -527,6 +527,7 @@ struct Outbox {
 }
 
 impl Outbox {
+    #[cfg(test)]
     const fn pending(&self) -> bool {
         self.held.is_some() || self.clear || self.tune.is_some() || self.hop.is_some()
     }

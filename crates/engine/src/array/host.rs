@@ -55,6 +55,7 @@ pub(crate) struct ProcessorStats {
     pub(crate) truncated: AtomicU64,
     pub(crate) refused: AtomicU64,
     pub(crate) rebuild: AtomicBool,
+    pub(crate) replacing: AtomicBool,
 }
 
 impl Default for ProcessorStats {
@@ -72,6 +73,7 @@ impl Default for ProcessorStats {
             truncated: AtomicU64::new(0),
             refused: AtomicU64::new(0),
             rebuild: AtomicBool::new(false),
+            replacing: AtomicBool::new(false),
         }
     }
 }
@@ -87,6 +89,10 @@ impl ProcessorStats {
 
     pub(crate) fn wants_rebuild(&self) -> bool {
         self.rebuild.load(Ordering::Relaxed)
+    }
+
+    pub(crate) fn rebuild_due(&self) -> bool {
+        !self.replacing.load(Ordering::Acquire) && self.rebuild.load(Ordering::Acquire)
     }
 
     pub(crate) fn faults(&self) -> ProcessorFaults {
@@ -757,29 +763,20 @@ impl ProcessorHost {
         }
     }
 
-    pub(crate) fn node(&self) -> &str {
-        &self.node
-    }
-
     fn installed(&self) {
         self.stats.alive.store(true, Ordering::Relaxed);
-        self.stats.rebuild.store(false, Ordering::Relaxed);
+        self.stats.set_gate(self.gated);
+        self.stats.rebuild.store(false, Ordering::Release);
+        self.stats.replacing.store(false, Ordering::Release);
     }
 
-    pub(crate) const fn descriptor(&self) -> &'static ProcessorDescriptor {
-        self.descriptor
-    }
-
+    #[cfg(test)]
     pub(crate) fn stats(&self) -> &Arc<ProcessorStats> {
         &self.stats
     }
 
     pub(crate) const fn needs_corrector(&self) -> bool {
         (self.needs.time || self.needs.phase) && !self.banded
-    }
-
-    pub(crate) const fn gated(&self) -> Option<ProcessorGate> {
-        self.gated
     }
 
     fn steered_by(&self, source: &str) -> bool {
@@ -1034,7 +1031,7 @@ impl ProcessorHost {
         }
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, feature = "probe"))]
     pub(crate) fn lane_index(&self, port: usize) -> Option<u64> {
         self.outputs
             .as_ref()?
@@ -1061,10 +1058,6 @@ impl HostList {
             hosts: Vec::with_capacity(MAX_HOSTS),
             steers: [None; MAX_HOSTS],
         }
-    }
-
-    pub(crate) fn len(&self) -> usize {
-        self.hosts.len()
     }
 
     pub(crate) fn needs_corrector(&self) -> bool {

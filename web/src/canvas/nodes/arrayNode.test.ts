@@ -11,6 +11,7 @@ import {
   calSourceOf,
   calTitle,
   checkOptions,
+  delayLabel,
   failureTitle,
   headingLabel,
   heldLanes,
@@ -218,6 +219,20 @@ describe("array readouts", () => {
     expect(recordingLabel(running, 2_048_000)).toBe("2 s");
     expect(recordingLabel({ ...running, dropped: 12 }, 2_048_000)).toBe("2 s · 12 dropped");
     expect(recordingLabel({ ...running, error: "Disk full" }, 2_048_000)).toBe("Disk full");
+  });
+
+  it("keeps a lane delay within six characters", () => {
+    expect(delayLabel(0)).toBe("0.00");
+    expect(delayLabel(-4.567)).toBe("-4.57");
+    expect(delayLabel(-123.45)).toBe("-123.5");
+    expect(delayLabel(16_803.25)).toBe("16803");
+    expect(delayLabel(-99_999.4)).toBe("-99999");
+    expect(delayLabel(1_234_567)).toBe("1235k");
+    expect(delayLabel(-999.96)).toBe("-1000");
+    expect(delayLabel(-99_999.6)).toBe("-100k");
+    for (const delay of [-9.999, -999.96, -16_803.25, -99_999.6, -480_000, -1_234_567]) {
+      expect(delayLabel(delay).length).toBeLessThanOrEqual(6);
+    }
   });
 
   it("adds up lane gaps", () => {

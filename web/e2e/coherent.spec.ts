@@ -72,6 +72,17 @@ function crossings(): WorkspaceSnapshot {
   };
 }
 
+function finding(): WorkspaceSnapshot {
+  const { nodes, edges } = crossings().graph;
+  return {
+    version: 4,
+    graph: {
+      nodes: nodes.filter((placed) => placed.id !== "tri" && placed.id !== "map"),
+      edges: (edges ?? []).filter((edge) => edge.to.node !== "tri" && edge.to.node !== "map"),
+    },
+  };
+}
+
 function nodeOf(page: Page, kind: string): Locator {
   return page.locator(`.react-flow__node[data-id^="${kind}:"]`);
 }
@@ -198,4 +209,61 @@ test("refuses a lane already in another array on the face", async ({ page }) => 
   await expect(
     page.locator(`.react-flow__edge[data-id="kraken.iq2->${await idOf(second)}.lane"]`),
   ).toHaveCount(0);
+});
+
+function textFrames(page: Page): string[] {
+  const frames: string[] = [];
+  page.on("websocket", (socket) =>
+    socket.on("framereceived", (frame) => {
+      if (typeof frame.payload === "string") {
+        frames.push(frame.payload);
+      }
+    }),
+  );
+  return frames;
+}
+
+function refusedSurfaces(frames: readonly string[]): string[] {
+  return frames.filter((frame) => frame.includes("no surface"));
+}
+
+test("a triangulation added by hand shows its heat", async ({ page }) => {
+  const frames = textFrames(page);
+  await stage(page, "Hand triangulation", finding());
+  await addNode(page, "Triangulation");
+  const tri = nodeOf(page, "triangulation");
+  await expect(tri).toHaveCount(1);
+  await fitPatch(page);
+  await dragWire(
+    page,
+    port(face(page, "finder"), "events"),
+    tri.locator('.react-flow__handle.target[data-handleid="events"]'),
+  );
+  await expect(tri.getByRole("img", { name: "Bearing heat" }).locator("canvas")).toHaveCount(1, {
+    timeout: SETTLE_MS,
+  });
+  expect(refusedSurfaces(frames)).toEqual([]);
+});
+
+test("a spatial spectrum added by hand streams its surface", async ({ page }) => {
+  const frames = textFrames(page);
+  await stage(page, "Hand spatial spectrum", finding());
+  await addNode(page, "Spatial spectrum");
+  const spatial = nodeOf(page, "spatial_spectrum");
+  await expect(spatial).toHaveCount(1);
+  const id = await idOf(spatial);
+  await fitPatch(page);
+  await dragWire(
+    page,
+    port(face(page, "arr"), "array"),
+    spatial.locator('.react-flow__handle.target[data-handleid="array"]'),
+  );
+  await expect
+    .poll(
+      () =>
+        frames.some((frame) => frame.includes("SurfaceStreamStarted") && frame.includes(`"${id}"`)),
+      { timeout: SETTLE_MS },
+    )
+    .toBe(true);
+  expect(refusedSurfaces(frames)).toEqual([]);
 });

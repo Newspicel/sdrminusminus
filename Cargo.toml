@@ -164,7 +164,7 @@ nusb = "0.2.7"
 libloading = "0.9"
 
 # DSP
-num-complex = "0.4"
+num-complex = { version = "0.4", features = ["bytemuck"] }
 rustfft = "6"
 tract-onnx = { version = "0.23.8", default-features = false }
 tract-nnef = "0.23.8"

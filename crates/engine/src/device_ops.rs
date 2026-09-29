@@ -457,7 +457,6 @@ impl Engine {
             state.status = DeviceSetStatus::Running;
             state.error = None;
             state.playback = playback;
-            state.runtime_epoch += 1;
             let rebuilds: Vec<RebuildEntry> = state
                 .channels
                 .iter()
@@ -608,7 +607,6 @@ impl Engine {
                     agc_gains: Vec::new(),
                     playback,
                     runtime: Arc::new(DeviceRuntime::new(runtime)),
-                    runtime_epoch: 0,
                     held: BTreeMap::new(),
                     virtual_lanes: BTreeMap::new(),
                 },

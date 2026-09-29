@@ -67,9 +67,9 @@ fn rig_with(lanes: usize, frame: LiveFrame, staged: bool) -> Rig {
     let mut ports = Vec::new();
     let mut writers = Vec::new();
     let mut feeds = Vec::new();
-    for stream in 0..lanes {
-        let (port, writer) = TapPort::new(stream as u32);
-        feeds.push(Some(port.lease(frame.sample_rate, 1).expect("lease")));
+    for _ in 0..lanes {
+        let (port, writer) = TapPort::new();
+        feeds.push(Some(port.lease(frame.sample_rate).expect("lease")));
         ports.push(port);
         writers.push(writer);
     }
@@ -160,7 +160,7 @@ impl Rig {
             talker,
         )
         .expect("host");
-        self.send(Command::AddHost { host });
+        self.send(Command::ReplaceHost { host });
         log
     }
 
@@ -464,6 +464,7 @@ fn step_does_not_allocate_after_warmup() {
             peaks: 8,
             event: true,
             steer: Some(20.0),
+            refuse_retune: false,
         },
         &WIDE,
     );
@@ -693,6 +694,56 @@ fn a_new_rate_holds_every_host_until_it_is_rebuilt() {
 }
 
 #[test]
+fn a_failed_retune_holds_the_host_until_a_rebuilt_one_replaces_it() {
+    let mut rig = rig(2, frame(2));
+    let refusing = Talk {
+        refuse_retune: true,
+        ..Talk::default()
+    };
+    let mut old = rig.talker("df", refusing, &TALKER);
+    rig.noise(2 * BLOCK);
+    rig.settle();
+    assert!(!drain(&mut old).is_empty());
+    let mut moved = frame(2);
+    moved.center_hz = 101e6;
+    moved.lane_centers_hz = vec![101e6; 2];
+    rig.send(Command::Frame {
+        frame: Box::new(moved.clone()),
+    });
+    rig.noise(2 * BLOCK);
+    rig.settle();
+    assert!(drain(&mut old).is_empty());
+    let stats = rig
+        .aggregator
+        .hosts()
+        .find_mut("df")
+        .expect("host")
+        .stats()
+        .clone();
+    assert!(stats.rebuild_due());
+    assert_eq!(stats.gate(), Some(ProcessorGate::Retuning));
+    let (talker, mut rebuilt) = Talker::new(Talk::default());
+    let mut replan = plan(
+        "df",
+        ProcessorParams::Df(DfParams::default()),
+        &rig.taps.sinks,
+        moved.lanes(),
+    );
+    replan.stats = stats.clone();
+    let host = ProcessorHost::with_processor(replan, &moved, &TALKER, talker).expect("host");
+    stats.replacing.store(true, Ordering::Release);
+    assert!(!stats.rebuild_due());
+    rig.send(Command::ReplaceHost { host });
+    rig.noise(2 * BLOCK);
+    rig.settle();
+    assert!(!drain(&mut rebuilt).is_empty());
+    assert!(drain(&mut old).is_empty());
+    assert!(!stats.wants_rebuild());
+    assert!(!stats.rebuild_due());
+    assert!(!stats.replacing.load(Ordering::Acquire));
+}
+
+#[test]
 fn a_lost_lane_gates_every_host_on_sync() {
     let mut rig = rig(2, frame(2));
     let _log = rig.talker("df", Talk::default(), &TALKER);
@@ -764,7 +815,7 @@ mod probe {
     }
 
     pub(super) fn two_probes(rig: &mut Rig) -> crate::capture_ring::CaptureConsumer {
-        let (sink, ring) = VirtualLaneSink::detached(2, 1 << 17);
+        let (sink, ring) = VirtualLaneSink::detached(1 << 17);
         let ported = probe_host(
             rig,
             "probe-alloc-ported",
@@ -776,16 +827,16 @@ mod probe {
             vec![Some(sink)],
         );
         let plain = probe_host(rig, "probe-alloc", ProbeParams::default(), Vec::new());
-        rig.send(Command::AddHost { host: ported });
-        rig.send(Command::AddHost { host: plain });
+        rig.send(Command::ReplaceHost { host: ported });
+        rig.send(Command::ReplaceHost { host: plain });
         ring
     }
 
     #[test]
     fn two_lane_ports_write_two_virtual_lanes() {
         let mut rig = rig(2, frame(2));
-        let (first, mut first_ring) = VirtualLaneSink::detached(2, 1 << 17);
-        let (second, mut second_ring) = VirtualLaneSink::detached(3, 1 << 17);
+        let (first, mut first_ring) = VirtualLaneSink::detached(1 << 17);
+        let (second, mut second_ring) = VirtualLaneSink::detached(1 << 17);
         let host = probe_host(
             &rig,
             "probe-ports",
@@ -795,7 +846,7 @@ mod probe {
             },
             vec![Some(first), Some(second)],
         );
-        rig.send(Command::AddHost { host });
+        rig.send(Command::ReplaceHost { host });
         rig.write(2 * BLOCK, |lane, at| Complex::new(lane as f32, at as f32));
         rig.settle();
         let mut seen = [Vec::new(), Vec::new()];
@@ -812,7 +863,7 @@ mod probe {
     #[test]
     fn a_gated_host_counts_gated_samples_and_skips_its_lanes() {
         let mut rig = rig(2, frame(2));
-        let (sink, mut ring) = VirtualLaneSink::detached(2, 1 << 17);
+        let (sink, mut ring) = VirtualLaneSink::detached(1 << 17);
         let host = probe_host(
             &rig,
             "probe-gated",
@@ -825,7 +876,7 @@ mod probe {
         );
         let mut log = take_probe_log("probe-gated").expect("log");
         let stats = host.stats().clone();
-        rig.send(Command::AddHost { host });
+        rig.send(Command::ReplaceHost { host });
         rig.noise(3 * BLOCK);
         assert!(rig.settle() > 0);
         let gated = stats.gated_samples.load(Ordering::Relaxed);
@@ -854,7 +905,7 @@ mod probe {
         let params = ProbeParams::default();
         let host = probe_host(&rig, "probe-apply", params, Vec::new());
         let mut log = take_probe_log("probe-apply").expect("log");
-        rig.send(Command::AddHost { host });
+        rig.send(Command::ReplaceHost { host });
         rig.noise(2 * BLOCK);
         rig.settle();
         let before = log.drain();
@@ -888,7 +939,7 @@ mod probe {
             },
             Vec::new(),
         );
-        rig.send(Command::AddHost { host: slow });
+        rig.send(Command::ReplaceHost { host: slow });
         let fresh = probe_host(
             &rig,
             "probe-slow",

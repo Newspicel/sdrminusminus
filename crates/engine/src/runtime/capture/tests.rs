@@ -91,12 +91,11 @@ fn every_physical_lane_gets_a_tap_and_a_poster() {
     let posters = runtime.mark_posters();
     assert_eq!(ports.len(), 4);
     assert_eq!(posters.len(), 4);
-    assert_eq!(ports[2].stream(), 2);
     let rate = runtime
         .device_settings()
         .and_then(|settings| settings.sample_rate)
         .expect("rate");
-    let mut feed = ports[2].lease(rate, 1).expect("lease");
+    let mut feed = ports[2].lease(rate).expect("lease");
     let mut notes = crate::array::align_notes();
     wait_until(|| {
         feed.settle(&mut notes, 0, 0);
@@ -125,9 +124,8 @@ fn a_virtual_lane_takes_a_free_stream_and_gives_it_back() {
     let (mut sink, _commands) = runtime
         .add_virtual_lane(4, 100e6, 48_000.0, false)
         .expect("a free stream");
-    assert_eq!(sink.stream(), 4);
     assert!(runtime.add_virtual_lane(4, 100e6, 48_000.0, false).is_err());
-    assert_eq!(runtime.virtual_streams(), [4]);
+    assert!(runtime.subscribe(4).is_some());
     assert!(runtime.set_virtual_meta(4, 101e6, 48_000.0));
     let mut spectrum = runtime.subscribe(4).expect("a spectrum");
     let tone: Vec<Complex<f32>> = (0..4_800)
@@ -153,13 +151,12 @@ fn a_virtual_lane_takes_a_free_stream_and_gives_it_back() {
 fn a_single_lane_radio_gets_one_tap() {
     let runtime = started("siggen");
     assert_eq!(runtime.tap_ports().len(), 1);
-    assert!(runtime.virtual_streams().is_empty());
+    assert!(runtime.subscribe(1).is_none());
 }
 
 #[test]
 fn a_skipped_virtual_block_leaves_a_gap_not_shifted_samples() {
-    let (mut sink, mut ring) = VirtualLaneSink::detached(5, RING_MIN);
-    assert_eq!(sink.stream(), 5);
+    let (mut sink, mut ring) = VirtualLaneSink::detached(RING_MIN);
     sink.push(&[Complex::new(1.0, 0.0); 100]);
     sink.skip(50);
     sink.push(&[Complex::new(2.0, 0.0); 100]);

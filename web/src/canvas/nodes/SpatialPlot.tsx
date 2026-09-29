@@ -27,6 +27,7 @@ const FREQ_TICKS = 5;
 
 export function SpatialPlot({
   node,
+  known,
   view,
   bearingFrame,
   offsetDeg,
@@ -35,6 +36,7 @@ export function SpatialPlot({
   dim,
 }: {
   node: string;
+  known: boolean;
   view: SpatialView;
   bearingFrame: BearingFrame;
   offsetDeg: number;
@@ -45,7 +47,7 @@ export function SpatialPlot({
   const [frame, setFrame] = useState<SpatialSpectrumFrame | null>(null);
   const [hover, setHover] = useState<{ x: number; y: number } | null>(null);
   const [ref, size] = useBoxSize<HTMLDivElement>();
-  useSurface(node, (surface) => {
+  useSurface(known ? node : null, (surface) => {
     if (surface.kind === "spatial_spectrum") {
       setFrame(surface.frame);
     } else {

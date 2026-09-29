@@ -174,7 +174,7 @@ impl Readback {
         settle(context, &self.state)
     }
 
-    fn read(&self, into: impl FnOnce(&[[f32; 2]]) -> Result<(), String>) -> Result<(), String> {
+    fn read(&self, into: impl FnOnce(&[C32]) -> Result<(), String>) -> Result<(), String> {
         let result = self
             .buffer
             .get_mapped_range(..)
@@ -260,7 +260,7 @@ struct Eca {
     solver: WienerSolver,
     sums: GroupSums,
     table: WeightTable,
-    vectors: Vec<C32>,
+    per_group: usize,
     energy: Vec<f64>,
     totals: wgpu::Buffer,
     readback: Readback,
@@ -313,7 +313,7 @@ impl Eca {
         );
         let eca = Self {
             solver,
-            vectors: vec![C32::default(); sums.vectors() * shape.fft_len],
+            per_group: sums.vectors() * shape.fft_len,
             sums,
             table,
             energy: vec![0.0; shape.lanes],
@@ -341,17 +341,13 @@ impl Eca {
     fn load(&mut self) -> Result<(), String> {
         let Self {
             readback,
-            vectors,
+            per_group,
             sums,
             ..
         } = self;
-        let per_group = vectors.len();
         readback.read(|values| {
-            for (group, chunk) in values.chunks_exact(per_group).enumerate() {
-                for (slot, value) in vectors.iter_mut().zip(chunk) {
-                    *slot = C32::new(value[0], value[1]);
-                }
-                sums.load(group, vectors)
+            for (group, chunk) in values.chunks_exact(*per_group).enumerate() {
+                sums.load(group, chunk)
                     .map_err(|error| format!("group sums: {error}"))?;
             }
             Ok(())
@@ -603,9 +599,7 @@ impl GpuCaf {
             if values.len() != out.cube.len() {
                 return Err("GPU cube length mismatch".to_owned());
             }
-            for (cell, value) in out.cube.iter_mut().zip(values) {
-                *cell = C32::new(value[0], value[1]);
-            }
+            out.cube.copy_from_slice(values);
             Ok(())
         })
     }
@@ -645,22 +639,16 @@ fn pack<'a>(
 ) -> Result<(), String> {
     let (mut slots, _) = target.into_chunks::<8>();
     for part in parts {
-        let chunk = slots
+        let mut chunk = slots
             .split_off(..part.len())
             .ok_or_else(|| "GPU upload overflows its buffer".to_owned())?;
-        chunk.write_iter(part.iter().map(complex_bytes));
+        chunk.copy_from_slice(bytemuck::cast_slice(part));
     }
     if slots.is_empty() {
         Ok(())
     } else {
         Err("GPU upload is short".to_owned())
     }
-}
-
-fn complex_bytes(value: &C32) -> [u8; 8] {
-    let [a, b, c, d] = value.re.to_ne_bytes();
-    let [e, f, g, h] = value.im.to_ne_bytes();
-    [a, b, c, d, e, f, g, h]
 }
 
 fn guarded<T>(

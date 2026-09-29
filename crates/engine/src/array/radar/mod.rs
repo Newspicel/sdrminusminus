@@ -11,11 +11,10 @@ use sdrmm_channels::{
     ChannelError,
     array_processor::{ArrayBlock, ArrayCtx, ProcessorAction, ProcessorFaults, ProcessorOutput},
     passive_radar::{
-        CafBackend, CpuCaf, LiveParams, PlanChange, RadarCtx, RadarPlan as StagePlan, change,
-        plan_for,
+        CafBackend, CpuCaf, LiveParams, PlanChange, RadarPlan as StagePlan, change, plan_for,
     },
 };
-use sdrmm_wire::{GpuUse, PassiveRadarParams, ProcessorParams};
+use sdrmm_wire::{GpuUse, ProcessorParams};
 
 pub(crate) use worker::RadarWorker;
 use worker::Shared;
@@ -36,12 +35,13 @@ pub(crate) struct RadarPlan {
     pub(crate) backend: CafBackendKind,
 }
 
+#[cfg(test)]
 impl RadarPlan {
-    pub(crate) const fn ctx(&self) -> &RadarCtx {
+    pub(crate) const fn ctx(&self) -> &sdrmm_channels::passive_radar::RadarCtx {
         &self.stage.ctx
     }
 
-    pub(crate) const fn params(&self) -> &PassiveRadarParams {
+    pub(crate) const fn params(&self) -> &sdrmm_wire::PassiveRadarParams {
         &self.stage.params
     }
 }
@@ -155,6 +155,7 @@ fn select_backend(
         return Ok((cpu, kind));
     }
     Ok(match gpu::offer(stage, cpu, shared) {
+        #[cfg(feature = "gpu-fft")]
         gpu::Offer::Gpu(backend) => (backend, CafBackendKind::Gpu),
         gpu::Offer::Cpu(cpu) => (cpu, kind),
     })

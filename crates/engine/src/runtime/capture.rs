@@ -166,19 +166,12 @@ impl Drop for RetiredLane {
 }
 
 pub(crate) struct VirtualLaneSink {
-    #[cfg_attr(not(test), expect(dead_code))]
-    stream: u32,
     producer: CaptureProducer,
     waker: Arc<Waker>,
     next_index: u64,
 }
 
 impl VirtualLaneSink {
-    #[cfg_attr(not(test), expect(dead_code))]
-    pub(crate) const fn stream(&self) -> u32 {
-        self.stream
-    }
-
     pub(crate) fn push(&mut self, samples: &[Complex<f32>]) {
         self.producer.push(samples, self.next_index);
         self.next_index += samples.len() as u64;
@@ -195,11 +188,10 @@ impl VirtualLaneSink {
     }
 
     #[cfg(test)]
-    pub(crate) fn detached(stream: u32, capacity: usize) -> (Self, CaptureConsumer) {
+    pub(crate) fn detached(capacity: usize) -> (Self, CaptureConsumer) {
         let (producer, consumer) = capture_ring(capacity);
         (
             Self {
-                stream,
                 producer,
                 waker: Arc::new(Waker::default()),
                 next_index: 0,
@@ -320,7 +312,7 @@ impl CaptureRuntime {
                 cmd_tx,
                 consumer.metrics.clone(),
             );
-            let (port, writer) = TapPort::new(stream as u32);
+            let (port, writer) = TapPort::new();
             let sink = lane_sink(writer, producer, &lane, fatal.clone());
             runtime.mark_posters.push(sink.mark_poster());
             runtime.tap_ports.push(port);
@@ -440,7 +432,6 @@ impl CaptureRuntime {
             self.max_age,
         )?;
         let sink = VirtualLaneSink {
-            stream,
             producer,
             waker: lane.waker.clone(),
             next_index: 0,
@@ -469,11 +460,6 @@ impl CaptureRuntime {
         let lane = self.virtual_lanes.remove(&stream)?;
         lane.signal();
         Some(RetiredLane(lane))
-    }
-
-    #[cfg_attr(not(test), expect(dead_code))]
-    pub(crate) fn virtual_streams(&self) -> Vec<u32> {
-        self.virtual_lanes.keys().copied().collect()
     }
 
     pub fn set_meta(&mut self, settings: &DeviceSettings, dc_block: bool) {

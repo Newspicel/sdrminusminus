@@ -1,5 +1,3 @@
-#![expect(dead_code)]
-
 mod aggregator;
 mod align;
 mod batch;
@@ -131,6 +129,7 @@ pub(crate) trait ArrayControl: Send + Sync {
 
     fn sync_context(&self, node: &str) -> Result<SyncContext, EngineError>;
     fn clock_drift(&self, node: &str, ppm: Option<f64>) -> Result<(), EngineError>;
+    fn rebuild_processors(&self, node: &str) -> Result<(), EngineError>;
 }
 
 pub(crate) struct CommandQueue {
@@ -171,9 +170,6 @@ pub(crate) enum Command {
     },
     LanesLost {
         slots: Vec<usize>,
-    },
-    AddHost {
-        host: Box<ProcessorHost>,
     },
     ReplaceHost {
         host: Box<ProcessorHost>,
@@ -354,9 +350,7 @@ pub(crate) struct RuntimeSetup {
 }
 
 pub(crate) struct ArrayRuntime {
-    node: String,
     commands: Arc<CommandQueue>,
-    board: Arc<StatusBoard>,
     stop: Arc<AtomicBool>,
     aggregator: Option<JoinHandle<AggregatorExit>>,
     worker: Option<JoinHandle<()>>,
@@ -390,7 +384,7 @@ impl ArrayRuntime {
         let controller = spawn_controller(
             format!("sdrmm-array-ctl-{serial}"),
             controller::ControllerIo {
-                node: node.clone(),
+                node,
                 control,
                 commands: controller_rx,
                 queue: queue.clone(),
@@ -432,7 +426,7 @@ impl ArrayRuntime {
         let aggregator = aggregator::Aggregator::new(
             feeds,
             Box::new(frame),
-            board.clone(),
+            board,
             commands,
             wiring.aggregator,
             Some(worker.thread().clone()),
@@ -457,9 +451,7 @@ impl ArrayRuntime {
         let _ = aggregator_thread.set(aggregator.thread().clone());
         queue.wake(aggregator.thread().clone());
         Ok(Self {
-            node,
             commands: queue,
-            board,
             stop,
             aggregator: Some(aggregator),
             worker: Some(worker),
@@ -467,14 +459,6 @@ impl ArrayRuntime {
             corrector,
             controller_tx,
         })
-    }
-
-    pub(crate) fn node(&self) -> &str {
-        &self.node
-    }
-
-    pub(crate) fn board(&self) -> &Arc<StatusBoard> {
-        &self.board
     }
 
     pub(crate) fn send(&self, command: Command) -> Result<(), EngineError> {
@@ -499,7 +483,9 @@ impl ArrayRuntime {
 
     fn halt(&mut self) -> Option<AggregatorExit> {
         let _ = self.controller_tx.send(ControlCommand::Stop);
-        if let Some(controller) = self.controller.take() {
+        if let Some(controller) = self.controller.take()
+            && controller.thread().id() != std::thread::current().id()
+        {
             join_quietly(controller, "array controller");
         }
         self.stop.store(true, Ordering::Release);

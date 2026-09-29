@@ -101,6 +101,9 @@ export class SurfaceHub {
       this.send(node, true);
     } else {
       watched.listeners.add(listener);
+      if (watched.latest !== null) {
+        listener(watched.latest);
+      }
     }
     return () => {
       const current = this.nodes.get(node);
@@ -121,6 +124,15 @@ export class SurfaceHub {
 
   watched(): string[] {
     return [...this.nodes.keys()];
+  }
+
+  retry(): void {
+    const started = new Set(this.ids.values());
+    for (const node of this.nodes.keys()) {
+      if (!started.has(node)) {
+        this.send(node, true);
+      }
+    }
   }
 
   private resubscribe(): void {

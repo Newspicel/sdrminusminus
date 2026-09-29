@@ -1,9 +1,10 @@
-use std::time::Duration;
-
-use super::keeps_gpu;
-
+#[cfg(feature = "gpu-fft")]
 #[test]
 fn keeps_the_gpu_only_when_1_3x_faster() {
+    use std::time::Duration;
+
+    use super::keeps_gpu;
+
     let ms = Duration::from_millis;
     assert!(keeps_gpu(ms(10), ms(14)));
     assert!(keeps_gpu(ms(30), ms(120)));

@@ -91,10 +91,6 @@ impl AlignNotes {
         self.forced
     }
 
-    pub(crate) const fn is_empty(&self) -> bool {
-        self.len == 0 && self.dropped == 0
-    }
-
     pub(crate) const fn clear(&mut self) {
         self.len = 0;
         self.dropped = 0;
@@ -110,6 +106,8 @@ pub(crate) struct Aligner {
     realigns: u64,
     skipped: u64,
     realigning: bool,
+    delivered: bool,
+    moved: bool,
 }
 
 impl Aligner {
@@ -126,6 +124,8 @@ impl Aligner {
             realigns: 0,
             skipped: 0,
             realigning: false,
+            delivered: false,
+            moved: false,
         }
     }
 
@@ -139,14 +139,18 @@ impl Aligner {
 
     pub(crate) fn set_offsets(&mut self, offsets: &[i64]) {
         for (held, offset) in self.offsets.iter_mut().zip(offsets) {
+            self.moved |= *held != *offset;
             *held = *offset;
         }
     }
 
-    pub(crate) fn add_offsets(&mut self, delta: &[i64]) {
-        for (held, delta) in self.offsets.iter_mut().zip(delta) {
-            *held = held.saturating_add(*delta);
-        }
+    const fn counts(&self) -> bool {
+        self.delivered && !self.moved
+    }
+
+    const fn mark_delivered(&mut self) {
+        self.delivered = true;
+        self.moved = false;
     }
 
     pub(crate) fn swap_feed(&mut self, slot: usize, feed: Option<LaneFeed>) -> Option<LaneFeed> {
@@ -222,6 +226,7 @@ impl Aligner {
             }
         }
         self.index = common;
+        self.mark_delivered();
         Some(count)
     }
 
@@ -245,6 +250,7 @@ impl Aligner {
 
     fn line_up(&mut self, common: u64, notes: &mut AlignNotes) -> Option<bool> {
         let mut aligned = true;
+        let counts = self.counts();
         for lane in 0..self.feeds.len() {
             let offset = self.offsets[lane];
             let Ok(target) = u64::try_from(i128::from(common) + i128::from(offset)) else {
@@ -258,12 +264,14 @@ impl Aligner {
             }
             if !self.realigning {
                 self.realigning = true;
-                self.realigns += 1;
+                self.realigns += u64::from(counts);
                 notes.push(AlignNote::Realigned { at: common });
             }
             let need = usize::try_from(target - read).unwrap_or(usize::MAX);
             let skipped = feed.skip(need.min(feed.skippable()));
-            self.skipped += skipped as u64;
+            if counts {
+                self.skipped += skipped as u64;
+            }
             if skipped < need {
                 aligned = false;
             }
@@ -288,10 +296,6 @@ impl Aligner {
             *slot = &lane[..count.min(lane.len())];
         }
         f(&view[..self.raw.len()])
-    }
-
-    pub(crate) fn raw(&self) -> &[Vec<Complex<f32>>] {
-        &self.raw
     }
 
     pub(crate) fn raw_mut(&mut self) -> &mut [Vec<Complex<f32>>] {

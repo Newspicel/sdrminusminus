@@ -81,6 +81,7 @@ export function TriangulationFace({ node }: { node: PatchNode }) {
       <FaceBody>
         <FusionHeat
           node={node.id}
+          known={fusion !== undefined}
           estimate={fusion?.estimate ?? null}
           emitters={fusion?.emitters ?? []}
           stations={stations}

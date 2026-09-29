@@ -1,5 +1,5 @@
 use std::{
-    sync::mpsc,
+    sync::{atomic::Ordering, mpsc},
     time::{Duration, Instant},
 };
 
@@ -13,14 +13,12 @@ use sdrmm_wire::{
     ArrayGeometry, ArrayNode, ArrayOrientation, ArrayRecordingRequest, ArrayTuneRequest,
     ArrayTuningMode, Attitude, ChannelParams, ChannelSettings, Coherence, DecoderEvent,
     DeviceSettings, DfParams, DfReading, GainValue, HeldLane, NfmParams, PositionFix,
-    ProcessorParams, ProcessorReading, RdsUpdate, StreamSettings, VirtualLane, Winding,
-    array::ArrayElement,
+    ProcessorGate, ProcessorParams, ProcessorReading, RdsUpdate, StreamSettings, VirtualLane,
+    Winding, array::ArrayElement,
 };
 
 use super::{pose::PoseTrack, tuning::restore, *};
-#[cfg(feature = "probe")]
-use crate::array::ProcessorSpec;
-use crate::array::{COMMAND_SLOTS, LaneRef, PoseRing, oriented};
+use crate::array::{COMMAND_SLOTS, LaneRef, PoseRing, ProcessorSpec, oriented};
 
 const ARRAY: &str = "array-1";
 const KRAKEN_RADIUS_M: f64 = 0.2939;
@@ -1167,6 +1165,81 @@ fn the_controller_reads_the_array_through_its_sync_context() {
         Some(20.0),
         "a fresh auto array starts from the radio gain"
     );
+    engine.remove_array(ARRAY).expect("the array stops");
+    engine.remove_device_set(ds).expect("closes");
+}
+
+fn processor_stats(engine: &Engine, node: &str) -> Arc<crate::array::ProcessorStats> {
+    engine
+        .lock()
+        .arrays
+        .get(ARRAY)
+        .and_then(|state| state.processors.get(node))
+        .map(|record| record.stats.clone())
+        .expect("the processor is recorded")
+}
+
+#[test]
+fn a_processor_whose_retune_failed_is_rebuilt() {
+    let (engine, ds) = bench();
+    engine
+        .apply_array(kraken_spec(ds))
+        .expect("the array starts");
+    engine
+        .apply_processor(ProcessorSpec {
+            node: "df-rebuild".to_owned(),
+            array: ARRAY.to_owned(),
+            params: ProcessorParams::Df(DfParams::default()),
+            lane_ports: Vec::new(),
+            steer_from: None,
+        })
+        .expect("a df starts");
+    let stats = processor_stats(&engine, "df-rebuild");
+    wait_for("the df host", || {
+        (!stats.replacing.load(Ordering::Acquire)).then_some(())
+    });
+    stats.set_gate(Some(ProcessorGate::Retuning));
+    stats.rebuild.store(true, Ordering::Release);
+    assert_eq!(
+        engine.array_statuses()[0].processors[0].error.as_deref(),
+        Some("Rebuilding")
+    );
+    wait_for("a rebuilt df", || {
+        (!stats.wants_rebuild() && !stats.replacing.load(Ordering::Acquire)).then_some(())
+    });
+    let status = engine.array_statuses().remove(0);
+    let df = &status.processors[0];
+    assert!(df.running);
+    assert_eq!(df.error, None);
+    assert_ne!(df.gated, Some(ProcessorGate::Retuning));
+    engine.remove_array(ARRAY).expect("the array stops");
+    engine.remove_device_set(ds).expect("closes");
+}
+
+#[cfg(feature = "probe")]
+#[test]
+fn a_probe_whose_retune_failed_comes_back_as_a_new_build() {
+    use sdrmm_channels::array_processor::probe::take_probe_log;
+
+    let (engine, ds) = bench();
+    engine
+        .apply_array(kraken_spec(ds))
+        .expect("the array starts");
+    engine
+        .apply_processor(ProcessorSpec {
+            params: probe_params(0),
+            ..probe_spec("probe-rebuild")
+        })
+        .expect("the probe starts");
+    let mut first = take_probe_log("probe-rebuild").expect("the probe logs");
+    let built = wait_for("a block", || first.pop()).build;
+    processor_stats(&engine, "probe-rebuild")
+        .rebuild
+        .store(true, Ordering::Release);
+    let mut rebuilt = wait_for("a rebuilt probe", || take_probe_log("probe-rebuild"));
+    let block = wait_for("a block from the new probe", || rebuilt.pop());
+    assert_ne!(block.build, built);
+    assert_eq!(engine.array_statuses()[0].processors[0].error, None);
     engine.remove_array(ARRAY).expect("the array stops");
     engine.remove_device_set(ds).expect("closes");
 }

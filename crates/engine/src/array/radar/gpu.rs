@@ -1,17 +1,18 @@
-use std::time::Duration;
-
 use sdrmm_channels::passive_radar::CafBackend;
 
 use super::worker::Shared;
 
+#[cfg(feature = "gpu-fft")]
 const FASTER_BY: f64 = 1.3;
 
 pub(super) enum Offer {
+    #[cfg(feature = "gpu-fft")]
     Gpu(Box<dyn CafBackend>),
     Cpu(Box<dyn CafBackend>),
 }
 
-pub(super) fn keeps_gpu(gpu: Duration, cpu: Duration) -> bool {
+#[cfg(feature = "gpu-fft")]
+pub(super) fn keeps_gpu(gpu: std::time::Duration, cpu: std::time::Duration) -> bool {
     gpu.as_secs_f64() * FASTER_BY <= cpu.as_secs_f64()
 }
 

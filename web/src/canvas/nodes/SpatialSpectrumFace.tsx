@@ -92,6 +92,7 @@ export function SpatialSpectrumFace({ node }: { node: PatchNode }) {
             </div>
             <SpatialPlot
               node={node.id}
+              known={processorStatusOf(status, node.id) !== null}
               view={view}
               bearingFrame={bearingFrame}
               offsetDeg={offsetDeg}

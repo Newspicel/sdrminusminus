@@ -715,7 +715,7 @@ fn a_replaced_radar_retires_off_the_aggregator() {
     let closed = gate.close();
     let old = blocked_worker(&gate);
     let old_shared = Arc::clone(old.shared());
-    send(Command::AddHost {
+    send(Command::ReplaceHost {
         host: radar_host(Box::new(old), &taps.sinks),
     });
     let rebuilt = start(&params(), cpu);

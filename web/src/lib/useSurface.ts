@@ -3,7 +3,7 @@ import { type SurfaceFrame, surfaceHub } from "./surface";
 import type { SurfaceFit } from "./types";
 
 export function useSurface(
-  node: string,
+  node: string | null,
   onFrame: (frame: SurfaceFrame) => void,
   fit?: SurfaceFit,
 ): void {
@@ -13,8 +13,10 @@ export function useSurface(
     handler.current = onFrame;
     size.current = fit;
   });
-  useEffect(
-    () => surfaceHub.subscribe(node, (frame) => handler.current(frame), size.current),
-    [node],
-  );
+  useEffect(() => {
+    if (node === null) {
+      return;
+    }
+    return surfaceHub.subscribe(node, (frame) => handler.current(frame), size.current);
+  }, [node]);
 }

@@ -38,8 +38,11 @@ const PIPELINE_CPIS: usize = 10;
 const FM_HZ: f64 = 100e6;
 const DAB_HZ: f64 = 220e6;
 const POLL: Duration = Duration::from_millis(5);
+#[cfg(feature = "rtlsdr")]
 const LIVE_RUN: Duration = Duration::from_secs(20);
+#[cfg(feature = "rtlsdr")]
 const LIVE_SUPPRESSION_DB: f32 = 20.0;
+#[cfg(feature = "rtlsdr")]
 const LIVE_GAIN_DB: f64 = 30.0;
 
 #[derive(Clone, Copy, Debug)]

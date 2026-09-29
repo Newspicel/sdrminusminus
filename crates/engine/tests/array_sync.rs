@@ -144,6 +144,7 @@ fn a_kraken_like_bank_with_offsets_beyond_2048_locks_and_calibrates() {
             .all(|lane| lane.sync == SyncState::Locked)
     );
     assert_eq!(solved.failure, None);
+    assert_eq!((solved.realigns, solved.dropped_samples), (0, 0));
 }
 
 #[test]
@@ -216,6 +217,7 @@ fn two_single_lane_radios_lock_across_a_200_ms_start_offset() {
     assert!(residual.phase_deg < 1.0, "{residual:?}");
     assert!(residual.gain_db < 0.1, "{residual:?}");
     assert_eq!(solved.tier, Coherence::TimeSync);
+    assert_eq!((solved.realigns, solved.dropped_samples), (0, 0));
 }
 
 #[test]

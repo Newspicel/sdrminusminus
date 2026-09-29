@@ -81,10 +81,6 @@ impl Corrector {
         }
     }
 
-    pub(crate) fn lanes(&self) -> usize {
-        self.lanes.len()
-    }
-
     pub(crate) fn swap(
         &mut self,
         next: Box<CorrectionSet>,

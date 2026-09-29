@@ -1,5 +1,5 @@
 import { TABLE_CELL, TABLE_HEAD } from "../../components/controls";
-import { type ArrayLaneRow, laneQualityPercent, laneTitle } from "./arrayNode";
+import { type ArrayLaneRow, delayLabel, laneQualityPercent, laneTitle } from "./arrayNode";
 import { FaceEmpty } from "./NodeShell";
 
 export const NO_LANES_HINT = "Wire radio lanes in";
@@ -17,7 +17,7 @@ export function ArrayLanes({ rows }: { rows: readonly ArrayLaneRow[] }) {
         <col />
         <col className="w-15" />
         <col className="w-17" />
-        <col className="w-13" />
+        <col className="w-16" />
         <col className="w-12" />
       </colgroup>
       <thead>
@@ -49,7 +49,9 @@ function LaneRow({ row }: { row: ArrayLaneRow }) {
       <td className={`${TABLE_CELL} ${lane?.clipping === true ? "text-danger" : ""}`}>
         {lane === null ? "-" : `${lane.gain_db.toFixed(1)} dB`}
       </td>
-      <td className={TABLE_CELL}>{lane === null ? "-" : lane.delay_samples.toFixed(2)}</td>
+      <td className={`${TABLE_CELL} truncate`}>
+        {lane === null ? "-" : delayLabel(lane.delay_samples)}
+      </td>
       <td className={TABLE_CELL}>
         {quality === null ? (
           "-"

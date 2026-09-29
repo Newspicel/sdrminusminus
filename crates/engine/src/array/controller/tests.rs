@@ -1,4 +1,7 @@
-use std::sync::Mutex;
+use std::sync::{
+    Mutex,
+    atomic::{AtomicBool, Ordering},
+};
 
 use rtrb::{Producer, RingBuffer};
 use sdrmm_device::lock;
@@ -14,17 +17,26 @@ enum Call {
     Noise(bool),
     Tune(ArrayTune),
     Drift(Option<f64>),
+    Rebuild,
 }
 
 #[derive(Default)]
 struct Engine {
     calls: Mutex<Vec<Call>>,
     context: Mutex<Option<SyncContext>>,
+    rebuild_fails: AtomicBool,
 }
 
 impl Engine {
     fn calls(&self) -> Vec<Call> {
         lock(&self.calls).clone()
+    }
+
+    fn rebuilds(&self) -> usize {
+        self.calls()
+            .into_iter()
+            .filter(|call| *call == Call::Rebuild)
+            .count()
     }
 
     fn noise_calls(&self) -> Vec<bool> {
@@ -58,6 +70,15 @@ impl ArrayControl for Engine {
     fn clock_drift(&self, _node: &str, ppm: Option<f64>) -> Result<(), EngineError> {
         lock(&self.calls).push(Call::Drift(ppm));
         Ok(())
+    }
+
+    fn rebuild_processors(&self, _node: &str) -> Result<(), EngineError> {
+        lock(&self.calls).push(Call::Rebuild);
+        if self.rebuild_fails.load(Ordering::Relaxed) {
+            Err(EngineError::Processor("no room".to_owned()))
+        } else {
+            Ok(())
+        }
     }
 }
 
@@ -866,4 +887,28 @@ fn checks_start_when_a_processor_starts_needing_sync() {
     assert!(rig.capture().is_none());
     rig.poll(41.0);
     rig.expect_capture(CaptureKind::Check);
+}
+
+#[test]
+fn processors_are_rebuilt_on_the_tick_and_a_failure_backs_off() {
+    let mut rig = rig(2, config(ArrayCalSource::Off, 0, 1));
+    rig.poll(0.0);
+    rig.poll(0.1);
+    assert_eq!(rig.engine.rebuilds(), 1);
+    rig.poll(0.21);
+    assert_eq!(rig.engine.rebuilds(), 2);
+    rig.engine.rebuild_fails.store(true, Ordering::Relaxed);
+    rig.poll(0.42);
+    assert_eq!(rig.engine.rebuilds(), 3);
+    rig.poll(1.3);
+    assert_eq!(rig.engine.rebuilds(), 3);
+    rig.poll(1.5);
+    assert_eq!(rig.engine.rebuilds(), 4);
+    rig.engine.rebuild_fails.store(false, Ordering::Relaxed);
+    rig.poll(6.0);
+    assert_eq!(rig.engine.rebuilds(), 4);
+    rig.poll(6.6);
+    assert_eq!(rig.engine.rebuilds(), 5);
+    rig.poll(6.85);
+    assert_eq!(rig.engine.rebuilds(), 6);
 }

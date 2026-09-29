@@ -8,6 +8,7 @@ use std::{
 };
 
 use num_complex::Complex;
+use sdrmm_device::lock;
 use sdrmm_dsp::fft::FftPair;
 use sdrmm_wire::{ArrayCal, ArrayCalSource, ArrayGain, ArrayTune, CalPhase, Coherence, SyncState};
 use tokio::sync::broadcast;
@@ -33,6 +34,10 @@ impl ArrayControl for Quiet {
     fn clock_drift(&self, _node: &str, _ppm: Option<f64>) -> Result<(), EngineError> {
         Ok(())
     }
+
+    fn rebuild_processors(&self, _node: &str) -> Result<(), EngineError> {
+        Ok(())
+    }
 }
 
 #[test]
@@ -47,6 +52,56 @@ fn an_array_runtime_starts_its_threads_and_joins_them_on_stop() {
     let exit = runtime.stop().expect("the aggregator hands its feeds back");
     assert_eq!(exit.feeds.len(), 2);
     assert!(board.alive());
+}
+
+#[derive(Default)]
+struct LastOwner {
+    runtime: std::sync::Mutex<Option<ArrayRuntime>>,
+    dropped: AtomicBool,
+}
+
+impl ArrayControl for LastOwner {
+    fn switch_array_noise(&self, _node: &str, _on: bool) -> Result<(), EngineError> {
+        Ok(())
+    }
+
+    fn tune_array_internal(&self, _node: &str, _tune: ArrayTune) -> Result<(), EngineError> {
+        Ok(())
+    }
+
+    fn sync_context(&self, node: &str) -> Result<SyncContext, EngineError> {
+        Err(EngineError::ArrayNotFound(node.to_owned()))
+    }
+
+    fn clock_drift(&self, _node: &str, _ppm: Option<f64>) -> Result<(), EngineError> {
+        Ok(())
+    }
+
+    fn rebuild_processors(&self, _node: &str) -> Result<(), EngineError> {
+        if let Some(runtime) = lock(&self.runtime).take() {
+            drop(runtime);
+            self.dropped.store(true, Ordering::SeqCst);
+        }
+        Ok(())
+    }
+}
+
+#[test]
+fn an_array_dropped_from_its_own_controller_stops_without_a_self_join() {
+    let owner = Arc::new(LastOwner::default());
+    let control: Arc<dyn ArrayControl> = owner.clone();
+    let (setup, _writers, _ports, _board) =
+        setup(2, Arc::downgrade(&control), ArrayCalSource::Noise);
+    let runtime = ArrayRuntime::start(setup).expect("a running array");
+    *lock(&owner.runtime) = Some(runtime);
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while !owner.dropped.load(Ordering::SeqCst) {
+        assert!(
+            Instant::now() < deadline,
+            "the controller never dropped its array"
+        );
+        std::thread::sleep(Duration::from_millis(5));
+    }
 }
 
 struct Uniform(u64);
@@ -111,9 +166,9 @@ fn setup(
     let mut feeds = Vec::new();
     let mut ports = Vec::new();
     let mut writers = Vec::new();
-    for stream in 0..lanes as u32 {
-        let (port, writer) = TapPort::new(stream);
-        feeds.push(Some(port.lease(RATE, 1).expect("lease")));
+    for _ in 0..lanes {
+        let (port, writer) = TapPort::new();
+        feeds.push(Some(port.lease(RATE).expect("lease")));
         ports.push(port);
         writers.push(writer);
     }
@@ -199,6 +254,10 @@ impl ArrayControl for Bench {
     }
 
     fn clock_drift(&self, _node: &str, _ppm: Option<f64>) -> Result<(), EngineError> {
+        Ok(())
+    }
+
+    fn rebuild_processors(&self, _node: &str) -> Result<(), EngineError> {
         Ok(())
     }
 }

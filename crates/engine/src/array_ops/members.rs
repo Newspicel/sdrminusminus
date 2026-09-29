@@ -27,7 +27,6 @@ pub(super) struct Member {
     pub(super) settings: DeviceSettings,
     pub(super) running: bool,
     pub(super) port: Option<Arc<TapPort>>,
-    pub(super) epoch: u64,
     pub(super) in_flight: u64,
     pub(super) streams: u32,
 }
@@ -118,7 +117,6 @@ fn member(
         settings: state.settings.clone(),
         running: state.status == DeviceSetStatus::Running,
         port: runtime.tap_ports().get(lane.stream as usize).cloned(),
-        epoch: state.runtime_epoch,
         in_flight: runtime.in_flight_samples(),
         streams: state.physical_streams(),
     })
@@ -271,7 +269,7 @@ impl Survey {
             .filter(|member| wanted(member.slot) && self.usable(member))
         {
             let Some(port) = &member.port else { continue };
-            match port.lease(rate, member.epoch) {
+            match port.lease(rate) {
                 Ok(feed) => {
                     leases[member.slot] = Some(Lease {
                         port: port.clone(),

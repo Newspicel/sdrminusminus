@@ -32,12 +32,14 @@ const TRUTH_R = 5;
 
 export function RadarPlot({
   node,
+  known,
   update,
   dim,
   colormap,
   selected,
 }: {
   node: string;
+  known: boolean;
   update: RadarUpdate | null;
   dim: boolean;
   colormap: Colormap;
@@ -46,7 +48,7 @@ export function RadarPlot({
   const [frame, setFrame] = useState<RangeDopplerFrame | null>(null);
   const [hover, setHover] = useState<{ x: number; y: number } | null>(null);
   const [ref, size] = useBoxSize<HTMLDivElement>();
-  useSurface(node, (surface) => {
+  useSurface(known ? node : null, (surface) => {
     if (surface.kind === "range_doppler") {
       setFrame(surface.frame);
     } else {

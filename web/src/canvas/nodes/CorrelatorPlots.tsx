@@ -24,16 +24,18 @@ const FRINGE_H = 22;
 
 export function CorrelatorPlots({
   node,
+  known,
   index,
   dim,
 }: {
   node: string;
+  known: boolean;
   index: number;
   dim: boolean;
 }) {
   const [frame, setFrame] = useState<VisibilityFrame | null>(null);
   const [ref, size] = useBoxSize<HTMLDivElement>();
-  useSurface(node, (surface) => {
+  useSurface(known ? node : null, (surface) => {
     if (surface.kind === "visibility") {
       setFrame(surface.frame);
     } else {

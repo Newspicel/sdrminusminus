@@ -141,6 +141,35 @@ describe("SurfaceHub", () => {
     ]);
   });
 
+  it("hands a late listener the newest frame at once", () => {
+    const fake = fakeSocket();
+    const hub = new SurfaceHub();
+    hub.attach(fake.socket);
+    hub.subscribe("grid", () => {});
+    fake.started(5, "grid");
+    fake.push(5, 3);
+    const late: number[] = [];
+    hub.subscribe("grid", (frame) => late.push(seqOf(frame)));
+    expect(late).toEqual([3]);
+    expect(fake.subscribes()).toHaveLength(1);
+  });
+
+  it("asks again only for nodes the server has not started", () => {
+    const fake = fakeSocket();
+    const hub = new SurfaceHub();
+    hub.attach(fake.socket);
+    hub.subscribe("radar", () => {});
+    hub.subscribe("grid", () => {});
+    fake.started(9, "radar");
+    fake.sent.length = 0;
+    hub.retry();
+    expect(fake.sent).toEqual([{ type: "SubscribeSurface", data: { node: "grid" } }]);
+    fake.started(10, "grid");
+    fake.sent.length = 0;
+    hub.retry();
+    expect(fake.sent).toEqual([]);
+  });
+
   it("forgets nothing but sends nothing while detached", () => {
     const fake = fakeSocket();
     const hub = new SurfaceHub();
