@@ -6,7 +6,7 @@ use std::{
 
 use sdrmm_device::{
     Capture, CaptureConfig, DeviceDriver, DeviceError, Direction, DuplexState, RxSink, SdrDevice,
-    TxStream, lock,
+    TxStream, fan_out, lock,
     net::{Adopted, Endpoint},
 };
 use sdrmm_wire::{
@@ -19,7 +19,7 @@ use crate::{
     discovery::USB_PREFIX,
     iio::{Client, DEFAULT_PORT, Direction as Way, UsbBus},
     layout::{HARDWAREGAIN, Layout, available},
-    rx::{RxRadio, fan_out},
+    rx::RxRadio,
     source::Source,
     tx::Ad936xTx,
 };

@@ -83,6 +83,7 @@ export const NETWORK_BACKENDS = [
   { driver: "sdrconnect", label: "SDRconnect", placeholder: "192.168.1.5:5454" },
   { driver: "kiwisdr", label: "KiwiSDR", placeholder: "kiwi.example.org:8073" },
   { driver: "ad936x", label: "AntSDR / Pluto", placeholder: "192.168.1.10:30431" },
+  { driver: "antsdr", label: "AntSDR UHD", placeholder: "192.168.1.10:49200" },
 ] as const;
 
 export function networkDeviceId(driver: string, address: string): string | null {

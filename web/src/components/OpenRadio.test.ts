@@ -190,6 +190,7 @@ describe("NETWORK_BACKENDS", () => {
       "sdrconnect",
       "kiwisdr",
       "ad936x",
+      "antsdr",
     ]);
     expect(NETWORK_BACKENDS.map((b) => b.placeholder.split(":").pop())).toEqual([
       "1234",
@@ -197,6 +198,7 @@ describe("NETWORK_BACKENDS", () => {
       "5454",
       "8073",
       "30431",
+      "49200",
     ]);
   });
 });
