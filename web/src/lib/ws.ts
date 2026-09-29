@@ -1,4 +1,5 @@
 import { withToken } from "./auth";
+import { recordEvent } from "./diagnostics";
 import {
   decodeAudio,
   decodeIq,
@@ -101,8 +102,14 @@ export class SdrSocket {
       this.openedAt = Date.now();
       this.listeners.emit("status", true);
     };
-    ws.onerror = () => ws.close();
-    ws.onclose = () => {
+    ws.onerror = () => {
+      recordEvent("warn", "socket", "error");
+      ws.close();
+    };
+    ws.onclose = (event: CloseEvent) => {
+      if (this.openedAt !== 0) {
+        recordEvent("warn", "socket", describeClose(event, Date.now() - this.openedAt));
+      }
       if (this.openedAt !== 0 && Date.now() - this.openedAt >= STABLE_MS) {
         this.backoffMs = RECONNECT_MS;
       }
@@ -186,4 +193,14 @@ export class SdrSocket {
       this.open();
     }
   }
+}
+
+export function describeClose(
+  event: Pick<CloseEvent, "code" | "reason" | "wasClean">,
+  openMs: number,
+): string {
+  const reason = event.reason.length > 0 ? ` ${event.reason}` : "";
+  const clean = event.wasClean ? "" : ", unclean";
+  const page = typeof document === "undefined" ? "" : `, page ${document.visibilityState}`;
+  return `closed ${event.code}${reason} after ${(openMs / 1000).toFixed(1)} s${clean}${page}`;
 }

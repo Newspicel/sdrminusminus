@@ -16,7 +16,7 @@ const AUDIO_AGE: Duration = Duration::from_millis(100);
 const MEDIA_AGE: Duration = Duration::from_millis(250);
 const AUDIO_LIMIT: usize = 256;
 const MEDIA_LIMIT: usize = 128;
-pub(super) const WRITE_TIMEOUT: Duration = Duration::from_millis(250);
+pub(super) const WRITE_TIMEOUT: Duration = Duration::from_secs(10);
 const STREAM_STOPPED_PREFIX: &str = r#"{"type":"StreamStopped""#;
 
 #[derive(serde::Deserialize)]
