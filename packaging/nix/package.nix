@@ -16,6 +16,7 @@
   glib,
   gtk3,
   libayatana-appindicator,
+  libGL,
   libopus,
   ffmpeg,
   librsvg,
@@ -23,11 +24,20 @@
   openssl,
   pango,
   soapysdr,
+  vulkan-loader,
   webkitgtk_4_1,
   xdotool,
   soapyPlugins ? [ ],
+  sdrplayApi ? null,
 }:
 
+let
+  runtimeLibraries = [
+    libGL
+    vulkan-loader
+  ]
+  ++ lib.optional (sdrplayApi != null) sdrplayApi;
+in
 rustPlatform.buildRustPackage (finalAttrs: {
   pname = "sdrmm-desktop";
   version = (builtins.fromTOML (builtins.readFile ../../Cargo.toml)).workspace.package.version;
@@ -92,9 +102,6 @@ rustPlatform.buildRustPackage (finalAttrs: {
   cargoBuildFlags = [
     "--package"
     "sdrmm-desktop"
-    "--no-default-features"
-    "--features"
-    "soapy,net-client"
   ];
   cargoTestFlags = finalAttrs.cargoBuildFlags;
 
@@ -127,6 +134,7 @@ rustPlatform.buildRustPackage (finalAttrs: {
   preFixup = ''
     gappsWrapperArgs+=(
       --set-default SDRMM_SOAPY_LIBRARY "${soapysdr}/lib/libSoapySDR${stdenv.hostPlatform.extensions.sharedLibrary}"
+      --prefix LD_LIBRARY_PATH : "${lib.makeLibraryPath runtimeLibraries}"
     )
   '' + lib.optionalString (soapyPlugins != [ ]) ''
     gappsWrapperArgs+=(
@@ -135,7 +143,7 @@ rustPlatform.buildRustPackage (finalAttrs: {
   '';
 
   passthru = {
-    inherit soapyPlugins;
+    inherit soapyPlugins sdrplayApi;
   };
 
   meta = {

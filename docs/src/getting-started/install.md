@@ -93,13 +93,14 @@ sdrmm-desktop
 The flake exports the package as `sdrmm-desktop`, `sdrmm`, and `default`. From a checkout,
 `nix build` produces `result/bin/sdrmm-desktop`.
 
-The Nix package reaches local radios through SoapySDR. Pick the modules with `soapyPlugins`.
-This NixOS example assumes the flake input is named `sdrminusminus`:
+Radios without a built-in driver need SoapySDR modules, picked with `soapyPlugins`. For SDRplay,
+enable `services.sdrplayApi` and pass the unfree `pkgs.sdrplay` as `sdrplayApi`. This NixOS
+example assumes the flake input is named `sdrminusminus`:
 
 ```nix
 environment.systemPackages = [
   (inputs.sdrminusminus.packages.${pkgs.stdenv.hostPlatform.system}.sdrmm.override {
-    soapyPlugins = with pkgs; [ soapyrtlsdr soapyremote ];
+    soapyPlugins = with pkgs; [ soapybladerf soapyremote ];
   })
 ];
 
