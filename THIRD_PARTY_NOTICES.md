@@ -96,7 +96,7 @@ Opened at runtime from whatever SoapySDR the host has installed, and never linke
 
 The ACARS application layer and the VDL2, HFDL, Inmarsat Aero, Inmarsat STD-C, DSC and Iridium decoders in `crates/channels` started as ports of xng, Copyright (c) 2023-2026 Kevin Elliott and the xng contributors, used under its MIT license.
 
-## Rust crates (790)
+## Rust crates (793)
 
 | Component | Version | License |
 | --- | --- | --- |
@@ -627,6 +627,7 @@ The ACARS application layer and the VDL2, HFDL, Inmarsat Aero, Inmarsat STD-C, D
 | [serialport](https://github.com/serialport/serialport-rs) | 4.10.1 | MPL-2.0 |
 | [servo_arc](https://github.com/servo/stylo) | 0.4.3 | MIT OR Apache-2.0 |
 | [sha1](https://github.com/RustCrypto/hashes) | 0.10.7 | MIT OR Apache-2.0 |
+| [sha1](https://github.com/RustCrypto/hashes) | 0.11.0 | MIT OR Apache-2.0 |
 | [sha2](https://github.com/RustCrypto/hashes) | 0.10.9 | MIT OR Apache-2.0 |
 | [sha2](https://github.com/RustCrypto/hashes) | 0.11.0 | MIT OR Apache-2.0 |
 | [sharded-slab](https://github.com/hawkw/sharded-slab) | 0.1.7 | MIT |
@@ -709,6 +710,7 @@ The ACARS application layer and the VDL2, HFDL, Inmarsat Aero, Inmarsat STD-C, D
 | [tokio-serial](https://github.com/berkowski/tokio-serial) | 5.5.0 | MIT |
 | [tokio-stream](https://github.com/tokio-rs/tokio) | 0.1.19 | MIT |
 | [tokio-tungstenite](https://github.com/snapview/tokio-tungstenite) | 0.29.0 | MIT |
+| [tokio-tungstenite](https://github.com/snapview/tokio-tungstenite) | 0.30.0 | MIT |
 | [tokio-util](https://github.com/tokio-rs/tokio) | 0.7.19 | MIT |
 | [toml](https://github.com/toml-rs/toml) | 0.8.2 | MIT OR Apache-2.0 |
 | [toml](https://github.com/toml-rs/toml) | 1.1.6+spec-1.1.0 | MIT OR Apache-2.0 |
@@ -738,6 +740,7 @@ The ACARS application layer and the VDL2, HFDL, Inmarsat Aero, Inmarsat STD-C, D
 | [try-lock](https://github.com/seanmonstar/try-lock) | 0.2.5 | MIT |
 | [tun-rs](https://github.com/tun-rs/tun-rs) | 2.8.11 | Apache-2.0 |
 | [tungstenite](https://github.com/snapview/tungstenite-rs) | 0.29.0 | MIT OR Apache-2.0 |
+| [tungstenite](https://github.com/snapview/tungstenite-rs) | 0.30.0 | MIT OR Apache-2.0 |
 | [typeid](https://github.com/dtolnay/typeid) | 1.0.3 | MIT OR Apache-2.0 |
 | [typenum](https://github.com/paholg/typenum) | 1.20.1 | MIT OR Apache-2.0 |
 | [uds_windows](https://github.com/haraldh/rust_uds_windows) | 1.2.1 | MIT |
