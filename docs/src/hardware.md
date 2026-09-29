@@ -106,7 +106,17 @@ address. RTL-SDRs need [serials of their own](#serials).
 | Recording | Plays a [SigMF recording](user-guide/recording.md#play-a-recording) |
 | Signal generator | Test signals in 44 modes, from a plain tone to DVB-T |
 
-Debug builds also list synthetic radios: a four-lane coherent array and test transceivers.
+Debug builds also list synthetic radios:
+
+| Radio | Key | Is |
+|---|---|---|
+| Kraken bench ×5 | `kraken5` | Five lanes on one clock with a noise source, like a KrakenSDR |
+| Coherent Array ×4 | `array4` | Four lanes on one clock and LO, with a pilot tone |
+| Dongle 1, Dongle 2 | `dongle1`, `dongle2` | One lane each, two elements of a line array; Dongle 1 holds the noise source |
+| Signal Generator | `siggen` | Test signals on one lane |
+| Receiver ×4, Transceiver 2×2, Half-duplex 1×1 | `quad`, `transceiver`, `halfduplex` | Lane and transmit shapes |
+
+The bench radios hear one FM emitter at 137°.
 
 ## Device controls
 
@@ -252,6 +262,7 @@ Not measured yet: bearings against a transmitter at known bearings, radar on a l
 | Other multi-channel SoapySDR radios | `time_sync` | None |
 | CR-8 | As the radio reports | As the radio reports |
 | Several radios in one Array | The lowest member, or what you declare, capped by measured drift | None |
+| [Array recording](user-guide/recording.md#play-an-array-recording) | As recorded | Recorded noise windows |
 
 ## Hardware tests
 

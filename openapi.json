@@ -3892,7 +3892,7 @@
         "operationId": "list_recordings",
         "responses": {
           "200": {
-            "description": "The recording library, reconciled with the SigMF pairs on disk",
+            "description": "The recording library, reconciled with the SigMF recordings on disk. An array collection is one entry",
             "content": {
               "application/json": {
                 "schema": {
@@ -3996,7 +3996,7 @@
         ],
         "responses": {
           "204": {
-            "description": "Recording removed: SigMF pair and index row"
+            "description": "Recording removed: its SigMF files and index row"
           },
           "400": {
             "description": "Invalid path parameter",
@@ -4130,7 +4130,7 @@
             }
           },
           "400": {
-            "description": "Unknown format, or a recording the requested container cannot express (a WAV needs a sample rate and cf32 samples)",
+            "description": "Unknown format, or a recording the requested container cannot express (a WAV needs one lane, a sample rate and cf32 samples)",
             "content": {
               "application/json": {
                 "schema": {
@@ -23405,6 +23405,11 @@
           "id": {
             "type": "integer",
             "format": "int64"
+          },
+          "lanes": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
           },
           "name": {
             "type": [

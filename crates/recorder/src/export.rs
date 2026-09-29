@@ -9,7 +9,7 @@ use std::{
     time::UNIX_EPOCH,
 };
 
-use crate::SigmfError;
+use crate::{SigmfError, Stored};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ExportKind {
@@ -53,9 +53,19 @@ impl Export {
                 format: kind.extension(),
                 reason: "the recording has no usable file name",
             })?;
-        let parts = match kind {
-            ExportKind::SigmfArchive => sigmf_archive::parts(stem, name)?,
-            ExportKind::Wav => wav::parts(stem)?,
+        let parts = match (kind, Stored::at(stem)) {
+            (ExportKind::SigmfArchive, Stored::Recording(_)) => sigmf_archive::parts(stem, name)?,
+            (ExportKind::SigmfArchive, Stored::Collection(_)) => {
+                sigmf_archive::collection_parts(stem, name)?
+            }
+            (ExportKind::Wav, Stored::Recording(_)) => wav::parts(stem)?,
+            (ExportKind::Wav, Stored::Collection(_)) => {
+                return Err(SigmfError::Unexportable {
+                    stem: stem.to_path_buf(),
+                    format: kind.extension(),
+                    reason: "a collection holds several lanes",
+                });
+            }
         };
         Ok(Self {
             byte_len: parts.iter().map(Part::len).sum(),

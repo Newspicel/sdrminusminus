@@ -185,6 +185,12 @@ pub struct RecordingInfo {
     pub tags: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub note: Option<String>,
+    #[serde(default = "one_lane")]
+    pub lanes: u32,
+}
+
+const fn one_lane() -> u32 {
+    1
 }
 
 pub const MAX_RECORDING_UPLOAD_BYTES: u64 = 16 * 1024 * 1024 * 1024;

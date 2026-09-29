@@ -13,9 +13,13 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha512};
 
 use crate::{
-    SIGMF_VERSION, SigmfCapture, SigmfError, SigmfMeta, SigmfReader, SigmfWriter, claim_error,
-    data_path, holds_recording, meta_path, tmp_meta_path, with_suffix,
+    DATA_SUFFIX, META_SUFFIX, SIGMF_VERSION, SigmfCapture, SigmfError, SigmfMeta, SigmfReader,
+    SigmfWriter, claim_error, data_path, holds_recording, meta_path, tmp_meta_path, with_suffix,
 };
+
+mod import;
+
+pub(crate) use import::import_collection;
 
 pub const COLLECTION_SUFFIX: &str = ".sigmf-collection";
 const TMP_COLLECTION_SUFFIX: &str = ".sigmf-collection.tmp";
@@ -66,6 +70,26 @@ struct CollectionBody {
     streams: Vec<StreamTuple>,
     #[serde(rename = "sdrmm:array")]
     array: ArrayRecord,
+    #[serde(flatten)]
+    notes: RecordingNotes,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RecordingNotes {
+    #[serde(
+        rename = "sdrmm:name",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub name: Option<String>,
+    #[serde(rename = "sdrmm:tags", default, skip_serializing_if = "Vec::is_empty")]
+    pub tags: Vec<String>,
+    #[serde(
+        rename = "core:description",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub note: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -320,7 +344,70 @@ fn body(streams: Vec<StreamTuple>, array: ArrayRecord) -> CollectionFile {
             }],
             streams,
             array,
+            notes: RecordingNotes::default(),
         },
+    }
+}
+
+fn read_collection(stem: &Path) -> Result<CollectionFile, SigmfError> {
+    Ok(serde_json::from_str(&fs::read_to_string(
+        collection_path(stem),
+    )?)?)
+}
+
+pub(crate) fn annotate_collection(stem: &Path, notes: RecordingNotes) -> Result<(), SigmfError> {
+    let mut file = read_collection(stem)?;
+    file.collection.notes = notes;
+    let tmp = tmp_collection_path(stem);
+    write_collection(File::create(&tmp)?, &file)?;
+    fs::rename(&tmp, collection_path(stem))?;
+    Ok(())
+}
+
+pub(crate) fn lanes_on_disk(stem: &Path) -> Result<Vec<PathBuf>, SigmfError> {
+    let dir = stem.parent().unwrap_or_else(|| Path::new(""));
+    let entries = match fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(err) => return Err(err.into()),
+    };
+    let mut lanes = Vec::new();
+    for entry in entries {
+        let name = entry?.file_name();
+        let Some(name) = name.to_str() else { continue };
+        let Some(lane) = [META_SUFFIX, DATA_SUFFIX]
+            .iter()
+            .find_map(|suffix| name.strip_suffix(suffix))
+            .map(|lane| dir.join(lane))
+        else {
+            continue;
+        };
+        if lane_of(stem, &lane).is_some() && !lanes.contains(&lane) {
+            lanes.push(lane);
+        }
+    }
+    lanes.sort();
+    Ok(lanes)
+}
+
+pub(crate) fn stream_stems(stem: &Path) -> Result<Vec<PathBuf>, SigmfError> {
+    let dir = stem.parent().unwrap_or_else(|| Path::new(""));
+    read_collection(stem)?
+        .collection
+        .streams
+        .iter()
+        .map(|stream| stream_stem(dir, stream))
+        .collect()
+}
+
+fn stream_stem(dir: &Path, stream: &StreamTuple) -> Result<PathBuf, SigmfError> {
+    if recording_stem_valid(&stream.name) {
+        Ok(dir.join(&stream.name))
+    } else {
+        Err(SigmfError::Malformed(format!(
+            "stream `{}` is not a recording in the collection's directory",
+            stream.name
+        )))
     }
 }
 
@@ -409,6 +496,9 @@ pub struct CollectionReader {
     lanes: Vec<SigmfReader>,
     array: CollectionArray,
     keys: Vec<LaneKey>,
+    notes: RecordingNotes,
+    hardware: Vec<String>,
+    started_at: Option<String>,
     sample_rate: f64,
     centers: Vec<f64>,
     events: VecDeque<(u64, Event)>,
@@ -418,9 +508,7 @@ pub struct CollectionReader {
 
 impl CollectionReader {
     pub fn open(stem: &Path) -> Result<Self, SigmfError> {
-        let file: CollectionFile =
-            serde_json::from_str(&fs::read_to_string(collection_path(stem))?)?;
-        let body = file.collection;
+        let body = read_collection(stem)?.collection;
         if body.streams.is_empty() {
             return Err(SigmfError::Malformed(
                 "a collection needs at least one stream".to_owned(),
@@ -445,6 +533,12 @@ impl CollectionReader {
             lanes,
             array: body.array.array,
             keys: body.array.lanes,
+            notes: body.notes,
+            hardware: hardware_of(&metas),
+            started_at: metas[0]
+                .captures
+                .first()
+                .and_then(|capture| capture.datetime.clone()),
             sample_rate: layout.sample_rate,
             centers: layout.centers,
             events: events_of(&metas)?.into(),
@@ -476,6 +570,21 @@ impl CollectionReader {
     #[must_use]
     pub fn lane_keys(&self) -> &[LaneKey] {
         &self.keys
+    }
+
+    #[must_use]
+    pub fn notes(&self) -> &RecordingNotes {
+        &self.notes
+    }
+
+    #[must_use]
+    pub fn hardware(&self) -> &[String] {
+        &self.hardware
+    }
+
+    #[must_use]
+    pub fn started_at(&self) -> Option<&str> {
+        self.started_at.as_deref()
     }
 
     #[must_use]
@@ -530,14 +639,18 @@ impl CollectionReader {
     }
 }
 
-fn open_stream(dir: &Path, stream: &StreamTuple) -> Result<SigmfReader, SigmfError> {
-    if !recording_stem_valid(&stream.name) {
-        return Err(SigmfError::Malformed(format!(
-            "stream `{}` is not a recording in the collection's directory",
-            stream.name
-        )));
+fn hardware_of(metas: &[SigmfMeta]) -> Vec<String> {
+    let mut hardware: Vec<String> = Vec::new();
+    for hw in metas.iter().filter_map(|meta| meta.global.hw.as_ref()) {
+        if !hardware.contains(hw) {
+            hardware.push(hw.clone());
+        }
     }
-    let stem = dir.join(&stream.name);
+    hardware
+}
+
+fn open_stream(dir: &Path, stream: &StreamTuple) -> Result<SigmfReader, SigmfError> {
+    let stem = stream_stem(dir, stream)?;
     if meta_hash(&stem)? != stream.hash {
         return Err(SigmfError::Malformed(format!(
             "stream `{}` does not match the collection's hash",

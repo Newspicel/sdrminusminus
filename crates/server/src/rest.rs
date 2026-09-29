@@ -10,8 +10,7 @@ use axum::{
 };
 use sdrmm_engine::EngineError;
 use sdrmm_recorder::{
-    AUDIO_SUFFIX, Export, ExportKind, SigmfError, SigmfMeta, SigmfReader, data_path, meta_path,
-    read_audio_info, scan_audio, scan_stems,
+    AUDIO_SUFFIX, Export, ExportKind, SigmfError, Stored, read_audio_info, scan_audio, scan_library,
 };
 use sdrmm_tools::ToolError;
 use sdrmm_wire::{
@@ -274,60 +273,25 @@ pub(crate) fn reveal_path(
 }
 
 pub(crate) fn reconcile_recordings(dir: &std::path::Path, store: &Store) -> Result<(), AppError> {
-    let stems = scan_stems(dir)
+    let library = scan_library(dir)
         .map_err(|err| AppError::internal(format!("scan {}: {err}", dir.display())))?;
-    let mut kept = Vec::with_capacity(stems.len());
-    for stem in &stems {
-        let Some(name) = stem.file_name().and_then(|name| name.to_str()) else {
+    let mut kept = Vec::with_capacity(library.len());
+    for stored in &library {
+        let Some(name) = stored.stem().file_name().and_then(|name| name.to_str()) else {
             continue;
         };
-        let reader = match SigmfReader::open(stem) {
-            Ok(reader) => reader,
-            Err(err) => {
-                tracing::warn!(stem = %stem.display(), error = %err, "skipping unreadable recording");
-                continue;
-            }
+        let row = match stored {
+            Stored::Recording(stem) => recording_row(stem, name),
+            Stored::Collection(stem) => collection_row(stem, name),
         };
-        let samples = reader.total_samples();
-        let meta = reader.meta();
-        let Some(sample_rate) = meta.global.sample_rate else {
-            tracing::warn!(stem = %stem.display(), "skipping recording without a core:sample_rate");
+        let Some(row) = row else {
             continue;
         };
-        store.upsert_recording(&RecordingRow {
-            stem: name.to_string(),
-            name: meta.global.name.clone(),
-            created_at: recording_created_at(stem, meta),
-            device_label: meta.global.hw.clone().unwrap_or_default(),
-            center_hz: meta
-                .captures
-                .first()
-                .and_then(|c| c.frequency)
-                .unwrap_or_default(),
-            sample_rate,
-            samples,
-            bytes: samples * sdrmm_recorder::BYTES_PER_SAMPLE,
-            tags: meta.global.tags.clone(),
-            note: meta.global.description.clone(),
-        })?;
+        store.upsert_recording(&row)?;
         kept.push(name.to_string());
     }
     store.prune_recordings(&kept)?;
     Ok(())
-}
-
-fn recording_created_at(stem: &std::path::Path, meta: &SigmfMeta) -> String {
-    meta.captures
-        .first()
-        .and_then(|c| c.datetime.clone())
-        .or_else(|| {
-            std::fs::metadata(data_path(stem))
-                .and_then(|m| m.modified())
-                .ok()
-                .and_then(|t| jiff::Timestamp::try_from(t).ok())
-                .map(|ts| ts.to_string())
-        })
-        .unwrap_or_default()
 }
 
 #[derive(OpenApi)]

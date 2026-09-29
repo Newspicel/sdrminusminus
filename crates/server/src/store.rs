@@ -358,6 +358,7 @@ const MIGRATIONS: &[&str] = &[
         PRIMARY KEY (lanes, sample_rate, center_hz)
     ) WITHOUT ROWID;
     ",
+    "ALTER TABLE recordings ADD COLUMN lanes INTEGER NOT NULL DEFAULT 1;",
 ];
 
 const SERVER_ID_KEY: &str = "server_id";
@@ -400,6 +401,7 @@ pub struct RecordingRow {
     pub bytes: u64,
     pub tags: Vec<String>,
     pub note: Option<String>,
+    pub lanes: u32,
 }
 
 pub struct Store {
@@ -589,13 +591,14 @@ impl Store {
     pub fn upsert_recording(&self, row: &RecordingRow) -> Result<(), StoreError> {
         self.lock().execute(
             "INSERT INTO recordings (stem, name, created_at, device_label, center_hz, \
-             sample_rate, samples, bytes, tags, note) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10) \
+             sample_rate, samples, bytes, tags, note, lanes) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11) \
              ON CONFLICT(stem) DO UPDATE SET name = excluded.name, \
              created_at = excluded.created_at, \
              device_label = excluded.device_label, center_hz = excluded.center_hz, \
              sample_rate = excluded.sample_rate, samples = excluded.samples, \
-             bytes = excluded.bytes, tags = excluded.tags, note = excluded.note",
+             bytes = excluded.bytes, tags = excluded.tags, note = excluded.note, \
+             lanes = excluded.lanes",
             params![
                 row.stem,
                 row.name,
@@ -606,7 +609,8 @@ impl Store {
                 row.samples as i64,
                 row.bytes as i64,
                 serde_json::to_string(&row.tags)?,
-                row.note
+                row.note,
+                row.lanes
             ],
         )?;
         Ok(())
@@ -616,7 +620,7 @@ impl Store {
         let conn = self.lock();
         let mut stmt = conn.prepare(
             "SELECT id, stem, created_at, device_label, center_hz, sample_rate, samples, bytes, \
-             tags, note, name FROM recordings ORDER BY id",
+             tags, note, name, lanes FROM recordings ORDER BY id",
         )?;
         let rows = stmt.query_map([], |row| {
             let stem: String = row.get(1)?;
@@ -646,6 +650,7 @@ impl Store {
                     )
                 })?,
                 note: row.get(9)?,
+                lanes: row.get(11)?,
             })
         })?;
         Ok(rows.collect::<Result<_, _>>()?)

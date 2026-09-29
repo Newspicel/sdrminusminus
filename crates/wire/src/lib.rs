@@ -415,6 +415,7 @@ mod contract_tests {
         assert!(info.tags.is_empty());
         assert_eq!(info.note, None);
         assert_eq!(info.name, None);
+        assert_eq!(info.lanes, 1);
     }
 
     #[test]

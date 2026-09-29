@@ -327,7 +327,29 @@ fn recording_row(stem: &str, samples: u64) -> RecordingRow {
         bytes: samples * 8,
         tags: Vec::new(),
         note: None,
+        lanes: 1,
     }
+}
+
+#[test]
+fn a_collection_row_keeps_its_lane_count() {
+    let store = Store::open(None).expect("open");
+    store
+        .upsert_recording(&recording_row("single", 8))
+        .expect("upsert");
+    store
+        .upsert_recording(&RecordingRow {
+            lanes: 5,
+            ..recording_row("take", 8)
+        })
+        .expect("upsert");
+    let lanes: Vec<(String, u32)> = store
+        .list_recordings()
+        .expect("list")
+        .into_iter()
+        .map(|recording| (recording.file, recording.lanes))
+        .collect();
+    assert_eq!(lanes, [("single".to_owned(), 1), ("take".to_owned(), 5)]);
 }
 
 #[test]
@@ -2237,7 +2259,8 @@ fn a_stored_retired_decoder_event_leaves_the_log() {
         conn.execute_batch(
             "DROP TABLE saved_radios; DROP TABLE radio_calibrations; \
              DROP TABLE workspace_notices; DROP TABLE phones; DROP TABLE phone_offers; \
-             DROP TABLE server_meta; DROP TABLE array_calibrations;",
+             DROP TABLE server_meta; DROP TABLE array_calibrations; \
+             ALTER TABLE recordings DROP COLUMN lanes;",
         )
         .expect("drop the later tables");
     }

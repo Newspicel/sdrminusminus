@@ -39,7 +39,8 @@
           "name": "iq",
           "port_type": "iq",
           "direction": "out",
-          "multi": true
+          "multi": true,
+          "repeat": "per_rx_stream"
         }
       ],
       "needs_channel_type": false,

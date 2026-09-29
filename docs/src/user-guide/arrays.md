@@ -7,7 +7,8 @@ Correlator, Polarimeter and [Passive radar](passive-radar.md).
 ## Make an array
 
 On a multi-lane radio such as a KrakenSDR, press **Make array** on the Device. It adds an Array
-and wires every lane to it. The button is greyed out when the lanes share no clock.
+and wires every lane to it. The button is greyed out when the lanes share no clock. A playing
+array recording has the same button.
 
 For separate radios on one clock:
 
@@ -85,6 +86,7 @@ A processor that cannot run says why on its own face: `Syncing`, `Calibrating`, 
 `Not coherent` or `Wrong tuning`.
 
 **Rec** [records](recording.md#record-an-array) every lane into one SigMF collection.
+[Play it back](recording.md#play-an-array-recording) into an Array like a radio.
 
 ## Lane tuning
 

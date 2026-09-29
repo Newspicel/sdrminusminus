@@ -17,14 +17,12 @@ import { TuneTo } from "../../components/TuneTo";
 import { TuningLock } from "../../components/TuningLock";
 import { createDeviceSet, devicesQuery, STATE_KEY, stateQuery } from "../../lib/api";
 import { queueSummary, usePipelineHealth } from "../../lib/pipeline";
-import { pushToast, toastError } from "../../lib/toasts";
+import { toastError } from "../../lib/toasts";
 import type { DeviceInfo, DeviceRef, DeviceSet, PatchNode, PatchNodeOf } from "../../lib/types";
 import { useRadioTune } from "../../lib/useRadioTune";
 import { claimedDevices, deviceRefOf, refMatches } from "../binding";
 import { useWorkspaceContext } from "../context";
-import { newNodeId, nodeIds, patchNode, rxStreamCount } from "../graph";
-import { canMakeArray, MAKE_ARRAY_TITLE, makeArray } from "../makeArray";
-import { defaultBody } from "../newNode";
+import { patchNode } from "../graph";
 import { releaseRadio } from "../remove";
 import { dialHold, type LaneHold, laneHolds } from "./arrayNode";
 import {
@@ -42,6 +40,7 @@ import {
   type TunerDial,
   tunerDials,
 } from "./deviceNode";
+import { MakeArrayButton, offersMakeArray } from "./MakeArrayButton";
 import { FaceBody, FaceFooter, NodeShell, useFaceActive } from "./NodeShell";
 
 type DeviceNodeData = PatchNodeOf<"device">["data"];
@@ -443,7 +442,7 @@ export function DeviceFace({ node }: { node: PatchNode }) {
         <Refused set={set} />
       </FaceBody>
       <FaceFooter>
-        {rxStreamCount(set.capabilities) >= 2 && holds.size === 0 && (
+        {offersMakeArray(workspace.graph, node.id, set) && (
           <MakeArrayButton node={node.id} set={set} />
         )}
         <Button
@@ -458,40 +457,6 @@ export function DeviceFace({ node }: { node: PatchNode }) {
       </FaceFooter>
     </NodeShell>
   );
-}
-
-function MakeArrayButton({ node, set }: { node: string; set: DeviceSet }) {
-  const workspace = useWorkspaceContext();
-  const check = canMakeArray(workspace.graph, node, set);
-  const make = (): void => {
-    const body = defaultBody(workspace.context.catalog, "array");
-    if (body?.kind !== "array") {
-      pushToast("Unknown node: array");
-      return;
-    }
-    if (!check.ok) {
-      return;
-    }
-    const id = newNodeId("array", nodeIds(workspace.graph));
-    workspace.edit((snapshot) => ({
-      ...snapshot,
-      graph: makeArray(snapshot.graph, node, check.lanes, body, id),
-    }));
-    workspace.select(id);
-    workspace.apply();
-  };
-  const button = (
-    <Button
-      type="button"
-      className={BTN_QUIET}
-      title={check.ok ? MAKE_ARRAY_TITLE : check.reason}
-      disabled={!check.ok}
-      onClick={make}
-    >
-      Make array
-    </Button>
-  );
-  return check.ok ? button : <span title={check.reason}>{button}</span>;
 }
 
 function DeviceHealth({ set }: { set: DeviceSet }) {

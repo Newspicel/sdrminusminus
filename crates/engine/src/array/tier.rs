@@ -1,6 +1,6 @@
 use std::collections::BTreeSet;
 
-use sdrmm_wire::{Capabilities, Coherence};
+use sdrmm_wire::{Capabilities, Coherence, NoiseSource};
 
 use super::LaneRef;
 
@@ -19,6 +19,10 @@ pub(crate) fn decide(
 ) -> TierDecision {
     let devices: BTreeSet<u32> = lanes.iter().map(|(lane, _)| lane.device_set).collect();
     let keeps_phase = !lanes.is_empty() && lanes.iter().all(|(_, caps)| caps.retune_keeps_phase);
+    let replayed = !lanes.is_empty()
+        && lanes
+            .iter()
+            .all(|(_, caps)| caps.noise_source == NoiseSource::Replayed);
     let tier = if devices.len() == 1 {
         lanes
             .first()
@@ -38,13 +42,14 @@ pub(crate) fn decide(
         tier,
         devices: devices.len(),
         keeps_phase,
-        structural_zero_delay: devices.len() == 1 && tier == Coherence::PhaseCoherent,
+        structural_zero_delay: devices.len() == 1
+            && (tier == Coherence::PhaseCoherent || (replayed && tier != Coherence::None)),
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use sdrmm_wire::{Agc, DcArtifact, Duplex, NoiseSource, StreamScope};
+    use sdrmm_wire::{Agc, DcArtifact, Duplex, StreamScope};
 
     use super::*;
 
@@ -114,6 +119,22 @@ mod tests {
             Coherence::TimeSync
         );
         assert_eq!(decide(&mixed, Coherence::None, false).tier, Coherence::None);
+    }
+
+    #[test]
+    fn a_replayed_collection_starts_lined_up() {
+        let replayed = Capabilities {
+            noise_source: NoiseSource::Replayed,
+            ..caps(Coherence::TimeSync, false)
+        };
+        let lanes: Vec<_> = (0..5).map(|stream| (lane(4, stream), &replayed)).collect();
+        let decision = decide(&lanes, Coherence::None, false);
+        assert_eq!(decision.tier, Coherence::TimeSync);
+        assert!(decision.structural_zero_delay);
+        assert!(!decide(&lanes, Coherence::None, true).structural_zero_delay);
+        let live = caps(Coherence::TimeSync, false);
+        let mixed = [(lane(4, 0), &replayed), (lane(4, 1), &live)];
+        assert!(!decide(&mixed, Coherence::None, false).structural_zero_delay);
     }
 
     #[test]

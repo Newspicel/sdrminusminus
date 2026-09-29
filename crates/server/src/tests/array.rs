@@ -7,8 +7,8 @@ use sdrmm_wire::{
     BeamformerNode, CalSourceKind, ChannelNode, DeviceNode, DeviceRef, DfNode, FusionGridOwned,
     GpsNode, HeadingSource, LaneKey, LaneSolution, NodeBody, PassiveRadarNode, PatchApplyReport,
     PatchEdge, PatchGraph, PatchNode, PatchRefusal, PortRef, Position, PositionFix, PositionSource,
-    ProcessorReading, RackLayout, RadarTrackEvent, RadarUpdate, ServerEvent, SurfaceFrame,
-    TrackChange, WorkspaceNoticeKind, WorkspaceSnapshot,
+    ProcessorReading, RackLayout, RadarTrackEvent, RadarUpdate, RecordingNode, ServerEvent,
+    SurfaceFrame, TrackChange, WorkspaceNoticeKind, WorkspaceSnapshot,
 };
 use tokio::sync::broadcast::{self, error::RecvError};
 
@@ -795,6 +795,36 @@ async fn an_array_records_every_lane_until_stopped() {
     assert_eq!(record("POST").await.0, StatusCode::CONFLICT);
     assert_eq!(record("DELETE").await.0, StatusCode::NO_CONTENT);
     assert_eq!(record("DELETE").await.0, StatusCode::NOT_FOUND);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_recorded_collection_feeds_an_array_through_its_lane_outputs() {
+    let dir = tempfile::tempdir().expect("recordings dir");
+    super::recordings::planted_collection(dir.path(), "take");
+    let state = recording_state(dir.path());
+    let (app, background) = router_with_state(state.clone(), &ServerOptions::default());
+    background.detach();
+    let lanes = super::recordings::COLLECTION_LANES as u32;
+    let graph = PatchGraph {
+        nodes: vec![
+            node(
+                "rec",
+                NodeBody::Recording(RecordingNode {
+                    recording: Some("take".to_owned()),
+                }),
+            ),
+            node(ARRAY, NodeBody::Array(ArrayNode::default())),
+        ],
+        edges: (0..lanes)
+            .map(|lane| lane_wire("rec", lane, ARRAY, lane))
+            .collect(),
+    };
+
+    let report = put_and_apply(&app, graph, 1).await;
+
+    assert!(report.refused.is_empty(), "{:?}", report.refused);
+    let status = wait_for("the replayed array", || status_of(&state, ARRAY)).await;
+    assert_eq!(status.lanes.len(), lanes as usize);
 }
 
 fn radar_graph() -> PatchGraph {

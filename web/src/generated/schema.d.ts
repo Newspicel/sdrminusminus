@@ -6520,6 +6520,8 @@ export interface components {
             file: string;
             /** Format: int64 */
             id: number;
+            /** Format: int32 */
+            lanes?: number;
             name?: string | null;
             note?: string | null;
             /** Format: double */
@@ -11142,7 +11144,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The recording library, reconciled with the SigMF pairs on disk */
+            /** @description The recording library, reconciled with the SigMF recordings on disk. An array collection is one entry */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -11216,7 +11218,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Recording removed: SigMF pair and index row */
+            /** @description Recording removed: its SigMF files and index row */
             204: {
                 headers: {
                     [name: string]: unknown;
@@ -11321,7 +11323,7 @@ export interface operations {
                     "audio/wav": string;
                 };
             };
-            /** @description Unknown format, or a recording the requested container cannot express (a WAV needs a sample rate and cf32 samples) */
+            /** @description Unknown format, or a recording the requested container cannot express (a WAV needs one lane, a sample rate and cf32 samples) */
             400: {
                 headers: {
                     [name: string]: unknown;

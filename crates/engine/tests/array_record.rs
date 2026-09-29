@@ -10,7 +10,7 @@ use common::array::{
 };
 use sdrmm_device_virtual::ReportedGap;
 use sdrmm_recorder::{lane_stem, meta_path};
-use sdrmm_wire::{ArrayRecordingRequest, ArrayStatus};
+use sdrmm_wire::{ArrayRecordingRequest, ArrayStatus, SyncState};
 
 const GAP: u64 = 5_000;
 
@@ -60,6 +60,26 @@ fn stop(bench: &Bench) {
     bench.engine.stop_array_recording(ARRAY).unwrap();
 }
 
+fn replay(bench: &Bench, stem: &str) {
+    bench.engine.remove_array(ARRAY).unwrap();
+    let replay = bench
+        .engine
+        .create_device_set(&format!("recording:{stem}"))
+        .unwrap();
+    let mut spec = kraken_array(replay);
+    spec.lanes = lanes(replay, 0..5);
+    bench.engine.apply_array(spec).unwrap();
+}
+
+fn same_phases(original: &ArrayStatus, replayed: &ArrayStatus) {
+    for (lane, (was, now)) in phases(original).iter().zip(phases(replayed)).enumerate() {
+        assert!(
+            wrap_deg(now - was).abs() < 0.5,
+            "lane {lane}: {now} replayed, {was} recorded"
+        );
+    }
+}
+
 #[test]
 fn an_array_recording_replays_to_the_same_calibration() {
     let dir = tempfile::TempDir::new().unwrap();
@@ -77,21 +97,49 @@ fn an_array_recording_replays_to_the_same_calibration() {
     let original = wait_solve_after(&bench.engine, &resynced, WAIT);
     stop(&bench);
     assert_eq!(status(&bench.engine).recording, None);
-    bench.engine.remove_array(ARRAY).unwrap();
-    let replay = bench
-        .engine
-        .create_device_set(&format!("recording:{stem}"))
-        .unwrap();
-    let mut spec = kraken_array(replay);
-    spec.lanes = lanes(replay, 0..5);
-    bench.engine.apply_array(spec).unwrap();
+    replay(&bench, &stem);
     let replayed = wait_calibrated(&bench.engine, LOCK_WAIT);
-    for (lane, (was, now)) in phases(&original).iter().zip(phases(&replayed)).enumerate() {
-        assert!(
-            wrap_deg(now - was).abs() < 0.5,
-            "lane {lane}: {now} replayed, {was} recorded"
-        );
-    }
+    same_phases(&original, &replayed);
+}
+
+#[test]
+fn a_recording_with_one_calibration_replays_without_a_search() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let bench = Bench::recording_into(dir.path().to_path_buf());
+    let ds = bench.open(KRAKEN);
+    bench.engine.apply_array(kraken_array(ds)).unwrap();
+    let first = wait_calibrated(&bench.engine, LOCK_WAIT);
+    let stem = bench
+        .engine
+        .start_array_recording(ARRAY, named("bench-once"))
+        .unwrap();
+    bench.engine.calibrate_array(ARRAY).unwrap();
+    let original = wait_solve_after(&bench.engine, &first, WAIT);
+    stop(&bench);
+    replay(&bench, &stem);
+    let replayed = wait_calibrated(&bench.engine, LOCK_WAIT);
+    same_phases(&original, &replayed);
+}
+
+#[test]
+fn a_recording_started_before_the_lock_replays_to_the_same_phases() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let bench = Bench::recording_into(dir.path().to_path_buf());
+    let ds = bench.open(KRAKEN);
+    bench.engine.apply_array(kraken_array(ds)).unwrap();
+    let stem = bench
+        .engine
+        .start_array_recording(ARRAY, named("bench-cold"))
+        .unwrap();
+    let first = wait_calibrated(&bench.engine, LOCK_WAIT);
+    bench.engine.calibrate_array(ARRAY).unwrap();
+    let original = wait_solve_after(&bench.engine, &first, WAIT);
+    stop(&bench);
+    replay(&bench, &stem);
+    let replayed = wait_status(&bench.engine, "replayed phases", LOCK_WAIT, |now| {
+        now.phase_ready && now.sync == SyncState::Locked
+    });
+    same_phases(&original, &replayed);
 }
 
 #[test]

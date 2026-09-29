@@ -36,8 +36,8 @@ import { RecordingUpload } from "./RecordingUpload";
 import {
   deleteAll,
   describeRecording,
-  downloadFormats,
   formatDuration,
+  formatsFor,
   formatTags,
   MAX_RECORDING_NAME_LEN,
   matchesRecordingSearch,
@@ -112,7 +112,7 @@ export function RecordingsPanel({ onOpen }: { onOpen: (recording: RecordingInfo)
                   <Button type="button" className={BTN_SM} onClick={() => onOpen(r)}>
                     Open as source
                   </Button>
-                  {downloadFormats.map(({ format, label, hint }) => (
+                  {formatsFor(r).map(({ format, label, hint }) => (
                     <a
                       key={format}
                       className={BTN_SM}

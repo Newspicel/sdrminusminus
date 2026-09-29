@@ -140,6 +140,48 @@ fn an_array_lane_takes_only_a_radio_lane() {
 }
 
 #[test]
+fn a_recorded_collection_offers_one_iq_output_per_lane() {
+    let recording = body("recording");
+    let names = |caps: Option<&Capabilities>| -> Vec<String> {
+        recording
+            .ports_with(caps.map(PortBacking::Device))
+            .into_iter()
+            .map(|port| port.name)
+            .collect()
+    };
+    assert_eq!(names(None), ["iq"]);
+    assert_eq!(names(Some(&capabilities(Duplex::RxOnly, 1, 0))), ["iq"]);
+    assert_eq!(
+        names(Some(&capabilities(Duplex::RxOnly, 5, 0))),
+        ["iq", "iq2", "iq3", "iq4", "iq5"]
+    );
+    assert_eq!(
+        body("signal_gen")
+            .ports_with(Some(PortBacking::Device(&capabilities(
+                Duplex::RxOnly,
+                5,
+                0
+            ))))
+            .len(),
+        1
+    );
+
+    let played = graph(
+        vec![node("rec", body("recording")), array("arr")],
+        (0..5)
+            .map(|lane| {
+                edge(
+                    ("rec", stream_port("iq", lane).as_str()),
+                    ("arr", stream_port(ARRAY_LANE_PORT, lane).as_str()),
+                )
+            })
+            .collect(),
+    );
+    assert_eq!(played.validate(), Ok(()));
+    assert_eq!(played.array_lanes("arr")[4], Some(("rec", 4)));
+}
+
+#[test]
 fn array_lanes_report_an_unwired_middle_port() {
     let wired = graph(
         vec![radio("dev"), array("arr")],

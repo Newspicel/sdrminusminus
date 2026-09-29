@@ -2,6 +2,7 @@ mod audio;
 mod collection;
 mod export;
 mod import;
+mod library;
 
 use std::{
     fs::{self, File},
@@ -14,12 +15,13 @@ pub use audio::{
 };
 pub use collection::{
     COLLECTION_SUFFIX, CollectionArray, CollectionReader, CollectionWriter, LaneMeta, ReadChunk,
-    collection_path, lane_of, lane_stem, scan_collections,
+    RecordingNotes, collection_path, lane_of, lane_stem, scan_collections,
 };
 pub use export::{Export, ExportKind};
 pub use import::{
     ARCHIVE_SUFFIX, Datatype, Imported, MAX_IMPORT_NAME_LEN, import_archive, import_pair,
 };
+pub use library::{Stored, scan_library};
 use num_complex::Complex;
 use sdrmm_wire::PositionFix;
 use serde::{Deserialize, Serialize};
@@ -403,15 +405,27 @@ pub fn annotate(
     name: Option<&str>,
     tags: &[String],
     note: Option<&str>,
-) -> Result<SigmfMeta, SigmfError> {
+) -> Result<(), SigmfError> {
+    let notes = RecordingNotes {
+        name: name.map(str::to_owned),
+        tags: tags.to_vec(),
+        note: note.map(str::to_owned),
+    };
+    match Stored::at(stem) {
+        Stored::Collection(_) => collection::annotate_collection(stem, notes),
+        Stored::Recording(_) => annotate_pair(stem, notes),
+    }
+}
+
+fn annotate_pair(stem: &Path, notes: RecordingNotes) -> Result<(), SigmfError> {
     let mut meta = read_meta(stem)?;
-    meta.global.name = name.map(str::to_owned);
-    meta.global.tags = tags.to_vec();
-    meta.global.description = note.map(str::to_owned);
+    meta.global.name = notes.name;
+    meta.global.tags = notes.tags;
+    meta.global.description = notes.note;
     let tmp = tmp_meta_path(stem);
     write_meta_synced(File::create(&tmp)?, &meta)?;
     fs::rename(&tmp, meta_path(stem))?;
-    Ok(meta)
+    Ok(())
 }
 
 #[derive(Debug)]

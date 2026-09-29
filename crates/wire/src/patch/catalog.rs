@@ -157,7 +157,10 @@ fn fixed_ports(kind: &str) -> Vec<PortSpec> {
                 ),
             PortSpec::new(Iq, Out, true, Always).repeated(PortRepeat::PerRxStream),
         ],
-        "recording" | "signal_gen" => vec![PortSpec::new(Iq, Out, true, Always)],
+        "recording" => {
+            vec![PortSpec::new(Iq, Out, true, Always).repeated(PortRepeat::PerRxStream)]
+        }
+        "signal_gen" => vec![PortSpec::new(Iq, Out, true, Always)],
         "gps" => vec![PortSpec::new(Position, Out, true, Always)],
         "array" => vec![
             PortSpec::named(ARRAY_LANE_PORT, Iq, In, false)

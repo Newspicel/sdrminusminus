@@ -44,8 +44,9 @@ export function canMakeArray(
 }
 
 export function arrayPlacement(graph: PatchGraph, device: string): Position {
-  const position = nodeOf(graph, device)?.position ?? { x: 0, y: 0 };
-  return { x: position.x + NODE_SIZE.device.w + ARRAY_GAP_PX, y: position.y };
+  const source = nodeOf(graph, device);
+  const position = source?.position ?? { x: 0, y: 0 };
+  return { x: position.x + NODE_SIZE[source?.kind ?? "device"].w + ARRAY_GAP_PX, y: position.y };
 }
 
 export function makeArray(
