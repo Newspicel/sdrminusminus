@@ -17,6 +17,7 @@ Out of the box it listens on `0.0.0.0:8080` with **no authentication**.
 | `--routing-backend <NAME>` | `open-route-service` | Routing: `open-route-service` or `graph-hopper` |
 | `--routing-url <URL>` | Public service | Self-hosted routing instance |
 | `--routing-key <KEY>` | None | Routing API key |
+| `--remote-app <URL>` | `https://app.sdrmm.com` | App for [remote access](tunnels.md#appsdrmmcom) |
 | `--dev-cors` | Off | Allow a separate frontend origin, for development only |
 | `--doctor` | | Print diagnostics and exit |
 | `--doctor-rates` | | Probe connected radios' sample rates and exit |

@@ -20,6 +20,7 @@ pub mod network;
 pub mod patch;
 pub mod position;
 pub mod propagation;
+pub mod remote;
 pub mod rest;
 pub mod satellite;
 pub mod scan;
@@ -147,6 +148,7 @@ pub use propagation::{
     MAX_PROPAGATION_HALF_LIFE_MIN, MAX_REFLECTION_HEIGHT_KM, MIN_PROPAGATION_HALF_LIFE_MIN,
     MIN_REFLECTION_HEIGHT_KM, PropagationNode,
 };
+pub use remote::{DEFAULT_REMOTE_APP, RemoteState, RemoteStatus};
 pub use rest::{
     AnnotationError, ApiError, ApplyTemplateRequest, AudioRecordingInfo, AudioRecordingsResponse,
     AuthInfo, Bookmark, CapturedImage, CapturedImagesResponse, ChannelTypesResponse,

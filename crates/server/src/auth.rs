@@ -42,7 +42,7 @@ pub(crate) async fn require_token(
     let Some(expected) = auth.token.as_deref() else {
         return next.run(request).await;
     };
-    if is_public(request.uri().path()) {
+    if is_public(request.uri().path()) || relayed_user(&request) {
         return next.run(request).await;
     }
     let presented = presented_token(&request);
@@ -62,6 +62,13 @@ pub(crate) async fn require_token(
         }),
     )
         .into_response()
+}
+
+fn relayed_user(request: &Request) -> bool {
+    request
+        .extensions()
+        .get::<sdrmm_tunnel::Relayed>()
+        .is_some_and(|relayed| !relayed.user.is_empty())
 }
 
 fn is_public(path: &str) -> bool {
@@ -242,6 +249,41 @@ mod tests {
             .expect("body");
         let err: ApiError = serde_json::from_slice(&bytes).expect("ApiError body");
         assert_eq!(err.error, "authentication required");
+    }
+
+    async fn relayed_status(app: &Router, uri: &str, user: &str) -> StatusCode {
+        app.clone()
+            .oneshot(
+                HttpRequest::builder()
+                    .uri(uri)
+                    .extension(sdrmm_tunnel::Relayed {
+                        user: user.to_string(),
+                    })
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("response")
+            .status()
+    }
+
+    #[tokio::test]
+    async fn a_relayed_user_passes_the_token_check() {
+        let app = app(Some("s3cret"));
+        assert_eq!(
+            relayed_status(&app, "/api/state", "user-1").await,
+            StatusCode::OK
+        );
+    }
+
+    #[tokio::test]
+    async fn an_anonymous_relayed_request_still_needs_the_token() {
+        let app = app(Some("s3cret"));
+        assert_eq!(
+            relayed_status(&app, "/api/state", "").await,
+            StatusCode::UNAUTHORIZED
+        );
+        assert_eq!(relayed_status(&app, "/api/auth", "").await, StatusCode::OK);
     }
 
     #[test]

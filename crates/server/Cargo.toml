@@ -39,6 +39,7 @@ sdrmm-device-cr8 = { workspace = true, optional = true }
 sdrmm-cps.workspace = true
 sdrmm-recorder.workspace = true
 sdrmm-tools.workspace = true
+sdrmm-tunnel.workspace = true
 
 # `macros` for the FromRequest/FromRequestParts derives that remap extractor rejections
 # onto the ApiError contract.
@@ -74,6 +75,8 @@ flate2.workspace = true
 png.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
+url.workspace = true
+whoami = "2.1.3"
 
 [build-dependencies]
 flate2.workspace = true

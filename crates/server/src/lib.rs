@@ -47,6 +47,7 @@ pub mod notices;
 mod packed;
 mod placement;
 mod recorders;
+mod remote;
 mod rest;
 pub mod routing;
 mod satellites;
@@ -58,7 +59,8 @@ mod trunking;
 mod workspace;
 mod ws;
 
-pub use store::{Store, StoreError};
+pub use remote::device_name;
+pub use store::{RemotePairing, Store, StoreError};
 
 pub trait NativeShell: Send + Sync + std::fmt::Debug {
     fn reveal(&self, path: &Path) -> std::io::Result<()>;
@@ -70,6 +72,7 @@ pub struct ServerOptions {
     pub token: Option<String>,
     pub routing: routing::RoutingOptions,
     pub shell: Option<Arc<dyn NativeShell>>,
+    pub remote_app: Option<url::Url>,
 }
 
 #[derive(Clone)]
@@ -99,12 +102,14 @@ pub(crate) struct AppState {
     pub(crate) routing: Arc<routing::RoutingOptions>,
     pub(crate) shell: Option<Arc<dyn NativeShell>>,
     pub(crate) local_only: bool,
+    pub(crate) remote: Arc<remote::RemoteHub>,
 }
 
 impl AppState {
     fn new(engine: Arc<Engine>, store: Arc<Store>) -> Self {
         Self {
             engine,
+            remote: Arc::new(remote::RemoteHub::new(None, store.clone())),
             store,
             auth: auth::Auth::default(),
             db_path: None,
@@ -201,10 +206,16 @@ pub fn router(engine: Arc<Engine>, store: Store, options: &ServerOptions) -> Rou
 
 fn router_with_state(mut state: AppState, options: &ServerOptions) -> (Router, Background) {
     state.shell = options.shell.clone();
+    state.remote = Arc::new(remote::RemoteHub::new(
+        options.remote_app.as_ref(),
+        state.store.clone(),
+    ));
+    let remote = state.remote.clone();
     if let Some(token) = &options.token {
         diagnostics::hide_secret(token);
     }
-    let background = start_background(&state);
+    let mut background = start_background(&state);
+    background.remote = Some(remote.clone());
     ws::start_decoded_encoder(&state);
     workspace::spawn_autosave(&state);
     placement::spawn_settling(&state);
@@ -244,11 +255,13 @@ fn router_with_state(mut state: AppState, options: &ServerOptions) -> (Router, B
     if options.dev_cors {
         app = app.layer(CorsLayer::very_permissive());
     }
+    remote.attach(app.clone());
     (app, background)
 }
 
 struct Background {
     tasks: Vec<BackgroundTask>,
+    remote: Option<Arc<remote::RemoteHub>>,
     detached: bool,
 }
 
@@ -267,6 +280,9 @@ impl Drop for Background {
     fn drop(&mut self) {
         if self.detached {
             return;
+        }
+        if let Some(remote) = &self.remote {
+            remote.shutdown();
         }
         for task in &self.tasks {
             if let BackgroundTask::Task(task) = task {
@@ -347,6 +363,7 @@ fn start_background(state: &AppState) -> Background {
             monitor,
             audio_fx,
         ],
+        remote: None,
         detached: false,
     }
 }

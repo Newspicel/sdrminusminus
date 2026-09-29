@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import {
   adoptTokenFromUrl,
   getToken,
+  loginRedirect,
   onTokenRejected,
   rejectToken,
   resetTokenCache,
@@ -116,5 +117,20 @@ describe("adoptTokenFromUrl", () => {
     const location = new URL("http://localhost:8080/field");
     expect(adoptTokenFromUrl(location as unknown as Location, history)).toBeNull();
     expect(seen).toEqual([]);
+  });
+});
+
+describe("loginRedirect", () => {
+  const login = "https://app.sdrmm.com/open/abc";
+
+  it("sends a tokenless visitor to the app that can grant a token", () => {
+    expect(loginRedirect({ token_required: true, login_url: login }, false)).toBe(login);
+  });
+
+  it("stays put with a token, without a login URL, or when no token is needed", () => {
+    expect(loginRedirect({ token_required: true, login_url: login }, true)).toBeNull();
+    expect(loginRedirect({ token_required: true }, false)).toBeNull();
+    expect(loginRedirect({ token_required: false, login_url: login }, false)).toBeNull();
+    expect(loginRedirect(undefined, false)).toBeNull();
   });
 });

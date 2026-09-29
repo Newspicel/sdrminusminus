@@ -271,6 +271,7 @@ fn byte_window(header: Option<&str>, len: u64) -> Window {
     params(("file" = String, Path, description = "Audio recording file name, extension included")),
     responses(
         (status = 204, description = "The file is selected in the machine's file manager"),
+        (status = 403, description = "Asked through remote access", body = ApiError),
         (
             status = 404,
             description = "Audio recording not found, or this server has no file manager",
@@ -280,6 +281,7 @@ fn byte_window(header: Option<&str>, len: u64) -> Window {
 )]
 pub(super) async fn reveal_audio_recording(
     State(state): State<AppState>,
+    _local: LocalOnly,
     Path(file): Path<String>,
 ) -> Result<StatusCode, AppError> {
     tokio::task::spawn_blocking(move || -> Result<StatusCode, AppError> {

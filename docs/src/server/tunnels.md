@@ -4,8 +4,20 @@ A tunnel gives SDR-- an HTTPS address without port forwarding or certificate wor
 
 | Tunnel | Reachable from |
 |---|---|
+| [app.sdrmm.com](#appsdrmmcom) | Any browser, behind your app.sdrmm.com login |
 | [Tailscale](#tailscale) | Your own devices only |
 | [Cloudflare Tunnel](#cloudflare-tunnel) | Any browser, behind a login |
+
+## app.sdrmm.com
+
+No setup on the network. SDR-- dials out and app.sdrmm.com passes browsers through.
+
+1. Open **Library → Remote** and press **Connect to app.sdrmm.com**.
+2. Approve the code at app.sdrmm.com.
+3. Open the server from your device list there.
+
+Headless: run `sdrmm pair`, approve the code, then restart `sdrmm`. **Disconnect** or removing the
+server in the app ends access. Traffic passes Cloudflare, which terminates HTTPS.
 
 ## Prepare SDR--
 

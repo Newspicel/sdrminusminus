@@ -48,15 +48,20 @@ jobs:
           TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
           WINGET_TOKEN: ${{ secrets.WINGET_TOKEN }}
           AUR_SSH_KEY: ${{ secrets.AUR_SSH_KEY }}
-          PACKAGES_TOKEN: ${{ secrets.PACKAGES_TOKEN }}
+          PACKAGES_SSH_KEY: ${{ secrets.PACKAGES_SSH_KEY }}
           PACKAGES_GPG_KEY: ${{ secrets.PACKAGES_GPG_KEY }}
         run: |
           {
             echo "tap=${TAP_TOKEN:+true}"
             echo "winget=${WINGET_TOKEN:+true}"
             echo "aur=${AUR_SSH_KEY:+true}"
-            if [ -n "$PACKAGES_TOKEN" ] && [ -n "$PACKAGES_GPG_KEY" ]; then echo "packages=true"; fi
+            if [ -n "$PACKAGES_SSH_KEY" ] && [ -n "$PACKAGES_GPG_KEY" ]; then echo "packages=true"; fi
           } >> "$GITHUB_OUTPUT"
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            for name in tap winget aur packages; do
+              grep -qx "$name=true" "$GITHUB_OUTPUT" || echo "::warning::$name not published: secret missing"
+            done
+          fi
 
   version:
     name: Stamp version
@@ -123,8 +128,7 @@ jobs:
         run: test -s "$STAGED.tar.gz" || test -s "$STAGED.zip"
       - name: Linking
         if: runner.os != 'Linux'
-        shell: bash
-        run: cargo xtask link-check "$STAGED"
+        run: cargo xtask link-check "${{ env.STAGED }}"
       - name: Version
         if: ${{ !matrix.cross }}
         shell: bash
@@ -585,7 +589,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           repository: ${{ github.repository_owner }}/packages
-          token: ${{ secrets.PACKAGES_TOKEN }}
+          ssh-key: ${{ secrets.PACKAGES_SSH_KEY }}
           path: site
       - name: Tools
         run: sudo apt-get install -y --no-install-recommends apt-utils createrepo-c rpm

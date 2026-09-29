@@ -2217,8 +2217,10 @@ fn a_stored_retired_decoder_event_leaves_the_log() {
             .expect("the retiring migration");
         conn.pragma_update(None, "user_version", retiring as i64)
             .expect("rewind");
-        conn.execute_batch("DROP TABLE saved_radios; DROP TABLE radio_calibrations;")
-            .expect("drop the later tables");
+        conn.execute_batch(
+            "DROP TABLE saved_radios; DROP TABLE radio_calibrations; DROP TABLE remote_access;",
+        )
+        .expect("drop the later tables");
     }
 
     let store = Store::open(Some(file.path())).expect("reopen");

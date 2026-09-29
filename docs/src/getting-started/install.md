@@ -11,7 +11,6 @@ sits somewhere else and you connect from a browser. Both run the same receiver.
 | [WinGet](#winget) | Windows |
 | [APT](#apt) | Debian and Ubuntu |
 | [DNF](#dnf) | Fedora |
-| [AUR](#aur) | Arch Linux |
 | [Nix](#nix) | Linux managed with Nix |
 | [Container](#container) | Docker |
 
@@ -79,13 +78,6 @@ APT and DNF install the desktop app. For the `sdrmm` server, use the
 sudo dnf config-manager addrepo \
   --from-repofile=https://newspicel.github.io/packages/rpm/sdrminusminus.repo
 sudo dnf install sdrminusminus
-```
-
-## AUR
-
-```sh
-yay -S sdrminusminus-bin   # desktop app
-yay -S sdrmm-bin           # server
 ```
 
 ## Nix

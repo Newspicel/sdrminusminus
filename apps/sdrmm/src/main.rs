@@ -9,6 +9,8 @@ use sdrmm_engine::Engine;
 use sdrmm_server::{Config, ServerOptions, routing::RoutingOptions, serve, tls::Tls};
 use sdrmm_wire::RoutingBackend;
 
+mod pair;
+
 #[derive(Clone, Copy, Debug, clap::ValueEnum)]
 enum RoutingBackendArg {
     OpenRouteService,
@@ -24,15 +26,24 @@ impl From<RoutingBackendArg> for RoutingBackend {
     }
 }
 
+#[derive(clap::Subcommand, Debug)]
+enum Command {
+    Pair,
+}
+
 #[derive(Parser, Debug)]
 #[command(name = "sdrmm", version, about)]
 struct Args {
+    #[command(subcommand)]
+    command: Option<Command>,
     #[arg(long, default_value = "0.0.0.0:8080")]
     bind: SocketAddr,
     #[arg(long)]
     dev_cors: bool,
-    #[arg(long)]
+    #[arg(long, global = true)]
     db: Option<PathBuf>,
+    #[arg(long, global = true, env = "SDRMM_REMOTE_APP")]
+    remote_app: Option<url::Url>,
     #[arg(long)]
     recordings_dir: Option<PathBuf>,
     #[arg(long, hide = true, default_value_t = 1.0, value_parser = parse_playback_speed)]
@@ -129,6 +140,9 @@ async fn main() -> anyhow::Result<()> {
 
     let mut args = Args::parse();
     let db_path = resolve_db_path(args.db.take())?;
+    if let Some(Command::Pair) = args.command {
+        return pair::run(&db_path, args.remote_app.as_ref()).await;
+    }
     let recordings_dir = resolve_recordings_dir(args.recordings_dir.take())?;
     if args.doctor {
         print!(
@@ -174,6 +188,7 @@ async fn main() -> anyhow::Result<()> {
                 key: args.routing_key,
             },
             shell: None,
+            remote_app: args.remote_app,
         },
     };
 
@@ -212,6 +227,29 @@ async fn terminated() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn plain_sdrmm_serves_and_pair_is_a_subcommand() {
+        let serve = Args::try_parse_from(["sdrmm"]).expect("parse");
+        assert!(serve.command.is_none());
+        assert!(serve.remote_app.is_none());
+        let pair = Args::try_parse_from([
+            "sdrmm",
+            "pair",
+            "--db",
+            "x.db",
+            "--remote-app",
+            "http://localhost:5173",
+        ])
+        .expect("parse");
+        assert!(matches!(pair.command, Some(Command::Pair)));
+        assert_eq!(pair.db, Some(PathBuf::from("x.db")));
+        assert_eq!(
+            pair.remote_app.map(|url| url.to_string()).as_deref(),
+            Some("http://localhost:5173/")
+        );
+        assert!(Args::try_parse_from(["sdrmm", "--remote-app", "not a url"]).is_err());
+    }
 
     #[test]
     fn default_db_path_is_absolute_and_in_the_data_dir() {

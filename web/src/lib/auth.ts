@@ -70,6 +70,16 @@ export function resetTokenCache(): void {
 
 export const TOKEN_PARAM = "token";
 
+export function loginRedirect(
+  auth: { token_required: boolean; login_url?: string | null } | undefined,
+  hasToken: boolean,
+): string | null {
+  if (auth?.token_required !== true || hasToken) {
+    return null;
+  }
+  return auth.login_url ?? null;
+}
+
 /// Takes a token out of the address bar, keeps it, and puts the address back the way it should
 /// have been.
 ///

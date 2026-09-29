@@ -1044,6 +1044,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/remote": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_remote"];
+        put?: never;
+        post?: never;
+        delete: operations["unpair_remote"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/remote/pair": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["pair_remote"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/routing/route": {
         parameters: {
             query?: never;
@@ -1760,6 +1792,7 @@ export interface components {
             started_at: string;
         };
         AuthInfo: {
+            login_url?: string | null;
             token_required: boolean;
         };
         BandAllocation: {
@@ -3656,7 +3689,7 @@ export interface components {
          *     titles a bug report by this; the prose in `error` is free to change.
          * @enum {string}
          */
-        ErrorCode: "request" | "not_found" | "conflict" | "unavailable" | "engine" | "storage" | "tool" | "internal";
+        ErrorCode: "request" | "not_found" | "conflict" | "unavailable" | "engine" | "storage" | "tool" | "forbidden" | "internal";
         EventAudio: {
             media_type: string;
             url: string;
@@ -5075,6 +5108,18 @@ export interface components {
             /** Format: binary */
             meta?: string;
         };
+        /** @enum {string} */
+        RemoteState: "unpaired" | "pairing" | "connecting" | "online" | "retrying" | "rejected";
+        RemoteStatus: {
+            app_origin: string;
+            device_id?: string | null;
+            error?: string | null;
+            state: components["schemas"]["RemoteState"];
+            user_code?: string | null;
+            verification_uri?: string | null;
+            verification_uri_complete?: string | null;
+            via_relay: boolean;
+        };
         Route: {
             /** Format: double */
             distance_m: number;
@@ -6273,6 +6318,15 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Asked through remote access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
             };
             /** @description Audio recording not found, or this server has no file manager */
             404: {
@@ -8706,6 +8760,15 @@ export interface operations {
                 };
                 content?: never;
             };
+            /** @description Asked through remote access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
             /** @description Recording not found, or this server has no file manager */
             404: {
                 headers: {
@@ -8733,8 +8796,111 @@ export interface operations {
                 };
                 content?: never;
             };
+            /** @description Asked through remote access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
             /** @description Nothing is recorded to disk, or this server has no file manager */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    get_remote: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Remote access through the app */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RemoteStatus"];
+                };
+            };
+        };
+    };
+    unpair_remote: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Remote access is off and the pairing forgotten */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Asked through remote access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    pair_remote: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A code to approve in the app */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RemoteStatus"];
+                };
+            };
+            /** @description Asked through remote access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Already paired */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description The app refused or could not be reached */
+            502: {
                 headers: {
                     [name: string]: unknown;
                 };

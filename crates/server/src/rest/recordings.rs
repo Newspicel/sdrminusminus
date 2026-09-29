@@ -39,6 +39,7 @@ pub(super) async fn list_recordings(
     post, path = "/api/recordings/reveal",
     responses(
         (status = 204, description = "The recordings folder is open in the machine's file manager"),
+        (status = 403, description = "Asked through remote access", body = ApiError),
         (
             status = 404,
             description = "Nothing is recorded to disk, or this server has no file manager",
@@ -48,6 +49,7 @@ pub(super) async fn list_recordings(
 )]
 pub(super) async fn reveal_recordings_dir(
     State(state): State<AppState>,
+    _local: LocalOnly,
 ) -> Result<StatusCode, AppError> {
     tokio::task::spawn_blocking(move || -> Result<StatusCode, AppError> {
         let dir = state
@@ -67,6 +69,7 @@ pub(super) async fn reveal_recordings_dir(
     params(("id" = i64, Path, description = "Recording id")),
     responses(
         (status = 204, description = "The recording is selected in the machine's file manager"),
+        (status = 403, description = "Asked through remote access", body = ApiError),
         (
             status = 404,
             description = "Recording not found, or this server has no file manager",
@@ -76,6 +79,7 @@ pub(super) async fn reveal_recordings_dir(
 )]
 pub(super) async fn reveal_recording(
     State(state): State<AppState>,
+    _local: LocalOnly,
     Path(id): Path<i64>,
 ) -> Result<StatusCode, AppError> {
     tokio::task::spawn_blocking(move || -> Result<StatusCode, AppError> {

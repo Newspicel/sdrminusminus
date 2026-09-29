@@ -49,16 +49,6 @@ sudo apt install sdrminusminus`,
 sudo dnf install sdrminusminus`,
   },
   {
-    id: "aur",
-    tab: "AUR",
-    title: "Arch Linux",
-    note: "AUR packages for the app and the server.",
-    lines: `yay -S sdrminusminus-bin
-
-<span class="p">or the server</span>
-yay -S sdrmm-bin`,
-  },
-  {
     id: "nix",
     tab: "Nix",
     title: "Nix",

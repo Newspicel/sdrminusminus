@@ -28,6 +28,7 @@ mod diagnostics;
 mod openapi;
 mod presets;
 mod recordings;
+mod remote;
 mod scanning;
 mod templates;
 mod tls;

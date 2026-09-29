@@ -5695,9 +5695,11 @@ dependencies = [
  "sdrmm-device-soapy",
  "sdrmm-engine",
  "sdrmm-server",
+ "sdrmm-tunnel",
  "sdrmm-wire",
  "tokio",
  "tracing",
+ "url",
 ]
 
 [[package]]
@@ -6128,6 +6130,7 @@ dependencies = [
  "sdrmm-orbit",
  "sdrmm-recorder",
  "sdrmm-tools",
+ "sdrmm-tunnel",
  "sdrmm-wire",
  "serde",
  "serde_json",
@@ -6145,8 +6148,10 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "tun-rs",
+ "url",
  "utoipa",
  "utoipa-axum",
+ "whoami",
 ]
 
 [[package]]
@@ -6160,6 +6165,33 @@ dependencies = [
  "sdrmm-wire",
  "serialport",
  "thiserror 2.0.21",
+]
+
+[[package]]
+name = "sdrmm-tunnel"
+version = "0.0.0"
+dependencies = [
+ "aws-lc-rs",
+ "axum",
+ "base64 0.22.1",
+ "bytes",
+ "futures",
+ "http",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
+ "reqwest",
+ "rustls",
+ "rustls-platform-verifier",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+ "tokio",
+ "tokio-rustls",
+ "tokio-tungstenite 0.30.0",
+ "tower",
+ "tracing",
+ "url",
 ]
 
 [[package]]

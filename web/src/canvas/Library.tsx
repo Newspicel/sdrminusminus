@@ -14,6 +14,7 @@ import { addNode, newNodeId, nodeIds } from "./graph";
 import { libraryTarget } from "./libraryTarget";
 import { recordingNodeFor } from "./nodes/recordingNode";
 import { useNodePlacement } from "./placement";
+import { RemotePanel } from "./RemotePanel";
 
 const TABS = [
   { id: "templates", label: "Templates" },
@@ -24,6 +25,7 @@ const TABS = [
   { id: "recordings", label: "Recordings" },
   { id: "tools", label: "Tools" },
   { id: "field", label: "Field" },
+  { id: "remote", label: "Remote" },
 ] as const;
 
 export function Library({ onOpenTool }: { onOpenTool: (id: string) => void }) {
@@ -86,6 +88,9 @@ export function Library({ onOpenTool }: { onOpenTool: (id: string) => void }) {
       </Tabs.Panel>
       <Tabs.Panel value="field" className="max-h-[28rem] overflow-y-auto">
         <FieldPanel />
+      </Tabs.Panel>
+      <Tabs.Panel value="remote" className="max-h-[28rem] overflow-y-auto">
+        <RemotePanel />
       </Tabs.Panel>
     </Tabs.Root>
   );

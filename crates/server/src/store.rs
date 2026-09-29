@@ -303,6 +303,15 @@ const MIGRATIONS: &[&str] = &[
         offset_hz REAL
     ) WITHOUT ROWID;
     ",
+    "
+    CREATE TABLE remote_access (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        device_id TEXT NOT NULL,
+        relay_url TEXT NOT NULL,
+        key BLOB NOT NULL,
+        paired_at TEXT NOT NULL
+    );
+    ",
 ];
 
 pub const WORKSPACE_HISTORY_DEPTH: i64 = 100;
@@ -2165,6 +2174,9 @@ pub fn rfc3339_now() -> String {
 
 mod audio_fx_lift;
 mod cps;
+mod remote;
+
+pub use remote::RemotePairing;
 
 #[cfg(test)]
 mod tests;
