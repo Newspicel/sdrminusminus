@@ -64,17 +64,17 @@ export function useFaceWheel(claim: WheelClaim): void {
 }
 
 const CATEGORY_STRIP: Record<NodeCategory, string> = {
-  source: "bg-cat-source",
-  channel: "bg-cat-channel",
-  tool: "bg-cat-tool",
-  output: "bg-cat-output",
+  source: "bg-cat-source shadow-[0_0_8px_var(--color-cat-source)]",
+  channel: "bg-cat-channel shadow-[0_0_8px_var(--color-cat-channel)]",
+  tool: "bg-cat-tool shadow-[0_0_8px_var(--color-cat-tool)]",
+  output: "bg-cat-output shadow-[0_0_8px_var(--color-cat-output)]",
 };
 
 const CATEGORY_BAR: Record<NodeCategory, string> = {
-  source: "bg-cat-source/14",
-  channel: "bg-cat-channel/14",
-  tool: "bg-cat-tool/14",
-  output: "bg-cat-output/14",
+  source: "bg-cat-source/17 shadow-[inset_0_2px_0_var(--color-cat-source)]",
+  channel: "bg-cat-channel/17 shadow-[inset_0_2px_0_var(--color-cat-channel)]",
+  tool: "bg-cat-tool/17 shadow-[inset_0_2px_0_var(--color-cat-tool)]",
+  output: "bg-cat-output/17 shadow-[inset_0_2px_0_var(--color-cat-output)]",
 };
 
 const PORT_COLOR: Record<PortType, string> = {
@@ -161,7 +161,7 @@ export function NodeShell({
     <div
       ref={portalContainer}
       style={surface === "canvas" ? canvasSize(node.kind, minimum.h, width) : undefined}
-      className={`relative flex h-full min-h-0 flex-col ${surface === "canvas" && width === undefined && fitWidth(node.kind) !== null ? "w-max" : "w-full"} rounded-[4px] border bg-panel shadow-face ${
+      className={`relative flex h-full min-h-0 flex-col ${surface === "canvas" && width === undefined && fitWidth(node.kind) !== null ? "w-max" : "w-full"} rounded-[4px] border bg-linear-to-b from-panel-3 to-panel shadow-node ${
         selected ? "border-accent" : "border-line"
       }`}
     >
@@ -182,9 +182,9 @@ export function NodeShell({
         >
           <span
             aria-hidden
-            className={`size-1.5 shrink-0 rounded-full ${CATEGORY_STRIP[category]}`}
+            className={`size-[7px] shrink-0 rounded-full ${CATEGORY_STRIP[category]}`}
           />
-          <span className="truncate font-mono text-[11px] font-medium text-ink">
+          <span className="truncate text-[12.5px] font-semibold tracking-[0.01em] text-ink">
             {node.label ?? title}
           </span>
           {badge !== undefined && (

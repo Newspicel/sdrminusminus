@@ -66,7 +66,7 @@ export function WorkspaceBar({
   const pinned = workspace.rack.slots?.length ?? 0;
 
   return (
-    <header className="flex h-9 shrink-0 items-center gap-1 border-b border-line bg-panel px-2">
+    <header className="flex h-9 shrink-0 items-center gap-1 border-b border-line bg-linear-to-b from-panel-3 to-panel px-2">
       <img src="/icon.svg" alt="" width={20} height={20} className="shrink-0" />
       <span className="mr-1 font-mono text-sm font-medium tracking-tight text-accent">SDR--</span>
 

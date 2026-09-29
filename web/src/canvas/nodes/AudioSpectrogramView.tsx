@@ -60,7 +60,7 @@ export function AudioSpectrogramView({
       {TICKS_HZ.map((hz) => (
         <span
           key={hz}
-          className="pointer-events-none absolute bottom-0.5 legend -translate-x-1/2 rounded-[2px] bg-plot-bg/75 px-0.5 leading-none text-plot-ink"
+          className="pointer-events-none absolute bottom-0.5 legend font-mono text-[10.5px] -translate-x-1/2 rounded-[2px] bg-plot-bg/75 px-0.5 leading-none text-plot-ink"
           style={{ left: `${(hz / audioNyquistHz()) * 100}%` }}
         >
           {`${(hz / 1000).toFixed(0)}k`}
@@ -70,7 +70,7 @@ export function AudioSpectrogramView({
       {error !== null && (
         <span className="pointer-events-none absolute inset-0 flex items-center justify-center px-2">
           <span
-            className="pointer-events-auto text-center legend text-danger"
+            className="pointer-events-auto text-center legend font-mono text-[10.5px] text-danger"
             title={GRAPHICS_HELP}
           >
             {error}
