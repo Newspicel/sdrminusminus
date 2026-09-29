@@ -7407,6 +7407,8 @@ export interface components {
             max_freq_hz: number;
             /** Format: double */
             min_freq_hz: number;
+            /** Format: int32 */
+            min_lanes?: number;
             name: string;
             patch?: components["schemas"]["PatchGraph"] | null;
             /** Format: double */

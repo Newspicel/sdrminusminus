@@ -9,14 +9,18 @@ async fn templates_report_the_radios_that_can_run_them() {
 
     assert!(!listed.templates.is_empty());
     for template in &listed.templates {
-        assert!(
-            template
-                .supported_devices
-                .contains(&"virtual:band".to_string()),
-            "{} does not offer the signal generator: {:?}",
-            template.id,
-            template.supported_devices
-        );
+        let offers = |id: &str| template.supported_devices.iter().any(|device| device == id);
+        if template.min_lanes > 1 {
+            assert!(offers("virtual:kraken5"), "{}", template.id);
+            assert!(!offers("virtual:band"), "{}", template.id);
+        } else {
+            assert!(
+                offers("virtual:band"),
+                "{} does not offer the test band: {:?}",
+                template.id,
+                template.supported_devices
+            );
+        }
     }
 }
 
@@ -124,7 +128,7 @@ async fn every_template_runs_on_the_signal_generator() {
     let (_, body) = request(app.clone(), "GET", "/api/templates", None).await;
     let listed: sdrmm_wire::TemplatesResponse = serde_json::from_slice(&body).expect("json");
 
-    for template in &listed.templates {
+    for template in listed.templates.iter().filter(|t| t.min_lanes <= 1) {
         let (status, body) = request(
             app.clone(),
             "POST",
@@ -223,6 +227,74 @@ async fn applying_a_template_merges_its_patch_into_the_active_workspace() {
         1
     );
     detail.snapshot.validate().expect("a valid workspace");
+}
+
+#[tokio::test]
+async fn the_df_drive_wires_every_kraken_lane_into_one_array() {
+    let app = test_router();
+    let band = create_virtual_set(&app).await;
+    let (status, _) = request(
+        app.clone(),
+        "POST",
+        "/api/templates/df-drive/apply",
+        Some(&format!(r#"{{"device_set":{band}}}"#)),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "one lane is refused");
+
+    let (status, body) = request(
+        app.clone(),
+        "POST",
+        "/api/devicesets",
+        Some(r#"{"device_id":"virtual:kraken5"}"#),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let kraken = serde_json::from_slice::<CreatedId>(&body).expect("json").id;
+    let (status, body) = request(
+        app.clone(),
+        "POST",
+        "/api/templates/df-drive/apply",
+        Some(&format!(r#"{{"device_set":{kraken}}}"#)),
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::NO_CONTENT,
+        "{}",
+        String::from_utf8_lossy(&body)
+    );
+
+    let active = workspaces(&app).await.active.expect("seeded workspace");
+    let (_, body) = request(
+        app.clone(),
+        "GET",
+        &format!("/api/workspaces/{active}"),
+        None,
+    )
+    .await;
+    let detail: sdrmm_wire::WorkspaceDetail = serde_json::from_slice(&body).expect("json");
+    let graph = &detail.snapshot.graph;
+    let lanes = graph
+        .edges
+        .iter()
+        .filter(|edge| {
+            edge.from.node == "template:df-drive:dev" && edge.to.node == "template:df-drive:array"
+        })
+        .count();
+    assert_eq!(lanes, 5);
+    assert_eq!(
+        graph.array_of_processor("template:df-drive:df"),
+        Some("template:df-drive:array")
+    );
+    detail.snapshot.validate().expect("a valid workspace");
+    let set = get_state(&app)
+        .await
+        .device_sets
+        .into_iter()
+        .find(|set| set.id == kraken)
+        .expect("the kraken");
+    assert_eq!(set.settings.center_hz, Some(433_920_000.0));
 }
 
 struct HidesOpenRadios {

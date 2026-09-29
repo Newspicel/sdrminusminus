@@ -91,7 +91,7 @@ pub(super) async fn apply_template(
         let settings = DeviceSettings {
             center_hz: Some(template.center_hz),
             sample_rate: Some(rate),
-            tuning: Some(sdrmm_wire::Tuning::Auto),
+            tuning: (!channels.is_empty()).then_some(sdrmm_wire::Tuning::Auto),
             ..DeviceSettings::default()
         };
         apply_configuration(&engine, req.device_set, settings, channels, "template")?;

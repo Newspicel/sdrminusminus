@@ -10,7 +10,7 @@ import { formatHz, formatSampleRate } from "./format";
 import { Icon } from "./Icon";
 import { List, ListRow, Panel, PanelHint } from "./ListPanel";
 import { Popover } from "./Popover";
-import { supports, templatesHint } from "./templates";
+import { supports, templateSize, templatesHint } from "./templates";
 
 export function TemplatesPanel({
   active,
@@ -53,8 +53,7 @@ export function TemplatesPanel({
               primary={t.name}
               badge={
                 <span className="legend shrink-0 tabular-nums">
-                  {formatHz(t.center_hz)} · {formatSampleRate(t.sample_rate)} · {t.channels.length}{" "}
-                  ch
+                  {formatHz(t.center_hz)} · {formatSampleRate(t.sample_rate)} · {templateSize(t)}
                 </span>
               }
               secondary={t.description}

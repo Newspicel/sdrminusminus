@@ -26461,6 +26461,11 @@
             "type": "number",
             "format": "double"
           },
+          "min_lanes": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
           "name": {
             "type": "string"
           },

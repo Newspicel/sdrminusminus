@@ -506,6 +506,12 @@ pub struct TemplateInfo {
     pub direction: crate::device::Direction,
     #[serde(default)]
     pub supported_devices: Vec<String>,
+    #[serde(default, skip_serializing_if = "is_one_lane")]
+    pub min_lanes: u32,
+}
+
+const fn is_one_lane(lanes: &u32) -> bool {
+    *lanes <= 1
 }
 
 const fn receive() -> crate::device::Direction {
@@ -522,6 +528,12 @@ impl TemplateInfo {
     pub fn unmet_by(&self, profile: &crate::device::DeviceProfile) -> Option<String> {
         if !profile.duplex.supports(self.direction) {
             return Some(format!("this radio does not {}", self.direction));
+        }
+        if self.min_lanes > 1
+            && (profile.rx_streams < self.min_lanes
+                || profile.coherence == crate::device::Coherence::None)
+        {
+            return Some(format!("needs {} lanes on one clock", self.min_lanes));
         }
         if !profile.reaches(self.min_freq_hz) || !profile.reaches(self.max_freq_hz) {
             let span = if self.min_freq_hz == self.max_freq_hz {
@@ -719,6 +731,7 @@ mod tests {
             patch: None,
             direction: crate::device::Direction::Rx,
             supported_devices: Vec::new(),
+            min_lanes: 1,
         }
     }
 

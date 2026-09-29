@@ -1,5 +1,7 @@
 use std::sync::LazyLock;
 
+mod array;
+
 use sdrmm_wire::{
     AcarsParams, AdsbParams, AisParams, AmParams, AprsParams, ChannelNode, ChannelParams,
     ChannelSettings, DabParams, DeviceNode, DmrParams, DstarParams, ErmesParams, FlexParams,
@@ -594,8 +596,10 @@ pub(crate) fn all() -> &'static [TemplateInfo] {
                     patch: Some(patch(entry.channels)),
                     direction: sdrmm_wire::Direction::Rx,
                     supported_devices: Vec::new(),
+                    min_lanes: 1,
                 }
             })
+            .chain(std::iter::once(array::df_drive()))
             .collect()
     });
     &BUILT
@@ -706,7 +710,7 @@ mod tests {
         }];
 
         for template in all() {
-            if template.min_freq_hz < 70_000_000.0 {
+            if template.min_freq_hz < 70_000_000.0 || template.min_lanes > 1 {
                 continue;
             }
             let rate = template
