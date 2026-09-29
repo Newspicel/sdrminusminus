@@ -43,6 +43,7 @@ fn describe(frame: &Frame) -> Value {
         }
         Frame::Reset { reason, .. } => json!({"kind": "reset", "stream": stream, "reason": reason}),
         Frame::Credit { bytes, .. } => json!({"kind": "credit", "stream": stream, "bytes": bytes}),
+        Frame::Health { data } => json!({"kind": "health", "stream": stream, "data": hex(data)}),
     }
 }
 
@@ -102,6 +103,9 @@ fn every_kind() -> Vec<Frame> {
             stream: 3,
             bytes: 65_536,
         },
+        Frame::Health {
+            data: Bytes::from_static(br#"{"rtt_ms":null,"site":{}}"#),
+        },
     ]
 }
 
@@ -158,6 +162,10 @@ fn malformed_frames_are_rejected() {
     assert_eq!(
         Frame::decode(Bytes::from_static(&[8, 0, 0, 0, 1, 0xff])),
         Err(FrameError::NotUtf8("text"))
+    );
+    assert_eq!(
+        Frame::decode(Bytes::from_static(&[13, 0, 0, 0, 0, b'{', 0xff])),
+        Err(FrameError::NotUtf8("health"))
     );
     assert!(matches!(
         Frame::decode(Bytes::from_static(&[4, 0, 0, 0, 1, b'{'])),

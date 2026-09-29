@@ -24,7 +24,7 @@ reqwest.workspace = true
 rustls.workspace = true
 rustls-platform-verifier.workspace = true
 serde.workspace = true
-serde_json.workspace = true
+serde_json = { workspace = true, features = ["raw_value"] }
 thiserror.workspace = true
 tokio = { workspace = true, features = ["rt", "macros", "sync", "time", "net", "io-util"] }
 tokio-rustls = { version = "0.26.6", default-features = false }

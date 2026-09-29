@@ -1,10 +1,22 @@
 use std::time::Duration;
 
 use axum::{Json as AxumJson, routing::post};
-use sdrmm_tunnel::{DeviceKey, Relayed};
+use futures::{SinkExt as _, StreamExt as _};
+use sdrmm_tunnel::{
+    DeviceKey, Relayed,
+    frame::{Frame, PROTOCOL},
+};
 use sdrmm_wire::{RemoteState, RemoteStatus};
 use serde_json::json;
-use tokio::net::TcpListener;
+use tokio::net::{TcpListener, TcpStream};
+use tokio_tungstenite::{
+    WebSocketStream,
+    tungstenite::{
+        Message,
+        handshake::server::{ErrorResponse, Request as Upgrade, Response as Upgraded},
+        http::HeaderValue,
+    },
+};
 
 use super::*;
 
@@ -186,9 +198,7 @@ async fn an_unreachable_app_fails_the_pairing_with_a_reason() {
     assert!(status.error.is_some());
 }
 
-#[tokio::test]
-async fn a_kept_pairing_connects_when_the_server_starts() {
-    let relay = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+fn kept_pairing(relay: &TcpListener) -> Arc<Store> {
     let address = relay.local_addr().expect("address");
     let store = Arc::new(Store::open(None).expect("store"));
     let (_, document) = DeviceKey::generate().expect("key");
@@ -199,6 +209,43 @@ async fn a_kept_pairing_connects_when_the_server_starts() {
             document,
         ))
         .expect("save");
+    store
+}
+
+#[allow(clippy::result_large_err)]
+fn speak_tunnel(_: &Upgrade, mut response: Upgraded) -> Result<Upgraded, ErrorResponse> {
+    response
+        .headers_mut()
+        .insert("sec-websocket-protocol", HeaderValue::from_static(PROTOCOL));
+    Ok(response)
+}
+
+async fn device_socket(relay: &TcpListener) -> WebSocketStream<TcpStream> {
+    let (tcp, _) = tokio::time::timeout(Duration::from_secs(5), relay.accept())
+        .await
+        .expect("the tunnel dials the relay")
+        .expect("accept");
+    tokio_tungstenite::accept_hdr_async(tcp, speak_tunnel)
+        .await
+        .expect("upgrade")
+}
+
+async fn next_frame(socket: &mut WebSocketStream<TcpStream>) -> Frame {
+    let message = tokio::time::timeout(Duration::from_secs(5), socket.next())
+        .await
+        .expect("frame in time")
+        .expect("socket open")
+        .expect("message");
+    let Message::Binary(bytes) = message else {
+        panic!("expected a frame, got {message:?}");
+    };
+    Frame::decode(bytes).expect("decode")
+}
+
+#[tokio::test]
+async fn a_kept_pairing_connects_when_the_server_starts() {
+    let relay = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+    let store = kept_pairing(&relay);
     let (app, background) = router_with_state(state_over(store), &ServerOptions::default());
     let (mut tcp, _) = tokio::time::timeout(Duration::from_secs(5), relay.accept())
         .await
@@ -217,4 +264,43 @@ async fn a_kept_pairing_connects_when_the_server_starts() {
     );
     drop(background);
     assert_eq!(remote_status(&app).await.state, RemoteState::Unpaired);
+}
+
+#[tokio::test]
+async fn the_device_reports_its_health_right_after_ready() {
+    let relay = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+    let store = kept_pairing(&relay);
+    let (_app, background) = router_with_state(state_over(store), &ServerOptions::default());
+    let mut socket = device_socket(&relay).await;
+    let challenge = Frame::Challenge { nonce: [3u8; 32] };
+    socket
+        .send(Message::Binary(challenge.encode().expect("encode")))
+        .await
+        .expect("challenge");
+    assert!(matches!(next_frame(&mut socket).await, Frame::Proof { .. }));
+    socket
+        .send(Message::Binary(Frame::Ready.encode().expect("encode")))
+        .await
+        .expect("ready");
+    let frame = next_frame(&mut socket).await;
+    let Frame::Health { data } = frame else {
+        panic!("expected health, got {frame:?}");
+    };
+    let health: serde_json::Value = serde_json::from_slice(&data).expect("json");
+    let started_at = health["site"]["started_at"].as_u64().expect("started_at");
+    assert!(started_at > 1_700_000_000_000, "{started_at}");
+    assert_eq!(
+        health,
+        json!({
+            "rtt_ms": null,
+            "site": {
+                "version": env!("CARGO_PKG_VERSION"),
+                "platform": format!("{}/{}", std::env::consts::OS, std::env::consts::ARCH),
+                "started_at": started_at,
+                "clients": 0,
+                "radios": [],
+            },
+        })
+    );
+    drop(background);
 }

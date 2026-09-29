@@ -39,6 +39,10 @@ struct Session {
 
 impl Relay {
     async fn start() -> (Self, Tunnel) {
+        Self::reporting(None).await
+    }
+
+    async fn reporting(site: Option<Bytes>) -> (Self, Tunnel) {
         let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
         let address = listener.local_addr().expect("address");
         let (key, _) = DeviceKey::generate().expect("key");
@@ -48,6 +52,7 @@ impl Relay {
                 .parse()
                 .expect("url"),
             key: Arc::new(key),
+            health: watch::channel(site).1,
         };
         let tunnel = Tunnel::spawn(config, router());
         (
@@ -443,4 +448,40 @@ async fn a_reset_stream_stops_sending() {
     session.request(11, "GET", "/whoami", &[]).await;
     let (head, _) = session.response(11).await;
     assert_eq!(head.status, 200);
+}
+
+#[tokio::test]
+async fn the_first_frame_after_ready_reports_health() {
+    let (relay, _tunnel) = Relay::reporting(Some(Bytes::from_static(br#"{"clients":1}"#))).await;
+    let mut session = relay.session().await;
+    let frame = session.next().await;
+    let Frame::Health { data } = frame else {
+        panic!("expected health, got {frame:?}");
+    };
+    let health: serde_json::Value = serde_json::from_slice(&data).expect("json");
+    assert_eq!(
+        health,
+        serde_json::json!({"rtt_ms": null, "site": {"clients": 1}})
+    );
+}
+
+#[tokio::test]
+async fn health_from_the_relay_breaks_the_protocol() {
+    let (relay, tunnel) = Relay::start().await;
+    let mut status = tunnel.status();
+    let mut session = relay.session().await;
+    wait_for(&mut status, |status| *status == Status::Online).await;
+    session
+        .send(Frame::Health {
+            data: Bytes::from_static(b"{}"),
+        })
+        .await;
+    let status = wait_for(&mut status, |status| {
+        matches!(status, Status::Retrying { .. })
+    })
+    .await;
+    let Status::Retrying { error, .. } = status else {
+        panic!("expected a retry");
+    };
+    assert!(error.contains("unexpected frame on stream 0"), "{error}");
 }

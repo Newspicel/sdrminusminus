@@ -8,7 +8,10 @@ use sdrmm_tunnel::{
 use sdrmm_wire::{DEFAULT_REMOTE_APP, RemoteState, RemoteStatus};
 use tokio::task::JoinHandle;
 
-use crate::store::{RemotePairing, Store, StoreError};
+use crate::{
+    health::SiteFeed,
+    store::{RemotePairing, Store, StoreError},
+};
 
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum RemoteError {
@@ -51,6 +54,7 @@ struct Inner {
 pub(crate) struct RemoteHub {
     app: String,
     store: Arc<Store>,
+    health: SiteFeed,
     inner: Mutex<Inner>,
 }
 
@@ -78,10 +82,11 @@ pub(crate) fn remote_state(status: &TunnelStatus) -> (RemoteState, Option<String
 }
 
 impl RemoteHub {
-    pub(crate) fn new(app: Option<&url::Url>, store: Arc<Store>) -> Self {
+    pub(crate) fn new(app: Option<&url::Url>, store: Arc<Store>, health: SiteFeed) -> Self {
         Self {
             app: app.map_or_else(|| DEFAULT_REMOTE_APP.to_string(), url::Url::to_string),
             store,
+            health,
             inner: Mutex::new(Inner {
                 router: None,
                 phase: Phase::Unpaired,
@@ -245,6 +250,7 @@ impl RemoteHub {
         let config = TunnelConfig {
             url,
             key: Arc::new(key),
+            health: self.health.clone(),
         };
         inner.error = None;
         inner.phase = Phase::Paired {
@@ -296,7 +302,11 @@ mod tests {
 
     #[test]
     fn a_fresh_hub_is_unpaired_and_names_its_app() {
-        let hub = RemoteHub::new(None, Arc::new(Store::open(None).expect("store")));
+        let hub = RemoteHub::new(
+            None,
+            Arc::new(Store::open(None).expect("store")),
+            crate::health::idle(),
+        );
         let status = hub.status(true);
         assert_eq!(status.state, RemoteState::Unpaired);
         assert_eq!(status.app_origin, "https://app.sdrmm.com");

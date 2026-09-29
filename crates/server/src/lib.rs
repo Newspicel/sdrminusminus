@@ -38,6 +38,7 @@ pub mod doctor;
 mod event_output;
 mod events;
 mod gps;
+mod health;
 mod images;
 mod ionosonde;
 mod json;
@@ -109,7 +110,7 @@ impl AppState {
     fn new(engine: Arc<Engine>, store: Arc<Store>) -> Self {
         Self {
             engine,
-            remote: Arc::new(remote::RemoteHub::new(None, store.clone())),
+            remote: Arc::new(remote::RemoteHub::new(None, store.clone(), health::idle())),
             store,
             auth: auth::Auth::default(),
             db_path: None,
@@ -206,15 +207,18 @@ pub fn router(engine: Arc<Engine>, store: Store, options: &ServerOptions) -> Rou
 
 fn router_with_state(mut state: AppState, options: &ServerOptions) -> (Router, Background) {
     state.shell = options.shell.clone();
+    let health = health::Reporter::new(&state);
+    health.refresh();
     state.remote = Arc::new(remote::RemoteHub::new(
         options.remote_app.as_ref(),
         state.store.clone(),
+        health.subscribe(),
     ));
     let remote = state.remote.clone();
     if let Some(token) = &options.token {
         diagnostics::hide_secret(token);
     }
-    let mut background = start_background(&state);
+    let mut background = start_background(&state, health);
     background.remote = Some(remote.clone());
     ws::start_decoded_encoder(&state);
     workspace::spawn_autosave(&state);
@@ -292,7 +296,7 @@ impl Drop for Background {
     }
 }
 
-fn start_background(state: &AppState) -> Background {
+fn start_background(state: &AppState, health: health::Reporter) -> Background {
     let (recording_tx, recording_rx) = tokio::sync::watch::channel(trunking::Recording::default());
     let routing = {
         let engine = Arc::downgrade(&state.engine);
@@ -352,6 +356,7 @@ fn start_background(state: &AppState) -> Background {
         });
         spawn_task("sdrmm-recorders", move || audio_fx::run(engine, hooks))
     };
+    let health = spawn_task("sdrmm-health", move || health.run());
     Background {
         tasks: vec![
             routing,
@@ -362,6 +367,7 @@ fn start_background(state: &AppState) -> Background {
             event_output,
             monitor,
             audio_fx,
+            health,
         ],
         remote: None,
         detached: false,

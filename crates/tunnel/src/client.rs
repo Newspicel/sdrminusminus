@@ -5,6 +5,7 @@ use std::{
 };
 
 use axum::Router;
+use bytes::Bytes;
 use futures::{SinkExt as _, StreamExt as _};
 use rustls::{ClientConfig, pki_types::ServerName};
 use rustls_platform_verifier::BuilderVerifierExt;
@@ -21,7 +22,7 @@ use tokio_tungstenite::{
 };
 
 use crate::{
-    frame::{CONTROL_STREAM, Frame, FrameError, PROTOCOL, RequestHead, WINDOW},
+    frame::{CONTROL_STREAM, Frame, FrameError, MAX_HEALTH, PROTOCOL, RequestHead, WINDOW},
     identity::{DeviceKey, IdentityError},
     stream::{self, Inbound, Link},
     window::Window,
@@ -32,6 +33,8 @@ pub const PONG: &str = "pong";
 
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
 const KEEPALIVE: Duration = Duration::from_secs(25);
+const HEALTH_SPACING: Duration = Duration::from_secs(60);
+const HEALTH_REFRESH: Duration = Duration::from_secs(270);
 const SILENCE: Duration = Duration::from_secs(70);
 const STABLE: Duration = Duration::from_secs(60);
 const FIRST_RETRY: Duration = Duration::from_secs(1);
@@ -44,6 +47,7 @@ const REJECTED: std::ops::Range<u16> = 4000..4100;
 pub struct Config {
     pub url: url::Url,
     pub key: Arc<DeviceKey>,
+    pub health: watch::Receiver<Option<Bytes>>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -148,7 +152,12 @@ async fn session(
         .map_err(|_| TunnelError::Timeout("relay handshake"))??;
     status.send_replace(Status::Online);
     tracing::info!(relay = %config.url, "remote access online");
-    serve(socket, router.clone()).await
+    serve(
+        socket,
+        router.clone(),
+        Heartbeat::new(config.health.clone()),
+    )
+    .await
 }
 
 trait Io: AsyncRead + AsyncWrite + Unpin + Send {}
@@ -274,19 +283,25 @@ impl Drop for AbortOnDrop {
     }
 }
 
-async fn serve(socket: Socket, router: Router) -> Result<(), TunnelError> {
+async fn serve(
+    socket: Socket,
+    router: Router,
+    mut heartbeat: Heartbeat,
+) -> Result<(), TunnelError> {
     let (sink, mut source) = socket.split();
     let (out, outbox) = mpsc::channel(OUTBOX);
     let mut writer = AbortOnDrop(tokio::spawn(write(sink, outbox)));
     let mut streams = Streams::new(router, out.clone());
     let mut keepalive = tokio::time::interval_at(Instant::now() + KEEPALIVE, KEEPALIVE);
     let mut heard = Instant::now();
+    heartbeat.beat(&out).await?;
     loop {
         tokio::select! {
             message = source.next() => {
                 heard = Instant::now();
                 match message {
                     Some(Ok(Message::Binary(bytes))) => streams.handle(Frame::decode(bytes)?).await?,
+                    Some(Ok(Message::Text(text))) if text.as_str() == PONG => heartbeat.ponged(),
                     Some(Ok(Message::Close(frame))) => {
                         return match closed(frame) {
                             TunnelError::Rejected(reason) => Err(TunnelError::Rejected(reason)),
@@ -303,9 +318,9 @@ async fn serve(socket: Socket, router: Router) -> Result<(), TunnelError> {
                 if heard.elapsed() > SILENCE {
                     return Err(TunnelError::Timeout("relay went silent"));
                 }
-                out.send(Message::text(PING))
-                    .await
-                    .map_err(|_| TunnelError::Socket("writer stopped".to_string()))?;
+                push(&out, Message::text(PING)).await?;
+                heartbeat.pinged();
+                heartbeat.beat(&out).await?;
             }
             written = &mut writer.0 => {
                 return match written {
@@ -315,6 +330,99 @@ async fn serve(socket: Socket, router: Router) -> Result<(), TunnelError> {
             }
         }
     }
+}
+
+async fn push(out: &mpsc::Sender<Message>, message: Message) -> Result<(), TunnelError> {
+    out.send(message)
+        .await
+        .map_err(|_| TunnelError::Socket("writer stopped".to_string()))
+}
+
+struct Heartbeat {
+    site: watch::Receiver<Option<Bytes>>,
+    sent: Option<Instant>,
+    sent_rtt: bool,
+    ping: Option<Instant>,
+    rtt: Option<Duration>,
+    oversized: bool,
+}
+
+impl Heartbeat {
+    fn new(site: watch::Receiver<Option<Bytes>>) -> Self {
+        Self {
+            site,
+            sent: None,
+            sent_rtt: false,
+            ping: None,
+            rtt: None,
+            oversized: false,
+        }
+    }
+
+    fn pinged(&mut self) {
+        self.ping = Some(Instant::now());
+    }
+
+    fn ponged(&mut self) {
+        if let Some(ping) = self.ping.take() {
+            self.rtt = Some(ping.elapsed());
+        }
+    }
+
+    fn due(&self) -> bool {
+        let Some(sent) = self.sent else {
+            return true;
+        };
+        let waited = sent.elapsed();
+        let news = self.site.has_changed().unwrap_or(false) || self.rtt.is_some() != self.sent_rtt;
+        waited >= HEALTH_REFRESH || (news && waited >= HEALTH_SPACING)
+    }
+
+    fn payload(&mut self) -> Option<Bytes> {
+        if !self.due() {
+            return None;
+        }
+        let site = self.site.borrow_and_update().clone()?;
+        match envelope(self.rtt, &site) {
+            Ok(payload) if payload.len() <= MAX_HEALTH => {
+                self.oversized = false;
+                Some(payload)
+            }
+            Ok(payload) => {
+                if !std::mem::replace(&mut self.oversized, true) {
+                    tracing::warn!(bytes = payload.len(), "health report too large; not sent");
+                }
+                None
+            }
+            Err(error) => {
+                tracing::warn!(%error, "health report is not JSON; not sent");
+                None
+            }
+        }
+    }
+
+    async fn beat(&mut self, out: &mpsc::Sender<Message>) -> Result<(), TunnelError> {
+        let Some(data) = self.payload() else {
+            return Ok(());
+        };
+        push(out, Message::Binary(Frame::Health { data }.encode()?)).await?;
+        self.sent = Some(Instant::now());
+        self.sent_rtt = self.rtt.is_some();
+        Ok(())
+    }
+}
+
+fn envelope(rtt: Option<Duration>, site: &[u8]) -> Result<Bytes, serde_json::Error> {
+    #[derive(serde::Serialize)]
+    struct Envelope<'a> {
+        rtt_ms: Option<u32>,
+        site: &'a serde_json::value::RawValue,
+    }
+    let envelope = Envelope {
+        rtt_ms: rtt.map(|rtt| u32::try_from(rtt.as_millis()).unwrap_or(u32::MAX)),
+        site: serde_json::from_slice(site)?,
+    };
+    serde_json::to_vec(&envelope).map(Bytes::from)
 }
 
 async fn write<S>(mut sink: S, mut outbox: mpsc::Receiver<Message>) -> Result<(), TunnelError>
@@ -381,7 +489,8 @@ impl Streams {
             Frame::Challenge { .. }
             | Frame::Proof { .. }
             | Frame::Ready
-            | Frame::Response { .. } => {
+            | Frame::Response { .. }
+            | Frame::Health { .. } => {
                 return Err(TunnelError::Protocol(format!(
                     "unexpected frame on stream {}",
                     frame.stream()
@@ -471,5 +580,82 @@ mod tests {
             );
         }
         assert!(retry_delay(40) <= LAST_RETRY);
+    }
+
+    #[test]
+    fn the_envelope_wraps_the_site_with_the_round_trip() {
+        let site = br#"{"clients":1,"radios":[]}"#;
+        assert_eq!(
+            envelope(None, site).expect("envelope"),
+            Bytes::from_static(br#"{"rtt_ms":null,"site":{"clients":1,"radios":[]}}"#)
+        );
+        assert_eq!(
+            envelope(Some(Duration::from_micros(38_900)), site).expect("envelope"),
+            Bytes::from_static(br#"{"rtt_ms":38,"site":{"clients":1,"radios":[]}}"#)
+        );
+        assert!(envelope(None, b"{").is_err());
+    }
+
+    async fn beat(heartbeat: &mut Heartbeat) -> Option<serde_json::Value> {
+        let (out, mut sent) = mpsc::channel(1);
+        heartbeat.beat(&out).await.expect("beat");
+        let Ok(Message::Binary(bytes)) = sent.try_recv() else {
+            return None;
+        };
+        let Frame::Health { data } = Frame::decode(bytes).expect("frame") else {
+            panic!("expected health");
+        };
+        Some(serde_json::from_slice(&data).expect("json"))
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn health_waits_for_a_site_then_paces_changes_and_refreshes() {
+        let (site, receiver) = watch::channel(None);
+        let mut heartbeat = Heartbeat::new(receiver);
+        assert_eq!(beat(&mut heartbeat).await, None);
+        site.send_replace(Some(Bytes::from_static(b"1")));
+        assert_eq!(
+            beat(&mut heartbeat).await,
+            Some(serde_json::json!({"rtt_ms": null, "site": 1}))
+        );
+        site.send_replace(Some(Bytes::from_static(b"2")));
+        tokio::time::advance(HEALTH_SPACING - Duration::from_secs(1)).await;
+        assert_eq!(beat(&mut heartbeat).await, None);
+        tokio::time::advance(Duration::from_secs(1)).await;
+        assert_eq!(
+            beat(&mut heartbeat).await,
+            Some(serde_json::json!({"rtt_ms": null, "site": 2}))
+        );
+        tokio::time::advance(HEALTH_REFRESH - Duration::from_secs(1)).await;
+        assert_eq!(beat(&mut heartbeat).await, None);
+        tokio::time::advance(Duration::from_secs(1)).await;
+        assert!(beat(&mut heartbeat).await.is_some());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn the_first_round_trip_is_reported_within_a_minute() {
+        let (_site, receiver) = watch::channel(Some(Bytes::from_static(b"{}")));
+        let mut heartbeat = Heartbeat::new(receiver);
+        assert!(beat(&mut heartbeat).await.is_some());
+        heartbeat.pinged();
+        tokio::time::advance(Duration::from_millis(38)).await;
+        heartbeat.ponged();
+        assert_eq!(beat(&mut heartbeat).await, None);
+        tokio::time::advance(HEALTH_SPACING).await;
+        assert_eq!(
+            beat(&mut heartbeat).await,
+            Some(serde_json::json!({"rtt_ms": 38, "site": {}}))
+        );
+        heartbeat.ponged();
+        tokio::time::advance(HEALTH_SPACING).await;
+        assert_eq!(beat(&mut heartbeat).await, None);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn an_oversized_report_is_not_sent() {
+        let site = format!("\"{}\"", "x".repeat(MAX_HEALTH));
+        let (_site, receiver) = watch::channel(Some(Bytes::from(site)));
+        let mut heartbeat = Heartbeat::new(receiver);
+        assert_eq!(beat(&mut heartbeat).await, None);
     }
 }

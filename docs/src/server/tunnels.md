@@ -19,6 +19,9 @@ No setup on the network. SDR-- dials out and app.sdrmm.com passes browsers throu
 Headless: run `sdrmm pair`, approve the code, then restart `sdrmm`. **Disconnect** or removing the
 server in the app ends access. Traffic passes Cloudflare, which terminates HTTPS.
 
+While connected, SDR-- reports its version, platform, open clients and each radio's name, driver
+and state to the app. Never frequencies, channel names or files.
+
 ## Prepare SDR--
 
 Run the tunnel on the same machine as SDR--. SDR-- stays on plain HTTP on loopback; the tunnel

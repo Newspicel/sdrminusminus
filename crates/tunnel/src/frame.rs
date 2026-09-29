@@ -6,6 +6,7 @@ pub const WINDOW: u32 = 256 * 1024;
 pub const CONTROL_STREAM: u32 = 0;
 pub const NONCE_LEN: usize = 32;
 pub const PROOF_LEN: usize = 64;
+pub const MAX_HEALTH: usize = 8 * 1024;
 
 const HEADER_LEN: usize = 5;
 
@@ -69,6 +70,9 @@ pub enum Frame {
         stream: u32,
         bytes: u32,
     },
+    Health {
+        data: Bytes,
+    },
 }
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
@@ -102,12 +106,15 @@ mod kind {
     pub const CLOSE: u8 = 10;
     pub const RESET: u8 = 11;
     pub const CREDIT: u8 = 12;
+    pub const HEALTH: u8 = 13;
 }
 
 impl Frame {
     pub fn stream(&self) -> u32 {
         match self {
-            Self::Challenge { .. } | Self::Proof { .. } | Self::Ready => CONTROL_STREAM,
+            Self::Challenge { .. } | Self::Proof { .. } | Self::Ready | Self::Health { .. } => {
+                CONTROL_STREAM
+            }
             Self::Request { stream, .. }
             | Self::Response { stream, .. }
             | Self::Body { stream, .. }
@@ -150,6 +157,7 @@ impl Frame {
             Self::Credit { bytes, .. } => {
                 (kind::CREDIT, Bytes::copy_from_slice(&bytes.to_be_bytes()))
             }
+            Self::Health { data } => (kind::HEALTH, data.clone()),
         };
         let mut out = BytesMut::with_capacity(HEADER_LEN + payload.len());
         out.put_u8(kind);
@@ -186,13 +194,10 @@ impl Frame {
                 data: payload,
             },
             kind::END => Self::End { stream },
-            kind::TEXT => {
-                std::str::from_utf8(&payload).map_err(|_| FrameError::NotUtf8("text"))?;
-                Self::Text {
-                    stream,
-                    data: payload,
-                }
-            }
+            kind::TEXT => Self::Text {
+                stream,
+                data: utf8_bytes("text", payload)?,
+            },
             kind::BINARY => Self::Binary {
                 stream,
                 data: payload,
@@ -205,6 +210,9 @@ impl Frame {
             kind::CREDIT => Self::Credit {
                 stream,
                 bytes: u32::from_be_bytes(fixed("credit", &payload)?),
+            },
+            kind::HEALTH => Self::Health {
+                data: utf8_bytes("health", payload)?,
             },
             other => return Err(FrameError::UnknownKind(other)),
         })
@@ -233,6 +241,11 @@ fn fixed<const N: usize>(kind: &'static str, payload: &[u8]) -> Result<[u8; N], 
         expected: N,
         got: payload.len(),
     })
+}
+
+fn utf8_bytes(kind: &'static str, payload: Bytes) -> Result<Bytes, FrameError> {
+    std::str::from_utf8(&payload).map_err(|_| FrameError::NotUtf8(kind))?;
+    Ok(payload)
 }
 
 fn utf8(kind: &'static str, payload: Bytes) -> Result<String, FrameError> {

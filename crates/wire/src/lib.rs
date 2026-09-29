@@ -148,7 +148,10 @@ pub use propagation::{
     MAX_PROPAGATION_HALF_LIFE_MIN, MAX_REFLECTION_HEIGHT_KM, MIN_PROPAGATION_HALF_LIFE_MIN,
     MIN_REFLECTION_HEIGHT_KM, PropagationNode,
 };
-pub use remote::{DEFAULT_REMOTE_APP, RemoteState, RemoteStatus};
+pub use remote::{
+    DEFAULT_REMOTE_APP, MAX_HEALTH_LABEL_CHARS, MAX_HEALTH_RADIOS, RadioHealth, RemoteState,
+    RemoteStatus, SiteHealth,
+};
 pub use rest::{
     AnnotationError, ApiError, ApplyTemplateRequest, AudioRecordingInfo, AudioRecordingsResponse,
     AuthInfo, Bookmark, CapturedImage, CapturedImagesResponse, ChannelTypesResponse,
