@@ -1,7 +1,7 @@
 # Radios
 
-A **Device** node opens one radio: over USB, through SoapySDR, or over the network. Recordings
-and generated signals have nodes of their own, see [Other sources](#other-sources).
+A **Device** node opens one radio: over USB, over the network, or through SoapySDR. Recordings and
+generated signals have nodes of their own, see [Other sources](#other-sources).
 
 Radio missing? Press **Check hardware** on an empty Device node, or run `sdrmm --doctor`.
 
@@ -9,35 +9,280 @@ Radio missing? Press **Check hardware** on an empty Device node, or run `sdrmm -
 
 The desktop and portable builds include these drivers:
 
-| Radio | Needs |
-|---|---|
-| RTL-SDR | Nothing |
-| KrakenSDR, KerberosSDR | Nothing |
-| HackRF | Nothing |
-| Airspy R2, Mini, HF+, HF+ Discovery | Nothing |
-| AntSDR, ADALM-Pluto, other AD936x boards | The board serving [iiod](#antsdr-plutosdr-and-other-ad936x-boards) |
-| SDRplay RSP1, RSP1A, RSP1B, RSP2, RSPduo, RSPdx, RSPdx-R2 | [SDRplay API](#sdrplay) 3.15+, or [SDRconnect](#sdrconnect) on another machine |
-| KiwiSDR | Network access to [one](#kiwisdr) |
-| Dragon Labs CR-8 | [Vendor library](#dragon-labs-cr-8) and a build with `cr8` |
-| bladeRF, LimeSDR, USRP, others | A [SoapySDR module](#soapysdr) |
+| Radio | Connects over | Needs |
+|---|---|---|
+| [RTL-SDR](#rtl-sdr) | USB | Nothing |
+| [KrakenSDR, KerberosSDR](#krakensdr) | USB | Nothing |
+| [HackRF](#hackrf) | USB | Nothing |
+| [Airspy R2, Mini, HF+, HF+ Discovery](#airspy) | USB | Nothing |
+| [AntSDR](#antsdr) | Ethernet or USB | Nothing |
+| [ADALM-Pluto, other AD936x boards](#plutosdr-and-other-ad936x-boards) | USB or Ethernet | Nothing |
+| [SDRplay RSP1, RSP1A, RSP1B, RSP2, RSPduo, RSPdx, RSPdx-R2](#sdrplay) | USB | SDRplay API 3.15+ |
+| [SDRplay on another machine](#sdrconnect) | Network | SDRconnect there |
+| [KiwiSDR](#kiwisdr) | Network | Nothing |
+| [Dragon Labs CR-8](#dragon-labs-cr-8) | USB | Vendor library, a build with `cr8` |
+| bladeRF, LimeSDR, USRP, others | USB | A [SoapySDR module](#soapysdr) |
 
 Making a radio? Write to [hi@jhaag.me](mailto:hi@jhaag.me) to get it supported and tested.
 
-## Check the installation
+## Connect a radio
+
+### USB
+
+Plug it in: it appears on every empty Device node.
+
+On Linux, install your radio's udev rules and add the server's user to the group they name, usually
+`plugdev`. Reload udev and replug the radio. SDR-- never needs root. For containers, see
+[USB devices](server/deployment.md#usb-devices).
+
+### Network radios
+
+On an empty Device node, open the **Network** tab and enter `host:port`:
+
+| Protocol | Default port |
+|---|---:|
+| `rtl_tcp` | 1234 |
+| SpyServer | 5555 |
+| SDRconnect | 5454 |
+| KiwiSDR | 8073 |
+| AD936x / iiod | 30431 |
+
+The address becomes the radio's identity in the workspace. The bookmark button next to **Add**
+saves it; saved radios are listed above the form on every empty Device node.
+
+Network IQ uses a lot of bandwidth. When the link cannot keep up, the radio node shows **Lost**
+with the share of samples missing: lower the rate.
+
+### Check the installation
 
 ```sh
 sdrmm --doctor
 ```
 
-It lists compiled drivers, loaded libraries, SoapySDR modules, found radios, data paths, and
-Linux USB permissions. **Check hardware** runs the same checks from the interface.
+It lists compiled drivers, loaded libraries, SoapySDR modules, found radios, data paths, and Linux
+USB permissions. **Check hardware** runs the same checks from the interface.
 
-## Linux USB permissions
+## Device controls
 
-Install your radio's udev rules and add the server's user to the group they name, usually
-`plugdev`. Reload udev and replug the radio. SDR-- never needs root.
+Controls mean the same thing on every radio:
 
-For containers, see [USB devices](server/deployment.md#usb-devices).
+| Control | Sets |
+|---|---|
+| Rate | Sample rate |
+| Lanes | How many receive lanes stream, on radios that can choose |
+| Filter | Analog bandwidth before sampling, or Auto |
+| Antenna | Input port, when there is a choice |
+| AGC | **Auto** on the gain row. The radio sets its own gain; the slider shows what it chose, where the radio reports it. |
+| LNA, Mixer, VGA, IF, RF, Tuner, Attenuator | One gain stage each, in dB or firmware steps |
+| Amp | A switchable preamp |
+| Bias tee | Power on the antenna port for an active antenna or LNA |
+| PPM | Crystal correction |
+| Converter | Local oscillator of an up- or downconverter, in MHz |
+| DC block | Removes the radio's own DC spike |
+
+On a radio with several lanes, each lane's own controls sit under `iq1`, `iq2`, and so on, and the
+ones they share under **All lanes**. **Health** shows clipping, queue delay, and lost samples.
+
+With a converter set, every frequency shown is the one at the antenna. Enter a positive value for a
+downconverter, like 9750 for a Ku-band LNB, and a negative one for an upconverter, like −125 for a
+Ham It Up.
+
+Settings only one radio has appear below these rows. Some change the others: RTL-SDR direct
+sampling changes the tuning range. Transmit is not available yet.
+
+### Calibration
+
+PPM and the converter offset belong to the radio, not the node: set them once and every Device node
+that opens that radio uses them. A USB radio is known by its serial, a network radio by its
+address. RTL-SDRs need [serials of their own](#serials).
+
+## RTL-SDR
+
+| Control | Does |
+|---|---|
+| Tuner | Gain, in the tuner's own steps: 20 dB on an R820T becomes 19.7 dB |
+| AGC | Tuner AGC |
+| Bias tee | Antenna-port power |
+| Direct sampling | `off`, `i`, or `q`. Not on the RTL-SDR Blog V4 or V4 Lite, which upconvert HF. |
+
+Rates: 225 to 300 kHz, or 900 kHz to 3.2 MHz. Filter: 290 kHz to 8 MHz on R82xx tuners.
+
+### Serials
+
+Many dongles ship with the serial `00000001`. Two dongles with one serial are told apart by USB
+port instead, shown as `RTL-SDR (bus/address)`, and their settings and
+[calibration](#calibration) can follow the wrong one after a replug. Give each its own serial, one
+dongle plugged in at a time:
+
+```sh
+rtl_eeprom -s 00000002
+```
+
+Replug it afterwards. `rtl_eeprom` comes with the `rtl-sdr` package.
+
+## KrakenSDR
+
+One Device with five lanes; KerberosSDR has four. SDR-- groups the tuners by serial and USB hub, so
+the vendor Pi image is not needed. Each lane has its own dial, gain, and AGC. Lanes wired to a
+coherent node tune together. There is no direct sampling. SDR-- runs the noise source during
+[calibration](user-guide/arrays.md#krakensdr).
+
+If the array shows up as separate dongles, one of its tuners is missing: check `sdrmm --doctor` or
+`lsusb`.
+
+Tested on hardware provided by [KrakenRF](https://www.krakenrf.com). Thank you.
+
+## HackRF
+
+| Control | Does |
+|---|---|
+| LNA | Gain in 8 dB steps |
+| VGA | Gain in 2 dB steps |
+| Amp | +14 dB RF amplifier |
+| Filter | Baseband filter, or Auto |
+| Bias tee | Antenna-port power |
+
+## Airspy
+
+Built in, no vendor library needed. To use SoapySDR instead, build without `airspy` and `airspyhf`.
+
+**R2 and Mini:** LNA, Mixer, and VGA gain use firmware steps, not dB. AGC can run the LNA, the
+mixer, or both. Bias tee available. Faint carriers on multiples of 10 MHz come from the radio's own
+clock.
+
+**HF+ and HF+ Discovery:** tunes up to 31 MHz and 60 to 260 MHz. Controls are Amp, attenuation in
+6 dB steps down to −48 dB, AGC with a low or high threshold, and PPM, which starts from the
+calibration stored on the radio. A centre below 180 kHz (84 kHz at the narrower rates) tunes to that
+floor, and the band still shows it. Only the widest rates leave a spike at the centre for the DC
+blocker. Images sit about 50 dB down; the vendor's adaptive IQ balance is not used.
+
+Tested on hardware provided by [Airspy](https://airspy.com). Thank you.
+
+## AntSDR
+
+SDR-- talks to the iiod server of the AntSDR's Pluto firmware directly, with no libiio. It is tested
+on the E310: an AD9361 from 70 MHz to 6 GHz with up to 56 MHz of bandwidth, and two receive and two
+transmit lanes on one synthesizer, so both receive lanes are phase coherent. Support for the UHD
+firmware is planned.
+
+**USB:** connect the USB 2.0 port and the board appears on its own, with no network setup. Windows
+needs the [PlutoSDR drivers](https://wiki.analog.com/university/tools/pluto/drivers/windows). USB
+2.0 carries a few MS/s.
+
+**Ethernet, direct cable:** the board sits at `192.168.1.10`. Give the computer's Ethernet port a
+fixed address in the same range once, and leave the router empty so the internet stays on Wi-Fi:
+
+| System | Where |
+|---|---|
+| macOS | System Settings, Network, the Ethernet adapter, Details, TCP/IP. Configure IPv4 Manually, IP `192.168.1.100`, subnet mask `255.255.255.0` |
+| Windows | Settings, Network & internet, Ethernet, IP assignment, Edit. Manual, IPv4 on, IP `192.168.1.100`, subnet mask `255.255.255.0` |
+| Linux | `nmcli connection add type ethernet ifname <port> con-name antsdr ipv4.method manual ipv4.addresses 192.168.1.100/24` |
+
+**Ethernet, through your router:** if your network already uses `192.168.1.x` and nothing else sits
+at `.10`, plug the board into the router and it works from every computer on it. Otherwise give the
+board a free address in your range: connect it over USB, open the drive it shows, set
+`ipaddr_eth` and `netmask_eth` in `config.txt`, and eject. Over SSH the login is `root` /
+`analog`.
+
+**Search** tries `192.168.1.10`, `ant.local` and `192.168.2.1`; enter any other address in the
+**Network** tab. If nothing is found, `ping 192.168.1.10`: no answer means the cable or the
+computer's address.
+
+Gigabit Ethernet carries about 60 MB/s from the E310: 15 MS/s on one lane, or 7.5 MS/s per lane on
+two. Set **Lanes** to 1 for one wide lane. The E310 locks its antenna and TX ports in firmware, so
+those menus are hidden. The other controls are the [AD936x ones](#plutosdr-and-other-ad936x-boards).
+
+Tested on hardware provided by [MicroPhase](https://www.microphase.cn/). Thank you.
+
+## PlutoSDR and other AD936x boards
+
+Talks to iiod directly over USB or Ethernet, with no libiio or SoapySDR. USB boards appear on their
+own. **Search** also tries `pluto.local`, `192.168.2.1`, `ant.local`, and `192.168.1.10`.
+
+The board reports its range: typically 70 MHz to 6 GHz on an AD9361, 325 MHz to 3.8 GHz on an
+AD9363. Rates run from about 260 kS/s to 61.44 MS/s (30.72 on a 2×2 board); below 2.08 MS/s the
+FPGA decimates. The link sets the real limit. On a 2×2 board both RX lanes share a clock and are
+phase coherent.
+
+| Control | Does |
+|---|---|
+| Lanes | 1 or 2 on a 2×2 board. One lane gets the whole link |
+| Tuner | Receive gain per lane. The range follows the band |
+| TX | Transmit attenuation per lane |
+| AGC | Per lane: slow attack, fast attack, or hybrid |
+| Quadrature, RF DC, baseband DC tracking | Hardware corrections |
+| Antenna, TX port | Shown only if the board lets the port change |
+
+Linux needs the libiio udev rules. `sdrmm --doctor` checks for them.
+
+## SDRplay
+
+Install the [SDRplay API](https://www.sdrplay.com/downloads/) 3.15 or newer and keep
+`sdrplay_apiService` running. No SoapySDR module needed. If an RSP is missing, see the **SDRplay
+API** section of `sdrmm --doctor`. For containers, see
+[SDRplay receivers](server/deployment.md#sdrplay-receivers). For NixOS, see
+[Nix](getting-started/install.md#nix).
+
+Both gain sliders raise gain when moved up:
+
+| Slider | Sets |
+|---|---|
+| RF | LNA gain. The steps depend on frequency, port, and HDR mode. |
+| IF | 0 to 39 dB |
+
+AGC runs the IF gain at 5, 50, or 100 Hz. With AGC on, the IF slider sets the starting gain.
+
+Rates run from 62.5 kS/s to 10.66 MS/s on one tuner.
+
+**RSPduo:** each mode is its own entry: Tuner 1, Tuner 2, Dual Tuner, Master, and Slave. Modes in
+use by another program are hidden. Dual Tuner gives two independent streams at up to 2 MS/s each.
+Slave waits for a master program, which owns the clock.
+
+### SDRconnect
+
+Reach an RSP on another machine through [SDRconnect](https://www.sdrplay.com/sdrconnect/), with no
+local SDRplay API. Enable its WebSocket API, or run `SDRconnect_headless --websocket_port=5454`. On
+a Device node pick **Network → SDRconnect** and enter `host:5454`, or `host:5454/secondary` for an
+RSPduo's second tuner.
+
+The link is unencrypted `ws://`. Use it on a trusted network or through a tunnel.
+
+SDR-- receives raw IQ and does its own demodulation. Extra settings:
+
+| Setting | Does |
+|---|---|
+| `lna` | RF gain over the LNA states; lower means more gain. There is no IF gain. |
+| `device_vfo_frequency` | SDRconnect's VFO inside the sampled window |
+| `filter_bandwidth` | SDRconnect's channel filter |
+| `receiver` | Which radio: name, slot, or serial |
+| `network_mode` | Stream quality |
+| `device_profile` | Load a saved SDRconnect profile |
+| `recording` | Record on the SDRconnect machine |
+
+The driver follows the public [SDRplay API specification](https://www.sdrplay.com/api/). No vendor
+code is included.
+
+## KiwiSDR
+
+Pick **Network → KiwiSDR** and paste the receiver's address, `http://` or `https://`. Public
+receivers are listed at [rx.kiwisdr.com](http://rx.kiwisdr.com/). A private Kiwi, or one whose time
+limits a password lifts, takes `password@host:8073`. The password becomes part of the radio's
+address in the workspace.
+
+A Kiwi streams 12 or 20 kHz of IQ anywhere in 0 to 30 MHz: enough for SSB, CW, AM and the
+narrowband decoders. Wider channels show out of band. Gain is the Kiwi's AGC or a manual RF gain.
+
+Public Kiwis are shared. When one is full, kicks you, or hits its time limit, SDR-- stops and does
+not reconnect. A dropped connection is retried.
+
+## Dragon Labs CR-8
+
+Eight `phase_coherent` lanes on one Device, `iq1` to `iq8`, for calibration, direction finding,
+beamforming, and passive radar. All lanes tune together at a fixed 12.5 MS/s, with LNA, mixer, and
+VGA gain per lane. The clock is internal or an external 10 MHz reference.
+
+The packaged builds leave CR-8 out. Build the server with `cr8`, install the vendor library, and
+check it with `sdrmm --doctor`. Set `SDRMM_DLCR_LIBRARY` if the library is somewhere unusual.
 
 ## SoapySDR
 
@@ -60,7 +305,8 @@ SoapySDR covers radios without a built-in driver. Install the core and a module 
 | NixOS | [`soapyPlugins`](getting-started/install.md#nix) | |
 
 Desktop and portable builds load SoapySDR at runtime and work without it. The Homebrew formula
-installs the core. The container ships the core with bladeRF, LimeSDR, and SoapyRemote modules.
+installs the core. The container ships the core with bladeRF, LimeSDR, and SoapyRemote modules. A
+remote `SoapySDRServer` shows up in the normal radio list, through SoapyRemote.
 
 Modules must match SoapySDR 0.8. Others are rejected and logged. For unusual install locations:
 
@@ -69,33 +315,8 @@ Modules must match SoapySDR 0.8. Others are rejected and logged. For unusual ins
 | `SDRMM_SOAPY_LIBRARY` | Full path to the core library |
 | `SDRMM_SOAPY_MODULE_PATH` | Extra module folders, searched first |
 
-`SoapySDRUtil --find` shows what SoapySDR itself sees. It knows nothing about the built-in
-drivers, which SDR-- prefers when both could open a radio.
-
-## Network radios
-
-On an empty Device node, open the **Network** tab and enter `host:port`:
-
-| Protocol | Default port |
-|---|---:|
-| `rtl_tcp` | 1234 |
-| SpyServer | 5555 |
-| SDRconnect | 5454 |
-| KiwiSDR | 8073 |
-| AD936x / iiod | 30431 |
-
-The address becomes the radio's identity in the workspace. A remote `SoapySDRServer` shows up in
-the normal radio list instead, through SoapyRemote. Network IQ uses a lot of bandwidth: pick the
-lowest rate that works and watch the drop counter.
-
-The bookmark button next to **Add** saves an address. Saved radios are listed above the form on
-every empty Device node; click one to connect.
-
-## Calibration
-
-PPM and the converter offset belong to the radio, not the node: set them once and every Device
-node that opens that radio uses them. A USB radio is known by its serial, a network radio by its
-address. RTL-SDRs need [serials of their own](#serials).
+`SoapySDRUtil --find` shows what SoapySDR itself sees. It knows nothing about the built-in drivers,
+which SDR-- prefers when both could open a radio.
 
 ## Other sources
 
@@ -104,185 +325,8 @@ address. RTL-SDRs need [serials of their own](#serials).
 | Recording | Plays a [SigMF recording](user-guide/recording.md#play-a-recording) |
 | Signal generator | 44 signals, from a plain tone to DVB-T |
 
-Debug builds also list synthetic radios: a four-lane coherent array, a test band and test transceivers.
-
-## Device controls
-
-Controls mean the same thing on every radio:
-
-| Control | Sets |
-|---|---|
-| Rate | Sample rate |
-| Filter | Analog bandwidth before sampling, or Auto |
-| Antenna | Input port, when there is a choice |
-| AGC | **Auto** on the gain row. The radio sets its own gain; the slider shows what it chose, where the radio reports it. |
-| LNA, Mixer, VGA, IF, RF, Tuner, Attenuator | One gain stage each, in dB or firmware steps |
-| Amp | A switchable preamp |
-| Bias tee | Power on the antenna port for an active antenna or LNA |
-| PPM | Crystal correction |
-| Converter | Local oscillator of an up- or downconverter, in MHz |
-| DC block | Removes the radio's own DC spike |
-
-With a converter set, every frequency shown is the one at the antenna. Enter a positive value for
-a downconverter, like 9750 for a Ku-band LNB, and a negative one for an upconverter, like −125 for
-a Ham It Up.
-
-Settings only one radio has appear below these rows. Some change the others: RTL-SDR direct
-sampling changes the tuning range. Transmit is not available yet.
-
-## RTL-SDR
-
-| Control | Does |
-|---|---|
-| Tuner | Gain, in the tuner's own steps: 20 dB on an R820T becomes 19.7 dB |
-| AGC | Tuner AGC |
-| Bias tee | Antenna-port power |
-| Direct sampling | `off`, `i`, or `q`. Not on the RTL-SDR Blog V4 or V4 Lite, which upconvert HF. |
-
-Rates: 225 to 300 kHz, or 900 kHz to 3.2 MHz. Filter: 290 kHz to 8 MHz on R82xx tuners.
-
-### Serials
-
-Many dongles ship with the serial `00000001`. Two dongles with one serial are told apart by USB
-port instead, shown as `RTL-SDR (bus/address)`, and their settings and
-[calibration](#calibration) can follow the wrong one after a replug. Give each its own serial,
-one dongle plugged in at a time:
-
-```sh
-rtl_eeprom -s 00000002
-```
-
-Replug it afterwards. `rtl_eeprom` comes with the `rtl-sdr` package.
-
-## KrakenSDR
-
-One Device with five lanes; KerberosSDR has four. SDR-- groups the tuners by serial and USB hub,
-so the vendor Pi image is not needed. Each lane has its own dial, gain, and AGC. Lanes wired to a
-coherent node tune together. There is no direct sampling. SDR-- runs the noise source during [calibration](user-guide/arrays.md#krakensdr).
-
-If the array shows up as separate dongles, one of its tuners is missing: check `sdrmm --doctor`
-or `lsusb`.
-
-Tested on hardware provided by [KrakenRF](https://www.krakenrf.com).
-
-## HackRF
-
-| Control | Does |
-|---|---|
-| LNA | Gain in 8 dB steps |
-| VGA | Gain in 2 dB steps |
-| Amp | +14 dB RF amplifier |
-| Filter | Baseband filter, or Auto |
-| Bias tee | Antenna-port power |
-
-## Airspy
-
-Built in, no vendor library needed. To use SoapySDR instead, build without `airspy` and `airspyhf`.
-
-**R2 and Mini:** LNA, Mixer, and VGA gain use firmware steps, not dB. AGC can run the LNA, the
-mixer, or both. Bias tee available. Faint carriers on multiples of 10 MHz come from the
-radio's own clock.
-
-**HF+ and HF+ Discovery:** tunes up to 31 MHz and 60 to 260 MHz. Controls are Amp, attenuation in
-6 dB steps down to −48 dB, AGC with a low or high threshold, and PPM, which starts from the
-calibration stored on the radio. A centre below 180 kHz (84 kHz at the narrower rates) tunes to
-that floor, and the band still shows it. Only the widest rates leave a spike at the centre for the
-DC blocker. Images sit about 50 dB down; the vendor's adaptive IQ balance is not used.
-
-Tested on hardware provided by [Airspy](https://airspy.com).
-
-## AntSDR, PlutoSDR and other AD936x boards
-
-Talks to iiod directly over Ethernet or USB, with no libiio or SoapySDR. USB boards appear on their
-own. **Search** also tries `ant.local`, `192.168.1.10`, `pluto.local`, and `192.168.2.1`. Enter
-other addresses in the **Network** tab.
-
-The board reports its range: typically 70 MHz to 6 GHz on an AD9361, 325 MHz to 3.8 GHz on an
-AD9363. Rates run from about 260 kS/s to 61.44 MS/s (30.72 on a 2×2 board); below 2.08 MS/s the
-FPGA decimates. The link sets the real limit: an AntSDR E310 carries about 60 MB/s, so 15 MS/s on
-one lane or 7.5 on two. Samples lost above that show as drops. On a 2×2 board both RX lanes share
-a clock and are phase coherent.
-
-| Control | Does |
-|---|---|
-| Lanes | 1 or 2 on a 2×2 board. One lane gets the whole link |
-| Tuner | Receive gain per lane. The range follows the band |
-| TX | Transmit attenuation per lane |
-| AGC | Per lane: slow attack, fast attack, or hybrid |
-| Quadrature, RF DC, baseband DC tracking | Hardware corrections |
-| Antenna, TX port | Shown only if the board lets the port change |
-
-Linux needs the libiio udev rules. `sdrmm --doctor` checks for them.
-
-Tested on hardware provided by [AntSDR](https://www.microphase.cn/).
-
-## SDRplay
-
-Install the [SDRplay API](https://www.sdrplay.com/downloads/) 3.15 or newer and keep
-`sdrplay_apiService` running. No SoapySDR module needed. If an RSP is missing, see the
-**SDRplay API** section of `sdrmm --doctor`. For containers, see
-[SDRplay receivers](server/deployment.md#sdrplay-receivers). For NixOS, see
-[Nix](getting-started/install.md#nix).
-
-Both gain sliders raise gain when moved up:
-
-| Slider | Sets |
-|---|---|
-| RF | LNA gain. The steps depend on frequency, port, and HDR mode. |
-| IF | 0 to 39 dB |
-
-AGC runs the IF gain at 5, 50, or 100 Hz. With AGC on, the IF slider sets the starting gain.
-
-Rates run from 62.5 kS/s to 10.66 MS/s on one tuner.
-
-**RSPduo:** each mode is its own entry: Tuner 1, Tuner 2, Dual Tuner, Master, and Slave. Modes in
-use by another program are hidden. Dual Tuner gives two independent streams at up to 2 MS/s each.
-Slave waits for a master program, which owns the clock.
-
-### SDRconnect
-
-Reach an RSP on another machine through [SDRconnect](https://www.sdrplay.com/sdrconnect/), with no
-local SDRplay API. Enable its WebSocket API, or run `SDRconnect_headless --websocket_port=5454`.
-On a Device node pick **Network → SDRconnect** and enter `host:5454`, or `host:5454/secondary`
-for an RSPduo's second tuner.
-
-The link is unencrypted `ws://`. Use it on a trusted network or through a tunnel.
-
-SDR-- receives raw IQ and does its own demodulation. Extra settings:
-
-| Setting | Does |
-|---|---|
-| `lna` | RF gain over the LNA states; lower means more gain. There is no IF gain. |
-| `device_vfo_frequency` | SDRconnect's VFO inside the sampled window |
-| `filter_bandwidth` | SDRconnect's channel filter |
-| `receiver` | Which radio: name, slot, or serial |
-| `network_mode` | Stream quality |
-| `device_profile` | Load a saved SDRconnect profile |
-| `recording` | Record on the SDRconnect machine |
-
-The driver follows the public [SDRplay API specification](https://www.sdrplay.com/api/). No vendor
-code is included.
-
-## KiwiSDR
-
-Pick **Network → KiwiSDR** and paste the receiver's address, `http://` or `https://`. Public
-receivers are listed at [rx.kiwisdr.com](http://rx.kiwisdr.com/). A private Kiwi, or one whose time limits a password lifts, takes `password@host:8073`. The password
-becomes part of the radio's address in the workspace.
-
-A Kiwi streams 12 or 20 kHz of IQ anywhere in 0 to 30 MHz: enough for SSB, CW, AM and the
-narrowband decoders. Wider channels show out of band. Gain is the Kiwi's AGC or a manual RF gain.
-
-Public Kiwis are shared. When one is full, kicks you, or hits its time limit, SDR-- stops and does
-not reconnect. A dropped connection is retried.
-
-## Dragon Labs CR-8
-
-Eight `phase_coherent` lanes on one Device, `iq1` to `iq8`, for calibration, direction finding,
-beamforming, and passive radar. All lanes tune together at a fixed 12.5 MS/s, with LNA, mixer,
-and VGA gain per lane. The clock is internal or an external 10 MHz reference.
-
-The packaged builds leave CR-8 out. Build the server with `cr8`, install the vendor library, and
-check it with `sdrmm --doctor`. Set `SDRMM_DLCR_LIBRARY` if the library is somewhere unusual.
+Debug builds also list synthetic radios: a four-lane coherent array, a test band and test
+transceivers.
 
 ## How radios are found
 
