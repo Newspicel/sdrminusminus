@@ -1587,7 +1587,7 @@ export interface components {
         /** @enum {string} */
         AntennaSegmentRole: "driven" | "parasitic" | "radial" | "matching" | "feedline" | "structure";
         ApiError: {
-            code?: null | components["schemas"]["ErrorCode"];
+            code?: components["schemas"]["ErrorCode"] | null;
             detail?: string | null;
             error: string;
         };
@@ -1628,7 +1628,7 @@ export interface components {
             key: string;
             name?: string | null;
             options?: components["schemas"]["ArgumentOption"][];
-            range?: null | components["schemas"]["Range"];
+            range?: components["schemas"]["Range"] | null;
             units?: string | null;
             value_type: components["schemas"]["ArgumentType"];
         };
@@ -1779,7 +1779,7 @@ export interface components {
             start_hz: number;
             /** Format: double */
             stop_hz: number;
-            suggested?: null | components["schemas"]["ChannelParams"];
+            suggested?: components["schemas"]["ChannelParams"] | null;
         };
         BandBlock: {
             covered?: number[];
@@ -1987,7 +1987,7 @@ export interface components {
             bias_tee?: boolean;
             coherence?: components["schemas"]["Coherence"];
             dc_artifact?: components["schemas"]["DcArtifact"];
-            directional?: null | components["schemas"]["DirectionalCapabilities"];
+            directional?: components["schemas"]["DirectionalCapabilities"] | null;
             duplex?: components["schemas"]["Duplex"];
             extra?: components["schemas"]["ExtraSetting"][];
             freq_ranges: components["schemas"]["Range"][];
@@ -2030,7 +2030,7 @@ export interface components {
             height: number;
             /** Format: int64 */
             id: number;
-            image?: null | components["schemas"]["EventImage"];
+            image?: components["schemas"]["EventImage"] | null;
             image_error?: string | null;
             /** Format: int32 */
             lines: number;
@@ -2126,7 +2126,7 @@ export interface components {
             bandwidth_hz: number;
             can_transmit?: boolean;
             decoder_kind?: string | null;
-            defaults?: null | components["schemas"]["ChannelSettings"];
+            defaults?: components["schemas"]["ChannelSettings"] | null;
             family?: components["schemas"]["DecoderFamily"];
             has_audio?: boolean;
             has_video?: boolean;
@@ -2141,10 +2141,10 @@ export interface components {
         };
         ChannelInfo: {
             audio_recordings?: components["schemas"]["AudioRecordingStatus"][];
-            baseband_recording?: null | components["schemas"]["RecordingStatus"];
+            baseband_recording?: components["schemas"]["RecordingStatus"] | null;
             /** Format: int32 */
             id: number;
-            network_export?: null | components["schemas"]["NetworkExportStatus"];
+            network_export?: components["schemas"]["NetworkExportStatus"] | null;
             /**
              * @description The patch node this decoder was opened for, so a workspace finds its own decoder again
              *     rather than the next one of the same kind.
@@ -2500,7 +2500,7 @@ export interface components {
         } | {
             data: {
                 error?: string | null;
-                fix?: null | components["schemas"]["PositionFix"];
+                fix?: components["schemas"]["PositionFix"] | null;
                 node: string;
             };
             /** @enum {string} */
@@ -2715,8 +2715,8 @@ export interface components {
             kind: components["schemas"]["CpsJobKind"];
             model_id: string;
             port: string;
-            radio?: null | components["schemas"]["RadioIdent"];
-            report?: null | components["schemas"]["ConversionReport"];
+            radio?: components["schemas"]["RadioIdent"] | null;
+            report?: components["schemas"]["ConversionReport"] | null;
             started_at: string;
             state: components["schemas"]["CpsJobState"];
             step: string;
@@ -2824,7 +2824,7 @@ export interface components {
         };
         CreateWorkspaceRequest: {
             name: string;
-            snapshot?: null | components["schemas"]["WorkspaceSnapshot"];
+            snapshot?: components["schemas"]["WorkspaceSnapshot"] | null;
         };
         CwSkimmerParams: {
             /** Format: double */
@@ -2906,7 +2906,7 @@ export interface components {
             event: components["schemas"]["DecoderEvent"];
             /** Format: double */
             freq_hz: number;
-            origin?: null | components["schemas"]["EventOrigin"];
+            origin?: components["schemas"]["EventOrigin"] | null;
             sinks?: string[];
         };
         DecoderEvent: {
@@ -3085,7 +3085,7 @@ export interface components {
             id: number;
             kind: string;
             node?: string | null;
-            origin?: null | components["schemas"]["EventOrigin"];
+            origin?: components["schemas"]["EventOrigin"] | null;
             station?: string | null;
             summary: string;
         };
@@ -3118,7 +3118,7 @@ export interface components {
             /** Format: int32 */
             fmid?: number | null;
             handsets?: number[];
-            identity?: null | components["schemas"]["DectIdentity"];
+            identity?: components["schemas"]["DectIdentity"] | null;
             /** Format: float */
             level_dbfs: number;
             /** Format: int32 */
@@ -3205,11 +3205,11 @@ export interface components {
             driver: string;
             key: string;
             label: string;
-            profile?: null | components["schemas"]["DeviceProfile"];
+            profile?: components["schemas"]["DeviceProfile"] | null;
             serial?: string | null;
         };
         DeviceNode: {
-            device?: null | components["schemas"]["DeviceRef"];
+            device?: components["schemas"]["DeviceRef"] | null;
             locked_streams?: number[];
         };
         DeviceProfile: {
@@ -3235,30 +3235,30 @@ export interface components {
             clipping?: number[];
             device: components["schemas"]["DeviceInfo"];
             error?: string | null;
-            extra_lane?: null | components["schemas"]["ExtraLane"];
-            fault?: null | components["schemas"]["DeviceFault"];
+            extra_lane?: components["schemas"]["ExtraLane"] | null;
+            fault?: components["schemas"]["DeviceFault"] | null;
             /** @description One hunt per decoder that is being hunted. */
             hunts?: components["schemas"]["HuntStatus"][];
             /** Format: int32 */
             id: number;
-            network_export?: null | components["schemas"]["NetworkExportStatus"];
+            network_export?: components["schemas"]["NetworkExportStatus"] | null;
             /** Format: int64 */
             overruns?: number;
-            playback?: null | components["schemas"]["PlaybackStatus"];
-            recording?: null | components["schemas"]["RecordingStatus"];
-            refused?: null | components["schemas"]["SettingsRefused"];
+            playback?: components["schemas"]["PlaybackStatus"] | null;
+            recording?: components["schemas"]["RecordingStatus"] | null;
+            refused?: components["schemas"]["SettingsRefused"] | null;
             /** @description One scan per decoder that is being driven. */
             scanners?: components["schemas"]["ScannerStatus"][];
             settings: components["schemas"]["DeviceSettings"];
             status: components["schemas"]["DeviceSetStatus"];
-            time_machine?: null | components["schemas"]["TimeMachineStatus"];
+            time_machine?: components["schemas"]["TimeMachineStatus"] | null;
         };
         /** @enum {string} */
         DeviceSetStatus: "idle" | "running" | "error";
         DeviceSettings: {
-            agc?: null | components["schemas"]["AgcSetting"];
+            agc?: components["schemas"]["AgcSetting"] | null;
             antenna?: string | null;
-            bandwidth?: null | components["schemas"]["BandwidthSetting"];
+            bandwidth?: components["schemas"]["BandwidthSetting"] | null;
             bias_tee?: boolean | null;
             /** Format: double */
             center_hz?: number | null;
@@ -3272,7 +3272,7 @@ export interface components {
             /** Format: double */
             sample_rate?: number | null;
             streams?: components["schemas"]["StreamSettings"][];
-            tuning?: null | components["schemas"]["Tuning"];
+            tuning?: components["schemas"]["Tuning"] | null;
         };
         DevicesResponse: {
             devices: components["schemas"]["DeviceInfo"][];
@@ -3312,8 +3312,8 @@ export interface components {
             samples: number;
         };
         DfFusionState: {
-            estimate?: null | components["schemas"]["DfEstimate"];
-            guidance?: null | components["schemas"]["DfGuidance"];
+            estimate?: components["schemas"]["DfEstimate"] | null;
+            guidance?: components["schemas"]["DfGuidance"] | null;
             /** Format: int32 */
             samples: number;
             stations?: components["schemas"]["DfStation"][];
@@ -3541,7 +3541,7 @@ export interface components {
             algorithm_id?: number | null;
             /** Format: int32 */
             channel?: number | null;
-            channel_definition?: null | components["schemas"]["DvChannelDefinition"];
+            channel_definition?: components["schemas"]["DvChannelDefinition"] | null;
             /** Format: int32 */
             color_code?: number | null;
             /**
@@ -3590,8 +3590,8 @@ export interface components {
             system_id?: number | null;
             talker_alias?: string | null;
             text?: string | null;
-            trunk_protocol?: null | components["schemas"]["DvTrunkProtocol"];
-            vendor?: null | components["schemas"]["Vendor"];
+            trunk_protocol?: components["schemas"]["DvTrunkProtocol"] | null;
+            vendor?: components["schemas"]["Vendor"] | null;
             via?: string | null;
         };
         /** @enum {string} */
@@ -3806,10 +3806,10 @@ export interface components {
         FmChannel: {
             admit?: components["schemas"]["Admit"];
             bandwidth?: components["schemas"]["Bandwidth"];
-            rx_tone?: null | components["schemas"]["Tone"];
+            rx_tone?: components["schemas"]["Tone"] | null;
             /** Format: int32 */
             squelch?: number | null;
-            tx_tone?: null | components["schemas"]["Tone"];
+            tx_tone?: components["schemas"]["Tone"] | null;
         };
         /** @enum {string} */
         FreeDvMode: "mode1600";
@@ -3878,7 +3878,7 @@ export interface components {
             threshold?: number;
         };
         GpsNode: {
-            source?: null | components["schemas"]["PositionSource"];
+            source?: components["schemas"]["PositionSource"] | null;
         };
         GroundPlaneParams: {
             /** Format: double */
@@ -3901,7 +3901,7 @@ export interface components {
         };
         HuntRequest: {
             action: components["schemas"]["HuntAction"];
-            settings?: null | components["schemas"]["HuntSettings"];
+            settings?: components["schemas"]["HuntSettings"] | null;
         };
         HuntSettings: {
             /**
@@ -4018,7 +4018,7 @@ export interface components {
             ofdm_guard_us?: number | null;
             /** Format: double */
             ofdm_symbol_us?: number | null;
-            sideband?: null | components["schemas"]["Sideband"];
+            sideband?: components["schemas"]["Sideband"] | null;
             /** Format: float */
             snr_db: number;
             /** Format: double */
@@ -4150,7 +4150,7 @@ export interface components {
         };
         NanoVnaCalibrateRequest: components["schemas"]["NanoVnaCalStep"] & {
             port: string;
-            range?: null | components["schemas"]["NanoVnaSweepState"];
+            range?: components["schemas"]["NanoVnaSweepState"] | null;
         };
         NanoVnaCalibration: {
             applied: boolean;
@@ -4238,7 +4238,7 @@ export interface components {
             power?: number | null;
             /** Format: double */
             s21_offset_db?: number | null;
-            sweep?: null | components["schemas"]["NanoVnaSweepState"];
+            sweep?: components["schemas"]["NanoVnaSweepState"] | null;
             /** Format: int64 */
             tcxo_hz?: number | null;
         };
@@ -4627,7 +4627,7 @@ export interface components {
              */
             eca: components["schemas"]["EcaParams"];
             /** @default null */
-            illuminator: null | components["schemas"]["Illuminator"];
+            illuminator: components["schemas"]["Illuminator"] | null;
             /**
              * Format: int32
              * @default 256
@@ -4643,7 +4643,7 @@ export interface components {
             created: number;
             /** Format: int32 */
             opened: number;
-            placement?: null | components["schemas"]["PlacementCoverage"];
+            placement?: components["schemas"]["PlacementCoverage"] | null;
             refused?: components["schemas"]["PatchRefusal"][];
         };
         PatchBinding: {
@@ -4666,7 +4666,7 @@ export interface components {
             id: string;
             label?: string | null;
             position: components["schemas"]["Position"];
-            size?: null | components["schemas"]["Size"];
+            size?: components["schemas"]["Size"] | null;
         };
         PatchRefusal: {
             node: string;
@@ -5149,9 +5149,9 @@ export interface components {
             doppler_rate_hz_s?: number | null;
             driving?: string[];
             error?: string | null;
-            look?: null | components["schemas"]["SatelliteLook"];
+            look?: components["schemas"]["SatelliteLook"] | null;
             name?: string | null;
-            next_pass?: null | components["schemas"]["SatellitePass"];
+            next_pass?: components["schemas"]["SatellitePass"] | null;
             node: string;
             /** Format: double */
             tle_age_days?: number | null;
@@ -5178,9 +5178,9 @@ export interface components {
             /** Format: int32 */
             hang_ms?: number | null;
             name: string;
-            primary?: null | components["schemas"]["ScanTarget"];
+            primary?: components["schemas"]["ScanTarget"] | null;
             revert?: components["schemas"]["ScanRevert"];
-            secondary?: null | components["schemas"]["ScanTarget"];
+            secondary?: components["schemas"]["ScanTarget"] | null;
         };
         /**
          * @description What a scan is looking for.
@@ -5221,7 +5221,7 @@ export interface components {
         };
         ScanRequest: {
             action: components["schemas"]["ScanAction"];
-            settings?: null | components["schemas"]["ScanSettings"];
+            settings?: components["schemas"]["ScanSettings"] | null;
         };
         /** @enum {string} */
         ScanRevert: "selected" | "last_called" | "last_used" | "primary" | "secondary";
@@ -5427,7 +5427,7 @@ export interface components {
         } | {
             data: {
                 error?: string | null;
-                fix?: null | components["schemas"]["PositionFix"];
+                fix?: components["schemas"]["PositionFix"] | null;
                 node: string;
             };
             /** @enum {string} */
@@ -5537,7 +5537,7 @@ export interface components {
         SstvMode: "robot36" | "robot72" | "martin_m1" | "martin_m2" | "scottie_s1" | "scottie_s2" | "scottie_dx" | "pd50" | "pd90" | "pd120" | "pd180" | "sc2180";
         SstvParams: {
             keep_partial?: boolean;
-            mode?: null | components["schemas"]["SstvMode"];
+            mode?: components["schemas"]["SstvMode"] | null;
             slant_correction?: boolean;
         };
         SstvPicture: {
@@ -5622,14 +5622,14 @@ export interface components {
             tuning?: boolean;
         };
         StreamSettings: {
-            agc?: null | components["schemas"]["AgcSetting"];
+            agc?: components["schemas"]["AgcSetting"] | null;
             antenna?: string | null;
             /** Format: double */
             center_hz?: number | null;
             gains?: components["schemas"]["GainValue"][];
             /** Format: int32 */
             stream: number;
-            tuning?: null | components["schemas"]["Tuning"];
+            tuning?: components["schemas"]["Tuning"] | null;
         };
         TemplateInfo: {
             /** Format: double */
@@ -5644,7 +5644,7 @@ export interface components {
             /** Format: double */
             min_freq_hz: number;
             name: string;
-            patch?: null | components["schemas"]["PatchGraph"];
+            patch?: components["schemas"]["PatchGraph"] | null;
             /** Format: double */
             sample_rate: number;
             supported_devices?: string[];
@@ -5671,7 +5671,7 @@ export interface components {
         TimeMachineStatus: {
             /** Format: int64 */
             capacity_samples: number;
-            capture?: null | components["schemas"]["RecordingStatus"];
+            capture?: components["schemas"]["RecordingStatus"] | null;
             /** Format: int64 */
             center_hz: number;
             error?: string | null;
@@ -5739,7 +5739,7 @@ export interface components {
             tools: components["schemas"]["ToolDescriptor"][];
         };
         Transmission: {
-            audio?: null | components["schemas"]["EventAudio"];
+            audio?: components["schemas"]["EventAudio"] | null;
             decoder?: string | null;
             decoder_confirmed?: boolean;
             /** Format: int64 */
@@ -5837,8 +5837,8 @@ export interface components {
             channel_map?: components["schemas"]["TrunkChannel"][];
             /** Format: int32 */
             color_code?: number | null;
-            control?: null | components["schemas"]["TrunkControl"];
-            detected?: null | components["schemas"]["DvTrunkProtocol"];
+            control?: components["schemas"]["TrunkControl"] | null;
+            detected?: components["schemas"]["DvTrunkProtocol"] | null;
             followers: components["schemas"]["TrunkFollower"][];
             node: string;
             /** @description Other frequencies the site runs a control channel on, found while searching. */
@@ -5854,7 +5854,7 @@ export interface components {
             name?: string | null;
             /** Format: int64 */
             revision: number;
-            snapshot?: null | components["schemas"]["WorkspaceSnapshot"];
+            snapshot?: components["schemas"]["WorkspaceSnapshot"] | null;
         };
         UsbMatch: {
             /** Format: int32 */
@@ -5866,7 +5866,7 @@ export interface components {
         /** @enum {string} */
         Vendor: "standard" | "etsi" | "motorola" | "hytera" | "harris" | "tait" | "jvc_kenwood" | "emc" | "radio_activity" | "flyde_micro" | "prod_el" | "unknown";
         VoiceCall: {
-            audio?: null | components["schemas"]["EventAudio"];
+            audio?: components["schemas"]["EventAudio"] | null;
             audio_error?: string | null;
             /** Format: int32 */
             channel: number;

@@ -5205,10 +5205,10 @@
           "code": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/ErrorCode"
               },
               {
-                "$ref": "#/components/schemas/ErrorCode"
+                "type": "null"
               }
             ]
           },
@@ -5372,10 +5372,10 @@
           "range": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/Range"
               },
               {
-                "$ref": "#/components/schemas/Range"
+                "type": "null"
               }
             ]
           },
@@ -5517,11 +5517,7 @@
         "description": "A bank of separate radios the operator has wired to one clock, standing on the canvas as the\none radio they add up to.\n\nNothing here is discovered: which radios belong together, and whether their clock alone is\nshared or their synthesizer too, is a fact about the bench that only the operator knows.",
         "properties": {
           "coherence": {
-            "oneOf": [
-              {
-                "$ref": "#/components/schemas/Coherence"
-              }
-            ],
+            "$ref": "#/components/schemas/Coherence",
             "default": "time_sync"
           },
           "members": {
@@ -5880,10 +5876,10 @@
           "suggested": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/ChannelParams"
               },
               {
-                "$ref": "#/components/schemas/ChannelParams"
+                "type": "null"
               }
             ]
           }
@@ -6535,11 +6531,7 @@
             "default": null
           },
           "source": {
-            "oneOf": [
-              {
-                "$ref": "#/components/schemas/CalSource"
-              }
-            ],
+            "$ref": "#/components/schemas/CalSource",
             "default": "signal"
           },
           "track": {
@@ -6636,10 +6628,10 @@
           "directional": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/DirectionalCapabilities"
               },
               {
-                "$ref": "#/components/schemas/DirectionalCapabilities"
+                "type": "null"
               }
             ]
           },
@@ -6753,10 +6745,10 @@
           "image": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/EventImage"
               },
               {
-                "$ref": "#/components/schemas/EventImage"
+                "type": "null"
               }
             ]
           },
@@ -7050,11 +7042,11 @@
           "defaults": {
             "oneOf": [
               {
-                "type": "null"
-              },
-              {
                 "$ref": "#/components/schemas/ChannelSettings",
                 "description": "What a fresh channel of this type starts on, so a node can show and edit its settings\nbefore any radio is open to carry it."
+              },
+              {
+                "type": "null"
               }
             ]
           },
@@ -7110,10 +7102,10 @@
           "baseband_recording": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/RecordingStatus"
               },
               {
-                "$ref": "#/components/schemas/RecordingStatus"
+                "type": "null"
               }
             ]
           },
@@ -7125,10 +7117,10 @@
           "network_export": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/NetworkExportStatus"
               },
               {
-                "$ref": "#/components/schemas/NetworkExportStatus"
+                "type": "null"
               }
             ]
           },
@@ -8578,10 +8570,10 @@
                   "fix": {
                     "oneOf": [
                       {
-                        "type": "null"
+                        "$ref": "#/components/schemas/PositionFix"
                       },
                       {
-                        "$ref": "#/components/schemas/PositionFix"
+                        "type": "null"
                       }
                     ]
                   },
@@ -8833,11 +8825,7 @@
             "default": 200000.0
           },
           "cal": {
-            "oneOf": [
-              {
-                "$ref": "#/components/schemas/CalParams"
-              }
-            ],
+            "$ref": "#/components/schemas/CalParams",
             "default": {
               "bandwidth_hz": 200000.0,
               "pilot_hz": null,
@@ -8853,11 +8841,7 @@
             "minimum": 0
           },
           "mode": {
-            "oneOf": [
-              {
-                "$ref": "#/components/schemas/CombineMode"
-              }
-            ],
+            "$ref": "#/components/schemas/CombineMode",
             "default": "diversity"
           },
           "offset_hz": {
@@ -9308,20 +9292,20 @@
           "radio": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/RadioIdent"
               },
               {
-                "$ref": "#/components/schemas/RadioIdent"
+                "type": "null"
               }
             ]
           },
           "report": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/ConversionReport"
               },
               {
-                "$ref": "#/components/schemas/ConversionReport"
+                "type": "null"
               }
             ]
           },
@@ -9728,10 +9712,10 @@
           "snapshot": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/WorkspaceSnapshot"
               },
               {
-                "$ref": "#/components/schemas/WorkspaceSnapshot"
+                "type": "null"
               }
             ]
           }
@@ -10028,10 +10012,10 @@
           "origin": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/EventOrigin"
               },
               {
-                "$ref": "#/components/schemas/EventOrigin"
+                "type": "null"
               }
             ]
           },
@@ -10830,10 +10814,10 @@
           "origin": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/EventOrigin"
               },
               {
-                "$ref": "#/components/schemas/EventOrigin"
+                "type": "null"
               }
             ]
           },
@@ -11007,10 +10991,10 @@
           "identity": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/DectIdentity"
               },
               {
-                "$ref": "#/components/schemas/DectIdentity"
+                "type": "null"
               }
             ]
           },
@@ -11328,10 +11312,10 @@
           "profile": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/DeviceProfile"
               },
               {
-                "$ref": "#/components/schemas/DeviceProfile"
+                "type": "null"
               }
             ]
           },
@@ -11349,10 +11333,10 @@
           "device": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/DeviceRef"
               },
               {
-                "$ref": "#/components/schemas/DeviceRef"
+                "type": "null"
               }
             ]
           },
@@ -11482,20 +11466,20 @@
           "extra_lane": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/ExtraLane"
               },
               {
-                "$ref": "#/components/schemas/ExtraLane"
+                "type": "null"
               }
             ]
           },
           "fault": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/DeviceFault"
               },
               {
-                "$ref": "#/components/schemas/DeviceFault"
+                "type": "null"
               }
             ]
           },
@@ -11514,10 +11498,10 @@
           "network_export": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/NetworkExportStatus"
               },
               {
-                "$ref": "#/components/schemas/NetworkExportStatus"
+                "type": "null"
               }
             ]
           },
@@ -11529,30 +11513,30 @@
           "playback": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/PlaybackStatus"
               },
               {
-                "$ref": "#/components/schemas/PlaybackStatus"
+                "type": "null"
               }
             ]
           },
           "recording": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/RecordingStatus"
               },
               {
-                "$ref": "#/components/schemas/RecordingStatus"
+                "type": "null"
               }
             ]
           },
           "refused": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/SettingsRefused"
               },
               {
-                "$ref": "#/components/schemas/SettingsRefused"
+                "type": "null"
               }
             ]
           },
@@ -11572,10 +11556,10 @@
           "time_machine": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/TimeMachineStatus"
               },
               {
-                "$ref": "#/components/schemas/TimeMachineStatus"
+                "type": "null"
               }
             ]
           }
@@ -11595,10 +11579,10 @@
           "agc": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/AgcSetting"
               },
               {
-                "$ref": "#/components/schemas/AgcSetting"
+                "type": "null"
               }
             ]
           },
@@ -11611,10 +11595,10 @@
           "bandwidth": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/BandwidthSetting"
               },
               {
-                "$ref": "#/components/schemas/BandwidthSetting"
+                "type": "null"
               }
             ]
           },
@@ -11679,10 +11663,10 @@
           "tuning": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/Tuning"
               },
               {
-                "$ref": "#/components/schemas/Tuning"
+                "type": "null"
               }
             ]
           }
@@ -11799,20 +11783,20 @@
           "estimate": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/DfEstimate"
               },
               {
-                "$ref": "#/components/schemas/DfEstimate"
+                "type": "null"
               }
             ]
           },
           "guidance": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/DfGuidance"
               },
               {
-                "$ref": "#/components/schemas/DfGuidance"
+                "type": "null"
               }
             ]
           },
@@ -11867,11 +11851,7 @@
         "type": "object",
         "properties": {
           "algorithm": {
-            "oneOf": [
-              {
-                "$ref": "#/components/schemas/DfAlgorithm"
-              }
-            ],
+            "$ref": "#/components/schemas/DfAlgorithm",
             "default": "correlative"
           },
           "bandwidth_hz": {
@@ -11889,11 +11869,7 @@
             "default": null
           },
           "cal": {
-            "oneOf": [
-              {
-                "$ref": "#/components/schemas/CalParams"
-              }
-            ],
+            "$ref": "#/components/schemas/CalParams",
             "default": {
               "bandwidth_hz": 200000.0,
               "pilot_hz": null,
@@ -11902,11 +11878,7 @@
             }
           },
           "geometry": {
-            "oneOf": [
-              {
-                "$ref": "#/components/schemas/ArrayGeometry"
-              }
-            ],
+            "$ref": "#/components/schemas/ArrayGeometry",
             "default": {
               "count": 4,
               "kind": "uca",
@@ -12429,10 +12401,10 @@
           "channel_definition": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/DvChannelDefinition"
               },
               {
-                "$ref": "#/components/schemas/DvChannelDefinition"
+                "type": "null"
               }
             ]
           },
@@ -12637,20 +12609,20 @@
           "trunk_protocol": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/DvTrunkProtocol"
               },
               {
-                "$ref": "#/components/schemas/DvTrunkProtocol"
+                "type": "null"
               }
             ]
           },
           "vendor": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/Vendor"
               },
               {
-                "$ref": "#/components/schemas/Vendor"
+                "type": "null"
               }
             ]
           },
@@ -13469,10 +13441,10 @@
           "rx_tone": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/Tone"
               },
               {
-                "$ref": "#/components/schemas/Tone"
+                "type": "null"
               }
             ]
           },
@@ -13487,10 +13459,10 @@
           "tx_tone": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/Tone"
               },
               {
-                "$ref": "#/components/schemas/Tone"
+                "type": "null"
               }
             ]
           }
@@ -13738,10 +13710,10 @@
           "source": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/PositionSource"
               },
               {
-                "$ref": "#/components/schemas/PositionSource"
+                "type": "null"
               }
             ]
           }
@@ -13816,10 +13788,10 @@
           "settings": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/HuntSettings"
               },
               {
-                "$ref": "#/components/schemas/HuntSettings"
+                "type": "null"
               }
             ]
           }
@@ -14091,10 +14063,10 @@
           "sideband": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/Sideband"
               },
               {
-                "$ref": "#/components/schemas/Sideband"
+                "type": "null"
               }
             ]
           },
@@ -14738,10 +14710,10 @@
               "range": {
                 "oneOf": [
                   {
-                    "type": "null"
+                    "$ref": "#/components/schemas/NanoVnaSweepState"
                   },
                   {
-                    "$ref": "#/components/schemas/NanoVnaSweepState"
+                    "type": "null"
                   }
                 ]
               }
@@ -14944,10 +14916,10 @@
           "sweep": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/NanoVnaSweepState"
               },
               {
-                "$ref": "#/components/schemas/NanoVnaSweepState"
+                "type": "null"
               }
             ]
           },
@@ -15409,19 +15381,11 @@
             "default": "127.0.0.1:7355"
           },
           "format": {
-            "oneOf": [
-              {
-                "$ref": "#/components/schemas/NetworkSampleFormat"
-              }
-            ],
+            "$ref": "#/components/schemas/NetworkSampleFormat",
             "default": "cf32_le"
           },
           "transport": {
-            "oneOf": [
-              {
-                "$ref": "#/components/schemas/NetworkTransport"
-              }
-            ],
+            "$ref": "#/components/schemas/NetworkTransport",
             "default": "udp"
           }
         }
@@ -16396,11 +16360,7 @@
         "type": "object",
         "properties": {
           "cfar": {
-            "oneOf": [
-              {
-                "$ref": "#/components/schemas/CfarParams"
-              }
-            ],
+            "$ref": "#/components/schemas/CfarParams",
             "default": {
               "guard_doppler": 1,
               "guard_range": 2,
@@ -16423,11 +16383,7 @@
             "default": 200.0
           },
           "eca": {
-            "oneOf": [
-              {
-                "$ref": "#/components/schemas/EcaParams"
-              }
-            ],
+            "$ref": "#/components/schemas/EcaParams",
             "default": {
               "batch_samples": 16384,
               "delay_taps": 32,
@@ -16438,10 +16394,10 @@
           "illuminator": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/Illuminator"
               },
               {
-                "$ref": "#/components/schemas/Illuminator"
+                "type": "null"
               }
             ],
             "default": null
@@ -16492,10 +16448,10 @@
           "placement": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/PlacementCoverage"
               },
               {
-                "$ref": "#/components/schemas/PlacementCoverage"
+                "type": "null"
               }
             ]
           },
@@ -16600,10 +16556,10 @@
               "size": {
                 "oneOf": [
                   {
-                    "type": "null"
+                    "$ref": "#/components/schemas/Size"
                   },
                   {
-                    "$ref": "#/components/schemas/Size"
+                    "type": "null"
                   }
                 ]
               }
@@ -18268,10 +18224,10 @@
           "look": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/SatelliteLook"
               },
               {
-                "$ref": "#/components/schemas/SatelliteLook"
+                "type": "null"
               }
             ]
           },
@@ -18284,10 +18240,10 @@
           "next_pass": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/SatellitePass"
               },
               {
-                "$ref": "#/components/schemas/SatellitePass"
+                "type": "null"
               }
             ]
           },
@@ -18390,10 +18346,10 @@
           "primary": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/ScanTarget"
               },
               {
-                "$ref": "#/components/schemas/ScanTarget"
+                "type": "null"
               }
             ]
           },
@@ -18403,10 +18359,10 @@
           "secondary": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/ScanTarget"
               },
               {
-                "$ref": "#/components/schemas/ScanTarget"
+                "type": "null"
               }
             ]
           }
@@ -18454,10 +18410,10 @@
           "settings": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/ScanSettings"
               },
               {
-                "$ref": "#/components/schemas/ScanSettings"
+                "type": "null"
               }
             ]
           }
@@ -19287,10 +19243,10 @@
                   "fix": {
                     "oneOf": [
                       {
-                        "type": "null"
+                        "$ref": "#/components/schemas/PositionFix"
                       },
                       {
-                        "$ref": "#/components/schemas/PositionFix"
+                        "type": "null"
                       }
                     ]
                   },
@@ -19667,10 +19623,10 @@
           "mode": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/SstvMode"
               },
               {
-                "$ref": "#/components/schemas/SstvMode"
+                "type": "null"
               }
             ]
           },
@@ -19953,11 +19909,7 @@
             "minimum": 0
           },
           "mode": {
-            "oneOf": [
-              {
-                "$ref": "#/components/schemas/StitchMode"
-              }
-            ],
+            "$ref": "#/components/schemas/StitchMode",
             "default": "auto"
           }
         }
@@ -19999,10 +19951,10 @@
           "agc": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/AgcSetting"
               },
               {
-                "$ref": "#/components/schemas/AgcSetting"
+                "type": "null"
               }
             ]
           },
@@ -20033,10 +19985,10 @@
           "tuning": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/Tuning"
               },
               {
-                "$ref": "#/components/schemas/Tuning"
+                "type": "null"
               }
             ]
           }
@@ -20092,10 +20044,10 @@
           "patch": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/PatchGraph"
               },
               {
-                "$ref": "#/components/schemas/PatchGraph"
+                "type": "null"
               }
             ]
           },
@@ -20189,10 +20141,10 @@
           "capture": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/RecordingStatus"
               },
               {
-                "$ref": "#/components/schemas/RecordingStatus"
+                "type": "null"
               }
             ]
           },
@@ -20461,10 +20413,10 @@
           "audio": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/EventAudio"
               },
               {
-                "$ref": "#/components/schemas/EventAudio"
+                "type": "null"
               }
             ]
           },
@@ -20799,20 +20751,20 @@
           "control": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/TrunkControl"
               },
               {
-                "$ref": "#/components/schemas/TrunkControl"
+                "type": "null"
               }
             ]
           },
           "detected": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/DvTrunkProtocol"
               },
               {
-                "$ref": "#/components/schemas/DvTrunkProtocol"
+                "type": "null"
               }
             ]
           },
@@ -20880,10 +20832,10 @@
           "snapshot": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/WorkspaceSnapshot"
               },
               {
-                "$ref": "#/components/schemas/WorkspaceSnapshot"
+                "type": "null"
               }
             ]
           }
@@ -20948,10 +20900,10 @@
           "audio": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/EventAudio"
               },
               {
-                "$ref": "#/components/schemas/EventAudio"
+                "type": "null"
               }
             ]
           },

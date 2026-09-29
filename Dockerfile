@@ -1,7 +1,7 @@
 # --- web UI ------------------------------------------------------------------------------
 FROM node:26-slim AS web
 WORKDIR /web
-RUN npm install -g pnpm@11.15.1
+RUN npm install -g pnpm@12.8.0
 
 # Manifests first: the install layer then survives every UI source edit.
 COPY web/package.json web/pnpm-lock.yaml web/pnpm-workspace.yaml ./

@@ -36,13 +36,15 @@
             cargo = toolchain;
             rustc = toolchain;
           };
-          pnpm = pkgs.pnpm_11.overrideAttrs {
-            version = "11.15.1";
-            src = pkgs.fetchurl {
-              url = "https://registry.npmjs.org/pnpm/-/pnpm-11.15.1.tgz";
-              hash = "sha256-J0YGKbEBEWBOf5iIJ1O1M5iYaCDCDgoGXzpKXp59tx8=";
-            };
-          };
+          pnpm =
+            (pkgs.pnpm_12.override {
+              version = "12.8.0";
+              srcHash = "sha256-zOCOCsuOHWeKmndr+Y9rooj9KxxnppAC7k6CYPEX+3s=";
+              cargoHash = "sha256-rT3kFHLPVSwAqM2e0HXfeF2rGG/btFr3lsokVhs9OIk=";
+            }).overrideAttrs
+              (old: {
+                postPatch = (old.postPatch or "") + "rm .cargo/config.toml\n";
+              });
           sdrmmDesktop = pkgs.callPackage ./packaging/nix/package.nix {
             inherit pnpm rustPlatform;
           };

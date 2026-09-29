@@ -29,7 +29,7 @@
     },
     {
       "name": "alloc-no-stdlib",
-      "version": "2.0.4",
+      "version": "3.0.0",
       "license": "BSD-3-Clause",
       "source": "rust",
       "url": "https://github.com/dropbox/rust-alloc-no-stdlib",
@@ -39,7 +39,7 @@
     },
     {
       "name": "alloc-stdlib",
-      "version": "0.2.4",
+      "version": "0.3.0",
       "license": "BSD-3-Clause",
       "source": "rust",
       "url": "https://github.com/dropbox/rust-alloc-no-stdlib",
@@ -669,7 +669,7 @@
     },
     {
       "name": "brotli",
-      "version": "8.0.4",
+      "version": "9.0.0",
       "license": "BSD-3-Clause AND MIT",
       "source": "rust",
       "url": "https://github.com/dropbox/rust-brotli",
@@ -680,7 +680,7 @@
     },
     {
       "name": "brotli-decompressor",
-      "version": "5.0.3",
+      "version": "6.0.1",
       "license": "BSD-3-Clause/MIT",
       "source": "rust",
       "url": "https://github.com/dropbox/rust-brotli-decompressor",
@@ -810,7 +810,7 @@
     },
     {
       "name": "cargo_toml",
-      "version": "0.22.3",
+      "version": "1.0.1",
       "license": "Apache-2.0 OR MIT",
       "source": "rust",
       "url": "https://gitlab.com/lib.rs/cargo_toml",
@@ -820,7 +820,7 @@
     },
     {
       "name": "cc",
-      "version": "1.4.7",
+      "version": "1.5.1",
       "license": "MIT OR Apache-2.0",
       "source": "rust",
       "url": "https://github.com/rust-lang/cc-rs",
@@ -846,6 +846,16 @@
       "texts": [
         "769f80b5bcb42ed0",
         "bd06f57a824abf02"
+      ]
+    },
+    {
+      "name": "cfb",
+      "version": "0.14.0",
+      "license": "MIT",
+      "source": "rust",
+      "url": "https://github.com/mdsteele/rust-cfb",
+      "texts": [
+        "3ce3e2561c6a4cd4"
       ]
     },
     {
@@ -1260,7 +1270,7 @@
     },
     {
       "name": "cssparser",
-      "version": "0.36.0",
+      "version": "0.37.0",
       "license": "MPL-2.0",
       "source": "rust",
       "url": "https://github.com/servo/rust-cssparser",
@@ -1271,7 +1281,7 @@
     },
     {
       "name": "cssparser-macros",
-      "version": "0.6.1",
+      "version": "0.7.1",
       "license": "MPL-2.0",
       "source": "rust",
       "url": "https://github.com/servo/rust-cssparser",
@@ -1281,21 +1291,10 @@
     },
     {
       "name": "ctor",
-      "version": "0.8.0",
+      "version": "1.0.13",
       "license": "Apache-2.0 OR MIT",
       "source": "rust",
-      "url": "https://github.com/mmastrac/rust-ctor",
-      "texts": [
-        "6dc0e068dcf3a5bc",
-        "bccaa8b6c09f94e8"
-      ]
-    },
-    {
-      "name": "ctor-proc-macro",
-      "version": "0.0.7",
-      "license": "Apache-2.0 OR MIT",
-      "source": "rust",
-      "url": "https://github.com/mmastrac/rust-ctor",
+      "url": "https://github.com/mmastrac/linktime",
       "texts": [
         "6dc0e068dcf3a5bc",
         "bccaa8b6c09f94e8"
@@ -1654,7 +1653,7 @@
     },
     {
       "name": "dom_query",
-      "version": "0.27.0",
+      "version": "0.28.0",
       "license": "MIT",
       "source": "rust",
       "url": "https://github.com/niklak/dom_query",
@@ -1703,28 +1702,6 @@
       "url": "https://github.com/upsuper/dtoa-short",
       "texts": [
         "4b89d4518bd135ab"
-      ]
-    },
-    {
-      "name": "dtor",
-      "version": "0.3.0",
-      "license": "Apache-2.0 OR MIT",
-      "source": "rust",
-      "url": "https://github.com/mmastrac/rust-ctor",
-      "texts": [
-        "6dc0e068dcf3a5bc",
-        "bccaa8b6c09f94e8"
-      ]
-    },
-    {
-      "name": "dtor-proc-macro",
-      "version": "0.0.6",
-      "license": "Apache-2.0 OR MIT",
-      "source": "rust",
-      "url": "https://github.com/mmastrac/rust-ctor",
-      "texts": [
-        "6dc0e068dcf3a5bc",
-        "bccaa8b6c09f94e8"
       ]
     },
     {
@@ -1793,7 +1770,7 @@
     },
     {
       "name": "encoding_rs",
-      "version": "0.8.41",
+      "version": "0.8.42",
       "license": "(Apache-2.0 OR MIT) AND BSD-3-Clause",
       "source": "rust",
       "url": "https://github.com/hsivonen/encoding_rs",
@@ -1989,7 +1966,7 @@
     },
     {
       "name": "find-msvc-tools",
-      "version": "0.1.13",
+      "version": "0.1.14",
       "license": "MIT OR Apache-2.0",
       "source": "rust",
       "url": "https://github.com/rust-lang/cc-rs",
@@ -2636,7 +2613,7 @@
     },
     {
       "name": "html5ever",
-      "version": "0.38.0",
+      "version": "0.39.0",
       "license": "MIT OR Apache-2.0",
       "source": "rust",
       "url": "https://github.com/servo/html5ever",
@@ -2743,7 +2720,7 @@
     },
     {
       "name": "hyper-util",
-      "version": "0.1.20",
+      "version": "0.1.21",
       "license": "MIT",
       "source": "rust",
       "url": "https://github.com/hyperium/hyper-util",
@@ -2910,6 +2887,16 @@
     {
       "name": "infer",
       "version": "0.19.0",
+      "license": "MIT",
+      "source": "rust",
+      "url": "https://github.com/bojand/infer",
+      "texts": [
+        "7804ded9273b80f1"
+      ]
+    },
+    {
+      "name": "infer",
+      "version": "0.22.0",
       "license": "MIT",
       "source": "rust",
       "url": "https://github.com/bojand/infer",
@@ -3175,7 +3162,7 @@
     },
     {
       "name": "js-sys",
-      "version": "0.3.105",
+      "version": "0.3.106",
       "license": "MIT OR Apache-2.0",
       "source": "rust",
       "url": "https://github.com/wasm-bindgen/wasm-bindgen/tree/master/crates/js-sys",
@@ -3186,7 +3173,7 @@
     },
     {
       "name": "json-patch",
-      "version": "3.0.1",
+      "version": "4.2.0",
       "license": "MIT/Apache-2.0",
       "source": "rust",
       "url": "https://github.com/idubrov/json-patch",
@@ -3197,7 +3184,7 @@
     },
     {
       "name": "jsonptr",
-      "version": "0.6.3",
+      "version": "0.7.1",
       "license": "MIT OR Apache-2.0",
       "source": "rust",
       "url": "https://github.com/chanced/jsonptr",
@@ -3208,10 +3195,10 @@
     },
     {
       "name": "keyboard-types",
-      "version": "0.7.0",
+      "version": "0.8.3",
       "license": "MIT OR Apache-2.0",
       "source": "rust",
-      "url": "https://github.com/pyfisch/keyboard-types",
+      "url": "https://github.com/rust-windowing/keyboard-types",
       "texts": [
         "31dbbab009f1b2e5",
         "769f80b5bcb42ed0"
@@ -3461,7 +3448,7 @@
     },
     {
       "name": "markup5ever",
-      "version": "0.38.0",
+      "version": "0.39.0",
       "license": "MIT OR Apache-2.0",
       "source": "rust",
       "url": "https://github.com/servo/html5ever",
@@ -3654,7 +3641,7 @@
     },
     {
       "name": "muda",
-      "version": "0.19.3",
+      "version": "0.20.0",
       "license": "Apache-2.0 OR MIT",
       "source": "rust",
       "url": "https://github.com/tauri-apps/muda",
@@ -3672,28 +3659,6 @@
       "url": "https://github.com/rwf2/multer",
       "texts": [
         "e6a7acaed4385702"
-      ]
-    },
-    {
-      "name": "multiversion",
-      "version": "0.9.0",
-      "license": "MIT OR Apache-2.0",
-      "source": "rust",
-      "url": "https://github.com/calebzulawski/multiversion",
-      "texts": [
-        "309a4d30eeef89f6",
-        "58d1e17ffe5109a7"
-      ]
-    },
-    {
-      "name": "multiversion-macros",
-      "version": "0.9.0",
-      "license": "MIT OR Apache-2.0",
-      "source": "rust",
-      "url": "https://github.com/calebzulawski/multiversion",
-      "texts": [
-        "309a4d30eeef89f6",
-        "58d1e17ffe5109a7"
       ]
     },
     {
@@ -3746,6 +3711,14 @@
       "license": "MIT OR Apache-2.0",
       "source": "rust",
       "url": "https://github.com/rust-mobile/ndk",
+      "texts": []
+    },
+    {
+      "name": "ndk-context",
+      "version": "0.1.1",
+      "license": "MIT OR Apache-2.0",
+      "source": "rust",
+      "url": "https://github.com/rust-windowing/android-ndk-rs",
       "texts": []
     },
     {
@@ -5008,7 +4981,7 @@
     },
     {
       "name": "rmcp",
-      "version": "3.4.0",
+      "version": "3.5.0",
       "license": "Apache-2.0",
       "source": "rust",
       "url": "https://github.com/modelcontextprotocol/rust-sdk/",
@@ -5016,7 +4989,7 @@
     },
     {
       "name": "rmcp-macros",
-      "version": "3.4.0",
+      "version": "3.5.0",
       "license": "Apache-2.0",
       "source": "rust",
       "url": "https://github.com/modelcontextprotocol/rust-sdk/",
@@ -5181,7 +5154,7 @@
     },
     {
       "name": "rustls-platform-verifier",
-      "version": "0.7.0",
+      "version": "0.7.1",
       "license": "MIT OR Apache-2.0",
       "source": "rust",
       "url": "https://github.com/rustls/rustls-platform-verifier",
@@ -5192,7 +5165,7 @@
     },
     {
       "name": "rustls-platform-verifier-android",
-      "version": "0.1.1",
+      "version": "0.2.0",
       "license": "MIT OR Apache-2.0",
       "source": "rust",
       "url": "https://github.com/rustls/rustls-platform-verifier",
@@ -5337,7 +5310,7 @@
     },
     {
       "name": "selectors",
-      "version": "0.36.1",
+      "version": "0.38.0",
       "license": "MPL-2.0",
       "source": "rust",
       "url": "https://github.com/servo/stylo",
@@ -5489,7 +5462,7 @@
     },
     {
       "name": "serde_with",
-      "version": "3.23.0",
+      "version": "3.24.0",
       "license": "MIT OR Apache-2.0",
       "source": "rust",
       "url": "https://github.com/jonasbb/serde_with/",
@@ -5500,7 +5473,7 @@
     },
     {
       "name": "serde_with_macros",
-      "version": "3.23.0",
+      "version": "3.24.0",
       "license": "MIT OR Apache-2.0",
       "source": "rust",
       "url": "https://github.com/jonasbb/serde_with/",
@@ -5663,12 +5636,14 @@
     },
     {
       "name": "siphasher",
-      "version": "1.0.3",
-      "license": "MIT/Apache-2.0",
+      "version": "1.0.4",
+      "license": "MIT OR Apache-2.0",
       "source": "rust",
       "url": "https://github.com/jedisct1/rust-siphash",
       "texts": [
-        "24e26e8fb783e2db"
+        "21a2121221d2a35d",
+        "24e26e8fb783e2db",
+        "58d1e17ffe5109a7"
       ]
     },
     {
@@ -5693,7 +5668,7 @@
     },
     {
       "name": "smallvec",
-      "version": "1.16.1",
+      "version": "1.16.2",
       "license": "MIT OR Apache-2.0",
       "source": "rust",
       "url": "https://github.com/servo/rust-smallvec",
@@ -6020,7 +5995,7 @@
     },
     {
       "name": "tao",
-      "version": "0.35.3",
+      "version": "0.37.1",
       "license": "Apache-2.0",
       "source": "rust",
       "url": "https://github.com/tauri-apps/tao",
@@ -6064,7 +6039,7 @@
     },
     {
       "name": "tauri",
-      "version": "2.11.6",
+      "version": "2.12.0",
       "license": "Apache-2.0 OR MIT",
       "source": "rust",
       "url": "https://github.com/tauri-apps/tauri",
@@ -6075,7 +6050,7 @@
     },
     {
       "name": "tauri-build",
-      "version": "2.6.3",
+      "version": "2.7.0",
       "license": "Apache-2.0 OR MIT",
       "source": "rust",
       "url": "https://github.com/tauri-apps/tauri",
@@ -6086,7 +6061,7 @@
     },
     {
       "name": "tauri-codegen",
-      "version": "2.6.3",
+      "version": "2.7.0",
       "license": "Apache-2.0 OR MIT",
       "source": "rust",
       "url": "https://github.com/tauri-apps/tauri",
@@ -6097,7 +6072,7 @@
     },
     {
       "name": "tauri-macros",
-      "version": "2.6.3",
+      "version": "2.7.0",
       "license": "Apache-2.0 OR MIT",
       "source": "rust",
       "url": "https://github.com/tauri-apps/tauri",
@@ -6108,7 +6083,7 @@
     },
     {
       "name": "tauri-plugin",
-      "version": "2.6.3",
+      "version": "2.7.0",
       "license": "Apache-2.0 OR MIT",
       "source": "rust",
       "url": "https://github.com/tauri-apps/tauri",
@@ -6116,7 +6091,7 @@
     },
     {
       "name": "tauri-plugin-dialog",
-      "version": "2.7.3",
+      "version": "2.8.0",
       "license": "Apache-2.0 OR MIT",
       "source": "rust",
       "url": "https://github.com/tauri-apps/plugins-workspace",
@@ -6128,7 +6103,7 @@
     },
     {
       "name": "tauri-plugin-fs",
-      "version": "2.5.2",
+      "version": "2.6.0",
       "license": "Apache-2.0 OR MIT",
       "source": "rust",
       "url": "https://github.com/tauri-apps/plugins-workspace",
@@ -6140,7 +6115,7 @@
     },
     {
       "name": "tauri-plugin-opener",
-      "version": "2.5.5",
+      "version": "2.6.0",
       "license": "Apache-2.0 OR MIT",
       "source": "rust",
       "url": "https://github.com/tauri-apps/plugins-workspace",
@@ -6152,7 +6127,7 @@
     },
     {
       "name": "tauri-plugin-updater",
-      "version": "2.12.0",
+      "version": "2.13.0",
       "license": "Apache-2.0 OR MIT",
       "source": "rust",
       "url": "https://github.com/tauri-apps/plugins-workspace",
@@ -6164,7 +6139,7 @@
     },
     {
       "name": "tauri-runtime",
-      "version": "2.11.3",
+      "version": "2.12.0",
       "license": "Apache-2.0 OR MIT",
       "source": "rust",
       "url": "https://github.com/tauri-apps/tauri",
@@ -6175,7 +6150,7 @@
     },
     {
       "name": "tauri-runtime-wry",
-      "version": "2.11.4",
+      "version": "2.12.0",
       "license": "Apache-2.0 OR MIT",
       "source": "rust",
       "url": "https://github.com/tauri-apps/tauri",
@@ -6186,7 +6161,7 @@
     },
     {
       "name": "tauri-utils",
-      "version": "2.9.3",
+      "version": "2.10.0",
       "license": "Apache-2.0 OR MIT",
       "source": "rust",
       "url": "https://github.com/tauri-apps/tauri",
@@ -6240,7 +6215,7 @@
     },
     {
       "name": "thiserror",
-      "version": "2.0.20",
+      "version": "2.0.21",
       "license": "MIT OR Apache-2.0",
       "source": "rust",
       "url": "https://github.com/dtolnay/thiserror",
@@ -6262,7 +6237,7 @@
     },
     {
       "name": "thiserror-impl",
-      "version": "2.0.20",
+      "version": "2.0.21",
       "license": "MIT OR Apache-2.0",
       "source": "rust",
       "url": "https://github.com/dtolnay/thiserror",
@@ -6402,7 +6377,7 @@
     },
     {
       "name": "tokio-rustls",
-      "version": "0.26.5",
+      "version": "0.26.6",
       "license": "MIT OR Apache-2.0",
       "source": "rust",
       "url": "https://github.com/rustls/tokio-rustls",
@@ -6464,17 +6439,6 @@
     },
     {
       "name": "toml",
-      "version": "0.9.12+spec-1.1.0",
-      "license": "MIT OR Apache-2.0",
-      "source": "rust",
-      "url": "https://github.com/toml-rs/toml",
-      "texts": [
-        "4498464c2864825d",
-        "c5accbbd8546e94c"
-      ]
-    },
-    {
-      "name": "toml",
       "version": "1.1.6+spec-1.1.0",
       "license": "MIT OR Apache-2.0",
       "source": "rust",
@@ -6493,17 +6457,6 @@
       "texts": [
         "769f80b5bcb42ed0",
         "84e1bbfebd74e419"
-      ]
-    },
-    {
-      "name": "toml_datetime",
-      "version": "0.7.5+spec-1.1.0",
-      "license": "MIT OR Apache-2.0",
-      "source": "rust",
-      "url": "https://github.com/toml-rs/toml",
-      "texts": [
-        "4498464c2864825d",
-        "c5accbbd8546e94c"
       ]
     },
     {
@@ -6733,7 +6686,7 @@
     },
     {
       "name": "tray-icon",
-      "version": "0.24.2",
+      "version": "0.25.1",
       "license": "MIT OR Apache-2.0",
       "source": "rust",
       "url": "https://github.com/tauri-apps/tray-icon",
@@ -6817,46 +6770,6 @@
         "9742927954688eb2",
         "b98fbb37db5b23bc"
       ]
-    },
-    {
-      "name": "unic-char-property",
-      "version": "0.9.0",
-      "license": "MIT/Apache-2.0",
-      "source": "rust",
-      "url": "https://github.com/open-i18n/rust-unic/",
-      "texts": []
-    },
-    {
-      "name": "unic-char-range",
-      "version": "0.9.0",
-      "license": "MIT/Apache-2.0",
-      "source": "rust",
-      "url": "https://github.com/open-i18n/rust-unic/",
-      "texts": []
-    },
-    {
-      "name": "unic-common",
-      "version": "0.9.0",
-      "license": "MIT/Apache-2.0",
-      "source": "rust",
-      "url": "https://github.com/open-i18n/rust-unic/",
-      "texts": []
-    },
-    {
-      "name": "unic-ucd-ident",
-      "version": "0.9.0",
-      "license": "MIT/Apache-2.0",
-      "source": "rust",
-      "url": "https://github.com/open-i18n/rust-unic/",
-      "texts": []
-    },
-    {
-      "name": "unic-ucd-version",
-      "version": "0.9.0",
-      "license": "MIT/Apache-2.0",
-      "source": "rust",
-      "url": "https://github.com/open-i18n/rust-unic/",
-      "texts": []
     },
     {
       "name": "unicase",
@@ -6969,7 +6882,7 @@
     },
     {
       "name": "urlpattern",
-      "version": "0.3.0",
+      "version": "0.6.0",
       "license": "MIT",
       "source": "rust",
       "url": "https://github.com/denoland/rust-urlpattern",
@@ -7001,7 +6914,7 @@
     },
     {
       "name": "utoipa",
-      "version": "5.5.0",
+      "version": "6.0.0",
       "license": "MIT OR Apache-2.0",
       "source": "rust",
       "url": "https://github.com/juhaku/utoipa",
@@ -7012,7 +6925,7 @@
     },
     {
       "name": "utoipa-axum",
-      "version": "0.2.0",
+      "version": "0.3.0",
       "license": "MIT OR Apache-2.0",
       "source": "rust",
       "url": "https://github.com/juhaku/utoipa",
@@ -7023,7 +6936,7 @@
     },
     {
       "name": "utoipa-gen",
-      "version": "5.5.0",
+      "version": "6.0.1",
       "license": "MIT OR Apache-2.0",
       "source": "rust",
       "url": "https://github.com/juhaku/utoipa",
@@ -7171,7 +7084,7 @@
     },
     {
       "name": "wasm-bindgen",
-      "version": "0.2.128",
+      "version": "0.2.129",
       "license": "MIT OR Apache-2.0",
       "source": "rust",
       "url": "https://github.com/wasm-bindgen/wasm-bindgen",
@@ -7182,7 +7095,7 @@
     },
     {
       "name": "wasm-bindgen-futures",
-      "version": "0.4.78",
+      "version": "0.4.79",
       "license": "MIT OR Apache-2.0",
       "source": "rust",
       "url": "https://github.com/wasm-bindgen/wasm-bindgen/tree/master/crates/futures",
@@ -7193,7 +7106,7 @@
     },
     {
       "name": "wasm-bindgen-macro",
-      "version": "0.2.128",
+      "version": "0.2.129",
       "license": "MIT OR Apache-2.0",
       "source": "rust",
       "url": "https://github.com/wasm-bindgen/wasm-bindgen/tree/master/crates/macro",
@@ -7204,7 +7117,7 @@
     },
     {
       "name": "wasm-bindgen-macro-support",
-      "version": "0.2.128",
+      "version": "0.2.129",
       "license": "MIT OR Apache-2.0",
       "source": "rust",
       "url": "https://github.com/wasm-bindgen/wasm-bindgen/tree/main/crates/macro-support",
@@ -7215,7 +7128,7 @@
     },
     {
       "name": "wasm-bindgen-shared",
-      "version": "0.2.128",
+      "version": "0.2.129",
       "license": "MIT OR Apache-2.0",
       "source": "rust",
       "url": "https://github.com/wasm-bindgen/wasm-bindgen/tree/master/crates/shared",
@@ -7247,7 +7160,7 @@
     },
     {
       "name": "web-sys",
-      "version": "0.3.105",
+      "version": "0.3.106",
       "license": "MIT OR Apache-2.0",
       "source": "rust",
       "url": "https://github.com/wasm-bindgen/wasm-bindgen/tree/master/crates/web-sys",
@@ -7310,7 +7223,7 @@
     },
     {
       "name": "webview2-com",
-      "version": "0.38.2",
+      "version": "0.39.1",
       "license": "MIT",
       "source": "rust",
       "url": "https://github.com/wravery/webview2-rs",
@@ -7326,7 +7239,7 @@
     },
     {
       "name": "webview2-com-sys",
-      "version": "0.38.2",
+      "version": "0.39.1",
       "license": "MIT",
       "source": "rust",
       "url": "https://github.com/wravery/webview2-rs",
@@ -7484,7 +7397,7 @@
     },
     {
       "name": "window-vibrancy",
-      "version": "0.6.0",
+      "version": "0.8.1",
       "license": "Apache-2.0 OR MIT",
       "source": "rust",
       "url": "https://github.com/tauri-apps/tauri-plugin-vibrancy",
@@ -8089,16 +8002,6 @@
     },
     {
       "name": "winnow",
-      "version": "0.7.15",
-      "license": "MIT",
-      "source": "rust",
-      "url": "https://github.com/winnow-rs/winnow",
-      "texts": [
-        "8793aa4141de4b16"
-      ]
-    },
-    {
-      "name": "winnow",
       "version": "1.0.4",
       "license": "MIT",
       "source": "rust",
@@ -8151,7 +8054,7 @@
     },
     {
       "name": "wry",
-      "version": "0.55.1",
+      "version": "0.57.0",
       "license": "Apache-2.0 OR MIT",
       "source": "rust",
       "url": "https://github.com/tauri-apps/wry",
@@ -8297,7 +8200,7 @@
     },
     {
       "name": "zerocopy",
-      "version": "0.8.57",
+      "version": "0.8.59",
       "license": "BSD-2-Clause OR Apache-2.0 OR MIT",
       "source": "rust",
       "url": "https://github.com/google/zerocopy",
@@ -8309,7 +8212,7 @@
     },
     {
       "name": "zerocopy-derive",
-      "version": "0.8.57",
+      "version": "0.8.59",
       "license": "BSD-2-Clause OR Apache-2.0 OR MIT",
       "source": "rust",
       "url": "https://github.com/google/zerocopy",
@@ -8643,7 +8546,7 @@
     },
     {
       "name": "@tanstack/query-core",
-      "version": "5.103.2",
+      "version": "5.104.0",
       "license": "MIT",
       "source": "web",
       "url": "https://tanstack.com/query",
@@ -8653,7 +8556,7 @@
     },
     {
       "name": "@tanstack/react-query",
-      "version": "5.103.2",
+      "version": "5.104.0",
       "license": "MIT",
       "source": "web",
       "url": "https://tanstack.com/query",
@@ -8732,26 +8635,6 @@
       ]
     },
     {
-      "name": "@types/react",
-      "version": "19.3.0",
-      "license": "MIT",
-      "source": "web",
-      "url": "https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/react",
-      "texts": [
-        "d9a1b1e30d633d57"
-      ]
-    },
-    {
-      "name": "@types/react-dom",
-      "version": "19.3.0",
-      "license": "MIT",
-      "source": "web",
-      "url": "https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/react-dom",
-      "texts": [
-        "d9a1b1e30d633d57"
-      ]
-    },
-    {
       "name": "@wasm-audio-decoders/common",
       "version": "9.0.7",
       "license": "MIT",
@@ -8761,7 +8644,7 @@
     },
     {
       "name": "@xyflow/react",
-      "version": "12.11.6",
+      "version": "12.12.0",
       "license": "MIT",
       "source": "web",
       "url": "https://reactflow.dev",
@@ -8771,7 +8654,7 @@
     },
     {
       "name": "@xyflow/system",
-      "version": "0.0.82",
+      "version": "0.0.83",
       "license": "MIT",
       "source": "web",
       "url": "https://github.com/xyflow/xyflow#readme",
@@ -8797,16 +8680,6 @@
       "url": "https://github.com/jorgebucaran/classcat#readme",
       "texts": [
         "3f0294834ce7f59f"
-      ]
-    },
-    {
-      "name": "csstype",
-      "version": "3.2.3",
-      "license": "MIT",
-      "source": "web",
-      "url": "https://github.com/frenic/csstype#readme",
-      "texts": [
-        "6a972b33787e1430"
       ]
     },
     {
@@ -8951,7 +8824,7 @@
     },
     {
       "name": "lucide-react",
-      "version": "1.47.0",
+      "version": "1.48.0",
       "license": "ISC",
       "source": "web",
       "url": "https://lucide.dev",
@@ -8961,7 +8834,7 @@
     },
     {
       "name": "maplibre-gl",
-      "version": "6.11.0",
+      "version": "6.11.2",
       "license": "BSD-3-Clause",
       "source": "web",
       "url": "https://maplibre.org/",
@@ -9418,7 +9291,6 @@
     "2ff8d973431258f8": "The MIT License (MIT)\n\nCopyright (c) 2025 Alice Maz, Marshall Pierce\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in\nall copies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN\nTHE SOFTWARE.",
     "30158cc81738e8c8": "MIT License\n\nCopyright (c) 2017 Denis Kurilenko\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE.",
     "30428aec07d7ff06": "Copyright (c) 2012, Jared Boone <jared@sharebrained.com>\nCopyright (c) 2013, Michael Ossmann <mike@ossmann.com>\nCopyright (c) 2013-2016, Benjamin Vernoux <bvernoux@airspy.com>\nCopyright (C) 2013-2016, Youssef Touil <youssef@airspy.com>\n\nAll rights reserved.\n\nRedistribution and use in source and binary forms, with or without modification, are permitted provided that the following conditions are met:\n\n\t\tRedistributions of source code must retain the above copyright notice, this list of conditions and the following disclaimer.\n\t\tRedistributions in binary form must reproduce the above copyright notice, this list of conditions and the following disclaimer in the \n\tdocumentation and/or other materials provided with the distribution.\n\t\tNeither the name of AirSpy nor the names of its contributors may be used to endorse or promote products derived from this software\n\twithout specific prior written permission.\n\nTHIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS \"AS IS\" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, \nTHE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.\nIN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES\n(INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)\nHOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)\nARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.",
-    "309a4d30eeef89f6": "Copyright 2019 Caleb Zulawski\n\nPermission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the \"Software\"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.",
     "30fefc3a7d6a0041": "Permission is hereby granted, free of charge, to any\nperson obtaining a copy of this software and associated\ndocumentation files (the \"Software\"), to deal in the\nSoftware without restriction, including without\nlimitation the rights to use, copy, modify, merge,\npublish, distribute, sublicense, and/or sell copies of\nthe Software, and to permit persons to whom the Software\nis furnished to do so, subject to the following\nconditions:\n\nThe above copyright notice and this permission notice\nshall be included in all copies or substantial portions\nof the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF\nANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED\nTO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A\nPARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT\nSHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY\nCLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION\nOF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR\nIN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER\nDEALINGS IN THE SOFTWARE.",
     "31dbbab009f1b2e5": "Copyright (c) 2017 Pyfisch\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in\nall copies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN\nTHE SOFTWARE.",
     "3234ac55816264ee": "Copyright (c) 2017 Gilad Naaman\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE.",
@@ -9520,7 +9392,6 @@
     "695de7436b470fd9": "MIT License\n\nCopyright (c) 2017 Emilio Cobos Álvarez\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE.",
     "69af84a0cb486bc9": "Copyright 2010-2021 Mike Bostock\nCopyright 2001 Robert Penner\nAll rights reserved.\n\nRedistribution and use in source and binary forms, with or without modification,\nare permitted provided that the following conditions are met:\n\n* Redistributions of source code must retain the above copyright notice, this\n  list of conditions and the following disclaimer.\n\n* Redistributions in binary form must reproduce the above copyright notice,\n  this list of conditions and the following disclaimer in the documentation\n  and/or other materials provided with the distribution.\n\n* Neither the name of the author nor the names of contributors may be used to\n  endorse or promote products derived from this software without specific prior\n  written permission.\n\nTHIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS \"AS IS\" AND\nANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED\nWARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE\nDISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR\nANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES\n(INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;\nLOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON\nANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT\n(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS\nSOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.",
     "6a8da4c78c729176": "The MIT License (MIT)\n\nCopyright (c) 2015 Alice Maz\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in\nall copies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN\nTHE SOFTWARE.",
-    "6a972b33787e1430": "Copyright (c) 2017-2018 Fredrik Nicol\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE.",
     "6ac8711fb340c62c": "The MIT License (MIT)\n\nCopyright (c) 2014 Mathijs van de Nes\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE.",
     "6b118915d98a1411": "Copyright (c) 2020-2023 The RustCrypto Project Developers\n\nPermission is hereby granted, free of charge, to any\nperson obtaining a copy of this software and associated\ndocumentation files (the \"Software\"), to deal in the\nSoftware without restriction, including without\nlimitation the rights to use, copy, modify, merge,\npublish, distribute, sublicense, and/or sell copies of\nthe Software, and to permit persons to whom the Software\nis furnished to do so, subject to the following\nconditions:\n\nThe above copyright notice and this permission notice\nshall be included in all copies or substantial portions\nof the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF\nANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED\nTO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A\nPARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT\nSHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY\nCLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION\nOF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR\nIN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER\nDEALINGS IN THE SOFTWARE.",
     "6c1117dc530c1ffc": "MIT License\n\nCopyright (c) 2021-present Floating UI contributors\n\nPermission is hereby granted, free of charge, to any person obtaining a copy of\nthis software and associated documentation files (the \"Software\"), to deal in\nthe Software without restriction, including without limitation the rights to\nuse, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of\nthe Software, and to permit persons to whom the Software is furnished to do so,\nsubject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS\nFOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR\nCOPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER\nIN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN\nCONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.",
