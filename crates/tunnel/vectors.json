@@ -1,0 +1,120 @@
+[
+  {
+    "frame": {
+      "kind": "challenge",
+      "nonce": "a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5",
+      "stream": 0
+    },
+    "hex": "0100000000a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5"
+  },
+  {
+    "frame": {
+      "kind": "proof",
+      "signature": "5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a",
+      "stream": 0
+    },
+    "hex": "02000000005a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a"
+  },
+  {
+    "frame": {
+      "kind": "ready",
+      "stream": 0
+    },
+    "hex": "0300000000"
+  },
+  {
+    "frame": {
+      "head": {
+        "headers": [
+          [
+            "host",
+            "abc.sdrmm.link"
+          ],
+          [
+            "content-disposition",
+            "Grüße"
+          ]
+        ],
+        "method": "GET",
+        "uri": "/api/state?x=1",
+        "user": "user-1",
+        "websocket": false
+      },
+      "kind": "request",
+      "stream": 1
+    },
+    "hex": "04000000017b226d6574686f64223a22474554222c22757269223a222f6170692f73746174653f783d31222c2268656164657273223a5b5b22686f7374222c226162632e7364726d6d2e6c696e6b225d2c5b22636f6e74656e742d646973706f736974696f6e222c224772c3bcc39f65225d5d2c22776562736f636b6574223a66616c73652c2275736572223a22757365722d31227d"
+  },
+  {
+    "frame": {
+      "head": {
+        "headers": [
+          [
+            "content-type",
+            "text/plain"
+          ]
+        ],
+        "status": 200
+      },
+      "kind": "response",
+      "stream": 1
+    },
+    "hex": "05000000017b22737461747573223a3230302c2268656164657273223a5b5b22636f6e74656e742d74797065222c22746578742f706c61696e225d5d7d"
+  },
+  {
+    "frame": {
+      "data": "6869",
+      "kind": "body",
+      "stream": 1
+    },
+    "hex": "06000000016869"
+  },
+  {
+    "frame": {
+      "kind": "end",
+      "stream": 1
+    },
+    "hex": "0700000001"
+  },
+  {
+    "frame": {
+      "data": "c3bc",
+      "kind": "text",
+      "stream": 16909060
+    },
+    "hex": "0801020304c3bc"
+  },
+  {
+    "frame": {
+      "data": "00ff",
+      "kind": "binary",
+      "stream": 2
+    },
+    "hex": "090000000200ff"
+  },
+  {
+    "frame": {
+      "code": 1000,
+      "kind": "close",
+      "reason": "bye",
+      "stream": 2
+    },
+    "hex": "0a0000000203e8627965"
+  },
+  {
+    "frame": {
+      "kind": "reset",
+      "reason": "gone",
+      "stream": 3
+    },
+    "hex": "0b00000003676f6e65"
+  },
+  {
+    "frame": {
+      "bytes": 65536,
+      "kind": "credit",
+      "stream": 3
+    },
+    "hex": "0c0000000300010000"
+  }
+]
