@@ -1027,20 +1027,39 @@ fn a_passive_radar_host_builds_its_runner() {
 }
 
 #[test]
-fn the_gpu_stub_says_why_it_is_not_used() {
-    let stage = stage_of(&params(), CENTER_HZ);
+fn gpu_off_keeps_the_caf_on_the_cpu() {
     let shared = Arc::new(Shared::default());
-    match gpu::build(&stage, &shared) {
-        Err(ChannelError::Unsupported(message)) => assert_eq!(message, gpu::NOT_BUILT),
-        _ => panic!("the GPU radar backend is not built yet"),
-    }
     let auto = PassiveRadarParams {
         gpu: GpuUse::Auto,
         ..params()
     };
-    let (_, kind) =
-        select_backend(&stage_of(&auto, CENTER_HZ), GpuUse::Auto, &shared).expect("backend");
-    assert_ne!(kind, CafBackendKind::Gpu);
+    for (stage, engine) in [
+        (stage_of(&auto, CENTER_HZ), GpuUse::Off),
+        (stage_of(&params(), CENTER_HZ), GpuUse::Auto),
+    ] {
+        let (backend, kind) = select_backend(&stage, engine, &shared).expect("backend");
+        assert_ne!(kind, CafBackendKind::Gpu);
+        assert!(!backend.gpu());
+    }
+}
+
+#[cfg(feature = "gpu-fft")]
+#[test]
+#[ignore = "requires a GPU adapter"]
+fn a_gpu_radar_tracks_the_echo_and_says_so() {
+    let stage = stage_of(&params(), CENTER_HZ);
+    let shared = Arc::new(Shared::default());
+    let backend = gpu::GpuBackend::new(&stage, cpu(&stage), &shared)
+        .map_err(|(_, reason)| reason)
+        .expect("GPU adapter");
+    let worker = RadarWorker::start(&stage, Box::new(backend), HOST_BLOCK, shared).expect("worker");
+    let mut rig = Rig::with(worker);
+    rig.confirmed_track();
+    let health = &rig.seen.updates.last().expect("update").health;
+    assert!(health.gpu);
+    assert_eq!(health.threads, 0);
+    assert_eq!(health.gpu_failures, 0);
+    assert_eq!(health.dropped_cpis, 0);
 }
 
 mod bench;

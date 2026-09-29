@@ -133,6 +133,7 @@ impl Context {
         tracing::info!(adapter = %info.name, backend = ?info.backend, "GPU compute adapter");
         let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
             label: Some("SDR-- GPU compute"),
+            required_limits: adapter.limits(),
             ..Default::default()
         }))
         .map_err(|error| format!("request device: {error}"))?;
@@ -225,8 +226,9 @@ impl Processor {
             bits as usize,
             &limits,
         )?;
-        let batched_fft =
-            (size >= 1024).then(|| fft::FftBatch::new(&context, &data, size, 1, false));
+        let batched_fft = (size >= 1024)
+            .then(|| fft::FftBatch::new(&context, &data, size, 1, false))
+            .transpose()?;
         let power_bind_group = power_bind_group(&context, &data, &output, size_u32, inv_gain);
 
         Ok(Self {
@@ -687,6 +689,7 @@ fn bytes_for<T>(len: usize) -> Result<u64, String> {
 #[cfg(test)]
 pub(crate) mod benchmarks;
 
+pub(crate) mod caf;
 mod compute;
 mod fft;
 

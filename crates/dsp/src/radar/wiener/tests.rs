@@ -384,3 +384,177 @@ fn taper_blends_between_group_centres() {
     assert_eq!(sliding.estimation(1), 5..25);
     assert_eq!(sliding.estimation(0), 0..15);
 }
+
+struct Spectra {
+    models: Vec<C32>,
+    products: Vec<C32>,
+    energy: Vec<f64>,
+}
+
+fn spectra_of(shape: &BatchShape, lanes: &[Vec<C32>]) -> Spectra {
+    let (m, nb, k) = (shape.fft_len, shape.batches, shape.lanes);
+    let mut kernel = crate::radar::batch::BatchKernel::new(*shape);
+    let mut spectrum = vec![C32::default(); m];
+    let mut out = Spectra {
+        models: vec![C32::default(); nb * m],
+        products: vec![C32::default(); nb * k * m],
+        energy: vec![0.0; nb * k],
+    };
+    for b in 0..nb {
+        kernel
+            .reference(
+                &lanes[0],
+                b,
+                &mut spectrum,
+                &mut out.models[b * m..(b + 1) * m],
+            )
+            .unwrap();
+        for lane in 0..k {
+            let at = (b * k + lane) * m;
+            kernel
+                .surveillance(
+                    &lanes[lane + 1],
+                    b,
+                    &spectrum,
+                    &mut out.products[at..at + m],
+                )
+                .unwrap();
+            out.energy[b * k + lane] = shape.energy(&lanes[lane + 1], b);
+        }
+    }
+    out
+}
+
+fn summed_on_f32(
+    solver: &WienerSolver,
+    shape: &BatchShape,
+    plan: &GroupPlan,
+    spectra: &Spectra,
+) -> GroupSums {
+    let (m, k, shifts, taps) = (shape.fft_len, shape.lanes, plan.shifts(), plan.taps());
+    let mut sums = GroupSums::new(shape, plan);
+    let mut turns = vec![C32::default(); shifts + taps];
+    let mut vectors = vec![C32::default(); sums.vectors() * m];
+    for group in 0..plan.groups() {
+        vectors.fill(C32::default());
+        for b in 0..shape.batches {
+            solver.turns(group, b, &mut turns).unwrap();
+            for (v, out) in vectors.chunks_exact_mut(m).enumerate() {
+                let (source, turn) = if v < shifts {
+                    (&spectra.models[b * m..(b + 1) * m], turns[v])
+                } else {
+                    let (lane, tap) = ((v - shifts) / taps, (v - shifts) % taps);
+                    let at = (b * k + lane) * m;
+                    (&spectra.products[at..at + m], turns[shifts + tap])
+                };
+                for (slot, value) in out.iter_mut().zip(source) {
+                    *slot += turn * value;
+                }
+            }
+        }
+        sums.load(group, &vectors).unwrap();
+    }
+    for b in 0..shape.batches {
+        solver
+            .accumulate_energy(&mut sums, b, &spectra.energy[b * k..(b + 1) * k])
+            .unwrap();
+    }
+    sums
+}
+
+#[test]
+fn group_sums_loaded_from_f32_solve_like_accumulated_ones() {
+    let fs = 266_666.67;
+    let shape = BatchShape::new(32, 260, 40, 2, 10, 2).unwrap();
+    let channels = [direct_paths(), vec![(0, C32::new(-1.0, 2.0))]];
+    let lanes = fm_scene(&shape, &channels, 0.3, fs);
+    let spectra = spectra_of(&shape, &lanes);
+    let (m, k) = (shape.fft_len, shape.lanes);
+    for plan in [
+        GroupPlan::split(32, 8, 0, 1, true, false).unwrap(),
+        GroupPlan::split(32, 8, 3, 1, false, true).unwrap(),
+    ] {
+        let mut solver = WienerSolver::new(shape, &plan, 1e-4).unwrap();
+        let mut accumulated = GroupSums::new(&shape, &plan);
+        for b in 0..shape.batches {
+            solver
+                .accumulate(
+                    &mut accumulated,
+                    b,
+                    &spectra.models[b * m..(b + 1) * m],
+                    &spectra.products[b * k * m..(b + 1) * k * m],
+                    &spectra.energy[b * k..(b + 1) * k],
+                )
+                .unwrap();
+        }
+        let loaded = summed_on_f32(&solver, &shape, &plan, &spectra);
+        let mut want = WeightTable::new(&shape, &plan).unwrap();
+        let mut got = WeightTable::new(&shape, &plan).unwrap();
+        let expected = solver.solve(&accumulated, &mut want).unwrap();
+        let actual = solver.solve(&loaded, &mut got).unwrap();
+        assert_eq!(actual.unsuppressed_groups, expected.unsuppressed_groups);
+        for lane in 0..k {
+            let (a, b) = (actual.suppression_db[lane], expected.suppression_db[lane]);
+            assert!((a - b).abs() < 0.1, "{plan:?} lane {lane}: {a} vs {b}");
+            for group in 0..plan.groups() {
+                let reference = want.weights(group, lane);
+                let scale = reference.iter().map(|w| w.norm()).fold(0.0, f64::max);
+                for (a, b) in got.weights(group, lane).iter().zip(reference) {
+                    assert!((a - b).norm() <= 1e-3 * scale, "{plan:?} {group} {lane}");
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn turns_are_zero_outside_the_estimation_set() {
+    let shape = BatchShape::new(40, 64, 10, 1, 4, 1).unwrap();
+    let plan = GroupPlan::split(40, 10, 5, 1, false, true).unwrap();
+    let solver = WienerSolver::new(shape, &plan, 1e-4).unwrap();
+    let mut turns = vec![C32::new(9.0, 9.0); plan.shifts() + plan.taps()];
+    assert_eq!(solver.estimation(1), Ok(5..25));
+    solver.turns(1, 30, &mut turns).unwrap();
+    assert!(turns.iter().all(|turn| *turn == C32::default()));
+    solver.turns(1, 12, &mut turns).unwrap();
+    assert!(turns.iter().all(|turn| (turn.norm() - 1.0).abs() < 1e-6));
+    assert_eq!(solver.turns(4, 0, &mut turns), Err(RadarDspError::Shape));
+    assert_eq!(
+        solver.turns(0, 0, &mut turns[..2]),
+        Err(RadarDspError::Shape)
+    );
+    assert_eq!(solver.estimation(4), Err(RadarDspError::Shape));
+}
+
+#[test]
+fn mix_terms_rebuild_the_combined_kernel() {
+    let fs = 266_666.67;
+    let shape = BatchShape::new(32, 260, 40, 2, 10, 1).unwrap();
+    let lanes = fm_scene(&shape, &[direct_paths()], 0.3, fs);
+    let plan = GroupPlan::split(32, 8, 0, 1, true, false).unwrap();
+    let caf = run_caf(shape, Some(&plan), &lanes, DopplerTaper::Hann);
+    let table = caf.table.as_ref().unwrap();
+    let m = shape.fft_len;
+    let mut terms = vec![MixTerm::default(); 2 * plan.taps()];
+    let mut combined = vec![C32::default(); m];
+    let mut rebuilt = vec![C32::default(); m];
+    for batch in 0..shape.batches {
+        assert!(table.combine(0, batch, &mut combined).unwrap());
+        table.terms(batch, &mut terms).unwrap();
+        rebuilt.fill(C32::default());
+        for term in terms.iter().filter(|term| term.factor != C32::default()) {
+            let at = term.group * plan.taps() + term.tap;
+            for (out, w) in rebuilt
+                .iter_mut()
+                .zip(&table.spectra()[at * m..(at + 1) * m])
+            {
+                *out += term.factor * w;
+            }
+        }
+        assert_eq!(rebuilt, combined, "batch {batch}");
+    }
+    assert_eq!(
+        table.terms(shape.batches, &mut terms),
+        Err(RadarDspError::Shape)
+    );
+}

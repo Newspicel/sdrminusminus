@@ -150,12 +150,20 @@ fn select_backend(
     gpu: GpuUse,
     shared: &Arc<Shared>,
 ) -> Result<(Box<dyn CafBackend>, CafBackendKind), ChannelError> {
-    if gpu == GpuUse::Auto && stage.params.gpu == GpuUse::Auto {
-        match gpu::build(stage, shared) {
-            Ok(backend) => return Ok((backend, CafBackendKind::Gpu)),
-            Err(error) => tracing::debug!(%error, "radar CAF stays on the CPU"),
-        }
+    let (cpu, kind) = cpu_backend(stage, shared)?;
+    if gpu != GpuUse::Auto || stage.params.gpu != GpuUse::Auto {
+        return Ok((cpu, kind));
     }
+    Ok(match gpu::offer(stage, cpu, shared) {
+        gpu::Offer::Gpu(backend) => (backend, CafBackendKind::Gpu),
+        gpu::Offer::Cpu(cpu) => (cpu, kind),
+    })
+}
+
+fn cpu_backend(
+    stage: &StagePlan,
+    shared: &Arc<Shared>,
+) -> Result<(Box<dyn CafBackend>, CafBackendKind), ChannelError> {
     let helpers = crew_helpers();
     if helpers > 0 {
         match crew::CrewCaf::new(stage, helpers, shared) {

@@ -448,9 +448,6 @@ impl CpiLoop {
 
     fn failed(&mut self, error: &CafError) {
         self.shared.dropped_cpis.fetch_add(1, Ordering::Relaxed);
-        if matches!(error, CafError::Gpu(_)) {
-            self.shared.gpu_failures.fetch_add(1, Ordering::Relaxed);
-        }
         if !self.warned {
             self.warned = true;
             tracing::error!(%error, "a radar CPI failed and was dropped");

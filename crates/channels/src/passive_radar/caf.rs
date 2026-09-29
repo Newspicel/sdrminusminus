@@ -13,8 +13,6 @@ type C32 = Complex<f32>;
 
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum CafError {
-    #[error("GPU CAF failed: {0}")]
-    Gpu(String),
     #[error("CAF helper stopped")]
     Crew,
     #[error("CPI does not match the plan")]

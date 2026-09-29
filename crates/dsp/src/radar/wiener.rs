@@ -60,7 +60,8 @@ impl GroupPlan {
         2 * self.doppler_taps + 1
     }
 
-    const fn shifts(&self) -> usize {
+    #[must_use]
+    pub const fn shifts(&self) -> usize {
         4 * self.doppler_taps + 1
     }
 
@@ -160,6 +161,23 @@ impl GroupSums {
         self.energy.fill(0.0);
     }
 
+    #[must_use]
+    pub const fn vectors(&self) -> usize {
+        self.shifts + self.lanes * self.taps
+    }
+
+    pub fn load(&mut self, group: usize, vectors: &[C32]) -> Result<(), RadarDspError> {
+        let shared = self.shifts * self.fft_len;
+        let cross = self.lanes * self.taps * self.fft_len;
+        if group >= self.groups || vectors.len() != shared + cross {
+            return Err(RadarDspError::Shape);
+        }
+        let (head, tail) = vectors.split_at(shared);
+        widen_into(&mut self.shared[group * shared..(group + 1) * shared], head);
+        widen_into(&mut self.cross[group * cross..(group + 1) * cross], tail);
+        Ok(())
+    }
+
     fn shared(&self, group: usize, shift: usize) -> &[C64] {
         let at = (group * self.shifts + shift) * self.fft_len;
         &self.shared[at..at + self.fft_len]
@@ -169,6 +187,13 @@ impl GroupSums {
         let at = ((group * self.lanes + lane) * self.taps + tap) * self.fft_len;
         &self.cross[at..at + self.fft_len]
     }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct MixTerm {
+    pub group: usize,
+    pub tap: usize,
+    pub factor: C32,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -245,13 +270,27 @@ impl WeightTable {
         self.doppler_taps
     }
 
+    #[must_use]
+    pub fn spectra(&self) -> &[C32] {
+        &self.spectra
+    }
+
+    pub fn terms(&self, batch: usize, out: &mut [MixTerm]) -> Result<(), RadarDspError> {
+        let terms = out.get_mut(..2 * self.taps).ok_or(RadarDspError::Shape)?;
+        let mix = self.mix(batch).ok_or(RadarDspError::Shape)?;
+        for (slot, term) in terms.iter_mut().zip(mix) {
+            *slot = term;
+        }
+        Ok(())
+    }
+
     pub(crate) fn combine(
         &self,
         lane: usize,
         batch: usize,
         kernel: &mut [C32],
     ) -> Result<bool, RadarDspError> {
-        let Some(blend) = self.blends.get(batch) else {
+        let Some(mix) = self.mix(batch) else {
             return Err(RadarDspError::Shape);
         };
         if lane >= self.lanes || kernel.len() < self.fft_len {
@@ -262,26 +301,39 @@ impl WeightTable {
         }
         let kernel = &mut kernel[..self.fft_len];
         kernel.fill(C32::default());
-        let phases = &self.phases[batch * 2 * self.taps..(batch + 1) * 2 * self.taps];
-        for (slot, (group, share)) in [
-            (blend.first, 1.0 - blend.share),
-            (blend.second, blend.share),
-        ]
-        .into_iter()
-        .enumerate()
-        {
-            if share == 0.0 {
-                continue;
-            }
-            for tap in 0..self.taps {
-                let factor = phases[slot * self.taps + tap] * share;
-                let spectrum = self.spectrum(group, lane, tap);
-                for (out, w) in kernel.iter_mut().zip(spectrum) {
-                    *out += factor * w;
-                }
+        for term in mix.filter(|term| term.factor != C32::default()) {
+            let spectrum = self.spectrum(term.group, lane, term.tap);
+            for (out, w) in kernel.iter_mut().zip(spectrum) {
+                *out += term.factor * w;
             }
         }
         Ok(true)
+    }
+
+    fn mix(&self, batch: usize) -> Option<impl Iterator<Item = MixTerm> + '_> {
+        let blend = self.blends.get(batch)?;
+        let taps = self.taps;
+        let phases = self.phases.get(batch * 2 * taps..(batch + 1) * 2 * taps)?;
+        let shares = [
+            (blend.first, 1.0 - blend.share),
+            (blend.second, blend.share),
+        ];
+        Some(
+            shares
+                .into_iter()
+                .enumerate()
+                .flat_map(move |(slot, (group, share))| {
+                    (0..taps).map(move |tap| MixTerm {
+                        group,
+                        tap,
+                        factor: if share == 0.0 {
+                            C32::default()
+                        } else {
+                            phases[slot * taps + tap] * share
+                        },
+                    })
+                }),
+        )
     }
 
     fn spectrum(&self, group: usize, lane: usize, tap: usize) -> &[C32] {
@@ -373,38 +425,104 @@ impl WienerSolver {
         energy: &[f64],
     ) -> Result<(), RadarDspError> {
         let (m, lane_count) = (self.shape.fft_len, self.shape.lanes);
-        let fits = batch < self.shape.batches
-            && shared.len() >= m
-            && lanes.len() >= lane_count * m
-            && energy.len() >= lane_count
-            && sums.groups == self.plan.groups()
-            && sums.fft_len == m
-            && sums.lanes == lane_count;
-        if !fits {
+        let fits = shared.len() >= m && lanes.len() >= lane_count * m;
+        if !fits || !self.holds(sums, batch, energy) {
             return Err(RadarDspError::Shape);
         }
-        let d = self.plan.doppler_taps as f64;
         for group in 0..self.plan.groups() {
             if !self.plan.estimation(group).contains(&batch) {
                 continue;
             }
             let cycles = self.plan.cycles(group, batch);
             for shift in 0..sums.shifts {
-                let turn = rotation((shift as f64 - 2.0 * d) * cycles);
                 let at = (group * sums.shifts + shift) * m;
-                add_rotated(&mut sums.shared[at..at + m], &shared[..m], turn);
+                add_rotated(
+                    &mut sums.shared[at..at + m],
+                    &shared[..m],
+                    self.shared_turn(shift, cycles),
+                );
             }
             for lane in 0..lane_count {
                 let source = &lanes[lane * m..(lane + 1) * m];
                 for tap in 0..sums.taps {
-                    let turn = rotation(-(tap as f64 - d) * cycles);
                     let at = ((group * lane_count + lane) * sums.taps + tap) * m;
-                    add_rotated(&mut sums.cross[at..at + m], source, turn);
+                    add_rotated(
+                        &mut sums.cross[at..at + m],
+                        source,
+                        self.cross_turn(tap, cycles),
+                    );
                 }
-                sums.energy[group * lane_count + lane] += energy[lane];
+            }
+        }
+        self.accumulate_energy(sums, batch, energy)
+    }
+
+    pub fn accumulate_energy(
+        &self,
+        sums: &mut GroupSums,
+        batch: usize,
+        energy: &[f64],
+    ) -> Result<(), RadarDspError> {
+        if !self.holds(sums, batch, energy) {
+            return Err(RadarDspError::Shape);
+        }
+        let lanes = self.shape.lanes;
+        for group in 0..self.plan.groups() {
+            if self.plan.estimation(group).contains(&batch) {
+                for (total, value) in sums.energy[group * lanes..(group + 1) * lanes]
+                    .iter_mut()
+                    .zip(energy)
+                {
+                    *total += value;
+                }
             }
         }
         Ok(())
+    }
+
+    pub fn estimation(&self, group: usize) -> Result<Range<usize>, RadarDspError> {
+        if group >= self.plan.groups() {
+            return Err(RadarDspError::Shape);
+        }
+        Ok(self.plan.estimation(group))
+    }
+
+    pub fn turns(&self, group: usize, batch: usize, out: &mut [C32]) -> Result<(), RadarDspError> {
+        let (shifts, taps) = (self.plan.shifts(), self.plan.taps());
+        let inside = group < self.plan.groups() && batch < self.shape.batches;
+        let Some(out) = out.get_mut(..shifts + taps).filter(|_| inside) else {
+            return Err(RadarDspError::Shape);
+        };
+        out.fill(C32::default());
+        if !self.plan.estimation(group).contains(&batch) {
+            return Ok(());
+        }
+        let cycles = self.plan.cycles(group, batch);
+        let narrow = |turn: C64| C32::new(turn.re as f32, turn.im as f32);
+        let (shared, cross) = out.split_at_mut(shifts);
+        for (shift, slot) in shared.iter_mut().enumerate() {
+            *slot = narrow(self.shared_turn(shift, cycles));
+        }
+        for (tap, slot) in cross.iter_mut().enumerate() {
+            *slot = narrow(self.cross_turn(tap, cycles));
+        }
+        Ok(())
+    }
+
+    fn holds(&self, sums: &GroupSums, batch: usize, energy: &[f64]) -> bool {
+        batch < self.shape.batches
+            && energy.len() >= self.shape.lanes
+            && sums.groups == self.plan.groups()
+            && sums.fft_len == self.shape.fft_len
+            && sums.lanes == self.shape.lanes
+    }
+
+    fn shared_turn(&self, shift: usize, cycles: f64) -> C64 {
+        rotation((shift as f64 - 2.0 * self.plan.doppler_taps as f64) * cycles)
+    }
+
+    fn cross_turn(&self, tap: usize, cycles: f64) -> C64 {
+        rotation(-(tap as f64 - self.plan.doppler_taps as f64) * cycles)
     }
 
     pub fn solve(
@@ -549,6 +667,12 @@ impl WienerSolver {
 
 fn rotation(turns: f64) -> C64 {
     C64::from_polar(1.0, TAU * turns.rem_euclid(1.0))
+}
+
+fn widen_into(out: &mut [C64], source: &[C32]) {
+    for (slot, value) in out.iter_mut().zip(source) {
+        *slot = C64::new(f64::from(value.re), f64::from(value.im));
+    }
 }
 
 fn add_rotated(sum: &mut [C64], source: &[C32], turn: C64) {

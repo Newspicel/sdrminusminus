@@ -5,6 +5,7 @@ use sdrmm_dsp::{SpectrumAnalyzer, subband::SubbandPlan};
 use super::*;
 
 mod compute;
+mod radar;
 mod spectrum;
 mod wideband;
 
