@@ -44,7 +44,7 @@ nonisolated enum FakeScenarios {
             workspace: workspace,
             workspaces: [field, lab],
             missions: [
-                mission(huntID, .hunt, "Fox 2m", "145.500 MHz", [.tune, .huntRun]),
+                mission(huntID, .hunt, "Fox 2m", "145.500 MHz", [.tune, .huntRun, .sweep, .mark]),
                 mission(
                     dfID,
                     .dfDrive,
@@ -85,7 +85,7 @@ nonisolated enum FakeScenarios {
         )
     }
 
-    static func hunt(strength: Float, trend: Trend, running: Bool) -> HuntView {
+    static func hunt(strength: Float, trend: Trend, running: Bool, sweep: SweepView? = nil) -> HuntView {
         let floor: Float = -95
         let level = floor + 50 * strength
         return HuntView(
@@ -100,8 +100,18 @@ nonisolated enum FakeScenarios {
             running: running,
             refusal: nil,
             readings: UInt64(strength * 100),
-            sweep: nil
+            sweep: sweep
         )
+    }
+
+    static func sweep(phase: SweepPhase = .sweeping) -> SweepView {
+        let peak = 137.0
+        let bins = (0..<72).map { index in
+            let center = Double(index) * 5 + 2.5
+            let off = abs((center - peak + 540).truncatingRemainder(dividingBy: 360) - 180)
+            return UInt8(max(12, (255 * exp(-(off / 35) * (off / 35))).rounded()))
+        }
+        return SweepView(bins: Data(bins), peakDeg: Float(peak), coveredDeg: 270, phase: phase, sigmaDeg: 8)
     }
 
     static func pose(heading: Double?) -> PoseView {
@@ -223,7 +233,7 @@ nonisolated enum FakeScenarios {
         )
     }
 
-    static func survey() -> SurveyView {
+    static func survey(recording: Bool = true) -> SurveyView {
         SurveyView(
             mission: surveyID,
             freqHz: 433_920_000,
@@ -231,7 +241,7 @@ nonisolated enum FakeScenarios {
             minDb: -90,
             maxDb: -40,
             total: 200,
-            recording: true
+            recording: recording
         )
     }
 

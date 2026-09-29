@@ -76,12 +76,13 @@ final class AppModel {
         hunt = HuntModel(core: core, settings: settings, clicks: clicks, report: report)
         df = DfDriveModel(core: core, navigation: navigation, report: report)
         radar = RadarModel()
-        survey = SurveyModel()
+        survey = SurveyModel(core: core, report: report)
         screen = ScreenAwake()
         relay.model = self
         settings.onPoseChange = { core.setPoseSettings($0) }
         sensors.onFix = { navigation.update(location: $0) }
         df.showNavigation = { relay.model?.path.append(.navigation) }
+        audio.onInterruptionEnded = { relay.model?.interruptionEnded() }
     }
 
     var path: [Screen] {
@@ -207,7 +208,7 @@ final class AppModel {
         }
         openMission = mission
         sensors.start(profile: mission.kind == .dfDrive ? .drive : .walk)
-        activateAudio()
+        activateAudio { [weak self] in self?.hunt.resumeClicks() }
         screen.update(missionOpen: true, phase: phase)
         missionOpened(mission)
         storedPath = [.mission(mission.id)]
@@ -229,6 +230,8 @@ final class AppModel {
         core.closeMission()
         sensors.stop()
         hunt.missionClosed()
+        radar.missionClosed()
+        survey.missionClosed()
         audio.deactivate()
         openMission = nil
         storedPath = []
@@ -285,12 +288,14 @@ final class AppModel {
         }
     }
 
-    private func activateAudio() {
-        do {
-            try audio.activate()
-        } catch {
-            Log.core.error("audio session: \(error.localizedDescription, privacy: .public)")
-            show(level: .warn, text: "Audio off", detail: error.localizedDescription)
+    private func activateAudio(then resume: @escaping @MainActor @Sendable () -> Void) {
+        audio.activate { [weak self] failure in
+            guard let failure else {
+                resume()
+                return
+            }
+            Log.audio.error("audio session: \(failure.reason, privacy: .public)")
+            self?.show(level: .warn, text: "Audio off", detail: failure.reason)
         }
     }
 
@@ -300,9 +305,18 @@ final class AppModel {
             hunt.missionOpened()
         case .dfDrive:
             askForAlertsOnce()
-        case .radarWatch, .survey:
-            break
+        case .radarWatch:
+            radar.missionOpened()
+        case .survey:
+            survey.missionOpened()
         }
+    }
+
+    private func interruptionEnded() {
+        guard openMission != nil else {
+            return
+        }
+        activateAudio { [weak self] in self?.hunt.resumeClicks() }
     }
 
     private func askForAlertsOnce() {

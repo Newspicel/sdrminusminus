@@ -1,6 +1,7 @@
 import AVFAudio
 import Foundation
 import SdrmmCore
+import Synchronization
 
 @testable import SDRmm
 
@@ -47,10 +48,20 @@ final class NotifierRecorder: RetargetNotifying {
     }
 }
 
-@MainActor
 final class SilentAudioSession: AudioSessionPort {
-    private(set) var active: [Bool] = []
-    var failActivation = false
+    private struct State {
+        var active: [Bool] = []
+        var failActivation = false
+    }
+
+    private let state = Mutex(State())
+
+    var active: [Bool] { state.withLock { $0.active } }
+
+    var failActivation: Bool {
+        get { state.withLock { $0.failActivation } }
+        set { state.withLock { $0.failActivation = newValue } }
+    }
 
     func setCategory(
         _ category: AVAudioSession.Category,
@@ -59,10 +70,16 @@ final class SilentAudioSession: AudioSessionPort {
     ) throws {}
 
     func setActive(_ active: Bool, options: AVAudioSession.SetActiveOptions) throws {
-        if active, failActivation {
+        let refused = state.withLock { state in
+            let refused = active && state.failActivation
+            if !refused {
+                state.active.append(active)
+            }
+            return refused
+        }
+        if refused {
             throw NotBuilt(feature: "Audio")
         }
-        self.active.append(active)
     }
 }
 
@@ -85,6 +102,7 @@ struct Harness {
     let speech = SpeechRecorder()
     let notifier = NotifierRecorder()
     let session = SilentAudioSession()
+    let center = NotificationCenter()
     let model: AppModel
 
     init(scenario: FakeCore.Scenario = .paired, defaults: UserDefaults = TestDefaults.make()) {
@@ -99,7 +117,7 @@ struct Harness {
             browser: browser,
             sensors: feeds.hub(core: core),
             notifier: notifier,
-            audio: AudioSessionController(session: session)
+            audio: AudioSessionController(session: session, center: center)
         )
     }
 

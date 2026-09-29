@@ -90,15 +90,17 @@ final class AppModelTests: XCTestCase {
         XCTAssertEqual(harness.model.hunt.view?.mission, FakeScenarios.huntID)
     }
 
-    func testOpenAndCloseMissionDriveSensors() {
+    func testOpenAndCloseMissionDriveSensors() async {
         let harness = Harness()
         harness.model.apply(.missions(view: FakeScenarios.missions()))
         harness.model.open(missionID: FakeScenarios.huntID)
         XCTAssertEqual(harness.feeds.location.started, [.walk])
         XCTAssertTrue(harness.core.calls.contains(.open(FakeScenarios.huntID)))
         XCTAssertEqual(harness.model.path, [.mission(FakeScenarios.huntID)])
+        await eventually { harness.session.active == [true] }
         XCTAssertEqual(harness.session.active, [true])
         harness.model.closeMission()
+        await eventually { harness.session.active == [true, false] }
         XCTAssertEqual(harness.session.active, [true, false])
         XCTAssertEqual(harness.feeds.location.stops, 1)
         XCTAssertEqual(harness.feeds.heading.stops, 1)
@@ -111,12 +113,13 @@ final class AppModelTests: XCTestCase {
         XCTAssertEqual(harness.feeds.location.stops, 2)
     }
 
-    func testAudioFailureShowsBannerAndStillOpens() {
+    func testAudioFailureShowsBannerAndStillOpens() async {
         let harness = Harness()
         harness.session.failActivation = true
         harness.model.apply(.missions(view: FakeScenarios.missions()))
         harness.model.open(missionID: FakeScenarios.huntID)
         XCTAssertEqual(harness.model.openMission?.id, FakeScenarios.huntID)
+        await eventually { harness.model.banner != nil }
         XCTAssertEqual(harness.model.banner?.text, "Audio off")
     }
 

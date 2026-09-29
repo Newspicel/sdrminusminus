@@ -47,6 +47,7 @@ nonisolated final class FakeCore: CoreService {
         var workspace = FakeScenarios.field
         var openMission: Mission?
         var strength: Float = 0
+        var sweeping = false
         var dropped = 0
         var ticker: Task<Void, Never>?
     }
@@ -220,6 +221,7 @@ nonisolated final class FakeCore: CoreService {
             state.ticker = nil
             state.openMission = mission
             state.strength = 0
+            state.sweeping = false
         }
         if scenario.streams.contains(mission.kind) {
             stream(mission)
@@ -239,8 +241,13 @@ nonisolated final class FakeCore: CoreService {
         record(.send(command))
         try failure()
         switch command {
-        case .startHunt: startHunt()
+        case .startHunt:
+            state.withLock { $0.sweeping = false }
+            startHunt()
         case .stopHunt: stopHunt()
+        case .sweep(let on): sweep(on)
+        case .startSurvey: setRecording(true)
+        case .stopSurvey: setRecording(false)
         default: break
         }
     }
@@ -272,7 +279,7 @@ nonisolated final class FakeCore: CoreService {
     private func stream(_ mission: Mission) {
         switch mission.kind {
         case .hunt:
-            emit(.hunt(view: FakeScenarios.hunt(strength: 0, trend: .waiting, running: false)))
+            emit(.hunt(view: huntView(strength: 0, trend: .waiting, running: false)))
         case .dfDrive:
             emit(.pose(view: FakeScenarios.pose(heading: 90)))
             emit(.df(view: FakeScenarios.df(bearing: 137, heading: 90)))
@@ -292,11 +299,11 @@ nonisolated final class FakeCore: CoreService {
     }
 
     private func startHunt() {
-        guard state.withLock({ $0.openMission?.kind == .hunt }), scenario.streams.contains(.hunt) else {
+        guard streaming(.hunt) else {
             return
         }
         guard ticking else {
-            emit(.hunt(view: FakeScenarios.hunt(strength: 0.6, trend: .warmer, running: true)))
+            emit(.hunt(view: huntView(strength: 0.6, trend: .warmer, running: true)))
             return
         }
         schedule { core in
@@ -306,7 +313,7 @@ nonisolated final class FakeCore: CoreService {
                     return state.strength
                 }
                 let trend: Trend = strength >= 1 ? .onTop : .warmer
-                core.emit(.hunt(view: FakeScenarios.hunt(strength: strength, trend: trend, running: true)))
+                core.emit(.hunt(view: core.huntView(strength: strength, trend: trend, running: true)))
                 try await Task.sleep(for: FakeCore.tick)
             }
         }
@@ -321,7 +328,36 @@ nonisolated final class FakeCore: CoreService {
         guard scenario.streams.contains(.hunt) else {
             return
         }
-        emit(.hunt(view: FakeScenarios.hunt(strength: strength, trend: .waiting, running: false)))
+        emit(.hunt(view: huntView(strength: strength, trend: .waiting, running: false)))
+    }
+
+    private func sweep(_ on: Bool) {
+        state.withLock { $0.sweeping = on }
+        if on || ticking {
+            startHunt()
+        } else if streaming(.hunt) {
+            emit(.hunt(view: huntView(strength: 0.6, trend: .warmer, running: true)))
+        }
+    }
+
+    private func setRecording(_ on: Bool) {
+        if streaming(.survey) {
+            emit(.survey(view: FakeScenarios.survey(recording: on)))
+        }
+    }
+
+    private func streaming(_ kind: MissionKind) -> Bool {
+        state.withLock { $0.openMission?.kind == kind } && scenario.streams.contains(kind)
+    }
+
+    private func huntView(strength: Float, trend: Trend, running: Bool) -> HuntView {
+        let sweeping = state.withLock { $0.sweeping }
+        return FakeScenarios.hunt(
+            strength: strength,
+            trend: trend,
+            running: running,
+            sweep: sweeping ? FakeScenarios.sweep() : nil
+        )
     }
 
     private func schedule(_ work: @escaping @Sendable (FakeCore) async throws -> Void) {

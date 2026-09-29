@@ -1,3 +1,4 @@
+import Foundation
 import Observation
 import SdrmmCore
 
@@ -10,31 +11,47 @@ final class HuntModel {
     @ObservationIgnored private let settings: SettingsStore
     @ObservationIgnored private let clicks: any ClickPlaying
     @ObservationIgnored private let report: @MainActor (Error) -> Void
+    @ObservationIgnored private let now: @MainActor () -> TimeInterval
+    @ObservationIgnored private var policy = HuntHapticPolicy()
+    @ObservationIgnored private var cues = 0
+    @ObservationIgnored private var open = false
+    @ObservationIgnored private var clicking = false
 
     init(
         core: any CoreService,
         settings: SettingsStore,
         clicks: any ClickPlaying,
-        report: @escaping @MainActor (Error) -> Void
+        report: @escaping @MainActor (Error) -> Void,
+        now: @escaping @MainActor () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }
     ) {
         self.core = core
         self.settings = settings
         self.clicks = clicks
         self.report = report
+        self.now = now
+        clicks.onFailure = { [weak self] error in self?.clicksFailed(error) }
     }
 
     func apply(_ view: HuntView) {
         self.view = view
+        if let next = policy.cue(trend: view.trend, strength: view.strength, at: now()) {
+            cues += 1
+            cue = HapticCueEvent(id: cues, cue: next)
+        }
+        clicks.setStrength(view.strength)
+        syncClicks()
     }
 
     func toggleRun() async {
-        busy = true
-        defer { busy = false }
-        do {
-            try await core.send(view?.running == true ? .stopHunt : .startHunt)
-        } catch {
-            report(error)
-        }
+        await send(view?.running == true ? .stopHunt : .startHunt)
+    }
+
+    func toggleSweep() async {
+        await send(.sweep(on: !sweeping))
+    }
+
+    func mark() async {
+        await send(.mark)
     }
 
     func tune(megahertz: String) async -> String? {
@@ -52,15 +69,36 @@ final class HuntModel {
 
     func missionOpened() {
         view = nil
+        policy.reset()
+        open = true
+        syncClicks()
     }
 
     func missionClosed() {
         view = nil
-        clicks.stop()
+        open = false
+        syncClicks()
     }
 
     func setClicks(_ on: Bool) {
         settings.clicksOn = on
+        syncClicks()
+    }
+
+    func resumeClicks() {
+        guard clicking else {
+            return
+        }
+        clicks.stop()
+        clicking = false
+        syncClicks()
+    }
+
+    var sweeping: Bool {
+        guard let phase = view?.sweep?.phase else {
+            return false
+        }
+        return phase != .off
     }
 
     var trendLabel: String {
@@ -79,5 +117,40 @@ final class HuntModel {
         case .colder: "arrow.down"
         case .onTop: "scope"
         }
+    }
+
+    private func send(_ command: MissionCommand) async {
+        busy = true
+        defer { busy = false }
+        do {
+            try await core.send(command)
+        } catch {
+            report(error)
+        }
+    }
+
+    private func syncClicks() {
+        let wanted = open && settings.clicksOn && view?.running == true
+        guard wanted != clicking else {
+            return
+        }
+        guard wanted else {
+            clicks.stop()
+            clicking = false
+            return
+        }
+        do {
+            try clicks.start()
+            clicking = true
+        } catch {
+            clicksFailed(error)
+        }
+    }
+
+    private func clicksFailed(_ error: Error) {
+        clicks.stop()
+        clicking = false
+        settings.clicksOn = false
+        report(error)
     }
 }

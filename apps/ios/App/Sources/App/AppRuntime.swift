@@ -111,7 +111,7 @@ enum AppAssembly {
             settings: settings,
             routes: routes(),
             speech: SpeechPrompter(settings: settings, session: audio),
-            clicks: ClickPlayer(session: audio),
+            clicks: ClickPlayer(),
             browser: BonjourBrowser(),
             sensors: sensors,
             notifier: RetargetNotifier(),

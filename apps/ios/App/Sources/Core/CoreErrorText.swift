@@ -3,6 +3,9 @@ import SdrmmCore
 
 nonisolated enum CoreErrorText {
     static func short(_ error: Error) -> String {
+        if error is AudioOff {
+            return "Audio off"
+        }
         if let missing = error as? NotBuilt {
             return "\(missing.feature) not built yet"
         }
@@ -28,6 +31,9 @@ nonisolated enum CoreErrorText {
     }
 
     static func detail(_ error: Error) -> String {
+        if let audio = error as? AudioOff {
+            return "Audio off: \(audio.reason)"
+        }
         if error is NotBuilt {
             return short(error)
         }
