@@ -224,21 +224,28 @@ impl GpsHub {
             self.clear_before_route.store(true, Ordering::Release);
         }
 
+        let waiting = {
+            let mut published = self
+                .device_publish_at
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            published.retain(|node, _| matches!(wanted.get(node), Some(PositionSource::Device)));
+            changed_sources
+                .into_iter()
+                .filter(|node| !published.contains_key(node))
+                .collect::<Vec<_>>()
+        };
         {
             let mut latest = self
                 .latest
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
             latest.retain(|node, _| wanted.contains_key(node));
-            for node in &changed_sources {
+            for node in &waiting {
                 latest.remove(node);
             }
         }
-        self.device_publish_at
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .retain(|node, _| matches!(wanted.get(node), Some(PositionSource::Device)));
-        for node in &changed_sources {
+        for node in &waiting {
             self.publish_state(
                 state,
                 node,
@@ -1246,6 +1253,43 @@ mod tests {
                 .publish_device(&app, "other", None, Some("lost".to_owned()))
                 .is_err()
         );
+    }
+
+    #[test]
+    fn a_device_state_published_before_the_reconcile_outlives_it() {
+        let store = crate::Store::open(None).expect("store");
+        let mut snapshot = WorkspaceSnapshot::empty();
+        snapshot.graph.nodes.push(PatchNode {
+            id: "position".to_owned(),
+            body: NodeBody::Gps(GpsNode {
+                source: Some(PositionSource::Device),
+            }),
+            position: Position { x: 0.0, y: 0.0 },
+            size: None,
+            label: None,
+        });
+        let workspace_id = store
+            .create_workspace("mobile", &snapshot)
+            .expect("workspace");
+        store
+            .activate_workspace(workspace_id)
+            .expect("activate workspace");
+        let app = crate::AppState::new(Engine::new(None), Arc::new(store));
+        app.gps.set_device_publish_interval(Duration::from_secs(60));
+        let denied = "location sharing is blocked for this browser".to_owned();
+        app.gps
+            .publish_device(&app, "position", None, Some(denied.clone()))
+            .expect("accepted");
+        app.gps.reconcile(&app);
+        let blocked = ServerEvent::PositionChanged {
+            node: "position".to_owned(),
+            fix: None,
+            error: Some(denied.clone()),
+        };
+        assert_eq!(app.gps.snapshot(), vec![blocked]);
+        app.gps
+            .publish_device(&app, "position", None, Some(denied))
+            .expect("the browser repeating itself is not too fast");
     }
 
     #[test]
