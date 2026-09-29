@@ -67,17 +67,14 @@ fn host(line_source: &str, marker: &str) -> String {
 
 fn source_of(root: &Path, path: &str) -> PathBuf {
     let public = root.join("site/public").join(path);
-    if public.exists() {
+    if public.is_file() {
         return public;
     }
-    let stem = path
-        .strip_suffix(".html")
-        .unwrap_or_else(|| panic!("`{path}` is neither a page nor a file in site/public"));
-    let page = root.join("site/src/pages").join(format!("{stem}.astro"));
-    if page.is_file() {
-        return page;
+    match path.strip_prefix("docs/") {
+        Some("") => root.join("docs/src/index.md"),
+        Some(chapter) => root.join("docs/src").join(format!("{chapter}.md")),
+        None => root.join("site/src/pages").join(format!("{path}.astro")),
     }
-    root.join("docs/src").join(format!("{stem}.md"))
 }
 
 #[test]
@@ -142,9 +139,14 @@ fn the_download_button_leads_to_the_download_page() {
         "the download page is what the Download button points at"
     );
     assert!(
-        read(&root.join("site/src/layouts/Page.astro"))
-            .contains("class=\"get\" href=\"/download.html\""),
-        "the page layout sends its Download button somewhere other than the download page"
+        read(&root.join("site/src/components/Header.astro"))
+            .contains("class=\"get\" href={DOWNLOAD.href}"),
+        "the header sends its Download button somewhere other than DOWNLOAD"
+    );
+    assert!(
+        read(&root.join("site/src/nav.ts"))
+            .contains("DOWNLOAD: Link = { label: \"Download\", href: \"/download\" }"),
+        "DOWNLOAD points somewhere other than the download page"
     );
 }
 
