@@ -23,7 +23,7 @@ use measure::{Merged, measure_dbfs, merge};
 
 pub(crate) const LEVEL_INTERVAL: Duration = Duration::from_millis(SURVEY_LEVEL_INTERVAL_MS);
 
-const IQ_PORT: &str = "iq";
+pub(crate) const IQ_PORT: &str = "iq";
 
 pub(crate) enum SurveyRefusal {
     Missing(String),
@@ -32,9 +32,9 @@ pub(crate) enum SurveyRefusal {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct Radio {
-    device_set: u32,
-    stream: u32,
+pub(crate) struct Radio {
+    pub(crate) device_set: u32,
+    pub(crate) stream: u32,
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -190,14 +190,12 @@ impl SurveyHub {
         self.lock().get(node).map(|session| session.grid(node))
     }
 
-    #[expect(dead_code)]
     pub(crate) fn cells(&self, node: &str) -> u32 {
         self.lock().get(node).map_or(0, |session| {
             u32::try_from(session.cells.len()).unwrap_or(u32::MAX)
         })
     }
 
-    #[expect(dead_code)]
     pub(crate) fn recording(&self, node: &str) -> bool {
         self.lock()
             .get(node)
@@ -361,7 +359,7 @@ fn gone(state: &AppState, node: &str, generation: u64) {
     }
 }
 
-fn radio_of(
+pub(crate) fn radio_of(
     devices: &HashMap<String, u32>,
     snapshot: &StateSnapshot,
     source: &str,

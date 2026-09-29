@@ -402,6 +402,7 @@ async fn pairing_works_end_to_end_over_tls() {
     for (path, expected) in [
         ("/api/phones/self", reqwest::StatusCode::OK),
         ("/api/state", reqwest::StatusCode::OK),
+        ("/api/missions", reqwest::StatusCode::OK),
         ("/api/recordings", reqwest::StatusCode::FORBIDDEN),
     ] {
         let response = client
@@ -412,21 +413,6 @@ async fn pairing_works_end_to_end_over_tls() {
             .expect("request");
         assert_eq!(response.status(), expected, "{path}");
     }
-    let missions = client
-        .get(format!("{phone}/api/missions"))
-        .bearer_auth(&paired.token)
-        .send()
-        .await
-        .expect("missions");
-    assert!(
-        ![
-            reqwest::StatusCode::UNAUTHORIZED,
-            reqwest::StatusCode::FORBIDDEN
-        ]
-        .contains(&missions.status()),
-        "{}",
-        missions.status()
-    );
     for path in ["/api/state", "/api/openapi.json"] {
         let status = client
             .get(format!("{phone}{path}"))

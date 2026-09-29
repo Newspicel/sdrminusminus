@@ -1,6 +1,7 @@
 use sdrmm_wire::{MissionAction, MissionActionResponse, MissionsResponse, SwitchWorkspaceRequest};
 
 use super::*;
+use crate::missions::{MissionRefusal, act, missions};
 
 pub(super) fn routes() -> OpenApiRouter<AppState> {
     OpenApiRouter::new()
@@ -9,14 +10,31 @@ pub(super) fn routes() -> OpenApiRouter<AppState> {
         .routes(routes!(switch_mission_workspace))
 }
 
+impl From<MissionRefusal> for AppError {
+    fn from(refusal: MissionRefusal) -> Self {
+        let text = refusal.to_string();
+        match refusal {
+            MissionRefusal::NoMission(_) => Self::not_found(text),
+            MissionRefusal::NotAControl | MissionRefusal::Frequency => Self::bad_request(text),
+            MissionRefusal::NotRunning => {
+                Self::new(StatusCode::CONFLICT, ErrorCode::Conflict, text)
+            }
+        }
+    }
+}
+
+async fn listing(state: AppState) -> Result<MissionsResponse, AppError> {
+    Ok(tokio::task::spawn_blocking(move || missions(&state)).await??)
+}
+
 #[utoipa::path(
     get, path = "/api/missions",
     responses((status = 200, description = "What a phone can do in the active workspace", body = MissionsResponse)),
 )]
 pub(super) async fn list_missions(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
 ) -> Result<Json<MissionsResponse>, AppError> {
-    Err(AppError::not_built())
+    Ok(Json(listing(state).await?))
 }
 
 #[utoipa::path(
@@ -33,11 +51,12 @@ pub(super) async fn list_missions(
     ),
 )]
 pub(super) async fn run_mission_action(
-    State(_state): State<AppState>,
-    Path(_node): Path<String>,
-    Json(_action): Json<MissionAction>,
+    State(state): State<AppState>,
+    Path(node): Path<String>,
+    Json(action): Json<MissionAction>,
 ) -> Result<Json<MissionActionResponse>, AppError> {
-    Err(AppError::not_built())
+    let mission = tokio::task::spawn_blocking(move || act(&state, &node, action)).await??;
+    Ok(Json(MissionActionResponse { mission }))
 }
 
 #[utoipa::path(
@@ -50,8 +69,26 @@ pub(super) async fn run_mission_action(
     ),
 )]
 pub(super) async fn switch_mission_workspace(
-    State(_state): State<AppState>,
-    Json(_request): Json<SwitchWorkspaceRequest>,
+    State(state): State<AppState>,
+    Json(request): Json<SwitchWorkspaceRequest>,
 ) -> Result<Json<MissionsResponse>, AppError> {
-    Err(AppError::not_built())
+    let switched = state.clone();
+    tokio::task::spawn_blocking(move || switch(&switched, request.workspace)).await??;
+    reconcile_graph(state.clone()).await?;
+    Ok(Json(listing(state).await?))
+}
+
+fn switch(state: &AppState, workspace: i64) -> Result<(), AppError> {
+    let _serialized = lock_gate(&state.apply_gate);
+    activate(state, workspace)?;
+    let report = bring_up_active(state, workspace)?;
+    for refusal in &report.refused {
+        tracing::warn!(
+            workspace,
+            node = refusal.node,
+            reason = refusal.reason,
+            "a node could not be brought up by a phone's workspace switch"
+        );
+    }
+    Ok(())
 }

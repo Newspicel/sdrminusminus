@@ -225,6 +225,7 @@ async fn a_route_whose_owner_has_not_landed_says_so() {
             || path.starts_with("/api/arrays")
             || path.starts_with("/api/phones")
             || path.starts_with("/api/survey/")
+            || path.starts_with("/api/missions")
         {
             continue;
         }

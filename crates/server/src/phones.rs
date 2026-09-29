@@ -18,7 +18,7 @@ pub mod cli;
 pub(crate) mod gate;
 mod mdns;
 mod pairing;
-mod scope;
+pub(crate) mod scope;
 mod sessions;
 mod token;
 

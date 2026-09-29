@@ -60,20 +60,6 @@ fn other_code(code: &str) -> String {
 }
 
 #[test]
-fn every_phone_route_exists() {
-    let spec = serde_json::to_value(crate::openapi()).expect("OpenAPI");
-    for (method, path) in scope::PHONE_ROUTES {
-        if *path == "/api/ws" {
-            continue;
-        }
-        assert!(
-            spec["paths"][path][method.as_str().to_lowercase()].is_object(),
-            "{method} {path} is open to phones but no route"
-        );
-    }
-}
-
-#[test]
 fn an_offer_carries_the_link_the_key_and_the_code() {
     let phones = phones();
     let now = Timestamp::now();

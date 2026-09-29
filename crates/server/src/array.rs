@@ -67,7 +67,6 @@ pub(crate) struct ArrayHub {
     pumping: AtomicBool,
 }
 
-#[cfg_attr(not(test), expect(dead_code))]
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct ArraySummary {
     pub(crate) device_sets: Vec<u32>,
@@ -672,7 +671,6 @@ fn resend_poses(state: &AppState) {
     }
 }
 
-#[cfg_attr(not(test), expect(dead_code))]
 pub(crate) fn summary(state: &AppState, graph: &PatchGraph, node: &str) -> Option<ArraySummary> {
     let NodeBody::Array(settings) = &graph.node(node)?.body else {
         return None;

@@ -577,31 +577,32 @@ pub(super) async fn activate_workspace(
     Path(id): Path<i64>,
 ) -> Result<StatusCode, AppError> {
     let gps_state = state.clone();
-    tokio::task::spawn_blocking(move || -> Result<(), AppError> {
-        let _serialized = state
-            .apply_gate
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        if let Err(err) = workspace::save_active(&state) {
-            tracing::warn!(%err, "could not save the outgoing workspace before the switch");
-        }
-        state.store.activate_workspace(id)?;
-        let detail = state.store.workspace(id)?;
-        let saved = state.store.workspace_state(id)?;
-        let report = workspace::reconcile(&state, &detail.snapshot.graph, &saved);
-        tracing::info!(
-            workspace = id,
-            closed = report.closed,
-            channels = report.dropped_channels,
-            scans = report.stopped_scans,
-            "activated"
-        );
-        state.engine.emit_scope(StateScope::Workspaces);
-        Ok(())
+    tokio::task::spawn_blocking(move || {
+        let _serialized = lock_gate(&state.apply_gate);
+        activate(&state, id)
     })
     .await??;
     reconcile_graph(gps_state).await?;
     Ok(StatusCode::NO_CONTENT)
+}
+
+pub(super) fn activate(state: &AppState, id: i64) -> Result<(), AppError> {
+    if let Err(err) = workspace::save_active(state) {
+        tracing::warn!(%err, "could not save the outgoing workspace before the switch");
+    }
+    state.store.activate_workspace(id)?;
+    let detail = state.store.workspace(id)?;
+    let saved = state.store.workspace_state(id)?;
+    let report = workspace::reconcile(state, &detail.snapshot.graph, &saved);
+    tracing::info!(
+        workspace = id,
+        closed = report.closed,
+        channels = report.dropped_channels,
+        scans = report.stopped_scans,
+        "activated"
+    );
+    state.engine.emit_scope(StateScope::Workspaces);
+    Ok(())
 }
 
 #[utoipa::path(
@@ -704,18 +705,19 @@ pub(super) async fn apply_workspace(
     Path(id): Path<i64>,
 ) -> Result<Json<PatchApplyReport>, AppError> {
     let gps_state = state.clone();
-    let report = tokio::task::spawn_blocking(move || -> Result<PatchApplyReport, AppError> {
-        let _serialized = state
-            .apply_gate
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        let workspace = state.store.workspace(id)?;
-        let saved = state.store.workspace_state(id)?;
-        bring_up(&state, id, &workspace.snapshot, &saved)
+    let report = tokio::task::spawn_blocking(move || {
+        let _serialized = lock_gate(&state.apply_gate);
+        bring_up_active(&state, id)
     })
     .await??;
     reconcile_graph(gps_state).await?;
     Ok(Json(report))
+}
+
+pub(super) fn bring_up_active(state: &AppState, id: i64) -> Result<PatchApplyReport, AppError> {
+    let workspace = state.store.workspace(id)?;
+    let saved = state.store.workspace_state(id)?;
+    bring_up(state, id, &workspace.snapshot, &saved)
 }
 
 pub(super) async fn reconcile_graph(state: AppState) -> Result<(), AppError> {
