@@ -3,6 +3,7 @@ package dev.newspicel.sdrmm.testing
 import android.app.Application
 import dev.newspicel.sdrmm.AppGraph
 import dev.newspicel.sdrmm.DemoSwitch
+import dev.newspicel.sdrmm.OutputFactory
 import dev.newspicel.sdrmm.core.CoreGateway
 import dev.newspicel.sdrmm.pair.Discovery
 import dev.newspicel.sdrmm.settings.SettingsStore
@@ -14,7 +15,8 @@ object TestAppGraph {
         settings: SettingsStore = FakeSettingsStore(),
         discovery: Discovery = FakeDiscovery(),
         demo: DemoSwitch = NoDemo(),
-    ): AppGraph = AppGraph.assemble(app, core, settings, demo, discovery)
+        outputs: OutputFactory = FakeOutputs(),
+    ): AppGraph = AppGraph.assemble(app, core, settings, demo, discovery, outputs)
 }
 
 class NoDemo : DemoSwitch {

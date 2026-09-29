@@ -48,7 +48,7 @@ class PairScreenTest {
         compose.setContent { SdrmmTheme { AppRoot(app) } }
         compose.onNodeWithText("Try without a server").performScrollTo().performClick()
         compose.waitForIdle()
-        compose.onNodeWithText("Missions").assertIsDisplayed()
+        compose.onNodeWithText("Kraken DF").assertIsDisplayed()
         compose.onNodeWithText("Leave demo").assertIsDisplayed()
         compose.onNodeWithText("Leave demo").performClick()
         compose.waitForIdle()

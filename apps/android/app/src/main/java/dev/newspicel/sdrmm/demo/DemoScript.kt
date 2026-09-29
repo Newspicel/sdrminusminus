@@ -8,6 +8,7 @@ import dev.newspicel.sdrmm.ffi.EstimateView
 import dev.newspicel.sdrmm.ffi.GuidanceKind
 import dev.newspicel.sdrmm.ffi.GuidanceView
 import dev.newspicel.sdrmm.ffi.HeadingSourceKind
+import dev.newspicel.sdrmm.ffi.HeatBand
 import dev.newspicel.sdrmm.ffi.HuntView
 import dev.newspicel.sdrmm.ffi.LatLon
 import dev.newspicel.sdrmm.ffi.Mission
@@ -21,6 +22,10 @@ import dev.newspicel.sdrmm.ffi.RadarView
 import dev.newspicel.sdrmm.ffi.Ray
 import dev.newspicel.sdrmm.ffi.RgbaImage
 import dev.newspicel.sdrmm.ffi.SavedServer
+import dev.newspicel.sdrmm.ffi.SurveyPoint
+import dev.newspicel.sdrmm.ffi.SurveyView
+import dev.newspicel.sdrmm.ffi.SweepPhase
+import dev.newspicel.sdrmm.ffi.SweepView
 import dev.newspicel.sdrmm.ffi.TargetMode
 import dev.newspicel.sdrmm.ffi.Trend
 import dev.newspicel.sdrmm.ffi.WorkspaceRef
@@ -56,7 +61,7 @@ class DemoScript {
                     "433.920 MHz",
                     true,
                     null,
-                    listOf(MissionControl.TUNE, MissionControl.HUNT_RUN),
+                    listOf(MissionControl.TUNE, MissionControl.HUNT_RUN, MissionControl.SWEEP, MissionControl.MARK),
                 ),
                 Mission(
                     DF_ID,
@@ -68,14 +73,23 @@ class DemoScript {
                     listOf(MissionControl.TUNE, MissionControl.CALIBRATE, MissionControl.CLEAR_FUSION, MissionControl.TARGET_MODE),
                 ),
                 Mission(RADAR_ID, MissionKind.RADAR_WATCH, "FM radar", "98.800 MHz", true, null, emptyList()),
+                Mission(
+                    SURVEY_ID,
+                    MissionKind.SURVEY,
+                    "Walk",
+                    "433.920 MHz",
+                    true,
+                    null,
+                    listOf(MissionControl.SURVEY_RUN, MissionControl.SURVEY_CLEAR),
+                ),
             ),
         )
     }
 
     fun kindOf(id: String?): MissionKind? = missions().missions.firstOrNull { it.id == id }?.kind
 
-    fun pose(): PoseView = PoseView(
-        headingDeg = 42.0,
+    fun pose(headingDeg: Double = HEADING_DEG): PoseView = PoseView(
+        headingDeg = headingDeg,
         accuracyDeg = 8.0,
         source = HeadingSourceKind.FUSED,
         align = AlignState.Idle,
@@ -90,6 +104,7 @@ class DemoScript {
     fun hunt(
         tick: Long,
         running: Boolean,
+        sweep: SweepView? = null,
     ): HuntView {
         val strength = (0.5 + 0.45 * sin(tick / 8.0)).toFloat()
         val level = (FLOOR_DB + strength * SPAN_DB)
@@ -112,13 +127,40 @@ class DemoScript {
             running = running,
             refusal = null,
             readings = tick.toULong(),
-            sweep = null,
+            sweep = sweep,
         )
+    }
+
+    fun sweepHeading(ticks: Long): Double = (HEADING_DEG + ticks * SWEEP_DEG_PER_TICK) % FULL
+
+    fun sweep(ticks: Long): SweepView {
+        val covered = minOf(FULL, ticks * SWEEP_DEG_PER_TICK)
+        val bins = ByteArray(SWEEP_BINS)
+        for (index in 0 until SWEEP_BINS) {
+            val center = index * BIN_DEG + BIN_DEG / 2
+            val offset = ((center - HEADING_DEG + FULL) % FULL)
+            if (offset > covered) continue
+            val gain = (1 + cos(Math.toRadians(center - SOURCE_DEG))) / 2
+            bins[index] = (MAX_LEVEL * gain * gain * gain).toInt().toByte()
+        }
+        val done = covered >= FULL
+        return SweepView(
+            bins = bins,
+            peakDeg = if (done) SOURCE_DEG.toFloat() else null,
+            coveredDeg = covered.toFloat(),
+            phase = if (done) SweepPhase.DONE else SweepPhase.SWEEPING,
+            sigmaDeg = if (done) SWEEP_SIGMA else null,
+        )
+    }
+
+    fun target(tick: Long): LatLon {
+        val hop = (tick / RETARGET_TICKS) % TARGET_HOPS
+        return LatLon(ORIGIN.lat + 0.01 + hop * TARGET_HOP_DEG, ORIGIN.lon + 0.015)
     }
 
     fun df(tick: Long): DfView {
         val bearing = ((tick * 3) % 360).toFloat()
-        val target = LatLon(ORIGIN.lat + 0.01, ORIGIN.lon + 0.015)
+        val target = target(tick)
         return DfView(
             mission = DF_ID,
             state = DfState.LIVE,
@@ -131,8 +173,37 @@ class DemoScript {
             guidance = GuidanceView(GuidanceKind.ESTIMATE, bearingDeg(ORIGIN, target), null, distanceM(ORIGIN, target)),
             target = NavPoint(target, GuidanceKind.ESTIMATE),
             estimate = EstimateView(target, 250.0, 120.0, 30.0, tick > CONVERGED_AFTER, (tick / 2).toUInt()),
-            overlay = DfOverlay(rays = listOf(Ray(ORIGIN, target, 1f)), stations = emptyList(), ellipse = emptyList(), heat = emptyList()),
+            overlay =
+            DfOverlay(
+                rays = listOf(Ray(ORIGIN, target, 1f)),
+                stations = emptyList(),
+                ellipse = ring(target, ELLIPSE_M),
+                heat = HEAT.map { (level, radius) -> HeatBand(level, listOf(ring(target, radius))) },
+            ),
         )
+    }
+
+    fun surveyPoint(tick: Long): SurveyPoint {
+        val angle = Math.toRadians(tick * WALK_DEG_PER_TICK)
+        val at = LatLon(ORIGIN.lat + WALK_DEG * cos(angle), ORIGIN.lon + WALK_DEG * sin(angle) * LON_STRETCH)
+        val near = distanceM(at, SOURCE)
+        return SurveyPoint(at, (FLOOR_DB + SPAN_DB * exp(-near / SOURCE_FALLOFF_M)).toFloat())
+    }
+
+    fun survey(
+        level: Float?,
+        total: Long,
+        recording: Boolean,
+    ): SurveyView = SurveyView(SURVEY_ID, HUNT_HZ, level, FLOOR_DB, FLOOR_DB + SPAN_DB, total.toULong(), recording)
+
+    private fun ring(
+        center: LatLon,
+        radiusM: Double,
+    ): List<LatLon> = (0..RING_POINTS).map { step ->
+        val angle = 2 * Math.PI * step / RING_POINTS
+        val north = radiusM * cos(angle) / METERS_PER_DEG
+        val east = radiusM * sin(angle) / (METERS_PER_DEG * cos(Math.toRadians(center.lat)))
+        LatLon(center.lat + north, center.lon + east)
     }
 
     fun radar(tick: Long): RadarView = RadarView(
@@ -170,6 +241,27 @@ class DemoScript {
         const val HUNT_ID = "demo-hunt"
         const val DF_ID = "demo-df"
         const val RADAR_ID = "demo-radar"
+        const val SURVEY_ID = "demo-survey"
+        const val RETARGET_TICKS = 60L
+        private const val RING_POINTS = 48
+        private const val METERS_PER_DEG = 111_195.0
+        private const val ELLIPSE_M = 250.0
+        private val HEAT = listOf(0.5f to 300.0, 0.8f to 550.0, 0.95f to 800.0)
+        private const val TARGET_HOPS = 3
+        private const val TARGET_HOP_DEG = 0.004
+        private const val HEADING_DEG = 42.0
+        private const val SOURCE_DEG = 137.0
+        private const val FULL = 360.0
+        private const val SWEEP_BINS = 72
+        private const val BIN_DEG = FULL / SWEEP_BINS
+        private const val SWEEP_DEG_PER_TICK = 12.0
+        private const val SWEEP_SIGMA = 6f
+        private const val MAX_LEVEL = 255.0
+        private const val WALK_DEG = 0.003
+        private const val WALK_DEG_PER_TICK = 3.0
+        private const val LON_STRETCH = 1.6
+        private const val SOURCE_FALLOFF_M = 150.0
+        private val SOURCE = LatLon(52.522, 13.407)
         private const val HUNT_HZ = 433.92e6
         private const val DF_HZ = 145.5e6
         private const val FLOOR_DB = -95f

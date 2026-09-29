@@ -1,5 +1,6 @@
 package dev.newspicel.sdrmm.ui
 
+import androidx.activity.compose.LocalActivity
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -29,6 +30,7 @@ import dev.newspicel.sdrmm.AppGraph
 import dev.newspicel.sdrmm.R
 import dev.newspicel.sdrmm.SdrmmApp
 import dev.newspicel.sdrmm.Startup
+import dev.newspicel.sdrmm.missions.MissionsScreen
 import dev.newspicel.sdrmm.pair.PairScreen
 import dev.newspicel.sdrmm.settings.LicensesScreen
 import dev.newspicel.sdrmm.settings.SettingsScreen
@@ -70,15 +72,26 @@ private fun GraphContent(graph: AppGraph) {
             entryProvider =
             entryProvider {
                 entry<Destination.Pair> { PairScreen(graph) }
-                entry<Destination.Missions> { PendingScreen(graph, stringResource(R.string.missions_title)) }
-                entry<Destination.Mission> { mission -> PendingScreen(graph, missionTitle(graph, mission.id)) }
+                entry<Destination.Missions> { MissionsScreen(graph) }
+                entry<Destination.Mission> { mission -> MissionScreen(graph, mission) }
                 entry<Destination.Settings> { SettingsScreen(graph) }
                 entry<Destination.Licenses> { LicensesScreen(graph) }
             },
         )
         Column(Modifier.align(Alignment.BottomCenter).safeDrawingPadding()) { DemoStrip(graph) }
-        Column(Modifier.align(Alignment.TopCenter).safeDrawingPadding()) { BannerHost(graph.router) }
+        Column(Modifier.align(Alignment.TopCenter).safeDrawingPadding()) { RetargetBannerHost(graph) }
     }
+}
+
+@Composable
+private fun RetargetBannerHost(graph: AppGraph) {
+    val activity = LocalActivity.current
+    BannerHost(
+        router = graph.router,
+        onNavigate = { banner ->
+            activity?.let { graph.router.handoff(graph.nav.open(it, banner.notice.mission, banner.notice.target.at)) }
+        },
+    )
 }
 
 @Composable

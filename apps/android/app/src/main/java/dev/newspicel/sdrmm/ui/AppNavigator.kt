@@ -62,14 +62,21 @@ class AppNavigator(
         if (top() !is Destination.Pair) push(Destination.Pair)
     }
 
+    fun showMission(id: String) {
+        if (runner.open.value == id) follow(id)
+    }
+
     fun run(
         scope: CoroutineScope,
         main: CoroutineDispatcher = Dispatchers.Main.immediate,
     ): Job = scope.launch(main) { runner.open.collect(::follow) }
 
     private fun follow(id: String?) {
-        if (id == null) return
         val top = top()
+        if (id == null) {
+            if (top is Destination.Mission) backStack.removeAt(backStack.lastIndex)
+            return
+        }
         if (top is Destination.Mission && top.id == id) return
         val kind =
             core.missions.value

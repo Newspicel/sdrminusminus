@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
@@ -15,6 +16,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
@@ -27,12 +30,15 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -51,6 +57,7 @@ import dev.newspicel.sdrmm.permissions.Need
 import dev.newspicel.sdrmm.permissions.PermissionGate
 import dev.newspicel.sdrmm.permissions.rememberPermissionGate
 import dev.newspicel.sdrmm.sensors.LocationAccess
+import dev.newspicel.sdrmm.speech.SpeakerState
 import dev.newspicel.sdrmm.ui.Format
 import dev.newspicel.sdrmm.ui.components.BOTTOM_ROOM
 import dev.newspicel.sdrmm.ui.components.ConfirmDialog
@@ -71,6 +78,8 @@ fun SettingsScreen(graph: AppGraph) {
                 graph.sensors,
                 graph.navigator,
                 graph.router,
+                graph.speaker,
+                graph.haptics,
                 graph::activate,
                 BuildConfig.VERSION_NAME,
             )
@@ -103,8 +112,7 @@ fun SettingsContent(
         PhoneSection(state, model)
         HeadingSection(state, model)
         UnitsSection(state, model)
-        SectionTitle(stringResource(R.string.settings_voice))
-        ToggleRow(stringResource(R.string.settings_voice), state.settings.voice, model::setVoice)
+        VoiceSection(state, model)
         NavigationSection(state, model)
         SectionTitle(stringResource(R.string.settings_display))
         ToggleRow(stringResource(R.string.keep_screen_on), state.settings.keepScreenOn, model::setKeepOn)
@@ -255,6 +263,50 @@ private fun UnitsSection(
 }
 
 @Composable
+private fun VoiceSection(
+    state: SettingsUiState,
+    model: SettingsViewModel,
+) {
+    SectionTitle(stringResource(R.string.settings_voice))
+    ToggleRow(stringResource(R.string.settings_voice), state.settings.voice, model::setVoice)
+    val failed = state.speaker as? SpeakerState.Failed
+    if (failed != null) {
+        Text(
+            stringResource(R.string.no_voice),
+            color = LocalStatusColors.current.danger,
+            modifier = Modifier.padding(horizontal = 16.dp).semantics { contentDescription = failed.reason },
+        )
+        return
+    }
+    if (state.voices.isNotEmpty()) VoicePicker(state, model)
+    val phrase = stringResource(R.string.voice_test_phrase)
+    TextButton(
+        onClick = { model.testVoice(phrase) },
+        enabled = state.speaker == SpeakerState.Ready,
+        modifier = Modifier.padding(horizontal = 8.dp),
+    ) { Text(stringResource(R.string.voice_test)) }
+}
+
+@Composable
+private fun VoicePicker(
+    state: SettingsUiState,
+    model: SettingsViewModel,
+) {
+    var open by remember { mutableStateOf(false) }
+    Box(Modifier.padding(horizontal = 8.dp)) {
+        TextButton(onClick = { open = true }) { Text(state.settings.voiceName ?: stringResource(R.string.heading_auto)) }
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            state.voices.forEach { name ->
+                DropdownMenuItem(text = { Text(name) }, onClick = {
+                    open = false
+                    model.pickVoice(name)
+                })
+            }
+        }
+    }
+}
+
+@Composable
 private fun NavigationSection(
     state: SettingsUiState,
     model: SettingsViewModel,
@@ -305,6 +357,7 @@ private fun AboutSection(
     ValueRow(stringResource(R.string.protocol), state.about.protocol.toString())
     TextButton(onClick = openLicenses, modifier = Modifier.padding(horizontal = 8.dp)) { Text(stringResource(R.string.licenses)) }
     TextButton(onClick = openSource, modifier = Modifier.padding(horizontal = 8.dp)) { Text(stringResource(R.string.source_code)) }
+    if (!state.vibrator) Text(stringResource(R.string.no_vibrator), color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 16.dp))
 }
 
 @Composable

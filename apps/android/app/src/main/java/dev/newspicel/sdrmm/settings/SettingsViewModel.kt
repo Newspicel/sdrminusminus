@@ -11,9 +11,12 @@ import dev.newspicel.sdrmm.ffi.HeadingMode
 import dev.newspicel.sdrmm.ffi.LinkState
 import dev.newspicel.sdrmm.ffi.Mount
 import dev.newspicel.sdrmm.ffi.SavedServer
+import dev.newspicel.sdrmm.haptics.Haptics
 import dev.newspicel.sdrmm.mission.NoticeRouter
 import dev.newspicel.sdrmm.sensors.SensorHub
 import dev.newspicel.sdrmm.sensors.SensorStatus
+import dev.newspicel.sdrmm.speech.Speaker
+import dev.newspicel.sdrmm.speech.SpeakerState
 import dev.newspicel.sdrmm.ui.AppNavigator
 import dev.newspicel.sdrmm.ui.Destination
 import dev.newspicel.sdrmm.ui.components.UiText
@@ -32,6 +35,9 @@ data class SettingsUiState(
     val link: LinkState,
     val align: AlignState,
     val sensors: SensorStatus,
+    val speaker: SpeakerState,
+    val voices: List<String>,
+    val vibrator: Boolean,
     val about: CoreAbout,
     val appVersion: String,
     val confirmForget: SavedServer?,
@@ -43,6 +49,8 @@ class SettingsViewModel(
     sensors: SensorHub,
     private val navigator: AppNavigator,
     private val router: NoticeRouter,
+    private val speaker: Speaker,
+    haptics: Haptics,
     private val activate: (String) -> Unit,
     appVersion: String,
 ) : ViewModel() {
@@ -53,7 +61,7 @@ class SettingsViewModel(
     val state: StateFlow<SettingsUiState> =
         combine(settings.settings, servers, core.link, core.pose, sensors.status) { current, listed, link, pose, status ->
             Snapshot(current, listed, link, pose?.align ?: AlignState.Idle, status)
-        }.combine(forget) { snapshot, asked ->
+        }.combine(combine(forget, speaker.state, speaker.voices, ::Triple)) { snapshot, (asked, voice, voices) ->
             SettingsUiState(
                 settings = snapshot.settings,
                 servers = snapshot.listed.servers,
@@ -61,6 +69,9 @@ class SettingsViewModel(
                 link = snapshot.link,
                 align = snapshot.align,
                 sensors = snapshot.status,
+                speaker = voice,
+                voices = voices,
+                vibrator = haptics.available,
                 about = about,
                 appVersion = appVersion,
                 confirmForget = asked,
@@ -75,6 +86,9 @@ class SettingsViewModel(
                 link = core.link.value,
                 align = core.pose.value?.align ?: AlignState.Idle,
                 sensors = sensors.status.value,
+                speaker = speaker.state.value,
+                voices = speaker.voices.value,
+                vibrator = haptics.available,
                 about = about,
                 appVersion = appVersion,
                 confirmForget = null,
@@ -135,6 +149,12 @@ class SettingsViewModel(
     fun setUnits(units: Units) = change { it.copy(units = units) }
 
     fun setVoice(on: Boolean) = change { it.copy(voice = on) }
+
+    fun pickVoice(name: String) = change { it.copy(voiceName = name) }
+
+    fun testVoice(phrase: String) {
+        speaker.say(phrase, urgent = true)
+    }
 
     fun setNav(choice: NavChoice) = change { it.copy(navChoice = choice) }
 

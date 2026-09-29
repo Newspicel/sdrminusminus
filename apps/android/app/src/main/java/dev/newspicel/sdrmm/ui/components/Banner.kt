@@ -2,6 +2,7 @@ package dev.newspicel.sdrmm.ui.components
 
 import android.content.ClipData
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.AlertDialog
@@ -16,6 +17,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.ClipEntry
@@ -35,9 +37,10 @@ import kotlinx.coroutines.launch
 fun BannerHost(
     router: NoticeRouter,
     modifier: Modifier = Modifier,
+    onNavigate: (Banner.Retarget) -> Unit = {},
 ) {
     val banners by router.banners.collectAsStateWithLifecycle()
-    val banner = banners.firstOrNull() as? Banner.Text ?: return
+    val banner = banners.firstOrNull() ?: return
     var open by remember(banner.id) { mutableStateOf(false) }
     LaunchedEffect(banner.id, open) {
         if (open) return@LaunchedEffect
@@ -52,15 +55,34 @@ fun BannerHost(
         modifier
             .padding(horizontal = 12.dp, vertical = 8.dp)
             .fillMaxWidth()
-            .clickable { open = true },
+            .clickable(enabled = banner is Banner.Text) { open = true },
     ) {
-        Text(banner.text.text(), modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp))
+        when (banner) {
+            is Banner.Text -> Text(banner.text.text(), modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp))
+
+            is Banner.Retarget -> RetargetRow(banner, onNavigate = {
+                router.dismiss(banner)
+                onNavigate(banner)
+            })
+        }
     }
-    if (open) {
+    if (open && banner is Banner.Text) {
         BannerDetail(banner, onClose = {
             open = false
             router.dismiss(banner)
         })
+    }
+}
+
+@Composable
+private fun RetargetRow(
+    banner: Banner.Retarget,
+    onNavigate: () -> Unit,
+) {
+    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = 16.dp)) {
+        val text = banner.distanceText?.let { stringResource(R.string.new_target_banner, it) } ?: stringResource(R.string.new_target)
+        Text(text, modifier = Modifier.weight(1f))
+        TextButton(onClick = onNavigate) { Text(stringResource(R.string.navigate), color = MaterialTheme.colorScheme.background) }
     }
 }
 

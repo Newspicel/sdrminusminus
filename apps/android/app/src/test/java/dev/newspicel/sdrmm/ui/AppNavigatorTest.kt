@@ -8,6 +8,7 @@ import dev.newspicel.sdrmm.mission.Banner
 import dev.newspicel.sdrmm.mission.MissionRunner
 import dev.newspicel.sdrmm.mission.NoticeRouter
 import dev.newspicel.sdrmm.testing.FakeCoreGateway
+import dev.newspicel.sdrmm.testing.FakeServiceControl
 import dev.newspicel.sdrmm.testing.FakeSettingsStore
 import dev.newspicel.sdrmm.testing.MainDispatcherRule
 import dev.newspicel.sdrmm.testing.Samples
@@ -19,8 +20,8 @@ class AppNavigatorTest {
     @get:Rule val main = MainDispatcherRule()
 
     private val core = FakeCoreGateway()
-    private val router = NoticeRouter(core, FakeSettingsStore())
-    private val runner = MissionRunner(core)
+    private val router = NoticeRouter(core, FakeSettingsStore(), Samples.retargets())
+    private val runner = MissionRunner(core, FakeServiceControl())
 
     private fun navigator() = AppNavigator(core, runner, router)
 
@@ -54,6 +55,19 @@ class AppNavigatorTest {
         assertThat(navigator.backStack).containsExactly(Destination.Missions)
         assertThat(core.calls).containsAtLeast("openMission:m1", "openMission:m2", "closeMission").inOrder()
         assertThat(runner.open.value).isNull()
+    }
+
+    @Test
+    fun a_mission_stopped_elsewhere_leaves_its_screen() = runTest {
+        core.servers += Samples.server()
+        val hunt = Samples.mission("m1", MissionKind.HUNT)
+        core.missions.value = Samples.missions(hunt)
+        val navigator = navigator()
+        navigator.run(backgroundScope, main.dispatcher)
+        navigator.openMission(hunt)
+        runner.close()
+        assertThat(navigator.backStack).containsExactly(Destination.Missions)
+        assertThat(core.calls.count { it == "closeMission" }).isEqualTo(1)
     }
 
     @Test

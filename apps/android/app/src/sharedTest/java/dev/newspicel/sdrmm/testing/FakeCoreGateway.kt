@@ -55,6 +55,7 @@ class FakeCoreGateway : CoreGateway {
     val motions: MutableList<MotionSample> = Collections.synchronizedList(mutableListOf())
     val poseSettings: MutableList<PoseSettings> = Collections.synchronizedList(mutableListOf())
     val localNetwork: MutableList<Boolean> = Collections.synchronizedList(mutableListOf())
+    val commands: MutableList<MissionCommand> = Collections.synchronizedList(mutableListOf())
 
     @Suppress("UNCHECKED_CAST")
     private fun <T> scripted(
@@ -134,7 +135,10 @@ class FakeCoreGateway : CoreGateway {
         calls += "closeMission"
     }
 
-    override suspend fun send(command: MissionCommand): Outcome<Unit> = scripted("send:${command.javaClass.simpleName}", Unit)
+    override suspend fun send(command: MissionCommand): Outcome<Unit> {
+        commands += command
+        return scripted("send:${command.javaClass.simpleName}", Unit)
+    }
 
     override fun pushLocation(sample: LocationSample) {
         locations += sample

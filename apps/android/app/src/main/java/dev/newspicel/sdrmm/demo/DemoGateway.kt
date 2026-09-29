@@ -17,12 +17,14 @@ import dev.newspicel.sdrmm.ffi.MissionKind
 import dev.newspicel.sdrmm.ffi.MissionsView
 import dev.newspicel.sdrmm.ffi.MotionSample
 import dev.newspicel.sdrmm.ffi.NavApp
+import dev.newspicel.sdrmm.ffi.NavPoint
 import dev.newspicel.sdrmm.ffi.Notice
 import dev.newspicel.sdrmm.ffi.PairOffer
 import dev.newspicel.sdrmm.ffi.PoseSettings
 import dev.newspicel.sdrmm.ffi.PoseView
 import dev.newspicel.sdrmm.ffi.RadarView
 import dev.newspicel.sdrmm.ffi.RetargetNotice
+import dev.newspicel.sdrmm.ffi.RetargetReason
 import dev.newspicel.sdrmm.ffi.RgbaImage
 import dev.newspicel.sdrmm.ffi.SavedServer
 import dev.newspicel.sdrmm.ffi.SurveyPoint
@@ -53,17 +55,26 @@ class DemoGateway(
     private val imageState = MutableStateFlow<RgbaImage?>(null)
     private val openId = MutableStateFlow<String?>(null)
     private val running = MutableStateFlow(true)
+    private val poseState = MutableStateFlow<PoseView?>(script.pose())
+    private val surveyState = MutableStateFlow<SurveyView?>(null)
+    private val pointsFlow = MutableSharedFlow<List<SurveyPoint>>(extraBufferCapacity = BUFFER)
+    private val retargetFlow = MutableSharedFlow<RetargetNotice>(extraBufferCapacity = BUFFER)
+    private val announced = MutableStateFlow<NavPoint?>(null)
+    private val sweepFrom = MutableStateFlow<Long?>(null)
+    private val recording = MutableStateFlow(true)
+    private val surveyed = MutableStateFlow(0L)
+    private var lastTick = 0L
 
     override val link: StateFlow<LinkState> = linkState.asStateFlow()
     override val missions: StateFlow<MissionsView?> = missionsState.asStateFlow()
-    override val pose: StateFlow<PoseView?> = MutableStateFlow(script.pose()).asStateFlow()
+    override val pose: StateFlow<PoseView?> = poseState.asStateFlow()
     override val hunt: StateFlow<HuntView?> = huntState.asStateFlow()
     override val df: StateFlow<DfView?> = dfState.asStateFlow()
     override val radar: StateFlow<RadarView?> = radarState.asStateFlow()
     override val radarImage: StateFlow<RgbaImage?> = imageState.asStateFlow()
-    override val survey: StateFlow<SurveyView?> = MutableStateFlow<SurveyView?>(null).asStateFlow()
-    override val surveyPoints: SharedFlow<List<SurveyPoint>> = MutableSharedFlow<List<SurveyPoint>>().asSharedFlow()
-    override val retargets: SharedFlow<RetargetNotice> = MutableSharedFlow<RetargetNotice>().asSharedFlow()
+    override val survey: StateFlow<SurveyView?> = surveyState.asStateFlow()
+    override val surveyPoints: SharedFlow<List<SurveyPoint>> = pointsFlow.asSharedFlow()
+    override val retargets: SharedFlow<RetargetNotice> = retargetFlow.asSharedFlow()
     override val notices: SharedFlow<Notice> = MutableSharedFlow<Notice>().asSharedFlow()
     override val missedUpdates: StateFlow<Long> = MutableStateFlow(0L).asStateFlow()
 
@@ -77,24 +88,49 @@ class DemoGateway(
     }
 
     fun step(tick: Long) {
+        lastTick = tick
         when (script.kindOf(openId.value)) {
-            MissionKind.HUNT -> {
-                huntState.value = script.hunt(tick, running.value)
-            }
+            MissionKind.HUNT -> hunt(tick)
 
-            MissionKind.DF_DRIVE -> {
-                dfState.value = script.df(tick)
-            }
+            MissionKind.DF_DRIVE -> df(tick)
 
             MissionKind.RADAR_WATCH -> {
                 radarState.value = script.radar(tick)
                 imageState.value = script.image(tick)
             }
 
-            else -> {
-                Unit
-            }
+            MissionKind.SURVEY -> survey(tick)
+
+            null -> Unit
         }
+    }
+
+    private fun hunt(tick: Long) {
+        val from = sweepFrom.value
+        val sweep = from?.let { script.sweep(tick - it) }
+        poseState.value = script.pose(from?.let { script.sweepHeading(tick - it) } ?: script.pose().headingDeg ?: 0.0)
+        huntState.value = script.hunt(tick, running.value, sweep)
+    }
+
+    private fun df(tick: Long) {
+        val view = script.df(tick)
+        dfState.value = view
+        val target = view.target ?: return
+        val last = announced.value
+        if (last == target) return
+        announced.value = target
+        val reason = if (last == null) RetargetReason.FIRST else RetargetReason.MOVED
+        val moved = last?.let { DemoScript.distanceM(it.at, target.at) } ?: 0.0
+        retargetFlow.tryEmit(RetargetNotice(DemoScript.DF_ID, target, moved, reason))
+    }
+
+    private fun survey(tick: Long) {
+        val point = script.surveyPoint(tick)
+        if (recording.value) {
+            surveyed.value += 1
+            pointsFlow.tryEmit(listOf(point))
+        }
+        surveyState.value = script.survey(point.levelDb, surveyed.value, recording.value)
     }
 
     override fun about(): CoreAbout = base?.about() ?: CoreAbout(coreVersion = "-", protocol = 0u)
@@ -162,9 +198,23 @@ class DemoGateway(
     override suspend fun send(command: MissionCommand): Outcome<Unit> {
         when (command) {
             MissionCommand.StartHunt -> running.value = true
+
             MissionCommand.StopHunt -> running.value = false
+
             is MissionCommand.Tune -> script.tune(command.hz)
-            else -> Unit
+
+            is MissionCommand.Sweep -> {
+                sweepFrom.value = if (command.on) lastTick else null
+                if (command.on) running.value = true
+            }
+
+            MissionCommand.StartSurvey -> recording.value = true
+
+            MissionCommand.StopSurvey -> recording.value = false
+
+            MissionCommand.ClearSurvey -> surveyed.value = 0
+
+            MissionCommand.Mark, MissionCommand.Calibrate, MissionCommand.ClearFusion, is MissionCommand.SetTargetMode -> Unit
         }
         huntState.update { it?.copy(running = running.value) }
         return Outcome.Ok(Unit)
@@ -204,5 +254,6 @@ class DemoGateway(
         const val SERVER_NAME = "Demo"
         private const val DEMO_REFUSAL = "Not in demo"
         private const val TICK_MS = 500L
+        private const val BUFFER = 64
     }
 }

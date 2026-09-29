@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.ACCESS_LOCAL_NETWORK" />
@@ -45,6 +46,13 @@
         android:usesCleartextTraffic="false"
         android:theme="@style/Theme.Sdrmm">
 
+        <meta-data
+            android:name="com.google.android.gms.car.application"
+            android:resource="@xml/automotive_app_desc" />
+        <meta-data
+            android:name="androidx.car.app.minCarApiLevel"
+            android:value="7" />
+
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -61,5 +69,20 @@
                 <data android:scheme="sdrmm" android:host="pair" />
             </intent-filter>
         </activity>
+
+        <service
+            android:name=".mission.MissionService"
+            android:exported="false"
+            android:foregroundServiceType="location" />
+
+        <service
+            android:name=".car.SdrmmCarAppService"
+            android:exported="true"
+            tools:ignore="ExportedService">
+            <intent-filter>
+                <action android:name="androidx.car.app.CarAppService" />
+                <category android:name="androidx.car.app.category.NAVIGATION" />
+            </intent-filter>
+        </service>
     </application>
 </manifest>

@@ -34,7 +34,7 @@ class PairFlowDeviceTest {
         compose.onNode(hasText("Pair") and hasClickAction() and !hasSetTextAction()).performClick()
         compose.onNodeWithText("Trust server?").assertExists()
         compose.onNodeWithText("Trust").performClick()
-        compose.waitUntil(PATIENCE_MS) { compose.onAllNodesWithTextExists("Missions") }
+        compose.waitUntil(PATIENCE_MS) { compose.onAllNodesWithTextExists("No missions") }
         assertThat(app.fakeCore.calls).containsAtLeast("offerManual:10.0.2.2:8443", "pair:${app.fakeSettings.settings.value.phoneName}", "connect:s1")
         assertThat(app.fakeSettings.settings.value.activeServerId).isEqualTo("s1")
     }

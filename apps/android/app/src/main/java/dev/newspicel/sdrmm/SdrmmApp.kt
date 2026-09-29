@@ -2,11 +2,15 @@ package dev.newspicel.sdrmm
 
 import android.app.Application
 import android.util.Log
+import dev.newspicel.sdrmm.audio.AudioClickTrack
 import dev.newspicel.sdrmm.core.CoreGateway
 import dev.newspicel.sdrmm.core.ErrorText
 import dev.newspicel.sdrmm.core.Outcome
 import dev.newspicel.sdrmm.core.UniffiCoreGateway
 import dev.newspicel.sdrmm.demo.DemoGateway
+import dev.newspicel.sdrmm.haptics.VibratorHaptics
+import dev.newspicel.sdrmm.mission.MissionNotifications
+import dev.newspicel.sdrmm.mission.MissionServiceControl
 import dev.newspicel.sdrmm.pair.Discovery
 import dev.newspicel.sdrmm.pair.NsdDiscovery
 import dev.newspicel.sdrmm.secrets.KeystoreCipher
@@ -14,6 +18,7 @@ import dev.newspicel.sdrmm.secrets.KeystoreVault
 import dev.newspicel.sdrmm.settings.DataStoreSettingsStore
 import dev.newspicel.sdrmm.settings.MemorySettingsStore
 import dev.newspicel.sdrmm.settings.SettingsStore
+import dev.newspicel.sdrmm.speech.TtsSpeaker
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -36,6 +41,7 @@ open class SdrmmApp :
 
     override fun onCreate() {
         super.onCreate()
+        MissionNotifications.createChannels(this)
         show(build(demo = false))
     }
 
@@ -55,15 +61,19 @@ open class SdrmmApp :
         if (demo) {
             val settings = MemorySettingsStore(realSettings.settings.value.copy(activeServerId = DemoGateway.SERVER_ID))
             val gateway = DemoGateway((realCore as? CoreLoad.Loaded)?.core)
-            return Startup.Ready(AppGraph.assemble(this, gateway, settings, this, createDiscovery()))
+            return Startup.Ready(AppGraph.assemble(this, gateway, settings, this, createDiscovery(), createOutputs()))
         }
         return when (val core = realCore) {
             is CoreLoad.Broken -> Startup.Failed(core.message)
-            is CoreLoad.Loaded -> Startup.Ready(AppGraph.assemble(this, core.core, realSettings, this, createDiscovery()))
+            is CoreLoad.Loaded -> Startup.Ready(AppGraph.assemble(this, core.core, realSettings, this, createDiscovery(), createOutputs()))
         }
     }
 
     protected open fun createDiscovery(): Discovery = NsdDiscovery(this)
+
+    protected open fun createOutputs(): OutputFactory = OutputFactory { app, settings, scope ->
+        Outputs(TtsSpeaker(app, settings, scope), AudioClickTrack(app), VibratorHaptics(app), MissionServiceControl(app))
+    }
 
     protected open fun createSettings(): SettingsStore = DataStoreSettingsStore.create(this, appScope)
 

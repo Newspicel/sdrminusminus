@@ -28,7 +28,7 @@ class SettingsViewModelTest {
     private val core = FakeCoreGateway().apply { servers += Samples.server() }
     private val settings = FakeSettingsStore(AppSettings(phoneName = "Pixel", activeServerId = "s1"))
     private val graph: AppGraph by lazy { TestAppGraph.create(ApplicationProvider.getApplicationContext(), core, settings) }
-    private val model by lazy { SettingsViewModel(core, settings, graph.sensors, graph.navigator, graph.router, graph::activate, "1.2.3") }
+    private val model by lazy { SettingsViewModel(core, settings, graph.sensors, graph.navigator, graph.router, graph.speaker, graph.haptics, graph::activate, "1.2.3") }
 
     @Test
     fun pose_settings() = runTest {

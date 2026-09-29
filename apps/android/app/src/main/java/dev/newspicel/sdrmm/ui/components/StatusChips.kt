@@ -14,12 +14,13 @@ import dev.newspicel.sdrmm.R
 import dev.newspicel.sdrmm.ffi.HeadingSourceKind
 import dev.newspicel.sdrmm.ffi.LinkState
 import dev.newspicel.sdrmm.ffi.PoseView
+import dev.newspicel.sdrmm.mission.BackgroundState
 import dev.newspicel.sdrmm.sensors.LocationAccess
 import dev.newspicel.sdrmm.sensors.SensorStatus
 import dev.newspicel.sdrmm.ui.theme.LocalStatusColors
 import kotlin.math.roundToInt
 
-enum class ChipAction { AllowLocation, LocationSettings }
+enum class ChipAction { AllowLocation, LocationSettings, AllowNotifications }
 
 data class Chip(
     val text: UiText,
@@ -41,7 +42,20 @@ object Chips {
         LinkState.Offline -> Chip(UiText.Res(R.string.link_offline), problem = true)
     }
 
-    private fun sharing(pose: PoseView?): Chip? = if (pose?.sending == true) Chip(UiText.Res(R.string.chip_sharing), problem = false) else null
+    fun mission(
+        link: LinkState,
+        status: SensorStatus,
+        pose: PoseView?,
+        background: BackgroundState,
+    ): List<Chip> = of(link, status, pose) + listOfNotNull(background(background))
+
+    fun background(background: BackgroundState): Chip? = if (background is BackgroundState.Off) Chip(UiText.Res(R.string.chip_background_off), problem = true) else null
+
+    fun alerts(off: Boolean): Chip? = if (off) Chip(UiText.Res(R.string.chip_alerts_off), true, ChipAction.AllowNotifications) else null
+
+    fun tiles(failed: Boolean): Chip? = if (failed) Chip(UiText.Res(R.string.chip_no_tiles), problem = true) else null
+
+    fun sharing(pose: PoseView?): Chip? = if (pose?.sending == true) Chip(UiText.Res(R.string.chip_sharing), problem = false) else null
 
     fun location(status: SensorStatus): Chip? = when {
         status.access == LocationAccess.Off -> Chip(UiText.Res(R.string.chip_location_off), true, ChipAction.AllowLocation)
