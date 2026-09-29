@@ -122,7 +122,8 @@ jobs:
         shell: bash
         run: test -s "$STAGED.tar.gz" || test -s "$STAGED.zip"
       - name: Linking
-        if: runner.os == 'macOS'
+        if: runner.os != 'Linux'
+        shell: bash
         run: cargo xtask link-check "$STAGED"
       - name: Version
         if: ${{ !matrix.cross }}
@@ -347,6 +348,13 @@ jobs:
       - name: App linking
         if: runner.os == 'macOS'
         run: cargo xtask link-check "target/${{ matrix.target }}/release/bundle/macos"
+      - name: Installer linking
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $setup = Get-ChildItem "target/${{ matrix.target }}/release/bundle/nsis/*-setup.exe"
+          Start-Process $setup.FullName -ArgumentList '/S', "/D=$PWD\installed" -Wait
+          cargo xtask link-check installed
       - name: AppImage audio
         if: contains(matrix.bundles, 'appimage')
         run: scripts/ci/check-appimage-audio.sh "target/${{ matrix.target }}/release/bundle/appimage"
@@ -497,11 +505,21 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       VERSION: ${{ needs.version.outputs.version }}
     steps:
+      - name: Listed
+        id: listed
+        run: |
+          if gh api repos/microsoft/winget-pkgs/contents/manifests/n/Newspicel/SDRminusminus --silent; then
+            echo "listed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::Not in winget-pkgs yet, skipping"
+          fi
       - name: Install Komac
+        if: steps.listed.outputs.listed == 'true'
         run: |
           gh release download v2.16.0 --repo russellbanks/Komac \
             --pattern 'komac-2.16.0-x86_64-unknown-linux-gnu.tar.gz' --output - | tar -xz -C "$RUNNER_TEMP" komac
       - name: Submit manifest
+        if: steps.listed.outputs.listed == 'true'
         env:
           GITHUB_TOKEN: ${{ secrets.WINGET_TOKEN }}
         run: |
