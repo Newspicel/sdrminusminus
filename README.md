@@ -111,8 +111,8 @@ every check.
 
 ## Thanks
 
-[KrakenRF](https://www.krakenrf.com) and [Airspy](https://airspy.com) provided hardware for
-development and testing.
+[KrakenRF](https://www.krakenrf.com), [Airspy](https://airspy.com) and
+[AntSDR](https://www.microphase.cn/) provided hardware for development and testing.
 
 Making a radio? Write to [hi@jhaag.me](mailto:hi@jhaag.me) to get it supported and tested.
 

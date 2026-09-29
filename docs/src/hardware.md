@@ -212,6 +212,8 @@ gigabit Ethernet much more. On a 2×2 board both RX lanes share a clock and are 
 
 Linux needs the libiio udev rules. `sdrmm --doctor` checks for them.
 
+Tested on hardware provided by [AntSDR](https://www.microphase.cn/).
+
 ## SDRplay
 
 Install the [SDRplay API](https://www.sdrplay.com/downloads/) 3.15 or newer and keep
