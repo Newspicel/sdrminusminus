@@ -1,7 +1,34 @@
 ---
 import Page from "../layouts/Page.astro";
-import { APP } from "../nav";
-import { euros, lowest, monthsFree, PLANS } from "../plans";
+import { APP, CONTACT } from "../nav";
+import { euros, lowest, monthsFree, PLANS, people, sites, TRIAL_DAYS } from "../plans";
+
+const offers = [
+  ...PLANS.map((plan) => ({
+    name: plan.name,
+    price: euros(plan.monthly),
+    unit: plan.perSeat ? "per seat a month" : "a month",
+    note: `Or ${euros(plan.yearly)} a year${plan.perSeat ? " per seat" : ""}, ${monthsFree(plan)} months free.`,
+    terms: [
+      { label: "People", value: people(plan) },
+      { label: "Sites", value: sites(plan) },
+      { label: "Free trial", value: `${TRIAL_DAYS} days` },
+    ],
+    action: { label: "Start trial", href: APP, primary: true },
+  })),
+  {
+    name: "Enterprise",
+    price: "Custom",
+    unit: "",
+    note: "Tell us what you need.",
+    terms: [
+      { label: "People", value: "Any" },
+      { label: "Sites", value: "Any" },
+      { label: "Free trial", value: "On request" },
+    ],
+    action: { label: "Contact us", href: CONTACT, primary: false },
+  },
+];
 
 const steps = [
   {
@@ -55,29 +82,36 @@ const facts = [
   </section>
 
   <section class="wrap" id="pricing">
-    <h2>app.sdrmm.com pricing</h2>
-    <p class="section-lede">SDR-- and your own tunnel stay free.</p>
+    <header class="pricing-head">
+      <h2>app.sdrmm.com pricing</h2>
+      <p class="section-lede">SDR-- and your own tunnel stay free.</p>
+    </header>
     <div class="plans">
       {
-        PLANS.map((plan) => (
+        offers.map((offer) => (
           <div class="plan">
-            <h3>{plan.name}</h3>
+            <h3>{offer.name}</h3>
             <p class="price">
-              {euros(plan.monthly)}
-              <span>{plan.perSeat ? "per seat a month" : "a month"}</span>
+              {offer.price}
+              {offer.unit && <span>{offer.unit}</span>}
             </p>
-            <p>
-              Or {euros(plan.yearly)} a year{plan.perSeat && " per seat"}, {monthsFree(plan)} months free.
-            </p>
-            {plan.minSeats > 1 && <p>From {plan.minSeats} seats.</p>}
+            <p>{offer.note}</p>
+            <dl>
+              {offer.terms.map((term) => (
+                <div>
+                  <dt>{term.label}</dt>
+                  <dd>{term.value}</dd>
+                </div>
+              ))}
+            </dl>
+            <a class:list={["btn", offer.action.primary ? "primary" : "ghost"]} href={offer.action.href}>
+              {offer.action.label}
+            </a>
           </div>
         ))
       }
     </div>
-    <div class="actions">
-      <a class="btn primary" href={APP}>Sign in</a>
-      <a class="btn ghost" href="#connect">How to connect</a>
-    </div>
+    <p class="fine">Prices include VAT. Cancel during the trial and you pay nothing.</p>
   </section>
 
   <section class="wrap" id="connect">
@@ -189,15 +223,25 @@ const facts = [
     color: var(--ink);
   }
 
+  .pricing-head {
+    text-align: center;
+  }
+  .pricing-head .section-lede {
+    margin-inline: auto;
+  }
   .plans {
     display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    max-width: 880px;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-rows: repeat(5, auto);
     border: 1px solid var(--line);
     border-radius: var(--radius-lg);
     background: var(--panel);
   }
   .plan {
+    display: grid;
+    grid-row: span 5;
+    grid-template-rows: subgrid;
+    row-gap: 0;
     padding: 28px 28px 30px;
   }
   .plan + .plan {
@@ -225,8 +269,33 @@ const facts = [
     letter-spacing: 0;
     color: var(--ink-faint);
   }
-  #pricing .actions {
-    margin-top: 28px;
+  .plan dl {
+    margin: 22px 0 26px;
+    border-top: 1px solid var(--line);
+  }
+  .plan dl div {
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+    padding-block: 9px;
+    border-bottom: 1px solid var(--line);
+    font-size: 15px;
+  }
+  .plan dt {
+    color: var(--ink-faint);
+  }
+  .plan dd {
+    margin: 0;
+    color: var(--ink);
+  }
+  .plan .btn {
+    justify-content: center;
+  }
+  .fine {
+    margin: 20px 0 0;
+    text-align: center;
+    font-size: 14px;
+    color: var(--ink-faint);
   }
 
   .steps {
@@ -279,9 +348,10 @@ const facts = [
     border-left: 2px solid var(--line-strong);
   }
 
-  @media (max-width: 640px) {
+  @media (max-width: 860px) {
     .plans {
       grid-template-columns: minmax(0, 1fr);
+      grid-template-rows: none;
     }
     .plan + .plan {
       border-left: 0;
