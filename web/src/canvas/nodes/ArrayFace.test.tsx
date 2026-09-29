@@ -116,6 +116,12 @@ describe("ArrayFace", () => {
     }
   });
 
+  it("takes a typed frequency once the array runs", () => {
+    const typed = /<\w+[^>]*aria-label="Type a frequency"[^>]*>/;
+    expect(render(wires("kraken", 5)).match(typed)?.[0]).toContain('disabled=""');
+    expect(render(wires("kraken", 5), fiveLanes()).match(typed)?.[0]).not.toContain('disabled=""');
+  });
+
   it("offers a tier choice only for several radios", () => {
     const one = render(wires("kraken", 5), fiveLanes({ tier: "phase_coherent" }));
     expect(one).not.toContain('aria-label="Array tier"');

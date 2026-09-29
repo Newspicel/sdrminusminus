@@ -1,11 +1,12 @@
 import { useMutation } from "@tanstack/react-query";
 import { Button } from "../../components/BaseControls";
 import { BTN, BTN_PRIMARY, type Options } from "../../components/controls";
-import { ANY_FREQUENCY, tuningRange } from "../../components/dial";
+import { ANY_FREQUENCY, inTuningRange, tuningRange } from "../../components/dial";
 import { dialId, FrequencyDial } from "../../components/FrequencyDial";
 import { formatMhz } from "../../components/format";
 import { Readout, ReadoutRow } from "../../components/Readout";
 import { Segmented } from "../../components/Segmented";
+import { TuneTo } from "../../components/TuneTo";
 import { calibrateArray, startArrayRecording, stopArrayRecording } from "../../lib/api";
 import { failureText, shownCenterHz, useArrayStore } from "../../lib/arrays";
 import { clearAction, failAction } from "../../lib/refusals";
@@ -163,16 +164,31 @@ function ArrayDial({
   const { tuneArray } = useArrayTune();
   const centerHz = useArrayStore((store) => shownCenterHz(store, node));
   const active = useFaceActive();
+  const range = lead === undefined ? ANY_FREQUENCY : tuningRange(lead.capabilities);
+  const held = status === undefined;
+  const tune = (hz: number): void => tuneArray(node, hz);
   return (
     <div className="@container flex min-w-0 flex-col gap-2 p-2">
-      <FrequencyDial
-        id={dialId(node, 0)}
-        hz={centerHz ?? 0}
-        range={lead === undefined ? ANY_FREQUENCY : tuningRange(lead.capabilities)}
-        disabled={status === undefined}
-        wheelTunes={active}
-        onTune={(hz) => tuneArray(node, hz)}
-      />
+      <div className="flex min-w-0 items-center gap-2">
+        <FrequencyDial
+          id={dialId(node, 0)}
+          hz={centerHz ?? 0}
+          range={range}
+          disabled={held}
+          wheelTunes={active}
+          onTune={tune}
+        />
+        <span className="ml-auto flex shrink-0 items-center gap-1">
+          <TuneTo
+            title="Type a frequency"
+            hz={centerHz ?? 0}
+            hint={`Reaches ${formatMhz(range.min)} to ${formatMhz(range.max)}`}
+            resolve={(entered) => inTuningRange(entered, range)}
+            disabled={held}
+            onTune={tune}
+          />
+        </span>
+      </div>
       <div className="flex flex-wrap items-center gap-2">
         <Segmented
           label="Lane tuning"

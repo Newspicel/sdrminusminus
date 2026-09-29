@@ -14,7 +14,7 @@ function template(extra: Partial<TemplateInfo>): TemplateInfo {
     min_freq_hz: 100e6,
     max_freq_hz: 100e6,
     ...extra,
-  } as TemplateInfo;
+  };
 }
 
 describe("templateSize", () => {
