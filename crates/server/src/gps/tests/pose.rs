@@ -277,3 +277,34 @@ async fn a_silent_phone_is_reported() {
         "a new pose did not end the silence"
     );
 }
+
+#[test]
+fn a_revoked_phone_is_not_paired_on_its_nodes() {
+    let app = app();
+    let quiet = pair_one(&app.phones).phone.id;
+    let live = pair_one(&app.phones).phone.id;
+    activate(
+        &app,
+        vec![phone_node("car", &quiet), phone_node("bike", &live)],
+    );
+    let (socket, _) = app.phones.join(&live);
+    app.gps.phone_online(&app, &live);
+    app.gps
+        .publish_pose(&app, &live, Some(pose(52.52, 87.5)), None)
+        .expect("pose");
+
+    app.phones.revoke(&app, &quiet).expect("revoke");
+    assert_eq!(error_of(&app, "car").as_deref(), Some(PHONE_NOT_PAIRED));
+
+    app.phones.revoke(&app, &live).expect("revoke");
+    assert!(*socket.revoked.borrow());
+    assert_eq!(
+        app.gps
+            .publish_pose(&app, &live, Some(pose(52.53, 88.0)), None),
+        Err(PHONE_NOT_PAIRED.to_owned())
+    );
+    assert!(app.phones.leave(socket));
+    app.gps.phone_offline(&app, &live);
+    assert_eq!(app.gps.fix("bike"), None);
+    assert_eq!(error_of(&app, "bike").as_deref(), Some(PHONE_NOT_PAIRED));
+}

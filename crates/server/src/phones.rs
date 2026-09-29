@@ -34,6 +34,7 @@ pub(crate) struct Phones {
     sessions: sessions::Sessions,
     seen: Mutex<HashMap<String, Timestamp>>,
     stored: Mutex<()>,
+    pairing: Mutex<()>,
 }
 
 pub(crate) enum Verified {
@@ -50,11 +51,16 @@ impl Phones {
             sessions: sessions::Sessions::default(),
             seen: Mutex::new(HashMap::new()),
             stored: Mutex::new(()),
+            pairing: Mutex::new(()),
         }
     }
 
     fn in_step_with_the_store(&self) -> MutexGuard<'_, ()> {
         self.stored.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    fn one_attempt_at_a_time(&self) -> MutexGuard<'_, ()> {
+        self.pairing.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
     fn seen(&self) -> MutexGuard<'_, HashMap<String, Timestamp>> {
@@ -83,21 +89,18 @@ impl Phones {
             .remove(id);
     }
 
-    fn secret_of(&self, id: &str) -> Option<[u8; 32]> {
+    fn secret_of(&self, id: &str) -> Result<Option<[u8; 32]>, StoreError> {
         if let Some(secret) = self.cached(id) {
-            return Some(secret);
+            return Ok(Some(secret));
         }
         let _step = self.in_step_with_the_store();
         match self.store.phone(id) {
             Ok(row) => {
                 self.remember(id, row.secret_sha256);
-                Some(row.secret_sha256)
+                Ok(Some(row.secret_sha256))
             }
-            Err(StoreError::PhoneNotFound(_)) => None,
-            Err(error) => {
-                tracing::warn!(%error, phone = id, "could not read a paired phone");
-                None
-            }
+            Err(StoreError::PhoneNotFound(_)) => Ok(None),
+            Err(error) => Err(error),
         }
     }
 
@@ -109,13 +112,20 @@ impl Phones {
         }
     }
 
-    pub(crate) fn verify(&self, token: &PhoneToken) -> bool {
-        self.secret_of(&token.phone)
-            .is_some_and(|stored| matches(token, &stored))
+    pub(crate) fn verify(&self, token: &PhoneToken) -> Result<bool, StoreError> {
+        Ok(self
+            .secret_of(&token.phone)?
+            .is_some_and(|stored| matches(token, &stored)))
     }
 
     pub(crate) fn known(&self, id: &str) -> bool {
-        self.secret_of(id).is_some()
+        match self.secret_of(id) {
+            Ok(secret) => secret.is_some(),
+            Err(error) => {
+                tracing::warn!(%error, phone = id, "could not read a paired phone");
+                true
+            }
+        }
     }
 
     pub(crate) fn touch(&self, phone: &str) {
@@ -187,6 +197,7 @@ impl Phones {
 
     pub(crate) fn revoke(&self, state: &AppState, id: &str) -> Result<(), AppError> {
         self.remove(id)?;
+        state.gps.phone_offline(state, id);
         state.engine.emit_scope(StateScope::Phones);
         Ok(())
     }

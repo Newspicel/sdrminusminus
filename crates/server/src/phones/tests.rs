@@ -160,6 +160,43 @@ fn five_wrong_codes_burn_the_offer() {
 }
 
 #[test]
+fn racing_guesses_share_the_five_tries() {
+    const GUESSERS: u32 = 48;
+    let phones = phones();
+    let offer = phones
+        .create_offer(None, &endpoint(), SERVER, Timestamp::now())
+        .expect("offer");
+    let code: u32 = offer.code.parse().expect("digits");
+    let start = std::sync::Barrier::new(GUESSERS as usize);
+    let outcomes: Vec<Result<PairResponse, PairError>> = std::thread::scope(|scope| {
+        let guesses: Vec<_> = (1..=GUESSERS)
+            .map(|step| {
+                let guess = request(&format!("{:08}", (code + step) % 100_000_000));
+                let (phones, start) = (&phones, &start);
+                scope.spawn(move || {
+                    start.wait();
+                    phones.pair(&guess, "server", SERVER, Timestamp::now())
+                })
+            })
+            .collect();
+        guesses
+            .into_iter()
+            .map(|guess| guess.join().expect("guesser"))
+            .collect()
+    });
+    let counted = outcomes
+        .iter()
+        .filter(|outcome| matches!(outcome, Err(PairError::WrongCode { .. })))
+        .count();
+    let burned = outcomes
+        .iter()
+        .filter(|outcome| matches!(outcome, Err(PairError::Burned)))
+        .count();
+    assert_eq!(counted, PAIR_MAX_FAILURES as usize - 1);
+    assert_eq!(counted + burned, GUESSERS as usize, "{outcomes:?}");
+}
+
+#[test]
 fn an_expired_offer_refuses() {
     let phones = phones();
     let now = Timestamp::now();
@@ -231,7 +268,7 @@ fn secrets_are_stored_hashed() {
     let row = phones.store.phone(&token.phone).expect("row");
     assert_eq!(row.secret_sha256, token::hash(token.secret()));
     assert_ne!(&row.secret_sha256, token.secret());
-    assert!(phones.verify(&token));
+    assert!(phones.verify(&token).expect("store"));
 }
 
 #[test]
@@ -255,8 +292,11 @@ fn rebind_keeps_the_id_and_rotates_the_secret() {
         .expect("re-pair");
     assert_eq!(again.phone.id, first.phone.id);
     assert_eq!(again.phone.platform, PhonePlatform::Ios);
-    assert!(!phones.verify(&token(&first)), "the old key still opens");
-    assert!(phones.verify(&token(&again)));
+    assert!(
+        !phones.verify(&token(&first)).expect("store"),
+        "the old key still opens"
+    );
+    assert!(phones.verify(&token(&again)).expect("store"));
     assert_eq!(phones.list(None).expect("list").len(), 1);
 }
 
@@ -280,7 +320,7 @@ fn a_rebind_token_that_does_not_verify_pairs_a_new_phone() {
         )
         .expect("pair");
     assert_ne!(second.phone.id, first.phone.id);
-    assert!(phones.verify(&token(&first)));
+    assert!(phones.verify(&token(&first)).expect("store"));
 }
 
 #[test]

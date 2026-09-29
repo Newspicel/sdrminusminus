@@ -1,9 +1,9 @@
-use std::sync::Arc;
+use std::{net::IpAddr, sync::Arc};
 
 use axum::{
     Json,
     extract::{MatchedPath, Request, State},
-    http::{HeaderMap, StatusCode, header},
+    http::{HeaderMap, StatusCode, Uri, header},
     middleware::Next,
     response::{IntoResponse, Response},
 };
@@ -20,6 +20,9 @@ use crate::{
 const PUBLIC_PATHS: &[&str] = &["/api/auth", "/api/about", "/api/openapi.json"];
 const PUBLIC_PREFIXES: &[&str] = &["/api/docs"];
 const PAIR_PATH: &str = "/api/phones/pair";
+const KEYS_UNREADABLE: &str = "Phone keys unreadable, try again";
+const LOCAL_NAME: &str = "localhost";
+const LOCAL_SUFFIX: &str = ".localhost";
 
 #[derive(Clone, Debug, Default)]
 pub(crate) struct Auth {
@@ -79,28 +82,89 @@ pub(crate) struct AuthGate {
     tls: bool,
     shared: Option<Arc<str>>,
     phones: Arc<Phones>,
+    dev_cors: bool,
+    local_hosts_only: bool,
 }
 
 impl AuthGate {
     pub(crate) fn new(state: &AppState, role: ListenerRole, tls: bool) -> Self {
+        let shared = state.auth.token.clone();
+        let local_hosts_only = role == ListenerRole::Main
+            && shared.is_none()
+            && state
+                .gate
+                .main_bound()
+                .is_some_and(|bound| bound.is_loopback());
         Self {
             role,
             tls,
-            shared: state.auth.token.clone(),
+            shared,
             phones: state.phones.clone(),
+            dev_cors: state.dev_cors,
+            local_hosts_only,
         }
     }
+
+    fn admits(&self, headers: &HeaderMap, uri: &Uri) -> Result<(), Refusal> {
+        if self.local_hosts_only && !local_host(headers, uri) {
+            return Err(forbidden("Host not allowed"));
+        }
+        if !self.dev_cors && !same_origin(headers, uri) {
+            return Err(forbidden("Cross-origin request refused"));
+        }
+        Ok(())
+    }
+}
+
+fn host<'a>(headers: &'a HeaderMap, uri: &'a Uri) -> Option<&'a str> {
+    headers
+        .get(header::HOST)
+        .and_then(|host| host.to_str().ok())
+        .or_else(|| uri.authority().map(axum::http::uri::Authority::as_str))
+}
+
+fn same_origin(headers: &HeaderMap, uri: &Uri) -> bool {
+    let Some(origin) = headers.get(header::ORIGIN) else {
+        return true;
+    };
+    let host = host(headers, uri);
+    let authority = origin
+        .to_str()
+        .ok()
+        .and_then(|origin| origin.split_once("://"))
+        .map(|(_, rest)| rest.split('/').next().unwrap_or(rest));
+    matches!((host, authority), (Some(host), Some(authority)) if host.eq_ignore_ascii_case(authority))
+}
+
+fn local_host(headers: &HeaderMap, uri: &Uri) -> bool {
+    if headers.get(header::HOST).is_none() && uri.authority().is_none() {
+        return true;
+    }
+    host(headers, uri).and_then(host_name).is_some_and(|name| {
+        name.eq_ignore_ascii_case(LOCAL_NAME)
+            || name.to_ascii_lowercase().ends_with(LOCAL_SUFFIX)
+            || name.parse::<IpAddr>().is_ok_and(|ip| ip.is_loopback())
+    })
+}
+
+fn host_name(host: &str) -> Option<&str> {
+    if let Some(bracketed) = host.strip_prefix('[') {
+        return bracketed.split_once(']').map(|(address, _)| address);
+    }
+    Some(host.rsplit_once(':').map_or(host, |(name, _)| name))
 }
 
 #[derive(Debug)]
 pub(crate) struct Refusal {
     status: StatusCode,
+    code: ErrorCode,
     message: &'static str,
 }
 
 pub(crate) fn unauthorized(message: &'static str) -> Refusal {
     Refusal {
         status: StatusCode::UNAUTHORIZED,
+        code: ErrorCode::Auth,
         message,
     }
 }
@@ -108,6 +172,15 @@ pub(crate) fn unauthorized(message: &'static str) -> Refusal {
 pub(crate) fn forbidden(message: &'static str) -> Refusal {
     Refusal {
         status: StatusCode::FORBIDDEN,
+        code: ErrorCode::Auth,
+        message,
+    }
+}
+
+fn unavailable(message: &'static str) -> Refusal {
+    Refusal {
+        status: StatusCode::SERVICE_UNAVAILABLE,
+        code: ErrorCode::Storage,
         message,
     }
 }
@@ -117,7 +190,7 @@ impl IntoResponse for Refusal {
         let body = Json(ApiError {
             error: self.message.to_owned(),
             detail: None,
-            code: Some(ErrorCode::Auth),
+            code: Some(self.code),
         });
         if self.status == StatusCode::UNAUTHORIZED {
             (self.status, [(header::WWW_AUTHENTICATE, "Bearer")], body).into_response()
@@ -144,6 +217,9 @@ pub(crate) async fn authenticate(
     mut request: Request,
     next: Next,
 ) -> Response {
+    if let Err(refusal) = gate.admits(request.headers(), request.uri()) {
+        return refusal.into_response();
+    }
     let identity = match gate.claim(&request) {
         Claim::Decided(decided) => decided,
         Claim::Phone(token) => gate.phone(token).await,
@@ -193,7 +269,7 @@ impl AuthGate {
         let paired = match self.phones.verify_cached(&token) {
             Verified::Paired => true,
             Verified::Refused => false,
-            Verified::Unknown => self.verify_stored(token.clone()).await,
+            Verified::Unknown => self.verify_stored(token.clone()).await?,
         };
         if paired {
             Ok(Identity::Phone(token.phone))
@@ -202,13 +278,17 @@ impl AuthGate {
         }
     }
 
-    async fn verify_stored(&self, token: PhoneToken) -> bool {
+    async fn verify_stored(&self, token: PhoneToken) -> Result<bool, Refusal> {
         let phones = self.phones.clone();
         match tokio::task::spawn_blocking(move || phones.verify(&token)).await {
-            Ok(paired) => paired,
+            Ok(Ok(paired)) => Ok(paired),
+            Ok(Err(error)) => {
+                tracing::warn!(%error, "phone keys cannot be read");
+                Err(unavailable(KEYS_UNREADABLE))
+            }
             Err(error) => {
                 tracing::warn!(%error, "checking a phone key stopped");
-                false
+                Err(unavailable(KEYS_UNREADABLE))
             }
         }
     }

@@ -18,7 +18,6 @@ use crate::array::{self, ArrayWiring};
 const WAIT: Duration = Duration::from_secs(10);
 const RADIO: &str = "radio";
 const ARRAY: &str = "arr";
-const PHONE: &str = "p0123456789abcdef";
 
 fn node(id: &str, body: NodeBody) -> PatchNode {
     PatchNode {
@@ -406,10 +405,11 @@ async fn an_unwired_position_sends_no_pose() {
 async fn a_gps_wired_into_an_array_moves_its_pose() {
     let (app, state) = test_router_with_state();
     state.gps.set_pose_interval(Duration::ZERO);
+    let phone = crate::phones::tests::pair_one(&state.phones).phone.id;
     let graph = with_gps(
         kraken_graph(heading_array()),
         PositionSource::Phone {
-            phone: PHONE.to_owned(),
+            phone: phone.clone(),
         },
         true,
     );
@@ -418,7 +418,7 @@ async fn a_gps_wired_into_an_array_moves_its_pose() {
     let publish = |fix: PositionFix| {
         state
             .gps
-            .publish_pose(&state, PHONE, Some(fix), None)
+            .publish_pose(&state, &phone, Some(fix), None)
             .expect("the pose is taken")
     };
     assert_eq!(publish(phone_fix(48.1, 80.0)), 1);
@@ -457,10 +457,11 @@ async fn a_gps_wired_into_an_array_moves_its_pose() {
 async fn a_lost_pose_is_reported() {
     let (app, state) = test_router_with_state();
     state.gps.set_pose_interval(Duration::ZERO);
+    let phone = crate::phones::tests::pair_one(&state.phones).phone.id;
     let graph = with_gps(
         kraken_graph(heading_array()),
         PositionSource::Phone {
-            phone: PHONE.to_owned(),
+            phone: phone.clone(),
         },
         true,
     );
@@ -474,7 +475,7 @@ async fn a_lost_pose_is_reported() {
     let publish = |lat: f64| {
         state
             .gps
-            .publish_pose(&state, PHONE, Some(phone_fix(lat, 90.0)), None)
+            .publish_pose(&state, &phone, Some(phone_fix(lat, 90.0)), None)
             .expect("the pose is taken")
     };
     publish(48.1);

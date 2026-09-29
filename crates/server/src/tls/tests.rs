@@ -259,3 +259,32 @@ fn host_local_is_a_san() {
         assert!(!served.names.iter().any(|name| name == local), "{local}");
     }
 }
+
+#[cfg(unix)]
+#[test]
+fn a_loose_key_file_is_closed_before_the_key_lands() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("loose.key.pem");
+    let staged = path.with_extension(STAGED_EXTENSION);
+    for stale in [&path, &staged] {
+        fs::write(stale, "old").expect("seed");
+        fs::set_permissions(stale, fs::Permissions::from_mode(0o644)).expect("loosen");
+    }
+    write_private(&path, "secret").expect("write");
+    let mode = fs::metadata(&path).expect("metadata").permissions().mode();
+    assert_eq!(mode & 0o777, 0o600);
+    assert_eq!(fs::read_to_string(&path).expect("read"), "secret");
+    assert!(!staged.exists(), "the staged key stayed behind");
+}
+
+#[test]
+fn a_failed_key_write_keeps_the_old_key() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("kept.key.pem");
+    fs::write(&path, "old").expect("seed");
+    fs::create_dir(path.with_extension(STAGED_EXTENSION)).expect("block the staged file");
+    assert!(write_private(&path, "new").is_err());
+    assert_eq!(fs::read_to_string(&path).expect("read"), "old");
+}

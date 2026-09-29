@@ -10,8 +10,7 @@ use axum::{
         State,
         ws::{CloseFrame, Message, Utf8Bytes, WebSocket, WebSocketUpgrade},
     },
-    http::{HeaderMap, Uri, header},
-    response::{IntoResponse, Response},
+    response::Response,
 };
 use futures::{SinkExt, StreamExt};
 use sdrmm_dsp::{DbWindowSmoother, adaptive_db_window, decimate_max, quantize_db};
@@ -53,33 +52,9 @@ pub(crate) async fn handler(
     ws: WebSocketUpgrade,
     State(state): State<AppState>,
     Extension(identity): Extension<Identity>,
-    headers: HeaderMap,
-    uri: Uri,
 ) -> Response {
-    if !origin_allowed(&headers, &uri, state.dev_cors) {
-        return crate::auth::forbidden("Cross-origin socket refused").into_response();
-    }
     ws.protocols([WS_SUBPROTOCOL])
         .on_upgrade(move |socket| handle_socket(socket, state, identity))
-}
-
-fn origin_allowed(headers: &HeaderMap, uri: &Uri, dev_cors: bool) -> bool {
-    let Some(origin) = headers.get(header::ORIGIN) else {
-        return true;
-    };
-    if dev_cors {
-        return true;
-    }
-    let host = headers
-        .get(header::HOST)
-        .and_then(|host| host.to_str().ok())
-        .or_else(|| uri.authority().map(axum::http::uri::Authority::as_str));
-    let authority = origin
-        .to_str()
-        .ok()
-        .and_then(|origin| origin.split_once("://"))
-        .map(|(_, rest)| rest.split('/').next().unwrap_or(rest));
-    matches!((host, authority), (Some(host), Some(authority)) if host.eq_ignore_ascii_case(authority))
 }
 
 pub(crate) fn start_decoded_encoder(state: &AppState) {

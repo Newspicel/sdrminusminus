@@ -43,6 +43,9 @@ impl GpsHub {
         error: Option<String>,
     ) -> Result<usize, String> {
         validate_update(fix.as_ref(), error.as_deref())?;
+        if !state.phones.known(phone) {
+            return Err(PHONE_NOT_PAIRED.to_owned());
+        }
         let next = PositionState {
             fix,
             error: error.map(limit_error),
@@ -111,8 +114,13 @@ impl GpsHub {
         online.remove(phone);
         locked(&self.pose_seen).remove(phone);
         locked(&self.pose_at).remove(phone);
+        let standing = if state.phones.known(phone) {
+            PHONE_OFFLINE
+        } else {
+            PHONE_NOT_PAIRED
+        };
         for node in self.bound_to(phone) {
-            self.publish_state(state, &node, None, Some(PHONE_OFFLINE.to_owned()));
+            self.publish_state(state, &node, None, Some(standing.to_owned()));
         }
     }
 

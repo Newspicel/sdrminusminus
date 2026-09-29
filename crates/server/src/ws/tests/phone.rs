@@ -275,7 +275,7 @@ async fn revoke_closes_the_phone_socket() {
     let offline = ServerEvent::PositionChanged {
         node: "car".to_owned(),
         fix: None,
-        error: Some("phone offline".to_owned()),
+        error: Some("phone not paired".to_owned()),
     };
     wait_until(|| state.gps.snapshot().contains(&offline)).await;
     assert!(!state.phones.online(&paired.phone.id));
@@ -289,7 +289,7 @@ async fn a_foreign_origin_is_refused() {
             assert_eq!(response.status(), StatusCode::FORBIDDEN);
             let body = response.body().as_deref().unwrap_or_default();
             let error: sdrmm_wire::ApiError = serde_json::from_slice(body).expect("error body");
-            assert_eq!(error.error, "Cross-origin socket refused");
+            assert_eq!(error.error, "Cross-origin request refused");
         }
         other => panic!("a foreign page opened a socket: {:?}", other.is_ok()),
     }

@@ -22,6 +22,8 @@ fn gate(role: ListenerRole, tls: bool, token: Option<&str>, phones: &Arc<Phones>
         tls,
         shared: Auth::new(token).token,
         phones: phones.clone(),
+        dev_cors: false,
+        local_hosts_only: false,
     }
 }
 
@@ -37,6 +39,7 @@ fn app(gate: AuthGate) -> Router {
         .route("/api/auth", get(echo))
         .route("/api/about", get(echo))
         .route("/api/phones/pair", post(echo))
+        .route("/api/workspaces/1/activate", post(echo))
         .route("/api/docs/index.html", get(|| async { "docs" }))
         .route_layer(axum::middleware::from_fn_with_state(gate, authenticate))
         .fallback(|| async { "spa" })
@@ -243,6 +246,24 @@ async fn a_key_paired_by_another_process_is_found_in_the_store() {
 }
 
 #[tokio::test]
+async fn an_unreadable_key_store_is_not_an_unpaired_phone() {
+    let file = tempfile::NamedTempFile::new().expect("temp db");
+    let store = Arc::new(Store::open(Some(file.path())).expect("store"));
+    let paired = pair_one(&Phones::new(store.clone()));
+    let serving = Arc::new(Phones::new(store));
+    rusqlite::Connection::open(file.path())
+        .expect("second connection")
+        .execute_batch("ALTER TABLE phones RENAME TO phones_away")
+        .expect("hide the keys");
+    let app = app(gate(ListenerRole::Phones, true, None, &serving));
+    let key = bearer_of(&paired.token);
+    let answer = call(&app, "GET", "/api/missions", &[("authorization", &key)]).await;
+    assert_eq!(answer.status, StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(answer.error().code, Some(ErrorCode::Storage));
+    assert!(serving.known(&paired.phone.id));
+}
+
+#[tokio::test]
 async fn the_phone_listener_takes_phone_keys_only() {
     let phones = phones();
     let paired = pair_one(&phones);
@@ -413,6 +434,40 @@ async fn a_phone_prefixed_shared_token_is_refused_at_start() {
     engine.shutdown();
 }
 
+#[tokio::test]
+async fn a_served_loopback_listener_answers_only_local_names() {
+    let mut registry = sdrmm_device::DeviceRegistry::new();
+    registry.register(1, Box::new(sdrmm_device_virtual::VirtualDriver::new()));
+    let engine = sdrmm_engine::Engine::with_registry(registry, None);
+    let handle = crate::serve(
+        crate::Config {
+            bind: "127.0.0.1:0".parse().expect("bind"),
+            db_path: None,
+            tls: None,
+            options: crate::ServerOptions::default(),
+        },
+        engine.clone(),
+    )
+    .await
+    .expect("serve");
+    let port = handle.local_addr.port();
+    let state = format!("http://{}/api/state", handle.local_addr);
+    let client = reqwest::Client::new();
+    let status_for = |host: String| {
+        let request = client.get(&state).header(header::HOST, host);
+        async move { request.send().await.expect("request").status() }
+    };
+    assert_eq!(
+        status_for(format!("localhost:{port}")).await,
+        StatusCode::OK
+    );
+    assert_eq!(
+        status_for(format!("evil.example:{port}")).await,
+        StatusCode::FORBIDDEN
+    );
+    engine.shutdown();
+}
+
 #[test]
 fn query_tokens_are_percent_decoded() {
     assert_eq!(query_token("token=a%2Fb").as_deref(), Some("a/b"));
@@ -462,4 +517,119 @@ fn only_operators_administer() {
         Some("p0123456789abcdef")
     );
     assert_eq!(Identity::Operator.phone(), None);
+}
+
+#[tokio::test]
+async fn a_foreign_page_cannot_post_to_an_open_server() {
+    let app = main_app(None);
+    let host = ("host", "192.168.1.20:8080");
+    let foreign = call(
+        &app,
+        "POST",
+        "/api/workspaces/1/activate",
+        &[host, ("origin", "http://evil.example")],
+    )
+    .await;
+    assert_eq!(foreign.status, StatusCode::FORBIDDEN);
+    assert_eq!(foreign.error().error, "Cross-origin request refused");
+    let own = call(
+        &app,
+        "POST",
+        "/api/workspaces/1/activate",
+        &[host, ("origin", "http://192.168.1.20:8080")],
+    )
+    .await;
+    assert_eq!((own.status, own.body.as_str()), (StatusCode::OK, "Open"));
+    let native = call(&app, "POST", "/api/workspaces/1/activate", &[host]).await;
+    assert_eq!(native.status, StatusCode::OK);
+}
+
+#[tokio::test]
+async fn dev_cors_lets_a_foreign_page_in() {
+    let mut open = gate(ListenerRole::Main, false, None, &phones());
+    open.dev_cors = true;
+    let answer = call(
+        &app(open),
+        "POST",
+        "/api/workspaces/1/activate",
+        &[
+            ("host", "127.0.0.1:8080"),
+            ("origin", "http://localhost:5173"),
+        ],
+    )
+    .await;
+    assert_eq!(answer.status, StatusCode::OK);
+}
+
+#[tokio::test]
+async fn a_rebound_name_cannot_reach_an_open_loopback_server() {
+    let mut local = gate(ListenerRole::Main, false, None, &phones());
+    local.local_hosts_only = true;
+    let app = app(local);
+    for host in [
+        "127.0.0.1:41234",
+        "localhost:41234",
+        "[::1]:41234",
+        "app.localhost",
+    ] {
+        let answer = call(&app, "GET", "/api/state", &[("host", host)]).await;
+        assert_eq!(answer.status, StatusCode::OK, "{host}");
+    }
+    let rebound = call(
+        &app,
+        "POST",
+        "/api/workspaces/1/activate",
+        &[
+            ("host", "evil.example:41234"),
+            ("origin", "http://evil.example:41234"),
+        ],
+    )
+    .await;
+    assert_eq!(rebound.status, StatusCode::FORBIDDEN);
+    assert_eq!(rebound.error().error, "Host not allowed");
+    let lookalike = call(
+        &app,
+        "GET",
+        "/api/state",
+        &[("host", "localhost.evil.example")],
+    )
+    .await;
+    assert_eq!(lookalike.status, StatusCode::FORBIDDEN);
+    let without_host = call(&app, "GET", "https://evil.example:41234/api/state", &[]).await;
+    assert_eq!(without_host.status, StatusCode::FORBIDDEN);
+    let loopback_authority = call(&app, "GET", "https://127.0.0.1:41234/api/state", &[]).await;
+    assert_eq!(loopback_authority.status, StatusCode::OK);
+}
+
+fn bound_on(ip: std::net::IpAddr) -> AppState {
+    let state = crate::tests::state_over(Arc::new(Store::open(None).expect("store")));
+    state.gate.set_main(crate::phones::gate::MainListener {
+        record: crate::phones::gate::ListenerRecord {
+            role: ListenerRole::Main,
+            port: 41234,
+            bound: ip,
+            pin: None,
+            stable_key: false,
+            names: Vec::new(),
+        },
+        own_key: None,
+    });
+    state
+}
+
+#[test]
+fn only_a_tokenless_loopback_main_listener_checks_the_host() {
+    let checks = |state: &AppState, role| AuthGate::new(state, role, false).local_hosts_only;
+    let loopback = bound_on(std::net::Ipv4Addr::LOCALHOST.into());
+    assert!(checks(&loopback, ListenerRole::Main));
+    assert!(checks(
+        &bound_on(std::net::Ipv6Addr::LOCALHOST.into()),
+        ListenerRole::Main
+    ));
+    assert!(!checks(&loopback, ListenerRole::Phones));
+    let mut guarded = loopback.clone();
+    guarded.auth = Auth::new(Some("secret"));
+    assert!(!checks(&guarded, ListenerRole::Main));
+    let lan = bound_on(std::net::Ipv4Addr::UNSPECIFIED.into());
+    assert!(!checks(&lan, ListenerRole::Main));
 }

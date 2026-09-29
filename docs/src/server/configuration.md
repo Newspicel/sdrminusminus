@@ -83,5 +83,7 @@ certificate.
 ## Reverse proxy
 
 - Bind SDR-- to loopback, or firewall its port.
+- Set a token. Without one, a loopback bind answers only `localhost` names.
 - Serve it at the root of the origin.
+- Pass the original `Host` header. Browser requests whose `Origin` differs are refused.
 - Forward WebSocket upgrades on `/api/ws`.

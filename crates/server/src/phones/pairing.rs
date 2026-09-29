@@ -146,6 +146,7 @@ impl Phones {
             });
         }
         let name = trimmed_name(&request.name)?;
+        let _attempt = self.one_attempt_at_a_time();
         let offer = self.live_offer(now)?;
         if !bytes_eq(request.code.as_bytes(), offer.code.as_bytes()) {
             return Err(match self.store.fail_offer(&offer.id) {
@@ -157,7 +158,7 @@ impl Phones {
         }
         let secret = token::mint_secret()?;
         let secret_sha256 = token::hash(&secret);
-        let write = match self.rebound(request.rebind.as_deref()) {
+        let write = match self.rebound(request.rebind.as_deref())? {
             Some(id) => PairWrite::Rotate {
                 id,
                 name,
@@ -206,8 +207,10 @@ impl Phones {
         })
     }
 
-    fn rebound(&self, rebind: Option<&str>) -> Option<String> {
-        let token = PhoneToken::parse(rebind?)?;
-        self.verify(&token).then_some(token.phone)
+    fn rebound(&self, rebind: Option<&str>) -> Result<Option<String>, PairError> {
+        let Some(token) = rebind.and_then(PhoneToken::parse) else {
+            return Ok(None);
+        };
+        Ok(self.verify(&token)?.then_some(token.phone))
     }
 }

@@ -16,6 +16,7 @@ const MATERIAL_DIR: &str = "tls";
 const CERT_FILE: &str = "self-signed.pem";
 const KEY_FILE: &str = "self-signed.key.pem";
 const NAMES_FILE: &str = "self-signed.names";
+const STAGED_EXTENSION: &str = "new";
 const VALID_DAYS: i64 = 397;
 const RENEW_AFTER: Duration = Duration::from_secs(365 * 24 * 60 * 60);
 const LOCAL_NAMES: [&str; 3] = ["localhost", "127.0.0.1", "::1"];
@@ -279,17 +280,47 @@ fn wrote(path: &Path) -> impl FnOnce(io::Error) -> TlsError {
     move |source| TlsError::Write { path, source }
 }
 
-#[cfg(unix)]
 fn write_private(path: &Path, pem: &str) -> io::Result<()> {
-    use std::os::unix::fs::PermissionsExt;
+    let staged = path.with_extension(STAGED_EXTENSION);
+    match fs::remove_file(&staged) {
+        Err(error) if error.kind() != io::ErrorKind::NotFound => return Err(error),
+        _ => {}
+    }
+    let written = write_staged(&staged, pem).and_then(|()| fs::rename(&staged, path));
+    if written.is_err()
+        && let Err(error) = fs::remove_file(&staged)
+        && error.kind() != io::ErrorKind::NotFound
+    {
+        tracing::warn!(%error, path = %staged.display(), "a half written TLS key stays behind");
+    }
+    written
+}
 
-    fs::write(path, pem)?;
-    fs::set_permissions(path, fs::Permissions::from_mode(0o600))
+fn write_staged(staged: &Path, pem: &str) -> io::Result<()> {
+    use std::io::Write;
+
+    let mut file = private_file(staged)?;
+    file.write_all(pem.as_bytes())?;
+    file.sync_all()
+}
+
+#[cfg(unix)]
+fn private_file(path: &Path) -> io::Result<fs::File> {
+    use std::os::unix::fs::OpenOptionsExt;
+
+    fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(path)
 }
 
 #[cfg(not(unix))]
-fn write_private(path: &Path, pem: &str) -> io::Result<()> {
-    fs::write(path, pem)
+fn private_file(path: &Path) -> io::Result<fs::File> {
+    fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(path)
 }
 
 fn fingerprint(cert: &CertificateDer<'_>) -> String {

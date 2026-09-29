@@ -1,5 +1,5 @@
 use std::{
-    net::Ipv4Addr,
+    net::{IpAddr, Ipv4Addr},
     sync::{
         Arc, Mutex, MutexGuard, OnceLock, PoisonError, Weak,
         atomic::{AtomicBool, Ordering},
@@ -117,6 +117,10 @@ impl PhoneGate {
         if self.main.set(main).is_err() {
             tracing::warn!("the main listener is already recorded");
         }
+    }
+
+    pub(crate) fn main_bound(&self) -> Option<IpAddr> {
+        self.main.get().map(|main| main.record.bound)
     }
 
     pub(crate) fn status(&self) -> PhoneAccessStatus {

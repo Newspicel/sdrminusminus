@@ -178,11 +178,20 @@ async fn a_df_bearing_reaches_the_triangulation_it_is_wired_to() {
     )
     .await;
     assert_eq!(stations(&reached), ["roof"]);
-    let also = state.fusion.state("blind").expect("second triangulation");
-    assert!(
-        also.samples > 0,
-        "one bearing reaches every wired triangulation"
-    );
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+    while state
+        .fusion
+        .state("blind")
+        .expect("second triangulation")
+        .samples
+        == 0
+    {
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "one bearing reaches every wired triangulation"
+        );
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
 }
 
 #[tokio::test]
