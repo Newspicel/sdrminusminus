@@ -618,6 +618,7 @@ pub(crate) struct ProcessorHost {
     outputs: Option<Box<Outputs>>,
     stats: Arc<ProcessorStats>,
     base: ProcessorFaults,
+    base_dropped: u64,
     gated: Option<ProcessorGate>,
     gap_pending: bool,
     steer_in: SteerInput,
@@ -657,6 +658,18 @@ impl ProcessorHost {
             }
         };
         Ok(BuiltHost { host, radar })
+    }
+
+    #[cfg(test)]
+    pub(crate) fn dedicated(
+        plan: HostPlan,
+        frame: &LiveFrame,
+        runner: Box<dyn DedicatedRunner>,
+    ) -> Result<Box<Self>, EngineError> {
+        let type_id = plan.params.type_id();
+        let descriptor = processor_descriptor(type_id)
+            .ok_or_else(|| ChannelError::UnknownType(type_id.to_owned()))?;
+        Self::assemble(plan, frame, descriptor, Runner::Dedicated(runner), true)
     }
 
     pub(crate) fn with_processor(
@@ -711,6 +724,7 @@ impl ProcessorHost {
             None
         };
         let base = plan.stats.faults();
+        let base_dropped = plan.stats.dropped_samples.load(Ordering::Relaxed);
         Ok(Box::new(Self {
             needs: (descriptor.needs)(&plan.params),
             tuning: (descriptor.tuning)(&plan.params),
@@ -721,6 +735,7 @@ impl ProcessorHost {
             outputs,
             stats: plan.stats,
             base,
+            base_dropped,
             gated: None,
             gap_pending: false,
             steer_in: plan.steer_in,
@@ -869,6 +884,11 @@ impl ProcessorHost {
             (Runner::Dedicated(runner), Some(outputs)) => {
                 outputs.run(|out| runner.poll(out), freq_hz);
                 self.stats.record_faults(&self.base, runner.faults());
+                self.stats.dropped_samples.store(
+                    self.base_dropped + runner.dropped_samples(),
+                    Ordering::Relaxed,
+                );
+                self.stats.alive.store(runner.running(), Ordering::Relaxed);
             }
             (Runner::Batched(batch), _) => batch.watch(),
             _ => {}
@@ -978,7 +998,14 @@ impl ProcessorHost {
 
     pub(crate) fn commit(&mut self, prepared: Prepared) -> Option<Box<dyn DedicatedRunner>> {
         match &mut self.runner {
-            Runner::Dedicated(runner) => runner.commit(prepared),
+            Runner::Dedicated(runner) => {
+                let rebuild = matches!(prepared, Prepared::Rebuild(_));
+                let replaced = runner.commit(prepared);
+                if rebuild && replaced.is_some() {
+                    self.installed();
+                }
+                replaced
+            }
             _ => match prepared {
                 Prepared::Rebuild(runner) => Some(runner),
                 Prepared::Same | Prepared::Live(_) => None,

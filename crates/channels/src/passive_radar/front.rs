@@ -30,7 +30,7 @@ pub struct InLanes<'a> {
 pub trait JobSink {
     fn take(&mut self) -> Option<Arc<CpiJob>>;
     fn submit(&mut self, job: Arc<CpiJob>);
-    fn dropped(&mut self);
+    fn dropped(&mut self, unused: Option<Arc<CpiJob>>);
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -334,7 +334,7 @@ impl FrontStage {
             self.seq += 1;
             let Some(mut job) = sink.take() else {
                 self.assembler.skip();
-                sink.dropped();
+                sink.dropped(None);
                 stats.dropped += 1;
                 continue;
             };
@@ -361,7 +361,7 @@ impl FrontStage {
                 stats.submitted += 1;
             } else {
                 self.assembler.skip();
-                sink.dropped();
+                sink.dropped(Some(job));
                 stats.dropped += 1;
             }
         }

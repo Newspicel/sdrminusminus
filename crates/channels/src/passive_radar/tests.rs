@@ -48,8 +48,9 @@ impl JobSink for Pool {
         self.ready.push_back(job);
     }
 
-    fn dropped(&mut self) {
+    fn dropped(&mut self, unused: Option<Arc<CpiJob>>) {
         self.dropped += 1;
+        self.free.extend(unused);
     }
 }
 
@@ -1024,4 +1025,49 @@ fn dab_echo_run(method: ClutterMethod) {
 fn a_dab_echo_lands_on_its_range_through_the_rebuilt_reference() {
     dab_echo_run(ClutterMethod::EcaBatch);
     dab_echo_run(ClutterMethod::BlockNlms);
+}
+
+#[test]
+fn a_job_still_in_use_goes_back_to_the_pool() {
+    let params = PassiveRadarParams {
+        reference: ReferenceCleaning::Off,
+        ..PassiveRadarParams::default()
+    };
+    let plan = plan(&scene_ctx(), &params).unwrap();
+    let mut front = FrontStage::new(&plan).unwrap();
+    let window = plan.shape.window();
+    let busy = Arc::new(CpiJob::new(plan.front.lanes.len(), window));
+    let mut pool = Pool {
+        free: vec![Arc::clone(&busy)],
+        ready: VecDeque::new(),
+        dropped: 0,
+    };
+    let base = multipath_lanes(600_000);
+    let lanes: Vec<Vec<C32>> = (0..5).map(|element| base[element.min(2)].clone()).collect();
+    let mut start = 0;
+    while pool.dropped == 0 {
+        assert!(start < lanes[0].len(), "no CPI was assembled");
+        let end = (start + BLOCK).min(lanes[0].len());
+        let views: Vec<&[C32]> = plan
+            .front
+            .lanes
+            .iter()
+            .map(|&element| &lanes[element][start..end])
+            .collect();
+        let input = InLanes {
+            lanes: &views,
+            first_index: start as u64,
+            unix_ns: BASE_NS,
+            gap_before: false,
+            phase_ready: true,
+            generation: 0,
+        };
+        front.push(&input, &mut pool);
+        start = end;
+    }
+    assert!(pool.ready.is_empty());
+    assert_eq!(pool.free.len(), 1);
+    assert!(Arc::ptr_eq(&pool.free[0], &busy));
+    drop(busy);
+    assert!(Arc::get_mut(&mut pool.free[0]).is_some());
 }

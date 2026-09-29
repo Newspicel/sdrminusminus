@@ -61,7 +61,9 @@ mod passive_radar {
             self.ready.push_back(job);
         }
 
-        fn dropped(&mut self) {}
+        fn dropped(&mut self, unused: Option<Arc<CpiJob>>) {
+            self.free.extend(unused);
+        }
     }
 
     fn uniform(state: &mut u64) -> f64 {

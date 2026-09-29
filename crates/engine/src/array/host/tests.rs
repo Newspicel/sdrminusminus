@@ -604,7 +604,7 @@ fn a_busy_worker_drops_the_batch_and_counts_it() {
 }
 
 #[test]
-fn a_passive_radar_host_is_refused_until_its_runner_exists() {
+fn a_passive_radar_host_refuses_a_plan_its_capture_cannot_hold() {
     let taps = taps(0);
     let built = ProcessorHost::build(
         plan(
@@ -616,10 +616,10 @@ fn a_passive_radar_host_is_refused_until_its_runner_exists() {
         &frame(LANES),
     );
     match built {
-        Err(EngineError::Channel(ChannelError::Unsupported(message))) => {
-            assert_eq!(message, "passive radar needs its runner");
+        Err(EngineError::Channel(ChannelError::Refused(message))) => {
+            assert_eq!(message, "Band outside the capture");
         }
         Err(other) => panic!("unexpected refusal {other}"),
-        Ok(_) => panic!("a radar host started without its runner"),
+        Ok(_) => panic!("FM radar started on a 48 kHz capture"),
     }
 }

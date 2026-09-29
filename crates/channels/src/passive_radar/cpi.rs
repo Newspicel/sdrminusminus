@@ -1,5 +1,6 @@
 use std::f32::consts::LN_2;
 use std::ops::Range;
+use std::sync::Arc;
 use std::time::Instant;
 
 use num_complex::Complex;
@@ -238,6 +239,11 @@ impl CpiStage {
         self.tracking.tracker.next_id()
     }
 
+    #[must_use]
+    pub const fn counters(&self) -> RadarCounters {
+        self.counters
+    }
+
     pub fn carry_ids(&mut self, next_id: u32) {
         self.tracking.tracker.resume_ids(next_id);
     }
@@ -277,6 +283,19 @@ impl CpiStage {
     }
 
     pub fn run(&mut self, job: &CpiJob, pod: &mut RadarPod) -> CpiOutcome {
+        self.run_with(job, pod, |backend, cube| backend.run(job, cube))
+    }
+
+    pub fn run_shared(&mut self, job: &Arc<CpiJob>, pod: &mut RadarPod) -> CpiOutcome {
+        self.run_with(job, pod, |backend, cube| backend.run_shared(job, cube))
+    }
+
+    fn run_with(
+        &mut self,
+        job: &CpiJob,
+        pod: &mut RadarPod,
+        caf: impl FnOnce(&mut dyn CafBackend, &mut CubeOut) -> Result<(), CafError>,
+    ) -> CpiOutcome {
         let started = Instant::now();
         self.open_report(job, pod);
         if self
@@ -288,7 +307,10 @@ impl CpiStage {
         }
         self.generation = Some(job.generation);
         self.counters.unsuppressed_groups += job.canceller_resets;
-        let result = self.backend.run(job, &mut self.cube).and_then(|()| {
+        let computed = caf(self.backend.as_mut(), &mut self.cube);
+        pod.gpu = self.backend.gpu();
+        pod.threads = self.backend.threads();
+        let result = computed.and_then(|()| {
             pod.suppression_db = self.cube.suppression_db;
             self.counters.unsuppressed_groups += u64::from(self.cube.unsuppressed_groups);
             self.detect(job, pod)

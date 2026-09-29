@@ -1,4 +1,5 @@
 use std::ops::Range;
+use std::sync::Arc;
 
 use num_complex::Complex;
 use sdrmm_dsp::radar::batch::{BatchKernel, BatchShape, MAX_SURVEILLANCE, WeightsAt};
@@ -47,6 +48,9 @@ impl CubeOut {
 
 pub trait CafBackend: Send {
     fn run(&mut self, job: &CpiJob, out: &mut CubeOut) -> Result<(), CafError>;
+    fn run_shared(&mut self, job: &Arc<CpiJob>, out: &mut CubeOut) -> Result<(), CafError> {
+        self.run(job, out)
+    }
     fn gpu(&self) -> bool;
     fn threads(&self) -> u32;
 }
