@@ -8,6 +8,8 @@
       "!dist/**",
       "!node_modules/**",
       "!.astro/**",
+      "!.wrangler/**",
+      "!worker/worker-configuration.d.ts",
       "!public/demo/**",
       "!legacy/**"
     ]

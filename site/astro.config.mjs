@@ -1,9 +1,10 @@
 import react from "@astrojs/react";
 import tailwindcss from "@tailwindcss/vite";
 import { defineConfig } from "astro/config";
+import { SITE } from "./src/seo.ts";
 
 export default defineConfig({
-  site: "https://sdrmm.newspicel.dev",
+  site: SITE,
   compressHTML: true,
   devToolbar: { enabled: false },
   build: { format: "file" },

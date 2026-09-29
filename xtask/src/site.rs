@@ -112,13 +112,26 @@ fn every_local_reference_resolves_to_a_file_the_build_publishes() {
 #[test]
 fn the_published_host_matches_the_site_astro_builds() {
     let root = root();
-    let script = read(&root.join("scripts/build-site.sh"));
-    let config = read(&root.join("site/astro.config.mjs"));
-    assert_eq!(
-        host(&config, "site: \"https://"),
-        host(&script, "printf '"),
-        "site/astro.config.mjs and the CNAME the build writes name different hosts"
-    );
+    let site = host(&read(&root.join("site/src/seo.ts")), "SITE = \"https://");
+    let published = [
+        (
+            "site/wrangler.jsonc",
+            host(&read(&root.join("site/wrangler.jsonc")), "\"pattern\": \""),
+        ),
+        (
+            "docs/theme/head.hbs",
+            host(
+                &read(&root.join("docs/theme/head.hbs")),
+                "content=\"https://",
+            ),
+        ),
+    ];
+    for (file, published) in published {
+        assert_eq!(
+            site, published,
+            "site/src/seo.ts and {file} name different hosts"
+        );
+    }
 }
 
 #[test]

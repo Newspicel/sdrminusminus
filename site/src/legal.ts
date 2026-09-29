@@ -43,7 +43,7 @@ export const imprint: LegalEntry[] = [
 export const privacy: LegalEntry[] = [
   {
     title: "In short",
-    body: "This site processes as little data as possible. No tracking, no analytics, no cookies, no contact form. The sections below explain what still gets processed, and why.",
+    body: "This site processes as little data as possible. No cookies, no tracking across sites, no advertising. The sections below explain what still gets processed, and why.",
   },
   {
     title: "Controller",
@@ -51,7 +51,11 @@ export const privacy: LegalEntry[] = [
   },
   {
     title: "Hosting and server logs",
-    body: "This site is hosted on GitHub Pages by GitHub, Inc., 88 Colin P. Kelly Jr. Street, San Francisco, CA 94107, USA. GitHub records the IP address of every visitor to keep the service secure and running. Legal basis: Art. 6 (1) (f) GDPR (legitimate interest in delivering the site reliably and securely). GitHub is certified under the EU-U.S. Data Privacy Framework, which covers the transfer to the USA (Art. 45 GDPR).",
+    body: "This site is hosted on Cloudflare Workers by Cloudflare, Inc., 101 Townsend St, San Francisco, CA 94107, USA. Cloudflare processes the IP address of every visitor to deliver the site and protect it from attacks. Legal basis: Art. 6 (1) (f) GDPR (legitimate interest in delivering the site reliably and securely). Cloudflare is certified under the EU-U.S. Data Privacy Framework, which covers the transfer to the USA (Art. 45 GDPR).",
+  },
+  {
+    title: "Visitor statistics",
+    body: "Cloudflare Web Analytics counts page views, referring sites, countries and load times. It sets no cookies, stores nothing in your browser and does not identify or follow you across sites. Legal basis: Art. 6 (1) (f) GDPR (legitimate interest in knowing which pages are read).",
   },
   {
     title: "Download page",
@@ -70,8 +74,8 @@ export const privacy: LegalEntry[] = [
     body: "Fonts are served from this site. No connection is made to Google Fonts or similar services. Links to GitHub, Discord, YouTube, Reddit and X are plain links: nothing loads from these services until you follow one.",
   },
   {
-    title: "Contact by email",
-    body: "When you contact me by email, the data you send (email address, name, message content) is processed solely to handle your request. Legal basis: Art. 6 (1) (b) GDPR for contract-related requests, otherwise Art. 6 (1) (f) GDPR. The data is deleted once it is no longer needed and no statutory retention obligations apply.",
+    title: "Contact form and email",
+    body: "When you use the contact form or write an email, the data you send (name, email address, message) is processed solely to handle your request. Form messages are delivered to my inbox by Cloudflare Email Routing and are not stored on the site. Legal basis: Art. 6 (1) (b) GDPR for contract-related requests, otherwise Art. 6 (1) (f) GDPR. The data is deleted once it is no longer needed and no statutory retention obligations apply.",
   },
   {
     title: "Your rights",

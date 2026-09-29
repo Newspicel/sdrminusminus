@@ -7,10 +7,10 @@
   "scripts": {
     "dev": "astro dev",
     "build": "astro sync && tsgo --noEmit && astro build",
-    "preview": "astro preview",
+    "preview": "wrangler dev",
     "test": "vitest run",
     "format": "biome check --write .",
-    "typecheck": "astro sync && tsgo --noEmit"
+    "typecheck": "astro sync && tsgo --noEmit && wrangler types worker/worker-configuration.d.ts && tsgo --noEmit -p worker"
   },
   "dependencies": {
     "@astrojs/react": "^7.0.0",
@@ -27,6 +27,7 @@
     "@typescript/native-preview": "7.0.0-dev.20260707.2",
     "oxc-transform-react": "^0.151.0",
     "tailwindcss": "4.3.3",
-    "vitest": "5.0.1"
+    "vitest": "5.0.1",
+    "wrangler": "4.142.0"
   }
 }

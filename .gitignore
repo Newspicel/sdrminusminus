@@ -51,3 +51,7 @@ web/playwright-report/
 
 # Astro
 .astro
+
+.wrangler
+.dev.vars
+site/worker/worker-configuration.d.ts

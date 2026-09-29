@@ -679,6 +679,9 @@ fn check_toolchain_pins(root: &Path) -> Result<()> {
         )?,
     ));
 
+    let workers = "site/.node-version";
+    node.push((workers.to_string(), file(workers)?.trim().to_string()));
+
     agree("pnpm", &pnpm)?;
     agree("the Node major", &node)
 }

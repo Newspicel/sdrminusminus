@@ -18,7 +18,7 @@ a browser. Both use the same receiver engine and interface.
 
 Download a desktop installer or portable server from
 [GitHub Releases](https://github.com/Newspicel/sdrminusminus/releases).
-The [installation guide](https://sdrmm.newspicel.dev/getting-started/install.html)
+The [installation guide](https://sdrmm.com/getting-started/install.html)
 covers macOS, Windows, Linux, Homebrew, WinGet, APT, DNF, AUR, Nix, and Docker.
 
 On macOS:
@@ -35,7 +35,7 @@ brew services start sdrmm
 ```
 
 Open <http://localhost:8080>. For remote access, configure
-[authentication and HTTPS](https://sdrmm.newspicel.dev/server/configuration.html).
+[authentication and HTTPS](https://sdrmm.com/server/configuration.html).
 
 ## Start with an RTL-SDR
 
@@ -44,8 +44,8 @@ Open <http://localhost:8080>. For remote access, configure
 3. Wire Device `iq` to WFM `iq`, and WFM `audio` to the Speaker.
 4. Start the Speaker. Press `p` on a node to pin it to the Rack.
 
-[Your first receiver](https://sdrmm.newspicel.dev/getting-started/first-receiver.html) walks
-through it. [Radios](https://sdrmm.newspicel.dev/hardware.html) covers other hardware.
+[Your first receiver](https://sdrmm.com/getting-started/first-receiver.html) walks
+through it. [Radios](https://sdrmm.com/hardware.html) covers other hardware.
 
 ## What it supports
 
@@ -57,7 +57,7 @@ through it. [Radios](https://sdrmm.newspicel.dev/hardware.html) covers other har
 - **Automation:** REST, WebSocket, MCP, network IQ export, and event forwarding.
 
 SDR-- is under active development. The
-[decoder catalog](https://sdrmm.newspicel.dev/user-guide/decoders.html#catalog) shows how well
+[decoder catalog](https://sdrmm.com/user-guide/decoders.html#catalog) shows how well
 each mode is tested.
 
 ## Screenshots
@@ -100,12 +100,12 @@ cargo run -p sdrmm
 Open <http://localhost:8080>, or run `cargo xtask dev --watch` and open <http://localhost:5173>
 for hot reload. `cargo xtask check` and `cargo xtask test` are the main gates.
 
-The [build guide](https://sdrmm.newspicel.dev/development/building.html) lists prerequisites and
+The [build guide](https://sdrmm.com/development/building.html) lists prerequisites and
 every check.
 
 ## Documentation and API
 
-- [User and developer guide](https://sdrmm.newspicel.dev/introduction.html)
+- [User and developer guide](https://sdrmm.com/introduction.html)
 - Swagger UI: `/api/docs` on a running server
 - OpenAPI: `/api/openapi.json` or [openapi.json](openapi.json)
 

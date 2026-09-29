@@ -4,6 +4,10 @@ import Waterfall from "../components/Waterfall.astro";
 import { DEFAULT_SCENE, demoUrl, SCENES } from "../demo/scenes";
 import { INSTALLS } from "../installs";
 import Page from "../layouts/Page.astro";
+import { structuredData } from "../seo";
+
+const description =
+  "A software-defined radio application for listening, decoding and recording. Connect a receiver, a channel and a display, on your desk or on a server at the antenna.";
 
 const glyphs: Record<string, string> = {
   iq: "M10.5 6A4.5 4.5 0 1 1 1.5 6A4.5 4.5 0 1 1 10.5 6Z",
@@ -173,9 +177,10 @@ const copies = [0, 1, 2, 3];
 ---
 
 <Page
-  title="SDR-- · patch a radio together"
-  description="A software-defined radio application for listening, decoding and recording. Connect a receiver, a channel and a display, on your desk or on a server at the antenna."
+  title="SDR-- · Software-defined radio, patched together"
+  description={description}
   summary="A software-defined radio application for listening, decoding and recording."
+  structured={structuredData(description)}
 >
   <div class="stage">
     <Waterfall />

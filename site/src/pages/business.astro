@@ -1,7 +1,8 @@
 ---
+import { CONTACT_PATH, type ContactOutcome, FIELDS, LIMITS } from "../contact";
 import Page from "../layouts/Page.astro";
 
-const mail = "mailto:hi@jhaag.me?subject=SDR--%20business";
+const mail = "hi@jhaag.me";
 
 const offers = [
   {
@@ -21,6 +22,13 @@ const offers = [
     text: "Receivers at remote sites, set up and kept running.",
   },
 ];
+
+const outcomes: { id: ContactOutcome; text: string }[] = [
+  { id: "sent", text: "Sent. We'll get back to you soon." },
+  { id: "invalid", text: "Check your name, email and message." },
+  { id: "busy", text: "Too many messages. Try again in a minute." },
+  { id: "failed", text: "Could not send. Mail us instead:" },
+];
 ---
 
 <Page
@@ -33,7 +41,7 @@ const offers = [
     <h1>SDR-- for business</h1>
     <p class="lede">Building a product, a monitoring station or a radio? Tell us what you need.</p>
     <div class="actions">
-      <a class="btn primary" href={mail}>hi@jhaag.me</a>
+      <a class="btn primary" href="#contact">Contact us</a>
     </div>
   </div>
 
@@ -50,7 +58,93 @@ const offers = [
     </div>
     <p class="note">Something else? Rough ideas welcome.</p>
   </section>
+
+  <section class="wrap contact" id="contact" aria-labelledby="contact-title">
+    <h2 id="contact-title">Get in touch</h2>
+    <form method="post" action={CONTACT_PATH}>
+      <label>
+        <span>Name</span>
+        <input name={FIELDS.name} autocomplete="name" maxlength={LIMITS.name} required />
+      </label>
+      <label>
+        <span>Email</span>
+        <input
+          type="email"
+          name={FIELDS.email}
+          autocomplete="email"
+          maxlength={LIMITS.email}
+          required
+        />
+      </label>
+      <label class="wide">
+        <span>Message</span>
+        <textarea name={FIELDS.message} rows="7" maxlength={LIMITS.message} required></textarea>
+      </label>
+      <label class="trap" aria-hidden="true">
+        <span>Website</span>
+        <input name={FIELDS.trap} tabindex="-1" autocomplete="off" />
+      </label>
+      <div class="send wide">
+        <button class="btn primary" type="submit">Send</button>
+        <a href="/privacy.html">Privacy</a>
+      </div>
+      <div class="outcomes wide" role="status" aria-live="polite">
+        {
+          outcomes.map((outcome) => (
+            <p id={outcome.id} class="outcome" data-outcome={outcome.id} hidden>
+              {outcome.text}
+              {outcome.id === "failed" && <a href={`mailto:${mail}`}>{mail}</a>}
+            </p>
+          ))
+        }
+      </div>
+    </form>
+  </section>
 </Page>
+
+<script>
+  import { type ContactOutcome, isOutcome } from "../contact";
+
+  async function submit(form: HTMLFormElement): Promise<ContactOutcome> {
+    try {
+      const response = await fetch(form.action, {
+        method: "POST",
+        body: new FormData(form),
+        headers: { accept: "application/json" },
+      });
+      const body: unknown = await response.json();
+      const outcome = typeof body === "object" && body !== null && "outcome" in body ? body.outcome : null;
+      return isOutcome(outcome) ? outcome : "failed";
+    } catch {
+      return "failed";
+    }
+  }
+
+  function show(form: HTMLFormElement, outcome: ContactOutcome | null) {
+    form.dataset.submitted = "";
+    for (const element of form.querySelectorAll<HTMLElement>(".outcome")) {
+      element.hidden = element.dataset.outcome !== outcome;
+    }
+  }
+
+  const form = document.querySelector<HTMLFormElement>("#contact form");
+  const button = form?.querySelector("button");
+  form?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (button) {
+      button.disabled = true;
+    }
+    show(form, null);
+    const outcome = await submit(form);
+    show(form, outcome);
+    if (outcome === "sent") {
+      form.reset();
+    }
+    if (button) {
+      button.disabled = false;
+    }
+  });
+</script>
 
 <style>
   .top {
@@ -64,4 +158,70 @@ const offers = [
   .top .actions { justify-content: center; }
   .offers { padding-top: clamp(48px, 7vw, 80px); }
   .offers .note { margin-inline: auto; text-align: center; }
+
+  .contact {
+    max-width: calc(640px + 2 * var(--pad));
+    padding-top: 0;
+  }
+  .contact h2 { text-align: center; margin-bottom: 28px; }
+  form {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 16px;
+  }
+  .wide { grid-column: 1 / -1; }
+  label {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  label span {
+    font: 500 12.5px var(--mono);
+    color: var(--ink-dim);
+  }
+  input,
+  textarea {
+    width: 100%;
+    padding: 10px 12px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--well);
+    color: var(--ink);
+    font: inherit;
+    font-size: 16px;
+  }
+  textarea { resize: vertical; min-height: 140px; }
+  input:hover,
+  textarea:hover { border-color: var(--line-strong); }
+  input:focus-visible,
+  textarea:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 0;
+    border-color: transparent;
+  }
+  .trap {
+    position: absolute;
+    left: -9999px;
+  }
+  .send {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+  }
+  .send button { cursor: pointer; }
+  .send button:disabled { opacity: 0.6; cursor: progress; }
+  .send a {
+    font-size: 14px;
+    color: var(--ink-faint);
+  }
+  .outcome {
+    margin: 0;
+    color: var(--ink-dim);
+  }
+  form:not([data-submitted]) .outcome:target { display: block; }
+  .outcome[data-outcome="sent"] { color: var(--audio); }
+  .outcome[data-outcome="failed"],
+  .outcome[data-outcome="invalid"],
+  .outcome[data-outcome="busy"] { color: var(--events); }
+  .outcome a { margin-left: 6px; }
 </style>

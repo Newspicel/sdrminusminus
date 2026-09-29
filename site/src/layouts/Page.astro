@@ -1,4 +1,5 @@
 ---
+import { canonical, jsonLd, NAME, SHARE_IMAGE } from "../seo";
 import "../styles/site.css";
 
 interface Props {
@@ -6,11 +7,12 @@ interface Props {
   description: string;
   summary: string;
   current?: "download" | "business";
+  structured?: unknown;
 }
 
-const { title, description, summary, current } = Astro.props;
-const canonical = new URL(Astro.url.pathname, Astro.site);
-const image = new URL("/screens/patch.png", Astro.site);
+const { title, description, summary, current, structured } = Astro.props;
+const url = canonical(Astro.url.pathname);
+const image = canonical(SHARE_IMAGE.path);
 ---
 
 <!doctype html>
@@ -19,16 +21,24 @@ const image = new URL("/screens/patch.png", Astro.site);
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="color-scheme" content="dark" />
+    <meta name="theme-color" content="#0d0f10" />
     <title>{title}</title>
     <meta name="description" content={description} />
+    <link rel="icon" href="/favicon.ico" sizes="48x48" />
     <link rel="icon" href="/icon.svg" type="image/svg+xml" />
-    <link rel="canonical" href={canonical} />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="canonical" href={url} />
     <meta property="og:type" content="website" />
-    <meta property="og:url" content={canonical} />
+    <meta property="og:site_name" content={NAME} />
+    <meta property="og:url" content={url} />
     <meta property="og:title" content={title} />
     <meta property="og:description" content={summary} />
     <meta property="og:image" content={image} />
+    <meta property="og:image:width" content={String(SHARE_IMAGE.width)} />
+    <meta property="og:image:height" content={String(SHARE_IMAGE.height)} />
+    <meta property="og:image:alt" content={`${NAME}: patch a radio together`} />
     <meta name="twitter:card" content="summary_large_image" />
+    {structured !== undefined && <script type="application/ld+json" set:html={jsonLd(structured)} />}
   </head>
   <body>
     <a class="skip" href="#main">Skip to content</a>
