@@ -891,6 +891,24 @@ export async function stopHunt(decoder: DecoderRef): Promise<HuntStatus> {
   );
 }
 
+export async function sweepHunt(decoder: DecoderRef, settings: HuntSettings): Promise<HuntStatus> {
+  return unwrap(
+    await client.POST("/api/devicesets/{ds}/channels/{ch}/hunt", {
+      params: { path: { ds: decoder.deviceSet, ch: decoder.channel } },
+      body: { action: "sweep", settings },
+    }),
+  );
+}
+
+export async function markHunt(decoder: DecoderRef): Promise<void> {
+  unwrap(
+    await client.POST("/api/devicesets/{ds}/channels/{ch}/hunt", {
+      params: { path: { ds: decoder.deviceSet, ch: decoder.channel } },
+      body: { action: "mark" },
+    }),
+  );
+}
+
 export function decoderLogQuery(filter: DecoderLogFilter) {
   const query = normalizeFilter(filter);
   return queryOptions({

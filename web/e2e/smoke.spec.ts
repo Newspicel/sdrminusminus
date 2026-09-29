@@ -1,6 +1,6 @@
 import { expect, type Locator, type Page, test } from "@playwright/test";
 import type { StateSnapshot, WorkspaceDetail } from "../src/lib/types";
-import { addNode } from "./scenes";
+import { activate, addNode, dragWire, fitPatch, leaveField } from "./canvas";
 
 function deferred(): { promise: Promise<void>; resolve: () => void } {
   let resolve!: () => void;
@@ -8,29 +8,6 @@ function deferred(): { promise: Promise<void>; resolve: () => void } {
     resolve = done;
   });
   return { promise, resolve };
-}
-
-async function dragWire(page: Page, from: Locator, to: Locator): Promise<void> {
-  const wires = page.locator(".react-flow__edge");
-  for (let attempt = 0; attempt < 3; attempt++) {
-    const before = await wires.count();
-    const start = await from.boundingBox();
-    const end = await to.boundingBox();
-    if (start === null || end === null) {
-      throw new Error("a port to wire from and one to wire to");
-    }
-    await page.mouse.move(start.x + start.width / 2, start.y + start.height / 2);
-    await page.mouse.down();
-    await page.mouse.move(end.x + end.width / 2, end.y + end.height / 2, { steps: 12 });
-    await page.mouse.up();
-    try {
-      await expect(wires).toHaveCount(before + 1, { timeout: 2_000 });
-      return;
-    } catch {
-      // A drag that started before the canvas settled lands on nothing; take it again.
-    }
-  }
-  throw new Error("the wire never landed");
 }
 
 async function rowOffset(node: Locator, port: string): Promise<number> {
@@ -54,14 +31,6 @@ async function renderedScale(locator: Locator): Promise<number> {
   });
 }
 
-async function leaveField(node: Locator): Promise<void> {
-  await node.locator("header").click();
-}
-
-async function activate(node: Locator): Promise<void> {
-  await node.locator("header").click();
-}
-
 function rackNode(page: Page, id: string): Locator {
   return page.locator(`.grid > [data-id="${id}"]`);
 }
@@ -72,33 +41,6 @@ async function slots(
   const list = await page.request.get("/api/workspaces").then((r) => r.json());
   const detail = await page.request.get(`/api/workspaces/${list.active}`).then((r) => r.json());
   return detail.snapshot.rack.slots;
-}
-
-async function fitPatch(page: Page): Promise<void> {
-  const pane = page.locator(".react-flow__pane");
-  const box = await pane.boundingBox();
-  if (box === null) {
-    throw new Error("a pane to right-click");
-  }
-  await expect(page.locator('.react-flow__node[style*="visibility: hidden"]')).toHaveCount(0);
-  await page.mouse.click(box.x + 40, box.y + box.height - 40, { button: "right" });
-  await page
-    .getByRole("menu")
-    .getByRole("button", { name: /fit the patch/i })
-    .click();
-  await viewSettled(page);
-}
-
-async function viewSettled(page: Page): Promise<void> {
-  const viewport = page.locator(".react-flow__viewport");
-  const transform = () => viewport.evaluate((element) => (element as HTMLElement).style.transform);
-  await expect
-    .poll(async () => {
-      const before = await transform();
-      await page.waitForTimeout(150);
-      return before === (await transform());
-    })
-    .toBe(true);
 }
 
 async function dragBy(page: Page, grip: Locator, cells: number, down = 0): Promise<void> {

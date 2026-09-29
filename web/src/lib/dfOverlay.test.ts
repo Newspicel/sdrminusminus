@@ -3,7 +3,7 @@ import { placed, radarUpdate } from "../test/fixtures";
 import { BEARING_MAX_AGE_MS, type BearingSample } from "./bearings";
 import { dfOverlay, type OverlaySources, overlaySourcesOf } from "./dfOverlay";
 import { bistaticRing } from "./map/df";
-import type { ProcessorState } from "./processors";
+import { type ProcessorState, readingOf } from "./processors";
 import type { DfFusionState, DfReading, PatchGraph, RadarTrack, RadarUpdate } from "./types";
 
 const NOW = 1_000_000;
@@ -73,6 +73,7 @@ function dfState(station: boolean): ProcessorState {
     squelched: false,
     aliasing: false,
     station: station ? { lat: 52, lon: 13 } : null,
+    azimuth_deg: station ? 0 : null,
   };
   return { reading: { type: "df", reading }, receivedAt: NOW };
 }
@@ -233,6 +234,40 @@ describe("dfOverlay", () => {
       null,
     );
     expect(placedOverlay?.unplaced).toEqual([]);
+  });
+
+  it("keeps a placed finder placed while it hears nothing", () => {
+    const quiet = dfState(true);
+    const reading = readingOf(quiet, "df");
+    if (reading === null) {
+      throw new Error("a df reading");
+    }
+    const silent: ProcessorState = {
+      ...quiet,
+      reading: { type: "df", reading: { ...reading, peaks: [], squelched: true } },
+    };
+    const overlay = dfOverlay(
+      sources({ finders: ["finder"] }),
+      {},
+      {},
+      { finder: silent },
+      NOW,
+      null,
+    );
+    expect(overlay?.unplaced).toEqual([]);
+    const headless: ProcessorState = {
+      ...quiet,
+      reading: { type: "df", reading: { ...reading, azimuth_deg: null } },
+    };
+    const lost = dfOverlay(
+      sources({ finders: ["finder"] }),
+      {},
+      {},
+      { finder: headless },
+      NOW,
+      null,
+    );
+    expect(lost?.unplaced).toEqual(["North DF"]);
   });
 
   it("takes the estimate, nav target and stations from where the bearings cross", () => {

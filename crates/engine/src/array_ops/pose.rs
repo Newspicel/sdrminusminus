@@ -24,6 +24,7 @@ pub(crate) struct PoseTrack {
     clock: PoseClock,
     turn_from: Option<(f64, i64)>,
     last: Option<PoseView>,
+    lost_ns: Option<i64>,
 }
 
 fn fix_time_ns(time: &str) -> Option<i64> {
@@ -63,6 +64,7 @@ impl PoseTrack {
         let Some(fix) = fix else {
             self.turn_from = None;
             self.last = None;
+            self.lost_ns = Some(received_ns);
             return PoseSample {
                 host_ns: received_ns,
                 heading_deg: None,
@@ -74,6 +76,10 @@ impl PoseTrack {
         };
         let host_ns = fix_time_ns(&fix.time)
             .map_or(received_ns, |fix_ns| self.host_time(fix_ns, received_ns));
+        let host_ns = self
+            .lost_ns
+            .take()
+            .map_or(host_ns, |lost_ns| host_ns.max(lost_ns.saturating_add(1)));
         let heading_deg = fix
             .attitude
             .heading_deg

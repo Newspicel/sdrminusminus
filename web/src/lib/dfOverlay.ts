@@ -65,7 +65,7 @@ function rayOf(sample: BearingSample, now: number): BearingRay {
 
 function finderPlaced(state: ProcessorState | undefined): boolean {
   const reading = readingOf(state, "df");
-  return reading === null || (reading.station != null && reading.peaks[0]?.true_deg != null);
+  return reading === null || (reading.station != null && reading.azimuth_deg != null);
 }
 
 interface RadarPart {

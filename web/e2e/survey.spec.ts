@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 import type { PatchNode, SurveyGrid, WorkspaceSnapshot } from "../src/lib/types";
-import { face } from "./scenes";
+import { face } from "./canvas";
 
 function placed(id: string, body: Record<string, unknown>, x: number, y: number): PatchNode {
   return { id, position: { x, y }, size: { w: 420, h: 360 }, ...body } as PatchNode;

@@ -8,6 +8,7 @@ type C32 = Complex<f32>;
 pub const MAX_CMA_TAPS: usize = 64;
 pub const LOCK_GAIN_DB: f32 = 1.0;
 
+const CLEAN_DISPERSION: f64 = 0.1;
 const AGC_RATE: f32 = 1e-4;
 const AGC_ATTACK: f32 = 16.0;
 const SILENCE_POWER: f32 = 1e-20;
@@ -62,7 +63,13 @@ impl ReferenceCma {
 
     #[must_use]
     pub fn locked(&self) -> bool {
-        !self.silent && self.gain_db() > LOCK_GAIN_DB
+        !self.silent && (self.gain_db() > LOCK_GAIN_DB || self.clean())
+    }
+
+    fn clean(&self) -> bool {
+        self.dispersion
+            .denominator_mean()
+            .is_some_and(|dispersion| dispersion <= CLEAN_DISPERSION)
     }
 
     #[must_use]
@@ -209,6 +216,30 @@ mod tests {
         assert!(cma.gain_db() >= 10.0, "{}", cma.gain_db());
         assert!(cma.locked());
         assert_eq!(cma.fallback_frames(), 0);
+    }
+
+    #[test]
+    fn a_clean_reference_counts_as_locked() {
+        let clean = fm_reference(FS as usize, 14);
+        let mut cma = ReferenceCma::new(16, 1e-3, FS).unwrap();
+        let mut out = vec![C32::default(); clean.len()];
+        cma.process(&clean, &mut out);
+        assert!(cma.gain_db() < LOCK_GAIN_DB, "{}", cma.gain_db());
+        assert!(cma.locked());
+        cma.process(&[C32::new(f32::NAN, 0.0)], &mut out[..1]);
+        assert!(!cma.locked());
+    }
+
+    #[test]
+    fn noise_is_never_clean() {
+        let mut noise = Noise(21);
+        let received: Vec<C32> = (0..FS as usize).map(|_| noise.complex()).collect();
+        let mut cma = ReferenceCma::new(16, 1e-3, FS).unwrap();
+        let mut out = vec![C32::default(); received.len()];
+        cma.process(&received, &mut out);
+        let dispersion = cma.dispersion.denominator_mean().unwrap();
+        assert!(dispersion > 4.0 * CLEAN_DISPERSION, "{dispersion}");
+        assert!(!cma.clean());
     }
 
     #[test]

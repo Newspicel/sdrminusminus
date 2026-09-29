@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { addNode } from "./scenes";
+import { addNode } from "./canvas";
 
 test.describe("the source nodes", () => {
   test.describe.configure({ mode: "serial" });

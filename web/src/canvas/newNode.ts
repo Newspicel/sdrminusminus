@@ -1,4 +1,5 @@
 import type {
+  HuntSweepParams,
   NodeBody,
   NodeBodyOf,
   NodeKind,
@@ -66,4 +67,15 @@ export function carriesSettings(catalog: PatchCatalog, kind: NodeKind): boolean 
 
 export function startsOnItsOwn(kind: NodeKind): boolean {
   return kind === "signal_gen";
+}
+
+export function huntSweepOf(
+  node: PatchNodeOf<"hunt">,
+  catalog: PatchCatalog,
+): HuntSweepParams | null {
+  if (node.data?.sweep !== undefined) {
+    return node.data.sweep;
+  }
+  const body = defaultBody(catalog, "hunt");
+  return body?.kind === "hunt" ? (body.data?.sweep ?? null) : null;
 }

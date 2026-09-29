@@ -14,15 +14,15 @@ use std::{
 use common::{
     array::{
         ARRAY, Bench, KRAKEN, LOCK_WAIT, RATE, WAIT, df, kraken_array, next_reading, processor,
-        processor_status, wait_calibrated, wait_for, wait_status, wrap_deg,
+        processor_status, wait_calibrated, wait_for, wait_solve_after, wait_status, wrap_deg,
     },
     assert_tone_dominates, settle_then_collect_second,
 };
 use sdrmm_device_virtual::{BenchWorld, Emitter, Scene, Waveform, default_devices, default_scene};
 use sdrmm_engine::{ArraySpec, Engine};
 use sdrmm_wire::{
-    ArrayCal, ArrayCalSource, ArrayOrientation, Attitude, ChannelParams, ChannelSettings,
-    NfmParams, PositionFix, ProcessorGate, ProcessorParams, ProcessorReading,
+    ArrayCal, ArrayCalSource, ArrayOrientation, ArrayTuneRequest, Attitude, ChannelParams,
+    ChannelSettings, NfmParams, PositionFix, ProcessorGate, ProcessorParams, ProcessorReading,
     processor::{
         beamformer::BeamformerParams,
         df::{DfParams, DfReading},
@@ -32,6 +32,7 @@ use sdrmm_wire::{
 
 const BEARING_DEG: f64 = 137.0;
 const VOICE_OFFSET_HZ: f64 = 20_000.0;
+const RETUNED_HZ: f64 = 145_000_000.0;
 
 fn noise_emitter() -> Emitter {
     Emitter {
@@ -108,6 +109,39 @@ fn a_phase_processor_waits_for_calibration() {
     df_reading(&mut events);
     let reading = df_reading(&mut events);
     let peak = reading.peaks.first().expect("a bearing");
+    assert!(
+        wrap_deg(f64::from(peak.relative_deg) - BEARING_DEG).abs() < 1.0,
+        "{peak:?}"
+    );
+}
+
+#[test]
+fn a_retuned_array_moves_its_radio_and_keeps_the_bearing() {
+    let bench = live_bench();
+    let ds = bench.open(KRAKEN);
+    bench.engine.apply_array(kraken_array(ds)).unwrap();
+    bench.engine.apply_processor(df("df")).unwrap();
+    let before = wait_calibrated(&bench.engine, LOCK_WAIT);
+    bench
+        .engine
+        .tune_array(
+            ARRAY,
+            ArrayTuneRequest {
+                center_hz: Some(RETUNED_HZ),
+                ..ArrayTuneRequest::default()
+            },
+        )
+        .unwrap();
+    wait_solve_after(&bench.engine, &before, WAIT);
+    let radio = bench.engine.snapshot().device_sets[0].settings.clone();
+    assert_eq!(radio.center_hz, Some(RETUNED_HZ));
+    wait_status(&bench.engine, "the direction finder to run", WAIT, |now| {
+        processor_status(now, "df").gated.is_none()
+    });
+    let mut events = bench.engine.subscribe_arrays();
+    df_reading(&mut events);
+    let reading = df_reading(&mut events);
+    let peak = reading.peaks.first().expect("the emitter after the retune");
     assert!(
         wrap_deg(f64::from(peak.relative_deg) - BEARING_DEG).abs() < 1.0,
         "{peak:?}"

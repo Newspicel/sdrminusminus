@@ -98,6 +98,8 @@ fn together_puts_every_held_lane_on_the_center() {
         panic!("one radio, one delta: {:?}", planned.deltas);
     };
     assert_eq!(*ds, 1);
+    assert_eq!(delta.center_hz, Some(433.92e6));
+    assert_eq!(delta.tuning, Some(Tuning::Manual));
     assert_eq!(delta.streams.len(), 5);
     for (stream, entry) in delta.streams.iter().enumerate() {
         assert_eq!(entry.stream, stream as u32);
@@ -120,6 +122,29 @@ fn together_puts_every_held_lane_on_the_center() {
 }
 
 #[test]
+fn a_bank_shared_with_free_lanes_keeps_its_radio_center() {
+    let kraken = one(1, caps(5, BANK, &RTL_STEPS));
+    let current = BTreeMap::from([(1, rated())]);
+    let planned = plan(
+        &lanes(1, 3),
+        &kraken,
+        &current,
+        ArrayTuningMode::Together,
+        &tune(145e6, 30.0),
+    )
+    .expect("three of five lanes tune together");
+    let (_, delta) = &planned.deltas[0];
+    assert_eq!(delta.center_hz, None);
+    assert_eq!(delta.tuning, None);
+    assert!(
+        delta
+            .streams
+            .iter()
+            .all(|entry| entry.center_hz == Some(145e6))
+    );
+}
+
+#[test]
 fn spread_uses_auto_offsets() {
     let kraken = one(1, caps(5, BANK, &RTL_STEPS));
     let current = BTreeMap::from([(1, rated())]);
@@ -137,6 +162,7 @@ fn spread_uses_auto_offsets() {
         assert_eq!(planned.deltas[0].1.streams[lane].center_hz, Some(*center));
     }
     assert!(offsets[0] < 0.0 && offsets[4] > 0.0);
+    assert_eq!(planned.deltas[0].1.center_hz, Some(433.92e6));
 }
 
 #[test]

@@ -1,7 +1,14 @@
 import { describe, expect, it } from "vitest";
 import type { NodeKind, PatchCatalog, PatchNodeOf } from "../lib/types";
 import { CATALOG } from "../test/catalog";
-import { carriesSettings, defaultBody, newNodeBody, settingsOf, startsOnItsOwn } from "./newNode";
+import {
+  carriesSettings,
+  defaultBody,
+  huntSweepOf,
+  newNodeBody,
+  settingsOf,
+  startsOnItsOwn,
+} from "./newNode";
 
 const KINDS = CATALOG.nodes.map((entry) => entry.kind as NodeKind);
 
@@ -72,5 +79,21 @@ describe("settingsOf", () => {
     expect(settingsOf(node, CATALOG)?.report_ms).toBe(900);
     const bare = { ...node, data: {} } as PatchNodeOf<"df">;
     expect(settingsOf(bare, CATALOG)).toEqual(stored.data.settings);
+  });
+});
+
+describe("huntSweepOf", () => {
+  it("reads the hunt's own sweep and falls back to the catalog default", () => {
+    const walk = {
+      id: "hunt:1",
+      position: { x: 0, y: 0 },
+      kind: "hunt",
+      data: {},
+    } as PatchNodeOf<"hunt">;
+    const fallback = huntSweepOf(walk, CATALOG);
+    expect(fallback?.beamwidth_deg).toBe(60);
+    const mounted = { ...walk, data: { sweep: { ...fallback, mount_offset_deg: -90 } } };
+    expect(huntSweepOf(mounted as PatchNodeOf<"hunt">, CATALOG)?.mount_offset_deg).toBe(-90);
+    expect(huntSweepOf(walk, { nodes: [] })).toBeNull();
   });
 });

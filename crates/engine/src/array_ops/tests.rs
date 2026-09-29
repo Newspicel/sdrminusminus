@@ -306,6 +306,28 @@ fn a_pose_without_a_yaw_rate_takes_one_from_its_headings() {
 }
 
 #[test]
+fn a_fix_that_follows_a_loss_is_never_hidden_behind_it() {
+    let mut track = PoseTrack::default();
+    track.sample(Some(&fix(0, 10.0, None)), host_ns(0));
+    let lost = track.sample(None, host_ns(500));
+    let back = track.sample(Some(&fix(450, 10.0, None)), host_ns(510));
+    assert!(
+        back.host_ns > lost.host_ns,
+        "{} after {}",
+        back.host_ns,
+        lost.host_ns
+    );
+    assert!(back.host_ns <= host_ns(510));
+    assert!(back.fix.is_some());
+    let next = track.sample(Some(&fix(600, 10.0, None)), host_ns(600));
+    assert_eq!(
+        next.host_ns,
+        host_ns(600),
+        "only the first fix after a loss moves"
+    );
+}
+
+#[test]
 fn a_plausible_phone_clock_places_a_late_pose_at_its_own_time() {
     let wall_ns = |at: std::time::SystemTime| {
         i64::try_from(

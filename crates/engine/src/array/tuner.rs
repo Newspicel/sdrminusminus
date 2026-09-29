@@ -208,10 +208,15 @@ fn gain_values(stage: Option<&GainStage>, gain_db: Option<f64>) -> Vec<GainValue
     }
 }
 
+fn holds_every_stream(device: &Device<'_>) -> bool {
+    (0..device.caps.rx_streams).all(|stream| device.lanes.iter().any(|(_, held)| *held == stream))
+}
+
 fn device_delta(
     device: &Device<'_>,
     mode: ArrayTuningMode,
     centers: &[f64],
+    tune: &ArrayTune,
     gain_db: Option<f64>,
 ) -> Result<DeviceSettings, ArrayFailure> {
     let scope = device.caps.per_stream;
@@ -223,6 +228,9 @@ fn device_delta(
             return Err(ArrayFailure::SpreadUnsupported);
         }
         delta.center_hz = device.lanes.first().map(|(slot, _)| centers[*slot]);
+        delta.tuning = Some(Tuning::Manual);
+    } else if holds_every_stream(device) {
+        delta.center_hz = Some(tune.center_hz);
         delta.tuning = Some(Tuning::Manual);
     }
     if !scope.gain {
@@ -269,7 +277,8 @@ pub(crate) fn plan(
     let deltas = devices
         .iter()
         .map(|device| {
-            device_delta(device, mode, &lane_centers_hz, gain_db).map(|delta| (device.ds, delta))
+            device_delta(device, mode, &lane_centers_hz, tune, gain_db)
+                .map(|delta| (device.ds, delta))
         })
         .collect::<Result<Vec<_>, ArrayFailure>>()?;
     Ok(TunePlan {

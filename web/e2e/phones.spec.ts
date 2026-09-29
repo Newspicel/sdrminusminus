@@ -2,7 +2,7 @@ import { type APIRequestContext, expect, type Locator, type Page, test } from "@
 import { WS_BEARER_PROTOCOL_PREFIX, WS_SUBPROTOCOL } from "../src/generated/frame";
 import { hexUtf8 } from "../src/lib/hex";
 import type { AboutResponse, PairingOffer, PairResponse } from "../src/lib/types";
-import { addNode } from "./scenes";
+import { addNode } from "./canvas";
 
 test.describe.configure({ mode: "serial" });
 test.use({ ignoreHTTPSErrors: true });

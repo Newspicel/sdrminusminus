@@ -34,9 +34,10 @@ import type {
   RecordingStatus,
   VoiceCall,
 } from "../../lib/types";
-import { eventSourcesOf, type Input, inputsOf, wiredSourcesOf } from "../binding";
+import { eventSourcesOf, hasWire, type Input, inputsOf, wiredSourcesOf } from "../binding";
 import { useWorkspaceContext } from "../context";
 import { patchNode } from "../graph";
+import { huntSweepOf } from "../newNode";
 import { decoderOf, deviceSetOf } from "../workspaceDevice";
 import { AudioSpectrogramView } from "./AudioSpectrogramView";
 import { recordingFor } from "./audioRecorder";
@@ -612,6 +613,7 @@ export function HuntFace({ node }: { node: PatchNode }) {
 function HuntNodeFace({ node }: { node: PatchNodeOf<"hunt"> }) {
   const workspace = useWorkspaceContext();
   const decoder = decoderOf(workspace, node.id);
+  const sweep = huntSweepOf(node, workspace.context.catalog);
   const remember = (data: Partial<PatchNodeOf<"hunt">["data"]>): void => {
     workspace.edit((snapshot) => ({
       ...snapshot,
@@ -623,10 +625,18 @@ function HuntNodeFace({ node }: { node: PatchNodeOf<"hunt"> }) {
   return (
     <NodeShell node={node} title="Signal hunt" category="tool">
       <HuntPanel
+        node={node.id}
         target={decoder}
         clicks={node.data.clicks ?? true}
         onClicks={(clicks) => remember({ clicks })}
         hint="Wire this node's control out to a decoder"
+        positionWired={hasWire(workspace.graph, node.id, "position")}
+        sweep={sweep}
+        onSweep={(next) => {
+          if (sweep !== null) {
+            remember({ sweep: { ...sweep, ...next } });
+          }
+        }}
       />
     </NodeShell>
   );

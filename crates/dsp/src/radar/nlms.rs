@@ -21,6 +21,7 @@ pub(crate) struct WindowRatio {
     numerator: f64,
     denominator: f64,
     last_db: Option<f32>,
+    last_denominator_mean: Option<f64>,
 }
 
 impl WindowRatio {
@@ -34,6 +35,7 @@ impl WindowRatio {
             numerator: 0.0,
             denominator: 0.0,
             last_db: None,
+            last_denominator_mean: None,
         })
     }
 
@@ -43,6 +45,7 @@ impl WindowRatio {
         self.count += samples;
         if self.count >= self.window {
             self.last_db = Some(ratio_db(self.numerator, self.denominator));
+            self.last_denominator_mean = Some(self.denominator / self.count as f64);
             self.count = 0;
             self.numerator = 0.0;
             self.denominator = 0.0;
@@ -54,11 +57,16 @@ impl WindowRatio {
             .unwrap_or_else(|| ratio_db(self.numerator, self.denominator))
     }
 
+    pub(crate) fn denominator_mean(&self) -> Option<f64> {
+        self.last_denominator_mean
+    }
+
     pub(crate) fn clear(&mut self) {
         self.count = 0;
         self.numerator = 0.0;
         self.denominator = 0.0;
         self.last_db = None;
+        self.last_denominator_mean = None;
     }
 }
 
