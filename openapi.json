@@ -24626,6 +24626,36 @@
               "data": {
                 "type": "object",
                 "required": [
+                  "node",
+                  "reason"
+                ],
+                "properties": {
+                  "node": {
+                    "type": "string"
+                  },
+                  "reason": {
+                    "$ref": "#/components/schemas/SurfaceRefusal"
+                  }
+                }
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "SurfaceRefused"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "data",
+              "type"
+            ],
+            "properties": {
+              "data": {
+                "type": "object",
+                "required": [
                   "stream_id",
                   "kind"
                 ],
@@ -25954,6 +25984,14 @@
             "minimum": 0
           }
         }
+      },
+      "SurfaceRefusal": {
+        "type": "string",
+        "enum": [
+          "no_surface",
+          "fit_not_positive",
+          "no_stream_ids"
+        ]
       },
       "SurveillanceSet": {
         "oneOf": [

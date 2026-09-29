@@ -1,12 +1,15 @@
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
+use crate::limits::FUSION_LIMITS as LIMITS;
+
 pub const FUSION_FIXED_HALF_LIFE_S: u32 = 60;
 pub const FUSION_MOVING_HALF_LIFE_S: u32 = 1_800;
 pub const FUSION_GRID_CELLS: u16 = 256;
 pub const FUSION_FRAME_CELLS: u16 = 128;
 pub const MIN_FUSION_HALF_LIFE_S: u32 = 10;
 pub const MAX_FUSION_HALF_LIFE_S: u32 = 86_400;
+pub const DEFAULT_FUSION_HALF_LIFE_S: u32 = 300;
 pub const MAX_FUSION_EMITTERS: u8 = 4;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
@@ -114,24 +117,25 @@ impl TriangulationParams {
     #[must_use]
     pub fn problem(&self) -> Option<&'static str> {
         let fade_ok = match self.decay {
-            FusionDecay::HalfLife { seconds } => {
-                (MIN_FUSION_HALF_LIFE_S..=MAX_FUSION_HALF_LIFE_S).contains(&seconds)
-            }
+            FusionDecay::HalfLife { seconds } => LIMITS.half_life_s.contains(seconds),
             FusionDecay::Auto | FusionDecay::Fixed | FusionDecay::Moving => true,
         };
         let checks = [
             (fade_ok, "Fade out of range"),
             (
-                (1.0..=100.0).contains(&self.extent_km),
+                LIMITS.extent_km.contains(self.extent_km),
                 "Extent out of range",
             ),
-            ((0.5..=50.0).contains(&self.probe_km), "Probe out of range"),
             (
-                (0.0..=1.0).contains(&self.min_confidence),
+                LIMITS.probe_km.contains(self.probe_km),
+                "Probe out of range",
+            ),
+            (
+                LIMITS.min_confidence.contains(self.min_confidence),
                 "Min confidence out of range",
             ),
             (
-                (1..=MAX_FUSION_EMITTERS).contains(&self.max_emitters),
+                LIMITS.emitters.contains(self.max_emitters),
                 "Emitters out of range",
             ),
         ];

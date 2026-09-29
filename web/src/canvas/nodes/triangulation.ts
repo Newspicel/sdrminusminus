@@ -1,5 +1,6 @@
 import type { Options } from "../../components/controls";
 import type { FusionGridFrame } from "../../lib/frame";
+import { FUSION_LIMITS } from "../../lib/limits";
 import type {
   DfEstimate,
   DfFusionState,
@@ -25,10 +26,14 @@ const BEARING_KINDS: ReadonlySet<string> = new Set(["df", "hunt", "event_filter"
 
 export type DecayKind = FusionDecay["kind"];
 
+export function halfLifeTitle(seconds: number): string {
+  return seconds % 60 === 0 ? `Half life ${seconds / 60} min` : `Half life ${seconds} s`;
+}
+
 export const DECAY_OPTIONS: Options<DecayKind> = [
   { value: "auto", label: "Auto", title: "Fixed or moving, from the stations" },
-  { value: "fixed", label: "Fixed", title: "Half life 1 min" },
-  { value: "moving", label: "Moving", title: "Half life 30 min" },
+  { value: "fixed", label: "Fixed", title: halfLifeTitle(FUSION_LIMITS.fixed_half_life_s) },
+  { value: "moving", label: "Moving", title: halfLifeTitle(FUSION_LIMITS.moving_half_life_s) },
   { value: "half_life", label: "Set", title: "Pick the half life" },
 ];
 
@@ -37,10 +42,6 @@ export const NAV_OPTIONS: Options<NavMode> = [
   { value: "direct", label: "Direct", title: "Drive at the fix as soon as there is one" },
   { value: "off", label: "Off" },
 ];
-
-export const DEFAULT_HALF_LIFE_S = 300;
-export const MIN_HALF_LIFE_S = 10;
-export const MAX_HALF_LIFE_S = 86_400;
 
 export interface Box {
   w: number;
@@ -150,7 +151,7 @@ export function decayWith(kind: DecayKind, current: FusionDecay): FusionDecay {
   }
   return current.kind === "half_life"
     ? current
-    : { kind: "half_life", seconds: DEFAULT_HALF_LIFE_S };
+    : { kind: "half_life", seconds: FUSION_LIMITS.half_life_seed_s };
 }
 
 export function fadeTitle(fusion: DfFusionState | undefined): string | undefined {

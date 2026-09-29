@@ -4,6 +4,8 @@ use utoipa::ToSchema;
 use crate::array::MAX_ARRAY_LANES;
 use crate::processor::reserved_at;
 
+pub const STITCH_REPORT_MS: u32 = 1_000;
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum StitchBlend {

@@ -20,7 +20,9 @@ describe("useFusionStore", () => {
 
   it("ignores other events", () => {
     useFusionStore.getState().set("tri", STATE);
-    useFusionStore.getState().observe({ type: "Error", data: { message: "no surface tri" } });
+    useFusionStore
+      .getState()
+      .observe({ type: "SurfaceRefused", data: { node: "tri", reason: "no_surface" } });
     expect(useFusionStore.getState().byNode.tri).toBe(STATE);
   });
 

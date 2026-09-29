@@ -11,7 +11,7 @@ use super::*;
 use crate::{
     AppState,
     surfaces::{SURFACE_BACKLOG, SurfaceHub},
-    ws::outbox,
+    ws::{MEDIA_ID_BASE, outbox},
 };
 
 const WAIT: Duration = Duration::from_secs(5);
@@ -94,11 +94,15 @@ async fn started(client: &mut Client) -> (u16, String, StreamKind) {
     }
 }
 
-async fn refusal(client: &mut Client) -> String {
+async fn refusal(client: &mut Client) -> (String, SurfaceRefusal) {
     match next_event(client).await {
-        ServerEvent::Error { message } => message,
-        other => panic!("expected an error, got {other:?}"),
+        ServerEvent::SurfaceRefused { node, reason } => (node, reason),
+        other => panic!("expected a surface refusal, got {other:?}"),
     }
+}
+
+fn refused(node: &str, reason: SurfaceRefusal) -> (String, SurfaceRefusal) {
+    (node.to_owned(), reason)
 }
 
 fn fit(cols: u16, rows: u16) -> Option<SurfaceFit> {
@@ -269,7 +273,7 @@ async fn radar_surface_is_max_pooled_to_the_fit() {
     subscribe(&mut client, "radar", fit(4, 2)).await;
     let (stream_id, node, kind) = started(&mut client).await;
     assert_eq!((node.as_str(), kind), ("radar", StreamKind::RangeDoppler));
-    assert!(stream_id >= super::MEDIA_ID_BASE);
+    assert!(stream_id >= MEDIA_ID_BASE);
 
     let frame = radar(8, 4);
     state.surfaces.publish(
@@ -307,19 +311,66 @@ async fn a_zero_fit_is_refused() {
     state.surfaces.open("radar", StreamKind::RangeDoppler);
 
     subscribe(&mut client, "radar", fit(0, 128)).await;
-    assert_eq!(refusal(&mut client).await, "fit must be positive");
+    assert_eq!(
+        refusal(&mut client).await,
+        refused("radar", SurfaceRefusal::FitNotPositive)
+    );
     subscribe(&mut client, "radar", fit(256, 0)).await;
-    assert_eq!(refusal(&mut client).await, "fit must be positive");
+    assert_eq!(
+        refusal(&mut client).await,
+        refused("radar", SurfaceRefusal::FitNotPositive)
+    );
 
     subscribe(&mut client, "radar", fit(256, 128)).await;
     assert_eq!(started(&mut client).await.1, "radar");
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn an_unknown_surface_node_is_an_error() {
-    let (mut client, _state) = serve().await;
+async fn an_unknown_surface_node_is_refused_by_name() {
+    let (mut client, state) = serve().await;
     subscribe(&mut client, "ghost", None).await;
-    assert_eq!(refusal(&mut client).await, "no surface ghost");
+    assert_eq!(
+        refusal(&mut client).await,
+        refused("ghost", SurfaceRefusal::NoSurface)
+    );
+
+    state.surfaces.open("ghost", StreamKind::FusionGrid);
+    subscribe(&mut client, "ghost", None).await;
+    assert_eq!(started(&mut client).await.1, "ghost", "asking again works");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_socket_out_of_stream_ids_refuses_the_surface_by_name() {
+    let (_client, state) = serve().await;
+    state.surfaces.open("radar", StreamKind::RangeDoppler);
+    let (out, mut output) = outbox::channel();
+    let mut session = Session::new(
+        state.engine.clone(),
+        state.clone(),
+        out,
+        crate::auth::Identity::Open,
+    );
+    for id in MEDIA_ID_BASE..=u16::MAX {
+        let task = tokio::spawn(async {});
+        session.video.insert((u32::from(id), 0), (id, task));
+    }
+
+    session.subscribe_surface("radar".to_owned(), None).await;
+    let message = timeout(WAIT, output.recv())
+        .await
+        .expect("an answer")
+        .expect("the outbox is open");
+    let Message::Text(text) = message else {
+        panic!("a text event, got {message:?}");
+    };
+    assert_eq!(
+        serde_json::from_str::<ServerEvent>(text.as_str()).expect("event json"),
+        ServerEvent::SurfaceRefused {
+            node: "radar".to_owned(),
+            reason: SurfaceRefusal::NoStreamIds,
+        }
+    );
+    assert!(session.surfaces.streams.is_empty());
 }
 
 #[tokio::test(flavor = "multi_thread")]

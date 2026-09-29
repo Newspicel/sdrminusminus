@@ -368,6 +368,9 @@ impl Reducer {
             ServerEvent::StreamStopped { stream_id, .. } => {
                 self.streams.remove(&stream_id);
             }
+            ServerEvent::SurfaceRefused { reason, .. } => {
+                self.notice(Notice::warn(reason.label()));
+            }
             ServerEvent::Error { message } => self.notice(Notice::warn(message)),
             _ => {}
         }

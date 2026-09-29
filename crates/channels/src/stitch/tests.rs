@@ -178,3 +178,21 @@ fn lanes_without_overlap_run_and_say_so() {
     };
     assert!(reading.no_overlap);
 }
+
+#[test]
+fn stitch_reports_at_the_wire_cadence() {
+    let bench = spread("stitch-cadence", 2);
+    let mut processor = StitchProcessor::new(&bench.ctx(), &params()).expect("stitch");
+    let cadence = (RATE * f64::from(STITCH_REPORT_MS) / 1_000.0) as usize;
+    let lanes = [noise(2 * cadence, 5), noise(2 * cadence, 6)];
+    let mut sink = wide_sink(&bench);
+    let mut reports = Vec::new();
+    for start in (0..2 * cadence).step_by(HOP) {
+        let views = [&lanes[0][start..start + HOP], &lanes[1][start..start + HOP]];
+        let tally = sink.run(|out| processor.process(&block(&views, 0), out));
+        if tally.report {
+            reports.push(start + HOP);
+        }
+    }
+    assert_eq!(reports, [cadence, 2 * cadence]);
+}

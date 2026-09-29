@@ -15,7 +15,7 @@ use sdrmm_wire::{
     radar::RadarUpdate,
     state::StateSnapshot,
     survey::{MAX_SURVEY_CELLS, SurveyCell, SurveyGrid, SurveyUpdate},
-    ws::{ServerEvent, StateScope, StreamKind},
+    ws::{ServerEvent, StateScope, StreamKind, SurfaceRefusal},
 };
 use tokio::sync::{mpsc, watch};
 
@@ -523,6 +523,23 @@ fn fusion_grids_become_heat_bands_at_most_once_a_second() {
         notices(&reducer.handle(Input::Frame(broken), T0 + 3_000)),
         ["Bad frame from server"]
     );
+}
+
+#[test]
+fn a_refused_surface_is_told() {
+    let mut reducer = listed(vec![
+        df("df1", &["tri1"]),
+        triangulation("tri1", &["df1"], true),
+    ]);
+    reducer.handle(Input::Open("df1".to_owned()), T0);
+    let refused = reducer.handle(
+        event(ServerEvent::SurfaceRefused {
+            node: "tri1".to_owned(),
+            reason: SurfaceRefusal::NoSurface,
+        }),
+        T0,
+    );
+    assert_eq!(notices(&refused), [SurfaceRefusal::NoSurface.label()]);
 }
 
 #[test]

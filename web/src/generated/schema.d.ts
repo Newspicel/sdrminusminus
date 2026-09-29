@@ -6868,6 +6868,13 @@ export interface components {
             type: "SurfaceStreamStarted";
         } | {
             data: {
+                node: string;
+                reason: components["schemas"]["SurfaceRefusal"];
+            };
+            /** @enum {string} */
+            type: "SurfaceRefused";
+        } | {
+            data: {
                 kind: components["schemas"]["StreamKind"];
                 /** Format: int32 */
                 stream_id: number;
@@ -7249,6 +7256,8 @@ export interface components {
             /** Format: int32 */
             rows: number;
         };
+        /** @enum {string} */
+        SurfaceRefusal: "no_surface" | "fit_not_positive" | "no_stream_ids";
         SurveillanceSet: {
             /** @enum {string} */
             kind: "all_others";

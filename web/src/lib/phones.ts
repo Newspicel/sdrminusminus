@@ -1,3 +1,4 @@
+import labels from "../generated/labels.json";
 import type {
   HeadingSource,
   PairingOfferStatus,
@@ -20,9 +21,9 @@ export const PLATFORM_LABEL: Record<PhonePlatform, string> = {
   android: "Android",
 };
 
-export const PHONE_OFFLINE = "phone offline";
-export const PHONE_NOT_PAIRED = "phone not paired";
-export const PORT_IN_USE = "port in use";
+export const PHONE_OFFLINE = labels.phone.offline;
+export const PHONE_NOT_PAIRED = labels.phone.not_paired;
+export const PORT_IN_USE = labels.phone.port_in_use;
 export const OFFER_LINGER_MS = 10 * 60_000;
 export const OFFER_POLL_MS = 2_000;
 

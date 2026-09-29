@@ -1,6 +1,6 @@
 use sdrmm_wire::{
     Attitude, GpsNode, HeadingSource, NodeBody, PatchNode, Position, PositionSource,
-    WorkspaceSnapshot,
+    SurfaceRefusal, WorkspaceSnapshot,
 };
 use tokio_tungstenite::tungstenite::{
     client::IntoClientRequest,
@@ -221,6 +221,28 @@ async fn a_phone_command_outside_the_list_is_refused() {
     loop {
         if let ServerEvent::Error { message } = next_event(&mut ws).await {
             assert_eq!(message, NOT_FOR_PHONES);
+            break;
+        }
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_phone_hears_why_its_surface_was_refused() {
+    let (addr, state) = serve_phones(test_engine()).await;
+    let paired = pair_one(&state.phones);
+    let mut ws = dial_phone(addr, &paired.token).await;
+    hello(&mut ws).await;
+    send(
+        &mut ws,
+        &ClientCommand::SubscribeSurface {
+            node: "tri".to_owned(),
+            fit: None,
+        },
+    )
+    .await;
+    loop {
+        if let ServerEvent::SurfaceRefused { node, reason } = next_event(&mut ws).await {
+            assert_eq!((node.as_str(), reason), ("tri", SurfaceRefusal::NoSurface));
             break;
         }
     }

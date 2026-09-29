@@ -1,8 +1,8 @@
+import { ARRAY_LIMITS, LIGHT_SPEED_M_S } from "../../lib/limits";
 import type { ArrayElement, ArrayGeometry, GeometryKind } from "../../lib/types";
 
-export const LIGHT_SPEED_M_S = 299_792_458;
-export const MIN_ELEMENTS = 2;
-export const MAX_EXTENT_M = 100;
+export const MIN_ELEMENTS = ARRAY_LIMITS.lanes.min;
+export const MAX_EXTENT_M = ARRAY_LIMITS.extent_m;
 export const OVERLAP_M = 0.005;
 export const FALLBACK_SPACING_M = 0.5;
 export const LINE_AXIS_DEG = 90;

@@ -51,6 +51,7 @@ export function MapLegend({
   signalCells,
   overlay,
   heat,
+  heatRefused,
   headings,
   basemap,
 }: {
@@ -60,6 +61,7 @@ export function MapLegend({
   signalCells: number | null;
   overlay: OverlayCounts;
   heat: boolean;
+  heatRefused: string | null;
   headings: boolean;
   basemap: BasemapKind;
 }) {
@@ -90,6 +92,11 @@ export function MapLegend({
       )}
       {basemap === "blank" && <div className={BADGE}>no basemap</div>}
       {!headings && <div className={BADGE}>no headings</div>}
+      {heatRefused !== null && (
+        <div className={`${BADGE} pointer-events-auto text-danger`} title={heatRefused}>
+          no heat
+        </div>
+      )}
     </div>
   );
 }

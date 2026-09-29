@@ -4,7 +4,9 @@ use serde_json::{Map, Value};
 use crate::{
     array::{ARRAY_FAILURE_LABELS, CalPhase, ProcessorGate, SyncState},
     patch::REFUSALS,
+    phone::PHONE_TEXTS,
     radar::RadarProblem,
+    ws::SurfaceRefusal,
 };
 
 pub const RADAR_REFUSED_TEMPLATE: &str = "{text}";
@@ -26,6 +28,15 @@ pub fn generated() -> Result<Value, serde_json::Error> {
     labels.insert("failure".to_owned(), named(ARRAY_FAILURE_LABELS));
     labels.insert("radar_problem".to_owned(), named(radar_problems()));
     labels.insert("refusal".to_owned(), named(REFUSALS));
+    labels.insert("phone".to_owned(), named(PHONE_TEXTS));
+    labels.insert(
+        "surface_refusal".to_owned(),
+        keyed(
+            SurfaceRefusal::ALL
+                .iter()
+                .map(|reason| (reason, reason.label())),
+        )?,
+    );
     Ok(Value::Object(labels))
 }
 
@@ -89,6 +100,9 @@ mod tests {
         assert_eq!(labels["failure"]["clock_drift"], "Clocks drift {ppm} ppm");
         assert_eq!(labels["refusal"]["lane_taken"], "that lane is in {label}");
         assert_eq!(labels["radar_problem"]["refused"], "{text}");
+        assert_eq!(labels["phone"]["offline"], "phone offline");
+        assert_eq!(labels["phone"]["not_paired"], "phone not paired");
+        assert_eq!(labels["surface_refusal"]["no_surface"], "No surface");
         for (section, count) in [
             ("sync", SyncState::ALL.len()),
             ("cal", CalPhase::ALL.len()),
@@ -96,12 +110,27 @@ mod tests {
             ("failure", ARRAY_FAILURE_LABELS.len()),
             ("radar_problem", RadarProblem::ALL.len()),
             ("refusal", REFUSALS.len()),
+            ("phone", PHONE_TEXTS.len()),
+            ("surface_refusal", SurfaceRefusal::ALL.len()),
         ] {
             assert_eq!(
                 labels[section].as_object().map(Map::len),
                 Some(count),
                 "{section}"
             );
+        }
+    }
+
+    #[test]
+    fn surface_and_phone_labels_follow_the_wire() {
+        let labels = generated().expect("labels");
+        for reason in SurfaceRefusal::ALL {
+            let key = serde_json::to_value(reason).expect("reason");
+            let key = key.as_str().expect("a snake case name");
+            assert_eq!(labels["surface_refusal"][key], reason.label());
+        }
+        for (key, text) in PHONE_TEXTS {
+            assert_eq!(labels["phone"][key], text);
         }
     }
 

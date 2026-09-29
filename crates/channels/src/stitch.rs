@@ -1,6 +1,7 @@
 use num_complex::Complex;
 use sdrmm_dsp::stitch::{STITCH_FFT, StitchError, StitchOptions, Stitcher, output_rate};
 use sdrmm_wire::array::{MAX_ARRAY_LANES, MIN_ARRAY_LANES};
+use sdrmm_wire::processor::stitch::STITCH_REPORT_MS;
 use sdrmm_wire::{
     ProcessorParams, ProcessorReading, STITCH_WIDE_PORT, StitchBlend, StitchLane, StitchParams,
     StitchReading,
@@ -89,6 +90,10 @@ fn lane_format(_: &ProcessorParams, ctx: &ArrayCtx<'_>, port: usize) -> LaneForm
             0
         },
     }
+}
+
+fn report_samples(sample_rate: f64) -> u64 {
+    ((sample_rate * f64::from(STITCH_REPORT_MS) / 1_000.0).round() as u64).max(1)
 }
 
 const fn refused(error: &StitchError) -> ChannelError {
@@ -197,7 +202,7 @@ impl ArrayProcessor for StitchProcessor {
             wide: Vec::with_capacity(wide_capacity(ctx.max_block, ctx.lanes)),
             no_overlap: false,
             since_report: 0,
-            report_samples: (ctx.sample_rate.round() as u64).max(1),
+            report_samples: report_samples(ctx.sample_rate),
             faults: ProcessorFaults::default(),
         };
         processor.retune(ctx)?;

@@ -36,6 +36,7 @@ pub(crate) fn phone_event(event: &ServerEvent) -> bool {
             | ServerEvent::DfFusionUpdate { .. }
             | ServerEvent::SurveyUpdate { .. }
             | ServerEvent::SurfaceStreamStarted { .. }
+            | ServerEvent::SurfaceRefused { .. }
             | ServerEvent::StreamStopped { .. }
     )
 }

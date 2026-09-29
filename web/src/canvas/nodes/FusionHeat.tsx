@@ -7,6 +7,7 @@ import type { DfEstimate, DfStation } from "../../lib/types";
 import { useBoxSize } from "../../lib/useBoxSize";
 import { useSurface } from "../../lib/useSurface";
 import { FaceEmpty } from "./NodeShell";
+import { SurfaceRefused } from "./SurfaceRefused";
 import { type Box, type GridBounds, geoToGrid, insideBox } from "./triangulation";
 
 const HEAT_PX = 180;
@@ -30,7 +31,7 @@ export function FusionHeat({
 }) {
   const [frame, setFrame] = useState<FusionGridFrame | null>(null);
   const [ref, size] = useBoxSize<HTMLDivElement>();
-  useSurface(known ? node : null, (surface) => {
+  const refused = useSurface(known ? node : null, (surface) => {
     if (surface.kind === "fusion_grid") {
       setFrame(surface.frame);
     } else {
@@ -47,9 +48,11 @@ export function FusionHeat({
       aria-label="Bearing heat"
     >
       {frame === null ? (
-        <div className="absolute inset-0 flex">
-          <FaceEmpty hint={hint ?? "No bearings yet"} />
-        </div>
+        refused === null && (
+          <div className="absolute inset-0 flex">
+            <FaceEmpty hint={hint ?? "No bearings yet"} />
+          </div>
+        )
       ) : (
         <>
           <GridCanvas frame={frame} colormap="inferno" flipY={false} />
@@ -64,6 +67,7 @@ export function FusionHeat({
           )}
         </>
       )}
+      <SurfaceRefused text={refused} />
     </div>
   );
 }

@@ -5,11 +5,14 @@ import { FUSION_KEY, WORKSPACES_KEY } from "./api";
 import { useArrayStore } from "./arrays";
 import { useBearingStore } from "./bearings";
 import { useFusionStore } from "./fusion";
+import { ListenerRegistry } from "./listeners";
 import { forgetNodes, resetNodeState } from "./nodeState";
 import { usePositionStore } from "./position";
 import { useProcessorStore } from "./processors";
 import { useRefusalStore } from "./refusals";
+import { surfaceHub } from "./surface";
 import { useSurveyStore } from "./survey";
+import type { ClientCommand } from "./types";
 import { goneNodes, retryNodeState, switchedWorkspace } from "./useNodeStateSync";
 
 function fill(node: string): void {
@@ -109,6 +112,25 @@ describe("node state sync", () => {
     retryNodeState(client);
     await expect.poll(() => client.getQueryData([...FUSION_KEY, "tri"])).toEqual({ samples: 0 });
     expect(workspaces).toBe(1);
+  });
+
+  it("asks again for a surface the server refused once the graph applies", () => {
+    const registry = new ListenerRegistry();
+    const sent: ClientCommand[] = [];
+    surfaceHub.attach({
+      send: (command) => sent.push(command),
+      isConnected: () => true,
+      on: (kind, listener) => registry.on(kind, listener),
+    });
+    const stop = surfaceHub.subscribe("tri", () => {});
+    registry.emit("event", {
+      type: "SurfaceRefused",
+      data: { node: "tri", reason: "no_stream_ids" },
+    });
+    retryNodeState(new QueryClient());
+    stop();
+    surfaceHub.detach();
+    expect(sent.filter((command) => command.type === "SubscribeSurface")).toHaveLength(2);
   });
 
   it("names the nodes that left the graph", () => {

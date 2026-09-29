@@ -242,6 +242,11 @@ fn codegen(root: &Path) -> Result<()> {
         serde_json::to_string_pretty(&sdrmm_wire::labels::generated()?)?,
     )
     .context("write labels")?;
+    std::fs::write(
+        root.join("web/src/generated/limits.json"),
+        sdrmm_wire::limits::generated()?,
+    )
+    .context("write limits")?;
     let frames = root.join("web/src/generated/frame.ts");
     std::fs::write(&frames, sdrmm_wire::typescript_frames()).context("write binary frame codec")?;
     let spec = sdrmm_server::openapi()

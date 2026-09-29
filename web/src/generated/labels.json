@@ -40,6 +40,12 @@
     "tier": "Not coherent",
     "tuning_mode": "Wrong tuning"
   },
+  "phone": {
+    "not_paired": "phone not paired",
+    "offline": "phone offline",
+    "port_in_use": "port in use",
+    "silent": "phone silent"
+  },
   "radar_problem": {
     "no_array": "No array",
     "no_heading": "No heading",
@@ -58,6 +64,11 @@
     "steer": "steer takes a direction finder",
     "triangulation": "triangulation takes bearings",
     "unnamed_array": "an Array"
+  },
+  "surface_refusal": {
+    "fit_not_positive": "Fit must be positive",
+    "no_stream_ids": "Too many streams",
+    "no_surface": "No surface"
   },
   "sync": {
     "drifting": "Drifting",

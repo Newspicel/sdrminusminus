@@ -13,6 +13,7 @@ import {
   PHASE_SPAN,
   phasePath,
 } from "./correlator";
+import { SurfaceRefused } from "./SurfaceRefused";
 
 const GUTTERS = { left: 34, right: 6, top: 12, bottom: 18 };
 const GAP = 16;
@@ -35,7 +36,7 @@ export function CorrelatorPlots({
 }) {
   const [frame, setFrame] = useState<VisibilityFrame | null>(null);
   const [ref, size] = useBoxSize<HTMLDivElement>();
-  useSurface(known ? node : null, (surface) => {
+  const refused = useSurface(known ? node : null, (surface) => {
     if (surface.kind === "visibility") {
       setFrame(surface.frame);
     } else {
@@ -58,6 +59,7 @@ export function CorrelatorPlots({
         Phase °
       </span>
       <span className="absolute right-1 bottom-0.5 font-mono text-[9px] text-ink-faint">MHz</span>
+      <SurfaceRefused text={refused} />
       {frame !== null && whole.w > 0 && half > 0 && (
         <svg
           aria-hidden

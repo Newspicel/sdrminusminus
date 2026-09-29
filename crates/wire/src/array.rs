@@ -15,6 +15,7 @@ pub const MAX_CHECK_S: u32 = 3_600;
 pub const DEFAULT_CHECK_S: u32 = 60;
 pub const MIN_CAL_BANDWIDTH_HZ: f64 = 100.0;
 pub const MAX_CAL_BANDWIDTH_HZ: f64 = 2_000_000.0;
+pub const DEFAULT_CAL_BANDWIDTH_HZ: f64 = 20_000.0;
 pub const MAX_CAL_OFFSET_HZ: f64 = 50_000_000.0;
 pub const MIN_ARRAY_GAIN_DB: f64 = -20.0;
 pub const MAX_ARRAY_GAIN_DB: f64 = 80.0;

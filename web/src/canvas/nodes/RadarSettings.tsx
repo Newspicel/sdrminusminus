@@ -4,6 +4,7 @@ import { segment, WELL } from "../../components/controls";
 import { NumberField } from "../../components/NumberField";
 import { Select } from "../../components/Select";
 import { SettingRow } from "../../components/Settings";
+import { RADAR_LIMITS as LIMITS, lowest, scaled } from "../../lib/limits";
 import type { PassiveRadarParams } from "../../lib/types";
 import {
   allElements,
@@ -34,6 +35,13 @@ interface GroupProps {
 }
 
 const SMALL = "w-24";
+const CLUTTER_STEP = 0.001;
+const CMA_STEP = 0.0001;
+const JERK_STEP = 0.1;
+const OFFSET_KHZ = scaled(LIMITS.offset_hz, 1e-3);
+const BANDWIDTH_KHZ = scaled(LIMITS.bandwidth_hz, 1e-3);
+const OVERLAP_PERCENT = scaled(LIMITS.overlap, 100);
+const RANK_PERCENT = scaled(LIMITS.os_rank, 100);
 
 export function RadarSettings({
   settings,
@@ -71,8 +79,8 @@ function SourceGroup({ settings, edit, lanes }: GroupProps & { lanes: number }) 
         <NumberField
           label="Offset"
           value={settings.offset_hz / 1_000}
-          min={-50_000}
-          max={50_000}
+          min={OFFSET_KHZ.min}
+          max={OFFSET_KHZ.max}
           step={1}
           unit="kHz"
           className={SMALL}
@@ -84,8 +92,8 @@ function SourceGroup({ settings, edit, lanes }: GroupProps & { lanes: number }) 
           <NumberField
             label="Bandwidth"
             value={illuminator.bandwidth_hz / 1_000}
-            min={10}
-            max={20_000}
+            min={BANDWIDTH_KHZ.min}
+            max={BANDWIDTH_KHZ.max}
             step={1}
             unit="kHz"
             className={SMALL}
@@ -149,8 +157,8 @@ function SourceLimits({ settings, edit }: GroupProps) {
         <NumberField
           label="Range"
           value={settings.max_range_km}
-          min={1}
-          max={400}
+          min={lowest(LIMITS.max_range_km, 1)}
+          max={LIMITS.max_range_km.max}
           step={1}
           unit="km"
           className={SMALL}
@@ -161,8 +169,8 @@ function SourceLimits({ settings, edit }: GroupProps) {
         <NumberField
           label="Speed"
           value={settings.max_speed_mps}
-          min={10}
-          max={2_000}
+          min={LIMITS.max_speed_mps.min}
+          max={LIMITS.max_speed_mps.max}
           step={10}
           unit="m/s"
           className={SMALL}
@@ -173,8 +181,8 @@ function SourceLimits({ settings, edit }: GroupProps) {
         <NumberField
           label="CPI"
           value={settings.cpi_ms}
-          min={50}
-          max={2_000}
+          min={LIMITS.cpi_ms.min}
+          max={LIMITS.cpi_ms.max}
           step={10}
           unit="ms"
           className={SMALL}
@@ -185,8 +193,8 @@ function SourceLimits({ settings, edit }: GroupProps) {
         <NumberField
           label="Overlap"
           value={Math.round(settings.overlap * 100)}
-          min={0}
-          max={75}
+          min={OVERLAP_PERCENT.min}
+          max={OVERLAP_PERCENT.max}
           step={5}
           unit="%"
           className={SMALL}
@@ -232,8 +240,8 @@ function ClutterGroup({ settings, edit }: GroupProps) {
             <NumberField
               label="Reach"
               value={clutter.reach_km}
-              min={0.1}
-              max={100}
+              min={LIMITS.reach_km.min}
+              max={LIMITS.reach_km.max}
               step={0.1}
               unit="km"
               className={SMALL}
@@ -244,8 +252,8 @@ function ClutterGroup({ settings, edit }: GroupProps) {
             <NumberField
               label="Lead"
               value={clutter.lead}
-              min={0}
-              max={16}
+              min={LIMITS.lead.min}
+              max={LIMITS.lead.max}
               step={1}
               className={SMALL}
               onCommit={(lead) => set({ lead: Math.round(lead) })}
@@ -259,9 +267,9 @@ function ClutterGroup({ settings, edit }: GroupProps) {
           <NumberField
             label="Step"
             value={clutter.step}
-            min={0.001}
-            max={1}
-            step={0.001}
+            min={lowest(LIMITS.clutter_step, CLUTTER_STEP)}
+            max={LIMITS.clutter_step.max}
+            step={CLUTTER_STEP}
             className={SMALL}
             onCommit={(step) => set({ step })}
           />
@@ -281,8 +289,8 @@ function EcaRows({ settings, edit }: GroupProps) {
         <NumberField
           label="Doppler taps"
           value={clutter.doppler_taps}
-          min={0}
-          max={2}
+          min={LIMITS.doppler_taps.min}
+          max={LIMITS.doppler_taps.max}
           step={1}
           className={SMALL}
           onCommit={(taps) => set({ doppler_taps: Math.round(taps) })}
@@ -294,8 +302,8 @@ function EcaRows({ settings, edit }: GroupProps) {
             <NumberField
               label="Batch"
               value={clutter.batch_ms}
-              min={1}
-              max={1_000}
+              min={LIMITS.batch_ms.min}
+              max={LIMITS.batch_ms.max}
               step={1}
               unit="ms"
               className={SMALL}
@@ -311,8 +319,8 @@ function EcaRows({ settings, edit }: GroupProps) {
           <NumberField
             label="Extension"
             value={clutter.extension_ms}
-            min={0}
-            max={500}
+            min={LIMITS.extension_ms.min}
+            max={LIMITS.extension_ms.max}
             step={1}
             unit="ms"
             className={SMALL}
@@ -324,8 +332,8 @@ function EcaRows({ settings, edit }: GroupProps) {
         <NumberField
           label="Loading"
           value={clutter.loading}
-          min={0}
-          max={1}
+          min={LIMITS.loading.min}
+          max={LIMITS.loading.max}
           step={0.0001}
           className={SMALL}
           onCommit={(loading) => set({ loading })}
@@ -353,8 +361,8 @@ function ReferenceGroup({ settings, edit }: GroupProps) {
             <NumberField
               label="CMA taps"
               value={cleaning.taps}
-              min={1}
-              max={64}
+              min={LIMITS.cma_taps.min}
+              max={LIMITS.cma_taps.max}
               step={1}
               className={SMALL}
               onCommit={(taps) => edit({ reference: { ...cleaning, taps: Math.round(taps) } })}
@@ -364,9 +372,9 @@ function ReferenceGroup({ settings, edit }: GroupProps) {
             <NumberField
               label="CMA step"
               value={cleaning.step}
-              min={0.0001}
-              max={0.1}
-              step={0.0001}
+              min={lowest(LIMITS.cma_step, CMA_STEP)}
+              max={LIMITS.cma_step.max}
+              step={CMA_STEP}
               className={SMALL}
               onCommit={(step) => edit({ reference: { ...cleaning, step } })}
             />
@@ -414,7 +422,7 @@ function DetectGroup({ settings, edit }: GroupProps) {
         label=""
         guard={cfar.guard_range}
         train={cfar.train_range}
-        maxTrain={64}
+        maxTrain={LIMITS.train_range.max}
         onGuard={(guard_range) => set({ guard_range })}
         onTrain={(train_range) => set({ train_range })}
       />
@@ -423,7 +431,7 @@ function DetectGroup({ settings, edit }: GroupProps) {
           label="Doppler"
           guard={cfar.guard_doppler}
           train={cfar.train_doppler}
-          maxTrain={16}
+          maxTrain={LIMITS.train_doppler.max}
           onGuard={(guard_doppler) => set({ guard_doppler })}
           onTrain={(train_doppler) => set({ train_doppler })}
         />
@@ -433,8 +441,8 @@ function DetectGroup({ settings, edit }: GroupProps) {
           <NumberField
             label="Rank"
             value={Math.round(cfar.kind.rank * 100)}
-            min={50}
-            max={95}
+            min={RANK_PERCENT.min}
+            max={RANK_PERCENT.max}
             step={1}
             unit="%"
             className={SMALL}
@@ -470,8 +478,8 @@ function CellRows({
         <NumberField
           label={guardLabel}
           value={guard}
-          min={0}
-          max={16}
+          min={LIMITS.guard.min}
+          max={LIMITS.guard.max}
           step={1}
           className={SMALL}
           onCommit={(value) => onGuard(Math.round(value))}
@@ -481,7 +489,7 @@ function CellRows({
         <NumberField
           label={trainLabel}
           value={train}
-          min={1}
+          min={LIMITS.train_range.min}
           max={maxTrain}
           step={1}
           className={SMALL}
@@ -501,8 +509,8 @@ function DetectFloors({ settings, edit }: GroupProps) {
         <NumberField
           label="Min Doppler"
           value={cfar.min_doppler_hz}
-          min={0}
-          max={100}
+          min={LIMITS.min_doppler_hz.min}
+          max={LIMITS.min_doppler_hz.max}
           step={0.5}
           unit="Hz"
           className={SMALL}
@@ -513,8 +521,8 @@ function DetectFloors({ settings, edit }: GroupProps) {
         <NumberField
           label="Min range"
           value={cfar.min_range_km}
-          min={0}
-          max={50}
+          min={LIMITS.min_range_km.min}
+          max={LIMITS.min_range_km.max}
           step={0.5}
           unit="km"
           className={SMALL}
@@ -525,8 +533,8 @@ function DetectFloors({ settings, edit }: GroupProps) {
         <NumberField
           label="Min SNR"
           value={cfar.min_snr_db}
-          min={0}
-          max={40}
+          min={LIMITS.min_snr_db.min}
+          max={LIMITS.min_snr_db.max}
           step={0.5}
           unit="dB"
           className={SMALL}
@@ -556,7 +564,7 @@ function TrackGroup({ settings, edit }: GroupProps) {
           <NumberField
             label="Start hits"
             value={tracker.confirm_hits}
-            min={1}
+            min={LIMITS.track_window.min}
             max={tracker.confirm_window}
             step={1}
             unit="M"
@@ -568,7 +576,7 @@ function TrackGroup({ settings, edit }: GroupProps) {
             label="Start looks"
             value={tracker.confirm_window}
             min={tracker.confirm_hits}
-            max={16}
+            max={LIMITS.track_window.max}
             step={1}
             unit="N"
             className="w-16"
@@ -580,8 +588,8 @@ function TrackGroup({ settings, edit }: GroupProps) {
         <NumberField
           label="Coast"
           value={tracker.coast_looks}
-          min={0}
-          max={100}
+          min={LIMITS.coast_looks.min}
+          max={LIMITS.coast_looks.max}
           step={1}
           className={SMALL}
           onCommit={(looks) => set({ coast_looks: Math.round(looks) })}
@@ -591,8 +599,8 @@ function TrackGroup({ settings, edit }: GroupProps) {
         <NumberField
           label="Max accel"
           value={tracker.max_accel_mps2}
-          min={1}
-          max={200}
+          min={LIMITS.max_accel_mps2.min}
+          max={LIMITS.max_accel_mps2.max}
           step={1}
           unit="m/s²"
           className={SMALL}
@@ -603,8 +611,8 @@ function TrackGroup({ settings, edit }: GroupProps) {
         <NumberField
           label="Gate"
           value={tracker.gate}
-          min={4}
-          max={30}
+          min={LIMITS.gate.min}
+          max={LIMITS.gate.max}
           step={0.1}
           className={SMALL}
           onCommit={(gate) => set({ gate })}
@@ -614,9 +622,9 @@ function TrackGroup({ settings, edit }: GroupProps) {
         <NumberField
           label="Jerk"
           value={tracker.jerk}
-          min={0.1}
-          max={1_000}
-          step={0.1}
+          min={lowest(LIMITS.jerk, JERK_STEP)}
+          max={LIMITS.jerk.max}
+          step={JERK_STEP}
           className={SMALL}
           onCommit={(jerk) => set({ jerk })}
         />
@@ -625,8 +633,8 @@ function TrackGroup({ settings, edit }: GroupProps) {
         <NumberField
           label="Altitude"
           value={settings.assumed_altitude_m}
-          min={0}
-          max={15_000}
+          min={LIMITS.altitude_m.min}
+          max={LIMITS.altitude_m.max}
           step={100}
           unit="m"
           className={SMALL}

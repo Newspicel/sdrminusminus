@@ -5,24 +5,23 @@ import { linearTicks, type PlotRect, plotRect } from "../../components/plotFrame
 import { type Colormap, gridCellAt } from "../../gl/surface";
 import { recordEvent } from "../../lib/diagnostics";
 import type { RangeDopplerFrame } from "../../lib/frame";
+import { LIGHT_SPEED_M_S, RADAR_LIMITS } from "../../lib/limits";
 import type { RadarTrack, RadarUpdate } from "../../lib/types";
 import { useBoxSize } from "../../lib/useBoxSize";
 import { useSurface } from "../../lib/useSurface";
 import {
   dopplerSpanHz,
   hoverText,
-  LIGHT_SPEED_M_S,
   levelDb,
   type PlotAxes,
   plotAxes,
   pxToSurface,
   rangeSpanKm,
-  SURFACE_DB_MAX,
-  SURFACE_DB_MIN,
   type SurfacePoint,
   surfaceToPx,
   velocityMps,
 } from "./radar";
+import { SurfaceRefused } from "./SurfaceRefused";
 
 const GUTTERS = { left: 36, right: 40, top: 16, bottom: 18 };
 const TICKS = 5;
@@ -48,7 +47,7 @@ export function RadarPlot({
   const [frame, setFrame] = useState<RangeDopplerFrame | null>(null);
   const [hover, setHover] = useState<{ x: number; y: number } | null>(null);
   const [ref, size] = useBoxSize<HTMLDivElement>();
-  useSurface(known ? node : null, (surface) => {
+  const refused = useSurface(known ? node : null, (surface) => {
     if (surface.kind === "range_doppler") {
       setFrame(surface.frame);
     } else {
@@ -70,8 +69,8 @@ export function RadarPlot({
       <span className="absolute top-0.5 left-1/2 -translate-x-1/2">
         <ColourScale
           colormap={colormap}
-          min={axes?.dbMin ?? SURFACE_DB_MIN}
-          max={axes?.dbMax ?? SURFACE_DB_MAX}
+          min={axes?.dbMin ?? RADAR_LIMITS.surface_db.min}
+          max={axes?.dbMax ?? RADAR_LIMITS.surface_db.max}
           unit="dB"
         />
       </span>
@@ -86,6 +85,7 @@ export function RadarPlot({
           </svg>
         </svg>
       )}
+      <SurfaceRefused text={refused} />
       {axes !== null && (
         <div
           className="absolute"

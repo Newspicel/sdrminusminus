@@ -226,7 +226,7 @@ function textFrames(page: Page): string[] {
 }
 
 function refusedSurfaces(frames: readonly string[]): string[] {
-  return frames.filter((frame) => frame.includes("no surface"));
+  return frames.filter((frame) => frame.includes('"SurfaceRefused"'));
 }
 
 test("a triangulation added by hand shows its heat", async ({ page }) => {

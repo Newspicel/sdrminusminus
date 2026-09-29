@@ -2,6 +2,7 @@ import type { Options } from "../../components/controls";
 import labels from "../../generated/labels.json";
 import { GATE_TEXT } from "../../lib/arrays";
 import type { RangeDopplerFrame } from "../../lib/frame";
+import { LIGHT_SPEED_M_S, RADAR_LIMITS } from "../../lib/limits";
 import type {
   ClutterMethod,
   PassiveRadarParams,
@@ -14,9 +15,6 @@ import type {
   RadarUpdate,
 } from "../../lib/types";
 
-export const LIGHT_SPEED_M_S = 299_792_458;
-export const SURFACE_DB_MIN = -3;
-export const SURFACE_DB_MAX = 30;
 export const TRACK_ROWS = 6;
 export const STALE_SLACK_MS = 1_000;
 export const NO_TX = "no tx";
@@ -76,8 +74,8 @@ export function readingAxes(axes: RadarAxes): PlotAxes {
     dopplerStepHz: axes.doppler_step_hz,
     dopplers: axes.doppler_rows,
     carrierHz: axes.carrier_hz,
-    dbMin: SURFACE_DB_MIN,
-    dbMax: SURFACE_DB_MAX,
+    dbMin: RADAR_LIMITS.surface_db.min,
+    dbMax: RADAR_LIMITS.surface_db.max,
   };
 }
 
@@ -356,9 +354,6 @@ export const ILLUMINATOR_OPTIONS: Options<IlluminatorKind> = [
   { value: "custom", label: "Custom" },
 ];
 
-export const DVBT_BANDWIDTH_HZ = 7_610_000;
-export const CUSTOM_BANDWIDTH_HZ = 200_000;
-
 export function illuminatorOf(kind: IlluminatorKind, previous: Illuminator): Illuminator {
   if (kind === previous.kind) {
     return previous;
@@ -366,9 +361,9 @@ export function illuminatorOf(kind: IlluminatorKind, previous: Illuminator): Ill
   const carried = "bandwidth_hz" in previous ? previous.bandwidth_hz : null;
   switch (kind) {
     case "dvbt_partial":
-      return { kind, bandwidth_hz: carried ?? DVBT_BANDWIDTH_HZ };
+      return { kind, bandwidth_hz: carried ?? RADAR_LIMITS.seed.dvbt_bandwidth_hz };
     case "custom":
-      return { kind, bandwidth_hz: carried ?? CUSTOM_BANDWIDTH_HZ };
+      return { kind, bandwidth_hz: carried ?? RADAR_LIMITS.seed.custom_bandwidth_hz };
     default:
       return { kind };
   }
@@ -412,9 +407,6 @@ export function illuminatorEdit(
   return { illuminator, reference };
 }
 
-export const CMA_TAPS = 16;
-export const CMA_STEP = 0.001;
-
 export function cleaningOf(
   kind: ReferenceCleaning["kind"],
   previous: ReferenceCleaning,
@@ -422,7 +414,8 @@ export function cleaningOf(
   if (kind === previous.kind) {
     return previous;
   }
-  return kind === "cma" ? { kind, taps: CMA_TAPS, step: CMA_STEP } : { kind };
+  const { cma_taps: taps, cma_step: step } = RADAR_LIMITS.seed;
+  return kind === "cma" ? { kind, taps, step } : { kind };
 }
 
 export const CLUTTER_OPTIONS: Options<ClutterMethod> = [
@@ -439,13 +432,11 @@ export const CFAR_OPTIONS: Options<CfarKind["kind"]> = [
   { value: "go", label: "GO", title: "Greatest of" },
 ];
 
-export const OS_RANK = 0.75;
-
 export function cfarKindOf(kind: CfarKind["kind"], previous: CfarKind): CfarKind {
   if (kind === previous.kind) {
     return previous;
   }
-  return kind === "os" ? { kind, rank: OS_RANK } : { kind };
+  return kind === "os" ? { kind, rank: RADAR_LIMITS.seed.os_rank } : { kind };
 }
 
 export const CFAR_WINDOW_OPTIONS: Options<CfarWindow> = [

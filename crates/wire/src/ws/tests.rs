@@ -73,6 +73,10 @@ fn server_events_round_trip() {
             stream_id: 7,
             kind: StreamKind::FusionGrid,
         },
+        ServerEvent::SurfaceRefused {
+            node: "radar".to_owned(),
+            reason: SurfaceRefusal::NoStreamIds,
+        },
     ];
     for event in &events {
         let json = round_trip(event);
@@ -111,6 +115,26 @@ fn surface_stream_started_names_its_kind() {
         (StreamKind::FusionGrid, "fusion_grid"),
     ] {
         assert_eq!(serde_json::to_value(kind).expect("kind"), name);
+    }
+}
+
+#[test]
+fn a_surface_refusal_names_its_node_and_reason() {
+    let event = ServerEvent::SurfaceRefused {
+        node: "tri".to_owned(),
+        reason: SurfaceRefusal::FitNotPositive,
+    };
+    assert_eq!(
+        round_trip(&event),
+        json!({"type": "SurfaceRefused", "data": {"node": "tri", "reason": "fit_not_positive"}})
+    );
+    for (reason, name) in [
+        (SurfaceRefusal::NoSurface, "no_surface"),
+        (SurfaceRefusal::FitNotPositive, "fit_not_positive"),
+        (SurfaceRefusal::NoStreamIds, "no_stream_ids"),
+    ] {
+        assert_eq!(serde_json::to_value(reason).expect("reason"), name);
+        assert!(!reason.label().is_empty());
     }
 }
 

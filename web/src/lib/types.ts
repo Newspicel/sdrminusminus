@@ -336,6 +336,7 @@ export type SurveyCell = components["schemas"]["SurveyCell"];
 export type SurveyStop = components["schemas"]["SurveyStop"];
 export type DroppedNode = components["schemas"]["DroppedNode"];
 export type SurfaceFit = components["schemas"]["SurfaceFit"];
+export type SurfaceRefusal = components["schemas"]["SurfaceRefusal"];
 export type PortRepeat = components["schemas"]["PortRepeat"];
 export type AoaState = components["schemas"]["AoaState"];
 export type RadarAoa = components["schemas"]["RadarAoa"];

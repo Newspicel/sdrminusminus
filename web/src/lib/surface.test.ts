@@ -2,8 +2,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import fixtures from "../generated/frame-fixtures.json";
 import type { RangeDopplerFrame } from "./frame";
 import { ListenerRegistry } from "./listeners";
-import { type SurfaceFrame, SurfaceHub, type SurfaceSocket } from "./surface";
-import type { ClientCommand } from "./types";
+import { refusalText, type SurfaceFrame, SurfaceHub, type SurfaceSocket } from "./surface";
+import type { ClientCommand, SurfaceRefusal } from "./types";
 import { SdrSocket } from "./ws";
 
 function rangeDoppler(streamId: number, seq: number): SurfaceFrame {
@@ -45,8 +45,8 @@ function fakeSocket(connected = true) {
       }),
     stopped: (streamId: number, kind: "range_doppler" | "fusion_grid" = "range_doppler") =>
       registry.emit("event", { type: "StreamStopped", data: { stream_id: streamId, kind } }),
-    refused: (node: string) =>
-      registry.emit("event", { type: "Error", data: { message: `no surface ${node}` } }),
+    refused: (node: string, reason: SurfaceRefusal = "no_surface") =>
+      registry.emit("event", { type: "SurfaceRefused", data: { node, reason } }),
     push: (streamId: number, seq = 1) => registry.emit("surface", rangeDoppler(streamId, seq)),
     reconnect: () => registry.emit("status", true),
   };
@@ -187,6 +187,55 @@ describe("SurfaceHub", () => {
     fake.started(11, "radar");
     hub.retry();
     expect(fake.subscribes()).toHaveLength(2);
+  });
+
+  it("ends the wait on every refusal and asks again on the next retry", () => {
+    const reasons: SurfaceRefusal[] = ["no_surface", "fit_not_positive", "no_stream_ids"];
+    for (const reason of reasons) {
+      const fake = fakeSocket();
+      const hub = new SurfaceHub();
+      hub.attach(fake.socket);
+      hub.subscribe("radar", () => {});
+      hub.retry();
+      expect(fake.subscribes(), reason).toHaveLength(1);
+      fake.refused("radar", reason);
+      hub.retry();
+      expect(fake.subscribes(), reason).toHaveLength(2);
+    }
+  });
+
+  it("holds the refusal for the face until the stream starts", () => {
+    const fake = fakeSocket();
+    const hub = new SurfaceHub();
+    hub.attach(fake.socket);
+    let told = 0;
+    hub.watchRefusals(() => {
+      told += 1;
+    });
+    hub.subscribe("radar", () => {});
+    expect(hub.refusal("radar")).toBeNull();
+    fake.refused("radar", "no_stream_ids");
+    expect(hub.refusal("radar")).toBe("no_stream_ids");
+    expect(refusalText("no_stream_ids")).toBe("Too many streams");
+    fake.refused("radar", "no_stream_ids");
+    expect(told).toBe(1);
+    hub.retry();
+    expect(hub.refusal("radar")).toBe("no_stream_ids");
+    fake.started(4, "radar");
+    expect(hub.refusal("radar")).toBeNull();
+    expect(told).toBe(2);
+  });
+
+  it("keeps no refusal for a node nobody watches", () => {
+    const fake = fakeSocket();
+    const hub = new SurfaceHub();
+    hub.attach(fake.socket);
+    fake.refused("ghost");
+    expect(hub.refusal("ghost")).toBeNull();
+    const stop = hub.subscribe("grid", () => {});
+    fake.refused("grid", "fit_not_positive");
+    stop();
+    expect(hub.refusal("grid")).toBeNull();
   });
 
   it("forgets nothing but sends nothing while detached", () => {

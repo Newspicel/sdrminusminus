@@ -1,5 +1,5 @@
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     sync::{Arc, atomic},
     time::{Duration, Instant},
 };
@@ -122,6 +122,21 @@ impl Session {
             pose_budget: RateBudget::new(f64::from(POSE_BURST), f64::from(POSE_RATE_HZ)),
             last_limit_error: None,
         }
+    }
+
+    fn media_stream_id(&mut self) -> Option<u16> {
+        let live: HashSet<u16> = self
+            .audio
+            .values()
+            .chain(self.symbols.values())
+            .chain(self.video.values())
+            .chain(self.iq.values())
+            .map(|(id, _)| *id)
+            .chain(self.surfaces.live_ids())
+            .collect();
+        alloc_stream_id(&mut self.next_media_id, MEDIA_ID_BASE..=u16::MAX, |id| {
+            live.contains(&id)
+        })
     }
 
     async fn send_error(&self, message: impl Into<String>) {
@@ -362,17 +377,7 @@ impl Session {
                     };
                     let _ = self.out.send(text_event(&stopped)).await;
                 }
-                let live = |id: u16| {
-                    media_id_live(
-                        &self.audio,
-                        &self.video,
-                        &self.iq,
-                        &self.symbols,
-                        &self.surfaces,
-                        id,
-                    )
-                };
-                match alloc_stream_id(&mut self.next_media_id, MEDIA_ID_BASE..=u16::MAX, live) {
+                match self.media_stream_id() {
                     Some(stream_id) => {
                         let started = ServerEvent::AudioStreamStarted {
                             stream_id,
@@ -427,17 +432,7 @@ impl Session {
                     };
                     let _ = self.out.send(text_event(&stopped)).await;
                 }
-                let live = |id: u16| {
-                    media_id_live(
-                        &self.audio,
-                        &self.video,
-                        &self.iq,
-                        &self.symbols,
-                        &self.surfaces,
-                        id,
-                    )
-                };
-                match alloc_stream_id(&mut self.next_media_id, MEDIA_ID_BASE..=u16::MAX, live) {
+                match self.media_stream_id() {
                     Some(stream_id) => {
                         let started = ServerEvent::VideoStreamStarted {
                             stream_id,
@@ -491,17 +486,7 @@ impl Session {
                     };
                     let _ = self.out.send(text_event(&stopped)).await;
                 }
-                let live = |id: u16| {
-                    media_id_live(
-                        &self.audio,
-                        &self.video,
-                        &self.iq,
-                        &self.symbols,
-                        &self.surfaces,
-                        id,
-                    )
-                };
-                match alloc_stream_id(&mut self.next_media_id, MEDIA_ID_BASE..=u16::MAX, live) {
+                match self.media_stream_id() {
                     Some(stream_id) => {
                         let started = ServerEvent::IqStreamStarted {
                             stream_id,
@@ -555,17 +540,7 @@ impl Session {
                     };
                     let _ = self.out.send(text_event(&stopped)).await;
                 }
-                let live = |id: u16| {
-                    media_id_live(
-                        &self.audio,
-                        &self.video,
-                        &self.iq,
-                        &self.symbols,
-                        &self.surfaces,
-                        id,
-                    )
-                };
-                match alloc_stream_id(&mut self.next_media_id, MEDIA_ID_BASE..=u16::MAX, live) {
+                match self.media_stream_id() {
                     Some(stream_id) => {
                         let started = ServerEvent::SymbolStreamStarted {
                             stream_id,
@@ -981,23 +956,6 @@ fn spawn_audio(
             }
         }
     })
-}
-
-fn media_id_live(
-    audio: &HashMap<AudioRoute, (u16, tokio::task::JoinHandle<()>)>,
-    video: &HashMap<(u32, u32), (u16, tokio::task::JoinHandle<()>)>,
-    iq: &HashMap<(u32, u32), (u16, tokio::task::JoinHandle<()>)>,
-    symbols: &HashMap<(u32, u32), (u16, tokio::task::JoinHandle<()>)>,
-    surfaces: &Surfaces,
-    id: u16,
-) -> bool {
-    surfaces.holds(id)
-        || audio
-            .values()
-            .chain(symbols.values())
-            .chain(video.values())
-            .chain(iq.values())
-            .any(|(sid, _)| *sid == id)
 }
 
 fn spawn_symbols(

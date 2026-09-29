@@ -11,7 +11,7 @@ import type { MapKind } from "../../lib/map/layers";
 import { usePositionStore } from "../../lib/position";
 import { useProcessorStore } from "../../lib/processors";
 import { useNow } from "../../lib/useNow";
-import { useSurface } from "../../lib/useSurface";
+import { useSurface, useSurfaceRefusal } from "../../lib/useSurface";
 import { useFaceActive } from "./NodeShell";
 
 const AGE_TICK_MS = 1_000;
@@ -55,6 +55,7 @@ export function MapPlot({
   const active = useFaceActive();
   const [held, setHeld] = useState<HeldHeat | null>(null);
   const crossing = sources.crossings[0] ?? null;
+  const heatRefused = useSurfaceRefusal(crossing);
   const from = here == null ? null : { lat: here.latitude, lon: here.longitude };
   const df = dfOverlay(sources, bearings, fusion, processors, now, from);
   return (
@@ -67,6 +68,7 @@ export function MapPlot({
         positionNodes={positionNodes}
         df={df}
         heat={crossing === null ? undefined : held?.node === crossing ? held.frame : null}
+        heatRefused={heatRefused}
         active={active}
         className="h-full min-h-0 w-full flex-1"
       />

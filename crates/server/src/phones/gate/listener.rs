@@ -9,6 +9,7 @@ use std::{
 };
 
 use axum_server::{Handle, accept::Accept, tls_rustls::RustlsConfig};
+use sdrmm_wire::phone::PHONE_PORT_IN_USE;
 use tokio::{
     io::{AsyncRead, AsyncWrite, ReadBuf},
     sync::watch,
@@ -19,7 +20,6 @@ use crate::{AppState, auth::ListenerRole};
 
 const DRAIN: Duration = Duration::from_secs(2);
 const STOP_WAIT: Duration = Duration::from_secs(3);
-pub(super) const PORT_IN_USE: &str = "port in use";
 
 pub(super) struct RunningListener {
     pub(super) port: u16,
@@ -88,7 +88,7 @@ impl RunningListener {
 
 fn bind_failure(error: io::Error) -> String {
     if error.kind() == io::ErrorKind::AddrInUse {
-        PORT_IN_USE.to_owned()
+        PHONE_PORT_IN_USE.to_owned()
     } else {
         error.to_string()
     }

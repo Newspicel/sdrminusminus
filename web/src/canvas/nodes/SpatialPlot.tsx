@@ -9,6 +9,7 @@ import type { SpatialSpectrumFrame } from "../../lib/frame";
 import type { SpatialPeak } from "../../lib/types";
 import { useBoxSize } from "../../lib/useBoxSize";
 import { useSurface } from "../../lib/useSurface";
+import { SurfaceRefused } from "./SurfaceRefused";
 import {
   BEARING_TICKS,
   type BearingFrame,
@@ -47,7 +48,7 @@ export function SpatialPlot({
   const [frame, setFrame] = useState<SpatialSpectrumFrame | null>(null);
   const [hover, setHover] = useState<{ x: number; y: number } | null>(null);
   const [ref, size] = useBoxSize<HTMLDivElement>();
-  useSurface(known ? node : null, (surface) => {
+  const refused = useSurface(known ? node : null, (surface) => {
     if (surface.kind === "spatial_spectrum") {
       setFrame(surface.frame);
     } else {
@@ -77,6 +78,7 @@ export function SpatialPlot({
       <span className="absolute top-0.5 left-1 font-mono text-[9px] text-ink-faint">
         {view === "map" ? "°" : "t"}
       </span>
+      <SurfaceRefused text={refused} />
       {frame !== null && plot.w > 0 && plot.h > 0 && (
         <svg
           aria-hidden

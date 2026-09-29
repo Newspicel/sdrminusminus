@@ -1,13 +1,15 @@
 use std::time::Instant;
 
 use sdrmm_engine::Engine;
-use sdrmm_wire::{GpsNode, HeadingSource, PatchNode, Position, WorkspaceSnapshot};
+use sdrmm_wire::{
+    GpsNode, HeadingSource, PatchNode, Position, WorkspaceSnapshot,
+    phone::{PHONE_NOT_PAIRED, PHONE_OFFLINE, PHONE_SILENT},
+};
 use tokio_serial::UsbPortInfo;
 
 use super::{
     gpsd::{GpsdOutcome, GpsdState},
     nmea::nmea_coordinate,
-    pose::{PHONE_NOT_PAIRED, PHONE_OFFLINE, PHONE_SILENT},
     *,
 };
 

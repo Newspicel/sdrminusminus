@@ -4,6 +4,7 @@ import { BTN_SM, TABLE_CELL, TABLE_HEAD } from "../../components/controls";
 import { Segmented } from "../../components/Segmented";
 import { SettingRow, Settings } from "../../components/Settings";
 import { processorStatusOf, useArrayStore } from "../../lib/arrays";
+import { STITCH_LIMITS } from "../../lib/limits";
 import { isStale, readingOf, useProcessorStore } from "../../lib/processors";
 import type { PatchNode, PatchNodeOf, StitchParams, StitchReading } from "../../lib/types";
 import { useNow } from "../../lib/useNow";
@@ -22,7 +23,7 @@ import {
 import { needsSpread, STITCH_BLENDS, spreadArrayEdit, stitchChips, stitchRow } from "./stitch";
 
 const AGE_TICK_MS = 1_000;
-const STITCH_REPORT_MS = 1_000;
+const STITCH_REPORT_MS = STITCH_LIMITS.report_ms;
 const LANE_HEADS = ["Lane", "MHz", "Eq", "Phase", "Coh"] as const;
 
 export function StitchFace({ node }: { node: PatchNode }) {

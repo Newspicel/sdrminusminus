@@ -19,6 +19,7 @@ mod pipeline;
 pub use pipeline::{PipelineQueue, PipelineStage, QueueHealth};
 pub mod hunt;
 pub mod labels;
+pub mod limits;
 pub mod mission;
 pub mod network;
 pub mod patch;
@@ -256,8 +257,8 @@ pub use workspace_state::{
     WORKSPACE_STATE_VERSION, WorkspaceChannel, WorkspaceDevice, WorkspaceState, WorkspaceTrunk,
 };
 pub use ws::{
-    ClientCommand, ServerEvent, StateScope, StreamKind, SurfaceFit, WS_BEARER_PROTOCOL_PREFIX,
-    WS_CLOSE_REVOKED, WS_SUBPROTOCOL,
+    ClientCommand, ServerEvent, StateScope, StreamKind, SurfaceFit, SurfaceRefusal,
+    WS_BEARER_PROTOCOL_PREFIX, WS_CLOSE_REVOKED, WS_SUBPROTOCOL,
 };
 
 #[cfg(test)]

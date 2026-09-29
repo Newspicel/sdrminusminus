@@ -3,6 +3,7 @@ use utoipa::ToSchema;
 
 pub use crate::array::LIGHT_SPEED_M_S;
 use crate::array::MAX_ARRAY_LANES;
+use crate::limits::RADAR_LIMITS as LIMITS;
 use crate::processor::reserved_at;
 
 pub const RADAR_MIN_CPI_MS: u32 = 50;
@@ -39,6 +40,10 @@ pub const SURFACE_DB_MIN: f32 = -3.0;
 pub const SURFACE_DB_MAX: f32 = 30.0;
 pub const RADAR_TRACK_EVENT_REPEAT_S: u64 = 5;
 pub const MAX_RADAR_ALTITUDE_M: f32 = 15_000.0;
+pub const DEFAULT_CUSTOM_BANDWIDTH_HZ: f64 = FM_BANDWIDTH_HZ;
+pub const DEFAULT_CMA_TAPS: u32 = 16;
+pub const DEFAULT_CMA_STEP: f32 = 1e-3;
+pub const DEFAULT_OS_RANK: f32 = 0.75;
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -228,8 +233,8 @@ impl Default for PassiveRadarParams {
             max_speed_mps: 400.0,
             window: DopplerWindow::Hann,
             reference: ReferenceCleaning::Cma {
-                taps: 16,
-                step: 1e-3,
+                taps: DEFAULT_CMA_TAPS,
+                step: DEFAULT_CMA_STEP,
             },
             clutter: ClutterParams::default(),
             cfar: CfarParams::default(),
@@ -299,9 +304,9 @@ impl ReferenceCleaning {
             Self::Cma { taps, step } => {
                 if !matches!(illuminator, Illuminator::Fm | Illuminator::Custom { .. }) {
                     Some("CMA needs FM")
-                } else if !(1..=MAX_CMA_TAPS).contains(&taps) {
+                } else if !LIMITS.cma_taps.contains(taps) {
                     Some("CMA taps out of range")
-                } else if !(step > 0.0 && step <= 0.1) {
+                } else if !LIMITS.cma_step.contains(step) {
                     Some("CMA step out of range")
                 } else {
                     None
@@ -319,24 +324,27 @@ impl ClutterParams {
     fn problem(&self) -> Option<&'static str> {
         first_problem(&[
             (
-                (0.1..=100.0).contains(&self.reach_km),
+                LIMITS.reach_km.contains(self.reach_km),
                 "Clutter reach out of range",
             ),
-            (self.lead <= MAX_ECA_LEAD, "Lead out of range"),
+            (LIMITS.lead.contains(self.lead), "Lead out of range"),
             (
-                self.doppler_taps <= MAX_ECA_DOPPLER_TAPS,
+                LIMITS.doppler_taps.contains(self.doppler_taps),
                 "Doppler taps out of range",
             ),
             (
-                (1.0..=1_000.0).contains(&self.batch_ms),
+                LIMITS.batch_ms.contains(self.batch_ms),
                 "Batch out of range",
             ),
             (
-                (0.0..=500.0).contains(&self.extension_ms),
+                LIMITS.extension_ms.contains(self.extension_ms),
                 "Extension out of range",
             ),
-            (self.step > 0.0 && self.step <= 1.0, "Step out of range"),
-            ((0.0..=1.0).contains(&self.loading), "Loading out of range"),
+            (LIMITS.clutter_step.contains(self.step), "Step out of range"),
+            (
+                LIMITS.loading.contains(self.loading),
+                "Loading out of range",
+            ),
         ])
     }
 }
@@ -344,31 +352,32 @@ impl ClutterParams {
 impl CfarParams {
     fn problem(&self) -> Option<&'static str> {
         let rank_ok = match self.kind {
-            CfarKind::Os { rank } => (0.5..=0.95).contains(&rank),
+            CfarKind::Os { rank } => LIMITS.os_rank.contains(rank),
             CfarKind::Ca | CfarKind::Go => true,
         };
         first_problem(&[
             (rank_ok, "Rank out of range"),
-            ((1e-9..=1e-2).contains(&self.pfa), "Pfa out of range"),
+            (LIMITS.pfa.contains(self.pfa), "Pfa out of range"),
             (
-                self.guard_range <= MAX_CFAR_GUARD && self.guard_doppler <= MAX_CFAR_GUARD,
+                LIMITS.guard.contains(self.guard_range)
+                    && LIMITS.guard.contains(self.guard_doppler),
                 "Guard out of range",
             ),
             (
-                (1..=MAX_CFAR_TRAIN_RANGE).contains(&self.train_range)
-                    && (1..=MAX_CFAR_TRAIN_DOPPLER).contains(&self.train_doppler),
+                LIMITS.train_range.contains(self.train_range)
+                    && LIMITS.train_doppler.contains(self.train_doppler),
                 "Train out of range",
             ),
             (
-                (0.0..=100.0).contains(&self.min_doppler_hz),
+                LIMITS.min_doppler_hz.contains(self.min_doppler_hz),
                 "Min Doppler out of range",
             ),
             (
-                (0.0..=50.0).contains(&self.min_range_km),
+                LIMITS.min_range_km.contains(self.min_range_km),
                 "Min range out of range",
             ),
             (
-                (0.0..=40.0).contains(&self.min_snr_db),
+                LIMITS.min_snr_db.contains(self.min_snr_db),
                 "Min SNR out of range",
             ),
         ])
@@ -379,18 +388,21 @@ impl TrackerParams {
     fn problem(&self) -> Option<&'static str> {
         first_problem(&[
             (
-                1 <= self.confirm_hits
-                    && self.confirm_hits <= self.confirm_window
-                    && self.confirm_window <= MAX_TRACK_WINDOW,
+                LIMITS.track_window.contains(self.confirm_hits)
+                    && LIMITS.track_window.contains(self.confirm_window)
+                    && self.confirm_hits <= self.confirm_window,
                 "M of N out of range",
             ),
-            (self.coast_looks <= 100, "Coast out of range"),
             (
-                (1.0..=200.0).contains(&self.max_accel_mps2),
+                LIMITS.coast_looks.contains(self.coast_looks),
+                "Coast out of range",
+            ),
+            (
+                LIMITS.max_accel_mps2.contains(self.max_accel_mps2),
                 "Accel out of range",
             ),
-            ((4.0..=30.0).contains(&self.gate), "Gate out of range"),
-            (self.jerk > 0.0 && self.jerk <= 1_000.0, "Jerk out of range"),
+            (LIMITS.gate.contains(self.gate), "Gate out of range"),
+            (LIMITS.jerk.contains(self.jerk), "Jerk out of range"),
         ])
     }
 }
@@ -398,29 +410,27 @@ impl TrackerParams {
 impl PassiveRadarParams {
     fn frame_problem(&self) -> Option<&'static str> {
         first_problem(&[
+            (LIMITS.cpi_ms.contains(self.cpi_ms), "CPI out of range"),
             (
-                (RADAR_MIN_CPI_MS..=RADAR_MAX_CPI_MS).contains(&self.cpi_ms),
-                "CPI out of range",
-            ),
-            (
-                (0.0..=RADAR_MAX_OVERLAP).contains(&self.overlap),
+                LIMITS.overlap.contains(self.overlap),
                 "Overlap out of range",
             ),
             (
-                self.max_range_km > 0.0 && self.max_range_km <= RADAR_MAX_RANGE_KM,
+                LIMITS.max_range_km.contains(self.max_range_km),
                 "Range out of range",
             ),
             (
-                (RADAR_MIN_SPEED_MPS..=RADAR_MAX_SPEED_MPS).contains(&self.max_speed_mps),
+                LIMITS.max_speed_mps.contains(self.max_speed_mps),
                 "Speed out of range",
             ),
             (
-                (-RADAR_MAX_OFFSET_HZ..=RADAR_MAX_OFFSET_HZ).contains(&self.offset_hz),
+                LIMITS.offset_hz.contains(self.offset_hz),
                 "Offset out of range",
             ),
             (
-                (RADAR_MIN_BANDWIDTH_HZ..=RADAR_MAX_BANDWIDTH_HZ)
-                    .contains(&self.illuminator.bandwidth_hz()),
+                LIMITS
+                    .bandwidth_hz
+                    .contains(self.illuminator.bandwidth_hz()),
                 "Bandwidth out of range",
             ),
             (
@@ -439,7 +449,7 @@ impl PassiveRadarParams {
             .or_else(|| self.cfar.problem())
             .or_else(|| self.tracker.problem())
             .or_else(|| {
-                (!(0.0..=MAX_RADAR_ALTITUDE_M).contains(&self.assumed_altitude_m))
+                (!LIMITS.altitude_m.contains(self.assumed_altitude_m))
                     .then_some("Altitude out of range")
             })
     }

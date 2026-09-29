@@ -3,7 +3,7 @@ use std::{collections::HashMap, time::Duration};
 use axum::extract::ws::Message;
 use sdrmm_wire::{
     FusionGridOwned, RangeDopplerOwned, ServerEvent, SpatialSpectrumOwned, StreamKind, SurfaceFit,
-    SurfaceFrame, VisibilityOwned,
+    SurfaceFrame, SurfaceRefusal, VisibilityOwned,
 };
 use tokio::{
     sync::broadcast::{self, error::RecvError},
@@ -11,11 +11,9 @@ use tokio::{
     time::Instant,
 };
 
-use super::{MEDIA_ID_BASE, Outbox, Session, alloc_stream_id, media_id_live, text_event};
+use super::{Outbox, Session, text_event};
 use crate::surfaces::SurfaceItem;
 
-const FIT_NOT_POSITIVE: &str = "fit must be positive";
-const NO_STREAM_IDS: &str = "no free media stream ids on this connection";
 const SKIPS_TOLD_EVERY: Duration = Duration::from_secs(5);
 
 struct Watching {
@@ -30,10 +28,11 @@ pub(super) struct Surfaces {
 }
 
 impl Surfaces {
-    pub(super) fn holds(&self, stream_id: u16) -> bool {
+    pub(super) fn live_ids(&self) -> impl Iterator<Item = u16> + '_ {
         self.streams
             .values()
-            .any(|watching| watching.stream_id == stream_id && !watching.task.is_finished())
+            .filter(|watching| !watching.task.is_finished())
+            .map(|watching| watching.stream_id)
     }
 
     fn remove(&mut self, node: &str) -> Option<(u16, StreamKind)> {
@@ -59,34 +58,30 @@ pub(super) struct SurfaceStream {
 
 impl Session {
     pub(super) async fn subscribe_surface(&mut self, node: String, fit: Option<SurfaceFit>) {
-        if fit.is_some_and(|fit| fit.cols == 0 || fit.rows == 0) {
-            self.send_error(FIT_NOT_POSITIVE).await;
-            return;
+        if let Err(reason) = self.start_surface(&node, fit).await {
+            let refused = ServerEvent::SurfaceRefused { node, reason };
+            let _ = self.out.send(text_event(&refused)).await;
         }
-        let Some((kind, frames)) = self.state.surfaces.subscribe(&node) else {
-            self.send_error(format!("no surface {node}")).await;
-            return;
-        };
-        self.unsubscribe_surface(&node).await;
-        let live = |id: u16| {
-            media_id_live(
-                &self.audio,
-                &self.video,
-                &self.iq,
-                &self.symbols,
-                &self.surfaces,
-                id,
-            )
-        };
-        let Some(stream_id) =
-            alloc_stream_id(&mut self.next_media_id, MEDIA_ID_BASE..=u16::MAX, live)
-        else {
-            self.send_error(NO_STREAM_IDS).await;
-            return;
-        };
+    }
+
+    async fn start_surface(
+        &mut self,
+        node: &str,
+        fit: Option<SurfaceFit>,
+    ) -> Result<(), SurfaceRefusal> {
+        if fit.is_some_and(|fit| fit.cols == 0 || fit.rows == 0) {
+            return Err(SurfaceRefusal::FitNotPositive);
+        }
+        let (kind, frames) = self
+            .state
+            .surfaces
+            .subscribe(node)
+            .ok_or(SurfaceRefusal::NoSurface)?;
+        self.unsubscribe_surface(node).await;
+        let stream_id = self.media_stream_id().ok_or(SurfaceRefusal::NoStreamIds)?;
         let started = ServerEvent::SurfaceStreamStarted {
             stream_id,
-            node: node.clone(),
+            node: node.to_owned(),
             kind,
         };
         let _ = self.out.send(text_event(&started)).await;
@@ -97,13 +92,14 @@ impl Session {
         };
         let task = spawn(stream, frames, self.out.clone());
         self.surfaces.streams.insert(
-            node,
+            node.to_owned(),
             Watching {
                 stream_id,
                 kind,
                 task,
             },
         );
+        Ok(())
     }
 
     pub(super) async fn unsubscribe_surface(&mut self, node: &str) {

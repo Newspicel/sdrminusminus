@@ -1,3 +1,4 @@
+import labels from "../generated/labels.json";
 import type {
   FusionGridFrame,
   RangeDopplerFrame,
@@ -5,7 +6,7 @@ import type {
   VisibilityFrame,
 } from "./frame";
 import type { Listener, Unsubscribe } from "./listeners";
-import type { ClientCommand, ServerEvent, StreamKind, SurfaceFit } from "./types";
+import type { ClientCommand, ServerEvent, StreamKind, SurfaceFit, SurfaceRefusal } from "./types";
 
 export type SurfaceFrame =
   | { kind: "range_doppler"; frame: RangeDopplerFrame }
@@ -40,12 +41,10 @@ interface Watched {
   fit: SurfaceFit | undefined;
 }
 
-export const NO_SURFACE = "no surface ";
+const REFUSAL_TEXT: Readonly<Record<SurfaceRefusal, string>> = labels.surface_refusal;
 
-export function refusedSurface(event: ServerEvent): string | null {
-  return event.type === "Error" && event.data.message.startsWith(NO_SURFACE)
-    ? event.data.message.slice(NO_SURFACE.length)
-    : null;
+export function refusalText(reason: SurfaceRefusal): string {
+  return REFUSAL_TEXT[reason];
 }
 
 export class SurfaceHub {
@@ -54,6 +53,8 @@ export class SurfaceHub {
   private readonly nodes = new Map<string, Watched>();
   private readonly ids = new Map<number, string>();
   private readonly awaiting = new Set<string>();
+  private readonly refusals = new Map<string, SurfaceRefusal>();
+  private readonly refusalListeners = new Set<() => void>();
 
   private readonly onFrame = (surface: SurfaceFrame): void => {
     const node = this.ids.get(surface.frame.streamId);
@@ -71,13 +72,14 @@ export class SurfaceHub {
     if (event.type === "SurfaceStreamStarted") {
       this.ids.set(event.data.stream_id, event.data.node);
       this.awaiting.delete(event.data.node);
+      this.setRefusal(event.data.node, null);
+    } else if (event.type === "SurfaceRefused") {
+      this.awaiting.delete(event.data.node);
+      if (this.nodes.has(event.data.node)) {
+        this.setRefusal(event.data.node, event.data.reason);
+      }
     } else if (event.type === "StreamStopped" && isSurfaceKind(event.data.kind)) {
       this.ids.delete(event.data.stream_id);
-    } else {
-      const refused = refusedSurface(event);
-      if (refused !== null) {
-        this.awaiting.delete(refused);
-      }
     }
   };
 
@@ -128,6 +130,7 @@ export class SurfaceHub {
       current.listeners.delete(listener);
       if (current.listeners.size === 0) {
         this.nodes.delete(node);
+        this.setRefusal(node, null);
         this.send(node, false);
       }
     };
@@ -141,12 +144,37 @@ export class SurfaceHub {
     return [...this.nodes.keys()];
   }
 
+  refusal(node: string): SurfaceRefusal | null {
+    return this.refusals.get(node) ?? null;
+  }
+
+  watchRefusals(listener: () => void): () => void {
+    this.refusalListeners.add(listener);
+    return () => {
+      this.refusalListeners.delete(listener);
+    };
+  }
+
   retry(): void {
     const started = new Set(this.ids.values());
     for (const node of this.nodes.keys()) {
       if (!started.has(node) && !this.awaiting.has(node)) {
         this.send(node, true);
       }
+    }
+  }
+
+  private setRefusal(node: string, reason: SurfaceRefusal | null): void {
+    if ((this.refusals.get(node) ?? null) === reason) {
+      return;
+    }
+    if (reason === null) {
+      this.refusals.delete(node);
+    } else {
+      this.refusals.set(node, reason);
+    }
+    for (const listener of this.refusalListeners) {
+      listener();
     }
   }
 

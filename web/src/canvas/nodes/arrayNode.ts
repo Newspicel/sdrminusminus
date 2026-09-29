@@ -1,5 +1,6 @@
 import type { Options } from "../../components/controls";
 import { CAL_TEXT, failureText, SYNC_TEXT } from "../../lib/arrays";
+import { ARRAY_LIMITS } from "../../lib/limits";
 import { HEADING_SOURCE_LABEL } from "../../lib/phones";
 import type {
   ArrayCalSource,
@@ -162,12 +163,10 @@ export function syncLabel(status: ArrayStatus): string {
   return status.drift_ppm == null ? text : `${text} · ${status.drift_ppm.toFixed(1)} ppm`;
 }
 
-const DEFAULT_CAL_WIDTH_HZ = 20_000;
-
 function widthOf(source: ArrayCalSource): number {
   return source.kind === "pilot" || source.kind === "emitter"
     ? source.bandwidth_hz
-    : DEFAULT_CAL_WIDTH_HZ;
+    : ARRAY_LIMITS.cal_bandwidth_seed_hz;
 }
 
 function offsetOf(source: ArrayCalSource): number {

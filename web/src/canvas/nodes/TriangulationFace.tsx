@@ -6,6 +6,7 @@ import { Segmented } from "../../components/Segmented";
 import { Select } from "../../components/Select";
 import { SettingRow, Settings } from "../../components/Settings";
 import { useFusionClear, useFusionSeed, useFusionStore } from "../../lib/fusion";
+import { FUSION_LIMITS } from "../../lib/limits";
 import type { DfFusionState, DfStation, PatchNode, TriangulationParams } from "../../lib/types";
 import { useNow } from "../../lib/useNow";
 import { useWorkspaceContext } from "../context";
@@ -21,8 +22,6 @@ import {
   fadeTitle,
   fusionSources,
   guidanceText,
-  MAX_HALF_LIFE_S,
-  MIN_HALF_LIFE_S,
   NAV_OPTIONS,
   NO_SOURCES,
   spreadLabel,
@@ -197,8 +196,8 @@ function TriangulationSettings({
               label="Half life"
               unit="s"
               value={decay.seconds}
-              min={MIN_HALF_LIFE_S}
-              max={MAX_HALF_LIFE_S}
+              min={FUSION_LIMITS.half_life_s.min}
+              max={FUSION_LIMITS.half_life_s.max}
               step={10}
               onCommit={(seconds) =>
                 edit({ decay: { kind: "half_life", seconds: Math.round(seconds) } })
@@ -230,8 +229,8 @@ function MoreSettings({ settings, edit }: { settings: TriangulationParams; edit:
           label="Extent"
           unit="km"
           value={settings.extent_km}
-          min={1}
-          max={100}
+          min={FUSION_LIMITS.extent_km.min}
+          max={FUSION_LIMITS.extent_km.max}
           step={0.1}
           onCommit={(extent_km) => edit({ extent_km })}
         />
@@ -241,8 +240,8 @@ function MoreSettings({ settings, edit }: { settings: TriangulationParams; edit:
           label="Probe"
           unit="km"
           value={settings.probe_km}
-          min={0.5}
-          max={50}
+          min={FUSION_LIMITS.probe_km.min}
+          max={FUSION_LIMITS.probe_km.max}
           step={0.5}
           onCommit={(probe_km) => edit({ probe_km })}
         />
@@ -251,8 +250,8 @@ function MoreSettings({ settings, edit }: { settings: TriangulationParams; edit:
         <NumberField
           label="Min conf"
           value={settings.min_confidence}
-          min={0}
-          max={1}
+          min={FUSION_LIMITS.min_confidence.min}
+          max={FUSION_LIMITS.min_confidence.max}
           step={0.01}
           onCommit={(min_confidence) => edit({ min_confidence })}
         />
@@ -261,8 +260,8 @@ function MoreSettings({ settings, edit }: { settings: TriangulationParams; edit:
         <NumberField
           label="Emitters"
           value={settings.max_emitters}
-          min={1}
-          max={4}
+          min={FUSION_LIMITS.emitters.min}
+          max={FUSION_LIMITS.emitters.max}
           step={1}
           onCommit={(max_emitters) => edit({ max_emitters: Math.round(max_emitters) })}
         />

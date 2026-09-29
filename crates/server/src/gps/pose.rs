@@ -4,15 +4,15 @@ use std::{
     time::Duration,
 };
 
-use sdrmm_wire::{PositionFix, PositionSource, phone::POSE_SILENT_AFTER_MS};
+use sdrmm_wire::{
+    PositionFix, PositionSource,
+    phone::{PHONE_NOT_PAIRED, PHONE_OFFLINE, PHONE_SILENT, POSE_SILENT_AFTER_MS},
+};
 use tokio::time::Instant;
 
 use super::{GpsHub, PositionState, RouteState, WAITING, limit_error};
 use crate::AppState;
 
-pub(super) const PHONE_OFFLINE: &str = "phone offline";
-pub(super) const PHONE_SILENT: &str = "phone silent";
-pub(super) const PHONE_NOT_PAIRED: &str = "phone not paired";
 const TOO_FAST: &str = "pose updates are limited to 20 Hz per phone";
 const WATCH_EVERY: Duration = Duration::from_secs(1);
 const SILENT_AFTER: Duration = Duration::from_millis(POSE_SILENT_AFTER_MS);

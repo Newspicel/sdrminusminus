@@ -6,6 +6,7 @@ import { Segmented } from "../../components/Segmented";
 import { Select } from "../../components/Select";
 import { SettingRow, Settings } from "../../components/Settings";
 import { tuneArray } from "../../lib/api";
+import { ARRAY_LIMITS } from "../../lib/limits";
 import { clearAction, failAction } from "../../lib/refusals";
 import type {
   ArrayCal,
@@ -30,13 +31,11 @@ import {
 import { FoldSection } from "./FoldSection";
 
 export const GAIN_ACTION = "Gain";
-export const MIN_ARRAY_GAIN_DB = -20;
-export const MAX_ARRAY_GAIN_DB = 80;
 export const NO_HEADING = "No heading";
 
-const MAX_CAL_OFFSET_HZ = 50_000_000;
-const MIN_CAL_WIDTH_HZ = 100;
-const MAX_CAL_WIDTH_HZ = 2_000_000;
+const GAIN_DB = ARRAY_LIMITS.gain_db;
+const CAL_OFFSET_HZ = ARRAY_LIMITS.cal_offset_hz;
+const CAL_WIDTH_HZ = ARRAY_LIMITS.cal_bandwidth_hz;
 
 type Edit = (next: Partial<ArrayNode>) => void;
 
@@ -231,8 +230,8 @@ function CalibrationSettings({ cal, edit }: { cal: ArrayCal; edit: Edit }) {
               label="Offset"
               unit="Hz"
               value={source.offset_hz}
-              min={-MAX_CAL_OFFSET_HZ}
-              max={MAX_CAL_OFFSET_HZ}
+              min={CAL_OFFSET_HZ.min}
+              max={CAL_OFFSET_HZ.max}
               step={1}
               onCommit={(offset_hz) => setSource({ ...source, offset_hz })}
             />
@@ -242,8 +241,8 @@ function CalibrationSettings({ cal, edit }: { cal: ArrayCal; edit: Edit }) {
               label="Width"
               unit="Hz"
               value={source.bandwidth_hz}
-              min={MIN_CAL_WIDTH_HZ}
-              max={MAX_CAL_WIDTH_HZ}
+              min={CAL_WIDTH_HZ.min}
+              max={CAL_WIDTH_HZ.max}
               step={1}
               onCommit={(bandwidth_hz) => setSource({ ...source, bandwidth_hz })}
             />
@@ -280,8 +279,7 @@ function GainSettings({ node, status }: { node: string; status: ArrayStatus | un
   const { setGain, pending } = useArrayGain(node);
   const range = status?.gain_range_db;
   const auto = status?.gain.kind === "auto";
-  const held =
-    status?.gain.kind === "manual" ? status.gain.db : (status?.gain_db ?? MIN_ARRAY_GAIN_DB);
+  const held = status?.gain.kind === "manual" ? status.gain.db : (status?.gain_db ?? GAIN_DB.min);
   const off = status === undefined || pending;
   return (
     <Settings>
@@ -290,8 +288,8 @@ function GainSettings({ node, status }: { node: string; status: ArrayStatus | un
           label="Gain"
           unit="dB"
           value={held}
-          min={Math.max(MIN_ARRAY_GAIN_DB, range?.min ?? MIN_ARRAY_GAIN_DB)}
-          max={Math.min(MAX_ARRAY_GAIN_DB, range?.max ?? MAX_ARRAY_GAIN_DB)}
+          min={Math.max(GAIN_DB.min, range?.min ?? GAIN_DB.min)}
+          max={Math.min(GAIN_DB.max, range?.max ?? GAIN_DB.max)}
           step={range?.step ?? 0.1}
           disabled={off || auto}
           onCommit={(db) => setGain({ kind: "manual", db })}

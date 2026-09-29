@@ -47,6 +47,27 @@ pub struct SurfaceFit {
     pub rows: u16,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum SurfaceRefusal {
+    NoSurface,
+    FitNotPositive,
+    NoStreamIds,
+}
+
+impl SurfaceRefusal {
+    pub const ALL: [Self; 3] = [Self::NoSurface, Self::FitNotPositive, Self::NoStreamIds];
+
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::NoSurface => "No surface",
+            Self::FitNotPositive => "Fit must be positive",
+            Self::NoStreamIds => "Too many streams",
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 #[serde(tag = "type", content = "data")]
 pub enum ServerEvent {
@@ -96,6 +117,10 @@ pub enum ServerEvent {
         stream_id: u16,
         node: String,
         kind: StreamKind,
+    },
+    SurfaceRefused {
+        node: String,
+        reason: SurfaceRefusal,
     },
     StreamStopped {
         stream_id: u16,

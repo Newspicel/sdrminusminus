@@ -31,6 +31,7 @@ export function MapPanel({
   propagation,
   df,
   heat,
+  heatRefused = null,
   active = true,
   className,
 }: {
@@ -41,6 +42,7 @@ export function MapPanel({
   propagation?: PropagationOverlay;
   df?: DfOverlay;
   heat?: FusionGridFrame | null;
+  heatRefused?: string | null;
   active?: boolean;
   className?: string;
 }) {
@@ -112,6 +114,7 @@ export function MapPanel({
         signalCells={signalSamples === undefined ? null : signalSamples.length}
         overlay={overlayCounts(df)}
         heat={heat != null}
+        heatRefused={heatRefused}
         headings={headings}
         basemap={basemap}
       />

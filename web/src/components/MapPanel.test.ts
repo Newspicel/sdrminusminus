@@ -186,6 +186,7 @@ describe("MapLegend", () => {
         signalCells: null,
         overlay: quiet,
         heat: false,
+        heatRefused: null,
         headings: true,
         basemap: "online",
         ...overrides,
@@ -211,5 +212,11 @@ describe("MapLegend", () => {
     const html = legend({ basemap: "blank", headings: false });
     expect(html).toContain("no basemap");
     expect(html).toContain("no headings");
+    expect(html).not.toContain("no heat");
+  });
+
+  it("badges refused heat with the reason", () => {
+    const html = legend({ heatRefused: "No surface" });
+    expect(html).toMatch(/title="No surface"[^>]*>no heat</);
   });
 });
