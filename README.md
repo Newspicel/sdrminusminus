@@ -109,6 +109,8 @@ every check.
 - Swagger UI: `/api/docs` on a running server
 - OpenAPI: `/api/openapi.json` or [openapi.json](openapi.json)
 
+Questions or ideas? Join the [Discord](https://discord.gg/dYaRyGwBNw).
+
 ## Thanks
 
 [KrakenRF](https://www.krakenrf.com), [Airspy](https://airspy.com) and
