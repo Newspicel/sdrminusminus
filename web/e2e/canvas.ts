@@ -5,6 +5,7 @@ import type {
   PatchNode,
   StateSnapshot,
   WorkspaceSnapshot,
+  WorkspacesResponse,
 } from "../src/lib/types";
 
 const WIRE_ATTEMPTS = 3;
@@ -43,22 +44,45 @@ export function edgeKey(from: [string, string], to: [string, string]): string {
   return `${from[0]}.${from[1]}->${to[0]}.${to[1]}`;
 }
 
+const staged: number[] = [];
+let shownBefore: number | null = null;
+
 export async function stage(
   page: Page,
   name: string,
   snapshot: WorkspaceSnapshot,
 ): Promise<number> {
+  if (staged.length === 0) {
+    const listed: WorkspacesResponse = await page.request
+      .get("/api/workspaces")
+      .then((r) => r.json());
+    shownBefore = listed.active ?? null;
+  }
   const response = await page.request.post("/api/workspaces", { data: { name, snapshot } });
   const created: { id?: number; error?: string } = await response.json();
   if (created.id === undefined) {
     throw new Error(`workspace ${name} was rejected: ${created.error ?? response.status()}`);
   }
+  staged.push(created.id);
   await page.request.post(`/api/workspaces/${created.id}/activate`);
   const report = await page.request.post(`/api/workspaces/${created.id}/apply`);
   expect(report.ok()).toBe(true);
   await page.goto("/");
   await expect(page.getByRole("button", { name: "Add a node" })).toBeVisible();
   return created.id;
+}
+
+export async function unstage(request: APIRequestContext): Promise<void> {
+  if (staged.length === 0) {
+    return;
+  }
+  if (shownBefore !== null) {
+    expect((await request.post(`/api/workspaces/${shownBefore}/activate`)).ok()).toBe(true);
+  }
+  for (const id of staged.splice(0)) {
+    expect((await request.delete(`/api/workspaces/${id}`)).ok()).toBe(true);
+  }
+  shownBefore = null;
 }
 
 export async function deviceSetOf(request: APIRequestContext, device: DeviceRef): Promise<number> {

@@ -1,6 +1,16 @@
 import { expect, type Page, test } from "@playwright/test";
 import type { DeviceRef, WorkspaceSnapshot } from "../src/lib/types";
-import { deleteWire, edgeKey, face, fitPatch, laneWires, node, stage, wire } from "./canvas";
+import {
+  deleteWire,
+  edgeKey,
+  face,
+  fitPatch,
+  laneWires,
+  node,
+  stage,
+  unstage,
+  wire,
+} from "./canvas";
 
 const KRAKEN: DeviceRef = { backend: "virtual", key: "kraken5" };
 const LANES = 5;
@@ -8,6 +18,7 @@ const TRACK_MS = 60_000;
 const QUIET_MS = 10_000;
 
 test.describe.configure({ timeout: 180_000 });
+test.afterEach(({ request }) => unstage(request));
 
 function fixed(id: string, lat: number, lon: number, x: number, y: number) {
   return node(

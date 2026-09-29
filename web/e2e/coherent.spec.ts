@@ -16,10 +16,12 @@ import {
   readout,
   setExtra,
   stage,
+  unstage,
   wire,
 } from "./canvas";
 
 test.describe.configure({ mode: "serial", timeout: 180_000 });
+test.afterEach(({ request }) => unstage(request));
 
 const KRAKEN: DeviceRef = { backend: "virtual", key: "kraken5" };
 const LANES = 5;

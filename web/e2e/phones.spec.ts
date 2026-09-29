@@ -2,10 +2,11 @@ import { type APIRequestContext, expect, type Locator, type Page, test } from "@
 import { WS_BEARER_PROTOCOL_PREFIX, WS_SUBPROTOCOL } from "../src/generated/frame";
 import { hexUtf8 } from "../src/lib/hex";
 import type { AboutResponse, PairingOffer, PairResponse } from "../src/lib/types";
-import { addNode } from "./canvas";
+import { addNode, stage, unstage } from "./canvas";
 
 test.describe.configure({ mode: "serial" });
 test.use({ ignoreHTTPSErrors: true });
+test.afterEach(({ request }) => unstage(request));
 
 const CODE_TITLE = "Type this on the phone if the camera fails";
 
@@ -150,7 +151,7 @@ test("phone GPS source shows heading", async ({ page, context, baseURL }) => {
     .then((response) => response.json());
   const paired = await pair(page.request, port, offer.code, "Heading phone");
 
-  await page.goto("/");
+  await stage(page, "Phone GPS", { version: 4, graph: { nodes: [], edges: [] } });
   const gps = await addGps(page);
   await gps
     .getByRole("group", { name: "Position source" })
