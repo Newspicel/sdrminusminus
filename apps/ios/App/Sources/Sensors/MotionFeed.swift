@@ -29,7 +29,7 @@ nonisolated final class MotionFeed: MotionFeeding {
             trueNorth ? .xTrueNorthZVertical : .xArbitraryCorrectedZVertical
         let frame: MotionFrame = trueNorth ? .trueNorth : .arbitrary
         let once = FirstTime()
-        manager.startDeviceMotionUpdates(using: reference, to: queue) { motion, error in
+        manager.startDeviceMotionUpdates(using: reference, to: queue) { @Sendable motion, error in
             if let error {
                 if once.claim() {
                     let text = error.localizedDescription
