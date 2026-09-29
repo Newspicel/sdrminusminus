@@ -10,6 +10,7 @@ import type {
   RackSlot,
   StateSnapshot,
   WorkspaceSnapshot,
+  WorkspacesResponse,
 } from "../src/lib/types";
 
 const SIGGEN: DeviceRef = { backend: "virtual", key: "siggen" };
@@ -63,7 +64,20 @@ async function recording(page: Page, stem: string): Promise<DeviceRef> {
   return { backend: found.driver, key: found.key };
 }
 
+async function dropWorkspace(page: Page, name: string): Promise<void> {
+  const listed: WorkspacesResponse = await page.request
+    .get("/api/workspaces")
+    .then((r) => r.json());
+  const stale = listed.workspaces.find((workspace) => workspace.name === name);
+  if (stale === undefined) {
+    return;
+  }
+  const response = await page.request.delete(`/api/workspaces/${stale.id}`);
+  expect(response.ok()).toBe(true);
+}
+
 async function stage(page: Page, name: string, snapshot: WorkspaceSnapshot): Promise<void> {
+  await dropWorkspace(page, name);
   const response = await page.request.post("/api/workspaces", { data: { name, snapshot } });
   const created: { id?: number; error?: string } = await response.json();
   if (created.id === undefined) {

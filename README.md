@@ -13,7 +13,10 @@ a browser. Both use the same receiver engine and interface.
 Questions or ideas? Join the [Discord](https://discord.gg/dYaRyGwBNw).
 
 <p align="center">
-  <img src="assets/screenshots/patch.png" alt="A receiver patch with three channels, a speaker, recording, and network IQ output">
+  <picture>
+    <source media="(prefers-color-scheme: light)" srcset="assets/screenshots/patch-light.png">
+    <img src="assets/screenshots/patch-dark.png" alt="A receiver patch with three channels, a speaker, recording, and network IQ output">
+  </picture>
 </p>
 
 ## Install
@@ -69,23 +72,23 @@ These captures use debug-build signal sources and repository IQ fixtures. Regene
 
 | Spectrum and waterfall | Rack view |
 |---|---|
-| ![Spectrum with the tuned channel marked](assets/screenshots/spectrum.png) | ![Three receivers in the rack](assets/screenshots/rack.png) |
+| <picture><source media="(prefers-color-scheme: light)" srcset="assets/screenshots/spectrum-light.png"><img src="assets/screenshots/spectrum-dark.png" alt="Spectrum with the tuned channel marked"></picture> | <picture><source media="(prefers-color-scheme: light)" srcset="assets/screenshots/rack-light.png"><img src="assets/screenshots/rack-dark.png" alt="Three receivers in the rack"></picture> |
 
 | FT8 decoding | Signal identification |
 |---|---|
-| ![Decoded messages from a recorded 20 m FT8 slot](assets/screenshots/ft8.png) | ![Signal measurements and candidate protocols](assets/screenshots/ident.png) |
+| <picture><source media="(prefers-color-scheme: light)" srcset="assets/screenshots/ft8-light.png"><img src="assets/screenshots/ft8-dark.png" alt="Decoded messages from a recorded 20 m FT8 slot"></picture> | <picture><source media="(prefers-color-scheme: light)" srcset="assets/screenshots/ident-light.png"><img src="assets/screenshots/ident-dark.png" alt="Signal measurements and candidate protocols"></picture> |
 
 | Aircraft positions | Ship positions |
 |---|---|
-| ![ADS-B aircraft and decoder log](assets/screenshots/adsb.png) | ![AIS position in Hamburg harbour](assets/screenshots/ais.png) |
+| <picture><source media="(prefers-color-scheme: light)" srcset="assets/screenshots/adsb-light.png"><img src="assets/screenshots/adsb-dark.png" alt="ADS-B aircraft and decoder log"></picture> | <picture><source media="(prefers-color-scheme: light)" srcset="assets/screenshots/ais-light.png"><img src="assets/screenshots/ais-dark.png" alt="AIS position in Hamburg harbour"></picture> |
 
 | Slow-scan television | Amateur television |
 |---|---|
-| ![Robot 36 SSTV picture](assets/screenshots/sstv.png) | ![625-line ATV test image](assets/screenshots/atv.png) |
+| <picture><source media="(prefers-color-scheme: light)" srcset="assets/screenshots/sstv-light.png"><img src="assets/screenshots/sstv-dark.png" alt="Robot 36 SSTV picture"></picture> | <picture><source media="(prefers-color-scheme: light)" srcset="assets/screenshots/atv-light.png"><img src="assets/screenshots/atv-dark.png" alt="625-line ATV test image"></picture> |
 
 | Pager messages | Broadcast FM |
 |---|---|
-| ![POCSAG messages with webhook output](assets/screenshots/pocsag.png) | ![RDS station name, text, and alternate frequencies](assets/screenshots/rds.png) |
+| <picture><source media="(prefers-color-scheme: light)" srcset="assets/screenshots/pocsag-light.png"><img src="assets/screenshots/pocsag-dark.png" alt="POCSAG messages with webhook output"></picture> | <picture><source media="(prefers-color-scheme: light)" srcset="assets/screenshots/rds-light.png"><img src="assets/screenshots/rds-dark.png" alt="RDS station name, text, and alternate frequencies"></picture> |
 
 ## Build
 
