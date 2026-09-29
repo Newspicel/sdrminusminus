@@ -67,6 +67,20 @@ fn listed(missions: Vec<sdrmm_wire::mission::Mission>) -> Reducer {
     reducer
 }
 
+#[test]
+fn a_cut_listing_says_how_many_missions_are_missing() {
+    let mut reducer = listed(vec![hunt("hunt1", &[Wire::StartHunt], &[])]);
+    let mut cut = response(vec![hunt("hunt1", &[Wire::StartHunt], &[])]);
+    cut.truncated = 3;
+    let effects = reducer.handle(Input::Listing(Box::new(cut.clone())), T0);
+    assert_eq!(notices(&effects), ["3 missions not listed"]);
+    let again = reducer.handle(Input::Listing(Box::new(cut.clone())), T0);
+    assert!(notices(&again).is_empty());
+    cut.truncated = 0;
+    let whole = reducer.handle(Input::Listing(Box::new(cut)), T0);
+    assert!(notices(&whole).is_empty());
+}
+
 fn event(event: ServerEvent) -> Input {
     Input::Event(Box::new(event))
 }
@@ -570,6 +584,56 @@ fn survey_updates_add_points() {
 }
 
 #[test]
+fn a_reconnect_seeds_only_unseen_survey_cells() {
+    let mut reducer = listed(vec![survey("map1")]);
+    reducer.handle(Input::Open("map1".to_owned()), T0);
+    let cell = |longitude: f64| SurveyCell {
+        latitude: 52.5,
+        longitude,
+        frequency_hz: 145.5e6,
+        level_dbfs: -48.0,
+        measured_at: "2026-09-28T12:00:00Z".to_owned(),
+        observations: 1,
+        accuracy_m: None,
+    };
+    let seed = |cells: Vec<SurveyCell>| Input::Seeded {
+        mission: "map1".to_owned(),
+        seed: Seed::Survey(Box::new(SurveyGrid {
+            node: "map1".to_owned(),
+            frequency_hz: Some(145.5e6),
+            offset_hz: 0,
+            bandwidth_hz: 12_500,
+            recording: true,
+            cells,
+            dropped: 0,
+        })),
+    };
+    reducer.handle(seed(vec![cell(13.4)]), T0);
+    reducer.handle(Input::Down, T0);
+    let relive = reducer.handle(
+        Input::Live {
+            phone_id: PHONE.to_owned(),
+        },
+        T0,
+    );
+    assert!(relive.contains(&Effect::Seed {
+        mission: "map1".to_owned(),
+        what: SeedRequest::Survey("map1".to_owned())
+    }));
+    let same = reducer.handle(seed(vec![cell(13.4)]), T0);
+    assert!(matches!(
+        emitted(&same).as_slice(),
+        [CoreEvent::Survey { view }] if view.total == 1
+    ));
+    let grown = reducer.handle(seed(vec![cell(13.4), cell(13.5)]), T0);
+    assert!(matches!(
+        emitted(&grown).as_slice(),
+        [CoreEvent::SurveyPoints { points }, CoreEvent::Survey { view }]
+            if points.len() == 1 && points[0].at.lon == 13.5 && view.total == 2
+    ));
+}
+
+#[test]
 fn a_full_survey_grid_reaches_the_app_without_loss() {
     let mut reducer = listed(vec![survey("map1")]);
     reducer.handle(Input::Open("map1".to_owned()), T0);
@@ -824,6 +888,10 @@ impl Api for FakeApi {
                 revision: 1,
             })
         })
+    }
+
+    fn unpair(&self) -> BoxFuture<'_, Result<(), crate::link::rest::RestError>> {
+        Box::pin(async { Ok(()) })
     }
 }
 

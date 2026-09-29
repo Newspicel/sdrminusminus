@@ -79,7 +79,8 @@ object Samples {
         id: String = "m1",
         kind: MissionKind = MissionKind.HUNT,
         title: String = "Beacon",
-    ): Mission = Mission(id, kind, title, "433.920 MHz", true, null, listOf(MissionControl.HUNT_RUN))
+        controls: List<MissionControl> = listOf(MissionControl.HUNT_RUN),
+    ): Mission = Mission(id, kind, title, "433.920 MHz", true, null, controls)
 
     fun missions(vararg missions: Mission): MissionsView {
         val workspace = WorkspaceRef("w1", "Field")

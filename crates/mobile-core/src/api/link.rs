@@ -373,7 +373,15 @@ mod tests {
             )
         })
         .await;
-        tokio::time::sleep(Duration::from_millis(200)).await;
+        wait_for(&core, |event| {
+            matches!(event, CoreEvent::Notice { notice } if notice.text == "Not removed on server")
+        })
+        .await;
+        assert!(
+            stub.requests()
+                .iter()
+                .any(|request| request.method == "DELETE" && request.path() == "/api/phones/self")
+        );
         assert!(core.saved_servers().expect("listed").is_empty());
         core.shutdown();
     }

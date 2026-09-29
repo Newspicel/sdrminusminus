@@ -50,6 +50,16 @@ class CarSessionTest {
     }
 
     @Test
+    fun a_car_session_keeps_the_link_in_the_foreground() {
+        core.servers += Samples.server()
+        val session = CarSession(Startup.Ready(TestAppGraph.create(ApplicationProvider.getApplicationContext(), core)))
+        val controller = SessionController(session, carContext, Intent()).moveToState(Lifecycle.State.CREATED)
+        controller.moveToState(Lifecycle.State.STARTED)
+        controller.moveToState(Lifecycle.State.CREATED)
+        assertThat(core.calls.filter { it.startsWith("setForeground") }).containsExactly("setForeground:true", "setForeground:false").inOrder()
+    }
+
+    @Test
     fun paired_shows_missions_and_registers_the_map() {
         core.servers += Samples.server()
         val template = firstTemplate(Startup.Ready(TestAppGraph.create(ApplicationProvider.getApplicationContext(), core)))

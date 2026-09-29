@@ -103,12 +103,14 @@ class AppGraph(
     val appResumed: StateFlow<Boolean> = resumed.asStateFlow()
     val carConnected: StateFlow<Boolean> = car.asStateFlow()
     private val carConnection = CarConnection(app)
+    private var appVisible = false
+    private var carVisible = false
     private val carType = Observer<Int> { car.value = it == CarConnection.CONNECTION_TYPE_PROJECTION }
 
     private val lifecycle =
         object : DefaultLifecycleObserver {
             override fun onStart(owner: LifecycleOwner) {
-                core.setForeground(true)
+                appShowing(true)
                 sensors.acquire(Holder.App)
             }
 
@@ -121,7 +123,7 @@ class AppGraph(
             }
 
             override fun onStop(owner: LifecycleOwner) {
-                core.setForeground(false)
+                appShowing(false)
                 sensors.release(Holder.App)
             }
         }
@@ -171,6 +173,18 @@ class AppGraph(
             val connected = core.connect(serverId)
             if (connected is Outcome.Failed) router.report(connected.error)
         }
+    }
+
+    @Synchronized
+    fun carShowing(visible: Boolean) {
+        carVisible = visible
+        core.setForeground(appVisible || carVisible)
+    }
+
+    @Synchronized
+    private fun appShowing(visible: Boolean) {
+        appVisible = visible
+        core.setForeground(appVisible || carVisible)
     }
 
     fun permissionsChanged() {

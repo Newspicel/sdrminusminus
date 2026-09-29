@@ -12,6 +12,13 @@ enum AppRuntime {
     static var environment: [String: String] { ProcessInfo.processInfo.environment }
     static var isUnitTestHost: Bool { NSClassFromString("XCTestCase") != nil }
     static var isUITest: Bool { environment["SDRMM_UITEST"] == "1" }
+
+    static func start() {
+        guard coreFailure == nil else {
+            return
+        }
+        model.start()
+    }
 }
 
 private struct Boot {

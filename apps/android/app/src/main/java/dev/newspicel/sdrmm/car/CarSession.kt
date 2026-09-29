@@ -38,7 +38,7 @@ class CarSession(
         renderer = map
         carContext.getCarService(AppManager::class.java).setSurfaceCallback(map)
         lifecycle.addObserver(map)
-        lifecycle.addObserver(SensorHold(graph))
+        lifecycle.addObserver(CarHold(graph))
         return CarMissionsScreen(carContext, graph, map)
     }
 
@@ -46,12 +46,18 @@ class CarSession(
         renderer?.restyle(carContext.isDarkMode)
     }
 
-    private class SensorHold(
+    private class CarHold(
         private val graph: AppGraph,
     ) : DefaultLifecycleObserver {
-        override fun onStart(owner: LifecycleOwner) = graph.sensors.acquire(Holder.Car)
+        override fun onStart(owner: LifecycleOwner) {
+            graph.carShowing(true)
+            graph.sensors.acquire(Holder.Car)
+        }
 
-        override fun onStop(owner: LifecycleOwner) = graph.sensors.release(Holder.Car)
+        override fun onStop(owner: LifecycleOwner) {
+            graph.sensors.release(Holder.Car)
+            graph.carShowing(false)
+        }
     }
 }
 

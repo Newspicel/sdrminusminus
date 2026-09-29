@@ -1,4 +1,5 @@
 import SdrmmCore
+import SwiftUI
 import XCTest
 
 @testable import SDRmm
@@ -65,11 +66,61 @@ final class AppModelTests: XCTestCase {
         XCTAssertNil(harness.settings.activeServerID)
     }
 
+    func testStartRunsOnceAndOutlivesItsCaller() async {
+        let harness = Harness()
+        harness.settings.activeServerID = FakeScenarios.server().id
+        let caller = Task {
+            harness.model.start()
+            harness.model.start()
+        }
+        await caller.value
+        caller.cancel()
+        await eventually { harness.core.calls.contains(.connect("s1")) }
+        XCTAssertTrue(harness.core.calls.contains(.connect("s1")))
+        harness.core.emit(.link(state: .online(server: "Lab Pi")))
+        await eventually { harness.model.link == .online(server: "Lab Pi") }
+        XCTAssertEqual(harness.model.link, .online(server: "Lab Pi"))
+        XCTAssertEqual(harness.core.calls.filter { $0 == .connect("s1") }.count, 1)
+        harness.core.finish()
+    }
+
+    func testCarPlayKeepsTheLinkInTheForeground() {
+        let harness = Harness()
+        harness.model.scene(.background)
+        harness.model.setCarPlay(connected: true)
+        harness.model.scene(.background)
+        harness.model.setCarPlay(connected: false)
+        harness.model.scene(.active)
+        let foreground = harness.core.calls.compactMap { call -> Bool? in
+            guard case .foreground(let on) = call else {
+                return nil
+            }
+            return on
+        }
+        XCTAssertEqual(foreground, [false, true, true, false, true])
+    }
+
     func testOtherRefusalsShowTheirLabel() {
         let harness = Harness()
         harness.model.apply(.link(state: .refused(reason: .serverTooOld, text: "protocol 1")))
         XCTAssertEqual(harness.model.banner?.text, "Server too old")
         XCTAssertEqual(harness.model.banner?.detail, "protocol 1")
+    }
+
+    func testARepeatedRefusalShowsOneBannerUntilOnline() {
+        let harness = Harness()
+        let mismatch = LinkState.refused(reason: .keyMismatch, text: "Key changed")
+        harness.model.apply(.link(state: mismatch))
+        let first = harness.model.banner
+        XCTAssertEqual(first?.text, "Key mismatch")
+        harness.model.dismissBanner()
+        harness.model.apply(.link(state: .connecting(attempt: 2, host: "10.0.0.2:8443")))
+        harness.model.apply(.link(state: mismatch))
+        XCTAssertNil(harness.model.banner)
+        harness.model.apply(.link(state: .online(server: "Lab Pi")))
+        harness.model.apply(.link(state: mismatch))
+        XCTAssertEqual(harness.model.banner?.text, "Key mismatch")
+        XCTAssertNotEqual(harness.model.banner?.id, first?.id)
     }
 
     func testDroppedEventsSurfaceBanner() async {

@@ -16,6 +16,7 @@ import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.google.common.truth.Truth.assertThat
 import dev.newspicel.sdrmm.R
+import dev.newspicel.sdrmm.ffi.MissionControl
 import dev.newspicel.sdrmm.ffi.MissionKind
 import dev.newspicel.sdrmm.settings.AppSettings
 import dev.newspicel.sdrmm.settings.Units
@@ -35,7 +36,7 @@ class CarDfScreenTest {
     private val carContext = TestCarContext.createCarContext(ApplicationProvider.getApplicationContext())
     private val core =
         FakeCoreGateway().apply {
-            missions.value = Samples.missions(Samples.mission("d1", MissionKind.DF_DRIVE, "Kraken"))
+            missions.value = Samples.missions(Samples.mission("d1", MissionKind.DF_DRIVE, "Kraken", DF_CONTROLS))
             pose.value = Samples.pose(heading = null)
         }
     private val graph by lazy {
@@ -97,6 +98,17 @@ class CarDfScreenTest {
     }
 
     @Test
+    fun only_the_missions_controls_are_offered() {
+        core.df.value = Samples.df()
+        val controller = controller()
+        val titles = { template(controller).actionStrip?.actions.orEmpty().map { it.title.toString() } }
+        assertThat(titles()).containsExactly("Navigate", "Calibrate", "Clear").inOrder()
+        core.missions.value = Samples.missions(Samples.mission("d1", MissionKind.DF_DRIVE, "Fusion", listOf(MissionControl.TARGET_MODE)))
+        ShadowLooper.idleMainLooper(2, TimeUnit.SECONDS)
+        assertThat(titles()).containsExactly("Navigate")
+    }
+
+    @Test
     fun a_closed_mission_leaves_the_car_screen() {
         core.df.value = Samples.df()
         ScreenController(MessageScreen(carContext, R.string.car_no_df, null)).moveToState(Lifecycle.State.RESUMED)
@@ -122,5 +134,9 @@ class CarDfScreenTest {
         }
         ShadowLooper.idleMainLooper(100, TimeUnit.MILLISECONDS)
         assertThat(controller.templatesReturned.size - before).isAtMost(2)
+    }
+
+    private companion object {
+        val DF_CONTROLS = listOf(MissionControl.CALIBRATE, MissionControl.CLEAR_FUSION, MissionControl.TARGET_MODE)
     }
 }

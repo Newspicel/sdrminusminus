@@ -1,7 +1,13 @@
 use crate::records::{LatLon, NavApp};
 
+const MICRO_DEGREES: f64 = 1e6;
+
+fn micro(deg: f64) -> f64 {
+    (deg * MICRO_DEGREES).round() / MICRO_DEGREES + 0.0
+}
+
 pub(crate) fn handoff(target: LatLon, app: NavApp) -> String {
-    let at = format!("{:.6},{:.6}", target.lat + 0.0, target.lon + 0.0);
+    let at = format!("{:.6},{:.6}", micro(target.lat), micro(target.lon));
     match app {
         NavApp::GoogleMaps => format!("google.navigation:q={at}&mode=d"),
         NavApp::Chooser => format!("geo:{at}?q={at}(Target)"),
@@ -43,5 +49,19 @@ mod tests {
             lon: 0.0,
         };
         assert_eq!(handoff(zero, NavApp::Car), "geo:0.000000,0.000000");
+    }
+
+    #[test]
+    fn a_tiny_negative_rounds_to_an_unsigned_zero() {
+        let equator = LatLon {
+            lat: -0.000_000_4,
+            lon: -0.000_000_1,
+        };
+        assert_eq!(handoff(equator, NavApp::Car), "geo:0.000000,0.000000");
+        let west = LatLon {
+            lat: 51.477_928_4,
+            lon: -0.000_000_6,
+        };
+        assert_eq!(handoff(west, NavApp::Car), "geo:51.477928,-0.000001");
     }
 }

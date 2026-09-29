@@ -123,6 +123,7 @@ pub(crate) struct Reducer {
     refetch_at: Option<i64>,
     self_stale: bool,
     listing_failed: bool,
+    truncated_told: u32,
     guide_ms: Option<i64>,
     heat_ms: Option<i64>,
     painter: RadarPainter,
@@ -144,6 +145,7 @@ impl Reducer {
             refetch_at: None,
             self_stale: false,
             listing_failed: false,
+            truncated_told: 0,
             guide_ms: None,
             heat_ms: None,
             painter: RadarPainter::new(),
@@ -496,6 +498,7 @@ impl Reducer {
 
     fn listed(&mut self, response: wire::MissionsResponse, now_ms: i64) {
         self.listing_failed = false;
+        self.tell_truncated(response.truncated);
         self.listing = Listing::new(response);
         let view: MissionsView = self.listing.view();
         self.emit(CoreEvent::Missions { view });
@@ -510,6 +513,16 @@ impl Reducer {
             }
             Some(entry) if !same_wiring(&entry, &open.entry) => self.open(&id, now_ms),
             Some(entry) => self.refresh_entry(entry),
+        }
+    }
+
+    fn tell_truncated(&mut self, truncated: u32) {
+        if truncated == self.truncated_told {
+            return;
+        }
+        self.truncated_told = truncated;
+        if truncated > 0 {
+            self.notice(Notice::warn(format!("{truncated} missions not listed")));
         }
     }
 
@@ -669,7 +682,9 @@ impl Reducer {
             (View::Survey(survey), Seed::Survey(grid)) => {
                 let points = survey.seed(&grid);
                 let view = survey.view(mission);
-                self.emit(CoreEvent::SurveyPoints { points });
+                if !points.is_empty() {
+                    self.emit(CoreEvent::SurveyPoints { points });
+                }
                 self.emit(CoreEvent::Survey { view });
             }
             (View::Df { drive, .. }, Seed::Fusion(state)) => {

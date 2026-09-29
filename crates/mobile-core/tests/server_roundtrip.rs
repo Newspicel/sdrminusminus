@@ -347,3 +347,113 @@ async fn switching_workspace_updates_missions() {
             .any(|workspace| workspace.name == "hunt")
     );
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn pairing_again_while_live_keeps_the_phone_paired() {
+    let server = spawn_server().await;
+    let phone = TestPhone::new();
+    let saved = phone.go_live(&server).await;
+    phone.wait_for("missions", missions).await;
+    let old_token = phone.vault.record(&saved.id)["token"].clone();
+    let again = phone.pair(&server).await.expect("paired again");
+    assert_eq!(again.id, saved.id);
+    assert_eq!(again.phone_id, saved.phone_id);
+    assert_ne!(phone.vault.record(&saved.id)["token"], old_token);
+    let back = phone
+        .wait_within(
+            Duration::from_secs(10),
+            "online again",
+            |event| match link(event) {
+                Some(LinkState::Online { .. }) => Some(Ok(())),
+                Some(LinkState::Refused { reason, .. }) => Some(Err(reason)),
+                _ => None,
+            },
+        )
+        .await;
+    assert_eq!(back, Ok(Ok(())), "{back:?}");
+    let refused = phone
+        .wait_within(Duration::from_secs(3), "a refusal", |event| {
+            matches!(link(event), Some(LinkState::Refused { .. })).then_some(())
+        })
+        .await;
+    assert!(refused.is_err(), "the new pairing was refused");
+    assert_eq!(server.phones().await.phones.len(), 1);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_failed_pairing_while_live_brings_the_link_back() {
+    let server = spawn_server().await;
+    let phone = TestPhone::new();
+    let saved = phone.go_live(&server).await;
+    let token = phone.vault.record(&saved.id)["token"].clone();
+    let mut offer = phone.offer(&server).await;
+    offer.code = if offer.code == "11111111" {
+        "22222222".to_owned()
+    } else {
+        "11111111".to_owned()
+    };
+    let refused = phone.core.pair(offer, support::PHONE_NAME.to_owned()).await;
+    assert_eq!(refused, Err(CoreError::WrongCode));
+    phone
+        .wait_for("online again", |event| {
+            matches!(link(event), Some(LinkState::Online { .. })).then_some(())
+        })
+        .await;
+    assert_eq!(phone.vault.record(&saved.id)["token"], token);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn pairing_after_a_key_change_retires_the_stale_link() {
+    let server = spawn_server().await;
+    let phone = TestPhone::new();
+    let saved = phone.pair(&server).await.expect("paired");
+    let mut stale = phone.vault.record(&saved.id);
+    let pin = stale["pin"].clone();
+    stale["pin"] = serde_json::Value::String("ab".repeat(32));
+    phone.vault.replace_record(&saved.id, &stale);
+    phone.core.connect(saved.id.clone()).await.expect("connect");
+    phone
+        .wait_for("a key mismatch", |event| {
+            matches!(
+                link(event),
+                Some(LinkState::Refused {
+                    reason: RefusalKind::KeyMismatch,
+                    ..
+                })
+            )
+            .then_some(())
+        })
+        .await;
+    let again = phone.pair(&server).await.expect("paired again");
+    assert_eq!(again.id, saved.id);
+    phone
+        .core
+        .update_hosts(saved.id.clone(), vec!["127.0.0.2:9".to_owned()])
+        .expect("hosts");
+    phone
+        .wait_for("online", |event| {
+            matches!(link(event), Some(LinkState::Online { .. })).then_some(())
+        })
+        .await;
+    assert_eq!(phone.vault.record(&saved.id)["pin"], pin);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn forgetting_a_live_server_unpairs_the_phone_there() {
+    let server = spawn_server().await;
+    let phone = TestPhone::new();
+    let saved = phone.go_live(&server).await;
+    assert_eq!(server.phones().await.phones.len(), 1);
+    phone
+        .core
+        .forget_server(saved.id.clone())
+        .expect("forgotten");
+    assert!(phone.core.saved_servers().expect("listed").is_empty());
+    let refused = phone
+        .wait_within(Duration::from_secs(3), "a refusal", |event| {
+            matches!(link(event), Some(LinkState::Refused { .. })).then_some(())
+        })
+        .await;
+    assert!(refused.is_err(), "a forgotten server refused the phone");
+    assert!(server.phones().await.phones.is_empty());
+}

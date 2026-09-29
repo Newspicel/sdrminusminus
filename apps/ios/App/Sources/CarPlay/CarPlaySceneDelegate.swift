@@ -9,6 +9,7 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
         didConnect interfaceController: CPInterfaceController,
         to window: CPWindow
     ) {
+        AppRuntime.start()
         let model = AppRuntime.model
         model.setCarPlay(connected: true)
         let controller = CarPlayController(model: model, interface: interfaceController, window: window)

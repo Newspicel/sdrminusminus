@@ -1,3 +1,4 @@
+import CarPlay
 import SdrmmCore
 import XCTest
 
@@ -50,6 +51,30 @@ final class CarPanelContentTests: XCTestCase {
         let content = CarPanelContent.make(df: nil, pose: nil, here: nil, units: .imperial)
         XCTAssertEqual(content.bearingDetail, "Waiting")
         XCTAssertFalse(content.canNavigate)
+    }
+
+    @MainActor func testOnlyTheMissionsControlsAreOffered() {
+        let full = CarPanelContent.make(
+            df: Fixtures.df(),
+            pose: nil,
+            here: nil,
+            units: .metric,
+            controls: [.calibrate, .clearFusion, .targetMode]
+        )
+        XCTAssertTrue(full.canCalibrate)
+        XCTAssertTrue(full.canClear)
+        let fusion = CarPanelContent.make(
+            df: Fixtures.df(),
+            pose: nil,
+            here: nil,
+            units: .metric,
+            controls: [.targetMode]
+        )
+        XCTAssertFalse(fusion.canCalibrate)
+        XCTAssertFalse(fusion.canClear)
+        let info = CarDfInfo(onNavigate: {}, onCalibrate: {}, onClear: {})
+        XCTAssertEqual(info.template(full).actions.map(\.title), ["Calibrate", "Clear", "Navigate"])
+        XCTAssertEqual(info.template(fusion).actions.map(\.title), ["Navigate"])
     }
 
     func testEstimateKindReadsApproach() {

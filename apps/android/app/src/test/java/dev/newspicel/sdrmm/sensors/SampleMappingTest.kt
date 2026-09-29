@@ -25,9 +25,10 @@ class SampleMappingTest {
                 longitude = 13.405
                 time = 1_000
             }
-        assertThat(SampleMapping.location(bare)).isNull()
+        assertThat(SampleMapping.location(bare, NOW_ELAPSED_NS, NOW_UNIX_MS)).isNull()
         bare.accuracy = 4f
-        val plain = SampleMapping.location(bare)
+        val plain = SampleMapping.location(bare, NOW_ELAPSED_NS, NOW_UNIX_MS)
+        assertThat(plain?.tUnixMs).isEqualTo(1_000L)
         assertThat(plain?.hAccM).isEqualTo(4.0)
         assertThat(plain?.altM).isNull()
         assertThat(plain?.speedMps).isNull()
@@ -39,8 +40,7 @@ class SampleMappingTest {
         bare.speedAccuracyMetersPerSecond = 0.5f
         bare.bearing = 270f
         bare.bearingAccuracyDegrees = 3f
-        val full = SampleMapping.location(bare)
-        assertThat(full?.tUnixMs).isEqualTo(1_000L)
+        val full = SampleMapping.location(bare, NOW_ELAPSED_NS, NOW_UNIX_MS)
         assertThat(full?.lat).isEqualTo(52.52)
         assertThat(full?.altM).isEqualTo(34.0)
         assertThat(full?.vAccM).isEqualTo(6.0)
@@ -48,6 +48,19 @@ class SampleMappingTest {
         assertThat(full?.speedAccMps).isEqualTo(0.5)
         assertThat(full?.courseDeg).isEqualTo(270.0)
         assertThat(full?.courseAccDeg).isEqualTo(3.0)
+    }
+
+    @Test
+    fun location_time_follows_the_phone_clock_not_the_gnss_clock() {
+        val fix =
+            Location("gps").apply {
+                latitude = 52.52
+                longitude = 13.405
+                accuracy = 4f
+                time = NOW_UNIX_MS - CLOCK_SKEW_MS
+                elapsedRealtimeNanos = NOW_ELAPSED_NS - 300_000_000L
+            }
+        assertThat(SampleMapping.location(fix, NOW_ELAPSED_NS, NOW_UNIX_MS)?.tUnixMs).isEqualTo(NOW_UNIX_MS - 300L)
     }
 
     @Test
@@ -136,5 +149,8 @@ class SampleMappingTest {
 
     private companion object {
         const val LEVEL_ENOUGH = 0.05
+        const val NOW_UNIX_MS = 1_790_000_000_000L
+        const val NOW_ELAPSED_NS = 86_400_000_000_000L
+        const val CLOCK_SKEW_MS = 18_000L
     }
 }

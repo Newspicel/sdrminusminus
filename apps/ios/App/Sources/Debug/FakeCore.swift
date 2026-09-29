@@ -38,10 +38,12 @@ nonisolated final class FakeCore: CoreService {
         case startAlign
         case cancelAlign
         case foreground(Bool)
+        case networkChanged
     }
 
     private struct State {
         var calls: [Call] = []
+        var locations: [LocationSample] = []
         var servers: [SavedServer]
         var failNext: CoreError?
         var workspace = FakeScenarios.field
@@ -73,6 +75,7 @@ nonisolated final class FakeCore: CoreService {
     }
 
     var calls: [Call] { state.withLock { $0.calls } }
+    var locations: [LocationSample] { state.withLock { $0.locations } }
 
     func emit(_ event: CoreEvent) {
         continuation.yield(event)
@@ -187,6 +190,10 @@ nonisolated final class FakeCore: CoreService {
         record(.foreground(foreground))
     }
 
+    func networkChanged() {
+        record(.networkChanged)
+    }
+
     func events() -> AsyncStream<CoreEvent> { stream }
 
     func takeDroppedEvents() -> Int {
@@ -252,7 +259,13 @@ nonisolated final class FakeCore: CoreService {
         }
     }
 
-    func pushLocation(_ sample: LocationSample) { record(.location) }
+    func pushLocation(_ sample: LocationSample) {
+        state.withLock { state in
+            state.calls.append(.location)
+            state.locations.append(sample)
+        }
+    }
+
     func pushHeading(_ sample: HeadingSample) { record(.heading) }
     func pushMotion(_ sample: MotionSample) { record(.motion) }
     func setPoseSettings(_ settings: PoseSettings) { record(.pose(settings)) }

@@ -51,21 +51,34 @@ final class CarBearingPanel: NSObject, CPMapPanel.Delegate {
             CPMapPanelItem(listItem: CPListItem(text: content.bearing, detailText: content.bearingDetail)),
             CPMapPanelItem(listItem: CPListItem(text: content.guidance, detailText: content.guidanceDetail)),
         ]
+        let buttons = grid(content)
+        if buttons.isEmpty {
+            return [CPMapPanelSection(title: nil, items: items)]
+        }
         if CPPanel.maximumPanelItemsCount >= Self.wantedItems {
-            items.append(CPMapPanelItem(gridButtons: grid()))
+            items.append(CPMapPanelItem(gridButtons: buttons))
         } else {
             Log.carplay.info("panel holds \(CPPanel.maximumPanelItemsCount) items, grid dropped")
         }
         return [CPMapPanelSection(title: nil, items: items)]
     }
 
-    private func grid() -> [CPGridButton] {
+    private func grid(_ content: CarPanelContent) -> [CPGridButton] {
         let calibrate = onCalibrate
         let clear = onClear
-        return [
-            CPGridButton(titleVariants: ["Calibrate"], image: Self.symbol("dot.scope")) { _ in calibrate() },
-            CPGridButton(titleVariants: ["Clear"], image: Self.symbol("trash")) { _ in clear() },
-        ]
+        var buttons: [CPGridButton] = []
+        if content.canCalibrate {
+            buttons.append(
+                CPGridButton(titleVariants: ["Calibrate"], image: Self.symbol("dot.scope")) { _ in calibrate()
+                }
+            )
+        }
+        if content.canClear {
+            buttons.append(
+                CPGridButton(titleVariants: ["Clear"], image: Self.symbol("trash")) { _ in clear() }
+            )
+        }
+        return buttons
     }
 
     private static func symbol(_ name: String) -> UIImage {

@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use sdrmm_wire::survey::{SurveyCell, SurveyGrid, SurveyUpdate};
 
 use super::views::{SurveyPoint, SurveyView};
@@ -11,6 +13,7 @@ pub(crate) struct Survey {
     max_db: Option<f32>,
     total: u64,
     recording: bool,
+    shown: HashSet<(u64, u64)>,
 }
 
 impl Survey {
@@ -31,7 +34,13 @@ impl Survey {
         self.total = grid.cells.len() as u64;
         self.min_db = None;
         self.max_db = None;
-        grid.cells.iter().map(|cell| self.cell(cell)).collect()
+        grid.cells
+            .iter()
+            .filter_map(|cell| {
+                let point = self.cell(cell);
+                self.shown.insert(place(cell)).then_some(point)
+            })
+            .collect()
     }
 
     pub(crate) fn update(&mut self, update: &SurveyUpdate) -> Option<SurveyPoint> {
@@ -44,8 +53,12 @@ impl Survey {
         if update.cells == 0 {
             self.min_db = None;
             self.max_db = None;
+            self.shown.clear();
         }
-        update.cell.as_ref().map(|cell| self.cell(cell))
+        update.cell.as_ref().map(|cell| {
+            self.shown.insert(place(cell));
+            self.cell(cell)
+        })
     }
 
     fn cell(&mut self, cell: &SurveyCell) -> SurveyPoint {
@@ -77,6 +90,10 @@ impl Survey {
             recording: self.recording,
         }
     }
+}
+
+fn place(cell: &SurveyCell) -> (u64, u64) {
+    (cell.latitude.to_bits(), cell.longitude.to_bits())
 }
 
 #[cfg(test)]
@@ -115,6 +132,47 @@ mod tests {
         assert_eq!((view.min_db, view.max_db, view.total), (-60.0, -40.0, 2));
         assert!(view.recording);
         assert_eq!(view.freq_hz, 145.5e6);
+    }
+
+    #[test]
+    fn a_second_seed_sends_only_cells_the_app_has_not_seen() {
+        let mut survey = Survey::new(0.0, true, 0);
+        let grid = |cells: Vec<SurveyCell>| SurveyGrid {
+            node: "map1".to_owned(),
+            frequency_hz: Some(145.5e6),
+            offset_hz: 0,
+            bandwidth_hz: 12_500,
+            recording: true,
+            cells,
+            dropped: 0,
+        };
+        assert_eq!(
+            survey
+                .seed(&grid(vec![cell(13.0, -60.0), cell(13.1, -40.0)]))
+                .len(),
+            2
+        );
+        survey.update(&SurveyUpdate {
+            level_dbfs: Some(-45.0),
+            target_hz: None,
+            recording: true,
+            cells: 3,
+            dropped: 0,
+            cell: Some(cell(13.2, -45.0)),
+            stopped: None,
+        });
+        let again = survey.seed(&grid(vec![
+            cell(13.0, -60.0),
+            cell(13.1, -40.0),
+            cell(13.2, -45.0),
+            cell(13.3, -70.0),
+        ]));
+        assert_eq!(
+            again.iter().map(|point| point.at.lon).collect::<Vec<_>>(),
+            [13.3]
+        );
+        let view = survey.view("map1");
+        assert_eq!((view.min_db, view.max_db, view.total), (-70.0, -40.0, 4));
     }
 
     #[test]

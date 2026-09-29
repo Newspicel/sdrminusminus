@@ -19,14 +19,11 @@ tokio-tungstenite.workspace = true
 tokio-rustls = { version = "0.26.6", default-features = false, features = ["ring", "tls12", "logging"] }
 rustls = { version = "0.23.45", default-features = false, features = ["ring", "std", "tls12", "logging"] }
 reqwest = { version = "0.13.5", default-features = false, features = ["json", "http2", "rustls-no-provider"] }
-webpki-roots = "1.0.9"
-sha2.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 jiff.workspace = true
 url.workspace = true
-percent-encoding = "2.3.2"
 futures.workspace = true
 tracing.workspace = true
 tracing-subscriber = { version = "0.3.23", default-features = false, features = ["registry", "std"] }

@@ -8,9 +8,17 @@ nonisolated struct CarPanelContent: Equatable, Sendable {
     let guidance: String
     let guidanceDetail: String
     let canNavigate: Bool
+    let canCalibrate: Bool
+    let canClear: Bool
     let targetDistanceM: Double?
 
-    static func make(df: DfView?, pose: PoseView?, here: LatLon?, units: UnitSystem) -> CarPanelContent {
+    static func make(
+        df: DfView?,
+        pose: PoseView?,
+        here: LatLon?,
+        units: UnitSystem,
+        controls: [MissionControl] = []
+    ) -> CarPanelContent {
         let rose = RoseState.make(view: df, pose: pose)
         let confidence = DfText.confidence(df)
         let detail: String
@@ -27,6 +35,8 @@ nonisolated struct CarPanelContent: Equatable, Sendable {
             guidance: guidance.map { AngleText.degrees($0.headingTrueDeg) } ?? "-",
             guidanceDetail: guidanceDetail(guidance, units: units),
             canNavigate: df?.target != nil,
+            canCalibrate: controls.contains(.calibrate),
+            canClear: controls.contains(.clearFusion),
             targetDistanceM: zip(here, df?.target).map { geoDistanceM(from: $0, to: $1.at) }
         )
     }
@@ -92,10 +102,13 @@ final class CarDfInfo {
         let calibrate = onCalibrate
         let clear = onClear
         let navigate = onNavigate
-        var buttons = [
-            CPTextButton(title: "Calibrate", textStyle: .normal) { _ in calibrate() },
-            CPTextButton(title: "Clear", textStyle: .cancel) { _ in clear() },
-        ]
+        var buttons: [CPTextButton] = []
+        if content.canCalibrate {
+            buttons.append(CPTextButton(title: "Calibrate", textStyle: .normal) { _ in calibrate() })
+        }
+        if content.canClear {
+            buttons.append(CPTextButton(title: "Clear", textStyle: .cancel) { _ in clear() })
+        }
         if content.canNavigate {
             buttons.append(CPTextButton(title: "Navigate", textStyle: .confirm) { _ in navigate() })
         }

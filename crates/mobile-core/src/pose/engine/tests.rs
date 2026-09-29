@@ -359,7 +359,46 @@ fn mount_offset_turns_phone_heading_into_vehicle_heading() {
     ));
     assert!(close(heading(&engine, T0), 90.0, 1e-6));
     engine.settings(settings(HeadingMode::Compass, 0.0));
-    assert!(close(heading(&engine, T0), 90.0, 1e-6));
+    assert!(close(heading(&engine, T0), 100.0, 1e-6));
+}
+
+#[test]
+fn a_new_offset_moves_a_compass_heading_at_once_without_a_reset() {
+    let mut engine = PoseEngine::new(settings(HeadingMode::Compass, 0.0));
+    let at = |step: i64| T0 + step * 20;
+    let point = |step: i64| {
+        motion(
+            at(step),
+            MotionFrame::TrueNorth,
+            true_north(100.0),
+            0.0,
+            MagAccuracy::High,
+        )
+    };
+    for step in 0..10 {
+        engine.motion(point(step));
+    }
+    engine.settings(settings(HeadingMode::Compass, 90.0));
+    assert!(close(heading(&engine, at(9)), 10.0, 1e-6));
+    let mut notices = Vec::new();
+    for step in 10..30 {
+        notices.extend(engine.motion(point(step)).notices);
+    }
+    assert!(close(heading(&engine, at(29)), 10.0, 1e-6));
+    assert!(notices.is_empty(), "{notices:?}");
+    assert_eq!(engine.counters().heading_resets, 0);
+}
+
+#[test]
+fn a_new_offset_keeps_a_course_led_vehicle_heading() {
+    let mut engine = PoseEngine::new(settings(HeadingMode::Auto, 0.0));
+    let t = drive(&mut engine, T0, 5, 10.0, 80.0);
+    assert_eq!(engine.view(t).source, HeadingSourceKind::Course);
+    engine.settings(settings(HeadingMode::Auto, 30.0));
+    assert!(close(heading(&engine, t), 80.0, 1e-6));
+    let t = drive(&mut engine, t, 3, 10.0, 80.0);
+    assert!(close(heading(&engine, t), 80.0, 0.5));
+    assert_eq!(engine.counters().heading_resets, 0);
 }
 
 #[test]

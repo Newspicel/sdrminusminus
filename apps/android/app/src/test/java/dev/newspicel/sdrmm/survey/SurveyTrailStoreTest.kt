@@ -53,14 +53,29 @@ class SurveyTrailStoreTest {
     }
 
     @Test
-    fun reopening_the_same_mission_keeps_the_trail() = runTest {
+    fun reopening_the_same_mission_starts_a_fresh_trail() = runTest {
         store.run(backgroundScope)
         runner.open("s1")
         runCurrent()
         core.surveyPoints.emit(points(-60f))
         runCurrent()
         runner.close()
+        runCurrent()
+        assertThat(store.runs.value).isNotEmpty()
         runner.open("s1")
+        runCurrent()
+        assertThat(store.runs.value).isEmpty()
+        core.surveyPoints.emit(points(-60f))
+        runCurrent()
+        assertThat(store.runs.value.single().coordinates).hasSize(2)
+    }
+
+    @Test
+    fun clear_empties_the_trail() = runTest {
+        store.run(backgroundScope)
+        runner.open("s1")
+        runCurrent()
+        core.surveyPoints.emit(points(-60f))
         runCurrent()
         assertThat(store.runs.value).isNotEmpty()
         store.clear()

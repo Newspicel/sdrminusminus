@@ -24,6 +24,7 @@ import dev.newspicel.sdrmm.df.RoseGeometry
 import dev.newspicel.sdrmm.df.RoseModel
 import dev.newspicel.sdrmm.ffi.DfView
 import dev.newspicel.sdrmm.ffi.MissionCommand
+import dev.newspicel.sdrmm.ffi.MissionControl
 import dev.newspicel.sdrmm.ffi.NavApp
 import dev.newspicel.sdrmm.nav.NavIntents
 import dev.newspicel.sdrmm.ui.Format
@@ -65,7 +66,7 @@ class CarDfScreen(
 
     @OptIn(FlowPreview::class)
     private suspend fun refresh() {
-        combine(graph.core.df, graph.core.pose, graph.sensors.lastFix, graph.settings.settings) { _, _, _, _ -> panel() to rose() }
+        combine(graph.core.df, graph.core.pose, graph.sensors.lastFix, graph.settings.settings, graph.core.missions) { _, _, _, _, _ -> panel() to rose() }
             .sample(PANEL_MS)
             .collect { (next, model) ->
                 if (next == panel) return@collect
@@ -84,10 +85,17 @@ class CarDfScreen(
 
     private fun view(): DfView? = graph.core.df.value?.takeIf { it.mission == missionId }
 
+    private fun controls(): List<MissionControl> = graph.core.missions.value
+        ?.missions
+        ?.firstOrNull { it.id == missionId }
+        ?.controls
+        .orEmpty()
+
     private fun panel(): CarPanel = CarPanel.make(
         view(),
         graph.core.pose.value,
         graph.sensors.lastFix.value,
+        controls(),
         Format.resolve(graph.settings.settings.value.units),
         graph.core,
         carContext.resources,
@@ -112,19 +120,21 @@ class CarDfScreen(
             .build()
     }
 
-    private fun actions(): ActionStrip = ActionStrip
-        .Builder()
-        .addAction(
-            Action
-                .Builder()
-                .setTitle(carContext.getString(R.string.navigate))
-                .setIcon(CarActions.icon(carContext, R.drawable.ic_navigate))
-                .setEnabled(panel.canNavigate)
-                .setOnClickListener(::navigate)
-                .build(),
-        ).addAction(Action.Builder().setTitle(carContext.getString(R.string.calibrate)).setOnClickListener(::calibrate).build())
-        .addAction(Action.Builder().setTitle(carContext.getString(R.string.clear)).setOnClickListener(::clear).build())
-        .build()
+    private fun actions(): ActionStrip {
+        val strip =
+            ActionStrip.Builder().addAction(
+                Action
+                    .Builder()
+                    .setTitle(carContext.getString(R.string.navigate))
+                    .setIcon(CarActions.icon(carContext, R.drawable.ic_navigate))
+                    .setEnabled(panel.canNavigate)
+                    .setOnClickListener(::navigate)
+                    .build(),
+            )
+        if (panel.canCalibrate) strip.addAction(Action.Builder().setTitle(carContext.getString(R.string.calibrate)).setOnClickListener(::calibrate).build())
+        if (panel.canClear) strip.addAction(Action.Builder().setTitle(carContext.getString(R.string.clear)).setOnClickListener(::clear).build())
+        return strip.build()
+    }
 
     private fun navigate() {
         val target = view()?.target ?: return

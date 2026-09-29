@@ -223,15 +223,19 @@ impl LinkHandle {
         &self.server_id
     }
 
-    pub(crate) fn forget(self) {
+    pub(crate) fn retire(&self) {
         self.retired.retire();
-        self.send(LinkCmd::Stop);
     }
 
     pub(crate) fn send(&self, cmd: LinkCmd) {
         if self.cmd.send(cmd).is_err() {
             tracing::debug!(server = %self.server_id, "link already ended");
         }
+    }
+
+    pub(crate) async fn retire_and_stop(self) {
+        self.retire();
+        self.stop().await;
     }
 
     pub(crate) async fn stop(self) {
@@ -349,12 +353,14 @@ impl<D: Dialer> Supervisor<D> {
         }
     }
 
-    fn add_hosts(&mut self, hosts: &[String]) {
-        let hosts = merged(&self.record.hosts, hosts, MAX_SAVED_HOSTS);
+    fn add_hosts(&mut self, fresh: &[String]) -> bool {
+        let unseen = fresh.iter().any(|host| !self.record.hosts.contains(host));
+        let hosts = merged(&self.record.hosts, fresh, MAX_SAVED_HOSTS);
         if hosts != self.record.hosts {
             self.record.hosts = hosts;
             self.save();
         }
+        unseen
     }
 
     fn save(&self) {
@@ -389,7 +395,9 @@ impl<D: Dialer> Supervisor<D> {
                     result = &mut racing => break Some(result),
                     cmd = self.cmds.recv() => match cmd {
                         None | Some(LinkCmd::Stop) => break None,
-                        Some(LinkCmd::AddHosts(fresh)) => self.add_hosts(&fresh),
+                        Some(LinkCmd::AddHosts(fresh)) => {
+                            self.add_hosts(&fresh);
+                        }
                         Some(LinkCmd::NetworkChanged) => {}
                     },
                 }
@@ -444,7 +452,9 @@ impl<D: Dialer> Supervisor<D> {
                 () = session.revoked.notified() => return Ended::Revoked,
                 cmd = self.cmds.recv() => match cmd {
                     None | Some(LinkCmd::Stop) => return Ended::Stop,
-                    Some(LinkCmd::AddHosts(fresh)) => self.add_hosts(&fresh),
+                    Some(LinkCmd::AddHosts(fresh)) => {
+                        self.add_hosts(&fresh);
+                    }
                     Some(LinkCmd::NetworkChanged) => {}
                 },
                 () = &mut reset, if !reset_done => {
@@ -509,8 +519,9 @@ impl<D: Dialer> Supervisor<D> {
                 cmd = self.cmds.recv() => match cmd {
                     None | Some(LinkCmd::Stop) => return Next::Stop,
                     Some(LinkCmd::AddHosts(fresh)) => {
-                        self.add_hosts(&fresh);
-                        return Next::Attempt;
+                        if self.add_hosts(&fresh) {
+                            return Next::Attempt;
+                        }
                     }
                     Some(LinkCmd::NetworkChanged) => return Next::Attempt,
                 },
@@ -537,7 +548,9 @@ impl<D: Dialer> Supervisor<D> {
             tokio::select! {
                 cmd = self.cmds.recv() => match cmd {
                     None | Some(LinkCmd::Stop) => return Next::Stop,
-                    Some(LinkCmd::AddHosts(fresh)) => self.add_hosts(&fresh),
+                    Some(LinkCmd::AddHosts(fresh)) => {
+                        self.add_hosts(&fresh);
+                    }
                     Some(LinkCmd::NetworkChanged) => {}
                 },
                 changed = self.wires.activity.changed() => {
@@ -557,7 +570,9 @@ impl<D: Dialer> Supervisor<D> {
         loop {
             match self.cmds.recv().await {
                 None | Some(LinkCmd::Stop) => return Next::Stop,
-                Some(LinkCmd::AddHosts(fresh)) => self.add_hosts(&fresh),
+                Some(LinkCmd::AddHosts(fresh)) => {
+                    self.add_hosts(&fresh);
+                }
                 Some(LinkCmd::NetworkChanged) => {}
             }
         }

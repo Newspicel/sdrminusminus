@@ -80,6 +80,7 @@ pub(crate) trait Api: Send + Sync {
     fn survey(&self, node: String) -> BoxFuture<'_, Result<SurveyGrid, RestError>>;
     fn fusion(&self, node: String) -> BoxFuture<'_, Result<DfFusionState, RestError>>;
     fn state(&self) -> BoxFuture<'_, Result<StateSnapshot, RestError>>;
+    fn unpair(&self) -> BoxFuture<'_, Result<(), RestError>>;
 }
 
 #[derive(Clone, Debug)]
@@ -156,6 +157,21 @@ impl RestClient {
         }
         serde_json::from_slice(&body).map_err(|error| RestError::Decode(error.to_string()))
     }
+
+    async fn delete(&self, segments: &[&str]) -> Result<(), RestError> {
+        let response = self
+            .http
+            .delete(self.url(segments))
+            .send()
+            .await
+            .map_err(|error| classify(&error))?;
+        let status = response.status();
+        if status.is_success() {
+            return Ok(());
+        }
+        let body = response.bytes().await.map_err(|error| classify(&error))?;
+        Err(status_error(status.as_u16(), &body))
+    }
 }
 
 impl Api for RestClient {
@@ -202,6 +218,10 @@ impl Api for RestClient {
 
     fn state(&self) -> BoxFuture<'_, Result<StateSnapshot, RestError>> {
         Box::pin(self.get(&["api", "state"]))
+    }
+
+    fn unpair(&self) -> BoxFuture<'_, Result<(), RestError>> {
+        Box::pin(self.delete(&["api", "phones", "self"]))
     }
 }
 

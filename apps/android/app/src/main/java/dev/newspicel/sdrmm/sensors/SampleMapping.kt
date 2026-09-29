@@ -15,10 +15,15 @@ object SampleMapping {
     private const val ACCURACY_INDEX = 4
     private const val NANOS_PER_MILLI = 1_000_000L
 
-    fun location(location: Location): LocationSample? {
+    fun location(
+        location: Location,
+        nowElapsedNanos: Long,
+        nowUnixMs: Long,
+    ): LocationSample? {
         if (!location.hasAccuracy()) return null
+        val measured = location.elapsedRealtimeNanos
         return LocationSample(
-            tUnixMs = location.time,
+            tUnixMs = if (measured > 0L) unixMillis(measured, nowElapsedNanos, nowUnixMs) else location.time,
             lat = location.latitude,
             lon = location.longitude,
             altM = if (location.hasAltitude()) location.altitude else null,

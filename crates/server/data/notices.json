@@ -7582,16 +7582,6 @@
       ]
     },
     {
-      "name": "webpki-roots",
-      "version": "1.0.9",
-      "license": "CDLA-Permissive-2.0",
-      "source": "rust",
-      "url": "https://github.com/rustls/webpki-roots",
-      "texts": [
-        "d30183ec6610abca"
-      ]
-    },
-    {
       "name": "webview2-com",
       "version": "0.38.2",
       "license": "MIT",

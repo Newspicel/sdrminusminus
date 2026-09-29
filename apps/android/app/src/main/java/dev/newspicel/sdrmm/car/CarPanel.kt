@@ -9,6 +9,7 @@ import dev.newspicel.sdrmm.ffi.DfState
 import dev.newspicel.sdrmm.ffi.DfView
 import dev.newspicel.sdrmm.ffi.LatLon
 import dev.newspicel.sdrmm.ffi.LocationSample
+import dev.newspicel.sdrmm.ffi.MissionControl
 import dev.newspicel.sdrmm.ffi.PoseView
 import dev.newspicel.sdrmm.settings.Units
 import dev.newspicel.sdrmm.ui.Format
@@ -18,6 +19,8 @@ data class CarPanel(
     val title: String,
     val text: String,
     val canNavigate: Boolean,
+    val canCalibrate: Boolean,
+    val canClear: Boolean,
     val roseBucket: Int,
 ) {
     companion object {
@@ -28,6 +31,7 @@ data class CarPanel(
             view: DfView?,
             pose: PoseView?,
             fix: LocationSample?,
+            controls: List<MissionControl>,
             units: Units,
             core: CoreGateway,
             resources: Resources,
@@ -45,6 +49,8 @@ data class CarPanel(
                 title = title,
                 text = GuidanceText.line(view, units, resources, distance),
                 canNavigate = target != null,
+                canCalibrate = MissionControl.CALIBRATE in controls,
+                canClear = MissionControl.CLEAR_FUSION in controls,
                 roseBucket = (bucket(rose.bearingDeg) * BUCKETS + bucket(rose.guidanceDeg)) * 2 + if (rose.headingUp) 1 else 0,
             )
         }

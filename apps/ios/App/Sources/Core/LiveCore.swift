@@ -44,6 +44,7 @@ nonisolated final class LiveCore: CoreService {
     func connect(serverID: String) async throws { try await core.connect(serverId: serverID) }
     func disconnect() { core.disconnect() }
     func setForeground(_ foreground: Bool) { core.setForeground(foreground: foreground) }
+    func networkChanged() { core.networkChanged() }
 
     func events() -> AsyncStream<CoreEvent> {
         guard !eventsTaken.exchange(true, ordering: .acquiringAndReleasing) else {

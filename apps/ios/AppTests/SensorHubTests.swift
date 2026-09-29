@@ -121,6 +121,74 @@ final class SensorHubTests: XCTestCase {
         XCTAssertEqual(hub.status.lastError, "Heading off")
     }
 
+    func testStationaryHoldsTheLastFixWithAFreshTime() async throws {
+        let core = FakeCore(scenario: .fresh, ticking: false)
+        let feeds = FakeFeeds()
+        let held = Date(timeIntervalSince1970: 2_000)
+        let hub = SensorHub(
+            core: core,
+            location: feeds.location,
+            heading: feeds.heading,
+            motion: feeds.motion,
+            holdEvery: .milliseconds(20),
+            now: { held }
+        )
+        var fixes = 0
+        hub.onFix = { _ in fixes += 1 }
+        hub.start(profile: .walk)
+        feeds.location.send(.stationary)
+        try await Task.sleep(for: .milliseconds(100))
+        XCTAssertTrue(core.locations.isEmpty)
+        feeds.location.send(.fix(fix()))
+        feeds.location.send(.stationary)
+        try await Task.sleep(for: .milliseconds(200))
+        let repeated = core.locations.dropFirst()
+        XCTAssertGreaterThanOrEqual(repeated.count, 3)
+        XCTAssertEqual(fixes, 1)
+        for sample in repeated {
+            XCTAssertEqual(sample.tUnixMs, 2_000_000)
+            XCTAssertEqual(sample.lat, 52.52)
+            XCTAssertEqual(sample.hAccM, 5)
+            XCTAssertEqual(sample.speedMps, 0)
+            XCTAssertNil(sample.courseDeg)
+        }
+        feeds.location.send(.fix(fix()))
+        let moving = core.locations.count
+        try await Task.sleep(for: .milliseconds(100))
+        XCTAssertEqual(core.locations.count, moving)
+        feeds.location.send(.stationary)
+        hub.stop()
+        let stopped = core.locations.count
+        try await Task.sleep(for: .milliseconds(100))
+        XCTAssertEqual(core.locations.count, stopped)
+    }
+
+    func testALostLocationEndsTheStationaryHold() async throws {
+        let losses: [LocationFeedEvent] = [
+            .access(.denied), .access(.restricted), .unavailable, .failed("Location error"),
+        ]
+        for loss in losses {
+            let core = FakeCore(scenario: .fresh, ticking: false)
+            let feeds = FakeFeeds()
+            let hub = SensorHub(
+                core: core,
+                location: feeds.location,
+                heading: feeds.heading,
+                motion: feeds.motion,
+                holdEvery: .milliseconds(20)
+            )
+            hub.start(profile: .walk)
+            feeds.location.send(.fix(fix()))
+            feeds.location.send(.stationary)
+            try await Task.sleep(for: .milliseconds(100))
+            XCTAssertGreaterThan(core.locations.count, 1)
+            feeds.location.send(loss)
+            let lost = core.locations.count
+            try await Task.sleep(for: .milliseconds(100))
+            XCTAssertEqual(core.locations.count, lost, "\(loss)")
+        }
+    }
+
     private func motion() -> MotionSample {
         MotionSample(
             tUnixMs: 1,

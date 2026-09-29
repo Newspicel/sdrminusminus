@@ -22,6 +22,7 @@ struct SensorStatus: Equatable {
 
 enum LocationFeedEvent {
     case fix(CLLocation)
+    case stationary
     case access(LocationAccess)
     case precise(Bool)
     case unavailable
@@ -65,17 +66,25 @@ final class SensorHub {
     @ObservationIgnored private let heading: any HeadingFeeding
     @ObservationIgnored private let motion: any MotionFeeding
     @ObservationIgnored private var locationError = false
+    @ObservationIgnored private let holdEvery: Duration
+    @ObservationIgnored private let now: @MainActor () -> Date
+    @ObservationIgnored private var lastSample: LocationSample?
+    @ObservationIgnored private var hold: Task<Void, Never>?
 
     init(
         core: any CoreService,
         location: any LocationFeeding,
         heading: any HeadingFeeding,
-        motion: any MotionFeeding
+        motion: any MotionFeeding,
+        holdEvery: Duration = .seconds(1),
+        now: @escaping @MainActor () -> Date = Date.init
     ) {
         self.core = core
         self.location = location
         self.heading = heading
         self.motion = motion
+        self.holdEvery = holdEvery
+        self.now = now
         location.observeAuthorization { [weak self] event in
             self?.handle(event)
         }
@@ -103,6 +112,8 @@ final class SensorHub {
         location.stop()
         heading.stop()
         motion.stop()
+        releaseHold()
+        lastSample = nil
         profile = nil
         status.running = false
     }
@@ -148,6 +159,38 @@ final class SensorHub {
         locationError = false
     }
 
+    private func holdStill() {
+        guard hold == nil, lastSample != nil else {
+            return
+        }
+        let every = holdEvery
+        hold = Task { [weak self] in
+            while !Task.isCancelled {
+                do {
+                    try await Task.sleep(for: every)
+                } catch {
+                    return
+                }
+                guard let self, !Task.isCancelled else {
+                    return
+                }
+                pushHeld()
+            }
+        }
+    }
+
+    private func pushHeld() {
+        guard let lastSample else {
+            return
+        }
+        core.pushLocation(SampleMapping.held(lastSample, at: now()))
+    }
+
+    private func releaseHold() {
+        hold?.cancel()
+        hold = nil
+    }
+
     private func locationFailed(_ text: String) {
         failed("location", text)
         locationError = true
@@ -165,16 +208,25 @@ final class SensorHub {
                 status.lastError = nil
                 locationError = false
             }
+            releaseHold()
+            lastSample = sample
             core.pushLocation(sample)
             Log.sensors.debug("location pushed, accuracy \(sample.hAccM, privacy: .public) m")
             onFix?(fix)
+        case .stationary:
+            holdStill()
         case .access(let access):
             status.access = access
+            if access == .denied || access == .restricted {
+                releaseHold()
+            }
         case .precise(let precise):
             status.precise = precise
         case .unavailable:
+            releaseHold()
             locationFailed("No location")
         case .failed(let text):
+            releaseHold()
             locationFailed(text)
         }
     }

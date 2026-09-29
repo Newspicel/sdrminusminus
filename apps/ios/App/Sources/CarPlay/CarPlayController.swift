@@ -332,7 +332,8 @@ extension CarPlayController {
             df: model.df.view,
             pose: model.pose,
             here: model.navigation.lastLocation.map { LatLon($0.coordinate) },
-            units: model.settings.unitSystem
+            units: model.settings.unitSystem,
+            controls: model.openMission?.controls ?? []
         )
     }
 

@@ -38,10 +38,14 @@ final class AppModel {
     @ObservationIgnored var demoExit: (@MainActor () -> Void)?
     private var storedPath: [Screen] = []
     @ObservationIgnored private let notifier: any RetargetNotifying
+    @ObservationIgnored private let network: any NetworkWatching
     @ObservationIgnored private var started = false
+    @ObservationIgnored private var running: Task<Void, Never>?
     @ObservationIgnored private var bannerCount = 0
     @ObservationIgnored private var phase: ScenePhase = .active
     @ObservationIgnored private var askedAlerts = false
+    @ObservationIgnored private var sceneForeground = true
+    @ObservationIgnored private var refusalShown: RefusalKind?
 
     init(
         core: any CoreService,
@@ -52,7 +56,8 @@ final class AppModel {
         browser: any BonjourBrowsing,
         sensors: SensorHub,
         notifier: any RetargetNotifying,
-        audio: AudioSessionController = AudioSessionController()
+        audio: AudioSessionController = AudioSessionController(),
+        network: any NetworkWatching = PathWatch()
     ) {
         let relay = ModelRelay()
         let report: @MainActor (Error) -> Void = { relay.model?.report($0) }
@@ -68,6 +73,7 @@ final class AppModel {
         self.sensors = sensors
         self.notifier = notifier
         self.audio = audio
+        self.network = network
         self.navigation = navigation
         self.speech = speech
         pairing = PairModel(core: core, browser: browser, settings: settings) { server in
@@ -109,6 +115,13 @@ final class AppModel {
         servers.first { $0.id == settings.activeServerID } ?? servers.first
     }
 
+    func start() {
+        guard running == nil else {
+            return
+        }
+        running = Task { await run() }
+    }
+
     func run() async {
         guard !started else {
             return
@@ -117,17 +130,20 @@ final class AppModel {
         let events = core.events()
         reloadServers()
         core.setPoseSettings(settings.poseSettings)
+        network.start { [core] in core.networkChanged() }
         async let connecting: Void = reconnect()
         for await event in events {
             apply(event)
             surfaceDrops()
         }
+        network.stop()
         await connecting
         surfaceDrops()
     }
 
     func connect(serverID: String) async {
         settings.activeServerID = serverID
+        refusalShown = nil
         do {
             try await core.connect(serverID: serverID)
         } catch {
@@ -249,10 +265,12 @@ final class AppModel {
         self.phase = phase
         switch phase {
         case .active:
-            core.setForeground(true)
+            sceneForeground = true
+            syncForeground()
             surfaceAlertFailure()
         case .background:
-            core.setForeground(false)
+            sceneForeground = false
+            syncForeground()
         default:
             break
         }
@@ -261,6 +279,11 @@ final class AppModel {
 
     func setCarPlay(connected: Bool) {
         carPlayConnected = connected
+        syncForeground()
+    }
+
+    private func syncForeground() {
+        core.setForeground(sceneForeground || carPlayConnected)
     }
 
     func report(_ error: Error) {
@@ -388,8 +411,14 @@ extension AppModel {
             revoked(text)
         case .refused(let reason, let text):
             pairing.stopWatchingHosts()
-            show(level: .error, text: Self.label(reason), detail: text)
-        case .offline, .online, .connecting:
+            if refusalShown != reason {
+                refusalShown = reason
+                show(level: .error, text: Self.label(reason), detail: text)
+            }
+        case .online:
+            refusalShown = nil
+            pairing.stopWatchingHosts()
+        case .offline, .connecting:
             pairing.stopWatchingHosts()
         }
     }

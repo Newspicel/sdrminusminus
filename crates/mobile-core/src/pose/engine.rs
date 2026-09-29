@@ -288,7 +288,7 @@ impl PoseEngine {
         if settings.mount != old.mount {
             self.filter = HeadingFilter::default();
             self.source = HeadingSourceKind::None;
-        } else {
+        } else if self.source == HeadingSourceKind::Course {
             self.filter
                 .shift(settings.mount_offset_deg - old.mount_offset_deg);
         }

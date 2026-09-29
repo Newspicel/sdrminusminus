@@ -22,6 +22,21 @@ nonisolated enum SampleMapping {
         )
     }
 
+    static func held(_ sample: LocationSample, at time: Date) -> LocationSample {
+        LocationSample(
+            tUnixMs: millis(time),
+            lat: sample.lat,
+            lon: sample.lon,
+            altM: sample.altM,
+            hAccM: sample.hAccM,
+            vAccM: sample.vAccM,
+            speedMps: 0,
+            speedAccMps: nil,
+            courseDeg: nil,
+            courseAccDeg: nil
+        )
+    }
+
     static func heading(_ heading: CLHeading) -> HeadingSample {
         self.heading(
             trueDeg: heading.trueHeading,

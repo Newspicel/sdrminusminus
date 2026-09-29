@@ -4,6 +4,7 @@ use crate::{
     pairing::{self as flow, PairInput},
     pose::now_ms,
     records::{DiscoveredServer, PairOffer, SavedServer},
+    vault::ServerRecord,
 };
 
 #[uniffi::export]
@@ -38,30 +39,84 @@ impl MobileCore {
         offer: PairOffer,
         phone_name: String,
     ) -> Result<SavedServer, CoreError> {
-        let rebind = self.rebind_token(offer.fingerprint.as_deref());
+        let previous = self.paired_before(offer.fingerprint.as_deref());
+        let held = previous
+            .as_ref()
+            .and_then(|record| self.inner.take_link(&record.server_id));
+        let resume = held.is_some();
         let input = PairInput {
             offer,
             phone_name,
             platform: self.inner.config.platform,
-            rebind,
+            rebind: previous.as_ref().map(|record| record.token.clone()),
             net: self.inner.net.clone(),
             now_ms: now_ms(),
         };
-        let record = self.inner.runtime.run(flow::pair(input)).await?;
-        self.inner.vault.store(&record)?;
+        let paired = self
+            .inner
+            .runtime
+            .run(async move {
+                if let Some(link) = held {
+                    link.retire_and_stop().await;
+                }
+                flow::pair(input).await
+            })
+            .await;
+        let record = match paired {
+            Ok(record) => record,
+            Err(error) => {
+                if let Some(previous) = previous.filter(|_| resume) {
+                    self.inner.resume_link(previous);
+                }
+                return Err(error);
+            }
+        };
+        let replaced = self.retire_live(&record.server_id).await;
+        let stored = self.inner.vault.store(&record);
+        let restart = match (replaced, previous) {
+            (true, _) => Some(record.clone()),
+            (false, Some(previous)) if resume => Some(resumed(record.clone(), previous)),
+            (false, _) => None,
+        };
+        if let Some(restart) = restart {
+            self.inner.resume_link(restart);
+        }
+        stored?;
         Ok(record.saved())
     }
 }
 
+fn resumed(record: ServerRecord, previous: ServerRecord) -> ServerRecord {
+    if previous.server_id == record.server_id {
+        record
+    } else {
+        previous
+    }
+}
+
 impl MobileCore {
-    fn rebind_token(&self, pin: Option<&str>) -> Option<String> {
+    async fn retire_live(&self, server_id: &str) -> bool {
+        let Some(link) = self.inner.take_link(server_id) else {
+            return false;
+        };
+        let retired = self
+            .inner
+            .runtime
+            .run(async move {
+                link.retire_and_stop().await;
+                Ok(())
+            })
+            .await;
+        if let Err(error) = retired {
+            tracing::warn!(%error, "old link not stopped");
+        }
+        true
+    }
+
+    fn paired_before(&self, pin: Option<&str>) -> Option<ServerRecord> {
         let pin = pin?;
         match self.inner.vault.servers() {
-            Ok(listing) => listing
-                .records
-                .into_iter()
-                .find(|record| record.pin == pin)
-                .map(|record| record.token),
+            Ok(listing) => listing.records.into_iter().find(|record| record.pin == pin),
             Err(error) => {
                 tracing::warn!(%error, "saved servers unreadable, pairing as a new phone");
                 None

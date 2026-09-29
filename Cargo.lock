@@ -6224,7 +6224,6 @@ version = "0.0.0"
 dependencies = [
  "futures",
  "jiff",
- "percent-encoding",
  "rcgen",
  "reqwest",
  "rustls",
@@ -6235,7 +6234,6 @@ dependencies = [
  "sdrmm-wire",
  "serde",
  "serde_json",
- "sha2 0.11.0",
  "tempfile",
  "thiserror 2.0.20",
  "tokio",
@@ -6245,7 +6243,6 @@ dependencies = [
  "tracing-subscriber",
  "uniffi",
  "url",
- "webpki-roots",
 ]
 
 [[package]]
@@ -8988,15 +8985,6 @@ name = "webpki-root-certs"
 version = "1.0.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b96554aa2acc8ccdb7e1c9a58a7a68dd5d13bccc69cd124cb09406db612a1c9b"
-dependencies = [
- "rustls-pki-types",
-]
-
-[[package]]
-name = "webpki-roots"
-version = "1.0.9"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7dcd9d09a39985f5344844e66b0c530a33843579125f23e21e9f0f220850f22a"
 dependencies = [
  "rustls-pki-types",
 ]

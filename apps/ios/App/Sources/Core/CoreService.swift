@@ -13,6 +13,7 @@ nonisolated protocol CoreService: AnyObject, Sendable {
     func connect(serverID: String) async throws
     func disconnect()
     func setForeground(_ foreground: Bool)
+    func networkChanged()
     func events() -> AsyncStream<CoreEvent>
     func takeDroppedEvents() -> Int
     func refreshMissions() async throws

@@ -46,6 +46,7 @@ pub(crate) struct Inner {
     pub(crate) pose: PoseHub,
     pub(crate) missions: MissionHub,
     pub(crate) link: Mutex<Option<LinkHandle>>,
+    pub(crate) unreadable: Mutex<Vec<String>>,
 }
 
 #[uniffi::export]
@@ -184,11 +185,24 @@ impl Inner {
             pose,
             missions,
             link: Mutex::new(None),
+            unreadable: Mutex::new(Vec::new()),
         }
     }
 
     pub(crate) fn notice(&self, notice: Notice) {
         self.events.emit(CoreEvent::Notice { notice });
+    }
+
+    pub(crate) fn newly_unreadable(&self, ids: &[String]) -> bool {
+        let mut told = self
+            .unreadable
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        if told.as_slice() == ids {
+            return false;
+        }
+        *told = ids.to_vec();
+        !ids.is_empty()
     }
 
     pub(crate) fn session(&self) -> Option<Arc<Session>> {
@@ -197,6 +211,25 @@ impl Inner {
 
     pub(crate) fn link(&self) -> MutexGuard<'_, Option<LinkHandle>> {
         self.link.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    pub(crate) fn take_link(&self, server_id: &str) -> Option<LinkHandle> {
+        let mut slot = self.link();
+        if slot
+            .as_ref()
+            .is_some_and(|link| link.server_id() == server_id)
+        {
+            slot.take()
+        } else {
+            None
+        }
+    }
+
+    pub(crate) fn resume_link(&self, record: crate::vault::ServerRecord) {
+        let mut slot = self.link();
+        if slot.is_none() {
+            *slot = Some(self.start_link(record));
+        }
     }
 
     pub(crate) fn start_link(&self, record: crate::vault::ServerRecord) -> LinkHandle {
@@ -353,6 +386,8 @@ mod tests {
         vault.put("server/0a", Err(crate::error::VaultError::Corrupt));
         let saved = core.saved_servers().expect("listed");
         assert_eq!(saved, vec![record.saved()]);
+        assert_eq!(core.saved_servers().expect("listed again"), saved);
+        core.inner.notice(Notice::warn("marker"));
         assert_eq!(
             next(&core).await,
             Some(CoreEvent::Notice {
@@ -360,6 +395,12 @@ mod tests {
                     level: NoticeLevel::Error,
                     text: "Saved server unreadable. Pair again".to_owned()
                 }
+            })
+        );
+        assert_eq!(
+            next(&core).await,
+            Some(CoreEvent::Notice {
+                notice: Notice::warn("marker")
             })
         );
         core.forget_server(record.server_id.clone())

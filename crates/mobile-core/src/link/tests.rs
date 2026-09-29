@@ -79,6 +79,10 @@ impl Api for NoApi {
     fn state(&self) -> BoxFuture<'_, Result<StateSnapshot, RestError>> {
         Box::pin(async { Err(RestError::TimedOut) })
     }
+
+    fn unpair(&self) -> BoxFuture<'_, Result<(), RestError>> {
+        Box::pin(async { Err(RestError::TimedOut) })
+    }
 }
 
 type Script = Arc<Mutex<HashMap<String, VecDeque<Result<(), DialError>>>>>;
@@ -326,6 +330,29 @@ async fn network_change_retries_at_once() {
 }
 
 #[tokio::test(start_paused = true)]
+async fn only_new_hosts_cut_the_backoff_short() {
+    let rig = Rig::new();
+    let dialer = FakeDialer::default();
+    let link = rig.start(dialer.clone(), None);
+    tokio::time::sleep(Duration::from_millis(1)).await;
+    let before = dialer.calls().len();
+    assert_eq!(before, testing::record().hosts.len());
+    link.send(LinkCmd::AddHosts(vec![FIRST.to_owned()]));
+    tokio::time::sleep(Duration::from_millis(1)).await;
+    assert_eq!(dialer.calls().len(), before);
+    let asked = Instant::now();
+    link.send(LinkCmd::AddHosts(vec!["10.0.0.9:8443".to_owned()]));
+    tokio::time::sleep(Duration::from_millis(1)).await;
+    let calls = dialer.calls();
+    assert!(calls.len() > before);
+    assert!(calls[before].1 - asked < Duration::from_millis(2));
+    let settled = calls.len();
+    link.send(LinkCmd::AddHosts(vec![SECOND.to_owned()]));
+    tokio::time::sleep(Duration::from_millis(1)).await;
+    assert_eq!(dialer.calls().len(), settled);
+}
+
+#[tokio::test(start_paused = true)]
 async fn a_new_winning_host_is_saved_first() {
     let mut rig = Rig::new();
     let memory = Arc::new(MemoryVault::default());
@@ -345,18 +372,20 @@ async fn a_new_winning_host_is_saved_first() {
 }
 
 #[tokio::test(start_paused = true)]
-async fn a_forgotten_link_never_saves_the_server_again() {
-    let rig = Rig::new();
+async fn a_retired_link_never_saves_the_server_again() {
+    let mut rig = Rig::new();
     let vault = Vault::new(Arc::new(MemoryVault::default()));
     vault.store(&testing::record()).expect("stored");
     let dialer = FakeDialer::default();
     dialer.plan(SECOND, [Ok(())]);
     let link = rig.start(dialer, Some(vault.clone()));
     link.send(LinkCmd::AddHosts(vec!["10.0.0.9:8443".to_owned()]));
-    link.forget();
+    link.retire();
     vault.delete(testing::SERVER_ID).expect("deleted");
     settle(5).await;
+    assert_eq!(rig.last_state(), Some(online()));
     assert!(vault.load(testing::SERVER_ID).is_err());
+    link.stop().await;
     assert!(vault.servers().expect("listed").records.is_empty());
 }
 

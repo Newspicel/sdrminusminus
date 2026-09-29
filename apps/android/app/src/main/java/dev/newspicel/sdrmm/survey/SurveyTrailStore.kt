@@ -9,6 +9,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -44,10 +45,8 @@ class SurveyTrailStore(
             }
         }
         launch {
-            var last = runner.open.value
-            runner.open.collect { open ->
-                if (open != null && open != last) clear()
-                last = open ?: last
+            runner.open.drop(1).collect { open ->
+                if (open != null) clear()
             }
         }
     }

@@ -98,7 +98,7 @@ class LocationSource(
         .build()
 
     override fun onLocationChanged(location: Location) {
-        val sample = SampleMapping.location(location) ?: return
+        val sample = SampleMapping.location(location, SystemClock.elapsedRealtimeNanos(), System.currentTimeMillis()) ?: return
         core.pushLocation(sample)
         declination.update(sample.lat, sample.lon, sample.altM ?: 0.0)
         fix.value = sample

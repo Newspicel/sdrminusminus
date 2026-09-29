@@ -105,6 +105,9 @@ final class LocationFeed: NSObject, LocationFeeding, CLLocationManagerDelegate {
         if let location = update.location {
             emit(.fix(location))
         }
+        if update.stationary {
+            emit(.stationary)
+        }
     }
 
     private func emit(_ event: LocationFeedEvent) {
