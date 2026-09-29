@@ -18,6 +18,8 @@ chips will differ.
 
 Both radar columns use the optimized CPU clutter canceller. That optimization alone, reusing
 delayed correlations, cut cancellation at 16,384 samples and 32 taps from 4.30 ms to 0.66 ms.
+The radar rows predate the array rework. [Radios](../hardware.md#measured) has timings of the
+current radar on a KrakenSDR.
 
 [Raw medians and p95](data/gpu-m4-max.csv).
 
@@ -40,13 +42,13 @@ benchmarks only.
 With access to the physical GPU:
 
 ```sh
-cargo test -p sdrmm-engine --no-default-features --features gpu-fft --release --lib -- --ignored --nocapture --test-threads=1 gpu::benchmarks coherent::radar::tests::benchmark_radar_pipeline
+cargo test -p sdrmm-engine --no-default-features --features gpu-fft --release --lib -- --ignored --nocapture --test-threads=1 gpu::benchmarks
 ```
 
 Correctness and CPU fallback on the hardware:
 
 ```sh
-cargo test -p sdrmm-engine --no-default-features --features gpu-fft --release --lib -- --include-ignored --nocapture --test-threads=1 spectrum::tests gpu::caf::tests coherent::radar::acceleration::tests
+cargo test -p sdrmm-engine --no-default-features --features gpu-fft --release --lib -- --include-ignored --nocapture --test-threads=1 spectrum::tests gpu::caf::tests array::radar::gpu
 ```
 
 ## Rendering

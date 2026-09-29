@@ -33,7 +33,6 @@ Radio / network / recording → DSP engine → audio, events, spectrum, IQ
 | `sdrmm-device-sdrconnect` | SDRplay SDRconnect over its WebSocket API |
 | `sdrmm-device-kiwisdr` | KiwiSDR over its WebSocket API |
 | `sdrmm-device-cr8` | Dragon Labs CR-8 through the vendor SDK, loaded at runtime |
-| `sdrmm-device-array` | Already-open streams composed as logical lanes; no hardware opens |
 | `sdrmm-channels` | Analog demodulators, protocol decoders, and their descriptors |
 | `sdrmm-recorder` | SigMF writing, reading, scanning, and export |
 | `sdrmm-orbit` | SGP4, pass prediction, and Doppler |
@@ -41,10 +40,13 @@ Radio / network / recording → DSP engine → audio, events, spectrum, IQ
 | `sdrmm-cps` | Codeplug reading, writing, and conversion |
 | `sdrmm-test-support` | Allocation and timing helpers for tests |
 | `sdrmm-engine` | Device supervision, channelization, scanning, streams, recording, and state snapshots |
-| `sdrmm-server` | REST, WebSocket, MCP, persistence, band plans, auth, and embedded assets |
+| `sdrmm-server` | REST, WebSocket, MCP, persistence, band plans, auth, phones, and embedded assets |
+| `sdrmm-mobile-core` | Pairing, pinned TLS client, missions, and pose fusion for the phone apps |
 
 `apps/sdrmm` is the CLI and owns the process. `apps/desktop` starts the same server on a random
 loopback port and opens it in a Tauri window. Both probe SoapySDR in a short-lived child process.
+`apps/ios` and `apps/android` are native phone apps on `sdrmm-mobile-core`. It depends on `wire`
+and networking only, never on the engine or LGPL code.
 
 The dependency rules:
 
@@ -81,18 +83,19 @@ events are typed JSON. After a WebSocket invalidation, clients fetch durable sta
 
 `cargo xtask perf` measures DSP throughput, allocation, decoder searches, and publication.
 
-## Coherent processing
+## Arrays
 
-Every capture block carries the index of its first sample, so reported hardware gaps are visible.
-Coherent processing buffers each lane and works on the sample range all lanes share. After a gap
-it skips to the next shared index, then applies the calibrated delays and weights.
+Every capture block carries the index and time of its first sample, so hardware gaps are
+visible. Each radio lane has a dormant tap. An Array node wakes the taps of its lanes; the
+engine's array runtime aligns them in time, solves delay, phase and gain on the noise source or a
+pilot, and corrects each lane with one filter. A lane that slips is realigned and reported.
 
-A beam is written to an ordinary capture ring, so channels, recorders, and scopes use it like any
-single-lane source.
+Array processors run on the aligned block, inline or on worker threads. Their lane outputs, such
+as a beam or a stitched band, are virtual lanes of the first member radio, so channels, recorders
+and scopes use them like any radio lane.
 
-An Array node combines streams that Device nodes already own. `device-array` exposes them as
-logical lanes. The engine forwards corrected IQ, coordinates tuning, and recovers members. The
-array never opens hardware itself.
+The Array never opens hardware. Device nodes own the radios; the Array holds the tuning and gain of
+its lanes while it exists.
 
 ## Workspaces and the live engine
 

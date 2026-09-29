@@ -5,6 +5,8 @@ mod common;
 
 use std::{
     collections::BTreeMap,
+    fmt::Write as _,
+    io::Write as _,
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -24,6 +26,8 @@ const RUN: Duration = Duration::from_secs(30);
 const AGGREGATOR_BUDGET: f64 = 0.5;
 const THREAD_BUDGET: f64 = 1.0;
 const SCALE_VAR: &str = "SDRMM_RT_SCALE";
+const SUMMARY_VAR: &str = "GITHUB_STEP_SUMMARY";
+const SUMMARY_MIN_SHARE: f64 = 0.001;
 const APPLE_SILICON_SCALE: f64 = 5.0;
 const PROCESSORS: [&str; 4] = ["df", "beam", "spatial", "radar"];
 
@@ -125,6 +129,34 @@ fn busy_between(before: &[ThreadTime], after: &[ThreadTime], wall: Duration) -> 
         .collect();
     busy.sort_by(|a, b| b.1.total_cmp(&a.1));
     busy
+}
+
+fn busy_table(busy: &[(String, f64)], scale: f64) -> String {
+    let mut table = format!(
+        "### Array realtime\n\n| Thread | Busy | Pi 5 at {SCALE_VAR}={scale} |\n|---|---:|---:|\n"
+    );
+    for (name, share) in busy.iter().filter(|(_, share)| *share >= SUMMARY_MIN_SHARE) {
+        writeln!(
+            table,
+            "| `{name}` | {:.2} % | {:.1} % |",
+            share * 100.0,
+            share * scale * 100.0
+        )
+        .unwrap();
+    }
+    table
+}
+
+fn publish_summary(table: &str) {
+    let Some(path) = std::env::var_os(SUMMARY_VAR).map(std::path::PathBuf::from) else {
+        return;
+    };
+    let mut summary = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+        .unwrap_or_else(|error| panic!("open {}: {error}", path.display()));
+    summary.write_all(table.as_bytes()).unwrap();
 }
 
 fn spin(name: &str, busy: Duration) -> std::thread::JoinHandle<()> {
@@ -284,9 +316,6 @@ fn array_realtime_budget() {
     let wall = started.elapsed();
     let end = common::array::status(&engine);
     let radar_end = radar_health(&engine);
-    assert!(settled.phase_ready);
-    assert_no_drops(&start, &end);
-    assert_radar_kept_up(&radar_start, &radar_end);
     let busy = busy_between(&before, &after, wall);
     for (name, share) in &busy {
         eprintln!(
@@ -295,6 +324,10 @@ fn array_realtime_budget() {
             share * scale * 100.0
         );
     }
+    publish_summary(&busy_table(&busy, scale));
+    assert!(settled.phase_ready);
+    assert_no_drops(&start, &end);
+    assert_radar_kept_up(&radar_start, &radar_end);
     let aggregator = busy
         .iter()
         .find(|(name, _)| is_aggregator(name))
@@ -315,4 +348,24 @@ fn array_realtime_budget() {
             share * scale * 100.0
         );
     }
+}
+
+#[test]
+fn busy_table_lists_busy_threads_scaled_to_a_pi() {
+    let busy = [
+        ("sdrmm-array-7".to_owned(), 0.1),
+        ("sdrmm-df".to_owned(), 0.025),
+        ("idle".to_owned(), 0.000_5),
+    ];
+    let table = busy_table(&busy, 2.0);
+    assert!(
+        table.contains("| Thread | Busy | Pi 5 at SDRMM_RT_SCALE=2 |"),
+        "{table}"
+    );
+    assert!(
+        table.contains("| `sdrmm-array-7` | 10.00 % | 20.0 % |"),
+        "{table}"
+    );
+    assert!(table.contains("| `sdrmm-df` | 2.50 % | 5.0 % |"), "{table}");
+    assert!(!table.contains("idle"), "{table}");
 }

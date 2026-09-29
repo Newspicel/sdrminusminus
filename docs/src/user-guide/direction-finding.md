@@ -1,44 +1,83 @@
 # Direction finding
 
-A **Direction finder** estimates where a signal comes from, using a
-[coherent array](arrays.md). **Triangulation** crosses bearings from several places into a
-position.
+A **Direction finder** turns an [Array](arrays.md) into bearings. **Triangulation** crosses
+bearings from several places, or from one moving array, into a position.
 
 ## Set up
 
-1. Add a multi-lane Device or an [Array](arrays.md#build-your-own-array).
-2. Add **Direction finder**. Set **Geometry** and **Elements** to match your antennas: a circle
-   with a radius, a line with a spacing, or explicit positions.
-3. Wire every lane to the matching input. All must come from one source.
-4. Set **Offset** and **Bandwidth** to cover the signal.
-5. [Calibrate](arrays.md#calibrate).
-6. Wire [GPS position](position.md) for the map and triangulation.
+1. Build and [calibrate](arrays.md#calibrate) an Array, and wire a GPS to its `position`.
+2. Add **Direction finder** and wire the Array's `array` to it.
+3. Set **Offset** and **Width** to cover the signal.
+4. Pick a **Method**.
 
-| Algorithm | Use |
+| Method | Use |
 |---|---|
-| Beamformer | Broad and robust |
-| MUSIC | Sharper, but needs the right number of **Sources**. Start with one. |
+| Bartlett | Plain beam scan, robust |
+| Capon | Sharper beam scan |
+| MUSIC | Splits close sources |
+| Root-MUSIC, ESPRIT | Grid free, need a line or a circle |
 
-## The compass
+**More** holds the rest. **Sources** counts transmitters on its own with **Auto**, or takes a
+fixed number. **Squelch** drops weak peaks, **Smooth** helps with reflections and **Station** names
+the bearings this finder sends.
 
-The compass shows the response, the chosen bearing, and the confidence. 0° is north, clockwise.
-The strip below shows calibration per lane. **Phase unknown** hides bearings: check the clock
-wiring and the calibration reference.
+## The rose
+
+The rose shows the response around the array, each bearing, and its spread. **Rel** is relative to
+the array's forward direction. **True** is from true north and needs a heading or a fixed azimuth
+on the Array.
+
+| Row | Shows |
+|---|---|
+| Bearing, ± | The strongest bearing and its one sigma |
+| Fit | Share of the signal the bearings explain |
+| Src | Sources found |
+
+| Chip | Means |
+|---|---|
+| Squelch | Peak below **Squelch** |
+| No heading | Wire a GPS with heading to the Array |
+| No position | Wire a GPS to the Array |
+| Aliased | Antennas more than half a wavelength apart |
+| Mirror | A line cannot tell front from back. **Side** picks one. |
+| Rotating | Turning faster than **Yaw gate**, blocks skipped |
+| Stale | No reading for three report periods |
 
 ## Listen in one direction
 
-Wire `beam` to a channel. **Follow bearing** points the beam at the current estimate. **Fixed
-azimuth** holds a direction.
+Wire the finder's `events` to a [Beamformer](arrays.md#beamformer) `steer` input, and `beam` to
+a channel.
 
 ## Triangulate
 
 1. Add **Triangulation** and wire each finder's `events` to it.
-2. Give each finder its own position, from GPS or fixed coordinates.
+2. Give each finder's Array its own position. A moving array sends bearings from wherever it was.
 
-It shows the estimate, its error ellipse, the age of each bearing, and where to go next. For a
-long thin ellipse it suggests moving across the bearing. Once the estimate settles, it suggests
-driving towards it. **Clear** starts over.
+A [Signal hunt](scanning.md#hunt-a-transmitter) with a phone sends bearings too.
 
-Wire finder or Triangulation `events` to a **Map** to see bearing rays, the estimate, and the
-next waypoint. The first settled fix emits an event that Event output can forward by webhook,
-MQTT, or Matrix.
+| Row | Shows |
+|---|---|
+| Estimate | The most likely position |
+| Spread | The one sigma error ellipse |
+| Guidance | Where to drive next: `Drive across` or `Drive at it` |
+| Bearings | Bearings in use |
+
+The table lists each station's last bearing, its spread and age. **Fade** sets how fast old
+bearings lose weight: **Auto** picks **Fixed** or **Moving** from the stations. **Clear** throws
+away every bearing.
+
+Wire a vehicle's GPS to Triangulation `position` for guidance. **Guide** picks **Auto**, which
+crosses the bearings first and then drives at the fix, or **Direct**. **Probe** sets how far to
+drive across a single bearing.
+
+## On the map
+
+Wire finder and Triangulation `events` to a **Map**. It draws bearing rays, a heat layer of
+likely positions, the estimate and its ellipse. The first settled fix is an event that an
+**Event output** can forward.
+
+## In a car
+
+Mount the array on the car, pair a [phone](phones.md) and wire its GPS to the Array with
+**Heading**. The phone's DF drive mission shows the bearing and guidance and starts navigation to
+the target.

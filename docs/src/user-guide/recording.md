@@ -23,6 +23,13 @@ wired port picks the lane. Wire GPS `position` to store the location.
 
 A clean server shutdown finishes open recordings. Killing the process can leave one incomplete.
 
+## Record an array
+
+**Rec** on an [Array](arrays.md) records every lane into one SigMF collection: a
+`.sigmf-collection` file that ties one recording per lane together, with the geometry, tier and
+noise source windows. **Stop** ends it. Each lane also shows up in **Library → Recordings** on its
+own.
+
 ## Record a channel
 
 **Baseband recorder** keeps a channel's IQ after filtering and before squelch. The files are much

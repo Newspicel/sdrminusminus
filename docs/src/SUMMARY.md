@@ -27,9 +27,15 @@
 
 # Arrays
 
-- [Coherent arrays](user-guide/arrays.md)
+- [Arrays](user-guide/arrays.md)
 - [Direction finding](user-guide/direction-finding.md)
 - [Passive radar](user-guide/passive-radar.md)
+
+# In the field
+
+- [Phones](user-guide/phones.md)
+- [iPhone app](user-guide/iphone.md)
+- [Android app](user-guide/android.md)
 
 # Run a server
 
@@ -44,3 +50,4 @@
 - [Architecture](development/architecture.md)
 - [GPU measurements](development/gpu-performance.md)
 - [Releases](development/releases.md)
+- [Android](development/android.md)

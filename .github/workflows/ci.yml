@@ -96,6 +96,85 @@ jobs:
           --lib gpu::caf::tests::radar_matches_cpu_across_tiles_and_fractional_doppler
           -- --ignored --exact
 
+  array-realtime:
+    name: Array realtime (ubuntu arm64)
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/rust
+        with:
+          cache: array-realtime
+          save: ${{ env.SAVE_CACHE }}
+      - run: cargo test -p sdrmm-engine --release --features probe --test array_realtime -- --nocapture
+        env:
+          SDRMM_RT_SCALE: "2"
+
+  mobile:
+    name: Mobile core (ubuntu)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: android-actions/setup-android@v4
+        with:
+          packages: ndk;30.0.16248370
+      - run: echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/30.0.16248370" >> "$GITHUB_ENV"
+      - uses: ./.github/actions/rust
+        with:
+          cache: mobile
+          save: ${{ env.SAVE_CACHE }}
+      - run: cargo xtask mobile check --android
+      - run: cargo xtask mobile bindings
+
+  ios:
+    name: iPhone app (macos)
+    runs-on: xcode-27
+    steps:
+      - uses: actions/checkout@v7
+      - run: sudo xcode-select -s /Applications/Xcode_27.app
+      - uses: ./.github/actions/rust
+        with:
+          cache: ios
+          save: ${{ env.SAVE_CACHE }}
+      - run: cargo xtask mobile check --ios
+      - run: cargo xtask ios lint
+      - run: cargo xtask ios test
+      - if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ios-results
+          path: target/ios/results
+          retention-days: 7
+
+  android:
+    name: Android app (ubuntu)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: android-actions/setup-android@v4
+        with:
+          packages: platforms;android-37.0 build-tools;37.0.0 ndk;30.0.16248370
+      - run: echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/30.0.16248370" >> "$GITHUB_ENV"
+      - uses: ./.github/actions/rust
+        with:
+          cache: android
+          save: ${{ env.SAVE_CACHE }}
+      - uses: gradle/actions/setup-gradle@v6
+      - run: ./gradlew -p build-logic test
+        working-directory: apps/android
+      - run: ./gradlew spotlessCheck checkSourceRules lintDebug testDebugUnitTest assembleDebug
+        working-directory: apps/android
+      - run: '"$ANDROID_HOME/build-tools/37.0.0/zipalign" -c -P 16 -v 4 apps/android/app/build/outputs/apk/debug/app-debug.apk'
+      - if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: android-reports
+          path: apps/android/app/build/reports
+          retention-days: 7
+
   smoke:
     name: Browser smoke (ubuntu)
     runs-on: ubuntu-24.04
