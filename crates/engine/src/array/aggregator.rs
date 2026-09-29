@@ -225,10 +225,17 @@ impl DcBank {
         }
     }
 
-    fn process(&mut self, lanes: &mut [Vec<Complex<f32>>], count: usize) {
+    fn process(&mut self, lanes: &mut [Vec<Complex<f32>>], from: usize, to: usize, hold: bool) {
         for (blocker, lane) in self.blockers.iter_mut().zip(lanes) {
-            let count = count.min(lane.len());
-            blocker.process(&mut lane[..count]);
+            let to = to.min(lane.len());
+            let Some(span) = lane.get_mut(from..to) else {
+                continue;
+            };
+            if hold {
+                blocker.hold(span);
+            } else {
+                blocker.process(span);
+            }
         }
     }
 }
@@ -393,7 +400,7 @@ impl Aggregator {
         self.meter(count);
         self.record_block(count, index, &seen);
         if self.frame.dc_block {
-            self.dc.process(self.aligner.raw_mut(), count);
+            self.block_dc(count, index);
         }
         self.fill_capture(count, index, &seen);
         self.dispatch(count, index);
@@ -430,6 +437,21 @@ impl Aggregator {
         if seen.blank_ended.is_some() {
             self.bump_generation();
             self.discontinuity();
+        }
+    }
+
+    fn block_dc(&mut self, count: usize, index: u64) {
+        let end = index + count as u64;
+        let mut at = index;
+        while at < end {
+            let hold = self.windows.gate_at(at) == Some(ProcessorGate::Calibrating);
+            let until = self
+                .windows
+                .next_change(at)
+                .map_or(end, |edge| edge.min(end));
+            let (from, to) = ((at - index) as usize, (until - index) as usize);
+            self.dc.process(self.aligner.raw_mut(), from, to, hold);
+            at = until;
         }
     }
 

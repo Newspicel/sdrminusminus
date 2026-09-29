@@ -5,7 +5,11 @@ use crate::fir::{design_lowpass, dot};
 const PHASES: usize = 128;
 
 pub(crate) fn taps_per_phase(ratio: f64) -> usize {
-    (5.5 / (0.1 * ratio.min(1.0))).ceil() as usize
+    taps_for(0.1 * ratio.min(1.0))
+}
+
+fn taps_for(transition: f64) -> usize {
+    (5.5 / transition).ceil() as usize
 }
 
 #[derive(Clone, Debug)]
@@ -16,15 +20,31 @@ pub struct FracResampler {
     position: usize,
     fraction: f64,
     buf: Vec<Complex<f32>>,
+    row: Vec<f32>,
 }
 
 impl FracResampler {
     #[must_use]
     pub fn new(ratio: f64) -> Self {
         assert!(ratio.is_finite() && ratio > 0.0, "ratio must be positive");
-        let band = 0.5 * ratio.min(1.0);
-        let taps_per_phase = taps_per_phase(ratio);
-        let cutoff = 0.9 * band;
+        Self::design(ratio, 0.45 * ratio.min(1.0), taps_per_phase(ratio))
+    }
+
+    #[must_use]
+    pub fn keeping(ratio: f64, keep: f64) -> Self {
+        assert!(ratio.is_finite() && ratio > 0.0, "ratio must be positive");
+        let narrower = keep.is_finite() && keep > 0.0 && keep < 1.0;
+        if ratio >= 1.0 || !narrower {
+            return Self::new(ratio);
+        }
+        let taps = taps_for(ratio * (1.0 - keep));
+        if taps >= taps_per_phase(ratio) {
+            return Self::new(ratio);
+        }
+        Self::design(ratio, 0.5 * ratio, taps)
+    }
+
+    fn design(ratio: f64, cutoff: f64, taps_per_phase: usize) -> Self {
         let proto = design_lowpass(PHASES * taps_per_phase + 1, cutoff / PHASES as f64);
         let mut rows = vec![0.0f32; (PHASES + 1) * taps_per_phase];
         for p in 0..=PHASES {
@@ -46,6 +66,7 @@ impl FracResampler {
             position: taps_per_phase - 1,
             fraction: 0.0,
             buf: vec![Complex::new(0.0, 0.0); taps_per_phase - 1],
+            row: vec![0.0; taps_per_phase],
         }
     }
 
@@ -67,9 +88,11 @@ impl FracResampler {
             let p = phase as usize;
             let mu = (phase - p as f64) as f32;
             let window = &self.buf[n + 1 - tpp..=n];
-            let a = dot(window, &self.rows[p * tpp..(p + 1) * tpp]);
-            let b = dot(window, &self.rows[(p + 1) * tpp..(p + 2) * tpp]);
-            out.push(a + (b - a) * mu);
+            let (lower, upper) = self.rows[p * tpp..(p + 2) * tpp].split_at(tpp);
+            for ((tap, a), b) in self.row.iter_mut().zip(lower).zip(upper) {
+                *tap = a + (b - a) * mu;
+            }
+            out.push(dot(window, &self.row));
             self.fraction += self.step;
             let advance = self.fraction as usize;
             self.position += advance;
@@ -184,6 +207,45 @@ mod tests {
             assert!(
                 (count - ideal_out).abs() <= 2,
                 "ratio {ratio}: got {count}, ideal {ideal_out}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_kept_band_stays_clean_with_fewer_taps() {
+        let dab = 2_048_000.0 / 2_400_000.0;
+        let kept = FracResampler::keeping(dab, 1_536_000.0 / 2_048_000.0);
+        assert!(kept.taps_per_phase * 2 < FracResampler::new(dab).taps_per_phase);
+        let (ratio, keep) = (0.6, 0.75);
+        let mut r = FracResampler::keeping(ratio, keep);
+        let inside = complex_tone(1_228.0 / 4_096.0 * ratio, 8 * 4096);
+        let mut out = Vec::new();
+        r.process(&inside, &mut out);
+        let (peak, snr) = tone_peak_and_snr(&out[256..256 + 4096]);
+        assert_eq!(peak, 1_228, "output frequency shifted");
+        assert!(snr > 40.0, "kept band snr {snr} dB");
+        let mut r = FracResampler::keeping(ratio, keep);
+        let folding = complex_tone(0.45, 8 * 4096);
+        r.process(&folding, &mut out);
+        let rms = rms_c(&out[256..]);
+        assert!(
+            rms < 3.16e-3,
+            "a tone folding into the kept band leaks at rms {rms}"
+        );
+    }
+
+    #[test]
+    fn keeping_the_whole_band_is_the_plain_resampler() {
+        let ratio = 0.853;
+        assert_eq!(
+            FracResampler::keeping(ratio, 0.95).taps_per_phase,
+            FracResampler::new(ratio).taps_per_phase
+        );
+        for (ratio, keep) in [(1.2, 0.5), (0.8, 1.5), (0.8, -0.1), (0.8, f64::NAN)] {
+            assert_eq!(
+                FracResampler::keeping(ratio, keep).taps_per_phase,
+                FracResampler::new(ratio).taps_per_phase,
+                "ratio {ratio} keep {keep}"
             );
         }
     }

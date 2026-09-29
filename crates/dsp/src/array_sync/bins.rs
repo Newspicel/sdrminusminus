@@ -8,6 +8,10 @@ use crate::{fft::FftPair, window::hann};
 pub const EQ_POINTS: usize = 64;
 pub const FIT_BAND: f64 = 0.4;
 pub const MIN_BINS: usize = 64;
+pub const NOISE_XCORR_MIN: f32 = 0.5;
+pub const NOISE_PURITY_MIN: f32 = 0.8;
+pub const NOISE_COHERENCE_MIN: f32 = 0.5;
+pub const NOISE_CLIPPED_MAX: f32 = 0.75;
 
 const EQ_SMOOTH: usize = 9;
 const EQ_LIMIT_DB: f32 = 6.0;

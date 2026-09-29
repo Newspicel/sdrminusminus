@@ -180,6 +180,11 @@ impl Rtl2832u {
         self.write_reg(BLOCK_SYS, GPOE, enable | mask, 1)
     }
 
+    #[cfg(test)]
+    pub(crate) fn gpio_bit(&self, gpio: u8) -> Result<bool> {
+        Ok(self.read_reg(BLOCK_SYS, GPO, 1)? & (1u16 << gpio) != 0)
+    }
+
     pub(crate) fn set_gpio_bit(&self, gpio: u8, on: bool) -> Result<()> {
         let mask = 1u16 << gpio;
         let current = self.read_reg(BLOCK_SYS, GPO, 1)?;

@@ -133,6 +133,21 @@ impl IqDcBlocker {
         self.mean = Complex::new(0.0, 0.0);
     }
 
+    pub fn hold(&self, samples: &mut [Complex<f32>]) {
+        let mean = if self.mean.re.is_finite() && self.mean.im.is_finite() {
+            self.mean
+        } else {
+            Complex::new(0.0, 0.0)
+        };
+        for s in samples {
+            *s = if s.re.is_finite() && s.im.is_finite() {
+                *s - mean
+            } else {
+                Complex::new(0.0, 0.0)
+            };
+        }
+    }
+
     pub fn process(&mut self, samples: &mut [Complex<f32>]) {
         if !(self.mean.re.is_finite() && self.mean.im.is_finite()) {
             self.reset();
@@ -620,6 +635,20 @@ mod tests {
                 .all(|v| v.re.is_finite() && v.im.is_finite()),
             "a non-finite sample poisoned the stream"
         );
+    }
+
+    #[test]
+    fn a_held_iq_dc_blocker_keeps_its_estimate_through_a_burst() {
+        let offset = Complex::new(0.02, -0.01);
+        let mut blocker = IqDcBlocker::new(IQ_RATE, IQ_CORNER);
+        let mut settled = vec![offset; 1 << 19];
+        blocker.process(&mut settled);
+        let mut burst = vec![Complex::new(0.9, 0.9); 1 << 16];
+        blocker.hold(&mut burst);
+        assert!((burst[0] - Complex::new(0.88, 0.91)).norm() < 1e-3);
+        let mut after = vec![offset; 8];
+        blocker.process(&mut after);
+        assert!(after[0].norm() < 1e-3, "the burst moved the estimate");
     }
 
     #[test]

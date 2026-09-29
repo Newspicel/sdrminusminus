@@ -9,7 +9,8 @@ mod eigen;
 mod signals;
 
 pub use bins::{
-    BinError, BinSolution, BinSolver, EQ_POINTS, FIT_BAND, LaneResponse, MIN_BINS, equaliser_at,
+    BinError, BinSolution, BinSolver, EQ_POINTS, FIT_BAND, LaneResponse, MIN_BINS,
+    NOISE_CLIPPED_MAX, NOISE_COHERENCE_MIN, NOISE_PURITY_MIN, NOISE_XCORR_MIN, equaliser_at,
     equaliser_frequency,
 };
 pub use coarse::{

@@ -263,16 +263,50 @@ fn a_fine_search_outside_the_margin_fails() {
     );
 }
 
+fn clip_at_sigmas(lane: &mut [Complex<f32>], sigmas: f32) {
+    let power = lane.iter().map(Complex::norm_sqr).sum::<f32>() / lane.len() as f32;
+    let limit = sigmas * (power / 2.0).sqrt();
+    for sample in lane.iter_mut() {
+        *sample = Complex::new(
+            sample.re.clamp(-limit, limit) / limit,
+            sample.im.clamp(-limit, limit) / limit,
+        );
+    }
+}
+
 #[test]
-fn a_clipped_noise_capture_is_refused() {
+fn a_noise_capture_clipped_past_the_limit_is_refused() {
     let truths = [truth(0.0, 0.0, 0.0); 3];
     let mut lanes = scene(SOLVE_CAPTURE, &truths, 9);
-    lanes[2][100] = Complex::new(1.0, 0.0);
+    clip_at_sigmas(&mut lanes[2], 0.5);
     let mut worker = Worker::new(3, RATE);
     let mut capture = job(3, CaptureKind::Solve, ArrayCalSource::Noise, lanes, 1);
     assert_eq!(
         outcome(&run(&mut worker, &mut capture)),
         Err(SolveFailure::Clipped { lane: 2 })
+    );
+}
+
+#[test]
+fn a_lightly_clipped_noise_capture_solves_with_a_wider_sigma() {
+    let truths = [
+        truth(0.0, 0.0, 0.0),
+        truth(1.3, 40.0, 0.0),
+        truth(0.0, -25.0, 0.0),
+    ];
+    let mut lanes = scene(SOLVE_CAPTURE, &truths, 10);
+    clip_at_sigmas(&mut lanes[2], 2.0);
+    let mut worker = Worker::new(3, RATE);
+    let mut capture = job(3, CaptureKind::Solve, ArrayCalSource::Noise, lanes, 1);
+    let handled = run(&mut worker, &mut capture);
+    let summary = outcome(&handled).expect("a clipped capture still solves");
+    assert_close("phase", f64::from(summary.phase_deg[1]), 40.0, 0.5);
+    assert_close("clipped phase", f64::from(summary.phase_deg[2]), -25.0, 1.0);
+    let solution = handled.solution.as_ref().expect("a solution");
+    assert!(
+        f64::from(solution.quality.phase_sigma_deg) >= CLIPPED_PHASE_SIGMA_DEG,
+        "{}",
+        solution.quality.phase_sigma_deg
     );
 }
 

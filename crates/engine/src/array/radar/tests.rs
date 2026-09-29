@@ -1062,5 +1062,3 @@ fn a_gpu_radar_tracks_the_echo_and_says_so() {
     assert_eq!(health.gpu_failures, 0);
     assert_eq!(health.dropped_cpis, 0);
 }
-
-mod bench;

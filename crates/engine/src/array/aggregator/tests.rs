@@ -379,7 +379,7 @@ fn dc_blockers_are_identical_on_every_lane() {
         with_dc(Complex::new(0.2, -0.1)),
         with_dc(Complex::new(-0.05, 0.3)),
     ];
-    bank.process(&mut lanes, 40_000);
+    bank.process(&mut lanes, 0, 40_000, false);
     assert_eq!(lanes[0], lanes[1]);
     let tail = 30_000..40_000;
     for at in tail {
@@ -402,6 +402,55 @@ fn the_array_dc_blocker_runs_only_when_a_member_manages_dc() {
     let last = heard.last().expect("blocks");
     assert!(last.first[0].norm() < 1e-3, "{:?}", last.first[0]);
     assert_eq!(last.first[0], last.first[1]);
+}
+
+#[test]
+fn the_dc_blocker_holds_its_estimate_through_a_noise_window() {
+    let offset = Complex::new(0.05, -0.02);
+    let mut frame = frame(2);
+    frame.dc_block = true;
+    let mut rig = rig(2, frame);
+    let mut log = rig.talker("df", Talk::default(), &TALKER);
+    for _ in 0..8 {
+        rig.write(BLOCK, |_, _| offset);
+        rig.settle();
+    }
+    for writer in &mut rig.writers {
+        writer.event(LaneEvent::Mark {
+            at: rig.index,
+            mark: LaneMark::NoiseSource {
+                on: true,
+                in_flight: 0,
+            },
+        });
+    }
+    for _ in 0..3 {
+        rig.write(BLOCK, |_, at| {
+            Complex::new(0.6, 0.6) + Complex::from_polar(0.3, at as f32 * 0.7)
+        });
+        rig.settle();
+    }
+    for writer in &mut rig.writers {
+        writer.event(LaneEvent::Mark {
+            at: rig.index,
+            mark: LaneMark::NoiseSource {
+                on: false,
+                in_flight: 0,
+            },
+        });
+    }
+    let quiet_from = rig.index;
+    drain(&mut log);
+    for _ in 0..3 {
+        rig.write(BLOCK, |_, _| offset);
+        rig.settle();
+    }
+    let heard = drain(&mut log);
+    let first = heard
+        .iter()
+        .find(|block| block.first_index >= quiet_from)
+        .expect("a block after the noise window");
+    assert!(first.first[0].norm() < 1e-3, "{:?}", first.first[0]);
 }
 
 #[test]

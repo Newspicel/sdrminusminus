@@ -17,9 +17,10 @@ use sdrmm_dsp::{
     Ddc,
     array_sync::{
         BinError, BinSolution, BinSolver, COARSE_FRAME, COARSE_LAGS, CoarseError, CoarseSearch,
-        FIT_BAND, POWER_ITERATIONS, design_correction, dominant,
+        FIT_BAND, NOISE_CLIPPED_MAX, NOISE_COHERENCE_MIN, NOISE_PURITY_MIN, NOISE_XCORR_MIN,
+        POWER_ITERATIONS, design_correction, dominant,
     },
-    xcorr::XCorr,
+    xcorr::{XCorr, straddled_coherence},
 };
 use sdrmm_wire::{ArrayCalRecord, ArrayCalSource};
 
@@ -46,6 +47,7 @@ pub(crate) const PILOT_SPAN_WIDTHS: f64 = 5.0;
 const PEAK_TO_FLOOR_DB: f32 = 20.0;
 const PILOT_SETTLE_FRACTION: usize = 8;
 const CLIP_LEVEL: f32 = 0.999;
+const CLIPPED_PHASE_SIGMA_DEG: f64 = 2.0;
 const WORKER_PARK: Duration = Duration::from_millis(5);
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -56,9 +58,9 @@ struct Thresholds {
 }
 
 const NOISE: Thresholds = Thresholds {
-    xcorr: 0.5,
-    purity: 0.8,
-    lane: 0.9,
+    xcorr: NOISE_XCORR_MIN,
+    purity: NOISE_PURITY_MIN,
+    lane: NOISE_COHERENCE_MIN,
 };
 
 const LIVE: Thresholds = Thresholds {
@@ -458,8 +460,13 @@ impl Worker {
         let source = job.request.source;
         let noise = matches!(source, ArrayCalSource::Noise);
         let thresholds = if noise { NOISE } else { LIVE };
-        if noise && let Some(lane) = clipped(&job.buffers) {
-            return Err(SolveFailure::Clipped { lane });
+        let (clipped_lane, clipped) = if noise {
+            clipped_share(&job.buffers)
+        } else {
+            (0, 0.0)
+        };
+        if clipped > NOISE_CLIPPED_MAX {
+            return Err(SolveFailure::Clipped { lane: clipped_lane });
         }
         self.derotate(&mut job.buffers);
         let fine = self.fine(&job.buffers.lanes, thresholds);
@@ -486,7 +493,7 @@ impl Worker {
             ArrayCalSource::Noise => {
                 solved.phase_ready = true;
                 solved.apply_eq = job.request.equaliser;
-                solved.quality = bin_quality(&solved, span, rate, center);
+                solved.quality = bin_quality(&solved, span, rate, center, clipped > 0.0);
             }
             ArrayCalSource::Pilot {
                 offset_hz,
@@ -851,7 +858,7 @@ fn judge(magnitudes: &[f32], span: &[Complex<f32>], energy: f32) -> Option<Peak>
     }
     Some(Peak {
         delay: at as f64 + f64::from(fraction) - FINE_MARGIN as f64,
-        coherence: ((peak + side * side) / scale).clamp(0.0, 1.0),
+        coherence: straddled_coherence(best, side, scale),
         peak_to_floor_db: if floor > f32::MIN_POSITIVE {
             10.0 * (peak / floor).log10()
         } else {
@@ -904,12 +911,17 @@ fn take_narrow(solved: &mut Solved, narrow: &Narrow, offset_hz: f64, rate: f64) 
     solved.equalisers.clear();
 }
 
-fn bin_quality(solved: &Solved, span: usize, rate: f64, center: f64) -> CalQuality {
+fn bin_quality(solved: &Solved, span: usize, rate: f64, center: f64, clipped: bool) -> CalQuality {
     let blocks = span.saturating_sub(BIN_FFT) / (BIN_FFT / 2) + 1;
-    let sigma = solved.coherence[1..solved.lanes]
+    let measured = solved.coherence[1..solved.lanes]
         .iter()
         .map(|coherence| phase_sigma(*coherence, blocks))
         .fold(0.0, f64::max);
+    let sigma = if clipped {
+        measured.hypot(CLIPPED_PHASE_SIGMA_DEG.to_radians())
+    } else {
+        measured
+    };
     CalQuality {
         source: None,
         phase_sigma_deg: sigma.to_degrees() as f32,
@@ -1014,15 +1026,22 @@ fn rotate(samples: &mut [Complex<f32>], cycles_per_sample: f64) {
     }
 }
 
-fn clipped(buffers: &CaptureBuffers) -> Option<u8> {
+fn clipped_share(buffers: &CaptureBuffers) -> (u8, f32) {
     buffers
         .lanes
         .iter()
-        .position(|lane| {
-            lane.iter()
-                .any(|sample| sample.re.abs() >= CLIP_LEVEL || sample.im.abs() >= CLIP_LEVEL)
+        .enumerate()
+        .map(|(lane, samples)| {
+            let clipped = samples
+                .iter()
+                .filter(|sample| sample.re.abs() >= CLIP_LEVEL || sample.im.abs() >= CLIP_LEVEL)
+                .count();
+            (lane as u8, clipped as f32 / samples.len().max(1) as f32)
         })
-        .map(|lane| lane as u8)
+        .fold(
+            (0, 0.0),
+            |worst, lane| if lane.1 > worst.1 { lane } else { worst },
+        )
 }
 
 fn same_device(buffers: &CaptureBuffers, a: usize, b: usize) -> bool {

@@ -153,7 +153,14 @@ impl FrontStage {
         let front = &plan.front;
         let lanes = front.lanes.len();
         let ddcs = (0..lanes)
-            .map(|_| Ddc::new(front.input_rate, front.radar_rate, front.offset_hz))
+            .map(|_| {
+                Ddc::keeping(
+                    front.input_rate,
+                    front.radar_rate,
+                    front.offset_hz,
+                    front.bandwidth_hz,
+                )
+            })
             .collect::<Result<Vec<_>, _>>()
             .map_err(|_| ChannelError::Refused("Band outside the capture"))?;
         let cleaner = ReferenceCleaner::new(front.cleaning, front.radar_rate)?;

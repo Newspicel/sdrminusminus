@@ -10,7 +10,6 @@ pub struct DelayEstimate {
     pub delay_samples: f32,
     pub phase_rad: f32,
     pub gain: f32,
-    /// Magnitude-squared coherence at the peak, in `0..=1`.
     pub coherence: f32,
     pub peak_to_floor_db: f32,
 }
@@ -25,6 +24,15 @@ impl DelayEstimate {
             coherence: 0.0,
             peak_to_floor_db: 0.0,
         }
+    }
+}
+
+#[must_use]
+pub fn straddled_coherence(peak: f32, side: f32, energies: f32) -> f32 {
+    if energies > f32::MIN_POSITIVE {
+        ((peak * peak + side * side) / energies).clamp(0.0, 1.0)
+    } else {
+        0.0
     }
 }
 
@@ -113,7 +121,7 @@ impl XCorr {
             delay_samples: peak as f32 + fraction,
             phase_rad: value.arg(),
             gain: centre / energy_a,
-            coherence: (best / (energy_a * energy_b)).clamp(0.0, 1.0),
+            coherence: straddled_coherence(centre, left.max(right), energy_a * energy_b),
             peak_to_floor_db: peak_to_floor_db(best, total, 2 * self.frame),
         }
     }
@@ -194,6 +202,16 @@ mod tests {
                 "delay {delay}: measured {}",
                 estimate.delay_samples
             );
+        }
+    }
+
+    #[test]
+    fn a_half_sample_delay_keeps_its_coherence() {
+        let mut xcorr = XCorr::new(2048);
+        let a = chirp(2048, 0.0);
+        for delay in [0.0f32, 0.5, -0.5, 3.5] {
+            let estimate = xcorr.estimate(&a, &chirp(2048, -delay));
+            assert!(estimate.coherence > 0.9, "delay {delay}: {estimate:?}");
         }
     }
 

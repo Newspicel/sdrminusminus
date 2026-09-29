@@ -665,6 +665,11 @@ impl RtlSdr {
         self.dev.set_gpio_bit(pin, on)
     }
 
+    #[cfg(test)]
+    pub(crate) fn gpio(&self, pin: u8) -> Result<bool> {
+        self.dev.gpio_bit(pin)
+    }
+
     pub(crate) fn set_dither(&mut self, on: bool) -> Result<()> {
         self.tuner.set_dither(on);
         if self.direct_sampling == DirectSampling::Off && self.center_freq != 0 {
