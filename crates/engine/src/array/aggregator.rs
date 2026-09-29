@@ -28,7 +28,7 @@ use super::{
     record::{RecordNote, RecordTap},
     tap::LaneFeed,
     window::{BlankCause, Observation, Windows},
-    worker::WorkerIo,
+    worker::{SyncLink, WorkerIo, link},
 };
 use crate::{EngineError, runtime::retire::Reclaimer};
 
@@ -43,6 +43,7 @@ const COMMANDS_PER_STEP: usize = 16;
 const CLIP_LEVEL: f32 = 0.999;
 const LEVEL_FLOOR: f32 = 1e-20;
 const DC_BINS: f64 = 4_096.0;
+const NANOS_PER_SECOND: f64 = 1e9;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Step {
@@ -150,6 +151,7 @@ pub(crate) struct Wiring {
     pub(crate) aggregator: AggregatorIo,
     pub(crate) worker: WorkerIo,
     pub(crate) events: Consumer<AggregatorEvent>,
+    pub(crate) link: SyncLink,
 }
 
 pub(crate) fn wire(
@@ -168,6 +170,7 @@ pub(crate) fn wire(
     }
     let reclaimer = Reclaimer::new(Retired::release)
         .map_err(|error| EngineError::Processor(format!("start array reclaimer: {error}")))?;
+    let (link, orders, reports) = link();
     Ok(Wiring {
         aggregator: AggregatorIo {
             events: events_tx,
@@ -186,8 +189,11 @@ pub(crate) fn wire(
             buffers: buffers_tx,
             sets: sets_rx,
             stop,
+            orders,
+            reports,
         },
         events: events_rx,
+        link,
     })
 }
 
@@ -266,6 +272,7 @@ pub(crate) struct Aggregator {
     quality: CalQuality,
     clipped: u32,
     feed_losses: u64,
+    priors: u32,
 }
 
 impl Aggregator {
@@ -303,6 +310,7 @@ impl Aggregator {
             quality: CalQuality::default(),
             clipped: 0,
             feed_losses: 0,
+            priors: foreign_lanes(&frame),
             frame,
         }
     }
@@ -311,6 +319,9 @@ impl Aggregator {
         self.flush_spill();
         self.drain_commands();
         self.drain_solutions();
+        if self.priors != 0 {
+            self.seed_offsets();
+        }
         let step = match self.aligner.next(&mut self.notes) {
             Some(count) => {
                 self.block(count);
@@ -326,6 +337,29 @@ impl Aggregator {
         self.hosts.poll(self.frame.center_hz);
         self.counters();
         step
+    }
+
+    fn seed_offsets(&mut self) {
+        self.aligner.settle(&mut self.notes);
+        self.aligner.origins(&mut self.origins);
+        let rate = self.frame.sample_rate;
+        let Some(reference) = self.origins[0] else {
+            return;
+        };
+        if !(rate.is_finite() && rate > 0.0) {
+            return;
+        }
+        let lanes = self.aligner.lanes().min(MAX_LANES);
+        let mut offsets = offsets_of(self.aligner.offsets());
+        for (lane, origin) in self.origins.iter().enumerate().take(lanes).skip(1) {
+            let bit = 1u32 << lane;
+            if let Some(origin) = origin.filter(|_| self.priors & bit != 0) {
+                let apart = reference.saturating_sub(origin) as f64;
+                offsets[lane] = (apart * rate / NANOS_PER_SECOND).round() as i64;
+                self.priors &= !bit;
+            }
+        }
+        self.aligner.set_offsets(&offsets[..lanes]);
     }
 
     fn block(&mut self, count: usize) {
@@ -464,6 +498,7 @@ impl Aggregator {
                 sample_rate: self.frame.sample_rate,
                 offsets: self.aligner.offsets(),
                 centers_hz: &self.frame.lane_centers_hz,
+                devices: &self.frame.devices,
             };
             let capture = &mut self.capture;
             self.aligner
@@ -580,6 +615,7 @@ impl Aggregator {
     fn command(&mut self, command: Command) {
         match command {
             Command::SwapFeeds { mut slots } => {
+                self.priors |= foreign_lanes(&self.frame);
                 for (slot, feed) in slots.drain(..) {
                     self.swap_feed(slot, Some(feed));
                     if let Some(lane) = self.board.lane(slot) {
@@ -643,6 +679,9 @@ impl Aggregator {
             }
             Command::Frame { frame } => self.swap_frame(frame),
             Command::Capture { request } => {
+                if let Some(stale) = self.capture.cancel() {
+                    self.event(AggregatorEvent::CaptureRefused { id: stale });
+                }
                 if !self.capture.arm(request, &mut self.io.buffers) {
                     self.event(AggregatorEvent::CaptureRefused { id: request.id });
                 }
@@ -676,6 +715,9 @@ impl Aggregator {
         let centers_changed = frame.center_hz != self.frame.center_hz
             || frame.lane_centers_hz != self.frame.lane_centers_hz;
         let same_lanes = frame.lanes() == self.frame.lanes();
+        if frame.devices != self.frame.devices {
+            self.priors = foreign_lanes(&frame);
+        }
         let old = std::mem::replace(&mut self.frame, frame);
         if rate_changed {
             self.windows.set_rate(self.frame.sample_rate);
@@ -985,6 +1027,12 @@ pub(crate) fn oriented(mut pose: Pose, orientation: ArrayOrientation) -> Pose {
         }
     }
     pose
+}
+
+fn foreign_lanes(frame: &LiveFrame) -> u32 {
+    (1..frame.lanes())
+        .filter(|lane| !frame.same_device(0, *lane))
+        .fold(0, |mask, lane| mask | 1 << lane)
 }
 
 fn centers_of(frame: &LiveFrame) -> [f64; MAX_LANES] {

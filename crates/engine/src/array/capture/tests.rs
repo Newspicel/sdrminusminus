@@ -39,6 +39,7 @@ fn context(windows: &Windows) -> FillContext<'_> {
         sample_rate: RATE,
         offsets: &[0, 7],
         centers_hz: &[1e6, 1e6],
+        devices: &[0, 1],
     }
 }
 
@@ -70,6 +71,7 @@ fn a_live_capture_decimates_into_a_job() {
     assert_eq!(job.buffers.first_index, 1_000);
     assert_eq!(job.buffers.generation, 3);
     assert_eq!(job.buffers.offsets[1], 7);
+    assert_eq!(job.buffers.devices[..2], [0, 1]);
     assert_eq!(job.buffers.lanes[0].len(), 100);
     assert!((job.buffers.lanes[0][0].re - 1_001.5).abs() < 1e-3);
     assert!(!slot.armed());

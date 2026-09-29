@@ -225,7 +225,7 @@ impl Aligner {
         Some(count)
     }
 
-    fn settle(&mut self, notes: &mut AlignNotes) {
+    pub(crate) fn settle(&mut self, notes: &mut AlignNotes) {
         for (lane, feed) in self.feeds.iter_mut().enumerate() {
             if let Some(feed) = feed {
                 feed.settle(notes, lane, self.offsets[lane]);

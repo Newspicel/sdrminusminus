@@ -57,6 +57,7 @@ pub(crate) use worker::spawn_worker;
 
 pub(crate) const COMMAND_SLOTS: usize = 64;
 pub(crate) const CONTROL_EVENT_SLOTS: usize = 256;
+pub(crate) const CONTEXT_MISSING: &str = "array sync context is not built yet";
 
 static NEXT_RUNTIME: AtomicU64 = AtomicU64::new(0);
 
@@ -121,6 +122,14 @@ pub enum ArrayEvent {
 pub(crate) trait ArrayControl: Send + Sync {
     fn switch_array_noise(&self, node: &str, on: bool) -> Result<(), EngineError>;
     fn tune_array_internal(&self, node: &str, tune: ArrayTune) -> Result<(), EngineError>;
+
+    fn sync_context(&self, _node: &str) -> Result<controller::SyncContext, EngineError> {
+        Err(EngineError::Processor(CONTEXT_MISSING.to_owned()))
+    }
+
+    fn clock_drift(&self, _node: &str, _ppm: Option<f64>) -> Result<(), EngineError> {
+        Err(EngineError::Processor(CONTEXT_MISSING.to_owned()))
+    }
 }
 
 pub(crate) struct CommandQueue {
@@ -383,6 +392,7 @@ impl ArrayRuntime {
                 board: board.clone(),
                 array_events: events,
                 config,
+                link: wiring.link,
             },
         );
         let controller = match controller {

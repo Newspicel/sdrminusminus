@@ -170,6 +170,27 @@ fn a_full_command_queue_is_busy() {
 }
 
 #[test]
+fn timestamps_seed_the_offsets_of_lanes_on_other_radios() {
+    let mut split = frame(2);
+    split.devices[1] = 1;
+    let mut rig = rig(2, split);
+    let ahead = 30_000u64;
+    for block in 0..6u64 {
+        let start = block * 4_096;
+        let samples: Vec<Complex<f32>> = (0..4_096u64)
+            .map(|n| Complex::new(0.01 * ((start + n) as f32 * 0.3).sin(), 0.0))
+            .collect();
+        rig.writers[0].samples(&samples, ahead + start);
+        rig.writers[1].samples(&samples, start);
+    }
+    assert!(rig.settle() > 0);
+    let offset = rig.aggregator.aligner.offsets()[1];
+    assert!((offset + ahead as i64).abs() <= 2, "{offset}");
+    assert_eq!(rig.aggregator.priors, 0);
+    assert_eq!(self::rig(2, frame(2)).aggregator.priors, 0);
+}
+
+#[test]
 fn pose_ring_interpolates_the_heading_at_capture_time() {
     let mut ring = PoseRing::new();
     let sample = |host_ns: i64, heading: f64, yaw: f32| PoseSample {
@@ -362,6 +383,34 @@ fn step_does_not_allocate_after_warmup() {
         !rig.events()
             .contains(&AggregatorEvent::CaptureRefused { id: 1 })
     );
+}
+
+#[test]
+fn a_new_capture_request_replaces_one_still_waiting_for_noise() {
+    let mut rig = rig(2, frame(2));
+    let request = |id, start| CaptureRequest {
+        id,
+        kind: CaptureKind::Solve,
+        start,
+        len: 1_024,
+        decimation: 1,
+        source: ArrayCalSource::Noise,
+        equaliser: false,
+    };
+    rig.send(Command::Capture {
+        request: request(1, CaptureStart::NoiseWindow),
+    });
+    rig.noise(BLOCK);
+    rig.settle();
+    rig.send(Command::Capture {
+        request: request(2, CaptureStart::Now),
+    });
+    rig.noise(BLOCK);
+    rig.settle();
+    let events = rig.events();
+    assert!(events.contains(&AggregatorEvent::CaptureRefused { id: 1 }));
+    assert!(events.contains(&AggregatorEvent::Captured { id: 2 }));
+    assert!(!events.contains(&AggregatorEvent::CaptureRefused { id: 2 }));
 }
 
 #[test]

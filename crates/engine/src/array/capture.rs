@@ -41,6 +41,7 @@ pub(crate) struct CaptureBuffers {
     pub(crate) decimation: usize,
     pub(crate) offsets: [i64; MAX_LANES],
     pub(crate) centers_hz: [f64; MAX_LANES],
+    pub(crate) devices: [u8; MAX_LANES],
 }
 
 impl CaptureBuffers {
@@ -55,6 +56,7 @@ impl CaptureBuffers {
             decimation: 1,
             offsets: [0; MAX_LANES],
             centers_hz: [0.0; MAX_LANES],
+            devices: [0; MAX_LANES],
         }
     }
 
@@ -122,6 +124,7 @@ pub(crate) struct FillContext<'a> {
     pub(crate) sample_rate: f64,
     pub(crate) offsets: &'a [i64],
     pub(crate) centers_hz: &'a [f64],
+    pub(crate) devices: &'a [u8],
 }
 
 pub(crate) enum Filled {
@@ -243,6 +246,9 @@ impl CaptureSlot {
             buffers.centers_hz = [0.0; MAX_LANES];
             let centers = context.centers_hz.len().min(MAX_LANES);
             buffers.centers_hz[..centers].copy_from_slice(&context.centers_hz[..centers]);
+            buffers.devices = [0; MAX_LANES];
+            let devices = context.devices.len().min(MAX_LANES);
+            buffers.devices[..devices].copy_from_slice(&context.devices[..devices]);
         }
         let start = (from - index) as usize;
         let stop = (until - index) as usize;
