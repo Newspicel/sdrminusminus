@@ -7,3 +7,7 @@ minimumReleaseAge: 1440
 allowBuilds:
   esbuild: false
   workerd: false
+
+peerDependencyRules:
+  allowedVersions:
+    oxc-transform-react: ">=0.145.0"
