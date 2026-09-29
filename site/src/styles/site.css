@@ -390,7 +390,8 @@ footer a:hover {
   }
   .bar nav a.hardware,
   .bar nav a.business,
-  .bar nav a.discord {
+  .bar nav a.discord,
+  .bar nav a.app {
     display: none;
   }
 }
