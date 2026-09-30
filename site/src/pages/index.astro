@@ -1,4 +1,5 @@
 ---
+import { newest, RELEASES } from "../changelog";
 import Patch from "../components/Patch.astro";
 import Setups from "../components/Setups.astro";
 import Waterfall from "../components/Waterfall.astro";
@@ -168,6 +169,8 @@ const half = Math.ceil(voices.length / 2);
 const rows = [voices.slice(0, half), voices.slice(half)];
 
 const copies = [0, 1, 2, 3];
+
+const latest = newest(RELEASES, 3);
 ---
 
 <Page
@@ -272,6 +275,22 @@ const copies = [0, 1, 2, 3];
     <p class="section-lede">The same software on the desk and by the antenna. All of it free.</p>
     <Setups />
   </section>
+
+  {
+    latest && (
+      <section class="wrap news">
+        <h2>What's new</h2>
+        <p class="version">
+          {latest.version}
+          {latest.date && <time datetime={latest.date}>{latest.date}</time>}
+        </p>
+        <ul>
+          {latest.groups.flatMap((group) => group.items).map((item) => <li set:html={item} />)}
+        </ul>
+        <a class="more" href="/changelog">Changelog</a>
+      </section>
+    )
+  }
 
   <section class="voices">
     <div class="wrap">
@@ -394,6 +413,26 @@ const copies = [0, 1, 2, 3];
   .window iframe { display: block; width: 100%; height: 100%; border: 0; }
   .window .still { display: none; width: 100%; height: auto; }
   .caption { margin: 18px 0 0; text-align: center; font-size: 14px; color: var(--ink-faint); }
+
+  .news .version {
+    display: flex;
+    gap: 14px;
+    align-items: baseline;
+    margin: 0 0 16px;
+    font: 14px var(--mono);
+    color: var(--ink);
+  }
+  .news time { font-size: 13px; color: var(--ink-faint); }
+  .news ul {
+    margin: 0 0 20px;
+    padding-left: 20px;
+    max-width: var(--measure);
+    color: var(--ink-dim);
+  }
+  .news li + li { margin-top: 10px; }
+  .news li :global(p) { margin: 0; }
+  .news li :global(p + p) { display: none; }
+  .news .more { font: 13px var(--mono); }
 
   .wiring {
     display: grid;

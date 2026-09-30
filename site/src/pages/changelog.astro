@@ -1,0 +1,63 @@
+---
+import { RELEASES } from "../changelog";
+import Page from "../layouts/Page.astro";
+import { REPOSITORY } from "../seo";
+
+const summary = "What changed in each SDR-- release.";
+---
+
+<Page title="Changelog · SDR--" description={summary} summary={summary}>
+  <div class="wrap changelog">
+    <h1>Changelog</h1>
+    {
+      RELEASES.map((release) => (
+        <article id={release.date === undefined ? "next" : release.version}>
+          <h2>
+            {release.version}
+            {release.date && <time datetime={release.date}>{release.date}</time>}
+          </h2>
+          {release.groups.map((group) => (
+            <>
+              <h3>{group.heading}</h3>
+              <ul>
+                {group.items.map((item) => (
+                  <li set:html={item} />
+                ))}
+              </ul>
+            </>
+          ))}
+        </article>
+      ))
+    }
+    <p class="note">Older releases are on <a href={`${REPOSITORY}/releases`}>GitHub</a>.</p>
+  </div>
+</Page>
+
+<style>
+  .changelog {
+    max-width: calc(var(--measure) + 2 * var(--pad));
+    padding-block: clamp(56px, 9vw, 112px);
+  }
+  .changelog h1 { font-size: clamp(2rem, 5vw, 3.2rem); }
+  article { padding-block: 28px; border-top: 1px solid var(--line); }
+  article h2 {
+    display: flex;
+    align-items: baseline;
+    gap: 14px;
+    margin: 0 0 8px;
+    font-size: 1.4rem;
+  }
+  time { font: 13px var(--mono); color: var(--ink-faint); letter-spacing: 0; }
+  h3 {
+    margin: 20px 0 8px;
+    font: 12px var(--mono);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--ink-faint);
+  }
+  ul { margin: 0; padding-left: 20px; color: var(--ink-dim); }
+  li + li { margin-top: 10px; }
+  li :global(p) { margin: 0; }
+  li :global(p + p) { margin-top: 8px; }
+  li :global(code) { font: 0.9em var(--mono); color: var(--ink); }
+</style>
