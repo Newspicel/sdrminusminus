@@ -61,7 +61,8 @@ fn freq_ranges(tuner: Tuner) -> Vec<Range> {
         Tuner::Fc0012 => &[(22e6, 948e6)],
         Tuner::Fc0013 => &[(22e6, 1.1e9)],
         Tuner::Fc2580 => &[(146e6, 308e6), (438e6, 924e6)],
-        Tuner::R820T | Tuner::R828D => &[(24e6, 1766e6)],
+        Tuner::R820T => &[(24e6, 1766e6)],
+        Tuner::R828D => &[(500e3, 28.8e6), (24e6, 1766e6)],
         Tuner::Unknown => &[],
     };
     bounds
@@ -390,6 +391,34 @@ mod tests {
         let names: Vec<&str> = caps.extra.iter().map(ExtraSetting::name).collect();
         assert_eq!(names, [RTL_AGC]);
         assert_eq!(caps.extra[0].label(), Some("RTL2832 AGC"));
+    }
+
+    #[test]
+    fn an_r828d_reaches_hf_through_the_blog_v4_upconverter() {
+        let table = gain_table(Tuner::R828D, 29);
+        let caps = capabilities(Tuner::R828D, table);
+        let (next, batch) = validate(
+            &DeviceSettings {
+                center_hz: Some(15_335_000.0),
+                ..DeviceSettings::default()
+            },
+            &caps,
+            Remote::new(table),
+            table,
+        )
+        .expect("HF accepted");
+        assert_eq!(next.wire().center_hz, Some(15_335_000.0));
+        assert_eq!(batch, vec![(Command::CenterFreq, 15_335_000)]);
+        let refused = validate(
+            &DeviceSettings {
+                center_hz: Some(100e3),
+                ..DeviceSettings::default()
+            },
+            &caps,
+            Remote::new(table),
+            table,
+        );
+        assert!(matches!(refused, Err(DeviceError::Unsupported(_))));
     }
 
     #[test]
