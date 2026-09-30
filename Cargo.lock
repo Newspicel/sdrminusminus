@@ -5903,6 +5903,7 @@ dependencies = [
 name = "sdrmm-device-rtlsdr"
 version = "0.0.0"
 dependencies = [
+ "getrandom 0.4.3",
  "num-complex",
  "nusb",
  "sdrmm-device",

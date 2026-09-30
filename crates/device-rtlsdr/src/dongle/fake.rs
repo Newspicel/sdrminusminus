@@ -49,6 +49,7 @@ struct State {
     status: [u8; 5],
     pointers: HashMap<u8, u8>,
     eeprom: [u8; 256],
+    eeprom_protected: bool,
     answering: HashMap<u8, [u8; 256]>,
 }
 
@@ -62,6 +63,7 @@ impl Default for State {
             status: [0, 0, 0x40, 0, 0x25],
             pointers: HashMap::new(),
             eeprom: [0xff; 256],
+            eeprom_protected: false,
             answering: HashMap::new(),
         }
     }
@@ -115,6 +117,14 @@ impl Fake {
 
     pub(crate) fn set_eeprom(&self, offset: usize, value: u8) {
         self.state.borrow_mut().eeprom[offset] = value;
+    }
+
+    pub(crate) fn eeprom(&self) -> [u8; 256] {
+        self.state.borrow().eeprom
+    }
+
+    pub(crate) fn protect_eeprom(&self) {
+        self.state.borrow_mut().eeprom_protected = true;
     }
 
     pub(crate) fn answer_i2c(&self, addr: u8, reg: u8, value: u8) {
@@ -225,7 +235,18 @@ impl State {
         if let Some(reg) = data.first() {
             self.pointers.insert(addr, *reg);
         }
+        if addr == EEPROM && !self.eeprom_protected {
+            self.store_eeprom(data);
+        }
         Ok(())
+    }
+
+    fn store_eeprom(&mut self, data: &[u8]) {
+        if let Some((reg, bytes)) = data.split_first() {
+            for (offset, byte) in (usize::from(*reg)..).zip(bytes) {
+                self.eeprom[offset % 256] = *byte;
+            }
+        }
     }
 }
 

@@ -36,6 +36,21 @@ async fn create_and_delete_device_set_over_http() {
 }
 
 #[tokio::test]
+async fn a_serial_goes_only_to_a_closed_radio_that_can_keep_one() {
+    async fn write(app: &Router, device: &str) -> StatusCode {
+        let body = format!(r#"{{"device_id":"{device}"}}"#);
+        request(app.clone(), "POST", "/api/devices/serial", Some(&body))
+            .await
+            .0
+    }
+    let app = test_router();
+    assert_eq!(write(&app, "virtual:band").await, StatusCode::BAD_REQUEST);
+    assert_eq!(write(&app, "nothing:here").await, StatusCode::NOT_FOUND);
+    create_virtual_set(&app).await;
+    assert_eq!(write(&app, "virtual:band").await, StatusCode::CONFLICT);
+}
+
+#[tokio::test]
 async fn channeltypes_lists_every_demod_exactly_once() {
     let (status, body) = request(test_router(), "GET", "/api/channeltypes", None).await;
     assert_eq!(status, StatusCode::OK);

@@ -15,6 +15,7 @@ sdrmm-wire.workspace = true
 sdrmm-device = { workspace = true, features = ["usb"] }
 sdrmm-usb-stream.workspace = true
 nusb.workspace = true
+getrandom.workspace = true
 thiserror.workspace = true
 num-complex.workspace = true
 tracing.workspace = true

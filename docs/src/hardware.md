@@ -111,14 +111,11 @@ Rates: 225 to 300 kHz, or 900 kHz to 3.2 MHz. Filter: 290 kHz to 8 MHz on R82xx 
 
 Many dongles ship with the serial `00000001`. Two dongles with one serial are told apart by USB
 port instead, shown as `RTL-SDR (bus/address)`, and their settings and
-[calibration](#calibration) can follow the wrong one after a replug. Give each its own serial, one
-dongle plugged in at a time:
+[calibration](#calibration) can follow the wrong one after a replug.
 
-```sh
-rtl_eeprom -s 00000002
-```
-
-Replug it afterwards. `rtl_eeprom` comes with the `rtl-sdr` package.
+SDR-- asks once when it finds such a dongle. Yes writes a random serial, or one you type, to
+its EEPROM. Replug it afterwards. The dongle must be closed, and one without an EEPROM cannot keep a
+serial.
 
 ## KrakenSDR
 

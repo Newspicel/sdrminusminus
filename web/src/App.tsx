@@ -23,6 +23,7 @@ import { AboutPanel } from "./components/AboutPanel";
 import { AutoOffDialog } from "./components/AutoOffDialog";
 import { HelpPanel } from "./components/HelpPanel";
 import { ReportProblem } from "./components/ReportProblem";
+import { SerialDialog } from "./components/SerialDialog";
 import { ServerDown } from "./components/ServerDown";
 import { Toasts } from "./components/Toasts";
 import { TokenGate } from "./components/TokenGate";
@@ -235,6 +236,7 @@ export function App() {
         <ReportProblem open={showReport} onOpenChange={setShowReport} graph={graph} />
         <ToolsDialog tool={openTool} onClose={() => setOpenTool(null)} />
         <AutoOffDialog />
+        <SerialDialog />
         <Toasts onReport={() => setShowReport(true)} />
       </div>
     </TokenGate>

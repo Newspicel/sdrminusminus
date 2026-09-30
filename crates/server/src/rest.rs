@@ -33,7 +33,7 @@ use sdrmm_wire::{
     StateSnapshot, TemplateInfo, TemplatesResponse, TimeMachineAction, TimeMachineRequest,
     TimeMachineStatus, ToolRequest, ToolResponse, ToolsResponse, TransmittersResponse,
     UpdateWorkspaceRequest, VoiceCallsResponse, WorkspaceDetail, WorkspaceExport, WorkspaceInfo,
-    WorkspaceSnapshot, WorkspaceState, WorkspacesResponse,
+    WorkspaceSnapshot, WorkspaceState, WorkspacesResponse, WriteSerialRequest, WrittenSerial,
 };
 use utoipa::OpenApi;
 use utoipa_axum::{router::OpenApiRouter, routes};
@@ -380,6 +380,7 @@ pub(crate) fn openapi_router() -> OpenApiRouter<AppState> {
     OpenApiRouter::with_openapi(ApiDoc::openapi())
         .routes(routes!(get_state))
         .routes(routes!(get_devices))
+        .routes(routes!(write_serial))
         .routes(routes!(get_nmea_devices))
         .routes(routes!(get_channel_types))
         .routes(routes!(list_calls))

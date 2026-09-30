@@ -19,6 +19,7 @@ pub(crate) use catalog::{Catalog, Listing};
 pub(crate) use demod::DIRECT_MAX_HZ;
 #[cfg(test)]
 pub(crate) use demod::PPM_LIMIT;
+pub(crate) use eeprom::valid_serial;
 pub(crate) use error::Error;
 pub(crate) use radio::{DirectSampling, Dongle};
 pub(crate) use stream::TRANSFER_BYTES;

@@ -137,6 +137,7 @@ url = "2.5.8"
 tokio-postgres = { version = "0.7.18", default-features = false, features = ["runtime"] }
 tokio-postgres-rustls = "0.14"
 rustls-platform-verifier = "0.7"
+getrandom = "0.4.3"
 tokio-tungstenite = "0.30"
 tokio-serial = "5.5.0"
 serialport = { version = "4.10.1", default-features = false }

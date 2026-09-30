@@ -596,6 +596,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/devices/serial": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["write_serial"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/devicesets": {
         parameters: {
             query?: never;
@@ -6057,6 +6073,13 @@ export interface components {
             color_code?: number | null;
             node: string;
         };
+        WriteSerialRequest: {
+            device_id: string;
+            serial?: string | null;
+        };
+        WrittenSerial: {
+            serial: string;
+        };
         WsjtMessage: {
             /** Format: float */
             audio_hz: number;
@@ -7589,6 +7612,66 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DevicesResponse"];
+                };
+            };
+        };
+    };
+    write_serial: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WriteSerialRequest"];
+            };
+        };
+        responses: {
+            /** @description Serial written, takes effect after a replug */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WrittenSerial"];
+                };
+            };
+            /** @description This radio cannot take that serial */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Device not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Device open here or in another program */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Malformed request body */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
                 };
             };
         };
