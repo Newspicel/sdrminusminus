@@ -15,6 +15,7 @@ concurrency:
 
 env:
   SAVE_CACHE: ${{ github.ref == 'refs/heads/main' }}
+  CARGO_PROFILE_DEV_OPT_LEVEL: 3
 
 jobs:
   check:

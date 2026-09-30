@@ -255,62 +255,8 @@ inherits = "release"
 lto = false
 
 [profile.dev]
+opt-level = 1
 debug = "line-tables-only"
 
 [profile.dev.package."*"]
-opt-level = 3
 debug = false
-
-[profile.dev.package.sdrmm-dsp]
-opt-level = 1
-
-[profile.dev.package.sdrmm-modem]
-opt-level = 1
-
-[profile.dev.package.sdrmm-modem-test-support]
-opt-level = 1
-
-[profile.dev.package.sdrmm-channels]
-opt-level = 1
-
-[profile.dev.package.sdrmm-engine]
-opt-level = 1
-
-[profile.dev.package.sdrmm-device]
-opt-level = 1
-
-[profile.dev.package.sdrmm-device-rtltcp]
-opt-level = 1
-
-[profile.dev.package.sdrmm-device-spyserver]
-opt-level = 1
-
-[profile.dev.package.sdrmm-device-sdrconnect]
-opt-level = 1
-
-[profile.dev.package.sdrmm-device-kiwisdr]
-opt-level = 1
-
-[profile.dev.package.sdrmm-usb-stream]
-opt-level = 1
-
-[profile.dev.package.sdrmm-device-rtlsdr]
-opt-level = 1
-
-[profile.dev.package.sdrmm-device-hackrf]
-opt-level = 1
-
-[profile.dev.package.sdrmm-device-ad936x]
-opt-level = 1
-
-[profile.dev.package.sdrmm-device-virtual]
-opt-level = 1
-
-[profile.dev.package.sdrmm-device-recording]
-opt-level = 1
-
-[profile.dev.package.sdrmm-device-siggen]
-opt-level = 1
-
-[profile.dev.package.sdrmm-recorder]
-opt-level = 1
