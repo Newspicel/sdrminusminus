@@ -21,6 +21,7 @@
 - Keep functions small and single-purpose. Prefer clear names over comments.
 - Always use the newest stable versions of every tool and dependency, and their current
   recommended patterns. Check the latest docs before writing.
+- User-visible changes add a changeset: `cargo xtask changeset <patch|minor|major> "..."`.
 - Always Format, Lint, Check & Test at the End of Every Change. But only test what you changed, full test suite will run in the CI.
 - Max 3000 lines per file, 200 lines per function. Split large files into modules, large functions into helpers.
 

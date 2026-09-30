@@ -3,6 +3,28 @@
 Tagged releases publish portable servers, desktop installers, signed update bundles, and container
 images. The nightly workflow updates the rolling nightly when `main` changes.
 
+## Changesets
+
+Every user-visible change adds a file to `.changeset/`:
+
+```sh
+cargo xtask changeset patch "RTL-SDR: keep gain after reconnect"
+```
+
+To release, on a clean `main`:
+
+```sh
+cargo xtask release --dry-run
+cargo xtask release
+git push --atomic origin main v1.2.3
+```
+
+`release` picks the next version from the largest bump since the last tag, prepends a section to
+`CHANGELOG.md` with a link to the commit that added each changeset, deletes the changesets, then
+commits and tags. The release workflow publishes that section as the GitHub release notes
+(`cargo xtask release-notes 1.2.3`) and fails on a tag without one. The docs include
+`CHANGELOG.md` as the site changelog.
+
 ## Versioning
 
 The root workspace version is the source of truth. Set it with:
@@ -109,7 +131,7 @@ brew audit --strict --online --cask newspicel/tap/sdrmm-app
 3. Check generated API, license, fixture, icon, and band-plan outputs.
 4. Validate hardware with the candidate package, including reconnect and recording.
 5. Confirm updater and platform signing credentials.
-6. Tag the reviewed commit and check every artifact job.
+6. Run `cargo xtask release`, push the tag and check every artifact job.
 7. Install a published artifact and run `sdrmm --version` and `sdrmm --doctor`.
 
 Manual workflow dispatch rehearses the artifact matrix without publishing a GitHub release.

@@ -23,6 +23,7 @@ mod ber;
 mod broadcast_fixtures;
 mod bundle;
 mod bundled;
+mod changeset;
 mod denoise_model;
 mod excerpt;
 mod homebrew;
@@ -121,6 +122,19 @@ enum Cmd {
     SetVersion {
         version: String,
     },
+    Changeset {
+        bump: changeset::Bump,
+        summary: String,
+    },
+    Release {
+        #[arg(long)]
+        dry_run: bool,
+    },
+    ReleaseNotes {
+        version: String,
+        #[arg(long)]
+        out: Option<PathBuf>,
+    },
     UpdaterManifest {
         #[arg(long)]
         version: String,
@@ -194,6 +208,9 @@ fn main() -> Result<()> {
         }
         Cmd::LinkCheck { path, external } => linkage::check(&path, &external),
         Cmd::SetVersion { version } => set_version(&root(), &version),
+        Cmd::Changeset { bump, summary } => changeset::add(&root(), bump, &summary),
+        Cmd::Release { dry_run } => changeset::release(&root(), dry_run),
+        Cmd::ReleaseNotes { version, out } => changeset::notes(&root(), &version, out.as_deref()),
         Cmd::UpdaterManifest {
             version,
             dir,
@@ -615,6 +632,7 @@ fn check(root: &Path) -> Result<()> {
     check_baked_in_fixtures(root)?;
     mobile::check(root)?;
     ios::check(root)?;
+    changeset::check(root)?;
     run("cargo", &["fmt", "--all", "--", "--check"], root)?;
 
     ensure_web_deps(root)?;

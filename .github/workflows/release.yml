@@ -77,6 +77,15 @@ jobs:
           cache: ubuntu
           save: false
       - run: cargo xtask set-version ${{ needs.plan.outputs.version }}
+      - if: github.ref_type == 'tag'
+        run: cargo xtask release-notes ${{ needs.plan.outputs.version }} --out release-notes.md
+      - if: github.ref_type == 'tag'
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-notes
+          path: release-notes.md
+          if-no-files-found: error
+          retention-days: 1
       - uses: actions/upload-artifact@v7
         with:
           name: version-stamp
@@ -437,15 +446,22 @@ jobs:
       - uses: actions/attest-build-provenance@v4
         with:
           subject-path: "artifacts/*"
+      - if: github.ref_type == 'tag'
+        uses: actions/download-artifact@v8
+        with:
+          name: release-notes
+          path: ${{ runner.temp }}/notes
       - name: Publish release
         if: github.ref_type == 'tag'
         run: |
+          notes="$RUNNER_TEMP/notes/release-notes.md"
+          printf '\nContainer image: %s\n' "\`docker pull ${IMAGE_NAME}:${VERSION}\`" >> "$notes"
           mapfile -t files < <(find artifacts -type f | sort)
           gh release create "$GITHUB_REF_NAME" \
             --repo "$GITHUB_REPOSITORY" \
             --verify-tag \
             --generate-notes \
-            --notes "Container image: \`docker pull ${IMAGE_NAME}:${VERSION}\`" \
+            --notes-file "$notes" \
             "${files[@]}"
       - name: Remove previous nightly
         if: github.event_name == 'schedule'
