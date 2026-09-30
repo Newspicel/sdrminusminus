@@ -7,8 +7,8 @@ const RELEASE: Option<&str> = option_env!("SDRMM_RELEASE");
 const RELEASES: &str = "https://github.com/Newspicel/sdrminusminus/releases";
 
 pub fn spawn(app: &AppHandle) {
-    if let Some(reason) = skipped() {
-        tracing::info!("update check skipped: {reason}");
+    if let Some(skip) = skipped() {
+        tracing::info!("update check skipped: {}", skip.reason());
         return;
     }
     let app = app.clone();
@@ -37,20 +37,45 @@ async fn check(app: &AppHandle) -> Result<()> {
 }
 
 pub async fn update_now(app: AppHandle) {
-    let installed = match skipped() {
-        Some(reason) => {
-            tracing::info!("update skipped: {reason}");
-            false
+    match skipped() {
+        Some(Skip::Packaged) => {
+            tracing::info!("update skipped: {}", Skip::Packaged.reason());
+            use_package_manager(&app).await;
         }
-        None => install(&app).await.unwrap_or_else(|e| {
-            tracing::warn!("update failed: {e:#}");
-            false
-        }),
-    };
-    if !installed && let Err(e) = tauri_plugin_opener::open_url(RELEASES, None::<&str>) {
-        tracing::warn!("could not open {RELEASES}: {e}");
+        Some(Skip::Unreleased) => {
+            tracing::info!("update skipped: {}", Skip::Unreleased.reason());
+            open_releases();
+        }
+        None => {
+            let installed = install(&app).await.unwrap_or_else(|e| {
+                tracing::warn!("update failed: {e:#}");
+                false
+            });
+            if !installed {
+                open_releases();
+            }
+        }
     }
     app.exit(0);
+}
+
+fn open_releases() {
+    if let Err(e) = tauri_plugin_opener::open_url(RELEASES, None::<&str>) {
+        tracing::warn!("could not open {RELEASES}: {e}");
+    }
+}
+
+async fn use_package_manager(app: &AppHandle) {
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    app.dialog()
+        .message("Update SDR-- with your package manager.")
+        .title("Update")
+        .kind(MessageDialogKind::Info)
+        .buttons(MessageDialogButtons::Ok)
+        .show(move |_| {
+            let _ = tx.send(());
+        });
+    let _ = rx.await;
 }
 
 async fn install(app: &AppHandle) -> Result<bool> {
@@ -80,23 +105,61 @@ async fn prompt(app: &AppHandle, version: &str) -> bool {
     rx.await.unwrap_or(false)
 }
 
-fn skipped() -> Option<&'static str> {
-    if RELEASE.is_none_or(str::is_empty) {
-        return Some(
-            "not built from a release tag; dev and nightly builds never replace themselves",
-        );
+#[derive(Debug, PartialEq, Eq)]
+enum Skip {
+    Unreleased,
+    Packaged,
+}
+
+impl Skip {
+    fn reason(&self) -> &'static str {
+        match self {
+            Self::Unreleased => {
+                "not built from a release tag; dev and nightly builds never replace themselves"
+            }
+            Self::Packaged => "installed by a package manager, which owns updates",
+        }
     }
-    unsupported()
+}
+
+fn skipped() -> Option<Skip> {
+    skip(RELEASE, packaged())
+}
+
+fn skip(release: Option<&str>, packaged: bool) -> Option<Skip> {
+    if release.is_none_or(str::is_empty) {
+        return Some(Skip::Unreleased);
+    }
+    packaged.then_some(Skip::Packaged)
 }
 
 #[cfg(target_os = "linux")]
-fn unsupported() -> Option<&'static str> {
-    std::env::var_os("APPIMAGE")
-        .is_none()
-        .then_some("not running as an AppImage; .deb installs update via the package manager")
+fn packaged() -> bool {
+    std::env::var_os("APPIMAGE").is_none()
 }
 
 #[cfg(not(target_os = "linux"))]
-fn unsupported() -> Option<&'static str> {
-    None
+fn packaged() -> bool {
+    false
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn unreleased_builds_never_update() {
+        assert_eq!(skip(None, false), Some(Skip::Unreleased));
+        assert_eq!(skip(Some(""), true), Some(Skip::Unreleased));
+    }
+
+    #[test]
+    fn packaged_releases_defer_to_the_package_manager() {
+        assert_eq!(skip(Some("1"), true), Some(Skip::Packaged));
+    }
+
+    #[test]
+    fn standalone_releases_update_themselves() {
+        assert_eq!(skip(Some("1"), false), None);
+    }
 }
