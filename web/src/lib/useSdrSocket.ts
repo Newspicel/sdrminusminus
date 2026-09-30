@@ -105,10 +105,19 @@ export function useSdrSocket(queryClient: QueryClient, workspaceError: string | 
     videoHub.attach(s);
     surfaceHub.attach(s);
     audioEngine.attach(s);
+    const followVisibility = () => {
+      const visible = document.visibilityState === "visible";
+      for (const hub of [spectrumHub, iqHub, symbolHub, videoHub, surfaceHub]) {
+        hub.setVisible(visible);
+      }
+    };
+    followVisibility();
+    document.addEventListener("visibilitychange", followVisibility);
     // oxlint-disable-next-line react/set-state-in-effect -- the socket is the external system this effect installs, and every consumer reads it from state
     setSocket(s);
     s.connect();
     return () => {
+      document.removeEventListener("visibilitychange", followVisibility);
       spectrumHub.detach();
       iqHub.detach();
       symbolHub.detach();

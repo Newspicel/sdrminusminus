@@ -29,6 +29,7 @@ export class IqHub {
   private unsubscribes: Unsubscribe[] = [];
   private readonly taps = new Map<string, Watched>();
   private readonly ids = new Map<number, string>();
+  private hidden = false;
 
   private readonly onFrame = (frame: IqFrame): void => {
     const key = this.ids.get(frame.streamId);
@@ -101,6 +102,16 @@ export class IqHub {
     return () => this.release(key, { deviceSet, channel }, listener);
   }
 
+  setVisible(visible: boolean): void {
+    if (this.hidden === !visible) {
+      return;
+    }
+    this.hidden = !visible;
+    for (const tap of this.watched()) {
+      this.send(tap, visible);
+    }
+  }
+
   latest(deviceSet: number, channel: number): IqFrame | null {
     return this.taps.get(tapKey(deviceSet, channel))?.latest ?? null;
   }
@@ -128,6 +139,9 @@ export class IqHub {
   }
 
   private send(tap: Tap, on: boolean): void {
+    if (on && this.hidden) {
+      return;
+    }
     this.socket?.send({
       type: on ? "SubscribeIq" : "UnsubscribeIq",
       data: { device_set: tap.deviceSet, channel: tap.channel },

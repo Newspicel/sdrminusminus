@@ -1,6 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ListenerRegistry } from "./listeners";
-import { resampleRows, SPECTRUM_HISTORY_ROWS, SpectrumHub, type SpectrumSocket } from "./spectrum";
+import {
+  resampleRows,
+  SPECTRUM_FPS,
+  SPECTRUM_HIDDEN_FPS,
+  SPECTRUM_HISTORY_ROWS,
+  SpectrumHub,
+  type SpectrumSocket,
+} from "./spectrum";
 import type { ClientCommand } from "./types";
 
 function fakeSocket() {
@@ -367,5 +374,20 @@ describe("SpectrumHub history", () => {
 
     fake.reconnect();
     expect(subscribes(fake.sent)).toHaveLength(1);
+  });
+
+  it("slows every lane while the page is hidden and restores it when it shows", () => {
+    const fake = fakeSocket();
+    const hub = new SpectrumHub();
+    hub.attach(fake.socket);
+    hub.subscribe(1, 0, () => {});
+    const fps = () =>
+      subscribes(fake.sent).map((c) => (c.type === "SubscribeSpectrum" ? c.data.fps : 0));
+
+    hub.setVisible(false);
+    fake.reconnect();
+    hub.setVisible(true);
+    expect(fps()).toEqual([SPECTRUM_FPS, SPECTRUM_HIDDEN_FPS, SPECTRUM_HIDDEN_FPS, SPECTRUM_FPS]);
+    expect(unsubscribes(fake.sent)).toHaveLength(0);
   });
 });

@@ -182,4 +182,24 @@ describe("VideoHub", () => {
     hub.detach();
     expect(fake.attached()).toBe(false);
   });
+
+  it("stops sending while the page is hidden and resumes when it shows", () => {
+    const fake = fakeSocket();
+    const hub = new VideoHub();
+    hub.attach(fake.socket);
+    hub.subscribe(1, 7, () => {});
+    fake.sent.length = 0;
+
+    hub.setVisible(false);
+    fake.reconnect();
+    hub.subscribe(1, 8, () => {});
+    expect(fake.sent).toEqual([{ type: "UnsubscribeVideo", data: { device_set: 1, channel: 7 } }]);
+
+    fake.sent.length = 0;
+    hub.setVisible(true);
+    expect(fake.sent).toEqual([
+      { type: "SubscribeVideo", data: { device_set: 1, channel: 7 } },
+      { type: "SubscribeVideo", data: { device_set: 1, channel: 8 } },
+    ]);
+  });
 });

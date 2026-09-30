@@ -20,6 +20,7 @@ export class SurfaceHub {
   private unsubscribes: Unsubscribe[] = [];
   private readonly nodes = new Map<string, Watched>();
   private readonly ids = new Map<number, string>();
+  private hidden = false;
 
   private readonly onFrame = (frame: RangeDopplerFrame): void => {
     const node = this.ids.get(frame.streamId);
@@ -98,6 +99,16 @@ export class SurfaceHub {
     };
   }
 
+  setVisible(visible: boolean): void {
+    if (this.hidden === !visible) {
+      return;
+    }
+    this.hidden = !visible;
+    for (const node of this.nodes.keys()) {
+      this.send(node, visible);
+    }
+  }
+
   latest(node: string): RangeDopplerFrame | null {
     return this.nodes.get(node)?.latest ?? null;
   }
@@ -107,7 +118,7 @@ export class SurfaceHub {
   }
 
   private send(node: string, on: boolean): void {
-    if (this.socket === null || !this.socket.isConnected()) {
+    if (this.socket === null || !this.socket.isConnected() || (on && this.hidden)) {
       return;
     }
     this.socket.send(
