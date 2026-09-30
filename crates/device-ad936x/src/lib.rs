@@ -19,6 +19,7 @@ use crate::{
     discovery::USB_PREFIX,
     iio::{Client, DEFAULT_PORT, Direction as Way, UsbBus},
     layout::{HARDWAREGAIN, Layout, available},
+    pace::LiveRate,
     rx::{RxRadio, fan_out},
     source::Source,
     tx::Ad936xTx,
@@ -249,6 +250,7 @@ pub struct Ad936xDevice {
     settings: DeviceSettings,
     duplex: Arc<Mutex<DuplexState>>,
     capture: Capture<RxRadio>,
+    rate: LiveRate,
 }
 
 impl Ad936xDevice {
@@ -287,9 +289,25 @@ impl Ad936xDevice {
             layout,
             front,
             capabilities,
+            rate: LiveRate::new(settings.sample_rate),
             settings,
             capture: Capture::new(),
         })
+    }
+
+    fn apply_all(&mut self, settings: &DeviceSettings) -> Result<(), DeviceError> {
+        if let Some(lanes) = settings.rx_streams {
+            self.stream_lanes(lanes)?;
+        }
+        let (front, gains) = split_gains(settings);
+        self.apply_planned(&front)?;
+        if settings.center_hz.is_some() {
+            self.follow_band();
+        }
+        if gains != DeviceSettings::default() {
+            self.apply_planned(&gains)?;
+        }
+        Ok(())
     }
 
     fn apply_planned(&mut self, delta: &DeviceSettings) -> Result<(), DeviceError> {
@@ -366,7 +384,11 @@ impl Ad936xDevice {
                 self.capabilities.rx_stream_choices
             )));
         }
-        caps::stream_lanes(&mut self.capabilities, lanes);
+        caps::stream_lanes(
+            &mut self.capabilities,
+            lanes,
+            self.layout.tx_streams() as u32,
+        );
         self.settings.rx_streams = Some(lanes);
         self.settings.streams.retain(|lane| lane.stream < lanes);
         self.reread();
@@ -375,10 +397,10 @@ impl Ad936xDevice {
 
     fn lanes(&self, output: bool, wanted: usize) -> Result<usize, DeviceError> {
         let have = if output {
-            self.layout.tx_streams()
+            self.capabilities.tx_streams
         } else {
-            self.capabilities.rx_streams as usize
-        };
+            self.capabilities.rx_streams
+        } as usize;
         if wanted == 0 || wanted > have {
             return Err(DeviceError::Unsupported(format!(
                 "this radio has {have} {} streams, got {wanted}",
@@ -401,18 +423,9 @@ impl SdrDevice for Ad936xDevice {
     /// Writes reach the radio one at a time, so one it refuses part-way leaves the ones before
     /// it in place. What is reported afterwards is read back rather than assumed either way.
     fn apply(&mut self, settings: &DeviceSettings) -> Result<(), DeviceError> {
-        if let Some(lanes) = settings.rx_streams {
-            self.stream_lanes(lanes)?;
-        }
-        let (front, gains) = split_gains(settings);
-        self.apply_planned(&front)?;
-        if settings.center_hz.is_some() {
-            self.follow_band();
-        }
-        if gains != DeviceSettings::default() {
-            self.apply_planned(&gains)?;
-        }
-        Ok(())
+        let applied = self.apply_all(settings);
+        self.rate.set(self.settings.sample_rate);
+        applied
     }
 
     fn agc_gains(&self) -> Result<Vec<AgcGain>, DeviceError> {
@@ -443,7 +456,7 @@ impl SdrDevice for Ad936xDevice {
             self.source.clone(),
             stream,
             lanes,
-            self.settings.sample_rate,
+            self.rate.clone(),
         ));
         let converter = IqConverter::new(format, radio.buffer_samples() * lanes);
         let started = self.capture.start(

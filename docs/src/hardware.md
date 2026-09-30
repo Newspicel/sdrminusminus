@@ -186,7 +186,7 @@ board a free address in your range: connect it over USB, open the drive it shows
 computer's address.
 
 Gigabit Ethernet carries about 60 MB/s from the E310: 15 MS/s on one lane, or 7.5 MS/s per lane on
-two. Set **Lanes** to 1 for one wide lane. The E310 locks its antenna and TX ports in firmware, so
+two. The E310 locks its antenna and TX ports in firmware, so
 those menus are hidden. The other controls are the [AD936x ones](#plutosdr-and-other-ad936x-boards).
 
 Tested on hardware provided by [MicroPhase](https://www.microphase.cn/). Thank you.
@@ -203,7 +203,7 @@ phase coherent.
 
 | Control | Does |
 |---|---|
-| Lanes | 1 or 2 on a 2×2 board. One lane gets the whole link |
+| Lanes | 1 or 2 on a 2×2 board. Starts at 1, which gets the whole link. TX lanes follow |
 | Tuner | Receive gain per lane. The range follows the band |
 | TX | Transmit attenuation per lane |
 | AGC | Per lane: slow attack, fast attack, or hybrid |
