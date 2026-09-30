@@ -36,6 +36,7 @@ flate2.workspace = true
 jiff.workspace = true
 
 [dev-dependencies]
+criterion.workspace = true
 sdrmm-test-support.workspace = true
 sdrmm-dsp = { workspace = true, features = ["test-scene"] }
 sdrmm-modem-test-support.workspace = true
@@ -56,3 +57,7 @@ xng-mode-dsc.workspace = true
 xng-mode-stdc.workspace = true
 xng-mode-vdl2.workspace = true
 xng-mode-iridium.workspace = true
+
+[[bench]]
+name = "perf"
+harness = false
