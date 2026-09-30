@@ -72,7 +72,13 @@ jobs:
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-nextest
+      - if: runner.os == 'Linux'
+        run: sudo apt-get install -y --no-install-recommends libcodec2-1.2
+      - if: runner.os == 'macOS'
+        run: brew install codec2
       - run: cargo xtask test
+        env:
+          SDRMM_REQUIRE_SYSTEM_CODEC2: "1"
 
   gpu:
     name: GPU parity (ubuntu)
