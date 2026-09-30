@@ -41,6 +41,7 @@ export function FrequencyDial({
   const digits = dialDigits(hz, places);
   const [active, setActive] = useState(() => places.indexOf(6));
   const [draft, setDraft] = useState<string | null>(null);
+  const [entryHeight, setEntryHeight] = useState(0);
   const dialRef = useRef<HTMLDivElement>(null);
 
   const index = Math.min(active, places.length - 1);
@@ -70,6 +71,7 @@ export function FrequencyDial({
     return (
       <DirectEntry
         draft={draft}
+        height={entryHeight}
         onDraft={setDraft}
         onCommit={(entered) => {
           setDraft(null);
@@ -100,6 +102,7 @@ export function FrequencyDial({
       setActive(Math.min(places.length - 1, index + 1));
     } else if (key === "Enter") {
       event.preventDefault();
+      setEntryHeight(dialRef.current?.offsetHeight ?? 0);
       setDraft("");
     }
   };
@@ -212,12 +215,14 @@ function halfAt(target: HTMLElement, clientY: number): number {
   return clientY < rect.top + rect.height / 2 ? 1 : -1;
 }
 
-function DirectEntry({
+export function DirectEntry({
   draft,
+  height,
   onDraft,
   onCommit,
 }: {
   draft: string;
+  height: number;
   onDraft: (draft: string | null) => void;
   onCommit: (hz: number) => void;
 }) {
@@ -231,6 +236,7 @@ function DirectEntry({
       className={`h-9 w-[15ch] rounded-[3px] border bg-well px-2 font-mono text-[16px] leading-none tabular-nums text-ink placeholder:text-[11px] placeholder:text-ink-faint @min-[22rem]:text-[20px] ${
         empty || parsed !== null ? "border-accent" : "border-danger"
       }`}
+      style={height > 0 ? { height } : undefined}
       value={draft}
       onChange={(event) => onDraft(event.target.value)}
       onBlur={() => onDraft(null)}
