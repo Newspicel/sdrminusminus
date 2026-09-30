@@ -264,6 +264,7 @@ fn array_node_snapshot(members: &[&str]) -> WorkspaceSnapshot {
                     key: Some(key.to_owned()),
                 }),
                 locked_streams: Vec::new(),
+                split_tuning: false,
             }),
             position: Position { x: 0.0, y: 300.0 },
             size: None,

@@ -11540,6 +11540,9 @@
               "format": "int32",
               "minimum": 0
             }
+          },
+          "split_tuning": {
+            "type": "boolean"
           }
         }
       },
@@ -14558,6 +14561,24 @@
             "type": "number",
             "format": "float",
             "description": "Magnitude-squared coherence against lane zero, in `0..=1`."
+          }
+        }
+      },
+      "LaneLevel": {
+        "type": "object",
+        "required": [
+          "stream",
+          "peak_db"
+        ],
+        "properties": {
+          "peak_db": {
+            "type": "number",
+            "format": "float"
+          },
+          "stream": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
           }
         }
       },
@@ -19388,6 +19409,12 @@
                     "type": "integer",
                     "format": "int32",
                     "minimum": 0
+                  },
+                  "lanes": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/components/schemas/LaneLevel"
+                    }
                   },
                   "levels": {
                     "type": "array",

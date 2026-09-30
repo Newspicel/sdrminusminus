@@ -7,29 +7,44 @@ export const LEVEL_FLOOR_DB = -140;
 
 export type SetLevels = Readonly<Record<number, ChannelLevel>>;
 
+export type LanePeaks = Readonly<Record<number, number>>;
+
 export interface LevelState {
   byDeviceSet: Readonly<Record<number, SetLevels>>;
+  lanesByDeviceSet: Readonly<Record<number, LanePeaks>>;
   observe: (event: ServerEvent) => void;
   clear: (deviceSet: number) => void;
   reset: () => void;
 }
 
 let pending: Record<number, SetLevels> | null = null;
+let pendingLanes: Record<number, LanePeaks> | null = null;
 let timer: ReturnType<typeof setTimeout> | null = null;
+
+function without<T>(record: Readonly<Record<number, T>>, key: number): Readonly<Record<number, T>> {
+  const { [key]: _dropped, ...rest } = record;
+  return rest;
+}
 
 export const useLevelStore = create<LevelState>((set) => {
   const flush = () => {
     timer = null;
     const staged = pending;
+    const stagedLanes = pendingLanes;
     pending = null;
-    if (staged === null) {
+    pendingLanes = null;
+    if (staged === null && stagedLanes === null) {
       return;
     }
-    set((state) => ({ byDeviceSet: { ...state.byDeviceSet, ...staged } }));
+    set((state) => ({
+      byDeviceSet: { ...state.byDeviceSet, ...staged },
+      lanesByDeviceSet: { ...state.lanesByDeviceSet, ...stagedLanes },
+    }));
   };
 
   return {
     byDeviceSet: {},
+    lanesByDeviceSet: {},
     observe: (event: ServerEvent) => {
       if (event.type !== "ChannelLevels") {
         return;
@@ -38,7 +53,12 @@ export const useLevelStore = create<LevelState>((set) => {
       for (const level of event.data.levels) {
         byChannel[level.channel] = level;
       }
+      const byLane: Record<number, number> = {};
+      for (const lane of event.data.lanes ?? []) {
+        byLane[lane.stream] = lane.peak_db;
+      }
       pending = { ...pending, [event.data.device_set]: byChannel };
+      pendingLanes = { ...pendingLanes, [event.data.device_set]: byLane };
       if (timer === null) {
         timer = setTimeout(flush, FLUSH_MS);
       }
@@ -47,21 +67,27 @@ export const useLevelStore = create<LevelState>((set) => {
       if (pending !== null) {
         delete pending[deviceSet];
       }
+      if (pendingLanes !== null) {
+        delete pendingLanes[deviceSet];
+      }
       set((state) => {
-        if (!(deviceSet in state.byDeviceSet)) {
+        if (!(deviceSet in state.byDeviceSet) && !(deviceSet in state.lanesByDeviceSet)) {
           return state;
         }
-        const { [deviceSet]: _dropped, ...rest } = state.byDeviceSet;
-        return { byDeviceSet: rest };
+        return {
+          byDeviceSet: without(state.byDeviceSet, deviceSet),
+          lanesByDeviceSet: without(state.lanesByDeviceSet, deviceSet),
+        };
       });
     },
     reset: () => {
       pending = null;
+      pendingLanes = null;
       if (timer !== null) {
         clearTimeout(timer);
         timer = null;
       }
-      set({ byDeviceSet: {} });
+      set({ byDeviceSet: {}, lanesByDeviceSet: {} });
     },
   };
 });

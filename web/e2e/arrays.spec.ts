@@ -51,7 +51,7 @@ test("array composition preserves live Device faces and their channels", async (
       await expect(face.getByRole("button", { name: "Forget radio" })).toBeVisible();
       await expect(face.locator('[id^="frequency-dial"]')).toBeVisible();
       await expect(face.getByRole("button", { name: "Unlock tuning" })).toHaveCount(0);
-      await expect(face.getByRole("combobox", { name: "Sample rate" })).toBeVisible();
+      await expect(face.getByRole("button", { name: "Sample rate" })).toBeVisible();
     }
     const before: StateSnapshot = await page.request
       .get("/api/state")
@@ -94,7 +94,7 @@ test("array composition preserves live Device faces and their channels", async (
     await expect(
       page
         .locator('.react-flow__node[data-id="left"]')
-        .getByRole("combobox", { name: "Sample rate" }),
+        .getByRole("button", { name: "Sample rate" }),
     ).toBeVisible();
   } finally {
     await page.request.post(`/api/workspaces/${workspaces.active}/activate`);

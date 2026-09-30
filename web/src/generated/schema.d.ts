@@ -3261,6 +3261,7 @@ export interface components {
         DeviceNode: {
             device?: components["schemas"]["DeviceRef"] | null;
             locked_streams?: number[];
+            split_tuning?: boolean;
         };
         DeviceProfile: {
             duplex: components["schemas"]["Duplex"];
@@ -4162,6 +4163,12 @@ export interface components {
              * @description Magnitude-squared coherence against lane zero, in `0..=1`.
              */
             quality: number;
+        };
+        LaneLevel: {
+            /** Format: float */
+            peak_db: number;
+            /** Format: int32 */
+            stream: number;
         };
         LicenseTextResponse: {
             id: string;
@@ -5464,6 +5471,7 @@ export interface components {
             data: {
                 /** Format: int32 */
                 device_set: number;
+                lanes?: components["schemas"]["LaneLevel"][];
                 levels: components["schemas"]["ChannelLevel"][];
             };
             /** @enum {string} */

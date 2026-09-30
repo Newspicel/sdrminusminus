@@ -557,7 +557,8 @@ mod tests {
             merged.body,
             NodeBody::Device(DeviceNode {
                 device: Some(rtlsdr()),
-                locked_streams: Vec::new()
+                locked_streams: Vec::new(),
+                split_tuning: false,
             })
         );
         assert!(
@@ -579,6 +580,7 @@ mod tests {
         locked.nodes[0].body = NodeBody::Device(DeviceNode {
             device: None,
             locked_streams: vec![0],
+            split_tuning: false,
         });
         let mut snap = WorkspaceSnapshot::starter();
         snap.merge_patch(&locked, "held:", Some(&rtlsdr()));
@@ -586,7 +588,8 @@ mod tests {
             snap.graph.node("held:dev").unwrap().body,
             NodeBody::Device(DeviceNode {
                 device: Some(rtlsdr()),
-                locked_streams: vec![0]
+                locked_streams: vec![0],
+                split_tuning: false,
             })
         );
     }

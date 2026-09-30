@@ -1231,6 +1231,7 @@ fn two_radio_snapshot(taps: &[(&str, &str)]) -> sdrmm_wire::WorkspaceSnapshot {
                 key: Some("halfduplex".to_string()),
             }),
             locked_streams: Vec::new(),
+            split_tuning: false,
         }),
         position: sdrmm_wire::Position { x: 0.0, y: 300.0 },
         size: None,

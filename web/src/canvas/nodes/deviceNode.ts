@@ -49,12 +49,34 @@ export function lanesMerged(set: DeviceSet): boolean {
   return set.capabilities.per_stream?.tuning === true && rxStreamCount(set.capabilities) > 1;
 }
 
-export function hasLaneControls(capabilities: Capabilities): boolean {
-  const scope = capabilities.per_stream;
-  return (
-    (scope?.gain === true && capabilities.gains.length > 0) ||
-    (scope?.antenna === true && capabilities.antennas.length > 1)
-  );
+export function rxStreams(capabilities: Capabilities): number[] {
+  return Array.from({ length: rxStreamCount(capabilities) }, (_, stream) => stream);
+}
+
+export function lanesAligned(set: DeviceSet): boolean {
+  const dials = tunerDials(set);
+  return dials.every((dial) => dial.hz === dials[0]?.hz);
+}
+
+export function tuneAllDelta(capabilities: Capabilities, hz: number): DeviceSettings {
+  const center_hz = reachableHz(capabilities, hz);
+  if (capabilities.per_stream?.tuning !== true) {
+    return { center_hz, tuning: "manual" };
+  }
+  return {
+    streams: rxStreams(capabilities).map((stream) => ({ stream, center_hz, tuning: "manual" })),
+  };
+}
+
+export function tuningAllDelta(capabilities: Capabilities, tuning: Tuning): DeviceSettings {
+  if (capabilities.per_stream?.tuning !== true) {
+    return { tuning };
+  }
+  return { streams: rxStreams(capabilities).map((stream) => ({ stream, tuning })) };
+}
+
+export function allAutoTuning(set: DeviceSet): boolean {
+  return rxStreams(set.capabilities).every((stream) => autoTuning(set, stream));
 }
 
 const BONDS: Record<Coherence, string | null> = {
@@ -165,6 +187,14 @@ export function coherentLanes(graph: PatchGraph, deviceNode: string): Set<number
 export function lockStream(locked: readonly number[], stream: number, held: boolean): number[] {
   const others = locked.filter((candidate) => candidate !== stream);
   return held ? [...others, stream].toSorted((a, b) => a - b) : others;
+}
+
+export function lockAll(capabilities: Capabilities, held: boolean): number[] {
+  return held ? rxStreams(capabilities) : [];
+}
+
+export function allLocked(locked: readonly number[], capabilities: Capabilities): boolean {
+  return rxStreams(capabilities).every((stream) => locked.includes(stream));
 }
 
 export interface Hearing {

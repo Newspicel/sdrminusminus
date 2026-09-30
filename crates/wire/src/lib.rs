@@ -178,7 +178,7 @@ pub use scan::{
 };
 pub use state::{
     AudioRecordingStatus, ChannelLevel, DeviceFault, DeviceSet, DeviceSetStatus, ExtraLane,
-    PlaybackStatus, RecordingStatus, SettingsRefused, StateSnapshot, TrunkChannel,
+    LaneLevel, PlaybackStatus, RecordingStatus, SettingsRefused, StateSnapshot, TrunkChannel,
     TrunkChannelSource, TrunkControl, TrunkFollower, TrunkProbe, TrunkProblem, TrunkSystemStatus,
 };
 pub use timemachine::{

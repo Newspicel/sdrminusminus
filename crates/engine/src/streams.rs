@@ -7,8 +7,8 @@ use sdrmm_channels::{ChannelError, ClickProfile};
 use sdrmm_device::DeviceError;
 use sdrmm_wire::{
     AudioProcessing, AudioRoute, ChannelDescriptor, ChannelInfo, ChannelLevel, DeviceSetStatus,
-    HuntSettings, HuntStatus, PlaybackRequest, PlaybackStatus, ScanSettings, ScannerStatus,
-    ServerEvent, StateScope,
+    HuntSettings, HuntStatus, LaneLevel, PlaybackRequest, PlaybackStatus, ScanSettings,
+    ScannerStatus, ServerEvent, StateScope,
 };
 use tokio::sync::broadcast;
 
@@ -210,6 +210,34 @@ impl Engine {
                     .filter(|db| db.is_finite()),
                 })
             })
+            .collect()
+    }
+
+    #[must_use]
+    pub fn lane_levels(&self, ds: u32) -> Vec<LaneLevel> {
+        let inner = self.lock();
+        let Some(state) = inner.device_sets.get(&ds) else {
+            return Vec::new();
+        };
+        state
+            .clip_meters
+            .iter()
+            .enumerate()
+            .map(|(stream, meter)| LaneLevel {
+                stream: stream as u32,
+                peak_db: meter.take_peak_db(),
+            })
+            .collect()
+    }
+
+    #[must_use]
+    pub fn device_sets_running(&self) -> Vec<u32> {
+        let inner = self.lock();
+        inner
+            .device_sets
+            .iter()
+            .filter(|(_, state)| state.status == DeviceSetStatus::Running)
+            .map(|(id, _)| *id)
             .collect()
     }
 

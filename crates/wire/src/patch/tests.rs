@@ -273,6 +273,7 @@ fn a_device_node_saved_before_the_frequency_lock_existed_still_loads_unlocked() 
     let locked = NodeBody::Device(DeviceNode {
         device: device.device,
         locked_streams: vec![1],
+        split_tuning: false,
     });
     let json = serde_json::to_string(&locked).expect("serialize the body");
     let NodeBody::Device(back) =

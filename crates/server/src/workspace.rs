@@ -703,6 +703,7 @@ mod tests {
             body: NodeBody::Device(DeviceNode {
                 device: Some(reference),
                 locked_streams: Vec::new(),
+                split_tuning: false,
             }),
             position: Position { x: 0.0, y: 0.0 },
             size: None,

@@ -6,22 +6,27 @@ import {
   agcDelta,
   agcGainDb,
   agcModeDelta,
+  allAutoTuning,
+  allLocked,
   autoTuning,
   bondSaid,
   clippingSaid,
   coherentLanes,
   faultSaid,
-  hasLaneControls,
   hearing,
   laneAgc,
+  lanesAligned,
   lanesMerged,
+  lockAll,
   lockStream,
   lossSaid,
   radioAgc,
   refLabel,
   refusalSaid,
+  tuneAllDelta,
   tuneDelta,
   tunerDials,
+  tuningAllDelta,
   tuningDelta,
 } from "./deviceNode";
 
@@ -79,16 +84,79 @@ describe("lanesMerged", () => {
   });
 });
 
-describe("hasLaneControls", () => {
-  it("offers lane controls only for what a lane sets on its own", () => {
-    const gain = { kind: "lna" as const, name: "LNA", range: { min: 0, max: 40 } };
-    const perLane = { tuning: true, gain: true };
-    expect(hasLaneControls(capabilities({ per_stream: perLane, gains: [gain] }))).toBe(true);
-    expect(hasLaneControls(capabilities({ per_stream: perLane }))).toBe(false);
-    expect(hasLaneControls(capabilities({ gains: [gain] }))).toBe(false);
+describe("tuneAllDelta", () => {
+  it("moves every lane of a per-lane tuner to one frequency", () => {
+    const caps = capabilities({
+      rx_streams: 3,
+      per_stream: { tuning: true },
+      freq_ranges: [{ min: 24e6, max: 1766e6 }],
+    });
+    expect(tuneAllDelta(caps, 145.5e6)).toEqual({
+      streams: [0, 1, 2].map((stream) => ({ stream, center_hz: 145.5e6, tuning: "manual" })),
+    });
+    expect(tuneAllDelta(caps, 1e6).streams?.[0]?.center_hz).toBe(24e6);
+  });
+
+  it("tunes a shared tuner in one field", () => {
+    expect(tuneAllDelta(capabilities(), 100e6)).toEqual({ center_hz: 100e6, tuning: "manual" });
+  });
+});
+
+describe("tuningAllDelta", () => {
+  it("puts every lane, or the shared tuner, in the same mode", () => {
+    const caps = capabilities({ rx_streams: 2, per_stream: { tuning: true } });
+    expect(tuningAllDelta(caps, "auto")).toEqual({
+      streams: [
+        { stream: 0, tuning: "auto" },
+        { stream: 1, tuning: "auto" },
+      ],
+    });
+    expect(tuningAllDelta(capabilities(), "manual")).toEqual({ tuning: "manual" });
+  });
+});
+
+describe("lanesAligned", () => {
+  it("is true while every lane sits on one frequency", () => {
+    const caps = capabilities({ rx_streams: 2, per_stream: { tuning: true } });
+    const aligned = deviceSet({
+      capabilities: caps,
+      settings: {
+        center_hz: 1e8,
+        streams: [
+          { stream: 0, center_hz: 1e8 },
+          { stream: 1, center_hz: 1e8 },
+        ],
+      },
+    });
+    expect(lanesAligned(aligned)).toBe(true);
     expect(
-      hasLaneControls(capabilities({ per_stream: { antenna: true }, antennas: ["A", "B"] })),
-    ).toBe(true);
+      lanesAligned({
+        ...aligned,
+        settings: { ...aligned.settings, streams: [{ stream: 1, center_hz: 2e8 }] },
+      }),
+    ).toBe(false);
+  });
+});
+
+describe("allAutoTuning", () => {
+  it("needs every lane to follow the decoders", () => {
+    const caps = capabilities({ rx_streams: 2, per_stream: { tuning: true } });
+    expect(allAutoTuning(deviceSet({ capabilities: caps }))).toBe(true);
+    expect(
+      allAutoTuning(
+        deviceSet({ capabilities: caps, settings: { streams: [{ stream: 1, tuning: "manual" }] } }),
+      ),
+    ).toBe(false);
+  });
+});
+
+describe("lockAll", () => {
+  it("holds or frees every lane at once", () => {
+    const caps = capabilities({ rx_streams: 3 });
+    expect(lockAll(caps, true)).toEqual([0, 1, 2]);
+    expect(lockAll(caps, false)).toEqual([]);
+    expect(allLocked([0, 1, 2], caps)).toBe(true);
+    expect(allLocked([0, 2], caps)).toBe(false);
   });
 });
 

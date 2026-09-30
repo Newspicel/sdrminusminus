@@ -88,6 +88,8 @@ pub enum ServerEvent {
     ChannelLevels {
         device_set: u32,
         levels: Vec<crate::state::ChannelLevel>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        lanes: Vec<crate::state::LaneLevel>,
     },
     ScannerUpdate {
         device_set: u32,

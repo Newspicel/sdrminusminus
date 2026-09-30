@@ -52,7 +52,10 @@ async fn channel_levels_are_measured_and_pushed_without_invalidating_state() {
             !matches!(event, ServerEvent::StateChanged { .. }),
             "metering invalidated client state"
         );
-        if let ServerEvent::ChannelLevels { device_set, levels } = event {
+        if let ServerEvent::ChannelLevels {
+            device_set, levels, ..
+        } = event
+        {
             pushed = Some((device_set, levels));
         }
     }

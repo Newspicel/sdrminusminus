@@ -10,12 +10,17 @@ import {
 } from "./levels";
 import type { ChannelLevel, ServerEvent } from "./types";
 
-function update(deviceSet: number, levels: [number, number, number][]): ServerEvent {
+function update(
+  deviceSet: number,
+  levels: [number, number, number][],
+  lanes: [number, number][] = [],
+): ServerEvent {
   return {
     type: "ChannelLevels",
     data: {
       device_set: deviceSet,
       levels: levels.map(([channel, level_db, peak_db]) => ({ channel, level_db, peak_db })),
+      lanes: lanes.map(([stream, peak_db]) => ({ stream, peak_db })),
     },
   };
 }
@@ -28,6 +33,24 @@ describe("useLevelStore", () => {
 
   afterEach(() => {
     vi.useRealTimers();
+  });
+
+  it("keeps the lane peaks of a radio beside its channel levels", () => {
+    useLevelStore.getState().observe(
+      update(
+        1,
+        [],
+        [
+          [0, -6],
+          [1, -20],
+        ],
+      ),
+    );
+    vi.advanceTimersByTime(FLUSH_MS);
+    expect(useLevelStore.getState().lanesByDeviceSet[1]).toEqual({ 0: -6, 1: -20 });
+
+    useLevelStore.getState().clear(1);
+    expect(useLevelStore.getState().lanesByDeviceSet[1]).toBeUndefined();
   });
 
   it("publishes a reading once the flush interval has passed", () => {
