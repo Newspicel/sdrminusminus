@@ -1,20 +1,21 @@
 ---
-import { RELEASES } from "../changelog";
+import { releases } from "../changelog";
 import Page from "../layouts/Page.astro";
 import { REPOSITORY } from "../seo";
 
 const summary = "What changed in each SDR-- release.";
+const all = await releases();
 ---
 
 <Page title="Changelog · SDR--" description={summary} summary={summary}>
   <div class="wrap changelog">
     <h1>Changelog</h1>
     {
-      RELEASES.map((release) => (
-        <article id={release.date === undefined ? "next" : release.version}>
+      all.map((release) => (
+        <article id={release.version}>
           <h2>
             {release.version}
-            {release.date && <time datetime={release.date}>{release.date}</time>}
+            <time datetime={release.date}>{release.date}</time>
           </h2>
           {release.groups.map((group) => (
             <>

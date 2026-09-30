@@ -72,6 +72,8 @@ jobs:
       version: ${{ needs.plan.outputs.version }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
       - uses: ./.github/actions/rust
         with:
           cache: ubuntu

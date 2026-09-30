@@ -1,7 +1,7 @@
 # Changesets
 
-One file per user-visible change. `cargo xtask release` turns them into `CHANGELOG.md`, the
-GitHub release notes and the changelog on sdrmm.com.
+One file per user-visible change. On release they become the GitHub release notes and the
+changelog on sdrmm.com.
 
 ```sh
 cargo xtask changeset minor "Airspy HF+: add preamp control"

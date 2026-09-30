@@ -1,18 +1,7 @@
 import { describe, expect, it } from "vitest";
-import {
-  newest,
-  parseChangelog,
-  parseChangeset,
-  RELEASES,
-  releases,
-  renderSummary,
-} from "./changelog";
+import { fromGitHub, type GitHubRelease, newest, parseNotes, renderSummary } from "./changelog";
 
-const CHANGELOG = `# Changelog
-
-## 1.10.0 (2026-10-01)
-
-### Features
+const NOTES = `### Features
 
 - Faster DSP ([abc1234](https://github.com/Newspicel/sdrminusminus/commit/abc1234def))
 
@@ -23,70 +12,63 @@ const CHANGELOG = `# Changelog
 - RTL-SDR: keep gain after reconnect
 - Airspy: \`bias tee\` sticks
 
-## 1.9.0 (2026-09-01)
+Container image: \`docker pull ghcr.io/newspicel/sdrminusminus:1.10.0\`
 
-### Fixes
+## What's Changed
+* Something by @someone
 
-- Older fix
+**Full Changelog**: https://github.com/Newspicel/sdrminusminus/compare/v1.9.0...v1.10.0
 `;
 
-describe("parseChangelog", () => {
-  it("reads versions, dates and groups", () => {
-    const [latest, older] = parseChangelog(CHANGELOG);
-    expect(latest?.version).toBe("1.10.0");
-    expect(latest?.date).toBe("2026-10-01");
-    expect(latest?.groups.map((group) => group.heading)).toEqual(["Features", "Fixes"]);
-    expect(latest?.groups[1]?.items).toHaveLength(2);
-    expect(older?.version).toBe("1.9.0");
+function release(
+  tag: string,
+  body: string | null,
+  extra: Partial<GitHubRelease> = {},
+): GitHubRelease {
+  return {
+    tag_name: tag,
+    published_at: "2026-10-01T12:00:00Z",
+    draft: false,
+    prerelease: false,
+    body,
+    ...extra,
+  };
+}
+
+describe("parseNotes", () => {
+  it("reads the changeset groups", () => {
+    const groups = parseNotes(NOTES);
+    expect(groups.map((group) => group.heading)).toEqual(["Features", "Fixes"]);
+    expect(groups[1]?.items).toHaveLength(2);
   });
 
   it("keeps continuation paragraphs and commit links", () => {
-    const [feature] = parseChangelog(CHANGELOG)[0]?.groups[0]?.items ?? [];
-    expect(feature).toBe(
+    expect(parseNotes(NOTES)[0]?.items[0]).toBe(
       '<p>Faster DSP (<a href="https://github.com/Newspicel/sdrminusminus/commit/abc1234def">abc1234</a>)</p><p>Filters and resampling up to 3x.</p>',
     );
   });
 
-  it("reads an empty changelog as no releases", () => {
-    expect(parseChangelog("# Changelog\n")).toEqual([]);
+  it("stops at text GitHub adds after the notes", () => {
+    expect(parseNotes(NOTES)[1]?.items[1]).toBe("<p>Airspy: <code>bias tee</code> sticks</p>");
   });
 });
 
-describe("parseChangeset", () => {
-  it("reads the bump and summary", () => {
-    expect(parseChangeset("---\nbump: minor\n---\n\nAirspy HF+: add preamp control.\n")).toEqual({
-      bump: "minor",
-      summary: "Airspy HF+: add preamp control.",
-    });
-  });
-
-  it("skips files without a valid bump or summary", () => {
-    expect(parseChangeset("# Changesets\n")).toBeUndefined();
-    expect(parseChangeset("---\nbump: huge\n---\n\nText\n")).toBeUndefined();
-    expect(parseChangeset("---\nbump: patch\n---\n\n")).toBeUndefined();
-  });
-});
-
-describe("releases", () => {
-  it("puts pending changesets first, grouped by bump", () => {
-    const all = releases(CHANGELOG, [
-      "---\nbump: patch\n---\n\nA fix\n",
-      "---\nbump: major\n---\n\nA break\n",
+describe("fromGitHub", () => {
+  it("keeps only published stable releases with notes", () => {
+    const all = fromGitHub([
+      release("nightly", NOTES, { prerelease: true }),
+      release("v1.11.0", NOTES, { draft: true, published_at: null }),
+      release("v1.10.0", NOTES),
+      release("v1.9.0", "Container image: `docker pull x`"),
     ]);
-    expect(all[0]?.version).toBe("Next release");
-    expect(all[0]?.date).toBeUndefined();
-    expect(all[0]?.groups.map((group) => group.heading)).toEqual(["Breaking changes", "Fixes"]);
-    expect(all[1]?.version).toBe("1.10.0");
-  });
-
-  it("has no next release without changesets", () => {
-    expect(releases(CHANGELOG, [])[0]?.version).toBe("1.10.0");
+    expect(all.map((entry) => entry.version)).toEqual(["1.10.0"]);
+    expect(all[0]?.date).toBe("2026-10-01");
   });
 });
 
 describe("newest", () => {
   it("takes the first items of the latest release", () => {
-    const latest = newest(parseChangelog(CHANGELOG), 2);
+    const latest = newest(fromGitHub([release("v1.10.0", NOTES)]), 2);
     expect(latest?.version).toBe("1.10.0");
     expect(latest?.groups.flatMap((group) => group.items)).toHaveLength(2);
   });
@@ -101,13 +83,5 @@ describe("renderSummary", () => {
     expect(renderSummary("<b> [x](javascript:alert(1))")).toBe(
       "<p>&lt;b&gt; [x](javascript:alert(1))</p>",
     );
-  });
-});
-
-describe("RELEASES", () => {
-  it("parses the repository changelog and changesets", () => {
-    for (const release of RELEASES) {
-      expect(release.groups.length, release.version).toBeGreaterThan(0);
-    }
   });
 });

@@ -1,17 +1,10 @@
-use std::{
-    fmt::Write as _,
-    path::{Path, PathBuf},
-    process::Command,
-    time::{SystemTime, UNIX_EPOCH},
-};
+use std::{fmt::Write as _, path::Path, process::Command};
 
 use anyhow::{Context, Result, bail, ensure};
 use clap::ValueEnum;
 
 const DIR: &str = ".changeset";
 const GUIDE: &str = "README.md";
-const CHANGELOG: &str = "CHANGELOG.md";
-const TITLE: &str = "# Changelog\n";
 const REPOSITORY: &str = env!("CARGO_PKG_REPOSITORY");
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, ValueEnum)]
@@ -52,11 +45,6 @@ struct Change {
     commit: Option<String>,
 }
 
-struct Pending {
-    path: PathBuf,
-    change: Change,
-}
-
 pub fn add(root: &Path, bump: Bump, summary: &str) -> Result<()> {
     let summary = summary.trim();
     ensure!(!summary.is_empty(), "a changeset needs a summary");
@@ -75,41 +63,37 @@ pub fn check(root: &Path) -> Result<()> {
 }
 
 pub fn release(root: &Path, dry_run: bool) -> Result<()> {
-    let mut pending = load(root)?;
+    let previous = latest_version(root)?;
+    let changes = changes_between(root, &format!("v{previous}"), "HEAD")?;
     ensure!(
-        !pending.is_empty(),
-        "nothing to release: {DIR} holds no changesets. Add one with `cargo xtask changeset`"
+        !changes.is_empty(),
+        "nothing to release: no changesets since v{previous}. Add one with `cargo xtask changeset`"
     );
-    for entry in &mut pending {
-        entry.change.commit = added_in(root, &entry.path)?;
-    }
-    let bump = pending
+    let bump = changes
         .iter()
-        .map(|entry| entry.change.bump)
+        .map(|change| change.bump)
         .max()
         .context("no changesets")?;
-    let version = next_version(&latest_version(root)?, bump)?;
-    let changes: Vec<Change> = pending.iter().map(|entry| entry.change.clone()).collect();
-    let section = render(&version, &today()?, &changes);
+    let version = next_version(&previous, bump)?;
     if dry_run {
-        print!("{section}");
+        print!("v{version}\n\n{}", render(&changes));
         return Ok(());
     }
     ensure_clean(root)?;
-    write_changelog(root, &section)?;
-    for entry in &pending {
-        std::fs::remove_file(&entry.path)
-            .with_context(|| format!("remove {}", entry.path.display()))?;
-    }
-    commit_and_tag(root, &version)?;
-    println!("tagged v{version}. Publish with `git push --atomic origin main v{version}`");
+    tag(root, &version)?;
+    println!("tagged v{version}. Publish with `git push origin v{version}`");
     Ok(())
 }
 
 pub fn notes(root: &Path, version: &str, out: Option<&Path>) -> Result<()> {
-    let path = root.join(CHANGELOG);
-    let text = std::fs::read_to_string(&path).with_context(|| format!("read {CHANGELOG}"))?;
-    let notes = section(&text, version.strip_prefix('v').unwrap_or(version))?;
+    let version = version.strip_prefix('v').unwrap_or(version);
+    let previous = previous_version(root, version)?;
+    let changes = changes_between(root, &format!("v{previous}"), &format!("v{version}"))?;
+    ensure!(
+        !changes.is_empty(),
+        "v{version} has no changesets since v{previous}"
+    );
+    let notes = render(&changes);
     match out {
         Some(out) => {
             std::fs::write(out, notes).with_context(|| format!("write {}", out.display()))?;
@@ -119,7 +103,43 @@ pub fn notes(root: &Path, version: &str, out: Option<&Path>) -> Result<()> {
     Ok(())
 }
 
-fn load(root: &Path) -> Result<Vec<Pending>> {
+fn changes_between(root: &Path, from: &str, to: &str) -> Result<Vec<Change>> {
+    let before = changesets_at(root, from)?;
+    changesets_at(root, to)?
+        .into_iter()
+        .filter(|path| !before.contains(path))
+        .map(|path| {
+            let text = git(root, &["show", &format!("{to}:{path}")])?;
+            let mut change = parse(&text).with_context(|| path.clone())?;
+            change.commit = added_in(root, to, &path)?;
+            Ok(change)
+        })
+        .collect()
+}
+
+fn changesets_at(root: &Path, rev: &str) -> Result<Vec<String>> {
+    if git(
+        root,
+        &[
+            "rev-parse",
+            "--verify",
+            "--quiet",
+            &format!("{rev}^{{commit}}"),
+        ],
+    )
+    .is_err()
+    {
+        return Ok(Vec::new());
+    }
+    let listing = git(root, &["ls-tree", "--name-only", rev, &format!("{DIR}/")])?;
+    Ok(listing
+        .lines()
+        .filter(|path| path.ends_with(".md") && *path != format!("{DIR}/{GUIDE}"))
+        .map(str::to_string)
+        .collect())
+}
+
+fn load(root: &Path) -> Result<Vec<Change>> {
     let dir = root.join(DIR);
     if !dir.exists() {
         return Ok(Vec::new());
@@ -138,8 +158,7 @@ fn load(root: &Path) -> Result<Vec<Pending>> {
         .map(|path| {
             let text = std::fs::read_to_string(&path)
                 .with_context(|| format!("read {}", path.display()))?;
-            let change = parse(&text).with_context(|| format!("{}", path.display()))?;
-            Ok(Pending { path, change })
+            parse(&text).with_context(|| format!("{}", path.display()))
         })
         .collect()
 }
@@ -190,14 +209,17 @@ fn slug(summary: &str) -> String {
     }
 }
 
-fn render(version: &str, date: &str, changes: &[Change]) -> String {
-    let mut out = format!("## {version} ({date})\n");
+fn render(changes: &[Change]) -> String {
+    let mut out = String::new();
     for bump in [Bump::Major, Bump::Minor, Bump::Patch] {
         let group: Vec<&Change> = changes.iter().filter(|c| c.bump == bump).collect();
         if group.is_empty() {
             continue;
         }
-        let _ = write!(out, "\n### {}\n\n", bump.heading());
+        if !out.is_empty() {
+            out.push('\n');
+        }
+        let _ = write!(out, "### {}\n\n", bump.heading());
         for change in group {
             out.push_str(&item(change));
         }
@@ -231,38 +253,6 @@ fn with_link(summary: &str, hash: &str) -> String {
     }
 }
 
-fn section(changelog: &str, version: &str) -> Result<String> {
-    let heading = format!("## {version}");
-    let mut lines = changelog.lines();
-    lines
-        .by_ref()
-        .find(|line| {
-            line.strip_prefix(&heading)
-                .is_some_and(|rest| rest.is_empty() || rest.starts_with(' '))
-        })
-        .with_context(|| format!("{CHANGELOG} has no `{heading}` section"))?;
-    let body: Vec<&str> = lines.take_while(|line| !line.starts_with("## ")).collect();
-    let body = body.join("\n");
-    let body = body.trim();
-    ensure!(
-        !body.is_empty(),
-        "the `{heading}` section in {CHANGELOG} is empty"
-    );
-    Ok(format!("{body}\n"))
-}
-
-fn prepend(changelog: &str, section: &str) -> String {
-    let rest = changelog
-        .strip_prefix(TITLE)
-        .unwrap_or(changelog)
-        .trim_start();
-    if rest.is_empty() {
-        format!("{TITLE}\n{section}")
-    } else {
-        format!("{TITLE}\n{section}\n{rest}")
-    }
-}
-
 fn parse_version(text: &str) -> Option<[u64; 3]> {
     let mut parts = text.split('.').map(|part| part.parse::<u64>().ok());
     let version = [parts.next()??, parts.next()??, parts.next()??];
@@ -280,21 +270,49 @@ fn next_version(previous: &str, bump: Bump) -> Result<String> {
     Ok(format!("{major}.{minor}.{patch}"))
 }
 
-fn latest_version(root: &Path) -> Result<String> {
-    let tags = git(root, &["tag", "--list", "v*", "--sort=-v:refname"])?;
-    Ok(tags
+fn versions(root: &Path) -> Result<Vec<[u64; 3]>> {
+    let tags = git(root, &["tag", "--list", "v*"])?;
+    let mut versions: Vec<[u64; 3]> = tags
         .lines()
-        .filter_map(|tag| tag.strip_prefix('v'))
-        .find(|version| parse_version(version).is_some())
-        .unwrap_or("0.0.0")
-        .to_string())
+        .filter_map(|tag| tag.strip_prefix('v').and_then(parse_version))
+        .collect();
+    versions.sort_unstable();
+    Ok(versions)
 }
 
-fn added_in(root: &Path, path: &Path) -> Result<Option<String>> {
-    let rel = path.strip_prefix(root).unwrap_or(path).to_string_lossy();
+fn format_version([major, minor, patch]: [u64; 3]) -> String {
+    format!("{major}.{minor}.{patch}")
+}
+
+fn latest_version(root: &Path) -> Result<String> {
+    Ok(format_version(
+        versions(root)?.last().copied().unwrap_or_default(),
+    ))
+}
+
+fn previous_version(root: &Path, version: &str) -> Result<String> {
+    let current = parse_version(version)
+        .with_context(|| format!("`{version}` is not a major.minor.patch version"))?;
+    Ok(format_version(
+        versions(root)?
+            .into_iter()
+            .rfind(|tag| *tag < current)
+            .unwrap_or_default(),
+    ))
+}
+
+fn added_in(root: &Path, rev: &str, path: &str) -> Result<Option<String>> {
     let hash = git(
         root,
-        &["log", "--diff-filter=A", "--format=%H", "-1", "--", &rel],
+        &[
+            "log",
+            "--diff-filter=A",
+            "--format=%H",
+            "-1",
+            rev,
+            "--",
+            path,
+        ],
     )?;
     let hash = hash.trim();
     Ok((!hash.is_empty()).then(|| hash.to_string()))
@@ -310,22 +328,7 @@ fn ensure_clean(root: &Path) -> Result<()> {
     Ok(())
 }
 
-fn write_changelog(root: &Path, section: &str) -> Result<()> {
-    let path = root.join(CHANGELOG);
-    let existing = match std::fs::read_to_string(&path) {
-        Ok(text) => text,
-        Err(err) if err.kind() == std::io::ErrorKind::NotFound => String::new(),
-        Err(err) => return Err(err).context(format!("read {CHANGELOG}")),
-    };
-    std::fs::write(&path, prepend(&existing, section)).with_context(|| format!("write {CHANGELOG}"))
-}
-
-fn commit_and_tag(root: &Path, version: &str) -> Result<()> {
-    git(root, &["add", "--all", "--", CHANGELOG, DIR])?;
-    git(
-        root,
-        &["commit", "--message", &format!("Release {version}")],
-    )?;
+fn tag(root: &Path, version: &str) -> Result<()> {
     git(
         root,
         &[
@@ -354,30 +357,10 @@ fn git(root: &Path, args: &[&str]) -> Result<String> {
     String::from_utf8(output.stdout).context("git printed non UTF-8 output")
 }
 
-fn today() -> Result<String> {
-    let seconds = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .context("the clock is before 1970")?
-        .as_secs();
-    let (year, month, day) = civil(i64::try_from(seconds / 86_400)?);
-    Ok(format!("{year:04}-{month:02}-{day:02}"))
-}
-
-fn civil(days: i64) -> (i64, i64, i64) {
-    let z = days + 719_468;
-    let era = z.div_euclid(146_097);
-    let doe = z.rem_euclid(146_097);
-    let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let day = doy - (153 * mp + 2) / 5 + 1;
-    let month = if mp < 10 { mp + 3 } else { mp - 9 };
-    let year = yoe + era * 400 + i64::from(month <= 2);
-    (year, month, day)
-}
-
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
+
     use super::*;
 
     fn change(bump: Bump, summary: &str, commit: Option<&str>) -> Change {
@@ -440,38 +423,60 @@ mod tests {
             change(Bump::Major, "Drop C.", None),
         ];
         let expected = format!(
-            "## 2.0.0 (2026-10-01)\n\n### Breaking changes\n\n- Drop C.\n\n### Features\n\n\
+            "### Breaking changes\n\n- Drop C.\n\n### Features\n\n\
              - Add B. ([abcdef1]({REPOSITORY}/commit/abcdef123456))\n\n  ```yaml\n  b: 1\n  ```\n\n\
              ### Fixes\n\n- Fix A.\n"
         );
-        assert_eq!(render("2.0.0", "2026-10-01", &changes), expected);
+        assert_eq!(render(&changes), expected);
+    }
+
+    fn repo(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("changeset-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join(DIR)).expect("create repo");
+        for args in [
+            &["init", "--quiet", "--initial-branch", "main"][..],
+            &["config", "user.name", "Test"],
+            &["config", "user.email", "test@example.com"],
+            &["config", "commit.gpgsign", "false"],
+            &["config", "tag.gpgsign", "false"],
+        ] {
+            git(&dir, args).expect("git setup");
+        }
+        dir
+    }
+
+    fn commit_changeset(root: &Path, name: &str, bump: Bump) {
+        add(root, bump, name).expect("add changeset");
+        git(root, &["add", "--all"]).expect("stage");
+        git(root, &["commit", "--quiet", "--message", name]).expect("commit");
     }
 
     #[test]
-    fn prepends_below_the_title() {
-        assert_eq!(prepend("", "## 1.0.0\n"), "# Changelog\n\n## 1.0.0\n");
+    fn notes_cover_changesets_added_since_the_previous_tag() {
+        let root = repo("notes");
+        commit_changeset(&root, "Old fix", Bump::Patch);
+        tag(&root, "1.0.0").expect("tag");
+        commit_changeset(&root, "New feature", Bump::Minor);
+        tag(&root, "1.1.0").expect("tag");
+        commit_changeset(&root, "Pending fix", Bump::Patch);
+
+        let released = changes_between(&root, "v1.0.0", "v1.1.0").expect("released");
+        assert_eq!(released.len(), 1);
+        assert_eq!(released[0].summary, "New feature");
+        assert!(released[0].commit.is_some());
+        assert_eq!(previous_version(&root, "1.1.0").expect("previous"), "1.0.0");
+        assert_eq!(previous_version(&root, "1.0.0").expect("previous"), "0.0.0");
+        assert_eq!(latest_version(&root).expect("latest"), "1.1.0");
+        let pending = changes_between(&root, "v1.1.0", "HEAD").expect("pending");
+        assert_eq!(pending.len(), 1);
+        assert_eq!(pending[0].summary, "Pending fix");
         assert_eq!(
-            prepend("# Changelog\n\n## 1.0.0\n", "## 1.1.0\n"),
-            "# Changelog\n\n## 1.1.0\n\n## 1.0.0\n"
+            changes_between(&root, "v0.0.0", "v1.0.0")
+                .expect("first")
+                .len(),
+            1
         );
-    }
-
-    #[test]
-    fn extracts_one_release() {
-        let log = "# Changelog\n\n## 1.10.0 (2026-10-01)\n\n### Fixes\n\n- B.\n\n## 1.1.0 (2026-01-01)\n\n- A.\n";
-        assert_eq!(
-            section(log, "1.10.0").expect("found"),
-            "### Fixes\n\n- B.\n"
-        );
-        assert_eq!(section(log, "1.1.0").expect("found"), "- A.\n");
-        assert!(section(log, "1.1").is_err());
-        assert!(section("# Changelog\n\n## 1.2.0\n", "1.2.0").is_err());
-    }
-
-    #[test]
-    fn converts_days_to_dates() {
-        assert_eq!(civil(0), (1970, 1, 1));
-        assert_eq!(civil(20_727), (2026, 10, 1));
-        assert_eq!(civil(11_016), (2000, 2, 29));
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

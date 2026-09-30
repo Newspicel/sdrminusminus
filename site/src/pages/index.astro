@@ -1,5 +1,5 @@
 ---
-import { newest, RELEASES } from "../changelog";
+import { newest, releases } from "../changelog";
 import Patch from "../components/Patch.astro";
 import Setups from "../components/Setups.astro";
 import Waterfall from "../components/Waterfall.astro";
@@ -170,7 +170,7 @@ const rows = [voices.slice(0, half), voices.slice(half)];
 
 const copies = [0, 1, 2, 3];
 
-const latest = newest(RELEASES, 3);
+const latest = newest(await releases(), 3);
 ---
 
 <Page
@@ -282,7 +282,7 @@ const latest = newest(RELEASES, 3);
         <h2>What's new</h2>
         <p class="version">
           {latest.version}
-          {latest.date && <time datetime={latest.date}>{latest.date}</time>}
+          <time datetime={latest.date}>{latest.date}</time>
         </p>
         <ul>
           {latest.groups.flatMap((group) => group.items).map((item) => <li set:html={item} />)}

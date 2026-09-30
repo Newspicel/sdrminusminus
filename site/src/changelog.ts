@@ -1,12 +1,6 @@
-import changelog from "../../CHANGELOG.md?raw";
+import { REPOSITORY } from "./seo";
 
-const KINDS = [
-  { bump: "major", heading: "Breaking changes" },
-  { bump: "minor", heading: "Features" },
-  { bump: "patch", heading: "Fixes" },
-] as const;
-
-type Bump = (typeof KINDS)[number]["bump"];
+const HEADINGS = ["Breaking changes", "Features", "Fixes"];
 
 export interface Group {
   heading: string;
@@ -15,13 +9,16 @@ export interface Group {
 
 export interface Release {
   version: string;
-  date?: string;
+  date: string;
   groups: Group[];
 }
 
-interface Pending {
-  bump: Bump;
-  summary: string;
+export interface GitHubRelease {
+  tag_name: string;
+  published_at: string | null;
+  draft: boolean;
+  prerelease: boolean;
+  body: string | null;
 }
 
 function escapeHtml(text: string): string {
@@ -49,24 +46,32 @@ export function renderSummary(summary: string): string {
 
 function parseItems(lines: readonly string[]): string[] {
   const items: string[][] = [];
+  let open = false;
   for (const line of lines) {
     if (line.startsWith("- ")) {
       items.push([line.slice(2)]);
-    } else {
+      open = true;
+    } else if (open && (line.trim() === "" || line.startsWith("  "))) {
       items.at(-1)?.push(line.replace(/^ {2}/, ""));
+    } else {
+      open = false;
     }
   }
   return items.map((item) => renderSummary(item.join("\n")));
 }
 
-function parseGroups(lines: readonly string[]): Group[] {
+export function parseNotes(body: string): Group[] {
   const groups: { heading: string; lines: string[] }[] = [];
-  for (const line of lines) {
-    const heading = line.match(/^### (.+)$/)?.[1];
+  let current: { heading: string; lines: string[] } | undefined;
+  for (const line of body.replace(/\r\n/g, "\n").split("\n")) {
+    const heading = line.match(/^#{1,6} (.+)$/)?.[1]?.trim();
     if (heading !== undefined) {
-      groups.push({ heading: heading.trim(), lines: [] });
+      current = HEADINGS.includes(heading) ? { heading, lines: [] } : undefined;
+      if (current !== undefined) {
+        groups.push(current);
+      }
     } else {
-      groups.at(-1)?.lines.push(line);
+      current?.lines.push(line);
     }
   }
   return groups
@@ -74,47 +79,17 @@ function parseGroups(lines: readonly string[]): Group[] {
     .filter((group) => group.items.length > 0);
 }
 
-export function parseChangelog(text: string): Release[] {
-  const sections: { heading: string; lines: string[] }[] = [];
-  for (const line of text.replace(/\r\n/g, "\n").split("\n")) {
-    const heading = line.match(/^## (.+)$/)?.[1];
-    if (heading !== undefined) {
-      sections.push({ heading: heading.trim(), lines: [] });
-    } else {
-      sections.at(-1)?.lines.push(line);
+export function fromGitHub(all: readonly GitHubRelease[]): Release[] {
+  return all.flatMap((release) => {
+    const version = release.tag_name.match(/^v(\d+\.\d+\.\d+)$/)?.[1];
+    if (version === undefined || release.draft || release.prerelease || !release.published_at) {
+      return [];
     }
-  }
-  return sections.map((section) => {
-    const [, version = section.heading, date] =
-      section.heading.match(/^(\S+)(?: \((\d{4}-\d{2}-\d{2})\))?$/) ?? [];
-    return { version, date, groups: parseGroups(section.lines) };
+    const groups = parseNotes(release.body ?? "");
+    return groups.length === 0
+      ? []
+      : [{ version, date: release.published_at.slice(0, 10), groups }];
   });
-}
-
-export function parseChangeset(text: string): Pending | undefined {
-  const [, front = "", body = ""] =
-    text.replace(/\r\n/g, "\n").match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/) ?? [];
-  const bump = KINDS.find((kind) =>
-    new RegExp(`^bump:\\s*"?${kind.bump}"?\\s*$`, "m").test(front),
-  )?.bump;
-  const summary = body.trim();
-  return bump === undefined || summary === "" ? undefined : { bump, summary };
-}
-
-export function unreleased(changesets: readonly string[]): Release | undefined {
-  const pending = changesets.flatMap((text) => parseChangeset(text) ?? []);
-  const groups = KINDS.map((kind) => ({
-    heading: kind.heading,
-    items: pending
-      .filter((change) => change.bump === kind.bump)
-      .map((change) => renderSummary(change.summary)),
-  })).filter((group) => group.items.length > 0);
-  return groups.length === 0 ? undefined : { version: "Next release", groups };
-}
-
-export function releases(changelog: string, changesets: readonly string[]): Release[] {
-  const next = unreleased(changesets);
-  return [...(next === undefined ? [] : [next]), ...parseChangelog(changelog)];
 }
 
 export function newest(all: readonly Release[], count: number): Release | undefined {
@@ -131,9 +106,26 @@ export function newest(all: readonly Release[], count: number): Release | undefi
   return { ...latest, groups };
 }
 
-const changesets = import.meta.glob<string>(
-  ["../../.changeset/*.md", "!../../.changeset/README.md"],
-  { query: "?raw", import: "default", eager: true },
-);
+const API = REPOSITORY.replace("https://github.com/", "https://api.github.com/repos/");
 
-export const RELEASES = releases(changelog, Object.values(changesets));
+async function fetchReleases(): Promise<Release[]> {
+  const token: string | undefined = import.meta.env.GITHUB_TOKEN;
+  const response = await fetch(`${API}/releases?per_page=30`, {
+    headers: {
+      accept: "application/vnd.github+json",
+      "user-agent": "sdrmm-site",
+      ...(token ? { authorization: `Bearer ${token}` } : {}),
+    },
+  });
+  if (!response.ok) {
+    throw new Error(`GitHub releases: ${response.status} ${response.statusText}`);
+  }
+  return fromGitHub((await response.json()) as GitHubRelease[]);
+}
+
+let cached: Promise<Release[]> | undefined;
+
+export function releases(): Promise<Release[]> {
+  cached ??= fetchReleases();
+  return cached;
+}

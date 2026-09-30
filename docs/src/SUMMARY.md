@@ -52,4 +52,3 @@
 - [Releases](development/releases.md)
 - [Android](development/android.md)
 
-[Changelog](changelog.md)

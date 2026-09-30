@@ -16,14 +16,13 @@ To release, on a clean `main`:
 ```sh
 cargo xtask release --dry-run
 cargo xtask release
-git push --atomic origin main v1.2.3
+git push origin v1.2.3
 ```
 
-`release` picks the next version from the largest bump since the last tag, prepends a section to
-`CHANGELOG.md` with a link to the commit that added each changeset, deletes the changesets, then
-commits and tags. The release workflow publishes that section as the GitHub release notes
-(`cargo xtask release-notes 1.2.3`) and fails on a tag without one. The docs include
-`CHANGELOG.md` as the site changelog.
+`release` picks the next version from the largest bump among changesets added since the last tag
+and tags `HEAD`. It never commits. The release workflow turns those changesets into the GitHub
+release notes (`cargo xtask release-notes 1.2.3`) and fails on a tag without any. sdrmm.com reads
+its changelog from the GitHub releases. Released changesets can be deleted any time.
 
 ## Versioning
 
