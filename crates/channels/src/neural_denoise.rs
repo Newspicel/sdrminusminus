@@ -1,7 +1,7 @@
 use std::sync::{Arc, OnceLock};
 
 use num_complex::Complex;
-use rustfft::{Fft, FftPlanner};
+use realfft::{ComplexToReal, FftError, RealFftPlanner, RealToComplex};
 use sdrmm_dsp::{RealDecimator, RealInterpolator, design_lowpass};
 use tract_nnef::prelude::*;
 
@@ -16,8 +16,14 @@ const MODEL_DELAY_FRAMES: usize = 4;
 const MAX_ATTENUATION_DB: f32 = 30.0;
 
 #[derive(Debug, Clone, thiserror::Error)]
-#[error("neural denoiser unavailable: {0}")]
+#[error("denoiser unavailable: {0}")]
 pub struct NeuralDenoiseError(String);
+
+impl From<FftError> for NeuralDenoiseError {
+    fn from(error: FftError) -> Self {
+        Self(error.to_string())
+    }
+}
 
 struct Model {
     plan: Arc<TypedSimplePlan>,
@@ -80,8 +86,8 @@ pub struct NeuralDenoiser {
     model: &'static Model,
     runner: TypedSimpleState,
     state: Tensor,
-    fft: Arc<dyn Fft<f32>>,
-    ifft: Arc<dyn Fft<f32>>,
+    fft: Arc<dyn RealToComplex<f32>>,
+    ifft: Arc<dyn ComplexToReal<f32>>,
     window: Vec<f32>,
     decimator: RealDecimator,
     interpolator: RealInterpolator,
@@ -90,6 +96,7 @@ pub struct NeuralDenoiser {
     frame_in: Vec<f32>,
     frame_out: Vec<f32>,
     overlap: Vec<f32>,
+    frame: Vec<f32>,
     spectrum: Vec<Complex<f32>>,
     scratch: Vec<Complex<f32>>,
     noisy: Vec<Vec<Complex<f32>>>,
@@ -106,12 +113,10 @@ impl NeuralDenoiser {
             .plan
             .spawn()
             .map_err(|error| NeuralDenoiseError(format!("{error:#}")))?;
-        let mut planner = FftPlanner::<f32>::new();
+        let mut planner = RealFftPlanner::<f32>::new();
         let fft = planner.plan_fft_forward(model.window_len);
         let ifft = planner.plan_fft_inverse(model.window_len);
-        let scratch_len = fft
-            .get_inplace_scratch_len()
-            .max(ifft.get_inplace_scratch_len());
+        let scratch_len = fft.get_scratch_len().max(ifft.get_scratch_len());
         let bins = model.window_len / 2 + 1;
         let taps = design_lowpass(RESAMPLE_TAPS, RESAMPLE_CUTOFF);
         let mut denoiser = Self {
@@ -129,7 +134,8 @@ impl NeuralDenoiser {
             frame_in: Vec::with_capacity(model.window_len * 4),
             frame_out: vec![0.0; model.hop],
             overlap: vec![0.0; model.window_len],
-            spectrum: vec![Complex::new(0.0, 0.0); model.window_len],
+            frame: vec![0.0; model.window_len],
+            spectrum: vec![Complex::new(0.0, 0.0); bins],
             scratch: vec![Complex::new(0.0, 0.0); scratch_len],
             noisy: vec![vec![Complex::new(0.0, 0.0); bins]; MODEL_DELAY_FRAMES + 1],
             noisy_head: 0,
@@ -191,39 +197,35 @@ impl NeuralDenoiser {
 
     fn run_frame(&mut self, start: usize) -> Result<(), NeuralDenoiseError> {
         let len = self.model.window_len;
-        let bins = len / 2 + 1;
+        let bins = self.spectrum.len();
         for ((slot, &x), &w) in self
-            .spectrum
+            .frame
             .iter_mut()
             .zip(&self.frame_in[start..start + len])
             .zip(&self.window)
         {
-            *slot = Complex::new(x * w, 0.0);
+            *slot = x * w;
         }
         self.fft
-            .process_with_scratch(&mut self.spectrum, &mut self.scratch);
+            .process_with_scratch(&mut self.frame, &mut self.spectrum, &mut self.scratch)?;
         self.noisy_head = (self.noisy_head + 1) % self.noisy.len();
-        self.noisy[self.noisy_head].copy_from_slice(&self.spectrum[..bins]);
+        self.noisy[self.noisy_head].copy_from_slice(&self.spectrum);
         self.infer(bins)?;
         let delayed = &self.noisy[(self.noisy_head + 1) % self.noisy.len()];
         let wet = 1.0 - self.dry_mix;
-        for (bin, slot) in self.spectrum[..bins].iter_mut().enumerate() {
+        for (bin, slot) in self.spectrum.iter_mut().enumerate() {
             let model = Complex::new(self.packed[2 * bin], self.packed[2 * bin + 1]);
             *slot = delayed[bin] * self.dry_mix + model * wet;
         }
-        for bin in 1..len - bins + 1 {
-            self.spectrum[len - bin] = self.spectrum[bin].conj();
+        self.spectrum[0].im = 0.0;
+        if len.is_multiple_of(2) {
+            self.spectrum[bins - 1].im = 0.0;
         }
         self.ifft
-            .process_with_scratch(&mut self.spectrum, &mut self.scratch);
+            .process_with_scratch(&mut self.spectrum, &mut self.frame, &mut self.scratch)?;
         let scale = 1.0 / len as f32;
-        for ((acc, value), &w) in self
-            .overlap
-            .iter_mut()
-            .zip(&self.spectrum)
-            .zip(&self.window)
-        {
-            *acc += value.re * scale * w;
+        for ((acc, &value), &w) in self.overlap.iter_mut().zip(&self.frame).zip(&self.window) {
+            *acc += value * scale * w;
         }
         let hop = self.model.hop;
         self.frame_out.copy_from_slice(&self.overlap[..hop]);

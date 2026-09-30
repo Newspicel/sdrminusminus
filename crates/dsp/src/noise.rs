@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use num_complex::Complex;
-use rustfft::{Fft, FftPlanner};
+use realfft::{ComplexToReal, FftError, RealFftPlanner, RealToComplex};
 
 use crate::{iir::one_pole_coeff, window::hann};
 
@@ -248,10 +248,11 @@ impl Default for AutoNotch {
 }
 
 pub struct SpectralDenoiser {
-    fft: Arc<dyn Fft<f32>>,
-    ifft: Arc<dyn Fft<f32>>,
+    fft: Arc<dyn RealToComplex<f32>>,
+    ifft: Arc<dyn ComplexToReal<f32>>,
     window: Vec<f32>,
     pending: Vec<f32>,
+    frame: Vec<f32>,
     overlap: Vec<f32>,
     ready: Vec<f32>,
     read: usize,
@@ -293,17 +294,16 @@ impl SpectralDenoiser {
 
     #[must_use]
     pub fn new(strength: f32) -> Self {
-        let mut planner = FftPlanner::<f32>::new();
+        let mut planner = RealFftPlanner::<f32>::new();
         let fft = planner.plan_fft_forward(Self::FRAME);
         let ifft = planner.plan_fft_inverse(Self::FRAME);
-        let scratch_len = fft
-            .get_inplace_scratch_len()
-            .max(ifft.get_inplace_scratch_len());
+        let scratch_len = fft.get_scratch_len().max(ifft.get_scratch_len());
         let mut denoiser = Self {
             fft,
             ifft,
             window: hann(Self::FRAME).iter().map(|w| w.sqrt()).collect(),
             pending: Vec::with_capacity(Self::FRAME * 4),
+            frame: vec![0.0; Self::FRAME],
             overlap: vec![0.0; Self::FRAME],
             ready: vec![0.0; Self::FRAME],
             read: 0,
@@ -319,7 +319,7 @@ impl SpectralDenoiser {
             frames: 0,
             floor: 1.0,
             log_floor: 0.0,
-            spectrum: vec![Complex::new(0.0, 0.0); Self::FRAME],
+            spectrum: vec![Complex::new(0.0, 0.0); Self::BINS],
             scratch: vec![Complex::new(0.0, 0.0); scratch_len],
         };
         denoiser.set_strength(strength);
@@ -355,7 +355,7 @@ impl SpectralDenoiser {
         self.frames = 0;
     }
 
-    pub fn process(&mut self, samples: &mut [f32]) {
+    pub fn process(&mut self, samples: &mut [f32]) -> Result<(), FftError> {
         if self.read > 0 {
             self.ready.drain(..self.read.min(self.ready.len()));
             self.read = 0;
@@ -363,8 +363,9 @@ impl SpectralDenoiser {
         self.pending
             .extend(samples.iter().map(|s| if s.is_finite() { *s } else { 0.0 }));
         let mut consumed = 0;
+        let mut result = Ok(());
         while self.pending.len() - consumed >= Self::FRAME {
-            self.transform(consumed);
+            result = result.and(self.transform(consumed));
             consumed += Self::HOP;
         }
         self.pending.drain(..consumed);
@@ -372,31 +373,35 @@ impl SpectralDenoiser {
             *s = self.ready.get(self.read).copied().unwrap_or(0.0);
             self.read += 1;
         }
+        result
     }
 
-    fn transform(&mut self, offset: usize) {
+    fn transform(&mut self, offset: usize) -> Result<(), FftError> {
         let frame = &self.pending[offset..offset + Self::FRAME];
-        for ((dst, &s), &w) in self.spectrum.iter_mut().zip(frame).zip(&self.window) {
-            *dst = Complex::new(s * w, 0.0);
+        for ((dst, &s), &w) in self.frame.iter_mut().zip(frame).zip(&self.window) {
+            *dst = s * w;
         }
-        self.fft
-            .process_with_scratch(&mut self.spectrum, &mut self.scratch);
-        self.shape();
-        self.ifft
-            .process_with_scratch(&mut self.spectrum, &mut self.scratch);
+        let spectral = self.filter_frame();
+        if spectral.is_err() {
+            self.frame.fill(0.0);
+        }
 
         let norm = 1.0 / Self::FRAME as f32;
-        for ((slot, bin), &w) in self
-            .overlap
-            .iter_mut()
-            .zip(&self.spectrum)
-            .zip(&self.window)
-        {
-            *slot += bin.re * norm * w;
+        for ((slot, &sample), &w) in self.overlap.iter_mut().zip(&self.frame).zip(&self.window) {
+            *slot += sample * norm * w;
         }
         self.ready.extend_from_slice(&self.overlap[..Self::HOP]);
         self.overlap.copy_within(Self::HOP.., 0);
         self.overlap[Self::FRAME - Self::HOP..].fill(0.0);
+        spectral
+    }
+
+    fn filter_frame(&mut self) -> Result<(), FftError> {
+        self.fft
+            .process_with_scratch(&mut self.frame, &mut self.spectrum, &mut self.scratch)?;
+        self.shape();
+        self.ifft
+            .process_with_scratch(&mut self.spectrum, &mut self.frame, &mut self.scratch)
     }
 
     fn shape(&mut self) {
@@ -406,9 +411,8 @@ impl SpectralDenoiser {
         self.track_noise();
         self.update_gains();
         self.frames = self.frames.saturating_add(1);
-        for (k, bin) in self.spectrum.iter_mut().enumerate() {
-            let index = if k < Self::BINS { k } else { Self::FRAME - k };
-            *bin *= self.gains[index];
+        for (bin, &gain) in self.spectrum.iter_mut().zip(&self.gains) {
+            *bin *= gain;
         }
     }
 
@@ -784,7 +788,7 @@ mod tests {
         let mut out = Vec::with_capacity(input.len());
         for chunk in input.chunks(block) {
             let mut buf = chunk.to_vec();
-            denoiser.process(&mut buf);
+            denoiser.process(&mut buf).unwrap();
             out.extend_from_slice(&buf);
         }
         out
@@ -801,7 +805,7 @@ mod tests {
             }
             let end = (pos + len).min(input.len());
             let mut buf = input[pos..end].to_vec();
-            denoiser.process(&mut buf);
+            denoiser.process(&mut buf).unwrap();
             assert_eq!(buf.len(), end - pos);
             produced += buf.len();
             pos = end;
@@ -991,7 +995,7 @@ mod tests {
         let started = std::time::Instant::now();
         for chunk in input.as_chunks::<960>().0 {
             buf.copy_from_slice(chunk);
-            denoiser.process(&mut buf);
+            denoiser.process(&mut buf).unwrap();
         }
         assert!(
             started.elapsed() < std::time::Duration::from_secs(5),
@@ -1004,7 +1008,7 @@ mod tests {
     fn denoiser_recovers_after_a_non_finite_sample() {
         let mut denoiser = SpectralDenoiser::new(0.8);
         let mut poisoned = vec![f32::NAN; 2_048];
-        denoiser.process(&mut poisoned);
+        denoiser.process(&mut poisoned).unwrap();
         assert!(poisoned.iter().all(|s| s.is_finite()));
         let input = bursts_in_hiss(240_000);
         let output = run_denoiser(&mut denoiser, &input, 480);

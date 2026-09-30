@@ -16,6 +16,7 @@ test-scene = []
 [dependencies]
 num-complex.workspace = true
 rustfft.workspace = true
+realfft.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]

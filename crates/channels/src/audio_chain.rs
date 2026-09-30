@@ -171,10 +171,7 @@ impl Denoiser {
 
     fn process(&mut self, pcm: &mut [f32]) -> Result<(), NeuralDenoiseError> {
         match self {
-            Self::Spectral(denoiser) => {
-                denoiser.process(pcm);
-                Ok(())
-            }
+            Self::Spectral(denoiser) => Ok(denoiser.process(pcm)?),
             Self::Neural(denoiser) => denoiser.process(pcm),
         }
     }
