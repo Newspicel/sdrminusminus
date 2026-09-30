@@ -5,46 +5,11 @@ use std::{
 
 use codec2::{Codec2, Codec2Mode};
 
-pub const ABI_VERSION: u32 = 1;
-
-unsafe extern "C" {
-    fn fdmdv_1600_create() -> *mut c_void;
-    fn fdmdv_1600_destroy(modem: *mut c_void);
-    fn fdmdv_1600_demod(
-        modem: *mut c_void,
-        input: *const f32,
-        nin: c_int,
-        output: *mut u8,
-        sync: *mut c_int,
-        reliable_sync: *mut c_int,
-    ) -> c_int;
-}
+pub const ABI_VERSION: u32 = 2;
 
 #[unsafe(no_mangle)]
 extern "C" fn sdrmm_codec2_abi_version() -> u32 {
     ABI_VERSION
-}
-
-#[unsafe(no_mangle)]
-extern "C" fn sdrmm_fdmdv_create() -> *mut c_void {
-    unsafe { fdmdv_1600_create() }
-}
-
-#[unsafe(no_mangle)]
-unsafe extern "C" fn sdrmm_fdmdv_destroy(modem: *mut c_void) {
-    unsafe { fdmdv_1600_destroy(modem) }
-}
-
-#[unsafe(no_mangle)]
-unsafe extern "C" fn sdrmm_fdmdv_demod(
-    modem: *mut c_void,
-    input: *const f32,
-    nin: c_int,
-    output: *mut u8,
-    sync: *mut c_int,
-    reliable_sync: *mut c_int,
-) -> c_int {
-    unsafe { fdmdv_1600_demod(modem, input, nin, output, sync, reliable_sync) }
 }
 
 #[unsafe(no_mangle)]
@@ -122,27 +87,5 @@ mod tests {
         }
         unsafe { sdrmm_codec2_destroy(codec) };
         assert!(energy > 0);
-    }
-
-    #[test]
-    fn the_modem_asks_for_a_nominal_frame_after_noise() {
-        let modem = sdrmm_fdmdv_create();
-        assert!(!modem.is_null());
-        let input = [0.0f32; 320];
-        let mut bits = [0u8; 32];
-        let (mut sync, mut reliable) = (1, 1);
-        let next = unsafe {
-            sdrmm_fdmdv_demod(
-                modem,
-                input.as_ptr(),
-                160,
-                bits.as_mut_ptr(),
-                &mut sync,
-                &mut reliable,
-            )
-        };
-        unsafe { sdrmm_fdmdv_destroy(modem) };
-        assert!((1..=200).contains(&next));
-        assert_eq!(sync, 0);
     }
 }

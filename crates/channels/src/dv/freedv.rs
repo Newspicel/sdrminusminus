@@ -8,7 +8,7 @@ use sdrmm_wire::{
 };
 
 use super::{
-    codec2_library::{Fdmdv, FdmdvResult},
+    fdmdv::{self, Demodulator, Frame},
     vocoder::Codec2Decoder,
 };
 use crate::{ChannelCtx, ChannelError, ChannelFilter, ChannelOutputs, ChannelRx, check_input_rate};
@@ -18,8 +18,7 @@ const LOW_EDGE_HZ: f64 = 800.0;
 const HIGH_EDGE_HZ: f64 = 2_200.0;
 const FILTER_TAPS: usize = 257;
 const MODEM_SCALE: f32 = 32_768.0 / 825.0;
-const MODEM_BITS: usize = 32;
-const MAX_MODEM_SAMPLES: usize = 200;
+const MODEM_BITS: usize = fdmdv::BITS;
 const CODEC_BITS: usize = 52;
 
 static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescriptor {
@@ -34,37 +33,10 @@ static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescrip
     ..ChannelDescriptor::default()
 });
 
-struct Modem {
-    fdmdv: Fdmdv,
-    next_nin: usize,
-}
-
-impl Modem {
-    fn new() -> Result<Self, ChannelError> {
-        Ok(Self {
-            fdmdv: Fdmdv::new()?,
-            next_nin: 160,
-        })
-    }
-
-    fn demod(&mut self, input: &[Complex<f32>], bits: &mut [u8; MODEM_BITS]) -> FdmdvResult {
-        debug_assert_eq!(input.len(), self.next_nin);
-        let result = self.fdmdv.demod(input, bits);
-        self.next_nin = usize::try_from(result.next_nin)
-            .ok()
-            .filter(|&nin| (1..=MAX_MODEM_SAMPLES).contains(&nin))
-            .unwrap_or(160);
-        result
-    }
-}
-
 pub struct FreeDvChannel {
     sideband: Sideband,
-    modem: Modem,
-    modem_input: [Complex<f32>; MAX_MODEM_SAMPLES],
-    modem_filled: usize,
-    bits: [u8; MODEM_BITS],
-    paired_bits: [u8; MODEM_BITS * 2],
+    modem: Demodulator,
+    paired_bits: [bool; MODEM_BITS * 2],
     even_frame: bool,
     synced: bool,
     vocoder: Codec2Decoder,
@@ -107,11 +79,8 @@ impl ChannelRx for FreeDvChannel {
         let params = params(&settings)?;
         Ok(Self {
             sideband: params.sideband,
-            modem: Modem::new()?,
-            modem_input: [Complex::default(); MAX_MODEM_SAMPLES],
-            modem_filled: 0,
-            bits: [0; MODEM_BITS],
-            paired_bits: [0; MODEM_BITS * 2],
+            modem: Demodulator::new(),
+            paired_bits: [false; MODEM_BITS * 2],
             even_frame: false,
             synced: false,
             vocoder: Codec2Decoder::new()?,
@@ -121,7 +90,7 @@ impl ChannelRx for FreeDvChannel {
     fn apply(&mut self, settings: ChannelSettings) -> Result<(), ChannelError> {
         let sideband = params(&settings)?.sideband;
         if sideband != self.sideband {
-            self.modem = Modem::new()?;
+            self.modem.reset();
             self.sideband = sideband;
             self.reset_stream_state();
         }
@@ -129,9 +98,7 @@ impl ChannelRx for FreeDvChannel {
     }
 
     fn retuned(&mut self) {
-        if let Ok(modem) = Modem::new() {
-            self.modem = modem;
-        }
+        self.modem.reset();
         self.reset_stream_state();
     }
 
@@ -141,11 +108,8 @@ impl ChannelRx for FreeDvChannel {
                 Sideband::Usb => sample,
                 Sideband::Lsb => sample.conj(),
             } * MODEM_SCALE;
-            self.modem_input[self.modem_filled] = sample;
-            self.modem_filled += 1;
-            if self.modem_filled == self.modem.next_nin {
-                self.demod_frame(out);
-                self.modem_filled = 0;
+            if let Some(frame) = self.modem.push(sample) {
+                self.demod_frame(&frame, out);
             }
         }
     }
@@ -153,20 +117,17 @@ impl ChannelRx for FreeDvChannel {
 
 impl FreeDvChannel {
     fn reset_stream_state(&mut self) {
-        self.modem_filled = 0;
         self.even_frame = false;
         self.synced = false;
         self.vocoder.reset();
     }
-    fn demod_frame(&mut self, out: &mut ChannelOutputs) {
-        let result = self
-            .modem
-            .demod(&self.modem_input[..self.modem_filled], &mut self.bits);
-        let sync = result.sync;
+
+    fn demod_frame(&mut self, frame: &Frame, out: &mut ChannelOutputs) {
+        let sync = frame.sync;
         if sync && !self.synced {
-            let mut frame = DvFrame::new(DvMode::FreeDv, DvFrameKind::Header);
-            frame.opcode = Some("1600".to_owned());
-            out.events.push(DecoderEvent::Dv(frame));
+            let mut header = DvFrame::new(DvMode::FreeDv, DvFrameKind::Header);
+            header.opcode = Some("1600".to_owned());
+            out.events.push(DecoderEvent::Dv(header));
         } else if !sync && self.synced {
             out.events.push(DecoderEvent::Dv(DvFrame::new(
                 DvMode::FreeDv,
@@ -175,14 +136,14 @@ impl FreeDvChannel {
         }
         self.synced = sync;
 
-        if result.reliable_sync {
+        if frame.reliable_sync {
             self.even_frame = true;
         }
         if !sync {
             return;
         }
         let offset = if self.even_frame { MODEM_BITS } else { 0 };
-        self.paired_bits[offset..offset + MODEM_BITS].copy_from_slice(&self.bits);
+        self.paired_bits[offset..offset + MODEM_BITS].copy_from_slice(&frame.bits);
         if self.even_frame {
             self.decode_voice(out);
         }
@@ -202,19 +163,19 @@ impl FreeDvChannel {
         }
         let (corrected, _errors) = golay23_correct(received);
 
-        let mut payload = [0u8; CODEC_BITS];
+        let mut payload = [false; CODEC_BITS];
         payload.copy_from_slice(&self.paired_bits[..CODEC_BITS]);
         for (index, bit) in payload[..8].iter_mut().enumerate() {
-            *bit = ((corrected >> (22 - index)) & 1) as u8;
+            *bit = (corrected >> (22 - index)) & 1 == 1;
         }
         for (index, bit) in payload[11..15].iter_mut().enumerate() {
-            *bit = ((corrected >> (14 - index)) & 1) as u8;
+            *bit = (corrected >> (14 - index)) & 1 == 1;
         }
-        payload[2] = u8::from(payload[1] != 0 || payload[3] != 0);
+        payload[2] = payload[1] || payload[3];
 
         let mut packed = [0u8; 7];
         for (index, &bit) in payload.iter().enumerate() {
-            packed[index / 8] |= bit << (7 - index % 8);
+            packed[index / 8] |= u8::from(bit) << (7 - index % 8);
         }
         self.vocoder.decode_1300(&packed, out);
     }

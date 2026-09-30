@@ -5743,7 +5743,6 @@ dependencies = [
 name = "sdrmm-codec2"
 version = "0.0.0"
 dependencies = [
- "cc",
  "codec2",
 ]
 

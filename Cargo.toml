@@ -225,7 +225,6 @@ notify = "8.2.0"
 tempfile = "3"
 
 criterion = "0.8"
-cc = "1"
 
 resvg = { version = "0.48", default-features = false }
 

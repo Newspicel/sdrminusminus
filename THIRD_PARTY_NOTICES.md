@@ -38,7 +38,7 @@ MPL-2.0. File-level copyleft: modifications to the crate's own files must be pub
 
 **codec2 FDMDV modem**: LGPL-2.1-only
 
-`crates/codec2/vendor/fdmdv` vendors the FreeDV 1600 FDMDV modem from codec2 into the replaceable `sdrmm_codec2` shared library.
+The FreeDV 1600 demodulator in `crates/channels/src/dv/fdmdv` is a Rust port of codec2's `fdmdv.c`, Copyright (C) 2012 David Rowe, and its filter tables are codec2's. It is used under the GNU GPL, as section 3 of the LGPL-2.1 allows.
 
 **dmrconfig**: BSD-3-Clause
 
@@ -59,10 +59,6 @@ The request codes, board types and control request builders in `crates/device-ha
 **hackrf.h (libhackrf API)**: BSD-3-Clause
 
 The sweep constants in `crates/device-hackrf/src/driver/sweep.rs` follow the public API declarations in `hackrf.h`. Its licence asks to accompany the binary, so its text is below.
-
-**Kiss FFT**: BSD-3-Clause
-
-Bundled with the codec2 FDMDV modem. Copyright (c) 2003-2010 Mark Borgerding.
 
 **libairspy**: BSD-3-Clause
 
@@ -958,7 +954,7 @@ The ACARS application layer and the VDL2, HFDL, Inmarsat Aero, Inmarsat STD-C, D
 | [use-sync-external-store](https://github.com/react/react#readme) | 1.7.0 | MIT |
 | [zustand](https://github.com/pmndrs/zustand) | 4.5.7, 5.0.15 | MIT |
 
-## Hardware libraries (12)
+## Hardware libraries (11)
 
 | Component | Version | License |
 | --- | --- | --- |
@@ -968,7 +964,6 @@ The ACARS application layer and the VDL2, HFDL, Inmarsat Aero, Inmarsat STD-C, D
 | [FFmpeg 9.0.1](https://ffmpeg.org/) | - | LGPL-2.1-or-later |
 | [hackrf-nusb 0.3.0](https://github.com/bastibl/hackrf-nusb) | - | MIT OR Apache-2.0 |
 | [hackrf.h (libhackrf API)](https://github.com/greatscottgadgets/hackrf) | - | BSD-3-Clause |
-| [Kiss FFT](https://github.com/mborgerding/kissfft) | - | BSD-3-Clause |
 | [libairspy](https://github.com/airspy/airspyone_host) | - | BSD-3-Clause |
 | [libairspyhf](https://github.com/airspy/airspyhf) | - | BSD-3-Clause |
 | [mbelib](https://github.com/szechyjs/mbelib) | - | ISC |

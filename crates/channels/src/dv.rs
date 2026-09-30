@@ -3,6 +3,7 @@ pub mod codec2_library;
 pub(crate) mod dmr;
 pub(crate) mod dpmr;
 pub(crate) mod dstar;
+mod fdmdv;
 pub(crate) mod freedv;
 pub(crate) mod m17;
 pub(crate) mod nxdn;

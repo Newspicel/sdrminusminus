@@ -168,17 +168,11 @@ const NATIVE: &[Native] = &[
         license: "LGPL-2.1-only",
         url: "https://github.com/drowe67/codec2",
         note: Some(
-            "`crates/codec2/vendor/fdmdv` vendors the FreeDV 1600 FDMDV modem from codec2 into \
-             the replaceable `sdrmm_codec2` shared library.",
+            "The FreeDV 1600 demodulator in `crates/channels/src/dv/fdmdv` is a Rust port of \
+             codec2's `fdmdv.c`, Copyright (C) 2012 David Rowe, and its filter tables are \
+             codec2's. It is used under the GNU GPL, as section 3 of the LGPL-2.1 allows.",
         ),
         files: &["codec2-LGPL-2.1.txt"],
-    },
-    Native {
-        name: "Kiss FFT",
-        license: "BSD-3-Clause",
-        url: "https://github.com/mborgerding/kissfft",
-        note: Some("Bundled with the codec2 FDMDV modem. Copyright (c) 2003-2010 Mark Borgerding."),
-        files: &["KissFFT-BSD-3-Clause.txt"],
     },
     Native {
         name: "xng",
