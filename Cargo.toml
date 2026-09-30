@@ -215,6 +215,7 @@ qrcodegen = "1.8.0"
 
 # Errors / logging / util
 libc = "0.2"
+rustix = { version = "1.1.5", default-features = false, features = ["std", "fs"] }
 thiserror = "2"
 anyhow = "1"
 tracing = "0.1"

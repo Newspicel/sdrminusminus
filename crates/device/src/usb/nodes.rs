@@ -1,10 +1,10 @@
 use std::{
-    ffi::CString,
-    os::unix::{ffi::OsStrExt, fs::MetadataExt},
+    os::unix::fs::MetadataExt,
     path::{Path, PathBuf},
 };
 
 use nusb::MaybeFuture;
+use rustix::fs::{Access, AtFlags, CWD, accessat};
 
 use super::RadioNode;
 
@@ -133,18 +133,13 @@ pub fn radio_nodes() -> Vec<RadioNode> {
 }
 
 fn openable(path: &Path) -> bool {
-    let Ok(path) = CString::new(path.as_os_str().as_bytes()) else {
-        return false;
-    };
-    // SAFETY: the string is NUL-terminated and outlives the call, which only reads it.
-    unsafe {
-        libc::faccessat(
-            libc::AT_FDCWD,
-            path.as_ptr(),
-            libc::R_OK | libc::W_OK,
-            libc::AT_EACCESS,
-        ) == 0
-    }
+    accessat(
+        CWD,
+        path,
+        Access::READ_OK | Access::WRITE_OK,
+        AtFlags::EACCESS,
+    )
+    .is_ok()
 }
 
 #[cfg(test)]
@@ -174,6 +169,15 @@ mod tests {
     #[test]
     fn a_node_nobody_has_cannot_be_opened() {
         assert!(!openable(Path::new("/dev/bus/usb/255/255")));
+    }
+
+    #[test]
+    fn a_node_we_own_can_be_opened() {
+        let path = std::env::temp_dir().join(format!("sdrmm-openable-{}", std::process::id()));
+        std::fs::write(&path, []).expect("temp node");
+        let result = openable(&path);
+        std::fs::remove_file(&path).expect("remove temp node");
+        assert!(result);
     }
 
     #[test]
