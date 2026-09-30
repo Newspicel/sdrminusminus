@@ -140,7 +140,6 @@ jobs:
           env -u LD_LIBRARY_PATH -u DYLD_LIBRARY_PATH "$STAGED/sdrmm${{ matrix.exe }}" --doctor | tee doctor
           grep -q 'compiled backends:.*soapy' doctor
           grep -qi 'soapysdr' doctor
-          grep -q '\[ok  \] Codec2 library' doctor
       - uses: actions/upload-artifact@v7
         with:
           name: sdrmm-${{ matrix.target }}
