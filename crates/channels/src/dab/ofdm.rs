@@ -1,8 +1,7 @@
-use std::{f32::consts::PI, sync::Arc};
+use std::f32::consts::PI;
 
 use num_complex::Complex;
-use rustfft::{Fft, FftPlanner};
-use sdrmm_dsp::{CONFIDENT, Soft};
+use sdrmm_dsp::{CONFIDENT, Soft, fft::Transform};
 use sdrmm_wire::DabTransmissionMode;
 
 use super::mode::Mode;
@@ -226,8 +225,7 @@ fn clamp(value: f32) -> Soft {
 
 pub struct SymbolDemod {
     mode: Mode,
-    fft_scratch: Vec<Complex<f32>>,
-    fft: Arc<dyn Fft<f32>>,
+    fft: Transform,
     bins: Vec<usize>,
     scratch: Vec<Complex<f32>>,
     previous: Vec<Complex<f32>>,
@@ -248,13 +246,9 @@ impl SymbolDemod {
     #[must_use]
     pub fn for_mode(transmission_mode: DabTransmissionMode) -> Self {
         let mode = Mode::new(transmission_mode);
-        let mut planner = FftPlanner::<f32>::new();
-        let fft = planner.plan_fft_forward(mode.useful);
-        let fft_scratch = vec![Complex::new(0.0, 0.0); fft.get_inplace_scratch_len()];
         Self {
             mode,
-            fft,
-            fft_scratch,
+            fft: Transform::forward(mode.useful),
             bins: interleaving_for_mode(transmission_mode),
             scratch: vec![Complex::new(0.0, 0.0); mode.useful],
             previous: vec![Complex::new(0.0, 0.0); mode.useful],
@@ -287,8 +281,7 @@ impl SymbolDemod {
         self.scratch.clear();
         self.scratch
             .extend_from_slice(&symbol[self.mode.guard..self.mode.symbol()]);
-        self.fft
-            .process_with_scratch(&mut self.scratch, &mut self.fft_scratch);
+        self.fft.process(&mut self.scratch);
         self.current.copy_from_slice(&self.scratch);
     }
 
@@ -521,22 +514,20 @@ mod tests {
 
     fn modulate(symbols: &[Vec<bool>]) -> Vec<Complex<f32>> {
         let table = interleaving();
-        let mut planner = FftPlanner::<f32>::new();
-        let inverse = planner.plan_fft_inverse(USEFUL);
+        let mut inverse = Transform::inverse(USEFUL);
         let mut previous: Vec<Complex<f32>> = {
             let reference = reference_symbol();
             table.iter().map(|&bin| reference[bin]).collect()
         };
         let mut iq = vec![Complex::new(0.0, 0.0); NULL];
-        let emit = |points: &[Complex<f32>], table: &[usize], out: &mut Vec<Complex<f32>>| {
+        let mut emit = |points: &[Complex<f32>], table: &[usize], out: &mut Vec<Complex<f32>>| {
             let mut bins = vec![Complex::new(0.0, 0.0); USEFUL];
             for (index, &bin) in table.iter().enumerate() {
                 bins[bin] = points[index];
             }
-            inverse.process(&mut bins);
-            let scale = 1.0 / (USEFUL as f32).sqrt();
-            out.extend(bins[USEFUL - GUARD..].iter().map(|&value| value * scale));
-            out.extend(bins.iter().map(|&value| value * scale));
+            inverse.process_unitary(&mut bins);
+            out.extend_from_slice(&bins[USEFUL - GUARD..]);
+            out.extend_from_slice(&bins);
         };
         emit(&previous, &table, &mut iq);
         for bits in symbols {

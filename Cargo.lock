@@ -5878,7 +5878,6 @@ dependencies = [
  "num-complex",
  "realfft",
  "rtrb",
- "rustfft",
  "sdrmm-channels",
  "sdrmm-dsp",
  "sdrmm-modem",
@@ -6136,7 +6135,6 @@ version = "0.0.0"
 dependencies = [
  "arc-swap",
  "num-complex",
- "rustfft",
  "sdrmm-device",
  "sdrmm-dsp",
  "sdrmm-recorder",
@@ -6230,7 +6228,6 @@ version = "0.0.0"
 dependencies = [
  "criterion",
  "num-complex",
- "rustfft",
  "sdrmm-dsp",
  "sdrmm-modem-test-support",
  "sdrmm-test-support",

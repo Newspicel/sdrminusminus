@@ -1,9 +1,7 @@
 #![allow(clippy::expect_used)]
 
-use std::sync::Arc;
-
 use num_complex::Complex;
-use rustfft::{Fft, FftPlanner};
+use sdrmm_dsp::fft::Transform;
 use sdrmm_wire::DabTransmissionMode;
 
 use crate::dab::{
@@ -209,7 +207,7 @@ impl Talk {
 struct Modulator {
     mode: Mode,
     transmission_mode: DabTransmissionMode,
-    inverse: Arc<dyn Fft<f32>>,
+    inverse: Transform,
     bins: Vec<usize>,
     reference: Vec<Complex<f32>>,
 }
@@ -217,36 +215,30 @@ struct Modulator {
 impl Modulator {
     fn new(transmission_mode: DabTransmissionMode) -> Self {
         let mode = Mode::new(transmission_mode);
-        let mut planner = FftPlanner::<f32>::new();
         let bins = interleaving_for_mode(transmission_mode);
         let spectrum = reference_symbol_for_mode(transmission_mode);
         let reference = bins.iter().map(|&bin| spectrum[bin]).collect();
         Self {
             mode,
             transmission_mode,
-            inverse: planner.plan_fft_inverse(mode.useful),
+            inverse: Transform::inverse(mode.useful),
             bins,
             reference,
         }
     }
 
-    fn emit(&self, points: &[Complex<f32>], out: &mut Vec<Complex<f32>>) {
+    fn emit(&mut self, points: &[Complex<f32>], out: &mut Vec<Complex<f32>>) {
         let mut spectrum = vec![Complex::new(0.0, 0.0); self.mode.useful];
         for (index, &bin) in self.bins.iter().enumerate() {
             spectrum[bin] = points[index];
         }
         let mut time = spectrum;
-        self.inverse.process(&mut time);
-        let scale = 1.0 / (self.mode.useful as f32).sqrt();
-        out.extend(
-            time[self.mode.useful - self.mode.guard..]
-                .iter()
-                .map(|&value| value * scale),
-        );
-        out.extend(time.iter().map(|&value| value * scale));
+        self.inverse.process_unitary(&mut time);
+        out.extend_from_slice(&time[self.mode.useful - self.mode.guard..]);
+        out.extend_from_slice(&time);
     }
 
-    fn frame(&self, symbols: &[Vec<bool>], out: &mut Vec<Complex<f32>>) {
+    fn frame(&mut self, symbols: &[Vec<bool>], out: &mut Vec<Complex<f32>>) {
         out.extend(std::iter::repeat_n(Complex::new(0.0, 0.0), self.mode.null));
         let mut previous = self.reference.clone();
         self.emit(&previous, out);
@@ -297,7 +289,7 @@ fn generate(
     with_data: bool,
 ) -> Vec<Complex<f32>> {
     let mode = Mode::new(transmission_mode);
-    let modulator = Modulator::new(transmission_mode);
+    let mut modulator = Modulator::new(transmission_mode);
     let mut fic = FicEncoder::for_mode(transmission_mode);
     let mut music = Music::new();
     let mut talk = Talk::new();

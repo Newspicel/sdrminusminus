@@ -1,8 +1,7 @@
 use std::f64::consts::TAU;
-use std::sync::Arc;
 
 use num_complex::Complex;
-use rustfft::{Fft, FftPlanner};
+use sdrmm_dsp::fft::FftPair;
 use sdrmm_wire::DabTransmissionMode;
 use sdrmm_wire::radar::{DAB_SAMPLE_RATE_HZ, ReferenceHealth, ReferenceMode};
 
@@ -50,9 +49,7 @@ pub struct DabRemod {
     sync: FrameSync,
     state: State,
     cfo_hz: f64,
-    forward: Arc<dyn Fft<f32>>,
-    inverse: Arc<dyn Fft<f32>>,
-    fft_scratch: Vec<C32>,
+    fft: FftPair,
     carriers: Vec<usize>,
     signed: Vec<i64>,
     prs: Vec<C32>,
@@ -74,12 +71,6 @@ impl DabRemod {
         }
         let transmission = DabTransmissionMode::I;
         let mode = Mode::new(transmission);
-        let mut planner = FftPlanner::<f32>::new();
-        let forward = planner.plan_fft_forward(mode.useful);
-        let inverse = planner.plan_fft_inverse(mode.useful);
-        let scratch = forward
-            .get_inplace_scratch_len()
-            .max(inverse.get_inplace_scratch_len());
         let half = (mode.carriers() / 2) as i64;
         let signed: Vec<i64> = (-half..=half).filter(|&carrier| carrier != 0).collect();
         let carriers: Vec<usize> = signed
@@ -100,9 +91,7 @@ impl DabRemod {
             sync: FrameSync::for_mode(transmission),
             state: State::Acquire(None),
             cfo_hz: 0.0,
-            forward,
-            inverse,
-            fft_scratch: vec![C32::default(); scratch],
+            fft: FftPair::new(mode.useful),
             channel: vec![C32::default(); carriers.len()],
             smoothed: vec![C32::default(); carriers.len()],
             carriers,
@@ -306,8 +295,7 @@ impl DabRemod {
                 signal += s;
                 error += e;
             }
-            self.inverse
-                .process_with_scratch(&mut self.bins, &mut self.fft_scratch);
+            self.fft.inverse(&mut self.bins);
             self.write_symbol(symbol_start, first, gain / useful as f32);
         }
         if error <= 0.0 {
@@ -324,8 +312,7 @@ impl DabRemod {
             *bin = narrow(widen(value) * turn);
             turn *= step;
         }
-        self.forward
-            .process_with_scratch(&mut self.bins, &mut self.fft_scratch);
+        self.fft.forward(&mut self.bins);
     }
 
     fn estimate_channel(&mut self) -> C32 {
@@ -486,8 +473,7 @@ impl DabRemod {
     fn build_prs_wave(&mut self) {
         let (useful, guard) = (self.mode.useful, self.mode.guard);
         self.place_prs();
-        self.inverse
-            .process_with_scratch(&mut self.bins, &mut self.fft_scratch);
+        self.fft.inverse(&mut self.bins);
         let scale = 1.0 / (useful as f32).sqrt();
         for (offset, value) in self.prs_wave.iter_mut().enumerate() {
             *value = self.bins[(offset + useful - guard) % useful] * scale;

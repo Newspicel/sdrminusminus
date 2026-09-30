@@ -1,9 +1,8 @@
-use std::{f64::consts::TAU, sync::Arc};
+use std::f64::consts::TAU;
 
 use num_complex::Complex;
-use rustfft::{Fft, FftPlanner};
 
-use sdrmm_dsp::LoopFilter;
+use sdrmm_dsp::{LoopFilter, fft::FftPair};
 
 use crate::{constellation::demap::energy_llrs, soft::Llr};
 
@@ -138,9 +137,7 @@ impl CssMod {
 #[derive(Clone)]
 pub struct CssDemod {
     params: CssParams,
-    fft: Arc<dyn Fft<f32>>,
-    ifft: Arc<dyn Fft<f32>>,
-    scratch: Vec<Complex<f32>>,
+    fft: FftPair,
     reference: Vec<Complex<f32>>,
     stretch: f64,
     window: Vec<Complex<f32>>,
@@ -171,15 +168,8 @@ impl CssDemod {
     #[must_use]
     pub fn new(params: CssParams) -> Self {
         let n = params.chips();
-        let mut planner = FftPlanner::<f32>::new();
-        let fft = planner.plan_fft_forward(n);
-        let ifft = planner.plan_fft_inverse(n);
-        let scratch_len = fft
-            .get_inplace_scratch_len()
-            .max(ifft.get_inplace_scratch_len());
         let zero = Complex::new(0.0, 0.0);
         Self {
-            scratch: vec![zero; scratch_len],
             reference: params.base_chirp().into_iter().map(|c| c.conj()).collect(),
             stretch: 1.0,
             window: vec![zero; n],
@@ -197,8 +187,7 @@ impl CssDemod {
             timing: timing_loop(n),
             anchor: None,
             params,
-            fft,
-            ifft,
+            fft: FftPair::new(n),
         }
     }
 

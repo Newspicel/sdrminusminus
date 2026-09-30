@@ -1,63 +1,4 @@
-use std::sync::Arc;
-
 use num_complex::Complex;
-use rustfft::{Fft, FftPlanner};
-
-#[derive(Clone)]
-pub struct Dft {
-    forward: Arc<dyn Fft<f32>>,
-    inverse: Arc<dyn Fft<f32>>,
-    scratch: Vec<Complex<f32>>,
-    scale: f32,
-    n: usize,
-}
-
-impl Dft {
-    #[must_use]
-    pub fn new(n: usize) -> Self {
-        assert!(n > 0, "a transform needs at least one point");
-        let mut planner = FftPlanner::<f32>::new();
-        let forward = planner.plan_fft_forward(n);
-        let inverse = planner.plan_fft_inverse(n);
-        let scratch = vec![
-            Complex::new(0.0, 0.0);
-            forward
-                .get_inplace_scratch_len()
-                .max(inverse.get_inplace_scratch_len())
-        ];
-        Self {
-            forward,
-            inverse,
-            scratch,
-            scale: (n as f32).sqrt().recip(),
-            n,
-        }
-    }
-
-    #[must_use]
-    pub fn len(&self) -> usize {
-        self.n
-    }
-
-    #[must_use]
-    pub fn is_empty(&self) -> bool {
-        self.n == 0
-    }
-
-    pub fn forward(&mut self, buf: &mut [Complex<f32>]) {
-        self.forward.process_with_scratch(buf, &mut self.scratch);
-        for v in buf.iter_mut() {
-            *v *= self.scale;
-        }
-    }
-
-    pub fn inverse(&mut self, buf: &mut [Complex<f32>]) {
-        self.inverse.process_with_scratch(buf, &mut self.scratch);
-        for v in buf.iter_mut() {
-            *v *= self.scale;
-        }
-    }
-}
 
 #[must_use]
 pub fn invert(a: &mut [Complex<f64>], n: usize) -> Option<()> {
@@ -130,28 +71,6 @@ pub fn matvec(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn the_transform_is_unitary_at_any_size() {
-        for n in [8usize, 48, 80, 100] {
-            let mut dft = Dft::new(n);
-            let original: Vec<Complex<f32>> = (0..n)
-                .map(|k| Complex::new((k as f32).sin(), (0.7 * k as f32).cos()))
-                .collect();
-            let energy =
-                |x: &[Complex<f32>]| x.iter().map(|v| f64::from(v.norm_sqr())).sum::<f64>();
-            let mut buf = original.clone();
-            dft.forward(&mut buf);
-            assert!(
-                (energy(&buf) / energy(&original) - 1.0).abs() < 1e-4,
-                "n = {n}: energy moved"
-            );
-            dft.inverse(&mut buf);
-            for (k, (a, b)) in buf.iter().zip(&original).enumerate() {
-                assert!((a - b).norm() < 1e-4, "n = {n}, sample {k}");
-            }
-        }
-    }
 
     #[test]
     fn the_inverse_is_an_inverse_and_a_singular_matrix_is_refused() {

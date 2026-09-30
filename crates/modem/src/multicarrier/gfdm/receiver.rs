@@ -1,6 +1,7 @@
 use std::f64::consts::TAU;
 
 use num_complex::Complex;
+use sdrmm_dsp::fft::FftPair;
 
 use super::{
     GfdmDemod, GfdmDetector, GfdmParams,
@@ -9,7 +10,6 @@ use super::{
 use crate::{
     constellation::Constellation,
     framesync::{derotate, derotate_from},
-    multicarrier::transform::Dft,
     ofdm::MIN_NOISE_VAR,
 };
 
@@ -127,8 +127,8 @@ pub struct GfdmReceiver {
     sync: GfdmSync,
     demod: GfdmDemod,
     table: Constellation,
-    full: Dft,
-    half: Dft,
+    full: FftPair,
+    half: FftPair,
     channel: Vec<Complex<f32>>,
     weights: Vec<Complex<f32>>,
     taps: Vec<Complex<f32>>,
@@ -149,8 +149,8 @@ impl GfdmReceiver {
             sync,
             demod: GfdmDemod::new(params, detector),
             table,
-            full: Dft::new(n),
-            half: Dft::new(half),
+            full: FftPair::new(n),
+            half: FftPair::new(half),
             channel: vec![Complex::new(1.0, 0.0); n],
             weights: vec![Complex::new(1.0, 0.0); n],
             taps: vec![Complex::new(0.0, 0.0); half],
@@ -265,11 +265,11 @@ impl GfdmReceiver {
             self.tracker.phase(),
             &mut self.window,
         );
-        self.full.forward(&mut self.window);
+        self.full.forward_unitary(&mut self.window);
         for (y, &w) in self.window.iter_mut().zip(&self.weights) {
             *y *= w;
         }
-        self.full.inverse(&mut self.window);
+        self.full.inverse_unitary(&mut self.window);
         self.demod.detect_block(&self.window, &mut self.points);
         self.tracker.correct(
             &mut self.points,
@@ -281,12 +281,12 @@ impl GfdmReceiver {
 
     fn estimate(&mut self, x: &[Complex<f32>], start: usize, cfo: f64) {
         derotate(x, start, cfo, &mut self.window);
-        self.full.forward(&mut self.window);
+        self.full.forward_unitary(&mut self.window);
         self.noise_var = self.odd_bin_power().max(MIN_NOISE_VAR);
         self.sample_even_bins();
-        self.half.inverse(&mut self.taps);
+        self.half.inverse_unitary(&mut self.taps);
         self.spread_taps();
-        self.full.forward(&mut self.channel);
+        self.full.forward_unitary(&mut self.channel);
         let scale = std::f32::consts::SQRT_2;
         for h in &mut self.channel {
             *h *= scale;
@@ -323,7 +323,7 @@ impl GfdmReceiver {
         for (k, &p) in spectrum.iter().enumerate() {
             self.points[2 * k] = self.channel[2 * k] * p * scale;
         }
-        self.full.inverse(&mut self.points);
+        self.full.inverse_unitary(&mut self.points);
     }
 
     fn odd_bin_power(&self) -> f64 {

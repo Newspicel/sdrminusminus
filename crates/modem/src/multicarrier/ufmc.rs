@@ -1,7 +1,7 @@
 use num_complex::Complex;
 use sdrmm_dsp::design_lowpass;
 
-use super::transform::Dft;
+use sdrmm_dsp::fft::FftPair;
 
 pub const MAX_FFT: usize = 4_096;
 
@@ -94,7 +94,7 @@ impl UfmcParams {
 #[derive(Clone)]
 pub struct UfmcMod {
     params: UfmcParams,
-    dft: Dft,
+    dft: FftPair,
     filters: Vec<Vec<Complex<f32>>>,
     grid: Vec<Complex<f32>>,
     symbol: Vec<Complex<f32>>,
@@ -104,7 +104,7 @@ impl UfmcMod {
     #[must_use]
     pub fn new(params: UfmcParams) -> Self {
         Self {
-            dft: Dft::new(params.fft),
+            dft: FftPair::new(params.fft),
             filters: (0..params.subbands)
                 .map(|b| params.subband_filter(b))
                 .collect(),
@@ -129,7 +129,7 @@ impl UfmcMod {
                 for k in 0..self.params.per_subband {
                     self.grid[self.params.bin(first + k)] = chunk[first + k];
                 }
-                self.dft.inverse(&mut self.grid);
+                self.dft.inverse_unitary(&mut self.grid);
                 for (n, &x) in self.grid.iter().enumerate() {
                     for (l, &tap) in self.filters[b].iter().enumerate() {
                         self.symbol[n + l] += x * tap;
@@ -144,7 +144,7 @@ impl UfmcMod {
 #[derive(Clone)]
 pub struct UfmcDemod {
     params: UfmcParams,
-    dft: Dft,
+    dft: FftPair,
     equaliser: Vec<Complex<f32>>,
     amplification: Vec<f32>,
     padded: Vec<Complex<f32>>,
@@ -175,7 +175,7 @@ impl UfmcDemod {
             })
             .collect();
         Self {
-            dft: Dft::new(2 * params.fft),
+            dft: FftPair::new(2 * params.fft),
             amplification: equaliser.iter().map(Complex::norm_sqr).collect(),
             equaliser,
             padded: vec![Complex::new(0.0, 0.0); 2 * params.fft],
@@ -198,7 +198,7 @@ impl UfmcDemod {
         for chunk in x.chunks_exact(samples) {
             self.padded.fill(Complex::new(0.0, 0.0));
             self.padded[..samples].copy_from_slice(chunk);
-            self.dft.forward(&mut self.padded);
+            self.dft.forward_unitary(&mut self.padded);
             for (index, &gain) in self.equaliser.iter().enumerate() {
                 let bin = 2 * self.params.bin(index);
                 out.push(self.padded[bin] * gain * std::f32::consts::SQRT_2);

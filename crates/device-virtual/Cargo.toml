@@ -19,5 +19,4 @@ num-complex.workspace = true
 arc-swap.workspace = true
 
 [dev-dependencies]
-rustfft.workspace = true
 tempfile.workspace = true

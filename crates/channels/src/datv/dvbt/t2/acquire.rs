@@ -1,7 +1,7 @@
-use std::{f32::consts::TAU, sync::Arc};
+use std::f32::consts::TAU;
 
 use num_complex::Complex;
-use rustfft::{Fft, FftPlanner};
+use sdrmm_dsp::fft::Transform;
 
 use super::{
     DecodeError,
@@ -53,8 +53,7 @@ pub struct Detection {
 }
 
 pub struct Acquisition {
-    fft: Arc<dyn Fft<f32>>,
-    scratch: Vec<Complex<f32>>,
+    fft: Transform,
     spectrum: Vec<Complex<f32>>,
     phase: [Complex<f32>; 1024],
     signs: [f32; 384],
@@ -62,12 +61,10 @@ pub struct Acquisition {
 
 impl Default for Acquisition {
     fn default() -> Self {
-        let fft = FftPlanner::new().plan_fft_forward(1024);
         let mut state = 0x4e46_u16;
         Self {
-            scratch: vec![Complex::default(); fft.get_inplace_scratch_len()],
             spectrum: vec![Complex::default(); 1024],
-            fft,
+            fft: Transform::forward(1024),
             phase: std::array::from_fn(|i| Complex::from_polar(1.0, TAU * i as f32 / 1024.0)),
             signs: std::array::from_fn(|_| {
                 let bit = (state ^ (state >> 1)) & 1;
@@ -148,8 +145,7 @@ impl Acquisition {
         for (i, p) in self.spectrum.iter_mut().enumerate() {
             *p = iq[i + 542] * Complex::from_polar(1.0, -fractional * i as f32);
         }
-        self.fft
-            .process_with_scratch(&mut self.spectrum, &mut self.scratch);
+        self.fft.process(&mut self.spectrum);
         let mut best = None;
         let mut confidence = 0.55;
         for offset in -64_isize..=64 {

@@ -1,7 +1,8 @@
 use std::f64::consts::TAU;
 
 use num_complex::Complex;
-use rustfft::FftPlanner;
+
+use crate::fft::Transform;
 
 pub(crate) fn complex_tone(freq_norm: f64, len: usize) -> Vec<Complex<f32>> {
     (0..len)
@@ -29,7 +30,7 @@ pub(crate) fn rms_r(x: &[f32]) -> f32 {
 pub(crate) fn tone_peak_and_snr(x: &[Complex<f32>]) -> (usize, f32) {
     let n = x.len();
     let mut buf = x.to_vec();
-    FftPlanner::new().plan_fft_forward(n).process(&mut buf);
+    Transform::forward(n).process(&mut buf);
     let power: Vec<f64> = buf.iter().map(|v| f64::from(v.norm_sqr())).collect();
     let peak = power
         .iter()

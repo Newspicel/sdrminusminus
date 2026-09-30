@@ -1,7 +1,5 @@
-use std::sync::Arc;
-
 use num_complex::Complex;
-use rustfft::{Fft, FftPlanner};
+use sdrmm_dsp::fft::Transform;
 
 use super::{
     equalize::{ChannelEstimate, ChannelEstimator, PilotFit, PilotTracker, noise_var_from_repeats},
@@ -19,10 +17,8 @@ pub const DEFAULT_BACKOFF: usize = 4;
 #[derive(Clone)]
 pub struct OfdmDemod {
     params: OfdmParams,
-    fft: Arc<dyn Fft<f32>>,
-    scratch: Vec<Complex<f32>>,
+    fft: Transform,
     grid: Vec<Complex<f32>>,
-    scale: f32,
     sync: PreambleSync,
     estimator: ChannelEstimator,
     pilot_tracking: bool,
@@ -43,17 +39,13 @@ impl OfdmDemod {
     #[must_use]
     pub fn new(params: OfdmParams) -> Self {
         let fft_size = params.fft();
-        let fft = FftPlanner::<f32>::new().plan_fft_forward(fft_size);
-        let scratch = vec![Complex::new(0.0, 0.0); fft.get_inplace_scratch_len()];
         let occupied = params.map().occupied().len();
         let pilots = params.map().pilots().len();
         let pilot_offsets = params.map().pilots().iter().map(|c| c.offset).collect();
         let data = params.data_subcarriers();
         Self {
-            fft,
-            scratch,
+            fft: Transform::forward(fft_size),
             grid: vec![Complex::new(0.0, 0.0); fft_size],
-            scale: (fft_size as f64).sqrt().recip() as f32,
             sync: PreambleSync::new(&params),
             estimator: ChannelEstimator::LongTraining,
             pilot_tracking: true,
@@ -241,11 +233,7 @@ impl OfdmDemod {
             self.grid[n] = Complex::new(y.re as f32, y.im as f32);
             rot *= step;
         }
-        self.fft
-            .process_with_scratch(&mut self.grid, &mut self.scratch);
-        for bin in &mut self.grid {
-            *bin *= self.scale;
-        }
+        self.fft.process_unitary(&mut self.grid);
     }
 
     fn estimate_long(&mut self, x: &[Complex<f32>], long_start: usize) {

@@ -1,6 +1,6 @@
-use std::sync::{Arc, LazyLock};
+use std::sync::LazyLock;
 
-use rustfft::{Fft, FftPlanner};
+use sdrmm_dsp::fft::Transform;
 
 use super::{SYMBOL_SAMPLES, SYMBOL_SPAN, Sample, fir, shaped, tables};
 
@@ -16,14 +16,12 @@ const DECIMATION: usize = (super::SAMPLE_RATE_HZ / (2.0 * MAX_OFFSET_HZ)) as usi
 const MAX_OFFSET_HZ: f64 = 200.0;
 const HZ_PER_BIN: f64 = 2.0 * MAX_OFFSET_HZ / FFT_LEN as f64;
 
-static FFT: LazyLock<Arc<dyn Fft<f32>>> =
-    LazyLock::new(|| FftPlanner::new().plan_fft_forward(FFT_LEN));
 static LUT: LazyLock<[Sample; LUT_LEN]> = LazyLock::new(pilot_lut);
 
 pub(super) struct CoarseFrequency {
     branches: [PilotBranch; 2],
     spectrum: [Sample; FFT_LEN],
-    scratch: Box<[Sample]>,
+    fft: Transform,
 }
 
 struct PilotBranch {
@@ -39,20 +37,11 @@ struct Peak {
 
 impl CoarseFrequency {
     pub(super) fn new() -> Self {
-        let scratch = vec![Sample::ZERO; FFT.get_inplace_scratch_len()].into_boxed_slice();
-        Self::with_scratch(scratch)
-    }
-
-    fn with_scratch(scratch: Box<[Sample]>) -> Self {
         Self {
             branches: [PilotBranch::new(0), PilotBranch::new(LAGGED_START)],
             spectrum: [Sample::ZERO; FFT_LEN],
-            scratch,
+            fft: Transform::forward(FFT_LEN),
         }
-    }
-
-    pub(super) fn restarted(&mut self) -> Self {
-        Self::with_scratch(std::mem::take(&mut self.scratch))
     }
 
     pub(super) fn estimate(&mut self, samples: &[Sample], search: bool) -> f32 {
@@ -65,7 +54,7 @@ impl CoarseFrequency {
         let [aligned, lagged] = self
             .branches
             .each_ref()
-            .map(|branch| branch.peak(&mut self.spectrum, &mut self.scratch));
+            .map(|branch| branch.peak(&mut self.spectrum, &mut self.fft));
         if aligned.power > lagged.power {
             aligned.offset_hz
         } else {
@@ -104,7 +93,7 @@ impl PilotBranch {
         );
     }
 
-    fn peak(&self, spectrum: &mut [Sample; FFT_LEN], scratch: &mut [Sample]) -> Peak {
+    fn peak(&self, spectrum: &mut [Sample; FFT_LEN], fft: &mut Transform) -> Peak {
         spectrum.fill(Sample::ZERO);
         let decimated = self.lpf.iter().step_by(DECIMATION);
         for ((bin, &sample), &weight) in spectrum
@@ -114,7 +103,7 @@ impl PilotBranch {
         {
             *bin = sample.scale(weight);
         }
-        FFT.process_with_scratch(spectrum, scratch);
+        fft.process(spectrum);
         let (bin, power) = strongest(spectrum);
         Peak {
             offset_hz: bin_offset_hz(bin),

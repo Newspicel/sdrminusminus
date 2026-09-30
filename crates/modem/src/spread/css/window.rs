@@ -47,8 +47,7 @@ impl CssDemod {
     fn advance_window(&mut self, fraction: f64) {
         let n = self.window.len();
         let half = n / 2;
-        self.fft
-            .process_with_scratch(&mut self.window, &mut self.scratch);
+        self.fft.forward(&mut self.window);
         let step = Complex::from_polar(1.0, TAU * fraction / n as f64);
         let mut up = Complex::new(1.0f64, 0.0);
         let mut down = step.conj();
@@ -61,8 +60,7 @@ impl CssDemod {
             down *= step.conj();
         }
         self.window[half] *= (PI * fraction).cos() as f32;
-        self.ifft
-            .process_with_scratch(&mut self.window, &mut self.scratch);
+        self.fft.inverse(&mut self.window);
         let scale = (n as f32).recip();
         for sample in &mut self.window {
             *sample *= scale;
@@ -90,8 +88,7 @@ impl CssDemod {
             self.dechirped[k] = z;
             self.bins[k] = z;
         }
-        self.fft
-            .process_with_scratch(&mut self.bins, &mut self.scratch);
+        self.fft.forward(&mut self.bins);
         let scale = (n as f32).recip();
         for (slot, bin) in self.energies.iter_mut().zip(&self.bins) {
             *slot = bin.norm_sqr() * scale;

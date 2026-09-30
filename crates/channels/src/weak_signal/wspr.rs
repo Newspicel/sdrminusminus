@@ -8,7 +8,7 @@ use std::{f32::consts::TAU, sync::Arc};
 
 use num_complex::Complex;
 use realfft::{RealFftPlanner, RealToComplex};
-use rustfft::{Fft, FftPlanner};
+use sdrmm_dsp::fft::Transform;
 
 use fano::{CODED_BITS, SYNC};
 use message::CallBook;
@@ -113,9 +113,9 @@ pub(crate) struct WsprDecoder {
     forward_input: Vec<f32>,
     spectrum: Vec<Complex<f32>>,
     forward_scratch: Vec<Complex<f32>>,
-    inverse: Arc<dyn Fft<f32>>,
-    inverse_scratch: Vec<Complex<f32>>,
-    frame_fft: Arc<dyn Fft<f32>>,
+    inverse: Transform,
+    frame_fft: Transform,
+    frame: Vec<Complex<f32>>,
     baseband: Vec<Complex<f32>>,
     fine: Vec<Complex<f32>>,
     power: Vec<f32>,
@@ -127,16 +127,14 @@ pub(crate) struct WsprDecoder {
 impl WsprDecoder {
     pub(crate) fn new() -> Self {
         let forward = RealFftPlanner::<f32>::new().plan_fft_forward(SLOT_SAMPLES);
-        let mut planner = FftPlanner::<f32>::new();
-        let inverse = planner.plan_fft_inverse(BASEBAND);
         Self {
             forward_input: forward.make_input_vec(),
             spectrum: forward.make_output_vec(),
             forward_scratch: forward.make_scratch_vec(),
             forward,
-            inverse_scratch: vec![Complex::default(); inverse.get_inplace_scratch_len()],
-            inverse,
-            frame_fft: planner.plan_fft_forward(FRAME_FFT),
+            inverse: Transform::inverse(BASEBAND),
+            frame_fft: Transform::forward(FRAME_FFT),
+            frame: vec![Complex::default(); FRAME_FFT],
             baseband: vec![Complex::default(); BASEBAND],
             fine: vec![Complex::default(); FINE_SAMPLES],
             power: Vec::new(),
@@ -248,22 +246,20 @@ impl WsprDecoder {
                 self.baseband[offset.rem_euclid(BASEBAND as isize) as usize] = bin;
             }
         }
-        self.inverse
-            .process_with_scratch(&mut self.baseband, &mut self.inverse_scratch);
+        self.inverse.process(&mut self.baseband);
     }
 
     fn spectrogram(&mut self) -> usize {
         let frames = (BASEBAND - BASEBAND_SYMBOL) / FRAME_STEP + 1;
         self.power.clear();
         self.power.resize(frames * FRAME_FFT, 0.0);
-        let mut buffer = vec![Complex::default(); FRAME_FFT];
         for frame in 0..frames {
-            buffer.fill(Complex::default());
-            buffer[..BASEBAND_SYMBOL]
+            self.frame.fill(Complex::default());
+            self.frame[..BASEBAND_SYMBOL]
                 .copy_from_slice(&self.baseband[frame * FRAME_STEP..][..BASEBAND_SYMBOL]);
-            self.frame_fft.process(&mut buffer);
+            self.frame_fft.process(&mut self.frame);
             let row = &mut self.power[frame * FRAME_FFT..][..FRAME_FFT];
-            for (index, value) in buffer.iter().enumerate() {
+            for (index, value) in self.frame.iter().enumerate() {
                 row[(index + FRAME_FFT / 2) % FRAME_FFT] = value.norm_sqr();
             }
         }

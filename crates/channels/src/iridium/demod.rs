@@ -1,9 +1,7 @@
 use std::f32::consts::PI;
-use std::sync::Arc;
 
 use num_complex::Complex;
-use rustfft::{Fft, FftPlanner};
-use sdrmm_dsp::fast_arg;
+use sdrmm_dsp::{fast_arg, fft::Transform};
 
 use super::frame::{ACCESS_DL, ACCESS_UL, FrameKind, classify};
 use super::lcw::decode_lcw;
@@ -58,9 +56,8 @@ pub struct IridiumDemod {
     buf: Vec<Complex<f32>>,
     noise: f32,
     cfo_len: usize,
-    cfo_fft: Arc<dyn Fft<f32>>,
+    cfo_fft: Transform,
     cfo_buf: Vec<Complex<f32>>,
-    cfo_scratch: Vec<Complex<f32>>,
 }
 
 fn phasor(angle: f32) -> Complex<f32> {
@@ -155,16 +152,13 @@ impl IridiumDemod {
         let base = ((sps * 26.0) as usize).max(4);
         let cfo_len = 1usize << (usize::BITS - 1 - base.leading_zeros());
         let size = cfo_len * FFT_OVERSAMPLE;
-        let cfo_fft = FftPlanner::new().plan_fft_forward(size);
-        let scratch = cfo_fft.get_inplace_scratch_len();
         Self {
             sps,
             buf: Vec::new(),
             noise: 1.0,
             cfo_len,
-            cfo_fft,
+            cfo_fft: Transform::forward(size),
             cfo_buf: vec![Complex::default(); size],
-            cfo_scratch: vec![Complex::default(); scratch],
         }
     }
 
@@ -196,8 +190,7 @@ impl IridiumDemod {
                 Complex::default()
             };
         }
-        self.cfo_fft
-            .process_with_scratch(&mut self.cfo_buf, &mut self.cfo_scratch);
+        self.cfo_fft.process(&mut self.cfo_buf);
         let spectrum = &self.cfo_buf;
         let peak =
             (0..m).max_by(|&a, &b| spectrum[a].norm_sqr().total_cmp(&spectrum[b].norm_sqr()))?;

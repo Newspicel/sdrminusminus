@@ -1,7 +1,7 @@
-use std::{f32::consts::TAU, sync::Arc};
+use std::f32::consts::TAU;
 
 use num_complex::Complex;
-use rustfft::{Fft, FftPlanner};
+use sdrmm_dsp::fft::Transform;
 
 use super::{
     DecodeError,
@@ -15,7 +15,7 @@ use super::{
 use crate::datv::dvbs::PACKET;
 
 struct Mode {
-    fft: Arc<dyn Fft<f32>>,
+    fft: Transform,
     map: Mapping,
 }
 
@@ -39,7 +39,6 @@ pub struct Receiver {
     scheduler: Multiplex,
     pending: Vec<Complex<f32>>,
     spectrum: Vec<Complex<f32>>,
-    scratch: Vec<Complex<f32>>,
     equalized: Vec<Complex<f32>>,
     cells: Vec<Complex<f32>>,
     p2: Vec<Complex<f32>>,
@@ -60,19 +59,13 @@ pub struct Receiver {
 
 impl Receiver {
     pub fn new(selected: Option<u8>) -> Result<Self, DecodeError> {
-        let mut planner = FftPlanner::new();
         let mut modes = Vec::with_capacity(6);
         for size in [1024, 2048, 4096, 8192, 16384, 32768] {
             modes.push(Mode {
-                fft: planner.plan_fft_forward(size),
+                fft: Transform::forward(size),
                 map: Mapping::new(size)?,
             });
         }
-        let scratch = modes
-            .iter()
-            .map(|m| m.fft.get_inplace_scratch_len())
-            .max()
-            .unwrap_or(32768);
         Ok(Self {
             modes,
             acquisition: Acquisition::default(),
@@ -81,7 +74,6 @@ impl Receiver {
             scheduler: Multiplex::new()?,
             pending: Vec::with_capacity(131072),
             spectrum: vec![Complex::default(); 32768],
-            scratch: vec![Complex::default(); scratch],
             equalized: vec![Complex::default(); 27841],
             cells: vec![Complex::default(); 27841],
             p2: vec![Complex::default(); 22432],
@@ -412,9 +404,7 @@ impl Receiver {
             *p = self.pending[start + i]
                 * Complex::from_polar(1.0, -self.phase - self.frequency * (start + i) as f32);
         }
-        self.modes[mode]
-            .fft
-            .process_with_scratch(&mut self.spectrum[..fft], &mut self.scratch);
+        self.modes[mode].fft.process(&mut self.spectrum[..fft]);
     }
 
     fn consume(&mut self, count: usize) {

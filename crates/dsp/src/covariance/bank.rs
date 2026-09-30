@@ -187,9 +187,8 @@ const fn triangle(n: usize) -> usize {
 
 #[cfg(test)]
 mod tests {
-    use rustfft::FftPlanner;
-
     use super::*;
+    use crate::fft::Transform;
     use crate::testutil::XorShift32;
 
     fn direct_bins(
@@ -198,7 +197,7 @@ mod tests {
         hop: usize,
         decay: f64,
     ) -> Vec<Vec<Complex<f64>>> {
-        let fft = FftPlanner::<f64>::new().plan_fft_forward(size);
+        let mut fft = Transform::<f64>::forward(size);
         let window = hann(size);
         let n = lanes.len();
         let mut sums = vec![vec![Complex::new(0.0f64, 0.0); n * n]; size];

@@ -20,7 +20,6 @@ sdrmm-wire.workspace = true
 sdrmm-dsp.workspace = true
 sdrmm-modem.workspace = true
 num-complex.workspace = true
-rustfft.workspace = true
 realfft.workspace = true
 tract-nnef.workspace = true
 rtrb.workspace = true

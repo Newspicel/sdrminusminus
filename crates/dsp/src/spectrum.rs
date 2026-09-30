@@ -1,39 +1,33 @@
-use std::sync::Arc;
-
 use num_complex::Complex;
-use rustfft::{Fft, FftPlanner};
 
 use crate::{
     fastmath::fast_power_db,
+    fft::Transform,
     window::{coherent_gain, hann},
 };
 
 const POWER_EPSILON: f32 = 1e-24;
 
 pub struct SpectrumAnalyzer {
-    fft: Arc<dyn Fft<f32>>,
+    fft: Transform,
     size: usize,
     window: Vec<f32>,
     inv_gain: f32,
     buf: Vec<Complex<f32>>,
-    scratch: Vec<Complex<f32>>,
 }
 
 impl SpectrumAnalyzer {
     #[must_use]
     pub fn new(size: usize) -> Self {
-        let mut planner = FftPlanner::<f32>::new();
-        let fft = planner.plan_fft_forward(size.max(1));
+        let fft = Transform::forward(size.max(1));
         let window = hann(size);
         let inv_gain = 1.0 / coherent_gain(&window).max(f32::MIN_POSITIVE);
-        let scratch = vec![Complex::new(0.0, 0.0); fft.get_inplace_scratch_len()];
         Self {
             fft,
             size,
             window,
             inv_gain,
             buf: vec![Complex::new(0.0, 0.0); size],
-            scratch,
         }
     }
 
@@ -49,8 +43,7 @@ impl SpectrumAnalyzer {
         for ((dst, &s), &w) in self.buf.iter_mut().zip(input).zip(&self.window) {
             *dst = s * w;
         }
-        self.fft
-            .process_with_scratch(&mut self.buf, &mut self.scratch);
+        self.fft.process(&mut self.buf);
 
         let scale = self.inv_gain * self.inv_gain;
         let (positive, negative) = self.buf.split_at(self.size - self.size / 2);

@@ -1,13 +1,10 @@
+use num_complex::Complex;
 use std::f64::consts::TAU;
 use std::ops::Range;
-use std::sync::Arc;
-
-use num_complex::Complex;
-use rustfft::{Fft, FftPlanner};
 
 use super::RadarDspError;
 use super::batch::{BatchShape, MAX_SURVEILLANCE, WeightsAt};
-use crate::linalg::MAX_SOLVE_ORDER;
+use crate::{fft::FftPair, linalg::MAX_SOLVE_ORDER};
 
 type C32 = Complex<f32>;
 type C64 = Complex<f64>;
@@ -364,9 +361,7 @@ pub struct WienerSolver {
     plan: GroupPlan,
     loading: f64,
     unknowns: usize,
-    forward: Arc<dyn Fft<f64>>,
-    inverse: Arc<dyn Fft<f64>>,
-    fft_scratch: Vec<C64>,
+    fft: FftPair<f64>,
     buffer: Vec<C64>,
     lags: Vec<C64>,
     gram: Vec<C64>,
@@ -387,21 +382,13 @@ impl WienerSolver {
         if unknowns > MAX_SOLVE_ORDER {
             return Err(RadarDspError::Order);
         }
-        let mut planner = FftPlanner::<f64>::new();
-        let forward = planner.plan_fft_forward(shape.fft_len);
-        let inverse = planner.plan_fft_inverse(shape.fft_len);
-        let scratch = forward
-            .get_inplace_scratch_len()
-            .max(inverse.get_inplace_scratch_len());
         let span = 2 * shape.order() - 1;
         Ok(Self {
             shape,
             plan: groups.clone(),
             loading: f64::from(loading),
             unknowns,
-            forward,
-            inverse,
-            fft_scratch: vec![C64::default(); scratch],
+            fft: FftPair::new(shape.fft_len),
             buffer: vec![C64::default(); shape.fft_len],
             lags: vec![C64::default(); groups.shifts() * span],
             gram: vec![C64::default(); unknowns * unknowns],
@@ -573,8 +560,7 @@ impl WienerSolver {
 
     fn inverse_into_buffer(&mut self, source: &[C64]) {
         self.buffer.copy_from_slice(source);
-        self.inverse
-            .process_with_scratch(&mut self.buffer, &mut self.fft_scratch);
+        self.fft.inverse(&mut self.buffer);
         let scale = 1.0 / self.shape.fft_len as f64;
         for value in &mut self.buffer {
             *value *= scale;
@@ -650,8 +636,7 @@ impl WienerSolver {
                 let at = (k + m + 1 - self.shape.taps - lead) % m;
                 self.buffer[at] = self.solution[tap * order + k];
             }
-            self.forward
-                .process_with_scratch(&mut self.buffer, &mut self.fft_scratch);
+            self.fft.forward(&mut self.buffer);
             for (out, value) in table
                 .spectrum_mut(group, lane, tap)
                 .iter_mut()

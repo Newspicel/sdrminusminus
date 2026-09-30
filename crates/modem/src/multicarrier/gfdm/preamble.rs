@@ -1,10 +1,8 @@
 use num_complex::Complex;
+use sdrmm_dsp::fft::FftPair;
 
 use super::GfdmParams;
-use crate::{
-    framesync::{RepetitionDetector, conj_product, derotate},
-    multicarrier::transform::Dft,
-};
+use crate::framesync::{RepetitionDetector, conj_product, derotate};
 
 pub const TAP_FLOOR: f64 = 0.1;
 pub const NOISE_FLOOR: f64 = 12.0;
@@ -30,7 +28,7 @@ impl GfdmPreamble {
         );
         let spectrum = qpsk_sequence(n / 2);
         let mut half = spectrum.clone();
-        Dft::new(n / 2).inverse(&mut half);
+        FftPair::new(n / 2).inverse_unitary(&mut half);
         let block = half.iter().chain(&half).copied().collect();
         Self { spectrum, block }
     }

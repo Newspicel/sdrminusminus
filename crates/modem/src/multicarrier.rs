@@ -10,5 +10,4 @@ pub use gfdm::{
     GfdmSync,
 };
 pub use otfs::{OtfsGrid, OtfsMod, OtfsPrecoder, OtfsReceiver};
-pub use transform::Dft;
 pub use ufmc::{UfmcDemod, UfmcMod, UfmcParams};

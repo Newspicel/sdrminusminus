@@ -5,7 +5,7 @@ pub use estimate::{DelayDopplerFit, Support};
 use num_complex::Complex;
 pub use receiver::{OtfsMod, OtfsReceiver};
 
-use super::transform::Dft;
+use sdrmm_dsp::fft::FftPair;
 
 pub const MAX_GRID: usize = 4_096;
 
@@ -30,8 +30,8 @@ impl OtfsGrid {
 #[derive(Clone)]
 pub struct OtfsPrecoder {
     grid: OtfsGrid,
-    doppler_dft: Dft,
-    delay_dft: Dft,
+    doppler_dft: FftPair,
+    delay_dft: FftPair,
     column: Vec<Complex<f32>>,
     plane: Vec<Complex<f32>>,
 }
@@ -44,8 +44,8 @@ impl OtfsPrecoder {
             "an OTFS grid runs 1..={MAX_GRID} on each axis"
         );
         Self {
-            doppler_dft: Dft::new(grid.doppler),
-            delay_dft: Dft::new(grid.delay),
+            doppler_dft: FftPair::new(grid.doppler),
+            delay_dft: FftPair::new(grid.delay),
             column: vec![Complex::new(0.0, 0.0); grid.doppler.max(grid.delay)],
             plane: vec![Complex::new(0.0, 0.0); grid.points()],
             grid,
@@ -64,14 +64,14 @@ impl OtfsPrecoder {
         for delay in 0..m {
             let column = &mut self.column[..n];
             column.copy_from_slice(&dd[delay * n..(delay + 1) * n]);
-            self.doppler_dft.forward(column);
+            self.doppler_dft.forward_unitary(column);
             for (symbol, &v) in column.iter().enumerate() {
                 self.plane[symbol * m + delay] = v;
             }
         }
         for symbol in 0..n {
             let row = &mut self.plane[symbol * m..(symbol + 1) * m];
-            self.delay_dft.inverse(row);
+            self.delay_dft.inverse_unitary(row);
         }
         out.copy_from_slice(&self.plane);
     }
@@ -83,14 +83,14 @@ impl OtfsPrecoder {
         self.plane.copy_from_slice(tf);
         for symbol in 0..n {
             let row = &mut self.plane[symbol * m..(symbol + 1) * m];
-            self.delay_dft.forward(row);
+            self.delay_dft.forward_unitary(row);
         }
         for delay in 0..m {
             let column = &mut self.column[..n];
             for (symbol, slot) in column.iter_mut().enumerate() {
                 *slot = self.plane[symbol * m + delay];
             }
-            self.doppler_dft.inverse(column);
+            self.doppler_dft.inverse_unitary(column);
             out[delay * n..(delay + 1) * n].copy_from_slice(column);
         }
     }

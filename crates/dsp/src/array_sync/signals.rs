@@ -1,7 +1,8 @@
 use std::f64::consts::TAU;
 
 use num_complex::Complex;
-use rustfft::FftPlanner;
+
+use crate::fft::{FftPair, Transform};
 
 pub(super) struct Gaussian {
     state: u64,
@@ -46,16 +47,16 @@ pub(super) fn shaped(
     response: impl Fn(f64) -> Complex<f64>,
 ) -> Vec<Complex<f32>> {
     let len = input.len();
-    let mut planner = FftPlanner::<f64>::new();
+    let mut fft = FftPair::<f64>::new(len);
     let mut spectrum: Vec<Complex<f64>> = input
         .iter()
         .map(|value| Complex::new(f64::from(value.re), f64::from(value.im)))
         .collect();
-    planner.plan_fft_forward(len).process(&mut spectrum);
+    fft.forward(&mut spectrum);
     for (bin, value) in spectrum.iter_mut().enumerate() {
         *value *= response(frequency(bin, len));
     }
-    planner.plan_fft_inverse(len).process(&mut spectrum);
+    fft.inverse(&mut spectrum);
     spectrum
         .iter()
         .map(|value| {
@@ -87,15 +88,14 @@ pub(super) fn delay_between(
     lane: &[Complex<f32>],
     block: usize,
 ) -> f64 {
-    let mut planner = FftPlanner::<f64>::new();
-    let fft = planner.plan_fft_forward(block);
+    let mut fft = Transform::<f64>::forward(block);
     let window: Vec<f64> = (0..block)
         .map(|n| 0.5 - 0.5 * (TAU * n as f64 / block as f64).cos())
         .collect();
     let mut cross = vec![Complex::<f64>::default(); block];
     let mut start = 0;
     while start + block <= reference.len().min(lane.len()) {
-        let spectrum = |samples: &[Complex<f32>]| {
+        let mut spectrum = |samples: &[Complex<f32>]| {
             let mut buf: Vec<Complex<f64>> = samples[start..start + block]
                 .iter()
                 .zip(&window)

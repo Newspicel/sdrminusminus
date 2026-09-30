@@ -1,7 +1,7 @@
 use std::f32::consts::TAU;
 
 use num_complex::Complex;
-use rustfft::FftPlanner;
+use sdrmm_dsp::fft::Transform;
 
 use super::{
     acquire::{Acquisition, Preamble},
@@ -31,9 +31,7 @@ pub(super) fn p1(preamble: Preamble) -> Vec<Complex<f32>> {
         spectrum[(carrier + 1024 - 426) % 1024] =
             Complex::new(differential * if prbs != 0 { -1.0 } else { 1.0 }, 0.0);
     }
-    FftPlanner::new()
-        .plan_fft_inverse(1024)
-        .process(&mut spectrum);
+    Transform::inverse(1024).process(&mut spectrum);
     (0..2048)
         .map(|i| {
             let (sample, shifted) = match i {

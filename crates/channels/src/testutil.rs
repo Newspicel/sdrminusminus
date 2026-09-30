@@ -1,7 +1,7 @@
 use std::f64::consts::TAU;
 
 use num_complex::Complex;
-use rustfft::FftPlanner;
+use sdrmm_dsp::fft::Transform;
 use sdrmm_wire::{ChannelParams, ChannelSettings, DecoderEvent};
 
 use crate::{AUDIO_RATE, ChannelOutputs, ChannelRx};
@@ -159,7 +159,7 @@ pub(crate) fn rms(x: &[f32]) -> f32 {
 fn half_spectrum(audio: &[f32]) -> Vec<f64> {
     let n = audio.len();
     let mut buf: Vec<Complex<f32>> = audio.iter().map(|&v| Complex::new(v, 0.0)).collect();
-    FftPlanner::new().plan_fft_forward(n).process(&mut buf);
+    Transform::forward(n).process(&mut buf);
     buf[..=n / 2]
         .iter()
         .map(|v| f64::from(v.norm_sqr()))

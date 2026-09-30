@@ -1,8 +1,5 @@
-use std::sync::Arc;
-
 use num_complex::Complex;
-use rustfft::{Fft, FftPlanner};
-use sdrmm_dsp::Soft;
+use sdrmm_dsp::{Soft, fft::Transform};
 use sdrmm_wire::DatvCodeRate;
 
 use super::{
@@ -14,8 +11,7 @@ use crate::datv::dvbs::{DvbsDecoder, DvbsMetrics, PACKET};
 
 pub struct Receiver {
     maps: [Mapping; 2],
-    transforms: [Arc<dyn Fft<f32>>; 2],
-    scratch: Vec<Complex<f32>>,
+    transforms: [Transform; 2],
     pending: Vec<Complex<f32>>,
     spectrum: Vec<Complex<f32>>,
     estimates: Vec<Complex<f32>>,
@@ -39,20 +35,9 @@ pub struct Receiver {
 
 impl Receiver {
     pub fn new(low_priority: bool) -> Self {
-        let mut planner = FftPlanner::new();
-        let transforms = [
-            planner.plan_fft_forward(2048),
-            planner.plan_fft_forward(8192),
-        ];
-        let scratch_len = transforms
-            .iter()
-            .map(|fft| fft.get_inplace_scratch_len())
-            .max()
-            .unwrap_or(8192);
         Self {
             maps: [Mapping::new(2048), Mapping::new(8192)],
-            transforms,
-            scratch: vec![Complex::new(0.0, 0.0); scratch_len],
+            transforms: [Transform::forward(2048), Transform::forward(8192)],
             pending: Vec::with_capacity(65536),
             spectrum: vec![Complex::new(0.0, 0.0); 8192],
             estimates: vec![Complex::new(0.0, 0.0); 6817],
@@ -161,8 +146,7 @@ impl Receiver {
         for (i, value) in self.spectrum[..timing.fft].iter_mut().enumerate() {
             *value = self.pending[window + i] * Complex::from_polar(1.0, -timing.offset * i as f32);
         }
-        self.transforms[index]
-            .process_with_scratch(&mut self.spectrum[..timing.fft], &mut self.scratch);
+        self.transforms[index].process(&mut self.spectrum[..timing.fft]);
         for (bin, value) in self.spectrum[..timing.fft].iter_mut().enumerate() {
             let carrier = if bin < timing.fft / 2 {
                 bin as isize

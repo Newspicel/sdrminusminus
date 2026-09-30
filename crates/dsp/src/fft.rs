@@ -1,64 +1,109 @@
 use std::sync::Arc;
 
 use num_complex::Complex;
-use rustfft::{Fft, FftPlanner};
+use rustfft::{Fft, FftDirection, FftNum, FftPlanner, num_traits::Zero};
+
+#[derive(Clone)]
+pub struct Transform<T: FftNum = f32> {
+    plan: Arc<dyn Fft<T>>,
+    scratch: Vec<Complex<T>>,
+}
+
+impl<T: FftNum> Transform<T> {
+    #[must_use]
+    pub fn forward(len: usize) -> Self {
+        Self::planned(len, FftDirection::Forward)
+    }
+
+    #[must_use]
+    pub fn inverse(len: usize) -> Self {
+        Self::planned(len, FftDirection::Inverse)
+    }
+
+    fn planned(len: usize, direction: FftDirection) -> Self {
+        let plan = FftPlanner::new().plan_fft(len, direction);
+        let scratch = vec![Complex::zero(); plan.get_inplace_scratch_len()];
+        Self { plan, scratch }
+    }
+
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.plan.len()
+    }
+
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.plan.len() == 0
+    }
+
+    pub fn process(&mut self, buf: &mut [Complex<T>]) {
+        self.plan.process_with_scratch(buf, &mut self.scratch);
+    }
+}
+
+impl Transform<f32> {
+    pub fn process_unitary(&mut self, buf: &mut [Complex<f32>]) {
+        self.process(buf);
+        scale(buf, (self.len() as f32).sqrt().recip());
+    }
+}
 
 /// A planned transform and its inverse, with the scratch both need already sized.
 ///
 /// Planning is the expensive part and reuse is the whole point: a processor builds one of these
 /// when its size is settled and transforms in place from then on without touching the allocator.
-pub struct FftPair {
-    forward: Arc<dyn Fft<f32>>,
-    inverse: Arc<dyn Fft<f32>>,
-    scratch: Vec<Complex<f32>>,
-    len: usize,
+#[derive(Clone)]
+pub struct FftPair<T: FftNum = f32> {
+    forward: Transform<T>,
+    inverse: Transform<T>,
 }
 
-impl FftPair {
+impl<T: FftNum> FftPair<T> {
     #[must_use]
     pub fn new(len: usize) -> Self {
-        let mut planner = FftPlanner::<f32>::new();
-        let forward = planner.plan_fft_forward(len);
-        let inverse = planner.plan_fft_inverse(len);
-        let scratch = vec![
-            Complex::default();
-            forward
-                .get_inplace_scratch_len()
-                .max(inverse.get_inplace_scratch_len())
-        ];
         Self {
-            forward,
-            inverse,
-            scratch,
-            len,
+            forward: Transform::forward(len),
+            inverse: Transform::inverse(len),
         }
     }
 
     #[must_use]
-    pub const fn len(&self) -> usize {
-        self.len
+    pub fn len(&self) -> usize {
+        self.forward.len()
     }
 
     #[must_use]
-    pub const fn is_empty(&self) -> bool {
-        self.len == 0
+    pub fn is_empty(&self) -> bool {
+        self.forward.is_empty()
     }
 
-    pub fn forward(&mut self, buf: &mut [Complex<f32>]) {
-        self.forward.process_with_scratch(buf, &mut self.scratch);
+    pub fn forward(&mut self, buf: &mut [Complex<T>]) {
+        self.forward.process(buf);
     }
 
-    pub fn inverse(&mut self, buf: &mut [Complex<f32>]) {
-        self.inverse.process_with_scratch(buf, &mut self.scratch);
+    pub fn inverse(&mut self, buf: &mut [Complex<T>]) {
+        self.inverse.process(buf);
     }
+}
 
-    /// The inverse scaled so that a forward followed by an inverse is the identity.
+impl FftPair<f32> {
     pub fn inverse_scaled(&mut self, buf: &mut [Complex<f32>]) {
         self.inverse(buf);
-        let scale = 1.0 / self.len as f32;
-        for value in buf.iter_mut() {
-            *value *= scale;
-        }
+        scale(buf, 1.0 / self.len() as f32);
+    }
+
+    pub fn forward_unitary(&mut self, buf: &mut [Complex<f32>]) {
+        self.forward.process_unitary(buf);
+    }
+
+    pub fn inverse_unitary(&mut self, buf: &mut [Complex<f32>]) {
+        self.inverse.process_unitary(buf);
+    }
+}
+
+fn scale(buf: &mut [Complex<f32>], factor: f32) {
+    for value in buf.iter_mut() {
+        *value *= factor;
     }
 }
 
@@ -79,6 +124,28 @@ mod tests {
         fft.inverse_scaled(&mut buf);
         for (index, (a, b)) in original.iter().zip(&buf).enumerate() {
             assert!((a - b).norm() < 1e-4, "sample {index}: {a} vs {b}");
+        }
+    }
+
+    #[test]
+    fn the_unitary_pair_keeps_energy_at_any_size() {
+        for n in [8usize, 48, 80, 100] {
+            let mut fft = FftPair::new(n);
+            let original: Vec<Complex<f32>> = (0..n)
+                .map(|k| Complex::new((k as f32).sin(), (0.7 * k as f32).cos()))
+                .collect();
+            let energy =
+                |x: &[Complex<f32>]| x.iter().map(|v| f64::from(v.norm_sqr())).sum::<f64>();
+            let mut buf = original.clone();
+            fft.forward_unitary(&mut buf);
+            assert!(
+                (energy(&buf) / energy(&original) - 1.0).abs() < 1e-4,
+                "n = {n}: energy moved"
+            );
+            fft.inverse_unitary(&mut buf);
+            for (k, (a, b)) in buf.iter().zip(&original).enumerate() {
+                assert!((a - b).norm() < 1e-4, "n = {n}, sample {k}");
+            }
         }
     }
 

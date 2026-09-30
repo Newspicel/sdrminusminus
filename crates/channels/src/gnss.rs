@@ -1,10 +1,7 @@
-use std::{
-    f32::consts::TAU,
-    sync::{Arc, LazyLock},
-};
+use std::{f32::consts::TAU, sync::LazyLock};
 
 use num_complex::Complex;
-use rustfft::{Fft, FftPlanner};
+use sdrmm_dsp::fft::FftPair;
 use sdrmm_wire::{
     ChannelDescriptor, ChannelParams, ChannelSettings, DecoderEvent, DecoderFamily, GnssFrame,
     GnssParams,
@@ -43,9 +40,7 @@ pub struct GnssChannel {
     code_fft: Vec<Complex<f32>>,
     samples: Vec<Complex<f32>>,
     fft_buf: Vec<Complex<f32>>,
-    scratch: Vec<Complex<f32>>,
-    forward: Arc<dyn Fft<f32>>,
-    inverse: Arc<dyn Fft<f32>>,
+    fft: FftPair,
     lock: Option<Lock>,
     acquisition_wait_ms: u8,
     prompt_ms: Vec<f32>,
@@ -117,23 +112,15 @@ impl GnssChannel {
     fn build(params: GnssParams) -> Self {
         let code = sampled_code(params.prn);
         let mut code_fft: Vec<_> = code.iter().map(|&v| Complex::new(v, 0.0)).collect();
-        let mut planner = FftPlanner::<f32>::new();
-        let forward = planner.plan_fft_forward(SAMPLES_PER_MS);
-        let inverse = planner.plan_fft_inverse(SAMPLES_PER_MS);
-        let mut setup_scratch = vec![Complex::default(); forward.get_inplace_scratch_len()];
-        forward.process_with_scratch(&mut code_fft, &mut setup_scratch);
-        let scratch_len = forward
-            .get_inplace_scratch_len()
-            .max(inverse.get_inplace_scratch_len());
+        let mut fft = FftPair::new(SAMPLES_PER_MS);
+        fft.forward(&mut code_fft);
         Self {
             params,
             code,
             code_fft,
             samples: Vec::with_capacity(SAMPLES_PER_MS),
             fft_buf: vec![Complex::default(); SAMPLES_PER_MS],
-            scratch: vec![Complex::default(); scratch_len],
-            forward,
-            inverse,
+            fft,
             lock: None,
             acquisition_wait_ms: 0,
             prompt_ms: Vec::with_capacity(6_400),
@@ -187,13 +174,11 @@ impl GnssChannel {
         let span = self.params.doppler_hz as i32;
         for doppler in (-span..=span).step_by(DOPPLER_STEP_HZ as usize) {
             wipe(&self.samples, doppler as f32, &mut self.fft_buf);
-            self.forward
-                .process_with_scratch(&mut self.fft_buf, &mut self.scratch);
+            self.fft.forward(&mut self.fft_buf);
             for (bin, code) in self.fft_buf.iter_mut().zip(&self.code_fft) {
                 *bin *= code.conj();
             }
-            self.inverse
-                .process_with_scratch(&mut self.fft_buf, &mut self.scratch);
+            self.fft.inverse(&mut self.fft_buf);
             for (phase, value) in self.fft_buf.iter().enumerate() {
                 let power = value.norm_sqr();
                 floor_sum += f64::from(power);

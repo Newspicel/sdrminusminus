@@ -1,5 +1,5 @@
 use num_complex::Complex;
-use rustfft::FftPlanner;
+use sdrmm_dsp::fft::Transform;
 use sdrmm_wire::DatvCodeRate;
 
 use crate::datv::{
@@ -26,7 +26,7 @@ pub fn defaults() -> Parameters {
 
 pub fn waveform(mut params: Parameters, symbols: usize) -> Vec<Complex<f32>> {
     let map = Mapping::new(params.fft);
-    let inverse = FftPlanner::new().plan_fft_inverse(params.fft);
+    let mut inverse = Transform::inverse(params.fft);
     let mut encoder = DvbsEncoder::new(params.high_rate);
     let mut low_encoder = DvbsEncoder::new(params.low_rate);
     let mut multiplex = super::datv::Multiplex::new();
@@ -71,14 +71,9 @@ pub fn waveform(mut params: Parameters, symbols: usize) -> Vec<Complex<f32>> {
         for &k in &map.tps {
             spectrum[map.bin(k, 0)] = Complex::new(map.reference[k] * tps_phase, 0.0);
         }
-        inverse.process(&mut spectrum);
-        let scale = 1.0 / (params.fft as f32).sqrt();
-        iq.extend(
-            spectrum[params.fft - params.guard..]
-                .iter()
-                .chain(&spectrum)
-                .map(|v| v * scale),
-        );
+        inverse.process_unitary(&mut spectrum);
+        iq.extend_from_slice(&spectrum[params.fft - params.guard..]);
+        iq.extend_from_slice(&spectrum);
     }
     iq
 }

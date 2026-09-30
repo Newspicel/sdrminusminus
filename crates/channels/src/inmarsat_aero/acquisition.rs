@@ -1,7 +1,5 @@
-use std::sync::Arc;
-
 use num_complex::Complex;
-use rustfft::{Fft, FftPlanner};
+use sdrmm_dsp::fft::Transform;
 
 const BLOCKS: u32 = 2;
 
@@ -13,8 +11,7 @@ pub(super) struct CoarseAcquisition {
     min_shift_hz: Option<f64>,
     buffer: Vec<Complex<f32>>,
     squared: Vec<Complex<f32>>,
-    scratch: Vec<Complex<f32>>,
-    fft: Arc<dyn Fft<f32>>,
+    fft: Transform,
     spectrum: Vec<f32>,
     blocks: u32,
 }
@@ -27,8 +24,6 @@ impl CoarseAcquisition {
         range_hz: f64,
         min_shift_hz: Option<f64>,
     ) -> Self {
-        let fft = FftPlanner::new().plan_fft_forward(size);
-        let scratch = vec![Complex::new(0.0, 0.0); fft.get_inplace_scratch_len()];
         let resolution = fs / size as f64;
         Self {
             size,
@@ -38,8 +33,7 @@ impl CoarseAcquisition {
             min_shift_hz,
             buffer: Vec::with_capacity(size),
             squared: vec![Complex::new(0.0, 0.0); size],
-            scratch,
-            fft,
+            fft: Transform::forward(size),
             spectrum: vec![0.0; size],
             blocks: 0,
         }
@@ -64,8 +58,7 @@ impl CoarseAcquisition {
         for (squared, value) in self.squared.iter_mut().zip(&self.buffer) {
             *squared = value * value;
         }
-        self.fft
-            .process_with_scratch(&mut self.squared, &mut self.scratch);
+        self.fft.process(&mut self.squared);
         for (bin, value) in self.spectrum.iter_mut().zip(&self.squared) {
             *bin = 0.5 * *bin + 0.5 * value.norm_sqr();
         }

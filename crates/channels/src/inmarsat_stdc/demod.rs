@@ -1,7 +1,7 @@
-use std::{f32::consts::TAU, f64::consts::PI, sync::Arc};
+use std::{f32::consts::TAU, f64::consts::PI};
 
 use num_complex::Complex;
-use rustfft::{Fft, FftPlanner};
+use sdrmm_dsp::fft::Transform;
 
 pub const RATE: f64 = 12_000.0;
 pub const SYMBOL_RATE: f64 = 1_200.0;
@@ -106,9 +106,8 @@ pub struct BpskDemod {
     samples_per_symbol: f64,
     lowpass: SampleFir,
     matched: SampleFir,
-    fft: Arc<dyn Fft<f32>>,
+    fft: Transform,
     coarse: Vec<Complex<f32>>,
-    scratch: Vec<Complex<f32>>,
     pub locked: bool,
     nco_phase: f32,
     nco_freq: f32,
@@ -125,15 +124,12 @@ impl BpskDemod {
     pub fn new(channel_rate: f64) -> Self {
         let samples_per_symbol = channel_rate / SYMBOL_RATE;
         let matched_taps = (8.0 * samples_per_symbol).round() as usize | 1;
-        let fft = FftPlanner::new().plan_fft_forward(COARSE_FFT);
-        let scratch = vec![Complex::new(0.0, 0.0); fft.get_inplace_scratch_len()];
         Self {
             samples_per_symbol,
             lowpass: SampleFir::new(lowpass_taps(LOWPASS_CUTOFF_HZ / channel_rate, LOWPASS_TAPS)),
             matched: SampleFir::new(rrc_taps(RRC_BETA, samples_per_symbol, matched_taps)),
-            fft,
+            fft: Transform::forward(COARSE_FFT),
             coarse: Vec::with_capacity(COARSE_FFT),
-            scratch,
             locked: false,
             nco_phase: 0.0,
             nco_freq: 0.0,
@@ -156,8 +152,7 @@ impl BpskDemod {
     }
 
     fn coarse_estimate(&mut self) -> Option<f32> {
-        self.fft
-            .process_with_scratch(&mut self.coarse, &mut self.scratch);
+        self.fft.process(&mut self.coarse);
         let best = self
             .coarse
             .iter()

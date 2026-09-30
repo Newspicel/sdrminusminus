@@ -1,31 +1,23 @@
-use std::sync::Arc;
-
 use num_complex::Complex;
-use rustfft::{Fft, FftPlanner};
+use sdrmm_dsp::fft::Transform;
 
 use super::params::{Domain, OfdmParams};
 
 #[derive(Clone)]
 pub struct OfdmMod {
     params: OfdmParams,
-    ifft: Arc<dyn Fft<f32>>,
-    scratch: Vec<Complex<f32>>,
+    ifft: Transform,
     grid: Vec<Complex<f32>>,
-    scale: f32,
 }
 
 impl OfdmMod {
     #[must_use]
     pub fn new(params: OfdmParams) -> Self {
         let fft = params.fft();
-        let ifft = FftPlanner::<f32>::new().plan_fft_inverse(fft);
-        let scratch = vec![Complex::new(0.0, 0.0); ifft.get_inplace_scratch_len()];
         Self {
             params,
-            ifft,
-            scratch,
+            ifft: Transform::inverse(fft),
             grid: vec![Complex::new(0.0, 0.0); fft],
-            scale: (fft as f64).sqrt().recip() as f32,
         }
     }
 
@@ -115,11 +107,7 @@ impl OfdmMod {
     }
 
     fn transform(&mut self) {
-        self.ifft
-            .process_with_scratch(&mut self.grid, &mut self.scratch);
-        for sample in &mut self.grid {
-            *sample *= self.scale;
-        }
+        self.ifft.process_unitary(&mut self.grid);
     }
 }
 

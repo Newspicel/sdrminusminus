@@ -13,7 +13,6 @@ workspace = true
 [dependencies]
 sdrmm-dsp.workspace = true
 num-complex.workspace = true
-rustfft.workspace = true
 
 [dev-dependencies]
 criterion.workspace = true

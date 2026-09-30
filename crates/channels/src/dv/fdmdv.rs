@@ -95,10 +95,6 @@ pub(crate) struct Demodulator {
 
 impl Demodulator {
     pub(crate) fn new() -> Self {
-        Self::with_coarse(CoarseFrequency::new())
-    }
-
-    fn with_coarse(coarse: CoarseFrequency) -> Self {
         Self {
             input: [Sample::ZERO; MAX_FRAME],
             filled: 0,
@@ -106,7 +102,7 @@ impl Demodulator {
             to_baseband: Oscillator::new(-CENTRE_HZ),
             correction: Oscillator::new(0.0),
             frequency_offset: 0.0,
-            coarse,
+            coarse: CoarseFrequency::new(),
             decimator: Decimator::new(),
             downconverter: Downconverter::new(),
             timing: TimingEstimator::new(),
@@ -116,8 +112,7 @@ impl Demodulator {
     }
 
     pub(crate) fn reset(&mut self) {
-        let coarse = self.coarse.restarted();
-        *self = Self::with_coarse(coarse);
+        *self = Self::new();
     }
 
     pub(crate) fn push(&mut self, sample: Sample) -> Option<Frame> {

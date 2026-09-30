@@ -158,10 +158,8 @@ impl Default for RealToIq {
 mod tests {
     use std::f64::consts::TAU;
 
-    use rustfft::FftPlanner;
-
     use super::*;
-    use crate::testutil::tone_peak_and_snr;
+    use crate::{fft::Transform, testutil::tone_peak_and_snr};
 
     fn real_cosine(freq_norm: f64, len: usize) -> Vec<f32> {
         (0..len)
@@ -197,7 +195,7 @@ mod tests {
     fn bin_power(samples: &[Complex<f32>], bin: i64) -> f64 {
         let n = samples.len();
         let mut buf = samples.to_vec();
-        FftPlanner::new().plan_fft_forward(n).process(&mut buf);
+        Transform::forward(n).process(&mut buf);
         f64::from(buf[bin.rem_euclid(n as i64) as usize].norm_sqr())
     }
 

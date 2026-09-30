@@ -149,9 +149,7 @@ fn a_wide_noise_source_stays_inside_the_lane_band() {
     let len = 1 << 15;
     let mut out = vec![C32::new(0.0, 0.0); len];
     renderer.render(0, 0.0, 1.0 / RATE, true, &mut out);
-    rustfft::FftPlanner::new()
-        .plan_fft_forward(len)
-        .process(&mut out);
+    sdrmm_dsp::fft::Transform::forward(len).process(&mut out);
     let band = |low: f64, high: f64| {
         let bins: Vec<f64> = out
             .iter()
@@ -187,9 +185,7 @@ fn noise_spectrum(ripple: Option<Ripple>, len: usize) -> Vec<f64> {
     renderer.configure(&wide, &setup);
     let mut out = vec![C32::new(0.0, 0.0); len];
     renderer.render(0, 0.0, 1.0 / RATE, true, &mut out);
-    rustfft::FftPlanner::new()
-        .plan_fft_forward(len)
-        .process(&mut out);
+    sdrmm_dsp::fft::Transform::forward(len).process(&mut out);
     out.iter()
         .map(|value| f64::from(value.norm_sqr()))
         .collect()

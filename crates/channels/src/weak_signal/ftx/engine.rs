@@ -2,7 +2,7 @@ use std::{f32::consts::TAU, sync::Arc};
 
 use num_complex::Complex;
 use realfft::{RealFftPlanner, RealToComplex};
-use rustfft::{Fft, FftPlanner};
+use sdrmm_dsp::fft::Transform;
 
 use super::{
     ldpc,
@@ -81,9 +81,8 @@ pub(crate) struct Engine {
     frame_input: Vec<f32>,
     frame_output: Vec<Complex<f32>>,
     frame_scratch: Vec<Complex<f32>>,
-    inverse: Arc<dyn Fft<f32>>,
+    inverse: Transform,
     baseband: Vec<Complex<f32>>,
-    inverse_scratch: Vec<Complex<f32>>,
     power: Vec<f32>,
     tone_sums: Vec<f32>,
     sliding: Vec<Complex<f32>>,
@@ -102,7 +101,6 @@ impl Engine {
         let mut real = RealFftPlanner::<f32>::new();
         let forward = real.plan_fft_forward(protocol.fft_samples);
         let frame_fft = real.plan_fft_forward(2 * protocol.symbol_samples);
-        let inverse = FftPlanner::<f32>::new().plan_fft_inverse(protocol.baseband_samples());
         Self {
             forward_input: forward.make_input_vec(),
             spectrum: forward.make_output_vec(),
@@ -113,8 +111,7 @@ impl Engine {
             frame_scratch: frame_fft.make_scratch_vec(),
             frame_fft,
             baseband: vec![Complex::default(); protocol.baseband_samples()],
-            inverse_scratch: vec![Complex::default(); inverse.get_inplace_scratch_len()],
-            inverse,
+            inverse: Transform::inverse(protocol.baseband_samples()),
             power: Vec::new(),
             tone_sums: Vec::new(),
             sliding: Vec::new(),
@@ -402,8 +399,7 @@ impl Engine {
             };
             self.baseband[offset.rem_euclid(length) as usize] = bin * gain;
         }
-        self.inverse
-            .process_with_scratch(&mut self.baseband, &mut self.inverse_scratch);
+        self.inverse.process(&mut self.baseband);
         centre as f64 * resolution
     }
 

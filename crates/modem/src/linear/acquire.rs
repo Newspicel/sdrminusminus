@@ -1,7 +1,7 @@
 use std::f64::consts::TAU;
 
 use num_complex::Complex;
-use rustfft::FftPlanner;
+use sdrmm_dsp::fft::Transform;
 
 pub const MIN_SYMBOLS: usize = 32;
 
@@ -57,10 +57,9 @@ struct SegmentTone {
 }
 
 pub struct FrequencyAcquisition {
-    planner: FftPlanner<f64>,
+    transforms: Vec<Transform<f64>>,
     stripped: Vec<Complex<f64>>,
     spectrum: Vec<Complex<f64>>,
-    scratch: Vec<Complex<f64>>,
     segments: Vec<SegmentTone>,
 }
 
@@ -74,10 +73,9 @@ impl FrequencyAcquisition {
     #[must_use]
     pub fn new() -> Self {
         Self {
-            planner: FftPlanner::new(),
+            transforms: Vec::new(),
             stripped: Vec::new(),
             spectrum: Vec::new(),
-            scratch: Vec::new(),
             segments: Vec::new(),
         }
     }
@@ -185,10 +183,7 @@ impl FrequencyAcquisition {
         self.spectrum.clear();
         self.spectrum.extend_from_slice(&self.stripped[from..to]);
         self.spectrum.resize(size, Complex::new(0.0, 0.0));
-        let fft = self.planner.plan_fft_forward(size);
-        self.scratch
-            .resize(fft.get_inplace_scratch_len(), Complex::new(0.0, 0.0));
-        fft.process_with_scratch(&mut self.spectrum, &mut self.scratch);
+        planned(&mut self.transforms, size).process(&mut self.spectrum);
         let (peak, power) = self
             .spectrum
             .iter()
@@ -222,6 +217,17 @@ impl FrequencyAcquisition {
             strength,
         })
     }
+}
+
+fn planned(transforms: &mut Vec<Transform<f64>>, size: usize) -> &mut Transform<f64> {
+    let at = transforms
+        .iter()
+        .position(|transform| transform.len() == size)
+        .unwrap_or_else(|| {
+            transforms.push(Transform::forward(size));
+            transforms.len() - 1
+        });
+    &mut transforms[at]
 }
 
 fn fit_line(segments: &[SegmentTone]) -> Option<(f64, f64)> {
