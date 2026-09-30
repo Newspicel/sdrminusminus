@@ -82,8 +82,7 @@ RUN test -f web/dist/index.html \
     && find crates apps xtask -name '*.rs' -exec touch {} + \
     && cargo build --profile "$PROFILE" --locked -p sdrmm --no-default-features --features "$FEATURES" \
     && install -Dm755 "target/$PROFILE/sdrmm" /out/bin/sdrmm \
-    && cargo build --profile "$PROFILE" --locked -p sdrmm-codec2 \
-    && install -Dm755 -t /out/lib/sdrmm "target/$PROFILE/libsdrmm_codec2.so" /opt/sdrmm-media/lib/lib*.so.[0-9]*
+    && install -Dm755 -t /out/lib/sdrmm /opt/sdrmm-media/lib/lib*.so.[0-9]*
 
 
 # --- runtime -----------------------------------------------------------------------------

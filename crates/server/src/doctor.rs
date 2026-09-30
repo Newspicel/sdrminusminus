@@ -29,7 +29,6 @@ pub fn report(
     checks.push(sdrplay_check(&sdrmm_device_sdrplay::runtime_info()));
     #[cfg(all(feature = "cr8", not(test)))]
     checks.push(cr8_check(sdrmm_device_cr8::load_error()));
-    checks.push(codec2_check(sdrmm_channels::codec2_library::library()));
     checks.extend(devices);
     checks.extend(usb_checks());
     checks.push(path_check(
@@ -91,24 +90,6 @@ fn backends_check(registry: &sdrmm_device::DeviceRegistry) -> DoctorCheck {
         status: CheckStatus::Ok,
         detail,
         hint: None,
-    }
-}
-
-fn codec2_check(library: Result<&sdrmm_channels::codec2_library::Library, String>) -> DoctorCheck {
-    let (status, detail, hint) = match library {
-        Ok(library) => (CheckStatus::Ok, library.path().display().to_string(), None),
-        Err(error) => (
-            CheckStatus::Warn,
-            error,
-            Some("FreeDV and M17 voice need it.".to_string()),
-        ),
-    };
-    DoctorCheck {
-        id: "codec2".to_string(),
-        name: "Codec2 library".to_string(),
-        status,
-        detail,
-        hint,
     }
 }
 
@@ -747,21 +728,6 @@ mod tests {
                 .hint
                 .is_some_and(|hint| hint.contains("rtl_eeprom -s"))
         );
-    }
-
-    #[test]
-    fn a_missing_codec2_library_warns_and_names_what_needs_it() {
-        let check = codec2_check(Err("libsdrmm_codec2.so not found".to_string()));
-        assert_eq!(check.status, CheckStatus::Warn);
-        assert_eq!(check.detail, "libsdrmm_codec2.so not found");
-        assert!(check.hint.is_some_and(|hint| hint.contains("FreeDV")));
-    }
-
-    #[test]
-    fn the_found_codec2_library_reports_its_path() {
-        let check = codec2_check(sdrmm_channels::codec2_library::library());
-        assert_eq!(check.status, CheckStatus::Ok, "{}", check.detail);
-        assert!(check.detail.contains("sdrmm_codec2"), "{}", check.detail);
     }
 
     #[test]

@@ -22,11 +22,7 @@ const NOT_DISTRIBUTED: &[&str] = &["xtask"];
 const MAX_LICENSE_BYTES: u64 = 256 * 1024;
 
 const NOTES: &[(&str, &str)] = &[
-    (
-        "codec2",
-        "LGPL-2.1-only, built into the separate `sdrmm_codec2` shared library that SDR-- loads \
-         at runtime. Replace that file with one built from a modified Codec2 to relink.",
-    ),
+    ("codec2", "LGPL-2.1-only."),
     (
         "blip25-vocoder",
         "MIT. A reverse-engineered AMBE+2 vocoder. The Digital Voice Systems, Inc. patents on \
@@ -172,11 +168,7 @@ const NATIVE: &[Native] = &[
         name: "codec2 FDMDV modem",
         license: "LGPL-2.1-only",
         url: "https://github.com/drowe67/codec2",
-        note: Some(
-            "The FreeDV 1600 demodulator in `crates/channels/src/dv/fdmdv` is a Rust port of \
-             codec2's `fdmdv.c`, Copyright (C) 2012 David Rowe, and its filter tables are \
-             codec2's. It is used under the GNU GPL, as section 3 of the LGPL-2.1 allows.",
-        ),
+        note: Some("LGPL-2.1-only. Copyright (C) 2012 David Rowe."),
         files: &["codec2-LGPL-2.1.txt"],
     },
     Native {

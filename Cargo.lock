@@ -5873,14 +5873,12 @@ dependencies = [
  "ffmpeg-the-third",
  "flate2",
  "jiff",
- "libloading 0.9.0",
  "mfsk-core",
  "num-complex",
  "realfft",
  "rtrb",
  "rustfft",
  "sdrmm-channels",
- "sdrmm-codec2",
  "sdrmm-dsp",
  "sdrmm-modem",
  "sdrmm-modem-test-support",
@@ -5900,13 +5898,6 @@ dependencies = [
  "xng-mode-stdc",
  "xng-mode-vdl2",
  "xng-types",
-]
-
-[[package]]
-name = "sdrmm-codec2"
-version = "0.0.0"
-dependencies = [
- "codec2",
 ]
 
 [[package]]

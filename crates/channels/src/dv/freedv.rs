@@ -83,7 +83,7 @@ impl ChannelRx for FreeDvChannel {
             paired_bits: [false; MODEM_BITS * 2],
             even_frame: false,
             synced: false,
-            vocoder: Codec2Decoder::new()?,
+            vocoder: Codec2Decoder::new(),
         })
     }
 

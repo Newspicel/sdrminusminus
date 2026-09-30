@@ -7,7 +7,6 @@ pub(crate) const FORBIDDEN_ON_PHONES: &[&str] = &[
     "sdrmm-server",
     "sdrmm-engine",
     "sdrmm-channels",
-    "sdrmm-codec2",
     "sdrmm-dsp",
     "sdrmm-modem",
     "sdrmm-device",
@@ -111,7 +110,7 @@ fn validate(metadata: &Value) -> Result<()> {
         ),
         (
             "sdrmm-channels",
-            &["sdrmm-codec2", "sdrmm-dsp", "sdrmm-modem", "sdrmm-wire"][..],
+            &["sdrmm-dsp", "sdrmm-modem", "sdrmm-wire"][..],
         ),
         ("sdrmm-mobile-core", &["sdrmm-wire"][..]),
     ] {

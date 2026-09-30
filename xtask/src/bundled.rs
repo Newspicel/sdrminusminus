@@ -3,37 +3,12 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use serde_json::{Map, Value, json};
 
-pub fn codec2_file_name(triple: &str) -> &'static str {
-    if triple.contains("windows") {
-        "sdrmm_codec2.dll"
-    } else if triple.contains("apple") {
-        "libsdrmm_codec2.dylib"
-    } else {
-        "libsdrmm_codec2.so"
-    }
-}
-
-pub fn build_codec2(root: &Path, target: Option<&str>) -> Result<PathBuf> {
-    let mut args = vec!["build", "--release", "--locked", "-p", "sdrmm-codec2"];
-    if let Some(triple) = target {
-        args.extend(["--target", triple]);
-    }
-    crate::run("cargo", &args, root)?;
-    let triple = target.map_or_else(crate::host_triple, |triple| Ok(triple.to_owned()))?;
-    let dir = match target {
-        Some(triple) => root.join("target").join(triple).join("release"),
-        None => root.join("target").join("release"),
-    };
-    Ok(dir.join(codec2_file_name(&triple)))
-}
-
 pub fn libraries(root: &Path, target: Option<&str>) -> Result<Vec<PathBuf>> {
     let triple = target.map_or_else(crate::host_triple, |triple| Ok(triple.to_owned()))?;
-    let mut libraries = vec![build_codec2(root, target)?];
-    if let Some(media) = crate::media_dir(root, target)? {
-        libraries.extend(media_runtime(&media, &triple)?);
+    match crate::media_dir(root, target)? {
+        Some(media) => media_runtime(&media, &triple),
+        None => Ok(Vec::new()),
     }
-    Ok(libraries)
 }
 
 fn media_runtime(media: &Path, triple: &str) -> Result<Vec<PathBuf>> {
@@ -133,19 +108,19 @@ mod tests {
 
     #[test]
     fn macos_bundles_libraries_as_frameworks() {
-        let libraries = [PathBuf::from("/t/libsdrmm_codec2.dylib")];
+        let libraries = [PathBuf::from("/t/libavcodec.63.dylib")];
         let config = desktop_config(&libraries, "aarch64-apple-darwin");
         let value: Value = serde_json::from_str(&config).unwrap();
         assert_eq!(
             value["bundle"]["macOS"]["frameworks"][0],
-            "/t/libsdrmm_codec2.dylib"
+            "/t/libavcodec.63.dylib"
         );
     }
 
     #[test]
     fn windows_and_linux_install_them_as_resources() {
         for (triple, name) in [
-            ("x86_64-pc-windows-msvc", "sdrmm_codec2.dll"),
+            ("x86_64-pc-windows-msvc", "avcodec-63.dll"),
             ("x86_64-unknown-linux-gnu", "libavcodec.so.63"),
         ] {
             let source = format!("/t/{name}");

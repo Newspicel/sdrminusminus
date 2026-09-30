@@ -18,7 +18,7 @@ MIT. A reverse-engineered AMBE+2 vocoder. The Digital Voice Systems, Inc. patent
 
 **codec2**: LGPL-2.1-only AND MIT
 
-LGPL-2.1-only, built into the separate `sdrmm_codec2` shared library that SDR-- loads at runtime. Replace that file with one built from a modified Codec2 to relink.
+LGPL-2.1-only.
 
 **cssparser**: MPL-2.0
 
@@ -38,7 +38,7 @@ MPL-2.0. File-level copyleft: modifications to the crate's own files must be pub
 
 **codec2 FDMDV modem**: LGPL-2.1-only
 
-The FreeDV 1600 demodulator in `crates/channels/src/dv/fdmdv` is a Rust port of codec2's `fdmdv.c`, Copyright (C) 2012 David Rowe, and its filter tables are codec2's. It is used under the GNU GPL, as section 3 of the LGPL-2.1 allows.
+LGPL-2.1-only. Copyright (C) 2012 David Rowe.
 
 **dmrconfig**: BSD-3-Clause
 

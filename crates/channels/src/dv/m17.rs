@@ -172,7 +172,7 @@ impl Decoder {
             late_chunks: 0,
             stream_coded: Vec::with_capacity(STREAM_CODED_BITS),
             stream_info: Vec::with_capacity(STREAM_BITS + 4),
-            vocoder: Codec2Decoder::new()?,
+            vocoder: Codec2Decoder::new(),
         })
     }
 

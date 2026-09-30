@@ -83,7 +83,6 @@ pub use datv::{
 pub use dect::DectChannel;
 pub use drm::DrmChannel;
 pub use dsc::DscChannel;
-pub use dv::codec2_library;
 pub use dv::{
     DmrChannel, DpmrChannel, DstarChannel, FreeDvChannel, M17Channel, NxdnChannel, P25Channel,
     YsfChannel,
@@ -285,8 +284,6 @@ pub enum ChannelError {
     NoTransmitter(String),
     #[error("invalid payload: {0}")]
     InvalidPayload(String),
-    #[error("{0}")]
-    LibraryUnavailable(String),
     #[error("{0}")]
     Refused(&'static str),
     #[error("{0}")]
