@@ -14,6 +14,8 @@ const FORMULA_TRIPLES: [&str; 4] = [
 
 const CASK_ARCHES: [&str; 2] = ["aarch64", "x64"];
 
+const CASK_RENAMES: &str = "{\n  \"sdrminusminus\": \"sdrmm-app\"\n}\n";
+
 pub fn tap(sums: &Path, version: &str, repo: &str, out: &Path) -> Result<()> {
     let text = std::fs::read_to_string(sums).with_context(|| format!("read {}", sums.display()))?;
     let digests = parse(&text)?;
@@ -21,7 +23,8 @@ pub fn tap(sums: &Path, version: &str, repo: &str, out: &Path) -> Result<()> {
 
     for (relative, contents) in [
         ("Formula/sdrmm.rb", formula(&digests, version, repo)?),
-        ("Casks/sdrminusminus.rb", cask(&digests, version, repo)?),
+        ("Casks/sdrmm-app.rb", cask(&digests, version, repo)?),
+        ("cask_renames.json", CASK_RENAMES.to_owned()),
     ] {
         let path = out.join(relative);
         let dir = path.parent().context("a tap path with no directory")?;
@@ -128,7 +131,7 @@ fn cask(digests: &Digests, version: &str, repo: &str) -> Result<String> {
     let [arm, intel] = sums.try_into().ok().context("one dmg per cask arch")?;
 
     Ok(format!(
-        r##"cask "sdrminusminus" do
+        r##"cask "sdrmm-app" do
   arch arm: "aarch64", intel: "x64"
 
   version "{version}"
@@ -139,7 +142,7 @@ fn cask(digests: &Digests, version: &str, repo: &str) -> Result<String> {
   name "SDR--"
   name "sdr minus minus"
   desc "Modular, client-server software-defined radio"
-  homepage "{HOMEPAGE}"
+  homepage "{HOMEPAGE}/"
 
   livecheck do
     url :url
@@ -147,7 +150,7 @@ fn cask(digests: &Digests, version: &str, repo: &str) -> Result<String> {
   end
 
   auto_updates true
-  depends_on macos: :big_sur
+  depends_on :macos
 
   app "SDR--.app"
 
@@ -202,8 +205,10 @@ mod tests {
         let cask = cask(&parse(&sums()).unwrap(), "1.2.3", REPO).unwrap();
         assert!(cask.contains(&format!("arm:   \"{}\"", "b".repeat(64))));
         assert!(cask.contains("SDR--_#{version}_#{arch}.dmg"));
+        assert!(cask.starts_with("cask \"sdrmm-app\" do"));
         assert!(cask.contains("app \"SDR--.app\""));
-        assert!(cask.contains("homepage \"https://sdrmm.com\""));
+        assert!(cask.contains("homepage \"https://sdrmm.com/\""));
+        assert!(cask.contains("depends_on :macos\n"));
     }
 
     #[test]
@@ -224,8 +229,10 @@ mod tests {
         std::fs::write(&sums_path, sums()).unwrap();
 
         tap(&sums_path, "v1.2.3", REPO, &dir).unwrap();
-        let cask = std::fs::read_to_string(dir.join("Casks/sdrminusminus.rb")).unwrap();
+        let cask = std::fs::read_to_string(dir.join("Casks/sdrmm-app.rb")).unwrap();
         assert!(cask.contains("version \"1.2.3\""));
+        let renames = std::fs::read_to_string(dir.join("cask_renames.json")).unwrap();
+        assert!(renames.contains("\"sdrminusminus\": \"sdrmm-app\""));
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }

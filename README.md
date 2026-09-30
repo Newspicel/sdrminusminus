@@ -29,7 +29,7 @@ covers macOS, Windows, Linux, Homebrew, WinGet, APT, DNF, Nix, and Docker.
 On macOS:
 
 ```sh
-brew install newspicel/tap/sdrminusminus
+brew install newspicel/tap/sdrmm-app
 ```
 
 For a headless server on macOS or Linux, install `sdrmm` from the same tap:

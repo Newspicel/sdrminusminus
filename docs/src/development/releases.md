@@ -99,7 +99,7 @@ Validate generator changes:
 ```sh
 brew style newspicel/tap
 brew audit --strict --online newspicel/tap/sdrmm
-brew audit --strict --online --cask newspicel/tap/sdrminusminus
+brew audit --strict --online --cask newspicel/tap/sdrmm-app
 ```
 
 ## Release checklist

@@ -13,7 +13,7 @@ export const INSTALLS: Install[] = [
     tab: "Homebrew",
     title: "Homebrew",
     note: "The app on macOS. The server on macOS or Linux.",
-    lines: `brew install newspicel/tap/sdrminusminus
+    lines: `brew install newspicel/tap/sdrmm-app
 
 <span class="p">or the server</span>
 brew install newspicel/tap/sdrmm

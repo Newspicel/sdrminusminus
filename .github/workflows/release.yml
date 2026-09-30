@@ -495,7 +495,8 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add Formula/sdrmm.rb Casks/sdrminusminus.rb
+          git rm --quiet --ignore-unmatch Casks/sdrminusminus.rb
+          git add Formula/sdrmm.rb Casks/sdrmm-app.rb cask_renames.json
           git diff --cached --quiet && exit 0
           git commit -m "sdrmm ${{ needs.version.outputs.version }}"
           git push
