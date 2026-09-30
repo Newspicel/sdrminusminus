@@ -59,6 +59,23 @@ pub(crate) enum Error {
 
     #[error("stream: {0}")]
     Stream(#[from] StreamError),
+
+    #[error("{0}")]
+    Eeprom(#[from] EepromFault),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub(crate) enum EepromFault {
+    #[error("this dongle has no programmed EEPROM, so it cannot keep a serial")]
+    Blank,
+    #[error("the EEPROM holds strings this driver does not recognise")]
+    Layout,
+    #[error("a serial is 1 to 16 letters or digits")]
+    Serial,
+    #[error("that serial is too long for this dongle's EEPROM")]
+    TooLong,
+    #[error("EEPROM byte 0x{0:02x} did not change, the EEPROM may be write-protected")]
+    Unverified(u8),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
@@ -163,7 +180,13 @@ impl From<Error> for DeviceError {
             | Error::Invalid(_)
             | Error::Pll { .. }
             | Error::ForeignTuner(_)
-            | Error::NoTuner => Self::Unsupported(text),
+            | Error::NoTuner
+            | Error::Eeprom(
+                EepromFault::Blank
+                | EepromFault::Layout
+                | EepromFault::Serial
+                | EepromFault::TooLong,
+            ) => Self::Unsupported(text),
             _ => Self::Io(text),
         }
     }
@@ -236,6 +259,25 @@ mod tests {
         ] {
             assert!(matches!(
                 DeviceError::from(error),
+                DeviceError::Unsupported(_)
+            ));
+        }
+    }
+
+    #[test]
+    fn a_write_protected_eeprom_is_io_and_the_rest_unsupported() {
+        assert!(matches!(
+            DeviceError::from(Error::Eeprom(EepromFault::Unverified(0x45))),
+            DeviceError::Io(_)
+        ));
+        for fault in [
+            EepromFault::Blank,
+            EepromFault::Layout,
+            EepromFault::Serial,
+            EepromFault::TooLong,
+        ] {
+            assert!(matches!(
+                DeviceError::from(Error::Eeprom(fault)),
                 DeviceError::Unsupported(_)
             ));
         }

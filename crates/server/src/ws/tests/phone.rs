@@ -166,6 +166,7 @@ async fn a_phone_socket_gets_only_phone_events() {
         ServerEvent::ChannelLevels {
             device_set: 0,
             levels: Vec::new(),
+            lanes: Vec::new(),
         },
         ServerEvent::StreamStarted {
             stream_id: 1,

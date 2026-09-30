@@ -5869,7 +5869,6 @@ name = "sdrmm-channels"
 version = "0.0.0"
 dependencies = [
  "blip25-vocoder",
- "cc",
  "codec2",
  "ffmpeg-the-third",
  "flate2",
@@ -6056,6 +6055,7 @@ dependencies = [
 name = "sdrmm-device-rtlsdr"
 version = "0.0.0"
 dependencies = [
+ "getrandom 0.4.3",
  "num-complex",
  "nusb",
  "sdrmm-device",

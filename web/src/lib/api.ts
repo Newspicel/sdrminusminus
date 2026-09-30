@@ -231,6 +231,11 @@ export function nmeaDevicesQuery() {
   });
 }
 
+export async function writeSerial(deviceId: string, serial: string): Promise<string> {
+  const body = serial === "" ? { device_id: deviceId } : { device_id: deviceId, serial };
+  return unwrap(await client.POST("/api/devices/serial", { body })).serial;
+}
+
 export async function createDeviceSet(deviceId: string): Promise<number> {
   return unwrap(
     await client.POST("/api/devicesets", {

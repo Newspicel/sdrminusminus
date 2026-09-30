@@ -61,6 +61,7 @@ fn radio(id: &str, key: &str) -> PatchNode {
                 key: Some(key.to_owned()),
             }),
             locked_streams: Vec::new(),
+            split_tuning: false,
         }),
     )
 }

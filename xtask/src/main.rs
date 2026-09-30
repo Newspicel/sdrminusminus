@@ -4,6 +4,7 @@ mod frame_fixtures;
 #[cfg(unix)]
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::{
+    net::{IpAddr, Ipv4Addr, SocketAddr, TcpStream},
     path::{Path, PathBuf},
     process::{Child, Command, Stdio},
     sync::mpsc::{self, RecvTimeoutError},
@@ -285,35 +286,55 @@ fn dev(root: &Path, watch: bool) -> Result<()> {
     #[cfg(unix)]
     let _interrupt_handler = InterruptHandler::install()?;
 
-    let mut vite = Command::new(PNPM);
-    vite.args(["--dir", "web", "dev"]).current_dir(root);
-    vite.stdin(Stdio::null());
-    #[cfg(unix)]
-    std::os::unix::process::CommandExt::process_group(&mut vite, 0);
-    let mut vite = vite
-        .spawn()
-        .context("spawn vite dev server (is pnpm installed?)")?;
-
+    let mut vite = None;
     let result = if watch {
         watch_rust_server(root, &mut vite)
     } else {
         run_rust_server(root, &mut vite)
     };
 
-    kill_process_tree(&mut vite);
+    if let Some(mut vite) = vite {
+        kill_process_tree(&mut vite);
+    }
     result
 }
 
-fn run_rust_server(root: &Path, vite: &mut Child) -> Result<()> {
+fn spawn_vite(root: &Path) -> Result<Child> {
+    let mut vite = Command::new(PNPM);
+    vite.args(["--dir", "web", "dev"]).current_dir(root);
+    vite.stdin(Stdio::null());
+    #[cfg(unix)]
+    std::os::unix::process::CommandExt::process_group(&mut vite, 0);
+    vite.spawn()
+        .context("spawn vite dev server (is pnpm installed?)")
+}
+
+fn listening(addr: SocketAddr) -> bool {
+    TcpStream::connect_timeout(&addr, DEV_POLL_INTERVAL).is_ok()
+}
+
+fn supervise_vite(root: &Path, vite: &mut Option<Child>) -> Result<()> {
+    match vite {
+        Some(child) => match child.try_wait().context("poll Vite dev server")? {
+            Some(status) => bail!("Vite dev server exited with {status}"),
+            None => Ok(()),
+        },
+        None if listening(DEV_SERVER_ADDR) => {
+            *vite = Some(spawn_vite(root)?);
+            Ok(())
+        }
+        None => Ok(()),
+    }
+}
+
+fn run_rust_server(root: &Path, vite: &mut Option<Child>) -> Result<()> {
     let mut server = spawn_rust_server(root)?;
     let result = (|| -> Result<()> {
         loop {
             if dev_interrupted() {
                 return Ok(());
             }
-            if let Some(status) = vite.try_wait().context("poll Vite dev server")? {
-                bail!("Vite dev server exited with {status}");
-            }
+            supervise_vite(root, vite)?;
             if let Some(status) = server.try_wait().context("poll Rust server")? {
                 ensure!(status.success(), "Rust server exited with {status}");
                 return Ok(());
@@ -327,10 +348,11 @@ fn run_rust_server(root: &Path, vite: &mut Child) -> Result<()> {
 }
 
 const DEV_POLL_INTERVAL: Duration = Duration::from_millis(100);
+const DEV_SERVER_ADDR: SocketAddr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 8080);
 const DEV_FILE_SCAN_INTERVAL: Duration = Duration::from_millis(500);
 const DEV_RESTART_DEBOUNCE: Duration = Duration::from_millis(250);
 
-fn watch_rust_server(root: &Path, vite: &mut Child) -> Result<()> {
+fn watch_rust_server(root: &Path, vite: &mut Option<Child>) -> Result<()> {
     let (changes_tx, changes_rx) = mpsc::channel();
     let mut watcher = PollWatcher::new(
         changes_tx,
@@ -353,9 +375,7 @@ fn watch_rust_server(root: &Path, vite: &mut Child) -> Result<()> {
             if dev_interrupted() {
                 return Ok(());
             }
-            if let Some(status) = vite.try_wait().context("poll Vite dev server")? {
-                bail!("Vite dev server exited with {status}");
-            }
+            supervise_vite(root, vite)?;
             if let Some(child) = server.as_mut()
                 && let Some(status) = child.try_wait().context("poll Rust server")?
             {
@@ -530,6 +550,13 @@ mod dev_command_tests {
 
         let watching = Cli::try_parse_from(["xtask", "dev", "--watch"]).expect("parse dev --watch");
         assert!(matches!(watching.cmd, Cmd::Dev { watch: true }));
+    }
+
+    #[test]
+    fn listening_detects_a_bound_rust_server() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind probe port");
+        let addr = listener.local_addr().expect("probe address");
+        assert!(listening(addr));
     }
 
     #[test]

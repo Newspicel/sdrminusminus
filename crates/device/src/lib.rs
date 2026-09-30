@@ -302,6 +302,13 @@ pub trait DeviceDriver: Send + Sync {
     fn resolve(&self, _key: &str) -> Option<DeviceInfo> {
         None
     }
+
+    fn write_serial(&self, _key: &str, _serial: Option<&str>) -> Result<String, DeviceError> {
+        Err(DeviceError::Unsupported(format!(
+            "{} radios keep their factory serial",
+            self.id()
+        )))
+    }
 }
 
 pub trait TxStream: Send {

@@ -61,7 +61,7 @@ fn freq_ranges(tuner: Tuner) -> Vec<Range> {
         Tuner::Fc0012 => &[(22e6, 948e6)],
         Tuner::Fc0013 => &[(22e6, 1.1e9)],
         Tuner::Fc2580 => &[(146e6, 308e6), (438e6, 924e6)],
-        Tuner::R820T | Tuner::R828D => &[(24e6, 1766e6)],
+        Tuner::R820T | Tuner::R828D => &[(500e3, 28.8e6), (24e6, 1766e6)],
         Tuner::Unknown => &[],
     };
     bounds
@@ -383,14 +383,48 @@ mod tests {
         assert_eq!(caps.gains[0].range.max, 49.6);
         assert_eq!(caps.gains[0].values.len(), 29);
         assert_eq!(caps.gains[0].snap(24.0), 22.9);
-        assert_eq!(caps.freq_ranges.len(), 1);
-        assert_eq!(caps.freq_ranges[0].min, 24e6);
+        assert_eq!(caps.freq_ranges.len(), 2);
+        assert_eq!(caps.freq_ranges[1].min, 24e6);
         assert!(caps.bias_tee);
         assert_eq!(caps.agc, Agc::Switch);
         assert!(!caps.bandwidth_auto);
         let names: Vec<&str> = caps.extra.iter().map(ExtraSetting::name).collect();
         assert_eq!(names, [RTL_AGC]);
         assert_eq!(caps.extra[0].label(), Some("RTL2832 AGC"));
+    }
+
+    #[test]
+    fn an_r82xx_reaches_hf_through_the_blog_v4_upconverter() {
+        for tuner in [Tuner::R820T, Tuner::R828D] {
+            assert_hf_reachable(tuner);
+        }
+    }
+
+    fn assert_hf_reachable(tuner: Tuner) {
+        let table = gain_table(tuner, 29);
+        let caps = capabilities(tuner, table);
+        let (next, batch) = validate(
+            &DeviceSettings {
+                center_hz: Some(15_335_000.0),
+                ..DeviceSettings::default()
+            },
+            &caps,
+            Remote::new(table),
+            table,
+        )
+        .expect("HF accepted");
+        assert_eq!(next.wire().center_hz, Some(15_335_000.0));
+        assert_eq!(batch, vec![(Command::CenterFreq, 15_335_000)]);
+        let refused = validate(
+            &DeviceSettings {
+                center_hz: Some(100e3),
+                ..DeviceSettings::default()
+            },
+            &caps,
+            Remote::new(table),
+            table,
+        );
+        assert!(matches!(refused, Err(DeviceError::Unsupported(_))));
     }
 
     #[test]

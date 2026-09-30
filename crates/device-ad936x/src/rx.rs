@@ -18,7 +18,7 @@ use crate::{
         remaining, set_remote_timeout,
     },
     layout::Stream,
-    pace::Pace,
+    pace::{LiveRate, Pace},
     source::Source,
 };
 
@@ -58,7 +58,7 @@ pub(crate) struct RxRadio {
     stream: Stream,
     lanes: usize,
     samples: usize,
-    rate: Option<f64>,
+    rate: LiveRate,
     pool: BlockPool,
     armed: Mutex<Option<Stopper>>,
 }
@@ -73,8 +73,8 @@ impl std::fmt::Debug for RxRadio {
 }
 
 impl RxRadio {
-    pub(crate) fn new(source: Source, stream: Stream, lanes: usize, rate: Option<f64>) -> Self {
-        let samples = buffer_samples(rate.unwrap_or(0.0), stream.sample_bytes(lanes));
+    pub(crate) fn new(source: Source, stream: Stream, lanes: usize, rate: LiveRate) -> Self {
+        let samples = buffer_samples(rate.get(), stream.sample_bytes(lanes));
         Self {
             source,
             stream,
@@ -122,7 +122,7 @@ impl CaptureRadio for RxRadio {
             stopper,
             frame_bytes: self.stream.sample_bytes(self.lanes),
             lanes: self.lanes,
-            pace: Mutex::new(Pace::new(self.rate, self.samples)),
+            pace: Mutex::new(Pace::new(self.rate.clone(), self.samples)),
             overran: AtomicBool::new(false),
         })
     }
@@ -550,7 +550,7 @@ mod tests {
             stopper: Stopper::flag(),
             frame_bytes: 4,
             lanes: 1,
-            pace: Mutex::new(Pace::new(None, 1)),
+            pace: Mutex::new(Pace::new(LiveRate::new(None), 1)),
             overran: AtomicBool::new(false),
         }
     }

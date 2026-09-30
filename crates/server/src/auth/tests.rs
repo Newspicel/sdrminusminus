@@ -38,6 +38,7 @@ fn app(gate: AuthGate) -> Router {
         .route("/api/recordings", get(echo))
         .route("/api/auth", get(echo))
         .route("/api/about", get(echo))
+        .route("/api/status", get(echo))
         .route("/api/phones/pair", post(echo))
         .route("/api/workspaces/1/activate", post(echo))
         .route("/api/docs/index.html", get(|| async { "docs" }))
@@ -131,6 +132,7 @@ async fn a_configured_token_gates_the_api_but_never_the_ui_shell() {
     assert_eq!(status(&app, "/", None).await, StatusCode::OK);
     assert_eq!(status(&app, "/api/auth", None).await, StatusCode::OK);
     assert_eq!(status(&app, "/api/about", None).await, StatusCode::OK);
+    assert_eq!(status(&app, "/api/status", None).await, StatusCode::OK);
     assert_eq!(
         status(&app, "/api/docs/index.html", None).await,
         StatusCode::OK

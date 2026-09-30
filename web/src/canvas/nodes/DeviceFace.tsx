@@ -1,6 +1,7 @@
 import { Collapsible } from "@base-ui/react/collapsible";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link2, Lock, Radar } from "lucide-react";
+import { Link2, Radar } from "lucide-react";
+import type { ReactNode } from "react";
 import { Button } from "../../components/BaseControls";
 import { BTN_PRIMARY, BTN_QUIET, BTN_SM, ICON_BTN } from "../../components/controls";
 import { deviceId } from "../../components/devices";
@@ -8,9 +9,9 @@ import { inTuningRange, isTunable, tuningRange } from "../../components/dial";
 import { dialId, FrequencyDial } from "../../components/FrequencyDial";
 import { DROPS_HINT, formatCount, formatMhz } from "../../components/format";
 import { Icon } from "../../components/Icon";
+import { laneLayout } from "../../components/laneRows";
 import { DeviceChoices } from "../../components/OpenRadio";
-import { LaneControls, RadioSettings } from "../../components/RadioSettings";
-import { Readout, ReadoutRow } from "../../components/Readout";
+import { RadioSettings } from "../../components/RadioSettings";
 import { Tip } from "../../components/Tip";
 import { TuneTo } from "../../components/TuneTo";
 import { TuningLock } from "../../components/TuningLock";
@@ -21,18 +22,20 @@ import type { DeviceInfo, DeviceRef, DeviceSet, PatchNode, PatchNodeOf } from ".
 import { useRadioTune } from "../../lib/useRadioTune";
 import { claimedDevices, deviceRefOf, refMatches } from "../binding";
 import { useWorkspaceContext } from "../context";
-import { patchNode } from "../graph";
+import { patchNode, rxStreamCount, streamPort } from "../graph";
 import { releaseRadio } from "../remove";
 import { dialHold, type LaneHold, laneHolds } from "./arrayNode";
 import {
+  allAutoTuning,
+  allLocked,
   autoTuning,
   bondSaid,
   clippingSaid,
   faultSaid,
   type Hearing,
-  hasLaneControls,
   hearing,
   lanesMerged,
+  lockAll,
   lockStream,
   lossSaid,
   refLabel,
@@ -45,9 +48,17 @@ import { FaceBody, FaceFooter, NodeShell, useFaceActive } from "./NodeShell";
 
 type DeviceNodeData = PatchNodeOf<"device">["data"];
 
-function AutoTuning({ set, stream }: { set: DeviceSet; stream: number }) {
-  const { setTuning } = useRadioTune();
-  const auto = autoTuning(set, stream);
+function AutoTuning({ set, stream }: { set: DeviceSet; stream: number | "all" }) {
+  const { setTuning, setTuningAll } = useRadioTune();
+  const auto = stream === "all" ? allAutoTuning(set) : autoTuning(set, stream);
+  const flip = (): void => {
+    const next = auto ? "manual" : "auto";
+    if (stream === "all") {
+      setTuningAll(set, next);
+    } else {
+      setTuning(set, stream, next);
+    }
+  };
   return (
     <Tip
       text={auto ? "Auto mode: following decoders" : "Auto mode: follow decoders"}
@@ -57,7 +68,7 @@ function AutoTuning({ set, stream }: { set: DeviceSet; stream: number }) {
           className={`${ICON_BTN} ${auto ? "bg-accent/15" : ""}`}
           aria-label={auto ? "Tune by hand" : "Follow the decoders"}
           aria-pressed={auto}
-          onClick={() => setTuning(set, stream, auto ? "manual" : "auto")}
+          onClick={flip}
         />
       }
     >
@@ -68,11 +79,34 @@ function AutoTuning({ set, stream }: { set: DeviceSet; stream: number }) {
   );
 }
 
+function LinkLanes({ linked, onLink }: { linked: boolean; onLink: (linked: boolean) => void }) {
+  return (
+    <Tip
+      text={linked ? "Lanes tune together. Click to tune each lane" : "Tune all lanes together"}
+      render={
+        <Button
+          type="button"
+          className={`${ICON_BTN} ${linked ? "bg-accent/15" : ""}`}
+          aria-label={linked ? "Tune lanes one by one" : "Tune all lanes together"}
+          aria-pressed={linked}
+          onClick={() => onLink(!linked)}
+        />
+      }
+    >
+      <span className={linked ? "flex text-accent" : "flex"}>
+        <Icon glyph={Link2} size={16} />
+      </span>
+    </Tip>
+  );
+}
+
 interface TunerProps {
   node: string;
   set: DeviceSet;
   lockedStreams: readonly number[];
-  onLock: (stream: number, locked: boolean) => void;
+  onLock: (locked: number[]) => void;
+  split: boolean;
+  onSplit: (split: boolean) => void;
   holds: ReadonlyMap<number, LaneHold>;
 }
 
@@ -97,22 +131,27 @@ function DialRow({
   dial,
   locked,
   onLock,
+  tools,
   hold,
-}: Omit<TunerProps, "lockedStreams" | "onLock" | "holds"> & {
+  onTune,
+}: {
+  node: string;
+  set: DeviceSet;
   dial: TunerDial;
   locked: boolean;
   onLock: (locked: boolean) => void;
+  tools: ReactNode;
   hold: LaneHold | null;
+  onTune: (hz: number) => void;
 }) {
-  const { tuneRadio } = useRadioTune();
   const active = useFaceActive();
   const range = tuningRange(set.capabilities);
   const pinned = !isTunable(range);
   const held = pinned || locked || hold !== null;
-  const tune = (hz: number): void => tuneRadio(set, dial.stream, hz);
+  const free = !pinned && hold === null;
   return (
     <div
-      className="flex min-w-0 items-center gap-2"
+      className="@container flex min-w-0 items-center gap-2"
       title={hold === null ? undefined : `Tuned by ${hold.label}`}
     >
       <FrequencyDial
@@ -121,22 +160,22 @@ function DialRow({
         range={range}
         disabled={held}
         wheelTunes={active}
-        onTune={tune}
+        onTune={onTune}
       />
       <span className="ml-auto flex shrink-0 items-center gap-1">
         {hold !== null && <HeldBadge hold={hold} />}
-        {!pinned && hold === null && (
+        {free && (
           <TuneTo
-            title={dial.port === null ? "Type a frequency" : `Type a frequency for ${dial.port}`}
+            title="Type a frequency"
             hz={dial.hz}
             hint={`Reaches ${formatMhz(range.min)} to ${formatMhz(range.max)}`}
             resolve={(entered) => inTuningRange(entered, range)}
             disabled={held}
-            onTune={tune}
+            onTune={onTune}
           />
         )}
-        {!pinned && hold === null && <AutoTuning set={set} stream={dial.stream} />}
-        {!pinned && hold === null && (
+        {free && tools}
+        {free && (
           <TuningLock locked={locked} held="Tuning locked" free="Lock tuning" onLock={onLock} />
         )}
       </span>
@@ -144,85 +183,117 @@ function DialRow({
   );
 }
 
-function Tuner(props: TunerProps) {
-  const { set, lockedStreams, onLock, holds } = props;
-  const merged = lanesMerged(set);
-  const bond = merged ? bondSaid(set.capabilities.coherence) : null;
-  const controls = merged && hasLaneControls(set.capabilities);
-  const dials = merged ? tunerDials(set) : tunerDials(set).slice(0, 1);
+function LaneDial({
+  node,
+  set,
+  dial,
+  locked,
+  hold,
+}: {
+  node: string;
+  set: DeviceSet;
+  dial: TunerDial;
+  locked: boolean;
+  hold: LaneHold | null;
+}) {
+  const { tuneRadio } = useRadioTune();
+  const active = useFaceActive();
+  const range = tuningRange(set.capabilities);
+  const held = !isTunable(range) || locked || hold !== null;
+  const tune = (hz: number): void => tuneRadio(set, dial.stream, hz);
   return (
-    <>
-      {dials.map((dial, index) => {
-        const locked = lockedStreams.includes(dial.stream);
-        const hold = dialHold(holds, dial.stream, merged);
-        return (
-          <div
-            key={dial.stream}
-            className={`relative col-span-2 grid grid-cols-subgrid gap-y-2.5 ${
-              locked
-                ? "before:absolute before:inset-y-0 before:-left-2 before:w-0.5 before:bg-accent"
-                : ""
-            }`}
-          >
-            {merged && (
-              <LaneRule port={dial.port} locked={locked} bond={index === 0 ? bond : null} />
-            )}
-            <div className="@container col-span-2 min-w-0">
-              <DialRow
-                node={props.node}
-                set={set}
-                locked={locked}
-                dial={dial}
-                hold={hold}
-                onLock={(next) => onLock(dial.stream, next)}
-              />
-            </div>
-            {controls && (
-              <LaneControls
-                active={set}
-                stream={dial.stream}
-                advised={holds.has(dial.stream)}
-                heldBy={holds.get(dial.stream)?.label}
-              />
-            )}
-          </div>
-        );
-      })}
-      <div className="col-span-2 -mx-2 border-t border-line" />
-    </>
+    <div
+      className="flex h-7 items-center gap-2"
+      title={hold === null ? undefined : `Tuned by ${hold.label}`}
+    >
+      <span className="w-14 shrink-0 truncate font-mono text-[11px] text-port-iq">{dial.port}</span>
+      <div className="@container w-52 min-w-0">
+        <FrequencyDial
+          id={dialId(node, dial.stream)}
+          hz={dial.hz}
+          range={range}
+          disabled={held}
+          wheelTunes={active}
+          onTune={tune}
+        />
+      </div>
+      <span className="ml-auto flex shrink-0 items-center gap-1">
+        {hold === null ? (
+          <TuneTo
+            title={`Type a frequency for ${dial.port}`}
+            hz={dial.hz}
+            hint={`Reaches ${formatMhz(range.min)} to ${formatMhz(range.max)}`}
+            resolve={(entered) => inTuningRange(entered, range)}
+            disabled={held}
+            onTune={tune}
+          />
+        ) : (
+          <HeldBadge hold={hold} />
+        )}
+      </span>
+    </div>
   );
 }
 
-function LaneRule({
-  port,
-  locked,
-  bond,
-}: {
-  port: string | null;
-  locked: boolean;
-  bond: string | null;
-}) {
-  return (
-    <div className="legend col-span-2 flex items-center gap-2 leading-none">
-      <span className="h-px w-3 bg-line" />
-      <span className="flex items-center gap-1 font-mono text-port-iq">
-        {port}
-        {locked && (
-          <span className="text-accent" title="Tuning locked">
-            <Icon glyph={Lock} size={12} />
-          </span>
-        )}
-      </span>
-      <span className="h-px flex-1 bg-line" />
-      {bond !== null && (
-        <span
-          className="flex items-center gap-1 text-port-iq"
-          title="The lanes sample on one clock, so their streams line up in time"
-        >
-          <Icon glyph={Link2} size={12} />
-          {bond}
+function Tuner(props: TunerProps) {
+  const { node, set, lockedStreams, onLock, split, onSplit, holds } = props;
+  const { tuneRadio, tuneAll } = useRadioTune();
+  const caps = set.capabilities;
+  const merged = lanesMerged(set);
+  const dial = tunerDials(set)[0];
+  const locked = merged ? allLocked(lockedStreams, caps) : lockedStreams.includes(0);
+  const lock = (held: boolean): void =>
+    onLock(merged ? lockAll(caps, held) : lockStream(lockedStreams, 0, held));
+  const hold = dialHold(holds, 0, false);
+  const link = merged && (
+    <LinkLanes
+      linked={!split}
+      onLink={(linked) => {
+        onSplit(!linked);
+        if (linked && dial !== undefined) {
+          tuneAll(set, dial.hz);
+        }
+      }}
+    />
+  );
+  if (merged && split) {
+    return (
+      <div className="flex h-7 items-center gap-2">
+        <span className="legend">Per lane</span>
+        <span className="ml-auto flex shrink-0 items-center gap-1">
+          {hold === null ? (
+            <>
+              {link}
+              <AutoTuning set={set} stream="all" />
+              <TuningLock locked={locked} held="Tuning locked" free="Lock tuning" onLock={lock} />
+            </>
+          ) : (
+            <HeldBadge hold={hold} />
+          )}
         </span>
-      )}
+      </div>
+    );
+  }
+  if (dial === undefined) {
+    return null;
+  }
+  return (
+    <div>
+      <DialRow
+        node={node}
+        set={set}
+        dial={dial}
+        locked={locked}
+        hold={hold}
+        onLock={lock}
+        onTune={(hz) => (merged ? tuneAll(set, hz) : tuneRadio(set, 0, hz))}
+        tools={
+          <>
+            {link}
+            <AutoTuning set={set} stream={merged ? "all" : 0} />
+          </>
+        }
+      />
     </div>
   );
 }
@@ -293,6 +364,7 @@ export function DeviceFace({ node }: { node: PatchNode }) {
   const attached = useQuery(devicesQuery());
   const reference = node.kind === "device" ? (node.data.device ?? null) : null;
   const lockedStreams = node.kind === "device" ? (node.data.locked_streams ?? []) : [];
+  const split = node.kind === "device" && node.data.split_tuning === true;
   const set = workspace.devices.get(node.id) ?? null;
   const onBus =
     reference !== null &&
@@ -406,6 +478,10 @@ export function DeviceFace({ node }: { node: PatchNode }) {
 
   const holds = laneHolds(workspace.graph, node.id);
   const heldBy = new Map([...holds].map(([stream, hold]) => [stream, hold.label]));
+  const merged = lanesMerged(set);
+  const dials = tunerDials(set);
+  const streams = rxStreamCount(set.capabilities);
+  const rowPerPort = laneLayout(set.capabilities).lanes === streams;
 
   return (
     <NodeShell
@@ -418,7 +494,6 @@ export function DeviceFace({ node }: { node: PatchNode }) {
         <RadioSettings
           active={set}
           className="p-2"
-          lanesShown={lanesMerged(set)}
           advised={new Set(holds.keys())}
           heldBy={heldBy}
           lead={
@@ -427,19 +502,37 @@ export function DeviceFace({ node }: { node: PatchNode }) {
               set={set}
               holds={holds}
               lockedStreams={lockedStreams}
-              onLock={(stream, next) =>
-                editNode({ locked_streams: lockStream(lockedStreams, stream, next) })
-              }
+              onLock={(locked_streams) => editNode({ locked_streams })}
+              split={split}
+              onSplit={(split_tuning) => editNode({ split_tuning })}
             />
           }
+          laneLeads={
+            merged && split
+              ? dials.map((dial) => (
+                  <LaneDial
+                    key={dial.stream}
+                    node={node.id}
+                    set={set}
+                    dial={dial}
+                    locked={lockedStreams.includes(dial.stream)}
+                    hold={dialHold(holds, dial.stream, true)}
+                  />
+                ))
+              : undefined
+          }
+          ports={
+            rowPerPort
+              ? Array.from({ length: streams }, (_, stream) => streamPort("iq", stream))
+              : undefined
+          }
         />
-
-        <DeviceHealth set={set} />
 
         {set.error != null && <Fault set={set} />}
         <Refused set={set} />
       </FaceBody>
       <FaceFooter>
+        <DeviceHealth set={set} />
         {offersMakeArray(workspace.graph, node.id, set) && (
           <MakeArrayButton node={node.id} set={set} />
         )}
@@ -460,37 +553,65 @@ export function DeviceFace({ node }: { node: PatchNode }) {
 const LOSS_HINT =
   "The radio sends more than its link or this computer carries. Lower the rate or the lanes";
 
+function Stat({
+  label,
+  title,
+  tone = "",
+  children,
+}: {
+  label: string;
+  title: string;
+  tone?: string;
+  children: ReactNode;
+}) {
+  return (
+    <span
+      className="inline-flex items-center gap-1 font-mono text-[11px] whitespace-nowrap text-ink-faint"
+      title={title}
+    >
+      {label} <b className={`font-medium ${tone === "" ? "text-ink" : tone}`}>{children}</b>
+    </span>
+  );
+}
+
 function DeviceHealth({ set }: { set: DeviceSet }) {
   const health = usePipelineHealth((state) => state.health);
   const summary = queueSummary(health, set.id);
   const overruns = set.overruns ?? 0;
   const clipping = clippingSaid(set);
   const loss = lossSaid(set);
-  if (summary === null && overruns === 0 && clipping === null) {
-    return null;
-  }
+  const bond = lanesMerged(set) ? bondSaid(set.capabilities.coherence) : null;
   return (
-    <Readout label="Health">
-      {clipping !== null && (
-        <ReadoutRow label="Clipping" title="The ADC is at full scale. Lower the gain.">
-          {clipping}
-        </ReadoutRow>
-      )}
+    <span className="mr-auto flex min-w-0 flex-wrap items-center gap-3">
       {summary !== null && (
-        <ReadoutRow label="Queue" title={summary.detail}>
+        <Stat label="Queue" title={summary.detail}>
           {summary.oldestMs.toFixed(0)} ms
-        </ReadoutRow>
+        </Stat>
       )}
       {loss !== null && (
-        <ReadoutRow label="Lost" title={LOSS_HINT}>
-          <span className="text-warn">{loss}</span>
-        </ReadoutRow>
+        <Stat label="Lost" title={LOSS_HINT} tone="text-warn">
+          {loss}
+        </Stat>
       )}
       {overruns > 0 && (
-        <ReadoutRow label="Drops" title={DROPS_HINT}>
+        <Stat label="Drops" title={DROPS_HINT} tone="text-warn">
           {formatCount(overruns)}
-        </ReadoutRow>
+        </Stat>
       )}
-    </Readout>
+      {clipping !== null && (
+        <Stat label="Clipping" title="The ADC is at full scale. Lower the gain" tone="text-danger">
+          {clipping}
+        </Stat>
+      )}
+      {bond !== null && (
+        <span
+          className="inline-flex items-center gap-1 font-mono text-[11px] whitespace-nowrap text-ink-faint"
+          title="The lanes sample on one clock, so their streams line up in time"
+        >
+          <Icon glyph={Link2} size={12} />
+          {bond}
+        </span>
+      )}
+    </span>
   );
 }

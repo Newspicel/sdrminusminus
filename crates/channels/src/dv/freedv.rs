@@ -200,9 +200,7 @@ impl FreeDvChannel {
         for index in CODEC_BITS..CODEC_BITS + 11 {
             received = received << 1 | u32::from(self.paired_bits[index]);
         }
-        let Some((corrected, _errors)) = golay23_correct(received) else {
-            return;
-        };
+        let (corrected, _errors) = golay23_correct(received);
 
         let mut payload = [0u8; CODEC_BITS];
         payload.copy_from_slice(&self.paired_bits[..CODEC_BITS]);
@@ -249,7 +247,7 @@ mod tests {
         let data = 0xA53u16;
         let codeword = sdrmm_dsp::golay23_encode(data);
         for damaged in [codeword, codeword ^ 1 << 7, codeword ^ 1 << 1 ^ 1 << 19] {
-            let (corrected, errors) = golay23_correct(damaged).unwrap();
+            let (corrected, errors) = golay23_correct(damaged);
             assert_eq!(corrected >> 11, u32::from(data));
             assert_eq!(errors, (damaged ^ codeword).count_ones());
         }

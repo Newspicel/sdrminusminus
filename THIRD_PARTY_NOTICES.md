@@ -72,6 +72,10 @@ SDR-- drives the Airspy R2 and Mini itself, in Rust, over its own USB stack, and
 
 As with libairspy: nothing of libairspyhf is linked or shipped, but the vendor request numbers, the big-endian kilohertz tuning field and the sample layout in `crates/device-airspyhf/src/driver` were written from it. Its adaptive IQ balancer was not translated, and this driver does not reproduce it.
 
+**mbelib**: ISC
+
+The D-STAR AMBE decoder in `crates/channels/src/dv/ambe` is a Rust port of mbelib's AMBE 3600x2400 decoder, and its quantizer tables are mbelib's.
+
 **SoapySDR**: BSL-1.0
 
 Opened at runtime from whatever SoapySDR the host has installed, and never linked or distributed by this project. A release that finds none simply reports no SoapySDR hardware. The modules it loads, and their licenses, belong to that installation.
@@ -978,7 +982,7 @@ The ACARS application layer and the VDL2, HFDL, Inmarsat Aero, Inmarsat STD-C, D
 | [use-sync-external-store](https://github.com/react/react#readme) | 1.7.0 | MIT |
 | [zustand](https://github.com/pmndrs/zustand) | 4.5.7, 5.0.15 | MIT |
 
-## Hardware libraries (11)
+## Hardware libraries (12)
 
 | Component | Version | License |
 | --- | --- | --- |
@@ -991,6 +995,7 @@ The ACARS application layer and the VDL2, HFDL, Inmarsat Aero, Inmarsat STD-C, D
 | [Kiss FFT](https://github.com/mborgerding/kissfft) | - | BSD-3-Clause |
 | [libairspy](https://github.com/airspy/airspyone_host) | - | BSD-3-Clause |
 | [libairspyhf](https://github.com/airspy/airspyhf) | - | BSD-3-Clause |
+| [mbelib](https://github.com/szechyjs/mbelib) | - | ISC |
 | [SoapySDR](https://github.com/pothosware/SoapySDR) | - | BSL-1.0 |
 | [xng](https://github.com/airframesio/xng) | - | MIT OR Apache-2.0 |
 

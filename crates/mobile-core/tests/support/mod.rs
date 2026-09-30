@@ -471,6 +471,7 @@ pub fn hunt_graph(phone: Option<&str>) -> PatchGraph {
                         key: Some("band".to_owned()),
                     }),
                     locked_streams: Vec::new(),
+                    split_tuning: false,
                 }),
             ),
             node(

@@ -17,7 +17,12 @@ use crate::{
     phones::{Phones, Verified, phone_may},
 };
 
-const PUBLIC_PATHS: &[&str] = &["/api/auth", "/api/about", "/api/openapi.json"];
+const PUBLIC_PATHS: &[&str] = &[
+    "/api/auth",
+    "/api/about",
+    "/api/openapi.json",
+    "/api/status",
+];
 const PUBLIC_PREFIXES: &[&str] = &["/api/docs"];
 const PAIR_PATH: &str = "/api/phones/pair";
 const KEYS_UNREADABLE: &str = "Phone keys unreadable, try again";

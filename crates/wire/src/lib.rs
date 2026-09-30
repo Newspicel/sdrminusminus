@@ -213,8 +213,9 @@ pub use rest::{
     MAX_RECORDING_TAG_LEN, MAX_RECORDING_TAGS, MAX_RECORDING_UPLOAD_BYTES, OccupancyBucket,
     OccupancyReport, PRESET_SNAPSHOT_VERSION, PlaybackAction, PlaybackRequest, PresetDevice,
     PresetInfo, PresetSnapshot, RecordingAnnotation, RecordingDownloadQuery, RecordingFormat,
-    RecordingInfo, RecordingUpload, RecordingsResponse, SaveRadioRequest, SavedRadio, TemplateInfo,
-    TemplatesResponse, VoiceCall, VoiceCallsResponse,
+    RecordingInfo, RecordingUpload, RecordingsResponse, SaveRadioRequest, SavedRadio, ServerStatus,
+    TemplateInfo, TemplatesResponse, VoiceCall, VoiceCallsResponse, WriteSerialRequest,
+    WrittenSerial,
 };
 pub use satellite::{
     CatalogSatellite, MAX_CATALOG_RESULTS, MAX_SATELLITE_HZ, MAX_SATELLITE_QUERY_LEN, MAX_TLE_LEN,
@@ -227,9 +228,9 @@ pub use scan::{
     ScannerStatus,
 };
 pub use state::{
-    AudioRecordingStatus, ChannelLevel, DeviceFault, DeviceSet, DeviceSetStatus, PlaybackStatus,
-    RecordingStatus, SettingsRefused, StateSnapshot, TrunkChannel, TrunkChannelSource,
-    TrunkControl, TrunkFollower, TrunkProbe, TrunkProblem, TrunkSystemStatus,
+    AudioRecordingStatus, ChannelLevel, DeviceFault, DeviceSet, DeviceSetStatus, LaneLevel,
+    PlaybackStatus, RecordingStatus, SettingsRefused, StateSnapshot, TrunkChannel,
+    TrunkChannelSource, TrunkControl, TrunkFollower, TrunkProbe, TrunkProblem, TrunkSystemStatus,
 };
 pub use survey::{SurveyAction, SurveyCell, SurveyGrid, SurveyRequest, SurveyStop, SurveyUpdate};
 pub use timemachine::{

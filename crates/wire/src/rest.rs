@@ -89,6 +89,18 @@ pub struct CreateDeviceSetRequest {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct WriteSerialRequest {
+    pub device_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub serial: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct WrittenSerial {
+    pub serial: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct CreateChannelRequest {
     #[serde(default)]
     pub stream: u32,
@@ -571,6 +583,13 @@ pub struct AuthInfo {
     pub token_required: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub login_url: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct ServerStatus {
+    pub version: String,
+    pub platform: String,
+    pub uptime_secs: u64,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, ToSchema)]

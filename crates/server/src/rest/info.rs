@@ -158,6 +158,23 @@ pub(super) async fn get_auth(State(state): State<AppState>) -> Json<AuthInfo> {
 }
 
 #[utoipa::path(
+    get, path = "/api/status",
+    responses((
+        status = 200,
+        description = "Liveness probe: version, platform and uptime. Public and instant, unlike \
+                       /api/doctor, so health checks need no token",
+        body = ServerStatus,
+    )),
+)]
+pub(super) async fn get_status(State(state): State<AppState>) -> Json<ServerStatus> {
+    Json(ServerStatus {
+        version: env!("CARGO_PKG_VERSION").to_owned(),
+        platform: format!("{}/{}", std::env::consts::OS, std::env::consts::ARCH),
+        uptime_secs: state.uptime().as_secs(),
+    })
+}
+
+#[utoipa::path(
     get, path = "/api/doctor",
     responses((
         status = 200,

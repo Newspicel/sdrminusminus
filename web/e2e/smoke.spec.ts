@@ -394,7 +394,8 @@ test.describe("the workspace", () => {
 
     await page.getByRole("group", { name: "View" }).getByRole("button", { name: "Patch" }).click();
     await activate(node("device"));
-    await node("device").getByRole("combobox", { name: "Sample rate" }).click();
+    await node("device").getByRole("button", { name: "Sample rate" }).click();
+    await page.getByRole("combobox", { name: "Sample rate" }).click();
     await page.getByRole("option", { name: "2 MS/s", exact: true }).click();
 
     await addNode(page, "ADS-B (1090ES)");

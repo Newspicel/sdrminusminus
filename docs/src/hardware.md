@@ -111,14 +111,11 @@ Rates: 225 to 300 kHz, or 900 kHz to 3.2 MHz. Filter: 290 kHz to 8 MHz on R82xx 
 
 Many dongles ship with the serial `00000001`. Two dongles with one serial are told apart by USB
 port instead, shown as `RTL-SDR (bus/address)`, and their settings and
-[calibration](#calibration) can follow the wrong one after a replug. Give each its own serial, one
-dongle plugged in at a time:
+[calibration](#calibration) can follow the wrong one after a replug.
 
-```sh
-rtl_eeprom -s 00000002
-```
-
-Replug it afterwards. `rtl_eeprom` comes with the `rtl-sdr` package.
+SDR-- asks once when it finds such a dongle. Yes writes a random serial, or one you type, to
+its EEPROM. Replug it afterwards. The dongle must be closed, and one without an EEPROM cannot keep a
+serial.
 
 ## KrakenSDR
 
@@ -304,7 +301,7 @@ board a free address in your range: connect it over USB, open the drive it shows
 computer's address.
 
 Gigabit Ethernet carries about 60 MB/s from the E310: 15 MS/s on one lane, or 7.5 MS/s per lane on
-two. Set **Lanes** to 1 for one wide lane. The E310 locks its antenna and TX ports in firmware, so
+two. The E310 locks its antenna and TX ports in firmware, so
 those menus are hidden. The other controls are the [AD936x ones](#plutosdr-and-other-ad936x-boards).
 
 Tested on hardware provided by [MicroPhase](https://www.microphase.cn/). Thank you.
@@ -321,7 +318,7 @@ phase coherent.
 
 | Control | Does |
 |---|---|
-| Lanes | 1 or 2 on a 2×2 board. One lane gets the whole link |
+| Lanes | 1 or 2 on a 2×2 board. Starts at 1, which gets the whole link. TX lanes follow |
 | Tuner | Receive gain per lane. The range follows the band |
 | TX | Transmit attenuation per lane |
 | AGC | Per lane: slow attack, fast attack, or hybrid |

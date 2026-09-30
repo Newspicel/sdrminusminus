@@ -116,6 +116,7 @@ pub(crate) struct AppState {
     pub(crate) dev_cors: bool,
     pub(crate) data_dir: Option<PathBuf>,
     pub(crate) remote: Arc<remote::RemoteHub>,
+    started: std::time::Instant,
 }
 
 impl AppState {
@@ -156,7 +157,12 @@ impl AppState {
             server_name: net::host_label().into(),
             dev_cors: false,
             data_dir: None,
+            started: std::time::Instant::now(),
         }
+    }
+
+    pub(crate) fn uptime(&self) -> std::time::Duration {
+        self.started.elapsed()
     }
 
     pub fn decoder_log_dropped(&self) -> u64 {

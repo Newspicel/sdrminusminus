@@ -25,6 +25,17 @@ fn open(server: &FakeIiod) -> Box<dyn SdrDevice> {
     driver.open(&info).expect("opens")
 }
 
+fn open_both_lanes(server: &FakeIiod) -> Box<dyn SdrDevice> {
+    let mut device = open(server);
+    device
+        .apply(&DeviceSettings {
+            rx_streams: Some(2),
+            ..DeviceSettings::default()
+        })
+        .expect("both lanes");
+    device
+}
+
 fn lane_sink(lane: &Lane) -> RxSink {
     let collected = lane.clone();
     RxSink::new(move |samples: &[Sample], _| lock(&collected).extend_from_slice(samples))
@@ -143,7 +154,7 @@ fn the_settings_that_come_back_are_the_ones_the_radio_is_holding() {
 #[test]
 fn a_two_by_two_radio_is_recognised_as_one() {
     let server = FakeIiod::spawn(2);
-    let device = open(&server);
+    let device = open_both_lanes(&server);
     let caps = device.capabilities();
     assert_eq!(caps.rx_streams, 2);
     assert_eq!(caps.tx_streams, 2);
@@ -172,7 +183,7 @@ fn a_two_by_two_radio_is_recognised_as_one() {
 #[test]
 fn a_gain_for_the_whole_radio_reaches_both_lanes_and_a_lane_of_its_own_stays_apart() {
     let server = FakeIiod::spawn(2);
-    let mut device = open(&server);
+    let mut device = open_both_lanes(&server);
     device
         .apply(&DeviceSettings {
             gains: vec![GainValue::new(GainKind::Tuner, 30.0)],
@@ -211,7 +222,7 @@ fn a_gain_for_the_whole_radio_reaches_both_lanes_and_a_lane_of_its_own_stays_apa
 #[test]
 fn each_lane_runs_its_own_gain_loop_and_reports_the_gain_it_picked() {
     let server = FakeIiod::spawn(2);
-    let mut device = open(&server);
+    let mut device = open_both_lanes(&server);
     device
         .apply(&DeviceSettings {
             streams: vec![
@@ -293,7 +304,18 @@ fn a_two_by_two_radio_can_give_one_lane_the_whole_link() {
     let server = FakeIiod::spawn(2);
     let mut device = open(&server);
     assert_eq!(device.capabilities().rx_stream_choices, vec![1, 2]);
-    assert_eq!(device.settings().rx_streams, Some(2));
+    assert_eq!(
+        device.settings().rx_streams,
+        Some(1),
+        "the lanes share one synthesizer, so one is where a radio starts"
+    );
+    device
+        .apply(&DeviceSettings {
+            rx_streams: Some(2),
+            ..DeviceSettings::default()
+        })
+        .expect("both lanes");
+    assert_eq!(device.capabilities().tx_streams, 2);
 
     device
         .apply(&DeviceSettings {
@@ -302,8 +324,17 @@ fn a_two_by_two_radio_can_give_one_lane_the_whole_link() {
         })
         .expect("one lane");
     assert_eq!(device.capabilities().rx_streams, 1);
+    assert_eq!(
+        device.capabilities().tx_streams,
+        1,
+        "the transmit lanes follow"
+    );
     assert_eq!(device.settings().rx_streams, Some(1));
     assert!(device.settings().streams.is_empty());
+    assert!(
+        device.tx_start_channels(&[0, 1]).is_err(),
+        "the second transmit lane is off too"
+    );
     assert!(
         device
             .rx_start(vec![RxSink::new(|_, _| {}), RxSink::new(|_, _| {})])
@@ -607,7 +638,7 @@ fn stopping_gives_the_buffer_back_so_the_next_start_gets_one() {
 #[test]
 fn two_lanes_arrive_split_apart_and_sample_aligned() {
     let server = FakeIiod::spawn(2);
-    let mut device = open(&server);
+    let mut device = open_both_lanes(&server);
     let first: Lane = Arc::default();
     let second: Lane = Arc::default();
     device

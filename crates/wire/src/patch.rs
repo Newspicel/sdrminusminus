@@ -299,6 +299,8 @@ pub struct DeviceNode {
     pub device: Option<DeviceRef>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub locked_streams: Vec<u32>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub split_tuning: bool,
 }
 
 impl DeviceNode {

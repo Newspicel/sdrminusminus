@@ -116,4 +116,26 @@ describe("SymbolHub", () => {
     fake.reconnect();
     expect(fake.sent).toEqual([{ type: "SubscribeSymbols", data: { device_set: 1, channel: 7 } }]);
   });
+
+  it("stops sending while the page is hidden and resumes when it shows", () => {
+    const fake = fakeSocket();
+    const hub = new SymbolHub();
+    hub.attach(fake.socket);
+    hub.subscribe(1, 7, () => {});
+    fake.sent.length = 0;
+
+    hub.setVisible(false);
+    fake.reconnect();
+    hub.subscribe(1, 8, () => {});
+    expect(fake.sent).toEqual([
+      { type: "UnsubscribeSymbols", data: { device_set: 1, channel: 7 } },
+    ]);
+
+    fake.sent.length = 0;
+    hub.setVisible(true);
+    expect(fake.sent).toEqual([
+      { type: "SubscribeSymbols", data: { device_set: 1, channel: 7 } },
+      { type: "SubscribeSymbols", data: { device_set: 1, channel: 8 } },
+    ]);
+  });
 });

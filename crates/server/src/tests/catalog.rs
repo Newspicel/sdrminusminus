@@ -304,6 +304,19 @@ async fn about_names_this_build() {
 }
 
 #[tokio::test]
+async fn status_reports_this_build_and_its_uptime() {
+    let (status, body) = request(test_router(), "GET", "/api/status", None).await;
+    assert_eq!(status, StatusCode::OK);
+    let report: sdrmm_wire::ServerStatus = serde_json::from_slice(&body).expect("json");
+    assert_eq!(report.version, env!("CARGO_PKG_VERSION"));
+    assert_eq!(
+        report.platform,
+        format!("{}/{}", std::env::consts::OS, std::env::consts::ARCH)
+    );
+    assert!(report.uptime_secs < 60);
+}
+
+#[tokio::test]
 async fn doctor_reports_the_running_configuration() {
     let (status, body) = request(test_router(), "GET", "/api/doctor", None).await;
     assert_eq!(status, StatusCode::OK);

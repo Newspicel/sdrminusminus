@@ -1,8 +1,10 @@
 import { agcDelta, agcGainDb, laneAgc } from "../canvas/nodes/deviceNode";
 import type { DeviceSet } from "../lib/types";
 import { useDevicePatch } from "../lib/useDevicePatch";
-import { Checkbox } from "./Checkbox";
+import { Button } from "./BaseControls";
 import { agcStageIndex, formatGain } from "./capabilities";
+import { TOGGLE_QUIET } from "./controls";
+import { Tip } from "./Tip";
 
 export function agcTip(set: DeviceSet, stream: number, advised: boolean): string {
   if (!laneAgc(set, stream).on) {
@@ -12,6 +14,40 @@ export function agcTip(set: DeviceSet, stream: number, advised: boolean): string
   const stage = set.capabilities.gains[agcStageIndex(set.capabilities.gains)];
   const reading = db === null || stage === undefined ? "" : ` at ${formatGain(stage, db)} dB`;
   return `AGC on${reading}${advised ? ". Fixed gain keeps coherent lanes calibrated" : ""}`;
+}
+
+export function AutoToggle({
+  label,
+  pressed,
+  title,
+  warn = false,
+  disabled = false,
+  onChange,
+}: {
+  label: string;
+  pressed: boolean | "mixed";
+  title: string;
+  warn?: boolean;
+  disabled?: boolean;
+  onChange: (on: boolean) => void;
+}) {
+  return (
+    <Tip
+      text={title}
+      render={
+        <Button
+          type="button"
+          className={`${TOGGLE_QUIET} ${warn ? "text-warn" : ""}`}
+          aria-label={label}
+          aria-pressed={pressed}
+          disabled={disabled}
+          onClick={() => onChange(pressed !== true)}
+        />
+      }
+    >
+      Auto
+    </Tip>
+  );
 }
 
 export function AgcAuto({
@@ -30,17 +66,13 @@ export function AgcAuto({
   const { applyPatch } = useDevicePatch();
   const agc = laneAgc(set, stream);
   return (
-    <label
-      className="flex items-center gap-1.5"
+    <AutoToggle
+      label={`${port === undefined ? "" : `${port} `}automatic gain`}
+      pressed={agc.on}
       title={heldBy === undefined ? agcTip(set, stream, advised) : `Set on ${heldBy}`}
-    >
-      <Checkbox
-        label={`${port === undefined ? "" : `${port} `}automatic gain`}
-        checked={agc.on}
-        disabled={heldBy !== undefined}
-        onChange={(on) => applyPatch(set.id, agcDelta(set.capabilities, stream, { ...agc, on }))}
-      />
-      <span className={`legend ${agc.on && advised ? "text-warn" : ""}`}>Auto</span>
-    </label>
+      warn={agc.on && advised}
+      disabled={heldBy !== undefined}
+      onChange={(on) => applyPatch(set.id, agcDelta(set.capabilities, stream, { ...agc, on }))}
+    />
   );
 }

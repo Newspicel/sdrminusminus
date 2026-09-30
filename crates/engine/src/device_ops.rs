@@ -651,6 +651,15 @@ impl Engine {
         Ok(id)
     }
 
+    pub fn write_serial(
+        &self,
+        device_id: &str,
+        serial: Option<&str>,
+    ) -> Result<String, EngineError> {
+        self.refuse_reopen(device_id)?;
+        Ok(self.registry.write_serial(device_id, serial)?)
+    }
+
     pub(crate) fn refuse_reopen(&self, device_id: &str) -> Result<(), EngineError> {
         let inner = self.lock();
         match inner

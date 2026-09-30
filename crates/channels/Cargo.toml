@@ -36,11 +36,6 @@ serde_json.workspace = true
 flate2.workspace = true
 jiff.workspace = true
 
-[build-dependencies]
-# Builds the small, statically linked first-generation AMBE decoder used only by D-STAR.
-# There is no runtime system-library dependency.
-cc.workspace = true
-
 [dev-dependencies]
 sdrmm-test-support.workspace = true
 sdrmm-dsp = { workspace = true, features = ["test-scene"] }

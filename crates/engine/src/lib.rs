@@ -1301,12 +1301,14 @@ impl Engine {
     }
 
     pub fn level_tick(&self) {
-        for ds in self.device_sets_with_channels() {
+        for ds in self.device_sets_running() {
             let levels = self.channel_levels(ds);
-            if !levels.is_empty() {
+            let lanes = self.lane_levels(ds);
+            if !levels.is_empty() || !lanes.is_empty() {
                 self.emit(ServerEvent::ChannelLevels {
                     device_set: ds,
                     levels,
+                    lanes,
                 });
             }
         }

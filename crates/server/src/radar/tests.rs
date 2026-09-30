@@ -457,6 +457,7 @@ fn graph(wiring: Wiring) -> PatchGraph {
                         key: Some("kraken5".to_owned()),
                     }),
                     locked_streams: Vec::new(),
+                    split_tuning: false,
                 }),
             ),
             node(

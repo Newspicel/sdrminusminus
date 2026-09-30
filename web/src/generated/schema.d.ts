@@ -628,6 +628,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/devices/serial": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["write_serial"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/devicesets": {
         parameters: {
             query?: never;
@@ -1372,6 +1388,22 @@ export interface paths {
             cookie?: never;
         };
         get: operations["get_state"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_status"];
         put?: never;
         post?: never;
         delete?: never;
@@ -3940,6 +3972,7 @@ export interface components {
         DeviceNode: {
             device?: components["schemas"]["DeviceRef"] | null;
             locked_streams?: number[];
+            split_tuning?: boolean;
         };
         DeviceProfile: {
             coherence?: components["schemas"]["Coherence"];
@@ -4979,6 +5012,12 @@ export interface components {
         IssueSeverity: "note" | "adjusted" | "dropped";
         /** @enum {string} */
         ItuRegion: "r1" | "r2" | "r3";
+        LaneLevel: {
+            /** Format: float */
+            peak_db: number;
+            /** Format: int32 */
+            stream: number;
+        };
         LaneWeight: {
             /** Format: float */
             amplitude_db: number;
@@ -6962,6 +7001,7 @@ export interface components {
             data: {
                 /** Format: int32 */
                 device_set: number;
+                lanes?: components["schemas"]["LaneLevel"][];
                 levels: components["schemas"]["ChannelLevel"][];
             };
             /** @enum {string} */
@@ -7029,6 +7069,12 @@ export interface components {
             };
             /** @enum {string} */
             type: "Error";
+        };
+        ServerStatus: {
+            platform: string;
+            /** Format: int64 */
+            uptime_secs: number;
+            version: string;
         };
         SettingsRefused: {
             error: string;
@@ -7884,6 +7930,13 @@ export interface components {
              */
             color_code?: number | null;
             node: string;
+        };
+        WriteSerialRequest: {
+            device_id: string;
+            serial?: string | null;
+        };
+        WrittenSerial: {
+            serial: string;
         };
         WsjtMessage: {
             /** Format: float */
@@ -9538,6 +9591,66 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DevicesResponse"];
+                };
+            };
+        };
+    };
+    write_serial: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WriteSerialRequest"];
+            };
+        };
+        responses: {
+            /** @description Serial written, takes effect after a replug */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WrittenSerial"];
+                };
+            };
+            /** @description This radio cannot take that serial */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Device not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Device open here or in another program */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Malformed request body */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
                 };
             };
         };
@@ -11775,6 +11888,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["StateSnapshot"];
+                };
+            };
+        };
+    };
+    get_status: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Liveness probe: version, platform and uptime. Public and instant, unlike /api/doctor, so health checks need no token */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServerStatus"];
                 };
             };
         };

@@ -374,12 +374,13 @@ pub(crate) fn capabilities(front: &Front, layout: &Layout) -> Capabilities {
             Vec::new()
         },
     };
-    stream_lanes(&mut capabilities, rx_streams);
+    stream_lanes(&mut capabilities, 1, tx_streams);
     capabilities
 }
 
-pub(crate) fn stream_lanes(capabilities: &mut Capabilities, lanes: u32) {
+pub(crate) fn stream_lanes(capabilities: &mut Capabilities, lanes: u32, transmitters: u32) {
     capabilities.rx_streams = lanes.max(1);
+    capabilities.tx_streams = transmitters.min(capabilities.rx_streams);
     if lanes > 1 {
         capabilities.per_stream = StreamScope {
             tuning: false,
@@ -553,7 +554,8 @@ pub(crate) mod tests {
     #[test]
     fn a_two_by_two_radio_declares_per_lane_gain_and_a_shared_synthesizer() {
         let layout = crate::layout::tests::two_by_two_layout();
-        let caps = capabilities(&front(), &layout);
+        let mut caps = capabilities(&front(), &layout);
+        stream_lanes(&mut caps, 2, 2);
         assert_eq!(caps.rx_streams, 2);
         assert_eq!(caps.tx_streams, 2);
         assert_eq!(caps.duplex, Duplex::Full);
@@ -695,15 +697,15 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn a_two_by_two_radio_can_stream_one_lane_alone() {
+    fn a_two_by_two_radio_opens_on_one_lane_and_transmits_on_as_many() {
         let mut caps = capabilities(&front(), &crate::layout::tests::two_by_two_layout());
         assert_eq!(caps.rx_stream_choices, vec![1, 2]);
-        stream_lanes(&mut caps, 1);
-        assert_eq!(caps.rx_streams, 1);
+        assert_eq!(caps.rx_streams, 1, "the lanes share one synthesizer");
+        assert_eq!(caps.tx_streams, 1);
         assert_eq!(caps.per_stream, StreamScope::default());
         assert_eq!(caps.coherence, Coherence::None);
-        assert_eq!(caps.tx_streams, 2, "the transmit lanes are untouched");
-        stream_lanes(&mut caps, 2);
+        stream_lanes(&mut caps, 2, 2);
+        assert_eq!(caps.tx_streams, 2);
         assert!(caps.per_stream.agc);
         assert_eq!(caps.coherence, Coherence::PhaseCoherent);
 

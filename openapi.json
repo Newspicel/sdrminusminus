@@ -1999,6 +1999,73 @@
         }
       }
     },
+    "/api/devices/serial": {
+      "post": {
+        "operationId": "write_serial",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WriteSerialRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Serial written, takes effect after a replug",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WrittenSerial"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "This radio cannot take that serial",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Device not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Device open here or in another program",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Malformed request body",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/devicesets": {
       "post": {
         "operationId": "create_device_set",
@@ -4508,6 +4575,23 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/StateSnapshot"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/status": {
+      "get": {
+        "operationId": "get_status",
+        "responses": {
+          "200": {
+            "description": "Liveness probe: version, platform and uptime. Public and instant, unlike /api/doctor, so health checks need no token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServerStatus"
                 }
               }
             }
@@ -14009,6 +14093,9 @@
               "format": "int32",
               "minimum": 0
             }
+          },
+          "split_tuning": {
+            "type": "boolean"
           }
         }
       },
@@ -17658,6 +17745,24 @@
           "r2",
           "r3"
         ]
+      },
+      "LaneLevel": {
+        "type": "object",
+        "required": [
+          "stream",
+          "peak_db"
+        ],
+        "properties": {
+          "peak_db": {
+            "type": "number",
+            "format": "float"
+          },
+          "stream": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
       },
       "LaneWeight": {
         "type": "object",
@@ -24915,6 +25020,12 @@
                     "format": "int32",
                     "minimum": 0
                   },
+                  "lanes": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/components/schemas/LaneLevel"
+                    }
+                  },
                   "levels": {
                     "type": "array",
                     "items": {
@@ -25206,6 +25317,27 @@
             }
           }
         ]
+      },
+      "ServerStatus": {
+        "type": "object",
+        "required": [
+          "version",
+          "platform",
+          "uptime_secs"
+        ],
+        "properties": {
+          "platform": {
+            "type": "string"
+          },
+          "uptime_secs": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "version": {
+            "type": "string"
+          }
+        }
       },
       "SettingsRefused": {
         "type": "object",
@@ -28082,6 +28214,34 @@
             "items": {
               "$ref": "#/components/schemas/WorkspaceInfo"
             }
+          }
+        }
+      },
+      "WriteSerialRequest": {
+        "type": "object",
+        "required": [
+          "device_id"
+        ],
+        "properties": {
+          "device_id": {
+            "type": "string"
+          },
+          "serial": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "WrittenSerial": {
+        "type": "object",
+        "required": [
+          "serial"
+        ],
+        "properties": {
+          "serial": {
+            "type": "string"
           }
         }
       },

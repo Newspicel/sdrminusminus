@@ -8,7 +8,10 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useLayoutEffect,
+  useMemo,
   useRef,
+  useState,
 } from "react";
 import { Button } from "../../components/BaseControls";
 import { ICON_BTN_SM } from "../../components/controls";
@@ -33,6 +36,7 @@ import {
 } from "../graph";
 import { closeEngineObjects, dropNodes } from "../remove";
 import { movesCanvas, wheelStaysOnFace } from "../wheel";
+import { offsetWithin } from "./portAnchor";
 
 const Surface = createContext<"canvas" | "rack">("rack");
 
@@ -61,6 +65,50 @@ export function useFaceWheel(claim: WheelClaim): void {
     hold(claim);
     return () => hold(null);
   }, [hold, claim]);
+}
+
+type Anchors = Readonly<Record<string, number>>;
+
+interface AnchorSlot {
+  container: RefObject<HTMLDivElement | null>;
+  place: (port: string, top: number | null) => void;
+}
+
+const PortAnchors = createContext<AnchorSlot | null>(null);
+
+function placed(anchors: Anchors, port: string, top: number | null): Anchors {
+  if (top === null) {
+    const { [port]: _dropped, ...rest } = anchors;
+    return port in anchors ? rest : anchors;
+  }
+  return anchors[port] === top ? anchors : { ...anchors, [port]: top };
+}
+
+export function PortAnchor({ port }: { port: string }) {
+  const slot = useContext(PortAnchors);
+  const mark = useRef<HTMLSpanElement>(null);
+  useLayoutEffect(() => {
+    const host = slot?.container.current ?? null;
+    const element = mark.current;
+    if (slot === null || host === null || element === null) {
+      return;
+    }
+    const measure = () => slot.place(port, offsetWithin(element, host));
+    measure();
+    if (typeof ResizeObserver === "undefined") {
+      return () => slot.place(port, null);
+    }
+    const observer = new ResizeObserver(measure);
+    observer.observe(host);
+    if (element.parentElement !== null) {
+      observer.observe(element.parentElement);
+    }
+    return () => {
+      observer.disconnect();
+      slot.place(port, null);
+    };
+  }, [slot, port]);
+  return <span ref={mark} aria-hidden className="w-0 shrink-0 self-stretch" />;
 }
 
 const CATEGORY_STRIP: Record<NodeCategory, string> = {
@@ -154,8 +202,14 @@ export function NodeShell({
     wheelClaim.current = claim;
   }, []);
   const full = workspace.expanded === node.id;
+  const [anchors, setAnchors] = useState<Anchors>({});
+  const place = useCallback(
+    (port: string, top: number | null) => setAnchors((current) => placed(current, port, top)),
+    [],
+  );
+  const anchorSlot = useMemo<AnchorSlot>(() => ({ container: portalContainer, place }), [place]);
   useWheelRouting(portalContainer, wheelClaim);
-  useHandleRefresh(node.id, ports, surface === "canvas");
+  useHandleRefresh(node.id, ports, anchors, surface === "canvas");
 
   return (
     <div
@@ -245,7 +299,9 @@ export function NodeShell({
           onPointerDownCapture={surface === "canvas" ? () => workspace.select(node.id) : undefined}
         >
           <Active value={active}>
-            <WheelClaimSlot value={holdWheel}>{children}</WheelClaimSlot>
+            <WheelClaimSlot value={holdWheel}>
+              <PortAnchors value={anchorSlot}>{children}</PortAnchors>
+            </WheelClaimSlot>
           </Active>
         </div>
 
@@ -254,7 +310,8 @@ export function NodeShell({
             key={`${port.direction}:${port.name}`}
             port={port}
             label={portLabel(port.name, ports)}
-            offset={PORT_TOP_PX + PORT_STEP_PX * indexOnSide(ports, index)}
+            offset={anchors[port.name] ?? PORT_TOP_PX + PORT_STEP_PX * indexOnSide(ports, index)}
+            anchored={port.name in anchors}
           />
         ))}
       </PortalContainerProvider>
@@ -297,14 +354,22 @@ function useWheelRouting(
   }, [face, claim]);
 }
 
-function useHandleRefresh(id: string, ports: readonly PortSpec[], onCanvas: boolean): void {
+function useHandleRefresh(
+  id: string,
+  ports: readonly PortSpec[],
+  anchors: Anchors,
+  onCanvas: boolean,
+): void {
   const updateNodeInternals = useUpdateNodeInternals();
   const handles = handleSignature(ports);
+  const placement = Object.entries(anchors)
+    .map(([port, top]) => `${port}@${Math.round(top)}`)
+    .join(",");
   useEffect(() => {
-    if (onCanvas && handles !== "") {
+    if (onCanvas && (handles !== "" || placement !== "")) {
       updateNodeInternals(id);
     }
-  }, [id, handles, onCanvas, updateNodeInternals]);
+  }, [id, handles, placement, onCanvas, updateNodeInternals]);
 }
 
 function useRemoveNode(node: PatchNode): () => void {
@@ -323,7 +388,17 @@ function indexOnSide(ports: readonly PortSpec[], index: number): number {
   return ports.slice(0, index).filter((port) => port.direction === side).length;
 }
 
-function PortHandle({ port, label, offset }: { port: PortSpec; label: string; offset: number }) {
+function PortHandle({
+  port,
+  label,
+  offset,
+  anchored,
+}: {
+  port: PortSpec;
+  label: string;
+  offset: number;
+  anchored: boolean;
+}) {
   const out = port.direction === "out";
   const description = port.note == null ? `${label} (${port.port_type})` : `${label}: ${port.note}`;
   return (
@@ -339,15 +414,17 @@ function PortHandle({ port, label, offset }: { port: PortSpec; label: string; of
       >
         <PortGlyph type={port.port_type} />
       </Handle>
-      <span
-        aria-hidden
-        style={{ top: offset }}
-        className={`pointer-events-none absolute z-10 -translate-y-1/2 rounded-[3px] bg-bg/85 px-1 font-mono text-[10px] whitespace-nowrap select-none text-ink-faint ${
-          out ? "left-full ml-2.5" : "right-full mr-2.5"
-        }`}
-      >
-        {label}
-      </span>
+      {!anchored && (
+        <span
+          aria-hidden
+          style={{ top: offset }}
+          className={`pointer-events-none absolute z-10 -translate-y-1/2 rounded-[3px] bg-bg/85 px-1 font-mono text-[10px] whitespace-nowrap select-none text-ink-faint ${
+            out ? "left-full ml-2.5" : "right-full mr-2.5"
+          }`}
+        >
+          {label}
+        </span>
+      )}
     </>
   );
 }

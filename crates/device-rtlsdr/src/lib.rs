@@ -42,12 +42,14 @@ fn without_banks(attached: Vec<Listing>) -> Vec<Listing> {
 }
 
 #[derive(Default)]
-pub struct RtlSdrDriver;
+pub struct RtlSdrDriver {
+    written: Mutex<Vec<String>>,
+}
 
 impl RtlSdrDriver {
     #[must_use]
     pub fn new() -> Self {
-        Self
+        Self::default()
     }
 }
 
@@ -67,19 +69,74 @@ impl DeviceDriver for RtlSdrDriver {
     }
 
     fn open(&self, info: &DeviceInfo) -> Result<Box<dyn SdrDevice>, DeviceError> {
-        let descriptors =
-            standalone().map_err(|e| DeviceError::Io(format!("rtlsdr enumerate: {e}")))?;
-        let position = caps::device_infos(&descriptors)
-            .iter()
-            .position(|probed| probed.key == info.key)
-            .ok_or_else(|| DeviceError::NotFound(info.id()))?;
-        let index = descriptors
-            .get(position)
+        let descriptors = without_banks(scanned()?);
+        let index = located(&descriptors, &info.key)
             .ok_or_else(|| DeviceError::NotFound(info.id()))?
             .index;
         let dongle = Dongle::open(index)?;
         Ok(Box::new(RtlSdrDevice::from_dongle(dongle)?))
     }
+
+    fn write_serial(&self, key: &str, serial: Option<&str>) -> Result<String, DeviceError> {
+        let attached = scanned()?;
+        let descriptors = without_banks(attached.clone());
+        let target = located(&descriptors, key)
+            .ok_or_else(|| DeviceError::NotFound(format!("{DRIVER_ID}:{key}")))?;
+        let mut written = lock(&self.written);
+        let taken: Vec<&str> = attached
+            .iter()
+            .filter(|listing| listing.index != target.index)
+            .filter_map(|listing| listing.serial.as_deref())
+            .chain(written.iter().map(String::as_str))
+            .collect();
+        let serial = chosen_serial(serial, &taken)?;
+        Dongle::open(target.index)?.write_serial(&serial)?;
+        tracing::info!(key, serial, "wrote RTL-SDR serial");
+        written.push(serial.clone());
+        Ok(serial)
+    }
+}
+
+fn scanned() -> Result<Vec<Listing>, DeviceError> {
+    enumerate().map_err(|e| DeviceError::Io(format!("rtlsdr enumerate: {e}")))
+}
+
+fn located<'a>(descriptors: &'a [Listing], key: &str) -> Option<&'a Listing> {
+    let position = caps::device_infos(descriptors)
+        .iter()
+        .position(|probed| probed.key == key)?;
+    descriptors.get(position)
+}
+
+fn chosen_serial(wanted: Option<&str>, taken: &[&str]) -> Result<String, DeviceError> {
+    match wanted {
+        Some(serial) if !dongle::valid_serial(serial) => Err(DeviceError::Unsupported(
+            "a serial is 1 to 16 letters or digits".to_owned(),
+        )),
+        Some(serial) if taken.contains(&serial) => Err(DeviceError::Unsupported(format!(
+            "another RTL-SDR here already has serial {serial}"
+        ))),
+        Some(serial) => Ok(serial.to_owned()),
+        None => random_serial(taken, || {
+            getrandom::u32().map_err(|e| DeviceError::Io(format!("random serial: {e}")))
+        }),
+    }
+}
+
+const FACTORY_SERIALS: [&str; 2] = ["00000000", "00000001"];
+const SERIAL_DRAWS: usize = 16;
+
+fn random_serial(
+    taken: &[&str],
+    mut draw: impl FnMut() -> Result<u32, DeviceError>,
+) -> Result<String, DeviceError> {
+    for _ in 0..SERIAL_DRAWS {
+        let serial = format!("{:08}", draw()? % 100_000_000);
+        if !taken.contains(&serial.as_str()) && !FACTORY_SERIALS.contains(&serial.as_str()) {
+            return Ok(serial);
+        }
+    }
+    Err(DeviceError::Io("no free random serial".to_owned()))
 }
 
 struct RtlRadio {
@@ -278,6 +335,56 @@ mod tests {
     fn ordinary_dongles_are_all_offered() {
         let attached = vec![dongle("00000123", 1, None), dongle("00000124", 2, None)];
         assert_eq!(without_banks(attached).len(), 2);
+    }
+
+    fn draws(values: &[u32]) -> impl FnMut() -> Result<u32, DeviceError> + '_ {
+        let mut next = values.iter();
+        move || {
+            next.next()
+                .copied()
+                .ok_or(DeviceError::Io("drained".to_owned()))
+        }
+    }
+
+    #[test]
+    fn a_random_serial_is_eight_digits() {
+        assert_eq!(random_serial(&[], draws(&[42])).unwrap(), "00000042");
+        assert_eq!(random_serial(&[], draws(&[u32::MAX])).unwrap(), "94967295");
+    }
+
+    #[test]
+    fn a_random_serial_skips_factory_and_taken_ones() {
+        assert_eq!(
+            random_serial(&["00000042"], draws(&[100_000_000, 1, 42, 7])).unwrap(),
+            "00000007"
+        );
+        assert!(random_serial(&[], draws(&[1; SERIAL_DRAWS])).is_err());
+    }
+
+    #[test]
+    fn a_chosen_serial_must_be_valid_and_free() {
+        assert_eq!(chosen_serial(Some("Roof"), &["00000001"]).unwrap(), "Roof");
+        let random = chosen_serial(None, &[]).unwrap();
+        assert!(
+            dongle::valid_serial(&random) && random.len() == 8,
+            "{random}"
+        );
+        for wanted in ["00000001", "has space", ""] {
+            assert!(matches!(
+                chosen_serial(Some(wanted), &["00000001"]),
+                Err(DeviceError::Unsupported(_))
+            ));
+        }
+    }
+
+    #[test]
+    fn a_serialless_dongle_is_found_by_its_location() {
+        let mut bare = dongle("x", 3, None);
+        bare.serial = None;
+        let attached = vec![dongle("00000123", 1, None), bare];
+        assert_eq!(located(&attached, "001/3").map(|l| l.index), Some(3));
+        assert_eq!(located(&attached, "00000123").map(|l| l.index), Some(1));
+        assert!(located(&attached, "001/9").is_none());
     }
 
     #[test]

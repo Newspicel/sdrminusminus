@@ -15,6 +15,7 @@ concurrency:
 
 env:
   SAVE_CACHE: ${{ github.ref == 'refs/heads/main' }}
+  CARGO_PROFILE_DEV_OPT_LEVEL: 3
 
 jobs:
   check:
@@ -71,7 +72,13 @@ jobs:
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-nextest
+      - if: runner.os == 'Linux'
+        run: sudo apt-get install -y --no-install-recommends libcodec2-1.2
+      - if: runner.os == 'macOS'
+        run: brew install codec2
       - run: cargo xtask test
+        env:
+          SDRMM_REQUIRE_SYSTEM_CODEC2: "1"
 
   gpu:
     name: GPU parity (ubuntu)
@@ -270,7 +277,7 @@ jobs:
         run: docker run --rm --detach --name sdrmm-ci --publish 8080:8080 sdrmm:ci
       - name: Serve UI
         run: |
-          curl -fsS --retry 30 --retry-delay 1 --retry-all-errors -o /dev/null http://127.0.0.1:8080/api/state
+          curl -fsS --retry 30 --retry-delay 1 --retry-all-errors -o /dev/null http://127.0.0.1:8080/api/status
           curl -fsS http://127.0.0.1:8080/ | grep -q '<div id="root"'
       - if: failure()
         run: docker logs sdrmm-ci

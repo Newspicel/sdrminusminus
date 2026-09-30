@@ -99,8 +99,8 @@ fn opening_reads_the_greeting_and_reports_that_tuners_capabilities() {
     let device = open(&driver, &server.endpoint()).expect("opens");
 
     let caps = device.capabilities();
-    assert_eq!(caps.freq_ranges.len(), 1, "the R820T's one range");
-    assert_eq!(caps.freq_ranges[0].min, 24e6);
+    assert_eq!(caps.freq_ranges.len(), 2, "HF and the R820T's own range");
+    assert_eq!(caps.freq_ranges[1].min, 24e6);
     assert_eq!(caps.gains[0].name, "TUNER");
     assert_eq!(caps.gains[0].range.max, 49.6, "the tuner's own table");
     assert_eq!(caps.gains[0].values.len(), 29, "the slider snaps to it");

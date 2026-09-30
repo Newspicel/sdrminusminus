@@ -56,6 +56,29 @@ pub(super) async fn create_device_set(
 }
 
 #[utoipa::path(
+    post, path = "/api/devices/serial",
+    request_body = WriteSerialRequest,
+    responses(
+        (status = 200, description = "Serial written, takes effect after a replug", body = WrittenSerial),
+        (status = 400, description = "This radio cannot take that serial", body = ApiError),
+        (status = 404, description = "Device not found", body = ApiError),
+        (status = 409, description = "Device open here or in another program", body = ApiError),
+        (status = 422, description = "Malformed request body", body = ApiError),
+    ),
+)]
+pub(super) async fn write_serial(
+    State(state): State<AppState>,
+    Json(req): Json<WriteSerialRequest>,
+) -> Result<Json<WrittenSerial>, AppError> {
+    let engine = state.engine.clone();
+    let serial = tokio::task::spawn_blocking(move || {
+        engine.write_serial(&req.device_id, req.serial.as_deref())
+    })
+    .await??;
+    Ok(Json(WrittenSerial { serial }))
+}
+
+#[utoipa::path(
     delete, path = "/api/devicesets/{ds}",
     params(("ds" = u32, Path, description = "Device set id")),
     responses(

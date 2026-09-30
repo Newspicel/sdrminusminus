@@ -44,7 +44,7 @@ The server listens on every network interface with no password. Set up
 ## Homebrew
 
 ```sh
-brew install newspicel/tap/sdrminusminus   # macOS desktop app
+brew install newspicel/tap/sdrmm-app       # macOS desktop app
 brew install newspicel/tap/sdrmm           # server, macOS or Linux
 brew services start sdrmm
 ```

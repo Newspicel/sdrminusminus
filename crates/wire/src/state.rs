@@ -122,6 +122,12 @@ pub struct ChannelLevel {
     pub squelch_db: Option<f32>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct LaneLevel {
+    pub stream: u32,
+    pub peak_db: f32,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct TrunkFollower {
     pub device_set: u32,

@@ -246,6 +246,22 @@ describe("SurfaceHub", () => {
     hub.attach(fake.socket);
     expect(fake.sent).toEqual([{ type: "SubscribeSurface", data: { node: "radar" } }]);
   });
+
+  it("stops sending while the page is hidden and resumes when it shows", () => {
+    const fake = fakeSocket();
+    const hub = new SurfaceHub();
+    hub.attach(fake.socket);
+    hub.subscribe("rd", () => {});
+    fake.sent.length = 0;
+
+    hub.setVisible(false);
+    fake.reconnect();
+    expect(fake.sent).toEqual([{ type: "UnsubscribeSurface", data: { node: "rd" } }]);
+
+    fake.sent.length = 0;
+    hub.setVisible(true);
+    expect(fake.sent).toEqual([{ type: "SubscribeSurface", data: { node: "rd" } }]);
+  });
 });
 
 class FakeWebSocket {

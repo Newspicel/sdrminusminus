@@ -33,6 +33,7 @@ export class VideoHub {
   private unsubscribes: Unsubscribe[] = [];
   private readonly channels = new Map<string, Watched>();
   private readonly ids = new Map<number, string>();
+  private hidden = false;
 
   private readonly onFrame = (frame: VideoFrame): void => {
     const key = this.ids.get(frame.streamId);
@@ -144,6 +145,17 @@ export class VideoHub {
     return () => this.release(key, { deviceSet, channel }, listener);
   }
 
+  setVisible(visible: boolean): void {
+    if (this.hidden === !visible) {
+      return;
+    }
+    this.hidden = !visible;
+    for (const watched of this.channels.values()) this.clear(watched);
+    for (const channel of this.watched()) {
+      this.send(channel, visible);
+    }
+  }
+
   latest(deviceSet: number, channel: number): VideoFrame | null {
     return this.channels.get(channelKey(deviceSet, channel))?.latest ?? null;
   }
@@ -172,6 +184,9 @@ export class VideoHub {
   }
 
   private send(channel: VideoChannel, on: boolean): void {
+    if (on && this.hidden) {
+      return;
+    }
     this.socket?.send({
       type: on ? "SubscribeVideo" : "UnsubscribeVideo",
       data: { device_set: channel.deviceSet, channel: channel.channel },

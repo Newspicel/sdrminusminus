@@ -159,6 +159,16 @@ const NATIVE: &[Native] = &[
         files: &["BSD-3-Clause-dmrconfig.txt"],
     },
     Native {
+        name: "mbelib",
+        license: "ISC",
+        url: "https://github.com/szechyjs/mbelib",
+        note: Some(
+            "The D-STAR AMBE decoder in `crates/channels/src/dv/ambe` is a Rust port of mbelib's \
+             AMBE 3600x2400 decoder, and its quantizer tables are mbelib's.",
+        ),
+        files: &["mbelib-ISC.txt"],
+    },
+    Native {
         name: "codec2 FDMDV modem",
         license: "LGPL-2.1-only",
         url: "https://github.com/drowe67/codec2",

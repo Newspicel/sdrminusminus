@@ -12,7 +12,8 @@ use sdrmm_device::{
     check_stream_settings, single_rx_sink,
 };
 use sdrmm_wire::{
-    Capabilities, Coherence, DcArtifact, DeviceInfo, DeviceSettings, Duplex, Range, StreamScope,
+    Capabilities, Coherence, DcArtifact, DeviceInfo, DeviceSettings, Duplex, GainKind, GainStage,
+    Range, StreamScope,
 };
 
 use bench::BenchDevice;
@@ -182,7 +183,14 @@ fn band_capabilities() -> Capabilities {
             3_200_000.0,
         ],
         sample_rate_ranges: Vec::new(),
-        gains: Vec::new(),
+        gains: vec![GainStage::new(
+            GainKind::Tuner,
+            Range {
+                min: 0.0,
+                max: 49.6,
+                step: Some(0.1),
+            },
+        )],
         antennas: vec!["RX".to_string()],
         bandwidths: Vec::new(),
         bandwidth_ranges: Vec::new(),

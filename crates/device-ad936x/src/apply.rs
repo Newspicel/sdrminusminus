@@ -668,7 +668,13 @@ mod tests {
     use serde_json::json;
 
     use super::*;
-    use crate::caps::{capabilities, tests::front};
+    use crate::caps::{capabilities, stream_lanes, tests::front};
+
+    fn both_lanes(front: &crate::caps::Front, layout: &crate::layout::Layout) -> Capabilities {
+        let mut capabilities = capabilities(front, layout);
+        stream_lanes(&mut capabilities, 2, 2);
+        capabilities
+    }
 
     const RX_STAGE: &str = "TUNER";
     const TX_STAGE: &str = "TX";
@@ -676,7 +682,7 @@ mod tests {
     fn planned(delta: DeviceSettings) -> Vec<Write> {
         let layout = crate::layout::tests::two_by_two_layout();
         let front = front();
-        let capabilities = capabilities(&front, &layout);
+        let capabilities = both_lanes(&front, &layout);
         plan(
             &delta,
             &capabilities,
@@ -691,7 +697,7 @@ mod tests {
     fn refused(delta: DeviceSettings) -> String {
         let layout = crate::layout::tests::two_by_two_layout();
         let front = front();
-        let capabilities = capabilities(&front, &layout);
+        let capabilities = both_lanes(&front, &layout);
         plan(
             &delta,
             &capabilities,
@@ -1040,7 +1046,7 @@ mod tests {
     fn the_settings_that_come_back_carry_what_the_hardware_was_snapped_to() {
         let layout = crate::layout::tests::two_by_two_layout();
         let front = front();
-        let capabilities = capabilities(&front, &layout);
+        let capabilities = both_lanes(&front, &layout);
         let (next, _) = plan(
             &DeviceSettings {
                 center_hz: Some(100e6),
@@ -1072,7 +1078,7 @@ mod tests {
     fn a_value_for_every_lane_clears_what_a_lane_held_apart_unless_it_is_set_apart_again() {
         let layout = crate::layout::tests::two_by_two_layout();
         let front = front();
-        let capabilities = capabilities(&front, &layout);
+        let capabilities = both_lanes(&front, &layout);
         let held = DeviceSettings {
             agc: Some(AgcSetting::off()),
             gains: vec![GainValue {

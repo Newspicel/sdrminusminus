@@ -55,6 +55,7 @@ export class SurfaceHub {
   private readonly awaiting = new Set<string>();
   private readonly refusals = new Map<string, SurfaceRefusal>();
   private readonly refusalListeners = new Set<() => void>();
+  private hidden = false;
 
   private readonly onFrame = (surface: SurfaceFrame): void => {
     const node = this.ids.get(surface.frame.streamId);
@@ -136,6 +137,16 @@ export class SurfaceHub {
     };
   }
 
+  setVisible(visible: boolean): void {
+    if (this.hidden === !visible) {
+      return;
+    }
+    this.hidden = !visible;
+    for (const node of this.nodes.keys()) {
+      this.send(node, visible);
+    }
+  }
+
   latest(node: string): SurfaceFrame | null {
     return this.nodes.get(node)?.latest ?? null;
   }
@@ -187,7 +198,7 @@ export class SurfaceHub {
   }
 
   private send(node: string, on: boolean): void {
-    if (this.socket === null || !this.socket.isConnected()) {
+    if (this.socket === null || !this.socket.isConnected() || (on && this.hidden)) {
       return;
     }
     if (!on) {

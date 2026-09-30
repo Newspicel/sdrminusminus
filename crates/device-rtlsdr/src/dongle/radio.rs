@@ -121,6 +121,10 @@ impl<T: Transport> Radio<T> {
         self.bias_tee_at_start
     }
 
+    pub(crate) fn write_serial(&self, serial: &str) -> Result<()> {
+        eeprom::write_serial(&self.chip, serial)
+    }
+
     fn on_tuner<R>(
         &mut self,
         op: impl FnOnce(&mut Tuner, &mut ChipBus<'_, T>) -> Result<R>,
