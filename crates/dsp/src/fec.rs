@@ -477,31 +477,34 @@ pub const fn golay23_ok(word: u32) -> bool {
     golay23_remainder(word) == 0
 }
 
+const GOLAY23_ERROR_PATTERNS: [u32; 1 << GOLAY23_CHECK_BITS] = {
+    let mut table = [0; 1 << GOLAY23_CHECK_BITS];
+    let mut first = 0;
+    while first < GOLAY23_CODE_BITS {
+        let one = 1 << first;
+        table[golay23_remainder(one) as usize] = one;
+        let mut second = first + 1;
+        while second < GOLAY23_CODE_BITS {
+            let two = one | 1 << second;
+            table[golay23_remainder(two) as usize] = two;
+            let mut third = second + 1;
+            while third < GOLAY23_CODE_BITS {
+                let three = two | 1 << third;
+                table[golay23_remainder(three) as usize] = three;
+                third += 1;
+            }
+            second += 1;
+        }
+        first += 1;
+    }
+    table
+};
+
 #[must_use]
-pub fn golay23_correct(word: u32) -> Option<(u32, u32)> {
+pub fn golay23_correct(word: u32) -> (u32, u32) {
     let word = word & 0x7F_FFFF;
-    if golay23_ok(word) {
-        return Some((word, 0));
-    }
-    for first in 0..23 {
-        let one = word ^ 1 << first;
-        if golay23_ok(one) {
-            return Some((one, 1));
-        }
-        for second in first + 1..23 {
-            let two = one ^ 1 << second;
-            if golay23_ok(two) {
-                return Some((two, 2));
-            }
-            for third in second + 1..23 {
-                let three = two ^ 1 << third;
-                if golay23_ok(three) {
-                    return Some((three, 3));
-                }
-            }
-        }
-    }
-    None
+    let error = GOLAY23_ERROR_PATTERNS[golay23_remainder(word) as usize];
+    (word ^ error, error.count_ones())
 }
 
 const POCSAG_GEN: u32 = 0x769;
@@ -1025,21 +1028,28 @@ mod tests {
     #[test]
     fn golay23_repairs_every_error_up_to_its_radius() {
         let word = golay23_encode(0xA53);
-        assert_eq!(golay23_correct(word), Some((word, 0)));
+        assert_eq!(golay23_correct(word), (word, 0));
         for first in 0..GOLAY23_CODE_BITS {
-            assert_eq!(golay23_correct(word ^ 1 << first), Some((word, 1)));
+            assert_eq!(golay23_correct(word ^ 1 << first), (word, 1));
             for second in first + 1..GOLAY23_CODE_BITS {
-                assert_eq!(
-                    golay23_correct(word ^ 1 << first ^ 1 << second),
-                    Some((word, 2))
-                );
+                assert_eq!(golay23_correct(word ^ 1 << first ^ 1 << second), (word, 2));
                 for third in second + 1..GOLAY23_CODE_BITS {
                     assert_eq!(
                         golay23_correct(word ^ 1 << first ^ 1 << second ^ 1 << third),
-                        Some((word, 3))
+                        (word, 3)
                     );
                 }
             }
+        }
+    }
+
+    #[test]
+    fn golay23_lands_every_word_within_three_bits_of_a_codeword() {
+        for word in (0..1u32 << GOLAY23_CODE_BITS).step_by(97) {
+            let (corrected, errors) = golay23_correct(word);
+            assert!(golay23_ok(corrected), "word {word:#08x}");
+            assert!(errors <= 3);
+            assert_eq!((corrected ^ word).count_ones(), errors);
         }
     }
 

@@ -1,9 +1,3 @@
-use std::{
-    alloc::{Layout, handle_alloc_error},
-    ffi::c_void,
-    ptr::NonNull,
-};
-
 use blip25_vocoder::{
     enhancement::{ClassicalConfig, EnhancementMode},
     fullrate,
@@ -16,11 +10,13 @@ use blip25_vocoder::{
 use num_complex::Complex;
 use sdrmm_dsp::FracResampler;
 
-use super::codec2_library::Codec2;
+use super::{
+    ambe::{AmbeDecoder, FRAME_SAMPLES as AMBE_FRAME_SAMPLES},
+    codec2_library::Codec2,
+};
 use crate::{AUDIO_RATE, ChannelError, ChannelOutputs, clamp_full_scale};
 
 const VOCODER_RATE_HZ: f64 = 8_000.0;
-const MBE_FRAME_SAMPLES: usize = 160;
 const OUTPUT_SAMPLES_PER_MBE_FRAME: usize = 960;
 
 pub(crate) const HALF_RATE_SOFT_BITS: usize = halfrate::frame::SOFT_BITS;
@@ -241,42 +237,23 @@ impl MbeDecoder {
     }
 }
 
-unsafe extern "C" {
-    fn sdrmm_dstar_vocoder_new() -> *mut c_void;
-    fn sdrmm_dstar_vocoder_free(decoder: *mut c_void);
-    fn sdrmm_dstar_vocoder_reset(decoder: *mut c_void);
-    fn sdrmm_dstar_vocoder_decode(decoder: *mut c_void, bits: *const u8, pcm: *mut f32) -> i32;
-}
-
 pub(crate) struct DstarVocoder {
-    decoder: NonNull<c_void>,
+    decoder: AmbeDecoder,
     output: PcmOutput,
-    bits: [u8; 72],
-    pcm: [f32; MBE_FRAME_SAMPLES],
+    pcm: [f32; AMBE_FRAME_SAMPLES],
 }
-
-// SAFETY: the opaque allocation has no thread affinity or shared global state, and every FFI
-// call requires exclusive access to this owner.
-unsafe impl Send for DstarVocoder {}
 
 impl DstarVocoder {
     pub(crate) fn new() -> Self {
-        // SAFETY: constructor takes no pointers and returns either a unique allocation or null.
-        let decoder = unsafe { sdrmm_dstar_vocoder_new() };
-        let Some(decoder) = NonNull::new(decoder) else {
-            handle_alloc_error(Layout::new::<DstarVocoder>());
-        };
         Self {
-            decoder,
+            decoder: AmbeDecoder::new(),
             output: PcmOutput::new(),
-            bits: [0; 72],
-            pcm: [0.0; MBE_FRAME_SAMPLES],
+            pcm: [0.0; AMBE_FRAME_SAMPLES],
         }
     }
 
     pub(crate) fn reset(&mut self) {
-        // SAFETY: `decoder` remains a live, uniquely owned allocation until `drop`.
-        unsafe { sdrmm_dstar_vocoder_reset(self.decoder.as_ptr()) };
+        self.decoder.reset();
         self.output.reset();
     }
 
@@ -285,26 +262,8 @@ impl DstarVocoder {
             PcmOutput::silence(1, out);
             return;
         }
-        for (slot, &bit) in self.bits.iter_mut().zip(bits) {
-            *slot = u8::from(bit);
-        }
-        // SAFETY: all pointers reference fixed-size live buffers of the lengths required by
-        // the wrapper, and the decoder is uniquely borrowed for the call.
-        unsafe {
-            sdrmm_dstar_vocoder_decode(
-                self.decoder.as_ptr(),
-                self.bits.as_ptr(),
-                self.pcm.as_mut_ptr(),
-            )
-        };
+        self.decoder.decode(bits, &mut self.pcm);
         self.output.append_f32(&self.pcm, out);
-    }
-}
-
-impl Drop for DstarVocoder {
-    fn drop(&mut self) {
-        // SAFETY: this is the one matching free for the allocation and runs once.
-        unsafe { sdrmm_dstar_vocoder_free(self.decoder.as_ptr()) };
     }
 }
 
