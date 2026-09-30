@@ -3739,6 +3739,23 @@
         }
       }
     },
+    "/api/status": {
+      "get": {
+        "operationId": "get_status",
+        "responses": {
+          "200": {
+            "description": "Liveness probe: version, platform and uptime. Public and instant, unlike /api/doctor, so health checks need no token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServerStatus"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/templates": {
       "get": {
         "operationId": "list_templates",
@@ -19738,6 +19755,27 @@
             }
           }
         ]
+      },
+      "ServerStatus": {
+        "type": "object",
+        "required": [
+          "version",
+          "platform",
+          "uptime_secs"
+        ],
+        "properties": {
+          "platform": {
+            "type": "string"
+          },
+          "uptime_secs": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "version": {
+            "type": "string"
+          }
+        }
       },
       "SettingsRefused": {
         "type": "object",

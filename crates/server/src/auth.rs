@@ -7,7 +7,7 @@ use axum::{
 };
 use sdrmm_wire::ApiError;
 
-const PUBLIC_PATHS: &[&str] = &["/api/auth", "/api/openapi.json"];
+const PUBLIC_PATHS: &[&str] = &["/api/auth", "/api/openapi.json", "/api/status"];
 const PUBLIC_PREFIXES: &[&str] = &["/api/docs"];
 
 #[derive(Clone, Debug, Default)]
@@ -152,6 +152,7 @@ mod tests {
         Router::new()
             .route("/api/state", get(|| async { "state" }))
             .route("/api/auth", get(|| async { "auth" }))
+            .route("/api/status", get(|| async { "status" }))
             .route("/api/docs/index.html", get(|| async { "docs" }))
             .route_layer(axum::middleware::from_fn_with_state(
                 Auth::new(token),
@@ -196,6 +197,7 @@ mod tests {
         );
         assert_eq!(status(&app, "/", None).await, StatusCode::OK);
         assert_eq!(status(&app, "/api/auth", None).await, StatusCode::OK);
+        assert_eq!(status(&app, "/api/status", None).await, StatusCode::OK);
         assert_eq!(
             status(&app, "/api/docs/index.html", None).await,
             StatusCode::OK

@@ -5,6 +5,7 @@ fn openapi_registers_paths_and_ws_schemas() {
     let spec = openapi().to_pretty_json().expect("serialize");
     for path in [
         "/api/state",
+        "/api/status",
         "/api/devices",
         "/api/devices/serial",
         "/api/channeltypes",

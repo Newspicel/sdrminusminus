@@ -29,11 +29,12 @@ use sdrmm_wire::{
     PlaybackStatus, PresetDevice, PresetInfo, PresetSnapshot, RecordingAnnotation,
     RecordingDownloadQuery, RecordingFormat, RecordingInfo, RecordingUpload, RecordingsResponse,
     Route, RouteRequest, SatelliteCatalogQuery, SatelliteCatalogResponse, SaveRadioRequest,
-    SavedRadio, ScanAction, ScanRequest, ScanSettings, ScannerStatus, ServerEvent, StateScope,
-    StateSnapshot, TemplateInfo, TemplatesResponse, TimeMachineAction, TimeMachineRequest,
-    TimeMachineStatus, ToolRequest, ToolResponse, ToolsResponse, TransmittersResponse,
-    UpdateWorkspaceRequest, VoiceCallsResponse, WorkspaceDetail, WorkspaceExport, WorkspaceInfo,
-    WorkspaceSnapshot, WorkspaceState, WorkspacesResponse, WriteSerialRequest, WrittenSerial,
+    SavedRadio, ScanAction, ScanRequest, ScanSettings, ScannerStatus, ServerEvent, ServerStatus,
+    StateScope, StateSnapshot, TemplateInfo, TemplatesResponse, TimeMachineAction,
+    TimeMachineRequest, TimeMachineStatus, ToolRequest, ToolResponse, ToolsResponse,
+    TransmittersResponse, UpdateWorkspaceRequest, VoiceCallsResponse, WorkspaceDetail,
+    WorkspaceExport, WorkspaceInfo, WorkspaceSnapshot, WorkspaceState, WorkspacesResponse,
+    WriteSerialRequest, WrittenSerial,
 };
 use utoipa::OpenApi;
 use utoipa_axum::{router::OpenApiRouter, routes};
@@ -442,6 +443,7 @@ pub(crate) fn openapi_router() -> OpenApiRouter<AppState> {
         .routes(routes!(get_clients))
         .routes(routes!(get_occupancy))
         .routes(routes!(get_ionosonde))
+        .routes(routes!(get_status))
         .routes(routes!(get_doctor))
         .routes(routes!(get_diagnostics))
         .routes(routes!(list_radio_models))

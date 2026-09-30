@@ -198,7 +198,7 @@ jobs:
         run: docker run --rm --detach --name sdrmm-ci --publish 8080:8080 sdrmm:ci
       - name: Serve UI
         run: |
-          curl -fsS --retry 30 --retry-delay 1 --retry-all-errors -o /dev/null http://127.0.0.1:8080/api/state
+          curl -fsS --retry 30 --retry-delay 1 --retry-all-errors -o /dev/null http://127.0.0.1:8080/api/status
           curl -fsS http://127.0.0.1:8080/ | grep -q '<div id="root"'
       - if: failure()
         run: docker logs sdrmm-ci

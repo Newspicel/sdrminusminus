@@ -1188,6 +1188,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_status"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/templates": {
         parameters: {
             query?: never;
@@ -5549,6 +5565,12 @@ export interface components {
             /** @enum {string} */
             type: "Error";
         };
+        ServerStatus: {
+            platform: string;
+            /** Format: int64 */
+            uptime_secs: number;
+            version: string;
+        };
         SettingsRefused: {
             error: string;
             settings: string[];
@@ -9255,6 +9277,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["StateSnapshot"];
+                };
+            };
+        };
+    };
+    get_status: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Liveness probe: version, platform and uptime. Public and instant, unlike /api/doctor, so health checks need no token */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServerStatus"];
                 };
             };
         };

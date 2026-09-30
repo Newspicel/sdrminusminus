@@ -104,6 +104,7 @@ pub(crate) struct AppState {
     pub(crate) shell: Option<Arc<dyn NativeShell>>,
     pub(crate) local_only: bool,
     pub(crate) remote: Arc<remote::RemoteHub>,
+    started: std::time::Instant,
 }
 
 impl AppState {
@@ -135,7 +136,12 @@ impl AppState {
             routing: Arc::new(routing::RoutingOptions::default()),
             shell: None,
             local_only: false,
+            started: std::time::Instant::now(),
         }
+    }
+
+    pub(crate) fn uptime(&self) -> std::time::Duration {
+        self.started.elapsed()
     }
 
     pub fn decoder_log_dropped(&self) -> u64 {

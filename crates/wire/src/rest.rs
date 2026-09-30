@@ -569,6 +569,13 @@ pub struct AuthInfo {
     pub login_url: Option<String>,
 }
 
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct ServerStatus {
+    pub version: String,
+    pub platform: String,
+    pub uptime_secs: u64,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct CreatedId {
     pub id: u32,

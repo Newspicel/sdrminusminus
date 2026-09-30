@@ -163,8 +163,9 @@ pub use rest::{
     Maneuver, ManeuverKind, OccupancyBucket, OccupancyReport, PRESET_SNAPSHOT_VERSION,
     PlaybackAction, PlaybackRequest, PresetDevice, PresetInfo, PresetSnapshot, RecordingAnnotation,
     RecordingDownloadQuery, RecordingFormat, RecordingInfo, RecordingUpload, RecordingsResponse,
-    Route, RoutePoint, RouteRequest, RoutingBackend, SaveRadioRequest, SavedRadio, TemplateInfo,
-    TemplatesResponse, VoiceCall, VoiceCallsResponse, WriteSerialRequest, WrittenSerial,
+    Route, RoutePoint, RouteRequest, RoutingBackend, SaveRadioRequest, SavedRadio, ServerStatus,
+    TemplateInfo, TemplatesResponse, VoiceCall, VoiceCallsResponse, WriteSerialRequest,
+    WrittenSerial,
 };
 pub use satellite::{
     CatalogSatellite, MAX_CATALOG_RESULTS, MAX_SATELLITE_HZ, MAX_SATELLITE_QUERY_LEN, MAX_TLE_LEN,
