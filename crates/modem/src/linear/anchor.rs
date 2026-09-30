@@ -75,7 +75,7 @@ impl PhaseAnchor {
             misfit: 0.0,
         };
         Ok(Self {
-            misfit: anchor.residual(indices, received, expected),
+            misfit: anchor.residual(indices.iter().copied(), received, expected),
             ..anchor
         })
     }
@@ -98,14 +98,13 @@ impl PhaseAnchor {
         if den <= 0.0 || num.norm() <= 0.0 {
             return Err(AnchorError::NoEnergy);
         }
-        let indices: Vec<usize> = (0..received.len()).collect();
         let anchor = Self {
             gain: num / den,
             freq_cycles_per_symbol: 0.0,
             misfit: 0.0,
         };
         Ok(Self {
-            misfit: anchor.residual(&indices, received, expected),
+            misfit: anchor.residual(0..received.len(), received, expected),
             ..anchor
         })
     }
@@ -126,13 +125,13 @@ impl PhaseAnchor {
 
     fn residual(
         &self,
-        indices: &[usize],
+        indices: impl IntoIterator<Item = usize>,
         received: &[Complex<f32>],
         expected: &[Complex<f32>],
     ) -> f64 {
         let mut err = 0.0f64;
         let mut energy = 0.0f64;
-        for ((&index, &y), &x) in indices.iter().zip(received).zip(expected) {
+        for ((index, &y), &x) in indices.into_iter().zip(received).zip(expected) {
             let c = self.correct(index, y);
             err += f64::from((c - x).norm_sqr());
             energy += f64::from(x.norm_sqr());

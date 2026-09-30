@@ -32,7 +32,6 @@ const CARRIER_AVERAGE_RATE: f32 = 0.00002;
 
 const LEVEL_RATE: f32 = 0.15;
 
-#[cfg(any(test, feature = "synth"))]
 const PHASE_STEPS: [(i16, i16, u8, u8); 48] = [
     (-768, -737, 0, 1),
     (-736, -705, 1, 2),
@@ -84,7 +83,6 @@ const PHASE_STEPS: [(i16, i16, u8, u8); 48] = [
     (737, 768, 1, 1),
 ];
 
-#[cfg(any(test, feature = "synth"))]
 const H: [[u8; 32]; 4] = [
     [
         0, 2, 0, 0, 0, 0, 1, 1, 2, 0, 0, 0, 2, 2, 1, 1, 0, 2, 0, 0, 0, 0, 1, 1, 2, 0, 0, 0, 2, 2,
@@ -110,7 +108,6 @@ pub fn reference_phase(carrier: i16) -> Option<f32> {
     reference_phase_for_mode(DabTransmissionMode::I, carrier)
 }
 
-#[cfg(any(test, feature = "synth"))]
 #[must_use]
 pub fn reference_phase_for_mode(mode: DabTransmissionMode, carrier: i16) -> Option<f32> {
     const II: [(u8, u8); 12] = [
@@ -182,7 +179,6 @@ pub fn reference_symbol() -> Vec<Complex<f32>> {
     reference_symbol_for_mode(DabTransmissionMode::I)
 }
 
-#[cfg(any(test, feature = "synth"))]
 #[must_use]
 pub fn reference_symbol_for_mode(transmission_mode: DabTransmissionMode) -> Vec<Complex<f32>> {
     let mode = Mode::new(transmission_mode);
