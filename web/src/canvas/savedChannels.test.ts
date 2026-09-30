@@ -17,7 +17,7 @@ function detail(channels: SavedChannel[]): WorkspaceDetail {
     updated_at: "",
     nodes: 2,
     snapshot: {
-      version: 3,
+      version: 4,
       graph: {
         nodes: [
           { id: "dev", kind: "device", position: { x: 0, y: 0 }, data: {} },

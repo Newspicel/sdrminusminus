@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ChannelDescriptor, NodeKind, PatchCatalog } from "../lib/types";
+import { catalogBody } from "../test/catalog";
 import {
   channelPicker,
   decoderGroups,
@@ -11,17 +12,71 @@ import {
 
 const CATALOG: PatchCatalog = {
   nodes: [
-    { kind: "device", name: "Device", summary: "A radio", category: "source", ports: [] },
-    { kind: "array", name: "Array", category: "tool", ports: [] },
-    { kind: "gps", name: "GPS position", category: "source", ports: [] },
-    { kind: "channel", name: "Channel", category: "channel", ports: [], needs_channel_type: true },
-    { kind: "scope", name: "Scope", category: "output", ports: [] },
-    { kind: "speaker", name: "Speaker", category: "output", ports: [] },
-    { kind: "event_output", name: "Event output", category: "output", ports: [] },
-    { kind: "scanner", name: "Scanner", category: "tool", ports: [] },
-    { kind: "df", name: "Direction finder", category: "tool", ports: [] },
-    { kind: "passive_radar", name: "Passive radar", category: "tool", ports: [] },
-    { kind: "combiner", name: "Combiner", category: "tool", ports: [] },
+    {
+      kind: "device",
+      default_body: catalogBody("device"),
+      name: "Device",
+      summary: "A radio",
+      category: "source",
+      ports: [],
+    },
+    {
+      kind: "gps",
+      default_body: catalogBody("gps"),
+      name: "GPS position",
+      category: "source",
+      ports: [],
+    },
+    {
+      kind: "channel",
+      default_body: catalogBody("channel"),
+      name: "Channel",
+      category: "channel",
+      ports: [],
+      needs_channel_type: true,
+    },
+    {
+      kind: "scope",
+      default_body: catalogBody("scope"),
+      name: "Scope",
+      category: "output",
+      ports: [],
+    },
+    {
+      kind: "speaker",
+      default_body: catalogBody("speaker"),
+      name: "Speaker",
+      category: "output",
+      ports: [],
+    },
+    {
+      kind: "event_output",
+      default_body: catalogBody("event_output"),
+      name: "Event output",
+      category: "output",
+      ports: [],
+    },
+    {
+      kind: "scanner",
+      default_body: catalogBody("scanner"),
+      name: "Scanner",
+      category: "tool",
+      ports: [],
+    },
+    {
+      kind: "hunt",
+      default_body: catalogBody("hunt"),
+      name: "Signal hunt",
+      category: "tool",
+      ports: [],
+    },
+    {
+      kind: "triangulation",
+      default_body: catalogBody("triangulation"),
+      name: "Triangulation",
+      category: "tool",
+      ports: [],
+    },
   ],
 };
 
@@ -66,13 +121,7 @@ describe("paletteGroups", () => {
         type: TYPES[0],
       },
     ]);
-    expect(groups[3]?.items.map((item) => item.id)).toEqual([
-      "array",
-      "scanner",
-      "df",
-      "passive_radar",
-      "combiner",
-    ]);
+    expect(groups[3]?.items.map((item) => item.id)).toEqual(["scanner", "hunt", "triangulation"]);
     expect(groups[4]?.items.map((item) => item.id)).toContain("event_output");
     expect(groups[0]?.items.map((item) => item.id)).toEqual(["device", "gps"]);
   });

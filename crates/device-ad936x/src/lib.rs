@@ -38,17 +38,10 @@ mod tx;
 
 const DRIVER_ID: &str = "ad936x";
 
-/// Samples of one lane pushed to a sink at a time. A buffer holds several of these, so a decoder
-/// sees the signal while the rest of the buffer is still being taken apart.
 const SINK_BLOCK_SAMPLES: usize = 32_768;
 
-/// How long the well-known addresses are left alone after a search tried them. A search is what
-/// every open goes through, and a radio being reconnected to must not dial the whole network on
-/// each attempt.
 const SWEEP_INTERVAL: Duration = Duration::from_secs(10);
 
-/// Every AD936x board that serves libiio, over its own ethernet or usb: AntSDR, PlutoSDR,
-/// and anything else built around the same transceiver.
 #[derive(Debug)]
 pub struct Ad936xDriver {
     adopted: Adopted,
@@ -69,7 +62,6 @@ impl Ad936xDriver {
         Self::searching(discovery::WELL_KNOWN.iter().map(|host| host.to_string()))
     }
 
-    /// A driver whose search tries these addresses instead of the ones the boards ship on.
     #[must_use]
     pub fn searching(hosts: impl IntoIterator<Item = String>) -> Self {
         Self {
@@ -80,8 +72,6 @@ impl Ad936xDriver {
         }
     }
 
-    /// The adopted addresses, less any that turned out to be a radio already listed: a board
-    /// reachable by name, by address and over usb is one radio.
     fn endpoints(&self, listed: &[DeviceInfo]) -> Vec<DeviceInfo> {
         let serials = lock(&self.serials);
         let mut known: Vec<String> = listed
@@ -151,8 +141,6 @@ impl DeviceDriver for Ad936xDriver {
         found
     }
 
-    /// Tries the addresses these radios ship on as well, so one straight out of its box is found
-    /// without the operator having to know where it lives.
     fn probe_deep(&self) -> Vec<DeviceInfo> {
         if self.due_for_a_sweep() {
             let known = self.adopted.list();
@@ -264,8 +252,6 @@ impl Ad936xDevice {
         let layout = Layout::read(&context)?;
         let front = Front::read(&client, &context, &layout)?;
         let mut capabilities = caps::capabilities(&front, &layout);
-        // A transmit buffer needs a conversation of its own. Over usb those are the endpoint
-        // couples the board built, and a board with only two cannot hold both directions open.
         if capabilities.duplex == Duplex::Full && !source.full_duplex() {
             capabilities.duplex = Duplex::Half;
         }
@@ -420,8 +406,15 @@ impl SdrDevice for Ad936xDevice {
         &self.settings
     }
 
-    /// Writes reach the radio one at a time, so one it refuses part-way leaves the ones before
-    /// it in place. What is reported afterwards is read back rather than assumed either way.
+    fn in_flight_samples(&self) -> u64 {
+        self.layout.rx.as_ref().map_or(0, |stream| {
+            rx::in_flight_samples(
+                self.settings.sample_rate.unwrap_or(0.0),
+                stream.sample_bytes(self.layout.rx_streams()),
+            )
+        })
+    }
+
     fn apply(&mut self, settings: &DeviceSettings) -> Result<(), DeviceError> {
         let applied = self.apply_all(settings);
         self.rate.set(self.settings.sample_rate);
@@ -464,8 +457,6 @@ impl SdrDevice for Ad936xDevice {
             converter,
             fan_out(sinks, SINK_BLOCK_SAMPLES),
             CaptureConfig {
-                // Lanes share one buffer, so the block the supervisor cuts must hold whole
-                // frames of every lane and the rate it counts a gap in is the frame rate.
                 block_samples: SINK_BLOCK_SAMPLES * lanes,
                 ..CaptureConfig::new("sdrmm-ad936x-rx", DRIVER_ID)
                     .with_sample_rate(self.settings.sample_rate.map(|rate| rate * lanes as f64))

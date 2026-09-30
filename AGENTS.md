@@ -26,6 +26,6 @@
 
 ## Product
 - Beginner-friendly, expert-deep
-- Desktop-only, plus the field-mode remote head
+- Desktop, plus the phone remote head
 - Never long text on a node. A face carries controls and readouts; what a setting means belongs in a title attribute or the docs, not in a paragraph on the canvas.
 - Always write text, commits, docs as short as possible. Always try to reduce words, keep useless text out of the ui. And always write short and coherend text. That on which you are currently working on is not the most important thing in the world, you don't need to write everywhere about it. And never include an em dash.

@@ -27,12 +27,12 @@ export interface Carrier {
   channel: ChannelInfo;
 }
 
+import catalog from "../generated/patch-catalog.json";
 import { portStream } from "./graph";
-import { arrayKey } from "./nodes/arrayNode";
 import type { WiredSource } from "./nodes/eventFilter";
 import { siggenKey } from "./nodes/signalGen";
 
-const SOURCE_KINDS: readonly NodeKind[] = ["device", "recording", "signal_gen", "array"];
+const SOURCE_KINDS: readonly NodeKind[] = ["device", "recording", "signal_gen"];
 
 export function opensDevice(kind: NodeKind): boolean {
   return SOURCE_KINDS.includes(kind);
@@ -78,8 +78,6 @@ export function nodeDeviceRef(node: PatchNode): DeviceRef | null {
         : { backend: "recording", key: node.data.recording };
     case "signal_gen":
       return node.data.running ? { backend: "siggen", key: siggenKey(node.id) } : null;
-    case "array":
-      return { backend: "array", key: arrayKey(node.id) };
     default:
       return null;
   }
@@ -197,57 +195,89 @@ export function bindChannels(
   return channelsOf(bindCarriers(graph, devices, trunks));
 }
 
+export interface VirtualSource {
+  node: string;
+  port: string;
+  array: string | null;
+}
+
 export interface IqLane {
   source: string;
   stream: number;
-  beam?: { node: string; port: string; tunes: number };
+  virtual?: VirtualSource;
 }
 
-const LANE_OUTPUTS: Readonly<Partial<Record<NodeKind, string>>> = {
-  df: "beam",
-  combiner: "beam",
-  stitch: "wide",
-};
+export type LaneTuneTarget =
+  | { kind: "device"; node: string; stream: number }
+  | { kind: "array"; node: string };
+
+type CatalogPort = { name: string; port_type: string; direction: string };
+
 const NO_DEVICES: ReadonlyMap<string, DeviceSet> = new Map();
 
+const LANE_OUTPUTS: ReadonlyMap<string, string> = new Map(
+  (catalog.nodes as readonly { kind: string; ports: readonly CatalogPort[] }[]).flatMap((entry) => {
+    const takesArray = entry.ports.some(
+      (port) => port.port_type === "array" && port.direction === "in",
+    );
+    const lane = entry.ports.find((port) => port.port_type === "iq" && port.direction === "out");
+    return takesArray && lane !== undefined ? [[entry.kind, lane.name] as const] : [];
+  }),
+);
+
 export function laneOutputOf(kind: NodeKind | undefined): string | undefined {
-  return kind === undefined ? undefined : LANE_OUTPUTS[kind];
+  return kind === undefined ? undefined : LANE_OUTPUTS.get(kind);
 }
 
-function beamLane(
+export function arrayOf(graph: PatchGraph, processor: string): string | null {
+  const wire = (graph.edges ?? []).find(
+    (edge) => edge.to.node === processor && edge.to.port === "array",
+  );
+  const source = graph.nodes.find((candidate) => candidate.id === wire?.from.node);
+  return source?.kind === "array" ? source.id : null;
+}
+
+export function virtualLaneOf(
   graph: PatchGraph,
   node: string,
   port: string,
   devices: ReadonlyMap<string, DeviceSet>,
 ): IqLane | null {
-  const kind = graph.nodes.find((candidate) => candidate.id === node)?.kind;
-  if (laneOutputOf(kind) !== port) {
-    return null;
+  for (const [source, set] of devices) {
+    const listed = (set.virtual_lanes ?? []).find(
+      (lane) => lane.node === node && lane.port === port,
+    );
+    if (listed !== undefined) {
+      return {
+        source,
+        stream: listed.stream,
+        virtual: { node, port, array: arrayOf(graph, node) },
+      };
+    }
   }
-  const element = directLanesOf(graph, node)[0];
-  if (element === undefined) {
-    return null;
-  }
-  const stream = devices.get(element.source)?.capabilities.rx_streams ?? -1;
-  return {
-    source: element.source,
-    stream,
-    beam: { node, port, tunes: kind === "stitch" ? stream : element.stream },
-  };
+  return null;
 }
 
-function directLanesOf(graph: PatchGraph, node: string): IqLane[] {
-  const lanes: IqLane[] = [];
-  for (const edge of graph.edges ?? []) {
-    if (edge.to.node !== node || portStream("iq", edge.to.port) === null) {
-      continue;
-    }
-    const stream = portStream("iq", edge.from.port);
-    if (stream !== null) {
-      lanes.push({ source: edge.from.node, stream });
-    }
+export function laneTuneTarget(lane: IqLane): LaneTuneTarget {
+  const array = lane.virtual?.array ?? null;
+  return array === null
+    ? { kind: "device", node: lane.source, stream: lane.stream }
+    : { kind: "array", node: array };
+}
+
+function laneOfWire(
+  graph: PatchGraph,
+  from: { node: string; port: string },
+  devices: ReadonlyMap<string, DeviceSet>,
+): IqLane | null {
+  const stream = portStream("iq", from.port);
+  if (stream !== null) {
+    return { source: from.node, stream };
   }
-  return lanes.toSorted((a, b) => a.stream - b.stream);
+  const kind = graph.nodes.find((candidate) => candidate.id === from.node)?.kind;
+  return laneOutputOf(kind) === from.port
+    ? virtualLaneOf(graph, from.node, from.port, devices)
+    : null;
 }
 
 export function iqLanesOf(
@@ -260,21 +290,12 @@ export function iqLanesOf(
     if (edge.to.node !== node || edge.to.port !== "iq") {
       continue;
     }
-    const stream = portStream("iq", edge.from.port);
-    if (stream !== null) {
-      lanes.push({ source: edge.from.node, stream });
-      continue;
-    }
-    const beam = beamLane(graph, edge.from.node, edge.from.port, devices);
-    if (beam !== null) {
-      lanes.push(beam);
+    const lane = laneOfWire(graph, edge.from, devices);
+    if (lane !== null) {
+      lanes.push(lane);
     }
   }
   return lanes;
-}
-
-export function tunedStream(lane: IqLane): number {
-  return lane.beam?.tunes ?? lane.stream;
 }
 
 export function iqSourceOf(
@@ -291,8 +312,9 @@ function carrierOf(
   graph: PatchGraph,
   channel: string,
   owners: ReadonlyMap<string, string>,
+  devices: ReadonlyMap<string, DeviceSet>,
 ): string | undefined {
-  return owners.get(channel) ?? iqSourceOf(graph, channel)?.source;
+  return owners.get(channel) ?? iqSourceOf(graph, channel, devices)?.source;
 }
 
 export function basebandSourceOf(
@@ -304,7 +326,7 @@ export function basebandSourceOf(
 ): { node: string; deviceSet: number; channel: ChannelInfo } | null {
   for (const source of sourcesOf(graph, node, "baseband")) {
     const channel = channels.get(source);
-    const owner = carrierOf(graph, source, owners);
+    const owner = carrierOf(graph, source, owners, devices);
     const set = owner === undefined ? undefined : devices.get(owner);
     if (channel !== undefined && set !== undefined) {
       return { node: source, deviceSet: set.id, channel };
@@ -340,21 +362,22 @@ export function deviceNodeOf(
   graph: PatchGraph,
   node: string,
   owners: ReadonlyMap<string, string> = NO_OWNERS,
+  devices: ReadonlyMap<string, DeviceSet> = NO_DEVICES,
 ): string | null {
   const kind = graph.nodes.find((candidate) => candidate.id === node)?.kind;
   if (kind !== undefined && opensDevice(kind)) {
     return node;
   }
-  const devices = new Set(
+  const sources = new Set(
     graph.nodes.filter((candidate) => opensDevice(candidate.kind)).map((candidate) => candidate.id),
   );
   const carrying = (channel: string): string | null => {
     const owner = owners.get(channel);
-    if (owner !== undefined && devices.has(owner)) {
+    if (owner !== undefined && sources.has(owner)) {
       return owner;
     }
-    const upstream = iqSourceOf(graph, channel);
-    return upstream !== null && devices.has(upstream.source) ? upstream.source : null;
+    const upstream = iqSourceOf(graph, channel, devices);
+    return upstream !== null && sources.has(upstream.source) ? upstream.source : null;
   };
   const own = carrying(node);
   if (own !== null) {
@@ -496,7 +519,7 @@ export function inputsOf(
     if (channel === undefined) {
       continue;
     }
-    const owner = carrierOf(graph, source, owners);
+    const owner = carrierOf(graph, source, owners, devices);
     const set = owner === undefined ? undefined : devices.get(owner);
     if (set !== undefined) {
       out.push({ node: source, deviceSet: set.id, channel, fx });

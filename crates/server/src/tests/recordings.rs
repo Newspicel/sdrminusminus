@@ -845,3 +845,184 @@ async fn showing_the_folder_makes_it_before_a_first_recording() {
     assert!(folder.is_dir());
     assert_eq!(shell.shown(), vec![folder]);
 }
+
+pub(super) const COLLECTION_LANES: usize = 5;
+const COLLECTION_SAMPLES: usize = 4_800;
+
+pub(super) fn planted_collection(dir: &Path, name: &str) -> std::path::PathBuf {
+    let stem = dir.join(name);
+    let lanes: Vec<sdrmm_recorder::LaneMeta> = (0..COLLECTION_LANES)
+        .map(|stream| sdrmm_recorder::LaneMeta {
+            lane: sdrmm_wire::LaneKey {
+                device: "virtual:kraken5".to_owned(),
+                stream: stream as u32,
+            },
+            center_hz: 433_920_000.0,
+        })
+        .collect();
+    let array = sdrmm_recorder::CollectionArray {
+        node: "arr".to_owned(),
+        tier: sdrmm_wire::Coherence::TimeSync,
+        geometry: sdrmm_wire::ArrayGeometry::default(),
+        noise_source: sdrmm_wire::NoiseSource::Isolated,
+        retune_keeps_phase: false,
+        dc_artifact: sdrmm_wire::DcArtifact::Managed,
+    };
+    let mut writer = sdrmm_recorder::CollectionWriter::create(&stem, &lanes, 2_400_000.0, array)
+        .expect("collection");
+    let block = vec![num_complex::Complex::new(0.25f32, -0.25); COLLECTION_SAMPLES];
+    let views: Vec<&[num_complex::Complex<f32>]> =
+        (0..COLLECTION_LANES).map(|_| block.as_slice()).collect();
+    writer.write(&views).expect("write");
+    writer.finalize().expect("finalize");
+    stem
+}
+
+#[tokio::test]
+async fn an_array_collection_is_one_library_entry_that_plays_every_lane() {
+    let dir = tempfile::TempDir::new().expect("tempdir");
+    let app = recording_router(dir.path());
+    planted_collection(dir.path(), "take");
+
+    let listed = list_recordings(&app).await;
+    assert_eq!(listed.len(), 1, "{listed:?}");
+    let take = &listed[0];
+    assert_eq!(take.file, "take");
+    assert_eq!(take.lanes, COLLECTION_LANES as u32);
+    assert_eq!(take.samples, COLLECTION_SAMPLES as u64);
+    assert_eq!(
+        take.bytes,
+        (COLLECTION_SAMPLES * COLLECTION_LANES) as u64 * sdrmm_recorder::BYTES_PER_SAMPLE
+    );
+    assert_eq!(take.duration_s, 0.002);
+    assert_eq!(take.center_hz, 433_920_000.0);
+    assert_eq!(take.device_label, "virtual:kraken5");
+    assert_eq!(take.device_id, "recording:take");
+    take.created_at.parse::<jiff::Timestamp>().expect("rfc3339");
+
+    let (status, body) = request(
+        app.clone(),
+        "POST",
+        "/api/devicesets",
+        Some(&format!(r#"{{"device_id":"{}"}}"#, take.device_id)),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
+    let set = get_state(&app)
+        .await
+        .device_sets
+        .into_iter()
+        .find(|set| set.device.key == "take")
+        .expect("the collection plays as a device set");
+    assert_eq!(set.capabilities.rx_streams, COLLECTION_LANES as u32);
+    assert_eq!(set.capabilities.coherence, sdrmm_wire::Coherence::TimeSync);
+    assert_eq!(
+        set.capabilities.noise_source,
+        sdrmm_wire::NoiseSource::Replayed
+    );
+}
+
+#[tokio::test]
+async fn a_collection_travels_through_the_library_whole() {
+    let dir = tempfile::TempDir::new().expect("tempdir");
+    let (app, shell) = recording_router_with_shell(dir.path());
+    let stem = planted_collection(dir.path(), "take");
+    let id = list_recordings(&app).await[0].id;
+
+    let (status, body) = annotate(
+        &app,
+        id,
+        r#"{"name":"Rooftop","tags":["df"],"note":"five lanes"}"#,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
+    let annotated: sdrmm_wire::RecordingInfo = serde_json::from_slice(&body).expect("json");
+    assert_eq!(annotated.name.as_deref(), Some("Rooftop"));
+    assert_eq!(annotated.tags, ["df"]);
+    assert_eq!(annotated.lanes, COLLECTION_LANES as u32);
+    let listed = list_recordings(&app).await;
+    assert_eq!(listed.len(), 1);
+    assert_eq!(listed[0].note.as_deref(), Some("five lanes"));
+
+    let (status, headers, archive) = request_parts(
+        app.clone(),
+        "GET",
+        &format!("/api/recordings/{id}/download"),
+        None,
+        &[],
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        header_value(&headers, "content-disposition"),
+        "attachment; filename=\"take.sigmf\""
+    );
+    for member in ["take.sigmf-collection", "take-lane4.sigmf-data"] {
+        assert!(
+            archive
+                .windows(member.len())
+                .any(|window| window == member.as_bytes()),
+            "the archive holds {member}"
+        );
+    }
+    let fresh = tempfile::TempDir::new().expect("tempdir");
+    let (status, body) = upload(
+        &recording_router(fresh.path()),
+        &[("archive", "take.sigmf", &archive)],
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::CREATED,
+        "{}",
+        String::from_utf8_lossy(&body)
+    );
+    let uploaded: sdrmm_wire::RecordingInfo = serde_json::from_slice(&body).expect("json");
+    assert_eq!(
+        (
+            uploaded.file.as_str(),
+            uploaded.lanes,
+            uploaded.samples,
+            uploaded.name.as_deref()
+        ),
+        (
+            "take",
+            COLLECTION_LANES as u32,
+            COLLECTION_SAMPLES as u64,
+            Some("Rooftop")
+        )
+    );
+
+    let (status, body) = request(
+        app.clone(),
+        "GET",
+        &format!("/api/recordings/{id}/download?format=wav"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    let refused: ApiError = serde_json::from_slice(&body).expect("ApiError");
+    assert!(refused.error.contains("several lanes"), "{}", refused.error);
+
+    let (status, _) = request(
+        app.clone(),
+        "POST",
+        &format!("/api/recordings/{id}/reveal"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    assert_eq!(shell.shown(), [sdrmm_recorder::collection_path(&stem)]);
+
+    let (status, _) = request(
+        app.clone(),
+        "DELETE",
+        &format!("/api/recordings/{id}"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    let left = std::fs::read_dir(dir.path()).expect("dir").count();
+    assert_eq!(left, 0, "every lane and the collection are gone");
+    assert!(list_recordings(&app).await.is_empty());
+}

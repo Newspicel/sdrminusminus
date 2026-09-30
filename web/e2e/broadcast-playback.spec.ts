@@ -28,7 +28,7 @@ for (const system of ["dab", "dvbt", "dvbs", "dvbs2", "dvbs2x", "dvbs2sf"] as co
     const inventory = await page.request.get("/api/devices").then((r) => r.json());
     expect(inventory.devices.find((item: { key: string }) => item.key === key)).toBeDefined();
     const snapshot: WorkspaceSnapshot = {
-      version: 3,
+      version: 4,
       graph: {
         nodes: [
           {

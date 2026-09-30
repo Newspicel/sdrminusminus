@@ -12,7 +12,7 @@ function recorded(path: string, body: unknown): RecordedResponse {
   };
 }
 
-const SNAPSHOT = { version: 3, graph: { nodes: [], edges: [] } };
+const SNAPSHOT = { version: 4, graph: { nodes: [], edges: [] } };
 const DETAIL = {
   id: 2,
   name: "Demo",

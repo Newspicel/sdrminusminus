@@ -256,6 +256,11 @@ impl<T: Transport> Radio<T> {
     }
 
     #[cfg(test)]
+    pub(crate) fn pin_high(&self, pin: u8) -> Result<bool> {
+        self.chip.pin_high(pin)
+    }
+
+    #[cfg(test)]
     pub(crate) fn pll_locked(&mut self) -> Result<bool> {
         self.require_tuner()?;
         self.on_tuner(|tuner, bus| tuner.locked(bus))

@@ -188,14 +188,9 @@ pub(super) async fn get_doctor(
 ) -> Result<Json<DoctorReport>, AppError> {
     let engine = state.engine.clone();
     let db_path = state.db_path.clone();
-    let report = tokio::task::spawn_blocking(move || {
-        crate::doctor::report(
-            engine.registry(),
-            db_path.as_deref(),
-            engine.recordings_dir(),
-        )
-    })
-    .await?;
+    let report =
+        tokio::task::spawn_blocking(move || crate::doctor::served(&engine, db_path.as_deref()))
+            .await?;
     Ok(Json(report))
 }
 
@@ -216,14 +211,9 @@ pub(super) async fn get_diagnostics(
 ) -> Result<Json<DiagnosticsReport>, AppError> {
     let engine = state.engine.clone();
     let db_path = state.db_path.clone();
-    let doctor = tokio::task::spawn_blocking(move || {
-        crate::doctor::report(
-            engine.registry(),
-            db_path.as_deref(),
-            engine.recordings_dir(),
-        )
-    })
-    .await?;
+    let doctor =
+        tokio::task::spawn_blocking(move || crate::doctor::served(&engine, db_path.as_deref()))
+            .await?;
     let log = crate::diagnostics::log();
     Ok(Json(DiagnosticsReport {
         generated_at: jiff::Timestamp::now().to_string(),
@@ -282,16 +272,8 @@ pub(super) async fn run_tool(
 )]
 pub(super) async fn get_about(State(state): State<AppState>) -> Json<AboutResponse> {
     Json(AboutResponse {
-        lan_addresses: if state.local_only {
-            Vec::new()
-        } else {
-            crate::notices::lan_addresses()
-        },
-        local_only: state.local_only,
-        routing: state.routing.configured(),
-        offline_basemap: crate::basemap::basemap_path(&state).is_some(),
         reveal: state.shell.is_some(),
-        ..crate::notices::about()
+        ..crate::notices::about(&state.server_id, &state.server_name)
     })
 }
 

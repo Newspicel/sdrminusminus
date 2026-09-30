@@ -60,6 +60,11 @@ function join(parts: readonly (string | null)[]): string {
   return parts.filter((p) => p !== null).join(" · ");
 }
 
+function signedWhole(value: number): string {
+  const whole = Math.round(value);
+  return `${whole >= 0 ? "+" : ""}${whole}`;
+}
+
 type EventData<K extends DecoderEvent["kind"]> = Extract<DecoderEvent, { kind: K }>["data"];
 
 function callSummary(c: EventData<"call">): string {
@@ -284,12 +289,12 @@ export function eventSummary(event: DecoderEvent): string {
       ]);
     }
     case "radar": {
-      const hit = event.data;
+      const track = event.data;
       return join([
-        `range bin ${hit.range_bin}`,
-        `${hit.range_km.toFixed(1)} km`,
-        `${hit.doppler_hz >= 0 ? "+" : ""}${hit.doppler_hz.toFixed(1)} Hz`,
-        `${hit.snr_db.toFixed(1)} dB`,
+        `T${track.track_id}`,
+        track.change,
+        `${track.range_km.toFixed(1)} km`,
+        `${signedWhole(track.range_rate_mps)} m/s`,
       ]);
     }
     case "ils": {
@@ -364,8 +369,9 @@ export function eventStation(event: DecoderEvent): string | null {
     case "df":
       return event.data.station_id ?? null;
     case "df_fix":
-    case "radar":
       return null;
+    case "radar":
+      return event.data.icao ?? null;
     case "dsc":
     case "inmarsat_stdc":
     case "inmarsat_aero":

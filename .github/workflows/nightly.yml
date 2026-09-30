@@ -49,6 +49,82 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
+  ios-ui:
+    name: iPhone UI (macos)
+    runs-on: xcode-27
+    steps:
+      - uses: actions/checkout@v7
+      - run: sudo xcode-select -s /Applications/Xcode_27.app
+      - run: xcrun simctl list runtimes | grep -q 'iOS 18.1 ' || xcodebuild -downloadPlatform iOS -buildVersion 18.1 -architectureVariant arm64
+      - uses: ./.github/actions/rust
+        with:
+          cache: ios
+          save: false
+      - run: cargo xtask ios test --ui --floor
+      - if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ios-ui-results
+          path: target/ios/results
+          retention-days: 14
+
+  ios-e2e:
+    name: iPhone end to end (macos)
+    runs-on: xcode-27
+    steps:
+      - uses: actions/checkout@v7
+      - run: sudo xcode-select -s /Applications/Xcode_27.app
+      - uses: ./.github/actions/rust
+        with:
+          cache: ios
+          save: false
+      - run: cargo xtask ios e2e
+      - if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ios-e2e-results
+          path: |
+            target/ios/results
+            target/ios/e2e/server.log
+          retention-days: 14
+
+  android-device:
+    name: Android device tests (ubuntu)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: android-actions/setup-android@v4
+        with:
+          packages: platforms;android-37.0 build-tools;37.0.0 ndk;30.0.16248370
+      - run: echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/30.0.16248370" >> "$GITHUB_ENV"
+      - uses: ./.github/actions/rust
+        with:
+          cache: android
+          save: false
+      - uses: gradle/actions/setup-gradle@v6
+      - name: KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 36
+          target: google_apis
+          arch: x86_64
+          working-directory: apps/android
+          script: ./gradlew connectedDebugAndroidTest
+      - if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: android-device-reports
+          path: apps/android/app/build/reports/androidTests
+          retention-days: 14
+
   sanitizers:
     name: Sanitizers (ubuntu)
     runs-on: ubuntu-24.04

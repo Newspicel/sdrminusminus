@@ -1,5 +1,8 @@
 export const PROTOCOL_VERSION = 1;
 const HEADER_LEN = 16;
+export const FUSION_FRAME_CELLS = 128;
+export const WS_SUBPROTOCOL = "sdrmm";
+export const WS_BEARER_PROTOCOL_PREFIX = "sdrmm.bearer.";
 export const FRAME_KIND_SPECTRUM = 0;
 export const FRAME_KIND_AUDIO_OPUS = 1;
 export const FRAME_KIND_IQ_F32 = 2;
@@ -7,6 +10,9 @@ export const FRAME_KIND_VIDEO_GRAY = 3;
 export const FRAME_KIND_VIDEO_RGB = 4;
 export const FRAME_KIND_SYMBOLS = 5;
 export const FRAME_KIND_RANGE_DOPPLER = 6;
+export const FRAME_KIND_SPATIAL_SPECTRUM = 7;
+export const FRAME_KIND_VISIBILITY = 8;
+export const FRAME_KIND_FUSION_GRID = 9;
 export type SymbolPlane = "complex" | "level";
 export function frameKind(buffer: ArrayBuffer): number | null {
   if (buffer.byteLength < HEADER_LEN) return null;
@@ -144,8 +150,11 @@ export interface RangeDopplerFrame {
  streamId: number; seq: number; timestamp: bigint;
 ranges: number;
 dopplers: number;
-rangeStepUs: number;
+rangeFirstM: number;
+rangeStepM: number;
+dopplerFirstHz: number;
 dopplerStepHz: number;
+carrierHz: number;
 dbMin: number;
 dbMax: number;
 cells: Uint8Array;
@@ -158,14 +167,17 @@ const seq = reader.u32();
 const timestamp = reader.u64();
 const ranges = reader.u16();
 const dopplers = reader.u16();
-const rangeStepUs = reader.f32();
+const rangeFirstM = reader.f32();
+const rangeStepM = reader.f32();
+const dopplerFirstHz = reader.f32();
 const dopplerStepHz = reader.f32();
+const carrierHz = reader.f64();
 const dbMin = reader.f32();
 const dbMax = reader.f32();
 const cells = reader.bytes(ranges * dopplers);
-if (cells.length === 0) return null;
+if (cells.length === 0 || cells.length !== ranges * dopplers) return null;
 if (!reader.complete) return null;
-return { streamId, seq, timestamp, ranges, dopplers, rangeStepUs, dopplerStepHz, dbMin, dbMax, cells };
+return { streamId, seq, timestamp, ranges, dopplers, rangeFirstM, rangeStepM, dopplerFirstHz, dopplerStepHz, carrierHz, dbMin, dbMax, cells };
 }
 export interface VideoFrame {
  streamId: number; seq: number; timestamp: bigint;
@@ -186,4 +198,89 @@ const pixels = reader.bytes(width * height * (format === "rgb" ? 3 : 1));
 if (pixels.length === 0) return null;
 if (!reader.complete) return null;
 return { streamId, seq, timestamp, width, height, format, pixels };
+}
+export interface SpatialSpectrumFrame {
+ streamId: number; seq: number; timestamp: bigint;
+centerHz: number;
+spanHz: number;
+bearings: number;
+bins: number;
+dbMin: number;
+dbMax: number;
+cells: Uint8Array;
+}
+export function decodeSpatialSpectrum(buffer: ArrayBuffer): SpatialSpectrumFrame | null {
+const reader = new FrameReader(buffer, [FRAME_KIND_SPATIAL_SPECTRUM]);
+if (!reader.valid) return null;
+const streamId = reader.u16();
+const seq = reader.u32();
+const timestamp = reader.u64();
+const centerHz = reader.f64();
+const spanHz = reader.f32();
+const bearings = reader.u16();
+const bins = reader.u16();
+const dbMin = reader.f32();
+const dbMax = reader.f32();
+const cells = reader.bytes(bearings * bins);
+if (cells.length === 0 || cells.length !== bearings * bins) return null;
+if (!reader.complete) return null;
+return { streamId, seq, timestamp, centerHz, spanHz, bearings, bins, dbMin, dbMax, cells };
+}
+export interface VisibilityFrame {
+ streamId: number; seq: number; timestamp: bigint;
+centerHz: number;
+spanHz: number;
+baselines: number;
+bins: number;
+dbMin: number;
+dbMax: number;
+amplitude: Uint8Array;
+phase: Uint8Array;
+}
+export function decodeVisibility(buffer: ArrayBuffer): VisibilityFrame | null {
+const reader = new FrameReader(buffer, [FRAME_KIND_VISIBILITY]);
+if (!reader.valid) return null;
+const streamId = reader.u16();
+const seq = reader.u32();
+const timestamp = reader.u64();
+const centerHz = reader.f64();
+const spanHz = reader.f32();
+const baselines = reader.u16();
+const bins = reader.u16();
+const dbMin = reader.f32();
+const dbMax = reader.f32();
+const amplitude = reader.bytes(reader.u16());
+if (amplitude.length === 0 || amplitude.length !== baselines * bins) return null;
+const phase = reader.bytes(baselines * bins);
+if (phase.length === 0 || phase.length !== baselines * bins) return null;
+if (!reader.complete) return null;
+return { streamId, seq, timestamp, centerHz, spanHz, baselines, bins, dbMin, dbMax, amplitude, phase };
+}
+export interface FusionGridFrame {
+ streamId: number; seq: number; timestamp: bigint;
+south: number;
+west: number;
+north: number;
+east: number;
+cols: number;
+rows: number;
+cells: Uint8Array;
+}
+export function decodeFusionGrid(buffer: ArrayBuffer): FusionGridFrame | null {
+const reader = new FrameReader(buffer, [FRAME_KIND_FUSION_GRID]);
+if (!reader.valid) return null;
+const streamId = reader.u16();
+const seq = reader.u32();
+const timestamp = reader.u64();
+const south = reader.f64();
+const west = reader.f64();
+const north = reader.f64();
+const east = reader.f64();
+const cols = reader.u16();
+const rows = reader.u16();
+const cells = reader.bytes(cols * rows);
+if (cells.length === 0 || cells.length !== cols * rows) return null;
+if (cols > FUSION_FRAME_CELLS || rows > FUSION_FRAME_CELLS) return null;
+if (!reader.complete) return null;
+return { streamId, seq, timestamp, south, west, north, east, cols, rows, cells };
 }

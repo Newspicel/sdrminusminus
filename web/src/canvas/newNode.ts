@@ -1,102 +1,81 @@
-import { DEFAULT_HISTORY_SECONDS } from "../components/timeMachine";
-import type { NodeBody, NodeKind } from "../lib/types";
-import { DEFAULT_COMBINER_PARAMS } from "./nodes/combiner";
-import { DEFAULT_DF_PARAMS } from "./nodes/df";
-import { DEFAULT_RADAR_PARAMS } from "./nodes/radar";
-import { DEFAULT_STITCH_PARAMS } from "./nodes/stitch";
+import type {
+  HuntSweepParams,
+  NodeBody,
+  NodeBodyOf,
+  NodeKind,
+  PatchCatalog,
+  PatchNodeOf,
+  ProcessorKind,
+} from "../lib/types";
 
 export interface NewNodeSeed {
   channelType?: string;
 }
 
-const WITHOUT_DATA = new Set<NodeKind>([
-  "scope",
-  "baseband_scope",
-  "speaker",
-  "map",
-  "readout",
-  "decoder_log",
-  "video",
-  "export",
-  "scanner",
-  "triangulation",
-]);
+export type SettingsKind = ProcessorKind;
 
-export function newNodeBody(kind: NodeKind, seed: NewNodeSeed = {}): NodeBody {
-  switch (kind) {
-    case "channel":
-      return { kind, data: { channel_type: seed.channelType ?? "nfm", record_calls: false } };
-    case "device":
-      return { kind, data: {} };
-    case "recording":
-      return { kind, data: {} };
-    case "signal_gen":
-      return { kind, data: { running: true } };
-    case "array":
-      return { kind, data: { members: 0, coherence: "time_sync", shared_tuning: true } };
-    case "gps":
-      return { kind, data: {} };
-    case "signal_map":
-      return { kind, data: { offset_hz: 0, bandwidth_hz: 12_500 } };
-    case "propagation":
-      return {
-        kind,
-        data: {
-          half_life_minutes: 30,
-          reflection_height_km: 300,
-          show_paths: false,
-          compare_forecast: true,
-        },
-      };
-    case "spectrum_monitor":
-      return { kind, data: { record_audio: true, min_confidence: 0.7 } };
-    case "dmr_trunk":
-      return { kind, data: { protocol: "auto", record_calls: true } };
-    case "event_filter":
-      return {
-        kind,
-        data: {
-          mode: "keep",
-          kinds: [],
-          stations: [],
-          talkgroups: [],
-          radios: [],
-          min_duration_ms: 0,
-        },
-      };
-    case "audio_fx":
-      return { kind, data: { settings: {} } };
-    case "recorder":
-    case "audio_recorder":
-    case "baseband_recorder":
-      return { kind, data: { recording: false } };
-    case "network_export":
-      return { kind, data: { transport: "udp", format: "cf32_le", address: "127.0.0.1:7355" } };
-    case "hunt":
-      return { kind, data: { clicks: true } };
-    case "satellite":
-      return { kind, data: {} };
-    case "time_machine":
-      return { kind, data: { history_seconds: DEFAULT_HISTORY_SECONDS } };
-    case "event_output":
-      return { kind, data: { target: { service: "webhook", url: "", format: "json" } } };
-    case "df":
-      return { kind, data: { settings: DEFAULT_DF_PARAMS } };
-    case "passive_radar":
-      return { kind, data: { settings: DEFAULT_RADAR_PARAMS } };
-    case "combiner":
-      return { kind, data: { settings: DEFAULT_COMBINER_PARAMS } };
-    case "stitch":
-      return { kind, data: { settings: DEFAULT_STITCH_PARAMS } };
-    default:
-      return { kind };
-  }
+type SettingsMap = {
+  [K in SettingsKind]: NonNullable<NodeBodyOf<K>["data"]["settings"]>;
+};
+
+export type SettingsOf<K extends SettingsKind> = SettingsMap[K];
+
+type ProcessorNode = PatchNodeOf<SettingsKind>;
+
+export function defaultBody(catalog: PatchCatalog, kind: NodeKind): NodeBody | null {
+  const entry = catalog.nodes.find((type) => type.kind === kind);
+  return entry === undefined || entry.default_body.kind !== kind
+    ? null
+    : structuredClone(entry.default_body);
 }
 
-export function carriesSettings(kind: NodeKind): boolean {
-  return !WITHOUT_DATA.has(kind);
+export function newNodeBody(
+  catalog: PatchCatalog,
+  kind: NodeKind,
+  seed: NewNodeSeed = {},
+): NodeBody | null {
+  if (kind === "channel") {
+    return {
+      kind,
+      data: { channel_type: seed.channelType ?? "nfm", record_calls: false },
+    };
+  }
+  return defaultBody(catalog, kind);
+}
+
+export function defaultSettings<K extends SettingsKind>(
+  catalog: PatchCatalog,
+  kind: K,
+): SettingsOf<K> | null {
+  const body = defaultBody(catalog, kind) as NodeBodyOf<SettingsKind> | null;
+  return (body?.data.settings as SettingsOf<K> | undefined) ?? null;
+}
+
+export function settingsOf<K extends SettingsKind>(
+  node: PatchNodeOf<K>,
+  catalog: PatchCatalog,
+): SettingsOf<K> | null {
+  const typed = node as unknown as ProcessorNode;
+  const stored = typed.data.settings as SettingsOf<K> | undefined;
+  return stored ?? defaultSettings(catalog, typed.kind as K);
+}
+
+export function carriesSettings(catalog: PatchCatalog, kind: NodeKind): boolean {
+  const body = defaultBody(catalog, kind);
+  return body !== null && "data" in body;
 }
 
 export function startsOnItsOwn(kind: NodeKind): boolean {
   return kind === "signal_gen";
+}
+
+export function huntSweepOf(
+  node: PatchNodeOf<"hunt">,
+  catalog: PatchCatalog,
+): HuntSweepParams | null {
+  if (node.data?.sweep !== undefined) {
+    return node.data.sweep;
+  }
+  const body = defaultBody(catalog, "hunt");
+  return body?.kind === "hunt" ? (body.data?.sweep ?? null) : null;
 }

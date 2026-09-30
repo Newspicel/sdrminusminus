@@ -154,7 +154,6 @@ fn open_pipeline(engine: &Engine, hardware: &Hardware, channels: usize) -> (u32,
         .create_opened_set(
             hardware.info.clone(),
             configured_radio(hardware.driver.as_ref(), &hardware.info, hardware.rate),
-            None,
         )
         .expect("start pipeline");
     let ids = (0..channels)

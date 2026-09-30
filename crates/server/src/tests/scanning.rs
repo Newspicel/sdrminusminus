@@ -214,3 +214,120 @@ async fn hunt_start_stop_and_error_mapping_over_http() {
     .await;
     assert_eq!(status, StatusCode::NOT_FOUND);
 }
+
+async fn hunt_error(app: &Router, uri: &str, body: &str) -> String {
+    let (status, body) = request(app.clone(), "POST", uri, Some(body)).await;
+    assert_eq!(
+        status,
+        StatusCode::CONFLICT,
+        "{}",
+        String::from_utf8_lossy(&body)
+    );
+    serde_json::from_slice::<ApiError>(&body)
+        .expect("ApiError body")
+        .error
+}
+
+fn phone_pose(heading_deg: Option<f64>) -> sdrmm_wire::PositionFix {
+    sdrmm_wire::PositionFix {
+        latitude: 48.137,
+        longitude: 11.575,
+        altitude_m: None,
+        accuracy_m: Some(5.0),
+        speed_mps: None,
+        track_deg: None,
+        time: jiff::Timestamp::now().to_string(),
+        attitude: sdrmm_wire::Attitude {
+            heading_deg,
+            ..sdrmm_wire::Attitude::default()
+        },
+    }
+}
+
+fn now_ms() -> u64 {
+    u64::try_from(jiff::Timestamp::now().as_millisecond()).expect("after 1970")
+}
+
+#[tokio::test]
+async fn hunt_mark_without_heading_is_409() {
+    let (app, state) = test_router_with_state();
+    let ds = create_virtual_set(&app).await;
+    let ch = nfm_decoder(&app, ds).await;
+    let hunt = format!("/api/devicesets/{ds}/channels/{ch}/hunt");
+    let mark = r#"{"action":"mark"}"#;
+
+    assert_eq!(hunt_error(&app, &hunt, mark).await, "Not running");
+    assert_eq!(
+        hunt_error(&app, &hunt, r#"{"action":"sweep"}"#).await,
+        "No hunt node"
+    );
+
+    let plain = format!(r#"{{"action":"start","settings":{{"channel":{ch}}}}}"#);
+    let (status, body) = request(app.clone(), "POST", &hunt, Some(&plain)).await;
+    assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
+    assert_eq!(hunt_error(&app, &hunt, mark).await, "No hunt node");
+
+    let (status, body) = request(
+        app.clone(),
+        "POST",
+        &hunt,
+        Some(&format!(
+            r#"{{"action":"sweep","settings":{{"channel":{ch},"node":"hunt-1","sweep":{{"mount_offset_deg":-90}}}}}}"#
+        )),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
+    let sweeping: sdrmm_wire::HuntStatus = serde_json::from_slice(&body).expect("json");
+    assert_eq!(
+        sweeping.sweep.map(|sweep| sweep.state),
+        Some(sdrmm_wire::SweepState::NoHeading),
+        "a running hunt takes the sweep on"
+    );
+    assert_eq!(sweeping.settings.node.as_deref(), Some("hunt-1"));
+    assert_eq!(sweeping.settings.sweep.mount_offset_deg, -90.0);
+    assert_eq!(hunt_error(&app, &hunt, mark).await, "No position");
+
+    state
+        .engine
+        .hunt_pose(ds, ch, phone_pose(None), now_ms())
+        .expect("pose");
+    assert_eq!(hunt_error(&app, &hunt, mark).await, "No heading");
+
+    let mut decoded = state.engine.subscribe_decoded();
+    state
+        .engine
+        .hunt_pose(ds, ch, phone_pose(Some(100.0)), now_ms())
+        .expect("pose");
+    let (status, body) = request(app.clone(), "POST", &hunt, Some(mark)).await;
+    assert_eq!(
+        status,
+        StatusCode::NO_CONTENT,
+        "{}",
+        String::from_utf8_lossy(&body)
+    );
+    let bearing = loop {
+        let record = tokio::time::timeout(std::time::Duration::from_secs(5), decoded.recv())
+            .await
+            .expect("mark event")
+            .expect("decoded stream");
+        if let DecoderEvent::Df(bearing) = record.event {
+            assert_eq!(
+                record.origin.map(|origin| origin.node).as_deref(),
+                Some("hunt-1")
+            );
+            break bearing;
+        }
+    };
+    assert_eq!(bearing.bearing_deg, 10.0);
+    assert_eq!(bearing.source, sdrmm_wire::BearingSource::Mark);
+
+    let (status, body) = request(app.clone(), "POST", &hunt, Some(&plain)).await;
+    assert_eq!(status, StatusCode::OK);
+    let started: sdrmm_wire::HuntStatus = serde_json::from_slice(&body).expect("json");
+    assert_eq!(
+        started.sweep.map(|sweep| sweep.state),
+        Some(sdrmm_wire::SweepState::Off)
+    );
+    let (status, _) = request(app, "POST", &hunt, Some(r#"{"action":"stop"}"#)).await;
+    assert_eq!(status, StatusCode::OK);
+}

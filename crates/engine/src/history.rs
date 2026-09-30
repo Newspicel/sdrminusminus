@@ -116,7 +116,7 @@ impl Engine {
                 .device_sets
                 .get(&ds)
                 .ok_or(EngineError::DeviceSetNotFound(ds))?;
-            state.check_stream(stream)?;
+            state.check_physical(stream)?;
             if state.time_machine.is_some() {
                 return Err(EngineError::Recording(
                     "a time machine is already holding this radio's history".to_owned(),
@@ -163,7 +163,7 @@ impl Engine {
                     if state.status == DeviceSetStatus::Running
                         && state.time_machine.is_none()
                         && state.rate_patches == 0
-                        && state.check_stream(stream).is_ok()
+                        && state.check_physical(stream).is_ok()
                         && sample_rate_of(&state.settings) == rate =>
                 {
                     let history = TimeMachineState {

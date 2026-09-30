@@ -1,6 +1,6 @@
 use std::{collections::BTreeMap, sync::LazyLock};
 
-use sdrmm_wire::{AboutResponse, Attribution, LicenseTextResponse};
+use sdrmm_wire::{AboutResponse, Attribution, LicenseTextResponse, about::API_PROTOCOL};
 use serde::Deserialize;
 
 use crate::packed::{inflate, packed_data};
@@ -23,46 +23,19 @@ static NOTICES: LazyLock<NoticesDocument> = LazyLock::new(|| {
 });
 
 #[must_use]
-pub fn about() -> AboutResponse {
+pub fn about(server_id: &str, server_name: &str) -> AboutResponse {
     AboutResponse {
         name: "SDR--".to_string(),
         version: env!("CARGO_PKG_VERSION").to_string(),
+        protocol: API_PROTOCOL,
+        server_id: server_id.to_owned(),
+        server_name: server_name.to_owned(),
         license: NOTICES.license.clone(),
         license_text: NOTICES.license_text.clone(),
         repository: NOTICES.repository.clone(),
         components: NOTICES.components.clone(),
-        lan_addresses: Vec::new(),
-        routing: false,
-        offline_basemap: false,
         reveal: false,
-        local_only: false,
     }
-}
-
-/// Every address a browser on the same network could use to reach this machine.
-///
-/// An operator working on localhost has an origin no phone can follow, so the field-mode handoff
-/// has to offer something else; a machine with no network gets an empty list and the handoff says
-/// so rather than printing a URL that cannot work.
-#[must_use]
-pub fn lan_addresses() -> Vec<String> {
-    let mut found: Vec<String> = local_ip_address::list_afinet_netifas()
-        .map(|interfaces| {
-            interfaces
-                .into_iter()
-                .map(|(_, address)| address)
-                .filter(|address| !address.is_loopback() && !address.is_unspecified())
-                .filter(|address| match address {
-                    std::net::IpAddr::V4(v4) => !v4.is_link_local(),
-                    std::net::IpAddr::V6(_) => false,
-                })
-                .map(|address| address.to_string())
-                .collect()
-        })
-        .unwrap_or_default();
-    found.sort_unstable();
-    found.dedup();
-    found
 }
 
 #[must_use]
@@ -81,7 +54,7 @@ mod tests {
 
     #[test]
     fn notices_document_parses() {
-        let about = about();
+        let about = about("id", "host");
         assert_eq!(about.license, "AGPL-3.0-or-later");
         assert!(
             about
@@ -98,7 +71,7 @@ mod tests {
 
     #[test]
     fn every_referenced_text_resolves() {
-        for component in &about().components {
+        for component in &about("id", "host").components {
             for id in &component.texts {
                 assert!(
                     license_text(id).is_some(),
@@ -111,7 +84,7 @@ mod tests {
 
     #[test]
     fn every_text_is_referenced() {
-        let about = about();
+        let about = about("id", "host");
         let referenced: BTreeSet<&str> = about
             .components
             .iter()
@@ -131,7 +104,7 @@ mod tests {
 
     #[test]
     fn copyleft_components_are_annotated() {
-        let about = about();
+        let about = about("id", "host");
         for name in ["codec2", "FFmpeg 9.0.1"] {
             let component = about
                 .components

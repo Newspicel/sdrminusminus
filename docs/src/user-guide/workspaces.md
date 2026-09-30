@@ -12,6 +12,18 @@
 Create, switch, rename, and delete workspaces from the name in the top bar. A new database starts
 with a Device, a Scope, and a Speaker. Later workspaces start empty. Changes save on their own.
 
+Switching changes the active workspace for every client, including [phones](phones.md), which can
+switch it too.
+
+### Old array nodes
+
+Workspaces from before the [Array](arrays.md) node lose their old direction finder, Combiner,
+array, passive radar and Stitch nodes when they load. A bar names what was removed, such as
+`Removed old nodes: Combiner, Stitch`, until you press **Dismiss**. Rebuild them with an Array.
+
+GPS nodes that used the browser's own position lose their source, and the bar reads
+`GPS source cleared` with their names. Pick a [phone](position.md) or another source.
+
 ### Undo
 
 Use the top-bar arrows, `Ctrl`/`⌘ Z`, and `Ctrl`/`⌘ Shift Z`. Undo changes the running receiver

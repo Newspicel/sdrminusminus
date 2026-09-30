@@ -1,0 +1,389 @@
+{
+  "light_speed_m_s": 299792458.0,
+  "band_seed_hz": 200000.0,
+  "array": {
+    "lanes": {
+      "min": 2,
+      "max": 16
+    },
+    "extent_m": 100.0,
+    "gain_db": {
+      "min": -20.0,
+      "max": 80.0
+    },
+    "cal_offset_hz": {
+      "min": -50000000.0,
+      "max": 50000000.0
+    },
+    "cal_bandwidth_hz": {
+      "min": 100.0,
+      "max": 2000000.0
+    },
+    "cal_bandwidth_seed_hz": 20000.0
+  },
+  "fusion": {
+    "fixed_half_life_s": 60,
+    "moving_half_life_s": 1800,
+    "half_life_s": {
+      "min": 10,
+      "max": 86400
+    },
+    "half_life_seed_s": 300,
+    "extent_km": {
+      "min": 1.0,
+      "max": 100.0
+    },
+    "probe_km": {
+      "min": 0.5,
+      "max": 50.0
+    },
+    "min_confidence": {
+      "min": 0.0,
+      "max": 1.0
+    },
+    "emitters": {
+      "min": 1,
+      "max": 4
+    }
+  },
+  "radar": {
+    "surface_db": {
+      "min": -3.0,
+      "max": 30.0
+    },
+    "offset_hz": {
+      "min": -50000000.0,
+      "max": 50000000.0
+    },
+    "bandwidth_hz": {
+      "min": 10000.0,
+      "max": 20000000.0
+    },
+    "max_range_km": {
+      "min": 0.0,
+      "max": 400.0,
+      "above": true
+    },
+    "max_speed_mps": {
+      "min": 10.0,
+      "max": 2000.0
+    },
+    "cpi_ms": {
+      "min": 50,
+      "max": 2000
+    },
+    "overlap": {
+      "min": 0.0,
+      "max": 0.75
+    },
+    "reach_km": {
+      "min": 0.1,
+      "max": 100.0
+    },
+    "lead": {
+      "min": 0,
+      "max": 16
+    },
+    "doppler_taps": {
+      "min": 0,
+      "max": 2
+    },
+    "batch_ms": {
+      "min": 1.0,
+      "max": 1000.0
+    },
+    "extension_ms": {
+      "min": 0.0,
+      "max": 500.0
+    },
+    "clutter_step": {
+      "min": 0.0,
+      "max": 1.0,
+      "above": true
+    },
+    "loading": {
+      "min": 0.0,
+      "max": 1.0
+    },
+    "cma_taps": {
+      "min": 1,
+      "max": 64
+    },
+    "cma_step": {
+      "min": 0.0,
+      "max": 0.1,
+      "above": true
+    },
+    "os_rank": {
+      "min": 0.5,
+      "max": 0.95
+    },
+    "pfa": {
+      "min": 1e-9,
+      "max": 0.01
+    },
+    "guard": {
+      "min": 0,
+      "max": 16
+    },
+    "train_range": {
+      "min": 1,
+      "max": 64
+    },
+    "train_doppler": {
+      "min": 1,
+      "max": 16
+    },
+    "min_doppler_hz": {
+      "min": 0.0,
+      "max": 100.0
+    },
+    "min_range_km": {
+      "min": 0.0,
+      "max": 50.0
+    },
+    "min_snr_db": {
+      "min": 0.0,
+      "max": 40.0
+    },
+    "track_window": {
+      "min": 1,
+      "max": 16
+    },
+    "coast_looks": {
+      "min": 0,
+      "max": 100
+    },
+    "max_accel_mps2": {
+      "min": 1.0,
+      "max": 200.0
+    },
+    "gate": {
+      "min": 4.0,
+      "max": 30.0
+    },
+    "jerk": {
+      "min": 0.0,
+      "max": 1000.0,
+      "above": true
+    },
+    "altitude_m": {
+      "min": 0.0,
+      "max": 15000.0
+    },
+    "seed": {
+      "dvbt_bandwidth_hz": 7610000.0,
+      "custom_bandwidth_hz": 200000.0,
+      "cma_taps": 16,
+      "cma_step": 0.001,
+      "os_rank": 0.75
+    }
+  },
+  "stitch": {
+    "report_ms": 1000
+  },
+  "df": {
+    "sources": {
+      "min": 1,
+      "max": 15
+    },
+    "peaks": {
+      "min": 1,
+      "max": 4
+    },
+    "smoothing": {
+      "min": 0,
+      "max": 8
+    },
+    "band": {
+      "offset_hz": {
+        "min": -100000000.0,
+        "max": 100000000.0
+      },
+      "bandwidth_hz": {
+        "min": 100.0,
+        "max": 20000000.0
+      }
+    },
+    "report_ms": {
+      "min": 100,
+      "max": 10000
+    },
+    "carry_over": {
+      "min": 0.0,
+      "max": 0.99
+    },
+    "squelch_db": {
+      "min": 0.0,
+      "max": 40.0
+    },
+    "loading": {
+      "min": 0.0,
+      "max": 1.0
+    },
+    "azimuth_step_deg": {
+      "min": 0.25,
+      "max": 10.0
+    },
+    "yaw_gate_dps": {
+      "min": 1.0,
+      "max": 360.0
+    },
+    "station_len": 64
+  },
+  "beamformer": {
+    "nulls": 3,
+    "elevation_deg": {
+      "min": 0.0,
+      "max": 90.0
+    },
+    "taps": {
+      "min": 1,
+      "max": 32
+    },
+    "step": {
+      "min": 0.00001,
+      "max": 1.9
+    },
+    "forget": {
+      "min": 0.9,
+      "max": 0.99999
+    },
+    "crossfade_ms": {
+      "min": 0,
+      "max": 500
+    },
+    "update_ms": {
+      "min": 50,
+      "max": 10000
+    },
+    "carry_over": {
+      "min": 0.0,
+      "max": 0.99
+    },
+    "loading": {
+      "min": 0.0,
+      "max": 10.0
+    },
+    "band": {
+      "offset_hz": {
+        "min": -100000000.0,
+        "max": 100000000.0
+      },
+      "bandwidth_hz": {
+        "min": 1000.0,
+        "max": 20000000.0
+      }
+    },
+    "steer_timeout_ms": {
+      "min": 100,
+      "max": 60000
+    }
+  },
+  "spatial": {
+    "bins": {
+      "min": 256,
+      "max": 4096
+    },
+    "columns": {
+      "min": 64,
+      "max": 1024
+    },
+    "average_ms": {
+      "min": 50,
+      "max": 10000
+    },
+    "report_ms": {
+      "min": 50,
+      "max": 2000
+    },
+    "azimuth_step_deg": {
+      "min": 1.0,
+      "max": 10.0
+    },
+    "span_db": {
+      "min": 10.0,
+      "max": 80.0
+    },
+    "band": {
+      "offset_hz": {
+        "min": -100000000.0,
+        "max": 100000000.0
+      },
+      "bandwidth_hz": {
+        "min": 1000.0,
+        "max": 20000000.0
+      }
+    }
+  },
+  "correlator": {
+    "bins": {
+      "min": 64,
+      "max": 8192
+    },
+    "channels": {
+      "min": 16,
+      "max": 1024
+    },
+    "integrate_s": {
+      "min": 0.05,
+      "max": 600.0
+    },
+    "band": {
+      "offset_hz": {
+        "min": -100000000.0,
+        "max": 100000000.0
+      },
+      "bandwidth_hz": {
+        "min": 1000.0,
+        "max": 20000000.0
+      }
+    }
+  },
+  "polarimeter": {
+    "band": {
+      "offset_hz": {
+        "min": -100000000.0,
+        "max": 100000000.0
+      },
+      "bandwidth_hz": {
+        "min": 100.0,
+        "max": 20000000.0
+      }
+    },
+    "report_ms": {
+      "min": 50,
+      "max": 10000
+    },
+    "average_ms": {
+      "min": 50,
+      "max": 10000
+    },
+    "crossfade_ms": {
+      "min": 0,
+      "max": 500
+    }
+  },
+  "hunt": {
+    "beamwidth_deg": {
+      "min": 10.0,
+      "max": 180.0
+    },
+    "front_back_db": {
+      "min": 0.0,
+      "max": 40.0
+    },
+    "min_span_deg": {
+      "min": 60.0,
+      "max": 720.0
+    },
+    "min_contrast_db": {
+      "min": 1.0,
+      "max": 40.0
+    },
+    "mount_offset_deg": {
+      "min": -180.0,
+      "max": 180.0
+    }
+  }
+}

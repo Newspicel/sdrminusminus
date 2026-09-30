@@ -235,7 +235,7 @@ describe("decodeSymbols", () => {
 });
 
 function encode(ranges: number, dopplers: number, cells: number[]): ArrayBuffer {
-  const buffer = new ArrayBuffer(36 + cells.length);
+  const buffer = new ArrayBuffer(52 + cells.length);
   const view = new DataView(buffer);
   view.setUint8(0, PROTOCOL_VERSION);
   view.setUint8(1, FRAME_KIND_RANGE_DOPPLER);
@@ -244,11 +244,14 @@ function encode(ranges: number, dopplers: number, cells: number[]): ArrayBuffer 
   view.setBigUint64(8, 4096n, true);
   view.setUint16(16, ranges, true);
   view.setUint16(18, dopplers, true);
-  view.setFloat32(20, 0.5, true);
-  view.setFloat32(24, 4.25, true);
-  view.setFloat32(28, -60, true);
-  view.setFloat32(32, 0, true);
-  new Uint8Array(buffer, 36).set(cells);
+  view.setFloat32(20, 0, true);
+  view.setFloat32(24, 150, true);
+  view.setFloat32(28, -8.5, true);
+  view.setFloat32(32, 4.25, true);
+  view.setFloat64(36, 98_000_000, true);
+  view.setFloat32(44, -60, true);
+  view.setFloat32(48, 0, true);
+  new Uint8Array(buffer, 52).set(cells);
   return buffer;
 }
 
@@ -259,8 +262,10 @@ describe("decodeRangeDoppler", () => {
     expect(frame?.streamId).toBe(9);
     expect(frame?.ranges).toBe(4);
     expect(frame?.dopplers).toBe(3);
-    expect(frame?.rangeStepUs).toBe(0.5);
+    expect(frame?.rangeStepM).toBe(150);
+    expect(frame?.dopplerFirstHz).toBe(-8.5);
     expect(frame?.dopplerStepHz).toBe(4.25);
+    expect(frame?.carrierHz).toBe(98_000_000);
     expect(frame?.dbMin).toBe(-60);
     expect([...(frame?.cells ?? [])]).toEqual([...Array(12).keys()]);
   });

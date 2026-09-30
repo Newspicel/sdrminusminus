@@ -12,3 +12,7 @@ threads-required = "num-test-threads"
 [[profile.default.overrides]]
 filter = 'binary_id(sdrmm-engine::listen) & test(/^(audio_packets_are_sequenced_and_the_frame_clock_only_moves_forward|wfm_stereo_toggle_changes_the_layout_of_the_live_stream)$/)'
 threads-required = "num-test-threads"
+
+[[profile.default.overrides]]
+filter = 'binary_id(/^sdrmm-engine::array_/) | (binary_id(sdrmm-engine) & test(=array::radar::tests::push_never_allocates_or_blocks))'
+threads-required = "num-test-threads"

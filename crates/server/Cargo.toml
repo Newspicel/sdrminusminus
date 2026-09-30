@@ -23,11 +23,12 @@ airspyhf = ["sdrmm-engine/airspyhf"]
 ad936x = ["sdrmm-engine/ad936x"]
 net-client = ["sdrmm-engine/net-client"]
 gpu-fft = ["sdrmm-engine/gpu-fft"]
+probe = ["sdrmm-engine/probe"]
 
 [dependencies]
 tun-rs.workspace = true
 local-ip-address = "0.6"
-sdrmm-wire.workspace = true
+sdrmm-wire = { workspace = true, features = ["pin"] }
 sdrmm-engine.workspace = true
 sdrmm-dsp.workspace = true
 sdrmm-orbit.workspace = true
@@ -47,7 +48,6 @@ axum = { workspace = true, features = ["ws", "macros"] }
 axum-server.workspace = true
 rustls.workspace = true
 rcgen.workspace = true
-tower.workspace = true
 tower-http.workspace = true
 futures.workspace = true
 reqwest.workspace = true
@@ -65,6 +65,10 @@ serde.workspace = true
 serde_json.workspace = true
 utoipa.workspace = true
 utoipa-axum.workspace = true
+
+mdns-sd.workspace = true
+getrandom.workspace = true
+gethostname.workspace = true
 
 rusqlite.workspace = true
 jiff.workspace = true

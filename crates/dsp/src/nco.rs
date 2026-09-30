@@ -63,6 +63,11 @@ impl Nco {
     }
 
     #[must_use]
+    pub const fn is_identity(&self) -> bool {
+        self.valid && self.step == 0 && self.phase == 0
+    }
+
+    #[must_use]
     pub fn next_sample(&mut self) -> Complex<f32> {
         if !self.valid {
             return Complex::new(f32::NAN, f32::NAN);

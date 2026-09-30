@@ -1,43 +1,60 @@
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     sync::{Arc, atomic},
-    time::Instant,
+    time::{Duration, Instant},
 };
 
 use axum::{
+    Extension,
     extract::{
         State,
-        ws::{Message, Utf8Bytes, WebSocket, WebSocketUpgrade},
+        ws::{CloseFrame, Message, Utf8Bytes, WebSocket, WebSocketUpgrade},
     },
     response::Response,
 };
 use futures::{SinkExt, StreamExt};
 use sdrmm_dsp::{DbWindowSmoother, adaptive_db_window, decimate_max, quantize_db};
-use sdrmm_engine::{
-    AudioPacket, Engine, IqBlock, SpectrumSnapshot, SymbolBlock, VideoPacket,
-    coherent::SurfaceUpdate,
-};
+use sdrmm_engine::{AudioPacket, Engine, IqBlock, SpectrumSnapshot, SymbolBlock, VideoPacket};
 use sdrmm_wire::{
-    AudioFrame, AudioRoute, ClientCommand, IqFrame, PositionFix, RangeDopplerFrame, ServerEvent,
-    SpectrumFrame, StateScope, StreamKind, SymbolFrame, VideoData, VideoFrame,
+    API_PROTOCOL, AudioFrame, AudioRoute, ClientCommand, IqFrame, PositionFix, ServerEvent,
+    SpectrumFrame, StateScope, StreamKind, SymbolFrame, VideoData, VideoFrame, WS_CLOSE_REVOKED,
+    WS_SUBPROTOCOL,
+    phone::{POSE_BURST, POSE_RATE_HZ},
 };
-use tokio::sync::broadcast;
+use tokio::sync::{broadcast, watch};
 
 mod outbox;
+mod phone;
+mod surfaces;
 use outbox::Outbox;
+use phone::{PhoneLink, RateBudget, revoked};
+use surfaces::Surfaces;
 
-use crate::AppState;
+use crate::{
+    AppState,
+    auth::Identity,
+    phones::{phone_command, phone_event},
+};
 
 const MIN_BINS: usize = 16;
 const MAX_BINS: usize = 4096;
 const MAX_FPS: u16 = 60;
-const POSITION_PUBLISH_RATE: f64 = 20.0;
-const POSITION_PUBLISH_BURST: f64 = 16.0;
 const MEDIA_ID_BASE: u16 = 0x8000;
 const SPECTRUM_ID_BASE: u16 = 0;
+const POSE_NEEDS_PHONE: &str = "only a paired phone can publish a pose";
+const POSE_TOO_FAST: &str = "pose updates are limited to 20 Hz";
+const POSE_FAILED: &str = "could not publish the pose";
+const NOT_FOR_PHONES: &str = "Not open to phones";
+const LIMIT_ERROR_EVERY: Duration = Duration::from_secs(1);
+const CLOSE_FLUSH: Duration = Duration::from_secs(1);
 
-pub(crate) async fn handler(ws: WebSocketUpgrade, State(state): State<AppState>) -> Response {
-    ws.on_upgrade(move |socket| handle_socket(socket, state))
+pub(crate) async fn handler(
+    ws: WebSocketUpgrade,
+    State(state): State<AppState>,
+    Extension(identity): Extension<Identity>,
+) -> Response {
+    ws.protocols([WS_SUBPROTOCOL])
+        .on_upgrade(move |socket| handle_socket(socket, state, identity))
 }
 
 pub(crate) fn start_decoded_encoder(state: &AppState) {
@@ -68,36 +85,6 @@ pub(crate) fn start_decoded_encoder(state: &AppState) {
     });
 }
 
-struct RateBudget {
-    tokens: f64,
-    capacity: f64,
-    per_second: f64,
-    refilled: Instant,
-}
-
-impl RateBudget {
-    fn new(capacity: f64, per_second: f64) -> Self {
-        Self {
-            tokens: capacity,
-            capacity,
-            per_second,
-            refilled: Instant::now(),
-        }
-    }
-
-    fn take(&mut self) -> bool {
-        let now = Instant::now();
-        let earned = now.duration_since(self.refilled).as_secs_f64() * self.per_second;
-        self.tokens = (self.tokens + earned).min(self.capacity);
-        self.refilled = now;
-        if self.tokens < 1.0 {
-            return false;
-        }
-        self.tokens -= 1.0;
-        true
-    }
-}
-
 struct Session {
     engine: Arc<Engine>,
     state: AppState,
@@ -107,15 +94,17 @@ struct Session {
     video: HashMap<(u32, u32), (u16, tokio::task::JoinHandle<()>)>,
     iq: HashMap<(u32, u32), (u16, tokio::task::JoinHandle<()>)>,
     symbols: HashMap<(u32, u32), (u16, tokio::task::JoinHandle<()>)>,
-    surfaces: HashMap<String, (u16, tokio::task::JoinHandle<()>)>,
+    surfaces: Surfaces,
     next_spectrum_id: u16,
     next_media_id: u16,
-    position_budget: RateBudget,
     diagnostics: Option<tokio::task::JoinHandle<()>>,
+    identity: Identity,
+    pose_budget: RateBudget,
+    last_limit_error: Option<Instant>,
 }
 
 impl Session {
-    fn new(engine: Arc<Engine>, state: AppState, out: Outbox) -> Self {
+    fn new(engine: Arc<Engine>, state: AppState, out: Outbox, identity: Identity) -> Self {
         Self {
             engine,
             state,
@@ -125,22 +114,47 @@ impl Session {
             video: HashMap::new(),
             iq: HashMap::new(),
             symbols: HashMap::new(),
-            surfaces: HashMap::new(),
+            surfaces: Surfaces::default(),
             next_spectrum_id: SPECTRUM_ID_BASE,
             next_media_id: MEDIA_ID_BASE,
             diagnostics: None,
-            position_budget: RateBudget::new(POSITION_PUBLISH_BURST, POSITION_PUBLISH_RATE),
+            identity,
+            pose_budget: RateBudget::new(f64::from(POSE_BURST), f64::from(POSE_RATE_HZ)),
+            last_limit_error: None,
         }
+    }
+
+    fn media_stream_id(&mut self) -> Option<u16> {
+        let live: HashSet<u16> = self
+            .audio
+            .values()
+            .chain(self.symbols.values())
+            .chain(self.video.values())
+            .chain(self.iq.values())
+            .map(|(id, _)| *id)
+            .chain(self.surfaces.live_ids())
+            .collect();
+        alloc_stream_id(&mut self.next_media_id, MEDIA_ID_BASE..=u16::MAX, |id| {
+            live.contains(&id)
+        })
+    }
+
+    async fn send_error(&self, message: impl Into<String>) {
+        let err = ServerEvent::Error {
+            message: message.into(),
+        };
+        let _ = self.out.send(text_event(&err)).await;
     }
 
     async fn dispatch(&mut self, text: &str) {
         let Ok(command) = serde_json::from_str::<ClientCommand>(text) else {
-            let err = ServerEvent::Error {
-                message: "invalid command".to_string(),
-            };
-            let _ = self.out.send(text_event(&err)).await;
+            self.send_error("invalid command").await;
             return;
         };
+        if self.identity.phone().is_some() && !phone_command(&command) {
+            self.send_error(NOT_FOR_PHONES).await;
+            return;
+        }
         match command {
             ClientCommand::SubscribeDiagnostics { enabled } => {
                 if let Some(task) = self.diagnostics.take() {
@@ -208,61 +222,41 @@ impl Session {
                 device_set,
                 channel,
             } => self.unsubscribe_symbols(device_set, channel).await,
-            ClientCommand::PublishPosition { node, fix, error } => {
-                self.publish_position(node, fix, error).await;
+            ClientCommand::SubscribeSurface { node, fit } => {
+                self.subscribe_surface(node, fit).await;
             }
-            ClientCommand::SubscribeSurface { node } => self.subscribe_surface(node).await,
             ClientCommand::UnsubscribeSurface { node } => self.unsubscribe_surface(&node).await,
+            ClientCommand::PublishPose { fix, error } => self.publish_pose(fix, error).await,
         }
     }
 
-    async fn subscribe_surface(&mut self, node: String) {
-        let Some(binding) = self.state.coherent.binding(&node) else {
-            let err = ServerEvent::Error {
-                message: format!("no coherent node {node} is running"),
-            };
-            let _ = self.out.send(text_event(&err)).await;
+    async fn publish_pose(&mut self, fix: Option<PositionFix>, error: Option<String>) {
+        let Some(phone) = self.identity.phone().map(str::to_owned) else {
+            self.send_error(POSE_NEEDS_PHONE).await;
             return;
         };
-        let Some(rx) = self.engine.subscribe_surfaces(binding.device_set) else {
-            let err = ServerEvent::Error {
-                message: format!("{node} produces no surface"),
-            };
-            let _ = self.out.send(text_event(&err)).await;
+        if !self.pose_budget.take() {
+            let now = Instant::now();
+            if self
+                .last_limit_error
+                .is_none_or(|last| now.duration_since(last) >= LIMIT_ERROR_EVERY)
+            {
+                self.last_limit_error = Some(now);
+                self.send_error(POSE_TOO_FAST).await;
+            }
             return;
-        };
-        self.unsubscribe_surface(&node).await;
-        let live = |id: u16| {
-            media_id_live(&self.audio, &self.video, &self.iq, &self.symbols, id)
-                || self.surfaces.values().any(|(sid, _)| *sid == id)
-        };
-        let Some(stream_id) =
-            alloc_stream_id(&mut self.next_media_id, MEDIA_ID_BASE..=u16::MAX, live)
-        else {
-            let err = ServerEvent::Error {
-                message: "no free media stream ids on this connection".to_string(),
-            };
-            let _ = self.out.send(text_event(&err)).await;
-            return;
-        };
-        let started = ServerEvent::SurfaceStreamStarted {
-            stream_id,
-            device_set: binding.device_set,
-            node: node.clone(),
-        };
-        let _ = self.out.send(text_event(&started)).await;
-        let task = spawn_surface(stream_id, binding.id, rx, self.out.clone());
-        self.surfaces.insert(node, (stream_id, task));
-    }
-
-    async fn unsubscribe_surface(&mut self, node: &str) {
-        if let Some((stream_id, task)) = self.surfaces.remove(node) {
-            task.abort();
-            let stopped = ServerEvent::StreamStopped {
-                stream_id,
-                kind: StreamKind::RangeDoppler,
-            };
-            let _ = self.out.send(text_event(&stopped)).await;
+        }
+        let state = self.state.clone();
+        let published =
+            tokio::task::spawn_blocking(move || state.gps.publish_pose(&state, &phone, fix, error))
+                .await;
+        match published {
+            Ok(Ok(_)) => {}
+            Ok(Err(message)) => self.send_error(message).await,
+            Err(error) => {
+                tracing::warn!(%error, "publishing a pose stopped");
+                self.send_error(POSE_FAILED).await;
+            }
         }
     }
 
@@ -285,9 +279,7 @@ impl Session {
         for (_, (_, task)) in self.symbols {
             task.abort();
         }
-        for (_, (_, task)) in self.surfaces {
-            task.abort();
-        }
+        self.surfaces.abort();
     }
 
     async fn subscribe_spectrum(&mut self, device_set: u32, fps: u16, bins: u16, stream: u32) {
@@ -385,9 +377,7 @@ impl Session {
                     };
                     let _ = self.out.send(text_event(&stopped)).await;
                 }
-                let live =
-                    |id: u16| media_id_live(&self.audio, &self.video, &self.iq, &self.symbols, id);
-                match alloc_stream_id(&mut self.next_media_id, MEDIA_ID_BASE..=u16::MAX, live) {
+                match self.media_stream_id() {
                     Some(stream_id) => {
                         let started = ServerEvent::AudioStreamStarted {
                             stream_id,
@@ -442,9 +432,7 @@ impl Session {
                     };
                     let _ = self.out.send(text_event(&stopped)).await;
                 }
-                let live =
-                    |id: u16| media_id_live(&self.audio, &self.video, &self.iq, &self.symbols, id);
-                match alloc_stream_id(&mut self.next_media_id, MEDIA_ID_BASE..=u16::MAX, live) {
+                match self.media_stream_id() {
                     Some(stream_id) => {
                         let started = ServerEvent::VideoStreamStarted {
                             stream_id,
@@ -498,9 +486,7 @@ impl Session {
                     };
                     let _ = self.out.send(text_event(&stopped)).await;
                 }
-                let live =
-                    |id: u16| media_id_live(&self.audio, &self.video, &self.iq, &self.symbols, id);
-                match alloc_stream_id(&mut self.next_media_id, MEDIA_ID_BASE..=u16::MAX, live) {
+                match self.media_stream_id() {
                     Some(stream_id) => {
                         let started = ServerEvent::IqStreamStarted {
                             stream_id,
@@ -554,9 +540,7 @@ impl Session {
                     };
                     let _ = self.out.send(text_event(&stopped)).await;
                 }
-                let live =
-                    |id: u16| media_id_live(&self.audio, &self.video, &self.iq, &self.symbols, id);
-                match alloc_stream_id(&mut self.next_media_id, MEDIA_ID_BASE..=u16::MAX, live) {
+                match self.media_stream_id() {
                     Some(stream_id) => {
                         let started = ServerEvent::SymbolStreamStarted {
                             stream_id,
@@ -595,123 +579,108 @@ impl Session {
             let _ = self.out.send(text_event(&stopped)).await;
         }
     }
-
-    async fn publish_position(
-        &mut self,
-        node: String,
-        fix: Option<PositionFix>,
-        error: Option<String>,
-    ) {
-        let too_fast = !self.position_budget.take();
-        if node.is_empty() || node.len() > sdrmm_wire::patch::MAX_NODE_ID_LEN {
-            let _ = self
-                .out
-                .send(text_event(&ServerEvent::Error {
-                    message: "invalid position node id".to_owned(),
-                }))
-                .await;
-        } else if too_fast {
-            let _ = self
-                .out
-                .send(text_event(&ServerEvent::Error {
-                    message: "position updates are limited to 20 Hz per connection".to_owned(),
-                }))
-                .await;
-        } else {
-            let app = self.state.clone();
-            let publish_node = node.clone();
-            let publish = tokio::task::spawn_blocking(move || {
-                app.gps.publish_device(&app, &publish_node, fix, error)
-            })
-            .await;
-            match publish {
-                Ok(Ok(())) => {}
-                Ok(Err(message)) => {
-                    let _ = self
-                        .out
-                        .send(text_event(&ServerEvent::Error { message }))
-                        .await;
-                }
-                Err(error) => {
-                    tracing::error!(%error, "device GPS publish task failed");
-                    let _ = self
-                        .out
-                        .send(text_event(&ServerEvent::Error {
-                            message: "could not publish device position".to_owned(),
-                        }))
-                        .await;
-                }
-            }
-        }
-    }
 }
 
-async fn handle_socket(socket: WebSocket, state: AppState) {
+async fn handle_socket(socket: WebSocket, state: AppState, identity: Identity) {
     let engine = state.engine.clone();
     let live = state.clients.fetch_add(1, atomic::Ordering::Relaxed) + 1;
     tracing::debug!(clients = live, "client connected");
     engine.emit_scope(StateScope::Clients);
+    let link = PhoneLink::join(&state, &identity).await;
+    let for_phone = link.is_some();
     let (ws_tx, mut ws_rx) = socket.split();
     let (out_tx, out_rx) = outbox::channel();
 
     let mut writer = tokio::spawn(write_output(ws_tx, out_rx));
 
     let event_rx = engine.subscribe_events();
-    let decoded_rx = state.decoded_text.subscribe();
     let position_rx = state.gps.subscribe();
-    let hello = ServerEvent::Hello {
-        revision: engine.snapshot().revision,
-    };
-    let _ = out_tx.send(text_event(&hello)).await;
-    for position in state.gps.snapshot() {
-        let _ = out_tx.send(text_event(&position)).await;
-    }
-    for satellite in state.satellites.snapshot() {
-        let _ = out_tx.send(text_event(&satellite)).await;
-    }
+    greet(&state, &out_tx, &identity).await;
 
-    let backlog = state.tracks.backlog();
-    if !backlog.is_empty() {
-        let _ = out_tx
-            .send(text_event(&ServerEvent::DecodedBacklog {
-                records: backlog,
-            }))
-            .await;
-    }
-
-    let events = spawn_events(event_rx, out_tx.clone());
-    let decoded = spawn_decoded(decoded_rx, out_tx.clone());
+    let events = spawn_events(event_rx, out_tx.clone(), for_phone);
+    let decoded =
+        (!for_phone).then(|| spawn_decoded(state.decoded_text.subscribe(), out_tx.clone()));
     let positions = spawn_positions(position_rx, out_tx.clone());
 
-    let mut session = Session::new(engine.clone(), state.clone(), out_tx.clone());
+    let mut session = Session::new(engine.clone(), state.clone(), out_tx.clone(), identity);
+    let mut revocation: Option<watch::Receiver<bool>> = link.as_ref().map(PhoneLink::revoked);
+    let mut writer_done = false;
 
-    loop {
+    let revoked_now = loop {
         let msg = tokio::select! {
-            _ = &mut writer => break,
+            _ = &mut writer => {
+                writer_done = true;
+                break false;
+            }
+            () = revoked(&mut revocation) => break true,
             message = ws_rx.next() => message,
         };
         let Some(Ok(msg)) = msg else {
-            break;
+            break false;
         };
         match msg {
             Message::Text(text) => session.dispatch(&text).await,
-            Message::Close(_) => break,
+            Message::Close(_) => break false,
             _ => {}
         }
+    };
+
+    if revoked_now {
+        let close = Message::Close(Some(CloseFrame {
+            code: WS_CLOSE_REVOKED,
+            reason: "revoked".into(),
+        }));
+        let _ = out_tx.send(close).await;
     }
-
     session.abort_streams();
-
     events.abort();
-    decoded.abort();
+    if let Some(decoded) = decoded {
+        decoded.abort();
+    }
     positions.abort();
-    writer.abort();
+    drop(out_tx);
+    if !writer_done
+        && tokio::time::timeout(CLOSE_FLUSH, &mut writer)
+            .await
+            .is_err()
+    {
+        writer.abort();
+    }
+    if let Some(link) = link {
+        link.leave(&state).await;
+    }
     let live = state
         .clients
         .fetch_sub(1, atomic::Ordering::Relaxed)
         .saturating_sub(1);
     tracing::debug!(clients = live, "client disconnected");
     engine.emit_scope(StateScope::Clients);
+}
+
+async fn greet(state: &AppState, out: &Outbox, identity: &Identity) {
+    let hello = ServerEvent::Hello {
+        revision: state.engine.snapshot().revision,
+        protocol: API_PROTOCOL,
+        phone: identity.phone().map(str::to_owned),
+    };
+    let _ = out.send(text_event(&hello)).await;
+    for position in state.gps.snapshot() {
+        let _ = out.send(text_event(&position)).await;
+    }
+    if identity.phone().is_some() {
+        return;
+    }
+    for satellite in state.satellites.snapshot() {
+        let _ = out.send(text_event(&satellite)).await;
+    }
+    let backlog = state.tracks.backlog();
+    if !backlog.is_empty() {
+        let _ = out
+            .send(text_event(&ServerEvent::DecodedBacklog {
+                records: backlog,
+            }))
+            .await;
+    }
 }
 
 fn flatten_join<T>(
@@ -747,11 +716,15 @@ fn alloc_stream_id(
 fn spawn_events(
     mut event_rx: broadcast::Receiver<ServerEvent>,
     out_tx: Outbox,
+    for_phone: bool,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         loop {
             match event_rx.recv().await {
                 Ok(ev) => {
+                    if for_phone && !phone_event(&ev) {
+                        continue;
+                    }
                     if out_tx.send(text_event(&ev)).await.is_err() {
                         break;
                     }
@@ -985,21 +958,6 @@ fn spawn_audio(
     })
 }
 
-fn media_id_live(
-    audio: &HashMap<AudioRoute, (u16, tokio::task::JoinHandle<()>)>,
-    video: &HashMap<(u32, u32), (u16, tokio::task::JoinHandle<()>)>,
-    iq: &HashMap<(u32, u32), (u16, tokio::task::JoinHandle<()>)>,
-    symbols: &HashMap<(u32, u32), (u16, tokio::task::JoinHandle<()>)>,
-    id: u16,
-) -> bool {
-    audio
-        .values()
-        .chain(symbols.values())
-        .chain(video.values())
-        .chain(iq.values())
-        .any(|(sid, _)| *sid == id)
-}
-
 fn spawn_symbols(
     stream_id: u16,
     mut rx: broadcast::Receiver<SymbolBlock>,
@@ -1103,53 +1061,6 @@ fn spawn_iq(
                     let stopped = ServerEvent::StreamStopped {
                         stream_id,
                         kind: StreamKind::Iq,
-                    };
-                    let _ = out_tx.send(text_event(&stopped)).await;
-                    break;
-                }
-            }
-        }
-    })
-}
-
-/// One coherent node's range-Doppler surface, quantised upstream and sent as it comes.
-fn spawn_surface(
-    stream_id: u16,
-    node: u32,
-    mut rx: broadcast::Receiver<SurfaceUpdate>,
-    out_tx: Outbox,
-) -> tokio::task::JoinHandle<()> {
-    tokio::spawn(async move {
-        loop {
-            match rx.recv().await {
-                Ok(update) if update.node != node => continue,
-                Ok(update) => {
-                    let surface = &update.surface;
-                    let frame = RangeDopplerFrame {
-                        stream_id,
-                        seq: update.seq,
-                        timestamp: u64::from(update.seq),
-                        ranges: surface.ranges.min(usize::from(u16::MAX)) as u16,
-                        dopplers: surface.dopplers.min(usize::from(u16::MAX)) as u16,
-                        range_step_us: surface.range_step_s * 1e6,
-                        doppler_step_hz: surface.doppler_step_hz,
-                        db_min: surface.db_min,
-                        db_max: surface.db_max,
-                        cells: &surface.cells,
-                    }
-                    .encode();
-                    if out_tx.send(Message::Binary(frame.into())).await.is_err() {
-                        break;
-                    }
-                }
-                Err(broadcast::error::RecvError::Lagged(count)) => {
-                    out_tx.dropped(count);
-                    continue;
-                }
-                Err(broadcast::error::RecvError::Closed) => {
-                    let stopped = ServerEvent::StreamStopped {
-                        stream_id,
-                        kind: StreamKind::RangeDoppler,
                     };
                     let _ = out_tx.send(text_event(&stopped)).await;
                     break;

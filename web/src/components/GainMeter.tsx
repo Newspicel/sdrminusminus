@@ -26,6 +26,7 @@ export function GainMeter({
   peakDb,
   tone = "ok",
   auto = false,
+  disabled = false,
   onChange,
   onCommit,
   className,
@@ -38,6 +39,7 @@ export function GainMeter({
   peakDb?: number | null;
   tone?: MeterTone;
   auto?: boolean;
+  disabled?: boolean;
   onChange: (value: number) => void;
   onCommit?: (value: number) => void;
   className?: string;
@@ -53,6 +55,7 @@ export function GainMeter({
       min={min}
       max={max}
       step={step}
+      disabled={disabled}
       onValueChange={(next) => {
         if (typeof next === "number") {
           onChange(next);
@@ -65,7 +68,7 @@ export function GainMeter({
       }}
     >
       <Primitive.Control
-        className="flex h-7 w-full cursor-pointer touch-none items-center data-dragging:cursor-grabbing pointer-coarse:h-10"
+        className="flex h-7 w-full cursor-pointer touch-none items-center data-dragging:cursor-grabbing data-disabled:cursor-not-allowed data-disabled:opacity-50 pointer-coarse:h-10"
         title={
           metered
             ? `Handle: gain. Fill: signal, ${formatPeak(peakDb ?? undefined)}. Keep it out of the red`

@@ -57,6 +57,7 @@ async fn live_position_survives_a_channel_rate_rebuild() {
         speed_mps: Some(12.0),
         track_deg: Some(90.0),
         time: "2026-08-14T12:00:00Z".to_owned(),
+        attitude: sdrmm_wire::Attitude::default(),
     };
     engine
         .update_channel_position(ds, ch, Some(fix.clone()))
@@ -395,7 +396,6 @@ fn device_reported_gaps_reach_the_drop_badge_without_ring_overflow() {
                 capabilities: empty_capabilities(),
                 settings: mock_settings(),
             })),
-            None,
         )
         .expect("start gapped radio");
     assert_eq!(engine.snapshot().device_sets[0].overruns, 123);
@@ -424,22 +424,15 @@ async fn virtual_capture_recovers_from_a_stalled_dsp_with_an_audio_timestamp_gap
         .expect("audio starts")
         .expect("packet");
     let (entered, waiting) = std::sync::mpsc::channel();
-    let (release, resume) = std::sync::mpsc::channel();
-    let mut once = true;
+    let (release, resume) = std::sync::mpsc::channel::<()>();
     let command = engine.lock().device_sets[&ds].cmd_txs[0].clone();
     command
-        .send(DspCommand::ConnectArray {
-            id: 999,
-            sink: RxSink::new(move |_, _| {
-                if once {
-                    once = false;
-                    entered.send(()).expect("DSP entered barrier");
-                    resume
-                        .recv_timeout(Duration::from_secs(5))
-                        .expect("release DSP");
-                }
-            }),
-        })
+        .send(DspCommand::Hold(Box::new(move || {
+            entered.send(()).expect("DSP entered barrier");
+            resume
+                .recv_timeout(Duration::from_secs(5))
+                .expect("release DSP");
+        })))
         .expect("install barrier");
     tokio::task::spawn_blocking(move || waiting.recv_timeout(Duration::from_secs(5)))
         .await

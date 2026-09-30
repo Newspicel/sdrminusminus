@@ -1,0 +1,81 @@
+{
+  "cal": {
+    "failed": "Cal failed",
+    "measuring": "Calibrating",
+    "none": "No cal",
+    "solved": "Calibrated",
+    "stale": "Stale",
+    "waiting": "Waiting",
+    "warm": "Warm"
+  },
+  "failure": {
+    "busy": "Busy",
+    "clock_drift": "Clocks drift {ppm} ppm",
+    "device_down": "Radio {n} down",
+    "duplicate_lane": "Lane {n} twice",
+    "geometry_mismatch": "Geometry has {p}, wired {l}",
+    "lane_gap": "Lane {n} unwired",
+    "lane_held": "Lane {n} in {by}",
+    "low_coherence": "Lane {n} weak",
+    "needs_position": "Wire a GPS",
+    "no_common_signal": "No common signal",
+    "no_noise_source": "No noise source",
+    "noise_clips": "Noise clips, lower gain",
+    "noise_not_seen": "Noise not seen",
+    "noise_shared": "Noise needs all lanes",
+    "not_coherent": "Lanes not coherent",
+    "rates_differ": "Rates differ",
+    "slips_repeated": "Lanes keep slipping",
+    "spread_unsupported": "Radio tunes lanes together",
+    "stopped": "Stopped",
+    "too_many_lanes": "Max 16 lanes",
+    "unwired": "Wire lanes"
+  },
+  "gate": {
+    "calibrating": "Calibrating",
+    "gain": "Needs cal",
+    "phase": "Needs cal",
+    "retuning": "Retuning",
+    "sync": "Syncing",
+    "tier": "Not coherent",
+    "tuning_mode": "Wrong tuning"
+  },
+  "phone": {
+    "not_paired": "phone not paired",
+    "offline": "phone offline",
+    "port_in_use": "port in use",
+    "silent": "phone silent"
+  },
+  "radar_problem": {
+    "no_array": "No array",
+    "no_heading": "No heading",
+    "no_receiver": "No array position",
+    "no_transmitter": "No transmitter",
+    "overloaded": "Overloaded",
+    "phase_unknown": "Phase unknown",
+    "reference_lost": "Reference lost",
+    "refused": "{text}",
+    "table_out_of_range": "Outside cal table"
+  },
+  "refusal": {
+    "adsb": "adsb takes ADS-B events",
+    "array_lane": "an array lane takes a radio lane",
+    "lane_taken": "that lane is in {label}",
+    "shared_clock": "this radio's lanes share no clock",
+    "steer": "steer takes a direction finder",
+    "triangulation": "triangulation takes bearings",
+    "unnamed_array": "an Array"
+  },
+  "surface_refusal": {
+    "fit_not_positive": "Fit must be positive",
+    "no_stream_ids": "Too many streams",
+    "no_surface": "No surface"
+  },
+  "sync": {
+    "drifting": "Drifting",
+    "idle": "Idle",
+    "locked": "Locked",
+    "lost": "Lost",
+    "searching": "Syncing"
+  }
+}

@@ -21,12 +21,14 @@ export function AutoToggle({
   pressed,
   title,
   warn = false,
+  disabled = false,
   onChange,
 }: {
   label: string;
   pressed: boolean | "mixed";
   title: string;
   warn?: boolean;
+  disabled?: boolean;
   onChange: (on: boolean) => void;
 }) {
   return (
@@ -38,6 +40,7 @@ export function AutoToggle({
           className={`${TOGGLE_QUIET} ${warn ? "text-warn" : ""}`}
           aria-label={label}
           aria-pressed={pressed}
+          disabled={disabled}
           onClick={() => onChange(pressed !== true)}
         />
       }
@@ -52,11 +55,13 @@ export function AgcAuto({
   stream,
   port,
   advised,
+  heldBy,
 }: {
   set: DeviceSet;
   stream: number;
   port?: string;
   advised: boolean;
+  heldBy?: string;
 }) {
   const { applyPatch } = useDevicePatch();
   const agc = laneAgc(set, stream);
@@ -64,8 +69,9 @@ export function AgcAuto({
     <AutoToggle
       label={`${port === undefined ? "" : `${port} `}automatic gain`}
       pressed={agc.on}
-      title={agcTip(set, stream, advised)}
+      title={heldBy === undefined ? agcTip(set, stream, advised) : `Set on ${heldBy}`}
       warn={agc.on && advised}
+      disabled={heldBy !== undefined}
       onChange={(on) => applyPatch(set.id, agcDelta(set.capabilities, stream, { ...agc, on }))}
     />
   );

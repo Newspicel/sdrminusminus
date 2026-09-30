@@ -22,7 +22,7 @@ impl Engine {
                     .device_sets
                     .get(&ds)
                     .ok_or(EngineError::DeviceSetNotFound(ds))?;
-                state.check_stream(stream)?;
+                state.check_physical(stream)?;
                 if state.recording.is_some() {
                     return Err(EngineError::Recording("already recording".to_string()));
                 }
@@ -74,7 +74,7 @@ impl Engine {
                         if state.status == DeviceSetStatus::Running
                             && state.recording.is_none()
                             && state.rate_patches == 0
-                            && state.check_stream(stream).is_ok()
+                            && state.check_physical(stream).is_ok()
                             && sample_rate_of(&state.settings) == rate =>
                     {
                         state.recording = Some(RecordingState {
@@ -403,7 +403,7 @@ impl Engine {
                     .device_sets
                     .get(&ds)
                     .ok_or(EngineError::DeviceSetNotFound(ds))?;
-                state.check_stream(stream)?;
+                state.check_physical(stream)?;
                 if state.network_export.is_some() {
                     return Err(EngineError::NetworkExport(
                         "another network export is already active".to_owned(),
@@ -424,7 +424,7 @@ impl Engine {
                         if state.status == DeviceSetStatus::Running
                             && state.network_export.is_none()
                             && state.rate_patches == 0
-                            && state.check_stream(stream).is_ok()
+                            && state.check_physical(stream).is_ok()
                             && sample_rate_of(&state.settings) == rate =>
                     {
                         let center = state

@@ -316,6 +316,7 @@ mod tests {
             serial: Some(serial.to_string()),
             port_chain: hub.map_or_else(|| vec![port], |hub| vec![hub, port]),
             board: Board::Generic,
+            hub: None,
         }
     }
 

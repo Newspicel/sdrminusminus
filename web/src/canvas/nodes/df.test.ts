@@ -1,141 +1,207 @@
 import { describe, expect, it } from "vitest";
-import type { ArrayGeometry, CalState } from "../../lib/types";
+import { RELATIVE_MARKS, spectrumPath, TRUE_MARKS } from "../../components/Rose";
+import { isStale } from "../../lib/processors";
+import type { ArrayGeometry, DfPeak, DfReading } from "../../lib/types";
+import { allowsStructured } from "./arrayGeometry";
 import {
-  beamAzimuth,
-  beamMode,
+  algorithmOptions,
   bearingLabel,
-  CAL_VERDICT_TEXT,
-  calVerdict,
-  DEFAULT_DF_PARAMS,
-  elementCount,
-  geometryOf,
-  laneQualityPercent,
-  polarPoint,
-  spectrumPath,
-  tierLabel,
-  withCount,
+  dfChips,
+  elevationBlock,
+  frameOptions,
+  frameRotation,
+  NEEDS_HEADING,
+  NEEDS_LINE_OR_CIRCLE,
+  peakSummary,
+  peakText,
+  roseLetters,
+  roseNeedles,
+  roseWedge,
+  shownFrame,
+  sigmaText,
+  smoothingTitle,
+  sourceOptions,
+  TOO_MANY_SOURCES,
 } from "./df";
 
-function cal(over: Partial<CalState> = {}): CalState {
-  return { tier: "phase_coherent", lanes: [], phase_unknown: false, solved: true, ...over };
+function peak(overrides: Partial<DfPeak> = {}): DfPeak {
+  return {
+    relative_deg: 47,
+    true_deg: 137,
+    power_db: -40,
+    confidence: 0.82,
+    sigma_deg: 3.1,
+    ...overrides,
+  };
 }
 
-describe("elementCount", () => {
-  it("counts what each geometry actually places", () => {
-    expect(elementCount({ kind: "uca", radius_m: 0.35, count: 4 })).toBe(4);
-    expect(elementCount({ kind: "ula", spacing_m: 0.5, count: 6 })).toBe(6);
+function dfReading(overrides: Partial<DfReading> = {}): DfReading {
+  return {
+    at: "2026-09-28T12:00:00Z",
+    peaks: [peak()],
+    pseudospectrum: [],
+    azimuth_deg: 90,
+    station: { lat: 52, lon: 13 },
+    sources: 1,
+    sources_auto: true,
+    squelched: false,
+    aliasing: false,
+    ...overrides,
+  };
+}
+
+const SCATTERED: ArrayGeometry = {
+  kind: "explicit",
+  positions: [
+    { x_m: 0, y_m: 0 },
+    { x_m: 0.4, y_m: 0.1 },
+    { x_m: 0.1, y_m: 0.5 },
+  ],
+};
+
+const EVEN_ROW: ArrayGeometry = {
+  kind: "explicit",
+  positions: [
+    { x_m: 0.8, y_m: 0.8 },
+    { x_m: 0, y_m: 0 },
+    { x_m: 0.4, y_m: 0.4 },
+  ],
+};
+
+function disabled(geometry: ArrayGeometry): string[] {
+  return algorithmOptions(allowsStructured(geometry, 3))
+    .filter((option) => option.disabled === true)
+    .map((option) => option.value);
+}
+
+describe("algorithmOptions", () => {
+  it("offers root-MUSIC and ESPRIT only for a line or a circle", () => {
+    expect(disabled({ kind: "ula", spacing_m: 0.4, axis_deg: 90 })).toEqual([]);
+    expect(disabled({ kind: "uca", radius_m: 0.35 })).toEqual([]);
+    expect(disabled(EVEN_ROW)).toEqual([]);
+    expect(disabled(SCATTERED)).toEqual(["root_music", "esprit"]);
+    const uneven = {
+      ...EVEN_ROW,
+      positions: [...EVEN_ROW.positions.slice(0, 2), { x_m: 0.2, y_m: 0.2 }],
+    };
+    expect(disabled(uneven)).toEqual(["root_music", "esprit"]);
+    const refused = algorithmOptions(false).find((option) => option.value === "esprit");
+    expect(refused?.title).toBe(NEEDS_LINE_OR_CIRCLE);
+    expect(algorithmOptions(false).find((option) => option.value === "capon")?.disabled).toBe(
+      false,
+    );
+    expect(smoothingTitle(false)).toBe(NEEDS_LINE_OR_CIRCLE);
+    expect(smoothingTitle(true)).not.toBe(NEEDS_LINE_OR_CIRCLE);
+  });
+
+  it("counts sources up to one less than the lanes and keeps a stored count", () => {
+    expect(sourceOptions(5).map((option) => option.label)).toEqual(["Auto", "1", "2", "3", "4"]);
+    expect(sourceOptions(0).map((option) => option.label)).toEqual(["Auto", "1"]);
+    expect(sourceOptions(16)).toHaveLength(16);
+    const kept = sourceOptions(3, 4);
+    expect(kept.map((option) => option.value)).toEqual([0, 1, 2, 3, 4]);
     expect(
-      elementCount({
-        kind: "explicit",
-        positions: [
-          { x_m: 0, y_m: 1 },
-          { x_m: 1, y_m: 0 },
-        ],
-      }),
-    ).toBe(2);
+      kept.filter((option) => option.title === TOO_MANY_SOURCES).map((option) => option.value),
+    ).toEqual([3, 4]);
+  });
+
+  it("refuses elevation on a line and with a grid-free method or smoothing", () => {
+    expect(elevationBlock(true, "music", 0)).toBe("Needs a 2D array");
+    expect(elevationBlock(false, "esprit", 0)).toBe("Needs a grid method");
+    expect(elevationBlock(false, "music", 2)).toBe("Needs a grid method");
+    expect(elevationBlock(false, "capon", 0)).toBeNull();
   });
 });
 
-describe("geometryOf", () => {
-  it("keeps the element count when the shape changes", () => {
-    const line = geometryOf("ula", { kind: "uca", radius_m: 0.35, count: 6 });
-    expect(line).toEqual({ kind: "ula", spacing_m: 0.5, count: 6 });
-    expect(elementCount(geometryOf("uca", line))).toBe(6);
+describe("bearing frame", () => {
+  it("rotates the spectrum by the array azimuth", () => {
+    const reading = dfReading({ azimuth_deg: 90 });
+    expect(frameRotation(reading, "true")).toBe(90);
+    expect(frameRotation(reading, "relative")).toBe(0);
+    const spectrum = [255, 0, 0, 0];
+    expect(spectrumPath(spectrum, 50, 10, 40, frameRotation(reading, "true"))).toMatch(
+      /^M90\.00 50\.00/,
+    );
+    expect(spectrumPath(spectrum, 50, 10, 40, frameRotation(reading, "relative"))).toMatch(
+      /^M50\.00 10\.00/,
+    );
   });
 
-  it("leaves explicit positions alone when the count is edited", () => {
-    const explicit: ArrayGeometry = { kind: "explicit", positions: [{ x_m: 0, y_m: 0 }] };
-    expect(withCount(explicit, 8)).toEqual(explicit);
-    expect(withCount({ kind: "uca", radius_m: 1, count: 2 }, 8)).toEqual({
-      kind: "uca",
-      radius_m: 1,
-      count: 8,
+  it("switches letters when the heading goes away", () => {
+    expect(roseLetters(true)).toBe(TRUE_MARKS);
+    expect(roseLetters(false)).toBe(RELATIVE_MARKS);
+    expect(roseLetters(false).map((mark) => mark.label)).toEqual(["F", "R", "B", "L"]);
+    expect(shownFrame(null, true)).toBe("true");
+    expect(shownFrame("relative", true)).toBe("relative");
+    expect(shownFrame("true", false)).toBe("relative");
+    const unavailable = frameOptions(false).find((option) => option.value === "true");
+    expect(unavailable).toMatchObject({ disabled: true, title: NEEDS_HEADING });
+  });
+
+  it("reads each peak in the chosen frame", () => {
+    const first = peak({ mirror_deg: 313, mirror_true_deg: 43 });
+    const second = peak({ relative_deg: 200, true_deg: 290, confidence: 0.4, sigma_deg: 0.42 });
+    expect(peakText(first, "true")).toBe("137°");
+    expect(peakText(first, "relative")).toBe("047°");
+    expect(peakText(peak({ true_deg: null }), "true")).toBe("-");
+    expect(roseNeedles([first, second], "true")).toEqual([
+      { deg: 137, weight: "primary" },
+      { deg: 43, weight: "mirror" },
+      { deg: 290, weight: "secondary" },
+    ]);
+    expect(roseWedge([first], "relative")).toEqual({ deg: 47, sigmaDeg: 3.1 });
+    expect(roseWedge([], "true")).toBeNull();
+    expect(peakSummary(second, "true")).toBe("290° 40% ±0.4°");
+    expect(sigmaText(3.1)).toBe("3°");
+    expect(bearingLabel(359.7)).toBe("000°");
+    expect(bearingLabel(-5)).toBe("355°");
+  });
+});
+
+describe("dfChips", () => {
+  it("lists chips for mirror, aliasing, squelch and stale", () => {
+    const flagged = dfReading({ mirror: true, aliasing: true, squelched: true });
+    expect(dfChips(flagged, null, true).map((chip) => chip.label)).toEqual([
+      "Stale",
+      "Squelch",
+      "Aliased",
+      "Mirror",
+    ]);
+    expect(dfChips(dfReading(), null, false)).toEqual([]);
+    expect(dfChips(null, null, false)).toEqual([]);
+  });
+
+  it("has a chip for every flag and the array gate first", () => {
+    const everything = dfReading({
+      squelched: true,
+      azimuth_deg: null,
+      station: null,
+      aliasing: true,
+      mode_aliasing: true,
+      mirror: true,
+      rotating: true,
+      singular: true,
+      table_out_of_range: true,
     });
-  });
-});
-
-describe("polarPoint", () => {
-  it("puts north at the top and runs clockwise", () => {
-    const centre = 100;
-    const north = polarPoint(0, 50, centre);
-    expect(north.x).toBeCloseTo(100, 6);
-    expect(north.y).toBeCloseTo(50, 6);
-    const east = polarPoint(90, 50, centre);
-    expect(east.x).toBeCloseTo(150, 6);
-    expect(east.y).toBeCloseTo(100, 6);
-    const south = polarPoint(180, 50, centre);
-    expect(south.y).toBeCloseTo(150, 6);
-  });
-});
-
-describe("spectrumPath", () => {
-  it("closes a ring with one point per sample", () => {
-    const path = spectrumPath([0, 128, 255, 128], 100, 20, 80);
-    expect(path.startsWith("M")).toBe(true);
-    expect(path.endsWith("Z")).toBe(true);
-    expect(path.split("L")).toHaveLength(4);
+    const chips = dfChips(everything, "phase", false);
+    expect(chips.map((chip) => chip.label)).toEqual([
+      "Needs cal",
+      "Squelch",
+      "No heading",
+      "No position",
+      "Aliased",
+      "Mode alias",
+      "Mirror",
+      "Rotating",
+      "Singular",
+      "Table off",
+    ]);
+    expect(chips.every((chip) => chip.title.length > 0)).toBe(true);
+    expect(chips[0]?.danger).toBe(true);
   });
 
-  it("has nothing to draw for an empty surface", () => {
-    expect(spectrumPath([], 100, 20, 80)).toBe("");
-  });
-});
-
-describe("calVerdict", () => {
-  it("refuses to call an unknown phase anything else", () => {
-    expect(calVerdict(undefined)).toBe("phase_unknown");
-    expect(calVerdict(cal({ phase_unknown: true }))).toBe("phase_unknown");
-    expect(calVerdict(cal({ solved: false }))).toBe("solving");
-    expect(calVerdict(cal({ reference_on: true }))).toBe("injecting");
-    expect(calVerdict(cal({ reference_on: true, phase_unknown: true }))).toBe("injecting");
-    expect(calVerdict(cal())).toBe("solved");
-    expect(CAL_VERDICT_TEXT.phase_unknown).toContain("calibrate");
-    expect(CAL_VERDICT_TEXT.injecting).toContain("paused");
-  });
-});
-
-describe("tierLabel", () => {
-  it("says what the hardware actually shares", () => {
-    expect(tierLabel(cal({ tier: "phase_coherent" }))).toBe("shared LO");
-    expect(tierLabel(cal({ tier: "time_sync" }))).toBe("shared clock");
-    expect(tierLabel(cal({ tier: "none" }))).toBe("not coherent");
-    expect(tierLabel(undefined)).toBe("not coherent");
-  });
-});
-
-describe("bearingLabel", () => {
-  it("pads a bearing so the readout never jumps width", () => {
-    expect(bearingLabel(7.24)).toBe("007.2°");
-    expect(bearingLabel(137.5)).toBe("137.5°");
-  });
-});
-
-describe("laneQualityPercent", () => {
-  it("clamps to a bar width", () => {
-    expect(laneQualityPercent(-1)).toBe(0);
-    expect(laneQualityPercent(0.5)).toBe(50);
-    expect(laneQualityPercent(3)).toBe(100);
-  });
-});
-
-describe("DEFAULT_DF_PARAMS", () => {
-  it("describes an array the server will accept", () => {
-    expect(elementCount(DEFAULT_DF_PARAMS.geometry)).toBeGreaterThanOrEqual(2);
-    expect(DEFAULT_DF_PARAMS.sources).toBeLessThan(elementCount(DEFAULT_DF_PARAMS.geometry));
-    expect(DEFAULT_DF_PARAMS.report_ms).toBeGreaterThanOrEqual(100);
-  });
-});
-
-describe("beam steering", () => {
-  it("follows the bearing until the operator pins it", () => {
-    expect(beamMode(null)).toBe("follow");
-    expect(beamMode(0)).toBe("fixed");
-    expect(beamAzimuth("follow", 137)).toBeNull();
-  });
-
-  it("pins the beam where the array is already pointing", () => {
-    expect(beamAzimuth("fixed", 137.4)).toBe(137);
-    expect(beamAzimuth("fixed", 359.7)).toBe(0);
-    expect(beamAzimuth("fixed", null)).toBe(0);
+  it("calls a reading stale after three report periods", () => {
+    expect(isStale(0, 2_999, 1_000)).toBe(false);
+    expect(isStale(0, 3_001, 1_000)).toBe(true);
   });
 });

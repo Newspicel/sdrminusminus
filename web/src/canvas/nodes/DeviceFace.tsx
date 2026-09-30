@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link2, Radar } from "lucide-react";
 import type { ReactNode } from "react";
 import { Button } from "../../components/BaseControls";
-import { BTN_PRIMARY, BTN_QUIET, ICON_BTN } from "../../components/controls";
+import { BTN_PRIMARY, BTN_QUIET, BTN_SM, ICON_BTN } from "../../components/controls";
 import { deviceId } from "../../components/devices";
 import { inTuningRange, isTunable, tuningRange } from "../../components/dial";
 import { dialId, FrequencyDial } from "../../components/FrequencyDial";
@@ -24,14 +24,13 @@ import { claimedDevices, deviceRefOf, refMatches } from "../binding";
 import { useWorkspaceContext } from "../context";
 import { patchNode, rxStreamCount, streamPort } from "../graph";
 import { releaseRadio } from "../remove";
-import { arrayHolding } from "./arrayNode";
+import { dialHold, type LaneHold, laneHolds } from "./arrayNode";
 import {
   allAutoTuning,
   allLocked,
   autoTuning,
   bondSaid,
   clippingSaid,
-  coherentLanes,
   faultSaid,
   type Hearing,
   hearing,
@@ -44,6 +43,7 @@ import {
   type TunerDial,
   tunerDials,
 } from "./deviceNode";
+import { MakeArrayButton, offersMakeArray } from "./MakeArrayButton";
 import { FaceBody, FaceFooter, NodeShell, useFaceActive } from "./NodeShell";
 
 type DeviceNodeData = PatchNodeOf<"device">["data"];
@@ -107,7 +107,22 @@ interface TunerProps {
   onLock: (locked: number[]) => void;
   split: boolean;
   onSplit: (split: boolean) => void;
-  arrayTuning: boolean;
+  holds: ReadonlyMap<number, LaneHold>;
+}
+
+function HeldBadge({ hold }: { hold: LaneHold }) {
+  const workspace = useWorkspaceContext();
+  return (
+    <Button
+      type="button"
+      className={`${BTN_SM} text-port-array`}
+      title={`Tuned by ${hold.label}`}
+      onClick={() => workspace.select(hold.array)}
+    >
+      <Icon glyph={Link2} size={12} />
+      Array
+    </Button>
+  );
 }
 
 function DialRow({
@@ -117,6 +132,7 @@ function DialRow({
   locked,
   onLock,
   tools,
+  hold,
   onTune,
 }: {
   node: string;
@@ -125,14 +141,19 @@ function DialRow({
   locked: boolean;
   onLock: (locked: boolean) => void;
   tools: ReactNode;
+  hold: LaneHold | null;
   onTune: (hz: number) => void;
 }) {
   const active = useFaceActive();
   const range = tuningRange(set.capabilities);
   const pinned = !isTunable(range);
-  const held = pinned || locked;
+  const held = pinned || locked || hold !== null;
+  const free = !pinned && hold === null;
   return (
-    <div className="@container flex min-w-0 items-center gap-2">
+    <div
+      className="@container flex min-w-0 items-center gap-2"
+      title={hold === null ? undefined : `Tuned by ${hold.label}`}
+    >
       <FrequencyDial
         id={dialId(node, dial.stream)}
         hz={dial.hz}
@@ -142,7 +163,8 @@ function DialRow({
         onTune={onTune}
       />
       <span className="ml-auto flex shrink-0 items-center gap-1">
-        {!pinned && (
+        {hold !== null && <HeldBadge hold={hold} />}
+        {free && (
           <TuneTo
             title="Type a frequency"
             hz={dial.hz}
@@ -152,8 +174,8 @@ function DialRow({
             onTune={onTune}
           />
         )}
-        {!pinned && tools}
-        {!pinned && (
+        {free && tools}
+        {free && (
           <TuningLock locked={locked} held="Tuning locked" free="Lock tuning" onLock={onLock} />
         )}
       </span>
@@ -166,19 +188,24 @@ function LaneDial({
   set,
   dial,
   locked,
+  hold,
 }: {
   node: string;
   set: DeviceSet;
   dial: TunerDial;
   locked: boolean;
+  hold: LaneHold | null;
 }) {
   const { tuneRadio } = useRadioTune();
   const active = useFaceActive();
   const range = tuningRange(set.capabilities);
-  const held = !isTunable(range) || locked;
+  const held = !isTunable(range) || locked || hold !== null;
   const tune = (hz: number): void => tuneRadio(set, dial.stream, hz);
   return (
-    <div className="flex h-7 items-center gap-2">
+    <div
+      className="flex h-7 items-center gap-2"
+      title={hold === null ? undefined : `Tuned by ${hold.label}`}
+    >
       <span className="w-14 shrink-0 truncate font-mono text-[11px] text-port-iq">{dial.port}</span>
       <div className="@container w-52 min-w-0">
         <FrequencyDial
@@ -191,21 +218,25 @@ function LaneDial({
         />
       </div>
       <span className="ml-auto flex shrink-0 items-center gap-1">
-        <TuneTo
-          title={`Type a frequency for ${dial.port}`}
-          hz={dial.hz}
-          hint={`Reaches ${formatMhz(range.min)} to ${formatMhz(range.max)}`}
-          resolve={(entered) => inTuningRange(entered, range)}
-          disabled={held}
-          onTune={tune}
-        />
+        {hold === null ? (
+          <TuneTo
+            title={`Type a frequency for ${dial.port}`}
+            hz={dial.hz}
+            hint={`Reaches ${formatMhz(range.min)} to ${formatMhz(range.max)}`}
+            resolve={(entered) => inTuningRange(entered, range)}
+            disabled={held}
+            onTune={tune}
+          />
+        ) : (
+          <HeldBadge hold={hold} />
+        )}
       </span>
     </div>
   );
 }
 
 function Tuner(props: TunerProps) {
-  const { node, set, lockedStreams, onLock, split, onSplit, arrayTuning } = props;
+  const { node, set, lockedStreams, onLock, split, onSplit, holds } = props;
   const { tuneRadio, tuneAll } = useRadioTune();
   const caps = set.capabilities;
   const merged = lanesMerged(set);
@@ -213,7 +244,7 @@ function Tuner(props: TunerProps) {
   const locked = merged ? allLocked(lockedStreams, caps) : lockedStreams.includes(0);
   const lock = (held: boolean): void =>
     onLock(merged ? lockAll(caps, held) : lockStream(lockedStreams, 0, held));
-  const title = arrayTuning ? ARRAY_TUNED : undefined;
+  const hold = dialHold(holds, 0, false);
   const link = merged && (
     <LinkLanes
       linked={!split}
@@ -227,12 +258,18 @@ function Tuner(props: TunerProps) {
   );
   if (merged && split) {
     return (
-      <div className="flex h-7 items-center gap-2" title={title}>
+      <div className="flex h-7 items-center gap-2">
         <span className="legend">Per lane</span>
         <span className="ml-auto flex shrink-0 items-center gap-1">
-          {link}
-          <AutoTuning set={set} stream="all" />
-          <TuningLock locked={locked} held="Tuning locked" free="Lock tuning" onLock={lock} />
+          {hold === null ? (
+            <>
+              {link}
+              <AutoTuning set={set} stream="all" />
+              <TuningLock locked={locked} held="Tuning locked" free="Lock tuning" onLock={lock} />
+            </>
+          ) : (
+            <HeldBadge hold={hold} />
+          )}
         </span>
       </div>
     );
@@ -241,12 +278,13 @@ function Tuner(props: TunerProps) {
     return null;
   }
   return (
-    <div title={title}>
+    <div>
       <DialRow
         node={node}
         set={set}
         dial={dial}
         locked={locked}
+        hold={hold}
         onLock={lock}
         onTune={(hz) => (merged ? tuneAll(set, hz) : tuneRadio(set, 0, hz))}
         tools={
@@ -259,8 +297,6 @@ function Tuner(props: TunerProps) {
     </div>
   );
 }
-
-const ARRAY_TUNED = "Tuning moves the whole Array";
 
 const TONE: Record<Hearing["tone"], string> = {
   ok: "text-ok",
@@ -440,9 +476,8 @@ export function DeviceFace({ node }: { node: PatchNode }) {
     );
   }
 
-  const array = arrayHolding(workspace.graph, node.id);
-  const arrayTuning = array !== null && workspace.devices.has(array);
-  const advised = coherentLanes(workspace.graph, node.id);
+  const holds = laneHolds(workspace.graph, node.id);
+  const heldBy = new Map([...holds].map(([stream, hold]) => [stream, hold.label]));
   const merged = lanesMerged(set);
   const dials = tunerDials(set);
   const streams = rxStreamCount(set.capabilities);
@@ -459,12 +494,13 @@ export function DeviceFace({ node }: { node: PatchNode }) {
         <RadioSettings
           active={set}
           className="p-2"
-          advised={advised}
+          advised={new Set(holds.keys())}
+          heldBy={heldBy}
           lead={
             <Tuner
               node={node.id}
               set={set}
-              arrayTuning={arrayTuning}
+              holds={holds}
               lockedStreams={lockedStreams}
               onLock={(locked_streams) => editNode({ locked_streams })}
               split={split}
@@ -480,6 +516,7 @@ export function DeviceFace({ node }: { node: PatchNode }) {
                     set={set}
                     dial={dial}
                     locked={lockedStreams.includes(dial.stream)}
+                    hold={dialHold(holds, dial.stream, true)}
                   />
                 ))
               : undefined
@@ -496,6 +533,9 @@ export function DeviceFace({ node }: { node: PatchNode }) {
       </FaceBody>
       <FaceFooter>
         <DeviceHealth set={set} />
+        {offersMakeArray(workspace.graph, node.id, set) && (
+          <MakeArrayButton node={node.id} set={set} />
+        )}
         <Button
           type="button"
           className={BTN_QUIET}

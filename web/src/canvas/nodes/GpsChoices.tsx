@@ -4,7 +4,8 @@ import { Button, Form, Input } from "../../components/BaseControls";
 import { BTN, FIELD, LABEL } from "../../components/controls";
 import { NumberField } from "../../components/NumberField";
 import { Segmented } from "../../components/Segmented";
-import { nmeaDevicesQuery } from "../../lib/api";
+import { nmeaDevicesQuery, phonesQuery } from "../../lib/api";
+import { STANDING_LABEL } from "../../lib/phones";
 import type { PositionSource } from "../../lib/types";
 import {
   filterNmeaDevices,
@@ -21,7 +22,7 @@ type Choose = (source: PositionSource) => void;
 
 export function GpsChoices({ onChoose }: { onChoose: Choose }) {
   const [tab, setTab] = useState<GpsTab>("receiver");
-  const tabs = gpsTabs(navigator.geolocation !== undefined);
+  const tabs = gpsTabs();
 
   return (
     <div className="flex w-full flex-col gap-2">
@@ -29,7 +30,7 @@ export function GpsChoices({ onChoose }: { onChoose: Choose }) {
       {tab === "receiver" && <ReceiverChoices onChoose={onChoose} />}
       {tab === "network" && <GpsdForm onChoose={onChoose} />}
       {tab === "fixed" && <FixedForm onChoose={onChoose} />}
-      {tab === "device" && <DeviceLocation onChoose={onChoose} />}
+      {tab === "phone" && <PhoneChoices onChoose={onChoose} />}
     </div>
   );
 }
@@ -88,6 +89,44 @@ function ReceiverChoices({ onChoose }: { onChoose: Choose }) {
       )}
 
       <SerialPathForm onChoose={onChoose} />
+    </>
+  );
+}
+
+function PhoneChoices({ onChoose }: { onChoose: Choose }) {
+  const phones = useQuery(phonesQuery());
+  const listed = phones.data?.phones ?? [];
+  return (
+    <>
+      <div className="flex flex-col gap-1">
+        {listed.map((phone) => (
+          <Button
+            key={phone.id}
+            type="button"
+            className={`${BTN} justify-start`}
+            onClick={() => onChoose({ type: "phone", phone: phone.id })}
+          >
+            <span
+              aria-hidden
+              className={`size-2 shrink-0 rounded-full ${phone.online ? "bg-ok" : "bg-ink-faint"}`}
+            />
+            <span className="min-w-0 flex-1 truncate text-left">{phone.name}</span>
+            <span className="font-mono text-[10px] text-ink-faint">
+              {STANDING_LABEL[phone.online ? "online" : "offline"]}
+            </span>
+          </Button>
+        ))}
+      </div>
+      {phones.isSuccess && listed.length === 0 && (
+        <p className="text-ink-dim text-sm" title="Pair one in Library > Phones">
+          No phones
+        </p>
+      )}
+      {phones.isError && (
+        <p role="alert" className="font-mono text-danger text-xs">
+          Phone list failed
+        </p>
+      )}
     </>
   );
 }
@@ -189,18 +228,5 @@ function FixedForm({ onChoose }: { onChoose: Choose }) {
         Set
       </Button>
     </Form>
-  );
-}
-
-function DeviceLocation({ onChoose }: { onChoose: Choose }) {
-  return (
-    <Button
-      type="button"
-      className={`${BTN} self-start`}
-      title="Follow the location this computer reports; the browser asks for permission first"
-      onClick={() => onChoose({ type: "device" })}
-    >
-      Use this device's location
-    </Button>
   );
 }

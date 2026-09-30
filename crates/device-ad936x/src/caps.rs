@@ -27,10 +27,6 @@ pub(crate) const TX_PORT: &str = "tx_port";
 const RX_PORT_LOCK: &str = "adi,rx-rf-port-input-select-lock-enable";
 const TX_PORT_LOCK: &str = "adi,tx-rf-port-input-select-lock-enable";
 
-/// What the AD936x on this board will accept, as the board itself reports it.
-///
-/// An AD9361 reaches 6 GHz and an AD9363 stops at 3.8, and the same firmware serves both, so
-/// every limit here is read rather than assumed.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct Front {
     pub(crate) frequency: Range,
@@ -73,8 +69,6 @@ impl Front {
     }
 }
 
-/// The crystal correction, and the value it was calibrated to, which is what a part per million
-/// is counted from.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct Trim {
     pub(crate) reference: f64,
@@ -102,7 +96,6 @@ impl Trim {
     }
 }
 
-/// The corrections the transceiver runs for itself, each present only if this firmware has it.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) struct Tracking {
     pub(crate) quadrature: bool,
@@ -110,8 +103,6 @@ pub(crate) struct Tracking {
     pub(crate) bb_dc: bool,
 }
 
-/// The widest span any AD936x part covers, used only when a firmware publishes no list of its
-/// own. The radio still refuses anything its own part cannot reach, and says so.
 const FALLBACK_FREQUENCY: Range = span(70e6, 6e9);
 const FALLBACK_RATE: Range = span(2_083_333.0, 61_440_000.0);
 const FALLBACK_RX_BANDWIDTH: Range = span(200e3, 56e6);
@@ -198,8 +189,6 @@ struct Reader<'a> {
 }
 
 impl Reader<'_> {
-    /// An attribute's value, asked of the radio and falling back to what its own description of
-    /// itself already said. A firmware that publishes neither simply does not have it.
     fn value(&self, direction: Direction, channel: &str, attr: &str) -> Option<String> {
         match self
             .client
@@ -249,8 +238,6 @@ impl Reader<'_> {
             .is_ok_and(|value| value.trim() == "1")
     }
 
-    /// Whether the radio's own description of itself lists this receive attribute. The listing
-    /// is the same one every libiio client learns attribute names from, so it is not asked again.
     fn present(&self, rx: &str, attr: &str) -> bool {
         self.context
             .device(self.phy)
@@ -266,8 +253,6 @@ impl Reader<'_> {
         }
     }
 
-    /// The crystal as the board left the factory. Its present correction is the zero of the
-    /// operator's parts per million, so a board trimmed at build time stays trimmed at 0 ppm.
     fn trim(&self) -> Option<Trim> {
         let reference = self
             .client
@@ -330,7 +315,6 @@ pub(crate) fn decimation_factor(offered: &str) -> Option<u32> {
     (2.0..=64.0).contains(&factor).then_some(factor as u32)
 }
 
-/// `[min step max]`, which is how every bounded IIO attribute publishes its limits.
 pub(crate) fn parse_range(text: &str) -> Option<Range> {
     let inside = text.trim().strip_prefix('[')?.strip_suffix(']')?;
     let mut parts = inside.split_whitespace();
@@ -347,8 +331,6 @@ pub(crate) fn parse_range(text: &str) -> Option<Range> {
     })
 }
 
-/// A one-count step over a range measured in hertz is the absence of a step, not a grid worth
-/// snapping a control to.
 fn continuous(range: Range) -> Range {
     Range {
         step: range.step.filter(|step| *step > 1.0),
@@ -384,7 +366,8 @@ pub(crate) fn capabilities(front: &Front, layout: &Layout) -> Capabilities {
         dc_artifact: DcArtifact::Managed,
         hardware_sweep: false,
         coherence: Coherence::None,
-        noise_source: false,
+        noise_source: sdrmm_wire::NoiseSource::None,
+        retune_keeps_phase: false,
         rx_stream_choices: if rx_streams > 1 {
             (1..=rx_streams).collect()
         } else {
@@ -405,8 +388,6 @@ pub(crate) fn stream_lanes(capabilities: &mut Capabilities, lanes: u32, transmit
             antenna: false,
             agc: true,
         };
-        // Both receivers run off the one synthesizer and the one converter clock, so their
-        // relative phase survives a retune and a bearing taken across them means something.
         capabilities.coherence = Coherence::PhaseCoherent;
     } else {
         capabilities.per_stream = StreamScope::default();

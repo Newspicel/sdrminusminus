@@ -1,10 +1,8 @@
 import { create } from "zustand";
+import { omitNodes } from "./byNode";
 import type { PatchGraph, PositionFix, ServerEvent } from "./types";
-import type { SdrSocket } from "./ws";
 
 const HISTORY_CAPACITY = 5_000;
-let cachedDeviceFix: PositionFix | null = null;
-let cachedDeviceError: string | null = null;
 
 export interface PositionSample extends PositionFix {
   receivedAt: number;
@@ -17,8 +15,9 @@ export interface PositionState {
 }
 
 interface PositionStore {
-  sources: Record<string, PositionState>;
+  sources: Readonly<Record<string, PositionState>>;
   observe: (event: ServerEvent) => void;
+  forget: (nodes: readonly string[]) => void;
   clear: () => void;
 }
 
@@ -47,6 +46,7 @@ export const usePositionStore = create<PositionStore>((set) => ({
       };
     });
   },
+  forget: (nodes) => set((state) => ({ sources: omitNodes(state.sources, nodes) })),
   clear: () => set({ sources: {} }),
 }));
 
@@ -65,79 +65,6 @@ function appendSample(
   }
   const next = [...history, sample];
   return next.length > HISTORY_CAPACITY ? next.slice(next.length - HISTORY_CAPACITY) : next;
-}
-
-export function watchDevicePosition(socket: SdrSocket, nodes: readonly string[]): () => void {
-  if (nodes.length === 0) {
-    return () => {};
-  }
-
-  const sent = new Map<string, string>();
-  const publish = (fix: PositionFix | null, error: string | null): void => {
-    for (const node of nodes) {
-      const data = {
-        node,
-        ...(fix === null ? { error: error ?? "position unavailable" } : { fix }),
-      };
-      const payload = JSON.stringify(data);
-      if (sent.get(node) === payload) {
-        continue;
-      }
-      sent.set(node, payload);
-      socket.send({ type: "PublishPosition", data });
-    }
-  };
-  const status = (connected: boolean): void => {
-    if (!connected) {
-      sent.clear();
-      return;
-    }
-    if (cachedDeviceFix !== null) {
-      publish(cachedDeviceFix, null);
-    } else if (cachedDeviceError !== null) {
-      publish(null, cachedDeviceError);
-    }
-  };
-  const offStatus = socket.on("status", status);
-  status(socket.isConnected());
-
-  if (navigator.geolocation === undefined) {
-    cachedDeviceError = "this device has no geolocation provider";
-    publish(null, cachedDeviceError);
-    return offStatus;
-  }
-  const watch = navigator.geolocation.watchPosition(
-    (position) => {
-      cachedDeviceError = null;
-      cachedDeviceFix = {
-        latitude: position.coords.latitude,
-        longitude: position.coords.longitude,
-        altitude_m: position.coords.altitude ?? undefined,
-        accuracy_m: position.coords.accuracy,
-        speed_mps: position.coords.speed ?? undefined,
-        track_deg: position.coords.heading ?? undefined,
-        time: new Date(position.timestamp).toISOString(),
-      };
-      publish(cachedDeviceFix, null);
-    },
-    (error) => {
-      cachedDeviceFix = null;
-      cachedDeviceError = watchFailure(error);
-      publish(null, cachedDeviceError);
-    },
-    { enableHighAccuracy: true, maximumAge: 1_000, timeout: 20_000 },
-  );
-  return () => {
-    navigator.geolocation.clearWatch(watch);
-    offStatus();
-  };
-}
-
-function watchFailure(error: GeolocationPositionError): string {
-  if (error.code === error.PERMISSION_DENIED) {
-    return "location sharing is blocked for this browser";
-  }
-  return error.message === "" ? "position unavailable" : error.message;
 }
 
 export function gridLocator(latitude: number, longitude: number): string {

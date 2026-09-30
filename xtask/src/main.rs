@@ -28,8 +28,10 @@ mod excerpt;
 mod homebrew;
 mod icons;
 mod ident_matrix;
+mod ios;
 mod licenses;
 mod linkage;
+mod mobile;
 mod nixhash;
 mod replay;
 #[cfg(test)]
@@ -149,6 +151,11 @@ enum Cmd {
         #[arg(long)]
         out: PathBuf,
     },
+    Mobile(mobile::Mobile),
+    Ios {
+        #[command(subcommand)]
+        action: ios::IosAction,
+    },
 }
 
 fn main() -> Result<()> {
@@ -205,6 +212,8 @@ fn main() -> Result<()> {
             repo,
             out,
         } => aur::packages(&sums, &version, &repo, &out),
+        Cmd::Mobile(args) => mobile::run(&root(), &args),
+        Cmd::Ios { action } => ios::run(&root(), &action),
     }
 }
 
@@ -226,6 +235,21 @@ fn codegen(root: &Path) -> Result<()> {
         serde_json::to_string_pretty(&frame_fixtures::frames())?,
     )
     .context("write binary frame fixtures")?;
+    std::fs::write(
+        root.join("web/src/generated/patch-catalog.json"),
+        serde_json::to_string_pretty(&sdrmm_wire::PatchCatalog::build())?,
+    )
+    .context("write patch catalog")?;
+    std::fs::write(
+        root.join("web/src/generated/labels.json"),
+        serde_json::to_string_pretty(&sdrmm_wire::labels::generated()?)?,
+    )
+    .context("write labels")?;
+    std::fs::write(
+        root.join("web/src/generated/limits.json"),
+        sdrmm_wire::limits::generated()?,
+    )
+    .context("write limits")?;
     let frames = root.join("web/src/generated/frame.ts");
     std::fs::write(&frames, sdrmm_wire::typescript_frames()).context("write binary frame codec")?;
     let spec = sdrmm_server::openapi()
@@ -589,6 +613,8 @@ fn check(root: &Path) -> Result<()> {
     check_toolchain_pins(root)?;
     check_windows_rs_alignment(root)?;
     check_baked_in_fixtures(root)?;
+    mobile::check(root)?;
+    ios::check(root)?;
     run("cargo", &["fmt", "--all", "--", "--check"], root)?;
 
     ensure_web_deps(root)?;

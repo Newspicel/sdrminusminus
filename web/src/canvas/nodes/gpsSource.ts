@@ -2,10 +2,10 @@ import type { Options } from "../../components/controls";
 import type { AutocompleteSuggestion } from "../../components/TextAutocomplete";
 import type { NmeaDeviceInfo, PositionSource } from "../../lib/types";
 
-export type GpsTab = "receiver" | "network" | "fixed" | "device";
+export type GpsTab = "receiver" | "network" | "fixed" | "phone";
 
-export function gpsTabs(hasGeolocation: boolean): Options<GpsTab> {
-  const tabs: { value: GpsTab; label: string; title: string }[] = [
+export function gpsTabs(): Options<GpsTab> {
+  return [
     {
       value: "receiver",
       label: "Receiver",
@@ -17,15 +17,8 @@ export function gpsTabs(hasGeolocation: boolean): Options<GpsTab> {
       label: "Fixed",
       title: "A place typed in once, for a station that never moves",
     },
+    { value: "phone", label: "Phone", title: "A paired phone's position and heading" },
   ];
-  if (hasGeolocation) {
-    tabs.push({
-      value: "device",
-      label: "This device",
-      title: "The location this computer or phone reports",
-    });
-  }
-  return tabs;
 }
 
 export function validGpsdAddress(address: string): boolean {

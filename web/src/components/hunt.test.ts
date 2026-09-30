@@ -1,13 +1,26 @@
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
+import { HuntSweep, sweepNeedles } from "../canvas/nodes/HuntSweep";
+import { HuntFace } from "../canvas/nodes/SinkFaces";
 import type { ChannelInfo, DeviceSet, HuntStatus, PatchGraph } from "../lib/types";
+import { catalogBody } from "../test/catalog";
+import { renderFace } from "../test/faceHarness";
+import { placed } from "../test/fixtures";
 import {
-  bearing,
+  coveredLabel,
+  degreesLabel,
   formatHuntDb,
   formatStrength,
   huntedHz,
   huntRefusal,
-  huntTarget,
+  huntSettings,
   liveHunt,
+  SCANNING,
+  SWEEP_TEXT,
+  sweepOn,
+  TUNED_AWAY,
+  trend,
 } from "./hunt";
 
 const HUNT: HuntStatus = {
@@ -66,11 +79,11 @@ const CHANNEL: ChannelInfo = {
 };
 
 describe("huntRefusal", () => {
-  it("says why a hunt cannot start rather than failing at the server", () => {
+  it("names why a hunt cannot start in a word and explains it in the title", () => {
     expect(huntRefusal(null)).toBeNull();
     expect(huntRefusal({ set: deviceSet(), channel: CHANNEL })).toBeNull();
-    expect(huntRefusal({ set: deviceSet(), channel: { ...CHANNEL, out_of_band: true } })).toMatch(
-      /tuned away/,
+    expect(huntRefusal({ set: deviceSet(), channel: { ...CHANNEL, out_of_band: true } })).toBe(
+      TUNED_AWAY,
     );
     const scan = {
       state: "scanning",
@@ -83,8 +96,32 @@ describe("huntRefusal", () => {
       hits: 0,
     } as never;
     const scanning = deviceSet({ scanners: [scan] });
-    expect(huntRefusal({ set: scanning, channel: CHANNEL })).toMatch(/scanning/);
+    expect(huntRefusal({ set: scanning, channel: CHANNEL })).toBe(SCANNING);
     expect(huntRefusal({ set: scanning, channel: { ...CHANNEL, id: 2 } })).toBeNull();
+    expect(SCANNING.label).toBe("Scanning");
+    expect(TUNED_AWAY.label).toBe("Tuned away");
+    for (const refusal of [SCANNING, TUNED_AWAY]) {
+      expect(refusal.label.split(" ").length).toBeLessThanOrEqual(2);
+      expect(refusal.title.length).toBeGreaterThan(refusal.label.length);
+    }
+  });
+});
+
+describe("huntSettings", () => {
+  it("names the hunt node so sweep and mark bearings carry it", () => {
+    const sweep = {
+      beamwidth_deg: 60,
+      front_back_db: 15,
+      min_span_deg: 180,
+      min_contrast_db: 6,
+      mount_offset_deg: -90,
+    };
+    expect(huntSettings(9, "hunt-1", sweep)).toEqual({
+      channel: 9,
+      interval_ms: 50,
+      node: "hunt-1",
+      sweep,
+    });
   });
 });
 
@@ -97,17 +134,48 @@ describe("huntedHz", () => {
   });
 });
 
-describe("bearing", () => {
-  it("waits for enough readings before pointing anywhere", () => {
-    expect(bearing(null)).toBe("waiting");
-    expect(bearing({ ...HUNT, readings: 1 })).toBe("waiting");
-    expect(bearing({ ...HUNT, smooth_db: null })).toBe("waiting");
+describe("trend", () => {
+  it("waits for enough readings before calling a trend", () => {
+    expect(trend(null)).toBe("waiting");
+    expect(trend({ ...HUNT, readings: 1 })).toBe("waiting");
+    expect(trend({ ...HUNT, smooth_db: null })).toBe("waiting");
   });
 
   it("calls warmer, colder and on top of it", () => {
-    expect(bearing({ ...HUNT, closing: true })).toBe("closing");
-    expect(bearing({ ...HUNT, closing: false, strength: 0.3 })).toBe("leaving");
-    expect(bearing({ ...HUNT, closing: false, strength: 0.95 })).toBe("steady");
+    expect(trend({ ...HUNT, closing: true })).toBe("closing");
+    expect(trend({ ...HUNT, closing: false, strength: 0.3 })).toBe("leaving");
+    expect(trend({ ...HUNT, closing: false, strength: 0.95 })).toBe("steady");
+  });
+});
+
+describe("sweep", () => {
+  const SWEEP = { bins: [], covered_deg: 269.6, state: "sweeping" as const };
+
+  it("is on in every state but off", () => {
+    expect(sweepOn(null)).toBe(false);
+    expect(sweepOn(undefined)).toBe(false);
+    expect(sweepOn({ ...SWEEP, state: "off" })).toBe(false);
+    expect(sweepOn({ bins: [], covered_deg: 0 })).toBe(false);
+    expect(sweepOn(SWEEP)).toBe(true);
+    expect(sweepOn({ ...SWEEP, state: "no_heading" })).toBe(true);
+  });
+
+  it("reads headings as three digits and the covered arc in whole degrees", () => {
+    expect(degreesLabel(null)).toBe("-");
+    expect(degreesLabel(Number.NaN)).toBe("-");
+    expect(degreesLabel(7.4)).toBe("007°");
+    expect(degreesLabel(359.6)).toBe("000°");
+    expect(degreesLabel(-90)).toBe("270°");
+    expect(coveredLabel(SWEEP)).toBe("270°");
+    expect(coveredLabel({ ...SWEEP, covered_deg: -3 })).toBe("0°");
+  });
+
+  it("keeps every sweep state short", () => {
+    for (const text of Object.values(SWEEP_TEXT)) {
+      expect(text.label.split(" ").length).toBeLessThanOrEqual(2);
+      expect(text.title).not.toMatch(/\u2014/);
+    }
+    expect(SWEEP_TEXT.no_heading.title).toBe("Wire a phone GPS");
   });
 });
 
@@ -122,33 +190,81 @@ describe("formatting", () => {
   });
 });
 
-describe("the decoder a hunt drives", () => {
-  const graph: PatchGraph = {
-    nodes: [
-      {
-        id: "dev",
-        kind: "device",
-        position: { x: 0, y: 0 },
-        data: { device: { backend: "virtual", key: "band" } },
-      },
-      { id: "nfm", kind: "channel", position: { x: 0, y: 0 }, data: { channel_type: "nfm" } },
-      { id: "hunt", kind: "hunt", position: { x: 0, y: 0 }, data: { clicks: false } },
-      { id: "bare", kind: "hunt", position: { x: 0, y: 0 }, data: {} },
-    ],
-    edges: [
-      { from: { node: "dev", port: "iq" }, to: { node: "nfm", port: "iq" } },
-      { from: { node: "hunt", port: "control" }, to: { node: "nfm", port: "control" } },
-    ],
-  };
+function noop(): void {}
 
-  it("finds the decoder and its radio, and nothing for a hunt wired to none", () => {
-    const set = deviceSet({ channels: [CHANNEL] });
-    expect(huntTarget(graph, [set], "hunt")).toEqual({ set, channel: CHANNEL });
-    expect(huntTarget(graph, [set], "bare")).toBeNull();
-    expect(huntTarget(graph, [], "hunt")).toBeNull();
+function face(sweep: Parameters<typeof HuntSweep>[0]["sweep"], busy = false): string {
+  return renderToStaticMarkup(
+    createElement(HuntSweep, {
+      sweep,
+      busy,
+      onSweep: noop,
+      onEnd: noop,
+      onMark: noop,
+    }),
+  );
+}
+
+describe("HuntSweep", () => {
+  it("points the rose at the peak and the live heading", () => {
+    expect(sweepNeedles(null)).toEqual([]);
+    expect(sweepNeedles({ bins: [], covered_deg: 90, peak_deg: 211.7, heading_deg: 45 })).toEqual([
+      { deg: 211.7, weight: "primary" },
+      { deg: 45, weight: "secondary" },
+    ]);
   });
 
-  it("waits for the decoder to be open before offering a target", () => {
-    expect(huntTarget(graph, [deviceSet()], "hunt")).toBeNull();
+  it("says None in red when the fix has no heading", () => {
+    const html = face({ bins: [], covered_deg: 0, state: "no_heading" });
+    expect(html).toContain('title="Wire a phone GPS"');
+    expect(html).toContain("text-danger");
+    expect(html).toContain(">None<");
+    expect(html).toContain(">Sweep<");
+    expect(html).toContain("Send your heading as a bearing");
+  });
+
+  it("offers End sweep while sweeping and reads the covered arc", () => {
+    const html = face({
+      bins: Array.from({ length: 72 }, (_, bin) => (bin === 42 ? 255 : 30)),
+      covered_deg: 270,
+      heading_deg: 91,
+      peak_deg: 211.7,
+      state: "sweeping",
+    });
+    expect(html).toContain("End sweep");
+    expect(html).toContain("091°");
+    expect(html).toContain("212°");
+    expect(html).toContain("270°");
+    expect(html).not.toContain(">None<");
+  });
+
+  it("holds both buttons while a request is out", () => {
+    const html = face(null, true);
+    expect(html).toMatch(/<button[^>]*disabled=""[^>]*>Sweep<\/button>/);
+    expect(html).toMatch(/<button[^>]*disabled=""[^>]*>Mark<\/button>/);
+    expect(face(null)).not.toContain('disabled=""');
+  });
+});
+
+describe("HuntFace", () => {
+  const walk = placed("walk", catalogBody("hunt"));
+  const phone = placed("phone", catalogBody("gps"));
+
+  function graph(wired: boolean): PatchGraph {
+    return {
+      nodes: [phone, walk],
+      edges: wired
+        ? [{ from: { node: "phone", port: "position" }, to: { node: "walk", port: "position" } }]
+        : [],
+    };
+  }
+
+  it("offers a sweep and its settings only with a position wired", () => {
+    const bare = renderFace(HuntFace, walk, { graph: graph(false) });
+    expect(bare).toContain("Start hunt");
+    expect(bare).not.toContain(">Sweep<");
+    expect(bare).not.toContain("Beamwidth");
+    const wired = renderFace(HuntFace, walk, { graph: graph(true) });
+    expect(wired).toContain("Turn slowly all the way round");
+    expect(wired).toContain("Beamwidth");
   });
 });

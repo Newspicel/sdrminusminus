@@ -68,10 +68,13 @@ const READOUT = "text-right font-mono text-xs tabular-nums whitespace-nowrap tex
 
 type Patch = (delta: Parameters<ReturnType<typeof useDevicePatch>["applyPatch"]>[1]) => void;
 
+const NOT_HELD: ReadonlyMap<number, string> = new Map();
+
 export function RadioSettings({
   active,
   className,
   advised = new Set(),
+  heldBy = NOT_HELD,
   lead,
   laneLeads,
   ports,
@@ -79,6 +82,7 @@ export function RadioSettings({
   active: DeviceSet;
   className?: string;
   advised?: ReadonlySet<number>;
+  heldBy?: ReadonlyMap<number, string>;
   lead?: ReactNode;
   laneLeads?: readonly ReactNode[];
   ports?: readonly string[];
@@ -92,6 +96,7 @@ export function RadioSettings({
       <GainLanes
         active={active}
         advised={advised}
+        heldBy={heldBy}
         laneLeads={laneLeads}
         ports={ports}
         patch={patch}
@@ -607,12 +612,14 @@ function RangeSlider({
 function GainLanes({
   active,
   advised,
+  heldBy,
   laneLeads,
   ports,
   patch,
 }: {
   active: DeviceSet;
   advised: ReadonlySet<number>;
+  heldBy: ReadonlyMap<number, string>;
   laneLeads?: readonly ReactNode[];
   ports?: readonly string[];
   patch: Patch;
@@ -637,6 +644,7 @@ function GainLanes({
           layout={layout}
           peakDb={Math.max(...lanes.map((stream) => peaks?.[stream] ?? Number.NEGATIVE_INFINITY))}
           clipping={lanes.some((stream) => clipping.has(stream))}
+          heldBy={heldBy.values().next().value}
           port={layout.lanes === 1 ? ports?.[0] : undefined}
           patch={patch}
         />
@@ -652,6 +660,7 @@ function GainLanes({
             peakDb={peaks?.[stream]}
             clipping={clipping.has(stream)}
             advised={advised.has(stream)}
+            heldBy={heldBy.get(stream)}
             lead={laneLeads?.[stream]}
             port={ports?.[stream]}
             laneName={layout.perLane ? streamLabel("iq", stream, layout.lanes) : undefined}
@@ -682,6 +691,7 @@ function LaneRows({
   peakDb,
   clipping,
   advised,
+  heldBy,
   lead,
   port,
   laneName,
@@ -694,6 +704,7 @@ function LaneRows({
   peakDb: number | undefined;
   clipping: boolean;
   advised: boolean;
+  heldBy: string | undefined;
   lead: ReactNode;
   port: string | undefined;
   laneName: string | undefined;
@@ -726,9 +737,16 @@ function LaneRows({
             peakDb={stage === metered ? (peakDb ?? null) : undefined}
             tone={meterTone(peakDb, clipping)}
             port={index === 0 ? port : undefined}
+            heldBy={heldBy}
             trailing={
               stage === metered && agcHere ? (
-                <AgcAuto set={active} stream={stream} port={laneName} advised={advised} />
+                <AgcAuto
+                  set={active}
+                  stream={stream}
+                  port={laneName}
+                  advised={advised}
+                  heldBy={heldBy}
+                />
               ) : undefined
             }
             onCommit={(value_db) => {
@@ -750,6 +768,7 @@ function MasterRow({
   layout,
   peakDb,
   clipping,
+  heldBy,
   port,
   patch,
 }: {
@@ -758,6 +777,7 @@ function MasterRow({
   layout: ReturnType<typeof laneLayout>;
   peakDb: number;
   clipping: boolean;
+  heldBy: string | undefined;
   port: string | undefined;
   patch: Patch;
 }) {
@@ -792,12 +812,14 @@ function MasterRow({
       peakDb={Number.isFinite(peakDb) ? peakDb : null}
       tone={meterTone(Number.isFinite(peakDb) ? peakDb : undefined, clipping)}
       port={port}
+      heldBy={heldBy}
       trailing={
         agcOffered(caps) ? (
           <AutoToggle
             label="Automatic gain on every lane"
             pressed={pressed}
-            title={agcTip(active, 0, false)}
+            title={heldBy === undefined ? agcTip(active, 0, false) : `Set on ${heldBy}`}
+            disabled={heldBy !== undefined}
             onChange={setAll}
           />
         ) : undefined
@@ -857,6 +879,7 @@ function StageRow({
   peakDb,
   tone = "ok",
   port,
+  heldBy,
   trailing,
   onCommit,
 }: {
@@ -869,6 +892,7 @@ function StageRow({
   peakDb?: number | null;
   tone?: ReturnType<typeof meterTone>;
   port?: string;
+  heldBy?: string;
   trailing?: ReactNode;
   onCommit: (db: number) => void;
 }) {
@@ -882,7 +906,13 @@ function StageRow({
     typeof label === "string" ? (
       <span
         className={`truncate ${lane !== undefined && label === lane ? "font-mono text-[11px] text-port-iq" : "legend"}`}
-        title={unit === "" ? "Firmware step, not dB" : undefined}
+        title={
+          heldBy === undefined
+            ? unit === ""
+              ? "Firmware step, not dB"
+              : undefined
+            : `Set on ${heldBy}`
+        }
       >
         {label}
       </span>
@@ -899,6 +929,7 @@ function StageRow({
           <Checkbox
             label={control}
             checked={on}
+            disabled={heldBy !== undefined}
             onChange={(next) => onCommit(next ? stage.range.max : stage.range.min)}
           />
         </span>
@@ -922,6 +953,7 @@ function StageRow({
         step={1}
         value={settingIndex(settings, shown)}
         auto={auto}
+        disabled={heldBy !== undefined}
         peakDb={peakDb}
         tone={tone}
         onChange={(index) => change(settings[index] ?? shown)}
@@ -935,6 +967,7 @@ function StageRow({
         step={0.1}
         value={shown}
         auto={auto}
+        disabled={heldBy !== undefined}
         peakDb={peakDb}
         tone={tone}
         onChange={(db) => change(snapToStage(stage, db))}

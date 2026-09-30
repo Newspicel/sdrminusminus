@@ -170,7 +170,8 @@ pub fn capabilities() -> Capabilities {
         dc_artifact: DcArtifact::None,
         hardware_sweep: false,
         coherence: Coherence::None,
-        noise_source: false,
+        noise_source: sdrmm_wire::NoiseSource::None,
+        retune_keeps_phase: false,
         rx_stream_choices: Vec::new(),
     }
 }

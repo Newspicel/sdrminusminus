@@ -35,6 +35,7 @@
   --color-port-video: oklch(0.76 0.12 35);
   --color-port-control: oklch(0.76 0.1 300);
   --color-port-tx: oklch(0.76 0.12 345);
+  --color-port-array: oklch(0.7 0.13 262);
 
   --color-cat-source: oklch(0.72 0.1 228);
   --color-cat-channel: oklch(0.72 0.1 300);
@@ -92,6 +93,7 @@
     --color-port-video: oklch(0.61 0.12 35);
     --color-port-control: oklch(0.606 0.1 300);
     --color-port-tx: oklch(0.613 0.12 345);
+    --color-port-array: oklch(0.56 0.13 262);
 
     --color-cat-source: oklch(0.594 0.07 228);
     --color-cat-channel: oklch(0.603 0.07 300);
@@ -218,6 +220,11 @@
 
 .wire-control .react-flow__edge-path {
   stroke: var(--color-port-control);
+}
+
+.wire-array .react-flow__edge-path {
+  stroke: var(--color-port-array);
+  stroke-width: 3.25;
 }
 
 .react-flow__edge:hover .react-flow__edge-path,

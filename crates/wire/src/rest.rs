@@ -197,6 +197,12 @@ pub struct RecordingInfo {
     pub tags: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub note: Option<String>,
+    #[serde(default = "one_lane")]
+    pub lanes: u32,
+}
+
+const fn one_lane() -> u32 {
+    1
 }
 
 pub const MAX_RECORDING_UPLOAD_BYTES: u64 = 16 * 1024 * 1024 * 1024;
@@ -313,8 +319,6 @@ impl RecordingAnnotation {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct RecordingsResponse {
     pub recordings: Vec<RecordingInfo>,
-    /// Where the files live on the machine running the server, so the library can say it rather
-    /// than leave the operator hunting for the folder. Absent when nothing is recorded to disk.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dir: Option<String>,
 }
@@ -514,6 +518,12 @@ pub struct TemplateInfo {
     pub direction: crate::device::Direction,
     #[serde(default)]
     pub supported_devices: Vec<String>,
+    #[serde(default, skip_serializing_if = "is_one_lane")]
+    pub min_lanes: u32,
+}
+
+const fn is_one_lane(lanes: &u32) -> bool {
+    *lanes <= 1
 }
 
 const fn receive() -> crate::device::Direction {
@@ -530,6 +540,12 @@ impl TemplateInfo {
     pub fn unmet_by(&self, profile: &crate::device::DeviceProfile) -> Option<String> {
         if !profile.duplex.supports(self.direction) {
             return Some(format!("this radio does not {}", self.direction));
+        }
+        if self.min_lanes > 1
+            && (profile.rx_streams < self.min_lanes
+                || profile.coherence == crate::device::Coherence::None)
+        {
+            return Some(format!("needs {} lanes on one clock", self.min_lanes));
         }
         if !profile.reaches(self.min_freq_hz) || !profile.reaches(self.max_freq_hz) {
             let span = if self.min_freq_hz == self.max_freq_hz {
@@ -586,10 +602,9 @@ pub struct CreatedRowId {
     pub id: i64,
 }
 
-/// Which part of the server refused, independent of the wording. A client groups repeats and
-/// titles a bug report by this; the prose in `error` is free to change.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
+#[schema(description = "Which part of the server refused. Stable, unlike the wording in `error`.")]
 pub enum ErrorCode {
     Request,
     NotFound,
@@ -600,6 +615,8 @@ pub enum ErrorCode {
     Tool,
     Forbidden,
     Internal,
+    Auth,
+    RateLimited,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
@@ -609,80 +626,6 @@ pub struct ApiError {
     pub detail: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub code: Option<ErrorCode>,
-}
-
-/// Which online routing service the server proxies to.
-///
-/// Both are OpenStreetMap-based and hand back a geometry that may be drawn on any map, which is
-/// why neither of the big phone-vendor services can stand here: their terms forbid rendering a
-/// route anywhere but their own map.
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize, ToSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum RoutingBackend {
-    #[default]
-    OpenRouteService,
-    GraphHopper,
-}
-
-pub const MAX_ROUTE_LEG_M: f64 = 500_000.0;
-
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
-pub struct RoutePoint {
-    pub lat: f64,
-    pub lon: f64,
-}
-
-impl RoutePoint {
-    #[must_use]
-    pub fn valid(&self) -> bool {
-        (-90.0..=90.0).contains(&self.lat) && (-180.0..=180.0).contains(&self.lon)
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
-pub struct RouteRequest {
-    pub from: RoutePoint,
-    pub to: RoutePoint,
-}
-
-impl RouteRequest {
-    #[must_use]
-    pub fn valid(&self) -> bool {
-        self.from.valid() && self.to.valid()
-    }
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize, ToSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum ManeuverKind {
-    Depart,
-    Continue,
-    Left,
-    SlightLeft,
-    SharpLeft,
-    Right,
-    SlightRight,
-    SharpRight,
-    UTurn,
-    Roundabout,
-    Arrive,
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
-pub struct Maneuver {
-    pub at: RoutePoint,
-    pub kind: ManeuverKind,
-    pub instruction: String,
-    pub distance_m: f64,
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
-pub struct Route {
-    /// The line to draw, in order, as latitude and longitude pairs.
-    pub polyline: Vec<RoutePoint>,
-    pub distance_m: f64,
-    pub duration_s: f64,
-    pub maneuvers: Vec<Maneuver>,
 }
 
 #[cfg(test)]
@@ -778,7 +721,8 @@ mod tests {
             dc_artifact: DcArtifact::Operator,
             hardware_sweep: false,
             coherence: crate::device::Coherence::None,
-            noise_source: false,
+            noise_source: crate::device::NoiseSource::None,
+            retune_keeps_phase: false,
             rx_stream_choices: Vec::new(),
         }
         .profile()
@@ -806,6 +750,7 @@ mod tests {
             patch: None,
             direction: crate::device::Direction::Rx,
             supported_devices: Vec::new(),
+            min_lanes: 1,
         }
     }
 
@@ -902,6 +847,20 @@ mod tests {
         .expect("a template from before the direction field");
         assert_eq!(parsed.direction, crate::device::Direction::Rx);
         assert!(parsed.supported_devices.is_empty());
+    }
+
+    #[test]
+    fn error_codes_name_auth_and_rate_limits() {
+        for (code, text) in [
+            (ErrorCode::Auth, "auth"),
+            (ErrorCode::RateLimited, "rate_limited"),
+        ] {
+            assert_eq!(serde_json::to_value(code).unwrap(), text);
+            assert_eq!(
+                serde_json::from_value::<ErrorCode>(serde_json::json!(text)).unwrap(),
+                code
+            );
+        }
     }
 }
 

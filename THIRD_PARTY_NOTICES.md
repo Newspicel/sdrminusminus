@@ -80,7 +80,7 @@ Opened at runtime from whatever SoapySDR the host has installed, and never linke
 
 The ACARS application layer and the VDL2, HFDL, Inmarsat Aero, Inmarsat STD-C, DSC and Iridium decoders in `crates/channels` started as ports of xng, Copyright (c) 2023-2026 Kevin Elliott and the xng contributors, used under its MIT license.
 
-## Rust crates (793)
+## Rust crates (819)
 
 | Component | Version | License |
 | --- | --- | --- |
@@ -101,6 +101,10 @@ The ACARS application layer and the VDL2, HFDL, Inmarsat Aero, Inmarsat STD-C, D
 | [arc-swap](https://github.com/vorner/arc-swap) | 1.9.2 | MIT OR Apache-2.0 |
 | [arrayvec](https://github.com/bluss/arrayvec) | 0.7.8 | MIT OR Apache-2.0 |
 | [ash](https://github.com/ash-rs/ash) | 0.38.0+1.3.281 | MIT OR Apache-2.0 |
+| [askama](https://github.com/askama-rs/askama) | 0.16.1 | MIT OR Apache-2.0 |
+| [askama_derive](https://github.com/askama-rs/askama) | 0.16.1 | MIT OR Apache-2.0 |
+| [askama_macros](https://github.com/askama-rs/askama) | 0.16.1 | MIT OR Apache-2.0 |
+| [askama_parser](https://github.com/askama-rs/askama) | 0.16.1 | MIT OR Apache-2.0 |
 | [asn1-rs](https://github.com/rusticata/asn1-rs.git) | 0.7.2 | MIT OR Apache-2.0 |
 | [asn1-rs-derive](https://github.com/rusticata/asn1-rs.git) | 0.6.0 | MIT OR Apache-2.0 |
 | [asn1-rs-impl](https://github.com/rusticata/asn1-rs.git) | 0.2.0 | MIT/Apache-2.0 |
@@ -130,6 +134,7 @@ The ACARS application layer and the VDL2, HFDL, Inmarsat Aero, Inmarsat STD-C, D
 | [base64](https://github.com/marshallpierce/rust-base64) | 0.22.1 | MIT OR Apache-2.0 |
 | [base64](https://github.com/marshallpierce/rust-base64) | 0.23.1 | MIT OR Apache-2.0 |
 | [base64ct](https://github.com/RustCrypto/formats) | 1.8.3 | Apache-2.0 OR MIT |
+| [basic-toml](https://github.com/dtolnay/basic-toml) | 0.1.10 | MIT OR Apache-2.0 |
 | [bindgen](https://github.com/rust-lang/rust-bindgen) | 0.72.1 | BSD-3-Clause |
 | [bit-set](https://github.com/contain-rs/bit-set) | 0.10.0 | Apache-2.0 OR MIT |
 | [bit-set](https://github.com/contain-rs/bit-vec) | 0.11.1 | Apache-2.0 OR MIT |
@@ -158,7 +163,9 @@ The ACARS application layer and the VDL2, HFDL, Inmarsat Aero, Inmarsat STD-C, D
 | [cairo-sys-rs](https://github.com/gtk-rs/gtk-rs-core) | 0.18.2 | MIT |
 | [camino](https://github.com/camino-rs/camino) | 1.2.6 | MIT OR Apache-2.0 |
 | [cargo-platform](https://github.com/rust-lang/cargo) | 0.1.9 | MIT OR Apache-2.0 |
+| [cargo-platform](https://github.com/rust-lang/cargo) | 0.3.3 | MIT OR Apache-2.0 |
 | [cargo_metadata](https://github.com/oli-obk/cargo_metadata) | 0.19.2 | MIT |
+| [cargo_metadata](https://github.com/oli-obk/cargo_metadata) | 0.23.1 | MIT |
 | [cargo_toml](https://gitlab.com/lib.rs/cargo_toml) | 1.0.1 | Apache-2.0 OR MIT |
 | [cc](https://github.com/rust-lang/cc-rs) | 1.5.1 | MIT OR Apache-2.0 |
 | [cesu8](https://github.com/emk/cesu8-rs) | 1.1.0 | Apache-2.0/MIT |
@@ -299,6 +306,7 @@ The ACARS application layer and the VDL2, HFDL, Inmarsat Aero, Inmarsat STD-C, D
 | [gdkx11](https://github.com/gtk-rs/gtk3-rs) | 0.18.2 | MIT |
 | [gdkx11-sys](https://github.com/gtk-rs/gtk3-rs) | 0.18.2 | MIT |
 | [generic-array](https://github.com/fizyk20/generic-array.git) | 0.14.7 | MIT |
+| [gethostname](https://codeberg.org/swsnr/gethostname.rs.git) | 1.1.0 | Apache-2.0 |
 | [getifaddrs](https://github.com/mmastrac/getifaddrs) | 0.6.2 | MIT OR Apache-2.0 |
 | [getrandom](https://github.com/rust-random/getrandom) | 0.2.17 | MIT OR Apache-2.0 |
 | [getrandom](https://github.com/rust-random/getrandom) | 0.3.4 | MIT OR Apache-2.0 |
@@ -314,6 +322,7 @@ The ACARS application layer and the VDL2, HFDL, Inmarsat Aero, Inmarsat STD-C, D
 | [glow](https://github.com/grovesNL/glow) | 0.17.0 | MIT OR Apache-2.0 OR Zlib |
 | [glutin_wgl_sys](https://github.com/rust-windowing/glutin) | 0.6.1 | Apache-2.0 |
 | [gobject-sys](https://github.com/gtk-rs/gtk-rs-core) | 0.18.0 | MIT |
+| [goblin](https://github.com/m4b/goblin) | 0.8.2 | MIT |
 | [gpu-allocator](https://github.com/Traverse-Research/gpu-allocator) | 0.28.0 | MIT OR Apache-2.0 |
 | [gtk](https://github.com/gtk-rs/gtk3-rs) | 0.18.2 | MIT |
 | [gtk-sys](https://github.com/gtk-rs/gtk3-rs) | 0.18.2 | MIT |
@@ -333,7 +342,6 @@ The ACARS application layer and the VDL2, HFDL, Inmarsat Aero, Inmarsat STD-C, D
 | [http](https://github.com/hyperium/http) | 1.5.0 | MIT OR Apache-2.0 |
 | [http-body](https://github.com/hyperium/http-body) | 1.1.0 | MIT |
 | [http-body-util](https://github.com/hyperium/http-body) | 0.1.5 | MIT |
-| [http-range-header](https://github.com/MarcusGrass/parse-range-headers) | 0.4.2 | MIT |
 | [httparse](https://github.com/seanmonstar/httparse) | 1.10.1 | MIT OR Apache-2.0 |
 | [httpdate](https://github.com/pyfisch/httpdate) | 1.0.3 | MIT OR Apache-2.0 |
 | [hybrid-array](https://github.com/RustCrypto/hybrid-array) | 0.4.15 | MIT OR Apache-2.0 |
@@ -353,6 +361,7 @@ The ACARS application layer and the VDL2, HFDL, Inmarsat Aero, Inmarsat STD-C, D
 | [ident_case](https://github.com/TedDriggs/ident_case) | 1.0.1 | MIT/Apache-2.0 |
 | [idna](https://github.com/servo/rust-url/) | 1.1.0 | MIT OR Apache-2.0 |
 | [idna_adapter](https://github.com/hsivonen/idna_adapter) | 1.2.2 | Apache-2.0 OR MIT |
+| [if-addrs](https://github.com/messense/if-addrs) | 0.15.0 | MIT OR BSD-3-Clause |
 | [indexmap](https://github.com/bluss/indexmap) | 1.9.3 | Apache-2.0 OR MIT |
 | [indexmap](https://github.com/indexmap-rs/indexmap) | 2.14.2 | Apache-2.0 OR MIT |
 | [infer](https://github.com/bojand/infer) | 0.19.0 | MIT |
@@ -413,6 +422,7 @@ The ACARS application layer and the VDL2, HFDL, Inmarsat Aero, Inmarsat STD-C, D
 | [matchit](https://github.com/ibraheemdev/matchit) | 0.8.4 | MIT AND BSD-3-Clause |
 | [matrixmultiply](https://github.com/bluss/matrixmultiply/) | 0.3.11 | MIT/Apache-2.0 |
 | [md-5](https://github.com/RustCrypto/hashes) | 0.11.0 | MIT OR Apache-2.0 |
+| [mdns-sd](https://github.com/keepsimple1/mdns-sd) | 0.21.4 | Apache-2.0 OR MIT |
 | [memchr](https://github.com/BurntSushi/memchr) | 2.8.3 | Unlicense OR MIT |
 | [memo-map](https://github.com/mitsuhiko/memo-map) | 0.3.4 | Apache-2.0 |
 | [memoffset](https://github.com/Gilnaa/memoffset) | 0.9.1 | MIT |
@@ -506,6 +516,7 @@ The ACARS application layer and the VDL2, HFDL, Inmarsat Aero, Inmarsat STD-C, D
 | [pin-project-lite](https://github.com/taiki-e/pin-project-lite) | 0.2.17 | Apache-2.0 OR MIT |
 | [piper](https://github.com/smol-rs/piper) | 0.2.5 | MIT OR Apache-2.0 |
 | [pkg-config](https://github.com/rust-lang/pkg-config-rs) | 0.3.34 | MIT OR Apache-2.0 |
+| [plain](https://github.com/randomites/plain) | 0.2.3 | MIT/Apache-2.0 |
 | [plist](https://github.com/ebarnard/rust-plist/) | 1.10.1 | MIT |
 | [png](https://github.com/image-rs/image-png) | 0.17.16 | MIT OR Apache-2.0 |
 | [png](https://github.com/image-rs/image-png) | 0.18.1 | MIT OR Apache-2.0 |
@@ -528,6 +539,7 @@ The ACARS application layer and the VDL2, HFDL, Inmarsat Aero, Inmarsat STD-C, D
 | [proc-macro-error-attr](https://gitlab.com/CreepySkeleton/proc-macro-error) | 1.0.4 | MIT OR Apache-2.0 |
 | [proc-macro2](https://github.com/dtolnay/proc-macro2) | 1.0.107 | MIT OR Apache-2.0 |
 | [profiling](https://github.com/aclysma/profiling) | 1.0.18 | MIT OR Apache-2.0 |
+| [qrcodegen](https://github.com/nayuki/QR-Code-generator) | 1.8.0 | MIT |
 | [quick-xml](https://github.com/tafia/quick-xml) | 0.42.0 | MIT |
 | [quinn](https://github.com/quinn-rs/quinn) | 0.11.12 | MIT OR Apache-2.0 |
 | [quinn-proto](https://github.com/quinn-rs/quinn) | 0.11.18 | MIT OR Apache-2.0 |
@@ -588,6 +600,8 @@ The ACARS application layer and the VDL2, HFDL, Inmarsat Aero, Inmarsat STD-C, D
 | [schemars_derive](https://github.com/GREsau/schemars) | 0.8.22 | MIT |
 | [schemars_derive](https://github.com/GREsau/schemars) | 1.2.2 | MIT |
 | [scopeguard](https://github.com/bluss/scopeguard) | 1.2.0 | MIT OR Apache-2.0 |
+| [scroll](https://github.com/m4b/scroll) | 0.12.0 | MIT |
+| [scroll_derive](https://github.com/m4b/scroll) | 0.12.1 | MIT |
 | [security-framework](https://github.com/kornelski/rust-security-framework) | 3.7.0 | MIT OR Apache-2.0 |
 | [security-framework-sys](https://github.com/kornelski/rust-security-framework) | 2.17.0 | MIT OR Apache-2.0 |
 | [selectors](https://github.com/servo/stylo) | 0.38.0 | MPL-2.0 |
@@ -625,6 +639,8 @@ The ACARS application layer and the VDL2, HFDL, Inmarsat Aero, Inmarsat STD-C, D
 | [slab](https://github.com/tokio-rs/slab) | 0.4.12 | MIT |
 | [slotmap](https://github.com/orlp/slotmap) | 1.1.1 | Zlib |
 | [smallvec](https://github.com/servo/rust-smallvec) | 1.16.2 | MIT OR Apache-2.0 |
+| [smawk](https://github.com/mgeisler/smawk) | 0.3.3 | MIT |
+| [socket-pktinfo](https://github.com/pixsper/socket-pktinfo) | 0.4.1 | MIT |
 | [socket2](https://github.com/rust-lang/socket2) | 0.6.5 | MIT OR Apache-2.0 |
 | [softbuffer](https://github.com/rust-windowing/softbuffer) | 0.4.8 | MIT OR Apache-2.0 |
 | [soup3](https://gitlab.gnome.org/World/Rust/soup3-rs) | 0.5.0 | MIT |
@@ -674,6 +690,7 @@ The ACARS application layer and the VDL2, HFDL, Inmarsat Aero, Inmarsat STD-C, D
 | [tauri-winres](https://github.com/tauri-apps/winres) | 0.3.6 | MIT |
 | [tempfile](https://github.com/Stebalien/tempfile) | 3.27.0 | MIT OR Apache-2.0 |
 | [tendril](https://github.com/servo/html5ever) | 0.5.1 | MIT OR Apache-2.0 |
+| [textwrap](https://github.com/mgeisler/textwrap) | 0.16.4 | MIT |
 | [thiserror](https://github.com/dtolnay/thiserror) | 1.0.69 | MIT OR Apache-2.0 |
 | [thiserror](https://github.com/dtolnay/thiserror) | 2.0.21 | MIT OR Apache-2.0 |
 | [thiserror-impl](https://github.com/dtolnay/thiserror) | 1.0.69 | MIT OR Apache-2.0 |
@@ -736,6 +753,14 @@ The ACARS application layer and the VDL2, HFDL, Inmarsat Aero, Inmarsat STD-C, D
 | [unicode-properties](https://github.com/unicode-rs/unicode-properties) | 0.1.4 | MIT/Apache-2.0 |
 | [unicode-segmentation](https://github.com/unicode-rs/unicode-segmentation) | 1.13.3 | MIT OR Apache-2.0 |
 | [unicode-width](https://github.com/unicode-rs/unicode-width) | 0.2.2 | MIT OR Apache-2.0 |
+| [uniffi](https://github.com/mozilla/uniffi-rs) | 0.32.2 | MPL-2.0 |
+| [uniffi_bindgen](https://github.com/mozilla/uniffi-rs) | 0.32.2 | MPL-2.0 |
+| [uniffi_core](https://github.com/mozilla/uniffi-rs) | 0.32.2 | MPL-2.0 |
+| [uniffi_internal_macros](https://github.com/mozilla/uniffi-rs) | 0.32.2 | MPL-2.0 |
+| [uniffi_macros](https://github.com/mozilla/uniffi-rs) | 0.32.2 | MPL-2.0 |
+| [uniffi_meta](https://github.com/mozilla/uniffi-rs) | 0.32.2 | MPL-2.0 |
+| [uniffi_pipeline](https://github.com/mozilla/uniffi-rs) | 0.32.2 | MPL-2.0 |
+| [uniffi_udl](https://github.com/mozilla/uniffi-rs) | 0.32.2 | MPL-2.0 |
 | [untrusted](https://github.com/briansmith/untrusted) | 0.7.1 | ISC |
 | [untrusted](https://github.com/briansmith/untrusted) | 0.9.0 | ISC |
 | [url](https://github.com/servo/rust-url) | 2.5.8 | MIT OR Apache-2.0 |
@@ -774,6 +799,7 @@ The ACARS application layer and the VDL2, HFDL, Inmarsat Aero, Inmarsat STD-C, D
 | [webview2-com](https://github.com/wravery/webview2-rs) | 0.39.1 | MIT |
 | [webview2-com-macros](https://github.com/wravery/webview2-rs) | 0.8.1 | MIT |
 | [webview2-com-sys](https://github.com/wravery/webview2-rs) | 0.39.1 | MIT |
+| [weedle2](https://github.com/mozilla/uniffi-rs) | 5.0.0 | MIT |
 | [wgpu](https://github.com/gfx-rs/wgpu) | 30.0.1 | MIT OR Apache-2.0 |
 | [wgpu-core](https://github.com/gfx-rs/wgpu) | 30.0.1 | MIT OR Apache-2.0 |
 | [wgpu-core-deps-apple](https://github.com/gfx-rs/wgpu) | 30.0.1 | MIT OR Apache-2.0 |
@@ -878,7 +904,7 @@ The ACARS application layer and the VDL2, HFDL, Inmarsat Aero, Inmarsat STD-C, D
 | [zvariant_derive](https://github.com/z-galaxy/zbus/) | 5.15.0 | MIT |
 | [zvariant_utils](https://github.com/z-galaxy/zbus/) | 4.2.0 | MIT |
 
-## Web packages (71)
+## Web packages (69)
 
 | Component | Version | License |
 | --- | --- | --- |
@@ -925,7 +951,6 @@ The ACARS application layer and the VDL2, HFDL, Inmarsat Aero, Inmarsat STD-C, D
 | [d3-transition](https://d3js.org/d3-transition/) | 3.0.1 | ISC |
 | [d3-zoom](https://d3js.org/d3-zoom/) | 3.0.0 | ISC |
 | [earcut](https://github.com/mapbox/earcut#readme) | 3.2.3 | ISC |
-| [fflate](https://101arrowz.github.io/fflate) | 0.8.3 | MIT |
 | [gl-matrix](http://glmatrix.net) | 3.4.4 | MIT |
 | [json-stringify-pretty-compact](https://github.com/lydell/json-stringify-pretty-compact#readme) | 4.0.0 | MIT |
 | [kdbush](https://github.com/mourner/kdbush#readme) | 4.1.0 | ISC |
@@ -937,7 +962,6 @@ The ACARS application layer and the VDL2, HFDL, Inmarsat Aero, Inmarsat STD-C, D
 | [openapi-typescript-helpers](https://openapi-ts.dev) | 0.1.0 | MIT |
 | [opus-decoder](https://github.com/eshaz/wasm-audio-decoders/tree/main/src/opus-decoder) | 0.7.12 | MIT |
 | [pbf](https://github.com/mapbox/pbf) | 5.1.2 | BSD-3-Clause |
-| [pmtiles](https://github.com/protomaps/pmtiles) | 4.5.0 | BSD-3-Clause |
 | [potpack](https://mapbox.github.io/potpack/) | 2.1.0 | ISC |
 | [protocol-buffers-schema](https://github.com/mafintosh/protocol-buffers-schema) | 3.6.1 | MIT |
 | [quickselect](https://github.com/mourner/quickselect#readme) | 3.0.0 | ISC |

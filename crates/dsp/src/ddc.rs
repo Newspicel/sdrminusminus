@@ -24,11 +24,14 @@ enum Fraction {
 }
 
 impl Fraction {
-    fn for_ratio(ratio: f64) -> Self {
+    fn for_ratio(ratio: f64, keep: Option<f64>) -> Self {
         if (ratio - 1.0).abs() <= 1e-12 {
             Self::None
         } else if ratio < 1.0 {
-            Self::Down(FracResampler::new(ratio))
+            Self::Down(keep.map_or_else(
+                || FracResampler::new(ratio),
+                |keep| FracResampler::keeping(ratio, keep),
+            ))
         } else {
             Self::Up(CubicInterpolator::new(ratio))
         }
@@ -67,6 +70,29 @@ pub struct Ddc {
 
 impl Ddc {
     pub fn new(input_rate: f64, output_rate: f64, offset_hz: f64) -> Result<Self, DdcError> {
+        Self::build(input_rate, output_rate, offset_hz, None)
+    }
+
+    pub fn keeping(
+        input_rate: f64,
+        output_rate: f64,
+        offset_hz: f64,
+        keep_hz: f64,
+    ) -> Result<Self, DdcError> {
+        Self::build(
+            input_rate,
+            output_rate,
+            offset_hz,
+            Some(keep_hz / output_rate),
+        )
+    }
+
+    fn build(
+        input_rate: f64,
+        output_rate: f64,
+        offset_hz: f64,
+        keep: Option<f64>,
+    ) -> Result<Self, DdcError> {
         if !input_rate.is_finite()
             || !output_rate.is_finite()
             || input_rate <= 0.0
@@ -90,7 +116,7 @@ impl Ddc {
             input_rate,
             nco: Nco::new((-offset_hz) as f32, input_rate as f32),
             stages,
-            fraction: Fraction::for_ratio(output_rate / rate),
+            fraction: Fraction::for_ratio(output_rate / rate, keep),
             mixed: Vec::new(),
             work_in: Vec::new(),
             work_out: Vec::new(),
@@ -114,13 +140,18 @@ impl Ddc {
     }
 
     pub fn process(&mut self, input: &[Complex<f32>], out: &mut Vec<Complex<f32>>) {
-        self.mixed.resize(input.len(), Complex::new(0.0, 0.0));
-        self.nco.mix_into(input, &mut self.mixed);
+        let mixed = if self.nco.is_identity() {
+            input
+        } else {
+            self.mixed.resize(input.len(), Complex::new(0.0, 0.0));
+            self.nco.mix_into(input, &mut self.mixed);
+            &self.mixed
+        };
         let Some((first, rest)) = self.stages.split_first_mut() else {
-            self.fraction.process(&self.mixed, out);
+            self.fraction.process(mixed, out);
             return;
         };
-        first.process(&self.mixed, &mut self.work_in);
+        first.process(mixed, &mut self.work_in);
         for stage in rest {
             stage.process(&self.work_in, &mut self.work_out);
             std::mem::swap(&mut self.work_in, &mut self.work_out);

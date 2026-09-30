@@ -52,8 +52,7 @@ M17, NXDN, P25 and YSF. Only the Signal generator uses the modulators.
 - Radtel RT-4D: settings blocks, keys and message templates are read but not modelled
 
 ## 3. Receive DSP
-- ESPRIT next to the correlative and MUSIC estimators. The circular array needs the beamspace form
-- Interferometer
+- Multi-site: TDOA and one triangulation across several servers
 - Auto-squelch: tell a floor step from a signal. Today a floor that jumps in one step reads as a
   signal until the channel next falls quiet
 
@@ -99,10 +98,7 @@ M17, NXDN, P25 and YSF. Only the Signal generator uses the modulators.
 ## 6. Map
 - Layers for sondes, satellites, beacons
 
-## 7. Field mode
-- Redo field mode as its own app
-
-## 8. Automation & API
+## 7. Automation & API
 - Desktop and push notifications from Event filter
 - WASM plugin SDK
 - Offline bundles for TLE snapshots and callsign prefixes

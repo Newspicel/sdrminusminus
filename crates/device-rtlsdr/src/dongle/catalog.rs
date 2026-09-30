@@ -67,10 +67,11 @@ pub(crate) struct Listing {
     pub(crate) serial: Option<String>,
     pub(crate) port_chain: Vec<u8>,
     pub(crate) board: Board,
+    pub(crate) hub: Option<(u16, u16)>,
 }
 
 impl Listing {
-    fn from_usb(index: usize, info: &nusb::DeviceInfo) -> Self {
+    fn from_usb(index: usize, info: &nusb::DeviceInfo, hub: Option<(u16, u16)>) -> Self {
         Self {
             index,
             bus: info.bus_id().to_owned(),
@@ -80,8 +81,38 @@ impl Listing {
             serial: info.serial_number().map(str::to_owned),
             port_chain: info.port_chain().to_vec(),
             board: Board::detect(info.manufacturer_string(), info.product_string()),
+            hub,
         }
     }
+}
+
+fn parent_hub<'a>(
+    attached: impl IntoIterator<Item = (&'a str, &'a [u8], (u16, u16))>,
+    bus: &str,
+    port_chain: &[u8],
+) -> Option<(u16, u16)> {
+    let (_, above) = port_chain.split_last()?;
+    if above.is_empty() {
+        return None;
+    }
+    attached
+        .into_iter()
+        .find(|(other_bus, chain, _)| *other_bus == bus && *chain == above)
+        .map(|(_, _, id)| id)
+}
+
+fn hub_of(attached: &[nusb::DeviceInfo], info: &nusb::DeviceInfo) -> Option<(u16, u16)> {
+    parent_hub(
+        attached.iter().map(|other| {
+            (
+                other.bus_id(),
+                other.port_chain(),
+                (other.vendor_id(), other.product_id()),
+            )
+        }),
+        info.bus_id(),
+        info.port_chain(),
+    )
 }
 
 pub(crate) struct Catalog {
@@ -90,12 +121,16 @@ pub(crate) struct Catalog {
 
 impl Catalog {
     pub(crate) fn scan() -> Result<Self> {
-        let found = nusb::list_devices()
-            .wait()
-            .map_err(Error::Scan)?
+        let attached: Vec<nusb::DeviceInfo> =
+            nusb::list_devices().wait().map_err(Error::Scan)?.collect();
+        let found = attached
+            .iter()
             .filter(|info| is_rtl(info.vendor_id(), info.product_id()))
             .enumerate()
-            .map(|(index, info)| (Listing::from_usb(index, &info), info))
+            .map(|(index, info)| {
+                let hub = hub_of(&attached, info);
+                (Listing::from_usb(index, info, hub), info.clone())
+            })
             .collect();
         Ok(Self { found })
     }
@@ -133,5 +168,23 @@ mod tests {
     fn near_misses_are_not() {
         assert!(!is_rtl(0x0bda, 0x2839));
         assert!(!is_rtl(0x1d50, 0x6089));
+    }
+
+    #[test]
+    fn a_dongle_names_the_hub_one_hop_above_it() {
+        let attached = [
+            ("1", &[3u8][..], (0x0424, 0x2517)),
+            ("1", &[3, 2][..], (0x0bda, 0x2838)),
+            ("2", &[3][..], (0x05e3, 0x0610)),
+        ];
+        assert_eq!(parent_hub(attached, "1", &[3, 2]), Some((0x0424, 0x2517)));
+        assert_eq!(parent_hub(attached, "2", &[3, 2]), Some((0x05e3, 0x0610)));
+        assert_eq!(
+            parent_hub(attached, "1", &[3]),
+            None,
+            "a root port has no listed hub"
+        );
+        assert_eq!(parent_hub(attached, "1", &[]), None);
+        assert_eq!(parent_hub(attached, "1", &[4, 1]), None);
     }
 }

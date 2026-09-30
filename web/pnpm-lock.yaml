@@ -165,6 +165,7 @@ settings:
 overrides:
   js-yaml: ^4.3.1
   semver: ^7.8.5
+  why-is-node-running: 3.2.1
 
 importers:
 
@@ -194,9 +195,6 @@ importers:
       opus-decoder:
         specifier: 0.7.12
         version: 0.7.12
-      pmtiles:
-        specifier: ^4.5.0
-        version: 4.5.0
       react:
         specifier: 19.3.0
         version: 19.3.0
@@ -1195,9 +1193,6 @@ packages:
       picomatch:
         optional: true
 
-  fflate@0.8.3:
-    resolution: {integrity: sha512-tbZNuJrLwGUp3zshBtdy4W+ORxZuIh8a5ilyIEQDC5rY1f3U20JMry0Ll3WBzU58EZKsEuJFXhb5gwv8CsPvgA==}
-
   flru@1.0.2:
     resolution: {integrity: sha512-kWyh8ADvHBFz6ua5xYOPnUroZTT/bwWfrCeL0Wj1dzG4/YOmOcfJ99W8dOVyyynJN35rZ9aCOtHChqQovV7yog==}
     engines: {node: '>=6'}
@@ -1514,9 +1509,6 @@ packages:
   pluralize@8.0.0:
     resolution: {integrity: sha512-Nc3IT5yHzflTfbjgqWcCPpo7DaKy4FnpB0l/zCAW0Tc7jxAiuqSxHasntB3D7887LSrA93kDJ9IXovxJYxyLCA==}
     engines: {node: '>=4'}
-
-  pmtiles@4.5.0:
-    resolution: {integrity: sha512-CBeD4SoUluFziGdy/8k7FOjQxQy486n+929W/tWophauvMICpkZ26vGBWhDt/6b1FZQWNaf4jFdT/5+q0Wii5w==}
 
   postcss@8.5.28:
     resolution: {integrity: sha512-RRuzqDtt5Y9h3quz5hWhK+TPnsmVs6WwSU6LkJMeY4HstUEDuYTG8UJSdawMRzmzAtV+KEoG8N3Qg2qLy5vM/A==}
@@ -2499,8 +2491,6 @@ snapshots:
     optionalDependencies:
       picomatch: 4.0.7
 
-  fflate@0.8.3: {}
-
   flru@1.0.2: {}
 
   fsevents@2.3.3:
@@ -2765,10 +2755,6 @@ snapshots:
       playwright-core: 1.63.0
 
   pluralize@8.0.0: {}
-
-  pmtiles@4.5.0:
-    dependencies:
-      fflate: 0.8.3
 
   postcss@8.5.28:
     dependencies:

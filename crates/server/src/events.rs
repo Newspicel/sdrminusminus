@@ -1,10 +1,12 @@
 use std::collections::HashMap;
 
 use sdrmm_wire::{
-    DecodedRecord, DecoderEvent, EventFilterNode, NodeBody, PatchGraph, StateSnapshot,
+    DecodedRecord, DecoderEvent, EVENTS_PORT, EventFilterNode, NodeBody, PatchGraph,
+    RADAR_TRUTH_PORT, StateSnapshot,
 };
 
 const MAX_FILTER_DEPTH: usize = 16;
+const SINK_PORTS: [&str; 2] = [EVENTS_PORT, RADAR_TRUTH_PORT];
 
 pub(crate) fn decoder_nodes(
     graph: &PatchGraph,
@@ -49,13 +51,15 @@ impl EventPath {
 
 pub(crate) fn paths_into(graph: &PatchGraph, sink: &str) -> Vec<EventPath> {
     let mut paths = Vec::new();
-    walk(graph, sink, &mut Vec::new(), &mut paths, 0);
+    for port in SINK_PORTS {
+        walk(graph, (sink, port), &mut Vec::new(), &mut paths, 0);
+    }
     paths
 }
 
 fn walk(
     graph: &PatchGraph,
-    node: &str,
+    (node, port): (&str, &str),
     filters: &mut Vec<EventFilterNode>,
     paths: &mut Vec<EventPath>,
     depth: usize,
@@ -63,11 +67,11 @@ fn walk(
     if depth > MAX_FILTER_DEPTH {
         return;
     }
-    for source in graph.sources_of(node, "events") {
+    for source in graph.sources_of(node, port) {
         match graph.node(source).map(|found| &found.body) {
             Some(NodeBody::EventFilter(settings)) => {
                 filters.push(settings.clone());
-                walk(graph, source, filters, paths, depth + 1);
+                walk(graph, (source, EVENTS_PORT), filters, paths, depth + 1);
                 filters.pop();
             }
             _ => paths.push(EventPath {
@@ -507,6 +511,79 @@ mod tests {
 
         assert_eq!(routed.source, None);
         assert!(routed.record.sinks.is_empty());
+    }
+
+    fn adsb_channel(id: &str) -> PatchNode {
+        node(
+            id,
+            NodeBody::Channel(ChannelNode {
+                channel_type: "adsb".to_owned(),
+                record_calls: false,
+                tuning_locked: false,
+            }),
+        )
+    }
+
+    fn into_truth(from: &str) -> PatchEdge {
+        PatchEdge {
+            to: PortRef {
+                node: "radar".to_owned(),
+                port: sdrmm_wire::RADAR_TRUTH_PORT.to_owned(),
+            },
+            ..edge(from, "radar")
+        }
+    }
+
+    #[test]
+    fn only_decoders_wired_into_adsb_feed_truth() {
+        let graph = PatchGraph {
+            nodes: vec![
+                adsb_channel("wired"),
+                adsb_channel("filtered"),
+                adsb_channel("logged"),
+                filter("quiet", EventFilterNode::default()),
+                node(
+                    "radar",
+                    NodeBody::PassiveRadar(sdrmm_wire::PassiveRadarNode::default()),
+                ),
+                node("chat", NodeBody::DecoderLog),
+            ],
+            edges: vec![
+                into_truth("wired"),
+                edge("filtered", "quiet"),
+                into_truth("quiet"),
+                edge("logged", "chat"),
+            ],
+        };
+        let routes = Routes {
+            sources: HashMap::from([
+                ((1, 1), "wired".to_owned()),
+                ((1, 2), "filtered".to_owned()),
+                ((1, 3), "logged".to_owned()),
+            ]),
+            ..Routes::resolve(7, &graph, &StateSnapshot::default())
+        };
+        let aircraft = || {
+            DecoderEvent::Adsb(sdrmm_wire::AdsbMessage {
+                icao: "3c6444".to_owned(),
+                ..sdrmm_wire::AdsbMessage::default()
+            })
+        };
+
+        assert_eq!(
+            routes.route(decoded(1, 1, aircraft())).record.sinks,
+            ["radar"]
+        );
+        assert_eq!(
+            routes.route(decoded(1, 2, aircraft())).record.sinks,
+            ["radar"],
+            "a filter between the decoder and adsb still counts"
+        );
+        assert_eq!(
+            routes.route(decoded(1, 3, aircraft())).record.sinks,
+            ["chat"],
+            "a decoder wired elsewhere feeds no truth"
+        );
     }
 
     #[test]

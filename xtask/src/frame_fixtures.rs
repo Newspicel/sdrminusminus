@@ -1,3 +1,4 @@
+use sdrmm_wire::frame::{FusionGridFrame, SpatialSpectrumFrame, VisibilityFrame};
 use sdrmm_wire::{
     AudioFrame, IqFrame, RangeDopplerFrame, SpectrumFrame, SymbolFrame, SymbolPlane, VideoData,
     VideoFrame,
@@ -67,10 +68,13 @@ pub(crate) fn frames() -> Vec<(&'static str, Vec<u8>)> {
                 timestamp: 3,
                 ranges: 2,
                 dopplers: 1,
-                range_step_us: 1.0,
+                range_first_m: 0.0,
+                range_step_m: 1_124.0,
+                doppler_first_hz: -2.0,
                 doppler_step_hz: 2.0,
-                db_min: -120.0,
-                db_max: 0.0,
+                carrier_hz: 98_500_000.0,
+                db_min: -3.0,
+                db_max: 30.0,
                 cells: &[1, 2],
             }
             .encode(),
@@ -96,6 +100,55 @@ pub(crate) fn frames() -> Vec<(&'static str, Vec<u8>)> {
                 width: 2,
                 height: 1,
                 data: VideoData::Rgb(&[1, 2, 3, 4, 5, 6]),
+            }
+            .encode(),
+        ),
+        (
+            "spatial_spectrum",
+            SpatialSpectrumFrame {
+                stream_id: 1,
+                seq: 2,
+                timestamp: 3,
+                center_hz: 433_920_000.0,
+                span_hz: 2_400_000.0,
+                bearings: 2,
+                bins: 2,
+                db_min: 0.0,
+                db_max: 30.0,
+                cells: &[0, 64, 128, 255],
+            }
+            .encode(),
+        ),
+        (
+            "visibility",
+            VisibilityFrame {
+                stream_id: 1,
+                seq: 2,
+                timestamp: 3,
+                center_hz: 1_420_000_000.0,
+                span_hz: 2_000_000.0,
+                baselines: 1,
+                bins: 2,
+                db_min: -40.0,
+                db_max: 0.0,
+                amplitude: &[10, 20],
+                phase: &[128, 255],
+            }
+            .encode(),
+        ),
+        (
+            "fusion_grid",
+            FusionGridFrame {
+                stream_id: 1,
+                seq: 2,
+                timestamp: 3,
+                south: 52.4,
+                west: 13.3,
+                north: 52.6,
+                east: 13.5,
+                cols: 2,
+                rows: 1,
+                cells: &[0, 255],
             }
             .encode(),
         ),

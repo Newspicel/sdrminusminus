@@ -3,6 +3,8 @@ use utoipa::ToSchema;
 
 use crate::{PskBaud, RadioClockStandard, channel::SstvMode};
 
+pub const NO_CHANNEL: u32 = u32::MAX;
+
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct RdsUpdate {
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1135,9 +1137,9 @@ pub enum DecoderEvent {
     Vdl2(DataLinkMessage),
     Hfdl(DataLinkMessage),
     Iridium(DataLinkMessage),
-    Df(crate::coherent::DfBearing),
-    DfFix(crate::coherent::DfEstimate),
-    Radar(crate::coherent::RadarDetection),
+    Df(crate::fusion::DfBearing),
+    DfFix(crate::fusion::DfEstimate),
+    Radar(crate::radar::RadarTrackEvent),
     Dect(DectFrame),
 }
 
@@ -1550,14 +1552,18 @@ impl DecoderEvent {
                 )
             }
             Self::Df(b) => format!(
-                "{:03.1}° bearing · {:.0}%",
+                "{:.0}° ±{:.0}° · {:.0}%",
                 b.bearing_deg,
+                b.sigma_deg,
                 b.confidence * 100.0
             ),
             Self::DfFix(e) => format!("{:.5}, {:.5} · ±{:.0} m", e.lat, e.lon, e.ellipse_major_m),
-            Self::Radar(d) => format!(
-                "range bin {} · {:.1} km · {:+.1} Hz · {:.1} dB",
-                d.range_bin, d.range_km, d.doppler_hz, d.snr_db
+            Self::Radar(t) => format!(
+                "T{} {} {:.1} km {:+.0} m/s",
+                t.track_id,
+                t.change.as_str(),
+                t.range_km,
+                t.range_rate_mps
             ),
             Self::Ils(i) => {
                 let component = match i.component {
@@ -1588,6 +1594,7 @@ impl DecoderEvent {
             Self::Dv(f) => (f.lat, f.lon),
             Self::Df(b) => (b.lat, b.lon),
             Self::DfFix(e) => (Some(e.lat), Some(e.lon)),
+            Self::Radar(t) => (t.lat, t.lon),
             Self::Dsc(m)
             | Self::InmarsatStdc(m)
             | Self::InmarsatAero(m)
@@ -1637,7 +1644,8 @@ impl DecoderEvent {
             Self::Sstv(p) => Some(p.mode.label().to_owned()),
             Self::Vor(v) => v.station.clone(),
             Self::Df(b) => b.station_id.clone(),
-            Self::DfFix(_) | Self::Radar(_) => None,
+            Self::DfFix(_) => None,
+            Self::Radar(t) => t.icao.clone(),
             Self::Dsc(m)
             | Self::InmarsatStdc(m)
             | Self::InmarsatAero(m)
@@ -1868,10 +1876,91 @@ mod tests {
             DecoderEvent::Vdl2(link()),
             DecoderEvent::Hfdl(link()),
             DecoderEvent::Iridium(link()),
+            DecoderEvent::Radar(radar_event()),
         ] {
             let json = serde_json::to_value(&ev).unwrap();
             assert_eq!(json["kind"], ev.kind());
         }
+    }
+
+    fn radar_event() -> crate::radar::RadarTrackEvent {
+        crate::radar::RadarTrackEvent {
+            track_id: 7,
+            change: crate::radar::TrackChange::Confirmed,
+            range_km: 32.46,
+            range_rate_mps: -365.2,
+            doppler_hz: 120.0,
+            snr_db: 17.0,
+            bearing_deg: Some(98.0),
+            lat: None,
+            lon: None,
+            icao: Some("3C6444".to_owned()),
+        }
+    }
+
+    fn bearing() -> crate::fusion::DfBearing {
+        serde_json::from_value(serde_json::json!({
+            "bearing_deg": 87.4,
+            "confidence": 0.83,
+            "sigma_deg": 4.6,
+            "lat": 52.5,
+            "lon": 13.4,
+            "node": "df"
+        }))
+        .expect("a bearing")
+    }
+
+    #[test]
+    fn a_df_bearing_states_its_spread_and_confidence() {
+        let event = DecoderEvent::Df(bearing());
+        assert_eq!(event.summary(), "87° ±5° · 83%");
+        assert_eq!(event.position(), Some((52.5, 13.4)));
+        assert_eq!(event.kind(), "df");
+    }
+
+    #[test]
+    fn a_processor_record_names_no_channel_and_its_node() {
+        let record = DecodedRecord {
+            origin: Some(crate::EventOrigin {
+                node: "df".to_owned(),
+                transmission: 0,
+            }),
+            device_set: 3,
+            channel: NO_CHANNEL,
+            at: "2026-09-28T12:00:00Z".to_owned(),
+            freq_hz: 433_920_000.0,
+            event: DecoderEvent::Df(bearing()),
+            sinks: Vec::new(),
+        };
+        let json = serde_json::to_value(&record).expect("record json");
+        assert_eq!(json["channel"], u64::from(u32::MAX));
+        assert_eq!(json["origin"]["node"], "df");
+        let back: DecodedRecord = serde_json::from_value(json).expect("record back");
+        assert_eq!(back, record);
+    }
+
+    #[test]
+    fn a_radar_track_event_names_its_track_and_place() {
+        let event = DecoderEvent::Radar(radar_event());
+        assert_eq!(event.summary(), "T7 confirmed 32.5 km -365 m/s");
+        assert_eq!(event.position(), None);
+        assert_eq!(event.station().as_deref(), Some("3C6444"));
+        let placed = DecoderEvent::Radar(crate::radar::RadarTrackEvent {
+            change: crate::radar::TrackChange::Lost,
+            range_rate_mps: 12.0,
+            lat: Some(52.4),
+            lon: Some(13.2),
+            ..radar_event()
+        });
+        assert_eq!(placed.summary(), "T7 lost 32.5 km +12 m/s");
+        assert_eq!(placed.position(), Some((52.4, 13.2)));
+        let json = serde_json::to_value(&placed).unwrap();
+        assert_eq!(json["kind"], "radar");
+        assert_eq!(json["data"]["track_id"], 7);
+        assert_eq!(
+            serde_json::from_value::<DecoderEvent>(json).unwrap(),
+            placed
+        );
     }
 
     #[test]

@@ -10,6 +10,7 @@ import { RecordingUpload } from "../../components/RecordingUpload";
 import {
   describeRecording,
   formatDuration,
+  recordingLanes,
   recordingProvenance,
   recordingTitle,
 } from "../../components/recordings";
@@ -19,6 +20,7 @@ import type { PatchNode, PatchNodeOf, RecordingInfo } from "../../lib/types";
 import { useWorkspaceContext } from "../context";
 import { patchNode } from "../graph";
 import { releaseRadio } from "../remove";
+import { MakeArrayButton, offersMakeArray } from "./MakeArrayButton";
 import { FaceBody, FaceFooter, NodeShell } from "./NodeShell";
 import { claimedRecordings, recordingChoices, recordingDeviceId } from "./recordingNode";
 
@@ -82,6 +84,25 @@ function Library({
         <p className="text-sm text-ink-dim">Nothing free matches that.</p>
       )}
     </div>
+  );
+}
+
+export function RecordingFacts({
+  recording,
+  separated,
+}: {
+  recording: RecordingInfo;
+  separated: boolean;
+}) {
+  const lanes = recordingLanes(recording);
+  return (
+    <Readout separated={separated}>
+      {lanes > 1 && <ReadoutRow label="Lanes">{lanes}</ReadoutRow>}
+      <ReadoutRow label="Centre">{formatMhz(recording.center_hz)}</ReadoutRow>
+      <ReadoutRow label="Rate">{formatSampleRate(recording.sample_rate)}</ReadoutRow>
+      <ReadoutRow label="Length">{formatDuration(recording.duration_s)}</ReadoutRow>
+      <ReadoutRow label="Size">{formatBytes(recording.bytes)}</ReadoutRow>
+    </Readout>
   );
 }
 
@@ -192,14 +213,7 @@ export function RecordingFace({ node }: { node: PatchNode }) {
     >
       <FaceBody>
         {set.playback != null && <PlaybackTransport set={set} status={set.playback} />}
-        {known !== null && (
-          <Readout separated={set.playback == null}>
-            <ReadoutRow label="Centre">{formatMhz(known.center_hz)}</ReadoutRow>
-            <ReadoutRow label="Rate">{formatSampleRate(known.sample_rate)}</ReadoutRow>
-            <ReadoutRow label="Length">{formatDuration(known.duration_s)}</ReadoutRow>
-            <ReadoutRow label="Size">{formatBytes(known.bytes)}</ReadoutRow>
-          </Readout>
-        )}
+        {known !== null && <RecordingFacts recording={known} separated={set.playback == null} />}
         {set.error != null && (
           <p role="alert" className="border-t border-line p-2 font-mono text-xs text-danger">
             {set.error}
@@ -207,6 +221,9 @@ export function RecordingFace({ node }: { node: PatchNode }) {
         )}
       </FaceBody>
       <FaceFooter>
+        {offersMakeArray(workspace.graph, node.id, set) && (
+          <MakeArrayButton node={node.id} set={set} />
+        )}
         <Button
           type="button"
           className={BTN_QUIET}

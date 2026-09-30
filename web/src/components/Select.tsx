@@ -59,7 +59,11 @@ export function Select<T extends string | number>({
                 <Primitive.Item
                   key={String(option.value)}
                   value={option.value}
-                  className={(state) => listItem(state.selected, state.highlighted)}
+                  disabled={option.disabled}
+                  title={option.title}
+                  className={(state) =>
+                    `${listItem(state.selected, state.highlighted)} data-[disabled]:opacity-45`
+                  }
                 >
                   <Primitive.ItemText>{option.label}</Primitive.ItemText>
                 </Primitive.Item>

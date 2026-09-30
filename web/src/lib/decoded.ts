@@ -296,12 +296,13 @@ function stationId(event: DecoderEvent): string | null {
     case "hfdl":
     case "iridium":
     case "df_fix":
-    case "radar":
       return null;
     case "dect":
       return event.data.identity?.rfpi ?? null;
     case "df":
       return event.data.station_id ?? null;
+    case "radar":
+      return event.data.icao ?? null;
   }
 }
 

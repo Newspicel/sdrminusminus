@@ -16,16 +16,18 @@ use tower::ServiceExt;
 
 use super::*;
 
+mod array;
 mod auth_mcp;
 mod calls;
 mod catalog;
 mod channel_capture;
-mod coherent;
 mod cps;
 mod decoderlog;
 mod devices;
 mod diagnostics;
+mod fusion;
 mod openapi;
+mod phones;
 mod presets;
 mod recordings;
 mod remote;
@@ -93,12 +95,31 @@ fn test_router_with_state() -> (Router, AppState) {
     (router, state)
 }
 
-fn state_over(store: Arc<Store>) -> AppState {
-    let arrays = sdrmm_engine::ArrayCatalog::new();
+fn test_router_with_options(options: &ServerOptions) -> Router {
+    let mut registry = sdrmm_device::DeviceRegistry::new();
+    registry.register(1, Box::new(sdrmm_device_virtual::VirtualDriver::new()));
+    let state = AppState::new(
+        Engine::with_registry(registry, None),
+        Arc::new(Store::open(None).expect("in-memory store")),
+    );
+    let (router, background) = router_with_state(state, options);
+    background.detach();
+    router
+}
+
+fn tls_router_with_state() -> (Router, AppState) {
+    let store = Arc::new(Store::open(None).expect("in-memory store"));
+    let state = state_over(store);
+    let (router, background) = main_router(state.clone(), &ServerOptions::default(), true);
+    background.detach();
+    (router, state)
+}
+
+pub(crate) fn state_over(store: Arc<Store>) -> AppState {
     let mut registry = sdrmm_device::DeviceRegistry::new();
     registry.register(1, Box::new(sdrmm_device_virtual::VirtualDriver::new()));
     registry.register(1, Box::new(sdrmm_device_siggen::SigGenDriver::new()));
-    let mut state = AppState::new(Engine::with_arrays(registry, None, arrays), store);
+    let mut state = AppState::new(Engine::with_registry(registry, None), store);
     let mut tools = sdrmm_tools::ToolRegistry::default();
     tools
         .register(Box::new(sdrmm_tools::AntennaTool))
@@ -178,7 +199,12 @@ fn recording_state(dir: &Path) -> AppState {
     )
 }
 
-async fn request(app: Router, method: &str, uri: &str, body: Option<&str>) -> (StatusCode, Bytes) {
+pub(crate) async fn request(
+    app: Router,
+    method: &str,
+    uri: &str,
+    body: Option<&str>,
+) -> (StatusCode, Bytes) {
     let (status, _, bytes) = request_parts(app, method, uri, body, &[]).await;
     (status, bytes)
 }

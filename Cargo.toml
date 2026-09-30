@@ -11,7 +11,6 @@ members = [
     "crates/device-virtual",
     "crates/device-recording",
     "crates/device-siggen",
-    "crates/device-array",
     "crates/device-ad936x",
     "crates/device-airspy",
     "crates/device-airspyhf",
@@ -33,6 +32,7 @@ members = [
     "crates/tools",
     "crates/tunnel",
     "crates/server",
+    "crates/mobile-core",
     "apps/sdrmm",
     "apps/desktop",
     "xtask",
@@ -49,7 +49,6 @@ default-members = [
     "crates/device-virtual",
     "crates/device-recording",
     "crates/device-siggen",
-    "crates/device-array",
     "crates/device-ad936x",
     "crates/device-airspy",
     "crates/device-airspyhf",
@@ -71,6 +70,7 @@ default-members = [
     "crates/tools",
     "crates/tunnel",
     "crates/server",
+    "crates/mobile-core",
     "apps/sdrmm",
     "xtask",
 ]
@@ -96,7 +96,6 @@ sdrmm-device = { path = "crates/device" }
 sdrmm-device-virtual = { path = "crates/device-virtual" }
 sdrmm-device-recording = { path = "crates/device-recording" }
 sdrmm-device-siggen = { path = "crates/device-siggen" }
-sdrmm-device-array = { path = "crates/device-array" }
 sdrmm-device-ad936x = { path = "crates/device-ad936x" }
 sdrmm-device-airspy = { path = "crates/device-airspy" }
 sdrmm-device-airspyhf = { path = "crates/device-airspyhf" }
@@ -129,7 +128,7 @@ axum-server = { version = "0.8", default-features = false, features = ["tls-rust
 rustls = "0.23"
 rcgen = { version = "0.14.10", default-features = false, features = ["aws_lc_rs", "pem"] }
 tower = "0.5"
-tower-http = { version = "0.7", features = ["compression-gzip", "cors", "fs", "trace"] }
+tower-http = { version = "0.7", features = ["compression-gzip", "cors", "trace"] }
 futures = "0.3"
 reqwest = { version = "0.13.5", default-features = false, features = ["json", "multipart", "rustls"] }
 rumqttc = { package = "rumqttc-v4-next", version = "0.34.0", default-features = false, features = ["use-rustls"] }
@@ -137,6 +136,10 @@ url = "2.5.8"
 tokio-postgres = { version = "0.7.18", default-features = false, features = ["runtime"] }
 tokio-postgres-rustls = "0.14"
 rustls-platform-verifier = "0.7"
+rustls-webpki = { version = "0.103.15", default-features = false }
+rustls-pki-types = { version = "1.15.1", default-features = false }
+mdns-sd = "0.21.4"
+gethostname = "1.1.0"
 getrandom = "0.4.3"
 tokio-tungstenite = "0.30"
 tokio-serial = "5.5.0"
@@ -164,7 +167,7 @@ nusb = "0.2.7"
 libloading = "0.9"
 
 # DSP
-num-complex = "0.4"
+num-complex = { version = "0.4", features = ["bytemuck"] }
 rustfft = "6"
 tract-onnx = { version = "0.23.8", default-features = false }
 tract-nnef = "0.23.8"
@@ -209,6 +212,9 @@ objc2-foundation = { version = "0.3", default-features = false, features = ["std
 # Windows scheduling: threads there start at the priority of everything else on the machine, and
 # a capture thread that waits its turn loses USB transfers.
 windows-sys = { version = "0.61", features = ["Win32_System_Threading"] }
+
+uniffi = { version = "0.32.2", default-features = false }
+qrcodegen = "1.8.0"
 
 # Errors / logging / util
 libc = "0.2"
@@ -256,6 +262,13 @@ lto = false
 [profile.dev]
 opt-level = 1
 debug = "line-tables-only"
+
+[profile.mobile]
+inherits = "release"
+lto = "fat"
+codegen-units = 1
+panic = "unwind"
+strip = "debuginfo"
 
 [profile.dev.package."*"]
 debug = false

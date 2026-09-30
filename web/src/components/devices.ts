@@ -2,7 +2,7 @@ import { refMatches } from "../canvas/binding";
 import type { DeviceInfo, DeviceRef } from "../lib/types";
 import type { Options } from "./controls";
 
-const NODE_OWNED_DRIVERS = ["recording", "siggen", "array"];
+const NODE_OWNED_DRIVERS = ["recording", "siggen"];
 
 function deviceRank(device: DeviceInfo): number {
   return device.driver === "virtual" ? 1 : 0;

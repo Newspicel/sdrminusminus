@@ -3,18 +3,20 @@ mod adsb;
 mod ais;
 mod am;
 mod aprs;
+pub mod array_processor;
 mod atv;
 pub mod audio_chain;
+pub mod band;
+pub mod beamformer;
 mod broadcast_audio;
 mod broadcast_media;
-pub mod coherent;
-mod combiner;
+pub mod correlator;
 mod cw_skimmer;
 mod dab;
 mod datalink;
 mod datv;
 mod dect;
-mod df;
+pub mod df;
 mod drm;
 mod dsc;
 mod dv;
@@ -22,6 +24,7 @@ mod ermes;
 mod flex;
 mod gnss;
 mod hfdl;
+pub mod hunt_sweep;
 mod ident;
 mod ils;
 mod inmarsat_aero;
@@ -32,17 +35,19 @@ mod morse;
 mod navtex;
 pub mod neural_denoise;
 mod nfm;
-mod passive_radar;
-pub use passive_radar::{PassiveRadarProcessor, RadarCorrelation};
+pub mod passive_radar;
 mod pocsag;
+pub mod polarimeter;
+pub mod pose_clock;
 mod psk;
 mod radio_clock;
 mod rds;
 mod rtty;
 mod selcall;
+pub mod spatial_spectrum;
 mod ssb;
 mod sstv;
-mod stitch;
+pub mod stitch;
 pub mod symbols;
 pub mod tone_squelch;
 mod tx;
@@ -282,6 +287,10 @@ pub enum ChannelError {
     InvalidPayload(String),
     #[error("{0}")]
     LibraryUnavailable(String),
+    #[error("{0}")]
+    Refused(&'static str),
+    #[error("{0}")]
+    Unsupported(String),
 }
 
 #[derive(Clone, Copy, Debug)]

@@ -1,6 +1,6 @@
 import { expect, type Locator, type Page, test } from "@playwright/test";
 import type { StateSnapshot, WorkspaceDetail } from "../src/lib/types";
-import { addNode } from "./scenes";
+import { activate, addNode, dragWire, fitPatch, leaveField } from "./canvas";
 
 function deferred(): { promise: Promise<void>; resolve: () => void } {
   let resolve!: () => void;
@@ -8,29 +8,6 @@ function deferred(): { promise: Promise<void>; resolve: () => void } {
     resolve = done;
   });
   return { promise, resolve };
-}
-
-async function dragWire(page: Page, from: Locator, to: Locator): Promise<void> {
-  const wires = page.locator(".react-flow__edge");
-  for (let attempt = 0; attempt < 3; attempt++) {
-    const before = await wires.count();
-    const start = await from.boundingBox();
-    const end = await to.boundingBox();
-    if (start === null || end === null) {
-      throw new Error("a port to wire from and one to wire to");
-    }
-    await page.mouse.move(start.x + start.width / 2, start.y + start.height / 2);
-    await page.mouse.down();
-    await page.mouse.move(end.x + end.width / 2, end.y + end.height / 2, { steps: 12 });
-    await page.mouse.up();
-    try {
-      await expect(wires).toHaveCount(before + 1, { timeout: 2_000 });
-      return;
-    } catch {
-      // A drag that started before the canvas settled lands on nothing; take it again.
-    }
-  }
-  throw new Error("the wire never landed");
 }
 
 async function rowOffset(node: Locator, port: string): Promise<number> {
@@ -54,14 +31,6 @@ async function renderedScale(locator: Locator): Promise<number> {
   });
 }
 
-async function leaveField(node: Locator): Promise<void> {
-  await node.locator("header").click();
-}
-
-async function activate(node: Locator): Promise<void> {
-  await node.locator("header").click();
-}
-
 function rackNode(page: Page, id: string): Locator {
   return page.locator(`.grid > [data-id="${id}"]`);
 }
@@ -72,33 +41,6 @@ async function slots(
   const list = await page.request.get("/api/workspaces").then((r) => r.json());
   const detail = await page.request.get(`/api/workspaces/${list.active}`).then((r) => r.json());
   return detail.snapshot.rack.slots;
-}
-
-async function fitPatch(page: Page): Promise<void> {
-  const pane = page.locator(".react-flow__pane");
-  const box = await pane.boundingBox();
-  if (box === null) {
-    throw new Error("a pane to right-click");
-  }
-  await expect(page.locator('.react-flow__node[style*="visibility: hidden"]')).toHaveCount(0);
-  await page.mouse.click(box.x + 40, box.y + box.height - 40, { button: "right" });
-  await page
-    .getByRole("menu")
-    .getByRole("button", { name: /fit the patch/i })
-    .click();
-  await viewSettled(page);
-}
-
-async function viewSettled(page: Page): Promise<void> {
-  const viewport = page.locator(".react-flow__viewport");
-  const transform = () => viewport.evaluate((element) => (element as HTMLElement).style.transform);
-  await expect
-    .poll(async () => {
-      const before = await transform();
-      await page.waitForTimeout(150);
-      return before === (await transform());
-    })
-    .toBe(true);
 }
 
 async function dragBy(page: Page, grip: Locator, cells: number, down = 0): Promise<void> {
@@ -116,8 +58,6 @@ async function dragBy(page: Page, grip: Locator, cells: number, down = 0): Promi
   await page.mouse.up();
 }
 
-/// Records every grid placement the rack renders from here on, so a drop that flashes the old
-/// layout for a frame before the workspace catches up is visible to the test.
 async function watchRackStyles(page: Page): Promise<void> {
   await page.evaluate(() => {
     const host = document.querySelector(".grid");
@@ -530,7 +470,7 @@ test.describe("the workspace", () => {
     await expect(attribution.getByText("Stub basemap credits")).toBeVisible();
   });
 
-  test("configures NMEA GPS and renders a live device fix", async ({ page }) => {
+  test("configures NMEA, gpsd and fixed GPS sources", async ({ page }) => {
     await page.route("**/api/position/nmea-devices", (route) =>
       route.fulfill({
         json: {
@@ -621,88 +561,23 @@ test.describe("the workspace", () => {
     await address.blur();
     await expect(address).toHaveValue("127.0.0.1:2947");
 
-    const own = await addGps();
-    await own.getByRole("group", { name: "Position source" }).getByText("This device").click();
-    await own.getByRole("button", { name: "Use this device's location" }).click();
-    await expect(own.getByText("location sharing is blocked for this browser")).toBeVisible();
-    await expect(page.getByText(/limited to 20 Hz/)).toHaveCount(0);
-    let deviceNode = "";
-    await expect
-      .poll(async () => {
-        const list = await page.request.get("/api/workspaces").then((response) => response.json());
-        const detail: WorkspaceDetail = await page.request
-          .get(`/api/workspaces/${list.active}`)
-          .then((response) => response.json());
-        deviceNode =
-          detail.snapshot.graph.nodes.find(
-            (node) => node.kind === "gps" && node.data.source?.type === "device",
-          )?.id ?? "";
-        return deviceNode;
-      })
-      .not.toBe("");
-    await page.evaluate(async (node) => {
-      await new Promise<void>((resolve, reject) => {
-        const socket = new WebSocket(`ws://${window.location.host}/api/ws`);
-        let published = false;
-        let finished = false;
-        const publishFix = (): void => {
-          if (finished || socket.readyState !== WebSocket.OPEN) {
-            return;
-          }
-          published = true;
-          socket.send(
-            JSON.stringify({
-              type: "PublishPosition",
-              data: {
-                node,
-                fix: {
-                  latitude: 52.52,
-                  longitude: 13.405,
-                  accuracy_m: 4,
-                  time: "2026-08-14T12:00:00Z",
-                },
-              },
-            }),
-          );
-        };
-        const timeout = window.setTimeout(() => {
-          socket.close();
-          reject(new Error("position subscription was not ready"));
-        }, 10_000);
-        socket.onerror = () => {
-          window.clearTimeout(timeout);
-          reject(new Error("position test socket failed"));
-        };
-        socket.onmessage = (message) => {
-          const event = JSON.parse(String(message.data));
-          if (event.type === "Hello" && !published) {
-            publishFix();
-            return;
-          }
-          if (event.type === "Error" && published) {
-            published = false;
-            window.setTimeout(publishFix, 75);
-            return;
-          }
-          if (
-            event.type === "PositionChanged" &&
-            event.data.node === node &&
-            event.data.fix?.latitude === 52.52
-          ) {
-            finished = true;
-            window.clearTimeout(timeout);
-            socket.close();
-            resolve();
-          }
-        };
-      });
-    }, deviceNode);
-    const deviceGps = page.locator(`.react-flow__node[data-id="${deviceNode}"]`);
-    await expect(deviceGps.getByText("52.520000, 13.405000")).toBeVisible();
-    await expect(deviceGps.getByText("JO62qm")).toBeVisible();
+    const fixed = await addGps();
+    await fixed.getByRole("group", { name: "Position source" }).getByText("Fixed").click();
+    const latitude = fixed.getByRole("textbox", { name: "Latitude" });
+    await latitude.fill("52.52");
+    await latitude.press("Tab");
+    const longitude = fixed.getByRole("textbox", { name: "Longitude" });
+    await longitude.fill("13.405");
+    await longitude.press("Tab");
+    await fixed.getByRole("button", { name: "Set" }).click();
+    await expect(fixed.getByText("52.520000, 13.405000")).toBeVisible();
+    await expect(fixed.getByText("JO62qm")).toHaveCount(2);
 
-    await deviceGps.getByRole("button", { name: "Forget source" }).click();
-    await expect(deviceGps.getByRole("group", { name: "Position source" })).toBeVisible();
+    await fixed.getByRole("button", { name: "Forget source" }).click();
+    const sources = fixed.getByRole("group", { name: "Position source" });
+    await expect(sources).toBeVisible();
+    await sources.getByText("Phone", { exact: true }).click();
+    await expect(fixed.getByText("No phones", { exact: true })).toBeVisible();
   });
 
   test("keeps the band plan in the workspace, not in the browser", async ({ page }) => {
@@ -941,7 +816,6 @@ test.describe("the workspace", () => {
     await page.mouse.wheel(0, 200);
     await expect.poll(transform).not.toBe(panned);
 
-    // A pan can carry the scope's header up behind the workspace bar, where no click reaches it.
     await fitPatch(page);
     await scope.getByRole("button", { name: "Show full screen" }).click();
     const enlarged = page.locator('[data-full="scope"]');
@@ -1029,13 +903,6 @@ test.describe("the workspace", () => {
     await expect(page.getByRole("tab", { name: "Templates" })).toBeVisible();
   });
 
-  test("hands the field client to a phone from the library", async ({ page }) => {
-    await page.goto("/");
-    await page.getByRole("button", { name: "Library" }).click();
-    await page.getByRole("tab", { name: "Field" }).click();
-    await expect(page.getByRole("tabpanel").getByText("--bind 0.0.0.0:8080")).toBeVisible();
-  });
-
   test("serves the mark to the tab and the top bar", async ({ page }) => {
     for (const [path, type] of [
       ["/icon.svg", "image/svg+xml"],
@@ -1058,7 +925,7 @@ test.describe("the workspace", () => {
         data: {
           name: "Offline channel",
           snapshot: {
-            version: 3,
+            version: 4,
             graph: {
               nodes: [
                 { id: "dev", kind: "device", position: { x: 0, y: 0 }, data: {} },
@@ -1110,7 +977,7 @@ test.describe("the workspace", () => {
         data: {
           name: "Replaced decoder",
           snapshot: {
-            version: 3,
+            version: 4,
             graph: {
               nodes: [
                 { id: "dev", kind: "device", position: { x: 0, y: 0 }, data: {} },
@@ -1173,7 +1040,7 @@ test.describe("the workspace", () => {
         data: {
           name: "Typed frequency",
           snapshot: {
-            version: 3,
+            version: 4,
             graph: {
               nodes: [
                 { id: "dev", kind: "device", position: { x: 0, y: 0 }, data: {} },
@@ -1226,7 +1093,7 @@ test.describe("the workspace", () => {
         data: {
           name: "Absent radio",
           snapshot: {
-            version: 3,
+            version: 4,
             graph: {
               nodes: [
                 {

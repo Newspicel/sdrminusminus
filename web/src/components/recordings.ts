@@ -87,8 +87,20 @@ export function formatRecordedAt(createdAt: string): string | null {
     : new Date(at).toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
 }
 
+export function recordingLanes(recording: RecordingInfo): number {
+  return recording.lanes ?? 1;
+}
+
+export function formatsFor(recording: RecordingInfo): typeof downloadFormats {
+  return recordingLanes(recording) > 1
+    ? downloadFormats.filter(({ format }) => format === "sigmf")
+    : downloadFormats;
+}
+
 export function describeRecording(recording: RecordingInfo): string {
+  const lanes = recordingLanes(recording);
   return [
+    ...(lanes > 1 ? [`${lanes} lanes`] : []),
     formatMhz(recording.center_hz),
     formatSampleRate(recording.sample_rate),
     formatDuration(recording.duration_s),

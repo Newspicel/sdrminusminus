@@ -23,6 +23,15 @@ wired port picks the lane. Wire GPS `position` to store the location.
 
 A clean server shutdown finishes open recordings. Killing the process can leave one incomplete.
 
+## Record an array
+
+**Rec** on an [Array](arrays.md) records every lane into one SigMF collection: a
+`.sigmf-collection` file that ties one recording per lane together, with the geometry, tier and
+noise source windows. **Stop** ends it. **Library → Recordings** lists the collection once, with
+its lane count.
+
+Press **Calibrate** while recording. Playback calibrates from the recorded noise windows.
+
 ## Record a channel
 
 **Baseband recorder** keeps a channel's IQ after filtering and before squelch. The files are much
@@ -54,7 +63,16 @@ channels and displays like a Device, then use play, pause, and seek to decode th
 again with different settings.
 
 **Upload SigMF** adds a recording from your computer, as a `.sigmf` archive or a
-`.sigmf-meta` and `.sigmf-data` pair.
+`.sigmf-meta` and `.sigmf-data` pair. A downloaded array collection uploads whole.
+
+## Play an array recording
+
+Open a collection as a source. The **Recording** node gets one output per lane, `iq1` to `iq5` for
+a five-lane array. Press **Make array**, or wire the outputs to an Array's lanes in order. Set the
+Array's geometry as it was when recording. Wire a GPS to the Array's `position` and add a
+processor, such as a [Direction finder](direction-finding.md). Each lane keeps its recorded
+frequency, so the Array cannot retune. The Array calibrates on the recorded noise windows; when the
+recording ends it keeps the last calibration.
 
 ## Tags and notes
 
@@ -65,8 +83,8 @@ files.
 ## Download
 
 Download IQ as the original SigMF archive or as a stereo float WAV with I and Q as channels. WAV
-keeps the samples but not all metadata. A failed download aborts instead of handing you a
-truncated file.
+keeps the samples but not all metadata. An array collection downloads as one SigMF archive with
+every lane, and has no WAV. A failed download aborts instead of handing you a truncated file.
 
 ## Where files go
 

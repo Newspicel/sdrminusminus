@@ -15,6 +15,7 @@ import {
 } from "react";
 import { Button } from "../../components/BaseControls";
 import { ICON_BTN_SM } from "../../components/controls";
+import { FaceAlert } from "../../components/FaceAlert";
 import { Icon } from "../../components/Icon";
 import { PortalContainerProvider } from "../../components/PortalContainer";
 import { toastError } from "../../lib/toasts";
@@ -31,11 +32,9 @@ import {
   pin,
   portLabel,
   portsOf,
-  pruneRack,
-  removeNode,
   unpin,
 } from "../graph";
-import { closeEngineObjects } from "../remove";
+import { closeEngineObjects, dropNodes } from "../remove";
 import { movesCanvas, wheelStaysOnFace } from "../wheel";
 import { offsetWithin } from "./portAnchor";
 
@@ -135,6 +134,7 @@ const PORT_COLOR: Record<PortType, string> = {
   control: "text-port-control",
   position: "text-accent",
   tx: "text-port-tx",
+  array: "text-port-array",
 };
 
 function PortGlyph({ type }: { type: PortType }) {
@@ -145,7 +145,12 @@ function PortGlyph({ type }: { type: PortType }) {
   };
   return (
     <svg aria-hidden viewBox="0 0 12 12" className="pointer-events-none size-3 overflow-visible">
-      {type === "iq" || type === "position" || type === "tx" ? (
+      {type === "array" ? (
+        <>
+          <circle cx="6" cy="6" r="4.5" {...common} />
+          <circle cx="6" cy="6" r="2.2" fill="none" stroke="var(--color-panel)" strokeWidth={1} />
+        </>
+      ) : type === "iq" || type === "position" || type === "tx" ? (
         <circle cx="6" cy="6" r="4.5" {...common} />
       ) : type === "baseband" ? (
         <path d="M10.5 6 A4.5 4.5 0 0 1 1.5 6 Z" {...common} />
@@ -287,6 +292,8 @@ export function NodeShell({
           </span>
         </header>
 
+        <FaceAlert node={node.id} />
+
         <div
           className="relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-b-[3px] nodrag nopan"
           onPointerDownCapture={surface === "canvas" ? () => workspace.select(node.id) : undefined}
@@ -329,7 +336,6 @@ function useWheelRouting(
     if (host === null) {
       return;
     }
-    // Native and bubbling, so it runs before React Flow's pane listener and can withhold the event.
     const onWheel = (event: WheelEvent) => {
       if (movesCanvas(event)) {
         return;
@@ -370,11 +376,7 @@ function useRemoveNode(node: PatchNode): () => void {
   const workspace = useWorkspaceContext();
   const drop = useMutation({
     mutationFn: () => closeEngineObjects(workspace, [node.id]),
-    onSuccess: () =>
-      workspace.edit((snapshot) => {
-        const graph = removeNode(snapshot.graph, node.id);
-        return { ...snapshot, graph, rack: pruneRack(snapshot.rack ?? {}, graph) };
-      }),
+    onSuccess: () => dropNodes(workspace, [node.id]),
     onError: (error: Error) => toastError(error),
   });
 

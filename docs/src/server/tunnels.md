@@ -8,6 +8,9 @@ A tunnel gives SDR-- an HTTPS address without port forwarding or certificate wor
 | [Tailscale](#tailscale) | Your own devices only |
 | [Cloudflare Tunnel](#cloudflare-tunnel) | Any browser, behind a login |
 
+Tunnels carry the browser only. [Phones](../user-guide/phones.md) pin the server's own key, so
+they need its direct HTTPS endpoint: the phone port on your LAN, or over the server's Tailscale IP.
+
 ## app.sdrmm.com
 
 No setup on the network. SDR-- dials out and app.sdrmm.com passes browsers through.
@@ -50,8 +53,8 @@ container.
 
 ## Tailscale
 
-1. [Install Tailscale](https://tailscale.com/download) on the server and on each client, including
-   your phone, all in the same tailnet.
+1. [Install Tailscale](https://tailscale.com/download) on the server and on each client, all in
+   the same tailnet.
 2. In the admin console's **DNS** page, turn on **MagicDNS** and **HTTPS Certificates**. Machine
    names become public in certificate transparency logs.
 3. On the server:
@@ -93,6 +96,3 @@ Open the HTTPS address, start a receiver, and check that spectrum and audio move
 - **Page loads, nothing moves:** check the `/api/ws` connection in the browser's developer tools.
 - **Bad gateway:** check `http://127.0.0.1:8080` works on the tunnel machine.
 - **Cloudflare:** open a private window and check the login appears before SDR-- does.
-
-For [field mode](../user-guide/field-mode.md), open **Library → Field** from the HTTPS page so the
-link uses that address.

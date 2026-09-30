@@ -6,13 +6,13 @@ use std::{
 
 use crate::{
     DATA_SUFFIX, DATATYPE_CF32_LE, META_SUFFIX, SIGMF_VERSION, SigmfError, SigmfMeta, data_path,
-    meta_path,
+    lane_of, meta_path, scan_collections,
 };
 
 mod archive;
 mod datatype;
 
-pub use archive::{ARCHIVE_SUFFIX, Member, read_archive};
+pub use archive::{ARCHIVE_SUFFIX, Archive, ArchivedCollection, Member, read_archive};
 pub use datatype::Datatype;
 
 pub const MAX_IMPORT_NAME_LEN: usize = 96;
@@ -36,7 +36,7 @@ pub fn import_pair(
     let datatype = Datatype::parse(&meta.global.datatype)
         .ok_or_else(|| SigmfError::UnsupportedDatatype(meta.global.datatype.clone()))?;
     fs::create_dir_all(dir)?;
-    let stem = unique_stem(dir, &name);
+    let stem = unique_stem(dir, &name)?;
     let samples = match convert(&stem, datatype, data) {
         Ok(samples) => samples,
         Err(err) => {
@@ -60,8 +60,12 @@ pub fn import_pair(
 }
 
 pub fn import_archive(dir: &Path, archive: impl Read) -> Result<Imported, SigmfError> {
-    let Member { name, meta, data } = read_archive(archive)?;
-    import_pair(dir, &name, &meta, data.as_slice())
+    match read_archive(archive)? {
+        Archive::Pair(Member { name, meta, data }) => {
+            import_pair(dir, &name, &meta, data.as_slice())
+        }
+        Archive::Collection(collection) => crate::collection::import_collection(dir, collection),
+    }
 }
 
 pub fn sanitize(name: &str) -> Result<String, SigmfError> {
@@ -93,14 +97,21 @@ pub fn sanitize(name: &str) -> Result<String, SigmfError> {
     Ok(kept)
 }
 
-fn unique_stem(dir: &Path, name: &str) -> PathBuf {
+fn unique_stem(dir: &Path, name: &str) -> Result<PathBuf, SigmfError> {
+    let collections = scan_collections(dir)?;
     let mut candidate = dir.join(name);
     let mut n = 2;
-    while meta_path(&candidate).exists() || data_path(&candidate).exists() {
+    while meta_path(&candidate).exists()
+        || data_path(&candidate).exists()
+        || crate::collection::holds(&candidate)
+        || collections
+            .iter()
+            .any(|collection| lane_of(collection, &candidate).is_some())
+    {
         candidate = dir.join(format!("{name}-{n}"));
         n += 1;
     }
-    candidate
+    Ok(candidate)
 }
 
 fn convert(stem: &Path, datatype: Datatype, mut data: impl Read) -> Result<u64, SigmfError> {
@@ -277,6 +288,26 @@ mod tests {
             Some("from-archive")
         );
         assert_eq!(imported.samples, 64);
+    }
+
+    #[test]
+    fn an_upload_never_lands_on_a_lane_name_of_a_collection() {
+        let dir = TempDir::new().expect("temp");
+        crate::library::tests::collection(dir.path(), "take", 2, 4);
+        let data = ci16(&[(1, 1)]);
+        let imported = import_pair(
+            dir.path(),
+            "take-lane5",
+            &meta_json("ci16_le"),
+            data.as_slice(),
+        )
+        .expect("imports");
+        assert_eq!(imported.stem, dir.path().join("take-lane5-2"));
+        assert!(
+            crate::scan_library(dir.path())
+                .expect("scan")
+                .contains(&crate::Stored::Recording(imported.stem))
+        );
     }
 
     #[test]

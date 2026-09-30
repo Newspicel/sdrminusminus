@@ -1,0 +1,6 @@
+SDRmm.xcodeproj/
+Core/Artifacts/
+Core/Generated/
+Config/Local.xcconfig
+Config/Version.xcconfig
+build/

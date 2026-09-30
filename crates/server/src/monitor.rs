@@ -80,26 +80,13 @@ fn reconcile(
                 .edges
                 .iter()
                 .find(|edge| edge.to.node == node.id && edge.to.port == "iq")?;
-            let (source, beam) = match graph.node(&edge.from.node).map(|node| &node.body) {
-                Some(body) if body.lane_output() == Some(edge.from.port.as_str()) => {
-                    let upstream = graph.edges.iter().find(|wire| {
-                        wire.to.node == edge.from.node
-                            && sdrmm_wire::port_stream("iq", &wire.to.port).is_some()
-                    })?;
-                    (upstream.from.node.as_str(), true)
-                }
-                _ => (edge.from.node.as_str(), false),
-            };
+            let source = edge.from.node.as_str();
             let (_, device_set) = devices.iter().find(|(node, _)| node == source)?;
             let set = snapshot
                 .device_sets
                 .iter()
                 .find(|set| set.id == *device_set && set.status == DeviceSetStatus::Running)?;
-            let stream = if beam {
-                set.capabilities.rx_streams
-            } else {
-                sdrmm_wire::port_stream("iq", &edge.from.port)?
-            };
+            let stream = sdrmm_wire::port_stream("iq", &edge.from.port)?;
             Some(Binding {
                 node: node.id.clone(),
                 device_set: set.id,

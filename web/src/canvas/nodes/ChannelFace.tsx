@@ -22,7 +22,7 @@ import { trackedBy, useSatelliteStore } from "../../lib/satellite";
 import type { PatchNode, PatchNodeOf } from "../../lib/types";
 import { channelSettingsOf, liveChannelOf, useChannelEdit } from "../../lib/useChannelEdit";
 import type { ChannelEdit } from "../../lib/useChannelPatch";
-import { iqLanesOf, tuningControllerOf } from "../binding";
+import { hasWire, iqLanesOf, tuningControllerOf } from "../binding";
 import { useWorkspaceContext } from "../context";
 import { nodeOf, patchNode } from "../graph";
 import { deviceSetOf, laneOf } from "../workspaceDevice";
@@ -59,11 +59,11 @@ export function ChannelFace({ node }: { node: PatchNode }) {
   const descriptor = workspace.context.channelTypes.find((type) => type.type_id === typeId);
   const name = descriptor?.name ?? typeId.toUpperCase();
   const channel = workspace.channels.get(node.id) ?? null;
-  const lanes = iqLanesOf(workspace.graph, node.id);
+  const lanes = iqLanesOf(workspace.graph, node.id, workspace.devices);
   const source = laneOf(workspace, node.id);
-  const references = radioRefsOf(workspace.graph, node.id);
+  const references = radioRefsOf(workspace.graph, node.id, workspace.devices);
   const binding = channelBinding({
-    wired: lanes.length > 0,
+    wired: hasWire(workspace.graph, node.id, "iq"),
     open: set !== null,
     named: references.length > 0,
     attached: radioIsAttached(references, attached.data?.devices ?? []),

@@ -7,8 +7,9 @@ use std::{
 };
 
 use sdrmm_device::{
-    Block, BlockPool, CaptureRadio, CaptureStream, DeviceError, FatalHandle, Next, RxSink, Sample,
-    StreamFailure, lock, net::Read,
+    Block, BlockGap, BlockPool, CaptureRadio, CaptureStream, DeviceError, FatalHandle, GapScope,
+    LaneEvent, LaneMark, Next, RxSink, Sample, SinkItem, StreamFailure, UNKNOWN_ERROR, Uncertainty,
+    lock, net::Read,
 };
 
 use crate::{
@@ -21,25 +22,17 @@ use crate::{
     source::Source,
 };
 
-/// How long one refill may take before the conversation is treated as broken. Generous against
-/// the buffer's own span so a radio that is merely busy is not restarted under it.
 const REFILL_TIMEOUT: Duration = Duration::from_secs(4);
 
-/// What the radio is told to wait for its own converter, so a stalled buffer comes back as a
-/// refusal rather than leaving the refill parked.
 const REMOTE_TIMEOUT: Duration = Duration::from_secs(2);
 
-/// Roughly how much signal one buffer holds. Short enough that a retune is felt straight away,
-/// long enough that a megasample-per-second stream is not a round trip per millisecond.
 const BUFFER_SPAN: Duration = Duration::from_millis(20);
 
 const MIN_BUFFER_SAMPLES: usize = 4_096;
 const MAX_BUFFER_SAMPLES: usize = 1 << 19;
 
-/// The buffer length the kernel side aligns to, in bytes.
 const ALIGN: usize = 8;
 
-/// How many samples of one lane a buffer holds at this rate.
 pub(crate) fn buffer_samples(rate: f64, sample_bytes: usize) -> usize {
     let wanted = if rate.is_finite() && rate > 0.0 {
         (rate * BUFFER_SPAN.as_secs_f64()) as usize
@@ -52,11 +45,14 @@ pub(crate) fn buffer_samples(rate: f64, sample_bytes: usize) -> usize {
     clamped.div_ceil(step) * step
 }
 
+pub(crate) fn in_flight_samples(rate: f64, sample_bytes: usize) -> u64 {
+    2 * buffer_samples(rate, sample_bytes) as u64
+}
+
 const fn gcd(a: usize, b: usize) -> usize {
     if b == 0 { a } else { gcd(b, a % b) }
 }
 
-/// The receive buffer of one radio, opened afresh whenever the capture is armed.
 pub(crate) struct RxRadio {
     source: Source,
     stream: Stream,
@@ -138,7 +134,6 @@ impl CaptureRadio for RxRadio {
     }
 }
 
-/// One open receive buffer, refilled a block at a time.
 pub(crate) struct RxStream {
     inner: Mutex<Inner>,
     device: String,
@@ -166,11 +161,6 @@ impl std::fmt::Debug for RxStream {
     }
 }
 
-/// One buffer on its way in.
-///
-/// IIOD answers a refill as a run of length-prefixed pieces, the first of which is followed by
-/// the mask of what is enabled. The pieces are gathered across as many polls as they take, so a
-/// stop is felt between any two reads rather than after the whole buffer.
 struct Refill {
     block: Block,
     got: usize,
@@ -283,7 +273,6 @@ impl Refill {
 }
 
 impl RxStream {
-    /// Carries the refill in flight as far as `timeout` allows, starting one if none is.
     fn advance(
         &self,
         link: &mut Link,
@@ -350,7 +339,7 @@ impl CaptureStream for RxStream {
         0
     }
 
-    fn block_gap(&self, block: &Block) -> Option<u64> {
+    fn block_gap(&self, block: &Block, _bytes_per_sample: u64) -> Option<BlockGap> {
         let frames = block.len() / self.frame_bytes.max(1);
         let lost = lock(&self.pace).arrived(frames, Instant::now());
         if lost == 0 {
@@ -364,7 +353,10 @@ impl CaptureStream for RxStream {
                 "the radio samples faster than its link carries; lower the rate or the lanes"
             );
         }
-        Some(lost * self.lanes as u64)
+        Some(BlockGap {
+            exact: lost * self.lanes as u64,
+            estimated: 0,
+        })
     }
 
     fn failure(&self) -> StreamFailure {
@@ -374,8 +366,6 @@ impl CaptureStream for RxStream {
 
 impl Drop for RxStream {
     fn drop(&mut self) {
-        // The buffer is closed even when the conversation was already stopped: over usb the
-        // command still reaches the radio, and a buffer left open refuses the next one.
         let inner = &mut *lock(&self.inner);
         inner.pending = None;
         close_buffer(&mut inner.link, &self.device);
@@ -383,14 +373,140 @@ impl Drop for RxStream {
     }
 }
 
-/// Splits the lanes of one interleaved buffer across the sinks that asked for them.
-///
-/// The capture path carries one sink, so a radio whose lanes share a buffer hands over a sink
-/// that de-interleaves. A gap the supervisor reports as a jump in the sample index is divided
-/// back out per lane, so every lane stays on the same timeline as its neighbours.
+struct FanOut {
+    sinks: Vec<RxSink>,
+    lane_buffers: Vec<Vec<Sample>>,
+    lane_samples: usize,
+    expected: u64,
+}
+
+impl FanOut {
+    fn new(sinks: Vec<RxSink>, lane_samples: usize) -> Self {
+        let lane_samples = lane_samples.max(1);
+        Self {
+            lane_buffers: sinks
+                .iter()
+                .map(|_| Vec::with_capacity(lane_samples))
+                .collect(),
+            sinks,
+            lane_samples,
+            expected: 0,
+        }
+    }
+
+    fn lanes(&self) -> u64 {
+        self.sinks.len().max(1) as u64
+    }
+
+    fn item(&mut self, item: SinkItem<'_>) {
+        match item {
+            SinkItem::Samples { samples, index } => self.samples(samples, index),
+            SinkItem::Event(event) => self.event(event),
+        }
+    }
+
+    fn samples(&mut self, samples: &[Sample], index: u64) {
+        if index > self.expected {
+            self.gap(index - self.expected);
+        }
+        self.expected = index + samples.len() as u64;
+        let lanes = self.sinks.len();
+        let mut phase = (index % self.lanes()) as usize;
+        for chunk in samples.chunks(self.lane_samples * lanes) {
+            for lane in &mut self.lane_buffers {
+                lane.clear();
+            }
+            for (slot, sample) in chunk.iter().enumerate() {
+                self.lane_buffers[(phase + slot) % lanes].push(*sample);
+            }
+            phase = (phase + chunk.len()) % lanes;
+            for (sink, lane) in self.sinks.iter_mut().zip(&self.lane_buffers) {
+                sink.push(lane);
+            }
+        }
+    }
+
+    fn gap(&mut self, gap: u64) {
+        let lanes = self.lanes();
+        if gap.is_multiple_of(lanes) {
+            for sink in &mut self.sinks {
+                sink.dropped(gap / lanes);
+            }
+            return;
+        }
+        for sink in &mut self.sinks {
+            sink.dropped_estimate(gap.div_ceil(lanes), 1, GapScope::Device);
+            sink.realigned(Uncertainty::Unaligned, UNKNOWN_ERROR, GapScope::Device);
+        }
+    }
+
+    fn per_lane(&self, samples: u64) -> u64 {
+        if samples == UNKNOWN_ERROR {
+            UNKNOWN_ERROR
+        } else {
+            samples.div_ceil(self.lanes())
+        }
+    }
+
+    fn event(&mut self, event: LaneEvent) {
+        match event {
+            LaneEvent::Uncertain {
+                at,
+                error,
+                scope,
+                cause: Uncertainty::EstimatedGap,
+            } => {
+                let lost = self.per_lane(at.saturating_sub(self.expected));
+                let error = self.per_lane(error);
+                self.expected = self.expected.max(at);
+                for sink in &mut self.sinks {
+                    sink.dropped_estimate(lost, error, scope);
+                }
+            }
+            LaneEvent::Uncertain {
+                error,
+                scope,
+                cause,
+                ..
+            } => {
+                let error = self.per_lane(error);
+                for sink in &mut self.sinks {
+                    sink.realigned(cause, error, scope);
+                }
+            }
+            LaneEvent::Mark { mark, .. } => {
+                let mark = self.lane_mark(mark);
+                for sink in &mut self.sinks {
+                    sink.mark(mark);
+                }
+            }
+            LaneEvent::HardwareTime { ns, .. } => {
+                for sink in &mut self.sinks {
+                    sink.stamp_hardware(ns);
+                }
+            }
+        }
+    }
+
+    fn lane_mark(&self, mark: LaneMark) -> LaneMark {
+        match mark {
+            LaneMark::NoiseSource { on, in_flight } => LaneMark::NoiseSource {
+                on,
+                in_flight: self.per_lane(in_flight),
+            },
+            LaneMark::Retuned { in_flight } => LaneMark::Retuned {
+                in_flight: self.per_lane(in_flight),
+            },
+            LaneMark::GainChanged { in_flight } => LaneMark::GainChanged {
+                in_flight: self.per_lane(in_flight),
+            },
+            LaneMark::Ended => LaneMark::Ended,
+        }
+    }
+}
+
 pub(crate) fn fan_out(sinks: Vec<RxSink>, lane_samples: usize) -> RxSink {
-    let lanes = sinks.len();
-    if lanes <= 1 {
+    if sinks.len() <= 1 {
         return sinks
             .into_iter()
             .next()
@@ -398,29 +514,9 @@ pub(crate) fn fan_out(sinks: Vec<RxSink>, lane_samples: usize) -> RxSink {
     }
     let mut sinks = sinks;
     let failures: Vec<FatalHandle> = sinks.iter_mut().map(RxSink::share_failure).collect();
-    let mut lane_buffers: Vec<Vec<Sample>> = (0..lanes)
-        .map(|_| Vec::with_capacity(lane_samples))
-        .collect();
-    let mut expected: Option<u64> = None;
-    RxSink::with_fatal_handler(
-        move |samples, index| {
-            if let Some(expected) = expected.filter(|expected| index > *expected) {
-                let lost = (index - expected) / lanes as u64;
-                for sink in &mut sinks {
-                    sink.dropped(lost);
-                }
-            }
-            expected = Some(index + samples.len() as u64);
-            for lane in &mut lane_buffers {
-                lane.clear();
-            }
-            for (slot, sample) in samples.iter().enumerate() {
-                lane_buffers[slot % lanes].push(*sample);
-            }
-            for (sink, lane) in sinks.iter_mut().zip(&lane_buffers) {
-                sink.push(lane);
-            }
-        },
+    let mut fan = FanOut::new(sinks, lane_samples);
+    RxSink::with_items(
+        move |item| fan.item(item),
         move |error| {
             for failure in &failures {
                 failure.fail(error.clone());
@@ -432,6 +528,8 @@ pub(crate) fn fan_out(sinks: Vec<RxSink>, lane_samples: usize) -> RxSink {
 #[cfg(test)]
 mod tests {
     use std::sync::{Arc, mpsc};
+
+    use sdrmm_device::SinkItem;
 
     use super::*;
     use crate::iio::testing::Scripted;
@@ -580,6 +678,23 @@ mod tests {
     }
 
     #[test]
+    fn a_block_that_ends_between_lanes_keeps_the_next_one_on_its_lanes() {
+        let (first, left) = recording();
+        let (second, right) = recording();
+        let mut sink = fan_out(vec![first, second], 4);
+        let samples: Vec<Sample> = (1..=6).map(|n| Sample::new(n as f32, 0.0)).collect();
+        sink.push(&samples[..3]);
+        sink.push(&samples[3..]);
+        let lane = |seen: &mpsc::Receiver<(u64, Vec<f32>)>| {
+            seen.try_iter()
+                .flat_map(|(_, values)| values)
+                .collect::<Vec<f32>>()
+        };
+        assert_eq!(lane(&left), [1.0, 3.0, 5.0]);
+        assert_eq!(lane(&right), [2.0, 4.0, 6.0]);
+    }
+
+    #[test]
     fn a_gap_the_supervisor_reports_moves_every_lane_by_its_own_share() {
         let (first, left) = recording();
         let (second, right) = recording();
@@ -596,6 +711,137 @@ mod tests {
             "one sample delivered plus half the interleaved gap"
         );
         assert_eq!(right.try_recv().expect("lane 1").0, 51);
+    }
+
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    enum Seen {
+        Samples { index: u64, len: usize },
+        Event(LaneEvent),
+    }
+
+    fn items() -> (RxSink, Arc<Mutex<Vec<Seen>>>) {
+        let seen: Arc<Mutex<Vec<Seen>>> = Arc::default();
+        let log = seen.clone();
+        let sink = RxSink::with_items(
+            move |item: SinkItem<'_>| {
+                lock(&log).push(match item {
+                    SinkItem::Samples { samples, index } => Seen::Samples {
+                        index,
+                        len: samples.len(),
+                    },
+                    SinkItem::Event(event) => Seen::Event(event),
+                });
+            },
+            |_| {},
+        );
+        (sink, seen)
+    }
+
+    #[test]
+    fn two_buffers_of_one_lane_are_in_flight() {
+        assert_eq!(in_flight_samples(10e6, 8), 400_000);
+        assert_eq!(
+            in_flight_samples(0.0, 4),
+            2 * MIN_BUFFER_SAMPLES as u64,
+            "an unknown rate still holds the smallest buffer twice"
+        );
+        assert_eq!(in_flight_samples(61.44e6, 4), 2 * MAX_BUFFER_SAMPLES as u64);
+    }
+
+    #[test]
+    fn a_gap_not_divisible_by_lanes_is_uncertain() {
+        let (first, left) = items();
+        let (second, right) = items();
+        let mut sink = fan_out(vec![first, second], 4);
+        let block = [Sample::new(1.0, 0.0), Sample::new(2.0, 0.0)];
+        sink.push(&block);
+        sink.dropped(101);
+        sink.push(&block);
+        for lane in [left, right] {
+            assert_eq!(
+                *lock(&lane),
+                vec![
+                    Seen::Samples { index: 0, len: 1 },
+                    Seen::Event(LaneEvent::Uncertain {
+                        at: 52,
+                        error: 1,
+                        scope: GapScope::Device,
+                        cause: Uncertainty::EstimatedGap,
+                    }),
+                    Seen::Event(LaneEvent::Uncertain {
+                        at: 52,
+                        error: UNKNOWN_ERROR,
+                        scope: GapScope::Device,
+                        cause: Uncertainty::Unaligned,
+                    }),
+                    Seen::Samples { index: 52, len: 1 },
+                ]
+            );
+        }
+    }
+
+    #[test]
+    fn an_estimated_gap_from_the_supervisor_stays_an_estimate_on_every_lane() {
+        let (first, left) = items();
+        let (second, right) = items();
+        let mut sink = fan_out(vec![first, second], 4);
+        let block = [Sample::new(1.0, 0.0), Sample::new(2.0, 0.0)];
+        sink.push(&block);
+        sink.dropped_estimate(100, 100, GapScope::Lane);
+        sink.realigned(Uncertainty::Rearmed, UNKNOWN_ERROR, GapScope::Lane);
+        sink.push(&block);
+        for lane in [left, right] {
+            assert_eq!(
+                *lock(&lane),
+                vec![
+                    Seen::Samples { index: 0, len: 1 },
+                    Seen::Event(LaneEvent::Uncertain {
+                        at: 51,
+                        error: 50,
+                        scope: GapScope::Lane,
+                        cause: Uncertainty::EstimatedGap,
+                    }),
+                    Seen::Event(LaneEvent::Uncertain {
+                        at: 51,
+                        error: UNKNOWN_ERROR,
+                        scope: GapScope::Lane,
+                        cause: Uncertainty::Rearmed,
+                    }),
+                    Seen::Samples { index: 51, len: 1 },
+                ],
+                "the lanes must not count the estimate a second time as an exact gap"
+            );
+        }
+    }
+
+    #[test]
+    fn fan_out_never_grows_its_buffers() {
+        let (first, left) = items();
+        let (second, right) = items();
+        let mut fan = FanOut::new(vec![first, second], 4);
+        let before: Vec<(*const Sample, usize)> = fan
+            .lane_buffers
+            .iter()
+            .map(|lane| (lane.as_ptr(), lane.capacity()))
+            .collect();
+        let block: Vec<Sample> = (0..20).map(|n| Sample::new(n as f32, 0.0)).collect();
+        fan.samples(&block, 0);
+        let after: Vec<(*const Sample, usize)> = fan
+            .lane_buffers
+            .iter()
+            .map(|lane| (lane.as_ptr(), lane.capacity()))
+            .collect();
+        assert_eq!(before, after);
+        for lane in [left, right] {
+            assert_eq!(
+                *lock(&lane),
+                vec![
+                    Seen::Samples { index: 0, len: 4 },
+                    Seen::Samples { index: 4, len: 4 },
+                    Seen::Samples { index: 8, len: 2 },
+                ]
+            );
+        }
     }
 
     #[test]

@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { ChannelInfo, DeviceInfo, DeviceSet, PatchGraph, PatchNode } from "../lib/types";
+import { arrayPullFor } from "../lib/useTuner";
 import {
+  arrayOf,
   audioSourcesOf,
   bindCarriers,
   bindChannels,
@@ -14,6 +16,8 @@ import {
   inputsOf,
   iqLanesOf,
   iqSourceOf,
+  laneOutputOf,
+  laneTuneTarget,
   ownersOf,
   refMatches,
   speakerInputsOf,
@@ -106,27 +110,6 @@ describe("binding", () => {
       ],
     };
   }
-
-  it("binds array lanes and their channels alongside the source devices", () => {
-    const source = set(1, rtl);
-    const array = set(2, info({ driver: "array", key: "bench-pair" }), [channel(7, "nfm", 1)]);
-    const g: PatchGraph = {
-      nodes: [
-        node("dev", { kind: "device", data: { device: deviceRefOf(rtl) } }),
-        node("bench:pair", {
-          kind: "array",
-          data: { members: 2, coherence: "time_sync", shared_tuning: true },
-        }),
-        node("voice", { kind: "channel", data: { channel_type: "nfm" } }),
-      ],
-      edges: [{ from: { node: "bench:pair", port: "iq2" }, to: { node: "voice", port: "iq" } }],
-    };
-    const devices = bindDevices(g, [source, array]);
-    expect(devices.get("dev")?.id).toBe(1);
-    expect(devices.get("bench:pair")?.id).toBe(2);
-    expect(bindChannels(g, devices).get("voice")?.id).toBe(7);
-    expect(deviceNodeOf(g, "voice", ownersOf(bindCarriers(g, devices)))).toBe("bench:pair");
-  });
 
   it("speakerInputsOf lists only the channels wired into a speaker", () => {
     const g = graph();
@@ -642,68 +625,102 @@ describe("tuningControllerOf", () => {
   });
 });
 
-describe("beam wires", () => {
-  const kraken = info({ serial: "K" });
+function processors(): PatchGraph {
+  return {
+    nodes: [
+      node("kraken", {
+        kind: "device",
+        data: { device: { backend: "virtual", key: "kraken5" } },
+      }),
+      node("arr", { kind: "array" }),
+      node("beam", { kind: "beamformer" }),
+      node("wide", { kind: "stitch" }),
+      node("voice", { kind: "channel", data: { channel_type: "nfm" } }),
+      node("data", { kind: "channel", data: { channel_type: "nfm" } }),
+    ],
+    edges: [
+      { from: { node: "kraken", port: "iq" }, to: { node: "arr", port: "lane" } },
+      { from: { node: "kraken", port: "iq2" }, to: { node: "arr", port: "lane2" } },
+      { from: { node: "arr", port: "array" }, to: { node: "beam", port: "array" } },
+      { from: { node: "arr", port: "array" }, to: { node: "wide", port: "array" } },
+      { from: { node: "beam", port: "beam" }, to: { node: "voice", port: "iq" } },
+      { from: { node: "wide", port: "wide" }, to: { node: "data", port: "iq" } },
+    ],
+  };
+}
 
-  function beam(): PatchGraph {
-    return {
-      nodes: [
-        node("dev", { kind: "device", data: { device: deviceRefOf(kraken) } }),
-        node("comb", { kind: "combiner", data: {} }),
-        node("scope", { kind: "scope" }),
-        node("nfm", { kind: "channel", data: { channel_type: "nfm" } }),
-      ],
-      edges: [
-        { from: { node: "dev", port: "iq2" }, to: { node: "comb", port: "iq" } },
-        { from: { node: "dev", port: "iq3" }, to: { node: "comb", port: "iq2" } },
-        { from: { node: "comb", port: "beam" }, to: { node: "scope", port: "iq" } },
-        { from: { node: "comb", port: "beam" }, to: { node: "nfm", port: "iq" } },
-      ],
-    };
-  }
+function kraken(channels: ChannelInfo[] = [], listed = true): DeviceSet {
+  return {
+    ...set(1, info({ driver: "virtual", key: "kraken5", label: "KrakenSDR" }), channels),
+    settings: { center_hz: 145_000_000, sample_rate: 2_048_000 },
+    virtual_lanes: listed
+      ? [
+          { stream: 5, node: "beam", port: "beam", center_hz: 145_000_000, sample_rate: 200_000 },
+          { stream: 6, node: "wide", port: "wide", center_hz: 146_000_000, sample_rate: 8e6 },
+        ]
+      : [],
+  };
+}
 
-  function open(channels: ChannelInfo[] = []): DeviceSet {
-    const live = set(1, kraken, channels);
-    return { ...live, capabilities: { ...live.capabilities, rx_streams: 5 } };
-  }
+describe("virtual lanes", () => {
+  it("names lane outputs from the catalog", () => {
+    expect(laneOutputOf("beamformer")).toBe("beam");
+    expect(laneOutputOf("stitch")).toBe("wide");
+    expect(laneOutputOf("polarimeter")).toBe("beam");
+    expect(laneOutputOf("df")).toBeUndefined();
+    expect(laneOutputOf("device")).toBeUndefined();
+    expect(laneOutputOf(undefined)).toBeUndefined();
+  });
 
-  it("follow the combiner back to its radio, one lane past the last", () => {
-    const devices = bindDevices(beam(), [open()]);
-    expect(iqSourceOf(beam(), "scope", devices)).toEqual({
-      source: "dev",
+  it("finds the array behind a processor", () => {
+    expect(arrayOf(processors(), "beam")).toBe("arr");
+    expect(arrayOf(processors(), "voice")).toBeNull();
+  });
+
+  it("two processors on one radio get their own virtual lanes", () => {
+    const graph = processors();
+    const devices = bindDevices(graph, [kraken([channel(7, "nfm", 5), channel(8, "nfm", 6)])]);
+    expect(iqSourceOf(graph, "voice", devices)).toEqual({
+      source: "kraken",
       stream: 5,
-      beam: { node: "comb", port: "beam", tunes: 1 },
+      virtual: { node: "beam", port: "beam", array: "arr" },
     });
-    expect(deviceNodeOf(beam(), "scope")).toBe("dev");
+    expect(iqSourceOf(graph, "data", devices)?.stream).toBe(6);
+    const channels = bindChannels(graph, devices);
+    expect(channels.get("voice")?.id).toBe(7);
+    expect(channels.get("data")?.id).toBe(8);
+    expect(deviceNodeOf(graph, "voice", new Map(), devices)).toBe("kraken");
   });
 
-  it("bind a channel listening on the beam", () => {
-    const devices = bindDevices(beam(), [open([channel(7, "nfm", 5), channel(8, "nfm")])]);
-    expect(bindChannels(beam(), devices).get("nfm")?.id).toBe(7);
-  });
-
-  it("match nothing while the radio is closed", () => {
-    expect(iqSourceOf(beam(), "scope")?.stream).toBe(-1);
-  });
-
-  it("follow a stitch's wide output and tune the wide lane itself", () => {
-    const graph: PatchGraph = {
-      nodes: [
-        node("dev", { kind: "device", data: { device: deviceRefOf(kraken) } }),
-        node("wide", { kind: "stitch", data: {} }),
-        node("scope", { kind: "scope" }),
-      ],
-      edges: [
-        { from: { node: "dev", port: "iq" }, to: { node: "wide", port: "iq" } },
-        { from: { node: "dev", port: "iq2" }, to: { node: "wide", port: "iq2" } },
-        { from: { node: "wide", port: "wide" }, to: { node: "scope", port: "iq" } },
-      ],
-    };
-    const devices = bindDevices(graph, [open()]);
-    expect(iqSourceOf(graph, "scope", devices)).toEqual({
-      source: "dev",
-      stream: 5,
-      beam: { node: "wide", port: "wide", tunes: 5 },
+  it("a channel on a beam tunes the array", () => {
+    const graph = processors();
+    const devices = bindDevices(graph, [kraken()]);
+    const lane = iqSourceOf(graph, "voice", devices);
+    expect(lane).not.toBeNull();
+    if (lane === null) {
+      return;
+    }
+    expect(laneTuneTarget(lane)).toEqual({ kind: "array", node: "arr" });
+    const radio = devices.get("kraken");
+    expect(radio).toBeDefined();
+    if (radio === undefined) {
+      return;
+    }
+    expect(arrayPullFor(radio, lane, undefined, 145_050_000)).toBeNull();
+    expect(arrayPullFor(radio, lane, undefined, 433_000_000)).toBe("arr");
+    expect(laneTuneTarget({ source: "kraken", stream: 1 })).toEqual({
+      kind: "device",
+      node: "kraken",
+      stream: 1,
     });
+  });
+
+  it("no virtual lane listed means no radio yet", () => {
+    const graph = processors();
+    const devices = bindDevices(graph, [kraken([], false)]);
+    expect(iqSourceOf(graph, "voice", devices)).toBeNull();
+    expect(iqLanesOf(graph, "voice", devices)).toEqual([]);
+    expect(deviceNodeOf(graph, "voice", new Map(), devices)).toBeNull();
+    expect(bindChannels(graph, devices).get("voice")).toBeUndefined();
   });
 });

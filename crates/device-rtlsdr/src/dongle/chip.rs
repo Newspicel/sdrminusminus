@@ -258,6 +258,11 @@ impl<T: Transport> Chip<T> {
         self.make_output(pin)?;
         self.update_sys_bit(GPO, pin_bit(pin)?, high)
     }
+
+    #[cfg(test)]
+    pub(crate) fn pin_high(&self, pin: u8) -> Result<bool> {
+        Ok(self.read_block(Block::Sys, GPO, 1)? as u8 & pin_bit(pin)? != 0)
+    }
 }
 
 fn pin_bit(pin: u8) -> Result<u8> {

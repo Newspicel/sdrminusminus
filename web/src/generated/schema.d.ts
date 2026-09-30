@@ -36,6 +36,70 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/arrays": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_arrays"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/arrays/{node}/calibrate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["calibrate_array"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/arrays/{node}/recording": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["start_array_recording"];
+        delete: operations["stop_array_recording"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/arrays/{node}/tune": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch: operations["tune_array"];
+        trace?: never;
+    };
     "/api/audiorecordings": {
         parameters: {
             query?: never;
@@ -255,38 +319,6 @@ export interface paths {
         put?: never;
         post?: never;
         delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/coherent/{node}/calibrate": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post: operations["calibrate_coherent"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/coherent/{node}/fusion": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: operations["get_fusion"];
-        put?: never;
-        post?: never;
-        delete: operations["reset_fusion"];
         options?: never;
         head?: never;
         patch?: never;
@@ -820,6 +852,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/fusion/{node}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_fusion"];
+        put?: never;
+        post?: never;
+        delete: operations["reset_fusion"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/images": {
         parameters: {
             query?: never;
@@ -868,6 +916,54 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/missions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_missions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/missions/{node}/actions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["run_mission_action"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/missions/workspace": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["switch_mission_workspace"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/occupancy": {
         parameters: {
             query?: never;
@@ -895,6 +991,102 @@ export interface paths {
         put?: never;
         post?: never;
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/phones": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_phones"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/phones/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: operations["revoke_phone"];
+        options?: never;
+        head?: never;
+        patch: operations["rename_phone"];
+        trace?: never;
+    };
+    "/api/phones/access": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["set_phone_access"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/phones/offers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["create_pairing_offer"];
+        delete: operations["cancel_pairing_offer"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/phones/pair": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["pair_phone"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/phones/self": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_phone_self"];
+        put?: never;
+        post?: never;
+        delete: operations["unpair_phone_self"];
         options?: never;
         head?: never;
         patch?: never;
@@ -959,6 +1151,38 @@ export interface paths {
         put?: never;
         post: operations["apply_preset"];
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/radar/{node}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_radar"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/radar/{node}/tracks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: operations["clear_radar_tracks"];
         options?: never;
         head?: never;
         patch?: never;
@@ -1092,22 +1316,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/routing/route": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post: operations["get_route"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/satellites": {
         parameters: {
             query?: never;
@@ -1198,6 +1406,22 @@ export interface paths {
         get: operations["get_status"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/survey/{node}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_survey"];
+        put?: never;
+        post: operations["control_survey"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1364,6 +1588,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/workspaces/{id}/notices/{notice}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: operations["dismiss_workspace_notice"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/workspaces/{id}/redo": {
         parameters: {
             query?: never;
@@ -1418,33 +1658,15 @@ export interface components {
     schemas: {
         AboutResponse: {
             components: components["schemas"]["Attribution"][];
-            /**
-             * @description Every address on this machine a phone on the same network can reach the server at. An
-             *     operator browsing on localhost has an origin no other device can use, so the field-mode
-             *     handoff offers one of these instead.
-             */
-            lan_addresses?: string[];
             license: string;
             license_text: string;
-            local_only?: boolean;
             name: string;
-            /**
-             * @description Whether an operator has put a map archive next to the database, so the client can draw a
-             *     basemap with no internet at all.
-             */
-            offline_basemap?: boolean;
+            /** Format: int32 */
+            protocol: number;
             repository: string;
-            /**
-             * @description Whether this server can show a file in the machine's own file manager. Only the desktop
-             *     app, which runs on the machine holding the recordings, offers it; a browser reaching a
-             *     server elsewhere gets download links instead.
-             */
             reveal?: boolean;
-            /**
-             * @description Whether a routing backend is configured, so the field client knows whether to ask for a
-             *     route at all or go straight to heading guidance.
-             */
-            routing?: boolean;
+            server_id: string;
+            server_name: string;
             version: string;
         };
         AcarsMessage: {
@@ -1464,7 +1686,13 @@ export interface components {
             bandwidth_hz?: number;
         };
         /** @enum {string} */
+        Adaptation: "nlms" | "rls";
+        /** @enum {string} */
         Admit: "always" | "channel_free" | "color_code_free" | "different_color_code" | "tone_free";
+        AdsbMatch: {
+            callsign?: string | null;
+            icao: string;
+        };
         AdsbMessage: {
             /** Format: int32 */
             altitude_ft?: number | null;
@@ -1498,6 +1726,27 @@ export interface components {
             ref_lat?: number | null;
             /** Format: double */
             ref_lon?: number | null;
+        };
+        AdsbTruth: {
+            /** Format: float */
+            age_s: number;
+            /** Format: float */
+            altitude_m: number;
+            /** Format: float */
+            bearing_deg: number;
+            callsign?: string | null;
+            /** Format: float */
+            doppler_hz: number;
+            icao: string;
+            in_view: boolean;
+            /** Format: double */
+            lat: number;
+            /** Format: double */
+            lon: number;
+            /** Format: float */
+            range_km: number;
+            /** Format: int32 */
+            track_id?: number | null;
         };
         /** @enum {string} */
         AeroChannel: "p" | "burst" | "c";
@@ -1650,6 +1899,8 @@ export interface components {
         };
         /** @enum {string} */
         AntennaSegmentRole: "driven" | "parasitic" | "radial" | "matching" | "feedline" | "structure";
+        /** @enum {string} */
+        AoaState: "off" | "ready" | "phase_unknown" | "one_lane";
         ApiError: {
             code?: components["schemas"]["ErrorCode"] | null;
             detail?: string | null;
@@ -1702,23 +1953,160 @@ export interface components {
         };
         /** @enum {string} */
         ArgumentType: "bool" | "float" | "int" | "string";
+        ArrayCal: {
+            /**
+             * Format: int32
+             * @default 60
+             */
+            check_s: number;
+            /** @default false */
+            equaliser: boolean;
+            /**
+             * @default {
+             *       "kind": "noise"
+             *     }
+             */
+            source: components["schemas"]["ArrayCalSource"];
+            /** @default true */
+            warm_start: boolean;
+        };
+        ArrayCalSource: {
+            /** @enum {string} */
+            kind: "noise";
+        } | {
+            /** Format: double */
+            bandwidth_hz: number;
+            /** @enum {string} */
+            kind: "pilot";
+            /** Format: double */
+            offset_hz: number;
+        } | {
+            /** Format: double */
+            bandwidth_hz: number;
+            /** Format: double */
+            bearing_deg: number;
+            /** @enum {string} */
+            kind: "emitter";
+            /** Format: double */
+            offset_hz: number;
+        } | {
+            /** @enum {string} */
+            kind: "off";
+        };
         ArrayElement: {
             /** Format: double */
             x_m: number;
             /** Format: double */
             y_m: number;
+            /** Format: double */
+            z_m?: number;
         };
-        /** @description Where the elements are, in the terms an operator can measure with a tape. */
-        ArrayGeometry: {
+        ArrayFailure: {
+            /** @enum {string} */
+            kind: "unwired";
+        } | {
+            /** @enum {string} */
+            kind: "lane_gap";
             /** Format: int32 */
-            count: number;
+            lane: number;
+        } | {
+            /** @enum {string} */
+            kind: "duplicate_lane";
+            /** Format: int32 */
+            lane: number;
+        } | {
+            /** @enum {string} */
+            kind: "too_many_lanes";
+        } | {
+            by: string;
+            /** @enum {string} */
+            kind: "lane_held";
+            /** Format: int32 */
+            lane: number;
+        } | {
+            /** @enum {string} */
+            kind: "device_down";
+            /** Format: int32 */
+            lane: number;
+        } | {
+            /** @enum {string} */
+            kind: "not_coherent";
+        } | {
+            /** @enum {string} */
+            kind: "rates_differ";
+        } | {
+            /** @enum {string} */
+            kind: "spread_unsupported";
+        } | {
+            /** @enum {string} */
+            kind: "no_noise_source";
+        } | {
+            /** @enum {string} */
+            kind: "noise_shared";
+        } | {
+            /** @enum {string} */
+            kind: "noise_not_seen";
+        } | {
+            /** @enum {string} */
+            kind: "noise_clips";
+            /** Format: int32 */
+            lane: number;
+        } | {
+            /** Format: float */
+            coherence: number;
+            /** @enum {string} */
+            kind: "low_coherence";
+            /** Format: int32 */
+            lane: number;
+        } | {
+            /** @enum {string} */
+            kind: "no_common_signal";
+        } | {
+            /** @enum {string} */
+            kind: "clock_drift";
+            /** Format: double */
+            ppm: number;
+        } | {
+            /** @enum {string} */
+            kind: "slips_repeated";
+        } | {
+            /** @enum {string} */
+            kind: "geometry_mismatch";
+            /** Format: int32 */
+            lanes: number;
+            /** Format: int32 */
+            positions: number;
+        } | {
+            /** @enum {string} */
+            kind: "needs_position";
+        } | {
+            /** @enum {string} */
+            kind: "stopped";
+            message: string;
+        } | {
+            /** @enum {string} */
+            kind: "busy";
+        };
+        ArrayGain: {
+            /** Format: double */
+            db: number;
+            /** @enum {string} */
+            kind: "manual";
+        } | {
+            /** @enum {string} */
+            kind: "auto";
+        };
+        ArrayGeometry: {
+            /** Format: double */
+            first_deg?: number;
             /** @enum {string} */
             kind: "uca";
             /** Format: double */
             radius_m: number;
+            winding?: components["schemas"]["Winding"];
         } | {
-            /** Format: int32 */
-            count: number;
+            /** Format: double */
+            axis_deg: number;
             /** @enum {string} */
             kind: "ula";
             /** Format: double */
@@ -1728,25 +2116,162 @@ export interface components {
             kind: "explicit";
             positions: components["schemas"]["ArrayElement"][];
         };
-        /**
-         * @description A bank of separate radios the operator has wired to one clock, standing on the canvas as the
-         *     one radio they add up to.
-         *
-         *     Nothing here is discovered: which radios belong together, and whether their clock alone is
-         *     shared or their synthesizer too, is a fact about the bench that only the operator knows.
-         */
+        ArrayLaneStatus: {
+            clipping: boolean;
+            /** Format: float */
+            coherence: number;
+            /** Format: double */
+            delay_samples: number;
+            /** Format: int32 */
+            device_set?: number | null;
+            /** Format: float */
+            gain_db: number;
+            /** Format: int64 */
+            gap_samples: number;
+            /** Format: int64 */
+            gaps: number;
+            /** Format: int32 */
+            lane: number;
+            /** Format: float */
+            level_dbfs: number;
+            /** Format: float */
+            phase_deg: number;
+            /** Format: float */
+            residual_delay?: number | null;
+            /** Format: float */
+            residual_phase_deg?: number | null;
+            /** Format: int32 */
+            stream: number;
+            sync: components["schemas"]["SyncState"];
+            /** Format: int64 */
+            uncertain: number;
+        };
         ArrayNode: {
-            /** @default time_sync */
-            coherence: components["schemas"]["Coherence"];
             /**
-             * Format: int32
-             * @description How many radios are wired in. The node always draws one more input than that, so there is
-             *     somewhere to put the next one.
-             * @default 0
+             * @default {
+             *       "check_s": 60,
+             *       "equaliser": false,
+             *       "source": {
+             *         "kind": "noise"
+             *       },
+             *       "warm_start": true
+             *     }
              */
-            members: number;
-            /** @default true */
-            shared_tuning: boolean;
+            cal: components["schemas"]["ArrayCal"];
+            /** @default time_sync */
+            declared: components["schemas"]["Coherence"];
+            /**
+             * @default {
+             *       "first_deg": 0,
+             *       "kind": "uca",
+             *       "radius_m": 0.35,
+             *       "winding": "clockwise"
+             *     }
+             */
+            geometry: components["schemas"]["ArrayGeometry"];
+            /**
+             * @default {
+             *       "azimuth_deg": 0,
+             *       "kind": "fixed"
+             *     }
+             */
+            orientation: components["schemas"]["ArrayOrientation"];
+            /** @default together */
+            tuning: components["schemas"]["ArrayTuningMode"];
+        };
+        ArrayOrientation: {
+            /** Format: double */
+            azimuth_deg: number;
+            /** @enum {string} */
+            kind: "fixed";
+        } | {
+            /** @enum {string} */
+            kind: "heading";
+            /** Format: double */
+            mount_offset_deg: number;
+        };
+        ArrayRecordingRequest: {
+            name?: string | null;
+        };
+        ArrayRecordingStarted: {
+            stem: string;
+        };
+        ArrayRecordingStatus: {
+            /** Format: int64 */
+            dropped: number;
+            error?: string | null;
+            /** Format: int64 */
+            samples: number;
+            started_at: string;
+            stem: string;
+        };
+        ArrayStatus: {
+            /** Format: int32 */
+            anchor?: number | null;
+            /** Format: double */
+            azimuth_deg?: number | null;
+            cal: components["schemas"]["CalPhase"];
+            /** Format: double */
+            center_hz: number;
+            declared: components["schemas"]["Coherence"];
+            /** Format: double */
+            drift_ppm?: number | null;
+            /** Format: int64 */
+            dropped_samples: number;
+            /** Format: int64 */
+            events_lost: number;
+            failure?: components["schemas"]["ArrayFailure"] | null;
+            gain: components["schemas"]["ArrayGain"];
+            /** Format: double */
+            gain_db?: number | null;
+            gain_range_db?: components["schemas"]["Range"] | null;
+            /** Format: int32 */
+            generation: number;
+            heading_source?: components["schemas"]["HeadingSource"] | null;
+            lanes: components["schemas"]["ArrayLaneStatus"][];
+            last_solve_at?: string | null;
+            /** Format: double */
+            next_check_in_s?: number | null;
+            node: string;
+            phase_ready: boolean;
+            position?: components["schemas"]["LatLon"] | null;
+            processors?: components["schemas"]["ProcessorStatus"][];
+            /** Format: int64 */
+            realigns: number;
+            recording?: components["schemas"]["ArrayRecordingStatus"] | null;
+            /** Format: double */
+            sample_rate: number;
+            sync: components["schemas"]["SyncState"];
+            tier: components["schemas"]["Coherence"];
+            tier_capped: boolean;
+            tuning: components["schemas"]["ArrayTuningMode"];
+            /** Format: double */
+            unambiguous_hz?: number | null;
+        };
+        ArrayTune: {
+            /** Format: double */
+            center_hz: number;
+            gain: components["schemas"]["ArrayGain"];
+        };
+        ArrayTuneRequest: {
+            /** Format: double */
+            center_hz?: number | null;
+            gain?: components["schemas"]["ArrayGain"] | null;
+        };
+        /** @enum {string} */
+        ArrayTuningMode: "together" | "spread";
+        Attitude: {
+            /** Format: double */
+            heading_accuracy_deg?: number | null;
+            /** Format: double */
+            heading_deg?: number | null;
+            heading_source?: components["schemas"]["HeadingSource"] | null;
+            /** Format: double */
+            pitch_deg?: number | null;
+            /** Format: double */
+            roll_deg?: number | null;
+            /** Format: double */
+            yaw_rate_dps?: number | null;
         };
         Attribution: {
             license: string;
@@ -1915,6 +2440,139 @@ export interface components {
             /** @enum {string} */
             kind: "manual";
         };
+        Baseline: {
+            /** Format: int32 */
+            a: number;
+            /** Format: float */
+            azimuth_deg?: number;
+            /** Format: int32 */
+            b: number;
+            /** Format: float */
+            coherence: number;
+            /** Format: float */
+            delay_ns: number;
+            /** Format: float */
+            length_m?: number;
+            /** Format: float */
+            phase_deg?: number;
+            /** Format: float */
+            snr_db?: number;
+        };
+        BeamformerNode: {
+            settings?: components["schemas"]["BeamformerParams"];
+        };
+        BeamformerParams: {
+            /** @default nlms */
+            adaptation: components["schemas"]["Adaptation"];
+            /** @default false */
+            auto_nulls: boolean;
+            /**
+             * Format: double
+             * @default 200000
+             */
+            bandwidth_hz: number | null;
+            /**
+             * Format: float
+             * @default 0.699999988079071
+             */
+            carry_over: number;
+            /**
+             * Format: int32
+             * @default 20
+             */
+            crossfade_ms: number;
+            /**
+             * Format: float
+             * @default 0.9990000128746033
+             */
+            forget: number;
+            /**
+             * Format: float
+             * @default 0.10000000149011612
+             */
+            loading: number;
+            /**
+             * Format: int32
+             * @default 0
+             */
+            main_lane: number;
+            /** @default mrc */
+            mode: components["schemas"]["BeamMode"];
+            /** @default measured */
+            noise: components["schemas"]["NoiseModel"];
+            /** @default [] */
+            nulls_deg: number[];
+            /**
+             * Format: double
+             * @default 0
+             */
+            offset_hz: number;
+            /** @default [] */
+            reference_lanes: number[];
+            /**
+             * @default {
+             *       "kind": "wired"
+             *     }
+             */
+            steer: components["schemas"]["SteerSource"];
+            /**
+             * Format: int32
+             * @default 5000
+             */
+            steer_timeout_ms: number;
+            /**
+             * Format: float
+             * @default 0.05000000074505806
+             */
+            step: number;
+            /**
+             * Format: int32
+             * @default 1
+             */
+            taps: number;
+            /**
+             * Format: int32
+             * @default 200
+             */
+            update_ms: number;
+        };
+        BeamformerReading: {
+            at: string;
+            band_full?: boolean;
+            /** Format: float */
+            cancelled_db?: number | null;
+            diverged?: boolean;
+            /** Format: float */
+            loading_used?: number;
+            mode?: components["schemas"]["BeamMode"];
+            no_steer?: boolean;
+            null_depths_db?: number[];
+            nulls_deg: number[];
+            /** Format: double */
+            out_center_hz?: number;
+            /** Format: double */
+            out_rate?: number;
+            /** Format: float */
+            output_db: number;
+            pattern?: number[];
+            /** Format: int32 */
+            resets?: number;
+            singular?: boolean;
+            /** Format: float */
+            sinr_gain_db?: number | null;
+            /** Format: float */
+            snr_db?: number | null;
+            /** Format: int32 */
+            steer_age_ms?: number | null;
+            /** Format: float */
+            steer_deg?: number | null;
+            steer_stale?: boolean;
+            weights: components["schemas"]["LaneWeight"][];
+        };
+        /** @enum {string} */
+        BeamMode: "mrc" | "das" | "mvdr" | "lcmv" | "gsc" | "canceller" | "cma";
+        /** @enum {string} */
+        BearingSource: "array" | "sweep" | "mark";
         BeastExportStatus: {
             address: string;
             /** Format: int32 */
@@ -2001,47 +2659,8 @@ export interface components {
         };
         /** @enum {string} */
         BroadcastSystem: "dab" | "dab_plus" | "dvb_s" | "dvb_s2" | "dvb_t" | "dvb_t2" | "drm30" | "drm_plus";
-        CalParams: {
-            /**
-             * Format: double
-             * @description The width around the tuned centre the solve looks at.
-             * @default 200000
-             */
-            bandwidth_hz: number;
-            /**
-             * Format: double
-             * @description A continuous carrier that lets a time-synced array re-solve phase after every retune.
-             *     Without one such an array reports `phase_unknown` and refuses to guess a bearing.
-             * @default null
-             */
-            pilot_hz: number | null;
-            /** @default signal */
-            source: components["schemas"]["CalSource"];
-            /**
-             * @description Whether the solution keeps being refined once it is good, rather than being frozen.
-             * @default true
-             */
-            track: boolean;
-        };
         /** @enum {string} */
-        CalSource: "signal" | "noise";
-        /** @description What the calibration currently knows, published whether or not it is good news. */
-        CalState: {
-            lanes: components["schemas"]["LaneCal"][];
-            /**
-             * @description Set when inter-lane phase cannot be trusted: a time-synced array with no pilot to
-             *     re-solve against. Everything that depends on phase stays off while it is set.
-             */
-            phase_unknown: boolean;
-            /**
-             * @description Set while the radio's own reference is switched into the lanes. The array is looking at
-             *     itself rather than at the air, so nothing it reads in that moment is a report about the
-             *     world and none is published.
-             */
-            reference_on?: boolean;
-            solved: boolean;
-            tier: components["schemas"]["Coherence"];
-        };
+        CalPhase: "none" | "waiting" | "measuring" | "solved" | "warm" | "stale" | "failed";
         Capabilities: {
             agc?: components["schemas"]["Agc"];
             antennas: string[];
@@ -2062,14 +2681,10 @@ export interface components {
              *     each was taken at instead of a stream at one tuning.
              */
             hardware_sweep?: boolean;
-            /**
-             * @description Whether the radio can switch a calibration reference into every lane at once. An array
-             *     that carries its own is calibrated without an operator reaching for a splitter, and
-             *     without one it has to be told what to solve against.
-             */
-            noise_source?: boolean;
+            noise_source?: components["schemas"]["NoiseSource"];
             per_stream?: components["schemas"]["StreamScope"];
             ppm?: boolean;
+            retune_keeps_phase?: boolean;
             rx_stream_choices?: number[];
             /** Format: int32 */
             rx_streams?: number;
@@ -2113,6 +2728,18 @@ export interface components {
             name: string;
             tle: string;
         };
+        CfarKind: {
+            /** @enum {string} */
+            kind: "ca";
+        } | {
+            /** @enum {string} */
+            kind: "os";
+            /** Format: float */
+            rank: number;
+        } | {
+            /** @enum {string} */
+            kind: "go";
+        };
         CfarParams: {
             /**
              * Format: int32
@@ -2125,15 +2752,31 @@ export interface components {
              */
             guard_range: number;
             /**
+             * @default {
+             *       "kind": "ca"
+             *     }
+             */
+            kind: components["schemas"]["CfarKind"];
+            /**
              * Format: float
-             * @default 6
+             * @default 5
+             */
+            min_doppler_hz: number;
+            /**
+             * Format: float
+             * @default 1
+             */
+            min_range_km: number;
+            /**
+             * Format: float
+             * @default 8
              */
             min_snr_db: number;
             /**
-             * Format: float
-             * @default 0.00009999999747378752
+             * Format: double
+             * @default 0.00001
              */
-            probability_false_alarm: number;
+            pfa: number;
             /**
              * Format: int32
              * @default 4
@@ -2144,14 +2787,11 @@ export interface components {
              * @default 8
              */
             train_range: number;
-            /**
-             * Format: int32
-             * @description Doppler rows either side of zero that are never reported: the direct path and the ground
-             *     live there, and neither is a target.
-             * @default 1
-             */
-            zero_doppler_guard: number;
+            /** @default range */
+            window: components["schemas"]["CfarWindow"];
         };
+        /** @enum {string} */
+        CfarWindow: "range" | "plane";
         Channel: components["schemas"]["ChannelMode"] & {
             name: string;
             power?: components["schemas"]["Power"];
@@ -2450,6 +3090,18 @@ export interface components {
             params: components["schemas"]["ChannelParams"];
             squelch?: components["schemas"]["Squelch"];
         };
+        ChannelTarget: {
+            /** Format: double */
+            bandwidth_hz: number;
+            /** Format: int32 */
+            channel: number;
+            channel_node: string;
+            channel_type: string;
+            /** Format: int32 */
+            device_set: number;
+            /** Format: double */
+            frequency_hz: number;
+        };
         ChannelTypesResponse: {
             facets?: components["schemas"]["EventKindFacets"][];
             types: components["schemas"]["ChannelDescriptor"][];
@@ -2567,12 +3219,12 @@ export interface components {
             data: {
                 error?: string | null;
                 fix?: components["schemas"]["PositionFix"] | null;
-                node: string;
             };
             /** @enum {string} */
-            type: "PublishPosition";
+            type: "PublishPose";
         } | {
             data: {
+                fit?: components["schemas"]["SurfaceFit"] | null;
                 node: string;
             };
             /** @enum {string} */
@@ -2587,6 +3239,49 @@ export interface components {
         ClientsResponse: {
             /** Format: int32 */
             clients: number;
+        };
+        /** @enum {string} */
+        ClutterMethod: "eca_batch" | "eca_sliding" | "nlms" | "block_nlms" | "off";
+        ClutterParams: {
+            /**
+             * Format: float
+             * @default 50
+             */
+            batch_ms: number;
+            /**
+             * Format: int32
+             * @default 0
+             */
+            doppler_taps: number;
+            /**
+             * Format: float
+             * @default 25
+             */
+            extension_ms: number;
+            /**
+             * Format: int32
+             * @default 2
+             */
+            lead: number;
+            /**
+             * Format: float
+             * @default 0.00009999999747378752
+             */
+            loading: number;
+            /** @default eca_batch */
+            method: components["schemas"]["ClutterMethod"];
+            /**
+             * Format: float
+             * @default 15
+             */
+            reach_km: number;
+            /**
+             * Format: float
+             * @default 0.05000000074505806
+             */
+            step: number;
+            /** @default true */
+            taper: boolean;
         };
         Codeplug: {
             channels?: components["schemas"]["Channel"][];
@@ -2633,49 +3328,6 @@ export interface components {
          */
         Coherence: "none" | "time_sync" | "phase_coherent";
         /** @enum {string} */
-        CombineMode: "diversity" | "cancel";
-        /** @description A bank of antennas added into one signal: either to hear better, or to stop hearing something. */
-        CombinerNode: {
-            settings?: components["schemas"]["CombinerParams"];
-        };
-        CombinerParams: {
-            /**
-             * Format: double
-             * @default 200000
-             */
-            bandwidth_hz: number;
-            /**
-             * @default {
-             *       "bandwidth_hz": 200000,
-             *       "pilot_hz": null,
-             *       "source": "signal",
-             *       "track": true
-             *     }
-             */
-            cal: components["schemas"]["CalParams"];
-            /**
-             * Format: int32
-             * @description How many antennas are wired in. Lane zero is the one pointed at what you want.
-             * @default 2
-             */
-            lanes: number;
-            /** @default diversity */
-            mode: components["schemas"]["CombineMode"];
-            /**
-             * Format: double
-             * @description Where in the tuned span the signal of interest sits, and how much of it to take.
-             * @default 0
-             */
-            offset_hz: number;
-            /**
-             * Format: int32
-             * @description How often the weights are solved again. A scene that changes wants this short; one that
-             *     does not wants it long, because every solve is an estimate off a finite window.
-             * @default 500
-             */
-            update_ms: number;
-        };
-        /** @enum {string} */
         ComponentSource: "rust" | "web" | "native";
         Contact: {
             kind?: components["schemas"]["ContactKind"];
@@ -2699,6 +3351,46 @@ export interface components {
             issues: components["schemas"]["ConversionIssue"][];
             source_model?: string | null;
             target_model: string;
+        };
+        CorrelatorNode: {
+            settings?: components["schemas"]["CorrelatorParams"];
+        };
+        CorrelatorParams: {
+            /**
+             * Format: double
+             * @default null
+             */
+            bandwidth_hz: number | null;
+            /**
+             * Format: int32
+             * @default 1024
+             */
+            bins: number;
+            /**
+             * Format: int32
+             * @default 256
+             */
+            channels: number;
+            /**
+             * Format: float
+             * @default 1
+             */
+            integrate_s: number;
+            /**
+             * Format: double
+             * @default 0
+             */
+            offset_hz: number;
+            /** @default false */
+            overlap: boolean;
+        };
+        CorrelatorReading: {
+            at: string;
+            baselines: components["schemas"]["Baseline"][];
+            /** Format: int64 */
+            frames?: number;
+            /** Format: float */
+            integrated_s: number;
         };
         CpsCodeplugDetail: components["schemas"]["CpsCodeplugInfo"] & {
             codeplug: components["schemas"]["Codeplug"];
@@ -2884,6 +3576,9 @@ export interface components {
         CreatedRowId: {
             /** Format: int64 */
             id: number;
+        };
+        CreateOfferRequest: {
+            name?: string | null;
         };
         CreatePresetRequest: {
             name: string;
@@ -3128,7 +3823,7 @@ export interface components {
             /** @enum {string} */
             kind: "df_fix";
         } | {
-            data: components["schemas"]["RadarDetection"];
+            data: components["schemas"]["RadarTrackEvent"];
             /** @enum {string} */
             kind: "radar";
         } | {
@@ -3280,8 +3975,10 @@ export interface components {
             split_tuning?: boolean;
         };
         DeviceProfile: {
+            coherence?: components["schemas"]["Coherence"];
             duplex: components["schemas"]["Duplex"];
             freq_ranges: components["schemas"]["Range"][];
+            noise_source?: components["schemas"]["NoiseSource"];
             per_stream?: components["schemas"]["StreamScope"];
             /** Format: int32 */
             rx_streams: number;
@@ -3302,8 +3999,8 @@ export interface components {
             clipping?: number[];
             device: components["schemas"]["DeviceInfo"];
             error?: string | null;
-            extra_lane?: components["schemas"]["ExtraLane"] | null;
             fault?: components["schemas"]["DeviceFault"] | null;
+            held?: components["schemas"]["HeldLane"][];
             /** @description One hunt per decoder that is being hunted. */
             hunts?: components["schemas"]["HuntStatus"][];
             /** Format: int32 */
@@ -3321,6 +4018,7 @@ export interface components {
             settings: components["schemas"]["DeviceSettings"];
             status: components["schemas"]["DeviceSetStatus"];
             time_machine?: components["schemas"]["TimeMachineStatus"] | null;
+            virtual_lanes?: components["schemas"]["VirtualLane"][];
         };
         /** @enum {string} */
         DeviceSetStatus: "idle" | "running" | "error";
@@ -3349,24 +4047,37 @@ export interface components {
             devices: components["schemas"]["DeviceInfo"][];
         };
         /** @enum {string} */
-        DfAlgorithm: "correlative" | "music";
-        /**
-         * @description One bearing as an event, so it reaches the map, the log and every event output the same way a
-         *     decoded packet does, and so a remote station's webhook can post one straight into a
-         *     central fusion grid.
-         */
+        DfAlgorithm: "bartlett" | "capon" | "music" | "root_music" | "esprit";
         DfBearing: {
+            /** Format: float */
+            accuracy_m?: number | null;
             /** Format: float */
             bearing_deg: number;
             /** Format: float */
             confidence: number;
             /** Format: double */
+            freq_hz?: number | null;
+            /** Format: float */
+            heading_deg?: number | null;
+            /** Format: float */
+            heading_sigma_deg?: number | null;
+            /** Format: double */
             lat?: number | null;
+            likelihood?: number[];
             /** Format: double */
             lon?: number | null;
+            /** Format: float */
+            mirror_deg?: number | null;
+            moving?: boolean;
+            node?: string;
+            others?: components["schemas"]["DfOtherPeak"][];
+            /** Format: float */
+            relative_deg?: number | null;
+            /** Format: float */
+            sigma_deg?: number;
+            source?: components["schemas"]["BearingSource"];
             station_id?: string | null;
         };
-        /** @description Where the fusion grid says the transmitter is, and how sure of itself it is. */
         DfEstimate: {
             converged: boolean;
             /** Format: double */
@@ -3379,63 +4090,80 @@ export interface components {
             lat: number;
             /** Format: double */
             lon: number;
+            /** Format: float */
+            mass?: number;
             /** Format: int32 */
             samples: number;
         };
         DfFusionState: {
+            /** Format: int64 */
+            dropped?: number;
+            emitters?: components["schemas"]["DfEstimate"][];
             estimate?: components["schemas"]["DfEstimate"] | null;
-            guidance?: components["schemas"]["DfGuidance"] | null;
+            /** Format: int32 */
+            half_life_s?: number;
+            nav?: components["schemas"]["NavTarget"] | null;
+            no_bearings?: boolean;
+            no_guide_position?: boolean;
+            /** Format: int64 */
+            refused?: number;
             /** Format: int32 */
             samples: number;
             stations?: components["schemas"]["DfStation"][];
         };
-        DfGuidance: {
+        DfMission: {
+            array?: string | null;
             /** Format: double */
-            distance_m: number;
-            /** Format: double */
-            heading_deg: number;
-            mode: components["schemas"]["GuidanceMode"];
-            nav_target: components["schemas"]["NavTarget"];
+            center_hz?: number | null;
+            device_sets?: number[];
+            position?: components["schemas"]["PositionLink"] | null;
+            triangulations?: string[];
         };
-        /** @description A direction finder bound to every lane of one coherent radio. */
         DfNode: {
             settings?: components["schemas"]["DfParams"];
         };
+        DfOtherPeak: {
+            /** Format: float */
+            bearing_deg: number;
+            /** Format: float */
+            confidence: number;
+            /** Format: float */
+            sigma_deg: number;
+        };
         DfParams: {
-            /** @default correlative */
+            /** @default music */
             algorithm: components["schemas"]["DfAlgorithm"];
+            /**
+             * Format: double
+             * @default 1
+             */
+            azimuth_step_deg: number;
             /**
              * Format: double
              * @default 20000
              */
             bandwidth_hz: number;
             /**
-             * Format: double
-             * @description Where to point the summed beam. Unset follows whatever bearing the array found, which is
-             *     the whole point of having both on one node.
-             * @default null
+             * Format: float
+             * @default 0.5
              */
-            beam_bearing_deg: number | null;
+            carry_over: number;
+            /** @default false */
+            elevation: boolean;
+            /** @default false */
+            forward_backward: boolean;
             /**
-             * @default {
-             *       "bandwidth_hz": 200000,
-             *       "pilot_hz": null,
-             *       "source": "signal",
-             *       "track": true
-             *     }
+             * Format: float
+             * @default 0.0010000000474974513
              */
-            cal: components["schemas"]["CalParams"];
+            loading: number;
             /**
-             * @default {
-             *       "count": 4,
-             *       "kind": "uca",
-             *       "radius_m": 0.35
-             *     }
+             * Format: int32
+             * @default 2
              */
-            geometry: components["schemas"]["ArrayGeometry"];
+            max_peaks: number;
             /**
              * Format: double
-             * @description Where in the tuned span the signal of interest sits, and how much of it to take.
              * @default 0
              */
             offset_hz: number;
@@ -3446,36 +4174,109 @@ export interface components {
             report_ms: number;
             /**
              * Format: int32
-             * @description How many arrivals MUSIC should assume. One is right far more often than not.
-             * @default 1
+             * @default 0
              */
-            sources: number;
+            smoothing: number;
+            /** @default dominance */
+            source_rule: components["schemas"]["SourceRule"];
             /**
-             * @description What this receiver is called where its bearings are crossed with other receivers'. Unset
-             *     falls back to the node's own name.
+             * Format: int32
              * @default null
              */
+            sources: number | null;
+            /**
+             * Format: float
+             * @default 6
+             */
+            squelch_db: number;
+            /** @default null */
             station_id: string | null;
+            /** @default both */
+            ula_side: components["schemas"]["UlaSide"];
+            /**
+             * Format: float
+             * @default 20
+             */
+            yaw_gate_dps: number;
         };
-        /** @description One bearing, and the whole circle it was read off. */
-        DfReading: {
-            /** Format: float */
-            bearing_deg: number;
+        DfPeak: {
             /** Format: float */
             confidence: number;
             /** Format: float */
-            peak_to_floor_db: number;
-            /** @description One byte per degree, full scale at the peak. */
+            elevation_deg?: number | null;
+            /** Format: float */
+            fit?: number;
+            /** Format: float */
+            mirror_deg?: number | null;
+            /** Format: float */
+            mirror_true_deg?: number | null;
+            /** Format: float */
+            power_db: number;
+            /** Format: float */
+            relative_deg: number;
+            /** Format: float */
+            sigma_deg: number;
+            /** Format: float */
+            true_deg?: number | null;
+        };
+        DfReading: {
+            algorithm?: components["schemas"]["DfAlgorithm"];
+            aliasing: boolean;
+            /** Format: float */
+            aperture_wavelengths?: number;
+            at: string;
+            /** Format: double */
+            azimuth_deg?: number | null;
+            /** Format: float */
+            eig_ratio_db?: number;
+            eigenvalues_db?: number[];
+            /** Format: float */
+            fit?: number;
+            /** Format: double */
+            freq_hz?: number;
+            /** Format: int32 */
+            gated_blocks?: number;
+            /** Format: float */
+            heading_sigma_deg?: number | null;
+            /** Format: float */
+            lambda12_db?: number;
+            likelihood?: number[];
+            likelihood_true?: boolean;
+            mirror?: boolean;
+            mode_aliasing?: boolean;
+            peaks: components["schemas"]["DfPeak"][];
             pseudospectrum: number[];
+            rotating?: boolean;
+            singular?: boolean;
+            /** Format: float */
+            snapshots?: number;
+            /** Format: float */
+            snr_db?: number;
+            /** Format: int32 */
+            sources: number;
+            sources_auto: boolean;
+            /** Format: float */
+            spacing_ratio?: number;
+            /** Format: float */
+            span_db?: number;
+            squelched: boolean;
+            station?: components["schemas"]["LatLon"] | null;
+            table_out_of_range?: boolean;
         };
         DfStation: {
             /** Format: int32 */
             bearings: number;
+            /** Format: float */
+            last_bearing_deg?: number;
             last_seen: string;
             /** Format: double */
             lat: number;
             /** Format: double */
             lon: number;
+            moving?: boolean;
+            /** Format: float */
+            sigma_deg?: number;
+            source?: components["schemas"]["BearingSource"];
             station_id: string;
         };
         /**
@@ -3570,6 +4371,8 @@ export interface components {
             platform: string;
             version: string;
         };
+        /** @enum {string} */
+        DopplerWindow: "hann" | "blackman_harris" | "rectangular";
         DpmrParams: Record<string, never>;
         /** @enum {string} */
         DrmMode: "auto" | "drm30" | "drm_plus";
@@ -3579,6 +4382,11 @@ export interface components {
             mode?: components["schemas"]["DrmMode"];
             /** Format: int32 */
             service?: number | null;
+        };
+        DroppedNode: {
+            id: string;
+            kind: string;
+            label?: string | null;
         };
         DscParams: Record<string, never>;
         DstarParams: Record<string, never>;
@@ -3682,28 +4490,6 @@ export interface components {
         };
         /** @enum {string} */
         DvTrunkProtocol: "capacity_plus" | "hytera_xpt" | "tier_three";
-        EcaParams: {
-            /**
-             * Format: int32
-             * @default 16384
-             */
-            batch_samples: number;
-            /**
-             * Format: int32
-             * @default 32
-             */
-            delay_taps: number;
-            /**
-             * Format: int32
-             * @default 0
-             */
-            doppler_bins: number;
-            /**
-             * Format: float
-             * @default 0.00009999999747378752
-             */
-            loading: number;
-        };
         ErmesMessage: {
             /** Format: int32 */
             alert: number;
@@ -3723,11 +4509,10 @@ export interface components {
             invert?: boolean;
         };
         /**
-         * @description Which part of the server refused, independent of the wording. A client groups repeats and
-         *     titles a bug report by this; the prose in `error` is free to change.
+         * @description Which part of the server refused. Stable, unlike the wording in `error`.
          * @enum {string}
          */
-        ErrorCode: "request" | "not_found" | "conflict" | "unavailable" | "engine" | "storage" | "tool" | "forbidden" | "internal";
+        ErrorCode: "request" | "not_found" | "conflict" | "unavailable" | "engine" | "storage" | "tool" | "forbidden" | "internal" | "auth" | "rate_limited";
         EventAudio: {
             media_type: string;
             url: string;
@@ -3811,14 +4596,6 @@ export interface components {
         };
         /** @enum {string} */
         ExportFormat: "csv" | "json";
-        ExtraLane: {
-            /** Format: double */
-            center_hz: number;
-            /** Format: double */
-            sample_rate: number;
-            /** Format: int32 */
-            stream: number;
-        };
         ExtraSetting: {
             default: boolean;
             /** @enum {string} */
@@ -3894,6 +4671,21 @@ export interface components {
             /** Format: int64 */
             upper_hz: number;
         };
+        FusionDecay: {
+            /** @enum {string} */
+            kind: "auto";
+        } | {
+            /** @enum {string} */
+            kind: "fixed";
+        } | {
+            /** @enum {string} */
+            kind: "moving";
+        } | {
+            /** @enum {string} */
+            kind: "half_life";
+            /** Format: int32 */
+            seconds: number;
+        };
         /** @enum {string} */
         GainKind: "lna" | "mixer" | "vga" | "if" | "rf" | "tuner" | "amp" | "attenuator" | "tx" | "other";
         GainStage: {
@@ -3951,6 +4743,8 @@ export interface components {
         GpsNode: {
             source?: components["schemas"]["PositionSource"] | null;
         };
+        /** @enum {string} */
+        GpuUse: "auto" | "off";
         GroundPlaneParams: {
             /** Format: double */
             radial_slope_deg?: number;
@@ -3962,69 +4756,112 @@ export interface components {
             name: string;
         };
         /** @enum {string} */
-        GuidanceMode: "cross" | "approach";
+        Hand: "right" | "left" | "linear";
+        /** @enum {string} */
+        HeadingSource: "compass" | "course" | "fused" | "gnss" | "sensor";
+        HeldLane: {
+            array: string;
+            /** Format: int32 */
+            stream: number;
+        };
         HfdlParams: Record<string, never>;
         /** @enum {string} */
-        HuntAction: "start" | "stop";
-        /** @description What a hunt node remembers between sessions: whether the operator wanted a click track. */
+        HuntAction: "start" | "stop" | "sweep" | "mark";
+        HuntMission: {
+            clicks: boolean;
+            position?: components["schemas"]["PositionLink"] | null;
+            status?: components["schemas"]["HuntStatus"] | null;
+            target?: components["schemas"]["ChannelTarget"] | null;
+            triangulations?: string[];
+        };
         HuntNode: {
             clicks?: boolean;
+            sweep?: components["schemas"]["HuntSweepParams"];
         };
         HuntRequest: {
             action: components["schemas"]["HuntAction"];
             settings?: components["schemas"]["HuntSettings"] | null;
         };
         HuntSettings: {
-            /**
-             * Format: int32
-             * @description The decoder being hunted. Its frequency and bandwidth are what the readings measure, so
-             *     retuning it retunes the hunt.
-             */
+            /** Format: int32 */
             channel: number;
-            /**
-             * Format: int32
-             * @description How often a reading is published. A hunt is walked with, so the feedback has to keep up
-             *     with the steps rather than with a status panel.
-             */
+            /** Format: int32 */
             interval_ms?: number;
+            node?: string | null;
+            sweep?: components["schemas"]["HuntSweepParams"];
         };
         HuntStatus: {
+            /** Format: int64 */
+            at_ms?: number;
             /** Format: float */
             best_db?: number | null;
             /** Format: double */
             bw_hz?: number;
-            /** @description Whether the last few readings are climbing: the answer to "warmer or colder". */
             closing?: boolean;
             error?: string | null;
-            /**
-             * Format: float
-             * @description The quietest and loudest this hunt has seen, so a meter can scale itself to the ground
-             *     actually covered instead of to a guess about how loud the transmitter is.
-             */
+            /** Format: float */
             floor_db?: number | null;
-            /**
-             * Format: double
-             * @description The frequency the readings are taken on: the decoder's, as of the last reading.
-             */
+            /** Format: double */
             freq_hz?: number;
-            /**
-             * Format: float
-             * @description The strongest reading in the last interval.
-             */
+            /** Format: float */
             level_db?: number | null;
+            /** Format: int64 */
+            pose_drops?: number;
             /** Format: int64 */
             readings: number;
             settings: components["schemas"]["HuntSettings"];
-            /**
-             * Format: float
-             * @description The reading with the jitter taken out, which is what a walking operator can act on.
-             */
+            /** Format: float */
             smooth_db?: number | null;
+            /** Format: float */
+            strength?: number;
+            sweep?: components["schemas"]["HuntSweep"] | null;
+        };
+        HuntSweep: {
+            bins: number[];
+            /** Format: float */
+            contrast_db?: number | null;
+            /** Format: float */
+            covered_deg: number;
+            /** Format: float */
+            fit?: number | null;
+            /** Format: float */
+            heading_deg?: number | null;
+            /** Format: float */
+            lag_ms?: number;
+            /** Format: float */
+            peak_deg?: number | null;
+            /** Format: float */
+            rate_dps?: number;
+            /** Format: float */
+            sigma_deg?: number | null;
+            state?: components["schemas"]["SweepState"];
+        };
+        HuntSweepParams: {
+            /**
+             * Format: double
+             * @default 60
+             */
+            beamwidth_deg: number;
+            /**
+             * Format: double
+             * @default 15
+             */
+            front_back_db: number;
             /**
              * Format: float
-             * @description Where the current reading sits between `floor_db` and `best_db`, from 0 to 1.
+             * @default 6
              */
-            strength?: number;
+            min_contrast_db: number;
+            /**
+             * Format: double
+             * @default 180
+             */
+            min_span_deg: number;
+            /**
+             * Format: double
+             * @default 0
+             */
+            mount_offset_deg: number;
         };
         IdentFeatures: {
             /** Format: float */
@@ -4095,14 +4932,22 @@ export interface components {
             /** Format: double */
             symbol_rate_hz?: number | null;
         };
-        /** @description The transmitter being borrowed, so a bistatic range can be drawn on a map. */
         Illuminator: {
+            /** @enum {string} */
+            kind: "fm";
+        } | {
+            /** @enum {string} */
+            kind: "dab";
+        } | {
             /** Format: double */
-            freq_hz: number;
+            bandwidth_hz: number;
+            /** @enum {string} */
+            kind: "dvbt_partial";
+        } | {
             /** Format: double */
-            lat: number;
-            /** Format: double */
-            lon: number;
+            bandwidth_hz: number;
+            /** @enum {string} */
+            kind: "custom";
         };
         /** @enum {string} */
         IlsComponent: "localizer" | "glideslope";
@@ -4167,24 +5012,23 @@ export interface components {
         IssueSeverity: "note" | "adjusted" | "dropped";
         /** @enum {string} */
         ItuRegion: "r1" | "r2" | "r3";
-        LaneCal: {
-            /** Format: float */
-            delay_samples: number;
-            /** Format: float */
-            gain_db: number;
-            /** Format: float */
-            phase_deg: number;
-            /**
-             * Format: float
-             * @description Magnitude-squared coherence against lane zero, in `0..=1`.
-             */
-            quality: number;
-        };
         LaneLevel: {
             /** Format: float */
             peak_db: number;
             /** Format: int32 */
             stream: number;
+        };
+        LaneWeight: {
+            /** Format: float */
+            amplitude_db: number;
+            /** Format: float */
+            phase_deg: number;
+        };
+        LatLon: {
+            /** Format: double */
+            lat: number;
+            /** Format: double */
+            lon: number;
         };
         LicenseTextResponse: {
             id: string;
@@ -4199,19 +5043,134 @@ export interface components {
             target: string;
         };
         M17Params: Record<string, never>;
-        Maneuver: {
-            at: components["schemas"]["RoutePoint"];
-            /** Format: double */
-            distance_m: number;
-            instruction: string;
-            kind: components["schemas"]["ManeuverKind"];
+        MdnsState: {
+            /** @enum {string} */
+            state: "off";
+        } | {
+            instance: string;
+            /** @enum {string} */
+            state: "on";
+        } | {
+            reason: string;
+            /** @enum {string} */
+            state: "failed";
         };
-        /** @enum {string} */
-        ManeuverKind: "depart" | "continue" | "left" | "slight_left" | "sharp_left" | "right" | "slight_right" | "sharp_right" | "u_turn" | "roundabout" | "arrive";
         /** @enum {string} */
         MergeMode: "replace" | "append" | "union";
         /** @enum {string} */
         MergePart: "contacts" | "group_lists" | "channels" | "zones" | "scan_lists" | "radio_ids" | "settings";
+        Mission: components["schemas"]["MissionBody"] & {
+            controls?: components["schemas"]["MissionControl"][];
+            label: string;
+            node: string;
+            problems?: components["schemas"]["MissionProblem"][];
+            ready: boolean;
+        };
+        MissionAction: {
+            /** @enum {string} */
+            action: "tune";
+            /** Format: double */
+            frequency_hz: number;
+        } | {
+            /** @enum {string} */
+            action: "calibrate";
+        } | {
+            /** @enum {string} */
+            action: "start_hunt";
+        } | {
+            /** @enum {string} */
+            action: "stop_hunt";
+        } | {
+            /** @enum {string} */
+            action: "start_sweep";
+        } | {
+            /** @enum {string} */
+            action: "stop_sweep";
+        } | {
+            /** @enum {string} */
+            action: "mark";
+        } | {
+            /** @enum {string} */
+            action: "clear_fusion";
+        } | {
+            /** @enum {string} */
+            action: "start_survey";
+        } | {
+            /** @enum {string} */
+            action: "stop_survey";
+        } | {
+            /** @enum {string} */
+            action: "clear_survey";
+        };
+        MissionActionResponse: {
+            mission: components["schemas"]["Mission"];
+        };
+        MissionBody: {
+            data: components["schemas"]["HuntMission"];
+            /** @enum {string} */
+            kind: "hunt";
+        } | {
+            data: components["schemas"]["DfMission"];
+            /** @enum {string} */
+            kind: "df";
+        } | {
+            data: components["schemas"]["RadarMission"];
+            /** @enum {string} */
+            kind: "radar";
+        } | {
+            data: components["schemas"]["SurveyMission"];
+            /** @enum {string} */
+            kind: "survey";
+        } | {
+            data: components["schemas"]["TriangulationMission"];
+            /** @enum {string} */
+            kind: "triangulation";
+        };
+        /** @enum {string} */
+        MissionControl: "tune" | "calibrate" | "start_hunt" | "stop_hunt" | "start_sweep" | "stop_sweep" | "mark" | "clear_fusion" | "start_survey" | "stop_survey" | "clear_survey";
+        MissionProblem: {
+            port: string;
+            /** @enum {string} */
+            problem: "unwired";
+        } | {
+            /** @enum {string} */
+            problem: "not_running";
+        } | {
+            /** @enum {string} */
+            problem: "no_position";
+        } | {
+            phone: string;
+            /** @enum {string} */
+            problem: "phone_offline";
+        } | {
+            phone: string;
+            /** @enum {string} */
+            problem: "phone_not_paired";
+        } | {
+            /** @enum {string} */
+            problem: "scanning";
+        } | {
+            /** @enum {string} */
+            problem: "out_of_band";
+        } | {
+            /** @enum {string} */
+            problem: "refused";
+            reason: string;
+        };
+        MissionsResponse: {
+            missions: components["schemas"]["Mission"][];
+            /** Format: int64 */
+            revision: number;
+            /** Format: int32 */
+            truncated?: number;
+            workspace?: components["schemas"]["MissionWorkspace"] | null;
+            workspaces: components["schemas"]["MissionWorkspace"][];
+        };
+        MissionWorkspace: {
+            /** Format: int64 */
+            id: number;
+            name: string;
+        };
         /** @enum {string} */
         Modulation: "none" | "carrier" | "ook" | "am" | "ssb" | "fm" | "fsk2" | "fsk4" | "fsk8" | "psk2" | "psk4" | "ofdm" | "noise_like" | "unknown";
         MorseParams: {
@@ -4389,15 +5348,23 @@ export interface components {
             /** Format: int64 */
             stop_hz: number;
         };
+        /** @enum {string} */
+        NavMode: "auto" | "direct" | "off";
         NavTarget: {
+            /** Format: double */
+            bearing_deg: number;
+            /** Format: double */
+            distance_m: number;
             kind: components["schemas"]["NavTargetKind"];
             /** Format: double */
             lat: number;
             /** Format: double */
             lon: number;
+            /** Format: int32 */
+            revision: number;
         };
         /** @enum {string} */
-        NavTargetKind: "cross" | "target";
+        NavTargetKind: "probe" | "estimate";
         NavtexMessage: {
             complete: boolean;
             /** Format: int32 */
@@ -4597,18 +5564,31 @@ export interface components {
             /** @enum {string} */
             kind: "df";
         } | {
+            data: components["schemas"]["BeamformerNode"];
+            /** @enum {string} */
+            kind: "beamformer";
+        } | {
             data: components["schemas"]["PassiveRadarNode"];
             /** @enum {string} */
             kind: "passive_radar";
-        } | {
-            data: components["schemas"]["CombinerNode"];
-            /** @enum {string} */
-            kind: "combiner";
         } | {
             data: components["schemas"]["StitchNode"];
             /** @enum {string} */
             kind: "stitch";
         } | {
+            data: components["schemas"]["SpatialSpectrumNode"];
+            /** @enum {string} */
+            kind: "spatial_spectrum";
+        } | {
+            data: components["schemas"]["CorrelatorNode"];
+            /** @enum {string} */
+            kind: "correlator";
+        } | {
+            data: components["schemas"]["PolarimeterNode"];
+            /** @enum {string} */
+            kind: "polarimeter";
+        } | {
+            data: components["schemas"]["TriangulationNode"];
             /** @enum {string} */
             kind: "triangulation";
         };
@@ -4616,6 +5596,7 @@ export interface components {
         NodeCategory: "source" | "channel" | "tool" | "output";
         NodeTypeInfo: {
             category: components["schemas"]["NodeCategory"];
+            default_body: components["schemas"]["NodeBody"];
             kind: string;
             name: string;
             needs_channel_type?: boolean;
@@ -4627,6 +5608,10 @@ export interface components {
             /** Format: float */
             threshold?: number;
         };
+        /** @enum {string} */
+        NoiseModel: "measured" | "white";
+        /** @enum {string} */
+        NoiseSource: "none" | "isolated" | "unisolated" | "replayed";
         NotchSettings: {
             /** Format: double */
             freq_hz?: number;
@@ -4654,9 +5639,62 @@ export interface components {
             buckets: components["schemas"]["OccupancyBucket"][];
             since: string;
         };
+        OfferState: {
+            /** @enum {string} */
+            state: "live";
+        } | {
+            phone: string;
+            /** @enum {string} */
+            state: "used";
+        } | {
+            /** @enum {string} */
+            state: "burned";
+        } | {
+            /** @enum {string} */
+            state: "expired";
+        } | {
+            /** @enum {string} */
+            state: "cancelled";
+        } | {
+            /** @enum {string} */
+            state: "superseded";
+        };
         P25Params: Record<string, never>;
         /** @enum {string} */
         PagerPayload: "tone" | "numeric" | "alpha" | "binary";
+        PairingOffer: {
+            code: string;
+            endpoint: components["schemas"]["PhoneEndpoint"];
+            expires_at: string;
+            id: string;
+            key_check: string;
+            uri: string;
+        };
+        PairingOfferStatus: {
+            code?: string | null;
+            expires_at: string;
+            /** Format: int32 */
+            failures: number;
+            id: string;
+            state: components["schemas"]["OfferState"];
+            uri?: string | null;
+        };
+        PairRequest: {
+            code: string;
+            name: string;
+            platform: components["schemas"]["PhonePlatform"];
+            /** Format: int32 */
+            protocol: number;
+            rebind?: string | null;
+        };
+        PairResponse: {
+            phone: components["schemas"]["Phone"];
+            /** Format: int32 */
+            protocol: number;
+            server_id: string;
+            server_name: string;
+            token: string;
+        };
         /** @description The range a numeric decoder setting is accepted in, named by its field in the params struct. */
         ParamLimit: {
             /** Format: double */
@@ -4667,49 +5705,113 @@ export interface components {
             /** Format: double */
             step?: number | null;
         };
-        /** @description A passive radar: one lane watching the illuminator, one watching the sky. */
         PassiveRadarNode: {
             settings?: components["schemas"]["PassiveRadarParams"];
         };
         PassiveRadarParams: {
+            /** @default true */
+            aoa: boolean;
+            /**
+             * Format: float
+             * @default 8000
+             */
+            assumed_altitude_m: number;
             /**
              * @default {
              *       "guard_doppler": 1,
              *       "guard_range": 2,
-             *       "min_snr_db": 6,
-             *       "probability_false_alarm": 0.00009999999747378752,
+             *       "kind": {
+             *         "kind": "ca"
+             *       },
+             *       "min_doppler_hz": 5,
+             *       "min_range_km": 1,
+             *       "min_snr_db": 8,
+             *       "pfa": 0.00001,
              *       "train_doppler": 4,
              *       "train_range": 8,
-             *       "zero_doppler_guard": 1
+             *       "window": "range"
              *     }
              */
             cfar: components["schemas"]["CfarParams"];
             /**
-             * Format: int32
-             * @default 200
-             */
-            cpi_ms: number;
-            /**
-             * Format: double
-             * @default 200
-             */
-            doppler_span_hz: number;
-            /**
              * @default {
-             *       "batch_samples": 16384,
-             *       "delay_taps": 32,
-             *       "doppler_bins": 0,
-             *       "loading": 0.00009999999747378752
+             *       "batch_ms": 50,
+             *       "doppler_taps": 0,
+             *       "extension_ms": 25,
+             *       "lead": 2,
+             *       "loading": 0.00009999999747378752,
+             *       "method": "eca_batch",
+             *       "reach_km": 15,
+             *       "step": 0.05000000074505806,
+             *       "taper": true
              *     }
              */
-            eca: components["schemas"]["EcaParams"];
-            /** @default null */
-            illuminator: components["schemas"]["Illuminator"] | null;
+            clutter: components["schemas"]["ClutterParams"];
             /**
              * Format: int32
-             * @default 256
+             * @default 500
              */
-            max_range_bins: number;
+            cpi_ms: number;
+            /** @default auto */
+            gpu: components["schemas"]["GpuUse"];
+            /**
+             * @default {
+             *       "kind": "fm"
+             *     }
+             */
+            illuminator: components["schemas"]["Illuminator"];
+            /**
+             * Format: float
+             * @default 80
+             */
+            max_range_km: number;
+            /**
+             * Format: float
+             * @default 400
+             */
+            max_speed_mps: number;
+            /**
+             * Format: double
+             * @default 0
+             */
+            offset_hz: number;
+            /**
+             * Format: float
+             * @default 0
+             */
+            overlap: number;
+            /**
+             * @default {
+             *       "kind": "cma",
+             *       "step": 0.0010000000474974513,
+             *       "taps": 16
+             *     }
+             */
+            reference: components["schemas"]["ReferenceCleaning"];
+            /**
+             * Format: int32
+             * @default 0
+             */
+            reference_element: number;
+            /**
+             * @default {
+             *       "kind": "all_others"
+             *     }
+             */
+            surveillance: components["schemas"]["SurveillanceSet"];
+            /**
+             * @default {
+             *       "coast_looks": 10,
+             *       "confirm_hits": 3,
+             *       "confirm_window": 5,
+             *       "gate": 11.800000190734863,
+             *       "jerk": 5,
+             *       "max_accel_mps2": 30
+             *     }
+             */
+            tracker: components["schemas"]["TrackerParams"];
+            /** @default hann */
+            window: components["schemas"]["DopplerWindow"];
         };
         PatchApplyReport: {
             absent?: string[];
@@ -4748,6 +5850,63 @@ export interface components {
         PatchRefusal: {
             node: string;
             reason: string;
+        };
+        Phone: {
+            created_at: string;
+            gps_nodes?: string[];
+            id: string;
+            last_seen?: string | null;
+            name: string;
+            online: boolean;
+            platform: components["schemas"]["PhonePlatform"];
+        };
+        PhoneAccess: {
+            enabled: boolean;
+            /** Format: int32 */
+            port: number;
+        };
+        PhoneAccessStatus: {
+            access: components["schemas"]["PhoneAccess"];
+            endpoint?: components["schemas"]["PhoneEndpoint"] | null;
+            listener: components["schemas"]["PhoneListenerState"];
+            mdns: components["schemas"]["MdnsState"];
+            /** Format: int32 */
+            protocol: number;
+        };
+        PhoneEndpoint: {
+            dedicated: boolean;
+            hosts: string[];
+            key_check: string;
+            pin: string;
+            /** Format: int32 */
+            port: number;
+        };
+        PhoneListenerState: {
+            /** @enum {string} */
+            state: "off";
+        } | {
+            /** Format: int32 */
+            port: number;
+            /** @enum {string} */
+            state: "on";
+        } | {
+            /** Format: int32 */
+            port: number;
+            reason: string;
+            /** @enum {string} */
+            state: "failed";
+        };
+        /** @enum {string} */
+        PhonePlatform: "ios" | "android";
+        PhoneSelf: {
+            phone: components["schemas"]["Phone"];
+            server_id: string;
+            server_name: string;
+        };
+        PhonesResponse: {
+            access: components["schemas"]["PhoneAccessStatus"];
+            offer?: components["schemas"]["PairingOfferStatus"] | null;
+            phones: components["schemas"]["Phone"][];
         };
         PipelineQueue: {
             /** Format: int32 */
@@ -4803,6 +5962,74 @@ export interface components {
         };
         /** @enum {string} */
         PocsagPayload: "tone" | "numeric" | "alpha";
+        PolarimeterNode: {
+            settings?: components["schemas"]["PolarimeterParams"];
+        };
+        PolarimeterParams: {
+            /**
+             * Format: int32
+             * @default 500
+             */
+            average_ms: number;
+            /**
+             * Format: double
+             * @default 20000
+             */
+            bandwidth_hz: number;
+            /**
+             * Format: int32
+             * @default 20
+             */
+            crossfade_ms: number;
+            /** @default false */
+            flip_hand: boolean;
+            /**
+             * Format: int32
+             * @default 0
+             */
+            h_lane: number;
+            /** @default true */
+            matched: boolean;
+            /**
+             * Format: double
+             * @default 0
+             */
+            offset_hz: number;
+            /**
+             * Format: int32
+             * @default 250
+             */
+            report_ms: number;
+            /**
+             * Format: int32
+             * @default 1
+             */
+            v_lane: number;
+        };
+        PolarimeterReading: {
+            /** Format: float */
+            angle_deg: number;
+            at: string;
+            /** Format: float */
+            degree: number;
+            /** Format: float */
+            ellipticity_deg: number;
+            hand?: components["schemas"]["Hand"];
+            /** Format: float */
+            i_db: number;
+            /** Format: double */
+            out_center_hz?: number;
+            /** Format: double */
+            out_rate?: number;
+            /** Format: float */
+            q: number;
+            /** Format: float */
+            snr_db?: number | null;
+            /** Format: float */
+            u: number;
+            /** Format: float */
+            v: number;
+        };
         /** @enum {string} */
         PortCondition: "always" | "channel_has_audio" | "channel_is_decoder" | "channel_has_video" | "channel_needs_position" | "device_is_tx_capable";
         /** @enum {string} */
@@ -4814,7 +6041,7 @@ export interface components {
             port: string;
         };
         /** @enum {string} */
-        PortRepeat: "once" | "per_rx_stream" | "per_tx_stream";
+        PortRepeat: "once" | "per_rx_stream" | "per_tx_stream" | "per_lane";
         PortSpec: {
             condition?: components["schemas"]["PortCondition"];
             direction: components["schemas"]["PortDirection"];
@@ -4825,14 +6052,14 @@ export interface components {
             repeat?: components["schemas"]["PortRepeat"];
         };
         /** @enum {string} */
-        PortType: "iq" | "baseband" | "audio" | "events" | "video" | "control" | "position" | "tx";
+        PortType: "iq" | "baseband" | "audio" | "events" | "video" | "control" | "position" | "tx" | "array";
         Position: {
             /** Format: float */
             x: number;
             /** Format: float */
             y: number;
         };
-        PositionFix: {
+        PositionFix: components["schemas"]["Attitude"] & {
             /** Format: double */
             accuracy_m?: number | null;
             /** Format: double */
@@ -4847,9 +6074,14 @@ export interface components {
             /** Format: double */
             track_deg?: number | null;
         };
+        PositionLink: {
+            node: string;
+            phone?: string | null;
+        };
         PositionSource: {
+            phone: string;
             /** @enum {string} */
-            type: "device";
+            type: "phone";
         } | {
             /** Format: double */
             altitude_m?: number | null;
@@ -4892,6 +6124,60 @@ export interface components {
             devices?: components["schemas"]["PresetDevice"][];
             /** Format: int32 */
             version: number;
+        };
+        /** @enum {string} */
+        ProcessorGate: "sync" | "phase" | "gain" | "calibrating" | "retuning" | "tier" | "tuning_mode";
+        ProcessorReading: {
+            reading: components["schemas"]["DfReading"];
+            /** @enum {string} */
+            type: "df";
+        } | {
+            reading: components["schemas"]["BeamformerReading"];
+            /** @enum {string} */
+            type: "beamformer";
+        } | {
+            reading: components["schemas"]["RadarUpdate"];
+            /** @enum {string} */
+            type: "passive_radar";
+        } | {
+            reading: components["schemas"]["StitchReading"];
+            /** @enum {string} */
+            type: "stitch";
+        } | {
+            reading: components["schemas"]["SpatialReading"];
+            /** @enum {string} */
+            type: "spatial_spectrum";
+        } | {
+            reading: components["schemas"]["CorrelatorReading"];
+            /** @enum {string} */
+            type: "correlator";
+        } | {
+            reading: components["schemas"]["PolarimeterReading"];
+            /** @enum {string} */
+            type: "polarimeter";
+        };
+        ProcessorStatus: {
+            /** Format: int64 */
+            dropped_reports: number;
+            /** Format: int64 */
+            dropped_samples: number;
+            error?: string | null;
+            gated?: components["schemas"]["ProcessorGate"] | null;
+            /** Format: int64 */
+            gated_samples: number;
+            kind: string;
+            /** Format: int64 */
+            lane_mismatch: number;
+            /** Format: int64 */
+            lane_overflows: number;
+            node: string;
+            /** Format: int64 */
+            resets: number;
+            running: boolean;
+            /** Format: int64 */
+            solver_failures: number;
+            /** Format: int64 */
+            truncated?: number;
         };
         PropagationNode: {
             /** @default true */
@@ -4953,24 +6239,227 @@ export interface components {
         RackSlot: components["schemas"]["RackCell"] & {
             node: string;
         };
+        RadarAoa: {
+            /** Format: float */
+            azimuth_deg: number;
+            /** Format: float */
+            bearing_deg?: number | null;
+            /** Format: float */
+            mirror_deg?: number | null;
+            /** Format: float */
+            quality: number;
+            /** Format: float */
+            sigma_deg: number;
+        };
+        RadarAxes: {
+            /** Format: int32 */
+            batches: number;
+            /** Format: double */
+            carrier_hz: number;
+            /** Format: float */
+            cpi_ms: number;
+            /** Format: int32 */
+            doppler_rows: number;
+            /** Format: float */
+            doppler_step_hz: number;
+            /** Format: int32 */
+            gates: number;
+            /** Format: float */
+            hop_ms: number;
+            /** Format: int32 */
+            lanes: number;
+            /** Format: float */
+            range_step_m: number;
+            /** Format: double */
+            sample_rate_hz: number;
+        };
         RadarDetection: {
+            aoa?: components["schemas"]["RadarAoa"] | null;
+            /** Format: int32 */
+            cells: number;
             /** Format: float */
             doppler_hz: number;
-            /** Format: int32 */
-            range_bin: number;
-            /**
-             * Format: float
-             * @description Bistatic range in kilometres: how much further the echo travelled than the direct path.
-             */
+            /** Format: float */
             range_km: number;
             /** Format: float */
+            range_rate_mps: number;
+            /** Format: float */
             snr_db: number;
-            /**
-             * Format: int32
-             * @description Which target this echo belongs to, once it has been seen often enough to be one. An echo
-             *     with no track is a single look the tracker has not made up its mind about.
-             */
+            /** Format: int32 */
             track_id?: number | null;
+        };
+        RadarFix: {
+            alt_from_adsb?: boolean;
+            /** Format: float */
+            alt_m: number;
+            /** Format: double */
+            lat: number;
+            /** Format: double */
+            lon: number;
+            /** Format: float */
+            major_m: number;
+            /** Format: float */
+            minor_m: number;
+            /** Format: float */
+            orientation_deg: number;
+        };
+        RadarGeometry: {
+            /** Format: float */
+            baseline_km: number;
+            /** Format: float */
+            heading_deg?: number | null;
+            receiver: components["schemas"]["RadarSite"];
+            transmitter: components["schemas"]["RadarSite"];
+        };
+        RadarHealth: {
+            aoa: components["schemas"]["AoaState"];
+            /** Format: int32 */
+            cfar_looks?: number;
+            /** Format: float */
+            compute_ms: number;
+            /** Format: int64 */
+            discarded_cpis: number;
+            /** Format: int64 */
+            dropped_cpis: number;
+            /** Format: int64 */
+            dropped_reports: number;
+            /** Format: int64 */
+            dropped_samples: number;
+            /** Format: int64 */
+            dropped_tracks: number;
+            /** Format: float */
+            front_load: number;
+            gpu: boolean;
+            /** Format: int64 */
+            gpu_failures: number;
+            /** Format: int64 */
+            lagged_updates: number;
+            /** Format: float */
+            load: number;
+            /** Format: float */
+            noise_floor_db: number;
+            /** Format: float */
+            range_correlation?: number;
+            reference: components["schemas"]["ReferenceHealth"];
+            suppression_db: number[];
+            table_out_of_range?: boolean;
+            /** Format: int32 */
+            threads: number;
+            /** Format: int64 */
+            truncated_detections: number;
+            /** Format: int64 */
+            unsuppressed_groups: number;
+        };
+        RadarMission: {
+            array?: string | null;
+            /** Format: double */
+            center_hz?: number | null;
+            device_sets?: number[];
+            position?: components["schemas"]["PositionLink"] | null;
+            surface: boolean;
+            transmitter?: components["schemas"]["PositionLink"] | null;
+        };
+        RadarProblem: {
+            /** @enum {string} */
+            kind: "no_array";
+        } | {
+            /** @enum {string} */
+            kind: "no_transmitter";
+        } | {
+            /** @enum {string} */
+            kind: "no_receiver";
+        } | {
+            /** @enum {string} */
+            kind: "no_heading";
+        } | {
+            /** @enum {string} */
+            kind: "phase_unknown";
+        } | {
+            /** @enum {string} */
+            kind: "table_out_of_range";
+        } | {
+            /** @enum {string} */
+            kind: "overloaded";
+        } | {
+            /** @enum {string} */
+            kind: "reference_lost";
+        } | {
+            detail: string;
+            /** @enum {string} */
+            kind: "refused";
+        };
+        RadarSite: {
+            /** Format: double */
+            altitude_m: number;
+            /** Format: double */
+            lat: number;
+            /** Format: double */
+            lon: number;
+        };
+        RadarTrack: {
+            /** Format: float */
+            accel_mps2: number;
+            adsb?: components["schemas"]["AdsbMatch"] | null;
+            aoa?: components["schemas"]["RadarAoa"] | null;
+            /** Format: float */
+            doppler_hz: number;
+            fix?: components["schemas"]["RadarFix"] | null;
+            /** Format: int32 */
+            id: number;
+            /** Format: int32 */
+            looks: number;
+            /** Format: int32 */
+            misses: number;
+            /** Format: float */
+            range_km: number;
+            /** Format: float */
+            range_rate_mps: number;
+            /** Format: float */
+            range_sigma_m: number;
+            /** Format: float */
+            rate_sigma_mps: number;
+            /** Format: float */
+            snr_db: number;
+            state: components["schemas"]["TrackState"];
+            trail: components["schemas"]["RadarTrailPoint"][];
+        };
+        RadarTrackEvent: {
+            /** Format: float */
+            bearing_deg?: number | null;
+            change: components["schemas"]["TrackChange"];
+            /** Format: float */
+            doppler_hz: number;
+            icao?: string | null;
+            /** Format: double */
+            lat?: number | null;
+            /** Format: double */
+            lon?: number | null;
+            /** Format: float */
+            range_km: number;
+            /** Format: float */
+            range_rate_mps: number;
+            /** Format: float */
+            snr_db: number;
+            /** Format: int32 */
+            track_id: number;
+        };
+        RadarTrailPoint: {
+            /** Format: float */
+            doppler_hz: number;
+            /** Format: float */
+            range_km: number;
+        };
+        RadarUpdate: {
+            at: string;
+            axes: components["schemas"]["RadarAxes"];
+            detections: components["schemas"]["RadarDetection"][];
+            geometry?: components["schemas"]["RadarGeometry"] | null;
+            health: components["schemas"]["RadarHealth"];
+            problems?: components["schemas"]["RadarProblem"][];
+            /** Format: int64 */
+            seq: number;
+            tracks: components["schemas"]["RadarTrack"][];
+            truth: components["schemas"]["AdsbTruth"][];
         };
         RadioClockFrame: {
             datetime: string;
@@ -5112,6 +6601,8 @@ export interface components {
             file: string;
             /** Format: int64 */
             id: number;
+            /** Format: int32 */
+            lanes?: number;
             name?: string | null;
             note?: string | null;
             /** Format: double */
@@ -5124,10 +6615,6 @@ export interface components {
             recording?: string | null;
         };
         RecordingsResponse: {
-            /**
-             * @description Where the files live on the machine running the server, so the library can say it rather
-             *     than leave the operator hunting for the folder. Absent when nothing is recorded to disk.
-             */
             dir?: string | null;
             recordings: components["schemas"]["RecordingInfo"][];
         };
@@ -5152,6 +6639,30 @@ export interface components {
             /** Format: binary */
             meta?: string;
         };
+        ReferenceCleaning: {
+            /** @enum {string} */
+            kind: "off";
+        } | {
+            /** @enum {string} */
+            kind: "cma";
+            /** Format: float */
+            step: number;
+            /** Format: int32 */
+            taps: number;
+        } | {
+            /** @enum {string} */
+            kind: "dab_remod";
+        };
+        ReferenceHealth: {
+            /** Format: int64 */
+            fallback_frames: number;
+            locked: boolean;
+            mode: components["schemas"]["ReferenceMode"];
+            /** Format: float */
+            quality_db: number;
+        };
+        /** @enum {string} */
+        ReferenceMode: "raw" | "cma" | "dab_remod";
         /** @enum {string} */
         RemoteState: "unpaired" | "pairing" | "connecting" | "online" | "retrying" | "rejected";
         RemoteStatus: {
@@ -5164,24 +6675,8 @@ export interface components {
             verification_uri_complete?: string | null;
             via_relay: boolean;
         };
-        Route: {
-            /** Format: double */
-            distance_m: number;
-            /** Format: double */
-            duration_s: number;
-            maneuvers: components["schemas"]["Maneuver"][];
-            /** @description The line to draw, in order, as latitude and longitude pairs. */
-            polyline: components["schemas"]["RoutePoint"][];
-        };
-        RoutePoint: {
-            /** Format: double */
-            lat: number;
-            /** Format: double */
-            lon: number;
-        };
-        RouteRequest: {
-            from: components["schemas"]["RoutePoint"];
-            to: components["schemas"]["RoutePoint"];
+        RenamePhoneRequest: {
+            name: string;
         };
         RttyParams: {
             /** Format: double */
@@ -5387,6 +6882,9 @@ export interface components {
             type: "PipelineHealth";
         } | {
             data: {
+                phone?: string | null;
+                /** Format: int32 */
+                protocol: number;
                 /** Format: int64 */
                 revision: number;
             };
@@ -5457,6 +6955,22 @@ export interface components {
         } | {
             data: {
                 kind: components["schemas"]["StreamKind"];
+                node: string;
+                /** Format: int32 */
+                stream_id: number;
+            };
+            /** @enum {string} */
+            type: "SurfaceStreamStarted";
+        } | {
+            data: {
+                node: string;
+                reason: components["schemas"]["SurfaceRefusal"];
+            };
+            /** @enum {string} */
+            type: "SurfaceRefused";
+        } | {
+            data: {
+                kind: components["schemas"]["StreamKind"];
                 /** Format: int32 */
                 stream_id: number;
             };
@@ -5524,24 +7038,17 @@ export interface components {
             type: "PositionChanged";
         } | {
             data: {
-                /** Format: int32 */
-                device_set: number;
-                node: string;
-                /** Format: int32 */
-                stream_id: number;
+                status: components["schemas"]["ArrayStatus"];
             };
             /** @enum {string} */
-            type: "SurfaceStreamStarted";
+            type: "ArrayUpdate";
         } | {
             data: {
-                cal: components["schemas"]["CalState"];
-                /** Format: int32 */
-                device_set: number;
                 node: string;
-                reading: components["schemas"]["DfReading"];
+                reading: components["schemas"]["ProcessorReading"];
             };
             /** @enum {string} */
-            type: "DfUpdate";
+            type: "ProcessorUpdate";
         } | {
             data: {
                 node: string;
@@ -5551,13 +7058,11 @@ export interface components {
             type: "DfFusionUpdate";
         } | {
             data: {
-                detections: components["schemas"]["RadarDetection"][];
-                /** Format: int32 */
-                device_set: number;
                 node: string;
+                update: components["schemas"]["SurveyUpdate"];
             };
             /** @enum {string} */
-            type: "RadarDetections";
+            type: "SurveyUpdate";
         } | {
             data: {
                 message: string;
@@ -5598,6 +7103,77 @@ export interface components {
             h: number;
             /** Format: float */
             w: number;
+        };
+        /** @enum {string} */
+        SourceRule: "dominance" | "mdl";
+        /** @enum {string} */
+        SpatialMethod: "bartlett" | "capon" | "music";
+        SpatialPeak: {
+            /** Format: float */
+            bearing_deg: number;
+            /** Format: float */
+            db: number;
+            /** Format: double */
+            freq_hz: number;
+            /** Format: float */
+            true_deg?: number | null;
+        };
+        SpatialReading: {
+            at: string;
+            /** Format: double */
+            azimuth_deg?: number | null;
+            /** Format: int64 */
+            dropped_frames?: number;
+            /** Format: int64 */
+            frames?: number;
+            peaks: components["schemas"]["SpatialPeak"][];
+        };
+        SpatialSpectrumNode: {
+            settings?: components["schemas"]["SpatialSpectrumParams"];
+        };
+        SpatialSpectrumParams: {
+            /**
+             * Format: int32
+             * @default 300
+             */
+            average_ms: number;
+            /**
+             * Format: double
+             * @default 2
+             */
+            azimuth_step_deg: number;
+            /**
+             * Format: double
+             * @default null
+             */
+            bandwidth_hz: number | null;
+            /**
+             * Format: int32
+             * @default 1024
+             */
+            bins: number;
+            /**
+             * Format: int32
+             * @default 256
+             */
+            columns: number;
+            /** @default bartlett */
+            method: components["schemas"]["SpatialMethod"];
+            /**
+             * Format: double
+             * @default 0
+             */
+            offset_hz: number;
+            /**
+             * Format: int32
+             * @default 100
+             */
+            report_ms: number;
+            /**
+             * Format: float
+             * @default 30
+             */
+            span_db: number;
         };
         SpectrumMonitorNode: {
             disabled_protocols?: string[];
@@ -5688,29 +7264,78 @@ export interface components {
         } | {
             /** @enum {string} */
             scope: "workspaces";
+        } | {
+            /** @enum {string} */
+            scope: "arrays";
+        } | {
+            /** @enum {string} */
+            scope: "phones";
+        } | {
+            /** @enum {string} */
+            scope: "missions";
         };
         StateSnapshot: {
+            arrays?: components["schemas"]["ArrayStatus"][];
             device_sets: components["schemas"]["DeviceSet"][];
             /** Format: int64 */
             revision: number;
             trunk_systems?: components["schemas"]["TrunkSystemStatus"][];
         };
+        SteerSource: {
+            /** @enum {string} */
+            kind: "wired";
+        } | {
+            /** Format: double */
+            azimuth_deg: number;
+            /** Format: double */
+            elevation_deg?: number;
+            /** @enum {string} */
+            kind: "fixed";
+        };
         /** @enum {string} */
-        StitchMode: "auto" | "manual";
+        StitchBlend: "snr" | "equal";
+        StitchLane: {
+            /** Format: double */
+            center_hz: number;
+            /** Format: float */
+            coherence?: number | null;
+            /** Format: int32 */
+            lane: number;
+            /** Format: float */
+            noise_eq_db: number;
+            /** Format: float */
+            phase_deg?: number;
+            /** Format: int32 */
+            spur_bins?: number;
+        };
         StitchNode: {
             settings?: components["schemas"]["StitchParams"];
         };
         StitchParams: {
-            /**
-             * Format: int32
-             * @default 2
-             */
-            lanes: number;
-            /** @default auto */
-            mode: components["schemas"]["StitchMode"];
+            /** @default snr */
+            blend: components["schemas"]["StitchBlend"];
+            /** @default true */
+            flatten: boolean;
+            /** @default true */
+            match_phase: boolean;
+            /** @default true */
+            noise_equalise: boolean;
+            /** @default true */
+            spur_reject: boolean;
+        };
+        StitchReading: {
+            at: string;
+            /** Format: double */
+            center_hz: number;
+            /** Format: int64 */
+            dropped_blocks?: number;
+            lanes: components["schemas"]["StitchLane"][];
+            no_overlap?: boolean;
+            /** Format: double */
+            span_hz: number;
         };
         /** @enum {string} */
-        StreamKind: "spectrum" | "audio" | "video" | "iq" | "symbols" | "range_doppler";
+        StreamKind: "spectrum" | "audio" | "video" | "iq" | "symbols" | "range_doppler" | "spatial_spectrum" | "visibility" | "fusion_grid";
         StreamScope: {
             agc?: boolean;
             antenna?: boolean;
@@ -5727,6 +7352,95 @@ export interface components {
             stream: number;
             tuning?: components["schemas"]["Tuning"] | null;
         };
+        SurfaceFit: {
+            /** Format: int32 */
+            cols: number;
+            /** Format: int32 */
+            rows: number;
+        };
+        /** @enum {string} */
+        SurfaceRefusal: "no_surface" | "fit_not_positive" | "no_stream_ids";
+        SurveillanceSet: {
+            /** @enum {string} */
+            kind: "all_others";
+        } | {
+            /** @enum {string} */
+            kind: "mask";
+            /** Format: int32 */
+            mask: number;
+        };
+        /** @enum {string} */
+        SurveyAction: "start" | "stop" | "clear";
+        SurveyCell: {
+            /** Format: double */
+            accuracy_m?: number | null;
+            /** Format: double */
+            frequency_hz: number;
+            /** Format: double */
+            latitude: number;
+            /** Format: float */
+            level_dbfs: number;
+            /** Format: double */
+            longitude: number;
+            measured_at: string;
+            /** Format: int32 */
+            observations: number;
+        };
+        SurveyGrid: {
+            /** Format: int64 */
+            bandwidth_hz: number;
+            cells: components["schemas"]["SurveyCell"][];
+            /** Format: int64 */
+            dropped?: number;
+            /** Format: double */
+            frequency_hz?: number | null;
+            node: string;
+            /** Format: int64 */
+            offset_hz: number;
+            recording: boolean;
+        };
+        SurveyMission: {
+            /** Format: int64 */
+            bandwidth_hz: number;
+            /** Format: int32 */
+            cells: number;
+            /** Format: int32 */
+            device_set?: number | null;
+            /** Format: double */
+            frequency_hz?: number | null;
+            /** Format: int64 */
+            offset_hz: number;
+            position?: components["schemas"]["PositionLink"] | null;
+            recording: boolean;
+            /** Format: int32 */
+            stream: number;
+        };
+        SurveyRequest: {
+            action: components["schemas"]["SurveyAction"];
+        };
+        /** @enum {string} */
+        SurveyStop: "retuned" | "unwired" | "radio_gone";
+        SurveyUpdate: {
+            cell?: components["schemas"]["SurveyCell"] | null;
+            /** Format: int32 */
+            cells: number;
+            /** Format: int64 */
+            dropped: number;
+            /** Format: float */
+            level_dbfs?: number | null;
+            recording: boolean;
+            stopped?: components["schemas"]["SurveyStop"] | null;
+            /** Format: double */
+            target_hz?: number | null;
+        };
+        /** @enum {string} */
+        SweepState: "off" | "idle" | "sweeping" | "no_heading" | "short_span" | "low_contrast" | "poor_fit" | "heading_poor" | "too_fast" | "done";
+        SwitchWorkspaceRequest: {
+            /** Format: int64 */
+            workspace: number;
+        };
+        /** @enum {string} */
+        SyncState: "idle" | "searching" | "locked" | "drifting" | "lost";
         TemplateInfo: {
             /** Format: double */
             center_hz: number;
@@ -5739,6 +7453,8 @@ export interface components {
             max_freq_hz: number;
             /** Format: double */
             min_freq_hz: number;
+            /** Format: int32 */
+            min_lanes?: number;
             name: string;
             patch?: components["schemas"]["PatchGraph"] | null;
             /** Format: double */
@@ -5834,6 +7550,42 @@ export interface components {
         ToolsResponse: {
             tools: components["schemas"]["ToolDescriptor"][];
         };
+        /** @enum {string} */
+        TrackChange: "confirmed" | "update" | "lost";
+        TrackerParams: {
+            /**
+             * Format: int32
+             * @default 10
+             */
+            coast_looks: number;
+            /**
+             * Format: int32
+             * @default 3
+             */
+            confirm_hits: number;
+            /**
+             * Format: int32
+             * @default 5
+             */
+            confirm_window: number;
+            /**
+             * Format: float
+             * @default 11.800000190734863
+             */
+            gate: number;
+            /**
+             * Format: float
+             * @default 5
+             */
+            jerk: number;
+            /**
+             * Format: float
+             * @default 30
+             */
+            max_accel_mps2: number;
+        };
+        /** @enum {string} */
+        TrackState: "confirmed" | "coasting";
         Transmission: {
             audio?: components["schemas"]["EventAudio"] | null;
             decoder?: string | null;
@@ -5869,6 +7621,44 @@ export interface components {
         TransmittersResponse: {
             source: string;
             transmitters: components["schemas"]["Transmitter"][];
+        };
+        TriangulationMission: {
+            position?: components["schemas"]["PositionLink"] | null;
+            sources: string[];
+            state?: components["schemas"]["DfFusionState"] | null;
+        };
+        TriangulationNode: {
+            settings?: components["schemas"]["TriangulationParams"];
+        };
+        TriangulationParams: {
+            /**
+             * @default {
+             *       "kind": "auto"
+             *     }
+             */
+            decay: components["schemas"]["FusionDecay"];
+            /**
+             * Format: double
+             * @default 12.8
+             */
+            extent_km: number;
+            /**
+             * Format: int32
+             * @default 3
+             */
+            max_emitters: number;
+            /**
+             * Format: float
+             * @default 0.05000000074505806
+             */
+            min_confidence: number;
+            /** @default auto */
+            nav: components["schemas"]["NavMode"];
+            /**
+             * Format: double
+             * @default 5
+             */
+            probe_km: number;
         };
         TrunkChannel: {
             /** Format: int32 */
@@ -5946,6 +7736,8 @@ export interface components {
         };
         /** @enum {string} */
         Tuning: "auto" | "manual";
+        /** @enum {string} */
+        UlaSide: "both" | "front" | "back";
         UpdateWorkspaceRequest: {
             name?: string | null;
             /** Format: int64 */
@@ -5961,6 +7753,16 @@ export interface components {
         Vdl2Params: Record<string, never>;
         /** @enum {string} */
         Vendor: "standard" | "etsi" | "motorola" | "hytera" | "harris" | "tait" | "jvc_kenwood" | "emc" | "radio_activity" | "flyde_micro" | "prod_el" | "unknown";
+        VirtualLane: {
+            /** Format: double */
+            center_hz: number;
+            node: string;
+            port: string;
+            /** Format: double */
+            sample_rate: number;
+            /** Format: int32 */
+            stream: number;
+        };
         VoiceCall: {
             audio?: components["schemas"]["EventAudio"] | null;
             audio_error?: string | null;
@@ -6031,12 +7833,19 @@ export interface components {
             deemphasis_us?: number;
             stereo?: boolean;
         };
+        /** @enum {string} */
+        Winding: "clockwise" | "counter_clockwise";
+        WorkspaceArray: {
+            node: string;
+            tune: components["schemas"]["ArrayTune"];
+        };
         WorkspaceChannel: {
             node: string;
             settings: components["schemas"]["ChannelSettings"];
         };
         WorkspaceDetail: components["schemas"]["WorkspaceInfo"] & {
             history?: components["schemas"]["WorkspaceHistory"];
+            notices?: components["schemas"]["WorkspaceNotice"][];
             snapshot: components["schemas"]["WorkspaceSnapshot"];
             state?: components["schemas"]["WorkspaceState"];
         };
@@ -6066,6 +7875,24 @@ export interface components {
             revision: number;
             updated_at: string;
         };
+        WorkspaceNotice: components["schemas"]["WorkspaceNoticeKind"] & {
+            at: string;
+            /** Format: int64 */
+            id: number;
+        };
+        WorkspaceNoticeKind: {
+            data: {
+                nodes: components["schemas"]["DroppedNode"][];
+            };
+            /** @enum {string} */
+            kind: "dropped_nodes";
+        } | {
+            data: {
+                nodes: string[];
+            };
+            /** @enum {string} */
+            kind: "cleared_gps";
+        };
         WorkspaceSettings: {
             band_region?: string | null;
             band_ruler?: boolean;
@@ -6083,6 +7910,7 @@ export interface components {
             workspaces: components["schemas"]["WorkspaceInfo"][];
         };
         WorkspaceState: {
+            arrays?: components["schemas"]["WorkspaceArray"][];
             channels?: components["schemas"]["WorkspaceChannel"][];
             devices?: components["schemas"]["WorkspaceDevice"][];
             trunks?: components["schemas"]["WorkspaceTrunk"][];
@@ -6216,6 +8044,219 @@ export interface operations {
             };
             /** @description No component ships a text with that id */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    list_arrays: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Every Array node of the active workspace */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ArrayStatus"][];
+                };
+            };
+        };
+    };
+    calibrate_array: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Array node id */
+                node: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Calibration started; the result arrives as `ArrayUpdate` */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No Array node with that id */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description The Array cannot calibrate now */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    start_array_recording: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Array node id */
+                node: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ArrayRecordingRequest"];
+            };
+        };
+        responses: {
+            /** @description Recording every lane */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ArrayRecordingStarted"];
+                };
+            };
+            /** @description Bad name or no recordings directory */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description No Array node with that id */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description The Array is not running or already records */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Malformed request body */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    stop_array_recording: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Array node id */
+                node: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Recording stopped */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No Array node with that id or no recording */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    tune_array: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Array node id */
+                node: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ArrayTuneRequest"];
+            };
+        };
+        responses: {
+            /** @description Every member lane follows */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Gain out of range */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description No Array node with that id */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description A lane is held or cannot follow */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Malformed request body */
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -6682,98 +8723,6 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["ClientsResponse"];
                 };
-            };
-        };
-    };
-    calibrate_coherent: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description Patch node id of the coherent processor */
-                node: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The calibration will be solved again from scratch */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description The radio cannot calibrate */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiError"];
-                };
-            };
-            /** @description No coherent node of that name is running */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiError"];
-                };
-            };
-        };
-    };
-    get_fusion: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description Patch node id of the direction finder */
-                node: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Where the bearings so far say the transmitter is */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["DfFusionState"];
-                };
-            };
-            /** @description Nothing has been fused for that node */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiError"];
-                };
-            };
-        };
-    };
-    reset_fusion: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description Patch node id of the direction finder */
-                node: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The grid is empty again */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
             };
         };
     };
@@ -7972,7 +9921,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Hunt status: the initial state after `start`, the final state after `stop`. Readings arrive as the `HuntUpdate` WS event */
+            /** @description Hunt status after `start`, `stop` or `sweep`. Readings arrive as the `HuntUpdate` WS event */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -7980,6 +9929,13 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["HuntStatus"];
                 };
+            };
+            /** @description `mark` sent one bearing event */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Set not running, scanning, already hunting, or not hunting */
             400: {
@@ -7992,6 +9948,15 @@ export interface operations {
             };
             /** @description Device set or decoder not found */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description `No heading`, `No position`, `Not running` or `No hunt node` */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -8367,6 +10332,68 @@ export interface operations {
             };
         };
     };
+    get_fusion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Triangulation node id */
+                node: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Where the bearings so far say the transmitter is */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DfFusionState"];
+                };
+            };
+            /** @description No triangulation with that id */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    reset_fusion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Triangulation node id */
+                node: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The grid is empty again */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No triangulation with that id */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
     list_images: {
         parameters: {
             query?: never;
@@ -8439,6 +10466,140 @@ export interface operations {
             };
         };
     };
+    list_missions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description What a phone can do in the active workspace */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MissionsResponse"];
+                };
+            };
+        };
+    };
+    run_mission_action: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Mission node id */
+                node: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MissionAction"];
+            };
+        };
+        responses: {
+            /** @description The action was taken */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MissionActionResponse"];
+                };
+            };
+            /** @description Not a control of this mission */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description No mission with that id */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description The mission cannot do that now */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Malformed request body */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description The part that runs it is not up */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    switch_mission_workspace: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SwitchWorkspaceRequest"];
+            };
+        };
+        responses: {
+            /** @description Missions of the workspace now active */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MissionsResponse"];
+                };
+            };
+            /** @description No workspace with that id */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Malformed request body */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
     get_occupancy: {
         parameters: {
             query?: {
@@ -8478,6 +10639,436 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PatchCatalog"];
+                };
+            };
+        };
+    };
+    list_phones: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Paired phones, the live offer and phone access */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PhonesResponse"];
+                };
+            };
+            /** @description Not allowed */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    revoke_phone: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Phone id */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The phone is revoked and its sockets close */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not allowed */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description No phone with that id */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    rename_phone: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Phone id */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RenamePhoneRequest"];
+            };
+        };
+        responses: {
+            /** @description The renamed phone */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Phone"];
+                };
+            };
+            /** @description Name not valid */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Not allowed */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description No phone with that id */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Malformed request body */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    set_phone_access: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PhoneAccess"];
+            };
+        };
+        responses: {
+            /** @description The phone listener as it now runs */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PhoneAccessStatus"];
+                };
+            };
+            /** @description Port 0 or the main port */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Not allowed */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Malformed request body */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    create_pairing_offer: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateOfferRequest"];
+            };
+        };
+        responses: {
+            /** @description A one-time pairing code */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PairingOffer"];
+                };
+            };
+            /** @description Name not valid */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Not allowed */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Turn on Allow phones */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Malformed request body */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    cancel_pairing_offer: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The offer is gone */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not allowed */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description No live offer */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    pair_phone: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PairRequest"];
+            };
+        };
+        responses: {
+            /** @description The phone is paired */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PairResponse"];
+                };
+            };
+            /** @description Name not valid */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Wrong code */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Pair over HTTPS */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description No live offer or the code expired */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Offer burned or protocol needed */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Malformed request body */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    get_phone_self: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The calling phone */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PhoneSelf"];
+                };
+            };
+            /** @description Phone not paired */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Not a phone */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    unpair_phone_self: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The calling phone is unpaired */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Phone not paired */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Not a phone */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
                 };
             };
         };
@@ -8651,6 +11242,77 @@ export interface operations {
             };
         };
     };
+    get_radar: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Passive radar node id */
+                node: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The latest radar picture */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RadarUpdate"];
+                };
+            };
+            /** @description No radar with that id */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    clear_radar_tracks: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Passive radar node id */
+                node: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Every track dropped */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No radar with that id */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description The radar cannot drop its tracks now */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
     list_recordings: {
         parameters: {
             query?: never;
@@ -8660,7 +11322,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The recording library, reconciled with the SigMF pairs on disk */
+            /** @description The recording library, reconciled with the SigMF recordings on disk. An array collection is one entry */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -8734,7 +11396,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Recording removed: SigMF pair and index row */
+            /** @description Recording removed: its SigMF files and index row */
             204: {
                 headers: {
                     [name: string]: unknown;
@@ -8839,7 +11501,7 @@ export interface operations {
                     "audio/wav": string;
                 };
             };
-            /** @description Unknown format, or a recording the requested container cannot express (a WAV needs a sample rate and cf32 samples) */
+            /** @description Unknown format, or a recording the requested container cannot express (a WAV needs one lane, a sample rate and cf32 samples) */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -9019,57 +11681,6 @@ export interface operations {
             };
             /** @description The app refused or could not be reached */
             502: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiError"];
-                };
-            };
-        };
-    };
-    get_route: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["RouteRequest"];
-            };
-        };
-        responses: {
-            /** @description A drivable route between the two points */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Route"];
-                };
-            };
-            /** @description Not a leg this build will ask for */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiError"];
-                };
-            };
-            /** @description The routing service refused or could not be reached */
-            502: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiError"];
-                };
-            };
-            /** @description No routing backend is configured */
-            503: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -9297,6 +11908,92 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ServerStatus"];
+                };
+            };
+        };
+    };
+    get_survey: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Signal survey node id */
+                node: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Every surveyed cell */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SurveyGrid"];
+                };
+            };
+            /** @description No survey with that id */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    control_survey: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Signal survey node id */
+                node: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SurveyRequest"];
+            };
+        };
+        responses: {
+            /** @description The grid after the action */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SurveyGrid"];
+                };
+            };
+            /** @description No survey with that id */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description The survey cannot do that now */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Malformed request body */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
                 };
             };
         };
@@ -9833,6 +12530,47 @@ export interface operations {
             };
             /** @description The stored layout no longer parses: the row is left intact so a newer build can still read it */
             500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    dismiss_workspace_notice: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Workspace id */
+                id: number;
+                /** @description Notice id */
+                notice: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Notice dismissed */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Invalid path parameter */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Workspace or notice not found */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

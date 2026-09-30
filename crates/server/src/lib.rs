@@ -21,14 +21,13 @@ pub const LEVEL_INTERVAL: Duration = Duration::from_millis(100);
 
 const DECODED_TEXT_CAP: usize = 1024;
 
+mod array;
 mod assets;
 mod audio_fx;
 mod auth;
 mod bandplan;
-mod basemap;
 mod calibration;
 mod calls;
-pub(crate) mod coherent;
 pub(crate) mod cps;
 mod decoded;
 mod decoderlog;
@@ -37,22 +36,29 @@ pub mod diagnostics;
 pub mod doctor;
 mod event_output;
 mod events;
+mod fusion_routes;
 mod gps;
 mod health;
 mod images;
 mod ionosonde;
 mod json;
 mod mcp;
+mod missions;
 mod monitor;
+mod net;
 pub mod notices;
 mod packed;
+pub mod phones;
 mod placement;
+mod radar;
+mod reconcile;
 mod recorders;
 mod remote;
 mod rest;
-pub mod routing;
 mod satellites;
 mod store;
+mod surfaces;
+mod survey;
 mod templates;
 pub mod tls;
 mod tracks;
@@ -71,7 +77,6 @@ pub trait NativeShell: Send + Sync + std::fmt::Debug {
 pub struct ServerOptions {
     pub dev_cors: bool,
     pub token: Option<String>,
-    pub routing: routing::RoutingOptions,
     pub shell: Option<Arc<dyn NativeShell>>,
     pub remote_app: Option<url::Url>,
 }
@@ -97,18 +102,27 @@ pub(crate) struct AppState {
     pub(crate) restored: Arc<std::sync::Mutex<HashSet<(i64, String, u32)>>>,
     pub(crate) gps: Arc<gps::GpsHub>,
     pub(crate) satellites: Arc<satellites::SatelliteHub>,
-    pub(crate) coherent: Arc<coherent::CoherentHub>,
     pub(crate) cps: Arc<cps::CpsHub>,
     pub(crate) fusion: df_fusion::SharedFusion,
-    pub(crate) routing: Arc<routing::RoutingOptions>,
     pub(crate) shell: Option<Arc<dyn NativeShell>>,
-    pub(crate) local_only: bool,
+    pub(crate) arrays: Arc<array::ArrayHub>,
+    pub(crate) radar: Arc<radar::RadarHub>,
+    pub(crate) surfaces: Arc<surfaces::SurfaceHub>,
+    pub(crate) survey: Arc<survey::SurveyHub>,
+    pub(crate) phones: Arc<phones::Phones>,
+    pub(crate) gate: Arc<phones::gate::PhoneGate>,
+    pub(crate) server_id: Arc<str>,
+    pub(crate) server_name: Arc<str>,
+    pub(crate) dev_cors: bool,
+    pub(crate) data_dir: Option<PathBuf>,
     pub(crate) remote: Arc<remote::RemoteHub>,
     started: std::time::Instant,
 }
 
 impl AppState {
     fn new(engine: Arc<Engine>, store: Arc<Store>) -> Self {
+        let server_id = store.server_id();
+        let phones = Arc::new(phones::Phones::new(store.clone()));
         Self {
             engine,
             remote: Arc::new(remote::RemoteHub::new(None, store.clone(), health::idle())),
@@ -130,12 +144,19 @@ impl AppState {
             restored: Arc::new(std::sync::Mutex::new(HashSet::new())),
             gps: Arc::new(gps::GpsHub::default()),
             satellites: Arc::new(satellites::SatelliteHub::default()),
-            coherent: Arc::new(coherent::CoherentHub::default()),
             cps: Arc::new(cps::CpsHub::default()),
             fusion: Arc::new(df_fusion::FusionHub::default()),
-            routing: Arc::new(routing::RoutingOptions::default()),
             shell: None,
-            local_only: false,
+            arrays: Arc::default(),
+            radar: Arc::default(),
+            surfaces: Arc::default(),
+            survey: Arc::default(),
+            phones,
+            gate: Arc::default(),
+            server_id,
+            server_name: net::host_label().into(),
+            dev_cors: false,
+            data_dir: None,
             started: std::time::Instant::now(),
         }
     }
@@ -202,76 +223,94 @@ fn openapi_route(api: &utoipa::openapi::OpenApi) -> axum::routing::MethodRouter<
     })
 }
 
-pub fn router(engine: Arc<Engine>, store: Store, options: &ServerOptions) -> Router {
-    let mut state = AppState::new(engine, Arc::new(store));
+fn configure(state: &mut AppState, options: &ServerOptions) -> health::Reporter {
     state.auth = auth::Auth::new(options.token.as_deref());
-    state.routing = Arc::new(options.routing.clone());
-    let (router, background) = router_with_state(state, options);
-    background.detach();
-    router
-}
-
-fn router_with_state(mut state: AppState, options: &ServerOptions) -> (Router, Background) {
     state.shell = options.shell.clone();
-    let health = health::Reporter::new(&state);
+    state.dev_cors = options.dev_cors;
+    let health = health::Reporter::new(state);
     health.refresh();
     state.remote = Arc::new(remote::RemoteHub::new(
         options.remote_app.as_ref(),
         state.store.clone(),
         health.subscribe(),
     ));
-    let remote = state.remote.clone();
     if let Some(token) = &options.token {
         diagnostics::hide_secret(token);
     }
-    let mut background = start_background(&state, health);
-    background.remote = Some(remote.clone());
-    ws::start_decoded_encoder(&state);
-    workspace::spawn_autosave(&state);
-    placement::spawn_settling(&state);
-    state.gps.reconcile(&state);
-    state.satellites.reconcile(&state);
+    health
+}
+
+#[cfg(test)]
+fn router_with_state(state: AppState, options: &ServerOptions) -> (Router, Background) {
+    main_router(state, options, false)
+}
+
+#[cfg(test)]
+fn main_router(mut state: AppState, options: &ServerOptions, tls: bool) -> (Router, Background) {
+    let health = configure(&mut state, options);
+    let background = start_runtime(&state, health);
+    let app = app(&state, auth::ListenerRole::Main, tls);
+    state.remote.attach(app.clone());
+    (app, background)
+}
+
+fn app(state: &AppState, role: auth::ListenerRole, tls: bool) -> Router {
     let (api_router, api) = rest::openapi_router().split_for_parts();
-
-    let mut app = Router::new()
+    let mut routes = Router::new()
         .merge(api_router)
-        .route("/api/ws", axum::routing::get(ws::handler))
-        .route(
-            "/api/basemap.pmtiles",
-            axum::routing::get(basemap::handler).head(basemap::handler),
-        )
-        .merge(mcp::router(
-            state.engine.clone(),
-            state.store.clone(),
-            state.tools.clone(),
-        ))
-        .route("/api/openapi.json", openapi_route(&api))
-        .route("/api/docs", axum::routing::get(assets::api_docs))
-        .route("/api/docs/", axum::routing::get(assets::api_docs))
-        .route_layer(axum::middleware::from_fn_with_state(
-            state.auth.clone(),
-            auth::require_token,
-        ))
-        .fallback(assets::static_handler)
-        .with_state(state)
-        .layer(
-            tower_http::compression::CompressionLayer::new().compress_when(
-                tower_http::compression::predicate::DefaultPredicate::new()
-                    .and(NotForContentType::const_new("application/x-tar"))
-                    .and(NotForContentType::const_new("audio/wav")),
-            ),
-        );
-
-    if options.dev_cors {
+        .route("/api/ws", axum::routing::get(ws::handler));
+    if role == auth::ListenerRole::Main {
+        routes = routes
+            .merge(mcp::router(
+                state.engine.clone(),
+                state.store.clone(),
+                state.tools.clone(),
+            ))
+            .route("/api/openapi.json", openapi_route(&api))
+            .route("/api/docs", axum::routing::get(assets::api_docs))
+            .route("/api/docs/", axum::routing::get(assets::api_docs));
+    }
+    routes = routes.route_layer(axum::middleware::from_fn_with_state(
+        auth::AuthGate::new(state, role, tls),
+        auth::authenticate,
+    ));
+    if role == auth::ListenerRole::Main {
+        routes = routes.fallback(assets::static_handler);
+    }
+    let mut app = routes.with_state(state.clone()).layer(
+        tower_http::compression::CompressionLayer::new().compress_when(
+            tower_http::compression::predicate::DefaultPredicate::new()
+                .and(NotForContentType::const_new("application/x-tar"))
+                .and(NotForContentType::const_new("audio/wav")),
+        ),
+    );
+    if state.dev_cors && role == auth::ListenerRole::Main {
         app = app.layer(CorsLayer::very_permissive());
     }
-    remote.attach(app.clone());
-    (app, background)
+    app
+}
+
+fn start_runtime(state: &AppState, health: health::Reporter) -> Background {
+    let background = start_background(state, health);
+    ws::start_decoded_encoder(state);
+    workspace::spawn_autosave(state);
+    placement::spawn_settling(state);
+    state.gps.reconcile(state);
+    state.satellites.reconcile(state);
+    array::start_pump(state);
+    radar::start(state);
+    df_fusion::start(state);
+    fusion_routes::start(state);
+    survey::start(state);
+    missions::watch::spawn(state);
+    state.gps.spawn_watchdog(state);
+    phones::spawn_flusher(state);
+    background
 }
 
 struct Background {
     tasks: Vec<BackgroundTask>,
-    remote: Option<Arc<remote::RemoteHub>>,
+    remote: Arc<remote::RemoteHub>,
     detached: bool,
 }
 
@@ -280,6 +319,7 @@ enum BackgroundTask {
     Owned,
 }
 
+#[cfg(test)]
 impl Background {
     fn detach(mut self) {
         self.detached = true;
@@ -291,9 +331,7 @@ impl Drop for Background {
         if self.detached {
             return;
         }
-        if let Some(remote) = &self.remote {
-            remote.shutdown();
-        }
+        self.remote.shutdown();
         for task in &self.tasks {
             if let BackgroundTask::Task(task) = task {
                 task.abort();
@@ -304,7 +342,7 @@ impl Drop for Background {
 
 fn start_background(state: &AppState, health: health::Reporter) -> Background {
     let (recording_tx, recording_rx) = tokio::sync::watch::channel(trunking::Recording::default());
-    let routing = {
+    let decoded = {
         let engine = Arc::downgrade(&state.engine);
         let store = state.store.clone();
         let feed = state.decoded.clone();
@@ -365,7 +403,7 @@ fn start_background(state: &AppState, health: health::Reporter) -> Background {
     let health = spawn_task("sdrmm-health", move || health.run());
     Background {
         tasks: vec![
-            routing,
+            decoded,
             log,
             patch,
             calls,
@@ -375,7 +413,7 @@ fn start_background(state: &AppState, health: health::Reporter) -> Background {
             audio_fx,
             health,
         ],
-        remote: None,
+        remote: state.remote.clone(),
         detached: false,
     }
 }
@@ -410,22 +448,99 @@ pub struct ServerHandle {
     pub local_addr: SocketAddr,
     pub scheme: &'static str,
     task: tokio::task::JoinHandle<std::io::Result<()>>,
+    _gate: phones::gate::GateGuard,
     _background: Background,
 }
 
 impl ServerHandle {
-    pub async fn join(self) -> std::io::Result<()> {
-        match self.task.await {
+    pub async fn join(mut self) -> std::io::Result<()> {
+        match (&mut self.task).await {
             Ok(res) => res,
             Err(join_err) => Err(std::io::Error::other(join_err)),
         }
     }
 }
 
+impl Drop for ServerHandle {
+    fn drop(&mut self) {
+        self.task.abort();
+    }
+}
+
 pub async fn serve(config: Config, engine: Arc<Engine>) -> std::io::Result<ServerHandle> {
+    refuse_phone_token(&config.options)?;
     engine.start_hotplug_prober(HOTPLUG_INTERVAL)?;
     engine.start_level_meter(LEVEL_INTERVAL)?;
     engine.start_occupancy_collector(HOTPLUG_INTERVAL)?;
+    log_start(&config, &engine);
+    let store = Store::open(config.db_path.as_deref()).map_err(std::io::Error::other)?;
+    workspace::adopt_named_devices(&engine, &store);
+    let mut state = AppState::new(engine, Arc::new(store));
+    let health = configure(&mut state, &config.options);
+    state.db_path = config.db_path.clone();
+    state.data_dir = config
+        .db_path
+        .as_deref()
+        .and_then(Path::parent)
+        .map(Path::to_path_buf);
+    let served = config
+        .tls
+        .as_ref()
+        .map(tls::load)
+        .transpose()
+        .map_err(std::io::Error::other)?;
+    let listener = std::net::TcpListener::bind(config.bind)?;
+    listener.set_nonblocking(true)?;
+    let local_addr = listener.local_addr()?;
+    state.gate.set_main(main_listener(
+        local_addr,
+        config.tls.as_ref(),
+        served.as_ref(),
+    ));
+    let background = start_runtime(&state, health);
+    let app = app(&state, auth::ListenerRole::Main, served.is_some());
+    state.remote.attach(app.clone());
+    let scheme = if served.is_some() { "https" } else { "http" };
+    tracing::info!(%local_addr, scheme, "SDR-- server listening");
+    let task = match served {
+        Some(served) => {
+            let server = axum_server::from_tcp_rustls(
+                listener,
+                axum_server::tls_rustls::RustlsConfig::from_config(served.config),
+            )?;
+            tokio::spawn(async move { server.serve(app.into_make_service()).await })
+        }
+        None => {
+            let listener = tokio::net::TcpListener::from_std(listener)?;
+            tokio::spawn(async move { axum::serve(listener, app).await })
+        }
+    };
+    let gate = phones::gate::GateGuard::new(state.gate.clone());
+    state.gate.restore(&state).await;
+    Ok(ServerHandle {
+        local_addr,
+        scheme,
+        task,
+        _gate: gate,
+        _background: background,
+    })
+}
+
+fn refuse_phone_token(options: &ServerOptions) -> std::io::Result<()> {
+    if options
+        .token
+        .as_deref()
+        .is_some_and(|token| token.starts_with(sdrmm_wire::phone::PHONE_TOKEN_PREFIX))
+    {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "the token must not start with sdrmm-phone.",
+        ));
+    }
+    Ok(())
+}
+
+fn log_start(config: &Config, engine: &Engine) {
     match &config.db_path {
         Some(path) => tracing::info!(db = %path.display(), "opening database"),
         None => tracing::info!("using in-memory database (nothing will persist)"),
@@ -436,49 +551,33 @@ pub async fn serve(config: Config, engine: Arc<Engine>) -> std::io::Result<Serve
     }
     match &config.options.token {
         Some(_) => tracing::info!("shared-token auth enabled"),
-        None => tracing::info!("no token configured: LAN-trusted, unauthenticated ()"),
+        None => tracing::info!("no token: LAN-trusted, unauthenticated"),
     }
-    let store = Store::open(config.db_path.as_deref()).map_err(std::io::Error::other)?;
-    workspace::adopt_named_devices(&engine, &store);
-    let mut state = AppState::new(engine, Arc::new(store));
-    state.auth = auth::Auth::new(config.options.token.as_deref());
-    state.db_path = config.db_path.clone();
-    state.local_only = config.bind.ip().is_loopback();
-    let (app, background) = router_with_state(state, &config.options);
-    let tls_config = config
-        .tls
-        .as_ref()
-        .map(tls::server_config)
-        .transpose()
-        .map_err(std::io::Error::other)?;
-    let listener = std::net::TcpListener::bind(config.bind)?;
-    listener.set_nonblocking(true)?;
-    let local_addr = listener.local_addr()?;
-    let scheme = if tls_config.is_some() {
-        "https"
-    } else {
-        "http"
-    };
-    tracing::info!(%local_addr, scheme, "SDR-- server listening");
-    let task = match tls_config {
-        Some(tls_config) => {
-            let server = axum_server::from_tcp_rustls(
-                listener,
-                axum_server::tls_rustls::RustlsConfig::from_config(Arc::new(tls_config)),
-            )?;
-            tokio::spawn(async move { server.serve(app.into_make_service()).await })
-        }
-        None => {
-            let listener = tokio::net::TcpListener::from_std(listener)?;
-            tokio::spawn(async move { axum::serve(listener, app).await })
-        }
-    };
-    Ok(ServerHandle {
-        local_addr,
-        scheme,
-        task,
-        _background: background,
-    })
+}
+
+fn main_listener(
+    local_addr: SocketAddr,
+    asked: Option<&tls::Tls>,
+    served: Option<&tls::Served>,
+) -> phones::gate::MainListener {
+    let own_key = matches!(asked, Some(tls::Tls::SelfSigned { .. }));
+    let named = matches!(asked, Some(tls::Tls::SelfSigned { names, .. }) if !names.is_empty());
+    phones::gate::MainListener {
+        record: phones::gate::ListenerRecord {
+            role: auth::ListenerRole::Main,
+            port: local_addr.port(),
+            bound: local_addr.ip(),
+            pin: served.map(|served| served.pin.clone()),
+            stable_key: own_key && served.is_some(),
+            names: served
+                .filter(|_| named)
+                .map(|served| served.names.clone())
+                .unwrap_or_default(),
+        },
+        own_key: served
+            .filter(|_| own_key)
+            .map(|served| served.config.clone()),
+    }
 }
 
 #[cfg(test)]

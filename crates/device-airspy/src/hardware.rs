@@ -95,7 +95,7 @@ fn stream_raw(radio: &mut Airspy, duration: Duration) -> RawRun {
         match stream.recv_timeout(Duration::from_millis(100)) {
             Ok(block) => {
                 last = Instant::now();
-                missing_bytes += block.missing_bytes();
+                missing_bytes += block.missing_exact_bytes() + block.missing_estimated_bytes();
                 if started.elapsed() < SETTLE {
                     continue;
                 }

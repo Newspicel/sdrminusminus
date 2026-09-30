@@ -3,6 +3,10 @@ use utoipa::ToSchema;
 
 use crate::{decode::DecodedRecord, position::PositionFix};
 
+pub const WS_SUBPROTOCOL: &str = "sdrmm";
+pub const WS_BEARER_PROTOCOL_PREFIX: &str = "sdrmm.bearer.";
+pub const WS_CLOSE_REVOKED: u16 = 4003;
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(tag = "scope", content = "id", rename_all = "snake_case")]
 pub enum StateScope {
@@ -18,6 +22,9 @@ pub enum StateScope {
     Calls,
     Images,
     Workspaces,
+    Arrays,
+    Phones,
+    Missions,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
@@ -29,6 +36,36 @@ pub enum StreamKind {
     Iq,
     Symbols,
     RangeDoppler,
+    SpatialSpectrum,
+    Visibility,
+    FusionGrid,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct SurfaceFit {
+    pub cols: u16,
+    pub rows: u16,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum SurfaceRefusal {
+    NoSurface,
+    FitNotPositive,
+    NoStreamIds,
+}
+
+impl SurfaceRefusal {
+    pub const ALL: [Self; 3] = [Self::NoSurface, Self::FitNotPositive, Self::NoStreamIds];
+
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::NoSurface => "No surface",
+            Self::FitNotPositive => "Fit must be positive",
+            Self::NoStreamIds => "Too many streams",
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
@@ -41,6 +78,9 @@ pub enum ServerEvent {
     },
     Hello {
         revision: u64,
+        protocol: u32,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        phone: Option<String>,
     },
     StateChanged {
         scope: StateScope,
@@ -72,6 +112,15 @@ pub enum ServerEvent {
         stream_id: u16,
         device_set: u32,
         channel: u32,
+    },
+    SurfaceStreamStarted {
+        stream_id: u16,
+        node: String,
+        kind: StreamKind,
+    },
+    SurfaceRefused {
+        node: String,
+        reason: SurfaceRefusal,
     },
     StreamStopped {
         stream_id: u16,
@@ -109,25 +158,20 @@ pub enum ServerEvent {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         error: Option<String>,
     },
-    SurfaceStreamStarted {
-        stream_id: u16,
-        device_set: u32,
-        node: String,
+    ArrayUpdate {
+        status: Box<crate::array::ArrayStatus>,
     },
-    DfUpdate {
-        device_set: u32,
+    ProcessorUpdate {
         node: String,
-        reading: Box<crate::coherent::DfReading>,
-        cal: Box<crate::coherent::CalState>,
+        reading: Box<crate::processor::ProcessorReading>,
     },
     DfFusionUpdate {
         node: String,
-        state: Box<crate::coherent::DfFusionState>,
+        state: Box<crate::fusion::DfFusionState>,
     },
-    RadarDetections {
-        device_set: u32,
+    SurveyUpdate {
         node: String,
-        detections: Vec<crate::coherent::RadarDetection>,
+        update: Box<crate::survey::SurveyUpdate>,
     },
     Error {
         message: String,
@@ -188,8 +232,7 @@ pub enum ClientCommand {
         device_set: u32,
         channel: u32,
     },
-    PublishPosition {
-        node: String,
+    PublishPose {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         fix: Option<PositionFix>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -197,8 +240,13 @@ pub enum ClientCommand {
     },
     SubscribeSurface {
         node: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        fit: Option<SurfaceFit>,
     },
     UnsubscribeSurface {
         node: String,
     },
 }
+
+#[cfg(test)]
+mod tests;

@@ -30,7 +30,7 @@ impl Spectrum {
             &[&input, &data, &params, &window],
             [size as u32 / 256, batches as u32, 1],
         );
-        let fft = FftBatch::new(&context, &data, size, batches, false);
+        let fft = FftBatch::new(&context, &data, size, batches, false).unwrap();
         let power = Kernel::new(
             &context,
             include_str!("spectrum.wgsl"),

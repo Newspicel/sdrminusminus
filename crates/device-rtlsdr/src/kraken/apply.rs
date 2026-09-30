@@ -1,27 +1,10 @@
 use sdrmm_device::{DeviceError, check_stream_settings};
 use sdrmm_wire::{Capabilities, DeviceSettings};
 
-use crate::caps;
+use super::Model;
+use crate::caps::{self, KRAKEN_MAX_RATE_HZ};
 
-/// Pin 0 of the control dongle switches the calibration noise source into every lane, and pins 1
-/// and up switch the lanes' bias tees. Every one of them hangs off that one dongle rather than
-/// off the lane it feeds.
 pub(crate) const NOISE_SOURCE_PIN: u8 = 0;
-
-const CALIBRATION_GAINS: [(f64, usize); 5] = [
-    (900e6, 0),
-    (1_000e6, 4),
-    (1_090e6, 6),
-    (1_300e6, 6),
-    (1_700e6, 7),
-];
-
-pub(crate) fn calibration_gain(center_hz: f64, table: &[i32]) -> Option<i32> {
-    let (_, index) = CALIBRATION_GAINS
-        .iter()
-        .min_by(|a, b| (a.0 - center_hz).abs().total_cmp(&(b.0 - center_hz).abs()))?;
-    table.get(*index).or_else(|| table.last()).copied()
-}
 
 pub(crate) const fn bias_tee_pin(lane: usize) -> u8 {
     lane as u8 + 1
@@ -33,18 +16,39 @@ pub(crate) struct Plan {
     pub(crate) bias_tee: Option<bool>,
 }
 
-/// Works out what every lane and the bank's own switches have to be set to.
-///
-/// Nothing is written here, so a request that one lane cannot meet is refused before any of them
-/// has been touched: half an array retuned is not a state worth reaching.
+pub(crate) struct Limits<'a> {
+    pub(crate) model: Model,
+    pub(crate) capabilities: &'a Capabilities,
+    pub(crate) lane_caps: &'a Capabilities,
+    pub(crate) table: &'a [i32],
+}
+
+fn check_limits(delta: &DeviceSettings, limits: &Limits<'_>) -> Result<(), DeviceError> {
+    check_stream_settings(delta, limits.capabilities)?;
+    if delta
+        .sample_rate
+        .is_some_and(|rate| rate > KRAKEN_MAX_RATE_HZ)
+    {
+        return Err(DeviceError::Unsupported(format!(
+            "{} runs at most 2.56 MS/s",
+            limits.model.name()
+        )));
+    }
+    if delta.bias_tee.is_some() && !limits.capabilities.bias_tee {
+        return Err(DeviceError::Unsupported(format!(
+            "bias_tee: the {} bias tees are not mapped",
+            limits.model.name()
+        )));
+    }
+    Ok(())
+}
+
 pub(crate) fn plan(
     delta: &DeviceSettings,
-    capabilities: &Capabilities,
-    lane_caps: &Capabilities,
+    limits: &Limits<'_>,
     current: &[DeviceSettings],
-    table: &[i32],
 ) -> Result<Plan, DeviceError> {
-    check_stream_settings(delta, capabilities)?;
+    check_limits(delta, limits)?;
     let mut plan = Plan {
         lanes: Vec::with_capacity(current.len()),
         gpio: Vec::new(),
@@ -61,10 +65,14 @@ pub(crate) fn plan(
             .extend((0..current.len()).map(|lane| (bias_tee_pin(lane), on)));
     }
     for (lane, settled) in current.iter().enumerate() {
-        let mut want = delta.for_stream(lane as u32, &capabilities.per_stream);
+        let mut want = delta.for_stream(lane as u32, &limits.capabilities.per_stream);
         want.bias_tee = None;
-        plan.lanes
-            .push(caps::validate(&want, lane_caps, settled, table)?);
+        plan.lanes.push(caps::validate(
+            &want,
+            limits.lane_caps,
+            settled,
+            limits.table,
+        )?);
     }
     Ok(plan)
 }
@@ -76,10 +84,8 @@ mod tests {
     use super::*;
     use crate::{caps::GainMode, dongle::GAINS};
 
-    const LANES: usize = 5;
-
-    fn fixture() -> (Capabilities, Capabilities, Vec<DeviceSettings>) {
-        let capabilities = caps::kraken_capabilities(LANES as u32, GAINS);
+    fn fixture(model: Model) -> (Capabilities, Capabilities, Vec<DeviceSettings>) {
+        let capabilities = caps::kraken_capabilities(model, model.lanes(), GAINS);
         let lane_caps = caps::kraken_lane_capabilities(GAINS);
         let settled = vec![
             DeviceSettings {
@@ -88,14 +94,71 @@ mod tests {
                 agc: Some(AgcSetting::switched(true)),
                 ..DeviceSettings::default()
             };
-            LANES
+            model.lanes() as usize
         ];
         (capabilities, lane_caps, settled)
     }
 
+    fn planned_on(model: Model, delta: &DeviceSettings) -> Result<Plan, DeviceError> {
+        let (capabilities, lane_caps, settled) = fixture(model);
+        let limits = Limits {
+            model,
+            capabilities: &capabilities,
+            lane_caps: &lane_caps,
+            table: GAINS,
+        };
+        plan(delta, &limits, &settled)
+    }
+
     fn planned(delta: &DeviceSettings) -> Result<Plan, DeviceError> {
-        let (capabilities, lane_caps, settled) = fixture();
-        plan(delta, &capabilities, &lane_caps, &settled, GAINS)
+        planned_on(Model::Kraken, delta)
+    }
+
+    #[test]
+    fn rates_above_2_56_ms_are_refused() {
+        for rate in [2.88e6, 3.2e6, 2_560_001.0] {
+            let Err(DeviceError::Unsupported(message)) = planned(&DeviceSettings {
+                sample_rate: Some(rate),
+                ..DeviceSettings::default()
+            }) else {
+                panic!("{rate} must be refused");
+            };
+            assert_eq!(message, "KrakenSDR runs at most 2.56 MS/s");
+        }
+        let plan = planned(&DeviceSettings {
+            sample_rate: Some(KRAKEN_MAX_RATE_HZ),
+            ..DeviceSettings::default()
+        })
+        .expect("the cap itself is allowed");
+        assert!(
+            plan.lanes
+                .iter()
+                .all(|lane| lane.sample_rate == Some(2_560_000))
+        );
+    }
+
+    #[test]
+    fn a_kerberos_refuses_a_bias_tee_it_cannot_map() {
+        let refused = planned_on(
+            Model::Kerberos,
+            &DeviceSettings {
+                bias_tee: Some(true),
+                ..DeviceSettings::default()
+            },
+        );
+        assert!(
+            matches!(refused, Err(DeviceError::Unsupported(message)) if message.contains("KerberosSDR"))
+        );
+        let plan = planned_on(
+            Model::Kerberos,
+            &DeviceSettings {
+                center_hz: Some(433.92e6),
+                ..DeviceSettings::default()
+            },
+        )
+        .expect("a retune");
+        assert_eq!(plan.lanes.len(), 4);
+        assert!(plan.gpio.is_empty());
     }
 
     #[test]
@@ -106,7 +169,7 @@ mod tests {
             ..DeviceSettings::default()
         })
         .expect("plan");
-        assert_eq!(plan.lanes.len(), LANES);
+        assert_eq!(plan.lanes.len(), 5);
         for lane in &plan.lanes {
             assert_eq!(lane.center_hz, Some(433_920_000));
             assert_eq!(lane.sample_rate, Some(2_400_000));
@@ -130,20 +193,6 @@ mod tests {
                 assert_eq!(planned.gain, None, "lane {lane} was not asked for a gain");
             }
         }
-    }
-
-    #[test]
-    fn the_noise_source_is_taken_in_quietly_low_and_loudly_high() {
-        assert_eq!(calibration_gain(98e6, GAINS), Some(0));
-        assert_eq!(calibration_gain(868e6, GAINS), Some(0));
-        assert_eq!(calibration_gain(1_090e6, GAINS), Some(87));
-        assert_eq!(calibration_gain(1_700e6, GAINS), Some(125));
-    }
-
-    #[test]
-    fn a_short_gain_table_still_gives_a_calibration_gain() {
-        assert_eq!(calibration_gain(1_700e6, &[0, 100]), Some(100));
-        assert_eq!(calibration_gain(1_090e6, &[]), None);
     }
 
     #[test]

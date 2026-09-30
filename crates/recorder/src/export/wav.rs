@@ -274,12 +274,12 @@ mod tests {
                 name: None,
                 tags: Vec::new(),
                 rx_stream: None,
+                lane: None,
             },
             captures: vec![crate::SigmfCapture {
                 sample_start: 0,
                 frequency: Some(5_800_000_000.0),
-                datetime: None,
-                geolocation: None,
+                ..crate::SigmfCapture::default()
             }],
             annotations: Vec::new(),
         };
@@ -305,6 +305,7 @@ mod tests {
                 name: None,
                 tags: Vec::new(),
                 rx_stream: None,
+                lane: None,
             },
             captures: Vec::new(),
             annotations: Vec::new(),

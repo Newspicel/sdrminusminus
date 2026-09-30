@@ -6,7 +6,7 @@ const document = (): WorkspaceExport => ({
   version: 1,
   name: "Airband Watch",
   snapshot: {
-    version: 3,
+    version: 4,
     graph: {
       nodes: [
         { id: "dev", kind: "device", data: {}, position: { x: 0, y: 0 } },

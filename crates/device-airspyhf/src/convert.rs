@@ -80,6 +80,10 @@ impl SampleConverter for AirspyHfConverter {
         self.out.clear();
         self.carry.clear();
     }
+
+    fn bytes_per_sample(&self) -> u64 {
+        BYTES_PER_SAMPLE as u64
+    }
 }
 
 #[cfg(test)]
@@ -119,6 +123,14 @@ mod tests {
         let bytes: Vec<u8> = (0..256).flat_map(|n| quad(n, -n)).collect();
         let mut converter = converter(256);
         assert_eq!(converter.convert(&bytes).len(), 256);
+    }
+
+    #[test]
+    fn a_sample_takes_as_many_bytes_as_the_converter_claims() {
+        let bytes: Vec<u8> = (0..256).flat_map(|n| quad(n, -n)).collect();
+        let mut converter = converter(256);
+        let samples = converter.convert(&bytes).len() as u64;
+        assert_eq!(samples * converter.bytes_per_sample(), bytes.len() as u64);
     }
 
     #[test]

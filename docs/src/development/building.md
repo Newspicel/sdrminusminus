@@ -76,8 +76,8 @@ Recording playback and the signal generator work in every build.
 ## Test without a radio
 
 Add a **Signal generator** node, pick a signal, and wire it to a matching channel and a Speaker.
-Debug builds also list synthetic radios on the Device node: a four-lane coherent array, a test
-band and test transceivers.
+Debug builds also list synthetic radios on the Device node: a five-lane Kraken bench, a
+four-lane coherent array, two dongles, a test band and test transceivers.
 
 ## Checks
 
@@ -122,6 +122,23 @@ catches stale output.
 
 The Tauri app is outside the default workspace. On Linux it needs WebKitGTK. `cargo xtask desktop`
 checks that it compiles; [Releases](releases.md#desktop-bundles) builds installers.
+
+## Phone apps
+
+Both apps sit on `crates/mobile-core`, a Rust core bound to Swift and Kotlin with UniFFI.
+
+| Command | Runs |
+|---|---|
+| `cargo xtask mobile bindings` | Swift and Kotlin bindings |
+| `cargo xtask mobile check` | Clippy for the iOS and Android targets |
+| `cargo xtask ios build` | The iPhone app for the simulator, with Xcode 27 |
+| `cargo xtask ios test` | Unit tests; `--ui` adds UI tests, `--floor` an iOS 18.1 run |
+| `cargo xtask ios lint` | swift-format and the comment check |
+| `cargo xtask ios e2e` | The app against a real `sdrmm` |
+
+For your own iPhone, run `cargo xtask ios generate`, open `apps/ios/SDRmm.xcodeproj`, and set your
+team in `apps/ios/Config/Local.xcconfig` as `DEVELOPMENT_TEAM = <team>`. For Android, see
+[Android](android.md).
 
 ## Hardware capture tests
 

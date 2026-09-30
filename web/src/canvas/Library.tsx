@@ -9,10 +9,10 @@ import { TemplatesPanel } from "../components/TemplatesPanel";
 import type { RecordingInfo } from "../lib/types";
 import { ToolsPanel } from "../tools/ToolsPanel";
 import { useWorkspaceContext } from "./context";
-import { FieldPanel } from "./FieldPanel";
 import { addNode, newNodeId, nodeIds } from "./graph";
 import { libraryTarget } from "./libraryTarget";
 import { recordingNodeFor } from "./nodes/recordingNode";
+import { PhonesPanel } from "./PhonesPanel";
 import { useNodePlacement } from "./placement";
 import { RemotePanel } from "./RemotePanel";
 
@@ -24,7 +24,7 @@ const TABS = [
   { id: "occupancy", label: "Occupancy" },
   { id: "recordings", label: "Recordings" },
   { id: "tools", label: "Tools" },
-  { id: "field", label: "Field" },
+  { id: "phones", label: "Phones" },
   { id: "remote", label: "Remote" },
 ] as const;
 
@@ -86,8 +86,8 @@ export function Library({ onOpenTool }: { onOpenTool: (id: string) => void }) {
       <Tabs.Panel value="tools" className="max-h-[28rem] overflow-y-auto">
         <ToolsPanel onOpen={onOpenTool} />
       </Tabs.Panel>
-      <Tabs.Panel value="field" className="max-h-[28rem] overflow-y-auto">
-        <FieldPanel />
+      <Tabs.Panel value="phones" className="max-h-[28rem] overflow-y-auto">
+        <PhonesPanel />
       </Tabs.Panel>
       <Tabs.Panel value="remote" className="max-h-[28rem] overflow-y-auto">
         <RemotePanel />

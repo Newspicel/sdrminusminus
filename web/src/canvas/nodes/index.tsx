@@ -6,8 +6,9 @@ import { NODE_SIZE } from "../graph";
 import { ArrayFace } from "./ArrayFace";
 import { AudioFxFace } from "./AudioFxFace";
 import { BasebandScopeFace } from "./BasebandScopeFace";
+import { BeamformerFace } from "./BeamformerFace";
 import { ChannelFace } from "./ChannelFace";
-import { CombinerFace } from "./CombinerFace";
+import { CorrelatorFace } from "./CorrelatorFace";
 import { DeviceFace } from "./DeviceFace";
 import { DfFace } from "./DfFace";
 import { DmrTrunkFace } from "./DmrTrunkFace";
@@ -16,8 +17,9 @@ import { EventOutputFace } from "./EventOutputFace";
 import { GpsFace } from "./GpsFace";
 import { NetworkExportFace } from "./NetworkExportFace";
 import { CanvasSurface } from "./NodeShell";
+import { PolarimeterFace } from "./PolarimeterFace";
 import { PropagationFace } from "./PropagationFace";
-import { RangeDopplerFace } from "./RangeDopplerFace";
+import { RadarFace } from "./RadarFace";
 import { RecordingFace } from "./RecordingFace";
 import { SatelliteFace } from "./SatelliteFace";
 import { ScopeFace } from "./ScopeFace";
@@ -36,6 +38,7 @@ import {
   SpeakerFace,
   VideoFace,
 } from "./SinkFaces";
+import { SpatialSpectrumFace } from "./SpatialSpectrumFace";
 import { SpectrumMonitorFace } from "./SpectrumMonitorFace";
 import { StitchFace } from "./StitchFace";
 import { TimeMachineFace } from "./TimeMachineFace";
@@ -57,7 +60,6 @@ export const NODE_TYPES: Record<NodeKind, ComponentType<NodeProps<Node<FlowData>
   device: mount(DeviceFace),
   recording: mount(RecordingFace),
   signal_gen: mount(SignalGenFace),
-  array: mount(ArrayFace),
   gps: mount(GpsFace),
   channel: mount(ChannelFace),
   event_output: mount(EventOutputFace),
@@ -83,18 +85,21 @@ export const NODE_TYPES: Record<NodeKind, ComponentType<NodeProps<Node<FlowData>
   scanner: mount(ScannerFace),
   hunt: mount(HuntFace),
   satellite: mount(SatelliteFace),
-  df: mount(DfFace),
-  passive_radar: mount(RangeDopplerFace),
-  combiner: mount(CombinerFace),
-  stitch: mount(StitchFace),
   triangulation: mount(TriangulationFace),
+  array: mount(ArrayFace),
+  df: mount(DfFace),
+  beamformer: mount(BeamformerFace),
+  passive_radar: mount(RadarFace),
+  stitch: mount(StitchFace),
+  spatial_spectrum: mount(SpatialSpectrumFace),
+  correlator: mount(CorrelatorFace),
+  polarimeter: mount(PolarimeterFace),
 };
 
 export const FACES: Record<NodeKind, Face> = {
   device: DeviceFace,
   recording: RecordingFace,
   signal_gen: SignalGenFace,
-  array: ArrayFace,
   gps: GpsFace,
   channel: ChannelFace,
   event_output: EventOutputFace,
@@ -120,11 +125,15 @@ export const FACES: Record<NodeKind, Face> = {
   scanner: ScannerFace,
   hunt: HuntFace,
   satellite: SatelliteFace,
-  df: DfFace,
-  passive_radar: RangeDopplerFace,
-  combiner: CombinerFace,
-  stitch: StitchFace,
   triangulation: TriangulationFace,
+  array: ArrayFace,
+  df: DfFace,
+  beamformer: BeamformerFace,
+  passive_radar: RadarFace,
+  stitch: StitchFace,
+  spatial_spectrum: SpatialSpectrumFace,
+  correlator: CorrelatorFace,
+  polarimeter: PolarimeterFace,
 };
 
 export function faceSize(node: PatchNode): CSSProperties {

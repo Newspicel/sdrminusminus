@@ -1,6 +1,8 @@
 mod audio;
+mod collection;
 mod export;
 mod import;
+mod library;
 
 use std::{
     fs::{self, File},
@@ -11,10 +13,15 @@ use std::{
 pub use audio::{
     AUDIO_BYTES_PER_SAMPLE, AUDIO_SUFFIX, AudioInfo, AudioWriter, read_audio_info, scan_audio,
 };
+pub use collection::{
+    COLLECTION_SUFFIX, CollectionArray, CollectionReader, CollectionWriter, LaneMeta, ReadChunk,
+    RecordingNotes, collection_path, lane_of, lane_stem, scan_collections,
+};
 pub use export::{Export, ExportKind};
 pub use import::{
     ARCHIVE_SUFFIX, Datatype, Imported, MAX_IMPORT_NAME_LEN, import_archive, import_pair,
 };
+pub use library::{Stored, scan_library};
 use num_complex::Complex;
 use sdrmm_wire::PositionFix;
 use serde::{Deserialize, Serialize};
@@ -39,6 +46,10 @@ pub enum SigmfError {
     UnsupportedDatatype(String),
     #[error("{0}")]
     Malformed(String),
+    #[error("the collection has {expected} lanes, got {got}")]
+    LaneCount { expected: usize, got: usize },
+    #[error("every lane of a collection block must hold the same number of samples")]
+    LaneLength,
     #[error("stem `{}` is already claimed by another recording", .0.display())]
     StemTaken(PathBuf),
     #[error("cannot export `{}` as {format}: {reason}", .stem.display())]
@@ -89,9 +100,15 @@ pub struct SigmfGlobal {
         skip_serializing_if = "Option::is_none"
     )]
     pub rx_stream: Option<u32>,
+    #[serde(
+        rename = "sdrmm:lane",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub lane: Option<u32>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SigmfCapture {
     #[serde(rename = "core:sample_start")]
     pub sample_start: u64,
@@ -113,6 +130,18 @@ pub struct SigmfCapture {
         skip_serializing_if = "Option::is_none"
     )]
     pub geolocation: Option<SigmfGeolocation>,
+    #[serde(
+        rename = "core:global_index",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub global_index: Option<u64>,
+    #[serde(
+        rename = "sdrmm:offsets",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub offsets: Option<Vec<i64>>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -199,15 +228,19 @@ impl SigmfWriter {
                 name: None,
                 tags: Vec::new(),
                 rx_stream: None,
+                lane: None,
             },
             captures: vec![SigmfCapture {
                 sample_start: 0,
                 frequency: Some(center_hz),
                 datetime: Some(jiff::Timestamp::now().to_string()),
-                geolocation: None,
+                ..SigmfCapture::default()
             }],
             annotations: Vec::new(),
         };
+        if collection::holds(stem) {
+            return Err(SigmfError::StemTaken(stem.to_path_buf()));
+        }
         let tmp = tmp_meta_path(stem);
         let tmp_file = fs::OpenOptions::new()
             .write(true)
@@ -267,9 +300,33 @@ impl SigmfWriter {
         self.meta.captures.push(SigmfCapture {
             sample_start: self.samples,
             frequency: Some(frequency_hz),
-            datetime: None,
-            geolocation: None,
+            ..SigmfCapture::default()
         });
+    }
+
+    pub fn set_lane(&mut self, lane: u32) {
+        self.meta.global.lane = Some(lane);
+    }
+
+    pub fn capture_here(&mut self) -> &mut SigmfCapture {
+        let captures = &mut self.meta.captures;
+        let frequency = captures.last().and_then(|capture| capture.frequency);
+        if captures
+            .last()
+            .is_none_or(|capture| capture.sample_start != self.samples)
+        {
+            captures.push(SigmfCapture {
+                sample_start: self.samples,
+                frequency,
+                ..SigmfCapture::default()
+            });
+        }
+        let at = captures.len() - 1;
+        &mut captures[at]
+    }
+
+    pub fn push_annotation(&mut self, annotation: serde_json::Value) {
+        self.meta.annotations.push(annotation);
     }
 
     pub fn stamp_capture(&mut self, at: &str) {
@@ -279,38 +336,19 @@ impl SigmfWriter {
     }
 
     pub fn set_position(&mut self, fix: Option<&PositionFix>) {
-        let frequency = self
-            .meta
-            .captures
-            .last()
-            .and_then(|capture| capture.frequency);
-        if self
-            .meta
-            .captures
-            .last()
-            .is_none_or(|capture| capture.sample_start != self.samples)
-        {
-            self.meta.captures.push(SigmfCapture {
-                sample_start: self.samples,
-                frequency,
-                datetime: fix.map(|fix| fix.time.clone()),
-                geolocation: None,
-            });
-        }
-        if let Some(capture) = self.meta.captures.last_mut() {
-            capture.geolocation = fix.map(|fix| {
-                let mut coordinates = vec![fix.longitude, fix.latitude];
-                if let Some(altitude) = fix.altitude_m {
-                    coordinates.push(altitude);
-                }
-                SigmfGeolocation {
-                    kind: "Point".to_owned(),
-                    coordinates,
-                }
-            });
-            if let Some(fix) = fix {
-                capture.datetime = Some(fix.time.clone());
+        let capture = self.capture_here();
+        capture.geolocation = fix.map(|fix| {
+            let mut coordinates = vec![fix.longitude, fix.latitude];
+            if let Some(altitude) = fix.altitude_m {
+                coordinates.push(altitude);
             }
+            SigmfGeolocation {
+                kind: "Point".to_owned(),
+                coordinates,
+            }
+        });
+        if let Some(fix) = fix {
+            capture.datetime = Some(fix.time.clone());
         }
     }
 
@@ -344,6 +382,10 @@ impl SigmfWriter {
     }
 }
 
+fn holds_recording(stem: &Path) -> bool {
+    meta_path(stem).exists() || tmp_meta_path(stem).exists() || data_path(stem).exists()
+}
+
 fn claim_error(stem: &Path, err: std::io::Error) -> SigmfError {
     if err.kind() == std::io::ErrorKind::AlreadyExists {
         SigmfError::StemTaken(stem.to_path_buf())
@@ -363,15 +405,27 @@ pub fn annotate(
     name: Option<&str>,
     tags: &[String],
     note: Option<&str>,
-) -> Result<SigmfMeta, SigmfError> {
+) -> Result<(), SigmfError> {
+    let notes = RecordingNotes {
+        name: name.map(str::to_owned),
+        tags: tags.to_vec(),
+        note: note.map(str::to_owned),
+    };
+    match Stored::at(stem) {
+        Stored::Collection(_) => collection::annotate_collection(stem, notes),
+        Stored::Recording(_) => annotate_pair(stem, notes),
+    }
+}
+
+fn annotate_pair(stem: &Path, notes: RecordingNotes) -> Result<(), SigmfError> {
     let mut meta = read_meta(stem)?;
-    meta.global.name = name.map(str::to_owned);
-    meta.global.tags = tags.to_vec();
-    meta.global.description = note.map(str::to_owned);
+    meta.global.name = notes.name;
+    meta.global.tags = notes.tags;
+    meta.global.description = notes.note;
     let tmp = tmp_meta_path(stem);
     write_meta_synced(File::create(&tmp)?, &meta)?;
     fs::rename(&tmp, meta_path(stem))?;
-    Ok(meta)
+    Ok(())
 }
 
 #[derive(Debug)]
@@ -713,6 +767,7 @@ mod tests {
             speed_mps: None,
             track_deg: None,
             time: "2026-08-14T12:00:00Z".to_owned(),
+            attitude: sdrmm_wire::Attitude::default(),
         };
 
         writer.set_position(Some(&fix));
@@ -736,6 +791,7 @@ mod tests {
             speed_mps: None,
             track_deg: None,
             time: "2026-08-14T12:00:00Z".to_owned(),
+            attitude: sdrmm_wire::Attitude::default(),
         };
 
         writer.write_block(&samples(12)).unwrap();
@@ -902,12 +958,12 @@ mod tests {
                 name: None,
                 tags: Vec::new(),
                 rx_stream: None,
+                lane: None,
             },
             captures: vec![SigmfCapture {
                 sample_start: 7,
                 frequency: Some(100_000_000.0),
-                datetime: None,
-                geolocation: None,
+                ..SigmfCapture::default()
             }],
             annotations: Vec::new(),
         };

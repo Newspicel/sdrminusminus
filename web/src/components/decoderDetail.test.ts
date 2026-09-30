@@ -225,6 +225,18 @@ describe("eventDetail", () => {
         kind: "df",
         data: { bearing_deg: 137.5, confidence: 0.8, station_id: "north" },
       },
+      radar: {
+        kind: "radar",
+        data: {
+          track_id: 7,
+          change: "confirmed",
+          range_km: 32.5,
+          range_rate_mps: -365,
+          doppler_hz: 120,
+          snr_db: 17,
+          icao: "3C6444",
+        },
+      },
       df_fix: {
         kind: "df_fix",
         data: {
@@ -236,10 +248,6 @@ describe("eventDetail", () => {
           converged: true,
           samples: 12,
         },
-      },
-      radar: {
-        kind: "radar",
-        data: { range_bin: 60, range_km: 18.2, doppler_hz: 120, snr_db: 19.1 },
       },
       ils: {
         kind: "ils",

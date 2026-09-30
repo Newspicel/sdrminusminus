@@ -9,14 +9,14 @@ use std::{
 
 use rtrb::{Producer, RingBuffer};
 
-pub(super) struct Reclaimer<T> {
+pub(crate) struct Reclaimer<T> {
     queue: Producer<T>,
     stopped: Arc<AtomicBool>,
     worker: Option<JoinHandle<()>>,
 }
 
 impl<T: Send + 'static> Reclaimer<T> {
-    pub(super) fn new(mut release: impl FnMut(T) + Send + 'static) -> std::io::Result<Self> {
+    pub(crate) fn new(mut release: impl FnMut(T) + Send + 'static) -> std::io::Result<Self> {
         let (queue, mut receiver) = RingBuffer::new(64);
         let stopped = Arc::new(AtomicBool::new(false));
         let stop = stopped.clone();
@@ -43,7 +43,7 @@ impl<T: Send + 'static> Reclaimer<T> {
         })
     }
 
-    pub(super) fn available(&mut self) -> bool {
+    pub(crate) fn available(&mut self) -> bool {
         self.queue.slots() > 0
             && self
                 .worker
@@ -51,7 +51,19 @@ impl<T: Send + 'static> Reclaimer<T> {
                 .is_some_and(|worker| !worker.is_finished())
     }
 
-    pub(super) fn retire(&mut self, value: T) {
+    pub(crate) fn room(&self) -> usize {
+        if self
+            .worker
+            .as_ref()
+            .is_some_and(|worker| !worker.is_finished())
+        {
+            self.queue.slots()
+        } else {
+            0
+        }
+    }
+
+    pub(crate) fn retire(&mut self, value: T) {
         let result = self.queue.push(value);
         debug_assert!(result.is_ok());
         if let Some(worker) = &self.worker {

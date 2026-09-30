@@ -38,6 +38,23 @@ fn migration_is_idempotent() {
 }
 
 #[test]
+fn server_id_is_stable_across_opens() {
+    let file = tempfile::NamedTempFile::new().expect("temp db");
+    let first = Store::open(Some(file.path())).expect("first open");
+    let id = first.server_id();
+    drop(first);
+    let again = Store::open(Some(file.path())).expect("second open");
+    assert_eq!(again.server_id(), id);
+    assert_eq!(id.len(), 32);
+    assert!(
+        id.chars()
+            .all(|c| c.is_ascii_digit() || ('a'..='f').contains(&c))
+    );
+    let other = Store::open(None).expect("in memory");
+    assert_ne!(other.server_id(), id);
+}
+
+#[test]
 fn a_newer_schema_is_refused() {
     let conn = Connection::open_in_memory().expect("open");
     migrate(&conn).expect("migrate");
@@ -324,7 +341,29 @@ fn recording_row(stem: &str, samples: u64) -> RecordingRow {
         bytes: samples * 8,
         tags: Vec::new(),
         note: None,
+        lanes: 1,
     }
+}
+
+#[test]
+fn a_collection_row_keeps_its_lane_count() {
+    let store = Store::open(None).expect("open");
+    store
+        .upsert_recording(&recording_row("single", 8))
+        .expect("upsert");
+    store
+        .upsert_recording(&RecordingRow {
+            lanes: 5,
+            ..recording_row("take", 8)
+        })
+        .expect("upsert");
+    let lanes: Vec<(String, u32)> = store
+        .list_recordings()
+        .expect("list")
+        .into_iter()
+        .map(|recording| (recording.file, recording.lanes))
+        .collect();
+    assert_eq!(lanes, [("single".to_owned(), 1), ("take".to_owned(), 5)]);
 }
 
 #[test]
@@ -2031,9 +2070,9 @@ fn importing_the_same_workspace_again_keeps_its_name_within_the_limit() {
         sdrmm_wire::WorkspaceState::new(),
     );
 
-    let first = store.import_workspace(&export).expect("first import");
-    let second = store.import_workspace(&export).expect("second import");
-    let third = store.import_workspace(&export).expect("third import");
+    let first = store.import_workspace(&export, &[]).expect("first import");
+    let second = store.import_workspace(&export, &[]).expect("second import");
+    let third = store.import_workspace(&export, &[]).expect("third import");
 
     let name = |id: i64| store.workspace(id).expect("read").info.name;
     assert_eq!(name(first), long);
@@ -2064,7 +2103,7 @@ fn an_exported_workspace_carries_the_tuning_it_was_left_on() {
     assert_eq!(export.snapshot, store.workspace(id).expect("read").snapshot);
     assert_eq!(export.state, state);
 
-    let imported = store.import_workspace(&export).expect("import");
+    let imported = store.import_workspace(&export, &[]).expect("import");
     assert_eq!(
         store.workspace_state(imported).expect("stored state"),
         state,
@@ -2232,7 +2271,10 @@ fn a_stored_retired_decoder_event_leaves_the_log() {
         conn.pragma_update(None, "user_version", retiring as i64)
             .expect("rewind");
         conn.execute_batch(
-            "DROP TABLE saved_radios; DROP TABLE radio_calibrations; DROP TABLE remote_access;",
+            "DROP TABLE saved_radios; DROP TABLE radio_calibrations; DROP TABLE remote_access; \
+             DROP TABLE workspace_notices; DROP TABLE phones; DROP TABLE phone_offers; \
+             DROP TABLE server_meta; DROP TABLE array_calibrations; \
+             ALTER TABLE recordings DROP COLUMN lanes;",
         )
         .expect("drop the later tables");
     }
@@ -2241,6 +2283,31 @@ fn a_stored_retired_decoder_event_leaves_the_log() {
     let (entries, total) = query(&store, DecoderLogQuery::default());
     assert_eq!(total, 3);
     assert!(entries.iter().all(|entry| entry.kind != "subghz"));
+}
+
+#[test]
+fn an_old_radar_detection_leaves_the_log() {
+    let store = Store::open(None).expect("open");
+    seed(&store);
+    {
+        let conn = store.lock();
+        conn.execute(
+            "INSERT INTO decoder_log (at, device_set, channel, kind, freq_hz, summary, event) \
+             VALUES ('2026-08-09T12:00:03Z', 0, 0, 'radar', 98000000.0, 'range bin 4', \
+             '{\"kind\":\"radar\",\"data\":{\"range_bin\":4,\"range_km\":1.2,\
+             \"doppler_hz\":10.0,\"snr_db\":12.0}}')",
+            [],
+        )
+        .expect("an old row");
+        let retiring = MIGRATIONS
+            .iter()
+            .find(|migration| migration.contains("kind = 'radar'"))
+            .expect("the retiring migration");
+        conn.execute_batch(retiring).expect("retire");
+    }
+    let (entries, total) = query(&store, DecoderLogQuery::default());
+    assert_eq!(total, 3);
+    assert!(entries.iter().all(|entry| entry.kind != "radar"));
 }
 
 #[test]

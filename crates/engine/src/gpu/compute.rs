@@ -1,5 +1,7 @@
 use super::*;
 
+const MAX_GROUPS_PER_DIMENSION: u64 = 65_535;
+
 pub(crate) struct Kernel {
     pipeline: wgpu::ComputePipeline,
     bindings: wgpu::BindGroup,
@@ -7,6 +9,7 @@ pub(crate) struct Kernel {
 }
 
 impl Kernel {
+    #[cfg(test)]
     pub(crate) fn new(
         context: &Context,
         source: &str,
@@ -14,36 +17,30 @@ impl Kernel {
         buffers: &[&wgpu::Buffer],
         groups: [u32; 3],
     ) -> Self {
-        let shader = context
-            .device
-            .create_shader_module(wgpu::ShaderModuleDescriptor {
-                label: Some(entry),
-                source: wgpu::ShaderSource::Wgsl(source.into()),
-            });
-        let pipeline = context
-            .device
-            .create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                label: Some(entry),
-                layout: None,
-                module: &shader,
-                entry_point: Some(entry),
-                compilation_options: Default::default(),
-                cache: None,
-            });
+        let pipeline = compile(context, &module(context, source, entry), entry);
+        let bindings: Vec<_> = (0u32..).zip(buffers.iter().copied()).collect();
+        Self::bind(context, &pipeline, &bindings, groups)
+    }
+
+    pub(crate) fn bind(
+        context: &Context,
+        pipeline: &wgpu::ComputePipeline,
+        buffers: &[(u32, &wgpu::Buffer)],
+        groups: [u32; 3],
+    ) -> Self {
         let entries: Vec<_> = buffers
             .iter()
-            .enumerate()
-            .map(|(index, buffer)| bind(index as u32, buffer.as_entire_binding()))
+            .map(|(index, buffer)| bind(*index, buffer.as_entire_binding()))
             .collect();
         let bindings = context
             .device
             .create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some(entry),
+                label: None,
                 layout: &pipeline.get_bind_group_layout(0),
                 entries: &entries,
             });
         Self {
-            pipeline,
+            pipeline: pipeline.clone(),
             bindings,
             groups,
         }
@@ -56,13 +53,41 @@ impl Kernel {
     }
 }
 
-pub(crate) fn storage(context: &Context, count: usize) -> wgpu::Buffer {
-    buffer(
-        &context.device,
-        "SDR-- storage",
-        count as u64 * 4,
-        wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::COPY_SRC,
-    )
+pub(crate) fn module(context: &Context, source: &str, label: &str) -> wgpu::ShaderModule {
+    context
+        .device
+        .create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some(label),
+            source: wgpu::ShaderSource::Wgsl(source.into()),
+        })
+}
+
+pub(crate) fn compile(
+    context: &Context,
+    module: &wgpu::ShaderModule,
+    entry: &str,
+) -> wgpu::ComputePipeline {
+    context
+        .device
+        .create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            label: Some(entry),
+            layout: None,
+            module,
+            entry_point: Some(entry),
+            compilation_options: Default::default(),
+            cache: None,
+        })
+}
+
+pub(crate) fn grid(threads: u64, per_group: u64) -> Result<[u32; 3], String> {
+    let groups = threads.div_ceil(per_group.max(1)).max(1);
+    let x = groups.min(MAX_GROUPS_PER_DIMENSION);
+    let y = groups.div_ceil(x);
+    if y > MAX_GROUPS_PER_DIMENSION {
+        return Err(format!("{threads} GPU threads exceed the dispatch limit"));
+    }
+    let narrow = |value: u64| u32::try_from(value).map_err(|_| "GPU dispatch overflow".to_owned());
+    Ok([narrow(x)?, narrow(y)?, 1])
 }
 
 pub(crate) fn initialized<T: Pod>(context: &Context, contents: &[T]) -> wgpu::Buffer {
@@ -75,60 +100,18 @@ pub(crate) fn initialized<T: Pod>(context: &Context, contents: &[T]) -> wgpu::Bu
         })
 }
 
-pub(crate) struct Readback {
-    buffer: wgpu::Buffer,
-    bytes: u64,
-}
+#[cfg(test)]
+mod tests {
+    use super::grid;
 
-impl Readback {
-    pub(crate) fn new(context: &Context, floats: usize) -> Self {
-        let bytes = floats as u64 * 4;
-        Self {
-            buffer: buffer(
-                &context.device,
-                "SDR-- readback",
-                bytes,
-                wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
-            ),
-            bytes,
-        }
-    }
-
-    pub(crate) fn finish(
-        &self,
-        context: &Context,
-        mut encoder: wgpu::CommandEncoder,
-        source: &wgpu::Buffer,
-        output: &mut [f32],
-    ) -> Result<(), String> {
-        if output.len() as u64 * 4 != self.bytes {
-            return Err("GPU readback length mismatch".to_owned());
-        }
-        encoder.copy_buffer_to_buffer(source, 0, &self.buffer, 0, self.bytes);
-        let submission = context.queue.submit([encoder.finish()]);
-        let (sender, receiver) = mpsc::sync_channel(1);
-        self.buffer
-            .map_async(wgpu::MapMode::Read, .., move |result| {
-                let _ = sender.send(result);
-            });
-        context
-            .device
-            .poll(wgpu::PollType::Wait {
-                submission_index: Some(submission),
-                timeout: Some(Duration::from_secs(5)),
-            })
-            .map_err(|error| format!("wait for GPU: {error}"))?;
-        receiver
-            .recv_timeout(Duration::from_secs(5))
-            .map_err(|error| format!("GPU callback: {error}"))?
-            .map_err(|error| format!("map GPU output: {error}"))?;
-        let view = self
-            .buffer
-            .get_mapped_range(..)
-            .map_err(|error| format!("read GPU output: {error}"))?;
-        output.copy_from_slice(bytemuck::cast_slice(&view));
-        drop(view);
-        self.buffer.unmap();
-        Ok(())
+    #[test]
+    fn a_grid_covers_every_thread_within_the_dimension_limit() {
+        assert_eq!(grid(0, 256), Ok([1, 1, 1]));
+        assert_eq!(grid(256 * 1000, 256), Ok([1000, 1, 1]));
+        let threads = 256 * 70_000 + 1;
+        let [x, y, _] = grid(threads, 256).unwrap();
+        assert_eq!(x, 65_535);
+        assert!(u64::from(x) * u64::from(y) * 256 >= threads);
+        assert!(grid(u64::MAX / 2, 1).is_err());
     }
 }

@@ -129,7 +129,8 @@ fn unix_ms() -> u64 {
 mod tests {
     use sdrmm_wire::{
         Agc, Capabilities, ChannelInfo, ChannelSettings, Coherence, DcArtifact, DeviceFault,
-        DeviceInfo, DeviceSetStatus, DeviceSettings, Duplex, RecordingStatus, StreamScope,
+        DeviceInfo, DeviceSetStatus, DeviceSettings, Duplex, NoiseSource, RecordingStatus,
+        StreamScope,
     };
     use serde_json::json;
 
@@ -157,7 +158,8 @@ mod tests {
             dc_artifact: DcArtifact::Operator,
             hardware_sweep: false,
             coherence: Coherence::None,
-            noise_source: false,
+            noise_source: NoiseSource::None,
+            retune_keeps_phase: false,
             rx_stream_choices: Vec::new(),
         }
     }
@@ -201,7 +203,8 @@ mod tests {
             scanners: Vec::new(),
             hunts: Vec::new(),
             playback: None,
-            extra_lane: None,
+            virtual_lanes: Vec::new(),
+            held: Vec::new(),
             loss: None,
         }
     }
@@ -222,6 +225,7 @@ mod tests {
         StateSnapshot {
             device_sets,
             trunk_systems: Vec::new(),
+            arrays: Vec::new(),
             revision: 7,
         }
     }

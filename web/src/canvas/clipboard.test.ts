@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { PatchGraph, PatchNode } from "../lib/types";
-import { copyNodes, pasteIds, pasteNodes, pasteRefusal } from "./clipboard";
+import { copyNodes, pasteIds, pasteNodes, pasteRefusal, pasteRuns } from "./clipboard";
 import { MAX_EDGES, MAX_NODES } from "./graph";
 
 function node(id: string, body: Partial<PatchNode> & Pick<PatchNode, "kind">): PatchNode {
@@ -172,5 +172,13 @@ describe("pasteRefusal", () => {
       throw new Error("nothing copied");
     }
     expect(pasteRefusal(wired, pair)).toBe(`a patch holds ${MAX_EDGES} wires`);
+  });
+});
+
+describe("pasteRuns", () => {
+  it("applies a paste that brings wires or a node that runs unwired", () => {
+    expect(pasteRuns({ nodes: graph.nodes, edges: graph.edges ?? [] })).toBe(true);
+    expect(pasteRuns({ nodes: [node("spk", { kind: "speaker" })], edges: [] })).toBe(false);
+    expect(pasteRuns({ nodes: [node("gen", { kind: "signal_gen" })], edges: [] })).toBe(true);
   });
 });

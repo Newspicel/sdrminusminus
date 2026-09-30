@@ -2,7 +2,7 @@ use sdrmm_device::{DeviceError, check_stream_settings};
 use sdrmm_wire::{
     Agc, ArgumentInfo, ArgumentOption, ArgumentType, BandwidthSetting, Capabilities,
     ChannelCapabilities, Coherence, DcArtifact, DeviceSettings, DirectionalCapabilities, Duplex,
-    ExtraSetting, GainKind, GainStage, Range,
+    ExtraSetting, GainKind, GainStage, Range, StreamScope,
 };
 
 use crate::soapy::ArgType;
@@ -150,8 +150,6 @@ pub(crate) fn capabilities(directional: DirectionalCapabilities) -> Capabilities
             channel.sample_rate_ranges.clone(),
             channel.gains.clone(),
             channel.antennas.clone(),
-            // A Soapy range whose ends meet is one discrete width; the rest are the continuous
-            // envelopes, and both halves have to survive or a radio loses filter settings it has.
             channel
                 .bandwidth_ranges
                 .iter()
@@ -210,24 +208,24 @@ pub(crate) fn capabilities(directional: DirectionalCapabilities) -> Capabilities
         duplex,
         rx_streams,
         tx_streams,
-        per_stream: sdrmm_wire::StreamScope::default(),
+        per_stream: stream_scope(rx_streams),
         directional: Some(directional),
         dc_artifact: DcArtifact::Operator,
         hardware_sweep: false,
         coherence,
-        noise_source: false,
+        noise_source: sdrmm_wire::NoiseSource::None,
+        retune_keeps_phase: false,
         rx_stream_choices: Vec::new(),
     }
 }
 
-/// Hardware whose receive chains are known to share one synthesizer, not just one clock. Anything
-/// else with more than one channel on a single device shares a clock by construction, which makes
-/// a delay between its lanes meaningful and a phase between them not.
-///
-/// A bank of dongles on one clock does not belong here however coherent its marketing is: each
-/// chain keeps its own synthesizer, and the phase between them is whatever the last retune left,
-/// which is why those radios carry a noise source to solve it again.
-const PHASE_COHERENT_HARDWARE: [&str; 1] = ["rspduo"];
+const PHASE_COHERENT_HARDWARE: [&str; 7] = [
+    "lms7002", "limesdr", "b210", "bladerf2", "ad9361", "ad9363", "ad9364",
+];
+
+fn normalized(value: &str) -> String {
+    value.to_ascii_lowercase().replace([' ', '-', '_', '.'], "")
+}
 
 fn coherence(directional: &DirectionalCapabilities, rx_streams: u32) -> Coherence {
     if rx_streams < 2 {
@@ -235,15 +233,11 @@ fn coherence(directional: &DirectionalCapabilities, rx_streams: u32) -> Coherenc
     }
     let named = directional
         .hardware_info
-        .values()
-        .chain(
-            directional
-                .rx
-                .iter()
-                .flat_map(|channel| channel.info.values()),
-        )
+        .iter()
+        .chain(directional.rx.iter().flat_map(|channel| &channel.info))
+        .filter(|(key, _)| !key.to_ascii_lowercase().contains("serial"))
+        .map(|(_, value)| normalized(value))
         .any(|value| {
-            let value = value.to_ascii_lowercase().replace([' ', '-', '_'], "");
             PHASE_COHERENT_HARDWARE
                 .iter()
                 .any(|known| value.contains(known))
@@ -252,6 +246,24 @@ fn coherence(directional: &DirectionalCapabilities, rx_streams: u32) -> Coherenc
         Coherence::PhaseCoherent
     } else {
         Coherence::TimeSync
+    }
+}
+
+const fn stream_scope(rx_streams: u32) -> StreamScope {
+    if rx_streams > 1 {
+        StreamScope {
+            tuning: false,
+            gain: true,
+            antenna: true,
+            agc: false,
+        }
+    } else {
+        StreamScope {
+            tuning: false,
+            gain: false,
+            antenna: false,
+            agc: false,
+        }
     }
 }
 
@@ -474,16 +486,10 @@ fn writes_a_gain_stage(delta: &DeviceSettings) -> bool {
     !delta.gains.is_empty() || delta.streams.iter().any(|stream| !stream.gains.is_empty())
 }
 
-/// Whether a gain the operator asked for would land on a radio that is already choosing its own.
-/// A patch that sets the mode itself is left alone: that is the caller saying which of the two
-/// wins, and [`automatic_gain_to_reassert`] puts the mode back afterwards.
 pub(crate) fn gain_needs_manual_mode(delta: &DeviceSettings, automatic: bool) -> bool {
     automatic && writes_a_gain_stage(delta) && delta.agc.is_none()
 }
 
-/// The settings a radio can only take with its stream torn down. A bladeRF resets the sample
-/// counter the sync worker is reading against inside its own `setSampleRate`, and reshaping the
-/// analog filter walks the same converter; both leave the capture thread reading into nothing.
 pub(crate) const fn reshapes_the_stream(delta: &DeviceSettings) -> bool {
     delta.sample_rate.is_some() || delta.bandwidth.is_some()
 }
@@ -549,14 +555,62 @@ mod tests {
     }
 
     #[test]
-    fn only_one_synthesizer_behind_every_lane_is_phase_coherent() {
-        assert_eq!(coherence(&named("RSPduo", 2), 2), Coherence::PhaseCoherent);
+    fn rspduo_is_time_sync() {
+        assert_eq!(coherence(&named("RSPduo", 2), 2), Coherence::TimeSync);
         assert_eq!(coherence(&named("RSPduo", 1), 1), Coherence::None);
-        assert_eq!(coherence(&named("LimeSDR", 2), 2), Coherence::TimeSync);
         assert_eq!(
             coherence(&named("KrakenSDR", 5), 5),
             Coherence::TimeSync,
             "five tuners on one clock come up at five phases"
+        );
+    }
+
+    #[test]
+    fn lime_b210_bladerf2_are_phase_coherent() {
+        for hardware in [
+            "LimeSDR-USB",
+            "LimeSDR Mini 2.0",
+            "LMS7002M",
+            "B210",
+            "bladeRF 2.0",
+            "bladerf2",
+            "AD9361",
+            "ad9363",
+            "AD-9364",
+        ] {
+            assert_eq!(
+                coherence(&named(hardware, 2), 2),
+                Coherence::PhaseCoherent,
+                "{hardware}"
+            );
+        }
+        assert_eq!(coherence(&named("B200", 2), 2), Coherence::TimeSync);
+        let mut duo = named("RSPduo", 2);
+        duo.hardware_info
+            .insert("serial".to_string(), "1d2b2100ad9361b210".to_string());
+        assert_eq!(
+            coherence(&duo, 2),
+            Coherence::TimeSync,
+            "a serial number never names the hardware"
+        );
+        assert_eq!(coherence(&named("LimeSDR-USB", 1), 1), Coherence::None);
+    }
+
+    #[test]
+    fn several_receive_channels_share_tuning_but_not_gain_or_antenna() {
+        let multi = capabilities(named("LimeSDR-USB", 2));
+        assert_eq!(
+            multi.per_stream,
+            StreamScope {
+                tuning: false,
+                gain: true,
+                antenna: true,
+                agc: false,
+            }
+        );
+        assert_eq!(
+            capabilities(named("LimeSDR-USB", 1)).per_stream,
+            StreamScope::default()
         );
     }
 
@@ -1007,7 +1061,8 @@ mod tests {
         assert_eq!(caps.rx_streams, 2);
         assert_eq!(caps.tx_streams, 1);
         assert_eq!(caps.duplex, Duplex::Full);
-        assert_eq!(caps.per_stream, sdrmm_wire::StreamScope::default());
+        assert!(caps.per_stream.gain && caps.per_stream.antenna);
+        assert!(!caps.per_stream.tuning && !caps.per_stream.agc);
     }
 
     #[test]

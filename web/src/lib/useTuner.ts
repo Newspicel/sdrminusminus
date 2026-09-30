@@ -1,4 +1,4 @@
-import { iqLanesOf, tunedStream } from "../canvas/binding";
+import { type IqLane, iqLanesOf, laneTuneTarget } from "../canvas/binding";
 import { useWorkspaceContext, type Workspace } from "../canvas/context";
 import { descriptorOf, nodeOf } from "../canvas/graph";
 import type { ChannelTarget, TuneTarget } from "../canvas/libraryTarget";
@@ -6,6 +6,7 @@ import { autoTuning, laneCenterHz, laneRateHz, tuneDelta } from "../canvas/nodes
 import { laneOf } from "../canvas/workspaceDevice";
 import { radioWindowHz, reachesHz } from "../components/channelSettings";
 import type { ChannelDescriptor, DeviceSet, DeviceSettings } from "./types";
+import { useArrayTune } from "./useArrayTune";
 import { channelSettingsOf, useChannelEdit } from "./useChannelEdit";
 import { forStream, useDevicePatch } from "./useDevicePatch";
 import { useRadioTune } from "./useRadioTune";
@@ -17,10 +18,16 @@ export interface Tuner {
   ready: boolean;
 }
 
+interface Reach {
+  applyPatch: (ds: number, delta: DeviceSettings) => void;
+  tuneArray: (node: string, hz: number) => void;
+}
+
 export function useTuner(target: TuneTarget | null): Tuner {
   const workspace = useWorkspaceContext();
   const { applyPatch } = useDevicePatch();
   const { tuneRadio } = useRadioTune();
+  const { tuneArray } = useArrayTune();
   const editChannel = useChannelEdit();
 
   const tune = (hz: number): void => {
@@ -32,7 +39,7 @@ export function useTuner(target: TuneTarget | null): Tuner {
       return;
     }
     editChannel(target.node, { frequency_hz: hz });
-    reachFor(workspace, target, hz, applyPatch);
+    reachFor(workspace, target, hz, { applyPatch, tuneArray });
   };
 
   return {
@@ -66,11 +73,22 @@ export function radioPullFor(
   return reachesHz(hz, window) ? null : tuneDelta(set.capabilities, lane.tunes, hz);
 }
 
-function tunedLane(workspace: Workspace, node: string): { stream: number; tunes: number } {
-  const lane = laneOf(workspace, node);
-  return lane === null
-    ? { stream: 0, tunes: 0 }
-    : { stream: lane.stream, tunes: tunedStream(lane) };
+export function arrayPullFor(
+  set: DeviceSet,
+  lane: IqLane,
+  descriptor: ChannelDescriptor | undefined,
+  hz: number,
+): string | null {
+  const aim = laneTuneTarget(lane);
+  if (aim.kind !== "array") {
+    return null;
+  }
+  const window = radioWindowHz(
+    laneCenterHz(set, lane.stream),
+    laneRateHz(set, lane.stream),
+    descriptor,
+  );
+  return reachesHz(hz, window) ? null : aim.node;
 }
 
 function frequencyOf(workspace: Workspace, target: TuneTarget): number | null {
@@ -84,25 +102,30 @@ function channelTypeOf(workspace: Workspace, node: string): string | null {
   return patch?.kind === "channel" ? patch.data.channel_type : null;
 }
 
-function reachFor(
-  workspace: Workspace,
-  target: ChannelTarget,
-  hz: number,
-  applyPatch: (ds: number, delta: DeviceSettings) => void,
-): void {
+function reachFor(workspace: Workspace, target: ChannelTarget, hz: number, reach: Reach): void {
   const { set } = target;
   if (set === null) {
     return;
   }
   const patch = nodeOf(workspace.graph, target.node);
+  const descriptor = patch === undefined ? undefined : descriptorOf(workspace.context, patch);
+  const lane = laneOf(workspace, target.node);
+  if (lane?.virtual !== undefined) {
+    const array = arrayPullFor(set, lane, descriptor, hz);
+    if (array !== null) {
+      reach.tuneArray(array, hz);
+    }
+    return;
+  }
+  const stream = lane?.stream ?? 0;
   const pull = radioPullFor(
     set,
-    tunedLane(workspace, target.node),
-    patch === undefined ? undefined : descriptorOf(workspace.context, patch),
+    { stream, tunes: stream },
+    descriptor,
     hz,
-    iqLanesOf(workspace.graph, target.node).length,
+    iqLanesOf(workspace.graph, target.node, workspace.devices).length,
   );
   if (pull !== null) {
-    applyPatch(set.id, pull);
+    reach.applyPatch(set.id, pull);
   }
 }

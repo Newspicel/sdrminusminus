@@ -60,6 +60,10 @@ impl SampleConverter for AirspyConverter {
         self.out.clear();
         self.carry = None;
     }
+
+    fn bytes_per_sample(&self) -> u64 {
+        4
+    }
 }
 
 fn code_to_f32(word: u16) -> f32 {
@@ -102,6 +106,14 @@ mod tests {
         let mut converter = AirspyConverter::new(4096);
         let out = converter.convert(&tone_bytes(0.25, 4096));
         assert_eq!(out.len(), 2048);
+    }
+
+    #[test]
+    fn a_sample_takes_as_many_bytes_as_the_converter_claims() {
+        let bytes = tone_bytes(0.25, 4096);
+        let mut converter = AirspyConverter::new(4096);
+        let samples = converter.convert(&bytes).len() as u64;
+        assert_eq!(samples * converter.bytes_per_sample(), bytes.len() as u64);
     }
 
     #[test]

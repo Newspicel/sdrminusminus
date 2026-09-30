@@ -6,7 +6,7 @@ use crate::{
     workspace_state::{WORKSPACE_STATE_VERSION, WorkspaceState},
 };
 
-pub const WORKSPACE_SNAPSHOT_VERSION: u32 = 3;
+pub const WORKSPACE_SNAPSHOT_VERSION: u32 = 4;
 
 pub const WORKSPACE_EXPORT_VERSION: u32 = 1;
 
@@ -293,6 +293,29 @@ pub struct WorkspaceHistory {
     pub can_redo: bool,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct DroppedNode {
+    pub id: String,
+    pub kind: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(tag = "kind", content = "data", rename_all = "snake_case")]
+pub enum WorkspaceNoticeKind {
+    DroppedNodes { nodes: Vec<DroppedNode> },
+    ClearedGps { nodes: Vec<String> },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct WorkspaceNotice {
+    pub id: i64,
+    pub at: String,
+    #[serde(flatten)]
+    pub notice: WorkspaceNoticeKind,
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct WorkspaceDetail {
     #[serde(flatten)]
@@ -302,6 +325,8 @@ pub struct WorkspaceDetail {
     pub history: WorkspaceHistory,
     #[serde(default = "WorkspaceState::new")]
     pub state: WorkspaceState,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub notices: Vec<WorkspaceNotice>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
@@ -486,7 +511,7 @@ mod tests {
         assert_eq!(back, snap);
 
         let bare: WorkspaceSnapshot =
-            serde_json::from_str(r#"{"version":3,"graph":{"nodes":[]}}"#).unwrap();
+            serde_json::from_str(r#"{"version":4,"graph":{"nodes":[]}}"#).unwrap();
         assert!(bare.rack.slots.is_empty());
         assert!(bare.graph.edges.is_empty());
         assert_eq!(bare.settings.band_region, None);
@@ -511,6 +536,76 @@ mod tests {
         let mut snap = WorkspaceSnapshot::starter();
         snap.version = 2;
         assert_eq!(snap.validate(), Err(WorkspaceError::Version(2)));
+    }
+
+    #[test]
+    fn validate_refuses_a_version_3_snapshot() {
+        let mut snap = WorkspaceSnapshot::starter();
+        snap.version = 3;
+        assert_eq!(snap.validate(), Err(WorkspaceError::Version(3)));
+    }
+
+    #[test]
+    fn a_notice_carries_its_kind_and_data_beside_its_id() {
+        let notice = WorkspaceNotice {
+            id: 7,
+            at: "2026-09-28T12:00:00Z".to_owned(),
+            notice: WorkspaceNoticeKind::DroppedNodes {
+                nodes: vec![
+                    DroppedNode {
+                        id: "df1".to_owned(),
+                        kind: "df".to_owned(),
+                        label: Some("Roof".to_owned()),
+                    },
+                    DroppedNode {
+                        id: "arr".to_owned(),
+                        kind: "array".to_owned(),
+                        label: None,
+                    },
+                ],
+            },
+        };
+        let json = serde_json::to_value(&notice).unwrap();
+        assert_eq!(json["id"], 7);
+        assert_eq!(json["at"], "2026-09-28T12:00:00Z");
+        assert_eq!(json["kind"], "dropped_nodes");
+        assert_eq!(json["data"]["nodes"][0]["label"], "Roof");
+        assert!(json["data"]["nodes"][1].get("label").is_none());
+        let back: WorkspaceNotice = serde_json::from_value(json).unwrap();
+        assert_eq!(back, notice);
+
+        let cleared: WorkspaceNotice = serde_json::from_str(
+            r#"{"id":8,"at":"t","kind":"cleared_gps","data":{"nodes":["gps1"]}}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            cleared.notice,
+            WorkspaceNoticeKind::ClearedGps {
+                nodes: vec!["gps1".to_owned()]
+            }
+        );
+    }
+
+    #[test]
+    fn a_detail_without_notices_leaves_them_out() {
+        let detail = WorkspaceDetail {
+            info: WorkspaceInfo {
+                id: 1,
+                name: "Desk".to_owned(),
+                created_at: "t".to_owned(),
+                updated_at: "t".to_owned(),
+                revision: 1,
+                nodes: 3,
+            },
+            snapshot: WorkspaceSnapshot::starter(),
+            history: WorkspaceHistory::default(),
+            state: WorkspaceState::new(),
+            notices: Vec::new(),
+        };
+        let json = serde_json::to_value(&detail).unwrap();
+        assert!(json.get("notices").is_none());
+        let back: WorkspaceDetail = serde_json::from_value(json).unwrap();
+        assert_eq!(back, detail);
     }
 
     #[test]

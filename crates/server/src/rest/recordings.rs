@@ -1,15 +1,89 @@
 use std::{
-    path::PathBuf,
+    path::{Path as FsPath, PathBuf},
     sync::atomic::{AtomicU64, Ordering},
 };
 
+use sdrmm_recorder::{BYTES_PER_SAMPLE, CollectionReader, SigmfReader, collection_path, data_path};
+
 use super::*;
+
+pub(super) fn recording_row(stem: &FsPath, name: &str) -> Option<RecordingRow> {
+    let reader = match SigmfReader::open(stem) {
+        Ok(reader) => reader,
+        Err(err) => {
+            tracing::warn!(stem = %stem.display(), error = %err, "skipping unreadable recording");
+            return None;
+        }
+    };
+    let samples = reader.total_samples();
+    let meta = reader.meta();
+    let Some(sample_rate) = meta.global.sample_rate else {
+        tracing::warn!(stem = %stem.display(), "skipping recording without a core:sample_rate");
+        return None;
+    };
+    let first = meta.captures.first();
+    Some(RecordingRow {
+        stem: name.to_owned(),
+        name: meta.global.name.clone(),
+        created_at: first
+            .and_then(|capture| capture.datetime.clone())
+            .unwrap_or_else(|| modified_at(&data_path(stem))),
+        device_label: meta.global.hw.clone().unwrap_or_default(),
+        center_hz: first
+            .and_then(|capture| capture.frequency)
+            .unwrap_or_default(),
+        sample_rate,
+        samples,
+        bytes: samples * BYTES_PER_SAMPLE,
+        tags: meta.global.tags.clone(),
+        note: meta.global.description.clone(),
+        lanes: 1,
+    })
+}
+
+pub(super) fn collection_row(stem: &FsPath, name: &str) -> Option<RecordingRow> {
+    let reader = match CollectionReader::open(stem) {
+        Ok(reader) => reader,
+        Err(err) => {
+            tracing::warn!(stem = %stem.display(), error = %err, "skipping unreadable collection");
+            return None;
+        }
+    };
+    let lanes = u32::try_from(reader.lanes()).unwrap_or(u32::MAX);
+    let samples = reader.total_samples();
+    let notes = reader.notes();
+    Some(RecordingRow {
+        stem: name.to_owned(),
+        name: notes.name.clone(),
+        created_at: reader
+            .started_at()
+            .map_or_else(|| modified_at(&collection_path(stem)), str::to_owned),
+        device_label: reader.hardware().join(", "),
+        center_hz: reader.centers_hz().first().copied().unwrap_or_default(),
+        sample_rate: reader.sample_rate(),
+        samples,
+        bytes: samples * BYTES_PER_SAMPLE * u64::from(lanes),
+        tags: notes.tags.clone(),
+        note: notes.note.clone(),
+        lanes,
+    })
+}
+
+fn modified_at(path: &FsPath) -> String {
+    std::fs::metadata(path)
+        .and_then(|metadata| metadata.modified())
+        .ok()
+        .and_then(|at| jiff::Timestamp::try_from(at).ok())
+        .map(|at| at.to_string())
+        .unwrap_or_default()
+}
 
 #[utoipa::path(
     get, path = "/api/recordings",
     responses((
         status = 200,
-        description = "The recording library, reconciled with the SigMF pairs on disk",
+        description = "The recording library, reconciled with the SigMF recordings on disk. \
+                       An array collection is one entry",
         body = RecordingsResponse,
     )),
 )]
@@ -88,7 +162,7 @@ pub(super) async fn reveal_recording(
             .engine
             .recordings_dir()
             .ok_or_else(|| AppError::not_found(format!("recording {id} not found")))?;
-        let path = data_path(&dir.join(&stem));
+        let path = Stored::at(&dir.join(&stem)).shown_file();
         if !path.is_file() {
             return Err(AppError::not_found(format!("recording {id} not found")));
         }
@@ -180,7 +254,7 @@ fn annotate_error(id: i64, err: sdrmm_recorder::SigmfError) -> AppError {
         (
             status = 400,
             description = "Unknown format, or a recording the requested container cannot \
-                           express (a WAV needs a sample rate and cf32 samples)",
+                           express (a WAV needs one lane, a sample rate and cf32 samples)",
             body = ApiError,
         ),
         (status = 404, description = "Recording not found", body = ApiError),
@@ -265,7 +339,7 @@ pub(super) fn byte_stream(
     delete, path = "/api/recordings/{id}",
     params(("id" = i64, Path, description = "Recording id")),
     responses(
-        (status = 204, description = "Recording removed: SigMF pair and index row"),
+        (status = 204, description = "Recording removed: its SigMF files and index row"),
         (status = 400, description = "Invalid path parameter", body = ApiError),
         (status = 404, description = "Recording not found", body = ApiError),
     ),
@@ -281,17 +355,9 @@ pub(super) async fn delete_recording(
         let _gate = lock_gate(&gate);
         let stem = store.recording_stem(id)?;
         if let Some(dir) = engine.recordings_dir() {
-            let pair = dir.join(&stem);
-            for path in [meta_path(&pair), data_path(&pair)] {
-                if let Err(err) = std::fs::remove_file(&path)
-                    && err.kind() != std::io::ErrorKind::NotFound
-                {
-                    return Err(AppError::internal(format!(
-                        "delete {}: {err}",
-                        path.display()
-                    )));
-                }
-            }
+            Stored::at(&dir.join(&stem))
+                .remove()
+                .map_err(|err| AppError::internal(format!("delete {stem}: {err}")))?;
         }
         store.delete_recording(id)?;
         engine.emit_scope(StateScope::Recordings);
@@ -478,6 +544,9 @@ fn import_error(err: SigmfError) -> AppError {
             "`{datatype}` is not a complex SigMF datatype this build can play"
         )),
         SigmfError::Malformed(reason) => AppError::bad_request(reason),
+        err @ (SigmfError::LaneCount { .. } | SigmfError::LaneLength) => {
+            AppError::bad_request(err.to_string())
+        }
         SigmfError::Meta(meta) => AppError::bad_request(format!("metadata: {meta}")),
         other => AppError::internal(format!("import recording: {other}")),
     }

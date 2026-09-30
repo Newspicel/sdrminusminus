@@ -1,5 +1,3 @@
-use std::collections::HashSet;
-
 use super::*;
 use crate::workspace::Restored;
 
@@ -93,7 +91,7 @@ pub(super) async fn apply_template(
         let settings = DeviceSettings {
             center_hz: Some(template.center_hz),
             sample_rate: Some(rate),
-            tuning: Some(sdrmm_wire::Tuning::Auto),
+            tuning: (!channels.is_empty()).then_some(sdrmm_wire::Tuning::Auto),
             ..DeviceSettings::default()
         };
         apply_configuration(&engine, req.device_set, settings, channels, "template")?;
@@ -174,15 +172,11 @@ pub(super) fn bring_up(
 ) -> Result<PatchApplyReport, AppError> {
     let engine = &app.engine;
     let mut report = PatchApplyReport::default();
-    workspace::describe_arrays(engine, &snapshot.graph);
-    engine.reconcile_arrays()?;
     let mut state = engine.snapshot();
     forget_closed_bindings(app, &state);
-    let mut fresh: HashSet<String> = HashSet::new();
 
     for (node, device_set) in workspace::bind_devices(&snapshot.graph, &state) {
         if first_binding(app, workspace, &node, device_set) {
-            fresh.insert(node.clone());
             match workspace::restore_device(engine, &app.store, device_set, &node, saved) {
                 Ok(whole) => note_restore(app, &node, whole == Restored::Whole),
                 Err(reason) => {
@@ -199,9 +193,6 @@ pub(super) fn bring_up(
 
     let mut attached: Option<Vec<DeviceInfo>> = None;
     for node in snapshot.graph.device_nodes() {
-        if matches!(node.body, NodeBody::Array(_)) {
-            continue;
-        }
         let Some(reference) = node.body.device_ref(&node.id) else {
             continue;
         };
@@ -230,9 +221,7 @@ pub(super) fn bring_up(
             Some(device_id) => match engine.create_device_set(&device_id) {
                 Ok(id) => {
                     report.opened += 1;
-                    if first_binding(app, workspace, &node.id, id) {
-                        fresh.insert(node.id.clone());
-                    }
+                    first_binding(app, workspace, &node.id, id);
                     match workspace::restore_device(engine, &app.store, id, &node.id, saved) {
                         Ok(whole) => note_restore(app, &node.id, whole == Restored::Whole),
                         Err(reason) => {
@@ -258,8 +247,6 @@ pub(super) fn bring_up(
         }
     }
 
-    workspace::describe_arrays(engine, &snapshot.graph);
-    open_arrays(app, workspace, snapshot, saved, &mut report, &mut fresh);
     crate::placement::settle_workspace(app, &snapshot.graph, saved, &mut report);
     state = engine.snapshot();
     for binding in &report.bound {
@@ -289,94 +276,13 @@ pub(super) fn bring_up(
         .iter()
         .map(|binding| (binding.node.clone(), binding.device_set))
         .collect();
-    for (node, reason) in crate::coherent::apply(app, &snapshot.graph, &bound) {
+    for (node, reason) in
+        crate::reconcile::reconcile_graph_hooks(app, &snapshot.graph, &bound, saved)
+    {
         report.refused.push(PatchRefusal { node, reason });
     }
-    let live = engine.snapshot();
-    for (node, device_set, stream) in crate::coherent::beam_channels(app, &snapshot.graph, &live) {
-        let Some(patch) = snapshot.graph.node(&node) else {
-            continue;
-        };
-        let NodeBody::Channel(channel) = &patch.body else {
-            continue;
-        };
-        let already = live
-            .device_sets
-            .iter()
-            .find(|set| set.id == device_set)
-            .is_some_and(|set| {
-                set.channels.iter().any(|existing| {
-                    existing.stream == stream
-                        && existing.node.as_deref() == Some(node.as_str())
-                        && existing.settings.params.type_id() == channel.channel_type
-                })
-            });
-        if already {
-            continue;
-        }
-        let Some(settings) = workspace::channel_settings(&node, &channel.channel_type, saved)
-        else {
-            report.refused.push(PatchRefusal {
-                node: node.clone(),
-                reason: format!("this build has no channel type {:?}", channel.channel_type),
-            });
-            continue;
-        };
-        match engine.add_channel_for(device_set, stream, settings, Some(&node)) {
-            Ok(_) => report.created += 1,
-            Err(err) => report.refused.push(PatchRefusal {
-                node,
-                reason: err.to_string(),
-            }),
-        }
-    }
+    crate::array::open_virtual_lane_channels(app, &snapshot.graph, saved, &mut report);
     Ok(report)
-}
-
-fn open_arrays(
-    app: &AppState,
-    workspace: i64,
-    snapshot: &WorkspaceSnapshot,
-    saved: &WorkspaceState,
-    report: &mut PatchApplyReport,
-    fresh: &mut HashSet<String>,
-) {
-    let engine = &app.engine;
-    for node in snapshot
-        .graph
-        .device_nodes()
-        .filter(|node| matches!(node.body, NodeBody::Array(_)))
-    {
-        if report.bound.iter().any(|bound| bound.node == node.id) {
-            continue;
-        }
-        let key = sdrmm_wire::patch::array_key(&node.id);
-        if engine.arrays().get(&key).is_none() {
-            continue;
-        }
-        match engine.create_array_set(&key) {
-            Ok(id) => {
-                if first_binding(app, workspace, &node.id, id) {
-                    fresh.insert(node.id.clone());
-                }
-                match workspace::restore_device(engine, &app.store, id, &node.id, saved) {
-                    Ok(whole) => note_restore(app, &node.id, whole == Restored::Whole),
-                    Err(reason) => report.refused.push(PatchRefusal {
-                        node: node.id.clone(),
-                        reason,
-                    }),
-                }
-                report.bound.push(PatchBinding {
-                    node: node.id.clone(),
-                    device_set: id,
-                });
-            }
-            Err(error) => report.refused.push(PatchRefusal {
-                node: node.id.clone(),
-                reason: error.to_string(),
-            }),
-        }
-    }
 }
 
 #[utoipa::path(
@@ -530,17 +436,52 @@ pub(super) fn export_filename(name: &str, id: i64) -> String {
 )]
 pub(super) async fn import_workspace(
     State(state): State<AppState>,
-    Json(export): Json<WorkspaceExport>,
+    Json(mut document): Json<serde_json::Value>,
 ) -> Result<Json<CreatedRowId>, AppError> {
+    let broken = crate::store::upgrade_export(&mut document);
+    let export: WorkspaceExport = crate::json::from_value(&document).map_err(|err| {
+        rejection(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "invalid request body",
+            err.to_string(),
+        )
+    })?;
     let engine = state.engine.clone();
     let store = state.store.clone();
     let id = tokio::task::spawn_blocking(move || -> Result<i64, AppError> {
-        let id = store.import_workspace(&export)?;
+        let id = store.import_workspace(&export, &broken.notices())?;
         engine.emit_scope(StateScope::Workspaces);
         Ok(id)
     })
     .await??;
     Ok(Json(CreatedRowId { id }))
+}
+
+#[utoipa::path(
+    delete, path = "/api/workspaces/{id}/notices/{notice}",
+    params(
+        ("id" = i64, Path, description = "Workspace id"),
+        ("notice" = i64, Path, description = "Notice id"),
+    ),
+    responses(
+        (status = 204, description = "Notice dismissed"),
+        (status = 400, description = "Invalid path parameter", body = ApiError),
+        (status = 404, description = "Workspace or notice not found", body = ApiError),
+    ),
+)]
+pub(super) async fn dismiss_workspace_notice(
+    State(state): State<AppState>,
+    Path((id, notice)): Path<(i64, i64)>,
+) -> Result<StatusCode, AppError> {
+    let engine = state.engine.clone();
+    let store = state.store.clone();
+    tokio::task::spawn_blocking(move || -> Result<(), AppError> {
+        store.dismiss_notice(id, notice)?;
+        engine.emit_scope(StateScope::Workspaces);
+        Ok(())
+    })
+    .await??;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 #[utoipa::path(
@@ -574,10 +515,6 @@ pub(super) async fn update_workspace(
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         let info = store.update_workspace(id, &req)?;
-        if store.active_workspace_id()? == Some(id) {
-            let graph = store.workspace(id)?.snapshot.graph;
-            crate::coherent::drop_undrawn(&app, &graph);
-        }
         engine.emit_scope(StateScope::Workspaces);
         Ok(info)
     })
@@ -640,31 +577,32 @@ pub(super) async fn activate_workspace(
     Path(id): Path<i64>,
 ) -> Result<StatusCode, AppError> {
     let gps_state = state.clone();
-    tokio::task::spawn_blocking(move || -> Result<(), AppError> {
-        let _serialized = state
-            .apply_gate
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        if let Err(err) = workspace::save_active(&state) {
-            tracing::warn!(%err, "could not save the outgoing workspace before the switch");
-        }
-        state.store.activate_workspace(id)?;
-        let detail = state.store.workspace(id)?;
-        let saved = state.store.workspace_state(id)?;
-        let report = workspace::reconcile(&state, &detail.snapshot.graph, &saved);
-        tracing::info!(
-            workspace = id,
-            closed = report.closed,
-            channels = report.dropped_channels,
-            scans = report.stopped_scans,
-            "activated"
-        );
-        state.engine.emit_scope(StateScope::Workspaces);
-        Ok(())
+    tokio::task::spawn_blocking(move || {
+        let _serialized = lock_gate(&state.apply_gate);
+        activate(&state, id)
     })
     .await??;
     reconcile_graph(gps_state).await?;
     Ok(StatusCode::NO_CONTENT)
+}
+
+pub(super) fn activate(state: &AppState, id: i64) -> Result<(), AppError> {
+    if let Err(err) = workspace::save_active(state) {
+        tracing::warn!(%err, "could not save the outgoing workspace before the switch");
+    }
+    state.store.activate_workspace(id)?;
+    let detail = state.store.workspace(id)?;
+    let saved = state.store.workspace_state(id)?;
+    let report = workspace::reconcile(state, &detail.snapshot.graph, &saved);
+    tracing::info!(
+        workspace = id,
+        closed = report.closed,
+        channels = report.dropped_channels,
+        scans = report.stopped_scans,
+        "activated"
+    );
+    state.engine.emit_scope(StateScope::Workspaces);
+    Ok(())
 }
 
 #[utoipa::path(
@@ -767,18 +705,19 @@ pub(super) async fn apply_workspace(
     Path(id): Path<i64>,
 ) -> Result<Json<PatchApplyReport>, AppError> {
     let gps_state = state.clone();
-    let report = tokio::task::spawn_blocking(move || -> Result<PatchApplyReport, AppError> {
-        let _serialized = state
-            .apply_gate
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        let workspace = state.store.workspace(id)?;
-        let saved = state.store.workspace_state(id)?;
-        bring_up(&state, id, &workspace.snapshot, &saved)
+    let report = tokio::task::spawn_blocking(move || {
+        let _serialized = lock_gate(&state.apply_gate);
+        bring_up_active(&state, id)
     })
     .await??;
     reconcile_graph(gps_state).await?;
     Ok(Json(report))
+}
+
+pub(super) fn bring_up_active(state: &AppState, id: i64) -> Result<PatchApplyReport, AppError> {
+    let workspace = state.store.workspace(id)?;
+    let saved = state.store.workspace_state(id)?;
+    bring_up(state, id, &workspace.snapshot, &saved)
 }
 
 pub(super) async fn reconcile_graph(state: AppState) -> Result<(), AppError> {

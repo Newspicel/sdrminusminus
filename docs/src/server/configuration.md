@@ -14,9 +14,6 @@ Out of the box it listens on `0.0.0.0:8080` with **no authentication**.
 | `--tls-cert <PATH>`, `--tls-key <PATH>` | None | HTTPS certificate chain and key, PEM |
 | `--tls-self-signed` | Off | HTTPS with a self-signed certificate |
 | `--tls-name <NAME>` | Found addresses | Name the certificate must cover; repeatable |
-| `--routing-backend <NAME>` | `open-route-service` | Routing: `open-route-service` or `graph-hopper` |
-| `--routing-url <URL>` | Public service | Self-hosted routing instance |
-| `--routing-key <KEY>` | None | Routing API key |
 | `--remote-app <URL>` | `https://app.sdrmm.com` | App for [remote access](tunnels.md#appsdrmmcom) |
 | `--dev-cors` | Off | Allow a separate frontend origin, for development only |
 | `--doctor` | | Print diagnostics and exit |
@@ -73,9 +70,10 @@ Without a certificate authority:
 sdrmm --tls-self-signed
 ```
 
-The certificate covers localhost and the server's LAN addresses. It is stored in `tls` beside the
-database and reused. Compare the SHA-256 fingerprint in the log the first time a client trusts
-it. In containers, behind NAT, or with a DNS name, list the names clients use:
+The certificate covers localhost, the server's LAN addresses and `<host>.local`. It is stored in
+`tls` beside the database and reused, and its key stays the same when the names change. Compare
+the SHA-256 fingerprint in the log the first time a client trusts it. In containers, behind NAT,
+or with a DNS name, list the names clients use:
 
 ```sh
 sdrmm --tls-self-signed --tls-name radio.example --tls-name 192.168.1.20
@@ -84,14 +82,36 @@ sdrmm --tls-self-signed --tls-name radio.example --tls-name 192.168.1.20
 `SDRMM_TLS_NAMES` takes the same names, comma-separated. Changing the names creates a new
 certificate.
 
+## Phones
+
+[Phones](../user-guide/phones.md) connect over HTTPS and pin the server's key when they pair.
+
+| Setup | Phones use |
+|---|---|
+| **Allow phones** in **Library → Phones** | A phone port, `8443` by default, with the server's self-signed key |
+| `--tls-self-signed`, bound beyond loopback | The main port |
+
+A server with its own certificate still needs **Allow phones**, because a renewed certificate
+would break every phone's pin. The phone port takes paired phones only. Phones never get the
+shared token.
+
+Pair from a terminal while the server runs:
+
+```sh
+sdrmm phone
+sdrmm phone --name van --db /var/lib/sdrmm/sdrmm.db
+```
+
+It prints a QR code, the code, the key and the hosts. `--db` must match the running server,
+`--name` names the phone, and `--plain` drops the colours.
+
+While phones can connect, the server announces itself as `_sdrmm._tcp` over mDNS, so the apps
+list it under **Nearby**. Let the phone port through your firewall.
+
 ## Reverse proxy
 
 - Bind SDR-- to loopback, or firewall its port.
+- Set a token. Without one, a loopback bind answers only `localhost` names.
 - Serve it at the root of the origin.
+- Pass the original `Host` header. Browser requests whose `Origin` differs are refused.
 - Forward WebSocket upgrades on `/api/ws`.
-
-## Turn-by-turn routing
-
-[Field mode](../user-guide/field-mode.md#df-drive) gets driving directions from OpenRouteService or
-GraphHopper. Set `--routing-key`, and `--routing-backend` for GraphHopper. `--routing-url` points
-at a self-hosted instance. The key never leaves the server.

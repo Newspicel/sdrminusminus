@@ -14,7 +14,6 @@ import {
 import { DROPS_HINT, formatBytes, formatCount } from "../../components/format";
 import { HuntPanel } from "../../components/HuntPanel";
 import { Icon } from "../../components/Icon";
-import { MapPanel } from "../../components/MapPanel";
 import { Readout, ReadoutRow } from "../../components/Readout";
 import { formatDuration, recordingElapsedS } from "../../components/recordings";
 import { ScannerPanel } from "../../components/ScannerPanel";
@@ -24,16 +23,9 @@ import { callAudioUrl } from "../../lib/api";
 import { monitorKey } from "../../lib/audio/monitor";
 import { useChannelAudio } from "../../lib/audio/useChannelAudio";
 import { SAMPLE_RATE as AUDIO_RATE_HZ } from "../../lib/audio/worklet";
-import { useDfStore } from "../../lib/df";
-import {
-  crossingSourcesOf,
-  dfOverlay,
-  dfSourcesOf,
-  type RadarSource,
-  radarSourcesOf,
-} from "../../lib/dfOverlay";
-import { type MapKind, mapKindsOf } from "../../lib/map/layers";
-import { positionSourcesOf, usePositionStore } from "../../lib/position";
+import { overlaySourcesOf } from "../../lib/dfOverlay";
+import { mapKindsOf } from "../../lib/map/layers";
+import { positionSourcesOf } from "../../lib/position";
 import type {
   AudioRecordingStatus,
   PatchNode,
@@ -41,15 +33,16 @@ import type {
   RecordingStatus,
   VoiceCall,
 } from "../../lib/types";
-import { useNow } from "../../lib/useNow";
-import { eventSourcesOf, type Input, inputsOf, wiredSourcesOf } from "../binding";
+import { eventSourcesOf, hasWire, type Input, inputsOf, wiredSourcesOf } from "../binding";
 import { useWorkspaceContext } from "../context";
 import { patchNode } from "../graph";
+import { huntSweepOf } from "../newNode";
 import { decoderOf, deviceSetOf } from "../workspaceDevice";
 import { AudioSpectrogramView } from "./AudioSpectrogramView";
 import { recordingFor } from "./audioRecorder";
 import { kindsOffered } from "./eventFilter";
-import { FaceBody, FaceEmpty, FaceFooter, NodeShell, useFaceActive } from "./NodeShell";
+import { MapPlot } from "./MapPlot";
+import { FaceBody, FaceEmpty, FaceFooter, NodeShell } from "./NodeShell";
 
 function useInputs(node: string, port: string): Input[] {
   const workspace = useWorkspaceContext();
@@ -216,61 +209,17 @@ function AudioHealth({
 
 export function MapFace({ node }: { node: PatchNode }) {
   const workspace = useWorkspaceContext();
-  const wired = useWiredKinds(node.id);
-  const kinds = mapKindsOf(wired);
-  const positions = positionSourcesOf(workspace.graph, node.id);
-  const finders = dfSourcesOf(workspace.graph, node.id);
-  const crossings = crossingSourcesOf(workspace.graph, node.id);
-  const radars = radarSourcesOf(workspace.graph, node.id);
+  const kinds = mapKindsOf(useWiredKinds(node.id));
   return (
     <NodeShell node={node} title="Map" category="output">
       <FaceBody scroll={false}>
-        <Plot
+        <MapPlot
           kinds={kinds}
-          positionNodes={positions}
-          finders={finders}
-          crossings={crossings}
-          radars={radars}
+          positionNodes={positionSourcesOf(workspace.graph, node.id)}
+          sources={overlaySourcesOf(workspace.graph, node.id)}
         />
       </FaceBody>
     </NodeShell>
-  );
-}
-
-const OVERLAY_TICK_MS = 1_000;
-
-function Plot({
-  kinds,
-  positionNodes,
-  finders,
-  crossings,
-  radars,
-}: {
-  kinds: readonly MapKind[];
-  positionNodes: readonly string[];
-  finders: readonly string[];
-  crossings: readonly string[];
-  radars: readonly RadarSource[];
-}) {
-  const byNode = useDfStore((store) => store.byNode);
-  const now = useNow(OVERLAY_TICK_MS);
-  const here = usePositionStore((store) =>
-    positionNodes.length === 0 ? undefined : store.sources[positionNodes[0] ?? ""]?.fix,
-  );
-  const df = dfOverlay(
-    { finders, crossings, radars },
-    byNode,
-    now,
-    here === undefined || here === null ? null : { lat: here.latitude, lon: here.longitude },
-  );
-  return (
-    <MapPanel
-      kinds={kinds}
-      positionNodes={positionNodes}
-      df={df}
-      active={useFaceActive()}
-      className="h-full min-h-0 w-full flex-1"
-    />
   );
 }
 
@@ -665,6 +614,7 @@ export function HuntFace({ node }: { node: PatchNode }) {
 function HuntNodeFace({ node }: { node: PatchNodeOf<"hunt"> }) {
   const workspace = useWorkspaceContext();
   const decoder = decoderOf(workspace, node.id);
+  const sweep = huntSweepOf(node, workspace.context.catalog);
   const remember = (data: Partial<PatchNodeOf<"hunt">["data"]>): void => {
     workspace.edit((snapshot) => ({
       ...snapshot,
@@ -676,10 +626,18 @@ function HuntNodeFace({ node }: { node: PatchNodeOf<"hunt"> }) {
   return (
     <NodeShell node={node} title="Signal hunt" category="tool">
       <HuntPanel
+        node={node.id}
         target={decoder}
         clicks={node.data.clicks ?? true}
         onClicks={(clicks) => remember({ clicks })}
         hint="Wire this node's control out to a decoder"
+        positionWired={hasWire(workspace.graph, node.id, "position")}
+        sweep={sweep}
+        onSweep={(next) => {
+          if (sweep !== null) {
+            remember({ sweep: { ...sweep, ...next } });
+          }
+        }}
       />
     </NodeShell>
   );

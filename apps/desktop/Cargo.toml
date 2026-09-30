@@ -38,10 +38,7 @@ anyhow.workspace = true
 tauri = { version = "2.12", features = [] }
 tauri-plugin-updater = { version = "2.13", default-features = false, features = ["zip", "system-proxy"] }
 tauri-plugin-dialog = "2"
-# Not used directly: `generate_context!` expands the config's `plugins` section into
-# `serde_json` paths resolved against this crate's root.
 serde_json.workspace = true
-axum = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "net"] }
 tracing.workspace = true
 tauri-plugin-opener = "2.6.0"

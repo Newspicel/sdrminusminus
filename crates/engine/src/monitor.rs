@@ -12,7 +12,6 @@ use crate::{
     DspCommand, Engine, EngineError,
     publishing::Publisher,
     runtime::{DspMeta, MAX_DSP_BLOCK},
-    sample_rate_of,
 };
 
 static NEXT_MONITOR: AtomicU64 = AtomicU64::new(1);
@@ -244,11 +243,7 @@ impl Engine {
                 .device_sets
                 .get(&device_set)
                 .ok_or(EngineError::DeviceSetNotFound(device_set))?;
-            state.check_stream(stream)?;
-            (
-                state.cmd_txs[stream as usize].clone(),
-                sample_rate_of(&state.settings),
-            )
+            (state.dsp_sender(stream)?.clone(), state.lane_rate(stream))
         };
         let alive = Arc::new(AtomicBool::new(true));
         let tap = MonitorTap::new(rate, settings, Box::new(output), alive.clone())?;

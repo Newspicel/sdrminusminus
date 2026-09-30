@@ -3,6 +3,30 @@ use std::{path::Path, process::Command};
 use anyhow::{Context, Result, ensure};
 use serde_json::Value;
 
+pub(crate) const FORBIDDEN_ON_PHONES: &[&str] = &[
+    "sdrmm-server",
+    "sdrmm-engine",
+    "sdrmm-channels",
+    "sdrmm-codec2",
+    "sdrmm-dsp",
+    "sdrmm-modem",
+    "sdrmm-device",
+    "sdrmm-usb-stream",
+    "sdrmm-recorder",
+    "codec2",
+    "ffmpeg-the-third",
+    "ffmpeg-sys-the-third",
+    "opus",
+    "nusb",
+    "libloading",
+    "rusqlite",
+    "aws-lc-rs",
+    "aws-lc-sys",
+    "openssl",
+    "openssl-sys",
+    "wgpu",
+];
+
 pub(crate) fn check(root: &Path) -> Result<()> {
     let metadata = Command::new("cargo")
         .args(["metadata", "--format-version", "1", "--no-deps"])
@@ -38,6 +62,27 @@ pub(crate) fn check(root: &Path) -> Result<()> {
     );
     let tree = String::from_utf8(tree.stdout)?;
     validate_production_tree(&tree)?;
+    check_mobile_trees(root)
+}
+
+fn check_mobile_trees(root: &Path) -> Result<()> {
+    for target in crate::mobile::phone_targets() {
+        validate_phone_tree(target, &crate::mobile::phone_tree(root, target)?)?;
+    }
+    Ok(())
+}
+
+fn validate_phone_tree(target: &str, tree: &str) -> Result<()> {
+    let found: Vec<&str> = tree
+        .lines()
+        .filter_map(|line| line.split_whitespace().next())
+        .filter(|name| FORBIDDEN_ON_PHONES.contains(name))
+        .collect();
+    ensure!(
+        found.is_empty(),
+        "sdrmm-mobile-core pulls {} into {target}",
+        found.join(", ")
+    );
     Ok(())
 }
 
@@ -68,6 +113,7 @@ fn validate(metadata: &Value) -> Result<()> {
             "sdrmm-channels",
             &["sdrmm-codec2", "sdrmm-dsp", "sdrmm-modem", "sdrmm-wire"][..],
         ),
+        ("sdrmm-mobile-core", &["sdrmm-wire"][..]),
     ] {
         let package = packages
             .iter()
@@ -103,8 +149,44 @@ mod tests {
             {"name": "sdrmm-dsp", "dependencies": [dependency]},
             {"name": "sdrmm-modem", "dependencies": []},
             {"name": "sdrmm-channels", "dependencies": []},
-            {"name": "sdrmm-modem-test-support", "dependencies": []}
+            {"name": "sdrmm-modem-test-support", "dependencies": []},
+            {"name": "sdrmm-mobile-core", "dependencies": []}
         ]})
+    }
+
+    #[test]
+    fn mobile_core_may_only_depend_on_wire() {
+        let mut data = metadata(json!({"name": "num-complex", "kind": null}));
+        data["packages"][4]["dependencies"] = json!([
+            {"name": "sdrmm-wire", "kind": null},
+            {"name": "sdrmm-server", "kind": "dev"},
+            {"name": "tokio", "kind": null}
+        ]);
+        assert!(validate(&data).is_ok());
+        data["packages"][4]["dependencies"] = json!([{"name": "sdrmm-engine", "kind": null}]);
+        assert!(validate(&data).is_err());
+    }
+
+    #[test]
+    fn forbidden_crates_are_listed() {
+        for name in [
+            "sdrmm-server",
+            "sdrmm-channels",
+            "codec2",
+            "aws-lc-rs",
+            "rusqlite",
+            "nusb",
+        ] {
+            assert!(FORBIDDEN_ON_PHONES.contains(&name), "{name}");
+        }
+        let clean = "sdrmm-mobile-core v0.1.0 (/repo)\nsdrmm-wire v0.1.0 (/repo)\nring v0.17.14\n";
+        assert!(validate_phone_tree("aarch64-apple-ios", clean).is_ok());
+        let leaked = format!("{clean}sdrmm-server v0.1.0 (/repo)\naws-lc-rs v1.15.0\n");
+        let error = validate_phone_tree("aarch64-linux-android", &leaked).expect_err("refused");
+        assert_eq!(
+            error.to_string(),
+            "sdrmm-mobile-core pulls sdrmm-server, aws-lc-rs into aarch64-linux-android"
+        );
     }
 
     #[test]

@@ -8,8 +8,8 @@ use std::{
 };
 
 use crate::{
-    DeviceError, Recovery, RestartPolicy, RxSink, SILENT_STREAM_TIMEOUT, SampleConverter, Worker,
-    lock,
+    DeviceError, GapScope, Recovery, RestartPolicy, RxSink, SILENT_STREAM_TIMEOUT, SampleConverter,
+    UNKNOWN_ERROR, Uncertainty, Worker, lock,
 };
 
 #[cfg(feature = "usb")]
@@ -18,8 +18,24 @@ mod usb;
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct StreamFailure {
     pub reason: String,
-    /// The radio itself is gone, so restarting the stream has nothing to restart onto.
     pub gone: bool,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct BlockGap {
+    pub exact: u64,
+    pub estimated: u64,
+}
+
+impl BlockGap {
+    #[must_use]
+    pub fn from_bytes(exact: u64, estimated: u64, bytes_per_sample: u64) -> Self {
+        let width = bytes_per_sample.max(1);
+        Self {
+            exact: exact.div_ceil(width),
+            estimated: estimated.div_ceil(width),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -40,7 +56,7 @@ pub trait CaptureStream: Send + 'static {
     fn stop_handle(&self) -> Self::Stop;
     fn next_block(&self, timeout: Duration) -> Next<Self::Block>;
     fn dropped(&self) -> u64;
-    fn block_gap(&self, _block: &Self::Block) -> Option<u64> {
+    fn block_gap(&self, _block: &Self::Block, _bytes_per_sample: u64) -> Option<BlockGap> {
         None
     }
     fn failure(&self) -> StreamFailure;
@@ -237,7 +253,8 @@ fn supervise<R: CaptureRadio, C: SampleConverter>(
                 tracing::info!(radio = config.radio, attempt, "stream restarted");
                 let lost = ((quiet + recovering.elapsed()).as_secs_f64() * config.sample_rate)
                     .ceil() as u64;
-                sink.dropped(lost);
+                sink.dropped_estimate(lost, lost, GapScope::Lane);
+                sink.realigned(Uncertainty::Rearmed, UNKNOWN_ERROR, GapScope::Lane);
                 dropped = 0;
                 stream = fresh;
             }
@@ -254,11 +271,6 @@ fn supervise<R: CaptureRadio, C: SampleConverter>(
     radio.disarm();
 }
 
-/// Drains one stream into one sink until it is stopped or the stream fails.
-///
-/// A radio whose lanes arrive on separate streams needs the same transfer bookkeeping a single
-/// stream gets, but not the restart around it: a lane that quietly comes back on its own is no
-/// longer on the same timeline as the lanes it is measured against.
 pub fn drain_stream<S: CaptureStream, C: SampleConverter>(
     stream: &S,
     running: &AtomicBool,
@@ -284,24 +296,10 @@ fn drain<S: CaptureStream, C: SampleConverter>(
         match stream.next_block(config.poll) {
             Next::Block(block) => {
                 last_block = Instant::now();
-                let gap = stream.block_gap(&block);
-                if let Some(lost) = gap.filter(|lost| *lost > 0) {
-                    converter.reset();
-                    sink.dropped(lost);
-                }
+                let lost_transfers = book_gap(stream, &block, sink, converter, dropped);
                 let samples = converter.convert(&block);
-                let per_transfer = samples.len() as u64;
-                let total = stream.dropped();
-                if gap.is_none() && total > *dropped {
-                    let lost = (total - *dropped) * per_transfer;
-                    tracing::warn!(
-                        radio = config.radio,
-                        dropped = total,
-                        lost,
-                        "transport dropped transfers"
-                    );
-                    sink.dropped(lost);
-                    *dropped = total;
+                if lost_transfers > 0 {
+                    book_lost_transfers(lost_transfers, samples.len() as u64, sink, config);
                 }
                 for chunk in samples.chunks(chunk_size) {
                     sink.push(chunk);
@@ -324,22 +322,75 @@ fn drain<S: CaptureStream, C: SampleConverter>(
     None
 }
 
+fn book_gap<S: CaptureStream, C: SampleConverter>(
+    stream: &S,
+    block: &S::Block,
+    sink: &mut RxSink,
+    converter: &mut C,
+    dropped: &mut u64,
+) -> u64 {
+    if let Some(gap) = stream.block_gap(block, converter.bytes_per_sample()) {
+        book_block_gap(gap, sink, converter);
+        return 0;
+    }
+    let total = stream.dropped();
+    if total <= *dropped {
+        return 0;
+    }
+    let lost = total - *dropped;
+    *dropped = total;
+    converter.reset();
+    lost
+}
+
+fn book_block_gap<C: SampleConverter>(gap: BlockGap, sink: &mut RxSink, converter: &mut C) {
+    if gap == BlockGap::default() {
+        return;
+    }
+    converter.reset();
+    if gap.exact > 0 {
+        sink.dropped(gap.exact);
+    }
+    if gap.estimated > 0 {
+        sink.dropped_estimate(gap.estimated, gap.estimated, GapScope::Lane);
+    }
+}
+
+fn book_lost_transfers(
+    transfers: u64,
+    per_transfer: u64,
+    sink: &mut RxSink,
+    config: &CaptureConfig,
+) {
+    let lost = transfers.saturating_mul(per_transfer);
+    tracing::warn!(
+        radio = config.radio,
+        transfers,
+        lost,
+        "transport dropped transfers"
+    );
+    let error = if lost == 0 { UNKNOWN_ERROR } else { lost };
+    sink.dropped_estimate(lost, error, GapScope::Lane);
+}
+
 #[cfg(test)]
 mod tests {
     use std::{
         collections::VecDeque,
         sync::{
-            atomic::{AtomicUsize, Ordering},
+            atomic::{AtomicU64, AtomicUsize, Ordering},
             mpsc,
         },
     };
 
     use super::*;
-    use crate::Sample;
+    use crate::{LaneEvent, Sample, SinkItem};
 
     #[derive(Clone, Debug)]
     enum Step {
         Block(Vec<u8>),
+        AfterGap(BlockGap, Vec<u8>),
+        AfterLostTransfers(u64, Vec<u8>),
         Quiet,
         Fail { reason: &'static str, gone: bool },
     }
@@ -361,6 +412,8 @@ mod tests {
         failure: Mutex<Option<StreamFailure>>,
         stop: FakeStop,
         stop_on_failure: Option<Arc<AtomicBool>>,
+        gap: Mutex<Option<BlockGap>>,
+        lost_transfers: AtomicU64,
     }
 
     impl CaptureStream for FakeStream {
@@ -374,6 +427,14 @@ mod tests {
         fn next_block(&self, _timeout: Duration) -> Next<Vec<u8>> {
             match lock(&self.steps).pop_front() {
                 Some(Step::Block(bytes)) => Next::Block(bytes),
+                Some(Step::AfterGap(gap, bytes)) => {
+                    *lock(&self.gap) = Some(gap);
+                    Next::Block(bytes)
+                }
+                Some(Step::AfterLostTransfers(transfers, bytes)) => {
+                    self.lost_transfers.fetch_add(transfers, Ordering::SeqCst);
+                    Next::Block(bytes)
+                }
                 Some(Step::Quiet) | None => Next::Idle,
                 Some(Step::Fail { reason, gone }) => {
                     *lock(&self.failure) = Some(StreamFailure {
@@ -389,7 +450,13 @@ mod tests {
         }
 
         fn dropped(&self) -> u64 {
-            0
+            self.lost_transfers.load(Ordering::SeqCst)
+        }
+
+        fn block_gap(&self, _block: &Vec<u8>, bytes_per_sample: u64) -> Option<BlockGap> {
+            lock(&self.gap)
+                .take()
+                .map(|bytes| BlockGap::from_bytes(bytes.exact, bytes.estimated, bytes_per_sample))
         }
 
         fn failure(&self) -> StreamFailure {
@@ -474,6 +541,8 @@ mod tests {
                     .load(Ordering::SeqCst)
                     .then(|| lock(&self.running).clone())
                     .flatten(),
+                gap: Mutex::new(None),
+                lost_transfers: AtomicU64::new(0),
             })
         }
 
@@ -483,22 +552,46 @@ mod tests {
         }
     }
 
-    #[derive(Debug, Default)]
-    struct OneSamplePerByte {
+    #[derive(Debug)]
+    struct FakeConverter {
+        width: usize,
         out: Vec<Sample>,
-        resets: usize,
+        resets: Arc<AtomicUsize>,
     }
 
-    impl SampleConverter for OneSamplePerByte {
+    impl FakeConverter {
+        fn bytes(width: usize) -> Self {
+            Self {
+                width,
+                out: Vec::new(),
+                resets: Arc::new(AtomicUsize::new(0)),
+            }
+        }
+    }
+
+    impl Default for FakeConverter {
+        fn default() -> Self {
+            Self::bytes(1)
+        }
+    }
+
+    impl SampleConverter for FakeConverter {
         fn convert(&mut self, bytes: &[u8]) -> &[Sample] {
             self.out.clear();
-            self.out
-                .extend(bytes.iter().map(|&b| Sample::new(f32::from(b), 0.0)));
+            self.out.extend(
+                bytes
+                    .chunks_exact(self.width)
+                    .map(|sample| Sample::new(f32::from(sample[0]), 0.0)),
+            );
             &self.out
         }
 
         fn reset(&mut self) {
-            self.resets += 1;
+            self.resets.fetch_add(1, Ordering::SeqCst);
+        }
+
+        fn bytes_per_sample(&self) -> u64 {
+            self.width as u64
         }
     }
 
@@ -517,17 +610,35 @@ mod tests {
     #[derive(Debug)]
     struct Run {
         blocks: Vec<Vec<f32>>,
+        starts: Vec<u64>,
+        events: Vec<LaneEvent>,
+        resets: usize,
         fault: Option<String>,
     }
 
     fn supervised(radio: &Arc<FakeRadio>, config: CaptureConfig) -> Run {
+        supervised_with(radio, config, FakeConverter::default())
+    }
+
+    fn supervised_with(
+        radio: &Arc<FakeRadio>,
+        config: CaptureConfig,
+        converter: FakeConverter,
+    ) -> Run {
+        let resets = converter.resets.clone();
         let running = Arc::new(AtomicBool::new(true));
         *lock(&radio.running) = Some(running.clone());
         let (block_tx, block_rx) = mpsc::channel();
+        let (event_tx, event_rx) = mpsc::channel();
         let (fault_tx, fault_rx) = mpsc::channel();
-        let sink = RxSink::with_fatal_handler(
-            move |samples: &[Sample], _index: u64| {
-                let _ = block_tx.send(samples.iter().map(|s| s.re).collect::<Vec<_>>());
+        let sink = RxSink::with_items(
+            move |item: SinkItem<'_>| match item {
+                SinkItem::Samples { samples, index } => {
+                    let _ = block_tx.send((index, samples.iter().map(|s| s.re).collect()));
+                }
+                SinkItem::Event(event) => {
+                    let _ = event_tx.send(event);
+                }
             },
             move |err| {
                 let _ = fault_tx.send(err.to_string());
@@ -536,16 +647,14 @@ mod tests {
         let stream = radio.arm().expect("first arm");
         let published = Mutex::new(Some(stream.stop_handle()));
         supervise(
-            stream,
-            &**radio,
-            &published,
-            &running,
-            sink,
-            OneSamplePerByte::default(),
-            &config,
+            stream, &**radio, &published, &running, sink, converter, &config,
         );
+        let (starts, blocks) = block_rx.try_iter().unzip();
         Run {
-            blocks: block_rx.try_iter().collect(),
+            blocks,
+            starts,
+            events: event_rx.try_iter().collect(),
+            resets: resets.load(Ordering::SeqCst),
             fault: fault_rx.try_recv().ok(),
         }
     }
@@ -692,6 +801,159 @@ mod tests {
         );
     }
 
+    fn gone() -> Step {
+        Step::Fail {
+            reason: "done",
+            gone: true,
+        }
+    }
+
+    fn gap(exact: u64, estimated: u64) -> BlockGap {
+        BlockGap { exact, estimated }
+    }
+
+    #[test]
+    fn drain_books_a_failed_transfer_as_an_estimated_gap() {
+        let radio = FakeRadio::with([vec![
+            Step::Block(vec![1, 2]),
+            Step::AfterGap(gap(3, 5), vec![3]),
+            Step::AfterGap(gap(0, 0), vec![4]),
+            Step::AfterGap(gap(4, 0), vec![5]),
+            gone(),
+        ]]);
+        let run = supervised(&radio, config());
+        assert_eq!(
+            run.blocks,
+            vec![vec![1.0, 2.0], vec![3.0], vec![4.0], vec![5.0]]
+        );
+        assert_eq!(run.starts, vec![0, 10, 11, 16]);
+        assert_eq!(
+            run.events,
+            vec![LaneEvent::Uncertain {
+                at: 10,
+                error: 5,
+                scope: GapScope::Lane,
+                cause: Uncertainty::EstimatedGap,
+            }],
+            "only the estimated part is uncertain"
+        );
+        assert_eq!(
+            run.resets, 2,
+            "only a real gap breaks the converter's carry"
+        );
+    }
+
+    #[test]
+    fn a_byte_gap_is_counted_in_samples_of_the_converter_width() {
+        let radio = FakeRadio::with([vec![
+            Step::Block(vec![1, 0, 0, 0]),
+            Step::AfterGap(gap(16, 8), vec![2, 0, 0, 0]),
+            gone(),
+        ]]);
+        let run = supervised_with(&radio, config(), FakeConverter::bytes(4));
+        assert_eq!(run.blocks, vec![vec![1.0], vec![2.0]]);
+        assert_eq!(run.starts, vec![0, 7]);
+        assert_eq!(
+            run.events,
+            vec![LaneEvent::Uncertain {
+                at: 7,
+                error: 2,
+                scope: GapScope::Lane,
+                cause: Uncertainty::EstimatedGap,
+            }]
+        );
+    }
+
+    #[test]
+    fn a_part_sample_of_missing_bytes_rounds_up() {
+        assert_eq!(BlockGap::from_bytes(5, 8, 4), gap(2, 2));
+        assert_eq!(BlockGap::from_bytes(3, 0, 0), gap(3, 0));
+    }
+
+    #[test]
+    fn transfers_lost_without_a_block_gap_are_booked_as_estimated() {
+        let radio = FakeRadio::with([vec![
+            Step::Block(vec![1, 2]),
+            Step::AfterLostTransfers(2, vec![3, 4]),
+            Step::Block(vec![5]),
+            gone(),
+        ]]);
+        let run = supervised(&radio, config());
+        assert_eq!(run.starts, vec![0, 6, 8]);
+        assert_eq!(
+            run.events,
+            vec![LaneEvent::Uncertain {
+                at: 6,
+                error: 4,
+                scope: GapScope::Lane,
+                cause: Uncertainty::EstimatedGap,
+            }]
+        );
+        assert_eq!(run.resets, 1);
+    }
+
+    #[test]
+    fn transfers_lost_before_an_empty_block_have_an_unknown_error() {
+        let radio = FakeRadio::with([vec![
+            Step::Block(vec![1]),
+            Step::AfterLostTransfers(1, Vec::new()),
+            gone(),
+        ]]);
+        let run = supervised(&radio, config());
+        assert_eq!(
+            run.events,
+            vec![LaneEvent::Uncertain {
+                at: 1,
+                error: UNKNOWN_ERROR,
+                scope: GapScope::Lane,
+                cause: Uncertainty::EstimatedGap,
+            }]
+        );
+    }
+
+    #[test]
+    fn a_restarted_stream_reports_an_uncertain_timeline() {
+        let radio = FakeRadio::with([
+            vec![
+                Step::Block(vec![1]),
+                Step::Fail {
+                    reason: "stalled",
+                    gone: false,
+                },
+            ],
+            vec![Step::Block(vec![2]), gone()],
+        ]);
+        let run = supervised(&radio, config().with_sample_rate(Some(1_000_000.0)));
+        assert_eq!(run.blocks, vec![vec![1.0], vec![2.0]]);
+        let [
+            LaneEvent::Uncertain {
+                at,
+                error: lost,
+                scope: GapScope::Lane,
+                cause: Uncertainty::EstimatedGap,
+            },
+            rearmed,
+        ] = run.events[..]
+        else {
+            panic!(
+                "a restart books an estimated gap and a rearm: {:?}",
+                run.events
+            );
+        };
+        assert!(lost > 0, "the restart took time, so samples were lost");
+        assert_eq!(at, 1 + lost);
+        assert_eq!(
+            rearmed,
+            LaneEvent::Uncertain {
+                at,
+                error: UNKNOWN_ERROR,
+                scope: GapScope::Lane,
+                cause: Uncertainty::Rearmed,
+            }
+        );
+        assert_eq!(run.starts, vec![0, at]);
+    }
+
     #[test]
     fn a_capture_that_never_started_holds_no_radio_to_disturb() {
         let mut capture = Capture::<FakeRadio>::new();
@@ -709,7 +971,7 @@ mod tests {
             capture
                 .start(
                     radio.clone(),
-                    OneSamplePerByte::default(),
+                    FakeConverter::default(),
                     RxSink::new(|_, _| {}),
                     config(),
                 )
@@ -729,7 +991,7 @@ mod tests {
         capture
             .start(
                 radio.clone(),
-                OneSamplePerByte::default(),
+                FakeConverter::default(),
                 RxSink::new(|_, _| {}),
                 config(),
             )
@@ -737,7 +999,7 @@ mod tests {
         assert!(matches!(
             capture.start(
                 radio.clone(),
-                OneSamplePerByte::default(),
+                FakeConverter::default(),
                 RxSink::new(|_, _| {}),
                 config()
             ),
@@ -750,7 +1012,7 @@ mod tests {
         capture
             .start(
                 radio.clone(),
-                OneSamplePerByte::default(),
+                FakeConverter::default(),
                 RxSink::new(|_, _| {}),
                 config(),
             )
@@ -765,7 +1027,7 @@ mod tests {
         let error = capture
             .start(
                 radio.clone(),
-                OneSamplePerByte::default(),
+                FakeConverter::default(),
                 RxSink::new(|_, _| {}),
                 config(),
             )

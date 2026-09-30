@@ -7,11 +7,11 @@ import type {
   DeviceRef,
   DeviceSet,
   DeviceSettings,
-  PatchGraph,
   Tuning,
+  VirtualLane,
 } from "../../lib/types";
 import { forStream } from "../../lib/useDevicePatch";
-import { nodeOf, portStream, rxStreamCount, streamLabel } from "../graph";
+import { rxStreamCount, streamLabel } from "../graph";
 
 export function clippingSaid(set: DeviceSet): string | null {
   const lanes = set.clipping ?? [];
@@ -94,17 +94,20 @@ export function autoTuning(set: DeviceSet, stream = 0): boolean {
   return (resolved.tuning ?? "auto") === "auto";
 }
 
+function virtualLane(set: DeviceSet, stream: number): VirtualLane | undefined {
+  return (set.virtual_lanes ?? []).find((lane) => lane.stream === stream);
+}
+
 export function laneCenterHz(set: DeviceSet, stream: number): number | null {
-  if (set.extra_lane?.stream === stream) {
-    return set.extra_lane.center_hz;
+  const virtual = virtualLane(set, stream);
+  if (virtual !== undefined) {
+    return virtual.center_hz;
   }
   return forStream(set.settings, stream, set.capabilities.per_stream).center_hz ?? null;
 }
 
 export function laneRateHz(set: DeviceSet, stream: number): number | undefined {
-  return set.extra_lane?.stream === stream
-    ? set.extra_lane.sample_rate
-    : (set.settings.sample_rate ?? undefined);
+  return virtualLane(set, stream)?.sample_rate ?? set.settings.sample_rate ?? undefined;
 }
 
 export function tuneDelta(capabilities: Capabilities, stream: number, hz: number): DeviceSettings {
@@ -170,20 +173,6 @@ export function agcGainDb(set: DeviceSet, stream: number): number | null {
   return set.agc_gains?.find((reading) => reading.stream === stream)?.value_db ?? null;
 }
 
-const COHERENT_USERS = new Set(["df", "combiner", "stitch", "passive_radar", "array"]);
-
-export function coherentLanes(graph: PatchGraph, deviceNode: string): Set<number> {
-  const lanes = new Set<number>();
-  for (const edge of graph.edges ?? []) {
-    const lane = edge.from.node === deviceNode ? portStream("iq", edge.from.port) : null;
-    const kind = nodeOf(graph, edge.to.node)?.kind;
-    if (lane !== null && kind !== undefined && COHERENT_USERS.has(kind)) {
-      lanes.add(lane);
-    }
-  }
-  return lanes;
-}
-
 export function lockStream(locked: readonly number[], stream: number, held: boolean): number[] {
   const others = locked.filter((candidate) => candidate !== stream);
   return held ? [...others, stream].toSorted((a, b) => a - b) : others;
@@ -235,7 +224,6 @@ export function refusalSaid(set: DeviceSet): string | null {
   return `Radio refused the new ${listed}`;
 }
 
-/** What a fault means for the operator, or null when only the raw message can say. */
 export function faultSaid(set: DeviceSet): string | null {
   const said = set.fault == null ? undefined : FAULTS[set.fault];
   return said == null ? null : `${set.device.label} ${said}`;

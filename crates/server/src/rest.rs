@@ -10,8 +10,7 @@ use axum::{
 };
 use sdrmm_engine::EngineError;
 use sdrmm_recorder::{
-    AUDIO_SUFFIX, Export, ExportKind, SigmfError, SigmfMeta, SigmfReader, data_path, meta_path,
-    read_audio_info, scan_audio, scan_stems,
+    AUDIO_SUFFIX, Export, ExportKind, SigmfError, Stored, read_audio_info, scan_audio, scan_library,
 };
 use sdrmm_tools::ToolError;
 use sdrmm_wire::{
@@ -28,35 +27,38 @@ use sdrmm_wire::{
     PatchApplyReport, PatchBinding, PatchCatalog, PatchGraph, PatchRefusal, PlaybackRequest,
     PlaybackStatus, PresetDevice, PresetInfo, PresetSnapshot, RecordingAnnotation,
     RecordingDownloadQuery, RecordingFormat, RecordingInfo, RecordingUpload, RecordingsResponse,
-    Route, RouteRequest, SatelliteCatalogQuery, SatelliteCatalogResponse, SaveRadioRequest,
-    SavedRadio, ScanAction, ScanRequest, ScanSettings, ScannerStatus, ServerEvent, ServerStatus,
-    StateScope, StateSnapshot, TemplateInfo, TemplatesResponse, TimeMachineAction,
-    TimeMachineRequest, TimeMachineStatus, ToolRequest, ToolResponse, ToolsResponse,
-    TransmittersResponse, UpdateWorkspaceRequest, VoiceCallsResponse, WorkspaceDetail,
-    WorkspaceExport, WorkspaceInfo, WorkspaceSnapshot, WorkspaceState, WorkspacesResponse,
-    WriteSerialRequest, WrittenSerial,
+    SatelliteCatalogQuery, SatelliteCatalogResponse, SaveRadioRequest, SavedRadio, ScanAction,
+    ScanRequest, ScanSettings, ScannerStatus, ServerEvent, ServerStatus, StateScope, StateSnapshot,
+    TemplateInfo, TemplatesResponse, TimeMachineAction, TimeMachineRequest, TimeMachineStatus,
+    ToolRequest, ToolResponse, ToolsResponse, TransmittersResponse, UpdateWorkspaceRequest,
+    VoiceCallsResponse, WorkspaceDetail, WorkspaceExport, WorkspaceInfo, WorkspaceSnapshot,
+    WorkspaceState, WorkspacesResponse, WriteSerialRequest, WrittenSerial,
 };
 use utoipa::OpenApi;
 use utoipa_axum::{router::OpenApiRouter, routes};
 
+mod arrays;
 mod audio_recordings;
 mod capture;
-mod coherent;
 mod cps;
 mod decoderlog;
 mod devices;
+mod fusion;
 mod info;
 mod media;
+mod missions;
+mod phones;
 mod presets;
+mod radar;
 mod recordings;
 mod remote;
 mod satellites;
 mod scanning;
+mod survey;
 mod workspaces;
 
 use audio_recordings::*;
 use capture::*;
-use coherent::*;
 use cps::*;
 use decoderlog::*;
 use devices::*;
@@ -234,6 +236,9 @@ impl From<StoreError> for AppError {
             | StoreError::SavedRadioNotFound(_)
             | StoreError::RecordingNotFound(_)
             | StoreError::WorkspaceNotFound(_)
+            | StoreError::NoticeNotFound(_)
+            | StoreError::PhoneNotFound(_)
+            | StoreError::OfferGone
             | StoreError::CpsUserNotFound(_)
             | StoreError::CpsDeviceNotFound(_)
             | StoreError::CpsCodeplugNotFound(_) => (StatusCode::NOT_FOUND, ErrorCode::NotFound),
@@ -302,60 +307,25 @@ pub(crate) fn reveal_path(
 }
 
 pub(crate) fn reconcile_recordings(dir: &std::path::Path, store: &Store) -> Result<(), AppError> {
-    let stems = scan_stems(dir)
+    let library = scan_library(dir)
         .map_err(|err| AppError::internal(format!("scan {}: {err}", dir.display())))?;
-    let mut kept = Vec::with_capacity(stems.len());
-    for stem in &stems {
-        let Some(name) = stem.file_name().and_then(|name| name.to_str()) else {
+    let mut kept = Vec::with_capacity(library.len());
+    for stored in &library {
+        let Some(name) = stored.stem().file_name().and_then(|name| name.to_str()) else {
             continue;
         };
-        let reader = match SigmfReader::open(stem) {
-            Ok(reader) => reader,
-            Err(err) => {
-                tracing::warn!(stem = %stem.display(), error = %err, "skipping unreadable recording");
-                continue;
-            }
+        let row = match stored {
+            Stored::Recording(stem) => recording_row(stem, name),
+            Stored::Collection(stem) => collection_row(stem, name),
         };
-        let samples = reader.total_samples();
-        let meta = reader.meta();
-        let Some(sample_rate) = meta.global.sample_rate else {
-            tracing::warn!(stem = %stem.display(), "skipping recording without a core:sample_rate");
+        let Some(row) = row else {
             continue;
         };
-        store.upsert_recording(&RecordingRow {
-            stem: name.to_string(),
-            name: meta.global.name.clone(),
-            created_at: recording_created_at(stem, meta),
-            device_label: meta.global.hw.clone().unwrap_or_default(),
-            center_hz: meta
-                .captures
-                .first()
-                .and_then(|c| c.frequency)
-                .unwrap_or_default(),
-            sample_rate,
-            samples,
-            bytes: samples * sdrmm_recorder::BYTES_PER_SAMPLE,
-            tags: meta.global.tags.clone(),
-            note: meta.global.description.clone(),
-        })?;
+        store.upsert_recording(&row)?;
         kept.push(name.to_string());
     }
     store.prune_recordings(&kept)?;
     Ok(())
-}
-
-fn recording_created_at(stem: &std::path::Path, meta: &SigmfMeta) -> String {
-    meta.captures
-        .first()
-        .and_then(|c| c.datetime.clone())
-        .or_else(|| {
-            std::fs::metadata(data_path(stem))
-                .and_then(|m| m.modified())
-                .ok()
-                .and_then(|t| jiff::Timestamp::try_from(t).ok())
-                .map(|ts| ts.to_string())
-        })
-        .unwrap_or_default()
 }
 
 #[derive(OpenApi)]
@@ -428,6 +398,7 @@ pub(crate) fn openapi_router() -> OpenApiRouter<AppState> {
         .routes(routes!(apply_template))
         .routes(routes!(list_workspaces, create_workspace))
         .routes(routes!(import_workspace))
+        .routes(routes!(dismiss_workspace_notice))
         .routes(routes!(export_workspace))
         .routes(routes!(get_workspace, update_workspace, delete_workspace))
         .routes(routes!(activate_workspace))
@@ -468,11 +439,14 @@ pub(crate) fn openapi_router() -> OpenApiRouter<AppState> {
         .routes(routes!(get_cps_job, cancel_cps_job))
         .routes(routes!(list_tools))
         .routes(routes!(run_tool))
-        .routes(routes!(calibrate_coherent))
-        .routes(routes!(get_fusion, reset_fusion))
-        .routes(routes!(get_route))
         .routes(routes!(get_about))
         .routes(routes!(get_license_text))
         .routes(routes!(get_remote, unpair_remote))
         .routes(routes!(pair_remote))
+        .merge(arrays::routes())
+        .merge(radar::routes())
+        .merge(phones::routes())
+        .merge(missions::routes())
+        .merge(survey::routes())
+        .merge(fusion::routes())
 }

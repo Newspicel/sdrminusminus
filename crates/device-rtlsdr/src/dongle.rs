@@ -22,6 +22,6 @@ pub(crate) use demod::PPM_LIMIT;
 pub(crate) use eeprom::valid_serial;
 pub(crate) use error::Error;
 pub(crate) use radio::{DirectSampling, Dongle};
-pub(crate) use stream::TRANSFER_BYTES;
+pub(crate) use stream::{IN_FLIGHT_SAMPLES, Release, TRANSFER_BYTES};
 #[cfg(test)]
 pub(crate) use tuner::GAINS;

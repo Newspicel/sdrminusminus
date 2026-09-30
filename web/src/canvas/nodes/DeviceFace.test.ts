@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { agcTip } from "../../components/AgcAuto";
-import type { Capabilities, DeviceSet, PatchGraph } from "../../lib/types";
+import type { Capabilities, DeviceSet, PatchEdge, PatchGraph, PatchNode } from "../../lib/types";
 import { mergeSettings } from "../../lib/useDevicePatch";
+import { renderFace } from "../../test/faceHarness";
+import { dialHold, heldLanes, laneHolds } from "./arrayNode";
+import { DeviceFace } from "./DeviceFace";
 import {
   agcDelta,
   agcGainDb,
@@ -11,7 +14,6 @@ import {
   autoTuning,
   bondSaid,
   clippingSaid,
-  coherentLanes,
   faultSaid,
   hearing,
   laneAgc,
@@ -500,30 +502,6 @@ describe("AGC modes across lanes", () => {
   });
 });
 
-describe("coherentLanes", () => {
-  it("names the lanes a coherent node or an Array uses", () => {
-    const at = { x: 0, y: 0 };
-    const graph: PatchGraph = {
-      nodes: [
-        { id: "kraken", kind: "device", data: {}, position: at },
-        {
-          id: "bench",
-          kind: "array",
-          data: { members: 1, coherence: "time_sync", shared_tuning: true },
-          position: at,
-        },
-        { id: "fm", kind: "channel", data: {}, position: at },
-      ] as PatchGraph["nodes"],
-      edges: [
-        { from: { node: "kraken", port: "iq2" }, to: { node: "bench", port: "iq" } },
-        { from: { node: "kraken", port: "iq4" }, to: { node: "bench", port: "iq2" } },
-        { from: { node: "kraken", port: "iq" }, to: { node: "fm", port: "iq" } },
-      ],
-    };
-    expect([...coherentLanes(graph, "kraken")].toSorted((a, b) => a - b)).toEqual([1, 3]);
-  });
-});
-
 describe("agcTip", () => {
   const set = deviceSet({
     capabilities: capabilities({
@@ -542,5 +520,82 @@ describe("agcTip", () => {
     expect(agcTip(deviceSet({ settings: { agc: { on: false } } }), 0, true)).toBe(
       "AGC off, as coherent lanes want",
     );
+  });
+});
+
+function heldWires(count: number): PatchEdge[] {
+  return Array.from({ length: count }, (_, lane) => ({
+    from: { node: "kraken", port: lane === 0 ? "iq" : `iq${lane + 1}` },
+    to: { node: "north", port: lane === 0 ? "lane" : `lane${lane + 1}` },
+  }));
+}
+
+describe("arrays on a radio", () => {
+  const radio: PatchNode = {
+    id: "kraken",
+    position: { x: 0, y: 0 },
+    kind: "device",
+    data: { device: { backend: "virtual", key: "kraken5" } },
+  };
+  const bank = deviceSet({
+    device: { driver: "virtual", key: "kraken5", label: "KrakenSDR" },
+    capabilities: capabilities({
+      rx_streams: 5,
+      coherence: "time_sync",
+      freq_ranges: [{ min: 24_000_000, max: 1_766_000_000 }],
+      gains: [{ name: "tuner", kind: "tuner", range: { min: 0, max: 49.6 } }],
+      per_stream: { gain: true },
+    }),
+    settings: { center_hz: 145_000_000, sample_rate: 2_048_000 },
+  });
+
+  function patch(edges: PatchEdge[]): PatchGraph {
+    const north = { id: "north", position: { x: 500, y: 0 }, kind: "array", label: "North" };
+    return { nodes: [radio, north as PatchNode], edges };
+  }
+
+  it("offers Make array for a multi-lane radio with a shared clock", () => {
+    const html = renderFace(DeviceFace, radio, {
+      graph: patch([]),
+      devices: new Map([["kraken", bank]]),
+    });
+    expect(html).toContain("Make array");
+    expect(html).toContain('title="New Array wired to every lane"');
+    const loose = { ...bank, capabilities: { ...bank.capabilities, coherence: "none" as const } };
+    const noClock = renderFace(DeviceFace, radio, {
+      graph: patch([]),
+      devices: new Map([["kraken", loose]]),
+    });
+    expect(noClock).toContain('title="Lanes share no clock"');
+    const single = renderFace(DeviceFace, radio, {
+      graph: patch([]),
+      devices: new Map([["kraken", deviceSet({ device: bank.device })]]),
+    });
+    expect(single).not.toContain("Make array");
+  });
+
+  it("disables held lane dials and says which array tunes them", () => {
+    const graph = patch(heldWires(5));
+    expect([...heldLanes(graph, "kraken")]).toEqual([
+      [0, "north"],
+      [1, "north"],
+      [2, "north"],
+      [3, "north"],
+      [4, "north"],
+    ]);
+    const holds = laneHolds(graph, "kraken");
+    expect(dialHold(holds, 0, false)).toEqual({ array: "north", label: "North" });
+    expect(dialHold(laneHolds(patch(heldWires(1)), "kraken"), 1, true)).toBeNull();
+    const free = renderFace(DeviceFace, radio, {
+      graph: patch([]),
+      devices: new Map([["kraken", bank]]),
+    });
+    expect(free).not.toContain('aria-disabled="true"');
+    expect(free).not.toContain("Tuned by");
+    const html = renderFace(DeviceFace, radio, { graph, devices: new Map([["kraken", bank]]) });
+    expect(html).toContain('aria-disabled="true"');
+    expect(html).toContain('title="Tuned by North"');
+    expect(html).toContain('title="Set on North"');
+    expect(html).not.toContain("Make array");
   });
 });

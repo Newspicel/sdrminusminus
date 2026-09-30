@@ -53,10 +53,6 @@ pub(crate) struct DecodedSink {
 }
 
 impl DecodedSink {
-    pub(crate) fn note_lost(&self, count: u64) {
-        self.dropped.fetch_add(count, Ordering::Relaxed);
-    }
-
     pub(crate) fn device_set(&self) -> u32 {
         self.device_set
     }

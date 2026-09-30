@@ -34,38 +34,57 @@ pub struct Attribution {
     pub note: Option<String>,
 }
 
+pub const API_PROTOCOL: u32 = 1;
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct AboutResponse {
     pub name: String,
     pub version: String,
+    pub protocol: u32,
+    pub server_id: String,
+    pub server_name: String,
     pub license: String,
     pub license_text: String,
     pub repository: String,
     pub components: Vec<Attribution>,
-    /// Every address on this machine a phone on the same network can reach the server at. An
-    /// operator browsing on localhost has an origin no other device can use, so the field-mode
-    /// handoff offers one of these instead.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub lan_addresses: Vec<String>,
-    /// Whether a routing backend is configured, so the field client knows whether to ask for a
-    /// route at all or go straight to heading guidance.
-    #[serde(default)]
-    pub routing: bool,
-    /// Whether an operator has put a map archive next to the database, so the client can draw a
-    /// basemap with no internet at all.
-    #[serde(default)]
-    pub offline_basemap: bool,
-    /// Whether this server can show a file in the machine's own file manager. Only the desktop
-    /// app, which runs on the machine holding the recordings, offers it; a browser reaching a
-    /// server elsewhere gets download links instead.
     #[serde(default)]
     pub reveal: bool,
-    #[serde(default)]
-    pub local_only: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct LicenseTextResponse {
     pub id: String,
     pub text: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn about_names_the_protocol_and_the_server() {
+        let about = AboutResponse {
+            name: "SDR--".to_owned(),
+            version: "0.4.0".to_owned(),
+            protocol: API_PROTOCOL,
+            server_id: "00112233445566778899aabbccddeeff".to_owned(),
+            server_name: "pi".to_owned(),
+            license: "AGPL-3.0-or-later".to_owned(),
+            license_text: String::new(),
+            repository: String::new(),
+            components: Vec::new(),
+            reveal: false,
+        };
+        let value = serde_json::to_value(&about).unwrap();
+        assert_eq!(value["protocol"], API_PROTOCOL);
+        assert_eq!(value["server_id"], "00112233445566778899aabbccddeeff");
+        assert_eq!(value["server_name"], "pi");
+        for gone in ["lan_addresses", "routing", "offline_basemap", "local_only"] {
+            assert!(value.get(gone).is_none(), "{gone}");
+        }
+        assert_eq!(
+            serde_json::from_value::<AboutResponse>(value).unwrap(),
+            about
+        );
+    }
 }

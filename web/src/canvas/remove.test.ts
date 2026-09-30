@@ -1,7 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { ChannelInfo, DeviceSet, PatchGraph, PatchNode } from "../lib/types";
+import { useProcessorStore } from "../lib/processors";
+import type {
+  ChannelInfo,
+  DeviceSet,
+  PatchGraph,
+  PatchNode,
+  WorkspaceSnapshot,
+} from "../lib/types";
 import type { Workspace } from "./context";
-import { closeEngineObjects, releaseRadio } from "./remove";
+import { closeEngineObjects, dropNodes, releaseRadio } from "./remove";
 
 const api = vi.hoisted(() => ({
   controlTimeMachine: vi.fn(async () => {}),
@@ -213,5 +220,46 @@ describe("releaseRadio", () => {
 
     expect(unbound).toBe(true);
     expect(api.deleteDeviceSet).not.toHaveBeenCalled();
+  });
+});
+
+describe("dropNodes", () => {
+  it("takes the nodes out, forgets their state and applies so the server stops them", () => {
+    const finder = node("df", { kind: "df", data: {} });
+    const snapshot = {
+      version: 4,
+      graph: {
+        nodes: [...graph.nodes, finder],
+        edges: [
+          ...(graph.edges ?? []),
+          { from: { node: "df", port: "iq" }, to: { node: "high", port: "iq" } },
+        ],
+      },
+      rack: { slots: [{ node: "df", x: 0, y: 0, w: 1, h: 1 }] },
+    } as unknown as WorkspaceSnapshot;
+    let edited = snapshot;
+    const calls: string[] = [];
+    const target = {
+      edit: (change: (held: WorkspaceSnapshot) => WorkspaceSnapshot) => {
+        calls.push("edit");
+        edited = change(edited);
+      },
+      apply: () => calls.push("apply"),
+    };
+    useProcessorStore.getState().observe({
+      type: "ProcessorUpdate",
+      data: { node: "df", reading: { type: "df", reading: {} } },
+    } as never);
+
+    dropNodes(target, ["df"]);
+
+    expect(calls).toEqual(["edit", "apply"]);
+    expect(edited.graph.nodes.map((kept) => kept.id)).toEqual(["dev", "high"]);
+    expect(edited.graph.edges).toEqual(graph.edges);
+    expect(edited.rack).toEqual({ slots: [] });
+    expect(useProcessorStore.getState().byNode.df).toBeUndefined();
+
+    dropNodes(target, []);
+    expect(calls).toEqual(["edit", "apply"]);
   });
 });

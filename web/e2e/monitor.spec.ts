@@ -15,7 +15,7 @@ test("monitors IQ through one node and exports transmission audio", async ({ pag
   page.on("pageerror", (error) => errors.push(error.message));
   const previous = await page.request.get("/api/workspaces").then((response) => response.json());
   const snapshot: WorkspaceSnapshot = {
-    version: 3,
+    version: 4,
     graph: {
       nodes: [
         {

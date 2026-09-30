@@ -37,6 +37,7 @@ sdrmm-device-soapy = { workspace = true, optional = true }
 
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "signal"] }
 clap.workspace = true
+qrcodegen.workspace = true
 anyhow.workspace = true
 dirs.workspace = true
 tracing.workspace = true

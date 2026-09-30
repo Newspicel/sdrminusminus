@@ -1,3 +1,6 @@
+use crate::fusion::FUSION_FRAME_CELLS;
+use crate::ws::StreamKind;
+
 pub const PROTOCOL_VERSION: u8 = 1;
 
 pub const HEADER_LEN: usize = 16;
@@ -12,6 +15,9 @@ pub enum FrameKind {
     VideoRgb = 4,
     Symbols = 5,
     RangeDoppler = 6,
+    SpatialSpectrum = 7,
+    Visibility = 8,
+    FusionGrid = 9,
 }
 
 impl FrameKind {
@@ -25,9 +31,45 @@ impl FrameKind {
             4 => Some(Self::VideoRgb),
             5 => Some(Self::Symbols),
             6 => Some(Self::RangeDoppler),
+            7 => Some(Self::SpatialSpectrum),
+            8 => Some(Self::Visibility),
+            9 => Some(Self::FusionGrid),
             _ => None,
         }
     }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
+pub enum FrameError {
+    #[error("frame too short")]
+    Short,
+    #[error("frame protocol {0} is not supported")]
+    Version(u8),
+    #[error("frame kind {0} was not expected")]
+    Kind(u8),
+    #[error("frame length field disagrees with the buffer")]
+    Length,
+    #[error("frame cells do not match its shape")]
+    Shape,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct FrameHeader {
+    pub kind: FrameKind,
+    pub stream_id: u16,
+    pub seq: u32,
+    pub timestamp: u64,
+}
+
+pub fn peek_header(buf: &[u8]) -> Result<FrameHeader, FrameError> {
+    let mut reader = Reader::new(buf)?;
+    let kind = FrameKind::from_u8(reader.kind).ok_or(FrameError::Kind(reader.kind))?;
+    Ok(FrameHeader {
+        kind,
+        stream_id: reader.u16()?,
+        seq: reader.u32()?,
+        timestamp: reader.u64()?,
+    })
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -67,6 +109,117 @@ impl<'a> VideoData<'a> {
             Self::Gray(bytes) | Self::Rgb(bytes) => bytes,
         }
     }
+
+    const fn channels(self) -> usize {
+        match self {
+            Self::Gray(_) => 1,
+            Self::Rgb(_) => 3,
+        }
+    }
+}
+
+struct Reader<'a> {
+    buf: &'a [u8],
+    at: usize,
+    kind: u8,
+}
+
+impl<'a> Reader<'a> {
+    fn new(buf: &'a [u8]) -> Result<Self, FrameError> {
+        if buf.len() < HEADER_LEN {
+            return Err(FrameError::Short);
+        }
+        if buf[0] != PROTOCOL_VERSION {
+            return Err(FrameError::Version(buf[0]));
+        }
+        Ok(Self {
+            buf,
+            at: 2,
+            kind: buf[1],
+        })
+    }
+
+    fn accepting(buf: &'a [u8], accepts: &[FrameKind]) -> Result<Self, FrameError> {
+        let reader = Self::new(buf)?;
+        if accepts.iter().any(|kind| *kind as u8 == reader.kind) {
+            Ok(reader)
+        } else {
+            Err(FrameError::Kind(reader.kind))
+        }
+    }
+
+    fn take(&mut self, len: usize) -> Option<&'a [u8]> {
+        let end = self.at.checked_add(len)?;
+        let bytes = self.buf.get(self.at..end)?;
+        self.at = end;
+        Some(bytes)
+    }
+
+    fn array<const N: usize>(&mut self) -> Result<[u8; N], FrameError> {
+        self.take(N)
+            .and_then(|bytes| bytes.try_into().ok())
+            .ok_or(FrameError::Short)
+    }
+
+    fn u8(&mut self) -> Result<u8, FrameError> {
+        self.array::<1>().map(u8::from_le_bytes)
+    }
+
+    fn u16(&mut self) -> Result<u16, FrameError> {
+        self.array().map(u16::from_le_bytes)
+    }
+
+    fn u32(&mut self) -> Result<u32, FrameError> {
+        self.array().map(u32::from_le_bytes)
+    }
+
+    fn u64(&mut self) -> Result<u64, FrameError> {
+        self.array().map(u64::from_le_bytes)
+    }
+
+    fn f32(&mut self) -> Result<f32, FrameError> {
+        self.array().map(f32::from_le_bytes)
+    }
+
+    fn f64(&mut self) -> Result<f64, FrameError> {
+        self.array().map(f64::from_le_bytes)
+    }
+
+    fn rest(&mut self) -> &'a [u8] {
+        let bytes = self.buf.get(self.at..).unwrap_or_default();
+        self.at = self.buf.len();
+        bytes
+    }
+
+    fn prefixed(&mut self) -> Result<&'a [u8], FrameError> {
+        let len = self.u16()?;
+        self.take(usize::from(len)).ok_or(FrameError::Length)
+    }
+
+    fn video(&mut self) -> VideoData<'a> {
+        let bytes = self.rest();
+        if self.kind == FrameKind::VideoRgb as u8 {
+            VideoData::Rgb(bytes)
+        } else {
+            VideoData::Gray(bytes)
+        }
+    }
+
+    fn finish(&self) -> Result<(), FrameError> {
+        if self.at == self.buf.len() {
+            Ok(())
+        } else {
+            Err(FrameError::Length)
+        }
+    }
+}
+
+trait Shaped {
+    fn shape_holds(&self) -> bool;
+}
+
+fn cells_fit(cells: usize, rows: u16, cols: u16) -> bool {
+    rows > 0 && cols > 0 && cells == usize::from(rows) * usize::from(cols)
 }
 
 mod schema;
@@ -80,6 +233,24 @@ macro_rules! field_type {
     ($life:lifetime, plane) => { SymbolPlane };
     ($life:lifetime, video) => { VideoData<$life> };
     ($life:lifetime, $scalar:ty) => { $scalar };
+}
+
+macro_rules! owned_type {
+    (bytes) => { Vec<u8> };
+    (bytes16) => { Vec<u8> };
+    ($scalar:ty) => { $scalar };
+}
+
+macro_rules! borrow_field {
+    ($value:expr, bytes) => {
+        $value.as_slice()
+    };
+    ($value:expr, bytes16) => {
+        $value.as_slice()
+    };
+    ($value:expr, $scalar:ty) => {
+        $value
+    };
 }
 
 macro_rules! write_field {
@@ -109,6 +280,21 @@ macro_rules! write_field {
     };
     ($buf:ident, $value:expr, $scalar:ty) => {
         $buf.extend_from_slice(&$value.to_le_bytes())
+    };
+}
+
+macro_rules! read_field {
+    ($reader:ident, bytes) => {
+        $reader.rest()
+    };
+    ($reader:ident, bytes16) => {
+        $reader.prefixed()?
+    };
+    ($reader:ident, video) => {
+        $reader.video()
+    };
+    ($reader:ident, $scalar:ident) => {
+        $reader.$scalar()?
     };
 }
 
@@ -145,6 +331,15 @@ macro_rules! frame_kind {
     };
 }
 
+macro_rules! accepted_kinds {
+    (Video) => {
+        &[FrameKind::VideoGray, FrameKind::VideoRgb]
+    };
+    ($kind:ident) => {
+        &[FrameKind::$kind]
+    };
+}
+
 macro_rules! define_frame {
     ($name:ident, $kind:ident, {$($field:ident: $ty:ident),* $(,)?}) => {
         #[derive(Clone, Debug, PartialEq)]
@@ -175,321 +370,171 @@ macro_rules! define_frame {
             }
         }
     };
+    ($name:ident, $kind:ident, decode, {$($field:ident: $ty:ident),* $(,)?}) => {
+        define_frame!($name, $kind, {$($field: $ty),*});
+        impl<'a> $name<'a> {
+            pub fn decode(buf: &'a [u8]) -> Result<Self, FrameError> {
+                let mut reader = Reader::accepting(buf, accepted_kinds!($kind))?;
+                let stream_id = reader.u16()?;
+                let seq = reader.u32()?;
+                let timestamp = reader.u64()?;
+                $(let $field = read_field!(reader, $ty);)*
+                reader.finish()?;
+                let frame = Self { stream_id, seq, timestamp, $($field),* };
+                if Shaped::shape_holds(&frame) {
+                    Ok(frame)
+                } else {
+                    Err(FrameError::Shape)
+                }
+            }
+        }
+    };
+    (
+        $name:ident, $kind:ident, decode, owned($owned:ident),
+        {$($field:ident: $ty:ident),* $(,)?}
+    ) => {
+        define_frame!($name, $kind, decode, {$($field: $ty),*});
+        #[derive(Clone, Debug, Default, PartialEq)]
+        pub struct $owned {
+            pub stream_id: u16,
+            pub seq: u32,
+            pub timestamp: u64,
+            $(pub $field: owned_type!($ty),)*
+        }
+        impl $owned {
+            #[must_use]
+            pub fn frame(&self) -> $name<'_> {
+                $name {
+                    stream_id: self.stream_id,
+                    seq: self.seq,
+                    timestamp: self.timestamp,
+                    $($field: borrow_field!(self.$field, $ty),)*
+                }
+            }
+        }
+    };
 }
 
-define_frame!(SpectrumFrame, Spectrum, {
+define_frame!(SpectrumFrame, Spectrum, decode, {
     center_hz: f64, span_hz: f32, db_min: f32, db_max: f32, bins: bytes16,
 });
-define_frame!(AudioFrame, AudioOpus, { ch_layout: u8, opus: bytes });
+define_frame!(AudioFrame, AudioOpus, decode, { ch_layout: u8, opus: bytes });
 define_frame!(IqFrame, IqF32, { center_hz: f64, sample_rate: f32, samples: floats });
 define_frame!(SymbolFrame, Symbols, {
     plane: plane, symbol_rate: f32, evm: f32, mer_db: f32, margin: f32,
     freq_error_hz: f32, reference: floats16, symbols: floats,
 });
-define_frame!(RangeDopplerFrame, RangeDoppler, {
-    ranges: u16, dopplers: u16, range_step_us: f32, doppler_step_hz: f32,
-    db_min: f32, db_max: f32, cells: bytes,
+define_frame!(RangeDopplerFrame, RangeDoppler, decode, owned(RangeDopplerOwned), {
+    ranges: u16, dopplers: u16,
+    range_first_m: f32, range_step_m: f32,
+    doppler_first_hz: f32, doppler_step_hz: f32,
+    carrier_hz: f64,
+    db_min: f32, db_max: f32,
+    cells: bytes,
 });
-define_frame!(VideoFrame, Video, { width: u16, height: u16, data: video });
+define_frame!(VideoFrame, Video, decode, { width: u16, height: u16, data: video });
+define_frame!(SpatialSpectrumFrame, SpatialSpectrum, decode, owned(SpatialSpectrumOwned), {
+    center_hz: f64, span_hz: f32, bearings: u16, bins: u16, db_min: f32, db_max: f32, cells: bytes,
+});
+define_frame!(VisibilityFrame, Visibility, decode, owned(VisibilityOwned), {
+    center_hz: f64, span_hz: f32, baselines: u16, bins: u16, db_min: f32, db_max: f32,
+    amplitude: bytes16, phase: bytes,
+});
+define_frame!(FusionGridFrame, FusionGrid, decode, owned(FusionGridOwned), {
+    south: f64, west: f64, north: f64, east: f64, cols: u16, rows: u16, cells: bytes,
+});
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn decode_spectrum(buf: &[u8]) -> (u8, FrameKind, u16, u32, u64, f64, f32, f32, f32, Vec<u8>) {
-        let ver = buf[0];
-        let kind = FrameKind::from_u8(buf[1]).expect("known kind");
-        let stream_id = u16::from_le_bytes([buf[2], buf[3]]);
-        let seq = u32::from_le_bytes([buf[4], buf[5], buf[6], buf[7]]);
-        let timestamp = u64::from_le_bytes(buf[8..16].try_into().unwrap());
-        let center_hz = f64::from_le_bytes(buf[16..24].try_into().unwrap());
-        let span_hz = f32::from_le_bytes(buf[24..28].try_into().unwrap());
-        let db_min = f32::from_le_bytes(buf[28..32].try_into().unwrap());
-        let db_max = f32::from_le_bytes(buf[32..36].try_into().unwrap());
-        let n = u16::from_le_bytes([buf[36], buf[37]]) as usize;
-        let bins = buf[38..38 + n].to_vec();
-        (
-            ver, kind, stream_id, seq, timestamp, center_hz, span_hz, db_min, db_max, bins,
-        )
-    }
-
-    #[test]
-    fn spectrum_roundtrip() {
-        let bins: Vec<u8> = (0..64u16).map(|i| (i * 4) as u8).collect();
-        let frame = SpectrumFrame {
-            stream_id: 7,
-            seq: 42,
-            timestamp: 1_000_000,
-            center_hz: 100_300_000.0,
-            span_hz: 2_400_000.0,
-            db_min: -120.0,
-            db_max: -20.0,
-            bins: &bins,
-        };
-        let buf = frame.encode();
-        assert_eq!(buf.len(), frame.encoded_len());
-
-        let (ver, kind, sid, seq, ts, center, span, dmin, dmax, out) = decode_spectrum(&buf);
-        assert_eq!(ver, PROTOCOL_VERSION);
-        assert_eq!(kind, FrameKind::Spectrum);
-        assert_eq!(sid, 7);
-        assert_eq!(seq, 42);
-        assert_eq!(ts, 1_000_000);
-        assert_eq!(center, 100_300_000.0);
-        assert_eq!(span, 2_400_000.0);
-        assert_eq!(dmin, -120.0);
-        assert_eq!(dmax, -20.0);
-        assert_eq!(out, bins);
-    }
-
-    fn decode_audio(buf: &[u8]) -> (u8, FrameKind, u16, u32, u64, u8, Vec<u8>) {
-        let ver = buf[0];
-        let kind = FrameKind::from_u8(buf[1]).expect("known kind");
-        let stream_id = u16::from_le_bytes([buf[2], buf[3]]);
-        let seq = u32::from_le_bytes([buf[4], buf[5], buf[6], buf[7]]);
-        let timestamp = u64::from_le_bytes(buf[8..16].try_into().unwrap());
-        let ch_layout = buf[16];
-        let opus = buf[17..].to_vec();
-        (ver, kind, stream_id, seq, timestamp, ch_layout, opus)
-    }
-
-    #[test]
-    fn audio_roundtrip_in_both_layouts() {
-        let opus: Vec<u8> = (0..96u8).map(|i| i.wrapping_mul(3)).collect();
-        for ch_layout in [1u8, 2] {
-            let frame = AudioFrame {
-                stream_id: 3,
-                seq: 512,
-                timestamp: 96_000,
-                ch_layout,
-                opus: &opus,
-            };
-            let buf = frame.encode();
-            assert_eq!(buf.len(), frame.encoded_len());
-
-            let (ver, kind, sid, seq, ts, layout, out) = decode_audio(&buf);
-            assert_eq!(ver, PROTOCOL_VERSION);
-            assert_eq!(kind, FrameKind::AudioOpus);
-            assert_eq!(sid, 3);
-            assert_eq!(seq, 512);
-            assert_eq!(ts, 96_000);
-            assert_eq!(layout, ch_layout);
-            assert_eq!(out, opus);
-        }
-    }
-
-    #[test]
-    fn symbols_roundtrip_carrying_both_the_cloud_and_its_reference() {
-        let reference: Vec<f32> = vec![0.707, 0.707, -0.707, 0.707, -0.707, -0.707, 0.707, -0.707];
-        let symbols: Vec<f32> = (0..128).map(|i| (i as f32) * 0.01 - 0.64).collect();
-        let frame = SymbolFrame {
-            stream_id: 11,
-            seq: 9,
-            timestamp: 4096,
-            plane: SymbolPlane::Complex,
-            symbol_rate: 4800.0,
-            evm: 0.083,
-            mer_db: 21.6,
-            margin: 3.2,
-            freq_error_hz: -12.5,
-            reference: &reference,
-            symbols: &symbols,
-        };
-        let buf = frame.encode();
-        assert_eq!(buf.len(), frame.encoded_len());
-
-        assert_eq!(buf[0], PROTOCOL_VERSION);
-        assert_eq!(FrameKind::from_u8(buf[1]), Some(FrameKind::Symbols));
-        assert_eq!(u16::from_le_bytes([buf[2], buf[3]]), 11);
-        assert_eq!(u32::from_le_bytes(buf[4..8].try_into().unwrap()), 9);
-        assert_eq!(u64::from_le_bytes(buf[8..16].try_into().unwrap()), 4096);
-        assert_eq!(SymbolPlane::from_u8(buf[16]), Some(SymbolPlane::Complex));
-        assert_eq!(f32::from_le_bytes(buf[17..21].try_into().unwrap()), 4800.0);
-        assert_eq!(f32::from_le_bytes(buf[21..25].try_into().unwrap()), 0.083);
-        assert_eq!(f32::from_le_bytes(buf[25..29].try_into().unwrap()), 21.6);
-        assert_eq!(f32::from_le_bytes(buf[29..33].try_into().unwrap()), 3.2);
-        assert_eq!(f32::from_le_bytes(buf[33..37].try_into().unwrap()), -12.5);
-
-        let count = u16::from_le_bytes([buf[37], buf[38]]) as usize;
-        assert_eq!(count, reference.len());
-        let floats: Vec<f32> = buf[39..]
-            .as_chunks::<4>()
-            .0
-            .iter()
-            .map(|&c| f32::from_le_bytes(c))
-            .collect();
-        assert_eq!(&floats[..count], reference.as_slice());
-        assert_eq!(&floats[count..], symbols.as_slice());
-    }
-
-    #[test]
-    fn a_level_plane_frame_needs_no_reference_pairs() {
-        let symbols: Vec<f32> = vec![1.0, 0.33, -0.33, -1.0];
-        let reference: Vec<f32> = vec![1.0, 0.33, -0.33, -1.0];
-        let frame = SymbolFrame {
-            stream_id: 1,
-            seq: 0,
-            timestamp: 0,
-            plane: SymbolPlane::Level,
-            symbol_rate: 4800.0,
-            evm: 0.0,
-            mer_db: 0.0,
-            margin: 0.0,
-            freq_error_hz: 0.0,
-            reference: &reference,
-            symbols: &symbols,
-        };
-        let buf = frame.encode();
-        assert_eq!(buf.len(), frame.encoded_len());
-        assert_eq!(SymbolPlane::from_u8(buf[16]), Some(SymbolPlane::Level));
-    }
-
-    fn decode_iq(buf: &[u8]) -> (u8, FrameKind, u16, u32, u64, f64, f32, Vec<f32>) {
-        let ver = buf[0];
-        let kind = FrameKind::from_u8(buf[1]).expect("known kind");
-        let stream_id = u16::from_le_bytes([buf[2], buf[3]]);
-        let seq = u32::from_le_bytes([buf[4], buf[5], buf[6], buf[7]]);
-        let timestamp = u64::from_le_bytes(buf[8..16].try_into().unwrap());
-        let center_hz = f64::from_le_bytes(buf[16..24].try_into().unwrap());
-        let sample_rate = f32::from_le_bytes(buf[24..28].try_into().unwrap());
-        let (chunks, _) = buf[28..].as_chunks::<4>();
-        let samples = chunks.iter().copied().map(f32::from_le_bytes).collect();
-        (
-            ver,
-            kind,
-            stream_id,
-            seq,
-            timestamp,
-            center_hz,
-            sample_rate,
-            samples,
-        )
-    }
-
-    #[test]
-    fn iq_roundtrip() {
-        let samples: Vec<f32> = (0..32).map(|i| i as f32 * 0.03125 - 0.5).collect();
-        let frame = IqFrame {
-            stream_id: 0x8100,
-            seq: 3,
-            timestamp: 48_000,
-            sample_rate: 24_000.0,
-            center_hz: 145_800_000.0,
-            samples: &samples,
-        };
-        let buf = frame.encode();
-        assert_eq!(buf.len(), frame.encoded_len());
-
-        let (ver, kind, sid, seq, ts, center, rate, out) = decode_iq(&buf);
-        assert_eq!(ver, PROTOCOL_VERSION);
-        assert_eq!(kind, FrameKind::IqF32);
-        assert_eq!(sid, 0x8100);
-        assert_eq!(seq, 3);
-        assert_eq!(ts, 48_000);
-        assert_eq!(center, 145_800_000.0);
-        assert_eq!(rate, 24_000.0);
-        assert_eq!(out, samples);
-        assert_eq!(out.len() % 2, 0);
-    }
-
-    fn decode_video(buf: &[u8]) -> (u8, FrameKind, u16, u32, u64, u16, u16, Vec<u8>) {
-        let ver = buf[0];
-        let kind = FrameKind::from_u8(buf[1]).expect("known kind");
-        let stream_id = u16::from_le_bytes([buf[2], buf[3]]);
-        let seq = u32::from_le_bytes([buf[4], buf[5], buf[6], buf[7]]);
-        let timestamp = u64::from_le_bytes(buf[8..16].try_into().unwrap());
-        let width = u16::from_le_bytes([buf[16], buf[17]]);
-        let height = u16::from_le_bytes([buf[18], buf[19]]);
-        let luma = buf[20..].to_vec();
-        (ver, kind, stream_id, seq, timestamp, width, height, luma)
-    }
-
-    #[test]
-    fn video_roundtrip() {
-        let luma: Vec<u8> = (0..(8u32 * 4)).map(|i| (i * 7) as u8).collect();
-        let frame = VideoFrame {
-            stream_id: 0x8001,
-            seq: 9,
-            timestamp: 2_000_000,
-            width: 8,
-            height: 4,
-            data: VideoData::Gray(&luma),
-        };
-        let buf = frame.encode();
-        assert_eq!(buf.len(), frame.encoded_len());
-
-        let (ver, kind, sid, seq, ts, width, height, out) = decode_video(&buf);
-        assert_eq!(ver, PROTOCOL_VERSION);
-        assert_eq!(kind, FrameKind::VideoGray);
-        assert_eq!(sid, 0x8001);
-        assert_eq!(seq, 9);
-        assert_eq!(ts, 2_000_000);
-        assert_eq!((width, height), (8, 4));
-        assert_eq!(out, luma);
-        assert_eq!(out.len(), usize::from(width) * usize::from(height));
-    }
-
-    #[test]
-    fn rgb_video_roundtrip() {
-        let rgb: Vec<u8> = (0..(3 * 3 * 2)).map(|i| (i * 11) as u8).collect();
-        let frame = VideoFrame {
-            stream_id: 12,
-            seq: 4,
-            timestamp: 99,
-            width: 3,
-            height: 2,
-            data: VideoData::Rgb(&rgb),
-        };
-        let buf = frame.encode();
-        let (_, kind, _, _, _, width, height, out) = decode_video(&buf);
-        assert_eq!(kind, FrameKind::VideoRgb);
-        assert_eq!(out.len(), usize::from(width) * usize::from(height) * 3);
-        assert_eq!(out, rgb);
-    }
-
-    #[test]
-    fn a_range_doppler_surface_encodes_its_shape_ahead_of_its_cells() {
-        let cells: Vec<u8> = (0..24u8).collect();
-        let frame = RangeDopplerFrame {
-            stream_id: 9,
-            seq: 3,
-            timestamp: 4_096,
-            ranges: 8,
-            dopplers: 3,
-            range_step_us: 0.5,
-            doppler_step_hz: 4.25,
-            db_min: -60.0,
-            db_max: 0.0,
-            cells: &cells,
-        };
-        let buf = frame.encode();
-        assert_eq!(buf.len(), frame.encoded_len());
-        assert_eq!(buf[0], PROTOCOL_VERSION);
-        assert_eq!(FrameKind::from_u8(buf[1]), Some(FrameKind::RangeDoppler));
-        assert_eq!(u16::from_le_bytes([buf[2], buf[3]]), 9);
-        assert_eq!(u16::from_le_bytes([buf[16], buf[17]]), 8);
-        assert_eq!(u16::from_le_bytes([buf[18], buf[19]]), 3);
-        assert_eq!(f32::from_le_bytes(buf[20..24].try_into().unwrap()), 0.5);
-        assert_eq!(f32::from_le_bytes(buf[24..28].try_into().unwrap()), 4.25);
-        assert_eq!(f32::from_le_bytes(buf[28..32].try_into().unwrap()), -60.0);
-        assert_eq!(f32::from_le_bytes(buf[32..36].try_into().unwrap()), 0.0);
-        assert_eq!(&buf[36..], &cells[..]);
-    }
-
-    #[test]
-    fn every_frame_kind_survives_the_byte_it_is_written_as() {
-        for (byte, kind) in [
-            (0u8, FrameKind::Spectrum),
-            (1, FrameKind::AudioOpus),
-            (2, FrameKind::IqF32),
-            (3, FrameKind::VideoGray),
-            (4, FrameKind::VideoRgb),
-            (5, FrameKind::Symbols),
-            (6, FrameKind::RangeDoppler),
-        ] {
-            assert_eq!(FrameKind::from_u8(byte), Some(kind));
-            assert_eq!(kind as u8, byte);
-        }
-        assert_eq!(FrameKind::from_u8(7), None);
+impl Shaped for SpectrumFrame<'_> {
+    fn shape_holds(&self) -> bool {
+        true
     }
 }
+
+impl Shaped for AudioFrame<'_> {
+    fn shape_holds(&self) -> bool {
+        true
+    }
+}
+
+impl Shaped for VideoFrame<'_> {
+    fn shape_holds(&self) -> bool {
+        let pixels = usize::from(self.width) * usize::from(self.height);
+        pixels > 0 && self.data.bytes().len() == pixels * self.data.channels()
+    }
+}
+
+impl Shaped for RangeDopplerFrame<'_> {
+    fn shape_holds(&self) -> bool {
+        cells_fit(self.cells.len(), self.dopplers, self.ranges)
+    }
+}
+
+impl Shaped for SpatialSpectrumFrame<'_> {
+    fn shape_holds(&self) -> bool {
+        cells_fit(self.cells.len(), self.bearings, self.bins)
+    }
+}
+
+impl Shaped for VisibilityFrame<'_> {
+    fn shape_holds(&self) -> bool {
+        cells_fit(self.amplitude.len(), self.baselines, self.bins)
+            && self.phase.len() == self.amplitude.len()
+    }
+}
+
+impl Shaped for FusionGridFrame<'_> {
+    fn shape_holds(&self) -> bool {
+        cells_fit(self.cells.len(), self.rows, self.cols)
+            && self.cols <= FUSION_FRAME_CELLS
+            && self.rows <= FUSION_FRAME_CELLS
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum SurfaceFrame {
+    RangeDoppler(RangeDopplerOwned),
+    SpatialSpectrum(SpatialSpectrumOwned),
+    Visibility(VisibilityOwned),
+    FusionGrid(FusionGridOwned),
+}
+
+impl SurfaceFrame {
+    #[must_use]
+    pub const fn kind(&self) -> StreamKind {
+        match self {
+            Self::RangeDoppler(_) => StreamKind::RangeDoppler,
+            Self::SpatialSpectrum(_) => StreamKind::SpatialSpectrum,
+            Self::Visibility(_) => StreamKind::Visibility,
+            Self::FusionGrid(_) => StreamKind::FusionGrid,
+        }
+    }
+
+    #[must_use]
+    pub fn encode(&self, stream_id: u16) -> Vec<u8> {
+        match self {
+            Self::RangeDoppler(owned) => RangeDopplerFrame {
+                stream_id,
+                ..owned.frame()
+            }
+            .encode(),
+            Self::SpatialSpectrum(owned) => SpatialSpectrumFrame {
+                stream_id,
+                ..owned.frame()
+            }
+            .encode(),
+            Self::Visibility(owned) => VisibilityFrame {
+                stream_id,
+                ..owned.frame()
+            }
+            .encode(),
+            Self::FusionGrid(owned) => FusionGridFrame {
+                stream_id,
+                ..owned.frame()
+            }
+            .encode(),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests;

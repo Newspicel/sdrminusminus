@@ -5,13 +5,12 @@ import type {
   DeviceInfo,
   DeviceRef,
   DeviceSet,
-  PatchEdge,
   PatchNode,
   RackSlot,
   StateSnapshot,
   WorkspaceSnapshot,
-  WorkspacesResponse,
 } from "../src/lib/types";
+import { type Box, face, fitPatch, node, stage, wire } from "./canvas";
 
 const BAND: DeviceRef = { backend: "virtual", key: "band" };
 const BAND_CENTER_HZ = 100_000_000;
@@ -25,28 +24,8 @@ export interface Scene {
   settleSeconds: number;
 }
 
-interface Box {
-  x: number;
-  y: number;
-  w: number;
-  h: number;
-}
-
-function node(id: string, body: Record<string, unknown>, box: Box): PatchNode {
-  return {
-    id,
-    position: { x: box.x, y: box.y },
-    size: { w: box.w, h: box.h },
-    ...body,
-  } as PatchNode;
-}
-
 function channel(id: string, type: string, box: Box): PatchNode {
   return node(id, { kind: "channel", data: { channel_type: type } }, box);
-}
-
-function wire(from: [string, string], to: [string, string]): PatchEdge {
-  return { from: { node: from[0], port: from[1] }, to: { node: to[0], port: to[1] } };
 }
 
 function slot(id: string, cell: Box): RackSlot {
@@ -62,32 +41,6 @@ async function recording(page: Page, stem: string): Promise<DeviceRef> {
     throw new Error(`a recording device for ${stem}`);
   }
   return { backend: found.driver, key: found.key };
-}
-
-async function dropWorkspace(page: Page, name: string): Promise<void> {
-  const listed: WorkspacesResponse = await page.request
-    .get("/api/workspaces")
-    .then((r) => r.json());
-  const stale = listed.workspaces.find((workspace) => workspace.name === name);
-  if (stale === undefined) {
-    return;
-  }
-  const response = await page.request.delete(`/api/workspaces/${stale.id}`);
-  expect(response.ok()).toBe(true);
-}
-
-async function stage(page: Page, name: string, snapshot: WorkspaceSnapshot): Promise<void> {
-  await dropWorkspace(page, name);
-  const response = await page.request.post("/api/workspaces", { data: { name, snapshot } });
-  const created: { id?: number; error?: string } = await response.json();
-  if (created.id === undefined) {
-    throw new Error(`workspace ${name} was rejected: ${created.error ?? response.status()}`);
-  }
-  await page.request.post(`/api/workspaces/${created.id}/activate`);
-  const report = await page.request.post(`/api/workspaces/${created.id}/apply`);
-  expect(report.ok()).toBe(true);
-  await page.goto("/");
-  await expect(page.getByRole("button", { name: "Add a node" })).toBeVisible();
 }
 
 async function deviceSet(page: Page, device: DeviceRef): Promise<DeviceSet> {
@@ -136,18 +89,13 @@ async function tune(page: Page, device: DeviceRef, offsets: Record<string, numbe
   }
 }
 
-async function fitPatch(page: Page): Promise<void> {
-  const pane = page.locator(".react-flow__pane");
-  const box = await pane.boundingBox();
-  if (box === null) {
-    throw new Error("a pane to right-click");
-  }
-  await page.mouse.click(box.x + 40, box.y + box.height - 40, { button: "right" });
-  await page
-    .getByRole("menu")
-    .getByRole("button", { name: /fit the patch/i })
-    .click();
+async function fitForCapture(page: Page): Promise<void> {
+  await fitPatch(page);
   await page.keyboard.press("Escape");
+  const box = await page.locator(".react-flow__pane").boundingBox();
+  if (box === null) {
+    throw new Error("a pane to click");
+  }
   await page.mouse.click(box.x + 12, box.y + 12);
   await idle(page);
 }
@@ -163,16 +111,6 @@ async function showRack(page: Page): Promise<void> {
   await page.getByRole("group", { name: "View" }).getByRole("button", { name: "Rack" }).click();
 }
 
-export async function addNode(page: Page, name: string): Promise<void> {
-  await page.getByRole("button", { name: "Add a node" }).click();
-  await page.getByRole("textbox", { name: "Search nodes" }).fill(name);
-  await page.getByRole("button", { name, exact: true }).click();
-}
-
-export function face(page: Page, id: string) {
-  return page.locator(`.react-flow__node[data-id="${id}"]`);
-}
-
 export async function listen(page: Page, id: string): Promise<void> {
   const shell = face(page, id);
   await shell.click();
@@ -181,7 +119,7 @@ export async function listen(page: Page, id: string): Promise<void> {
 
 function bandPatch(): WorkspaceSnapshot {
   return {
-    version: 3,
+    version: 4,
     graph: {
       nodes: [
         node("dev", { kind: "device", data: { device: BAND } }, { x: 0, y: 0, w: 420, h: 236 }),
@@ -205,7 +143,7 @@ const patch: Scene = {
   settleSeconds: 10,
   async stage(page) {
     await stage(page, "Test band", {
-      version: 3,
+      version: 4,
       graph: {
         nodes: [
           node("dev", { kind: "device", data: { device: BAND } }, { x: 0, y: 0, w: 420, h: 236 }),
@@ -233,7 +171,7 @@ const patch: Scene = {
       },
     });
     await tune(page, BAND, { nfm: 300_000, am: -300_000, wfm: 600_000 });
-    await fitPatch(page);
+    await fitForCapture(page);
   },
   async ready(page) {
     await expect(face(page, "scope").getByText(/MHz/).first()).toBeVisible();
@@ -272,7 +210,7 @@ const adsb: Scene = {
   async stage(page) {
     const device = await recording(page, "adsb_squitters_2m");
     await stage(page, "Aircraft (ADS-B)", {
-      version: 3,
+      version: 4,
       graph: {
         nodes: [
           node("dev", { kind: "device", data: { device } }, { x: 0, y: 0, w: 420, h: 160 }),
@@ -290,7 +228,7 @@ const adsb: Scene = {
       },
     });
     await tune(page, device, { adsb: 0 });
-    await fitPatch(page);
+    await fitForCapture(page);
   },
   async ready(page) {
     await expect(face(page, "map").getByText("Aircraft")).toBeVisible();
@@ -311,7 +249,7 @@ const ais: Scene = {
   async stage(page) {
     const device = await recording(page, "ais_position_240k");
     await stage(page, "Ships (AIS)", {
-      version: 3,
+      version: 4,
       graph: {
         nodes: [
           node("dev", { kind: "device", data: { device } }, { x: 0, y: 0, w: 420, h: 160 }),
@@ -329,7 +267,7 @@ const ais: Scene = {
       },
     });
     await tune(page, device, { ais: 25_000 });
-    await fitPatch(page);
+    await fitForCapture(page);
   },
   async ready(page) {
     await expect(
@@ -347,7 +285,7 @@ const sstv: Scene = {
   async stage(page) {
     const device = await recording(page, "sstv_robot36_48k");
     await stage(page, "SSTV", {
-      version: 3,
+      version: 4,
       graph: {
         nodes: [
           node("dev", { kind: "device", data: { device } }, { x: 0, y: 0, w: 420, h: 160 }),
@@ -365,7 +303,7 @@ const sstv: Scene = {
       },
     });
     await tune(page, device, { sstv: 4_000 });
-    await fitPatch(page);
+    await fitForCapture(page);
   },
   async ready(page) {
     const readout = face(page, "readout");
@@ -383,7 +321,7 @@ const pocsag: Scene = {
   async stage(page) {
     const device = await recording(page, "pocsag_1200_240k");
     await stage(page, "Pagers (POCSAG)", {
-      version: 3,
+      version: 4,
       graph: {
         nodes: [
           node("dev", { kind: "device", data: { device } }, { x: 0, y: 0, w: 420, h: 160 }),
@@ -414,7 +352,7 @@ const pocsag: Scene = {
       },
     });
     await tune(page, device, { pocsag: 50_000 });
-    await fitPatch(page);
+    await fitForCapture(page);
   },
   async ready(page) {
     await expect(
@@ -432,7 +370,7 @@ const ft8: Scene = {
   async stage(page) {
     const device = await recording(page, "ft8_20m_busy_12k");
     await stage(page, "Weak signal (FT8)", {
-      version: 3,
+      version: 4,
       graph: {
         nodes: [
           node("dev", { kind: "device", data: { device } }, { x: 0, y: 0, w: 420, h: 160 }),
@@ -448,7 +386,7 @@ const ft8: Scene = {
       },
     });
     await tune(page, device, { ft8: 0 });
-    await fitPatch(page);
+    await fitForCapture(page);
   },
   async ready(page) {
     await expect(face(page, "log").getByText(/OH8JK/).first()).toBeVisible({ timeout: 180_000 });
@@ -463,7 +401,7 @@ const rds: Scene = {
   async stage(page) {
     const device = await recording(page, "rds_station_960k");
     await stage(page, "Broadcast FM (RDS)", {
-      version: 3,
+      version: 4,
       graph: {
         nodes: [
           node("dev", { kind: "device", data: { device } }, { x: 0, y: 0, w: 420, h: 160 }),
@@ -483,7 +421,7 @@ const rds: Scene = {
       },
     });
     await tune(page, device, { wfm: 200_000 });
-    await fitPatch(page);
+    await fitForCapture(page);
   },
   async ready(page) {
     await expect(
@@ -501,7 +439,7 @@ const ident: Scene = {
   async stage(page) {
     const device = await recording(page, "pocsag_1200_240k");
     await stage(page, "Signal identification", {
-      version: 3,
+      version: 4,
       graph: {
         nodes: [
           node("dev", { kind: "device", data: { device } }, { x: 0, y: 0, w: 420, h: 160 }),
@@ -519,7 +457,7 @@ const ident: Scene = {
       },
     });
     await tune(page, device, { ident: 0 });
-    await fitPatch(page);
+    await fitForCapture(page);
   },
   async ready(page) {
     await expect(
@@ -537,7 +475,7 @@ const atv: Scene = {
   async stage(page) {
     const device = await recording(page, "atv_ccir625_2m4");
     await stage(page, "Amateur television", {
-      version: 3,
+      version: 4,
       graph: {
         nodes: [
           node("dev", { kind: "device", data: { device } }, { x: 0, y: 0, w: 420, h: 160 }),
@@ -560,7 +498,7 @@ const atv: Scene = {
       }
       return { params: { ...params, settings: { ...params.settings, interlace: true } } };
     });
-    await fitPatch(page);
+    await fitForCapture(page);
   },
   async ready(page) {
     await expect(face(page, "video").locator("canvas")).toBeVisible({ timeout: 60_000 });
@@ -576,7 +514,7 @@ const rack: Scene = {
     const pocsagDevice = await recording(page, "pocsag_1200_240k");
     const sstvDevice = await recording(page, "sstv_robot36_48k");
     await stage(page, "Watch desk", {
-      version: 3,
+      version: 4,
       graph: {
         nodes: [
           node(

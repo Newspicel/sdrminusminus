@@ -1,13 +1,23 @@
-use std::path::Path;
+use std::path::PathBuf;
 
 use anyhow::Context;
 use sdrmm_server::{RemotePairing, Store};
 use sdrmm_tunnel::{DeviceKey, pairing::Pairing};
 use sdrmm_wire::DEFAULT_REMOTE_APP;
 
-pub(crate) async fn run(db_path: &Path, app: Option<&url::Url>) -> anyhow::Result<()> {
-    let app = match app {
-        Some(app) => app.clone(),
+#[derive(clap::Args, Debug)]
+pub(crate) struct PairArgs {
+    #[arg(long)]
+    pub(crate) db: Option<PathBuf>,
+    #[arg(long, env = "SDRMM_REMOTE_APP")]
+    pub(crate) remote_app: Option<url::Url>,
+}
+
+#[tokio::main]
+pub(crate) async fn run(args: PairArgs) -> anyhow::Result<()> {
+    let db_path = crate::resolve_db_path(args.db)?;
+    let app = match args.remote_app {
+        Some(app) => app,
         None => DEFAULT_REMOTE_APP
             .parse()
             .context("default remote app address")?,
@@ -16,7 +26,7 @@ pub(crate) async fn run(db_path: &Path, app: Option<&url::Url>) -> anyhow::Resul
         std::fs::create_dir_all(parent)
             .with_context(|| format!("cannot create {}", parent.display()))?;
     }
-    let store = Store::open(Some(db_path)).context("open the database")?;
+    let store = Store::open(Some(&db_path)).context("open the database")?;
     if let Some(old) = store.remote_pairing().context("read the pairing")? {
         println!("Replacing the pairing with {}.", old.device_id);
     }

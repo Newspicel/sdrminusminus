@@ -7,12 +7,14 @@ export function TextField({
   value,
   secret = false,
   placeholder,
+  maxLength,
   onCommit,
 }: {
   label: string;
   value: string;
   secret?: boolean;
   placeholder?: string;
+  maxLength?: number;
   onCommit: (value: string) => void;
 }) {
   const [draft, setDraft] = useState(value);
@@ -35,6 +37,7 @@ export function TextField({
       type={secret ? "password" : "text"}
       autoComplete="off"
       placeholder={placeholder}
+      maxLength={maxLength}
       value={draft}
       onChange={(event) => setDraft(event.target.value)}
       onBlur={commit}

@@ -12,7 +12,6 @@ use crate::{
     recording::{RecorderTap, RecordingShared},
     remove_recording_files,
     runtime::DspCommand,
-    sample_rate_of,
 };
 
 pub(crate) struct ChannelBasebandRecording {
@@ -112,7 +111,7 @@ impl DeviceSetState {
             .find(|c| c.id == ch)
             .ok_or(EngineError::ChannelNotFound(ch, ds))?;
         descriptor_for(&channel.settings.params)?;
-        let device_rate = sample_rate_of(&self.settings);
+        let device_rate = self.lane_rate(channel.stream);
         Ok(BasebandPlan {
             stream: channel.stream,
             sample_rate: sdrmm_channels::input_rate(&channel.settings.params),

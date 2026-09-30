@@ -1,44 +1,127 @@
 use std::{collections::VecDeque, fs::File, path::Path};
 
 use super::{ExportKind, Part, open_pinned};
-use crate::{DATA_SUFFIX, META_SUFFIX, SigmfError, data_path, meta_path};
+use crate::{
+    COLLECTION_SUFFIX, DATA_SUFFIX, META_SUFFIX, SigmfError, collection::stream_stems,
+    collection_path, data_path, meta_path,
+};
 
 const BLOCK: u64 = 512;
 const TRAILER: usize = 2 * BLOCK as usize;
 
-const MAX_NAME: usize = 100 - DATA_SUFFIX.len();
+const NAME_FIELD: usize = 100;
+const PREFIX_FIELD: usize = 155;
 
 const TYPE_FILE: u8 = b'0';
 const TYPE_DIR: u8 = b'5';
 
 pub(super) fn parts(stem: &Path, name: &str) -> Result<VecDeque<Part>, SigmfError> {
-    if name.len() > MAX_NAME {
-        return Err(SigmfError::Unexportable {
+    check_fits(stem, name, &[name], DATA_SUFFIX)?;
+    let (meta_file, meta_len, mtime) = open_pinned(&meta_path(stem))?;
+    let mut parts = directory(name, mtime);
+    push_member(
+        &mut parts,
+        name,
+        name,
+        META_SUFFIX,
+        meta_file,
+        meta_len,
+        mtime,
+    );
+    push_pair_data(&mut parts, name, stem, name, mtime)?;
+    parts.push_back(Part::bytes(vec![0; TRAILER]));
+    Ok(parts)
+}
+
+pub(super) fn collection_parts(stem: &Path, name: &str) -> Result<VecDeque<Part>, SigmfError> {
+    let lanes = stream_stems(stem)?;
+    let lane_names = lanes
+        .iter()
+        .map(|lane| file_name(stem, lane))
+        .collect::<Result<Vec<_>, _>>()?;
+    check_fits(stem, name, &[name], COLLECTION_SUFFIX)?;
+    check_fits(stem, name, &lane_names, DATA_SUFFIX)?;
+    let (collection_file, collection_len, mtime) = open_pinned(&collection_path(stem))?;
+    let mut parts = directory(name, mtime);
+    push_member(
+        &mut parts,
+        name,
+        name,
+        COLLECTION_SUFFIX,
+        collection_file,
+        collection_len,
+        mtime,
+    );
+    for (lane, lane_name) in lanes.iter().zip(&lane_names) {
+        let (meta_file, meta_len, _) = open_pinned(&meta_path(lane))?;
+        push_member(
+            &mut parts,
+            name,
+            lane_name,
+            META_SUFFIX,
+            meta_file,
+            meta_len,
+            mtime,
+        );
+        push_pair_data(&mut parts, name, lane, lane_name, mtime)?;
+    }
+    parts.push_back(Part::bytes(vec![0; TRAILER]));
+    Ok(parts)
+}
+
+fn file_name<'a>(stem: &Path, lane: &'a Path) -> Result<&'a str, SigmfError> {
+    lane.file_name()
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| SigmfError::Unexportable {
+            stem: stem.to_path_buf(),
+            format: ExportKind::SigmfArchive.extension(),
+            reason: "a lane has no usable file name",
+        })
+}
+
+fn check_fits(stem: &Path, dir: &str, names: &[&str], suffix: &str) -> Result<(), SigmfError> {
+    let fits = dir.len() < NAME_FIELD
+        && dir.len() <= PREFIX_FIELD
+        && names
+            .iter()
+            .all(|name| name.len() + suffix.len() <= NAME_FIELD);
+    if fits {
+        Ok(())
+    } else {
+        Err(SigmfError::Unexportable {
             stem: stem.to_path_buf(),
             format: ExportKind::SigmfArchive.extension(),
             reason: "the name is longer than a tar header can hold",
-        });
+        })
     }
-    let (meta_file, meta_len, mtime) = open_pinned(&meta_path(stem))?;
-    let (data_file, data_len, _) = open_pinned(&data_path(stem))?;
+}
 
-    let mut parts = VecDeque::new();
-    parts.push_back(Part::bytes(header(
+fn directory(name: &str, mtime: u64) -> VecDeque<Part> {
+    VecDeque::from([Part::bytes(header(
         &format!("{name}/"),
         "",
         0,
         mtime,
         0o755,
         TYPE_DIR,
-    )));
-    push_member(&mut parts, name, META_SUFFIX, meta_file, meta_len, mtime);
-    push_member(&mut parts, name, DATA_SUFFIX, data_file, data_len, mtime);
-    parts.push_back(Part::bytes(vec![0; TRAILER]));
-    Ok(parts)
+    ))])
+}
+
+fn push_pair_data(
+    parts: &mut VecDeque<Part>,
+    dir: &str,
+    stem: &Path,
+    name: &str,
+    mtime: u64,
+) -> Result<(), SigmfError> {
+    let (data_file, data_len, _) = open_pinned(&data_path(stem))?;
+    push_member(parts, dir, name, DATA_SUFFIX, data_file, data_len, mtime);
+    Ok(())
 }
 
 fn push_member(
     parts: &mut VecDeque<Part>,
+    dir: &str,
     name: &str,
     suffix: &str,
     file: File,
@@ -47,7 +130,7 @@ fn push_member(
 ) {
     parts.push_back(Part::bytes(header(
         &format!("{name}{suffix}"),
-        name,
+        dir,
         len,
         mtime,
         0o644,
@@ -205,6 +288,40 @@ mod tests {
             members[2].data,
             std::fs::read(data_path(&stem)).expect("read data")
         );
+    }
+
+    #[test]
+    fn a_collection_archive_holds_the_collection_and_every_lane() {
+        let dir = TempDir::new().expect("tempdir");
+        let stem = crate::library::tests::collection(dir.path(), "take", 2, 70);
+        let mut export = Export::open(&stem, ExportKind::SigmfArchive).expect("open");
+        assert_eq!(export.file_name(), "take.sigmf");
+        let promised = export.byte_len();
+        let bytes = drain(&mut export);
+        assert_eq!(bytes.len() as u64, promised);
+
+        let members = parse(&bytes);
+        let paths: Vec<&str> = members.iter().map(|member| member.path.as_str()).collect();
+        assert_eq!(
+            paths,
+            [
+                "take/",
+                "take/take.sigmf-collection",
+                "take/take-lane0.sigmf-meta",
+                "take/take-lane0.sigmf-data",
+                "take/take-lane1.sigmf-meta",
+                "take/take-lane1.sigmf-data",
+            ]
+        );
+        assert_eq!(
+            members[1].data,
+            std::fs::read(crate::collection_path(&stem)).expect("read collection")
+        );
+        assert_eq!(members[5].size, 70 * crate::BYTES_PER_SAMPLE);
+        assert!(matches!(
+            Export::open(&stem, ExportKind::Wav),
+            Err(SigmfError::Unexportable { .. })
+        ));
     }
 
     #[test]

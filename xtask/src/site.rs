@@ -70,11 +70,36 @@ fn source_of(root: &Path, path: &str) -> PathBuf {
     if public.is_file() {
         return public;
     }
-    match path.strip_prefix("docs/") {
-        Some("") => root.join("docs/src/index.md"),
-        Some(chapter) => root.join("docs/src").join(format!("{chapter}.md")),
+    match path
+        .strip_prefix("docs")
+        .filter(|rest| rest.is_empty() || rest.starts_with('/'))
+    {
+        Some(doc) => {
+            let doc = doc.trim_matches('/');
+            let doc = if doc.is_empty() { "index" } else { doc };
+            root.join("docs/src").join(format!("{doc}.md"))
+        }
         None => root.join("site/src/pages").join(format!("{path}.astro")),
     }
+}
+
+#[test]
+fn clean_links_resolve_to_pages_and_docs() {
+    let root = root();
+    assert_eq!(
+        source_of(&root, "remote"),
+        root.join("site/src/pages/remote.astro")
+    );
+    assert_eq!(
+        source_of(&root, "docs/server/tunnels"),
+        root.join("docs/src/server/tunnels.md")
+    );
+    assert_eq!(source_of(&root, "docs/"), root.join("docs/src/index.md"));
+    assert_eq!(
+        source_of(&root, "favicon.ico"),
+        root.join("site/public/favicon.ico")
+    );
+    assert!(!source_of(&root, "remote.html").exists());
 }
 
 #[test]
@@ -139,14 +164,18 @@ fn the_download_button_leads_to_the_download_page() {
         "the download page is what the Download button points at"
     );
     assert!(
+        read(&root.join("site/src/layouts/Page.astro")).contains("<Header />"),
+        "the page layout carries the header with the Download button"
+    );
+    assert!(
         read(&root.join("site/src/components/Header.astro"))
             .contains("class=\"get\" href={DOWNLOAD.href}"),
-        "the header sends its Download button somewhere other than DOWNLOAD"
+        "the header's Download button is not the DOWNLOAD link"
     );
     assert!(
         read(&root.join("site/src/nav.ts"))
             .contains("DOWNLOAD: Link = { label: \"Download\", href: \"/download\" }"),
-        "DOWNLOAD points somewhere other than the download page"
+        "the DOWNLOAD link points somewhere other than the download page"
     );
 }
 

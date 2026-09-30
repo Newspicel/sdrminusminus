@@ -332,7 +332,6 @@ pub(crate) fn plan_center(
     capabilities: &Capabilities,
     settings: &DeviceSettings,
     channels: &[ChannelInfo],
-    group: &[u32],
 ) -> Option<DeviceSettings> {
     let scope = capabilities.per_stream;
     if !scope.tuning {
@@ -346,21 +345,14 @@ pub(crate) fn plan_center(
             ..DeviceSettings::default()
         });
     }
-    let leader = group.iter().min().copied();
     let mut streams = Vec::new();
     for stream in 0..capabilities.rx_streams {
-        let grouped = group.contains(&stream);
-        if grouped && Some(stream) != leader || !settings.for_stream(stream, &scope).tunes_itself()
-        {
+        if !settings.for_stream(stream, &scope).tunes_itself() {
             continue;
         }
-        let lanes: &[u32] = if grouped { group } else { &[stream] };
         let heard: Vec<ChannelInfo> = channels
             .iter()
-            .filter(|channel| {
-                lanes.contains(&channel.stream)
-                    || grouped && channel.stream == capabilities.rx_streams
-            })
+            .filter(|channel| channel.stream == stream)
             .cloned()
             .collect();
         let current_hz = center_of(settings, stream, &scope);
@@ -368,16 +360,13 @@ pub(crate) fn plan_center(
         else {
             continue;
         };
-        streams.extend(
-            lanes
-                .iter()
-                .filter(|lane| center_of(settings, **lane, &scope) != center_hz)
-                .map(|lane| StreamSettings {
-                    stream: *lane,
-                    center_hz: Some(center_hz),
-                    ..StreamSettings::default()
-                }),
-        );
+        if center_hz != current_hz {
+            streams.push(StreamSettings {
+                stream,
+                center_hz: Some(center_hz),
+                ..StreamSettings::default()
+            });
+        }
     }
     (!streams.is_empty()).then(|| DeviceSettings {
         streams,

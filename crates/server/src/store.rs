@@ -8,8 +8,9 @@ use rusqlite::{Connection, OptionalExtension, params, params_from_iter, types::V
 use sdrmm_wire::{
     Bookmark, CreateBookmarkRequest, DecoderLogEntry, DecoderLogQuery, DeviceSettings, LogScope,
     PatchGraph, PresetInfo, PresetSnapshot, RecordingInfo, SaveRadioRequest, SavedRadio,
-    UpdateWorkspaceRequest, WorkspaceDetail, WorkspaceError, WorkspaceExport, WorkspaceHistory,
-    WorkspaceInfo, WorkspaceSnapshot, WorkspaceState, WorkspacesResponse,
+    UpdateWorkspaceRequest, WORKSPACE_SNAPSHOT_VERSION, WorkspaceDetail, WorkspaceError,
+    WorkspaceExport, WorkspaceHistory, WorkspaceInfo, WorkspaceNoticeKind, WorkspaceSnapshot,
+    WorkspaceState, WorkspacesResponse,
 };
 
 use crate::events::Routed;
@@ -26,6 +27,12 @@ pub enum StoreError {
     RecordingNotFound(i64),
     #[error("workspace {0} not found")]
     WorkspaceNotFound(i64),
+    #[error("notice {0} not found")]
+    NoticeNotFound(i64),
+    #[error("phone {0} not found")]
+    PhoneNotFound(String),
+    #[error("the pairing code is gone")]
+    OfferGone,
     #[error("radio operator {0} not found")]
     CpsUserNotFound(i64),
     #[error("radio {0} not found")]
@@ -317,7 +324,58 @@ const MIGRATIONS: &[&str] = &[
         paired_at TEXT NOT NULL
     );
     ",
+    "DELETE FROM decoder_log WHERE kind = 'radar';",
+    "
+    CREATE TABLE workspace_notices (
+        id INTEGER PRIMARY KEY,
+        workspace_id INTEGER NOT NULL,
+        created_at TEXT NOT NULL,
+        notice TEXT NOT NULL
+    );
+    CREATE INDEX workspace_notices_workspace ON workspace_notices (workspace_id);
+    ",
+    "
+    CREATE TABLE phones (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        platform TEXT NOT NULL,
+        secret_sha256 BLOB NOT NULL,
+        created_at TEXT NOT NULL,
+        last_seen TEXT
+    );
+    ",
+    "
+    CREATE TABLE phone_offers (
+        id TEXT PRIMARY KEY,
+        code TEXT NOT NULL,
+        name TEXT,
+        created_at TEXT NOT NULL,
+        expires_at TEXT NOT NULL,
+        failures INTEGER NOT NULL DEFAULT 0,
+        state TEXT NOT NULL,
+        phone TEXT
+    );
+    ",
+    "
+    CREATE TABLE server_meta (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+    ) WITHOUT ROWID;
+    ",
+    "
+    CREATE TABLE array_calibrations (
+        lanes TEXT NOT NULL,
+        sample_rate REAL NOT NULL,
+        center_hz REAL NOT NULL,
+        record TEXT NOT NULL,
+        saved_at TEXT NOT NULL,
+        PRIMARY KEY (lanes, sample_rate, center_hz)
+    ) WITHOUT ROWID;
+    ",
+    "ALTER TABLE recordings ADD COLUMN lanes INTEGER NOT NULL DEFAULT 1;",
 ];
+
+const SERVER_ID_KEY: &str = "server_id";
 
 pub const WORKSPACE_HISTORY_DEPTH: i64 = 100;
 
@@ -357,11 +415,13 @@ pub struct RecordingRow {
     pub bytes: u64,
     pub tags: Vec<String>,
     pub note: Option<String>,
+    pub lanes: u32,
 }
 
 pub struct Store {
     conn: Mutex<Connection>,
     run_start: String,
+    server_id: std::sync::Arc<str>,
 }
 
 impl Store {
@@ -372,12 +432,19 @@ impl Store {
         };
         migrate(&conn)?;
         audio_fx_lift::lift_audio_chains(&conn)?;
+        coherent_break::break_old_snapshots(&conn)?;
+        let server_id = ensure_server_id(&conn)?.into();
         let store = Self {
             conn: Mutex::new(conn),
             run_start: now_rfc3339(),
+            server_id,
         };
         store.seed_workspaces()?;
         Ok(store)
+    }
+
+    pub(crate) fn server_id(&self) -> std::sync::Arc<str> {
+        self.server_id.clone()
     }
 
     pub fn create_preset(&self, name: &str, snapshot: &PresetSnapshot) -> Result<i64, StoreError> {
@@ -538,13 +605,14 @@ impl Store {
     pub fn upsert_recording(&self, row: &RecordingRow) -> Result<(), StoreError> {
         self.lock().execute(
             "INSERT INTO recordings (stem, name, created_at, device_label, center_hz, \
-             sample_rate, samples, bytes, tags, note) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10) \
+             sample_rate, samples, bytes, tags, note, lanes) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11) \
              ON CONFLICT(stem) DO UPDATE SET name = excluded.name, \
              created_at = excluded.created_at, \
              device_label = excluded.device_label, center_hz = excluded.center_hz, \
              sample_rate = excluded.sample_rate, samples = excluded.samples, \
-             bytes = excluded.bytes, tags = excluded.tags, note = excluded.note",
+             bytes = excluded.bytes, tags = excluded.tags, note = excluded.note, \
+             lanes = excluded.lanes",
             params![
                 row.stem,
                 row.name,
@@ -555,7 +623,8 @@ impl Store {
                 row.samples as i64,
                 row.bytes as i64,
                 serde_json::to_string(&row.tags)?,
-                row.note
+                row.note,
+                row.lanes
             ],
         )?;
         Ok(())
@@ -565,7 +634,7 @@ impl Store {
         let conn = self.lock();
         let mut stmt = conn.prepare(
             "SELECT id, stem, created_at, device_label, center_hz, sample_rate, samples, bytes, \
-             tags, note, name FROM recordings ORDER BY id",
+             tags, note, name, lanes FROM recordings ORDER BY id",
         )?;
         let rows = stmt.query_map([], |row| {
             let stem: String = row.get(1)?;
@@ -595,6 +664,7 @@ impl Store {
                     )
                 })?,
                 note: row.get(9)?,
+                lanes: row.get(11)?,
             })
         })?;
         Ok(rows.collect::<Result<_, _>>()?)
@@ -803,7 +873,11 @@ impl Store {
         Ok(export)
     }
 
-    pub fn import_workspace(&self, export: &WorkspaceExport) -> Result<i64, StoreError> {
+    pub fn import_workspace(
+        &self,
+        export: &WorkspaceExport,
+        notices: &[WorkspaceNoticeKind],
+    ) -> Result<i64, StoreError> {
         export.validate()?;
         let mut document = export.clone();
         document.forget_absent_nodes();
@@ -820,6 +894,7 @@ impl Store {
         .map_err(|err| name_taken(err, &name))?;
         let id = tx.last_insert_rowid();
         write_workspace_state(&tx, id, &document.state)?;
+        coherent_break::insert_notices(&tx, id, notices)?;
         tx.commit()?;
         Ok(id)
     }
@@ -1011,6 +1086,10 @@ impl Store {
             "DELETE FROM workspace_history WHERE workspace_id = ?1",
             params![id],
         )?;
+        tx.execute(
+            "DELETE FROM workspace_notices WHERE workspace_id = ?1",
+            params![id],
+        )?;
         let active = active_workspace(&tx)?;
         tx.commit()?;
         Ok(active)
@@ -1159,6 +1238,7 @@ fn read_workspace(conn: &Connection, id: i64) -> Result<WorkspaceDetail, StoreEr
         snapshot: parse_workspace_snapshot(&json)?,
         history: read_history(conn, id, at)?,
         state: read_workspace_state(conn, id)?,
+        notices: coherent_break::read_notices(conn, id)?,
     })
 }
 
@@ -1420,7 +1500,13 @@ fn parse_workspace_snapshot(json: &str) -> Result<WorkspaceSnapshot, serde_json:
     migrate_signal_finders(&mut value);
     migrate_baseband_scopes(&mut value);
     migrate_recorders(&mut value);
-    crate::json::from_value(&value)
+    let snapshot: WorkspaceSnapshot = crate::json::from_value(&value)?;
+    if snapshot.version != WORKSPACE_SNAPSHOT_VERSION {
+        return Err(serde::de::Error::custom(WorkspaceError::Version(
+            snapshot.version,
+        )));
+    }
+    Ok(snapshot)
 }
 
 const SPLIT_SCOPE_OFFSET_Y: f64 = 420.0;
@@ -1441,6 +1527,10 @@ fn drop_retired_channels(snapshot: &mut serde_json::Value) {
         })
         .filter_map(|node| node.get("id")?.as_str().map(str::to_owned))
         .collect();
+    remove_nodes(snapshot, &retired);
+}
+
+fn remove_nodes(snapshot: &mut serde_json::Value, retired: &HashSet<String>) {
     if retired.is_empty() {
         return;
     }
@@ -2174,6 +2264,18 @@ fn migrate(conn: &Connection) -> Result<(), StoreError> {
     Ok(())
 }
 
+fn ensure_server_id(conn: &Connection) -> Result<String, rusqlite::Error> {
+    conn.execute(
+        "INSERT OR IGNORE INTO server_meta (key, value) VALUES (?1, lower(hex(randomblob(16))))",
+        params![SERVER_ID_KEY],
+    )?;
+    conn.query_row(
+        "SELECT value FROM server_meta WHERE key = ?1",
+        params![SERVER_ID_KEY],
+        |row| row.get(0),
+    )
+}
+
 fn now_rfc3339() -> String {
     rfc3339(jiff::Timestamp::now())
 }
@@ -2183,10 +2285,15 @@ pub fn rfc3339_now() -> String {
     now_rfc3339()
 }
 
+mod arrays;
 mod audio_fx_lift;
+mod coherent_break;
 mod cps;
+mod phones;
 mod remote;
 
+pub(crate) use coherent_break::upgrade_export;
+pub(crate) use phones::{OfferFailure, OfferRow, PairWrite, PhoneRow};
 pub use remote::RemotePairing;
 
 #[cfg(test)]

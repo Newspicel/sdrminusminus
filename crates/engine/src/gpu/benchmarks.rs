@@ -1,15 +1,11 @@
 use std::hint::black_box;
 
-use sdrmm_dsp::{
-    SpectrumAnalyzer,
-    caf::{Caf, Surface},
-    eca::{Eca, EcaParams},
-    subband::SubbandPlan,
-};
+use sdrmm_dsp::{SpectrumAnalyzer, subband::SubbandPlan};
 
 use super::*;
 
 mod compute;
+mod radar;
 mod spectrum;
 mod wideband;
 
@@ -70,32 +66,6 @@ fn benchmark_offload() {
             gpu.power_db(black_box(&input), &mut output).unwrap();
             black_box(&output);
         });
-    }
-    for cpi in [16_384, 65_536] {
-        let reference = samples(cpi, 0x1234567);
-        let surveillance = samples(cpi, 0x7654321);
-        let mut eca = Eca::new(EcaParams::default(), 2_000_000.0).unwrap();
-        let mut residual = Vec::with_capacity(cpi);
-        measure(&format!("radar/{cpi}/eca_cpu"), || {
-            eca.cancel(
-                black_box(&reference),
-                black_box(&surveillance),
-                &mut residual,
-            );
-            black_box(&residual);
-        });
-        for dopplers in [33, 129] {
-            let mut caf = Caf::new(cpi, 256, dopplers, 2_000_000.0);
-            let mut surface = Surface::default();
-            measure(&format!("radar/{cpi}/{dopplers}/caf_cpu"), || {
-                caf.compute(
-                    black_box(&reference),
-                    black_box(&surveillance),
-                    &mut surface,
-                );
-                black_box(&surface);
-            });
-        }
     }
     let plan = SubbandPlan::new(20_000_000.0).unwrap();
     for size in [2048, 4096, 8192, 32_768] {
@@ -173,34 +143,6 @@ fn benchmark_wideband() {
         measure(&format!("wideband/{size}/gpu"), || {
             gpu.process(black_box(&input), &mut actual);
             black_box(&actual);
-        });
-    }
-}
-
-#[test]
-#[ignore = "hardware benchmark"]
-fn benchmark_radar_tiled() {
-    let context = Arc::new(Context::new().expect("hardware GPU required"));
-    for (cpi, dopplers) in [
-        (16_384, 33),
-        (16_384, 129),
-        (65_536, 33),
-        (65_536, 129),
-        (400_000, 41),
-    ] {
-        let reference = samples(cpi, 0x1234567);
-        let surveillance = samples(cpi, 0x7654321);
-        let mut cpu = Caf::new(cpi, 256, dopplers, 2_000_000.0);
-        let mut gpu = super::caf::GpuCaf::new(context.clone(), &cpu).unwrap();
-        let mut output = Surface::default();
-        measure(&format!("radar/{cpi}/{dopplers}/caf_cpu"), || {
-            cpu.compute(black_box(&reference), black_box(&surveillance), &mut output);
-            black_box(&output);
-        });
-        measure(&format!("radar/{cpi}/{dopplers}/caf_gpu_tiled"), || {
-            gpu.compute(black_box(&reference), black_box(&surveillance), &mut output)
-                .unwrap();
-            black_box(&output);
         });
     }
 }

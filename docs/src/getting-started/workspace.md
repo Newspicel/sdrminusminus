@@ -22,7 +22,8 @@ A wire joins an output port to an input port that carries the same kind of data:
 | `baseband` | One channel's filtered IQ | Channel → Baseband scope, recorder, Network IQ |
 | `video` | Pictures and video | Channel → Video |
 | `control` | Tuning commands | Scanner, Satellite → channel |
-| `position` | Station location | GPS position → Map, Recorder, ADS-B |
+| `position` | Station location and heading | GPS position → Map, Array, ADS-B |
+| `array` | Aligned lanes of an antenna array | Array → Direction finder, Beamformer |
 
 ## Node types
 
@@ -30,10 +31,10 @@ A wire joins an output port to an input port that carries the same kind of data:
 |---|---|
 | Sources | Device, Recording, Signal generator, GPS position |
 | Decoders | AM, NFM, WFM, ADS-B, DMR, and every other [decoder](../user-guide/decoders.md) |
-| Tools | Array, Scanner, Signal hunt, Spectrum monitor, Satellite, DMR trunk system, Event filter, Audio FX, Direction finder, Triangulation, Passive radar, Combiner |
+| Tools | Scanner, Signal hunt, Spectrum monitor, Satellite, DMR trunk system, Event filter, Audio FX, and the [array](../user-guide/arrays.md) nodes: Array, Direction finder, Beamformer, Passive radar, Stitch, Spatial spectrum, Correlator, Polarimeter, Triangulation |
 | Outputs | Scope, Baseband scope, Speaker, Readout, Decoder log, Map, Video, Signal survey, Propagation map, recorders, Network IQ, Event output, Export |
 
-**+ Add** lists what the running server offers. Double-click or right-click the canvas to add a
+**Add** lists what the running server offers. Double-click or right-click the canvas to add a
 node at the cursor. Hover an entry to see what it does.
 
 ## How a Device and its channels share a radio
@@ -54,14 +55,13 @@ face. See [Channels](../user-guide/channels.md#which-radio-hears-a-channel).
 ## Radios come back
 
 A Device node remembers which radio it holds. Unplug it and the node, wires, and settings stay.
-Plug the same radio back in and it reconnects. **Forget this radio** frees the node for another
+Plug the same radio back in and it reconnects. **Forget radio** frees the node for another
 one.
 
 ## Applying changes
 
 Edits apply on their own. Applying opens radios, restores settings, updates channels, and closes
-anything the workspace no longer uses. If a node says the saved layout and the running receiver
-differ, press **Apply patch**.
+anything the workspace no longer uses. A node that could not apply says why on its face.
 
 ## Shared by everyone
 

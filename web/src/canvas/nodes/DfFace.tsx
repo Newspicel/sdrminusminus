@@ -1,335 +1,427 @@
-import { Button } from "../../components/BaseControls";
-import { BTN, type Options } from "../../components/controls";
+import { useState } from "react";
+import { Checkbox } from "../../components/Checkbox";
+import { CHIP_SM } from "../../components/controls";
 import { NumberField } from "../../components/NumberField";
 import { Readout, ReadoutRow } from "../../components/Readout";
+import { Rose } from "../../components/Rose";
+import { Segmented } from "../../components/Segmented";
 import { Select } from "../../components/Select";
 import { SettingRow, Settings } from "../../components/Settings";
 import { TextField } from "../../components/TextField";
-import { calibrateCoherent } from "../../lib/api";
-import { useDfStore } from "../../lib/df";
-import type { DfAlgorithm, DfParams, PatchNode } from "../../lib/types";
+import { processorStatusOf, useArrayStore } from "../../lib/arrays";
+import { DF_LIMITS as LIMITS, scaled } from "../../lib/limits";
+import { isStale, readingOf, useProcessorStore } from "../../lib/processors";
+import type {
+  ArrayGeometry,
+  DfParams,
+  DfReading,
+  PatchGraph,
+  PatchNode,
+  PatchNodeOf,
+  ProcessorStatus,
+} from "../../lib/types";
+import { useNow } from "../../lib/useNow";
+import { arrayOf } from "../binding";
 import { useWorkspaceContext } from "../context";
-import { patchNode } from "../graph";
+import { arrayWiredLanes, nodeOf } from "../graph";
+import { settingsOf } from "../newNode";
+import { allowsStructured, isCollinear, isLevelLine } from "./arrayGeometry";
 import {
-  beamAzimuth,
-  beamMode,
-  bearingLabel,
-  CAL_VERDICT_TEXT,
-  COMPASS_MARKS,
-  calVerdict,
-  DEFAULT_DF_PARAMS,
-  elementCount,
-  geometryOf,
-  laneQualityPercent,
-  polarPoint,
-  spectrumPath,
-  tierLabel,
-  withCount,
+  AUTO_SOURCES,
+  algorithmOptions,
+  type BearingFrame,
+  type DfChip,
+  dfChips,
+  elevationBlock,
+  frameOptions,
+  frameRotation,
+  PEAK_OPTIONS,
+  peakSummary,
+  peakText,
+  percentText,
+  RULE_OPTIONS,
+  roseLetters,
+  roseNeedles,
+  roseWedge,
+  SIDE_OPTIONS,
+  shownFrame,
+  sigmaText,
+  smoothingTitle,
+  sourceOptions,
 } from "./df";
-import { FaceBody, NodeShell } from "./NodeShell";
+import { FoldSection } from "./FoldSection";
+import { FaceBody, FaceEmpty, NodeShell } from "./NodeShell";
+import {
+  ageLabel,
+  NO_CATALOG,
+  processorFaults,
+  processorGate,
+  processorSubtitle,
+  useProcessorEdit,
+} from "./processorFace";
 
-const ALGORITHMS: Options<DfAlgorithm> = [
-  { value: "correlative", label: "Beamformer" },
-  { value: "music", label: "MUSIC" },
-];
+const AGE_TICK_MS = 1_000;
+const ROSE_PX = 220;
+const KHZ = 1_000;
+const OFFSET_KHZ = scaled(LIMITS.band.offset_hz, 1 / KHZ);
+const WIDTH_KHZ = scaled(LIMITS.band.bandwidth_hz, 1 / KHZ);
 
-const GEOMETRIES: Options<"uca" | "ula"> = [
-  { value: "uca", label: "Circle" },
-  { value: "ula", label: "Line" },
-];
+type Edit = (next: Partial<DfParams>) => void;
 
-const BEAMS: Options<"follow" | "fixed"> = [
-  { value: "follow", label: "Follow bearing" },
-  { value: "fixed", label: "Fixed azimuth" },
-];
+interface ArrayShape {
+  geometry: ArrayGeometry | null;
+  lanes: number;
+}
 
-const SIZE = 220;
-const CENTRE = SIZE / 2;
-const INNER = 26;
-const OUTER = SIZE / 2 - 20;
+function structuredOk(shape: ArrayShape): boolean {
+  return shape.geometry === null || allowsStructured(shape.geometry, shape.lanes);
+}
+
+function arrayShape(graph: PatchGraph, array: string | null): ArrayShape {
+  if (array === null) {
+    return { geometry: null, lanes: 0 };
+  }
+  const node = nodeOf(graph, array);
+  return {
+    geometry: node?.kind === "array" ? node.data.geometry : null,
+    lanes: arrayWiredLanes(graph, array),
+  };
+}
 
 export function DfFace({ node }: { node: PatchNode }) {
   const workspace = useWorkspaceContext();
-  const state = useDfStore((store) => store.byNode[node.id]);
+  const state = useProcessorStore((store) => store.byNode[node.id]);
+  const array = arrayOf(workspace.graph, node.id);
+  const status = useArrayStore((store) => (array === null ? undefined : store.byNode[array]));
+  const now = useNow(AGE_TICK_MS);
+  const [picked, setPicked] = useState<BearingFrame | null>(null);
+  const edit = useProcessorEdit(node as PatchNodeOf<"df">);
   if (node.kind !== "df") {
     return null;
   }
-  const settings = node.data.settings ?? DEFAULT_DF_PARAMS;
-  const update = (next: Partial<DfParams>): void => {
-    workspace.edit((snapshot) => ({
-      ...snapshot,
-      graph: patchNode(snapshot.graph, node.id, (current) =>
-        current.kind === "df"
-          ? {
-              ...current,
-              data: { settings: { ...(current.data.settings ?? DEFAULT_DF_PARAMS), ...next } },
-            }
-          : current,
-      ),
-    }));
-  };
-  const verdict = calVerdict(state?.cal);
-  const bearing =
-    verdict === "phase_unknown" || verdict === "injecting" ? null : (state?.reading ?? null);
+  const settings = settingsOf(node, workspace.context.catalog);
+  const reportMs = settings?.report_ms ?? 0;
+  const reading = readingOf(state, "df");
+  const stale = state !== undefined && isStale(state.receivedAt, now, reportMs);
+  const gate = processorGate(status, node.id);
+  const trueAvailable = reading?.azimuth_deg != null;
+  const frame = shownFrame(picked, trueAvailable);
+  const peaks = reading?.peaks ?? [];
   return (
-    <NodeShell node={node} title="Direction finder" category="tool">
+    <NodeShell
+      node={node}
+      title="Direction finder"
+      category="tool"
+      subtitle={processorSubtitle(workspace.graph, node.id, status, state, now, reportMs)}
+    >
       <FaceBody>
-        <div
-          className="flex flex-col items-center gap-2 p-2"
-          title={state === undefined ? "Wire every array element to one coherent radio" : undefined}
-        >
-          <CompassRose
-            spectrum={bearing?.pseudospectrum ?? []}
-            bearingDeg={bearing?.bearing_deg ?? null}
+        <div className="flex flex-col items-center gap-2 p-2">
+          <Segmented
+            label="Bearing frame"
+            value={frame}
+            options={frameOptions(trueAvailable)}
+            onChange={setPicked}
           />
-          <Readout>
-            <ReadoutRow label="Bearing">
-              {bearing === null ? "-" : bearingLabel(bearing.bearing_deg)}
-            </ReadoutRow>
-            <ReadoutRow label="Confidence">
-              {bearing === null ? "-" : `${Math.round(bearing.confidence * 100)}%`}
-            </ReadoutRow>
-            <ReadoutRow label="Calibration">{CAL_VERDICT_TEXT[verdict]}</ReadoutRow>
-            <ReadoutRow label="Coherence">{tierLabel(state?.cal)}</ReadoutRow>
-          </Readout>
-          {state !== undefined && <LaneStrip cal={state.cal} />}
-          <Button
-            className={BTN}
-            type="button"
-            disabled={state === undefined}
-            onClick={() => {
-              void calibrateCoherent(node.id);
-            }}
-          >
-            Calibrate
-          </Button>
+          <Rose
+            label="Bearing rose"
+            size={ROSE_PX}
+            marks={roseLetters(frame === "true")}
+            spectrum={reading?.pseudospectrum ?? []}
+            rotateDeg={frameRotation(reading, frame)}
+            needles={roseNeedles(peaks, frame)}
+            wedge={roseWedge(peaks, frame)}
+            tickDeg={frame === "true" ? (reading?.azimuth_deg ?? null) : null}
+            dim={stale || gate !== null}
+          />
+          <DfChips chips={dfChips(reading, gate, stale)} />
         </div>
-        <DfSettings
-          settings={settings}
-          bearingDeg={bearing?.bearing_deg ?? null}
-          onChange={update}
+        <DfReadout
+          reading={reading}
+          frame={frame}
+          age={ageLabel(state?.receivedAt, now)}
+          processor={processorStatusOf(status, node.id)}
         />
+        {settings === null ? (
+          <FaceEmpty hint={NO_CATALOG} />
+        ) : (
+          <DfSettings settings={settings} edit={edit} shape={arrayShape(workspace.graph, array)} />
+        )}
       </FaceBody>
     </NodeShell>
   );
 }
 
-function CompassRose({
-  spectrum,
-  bearingDeg,
-}: {
-  spectrum: readonly number[];
-  bearingDeg: number | null;
-}) {
-  const needle = bearingDeg === null ? null : polarPoint(bearingDeg, OUTER, CENTRE);
-  return (
-    <svg
-      viewBox={`0 0 ${SIZE} ${SIZE}`}
-      className="h-52 w-52"
-      role="img"
-      aria-label="Direction finding compass"
-    >
-      <title>Direction finding compass</title>
-      <circle cx={CENTRE} cy={CENTRE} r={OUTER} className="fill-none stroke-line" />
-      <circle
-        cx={CENTRE}
-        cy={CENTRE}
-        r={(OUTER + INNER) / 2}
-        className="fill-none stroke-line/50"
-      />
-      {COMPASS_MARKS.map((mark) => {
-        const label = polarPoint(mark.bearing, OUTER + 10, CENTRE);
-        const tick = polarPoint(mark.bearing, OUTER, CENTRE);
-        const root = polarPoint(mark.bearing, OUTER - 6, CENTRE);
-        return (
-          <g key={mark.label}>
-            <line x1={root.x} y1={root.y} x2={tick.x} y2={tick.y} className="stroke-line" />
-            <text
-              x={label.x}
-              y={label.y}
-              className="fill-ink-dim text-[8px]"
-              textAnchor="middle"
-              dominantBaseline="middle"
-            >
-              {mark.label}
-            </text>
-          </g>
-        );
-      })}
-      {spectrum.length > 0 && (
-        <path
-          d={spectrumPath(spectrum, CENTRE, INNER, OUTER)}
-          className="fill-accent/20 stroke-accent"
-        />
-      )}
-      {needle !== null && (
-        <line
-          x1={CENTRE}
-          y1={CENTRE}
-          x2={needle.x}
-          y2={needle.y}
-          className="stroke-accent stroke-2"
-        />
-      )}
-      <circle cx={CENTRE} cy={CENTRE} r={2} className="fill-accent" />
-    </svg>
-  );
-}
-
-function LaneStrip({ cal }: { cal: { lanes: readonly { quality: number }[] } }) {
-  if (cal.lanes.length === 0) {
+function DfChips({ chips }: { chips: readonly DfChip[] }) {
+  if (chips.length === 0) {
     return null;
   }
   return (
-    <div className="flex w-full gap-1" aria-label="Per-lane calibration quality">
-      {cal.lanes.map((lane, index) => (
-        <div
-          // biome-ignore lint/suspicious/noArrayIndexKey: a lane is identified by its position
-          key={index}
-          className="h-1.5 flex-1 rounded-full bg-line"
-          title={`Lane ${index + 1}: ${laneQualityPercent(lane.quality)}%`}
+    <ul aria-label="Finder flags" className="flex flex-wrap justify-center gap-1">
+      {chips.map((chip) => (
+        <li
+          key={chip.label}
+          title={chip.title}
+          className={`${CHIP_SM} ${chip.danger ? "border-danger/60 text-danger" : ""}`}
         >
-          <div
-            className="h-full rounded-full bg-accent"
-            style={{ width: `${laneQualityPercent(lane.quality)}%` }}
-          />
-        </div>
+          {chip.label}
+        </li>
       ))}
-    </div>
+    </ul>
+  );
+}
+
+function DfReadout({
+  reading,
+  frame,
+  age,
+  processor,
+}: {
+  reading: DfReading | null;
+  frame: BearingFrame;
+  age: string;
+  processor: ProcessorStatus | null;
+}) {
+  const fault = processor?.error ?? null;
+  const peaks = reading?.peaks ?? [];
+  const first = peaks[0];
+  const others = peaks.slice(1).map((peak, index) => ({ rank: index + 2, peak }));
+  return (
+    <Readout>
+      <ReadoutRow label="Bearing">{first === undefined ? "-" : peakText(first, frame)}</ReadoutRow>
+      <ReadoutRow label="±" title="One sigma">
+        {first === undefined ? "-" : sigmaText(first.sigma_deg)}
+      </ReadoutRow>
+      <ReadoutRow label="Fit" title="Share of the signal the bearings explain">
+        {reading === null ? "-" : percentText(reading.fit ?? 0)}
+      </ReadoutRow>
+      <ReadoutRow label="SNR">
+        {reading === null ? "-" : `${Math.round(reading.snr_db ?? 0)} dB`}
+      </ReadoutRow>
+      <ReadoutRow label="Src" title={reading?.sources_auto === false ? "Fixed" : "Auto"}>
+        {reading === null ? "-" : String(reading.sources)}
+      </ReadoutRow>
+      <ReadoutRow label="Age">{age}</ReadoutRow>
+      {others.map(({ rank, peak }) => (
+        <ReadoutRow key={rank} label={`#${rank}`}>
+          {peakSummary(peak, frame)}
+        </ReadoutRow>
+      ))}
+      {processorFaults(processor).map((row) => (
+        <ReadoutRow key={row.label} label={row.label} title={row.title}>
+          <span className="text-danger">{row.count}</span>
+        </ReadoutRow>
+      ))}
+      {fault !== null && (
+        <ReadoutRow label="Fault">
+          <span role="alert" className="block truncate text-danger" title={fault}>
+            {fault}
+          </span>
+        </ReadoutRow>
+      )}
+    </Readout>
   );
 }
 
 function DfSettings({
   settings,
-  bearingDeg,
-  onChange,
+  edit,
+  shape,
 }: {
   settings: DfParams;
-  bearingDeg: number | null;
-  onChange: (next: Partial<DfParams>) => void;
+  edit: Edit;
+  shape: ArrayShape;
 }) {
   return (
-    <Settings className="border-t border-line p-2">
-      <SettingRow label="Algorithm">
-        <Select
-          label="Direction finding algorithm"
-          value={settings.algorithm}
-          onChange={(algorithm) => onChange({ algorithm })}
-          options={ALGORITHMS}
-        />
-      </SettingRow>
-      <SettingRow label="Geometry">
-        <Select
-          label="Array geometry"
-          value={settings.geometry.kind}
-          onChange={(kind) => onChange({ geometry: geometryOf(kind, settings.geometry) })}
-          options={GEOMETRIES}
-        />
-      </SettingRow>
-      {settings.geometry.kind === "uca" && (
-        <SettingRow label="Radius">
-          <NumberField
-            label="Array radius"
-            unit="m"
-            value={settings.geometry.radius_m}
-            min={0.01}
-            max={100}
-            step={0.01}
-            onCommit={(radius_m) =>
-              onChange({
-                geometry: { kind: "uca", radius_m, count: elementCount(settings.geometry) },
-              })
-            }
+    <>
+      <Settings className="border-t border-line p-2">
+        <SettingRow label="Method">
+          <Select
+            label="Method"
+            value={settings.algorithm}
+            options={algorithmOptions(structuredOk(shape))}
+            onChange={(algorithm) => edit({ algorithm })}
           />
         </SettingRow>
-      )}
-      {settings.geometry.kind === "ula" && (
-        <SettingRow label="Spacing">
+        <SettingRow label="Offset" title="Signal offset from the array centre">
           <NumberField
-            label="Element spacing"
-            unit="m"
-            value={settings.geometry.spacing_m}
-            min={0.01}
-            max={100}
-            step={0.01}
-            onCommit={(spacing_m) =>
-              onChange({
-                geometry: { kind: "ula", spacing_m, count: elementCount(settings.geometry) },
-              })
-            }
+            label="Offset"
+            unit="kHz"
+            value={settings.offset_hz / KHZ}
+            min={OFFSET_KHZ.min}
+            max={OFFSET_KHZ.max}
+            step={0.1}
+            onCommit={(khz) => edit({ offset_hz: Math.round(khz * KHZ) })}
           />
         </SettingRow>
-      )}
-      <SettingRow label="Elements">
-        <NumberField
-          label="Element count"
-          value={elementCount(settings.geometry)}
-          min={2}
-          max={16}
-          step={1}
-          onCommit={(count) => onChange({ geometry: withCount(settings.geometry, count) })}
+        <SettingRow label="Width" title="Band the finder listens to">
+          <NumberField
+            label="Width"
+            unit="kHz"
+            value={settings.bandwidth_hz / KHZ}
+            min={WIDTH_KHZ.min}
+            max={WIDTH_KHZ.max}
+            step={0.1}
+            onCommit={(khz) => edit({ bandwidth_hz: Math.round(khz * KHZ) })}
+          />
+        </SettingRow>
+      </Settings>
+      <FoldSection label="More">
+        <DfMoreSettings settings={settings} edit={edit} shape={shape} />
+      </FoldSection>
+    </>
+  );
+}
+
+function DfMoreSettings({
+  settings,
+  edit,
+  shape,
+}: {
+  settings: DfParams;
+  edit: Edit;
+  shape: ArrayShape;
+}) {
+  const collinear = shape.geometry !== null && isCollinear(shape.geometry, shape.lanes);
+  const line = shape.geometry !== null && isLevelLine(shape.geometry, shape.lanes);
+  const elevationRefused = elevationBlock(collinear, settings.algorithm, settings.smoothing);
+  const structured = structuredOk(shape);
+  return (
+    <Settings>
+      <SettingRow label="Sources">
+        <Select
+          label="Sources"
+          value={settings.sources ?? AUTO_SOURCES}
+          options={sourceOptions(shape.lanes, settings.sources ?? null)}
+          onChange={(count) => edit({ sources: count === AUTO_SOURCES ? null : count })}
         />
       </SettingRow>
-      <SettingRow label="Offset">
-        <NumberField
-          label="Signal offset"
-          unit="Hz"
-          value={settings.offset_hz}
-          step={1_000}
-          onCommit={(offset_hz) => onChange({ offset_hz })}
+      <SettingRow label="Rule" title="How Auto counts sources">
+        <Select
+          label="Rule"
+          value={settings.source_rule}
+          options={RULE_OPTIONS}
+          onChange={(source_rule) => edit({ source_rule })}
         />
       </SettingRow>
-      <SettingRow label="Bandwidth">
-        <NumberField
-          label="Signal bandwidth"
-          unit="Hz"
-          value={settings.bandwidth_hz}
-          min={100}
-          max={20_000_000}
-          step={1_000}
-          onCommit={(bandwidth_hz) => onChange({ bandwidth_hz })}
+      <SettingRow label="Peaks" title="Most bearings per report">
+        <Select
+          label="Peaks"
+          value={settings.max_peaks}
+          options={PEAK_OPTIONS}
+          onChange={(max_peaks) => edit({ max_peaks })}
         />
       </SettingRow>
-      <SettingRow label="Report every">
+      <SettingRow label="Report">
         <NumberField
-          label="Report interval"
+          label="Report"
           unit="ms"
           value={settings.report_ms}
-          min={100}
-          max={10_000}
+          min={LIMITS.report_ms.min}
+          max={LIMITS.report_ms.max}
           step={100}
-          onCommit={(report_ms) => onChange({ report_ms })}
+          onCommit={(report_ms) => edit({ report_ms })}
         />
       </SettingRow>
-      <SettingRow label="Station">
-        <TextField
-          label="What this receiver calls itself when a bearing leaves it"
-          value={settings.station_id ?? ""}
-          placeholder="unnamed"
-          onCommit={(name) => onChange({ station_id: name === "" ? null : name })}
+      <SettingRow label="Squelch" title="Minimum peak above the floor, 0 off">
+        <NumberField
+          label="Squelch"
+          unit="dB"
+          value={settings.squelch_db}
+          min={LIMITS.squelch_db.min}
+          max={LIMITS.squelch_db.max}
+          step={0.5}
+          onCommit={(squelch_db) => edit({ squelch_db })}
         />
       </SettingRow>
-      <SettingRow label="Beam">
-        <Select
-          label="Where the beam output points"
-          value={beamMode(settings.beam_bearing_deg)}
-          onChange={(mode) => onChange({ beam_bearing_deg: beamAzimuth(mode, bearingDeg) })}
-          options={BEAMS}
+      <SettingRow label="FB" title="Forward-backward averaging, needs a symmetric array">
+        <Checkbox
+          label="Forward-backward averaging"
+          checked={settings.forward_backward}
+          onChange={(forward_backward) => edit({ forward_backward })}
         />
       </SettingRow>
-      {settings.beam_bearing_deg != null && (
-        <SettingRow label="Azimuth">
-          <NumberField
-            label="Beam azimuth"
-            unit="°"
-            value={settings.beam_bearing_deg}
-            min={0}
-            max={359}
-            step={1}
-            onCommit={(beam_bearing_deg) => onChange({ beam_bearing_deg })}
+      <SettingRow label="Smooth" title={smoothingTitle(structured)}>
+        <NumberField
+          label="Smooth"
+          value={settings.smoothing}
+          min={LIMITS.smoothing.min}
+          max={LIMITS.smoothing.max}
+          step={1}
+          disabled={!structured && settings.smoothing === 0}
+          onCommit={(smoothing) => edit({ smoothing })}
+        />
+      </SettingRow>
+      <SettingRow label="Loading" title="Diagonal loading, steadies Capon and MUSIC">
+        <NumberField
+          label="Loading"
+          value={settings.loading}
+          min={LIMITS.loading.min}
+          max={LIMITS.loading.max}
+          step={0.001}
+          onCommit={(loading) => edit({ loading })}
+        />
+      </SettingRow>
+      <SettingRow label="Step" title="Scan grid">
+        <NumberField
+          label="Step"
+          unit="°"
+          value={settings.azimuth_step_deg}
+          min={LIMITS.azimuth_step_deg.min}
+          max={LIMITS.azimuth_step_deg.max}
+          step={0.25}
+          onCommit={(azimuth_step_deg) => edit({ azimuth_step_deg })}
+        />
+      </SettingRow>
+      <SettingRow label="Elevation">
+        <span title={elevationRefused ?? "Estimate elevation too"}>
+          <Checkbox
+            label="Estimate elevation"
+            checked={settings.elevation}
+            disabled={elevationRefused !== null && !settings.elevation}
+            onChange={(elevation) => edit({ elevation })}
+          />
+        </span>
+      </SettingRow>
+      {line && (
+        <SettingRow label="Side" title="Which side of the line to report">
+          <Segmented
+            label="Side"
+            value={settings.ula_side}
+            options={SIDE_OPTIONS}
+            onChange={(ula_side) => edit({ ula_side })}
           />
         </SettingRow>
       )}
+      <SettingRow label="Yaw gate" title="Skip blocks while the array turns faster">
+        <NumberField
+          label="Yaw gate"
+          unit="°/s"
+          value={settings.yaw_gate_dps}
+          min={LIMITS.yaw_gate_dps.min}
+          max={LIMITS.yaw_gate_dps.max}
+          step={1}
+          onCommit={(yaw_gate_dps) => edit({ yaw_gate_dps })}
+        />
+      </SettingRow>
+      <SettingRow label="Carry over" title="Share of the last report kept">
+        <NumberField
+          label="Carry over"
+          value={settings.carry_over}
+          min={LIMITS.carry_over.min}
+          max={LIMITS.carry_over.max}
+          step={0.01}
+          onCommit={(carry_over) => edit({ carry_over })}
+        />
+      </SettingRow>
+      <SettingRow label="Station" title="Name on the bearings this finder sends">
+        <TextField
+          label="Station"
+          placeholder="unnamed"
+          maxLength={LIMITS.station_len}
+          value={settings.station_id ?? ""}
+          onCommit={(station) => edit({ station_id: station === "" ? null : station })}
+        />
+      </SettingRow>
     </Settings>
   );
 }

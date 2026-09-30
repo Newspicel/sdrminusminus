@@ -5,6 +5,8 @@ use super::{catalog::Catalog, chip::Chip, demod, error::Result, radio::Dongle, u
 
 pub(crate) const TRANSFER_BYTES: usize = 16_384;
 const TRANSFERS: usize = 16;
+const QUEUED: usize = 32;
+pub(crate) const IN_FLIGHT_SAMPLES: u64 = ((TRANSFERS + QUEUED) * TRANSFER_BYTES / 2) as u64;
 const BULK_IN: u8 = 0x81;
 const PUMP_THREAD: &str = "sdrmm-rtlsdr-usb";
 
@@ -16,11 +18,16 @@ impl Release {
     pub(crate) fn go(&self) -> Result<()> {
         demod::release_endpoint(&self.chip)
     }
+
+    pub(crate) fn rehold(&self) -> Result<()> {
+        demod::hold_endpoint(&self.chip)
+    }
 }
 
 fn config() -> StreamConfig {
     let mut config = StreamConfig::new(TRANSFER_BYTES, PUMP_THREAD);
     config.queue_depth = TRANSFERS;
+    config.channel_depth = QUEUED;
     config.on_thread_start = Some(|| schedule::claim(Latency::Critical));
     config
 }
@@ -56,5 +63,10 @@ mod tests {
         assert!(TRANSFER_BYTES.is_multiple_of(512));
         assert_eq!(config().queue_depth, 16);
         assert_eq!(config().transfer_size, 16_384);
+    }
+
+    #[test]
+    fn a_bank_lane_holds_forty_eight_transfers_in_flight() {
+        assert_eq!(IN_FLIGHT_SAMPLES, (16 + 32) * 8_192);
     }
 }

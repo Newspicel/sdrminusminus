@@ -1,124 +1,186 @@
-import type { DfNodeState } from "./df";
-import type { BearingRay, BistaticEchoes, DfOverlay } from "./map/df";
-import type { PatchGraph } from "./types";
-
-/// How long a bearing stays on the map before it fades out entirely.
-export const BEARING_MAX_AGE_MS = 5 * 60_000;
-
-/// Which direction finders feed a display's events port.
-export function dfSourcesOf(graph: PatchGraph, node: string): string[] {
-  const kinds = new Map(graph.nodes.map((entry) => [entry.id, entry.kind]));
-  return (graph.edges ?? [])
-    .filter((edge) => edge.to.node === node && edge.to.port === "events")
-    .map((edge) => edge.from.node)
-    .filter((id) => kinds.get(id) === "df");
-}
-
-/// Which triangulation nodes feed a display's events port. Bearings cross there, so that is where
-/// the estimate, its ellipse and the guidance come from.
-export function crossingSourcesOf(graph: PatchGraph, node: string): string[] {
-  const kinds = new Map(graph.nodes.map((entry) => [entry.id, entry.kind]));
-  return (graph.edges ?? [])
-    .filter((edge) => edge.to.node === node && edge.to.port === "events")
-    .map((edge) => edge.from.node)
-    .filter((id) => kinds.get(id) === "triangulation");
-}
-
-/// Where a finder's bearings are crossed: the triangulation nodes its events reach.
-export function crossingsFedBy(graph: PatchGraph, node: string): string[] {
-  const kinds = new Map(graph.nodes.map((entry) => [entry.id, entry.kind]));
-  return (graph.edges ?? [])
-    .filter((edge) => edge.from.node === node && edge.from.port === "events")
-    .map((edge) => edge.to.node)
-    .filter((id) => kinds.get(id) === "triangulation");
-}
-
-/// Which passive radars feed a display's events port, and where each one borrows its transmitter
-/// from. A radar with no illuminator written down has nothing to draw an ellipse around.
-export function radarSourcesOf(
-  graph: PatchGraph,
-  node: string,
-): { node: string; illuminator: { lat: number; lon: number } }[] {
-  const radars = new Map(
-    graph.nodes
-      .filter((entry) => entry.kind === "passive_radar")
-      .map((entry) => [entry.id, entry.data.settings?.illuminator ?? null]),
-  );
-  return (graph.edges ?? [])
-    .filter((edge) => edge.to.node === node && edge.to.port === "events")
-    .flatMap((edge) => {
-      const illuminator = radars.get(edge.from.node);
-      return illuminator === undefined || illuminator === null
-        ? []
-        : [{ node: edge.from.node, illuminator: { lat: illuminator.lat, lon: illuminator.lon } }];
-    });
-}
-
-export interface RadarSource {
-  node: string;
-  illuminator: { lat: number; lon: number };
-}
+import { eventSourcesOf } from "../canvas/binding";
+import { nodeOf } from "../canvas/graph";
+import { isStale as radarStale } from "../canvas/nodes/radar";
+import { BEARING_MAX_AGE_MS, type BearingSample } from "./bearings";
+import type { BearingRay, BistaticEchoes, DfOverlay, RadarFixPoint, RadarSites } from "./map/df";
+import { type ProcessorState, readingOf } from "./processors";
+import type { DfEstimate, DfFusionState, DfStation, LatLon, NavTarget, PatchGraph } from "./types";
 
 export interface OverlaySources {
   finders: readonly string[];
-  crossings?: readonly string[];
-  radars?: readonly RadarSource[];
+  hunts: readonly string[];
+  crossings: readonly string[];
+  radars: readonly string[];
+  labels: Readonly<Record<string, string>>;
 }
 
-/// Everything the map draws: one ray per bearing any finder reported, the estimate and guidance of
-/// wherever those bearings are crossed, and the ellipse each radar echo could have come off.
-export function dfOverlay(
-  sources: OverlaySources,
-  byNode: Readonly<Record<string, DfNodeState>>,
-  now: number,
-  from: { lat: number; lon: number } | null,
-): DfOverlay | undefined {
-  const crossings = sources.crossings ?? [];
-  const radars = sources.radars ?? [];
-  if (sources.finders.length === 0 && crossings.length === 0 && radars.length === 0) {
-    return undefined;
+type SourceKind = "df" | "hunt" | "triangulation" | "passive_radar";
+
+const KIND_NAME: Readonly<Record<SourceKind, string>> = {
+  df: "Direction finder",
+  hunt: "Signal hunt",
+  triangulation: "Triangulation",
+  passive_radar: "Passive radar",
+};
+
+function isSourceKind(kind: string | undefined): kind is SourceKind {
+  return kind !== undefined && kind in KIND_NAME;
+}
+
+export function overlaySourcesOf(graph: PatchGraph, map: string): OverlaySources {
+  const found: Record<SourceKind, string[]> = {
+    df: [],
+    hunt: [],
+    triangulation: [],
+    passive_radar: [],
+  };
+  const labels: Record<string, string> = {};
+  for (const id of eventSourcesOf(graph, map)) {
+    const node = nodeOf(graph, id);
+    if (node === undefined || !isSourceKind(node.kind)) {
+      continue;
+    }
+    found[node.kind].push(id);
+    labels[id] = node.label ?? KIND_NAME[node.kind];
   }
-  const rays: BearingRay[] = [];
-  let estimate = null;
-  let guidance = null;
-  const stations = [];
-  for (const node of sources.finders) {
-    const state = byNode[node];
+  return {
+    finders: found.df,
+    hunts: found.hunt,
+    crossings: found.triangulation,
+    radars: found.passive_radar,
+    labels,
+  };
+}
+
+function rayOf(sample: BearingSample, now: number): BearingRay {
+  return {
+    lat: sample.lat,
+    lon: sample.lon,
+    bearingDeg: sample.trueDeg,
+    confidence: sample.confidence,
+    sigmaDeg: sample.sigmaDeg,
+    ageMs: Math.max(0, now - sample.at),
+  };
+}
+
+function finderPlaced(state: ProcessorState | undefined): boolean {
+  const reading = readingOf(state, "df");
+  return reading === null || (reading.station != null && reading.azimuth_deg != null);
+}
+
+interface RadarPart {
+  sites: RadarSites[];
+  bistatic: BistaticEchoes[];
+  tracks: RadarFixPoint[];
+  unplaced: string[];
+}
+
+function fixesOf(node: string, state: ProcessorState): RadarFixPoint[] {
+  const update = readingOf(state, "passive_radar");
+  return (update?.tracks ?? []).flatMap((track) =>
+    track.fix == null
+      ? []
+      : [
+          {
+            key: `${node}:${track.id}`,
+            id: track.id,
+            lat: track.fix.lat,
+            lon: track.fix.lon,
+            majorM: track.fix.major_m,
+            minorM: track.fix.minor_m,
+            orientationDeg: track.fix.orientation_deg,
+          },
+        ],
+  );
+}
+
+function radarPart(
+  radars: readonly string[],
+  labels: Readonly<Record<string, string>>,
+  processors: Readonly<Record<string, ProcessorState>>,
+  now: number,
+): RadarPart {
+  const part: RadarPart = { sites: [], bistatic: [], tracks: [], unplaced: [] };
+  for (const node of radars) {
+    const state = processors[node];
+    const update = readingOf(state, "passive_radar");
+    if (state === undefined || update === null) {
+      continue;
+    }
+    const geometry = update.geometry;
+    if (geometry == null) {
+      part.unplaced.push(labels[node] ?? node);
+      continue;
+    }
+    const receiver: LatLon = { lat: geometry.receiver.lat, lon: geometry.receiver.lon };
+    const illuminator: LatLon = { lat: geometry.transmitter.lat, lon: geometry.transmitter.lon };
+    part.sites.push({ node, receiver, transmitter: illuminator });
+    if (radarStale(state.receivedAt, update, now)) {
+      continue;
+    }
+    const rangesKm = update.tracks
+      .filter((track) => track.state === "confirmed")
+      .map((track) => track.range_km);
+    part.bistatic.push({ receiver, illuminator, rangesKm });
+    part.tracks.push(...fixesOf(node, state));
+  }
+  return part;
+}
+
+interface FusionPart {
+  estimate: DfEstimate | null;
+  emitters: DfEstimate[];
+  nav: NavTarget | null;
+  stations: DfStation[];
+}
+
+function fusionPart(
+  crossings: readonly string[],
+  fusion: Readonly<Record<string, DfFusionState>>,
+): FusionPart {
+  const part: FusionPart = { estimate: null, emitters: [], nav: null, stations: [] };
+  for (const node of crossings) {
+    const state = fusion[node];
     if (state === undefined) {
       continue;
     }
-    for (const sample of state.history) {
-      const lat = sample.lat ?? from?.lat;
-      const lon = sample.lon ?? from?.lon;
-      if (lat === undefined || lon === undefined) {
-        continue;
-      }
-      rays.push({
-        lat,
-        lon,
-        bearingDeg: sample.bearingDeg,
-        confidence: sample.confidence,
-        ageMs: Math.max(0, now - sample.at),
-      });
+    if (part.estimate === null && state.estimate != null) {
+      part.estimate = state.estimate;
+      part.nav = state.nav ?? null;
     }
+    part.emitters.push(...(state.emitters ?? []));
+    part.stations.push(...(state.stations ?? []));
   }
-  for (const node of crossings) {
-    const fusion = byNode[node]?.fusion;
-    estimate ??= fusion?.estimate ?? null;
-    guidance ??= fusion?.guidance ?? null;
-    stations.push(...(fusion?.stations ?? []));
+  return part;
+}
+
+export function dfOverlay(
+  sources: OverlaySources,
+  bearings: Readonly<Record<string, readonly BearingSample[]>>,
+  fusion: Readonly<Record<string, DfFusionState>>,
+  processors: Readonly<Record<string, ProcessorState>>,
+  now: number,
+  from: LatLon | null,
+): DfOverlay | undefined {
+  const { finders, hunts, crossings, radars, labels } = sources;
+  if (finders.length + hunts.length + crossings.length + radars.length === 0) {
+    return undefined;
   }
-  const bistatic: BistaticEchoes[] = [];
-  for (const radar of radars) {
-    const ranges = byNode[radar.node]?.detections ?? [];
-    if (from === null || ranges.length === 0) {
-      continue;
-    }
-    bistatic.push({
-      receiver: from,
-      illuminator: radar.illuminator,
-      rangesKm: ranges.map((hit) => hit.range_km),
-    });
-  }
-  return { rays, maxAgeMs: BEARING_MAX_AGE_MS, estimate, guidance, stations, bistatic, from };
+  const rays = [...finders, ...hunts].flatMap((node) =>
+    (bearings[node] ?? []).map((sample) => rayOf(sample, now)),
+  );
+  const radar = radarPart(radars, labels, processors, now);
+  const unplacedFinders = finders
+    .filter((node) => !finderPlaced(processors[node]))
+    .map((node) => labels[node] ?? node);
+  return {
+    rays,
+    maxAgeMs: BEARING_MAX_AGE_MS,
+    ...fusionPart(crossings, fusion),
+    bistatic: radar.bistatic,
+    sites: radar.sites,
+    tracks: radar.tracks,
+    unplaced: [...unplacedFinders, ...radar.unplaced],
+    from,
+  };
 }

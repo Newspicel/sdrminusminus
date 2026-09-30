@@ -8,7 +8,7 @@ use std::{
 
 use num_complex::Complex;
 use sdrmm_device::{
-    Block, CaptureStream, Next, Sample, SampleConverter, StreamFailure,
+    Block, BlockGap, CaptureStream, Next, Sample, SampleConverter, StreamFailure,
     net::{Incoming, SocketStop, WebSocket},
 };
 
@@ -163,10 +163,13 @@ impl CaptureStream for KiwiStream {
         0
     }
 
-    fn block_gap(&self, block: &Block) -> Option<u64> {
+    fn block_gap(&self, block: &Block, _bytes_per_sample: u64) -> Option<BlockGap> {
         let frame = snd(block)?;
         let last = self.last_seq.swap(u64::from(frame.seq), Ordering::Relaxed);
-        Some(missing_frames(last, frame.seq) * frame.pairs() as u64)
+        Some(BlockGap {
+            exact: missing_frames(last, frame.seq) * frame.pairs() as u64,
+            estimated: 0,
+        })
     }
 
     fn failure(&self) -> StreamFailure {

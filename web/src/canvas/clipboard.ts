@@ -3,6 +3,7 @@ import { pushToast } from "../lib/toasts";
 import type { PatchEdge, PatchGraph, PatchNode, Position } from "../lib/types";
 import type { Workspace } from "./context";
 import { MAX_EDGES, MAX_NODES, newNodeId, nodeIds } from "./graph";
+import { startsOnItsOwn } from "./newNode";
 import { isTyping } from "./useHotkeys";
 
 export interface Clipboard {
@@ -33,6 +34,10 @@ export function pasteRefusal(graph: PatchGraph, clipboard: Clipboard): string | 
     return `a patch holds ${MAX_EDGES} wires`;
   }
   return null;
+}
+
+export function pasteRuns(clipboard: Clipboard): boolean {
+  return clipboard.edges.length > 0 || clipboard.nodes.some((node) => startsOnItsOwn(node.kind));
 }
 
 export function pasteIds(graph: PatchGraph, clipboard: Clipboard): string[] {
@@ -140,6 +145,9 @@ export function useClipboard(
         ...snapshot,
         graph: pasteNodes(snapshot.graph, held, { x: step, y: step }, ids),
       }));
+      if (pasteRuns(held)) {
+        active.apply();
+      }
       pasted(ids);
       active.select(ids[0] ?? null);
     };

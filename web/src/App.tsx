@@ -18,6 +18,7 @@ import { pruneRack } from "./canvas/graph";
 import { Rack } from "./canvas/Rack";
 import { useWorkspace } from "./canvas/useWorkspace";
 import { type View, WorkspaceBar } from "./canvas/WorkspaceBar";
+import { WorkspaceNotices } from "./canvas/WorkspaceNotices";
 import { WorkspaceStart } from "./canvas/WorkspaceStart";
 import { AboutPanel } from "./components/AboutPanel";
 import { AutoOffDialog } from "./components/AutoOffDialog";
@@ -29,11 +30,12 @@ import { Toasts } from "./components/Toasts";
 import { TokenGate } from "./components/TokenGate";
 import { channelTypesQuery, patchCatalogQuery, stateQuery } from "./lib/api";
 import { audioEngine } from "./lib/audio/useChannelAudio";
-import { watchDevicePosition } from "./lib/position";
+import { useRefusalStore } from "./lib/refusals";
 import { pushToast } from "./lib/toasts";
 import type { PatchApplyReport, PatchGraph, WorkspaceSettings } from "./lib/types";
 import { useChannelPatch } from "./lib/useChannelPatch";
 import { useDevicePatch } from "./lib/useDevicePatch";
+import { useNodeStateSync } from "./lib/useNodeStateSync";
 import { useRadioTune } from "./lib/useRadioTune";
 import { useSdrSocket } from "./lib/useSdrSocket";
 import { ToolsDialog } from "./tools/ToolsDialog";
@@ -66,23 +68,6 @@ export function App() {
     () => snapshot?.graph ?? { nodes: [], edges: [] },
     [snapshot?.graph],
   );
-  const deviceGpsNodeKey = JSON.stringify(
-    graph.nodes
-      .filter((node) => node.kind === "gps" && node.data.source?.type === "device")
-      .map((node) => node.id)
-      .toSorted(),
-  );
-  const deviceGpsNodeIds = useMemo(
-    () => JSON.parse(deviceGpsNodeKey) as string[],
-    [deviceGpsNodeKey],
-  );
-  useEffect(() => {
-    if (socket === null) {
-      return;
-    }
-    return watchDevicePosition(socket, deviceGpsNodeIds);
-    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- a new revision can bind the same node to another radio
-  }, [socket, deviceGpsNodeIds, workspace.active?.revision]);
   const announced = useRef<PatchApplyReport | null>(null);
   useEffect(() => {
     const report = workspace.applied;
@@ -93,7 +78,10 @@ export function App() {
     for (const message of applyToasts(report, graph.nodes)) {
       pushToast(message);
     }
+    useRefusalStore.getState().fromReport(report);
   }, [workspace.applied, graph.nodes]);
+
+  useNodeStateSync(workspace.active?.id ?? null, graph.nodes, state.data?.arrays);
 
   const rack = useMemo(() => pruneRack(snapshot?.rack ?? {}, graph), [snapshot?.rack, graph]);
   const settings = useMemo(() => snapshot?.settings ?? {}, [snapshot?.settings]);
@@ -134,7 +122,7 @@ export function App() {
 
   const selectedNode = graph.nodes.find((node) => node.id === selected) ?? null;
   const selectedChannel = selected === null ? null : (channels.get(selected) ?? null);
-  const selectedDevice = selected === null ? null : deviceNodeOf(graph, selected, owners);
+  const selectedDevice = selected === null ? null : deviceNodeOf(graph, selected, owners, devices);
   const selectedSet = selectedDevice === null ? null : (devices.get(selectedDevice) ?? null);
 
   const channelNodes = graph.nodes.filter((node) => node.kind === "channel");
@@ -206,6 +194,13 @@ export function App() {
                 onShowHelp={() => setShowHelp(true)}
                 onOpenTool={setOpenTool}
               />
+              {workspace.active !== null && (
+                <WorkspaceNotices
+                  workspace={workspace.active.id}
+                  notices={workspace.active.notices ?? []}
+                  catalog={context.catalog}
+                />
+              )}
               <div className="relative flex min-h-0 flex-1 flex-col">
                 {view === "patch" ? <Canvas /> : <Rack />}
                 <FullFace />

@@ -26,6 +26,10 @@ pub use runtime::{RuntimeInfo, runtime_info};
 
 const DRIVER_ID: &str = "soapy";
 
+#[cfg(test)]
+#[global_allocator]
+static ALLOC: sdrmm_test_support::CountingAlloc = sdrmm_test_support::CountingAlloc::new();
+
 static ENUMERATE_LOCK: Mutex<()> = Mutex::new(());
 
 fn enumerate_serialized(filter: &str) -> Result<Vec<soapy::Args>, soapy::Error> {
@@ -129,10 +133,6 @@ impl SoapyDriver {
         Self::default()
     }
 
-    /// Hides the named SoapySDR drivers, for hardware this build speaks to natively. Excluding a
-    /// driver here rather than deduplicating afterwards is what keeps a dongle off the list
-    /// exactly once: the factory serial most RTL-SDRs ship with is not unique, so the registry's
-    /// serial merge cannot tell two of them apart.
     #[must_use]
     pub fn excluding<S: Into<String>>(drivers: impl IntoIterator<Item = S>) -> Self {
         Self {
@@ -329,21 +329,81 @@ fn query_capabilities(device: &soapy::Device) -> Result<Capabilities, DeviceErro
     Ok(caps::capabilities(directional))
 }
 
-fn read_channel_settings(device: &soapy::Device, channel: &ChannelCapabilities) -> DeviceSettings {
+trait RxChannels {
+    fn frequency(&self, channel: usize) -> Result<f64, soapy::Error>;
+    fn sample_rate(&self, channel: usize) -> Result<f64, soapy::Error>;
+    fn antenna(&self, channel: usize) -> Result<String, soapy::Error>;
+    fn bandwidth(&self, channel: usize) -> Result<f64, soapy::Error>;
+    fn gain(&self, channel: usize, stage: &str) -> Result<f64, soapy::Error>;
+    fn set_frequency(&self, channel: usize, hz: f64) -> Result<(), soapy::Error>;
+    fn set_sample_rate(&self, channel: usize, rate: f64) -> Result<(), soapy::Error>;
+    fn set_correction(&self, channel: usize, ppm: f64) -> Result<(), soapy::Error>;
+    fn set_gain(&self, channel: usize, stage: &str, value_db: f64) -> Result<(), soapy::Error>;
+    fn set_antenna(&self, channel: usize, antenna: &str) -> Result<(), soapy::Error>;
+    fn set_bandwidth(&self, channel: usize, hz: f64) -> Result<(), soapy::Error>;
+}
+
+impl RxChannels for soapy::Device {
+    fn frequency(&self, channel: usize) -> Result<f64, soapy::Error> {
+        self.frequency(Direction::Rx, channel)
+    }
+
+    fn sample_rate(&self, channel: usize) -> Result<f64, soapy::Error> {
+        self.sample_rate(Direction::Rx, channel)
+    }
+
+    fn antenna(&self, channel: usize) -> Result<String, soapy::Error> {
+        self.antenna(Direction::Rx, channel)
+    }
+
+    fn bandwidth(&self, channel: usize) -> Result<f64, soapy::Error> {
+        self.bandwidth(Direction::Rx, channel)
+    }
+
+    fn gain(&self, channel: usize, stage: &str) -> Result<f64, soapy::Error> {
+        self.gain_element(Direction::Rx, channel, stage)
+    }
+
+    fn set_frequency(&self, channel: usize, hz: f64) -> Result<(), soapy::Error> {
+        self.set_frequency(Direction::Rx, channel, hz, ())
+    }
+
+    fn set_sample_rate(&self, channel: usize, rate: f64) -> Result<(), soapy::Error> {
+        self.set_sample_rate(Direction::Rx, channel, rate)
+    }
+
+    fn set_correction(&self, channel: usize, ppm: f64) -> Result<(), soapy::Error> {
+        self.set_component_frequency(Direction::Rx, channel, "CORR", ppm, ())
+    }
+
+    fn set_gain(&self, channel: usize, stage: &str, value_db: f64) -> Result<(), soapy::Error> {
+        self.set_gain_element(Direction::Rx, channel, stage, value_db)
+    }
+
+    fn set_antenna(&self, channel: usize, antenna: &str) -> Result<(), soapy::Error> {
+        self.set_antenna(Direction::Rx, channel, antenna)
+    }
+
+    fn set_bandwidth(&self, channel: usize, hz: f64) -> Result<(), soapy::Error> {
+        self.set_bandwidth(Direction::Rx, channel, hz)
+    }
+}
+
+fn read_channel_settings(radio: &impl RxChannels, channel: &ChannelCapabilities) -> DeviceSettings {
     let index = channel.channel as usize;
     let mut settings = DeviceSettings {
-        center_hz: device.frequency(Direction::Rx, index).ok(),
-        sample_rate: device.sample_rate(Direction::Rx, index).ok(),
-        antenna: device.antenna(Direction::Rx, index).ok(),
-        bandwidth: device
-            .bandwidth(Direction::Rx, index)
+        center_hz: radio.frequency(index).ok(),
+        sample_rate: radio.sample_rate(index).ok(),
+        antenna: radio.antenna(index).ok(),
+        bandwidth: radio
+            .bandwidth(index)
             .ok()
             .filter(|bandwidth| *bandwidth > 0.0)
             .map(|hz| BandwidthSetting::Manual { hz }),
         ..DeviceSettings::default()
     };
     for stage in &channel.gains {
-        if let Ok(value_db) = device.gain_element(Direction::Rx, index, stage.name.as_str()) {
+        if let Ok(value_db) = radio.gain(index, stage.name.as_str()) {
             settings.gains.push(GainValue {
                 stage: stage.name.clone(),
                 value_db,
@@ -351,6 +411,69 @@ fn read_channel_settings(device: &soapy::Device, channel: &ChannelCapabilities) 
         }
     }
     settings
+}
+
+fn rx_streams(radio: &impl RxChannels, capabilities: &Capabilities) -> Vec<StreamSettings> {
+    let scope = capabilities.per_stream;
+    let Some(directional) = &capabilities.directional else {
+        return Vec::new();
+    };
+    directional
+        .rx
+        .iter()
+        .skip(1)
+        .map(|channel| {
+            let read = read_channel_settings(radio, channel);
+            StreamSettings {
+                stream: channel.channel,
+                center_hz: read.center_hz.filter(|_| scope.tuning),
+                tuning: None,
+                gains: if scope.gain { read.gains } else { Vec::new() },
+                antenna: read.antenna.filter(|_| scope.antenna),
+                agc: None,
+            }
+        })
+        .filter(|stream| {
+            stream.center_hz.is_some() || !stream.gains.is_empty() || stream.antenna.is_some()
+        })
+        .collect()
+}
+
+fn apply_rx_settings(
+    radio: &impl RxChannels,
+    capabilities: &Capabilities,
+    delta: &DeviceSettings,
+) -> Result<(), DeviceError> {
+    let Some(directional) = &capabilities.directional else {
+        return Ok(());
+    };
+    for channel in &directional.rx {
+        let index = channel.channel as usize;
+        let settings = delta.for_stream(channel.channel, &capabilities.per_stream);
+        if let Some(frequency) = settings.center_hz {
+            radio.set_frequency(index, frequency).map_err(map_err)?;
+        }
+        if let Some(rate) = settings.sample_rate {
+            radio.set_sample_rate(index, rate).map_err(map_err)?;
+        }
+        if let Some(ppm) = settings.ppm {
+            radio.set_correction(index, ppm).map_err(map_err)?;
+        }
+        for gain in &settings.gains {
+            radio
+                .set_gain(index, gain.stage.as_str(), gain.value_db)
+                .map_err(map_err)?;
+        }
+        if let Some(antenna) = &settings.antenna {
+            radio
+                .set_antenna(index, antenna.as_str())
+                .map_err(map_err)?;
+        }
+        if let Some(bandwidth) = settings.bandwidth.and_then(BandwidthSetting::hz) {
+            radio.set_bandwidth(index, bandwidth).map_err(map_err)?;
+        }
+    }
+    Ok(())
 }
 
 fn read_settings(device: &soapy::Device, capabilities: &Capabilities) -> DeviceSettings {
@@ -368,17 +491,7 @@ fn read_settings(device: &soapy::Device, capabilities: &Capabilities) -> DeviceS
     settings.bias_tee = caps::bias_tee_key(capabilities)
         .and_then(|key| device.read_setting(key).ok())
         .map(|value| caps::is_true(&value));
-    for channel in directional.rx.iter().skip(1) {
-        let channel_settings = read_channel_settings(device, channel);
-        settings.streams.push(StreamSettings {
-            stream: channel.channel,
-            center_hz: channel_settings.center_hz,
-            tuning: None,
-            gains: channel_settings.gains,
-            antenna: channel_settings.antenna,
-            agc: None,
-        });
-    }
+    settings.streams = rx_streams(device, capabilities);
     for extra in &capabilities.extra {
         let name = extra.name();
         if let Ok(value) = device.read_setting(name) {
@@ -536,8 +649,6 @@ impl SoapyDevice {
         self.settings = read_settings(&self.device, &self.capabilities);
     }
 
-    /// A stage written under AGC is refused by some drivers and overwritten by the next
-    /// correction on the rest, so the value that lands is never the one that was asked for.
     fn automatic_gain_is_on(&self) -> bool {
         self.capabilities
             .directional
@@ -545,47 +656,6 @@ impl SoapyDevice {
             .and_then(|directional| directional.rx.first())
             .is_some_and(|channel| channel.gain_mode)
             && self.device.gain_mode(Direction::Rx, 0).unwrap_or(false)
-    }
-
-    fn apply_rx_settings(&self, delta: &DeviceSettings) -> Result<(), DeviceError> {
-        let Some(directional) = &self.capabilities.directional else {
-            return Ok(());
-        };
-        for channel in &directional.rx {
-            let index = channel.channel as usize;
-            let settings = delta.for_stream(channel.channel, &self.capabilities.per_stream);
-            if let Some(frequency) = settings.center_hz {
-                self.device
-                    .set_frequency(Direction::Rx, index, frequency, ())
-                    .map_err(map_err)?;
-            }
-            if let Some(rate) = settings.sample_rate {
-                self.device
-                    .set_sample_rate(Direction::Rx, index, rate)
-                    .map_err(map_err)?;
-            }
-            if let Some(ppm) = settings.ppm {
-                self.device
-                    .set_component_frequency(Direction::Rx, index, "CORR", ppm, ())
-                    .map_err(map_err)?;
-            }
-            for gain in &settings.gains {
-                self.device
-                    .set_gain_element(Direction::Rx, index, gain.stage.as_str(), gain.value_db)
-                    .map_err(map_err)?;
-            }
-            if let Some(antenna) = &settings.antenna {
-                self.device
-                    .set_antenna(Direction::Rx, index, antenna.as_str())
-                    .map_err(map_err)?;
-            }
-            if let Some(bandwidth) = settings.bandwidth.and_then(BandwidthSetting::hz) {
-                self.device
-                    .set_bandwidth(Direction::Rx, index, bandwidth)
-                    .map_err(map_err)?;
-            }
-        }
-        Ok(())
     }
 }
 
@@ -637,7 +707,7 @@ impl SdrDevice for SoapyDevice {
                     .to_string(),
             ));
         }
-        if let Err(error) = self.apply_rx_settings(delta) {
+        if let Err(error) = apply_rx_settings(&self.device, &self.capabilities, delta) {
             self.undo(undo);
             return Err(error);
         }
@@ -946,6 +1016,181 @@ mod tests {
             code: ErrorCode::Other,
             message: message.to_string(),
         })
+    }
+
+    #[derive(Default)]
+    struct FakeRadio {
+        gains: Mutex<BTreeMap<(usize, String), f64>>,
+        antennas: Mutex<BTreeMap<usize, String>>,
+        frequencies: Mutex<BTreeMap<usize, f64>>,
+    }
+
+    impl RxChannels for FakeRadio {
+        fn frequency(&self, channel: usize) -> Result<f64, soapy::Error> {
+            Ok(lock(&self.frequencies)
+                .get(&channel)
+                .copied()
+                .unwrap_or(100e6))
+        }
+
+        fn sample_rate(&self, _channel: usize) -> Result<f64, soapy::Error> {
+            Ok(2.4e6)
+        }
+
+        fn antenna(&self, channel: usize) -> Result<String, soapy::Error> {
+            Ok(lock(&self.antennas)
+                .get(&channel)
+                .cloned()
+                .unwrap_or_else(|| "RX1".to_string()))
+        }
+
+        fn bandwidth(&self, _channel: usize) -> Result<f64, soapy::Error> {
+            Ok(0.0)
+        }
+
+        fn gain(&self, channel: usize, stage: &str) -> Result<f64, soapy::Error> {
+            Ok(lock(&self.gains)
+                .get(&(channel, stage.to_string()))
+                .copied()
+                .unwrap_or(0.0))
+        }
+
+        fn set_frequency(&self, channel: usize, hz: f64) -> Result<(), soapy::Error> {
+            lock(&self.frequencies).insert(channel, hz);
+            Ok(())
+        }
+
+        fn set_sample_rate(&self, _channel: usize, _rate: f64) -> Result<(), soapy::Error> {
+            Ok(())
+        }
+
+        fn set_correction(&self, _channel: usize, _ppm: f64) -> Result<(), soapy::Error> {
+            Ok(())
+        }
+
+        fn set_gain(&self, channel: usize, stage: &str, value_db: f64) -> Result<(), soapy::Error> {
+            lock(&self.gains).insert((channel, stage.to_string()), value_db);
+            Ok(())
+        }
+
+        fn set_antenna(&self, channel: usize, antenna: &str) -> Result<(), soapy::Error> {
+            lock(&self.antennas).insert(channel, antenna.to_string());
+            Ok(())
+        }
+
+        fn set_bandwidth(&self, _channel: usize, _hz: f64) -> Result<(), soapy::Error> {
+            Ok(())
+        }
+    }
+
+    fn two_channel_capabilities() -> Capabilities {
+        let channel = |index: u32| ChannelCapabilities {
+            channel: index,
+            freq_ranges: vec![sdrmm_wire::Range {
+                min: 10e6,
+                max: 3.8e9,
+                step: None,
+            }],
+            sample_rates: vec![2.4e6],
+            gains: vec![caps::gain_stage(
+                "LNA",
+                sdrmm_wire::Range {
+                    min: 0.0,
+                    max: 30.0,
+                    step: None,
+                },
+            )],
+            antennas: vec!["RX1".to_string(), "RX2".to_string()],
+            ..ChannelCapabilities::default()
+        };
+        caps::capabilities(DirectionalCapabilities {
+            rx: vec![channel(0), channel(1)],
+            hardware_info: [("name".to_string(), "LimeSDR-USB".to_string())]
+                .into_iter()
+                .collect(),
+            ..DirectionalCapabilities::default()
+        })
+    }
+
+    #[test]
+    fn per_channel_gain_round_trips() {
+        let capabilities = two_channel_capabilities();
+        assert_eq!(capabilities.coherence, sdrmm_wire::Coherence::PhaseCoherent);
+        let radio = FakeRadio::default();
+        let delta = DeviceSettings {
+            gains: vec![gain("LNA", 10.0)],
+            streams: vec![StreamSettings {
+                stream: 1,
+                gains: vec![gain("LNA", 20.0)],
+                antenna: Some("RX2".to_string()),
+                ..StreamSettings::default()
+            }],
+            ..DeviceSettings::default()
+        };
+        caps::validate(&delta, &capabilities).expect("a per-channel gain and antenna");
+        apply_rx_settings(&radio, &capabilities, &delta).expect("applied");
+        assert_eq!(radio.gain(0, "LNA").expect("read"), 10.0);
+        assert_eq!(radio.gain(1, "LNA").expect("read"), 20.0);
+        assert_eq!(radio.antenna(0).expect("read"), "RX1");
+        assert_eq!(radio.antenna(1).expect("read"), "RX2");
+
+        let published = rx_streams(&radio, &capabilities);
+        assert_eq!(
+            published,
+            vec![StreamSettings {
+                stream: 1,
+                gains: vec![gain("LNA", 20.0)],
+                antenna: Some("RX2".to_string()),
+                ..StreamSettings::default()
+            }]
+        );
+        let echoed = DeviceSettings {
+            gains: read_channel_settings(
+                &radio,
+                &two_channel_capabilities().directional.unwrap().rx[0],
+            )
+            .gains,
+            streams: published,
+            ..DeviceSettings::default()
+        };
+        caps::validate(&echoed, &capabilities).expect("what is published is accepted back");
+        let other = FakeRadio::default();
+        apply_rx_settings(&other, &capabilities, &echoed).expect("applied again");
+        assert_eq!(other.gain(0, "LNA").expect("read"), 10.0);
+        assert_eq!(other.gain(1, "LNA").expect("read"), 20.0);
+        assert_eq!(other.antenna(1).expect("read"), "RX2");
+    }
+
+    #[test]
+    fn a_channel_cannot_be_tuned_on_its_own() {
+        let capabilities = two_channel_capabilities();
+        let delta = DeviceSettings {
+            streams: vec![StreamSettings {
+                stream: 1,
+                center_hz: Some(433.92e6),
+                ..StreamSettings::default()
+            }],
+            ..DeviceSettings::default()
+        };
+        assert!(matches!(
+            caps::validate(&delta, &capabilities),
+            Err(DeviceError::Unsupported(message)) if message.contains("center_hz")
+        ));
+        let radio = FakeRadio::default();
+        radio.set_frequency(1, 433.92e6).expect("set");
+        assert!(
+            rx_streams(&radio, &capabilities)
+                .iter()
+                .all(|stream| stream.center_hz.is_none()),
+            "a tuning the radio would refuse is never published"
+        );
+    }
+
+    fn gain(stage: &str, value_db: f64) -> GainValue {
+        GainValue {
+            stage: stage.to_string(),
+            value_db,
+        }
     }
 
     #[test]

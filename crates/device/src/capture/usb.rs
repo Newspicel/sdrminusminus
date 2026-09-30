@@ -2,7 +2,7 @@ use std::{sync::mpsc::RecvTimeoutError, time::Duration};
 
 use sdrmm_usb_stream::{Block, RxStream, Stopper};
 
-use super::{CaptureStream, Next, StopHandle, StreamFailure};
+use super::{BlockGap, CaptureStream, Next, StopHandle, StreamFailure};
 
 impl StopHandle for Stopper {
     fn stop(&self) {
@@ -26,8 +26,12 @@ impl CaptureStream for RxStream {
         }
     }
 
-    fn block_gap(&self, block: &Block) -> Option<u64> {
-        Some(block.missing_bytes().div_ceil(2))
+    fn block_gap(&self, block: &Block, bytes_per_sample: u64) -> Option<BlockGap> {
+        Some(BlockGap::from_bytes(
+            block.missing_exact_bytes(),
+            block.missing_estimated_bytes(),
+            bytes_per_sample,
+        ))
     }
 
     fn dropped(&self) -> u64 {

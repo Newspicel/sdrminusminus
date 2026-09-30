@@ -1,4 +1,3 @@
-use sdrmm_device::RxSink;
 use sdrmm_wire::PositionFix;
 
 use super::{ChannelHost, subbands::Subbands};
@@ -17,13 +16,6 @@ pub(crate) enum DspCommand {
         id: u64,
     },
     SetSubbands(Box<Subbands>),
-    ConnectArray {
-        id: u32,
-        sink: RxSink,
-    },
-    DisconnectArray {
-        id: u32,
-    },
     AddChannel {
         id: u32,
         host: Box<ChannelHost>,
@@ -78,4 +70,6 @@ pub(crate) enum DspCommand {
         tap: Box<TimeMachineTap>,
     },
     StopTimeMachine,
+    #[cfg(test)]
+    Hold(Box<dyn FnOnce() + Send>),
 }

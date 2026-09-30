@@ -88,7 +88,7 @@ fn drain_counter(stream: &RxStream, seconds: u64, check: &mut Continuity) -> Tal
             assert!(stream.error().is_none(), "{:?}", stream.error());
             continue;
         };
-        tally.missing += block.missing_bytes();
+        tally.missing += block.missing_exact_bytes() + block.missing_estimated_bytes();
         check.feed(&block);
         match tally.since {
             None => tally.since = Some(Instant::now()),

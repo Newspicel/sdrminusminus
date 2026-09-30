@@ -68,10 +68,11 @@ import { bookmarksQuery } from "../../lib/api";
 import type { SpectrumFrame } from "../../lib/frame";
 import { SPECTRUM_MAX_BINS, spectrumHub } from "../../lib/spectrum";
 import type { Bookmark, ChannelInfo, ChannelParams, DeviceSet, PatchNode } from "../../lib/types";
+import { useArrayTune } from "../../lib/useArrayTune";
 import { useBandPlan } from "../../lib/useBandPlan";
 import { useChannelPatch } from "../../lib/useChannelPatch";
 import { useRadioTune } from "../../lib/useRadioTune";
-import { channelNodesOf, type IqLane, iqSourceOf, tunedStream } from "../binding";
+import { channelNodesOf, type IqLane, iqSourceOf, laneTuneTarget } from "../binding";
 import { useWorkspaceContext } from "../context";
 import {
   addEdge,
@@ -150,16 +151,37 @@ export function ScopeFace({ node }: { node: PatchNode }) {
   );
 }
 
+function useLaneTune(set: DeviceSet | null, source: IqLane | null) {
+  const workspace = useWorkspaceContext();
+  const { tuneRadio } = useRadioTune();
+  const { tuneArray } = useArrayTune();
+  const stream = source?.stream ?? 0;
+  const aim = source === null ? null : laneTuneTarget(source);
+  const tunedArray = aim?.kind === "array" ? aim.node : null;
+  const onAuto = tunedArray === null && set !== null && autoTuning(set, stream);
+  const centerHeld =
+    onAuto ||
+    (tunedArray === null &&
+      source !== null &&
+      tuningLocked(workspace.graph, source.source, stream));
+  const tuneCenter = (hz: number): void => {
+    if (tunedArray !== null) {
+      tuneArray(tunedArray, hz);
+    } else if (set !== null && !centerHeld) {
+      tuneRadio(set, stream, hz);
+    }
+  };
+  return { centerHeld, tuneCenter };
+}
+
 function Spectrum({ set, source }: { set: DeviceSet | null; source: IqLane | null }) {
   const workspace = useWorkspaceContext();
   const stream = source?.stream ?? 0;
-  const tuned = source === null ? 0 : tunedStream(source);
   const setId = set?.id ?? null;
   const channels = useMemo(
     () => streamChannels(set?.channels ?? NO_CHANNELS, stream),
     [set?.channels, stream],
   );
-  const { tuneRadio } = useRadioTune();
   const { applyEdit } = useChannelPatch();
   const active = useFaceActive();
   const placeNode = useNodePlacement();
@@ -245,9 +267,7 @@ function Spectrum({ set, source }: { set: DeviceSet | null; source: IqLane | nul
   }
   const locked = lockedChannels(workspace.graph, faces);
   const heldChannel = (channel: number): boolean => owners.has(channel) || locked.has(channel);
-  const onAuto = set !== null && autoTuning(set, tuned);
-  const centerHeld =
-    onAuto || (deviceNode !== undefined && tuningLocked(workspace.graph, deviceNode, tuned));
+  const { centerHeld, tuneCenter } = useLaneTune(set, source);
 
   const workspaceChannel = [...faces].find(([, id]) => id === workspace.selected)?.[0] ?? null;
   const selectedChannel =
@@ -263,12 +283,6 @@ function Spectrum({ set, source }: { set: DeviceSet | null; source: IqLane | nul
     }
   };
 
-  const tuneCenter = (hz: number): void => {
-    if (set === null || centerHeld) {
-      return;
-    }
-    tuneRadio(set, tuned, hz);
-  };
   const tuneChannel = (channel: number, frequencyHz: number): void => {
     if (setId === null || heldChannel(channel)) {
       return;
@@ -329,9 +343,9 @@ function Spectrum({ set, source }: { set: DeviceSet | null; source: IqLane | nul
         }),
         {
           from:
-            source?.beam === undefined
+            source?.virtual === undefined
               ? { node: deviceNode, port: streamPort("iq", stream) }
-              : { node: source.beam.node, port: source.beam.port },
+              : { node: source.virtual.node, port: source.virtual.port },
           to: { node: id, port: "iq" },
         },
       ),

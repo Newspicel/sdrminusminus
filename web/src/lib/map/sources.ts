@@ -1,6 +1,7 @@
 import type { GeoJSONSource, Map as MapLibreMap } from "maplibre-gl";
+import { describeError, recordEvent } from "../diagnostics";
 import type { PositionSample } from "../position";
-import type { SignalSurveySample } from "../signalSurvey";
+import type { SurveyCell } from "../types";
 import { trailBounds, unwrapTrail } from "./bounds";
 import type { TargetCollection } from "./layers";
 
@@ -22,6 +23,18 @@ export interface PositionRouteCollection {
     geometry: { type: "LineString"; coordinates: [number, number][] };
     properties: Record<string, never>;
   }[];
+}
+
+export function setSourceData(
+  source: Pick<GeoJSONSource, "setData"> | undefined,
+  data: Parameters<GeoJSONSource["setData"]>[0],
+): void {
+  if (source === undefined) {
+    return;
+  }
+  Promise.resolve(source.setData(data)).catch((error: unknown) =>
+    recordEvent("warn", "map", `map data: ${describeError(error)}`),
+  );
 }
 
 export function positionCollection(
@@ -72,8 +85,8 @@ export function updatePositionSources(
   tracks: readonly { samples: readonly PositionSample[]; active: boolean }[],
 ): { points: PositionCollection; route: PositionRouteCollection } {
   const collection = positionCollection(tracks);
-  void pointsSource?.setData(collection.points);
-  void routeSource?.setData(collection.route);
+  setSourceData(pointsSource, collection.points);
+  setSourceData(routeSource, collection.route);
   return collection;
 }
 
@@ -88,23 +101,23 @@ export interface SignalCollection {
   features: SignalFeature[];
 }
 
-export function signalCollection(samples: readonly SignalSurveySample[]): SignalCollection {
+export function signalCollection(cells: readonly SurveyCell[]): SignalCollection {
   return {
     type: "FeatureCollection",
-    features: samples.map((sample) => ({
+    features: cells.map((cell) => ({
       type: "Feature",
-      geometry: { type: "Point", coordinates: [sample.longitude, sample.latitude] },
-      properties: { level: sample.levelDbfs, observations: sample.observations },
+      geometry: { type: "Point", coordinates: [cell.longitude, cell.latitude] },
+      properties: { level: cell.level_dbfs, observations: cell.observations },
     })),
   };
 }
 
 export function updateSignalSource(
   source: Pick<GeoJSONSource, "setData"> | undefined,
-  samples: readonly SignalSurveySample[],
+  cells: readonly SurveyCell[],
 ): SignalCollection {
-  const collection = signalCollection(samples);
-  void source?.setData(collection);
+  const collection = signalCollection(cells);
+  setSourceData(source, collection);
   return collection;
 }
 

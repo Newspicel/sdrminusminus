@@ -73,16 +73,34 @@ decoders. Anything dropped is reported. Pictures and video are not decoded here.
 ## Hunt a transmitter
 
 **Signal hunt** reads one channel's signal strength fast enough to walk with. Wire its `control`
-to the channel's `control` and start it. Retune the channel to retune the hunt. On a phone, use
-the **Fox hunt** mission in [field mode](field-mode.md).
+to the channel's `control` and press **Start hunt**. Retune the channel to retune the hunt.
+**Geiger clicks** speed up as the signal gets stronger.
+
+### Sweep for a bearing
+
+With a directional antenna and a [phone](phones.md) you get bearings, not only warmer and colder:
+
+1. Wire a GPS node with the **Phone** source to the hunt's `position`.
+2. Hold the antenna and the phone together. **Mount** sets the antenna's direction relative to
+   the phone.
+3. Press **Sweep** and turn slowly all the way round. The rose fills in and **Peak** shows the
+   strongest direction.
+4. When **Sweep** reads `Done`, the bearing is sent on `events`.
+
+**Mark** sends the direction you face as a bearing. Wire `events` to a
+[Triangulation](direction-finding.md#triangulate) to cross bearings from several places.
+**End sweep** goes back to warmer and colder.
 
 ## Survey an area
 
 1. Add **Signal survey** and wire Device `iq` and GPS `position` to it.
 2. Pick an offset inside the Device's window and a measurement width.
-3. Wait for a level and a GPS fix, then start.
-4. Export the results as CSV when done.
+3. Wait for a level and a GPS fix, then press **Start survey**.
+4. Press **Export CSV** when done.
 
 Each GPS fix records the peak level in dBFS within the slice, grouped into cells of about ten
-metres. Keep gain, antenna, and width the same, or the numbers will not compare. Pause before you
-change the receiver.
+metres. Keep gain, antenna, and width the same, or the numbers will not compare. **Pause**
+before you change the receiver.
+
+The server keeps surveying with the page closed, so a phone can run it as a Survey mission. It
+keeps up to 5,000 cells in memory; a server restart loses them.

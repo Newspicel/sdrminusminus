@@ -55,6 +55,7 @@ async fn active_recording_persists_live_position_in_sigmf_metadata() {
                 speed_mps: Some(5.0),
                 track_deg: Some(90.0),
                 time: "2026-08-14T12:00:00Z".to_owned(),
+                attitude: sdrmm_wire::Attitude::default(),
             }),
         )
         .unwrap();

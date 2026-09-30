@@ -13,6 +13,7 @@ workspace = true
 [features]
 synth = []
 fixtures = ["synth"]
+probe = ["sdrmm-wire/probe"]
 
 [dependencies]
 sdrmm-wire.workspace = true
@@ -33,9 +34,11 @@ ffmpeg-the-third.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 flate2.workspace = true
+jiff.workspace = true
 
 [dev-dependencies]
 sdrmm-test-support.workspace = true
+sdrmm-dsp = { workspace = true, features = ["test-scene"] }
 sdrmm-modem-test-support.workspace = true
 # The coded-baseline artifacts (tests/dmr_soft_gain.rs) bundle three labelled curves per
 # file, a shape `sweep::save_json` (one bare Curve) does not cover.
