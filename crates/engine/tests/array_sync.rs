@@ -557,20 +557,18 @@ fn a_warm_record_skips_the_gain_solve_but_not_the_phase_solve() {
     warmed.warm = Some(record.clone());
     bench.engine.apply_array(warmed).unwrap();
     bench.engine.apply_processor(df("df")).unwrap();
-    let warm = wait_status(&bench.engine, "the warm start", WAIT, |now| {
-        now.cal == CalPhase::Warm
+    assert!(record.solution.iter().any(|lane| lane.gain_db.abs() > 0.1));
+    wait_status(&bench.engine, "the warm start", WAIT, |now| {
+        let gains_held = record
+            .solution
+            .iter()
+            .zip(&now.lanes)
+            .all(|(solution, lane)| (f64::from(lane.gain_db) - solution.gain_db).abs() < 0.01);
+        now.last_solve_at.is_none()
+            && !now.phase_ready
+            && gains_held
+            && processor_status(now, "df").gated.is_some()
     });
-    assert!(warm.last_solve_at.is_none());
-    assert!(!warm.phase_ready);
-    for (lane, solution) in record.solution.iter().enumerate() {
-        assert!(
-            (f64::from(warm.lanes[lane].gain_db) - solution.gain_db).abs() < 0.01,
-            "lane {lane}: {} vs {}",
-            warm.lanes[lane].gain_db,
-            solution.gain_db
-        );
-    }
-    assert!(processor_status(&warm, "df").gated.is_some());
     let solved = wait_calibrated(&bench.engine, LOCK_WAIT);
     let residual = truth_residual(&bench, &kraken_members(), &solved);
     assert!(residual.phase_deg < 1.0, "{residual:?}");

@@ -47,8 +47,8 @@ fn replugging_a_member_keeps_the_array_and_resyncs_it() {
 #[test]
 fn a_member_fault_shows_device_down_and_gates_processors() {
     let bench = Bench::new();
-    let first = bench.open_at(DONGLE1, FULL_RATE);
-    let second = bench.open_at(DONGLE2, FULL_RATE);
+    let first = bench.open(DONGLE1);
+    let second = bench.open(DONGLE2);
     let mut spec = array(
         lanes(first, [0]),
         ArrayNode {
