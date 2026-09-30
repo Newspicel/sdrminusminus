@@ -10,52 +10,88 @@ pub trait SampleConverter: Send + 'static {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum ByteCoding {
+    TwosComplement { full_scale: f32 },
+    OffsetBinary { offset: f32, full_scale: f32 },
+}
+
+impl ByteCoding {
+    #[must_use]
+    pub fn level(self, code: u8) -> f32 {
+        match self {
+            Self::TwosComplement { full_scale } => twos_complement(code, full_scale),
+            Self::OffsetBinary { offset, full_scale } => offset_binary(code, offset, full_scale),
+        }
+    }
+
+    fn sample(self, i: u8, q: u8) -> Sample {
+        Sample::new(self.level(i), self.level(q))
+    }
+
+    fn extend(self, pairs: &[[u8; 2]], out: &mut Vec<Sample>) {
+        match self {
+            Self::TwosComplement { full_scale } => out.extend(pairs.iter().map(|&[i, q]| {
+                Sample::new(
+                    twos_complement(i, full_scale),
+                    twos_complement(q, full_scale),
+                )
+            })),
+            Self::OffsetBinary { offset, full_scale } => {
+                out.extend(pairs.iter().map(|&[i, q]| {
+                    Sample::new(
+                        offset_binary(i, offset, full_scale),
+                        offset_binary(q, offset, full_scale),
+                    )
+                }));
+            }
+        }
+    }
+}
+
+#[inline(always)]
+fn twos_complement(code: u8, full_scale: f32) -> f32 {
+    f32::from(code.cast_signed()) / full_scale
+}
+
+#[inline(always)]
+fn offset_binary(code: u8, offset: f32, full_scale: f32) -> f32 {
+    (f32::from(code) - offset) / full_scale
+}
+
 #[derive(Debug)]
-pub struct LutConverter {
-    table: &'static [f32; 256],
+pub struct ByteConverter {
+    coding: ByteCoding,
     out: Vec<Sample>,
     carry: Option<u8>,
 }
 
-impl LutConverter {
+impl ByteConverter {
     #[must_use]
-    pub fn new(table: &'static [f32; 256], samples: usize) -> Self {
+    pub fn new(coding: ByteCoding, samples: usize) -> Self {
         Self {
-            table,
+            coding,
             out: Vec::with_capacity(samples),
             carry: None,
         }
     }
-
-    #[must_use]
-    pub fn code(&self, code: u8) -> f32 {
-        self.table[code as usize]
-    }
 }
 
-impl SampleConverter for LutConverter {
+impl SampleConverter for ByteConverter {
     fn convert(&mut self, bytes: &[u8]) -> &[Sample] {
         self.out.clear();
-        if bytes.is_empty() {
+        let Some((&first, tail)) = bytes.split_first() else {
             return &self.out;
-        }
+        };
         let rest = match self.carry.take() {
             Some(i) => {
-                self.out.push(Sample::new(
-                    self.table[i as usize],
-                    self.table[bytes[0] as usize],
-                ));
-                &bytes[1..]
+                self.out.push(self.coding.sample(i, first));
+                tail
             }
             None => bytes,
         };
         let (pairs, remainder) = rest.as_chunks::<2>();
-        let table = self.table;
-        self.out.extend(
-            pairs
-                .iter()
-                .map(|iq| Sample::new(table[iq[0] as usize], table[iq[1] as usize])),
-        );
+        self.coding.extend(pairs, &mut self.out);
         self.carry = remainder.first().copied();
         &self.out
     }
@@ -69,18 +105,97 @@ impl SampleConverter for LutConverter {
 mod tests {
     use super::*;
 
-    static IDENTITY: [f32; 256] = {
+    const IDENTITY: ByteCoding = ByteCoding::OffsetBinary {
+        offset: 0.0,
+        full_scale: 1.0,
+    };
+
+    const SIGNED: ByteCoding = ByteCoding::TwosComplement { full_scale: 128.0 };
+
+    const OFFSET: ByteCoding = ByteCoding::OffsetBinary {
+        offset: 127.4,
+        full_scale: 127.5,
+    };
+
+    static SIGNED_TABLE: [f32; 256] = {
         let mut table = [0.0f32; 256];
         let mut code = 0usize;
         while code < table.len() {
-            table[code] = code as f32;
+            table[code] = (code as u8 as i8) as f32 / 128.0;
             code += 1;
         }
         table
     };
 
-    fn converter() -> LutConverter {
-        LutConverter::new(&IDENTITY, 8)
+    static OFFSET_TABLE: [f32; 256] = {
+        let mut table = [0.0f32; 256];
+        let mut code = 0usize;
+        while code < table.len() {
+            table[code] = (code as f32 - 127.4) / 127.5;
+            code += 1;
+        }
+        table
+    };
+
+    fn converter() -> ByteConverter {
+        ByteConverter::new(IDENTITY, 8)
+    }
+
+    fn bits(samples: &[Sample]) -> Vec<(u32, u32)> {
+        samples
+            .iter()
+            .map(|s| (s.re.to_bits(), s.im.to_bits()))
+            .collect()
+    }
+
+    fn by_table(bytes: &[u8], table: &[f32; 256]) -> Vec<Sample> {
+        bytes
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|iq| Sample::new(table[iq[0] as usize], table[iq[1] as usize]))
+            .collect()
+    }
+
+    fn stream(len: usize) -> Vec<u8> {
+        (0..len)
+            .map(|n| (n as u32).wrapping_mul(2_654_435_761).to_le_bytes()[3])
+            .collect()
+    }
+
+    #[test]
+    fn every_code_matches_the_table_it_replaces_bit_for_bit() {
+        let codes: Vec<u8> = (0..=255u8).chain(0..=255u8).collect();
+        for (coding, table) in [(SIGNED, &SIGNED_TABLE), (OFFSET, &OFFSET_TABLE)] {
+            for code in 0..=255u8 {
+                assert_eq!(
+                    coding.level(code).to_bits(),
+                    table[code as usize].to_bits(),
+                    "{coding:?} code {code}"
+                );
+            }
+            for skew in [0, 1] {
+                let bytes = &codes[skew..];
+                let got = ByteConverter::new(coding, 256).convert(bytes).to_vec();
+                assert_eq!(bits(&got), bits(&by_table(bytes, table)), "{coding:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn ragged_blocks_match_the_table_bit_for_bit() {
+        let bytes = stream(4099);
+        for (coding, table) in [(SIGNED, &SIGNED_TABLE), (OFFSET, &OFFSET_TABLE)] {
+            let whole = by_table(&bytes, table);
+            for split in [1, 3, 15, 17, 33, 4095] {
+                let mut converter = ByteConverter::new(coding, 4096);
+                let mut pieces = Vec::new();
+                for chunk in bytes.chunks(split) {
+                    pieces.extend_from_slice(converter.convert(chunk));
+                }
+                assert_eq!(bits(&pieces), bits(&whole), "{coding:?} split {split}");
+            }
+        }
     }
 
     #[test]

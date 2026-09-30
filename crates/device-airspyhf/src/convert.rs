@@ -44,13 +44,12 @@ impl AirspyHfConverter {
             scale,
         }
     }
+}
 
-    fn push(&mut self, quad: &[u8; BYTES_PER_SAMPLE], scale: f32) {
-        let im = i16::from_le_bytes([quad[0], quad[1]]);
-        let re = i16::from_le_bytes([quad[2], quad[3]]);
-        self.out
-            .push(Sample::new(f32::from(re) * scale, f32::from(im) * scale));
-    }
+fn decode(quad: &[u8; BYTES_PER_SAMPLE], scale: f32) -> Sample {
+    let im = i16::from_le_bytes([quad[0], quad[1]]);
+    let re = i16::from_le_bytes([quad[2], quad[3]]);
+    Sample::new(f32::from(re) * scale, f32::from(im) * scale)
 }
 
 impl SampleConverter for AirspyHfConverter {
@@ -65,13 +64,12 @@ impl SampleConverter for AirspyHfConverter {
             rest = &rest[take..];
             if let Ok(quad) = <[u8; BYTES_PER_SAMPLE]>::try_from(self.carry.as_slice()) {
                 self.carry.clear();
-                self.push(&quad, scale);
+                self.out.push(decode(&quad, scale));
             }
         }
         let (quads, remainder) = rest.as_chunks::<BYTES_PER_SAMPLE>();
-        for quad in quads {
-            self.push(quad, scale);
-        }
+        self.out
+            .extend(quads.iter().map(|quad| decode(quad, scale)));
         self.carry.extend_from_slice(remainder);
         &self.out
     }
@@ -116,6 +114,36 @@ mod tests {
         let out = converter.convert(&quad(i16::MIN, i16::MAX));
         assert!((out[0].re + 1.0).abs() < 1e-9);
         assert!((out[0].im - 0.99997).abs() < 1e-4);
+    }
+
+    #[test]
+    fn every_edge_code_converts_exactly_as_before() {
+        let codes = [i16::MIN, i16::MIN + 1, -1, 0, 1, i16::MAX - 1, i16::MAX];
+        let scale = SampleScale::new(6);
+        let factor = scale.get();
+        let bytes: Vec<u8> = codes
+            .iter()
+            .flat_map(|&re| codes.iter().flat_map(move |&im| quad(re, im)))
+            .collect();
+        let mut converter = AirspyHfConverter::new(64, scale);
+        let mut got = Vec::new();
+        for chunk in bytes.chunks(7) {
+            got.extend_from_slice(converter.convert(chunk));
+        }
+        let expected = codes
+            .iter()
+            .flat_map(|&re| codes.iter().map(move |&im| (re, im)))
+            .map(|(re, im)| {
+                (
+                    (f32::from(re) * factor).to_bits(),
+                    (f32::from(im) * factor).to_bits(),
+                )
+            });
+        assert!(
+            got.iter()
+                .map(|s| (s.re.to_bits(), s.im.to_bits()))
+                .eq(expected)
+        );
     }
 
     #[test]

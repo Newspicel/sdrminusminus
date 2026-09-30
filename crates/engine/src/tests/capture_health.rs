@@ -36,12 +36,12 @@ fn channel_downconversion_throughput() {
 
 #[test]
 fn shared_usb_conversion_throughput() {
-    use sdrmm_device::{LutConverter, SampleConverter};
+    use sdrmm_device::{ByteCoding, ByteConverter, SampleConverter};
     use sdrmm_test_support::{assert_no_alloc, measure_throughput};
 
-    static TABLE: [f32; 256] = [0.5; 256];
     let bytes = vec![127; 262_144];
-    let mut converter = LutConverter::new(&TABLE, bytes.len() / 2);
+    let coding = ByteCoding::TwosComplement { full_scale: 128.0 };
+    let mut converter = ByteConverter::new(coding, bytes.len() / 2);
     let mut convert = || {
         std::hint::black_box(converter.convert(std::hint::black_box(&bytes)));
     };

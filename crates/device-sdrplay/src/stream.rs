@@ -151,21 +151,13 @@ impl Slot {
         self.expected = self.expected.map(|expected| expected.wrapping_add(count));
     }
 
-    fn deliver(&mut self, xi: *const i16, xq: *const i16, count: usize) {
-        let mut start = 0;
-        while start < count {
-            let end = count.min(start + MAX_CALLBACK);
+    fn deliver(&mut self, xi: &[i16], xq: &[i16]) {
+        for (xi, xq) in xi.chunks(MAX_CALLBACK).zip(xq.chunks(MAX_CALLBACK)) {
             self.out.clear();
-            for index in start..end {
-                let i = unsafe { *xi.add(index) };
-                let q = unsafe { *xq.add(index) };
-                self.out.push(Sample::new(
-                    f32::from(i) * SAMPLE_SCALE,
-                    f32::from(q) * SAMPLE_SCALE,
-                ));
-            }
+            self.out.extend(xi.iter().zip(xq).map(|(&i, &q)| {
+                Sample::new(f32::from(i) * SAMPLE_SCALE, f32::from(q) * SAMPLE_SCALE)
+            }));
             self.sink.push(&self.out);
-            start = end;
         }
     }
 }
@@ -204,7 +196,10 @@ fn deliver(context: *mut c_void, index: usize, callback: &Callback) {
         slot.sink.dropped(u64::from(callback.count));
         return;
     }
-    slot.deliver(callback.xi, callback.xq, callback.count as usize);
+    let count = callback.count as usize;
+    let xi = unsafe { std::slice::from_raw_parts(callback.xi, count) };
+    let xq = unsafe { std::slice::from_raw_parts(callback.xq, count) };
+    slot.deliver(xi, xq);
     context
         .state
         .samples
@@ -343,6 +338,37 @@ mod tests {
         assert!((block[1].re + 1.0).abs() < 1e-6);
         assert!((block[2].im + 0.5).abs() < 1e-6);
         assert_eq!(context.state().samples(), 3);
+    }
+
+    #[test]
+    fn edge_codes_convert_exactly_as_before() {
+        let (tx, rx) = mpsc::channel();
+        let mut context = StreamContext::new(
+            vec![RxSink::new(move |samples, _| {
+                tx.send(samples.to_vec()).unwrap()
+            })],
+            state(),
+        );
+        let mut xi = [i16::MIN, i16::MIN + 1, -1, 0, 1, i16::MAX - 1, i16::MAX];
+        let mut xq = xi.map(i16::wrapping_neg);
+        deliver(
+            std::ptr::from_mut(context.as_mut()).cast(),
+            0,
+            &plain(xi.as_mut_ptr(), xq.as_mut_ptr(), 7),
+        );
+        let block = rx.try_recv().expect("one block");
+        let expected = xi.iter().zip(&xq).map(|(&i, &q)| {
+            (
+                (f32::from(i) * SAMPLE_SCALE).to_bits(),
+                (f32::from(q) * SAMPLE_SCALE).to_bits(),
+            )
+        });
+        assert!(
+            block
+                .iter()
+                .map(|s| (s.re.to_bits(), s.im.to_bits()))
+                .eq(expected)
+        );
     }
 
     #[test]

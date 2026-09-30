@@ -46,8 +46,6 @@ fn scale(gain_db: u16) -> f32 {
 pub(crate) struct SpyConverter {
     coding: Coding,
     out: Vec<Sample>,
-    table: [f32; 256],
-    table_gain: Option<u16>,
 }
 
 impl SpyConverter {
@@ -55,20 +53,7 @@ impl SpyConverter {
         Self {
             coding,
             out: Vec::new(),
-            table: [0.0; 256],
-            table_gain: None,
         }
-    }
-
-    fn uint8_table(&mut self, gain_db: u16) -> &[f32; 256] {
-        if self.table_gain != Some(gain_db) {
-            let scale = scale(gain_db) / 128.0;
-            for (code, value) in self.table.iter_mut().enumerate() {
-                *value = (code as f32 - 128.0) * scale;
-            }
-            self.table_gain = Some(gain_db);
-        }
-        &self.table
     }
 }
 
@@ -79,13 +64,11 @@ impl SampleConverter for SpyConverter {
         self.out.reserve(bytes.len() / format.sample_bytes());
         match format {
             IqFormat::Uint8 => {
-                let table = *self.uint8_table(gain_db);
+                let scale = scale(gain_db) / 128.0;
+                let level = |code: u8| (f32::from(code) - 128.0) * scale;
                 let (pairs, _) = bytes.as_chunks::<2>();
-                self.out.extend(
-                    pairs
-                        .iter()
-                        .map(|iq| Complex::new(table[iq[0] as usize], table[iq[1] as usize])),
-                );
+                self.out
+                    .extend(pairs.iter().map(|&[i, q]| Complex::new(level(i), level(q))));
             }
             IqFormat::Int16 => {
                 let scale = scale(gain_db) / 32_768.0;
@@ -258,6 +241,19 @@ mod tests {
         assert!((samples[0].re - 0.0).abs() < 1e-6);
         assert!((samples[0].im - 0.9921875).abs() < 1e-6);
         assert!((samples[1].re + 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn every_uint8_code_converts_as_the_former_table_did() {
+        let codes: Vec<u8> = (0..=255u8).collect();
+        for gain_db in [0, 6, 17] {
+            let scale = scale(gain_db) / 128.0;
+            let samples = converted(IqFormat::Uint8, gain_db, &codes);
+            for (pair, sample) in codes.as_chunks::<2>().0.iter().zip(samples) {
+                let [i, q] = pair.map(|code| ((code as f32 - 128.0) * scale).to_bits());
+                assert_eq!((sample.re.to_bits(), sample.im.to_bits()), (i, q));
+            }
+        }
     }
 
     #[test]

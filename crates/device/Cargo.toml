@@ -45,4 +45,9 @@ objc2-foundation = { workspace = true, features = ["NSProcessInfo", "NSString"] 
 windows-sys.workspace = true
 
 [dev-dependencies]
+criterion.workspace = true
 rcgen.workspace = true
+
+[[bench]]
+name = "convert"
+harness = false

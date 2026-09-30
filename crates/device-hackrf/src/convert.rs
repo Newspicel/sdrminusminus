@@ -1,27 +1,19 @@
-use sdrmm_device::{LutConverter, Sample};
+use sdrmm_device::{ByteCoding, ByteConverter, Sample};
 
 use crate::driver::{RX_TRANSFER_SIZE, SWEEP_BLOCK_SAMPLES};
 
 const FULL_SCALE: f32 = 128.0;
 
-static CODE_TO_F32: [f32; 256] = build_table();
+const CODING: ByteCoding = ByteCoding::TwosComplement {
+    full_scale: FULL_SCALE,
+};
 
-const fn build_table() -> [f32; 256] {
-    let mut table = [0.0f32; 256];
-    let mut code = 0usize;
-    while code < table.len() {
-        table[code] = (code as u8 as i8) as f32 / FULL_SCALE;
-        code += 1;
-    }
-    table
+pub(crate) fn converter() -> ByteConverter {
+    ByteConverter::new(CODING, RX_TRANSFER_SIZE / 2)
 }
 
-pub(crate) fn converter() -> LutConverter {
-    LutConverter::new(&CODE_TO_F32, RX_TRANSFER_SIZE / 2)
-}
-
-pub(crate) fn sweep_converter() -> LutConverter {
-    LutConverter::new(&CODE_TO_F32, SWEEP_BLOCK_SAMPLES)
+pub(crate) fn sweep_converter() -> ByteConverter {
+    ByteConverter::new(CODING, SWEEP_BLOCK_SAMPLES)
 }
 
 fn f32_to_code(value: f32) -> u8 {
@@ -48,7 +40,17 @@ mod tests {
     use super::*;
 
     fn code_to_f32(code: u8) -> f32 {
-        CODE_TO_F32[code as usize]
+        CODING.level(code)
+    }
+
+    #[test]
+    fn every_code_converts_as_the_former_table_did() {
+        let codes: Vec<u8> = (0..=255u8).collect();
+        let samples = converter().convert(&codes).to_vec();
+        for (pair, sample) in codes.as_chunks::<2>().0.iter().zip(samples) {
+            let [i, q] = pair.map(|code| ((code as i8) as f32 / FULL_SCALE).to_bits());
+            assert_eq!((sample.re.to_bits(), sample.im.to_bits()), (i, q));
+        }
     }
 
     #[test]

@@ -1,7 +1,7 @@
 use std::{sync::Arc, time::Duration};
 
 use sdrmm_device::{
-    Block, BlockPool, CaptureStream, LutConverter, Next, StreamFailure,
+    Block, BlockPool, ByteCoding, ByteConverter, CaptureStream, Next, StreamFailure,
     net::{Connection, Read, SocketStop},
 };
 
@@ -10,20 +10,13 @@ const BLOCK_BYTES: usize = 65_536;
 const DC_OFFSET: f32 = 127.4;
 const FULL_SCALE: f32 = 127.5;
 
-static CODE_TO_F32: [f32; 256] = build_table();
+const CODING: ByteCoding = ByteCoding::OffsetBinary {
+    offset: DC_OFFSET,
+    full_scale: FULL_SCALE,
+};
 
-const fn build_table() -> [f32; 256] {
-    let mut table = [0.0f32; 256];
-    let mut code = 0usize;
-    while code < table.len() {
-        table[code] = (code as f32 - DC_OFFSET) / FULL_SCALE;
-        code += 1;
-    }
-    table
-}
-
-pub(crate) fn converter() -> LutConverter {
-    LutConverter::new(&CODE_TO_F32, BLOCK_BYTES / 2)
+pub(crate) fn converter() -> ByteConverter {
+    ByteConverter::new(CODING, BLOCK_BYTES / 2)
 }
 
 #[derive(Debug)]
@@ -74,7 +67,17 @@ mod tests {
     use super::*;
 
     fn code(code: u8) -> f32 {
-        CODE_TO_F32[code as usize]
+        CODING.level(code)
+    }
+
+    #[test]
+    fn every_code_converts_as_the_former_table_did() {
+        let codes: Vec<u8> = (0..=255u8).collect();
+        let samples = converter().convert(&codes).to_vec();
+        for (pair, sample) in codes.as_chunks::<2>().0.iter().zip(samples) {
+            let [i, q] = pair.map(|code| ((code as f32 - DC_OFFSET) / FULL_SCALE).to_bits());
+            assert_eq!((sample.re.to_bits(), sample.im.to_bits()), (i, q));
+        }
     }
 
     #[test]

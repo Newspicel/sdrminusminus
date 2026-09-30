@@ -402,7 +402,7 @@ pub use capture::{
     drain_stream,
 };
 pub use clock::{init_clock, now_ns};
-pub use convert::{LutConverter, SampleConverter};
+pub use convert::{ByteCoding, ByteConverter, SampleConverter};
 pub use duplex::DuplexState;
 pub use marks::{
     GapScope, LaneEvent, LaneMark, MARK_SLOTS, MarkPoster, UNKNOWN_ERROR, Uncertainty,

@@ -7,8 +7,8 @@ use convert::samples_to_cs8;
 use driver::{BurstQueue, DeviceDescriptor, FilterWidth, HackRf, SweepBlocks, TX_TRANSFER_SIZE};
 pub use driver::{SweepPlan, SweepRange, SweepStyle};
 use sdrmm_device::{
-    Capture, CaptureConfig, CaptureRadio, DeviceDriver, DeviceError, Direction, DuplexState,
-    LutConverter, RxSink, Sample, SampleConverter, SdrDevice, SweepSink, TxStream, Worker, lock,
+    ByteConverter, Capture, CaptureConfig, CaptureRadio, DeviceDriver, DeviceError, Direction,
+    DuplexState, RxSink, Sample, SampleConverter, SdrDevice, SweepSink, TxStream, Worker, lock,
     single_rx_sink,
 };
 use sdrmm_usb_stream::{NusbBulkOut, RxStream};
@@ -374,7 +374,7 @@ pub struct SweepCapture<'a> {
 }
 
 struct SweepDecoder {
-    converter: LutConverter,
+    converter: ByteConverter,
     offset_hz: u64,
     skipped: u64,
 }

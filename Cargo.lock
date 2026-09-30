@@ -5870,6 +5870,7 @@ version = "0.0.0"
 dependencies = [
  "blip25-vocoder",
  "codec2",
+ "criterion",
  "ffmpeg-the-third",
  "flate2",
  "jiff",
@@ -5933,6 +5934,7 @@ dependencies = [
 name = "sdrmm-device"
 version = "0.0.0"
 dependencies = [
+ "criterion",
  "futures",
  "libc",
  "num-complex",

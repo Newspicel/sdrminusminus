@@ -9,16 +9,34 @@ struct Coding {
     /// What one count is worth, so that a full-scale reading arrives at ±1 whatever the width.
     scale: f32,
     bytes: usize,
+    word: Option<SignedWord>,
 }
 
 impl Coding {
     fn new(format: Format) -> Self {
         let bits = format.bits.clamp(1, 32);
         let half = (1u64 << (bits - 1)) as f32;
+        let bytes = format.storage_bytes().clamp(1, 4);
         Self {
             format,
             scale: 1.0 / half,
-            bytes: format.storage_bytes().clamp(1, 4),
+            bytes,
+            word: SignedWord::of(format, bytes),
+        }
+    }
+
+    fn extend(self, bytes: &[u8], out: &mut Vec<Sample>) {
+        match self.word {
+            Some(word) => {
+                let level = |low, high| word.level([low, high]) as f32 * self.scale;
+                let (pairs, _) = bytes.as_chunks::<4>();
+                out.extend(
+                    pairs
+                        .iter()
+                        .map(|&[i0, i1, q0, q1]| Sample::new(level(i0, i1), level(q0, q1))),
+                );
+            }
+            None => out.extend(bytes.chunks_exact(self.pair()).map(|iq| self.decode(iq))),
         }
     }
 
@@ -83,6 +101,27 @@ impl Coding {
     }
 }
 
+#[derive(Clone, Copy, Debug)]
+struct SignedWord {
+    lift: u32,
+    drop: u32,
+}
+
+impl SignedWord {
+    fn of(format: Format, bytes: usize) -> Option<Self> {
+        let width = format.bits.checked_add(format.shift)?;
+        let packed = format.signed && format.little_endian && bytes == 2;
+        (packed && format.bits >= 1 && width <= 32).then(|| Self {
+            lift: 32 - width,
+            drop: 32 - format.bits,
+        })
+    }
+
+    fn level(self, bytes: [u8; 2]) -> i32 {
+        (u32::from(u16::from_le_bytes(bytes)) << self.lift).cast_signed() >> self.drop
+    }
+}
+
 /// A 12-bit sample sits in a 16-bit slot already sign-extended, but a firmware that packs it
 /// otherwise must not read as a large positive number.
 const fn sign_extend(value: u32, bits: u32) -> i32 {
@@ -130,8 +169,7 @@ impl SampleConverter for IqConverter {
             self.carry.clear();
         }
         let whole = rest.len() / pair * pair;
-        self.out
-            .extend(rest[..whole].chunks_exact(pair).map(|iq| coding.decode(iq)));
+        coding.extend(&rest[..whole], &mut self.out);
         self.carry.extend_from_slice(&rest[whole..]);
         &self.out
     }
@@ -197,6 +235,57 @@ mod tests {
         assert!((samples[0].im + 1.0).abs() < 1e-6);
         assert!(samples[1].re.abs() < 1e-6);
         assert!((samples[1].im - 0.5).abs() < 1e-6);
+    }
+
+    #[test]
+    fn every_packed_word_converts_as_the_generic_reader_does() {
+        let words: Vec<u8> = (0..=u16::MAX).flat_map(u16::to_le_bytes).collect();
+        for (bits, shift) in [(12, 0), (12, 4), (16, 0), (14, 2), (1, 15), (8, 3)] {
+            let format = Format { bits, shift, ..RX };
+            let coding = Coding::new(format);
+            assert!(coding.word.is_some(), "{bits} bits >> {shift}");
+            let generic = words
+                .as_chunks::<2>()
+                .0
+                .iter()
+                .map(|word| coding.element(word).to_bits());
+            let mut converter = IqConverter::new(format, words.len() / 4);
+            let mut got = Vec::new();
+            for chunk in words.chunks(4097) {
+                got.extend_from_slice(converter.convert(chunk));
+            }
+            assert!(
+                got.iter()
+                    .flat_map(|s| [s.re.to_bits(), s.im.to_bits()])
+                    .eq(generic),
+                "{bits} bits >> {shift}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_format_the_fast_path_cannot_read_takes_the_generic_one() {
+        for format in [
+            Format {
+                signed: false,
+                ..RX
+            },
+            Format {
+                little_endian: false,
+                ..RX
+            },
+            Format {
+                storage_bits: 32,
+                ..RX
+            },
+            Format {
+                bits: 12,
+                shift: 24,
+                ..RX
+            },
+        ] {
+            assert!(Coding::new(format).word.is_none(), "{format:?}");
+        }
     }
 
     #[test]
