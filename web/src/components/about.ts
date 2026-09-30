@@ -23,8 +23,7 @@ export function matchesQuery(component: Attribution, query: string): boolean {
   if (needle === "") return true;
   return (
     component.name.toLowerCase().includes(needle) ||
-    component.license.toLowerCase().includes(needle) ||
-    (component.note ?? "").toLowerCase().includes(needle)
+    component.license.toLowerCase().includes(needle)
   );
 }
 
@@ -45,8 +44,4 @@ export function licenseSummary(components: Attribution[]): { license: string; co
   return [...counts]
     .map(([license, count]) => ({ license, count }))
     .toSorted((a, b) => b.count - a.count || a.license.localeCompare(b.license));
-}
-
-export function notedComponents(components: Attribution[]): Attribution[] {
-  return components.filter((component) => component.note !== undefined && component.note !== null);
 }

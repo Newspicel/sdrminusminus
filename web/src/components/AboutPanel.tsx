@@ -4,7 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { aboutQuery, licenseTextQuery } from "../lib/api";
 import type { Attribution } from "../lib/types";
-import { groupComponents, licenseSummary, notedComponents } from "./about";
+import { groupComponents, licenseSummary } from "./about";
 import { Button, Input } from "./BaseControls";
 import { BTN, BTN_QUIET, DIALOG_TITLE, FIELD, SURFACE } from "./controls";
 
@@ -65,8 +65,6 @@ export function AboutPanel({
                 </Collapsible.Panel>
               </Collapsible.Root>
 
-              <Noted components={about.data.components} onOpenText={setTextId} />
-
               <div className="mt-4 flex items-baseline justify-between gap-4">
                 <h3 className="text-xs font-medium text-ink">
                   Third-party components ({about.data.components.length})
@@ -101,30 +99,6 @@ export function AboutPanel({
         </Dialog.Popup>
       </Dialog.Portal>
     </Dialog.Root>
-  );
-}
-
-function Noted({
-  components,
-  onOpenText,
-}: {
-  components: Attribution[];
-  onOpenText: (id: string) => void;
-}) {
-  const noted = notedComponents(components);
-  if (noted.length === 0) return null;
-  return (
-    <section className="mt-3">
-      <h3 className="text-xs font-medium text-ink">Worth knowing</h3>
-      <ul className="mt-1.5 space-y-2">
-        {noted.map((component) => (
-          <li key={`${component.source}:${component.name}`} className="text-xs">
-            <Row component={component} onOpenText={onOpenText} />
-            <p className="mt-0.5 text-ink-dim">{component.note}</p>
-          </li>
-        ))}
-      </ul>
-    </section>
   );
 }
 

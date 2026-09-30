@@ -2276,7 +2276,6 @@ export interface components {
         Attribution: {
             license: string;
             name: string;
-            note?: string | null;
             source: components["schemas"]["ComponentSource"];
             texts: string[];
             url?: string | null;

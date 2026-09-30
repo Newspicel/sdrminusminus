@@ -656,8 +656,7 @@
       "url": "https://github.com/openBLIP25/blip25-vocoder",
       "texts": [
         "602aca57fd3b5a3a"
-      ],
-      "note": "MIT. A reverse-engineered AMBE+2 vocoder. The Digital Voice Systems, Inc. patents on AMBE+2 have expired in Europe but may still apply elsewhere."
+      ]
     },
     {
       "name": "block-buffer",
@@ -1090,8 +1089,7 @@
       "license": "LGPL-2.1-only AND MIT",
       "source": "rust",
       "url": "https://github.com/scriptjunkie/codec2",
-      "texts": [],
-      "note": "LGPL-2.1-only."
+      "texts": []
     },
     {
       "name": "codespan-reporting",
@@ -1352,8 +1350,7 @@
       "url": "https://github.com/servo/rust-cssparser",
       "texts": [
         "c76f740d1521b9be"
-      ],
-      "note": "MPL-2.0. File-level copyleft: modifications to the crate's own files must be published, which reaches nothing in SDR--."
+      ]
     },
     {
       "name": "cssparser-macros",
@@ -4297,8 +4294,7 @@
       "url": "https://github.com/soc/option-ext.git",
       "texts": [
         "fb72181dd02473b6"
-      ],
-      "note": "MPL-2.0. File-level copyleft: modifications to the crate's own files must be published, which reaches nothing in SDR--."
+      ]
     },
     {
       "name": "opus",
@@ -5461,8 +5457,7 @@
       "license": "MPL-2.0",
       "source": "rust",
       "url": "https://github.com/servo/stylo",
-      "texts": [],
-      "note": "MPL-2.0. File-level copyleft: modifications to the crate's own files must be published, which reaches nothing in SDR--."
+      "texts": []
     },
     {
       "name": "semver",
@@ -5659,8 +5654,7 @@
       "url": "https://github.com/serialport/serialport-rs",
       "texts": [
         "91fb654320aad7d7"
-      ],
-      "note": "MPL-2.0. File-level copyleft: modifications to the crate's own files must be published, which reaches nothing in SDR--."
+      ]
     },
     {
       "name": "servo_arc",
@@ -9329,8 +9323,7 @@
       "url": "https://github.com/drowe67/codec2",
       "texts": [
         "0f35c488bbe244dd"
-      ],
-      "note": "LGPL-2.1-only. Copyright (C) 2012 David Rowe."
+      ]
     },
     {
       "name": "dmrconfig",
@@ -9339,16 +9332,14 @@
       "url": "https://github.com/OpenRTX/dmrconfig",
       "texts": [
         "0ac64352771a9bd0"
-      ],
-      "note": "The AnyTone serial protocol in `crates/cps/src/anytone/protocol.rs` follows dmrconfig's `serial.c`, Copyright (C) 2018 Serge Vakulenko, KK6ABQ. The AT-D890UV memory map was worked out from a radio and checked against `fixtures/cps/anytone-d890uv-v100.img`."
+      ]
     },
     {
       "name": "DPDFNet",
       "license": "Apache-2.0",
       "source": "native",
       "url": "https://github.com/ceva-ip/DPDFNet",
-      "texts": [],
-      "note": "The neural denoiser of the Audio FX node runs the pretrained dpdfnet2 16 kHz model published by Ceva, executed with tract. `cargo xtask denoise-model` converts the published ONNX file to NNEF with its weights rounded to half precision, shipped as `crates/channels/models/dpdfnet2.nnef.tgz`. Only the weights are used; the STFT and streaming around them in `crates/channels/src/neural_denoise.rs` are this project's own."
+      "texts": []
     },
     {
       "name": "FFmpeg 9.0.1",
@@ -9357,8 +9348,7 @@
       "url": "https://ffmpeg.org/",
       "texts": [
         "9dbeb0f8568e2aa0"
-      ],
-      "note": "Broadcast AAC, AC-3, MPEG-2, H.264 and HEVC playback uses FFmpeg. Release libraries are built from the unmodified official 9.0.1 source by scripts/build-media.py, with only LGPL components enabled, as shared libraries shipped beside SDR-- that can be replaced. The script records the source URL, checksum and complete build configuration. FFmpeg is Copyright (c) the FFmpeg developers. Its LGPL-2.1 license text is below."
+      ]
     },
     {
       "name": "hackrf-nusb 0.3.0",
@@ -9367,8 +9357,7 @@
       "url": "https://github.com/bastibl/hackrf-nusb",
       "texts": [
         "7b2190f7217b55aa"
-      ],
-      "note": "The request codes, board types and control request builders in `crates/device-hackrf/src/driver` contain code from hackrf-nusb 0.3.0, Copyright (c) 2026 hackrf-nusb contributors, used under its MIT license."
+      ]
     },
     {
       "name": "hackrf.h (libhackrf API)",
@@ -9377,8 +9366,7 @@
       "url": "https://github.com/greatscottgadgets/hackrf",
       "texts": [
         "95438184ed5affd9"
-      ],
-      "note": "The sweep constants in `crates/device-hackrf/src/driver/sweep.rs` follow the public API declarations in `hackrf.h`. Its licence asks to accompany the binary, so its text is below."
+      ]
     },
     {
       "name": "libairspy",
@@ -9387,8 +9375,7 @@
       "url": "https://github.com/airspy/airspyone_host",
       "texts": [
         "30428aec07d7ff06"
-      ],
-      "note": "SDR-- drives the Airspy R2 and Mini itself, in Rust, over its own USB stack, and forms their complex baseband with its own filter. No part of libairspy is linked or shipped, but the vendor request numbers, the wValue and wIndex layout of each request and the packed sample format in `crates/device-airspy/src/driver` were written from libairspy, which is the only specification they have. Its licence asks to accompany the binary, so its text is below."
+      ]
     },
     {
       "name": "libairspyhf",
@@ -9397,8 +9384,7 @@
       "url": "https://github.com/airspy/airspyhf",
       "texts": [
         "230ffc6a24573a38"
-      ],
-      "note": "As with libairspy: nothing of libairspyhf is linked or shipped, but the vendor request numbers, the big-endian kilohertz tuning field and the sample layout in `crates/device-airspyhf/src/driver` were written from it. Its adaptive IQ balancer was not translated, and this driver does not reproduce it."
+      ]
     },
     {
       "name": "mbelib",
@@ -9407,16 +9393,14 @@
       "url": "https://github.com/szechyjs/mbelib",
       "texts": [
         "522533406650a40b"
-      ],
-      "note": "The D-STAR AMBE decoder in `crates/channels/src/dv/ambe` is a Rust port of mbelib's AMBE 3600x2400 decoder, and its quantizer tables are mbelib's."
+      ]
     },
     {
       "name": "SoapySDR",
       "license": "BSL-1.0",
       "source": "native",
       "url": "https://github.com/pothosware/SoapySDR",
-      "texts": [],
-      "note": "Opened at runtime from whatever SoapySDR the host has installed, and never linked or distributed by this project. A release that finds none simply reports no SoapySDR hardware. The modules it loads, and their licenses, belong to that installation."
+      "texts": []
     },
     {
       "name": "xng",
@@ -9425,8 +9409,7 @@
       "url": "https://github.com/airframesio/xng",
       "texts": [
         "9950e95b40721666"
-      ],
-      "note": "The ACARS application layer and the VDL2, HFDL, Inmarsat Aero, Inmarsat STD-C, DSC and Iridium decoders in `crates/channels` started as ports of xng, Copyright (c) 2023-2026 Kevin Elliott and the xng contributors, used under its MIT license."
+      ]
     }
   ],
   "texts": {

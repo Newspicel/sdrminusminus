@@ -12,7 +12,6 @@ struct Component {
     version: Option<&'static str>,
     license: &'static str,
     url: &'static str,
-    note: Option<&'static str>,
     text: Option<&'static str>,
 }
 
@@ -22,7 +21,6 @@ const COMPONENTS: &[Component] = &[
         version: Some("composeBom"),
         license: "Apache-2.0",
         url: "https://developer.android.com/jetpack/androidx/releases/compose",
-        note: None,
         text: None,
     },
     Component {
@@ -30,7 +28,6 @@ const COMPONENTS: &[Component] = &[
         version: None,
         license: "Apache-2.0",
         url: "https://developer.android.com/jetpack/androidx",
-        note: None,
         text: None,
     },
     Component {
@@ -38,7 +35,6 @@ const COMPONENTS: &[Component] = &[
         version: Some("camerax"),
         license: "Apache-2.0",
         url: "https://developer.android.com/jetpack/androidx/releases/camera",
-        note: None,
         text: None,
     },
     Component {
@@ -46,7 +42,6 @@ const COMPONENTS: &[Component] = &[
         version: Some("zxing"),
         license: "Apache-2.0",
         url: "https://github.com/zxing/zxing",
-        note: None,
         text: None,
     },
     Component {
@@ -54,7 +49,6 @@ const COMPONENTS: &[Component] = &[
         version: Some("maplibre"),
         license: "BSD-2-Clause",
         url: "https://github.com/maplibre/maplibre-native",
-        note: Some("Its notices, including the components it bundles, follow below."),
         text: Some("MapLibre-Native-LICENSES.core.md"),
     },
     Component {
@@ -62,7 +56,6 @@ const COMPONENTS: &[Component] = &[
         version: Some("carApp"),
         license: "Apache-2.0",
         url: "https://developer.android.com/jetpack/androidx/releases/car-app",
-        note: None,
         text: None,
     },
     Component {
@@ -70,9 +63,6 @@ const COMPONENTS: &[Component] = &[
         version: Some("jna"),
         license: "Apache-2.0",
         url: "https://github.com/java-native-access/jna",
-        note: Some(
-            "Offered under LGPL-2.1-or-later or Apache-2.0. SDR-- uses it under Apache-2.0.",
-        ),
         text: None,
     },
     Component {
@@ -80,7 +70,6 @@ const COMPONENTS: &[Component] = &[
         version: Some("coroutines"),
         license: "Apache-2.0",
         url: "https://github.com/Kotlin/kotlinx.coroutines",
-        note: None,
         text: None,
     },
     Component {
@@ -88,7 +77,6 @@ const COMPONENTS: &[Component] = &[
         version: None,
         license: "Apache-2.0",
         url: "https://github.com/google/material-design-icons",
-        note: Some("App icons."),
         text: None,
     },
     Component {
@@ -96,7 +84,6 @@ const COMPONENTS: &[Component] = &[
         version: Some("kotlin"),
         license: "Apache-2.0",
         url: "https://github.com/JetBrains/kotlin",
-        note: None,
         text: None,
     },
     Component {
@@ -104,7 +91,6 @@ const COMPONENTS: &[Component] = &[
         version: None,
         license: "MIT",
         url: "https://github.com/maplibre/maplibre-java",
-        note: None,
         text: Some("MapLibre-Java-MIT.txt"),
     },
     Component {
@@ -112,7 +98,6 @@ const COMPONENTS: &[Component] = &[
         version: None,
         license: "BSD-2-Clause",
         url: "https://github.com/maplibre/maplibre-gestures-android",
-        note: None,
         text: Some("MapLibre-Gestures-BSD-2-Clause.md"),
     },
     Component {
@@ -120,7 +105,6 @@ const COMPONENTS: &[Component] = &[
         version: None,
         license: "Apache-2.0",
         url: "https://square.github.io/okhttp/",
-        note: Some("Pulled in by MapLibre Native."),
         text: None,
     },
     Component {
@@ -129,7 +113,6 @@ const COMPONENTS: &[Component] = &[
         version: None,
         license: "Apache-2.0",
         url: "https://github.com/google/guava",
-        note: Some("Pulled in by AndroidX and MapLibre Native."),
         text: None,
     },
     Component {
@@ -137,26 +120,21 @@ const COMPONENTS: &[Component] = &[
         version: None,
         license: "MIT",
         url: "https://github.com/typetools/checker-framework",
-        note: None,
         text: Some("checker-qual-MIT.txt"),
     },
 ];
 
 const MAP_DATA: &[(&str, &str, &str)] = &[
-    (
-        "OpenFreeMap",
-        "https://openfreemap.org",
-        "Map tiles and styles served by OpenFreeMap.",
-    ),
+    ("OpenFreeMap", "MIT", "https://openfreemap.org"),
     (
         "OpenMapTiles",
+        "BSD-3-Clause, CC-BY-4.0",
         "https://openmaptiles.org",
-        "Tile schema and styles © OpenMapTiles, BSD-3-Clause code and CC-BY-4.0 design.",
     ),
     (
-        "OpenStreetMap",
+        "OpenStreetMap contributors",
+        "ODbL-1.0",
         "https://www.openstreetmap.org/copyright",
-        "Map data © OpenStreetMap contributors, available under the Open Database License.",
     ),
 ];
 
@@ -177,8 +155,8 @@ pub(crate) fn notices(root: &Path) -> Result<String> {
         out.push_str(&component_block(component, &versions)?);
         out.push_str("\n\n");
     }
-    for (name, url, note) in MAP_DATA {
-        out.push_str(&format!("{name}\n{url}\n{note}\n\n"));
+    for (name, license, url) in MAP_DATA {
+        out.push_str(&format!("{name}\n{license}\n{url}\n\n"));
     }
     out.push_str("Apache License 2.0\n\n");
     out.push_str(&license(APACHE)?);
@@ -205,12 +183,7 @@ fn component_block(component: &Component, versions: &BTreeMap<String, String>) -
         }
         None => component.name.to_owned(),
     };
-    let mut block = format!("{title}\n{}\n{}", component.license, component.url);
-    if let Some(note) = component.note {
-        block.push('\n');
-        block.push_str(note);
-    }
-    Ok(block)
+    Ok(format!("{title}\n{}\n{}", component.license, component.url))
 }
 
 fn catalog_versions(catalog: &str) -> BTreeMap<String, String> {

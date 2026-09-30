@@ -19,7 +19,6 @@ https://github.com/zxing/zxing
 MapLibre Native 13.6.1
 BSD-2-Clause
 https://github.com/maplibre/maplibre-native
-Its notices, including the components it bundles, follow below.
 
 Car App Library 1.7.0
 Apache-2.0
@@ -28,7 +27,6 @@ https://developer.android.com/jetpack/androidx/releases/car-app
 JNA 5.19.1
 Apache-2.0
 https://github.com/java-native-access/jna
-Offered under LGPL-2.1-or-later or Apache-2.0. SDR-- uses it under Apache-2.0.
 
 kotlinx-coroutines 1.11.0
 Apache-2.0
@@ -37,7 +35,6 @@ https://github.com/Kotlin/kotlinx.coroutines
 Material Symbols
 Apache-2.0
 https://github.com/google/material-design-icons
-App icons.
 
 Kotlin standard library 2.4.20
 Apache-2.0
@@ -54,28 +51,26 @@ https://github.com/maplibre/maplibre-gestures-android
 OkHttp, Okio, Timber
 Apache-2.0
 https://square.github.io/okhttp/
-Pulled in by MapLibre Native.
 
 Guava, Gson, Dagger, javax.inject, Jakarta Inject, JSpecify, JSR 305, and the AutoValue, Error Prone, J2ObjC and JetBrains annotations
 Apache-2.0
 https://github.com/google/guava
-Pulled in by AndroidX and MapLibre Native.
 
 Checker Framework qualifiers
 MIT
 https://github.com/typetools/checker-framework
 
 OpenFreeMap
+MIT
 https://openfreemap.org
-Map tiles and styles served by OpenFreeMap.
 
 OpenMapTiles
+BSD-3-Clause, CC-BY-4.0
 https://openmaptiles.org
-Tile schema and styles © OpenMapTiles, BSD-3-Clause code and CC-BY-4.0 design.
 
-OpenStreetMap
+OpenStreetMap contributors
+ODbL-1.0
 https://www.openstreetmap.org/copyright
-Map data © OpenStreetMap contributors, available under the Open Database License.
 
 Apache License 2.0
 

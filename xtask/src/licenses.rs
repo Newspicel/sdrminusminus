@@ -21,40 +21,10 @@ const NOT_DISTRIBUTED: &[&str] = &["xtask"];
 
 const MAX_LICENSE_BYTES: u64 = 256 * 1024;
 
-const NOTES: &[(&str, &str)] = &[
-    ("codec2", "LGPL-2.1-only."),
-    (
-        "blip25-vocoder",
-        "MIT. A reverse-engineered AMBE+2 vocoder. The Digital Voice Systems, Inc. patents on \
-         AMBE+2 have expired in Europe but may still apply elsewhere.",
-    ),
-    (
-        "cssparser",
-        "MPL-2.0. File-level copyleft: modifications to the crate's own files must be published, \
-         which reaches nothing in SDR--.",
-    ),
-    (
-        "selectors",
-        "MPL-2.0. File-level copyleft: modifications to the crate's own files must be published, \
-         which reaches nothing in SDR--.",
-    ),
-    (
-        "option-ext",
-        "MPL-2.0. File-level copyleft: modifications to the crate's own files must be published, \
-         which reaches nothing in SDR--.",
-    ),
-    (
-        "serialport",
-        "MPL-2.0. File-level copyleft: modifications to the crate's own files must be published, \
-         which reaches nothing in SDR--.",
-    ),
-];
-
 struct Native {
     name: &'static str,
     license: &'static str,
     url: &'static str,
-    note: Option<&'static str>,
     files: &'static [&'static str],
 }
 
@@ -63,123 +33,66 @@ const NATIVE: &[Native] = &[
         name: "DPDFNet",
         license: "Apache-2.0",
         url: "https://github.com/ceva-ip/DPDFNet",
-        note: Some(
-            "The neural denoiser of the Audio FX node runs the pretrained dpdfnet2 16 kHz model \
-             published by Ceva, executed with tract. `cargo xtask denoise-model` converts the \
-             published ONNX file to NNEF with its weights rounded to half precision, shipped as \
-             `crates/channels/models/dpdfnet2.nnef.tgz`. Only the weights are used; the STFT and \
-             streaming around them in `crates/channels/src/neural_denoise.rs` are this \
-             project's own.",
-        ),
         files: &[],
     },
     Native {
         name: "FFmpeg 9.0.1",
         license: "LGPL-2.1-or-later",
         url: "https://ffmpeg.org/",
-        note: Some(
-            "Broadcast AAC, AC-3, MPEG-2, H.264 and HEVC playback uses FFmpeg. Release libraries are built from the unmodified official 9.0.1 source by scripts/build-media.py, with only LGPL components enabled, as shared libraries shipped beside SDR-- that can be replaced. The script records the source URL, checksum and complete build configuration. FFmpeg is Copyright (c) the FFmpeg developers. Its LGPL-2.1 license text is below.",
-        ),
         files: &["FFmpeg-LGPL-2.1.txt"],
     },
     Native {
         name: "SoapySDR",
         license: "BSL-1.0",
         url: "https://github.com/pothosware/SoapySDR",
-        note: Some(
-            "Opened at runtime from whatever SoapySDR the host has installed, and never linked \
-             or distributed by this project. A release that finds none simply reports no \
-             SoapySDR hardware. The modules it loads, and their licenses, belong to that \
-             installation.",
-        ),
         files: &[],
     },
     Native {
         name: "libairspy",
         license: "BSD-3-Clause",
         url: "https://github.com/airspy/airspyone_host",
-        note: Some(
-            "SDR-- drives the Airspy R2 and Mini itself, in Rust, over its own USB stack, and \
-             forms their complex baseband with its own filter. No part of libairspy is linked \
-             or shipped, but the vendor request numbers, the wValue and wIndex layout of each \
-             request and the packed sample format in `crates/device-airspy/src/driver` were \
-             written from libairspy, which is the only specification they have. Its licence \
-             asks to accompany the binary, so its text is below.",
-        ),
         files: &["libairspy-BSD-3-Clause.txt"],
     },
     Native {
         name: "libairspyhf",
         license: "BSD-3-Clause",
         url: "https://github.com/airspy/airspyhf",
-        note: Some(
-            "As with libairspy: nothing of libairspyhf is linked or shipped, but the vendor \
-             request numbers, the big-endian kilohertz tuning field and the sample layout in \
-             `crates/device-airspyhf/src/driver` were written from it. Its adaptive IQ balancer \
-             was not translated, and this driver does not reproduce it.",
-        ),
         files: &["libairspyhf-BSD-3-Clause.txt"],
     },
     Native {
         name: "hackrf-nusb 0.3.0",
         license: "MIT OR Apache-2.0",
         url: "https://github.com/bastibl/hackrf-nusb",
-        note: Some(
-            "The request codes, board types and control request builders in \
-             `crates/device-hackrf/src/driver` contain code from hackrf-nusb 0.3.0, Copyright (c) \
-             2026 hackrf-nusb contributors, used under its MIT license.",
-        ),
         files: &["hackrf-nusb-MIT.txt"],
     },
     Native {
         name: "hackrf.h (libhackrf API)",
         license: "BSD-3-Clause",
         url: "https://github.com/greatscottgadgets/hackrf",
-        note: Some(
-            "The sweep constants in `crates/device-hackrf/src/driver/sweep.rs` follow the public \
-             API declarations in `hackrf.h`. Its licence asks to accompany the binary, so its \
-             text is below.",
-        ),
         files: &["HackRF-BSD-3-Clause.txt"],
     },
     Native {
         name: "dmrconfig",
         license: "BSD-3-Clause",
         url: "https://github.com/OpenRTX/dmrconfig",
-        note: Some(
-            "The AnyTone serial protocol in `crates/cps/src/anytone/protocol.rs` follows \
-             dmrconfig's `serial.c`, Copyright (C) 2018 Serge Vakulenko, KK6ABQ. The AT-D890UV \
-             memory map was worked out from a radio and checked against \
-             `fixtures/cps/anytone-d890uv-v100.img`.",
-        ),
         files: &["BSD-3-Clause-dmrconfig.txt"],
     },
     Native {
         name: "mbelib",
         license: "ISC",
         url: "https://github.com/szechyjs/mbelib",
-        note: Some(
-            "The D-STAR AMBE decoder in `crates/channels/src/dv/ambe` is a Rust port of mbelib's \
-             AMBE 3600x2400 decoder, and its quantizer tables are mbelib's.",
-        ),
         files: &["mbelib-ISC.txt"],
     },
     Native {
         name: "codec2 FDMDV modem",
         license: "LGPL-2.1-only",
         url: "https://github.com/drowe67/codec2",
-        note: Some("LGPL-2.1-only. Copyright (C) 2012 David Rowe."),
         files: &["codec2-LGPL-2.1.txt"],
     },
     Native {
         name: "xng",
         license: "MIT OR Apache-2.0",
         url: "https://github.com/airframesio/xng",
-        note: Some(
-            "The ACARS application layer and the VDL2, HFDL, Inmarsat Aero, Inmarsat STD-C, \
-             DSC and Iridium decoders in `crates/channels` started as ports of xng, Copyright \
-             (c) 2023-2026 Kevin Elliott and the xng contributors, used under its MIT license.",
-        ),
         files: &["xng-MIT.txt"],
     },
 ];
@@ -285,11 +198,6 @@ fn harvest(root: &Path, pnpm: &str) -> Result<NoticesDocument> {
             .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
             .then_with(|| a.version.cmp(&b.version))
     });
-    for component in &mut components {
-        if let Some((_, note)) = NOTES.iter().find(|(name, _)| *name == component.name) {
-            component.note = Some((*note).to_string());
-        }
-    }
 
     Ok(NoticesDocument {
         components,
@@ -495,7 +403,6 @@ fn rust_attribution(package: &MetaPackage, pool: &mut TextPool) -> Result<Attrib
         source: ComponentSource::Rust,
         url: package.repository.clone(),
         texts: license_files(dir, pool)?,
-        note: None,
     })
 }
 
@@ -542,7 +449,6 @@ fn web_components(root: &Path, pnpm: &str, pool: &mut TextPool) -> Result<Vec<At
             source: ComponentSource::Web,
             url: package.homepage,
             texts,
-            note: None,
         });
     }
     Ok(components)
@@ -554,42 +460,9 @@ fn markdown(document: &NoticesDocument) -> String {
     let mut out = String::new();
     out.push_str(
         "# Third-party notices\n\n\
-         <!-- Generated by `cargo xtask licenses`. Do not edit by hand: `cargo xtask check` \
-         regenerates this file and fails on any difference. -->\n\n\
-         SDR-- itself is licensed under the GNU Affero General Public License, version 3 or later: \
-         see [`LICENSE`](LICENSE).\n\n\
-         This file lists every third-party component a release distributes: crates compiled into \
-         the binaries and npm packages bundled into the web UI. Dev-only tooling is excluded, \
-         because a test harness and a bundler are how a release is built rather than part of \
-         one. Libraries opened at runtime from a host installation, SoapySDR, the SDRplay API, \
-         the CR-8 library, are not distributed here and are listed only for the work derived \
-         from them.\n\n\
-         The full license texts are distributed with the software, not merely referenced by it. \
-         They are compiled into the server and readable in the app under **About**, served at \
-         `GET /api/about`, and stored in \
-         [`crates/server/data/notices.json`](crates/server/data/notices.json).\n\n",
+         <!-- Generated by `cargo xtask licenses`. -->\n\n\
+         SDR-- is licensed under AGPL-3.0-or-later: see [`LICENSE`](LICENSE).\n\n",
     );
-
-    let noted: Vec<&Attribution> = document
-        .components
-        .iter()
-        .filter(|component| component.note.is_some())
-        .collect();
-    if !noted.is_empty() {
-        out.push_str(
-            "## Components that need more than their SPDX id\n\n\
-             Everything else in this file is a permissive license that asks only for \
-             attribution, which the notices above provide. These do not.\n\n",
-        );
-        for component in noted {
-            let note = component.note.as_deref().unwrap_or_default();
-            let _ = writeln!(
-                out,
-                "**{}**: {}\n\n{note}\n",
-                component.name, component.license
-            );
-        }
-    }
 
     for source in [
         ComponentSource::Rust,
@@ -650,7 +523,6 @@ fn native_components(root: &Path, pool: &mut TextPool) -> Result<Vec<Attribution
             source: ComponentSource::Native,
             url: Some(native.url.to_string()),
             texts,
-            note: native.note.map(str::to_string),
         });
     }
     Ok(components)

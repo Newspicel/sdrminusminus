@@ -103,22 +103,6 @@ mod tests {
     }
 
     #[test]
-    fn copyleft_components_are_annotated() {
-        let about = about("id", "host");
-        for name in ["codec2", "FFmpeg 9.0.1"] {
-            let component = about
-                .components
-                .iter()
-                .find(|component| component.name == name)
-                .unwrap_or_else(|| panic!("{name} is missing from the notices"));
-            assert!(
-                component.note.is_some(),
-                "{name} carries a copyleft license with no note explaining how it applies"
-            );
-        }
-    }
-
-    #[test]
     fn unknown_license_text_is_none() {
         assert!(license_text("deadbeefdeadbeef").is_none());
     }

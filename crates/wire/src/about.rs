@@ -30,8 +30,6 @@ pub struct Attribution {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub url: Option<String>,
     pub texts: Vec<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub note: Option<String>,
 }
 
 pub const API_PROTOCOL: u32 = 1;

@@ -7838,12 +7838,6 @@
           "name": {
             "type": "string"
           },
-          "note": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
           "source": {
             "$ref": "#/components/schemas/ComponentSource"
           },

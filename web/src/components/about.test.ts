@@ -1,12 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Attribution } from "../lib/types";
-import {
-  groupComponents,
-  licenseSummary,
-  matchesQuery,
-  notedComponents,
-  sourceLabel,
-} from "./about";
+import { groupComponents, licenseSummary, matchesQuery, sourceLabel } from "./about";
 
 const serde: Attribution = {
   name: "serde",
@@ -22,7 +16,6 @@ const codec2: Attribution = {
   license: "LGPL-2.1-only AND MIT",
   source: "rust",
   texts: [],
-  note: "LGPL-2.1-only, statically linked into the binary.",
 };
 
 const react: Attribution = {
@@ -38,7 +31,6 @@ const rtlsdr: Attribution = {
   license: "GPL-2.0-or-later",
   source: "native",
   texts: [],
-  note: "Loaded at runtime as a SoapySDR module.",
 };
 
 const ALL = [serde, codec2, react, rtlsdr];
@@ -58,10 +50,6 @@ describe("matchesQuery", () => {
     expect(matchesQuery(rtlsdr, "gpl")).toBe(true);
     expect(matchesQuery(codec2, "lgpl")).toBe(true);
     expect(matchesQuery(react, "gpl")).toBe(false);
-  });
-
-  it("matches on the note", () => {
-    expect(matchesQuery(codec2, "statically linked")).toBe(true);
   });
 });
 
@@ -100,11 +88,5 @@ describe("licenseSummary", () => {
   it("breaks ties by license so the order is stable across builds", () => {
     const summary = licenseSummary([react, rtlsdr]);
     expect(summary.map((entry) => entry.license)).toEqual(["GPL-2.0-or-later", "MIT"]);
-  });
-});
-
-describe("notedComponents", () => {
-  it("keeps only the components whose license needs explaining", () => {
-    expect(notedComponents(ALL)).toEqual([codec2, rtlsdr]);
   });
 });
