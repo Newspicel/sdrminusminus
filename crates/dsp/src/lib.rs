@@ -8,6 +8,7 @@ pub mod covariance;
 pub mod ddc;
 pub mod decim;
 pub mod doa;
+pub mod fastmath;
 pub mod fec;
 pub mod fft;
 pub mod fir;
@@ -50,6 +51,7 @@ pub use bits::{
 pub use compander::Compander;
 pub use ddc::{Ddc, DdcError, flat_bandwidth_hz};
 pub use decim::{Decimator, RealDecimator};
+pub use fastmath::{fast_arg, fast_atan2, phase_diff_into};
 pub use fec::{
     RdsOffset,
     block::{CyclicCode, ParityCode},

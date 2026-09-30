@@ -1,4 +1,5 @@
 use num_complex::Complex;
+use sdrmm_dsp::fast_arg;
 
 #[cfg(any(test, feature = "synth"))]
 use super::frame::{interleave, modulate};
@@ -688,7 +689,7 @@ fn track_decisions(symbols: &mut [Complex<f32>], constellation: &Constellation) 
                 decision = point;
             }
         }
-        let error = (corrected * decision.conj()).arg().clamp(-0.3, 0.3);
+        let error = fast_arg(corrected * decision.conj()).clamp(-0.3, 0.3);
         frequency = (frequency + 0.0001 * error).clamp(-0.02, 0.02);
         phase = (phase + frequency + 0.03 * error + std::f32::consts::PI)
             .rem_euclid(std::f32::consts::TAU)

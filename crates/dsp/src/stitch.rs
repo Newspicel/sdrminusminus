@@ -2,7 +2,7 @@ use std::f64::consts::TAU;
 
 use num_complex::Complex;
 
-use crate::fft::FftPair;
+use crate::{fastmath::fast_power_db, fft::FftPair};
 
 pub const STITCH_FFT: usize = 2048;
 pub const STITCH_KEEP: f64 = 0.85;
@@ -33,8 +33,6 @@ const SPUR_WINDOW: u16 = (1 << 10) - 1;
 const POWER_FLOOR: f32 = 1e-30;
 const POWER_FLOOR_DB: f32 = -300.0;
 const DEAD_DB: f32 = -250.0;
-const DB_PER_LN: f32 = 10.0 / std::f32::consts::LN_10;
-const DB_PER_OCTAVE: f32 = 10.0 * std::f32::consts::LOG10_2;
 
 #[derive(Clone, Debug, PartialEq, thiserror::Error)]
 pub enum StitchError {
@@ -139,18 +137,7 @@ fn signed_bin(index: usize, len: usize) -> i64 {
 }
 
 fn power_db(power: f32) -> f32 {
-    let bits = power.max(POWER_FLOOR).to_bits();
-    let exponent = (bits >> 23) as i32 - 127;
-    let mantissa = f32::from_bits((bits & 0x007f_ffff) | 0x3f80_0000);
-    let (mantissa, exponent) = if mantissa > std::f32::consts::SQRT_2 {
-        (mantissa * 0.5, exponent + 1)
-    } else {
-        (mantissa, exponent)
-    };
-    let z = (mantissa - 1.0) / (mantissa + 1.0);
-    let z2 = z * z;
-    let ln = 2.0 * z * (1.0 + z2 * (1.0 / 3.0 + z2 * (0.2 + z2 / 7.0)));
-    DB_PER_LN * ln + DB_PER_OCTAVE * exponent as f32
+    fast_power_db(power.max(POWER_FLOOR))
 }
 
 fn amplitude_of_db(db: f32) -> f32 {

@@ -1,7 +1,7 @@
 use std::f64::consts::TAU;
 
 use num_complex::Complex;
-use sdrmm_dsp::{DcBlocker, FmDemod, Pll, RealDecimator, design_lowpass};
+use sdrmm_dsp::{DcBlocker, FmDemod, Pll, RealDecimator, design_lowpass, fast_arg};
 
 use super::filter::{Band, BandFilter};
 
@@ -186,7 +186,7 @@ impl AngleDemod {
             Reader::Differential(fm) => fm.process(&self.filtered, &mut self.detected),
             Reader::Argument { scale } => self
                 .detected
-                .extend(self.filtered.iter().map(|z| z.arg() * *scale)),
+                .extend(self.filtered.iter().map(|&z| fast_arg(z) * *scale)),
             Reader::LoopFrequency { pll, scale } => {
                 self.detected.extend(self.filtered.iter().map(|&z| {
                     let _ = pll.process(z);
@@ -196,7 +196,7 @@ impl AngleDemod {
             Reader::LoopArgument { pll, scale } => {
                 self.detected.extend(self.filtered.iter().map(|&z| {
                     let reference = pll.process(z);
-                    (z * reference.conj()).arg() * *scale
+                    fast_arg(z * reference.conj()) * *scale
                 }));
             }
         }

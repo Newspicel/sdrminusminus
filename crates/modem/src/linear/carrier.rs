@@ -1,7 +1,7 @@
 use std::f64::consts::{PI, TAU};
 
 use num_complex::Complex;
-use sdrmm_dsp::LoopFilter;
+use sdrmm_dsp::{LoopFilter, fast_arg};
 
 use crate::constellation::Constellation;
 
@@ -31,7 +31,7 @@ impl PhaseDetector {
                 if x.re == 0.0 && x.im == 0.0 {
                     return 0.0;
                 }
-                f64::from((y * x.conj()).arg())
+                f64::from(fast_arg(y * x.conj()))
             }
             Self::MthPower { m } => {
                 let reference = unit_power(table.points()[0], m);

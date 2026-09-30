@@ -1,7 +1,7 @@
 use std::f64::consts::TAU;
 
 use num_complex::Complex;
-use sdrmm_dsp::{CyclicPrefix, CyclicPrefixSearch, Ddc, SpectrumAnalyzer};
+use sdrmm_dsp::{CyclicPrefix, CyclicPrefixSearch, Ddc, SpectrumAnalyzer, fast_arg};
 
 use super::detect::Band;
 
@@ -331,7 +331,7 @@ impl Meter {
         self.frequency.push(0.0);
         for pair in iq.windows(2) {
             self.frequency
-                .push((pair[1] * pair[0].conj()).arg() * scale);
+                .push(fast_arg(pair[1] * pair[0].conj()) * scale);
         }
 
         let mut slope_sq = 0.0f64;

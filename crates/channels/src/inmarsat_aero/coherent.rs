@@ -1,6 +1,7 @@
 use std::f32::consts::{FRAC_PI_2, TAU};
 
 use num_complex::Complex;
+use sdrmm_dsp::fast_arg;
 
 use super::taps::{Fir, lowpass_taps};
 
@@ -57,7 +58,7 @@ impl CoherentMskDemod {
         } else {
             (-FRAC_PI_2, minus)
         };
-        self.theta += deviation + CARRIER_GAIN * matched.arg();
+        self.theta += deviation + CARRIER_GAIN * fast_arg(matched);
         if self.theta > TAU {
             self.theta -= TAU;
         } else if self.theta < -TAU {
@@ -71,7 +72,7 @@ impl CoherentMskDemod {
 
     fn track_timing(&mut self, sample: Complex<f32>) {
         if self.have_previous {
-            let raw = (sample * self.previous_sample.conj()).arg();
+            let raw = fast_arg(sample * self.previous_sample.conj());
             self.freq_offset += FREQ_ALPHA * (raw - self.freq_offset);
             let discriminator = raw - self.freq_offset;
             if discriminator != 0.0

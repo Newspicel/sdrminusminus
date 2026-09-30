@@ -1,6 +1,7 @@
 use std::f32::consts::{FRAC_1_PI, FRAC_PI_2, PI, TAU};
 
 use num_complex::Complex;
+use sdrmm_dsp::fast_arg;
 
 use super::{
     acquisition::CoarseAcquisition,
@@ -147,9 +148,7 @@ impl CoherentMsk {
     fn track_carrier(&mut self) {
         let [before, current, after] = self.points.map(|point| point.re.signum());
         let expected = Complex::new(current, (after - before) * FRAC_1_PI);
-        let error = (self.points[1] * expected.conj())
-            .arg()
-            .clamp(-FRAC_PI_2, FRAC_PI_2);
+        let error = fast_arg(self.points[1] * expected.conj()).clamp(-FRAC_PI_2, FRAC_PI_2);
         self.lock += LOCK_ALPHA * ((2.0 * error).cos() - self.lock);
         self.nco_phase = wrap(self.nco_phase + PHASE_GAIN * error);
         self.nco_freq += FREQ_GAIN * error / self.samples_per_bit as f32;

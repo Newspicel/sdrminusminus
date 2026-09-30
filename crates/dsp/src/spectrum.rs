@@ -3,7 +3,12 @@ use std::sync::Arc;
 use num_complex::Complex;
 use rustfft::{Fft, FftPlanner};
 
-use crate::window::{coherent_gain, hann};
+use crate::{
+    fastmath::fast_power_db,
+    window::{coherent_gain, hann},
+};
+
+const POWER_EPSILON: f32 = 1e-24;
 
 pub struct SpectrumAnalyzer {
     fft: Arc<dyn Fft<f32>>,
@@ -47,12 +52,17 @@ impl SpectrumAnalyzer {
         self.fft
             .process_with_scratch(&mut self.buf, &mut self.scratch);
 
-        let half = self.size / 2;
-        for (raw_idx, x) in self.buf.iter().enumerate() {
-            let shifted = (raw_idx + half) % self.size;
-            let mag = x.norm() * self.inv_gain;
-            out[shifted] = 20.0 * (mag + 1e-12).log10();
-        }
+        let scale = self.inv_gain * self.inv_gain;
+        let (positive, negative) = self.buf.split_at(self.size - self.size / 2);
+        let (low, high) = out.split_at_mut(self.size / 2);
+        bins_db(negative, scale, low);
+        bins_db(positive, scale, high);
+    }
+}
+
+fn bins_db(bins: &[Complex<f32>], scale: f32, out: &mut [f32]) {
+    for (slot, bin) in out.iter_mut().zip(bins) {
+        *slot = fast_power_db(bin.norm_sqr() * scale + POWER_EPSILON);
     }
 }
 
@@ -202,7 +212,7 @@ impl PowerAverage {
         assert_eq!(out.len(), self.sum.len(), "average length mismatch");
         let scale = 1.0 / self.count.max(1) as f32;
         for (slot, &power) in out.iter_mut().zip(&self.sum) {
-            *slot = 10.0 * (power * scale + 1e-24).log10();
+            *slot = fast_power_db(power * scale + POWER_EPSILON);
         }
         self.reset();
     }

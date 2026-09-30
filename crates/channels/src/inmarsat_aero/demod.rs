@@ -1,4 +1,5 @@
 use num_complex::Complex;
+use sdrmm_dsp::fast_arg;
 
 use super::taps::{Fir, lowpass_taps};
 
@@ -55,7 +56,7 @@ impl MskDemod {
     }
 
     fn step(&mut self, sample: Complex<f32>) -> Option<(f32, u8)> {
-        let raw = (sample * self.previous_sample.conj()).arg();
+        let raw = fast_arg(sample * self.previous_sample.conj());
         self.previous_sample = sample;
         self.freq_offset += FREQ_ALPHA * (raw - self.freq_offset);
         let discriminator = raw - self.freq_offset;

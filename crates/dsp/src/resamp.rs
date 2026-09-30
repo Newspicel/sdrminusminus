@@ -1,6 +1,6 @@
 use num_complex::Complex;
 
-use crate::fir::{design_lowpass, dot};
+use crate::fir::{DelayLine, Isa, design_lowpass, interpolated_dot};
 
 const PHASES: usize = 128;
 
@@ -15,12 +15,13 @@ fn taps_for(transition: f64) -> usize {
 #[derive(Clone, Debug)]
 pub struct FracResampler {
     rows: Vec<f32>,
+    slopes: Vec<f32>,
     taps_per_phase: usize,
     step: f64,
     position: usize,
     fraction: f64,
-    buf: Vec<Complex<f32>>,
-    row: Vec<f32>,
+    line: DelayLine<Complex<f32>>,
+    isa: Isa,
 }
 
 impl FracResampler {
@@ -59,48 +60,59 @@ impl FracResampler {
             }
             row.reverse();
         }
+        let slopes = rows[taps_per_phase..]
+            .iter()
+            .zip(&rows)
+            .map(|(upper, lower)| upper - lower)
+            .collect();
         Self {
             rows,
+            slopes,
             taps_per_phase,
             step: ratio.recip(),
             position: taps_per_phase - 1,
             fraction: 0.0,
-            buf: vec![Complex::new(0.0, 0.0); taps_per_phase - 1],
-            row: vec![0.0; taps_per_phase],
+            line: DelayLine::new(taps_per_phase - 1, 1, 0),
+            isa: Isa::detect(),
         }
     }
 
     pub fn reset(&mut self) {
         self.position = self.taps_per_phase - 1;
         self.fraction = 0.0;
-        self.buf.clear();
-        self.buf
-            .resize(self.taps_per_phase - 1, Complex::new(0.0, 0.0));
+        self.line.reset();
     }
 
     pub fn process(&mut self, input: &[Complex<f32>], out: &mut Vec<Complex<f32>>) {
         out.clear();
-        self.buf.extend_from_slice(input);
+        for chunk in input.chunks(self.line.room()) {
+            self.line.push(chunk);
+            self.emit(out);
+        }
+    }
+
+    fn emit(&mut self, out: &mut Vec<Complex<f32>>) {
         let tpp = self.taps_per_phase;
-        while self.position < self.buf.len() {
-            let n = self.position;
+        while self.position < self.line.len() {
             let phase = self.fraction * PHASES as f64;
-            let p = phase as usize;
-            let mu = (phase - p as f64) as f32;
-            let window = &self.buf[n + 1 - tpp..=n];
-            let (lower, upper) = self.rows[p * tpp..(p + 2) * tpp].split_at(tpp);
-            for ((tap, a), b) in self.row.iter_mut().zip(lower).zip(upper) {
-                *tap = a + (b - a) * mu;
-            }
-            out.push(dot(window, &self.row));
+            let row = phase as usize;
+            let mu = (phase - row as f64) as f32;
+            let taps = row * tpp..(row + 1) * tpp;
+            out.push(interpolated_dot(
+                self.isa,
+                &self.line.rows_from(self.position + 1 - tpp)[..tpp],
+                &self.rows[taps.clone()],
+                &self.slopes[taps],
+                mu,
+            ));
             self.fraction += self.step;
             let advance = self.fraction as usize;
             self.position += advance;
             self.fraction -= advance as f64;
         }
-        let drain = self.position.saturating_sub(tpp - 1).min(self.buf.len());
-        self.buf.drain(..drain);
-        self.position -= drain;
+        let consumed = self.position.saturating_sub(tpp - 1).min(self.line.len());
+        self.line.consume(consumed);
+        self.position -= consumed;
     }
 }
 

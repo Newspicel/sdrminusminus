@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 use num_complex::Complex;
 use rustfft::{Fft, FftPlanner};
+use sdrmm_dsp::fast_arg;
 
 use super::frame::{ACCESS_DL, ACCESS_UL, FrameKind, classify};
 use super::lcw::decode_lcw;
@@ -71,7 +72,7 @@ fn expected(symbol: u8) -> f32 {
 }
 
 fn slice(derotated: Complex<f32>) -> (u8, f32) {
-    let angle = derotated.arg();
+    let angle = fast_arg(derotated);
     let index = (angle / (PI / 2.0)).round();
     (
         (index as i32).rem_euclid(4) as u8,

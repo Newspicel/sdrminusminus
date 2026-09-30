@@ -1,7 +1,7 @@
 use std::f64::consts::{FRAC_PI_2, TAU};
 
 use num_complex::Complex;
-use sdrmm_dsp::{Decimator, farrow};
+use sdrmm_dsp::{Decimator, farrow, fast_arg};
 
 use super::{
     costas::LaurentCostas,
@@ -93,7 +93,7 @@ impl SquareLock {
                 coherence > FINE_ENTER
             };
         self.fine.then(|| {
-            (0.5 * f64::from((self.average * before.conj()).arg()))
+            (0.5 * f64::from(fast_arg(self.average * before.conj())))
                 .clamp(-FINE_RANGE_RAD, FINE_RANGE_RAD)
         })
     }

@@ -4,6 +4,7 @@ use std::{
 };
 
 use num_complex::Complex;
+use sdrmm_dsp::fast_arg;
 
 use super::{
     acquisition::CoarseAcquisition,
@@ -150,7 +151,7 @@ impl SymbolTiming {
         let eta = self.resonator.run((second - difference) * first);
         let detector = Complex::new(eta, -self.eighth.run(eta));
         let rotation = Complex::from_polar(1.0, (TAU * self.phase) as f32);
-        let error = f64::from((rotation * detector).arg());
+        let error = f64::from(fast_arg(rotation * detector));
         self.freq_hz =
             (self.freq_hz - error * 1e-8).clamp(self.bit_rate - 0.1, self.bit_rate + 0.1);
         let previous = self.phase;

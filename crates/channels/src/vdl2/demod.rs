@@ -1,7 +1,7 @@
 use std::f32::consts::PI;
 
 use num_complex::Complex;
-use sdrmm_dsp::ReedSolomon;
+use sdrmm_dsp::{ReedSolomon, fast_arg};
 
 use super::avlc::{self, AvlcFrame};
 use super::header::{self, HEADER_BITS};
@@ -85,12 +85,12 @@ impl Tracker {
         let (ph, predicted) = match self.detector {
             Detector::Coherent { .. } => {
                 let predicted = self.reference + self.theta;
-                (wrap(s.arg() - predicted), predicted)
+                (wrap(fast_arg(s) - predicted), predicted)
             }
             Detector::Differential => {
                 let d = s * self.prev.conj();
                 self.prev = s;
-                (d.arg() - self.theta, 0.0)
+                (fast_arg(d) - self.theta, 0.0)
             }
         };
         let idx_f = (ph / (PI / 4.0)).round();

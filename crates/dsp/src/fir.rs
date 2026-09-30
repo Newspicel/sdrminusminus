@@ -1,6 +1,18 @@
-use std::{f64::consts::PI, ops::Add};
+use std::f64::consts::PI;
 
-use num_complex::Complex;
+mod kernel;
+mod line;
+#[cfg(target_arch = "aarch64")]
+mod neon;
+#[cfg(any(test, not(any(target_arch = "aarch64", target_arch = "x86_64"))))]
+mod scalar;
+mod stream;
+#[cfg(target_arch = "x86_64")]
+mod x86;
+
+pub(crate) use kernel::{Accumulate, Isa, interpolated_dot};
+pub(crate) use line::DelayLine;
+pub(crate) use stream::StreamFir;
 
 #[must_use]
 pub fn design_lowpass(taps: usize, cutoff: f64) -> Vec<f32> {
@@ -151,185 +163,14 @@ fn sinc(x: f64) -> f64 {
 }
 
 fn blackman(k: usize, n: usize) -> f64 {
-    let x = 2.0 * PI * k as f64 / (n - 1) as f64;
+    let x = 2.0 * PI * k.min(n - 1 - k) as f64 / (n - 1) as f64;
     0.42 - 0.5 * x.cos() + 0.08 * (2.0 * x).cos()
-}
-
-pub(crate) trait Sample: Copy + Add<Output = Self> {
-    fn zero() -> Self;
-}
-
-impl Sample for f32 {
-    fn zero() -> Self {
-        0.0
-    }
-}
-
-impl Sample for Complex<f32> {
-    fn zero() -> Self {
-        Complex::new(0.0, 0.0)
-    }
-}
-
-pub(crate) trait Accumulate<C>: Sample {
-    fn add_product(self, sample: Self, coefficient: C) -> Self;
-}
-
-fn add_product(sum: f32, sample: f32, coefficient: f32) -> f32 {
-    if cfg!(any(target_arch = "aarch64", target_feature = "fma")) {
-        sample.mul_add(coefficient, sum)
-    } else {
-        sum + sample * coefficient
-    }
-}
-
-impl Accumulate<f32> for f32 {
-    fn add_product(self, sample: Self, coefficient: f32) -> Self {
-        add_product(self, sample, coefficient)
-    }
-}
-
-impl Accumulate<f32> for Complex<f32> {
-    fn add_product(self, sample: Self, coefficient: f32) -> Self {
-        Self::new(
-            add_product(self.re, sample.re, coefficient),
-            add_product(self.im, sample.im, coefficient),
-        )
-    }
-}
-
-impl Accumulate<Complex<f32>> for Complex<f32> {
-    fn add_product(self, sample: Self, coefficient: Self) -> Self {
-        self + sample * coefficient
-    }
-}
-
-#[derive(Clone, Debug)]
-pub(crate) struct StreamFir<T, C> {
-    rev_taps: Vec<C>,
-    factor: usize,
-    buf: Vec<T>,
-}
-
-impl<T, C> StreamFir<T, C>
-where
-    T: Accumulate<C>,
-    C: Copy,
-{
-    pub(crate) fn new(taps: &[C], factor: usize) -> Self {
-        assert!(!taps.is_empty(), "taps must not be empty");
-        assert!(factor >= 1, "factor must be >= 1");
-        assert!(factor <= taps.len(), "factor must not exceed the tap count");
-        let mut rev_taps = taps.to_vec();
-        rev_taps.reverse();
-        Self {
-            rev_taps,
-            factor,
-            buf: vec![T::zero(); taps.len() - 1],
-        }
-    }
-
-    pub(crate) fn reset(&mut self) {
-        self.buf.clear();
-        self.buf.resize(self.rev_taps.len() - 1, T::zero());
-    }
-
-    pub(crate) fn process(&mut self, input: &[T], out: &mut Vec<T>) {
-        out.clear();
-        self.buf.extend_from_slice(input);
-        let k = self.rev_taps.len();
-        let mut pos = 0;
-        while pos + k <= self.buf.len() {
-            out.push(dot(&self.buf[pos..pos + k], &self.rev_taps));
-            pos += self.factor;
-        }
-        self.buf.drain(..pos);
-    }
-}
-
-pub(crate) fn dot<T, C>(samples: &[T], taps: &[C]) -> T
-where
-    T: Accumulate<C>,
-    C: Copy,
-{
-    let (samples, tail_samples) = samples.as_chunks::<4>();
-    let (taps, tail_taps) = taps.as_chunks::<4>();
-    let mut sums = [T::zero(); 4];
-    for (samples, taps) in samples.iter().zip(taps) {
-        for lane in 0..4 {
-            sums[lane] = sums[lane].add_product(samples[lane], taps[lane]);
-        }
-    }
-    let mut sum = (sums[0] + sums[1]) + (sums[2] + sums[3]);
-    for (&sample, &tap) in tail_samples.iter().zip(tail_taps) {
-        sum = sum.add_product(sample, tap);
-    }
-    sum
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::testutil::{real_tone, rms_r};
-
-    #[test]
-    fn batched_products_match_double_precision_for_every_tail_length() {
-        for len in 1..=257 {
-            let samples: Vec<_> = (0..len)
-                .map(|index| {
-                    Complex::new(
-                        (index % 7) as f32 / 7.0 - 0.5,
-                        (index % 11) as f32 / 11.0 - 0.5,
-                    )
-                })
-                .collect();
-            let taps: Vec<_> = (0..len)
-                .map(|index| {
-                    Complex::new(
-                        (index % 13) as f32 / 13.0 - 0.5,
-                        (index % 17) as f32 / 17.0 - 0.5,
-                    )
-                })
-                .collect();
-            let reference: Complex<f64> = samples
-                .iter()
-                .zip(&taps)
-                .map(|(sample, tap)| {
-                    Complex::new(f64::from(sample.re), f64::from(sample.im))
-                        * Complex::new(f64::from(tap.re), f64::from(tap.im))
-                })
-                .sum();
-            let actual = dot(&samples, &taps);
-            let actual = Complex::new(f64::from(actual.re), f64::from(actual.im));
-            assert!(
-                (actual - reference).norm() < len as f64 * 1e-7,
-                "length={len}"
-            );
-            let real_samples: Vec<_> = samples.iter().map(|sample| sample.re).collect();
-            let real_taps: Vec<_> = taps.iter().map(|tap| tap.re).collect();
-            let reference: Complex<f64> = samples
-                .iter()
-                .zip(&real_taps)
-                .map(|(sample, &tap)| {
-                    Complex::new(f64::from(sample.re), f64::from(sample.im)) * f64::from(tap)
-                })
-                .sum();
-            let actual = dot(&samples, &real_taps);
-            let actual = Complex::new(f64::from(actual.re), f64::from(actual.im));
-            assert!(
-                (actual - reference).norm() < len as f64 * 1e-7,
-                "real taps, length={len}"
-            );
-            let reference: f64 = real_samples
-                .iter()
-                .zip(&real_taps)
-                .map(|(&sample, &tap)| f64::from(sample) * f64::from(tap))
-                .sum();
-            assert!(
-                (f64::from(dot(&real_samples, &real_taps)) - reference).abs() < len as f64 * 1e-7
-            );
-        }
-    }
 
     fn tone_gain(h: &[f32], freq: f64) -> f32 {
         let mut fir = StreamFir::<f32, f32>::new(h, 1);
@@ -385,6 +226,14 @@ mod tests {
         for &f in &[0.002, 0.008, 0.12, 0.45] {
             let gain = tone_gain(&h, f);
             assert!(gain < 0.01, "stopband gain {gain} at f={f}");
+        }
+    }
+
+    #[test]
+    fn lowpass_is_exactly_symmetric() {
+        for taps in [3, 4, 11, 64, 127, 255] {
+            let h = design_lowpass(taps, 0.11);
+            assert!(h.iter().eq(h.iter().rev()), "taps={taps}");
         }
     }
 

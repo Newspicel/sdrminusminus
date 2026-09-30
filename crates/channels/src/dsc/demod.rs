@@ -1,6 +1,7 @@
 use std::f32::consts::TAU;
 
 use num_complex::Complex;
+use sdrmm_dsp::fast_arg;
 
 use super::symbol::{SYMBOL_BITS, symbol_at};
 
@@ -49,7 +50,7 @@ impl FskDemod {
     }
 
     fn track_carrier(&mut self, sample: Complex<f32>) {
-        let raw = (sample * self.prev_sample.conj()).arg();
+        let raw = fast_arg(sample * self.prev_sample.conj());
         self.prev_sample = sample;
         self.freq_offset += FREQ_ALPHA * (raw - self.freq_offset);
         self.center_phase = (self.center_phase + self.freq_offset).rem_euclid(TAU);

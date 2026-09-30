@@ -34,6 +34,42 @@ fn resampling(c: &mut Criterion) {
     group.finish();
 }
 
+fn fir(c: &mut Criterion) {
+    let input = pseudo(2_048, 0xF1);
+    let real: Vec<f32> = input.iter().map(|sample| sample.re).collect();
+    let taps = sdrmm_dsp::design_lowpass(127, 0.11);
+    let complex_taps: Vec<_> = pseudo(127, 0xC7).iter().map(|tap| tap * 0.01).collect();
+    let mut group = c.benchmark_group("fir");
+    group.throughput(Throughput::Elements(input.len() as u64));
+    for factor in [1, 4] {
+        let mut decimator = sdrmm_dsp::Decimator::new(&taps, factor);
+        let mut output = Vec::new();
+        group.bench_function(format!("complex_127_by_{factor}"), |b| {
+            b.iter(|| {
+                decimator.process(black_box(&input), &mut output);
+                black_box(&output);
+            });
+        });
+        let mut decimator = sdrmm_dsp::RealDecimator::new(&taps, factor);
+        let mut output = Vec::new();
+        group.bench_function(format!("real_127_by_{factor}"), |b| {
+            b.iter(|| {
+                decimator.process(black_box(&real), &mut output);
+                black_box(&output);
+            });
+        });
+    }
+    let mut filter = sdrmm_dsp::FirC::new(&complex_taps);
+    let mut output = Vec::new();
+    group.bench_function("complex_taps_127", |b| {
+        b.iter(|| {
+            filter.process(black_box(&input), &mut output);
+            black_box(&output);
+        });
+    });
+    group.finish();
+}
+
 fn tuning(c: &mut Criterion) {
     let input = pseudo(2_048, 0xDDC);
     let mut out = vec![Complex::new(0.0, 0.0); input.len()];
@@ -237,6 +273,21 @@ fn fft_4096(c: &mut Criterion) {
     group.finish();
 }
 
+fn spectrum(c: &mut Criterion) {
+    let mut analyzer = sdrmm_dsp::SpectrumAnalyzer::new(4_096);
+    let input = pseudo(4_096, 0x5EC);
+    let mut out = vec![0.0f32; 4_096];
+    let mut group = c.benchmark_group("spectrum");
+    group.throughput(Throughput::Elements(4_096));
+    group.bench_function("power_db_4096", |b| {
+        b.iter(|| {
+            analyzer.power_db(black_box(&input), &mut out);
+            black_box(&out);
+        });
+    });
+    group.finish();
+}
+
 fn xcorr_8192(c: &mut Criterion) {
     let mut xcorr = XCorr::new(8_192);
     let a = pseudo(8_192, 0xAA);
@@ -249,26 +300,32 @@ fn xcorr_8192(c: &mut Criterion) {
     group.finish();
 }
 
-fn filter_from_args() -> String {
-    let filters: Vec<String> = std::env::args()
-        .skip(1)
-        .filter(|arg| !arg.starts_with('-'))
-        .collect();
-    if filters.is_empty() {
-        ".*".to_owned()
-    } else {
-        filters.join("|")
-    }
+fn fm_demod(c: &mut Criterion) {
+    let input = pseudo(4_096, 0xF3);
+    let mut output = Vec::with_capacity(input.len());
+    let mut demod = sdrmm_dsp::FmDemod::new(240_000.0, 75_000.0);
+    let mut group = c.benchmark_group("fm_demod");
+    group.throughput(Throughput::Elements(input.len() as u64));
+    group.bench_function("240k_4096", |b| {
+        b.iter(|| {
+            demod.process(black_box(&input), &mut output);
+            black_box(&output);
+        });
+    });
+    group.finish();
 }
 
 fn main() {
-    let mut criterion = Criterion::default().with_filter(filter_from_args());
+    let mut criterion = Criterion::default().configure_from_args();
     resampling(&mut criterion);
+    fir(&mut criterion);
     tuning(&mut criterion);
     real_to_iq(&mut criterion);
     shared_tuning(&mut criterion);
     fft_4096(&mut criterion);
+    spectrum(&mut criterion);
     xcorr_8192(&mut criterion);
+    fm_demod(&mut criterion);
     array::benches(&mut criterion);
     radar::benches(&mut criterion);
     criterion.final_summary();

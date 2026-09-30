@@ -1,7 +1,7 @@
 use std::f32::consts::FRAC_PI_2;
 
 use num_complex::Complex;
-use sdrmm_dsp::{HdlcDeframer, hdlc_fcs_ok};
+use sdrmm_dsp::{HdlcDeframer, fast_arg, hdlc_fcs_ok};
 use sdrmm_modem::pulse::{self, Norm};
 
 use super::{BT, MAX_FRAME_BYTES, MIN_FRAME_BYTES};
@@ -709,7 +709,7 @@ fn step_trellis(
             let metric = s.metric + c.re;
             let target = (to_quadrant << 2) | (cur << 1) | bit;
             if metric > next[target].metric {
-                let nudge = Complex::from_polar(1.0, gain * c.arg());
+                let nudge = Complex::from_polar(1.0, gain * fast_arg(c));
                 next[target] = Survivor {
                     metric,
                     carrier: s.carrier * nudge,

@@ -2,6 +2,8 @@ use std::f64::consts::TAU;
 
 use num_complex::Complex;
 
+use crate::fastmath::phase_diff_into;
+
 #[derive(Clone, Debug)]
 pub struct FmDemod {
     prev: Complex<f32>,
@@ -24,17 +26,13 @@ impl FmDemod {
     }
 
     pub fn process(&mut self, iq: &[Complex<f32>], out: &mut Vec<f32>) {
-        out.clear();
         if !self.primed
             && let Some(&first) = iq.first()
         {
             self.prev = first;
             self.primed = true;
         }
-        for &x in iq {
-            out.push((x * self.prev.conj()).arg() * self.scale);
-            self.prev = x;
-        }
+        phase_diff_into(iq, &mut self.prev, self.scale, out);
     }
 }
 

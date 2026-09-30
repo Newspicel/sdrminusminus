@@ -1,7 +1,7 @@
 use std::f64::consts::{PI, TAU};
 
 use num_complex::Complex;
-use sdrmm_dsp::{Decimator, design_lowpass};
+use sdrmm_dsp::{Decimator, design_lowpass, fast_arg};
 
 const STEADY_SYMBOLS: f32 = 8.0;
 
@@ -128,7 +128,7 @@ impl FrequencyLock {
                 continue;
             }
             let weight = f64::from(self.steadiness.weight());
-            let error = self.track_levels(f64::from(turn.arg()));
+            let error = self.track_levels(f64::from(fast_arg(turn)));
             self.drift += self.drift_alpha * weight * (error - self.drift);
             self.shift(gain * weight * error);
         }

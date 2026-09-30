@@ -1,7 +1,7 @@
 use std::{f32::consts::TAU, sync::LazyLock};
 
 use num_complex::Complex;
-use sdrmm_dsp::{Decimator, design_lowpass, hamming_distance, pocsag_bch_decode};
+use sdrmm_dsp::{Decimator, design_lowpass, fast_arg, hamming_distance, pocsag_bch_decode};
 use sdrmm_wire::{
     ChannelDescriptor, ChannelParams, ChannelSettings, DecoderEvent, DecoderFamily, FlexMessage,
     FlexParams, PagerPayload,
@@ -545,7 +545,7 @@ impl ChannelRx for FlexChannel {
     fn process(&mut self, iq: &[Complex<f32>], out: &mut ChannelOutputs) {
         for &sample in iq {
             if let Some(last) = self.last {
-                let frequency = (sample * last.conj()).arg() * RATE as f32 / TAU;
+                let frequency = fast_arg(sample * last.conj()) * RATE as f32 / TAU;
                 self.push_frequency(frequency, out);
                 self.sample = self.sample.wrapping_add(1);
             }
