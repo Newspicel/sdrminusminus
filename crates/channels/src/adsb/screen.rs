@@ -6,7 +6,7 @@ pub(super) type Phases = u8;
 
 const _: () = assert!(PHASE_TABLES <= Phases::BITS as usize);
 
-const TILE: usize = 256;
+const TILE: usize = 512;
 const SCREENED_GAPS: [usize; 4] = [4, 5, 12, 14];
 
 struct Stream {
@@ -66,11 +66,24 @@ impl PhaseChips {
             hits.iter_mut().for_each(|hit| *hit |= 1 << phase);
             return;
         };
-        let n = hits.len().min(TILE);
-        for (i, hit) in hits.iter_mut().enumerate().take(n) {
-            let weakest = p[0][i].min(p[1][i]).min(p[2][i]).min(p[3][i]);
-            let loudest_gap = g[0][i].max(g[1][i]).max(g[2][i]).max(g[3][i]);
-            *hit |= Phases::from(weakest > loudest_gap) << phase;
+        let mut passed = [0; TILE];
+        for (i, pass) in passed.iter_mut().enumerate() {
+            let level = |chip: &[f32; TILE]| chip[i].to_bits();
+            let weakest = level(p[0])
+                .min(level(p[1]))
+                .min(level(p[2]))
+                .min(level(p[3]));
+            let loudest_gap = level(g[0])
+                .max(level(g[1]))
+                .max(level(g[2]))
+                .max(level(g[3]));
+            let [weakest, loudest_gap] = [weakest, loudest_gap].map(f32::from_bits);
+            let threshold = (p[0][i] + p[1][i] + p[2][i] + p[3][i]) * 0.25 * 0.5;
+            let preamble = weakest > threshold && loudest_gap < threshold;
+            *pass = Phases::from(preamble) << phase;
+        }
+        for (hit, pass) in hits.iter_mut().zip(passed) {
+            *hit |= pass;
         }
     }
 }
@@ -215,7 +228,7 @@ mod tests {
             }
             assert!(accepted > 0, "seed {seed}: no preamble");
             assert!(
-                screened * 10 < positions,
+                screened * 50 < positions,
                 "seed {seed}: {screened} of {positions} kept"
             );
         }
