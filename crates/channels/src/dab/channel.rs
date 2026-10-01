@@ -425,7 +425,8 @@ impl DabChannel {
                 self.superframes += 1;
                 self.units += units.units.len() as u32;
                 if units.dropped > 0 {
-                    self.media.audio_gap(units.dropped);
+                    self.media
+                        .audio_gap(units.dropped, "DAB+ access-unit CRC failure");
                 }
                 for unit in &units.units {
                     self.media

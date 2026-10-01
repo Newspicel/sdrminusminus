@@ -46,6 +46,10 @@ describe("ModeChips", () => {
     expect(html).toContain("Auto II");
   });
 
+  it("offers a service picker for DRM", () => {
+    expect(render({ type: "drm", settings: {} })).toContain("Service");
+  });
+
   it("renders nothing for modes without settings", () => {
     expect(render({ type: "m17", settings: {} })).toBe("");
   });

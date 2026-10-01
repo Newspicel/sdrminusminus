@@ -69,9 +69,7 @@ M17, NXDN, P25 and YSF. Only the Signal generator uses the modulators.
 - APRS weather aggregation
 
 ### Broadcast & wideband
-- DRM: FAC, SDC, MSC, service selection and audio. Today it only locks and reports SNR and
-  frequency error
-- Real-world validation of DVB-T, DVB-S/S2, S2X Annex E and DAB modes II to IV: real
+- Real-world validation of DRM, DVB-T, DVB-S/S2, S2X Annex E and DAB modes II to IV: real
   transmitters, fading, adjacent-channel interference. Today only synthetic IQ
 
 ### ISM & IoT
