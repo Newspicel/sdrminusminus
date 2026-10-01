@@ -13,7 +13,7 @@ workspace = true
 [dependencies]
 aws-lc-rs = "1.18.1"
 axum.workspace = true
-base64 = "0.22.1"
+base64 = "0.23.1"
 bytes = "1.12.1"
 futures.workspace = true
 http = "1.5.0"

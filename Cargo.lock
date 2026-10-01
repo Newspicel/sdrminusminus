@@ -6350,7 +6350,7 @@ version = "0.0.0"
 dependencies = [
  "aws-lc-rs",
  "axum",
- "base64 0.22.1",
+ "base64 0.23.1",
  "bytes",
  "futures",
  "http",
