@@ -160,7 +160,7 @@ impl Candidate {
     fn new(rate: f64, baud: u16) -> Self {
         let params = cpm_params(rate, baud);
         let sps = params.sps();
-        let mut demod = CpmDemod::new(&params, &pulse::rect(sps, Norm::Area), TIMING_BW_BURST);
+        let mut demod = CpmDemod::tones(&params, &[1.0], TIMING_BW_BURST);
         let quiet = vec![Complex::new(0.0, 0.0); (QUIET_SYMBOLS * sps).ceil() as usize];
         demod.process(&quiet, &mut Vec::new());
         Self {
@@ -668,10 +668,21 @@ mod tests {
     }
 
     #[test]
+    fn a_pager_detuned_by_kilohertz_decodes_in_heavy_noise() {
+        for offset_hz in [-5_000.0, 3_000.0] {
+            let mut iq = burst(&pages(), 1_200);
+            crate::synth::shift(&mut iq, offset_hz, RATE);
+            add_noise(&mut iq, 0x2468_ace1, 2.0);
+            let mut chan = channel();
+            assert_expected_pages(&run(&mut chan, &iq), 1_200);
+        }
+    }
+
+    #[test]
     fn noise_that_flips_bits_still_decodes_through_the_bch_code() {
         for seed in [0x51d3_2ac1u32, 0x1234_5678, 0xdead_beef, 0x0f0f_0f0f] {
             let mut iq = burst(&pages(), 1_200);
-            add_noise(&mut iq, seed, 1.2);
+            add_noise(&mut iq, seed, 2.5);
             let mut chan = channel();
             let messages = run(&mut chan, &iq);
             assert_expected_pages(&messages, 1_200);

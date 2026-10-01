@@ -1,3 +1,5 @@
+use std::f64::consts::TAU;
+
 use num_complex::Complex;
 use sdrmm_dsp::{
     Decimator, FmDemod, Nco, RealDecimator, SymbolSync, ToneCorrelator, design_lowpass,
@@ -41,6 +43,10 @@ const CARRIER_RISE: f32 = 4.0;
 const STEADY_SPREAD: f32 = 0.25;
 
 const IMAGE_TAPS: usize = 127;
+const OFFSET_LOOP_GAIN: f64 = 0.02;
+const OFFSET_LIMIT_SYMBOLS: f64 = 1.0;
+const STEP_REFRESH: usize = 16;
+const COARSE_SYMBOLS: f64 = 1024.0;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum RealDetector {
@@ -61,6 +67,82 @@ enum FrontEnd {
         plus: ToneCorrelator,
         minus: ToneCorrelator,
     },
+    Tones {
+        plus: ToneCorrelator<Complex<f32>>,
+        minus: ToneCorrelator<Complex<f32>>,
+        tracker: OffsetTracker,
+    },
+}
+
+#[derive(Clone, Debug)]
+struct OffsetTracker {
+    gain: f64,
+    tone: Complex<f64>,
+    frequency: f64,
+    limit: f64,
+    rotor: Complex<f64>,
+    step: Complex<f64>,
+    since_step: usize,
+    previous: [Complex<f64>; 2],
+    power: f64,
+    alpha: f64,
+    lag: Complex<f64>,
+    last: Complex<f64>,
+    coarse_alpha: f64,
+}
+
+impl OffsetTracker {
+    fn new(tone: f64, gain: f64, limit: f64, alpha: f64, coarse_alpha: f64) -> Self {
+        Self {
+            gain,
+            tone: Complex::from_polar(1.0, -TAU * tone),
+            frequency: 0.0,
+            limit: TAU * limit,
+            rotor: Complex::new(1.0, 0.0),
+            step: Complex::new(1.0, 0.0),
+            since_step: 0,
+            previous: [Complex::new(0.0, 0.0); 2],
+            power: 0.0,
+            alpha,
+            lag: Complex::new(0.0, 0.0),
+            last: Complex::new(0.0, 0.0),
+            coarse_alpha,
+        }
+    }
+
+    fn centre(&mut self, sample: Complex<f32>) -> Complex<f32> {
+        if !(sample.re.is_finite() && sample.im.is_finite()) {
+            return Complex::new(0.0, 0.0);
+        }
+        let raw = Complex::new(f64::from(sample.re), f64::from(sample.im));
+        self.lag += self.coarse_alpha * (raw * self.last.conj() - self.lag);
+        self.last = raw;
+        let turned = raw * self.rotor;
+        self.rotor *= self.step;
+        self.since_step += 1;
+        if self.since_step == STEP_REFRESH {
+            self.since_step = 0;
+            self.step = Complex::from_polar(1.0, -(self.lag.arg() + self.frequency));
+            self.rotor /= self.rotor.norm();
+        }
+        Complex::new(turned.re as f32, turned.im as f32)
+    }
+
+    fn follow(&mut self, plus: Complex<f64>, minus: Complex<f64>) {
+        let (winner, index, reference) = if plus.norm_sqr() >= minus.norm_sqr() {
+            (plus, 0, self.tone)
+        } else {
+            (minus, 1, self.tone.conj())
+        };
+        let power = winner.norm_sqr();
+        self.power += self.alpha * (power - self.power);
+        let rotation = winner * self.previous[index].conj() * reference;
+        self.previous = [plus, minus];
+        if self.power > 0.0 {
+            let error = rotation.im / self.power;
+            self.frequency = (self.frequency + self.gain * error).clamp(-self.limit, self.limit);
+        }
+    }
 }
 
 pub struct CpmDemod {
@@ -102,6 +184,30 @@ impl CpmDemod {
     pub fn new(params: &CpmParams, receive_filter: &[f32], timing_bw: f64) -> Self {
         let front = FrontEnd::Quadrature(FmDemod::new(params.sps(), params.h() / 2.0));
         Self::build(params, receive_filter, timing_bw, front, 0)
+    }
+
+    #[must_use]
+    pub fn tones(params: &CpmParams, receive_filter: &[f32], timing_bw: f64) -> Self {
+        assert_eq!(
+            params.mapping().m(),
+            2,
+            "a two-tone filterbank detects two levels"
+        );
+        let sps = params.sps();
+        let window = (sps.round() as usize).max(2);
+        let shift = params.h() / 2.0;
+        let front = FrontEnd::Tones {
+            plus: ToneCorrelator::complex(sps, shift, window),
+            minus: ToneCorrelator::complex(sps, -shift, window),
+            tracker: OffsetTracker::new(
+                shift / sps,
+                OFFSET_LOOP_GAIN / sps,
+                OFFSET_LIMIT_SYMBOLS / sps,
+                1.0 / sps,
+                1.0 / (COARSE_SYMBOLS * sps),
+            ),
+        };
+        Self::build(params, receive_filter, timing_bw, front, window)
     }
 
     #[must_use]
@@ -232,10 +338,23 @@ impl CpmDemod {
         for sample in iq {
             self.gate_sample(sample.norm_sqr());
         }
-        let FrontEnd::Quadrature(demod) = &mut self.front else {
-            panic!("constructed for real input; call process_real");
-        };
-        demod.process(iq, &mut self.demod_buf);
+        match &mut self.front {
+            FrontEnd::Quadrature(demod) => demod.process(iq, &mut self.demod_buf),
+            FrontEnd::Tones {
+                plus,
+                minus,
+                tracker,
+            } => {
+                self.demod_buf.clear();
+                self.demod_buf.extend(iq.iter().map(|&s| {
+                    let centred = tracker.centre(s);
+                    let difference = plus.push(centred) - minus.push(centred);
+                    tracker.follow(plus.correlation(), minus.correlation());
+                    difference
+                }));
+            }
+            _ => panic!("constructed for real input; call process_real"),
+        }
         self.finish(out);
     }
 
@@ -246,7 +365,9 @@ impl CpmDemod {
             self.gate_sample(sample * sample);
         }
         match &mut self.front {
-            FrontEnd::Quadrature(_) => panic!("constructed for IQ input; call process"),
+            FrontEnd::Quadrature(_) | FrontEnd::Tones { .. } => {
+                panic!("constructed for IQ input; call process")
+            }
             FrontEnd::Analytic {
                 mixer,
                 image,
@@ -401,7 +522,6 @@ fn timing_loop(params: &CpmParams, sps: f64, timing_bw: f64) -> SymbolSync {
 
 #[cfg(test)]
 mod tests {
-    use std::f64::consts::TAU;
 
     use sdrmm_modem_test_support::ber::rng::Rng;
 
