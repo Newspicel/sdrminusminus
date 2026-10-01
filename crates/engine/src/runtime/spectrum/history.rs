@@ -27,6 +27,10 @@ impl SpectrumHistory {
         self.fresh = 0;
     }
 
+    pub(in crate::runtime) fn settling(&self, hop: usize) -> bool {
+        self.fresh < hop
+    }
+
     fn due(&self, hop: usize) -> usize {
         if self.fresh < hop {
             hop.min(self.samples.len())
@@ -197,6 +201,9 @@ mod tests {
             stamps.push(index);
         });
         assert_eq!(stamps, [4, 8, 12, 22]);
+        assert!(!history.settling(10));
+        history.reset();
+        assert!(history.settling(10));
     }
 
     #[test]

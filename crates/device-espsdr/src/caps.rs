@@ -12,6 +12,7 @@ const GAIN_STAGE: &str = "RX";
 const MHZ: f64 = 1e6;
 const DEFAULT_CENTER_MHZ: u32 = 2437;
 const DEFAULT_MANUAL_GAIN: u32 = 40;
+const DEFAULT_BURST: u32 = 4096;
 
 #[derive(Clone, Debug)]
 pub(crate) struct Profile {
@@ -124,7 +125,7 @@ impl Profile {
             agc: self.has_agc(),
             gain: DEFAULT_MANUAL_GAIN.min(self.limits.gain_max),
             bits: self.limits.bits[0],
-            burst: self.identity.max_samples,
+            burst: DEFAULT_BURST.clamp(MIN_SAMPLES, self.identity.max_samples),
         }
     }
 
@@ -380,6 +381,7 @@ pub(crate) mod tests {
         assert_eq!(caps.gains[0].range.max, 72.0);
         let names: Vec<&str> = caps.extra.iter().map(ExtraSetting::name).collect();
         assert_eq!(names, [BITS, BURST]);
+        assert_eq!(esp32().defaults().burst, 4096);
     }
 
     #[test]

@@ -189,6 +189,12 @@ pub(super) fn dsp_loop(
             });
         });
         if consumed == 0 {
+            if spectrum_history.settling(hop)
+                && let Some(partial) = frame_average.flush(&mut averaged)
+            {
+                seq = seq.wrapping_add(1);
+                publisher.publish(seq, partial, &averaged);
+            }
             std::thread::park_timeout(IDLE_PARK);
         }
     }

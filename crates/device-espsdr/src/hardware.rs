@@ -50,7 +50,7 @@ fn bursts_carry_live_noise_at_every_rate_and_depth() {
             ..DeviceSettings::default()
         });
         for burst in &got {
-            assert_eq!(burst.len(), 16380);
+            assert_eq!(burst.len(), 4096);
             let level = rms(burst);
             assert!(level > 0.001 && level < 1.5, "{rate} {bits}: rms {level}");
         }

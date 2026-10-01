@@ -276,8 +276,9 @@ Tested on hardware provided by [Airspy](https://airspy.com). Thank you.
 An ESP32 running [ESP-SDR](https://github.com/ESPARGOS/esp-sdr) firmware receives with its Wi-Fi
 radio. Flash it with the [browser installer](https://espargos.net/espsdr/app/flash.html).
 
-It captures bursts, not a stream: up to 16380 samples, then a pause while they cross the serial
-link, about 0.2 s at 2 MBd. The timeline marks each gap.
+It captures bursts, not a stream: 4096 samples by default, then a pause while they cross the serial
+link, about 0.1 s at 921.6 kBd. Longer bursts update the Scope less often. The timeline marks each
+gap.
 
 | Control | Does |
 |---|---|
