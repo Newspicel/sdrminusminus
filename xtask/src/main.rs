@@ -27,7 +27,6 @@ mod changeset;
 mod compare;
 mod denoise_model;
 mod excerpt;
-mod homebrew;
 mod icons;
 mod ident_matrix;
 mod ios;
@@ -146,16 +145,6 @@ enum Cmd {
         #[arg(long)]
         out: Option<PathBuf>,
     },
-    HomebrewTap {
-        #[arg(long)]
-        version: String,
-        #[arg(long)]
-        sums: PathBuf,
-        #[arg(long)]
-        repo: String,
-        #[arg(long)]
-        out: PathBuf,
-    },
     Aur {
         #[arg(long)]
         version: String,
@@ -223,12 +212,6 @@ fn main() -> Result<()> {
             base_url,
             out,
         } => updater::manifest(&dir, &version, &base_url, out.as_deref()),
-        Cmd::HomebrewTap {
-            version,
-            sums,
-            repo,
-            out,
-        } => homebrew::tap(&sums, &version, &repo, &out),
         Cmd::Aur {
             version,
             sums,

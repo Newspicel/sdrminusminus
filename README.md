@@ -29,13 +29,13 @@ covers macOS, Windows, Linux, Homebrew, WinGet, APT, DNF, Nix, and Docker.
 On macOS:
 
 ```sh
-brew install newspicel/tap/sdrmm-app
+brew install --cask sdrmm-app
 ```
 
-For a headless server on macOS or Linux, install `sdrmm` from the same tap:
+For a headless server on macOS or Linux:
 
 ```sh
-brew install newspicel/tap/sdrmm
+brew install sdrmm
 brew services start sdrmm
 ```
 

@@ -99,29 +99,10 @@ ghcr.io/newspicel/sdrminusminus:latest
 Nightlies update only `:nightly`. Smoke tests check the binary, SoapySDR modules, server startup,
 and embedded frontend. CI builds and smoke-tests both architectures.
 
-## Homebrew tap
+## Homebrew
 
-The release workflow updates the `sdrmm` formula and `sdrminusminus` cask in
-`Newspicel/homebrew-tap` after publishing stable downloads:
-
-```sh
-cargo xtask homebrew-tap \
-  --version 1.2.3 \
-  --sums SHA256SUMS \
-  --repo Newspicel/sdrminusminus \
-  --out ../homebrew-tap
-```
-
-The generator checks required artifacts against `SHA256SUMS`. The tap job needs a writable
-`HOMEBREW_TAP_TOKEN`; without it, the job is skipped. Other release jobs continue.
-
-Validate generator changes:
-
-```sh
-brew style newspicel/tap
-brew audit --strict --online newspicel/tap/sdrmm
-brew audit --strict --online --cask newspicel/tap/sdrmm-app
-```
+`sdrmm` is in homebrew-core and `sdrmm-app` in homebrew-cask. BrewTestBot bumps both after a
+release; nothing to do here.
 
 ## Release checklist
 

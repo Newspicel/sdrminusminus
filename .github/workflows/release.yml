@@ -20,7 +20,6 @@ jobs:
     outputs:
       changed: ${{ steps.changed.outputs.changed }}
       version: ${{ steps.version.outputs.version }}
-      tap: ${{ steps.publish.outputs.tap }}
       winget: ${{ steps.publish.outputs.winget }}
       aur: ${{ steps.publish.outputs.aur }}
       packages: ${{ steps.publish.outputs.packages }}
@@ -45,20 +44,18 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
       - id: publish
         env:
-          TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
           WINGET_TOKEN: ${{ secrets.WINGET_TOKEN }}
           AUR_SSH_KEY: ${{ secrets.AUR_SSH_KEY }}
           PACKAGES_SSH_KEY: ${{ secrets.PACKAGES_SSH_KEY }}
           PACKAGES_GPG_KEY: ${{ secrets.PACKAGES_GPG_KEY }}
         run: |
           {
-            echo "tap=${TAP_TOKEN:+true}"
             echo "winget=${WINGET_TOKEN:+true}"
             echo "aur=${AUR_SSH_KEY:+true}"
             if [ -n "$PACKAGES_SSH_KEY" ] && [ -n "$PACKAGES_GPG_KEY" ]; then echo "packages=true"; fi
           } >> "$GITHUB_OUTPUT"
           if [ "$GITHUB_REF_TYPE" = tag ]; then
-            for name in tap winget aur packages; do
+            for name in winget aur packages; do
               grep -qx "$name=true" "$GITHUB_OUTPUT" || echo "::warning::$name not published: secret missing"
             done
           fi
@@ -479,44 +476,6 @@ jobs:
             --prerelease \
             --notes "Build of \`main\` at ${GITHUB_SHA}. Replaced every night. Container image: \`docker pull ${IMAGE_NAME}:nightly\`" \
             "${files[@]}"
-
-  homebrew:
-    name: Homebrew tap
-    if: github.ref_type == 'tag' && needs.plan.outputs.tap == 'true'
-    needs: [plan, version, release]
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v7
-      - uses: ./.github/actions/rust
-        with:
-          cache: ubuntu
-          save: false
-      - name: Fetch checksums
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh release download "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --pattern SHA256SUMS
-      - uses: actions/checkout@v7
-        with:
-          repository: ${{ github.repository_owner }}/homebrew-tap
-          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
-          path: tap
-      - name: Write formula and cask
-        run: |
-          cargo xtask homebrew-tap \
-            --version "${{ needs.version.outputs.version }}" \
-            --sums SHA256SUMS \
-            --repo "$GITHUB_REPOSITORY" \
-            --out tap
-      - name: Push tap
-        working-directory: tap
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git rm --quiet --ignore-unmatch Casks/sdrminusminus.rb
-          git add Formula/sdrmm.rb Casks/sdrmm-app.rb cask_renames.json
-          git diff --cached --quiet && exit 0
-          git commit -m "sdrmm ${{ needs.version.outputs.version }}"
-          git push
 
   winget:
     name: WinGet

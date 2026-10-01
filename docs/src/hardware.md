@@ -412,7 +412,7 @@ SoapySDR covers radios without a built-in driver. Install the core and a module 
 | Debian, Ubuntu, Raspberry Pi OS | `sudo apt install libsoapysdr0.8` | `soapysdr-module-bladerf` |
 | Fedora | `sudo dnf install SoapySDR` | `SoapySDR-bladeRF` |
 | Arch | `sudo pacman -S soapysdr` | `soapybladerf` |
-| macOS | `brew install soapysdr` | `soapybladerf` |
+| macOS | `brew install soapysdr` | `soapyremote` |
 | Windows | [PothosSDR](https://github.com/pothosware/PothosSDR/wiki/Tutorial), on `PATH` | Included |
 | NixOS | [`soapyPlugins`](getting-started/install.md#nix) | |
 
