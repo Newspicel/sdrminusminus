@@ -219,7 +219,8 @@ impl Gate {
     }
 
     fn open(&self) -> bool {
-        self.sum_re.hypot(self.sum_im) >= GATE_THRESHOLD * self.magnitude
+        (self.sum_re * self.sum_re + self.sum_im * self.sum_im).sqrt()
+            >= GATE_THRESHOLD * self.magnitude
     }
 }
 

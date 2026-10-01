@@ -1,6 +1,7 @@
 use std::{array, f32::consts::PI};
 
 use num_complex::Complex;
+use sdrmm_dsp::fast_arg;
 
 const PHASE_BINS: usize = 32;
 const LOCK_COHERENCE: f32 = 0.68;
@@ -58,9 +59,10 @@ impl Acquisition {
     pub fn push(&mut self, iq: &[Complex<f32>], out: &mut Vec<Acquired>) {
         let step = self.symbol_rate / self.input_rate;
         for &sample in iq {
-            let norm = sample.norm();
+            let power = sample.norm_sqr();
+            let norm = power.sqrt();
             if norm > 1e-6 && norm.is_finite() {
-                self.accumulate(sample / norm, sample.norm_sqr());
+                self.accumulate(sample / norm, power);
             }
             self.phase += step;
             self.phase -= self.phase.floor();
@@ -90,7 +92,7 @@ impl Acquisition {
         bin.previous_eighth = Some(eighth);
         bin.power += f64::from(power);
         bin.count = bin.count.saturating_add(1);
-        let octant = ((unit.arg() + PI) * (4.0 / PI)).floor() as i32;
+        let octant = ((fast_arg(unit) + PI) * (4.0 / PI)).floor() as i32;
         bin.octants |= 1 << octant.rem_euclid(8);
     }
 

@@ -87,7 +87,10 @@ impl CpProbe {
             step: previous
                 .filter(|value| value.norm_sqr() > f32::EPSILON)
                 .map_or(Complex::new(0.0, 0.0), |value| {
-                    sample * value.conj() / (sample.norm() * value.norm()).max(f32::EPSILON)
+                    sample * value.conj()
+                        / (sample.norm_sqr() * value.norm_sqr())
+                            .sqrt()
+                            .max(f32::EPSILON)
                 }),
             current_power: sample.norm_sqr(),
             delayed_power: delayed.norm_sqr(),
@@ -114,7 +117,7 @@ impl CpProbe {
                 .max(0.0)
                 .sqrt()
                 .max(f32::EPSILON);
-            let coherence = self.sum.corr.norm() / denominator;
+            let coherence = self.sum.corr.norm_sqr().sqrt() / denominator;
             if coherence > self.best {
                 self.best = coherence;
                 self.best_phase = self.sum.corr.arg();

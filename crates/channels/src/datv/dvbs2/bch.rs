@@ -1,3 +1,6 @@
+mod divider;
+
+use self::divider::{Divider, MAX_PARITY, Remainder};
 use super::ldpc::Frame;
 
 const NORMAL_POLY: u32 = 0x1_002D;
@@ -8,6 +11,7 @@ pub struct Bch {
     exp: Vec<u16>,
     log: Vec<u16>,
     order: usize,
+    divider: Divider,
     #[cfg(any(test, feature = "synth"))]
     generator: Vec<bool>,
     correct: usize,
@@ -21,7 +25,6 @@ pub struct BchScratch {
     saved: Vec<u16>,
 }
 
-#[cfg(any(test, feature = "synth"))]
 fn minimal_polynomial(exp: &[u16], log: &[u16], order: usize, power: usize) -> Vec<u16> {
     let mut roots = Vec::new();
     let mut current = power % order;
@@ -59,10 +62,10 @@ impl Bch {
         };
         let size = 1usize << bits;
         let order = size - 1;
-        let mut exp = vec![0u16; order];
+        let mut exp = vec![0u16; 2 * order];
         let mut log = vec![0u16; size];
         let mut value = 1u32;
-        for (index, slot) in exp.iter_mut().enumerate() {
+        for (index, slot) in exp[..order].iter_mut().enumerate() {
             *slot = value as u16;
             log[value as usize] = index as u16;
             value <<= 1;
@@ -70,18 +73,11 @@ impl Bch {
                 value ^= primitive;
             }
         }
-        #[cfg(any(test, feature = "synth"))]
-        let generator = {
-            let mut generator = vec![true];
-            for step in 0..correct {
-                let factor = minimal_polynomial(&exp, &log, order, 2 * step + 1);
-                if !divides(&generator, &factor) {
-                    generator = multiply(&generator, &factor);
-                }
-            }
-            generator
-        };
+        exp.copy_within(..order, order);
+        let correct = correct.min(MAX_PARITY / bits as usize);
+        let generator = generator(&exp, &log, order, correct);
         Self {
+            divider: Divider::new(&generator),
             exp,
             log,
             order,
@@ -111,8 +107,7 @@ impl Bch {
         if a == 0 || b == 0 {
             return 0;
         }
-        self.exp[(usize::from(self.log[usize::from(a)]) + usize::from(self.log[usize::from(b)]))
-            % self.order]
+        self.exp[usize::from(self.log[usize::from(a)]) + usize::from(self.log[usize::from(b)])]
     }
 
     fn inv(&self, a: u16) -> u16 {
@@ -146,16 +141,10 @@ impl Bch {
         }
     }
 
-    fn syndromes(&self, word: &[bool], out: &mut [u16]) {
-        let last = word.len() - 1;
+    fn syndromes(&self, remainder: &Remainder, out: &mut [u16]) {
         for (index, syndrome) in out.iter_mut().enumerate() {
-            *syndrome = word
-                .iter()
-                .enumerate()
-                .filter(|&(_, &bit)| bit)
-                .fold(0, |sum, (position, _)| {
-                    sum ^ self.power((index + 1) * (last - position))
-                });
+            *syndrome = divider::set_bits(remainder)
+                .fold(0, |sum, power| sum ^ self.power((index + 1) * power));
         }
     }
 
@@ -212,10 +201,11 @@ impl Bch {
         {
             return None;
         }
-        self.syndromes(word, &mut scratch.syndromes);
-        if scratch.syndromes.iter().all(|&value| value == 0) {
+        let remainder = self.divider.remainder(word);
+        if remainder == Remainder::default() {
             return Some(0);
         }
+        self.syndromes(&remainder, &mut scratch.syndromes);
         let errors = self.locator(scratch);
         if errors == 0 || errors > self.correct {
             return None;
@@ -238,16 +228,21 @@ impl Bch {
         if found != errors {
             return None;
         }
-        self.syndromes(word, &mut scratch.syndromes);
-        scratch
-            .syndromes
-            .iter()
-            .all(|&value| value == 0)
-            .then_some(errors)
+        (self.divider.remainder(word) == Remainder::default()).then_some(errors)
     }
 }
 
-#[cfg(any(test, feature = "synth"))]
+fn generator(exp: &[u16], log: &[u16], order: usize, correct: usize) -> Vec<bool> {
+    let mut generator = vec![true];
+    for step in 0..correct {
+        let factor = minimal_polynomial(exp, log, order, 2 * step + 1);
+        if !divides(&generator, &factor) {
+            generator = multiply(&generator, &factor);
+        }
+    }
+    generator
+}
+
 fn multiply(left: &[bool], right: &[u16]) -> Vec<bool> {
     let mut out = vec![false; left.len() + right.len() - 1];
     for (index, &a) in left.iter().enumerate() {
@@ -263,7 +258,6 @@ fn multiply(left: &[bool], right: &[u16]) -> Vec<bool> {
     out
 }
 
-#[cfg(any(test, feature = "synth"))]
 fn divides(product: &[bool], factor: &[u16]) -> bool {
     let factor: Vec<bool> = factor.iter().map(|&value| value != 0).collect();
     if factor.len() > product.len() {
