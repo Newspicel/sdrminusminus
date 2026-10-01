@@ -195,7 +195,7 @@ fn burst_axis_rows(op_db: f64) -> Vec<LimitRow> {
     ]
 }
 
-const PROFILE_GRID: [f64; 4] = [12.0, 13.0, 14.0, 15.0];
+const PROFILE_GRID: [f64; 5] = [11.0, 12.0, 13.0, 14.0, 15.0];
 const PROFILE_ERRORS: u64 = 250;
 const PROFILE_CAP: u64 = 1_000_000;
 

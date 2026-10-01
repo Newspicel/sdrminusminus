@@ -122,13 +122,16 @@ impl<T: Correlated> ToneCorrelator<T> {
     pub fn push(&mut self, sample: T) -> f32 {
         let leaving = self.buf[self.pos];
         self.buf[self.pos] = sample;
-        self.pos = (self.pos + 1) % self.buf.len();
+        self.pos += 1;
+        if self.pos == self.buf.len() {
+            self.pos = 0;
+        }
         self.acc = self.acc * self.rot + sample.widen() - self.exit * leaving.widen();
         self.since_rebuild += 1;
         if self.since_rebuild >= self.buf.len() {
             self.rebuild();
         }
-        self.acc.norm() as f32 * self.norm
+        self.acc.norm_sqr().sqrt() as f32 * self.norm
     }
 
     #[must_use]
@@ -144,11 +147,11 @@ impl<T: Correlated> ToneCorrelator<T> {
     }
 
     fn rebuild(&mut self) {
-        let n = self.buf.len();
+        let (recent, earlier) = self.buf.split_at(self.pos);
         let mut acc = Complex::new(0.0, 0.0);
         let mut phasor = Complex::new(1.0, 0.0);
-        for m in 0..n {
-            acc += phasor * self.buf[(self.pos + n - 1 - m) % n].widen();
+        for sample in recent.iter().rev().chain(earlier.iter().rev()) {
+            acc += phasor * sample.widen();
             phasor *= self.rot;
         }
         self.acc = acc;
