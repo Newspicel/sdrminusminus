@@ -14,6 +14,7 @@ export const APP = "https://app.sdrmm.com";
 export const DISCORD = "https://discord.gg/dYaRyGwBNw";
 export const DOWNLOAD: Link = { label: "Download", href: "/download" };
 export const REMOTE: Link = { label: "Remote access", href: "/remote" };
+export const BENCHMARKS: Link = { label: "Benchmarks", href: "/benchmarks" };
 export const BUSINESS: Link = { label: "Business", href: "/business" };
 export const CONTACT = `${BUSINESS.href}#contact`;
 export const SIGN_IN: Link = { label: "Sign in", href: APP };
@@ -21,6 +22,7 @@ export const SIGN_IN: Link = { label: "Sign in", href: APP };
 export const PRIMARY: Link[] = [
   { label: "Docs", href: "/docs/" },
   { label: "Hardware", href: "/docs/hardware" },
+  BENCHMARKS,
   REMOTE,
   BUSINESS,
 ];
@@ -39,7 +41,7 @@ export const FOOTER: LinkGroup[] = [
       { label: "First receiver", href: "/docs/getting-started/first-receiver" },
       { label: "Troubleshooting", href: "/docs/troubleshooting" },
       { label: "Build from source", href: "/docs/development/building" },
-      { label: "Benchmarks", href: "/benchmarks" },
+      BENCHMARKS,
       { label: "Changelog", href: "/changelog" },
     ],
   },

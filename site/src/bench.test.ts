@@ -1,5 +1,17 @@
 import { describe, expect, it } from "vitest";
-import { amount, type Group, machine, measured, ranked, SECTIONS, SELF, width } from "./bench";
+import {
+  amount,
+  type Group,
+  highlights,
+  lead,
+  machine,
+  measured,
+  ranked,
+  SECTIONS,
+  SELF,
+  type Section,
+  width,
+} from "./bench";
 
 const group = (better: Group["better"]): Group => ({
   id: "fir",
@@ -45,6 +57,47 @@ describe("machine", () => {
     expect(machine({ machine: { cpu: "M4", os: "", date: "2026-10-01" }, groups: [] })).toBe(
       "M4 · 2026-10-01",
     );
+  });
+});
+
+describe("lead", () => {
+  it("compares us with the best other tool", () => {
+    expect(lead(group("higher"))).toBe(2);
+    expect(lead(group("lower"))).toBe(0.25);
+  });
+
+  it("is zero without a rival", () => {
+    expect(lead({ ...group("higher"), results: [{ tool: SELF, version: "1", value: 1 }] })).toBe(0);
+  });
+});
+
+describe("highlights", () => {
+  const section = (groups: Group[]): Section => ({
+    id: "dsp",
+    title: "DSP",
+    command: "",
+    suite: { machine: { cpu: "", os: "", date: "" }, groups },
+  });
+
+  it("picks our biggest lead per section", () => {
+    const wide = {
+      ...group("higher"),
+      id: "wide",
+      results: [...group("higher").results, { tool: "c", version: "1", value: 20 }],
+    };
+    const narrow = {
+      ...group("higher"),
+      id: "narrow",
+      results: [
+        { tool: SELF, version: "1", value: 110 },
+        { tool: "a", version: "1", value: 100 },
+      ],
+    };
+    expect(highlights([section([narrow, wide])]).map((found) => found.id)).toEqual(["wide"]);
+  });
+
+  it("skips sections where we trail", () => {
+    expect(highlights([section([group("lower")]), section([])])).toEqual([]);
   });
 });
 

@@ -71,3 +71,19 @@ export function machine(suite: Suite): string {
 export function measured(sections: readonly Section[]): Section[] {
   return sections.filter((section) => section.suite.groups.length > 0);
 }
+
+export function lead(group: Group): number {
+  const ours = group.results.find((entry) => entry.tool === SELF);
+  const others = group.results.filter((entry) => entry.tool !== SELF).map((entry) => entry.value);
+  if (ours === undefined || others.length === 0) return 0;
+  const best = group.better === "higher" ? Math.max(...others) : Math.min(...others);
+  const ratio = group.better === "higher" ? ours.value / best : best / ours.value;
+  return Number.isFinite(ratio) ? ratio : 0;
+}
+
+export function highlights(sections: readonly Section[]): Group[] {
+  return measured(sections).flatMap((section) => {
+    const top = section.suite.groups.toSorted((a, b) => lead(b) - lead(a))[0];
+    return top !== undefined && lead(top) > 1 ? [top] : [];
+  });
+}

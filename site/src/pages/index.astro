@@ -1,5 +1,7 @@
 ---
+import { highlights, SECTIONS } from "../bench";
 import { newest, releases } from "../changelog";
+import BenchGroup from "../components/BenchGroup.astro";
 import Patch from "../components/Patch.astro";
 import Setups from "../components/Setups.astro";
 import Waterfall from "../components/Waterfall.astro";
@@ -171,6 +173,8 @@ const rows = [voices.slice(0, half), voices.slice(half)];
 const copies = [0, 1, 2, 3];
 
 const latest = newest(await releases(), 3);
+
+const fastest = highlights(SECTIONS);
 ---
 
 <Page
@@ -269,6 +273,21 @@ const latest = newest(await releases(), 3);
     <p class="note">Modes range from tested on air to experimental. The
       <a href="/docs/user-guide/decoders#catalog">decoder catalog</a> says which.</p>
   </section>
+
+  {
+    fastest.length > 0 && (
+      <section class="wrap bench">
+        <h2>Measured against the rest</h2>
+        <p class="section-lede">Same machine, same input, release builds.</p>
+        <div class="groups">
+          {fastest.map((group) => (
+            <BenchGroup group={group} />
+          ))}
+        </div>
+        <a class="more" href="/benchmarks">All benchmarks</a>
+      </section>
+    )
+  }
 
   <section class="wrap">
     <h2>Run it where the radio is</h2>
@@ -413,6 +432,14 @@ const latest = newest(await releases(), 3);
   .window iframe { display: block; width: 100%; height: 100%; border: 0; }
   .window .still { display: none; width: 100%; height: auto; }
   .caption { margin: 18px 0 0; text-align: center; font-size: 14px; color: var(--ink-faint); }
+
+  .bench .groups {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr));
+    gap: 16px;
+    margin-bottom: 20px;
+  }
+  .bench .more { font: 13px var(--mono); }
 
   .news .version {
     display: flex;
