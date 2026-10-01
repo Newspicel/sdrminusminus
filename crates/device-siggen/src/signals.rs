@@ -4,9 +4,9 @@ use sdrmm_channels::{
     synth::{self, dv, weak_signal},
 };
 use sdrmm_wire::{
-    AmParams, ArgumentOption, AtvModulation, AtvParams, AtvStandard, ChannelParams,
-    ChannelSettings, DabTransmissionMode, PskBaud, SelcallSystem, Sideband, Squelch, SsbParams,
-    SstvMode,
+    AmParams, ArgumentOption, AtvModulation, AtvParams, AtvStandard, AvhrrChannel, ChannelParams,
+    ChannelSettings, DabTransmissionMode, PskBaud, SelcallSystem, Sideband, SondeType, Squelch,
+    SsbParams, SstvMode, WefaxIoc, WefaxLpm,
 };
 
 pub struct Signal {
@@ -197,6 +197,24 @@ pub static SIGNALS: &[Signal] = &[
         label: "SSTV · Martin M1",
         rate_hz: AUDIO,
         render: sstv,
+    },
+    Signal {
+        id: "apt",
+        label: "NOAA APT",
+        rate_hz: NARROW,
+        render: apt,
+    },
+    Signal {
+        id: "wefax",
+        label: "WEFAX · IOC 576",
+        rate_hz: AUDIO,
+        render: wefax,
+    },
+    Signal {
+        id: "radiosonde",
+        label: "Radiosonde · RS41",
+        rate_hz: NARROW,
+        render: radiosonde,
     },
     Signal {
         id: "vor",
@@ -527,10 +545,7 @@ fn aprs_packet(text: &str) -> Vec<Complex<f32>> {
     ) else {
         return Vec::new();
     };
-    if tx
-        .submit(TxPayload::Frame(aprs_frame(text)))
-        .is_err()
-    {
+    if tx.submit(TxPayload::Frame(aprs_frame(text))).is_err() {
         return Vec::new();
     }
     synth::resample(&synth::burst(&mut tx), rate, NARROW)
@@ -634,6 +649,25 @@ fn sstv() -> Vec<Complex<f32>> {
     let frame = synth::sstv::bars(mode);
     let native = synth::sstv::transmission(mode, &frame, 16_000.0);
     synth::resample(&native, 16_000.0, AUDIO)
+}
+
+fn apt() -> Vec<Complex<f32>> {
+    const RATE: f64 = 60_000.0;
+    let native = synth::apt::transmission(240, AvhrrChannel::Ch2, AvhrrChannel::Ch4, RATE);
+    synth::resample(&native, RATE, NARROW)
+}
+
+fn wefax() -> Vec<Complex<f32>> {
+    const RATE: f64 = 12_000.0;
+    let chart = synth::wefax::bars(WefaxIoc::Ioc576, 120);
+    let native = synth::wefax::transmission(WefaxIoc::Ioc576, WefaxLpm::Lpm120, &chart, RATE);
+    synth::resample(&native, RATE, AUDIO)
+}
+
+fn radiosonde() -> Vec<Complex<f32>> {
+    const RATE: f64 = 48_000.0;
+    let native = synth::radiosonde::transmission(SondeType::Rs41, 10, RATE);
+    synth::resample(&native, RATE, NARROW)
 }
 
 fn vor() -> Vec<Complex<f32>> {

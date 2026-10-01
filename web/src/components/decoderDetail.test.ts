@@ -818,6 +818,7 @@ describe("eventDetail", () => {
           satellites: 9,
           battery_v: 2.9,
           errors_corrected: 3,
+          rejected: 2,
         },
       }),
     ).toMatchObject({
@@ -834,6 +835,7 @@ describe("eventDetail", () => {
       Satellites: "9",
       Battery: "2.90 V",
       Repaired: "3",
+      "Frames lost": "2",
     });
   });
 

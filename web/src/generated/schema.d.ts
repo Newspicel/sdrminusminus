@@ -6671,6 +6671,8 @@ export interface components {
             /** Format: float */
             pressure_hpa?: number | null;
             /** Format: int32 */
+            rejected?: number;
+            /** Format: int32 */
             satellites?: number | null;
             serial: string;
             sonde: components["schemas"]["SondeType"];

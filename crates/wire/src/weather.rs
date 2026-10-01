@@ -293,6 +293,8 @@ pub struct RadiosondeFrame {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub battery_v: Option<f32>,
     pub errors_corrected: u32,
+    #[serde(default)]
+    pub rejected: u32,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, ToSchema)]

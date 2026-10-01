@@ -550,7 +550,7 @@
       "kind": "video",
       "name": "Video",
       "category": "output",
-      "summary": "ATV frames and SSTV pictures",
+      "summary": "ATV frames and decoded pictures",
       "ports": [
         {
           "name": "video",

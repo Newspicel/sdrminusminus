@@ -23849,6 +23849,11 @@
             ],
             "format": "float"
           },
+          "rejected": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
           "satellites": {
             "type": [
               "integer",

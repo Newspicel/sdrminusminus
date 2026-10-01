@@ -556,6 +556,7 @@ const DETAIL: {
       ["Satellites", f.satellites == null ? undefined : String(f.satellites)],
       ["Battery", f.battery_v == null ? undefined : `${f.battery_v.toFixed(2)} V`],
       ["Repaired", f.errors_corrected > 0 ? String(f.errors_corrected) : undefined],
+      ["Frames lost", (f.rejected ?? 0) > 0 ? String(f.rejected) : undefined],
     ]),
     body: null,
   }),

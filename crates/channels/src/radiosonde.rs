@@ -1,14 +1,30 @@
+mod demod;
+pub(crate) mod dfm;
+pub(crate) mod fields;
+pub(crate) mod imet;
+pub(crate) mod m10;
+pub(crate) mod m20;
+pub(crate) mod meteomodem;
+pub(crate) mod rs41;
+#[cfg(test)]
+mod tests;
+
 use std::sync::LazyLock;
 
 use num_complex::Complex;
 use sdrmm_dsp::{Decimator, design_lowpass};
 use sdrmm_wire::{
-    ChannelDescriptor, ChannelParams, ChannelSettings, DecoderFamily, RadiosondeParams,
+    ChannelDescriptor, ChannelParams, ChannelSettings, DecoderFamily, RadiosondeParams, SondeType,
 };
 
 use crate::{ChannelCtx, ChannelError, ChannelFilter, ChannelOutputs, ChannelRx, check_input_rate};
+use demod::{CHUNK, FrontEnd};
+use dfm::Dfm;
+use imet::Imet;
+use meteomodem::{Accept, Meteomodem};
+use rs41::Rs41;
 
-pub(crate) const INPUT_RATE_HZ: f64 = 48_000.0;
+pub(crate) const INPUT_RATE_HZ: f64 = demod::RATE;
 const FILTER_TAPS: usize = 127;
 
 static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescriptor {
@@ -47,8 +63,36 @@ fn params(settings: &ChannelSettings) -> Result<&RadiosondeParams, ChannelError>
     }
 }
 
+fn runs(params: &RadiosondeParams, sonde: SondeType) -> bool {
+    params.sonde.is_none_or(|fixed| fixed == sonde)
+}
+
+fn accept(params: &RadiosondeParams) -> Accept {
+    Accept {
+        m10: runs(params, SondeType::M10),
+        m20: runs(params, SondeType::M20),
+    }
+}
+
 pub struct RadiosondeChannel {
     params: RadiosondeParams,
+    front: FrontEnd,
+    rs41: Rs41,
+    dfm: Dfm,
+    meteomodem: Meteomodem,
+    imet: Imet,
+}
+
+impl RadiosondeChannel {
+    #[must_use]
+    pub fn rejected(&self, sonde: SondeType) -> u32 {
+        match sonde {
+            SondeType::Rs41 => self.rs41.rejected(),
+            SondeType::Dfm => self.dfm.rejected(),
+            SondeType::M10 | SondeType::M20 => self.meteomodem.rejected(),
+            SondeType::Imet4 => self.imet.rejected(),
+        }
+    }
 }
 
 impl ChannelRx for RadiosondeChannel {
@@ -58,15 +102,39 @@ impl ChannelRx for RadiosondeChannel {
 
     fn new(ctx: ChannelCtx, settings: ChannelSettings) -> Result<Self, ChannelError> {
         check_input_rate(ctx, &DESCRIPTOR)?;
+        let params = *params(&settings)?;
         Ok(Self {
-            params: *params(&settings)?,
+            params,
+            front: FrontEnd::new(),
+            rs41: Rs41::new(),
+            dfm: Dfm::new(),
+            meteomodem: Meteomodem::new(accept(&params)),
+            imet: Imet::new(),
         })
     }
 
     fn apply(&mut self, settings: ChannelSettings) -> Result<(), ChannelError> {
         self.params = *params(&settings)?;
+        self.meteomodem.set_accept(accept(&self.params));
         Ok(())
     }
 
-    fn process(&mut self, _iq: &[Complex<f32>], _out: &mut ChannelOutputs) {}
+    fn process(&mut self, iq: &[Complex<f32>], out: &mut ChannelOutputs) {
+        let meteomodem = runs(&self.params, SondeType::M10) || runs(&self.params, SondeType::M20);
+        for chunk in iq.chunks(CHUNK) {
+            let audio = self.front.demodulate(chunk);
+            if runs(&self.params, SondeType::Rs41) {
+                self.rs41.push(audio, &mut out.events);
+            }
+            if runs(&self.params, SondeType::Dfm) {
+                self.dfm.push(audio, &mut out.events);
+            }
+            if meteomodem {
+                self.meteomodem.push(audio, &mut out.events);
+            }
+            if runs(&self.params, SondeType::Imet4) {
+                self.imet.push(audio, &mut out.events);
+            }
+        }
+    }
 }
