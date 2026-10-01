@@ -285,7 +285,7 @@
     },
     {
       "name": "async-compression",
-      "version": "0.4.48",
+      "version": "0.4.50",
       "license": "MIT OR Apache-2.0",
       "source": "rust",
       "url": "https://github.com/Nullus157/async-compression",
@@ -934,16 +934,6 @@
       ]
     },
     {
-      "name": "cfb",
-      "version": "0.7.3",
-      "license": "MIT",
-      "source": "rust",
-      "url": "https://github.com/mdsteele/rust-cfb",
-      "texts": [
-        "3ce3e2561c6a4cd4"
-      ]
-    },
-    {
       "name": "cfg-expr",
       "version": "0.15.8",
       "license": "MIT OR Apache-2.0",
@@ -1124,7 +1114,7 @@
     },
     {
       "name": "compression-codecs",
-      "version": "0.4.43",
+      "version": "0.4.45",
       "license": "MIT OR Apache-2.0",
       "source": "rust",
       "url": "https://github.com/Nullus157/async-compression",
@@ -1633,17 +1623,6 @@
       "texts": [
         "59013a5c8d3a19c2",
         "c8d7f4fd612a2da8"
-      ]
-    },
-    {
-      "name": "dirs",
-      "version": "6.0.0",
-      "license": "MIT OR Apache-2.0",
-      "source": "rust",
-      "url": "https://github.com/soc/dirs-rs",
-      "texts": [
-        "96bb3c3b6301e91a",
-        "f25a5b606859d4fa"
       ]
     },
     {
@@ -2976,16 +2955,6 @@
       "texts": [
         "4f2ac128e429d964",
         "769f80b5bcb42ed0"
-      ]
-    },
-    {
-      "name": "infer",
-      "version": "0.19.0",
-      "license": "MIT",
-      "source": "rust",
-      "url": "https://github.com/bojand/infer",
-      "texts": [
-        "7804ded9273b80f1"
       ]
     },
     {
@@ -4807,7 +4776,7 @@
     },
     {
       "name": "quinn-proto",
-      "version": "0.11.18",
+      "version": "0.11.19",
       "license": "MIT OR Apache-2.0",
       "source": "rust",
       "url": "https://github.com/quinn-rs/quinn",
@@ -4818,7 +4787,7 @@
     },
     {
       "name": "quinn-udp",
-      "version": "0.5.15",
+      "version": "0.5.16",
       "license": "MIT OR Apache-2.0",
       "source": "rust",
       "url": "https://github.com/quinn-rs/quinn",
@@ -6211,7 +6180,7 @@
     },
     {
       "name": "tauri",
-      "version": "2.12.0",
+      "version": "2.12.1",
       "license": "Apache-2.0 OR MIT",
       "source": "rust",
       "url": "https://github.com/tauri-apps/tauri",
@@ -6222,7 +6191,7 @@
     },
     {
       "name": "tauri-build",
-      "version": "2.7.0",
+      "version": "2.7.1",
       "license": "Apache-2.0 OR MIT",
       "source": "rust",
       "url": "https://github.com/tauri-apps/tauri",
@@ -6233,7 +6202,7 @@
     },
     {
       "name": "tauri-codegen",
-      "version": "2.7.0",
+      "version": "2.7.1",
       "license": "Apache-2.0 OR MIT",
       "source": "rust",
       "url": "https://github.com/tauri-apps/tauri",
@@ -6244,7 +6213,7 @@
     },
     {
       "name": "tauri-macros",
-      "version": "2.7.0",
+      "version": "2.7.1",
       "license": "Apache-2.0 OR MIT",
       "source": "rust",
       "url": "https://github.com/tauri-apps/tauri",
@@ -6255,7 +6224,7 @@
     },
     {
       "name": "tauri-plugin",
-      "version": "2.7.0",
+      "version": "2.7.1",
       "license": "Apache-2.0 OR MIT",
       "source": "rust",
       "url": "https://github.com/tauri-apps/tauri",
@@ -6287,7 +6256,7 @@
     },
     {
       "name": "tauri-plugin-opener",
-      "version": "2.6.0",
+      "version": "2.7.0",
       "license": "Apache-2.0 OR MIT",
       "source": "rust",
       "url": "https://github.com/tauri-apps/plugins-workspace",
@@ -6299,7 +6268,7 @@
     },
     {
       "name": "tauri-plugin-updater",
-      "version": "2.13.0",
+      "version": "2.13.1",
       "license": "Apache-2.0 OR MIT",
       "source": "rust",
       "url": "https://github.com/tauri-apps/plugins-workspace",
@@ -6311,7 +6280,7 @@
     },
     {
       "name": "tauri-runtime",
-      "version": "2.12.0",
+      "version": "2.12.1",
       "license": "Apache-2.0 OR MIT",
       "source": "rust",
       "url": "https://github.com/tauri-apps/tauri",
@@ -6322,7 +6291,7 @@
     },
     {
       "name": "tauri-runtime-wry",
-      "version": "2.12.0",
+      "version": "2.12.1",
       "license": "Apache-2.0 OR MIT",
       "source": "rust",
       "url": "https://github.com/tauri-apps/tauri",
@@ -6333,7 +6302,7 @@
     },
     {
       "name": "tauri-utils",
-      "version": "2.10.0",
+      "version": "2.10.1",
       "license": "Apache-2.0 OR MIT",
       "source": "rust",
       "url": "https://github.com/tauri-apps/tauri",
@@ -8427,7 +8396,7 @@
     },
     {
       "name": "yoke-derive",
-      "version": "0.8.3",
+      "version": "0.8.4",
       "license": "Unicode-3.0",
       "source": "rust",
       "url": "https://github.com/unicode-org/icu4x",
@@ -8893,7 +8862,7 @@
     },
     {
       "name": "@types/d3-zoom",
-      "version": "3.0.8",
+      "version": "3.0.9",
       "license": "MIT",
       "source": "web",
       "url": "https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/d3-zoom",
@@ -9051,7 +9020,7 @@
     },
     {
       "name": "earcut",
-      "version": "3.2.3",
+      "version": "3.2.4",
       "license": "ISC",
       "source": "web",
       "url": "https://github.com/mapbox/earcut#readme",
@@ -9091,7 +9060,7 @@
     },
     {
       "name": "lucide-react",
-      "version": "1.48.0",
+      "version": "1.49.0",
       "license": "ISC",
       "source": "web",
       "url": "https://lucide.dev",

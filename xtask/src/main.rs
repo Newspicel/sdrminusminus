@@ -1447,16 +1447,28 @@ fn build_smoke_server(root: &Path) -> Result<()> {
 
 fn smoke(root: &Path) -> Result<()> {
     ensure_web_deps(root)?;
+    run_with_env(
+        PNPM,
+        &["--dir", "web", "build"],
+        root,
+        &[("VITE_ENABLE_SYNTHETIC_DEVICES", "true")],
+    )?;
     run(
         "cargo",
         &["build", "-p", "sdrmm", "--no-default-features"],
         root,
     )?;
+    let scratch = root.join("web/.e2e-tmp");
+    if scratch.exists() {
+        std::fs::remove_dir_all(&scratch)
+            .with_context(|| format!("remove {}", scratch.display()))?;
+    }
+    broadcast_fixtures::run(&scratch.join("recordings"))?;
     run_with_env(
         PNPM,
         &["--dir", "web", "exec", "playwright", "test"],
         root,
-        &[NO_SOAPY_RUNTIME],
+        &[NO_SOAPY_RUNTIME, ("E2E_PREBUILT", "1")],
     )?;
     Ok(())
 }

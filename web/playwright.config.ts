@@ -34,6 +34,11 @@ const PORT = Number(process.env.E2E_PORT);
 const TLS = process.env.E2E_TLS === "1";
 const ORIGIN = `${TLS ? "https" : "http"}://127.0.0.1:${PORT}`;
 const SCRATCH = ".e2e-tmp";
+const PREPARE =
+  process.env.E2E_PREBUILT === "1"
+    ? ""
+    : `pnpm --dir web build && rm -rf web/${SCRATCH} ` +
+      `&& cargo xtask broadcast-fixtures --out web/${SCRATCH}/recordings && `;
 
 export default defineConfig({
   testDir: "./e2e",
@@ -48,9 +53,8 @@ export default defineConfig({
   projects: [{ name: "chromium", use: devices["Desktop Chrome"] }],
   webServer: {
     command:
-      `pnpm --dir web build && rm -rf web/${SCRATCH} ` +
-      `&& cargo xtask broadcast-fixtures --out web/${SCRATCH}/recordings ` +
-      `&& cargo run -q -p sdrmm --no-default-features -- --bind 127.0.0.1:${PORT} ` +
+      PREPARE +
+      `cargo run -q -p sdrmm --no-default-features -- --bind 127.0.0.1:${PORT} ` +
       `--db web/${SCRATCH}/e2e.db --recordings-dir web/${SCRATCH}/recordings` +
       (TLS ? " --tls-self-signed" : ""),
     cwd: "..",

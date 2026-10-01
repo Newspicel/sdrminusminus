@@ -45,7 +45,7 @@ pub fn prepare(root: &Path) -> Result<Signal> {
             std::fs::remove_file(&path).with_context(|| format!("remove {}", path.display()))?;
         }
     }
-    println!("writing {SECONDS} s of {} Msps IQ", RATE / 1e6);
+    println!("writing {SECONDS} s of {} MS/s IQ", RATE / 1e6);
     write(&stem)?;
     Ok(signal)
 }

@@ -1751,7 +1751,7 @@
     },
     {
       "name": "yoke-derive",
-      "version": "0.8.3",
+      "version": "0.8.4",
       "license": "Unicode-3.0",
       "source": "rust",
       "url": "https://github.com/unicode-org/icu4x",
