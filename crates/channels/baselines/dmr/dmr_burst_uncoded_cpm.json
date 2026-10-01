@@ -28,43 +28,43 @@
     },
     {
       "ebn0_db": 11.0,
-      "errors": 3326,
-      "trials": 20736
+      "errors": 3067,
+      "trials": 18144
     },
     {
       "ebn0_db": 12.0,
-      "errors": 3004,
-      "trials": 246240
+      "errors": 3008,
+      "trials": 404352
     },
     {
       "ebn0_db": 13.0,
-      "errors": 3008,
-      "trials": 386208
+      "errors": 3006,
+      "trials": 650592
     },
     {
       "ebn0_db": 14.0,
-      "errors": 3002,
-      "trials": 487296
+      "errors": 3009,
+      "trials": 847584
     },
     {
       "ebn0_db": 15.0,
-      "errors": 3000,
-      "trials": 614304
+      "errors": 3005,
+      "trials": 1080864
     },
     {
       "ebn0_db": 16.0,
-      "errors": 3009,
-      "trials": 759456
+      "errors": 3006,
+      "trials": 1194912
     },
     {
       "ebn0_db": 17.0,
-      "errors": 3017,
-      "trials": 839808
+      "errors": 3005,
+      "trials": 1275264
     },
     {
       "ebn0_db": 18.0,
-      "errors": 3008,
-      "trials": 920160
+      "errors": 3003,
+      "trials": 1296000
     }
   ]
 }

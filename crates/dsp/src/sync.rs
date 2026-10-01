@@ -22,6 +22,8 @@ const TRUST_MISFIT: f32 = 0.05;
 
 const DISTRUST_MISFIT: f32 = 0.065;
 
+const ACQUIRE_SYMBOLS: f32 = 256.0;
+
 #[derive(Clone, Debug)]
 struct Decisions {
     levels: Vec<f32>,
@@ -35,6 +37,8 @@ struct Decisions {
     spacing: f32,
     misfit: f32,
     trusted: bool,
+    acquired: bool,
+    since_hold: f32,
 }
 
 impl Decisions {
@@ -65,6 +69,8 @@ impl Decisions {
             spacing: if spacing.is_finite() { spacing } else { outer },
             misfit: 1.0,
             trusted: false,
+            acquired: false,
+            since_hold: 0.0,
         }
     }
 
@@ -90,8 +96,13 @@ impl Decisions {
             .unwrap_or(0.0)
     }
 
+    fn acquiring(&self) -> bool {
+        !self.acquired && self.since_hold < ACQUIRE_SYMBOLS
+    }
+
     fn track_amplitude(&mut self, magnitude: f32) {
         self.seen += 1.0;
+        self.since_hold += 1.0;
         if self.seen <= 1.0 {
             self.amplitude = magnitude;
         } else if magnitude >= self.outer_edge * self.amplitude {
@@ -126,6 +137,8 @@ impl Decisions {
         self.since_outer = 0.0;
         self.misfit = 1.0;
         self.trusted = false;
+        self.acquired = false;
+        self.since_hold = 0.0;
     }
 }
 
@@ -240,6 +253,10 @@ impl SymbolSync {
                 let steered = on_sample(y, true);
                 if hold {
                     self.step = self.free_run_sps;
+                    if let Some(decisions) = &mut self.decisions {
+                        decisions.acquired = false;
+                        decisions.since_hold = 0.0;
+                    }
                 } else if let Some(err) = steered.filter(|_| self.primed) {
                     self.steer(err);
                 } else if self.primed {
@@ -294,6 +311,7 @@ impl SymbolSync {
         if let Some(decisions) = &mut self.decisions {
             let decided = decisions.error(symbol.re, self.prev_symbol.re);
             if decisions.trusted() {
+                decisions.acquired = true;
                 match decided {
                     Some(err) => self.steer(err),
                     None => self.step = self.free_run_sps,
@@ -306,19 +324,27 @@ impl SymbolSync {
             self.step = self.free_run_sps;
             return;
         }
-        let sum = f64::from((symbol + self.prev_symbol).norm_sqr());
-        let diff = f64::from((symbol - self.prev_symbol).norm_sqr());
-        if sum > SYMMETRY_TOLERANCE * diff {
+        let Some(centre) = self.transition(symbol) else {
             self.step = self.sps;
             return;
-        }
-        let raw = ((symbol - self.prev_symbol) * self.mid.conj()).re;
+        };
+        let raw = ((symbol - self.prev_symbol) * (self.mid - centre).conj()).re;
         let err = f64::from(raw) / (f64::from(0.5 * (before + after)) * TAU);
         if !err.is_finite() {
             self.step = self.free_run_sps;
             return;
         }
         self.steer(err);
+    }
+
+    fn transition(&self, symbol: Complex<f32>) -> Option<Complex<f32>> {
+        let sum = f64::from((symbol + self.prev_symbol).norm_sqr());
+        let diff = f64::from((symbol - self.prev_symbol).norm_sqr());
+        if !self.decisions.as_ref().is_some_and(Decisions::acquiring) {
+            return (sum <= SYMMETRY_TOLERANCE * diff).then_some(ZERO);
+        }
+        let crossing = (symbol * self.prev_symbol.conj()).re < 0.0;
+        crossing.then(|| (symbol + self.prev_symbol) * 0.5)
     }
 
     fn steer(&mut self, err: f64) {

@@ -728,6 +728,36 @@ mod tests {
     }
 
     #[test]
+    fn a_noisy_four_level_burst_locks_within_a_few_hundred_symbols() {
+        let sent = symbols(600, 0x5eed, 4);
+        let params = four_level(1_944.0);
+        let clean = transmit(&params, &sent);
+        let mut errors = 0;
+        for delay in 0..SPS as usize {
+            let mut iq = noise(0x77, delay);
+            iq.extend_from_slice(&clean);
+            let mut rng = Rng::new(7 + delay as u64);
+            for sample in &mut iq {
+                let re = (rng.uniform() as f32 * 2.0 - 1.0) * 0.5;
+                let im = (rng.uniform() as f32 * 2.0 - 1.0) * 0.5;
+                *sample += Complex::new(re, im);
+            }
+            let mut demod = CpmDemod::new(&params, &rx_rrc(), TIMING_BW_BURST);
+            listening(&mut demod, 0x1157);
+            let mut soft = Vec::new();
+            demod.process(&iq, &mut soft);
+            let got: Vec<u8> = soft.iter().map(|&s| params.mapping().slice(s)).collect();
+            let (e, t) = symbol_errors(&got[..400], &sent, 100);
+            assert_eq!(t, 300);
+            errors += e;
+        }
+        assert!(
+            errors <= 100,
+            "{errors} symbol errors after a hundred symbols"
+        );
+    }
+
+    #[test]
     fn tracks_a_carrier_offset() {
         let sent = symbols(900, 5, 4);
         let params = four_level(1_944.0);
