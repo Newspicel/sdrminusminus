@@ -32,18 +32,12 @@ pub fn wrap(unit: &[u8], format: AudioFormat) -> Result<Vec<u8>, &'static str> {
         };
         unit = unit.get(offset..).ok_or("Truncated DAB+ data element")?;
     }
-    let mut bits = Bits {
-        bytes: Vec::with_capacity(unit.len() + 16),
+    let mut config = Bits {
+        bytes: Vec::with_capacity(4),
         used: 0,
     };
-    bits.push(0, 1);
-    bits.push(0, 1);
-    bits.push(1, 1);
-    bits.push(0, 6);
-    bits.push(0, 4);
-    bits.push(0, 3);
     let extension = format.spectral_band_replication;
-    bits.push(
+    config.push(
         if extension {
             if format.parametric_stereo { 29 } else { 5 }
         } else {
@@ -58,14 +52,34 @@ pub fn wrap(unit: &[u8], format: AudioFormat) -> Result<Vec<u8>, &'static str> {
         48000 => 3,
         _ => 15,
     };
-    bits.push(index(format.core_rate_hz()), 4);
-    bits.push(if format.stereo_core { 2 } else { 1 }, 4);
+    config.push(index(format.core_rate_hz()), 4);
+    config.push(if format.stereo_core { 2 } else { 1 }, 4);
     if extension {
-        bits.push(index(format.output_rate_hz()), 4);
-        bits.push(2, 5);
+        config.push(index(format.output_rate_hz()), 4);
+        config.push(2, 5);
     }
+    config.push(1, 1);
+    config.push(0, 2);
+    Ok(mux(unit, &config.bytes, config.used))
+}
+
+pub fn mux(unit: &[u8], config: &[u8], config_bits: usize) -> Vec<u8> {
+    let mut bits = Bits {
+        bytes: Vec::with_capacity(unit.len() + config.len() + 16),
+        used: 0,
+    };
+    bits.push(0, 1);
+    bits.push(0, 1);
     bits.push(1, 1);
-    bits.push(0, 2);
+    bits.push(0, 6);
+    bits.push(0, 4);
+    bits.push(0, 3);
+    for position in 0..config_bits {
+        bits.push(
+            usize::from(config[position / 8] >> (7 - position % 8) & 1),
+            1,
+        );
+    }
     bits.push(0, 3);
     bits.push(255, 8);
     bits.push(0, 2);
@@ -85,5 +99,5 @@ pub fn wrap(unit: &[u8], format: AudioFormat) -> Result<Vec<u8>, &'static str> {
         bits.bytes.len() as u8,
     ]);
     packet.extend_from_slice(&bits.bytes);
-    Ok(packet)
+    packet
 }
