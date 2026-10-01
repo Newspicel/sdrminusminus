@@ -1,9 +1,9 @@
 {
   "entry": "ofdm-qpsk-reference",
   "seed": 4052,
-  "sensitivity_db_1e2": 8.318403059986299,
-  "sensitivity_db_1e3": 10.577616986870998,
-  "sensitivity_db_1e4": 12.115236643415942,
+  "sensitivity_db_1e2": 7.136829713811122,
+  "sensitivity_db_1e3": 9.570272643906117,
+  "sensitivity_db_1e4": 11.157825468343995,
   "rows": [
     {
       "axis": "static CFO",
@@ -14,13 +14,13 @@
     {
       "axis": "frequency drift",
       "unit": "Hz/s",
-      "threshold": 296875000.0,
+      "threshold": 269531250.0,
       "criterion": "BER <= 1e-2 at sensitivity(1e-3) + 3 dB"
     },
     {
       "axis": "sample clock",
       "unit": "ppm",
-      "threshold": 3496.09375,
+      "threshold": 3632.8125,
       "criterion": "BER <= 1e-2 at sensitivity(1e-3) + 3 dB"
     },
     {
@@ -32,7 +32,7 @@
     {
       "axis": "two-ray delay",
       "unit": "samples",
-      "threshold": 18.0,
+      "threshold": 19.0,
       "criterion": "BER <= 1e-2 at sensitivity(1e-3) + 3 dB"
     },
     {
@@ -50,13 +50,13 @@
     {
       "axis": "IQ phase",
       "unit": "deg",
-      "threshold": 24.609375,
+      "threshold": 27.421875,
       "criterion": "BER <= 1e-2 at sensitivity(1e-3) + 3 dB"
     },
     {
       "axis": "profile:static-indoor",
       "unit": "dB",
-      "threshold": 1.6517065064125394,
+      "threshold": 1.590183393673506,
       "criterion": "Eb/N0 degradation at BER 1e-3"
     }
   ]

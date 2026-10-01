@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use num_complex::Complex;
 use sdrmm_modem::{
     constellation::tables,
-    ofdm::{ChannelEstimator, OfdmDemod, OfdmMod, OfdmParams},
+    ofdm::{ChannelEstimator, DELAY_GUARD_TAPS, OfdmDemod, OfdmMod, OfdmParams},
 };
 use sdrmm_modem_test_support::ber::{
     Curve,
@@ -170,11 +170,11 @@ fn oracle_rows() -> [OracleRow; 5] {
 #[test]
 fn acquisition_costs_the_recorded_margin_over_the_genie() {
     for (name, acquiring, genie, lo, hi) in [
-        ("bpsk", BPSK_AWGN, BPSK_GENIE_AWGN, 0.3, 1.4),
-        ("qpsk", QPSK_AWGN, QPSK_GENIE_AWGN, 1.4, 2.9),
-        ("16-qam", QAM16_AWGN, QAM16_GENIE_AWGN, 1.4, 2.9),
-        ("64-qam", QAM64_AWGN, QAM64_GENIE_AWGN, 1.4, 2.9),
-        ("dmt", DMT_AWGN, DMT_GENIE_AWGN, 1.4, 3.6),
+        ("bpsk", BPSK_AWGN, BPSK_GENIE_AWGN, 0.0, 0.6),
+        ("qpsk", QPSK_AWGN, QPSK_GENIE_AWGN, 0.7, 1.5),
+        ("16-qam", QAM16_AWGN, QAM16_GENIE_AWGN, 0.7, 1.6),
+        ("64-qam", QAM64_AWGN, QAM64_GENIE_AWGN, 0.7, 1.7),
+        ("dmt", DMT_AWGN, DMT_GENIE_AWGN, 1.4, 2.4),
     ] {
         let cost = sensitivity(acquiring) - sensitivity(genie);
         assert!(
@@ -188,7 +188,7 @@ fn acquisition_costs_the_recorded_margin_over_the_genie() {
 fn the_comb_tier_is_ahead_under_awgn_and_the_limits_tables_say_why() {
     let margin = sensitivity(QPSK_AWGN) - sensitivity(QPSK_COMB_AWGN);
     assert!(
-        (0.8..2.0).contains(&margin),
+        (0.1..1.0).contains(&margin),
         "the comb tier sits {margin} dB from the long-training tier under AWGN"
     );
     let row = |stem: &str, axis: &str| {
@@ -223,7 +223,7 @@ fn dmt_costs_the_hermitian_mirror_and_nothing_else() {
 }
 
 #[test]
-fn the_channel_estimate_carries_half_the_noise_variance_at_every_snr() {
+fn the_channel_estimate_keeps_only_the_noise_inside_the_cyclic_prefix() {
     let params = OfdmParams::wifi_like();
     let table = tables::qam_square(4).unwrap();
     let mut modulator = OfdmMod::new(params.clone());
@@ -278,10 +278,12 @@ fn the_channel_estimate_carries_half_the_noise_variance_at_every_snr() {
             (reported / sigma2 - 1.0).abs() < 0.1,
             "σ² {sigma2}: the chain measured a noise variance of {reported}"
         );
+        let kept =
+            (params.cp() + 2 * DELAY_GUARD_TAPS + 1) as f64 / params.map().occupied().len() as f64;
+        let closed_form = sigma2 / 2.0 * kept;
         assert!(
-            (mse / (sigma2 / 2.0) - 1.0).abs() < 0.15,
-            "σ² {sigma2}: estimate MSE {mse}, closed form {}",
-            sigma2 / 2.0
+            (mse / closed_form - 1.0).abs() < 0.2,
+            "σ² {sigma2}: estimate MSE {mse}, closed form {closed_form}"
         );
         assert!(
             worst_common < 0.5,

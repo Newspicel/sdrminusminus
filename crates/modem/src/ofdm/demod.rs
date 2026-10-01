@@ -2,7 +2,10 @@ use num_complex::Complex;
 use sdrmm_dsp::fft::Transform;
 
 use super::{
-    equalize::{ChannelEstimate, ChannelEstimator, PilotFit, PilotTracker, noise_var_from_repeats},
+    equalize::{
+        ChannelEstimate, ChannelEstimator, DelaySmoother, PilotFit, PilotTracker,
+        noise_var_from_repeats,
+    },
     params::OfdmParams,
     sync::{Acquisition, PreambleSync},
 };
@@ -14,6 +17,8 @@ use crate::{
 
 pub const DEFAULT_BACKOFF: usize = 4;
 
+pub const DELAY_GUARD_TAPS: usize = 4;
+
 #[derive(Clone)]
 pub struct OfdmDemod {
     params: OfdmParams,
@@ -24,6 +29,7 @@ pub struct OfdmDemod {
     pilot_tracking: bool,
     backoff: usize,
     channel: ChannelEstimate,
+    smoother: Option<DelaySmoother>,
     tracker: PilotTracker,
     cfo: f64,
     data_start: usize,
@@ -51,6 +57,12 @@ impl OfdmDemod {
             pilot_tracking: true,
             backoff: DEFAULT_BACKOFF,
             channel: ChannelEstimate::new(fft_size),
+            smoother: DelaySmoother::new(
+                params.map(),
+                -(DELAY_GUARD_TAPS as isize),
+                params.cp() + 2 * DELAY_GUARD_TAPS + 1,
+            )
+            .ok(),
             tracker: PilotTracker::new(),
             cfo: 0.0,
             data_start: params.data_offset(),
@@ -135,7 +147,7 @@ impl OfdmDemod {
         for (c, &h) in self.params.map().occupied().iter().zip(channel) {
             self.channel.set(c.bin, h);
         }
-        self.channel.finish(self.params.map(), noise_var, 0.0);
+        self.channel.finish(self.params.map(), noise_var, 0.0, None);
     }
 
     pub fn symbol(&mut self, x: &[Complex<f32>], symbol: usize, out: &mut [Complex<f32>]) {
@@ -281,14 +293,22 @@ impl OfdmDemod {
         }
         let noise_var = noise_var_from_repeats(&self.first[..count], &self.second[..count]);
         self.channel.clear();
+        let mut spread = 0.0;
         for index in 0..count {
             let (bin, value) = known(&self.params, index);
             let mean = (self.first[index] + self.second[index]) * 0.5;
             self.channel
                 .set(bin, mean * value.conj() / value.norm_sqr());
+            spread += 1.0 / f64::from(value.norm_sqr());
         }
+        let estimate_var = 0.5 * noise_var * spread / count.max(1) as f64;
+        let smoothing = match self.estimator {
+            ChannelEstimator::LongTraining => self.smoother.as_mut().map(|s| (s, estimate_var)),
+            ChannelEstimator::ShortComb => None,
+        };
         let ramp = -(self.backoff as f64) / self.params.fft() as f64;
-        self.channel.finish(self.params.map(), noise_var, ramp);
+        self.channel
+            .finish(self.params.map(), noise_var, ramp, smoothing);
     }
 }
 
