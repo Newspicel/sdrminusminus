@@ -12,19 +12,19 @@
       "better": "higher",
       "results": [
         {
+          "tool": "SDR--",
+          "version": "1.9.0-124-g4964c881-dirty",
+          "value": 74.22554917628199
+        },
+        {
           "tool": "dump1090-fa",
           "version": "11.1",
-          "value": 78.78761616249156
+          "value": 79.23239654229823
         },
         {
           "tool": "readsb",
           "version": "3.16.17",
-          "value": 78.06675488209967
-        },
-        {
-          "tool": "SDR--",
-          "version": "1.9.0-115-g4dd8e727-dirty",
-          "value": 69.67111748988899
+          "value": 77.71970388792823
         }
       ]
     },
@@ -35,14 +35,14 @@
       "better": "higher",
       "results": [
         {
-          "tool": "AIS-catcher",
-          "version": "0.70",
-          "value": 154.84930066081188
+          "tool": "SDR--",
+          "version": "1.9.0-124-g4964c881-dirty",
+          "value": 181.8177113626084
         },
         {
-          "tool": "SDR--",
-          "version": "1.9.0-115-g4dd8e727-dirty",
-          "value": 179.4851954633446
+          "tool": "AIS-catcher",
+          "version": "0.70",
+          "value": 150.79545035810256
         }
       ]
     },
@@ -54,19 +54,19 @@
       "note": "Others start from FM audio, SDR-- from IQ.",
       "results": [
         {
+          "tool": "SDR--",
+          "version": "1.9.0-124-g4964c881-dirty",
+          "value": 398.0571870034335
+        },
+        {
           "tool": "Dire Wolf",
           "version": "1.8.1",
-          "value": 32.98256869989402
+          "value": 32.70465156705205
         },
         {
           "tool": "multimon-ng",
           "version": "1.6.2",
-          "value": 2674.3047568492516
-        },
-        {
-          "tool": "SDR--",
-          "version": "1.9.0-115-g4dd8e727-dirty",
-          "value": 370.12865096080134
+          "value": 2604.9350798574824
         }
       ]
     },
@@ -78,14 +78,14 @@
       "note": "Others start from FM audio, SDR-- from IQ.",
       "results": [
         {
-          "tool": "multimon-ng",
-          "version": "1.6.2",
-          "value": 3627.0475969711615
+          "tool": "SDR--",
+          "version": "1.9.0-124-g4964c881-dirty",
+          "value": 239.60008166807052
         },
         {
-          "tool": "SDR--",
-          "version": "1.9.0-115-g4dd8e727-dirty",
-          "value": 213.61934992093043
+          "tool": "multimon-ng",
+          "version": "1.6.2",
+          "value": 3635.052464474843
         }
       ]
     },
@@ -96,13 +96,13 @@
       "better": "higher",
       "results": [
         {
-          "tool": "acarsdec",
-          "version": "3.7",
+          "tool": "SDR--",
+          "version": "1.9.0-124-g4964c881-dirty",
           "value": 2.0
         },
         {
-          "tool": "SDR--",
-          "version": "1.9.0-115-g4dd8e727-dirty",
+          "tool": "acarsdec",
+          "version": "3.7",
           "value": 2.0
         }
       ]
@@ -115,14 +115,14 @@
       "note": "acarsdec starts from AM audio, SDR-- from IQ.",
       "results": [
         {
-          "tool": "acarsdec",
-          "version": "3.7",
-          "value": 2967.0329670329825
+          "tool": "SDR--",
+          "version": "1.9.0-124-g4964c881-dirty",
+          "value": 653.5191109614383
         },
         {
-          "tool": "SDR--",
-          "version": "1.9.0-115-g4dd8e727-dirty",
-          "value": 602.1059163450888
+          "tool": "acarsdec",
+          "version": "3.7",
+          "value": 2797.045311233439
         }
       ]
     },
@@ -134,14 +134,14 @@
       "note": "Two SDR-- decodes are unconfirmed.",
       "results": [
         {
+          "tool": "SDR--",
+          "version": "1.9.0-124-g4964c881-dirty",
+          "value": 21.0
+        },
+        {
           "tool": "ft8_lib",
           "version": "9fec6ca",
           "value": 17.0
-        },
-        {
-          "tool": "SDR--",
-          "version": "1.9.0-115-g4dd8e727-dirty",
-          "value": 21.0
         }
       ]
     },
@@ -153,14 +153,14 @@
       "note": "SDR-- re-decodes overlapping windows.",
       "results": [
         {
-          "tool": "ft8_lib",
-          "version": "9fec6ca",
-          "value": 1225.6904722993982
+          "tool": "SDR--",
+          "version": "1.9.0-124-g4964c881-dirty",
+          "value": 45.98716038482055
         },
         {
-          "tool": "SDR--",
-          "version": "1.9.0-115-g4dd8e727-dirty",
-          "value": 45.48955862997579
+          "tool": "ft8_lib",
+          "version": "9fec6ca",
+          "value": 1111.111111111142
         }
       ]
     },
@@ -172,13 +172,13 @@
       "note": "Counts frames carrying the call's addresses.",
       "results": [
         {
-          "tool": "dsd-fme",
-          "version": "4fe32db",
-          "value": 6.0
+          "tool": "SDR--",
+          "version": "1.9.0-124-g4964c881-dirty",
+          "value": 5.0
         },
         {
-          "tool": "SDR--",
-          "version": "1.9.0-115-g4dd8e727-dirty",
+          "tool": "dsd-fme",
+          "version": "4fe32db",
           "value": 6.0
         }
       ]
@@ -191,14 +191,14 @@
       "note": "Others start from FM audio, SDR-- from IQ.",
       "results": [
         {
-          "tool": "dsd-fme",
-          "version": "4fe32db",
-          "value": 32.83134986202246
+          "tool": "SDR--",
+          "version": "1.9.0-124-g4964c881-dirty",
+          "value": 386.9205674834979
         },
         {
-          "tool": "SDR--",
-          "version": "1.9.0-115-g4dd8e727-dirty",
-          "value": 373.70394343148183
+          "tool": "dsd-fme",
+          "version": "4fe32db",
+          "value": 33.00839125083466
         }
       ]
     }

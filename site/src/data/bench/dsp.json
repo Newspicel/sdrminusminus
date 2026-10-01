@@ -12,24 +12,24 @@
       "better": "higher",
       "results": [
         {
+          "tool": "SDR--",
+          "version": "1.9.0-123-g9555837c-dirty",
+          "value": 196.085998
+        },
+        {
           "tool": "GNU Radio",
           "version": "3.10.12.0 (VOLK 3.3.0)",
-          "value": 49.426161
+          "value": 56.819529
         },
         {
           "tool": "liquid-dsp",
           "version": "1.8.3",
-          "value": 54.462993
+          "value": 57.959594
         },
         {
           "tool": "FutureSDR",
           "version": "futuredsp 0.8.0",
-          "value": 67.239218
-        },
-        {
-          "tool": "SDR--",
-          "version": "1.9.0-115-g4dd8e727-dirty",
-          "value": 197.432816
+          "value": 70.894738
         }
       ]
     },
@@ -40,24 +40,24 @@
       "better": "higher",
       "results": [
         {
+          "tool": "SDR--",
+          "version": "1.9.0-123-g9555837c-dirty",
+          "value": 715.366233
+        },
+        {
           "tool": "GNU Radio",
           "version": "3.10.12.0 (VOLK 3.3.0)",
-          "value": 196.767874
+          "value": 219.482156
         },
         {
           "tool": "liquid-dsp",
           "version": "1.8.3",
-          "value": 164.637463
+          "value": 177.81516
         },
         {
           "tool": "FutureSDR",
           "version": "futuredsp 0.8.0",
-          "value": 268.132291
-        },
-        {
-          "tool": "SDR--",
-          "version": "1.9.0-115-g4dd8e727-dirty",
-          "value": 718.257808
+          "value": 278.968568
         }
       ]
     },
@@ -69,24 +69,24 @@
       "note": "Each library's default filter design.",
       "results": [
         {
+          "tool": "SDR--",
+          "version": "1.9.0-123-g9555837c-dirty",
+          "value": 170.370307
+        },
+        {
           "tool": "GNU Radio",
           "version": "3.10.12.0 (VOLK 3.3.0)",
-          "value": 83.263271
+          "value": 84.757386
         },
         {
           "tool": "liquid-dsp",
           "version": "1.8.3",
-          "value": 81.392222
+          "value": 88.967928
         },
         {
           "tool": "FutureSDR",
           "version": "futuredsp 0.8.0",
-          "value": 111.494669
-        },
-        {
-          "tool": "SDR--",
-          "version": "1.9.0-115-g4dd8e727-dirty",
-          "value": 185.992276
+          "value": 114.423527
         }
       ]
     },
@@ -97,24 +97,24 @@
       "better": "higher",
       "results": [
         {
+          "tool": "SDR--",
+          "version": "1.9.0-123-g9555837c-dirty",
+          "value": 4903.311326
+        },
+        {
           "tool": "GNU Radio",
           "version": "3.10.12.0 (VOLK 3.3.0)",
-          "value": 1505.155519
+          "value": 1659.22128
         },
         {
           "tool": "liquid-dsp",
           "version": "1.8.3",
-          "value": 461.356139
+          "value": 491.697665
         },
         {
           "tool": "FutureSDR",
           "version": "futuredsp 0.8.0",
-          "value": 564.871207
-        },
-        {
-          "tool": "SDR--",
-          "version": "1.9.0-115-g4dd8e727-dirty",
-          "value": 4914.28517
+          "value": 573.593094
         }
       ]
     },
@@ -126,24 +126,24 @@
       "note": "Each library's own chain, same passband.",
       "results": [
         {
+          "tool": "SDR--",
+          "version": "1.9.0-123-g9555837c-dirty",
+          "value": 1235.426134
+        },
+        {
           "tool": "GNU Radio",
           "version": "3.10.12.0 (VOLK 3.3.0)",
-          "value": 760.56104
+          "value": 823.664197
         },
         {
           "tool": "liquid-dsp",
           "version": "1.8.3",
-          "value": 62.805906
+          "value": 70.426221
         },
         {
           "tool": "FutureSDR",
           "version": "futuredsp 0.8.0",
-          "value": 296.412007
-        },
-        {
-          "tool": "SDR--",
-          "version": "1.9.0-115-g4dd8e727-dirty",
-          "value": 1239.823639
+          "value": 314.628356
         }
       ]
     },
@@ -154,24 +154,24 @@
       "better": "higher",
       "results": [
         {
+          "tool": "SDR--",
+          "version": "1.9.0-123-g9555837c-dirty",
+          "value": 613.934416
+        },
+        {
           "tool": "GNU Radio",
           "version": "3.10.12.0 (VOLK 3.3.0)",
-          "value": 365.628209
+          "value": 382.412838
         },
         {
           "tool": "liquid-dsp",
           "version": "1.8.3",
-          "value": 147.48423
+          "value": 162.042343
         },
         {
           "tool": "FFTW",
           "version": "3.3.11",
-          "value": 379.88443
-        },
-        {
-          "tool": "SDR--",
-          "version": "1.9.0-115-g4dd8e727-dirty",
-          "value": 605.002237
+          "value": 383.637062
         }
       ]
     },
@@ -182,19 +182,19 @@
       "better": "higher",
       "results": [
         {
+          "tool": "SDR--",
+          "version": "1.9.0-123-g9555837c-dirty",
+          "value": 1232.372858
+        },
+        {
           "tool": "GNU Radio",
           "version": "3.10.12.0 (VOLK 3.3.0)",
-          "value": 261.384352
+          "value": 288.923607
         },
         {
           "tool": "liquid-dsp",
           "version": "1.8.3",
-          "value": 337.393235
-        },
-        {
-          "tool": "SDR--",
-          "version": "1.9.0-115-g4dd8e727-dirty",
-          "value": 1207.399348
+          "value": 331.38216
         }
       ]
     }
