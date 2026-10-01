@@ -45,9 +45,11 @@ pub(super) fn with_position(
     unit: WindUnit,
     comment: Option<&str>,
 ) -> (Option<AprsWeather>, Option<String>) {
-    let mut weather = AprsWeather::default();
-    weather.wind_dir_deg = course_deg.map(|c| c.round() as u16);
-    weather.wind_speed_ms = speed.map(|s| unit.to_ms(s));
+    let mut weather = AprsWeather {
+        wind_dir_deg: course_deg.map(|c| c.round() as u16),
+        wind_speed_ms: speed.map(|s| unit.to_ms(s)),
+        ..AprsWeather::default()
+    };
     let text = comment.unwrap_or_default().as_bytes();
     let text = match leading_wind(text) {
         Some((direction, speed, rest)) => {
