@@ -1,6 +1,6 @@
 use super::GROUP;
 
-const NORMALIZE: f32 = 0.75;
+const NORMALIZE: f32 = 0.875;
 
 struct Csr {
     offsets: Vec<usize>,

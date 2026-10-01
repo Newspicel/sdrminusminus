@@ -1,5 +1,3 @@
-use num_complex::Complex;
-
 use super::{Coding, DecodeError, en302755::demux};
 use crate::datv::dvbs2::ldpc::{Frame, Rate};
 
@@ -128,9 +126,9 @@ pub fn cell_shift(cells: usize, block: usize) -> Result<usize, DecodeError> {
         .ok_or(DecodeError::Parameters)
 }
 
-pub fn time_deinterleave(
-    input: &[Complex<f32>],
-    output: &mut [Complex<f32>],
+pub fn time_deinterleave<T: Copy>(
+    input: &[T],
+    output: &mut [T],
     cells: usize,
 ) -> Result<(), DecodeError> {
     if cells == 0

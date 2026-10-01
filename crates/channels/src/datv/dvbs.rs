@@ -16,9 +16,12 @@ pub const GENERATORS: [u16; 2] = [0o171, 0o133];
 const BRANCHES: usize = 12;
 const BRANCH_DEPTH: usize = 17;
 const TRACEBACK: usize = 96;
-const TRIAL_SYMBOLS: usize = 512;
+const TRIAL_SYMBOLS: usize = 8_192;
+const SCORE_SYMBOLS: usize = 512;
+const VERIFIED: usize = 6;
 const SYNC_PACKETS: usize = 5;
 const ACCEPT_METRIC: f32 = 0.86;
+const SYNC_ERRORS: u32 = 1;
 const MAX_SYNC_LOSS: u32 = 16;
 const ALIGN_WINDOW: usize = CODEWORD * 8 * (SYNC_PACKETS + 3);
 const ALIGN_BUDGET: usize = CODEWORD * 8 * 40;
@@ -283,14 +286,25 @@ fn sync_offset(bits: &[bool]) -> Option<(usize, bool)> {
     for offset in 0..=bits.len() - span {
         let mut normal = 0usize;
         let mut inverted = 0usize;
+        let mut errors = 0;
         for packet in 0..SYNC_PACKETS {
-            match pack_byte(bits, offset + packet * CODEWORD * 8) {
-                SYNC => normal += 1,
-                INVERTED_SYNC => inverted += 1,
-                _ => break,
+            let byte = pack_byte(bits, offset + packet * CODEWORD * 8);
+            let (to_normal, to_inverted) = (
+                (byte ^ SYNC).count_ones(),
+                (byte ^ INVERTED_SYNC).count_ones(),
+            );
+            if to_normal <= to_inverted {
+                normal += 1;
+                errors += to_normal;
+            } else {
+                inverted += 1;
+                errors += to_inverted;
+            }
+            if errors > SYNC_ERRORS {
+                break;
             }
         }
-        if normal + inverted == SYNC_PACKETS {
+        if errors <= SYNC_ERRORS && normal + inverted == SYNC_PACKETS {
             return Some((offset, inverted > normal));
         }
     }
@@ -310,6 +324,15 @@ impl Trial {
             mother: Vec::new(),
             decoded: Vec::new(),
         }
+    }
+
+    fn carries_sync(&mut self, received: &[Soft], phase: &PuncturePhase) -> bool {
+        self.mother.clear();
+        self.mother.resize(phase.prefix, ERASURE);
+        Depuncturer::new(&phase.pattern).process(received, &mut self.mother);
+        self.decoded.clear();
+        self.viterbi.decode(&self.mother, &mut self.decoded);
+        sync_offset(&self.decoded).is_some()
     }
 
     fn score(&mut self, received: &[Soft], phase: &PuncturePhase) -> f32 {
@@ -436,20 +459,30 @@ impl DvbsDecoder {
     }
 
     fn acquire(&mut self) -> bool {
-        let mut best: Option<(f32, DatvCodeRate, u8, usize)> = None;
+        let mut ranked: Vec<(f32, DatvCodeRate, u8, usize)> = Vec::new();
         for rotation in 0..4u8 {
             self.soften(rotation);
+            let window = &self.received[..self.received.len().min(2 * SCORE_SYMBOLS)];
             for &rate in self.candidates() {
                 for (index, phase) in puncture_phases(rate).into_iter().enumerate() {
-                    let score = self.trial.score(&self.received, &phase);
-                    if best.is_none_or(|(current, ..)| score > current) {
-                        best = Some((score, rate, rotation, index));
+                    let score = self.trial.score(window, &phase);
+                    if score >= ACCEPT_METRIC {
+                        ranked.push((score, rate, rotation, index));
                     }
                 }
             }
         }
-        let Some((_, rate, rotation, phase)) = best.filter(|&(score, ..)| score >= ACCEPT_METRIC)
-        else {
+        ranked.sort_by(|a, b| b.0.total_cmp(&a.0));
+        let verified = ranked
+            .iter()
+            .take(VERIFIED)
+            .copied()
+            .find(|&(_, rate, rotation, index)| {
+                self.soften(rotation);
+                let phase = puncture_phases(rate).swap_remove(index);
+                self.trial.carries_sync(&self.received, &phase)
+            });
+        let Some((_, rate, rotation, phase)) = verified else {
             return false;
         };
         let selected = puncture_phases(rate).swap_remove(phase);

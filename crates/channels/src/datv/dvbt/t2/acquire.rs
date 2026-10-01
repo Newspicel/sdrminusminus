@@ -52,8 +52,13 @@ pub struct Detection {
     pub preamble: Preamble,
 }
 
+const LEADS: usize = 3;
+const COHERENT_MARGIN: f32 = 3.0;
+
 pub struct Acquisition {
     fft: Transform,
+    inverse: Transform,
+    profile: Vec<Complex<f32>>,
     spectrum: Vec<Complex<f32>>,
     phase: [Complex<f32>; 1024],
     signs: [f32; 384],
@@ -65,6 +70,8 @@ impl Default for Acquisition {
         Self {
             spectrum: vec![Complex::default(); 1024],
             fft: Transform::forward(1024),
+            inverse: Transform::inverse(1024),
+            profile: vec![Complex::default(); 1024],
             phase: std::array::from_fn(|i| Complex::from_polar(1.0, TAU * i as f32 / 1024.0)),
             signs: std::array::from_fn(|_| {
                 let bit = (state ^ (state >> 1)) & 1;
@@ -101,7 +108,7 @@ impl Acquisition {
             } else {
                 0.0
             };
-            if quality > 0.45 && quality > peak.1 {
+            if quality > 0.3 && quality > peak.1 {
                 peak = (at, quality, (c * b).arg() / 1024.0);
             }
             if peak.1 > 0.0 && (at >= peak.0 + 24 || at == iq.len() - 2048) {
@@ -148,11 +155,9 @@ impl Acquisition {
         self.fft.process(&mut self.spectrum);
         let mut best = None;
         let mut confidence = 0.55;
+        let mut leads = [(f32::NEG_INFINITY, 0_isize); LEADS];
         for offset in -64_isize..=64 {
-            let cells: [Complex<f32>; 384] = std::array::from_fn(|i| {
-                let bin = (ACTIVE_CARRIERS[i] as isize - 426 + offset).rem_euclid(1024) as usize;
-                self.spectrum[bin] * self.signs[i]
-            });
+            let cells = self.cells(offset);
             let soft: [f32; 384] = std::array::from_fn(|i| {
                 if i == 0 {
                     0.0
@@ -163,6 +168,7 @@ impl Acquisition {
             let (s1, q1) = strongest(&CSS_S1, &soft[1..64], 1, Some(&soft[320..384]));
             let (s2, q2) = strongest(&CSS_S2, &soft[64..320], 0, None);
             let quality = q1.min(q2);
+            remember(&mut leads, (quality, offset));
             if quality > confidence {
                 confidence = quality;
                 best = Some(Detection {
@@ -176,8 +182,91 @@ impl Acquisition {
                 });
             }
         }
-        best
+        best.or_else(|| self.coherent(&leads, fractional))
     }
+
+    fn cells(&self, offset: isize) -> [Complex<f32>; 384] {
+        std::array::from_fn(|i| {
+            let bin = (ACTIVE_CARRIERS[i] as isize - 426 + offset).rem_euclid(1024) as usize;
+            self.spectrum[bin] * self.signs[i]
+        })
+    }
+
+    fn coherent(&mut self, leads: &[(f32, isize)], fractional: f32) -> Option<Detection> {
+        let mut found: Option<(f32, Detection)> = None;
+        for &(_, offset) in leads {
+            let cells = self.cells(offset);
+            let mut top = (0.0_f32, 0, 0);
+            let mut runner = 0.0_f32;
+            for s1 in 0..CSS_S1.len() {
+                for s2 in 0..CSS_S2.len() {
+                    let concentration = self.concentration(&cells, s1, s2);
+                    if concentration > top.0 {
+                        runner = top.0;
+                        top = (concentration, s1, s2);
+                    } else if concentration > runner {
+                        runner = concentration;
+                    }
+                }
+            }
+            let margin = top.0 / runner.max(f32::MIN_POSITIVE);
+            if margin >= COHERENT_MARGIN && found.as_ref().is_none_or(|(best, _)| margin > *best) {
+                found = Some((
+                    margin,
+                    Detection {
+                        start: 0,
+                        frequency: fractional + TAU * offset as f32 / 1024.0,
+                        confidence: top.0,
+                        preamble: Preamble {
+                            s1: top.1 as u8,
+                            s2: top.2 as u8,
+                        },
+                    },
+                ));
+            }
+        }
+        found.map(|(_, detection)| detection)
+    }
+
+    fn concentration(&mut self, cells: &[Complex<f32>; 384], s1: usize, s2: usize) -> f32 {
+        self.profile.fill(Complex::default());
+        let mut sign = 1.0;
+        for (i, &cell) in cells.iter().enumerate() {
+            if i > 0 {
+                sign *= differential(s1, s2, i);
+            }
+            self.profile[ACTIVE_CARRIERS[i]] = cell * sign;
+        }
+        self.inverse.process(&mut self.profile);
+        let (peak, total) = self
+            .profile
+            .iter()
+            .map(Complex::norm_sqr)
+            .fold((0.0_f32, 0.0_f32), |(peak, total), power| {
+                (peak.max(power), total + power)
+            });
+        if total > 0.0 { peak / total } else { 0.0 }
+    }
+}
+
+fn remember(leads: &mut [(f32, isize)], candidate: (f32, isize)) {
+    if let Some(weakest) = leads
+        .iter_mut()
+        .min_by(|a, b| a.0.total_cmp(&b.0))
+        .filter(|weakest| candidate.0 > weakest.0)
+    {
+        *weakest = candidate;
+    }
+}
+
+fn differential(s1: usize, s2: usize, carrier: usize) -> f32 {
+    let bit = |pattern: &[u8], index: usize| (pattern[index / 8] >> (7 - index % 8)) & 1;
+    let value = match carrier {
+        0..64 => bit(&CSS_S1[s1], carrier),
+        64..320 => bit(&CSS_S2[s2], carrier - 64),
+        _ => bit(&CSS_S1[s1], carrier - 320),
+    };
+    if value == 0 { 1.0 } else { -1.0 }
 }
 
 fn strongest<const N: usize, const B: usize>(

@@ -1,5 +1,6 @@
 pub mod bb;
 pub mod bch;
+mod carrier;
 pub mod frame;
 pub mod gse;
 pub mod ldpc;

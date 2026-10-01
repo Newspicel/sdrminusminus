@@ -169,7 +169,10 @@ fn both_plps_pass_fec_timing_and_common_packet_reconstruction() {
     let mut output = Vec::with_capacity(20);
     receiver.begin(pre, &post, Some(7), 0).unwrap();
     for (i, chunk) in signal.chunks(997).enumerate() {
-        receiver.push(i * 997, chunk, 0.01, &mut output).unwrap();
+        let gains = vec![1.0; chunk.len()];
+        receiver
+            .push(i * 997, chunk, &gains, 0.01, &mut output)
+            .unwrap();
     }
     receiver.end().unwrap();
     assert_eq!(receiver.report().errors, 0);

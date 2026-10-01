@@ -886,4 +886,41 @@ mod tests {
             "{seconds:.2} s of DAB took {elapsed:.2} s"
         );
     }
+
+    #[test]
+    fn an_ensemble_six_db_above_the_noise_decodes_its_audio() {
+        let clean = synth::dab::ensemble(40);
+        let power = clean.iter().map(|s| s.norm_sqr()).sum::<f32>() / clean.len() as f32;
+        let variance = power * INPUT_RATE_HZ as f32 / (BANDWIDTH_HZ as f32 * 10f32.powf(0.6));
+        let deviation = (variance / 2.0).sqrt();
+        let mut state = 0x7777_1234u32;
+        let mut uniform = move || {
+            state ^= state << 13;
+            state ^= state >> 17;
+            state ^= state << 5;
+            (state as f32 + 0.5) / 4_294_967_296.0
+        };
+        let iq: Vec<_> = clean
+            .iter()
+            .map(|&sample| {
+                let (a, b) = (uniform(), uniform());
+                let noise = Complex::from_polar(
+                    (-2.0 * a.ln()).sqrt() * deviation,
+                    std::f32::consts::TAU * b,
+                );
+                sample + noise
+            })
+            .collect();
+        let mut channel = channel(Some(synth::dab::MUSIC_SERVICE));
+        let mut out = ChannelOutputs::default();
+        for block in iq.chunks(16_384) {
+            channel.process(block, &mut out);
+        }
+        assert!(status(&out).locked);
+        assert!(
+            channel.superframes >= 25,
+            "{} superframes",
+            channel.superframes
+        );
+    }
 }

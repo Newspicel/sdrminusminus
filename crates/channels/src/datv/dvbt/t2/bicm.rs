@@ -7,6 +7,8 @@ use crate::datv::dvbs2::{
     ldpc::Ldpc,
 };
 
+const MIN_GAIN: f32 = 1e-3;
+
 pub struct Decoder {
     coding: Coding,
     cell_map: Vec<usize>,
@@ -77,6 +79,31 @@ impl Decoder {
         noise_variance: f32,
         output: &mut [bool],
     ) -> Result<Decoded, DecodeError> {
+        self.decode_cells(cells, None, block, noise_variance, output)
+    }
+
+    pub fn decode_weighted(
+        &mut self,
+        cells: &[Complex<f32>],
+        gains: &[f32],
+        block: usize,
+        noise_variance: f32,
+        output: &mut [bool],
+    ) -> Result<Decoded, DecodeError> {
+        if gains.len() != cells.len() {
+            return Err(DecodeError::Length);
+        }
+        self.decode_cells(cells, Some(gains), block, noise_variance, output)
+    }
+
+    fn decode_cells(
+        &mut self,
+        cells: &[Complex<f32>],
+        gains: Option<&[f32]>,
+        block: usize,
+        noise_variance: f32,
+        output: &mut [bool],
+    ) -> Result<Decoded, DecodeError> {
         if cells.len() != self.coding.cells() || output.len() < self.coding.message() {
             return Err(DecodeError::Length);
         }
@@ -89,15 +116,21 @@ impl Decoder {
         let shift = interleave::cell_shift(cells.len(), block)?;
         let rotation = Complex::from_polar(1.0, -self.coding.constellation.rotation());
         let bits = self.coding.constellation.bits();
+        let gain = |index: usize| gains.map_or(1.0, |gains| gains[index].max(MIN_GAIN));
         for i in 0..cells.len() {
-            let p = cells[(self.cell_map[i] + shift) % cells.len()];
-            let p = if self.coding.rotated {
-                let next = cells[(self.cell_map[(i + 1) % cells.len()] + shift) % cells.len()];
-                Complex::new(p.re, next.im) * rotation
+            let here = (self.cell_map[i] + shift) % cells.len();
+            let p = cells[here];
+            let (p, reliability) = if self.coding.rotated {
+                let there = (self.cell_map[(i + 1) % cells.len()] + shift) % cells.len();
+                let next = cells[there];
+                (
+                    Complex::new(p.re, next.im) * rotation,
+                    0.5 * (gain(here) + gain(there)),
+                )
             } else {
-                p
+                (p, gain(here))
             };
-            let soft = soften(p, &self.points, bits, noise_variance);
+            let soft = soften(p, &self.points, bits, noise_variance / reliability);
             for (bit, &llr) in soft[..bits].iter().enumerate() {
                 self.llrs[self.bit_map[i * bits + bit]] = llr;
             }

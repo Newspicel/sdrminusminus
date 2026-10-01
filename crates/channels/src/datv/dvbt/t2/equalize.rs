@@ -1,9 +1,23 @@
 use num_complex::Complex;
+use sdrmm_dsp::fft::Transform;
 
 use super::{
     DecodeError,
     mapping::{Carrier, Mapping},
 };
+use crate::datv::dvbt::wiener::{Design, FrequencyFilter, TAPS, measure_span};
+
+const PROFILE: usize = 16_384;
+const SPAN_MARGIN: f32 = 4.0;
+const ALIAS_SHARE: f32 = 0.9;
+const PILOT_NOISE_SHARE: f32 = 0.5;
+
+#[derive(Clone, Copy, Debug)]
+pub struct Shape {
+    pub miso: bool,
+    pub history: usize,
+    pub guard: usize,
+}
 
 pub struct Equalizer {
     observations: [Vec<Complex<f32>>; 2],
@@ -12,6 +26,9 @@ pub struct Equalizer {
     data_carriers: Vec<usize>,
     epoch: usize,
     pub noise: f32,
+    filters: [FrequencyFilter; 2],
+    profile: Vec<Complex<f32>>,
+    inverse: Transform,
 }
 
 impl Default for Equalizer {
@@ -23,6 +40,9 @@ impl Default for Equalizer {
             data_carriers: Vec::with_capacity(27841),
             epoch: 1,
             noise: 0.01,
+            filters: std::array::from_fn(|_| FrequencyFilter::new()),
+            profile: vec![Complex::default(); PROFILE],
+            inverse: Transform::inverse(PROFILE),
         }
     }
 }
@@ -34,16 +54,40 @@ impl Equalizer {
         self.noise = 0.01;
     }
 
+    pub fn shift(&mut self, fft: usize, samples: isize) {
+        if samples == 0 {
+            return;
+        }
+        let cycles = samples as f64 / fft as f64;
+        for observations in &mut self.observations {
+            for (bin, value) in observations[..fft].iter_mut().enumerate() {
+                let carrier = if bin < fft / 2 {
+                    bin as f64
+                } else {
+                    bin as f64 - fft as f64
+                };
+                let (sin, cos) = (std::f64::consts::TAU * cycles * carrier).sin_cos();
+                *value *= Complex::new(cos as f32, sin as f32);
+            }
+        }
+    }
+
     pub fn decode(
         &mut self,
         spectrum: &[Complex<f32>],
         map: &Mapping,
-        miso: bool,
-        history: usize,
+        shape: Shape,
         output: &mut [Complex<f32>],
+        gains: &mut [f32],
     ) -> Result<(), DecodeError> {
+        let Shape {
+            miso,
+            history,
+            guard,
+        } = shape;
         if spectrum.len() != map.fft
             || output.len() < map.data
+            || gains.len() < map.data
             || spectrum.iter().any(|p| !p.norm_sqr().is_finite())
         {
             return Err(DecodeError::Length);
@@ -59,7 +103,9 @@ impl Equalizer {
             }
         }
         for group in 0..=usize::from(miso) {
-            self.interpolate(map, group, history)?;
+            if !self.smooth(map, group, history, guard) {
+                self.interpolate(map, group, history)?;
+            }
         }
         self.data_carriers.clear();
         for k in 0..map.carriers {
@@ -69,10 +115,19 @@ impl Equalizer {
         }
         if miso {
             self.alamouti(spectrum, map, output)?;
+            gains[..map.data].fill(1.0);
         } else {
             for (i, &k) in self.data_carriers.iter().enumerate() {
                 let h = self.estimates[0][k];
                 output[i] = spectrum[bin(map, k)] * h.conj() / h.norm_sqr().max(1e-12);
+                gains[i] = h.norm_sqr();
+            }
+            let count = self.data_carriers.len().max(1) as f32;
+            let mean = gains[..self.data_carriers.len()].iter().sum::<f32>() / count;
+            if mean > 0.0 && mean.is_finite() {
+                for gain in &mut gains[..self.data_carriers.len()] {
+                    *gain /= mean;
+                }
             }
         }
         Ok(())
@@ -110,6 +165,48 @@ impl Equalizer {
                 }
             }
         }
+    }
+
+    fn smooth(&mut self, map: &Mapping, group: usize, history: usize, guard: usize) -> bool {
+        let (grid, start) = (map.grid, map.grid_start);
+        if grid == 0 || start >= map.carriers {
+            return false;
+        }
+        let count = (map.carriers - 1 - start) / grid + 1;
+        let fresh = |k: usize| {
+            let age = self.ages[group][bin(map, k)];
+            age != 0 && self.epoch - age <= history
+        };
+        if count < TAPS || !(start..map.carriers).step_by(grid).all(fresh) {
+            return false;
+        }
+        let observations = &self.observations[group];
+        let anchor = |m: usize| observations[bin(map, start + m * grid)];
+        let period = map.fft as f32 / grid as f32;
+        let (first, last) = measure_span(
+            &mut self.profile,
+            &mut self.inverse,
+            anchor,
+            count,
+            period,
+            guard,
+        )
+        .unwrap_or((0.0, guard as f32));
+        let filter = &mut self.filters[group];
+        filter.prepare(Design {
+            spacing: grid,
+            fft: map.fft,
+            first: first - SPAN_MARGIN,
+            width: (last - first + 2.0 * SPAN_MARGIN).min(ALIAS_SHARE * period),
+            noise: self.noise * PILOT_NOISE_SHARE,
+        });
+        filter.apply(
+            anchor,
+            start,
+            count,
+            &mut self.estimates[group][..map.carriers],
+        );
+        true
     }
 
     fn interpolate(

@@ -120,9 +120,10 @@ fn type1_type2_and_interframe_schedules_recover_only_selected_cells() {
                 let start = plp.start + slice * post.subslice_interval;
                 cells[start..start + per_slice].copy_from_slice(&signal[from..from + per_slice]);
             }
+            let gains = [1.0; 137];
             for (chunk, data) in cells.chunks(137).enumerate() {
                 scheduler
-                    .push(chunk * 137, data, 0.01, &mut packets)
+                    .push(chunk * 137, data, &gains[..data.len()], 0.01, &mut packets)
                     .unwrap();
             }
             scheduler.end().unwrap();

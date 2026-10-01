@@ -27,6 +27,8 @@ pub struct Scheduler {
     next_frame: Option<usize>,
     buffered: Vec<Complex<f32>>,
     deinterleaved: Vec<Complex<f32>>,
+    buffered_gains: Vec<f32>,
+    deinterleaved_gains: Vec<f32>,
     word: Vec<bool>,
     transport: Transport,
     slices: usize,
@@ -74,6 +76,8 @@ impl Scheduler {
             next_frame: None,
             buffered: Vec::with_capacity(TIME_CAPACITY),
             deinterleaved: vec![Complex::default(); TIME_CAPACITY],
+            buffered_gains: Vec::with_capacity(TIME_CAPACITY),
+            deinterleaved_gains: vec![0.0; TIME_CAPACITY],
             word: vec![false; 54000],
             transport: Transport::default(),
             slices: 0,
@@ -93,6 +97,7 @@ impl Scheduler {
         self.selected = None;
         self.next_frame = None;
         self.buffered.clear();
+        self.buffered_gains.clear();
         self.transport.reset();
         self.active = false;
     }
@@ -200,19 +205,24 @@ impl Scheduler {
         &mut self,
         address: usize,
         cells: &[Complex<f32>],
+        gains: &[f32],
         noise: f32,
         packets: &mut Vec<[u8; PACKET]>,
     ) -> Result<(), DecodeError> {
-        self.push_to(address, cells, noise, packets)
+        self.push_to(address, cells, gains, noise, packets)
     }
 
     pub(super) fn push_to<S: Sink>(
         &mut self,
         address: usize,
         cells: &[Complex<f32>],
+        gains: &[f32],
         noise: f32,
         packets: &mut S,
     ) -> Result<(), DecodeError> {
+        if gains.len() != cells.len() {
+            return Err(DecodeError::Length);
+        }
         if !self.active || self.slice_length == 0 {
             return Ok(());
         }
@@ -229,16 +239,19 @@ impl Scheduler {
             if expected != self.received {
                 return Err(DecodeError::Discontinuity);
             }
-            for &cell in &cells[first - address..last - address] {
+            let span = first - address..last - address;
+            for (&cell, &gain) in cells[span.clone()].iter().zip(&gains[span]) {
                 if self.buffered.len() == self.buffered.capacity() {
                     return Err(DecodeError::Capacity);
                 }
                 self.buffered.push(cell);
+                self.buffered_gains.push(gain);
                 self.received += 1;
                 let block_size = self.block_size(plp)?;
                 if self.buffered.len() == block_size * plp.coding.cells() {
                     self.decode_block(plp, block_size, noise, packets)?;
                     self.buffered.clear();
+                    self.buffered_gains.clear();
                     self.time_block += 1;
                 }
             }
@@ -270,13 +283,20 @@ impl Scheduler {
                 &mut self.deinterleaved[..count],
                 plp.coding.cells(),
             )?;
+            interleave::time_deinterleave(
+                &self.buffered_gains,
+                &mut self.deinterleaved_gains[..count],
+                plp.coding.cells(),
+            )?;
         } else {
             self.deinterleaved[..count].copy_from_slice(&self.buffered);
+            self.deinterleaved_gains[..count].copy_from_slice(&self.buffered_gains);
         }
         for index in 0..blocks {
             let first = index * plp.coding.cells();
-            let result = self.decoders[self.decoder].2.decode(
+            let result = self.decoders[self.decoder].2.decode_weighted(
                 &self.deinterleaved[first..first + plp.coding.cells()],
+                &self.deinterleaved_gains[first..first + plp.coding.cells()],
                 if plp.time_length == 0 {
                     self.time_block
                 } else {

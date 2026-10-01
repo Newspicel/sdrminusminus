@@ -4,17 +4,26 @@ use sdrmm_wire::DatvCodeRate;
 
 use super::{
     acquire::{self, Timing},
+    estimate::{ChannelEstimator, Symbol},
     mapping::{self, Mapping},
     tps::{Parameters, Tps},
 };
 use crate::datv::dvbs::{DvbsDecoder, DvbsMetrics, PACKET};
+
+const LLR_SCALE: f32 = 4.0;
+const UNKNOWN_NOISE: f32 = 0.05;
+const NOISE_SMOOTHING: f32 = 0.1;
+const STEER_GAIN: f32 = 0.5;
+const STEER_LIMIT: isize = 8;
 
 pub struct Receiver {
     maps: [Mapping; 2],
     transforms: [Transform; 2],
     pending: Vec<Complex<f32>>,
     spectrum: Vec<Complex<f32>>,
-    estimates: Vec<Complex<f32>>,
+    estimators: [ChannelEstimator; 2],
+    noise: f32,
+    steer: Option<isize>,
     previous_tps: Vec<Complex<f32>>,
     words: Vec<[Soft; 6]>,
     soft: Vec<Soft>,
@@ -40,7 +49,9 @@ impl Receiver {
             transforms: [Transform::forward(2048), Transform::forward(8192)],
             pending: Vec::with_capacity(65536),
             spectrum: vec![Complex::new(0.0, 0.0); 8192],
-            estimates: vec![Complex::new(0.0, 0.0); 6817],
+            estimators: [ChannelEstimator::new(1705), ChannelEstimator::new(6817)],
+            noise: 0.0,
+            steer: None,
             previous_tps: vec![Complex::new(0.0, 0.0); 68],
             words: vec![[0; 6]; 6048],
             soft: Vec::with_capacity(6048 * 6),
@@ -78,6 +89,11 @@ impl Receiver {
         self.since_tps = 0;
         self.snr = 0.0;
         self.frequency = 0.0;
+        self.noise = 0.0;
+        self.steer = None;
+        for estimator in &mut self.estimators {
+            estimator.reset();
+        }
     }
 
     pub fn metrics(&self) -> DvbsMetrics {
@@ -120,15 +136,15 @@ impl Receiver {
 
     fn demodulate(&mut self, mut timing: Timing, packets: &mut Vec<[u8; PACKET]>) {
         let index = usize::from(timing.fft == 8192);
-        let mut best = (0.0, 0.0, 16);
-        for at in 8..=24 {
-            let (quality, frequency) =
-                acquire::correlation(&self.pending, timing.fft, timing.guard, at);
-            if quality > best.0 {
-                best = (quality, frequency, at);
+        let (quality, frequency, at) = match self.steer {
+            Some(steer) => {
+                let at = (16 + steer).clamp(16 - STEER_LIMIT, 16 + STEER_LIMIT) as usize;
+                let (quality, frequency) =
+                    acquire::correlation(&self.pending, timing.fft, timing.guard, at);
+                (quality, frequency, at)
             }
-        }
-        let (quality, frequency, at) = best;
+            None => self.best_correlation(timing),
+        };
         if quality < 0.5 {
             self.losses += 1;
             self.bad_symbols = self.bad_symbols.saturating_add(1);
@@ -164,7 +180,19 @@ impl Receiver {
         let offset = self.integer_offset.unwrap_or(0);
         self.frequency = timing.offset + offset as f32 * std::f32::consts::TAU / timing.fft as f32;
         let phase = self.pilot_phase(index, offset);
-        self.equalize(index, phase, offset);
+        self.equalize(
+            index,
+            Symbol {
+                phase,
+                offset,
+                shift: at as isize - 16,
+                guard: timing.guard,
+                noise: self.noise,
+            },
+        );
+        self.steer = self.estimators[index]
+            .first_path()
+            .map(|delay| ((delay * STEER_GAIN).round() as isize).clamp(-STEER_LIMIT, STEER_LIMIT));
         self.read_tps(index, offset, timing);
         if let Some(params) = self.parameters {
             if self.symbol % 4 != phase {
@@ -179,6 +207,18 @@ impl Receiver {
         let period = timing.fft + timing.guard;
         self.pending.drain(..period + at - 16);
         self.timing = Some(timing);
+    }
+
+    fn best_correlation(&self, timing: Timing) -> (f32, f32, usize) {
+        let mut best = (0.0, 0.0, 16);
+        for at in 8..=24 {
+            let (quality, frequency) =
+                acquire::correlation(&self.pending, timing.fft, timing.guard, at);
+            if quality > best.0 {
+                best = (quality, frequency, at);
+            }
+        }
+        best
     }
 
     fn carrier_offset(&self, index: usize) -> isize {
@@ -219,25 +259,16 @@ impl Receiver {
         best.1
     }
 
-    fn equalize(&mut self, index: usize, phase: usize, offset: isize) {
-        let map = &self.maps[index];
-        for &k in &map.pilots[phase] {
-            self.estimates[k] = self.spectrum[map.bin(k, offset)] * (0.75 * map.reference[k]);
-        }
-        for pair in map.pilots[phase].windows(2) {
-            let a = self.estimates[pair[0]];
-            let delta = (self.estimates[pair[1]] - a) / (pair[1] - pair[0]) as f32;
-            for k in pair[0] + 1..pair[1] {
-                self.estimates[k] = a + delta * (k - pair[0]) as f32;
-            }
-        }
+    fn equalize(&mut self, index: usize, symbol: Symbol) {
+        self.estimators[index].update(&self.maps[index], &self.spectrum, symbol);
     }
 
     fn read_tps(&mut self, index: usize, offset: isize, timing: Timing) {
         let map = &self.maps[index];
         let mut differential = 0.0;
+        let estimates = self.estimators[index].estimates();
         for (i, &k) in map.tps.iter().enumerate() {
-            let h = self.estimates[k];
+            let h = estimates[k];
             let point = self.spectrum[map.bin(k, offset)] * h.conj() / h.norm_sqr().max(1e-12);
             differential += (point * self.previous_tps[i].conj()).re;
             self.previous_tps[i] = point;
@@ -268,10 +299,35 @@ impl Receiver {
     ) {
         let map = &self.maps[index];
         let table = &self.tables[(params.bits / 2 - 1) * 3 + params.alpha.ilog2() as usize];
+        let estimates = self.estimators[index].estimates();
+        let carriers = map.data[phase].len().max(1) as f32;
+        let reference = if self.noise > 0.0 {
+            self.noise
+        } else {
+            map.data[phase]
+                .iter()
+                .map(|&k| estimates[k].norm_sqr())
+                .sum::<f32>()
+                / carriers
+                * UNKNOWN_NOISE
+        };
+        let mut noise = 0.0;
         for (i, &k) in map.data[phase].iter().enumerate() {
-            let h = self.estimates[k];
-            let point = self.spectrum[map.bin(k, offset)] * h.conj() / h.norm_sqr().max(1e-12);
-            self.words[i] = mapping::soften(point, table, params.bits);
+            let h = estimates[k];
+            let gain = h.norm_sqr().max(1e-12);
+            let point = self.spectrum[map.bin(k, offset)] * h.conj() / gain;
+            let scale = LLR_SCALE * gain / reference.max(1e-12);
+            let (soft, nearest) = mapping::soften(point, table, params.bits, scale);
+            self.words[i] = soft;
+            noise += nearest * gain;
+        }
+        let noise = noise / carriers;
+        if noise.is_finite() {
+            self.noise = if self.noise > 0.0 {
+                self.noise + NOISE_SMOOTHING * (noise - self.noise)
+            } else {
+                noise
+            };
         }
         let mut reordered = [[0; 6]; 6048];
         for (i, &p) in map.permutation.iter().enumerate() {

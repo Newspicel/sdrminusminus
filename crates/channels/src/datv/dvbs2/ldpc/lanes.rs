@@ -41,7 +41,7 @@ impl Kernel {
 
 #[cfg(any(test, not(any(target_arch = "aarch64", target_arch = "x86_64"))))]
 const fn scale(magnitude: i16) -> i16 {
-    let scaled = magnitude - (magnitude >> 2);
+    let scaled = magnitude - (magnitude >> 3);
     if scaled < LIMIT { scaled } else { LIMIT }
 }
 
@@ -108,8 +108,8 @@ fn vector(gathered: &mut [i16], extrinsic: &mut [i16], messages: &mut [i16]) -> 
                 first = vminq_s16(first, magnitude);
             }
             count = vsubq_s16(count, vshrq_n_s16::<15>(parity));
-            let near = vminq_s16(vsubq_s16(first, vshrq_n_s16::<2>(first)), limit);
-            let far = vminq_s16(vsubq_s16(second, vshrq_n_s16::<2>(second)), limit);
+            let near = vminq_s16(vsubq_s16(first, vshrq_n_s16::<3>(first)), limit);
+            let far = vminq_s16(vsubq_s16(second, vshrq_n_s16::<3>(second)), limit);
             for at in (lane..rows).step_by(STRIDE) {
                 let value = vld1q_s16(extrinsic.add(at));
                 let magnitude = vbslq_s16(vceqq_s16(vqabsq_s16(value), first), far, near);
@@ -151,8 +151,8 @@ fn vector(gathered: &mut [i16], extrinsic: &mut [i16], messages: &mut [i16]) -> 
                 first = _mm_min_epi16(first, magnitude);
             }
             count = _mm_sub_epi16(count, _mm_srai_epi16::<15>(parity));
-            let near = _mm_min_epi16(_mm_sub_epi16(first, _mm_srai_epi16::<2>(first)), limit);
-            let far = _mm_min_epi16(_mm_sub_epi16(second, _mm_srai_epi16::<2>(second)), limit);
+            let near = _mm_min_epi16(_mm_sub_epi16(first, _mm_srai_epi16::<3>(first)), limit);
+            let far = _mm_min_epi16(_mm_sub_epi16(second, _mm_srai_epi16::<3>(second)), limit);
             for at in (lane..rows).step_by(STRIDE) {
                 let value = _mm_loadu_si128(extrinsic.add(at).cast());
                 let magnitude = _mm_max_epi16(value, _mm_subs_epi16(zero, value));
@@ -203,11 +203,11 @@ fn wide(gathered: &mut [i16], extrinsic: &mut [i16], messages: &mut [i16]) -> u3
             }
             count = _mm256_sub_epi16(count, _mm256_srai_epi16::<15>(parity));
             let near = _mm256_min_epi16(
-                _mm256_sub_epi16(first, _mm256_srai_epi16::<2>(first)),
+                _mm256_sub_epi16(first, _mm256_srai_epi16::<3>(first)),
                 limit,
             );
             let far = _mm256_min_epi16(
-                _mm256_sub_epi16(second, _mm256_srai_epi16::<2>(second)),
+                _mm256_sub_epi16(second, _mm256_srai_epi16::<3>(second)),
                 limit,
             );
             for at in (lane..rows).step_by(STRIDE) {

@@ -108,9 +108,7 @@ fn demodulator(standard: DatvStandard, roll_off: DatvRollOff) -> Result<LinearDe
     let params = LinearParams::new(constellation, pulse.clone(), SPS)
         .map_err(|error| ChannelError::InvalidSettings(format!("DATV waveform: {error}")))?;
     let carrier = match standard {
-        DatvStandard::DvbS => Some(
-            CarrierLoop::new(PhaseDetector::MthPower { m: 4 }, 0.002).with_frequency_aid(0.005),
-        ),
+        DatvStandard::DvbS => Some(CarrierLoop::new(PhaseDetector::MthPower { m: 4 }, 0.002)),
         DatvStandard::DvbS2 => None,
     };
     Ok(LinearDemod::new(
@@ -889,5 +887,132 @@ mod tests {
             elapsed < realtime_budget(seconds),
             "{seconds:.2} s of DATV took {elapsed:.2} s"
         );
+    }
+
+    fn s2_frames(
+        modulation: crate::datv::dvbs2::frame::Modulation,
+        rate: crate::datv::dvbs2::ldpc::Rate,
+        pilots: bool,
+        esn0_db: f32,
+        offset: f32,
+    ) -> (u32, u32) {
+        let clean = synth::datv::dvbs2_mode(2, modulation, rate, false, pilots);
+        let power = clean.iter().map(|s| s.norm_sqr()).sum::<f32>() / clean.len() as f32;
+        let deviation = (power * 4.0 / 10f32.powf(esn0_db / 10.0) / 2.0).sqrt();
+        let mut state = 0x2468_ace1u32;
+        let mut uniform = move || {
+            state ^= state << 13;
+            state ^= state >> 17;
+            state ^= state << 5;
+            (state as f32 + 0.5) / 4_294_967_296.0
+        };
+        let iq: Vec<_> = clean
+            .iter()
+            .enumerate()
+            .map(|(n, &sample)| {
+                let (a, b) = (uniform(), uniform());
+                let radius = (-2.0 * a.ln()).sqrt() * deviation;
+                let noise = Complex::from_polar(radius, std::f32::consts::TAU * b);
+                let turn = (offset * n as f32).rem_euclid(std::f32::consts::TAU);
+                sample * Complex::from_polar(1.0, turn) + noise
+            })
+            .collect();
+        let mut channel = second_generation();
+        let statuses = drive(&mut channel, &iq);
+        statuses
+            .last()
+            .map_or((0, 0), |s| (s.frames_ok, s.frames_bad))
+    }
+
+    #[test]
+    fn second_generation_decodes_near_threshold_with_a_carrier_offset() {
+        use crate::datv::dvbs2::{frame::Modulation, ldpc::Rate};
+        for (name, modulation, rate, pilots, esn0_db, offset) in [
+            (
+                "QPSK 1/2 with pilots",
+                Modulation::Qpsk,
+                Rate::R1_2,
+                true,
+                0.0,
+                0.0012,
+            ),
+            (
+                "QPSK 1/2 without pilots",
+                Modulation::Qpsk,
+                Rate::R1_2,
+                false,
+                1.0,
+                -0.0006,
+            ),
+            (
+                "8PSK 3/4 with pilots",
+                Modulation::Psk8,
+                Rate::R3_4,
+                true,
+                6.0,
+                -0.0006,
+            ),
+            (
+                "8PSK 3/4 without pilots",
+                Modulation::Psk8,
+                Rate::R3_4,
+                false,
+                7.0,
+                0.0003,
+            ),
+        ] {
+            let (ok, bad) = s2_frames(modulation, rate, pilots, esn0_db, offset);
+            assert!(
+                ok >= 12 && bad <= 2,
+                "{name} at {esn0_db} dB, offset {offset}: {ok} good, {bad} bad frames"
+            );
+        }
+    }
+
+    #[test]
+    fn first_generation_decodes_in_noise_with_a_carrier_offset() {
+        let clean = synth::datv::dvbs(2);
+        let power = clean.iter().map(|s| s.norm_sqr()).sum::<f32>() / clean.len() as f32;
+        let deviation = (power * 4.0 / 10f32.powf(0.5) / 2.0).sqrt();
+        let mut state = 0x1357_9bdfu32;
+        let mut uniform = move || {
+            state ^= state << 13;
+            state ^= state >> 17;
+            state ^= state << 5;
+            (state as f32 + 0.5) / 4_294_967_296.0
+        };
+        let iq: Vec<_> = clean
+            .iter()
+            .enumerate()
+            .map(|(n, &sample)| {
+                let (a, b) = (uniform(), uniform());
+                let noise = Complex::from_polar(
+                    (-2.0 * a.ln()).sqrt() * deviation,
+                    std::f32::consts::TAU * b,
+                );
+                let turn = (0.002 * n as f32).rem_euclid(std::f32::consts::TAU);
+                sample * Complex::from_polar(1.0, turn) + noise
+            })
+            .collect();
+        let mut channel = channel(None);
+        let statuses = drive(&mut channel, &iq);
+        let (ok, bad) = statuses
+            .last()
+            .map_or((0, 0), |s| (s.frames_ok, s.frames_bad));
+        assert!(ok >= 300 && bad * 20 <= ok, "{ok} good, {bad} bad packets");
+    }
+
+    #[test]
+    fn superframed_second_generation_keeps_decoding() {
+        let iq = synth::datv::dvbs2_superframes(4);
+        let mut channel = open(DatvParams {
+            standard: DatvStandard::DvbS2,
+            superframes: true,
+            symbol_rate: synth::datv::SYMBOL_RATE,
+            ..DatvParams::default()
+        });
+        let statuses = drive(&mut channel, &iq);
+        let status = statuses.last().expect("a broadcast status");
+        assert!(status.frames_ok >= 30, "{status:?}");
     }
 }

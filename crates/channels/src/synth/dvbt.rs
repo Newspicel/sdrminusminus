@@ -65,7 +65,9 @@ pub fn waveform(mut params: Parameters, symbols: usize) -> Vec<Complex<f32>> {
         for (i, &k) in map.data[symbol % 4].iter().enumerate() {
             spectrum[map.bin(k, 0)] = mapping::point(symbols[i], params.bits, params.alpha);
         }
-        for &k in &map.pilots[symbol % 4] {
+        let pilot =
+            |k: &usize| k % 12 == 3 * (symbol % 4) || map.continual.binary_search(k).is_ok();
+        for k in (0..map.carriers).filter(pilot) {
             spectrum[map.bin(k, 0)] = Complex::new(map.reference[k] * 4.0 / 3.0, 0.0);
         }
         for &k in &map.tps {

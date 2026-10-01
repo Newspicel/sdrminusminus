@@ -469,4 +469,89 @@ mod tests {
         assert!(channel.media.video_frames > 0);
         assert!(out.audio_pcm.iter().any(|&sample| sample.abs() > 0.01));
     }
+
+    fn t2_frames(bytes: &[u8], paths: &[(usize, f32, f32)], snr_db: f32) -> (u32, u32) {
+        let native: Vec<Complex<f32>> = bytes
+            .as_chunks::<8>()
+            .0
+            .iter()
+            .map(|&[a, b, c, d, e, f, g, h]| {
+                Complex::new(
+                    f32::from_le_bytes([a, b, c, d]),
+                    f32::from_le_bytes([e, f, g, h]),
+                )
+            })
+            .collect();
+        let power = native.iter().map(|s| s.norm_sqr()).sum::<f32>() / native.len() as f32;
+        let clean: Vec<_> = native.iter().chain(&native).copied().collect();
+        let mut iq = clean.clone();
+        for (i, sample) in iq.iter_mut().enumerate() {
+            for &(delay, re, im) in paths {
+                if i >= delay {
+                    *sample += clean[i - delay] * Complex::new(re, im);
+                }
+            }
+        }
+        crate::synth::add_noise(
+            &mut iq,
+            0x77,
+            (power / 10f32.powf(snr_db / 10.0) * 1.5).sqrt(),
+        );
+        let params = DvbtParams {
+            standard: sdrmm_wire::DvbtStandard::DvbT2,
+            bandwidth: sdrmm_wire::DvbtBandwidth::Mhz1_7,
+            plp: None,
+            ..Default::default()
+        };
+        let mut config = settings(params.bandwidth);
+        config.params = ChannelParams::Dvbt(params);
+        let rate = crate::input_rate(&config.params);
+        let mut channel = DvbtChannel::new(ChannelCtx { input_rate: rate }, config).unwrap();
+        let mut out = ChannelOutputs::default();
+        for block in iq.chunks(1009) {
+            channel.process(block, &mut out);
+        }
+        channel.report(&mut out);
+        out.events
+            .iter()
+            .rev()
+            .find_map(|event| match event {
+                DecoderEvent::Broadcast(status) => Some((status.frames_ok, status.frames_bad)),
+                _ => None,
+            })
+            .unwrap_or((0, 0))
+    }
+
+    #[test]
+    fn t2_decodes_near_its_code_threshold_and_through_long_echoes() {
+        let qpsk = include_bytes!("../../../../../fixtures/dvbt2/rf_2k_qpsk.f32").as_slice();
+        let lite = include_bytes!("../../../../../fixtures/dvbt2/rf_2k_lite.f32").as_slice();
+        for (name, bytes, paths, snr_db) in [
+            ("QPSK in noise", qpsk, &[][..], 6.0),
+            (
+                "QPSK past the 3-carrier pilot reach",
+                qpsk,
+                &[(300, 0.0, 0.5)][..],
+                6.0,
+            ),
+            (
+                "QPSK under a strong long echo",
+                qpsk,
+                &[(300, 0.0, 0.8)][..],
+                12.0,
+            ),
+            (
+                "rotated 16-QAM in a deep notch channel",
+                lite,
+                &[(7, -0.9, 0.0)][..],
+                12.0,
+            ),
+        ] {
+            let (ok, bad) = t2_frames(bytes, paths, snr_db);
+            assert!(
+                ok >= 4 && bad == 0,
+                "{name} at {snr_db} dB: {ok} good, {bad} bad frames"
+            );
+        }
+    }
 }

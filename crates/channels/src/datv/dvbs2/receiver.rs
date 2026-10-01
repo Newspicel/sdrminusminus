@@ -1,6 +1,9 @@
 use num_complex::Complex;
 use sdrmm_dsp::fast_arg;
 
+use super::carrier::{
+    CoarseFrequency, anchored_drift, phase_at, power_order, power_phases, track_power,
+};
 #[cfg(any(test, feature = "synth"))]
 use super::frame::{interleave, modulate};
 use super::{
@@ -16,10 +19,15 @@ use super::{
 use crate::datv::dvbs::PACKET;
 
 const LOCK_COHERENCE: f32 = 0.75;
+const FLYWHEEL_COHERENCE: f32 = 0.3;
+const FLYWHEEL_SLACK: usize = 2;
+const FLYWHEEL_LOCKED: u32 = 2;
+const SETTLE_GAIN: f32 = 0.3;
+const TRACK_GAIN: f32 = 0.02;
 const NOISE: f32 = 0.25;
 const ACQUIRE_GAIN: f32 = 1.0;
-const TRACK_GAIN: f32 = 0.02;
 const VLSNR_CONFIDENCE: f32 = 0.5;
+const RESIDUAL_GAIN: f32 = 0.5;
 
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Dvbs2Metrics {
@@ -194,11 +202,15 @@ pub struct Dvbs2Decoder {
     frame: Vec<Complex<f32>>,
     payload: Vec<Complex<f32>>,
     anchors: Vec<(usize, f32)>,
+    block_phases: Vec<f32>,
+    coarse: CoarseFrequency,
     llrs: Vec<f32>,
     bits: Vec<bool>,
     searched: usize,
     frequency: f32,
     good: u32,
+    flywheel: u32,
+    residual: Option<f32>,
     gse: Gse,
     wanted: Option<u8>,
     seen: Vec<u32>,
@@ -225,11 +237,15 @@ impl Dvbs2Decoder {
             frame: Vec::new(),
             payload: Vec::new(),
             anchors: Vec::new(),
+            block_phases: Vec::with_capacity(1 << 12),
+            coarse: CoarseFrequency::new(),
             llrs: Vec::new(),
             bits: Vec::new(),
             searched: 0,
             frequency: 0.0,
             good: 0,
+            flywheel: 0,
+            residual: None,
             gse: Gse::new(),
             wanted: None,
             seen: vec![0; 256],
@@ -264,6 +280,7 @@ impl Dvbs2Decoder {
         self.searched = 0;
         self.frequency = 0.0;
         self.good = 0;
+        self.flywheel = 0;
         self.gse.reset();
         self.seen.fill(0);
         self.metrics = Dvbs2Metrics::default();
@@ -373,7 +390,17 @@ impl Dvbs2Decoder {
             let Some(fit) = pl::correlate_sof(&self.window) else {
                 return false;
             };
-            if fit.coherence < LOCK_COHERENCE {
+            let expected =
+                self.flywheel > 0 && at <= FLYWHEEL_SLACK && self.content == Content::Plain;
+            let threshold = if expected {
+                FLYWHEEL_COHERENCE
+            } else {
+                LOCK_COHERENCE
+            };
+            if fit.coherence < threshold {
+                if at >= FLYWHEEL_SLACK {
+                    self.flywheel = 0;
+                }
                 self.searched += 1;
                 continue;
             }
@@ -382,6 +409,10 @@ impl Dvbs2Decoder {
                 self.searched += 1;
                 continue;
             };
+            if fit.coherence < LOCK_COHERENCE && self.signalling != Some(signalling) {
+                self.searched += 1;
+                continue;
+            }
             let set = vlsnr::set_of(if self.content == Content::Extended {
                 Signalling {
                     pilots: true,
@@ -439,10 +470,17 @@ impl Dvbs2Decoder {
                     self.metrics.frames_skipped += 1;
                 }
             }
-            let gain = if self.good > 0 {
+            self.flywheel = self.flywheel.saturating_add(1);
+            let gain = if self.good == 0 {
+                if self.flywheel > FLYWHEEL_LOCKED {
+                    SETTLE_GAIN
+                } else {
+                    ACQUIRE_GAIN
+                }
+            } else if self.residual.is_none() {
                 TRACK_GAIN
             } else {
-                ACQUIRE_GAIN
+                0.0
             };
             self.frequency += gain * fit.rotation;
             self.pending.drain(..at + span);
@@ -456,15 +494,33 @@ impl Dvbs2Decoder {
         let Some(phase) = pl::pilot_phase(&self.frame[at..at + len]) else {
             return;
         };
-        let previous = self.anchors[self.anchors.len() - 1].1;
-        let turns = ((phase - previous) / std::f32::consts::TAU).round();
-        self.anchors.push((
-            pl::HEADER + at + len / 2,
-            phase - turns * std::f32::consts::TAU,
-        ));
+        let position = pl::HEADER + at + len / 2;
+        let predicted = if self.block_phases.is_empty() {
+            match self.anchors.as_slice() {
+                [.., before, last] => {
+                    last.1
+                        + (last.1 - before.1) * (position - last.0) as f32
+                            / (last.0 - before.0) as f32
+                }
+                [.., last] => last.1,
+                [] => 0.0,
+            }
+        } else {
+            phase_at(&self.block_phases, position - pl::HEADER)
+        };
+        let turns = ((phase - predicted) / std::f32::consts::TAU).round();
+        self.anchors
+            .push((position, phase - turns * std::f32::consts::TAU));
     }
 
-    fn track_phase(&mut self, signalling: Signalling, slots: usize) {
+    fn track_phase(&mut self, signalling: Signalling, slots: usize, modulation: Modulation) {
+        self.block_phases.clear();
+        if signalling.pilots
+            && let (Some(order), Some(codec)) = (power_order(modulation), &self.codec)
+        {
+            let reference = codec.constellation.point(0).powi(order);
+            power_phases(&self.frame, order, reference, &mut self.block_phases);
+        }
         self.anchors.clear();
         self.anchors.push((pl::HEADER / 2, 0.0));
         if signalling.pilots {
@@ -628,7 +684,14 @@ impl Dvbs2Decoder {
         self.frame.extend_from_slice(&self.window[pl::HEADER..]);
         self.scrambler.reset();
         self.scrambler.descramble(&mut self.frame);
-        self.track_phase(signalling, slots);
+        let coarse = match (power_order(modcod.modulation), &self.codec) {
+            (Some(order), Some(codec)) if self.content == Content::Plain => {
+                let reference = codec.constellation.point(0).powi(order);
+                self.coarse.remove(&mut self.frame, order, reference)
+            }
+            _ => 0.0,
+        };
+        self.track_phase(signalling, slots, modcod.modulation);
         self.payload.clear();
         let mut cursor = 0;
         for slot in 0..slots {
@@ -643,9 +706,28 @@ impl Dvbs2Decoder {
             self.fail();
             return;
         };
-        if !signalling.pilots {
-            track_decisions(&mut self.payload, &codec.constellation);
-        }
+        self.residual = if signalling.pilots {
+            Some(coarse + anchored_drift(&self.anchors))
+        } else {
+            match power_order(modcod.modulation) {
+                Some(order) => {
+                    let reference = codec.constellation.point(0).powi(order);
+                    Some(
+                        coarse
+                            + track_power(
+                                &mut self.payload,
+                                order,
+                                reference,
+                                &mut self.block_phases,
+                            ),
+                    )
+                }
+                None => {
+                    track_decisions(&mut self.payload, &codec.constellation);
+                    None
+                }
+            }
+        };
         self.llrs.clear();
         demodulate(&self.payload, &codec.constellation, NOISE, &mut self.llrs);
         let ordered = super::s2x::mode(modcod.index).map_or_else(
@@ -670,6 +752,9 @@ impl Dvbs2Decoder {
         };
         self.metrics.frames_ok += 1;
         self.good = self.good.saturating_add(1);
+        if let Some(residual) = self.residual {
+            self.frequency += RESIDUAL_GAIN * residual;
+        }
         self.deliver(data, out);
     }
 }

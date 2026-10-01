@@ -225,19 +225,20 @@ impl Multiplex {
         &mut self,
         address: usize,
         cells: &[Complex<f32>],
+        gains: &[f32],
         noise: f32,
         output: &mut Vec<[u8; PACKET]>,
     ) -> Result<(), DecodeError> {
         let before = output.len();
         if self.group.is_none() {
-            self.data.push(address, cells, noise, output)?;
+            self.data.push(address, cells, gains, noise, output)?;
         } else {
             let errors = self.data.report().errors + self.common.report().errors;
             self.packets.iter_mut().for_each(Vec::clear);
             self.data
-                .push_to(address, cells, noise, &mut self.packets[0])?;
+                .push_to(address, cells, gains, noise, &mut self.packets[0])?;
             self.common
-                .push_to(address, cells, noise, &mut self.packets[1])?;
+                .push_to(address, cells, gains, noise, &mut self.packets[1])?;
             if errors != self.data.report().errors + self.common.report().errors {
                 self.merged.reset();
                 return Err(DecodeError::Discontinuity);

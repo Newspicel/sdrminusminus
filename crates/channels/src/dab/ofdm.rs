@@ -25,7 +25,7 @@ pub const SYMBOL_BITS: usize = 2 * CARRIERS;
 
 const NULL_WINDOW: usize = 64;
 
-const NULL_POWER_RATIO: f32 = 0.25;
+const NULL_POWER_RATIO: f32 = 0.5;
 
 const CARRIER_AVERAGE_RATE: f32 = 0.00002;
 

@@ -439,7 +439,7 @@ fn trial(rate: Rate, fraction: f64, eb_n0_db: f64) -> (Trial, Trial) {
 
 #[test]
 fn layered_fails_no_more_often_than_thirty_flooding_iterations() {
-    for (rate, fraction, eb_n0_db) in [(Rate::R1_2, 0.5, 1.5), (Rate::R3_4, 0.75, 2.4)] {
+    for (rate, fraction, eb_n0_db) in [(Rate::R1_2, 0.5, 0.9), (Rate::R3_4, 0.75, 2.0)] {
         let (old, new) = trial(rate, fraction, eb_n0_db);
         assert!(old.failures > 0, "{rate:?} is not at its waterfall");
         assert!(

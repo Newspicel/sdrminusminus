@@ -235,11 +235,22 @@ fn equalizer_recovers_siso_and_miso_through_two_complex_channels() {
                 spectrum[(k + fft - map.carriers / 2) % fft] = value;
             }
             let mut actual = vec![Complex::default(); map.data];
+            let mut gains = vec![0.0; map.data];
             equalizer
-                .decode(&spectrum, &map, miso, 0, &mut actual)
+                .decode(
+                    &spectrum,
+                    &map,
+                    super::equalize::Shape {
+                        miso,
+                        history: 0,
+                        guard: fft / 4,
+                    },
+                    &mut actual,
+                    &mut gains,
+                )
                 .unwrap();
             for (a, b) in actual.iter().zip(&expected) {
-                assert!((*a - *b).norm() < 1e-5, "fft={fft} miso={miso} {a} {b}");
+                assert!((*a - *b).norm() < 1e-3, "fft={fft} miso={miso} {a} {b}");
             }
         }
     }

@@ -281,3 +281,46 @@ fn axis_demapping_matches_exhaustive_maxlog_distances() {
         }
     }
 }
+
+fn gaussian(state: &mut u32) -> f32 {
+    let mut uniform = || {
+        *state ^= *state << 13;
+        *state ^= *state >> 17;
+        *state ^= *state << 5;
+        (*state as f32 + 0.5) / 4_294_967_296.0
+    };
+    let (a, b) = (uniform(), uniform());
+    (-2.0 * a.ln()).sqrt() * (std::f32::consts::TAU * b).cos()
+}
+
+#[test]
+fn normal_frames_decode_within_two_db_of_their_bicm_capacity() {
+    for (rate, constellation, snr_db) in [
+        (Rate::R1_2, Constellation::Qpsk, 2.0),
+        (Rate::R1_2, Constellation::Qam16, 7.5),
+        (Rate::R3_5, Constellation::Qam64, 13.5),
+    ] {
+        let coding = coding(Frame::Normal, rate, constellation, false);
+        let mut decoder = bicm::Decoder::new(coding).unwrap();
+        let variance = 10f32.powf(-snr_db / 10.0);
+        let mut output = vec![false; coding.message()];
+        for trial in 0..3u32 {
+            let message: Vec<bool> = (0..coding.message())
+                .map(|i| (i * 7919 + i / 3 + trial as usize * 31) % 5 < 2)
+                .collect();
+            let mut state = 0x1234_5678 ^ trial.wrapping_mul(0x9e37_79b9);
+            let cells: Vec<_> = encode(coding, &message, 3)
+                .into_iter()
+                .map(|cell| {
+                    let noise = Complex::new(gaussian(&mut state), gaussian(&mut state));
+                    cell + noise * (variance / 2.0).sqrt()
+                })
+                .collect();
+            let decoded = decoder.decode(&cells, 3, variance, &mut output);
+            assert!(
+                decoded.is_ok() && output == message,
+                "{constellation:?} {rate:?} at {snr_db} dB, trial {trial}: {decoded:?}"
+            );
+        }
+    }
+}
