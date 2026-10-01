@@ -35,6 +35,7 @@ members = [
     "apps/sdrmm",
     "apps/desktop",
     "xtask",
+    "xtask/release",
 ]
 
 default-members = [
@@ -71,6 +72,7 @@ default-members = [
     "crates/mobile-core",
     "apps/sdrmm",
     "xtask",
+    "xtask/release",
 ]
 
 [workspace.package]
@@ -116,6 +118,7 @@ sdrmm-tunnel = { path = "crates/tunnel" }
 # disable a workspace dep's defaults, only add to them (needed for the minimal build).
 sdrmm-engine = { path = "crates/engine", default-features = false }
 sdrmm-server = { path = "crates/server", default-features = false }
+xtask-release = { path = "xtask/release" }
 
 # Async runtime / web
 tokio = { version = "1.53", features = ["rt-multi-thread", "macros", "sync", "time", "signal", "net"] }

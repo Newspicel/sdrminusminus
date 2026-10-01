@@ -29,8 +29,9 @@ COPY xtask xtask
 RUN find crates apps xtask -type f ! -name Cargo.toml -delete \
     && find crates apps xtask -mindepth 1 -type d -empty -delete \
     && for dir in crates/*/; do mkdir -p "$dir/src" && : > "$dir/src/lib.rs"; done \
-    && for dir in apps/*/ xtask/; do mkdir -p "$dir/src" && echo 'fn main() {}' > "$dir/src/main.rs"; done \
-    && for m in crates/*/Cargo.toml apps/*/Cargo.toml xtask/Cargo.toml; do \
+    && for dir in apps/*/ xtask/ xtask/release/; do mkdir -p "$dir/src" && echo 'fn main() {}' > "$dir/src/main.rs"; done \
+    && : > xtask/release/src/lib.rs \
+    && for m in crates/*/Cargo.toml apps/*/Cargo.toml xtask/Cargo.toml xtask/release/Cargo.toml; do \
          grep -A2 '^\[\[bench\]\]' "$m" | sed -n 's/^name *= *"\([^"]*\)".*/\1/p' \
          | while read -r b; do \
              mkdir -p "$(dirname "$m")/benches" \

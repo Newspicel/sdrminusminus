@@ -18,6 +18,7 @@ workspace = true
 
 [dependencies]
 sdrmm-server.workspace = true
+xtask-release.workspace = true
 sdrmm-recorder.workspace = true
 sdrmm-device-virtual.workspace = true
 sdrmm-channels = { workspace = true, features = ["fixtures"] }

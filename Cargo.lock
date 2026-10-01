@@ -9941,6 +9941,17 @@ dependencies = [
  "tract-nnef",
  "tract-onnx",
  "uniffi",
+ "xtask-release",
+]
+
+[[package]]
+name = "xtask-release"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
