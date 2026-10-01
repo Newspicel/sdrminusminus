@@ -18,6 +18,7 @@ pub enum DecoderFamily {
     Paging,
     Video,
     Broadcast,
+    Weather,
     #[default]
     Utility,
 }
@@ -1535,6 +1536,10 @@ pub enum ChannelParams {
     Hfdl(HfdlParams),
     Iridium(IridiumParams),
     Dect(DectParams),
+    Apt(crate::weather::AptParams),
+    Lrpt(crate::weather::LrptParams),
+    Wefax(crate::weather::WefaxParams),
+    Radiosonde(crate::weather::RadiosondeParams),
 }
 
 impl ChannelParams {
@@ -1587,6 +1592,10 @@ impl ChannelParams {
             Self::Hfdl(_) => "hfdl",
             Self::Iridium(_) => "iridium",
             Self::Dect(_) => "dect",
+            Self::Apt(_) => "apt",
+            Self::Lrpt(_) => "lrpt",
+            Self::Wefax(_) => "wefax",
+            Self::Radiosonde(_) => "radiosonde",
         }
     }
 }
@@ -1687,6 +1696,8 @@ pub fn home_frequency_hz(type_id: &str) -> Option<f64> {
         "vor" => 113_000_000.0,
         "ils" => 110_300_000.0,
         "dect" => 1_897_344_000.0,
+        "apt" => 137_100_000.0,
+        "lrpt" => 137_900_000.0,
         "radio_clock" => 77_500.0,
         "dab" => 227_360_000.0,
         _ => return None,

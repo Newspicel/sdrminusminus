@@ -6609,6 +6609,16 @@
           },
           "tnc2": {
             "type": "string"
+          },
+          "weather": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/AprsWeather"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         }
       },
@@ -6621,6 +6631,148 @@
           },
           "mode": {
             "$ref": "#/components/schemas/AprsMode"
+          }
+        }
+      },
+      "AprsWeather": {
+        "type": "object",
+        "properties": {
+          "humidity_pct": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "luminosity_wm2": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "pressure_hpa": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "float"
+          },
+          "rain_1h_mm": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "float"
+          },
+          "rain_24h_mm": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "float"
+          },
+          "rain_midnight_mm": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "float"
+          },
+          "snow_24h_mm": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "float"
+          },
+          "temperature_c": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "float"
+          },
+          "wind_dir_deg": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "wind_gust_ms": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "float"
+          },
+          "wind_speed_ms": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "float"
+          }
+        }
+      },
+      "AptImage": {
+        "type": "object",
+        "required": [
+          "seq",
+          "lines",
+          "complete",
+          "duration_ms"
+        ],
+        "properties": {
+          "channel_a": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/AvhrrChannel"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "channel_b": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/AvhrrChannel"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "complete": {
+            "type": "boolean"
+          },
+          "duration_ms": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "lines": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "seq": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "AptParams": {
+        "type": "object",
+        "properties": {
+          "keep_partial": {
+            "type": "boolean"
           }
         }
       },
@@ -8093,6 +8245,17 @@
             "type": "boolean"
           }
         }
+      },
+      "AvhrrChannel": {
+        "type": "string",
+        "enum": [
+          "ch1",
+          "ch2",
+          "ch3a",
+          "ch3b",
+          "ch4",
+          "ch5"
+        ]
       },
       "BandAllocation": {
         "type": "object",
@@ -10701,6 +10864,78 @@
                 "type": "string",
                 "enum": [
                   "dect"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "settings",
+              "type"
+            ],
+            "properties": {
+              "settings": {
+                "$ref": "#/components/schemas/AptParams"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "apt"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "settings",
+              "type"
+            ],
+            "properties": {
+              "settings": {
+                "$ref": "#/components/schemas/LrptParams"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "lrpt"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "settings",
+              "type"
+            ],
+            "properties": {
+              "settings": {
+                "$ref": "#/components/schemas/WefaxParams"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "wefax"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "settings",
+              "type"
+            ],
+            "properties": {
+              "settings": {
+                "$ref": "#/components/schemas/RadiosondeParams"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "radiosonde"
                 ]
               }
             }
@@ -13488,6 +13723,78 @@
                 ]
               }
             }
+          },
+          {
+            "type": "object",
+            "required": [
+              "data",
+              "kind"
+            ],
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/AptImage"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "apt"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "data",
+              "kind"
+            ],
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/LrptImage"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "lrpt"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "data",
+              "kind"
+            ],
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/WefaxPicture"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "wefax"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "data",
+              "kind"
+            ],
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/RadiosondeFrame"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "radiosonde"
+                ]
+              }
+            }
           }
         ]
       },
@@ -13502,6 +13809,7 @@
           "paging",
           "video",
           "broadcast",
+          "weather",
           "utility"
         ]
       },
@@ -17837,6 +18145,94 @@
           },
           "target": {
             "type": "string"
+          }
+        }
+      },
+      "LrptImage": {
+        "type": "object",
+        "required": [
+          "seq",
+          "mode",
+          "width",
+          "lines",
+          "complete",
+          "duration_ms",
+          "apids",
+          "frames",
+          "frames_corrected",
+          "frames_failed",
+          "packets_lost"
+        ],
+        "properties": {
+          "apids": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          },
+          "complete": {
+            "type": "boolean"
+          },
+          "duration_ms": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "frames": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "frames_corrected": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "frames_failed": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "lines": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "mode": {
+            "$ref": "#/components/schemas/LrptMode"
+          },
+          "packets_lost": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "seq": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "width": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "LrptMode": {
+        "type": "string",
+        "enum": [
+          "qpsk72",
+          "oqpsk72",
+          "oqpsk80"
+        ]
+      },
+      "LrptParams": {
+        "type": "object",
+        "properties": {
+          "mode": {
+            "$ref": "#/components/schemas/LrptMode"
           }
         }
       },
@@ -23376,6 +23772,134 @@
           }
         }
       },
+      "RadiosondeFrame": {
+        "type": "object",
+        "required": [
+          "sonde",
+          "serial",
+          "errors_corrected"
+        ],
+        "properties": {
+          "altitude_m": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "battery_v": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "float"
+          },
+          "climb_ms": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "errors_corrected": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "frame": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "heading_deg": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "humidity_pct": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "float"
+          },
+          "lat": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "lon": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "pressure_hpa": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "float"
+          },
+          "satellites": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "serial": {
+            "type": "string"
+          },
+          "sonde": {
+            "$ref": "#/components/schemas/SondeType"
+          },
+          "speed_ms": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "temperature_c": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "float"
+          },
+          "time": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "RadiosondeParams": {
+        "type": "object",
+        "properties": {
+          "sonde": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/SondeType"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
       "Range": {
         "type": "object",
         "required": [
@@ -25399,6 +25923,16 @@
             "format": "float"
           }
         }
+      },
+      "SondeType": {
+        "type": "string",
+        "enum": [
+          "rs41",
+          "dfm",
+          "m10",
+          "m20",
+          "imet4"
+        ]
       },
       "SourceRule": {
         "type": "string",
@@ -27834,6 +28368,79 @@
           "json",
           "discord"
         ]
+      },
+      "WefaxIoc": {
+        "type": "string",
+        "enum": [
+          "ioc576",
+          "ioc288"
+        ]
+      },
+      "WefaxLpm": {
+        "type": "string",
+        "enum": [
+          "lpm60",
+          "lpm90",
+          "lpm120",
+          "lpm240"
+        ]
+      },
+      "WefaxParams": {
+        "type": "object",
+        "properties": {
+          "ioc": {
+            "$ref": "#/components/schemas/WefaxIoc"
+          },
+          "keep_partial": {
+            "type": "boolean"
+          },
+          "lpm": {
+            "$ref": "#/components/schemas/WefaxLpm"
+          }
+        }
+      },
+      "WefaxPicture": {
+        "type": "object",
+        "required": [
+          "seq",
+          "ioc",
+          "lpm",
+          "width",
+          "lines",
+          "complete",
+          "duration_ms"
+        ],
+        "properties": {
+          "complete": {
+            "type": "boolean"
+          },
+          "duration_ms": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "ioc": {
+            "$ref": "#/components/schemas/WefaxIoc"
+          },
+          "lines": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "lpm": {
+            "$ref": "#/components/schemas/WefaxLpm"
+          },
+          "seq": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "width": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
       },
       "WfmParams": {
         "type": "object",

@@ -3,6 +3,7 @@ mod adsb;
 mod ais;
 mod am;
 mod aprs;
+mod apt;
 pub mod array_processor;
 mod atv;
 pub mod audio_chain;
@@ -30,6 +31,7 @@ mod ils;
 mod inmarsat_aero;
 mod inmarsat_stdc;
 mod iridium;
+mod lrpt;
 pub mod monitor;
 mod morse;
 mod navtex;
@@ -41,6 +43,7 @@ pub mod polarimeter;
 pub mod pose_clock;
 mod psk;
 mod radio_clock;
+mod radiosonde;
 mod rds;
 mod rtty;
 mod selcall;
@@ -55,6 +58,7 @@ mod vdl2;
 mod voice_inversion;
 mod vor;
 mod weak_signal;
+mod wefax;
 mod wfm;
 #[cfg(test)]
 mod xng_adapter;
@@ -70,6 +74,7 @@ pub use adsb::AdsbChannel;
 pub use ais::AisChannelRx;
 pub use am::{AmChannel, AmTx};
 pub use aprs::{AprsChannel, AprsTx, MicE, MicEBit};
+pub use apt::AptChannel;
 pub use atv::AtvChannel;
 pub use audio_chain::{AudioChain, ClickProfile};
 pub use cw_skimmer::CwSkimmerChannel;
@@ -96,6 +101,7 @@ pub use ils::IlsChannel;
 pub use inmarsat_aero::InmarsatAeroChannel;
 pub use inmarsat_stdc::InmarsatStdcChannel;
 pub use iridium::IridiumChannel;
+pub use lrpt::LrptChannel;
 pub use morse::MorseChannel;
 pub use navtex::NavtexChannel;
 pub use nfm::{NfmChannel, NfmTx};
@@ -103,6 +109,7 @@ use num_complex::Complex;
 pub use pocsag::PocsagChannel;
 pub use psk::PskChannel;
 pub use radio_clock::RadioClockChannel;
+pub use radiosonde::RadiosondeChannel;
 pub use rtty::RttyChannel;
 use sdrmm_dsp::{Decimator, FirC};
 use sdrmm_wire::{
@@ -115,6 +122,7 @@ pub use symbols::SymbolTap;
 pub use vdl2::Vdl2Channel;
 pub use vor::VorChannel;
 pub use weak_signal::{Ft4Channel, Ft8Channel, WsprChannel};
+pub use wefax::WefaxChannel;
 pub use wfm::WfmChannel;
 
 pub const AUDIO_RATE: u32 = 48_000;
@@ -193,6 +201,10 @@ pub fn occupied_band(params: &ChannelParams) -> (f64, f64) {
         ChannelParams::Hfdl(_) => hfdl::occupied_band(),
         ChannelParams::Iridium(p) => iridium::occupied_band(p),
         ChannelParams::Dect(_) => dect::occupied_band(),
+        ChannelParams::Apt(p) => apt::occupied_band(p),
+        ChannelParams::Lrpt(p) => lrpt::occupied_band(p),
+        ChannelParams::Wefax(p) => wefax::occupied_band(p),
+        ChannelParams::Radiosonde(p) => radiosonde::occupied_band(p),
     }
 }
 
@@ -271,6 +283,10 @@ pub fn channel_filter(params: &ChannelParams) -> Result<ChannelFilter, ChannelEr
         ChannelParams::Hfdl(_) => Ok(hfdl::channel_filter()),
         ChannelParams::Iridium(p) => Ok(iridium::channel_filter(p)),
         ChannelParams::Dect(_) => Ok(dect::channel_filter()),
+        ChannelParams::Apt(p) => apt::channel_filter(p),
+        ChannelParams::Lrpt(p) => lrpt::channel_filter(p),
+        ChannelParams::Wefax(p) => wefax::channel_filter(p),
+        ChannelParams::Radiosonde(p) => radiosonde::channel_filter(p),
     }
 }
 
@@ -636,6 +652,26 @@ const REGISTRY: &[Registration] = &[
         create: boxed::<DectChannel>,
         create_tx: None,
     },
+    Registration {
+        descriptor: AptChannel::descriptor,
+        create: boxed::<AptChannel>,
+        create_tx: None,
+    },
+    Registration {
+        descriptor: LrptChannel::descriptor,
+        create: boxed::<LrptChannel>,
+        create_tx: None,
+    },
+    Registration {
+        descriptor: WefaxChannel::descriptor,
+        create: boxed::<WefaxChannel>,
+        create_tx: None,
+    },
+    Registration {
+        descriptor: RadiosondeChannel::descriptor,
+        create: boxed::<RadiosondeChannel>,
+        create_tx: None,
+    },
 ];
 
 static DESCRIPTORS: std::sync::LazyLock<Vec<ChannelDescriptor>> = std::sync::LazyLock::new(|| {
@@ -736,13 +772,14 @@ mod tests {
     use std::collections::HashSet;
 
     use sdrmm_wire::{
-        AcarsParams, AdsbParams, AisParams, AmParams, AprsParams, AtvColor, AtvParams,
+        AcarsParams, AdsbParams, AisParams, AmParams, AprsParams, AptParams, AtvColor, AtvParams,
         ChannelParams, CwSkimmerParams, DabParams, DatvParams, DectParams, DmrParams, DpmrParams,
         DrmParams, DscParams, DstarParams, ErmesParams, FlexParams, FreeDvParams, GnssParams,
         HfdlParams, IdentParams, IlsParams, InmarsatAeroParams, InmarsatStdcParams, IridiumParams,
-        M17Params, MorseParams, NavtexParams, NfmParams, NxdnParams, P25Params, PocsagParams,
-        PskParams, RadioClockParams, RttyParams, SelcallParams, SsbParams, SstvParams, Vdl2Params,
-        VorParams, WfmParams, WsjtParams, WsprParams, YsfParams,
+        LrptParams, M17Params, MorseParams, NavtexParams, NfmParams, NxdnParams, P25Params,
+        PocsagParams, PskParams, RadioClockParams, RadiosondeParams, RttyParams, SelcallParams,
+        SsbParams, SstvParams, Vdl2Params, VorParams, WefaxParams, WfmParams, WsjtParams,
+        WsprParams, YsfParams,
     };
 
     use super::*;
@@ -796,6 +833,10 @@ mod tests {
             "hfdl" => ChannelParams::Hfdl(HfdlParams::default()),
             "iridium" => ChannelParams::Iridium(IridiumParams::default()),
             "dect" => ChannelParams::Dect(DectParams::default()),
+            "apt" => ChannelParams::Apt(AptParams::default()),
+            "lrpt" => ChannelParams::Lrpt(LrptParams::default()),
+            "wefax" => ChannelParams::Wefax(WefaxParams::default()),
+            "radiosonde" => ChannelParams::Radiosonde(RadiosondeParams::default()),
             other => panic!("unexpected type id {other}"),
         }
     }
@@ -844,7 +885,7 @@ mod tests {
     #[test]
     fn descriptors_are_unique_and_complete() {
         let all = descriptors();
-        assert_eq!(all.len(), 46);
+        assert_eq!(all.len(), 50);
         let ids: HashSet<&str> = all.iter().map(|d| d.type_id.as_str()).collect();
         assert_eq!(
             ids,
@@ -895,6 +936,10 @@ mod tests {
                 "hfdl",
                 "iridium",
                 "dect",
+                "apt",
+                "lrpt",
+                "wefax",
+                "radiosonde",
             ])
         );
         for d in &all {
@@ -938,6 +983,10 @@ mod tests {
                 "hfdl" => (6_000.0, 12_000.0),
                 "iridium" => (50_000.0, 250_000.0),
                 "dect" => (1_728_000.0, 2_304_000.0),
+                "apt" => (40_000.0, 60_000.0),
+                "lrpt" => (140_000.0, 288_000.0),
+                "wefax" => (1_600.0, 12_000.0),
+                "radiosonde" => (20_000.0, 48_000.0),
                 other => panic!("unexpected type id {other}"),
             };
             assert_eq!(d.bandwidth_hz, bandwidth, "{}", d.type_id);
@@ -974,7 +1023,10 @@ mod tests {
             );
             assert_eq!(
                 d.has_video,
-                matches!(d.type_id.as_str(), "atv" | "sstv" | "datv" | "dvbt"),
+                matches!(
+                    d.type_id.as_str(),
+                    "atv" | "sstv" | "datv" | "dvbt" | "apt" | "lrpt" | "wefax"
+                ),
                 "{} video flag does not match its mode class",
                 d.type_id
             );

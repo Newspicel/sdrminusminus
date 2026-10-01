@@ -1931,11 +1931,50 @@ export interface components {
             speed_kt?: number | null;
             symbol?: string | null;
             tnc2: string;
+            weather?: components["schemas"]["AprsWeather"] | null;
         };
         AprsParams: {
             /** Format: double */
             bandwidth_hz?: number;
             mode?: components["schemas"]["AprsMode"];
+        };
+        AprsWeather: {
+            /** Format: int32 */
+            humidity_pct?: number | null;
+            /** Format: int32 */
+            luminosity_wm2?: number | null;
+            /** Format: float */
+            pressure_hpa?: number | null;
+            /** Format: float */
+            rain_1h_mm?: number | null;
+            /** Format: float */
+            rain_24h_mm?: number | null;
+            /** Format: float */
+            rain_midnight_mm?: number | null;
+            /** Format: float */
+            snow_24h_mm?: number | null;
+            /** Format: float */
+            temperature_c?: number | null;
+            /** Format: int32 */
+            wind_dir_deg?: number | null;
+            /** Format: float */
+            wind_gust_ms?: number | null;
+            /** Format: float */
+            wind_speed_ms?: number | null;
+        };
+        AptImage: {
+            channel_a?: components["schemas"]["AvhrrChannel"] | null;
+            channel_b?: components["schemas"]["AvhrrChannel"] | null;
+            complete: boolean;
+            /** Format: int32 */
+            duration_ms: number;
+            /** Format: int32 */
+            lines: number;
+            /** Format: int32 */
+            seq: number;
+        };
+        AptParams: {
+            keep_partial?: boolean;
         };
         ArgumentInfo: {
             default: string;
@@ -2351,6 +2390,8 @@ export interface components {
             login_url?: string | null;
             token_required: boolean;
         };
+        /** @enum {string} */
+        AvhrrChannel: "ch1" | "ch2" | "ch3a" | "ch3b" | "ch4" | "ch5";
         BandAllocation: {
             aliases?: string[];
             /** Format: double */
@@ -3077,6 +3118,22 @@ export interface components {
             settings: components["schemas"]["DectParams"];
             /** @enum {string} */
             type: "dect";
+        } | {
+            settings: components["schemas"]["AptParams"];
+            /** @enum {string} */
+            type: "apt";
+        } | {
+            settings: components["schemas"]["LrptParams"];
+            /** @enum {string} */
+            type: "lrpt";
+        } | {
+            settings: components["schemas"]["WefaxParams"];
+            /** @enum {string} */
+            type: "wefax";
+        } | {
+            settings: components["schemas"]["RadiosondeParams"];
+            /** @enum {string} */
+            type: "radiosonde";
         };
         ChannelSettings: {
             blanker?: components["schemas"]["NoiseBlankerSettings"];
@@ -3829,9 +3886,25 @@ export interface components {
             data: components["schemas"]["DectFrame"];
             /** @enum {string} */
             kind: "dect";
+        } | {
+            data: components["schemas"]["AptImage"];
+            /** @enum {string} */
+            kind: "apt";
+        } | {
+            data: components["schemas"]["LrptImage"];
+            /** @enum {string} */
+            kind: "lrpt";
+        } | {
+            data: components["schemas"]["WefaxPicture"];
+            /** @enum {string} */
+            kind: "wefax";
+        } | {
+            data: components["schemas"]["RadiosondeFrame"];
+            /** @enum {string} */
+            kind: "radiosonde";
         };
         /** @enum {string} */
-        DecoderFamily: "analog_voice" | "digital_voice" | "aviation" | "marine" | "amateur" | "paging" | "video" | "broadcast" | "utility";
+        DecoderFamily: "analog_voice" | "digital_voice" | "aviation" | "marine" | "amateur" | "paging" | "video" | "broadcast" | "weather" | "utility";
         DecoderLogEntry: {
             at: string;
             /** Format: int32 */
@@ -5040,6 +5113,32 @@ export interface components {
             level: components["schemas"]["LogLevel"];
             message: string;
             target: string;
+        };
+        LrptImage: {
+            apids: number[];
+            complete: boolean;
+            /** Format: int32 */
+            duration_ms: number;
+            /** Format: int32 */
+            frames: number;
+            /** Format: int32 */
+            frames_corrected: number;
+            /** Format: int32 */
+            frames_failed: number;
+            /** Format: int32 */
+            lines: number;
+            mode: components["schemas"]["LrptMode"];
+            /** Format: int32 */
+            packets_lost: number;
+            /** Format: int32 */
+            seq: number;
+            /** Format: int32 */
+            width: number;
+        };
+        /** @enum {string} */
+        LrptMode: "qpsk72" | "oqpsk72" | "oqpsk80";
+        LrptParams: {
+            mode?: components["schemas"]["LrptMode"];
         };
         M17Params: Record<string, never>;
         MdnsState: {
@@ -6550,6 +6649,40 @@ export interface components {
         RadioModelsResponse: {
             models: components["schemas"]["RadioModelDescriptor"][];
         };
+        RadiosondeFrame: {
+            /** Format: double */
+            altitude_m?: number | null;
+            /** Format: float */
+            battery_v?: number | null;
+            /** Format: double */
+            climb_ms?: number | null;
+            /** Format: int32 */
+            errors_corrected: number;
+            /** Format: int32 */
+            frame?: number | null;
+            /** Format: double */
+            heading_deg?: number | null;
+            /** Format: float */
+            humidity_pct?: number | null;
+            /** Format: double */
+            lat?: number | null;
+            /** Format: double */
+            lon?: number | null;
+            /** Format: float */
+            pressure_hpa?: number | null;
+            /** Format: int32 */
+            satellites?: number | null;
+            serial: string;
+            sonde: components["schemas"]["SondeType"];
+            /** Format: double */
+            speed_ms?: number | null;
+            /** Format: float */
+            temperature_c?: number | null;
+            time?: string | null;
+        };
+        RadiosondeParams: {
+            sonde?: components["schemas"]["SondeType"] | null;
+        };
         Range: {
             /** Format: double */
             max: number;
@@ -7103,6 +7236,8 @@ export interface components {
             /** Format: float */
             w: number;
         };
+        /** @enum {string} */
+        SondeType: "rs41" | "dfm" | "m10" | "m20" | "imet4";
         /** @enum {string} */
         SourceRule: "dominance" | "mdl";
         /** @enum {string} */
@@ -7827,6 +7962,28 @@ export interface components {
         };
         /** @enum {string} */
         WebhookFormat: "json" | "discord";
+        /** @enum {string} */
+        WefaxIoc: "ioc576" | "ioc288";
+        /** @enum {string} */
+        WefaxLpm: "lpm60" | "lpm90" | "lpm120" | "lpm240";
+        WefaxParams: {
+            ioc?: components["schemas"]["WefaxIoc"];
+            keep_partial?: boolean;
+            lpm?: components["schemas"]["WefaxLpm"];
+        };
+        WefaxPicture: {
+            complete: boolean;
+            /** Format: int32 */
+            duration_ms: number;
+            ioc: components["schemas"]["WefaxIoc"];
+            /** Format: int32 */
+            lines: number;
+            lpm: components["schemas"]["WefaxLpm"];
+            /** Format: int32 */
+            seq: number;
+            /** Format: int32 */
+            width: number;
+        };
         WfmParams: {
             /** Format: float */
             deemphasis_us?: number;
