@@ -1,0 +1,206 @@
+{
+  "machine": {
+    "cpu": "Apple M4 Max",
+    "os": "macOS 27.0",
+    "date": "2026-10-01"
+  },
+  "groups": [
+    {
+      "id": "adsb-speed",
+      "title": "ADS-B speed",
+      "unit": "× realtime",
+      "better": "higher",
+      "results": [
+        {
+          "tool": "dump1090-fa",
+          "version": "11.1",
+          "value": 78.78761616249156
+        },
+        {
+          "tool": "readsb",
+          "version": "3.16.17",
+          "value": 78.06675488209967
+        },
+        {
+          "tool": "SDR--",
+          "version": "1.9.0-113-gdd2c4e3c-dirty",
+          "value": 46.81045277410446
+        }
+      ]
+    },
+    {
+      "id": "ais-speed",
+      "title": "AIS speed",
+      "unit": "× realtime",
+      "better": "higher",
+      "results": [
+        {
+          "tool": "AIS-catcher",
+          "version": "0.70",
+          "value": 154.84930066081188
+        },
+        {
+          "tool": "SDR--",
+          "version": "1.9.0-113-gdd2c4e3c-dirty",
+          "value": 185.8567537215605
+        }
+      ]
+    },
+    {
+      "id": "aprs-speed",
+      "title": "APRS speed",
+      "unit": "× realtime",
+      "better": "higher",
+      "note": "Others start from FM audio, SDR-- from IQ.",
+      "results": [
+        {
+          "tool": "Dire Wolf",
+          "version": "1.8.1",
+          "value": 32.98256869989402
+        },
+        {
+          "tool": "multimon-ng",
+          "version": "1.6.2",
+          "value": 2674.3047568492516
+        },
+        {
+          "tool": "SDR--",
+          "version": "1.9.0-113-gdd2c4e3c-dirty",
+          "value": 402.98182464560153
+        }
+      ]
+    },
+    {
+      "id": "pocsag-speed",
+      "title": "POCSAG speed",
+      "unit": "× realtime",
+      "better": "higher",
+      "note": "Others start from FM audio, SDR-- from IQ.",
+      "results": [
+        {
+          "tool": "multimon-ng",
+          "version": "1.6.2",
+          "value": 3627.0475969711615
+        },
+        {
+          "tool": "SDR--",
+          "version": "1.9.0-113-gdd2c4e3c-dirty",
+          "value": 329.2216786772574
+        }
+      ]
+    },
+    {
+      "id": "acars-decodes",
+      "title": "ACARS decodes",
+      "unit": "msgs",
+      "better": "higher",
+      "results": [
+        {
+          "tool": "acarsdec",
+          "version": "3.7",
+          "value": 2.0
+        },
+        {
+          "tool": "SDR--",
+          "version": "1.9.0-113-gdd2c4e3c-dirty",
+          "value": 2.0
+        }
+      ]
+    },
+    {
+      "id": "acars-speed",
+      "title": "ACARS speed",
+      "unit": "× realtime",
+      "better": "higher",
+      "note": "acarsdec starts from AM audio, SDR-- from IQ.",
+      "results": [
+        {
+          "tool": "acarsdec",
+          "version": "3.7",
+          "value": 2967.0329670329825
+        },
+        {
+          "tool": "SDR--",
+          "version": "1.9.0-113-gdd2c4e3c-dirty",
+          "value": 622.4690269034897
+        }
+      ]
+    },
+    {
+      "id": "ft8-decodes",
+      "title": "FT8 decodes",
+      "unit": "msgs",
+      "better": "higher",
+      "note": "Two SDR-- decodes are unconfirmed.",
+      "results": [
+        {
+          "tool": "ft8_lib",
+          "version": "9fec6ca",
+          "value": 17.0
+        },
+        {
+          "tool": "SDR--",
+          "version": "1.9.0-113-gdd2c4e3c-dirty",
+          "value": 21.0
+        }
+      ]
+    },
+    {
+      "id": "ft8-speed",
+      "title": "FT8 speed",
+      "unit": "× realtime",
+      "better": "higher",
+      "note": "SDR-- re-decodes overlapping windows.",
+      "results": [
+        {
+          "tool": "ft8_lib",
+          "version": "9fec6ca",
+          "value": 1225.6904722993982
+        },
+        {
+          "tool": "SDR--",
+          "version": "1.9.0-113-gdd2c4e3c-dirty",
+          "value": 40.06474462731769
+        }
+      ]
+    },
+    {
+      "id": "dmr-decodes",
+      "title": "DMR decodes",
+      "unit": "msgs",
+      "better": "higher",
+      "note": "Counts frames carrying the call's addresses.",
+      "results": [
+        {
+          "tool": "dsd-fme",
+          "version": "4fe32db",
+          "value": 6.0
+        },
+        {
+          "tool": "SDR--",
+          "version": "1.9.0-113-gdd2c4e3c-dirty",
+          "value": 6.0
+        }
+      ]
+    },
+    {
+      "id": "dmr-speed",
+      "title": "DMR speed",
+      "unit": "× realtime",
+      "better": "higher",
+      "note": "Others start from FM audio, SDR-- from IQ.",
+      "results": [
+        {
+          "tool": "dsd-fme",
+          "version": "4fe32db",
+          "value": 32.83134986202246
+        },
+        {
+          "tool": "SDR--",
+          "version": "1.9.0-113-gdd2c4e3c-dirty",
+          "value": 369.0882555152175
+        }
+      ]
+    }
+  ]
+}

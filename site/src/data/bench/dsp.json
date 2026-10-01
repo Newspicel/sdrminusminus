@@ -1,0 +1,202 @@
+{
+  "machine": {
+    "cpu": "Apple M4 Max",
+    "os": "macOS 27.0",
+    "date": "2026-10-01"
+  },
+  "groups": [
+    {
+      "id": "fir",
+      "title": "FIR, 127 taps",
+      "unit": "Msps",
+      "better": "higher",
+      "results": [
+        {
+          "tool": "GNU Radio",
+          "version": "3.10.12.0 (VOLK 3.3.0)",
+          "value": 49.426161
+        },
+        {
+          "tool": "liquid-dsp",
+          "version": "1.8.3",
+          "value": 54.462993
+        },
+        {
+          "tool": "FutureSDR",
+          "version": "futuredsp 0.8.0",
+          "value": 67.239218
+        },
+        {
+          "tool": "SDR--",
+          "version": "1.9.0-113-gdd2c4e3c-dirty",
+          "value": 187.980011
+        }
+      ]
+    },
+    {
+      "id": "decimate",
+      "title": "FIR, 127 taps, decimate by 4",
+      "unit": "Msps",
+      "better": "higher",
+      "results": [
+        {
+          "tool": "GNU Radio",
+          "version": "3.10.12.0 (VOLK 3.3.0)",
+          "value": 196.767874
+        },
+        {
+          "tool": "liquid-dsp",
+          "version": "1.8.3",
+          "value": 164.637463
+        },
+        {
+          "tool": "FutureSDR",
+          "version": "futuredsp 0.8.0",
+          "value": 268.132291
+        },
+        {
+          "tool": "SDR--",
+          "version": "1.9.0-113-gdd2c4e3c-dirty",
+          "value": 702.164062
+        }
+      ]
+    },
+    {
+      "id": "resample",
+      "title": "Resample 44.1 to 48 kHz",
+      "unit": "Msps",
+      "better": "higher",
+      "note": "Each library's default filter design.",
+      "results": [
+        {
+          "tool": "GNU Radio",
+          "version": "3.10.12.0 (VOLK 3.3.0)",
+          "value": 83.263271
+        },
+        {
+          "tool": "liquid-dsp",
+          "version": "1.8.3",
+          "value": 81.392222
+        },
+        {
+          "tool": "FutureSDR",
+          "version": "futuredsp 0.8.0",
+          "value": 111.494669
+        },
+        {
+          "tool": "SDR--",
+          "version": "1.9.0-113-gdd2c4e3c-dirty",
+          "value": 171.25579
+        }
+      ]
+    },
+    {
+      "id": "nco",
+      "title": "NCO mix",
+      "unit": "Msps",
+      "better": "higher",
+      "results": [
+        {
+          "tool": "GNU Radio",
+          "version": "3.10.12.0 (VOLK 3.3.0)",
+          "value": 1505.155519
+        },
+        {
+          "tool": "liquid-dsp",
+          "version": "1.8.3",
+          "value": 461.356139
+        },
+        {
+          "tool": "FutureSDR",
+          "version": "futuredsp 0.8.0",
+          "value": 564.871207
+        },
+        {
+          "tool": "SDR--",
+          "version": "1.9.0-113-gdd2c4e3c-dirty",
+          "value": 3897.245589
+        }
+      ]
+    },
+    {
+      "id": "ddc",
+      "title": "DDC 20 MS/s to 48 kHz",
+      "unit": "Msps",
+      "better": "higher",
+      "note": "Each library's own chain, same passband.",
+      "results": [
+        {
+          "tool": "GNU Radio",
+          "version": "3.10.12.0 (VOLK 3.3.0)",
+          "value": 760.56104
+        },
+        {
+          "tool": "liquid-dsp",
+          "version": "1.8.3",
+          "value": 62.805906
+        },
+        {
+          "tool": "FutureSDR",
+          "version": "futuredsp 0.8.0",
+          "value": 296.412007
+        },
+        {
+          "tool": "SDR--",
+          "version": "1.9.0-113-gdd2c4e3c-dirty",
+          "value": 1201.117984
+        }
+      ]
+    },
+    {
+      "id": "fft",
+      "title": "FFT, 4,096 points",
+      "unit": "Msps",
+      "better": "higher",
+      "results": [
+        {
+          "tool": "GNU Radio",
+          "version": "3.10.12.0 (VOLK 3.3.0)",
+          "value": 365.628209
+        },
+        {
+          "tool": "liquid-dsp",
+          "version": "1.8.3",
+          "value": 147.48423
+        },
+        {
+          "tool": "FFTW",
+          "version": "3.3.11",
+          "value": 379.88443
+        },
+        {
+          "tool": "SDR--",
+          "version": "1.9.0-113-gdd2c4e3c-dirty",
+          "value": 591.146857
+        }
+      ]
+    },
+    {
+      "id": "fm",
+      "title": "FM demod",
+      "unit": "Msps",
+      "better": "higher",
+      "results": [
+        {
+          "tool": "GNU Radio",
+          "version": "3.10.12.0 (VOLK 3.3.0)",
+          "value": 261.384352
+        },
+        {
+          "tool": "liquid-dsp",
+          "version": "1.8.3",
+          "value": 337.393235
+        },
+        {
+          "tool": "SDR--",
+          "version": "1.9.0-113-gdd2c4e3c-dirty",
+          "value": 1217.607862
+        }
+      ]
+    }
+  ]
+}

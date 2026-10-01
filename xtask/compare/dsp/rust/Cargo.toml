@@ -1,0 +1,17 @@
+[package]
+name = "sdrmm-compare-dsp"
+version = "0.0.0"
+edition = "2024"
+license = "AGPL-3.0-or-later"
+publish = false
+
+[workspace]
+
+[dependencies]
+sdrmm-dsp = { path = "../../../../crates/dsp" }
+futuredsp = "=0.8.0"
+num-complex = "0.4"
+
+[profile.release]
+opt-level = 3
+lto = "thin"

@@ -1,0 +1,133 @@
+{
+  "machine": {
+    "cpu": "Apple M4 Max",
+    "os": "macOS 27.0",
+    "date": "2026-10-01"
+  },
+  "groups": [
+    {
+      "id": "nfm-1-cpu",
+      "title": "1 NFM receiver, CPU",
+      "unit": "% core",
+      "better": "lower",
+      "note": "SDR-- headless. Others include their GUI and audio.",
+      "results": [
+        {
+          "tool": "SDR--",
+          "version": "1.9.0-112-g682f2dba",
+          "value": 8.7
+        },
+        {
+          "tool": "SDR++",
+          "version": "1.3.0",
+          "value": 18.7
+        },
+        {
+          "tool": "GQRX",
+          "version": "2.17.7",
+          "value": 17.6
+        }
+      ]
+    },
+    {
+      "id": "nfm-1-memory",
+      "title": "1 NFM receiver, memory",
+      "unit": "MiB",
+      "better": "lower",
+      "note": "SDR-- headless. Others include their GUI and audio.",
+      "results": [
+        {
+          "tool": "SDR--",
+          "version": "1.9.0-112-g682f2dba",
+          "value": 70.2
+        },
+        {
+          "tool": "SDR++",
+          "version": "1.3.0",
+          "value": 153.2
+        },
+        {
+          "tool": "GQRX",
+          "version": "2.17.7",
+          "value": 312.5
+        }
+      ]
+    },
+    {
+      "id": "nfm-4-cpu",
+      "title": "4 NFM receivers, CPU",
+      "unit": "% core",
+      "better": "lower",
+      "note": "SDR-- headless. Others include their GUI and audio.",
+      "results": [
+        {
+          "tool": "SDR--",
+          "version": "1.9.0-112-g682f2dba",
+          "value": 19.3
+        },
+        {
+          "tool": "SDR++",
+          "version": "1.3.0",
+          "value": 34.1
+        }
+      ]
+    },
+    {
+      "id": "nfm-4-memory",
+      "title": "4 NFM receivers, memory",
+      "unit": "MiB",
+      "better": "lower",
+      "note": "SDR-- headless. Others include their GUI and audio.",
+      "results": [
+        {
+          "tool": "SDR--",
+          "version": "1.9.0-112-g682f2dba",
+          "value": 81.7
+        },
+        {
+          "tool": "SDR++",
+          "version": "1.3.0",
+          "value": 199.8
+        }
+      ]
+    },
+    {
+      "id": "nfm-16-cpu",
+      "title": "16 NFM receivers, CPU",
+      "unit": "% core",
+      "better": "lower",
+      "note": "SDR-- headless. Others include their GUI and audio.",
+      "results": [
+        {
+          "tool": "SDR--",
+          "version": "1.9.0-112-g682f2dba",
+          "value": 47.6
+        },
+        {
+          "tool": "SDR++",
+          "version": "1.3.0",
+          "value": 108.2
+        }
+      ]
+    },
+    {
+      "id": "nfm-16-memory",
+      "title": "16 NFM receivers, memory",
+      "unit": "MiB",
+      "better": "lower",
+      "note": "SDR-- headless. Others include their GUI and audio.",
+      "results": [
+        {
+          "tool": "SDR--",
+          "version": "1.9.0-112-g682f2dba",
+          "value": 128.6
+        },
+        {
+          "tool": "SDR++",
+          "version": "1.3.0",
+          "value": 386.7
+        }
+      ]
+    }
+  ]
+}

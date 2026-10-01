@@ -24,6 +24,7 @@ mod broadcast_fixtures;
 mod bundle;
 mod bundled;
 mod changeset;
+mod compare;
 mod denoise_model;
 mod excerpt;
 mod homebrew;
@@ -170,6 +171,10 @@ enum Cmd {
         #[command(subcommand)]
         action: ios::IosAction,
     },
+    Compare {
+        #[command(subcommand)]
+        suite: compare::Compare,
+    },
 }
 
 fn main() -> Result<()> {
@@ -194,6 +199,7 @@ fn main() -> Result<()> {
         Cmd::BroadcastFixtures { out } => broadcast_fixtures::run(&out),
         Cmd::Excerpt(args) => excerpt::run(&root(), &args),
         Cmd::Replay(args) => replay::run(&args),
+        Cmd::Compare { suite } => compare::run(&root(), &suite),
         Cmd::Bandplan { offline } => bandplan::run(&root(), offline),
         Cmd::Ber { entry, out, full } => ber::run(&root(), &entry, out.as_deref(), full),
         Cmd::DenoiseModel => denoise_model::run(&root()),

@@ -39,6 +39,7 @@ export const FOOTER: LinkGroup[] = [
       { label: "First receiver", href: "/docs/getting-started/first-receiver" },
       { label: "Troubleshooting", href: "/docs/troubleshooting" },
       { label: "Build from source", href: "/docs/development/building" },
+      { label: "Benchmarks", href: "/benchmarks" },
       { label: "Changelog", href: "/changelog" },
     ],
   },

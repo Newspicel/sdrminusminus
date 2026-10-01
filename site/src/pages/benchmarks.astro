@@ -1,0 +1,101 @@
+---
+import { amount, machine, measured, ranked, SECTIONS, SELF, width } from "../bench";
+import Page from "../layouts/Page.astro";
+
+const summary = "SDR-- measured against other SDR software and libraries on the same machine.";
+const sections = measured(SECTIONS);
+---
+
+<Page title="Benchmarks · SDR--" description={summary} summary={summary}>
+  <div class="wrap top">
+    <h1>Benchmarks</h1>
+    <p class="lede">Same machine, same input, release builds. Run them yourself.</p>
+  </div>
+
+  {
+    sections.map((section) => (
+      <section class="wrap" id={section.id}>
+        <header>
+          <h2>{section.title}</h2>
+          <p class="machine">{machine(section.suite)}</p>
+        </header>
+        <div class="groups">
+          {section.suite.groups.map((group) => (
+            <figure>
+              <figcaption>
+                {group.title}
+                <span title={group.better === "higher" ? "Higher is better" : "Lower is better"}>
+                  {group.unit} {group.better === "higher" ? "↑" : "↓"}
+                </span>
+              </figcaption>
+              <ol>
+                {ranked(group).map((entry) => (
+                  <li class:list={{ self: entry.tool === SELF }}>
+                    <span class="tool" title={entry.version}>
+                      {entry.tool}
+                    </span>
+                    <span class="bar" style={`--w: ${width(entry, group)}`} />
+                    <span class="value">{amount(entry.value)}</span>
+                  </li>
+                ))}
+              </ol>
+              {group.note && <p class="fine">{group.note}</p>}
+            </figure>
+          ))}
+        </div>
+        <p class="note">
+          <code>{section.command}</code>
+        </p>
+      </section>
+    ))
+  }
+</Page>
+
+<style>
+  .top { padding-top: clamp(56px, 9vw, 112px); }
+  header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 18px; }
+  .machine { margin: 0; font: 13px var(--mono); color: var(--ink-faint); }
+  .groups {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr));
+    gap: 16px;
+    margin-top: 24px;
+  }
+  figure {
+    margin: 0;
+    padding: 16px 18px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-face);
+  }
+  figcaption {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 12px;
+    font-weight: 600;
+  }
+  figcaption span { font: 12px var(--mono); color: var(--ink-faint); white-space: nowrap; }
+  ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+  li {
+    display: grid;
+    grid-template-columns: 11ch 1fr 6ch;
+    align-items: center;
+    gap: 10px;
+    font: 13px var(--mono);
+    color: var(--ink-dim);
+  }
+  .tool { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .bar {
+    height: 10px;
+    width: calc(var(--w) * 100%);
+    min-width: 2px;
+    background: var(--line-strong);
+    border-radius: 2px;
+  }
+  .value { text-align: right; }
+  .fine { margin: 12px 0 0; font-size: 13px; color: var(--ink-faint); }
+  .self { color: var(--ink); }
+  .self .bar { background: var(--accent); }
+</style>
