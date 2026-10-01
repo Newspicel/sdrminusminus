@@ -226,6 +226,69 @@ fn a_single_carrier_never_locks() {
 }
 
 #[test]
+fn a_drifting_sample_clock_keeps_timing() {
+    let clean = synth::drm::signal(defaults(Robustness::B), 8);
+    let iq = synth::resample(&clean, INPUT_RATE_HZ, INPUT_RATE_HZ * (1.0 + 40e-6));
+    let mut channel = channel(DrmMode::Drm30, None);
+    let out = run(&mut channel, &iq);
+    let status = status(&out);
+    assert!(status.locked, "{status:?}");
+    assert!(status.audio_frames_ok > 20, "{status:?}");
+    assert_eq!(status.audio_frames_bad, 0, "{status:?}");
+}
+
+#[test]
+fn every_robustness_mode_and_constellation_carries_fac_sdc_and_audio() {
+    let cases = [
+        (Robustness::A, 5, Qam::Q16, 1, false),
+        (Robustness::A, 1, Qam::Q64, 2, true),
+        (Robustness::B, 3, Qam::Q64, 0, true),
+        (Robustness::B, 0, Qam::Q64, 3, false),
+        (Robustness::C, 3, Qam::Q64, 1, false),
+        (Robustness::C, 5, Qam::Q16, 0, true),
+        (Robustness::D, 3, Qam::Q64, 1, true),
+        (Robustness::D, 5, Qam::Q16, 1, false),
+        (Robustness::E, 0, Qam::Q4, 1, false),
+        (Robustness::E, 0, Qam::Q16, 3, false),
+    ];
+    for (mode, occupancy, msc, protection, short) in cases {
+        let config = Config {
+            occupancy,
+            msc,
+            protection_lower: protection,
+            short_interleave: short,
+            sdc_robust: occupancy % 2 == 1,
+            ..defaults(mode)
+        };
+        let iq = synth::drm::signal(config, 6);
+        let mut channel = channel(
+            if mode.plus() {
+                DrmMode::DrmPlus
+            } else {
+                DrmMode::Drm30
+            },
+            None,
+        );
+        let out = run(&mut channel, &iq);
+        let status = status(&out);
+        let case = format!("{mode:?} {occupancy} {msc:?} {protection}");
+        assert!(status.locked, "{case}: {status:?}");
+        let locked = channel.locked.as_ref().expect("locked");
+        let fac = locked.receiver.fac.expect("a FAC");
+        assert_eq!(fac.occupancy, occupancy, "{case}");
+        assert_eq!(fac.msc, msc, "{case}");
+        assert_eq!(fac.short_interleave, short && !mode.plus(), "{case}");
+        assert_eq!(fac.service[0].map(|service| service.id), Some(0x00D7A1));
+        assert_eq!(status.frames_bad, 0, "{case}: {status:?}");
+        assert!(status.data_groups_ok > 0, "{case}: {status:?}");
+        assert_eq!(status.data_groups_bad, 0, "{case}: {status:?}");
+        assert!(status.audio_frames_ok > 0, "{case}: {status:?}");
+        assert_eq!(status.audio_frames_bad, 0, "{case}: {status:?}");
+        assert!(status.snr_db > 25.0, "{case}: {status:?}");
+    }
+}
+
+#[test]
 fn decoding_keeps_ahead_of_the_channel_rate() {
     let iq = synth::drm::signal(defaults(Robustness::B), 3);
     let mut channel = channel(DrmMode::Auto, None);

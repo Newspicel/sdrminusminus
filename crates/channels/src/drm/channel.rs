@@ -22,8 +22,8 @@ use crate::{
 };
 
 const DECIMATION: usize = 4;
-const DECIMATOR_TAPS: usize = 127;
-const DECIMATOR_CUTOFF_HZ: f64 = 17_000.0;
+const DECIMATOR_TAPS: usize = 63;
+const DECIMATOR_CUTOFF_HZ: f64 = 24_000.0;
 const ACQUIRE_INPUT: usize = ACQUIRE_SAMPLES * DECIMATION;
 const LOST_INPUT: usize = 4 * ACQUIRE_INPUT;
 
@@ -332,8 +332,9 @@ impl DrmChannel {
             text,
             frames_ok: receiver.fac_ok,
             frames_bad: receiver.fac_bad,
-            data_groups_ok: receiver.sdc_ok,
-            data_groups_bad: receiver.sdc_bad,
+            data_groups_ok: receiver.sdc_ok.saturating_add(receiver.text.segments_ok),
+            data_groups_bad: receiver.sdc_bad.saturating_add(receiver.text.segments_bad),
+            data_error: receiver.data_error.map(str::to_owned),
             audio_frames_ok: self.media.audio_frames,
             audio_frames_bad: self
                 .media

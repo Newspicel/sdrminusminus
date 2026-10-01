@@ -10,13 +10,40 @@ use super::{
     mlc::MlcDecoder,
     mode::Robustness,
     msc::{Cell, CellDeinterleaver, MscConfig, plan as msc_plan, stream},
-    sdc::Sdc,
+    sdc::{Multiplex, Sdc},
     text::TextMessage,
 };
 use crate::broadcast_media::BroadcastMedia;
 
 const SNR_SMOOTHING: f32 = 0.8;
 const FAC_HOLD: u32 = 4;
+
+fn sdc_plan(
+    cache: &mut Option<((bool, bool, usize), Plan)>,
+    fac: Fac,
+    cells: usize,
+) -> Option<&Plan> {
+    let key = (fac.plus, fac.sdc_robust, cells);
+    if cache.as_ref().is_none_or(|(cached, _)| *cached != key) {
+        let (qam, rates) = fac.sdc_coding();
+        *cache = Some((key, Plan::eep(qam, cells, rates)?));
+    }
+    cache.as_ref().map(|(_, plan)| plan)
+}
+
+fn cached_msc_plan<'a>(
+    cache: &'a mut Option<(MscConfig, Multiplex, Plan)>,
+    config: MscConfig,
+    multiplex: &Multiplex,
+) -> Option<&'a Plan> {
+    let stale = cache
+        .as_ref()
+        .is_none_or(|(cached, layout, _)| *cached != config || layout != multiplex);
+    if stale {
+        *cache = Some((config, multiplex.clone(), msc_plan(config, multiplex)?));
+    }
+    cache.as_ref().map(|(_, _, plan)| plan)
+}
 
 pub struct Selection {
     pub short_id: u8,
@@ -47,7 +74,10 @@ pub struct Receiver {
     pub sdc: Sdc,
     pub sdc_ok: u32,
     pub sdc_bad: u32,
+    pub data_error: Option<&'static str>,
     sdc_cells: Vec<Cell>,
+    sdc_plan: Option<((bool, bool, usize), Plan)>,
+    msc_plan: Option<(MscConfig, Multiplex, Plan)>,
     msc: Vec<Cell>,
     multiplex_index: usize,
     superframe_valid: bool,
@@ -59,7 +89,6 @@ pub struct Receiver {
     audio: Vec<u8>,
     unit: Vec<u8>,
     ranges: Vec<(u8, std::ops::Range<usize>)>,
-    xhe_frames: Vec<Vec<u8>>,
     pub selection: Option<Selection>,
     pub wanted: Option<u8>,
     pub changed: bool,
@@ -107,7 +136,10 @@ impl Receiver {
             sdc: Sdc::default(),
             sdc_ok: 0,
             sdc_bad: 0,
+            data_error: None,
             sdc_cells: Vec::new(),
+            sdc_plan: None,
+            msc_plan: None,
             msc: Vec::new(),
             multiplex_index: 0,
             superframe_valid: false,
@@ -119,7 +151,6 @@ impl Receiver {
             audio: Vec::new(),
             unit: Vec::new(),
             ranges: Vec::new(),
-            xhe_frames: Vec::new(),
             selection: None,
             wanted: None,
             changed: false,
@@ -263,8 +294,7 @@ impl Receiver {
                 }
             }
         }
-        let (qam, rates) = fac.sdc_coding();
-        let Some(plan) = Plan::eep(qam, self.sdc_cells.len(), rates) else {
+        let Some(plan) = sdc_plan(&mut self.sdc_plan, fac, self.sdc_cells.len()) else {
             return;
         };
         self.values.clear();
@@ -276,14 +306,17 @@ impl Receiver {
         let data_bytes = (plan.bits() - 20) / 8;
         let parsed = self
             .decoder
-            .decode(&plan, &self.values, &self.gains, &mut self.bits)
+            .decode(plan, &self.values, &self.gains, &mut self.bits)
             .and_then(|()| Sdc::parse(&self.bits, data_bytes));
         match parsed {
             Some(update) => {
                 self.sdc_ok = self.sdc_ok.saturating_add(1);
                 self.sdc.merge(update);
             }
-            None => self.sdc_bad = self.sdc_bad.saturating_add(1),
+            None => {
+                self.sdc_bad = self.sdc_bad.saturating_add(1);
+                self.data_error = Some("SDC CRC failure");
+            }
         }
     }
 
@@ -348,7 +381,8 @@ impl Receiver {
             plus: fac.plus,
             cells: cells.len(),
         };
-        let Some(plan) = msc_plan(config, multiplex) else {
+        let Some(plan) = cached_msc_plan(&mut self.msc_plan, config, multiplex) else {
+            self.data_error = Some("Multiplex does not fit the MSC");
             return;
         };
         self.values.clear();
@@ -357,9 +391,10 @@ impl Receiver {
         self.gains.extend(cells.iter().map(|cell| cell.weight));
         if self
             .decoder
-            .decode(&plan, &self.values, &self.gains, &mut self.bits)
+            .decode(plan, &self.values, &self.gains, &mut self.bits)
             .is_none()
         {
+            self.data_error = Some("MSC frame could not be decoded");
             return;
         }
         pack(&self.bits, &mut self.bytes);
@@ -375,6 +410,8 @@ impl Receiver {
         });
         if found {
             self.play(&logical_bytes, logical, media);
+        } else {
+            media.audio_gap(1, "Audio stream outside the multiplex");
         }
         self.logical = logical_bytes;
     }
@@ -420,7 +457,11 @@ impl Receiver {
         let config = selection.config;
         let (audio, text) = split_text(logical, &config);
         if let Some(piece) = text {
+            let bad = self.text.segments_bad;
             self.text.push(piece);
+            if self.text.segments_bad != bad {
+                self.data_error = Some("Text message CRC failure");
+            }
         }
         let starts = (index + self.pairing_phase).is_multiple_of(2);
         let mut superframe = std::mem::take(&mut self.audio);
@@ -469,18 +510,13 @@ impl Receiver {
         config: &AudioConfig,
         media: &mut BroadcastMedia,
     ) {
-        let mut frames = std::mem::take(&mut self.xhe_frames);
-        match self.xhe.push(superframe, &mut frames) {
-            Ok(errors) => {
-                if errors > 0 {
-                    media.audio_gap(errors, "xHE-AAC frame CRC failure");
-                }
-                for frame in &frames {
-                    media.push_drm(frame, *config);
-                }
-            }
+        match self
+            .xhe
+            .push(superframe, |frame| media.push_drm(frame, *config))
+        {
+            Ok(0) => {}
+            Ok(errors) => media.audio_gap(errors, "xHE-AAC frame CRC failure"),
             Err(reason) => media.audio_gap(1, reason),
         }
-        self.xhe_frames = frames;
     }
 }

@@ -6,6 +6,9 @@ use super::{
 };
 
 pub const TEXT_BYTES: usize = 4;
+const MAX_FRAMES: usize = 11;
+const MAX_BORDERS: usize = 15;
+const MAX_CARRY: usize = 16_384;
 
 #[must_use]
 pub const fn aac_frames(plus: bool, rate_hz: u32) -> Option<usize> {
@@ -34,9 +37,11 @@ pub fn aac_superframe(
         .ok_or("Audio super frame too short")?;
     let mut reader = BitReader::new(&superframe[..header]);
     let mut previous = 0usize;
-    let mut starts = Vec::with_capacity(frames + 1);
-    starts.push(0);
-    for _ in 1..frames {
+    if frames + 1 > MAX_FRAMES {
+        return Err("Too many audio frames");
+    }
+    let mut starts = [0usize; MAX_FRAMES];
+    for slot in &mut starts[1..frames] {
         let raw = reader.read(12).ok_or("Audio super frame too short")? as usize;
         let mut border = previous - previous % 4096 + raw;
         if border < previous {
@@ -45,11 +50,11 @@ pub fn aac_superframe(
         if border <= previous || border > payload {
             return Err("Invalid audio frame borders");
         }
-        starts.push(border);
+        *slot = border;
         previous = border;
     }
-    starts.push(payload);
-    for (index, pair) in starts.windows(2).enumerate() {
+    starts[frames] = payload;
+    for (index, pair) in starts[..=frames].windows(2).enumerate() {
         out.push((
             superframe[header + index],
             payload_start + pair[0]..payload_start + pair[1],
@@ -73,9 +78,8 @@ impl XheAssembler {
     pub fn push(
         &mut self,
         superframe: &[u8],
-        frames: &mut Vec<Vec<u8>>,
+        mut emit: impl FnMut(&[u8]),
     ) -> Result<u32, &'static str> {
-        frames.clear();
         let invalid = "Invalid xHE-AAC super frame";
         let (&first, rest) = superframe.split_first().ok_or(invalid)?;
         let (&check, _) = rest.split_first().ok_or(invalid)?;
@@ -88,8 +92,14 @@ impl XheAssembler {
         let end = superframe.len().checked_sub(directory).ok_or(invalid)?;
         let payload = superframe.get(2..end).ok_or(invalid)?;
         let base = self.carry.len();
-        let mut borders = Vec::with_capacity(count);
-        for entry in superframe[end..].as_chunks::<2>().0.iter().rev() {
+        let mut borders = [0usize; MAX_BORDERS];
+        for (slot, entry) in superframe[end..]
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .rev()
+            .enumerate()
+        {
             let index = usize::from(entry[0]) << 4 | usize::from(entry[1] >> 4);
             let position = match index {
                 0xFFE => base.checked_sub(2),
@@ -97,22 +107,27 @@ impl XheAssembler {
                 _ => Some(base + index),
             };
             match position {
-                Some(position) if position <= base + payload.len() => borders.push(position),
+                Some(position) if position <= base + payload.len() => borders[slot] = position,
                 _ => return Err(invalid),
             }
         }
+        let borders = &mut borders[..count];
         borders.sort_unstable();
+        if self.carry.len() + payload.len() > MAX_CARRY {
+            self.reset();
+            return Err("xHE-AAC frame too long");
+        }
         self.carry.extend_from_slice(payload);
         let mut start = 0;
         let mut errors = 0;
-        for border in borders {
+        for &mut border in borders {
             if self.synced && border > start {
                 let frame = &self.carry[start..border];
                 if frame.len() > 2 {
                     let (body, stored) = frame.split_at(frame.len() - 2);
                     let stored = u32::from(stored[0]) << 8 | u32::from(stored[1]);
                     if crc(0x1021, 16, byte_bits(body)) == stored {
-                        frames.push(body.to_vec());
+                        emit(body);
                     } else {
                         errors += 1;
                     }
@@ -280,13 +295,20 @@ mod tests {
         let mut assembler = XheAssembler::default();
         let mut frames = Vec::new();
         let first = xhe_superframe(&stream[..30], &[first_border, second_border]);
-        assert_eq!(assembler.push(&first, &mut frames), Ok(0));
+        assert_eq!(
+            assembler.push(&first, |frame| frames.push(frame.to_vec())),
+            Ok(0)
+        );
         assert_eq!(frames, vec![one[..10].to_vec()]);
         let second = xhe_superframe(
             &stream[30..],
             &[(third - 30) as u16, (stream.len() - 2 - 30) as u16],
         );
-        assert_eq!(assembler.push(&second, &mut frames), Ok(0));
+        frames.clear();
+        assert_eq!(
+            assembler.push(&second, |frame| frames.push(frame.to_vec())),
+            Ok(0)
+        );
         assert_eq!(frames, vec![two[..30].to_vec(), three[..5].to_vec()]);
     }
 }

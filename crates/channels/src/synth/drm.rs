@@ -195,7 +195,7 @@ pub struct Transmitter {
     layout: Layout,
     fac_plan: Plan,
     sdc_plan: Plan,
-    sdc_bits: Vec<bool>,
+    sdc_blocks: Vec<Vec<bool>>,
     msc_plan: Plan,
     multiplex: Multiplex,
     programs: Vec<Program>,
@@ -212,6 +212,25 @@ fn services_code(count: usize) -> u8 {
         3 => 0b1100,
         _ => 0b0000,
     }
+}
+
+fn pack_sdc(entities: Vec<Sdc>, plan: &Plan) -> Vec<Vec<bool>> {
+    let data_bytes = (plan.bits() - 20) / 8;
+    let encode = |block: &Sdc| sdc::encode(block, data_bytes, plan.bits());
+    let mut blocks = Vec::new();
+    let mut current = Sdc::default();
+    for entity in entities {
+        let mut candidate = current.clone();
+        candidate.merge(entity.clone());
+        if encode(&candidate).is_some() {
+            current = candidate;
+        } else {
+            blocks.push(encode(&current).expect("an SDC block"));
+            current = entity;
+        }
+    }
+    blocks.push(encode(&current).expect("an SDC entity fits a block"));
+    blocks
 }
 
 impl Transmitter {
@@ -251,23 +270,28 @@ impl Transmitter {
                 .collect(),
         };
         let msc = msc_plan(msc_config, &multiplex).expect("an MSC plan");
-        let mut sdc = Sdc {
-            afs: 0,
+        let mut entities = vec![Sdc {
             multiplex: Some(multiplex.clone()),
             ..Sdc::default()
-        };
+        }];
         let programs: Vec<Program> = config
             .services
             .iter()
             .enumerate()
             .map(|(index, service)| {
                 let audio = service.source.config(service.text.is_some());
-                sdc.labels[index] = Some(service.label.to_owned());
-                sdc.audio[index] = Some(Audio {
+                let mut entry = Sdc::default();
+                entry.audio[index] = Some(Audio {
                     stream: index as u8,
                     config: audio,
                 });
-                sdc.languages[index] = Some(("eng".to_owned(), "de".to_owned()));
+                entities.push(entry);
+                let mut entry = Sdc::default();
+                entry.labels[index] = Some(service.label.to_owned());
+                entities.push(entry);
+                let mut entry = Sdc::default();
+                entry.languages[index] = Some(("eng".to_owned(), "de".to_owned()));
+                entities.push(entry);
                 Program {
                     config: audio,
                     units: service.source.units(),
@@ -281,8 +305,7 @@ impl Transmitter {
                 }
             })
             .collect();
-        let data_bytes = (sdc_plan.bits() - 20) / 8;
-        let sdc_bits = sdc::encode(&sdc, data_bytes, sdc_plan.bits()).expect("the SDC fits");
+        let sdc_blocks = pack_sdc(entities, &sdc_plan);
         let oversample = if plus { 1 } else { 4 };
         Self {
             interleaver: CellInterleaver::new(
@@ -298,7 +321,7 @@ impl Transmitter {
             layout,
             fac_plan,
             sdc_plan,
-            sdc_bits,
+            sdc_blocks,
             msc_plan: msc,
             multiplex,
             programs,
@@ -399,7 +422,8 @@ impl Transmitter {
     pub fn superframe(&mut self, index: usize, out: &mut Vec<Complex<f32>>) {
         let mode = self.config.mode;
         let msc = self.superframe_cells();
-        let sdc = mlc::encode(&self.sdc_plan, &self.sdc_bits);
+        let block = &self.sdc_blocks[index % self.sdc_blocks.len()];
+        let sdc = mlc::encode(&self.sdc_plan, block);
         let mut msc_at = 0;
         let mut sdc_at = 0;
         let mut carriers = Vec::with_capacity(self.layout.width());

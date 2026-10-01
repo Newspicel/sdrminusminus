@@ -17,6 +17,8 @@ const TIMING_WINDOW: usize = 8;
 const TIMING_SMOOTHING: f32 = 0.9;
 const MAX_SPACING: i32 = 2;
 const PEAK_RATIO: f32 = 1.4;
+const EMPTY_PENALTY: f32 = 0.25;
+const OCCUPIED: f32 = 0.1;
 
 pub struct Probe {
     pub mode: Robustness,
@@ -30,7 +32,8 @@ pub struct Probe {
     power_now: f32,
     power_then: f32,
     bins: Vec<Complex<f32>>,
-    energy: Vec<f32>,
+    energy_now: Vec<f32>,
+    energy_then: Vec<f32>,
     count: usize,
 }
 
@@ -57,7 +60,8 @@ impl Probe {
             power_now: 0.0,
             power_then: 0.0,
             bins: vec![Complex::default(); mode.symbol()],
-            energy: vec![0.0; mode.symbol()],
+            energy_now: vec![0.0; mode.symbol()],
+            energy_then: vec![0.0; mode.symbol()],
             count: 0,
         }
     }
@@ -89,16 +93,20 @@ impl Probe {
         }
         let bin = (time % self.bins.len() as u64) as usize;
         self.bins[bin] += self.window;
-        self.energy[bin] += (self.power_now.max(0.0) * self.power_then.max(0.0)).sqrt();
+        self.energy_now[bin] += self.power_now;
+        self.energy_then[bin] += self.power_then;
     }
 
     #[must_use]
     pub fn result(&self, now: u64) -> Option<Acquired> {
-        let coherence = |bin: usize| self.bins[bin].norm() / self.energy[bin].max(f32::EPSILON);
+        let coherence = |bin: usize| {
+            let energy = (self.energy_now[bin].max(0.0) * self.energy_then[bin].max(0.0)).sqrt();
+            self.bins[bin].norm() / energy.max(f32::EPSILON)
+        };
         let best = (0..self.bins.len()).max_by(|&a, &b| coherence(a).total_cmp(&coherence(b)))?;
         let peak = coherence(best);
-        let mean = (0..self.bins.len()).map(coherence).sum::<f32>() / self.bins.len() as f32;
-        if peak < MIN_COHERENCE || peak < PROMINENCE * mean {
+        let floor = (0..self.bins.len()).map(coherence).fold(f32::MAX, f32::min);
+        if peak < MIN_COHERENCE || peak < PROMINENCE * floor {
             return None;
         }
         let symbol = self.mode.symbol() as u64;
@@ -132,6 +140,7 @@ pub struct Demodulator {
     window: Vec<Complex<f32>>,
     bins: Vec<Complex<f32>>,
     pairs: Vec<(usize, usize, Complex<f32>)>,
+    mean_power: f32,
     sync: Sync,
     symbol: usize,
     misses: u32,
@@ -174,6 +183,7 @@ impl Demodulator {
             window: vec![Complex::default(); mode.useful()],
             bins: vec![Complex::default(); width],
             pairs,
+            mean_power: 0.0,
             sync: Sync::Searching,
             symbol: 0,
             misses: 0,
@@ -304,6 +314,16 @@ impl Demodulator {
             );
             *bin = self.window[fft_index] * correction;
         }
+        let mean = self.bins.iter().map(|bin| bin.norm_sqr()).sum::<f32>() / self.bins.len() as f32;
+        let (power, count) = self
+            .bins
+            .iter()
+            .map(|bin| bin.norm_sqr())
+            .filter(|&power| power > OCCUPIED * mean)
+            .fold((0.0f32, 0usize), |(sum, count), power| {
+                (sum + power, count + 1)
+            });
+        self.mean_power = power / count.max(1) as f32;
     }
 
     fn reference_metric(&self, shift: i32) -> f32 {
@@ -319,7 +339,8 @@ impl Demodulator {
             sum += product;
             norm += product.norm();
         }
-        sum.norm() / norm.max(f32::EPSILON)
+        let floor = EMPTY_PENALTY * self.pairs.len() as f32 * self.mean_power;
+        sum.norm() / (norm + floor).max(f32::EPSILON)
     }
 
     fn reach(&self) -> i32 {
