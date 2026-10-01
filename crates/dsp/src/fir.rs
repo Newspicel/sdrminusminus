@@ -10,7 +10,7 @@ mod stream;
 #[cfg(target_arch = "x86_64")]
 mod x86;
 
-pub(crate) use kernel::{Accumulate, Isa, interpolated_dot};
+pub(crate) use kernel::{Accumulate, Isa, plane_dot, plane_interpolated};
 pub(crate) use line::DelayLine;
 pub(crate) use stream::StreamFir;
 

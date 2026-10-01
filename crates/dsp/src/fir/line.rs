@@ -67,6 +67,18 @@ impl<T: Sample> DelayLine<T> {
         self.filled += chunk.len();
     }
 
+    pub(crate) fn push_with<S>(&mut self, chunk: &[S], value: impl Fn(&S) -> T) {
+        debug_assert_eq!(self.phases, 1, "mapped pushes fill a single row");
+        if self.filled + chunk.len() > self.capacity {
+            self.compact();
+        }
+        let slots = &mut self.samples[self.filled..self.filled + chunk.len()];
+        for (slot, sample) in slots.iter_mut().zip(chunk) {
+            *slot = value(sample);
+        }
+        self.filled += chunk.len();
+    }
+
     fn scatter(&mut self, chunk: &[T]) {
         let lead = (self.phases - self.filled % self.phases) % self.phases;
         let (head, body) = chunk.split_at(lead.min(chunk.len()));
@@ -104,9 +116,20 @@ impl<T: Sample> DelayLine<T> {
 
     fn transpose<const PHASES: usize>(&mut self, index: usize, body: &[T]) -> usize {
         let (groups, _) = body.as_chunks::<PHASES>();
-        for (phase, row) in self.samples.chunks_exact_mut(self.stride).enumerate() {
-            for (slot, group) in row[index..].iter_mut().zip(groups) {
-                *slot = group[phase];
+        let mut rows = self
+            .samples
+            .chunks_exact_mut(self.stride)
+            .map(|row| &mut row[index..index + groups.len()]);
+        let mut rows: [&mut [T]; PHASES] = std::array::from_fn(|_| rows.next().unwrap_or_default());
+        let (quads, last) = groups.as_chunks::<4>();
+        for (slot, [a, b, c, d]) in quads.iter().enumerate() {
+            for (phase, row) in rows.iter_mut().enumerate() {
+                row.as_chunks_mut::<4>().0[slot] = [a[phase], b[phase], c[phase], d[phase]];
+            }
+        }
+        for (offset, group) in last.iter().enumerate() {
+            for (row, &sample) in rows.iter_mut().zip(group) {
+                row[4 * quads.len() + offset] = sample;
             }
         }
         groups.len() * PHASES

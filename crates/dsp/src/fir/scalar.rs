@@ -1,6 +1,3 @@
-use num_complex::Complex;
-
-use super::kernel::interpolated_tail;
 #[cfg(test)]
 use super::kernel::{Accumulate, Plan};
 
@@ -12,9 +9,9 @@ where
 {
     for (lane, sample) in out.iter_mut().enumerate() {
         *sample = plan.taps.iter().fold(T::zero(), |sum, tap| {
-            let front = window[tap.front + lane];
+            let front = window[tap.front / T::FLOATS + lane];
             let pair = if FOLD {
-                front + window[tap.back + lane]
+                front + window[tap.back / T::FLOATS + lane]
             } else {
                 front
             };
@@ -23,21 +20,11 @@ where
     }
 }
 
-pub(super) fn interpolated_dot(
-    samples: &[Complex<f32>],
-    lower: &[f32],
-    slope: &[f32],
-    mu: f32,
-) -> Complex<f32> {
-    interpolated_tail(Complex::new(0.0, 0.0), samples, lower, slope, mu)
-}
-
 #[cfg(not(any(target_arch = "aarch64", target_arch = "x86_64")))]
 mod fallback {
     use num_complex::Complex;
 
-    use super::interpolated_dot;
-    use crate::fir::kernel::{BLOCK_FLOATS, Plan};
+    use crate::fir::kernel::{BLOCK_FLOATS, Plan, interpolated_plane_tail, plane_tail};
 
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
     pub(crate) struct Isa;
@@ -64,15 +51,21 @@ mod fallback {
             self,
             floats: &[f32],
             plan: &Plan<f32>,
-            scale: usize,
         ) -> [f32; BLOCK_FLOATS] {
             std::array::from_fn(|lane| {
                 plan.taps.iter().fold(0.0, |sum, tap| {
-                    let sample =
-                        pair::<FOLD>(floats, tap.front * scale + lane, tap.back * scale + lane);
+                    let sample = pair::<FOLD>(floats, tap.front + lane, tap.back + lane);
                     sum + sample * tap.value
                 })
             })
+        }
+
+        pub(crate) fn complex_real_block<const FOLD: bool>(
+            self,
+            floats: &[f32],
+            plan: &Plan<f32>,
+        ) -> [f32; BLOCK_FLOATS] {
+            self.real_block::<FOLD>(floats, plan)
         }
 
         pub(crate) fn complex_block<const FOLD: bool>(
@@ -83,7 +76,7 @@ mod fallback {
             let mut lanes = [0.0; BLOCK_FLOATS];
             for (lane, out) in lanes.as_chunks_mut::<2>().0.iter_mut().enumerate() {
                 let sum = plan.taps.iter().fold(Complex::new(0.0, 0.0), |sum, tap| {
-                    let (front, back) = (2 * (tap.front + lane), 2 * (tap.back + lane));
+                    let (front, back) = (tap.front + 2 * lane, tap.back + 2 * lane);
                     let sample = Complex::new(
                         pair::<FOLD>(floats, front, back),
                         pair::<FOLD>(floats, front + 1, back + 1),
@@ -95,14 +88,26 @@ mod fallback {
             lanes
         }
 
-        pub(crate) fn interpolated_dot(
+        pub(crate) unsafe fn plane_dot<const N: usize>(
             self,
-            samples: &[Complex<f32>],
+            re: [*const f32; N],
+            im: [*const f32; N],
+            taps: &[f32],
+        ) -> [Complex<f32>; N] {
+            std::array::from_fn(|output| unsafe {
+                plane_tail(Complex::new(0.0, 0.0), re[output], im[output], taps, 0)
+            })
+        }
+
+        pub(crate) fn plane_interpolated(
+            self,
+            re: &[f32],
+            im: &[f32],
             lower: &[f32],
             slope: &[f32],
             mu: f32,
         ) -> Complex<f32> {
-            interpolated_dot(samples, lower, slope, mu)
+            interpolated_plane_tail(Complex::new(0.0, 0.0), re, im, lower, slope, mu)
         }
     }
 }

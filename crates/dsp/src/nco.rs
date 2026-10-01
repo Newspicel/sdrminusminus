@@ -43,6 +43,9 @@ pub struct Nco {
     phase: u64,
     step: u64,
     valid: bool,
+    lane: usize,
+    anchor: Complex<f32>,
+    steps: lanes::Steps,
     table: &'static Table,
 }
 
@@ -52,6 +55,7 @@ impl fmt::Debug for Nco {
             .field("phase", &self.phase)
             .field("step", &self.step)
             .field("valid", &self.valid)
+            .field("lane", &self.lane)
             .finish()
     }
 }
@@ -63,6 +67,9 @@ impl Nco {
             phase: 0,
             step: 0,
             valid: true,
+            lane: 0,
+            anchor: Complex::new(1.0, 0.0),
+            steps: lanes::Steps::new(0),
             table: &PHASORS,
         };
         nco.set_freq(freq_hz, sample_rate);
@@ -71,6 +78,8 @@ impl Nco {
 
     pub fn reset(&mut self) {
         self.phase = 0;
+        self.lane = 0;
+        self.realign();
     }
 
     pub fn set_freq(&mut self, freq_hz: f32, sample_rate: f32) {
@@ -81,7 +90,12 @@ impl Nco {
         } else if turns < -0.5 {
             turns += 1.0;
         }
-        self.step = (turns * PHASE_SCALE).round() as i64 as u64;
+        let step = (turns * PHASE_SCALE).round() as i64 as u64;
+        if step != self.step {
+            self.step = step;
+            self.steps = lanes::Steps::new(step);
+        }
+        self.realign();
     }
 
     #[must_use]
@@ -94,9 +108,7 @@ impl Nco {
         if !self.valid {
             return SILENT;
         }
-        let sample = phasor(self.table, self.phase);
-        self.phase = self.phase.wrapping_add(self.step);
-        sample
+        self.wave()
     }
 
     #[inline(never)]
@@ -108,7 +120,7 @@ impl Nco {
             out.fill(SILENT);
             return;
         }
-        self.phase = lanes::mix_into(self.table, self.phase, self.step, input, out);
+        lanes::mix_into(self, input, out);
     }
 
     pub fn mix(&mut self, samples: &mut [Complex<f32>]) {
@@ -116,7 +128,31 @@ impl Nco {
             samples.fill(SILENT);
             return;
         }
-        self.phase = lanes::mix(self.table, self.phase, self.step, samples);
+        lanes::mix(self, samples);
+    }
+
+    fn realign(&mut self) {
+        let back = self.step.wrapping_mul(self.lane as u64);
+        self.anchor = phasor(self.table, self.phase.wrapping_sub(back));
+    }
+
+    #[inline(always)]
+    fn wave(&mut self) -> Complex<f32> {
+        let sample = lanes::product(self.steps.at(self.lane), self.anchor);
+        self.advance(1);
+        sample
+    }
+
+    #[inline(always)]
+    fn advance(&mut self, samples: usize) {
+        self.phase = self
+            .phase
+            .wrapping_add(self.step.wrapping_mul(samples as u64));
+        self.lane += samples;
+        if self.lane == lanes::GROUP {
+            self.lane = 0;
+            self.anchor = phasor(self.table, self.phase);
+        }
     }
 }
 
@@ -227,7 +263,14 @@ mod tests {
             for len in 0..=37 {
                 let source = &input[..len];
                 let mut single = started(frequency, len * 7);
-                let expected: Vec<_> = source.iter().map(|x| x * single.next_sample()).collect();
+                let expected: Vec<_> = source
+                    .iter()
+                    .map(|&x| {
+                        let mut sample = [x];
+                        single.mix(&mut sample);
+                        sample[0]
+                    })
+                    .collect();
                 let mut copied = started(frequency, len * 7);
                 let mut out = vec![Complex::new(0.0, 0.0); len];
                 copied.mix_into(source, &mut out);

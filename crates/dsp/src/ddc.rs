@@ -4,6 +4,7 @@ use crate::{CubicInterpolator, Decimator, FracResampler, Nco, fir::design_lowpas
 
 const PASSBAND_FRAC: f64 = 0.4;
 const PROTECT_FRAC: f64 = 0.5;
+const CHUNK: usize = 2048;
 
 #[must_use]
 pub fn flat_bandwidth_hz(output_rate: f64) -> f64 {
@@ -19,7 +20,7 @@ pub enum DdcError {
 #[derive(Clone, Debug)]
 enum Fraction {
     None,
-    Down(FracResampler),
+    Down(Box<FracResampler>),
     Up(CubicInterpolator),
 }
 
@@ -28,10 +29,10 @@ impl Fraction {
         if (ratio - 1.0).abs() <= 1e-12 {
             Self::None
         } else if ratio < 1.0 {
-            Self::Down(keep.map_or_else(
+            Self::Down(Box::new(keep.map_or_else(
                 || FracResampler::new(ratio),
                 |keep| FracResampler::keeping(ratio, keep),
-            ))
+            )))
         } else {
             Self::Up(CubicInterpolator::new(ratio))
         }
@@ -140,24 +141,36 @@ impl Ddc {
     }
 
     pub fn process(&mut self, input: &[Complex<f32>], out: &mut Vec<Complex<f32>>) {
-        let mixed = if self.nco.is_identity() {
-            input
-        } else {
-            self.mixed.resize(input.len(), Complex::new(0.0, 0.0));
-            self.nco.mix_into(input, &mut self.mixed);
-            &self.mixed
-        };
         let Some((first, rest)) = self.stages.split_first_mut() else {
+            let mixed = mix(&mut self.nco, input, &mut self.mixed);
             self.fraction.process(mixed, out);
             return;
         };
-        first.process(mixed, &mut self.work_in);
+        self.work_in.clear();
+        for chunk in input.chunks(CHUNK) {
+            let mixed = mix(&mut self.nco, chunk, &mut self.mixed);
+            first.process(mixed, &mut self.work_out);
+            self.work_in.extend_from_slice(&self.work_out);
+        }
         for stage in rest {
             stage.process(&self.work_in, &mut self.work_out);
             std::mem::swap(&mut self.work_in, &mut self.work_out);
         }
         self.fraction.process(&self.work_in, out);
     }
+}
+
+fn mix<'a>(
+    nco: &mut Nco,
+    input: &'a [Complex<f32>],
+    mixed: &'a mut Vec<Complex<f32>>,
+) -> &'a [Complex<f32>] {
+    if nco.is_identity() {
+        return input;
+    }
+    mixed.resize(input.len(), Complex::new(0.0, 0.0));
+    nco.mix_into(input, mixed);
+    mixed
 }
 
 fn integer_decimation(quotient: f64) -> usize {
