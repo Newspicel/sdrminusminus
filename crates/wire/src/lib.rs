@@ -70,8 +70,8 @@ pub use channel::{
     FlexParams, FreeDvMode, FreeDvParams, GnssParams, HfdlParams, IdentParams, IlsComponent,
     IlsParams, InmarsatAeroParams, InmarsatStdcParams, IridiumParams, IridiumSpan, M17Params,
     MAX_DATV_SYMBOL_RATE, MAX_IDENT_BANDWIDTH_HZ, MAX_IDENT_INTERVAL_MS, MAX_IDENT_THRESHOLD_DB,
-    MAX_NAVAID_REPORT_MS, MAX_SQUELCH_AUTO_MARGIN_DB, MIN_DATV_SYMBOL_RATE, MIN_IDENT_BANDWIDTH_HZ,
-    MIN_IDENT_INTERVAL_MS, MIN_IDENT_THRESHOLD_DB, MIN_NAVAID_REPORT_MS,
+    MAX_NAVAID_REPORT_MS, MAX_SQUELCH_AUTO_MARGIN_DB, MAX_SUPERFRAME_CODE, MIN_DATV_SYMBOL_RATE,
+    MIN_IDENT_BANDWIDTH_HZ, MIN_IDENT_INTERVAL_MS, MIN_IDENT_THRESHOLD_DB, MIN_NAVAID_REPORT_MS,
     MIN_SQUELCH_AUTO_MARGIN_DB, MorseParams, NavtexParams, NfmParams, NfmScramblerMode,
     NfmToneMode, NxdnBandwidth, NxdnParams, P25Params, ParamLimit, PocsagBaud, PocsagParams,
     PskBaud, PskParams, RETIRED_CHANNEL_TYPES, RadioClockParams, RadioClockStandard, RttyParams,
@@ -99,8 +99,8 @@ pub use decode::{
     DvSlotActivity, DvTrunkProtocol, ErmesMessage, FlexMessage, GnssFrame, IdentFeatures,
     IdentReport, IdentSignal, IlsReading, Modulation, MorseText, NO_CHANNEL, NavtexMessage,
     PagerPayload, PocsagMessage, PocsagPayload, ProtocolMatch, PskText, RadioClockFrame, RdsUpdate,
-    RttyText, ScramblerStatus, SelcallSequence, SstvPicture, ToneSquelchStatus, Vendor, VorReading,
-    WsjtMessage, WsprSpot,
+    RttyText, ScramblerStatus, SelcallSequence, SstvPicture, SuperframeStatus, ToneSquelchStatus,
+    Vendor, VorReading, WsjtMessage, WsprSpot,
 };
 pub use device::{
     Agc, AgcGain, AgcReach, AgcSetting, ArgumentInfo, ArgumentOption, ArgumentType,

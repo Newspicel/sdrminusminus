@@ -71,7 +71,6 @@ M17, NXDN, P25 and YSF. Only the Signal generator uses the modulators.
 ### Broadcast & wideband
 - DRM: FAC, SDC, MSC, service selection and audio. Today it only locks and reports SNR and
   frequency error
-- DVB-S2X Annex E superframe formats 2 to 7, non-default superframe scrambling and WH codes
 - DAB modes II to IV on air
 - Real-world validation of DVB-T and DVB-S/S2: real transmitters, fading, adjacent-channel
   interference. Today only synthetic IQ

@@ -9052,6 +9052,16 @@
             "type": "number",
             "format": "float"
           },
+          "superframe": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/SuperframeStatus"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "symbol_rate": {
             "type": [
               "number",
@@ -12682,6 +12692,19 @@
           },
           "standard": {
             "$ref": "#/components/schemas/DatvStandard"
+          },
+          "superframe_payload": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "superframe_reference": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "superframe_search": {
+            "type": "boolean"
           },
           "superframes": {
             "type": "boolean"
@@ -26206,6 +26229,53 @@
                 "type": "null"
               }
             ]
+          }
+        }
+      },
+      "SuperframeStatus": {
+        "type": "object",
+        "required": [
+          "format",
+          "sosf",
+          "reference",
+          "payload"
+        ],
+        "properties": {
+          "format": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "payload": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "pilot": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "reference": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "sosf": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "trailer": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
           }
         }
       },

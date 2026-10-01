@@ -10,7 +10,8 @@ use sdrmm_modem::{
 use sdrmm_wire::{
     BroadcastService, BroadcastServiceKind, BroadcastStatus, BroadcastSystem, ChannelDescriptor,
     ChannelParams, ChannelSettings, DatvParams, DatvRollOff, DatvStandard, DecoderEvent,
-    DecoderFamily, MAX_DATV_SYMBOL_RATE, MIN_DATV_SYMBOL_RATE,
+    DecoderFamily, MAX_DATV_SYMBOL_RATE, MAX_SUPERFRAME_CODE, MIN_DATV_SYMBOL_RATE,
+    SuperframeStatus,
 };
 
 use super::{
@@ -20,6 +21,7 @@ use super::{
         bb::StreamKind,
         gse::protocol_name,
         receiver::{Dvbs2Decoder, Dvbs2Output},
+        superframe::Settings as SuperframeSettings,
     },
     ts::{PesUnit, StreamKind as ElementaryKind, TsDemux},
 };
@@ -33,6 +35,14 @@ const MIN_INPUT_RATE_HZ: f64 = 2_000_000.0;
 const SPS: usize = 4;
 const PULSE_SPAN: usize = 8;
 const MAX_PROTOCOLS: usize = 8;
+
+const fn superframe_settings(params: &DatvParams) -> SuperframeSettings {
+    SuperframeSettings {
+        reference: params.superframe_reference,
+        payload: params.superframe_payload,
+        search: params.superframe_search,
+    }
+}
 
 pub fn occupied_hz(p: &DatvParams) -> f64 {
     (p.symbol_rate * (1.0 + p.roll_off.factor())).round()
@@ -62,7 +72,13 @@ static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescrip
 fn params(settings: &ChannelSettings) -> Result<DatvParams, ChannelError> {
     match settings.params {
         ChannelParams::Datv(p) => {
-            if p.symbol_rate.is_finite()
+            if p.superframe_reference > MAX_SUPERFRAME_CODE
+                || p.superframe_payload > MAX_SUPERFRAME_CODE
+            {
+                Err(ChannelError::InvalidSettings(format!(
+                    "DATV superframe codes must be at most {MAX_SUPERFRAME_CODE}"
+                )))
+            } else if p.symbol_rate.is_finite()
                 && (MIN_DATV_SYMBOL_RATE..=MAX_DATV_SYMBOL_RATE).contains(&p.symbol_rate)
             {
                 Ok(p)
@@ -174,6 +190,8 @@ impl DatvChannel {
         self.demux.select(self.params.program);
         self.second.select(self.params.input_stream);
         self.second.superframes(self.params.superframes);
+        self.second
+            .configure_superframes(superframe_settings(&self.params));
         self.protocols.clear();
         self.last = Acquired::default();
         self.video_units = 0;
@@ -408,13 +426,23 @@ impl DatvChannel {
             data_error: self
                 .second
                 .superframe_format()
-                .filter(|format| *format > 1)
+                .filter(|format| *format > 7)
                 .map(|format| format!("Unsupported superframe format {format}"))
                 .or_else(|| {
                     (self.demux.scrambled > 0).then(|| "Selected programme is scrambled".to_owned())
                 }),
             text: self.text(),
             services: self.services(),
+            superframe: self.second.superframe_identity().and_then(|identity| {
+                Some(SuperframeStatus {
+                    format: identity.format?,
+                    sosf: identity.sosf,
+                    pilot: identity.pilot,
+                    trailer: identity.trailer,
+                    reference: identity.reference,
+                    payload: identity.payload,
+                })
+            }),
             ..BroadcastStatus::default()
         }));
     }
@@ -454,6 +482,9 @@ impl ChannelRx for DatvChannel {
         channel.demux.select(params.program);
         channel.second.select(params.input_stream);
         channel.second.superframes(params.superframes);
+        channel
+            .second
+            .configure_superframes(superframe_settings(&params));
         Ok(channel)
     }
 
@@ -470,6 +501,8 @@ impl ChannelRx for DatvChannel {
             self.demux.select(wanted.program);
             self.second.select(wanted.input_stream);
             self.second.superframes(wanted.superframes);
+            self.second
+                .configure_superframes(superframe_settings(&wanted));
         }
         Ok(())
     }
@@ -1014,5 +1047,27 @@ mod tests {
         let statuses = drive(&mut channel, &iq);
         let status = statuses.last().expect("a broadcast status");
         assert!(status.frames_ok >= 30, "{status:?}");
+    }
+
+    #[test]
+    fn every_annex_e_format_decodes_through_the_channel() {
+        for format in 2..=7u8 {
+            let iq = synth::datv::dvbs2_annex_e(format, if format < 6 { 3 } else { 6 });
+            let mut channel = open(DatvParams {
+                standard: DatvStandard::DvbS2,
+                superframes: true,
+                symbol_rate: synth::datv::SYMBOL_RATE,
+                ..DatvParams::default()
+            });
+            let statuses = drive(&mut channel, &iq);
+            let status = statuses.last().expect("a broadcast status");
+            assert!(status.frames_ok >= 8, "format {format}: {status:?}");
+            assert_eq!(status.frames_bad, 0, "format {format}: {status:?}");
+            assert_eq!(
+                status.superframe.map(|superframe| superframe.format),
+                Some(format)
+            );
+            assert!(status.data_error.is_none(), "format {format}: {status:?}");
+        }
     }
 }

@@ -218,6 +218,78 @@ pub fn dvbs2_superframes(seconds: usize) -> Vec<Complex<f32>> {
 }
 
 #[must_use]
+pub fn dvbs2_annex_e(format: u8, superframes: usize) -> Vec<Complex<f32>> {
+    use crate::datv::dvbs2::{
+        superframe::{
+            coding::Coding,
+            synth::{Codes, Dwell, Options, Plframe, Transmitter},
+        },
+        xfec::Xfec,
+    };
+    let coding = Coding::Legacy {
+        modcod: 4,
+        short: format == 3,
+    };
+    let codec = Xfec::new(coding).expect("QPSK 1/2");
+    let mut multiplex = Multiplex::new();
+    let mut carry = 0x47;
+    let mut baseband = || {
+        let packets: Vec<_> = (0..codec.baseband.capacity())
+            .map(|_| multiplex.packet())
+            .collect();
+        codec
+            .baseband
+            .build(&packets, &mut carry)
+            .expect("a base band frame")
+    };
+    let transmitter = Transmitter::new(Codes::default());
+    let mut symbols = Vec::new();
+    match format {
+        2 | 3 => {
+            let (size, code) = if format == 2 {
+                (64_800, 4)
+            } else {
+                (16_200, 32 | 4)
+            };
+            let per = coding.bundled(size).expect("whole frames");
+            for _ in 0..superframes {
+                let bundles: Vec<(u8, Vec<Complex<f32>>)> = (0..8)
+                    .map(|_| {
+                        let basebands: Vec<Vec<bool>> = (0..per).map(|_| baseband()).collect();
+                        let mut payload = Vec::new();
+                        codec.encode_bundle(&basebands, &mut payload);
+                        (code, payload)
+                    })
+                    .collect();
+                symbols.extend(transmitter.bundled(format, &bundles));
+            }
+        }
+        _ => {
+            let per = if matches!(format, 6 | 7) { 4 } else { 18 };
+            let plframes: Vec<Plframe> = (0..per * superframes)
+                .map(|_| {
+                    let mut frame = Vec::new();
+                    codec.encode(&baseband(), false, &mut frame);
+                    Plframe::data(coding, 1, frame)
+                })
+                .collect();
+            let options = Options {
+                frames: per,
+                dwell: (format == 5).then_some(Dwell {
+                    superframes: 4,
+                    cut: 100,
+                    extra: 90,
+                    gap: 1_000,
+                }),
+                ..Options::default()
+            };
+            symbols = transmitter.flexible(format, &plframes, options);
+        }
+    }
+    shape(&symbols)
+}
+
+#[must_use]
 pub fn datagram(protocol: u16, label: &[u8], len: usize, seed: u32) -> GsePdu {
     GsePdu {
         protocol,

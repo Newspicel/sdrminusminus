@@ -703,6 +703,18 @@ pub struct BroadcastData {
     pub bytes: Vec<u8>,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct SuperframeStatus {
+    pub format: u8,
+    pub sosf: u8,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pilot: Option<u8>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trailer: Option<u8>,
+    pub reference: u32,
+    pub payload: u32,
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct BroadcastStatus {
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -753,6 +765,8 @@ pub struct BroadcastStatus {
     pub frames_bad: u32,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub services: Vec<BroadcastService>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub superframe: Option<SuperframeStatus>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
