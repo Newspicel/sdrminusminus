@@ -16,7 +16,7 @@ use crate::{
     tx::{Burst, TxQueue},
 };
 
-const CHANNEL_TAPS: usize = 129;
+const CHANNEL_TAPS: usize = 65;
 
 pub(crate) const AFSK_MARK_HZ: f64 = 1_200.0;
 pub(crate) const AFSK_SPACE_HZ: f64 = 2_200.0;
@@ -26,6 +26,9 @@ pub(crate) const G3RUH_BAUD: f64 = 9_600.0;
 pub(crate) const DEVIATION_HZ: f64 = 3_000.0;
 
 const G3RUH_CUTOFF_HZ: f64 = 7_200.0;
+const AFSK_DECIMATION: usize = 4;
+const AFSK_CUTOFF_HZ: f64 = 4_800.0;
+const AFSK_TAPS: usize = 31;
 const G3RUH_TAPS: usize = 15;
 
 pub(crate) const ADDRESS_LEN: usize = 7;
@@ -95,6 +98,8 @@ impl Lane {
 
 enum Slicer {
     Afsk {
+        audio: RealDecimator,
+        decimated: Vec<f32>,
         mark: ToneCorrelator,
         space: ToneCorrelator,
         lanes: Vec<Lane>,
@@ -112,13 +117,19 @@ impl Slicer {
     fn new(mode: AprsMode, rate: f64) -> Self {
         match mode {
             AprsMode::Afsk1200 => {
-                let window = (rate / (AFSK_SPACE_HZ - AFSK_MARK_HZ)).round() as usize;
+                let audio_rate = rate / AFSK_DECIMATION as f64;
+                let window = (audio_rate / (AFSK_SPACE_HZ - AFSK_MARK_HZ)).round() as usize;
                 Self::Afsk {
-                    mark: ToneCorrelator::new(rate, AFSK_MARK_HZ, window),
-                    space: ToneCorrelator::new(rate, AFSK_SPACE_HZ, window),
+                    audio: RealDecimator::new(
+                        &design_lowpass(AFSK_TAPS, AFSK_CUTOFF_HZ / rate),
+                        AFSK_DECIMATION,
+                    ),
+                    decimated: Vec::new(),
+                    mark: ToneCorrelator::new(audio_rate, AFSK_MARK_HZ, window),
+                    space: ToneCorrelator::new(audio_rate, AFSK_SPACE_HZ, window),
                     lanes: TWIST_GAINS
                         .iter()
-                        .map(|&gain| Lane::new(rate, AFSK_BAUD, gain))
+                        .map(|&gain| Lane::new(audio_rate, AFSK_BAUD, gain))
                         .collect(),
                 }
             }
@@ -134,8 +145,15 @@ impl Slicer {
 
     fn frames(&mut self, discriminated: &[f32], out: &mut Vec<Vec<u8>>) {
         match self {
-            Self::Afsk { mark, space, lanes } => {
-                for &s in discriminated {
+            Self::Afsk {
+                audio,
+                decimated,
+                mark,
+                space,
+                lanes,
+            } => {
+                audio.process(discriminated, decimated);
+                for &s in decimated.iter() {
                     let (m, sp) = (mark.push(s), space.push(s));
                     for lane in lanes.iter_mut() {
                         lane.push(m - lane.space_gain * sp, out);

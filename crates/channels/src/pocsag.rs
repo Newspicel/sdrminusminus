@@ -13,7 +13,7 @@ use sdrmm_wire::{
 
 use crate::{ChannelCtx, ChannelError, ChannelFilter, ChannelOutputs, ChannelRx, check_input_rate};
 
-const CHANNEL_TAPS: usize = 129;
+const CHANNEL_TAPS: usize = 65;
 
 const NOMINAL_DEVIATION_HZ: f64 = 4_500.0;
 
@@ -52,7 +52,7 @@ static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescrip
     summary: "POCSAG pager messages".to_owned(),
     family: DecoderFamily::Paging,
     bandwidth_hz: 12_500.0,
-    input_rate_hz: 48_000.0,
+    input_rate_hz: 24_000.0,
     has_audio: false,
     decoder_kind: Some("pocsag".to_owned()),
     ..ChannelDescriptor::default()
@@ -386,11 +386,11 @@ impl ChannelRx for PocsagChannel {
     fn process(&mut self, iq: &[Complex<f32>], out: &mut ChannelOutputs) {
         let mut soft = std::mem::take(&mut self.soft);
         for index in 0..self.candidates.len() {
-            soft.clear();
-            self.candidates[index].demod.process(iq, &mut soft);
             if self.locked.is_some_and(|held| held != index) {
                 continue;
             }
+            soft.clear();
+            self.candidates[index].demod.process(iq, &mut soft);
             for &symbol in &soft {
                 let symbol = if self.invert { -symbol } else { symbol };
                 let bit = self.slicer.slice(symbol) == 1;
@@ -433,7 +433,7 @@ mod tests {
         testutil::settings,
     };
 
-    const RATE: f64 = 48_000.0;
+    const RATE: f64 = 24_000.0;
     const DEVIATION_HZ: f64 = 4_500.0;
     const ALPHA_ADDRESS: u32 = 1_234_567;
     const NUMERIC_ADDRESS: u32 = 1_987_648;
@@ -682,7 +682,7 @@ mod tests {
     fn noise_that_flips_bits_still_decodes_through_the_bch_code() {
         for seed in [0x51d3_2ac1u32, 0x1234_5678, 0xdead_beef, 0x0f0f_0f0f] {
             let mut iq = burst(&pages(), 1_200);
-            add_noise(&mut iq, seed, 2.5);
+            add_noise(&mut iq, seed, 1.85);
             let mut chan = channel();
             let messages = run(&mut chan, &iq);
             assert_expected_pages(&messages, 1_200);
@@ -761,7 +761,7 @@ mod tests {
 
     #[test]
     fn out_of_range_bandwidth_is_rejected() {
-        for bad in [0.0, -1.0, 48_000.0, f64::NAN] {
+        for bad in [0.0, -1.0, 24_000.0, f64::NAN] {
             let built = PocsagChannel::new(
                 ChannelCtx { input_rate: RATE },
                 settings(ChannelParams::Pocsag(PocsagParams {

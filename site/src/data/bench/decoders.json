@@ -1,7 +1,7 @@
 {
   "machine": {
     "cpu": "Apple M4 Max",
-    "os": "macOS 27.0",
+    "os": "macOS 27.0.1",
     "date": "2026-10-01"
   },
   "groups": [
@@ -13,18 +13,18 @@
       "results": [
         {
           "tool": "SDR--",
-          "version": "1.9.0-124-g4964c881-dirty",
-          "value": 74.22554917628199
+          "version": "2.0.0-4-g68199caa-dirty",
+          "value": 67.10328537685203
         },
         {
           "tool": "dump1090-fa",
           "version": "11.1",
-          "value": 79.23239654229823
+          "value": 79.34020683991923
         },
         {
           "tool": "readsb",
           "version": "3.16.17",
-          "value": 77.71970388792823
+          "value": 71.91554238702071
         }
       ]
     },
@@ -36,13 +36,13 @@
       "results": [
         {
           "tool": "SDR--",
-          "version": "1.9.0-124-g4964c881-dirty",
-          "value": 181.8177113626084
+          "version": "2.0.0-4-g68199caa-dirty",
+          "value": 163.49023565538437
         },
         {
           "tool": "AIS-catcher",
           "version": "0.70",
-          "value": 150.79545035810256
+          "value": 154.34835065738847
         }
       ]
     },
@@ -55,18 +55,18 @@
       "results": [
         {
           "tool": "SDR--",
-          "version": "1.9.0-124-g4964c881-dirty",
-          "value": 398.0571870034335
+          "version": "2.0.0-4-g68199caa-dirty",
+          "value": 856.9692062197723
         },
         {
           "tool": "Dire Wolf",
           "version": "1.8.1",
-          "value": 32.70465156705205
+          "value": 33.62957066900914
         },
         {
           "tool": "multimon-ng",
           "version": "1.6.2",
-          "value": 2604.9350798574824
+          "value": 7111.4554990338
         }
       ]
     },
@@ -79,13 +79,13 @@
       "results": [
         {
           "tool": "SDR--",
-          "version": "1.9.0-124-g4964c881-dirty",
-          "value": 239.60008166807052
+          "version": "2.0.0-4-g68199caa-dirty",
+          "value": 1004.2466149241213
         },
         {
           "tool": "multimon-ng",
           "version": "1.6.2",
-          "value": 3635.052464474843
+          "value": 19394.727770234822
         }
       ]
     },
@@ -97,7 +97,7 @@
       "results": [
         {
           "tool": "SDR--",
-          "version": "1.9.0-124-g4964c881-dirty",
+          "version": "2.0.0-4-g68199caa-dirty",
           "value": 2.0
         },
         {
@@ -116,13 +116,13 @@
       "results": [
         {
           "tool": "SDR--",
-          "version": "1.9.0-124-g4964c881-dirty",
-          "value": 653.5191109614383
+          "version": "2.0.0-4-g68199caa-dirty",
+          "value": 2295.6907661453474
         },
         {
           "tool": "acarsdec",
           "version": "3.7",
-          "value": 2797.045311233439
+          "value": 4261.025873294515
         }
       ]
     },
@@ -135,7 +135,7 @@
       "results": [
         {
           "tool": "SDR--",
-          "version": "1.9.0-124-g4964c881-dirty",
+          "version": "2.0.0-4-g68199caa-dirty",
           "value": 21.0
         },
         {
@@ -154,13 +154,13 @@
       "results": [
         {
           "tool": "SDR--",
-          "version": "1.9.0-124-g4964c881-dirty",
-          "value": 45.98716038482055
+          "version": "2.0.0-4-g68199caa-dirty",
+          "value": 47.65550786474738
         },
         {
           "tool": "ft8_lib",
           "version": "9fec6ca",
-          "value": 1111.111111111142
+          "value": 1129.7732921594882
         }
       ]
     },
@@ -173,7 +173,7 @@
       "results": [
         {
           "tool": "SDR--",
-          "version": "1.9.0-124-g4964c881-dirty",
+          "version": "2.0.0-4-g68199caa-dirty",
           "value": 5.0
         },
         {
@@ -192,13 +192,13 @@
       "results": [
         {
           "tool": "SDR--",
-          "version": "1.9.0-124-g4964c881-dirty",
-          "value": 386.9205674834979
+          "version": "2.0.0-4-g68199caa-dirty",
+          "value": 372.575519596744
         },
         {
           "tool": "dsd-fme",
           "version": "4fe32db",
-          "value": 33.00839125083466
+          "value": 33.764175988595284
         }
       ]
     }

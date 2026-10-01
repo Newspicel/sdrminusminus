@@ -36,9 +36,9 @@
   },
   {
     "bench": "pocsag",
-    "msamples_per_s": 19.26067111400913,
-    "realtime_factor": 401.2639815418569,
-    "config": "noise including deferred decode slots, 48000 Hz, 2048 sample blocks",
+    "msamples_per_s": 18.6,
+    "realtime_factor": 775.0,
+    "config": "noise including deferred decode slots, 24000 Hz, 2048 sample blocks",
     "host": "aarch64-macos"
   },
   {
@@ -71,8 +71,8 @@
   },
   {
     "bench": "aprs",
-    "msamples_per_s": 78.88787813795024,
-    "realtime_factor": 1643.4974612072967,
+    "msamples_per_s": 272.71,
+    "realtime_factor": 5681.458333333333,
     "config": "noise including deferred decode slots, 48000 Hz, 2048 sample blocks",
     "host": "aarch64-macos"
   },
@@ -106,9 +106,9 @@
   },
   {
     "bench": "acars",
-    "msamples_per_s": 75.25480807672228,
-    "realtime_factor": 1567.8085015983809,
-    "config": "noise including deferred decode slots, 48000 Hz, 2048 sample blocks",
+    "msamples_per_s": 150.34,
+    "realtime_factor": 6264.166666666667,
+    "config": "noise including deferred decode slots, 24000 Hz, 2048 sample blocks",
     "host": "aarch64-macos"
   },
   {
