@@ -26,6 +26,10 @@ describe("ModeChips", () => {
     expect(s2).toContain("Roll-off");
   });
 
+  it("offers a service picker for DRM", () => {
+    expect(render({ type: "drm", settings: {} })).toContain("Service");
+  });
+
   it("renders nothing for modes without settings", () => {
     expect(render({ type: "m17", settings: {} })).toBe("");
   });

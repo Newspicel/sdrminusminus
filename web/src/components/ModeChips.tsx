@@ -143,7 +143,7 @@ export function ModeChips({
     case "dvbt":
       return <DvbtChips params={params} broadcast={broadcast} {...mode} />;
     case "drm":
-      return <DrmChips params={params} {...mode} />;
+      return <DrmChips params={params} broadcast={broadcast} {...mode} />;
     case "dmr":
       return <DmrChips params={params} {...mode} />;
     case "nxdn":
@@ -1011,7 +1011,7 @@ function DvbtChips({
   );
 }
 
-function DrmChips({ params, onParams }: Mode<"drm">) {
+function DrmChips({ params, broadcast, onParams }: Mode<"drm"> & { broadcast?: BroadcastStatus }) {
   const settings = params.settings;
   const mode = settings.mode ?? "auto";
   return (
@@ -1040,6 +1040,12 @@ function DrmChips({ params, onParams }: Mode<"drm">) {
         onCommit={(bandwidth_hz) =>
           onParams({ type: "drm", settings: { ...settings, bandwidth_hz } })
         }
+      />
+      <ServiceChip
+        status={broadcast}
+        value={settings.service ?? null}
+        max={3}
+        onChange={(service) => onParams({ type: "drm", settings: { ...settings, service } })}
       />
     </>
   );
