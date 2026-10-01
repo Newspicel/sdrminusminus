@@ -1,3 +1,5 @@
+mod screen;
+
 use std::sync::LazyLock;
 
 use num_complex::Complex;
@@ -12,6 +14,7 @@ use sdrmm_wire::{
 };
 
 use crate::{ChannelCtx, ChannelError, ChannelFilter, ChannelOutputs, ChannelRx, check_input_rate};
+use screen::{Phases, PreambleScreen};
 
 pub(crate) const INPUT_RATE_HZ: f64 = 2_400_000.0;
 const BANDWIDTH_HZ: f64 = 2_000_000.0;
@@ -111,6 +114,7 @@ pub struct AdsbChannel {
     configured_reference: Option<(f64, f64)>,
     live_reference: Option<(f64, f64)>,
     receivers: Vec<PpmDemod>,
+    screen: PreambleScreen,
     frame_span: usize,
     cpr_pair_max_age: u64,
     roll_call_max_age: u64,
@@ -703,11 +707,14 @@ impl AdsbChannel {
         None
     }
 
-    fn try_frame(&mut self, at: usize, out: &mut ChannelOutputs) -> Option<usize> {
+    fn try_frame(&mut self, at: usize, phases: Phases, out: &mut ChannelOutputs) -> Option<usize> {
         let stamp = self.stream_pos + at as u64;
         let mut hit = None;
         let mut doubtful: Option<(Sliced, usize)> = None;
         for (index, receiver) in self.receivers.iter().enumerate() {
+            if phases >> index & 1 == 0 {
+                continue;
+            }
             let Some(window) = self.mag.get(at..at + receiver.grid().span()) else {
                 continue;
             };
@@ -763,11 +770,13 @@ impl ChannelRx for AdsbChannel {
         check_params(p)?;
         let receivers = phase_tables(ctx.input_rate);
         let frame_span = receivers.iter().map(|r| r.grid().span()).max().unwrap_or(0);
+        let screen = PreambleScreen::new(&receivers);
         Ok(Self {
             crc_fix: p.crc_fix,
             configured_reference: p.ref_lat.zip(p.ref_lon),
             live_reference: None,
             receivers,
+            screen,
             frame_span,
             cpr_pair_max_age: (CPR_PAIR_MAX_AGE_S * ctx.input_rate) as u64,
             roll_call_max_age: (ROLL_CALL_MAX_AGE_S * ctx.input_rate) as u64,
@@ -798,13 +807,14 @@ impl ChannelRx for AdsbChannel {
     fn process(&mut self, iq: &[Complex<f32>], out: &mut ChannelOutputs) {
         magnitudes(iq, &mut self.mag);
 
-        let frame_span = self.frame_span;
+        let positions = (self.mag.len() + 1).saturating_sub(self.frame_span);
+        self.screen.scan(&self.mag, positions);
         let mut at = 0;
-        while at + frame_span <= self.mag.len() {
-            at += self.try_frame(at, out).unwrap_or(1);
+        while let Some((candidate, phases)) = self.screen.next(at) {
+            at = candidate + self.try_frame(candidate, phases, out).unwrap_or(1);
         }
 
-        let keep = self.mag.len().saturating_sub(frame_span - 1);
+        let keep = positions;
         self.mag.drain(..keep);
         self.stream_pos += keep as u64;
     }

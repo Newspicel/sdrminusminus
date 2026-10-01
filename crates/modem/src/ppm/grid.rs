@@ -93,6 +93,15 @@ impl SlotGrid {
     }
 
     #[must_use]
+    pub fn slot_weights(&self, slot: usize) -> (usize, &[f32]) {
+        self.table
+            .get(slot)
+            .map_or((0, &[]), |&Slot { start, at, taps }| {
+                (start, &self.weights[at..at + taps])
+            })
+    }
+
+    #[must_use]
     pub fn energy(&self, window: &[f32], slot: usize) -> f32 {
         self.weighted(window, slot, 0.0, |acc, w, x| acc + w * x)
     }
@@ -219,6 +228,21 @@ mod tests {
         assert!(grid.integrate(&alternating, 0).norm() < 1e-6);
         let magnitudes: Vec<f32> = alternating.iter().map(|s| s.norm()).collect();
         assert!((grid.energy(&magnitudes, 0) - 2.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn slot_weights_reproduce_the_energy() {
+        let grid = SlotGrid::new(1.2, 16, 0.375);
+        let window: Vec<f32> = (0..grid.span()).map(|i| (i as f32).sin().abs()).collect();
+        for slot in 0..grid.slots() {
+            let (start, weights) = grid.slot_weights(slot);
+            let manual = weights
+                .iter()
+                .enumerate()
+                .fold(0.0, |acc, (i, &w)| acc + w * window[start + i]);
+            assert_eq!(manual, grid.energy(&window, slot));
+        }
+        assert_eq!(grid.slot_weights(99), (0, &[][..]));
     }
 
     #[test]

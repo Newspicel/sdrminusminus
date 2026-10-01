@@ -3,11 +3,17 @@
 use std::hint::black_box;
 
 use criterion::{Criterion, Throughput, criterion_group, criterion_main};
+use num_complex::Complex;
 use sdrmm_channels::{
-    Dvbs2Rate,
-    synth::datv::{Ldpc, LdpcFrame},
+    ChannelCtx, ChannelOutputs, ChannelRx, Dvbs2Rate,
+    synth::{
+        add_noise,
+        adsb::{me_identification, squitter, transmission},
+        datv::{Ldpc, LdpcFrame},
+    },
 };
 use sdrmm_modem_test_support::ber::rng::Rng;
+use sdrmm_wire::{AdsbParams, ChannelParams, ChannelSettings, Squelch};
 
 const EB_N0_DB: f64 = 2.0;
 const WORDS: usize = 4;
@@ -54,5 +60,50 @@ fn ldpc_normal_half(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(benches, ldpc_normal_half);
+const ADSB_RATE: f64 = 2_400_000.0;
+const ADSB_SAMPLES: usize = 2_400_000;
+const ADSB_BLOCK: usize = 65_536;
+
+fn adsb_sky() -> Vec<Complex<f32>> {
+    let frames: Vec<Vec<u8>> = (0..200)
+        .map(|k| squitter(0x40_0000 + k, me_identification("SDRMM")))
+        .collect();
+    let mut iq = transmission(&frames, 5_000.0, 0.5, ADSB_RATE);
+    iq.resize(ADSB_SAMPLES, Complex::default());
+    add_noise(&mut iq, 0xad5b, 0.05);
+    iq
+}
+
+fn adsb_decode(c: &mut Criterion) {
+    let settings = ChannelSettings {
+        frequency_hz: 0.0,
+        squelch: Squelch::Off,
+        params: ChannelParams::Adsb(AdsbParams::default()),
+        blanker: Default::default(),
+    };
+    let ctx = ChannelCtx {
+        input_rate: ADSB_RATE,
+    };
+    let iq = adsb_sky();
+    let mut out = ChannelOutputs::default();
+    let mut group = c.benchmark_group("adsb");
+    group.throughput(Throughput::Elements(iq.len() as u64));
+    group.sample_size(20);
+    group.bench_function("one_second", |b| {
+        b.iter(|| {
+            let mut channel =
+                sdrmm_channels::AdsbChannel::new(ctx, settings.clone()).expect("adsb channel");
+            let mut decoded = 0;
+            for block in iq.chunks(ADSB_BLOCK) {
+                out.reset();
+                channel.process(black_box(block), &mut out);
+                decoded += out.events.len();
+            }
+            black_box(decoded)
+        });
+    });
+    group.finish();
+}
+
+criterion_group!(benches, ldpc_normal_half, adsb_decode);
 criterion_main!(benches);
