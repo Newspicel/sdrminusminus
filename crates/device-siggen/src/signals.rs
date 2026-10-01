@@ -5,8 +5,8 @@ use sdrmm_channels::{
 };
 use sdrmm_wire::{
     AmParams, ArgumentOption, AtvModulation, AtvParams, AtvStandard, AvhrrChannel, ChannelParams,
-    ChannelSettings, DabTransmissionMode, PskBaud, SelcallSystem, Sideband, SondeType, Squelch,
-    SsbParams, SstvMode, WefaxIoc, WefaxLpm,
+    ChannelSettings, DabTransmissionMode, LrptMode, PskBaud, SelcallSystem, Sideband, SondeType,
+    Squelch, SsbParams, SstvMode, WefaxIoc, WefaxLpm,
 };
 
 pub struct Signal {
@@ -203,6 +203,12 @@ pub static SIGNALS: &[Signal] = &[
         label: "NOAA APT",
         rate_hz: NARROW,
         render: apt,
+    },
+    Signal {
+        id: "lrpt",
+        label: "Meteor LRPT",
+        rate_hz: NARROW,
+        render: lrpt,
     },
     Signal {
         id: "wefax",
@@ -654,6 +660,12 @@ fn sstv() -> Vec<Complex<f32>> {
 fn apt() -> Vec<Complex<f32>> {
     const RATE: f64 = 60_000.0;
     let native = synth::apt::transmission(240, AvhrrChannel::Ch2, AvhrrChannel::Ch4, RATE);
+    synth::resample(&native, RATE, NARROW)
+}
+
+fn lrpt() -> Vec<Complex<f32>> {
+    const RATE: f64 = 288_000.0;
+    let native = synth::lrpt::transmission(LrptMode::Oqpsk72, 4, RATE);
     synth::resample(&native, RATE, NARROW)
 }
 

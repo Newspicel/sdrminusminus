@@ -13,16 +13,16 @@ pub mod dvbt;
 pub mod ermes;
 pub mod flex;
 pub mod gnss;
-pub mod lrpt;
 #[cfg(any(test, feature = "fixtures"))]
 pub mod ident_fixtures;
+pub mod lrpt;
 pub mod morse;
 pub mod navtex;
 pub mod nfm;
 pub mod pocsag;
 pub mod psk;
-pub mod radiosonde;
 pub mod radio_clock;
+pub mod radiosonde;
 pub mod rds;
 pub mod rtty;
 pub mod selcall;

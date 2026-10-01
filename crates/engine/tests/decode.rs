@@ -13,10 +13,10 @@ use sdrmm_wire::{
     BroadcastSystem, ChannelParams, ChannelSettings, CwSkimmerParams, DabParams, DatvParams,
     DatvStandard, DecodedRecord, DecoderEvent, DectCapability, DectCipherState, DectParams,
     DmrParams, DrmMode, DrmParams, DvFrameKind, DvMode, ErmesParams, FlexParams, FreeDvParams,
-    GnssParams, IdentParams, Modulation, MorseParams, NavtexParams, NfmParams, NfmToneMode,
-    PipelineStage, PocsagBaud, PocsagParams, PskBaud, PskParams, RadiosondeParams, RdsUpdate,
-    RttyParams, SelcallParams, SelcallSystem, SondeType, SymbolPlane, VorParams, WefaxIoc,
-    WefaxLpm, WefaxParams, WfmParams, WsjtParams, WsprParams, YsfParams,
+    GnssParams, IdentParams, LrptMode, LrptParams, Modulation, MorseParams, NavtexParams,
+    NfmParams, NfmToneMode, PipelineStage, PocsagBaud, PocsagParams, PskBaud, PskParams,
+    RadiosondeParams, RdsUpdate, RttyParams, SelcallParams, SelcallSystem, SondeType, SymbolPlane,
+    VorParams, WefaxIoc, WefaxLpm, WefaxParams, WfmParams, WsjtParams, WsprParams, YsfParams,
 };
 use tempfile::TempDir;
 
@@ -1855,4 +1855,37 @@ async fn a_wefax_chart_reaches_the_decoded_stream() {
     assert!(picture.complete);
     assert_eq!(picture.lines, 60);
     assert_eq!(picture.width, 1_810);
+}
+
+#[tokio::test]
+async fn a_meteor_lrpt_pass_reaches_the_decoded_stream() {
+    let dir = TempDir::new().unwrap();
+    let engine = accelerated_engine_for(dir.path());
+    const LRPT_RATE: f64 = 288_000.0;
+    const LRPT_DEVICE_RATE: f64 = 576_000.0;
+    let offset_hz = 100_000.0;
+    let native = synth::lrpt::transmission(LrptMode::Oqpsk72, 4, LRPT_RATE);
+    let mut iq = synth::resample(&native, LRPT_RATE, LRPT_DEVICE_RATE);
+    synth::shift(&mut iq, offset_hz, LRPT_DEVICE_RATE);
+    iq.extend(synth::silence((LRPT_DEVICE_RATE * 4.0) as usize));
+    let device = plant(dir.path(), "lrpt", iq, LRPT_DEVICE_RATE);
+    let record = decode_first(
+        &engine,
+        &device,
+        ChannelSettings {
+            frequency_hz: CENTER_HZ + offset_hz,
+            squelch: sdrmm_wire::Squelch::Off,
+            params: ChannelParams::Lrpt(LrptParams::default()),
+            blanker: Default::default(),
+        },
+        |event| matches!(event, DecoderEvent::Lrpt(_)),
+    )
+    .await;
+    let DecoderEvent::Lrpt(image) = record.event else {
+        unreachable!("filtered above")
+    };
+    assert_eq!(image.width, 1_568);
+    assert_eq!(image.lines, 32);
+    assert_eq!(image.frames_failed, 0);
+    assert_eq!(image.packets_lost, 0);
 }
