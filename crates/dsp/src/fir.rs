@@ -14,6 +14,8 @@ pub(crate) use kernel::{Accumulate, Isa, plane_dot, plane_interpolated};
 pub(crate) use line::DelayLine;
 pub(crate) use stream::StreamFir;
 
+use crate::special::{bessel_i0, sinc};
+
 #[must_use]
 pub fn design_lowpass(taps: usize, cutoff: f64) -> Vec<f32> {
     assert!(taps >= 3, "need at least 3 taps");
@@ -21,6 +23,43 @@ pub fn design_lowpass(taps: usize, cutoff: f64) -> Vec<f32> {
     let center = (taps - 1) as f64 / 2.0;
     let mut h: Vec<f64> = (0..taps)
         .map(|k| 2.0 * cutoff * sinc(2.0 * cutoff * (k as f64 - center)) * blackman(k, taps))
+        .collect();
+    let sum: f64 = h.iter().sum();
+    for v in &mut h {
+        *v /= sum;
+    }
+    h.into_iter().map(|v| v as f32).collect()
+}
+
+#[must_use]
+pub fn kaiser_taps(transition: f64, attenuation_db: f64) -> usize {
+    (((attenuation_db - 7.95) / (14.36 * transition)).ceil() as usize + 1) | 1
+}
+
+#[must_use]
+pub fn kaiser_beta(attenuation_db: f64) -> f64 {
+    if attenuation_db > 50.0 {
+        0.1102 * (attenuation_db - 8.7)
+    } else if attenuation_db >= 21.0 {
+        0.5842 * (attenuation_db - 21.0).powf(0.4) + 0.07886 * (attenuation_db - 21.0)
+    } else {
+        0.0
+    }
+}
+
+#[must_use]
+pub fn design_lowpass_kaiser(taps: usize, cutoff: f64, attenuation_db: f64) -> Vec<f32> {
+    assert!(taps >= 3, "need at least 3 taps");
+    assert!(cutoff > 0.0 && cutoff < 0.5, "cutoff must be in (0, 0.5)");
+    let center = (taps - 1) as f64 / 2.0;
+    let beta = kaiser_beta(attenuation_db);
+    let scale = bessel_i0(beta);
+    let mut h: Vec<f64> = (0..taps)
+        .map(|k| {
+            let x = (k as f64 - center) / center;
+            let window = bessel_i0(beta * (1.0 - x * x).max(0.0).sqrt()) / scale;
+            2.0 * cutoff * sinc(2.0 * cutoff * (k as f64 - center)) * window
+        })
         .collect();
     let sum: f64 = h.iter().sum();
     for v in &mut h {
@@ -152,14 +191,6 @@ fn rrc_pulse(t: f64, alpha: f64) -> f64 {
     let pt = PI * t;
     let numerator = ((1.0 - alpha) * pt).sin() + 4.0 * alpha * t * ((1.0 + alpha) * pt).cos();
     numerator / (pt * (1.0 - (4.0 * alpha * t).powi(2)))
-}
-
-fn sinc(x: f64) -> f64 {
-    if x.abs() < 1e-12 {
-        1.0
-    } else {
-        (PI * x).sin() / (PI * x)
-    }
 }
 
 fn blackman(k: usize, n: usize) -> f64 {

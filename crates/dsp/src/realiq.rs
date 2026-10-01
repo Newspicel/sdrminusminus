@@ -1,8 +1,11 @@
 use num_complex::Complex;
 
-use crate::fir::{Accumulate, design_lowpass};
+use crate::{
+    ddc::STOPBAND_DB,
+    fir::{Accumulate, design_lowpass_kaiser},
+};
 
-pub const DEFAULT_TAPS: usize = 47;
+pub const DEFAULT_TAPS: usize = 131;
 const LANES: usize = 16;
 
 /// Turns the real samples a quadrature-sampling receiver delivers into the complex baseband the
@@ -33,7 +36,7 @@ impl RealToIq {
             taps % 4 == 3,
             "a half-band filter has 4k+3 taps, so that every even offset from its centre is zero"
         );
-        let lowpass = design_lowpass(taps, 0.25);
+        let lowpass = design_lowpass_kaiser(taps, 0.25, STOPBAND_DB);
         let centre = taps / 2;
         let mut converter = Self {
             even_taps: lowpass.iter().step_by(2).copied().collect(),
@@ -159,7 +162,41 @@ mod tests {
     use std::f64::consts::TAU;
 
     use super::*;
-    use crate::{fft::Transform, testutil::tone_peak_and_snr};
+    use crate::{fft::Transform, testutil::tone_peak_and_snr, window::blackman_harris};
+
+    fn windowed_level(samples: &[Complex<f32>], frequency: f64) -> f64 {
+        let window = blackman_harris(samples.len());
+        samples
+            .iter()
+            .zip(&window)
+            .enumerate()
+            .map(|(k, (x, &w))| {
+                Complex::new(f64::from(x.re), f64::from(x.im))
+                    * f64::from(w)
+                    * Complex::from_polar(1.0, -TAU * frequency * k as f64)
+            })
+            .sum::<Complex<f64>>()
+            .norm()
+    }
+
+    #[test]
+    fn the_mirror_stays_a_hundred_db_down_across_nine_tenths_of_the_band() {
+        for share in [0.1, 0.5, 0.8, 0.88] {
+            let frequency = 0.25 + share * 0.25;
+            let input: Vec<f32> = (0..32_768)
+                .map(|k| (TAU * frequency * k as f64).cos() as f32)
+                .collect();
+            let mut out = Vec::new();
+            RealToIq::default().process(&input, &mut out);
+            let tail = &out[out.len() / 2..];
+            let (a, b) = (
+                windowed_level(tail, share / 2.0),
+                windowed_level(tail, -share / 2.0),
+            );
+            let image = 20.0 * (a.min(b) / a.max(b)).log10();
+            assert!(image < -100.0, "{share} of the band: image at {image} dB");
+        }
+    }
 
     fn real_cosine(freq_norm: f64, len: usize) -> Vec<f32> {
         (0..len)
@@ -328,7 +365,7 @@ mod tests {
             })
             .collect();
         let mut out = Vec::new();
-        crate::decim::Decimator::new(&design_lowpass(DEFAULT_TAPS, 0.25), 2)
+        crate::decim::Decimator::new(&design_lowpass_kaiser(DEFAULT_TAPS, 0.25, STOPBAND_DB), 2)
             .process(&rotated, &mut out);
         out
     }

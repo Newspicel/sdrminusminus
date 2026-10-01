@@ -9,6 +9,7 @@ pub use echo::SceneEcho;
 use crate::manifold::{
     Direction, Geometry, MAX_ELEMENTS, ManifoldError, ManifoldTable, steer, widen,
 };
+use crate::special::{bessel_i0, sinc};
 
 const DELAY_TAPS: usize = 129;
 const DELAY_CENTRE: i64 = 64;
@@ -701,28 +702,6 @@ fn fraction_table() -> Vec<Vec<f64>> {
     (0..ECHO_FRACTIONS)
         .map(|step| fractional_taps(step as f64 / ECHO_FRACTIONS as f64))
         .collect()
-}
-
-fn sinc(x: f64) -> f64 {
-    if x.abs() < 1e-12 {
-        1.0
-    } else {
-        (PI * x).sin() / (PI * x)
-    }
-}
-
-fn bessel_i0(x: f64) -> f64 {
-    let quarter = x * x / 4.0;
-    let mut term = 1.0;
-    let mut sum = 1.0;
-    for k in 1..200 {
-        term *= quarter / (k * k) as f64;
-        sum += term;
-        if term < sum * 1e-17 {
-            break;
-        }
-    }
-    sum
 }
 
 #[derive(Clone, Debug)]

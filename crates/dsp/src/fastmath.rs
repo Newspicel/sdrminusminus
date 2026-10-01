@@ -51,6 +51,45 @@ pub fn fast_power_db(power: f32) -> f32 {
     fast_log2(power) * DB_PER_OCTAVE
 }
 
+const EXP2_SERIES: [f32; 7] = [
+    1.0,
+    std::f32::consts::LN_2,
+    0.240_226_5,
+    0.055_504_11,
+    0.009_618_129,
+    0.001_333_356,
+    0.000_154_035_3,
+];
+const EXP2_MIN: f32 = -126.0;
+const EXP2_MAX: f32 = 127.499_99;
+const POWER_OCTAVES_PER_DB: f32 = 0.1 * std::f32::consts::LOG2_10;
+
+#[must_use]
+#[inline(always)]
+pub fn fast_exp2(x: f32) -> f32 {
+    if x.is_nan() {
+        return x;
+    }
+    if x < EXP2_MIN {
+        return 0.0;
+    }
+    if x > EXP2_MAX {
+        return f32::INFINITY;
+    }
+    let whole = x.round();
+    let t = x - whole;
+    let [c0, c1, c2, c3, c4, c5, c6] = EXP2_SERIES;
+    let fraction = c0 + t * (c1 + t * (c2 + t * (c3 + t * (c4 + t * (c5 + t * c6)))));
+    let scale = f32::from_bits(((whole as i32 + 127) as u32) << 23);
+    fraction * scale
+}
+
+#[must_use]
+#[inline(always)]
+pub fn fast_db_to_power(db: f32) -> f32 {
+    fast_exp2(db * POWER_OCTAVES_PER_DB)
+}
+
 const ATAN_UNIT: [f32; 7] = [
     0.999_996_1,
     -0.333_173_7,
@@ -61,7 +100,7 @@ const ATAN_UNIT: [f32; 7] = [
     0.006_811_773,
 ];
 
-#[inline]
+#[inline(always)]
 fn atan_unit(ratio: f32) -> f32 {
     let square = ratio * ratio;
     let mut poly = ATAN_UNIT[6];
@@ -74,7 +113,7 @@ fn atan_unit(ratio: f32) -> f32 {
     poly * ratio
 }
 
-#[inline]
+#[inline(always)]
 #[must_use]
 pub fn fast_atan2(y: f32, x: f32) -> f32 {
     let (ax, ay) = (x.abs(), y.abs());
@@ -336,5 +375,29 @@ mod tests {
         assert!(fast_log10(f32::NEG_INFINITY).is_nan());
         assert!(fast_log10(f32::NAN).is_nan());
         assert_eq!(fast_log10(1.0), 0.0);
+    }
+
+    #[test]
+    fn db_to_power_tracks_powf_across_the_display_range() {
+        let worst = (-2_000..=2_000)
+            .map(|step| step as f32 * 0.1)
+            .map(|db| {
+                let exact = 10f64.powf(f64::from(db) / 10.0);
+                (f64::from(fast_db_to_power(db)) / exact - 1.0).abs()
+            })
+            .fold(0.0f64, f64::max);
+        assert!(worst < 5e-6, "worst relative error {worst}");
+    }
+
+    #[test]
+    fn exp2_edges_follow_std() {
+        assert_eq!(fast_exp2(0.0), 1.0);
+        assert_eq!(fast_exp2(10.0), 1024.0);
+        assert_eq!(fast_exp2(-1.0), 0.5);
+        assert_eq!(fast_exp2(f32::NEG_INFINITY), 0.0);
+        assert_eq!(fast_exp2(-500.0), 0.0);
+        assert_eq!(fast_exp2(f32::INFINITY), f32::INFINITY);
+        assert!(fast_exp2(f32::NAN).is_nan());
+        assert_eq!(fast_db_to_power(f32::NEG_INFINITY), 0.0);
     }
 }

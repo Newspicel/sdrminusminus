@@ -1,9 +1,12 @@
-use std::f64::consts::{PI, TAU};
+use std::f64::consts::TAU;
 
 use num_complex::Complex;
 
 use super::bins::equaliser_at;
-use crate::fft::FftPair;
+use crate::{
+    fft::FftPair,
+    special::{bessel_i0, sinc},
+};
 
 pub fn design_correction(
     fft_len: usize,
@@ -45,14 +48,6 @@ pub fn design_correction(
     FftPair::new(len).forward(out);
 }
 
-fn sinc(x: f64) -> f64 {
-    if x.abs() < 1e-12 {
-        1.0
-    } else {
-        (PI * x).sin() / (PI * x)
-    }
-}
-
 fn kaiser(taps: usize, centre: f64, beta: f64) -> Vec<f64> {
     let half = centre.abs().max((taps as f64 - 1.0 - centre).abs());
     if half <= f64::MIN_POSITIVE {
@@ -65,20 +60,6 @@ fn kaiser(taps: usize, centre: f64, beta: f64) -> Vec<f64> {
             bessel_i0(beta * (1.0 - x * x).max(0.0).sqrt()) / scale
         })
         .collect()
-}
-
-fn bessel_i0(x: f64) -> f64 {
-    let quarter = x * x / 4.0;
-    let mut term = 1.0;
-    let mut sum = 1.0;
-    for k in 1..200 {
-        term *= quarter / (k * k) as f64;
-        sum += term;
-        if term < sum * 1e-16 {
-            break;
-        }
-    }
-    sum
 }
 
 fn divide_by(response: &mut [Complex<f64>], equaliser: &[Complex<f32>]) {

@@ -1,7 +1,7 @@
 use num_complex::Complex;
 
 use crate::{
-    fastmath::fast_power_db,
+    fastmath::{fast_db_to_power, fast_power_db},
     fft::Transform,
     window::{coherent_gain, hann},
 };
@@ -196,7 +196,7 @@ impl PowerAverage {
     pub fn add(&mut self, db: &[f32]) {
         assert_eq!(db.len(), self.sum.len(), "average length mismatch");
         for (slot, &level) in self.sum.iter_mut().zip(db) {
-            *slot += 10f32.powf(level * 0.1);
+            *slot += fast_db_to_power(level);
         }
         self.count += 1;
     }

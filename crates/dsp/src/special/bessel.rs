@@ -9,6 +9,30 @@ pub enum SpecialError {
     BesselRange(f64),
 }
 
+#[must_use]
+pub fn bessel_i0(x: f64) -> f64 {
+    let quarter = x * x / 4.0;
+    let mut term = 1.0;
+    let mut sum = 1.0;
+    for k in 1..200 {
+        term *= quarter / (k * k) as f64;
+        sum += term;
+        if term < sum * 1e-17 {
+            break;
+        }
+    }
+    sum
+}
+
+#[must_use]
+pub fn sinc(x: f64) -> f64 {
+    if x.abs() < 1e-12 {
+        1.0
+    } else {
+        (std::f64::consts::PI * x).sin() / (std::f64::consts::PI * x)
+    }
+}
+
 pub fn bessel_j(order: u32, x: f64) -> Result<f64, SpecialError> {
     if !(0.0..=MAX_ARGUMENT).contains(&x) {
         return Err(SpecialError::BesselRange(x));

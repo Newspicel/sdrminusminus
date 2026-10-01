@@ -6,6 +6,7 @@ const LOADING_FLOOR: f32 = 1e-6;
 const LOADING_STEPS: i32 = 6;
 const PIVOT_TOL: f32 = 16.0 * f32::EPSILON;
 
+#[derive(Clone, Debug)]
 pub struct Cholesky {
     capacity: usize,
     order: usize,

@@ -53,18 +53,34 @@ impl Goertzel {
     }
 }
 
+pub trait Correlated: Copy + Default {
+    fn widen(self) -> Complex<f64>;
+}
+
+impl Correlated for f32 {
+    fn widen(self) -> Complex<f64> {
+        Complex::new(f64::from(self), 0.0)
+    }
+}
+
+impl Correlated for Complex<f32> {
+    fn widen(self) -> Complex<f64> {
+        Complex::new(f64::from(self.re), f64::from(self.im))
+    }
+}
+
 #[derive(Clone, Debug)]
-pub struct ToneCorrelator {
+pub struct ToneCorrelator<T = f32> {
     rot: Complex<f64>,
     exit: Complex<f64>,
     norm: f32,
-    buf: Vec<f32>,
+    buf: Vec<T>,
     pos: usize,
     acc: Complex<f64>,
     since_rebuild: usize,
 }
 
-impl ToneCorrelator {
+impl ToneCorrelator<f32> {
     #[must_use]
     pub fn new(sample_rate: f64, freq_hz: f64, window: usize) -> Self {
         assert!(sample_rate > 0.0, "sample rate must be positive");
@@ -72,24 +88,42 @@ impl ToneCorrelator {
             freq_hz > 0.0 && freq_hz < sample_rate / 2.0,
             "freq must lie inside the Nyquist band"
         );
+        Self::build(sample_rate, freq_hz, window, 2.0)
+    }
+}
+
+impl ToneCorrelator<Complex<f32>> {
+    #[must_use]
+    pub fn complex(sample_rate: f64, freq_hz: f64, window: usize) -> Self {
+        assert!(sample_rate > 0.0, "sample rate must be positive");
+        assert!(
+            freq_hz.abs() < sample_rate / 2.0,
+            "freq must lie inside the Nyquist band"
+        );
+        Self::build(sample_rate, -freq_hz, window, 1.0)
+    }
+}
+
+impl<T: Correlated> ToneCorrelator<T> {
+    fn build(sample_rate: f64, freq_hz: f64, window: usize, gain: f64) -> Self {
         assert!(window >= 2, "window must hold at least two samples");
         let omega = TAU * freq_hz / sample_rate;
         Self {
             rot: Complex::from_polar(1.0, -omega),
             exit: Complex::from_polar(1.0, -omega * window as f64),
-            norm: (2.0 / window as f64) as f32,
-            buf: vec![0.0; window],
+            norm: (gain / window as f64) as f32,
+            buf: vec![T::default(); window],
             pos: 0,
             acc: Complex::new(0.0, 0.0),
             since_rebuild: 0,
         }
     }
 
-    pub fn push(&mut self, sample: f32) -> f32 {
+    pub fn push(&mut self, sample: T) -> f32 {
         let leaving = self.buf[self.pos];
         self.buf[self.pos] = sample;
         self.pos = (self.pos + 1) % self.buf.len();
-        self.acc = self.acc * self.rot + f64::from(sample) - self.exit * f64::from(leaving);
+        self.acc = self.acc * self.rot + sample.widen() - self.exit * leaving.widen();
         self.since_rebuild += 1;
         if self.since_rebuild >= self.buf.len() {
             self.rebuild();
@@ -97,8 +131,13 @@ impl ToneCorrelator {
         self.acc.norm() as f32 * self.norm
     }
 
+    #[must_use]
+    pub fn correlation(&self) -> Complex<f64> {
+        self.acc
+    }
+
     pub fn reset(&mut self) {
-        self.buf.fill(0.0);
+        self.buf.fill(T::default());
         self.pos = 0;
         self.acc = Complex::new(0.0, 0.0);
         self.since_rebuild = 0;
@@ -109,7 +148,7 @@ impl ToneCorrelator {
         let mut acc = Complex::new(0.0, 0.0);
         let mut phasor = Complex::new(1.0, 0.0);
         for m in 0..n {
-            acc += phasor * f64::from(self.buf[(self.pos + n - 1 - m) % n]);
+            acc += phasor * self.buf[(self.pos + n - 1 - m) % n].widen();
             phasor *= self.rot;
         }
         self.acc = acc;
@@ -473,5 +512,22 @@ mod tests {
         assert!(key, "should be keyed at the end of a key-down run");
         assert!(slicer.push(f32::NAN), "state dropped on NaN");
         assert!(slicer.snr().is_finite());
+    }
+
+    #[test]
+    fn the_complex_correlator_tells_a_tone_from_its_mirror() {
+        let rate = 48_000.0;
+        let tone: Vec<Complex<f32>> = (0..4_800)
+            .map(|n| Complex::from_polar(1.0, (TAU * 3_000.0 * n as f64 / rate) as f32))
+            .collect();
+        let mut upper = ToneCorrelator::complex(rate, 3_000.0, 160);
+        let mut lower = ToneCorrelator::complex(rate, -3_000.0, 160);
+        let (mut a, mut b) = (0.0, 0.0);
+        for &sample in &tone {
+            a = upper.push(sample);
+            b = lower.push(sample);
+        }
+        assert!((a - 1.0).abs() < 1e-3, "matched {a}");
+        assert!(b < 1e-3, "mirror {b}");
     }
 }

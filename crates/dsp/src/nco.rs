@@ -45,7 +45,7 @@ pub struct Nco {
     valid: bool,
     lane: usize,
     anchor: Complex<f32>,
-    steps: lanes::Steps,
+    steps: Box<lanes::Steps>,
     table: &'static Table,
 }
 
@@ -69,7 +69,7 @@ impl Nco {
             valid: true,
             lane: 0,
             anchor: Complex::new(1.0, 0.0),
-            steps: lanes::Steps::new(0),
+            steps: Box::new(lanes::Steps::new(0)),
             table: &PHASORS,
         };
         nco.set_freq(freq_hz, sample_rate);
@@ -93,7 +93,7 @@ impl Nco {
         let step = (turns * PHASE_SCALE).round() as i64 as u64;
         if step != self.step {
             self.step = step;
-            self.steps = lanes::Steps::new(step);
+            *self.steps = lanes::Steps::new(step);
         }
         self.realign();
     }

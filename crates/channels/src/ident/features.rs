@@ -62,10 +62,11 @@ pub(crate) fn zoom(iq: &[Complex<f32>], rate: f64, band: &Band) -> Option<Zoom> 
     let mut ddc = Ddc::new(rate, target, band.center_hz).ok()?;
     let mut out = Vec::with_capacity((iq.len() as f64 * target / rate) as usize + 1);
     ddc.process(iq, &mut out);
-    if out.len() <= SETTLE + MIN_ANALYSIS_SAMPLES {
+    let settle = SETTLE.max(ddc.settling());
+    if out.len() <= settle + MIN_ANALYSIS_SAMPLES {
         return None;
     }
-    out.drain(..SETTLE);
+    out.drain(..settle);
     Some(Zoom {
         rate: target,
         iq: out,
