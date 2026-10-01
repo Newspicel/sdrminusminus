@@ -1,6 +1,6 @@
 import { expect, type Locator, type Page, test } from "@playwright/test";
 import type { StateSnapshot, WorkspaceDetail } from "../src/lib/types";
-import { activate, addNode, dragWire, fitPatch, leaveField } from "./canvas";
+import { activate, addNode, dragWire, fitPatch } from "./canvas";
 
 function deferred(): { promise: Promise<void>; resolve: () => void } {
   let resolve!: () => void;
@@ -216,26 +216,22 @@ test.describe("the workspace", () => {
       })
       .toEqual(["wfm"]);
     await expect(channel).toHaveCount(1);
-    await expect(channel.getByRole("meter")).toBeVisible();
+    await expect(channel.getByRole("slider", { name: /squelch threshold/i })).toBeVisible();
 
     await expect(channel.locator('.react-flow__handle[data-handleid="video"]')).toHaveCount(0);
     for (const port of ["iq", "audio"]) {
       expect(await rowOffset(channel, port)).toBeLessThan(1);
     }
 
-    const squelch = channel.getByRole("group", { name: "Squelch mode" });
-    const manual = squelch.getByRole("button", { name: "Manual" });
+    const squelchAuto = channel.getByRole("button", { name: "Automatic squelch" });
     const threshold = channel.getByRole("slider", { name: /squelch threshold/i });
-    await expect(threshold).toHaveCount(0);
-    await manual.click();
     await expect(threshold).toBeEnabled();
-    expect(await cursor(manual)).toBe("pointer");
+    await expect(squelchAuto).toHaveAttribute("aria-pressed", "false");
+    expect(await cursor(squelchAuto)).toBe("pointer");
     expect(await cursor(threshold.locator("xpath=.."))).toBe("grab");
     expect(await cursor(channel)).toBe("default");
     expect(await cursor(channel.locator("header"))).toBe("grab");
     expect(await cursor(node("scope").locator("header"))).toBe("grab");
-    await channel.getByText("-60 dB", { exact: true }).click();
-    await expect(manual).toHaveAttribute("aria-pressed", "true");
 
     await activate(node("device"));
     const viewport = page.locator(".react-flow__viewport");
@@ -261,8 +257,8 @@ test.describe("the workspace", () => {
     expect(await framing()).toBe(framedAt);
 
     await activate(channel);
-    await squelch.getByRole("button", { name: "Off" }).click();
-    await expect(threshold).toHaveCount(0);
+    await squelchAuto.click();
+    await expect(squelchAuto).toHaveAttribute("aria-pressed", "true");
 
     await expect(node("scope").getByText(/MHz/).first()).toBeVisible();
 
@@ -387,7 +383,9 @@ test.describe("the workspace", () => {
     await expect(node("scope").getByRole("button", { name: /unpin from the rack/i })).toBeVisible();
     await expect(node("device").locator('[id^="frequency-dial"]')).toBeVisible();
     await expect(
-      page.locator('.react-flow__node[data-id^="channel:"]').getByRole("meter"),
+      page
+        .locator('.react-flow__node[data-id^="channel:"]')
+        .getByRole("slider", { name: /squelch threshold/i }),
     ).toBeVisible();
     await rack.click();
     await expect(page.getByText(/nothing pinned/i)).toHaveCount(0);
@@ -502,6 +500,8 @@ test.describe("the workspace", () => {
     await expect(nmea.getByText("u-blox GNSS receiver · GNSS-1")).toBeVisible();
     await nmea.getByRole("button", { name: /usbmodem11401/ }).click();
 
+    const portChip = nmea.getByRole("button", { name: "Serial port of the receiver" });
+    await portChip.click();
     const device = nmea.getByRole("combobox", { name: "Serial device" });
     await expect(device).toHaveValue("/dev/cu.usbmodem11401");
     await device.fill("");
@@ -516,18 +516,27 @@ test.describe("the workspace", () => {
     await detectedDevice.click();
     await expect(device).toHaveValue("/dev/cu.usbmodem11401");
     await device.fill("/dev/ttyACM7");
-    await leaveField(nmea);
+    await device.press("Tab");
+    await page.keyboard.press("Escape");
+    await expect(portChip).toContainText("/dev/ttyACM7");
+    const baudChip = nmea.getByRole("button", { name: "Serial baud rate" });
+    await baudChip.click();
     const baud = nmea.getByRole("combobox", { name: "Baud" });
     await baud.fill("38400");
-    await leaveField(nmea);
-    await nmea.getByRole("combobox", { name: "Update rate" }).click();
+    await baud.press("Tab");
+    await page.keyboard.press("Escape");
+    await nmea.getByRole("button", { name: "Update rate" }).click();
     await page.getByRole("option", { name: "5 Hz" }).click();
+    await portChip.click();
     await device.fill(" ");
-    await leaveField(nmea);
-    await expect(device).toHaveValue("/dev/ttyACM7");
+    await device.press("Tab");
+    await page.keyboard.press("Escape");
+    await expect(portChip).toContainText("/dev/ttyACM7");
+    await baudChip.click();
     await baud.fill("100");
-    await leaveField(nmea);
-    await expect(baud).toHaveValue("38400");
+    await baud.press("Tab");
+    await page.keyboard.press("Escape");
+    await expect(baudChip).toContainText("38400");
 
     await expect
       .poll(async () => {
@@ -556,10 +565,14 @@ test.describe("the workspace", () => {
     await typedAddress.fill("127.0.0.1:2947");
     await gpsd.getByRole("button", { name: "Read" }).click();
 
+    const addressChip = gpsd.getByRole("button", { name: "Host and port of the gpsd daemon" });
+    await expect(addressChip).toContainText("127.0.0.1:2947");
+    await addressChip.click();
     const address = gpsd.getByRole("textbox", { name: "GPSD address" });
     await address.fill("not-an-endpoint");
-    await address.blur();
-    await expect(address).toHaveValue("127.0.0.1:2947");
+    await address.press("Enter");
+    await page.keyboard.press("Escape");
+    await expect(addressChip).toContainText("127.0.0.1:2947");
 
     const fixed = await addGps();
     await fixed.getByRole("group", { name: "Position source" }).getByText("Fixed").click();
@@ -571,7 +584,7 @@ test.describe("the workspace", () => {
     await longitude.press("Tab");
     await fixed.getByRole("button", { name: "Set" }).click();
     await expect(fixed.getByText("52.520000, 13.405000")).toBeVisible();
-    await expect(fixed.getByText("JO62qm")).toHaveCount(2);
+    await expect(fixed.getByText("JO62qm")).toBeVisible();
 
     await fixed.getByRole("button", { name: "Forget source" }).click();
     const sources = fixed.getByRole("group", { name: "Position source" });
@@ -946,7 +959,7 @@ test.describe("the workspace", () => {
     await page.goto("/");
 
     const channel = page.locator('.react-flow__node[data-id="voice"]');
-    await expect(channel.getByRole("combobox", { name: /bandwidth/i })).toBeVisible();
+    await expect(channel.getByRole("button", { name: /bandwidth/i })).toBeVisible();
     await activate(channel);
     const dial = channel.getByRole("spinbutton", { name: "Tuned frequency" });
     await dial.focus();
@@ -1061,7 +1074,7 @@ test.describe("the workspace", () => {
     await page.goto("/");
 
     const channel = page.locator('.react-flow__node[data-id="voice"]');
-    await expect(channel.getByRole("combobox", { name: /bandwidth/i })).toBeVisible();
+    await expect(channel.getByRole("button", { name: /bandwidth/i })).toBeVisible();
     await activate(channel);
     await channel.getByRole("button", { name: "Type a frequency to listen on" }).click();
 

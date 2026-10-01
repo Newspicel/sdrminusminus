@@ -191,10 +191,6 @@ export async function fitPatch(page: Page): Promise<void> {
   await viewSettled(page);
 }
 
-export async function leaveField(shell: Locator): Promise<void> {
-  await shell.locator("header").click();
-}
-
 export async function activate(shell: Locator): Promise<void> {
   await shell.locator("header").click();
 }
@@ -217,9 +213,9 @@ export function port(shell: Locator, name: string): Locator {
 
 export function readout(scope: Locator, label: string): Locator {
   return scope
-    .locator("span.legend")
+    .locator(".legend")
     .filter({ hasText: new RegExp(`^${label}$`) })
-    .locator("xpath=following-sibling::span[1]");
+    .locator("xpath=following-sibling::*[1]");
 }
 
 export function numbers(text: string | null): number[] {

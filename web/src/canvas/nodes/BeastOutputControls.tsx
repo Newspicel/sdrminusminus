@@ -1,12 +1,32 @@
 import { useEffect, useState } from "react";
 import { Button } from "../../components/BaseControls";
 import { BTN, BTN_DANGER } from "../../components/controls";
+import { FaceFault } from "../../components/face/Fault";
+import { FaceStats, Stat } from "../../components/face/Stats";
+import { formatCount } from "../../components/format";
 import type { EventOutputTarget, ServerEvent } from "../../lib/types";
 import { useWorkspaceContext } from "../context";
-import { FaceFooter } from "./NodeShell";
+import { FaceEmpty, FaceFooter } from "./NodeShell";
 
 type BeastTarget = Extract<EventOutputTarget, { service: "beast" }>;
 type BeastStatus = Extract<ServerEvent, { type: "BeastExportStatus" }>["data"];
+
+export function beastState(
+  current: BeastStatus | null,
+  connected: boolean,
+  enabled: boolean,
+): string | undefined {
+  if (current?.error) {
+    return undefined;
+  }
+  if (current?.listening) {
+    return "Listening";
+  }
+  if (!connected) {
+    return "Wire ADS-B events in";
+  }
+  return enabled ? "Opening server" : "Server closed";
+}
 
 export function BeastOutputControls({
   node,
@@ -34,23 +54,19 @@ export function BeastOutputControls({
   const current = connected && target.enabled && status?.address === target.address ? status : null;
   return (
     <>
-      <div className="p-2 font-mono text-xs tabular-nums">
-        {current?.error ? (
-          <p role="alert" className="text-danger">
-            {current.error}
-          </p>
-        ) : null}
-        {current?.listening
-          ? `${current.clients} clients · ${current.frames.toLocaleString()} frames`
-          : current?.error
-            ? "Server failed"
-            : connected
-              ? target.enabled
-                ? "Opening server"
-                : "Server closed"
-              : "Wire ADS-B events in"}
-      </div>
+      <FaceEmpty hint={beastState(current, connected, target.enabled === true)} />
+      {current?.error ? <FaceFault message="Server failed" detail={current.error} /> : null}
       <FaceFooter>
+        {current?.listening && (
+          <FaceStats>
+            <Stat label="Clients" title="Feeders connected to this server">
+              {current.clients}
+            </Stat>
+            <Stat label="Frames" title="Beast frames sent">
+              {formatCount(current.frames)}
+            </Stat>
+          </FaceStats>
+        )}
         <Button
           type="button"
           className={target.enabled ? BTN_DANGER : BTN}

@@ -8,12 +8,18 @@ import type {
 } from "../../lib/types";
 import { arrayOf } from "../binding";
 import { nodeOf, patchNode } from "../graph";
-import type { Chip } from "./ProcessorReadout";
+import type { Chip } from "./ProcessorHealth";
 
 export const STITCH_BLENDS: Options<StitchBlend> = [
   { value: "snr", label: "SNR", title: "Favour the cleaner lane in overlaps" },
   { value: "equal", label: "Equal", title: "Average overlaps" },
 ];
+
+export const SPREAD_CHIP: Chip = {
+  label: "Needs spread",
+  title: "Stitch needs the array's lanes tuned side by side",
+  danger: true,
+};
 
 export function spreadArrayEdit(graph: PatchGraph, stitch: string): PatchGraph | null {
   const array = arrayOf(graph, stitch);

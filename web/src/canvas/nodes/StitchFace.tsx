@@ -1,8 +1,7 @@
 import { Button } from "../../components/BaseControls";
-import { Checkbox } from "../../components/Checkbox";
 import { BTN_SM, TABLE_CELL, TABLE_HEAD } from "../../components/controls";
-import { Segmented } from "../../components/Segmented";
-import { SettingRow, Settings } from "../../components/Settings";
+import { Chips, ChoiceChip, ToggleChip } from "../../components/face/Chips";
+import { Readout, Readouts } from "../../components/face/Readouts";
 import { processorStatusOf, useArrayStore } from "../../lib/arrays";
 import { STITCH_LIMITS } from "../../lib/limits";
 import { isStale, readingOf, useProcessorStore } from "../../lib/processors";
@@ -12,7 +11,8 @@ import { arrayOf } from "../binding";
 import { useWorkspaceContext } from "../context";
 import { settingsOf } from "../newNode";
 import { FaceBody, FaceEmpty, NodeShell } from "./NodeShell";
-import { ProcessorChips, ProcessorFaults, ProcessorReadout, ReadoutCell } from "./ProcessorReadout";
+import { ProcessorFooter } from "./ProcessorFooter";
+import { ProcessorError } from "./ProcessorHealth";
 import {
   ageLabel,
   NO_CATALOG,
@@ -20,7 +20,14 @@ import {
   processorSubtitle,
   useProcessorEdit,
 } from "./processorFace";
-import { needsSpread, STITCH_BLENDS, spreadArrayEdit, stitchChips, stitchRow } from "./stitch";
+import {
+  needsSpread,
+  SPREAD_CHIP,
+  STITCH_BLENDS,
+  spreadArrayEdit,
+  stitchChips,
+  stitchRow,
+} from "./stitch";
 
 const AGE_TICK_MS = 1_000;
 const STITCH_REPORT_MS = STITCH_LIMITS.report_ms;
@@ -39,6 +46,7 @@ export function StitchFace({ node }: { node: PatchNode }) {
   const settings = settingsOf(node, workspace.context.catalog);
   const reading = readingOf(state, "stitch");
   const stale = state !== undefined && isStale(state.receivedAt, now, STITCH_REPORT_MS);
+  const processor = processorStatusOf(status, node.id);
   const spread = needsSpread(workspace.graph, node.id, processorGate(status, node.id));
   const spreadArray = () => {
     workspace.edit((snapshot) => {
@@ -59,34 +67,36 @@ export function StitchFace({ node }: { node: PatchNode }) {
           <FaceEmpty hint={NO_CATALOG} />
         ) : (
           <>
-            {spread && (
-              <div role="alert" className="flex items-center gap-2 px-2 pt-2 text-xs text-danger">
-                <span>Needs spread</span>
-                <Button
-                  type="button"
-                  className={`${BTN_SM} ml-auto`}
-                  title="Tune the wired array's lanes side by side"
-                  onClick={spreadArray}
-                >
-                  Spread array
-                </Button>
-              </div>
-            )}
-            <div className={`flex flex-col gap-2 p-2 ${stale ? "opacity-50" : ""}`}>
-              <ProcessorReadout>
-                <ReadoutCell label="Center" value={mhz(reading?.center_hz)} />
-                <ReadoutCell label="Span" value={mhz(reading?.span_hz)} />
-                <ReadoutCell label="Lanes" value={String(reading?.lanes.length ?? 0)} />
-                <ReadoutCell label="Age" value={ageLabel(state?.receivedAt, now)} />
-              </ProcessorReadout>
+            <div className={stale ? "opacity-50" : ""}>
+              <Readouts columns={2}>
+                <Readout label="Center">{mhz(reading?.center_hz)}</Readout>
+                <Readout label="Span">{mhz(reading?.span_hz)}</Readout>
+                <Readout label="Lanes">{String(reading?.lanes.length ?? 0)}</Readout>
+                <Readout label="Age">{ageLabel(state?.receivedAt, now)}</Readout>
+              </Readouts>
               <LaneTable reading={reading} />
             </div>
-            <ProcessorChips chips={stitchChips(reading)} />
-            <ProcessorFaults status={processorStatusOf(status, node.id)} />
-            <StitchSettings settings={settings} edit={edit} />
+            <StitchChips settings={settings} edit={edit} />
+            <ProcessorError status={processor} />
           </>
         )}
       </FaceBody>
+      <ProcessorFooter
+        status={processor}
+        chips={spread ? [SPREAD_CHIP, ...stitchChips(reading)] : stitchChips(reading)}
+        actions={
+          spread ? (
+            <Button
+              type="button"
+              className={BTN_SM}
+              title="Tune the wired array's lanes side by side"
+              onClick={spreadArray}
+            >
+              Spread array
+            </Button>
+          ) : undefined
+        }
+      />
     </NodeShell>
   );
 }
@@ -100,7 +110,7 @@ function LaneTable({ reading }: { reading: StitchReading | null }) {
     return null;
   }
   return (
-    <table className="w-full">
+    <table className="w-full border-t border-line">
       <thead>
         <tr>
           {LANE_HEADS.map((head) => (
@@ -128,7 +138,7 @@ function LaneTable({ reading }: { reading: StitchReading | null }) {
   );
 }
 
-function StitchSettings({
+function StitchChips({
   settings,
   edit,
 }: {
@@ -136,45 +146,38 @@ function StitchSettings({
   edit: (next: Partial<StitchParams>) => void;
 }) {
   return (
-    <div className="border-t border-line p-2">
-      <Settings>
-        <SettingRow label="Blend">
-          <Segmented
-            label="Blend"
-            value={settings.blend}
-            options={STITCH_BLENDS}
-            onChange={(blend) => edit({ blend })}
-          />
-        </SettingRow>
-        <SettingRow label="Equalise" title="Match noise floors">
-          <Checkbox
-            label="Equalise"
-            checked={settings.noise_equalise}
-            onChange={(noise_equalise) => edit({ noise_equalise })}
-          />
-        </SettingRow>
-        <SettingRow label="Flatten" title="Undo each lane's filter droop">
-          <Checkbox
-            label="Flatten"
-            checked={settings.flatten}
-            onChange={(flatten) => edit({ flatten })}
-          />
-        </SettingRow>
-        <SettingRow label="Spurs" title="Drop lane spurs in overlaps">
-          <Checkbox
-            label="Spurs"
-            checked={settings.spur_reject}
-            onChange={(spur_reject) => edit({ spur_reject })}
-          />
-        </SettingRow>
-        <SettingRow label="Phase" title="Line up phase across seams">
-          <Checkbox
-            label="Phase"
-            checked={settings.match_phase}
-            onChange={(match_phase) => edit({ match_phase })}
-          />
-        </SettingRow>
-      </Settings>
-    </div>
+    <Chips className="p-2">
+      <ChoiceChip
+        label="Blend"
+        title="Blend"
+        value={settings.blend}
+        options={STITCH_BLENDS}
+        onChange={(blend) => edit({ blend })}
+      />
+      <ToggleChip
+        label="Equalise"
+        title="Match noise floors"
+        on={settings.noise_equalise}
+        onChange={(noise_equalise) => edit({ noise_equalise })}
+      />
+      <ToggleChip
+        label="Flatten"
+        title="Undo each lane's filter droop"
+        on={settings.flatten}
+        onChange={(flatten) => edit({ flatten })}
+      />
+      <ToggleChip
+        label="Spurs"
+        title="Drop lane spurs in overlaps"
+        on={settings.spur_reject}
+        onChange={(spur_reject) => edit({ spur_reject })}
+      />
+      <ToggleChip
+        label="Phase"
+        title="Line up phase across seams"
+        on={settings.match_phase}
+        onChange={(match_phase) => edit({ match_phase })}
+      />
+    </Chips>
   );
 }

@@ -3,6 +3,7 @@ import { Button } from "../../components/BaseControls";
 import { BTN_PRIMARY, BTN_QUIET } from "../../components/controls";
 import { inTuningRange, tuningRange } from "../../components/dial";
 import { dialId, FrequencyDial } from "../../components/FrequencyDial";
+import { FaceFault } from "../../components/face/Fault";
 import { formatMhz } from "../../components/format";
 import { RadioSettings } from "../../components/RadioSettings";
 import { TuneTo } from "../../components/TuneTo";
@@ -14,6 +15,7 @@ import { useWorkspaceContext } from "../context";
 import { patchNode } from "../graph";
 import { releaseRadio } from "../remove";
 import { FaceBody, FaceFooter, NodeShell, useFaceActive } from "./NodeShell";
+import { SourceHealth } from "./SourceHealth";
 
 type SignalGenNodeData = PatchNodeOf<"signal_gen">["data"];
 
@@ -71,36 +73,34 @@ export function SignalGenFace({ node }: { node: PatchNode }) {
       subtitle={set.status === "error" ? <span className="text-danger">error</span> : undefined}
     >
       <FaceBody>
-        <div className="@container flex flex-col gap-1 border-b border-line p-2">
-          <div className="flex min-w-0 items-center gap-1">
-            <FrequencyDial
-              id={dialId(node.id, 0)}
-              hz={centerHz}
-              range={range}
-              wheelTunes={active}
-              onTune={(hz) => applyPatch(set.id, { center_hz: hz })}
-            />
-            <span className="ml-auto flex shrink-0 items-center gap-1">
-              <TuneTo
-                title="Type the frequency to generate at"
+        <RadioSettings
+          active={set}
+          className="p-2"
+          lead={
+            <div className="@container flex min-w-0 items-center gap-1">
+              <FrequencyDial
+                id={dialId(node.id, 0)}
                 hz={centerHz}
-                hint={`Reaches ${formatMhz(range.min)} – ${formatMhz(range.max)}`}
-                resolve={(entered) => inTuningRange(entered, range)}
+                range={range}
+                wheelTunes={active}
                 onTune={(hz) => applyPatch(set.id, { center_hz: hz })}
               />
-            </span>
-          </div>
-        </div>
-
-        <RadioSettings active={set} className="p-2" />
-
-        {set.error != null && (
-          <p role="alert" className="border-t border-line p-2 font-mono text-xs text-danger">
-            {set.error}
-          </p>
-        )}
+              <span className="ml-auto flex shrink-0 items-center gap-1">
+                <TuneTo
+                  title="Type the frequency to generate at"
+                  hz={centerHz}
+                  hint={`Reaches ${formatMhz(range.min)} to ${formatMhz(range.max)}`}
+                  resolve={(entered) => inTuningRange(entered, range)}
+                  onTune={(hz) => applyPatch(set.id, { center_hz: hz })}
+                />
+              </span>
+            </div>
+          }
+        />
+        {set.error != null && <FaceFault message={set.error} />}
       </FaceBody>
       <FaceFooter>
+        <SourceHealth set={set} />
         <Button
           type="button"
           className={BTN_QUIET}

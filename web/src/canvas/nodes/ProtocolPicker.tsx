@@ -1,9 +1,7 @@
-import { ChevronDown } from "lucide-react";
 import { Button } from "../../components/BaseControls";
 import { Checkbox } from "../../components/Checkbox";
 import { BTN_SM } from "../../components/controls";
-import { Icon } from "../../components/Icon";
-import { Popover } from "../../components/Popover";
+import { SettingChip } from "../../components/face/Chips";
 import {
   activePreset,
   choiceSummary,
@@ -15,12 +13,6 @@ import {
   setEnabled,
 } from "./protocols";
 
-const TRIGGER =
-  "relative inline-flex h-7 w-full max-w-52 items-center gap-1.5 overflow-hidden rounded-[3px] border border-line " +
-  "bg-well px-2 text-xs text-ink hover:border-line-strong focus-visible:border-accent-dim " +
-  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/20 " +
-  "data-popup-open:border-accent-dim";
-
 const KEY =
   "inline-flex h-6 items-center gap-1.5 rounded-[3px] border px-1.5 font-mono text-[11px] " +
   "transition-colors duration-100 focus-visible:outline-none focus-visible:ring-2 " +
@@ -30,7 +22,7 @@ const KEY_ON = "border-accent-dim bg-accent/10 text-ink";
 
 const KEY_OFF = "border-line bg-well text-ink-faint hover:border-line-strong hover:text-ink-dim";
 
-export function ProtocolPicker({
+export function ProtocolChip({
   groups,
   choice,
   onChange,
@@ -39,54 +31,18 @@ export function ProtocolPicker({
   choice: ProtocolChoice;
   onChange: (choice: ProtocolChoice) => void;
 }) {
+  const summary = choiceSummary(groups, choice);
   return (
-    <Popover
-      label={<Trigger groups={groups} choice={choice} />}
+    <SettingChip
+      label="Protocols"
+      value={summary}
+      quiet={summary === "All protocols"}
       title="Protocols to decode"
-      triggerClass={TRIGGER}
       width="w-84"
       padded={false}
     >
       {() => <Panel groups={groups} choice={choice} onChange={onChange} />}
-    </Popover>
-  );
-}
-
-function Trigger({ groups, choice }: { groups: readonly ProtocolGroup[]; choice: ProtocolChoice }) {
-  return (
-    <>
-      <span className="min-w-0 flex-1 truncate pb-0.5 text-left">
-        {choiceSummary(groups, choice)}
-      </span>
-      <Icon glyph={ChevronDown} size={12} />
-      <BankLights groups={groups} disabled={choice.disabled} />
-    </>
-  );
-}
-
-function BankLights({
-  groups,
-  disabled,
-}: {
-  groups: readonly ProtocolGroup[];
-  disabled: readonly string[];
-}) {
-  return (
-    <span aria-hidden className="absolute inset-x-1.5 bottom-[3px] flex gap-1">
-      {groups.map((group) => (
-        <span
-          key={group.family}
-          className="h-[2px] flex-1 overflow-hidden rounded-full bg-line-strong/40"
-        >
-          <span
-            className="block h-full rounded-full bg-accent shadow-[0_0_3px_var(--color-vfo-glow)]"
-            style={{
-              width: `${(enabledKinds([group], disabled).length / group.protocols.length) * 100}%`,
-            }}
-          />
-        </span>
-      ))}
-    </span>
+    </SettingChip>
   );
 }
 

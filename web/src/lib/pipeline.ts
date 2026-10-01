@@ -14,14 +14,34 @@ export const usePipelineHealth = create<{
   reset: () => set({ health: null }),
 }));
 
-export function queueSummary(
+type Queue = Health["queues"][number];
+
+export interface QueueSummary {
+  oldestMs: number;
+  dropped: number;
+  detail: string;
+}
+
+export function queueSummary(health: Health | null, deviceSet: number): QueueSummary | null {
+  return summarize(health?.queues.filter((queue) => queue.device_set === deviceSet) ?? []);
+}
+
+export function channelQueueSummary(
   health: Health | null,
   deviceSet: number,
-): { oldestMs: number; detail: string } | null {
-  const queues = health?.queues.filter((queue) => queue.device_set === deviceSet) ?? [];
+  channel: number,
+): QueueSummary | null {
+  return summarize(
+    health?.queues.filter((queue) => queue.device_set === deviceSet && queue.channel === channel) ??
+      [],
+  );
+}
+
+function summarize(queues: readonly Queue[]): QueueSummary | null {
   if (queues.length === 0) return null;
   return {
     oldestMs: Math.max(...queues.map((queue) => queue.health.oldest_ms)),
+    dropped: queues.reduce((sum, queue) => sum + queue.health.dropped, 0),
     detail: queues
       .map(
         (queue) =>

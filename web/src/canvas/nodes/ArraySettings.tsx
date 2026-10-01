@@ -1,6 +1,9 @@
 import { useMutation } from "@tanstack/react-query";
 import { Checkbox } from "../../components/Checkbox";
-import { CONTROL_W, type Options } from "../../components/controls";
+import type { Options } from "../../components/controls";
+import { Chips, ChoiceChip, ReadoutChip, SettingChip } from "../../components/face/Chips";
+import { FoldSection, SettingsFold } from "../../components/face/Fold";
+import { formatMhz } from "../../components/format";
 import { NumberField } from "../../components/NumberField";
 import { Segmented } from "../../components/Segmented";
 import { Select } from "../../components/Select";
@@ -15,6 +18,7 @@ import type {
   ArrayNode,
   ArrayOrientation,
   ArrayStatus,
+  ArrayTuningMode,
   DeviceSet,
 } from "../../lib/types";
 import { useWorkspaceContext } from "../context";
@@ -23,17 +27,18 @@ import { ArrayGeometryEditor } from "./ArrayGeometryEditor";
 import {
   calSourceOf,
   checkOptions,
+  degreesText,
   headingLabel,
   switchedOrientation,
   TIER_TEXT,
   tierOptions,
 } from "./arrayNode";
-import { FoldSection } from "./FoldSection";
 
 export const GAIN_ACTION = "Gain";
 export const NO_HEADING = "No heading";
+export const NO_HEADING_TITLE = "Wire a GPS with heading, like a phone";
+export const TIER_TITLE = "What the radios share";
 
-const GAIN_DB = ARRAY_LIMITS.gain_db;
 const CAL_OFFSET_HZ = ARRAY_LIMITS.cal_offset_hz;
 const CAL_WIDTH_HZ = ARRAY_LIMITS.cal_bandwidth_hz;
 
@@ -64,54 +69,69 @@ export function useArrayGain(node: string): {
   return { setGain: (next) => gain.mutate(next), pending: gain.isPending };
 }
 
-export interface ArraySettingsProps {
-  node: string;
+const TUNING_OPTIONS: Options<ArrayTuningMode> = [
+  { value: "together", label: "Together", title: "Every lane on one frequency" },
+  { value: "spread", label: "Spread", title: "Lanes side by side" },
+];
+
+const CAL_SOURCES: Options<ArrayCalSource["kind"]> = [
+  { value: "noise", label: "Noise", title: "Built-in noise source" },
+  { value: "pilot", label: "Pilot", title: "A carrier at a known offset" },
+  { value: "emitter", label: "Emitter", title: "A transmitter at a known bearing" },
+  { value: "off", label: "Off", title: "No calibration" },
+];
+
+export interface ArrayChipsProps {
   data: ArrayNode;
   status: ArrayStatus | undefined;
-  lanes: number;
   members: readonly DeviceSet[];
   memberCount: number;
   positionWired: boolean;
+  span: number | null;
   edit: Edit;
 }
 
-export function ArraySettings(props: ArraySettingsProps) {
-  const { data, status, lanes, edit } = props;
+export function ArrayChips(props: ArrayChipsProps) {
+  const { data, status, edit } = props;
+  const cal = data.cal;
   return (
-    <div className="flex flex-col">
-      <FoldSection label="Geometry">
-        <ArrayGeometryEditor
-          geometry={data.geometry}
-          lanes={lanes}
-          azimuthDeg={status?.azimuth_deg ?? null}
-          centerHz={status?.center_hz ?? null}
-          onChange={(geometry) => edit({ geometry })}
+    <Chips className="px-2 pb-2">
+      <ChoiceChip
+        label="Tuning"
+        value={data.tuning}
+        options={TUNING_OPTIONS}
+        title="Lane tuning"
+        onChange={(tuning) => edit({ tuning })}
+      />
+      {data.tuning === "spread" && (
+        <ReadoutChip
+          label="Span"
+          value={props.span === null ? "-" : formatMhz(props.span)}
+          title="Band the lanes cover together"
         />
-      </FoldSection>
-      <FoldSection label="Orientation">
-        <OrientationSettings
-          orientation={data.orientation}
-          status={status}
-          positionWired={props.positionWired}
-          edit={edit}
-        />
-      </FoldSection>
-      <FoldSection label="Calibration">
-        <CalibrationSettings cal={data.cal} edit={edit} />
-      </FoldSection>
-      <FoldSection label="Gain">
-        <GainSettings node={props.node} status={status} />
-      </FoldSection>
-      <FoldSection label="Tier">
-        <TierSettings
-          declared={data.declared}
-          members={props.members}
-          memberCount={props.memberCount}
-          status={status}
-          edit={edit}
-        />
-      </FoldSection>
-    </div>
+      )}
+      <OrientationChip
+        orientation={data.orientation}
+        status={status}
+        positionWired={props.positionWired}
+        edit={edit}
+      />
+      <ChoiceChip
+        label="Cal source"
+        value={cal.source.kind}
+        options={CAL_SOURCES}
+        title="Calibration source"
+        quiet={cal.source.kind === "off"}
+        onChange={(kind) => edit({ cal: { ...cal, source: calSourceOf(kind, cal.source) } })}
+      />
+      <TierChip
+        declared={data.declared}
+        members={props.members}
+        memberCount={props.memberCount}
+        status={status}
+        edit={edit}
+      />
+    </Chips>
   );
 }
 
@@ -119,6 +139,40 @@ const ORIENTATION_OPTIONS: Options<ArrayOrientation["kind"]> = [
   { value: "fixed", label: "Fixed", title: "Array points one way" },
   { value: "heading", label: "Heading", title: "Array follows a GPS heading" },
 ];
+
+function OrientationChip({
+  orientation,
+  status,
+  positionWired,
+  edit,
+}: {
+  orientation: ArrayOrientation;
+  status: ArrayStatus | undefined;
+  positionWired: boolean;
+  edit: Edit;
+}) {
+  const lost = orientation.kind === "heading" && !positionWired;
+  const value =
+    orientation.kind === "fixed" ? degreesText(orientation.azimuth_deg) : lost ? NO_HEADING : "GPS";
+  return (
+    <SettingChip
+      label="Forward"
+      value={value}
+      tone={lost ? "danger" : undefined}
+      title={lost ? NO_HEADING_TITLE : "Where the array points"}
+      width="w-72"
+    >
+      {() => (
+        <OrientationSettings
+          orientation={orientation}
+          status={status}
+          positionWired={positionWired}
+          edit={edit}
+        />
+      )}
+    </SettingChip>
+  );
+}
 
 function OrientationSettings({
   orientation,
@@ -178,7 +232,7 @@ function OrientationSettings({
             {positionWired ? (
               <span className="font-mono text-xs">{headingLabel(orientation, status)}</span>
             ) : (
-              <span className="text-xs text-danger" title="Wire a GPS with heading, like a phone">
+              <span className="text-xs text-danger" title={NO_HEADING_TITLE}>
                 {NO_HEADING}
               </span>
             )}
@@ -189,27 +243,72 @@ function OrientationSettings({
   );
 }
 
-const CAL_SOURCES: Options<ArrayCalSource["kind"]> = [
-  { value: "noise", label: "Noise", title: "Built-in noise source" },
-  { value: "pilot", label: "Pilot", title: "A carrier at a known offset" },
-  { value: "emitter", label: "Emitter", title: "A transmitter at a known bearing" },
-  { value: "off", label: "Off", title: "No calibration" },
-];
+function TierChip({
+  declared,
+  members,
+  memberCount,
+  status,
+  edit,
+}: {
+  declared: ArrayNode["declared"];
+  members: readonly DeviceSet[];
+  memberCount: number;
+  status: ArrayStatus | undefined;
+  edit: Edit;
+}) {
+  if (memberCount < 2) {
+    const tier = status?.tier ?? members[0]?.capabilities.coherence ?? "none";
+    return status === undefined ? (
+      <ReadoutChip label="Tier" value={TIER_TEXT[tier]} title="One radio sets the tier" />
+    ) : null;
+  }
+  return (
+    <ChoiceChip
+      label="Tier"
+      value={declared}
+      options={tierOptions(declared)}
+      title={TIER_TITLE}
+      tone={declared === "none" ? "danger" : undefined}
+      onChange={(next) => edit({ declared: next })}
+    />
+  );
+}
 
-function CalibrationSettings({ cal, edit }: { cal: ArrayCal; edit: Edit }) {
+export function ArraySettings({
+  data,
+  status,
+  lanes,
+  edit,
+}: {
+  data: ArrayNode;
+  status: ArrayStatus | undefined;
+  lanes: number;
+  edit: Edit;
+}) {
+  return (
+    <div className="flex flex-col">
+      <FoldSection label="Geometry">
+        <ArrayGeometryEditor
+          geometry={data.geometry}
+          lanes={lanes}
+          azimuthDeg={status?.azimuth_deg ?? null}
+          centerHz={status?.center_hz ?? null}
+          onChange={(geometry) => edit({ geometry })}
+        />
+      </FoldSection>
+      <SettingsFold label="Calibration">
+        <CalibrationRows cal={data.cal} edit={edit} />
+      </SettingsFold>
+    </div>
+  );
+}
+
+function CalibrationRows({ cal, edit }: { cal: ArrayCal; edit: Edit }) {
   const source = cal.source;
   const setCal = (next: Partial<ArrayCal>): void => edit({ cal: { ...cal, ...next } });
   const setSource = (next: ArrayCalSource): void => setCal({ source: next });
   return (
-    <Settings>
-      <SettingRow label="Source">
-        <Select
-          label="Calibration source"
-          value={source.kind}
-          options={CAL_SOURCES}
-          onChange={(kind) => setSource(calSourceOf(kind, source))}
-        />
-      </SettingRow>
+    <>
       {source.kind === "emitter" && (
         <SettingRow label="Bearing" title="True bearing to the transmitter">
           <NumberField
@@ -271,76 +370,6 @@ function CalibrationSettings({ cal, edit }: { cal: ArrayCal; edit: Edit }) {
           onChange={(warm_start) => setCal({ warm_start })}
         />
       </SettingRow>
-    </Settings>
-  );
-}
-
-function GainSettings({ node, status }: { node: string; status: ArrayStatus | undefined }) {
-  const { setGain, pending } = useArrayGain(node);
-  const range = status?.gain_range_db;
-  const auto = status?.gain.kind === "auto";
-  const held = status?.gain.kind === "manual" ? status.gain.db : (status?.gain_db ?? GAIN_DB.min);
-  const off = status === undefined || pending;
-  return (
-    <Settings>
-      <SettingRow label="Gain" title="One gain for every lane">
-        <NumberField
-          label="Gain"
-          unit="dB"
-          value={held}
-          min={Math.max(GAIN_DB.min, range?.min ?? GAIN_DB.min)}
-          max={Math.min(GAIN_DB.max, range?.max ?? GAIN_DB.max)}
-          step={range?.step ?? 0.1}
-          disabled={off || auto}
-          onCommit={(db) => setGain({ kind: "manual", db })}
-        />
-      </SettingRow>
-      <SettingRow label="Auto" title="Radio AGC on every lane">
-        <Checkbox
-          label="Auto gain"
-          checked={auto}
-          disabled={off}
-          onChange={(on) => setGain(on ? { kind: "auto" } : { kind: "manual", db: held })}
-        />
-      </SettingRow>
-    </Settings>
-  );
-}
-
-function TierSettings({
-  declared,
-  members,
-  memberCount,
-  status,
-  edit,
-}: {
-  declared: ArrayNode["declared"];
-  members: readonly DeviceSet[];
-  memberCount: number;
-  status: ArrayStatus | undefined;
-  edit: Edit;
-}) {
-  if (memberCount < 2) {
-    const tier = status?.tier ?? members[0]?.capabilities.coherence ?? "none";
-    return (
-      <Settings>
-        <SettingRow label="Radio" title="One radio sets the tier">
-          <span className="font-mono text-xs">{TIER_TEXT[tier]}</span>
-        </SettingRow>
-      </Settings>
-    );
-  }
-  return (
-    <Settings>
-      <SettingRow label="Tier" title="What the radios share">
-        <Select
-          label="Array tier"
-          value={declared}
-          options={tierOptions(declared)}
-          className={declared === "none" ? `${CONTROL_W} text-danger` : CONTROL_W}
-          onChange={(next) => edit({ declared: next })}
-        />
-      </SettingRow>
-    </Settings>
+    </>
   );
 }

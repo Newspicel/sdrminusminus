@@ -1,12 +1,12 @@
-import { Checkbox } from "../../components/Checkbox";
-import { NumberField } from "../../components/NumberField";
-import { SettingRow, Settings } from "../../components/Settings";
+import { Chips, NumberChip, ToggleChip } from "../../components/face/Chips";
 import type { PatchNode, SpectrumMonitorNode } from "../../lib/types";
 import { useWorkspaceContext } from "../context";
 import { patchNode } from "../graph";
 import { FaceBody, NodeShell } from "./NodeShell";
-import { ProtocolPicker } from "./ProtocolPicker";
+import { ProtocolChip } from "./ProtocolPicker";
 import { protocolGroups } from "./protocols";
+
+const DEFAULT_CONFIDENCE = 0.7;
 
 export function SpectrumMonitorFace({ node }: { node: PatchNode }) {
   const workspace = useWorkspaceContext();
@@ -20,50 +20,41 @@ export function SpectrumMonitorFace({ node }: { node: PatchNode }) {
           : current,
       ),
     }));
+  const confidence = Math.round((node.data.min_confidence ?? DEFAULT_CONFIDENCE) * 100);
   return (
     <NodeShell node={node} title="Spectrum monitor" category="tool">
       <FaceBody>
-        <Settings className="p-2">
-          <SettingRow label="Protocols">
-            <ProtocolPicker
-              groups={protocolGroups(workspace.context.channelTypes)}
-              choice={{
-                disabled: node.data.disabled_protocols ?? [],
-                unidentified: node.data.report_unidentified ?? true,
-              }}
-              onChange={(choice) =>
-                edit({
-                  disabled_protocols: [...choice.disabled],
-                  report_unidentified: choice.unidentified,
-                })
-              }
-            />
-          </SettingRow>
-          <SettingRow
-            label="Min confidence"
-            title="Ignore signals below this identification confidence; 0 accepts all detections"
-          >
-            <NumberField
-              label="Minimum confidence"
-              value={Math.round((node.data.min_confidence ?? 0.7) * 100)}
-              min={0}
-              max={100}
-              step={5}
-              onCommit={(value) => edit({ min_confidence: value / 100 })}
-              unit="%"
-            />
-          </SettingRow>
-          <SettingRow
-            label="Record audio"
+        <Chips className="p-2">
+          <ProtocolChip
+            groups={protocolGroups(workspace.context.channelTypes)}
+            choice={{
+              disabled: node.data.disabled_protocols ?? [],
+              unidentified: node.data.report_unidentified ?? true,
+            }}
+            onChange={(choice) =>
+              edit({
+                disabled_protocols: [...choice.disabled],
+                report_unidentified: choice.unidentified,
+              })
+            }
+          />
+          <NumberChip
+            label="Min"
+            title="Minimum confidence. Signals identified below it are ignored; 0 accepts all"
+            value={confidence}
+            unit="%"
+            min={0}
+            max={100}
+            step={5}
+            onCommit={(value) => edit({ min_confidence: value / 100 })}
+          />
+          <ToggleChip
+            label="Clips"
             title="Attach temporary audio clips to transmission events"
-          >
-            <Checkbox
-              label="Record audio"
-              checked={node.data.record_audio ?? true}
-              onChange={(record_audio) => edit({ record_audio })}
-            />
-          </SettingRow>
-        </Settings>
+            on={node.data.record_audio ?? true}
+            onChange={(record_audio) => edit({ record_audio })}
+          />
+        </Chips>
       </FaceBody>
     </NodeShell>
   );

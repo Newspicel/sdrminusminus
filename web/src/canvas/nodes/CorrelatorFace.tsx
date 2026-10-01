@@ -1,8 +1,7 @@
 import { useState } from "react";
-import { Checkbox } from "../../components/Checkbox";
-import { NumberField } from "../../components/NumberField";
-import { Select } from "../../components/Select";
-import { SettingRow } from "../../components/Settings";
+import type { Options } from "../../components/controls";
+import { Chips, ChoiceChip, NumberChip, ToggleChip } from "../../components/face/Chips";
+import { Readout, Readouts } from "../../components/face/Readouts";
 import { processorStatusOf, useArrayStore } from "../../lib/arrays";
 import { CORRELATOR_LIMITS as LIMITS } from "../../lib/limits";
 import { isStale, readingOf, useProcessorStore } from "../../lib/processors";
@@ -11,22 +10,22 @@ import { useNow } from "../../lib/useNow";
 import { arrayOf } from "../binding";
 import { useWorkspaceContext } from "../context";
 import { settingsOf } from "../newNode";
-import { BandRows } from "./BandRows";
+import { BandChips } from "./BandRows";
 import { CorrelatorPlots, FringeLine } from "./CorrelatorPlots";
 import {
   BIN_OPTIONS,
+  baselineLabel,
   baselineOptions,
   baselineText,
   channelOptions,
   withFringe,
 } from "./correlator";
 import { FaceBody, FaceEmpty, NodeShell } from "./NodeShell";
-import { ProcessorFaults, ProcessorReadout, ReadoutCell } from "./ProcessorReadout";
+import { ProcessorFooter } from "./ProcessorFooter";
+import { ProcessorError } from "./ProcessorHealth";
 import { ageLabel, NO_CATALOG, processorSubtitle, useProcessorEdit } from "./processorFace";
-import { SettingsFold } from "./SettingsFold";
 
 const AGE_TICK_MS = 1_000;
-const SMALL = "w-24";
 
 interface Fringe {
   key: string;
@@ -65,6 +64,7 @@ export function CorrelatorFace({ node }: { node: PatchNode }) {
   const period = Math.max(1_000, (settings?.integrate_s ?? 1) * 1_000);
   const stale = state !== undefined && isStale(state.receivedAt, now, period);
   const baseline = reading?.baselines[index];
+  const processor = processorStatusOf(status, node.id);
   return (
     <NodeShell
       node={node}
@@ -77,114 +77,117 @@ export function CorrelatorFace({ node }: { node: PatchNode }) {
           <FaceEmpty hint={NO_CATALOG} />
         ) : (
           <div className="flex min-h-0 flex-1 flex-col">
-            <div className="flex shrink-0 items-center gap-2 px-2 py-1.5">
-              <span className="legend">Baseline</span>
-              {baseline === undefined ? (
-                <span className="font-mono text-xs text-ink-faint">-</span>
-              ) : (
-                <Select
-                  label="Baseline"
-                  value={index}
-                  options={baselineOptions(reading?.baselines ?? [])}
-                  onChange={setChosen}
-                  className="w-20"
-                />
-              )}
-              <span className="ml-auto truncate font-mono text-xs tabular-nums text-ink">
-                {baseline === undefined ? "-" : baselineText(baseline)}
-              </span>
-            </div>
             <CorrelatorPlots
               node={node.id}
-              known={processorStatusOf(status, node.id) !== null}
+              known={processor !== null}
               index={index}
               dim={stale || reading === null}
             />
-            <div className="flex shrink-0 items-center gap-2 border-t border-line px-2 py-1.5">
-              <div className="min-w-0 flex-1">
-                <ProcessorReadout columns={3}>
-                  <ReadoutCell
-                    label="Delay"
-                    title="From the phase slope"
-                    value={baseline === undefined ? "-" : `${baseline.delay_ns.toFixed(2)} ns`}
-                  />
-                  <ReadoutCell
-                    label="Coh"
-                    value={baseline === undefined ? "-" : baseline.coherence.toFixed(2)}
-                  />
-                  <ReadoutCell
-                    label="Int"
-                    value={reading === null ? "-" : `${reading.integrated_s.toFixed(1)} s`}
-                  />
-                  <ReadoutCell label="Age" value={ageLabel(state?.receivedAt, now)} />
-                </ProcessorReadout>
-              </div>
+            <CorrelatorChips
+              settings={settings}
+              edit={edit}
+              baseline={
+                reading === null || reading.baselines.length === 0
+                  ? null
+                  : { index, options: baselineOptions(reading.baselines), onPick: setChosen }
+              }
+            />
+            <div className="flex shrink-0 items-center gap-2 border-t border-line pr-2">
+              <Readouts columns={2} ruled={false} className="min-w-0 flex-1">
+                {baseline !== undefined && (
+                  <Readout
+                    label={baselineLabel(baseline)}
+                    title="Coherence, phase, delay, SNR"
+                    wide
+                  >
+                    <span>{baselineText(baseline)}</span>
+                  </Readout>
+                )}
+                <Readout label="Delay" title="From the phase slope">
+                  {baseline === undefined ? "-" : `${baseline.delay_ns.toFixed(2)} ns`}
+                </Readout>
+                <Readout label="Coh">
+                  {baseline === undefined ? "-" : baseline.coherence.toFixed(2)}
+                </Readout>
+                <Readout label="Int">
+                  {reading === null ? "-" : `${reading.integrated_s.toFixed(1)} s`}
+                </Readout>
+                <Readout label="Age">{ageLabel(state?.receivedAt, now)}</Readout>
+              </Readouts>
               <FringeLine history={fringe} />
             </div>
-            <ProcessorFaults status={processorStatusOf(status, node.id)} />
-            <div className="max-h-44 shrink-0 overflow-y-auto">
-              <CorrelatorSettings settings={settings} edit={edit} />
-            </div>
+            <ProcessorError status={processor} />
           </div>
         )}
       </FaceBody>
+      <ProcessorFooter status={processor} />
     </NodeShell>
   );
 }
 
-function CorrelatorSettings({
+interface BaselinePick {
+  index: number;
+  options: Options<number>;
+  onPick: (index: number) => void;
+}
+
+function CorrelatorChips({
   settings,
   edit,
+  baseline,
 }: {
   settings: CorrelatorParams;
   edit: (next: Partial<CorrelatorParams>) => void;
+  baseline: BaselinePick | null;
 }) {
   return (
-    <SettingsFold label="Settings">
-      <SettingRow label="FFT" title="Frequency bins">
-        <Select
-          label="FFT"
-          value={settings.bins}
-          options={BIN_OPTIONS}
-          onChange={(bins) => edit({ bins, channels: Math.min(settings.channels, bins) })}
-          className={SMALL}
+    <Chips className="shrink-0 p-2">
+      {baseline !== null && (
+        <ChoiceChip
+          label="Baseline"
+          title="Baseline"
+          value={baseline.index}
+          options={baseline.options}
+          onChange={baseline.onPick}
         />
-      </SettingRow>
-      <SettingRow label="Channels" title="Frequency points sent per baseline">
-        <Select
-          label="Channels"
-          value={settings.channels}
-          options={channelOptions(settings.bins)}
-          onChange={(channels) => edit({ channels })}
-          className={SMALL}
-        />
-      </SettingRow>
-      <SettingRow label="Integrate" title="Averaging time per result">
-        <NumberField
-          label="Integrate"
-          value={settings.integrate_s}
-          min={LIMITS.integrate_s.min}
-          max={LIMITS.integrate_s.max}
-          step={0.05}
-          unit="s"
-          className={SMALL}
-          onCommit={(integrate_s) => edit({ integrate_s })}
-        />
-      </SettingRow>
-      <SettingRow label="Overlap" title="Half-overlapping FFTs, twice the work">
-        <Checkbox
-          label="Overlap"
-          checked={settings.overlap}
-          onChange={(overlap) => edit({ overlap })}
-        />
-      </SettingRow>
-      <BandRows
+      )}
+      <ChoiceChip
+        label="FFT"
+        title="Frequency bins"
+        value={settings.bins}
+        options={BIN_OPTIONS}
+        onChange={(bins) => edit({ bins, channels: Math.min(settings.channels, bins) })}
+      />
+      <ChoiceChip
+        label="Channels"
+        title="Frequency points sent per baseline"
+        value={settings.channels}
+        options={channelOptions(settings.bins)}
+        onChange={(channels) => edit({ channels })}
+      />
+      <NumberChip
+        label="Integrate"
+        title="Averaging time per result"
+        unit="s"
+        value={settings.integrate_s}
+        min={LIMITS.integrate_s.min}
+        max={LIMITS.integrate_s.max}
+        step={0.05}
+        onCommit={(integrate_s) => edit({ integrate_s })}
+      />
+      <ToggleChip
+        label="Overlap"
+        title="Half-overlapping FFTs, twice the work"
+        on={settings.overlap}
+        onChange={(overlap) => edit({ overlap })}
+      />
+      <BandChips
         band={LIMITS.band}
         offsetHz={settings.offset_hz}
         bandwidthHz={settings.bandwidth_hz ?? null}
         onOffset={(offset_hz) => edit({ offset_hz })}
         onBandwidth={(bandwidth_hz) => edit({ bandwidth_hz })}
       />
-    </SettingsFold>
+    </Chips>
   );
 }

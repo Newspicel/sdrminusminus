@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useEffectEvent, useRef, useState } from "react";
 import type { VideoFrame } from "../lib/frame";
 import { videoHub } from "../lib/video";
 
@@ -17,10 +17,34 @@ export interface VideoScope {
   channel: number;
 }
 
-export function VideoView({ scope }: { scope: VideoScope }) {
+export interface VideoSignal {
+  width: number;
+  height: number;
+  live: boolean;
+}
+
+export function videoSignalText(signal: VideoSignal | null): string {
+  if (signal === null) {
+    return "waiting for sync";
+  }
+  return `${signal.width} × ${signal.height}${signal.live ? "" : " · no sync"}`;
+}
+
+export function VideoView({
+  scope,
+  onSignal,
+}: {
+  scope: VideoScope;
+  onSignal: (signal: VideoSignal | null) => void;
+}) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [geometry, setGeometry] = useState<Geometry | null>(null);
   const [live, setLive] = useState(false);
+  const report = useEffectEvent(onSignal);
+
+  useEffect(() => {
+    report(geometry === null ? null : { width: geometry.width, height: geometry.height, live });
+  }, [geometry, live]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -79,7 +103,7 @@ export function VideoView({ scope }: { scope: VideoScope }) {
   }, [scope.deviceSet, scope.channel]);
 
   return (
-    <div className="flex flex-col gap-1 p-2">
+    <div className="p-2">
       <div
         className="w-full overflow-hidden rounded-xs bg-black"
         style={{ aspectRatio: geometry?.aspect ?? DISPLAY_ASPECT }}
@@ -91,11 +115,6 @@ export function VideoView({ scope }: { scope: VideoScope }) {
           style={{ imageRendering: "pixelated" }}
         />
       </div>
-      <p className="legend text-ink-faint">
-        {geometry === null
-          ? "waiting for sync"
-          : `${geometry.width} × ${geometry.height}${live ? "" : " · no sync"}`}
-      </p>
     </div>
   );
 }

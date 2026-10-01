@@ -1,29 +1,25 @@
 import { useMutation } from "@tanstack/react-query";
 import { Button } from "../../components/BaseControls";
-import { BTN, BTN_PRIMARY, type Options } from "../../components/controls";
+import { BTN, BTN_PRIMARY } from "../../components/controls";
 import { ANY_FREQUENCY, inTuningRange, tuningRange } from "../../components/dial";
 import { dialId, FrequencyDial } from "../../components/FrequencyDial";
-import { formatMhz } from "../../components/format";
-import { Readout, ReadoutRow } from "../../components/Readout";
-import { Segmented } from "../../components/Segmented";
+import { FaceFault } from "../../components/face/Fault";
+import { Readout, Readouts } from "../../components/face/Readouts";
+import { FaceStats, Stat } from "../../components/face/Stats";
+import { formatCount, formatMhz } from "../../components/format";
 import { TuneTo } from "../../components/TuneTo";
 import { calibrateArray, startArrayRecording, stopArrayRecording } from "../../lib/api";
 import { failureText, shownCenterHz, useArrayStore } from "../../lib/arrays";
 import { clearAction, failAction } from "../../lib/refusals";
-import type {
-  ArrayNode,
-  ArrayStatus,
-  ArrayTuningMode,
-  DeviceSet,
-  PatchNode,
-} from "../../lib/types";
+import type { ArrayNode, ArrayStatus, DeviceSet, PatchNode } from "../../lib/types";
 import { useArrayTune } from "../../lib/useArrayTune";
 import { useNow } from "../../lib/useNow";
 import { hasWire } from "../binding";
 import { useWorkspaceContext } from "../context";
 import { arrayWiredLanes } from "../graph";
+import { ALIASING, ALIASING_TITLE, aliasing } from "./ArrayGeometryEditor";
 import { ArrayLanes } from "./ArrayLanes";
-import { ArraySettings, useArrayEdit } from "./ArraySettings";
+import { ArrayChips, ArraySettings, useArrayEdit } from "./ArraySettings";
 import {
   arrayLaneRows,
   arraySpanHz,
@@ -45,11 +41,6 @@ const AGE_TICK_MS = 1_000;
 export const CALIBRATE_ACTION = "Calibrate";
 export const RECORD_ACTION = "Rec";
 
-const TUNING_OPTIONS: Options<ArrayTuningMode> = [
-  { value: "together", label: "Together", title: "Every lane on one frequency" },
-  { value: "spread", label: "Spread", title: "Lanes side by side" },
-];
-
 function useArrayAction(node: string, action: string, run: () => Promise<unknown>) {
   return useMutation({
     mutationFn: run,
@@ -63,9 +54,6 @@ export function ArrayFace({ node }: { node: PatchNode }) {
   const status = useArrayStore((store) => store.byNode[node.id]);
   const now = useNow(AGE_TICK_MS);
   const edit = useArrayEdit(node.id);
-  const calibrate = useArrayAction(node.id, CALIBRATE_ACTION, () => calibrateArray(node.id));
-  const record = useArrayAction(node.id, RECORD_ACTION, () => startArrayRecording(node.id));
-  const stop = useArrayAction(node.id, RECORD_ACTION, () => stopArrayRecording(node.id));
   if (node.kind !== "array") {
     return null;
   }
@@ -77,8 +65,7 @@ export function ArrayFace({ node }: { node: PatchNode }) {
     const set = workspace.devices.get(member);
     return set === undefined ? [] : [set];
   });
-  const recording = status?.recording ?? null;
-  const uncalibrated = status === undefined || status.cal === "none" || status.cal === "failed";
+  const failure = status?.failure ?? null;
   return (
     <NodeShell
       node={node}
@@ -87,79 +74,137 @@ export function ArrayFace({ node }: { node: PatchNode }) {
       subtitle={arraySubtitle(status, rows.length)}
     >
       <FaceBody>
-        <ArrayDial
-          node={node.id}
+        <ArrayDial node={node.id} status={status} lead={members[0]} />
+        <ArrayChips
           data={node.data}
           status={status}
-          lead={members[0]}
+          members={members}
+          memberCount={memberNodes.length}
+          positionWired={hasWire(graph, node.id, "position")}
           span={arraySpanHz(graph, workspace.devices, node.id, status)}
           edit={edit}
         />
         {status !== undefined && (
           <ArrayStatusReadout status={status} orientation={node.data.orientation} now={now} />
         )}
-        <ArrayLanes rows={rows} />
-        <ArraySettings
-          node={node.id}
-          data={node.data}
-          status={status}
-          lanes={lanes}
-          members={members}
-          memberCount={memberNodes.length}
-          positionWired={hasWire(graph, node.id, "position")}
-          edit={edit}
-        />
-      </FaceBody>
-      <FaceFooter>
-        {recording === null ? (
-          <Button
-            type="button"
-            className={BTN}
-            title="Record every lane to one collection"
-            disabled={status === undefined || record.isPending}
-            onClick={() => record.mutate()}
-          >
-            Rec
-          </Button>
-        ) : (
-          <Button
-            type="button"
-            className={BTN}
-            title={recording.stem}
-            disabled={stop.isPending}
-            onClick={() => stop.mutate()}
-          >
-            Stop
-          </Button>
+        {failure !== null && (
+          <FaceFault message={failureText(failure)} detail={failureTitle(failure)} />
         )}
+        <ArrayLanes node={node.id} rows={rows} status={status} />
+        <ArraySettings data={node.data} status={status} lanes={lanes} edit={edit} />
+      </FaceBody>
+      <ArrayFooter
+        node={node.id}
+        status={status}
+        aliased={aliasing(node.data.geometry, lanes, status?.center_hz ?? null)}
+        lanes={rows.length}
+      />
+    </NodeShell>
+  );
+}
+
+function ArrayFooter({
+  node,
+  status,
+  aliased,
+  lanes,
+}: {
+  node: string;
+  status: ArrayStatus | undefined;
+  aliased: boolean;
+  lanes: number;
+}) {
+  const calibrate = useArrayAction(node, CALIBRATE_ACTION, () => calibrateArray(node));
+  const record = useArrayAction(node, RECORD_ACTION, () => startArrayRecording(node));
+  const stop = useArrayAction(node, RECORD_ACTION, () => stopArrayRecording(node));
+  const recording = status?.recording ?? null;
+  const uncalibrated = status === undefined || status.cal === "none" || status.cal === "failed";
+  return (
+    <FaceFooter>
+      <FaceStats>
+        {status !== undefined && <ArrayHealth status={status} />}
+        {aliased && <Stat label={ALIASING} title={ALIASING_TITLE} tone="danger" />}
+      </FaceStats>
+      {recording === null ? (
         <Button
           type="button"
-          className={uncalibrated ? BTN_PRIMARY : BTN}
-          title="Line up lane phase and gain"
-          disabled={calibrate.isPending || rows.length === 0}
-          onClick={() => calibrate.mutate()}
+          className={BTN}
+          title="Record every lane to one collection"
+          disabled={status === undefined || record.isPending}
+          onClick={() => record.mutate()}
         >
-          Calibrate
+          Rec
         </Button>
-      </FaceFooter>
-    </NodeShell>
+      ) : (
+        <Button
+          type="button"
+          className={BTN}
+          title={recording.stem}
+          disabled={stop.isPending}
+          onClick={() => stop.mutate()}
+        >
+          Stop
+        </Button>
+      )}
+      <Button
+        type="button"
+        className={uncalibrated ? BTN_PRIMARY : BTN}
+        title="Line up lane phase and gain"
+        disabled={calibrate.isPending || lanes === 0}
+        onClick={() => calibrate.mutate()}
+      >
+        Calibrate
+      </Button>
+    </FaceFooter>
+  );
+}
+
+function ArrayHealth({ status }: { status: ArrayStatus }) {
+  const gaps = laneGaps(status);
+  const recording = status.recording ?? null;
+  return (
+    <>
+      {recording !== null && (
+        <Stat
+          label="Rec"
+          title={recording.error ?? recording.stem}
+          tone={recording.dropped > 0 || recording.error != null ? "danger" : undefined}
+        >
+          {recordingLabel(recording, status.sample_rate)}
+        </Stat>
+      )}
+      {gaps > 0 && (
+        <Stat label="Gaps" title="Samples lost and resynced" tone="warn">
+          {formatCount(gaps)}
+        </Stat>
+      )}
+      {status.realigns > 0 && (
+        <Stat label="Realigns" title="Lanes lined up again" tone="warn">
+          {formatCount(status.realigns)}
+        </Stat>
+      )}
+      {status.dropped_samples > 0 && (
+        <Stat label="Drops" title="Samples dropped" tone="warn">
+          {formatCount(status.dropped_samples)}
+        </Stat>
+      )}
+      {status.events_lost > 0 && (
+        <Stat label="Lost" title="Lane events lost" tone="warn">
+          {formatCount(status.events_lost)}
+        </Stat>
+      )}
+    </>
   );
 }
 
 function ArrayDial({
   node,
-  data,
   status,
   lead,
-  span,
-  edit,
 }: {
   node: string;
-  data: ArrayNode;
   status: ArrayStatus | undefined;
   lead: DeviceSet | undefined;
-  span: number | null;
-  edit: (next: Partial<ArrayNode>) => void;
 }) {
   const { tuneArray } = useArrayTune();
   const centerHz = useArrayStore((store) => shownCenterHz(store, node));
@@ -168,40 +213,25 @@ function ArrayDial({
   const held = status === undefined;
   const tune = (hz: number): void => tuneArray(node, hz);
   return (
-    <div className="@container flex min-w-0 flex-col gap-2 p-2">
-      <div className="flex min-w-0 items-center gap-2">
-        <FrequencyDial
-          id={dialId(node, 0)}
+    <div className="@container flex min-w-0 items-center gap-2 p-2">
+      <FrequencyDial
+        id={dialId(node, 0)}
+        hz={centerHz ?? 0}
+        range={range}
+        disabled={held}
+        wheelTunes={active}
+        onTune={tune}
+      />
+      <span className="ml-auto flex shrink-0 items-center gap-1">
+        <TuneTo
+          title="Type a frequency"
           hz={centerHz ?? 0}
-          range={range}
+          hint={`Reaches ${formatMhz(range.min)} to ${formatMhz(range.max)}`}
+          resolve={(entered) => inTuningRange(entered, range)}
           disabled={held}
-          wheelTunes={active}
           onTune={tune}
         />
-        <span className="ml-auto flex shrink-0 items-center gap-1">
-          <TuneTo
-            title="Type a frequency"
-            hz={centerHz ?? 0}
-            hint={`Reaches ${formatMhz(range.min)} to ${formatMhz(range.max)}`}
-            resolve={(entered) => inTuningRange(entered, range)}
-            disabled={held}
-            onTune={tune}
-          />
-        </span>
-      </div>
-      <div className="flex flex-wrap items-center gap-2">
-        <Segmented
-          label="Lane tuning"
-          value={data.tuning}
-          options={TUNING_OPTIONS}
-          onChange={(tuning) => edit({ tuning })}
-        />
-        {data.tuning === "spread" && (
-          <span className="font-mono text-xs text-ink-dim" title="Band the lanes cover together">
-            Span {span === null ? "-" : formatMhz(span)}
-          </span>
-        )}
-      </div>
+      </span>
     </div>
   );
 }
@@ -215,61 +245,24 @@ function ArrayStatusReadout({
   orientation: ArrayNode["orientation"];
   now: number;
 }) {
-  const gaps = laneGaps(status);
-  const failure = status.failure ?? null;
-  const recording = status.recording ?? null;
   return (
-    <Readout>
-      <ReadoutRow label="Sync" title="Lanes lined up in time">
+    <Readouts columns={2}>
+      <Readout label="Sync" title="Lanes lined up in time">
         {syncLabel(status)}
-      </ReadoutRow>
-      <ReadoutRow label="Tier" title="Capped: measured drift allows less than declared">
+      </Readout>
+      <Readout label="Tier" title="Capped: measured drift allows less than declared">
         {tierLabel(status)}
-      </ReadoutRow>
-      <ReadoutRow label="Cal">
-        <span
-          className={status.cal === "failed" ? "text-danger" : undefined}
-          title={calTitle(status)}
-        >
-          {calLabel(status, now)}
-        </span>
-      </ReadoutRow>
-      <ReadoutRow label="Heading" title="Array forward, true north">
+      </Readout>
+      <Readout
+        label="Cal"
+        title={calTitle(status)}
+        tone={status.cal === "failed" ? "danger" : undefined}
+      >
+        {calLabel(status, now)}
+      </Readout>
+      <Readout label="Heading" title="Array forward, true north">
         {headingLabel(orientation, status)}
-      </ReadoutRow>
-      {gaps > 0 && (
-        <ReadoutRow label="Gaps" title="Samples lost and resynced">
-          {gaps}
-        </ReadoutRow>
-      )}
-      {status.realigns > 0 && <ReadoutRow label="Realigns">{status.realigns}</ReadoutRow>}
-      {status.dropped_samples > 0 && (
-        <ReadoutRow label="Drops" title="Samples dropped">
-          {status.dropped_samples}
-        </ReadoutRow>
-      )}
-      {status.events_lost > 0 && (
-        <ReadoutRow label="Lost" title="Lane events lost">
-          {status.events_lost}
-        </ReadoutRow>
-      )}
-      {recording !== null && (
-        <ReadoutRow label="Rec">
-          <span
-            className={recording.dropped > 0 || recording.error != null ? "text-danger" : undefined}
-            title={recording.error ?? recording.stem}
-          >
-            {recordingLabel(recording, status.sample_rate)}
-          </span>
-        </ReadoutRow>
-      )}
-      {failure !== null && (
-        <ReadoutRow label="Fault">
-          <span role="alert" className="block truncate text-danger" title={failureTitle(failure)}>
-            {failureText(failure)}
-          </span>
-        </ReadoutRow>
-      )}
-    </Readout>
+      </Readout>
+    </Readouts>
   );
 }

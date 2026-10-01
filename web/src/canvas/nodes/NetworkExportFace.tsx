@@ -1,7 +1,11 @@
 import { useMutation } from "@tanstack/react-query";
-import { useState } from "react";
-import { Button, Input } from "../../components/BaseControls";
-import { BTN, BTN_DANGER, FIELD } from "../../components/controls";
+import { Button } from "../../components/BaseControls";
+import { BTN, BTN_DANGER } from "../../components/controls";
+import { Chips, ChoiceChip } from "../../components/face/Chips";
+import { FaceFault } from "../../components/face/Fault";
+import { Readout, Readouts } from "../../components/face/Readouts";
+import { FaceStats, Stat } from "../../components/face/Stats";
+import { TextChip } from "../../components/face/TextChip";
 import {
   DROPS_HINT,
   formatBytes,
@@ -17,9 +21,7 @@ import {
   networkExportControlsLocked,
   networkExportMutationOptions,
 } from "../../components/networkExport";
-import { Select } from "../../components/Select";
-import { SettingRow, Settings } from "../../components/Settings";
-import type { PatchNode, PatchNodeOf } from "../../lib/types";
+import type { NetworkExportStatus, PatchNode, PatchNodeOf } from "../../lib/types";
 import { basebandSourceOf, iqSourceOf } from "../binding";
 import { useWorkspaceContext } from "../context";
 import { patchNode } from "../graph";
@@ -56,12 +58,6 @@ function NetworkExportNodeFace({ node }: { node: PatchNodeOf<"network_export"> }
     workspace.channels,
     workspace.owners,
   );
-  const [address, setAddress] = useState(node.data.address);
-  const [shown, setShown] = useState(node.data.address);
-  if (shown !== node.data.address) {
-    setShown(node.data.address);
-    setAddress(node.data.address);
-  }
   const owner =
     channel === null
       ? set
@@ -79,7 +75,7 @@ function NetworkExportNodeFace({ node }: { node: PatchNodeOf<"network_export"> }
   const settings = {
     transport: node.data.transport,
     format: node.data.format,
-    address: address.trim() || node.data.address,
+    address: node.data.address,
   };
   const edit = (next: Partial<typeof settings>) => {
     workspace.edit((snapshot) => ({
@@ -93,6 +89,7 @@ function NetworkExportNodeFace({ node }: { node: PatchNodeOf<"network_export"> }
   };
   const exportIq = useMutation(networkExportMutationOptions(target, node.id, settings));
   const locked = networkExportControlsLocked(control, exportIq.isPending);
+  const rtlTcp = node.data.transport === "rtl_tcp";
 
   return (
     <NodeShell
@@ -101,101 +98,63 @@ function NetworkExportNodeFace({ node }: { node: PatchNodeOf<"network_export"> }
       category="output"
     >
       <FaceBody>
-        <Settings className="border-b border-line p-2">
-          <SettingRow label="Transport">
-            <Select
-              label="Transport"
-              value={node.data.transport}
-              options={TRANSPORTS}
-              disabled={locked}
-              onChange={(transport) =>
-                edit(
-                  transport === "rtl_tcp"
-                    ? { transport, format: "cu8", address: "127.0.0.1:1234" }
-                    : { transport },
-                )
-              }
-            />
-          </SettingRow>
-          <SettingRow label="Samples">
-            <Select
-              label="Sample format"
-              value={node.data.format}
-              options={FORMATS}
-              disabled={locked || node.data.transport === "rtl_tcp"}
-              onChange={(format) => edit({ format })}
-            />
-          </SettingRow>
-          <SettingRow
-            label={node.data.transport === "rtl_tcp" ? "Listen on" : "Destination"}
-            title={
-              node.data.transport === "rtl_tcp"
-                ? "Exports the wired source. Set rtl_433 frequency and sample rate to match; client tuning commands are ignored."
-                : undefined
+        <Chips className="p-2">
+          <ChoiceChip
+            label="Transport"
+            title="Transport"
+            value={node.data.transport}
+            options={TRANSPORTS}
+            disabled={locked}
+            onChange={(transport) =>
+              edit(
+                transport === "rtl_tcp"
+                  ? { transport, format: "cu8", address: "127.0.0.1:1234" }
+                  : { transport },
+              )
             }
-          >
-            <Input
-              className={FIELD}
-              aria-label={
-                node.data.transport === "rtl_tcp"
-                  ? "rtl_tcp listen address"
-                  : "Network IQ destination"
+          />
+          <ChoiceChip
+            label="Samples"
+            title="Sample format"
+            value={node.data.format}
+            options={FORMATS}
+            disabled={locked || rtlTcp}
+            onChange={(format) => edit({ format })}
+          />
+          <TextChip
+            label={rtlTcp ? "Listen" : "To"}
+            name={rtlTcp ? "rtl_tcp listen address" : "Network IQ destination"}
+            title={
+              rtlTcp
+                ? "Exports the wired source. Set rtl_433 frequency and sample rate to match; client tuning commands are ignored."
+                : "Network IQ destination"
+            }
+            value={node.data.address}
+            disabled={locked}
+            onCommit={(address) => {
+              if (address !== "") {
+                edit({ address });
               }
-              value={address}
-              disabled={locked}
-              onChange={(event) => setAddress(event.target.value)}
-              onBlur={() => {
-                const next = address.trim();
-                if (next !== "" && next !== node.data.address) edit({ address: next });
-                else setAddress(node.data.address);
-              }}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") event.currentTarget.blur();
-              }}
-            />
-          </SettingRow>
-        </Settings>
+            }}
+          />
+        </Chips>
         {target === null ? (
           <FaceEmpty hint="Wire a device's IQ or a channel's baseband in" />
         ) : control.kind === "active" ? (
-          <div className="grid grid-cols-2 gap-x-3 gap-y-1 p-2 font-mono text-xs tabular-nums">
-            {node.data.transport === "rtl_tcp" && (
-              <>
-                <span className="text-ink-dim">Clients</span>
-                <span>{control.status.clients ?? 0}</span>
-              </>
-            )}
-            <span className="text-ink-dim">Rate</span>
-            <span>{formatSampleRate(control.status.sample_rate)}</span>
-            <span className="text-ink-dim">Center</span>
-            <span>{formatHz(control.status.center_hz)}</span>
-            <span className="text-ink-dim">Sent</span>
-            <span>{formatBytes(control.status.bytes)}</span>
-            <span className="text-ink-dim">
-              {control.status.settings.transport === "udp" ? "Datagrams" : "Writes"}
-            </span>
-            <span>{control.status.packets.toLocaleString()}</span>
-            {control.status.overruns > 0 && (
-              <>
-                <span className="text-ink-dim" title={DROPS_HINT}>
-                  Drops
-                </span>
-                <span>{formatCount(control.status.overruns)}</span>
-              </>
-            )}
-            {control.status.error != null && (
-              <p role="alert" className="col-span-2 text-danger">
-                {control.status.error}
-              </p>
-            )}
-          </div>
+          <>
+            <Readouts columns={2}>
+              <Readout label="Rate">{formatSampleRate(control.status.sample_rate)}</Readout>
+              <Readout label="Center">{formatHz(control.status.center_hz)}</Readout>
+            </Readouts>
+            {control.status.error != null && <FaceFault message={control.status.error} />}
+          </>
         ) : (
           <FaceEmpty
             hint={
               control.kind === "busy"
                 ? "Another network sink already uses this input"
                 : control.kind === "ready"
-                  ? node.data.transport === "rtl_tcp"
+                  ? rtlTcp
                     ? "rtl_433 input · CU8"
                     : "Raw interleaved I/Q"
                   : undefined
@@ -204,6 +163,7 @@ function NetworkExportNodeFace({ node }: { node: PatchNodeOf<"network_export"> }
         )}
       </FaceBody>
       <FaceFooter>
+        {control.kind === "active" && <ExportStats status={control.status} rtlTcp={rtlTcp} />}
         {control.kind === "active" ? (
           <Button
             type="button"
@@ -225,5 +185,31 @@ function NetworkExportNodeFace({ node }: { node: PatchNodeOf<"network_export"> }
         )}
       </FaceFooter>
     </NodeShell>
+  );
+}
+
+function ExportStats({ status, rtlTcp }: { status: NetworkExportStatus; rtlTcp: boolean }) {
+  return (
+    <FaceStats>
+      {rtlTcp && (
+        <Stat label="Clients" title="rtl_tcp clients connected">
+          {status.clients ?? 0}
+        </Stat>
+      )}
+      <Stat label="Sent" title="Bytes sent">
+        {formatBytes(status.bytes)}
+      </Stat>
+      <Stat
+        label={status.settings.transport === "udp" ? "Datagrams" : "Writes"}
+        title={status.settings.transport === "udp" ? "Datagrams sent" : "Socket writes"}
+      >
+        {formatCount(status.packets)}
+      </Stat>
+      {status.overruns > 0 && (
+        <Stat label="Drops" title={DROPS_HINT} tone="warn">
+          {formatCount(status.overruns)}
+        </Stat>
+      )}
+    </FaceStats>
   );
 }

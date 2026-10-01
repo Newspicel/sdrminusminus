@@ -5,7 +5,7 @@ import { callAudioUrl, clearDecoderLog, DECODER_LOG_KEY, decoderLogQuery } from 
 import { useDecodedStore } from "../lib/decoded";
 import { Button, Input } from "./BaseControls";
 import { BroadcastDataView } from "./BroadcastDataView";
-import { ALERT, BTN, FIELD, TABLE_CELL, TABLE_HEAD } from "./controls";
+import { BTN, FIELD, TABLE_CELL, TABLE_HEAD } from "./controls";
 import { DownloadMenu } from "./DownloadMenu";
 import { eventDetail } from "./decoderDetail";
 import {
@@ -32,13 +32,17 @@ import {
   writeColumnWidths,
 } from "./decoderLog";
 import { formatClock } from "./decoderViews";
+import { ChoiceChip } from "./face/Chips";
+import { FaceFault } from "./face/Fault";
+import { FaceStats, Stat } from "./face/Stats";
 import { formatMhz } from "./format";
-import { Select } from "./Select";
 
 const SEARCH_DEBOUNCE_MS = 250;
 const CLEAR_ARM_MS = 3000;
 
 const NO_FRAMES = {};
+
+const LIMIT_CHOICES = LIMIT_OPTIONS.map((n) => ({ value: n, label: String(n) }));
 
 export function DecoderLogPanel({ wires }: { wires: WireScope }) {
   const queryClient = useQueryClient();
@@ -98,10 +102,12 @@ export function DecoderLogPanel({ wires }: { wires: WireScope }) {
 
   const patch = (next: Partial<LogFilter>): void => {
     setCleared(null);
+    setError(null);
     setFilter((f) => ({ ...f, ...next }));
   };
 
-  const dropped = droppedNotice(lost, log.data?.dropped ?? 0);
+  const droppedRows = log.data?.dropped ?? 0;
+  const dropped = droppedNotice(lost, droppedRows);
   const total = log.data?.total ?? 0;
 
   return (
@@ -116,44 +122,13 @@ export function DecoderLogPanel({ wires }: { wires: WireScope }) {
               onChange={(e) => setSearch(e.target.value)}
               aria-label="Search decoder log"
             />
-            <Select
-              label="Row limit"
-              className="w-28 shrink-0"
+            <ChoiceChip
+              label="Rows"
+              title="Row limit"
               value={filter.limit}
-              options={LIMIT_OPTIONS.map((n) => ({ value: n, label: `${n} rows` }))}
+              options={LIMIT_CHOICES}
               onChange={(limit) => patch({ limit })}
             />
-          </div>
-
-          {error !== null && (
-            <div role="alert" className={`${ALERT} flex items-center justify-between gap-3`}>
-              <span>Rejected: {error}</span>
-              <Button type="button" className="shrink-0 underline" onClick={() => setError(null)}>
-                dismiss
-              </Button>
-            </div>
-          )}
-
-          {log.isError && (
-            <div role="alert" className={ALERT}>
-              Log unavailable: {log.error.message}
-            </div>
-          )}
-
-          {dropped !== null && (
-            <div role="status" className={`${ALERT} bg-transparent tabular-nums`}>
-              {dropped}
-            </div>
-          )}
-
-          <div className="flex flex-wrap items-center gap-x-3 font-mono text-[10px] tabular-nums text-ink-dim">
-            <span>
-              {rows.length} shown · {total} stored
-            </span>
-            {armed && (
-              <span className="text-danger">Clear removes every stored row this node can see.</span>
-            )}
-            {cleared !== null && <span>{cleared} rows cleared.</span>}
           </div>
 
           <div className="min-h-0 flex-1 overflow-auto rounded border border-line">
@@ -196,49 +171,12 @@ export function DecoderLogPanel({ wires }: { wires: WireScope }) {
               </thead>
               <tbody>
                 {rows.map((row) => (
-                  <Fragment key={row.key}>
-                    <tr
-                      className="cursor-pointer border-b border-line/50 hover:bg-panel-2 focus-visible:outline focus-visible:outline-accent"
-                      aria-expanded={opened === row.key}
-                      tabIndex={0}
-                      onClick={() => setOpened(opened === row.key ? null : row.key)}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter" || event.key === " ") {
-                          event.preventDefault();
-                          setOpened(opened === row.key ? null : row.key);
-                        }
-                      }}
-                    >
-                      <td
-                        className={`${TABLE_CELL} truncate tabular-nums text-ink-dim`}
-                        title={row.at}
-                      >
-                        {formatClock(row.at)}
-                      </td>
-                      <td className={`${TABLE_CELL} truncate text-ink-dim`}>
-                        {kindLabel(row.kind)}
-                      </td>
-                      <td className={`${TABLE_CELL} truncate text-right tabular-nums text-ink`}>
-                        {formatMhz(row.freqHz)}
-                      </td>
-                      <td
-                        className={`${TABLE_CELL} truncate text-ink`}
-                        title={row.station ?? undefined}
-                      >
-                        {row.station ?? "-"}
-                      </td>
-                      <td className={`${TABLE_CELL} truncate text-ink`} title={row.summary}>
-                        {row.summary}
-                      </td>
-                    </tr>
-                    {opened === row.key && (
-                      <tr className="border-b border-line/50 bg-panel-2">
-                        <td colSpan={LOG_COLUMNS.length} className="px-3 py-2">
-                          <RowDetail row={row} />
-                        </td>
-                      </tr>
-                    )}
-                  </Fragment>
+                  <LogRows
+                    key={row.key}
+                    row={row}
+                    open={opened === row.key}
+                    onToggle={() => setOpened(opened === row.key ? null : row.key)}
+                  />
                 ))}
               </tbody>
             </table>
@@ -254,8 +192,28 @@ export function DecoderLogPanel({ wires }: { wires: WireScope }) {
             )}
           </div>
         </div>
+        {error !== null && <FaceFault message={`Rejected: ${error}`} />}
+        {log.isError && <FaceFault message={`Log unavailable: ${log.error.message}`} />}
       </FaceBody>
       <FaceFooter>
+        <FaceStats>
+          <Stat label="Shown" title="Rows in this view">
+            {rows.length}
+          </Stat>
+          <Stat label="Stored" title="Rows stored for this node">
+            {total}
+          </Stat>
+          {cleared !== null && (
+            <Stat label="Cleared" title="Rows removed by the last clear">
+              {cleared}
+            </Stat>
+          )}
+          {dropped !== null && (
+            <Stat label="Dropped" title={dropped} tone="warn">
+              {lost + droppedRows}
+            </Stat>
+          )}
+        </FaceStats>
         <DownloadMenu choices={logDownloads(query)} />
         <Button
           type="button"
@@ -263,6 +221,7 @@ export function DecoderLogPanel({ wires }: { wires: WireScope }) {
             armed ? "border-danger text-danger" : ""
           }`}
           disabled={clearMut.isPending}
+          title={armed ? "Removes every stored row this node can see" : undefined}
           onClick={() => (armed ? clearMut.mutate() : setArmed(true))}
         >
           {armed ? "Confirm clear" : "Clear"}
@@ -368,5 +327,45 @@ function RowDetail({ row }: { row: LogRow }) {
         <span className="text-ink-dim">This frame carried nothing beyond its summary.</span>
       )}
     </div>
+  );
+}
+
+function LogRows({ row, open, onToggle }: { row: LogRow; open: boolean; onToggle: () => void }) {
+  return (
+    <>
+      <tr
+        className="cursor-pointer border-b border-line/50 hover:bg-panel-2 focus-visible:outline focus-visible:outline-accent"
+        aria-expanded={open}
+        tabIndex={0}
+        onClick={onToggle}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            onToggle();
+          }
+        }}
+      >
+        <td className={`${TABLE_CELL} truncate tabular-nums text-ink-dim`} title={row.at}>
+          {formatClock(row.at)}
+        </td>
+        <td className={`${TABLE_CELL} truncate text-ink-dim`}>{kindLabel(row.kind)}</td>
+        <td className={`${TABLE_CELL} truncate text-right tabular-nums text-ink`}>
+          {formatMhz(row.freqHz)}
+        </td>
+        <td className={`${TABLE_CELL} truncate text-ink`} title={row.station ?? undefined}>
+          {row.station ?? "-"}
+        </td>
+        <td className={`${TABLE_CELL} truncate text-ink`} title={row.summary}>
+          {row.summary}
+        </td>
+      </tr>
+      {open && (
+        <tr className="border-b border-line/50 bg-panel-2">
+          <td colSpan={LOG_COLUMNS.length} className="px-3 py-2">
+            <RowDetail row={row} />
+          </td>
+        </tr>
+      )}
+    </>
   );
 }

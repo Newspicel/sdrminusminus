@@ -1,7 +1,8 @@
 import { Collapsible } from "@base-ui/react/collapsible";
 import { ChevronRight } from "lucide-react";
 import type { ReactNode } from "react";
-import { Icon } from "../../components/Icon";
+import { Icon } from "../Icon";
+import { Settings } from "../Settings";
 
 export function FoldSection({
   label,
@@ -24,5 +25,21 @@ export function FoldSection({
         {children}
       </Collapsible.Panel>
     </Collapsible.Root>
+  );
+}
+
+export function SettingsFold({
+  label,
+  open = false,
+  children,
+}: {
+  label: string;
+  open?: boolean;
+  children: ReactNode;
+}) {
+  return (
+    <FoldSection label={label} open={open}>
+      <Settings>{children}</Settings>
+    </FoldSection>
   );
 }

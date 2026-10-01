@@ -1,10 +1,9 @@
 import { useState } from "react";
-import { NumberField } from "../../components/NumberField";
+import { Chips, ChoiceChip, NumberChip } from "../../components/face/Chips";
+import { Readout, Readouts } from "../../components/face/Readouts";
 import { ColourScale } from "../../components/PlotAxis";
 import { COLOUR_OPTIONS } from "../../components/plotFrame";
 import { Segmented } from "../../components/Segmented";
-import { Select } from "../../components/Select";
-import { SettingRow } from "../../components/Settings";
 import { type Colormap, DEFAULT_COLORMAP } from "../../gl/surface";
 import { processorStatusOf, useArrayStore } from "../../lib/arrays";
 import { SPATIAL_LIMITS as LIMITS } from "../../lib/limits";
@@ -19,11 +18,11 @@ import { useNow } from "../../lib/useNow";
 import { arrayOf } from "../binding";
 import { useWorkspaceContext } from "../context";
 import { settingsOf } from "../newNode";
-import { BandRows } from "./BandRows";
+import { BandChips } from "./BandRows";
 import { FaceBody, FaceEmpty, NodeShell } from "./NodeShell";
-import { ProcessorChips, ProcessorFaults, ProcessorReadout, ReadoutCell } from "./ProcessorReadout";
+import { ProcessorFooter } from "./ProcessorFooter";
+import { type Chip, ProcessorError } from "./ProcessorHealth";
 import { ageLabel, NO_CATALOG, processorSubtitle, useProcessorEdit } from "./processorFace";
-import { SettingsFold } from "./SettingsFold";
 import { SpatialPlot } from "./SpatialPlot";
 import {
   type BearingFrame,
@@ -40,7 +39,6 @@ import {
 } from "./spatialSpectrum";
 
 const AGE_TICK_MS = 1_000;
-const SMALL = "w-24";
 
 type Edit = (next: Partial<SpatialSpectrumParams>) => void;
 
@@ -65,6 +63,7 @@ export function SpatialSpectrumFace({ node }: { node: PatchNode }) {
   const bearingFrame: BearingFrame = trueKnown ? (chosenFrame ?? "true") : "relative";
   const span = settings?.span_db ?? 0;
   const offsetDeg = frameOffset(bearingFrame, reading);
+  const processor = processorStatusOf(status, node.id);
   return (
     <NodeShell
       node={node}
@@ -93,13 +92,19 @@ export function SpatialSpectrumFace({ node }: { node: PatchNode }) {
             </div>
             <SpatialPlot
               node={node.id}
-              known={processorStatusOf(status, node.id) !== null}
+              known={processor !== null}
               view={view}
               bearingFrame={bearingFrame}
               offsetDeg={offsetDeg}
               colormap={colormap}
               peaks={reading?.peaks ?? []}
               dim={stale || reading === null}
+            />
+            <SpatialChips
+              settings={settings}
+              edit={edit}
+              colormap={colormap}
+              onColormap={setColormap}
             />
             <SpatialReadout
               reading={reading}
@@ -108,20 +113,18 @@ export function SpatialSpectrumFace({ node }: { node: PatchNode }) {
               receivedAt={state?.receivedAt}
               now={now}
             />
-            <ProcessorFaults status={processorStatusOf(status, node.id)} />
-            <div className="max-h-48 shrink-0 overflow-y-auto">
-              <SpatialSettings
-                settings={settings}
-                edit={edit}
-                colormap={colormap}
-                onColormap={setColormap}
-              />
-            </div>
+            <ProcessorError status={processor} />
           </div>
         )}
       </FaceBody>
+      <ProcessorFooter status={processor} chips={droppedChips(reading)} />
     </NodeShell>
   );
+}
+
+function droppedChips(reading: SpatialReading | null): Chip[] {
+  const dropped = reading?.dropped_frames ?? 0;
+  return dropped > 0 ? [{ label: `Drops ${dropped}`, title: "Frames lost", danger: true }] : [];
 }
 
 function SpatialReadout({
@@ -138,37 +141,22 @@ function SpatialReadout({
   now: number;
 }) {
   const peaks = topPeaks(reading);
-  const dropped = reading?.dropped_frames ?? 0;
   return (
-    <>
-      <div className="shrink-0 border-t border-line px-2 py-1.5">
-        <ProcessorReadout>
-          <ReadoutCell
-            label="Peak"
-            value={peaks[0] === undefined ? "-" : peakText(peaks[0], bearingFrame, offsetDeg)}
-            wide
-          />
-          {peaks.slice(1).map((peak, rank) => (
-            <ReadoutCell
-              key={`${peak.freq_hz}:${peak.bearing_deg}`}
-              label={`#${rank + 2}`}
-              value={peakText(peak, bearingFrame, offsetDeg)}
-              wide
-            />
-          ))}
-          <ReadoutCell label="Age" value={ageLabel(receivedAt, now)} wide />
-        </ProcessorReadout>
-      </div>
-      <ProcessorChips
-        chips={
-          dropped > 0 ? [{ label: `Drops ${dropped}`, title: "Frames lost", danger: true }] : []
-        }
-      />
-    </>
+    <Readouts>
+      <Readout label="Peak">
+        {peaks[0] === undefined ? "-" : peakText(peaks[0], bearingFrame, offsetDeg)}
+      </Readout>
+      {peaks.slice(1).map((peak, rank) => (
+        <Readout key={`${peak.freq_hz}:${peak.bearing_deg}`} label={`#${rank + 2}`}>
+          {peakText(peak, bearingFrame, offsetDeg)}
+        </Readout>
+      ))}
+      <Readout label="Age">{ageLabel(receivedAt, now)}</Readout>
+    </Readouts>
   );
 }
 
-function SpatialSettings({
+function SpatialChips({
   settings,
   edit,
   colormap,
@@ -180,94 +168,79 @@ function SpatialSettings({
   onColormap: (colormap: Colormap) => void;
 }) {
   return (
-    <SettingsFold label="Settings">
-      <SettingRow label="Method">
-        <Select
-          label="Method"
-          value={settings.method}
-          options={METHOD_OPTIONS}
-          onChange={(method) => edit({ method })}
-        />
-      </SettingRow>
-      <SettingRow label="FFT" title="Frequency bins">
-        <Select
-          label="FFT"
-          value={settings.bins}
-          options={BIN_OPTIONS}
-          onChange={(bins) => edit({ bins, columns: Math.min(settings.columns, bins) })}
-          className={SMALL}
-        />
-      </SettingRow>
-      <SettingRow label="Columns" title="Frequency columns shown">
-        <Select
-          label="Columns"
-          value={settings.columns}
-          options={columnOptions(settings.bins)}
-          onChange={(columns) => edit({ columns })}
-          className={SMALL}
-        />
-      </SettingRow>
-      <SettingRow label="Average">
-        <NumberField
-          label="Average"
-          value={settings.average_ms}
-          min={LIMITS.average_ms.min}
-          max={LIMITS.average_ms.max}
-          step={10}
-          unit="ms"
-          className={SMALL}
-          onCommit={(ms) => edit({ average_ms: Math.round(ms) })}
-        />
-      </SettingRow>
-      <SettingRow label="Rate" title="New picture this often">
-        <NumberField
-          label="Rate"
-          value={settings.report_ms}
-          min={LIMITS.report_ms.min}
-          max={LIMITS.report_ms.max}
-          step={10}
-          unit="ms"
-          className={SMALL}
-          onCommit={(ms) => edit({ report_ms: Math.round(ms) })}
-        />
-      </SettingRow>
-      <SettingRow label="Step" title="Bearing resolution">
-        <Select
-          label="Step"
-          value={settings.azimuth_step_deg}
-          options={STEP_OPTIONS}
-          onChange={(azimuth_step_deg) => edit({ azimuth_step_deg })}
-          className={SMALL}
-        />
-      </SettingRow>
-      <SettingRow label="Range" title="Colour range below the peak">
-        <NumberField
-          label="Range"
-          value={settings.span_db}
-          min={LIMITS.span_db.min}
-          max={LIMITS.span_db.max}
-          step={1}
-          unit="dB"
-          className={SMALL}
-          onCommit={(span_db) => edit({ span_db })}
-        />
-      </SettingRow>
-      <BandRows
+    <Chips className="shrink-0 p-2">
+      <ChoiceChip
+        label="Method"
+        title="Method"
+        value={settings.method}
+        options={METHOD_OPTIONS}
+        onChange={(method) => edit({ method })}
+      />
+      <ChoiceChip
+        label="FFT"
+        title="Frequency bins"
+        value={settings.bins}
+        options={BIN_OPTIONS}
+        onChange={(bins) => edit({ bins, columns: Math.min(settings.columns, bins) })}
+      />
+      <ChoiceChip
+        label="Columns"
+        title="Frequency columns shown"
+        value={settings.columns}
+        options={columnOptions(settings.bins)}
+        onChange={(columns) => edit({ columns })}
+      />
+      <NumberChip
+        label="Average"
+        title="Average"
+        unit="ms"
+        value={settings.average_ms}
+        min={LIMITS.average_ms.min}
+        max={LIMITS.average_ms.max}
+        step={10}
+        onCommit={(ms) => edit({ average_ms: Math.round(ms) })}
+      />
+      <NumberChip
+        label="Rate"
+        title="New picture this often"
+        unit="ms"
+        value={settings.report_ms}
+        min={LIMITS.report_ms.min}
+        max={LIMITS.report_ms.max}
+        step={10}
+        onCommit={(ms) => edit({ report_ms: Math.round(ms) })}
+      />
+      <ChoiceChip
+        label="Step"
+        title="Bearing resolution"
+        value={settings.azimuth_step_deg}
+        options={STEP_OPTIONS}
+        onChange={(azimuth_step_deg) => edit({ azimuth_step_deg })}
+      />
+      <NumberChip
+        label="Range"
+        title="Colour range below the peak"
+        unit="dB"
+        value={settings.span_db}
+        min={LIMITS.span_db.min}
+        max={LIMITS.span_db.max}
+        step={1}
+        onCommit={(span_db) => edit({ span_db })}
+      />
+      <BandChips
         band={LIMITS.band}
         offsetHz={settings.offset_hz}
         bandwidthHz={settings.bandwidth_hz ?? null}
         onOffset={(offset_hz) => edit({ offset_hz })}
         onBandwidth={(bandwidth_hz) => edit({ bandwidth_hz })}
       />
-      <SettingRow label="Colours">
-        <Select
-          label="Colours"
-          value={colormap}
-          options={COLOUR_OPTIONS}
-          onChange={onColormap}
-          className="w-28"
-        />
-      </SettingRow>
-    </SettingsFold>
+      <ChoiceChip
+        label="Colours"
+        title="Colours"
+        value={colormap}
+        options={COLOUR_OPTIONS}
+        onChange={onColormap}
+      />
+    </Chips>
   );
 }

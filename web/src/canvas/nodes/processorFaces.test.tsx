@@ -28,6 +28,10 @@ function holding(reading: ProcessorReading): void {
     .seed([arrayStatus("arr", { lanes: [0, 1, 2, 3].map((lane) => laneStatus(lane)) })]);
 }
 
+function textOf(html: string): string {
+  return html.replace(/<!-- -->/g, "").replace(/<[^>]+>/g, "");
+}
+
 afterEach(() => {
   useProcessorStore.getState().reset();
   useArrayStore.getState().reset();
@@ -60,10 +64,10 @@ describe("array processor faces", () => {
       },
     });
     const { node, graph } = wired("correlator");
-    const html = renderFace(CorrelatorFace, node, { graph });
-    expect(html).toContain("1.23 ns");
-    expect(html).toContain("0.87 ∠37° 1.2 ns 18 dB");
-    expect(html).toContain("10.0 s");
+    const text = textOf(renderFace(CorrelatorFace, node, { graph }));
+    expect(text).toContain("1.23 ns");
+    expect(text).toContain("0.87 ∠37° 1.2 ns 18 dB");
+    expect(text).toContain("10.0 s");
   });
 
   it("draws the polarisation ellipse and names the hand", () => {
@@ -91,8 +95,8 @@ describe("array processor faces", () => {
   it("asks to spread an array that tunes lanes together", () => {
     const { node, graph } = wired("stitch");
     const html = renderFace(StitchFace, node, { graph });
-    expect(html).toContain("Needs spread");
-    expect(html).toContain("Spread array");
+    expect(html).toContain(">Needs spread<");
+    expect(html).toMatch(/<(?:button)[^>]*>Spread array</);
   });
 
   it("shows why a processor fails and what it dropped", () => {
@@ -118,9 +122,9 @@ describe("array processor faces", () => {
     ]);
     const { node, graph } = wired("polarimeter");
     const html = renderFace(PolarimeterFace, node, { graph });
-    expect(html).toContain("Too heavy for this band");
-    expect(html).toContain("Drops 12");
-    expect(html).toContain("Fails 2");
+    expect(html).toMatch(/role="alert"[^>]*><p[^>]*>Too heavy for this band</);
+    expect(html).toMatch(/>Drops<b[^>]*>12</);
+    expect(html).toMatch(/>Fails<b[^>]*>2</);
   });
 
   it("says no array when nothing is wired", () => {

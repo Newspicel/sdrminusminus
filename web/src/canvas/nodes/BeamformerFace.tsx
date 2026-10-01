@@ -1,3 +1,5 @@
+import { MeterBar } from "../../components/face/Meter";
+import { Readout, Readouts } from "../../components/face/Readouts";
 import { processorStatusOf, useArrayStore } from "../../lib/arrays";
 import { isStale, readingOf, useProcessorStore } from "../../lib/processors";
 import type { BeamformerReading, PatchNode, PatchNodeOf } from "../../lib/types";
@@ -19,7 +21,8 @@ import {
   weightTitle,
 } from "./beamformer";
 import { FaceBody, FaceEmpty, NodeShell } from "./NodeShell";
-import { ProcessorChips, ProcessorFaults, ProcessorReadout, ReadoutCell } from "./ProcessorReadout";
+import { ProcessorFooter } from "./ProcessorFooter";
+import { ProcessorError } from "./ProcessorHealth";
 import {
   ageLabel,
   NO_CATALOG,
@@ -46,6 +49,7 @@ export function BeamformerFace({ node }: { node: PatchNode }) {
   const reading = readingOf(state, "beamformer");
   const period = settings?.update_ms ?? 0;
   const stale = state !== undefined && isStale(state.receivedAt, now, period);
+  const health = processorStatusOf(status, node.id);
   const lanes = Math.max(
     processorLanes(workspace.graph, array, status),
     reading?.weights.length ?? 0,
@@ -65,51 +69,45 @@ export function BeamformerFace({ node }: { node: PatchNode }) {
             <div className={`flex gap-2 p-2 ${stale ? "opacity-50" : ""}`}>
               <BeamPattern reading={reading} />
               <div className="flex min-w-0 flex-1 flex-col gap-2">
-                <ProcessorReadout>
-                  <ReadoutCell label="Mode" value={modeLabel(reading?.mode ?? settings.mode)} />
-                  <ReadoutCell
-                    label="SNR"
-                    value={reading?.snr_db == null ? "-" : `${reading.snr_db.toFixed(0)} dB`}
-                  />
-                  <ReadoutCell label="Gain" title="Gain over one lane" value={gainLabel(reading)} />
-                  <ReadoutCell
-                    label="Steer"
-                    value={reading === null ? "-" : steerLabel(reading, settings.steer)}
-                  />
+                <Readouts ruled={false} padded={false}>
+                  <Readout label="Mode">{modeLabel(reading?.mode ?? settings.mode)}</Readout>
+                  <Readout label="SNR">
+                    {reading?.snr_db == null ? "-" : `${reading.snr_db.toFixed(0)} dB`}
+                  </Readout>
+                  <Readout label="Gain" title="Gain over one lane">
+                    {gainLabel(reading)}
+                  </Readout>
+                  <Readout label="Steer">
+                    {reading === null ? "-" : steerLabel(reading, settings.steer)}
+                  </Readout>
                   {reading?.cancelled_db != null && (
-                    <ReadoutCell
+                    <Readout
                       label="Cut"
                       title="Removed by the canceller"
-                      value={`${reading.cancelled_db.toFixed(0)} dB`}
-                    />
+                    >{`${reading.cancelled_db.toFixed(0)} dB`}</Readout>
                   )}
-                  <ReadoutCell
-                    label="Level"
-                    title="Beam output level"
-                    value={reading === null ? "-" : `${reading.output_db.toFixed(1)} dB`}
-                  />
-                  <ReadoutCell label="Age" value={ageLabel(state?.receivedAt, now)} />
-                  <ReadoutCell
-                    label="Out"
-                    title="Beam lane centre and rate"
-                    value={outText(reading)}
-                    wide
-                  />
-                </ProcessorReadout>
+                  <Readout label="Level" title="Beam output level">
+                    {reading === null ? "-" : `${reading.output_db.toFixed(1)} dB`}
+                  </Readout>
+                  <Readout label="Age">{ageLabel(state?.receivedAt, now)}</Readout>
+                  <Readout label="Out" title="Beam lane centre and rate" wide>
+                    {outText(reading)}
+                  </Readout>
+                </Readouts>
                 <WeightBars reading={reading} />
               </div>
             </div>
-            <ProcessorChips chips={beamChips(reading)} />
-            <ProcessorFaults status={processorStatusOf(status, node.id)} />
             <BeamformerSettings
               settings={settings}
               edit={edit}
               lanes={lanes}
               steerWired={hasWire(workspace.graph, node.id, STEER_PORT)}
             />
+            <ProcessorError status={health} />
           </>
         )}
       </FaceBody>
+      <ProcessorFooter status={health} chips={beamChips(reading)} />
     </NodeShell>
   );
 }
@@ -177,21 +175,12 @@ function WeightBars({ reading }: { reading: BeamformerReading | null }) {
     <div role="group" className="flex flex-col gap-0.5" aria-label="Lane weights">
       {weights.map((weight, lane) => (
         <div key={lane} className="flex items-center gap-1.5" title={weightTitle(lane, weight)}>
-          <span className="w-4 font-mono text-[10px] text-ink-faint">{lane + 1}</span>
-          <span
-            role="meter"
-            aria-label={`Lane ${lane + 1} weight`}
-            aria-valuemin={0}
-            aria-valuemax={100}
-            aria-valuenow={percent[lane] ?? 0}
-            aria-valuetext={weightTitle(lane, weight)}
-            className="h-1.5 flex-1 rounded-full bg-well"
-          >
-            <span
-              className="block h-full rounded-full bg-accent"
-              style={{ width: `${percent[lane] ?? 0}%` }}
-            />
-          </span>
+          <span className="w-4 font-mono text-[10px] text-port-array">{lane + 1}</span>
+          <MeterBar
+            label={`Lane ${lane + 1} weight`}
+            value={(percent[lane] ?? 0) / 100}
+            valueText={weightTitle(lane, weight)}
+          />
         </div>
       ))}
     </div>

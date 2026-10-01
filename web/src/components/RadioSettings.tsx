@@ -2,7 +2,6 @@ import { Minus, Plus } from "lucide-react";
 import { type ReactNode, useState } from "react";
 import { rxStreamCount, streamLabel } from "../canvas/graph";
 import { agcDelta, agcGainDb, agcModeDelta, laneAgc, radioAgc } from "../canvas/nodes/deviceNode";
-import { PortAnchor } from "../canvas/nodes/NodeShell";
 import { useLevelStore } from "../lib/levels";
 import type { Capabilities, DeviceSet, ExtraSetting, GainStage, Range } from "../lib/types";
 import { forStream, useDevicePatch } from "../lib/useDevicePatch";
@@ -30,11 +29,12 @@ import {
   spanOf,
   stageSettings,
 } from "./capabilities";
-import { FIELD, ICON_BTN_SM, LABEL } from "./controls";
+import { FIELD, ICON_BTN_SM } from "./controls";
 import { meterTone } from "./dbfs";
 import { isTunable, tuningRange } from "./dial";
+import { ChipField, Chips, ReadoutChip, SettingChip, ToggleChip } from "./face/Chips";
+import { GainMeter, MeterRow } from "./face/Meter";
 import { formatHz, formatSampleRate } from "./format";
-import { GainMeter } from "./GainMeter";
 import { Icon } from "./Icon";
 import {
   allLanesGain,
@@ -51,7 +51,6 @@ import { NumberField } from "./NumberField";
 import { LOOP_SETTING } from "./playback";
 import { SearchableSelect } from "./SearchableSelect";
 import { Select } from "./Select";
-import { ReadoutChip, SettingChip, ToggleChip } from "./SettingChip";
 import { Slider } from "./Slider";
 import { withCurrent } from "./selectOptions";
 import { settingLabel } from "./settingLabel";
@@ -61,10 +60,6 @@ import { useDebouncedCommit } from "./useDebouncedCommit";
 const SEARCHABLE_FROM = 12;
 
 const WIDE = "min-w-0 flex-1";
-
-const ROW = "grid h-7 grid-cols-[3.5rem_minmax(0,1fr)_3.75rem_2.75rem_0] items-center gap-x-2";
-
-const READOUT = "text-right font-mono text-xs tabular-nums whitespace-nowrap text-ink";
 
 type Patch = (delta: Parameters<ReturnType<typeof useDevicePatch>["applyPatch"]>[1]) => void;
 
@@ -105,15 +100,6 @@ export function RadioSettings({
   );
 }
 
-function Field({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <div className="flex flex-col gap-2">
-      <span className={LABEL}>{label}</span>
-      <span className="flex min-w-0 flex-wrap items-center gap-2">{children}</span>
-    </div>
-  );
-}
-
 function SettingChips({ active, patch }: { active: DeviceSet; patch: Patch }) {
   const caps = active.capabilities;
   const settings = active.settings;
@@ -125,7 +111,7 @@ function SettingChips({ active, patch }: { active: DeviceSet; patch: Patch }) {
   const agcModes = caps.agc?.kind === "modes";
   const lanes = rxStreamCount(caps);
   return (
-    <div className="flex flex-wrap gap-x-1 gap-y-[3px]">
+    <Chips>
       <RateChip caps={caps} sampleRate={settings.sample_rate ?? 0} patch={patch} />
 
       {hasFilter(caps) && (
@@ -136,9 +122,9 @@ function SettingChips({ active, patch }: { active: DeviceSet; patch: Patch }) {
           title="Analog bandwidth before the ADC"
         >
           {() => (
-            <Field label="Analog bandwidth">
+            <ChipField label="Analog bandwidth">
               <FilterControl active={active} onCommit={(bandwidth) => patch({ bandwidth })} />
-            </Field>
+            </ChipField>
           )}
         </SettingChip>
       )}
@@ -150,7 +136,7 @@ function SettingChips({ active, patch }: { active: DeviceSet; patch: Patch }) {
           title="Antenna port in use"
         >
           {() => (
-            <Field label="Antenna">
+            <ChipField label="Antenna">
               <Select
                 className={WIDE}
                 label="Antenna"
@@ -158,7 +144,7 @@ function SettingChips({ active, patch }: { active: DeviceSet; patch: Patch }) {
                 options={caps.antennas.map((antenna) => ({ value: antenna, label: antenna }))}
                 onChange={(antenna) => patch({ antenna })}
               />
-            </Field>
+            </ChipField>
           )}
         </SettingChip>
       )}
@@ -175,7 +161,7 @@ function SettingChips({ active, patch }: { active: DeviceSet; patch: Patch }) {
               title={`Antenna port feeding ${port}`}
             >
               {() => (
-                <Field label={`${port} antenna`}>
+                <ChipField label={`${port} antenna`}>
                   <Select
                     className={WIDE}
                     label={`${port} antenna`}
@@ -183,7 +169,7 @@ function SettingChips({ active, patch }: { active: DeviceSet; patch: Patch }) {
                     options={caps.antennas.map((antenna) => ({ value: antenna, label: antenna }))}
                     onChange={(antenna) => patch({ streams: [{ stream, antenna }] })}
                   />
-                </Field>
+                </ChipField>
               )}
             </SettingChip>
           );
@@ -211,7 +197,7 @@ function SettingChips({ active, patch }: { active: DeviceSet; patch: Patch }) {
           width="w-48"
         >
           {() => (
-            <Field label="Frequency correction">
+            <ChipField label="Frequency correction">
               <NumberField
                 className={WIDE}
                 label="Frequency correction"
@@ -220,7 +206,7 @@ function SettingChips({ active, patch }: { active: DeviceSet; patch: Patch }) {
                 step={1}
                 onCommit={(ppm) => patch({ ppm })}
               />
-            </Field>
+            </ChipField>
           )}
         </SettingChip>
       )}
@@ -234,7 +220,7 @@ function SettingChips({ active, patch }: { active: DeviceSet; patch: Patch }) {
           width="w-56"
         >
           {() => (
-            <Field label="Converter offset">
+            <ChipField label="Converter offset">
               <NumberField
                 className={WIDE}
                 label="Converter offset"
@@ -243,7 +229,7 @@ function SettingChips({ active, patch }: { active: DeviceSet; patch: Patch }) {
                 step={0.001}
                 onCommit={(mhz) => patch({ offset_hz: Math.round(mhz * 1e6) })}
               />
-            </Field>
+            </ChipField>
           )}
         </SettingChip>
       )}
@@ -274,7 +260,7 @@ function SettingChips({ active, patch }: { active: DeviceSet; patch: Patch }) {
           onCommit={(value) => patch({ extra: [{ name: setting.name, value }] })}
         />
       ))}
-    </div>
+    </Chips>
   );
 }
 
@@ -295,13 +281,13 @@ function RateChip({
   return (
     <SettingChip label="Rate" value={shown} title="Sample rate">
       {() => (
-        <Field label="Sample rate">
+        <ChipField label="Sample rate">
           <RateControl
             caps={caps}
             sampleRate={sampleRate}
             onCommit={(sample_rate) => patch({ sample_rate })}
           />
-        </Field>
+        </ChipField>
       )}
     </SettingChip>
   );
@@ -320,7 +306,7 @@ function AgcChip({ active, toggle, patch }: { active: DeviceSet; toggle: boolean
       title="How the radio sets its own gain"
     >
       {() => (
-        <Field label="Gain control">
+        <ChipField label="Gain control">
           {toggle && (
             <Checkbox
               label="Automatic gain"
@@ -336,7 +322,7 @@ function AgcChip({ active, toggle, patch }: { active: DeviceSet; toggle: boolean
             options={modes.map((mode) => ({ value: mode.value, label: mode.label ?? mode.value }))}
             onChange={(mode) => patch(agcModeDelta(active, mode))}
           />
-        </Field>
+        </ChipField>
       )}
     </SettingChip>
   );
@@ -476,7 +462,7 @@ function ExtraChip({
           title={name}
         >
           {() => (
-            <Field label={name}>
+            <ChipField label={name}>
               <Picker
                 className={WIDE}
                 label={name}
@@ -484,7 +470,7 @@ function ExtraChip({
                 options={options}
                 onChange={onCommit}
               />
-            </Field>
+            </ChipField>
           )}
         </SettingChip>
       );
@@ -508,7 +494,7 @@ function ExtraChip({
                 onCommit={onCommit}
               />
             ) : (
-              <Field label={name}>
+              <ChipField label={name}>
                 <NumberField
                   className={WIDE}
                   label={name}
@@ -519,7 +505,7 @@ function ExtraChip({
                   step={setting.range.step ?? undefined}
                   onCommit={onCommit}
                 />
-              </Field>
+              </ChipField>
             )
           }
         </SettingChip>
@@ -535,9 +521,9 @@ function ExtraChip({
           title={name}
         >
           {(close) => (
-            <Field label={name}>
+            <ChipField label={name}>
               <TextEntry label={name} value={value} onCommit={onCommit} onDone={close} />
-            </Field>
+            </ChipField>
           )}
         </SettingChip>
       );
@@ -592,7 +578,7 @@ function RangeSlider({
   const shown = pending ?? value;
   const digits = range.step != null && range.step < 1 ? 1 : 0;
   return (
-    <Field label={name}>
+    <ChipField label={name}>
       <Slider
         label={`${name} (${unit})`}
         className="min-w-0 flex-1"
@@ -605,7 +591,7 @@ function RangeSlider({
       <span className="w-14 shrink-0 text-right font-mono text-xs tabular-nums text-ink">
         {shown.toFixed(digits)} <Unit symbol={unit} className="text-ink-faint" />
       </span>
-    </Field>
+    </ChipField>
   );
 }
 
@@ -923,23 +909,26 @@ function StageRow({
   if (isSwitch(stage)) {
     const on = shown > stage.range.min;
     return (
-      <div className={ROW}>
-        {lead}
-        <span className="flex items-center">
-          <Checkbox
-            label={control}
-            checked={on}
-            disabled={heldBy !== undefined}
-            onChange={(next) => onCommit(next ? stage.range.max : stage.range.min)}
-          />
-        </span>
-        <span className={READOUT}>
-          {on ? `+${stage.range.max.toFixed(0)}` : "0"}{" "}
-          <Unit symbol="dB" className="text-ink-faint" />
-        </span>
-        <span />
-        {port !== undefined && <PortAnchor port={port} />}
-      </div>
+      <MeterRow
+        label={lead}
+        port={port}
+        meter={
+          <span className="flex items-center">
+            <Checkbox
+              label={control}
+              checked={on}
+              disabled={heldBy !== undefined}
+              onChange={(next) => onCommit(next ? stage.range.max : stage.range.min)}
+            />
+          </span>
+        }
+        readout={
+          <>
+            {on ? `+${stage.range.max.toFixed(0)}` : "0"}{" "}
+            <Unit symbol="dB" className="text-ink-faint" />
+          </>
+        }
+      />
     );
   }
 
@@ -974,18 +963,20 @@ function StageRow({
       />
     );
   return (
-    <div className={ROW}>
-      {lead}
-      {slider}
-      <span className={`${READOUT} ${readout === undefined ? "" : "text-ink-faint"}`}>
-        {readout ?? (
+    <MeterRow
+      label={lead}
+      meter={slider}
+      port={port}
+      trailing={trailing}
+      readout={
+        readout === undefined ? (
           <>
             {formatGain(stage, shown)} <Unit symbol={unit} className="text-ink-faint" />
           </>
-        )}
-      </span>
-      {trailing ?? <span />}
-      {port !== undefined && <PortAnchor port={port} />}
-    </div>
+        ) : (
+          <span className="text-ink-faint">{readout}</span>
+        )
+      }
+    />
   );
 }

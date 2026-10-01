@@ -1,6 +1,6 @@
 import { AudioControls } from "../../components/AudioControls";
 import { audioChainActive } from "../../components/channelSettings";
-import { Settings } from "../../components/Settings";
+import { Chips } from "../../components/face/Chips";
 import type { AudioProcessing, PatchNode, PatchNodeOf } from "../../lib/types";
 import { sourcesOf } from "../binding";
 import { useWorkspaceContext } from "../context";
@@ -36,9 +36,9 @@ function Face({ node }: { node: PatchNodeOf<"audio_fx"> }) {
       subtitle={audioChainActive(audio) ? "on" : undefined}
     >
       <FaceBody title={wired ? undefined : "Wire channel audio in"}>
-        <Settings className="p-3">
+        <Chips className="p-2">
           <AudioControls audio={audio} onAudio={edit} />
-        </Settings>
+        </Chips>
       </FaceBody>
     </NodeShell>
   );

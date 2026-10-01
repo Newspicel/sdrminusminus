@@ -1,29 +1,21 @@
-import { Collapsible } from "@base-ui/react/collapsible";
 import { useMutation } from "@tanstack/react-query";
 import { useState } from "react";
 import { Button } from "../../components/BaseControls";
-import { BTN, BTN_QUIET, TABLE_CELL, TABLE_HEAD } from "../../components/controls";
-import { COLOUR_OPTIONS } from "../../components/plotFrame";
-import { Select } from "../../components/Select";
-import { SettingRow, Settings } from "../../components/Settings";
+import { BTN, TABLE_CELL, TABLE_HEAD } from "../../components/controls";
+import { Readout, Readouts } from "../../components/face/Readouts";
 import { type Colormap, DEFAULT_COLORMAP } from "../../gl/surface";
 import { clearRadarTracks } from "../../lib/api";
 import { processorStatusOf, useArrayStore } from "../../lib/arrays";
 import { readingOf, useProcessorStore } from "../../lib/processors";
 import { clearAction, failAction } from "../../lib/refusals";
-import type {
-  ArrayStatus,
-  PassiveRadarParams,
-  PatchNode,
-  PatchNodeOf,
-  RadarUpdate,
-} from "../../lib/types";
+import type { ArrayStatus, PatchNode, PatchNodeOf, RadarUpdate } from "../../lib/types";
 import { useNow } from "../../lib/useNow";
 import { arrayOf, hasWire } from "../binding";
 import { useWorkspaceContext } from "../context";
 import { settingsOf } from "../newNode";
 import { FaceBody, FaceEmpty, NodeShell } from "./NodeShell";
-import { ProcessorChips, ProcessorFaults, ProcessorReadout, ReadoutCell } from "./ProcessorReadout";
+import { ProcessorFooter } from "./ProcessorFooter";
+import { ProcessorError } from "./ProcessorHealth";
 import {
   ageLabel,
   NO_CATALOG,
@@ -32,7 +24,7 @@ import {
   useProcessorEdit,
 } from "./processorFace";
 import { RadarPlot } from "./RadarPlot";
-import { RadarSettings } from "./RadarSettings";
+import { RadarChips, RadarSettings } from "./RadarSettings";
 import {
   adsbCell,
   bearingCell,
@@ -79,6 +71,7 @@ export function RadarFace({ node }: { node: PatchNode }) {
   const update = readingOf(state, "passive_radar");
   const stale = state !== undefined && update !== null && isStale(state.receivedAt, update, now);
   const lanes = processorLanes(workspace.graph, array, status);
+  const health = processorStatusOf(status, node.id);
   const subtitle = radarSubtitle({
     wired: array !== null,
     txWired: hasWire(workspace.graph, node.id, RADAR_TX_PORT),
@@ -102,81 +95,49 @@ export function RadarFace({ node }: { node: PatchNode }) {
           <div className="flex min-h-0 flex-1 flex-col">
             <RadarPlot
               node={node.id}
-              known={processorStatusOf(status, node.id) !== null}
+              known={health !== null}
               update={update}
               dim={stale || update === null}
               colormap={colormap}
               selected={selected}
             />
-            <RadarStrip update={update} status={status} receivedAt={state?.receivedAt} now={now} />
-            <ProcessorChips chips={radarChips(update)} />
-            <ProcessorFaults status={processorStatusOf(status, node.id)} />
-            <TrackTable update={update} selected={selected} onSelect={setSelected} />
-            <RadarFooter
-              node={node.id}
+            <RadarChips
               settings={settings}
               edit={edit}
-              lanes={lanes}
+              lanes={Math.max(lanes, 2)}
               colormap={colormap}
               onColormap={setColormap}
-              cleared={update === null}
             />
+            <RadarStrip update={update} status={status} receivedAt={state?.receivedAt} now={now} />
+            <TrackTable update={update} selected={selected} onSelect={setSelected} />
+            <ProcessorError status={health} />
+            <div className="max-h-56 shrink-0 overflow-y-auto">
+              <RadarSettings settings={settings} edit={edit} />
+            </div>
           </div>
         )}
       </FaceBody>
+      <ProcessorFooter
+        status={health}
+        chips={radarChips(update)}
+        actions={<ClearTracks node={node.id} cleared={update === null} />}
+      />
     </NodeShell>
   );
 }
 
-function RadarFooter({
-  node,
-  settings,
-  edit,
-  lanes,
-  colormap,
-  onColormap,
-  cleared,
-}: {
-  node: string;
-  settings: PassiveRadarParams;
-  edit: (next: Partial<PassiveRadarParams>) => void;
-  lanes: number;
-  colormap: Colormap;
-  onColormap: (colormap: Colormap) => void;
-  cleared: boolean;
-}) {
+function ClearTracks({ node, cleared }: { node: string; cleared: boolean }) {
   const { clear, pending } = useTrackClear(node);
   return (
-    <Collapsible.Root className="flex shrink-0 flex-col border-t border-line">
-      <div className="flex items-center gap-2 px-2 py-1.5">
-        <Collapsible.Trigger className={BTN_QUIET}>Settings</Collapsible.Trigger>
-        <Button
-          type="button"
-          className={`${BTN} ml-auto`}
-          title="Forget every track"
-          disabled={pending || cleared}
-          onClick={clear}
-        >
-          Clear
-        </Button>
-      </div>
-      <Collapsible.Panel className="max-h-56 overflow-y-auto">
-        <div className="px-2 pb-2">
-          <Settings>
-            <SettingRow label="Colours">
-              <Select
-                label="Colours"
-                value={colormap}
-                options={COLOUR_OPTIONS}
-                onChange={onColormap}
-                className="w-28"
-              />
-            </SettingRow>
-          </Settings>
-        </div>
-        <RadarSettings settings={settings} edit={edit} lanes={Math.max(lanes, 2)} />
-      </Collapsible.Panel>
-    </Collapsible.Root>
+    <Button
+      type="button"
+      className={BTN}
+      title="Forget every track"
+      disabled={pending || cleared}
+      onClick={clear}
+    >
+      Clear
+    </Button>
   );
 }
 
@@ -196,27 +157,23 @@ function RadarStrip({
     update === null ? 0 : lostCpis(update.health, update.axes, status?.sample_rate ?? null);
   const load = update?.health.load ?? 0;
   return (
-    <div className="shrink-0 border-t border-line px-2 py-1.5">
-      <ProcessorReadout columns={4}>
-        <ReadoutCell label="Targets" value={String(confirmedTracks(update))} />
-        <ReadoutCell label="Clutter" value={clutter.value} title={clutter.title} />
-        <ReadoutCell
-          label="Load"
-          value={update === null ? "-" : loadText(load)}
-          danger={load > 1}
-          title="Share of real time spent"
-        />
-        <ReadoutCell label="Ref" value={update === null ? "-" : referenceText(update)} />
-        <ReadoutCell
-          label="CPI"
-          value={update === null ? "-" : `${update.axes.cpi_ms.toFixed(0)} ms`}
-        />
-        <ReadoutCell label="Age" value={ageLabel(receivedAt, now)} />
-        {update !== null && lost > 0 && (
-          <ReadoutCell label="Drops" value={String(lost)} danger title={lostTitle(update.health)} />
-        )}
-      </ProcessorReadout>
-    </div>
+    <Readouts columns={4}>
+      <Readout label="Targets">{String(confirmedTracks(update))}</Readout>
+      <Readout label="Clutter" title={clutter.title}>
+        {clutter.value}
+      </Readout>
+      <Readout label="Load" tone={load > 1 ? "danger" : undefined} title="Share of real time spent">
+        {update === null ? "-" : loadText(load)}
+      </Readout>
+      <Readout label="Ref">{update === null ? "-" : referenceText(update)}</Readout>
+      <Readout label="CPI">{update === null ? "-" : `${update.axes.cpi_ms.toFixed(0)} ms`}</Readout>
+      <Readout label="Age">{ageLabel(receivedAt, now)}</Readout>
+      {update !== null && lost > 0 && (
+        <Readout label="Drops" tone="danger" title={lostTitle(update.health)}>
+          {String(lost)}
+        </Readout>
+      )}
+    </Readouts>
   );
 }
 

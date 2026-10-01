@@ -77,10 +77,10 @@ describe("GpsFace with a phone", () => {
     expect(html).toContain("52.520000, 13.405000");
     expect(html).toContain(">123° compass ±5°<");
     expect(html).toContain(">2° / -1°<");
-    expect(html).toMatch(/>Fix<\/span><span[^>]*>0 </);
+    expect(html).toMatch(/>Fix<\/dt><dd[^>]*>0 </);
   });
 
-  it("shows offline and not paired as a chip, not as a sentence", () => {
+  it("shows offline and not paired in the header, not as a fault", () => {
     const offline = render(phones(true), null, "phone offline");
     expect(offline).toContain(">Offline<");
     expect(offline).not.toContain('role="alert"');

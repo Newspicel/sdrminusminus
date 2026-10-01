@@ -1,7 +1,18 @@
 import { afterEach, expect, it } from "vitest";
-import { queueSummary, usePipelineHealth } from "./pipeline";
+import { channelQueueSummary, queueSummary, usePipelineHealth } from "./pipeline";
 
 afterEach(() => usePipelineHealth.getState().reset());
+
+function queue(channel: number | null, oldest_ms: number, dropped: number) {
+  return {
+    device_set: 1,
+    stream: 0,
+    channel,
+    stage: "spectrum" as const,
+    health: { queued: 1, capacity: 16, oldest_ms, dropped },
+  };
+}
+
 it("publishes stage metrics and clears stale metrics on disconnect", () => {
   usePipelineHealth.getState().observe({
     type: "PipelineHealth",
@@ -52,9 +63,22 @@ it("summarizes the queues of one device set and leaves the rest alone", () => {
   };
   const summary = queueSummary(health, 1);
   expect(summary?.oldestMs).toBe(4.5);
+  expect(summary?.dropped).toBe(5);
   expect(summary?.detail).toBe(
     "capture 0: 2400/240000, 1.3 ms, 5 dropped\nspectrum 0/3: 8/16, 4.5 ms, 0 dropped",
   );
   expect(queueSummary(health, 7)).toBeNull();
   expect(queueSummary(null, 1)).toBeNull();
+});
+
+it("summarizes only the queues of one decoder", () => {
+  const health = {
+    queues: [queue(null, 9, 1), queue(3, 2, 4), queue(3, 6, 1), queue(4, 50, 7)],
+    websocket: { queued: 0, capacity: 16, oldest_ms: 0, dropped: 0 },
+  };
+  const summary = channelQueueSummary(health, 1, 3);
+  expect(summary?.oldestMs).toBe(6);
+  expect(summary?.dropped).toBe(5);
+  expect(channelQueueSummary(health, 1, 9)).toBeNull();
+  expect(channelQueueSummary(health, 2, 3)).toBeNull();
 });

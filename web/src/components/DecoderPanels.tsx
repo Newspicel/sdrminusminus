@@ -1,21 +1,13 @@
 import { useQuery } from "@tanstack/react-query";
 import { ChevronDown, ChevronUp } from "lucide-react";
-import {
-  Fragment,
-  type ReactNode,
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useRef,
-  useState,
-} from "react";
+import { type ReactNode, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { capturedImageUrl, imagesQuery } from "../lib/api";
 import { copyText } from "../lib/copyText";
 import { useDecodedKind, useDecodedStore, useStations } from "../lib/decoded";
 import type { DecodedRecordOf, DecoderKind, IdentSignal } from "../lib/types";
 import { Button } from "./BaseControls";
 import { BroadcastDataView } from "./BroadcastDataView";
-import { ALERT, BTN, CHIP, TABLE_CELL, TABLE_HEAD } from "./controls";
+import { ALERT, BTN, TABLE_CELL, TABLE_HEAD } from "./controls";
 import {
   ageClass,
   aircraftRow,
@@ -49,6 +41,8 @@ import {
   type TargetSort,
   toneLabel,
 } from "./decoderViews";
+import { FaceFault } from "./face/Fault";
+import { Readout, Readouts } from "./face/Readouts";
 import { formatHz } from "./format";
 import { Icon } from "./Icon";
 import { Unit } from "./Unit";
@@ -108,11 +102,7 @@ function RdsView({ scope = {} }: { scope?: DecoderScope }) {
           {altFreqs.length === 0 ? (
             <span className="font-mono text-xs text-ink-dim">-</span>
           ) : (
-            altFreqs.map((af) => (
-              <span key={af} className={CHIP}>
-                {af}
-              </span>
-            ))
+            <span className="font-mono text-xs tabular-nums text-ink">{altFreqs.join(" · ")}</span>
           )}
         </div>
         <div className="ml-auto flex items-center gap-2 font-mono text-xs tabular-nums text-ink-dim">
@@ -335,14 +325,7 @@ function TextView({ kind, scope = {} }: { kind: "rtty" | "morse" | "psk"; scope?
         </Button>
       </div>
 
-      {copyError !== null && (
-        <div role="alert" className={`${ALERT} flex items-center justify-between gap-3`}>
-          <span>Copy failed: {copyError}</span>
-          <Button type="button" className="shrink-0 underline" onClick={() => setCopyError(null)}>
-            dismiss
-          </Button>
-        </div>
-      )}
+      {copyError !== null && <FaceFault message={`Copy failed: ${copyError}`} />}
 
       <pre
         ref={paneRef}
@@ -473,14 +456,13 @@ function IdentView({ scope = {} }: { scope?: DecoderScope }) {
       </div>
 
       {signals.length === 0 && (
-        <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5">
+        <Readouts ruled={false} padded={false}>
           {identOverview(report).map(([label, value]) => (
-            <Fragment key={label}>
-              <dt className="legend self-center">{label}</dt>
-              <dd className="font-mono text-xs tabular-nums text-ink">{value}</dd>
-            </Fragment>
+            <Readout key={label} label={label}>
+              {value}
+            </Readout>
           ))}
-        </dl>
+        </Readouts>
       )}
 
       {signals.map((signal) => (
@@ -500,14 +482,13 @@ function IdentSignalView({ signal }: { signal: IdentSignal }) {
         <span className="legend">{Math.round(signal.confidence * 100)}% confident</span>
       </div>
 
-      <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5">
+      <Readouts ruled={false} padded={false}>
         {identMeasurements(signal).map(([label, value]) => (
-          <Fragment key={label}>
-            <dt className="legend self-center">{label}</dt>
-            <dd className="font-mono text-xs tabular-nums text-ink">{value}</dd>
-          </Fragment>
+          <Readout key={label} label={label}>
+            {value}
+          </Readout>
         ))}
-      </dl>
+      </Readouts>
 
       <div>
         <div className="legend">Protocol</div>
@@ -522,7 +503,9 @@ function IdentSignalView({ signal }: { signal: IdentSignal }) {
                 >
                   {match.name}
                 </span>
-                <span className={CHIP}>{candidateScore(match)}</span>
+                <span className="font-mono text-xs tabular-nums text-ink-dim">
+                  {candidateScore(match)}
+                </span>
                 <span className="text-xs text-ink-dim">{match.why}</span>
               </li>
             ))}
@@ -533,7 +516,7 @@ function IdentSignalView({ signal }: { signal: IdentSignal }) {
   );
 }
 
-const DECT_CIPHER_CHIP: Record<string, string> = {
+const DECT_CIPHER_STATE: Record<string, string> = {
   clear: "no encryption seen",
   requested: "start requested",
   confirmed: "start confirmed",
@@ -561,7 +544,7 @@ function DectRow({ station }: { station: DectStation }) {
       <td className={TABLE_CELL}>{dectSupport(station.authentication)}</td>
       <td className={TABLE_CELL}>{dectSupport(station.ciphering)}</td>
       <td className={TABLE_CELL}>
-        <span className={CHIP}>{DECT_CIPHER_CHIP[station.cipherState] ?? station.cipherState}</span>
+        {DECT_CIPHER_STATE[station.cipherState] ?? station.cipherState}
       </td>
       <td className={TABLE_CELL}>{station.handsets === 0 ? "-" : String(station.handsets)}</td>
       <td className={TABLE_CELL}>{station.levelDbfs.toFixed(1)}</td>
@@ -634,8 +617,8 @@ function VorView({ scope = {} }: { scope?: DecoderScope }) {
           <span className="font-mono text-xl tabular-nums text-ink">
             {fix.lat.toFixed(5)}, {fix.lon.toFixed(5)}
           </span>
-          <span className={CHIP}>{fix.stations} stations</span>
           <span className="text-xs text-ink-dim">
+            {fix.stations} stations ·{" "}
             {fix.residualKm < 1
               ? `${Math.round(fix.residualKm * 1000)} m`
               : `${fix.residualKm.toFixed(1)} km`}{" "}

@@ -154,6 +154,6 @@ describe("DfFace", () => {
     expect(html).toMatch(/>Lost<.*>3</);
     expect(html).toMatch(/>Cut<.*>2</);
     expect(html).not.toContain(">Drops<");
-    expect(html).toMatch(/>Fault<.*>Needs a line or circle</);
+    expect(html).toMatch(/role="alert"[^>]*><p[^>]*>Needs a line or circle</);
   });
 });

@@ -1,10 +1,12 @@
 import { useState } from "react";
-import { Button, Input } from "../../components/BaseControls";
-import { BTN, BTN_DANGER, BTN_PRIMARY, FIELD, LABEL } from "../../components/controls";
+import { Button } from "../../components/BaseControls";
+import { BTN, BTN_DANGER, BTN_PRIMARY } from "../../components/controls";
+import { ChipField, Chips, NumberChip, SettingChip } from "../../components/face/Chips";
+import { Readout, Readouts } from "../../components/face/Readouts";
+import { FaceStats, Stat } from "../../components/face/Stats";
 import { formatHz, formatSignedHz } from "../../components/format";
 import { MapPanel } from "../../components/MapPanel";
 import { OffsetStepper } from "../../components/OffsetStepper";
-import { FieldUnitFrame, unitPadding } from "../../components/Unit";
 import { positionSourcesOf, usePositionStore } from "../../lib/position";
 import {
   canStart,
@@ -22,7 +24,7 @@ import { useWorkspaceContext, type Workspace } from "../context";
 import { patchNode } from "../graph";
 import { deviceSetOf } from "../workspaceDevice";
 import { laneCenterHz, laneRateHz } from "./deviceNode";
-import { FaceBody, NodeShell, useFaceActive } from "./NodeShell";
+import { FaceBody, FaceFooter, NodeShell, useFaceActive } from "./NodeShell";
 
 const NO_POSITIONS: readonly string[] = [];
 const MAX_OFFSET_HZ = 1_000_000_000_000;
@@ -42,23 +44,14 @@ export function SignalMapFace({ node }: { node: PatchNode }) {
   }
 
   return (
-    <NodeShell
+    <SignalSurvey
       node={node}
-      title="Signal survey"
-      category="output"
-      subtitle={set === null ? undefined : formatSignedHz(node.data.offset_hz)}
-    >
-      <FaceBody scroll={false}>
-        <SignalSurvey
-          node={node}
-          centerHz={set === null || iq === null ? null : laneCenterHz(set, iq.stream)}
-          spanHz={set === null || iq === null ? null : (laneRateHz(set, iq.stream) ?? null)}
-          radioWired={hasWire(workspace.graph, node.id, "iq")}
-          positionNode={positionNode}
-          positioned={positioned}
-        />
-      </FaceBody>
-    </NodeShell>
+      centerHz={set === null || iq === null ? null : laneCenterHz(set, iq.stream)}
+      spanHz={set === null || iq === null ? null : (laneRateHz(set, iq.stream) ?? null)}
+      radioWired={hasWire(workspace.graph, node.id, "iq")}
+      positionNode={positionNode}
+      positioned={positioned}
+    />
   );
 }
 
@@ -124,37 +117,88 @@ function SignalSurvey({
     editSurveyBand(workspace, node.id, offsetHz, bandwidthHz);
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex shrink-0 flex-wrap items-end gap-2 border-b border-line bg-panel-2 p-2">
-        <fieldset
-          className="flex min-w-72 flex-1 flex-wrap items-center gap-2 disabled:opacity-60"
-          disabled={held}
-          title={held ? "Clear the survey to change the offset" : undefined}
-        >
-          <span className="legend">Offset</span>
-          <OffsetStepper
-            offsetHz={node.data.offset_hz}
-            limitHz={offsetLimitHz(spanHz, node.data.bandwidth_hz)}
-            centerHz={centerHz}
-            onOffset={(offset) => updateSettings(offset, node.data.bandwidth_hz)}
-          />
-        </fieldset>
-        <BandwidthField
-          node={node}
-          held={held}
-          onCommit={(bandwidth) => {
-            const limit = offsetLimitHz(spanHz, bandwidth);
-            updateSettings(Math.max(-limit, Math.min(limit, node.data.offset_hz)), bandwidth);
-          }}
+    <NodeShell
+      node={node}
+      title="Signal survey"
+      category="output"
+      subtitle={
+        <span className={survey.recording ? "text-accent" : undefined}>{surveyStatus(view)}</span>
+      }
+    >
+      <FaceBody scroll={false}>
+        <MapPanel
+          kinds={[]}
+          positionNodes={positionNode === null ? NO_POSITIONS : [positionNode]}
+          signalSamples={cells}
+          active={active}
+          className="min-h-0 w-full flex-1"
         />
+        <Chips className="shrink-0 border-t border-line p-2">
+          <SettingChip
+            label="Offset"
+            value={formatSignedHz(node.data.offset_hz)}
+            quiet={node.data.offset_hz === 0}
+            disabled={held}
+            title={held ? "Clear the survey to change the offset" : "Offset from the radio centre"}
+            width="w-80"
+          >
+            {() => (
+              <ChipField label="Offset from the radio centre">
+                <OffsetStepper
+                  offsetHz={node.data.offset_hz}
+                  limitHz={offsetLimitHz(spanHz, node.data.bandwidth_hz)}
+                  centerHz={centerHz}
+                  onOffset={(offset) => updateSettings(offset, node.data.bandwidth_hz)}
+                />
+              </ChipField>
+            )}
+          </SettingChip>
+          <NumberChip
+            label="Width"
+            title={held ? "Clear the survey to change the width" : "Survey bandwidth"}
+            value={node.data.bandwidth_hz / 1e3}
+            unit="kHz"
+            min={0.001}
+            max={MAX_BANDWIDTH_HZ / 1e3}
+            disabled={held}
+            onCommit={(khz) => {
+              const bandwidth = Math.round(khz * 1e3);
+              if (bandwidth < 1 || bandwidth > MAX_BANDWIDTH_HZ) {
+                return;
+              }
+              if (bandwidth !== node.data.bandwidth_hz) {
+                const limit = offsetLimitHz(spanHz, bandwidth);
+                updateSettings(Math.max(-limit, Math.min(limit, node.data.offset_hz)), bandwidth);
+              }
+            }}
+          />
+        </Chips>
+        <Readouts columns={3}>
+          <Readout label="Cells">{cells.length}</Readout>
+          <Readout label="At">{targetHz === null ? "- Hz" : formatHz(targetHz)}</Readout>
+          <Readout
+            label="Level"
+            title="Relative receiver level. Keep gain and antenna fixed when comparing locations"
+          >
+            {levelDbfs === null ? "- dBFS" : `${levelDbfs.toFixed(1)} dBFS`}
+          </Readout>
+        </Readouts>
+      </FaceBody>
+      <FaceFooter>
+        {survey.dropped > 0 && (
+          <FaceStats>
+            <Stat label="Dropped" title="Oldest cells dropped to stay within the limit" tone="warn">
+              {survey.dropped}
+            </Stat>
+          </FaceStats>
+        )}
         <Button
           type="button"
-          className={survey.recording ? BTN_DANGER : BTN_PRIMARY}
-          disabled={pending || (!survey.recording && !canStart(view))}
-          aria-pressed={survey.recording}
-          onClick={() => control(survey.recording ? "stop" : "start")}
+          className={BTN}
+          disabled={!held}
+          onClick={() => downloadSurvey(node, cells)}
         >
-          {survey.recording ? "Pause" : "Start survey"}
+          Export CSV
         </Button>
         <Button
           type="button"
@@ -172,77 +216,15 @@ function SignalSurvey({
         </Button>
         <Button
           type="button"
-          className={BTN}
-          disabled={!held}
-          onClick={() => downloadSurvey(node, cells)}
+          className={survey.recording ? BTN_DANGER : BTN_PRIMARY}
+          disabled={pending || (!survey.recording && !canStart(view))}
+          aria-pressed={survey.recording}
+          onClick={() => control(survey.recording ? "stop" : "start")}
         >
-          Export CSV
+          {survey.recording ? "Pause" : "Start survey"}
         </Button>
-      </div>
-      <div className="flex shrink-0 items-center gap-3 border-b border-line px-2 py-1 font-mono text-[10px] tabular-nums">
-        <span className={survey.recording ? "text-accent" : "text-ink-dim"}>
-          {surveyStatus(view)}
-        </span>
-        <span className="ml-auto text-ink-dim">{cells.length} cells</span>
-        {survey.dropped > 0 && (
-          <span className="text-warn" title="Oldest cells dropped to stay within the limit">
-            {survey.dropped} dropped
-          </span>
-        )}
-        <span className="text-ink-dim">{targetHz === null ? "- Hz" : formatHz(targetHz)}</span>
-        <span
-          className="min-w-20 text-right text-ink"
-          title="Relative receiver level. Keep gain and antenna settings fixed when comparing locations."
-        >
-          {levelDbfs === null ? "- dBFS" : `${levelDbfs.toFixed(1)} dBFS`}
-        </span>
-      </div>
-      <MapPanel
-        kinds={[]}
-        positionNodes={positionNode === null ? NO_POSITIONS : [positionNode]}
-        signalSamples={cells}
-        active={active}
-        className="min-h-0 w-full flex-1"
-      />
-    </div>
-  );
-}
-
-function BandwidthField({
-  node,
-  held,
-  onCommit,
-}: {
-  node: PatchNodeOf<"signal_map">;
-  held: boolean;
-  onCommit: (bandwidthHz: number) => void;
-}) {
-  return (
-    <label className={`${LABEL} flex w-28 flex-col items-stretch gap-1`}>
-      Width
-      <FieldUnitFrame symbol="kHz">
-        <Input
-          key={node.data.bandwidth_hz}
-          className={`${FIELD} w-full`}
-          style={unitPadding("kHz")}
-          defaultValue={`${node.data.bandwidth_hz / 1e3}`}
-          inputMode="decimal"
-          aria-label="Survey bandwidth"
-          disabled={held}
-          title={held ? "Clear the survey to change the width" : undefined}
-          onBlur={(event) => {
-            const bandwidth = Math.round(Number(event.currentTarget.value.replace(",", ".")) * 1e3);
-            if (!Number.isFinite(bandwidth) || bandwidth < 1 || bandwidth > MAX_BANDWIDTH_HZ) {
-              event.currentTarget.value = `${node.data.bandwidth_hz / 1e3}`;
-              return;
-            }
-            if (bandwidth !== node.data.bandwidth_hz) {
-              onCommit(bandwidth);
-            }
-          }}
-        />
-      </FieldUnitFrame>
-    </label>
+      </FaceFooter>
+    </NodeShell>
   );
 }
 

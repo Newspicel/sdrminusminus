@@ -1,76 +1,117 @@
-import { TABLE_CELL, TABLE_HEAD } from "../../components/controls";
-import { type ArrayLaneRow, delayLabel, laneQualityPercent, laneTitle } from "./arrayNode";
+import { AutoToggle } from "../../components/AgcAuto";
+import { GainMeter, MeterBar, MeterRow } from "../../components/face/Meter";
+import { Unit } from "../../components/Unit";
+import { useDebouncedCommit } from "../../components/useDebouncedCommit";
+import { ARRAY_LIMITS } from "../../lib/limits";
+import type { ArrayStatus } from "../../lib/types";
+import { useArrayGain } from "./ArraySettings";
+import { type ArrayLaneRow, laneQualityPercent, laneTitle } from "./arrayNode";
 import { FaceEmpty } from "./NodeShell";
 
 export const NO_LANES_HINT = "Wire radio lanes in";
 
-const HEADERS = ["Lane", "Source", "Phase", "Gain", "Delay", "Q"] as const;
+const GAIN_DB = ARRAY_LIMITS.gain_db;
 
-export function ArrayLanes({ rows }: { rows: readonly ArrayLaneRow[] }) {
+export function ArrayLanes({
+  node,
+  rows,
+  status,
+}: {
+  node: string;
+  rows: readonly ArrayLaneRow[];
+  status: ArrayStatus | undefined;
+}) {
   if (rows.length === 0) {
     return <FaceEmpty hint={NO_LANES_HINT} />;
   }
   return (
-    <table aria-label="Lanes" className="w-full table-fixed border-t border-line">
-      <colgroup>
-        <col className="w-10" />
-        <col />
-        <col className="w-15" />
-        <col className="w-17" />
-        <col className="w-16" />
-        <col className="w-12" />
-      </colgroup>
-      <thead>
-        <tr>
-          {HEADERS.map((header) => (
-            <th key={header} scope="col" className={TABLE_HEAD}>
-              {header}
-            </th>
-          ))}
-        </tr>
-      </thead>
-      <tbody>
+    <div className="flex flex-col gap-px border-t border-line p-2">
+      <GainRow node={node} status={status} />
+      <div role="list" aria-label="Lanes" className="flex flex-col gap-px">
         {rows.map((row) => (
           <LaneRow key={row.port} row={row} />
         ))}
-      </tbody>
-    </table>
+      </div>
+    </div>
+  );
+}
+
+function GainRow({ node, status }: { node: string; status: ArrayStatus | undefined }) {
+  const { setGain, pending } = useArrayGain(node);
+  const range = status?.gain_range_db;
+  const auto = status?.gain.kind === "auto";
+  const held = status?.gain.kind === "manual" ? status.gain.db : (status?.gain_db ?? GAIN_DB.min);
+  const off = status === undefined || pending;
+  const slider = useDebouncedCommit((db) => setGain({ kind: "manual", db }));
+  const shown = slider.pending ?? held;
+  return (
+    <MeterRow
+      label="Gain"
+      title="One gain for every lane"
+      meter={
+        <GainMeter
+          label="Gain"
+          className="min-w-0 flex-1"
+          min={Math.max(GAIN_DB.min, range?.min ?? GAIN_DB.min)}
+          max={Math.min(GAIN_DB.max, range?.max ?? GAIN_DB.max)}
+          step={range?.step ?? 0.1}
+          value={shown}
+          auto={auto}
+          disabled={off || auto}
+          onChange={slider.change}
+        />
+      }
+      readout={
+        <>
+          {shown.toFixed(1)} <Unit symbol="dB" className="text-ink-faint" />
+        </>
+      }
+      trailing={
+        <AutoToggle
+          label="Auto gain"
+          pressed={auto}
+          title="Radio AGC on every lane"
+          disabled={off}
+          onChange={(on) => {
+            slider.cancel();
+            setGain(on ? { kind: "auto" } : { kind: "manual", db: held });
+          }}
+        />
+      }
+    />
   );
 }
 
 function LaneRow({ row }: { row: ArrayLaneRow }) {
   const lane = row.status;
-  const quality = lane === null ? null : laneQualityPercent(lane.coherence);
+  const quality = lane === null ? 0 : laneQualityPercent(lane.coherence);
   return (
-    <tr title={laneTitle(row)} className="border-t border-line/60">
-      <td className={TABLE_CELL}>{row.lane}</td>
-      <td className={`${TABLE_CELL} truncate text-ink-dim`}>{row.sourceLabel}</td>
-      <td className={TABLE_CELL}>{lane === null ? "-" : `${lane.phase_deg.toFixed(1)}°`}</td>
-      <td className={`${TABLE_CELL} ${lane?.clipping === true ? "text-danger" : ""}`}>
-        {lane === null ? "-" : `${lane.gain_db.toFixed(1)} dB`}
-      </td>
-      <td className={`${TABLE_CELL} truncate`}>
-        {lane === null ? "-" : delayLabel(lane.delay_samples)}
-      </td>
-      <td className={TABLE_CELL}>
-        {quality === null ? (
-          "-"
-        ) : (
-          <span
-            role="meter"
-            aria-label={`Lane ${row.lane} quality`}
-            aria-valuemin={0}
-            aria-valuemax={100}
-            aria-valuenow={quality}
-            className="block h-1.5 w-full rounded-full bg-line"
-          >
-            <span
-              className="block h-full rounded-full bg-accent"
-              style={{ width: `${quality}%` }}
-            />
+    <div role="listitem" title={laneTitle(row)}>
+      <MeterRow
+        port={row.port}
+        label={<span className="truncate font-mono text-[11px] text-port-array">L{row.lane}</span>}
+        meter={
+          <MeterBar
+            label={`Lane ${row.lane} quality`}
+            value={quality / 100}
+            valueText={lane === null ? undefined : `${quality}%`}
+          />
+        }
+        readout={
+          lane === null ? (
+            "-"
+          ) : (
+            <span className={lane.clipping ? "text-danger" : undefined}>
+              {lane.gain_db.toFixed(1)} <Unit symbol="dB" className="text-ink-faint" />
+            </span>
+          )
+        }
+        trailing={
+          <span className="text-right font-mono text-xs tabular-nums text-ink-dim">
+            {lane === null ? "-" : `${lane.phase_deg.toFixed(0)}°`}
           </span>
-        )}
-      </td>
-    </tr>
+        }
+      />
+    </div>
   );
 }

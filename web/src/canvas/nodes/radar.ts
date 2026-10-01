@@ -14,7 +14,7 @@ import type {
   RadarTrack,
   RadarUpdate,
 } from "../../lib/types";
-import type { Chip } from "./ProcessorReadout";
+import type { Chip } from "./ProcessorHealth";
 
 export const TRACK_ROWS = 6;
 export const STALE_SLACK_MS = 1_000;

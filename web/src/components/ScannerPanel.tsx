@@ -5,15 +5,15 @@ import { FaceBody, FaceFooter } from "../canvas/nodes/NodeShell";
 import { STATE_KEY, skipScan, startScan, stopScan } from "../lib/api";
 import { decoderKey, useScannerStore } from "../lib/scanner";
 import { pushToast } from "../lib/toasts";
-import type { ChannelInfo, DeviceSet, ScanMode } from "../lib/types";
+import type { ChannelInfo, DeviceSet, ScanMode, ScannerStatus } from "../lib/types";
 import { Button } from "./BaseControls";
-import { Checkbox } from "./Checkbox";
-import { BTN, BTN_DANGER, BTN_PRIMARY, ICON_BTN_SM } from "./controls";
+import { BTN, BTN_DANGER, BTN_PRIMARY, BTN_SM } from "./controls";
+import { ChipField, Chips, ChoiceChip, NumberChip, SettingChip, ToggleChip } from "./face/Chips";
+import { FaceFault } from "./face/Fault";
+import { Readout, Readouts } from "./face/Readouts";
+import { FaceStats, Stat } from "./face/Stats";
 import { Icon } from "./Icon";
 import { NumberField } from "./NumberField";
-import { Readout, ReadoutRow } from "./Readout";
-import { Select } from "./Select";
-import { SettingGroup, SettingRow, Settings } from "./Settings";
 import {
   formatDb,
   formatMhz,
@@ -28,6 +28,11 @@ import {
 
 const DEFAULT_THRESHOLD_DB = -55;
 const DEFAULT_MARGIN_DB = 12;
+
+const SCAN_MODES = [
+  { value: "targets", label: "Listed", title: "The listed frequencies" },
+  { value: "close_call", label: "Strongest", title: "The strongest signal near me" },
+] as const;
 
 export function ScannerPanel({
   active,
@@ -93,167 +98,71 @@ export function ScannerPanel({
   const parsed = parseRanges(ranges);
   const busy = startMut.isPending || stopMut.isPending || skipMut.isPending;
   const holding = status?.state === "holding";
-  const patchRange = (id: string, patch: Partial<RangeInput>): void =>
-    setRanges((current) => current.map((r) => (r.id === id ? { ...r, ...patch } : r)));
-
   return (
     <>
       <FaceBody title={active === null ? hint : undefined}>
         {status !== null ? (
-          <Readout separated={false}>
-            <ReadoutRow label="State">
-              <span className={status.state === "holding" ? "text-accent" : ""}>
-                {status.state === "holding" ? "holding" : "scanning"}
-              </span>
-            </ReadoutRow>
-            <ReadoutRow label="Frequency">{formatMhz(status.current_hz)}</ReadoutRow>
-            <ReadoutRow label="Looking for">
-              {status.settings.mode === "close_call"
-                ? `anything ${status.settings.margin_db ?? DEFAULT_MARGIN_DB} dB over the noise`
-                : "the listed frequencies"}
-            </ReadoutRow>
-            <ReadoutRow label="Sweep">{sweepKind(active, status)}</ReadoutRow>
-            <ReadoutRow label="Span">
-              {formatMhz(status.first_hz)} to {formatMhz(status.last_hz)}
-            </ReadoutRow>
-            <ReadoutRow label="Level">{formatDb(status.current_db)}</ReadoutRow>
-            <ReadoutRow label="Targets">{status.targets}</ReadoutRow>
-            <ReadoutRow label="Sweeps">{status.sweeps}</ReadoutRow>
-            <ReadoutRow label="Hits">{status.hits}</ReadoutRow>
-            {(status.settings.skip?.length ?? 0) > 0 && (
-              <ReadoutRow label="Skipped">{status.settings.skip?.length}</ReadoutRow>
-            )}
-            {status.error != null && (
-              <ReadoutRow label="Fault">
-                <span className="text-danger">{status.error}</span>
-              </ReadoutRow>
-            )}
-          </Readout>
+          <>
+            <Readouts ruled={false}>
+              <Readout label="State">
+                <span className={holding ? "text-accent" : ""}>
+                  {holding ? "holding" : "scanning"}
+                </span>
+              </Readout>
+              <Readout label="Frequency">{formatMhz(status.current_hz)}</Readout>
+              <Readout label="Looking for">
+                {status.settings.mode === "close_call"
+                  ? `anything ${status.settings.margin_db ?? DEFAULT_MARGIN_DB} dB over the noise`
+                  : "the listed frequencies"}
+              </Readout>
+              <Readout label="Sweep">{sweepKind(active, status)}</Readout>
+              <Readout label="Span">
+                {formatMhz(status.first_hz)} to {formatMhz(status.last_hz)}
+              </Readout>
+              <Readout label="Level">{formatDb(status.current_db)}</Readout>
+            </Readouts>
+            {status.error != null && <FaceFault message={status.error} />}
+          </>
         ) : (
           <>
-            <Settings className="p-2">
-              {ranges.map((range, index) => (
-                <SettingGroup
-                  key={range.id}
-                  label={ranges.length > 1 ? `Range ${index + 1}` : "Range"}
-                  action={
-                    ranges.length > 1 && (
-                      <Button
-                        type="button"
-                        className={`${ICON_BTN_SM} hover:text-danger`}
-                        aria-label={`Remove range ${index + 1}`}
-                        onClick={() =>
-                          setRanges((current) => current.filter((other) => other.id !== range.id))
-                        }
-                      >
-                        <Icon glyph={X} size={12} />
-                      </Button>
-                    )
-                  }
-                >
-                  <SettingRow label="From">
-                    <NumberField
-                      label={`Range ${index + 1} start`}
-                      value={range.startMhz}
-                      min={0}
-                      step={0.1}
-                      onCommit={(startMhz) => patchRange(range.id, { startMhz })}
-                      unit="MHz"
-                    />
-                  </SettingRow>
-                  <SettingRow label="To">
-                    <NumberField
-                      label={`Range ${index + 1} stop`}
-                      value={range.stopMhz}
-                      min={0}
-                      step={0.1}
-                      invalid={range.stopMhz < range.startMhz}
-                      onCommit={(stopMhz) => patchRange(range.id, { stopMhz })}
-                      unit="MHz"
-                    />
-                  </SettingRow>
-                  <SettingRow label="Step">
-                    <NumberField
-                      label={`Range ${index + 1} step`}
-                      value={range.stepKhz}
-                      min={MIN_STEP_KHZ}
-                      step={MIN_STEP_KHZ}
-                      onCommit={(stepKhz) => patchRange(range.id, { stepKhz })}
-                      unit="kHz"
-                    />
-                  </SettingRow>
-                </SettingGroup>
-              ))}
-
-              <SettingGroup label="Sweep">
-                <SettingRow label="Looking for">
-                  <Select
-                    label="Scan mode"
-                    value={mode}
-                    options={[
-                      { value: "targets", label: "the listed frequencies" },
-                      { value: "close_call", label: "the strongest signal near me" },
-                    ]}
-                    onChange={setMode}
-                  />
-                </SettingRow>
-                {mode === "close_call" ? (
-                  <SettingRow label="Over noise">
-                    <NumberField
-                      label="Close call margin"
-                      value={marginDb}
-                      min={1}
-                      max={60}
-                      step={1}
-                      onCommit={setMarginDb}
-                      unit="dB"
-                    />
-                  </SettingRow>
-                ) : (
-                  <SettingRow label="Threshold">
-                    <NumberField
-                      label="Scan threshold"
-                      value={thresholdDb}
-                      min={-120}
-                      max={0}
-                      step={1}
-                      onCommit={setThresholdDb}
-                      unit="dB"
-                    />
-                  </SettingRow>
-                )}
-                {active?.capabilities.hardware_sweep === true && (
-                  <SettingRow label="Firmware sweep">
-                    <Checkbox
-                      label="Let the radio sweep itself"
-                      checked={hardwareSweep}
-                      onChange={setHardwareSweep}
-                    />
-                  </SettingRow>
-                )}
-              </SettingGroup>
-            </Settings>
-
-            <Readout>
+            <Readouts ruled={false}>
               {channel !== null && (
-                <ReadoutRow label="Feeds">
+                <Readout label="Feeds">
                   {channel.settings.params.type} at {formatMhz(channel.settings.frequency_hz)}
-                </ReadoutRow>
+                </Readout>
               )}
-              <ReadoutRow label="Sweep">{sweepKind(active, null)}</ReadoutRow>
-              <ReadoutRow label="Targets">
-                {typeof parsed === "string" ? (
-                  <span className="text-danger">{parsed}</span>
-                ) : (
-                  `${targetCount(parsed.ranges)} per sweep`
-                )}
-              </ReadoutRow>
-            </Readout>
+              <Readout label="Sweep">{sweepKind(active, null)}</Readout>
+            </Readouts>
+            <ScanSetup
+              ranges={ranges}
+              onRanges={setRanges}
+              mode={mode}
+              onMode={setMode}
+              thresholdDb={thresholdDb}
+              onThreshold={setThresholdDb}
+              marginDb={marginDb}
+              onMargin={setMarginDb}
+              firmwareSweep={active?.capabilities.hardware_sweep === true}
+              hardwareSweep={hardwareSweep}
+              onHardwareSweep={setHardwareSweep}
+            />
+            {typeof parsed === "string" && <FaceFault message={parsed} />}
           </>
         )}
       </FaceBody>
 
       <FaceFooter>
+        {status !== null ? (
+          <ScanStats status={status} />
+        ) : (
+          typeof parsed !== "string" && (
+            <FaceStats>
+              <Stat label="Targets" title="Frequencies per sweep">
+                {targetCount(parsed.ranges)}
+              </Stat>
+            </FaceStats>
+          )
+        )}
         {status !== null && active !== null && channel !== null ? (
           <>
             <Button
@@ -299,5 +208,191 @@ export function ScannerPanel({
         )}
       </FaceFooter>
     </>
+  );
+}
+
+function ScanStats({ status }: { status: ScannerStatus }) {
+  const skipped = status.settings.skip?.length ?? 0;
+  return (
+    <FaceStats>
+      <Stat label="Targets" title="Frequencies per sweep">
+        {status.targets}
+      </Stat>
+      <Stat label="Sweeps" title="Sweeps finished">
+        {status.sweeps}
+      </Stat>
+      <Stat label="Hits" title="Signals held">
+        {status.hits}
+      </Stat>
+      {skipped > 0 && (
+        <Stat label="Skipped" title="Frequencies skipped this scan">
+          {skipped}
+        </Stat>
+      )}
+    </FaceStats>
+  );
+}
+
+function RangeChip({
+  range,
+  index,
+  numbered,
+  onPatch,
+  onRemove,
+}: {
+  range: RangeInput;
+  index: number;
+  numbered: boolean;
+  onPatch: (patch: Partial<RangeInput>) => void;
+  onRemove?: () => void;
+}) {
+  const name = `Range ${index + 1}`;
+  const reversed = range.stopMhz < range.startMhz;
+  return (
+    <SettingChip
+      label={numbered ? name : "Range"}
+      value={`${range.startMhz}-${range.stopMhz}`}
+      unit="MHz"
+      title={`${name}, every ${range.stepKhz} kHz`}
+      tone={reversed ? "danger" : undefined}
+    >
+      {(close) => (
+        <div className="flex flex-col gap-2">
+          <ChipField label="From">
+            <NumberField
+              className="min-w-0 flex-1"
+              label={`${name} start`}
+              value={range.startMhz}
+              min={0}
+              step={0.1}
+              onCommit={(startMhz) => onPatch({ startMhz })}
+              unit="MHz"
+            />
+          </ChipField>
+          <ChipField label="To">
+            <NumberField
+              className="min-w-0 flex-1"
+              label={`${name} stop`}
+              value={range.stopMhz}
+              min={0}
+              step={0.1}
+              invalid={reversed}
+              onCommit={(stopMhz) => onPatch({ stopMhz })}
+              unit="MHz"
+            />
+          </ChipField>
+          <ChipField label="Step">
+            <NumberField
+              className="min-w-0 flex-1"
+              label={`${name} step`}
+              value={range.stepKhz}
+              min={MIN_STEP_KHZ}
+              step={MIN_STEP_KHZ}
+              onCommit={(stepKhz) => onPatch({ stepKhz })}
+              unit="kHz"
+            />
+          </ChipField>
+          {onRemove !== undefined && (
+            <Button
+              type="button"
+              className={`${BTN_SM} self-start hover:text-danger`}
+              aria-label={`Remove range ${index + 1}`}
+              onClick={() => {
+                onRemove();
+                close();
+              }}
+            >
+              <Icon glyph={X} size={12} />
+              Remove
+            </Button>
+          )}
+        </div>
+      )}
+    </SettingChip>
+  );
+}
+
+function ScanSetup({
+  ranges,
+  onRanges,
+  mode,
+  onMode,
+  thresholdDb,
+  onThreshold,
+  marginDb,
+  onMargin,
+  firmwareSweep,
+  hardwareSweep,
+  onHardwareSweep,
+}: {
+  ranges: readonly RangeInput[];
+  onRanges: (update: (current: RangeInput[]) => RangeInput[]) => void;
+  mode: ScanMode;
+  onMode: (mode: ScanMode) => void;
+  thresholdDb: number;
+  onThreshold: (db: number) => void;
+  marginDb: number;
+  onMargin: (db: number) => void;
+  firmwareSweep: boolean;
+  hardwareSweep: boolean;
+  onHardwareSweep: (on: boolean) => void;
+}) {
+  const patchRange = (id: string, patch: Partial<RangeInput>): void =>
+    onRanges((current) => current.map((r) => (r.id === id ? { ...r, ...patch } : r)));
+  return (
+    <Chips className="border-t border-line p-2">
+      {ranges.map((range, index) => (
+        <RangeChip
+          key={range.id}
+          range={range}
+          index={index}
+          numbered={ranges.length > 1}
+          onPatch={(patch) => patchRange(range.id, patch)}
+          onRemove={
+            ranges.length > 1
+              ? () => onRanges((current) => current.filter((other) => other.id !== range.id))
+              : undefined
+          }
+        />
+      ))}
+      <ChoiceChip
+        label="Find"
+        title="Scan mode"
+        value={mode}
+        options={SCAN_MODES}
+        onChange={onMode}
+      />
+      {mode === "close_call" ? (
+        <NumberChip
+          label="Over noise"
+          title="Close call margin"
+          unit="dB"
+          value={marginDb}
+          min={1}
+          max={60}
+          step={1}
+          onCommit={onMargin}
+        />
+      ) : (
+        <NumberChip
+          label="Threshold"
+          title="Scan threshold"
+          unit="dB"
+          value={thresholdDb}
+          min={-120}
+          max={0}
+          step={1}
+          onCommit={onThreshold}
+        />
+      )}
+      {firmwareSweep && (
+        <ToggleChip
+          label="Firmware sweep"
+          title="Let the radio sweep itself"
+          on={hardwareSweep}
+          onChange={onHardwareSweep}
+        />
+      )}
+    </Chips>
   );
 }

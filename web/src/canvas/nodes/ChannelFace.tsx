@@ -1,23 +1,23 @@
 import { useQuery } from "@tanstack/react-query";
 import { Button } from "../../components/BaseControls";
 import { ChannelControls, ChannelDial } from "../../components/ChannelControls";
-import { Checkbox } from "../../components/Checkbox";
 import {
   channelHasAudio,
   channelWidthHz,
   radioWindowHz,
   reachesHz,
-  squelchLevelDb,
 } from "../../components/channelSettings";
 import { BTN_PRIMARY } from "../../components/controls";
 import { ANY_FREQUENCY, tuningRange } from "../../components/dial";
 import { dialId } from "../../components/FrequencyDial";
-import { formatHz } from "../../components/format";
-import { LevelMeter } from "../../components/LevelMeter";
-import { SettingRow } from "../../components/Settings";
+import { ToggleChip } from "../../components/face/Chips";
+import { FaceStats, Stat } from "../../components/face/Stats";
+import { DROPS_HINT, formatCount, formatHz } from "../../components/format";
+import { SignalRow } from "../../components/SignalRow";
 import { devicesQuery } from "../../lib/api";
 import { useDecodedKind } from "../../lib/decoded";
 import { useLevelStore } from "../../lib/levels";
+import { channelQueueSummary, usePipelineHealth } from "../../lib/pipeline";
 import { trackedBy, useSatelliteStore } from "../../lib/satellite";
 import type { PatchNode, PatchNodeOf } from "../../lib/types";
 import { channelSettingsOf, liveChannelOf, useChannelEdit } from "../../lib/useChannelEdit";
@@ -122,7 +122,7 @@ export function ChannelFace({ node }: { node: PatchNode }) {
     >
       <FaceBody>
         {settings !== null && (
-          <div className="@container flex flex-col gap-1.5 border-b border-line p-2">
+          <div className="@container flex flex-col gap-1 border-b border-line p-2">
             <ChannelDial
               hz={settings.frequency_hz}
               descriptor={descriptor}
@@ -137,7 +137,13 @@ export function ChannelFace({ node }: { node: PatchNode }) {
               onLock={(tuning_locked) => editNode({ tuning_locked })}
             />
             {live !== null && (
-              <LevelMeter level={levels?.[live.id]} squelchDb={squelchLevelDb(settings.squelch)} />
+              <SignalRow
+                level={levels?.[live.id]}
+                squelch={settings.squelch}
+                onSquelch={
+                  channelHasAudio(descriptor) ? (squelch) => onEdit({ squelch }) : undefined
+                }
+              />
             )}
           </div>
         )}
@@ -153,23 +159,20 @@ export function ChannelFace({ node }: { node: PatchNode }) {
             onEdit={onEdit}
             extra={
               keepsCalls(descriptor) && (
-                <SettingRow
+                <ToggleChip
                   label="Record calls"
                   title="Save each call the decoder hears as its own audio file"
-                >
-                  <Checkbox
-                    label="Record calls"
-                    checked={node.data.record_calls ?? false}
-                    onChange={(record_calls) => editNode({ record_calls })}
-                  />
-                </SettingRow>
+                  on={node.data.record_calls ?? false}
+                  onChange={(record_calls) => editNode({ record_calls })}
+                />
               )
             }
           />
         )}
       </FaceBody>
-      {action !== null && (
-        <FaceFooter>
+      <FaceFooter>
+        {live !== null && <ChannelHealth deviceSet={live.deviceSet} channel={live.id} />}
+        {action !== null && (
           <Button
             type="button"
             className={BTN_PRIMARY}
@@ -178,8 +181,8 @@ export function ChannelFace({ node }: { node: PatchNode }) {
           >
             {action}
           </Button>
-        </FaceFooter>
-      )}
+        )}
+      </FaceFooter>
     </NodeShell>
   );
 }
@@ -212,4 +215,24 @@ function faceStatus({
     return <span title="The radio carrying this decoder now">{carrier}</span>;
   }
   return undefined;
+}
+
+function ChannelHealth({ deviceSet, channel }: { deviceSet: number; channel: number }) {
+  const health = usePipelineHealth((state) => state.health);
+  const summary = channelQueueSummary(health, deviceSet, channel);
+  if (summary === null) {
+    return null;
+  }
+  return (
+    <FaceStats>
+      <Stat label="Queue" title={summary.detail}>
+        {summary.oldestMs.toFixed(0)} ms
+      </Stat>
+      {summary.dropped > 0 && (
+        <Stat label="Drops" title={DROPS_HINT} tone="warn">
+          {formatCount(summary.dropped)}
+        </Stat>
+      )}
+    </FaceStats>
+  );
 }

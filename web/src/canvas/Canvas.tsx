@@ -32,6 +32,7 @@ import {
   unpin,
 } from "./graph";
 import { useConnections, useGraphChanges } from "./handlers";
+import { type MenuPlace, menuPlace } from "./menuPlace";
 import { NODE_TYPES } from "./nodes";
 import { ReplaceDecoder } from "./nodes/ReplaceDecoder";
 import { focusNode } from "./selection";
@@ -259,7 +260,20 @@ function ContextMenu({
   const workspace = useWorkspaceContext();
   const { fitView } = useReactFlow();
   const menuRef = useRef<HTMLDivElement>(null);
+  const [place, setPlace] = useState<MenuPlace>({ left: menu.x, top: menu.y });
   const node = menu.target.kind === "node" ? nodeOf(workspace.graph, menu.target.id) : undefined;
+
+  useLayoutEffect(() => {
+    const box = menuRef.current?.getBoundingClientRect();
+    if (box !== undefined) {
+      setPlace(
+        menuPlace({ left: menu.x, top: menu.y }, box, {
+          width: window.innerWidth,
+          height: window.innerHeight,
+        }),
+      );
+    }
+  }, [menu.x, menu.y]);
   const pinned = node !== undefined && isPinned(workspace.rack, node.id);
 
   useEffect(() => {
@@ -361,7 +375,7 @@ function ContextMenu({
       ref={menuRef}
       role="menu"
       className={`${SURFACE} fixed z-40 flex w-52 flex-col p-1`}
-      style={{ left: menu.x, top: menu.y }}
+      style={place}
     >
       {items}
       {node !== undefined && (

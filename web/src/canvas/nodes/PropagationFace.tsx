@@ -1,12 +1,12 @@
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { Button } from "../../components/BaseControls";
-import { Checkbox } from "../../components/Checkbox";
-import { BTN, BTN_DANGER, LABEL, TABLE_CELL, TABLE_HEAD } from "../../components/controls";
+import { BTN, BTN_DANGER, TABLE_CELL, TABLE_HEAD } from "../../components/controls";
+import { Chips, ChoiceChip, ToggleChip } from "../../components/face/Chips";
+import { FaceFault } from "../../components/face/Fault";
+import { Readout, Readouts } from "../../components/face/Readouts";
 import { formatMhz } from "../../components/format";
 import { MapPanel } from "../../components/MapPanel";
-import { Segmented } from "../../components/Segmented";
-import { Select } from "../../components/Select";
 import { decoderLogQuery, ionosondeQuery } from "../../lib/api";
 import {
   type CellComparison,
@@ -33,7 +33,7 @@ import type { DecodedRecord, PatchNode, PatchNodeOf, ServerEvent } from "../../l
 import { type Input, inputsOf } from "../binding";
 import { useWorkspaceContext } from "../context";
 import { patchNode } from "../graph";
-import { FaceBody, NodeShell, useFaceActive } from "./NodeShell";
+import { FaceBody, FaceFooter, NodeShell, useFaceActive } from "./NodeShell";
 
 const REDRAW_MS = 2_000;
 
@@ -100,14 +100,12 @@ export function PropagationFace({ node }: { node: PatchNode }) {
 
   return (
     <NodeShell node={node} title="Propagation map" category="output">
-      <FaceBody scroll={false}>
-        <Propagation
-          node={node}
-          inputs={wired}
-          positionNode={positionNode ?? null}
-          receiver={receiver}
-        />
-      </FaceBody>
+      <Propagation
+        node={node}
+        inputs={wired}
+        positionNode={positionNode ?? null}
+        receiver={receiver}
+      />
     </NodeShell>
   );
 }
@@ -220,6 +218,8 @@ function Propagation({
   const agreement = useMemo(() => forecastAgreement(comparisons), [comparisons]);
   const overhead = useMemo(() => forecastAt(sondes, station[0], station[1]), [sondes, station]);
 
+  const forecastError = ionosonde.data?.error ?? (ionosonde.isError ? "no answer" : null);
+
   const overlay = useMemo(() => ({ cells, paths, sondes, layer }), [cells, paths, sondes, layer]);
 
   const update = (patch: Partial<PatchNodeOf<"propagation">["data"]>): void => {
@@ -234,45 +234,53 @@ function Propagation({
   };
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-line bg-panel-2 p-2">
-        <label className={`${LABEL} flex flex-col items-stretch gap-1`}>
-          Half-life
-          <Select
-            label="Decay half-life"
-            className="w-28"
-            value={settings.half_life_minutes}
-            options={HALF_LIFE_OPTIONS}
-            onChange={(half_life_minutes) => update({ half_life_minutes })}
+    <>
+      <FaceBody scroll={false}>
+        <MapPanel
+          kinds={[]}
+          positionNodes={positionNode === null ? NO_POSITIONS : [positionNode]}
+          propagation={overlay}
+          active={active}
+          className="min-h-0 w-full flex-1"
+        />
+        <PropagationChips settings={settings} layer={layer} onLayer={setLayer} onChange={update} />
+        <Readouts columns="fit">
+          <Readout label="Decodes">{summary.decodes}</Readout>
+          <Readout label="Grids">{summary.grids}</Readout>
+          <Readout label="Cells">{cells.length}</Readout>
+          <Readout label="Highest" title="Highest frequency heard">
+            {formatMhz(summary.bestFreqHz)}
+          </Readout>
+          <Readout
+            label="MUF(3000)"
+            title="Measured MUF is a floor: the highest frequency decoded over each path, projected onto a 3000 km hop"
+          >
+            {summary.bestMuf3000Mhz === null ? "-" : `≥ ${summary.bestMuf3000Mhz.toFixed(1)} MHz`}
+          </Readout>
+          <Readout label="Farthest">{Math.round(summary.farthestKm)} km</Readout>
+          {settings.compare_forecast && (
+            <ForecastReadouts
+              overheadMhz={overhead?.muf3000Mhz ?? null}
+              source={ionosonde.data?.source ?? null}
+              stations={sondes.length}
+              above={agreement.above}
+              cells={agreement.cells}
+              medianDeltaMhz={agreement.medianDeltaMhz}
+            />
+          )}
+        </Readouts>
+        {settings.compare_forecast && forecastError !== null && (
+          <FaceFault message="Ionosonde feed failed" detail={forecastError} />
+        )}
+        <div className="max-h-40 shrink-0 overflow-auto border-t border-line">
+          <PathTable
+            comparisons={comparisons}
+            cells={cells}
+            compareForecast={settings.compare_forecast}
           />
-        </label>
-        <label className={`${LABEL} flex flex-col items-stretch gap-1`}>
-          Reflection
-          <Select
-            label="Reflecting layer height"
-            className="w-36"
-            value={settings.reflection_height_km}
-            options={HEIGHT_OPTIONS}
-            onChange={(reflection_height_km) => update({ reflection_height_km })}
-          />
-        </label>
-        <Segmented label="Map layer" value={layer} options={LAYER_OPTIONS} onChange={setLayer} />
-        <label className={`${LABEL} gap-1.5`}>
-          <Checkbox
-            label="Draw the path to every station heard"
-            checked={settings.show_paths}
-            onChange={(show_paths) => update({ show_paths })}
-          />
-          Paths
-        </label>
-        <label className={`${LABEL} gap-1.5`}>
-          <Checkbox
-            label="Compare against the ionosonde network"
-            checked={settings.compare_forecast}
-            onChange={(compare_forecast) => update({ compare_forecast })}
-          />
-          Ionosondes
-        </label>
+        </div>
+      </FaceBody>
+      <FaceFooter>
         <Button
           type="button"
           className={clearArmed ? BTN_DANGER : BTN}
@@ -289,106 +297,103 @@ function Propagation({
         >
           {clearArmed ? "Confirm clear" : "Clear"}
         </Button>
-      </div>
-
-      <div className="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-1 border-b border-line px-2 py-1 font-mono text-[10px] tabular-nums text-ink-dim">
-        <span>
-          <span className="text-ink">{summary.decodes}</span> decodes
-        </span>
-        <span>
-          <span className="text-ink">{summary.grids}</span> grids
-        </span>
-        <span>
-          <span className="text-ink">{cells.length}</span> cells
-        </span>
-        <span>
-          highest heard <span className="text-ink">{formatMhz(summary.bestFreqHz)}</span>
-        </span>
-        <span title="The highest frequency you actually decoded, projected onto a 3000 km hop. It is a floor: the real MUF sits at or above it.">
-          measured MUF(3000){" "}
-          <span className="text-ink">
-            {summary.bestMuf3000Mhz === null ? "-" : `≥ ${summary.bestMuf3000Mhz.toFixed(1)} MHz`}
-          </span>
-        </span>
-        <span>
-          farthest <span className="text-ink">{Math.round(summary.farthestKm)} km</span>
-        </span>
-        {settings.compare_forecast && (
-          <span title="The ionosonde network's MUF(3000) interpolated over your own location.">
-            overhead forecast{" "}
-            <span className="text-ink">
-              {overhead === null ? "-" : `${overhead.muf3000Mhz.toFixed(1)} MHz`}
-            </span>
-          </span>
-        )}
-      </div>
-
-      <MapPanel
-        kinds={[]}
-        positionNodes={positionNode === null ? NO_POSITIONS : [positionNode]}
-        propagation={overlay}
-        active={active}
-        className="min-h-0 w-full flex-1"
-      />
-
-      <div className="max-h-40 shrink-0 overflow-auto border-t border-line">
-        <PathTable
-          comparisons={comparisons}
-          cells={cells}
-          compareForecast={settings.compare_forecast}
-        />
-      </div>
-
-      <div className="shrink-0 border-t border-line px-2 py-1 font-mono text-[10px] text-ink-faint">
-        {settings.compare_forecast ? (
-          <ForecastNotice
-            error={ionosonde.data?.error ?? (ionosonde.isError ? "no answer" : null)}
-            source={ionosonde.data?.source ?? null}
-            stations={sondes.length}
-            above={agreement.above}
-            cells={agreement.cells}
-            medianDeltaMhz={agreement.medianDeltaMhz}
-          />
-        ) : (
-          "Measured MUF is a floor: the highest frequency actually decoded over each path, projected onto a 3000 km hop."
-        )}
-      </div>
-    </div>
+      </FaceFooter>
+    </>
   );
 }
 
-const EMPTY_PATHS: never[] = [];
+type PropagationSettings = PatchNodeOf<"propagation">["data"];
 
-function ForecastNotice({
-  error,
+function PropagationChips({
+  settings,
+  layer,
+  onLayer,
+  onChange,
+}: {
+  settings: PropagationSettings;
+  layer: PropagationLayer;
+  onLayer: (layer: PropagationLayer) => void;
+  onChange: (patch: Partial<PropagationSettings>) => void;
+}) {
+  return (
+    <Chips className="shrink-0 border-t border-line p-2">
+      <ChoiceChip
+        label="Half-life"
+        title="Decay half-life"
+        value={settings.half_life_minutes}
+        options={HALF_LIFE_OPTIONS}
+        onChange={(half_life_minutes) => onChange({ half_life_minutes })}
+      />
+      <ChoiceChip
+        label="Height"
+        title="Reflecting layer height"
+        value={settings.reflection_height_km}
+        options={HEIGHT_OPTIONS}
+        onChange={(reflection_height_km) => onChange({ reflection_height_km })}
+      />
+      <ChoiceChip
+        label="Map"
+        title="Map layer"
+        value={layer}
+        options={LAYER_OPTIONS}
+        onChange={onLayer}
+      />
+      <ToggleChip
+        label="Paths"
+        title="Draw the path to every station heard"
+        on={settings.show_paths}
+        onChange={(show_paths) => onChange({ show_paths })}
+      />
+      <ToggleChip
+        label="Ionosondes"
+        title="Compare against the ionosonde network"
+        on={settings.compare_forecast}
+        onChange={(compare_forecast) => onChange({ compare_forecast })}
+      />
+    </Chips>
+  );
+}
+
+function ForecastReadouts({
+  overheadMhz,
   source,
   stations,
   above,
   cells,
   medianDeltaMhz,
 }: {
-  error: string | null;
+  overheadMhz: number | null;
   source: string | null;
   stations: number;
   above: number;
   cells: number;
   medianDeltaMhz: number;
 }) {
-  if (error !== null) {
-    return <span className="text-danger">Ionosonde feed: {error}</span>;
-  }
-  if (stations === 0) {
-    return <span>Waiting for the ionosonde network…</span>;
-  }
   const sign = medianDeltaMhz >= 0 ? "+" : "";
   return (
-    <span>
-      {stations} sounding sites · {above} of {cells} compared cells sit above the forecast · median
-      Δ {sign}
-      {medianDeltaMhz.toFixed(1)} MHz · {source ?? "ionosonde network"}
-    </span>
+    <>
+      <Readout label="Forecast" title="The ionosonde MUF(3000) over your location">
+        {overheadMhz === null ? "-" : `${overheadMhz.toFixed(1)} MHz`}
+      </Readout>
+      <Readout label="Sites" title={`Sounding sites, from ${source ?? "the ionosonde network"}`}>
+        {stations === 0 ? "waiting" : stations}
+      </Readout>
+      {stations > 0 && (
+        <Readout label="Above" title="Compared cells that sit above the forecast">
+          {above}/{cells}
+        </Readout>
+      )}
+      {stations > 0 && (
+        <Readout label="Median Δ" title="Median of measured minus forecast MUF">
+          {sign}
+          {medianDeltaMhz.toFixed(1)} MHz
+        </Readout>
+      )}
+    </>
   );
 }
+
+const EMPTY_PATHS: never[] = [];
 
 function PathTable({
   comparisons,

@@ -1,7 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
-import { FoldSection } from "../canvas/nodes/FoldSection";
-import { HuntSweep, HuntSweepSettings } from "../canvas/nodes/HuntSweep";
+import { HuntSweep, HuntSweepChips } from "../canvas/nodes/HuntSweep";
 import { FaceBody, FaceFooter } from "../canvas/nodes/NodeShell";
 import { markHunt, STATE_KEY, startHunt, stopHunt, sweepHunt } from "../lib/api";
 import { type Clicker, startClicker } from "../lib/geiger";
@@ -9,8 +8,11 @@ import { decoderKey, useHuntStore } from "../lib/hunt";
 import { clearAction, failAction } from "../lib/refusals";
 import type { HuntStatus, HuntSweepParams } from "../lib/types";
 import { Button } from "./BaseControls";
-import { Checkbox } from "./Checkbox";
 import { BTN, BTN_DANGER, BTN_PRIMARY } from "./controls";
+import { Chips, ToggleChip } from "./face/Chips";
+import { FaceFault } from "./face/Fault";
+import { Readout, Readouts } from "./face/Readouts";
+import { FaceStats, Stat } from "./face/Stats";
 import {
   formatHuntDb,
   formatStrength,
@@ -23,8 +25,6 @@ import {
   type Trend,
   trend,
 } from "./hunt";
-import { Readout, ReadoutRow } from "./Readout";
-import { SettingRow, Settings } from "./Settings";
 import { formatMhz } from "./scanner";
 
 export const HUNT_ACTION = "Hunt";
@@ -136,31 +136,26 @@ export function HuntPanel({
             )}
           </>
         ) : (
-          <Readout separated={false}>
+          <>
             {target !== null && (
-              <ReadoutRow label="Hunting">
-                {target.channel.settings.params.type} at {formatMhz(huntedHz(null, target.channel))}
-              </ReadoutRow>
+              <Readouts ruled={false}>
+                <Readout label="Hunting">
+                  {target.channel.settings.params.type} at{" "}
+                  {formatMhz(huntedHz(null, target.channel))}
+                </Readout>
+              </Readouts>
             )}
-            {refusal !== null && (
-              <ReadoutRow label="Refused" title={refusal.title}>
-                <span className="text-danger">{refusal.label}</span>
-              </ReadoutRow>
-            )}
-          </Readout>
+            {refusal !== null && <FaceFault message={refusal.label} detail={refusal.title} />}
+          </>
         )}
-        <Settings className="p-2">
-          <SettingRow label="Clicks">
-            <Checkbox label="Geiger clicks" checked={clicks} onChange={onClicks} />
-          </SettingRow>
-        </Settings>
-        {positionWired && sweep !== null && (
-          <FoldSection label="Sweep">
-            <HuntSweepSettings params={sweep} edit={onSweep} />
-          </FoldSection>
-        )}
+        {status?.error != null && <FaceFault message={status.error} />}
+        <Chips className="border-t border-line p-2">
+          <ToggleChip label="Clicks" title="Geiger clicks" on={clicks} onChange={onClicks} />
+          {positionWired && sweep !== null && <HuntSweepChips params={sweep} edit={onSweep} />}
+        </Chips>
       </FaceBody>
       <FaceFooter>
+        {status !== null && <HuntStats status={status} />}
         {status !== null && target !== null ? (
           <Button
             type="button"
@@ -226,29 +221,34 @@ function HuntReading({ status, target }: { status: HuntStatus; target: HuntTarge
   return (
     <>
       <HuntMeter strength={status.strength ?? 0} heading={heading} />
-      <Readout separated={false}>
-        <ReadoutRow label="Hunting">{formatMhz(huntedHz(status, target.channel))}</ReadoutRow>
-        <ReadoutRow label="Trend">
+      <Readouts ruled={false}>
+        <Readout label="Hunting">{formatMhz(huntedHz(status, target.channel))}</Readout>
+        <Readout label="Trend">
           <span className={heading === "closing" ? "text-accent" : ""}>{TREND_LABEL[heading]}</span>
-        </ReadoutRow>
-        <ReadoutRow label="Strength">{formatStrength(status)}</ReadoutRow>
-        <ReadoutRow label="Level">{formatHuntDb(status.level_db)}</ReadoutRow>
-        <ReadoutRow label="Smoothed">{formatHuntDb(status.smooth_db)}</ReadoutRow>
-        <ReadoutRow label="Walked">
+        </Readout>
+        <Readout label="Strength">{formatStrength(status)}</Readout>
+        <Readout label="Level">{formatHuntDb(status.level_db)}</Readout>
+        <Readout label="Smoothed">{formatHuntDb(status.smooth_db)}</Readout>
+        <Readout label="Walked">
           {formatHuntDb(status.floor_db)} → {formatHuntDb(status.best_db)}
-        </ReadoutRow>
-        <ReadoutRow label="Readings">{status.readings}</ReadoutRow>
-        {(status.pose_drops ?? 0) > 0 && (
-          <ReadoutRow label="Pose drops" title="Poses refused, the queue was full">
-            <span className="text-danger">{status.pose_drops}</span>
-          </ReadoutRow>
-        )}
-        {status.error != null && (
-          <ReadoutRow label="Fault">
-            <span className="text-danger">{status.error}</span>
-          </ReadoutRow>
-        )}
-      </Readout>
+        </Readout>
+      </Readouts>
     </>
+  );
+}
+
+function HuntStats({ status }: { status: HuntStatus }) {
+  const poseDrops = status.pose_drops ?? 0;
+  return (
+    <FaceStats>
+      <Stat label="Readings" title="Level readings taken">
+        {status.readings}
+      </Stat>
+      {poseDrops > 0 && (
+        <Stat label="Pose drops" title="Poses refused, the queue was full" tone="danger">
+          {poseDrops}
+        </Stat>
+      )}
+    </FaceStats>
   );
 }

@@ -30,7 +30,7 @@ own, so you do not need to tune the radio. See [Tuning](../user-guide/tuning.md)
 Start the Speaker. If it stays silent:
 
 - Click the page once. Browsers block audio until you do.
-- Turn squelch off on the channel.
+- Drag the channel's squelch handle far left to turn it off.
 - Check the channel marker sits on the station in the Scope.
 
 Adjust the Device gain until the station stands clearly above the noise without clipping. More

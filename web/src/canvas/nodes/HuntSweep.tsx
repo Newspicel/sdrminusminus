@@ -1,10 +1,9 @@
 import { Button } from "../../components/BaseControls";
 import { BTN, BTN_PRIMARY } from "../../components/controls";
+import { NumberChip } from "../../components/face/Chips";
+import { Readout, Readouts } from "../../components/face/Readouts";
 import { coveredLabel, degreesLabel, SWEEP_TEXT, sweepOn } from "../../components/hunt";
-import { NumberField } from "../../components/NumberField";
-import { Readout, ReadoutRow } from "../../components/Readout";
 import { Rose, type RoseNeedle, TRUE_MARKS } from "../../components/Rose";
-import { SettingRow, Settings } from "../../components/Settings";
 import { HUNT_LIMITS as LIMITS } from "../../lib/limits";
 import type { HuntSweepParams, HuntSweep as Sweep } from "../../lib/types";
 
@@ -50,8 +49,8 @@ export function HuntSweep({
         needles={sweepNeedles(sweep)}
         dim={!on}
       />
-      <Readout separated={false}>
-        <ReadoutRow label="Heading">
+      <Readouts ruled={false}>
+        <Readout label="Heading">
           {heading === null ? (
             <span className="text-danger" title="Wire a phone GPS">
               None
@@ -59,13 +58,13 @@ export function HuntSweep({
           ) : (
             degreesLabel(heading)
           )}
-        </ReadoutRow>
-        <ReadoutRow label="Peak">{degreesLabel(sweep?.peak_deg)}</ReadoutRow>
-        <ReadoutRow label="Covered">{sweep === null ? "-" : coveredLabel(sweep)}</ReadoutRow>
-        <ReadoutRow label="Sweep" title={state.title}>
+        </Readout>
+        <Readout label="Peak">{degreesLabel(sweep?.peak_deg)}</Readout>
+        <Readout label="Covered">{sweep === null ? "-" : coveredLabel(sweep)}</Readout>
+        <Readout label="Sweep" title={state.title}>
           {state.label}
-        </ReadoutRow>
-      </Readout>
+        </Readout>
+      </Readouts>
       <div className="flex flex-wrap justify-center gap-2">
         {on ? (
           <Button
@@ -102,7 +101,7 @@ export function HuntSweep({
   );
 }
 
-export function HuntSweepSettings({
+export function HuntSweepChips({
   params,
   edit,
 }: {
@@ -110,62 +109,57 @@ export function HuntSweepSettings({
   edit: (next: Partial<HuntSweepParams>) => void;
 }) {
   return (
-    <Settings>
-      <SettingRow label="Beamwidth" title="Main lobe of the handheld antenna">
-        <NumberField
-          label="Beamwidth"
-          unit="°"
-          value={params.beamwidth_deg}
-          min={LIMITS.beamwidth_deg.min}
-          max={LIMITS.beamwidth_deg.max}
-          step={1}
-          onCommit={(beamwidth_deg) => edit({ beamwidth_deg })}
-        />
-      </SettingRow>
-      <SettingRow label="Front/back">
-        <NumberField
-          label="Front/back"
-          unit="dB"
-          value={params.front_back_db}
-          min={LIMITS.front_back_db.min}
-          max={LIMITS.front_back_db.max}
-          step={1}
-          onCommit={(front_back_db) => edit({ front_back_db })}
-        />
-      </SettingRow>
-      <SettingRow label="Min span" title="How far to turn before a bearing">
-        <NumberField
-          label="Min span"
-          unit="°"
-          value={params.min_span_deg}
-          min={LIMITS.min_span_deg.min}
-          max={LIMITS.min_span_deg.max}
-          step={10}
-          onCommit={(min_span_deg) => edit({ min_span_deg })}
-        />
-      </SettingRow>
-      <SettingRow label="Min contrast" title="Peak over the weakest direction">
-        <NumberField
-          label="Min contrast"
-          unit="dB"
-          value={params.min_contrast_db}
-          min={LIMITS.min_contrast_db.min}
-          max={LIMITS.min_contrast_db.max}
-          step={0.5}
-          onCommit={(min_contrast_db) => edit({ min_contrast_db })}
-        />
-      </SettingRow>
-      <SettingRow label="Mount" title="Antenna forward relative to the phone">
-        <NumberField
-          label="Mount"
-          unit="°"
-          value={params.mount_offset_deg}
-          min={LIMITS.mount_offset_deg.min}
-          max={LIMITS.mount_offset_deg.max}
-          step={1}
-          onCommit={(mount_offset_deg) => edit({ mount_offset_deg })}
-        />
-      </SettingRow>
-    </Settings>
+    <>
+      <NumberChip
+        label="Beam"
+        title="Main lobe of the handheld antenna"
+        unit="°"
+        value={params.beamwidth_deg}
+        min={LIMITS.beamwidth_deg.min}
+        max={LIMITS.beamwidth_deg.max}
+        step={1}
+        onCommit={(beamwidth_deg) => edit({ beamwidth_deg })}
+      />
+      <NumberChip
+        label="F/B"
+        title="Front/back ratio of the antenna"
+        unit="dB"
+        value={params.front_back_db}
+        min={LIMITS.front_back_db.min}
+        max={LIMITS.front_back_db.max}
+        step={1}
+        onCommit={(front_back_db) => edit({ front_back_db })}
+      />
+      <NumberChip
+        label="Span"
+        title="How far to turn before a bearing"
+        unit="°"
+        value={params.min_span_deg}
+        min={LIMITS.min_span_deg.min}
+        max={LIMITS.min_span_deg.max}
+        step={10}
+        onCommit={(min_span_deg) => edit({ min_span_deg })}
+      />
+      <NumberChip
+        label="Contrast"
+        title="Peak over the weakest direction"
+        unit="dB"
+        value={params.min_contrast_db}
+        min={LIMITS.min_contrast_db.min}
+        max={LIMITS.min_contrast_db.max}
+        step={0.5}
+        onCommit={(min_contrast_db) => edit({ min_contrast_db })}
+      />
+      <NumberChip
+        label="Mount"
+        title="Antenna forward relative to the phone"
+        unit="°"
+        value={params.mount_offset_deg}
+        min={LIMITS.mount_offset_deg.min}
+        max={LIMITS.mount_offset_deg.max}
+        step={1}
+        onCommit={(mount_offset_deg) => edit({ mount_offset_deg })}
+      />
+    </>
   );
 }

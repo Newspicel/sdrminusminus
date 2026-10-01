@@ -1,5 +1,4 @@
 import type { ReactNode } from "react";
-import { Button } from "./BaseControls";
 import { InfoTip } from "./InfoTip";
 
 export function SettingsPanel({ children }: { children: ReactNode }) {
@@ -28,33 +27,5 @@ export function SettingsSection({
       </header>
       {children}
     </section>
-  );
-}
-
-export function ToggleChip({
-  label,
-  on,
-  onClick,
-  children,
-}: {
-  label: string;
-  on: boolean;
-  onClick: () => void;
-  children?: ReactNode;
-}) {
-  return (
-    <Button
-      type="button"
-      aria-pressed={on}
-      onClick={onClick}
-      className={`flex h-7 items-center gap-2 rounded-[3px] border px-2 font-mono text-[11px] transition-colors duration-100 ${
-        on
-          ? "border-accent-dim bg-accent/12 text-accent"
-          : "border-line bg-well text-ink-dim hover:border-line-strong hover:text-ink"
-      }`}
-    >
-      {children}
-      {label}
-    </Button>
   );
 }

@@ -64,7 +64,7 @@ The node waits for the exact radio it saved, by serial number. To use a differen
 
 - Wire channel `audio` to a Speaker and start it.
 - Click the page once. Browsers block audio until you do.
-- Turn squelch off, or lower it.
+- Drag the squelch handle left. Far left turns it off.
 - Check the channel sits on the signal and inside the Device's window.
 - Check tab mute, system volume, and the output device.
 

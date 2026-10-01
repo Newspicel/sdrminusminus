@@ -158,7 +158,9 @@ test("phone GPS source shows heading", async ({ page, context, baseURL }) => {
     .getByText("Phone", { exact: true })
     .click();
   await gps.getByRole("button", { name: /Heading phone/ }).click();
-  await expect(gps.getByRole("combobox", { name: "Phone" })).toHaveText("Heading phone");
+  await expect(gps.getByRole("button", { name: "Paired phone giving the position" })).toContainText(
+    "Heading phone",
+  );
   await expect(gps.getByText("Offline", { exact: true })).toBeVisible();
 
   const phone = await context.newPage();

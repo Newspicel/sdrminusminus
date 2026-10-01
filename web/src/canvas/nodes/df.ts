@@ -16,6 +16,7 @@ import type {
   ProcessorGate,
   UlaSide,
 } from "../../lib/types";
+import type { Chip } from "./ProcessorHealth";
 
 export const NEEDS_HEADING = "Needs heading";
 
@@ -175,12 +176,6 @@ export function peakSummary(peak: DfPeak, frame: BearingFrame): string {
   return `${peakText(peak, frame)} ${percentText(peak.confidence)} ±${sigmaText(peak.sigma_deg)}`;
 }
 
-export interface DfChip {
-  label: string;
-  title: string;
-  danger: boolean;
-}
-
 const READING_CHIPS: readonly {
   on: (reading: DfReading) => boolean;
   label: string;
@@ -229,7 +224,7 @@ const READING_CHIPS: readonly {
   },
 ];
 
-export const STALE_CHIP: DfChip = {
+export const STALE_CHIP: Chip = {
   label: "Stale",
   title: "No reading for three report periods",
   danger: true,
@@ -239,8 +234,8 @@ export function dfChips(
   reading: DfReading | null,
   gate: ProcessorGate | null,
   stale: boolean,
-): DfChip[] {
-  const chips: DfChip[] = [];
+): Chip[] {
+  const chips: Chip[] = [];
   if (gate !== null) {
     chips.push({ label: GATE_TEXT[gate], title: "The array holds this finder", danger: true });
   }

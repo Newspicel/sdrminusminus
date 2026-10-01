@@ -238,8 +238,8 @@ export function adoptable(
     .map((channel) => ({ lcn: channel.logical_channel, freq_hz: channel.freq_hz }));
 }
 
-export function controlChannelLabel(freq_hz: number): string {
-  return `also control ${formatHz(freq_hz)}`;
+export function otherControlLabel(freqs: readonly number[]): string {
+  return freqs.map((hz) => formatHz(hz)).join(", ");
 }
 
 export function searchSummary(

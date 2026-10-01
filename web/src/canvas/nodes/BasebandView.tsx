@@ -19,11 +19,11 @@ import {
   Trend,
 } from "../../components/baseband";
 import { ICON_BTN_SM, TAB_BAR, tab } from "../../components/controls";
+import { Readout, Readouts } from "../../components/face/Readouts";
 import { Icon } from "../../components/Icon";
 import { NumberField } from "../../components/NumberField";
 import { Popover } from "../../components/Popover";
 import { colormapLut } from "../../components/persistence";
-import { Readout, ReadoutRow } from "../../components/Readout";
 import { Segmented } from "../../components/Segmented";
 import { SettingsPanel, SettingsSection } from "../../components/SettingsPanel";
 import { Switch } from "../../components/Switch";
@@ -72,8 +72,6 @@ const TREND_POINTS = 240;
 const SCATTER_VIEWS: readonly BasebandView[] = ["constellation", "eye"];
 const SIGNAL_VIEWS: readonly BasebandView[] = ["spectrum", "constellation", "eye", "levels"];
 const SYMBOL_VIEWS: readonly BasebandView[] = ["states", "quality", "drift"];
-const MEASURE_COLUMNS =
-  "grid-cols-[repeat(3,auto_auto)] justify-start gap-x-4 @[36rem]:grid-cols-[repeat(4,auto_auto)] @[60rem]:grid-cols-[repeat(8,auto_auto)]";
 const SCATTER_PAD = 12;
 const PLOT_INSET: PlotInset = { top: 10, bottom: 4 };
 
@@ -261,17 +259,13 @@ export function BasebandView({
           )}
         </div>
         {rows.length > 0 && (
-          <Readout
-            separated={false}
-            columns={MEASURE_COLUMNS}
-            className="shrink-0 border-t border-line bg-panel"
-          >
+          <Readouts ruled={false} columns="fit" className="shrink-0 border-t border-line bg-panel">
             {rows.map((row) => (
-              <ReadoutRow key={row.label} label={row.label} title={row.hint}>
+              <Readout key={row.label} label={row.label} title={row.hint}>
                 {row.value}
-              </ReadoutRow>
+              </Readout>
             ))}
-          </Readout>
+          </Readouts>
         )}
       </div>
     </div>

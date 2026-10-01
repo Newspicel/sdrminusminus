@@ -15,7 +15,7 @@ import { streamPort } from "../graph";
 import { ArrayFace } from "./ArrayFace";
 import { ALIASING, NOT_WIRED, SAME_PLACE } from "./ArrayGeometryEditor";
 import { NO_LANES_HINT } from "./ArrayLanes";
-import { NO_HEADING } from "./ArraySettings";
+import { NO_HEADING, NO_HEADING_TITLE, TIER_TITLE } from "./ArraySettings";
 import { PICK_ONE } from "./arrayNode";
 
 const ARRAY: PatchNode = placed("north", { ...catalogBody("array"), label: "North" });
@@ -80,7 +80,7 @@ function attributesOf(html: string, text: string): string {
 }
 
 function laneRows(html: string): number {
-  return html.match(/<tr title="Lane \d/g)?.length ?? 0;
+  return html.match(/<div role="listitem" title="Lane \d/g)?.length ?? 0;
 }
 
 function fiveLanes(overrides: Partial<ArrayStatus> = {}): ArrayStatus {
@@ -111,7 +111,9 @@ describe("ArrayFace", () => {
     expect(attributesOf(five, "Calibrate")).toContain('title="Line up lane phase and gain"');
     expect(attributesOf(five, "Calibrate")).not.toContain('disabled=""');
     expect(five).toContain('aria-label="Lane tuning"');
-    for (const section of ["Geometry", "Orientation", "Calibration", "Gain", "Tier"]) {
+    expect(five).toContain('aria-label="Lane 2 quality"');
+    expect(five).toContain('aria-label="Auto gain"');
+    for (const section of ["Geometry", "Calibration"]) {
       expect(five).toMatch(new RegExp(`</span>${section}</\\w+>`));
     }
   });
@@ -124,10 +126,11 @@ describe("ArrayFace", () => {
 
   it("offers a tier choice only for several radios", () => {
     const one = render(wires("kraken", 5), fiveLanes({ tier: "phase_coherent" }));
-    expect(one).not.toContain('aria-label="Array tier"');
-    expect(one).toMatch(/>Radio<.*>Shared LO</);
+    expect(one).not.toContain(`aria-label="${TIER_TITLE}"`);
+    expect(one).toMatch(/>Tier<.*>Shared LO</);
+    expect(render(wires("kraken", 5))).toMatch(/>Tier<\/span><b[^>]*>Shared LO</);
     const two = render([...wires("kraken", 4), ...wires("rtl", 1, 4)], fiveLanes());
-    expect(two).toContain('aria-label="Array tier"');
+    expect(two).toContain(`aria-label="${TIER_TITLE}"`);
     expect(two).toContain("RTL-SDR iq");
   });
 
@@ -144,13 +147,12 @@ describe("ArrayFace", () => {
     expect(html).toContain(">Drops<");
   });
 
-  it("fits a Kraken start delay in its column", () => {
+  it("names each lane's delay on its row", () => {
     const spread = fiveLanes({
       lanes: [0, 1, 2, 3, 4].map((lane) => laneStatus(lane, { delay_samples: -16_803.25 * lane })),
     });
     const html = render(wires("kraken", 5), spread);
-    expect(html).toMatch(/<td class="[^"]*truncate[^"]*">-67213<\/td>/);
-    expect(html).not.toContain(">-67213.00<");
+    expect(html).toContain("delay -67213.000 smp");
   });
 
   it("names a failure and flags aliasing above the element spacing", () => {
@@ -179,7 +181,7 @@ describe("ArrayFace", () => {
     const devices = new Map([["kraken", spread]]);
     const status = fiveLanes({ tuning: "spread" });
     const html = render(wires("kraken", 3), status, withData({ tuning: "spread" }), devices);
-    expect(html).toContain("Span 6.0480 MHz");
+    expect(html).toMatch(/>Span<\/span><b[^>]*>6.0480 MHz</);
     expect(render(wires("kraken", 3), status, ARRAY, devices)).not.toContain("Span");
   });
 
@@ -187,7 +189,7 @@ describe("ArrayFace", () => {
     const heading = withData({ orientation: { kind: "heading", mount_offset_deg: 0 } });
     const html = render(wires("kraken", 5), fiveLanes(), heading);
     expect(html).toContain(`>${NO_HEADING}<`);
-    expect(html).toContain('title="Wire a GPS with heading, like a phone"');
+    expect(html).toContain(`aria-label="${NO_HEADING_TITLE}"`);
     expect(render(wires("kraken", 5), fiveLanes())).not.toContain(`>${NO_HEADING}<`);
   });
 
@@ -218,7 +220,7 @@ describe("ArrayFace", () => {
       }),
       withData({ declared: "none" }),
     );
-    expect(html).toMatch(new RegExp(`aria-label="Array tier"[^>]*>.*${PICK_ONE}`));
+    expect(html).toMatch(new RegExp(`aria-label="${TIER_TITLE}"[^>]*>.*${PICK_ONE}`));
     expect(html).toContain(">Stop<");
     expect(html).not.toContain(">Rec</button>");
     expect(html).toMatch(/>Rec<.*>2 s</);

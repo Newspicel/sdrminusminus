@@ -100,14 +100,10 @@ describe("RecordingFace", () => {
   });
 
   it("reads out the lane count of a collection only", () => {
-    const five = renderToStaticMarkup(
-      <RecordingFacts recording={collection(LANES)} separated={false} />,
-    );
+    const five = renderToStaticMarkup(<RecordingFacts recording={collection(LANES)} />);
     expect(five).toContain("Lanes");
     expect(five).toContain(">5<");
-    const one = renderToStaticMarkup(
-      <RecordingFacts recording={collection(1)} separated={false} />,
-    );
+    const one = renderToStaticMarkup(<RecordingFacts recording={collection(1)} />);
     expect(one).not.toContain("Lanes");
     expect(one).toContain("Centre");
   });

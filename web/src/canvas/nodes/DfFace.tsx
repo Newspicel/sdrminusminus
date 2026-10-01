@@ -1,11 +1,18 @@
 import { useState } from "react";
 import { Checkbox } from "../../components/Checkbox";
-import { CHIP_SM } from "../../components/controls";
+import {
+  ChipField,
+  Chips,
+  ChoiceChip,
+  NumberChip,
+  SettingChip,
+  ToggleChip,
+} from "../../components/face/Chips";
+import { FoldSection } from "../../components/face/Fold";
+import { Readout, Readouts } from "../../components/face/Readouts";
 import { NumberField } from "../../components/NumberField";
-import { Readout, ReadoutRow } from "../../components/Readout";
 import { Rose } from "../../components/Rose";
 import { Segmented } from "../../components/Segmented";
-import { Select } from "../../components/Select";
 import { SettingRow, Settings } from "../../components/Settings";
 import { TextField } from "../../components/TextField";
 import { processorStatusOf, useArrayStore } from "../../lib/arrays";
@@ -18,7 +25,6 @@ import type {
   PatchGraph,
   PatchNode,
   PatchNodeOf,
-  ProcessorStatus,
 } from "../../lib/types";
 import { useNow } from "../../lib/useNow";
 import { arrayOf } from "../binding";
@@ -30,7 +36,6 @@ import {
   AUTO_SOURCES,
   algorithmOptions,
   type BearingFrame,
-  type DfChip,
   dfChips,
   elevationBlock,
   frameOptions,
@@ -49,12 +54,12 @@ import {
   smoothingTitle,
   sourceOptions,
 } from "./df";
-import { FoldSection } from "./FoldSection";
 import { FaceBody, FaceEmpty, NodeShell } from "./NodeShell";
+import { ProcessorFooter } from "./ProcessorFooter";
+import { ProcessorError } from "./ProcessorHealth";
 import {
   ageLabel,
   NO_CATALOG,
-  processorFaults,
   processorGate,
   processorSubtitle,
   useProcessorEdit,
@@ -107,6 +112,7 @@ export function DfFace({ node }: { node: PatchNode }) {
   const trueAvailable = reading?.azimuth_deg != null;
   const frame = shownFrame(picked, trueAvailable);
   const peaks = reading?.peaks ?? [];
+  const processor = processorStatusOf(status, node.id);
   return (
     <NodeShell
       node={node}
@@ -133,40 +139,26 @@ export function DfFace({ node }: { node: PatchNode }) {
             tickDeg={frame === "true" ? (reading?.azimuth_deg ?? null) : null}
             dim={stale || gate !== null}
           />
-          <DfChips chips={dfChips(reading, gate, stale)} />
         </div>
-        <DfReadout
-          reading={reading}
-          frame={frame}
-          age={ageLabel(state?.receivedAt, now)}
-          processor={processorStatusOf(status, node.id)}
-        />
         {settings === null ? (
           <FaceEmpty hint={NO_CATALOG} />
         ) : (
-          <DfSettings settings={settings} edit={edit} shape={arrayShape(workspace.graph, array)} />
+          <DfChips settings={settings} edit={edit} shape={arrayShape(workspace.graph, array)} />
+        )}
+        <DfReadout reading={reading} frame={frame} age={ageLabel(state?.receivedAt, now)} />
+        <ProcessorError status={processor} />
+        {settings !== null && (
+          <FoldSection label="More">
+            <DfMoreSettings
+              settings={settings}
+              edit={edit}
+              shape={arrayShape(workspace.graph, array)}
+            />
+          </FoldSection>
         )}
       </FaceBody>
+      <ProcessorFooter status={processor} chips={dfChips(reading, gate, stale)} />
     </NodeShell>
-  );
-}
-
-function DfChips({ chips }: { chips: readonly DfChip[] }) {
-  if (chips.length === 0) {
-    return null;
-  }
-  return (
-    <ul aria-label="Finder flags" className="flex flex-wrap justify-center gap-1">
-      {chips.map((chip) => (
-        <li
-          key={chip.label}
-          title={chip.title}
-          className={`${CHIP_SM} ${chip.danger ? "border-danger/60 text-danger" : ""}`}
-        >
-          {chip.label}
-        </li>
-      ))}
-    </ul>
   );
 }
 
@@ -174,101 +166,158 @@ function DfReadout({
   reading,
   frame,
   age,
-  processor,
 }: {
   reading: DfReading | null;
   frame: BearingFrame;
   age: string;
-  processor: ProcessorStatus | null;
 }) {
-  const fault = processor?.error ?? null;
   const peaks = reading?.peaks ?? [];
   const first = peaks[0];
   const others = peaks.slice(1).map((peak, index) => ({ rank: index + 2, peak }));
   return (
-    <Readout>
-      <ReadoutRow label="Bearing">{first === undefined ? "-" : peakText(first, frame)}</ReadoutRow>
-      <ReadoutRow label="±" title="One sigma">
+    <Readouts columns={2}>
+      <Readout label="Bearing">{first === undefined ? "-" : peakText(first, frame)}</Readout>
+      <Readout label="±" title="One sigma">
         {first === undefined ? "-" : sigmaText(first.sigma_deg)}
-      </ReadoutRow>
-      <ReadoutRow label="Fit" title="Share of the signal the bearings explain">
+      </Readout>
+      <Readout label="Fit" title="Share of the signal the bearings explain">
         {reading === null ? "-" : percentText(reading.fit ?? 0)}
-      </ReadoutRow>
-      <ReadoutRow label="SNR">
+      </Readout>
+      <Readout label="SNR">
         {reading === null ? "-" : `${Math.round(reading.snr_db ?? 0)} dB`}
-      </ReadoutRow>
-      <ReadoutRow label="Src" title={reading?.sources_auto === false ? "Fixed" : "Auto"}>
+      </Readout>
+      <Readout label="Src" title={reading?.sources_auto === false ? "Fixed" : "Auto"}>
         {reading === null ? "-" : String(reading.sources)}
-      </ReadoutRow>
-      <ReadoutRow label="Age">{age}</ReadoutRow>
+      </Readout>
+      <Readout label="Age">{age}</Readout>
       {others.map(({ rank, peak }) => (
-        <ReadoutRow key={rank} label={`#${rank}`}>
+        <Readout key={rank} label={`#${rank}`} wide>
           {peakSummary(peak, frame)}
-        </ReadoutRow>
+        </Readout>
       ))}
-      {processorFaults(processor).map((row) => (
-        <ReadoutRow key={row.label} label={row.label} title={row.title}>
-          <span className="text-danger">{row.count}</span>
-        </ReadoutRow>
-      ))}
-      {fault !== null && (
-        <ReadoutRow label="Fault">
-          <span role="alert" className="block truncate text-danger" title={fault}>
-            {fault}
-          </span>
-        </ReadoutRow>
-      )}
-    </Readout>
+    </Readouts>
   );
 }
 
-function DfSettings({
-  settings,
-  edit,
-  shape,
-}: {
-  settings: DfParams;
-  edit: Edit;
-  shape: ArrayShape;
-}) {
+function DfChips({ settings, edit, shape }: { settings: DfParams; edit: Edit; shape: ArrayShape }) {
+  const collinear = shape.geometry !== null && isCollinear(shape.geometry, shape.lanes);
+  const line = shape.geometry !== null && isLevelLine(shape.geometry, shape.lanes);
+  const elevationRefused = elevationBlock(collinear, settings.algorithm, settings.smoothing);
   return (
-    <>
-      <Settings className="border-t border-line p-2">
-        <SettingRow label="Method">
-          <Select
-            label="Method"
-            value={settings.algorithm}
-            options={algorithmOptions(structuredOk(shape))}
-            onChange={(algorithm) => edit({ algorithm })}
+    <Chips className="p-2">
+      <ChoiceChip
+        label="Method"
+        title="Method"
+        value={settings.algorithm}
+        options={algorithmOptions(structuredOk(shape))}
+        onChange={(algorithm) => edit({ algorithm })}
+      />
+      <NumberChip
+        label="Offset"
+        title="Signal offset from the array centre"
+        unit="kHz"
+        value={settings.offset_hz / KHZ}
+        min={OFFSET_KHZ.min}
+        max={OFFSET_KHZ.max}
+        step={0.1}
+        quiet={settings.offset_hz === 0}
+        onCommit={(khz) => edit({ offset_hz: Math.round(khz * KHZ) })}
+      />
+      <NumberChip
+        label="Width"
+        title="Band the finder listens to"
+        unit="kHz"
+        value={settings.bandwidth_hz / KHZ}
+        min={WIDTH_KHZ.min}
+        max={WIDTH_KHZ.max}
+        step={0.1}
+        onCommit={(khz) => edit({ bandwidth_hz: Math.round(khz * KHZ) })}
+      />
+      <ChoiceChip
+        label="Sources"
+        title="Sources"
+        value={settings.sources ?? AUTO_SOURCES}
+        options={sourceOptions(shape.lanes, settings.sources ?? null)}
+        quiet={settings.sources == null}
+        onChange={(count) => edit({ sources: count === AUTO_SOURCES ? null : count })}
+      />
+      <ChoiceChip
+        label="Rule"
+        title="How Auto counts sources"
+        value={settings.source_rule}
+        options={RULE_OPTIONS}
+        onChange={(source_rule) => edit({ source_rule })}
+      />
+      <ChoiceChip
+        label="Peaks"
+        title="Most bearings per report"
+        value={settings.max_peaks}
+        options={PEAK_OPTIONS}
+        onChange={(max_peaks) => edit({ max_peaks })}
+      />
+      <NumberChip
+        label="Squelch"
+        title="Minimum peak above the floor, 0 off"
+        unit="dB"
+        shown={settings.squelch_db === 0 ? "off" : undefined}
+        value={settings.squelch_db}
+        min={LIMITS.squelch_db.min}
+        max={LIMITS.squelch_db.max}
+        step={0.5}
+        quiet={settings.squelch_db === 0}
+        onCommit={(squelch_db) => edit({ squelch_db })}
+      />
+      <NumberChip
+        label="Report"
+        title="Report"
+        unit="ms"
+        value={settings.report_ms}
+        min={LIMITS.report_ms.min}
+        max={LIMITS.report_ms.max}
+        step={100}
+        onCommit={(report_ms) => edit({ report_ms })}
+      />
+      <ToggleChip
+        label="Elevation"
+        title={elevationRefused ?? "Estimate elevation too"}
+        on={settings.elevation}
+        disabled={elevationRefused !== null && !settings.elevation}
+        onChange={(elevation) => edit({ elevation })}
+      />
+      {line && (
+        <ChoiceChip
+          label="Side"
+          title="Which side of the line to report"
+          value={settings.ula_side}
+          options={SIDE_OPTIONS}
+          onChange={(ula_side) => edit({ ula_side })}
+        />
+      )}
+      <StationChip settings={settings} edit={edit} />
+    </Chips>
+  );
+}
+
+function StationChip({ settings, edit }: { settings: DfParams; edit: Edit }) {
+  return (
+    <SettingChip
+      label="Station"
+      value={settings.station_id ?? "unnamed"}
+      quiet={settings.station_id == null}
+      title="Name on the bearings this finder sends"
+    >
+      {() => (
+        <ChipField label="Station">
+          <TextField
+            label="Station"
+            placeholder="unnamed"
+            maxLength={LIMITS.station_len}
+            value={settings.station_id ?? ""}
+            onCommit={(station) => edit({ station_id: station === "" ? null : station })}
           />
-        </SettingRow>
-        <SettingRow label="Offset" title="Signal offset from the array centre">
-          <NumberField
-            label="Offset"
-            unit="kHz"
-            value={settings.offset_hz / KHZ}
-            min={OFFSET_KHZ.min}
-            max={OFFSET_KHZ.max}
-            step={0.1}
-            onCommit={(khz) => edit({ offset_hz: Math.round(khz * KHZ) })}
-          />
-        </SettingRow>
-        <SettingRow label="Width" title="Band the finder listens to">
-          <NumberField
-            label="Width"
-            unit="kHz"
-            value={settings.bandwidth_hz / KHZ}
-            min={WIDTH_KHZ.min}
-            max={WIDTH_KHZ.max}
-            step={0.1}
-            onCommit={(khz) => edit({ bandwidth_hz: Math.round(khz * KHZ) })}
-          />
-        </SettingRow>
-      </Settings>
-      <FoldSection label="More">
-        <DfMoreSettings settings={settings} edit={edit} shape={shape} />
-      </FoldSection>
-    </>
+        </ChipField>
+      )}
+    </SettingChip>
   );
 }
 
@@ -281,58 +330,9 @@ function DfMoreSettings({
   edit: Edit;
   shape: ArrayShape;
 }) {
-  const collinear = shape.geometry !== null && isCollinear(shape.geometry, shape.lanes);
-  const line = shape.geometry !== null && isLevelLine(shape.geometry, shape.lanes);
-  const elevationRefused = elevationBlock(collinear, settings.algorithm, settings.smoothing);
   const structured = structuredOk(shape);
   return (
     <Settings>
-      <SettingRow label="Sources">
-        <Select
-          label="Sources"
-          value={settings.sources ?? AUTO_SOURCES}
-          options={sourceOptions(shape.lanes, settings.sources ?? null)}
-          onChange={(count) => edit({ sources: count === AUTO_SOURCES ? null : count })}
-        />
-      </SettingRow>
-      <SettingRow label="Rule" title="How Auto counts sources">
-        <Select
-          label="Rule"
-          value={settings.source_rule}
-          options={RULE_OPTIONS}
-          onChange={(source_rule) => edit({ source_rule })}
-        />
-      </SettingRow>
-      <SettingRow label="Peaks" title="Most bearings per report">
-        <Select
-          label="Peaks"
-          value={settings.max_peaks}
-          options={PEAK_OPTIONS}
-          onChange={(max_peaks) => edit({ max_peaks })}
-        />
-      </SettingRow>
-      <SettingRow label="Report">
-        <NumberField
-          label="Report"
-          unit="ms"
-          value={settings.report_ms}
-          min={LIMITS.report_ms.min}
-          max={LIMITS.report_ms.max}
-          step={100}
-          onCommit={(report_ms) => edit({ report_ms })}
-        />
-      </SettingRow>
-      <SettingRow label="Squelch" title="Minimum peak above the floor, 0 off">
-        <NumberField
-          label="Squelch"
-          unit="dB"
-          value={settings.squelch_db}
-          min={LIMITS.squelch_db.min}
-          max={LIMITS.squelch_db.max}
-          step={0.5}
-          onCommit={(squelch_db) => edit({ squelch_db })}
-        />
-      </SettingRow>
       <SettingRow label="FB" title="Forward-backward averaging, needs a symmetric array">
         <Checkbox
           label="Forward-backward averaging"
@@ -372,26 +372,6 @@ function DfMoreSettings({
           onCommit={(azimuth_step_deg) => edit({ azimuth_step_deg })}
         />
       </SettingRow>
-      <SettingRow label="Elevation">
-        <span title={elevationRefused ?? "Estimate elevation too"}>
-          <Checkbox
-            label="Estimate elevation"
-            checked={settings.elevation}
-            disabled={elevationRefused !== null && !settings.elevation}
-            onChange={(elevation) => edit({ elevation })}
-          />
-        </span>
-      </SettingRow>
-      {line && (
-        <SettingRow label="Side" title="Which side of the line to report">
-          <Segmented
-            label="Side"
-            value={settings.ula_side}
-            options={SIDE_OPTIONS}
-            onChange={(ula_side) => edit({ ula_side })}
-          />
-        </SettingRow>
-      )}
       <SettingRow label="Yaw gate" title="Skip blocks while the array turns faster">
         <NumberField
           label="Yaw gate"
@@ -411,15 +391,6 @@ function DfMoreSettings({
           max={LIMITS.carry_over.max}
           step={0.01}
           onCommit={(carry_over) => edit({ carry_over })}
-        />
-      </SettingRow>
-      <SettingRow label="Station" title="Name on the bearings this finder sends">
-        <TextField
-          label="Station"
-          placeholder="unnamed"
-          maxLength={LIMITS.station_len}
-          value={settings.station_id ?? ""}
-          onCommit={(station) => edit({ station_id: station === "" ? null : station })}
         />
       </SettingRow>
     </Settings>

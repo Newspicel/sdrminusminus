@@ -2,12 +2,13 @@ import { useMutation } from "@tanstack/react-query";
 import { Circle } from "lucide-react";
 import { Button } from "../../components/BaseControls";
 import { BTN, BTN_DANGER } from "../../components/controls";
+import { Chips, NumberChip } from "../../components/face/Chips";
+import { FaceFault } from "../../components/face/Fault";
+import { Readout, Readouts } from "../../components/face/Readouts";
+import { FaceStats, Stat } from "../../components/face/Stats";
 import { DROPS_HINT, formatBytes, formatCount } from "../../components/format";
 import { Icon } from "../../components/Icon";
-import { NumberField } from "../../components/NumberField";
-import { Readout, ReadoutRow } from "../../components/Readout";
 import { formatDuration } from "../../components/recordings";
-import { SettingRow, Settings } from "../../components/Settings";
 import {
   DEFAULT_HISTORY_SECONDS,
   HISTORY_BYTES_PER_SAMPLE,
@@ -59,20 +60,19 @@ function TimeMachineNodeFace({ node }: { node: PatchNodeOf<"time_machine"> }) {
   return (
     <NodeShell node={node} title="Time machine" category="output">
       <FaceBody>
-        <Settings className="border-b border-line p-2">
-          <SettingRow label="History">
-            <NumberField
-              label="Seconds of history"
-              value={seconds}
-              min={MIN_HISTORY_SECONDS}
-              max={MAX_HISTORY_SECONDS}
-              step={1}
-              disabled={phase.kind !== "idle" || control.isPending}
-              onCommit={edit}
-              unit="s"
-            />
-          </SettingRow>
-        </Settings>
+        <Chips className="p-2">
+          <NumberChip
+            label="History"
+            title="Seconds of history"
+            value={seconds}
+            unit="s"
+            min={MIN_HISTORY_SECONDS}
+            max={MAX_HISTORY_SECONDS}
+            step={1}
+            disabled={phase.kind !== "idle" || control.isPending}
+            onCommit={edit}
+          />
+        </Chips>
         {status === null ? (
           <FaceEmpty
             hint={
@@ -84,13 +84,16 @@ function TimeMachineNodeFace({ node }: { node: PatchNodeOf<"time_machine"> }) {
         ) : (
           <HistoryReadout status={status} />
         )}
-        {status?.error != null && (
-          <p role="alert" className="border-t border-line p-2 text-xs text-danger">
-            {status.error}
-          </p>
-        )}
+        {status?.error != null && <FaceFault message={status.error} />}
       </FaceBody>
       <FaceFooter>
+        {status !== null && status.overruns > 0 && (
+          <FaceStats>
+            <Stat label="Drops" title={DROPS_HINT} tone="warn">
+              {formatCount(status.overruns)}
+            </Stat>
+          </FaceStats>
+        )}
         {phase.kind === "idle" || phase.kind === "unavailable" ? (
           <Button
             type="button"
@@ -145,29 +148,24 @@ function TimeMachineNodeFace({ node }: { node: PatchNodeOf<"time_machine"> }) {
 function HistoryReadout({ status }: { status: TimeMachineStatus }) {
   const capture = status.capture ?? null;
   return (
-    <Readout separated={false}>
-      <ReadoutRow label="Held">
+    <Readouts>
+      <Readout label="Held">
         {formatDuration(heldSeconds(status))} · {(historyFill(status) * 100).toFixed(0)}% of{" "}
         {status.history_seconds} s
-      </ReadoutRow>
-      <ReadoutRow label="Memory">
+      </Readout>
+      <Readout label="Memory">
         {formatBytes(status.capacity_samples * HISTORY_BYTES_PER_SAMPLE)}
-      </ReadoutRow>
-      {status.overruns > 0 && (
-        <ReadoutRow label="Drops" title={DROPS_HINT}>
-          {formatCount(status.overruns)}
-        </ReadoutRow>
-      )}
+      </Readout>
       {capture !== null && (
         <>
-          <ReadoutRow label="Written">{formatBytes(capture.bytes)}</ReadoutRow>
-          <ReadoutRow label="File">
+          <Readout label="Written">{formatBytes(capture.bytes)}</Readout>
+          <Readout label="File">
             <span className="block truncate" title={capture.file}>
               {capture.file}
             </span>
-          </ReadoutRow>
+          </Readout>
         </>
       )}
-    </Readout>
+    </Readouts>
   );
 }

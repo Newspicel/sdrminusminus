@@ -6,7 +6,7 @@ import { DB_LIMIT, DB_STEP, withCeiling, withFloor } from "../../components/dbRa
 import { Icon } from "../../components/Icon";
 import { Popover } from "../../components/Popover";
 import { Segmented } from "../../components/Segmented";
-import { SettingsPanel, SettingsSection, ToggleChip } from "../../components/SettingsPanel";
+import { SettingsPanel, SettingsSection } from "../../components/SettingsPanel";
 import { Slider } from "../../components/Slider";
 import { Switch } from "../../components/Switch";
 import { type DbWindow, TRACE_MODES, type TraceMode } from "../../components/spectrumTraces";
@@ -86,7 +86,7 @@ export function ScopeSettings(props: ScopeSettingsProps) {
           <SettingsSection name="Traces">
             <div className="grid grid-cols-2 gap-1.5">
               {TRACE_MODES.map((mode) => (
-                <ToggleChip
+                <TraceToggle
                   key={mode}
                   label={TRACE_LABEL[mode]}
                   on={props.traces.includes(mode)}
@@ -98,16 +98,16 @@ export function ScopeSettings(props: ScopeSettingsProps) {
                       style={{ background: `var(--color-${TRACE_INK[mode]})` }}
                     />
                   </TraceSample>
-                </ToggleChip>
+                </TraceToggle>
               ))}
-              <ToggleChip label="phosphor" on={props.phosphor} onClick={props.onPhosphor}>
+              <TraceToggle label="phosphor" on={props.phosphor} onClick={props.onPhosphor}>
                 <TraceSample>
                   <span
                     className="-mx-0.5 h-full w-[calc(100%+4px)]"
                     style={{ background: gradient(props.colormap, "to top") }}
                   />
                 </TraceSample>
-              </ToggleChip>
+              </TraceToggle>
             </div>
           </SettingsSection>
           <SettingsSection
@@ -214,5 +214,33 @@ function Level({
         {value} dB
       </span>
     </div>
+  );
+}
+
+function TraceToggle({
+  label,
+  on,
+  onClick,
+  children,
+}: {
+  label: string;
+  on: boolean;
+  onClick: () => void;
+  children?: ReactNode;
+}) {
+  return (
+    <Button
+      type="button"
+      aria-pressed={on}
+      onClick={onClick}
+      className={`flex h-7 items-center gap-2 rounded-[3px] border px-2 font-mono text-[11px] transition-colors duration-100 ${
+        on
+          ? "border-accent-dim bg-accent/12 text-accent"
+          : "border-line bg-well text-ink-dim hover:border-line-strong hover:text-ink"
+      }`}
+    >
+      {children}
+      {label}
+    </Button>
   );
 }

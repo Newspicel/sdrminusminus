@@ -262,9 +262,9 @@ describe("HuntFace", () => {
     const bare = renderFace(HuntFace, walk, { graph: graph(false) });
     expect(bare).toContain("Start hunt");
     expect(bare).not.toContain(">Sweep<");
-    expect(bare).not.toContain("Beamwidth");
+    expect(bare).not.toContain("Main lobe of the handheld antenna");
     const wired = renderFace(HuntFace, walk, { graph: graph(true) });
     expect(wired).toContain("Turn slowly all the way round");
-    expect(wired).toContain("Beamwidth");
+    expect(wired).toContain("Main lobe of the handheld antenna");
   });
 });

@@ -5,11 +5,11 @@ import {
   awaitingControlChannel,
   channelEntry,
   channelPlanRows,
-  controlChannelLabel,
   controlChannelStalled,
   DMR_TRUNK_PROTOCOLS,
   followsTierThree,
   formatSearchRanges,
+  otherControlLabel,
   parseControlHz,
   parseSearchRanges,
   planLabel,
@@ -132,8 +132,8 @@ describe("DMR channel search", () => {
 });
 
 describe("a site that runs more than one control channel", () => {
-  it("names the frequency to fall back on", () => {
-    expect(controlChannelLabel(460_275_000)).toBe("also control 460.275 MHz");
+  it("lists the frequencies to fall back on", () => {
+    expect(otherControlLabel([460_275_000, 461_275_000])).toBe("460.275 MHz, 461.275 MHz");
   });
 });
 

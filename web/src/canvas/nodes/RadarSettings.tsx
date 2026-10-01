@@ -1,9 +1,13 @@
 import { Button } from "../../components/BaseControls";
 import { Checkbox } from "../../components/Checkbox";
 import { segment, WELL } from "../../components/controls";
+import { Chips, ChoiceChip, SettingChip, ToggleChip } from "../../components/face/Chips";
+import { SettingsFold } from "../../components/face/Fold";
 import { NumberField } from "../../components/NumberField";
+import { COLOUR_OPTIONS } from "../../components/plotFrame";
 import { Select } from "../../components/Select";
-import { SettingRow } from "../../components/Settings";
+import { SettingRow, Settings } from "../../components/Settings";
+import type { Colormap } from "../../gl/surface";
 import { RADAR_LIMITS as LIMITS, lowest, scaled } from "../../lib/limits";
 import type { PassiveRadarParams } from "../../lib/types";
 import {
@@ -25,7 +29,6 @@ import {
   WINDOW_OPTIONS,
   withReference,
 } from "./radar";
-import { SettingsFold } from "./SettingsFold";
 
 type Edit = (next: Partial<PassiveRadarParams>) => void;
 
@@ -43,79 +46,153 @@ const BANDWIDTH_KHZ = scaled(LIMITS.bandwidth_hz, 1e-3);
 const OVERLAP_PERCENT = scaled(LIMITS.overlap, 100);
 const RANK_PERCENT = scaled(LIMITS.os_rank, 100);
 
-export function RadarSettings({
+export function RadarChips({
   settings,
   edit,
   lanes,
-}: {
-  settings: PassiveRadarParams;
-  edit: Edit;
+  colormap,
+  onColormap,
+}: GroupProps & {
   lanes: number;
+  colormap: Colormap;
+  onColormap: (colormap: Colormap) => void;
 }) {
+  const cfar = settings.cfar;
+  return (
+    <Chips className="shrink-0 p-2">
+      <ChoiceChip
+        label="Colours"
+        value={colormap}
+        options={COLOUR_OPTIONS}
+        title="Plot colours"
+        onChange={onColormap}
+      />
+      <ChoiceChip
+        label="Illum"
+        value={settings.illuminator.kind}
+        options={ILLUMINATOR_OPTIONS}
+        title="Transmitter type"
+        onChange={(kind) => edit(illuminatorEdit(kind, settings))}
+      />
+      <BandChip settings={settings} edit={edit} />
+      <ElementChip settings={settings} edit={edit} lanes={lanes} />
+      <CleaningChip settings={settings} edit={edit} />
+      <ReachChip settings={settings} edit={edit} />
+      <CpiChip settings={settings} edit={edit} />
+      <ToggleChip
+        label="AoA"
+        on={settings.aoa}
+        title="Angle of arrival per echo, needs calibration"
+        onChange={(aoa) => edit({ aoa })}
+      />
+      <ChoiceChip
+        label="GPU"
+        value={settings.gpu}
+        options={GPU_OPTIONS}
+        title="Where the heavy maths runs"
+        onChange={(gpu) => edit({ gpu })}
+      />
+      <ChoiceChip
+        label="Clutter"
+        value={settings.clutter.method}
+        options={CLUTTER_OPTIONS}
+        title="Clutter method"
+        quiet={settings.clutter.method === "off"}
+        onChange={(method) => edit({ clutter: { ...settings.clutter, method } })}
+      />
+      <ChoiceChip
+        label="Pfa"
+        value={pfaChoice(cfar.pfa)}
+        options={PFA_OPTIONS}
+        title="False alarm chance per cell"
+        onChange={(pfa) => edit({ cfar: { ...cfar, pfa } })}
+      />
+    </Chips>
+  );
+}
+
+export function RadarSettings({ settings, edit }: GroupProps) {
   return (
     <>
-      <SourceGroup settings={settings} edit={edit} lanes={lanes} />
-      <ClutterGroup settings={settings} edit={edit} />
-      <ReferenceGroup settings={settings} edit={edit} />
+      {settings.clutter.method !== "off" && <ClutterGroup settings={settings} edit={edit} />}
       <DetectGroup settings={settings} edit={edit} />
       <TrackGroup settings={settings} edit={edit} />
     </>
   );
 }
 
-function SourceGroup({ settings, edit, lanes }: GroupProps & { lanes: number }) {
+function BandChip({ settings, edit }: GroupProps) {
   const illuminator = settings.illuminator;
+  const khz = settings.offset_hz / 1_000;
   return (
-    <SettingsFold label="Source" open>
-      <SettingRow label="Illuminator" title="Transmitter type">
-        <Select
-          label="Illuminator"
-          value={illuminator.kind}
-          options={ILLUMINATOR_OPTIONS}
-          onChange={(kind) => edit(illuminatorEdit(kind, settings))}
-        />
-      </SettingRow>
-      <SettingRow label="Offset" title="Illuminator minus array centre">
-        <NumberField
-          label="Offset"
-          value={settings.offset_hz / 1_000}
-          min={OFFSET_KHZ.min}
-          max={OFFSET_KHZ.max}
-          step={1}
-          unit="kHz"
-          className={SMALL}
-          onCommit={(khz) => edit({ offset_hz: khz * 1_000 })}
-        />
-      </SettingRow>
-      {"bandwidth_hz" in illuminator && (
-        <SettingRow label="Bandwidth">
-          <NumberField
-            label="Bandwidth"
-            value={illuminator.bandwidth_hz / 1_000}
-            min={BANDWIDTH_KHZ.min}
-            max={BANDWIDTH_KHZ.max}
-            step={1}
-            unit="kHz"
-            className={SMALL}
-            onCommit={(khz) =>
-              edit({ illuminator: { kind: illuminator.kind, bandwidth_hz: khz * 1_000 } })
-            }
-          />
-        </SettingRow>
+    <SettingChip
+      label="Offset"
+      value={String(khz)}
+      unit="kHz"
+      quiet={khz === 0}
+      title="Illuminator minus array centre"
+      width="w-72"
+    >
+      {() => (
+        <Settings>
+          <SettingRow label="Offset" title="Illuminator minus array centre">
+            <NumberField
+              label="Offset"
+              value={khz}
+              min={OFFSET_KHZ.min}
+              max={OFFSET_KHZ.max}
+              step={1}
+              unit="kHz"
+              className={SMALL}
+              onCommit={(next) => edit({ offset_hz: next * 1_000 })}
+            />
+          </SettingRow>
+          {"bandwidth_hz" in illuminator && (
+            <SettingRow label="Bandwidth">
+              <NumberField
+                label="Bandwidth"
+                value={illuminator.bandwidth_hz / 1_000}
+                min={BANDWIDTH_KHZ.min}
+                max={BANDWIDTH_KHZ.max}
+                step={1}
+                unit="kHz"
+                className={SMALL}
+                onCommit={(next) =>
+                  edit({ illuminator: { kind: illuminator.kind, bandwidth_hz: next * 1_000 } })
+                }
+              />
+            </SettingRow>
+          )}
+        </Settings>
       )}
-      <SettingRow label="Reference" title="Element pointed at the transmitter">
-        <Select
-          label="Reference"
-          value={settings.reference_element}
-          options={elementOptions(lanes)}
-          onChange={(element) => edit(withReference(settings.surveillance, element))}
-        />
-      </SettingRow>
-      <SettingRow label="Surveillance" title="Elements that listen for echoes">
-        <SurveillanceChips settings={settings} edit={edit} lanes={lanes} />
-      </SettingRow>
-      <SourceLimits settings={settings} edit={edit} />
-    </SettingsFold>
+    </SettingChip>
+  );
+}
+
+function ElementChip({ settings, edit, lanes }: GroupProps & { lanes: number }) {
+  return (
+    <SettingChip
+      label="Ref"
+      value={String(settings.reference_element + 1)}
+      title="Element pointed at the transmitter, and those listening for echoes"
+      width="w-72"
+    >
+      {() => (
+        <Settings>
+          <SettingRow label="Reference" title="Element pointed at the transmitter">
+            <Select
+              label="Reference"
+              value={settings.reference_element}
+              options={elementOptions(lanes)}
+              onChange={(element) => edit(withReference(settings.surveillance, element))}
+            />
+          </SettingRow>
+          <SettingRow label="Surveillance" title="Elements that listen for echoes">
+            <SurveillanceChips settings={settings} edit={edit} lanes={lanes} />
+          </SettingRow>
+        </Settings>
+      )}
+    </SettingChip>
   );
 }
 
@@ -150,70 +227,85 @@ function SurveillanceChips({ settings, edit, lanes }: GroupProps & { lanes: numb
   );
 }
 
-function SourceLimits({ settings, edit }: GroupProps) {
+function ReachChip({ settings, edit }: GroupProps) {
   return (
-    <>
-      <SettingRow label="Range" title="Bistatic excess range">
-        <NumberField
-          label="Range"
-          value={settings.max_range_km}
-          min={lowest(LIMITS.max_range_km, 1)}
-          max={LIMITS.max_range_km.max}
-          step={1}
-          unit="km"
-          className={SMALL}
-          onCommit={(km) => edit({ max_range_km: km })}
-        />
-      </SettingRow>
-      <SettingRow label="Speed" title="Largest range rate">
-        <NumberField
-          label="Speed"
-          value={settings.max_speed_mps}
-          min={LIMITS.max_speed_mps.min}
-          max={LIMITS.max_speed_mps.max}
-          step={10}
-          unit="m/s"
-          className={SMALL}
-          onCommit={(mps) => edit({ max_speed_mps: mps })}
-        />
-      </SettingRow>
-      <SettingRow label="CPI" title="Coherent processing interval">
-        <NumberField
-          label="CPI"
-          value={settings.cpi_ms}
-          min={LIMITS.cpi_ms.min}
-          max={LIMITS.cpi_ms.max}
-          step={10}
-          unit="ms"
-          className={SMALL}
-          onCommit={(ms) => edit({ cpi_ms: Math.round(ms) })}
-        />
-      </SettingRow>
-      <SettingRow label="Overlap" title="Share of each CPI reused by the next">
-        <NumberField
-          label="Overlap"
-          value={Math.round(settings.overlap * 100)}
-          min={OVERLAP_PERCENT.min}
-          max={OVERLAP_PERCENT.max}
-          step={5}
-          unit="%"
-          className={SMALL}
-          onCommit={(percent) => edit({ overlap: percent / 100 })}
-        />
-      </SettingRow>
-      <SettingRow label="AoA" title="Angle of arrival per echo, needs calibration">
-        <Checkbox label="AoA" checked={settings.aoa} onChange={(aoa) => edit({ aoa })} />
-      </SettingRow>
-      <SettingRow label="GPU">
-        <Select
-          label="GPU"
-          value={settings.gpu}
-          options={GPU_OPTIONS}
-          onChange={(gpu) => edit({ gpu })}
-          className={SMALL}
-        />
-      </SettingRow>
-    </>
+    <SettingChip
+      label="Range"
+      value={String(settings.max_range_km)}
+      unit="km"
+      title="Largest range and speed searched"
+      width="w-72"
+    >
+      {() => (
+        <Settings>
+          <SettingRow label="Range" title="Bistatic excess range">
+            <NumberField
+              label="Range"
+              value={settings.max_range_km}
+              min={lowest(LIMITS.max_range_km, 1)}
+              max={LIMITS.max_range_km.max}
+              step={1}
+              unit="km"
+              className={SMALL}
+              onCommit={(km) => edit({ max_range_km: km })}
+            />
+          </SettingRow>
+          <SettingRow label="Speed" title="Largest range rate">
+            <NumberField
+              label="Speed"
+              value={settings.max_speed_mps}
+              min={LIMITS.max_speed_mps.min}
+              max={LIMITS.max_speed_mps.max}
+              step={10}
+              unit="m/s"
+              className={SMALL}
+              onCommit={(mps) => edit({ max_speed_mps: mps })}
+            />
+          </SettingRow>
+        </Settings>
+      )}
+    </SettingChip>
+  );
+}
+
+function CpiChip({ settings, edit }: GroupProps) {
+  return (
+    <SettingChip
+      label="CPI"
+      value={String(settings.cpi_ms)}
+      unit="ms"
+      title="Coherent processing interval"
+      width="w-72"
+    >
+      {() => (
+        <Settings>
+          <SettingRow label="CPI" title="Coherent processing interval">
+            <NumberField
+              label="CPI"
+              value={settings.cpi_ms}
+              min={LIMITS.cpi_ms.min}
+              max={LIMITS.cpi_ms.max}
+              step={10}
+              unit="ms"
+              className={SMALL}
+              onCommit={(ms) => edit({ cpi_ms: Math.round(ms) })}
+            />
+          </SettingRow>
+          <SettingRow label="Overlap" title="Share of each CPI reused by the next">
+            <NumberField
+              label="Overlap"
+              value={Math.round(settings.overlap * 100)}
+              min={OVERLAP_PERCENT.min}
+              max={OVERLAP_PERCENT.max}
+              step={5}
+              unit="%"
+              className={SMALL}
+              onCommit={(percent) => edit({ overlap: percent / 100 })}
+            />
+          </SettingRow>
+        </Settings>
+      )}
+    </SettingChip>
   );
 }
 
@@ -226,41 +318,29 @@ function ClutterGroup({ settings, edit }: GroupProps) {
   const nlms = method === "nlms" || method === "block_nlms";
   return (
     <SettingsFold label="Clutter">
-      <SettingRow label="Method">
-        <Select
-          label="Clutter method"
-          value={method}
-          options={CLUTTER_OPTIONS}
-          onChange={(next) => set({ method: next })}
+      <SettingRow label="Reach" title="Clutter extent removed">
+        <NumberField
+          label="Reach"
+          value={clutter.reach_km}
+          min={LIMITS.reach_km.min}
+          max={LIMITS.reach_km.max}
+          step={0.1}
+          unit="km"
+          className={SMALL}
+          onCommit={(km) => set({ reach_km: km })}
         />
       </SettingRow>
-      {method !== "off" && (
-        <>
-          <SettingRow label="Reach" title="Clutter extent removed">
-            <NumberField
-              label="Reach"
-              value={clutter.reach_km}
-              min={LIMITS.reach_km.min}
-              max={LIMITS.reach_km.max}
-              step={0.1}
-              unit="km"
-              className={SMALL}
-              onCommit={(km) => set({ reach_km: km })}
-            />
-          </SettingRow>
-          <SettingRow label="Lead" title="Taps before zero delay">
-            <NumberField
-              label="Lead"
-              value={clutter.lead}
-              min={LIMITS.lead.min}
-              max={LIMITS.lead.max}
-              step={1}
-              className={SMALL}
-              onCommit={(lead) => set({ lead: Math.round(lead) })}
-            />
-          </SettingRow>
-        </>
-      )}
+      <SettingRow label="Lead" title="Taps before zero delay">
+        <NumberField
+          label="Lead"
+          value={clutter.lead}
+          min={LIMITS.lead.min}
+          max={LIMITS.lead.max}
+          step={1}
+          className={SMALL}
+          onCommit={(lead) => set({ lead: Math.round(lead) })}
+        />
+      </SettingRow>
       {eca && <EcaRows settings={settings} edit={edit} />}
       {nlms && (
         <SettingRow label="Step">
@@ -343,45 +423,56 @@ function EcaRows({ settings, edit }: GroupProps) {
   );
 }
 
-function ReferenceGroup({ settings, edit }: GroupProps) {
+function CleaningChip({ settings, edit }: GroupProps) {
   const cleaning = settings.reference;
+  const options = cleaningOptions(settings.illuminator.kind);
   return (
-    <SettingsFold label="Reference">
-      <SettingRow label="Cleaning">
-        <Select
-          label="Cleaning"
-          value={cleaning.kind}
-          options={cleaningOptions(settings.illuminator.kind)}
-          onChange={(kind) => edit({ reference: cleaningOf(kind, cleaning) })}
-        />
-      </SettingRow>
-      {cleaning.kind === "cma" && (
-        <>
-          <SettingRow label="CMA taps">
-            <NumberField
-              label="CMA taps"
-              value={cleaning.taps}
-              min={LIMITS.cma_taps.min}
-              max={LIMITS.cma_taps.max}
-              step={1}
-              className={SMALL}
-              onCommit={(taps) => edit({ reference: { ...cleaning, taps: Math.round(taps) } })}
+    <SettingChip
+      label="Clean"
+      value={options.find((option) => option.value === cleaning.kind)?.label ?? cleaning.kind}
+      quiet={cleaning.kind === "off"}
+      title="Reference cleaning"
+      width="w-72"
+    >
+      {() => (
+        <Settings>
+          <SettingRow label="Cleaning">
+            <Select
+              label="Cleaning"
+              value={cleaning.kind}
+              options={options}
+              onChange={(kind) => edit({ reference: cleaningOf(kind, cleaning) })}
             />
           </SettingRow>
-          <SettingRow label="CMA step">
-            <NumberField
-              label="CMA step"
-              value={cleaning.step}
-              min={lowest(LIMITS.cma_step, CMA_STEP)}
-              max={LIMITS.cma_step.max}
-              step={CMA_STEP}
-              className={SMALL}
-              onCommit={(step) => edit({ reference: { ...cleaning, step } })}
-            />
-          </SettingRow>
-        </>
+          {cleaning.kind === "cma" && (
+            <>
+              <SettingRow label="CMA taps">
+                <NumberField
+                  label="CMA taps"
+                  value={cleaning.taps}
+                  min={LIMITS.cma_taps.min}
+                  max={LIMITS.cma_taps.max}
+                  step={1}
+                  className={SMALL}
+                  onCommit={(taps) => edit({ reference: { ...cleaning, taps: Math.round(taps) } })}
+                />
+              </SettingRow>
+              <SettingRow label="CMA step">
+                <NumberField
+                  label="CMA step"
+                  value={cleaning.step}
+                  min={lowest(LIMITS.cma_step, CMA_STEP)}
+                  max={LIMITS.cma_step.max}
+                  step={CMA_STEP}
+                  className={SMALL}
+                  onCommit={(step) => edit({ reference: { ...cleaning, step } })}
+                />
+              </SettingRow>
+            </>
+          )}
+        </Settings>
       )}
-    </SettingsFold>
+    </SettingChip>
   );
 }
 
@@ -406,15 +497,6 @@ function DetectGroup({ settings, edit }: GroupProps) {
           value={cfar.window}
           options={CFAR_WINDOW_OPTIONS}
           onChange={(window) => set({ window })}
-          className={SMALL}
-        />
-      </SettingRow>
-      <SettingRow label="Pfa" title="False alarm chance per cell">
-        <Select
-          label="Pfa"
-          value={pfaChoice(cfar.pfa)}
-          options={PFA_OPTIONS}
-          onChange={(pfa) => set({ pfa })}
           className={SMALL}
         />
       </SettingRow>

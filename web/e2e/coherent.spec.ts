@@ -136,7 +136,7 @@ test("makes an array from a Kraken and finds a bearing", async ({ page }) => {
   await expect(
     page.locator(`.react-flow__edge[data-id^="kraken."][data-id*="->${arrayId}.lane"]`),
   ).toHaveCount(LANES);
-  await expect(array.getByRole("table", { name: "Lanes" }).locator("tbody tr")).toHaveCount(LANES);
+  await expect(array.getByRole("list", { name: "Lanes" }).getByRole("listitem")).toHaveCount(LANES);
 
   await fitPatch(page);
   await dragWire(page, port(face(page, "site"), "position"), port(array, "position"));
@@ -184,6 +184,7 @@ test("crosses bearings from two places and clears them", async ({ page }) => {
     })
     .toBeGreaterThanOrEqual(6);
 
+  await face(page, "site").getByRole("button", { name: "Longitude" }).click();
   const longitude = face(page, "site").getByRole("textbox", { name: "Longitude" });
   await longitude.fill("13.1");
   await longitude.press("Enter");

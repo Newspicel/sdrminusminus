@@ -1,5 +1,5 @@
 import { Button } from "../../components/BaseControls";
-import { BTN_SM, CHIP_SM, type Options, TABLE_HEAD } from "../../components/controls";
+import { BTN_SM, type Options, TABLE_HEAD } from "../../components/controls";
 import { formatMhz } from "../../components/format";
 import { NumberField } from "../../components/NumberField";
 import { polarPoint } from "../../components/Rose";
@@ -40,6 +40,11 @@ const MIN_SIZE_M = 0.01;
 
 type Change = (geometry: ArrayGeometry) => void;
 
+export function aliasing(geometry: ArrayGeometry, lanes: number, centerHz: number | null): boolean {
+  const limit = unambiguousHz(geometry, lanes);
+  return limit !== null && centerHz !== null && centerHz > limit;
+}
+
 export function ArrayGeometryEditor({
   geometry,
   lanes,
@@ -54,7 +59,7 @@ export function ArrayGeometryEditor({
   onChange: Change;
 }) {
   const limit = unambiguousHz(geometry, lanes);
-  const aliasing = limit !== null && centerHz !== null && centerHz > limit;
+  const aliased = aliasing(geometry, lanes, centerHz);
   return (
     <div className="flex flex-col gap-2">
       <div className="flex items-start gap-3">
@@ -73,8 +78,8 @@ export function ArrayGeometryEditor({
             <span className="font-mono text-xs tabular-nums">
               {limit === null ? "-" : formatMhz(limit)}
             </span>
-            {aliasing && (
-              <span title={ALIASING_TITLE} className={`${CHIP_SM} border-danger/60 text-danger`}>
+            {aliased && (
+              <span title={ALIASING_TITLE} className="text-xs text-danger">
                 {ALIASING}
               </span>
             )}

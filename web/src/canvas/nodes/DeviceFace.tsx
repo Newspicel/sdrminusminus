@@ -1,4 +1,3 @@
-import { Collapsible } from "@base-ui/react/collapsible";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link2, Radar } from "lucide-react";
 import type { ReactNode } from "react";
@@ -7,7 +6,9 @@ import { BTN_PRIMARY, BTN_QUIET, BTN_SM, ICON_BTN } from "../../components/contr
 import { deviceId } from "../../components/devices";
 import { inTuningRange, isTunable, tuningRange } from "../../components/dial";
 import { dialId, FrequencyDial } from "../../components/FrequencyDial";
-import { DROPS_HINT, formatCount, formatMhz } from "../../components/format";
+import { FaceFault } from "../../components/face/Fault";
+import { Stat } from "../../components/face/Stats";
+import { formatMhz } from "../../components/format";
 import { Icon } from "../../components/Icon";
 import { laneLayout } from "../../components/laneRows";
 import { DeviceChoices } from "../../components/OpenRadio";
@@ -16,7 +17,6 @@ import { Tip } from "../../components/Tip";
 import { TuneTo } from "../../components/TuneTo";
 import { TuningLock } from "../../components/TuningLock";
 import { createDeviceSet, devicesQuery, STATE_KEY, stateQuery } from "../../lib/api";
-import { queueSummary, usePipelineHealth } from "../../lib/pipeline";
 import { toastError } from "../../lib/toasts";
 import type { DeviceInfo, DeviceRef, DeviceSet, PatchNode, PatchNodeOf } from "../../lib/types";
 import { useRadioTune } from "../../lib/useRadioTune";
@@ -45,6 +45,7 @@ import {
 } from "./deviceNode";
 import { MakeArrayButton, offersMakeArray } from "./MakeArrayButton";
 import { FaceBody, FaceFooter, NodeShell, useFaceActive } from "./NodeShell";
+import { SourceHealth } from "./SourceHealth";
 
 type DeviceNodeData = PatchNodeOf<"device">["data"];
 
@@ -325,37 +326,12 @@ function Heard({ set }: { set: DeviceSet }) {
 
 function Fault({ set }: { set: DeviceSet }) {
   const said = faultSaid(set);
-  return (
-    <div role="alert" className="border-t border-line p-2 text-xs text-danger">
-      {said == null ? (
-        <p className="font-mono">Device fault · {set.error}</p>
-      ) : (
-        <Collapsible.Root>
-          <Collapsible.Trigger className="cursor-pointer text-left">{said}</Collapsible.Trigger>
-          <Collapsible.Panel>
-            <p className="mt-1 font-mono text-ink-dim">{set.error}</p>
-          </Collapsible.Panel>
-        </Collapsible.Root>
-      )}
-    </div>
-  );
+  return <FaceFault message={said ?? `Device fault · ${set.error}`} detail={set.error} />;
 }
 
 function Refused({ set }: { set: DeviceSet }) {
   const said = refusalSaid(set);
-  if (said == null) {
-    return null;
-  }
-  return (
-    <div role="alert" className="border-t border-line p-2 text-xs text-danger">
-      <Collapsible.Root>
-        <Collapsible.Trigger className="cursor-pointer text-left">{said}</Collapsible.Trigger>
-        <Collapsible.Panel>
-          <p className="mt-1 font-mono text-ink-dim">{set.refused?.error}</p>
-        </Collapsible.Panel>
-      </Collapsible.Root>
-    </div>
-  );
+  return said == null ? null : <FaceFault message={said} detail={set.refused?.error} />;
 }
 
 export function DeviceFace({ node }: { node: PatchNode }) {
@@ -553,65 +529,30 @@ export function DeviceFace({ node }: { node: PatchNode }) {
 const LOSS_HINT =
   "The radio sends more than its link or this computer carries. Lower the rate or the lanes";
 
-function Stat({
-  label,
-  title,
-  tone = "",
-  children,
-}: {
-  label: string;
-  title: string;
-  tone?: string;
-  children: ReactNode;
-}) {
-  return (
-    <span
-      className="inline-flex items-center gap-1 font-mono text-[11px] whitespace-nowrap text-ink-faint"
-      title={title}
-    >
-      {label} <b className={`font-medium ${tone === "" ? "text-ink" : tone}`}>{children}</b>
-    </span>
-  );
-}
-
 function DeviceHealth({ set }: { set: DeviceSet }) {
-  const health = usePipelineHealth((state) => state.health);
-  const summary = queueSummary(health, set.id);
-  const overruns = set.overruns ?? 0;
   const clipping = clippingSaid(set);
   const loss = lossSaid(set);
   const bond = lanesMerged(set) ? bondSaid(set.capabilities.coherence) : null;
   return (
-    <span className="mr-auto flex min-w-0 flex-wrap items-center gap-3">
-      {summary !== null && (
-        <Stat label="Queue" title={summary.detail}>
-          {summary.oldestMs.toFixed(0)} ms
-        </Stat>
-      )}
+    <SourceHealth set={set}>
       {loss !== null && (
-        <Stat label="Lost" title={LOSS_HINT} tone="text-warn">
+        <Stat label="Lost" title={LOSS_HINT} tone="warn">
           {loss}
         </Stat>
       )}
-      {overruns > 0 && (
-        <Stat label="Drops" title={DROPS_HINT} tone="text-warn">
-          {formatCount(overruns)}
-        </Stat>
-      )}
       {clipping !== null && (
-        <Stat label="Clipping" title="The ADC is at full scale. Lower the gain" tone="text-danger">
+        <Stat label="Clipping" title="The ADC is at full scale. Lower the gain" tone="danger">
           {clipping}
         </Stat>
       )}
       {bond !== null && (
-        <span
-          className="inline-flex items-center gap-1 font-mono text-[11px] whitespace-nowrap text-ink-faint"
+        <Stat
+          label={<Icon glyph={Link2} size={12} />}
           title="The lanes sample on one clock, so their streams line up in time"
         >
-          <Icon glyph={Link2} size={12} />
           {bond}
-        </span>
+        </Stat>
       )}
-    </span>
+    </SourceHealth>
   );
 }

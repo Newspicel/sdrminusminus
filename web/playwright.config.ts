@@ -18,7 +18,7 @@ const bind = (port) =>
   for (;;) {
     const port = await bind(0);
     if (port < 65535 && (await bind(port + 1).then(() => true, () => false))) {
-      console.log(port);
+      process.stdout.write(String(port));
       return;
     }
   }
