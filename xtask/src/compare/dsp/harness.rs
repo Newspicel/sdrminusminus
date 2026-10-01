@@ -17,6 +17,7 @@ const GNURADIO_MODULES: &[&str] = &[
     "gnuradio-fft",
     "gnuradio-runtime",
     "volk",
+    "spdlog",
 ];
 
 pub struct Timing {

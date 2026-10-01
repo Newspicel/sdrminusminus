@@ -6,6 +6,9 @@
 #include <gnuradio/filter/firdes.h>
 #include <gnuradio/filter/freq_xlating_fir_filter.h>
 #include <gnuradio/filter/pfb_arb_resampler.h>
+#include <gnuradio/logger.h>
+#include <spdlog/sinks/dist_sink.h>
+#include <spdlog/sinks/stdout_sinks.h>
 #include <volk/volk_version.h>
 
 #include <algorithm>
@@ -209,8 +212,16 @@ void setup(context& c, unsigned n)
 
 }
 
+void log_to_stderr()
+{
+    auto backend = std::static_pointer_cast<spdlog::sinks::dist_sink_mt>(
+        gr::logging::singleton().default_backend());
+    backend->set_sinks({ std::make_shared<spdlog::sinks::stderr_sink_mt>() });
+}
+
 int main(int argc, char** argv)
 {
+    log_to_stderr();
     bench_timing timing;
     if (bench_parse(argc, argv, &timing)) return 1;
     if (timing.block < BENCH_FFT) {
