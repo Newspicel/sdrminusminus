@@ -3,11 +3,12 @@ use std::sync::LazyLock;
 mod array;
 
 use sdrmm_wire::{
-    AcarsParams, AdsbParams, AisParams, AmParams, AprsParams, ChannelNode, ChannelParams,
-    ChannelSettings, DabParams, DeviceNode, DmrParams, DstarParams, ErmesParams, FlexParams,
-    GnssParams, M17Params, MorseParams, NavtexParams, NfmParams, NodeBody, PatchEdge, PatchGraph,
-    PatchNode, PocsagParams, PortRef, Position, PskParams, RadioClockParams, RttyParams, Squelch,
-    SsbParams, SstvParams, TemplateInfo, WfmParams, WsjtParams, WsprParams, YsfParams,
+    AcarsParams, AdsbParams, AisParams, AmParams, AprsParams, AptParams, ChannelNode,
+    ChannelParams, ChannelSettings, DabParams, DeviceNode, DmrParams, DstarParams, ErmesParams,
+    FlexParams, GnssParams, LrptParams, M17Params, MorseParams, NavtexParams, NfmParams, NodeBody,
+    PatchEdge, PatchGraph, PatchNode, PocsagParams, PortRef, Position, PskParams, RadioClockParams,
+    RadiosondeParams, RttyParams, Squelch, SsbParams, SstvParams, TemplateInfo, WefaxParams,
+    WfmParams, WsjtParams, WsprParams, YsfParams,
 };
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -60,7 +61,6 @@ const ORDER: &[Sink] = &[
 const LISTEN: &[Sink] = &[Sink::Speaker];
 const LISTEN_READ: &[Sink] = &[Sink::Speaker, Sink::Readout];
 const LISTEN_LOG: &[Sink] = &[Sink::Speaker, Sink::Log];
-const TRACK: &[Sink] = &[Sink::Map, Sink::Log];
 const TRACK_READ: &[Sink] = &[Sink::Map, Sink::Log, Sink::Readout];
 const LOG: &[Sink] = &[Sink::Log];
 const LOG_READ: &[Sink] = &[Sink::Log, Sink::Readout];
@@ -282,7 +282,7 @@ static TEMPLATES: &[Entry] = &[
         channels: &[Channel::at(
             144_800_000.0,
             || ChannelParams::Aprs(AprsParams::default()),
-            TRACK,
+            TRACK_READ,
         )],
     },
     Entry {
@@ -558,6 +558,65 @@ static TEMPLATES: &[Entry] = &[
                 LISTEN,
             ),
         ],
+    },
+    Entry {
+        id: "weather-sats",
+        name: "Weather satellites (137 MHz)",
+        description: "NOAA APT and Meteor LRPT pictures during a pass.",
+        explainer: "Polar weather satellites send pictures while they pass overhead. NOAA \
+                    APT is analog on 137.100 MHz, Meteor LRPT digital on 137.900 MHz. Retune \
+                    to the satellite in view and use the Satellite node for Doppler.",
+        center_hz: 137_500_000.0,
+        sample_rate: 1_024_000.0,
+        channels: &[
+            Channel::at(
+                137_100_000.0,
+                || ChannelParams::Apt(AptParams::default()),
+                WATCH,
+            ),
+            Channel::at(
+                137_900_000.0,
+                || ChannelParams::Lrpt(LrptParams::default()),
+                WATCH,
+            ),
+        ],
+    },
+    Entry {
+        id: "hf-wefax",
+        name: "Weather fax (HF)",
+        description: "DWD weather charts from Pinneberg on 7.880 MHz.",
+        explainer: "Radiofax sends weather charts line by line. Start and stop tones begin \
+                    and end a chart; the start tone picks the IOC for you. Channels sit on \
+                    the USB carrier, 1.9 kHz below the published frequency.",
+        center_hz: 7_880_000.0,
+        sample_rate: 250_000.0,
+        channels: &[
+            Channel::at(
+                7_878_100.0,
+                || ChannelParams::Wefax(WefaxParams::default()),
+                WATCH,
+            ),
+            Channel::at(
+                7_878_100.0,
+                || ChannelParams::Ssb(SsbParams::default()),
+                LISTEN,
+            ),
+        ],
+    },
+    Entry {
+        id: "radiosondes",
+        name: "Radiosondes (403 MHz)",
+        description: "Weather balloon position and readings, RS41, DFM, M10, M20, iMet.",
+        explainer: "Weather services launch radiosondes once or twice a day. Each sends its \
+                    position, temperature, humidity and pressure every second. Set the \
+                    channel to your nearest launch site's frequency.",
+        center_hz: 403_000_000.0,
+        sample_rate: 2_048_000.0,
+        channels: &[Channel::at(
+            403_000_000.0,
+            || ChannelParams::Radiosonde(RadiosondeParams::default()),
+            TRACK_READ,
+        )],
     },
 ];
 

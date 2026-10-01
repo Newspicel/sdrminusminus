@@ -16,6 +16,7 @@ covers the modes that need more than a frequency.
 | Amateur and HF | CW skimmer, FT8, FT4, WSPR | APRS / AX.25, RTTY, PSK31 to PSK250, Morse | |
 | Paging and telemetry | POCSAG | FLEX, ERMES, Selcall (CCIR, ZVEI), DCF77, WWVB, MSF, JJY | |
 | Pictures and video | | [SSTV](#sstv), ATV | |
+| Weather and satellites | | [NOAA APT, Meteor LRPT](#weather-satellites), [WEFAX](#wefax), [radiosondes](#radiosondes), [APRS weather](#aprs-weather) | |
 | Broadcast digital | [DAB and DAB+](#dab-and-dab) | | [DVB-T/T2, DATV (DVB-S/S2)](#dvb), DRM30 and DRM+ |
 | Utility | [Signal identifier](scanning.md#identify-a-signal) | Iridium bursts, [DECT survey](#dect) | GNSS lab (GPS L1 C/A) |
 
@@ -128,6 +129,41 @@ Modes: Robot 36 and 72, Martin M1 and M2, Scottie S1, S2 and DX, PD50 to PD180, 
 
 Wire `video` to **Video** to watch a picture arrive. Finished pictures are saved as PNG on the
 server, even with no client open, and kept for 24 hours, up to 512 pictures.
+
+## Weather satellites
+
+**NOAA APT** decodes the analog picture on 137 MHz: both AVHRR channels side by side, with the
+channel numbers read from the telemetry wedges. **Meteor LRPT** decodes the digital picture from
+Meteor-M on 137.9 MHz and composes channels 64 and 65 into colour, or shows the infrared channel
+at night. Pick QPSK 72k, OQPSK 72k or OQPSK 80k to match the satellite.
+
+A picture starts when the signal locks and is saved when the pass ends. Use the **Satellite**
+node to follow Doppler and know when a pass begins. Pictures go to the same store as SSTV.
+
+## WEFAX
+
+Tune WEFAX to the USB carrier, 1.9 kHz below the published frequency. The start tone picks the
+IOC, phasing lines set the line start and straighten the slant, and the stop tone ends the chart.
+
+| Setting | Does |
+|---|---|
+| IOC | 576 or 288, used when a chart starts without a start tone |
+| LPM | Lines per minute, 120 for most stations |
+| Keep unfinished pictures | Saves a chart cut short by a fade |
+
+## Radiosondes
+
+The Radiosonde channel reads RS41, DFM, M10, M20 and iMet-4 weather balloons. **Auto** runs every
+type at once. Each frame gives serial, position, altitude, climb and, where the sonde sends it,
+temperature, humidity and pressure. Wire it to **Map** for the flight track and to **Log** or
+**Readout** for the readings. RS41 temperature and humidity appear once its calibration data has
+arrived, about a minute after first lock.
+
+## APRS weather
+
+APRS weather reports, positioned or positionless, are read into wind, gust, temperature, rain,
+humidity, pressure and luminosity in metric units. The APRS readout lists each weather station
+with its latest values and the extremes seen.
 
 ## DECT
 

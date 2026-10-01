@@ -121,6 +121,12 @@ pub static SIGNALS: &[Signal] = &[
         render: aprs,
     },
     Signal {
+        id: "aprs_weather",
+        label: "APRS weather",
+        rate_hz: NARROW,
+        render: aprs_weather,
+    },
+    Signal {
         id: "ais",
         label: "AIS",
         rate_hz: NARROW,
@@ -503,6 +509,14 @@ fn acars() -> Vec<Complex<f32>> {
 }
 
 fn aprs() -> Vec<Complex<f32>> {
+    aprs_packet("SDR-- signal generator")
+}
+
+fn aprs_weather() -> Vec<Complex<f32>> {
+    aprs_packet("!4903.50N/07201.75W_220/004g005t077r000p000P000h50b09900SDR--")
+}
+
+fn aprs_packet(text: &str) -> Vec<Complex<f32>> {
     let rate = AprsTx::descriptor().input_rate_hz;
     let Ok(mut tx) = AprsTx::new(
         ChannelCtx { input_rate: rate },
@@ -514,7 +528,7 @@ fn aprs() -> Vec<Complex<f32>> {
         return Vec::new();
     };
     if tx
-        .submit(TxPayload::Frame(aprs_frame("SDR-- signal generator")))
+        .submit(TxPayload::Frame(aprs_frame(text)))
         .is_err()
     {
         return Vec::new();

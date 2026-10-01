@@ -20,7 +20,7 @@ lists them all.
 | `events` | Decoder log | Message history |
 | `events` | Map | Positions |
 | `events` | Export | CSV or JSON of logged rows |
-| `video` | Video | ATV frames or SSTV pictures |
+| `video` | Video | ATV frames, SSTV, WEFAX and weather satellite pictures |
 | `baseband` | Baseband scope, recorder, or Network IQ | The channel's filtered IQ |
 
 To swap the mode, right-click the channel and choose **Replace with…**. The frequency and squelch
