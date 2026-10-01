@@ -26,6 +26,18 @@ describe("ModeChips", () => {
     expect(s2).toContain("Roll-off");
   });
 
+  it("offers Auto for the radiosonde type", () => {
+    expect(render({ type: "radiosonde", settings: {} })).toContain("Auto");
+    expect(render({ type: "radiosonde", settings: { sonde: "dfm" } })).toContain("DFM");
+  });
+
+  it("shows WEFAX timing and LRPT mode chips", () => {
+    const wefax = render({ type: "wefax", settings: {} });
+    expect(wefax).toContain('aria-label="Index of cooperation"');
+    expect(wefax).toContain('aria-label="Lines per minute"');
+    expect(render({ type: "lrpt", settings: {} })).toContain("OQPSK 72k");
+  });
+
   it("renders nothing for modes without settings", () => {
     expect(render({ type: "m17", settings: {} })).toBe("");
   });

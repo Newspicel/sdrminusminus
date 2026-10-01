@@ -243,6 +243,25 @@ describe("eventSummary", () => {
         },
       }),
     ).toBe('DL1ABC-7>S32U6T:`(_fn"Oj/ · Returning');
+    expect(
+      eventSummary({
+        kind: "aprs",
+        data: {
+          source: "DL1WX",
+          destination: "APRS",
+          info: "_",
+          tnc2: "DL1WX>APRS:_",
+          weather: {
+            temperature_c: 12.5,
+            humidity_pct: 81,
+            pressure_hpa: 1013.2,
+            wind_dir_deg: 45,
+            wind_speed_ms: 3.1,
+            rain_1h_mm: 0.2,
+          },
+        },
+      }),
+    ).toBe("DL1WX · 12.5 °C · 81% · 1013.2 hPa · 045° 3.1 m/s · 0.2 mm/h");
     expect(eventSummary({ kind: "rtty", data: { text: "CQ CQ" } })).toBe("CQ CQ");
     expect(
       eventSummary({
@@ -272,6 +291,66 @@ describe("eventSummary", () => {
         },
       }),
     ).toBe("Robot 36 \u00b7 320\u00d7240 \u00b7 96 of 240 lines");
+    expect(
+      eventSummary({
+        kind: "apt",
+        data: {
+          seq: 1,
+          lines: 1200,
+          complete: true,
+          duration_ms: 600_400,
+          channel_a: "ch2",
+          channel_b: "ch4",
+        },
+      }),
+    ).toBe("APT · ch 2/4 · 1200 lines in 600 s");
+    expect(
+      eventSummary({
+        kind: "lrpt",
+        data: {
+          seq: 1,
+          mode: "oqpsk72",
+          width: 1568,
+          lines: 800,
+          complete: false,
+          duration_ms: 1,
+          apids: [64, 65],
+          frames: 10,
+          frames_corrected: 1,
+          frames_failed: 2,
+          packets_lost: 3,
+        },
+      }),
+    ).toBe("OQPSK 72k · APID 64/65 · 800 lines · 2 frames lost · 3 packets lost");
+    expect(
+      eventSummary({
+        kind: "wefax",
+        data: {
+          seq: 1,
+          ioc: "ioc576",
+          lpm: "lpm120",
+          width: 1810,
+          lines: 400,
+          complete: false,
+          duration_ms: 1,
+        },
+      }),
+    ).toBe("IOC 576 · 120 LPM · 400 lines, cut short");
+    expect(
+      eventSummary({
+        kind: "radiosonde",
+        data: {
+          sonde: "rs41",
+          serial: "S1234567",
+          altitude_m: 12_345.4,
+          climb_ms: 5.04,
+          temperature_c: -40.04,
+          lat: 48.1,
+          lon: 11.5,
+          errors_corrected: 0,
+        },
+      }),
+    ).toBe("RS41 S1234567 · 12345 m · +5.0 m/s · -40.0 °C · 48.10000, 11.50000");
     expect(eventSummary({ kind: "tone", data: { ctcss_hz: 88.5, open: true } })).toBe(
       "CTCSS 88.5 Hz · open",
     );

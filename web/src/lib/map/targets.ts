@@ -1,12 +1,17 @@
 import type { Map as MapLibreMap, MapMouseEvent } from "maplibre-gl";
 import { recordEvent } from "../diagnostics";
 import {
+  isTrackKind,
   KIND_STYLE,
   layerId,
   MAP_KINDS,
   type MapKind,
   sourceId,
   type TargetCollection,
+  TRACK_KINDS,
+  type TrackCollection,
+  type TrackKind,
+  trackSourceId,
 } from "./layers";
 
 export const HIT_SLOP_PX = 9;
@@ -20,7 +25,14 @@ const LAYER_PARTS = ["dot", "heading", "label"] as const;
 
 const EMPTY_COLLECTION: TargetCollection = { type: "FeatureCollection", features: [] };
 
-const LABEL_OFFSET_EM: Record<MapKind, number> = { adsb: 1.3, ais: 1.1, aprs: 0.7 };
+const EMPTY_TRACKS: TrackCollection = { type: "FeatureCollection", features: [] };
+
+const LABEL_OFFSET_EM: Record<MapKind, number> = {
+  adsb: 1.3,
+  ais: 1.1,
+  aprs: 0.7,
+  radiosonde: 0.7,
+};
 
 export const LAYER_KIND: ReadonlyMap<string, MapKind> = new Map(
   MAP_KINDS.flatMap((kind) => LAYER_PARTS.map((part) => [layerId(kind, part), kind])),
@@ -60,6 +72,25 @@ function removeTargetLayers(map: MapLibreMap): void {
       map.removeSource(sourceId(kind));
     }
   }
+  for (const kind of TRACK_KINDS) {
+    if (map.getLayer(layerId(kind, "track")) !== undefined) {
+      map.removeLayer(layerId(kind, "track"));
+    }
+    if (map.getSource(trackSourceId(kind)) !== undefined) {
+      map.removeSource(trackSourceId(kind));
+    }
+  }
+}
+
+function addTrackLayer(map: MapLibreMap, kind: TrackKind): void {
+  map.addSource(trackSourceId(kind), { type: "geojson", data: EMPTY_TRACKS });
+  map.addLayer({
+    id: layerId(kind, "track"),
+    type: "line",
+    source: trackSourceId(kind),
+    layout: { "line-join": "round", "line-cap": "round" },
+    paint: { "line-color": KIND_STYLE[kind].color, "line-width": 1.5, "line-opacity": 0.7 },
+  });
 }
 
 function addHeadingLayer(map: MapLibreMap, kind: MapKind, edge: string): boolean {
@@ -115,6 +146,11 @@ export function installTargetLayers(
 ): boolean {
   removeTargetLayers(map);
   let headings = true;
+  for (const kind of kinds) {
+    if (isTrackKind(kind)) {
+      addTrackLayer(map, kind);
+    }
+  }
   for (const kind of kinds) {
     map.addSource(sourceId(kind), { type: "geojson", data: EMPTY_COLLECTION });
     map.addLayer({
@@ -250,4 +286,5 @@ const KIND_ICON: Record<MapKind, (color: string, edge: string) => ImageData | nu
   adsb: planeImage,
   ais: shipImage,
   aprs: arrowImage,
+  radiosonde: arrowImage,
 };

@@ -9,8 +9,10 @@ import { Button } from "./BaseControls";
 import { BroadcastDataView } from "./BroadcastDataView";
 import { ALERT, BTN, TABLE_CELL, TABLE_HEAD } from "./controls";
 import {
+  type AprsWeatherStation,
   ageClass,
   aircraftRow,
+  aprsWeatherStations,
   buildTranscript,
   candidateScore,
   cwSignalRows,
@@ -20,6 +22,7 @@ import {
   formatAge,
   formatAltFreqs,
   formatClock,
+  formatPosition,
   identMeasurements,
   identOverview,
   inScope,
@@ -29,6 +32,9 @@ import {
   modulationLabel,
   multiVorFix,
   ptyLabel,
+  type RadiosondeStation,
+  radiosondeLog,
+  radiosondeStations,
   rdsPicture,
   rdsQuality,
   recordsInScope,
@@ -46,6 +52,17 @@ import { Readout, Readouts } from "./face/Readouts";
 import { formatHz } from "./format";
 import { Icon } from "./Icon";
 import { Unit } from "./Unit";
+import {
+  celsius,
+  climbRate,
+  hectopascal,
+  metres,
+  metresPerSecond,
+  millimetres,
+  percent,
+  SONDE_LABELS,
+  wind,
+} from "./weatherFormat";
 
 const PANE = "flex flex-col gap-2 p-3";
 const EMPTY = "text-sm text-ink-dim";
@@ -596,6 +613,211 @@ function DectView({ scope = {} }: { scope?: DecoderScope }) {
   );
 }
 
+function RadiosondeRow({
+  sonde,
+  now,
+  selected,
+  onSelect,
+}: {
+  sonde: RadiosondeStation;
+  now: number;
+  selected: boolean;
+  onSelect: () => void;
+}) {
+  const ageMs = now - Date.parse(sonde.at);
+  return (
+    <tr className={`border-b border-line/50 ${ageClass(ageMs)}`}>
+      <td className={`${TABLE_CELL} font-mono`}>
+        <Button
+          type="button"
+          className="hover:text-accent aria-pressed:text-accent"
+          aria-pressed={selected}
+          title="Show frames"
+          onClick={onSelect}
+        >
+          {sonde.serial}
+        </Button>
+      </td>
+      <td className={TABLE_CELL}>{SONDE_LABELS[sonde.sonde]}</td>
+      <td className={`${TABLE_CELL} tabular-nums`}>{metres(sonde.altitudeM) ?? "-"}</td>
+      <td className={`${TABLE_CELL} tabular-nums`}>
+        {metres(sonde.maxAltitudeM) ?? "-"}
+        {sonde.burst && (
+          <span className="ml-1 text-accent" title="Altitude falling: balloon burst">
+            burst
+          </span>
+        )}
+      </td>
+      <td className={`${TABLE_CELL} tabular-nums`}>{climbRate(sonde.climbMs) ?? "-"}</td>
+      <td className={`${TABLE_CELL} tabular-nums`}>{celsius(sonde.temperatureC) ?? "-"}</td>
+      <td className={`${TABLE_CELL} tabular-nums`}>{percent(sonde.humidityPct) ?? "-"}</td>
+      <td className={`${TABLE_CELL} tabular-nums`}>{hectopascal(sonde.pressureHpa) ?? "-"}</td>
+      <td className={`${TABLE_CELL} text-right`}>{formatAge(ageMs)}</td>
+      <td className={`${TABLE_CELL} tabular-nums`}>{sonde.frame ?? "-"}</td>
+    </tr>
+  );
+}
+
+const SONDE_LOG_LIMIT = 50;
+
+function RadiosondeLog({ records }: { records: readonly DecodedRecordOf<"radiosonde">[] }) {
+  return (
+    <div className="max-h-48 overflow-auto">
+      <table className="w-full border-collapse text-left text-xs">
+        <thead>
+          <tr className="border-b border-line">
+            <th className={TABLE_HEAD}>Time</th>
+            <th className={TABLE_HEAD}>Frame</th>
+            <th className={TABLE_HEAD}>Altitude</th>
+            <th className={TABLE_HEAD}>Climb</th>
+            <th className={TABLE_HEAD}>Temp</th>
+            <th className={TABLE_HEAD}>Position</th>
+          </tr>
+        </thead>
+        <tbody>
+          {records.map((record) => {
+            const frame = record.event.data;
+            return (
+              <tr key={`${record.at}:${frame.frame ?? ""}`} className="border-b border-line/50">
+                <td className={`${TABLE_CELL} tabular-nums`}>{formatClock(record.at)}</td>
+                <td className={`${TABLE_CELL} tabular-nums`}>{frame.frame ?? "-"}</td>
+                <td className={`${TABLE_CELL} tabular-nums`}>{metres(frame.altitude_m) ?? "-"}</td>
+                <td className={`${TABLE_CELL} tabular-nums`}>{climbRate(frame.climb_ms) ?? "-"}</td>
+                <td className={`${TABLE_CELL} tabular-nums`}>
+                  {celsius(frame.temperature_c) ?? "-"}
+                </td>
+                <td className={TABLE_CELL}>{formatPosition(frame.lat, frame.lon)}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function RadiosondeView({ scope = {} }: { scope?: DecoderScope }) {
+  const now = useNow();
+  const records = recordsInScope(useDecodedKind("radiosonde"), scope);
+  const sondes = radiosondeStations(records);
+  const [selected, setSelected] = useState<string | null>(null);
+  const open = sondes.find((sonde) => sonde.serial === selected) ?? sondes[0];
+  if (open === undefined) {
+    return (
+      <div className={PANE}>
+        <span className={EMPTY}>No sonde heard yet.</span>
+      </div>
+    );
+  }
+  return (
+    <div className={PANE}>
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[40rem] border-collapse text-left text-xs">
+          <thead>
+            <tr className="border-b border-line">
+              <th className={TABLE_HEAD}>Serial</th>
+              <th className={TABLE_HEAD}>Type</th>
+              <th className={TABLE_HEAD}>Altitude</th>
+              <th className={TABLE_HEAD} title="Highest altitude reached">
+                Max
+              </th>
+              <th className={TABLE_HEAD}>Climb</th>
+              <th className={TABLE_HEAD}>Temp</th>
+              <th className={TABLE_HEAD} title="Relative humidity">
+                RH
+              </th>
+              <th className={TABLE_HEAD}>Pressure</th>
+              <th className={TABLE_HEAD}>Heard</th>
+              <th className={TABLE_HEAD}>Frame</th>
+            </tr>
+          </thead>
+          <tbody>
+            {sondes.map((sonde) => (
+              <RadiosondeRow
+                key={sonde.serial}
+                sonde={sonde}
+                now={now}
+                selected={sonde.serial === open.serial}
+                onSelect={() => setSelected(sonde.serial)}
+              />
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <span className="legend">{open.serial}</span>
+      <RadiosondeLog records={radiosondeLog(records, open.serial, SONDE_LOG_LIMIT)} />
+    </div>
+  );
+}
+
+function AprsWeatherRow({ station, now }: { station: AprsWeatherStation; now: number }) {
+  const weather = station.weather;
+  const ageMs = now - Date.parse(station.at);
+  return (
+    <tr className={`border-b border-line/50 ${ageClass(ageMs)}`}>
+      <td className={`${TABLE_CELL} font-mono`}>{station.source}</td>
+      <td className={`${TABLE_CELL} tabular-nums`}>{celsius(weather.temperature_c) ?? "-"}</td>
+      <td className={`${TABLE_CELL} tabular-nums`}>
+        {station.minTemperatureC === null
+          ? "-"
+          : `${celsius(station.minTemperatureC)} / ${celsius(station.maxTemperatureC)}`}
+      </td>
+      <td className={`${TABLE_CELL} tabular-nums`}>{wind(weather) ?? "-"}</td>
+      <td className={`${TABLE_CELL} tabular-nums`}>{metresPerSecond(station.maxGustMs) ?? "-"}</td>
+      <td className={`${TABLE_CELL} tabular-nums`}>{percent(weather.humidity_pct) ?? "-"}</td>
+      <td className={`${TABLE_CELL} tabular-nums`}>{hectopascal(weather.pressure_hpa) ?? "-"}</td>
+      <td className={`${TABLE_CELL} tabular-nums`}>{millimetres(weather.rain_1h_mm) ?? "-"}</td>
+      <td className={`${TABLE_CELL} text-right`}>{formatAge(ageMs)}</td>
+    </tr>
+  );
+}
+
+function AprsWeatherView({ scope = {} }: { scope?: DecoderScope }) {
+  const now = useNow();
+  const stations = aprsWeatherStations(recordsInScope(useDecodedKind("aprs"), scope));
+  if (stations.length === 0) {
+    return (
+      <div className={PANE}>
+        <span className={EMPTY}>No weather station heard yet.</span>
+      </div>
+    );
+  }
+  return (
+    <div className={PANE}>
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[40rem] border-collapse text-left text-xs">
+          <thead>
+            <tr className="border-b border-line">
+              <th className={TABLE_HEAD}>Station</th>
+              <th className={TABLE_HEAD}>Temp</th>
+              <th className={TABLE_HEAD} title="Lowest and highest temperature in the kept reports">
+                Min / max
+              </th>
+              <th className={TABLE_HEAD}>Wind</th>
+              <th className={TABLE_HEAD} title="Strongest gust in the kept reports">
+                Gust
+              </th>
+              <th className={TABLE_HEAD} title="Relative humidity">
+                RH
+              </th>
+              <th className={TABLE_HEAD}>Pressure</th>
+              <th className={TABLE_HEAD} title="Rain in the last hour">
+                Rain
+              </th>
+              <th className={TABLE_HEAD}>Heard</th>
+            </tr>
+          </thead>
+          <tbody>
+            {stations.map((station) => (
+              <AprsWeatherRow key={station.source} station={station} now={now} />
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 function VorView({ scope = {} }: { scope?: DecoderScope }) {
   const readings = latestVorReadings(recordsInScope(useDecodedKind("vor"), scope));
   const fix = multiVorFix(readings);
@@ -663,10 +885,19 @@ function VorView({ scope = {} }: { scope?: DecoderScope }) {
   );
 }
 
-function PicturesView({ scope = {} }: { scope?: DecoderScope }) {
+type PictureSource = "sstv" | "apt" | "lrpt" | "wefax";
+
+const PICTURE_HINTS: Record<PictureSource, string> = {
+  sstv: "No picture received yet: a scanning transmission takes between 36 s and four minutes.",
+  apt: "No NOAA pass yet.",
+  lrpt: "No Meteor pass yet.",
+  wefax: "No chart received yet.",
+};
+
+function PicturesView({ source, scope = {} }: { source: PictureSource; scope?: DecoderScope }) {
   const result = useQuery(imagesQuery());
-  const images = (result.data?.images ?? []).filter((image) =>
-    inScope(image.device_set, image.channel, scope),
+  const images = (result.data?.images ?? []).filter(
+    (image) => image.source === source && inScope(image.device_set, image.channel, scope),
   );
   const [selected, setSelected] = useState<number | null>(null);
   const open = images.find((image) => image.id === selected) ?? images[0];
@@ -674,9 +905,7 @@ function PicturesView({ scope = {} }: { scope?: DecoderScope }) {
   if (images.length === 0) {
     return (
       <div className={PANE}>
-        <span className={EMPTY}>
-          No picture received yet: a scanning transmission takes between 36 s and four minutes.
-        </span>
+        <span className={EMPTY}>{PICTURE_HINTS[source]}</span>
       </div>
     );
   }
@@ -775,7 +1004,7 @@ const VIEWS: Record<DecoderKind, ((scope: DecoderScope) => ReactNode) | null> = 
   selcall: null,
   tone: (scope) => <ToneView scope={scope} />,
   ident: (scope) => <IdentView scope={scope} />,
-  aprs: null,
+  aprs: (scope) => <AprsWeatherView scope={scope} />,
   pocsag: null,
   flex: null,
   ermes: null,
@@ -789,7 +1018,11 @@ const VIEWS: Record<DecoderKind, ((scope: DecoderScope) => ReactNode) | null> = 
   broadcast_data: (scope) => <BroadcastView scope={scope} />,
   radio_clock: null,
   gnss: null,
-  sstv: (scope) => <PicturesView scope={scope} />,
+  sstv: (scope) => <PicturesView source="sstv" scope={scope} />,
+  apt: (scope) => <PicturesView source="apt" scope={scope} />,
+  lrpt: (scope) => <PicturesView source="lrpt" scope={scope} />,
+  wefax: (scope) => <PicturesView source="wefax" scope={scope} />,
+  radiosonde: (scope) => <RadiosondeView scope={scope} />,
   vor: (scope) => <VorView scope={scope} />,
   ils: null,
   df: null,

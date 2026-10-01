@@ -2,6 +2,16 @@ import type { DecoderEvent } from "../lib/types";
 import { candidateScore, dvMode, dvNetwork, dvParties, modulationLabel } from "./decoderViews";
 import { formatHz } from "./format";
 import { SSTV_MODE_LABELS } from "./sstvModes";
+import {
+  AVHRR_LABELS,
+  aprsWeatherFact,
+  celsius,
+  climbRate,
+  LRPT_MODE_LABELS,
+  SONDE_LABELS,
+  WEFAX_IOC_VALUES,
+  WEFAX_LPM_VALUES,
+} from "./weatherFormat";
 
 export function hex5(address: number): string {
   return address.toString(16).toUpperCase().padStart(5, "0");
@@ -163,7 +173,11 @@ export function eventSummary(event: DecoderEvent): string {
     }
     case "aprs": {
       const p = event.data;
-      return p.mic_e_message == null ? p.tnc2 : join([p.tnc2, p.mic_e_message]);
+      if (p.mic_e_message != null) {
+        return join([p.tnc2, p.mic_e_message]);
+      }
+      const weather = p.weather == null ? "" : aprsWeatherFact(p.weather);
+      return weather === "" ? p.tnc2 : join([p.source, weather]);
     }
     case "rtty":
     case "morse":
@@ -326,7 +340,52 @@ export function eventSummary(event: DecoderEvent): string {
         dectSecurityFact(frame),
       ]);
     }
+    case "apt":
+      return join([
+        "APT",
+        event.data.channel_a == null || event.data.channel_b == null
+          ? null
+          : `ch ${AVHRR_LABELS[event.data.channel_a]}/${AVHRR_LABELS[event.data.channel_b]}`,
+        pictureLines(event.data),
+      ]);
+    case "lrpt":
+      return lrptSummary(event.data);
+    case "wefax":
+      return join([
+        `IOC ${WEFAX_IOC_VALUES[event.data.ioc]}`,
+        `${WEFAX_LPM_VALUES[event.data.lpm]} LPM`,
+        pictureLines(event.data),
+      ]);
+    case "radiosonde":
+      return radiosondeSummary(event.data);
   }
+}
+
+function pictureLines(p: { complete: boolean; lines: number; duration_ms: number }): string {
+  return p.complete
+    ? `${p.lines} lines in ${Math.floor(p.duration_ms / 1000)} s`
+    : `${p.lines} lines, cut short`;
+}
+
+function lrptSummary(p: EventData<"lrpt">): string {
+  return join([
+    LRPT_MODE_LABELS[p.mode],
+    p.apids.length === 0 ? null : `APID ${p.apids.join("/")}`,
+    `${p.lines} lines`,
+    p.frames_failed > 0 || p.packets_lost > 0
+      ? `${p.frames_failed} frames lost · ${p.packets_lost} packets lost`
+      : null,
+  ]);
+}
+
+function radiosondeSummary(f: EventData<"radiosonde">): string {
+  return join([
+    `${SONDE_LABELS[f.sonde]} ${f.serial}`,
+    f.altitude_m == null ? null : `${f.altitude_m.toFixed(0)} m`,
+    climbRate(f.climb_ms) ?? null,
+    celsius(f.temperature_c) ?? null,
+    f.lat == null || f.lon == null ? null : `${f.lat.toFixed(5)}, ${f.lon.toFixed(5)}`,
+  ]);
 }
 
 export function eventStation(event: DecoderEvent): string | null {
@@ -381,6 +440,14 @@ export function eventStation(event: DecoderEvent): string | null {
       return event.data.station ?? null;
     case "dect":
       return event.data.identity?.rfpi ?? null;
+    case "radiosonde":
+      return event.data.serial;
+    case "apt":
+      return "APT";
+    case "lrpt":
+      return "LRPT";
+    case "wefax":
+      return `IOC ${WEFAX_IOC_VALUES[event.data.ioc]}`;
     case "transmission":
     case "rtty":
     case "morse":

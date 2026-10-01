@@ -2,12 +2,14 @@ import type { StationOf } from "../lib/decoded";
 import type {
   AdsbMessage,
   AisMessage,
+  AprsWeather,
   DecodedRecord,
   DecodedRecordOf,
   DvFrame,
   IdentReport,
   IdentSignal,
   Modulation,
+  RadiosondeFrame,
   RdsUpdate,
   VorReading,
 } from "../lib/types";
@@ -93,6 +95,130 @@ export function dectStations(records: readonly DecodedRecordOf<"dect">[]): DectS
     });
   }
   return [...latest.values()].toSorted((a, b) => b.levelDbfs - a.levelDbfs);
+}
+
+export const BURST_DROP_M = 200;
+
+export interface RadiosondeStation {
+  serial: string;
+  sonde: RadiosondeFrame["sonde"];
+  frame: number | null;
+  lat: number | null;
+  lon: number | null;
+  altitudeM: number | null;
+  climbMs: number | null;
+  temperatureC: number | null;
+  humidityPct: number | null;
+  pressureHpa: number | null;
+  maxAltitudeM: number | null;
+  burst: boolean;
+  frames: number;
+  at: string;
+}
+
+export function radiosondeStations(
+  records: readonly DecodedRecordOf<"radiosonde">[],
+): RadiosondeStation[] {
+  const sondes = new Map<string, RadiosondeStation>();
+  for (const record of chronological(records)) {
+    const frame = record.event.data;
+    sondes.set(frame.serial, nextSonde(sondes.get(frame.serial), frame, record.at));
+  }
+  return [...sondes.values()].toSorted((a, b) => Date.parse(b.at) - Date.parse(a.at));
+}
+
+function nextSonde(
+  previous: RadiosondeStation | undefined,
+  frame: RadiosondeFrame,
+  at: string,
+): RadiosondeStation {
+  const altitudeM = frame.altitude_m ?? previous?.altitudeM ?? null;
+  const maxAltitudeM = highest(previous?.maxAltitudeM ?? null, altitudeM);
+  return {
+    serial: frame.serial,
+    sonde: frame.sonde,
+    frame: frame.frame ?? previous?.frame ?? null,
+    lat: frame.lat ?? previous?.lat ?? null,
+    lon: frame.lon ?? previous?.lon ?? null,
+    altitudeM,
+    climbMs: frame.climb_ms ?? previous?.climbMs ?? null,
+    temperatureC: frame.temperature_c ?? previous?.temperatureC ?? null,
+    humidityPct: frame.humidity_pct ?? previous?.humidityPct ?? null,
+    pressureHpa: frame.pressure_hpa ?? previous?.pressureHpa ?? null,
+    maxAltitudeM,
+    burst:
+      (previous?.burst ?? false) ||
+      (altitudeM !== null && maxAltitudeM !== null && maxAltitudeM - altitudeM > BURST_DROP_M),
+    frames: (previous?.frames ?? 0) + 1,
+    at,
+  };
+}
+
+export function radiosondeLog(
+  records: readonly DecodedRecordOf<"radiosonde">[],
+  serial: string,
+  limit: number,
+): DecodedRecordOf<"radiosonde">[] {
+  return records.filter((record) => record.event.data.serial === serial).slice(0, limit);
+}
+
+export interface AprsWeatherStation {
+  source: string;
+  weather: AprsWeather;
+  minTemperatureC: number | null;
+  maxTemperatureC: number | null;
+  maxGustMs: number | null;
+  reports: number;
+  at: string;
+}
+
+export function aprsWeatherStations(
+  records: readonly DecodedRecordOf<"aprs">[],
+): AprsWeatherStation[] {
+  const stations = new Map<string, AprsWeatherStation>();
+  for (const record of chronological(records)) {
+    const weather = record.event.data.weather;
+    if (weather == null) {
+      continue;
+    }
+    const source = record.event.data.source;
+    stations.set(source, nextWeather(stations.get(source), source, weather, record.at));
+  }
+  return [...stations.values()].toSorted((a, b) => Date.parse(b.at) - Date.parse(a.at));
+}
+
+function nextWeather(
+  previous: AprsWeatherStation | undefined,
+  source: string,
+  weather: AprsWeather,
+  at: string,
+): AprsWeatherStation {
+  const temperature = weather.temperature_c ?? null;
+  return {
+    source,
+    weather: { ...previous?.weather, ...withoutNulls(weather) },
+    minTemperatureC: lowest(previous?.minTemperatureC ?? null, temperature),
+    maxTemperatureC: highest(previous?.maxTemperatureC ?? null, temperature),
+    maxGustMs: highest(previous?.maxGustMs ?? null, weather.wind_gust_ms ?? null),
+    reports: (previous?.reports ?? 0) + 1,
+    at,
+  };
+}
+
+function withoutNulls(weather: AprsWeather): AprsWeather {
+  return Object.fromEntries(Object.entries(weather).filter(([, value]) => value != null));
+}
+
+function chronological<R extends { at: string }>(records: readonly R[]): R[] {
+  return records.toReversed().toSorted((a, b) => Date.parse(a.at) - Date.parse(b.at));
+}
+
+function highest(a: number | null, b: number | null): number | null {
+  return a === null ? b : b === null ? a : Math.max(a, b);
+}
+
+function lowest(a: number | null, b: number | null): number | null {
+  return a === null ? b : b === null ? a : Math.min(a, b);
 }
 
 export interface VorFix {

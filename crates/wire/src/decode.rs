@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-use crate::{PskBaud, RadioClockStandard, channel::SstvMode};
+use crate::{PskBaud, RadioClockStandard, channel::SstvMode, weather::AprsWeather};
 
 pub const NO_CHANNEL: u32 = u32::MAX;
 
@@ -1442,11 +1442,16 @@ impl DecoderEvent {
                 }
                 parts.join(" · ")
             }
-            Self::Aprs(p) => match (&p.mic_e_message, &p.weather) {
-                (Some(message), _) => format!("{} · {message}", p.tnc2),
-                (None, Some(weather)) => format!("{} · {}", p.source, weather.summary()),
-                (None, None) => p.tnc2.clone(),
-            },
+            Self::Aprs(p) => {
+                let weather = p.weather.as_ref().map(AprsWeather::summary);
+                match (&p.mic_e_message, weather) {
+                    (Some(message), _) => format!("{} · {message}", p.tnc2),
+                    (None, Some(weather)) if !weather.is_empty() => {
+                        format!("{} · {weather}", p.source)
+                    }
+                    _ => p.tnc2.clone(),
+                }
+            }
             Self::Rtty(t) => t.text.clone(),
             Self::Morse(m) => m.text.clone(),
             Self::CwSkimmer(s) => format!("{:+.0} Hz · {:.0} WPM · {}", s.offset_hz, s.wpm, s.text),

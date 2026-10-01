@@ -1,7 +1,16 @@
 import type { StationOf } from "../decoded";
-import type { ChannelParams, DecoderKind } from "../types";
+import type { ChannelParams, DecodedRecordOf, DecoderKind } from "../types";
 
-export const MAP_KINDS = ["adsb", "ais", "aprs"] as const satisfies readonly DecoderKind[];
+export const MAP_KINDS = [
+  "adsb",
+  "ais",
+  "aprs",
+  "radiosonde",
+] as const satisfies readonly DecoderKind[];
+
+export const TRACK_KINDS = ["radiosonde"] as const satisfies readonly MapKind[];
+
+export type TrackKind = (typeof TRACK_KINDS)[number];
 
 export type MapKind = (typeof MAP_KINDS)[number];
 export type Target = StationOf<MapKind>;
@@ -10,6 +19,7 @@ export const KIND_STYLE: Record<MapKind, { title: string; color: string }> = {
   adsb: { title: "Aircraft", color: "#21b0b0" },
   ais: { title: "Ships", color: "#e0a458" },
   aprs: { title: "APRS", color: "#b07de0" },
+  radiosonde: { title: "Sondes", color: "#e06c6c" },
 };
 
 export const TARGET_MAX_AGE_MS = 5 * 60_000;
@@ -52,8 +62,54 @@ export function sourceId(kind: MapKind): string {
   return `targets-${kind}`;
 }
 
-export function layerId(kind: MapKind, part: "dot" | "heading" | "label"): string {
+export function layerId(kind: MapKind, part: "dot" | "heading" | "label" | "track"): string {
   return `targets-${kind}-${part}`;
+}
+
+export function trackSourceId(kind: TrackKind): string {
+  return `targets-${kind}-tracks`;
+}
+
+export function isTrackKind(kind: MapKind): kind is TrackKind {
+  return (TRACK_KINDS as readonly MapKind[]).includes(kind);
+}
+
+export interface TrackCollection {
+  type: "FeatureCollection";
+  features: {
+    type: "Feature";
+    geometry: { type: "LineString"; coordinates: [number, number][] };
+    properties: { id: string };
+  }[];
+}
+
+export function radiosondeTracks(
+  records: readonly DecodedRecordOf<"radiosonde">[],
+  nowMs: number,
+  maxAgeMs = TARGET_MAX_AGE_MS,
+): TrackCollection {
+  const paths = new Map<string, { lastSeen: number; coordinates: [number, number][] }>();
+  for (const record of records.toReversed()) {
+    const position = geoPosition(record.event.data.lat, record.event.data.lon);
+    if (position === null) {
+      continue;
+    }
+    const serial = record.event.data.serial;
+    const path = paths.get(serial) ?? { lastSeen: 0, coordinates: [] };
+    path.coordinates.push(position);
+    path.lastSeen = Math.max(path.lastSeen, Date.parse(record.at));
+    paths.set(serial, path);
+  }
+  return {
+    type: "FeatureCollection",
+    features: [...paths]
+      .filter(([, path]) => path.coordinates.length > 1 && !isStale(path.lastSeen, nowMs, maxAgeMs))
+      .map(([id, path]) => ({
+        type: "Feature",
+        geometry: { type: "LineString", coordinates: path.coordinates },
+        properties: { id },
+      })),
+  };
 }
 
 export function isStale(lastSeen: number, nowMs: number, maxAgeMs = TARGET_MAX_AGE_MS): boolean {
@@ -157,6 +213,8 @@ export function targetLabel(station: Target): string {
       return trimmed(event.data.name) ?? trimmed(event.data.call_sign) ?? String(event.data.mmsi);
     case "aprs":
       return event.data.source;
+    case "radiosonde":
+      return event.data.serial;
   }
 }
 
@@ -169,6 +227,8 @@ export function targetHeading(station: Target): number | null {
       return bearing(headingOf(event.data.heading_deg)) ?? bearing(courseOf(event.data.cog_deg));
     case "aprs":
       return bearing(event.data.course_deg);
+    case "radiosonde":
+      return bearing(event.data.heading_deg);
   }
 }
 
@@ -227,6 +287,19 @@ function detailRows(station: Target): (readonly [string, string])[] {
         ["Altitude", scalar(d.altitude_ft, 0, " ft")],
         ["Message", trimmed(d.mic_e_message)],
         ["Comment", trimmed(d.comment)],
+      ]);
+    }
+    case "radiosonde": {
+      const d = event.data;
+      return kept([
+        ["Serial", d.serial],
+        ["Position", fix],
+        ["Altitude", scalar(d.altitude_m, 0, " m")],
+        ["Climb", scalar(d.climb_ms, 1, " m/s")],
+        ["Speed", scalar(d.speed_ms, 1, " m/s")],
+        ["Temp", scalar(d.temperature_c, 1, " °C")],
+        ["Humidity", scalar(d.humidity_pct, 0, "%")],
+        ["Pressure", scalar(d.pressure_hpa, 1, " hPa")],
       ]);
     }
   }

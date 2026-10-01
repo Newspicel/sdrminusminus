@@ -5,6 +5,8 @@ import {
   ageClass,
   aircraftRow,
   appendTranscript,
+  aprsWeatherStations,
+  BURST_DROP_M,
   buildTranscript,
   cwSignalRows,
   dvMode,
@@ -23,6 +25,8 @@ import {
   latestWpm,
   multiVorFix,
   ptyLabel,
+  radiosondeLog,
+  radiosondeStations,
   rdsPicture,
   rdsQuality,
   recordsInScope,
@@ -507,5 +511,106 @@ describe("digital voice", () => {
   it("spells each mode as operators write it", () => {
     expect(dvMode({ mode: "dstar" })).toBe("D-STAR");
     expect(dvMode({ mode: "dpmr" })).toBe("dPMR");
+  });
+});
+
+function sondeAt(
+  offsetS: number,
+  data: Partial<DecoderEventOf<"radiosonde">["data"]>,
+): DecodedRecordOf<"radiosonde"> {
+  return record(
+    "radiosonde",
+    { sonde: "rs41", serial: "S1", errors_corrected: 0, ...data },
+    { at: new Date(NOW + offsetS * 1000).toISOString(), freq_hz: 403_000_000 },
+  );
+}
+
+describe("radiosondeStations", () => {
+  it("keeps the latest value of each field per serial", () => {
+    const sondes = radiosondeStations([
+      sondeAt(2, { frame: 3, altitude_m: 1_200 }),
+      sondeAt(1, { frame: 2, temperature_c: 5, humidity_pct: 70 }),
+      sondeAt(0, { serial: "S2", sonde: "dfm", altitude_m: 300 }),
+    ]);
+    expect(sondes.map((s) => s.serial)).toEqual(["S1", "S2"]);
+    expect(sondes[0]).toMatchObject({
+      frame: 3,
+      altitudeM: 1_200,
+      temperatureC: 5,
+      humidityPct: 70,
+      frames: 2,
+      burst: false,
+    });
+  });
+
+  it("flags a burst once altitude falls well below the peak", () => {
+    const peak = 30_000;
+    const rising = radiosondeStations([
+      sondeAt(1, { altitude_m: peak - BURST_DROP_M + 1 }),
+      sondeAt(0, { altitude_m: peak }),
+    ]);
+    expect(rising[0]?.burst).toBe(false);
+    const fallen = radiosondeStations([
+      sondeAt(3, { altitude_m: 2_000 }),
+      sondeAt(2, { altitude_m: peak - BURST_DROP_M - 1 }),
+      sondeAt(1, { altitude_m: peak }),
+      sondeAt(0, { altitude_m: 29_000 }),
+    ]);
+    expect(fallen[0]).toMatchObject({ burst: true, maxAltitudeM: peak, altitudeM: 2_000 });
+  });
+});
+
+describe("radiosondeLog", () => {
+  it("lists one sonde's newest frames first, up to the limit", () => {
+    const records = [
+      sondeAt(3, { frame: 4 }),
+      sondeAt(2, { serial: "S2", frame: 9 }),
+      sondeAt(1, { frame: 2 }),
+      sondeAt(0, { frame: 1 }),
+    ];
+    expect(radiosondeLog(records, "S1", 2).map((r) => r.event.data.frame)).toEqual([4, 2]);
+  });
+});
+
+function weatherAt(
+  offsetS: number,
+  source: string,
+  weather: DecoderEventOf<"aprs">["data"]["weather"],
+): DecodedRecordOf<"aprs"> {
+  return record(
+    "aprs",
+    { source, destination: "APRS", info: "_", tnc2: `${source}>APRS:_`, weather },
+    { at: new Date(NOW + offsetS * 1000).toISOString() },
+  );
+}
+
+describe("aprsWeatherStations", () => {
+  it("keeps latest values and extremes per station", () => {
+    const stations = aprsWeatherStations([
+      weatherAt(3, "WX1", { temperature_c: 14, wind_gust_ms: 3 }),
+      weatherAt(2, "WX2", { temperature_c: 20 }),
+      weatherAt(1, "WX1", { temperature_c: 9, wind_gust_ms: 11, pressure_hpa: 1010 }),
+      weatherAt(0, "WX1", { temperature_c: 12, humidity_pct: 80 }),
+    ]);
+    expect(stations.map((s) => s.source)).toEqual(["WX1", "WX2"]);
+    expect(stations[0]).toMatchObject({
+      weather: { temperature_c: 14, wind_gust_ms: 3, pressure_hpa: 1010, humidity_pct: 80 },
+      minTemperatureC: 9,
+      maxTemperatureC: 14,
+      maxGustMs: 11,
+      reports: 3,
+    });
+  });
+
+  it("skips packets without weather", () => {
+    expect(aprsWeatherStations([weatherAt(0, "DL1ABC", null)])).toEqual([]);
+  });
+
+  it("leaves extremes empty when never reported", () => {
+    expect(aprsWeatherStations([weatherAt(0, "WX", { humidity_pct: 50 })])[0]).toMatchObject({
+      minTemperatureC: null,
+      maxTemperatureC: null,
+      maxGustMs: null,
+    });
   });
 });
