@@ -8,6 +8,7 @@ import Waterfall from "../components/Waterfall.astro";
 import { DEFAULT_SCENE, demoUrl, SCENES } from "../demo/scenes";
 import { INSTALLS } from "../installs";
 import Page from "../layouts/Page.astro";
+import { DISCORD } from "../nav";
 import { REPOSITORY, structuredData } from "../seo";
 
 const description =
@@ -163,6 +164,12 @@ const voices = [
     who: "switch161",
     where: "r/RTLSDR",
     href: "https://www.reddit.com/r/RTLSDR/comments/1wgfnuz/comment/p9wf5fy/",
+  },
+  {
+    quote: "Big fan of this project, it's like if SDRangel was modern and had a friendly UI.",
+    who: "teknogeek",
+    where: "Discord",
+    href: DISCORD,
   },
 ];
 
