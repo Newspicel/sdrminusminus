@@ -5,6 +5,7 @@ pub(in crate::runtime) struct SpectrumHistory {
     window: Vec<Complex<f32>>,
     write: usize,
     since_last: usize,
+    fresh: usize,
 }
 
 impl SpectrumHistory {
@@ -15,6 +16,7 @@ impl SpectrumHistory {
             window: vec![Complex::new(0.0, 0.0); size],
             write: 0,
             since_last: 0,
+            fresh: 0,
         }
     }
 
@@ -22,6 +24,15 @@ impl SpectrumHistory {
         self.samples.fill(Complex::new(0.0, 0.0));
         self.write = 0;
         self.since_last = 0;
+        self.fresh = 0;
+    }
+
+    fn due(&self, hop: usize) -> usize {
+        if self.fresh < hop {
+            hop.min(self.samples.len())
+        } else {
+            hop
+        }
     }
 
     pub(in crate::runtime) fn push(
@@ -32,12 +43,14 @@ impl SpectrumHistory {
         mut emit: impl FnMut(&[Complex<f32>], u64),
     ) {
         while !input.is_empty() {
-            let len = input.len().min(hop.saturating_sub(self.since_last).max(1));
+            let due = self.due(hop);
+            let len = input.len().min(due.saturating_sub(self.since_last).max(1));
             self.append(&input[..len]);
             input = &input[len..];
             index += len as u64;
             self.since_last += len;
-            if self.since_last >= hop {
+            if self.since_last >= due {
+                self.fresh = self.fresh.saturating_add(self.since_last);
                 self.since_last = 0;
                 let (head, tail) = self.samples.split_at(self.write);
                 self.window[..tail.len()].copy_from_slice(tail);
@@ -72,6 +85,7 @@ mod tests {
         window: Vec<Complex<f32>>,
         write: usize,
         since_last: usize,
+        fresh: usize,
     }
 
     impl Reference {
@@ -81,6 +95,7 @@ mod tests {
                 window: vec![Complex::new(0.0, 0.0); size],
                 write: 0,
                 since_last: 0,
+                fresh: 0,
             }
         }
 
@@ -99,7 +114,13 @@ mod tests {
                 }
                 index += 1;
                 self.since_last += 1;
-                if self.since_last >= hop {
+                let due = if self.fresh < hop {
+                    hop.min(self.samples.len())
+                } else {
+                    hop
+                };
+                if self.since_last >= due {
+                    self.fresh = self.fresh.saturating_add(self.since_last);
                     self.since_last = 0;
                     for (offset, value) in self.window.iter_mut().enumerate() {
                         *value = self.samples[(self.write + offset) % self.samples.len()];
@@ -150,6 +171,32 @@ mod tests {
             assert_eq!(index, 102);
             assert_eq!(window, [0.0, 0.0, 2.0, 2.0].map(|v| Complex::new(v, 0.0)));
         });
+    }
+
+    #[test]
+    fn a_short_run_after_a_gap_still_yields_whole_windows() {
+        let mut history = SpectrumHistory::new(4);
+        let mut stamps = Vec::new();
+        history.push(&[Complex::new(1.0, 0.0); 10], 0, 1000, |window, index| {
+            assert_eq!(window, [Complex::new(1.0, 0.0); 4]);
+            stamps.push(index);
+        });
+        assert_eq!(stamps, [4, 8]);
+        history.reset();
+        history.push(&[Complex::new(1.0, 0.0); 5], 500, 1000, |_, index| {
+            stamps.push(index);
+        });
+        assert_eq!(stamps, [4, 8, 504]);
+    }
+
+    #[test]
+    fn the_cadence_returns_to_the_hop_once_it_is_covered() {
+        let mut history = SpectrumHistory::new(4);
+        let mut stamps = Vec::new();
+        history.push(&[Complex::new(1.0, 0.0); 30], 0, 10, |_, index| {
+            stamps.push(index);
+        });
+        assert_eq!(stamps, [4, 8, 12, 22]);
     }
 
     #[test]

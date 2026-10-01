@@ -63,7 +63,7 @@ RUN python3 scripts/build-media.py --prefix /opt/sdrmm-media
 ENV FFMPEG_DIR=/opt/sdrmm-media
 RUN rustup show
 
-ARG FEATURES=soapy,sdrplay,rtlsdr,hackrf,airspy,airspyhf,ad936x,net-client,gpu-fft
+ARG FEATURES=soapy,sdrplay,rtlsdr,hackrf,airspy,airspyhf,espsdr,ad936x,net-client,gpu-fft
 # `ci` (Cargo.toml) drops LTO to answer a broken Dockerfile faster on a pull request. Releases
 # must never pass this: the published image is built from the default.
 ARG PROFILE=release

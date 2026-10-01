@@ -5979,6 +5979,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "sdrmm-device-espsdr"
+version = "0.0.0"
+dependencies = [
+ "sdrmm-device",
+ "sdrmm-wire",
+ "serde",
+ "serde_json",
+ "serialport",
+ "tracing",
+]
+
+[[package]]
 name = "sdrmm-device-hackrf"
 version = "0.0.0"
 dependencies = [
@@ -6143,6 +6155,7 @@ dependencies = [
  "sdrmm-device-airspy",
  "sdrmm-device-airspyhf",
  "sdrmm-device-cr8",
+ "sdrmm-device-espsdr",
  "sdrmm-device-hackrf",
  "sdrmm-device-kiwisdr",
  "sdrmm-device-recording",

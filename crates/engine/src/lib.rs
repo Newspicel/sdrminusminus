@@ -97,6 +97,9 @@ const SDRPLAY_PRIORITY: u8 = 25;
     feature = "cr8",
     feature = "rtlsdr",
     feature = "hackrf",
+    feature = "airspy",
+    feature = "airspyhf",
+    feature = "espsdr",
     feature = "ad936x"
 ))]
 const NATIVE_PRIORITY: u8 = 25;
@@ -194,6 +197,11 @@ pub fn builtin_registry_accelerated(
     registry.register(
         NATIVE_PRIORITY,
         Box::new(sdrmm_device_airspyhf::AirspyHfDriver::new()),
+    );
+    #[cfg(feature = "espsdr")]
+    registry.register(
+        NATIVE_PRIORITY,
+        Box::new(sdrmm_device_espsdr::EspSdrDriver::new()),
     );
     #[cfg(feature = "ad936x")]
     registry.register(

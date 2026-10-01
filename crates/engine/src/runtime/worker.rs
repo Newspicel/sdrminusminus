@@ -129,7 +129,10 @@ pub(super) fn dsp_loop(
             if next_input.is_some_and(|next| next != total) {
                 frontend.reset();
                 spectrum_history.reset();
-                frame_average.reset();
+                if let Some(partial) = frame_average.flush(&mut averaged) {
+                    seq = seq.wrapping_add(1);
+                    publisher.publish(seq, partial, &averaged);
+                }
             }
             next_input = Some(total + raw.len() as u64);
             let slice = frontend.apply(raw);
