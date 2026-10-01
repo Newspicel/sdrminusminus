@@ -1,9 +1,10 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { arrayStatus } from "../test/fixtures";
 import {
   failureText,
   GATE_TEXT,
   processorStatusOf,
+  STALE_REPORT_MS,
   SYNC_TEXT,
   shownCenterHz,
   useArrayStore,
@@ -47,13 +48,61 @@ describe("useArrayStore", () => {
     expect(shownCenterHz(useArrayStore.getState(), "a")).toBe(145.025e6);
     expect(useArrayStore.getState().byNode.a?.center_hz).toBe(145e6);
     store.tuned("a", 145.025e6);
-    expect(useArrayStore.getState().tuning).toEqual({});
     expect(shownCenterHz(useArrayStore.getState(), "a")).toBe(145.025e6);
+    store.observe({
+      type: "ArrayUpdate",
+      data: { status: arrayStatus("a", { center_hz: 145e6 }) },
+    });
+    expect(shownCenterHz(useArrayStore.getState(), "a")).toBe(145.025e6);
+    store.observe({
+      type: "ArrayUpdate",
+      data: { status: arrayStatus("a", { center_hz: 145.025e6 }) },
+    });
+    expect(useArrayStore.getState().tuning).toEqual({});
     store.observe({
       type: "ArrayUpdate",
       data: { status: arrayStatus("a", { center_hz: 146e6 }) },
     });
     expect(shownCenterHz(useArrayStore.getState(), "a")).toBe(146e6);
+  });
+
+  it("keeps every step of a burst over late reports of the steps before it", () => {
+    const store = useArrayStore.getState();
+    store.seed([arrayStatus("a", { center_hz: 100e6 })]);
+    store.retune("a", 101e6);
+    store.retune("a", 102e6);
+    store.tuned("a", 102e6);
+    store.seed([arrayStatus("a", { center_hz: 101e6 })]);
+    expect(shownCenterHz(useArrayStore.getState(), "a")).toBe(102e6);
+    store.retune("a", 103e6);
+    expect(useArrayStore.getState().tunes.a?.left).toEqual([100e6, 101e6, 102e6]);
+  });
+
+  it("follows a tune made elsewhere once it has settled", () => {
+    const store = useArrayStore.getState();
+    store.seed([arrayStatus("a", { center_hz: 100e6 })]);
+    store.retune("a", 101e6);
+    store.tuned("a", 101e6);
+    store.observe({
+      type: "ArrayUpdate",
+      data: { status: arrayStatus("a", { center_hz: 120e6 }) },
+    });
+    expect(shownCenterHz(useArrayStore.getState(), "a")).toBe(120e6);
+  });
+
+  it("gives up on a tune the server never reports", () => {
+    vi.useFakeTimers();
+    const store = useArrayStore.getState();
+    store.seed([arrayStatus("a", { center_hz: 100e6 })]);
+    store.retune("a", 101e6);
+    store.tuned("a", 101e6);
+    vi.advanceTimersByTime(STALE_REPORT_MS);
+    store.observe({
+      type: "ArrayUpdate",
+      data: { status: arrayStatus("a", { center_hz: 100e6 }) },
+    });
+    expect(shownCenterHz(useArrayStore.getState(), "a")).toBe(100e6);
+    vi.useRealTimers();
   });
 
   it("falls back to the reported frequency when a tune fails", () => {
