@@ -624,6 +624,23 @@ describe("eventDetail", () => {
     });
   });
 
+  it("names the detected DAB transmission mode", () => {
+    const detail = eventDetail({
+      kind: "broadcast",
+      data: {
+        system: "dab_plus",
+        locked: true,
+        snr_db: 12,
+        frequency_error_hz: 24_480,
+        transmission_mode: "iii",
+      },
+    });
+    expect(Object.fromEntries(detail.fields)).toMatchObject({
+      Mode: "III",
+      "Frequency error": "+24480 Hz",
+    });
+  });
+
   it("shows a broadcast acquisition without inventing multiplex metadata", () => {
     const detail = eventDetail({
       kind: "broadcast",

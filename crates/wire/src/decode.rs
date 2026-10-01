@@ -1,7 +1,10 @@
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-use crate::{PskBaud, RadioClockStandard, channel::SstvMode};
+use crate::{
+    PskBaud, RadioClockStandard,
+    channel::{DabTransmissionMode, SstvMode},
+};
 
 pub const NO_CHANNEL: u32 = u32::MAX;
 
@@ -731,6 +734,8 @@ pub struct BroadcastStatus {
     pub frequency_error_hz: f32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub symbol_rate: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub transmission_mode: Option<DabTransmissionMode>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ensemble_id: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

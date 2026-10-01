@@ -858,6 +858,14 @@ function SstvChips({ params, onParams }: Mode<"sstv">) {
 function DabChips({ params, broadcast, onParams }: Mode<"dab"> & { broadcast?: BroadcastStatus }) {
   const settings = params.settings;
   const mode = settings.mode ?? "auto";
+  const transmissionMode = settings.transmission_mode ?? "i";
+  const detected = broadcast?.transmission_mode;
+  const transmissionModes =
+    detected == null
+      ? DAB_TRANSMISSION_MODES
+      : DAB_TRANSMISSION_MODES.map((option) =>
+          option.value === "auto" ? { ...option, label: `Auto ${detected.toUpperCase()}` } : option,
+        );
   return (
     <>
       <ChoiceChip
@@ -871,8 +879,9 @@ function DabChips({ params, broadcast, onParams }: Mode<"dab"> & { broadcast?: B
       <ChoiceChip
         label="Mode"
         title="DAB transmission mode"
-        value={settings.transmission_mode ?? "i"}
-        options={DAB_TRANSMISSION_MODES}
+        value={transmissionMode}
+        options={transmissionModes}
+        quiet={transmissionMode === "auto"}
         onChange={(transmission_mode) =>
           onParams({ type: "dab", settings: { ...settings, transmission_mode } })
         }

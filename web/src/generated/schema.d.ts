@@ -2650,6 +2650,7 @@ export interface components {
             symbol_rate?: number | null;
             system: components["schemas"]["BroadcastSystem"];
             text?: string | null;
+            transmission_mode?: components["schemas"]["DabTransmissionMode"] | null;
             video_error?: string | null;
             /** Format: int32 */
             video_frames_bad?: number;
@@ -3614,7 +3615,7 @@ export interface components {
             transmission_mode?: components["schemas"]["DabTransmissionMode"];
         };
         /** @enum {string} */
-        DabTransmissionMode: "i" | "ii" | "iii" | "iv";
+        DabTransmissionMode: "auto" | "i" | "ii" | "iii" | "iv";
         DataLinkMessage: {
             crc_ok: boolean;
             details: unknown;

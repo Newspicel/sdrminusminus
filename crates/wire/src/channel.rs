@@ -827,6 +827,7 @@ pub enum DabMode {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum DabTransmissionMode {
+    Auto,
     #[default]
     I,
     Ii,

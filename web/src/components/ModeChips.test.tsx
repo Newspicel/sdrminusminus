@@ -26,6 +26,26 @@ describe("ModeChips", () => {
     expect(s2).toContain("Roll-off");
   });
 
+  it("shows the detected DAB mode next to Auto", () => {
+    const params: ChannelParams = { type: "dab", settings: { transmission_mode: "auto" } };
+    expect(render(params)).toContain("Auto");
+    const html = renderToStaticMarkup(
+      <ModeChips
+        params={params}
+        broadcast={{
+          system: "dab",
+          locked: true,
+          snr_db: 12,
+          frequency_error_hz: 0,
+          transmission_mode: "ii",
+        }}
+        limits={[]}
+        onParams={() => undefined}
+      />,
+    );
+    expect(html).toContain("Auto II");
+  });
+
   it("renders nothing for modes without settings", () => {
     expect(render({ type: "m17", settings: {} })).toBe("");
   });

@@ -45,9 +45,10 @@ radio's sample rate; it reads the middle 80%.
 
 ## DAB and DAB+
 
-Wire `audio` to a Speaker. **Auto** plays the first audio service. **Generation** limits the
-choice to DAB or DAB+. **Transmission** picks mode I to IV. All run at 2.048 MS/s. Only mode I
-has been received on air.
+Wire `audio` to a Speaker. **Auto** plays the first audio service. **Type** limits the choice to
+DAB or DAB+. **Mode** picks transmission mode I to IV, or **Auto** detects it. All run at
+2.048 MS/s. Tuner offsets up to 40 kHz are corrected and shown as frequency error. Modes II to IV
+are tested on generated and reference signals only.
 
 A **Readout** shows the dynamic label and slideshow. The **Decoder log** keeps received MOT
 objects with a download link. Files are offered for download, never opened in the interface.

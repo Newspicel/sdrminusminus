@@ -704,6 +704,7 @@ mod contract_tests {
             .expect("old settings");
         assert_eq!(old.transmission_mode, DabTransmissionMode::I);
         for (mode, name) in [
+            (DabTransmissionMode::Auto, "auto"),
             (DabTransmissionMode::I, "i"),
             (DabTransmissionMode::Ii, "ii"),
             (DabTransmissionMode::Iii, "iii"),
@@ -721,6 +722,21 @@ mod contract_tests {
             );
         }
         assert!(serde_json::from_str::<DabParams>(r#"{"transmission_mode":"v"}"#).is_err());
+    }
+
+    #[test]
+    fn broadcast_status_carries_the_detected_dab_mode() {
+        let status = BroadcastStatus {
+            transmission_mode: Some(DabTransmissionMode::Iii),
+            ..BroadcastStatus::default()
+        };
+        let json = serde_json::to_value(&status).expect("status");
+        assert_eq!(json["transmission_mode"], "iii");
+        let old: BroadcastStatus = serde_json::from_str(
+            r#"{"system":"dab","locked":true,"snr_db":9.0,"frequency_error_hz":-120.0}"#,
+        )
+        .expect("old status");
+        assert_eq!(old.transmission_mode, None);
     }
 
     #[test]

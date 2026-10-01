@@ -9068,6 +9068,16 @@
               "null"
             ]
           },
+          "transmission_mode": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/DabTransmissionMode"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "video_error": {
             "type": [
               "string",
@@ -12567,6 +12577,7 @@
       "DabTransmissionMode": {
         "type": "string",
         "enum": [
+          "auto",
           "i",
           "ii",
           "iii",

@@ -362,6 +362,7 @@ const DETAIL: {
   broadcast: (status) => ({
     fields: fields([
       ["System", broadcastSystem(status.system)],
+      ["Mode", status.transmission_mode?.toUpperCase()],
       ["Lock", status.locked ? "locked" : "searching"],
       ["SNR", status.locked ? `${status.snr_db.toFixed(1)} dB` : undefined],
       [
