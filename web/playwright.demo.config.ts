@@ -1,3 +1,3 @@
 import { recordingsConfig } from "./playwright.screenshots.config";
 
-export default recordingsConfig("demo.spec.ts", 1, "--release");
+export default recordingsConfig("demo.spec.ts", 1, "--release", 1);
