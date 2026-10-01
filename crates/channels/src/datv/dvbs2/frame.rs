@@ -160,7 +160,7 @@ impl ModCod {
 }
 
 #[must_use]
-fn column_order(modulation: Modulation, rate: Rate) -> &'static [usize] {
+pub(super) fn column_order(modulation: Modulation, rate: Rate) -> &'static [usize] {
     match (modulation, rate) {
         (Modulation::Apsk8, _) => &[0, 1, 2],
         (Modulation::Apsk64, _) => &[0, 1, 2, 3, 4, 5],

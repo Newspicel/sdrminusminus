@@ -372,6 +372,18 @@ const DETAIL: {
           : undefined,
       ],
       ["Symbol rate", status.symbol_rate == null ? undefined : `${status.symbol_rate} Bd`],
+      [
+        "Superframe",
+        status.superframe == null
+          ? undefined
+          : `format ${status.superframe.format}, WH ${[
+              status.superframe.sosf,
+              status.superframe.pilot,
+              status.superframe.trailer,
+            ]
+              .filter((row) => row != null)
+              .join("/")}, codes ${status.superframe.reference}/${status.superframe.payload}`,
+      ],
       ["Ensemble ID", status.ensemble_id == null ? undefined : hex(status.ensemble_id, 4)],
       ["Service ID", status.service_id == null ? undefined : hex(status.service_id, 4)],
       ["Label", status.label],

@@ -662,6 +662,22 @@ describe("eventDetail", () => {
     expect(detail.body).toBeNull();
   });
 
+  it("names the superframe format, Walsh rows and scrambling codes", () => {
+    const detail = eventDetail({
+      kind: "broadcast",
+      data: {
+        system: "dvb_s2",
+        locked: true,
+        snr_db: 12,
+        frequency_error_hz: 0,
+        superframe: { format: 4, sosf: 37, pilot: 9, trailer: 50, reference: 7, payload: 9 },
+      },
+    });
+    expect(Object.fromEntries(detail.fields)).toMatchObject({
+      Superframe: "format 4, WH 37/9/50, codes 7/9",
+    });
+  });
+
   it("carries the APRS fields the packet's monitor line packs away", () => {
     const detail = eventDetail({
       kind: "aprs",

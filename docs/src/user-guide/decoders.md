@@ -70,7 +70,9 @@ rate, so a 2 MBd carrier needs a radio that delivers 4 MS/s. Set **Roll-off** to
 transmitter. DVB-S is always 0.35. DVB-S2 finds the MODCOD on its own, including VL-SNR.
 **Input stream** picks one stream on a multistream carrier.
 
-**Superframes** enables DVB-S2X Annex E formats 0 and 1. Formats 2 to 7 are not supported.
+**Superframes** enables DVB-S2X Annex E, formats 0 to 7. Walsh-Hadamard rows are found on their
+own. Set **Ref code** and **Data code** when the carrier does not use the default scrambling, or
+turn on **Code search** to find them on a clean signal.
 
 ## IP data
 

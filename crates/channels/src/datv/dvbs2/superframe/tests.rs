@@ -1,33 +1,195 @@
-use super::*;
+use super::{
+    synth::{Codes, Dwell, Options, Plframe, Transmitter},
+    *,
+};
 use crate::{
-    datv::dvbs2::{
-        frame::{ModCod, Modulation},
-        ldpc::Rate,
-        receiver::{Dvbs2Decoder, Dvbs2Encoder, Dvbs2Output},
+    datv::{
+        dvbs::PACKET,
+        dvbs2::{
+            frame::{ModCod, Modulation},
+            ldpc::{Frame, Rate},
+            receiver::{Dvbs2Decoder, Dvbs2Encoder, Dvbs2Output},
+            vlsnr::Carrier,
+            xfec::Xfec,
+        },
     },
     testutil::realtime_budget,
 };
+use coding::Coding;
+
+mod formats;
+
+fn transport(count: usize, seed: u32) -> Vec<[u8; PACKET]> {
+    let mut state = seed | 1;
+    (0..count)
+        .map(|index| {
+            let mut packet = [0u8; PACKET];
+            packet[0] = 0x47;
+            packet[1] = 0x01;
+            packet[2] = index as u8;
+            for byte in &mut packet[3..] {
+                state ^= state << 13;
+                state ^= state >> 17;
+                state ^= state << 5;
+                *byte = state as u8;
+            }
+            packet
+        })
+        .collect()
+}
+
+struct Source {
+    carry: u8,
+    seed: u32,
+    sent: Vec<[u8; PACKET]>,
+}
+
+impl Source {
+    fn new() -> Self {
+        Self {
+            carry: 0x47,
+            seed: 91,
+            sent: Vec::new(),
+        }
+    }
+
+    fn frame(&mut self, coding: Coding, compact: bool) -> Vec<Complex<f32>> {
+        let codec = Xfec::new(coding).unwrap_or_else(|| panic!("{coding:?}"));
+        let packets = transport(codec.baseband.capacity(), self.seed);
+        self.seed += 2;
+        let baseband = codec
+            .baseband
+            .build(&packets, &mut self.carry)
+            .expect("a base band frame");
+        self.sent.extend(packets);
+        let mut out = Vec::new();
+        codec.encode(&baseband, compact, &mut out);
+        out
+    }
+
+    fn bundle(&mut self, format: u8, code: u8) -> (u8, Vec<Complex<f32>>) {
+        let Some(coding::Signal::Data(coding)) = coding::bundle(format, code) else {
+            return (code, Vec::new());
+        };
+        let size = layout::bundles(format).expect("a bundled format").payload;
+        let frames = coding.bundled(size).expect("whole frames");
+        let codec = Xfec::new(coding).unwrap_or_else(|| panic!("{coding:?}"));
+        let basebands: Vec<Vec<bool>> = (0..frames)
+            .map(|_| {
+                let packets = transport(codec.baseband.capacity(), self.seed);
+                self.seed += 2;
+                let baseband = codec
+                    .baseband
+                    .build(&packets, &mut self.carry)
+                    .expect("a base band frame");
+                self.sent.extend(packets);
+                baseband
+            })
+            .collect();
+        let mut payload = Vec::with_capacity(size);
+        codec.encode_bundle(&basebands, &mut payload);
+        (code, payload)
+    }
+
+    fn plframe(&mut self, coding: Coding, spread: usize) -> Plframe {
+        Plframe::data(coding, spread, self.frame(coding, false))
+    }
+}
+
+fn impair(signal: &mut [Complex<f32>], frequency: f32, noise: f32, seed: u32) {
+    let mut state = seed | 1;
+    let mut uniform = move || {
+        state ^= state << 13;
+        state ^= state >> 17;
+        state ^= state << 5;
+        (state >> 8) as f32 / (1u32 << 24) as f32 - 0.5
+    };
+    for (index, symbol) in signal.iter_mut().enumerate() {
+        let gauss = |uniform: &mut dyn FnMut() -> f32| {
+            (uniform() + uniform() + uniform() + uniform()) * std::f32::consts::SQRT_2
+        };
+        let re = gauss(&mut uniform);
+        let im = gauss(&mut uniform);
+        *symbol = *symbol * Complex::from_polar(1.0, 0.6 + frequency * index as f32)
+            + Complex::new(re, im) * noise;
+    }
+}
+
+fn receive(signal: &[Complex<f32>], settings: Settings) -> (Dvbs2Decoder, Dvbs2Output) {
+    let mut decoder = Dvbs2Decoder::new();
+    decoder.superframes(true);
+    decoder.configure_superframes(settings);
+    let mut output = Dvbs2Output::default();
+    for chunk in signal.chunks(8191) {
+        decoder.push(chunk, &mut output);
+    }
+    (decoder, output)
+}
+
+fn receive_flushed(signal: &[Complex<f32>], settings: Settings) -> (Dvbs2Decoder, Dvbs2Output) {
+    let mut padded = signal.to_vec();
+    padded.extend(std::iter::repeat_n(Complex::new(0.0, 0.0), 4096));
+    receive(&padded, settings)
+}
+
+fn assert_delivered(source: &Source, decoder: &Dvbs2Decoder, output: &Dvbs2Output, what: &str) {
+    let sent = &source.sent;
+    assert_eq!(
+        decoder.metrics.frames_bad, 0,
+        "{what}: {:?}",
+        decoder.metrics
+    );
+    assert_eq!(
+        output.packets.len(),
+        sent.len() - 1,
+        "{what}: {:?}",
+        decoder.metrics
+    );
+    assert_eq!(output.packets, sent[..sent.len() - 1], "{what}");
+}
 
 #[test]
 fn superframe_headers_survive_phase_frequency_and_noise() {
+    let gold = Gold::new();
     let mut state = 17931u32;
-    for code in 0..16 {
-        let mut symbols = wrap(&[Complex::new(0.0, 0.0)], code, false, 1);
-        for (i, symbol) in symbols[..HEADER].iter_mut().enumerate() {
-            state ^= state << 13;
-            state ^= state >> 17;
-            state ^= state << 5;
-            *symbol *= Complex::from_polar(1.0, 0.7 + i as f32 * 0.002);
-            *symbol += Complex::new((state as i32 as f32) / i32::MAX as f32 * 0.02, 0.0);
+    for (format, sosf) in [(0u8, 0u8), (1, 5), (5, 255), (7, 128), (15, 77)] {
+        for (reference, payload) in [(0u32, 0u32), (99, 1_000_001)] {
+            let codes = Codes {
+                reference,
+                payload,
+                sosf,
+                ..Codes::default()
+            };
+            let mut symbols =
+                Transmitter::new(codes).legacy(&[Complex::new(0.0, 0.0)], format, false, 1);
+            for (i, symbol) in symbols[..HEADER].iter_mut().enumerate() {
+                state ^= state << 13;
+                state ^= state >> 17;
+                state ^= state << 5;
+                *symbol *= Complex::from_polar(1.0, 0.7 + i as f32 * 0.002);
+                *symbol += Complex::new((state as i32 as f32) / i32::MAX as f32 * 0.02, 0.0);
+            }
+            let found = detect::detect(
+                &symbols[..HEADER],
+                &Sequence::new(&gold, reference),
+                &Sequence::new(&gold, payload),
+            )
+            .expect("a superframe header");
+            assert!((found.phase - 0.7).abs() < 0.02);
+            assert!((found.frequency - 0.002).abs() < 0.0002);
+            assert_eq!(found.format, format);
+            assert_eq!(found.sosf, sosf);
+            if reference != 0 {
+                assert!(
+                    detect::detect(
+                        &symbols[..HEADER],
+                        &Sequence::new(&gold, 0),
+                        &Sequence::new(&gold, payload),
+                    )
+                    .is_none()
+                );
+            }
         }
-        let known = sequence();
-        let (phase, frequency) = fit(&symbols[..SOSF], &known[..SOSF]).expect("SOSF fit");
-        assert!((phase - 0.7).abs() < 0.02);
-        assert!((frequency - 0.002).abs() < 0.0002);
-        assert_eq!(
-            format(&symbols[..HEADER], &known[..HEADER], phase, frequency),
-            Some(code)
-        );
     }
 }
 
@@ -58,12 +220,7 @@ fn legacy_and_extended_payloads_cross_superframe_boundaries_with_both_pilot_sett
             for (i, sample) in signal.iter_mut().enumerate() {
                 *sample *= Complex::from_polar(1.0, 0.43 + 0.0001 * i as f32);
             }
-            let mut decoder = Dvbs2Decoder::new();
-            decoder.superframes(true);
-            let mut decoded = Dvbs2Output::default();
-            for chunk in signal.chunks(8191) {
-                decoder.push(chunk, &mut decoded);
-            }
+            let (decoder, decoded) = receive(&signal, Settings::default());
             assert!(
                 decoder.metrics.frames_ok > 20,
                 "format {code}, pilots {pilots}: {:?}",
@@ -85,15 +242,10 @@ fn legacy_and_extended_payloads_cross_superframe_boundaries_with_both_pilot_sett
 }
 
 #[test]
-fn unsupported_formats_are_reported_and_do_not_feed_payload_to_the_decoder() {
-    let symbols = wrap(&[Complex::new(1.0, 0.0)], 2, true, 1);
-    let mut decoder = Dvbs2Decoder::new();
-    decoder.superframes(true);
-    let mut out = Dvbs2Output::default();
-    for chunk in symbols.chunks(4001) {
-        decoder.push(chunk, &mut out);
-    }
-    assert_eq!(decoder.superframe_format(), Some(2));
+fn reserved_formats_are_reported_and_do_not_feed_payload_to_the_decoder() {
+    let symbols = wrap(&[Complex::new(1.0, 0.0)], 9, true, 1);
+    let (decoder, out) = receive(&symbols, Settings::default());
+    assert_eq!(decoder.superframe_format(), Some(9));
     assert_eq!(decoder.metrics.frames_skipped, 1);
     assert_eq!(decoder.metrics.frames_ok, 0);
     assert!(out.packets.is_empty());

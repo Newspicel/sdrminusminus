@@ -939,10 +939,34 @@ function DatvChips({
           />
           <ToggleChip
             label="Superframes"
-            title="Receive Annex E format 0 or 1 with the default reference and payload scrambling codes"
+            title="Receive DVB-S2X Annex E superframes, formats 0 to 7"
             on={settings.superframes ?? false}
             onChange={(superframes) => set({ ...settings, superframes })}
           />
+          {settings.superframes ? (
+            <>
+              <NumberChip
+                label="Ref code"
+                title="Superframe reference scrambling code n_Ref, 0 by default"
+                value={settings.superframe_reference ?? 0}
+                {...limitOf(limits, "superframe_reference")}
+                onCommit={(superframe_reference) => set({ ...settings, superframe_reference })}
+              />
+              <NumberChip
+                label="Data code"
+                title="Superframe payload scrambling code n_Pay, 0 by default"
+                value={settings.superframe_payload ?? 0}
+                {...limitOf(limits, "superframe_payload")}
+                onCommit={(superframe_payload) => set({ ...settings, superframe_payload })}
+              />
+              <ToggleChip
+                label="Code search"
+                title="Find unknown scrambling codes from the signal; needs a clean carrier"
+                on={settings.superframe_search ?? false}
+                onChange={(superframe_search) => set({ ...settings, superframe_search })}
+              />
+            </>
+          ) : null}
           <OptionalNumberChip
             label="Stream"
             title="Choose an input stream identifier on a multistream carrier"
