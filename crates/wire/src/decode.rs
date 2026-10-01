@@ -453,6 +453,36 @@ impl DvMode {
             Self::FreeDv => "FreeDV",
         }
     }
+
+    #[must_use]
+    pub fn type_id(self) -> &'static str {
+        match self {
+            Self::Dmr => "dmr",
+            Self::Dstar => "dstar",
+            Self::Ysf => "ysf",
+            Self::Nxdn => "nxdn",
+            Self::P25 => "p25",
+            Self::Dpmr => "dpmr",
+            Self::M17 => "m17",
+            Self::FreeDv => "freedv",
+        }
+    }
+
+    #[must_use]
+    pub fn from_type_id(type_id: &str) -> Option<Self> {
+        [
+            Self::Dmr,
+            Self::Dstar,
+            Self::Ysf,
+            Self::Nxdn,
+            Self::P25,
+            Self::Dpmr,
+            Self::M17,
+            Self::FreeDv,
+        ]
+        .into_iter()
+        .find(|mode| mode.type_id() == type_id)
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
@@ -1206,19 +1236,17 @@ fn tone_summary(t: &ToneSquelchStatus) -> String {
 }
 
 fn call_summary(c: &crate::rest::VoiceCall) -> String {
-    let mut parts = vec![c.mode.label().to_owned()];
-    parts.push(c.destination.map_or_else(
-        || "to unknown".to_owned(),
-        |id| match c.group_call {
+    let mut parts = vec![c.mode_label()];
+    if let Some(id) = c.destination {
+        parts.push(match c.group_call {
             Some(true) => format!("talkgroup {id}"),
             Some(false) => format!("radio {id}"),
             None => format!("to {id}"),
-        },
-    ));
-    parts.push(
-        c.source
-            .map_or_else(|| "from unknown".to_owned(), |id| format!("from {id}")),
-    );
+        });
+    }
+    if let Some(id) = c.source {
+        parts.push(format!("from {id}"));
+    }
     if let Some(slot) = c.slot {
         parts.push(format!("TS{slot}"));
     }

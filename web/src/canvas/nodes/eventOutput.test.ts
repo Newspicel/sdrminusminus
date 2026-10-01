@@ -19,6 +19,11 @@ const influx = (url: string, bucket: string) =>
   eventOutputConfigured({ service: "influx", url, bucket, org: "", token: "" });
 
 describe("event output configuration", () => {
+  it("saves recordings with nothing to configure", () => {
+    expect(newOutputTarget("recordings")).toEqual({ service: "recordings" });
+    expect(eventOutputConfigured({ service: "recordings" })).toBe(true);
+  });
+
   it("opens Beast only after an address and explicit enable", () => {
     expect(
       eventOutputConfigured({ service: "beast", address: "127.0.0.1:30005", enabled: false }),

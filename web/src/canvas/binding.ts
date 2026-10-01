@@ -477,19 +477,12 @@ export function wiredSourcesOf(graph: PatchGraph, node: string): WiredSource[] {
   return eventSourcesOf(graph, node).map((id) => {
     const found = graph.nodes.find((candidate) => candidate.id === id);
     if (found?.kind === "channel") {
-      return {
-        channelType: found.data.channel_type,
-        recordsCalls: found.data.record_calls ?? false,
-        trunk: false,
-      };
+      return { channelType: found.data.channel_type, trunk: false };
     }
     if (found?.kind === "spectrum_monitor") {
-      return { recordsCalls: false, trunk: false, monitor: true };
+      return { trunk: false, monitor: true };
     }
-    if (found?.kind === "dmr_trunk") {
-      return { recordsCalls: found.data.record_calls ?? true, trunk: true };
-    }
-    return { recordsCalls: false, trunk: false };
+    return { trunk: found?.kind === "dmr_trunk" };
   });
 }
 

@@ -207,7 +207,6 @@ macro_rules! define_node_body {
                     "gps" => Self::Gps(GpsNode::default()),
                     "channel" => Self::Channel(ChannelNode {
                         channel_type: String::new(),
-                        record_calls: false,
                         tuning_locked: false,
                     }),
                     "scope" => Self::Scope,

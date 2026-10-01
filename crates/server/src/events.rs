@@ -191,7 +191,6 @@ mod tests {
             id,
             NodeBody::Channel(ChannelNode {
                 channel_type: "dmr".to_owned(),
-                record_calls: true,
                 tuning_locked: false,
             }),
         )
@@ -518,7 +517,6 @@ mod tests {
             id,
             NodeBody::Channel(ChannelNode {
                 channel_type: "adsb".to_owned(),
-                record_calls: false,
                 tuning_locked: false,
             }),
         )

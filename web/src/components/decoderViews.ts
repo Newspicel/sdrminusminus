@@ -481,6 +481,10 @@ export function dvMode(frame: Pick<DvFrame, "mode">): string {
   return DV_MODE_LABELS[frame.mode];
 }
 
+export function callMode(mode: string): string {
+  return DV_MODE_LABELS[mode as DvFrame["mode"]] ?? mode.toUpperCase();
+}
+
 export function dvNetwork(frame: Pick<DvFrame, "mode" | "color_code" | "slot">): string {
   const parts: string[] = [];
   if (frame.slot != null) {

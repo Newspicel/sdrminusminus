@@ -184,7 +184,7 @@ impl Engine {
             route.validate().map_err(EngineError::Recording)?;
         }
         loop {
-            let (stream, channels, device_rate) = {
+            let (stream, channels, device_rate, mode, freq_hz) = {
                 let inner = self.lock();
                 let state = inner
                     .device_sets
@@ -215,6 +215,8 @@ impl Engine {
                     channel.stream,
                     sdrmm_channels::audio_channels(&channel.settings.params),
                     sample_rate_of(&state.settings),
+                    channel.settings.params.type_id(),
+                    channel.settings.frequency_hz,
                 )
             };
             let Some(dir) = self.audio_recordings_dir() else {
@@ -227,9 +229,7 @@ impl Engine {
             let started_at = jiff::Timestamp::now();
             let writer = audio_recording::create_writer(
                 &dir,
-                ds,
-                ch,
-                started_at,
+                &sdrmm_recorder::audio_stem(started_at, mode, freq_hz),
                 sdrmm_channels::AUDIO_RATE,
                 channels,
             )?;

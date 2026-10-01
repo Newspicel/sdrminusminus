@@ -9867,9 +9867,6 @@
           "channel_type": {
             "type": "string"
           },
-          "record_calls": {
-            "type": "boolean"
-          },
           "tuning_locked": {
             "type": "boolean"
           }
@@ -15347,9 +15344,6 @@
           },
           "protocol": {
             "$ref": "#/components/schemas/DmrTrunkProtocol"
-          },
-          "record_calls": {
-            "type": "boolean"
           }
         }
       },
@@ -16129,6 +16123,20 @@
       },
       "EventOutputTarget": {
         "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "service"
+            ],
+            "properties": {
+              "service": {
+                "type": "string",
+                "enum": [
+                  "recordings"
+                ]
+              }
+            }
+          },
           {
             "type": "object",
             "required": [
@@ -21489,7 +21497,7 @@
         "enum": [
           "always",
           "channel_has_audio",
-          "channel_is_decoder",
+          "channel_has_events",
           "channel_has_video",
           "channel_needs_position",
           "device_is_tx_capable"
@@ -27609,7 +27617,6 @@
         "required": [
           "id",
           "node",
-          "source_node",
           "started_at",
           "ended_at",
           "duration_ms",
@@ -27693,7 +27700,7 @@
             "minimum": 0
           },
           "mode": {
-            "$ref": "#/components/schemas/DvMode"
+            "type": "string"
           },
           "node": {
             "type": "string"
@@ -27713,9 +27720,6 @@
             ],
             "format": "int32",
             "minimum": 0
-          },
-          "source_node": {
-            "type": "string"
           },
           "started_at": {
             "type": "string"

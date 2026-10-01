@@ -21,6 +21,7 @@ pub enum WebhookFormat {
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(tag = "service", rename_all = "snake_case")]
 pub enum EventOutputTarget {
+    Recordings,
     Beast {
         address: String,
         #[serde(default)]
@@ -71,6 +72,7 @@ pub enum EventOutputTarget {
 impl std::fmt::Debug for EventOutputTarget {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::Recordings => formatter.write_str("Recordings"),
             Self::Beast { address, .. } => formatter
                 .debug_struct("Beast")
                 .field("address", address)
@@ -150,6 +152,7 @@ impl EventOutputTarget {
     #[must_use]
     pub fn configured(&self) -> bool {
         match self {
+            Self::Recordings => true,
             Self::Beast { address, enabled } => *enabled && !address.is_empty(),
             Self::Tunnel { interface, .. } => !interface.is_empty(),
             Self::Webhook { url, .. } => !url.trim().is_empty(),
@@ -182,6 +185,7 @@ impl EventOutputTarget {
     #[must_use]
     pub fn valid(&self) -> bool {
         match self {
+            Self::Recordings => true,
             Self::Beast { address, .. } => {
                 address.is_empty()
                     || (address.len() <= crate::MAX_NETWORK_ADDRESS_LEN
@@ -378,6 +382,18 @@ mod tests {
                 enabled: false
             }
             .configured()
+        );
+    }
+
+    #[test]
+    fn recordings_need_no_settings() {
+        let target = EventOutputTarget::Recordings;
+        assert!(target.valid() && target.configured());
+        let encoded = serde_json::to_string(&target).expect("encode");
+        assert_eq!(encoded, r#"{"service":"recordings"}"#);
+        assert_eq!(
+            serde_json::from_str::<EventOutputTarget>(&encoded).expect("decode"),
+            target
         );
     }
 

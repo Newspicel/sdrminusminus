@@ -60,7 +60,6 @@ describe("eventDetail", () => {
         data: {
           id: 7,
           node: "dmr",
-          source_node: "dmr",
           started_at: "2026-08-16T10:00:00Z",
           ended_at: "2026-08-16T10:00:02Z",
           duration_ms: 2_000,

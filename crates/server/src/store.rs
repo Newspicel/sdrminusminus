@@ -1897,37 +1897,17 @@ fn migrate_call_buffers(snapshot: &mut serde_json::Value) {
     let Some(graph) = snapshot.get_mut("graph") else {
         return;
     };
-    let legacy: HashMap<String, serde_json::Value> = graph
+    let legacy_ids: HashSet<String> = graph
         .get("nodes")
         .and_then(serde_json::Value::as_array)
         .into_iter()
         .flatten()
         .filter(|node| node.get("kind").and_then(serde_json::Value::as_str) == Some("call_buffer"))
-        .filter_map(|node| {
-            Some((
-                node.get("id")?.as_str()?.to_owned(),
-                node.get("data").cloned().unwrap_or_default(),
-            ))
-        })
+        .filter_map(|node| node.get("id")?.as_str().map(str::to_owned))
         .collect();
-    if legacy.is_empty() {
+    if legacy_ids.is_empty() {
         return;
     }
-    let legacy_ids: HashSet<&str> = legacy.keys().map(String::as_str).collect();
-    let system_settings: HashMap<String, serde_json::Value> = graph
-        .get("edges")
-        .and_then(serde_json::Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter_map(|edge| {
-            let source = edge.get("from")?.get("node")?.as_str()?;
-            let target = edge.get("to")?.get("node")?.as_str()?;
-            legacy
-                .get(target)
-                .cloned()
-                .map(|settings| (source.to_owned(), settings))
-        })
-        .collect();
     let systems: HashSet<String> = graph
         .get("nodes")
         .and_then(serde_json::Value::as_array)
@@ -1945,28 +1925,6 @@ fn migrate_call_buffers(snapshot: &mut serde_json::Value) {
                 .and_then(serde_json::Value::as_str)
                 .is_none_or(|id| !legacy_ids.contains(id))
         });
-        for node in nodes {
-            let Some(id) = node.get("id").and_then(serde_json::Value::as_str) else {
-                continue;
-            };
-            let Some(settings) = system_settings
-                .get(id)
-                .and_then(serde_json::Value::as_object)
-            else {
-                continue;
-            };
-            let Some(data) = node
-                .get_mut("data")
-                .and_then(serde_json::Value::as_object_mut)
-            else {
-                continue;
-            };
-            let kept = settings
-                .get("retention_seconds")
-                .and_then(serde_json::Value::as_u64)
-                .is_some_and(|seconds| seconds > 0);
-            data.insert("record_calls".to_owned(), serde_json::Value::Bool(kept));
-        }
     }
     if let Some(edges) = graph
         .get_mut("edges")

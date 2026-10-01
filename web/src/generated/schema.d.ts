@@ -2890,7 +2890,6 @@ export interface components {
         };
         ChannelNode: {
             channel_type: string;
-            record_calls?: boolean;
             tuning_locked?: boolean;
         };
         ChannelParams: {
@@ -4354,7 +4353,6 @@ export interface components {
             discovery?: components["schemas"]["DmrDiscovery"];
             ignore_crc?: boolean;
             protocol?: components["schemas"]["DmrTrunkProtocol"];
-            record_calls?: boolean;
         };
         /** @enum {string} */
         DmrTrunkProtocol: "auto" | "capacity_plus" | "hytera_xpt" | "tier_three";
@@ -4548,6 +4546,9 @@ export interface components {
             target: components["schemas"]["EventOutputTarget"];
         };
         EventOutputTarget: {
+            /** @enum {string} */
+            service: "recordings";
+        } | {
             address: string;
             enabled?: boolean;
             /** @enum {string} */
@@ -6030,7 +6031,7 @@ export interface components {
             v: number;
         };
         /** @enum {string} */
-        PortCondition: "always" | "channel_has_audio" | "channel_is_decoder" | "channel_has_video" | "channel_needs_position" | "device_is_tx_capable";
+        PortCondition: "always" | "channel_has_audio" | "channel_has_events" | "channel_has_video" | "channel_needs_position" | "device_is_tx_capable";
         /** @enum {string} */
         PortDirection: "in" | "out";
         /** @enum {string} */
@@ -7783,13 +7784,12 @@ export interface components {
             group_call?: boolean | null;
             /** Format: int64 */
             id: number;
-            mode: components["schemas"]["DvMode"];
+            mode: string;
             node: string;
             /** Format: int32 */
             slot?: number | null;
             /** Format: int32 */
             source?: number | null;
-            source_node: string;
             started_at: string;
         };
         VoiceCallsResponse: {

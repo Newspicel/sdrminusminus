@@ -110,8 +110,8 @@ type or leave it on auto. The node creates the DMR channels it needs.
 Following runs on the server with no browser open. Voice channels must fit inside the Device's
 window. A grant outside it is reported.
 
-**Record calls** keeps finished calls and their audio in memory. Encrypted calls keep only
-metadata.
+Wire the system's `events` onward to keep its calls. To save call audio, see
+[Record each call](recording.md#record-each-call).
 
 ## SSTV
 

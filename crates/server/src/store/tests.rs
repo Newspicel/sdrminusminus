@@ -1371,10 +1371,7 @@ fn a_stored_call_buffer_is_folded_into_its_dmr_system() {
     migrated.validate().expect("valid");
     assert!(migrated.graph.node("buffer").is_none());
     let system = migrated.graph.node("system").expect("system");
-    let sdrmm_wire::NodeBody::DmrTrunk(settings) = &system.body else {
-        panic!("DMR system");
-    };
-    assert!(settings.record_calls);
+    assert!(matches!(system.body, sdrmm_wire::NodeBody::DmrTrunk(_)));
     assert!(
         !migrated
             .graph

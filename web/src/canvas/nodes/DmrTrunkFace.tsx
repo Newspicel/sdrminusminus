@@ -102,12 +102,6 @@ export function DmrTrunkFace({ node }: { node: PatchNode }) {
             onCommit={(text) => edit({ control_hz: parseControlHz(text) })}
           />
           <ToggleChip
-            label="Record calls"
-            title="Save each followed call as audio"
-            on={node.data.record_calls ?? true}
-            onChange={(next) => edit({ record_calls: next })}
-          />
-          <ToggleChip
             label="Search"
             title="Find the rest of the site's channels"
             on={discovery.enabled ?? false}

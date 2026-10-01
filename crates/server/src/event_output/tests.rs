@@ -10,8 +10,8 @@ use axum::{
 };
 use reqwest::StatusCode;
 use sdrmm_wire::{
-    ChannelNode, DecoderEvent, DvMode, EventAudio, EventOutputNode, PatchEdge, PatchGraph,
-    PatchNode, PortRef, Position, RackLayout, RttyText, UpdateWorkspaceRequest, WorkspaceSnapshot,
+    ChannelNode, DecoderEvent, EventAudio, EventOutputNode, PatchEdge, PatchGraph, PatchNode,
+    PortRef, Position, RackLayout, RttyText, UpdateWorkspaceRequest, WorkspaceSnapshot,
 };
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
@@ -62,14 +62,13 @@ fn call() -> VoiceCall {
     VoiceCall {
         id: 7,
         node: "trunk".to_owned(),
-        source_node: "dmr".to_owned(),
         started_at: "2026-08-15T10:00:00Z".to_owned(),
         ended_at: "2026-08-15T10:00:01Z".to_owned(),
         duration_ms: 1_200,
         device_set: 1,
         channel: 2,
         freq_hz: 451_125_000.0,
-        mode: DvMode::Dmr,
+        mode: "dmr".to_owned(),
         slot: Some(2),
         color_code: Some(3),
         source: Some(1001),
@@ -239,7 +238,6 @@ fn resolve_maps_configured_outputs_and_the_events_port() {
                 "decoder",
                 NodeBody::Channel(ChannelNode {
                     channel_type: "rtty".to_owned(),
-                    record_calls: false,
                     tuning_locked: false,
                 }),
             ),
@@ -322,6 +320,123 @@ fn a_completed_call_travels_the_events_wire_like_any_other_decode() {
     assert_eq!(deliveries.len(), 1);
     assert_eq!(deliveries[0].event, "call 7");
     assert!(deliveries[0].message.body.contains("talkgroup 91"));
+}
+
+fn recordings_routing() -> Routing {
+    Routing {
+        bindings: vec![Binding {
+            node: "matched".to_owned(),
+            target: EventOutputTarget::Recordings,
+        }],
+    }
+}
+
+fn analog_call() -> VoiceCall {
+    VoiceCall {
+        mode: "am".to_owned(),
+        freq_hz: 144_100_000.0,
+        started_at: "2026-10-01T22:31:00.250Z".to_owned(),
+        slot: None,
+        color_code: None,
+        source: None,
+        destination: None,
+        group_call: None,
+        ..call()
+    }
+}
+
+#[test]
+fn recordings_take_only_events_that_carry_audio() {
+    let routing = recordings_routing();
+    assert!(decoded_deliveries(&routing, &decoded(), 1, &Calls::default()).is_empty());
+    let record = DecodedRecord {
+        event: DecoderEvent::Call(analog_call()),
+        ..decoded()
+    };
+    assert_eq!(
+        decoded_deliveries(&routing, &record, 1, &Calls::default()).len(),
+        1
+    );
+    let silent = DecodedRecord {
+        event: DecoderEvent::Call(VoiceCall {
+            audio: None,
+            encrypted: true,
+            ..call()
+        }),
+        ..decoded()
+    };
+    assert!(decoded_deliveries(&routing, &silent, 1, &Calls::default()).is_empty());
+}
+
+#[test]
+fn a_call_is_named_by_time_mode_frequency_and_talkgroup() {
+    assert_eq!(call_stem(&analog_call()), "20261001T223100Z_AM_144.100MHz");
+    assert_eq!(call_stem(&call()), "20260815T100000Z_DMR_451.125MHz_TG91");
+    assert_eq!(
+        call_stem(&VoiceCall {
+            group_call: Some(false),
+            ..call()
+        }),
+        "20260815T100000Z_DMR_451.125MHz_ID91"
+    );
+}
+
+#[tokio::test]
+async fn a_saved_call_lands_in_the_audio_library() {
+    let dir = tempfile::TempDir::new().expect("tempdir");
+    let engine = Engine::with_registry(
+        sdrmm_device::DeviceRegistry::new(),
+        Some(dir.path().to_path_buf()),
+    );
+    let calls = Calls::default();
+    let (audio, _) = calls.store_clip(&[1, 2, 3]);
+    let record = DecodedRecord {
+        event: DecoderEvent::Call(VoiceCall {
+            audio: Some(audio),
+            ..analog_call()
+        }),
+        ..decoded()
+    };
+    let deliveries = decoded_deliveries(&recordings_routing(), &record, 1, &calls);
+    let weak = Arc::downgrade(&engine);
+
+    for _ in 0..2 {
+        save_recording(&weak, &deliveries[0].message)
+            .await
+            .expect("saved");
+    }
+
+    let library = engine.audio_recordings_dir().expect("library");
+    let saved = sdrmm_recorder::scan_audio(&library).expect("scan");
+    let names: Vec<_> = saved
+        .iter()
+        .filter_map(|path| path.file_name()?.to_str())
+        .collect();
+    assert_eq!(
+        names,
+        [
+            "20261001T223100Z_AM_144.100MHz-2.wav",
+            "20261001T223100Z_AM_144.100MHz.wav"
+        ]
+    );
+}
+
+#[tokio::test]
+async fn a_call_whose_audio_was_lost_says_why_it_saved_nothing() {
+    let engine = Engine::with_registry(sdrmm_device::DeviceRegistry::new(), None);
+    let record = DecodedRecord {
+        event: DecoderEvent::Call(VoiceCall {
+            audio: None,
+            audio_error: Some("audio stream lost 3 block(s)".to_owned()),
+            ..analog_call()
+        }),
+        ..decoded()
+    };
+    let deliveries = decoded_deliveries(&recordings_routing(), &record, 1, &Calls::default());
+    let error = save_recording(&Arc::downgrade(&engine), &deliveries[0].message)
+        .await
+        .expect_err("nothing to save");
+    assert!(error.to_string().contains("lost 3 block"), "{error}");
 }
 
 #[test]
@@ -445,7 +560,7 @@ async fn discord_sends_metadata_and_wav_in_one_webhook_message() {
     let body = String::from_utf8_lossy(&captured[0].body);
     assert!(body.contains("payload_json"));
     assert!(body.contains("DMR call"));
-    assert!(body.contains("dmr-call-7.wav"));
+    assert!(body.contains("20260815T100000Z_DMR_451.125MHz_TG91.wav"));
     assert!(body.contains("RIFF-wave"));
 }
 
@@ -543,7 +658,10 @@ async fn matrix_creates_one_audio_event_after_uploading_the_wav() {
     assert_eq!(event["msgtype"], "m.audio");
     assert_eq!(event["url"], "mxc://matrix.test/audio7");
     assert_eq!(event["info"]["duration"], 1_200);
-    assert_eq!(event["filename"], "dmr-call-7.wav");
+    assert_eq!(
+        event["filename"],
+        "20260815T100000Z_DMR_451.125MHz_TG91.wav"
+    );
     assert_eq!(event["format"], MATRIX_HTML_FORMAT);
     assert!(
         event["formatted_body"]
@@ -553,7 +671,8 @@ async fn matrix_creates_one_audio_event_after_uploading_the_wav() {
     assert!(
         event["body"]
             .as_str()
-            .is_some_and(|body| body.contains("talkgroup 91") && body != "dmr-call-7.wav"),
+            .is_some_and(|body| body.contains("talkgroup 91")
+                && body != "20260815T100000Z_DMR_451.125MHz_TG91.wav"),
         "body must differ from filename so clients treat it as a caption"
     );
 }
@@ -991,6 +1110,7 @@ fn spectrum_monitor_audio_is_attached_to_event_deliveries() {
     assert_eq!(&attachment.bytes[..4], b"RIFF");
     assert_eq!(&attachment.bytes[44..], &[1, 0, 254, 255, 3, 0]);
     assert_eq!(calls.event_audio(&audio).unwrap(), attachment.bytes);
+    assert_eq!(attachment.stem, "20260815T100002Z_AM_14.080MHz");
     assert_eq!(
         deliveries[0].message.payload["record"]["origin"]["node"],
         "monitor"
@@ -1015,7 +1135,6 @@ fn beast_listener_requires_an_event_wire_and_explicit_enable() {
                 "decoder",
                 NodeBody::Channel(ChannelNode {
                     channel_type: "adsb".to_owned(),
-                    record_calls: false,
                     tuning_locked: false,
                 }),
             ),

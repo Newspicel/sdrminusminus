@@ -11,7 +11,8 @@ use std::{
 };
 
 pub use audio::{
-    AUDIO_BYTES_PER_SAMPLE, AUDIO_SUFFIX, AudioInfo, AudioWriter, read_audio_info, scan_audio,
+    AUDIO_BYTES_PER_SAMPLE, AUDIO_SUFFIX, AudioInfo, AudioWriter, audio_stem, create_unique,
+    read_audio_info, save_unique, scan_audio,
 };
 pub use collection::{
     COLLECTION_SUFFIX, CollectionArray, CollectionReader, CollectionWriter, LaneMeta, ReadChunk,

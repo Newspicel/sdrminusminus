@@ -10,7 +10,6 @@ import {
 import { BTN_PRIMARY } from "../../components/controls";
 import { ANY_FREQUENCY, tuningRange } from "../../components/dial";
 import { dialId } from "../../components/FrequencyDial";
-import { ToggleChip } from "../../components/face/Chips";
 import { FaceStats, Stat } from "../../components/face/Stats";
 import { DROPS_HINT, formatCount, formatHz } from "../../components/format";
 import { SignalRow } from "../../components/SignalRow";
@@ -26,7 +25,6 @@ import { hasWire, iqLanesOf, tuningControllerOf } from "../binding";
 import { useWorkspaceContext } from "../context";
 import { nodeOf, patchNode } from "../graph";
 import { deviceSetOf, laneOf } from "../workspaceDevice";
-import { keepsCalls } from "./callRecording";
 import {
   type ChannelBinding,
   channelBinding,
@@ -157,16 +155,6 @@ export function ChannelFace({ node }: { node: PatchNode }) {
               )?.event.data
             }
             onEdit={onEdit}
-            extra={
-              keepsCalls(descriptor) && (
-                <ToggleChip
-                  label="Record calls"
-                  title="Save each call the decoder hears as its own audio file"
-                  on={node.data.record_calls ?? false}
-                  onChange={(record_calls) => editNode({ record_calls })}
-                />
-              )
-            }
           />
         )}
       </FaceBody>

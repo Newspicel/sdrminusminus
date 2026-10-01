@@ -127,8 +127,8 @@ export function portsOf(context: GraphContext, graph: PatchGraph, node: PatchNod
           return true;
         case "channel_has_audio":
           return descriptor?.has_audio === true;
-        case "channel_is_decoder":
-          return descriptor?.decoder_kind != null;
+        case "channel_has_events":
+          return descriptor?.decoder_kind != null || descriptor?.has_audio === true;
         case "channel_has_video":
           return descriptor?.has_video === true;
         case "channel_needs_position":
