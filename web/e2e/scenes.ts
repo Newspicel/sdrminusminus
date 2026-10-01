@@ -215,7 +215,7 @@ const adsb: Scene = {
         nodes: [
           node("dev", { kind: "device", data: { device } }, { x: 0, y: 0, w: 420, h: 160 }),
           channel("ch", "adsb", { x: 540, y: 0, w: 420, h: 141 }),
-          node("scope", { kind: "scope" }, { x: 540, y: 181, w: 420, h: 819 }),
+          node("scope", { kind: "scope" }, { x: 0, y: 181, w: 960, h: 819 }),
           node("map", { kind: "map" }, { x: 1100, y: 0, w: 800, h: 560 }),
           node("log", { kind: "decoder_log" }, { x: 1100, y: 600, w: 800, h: 400 }),
         ],
@@ -254,7 +254,7 @@ const ais: Scene = {
         nodes: [
           node("dev", { kind: "device", data: { device } }, { x: 0, y: 0, w: 420, h: 160 }),
           channel("ch", "ais", { x: 540, y: 0, w: 420, h: 153 }),
-          node("scope", { kind: "scope" }, { x: 540, y: 193, w: 420, h: 807 }),
+          node("scope", { kind: "scope" }, { x: 0, y: 193, w: 960, h: 807 }),
           node("map", { kind: "map" }, { x: 1100, y: 0, w: 800, h: 760 }),
           node("log", { kind: "decoder_log" }, { x: 1100, y: 800, w: 800, h: 200 }),
         ],
@@ -290,7 +290,7 @@ const sstv: Scene = {
         nodes: [
           node("dev", { kind: "device", data: { device } }, { x: 0, y: 0, w: 420, h: 160 }),
           channel("ch", "sstv", { x: 540, y: 0, w: 420, h: 218 }),
-          node("scope", { kind: "scope" }, { x: 540, y: 258, w: 420, h: 582 }),
+          node("scope", { kind: "scope" }, { x: 0, y: 258, w: 960, h: 582 }),
           node("readout", { kind: "readout" }, { x: 1100, y: 0, w: 800, h: 530 }),
           node("log", { kind: "decoder_log" }, { x: 1100, y: 570, w: 800, h: 270 }),
         ],
@@ -340,7 +340,7 @@ const pocsag: Scene = {
             },
             { x: 1100, y: 803, w: 280, h: 197 },
           ),
-          node("scope", { kind: "scope" }, { x: 540, y: 257, w: 420, h: 743 }),
+          node("scope", { kind: "scope" }, { x: 0, y: 257, w: 960, h: 743 }),
           node("log", { kind: "decoder_log" }, { x: 1100, y: 0, w: 800, h: 763 }),
         ],
         edges: [
@@ -375,7 +375,7 @@ const ft8: Scene = {
         nodes: [
           node("dev", { kind: "device", data: { device } }, { x: 0, y: 0, w: 420, h: 160 }),
           channel("ch", "ft8", { x: 540, y: 0, w: 420, h: 229 }),
-          node("scope", { kind: "scope" }, { x: 540, y: 269, w: 420, h: 731 }),
+          node("scope", { kind: "scope" }, { x: 0, y: 269, w: 960, h: 731 }),
           node("log", { kind: "decoder_log" }, { x: 1100, y: 0, w: 800, h: 1000 }),
         ],
         edges: [
@@ -406,7 +406,7 @@ const rds: Scene = {
         nodes: [
           node("dev", { kind: "device", data: { device } }, { x: 0, y: 0, w: 420, h: 160 }),
           channel("ch", "wfm", { x: 540, y: 0, w: 460, h: 255 }),
-          node("scope", { kind: "scope" }, { x: 540, y: 295, w: 460, h: 705 }),
+          node("scope", { kind: "scope" }, { x: 0, y: 295, w: 1000, h: 705 }),
           node("speaker", { kind: "speaker" }, { x: 1140, y: 0, w: 280, h: 204 }),
           node("readout", { kind: "readout" }, { x: 1140, y: 244, w: 760, h: 220 }),
           node("log", { kind: "decoder_log" }, { x: 1140, y: 504, w: 760, h: 496 }),
@@ -444,7 +444,7 @@ const ident: Scene = {
         nodes: [
           node("dev", { kind: "device", data: { device } }, { x: 0, y: 0, w: 420, h: 160 }),
           channel("ch", "ident", { x: 540, y: 0, w: 420, h: 229 }),
-          node("scope", { kind: "scope" }, { x: 540, y: 269, w: 420, h: 731 }),
+          node("scope", { kind: "scope" }, { x: 0, y: 269, w: 960, h: 731 }),
           node("readout", { kind: "readout" }, { x: 1100, y: 0, w: 800, h: 560 }),
           node("log", { kind: "decoder_log" }, { x: 1100, y: 600, w: 800, h: 400 }),
         ],
