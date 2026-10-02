@@ -253,9 +253,6 @@ h2 {
   line-height: 1.75;
   color: var(--ink);
 }
-.shell .p {
-  color: var(--ink-faint);
-}
 .shell .copy {
   position: absolute;
   top: 8px;

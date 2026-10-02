@@ -1,0 +1,38 @@
+---
+import type { Shell } from "../installs";
+
+interface Props {
+  shells: Shell[];
+}
+
+const { shells } = Astro.props;
+---
+
+<div class="shells">
+  {
+    shells.map((shell) => (
+      <div class="shell-group">
+        {shell.label && <p class="shell-label">{shell.label}</p>}
+        <div class="shell"><pre>{shell.lines}</pre></div>
+      </div>
+    ))
+  }
+</div>
+
+<style>
+  .shells {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+  .shell-group {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .shells .shell-label {
+    margin: 0;
+    font: 12px var(--mono);
+    color: var(--ink-faint);
+  }
+</style>

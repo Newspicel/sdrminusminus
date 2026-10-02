@@ -1,4 +1,5 @@
 ---
+import Shells from "../components/Shells.astro";
 import { INSTALLS } from "../installs";
 import Page from "../layouts/Page.astro";
 ---
@@ -188,7 +189,7 @@ import Page from "../layouts/Page.astro";
         <div class="lane">
           <h3>{install.title}</h3>
           <p>{install.note}</p>
-          <div class="shell"><pre set:html={install.lines} /></div>
+          <Shells shells={install.shells} />
           {install.more && <p class="foot"><a href={install.more.href}>{install.more.label}</a></p>}
         </div>
       ))

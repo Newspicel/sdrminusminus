@@ -24,6 +24,11 @@ describe("installFor", () => {
 describe("INSTALLS", () => {
   it("keeps shell line continuations", () => {
     const apt = INSTALLS.find((install) => install.id === "apt");
-    expect(apt?.lines).toContain("key.gpg \\\n");
+    expect(apt?.shells[0]?.lines).toContain("key.gpg \\\n");
+  });
+
+  it("splits the Homebrew app and server into separate boxes", () => {
+    const brew = INSTALLS.find((install) => install.id === "brew");
+    expect(brew?.shells.map((shell) => shell.label)).toEqual(["App", "Server"]);
   });
 });

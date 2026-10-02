@@ -63,10 +63,7 @@ const image = canonical(SHARE_IMAGE.path);
         button.className = "copy";
         button.textContent = "Copy";
         button.addEventListener("click", async () => {
-          const lines = [...code.childNodes]
-            .filter((node) => !(node instanceof HTMLElement && node.classList.contains("p")))
-            .map((node) => node.textContent ?? "")
-            .join("");
+          const lines = code.textContent ?? "";
           try {
             await navigator.clipboard.writeText(lines.replace(/\n{2,}/g, "\n").trim());
             button.textContent = "Copied";

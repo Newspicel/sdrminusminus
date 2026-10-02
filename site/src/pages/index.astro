@@ -4,6 +4,7 @@ import { newest, releases } from "../changelog";
 import BenchGroup from "../components/BenchGroup.astro";
 import Patch from "../components/Patch.astro";
 import Setups from "../components/Setups.astro";
+import Shells from "../components/Shells.astro";
 import Waterfall from "../components/Waterfall.astro";
 import { DEFAULT_SCENE, demoUrl, SCENES } from "../demo/scenes";
 import { INSTALLS } from "../installs";
@@ -382,9 +383,7 @@ const fastest = highlights(SECTIONS);
         {
           INSTALLS.map((install, index) => (
             <div class="panel" role="tabpanel" id={install.id} aria-labelledby={`tab-${install.id}`} hidden={index > 0}>
-              <div class="shell">
-                <pre set:html={install.lines} />
-              </div>
+              <Shells shells={install.shells} />
               {install.more && <a class="more" href={install.more.href}>{install.more.label}</a>}
             </div>
           ))
