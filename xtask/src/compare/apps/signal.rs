@@ -10,6 +10,8 @@ pub const RATE: f64 = 10_000_000.0;
 pub const CENTER_HZ: f64 = 100_000_000.0;
 pub const STEM: &str = "compare_10msps";
 pub const CARRIERS: usize = 16;
+pub const FFT_FPS: u32 = 30;
+pub const FFT_BINS: u32 = 1024;
 
 const SECONDS: usize = 4;
 const SAMPLES: usize = RATE as usize * SECONDS;

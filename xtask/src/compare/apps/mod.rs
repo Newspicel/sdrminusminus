@@ -3,9 +3,11 @@ use std::{path::Path, time::Duration};
 use anyhow::{Context, Result, bail, ensure};
 use clap::{Args, ValueEnum};
 
-use super::report::{self, SELF, Suite};
+use super::report::{self, Suite};
 
+mod browser;
 mod feeder;
+mod footprint;
 mod gqrx;
 mod merge;
 mod running;
@@ -13,6 +15,7 @@ mod sample;
 mod sdrmm;
 mod sdrpp;
 mod signal;
+mod workspace;
 
 use feeder::Feeder;
 use merge::Measurement;
@@ -26,13 +29,14 @@ const MAX_LAG: Duration = Duration::from_millis(500);
 #[derive(Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub enum Program {
     Sdrmm,
+    SdrmmApp,
     Sdrpp,
     Gqrx,
 }
 
 #[derive(Args)]
 pub struct Apps {
-    #[arg(long, value_enum, value_delimiter = ',', default_values_t = [Program::Sdrmm, Program::Sdrpp, Program::Gqrx])]
+    #[arg(long, value_enum, value_delimiter = ',', default_values_t = [Program::Sdrmm, Program::SdrmmApp, Program::Sdrpp, Program::Gqrx])]
     programs: Vec<Program>,
     #[arg(long, default_value_t = 10)]
     warmup: u64,
@@ -40,8 +44,8 @@ pub struct Apps {
     window: u64,
     #[arg(long, default_value_t = 3)]
     runs: usize,
-    #[arg(long, requires_all = ["tool", "version", "case"])]
-    pid: Option<u32>,
+    #[arg(long, value_delimiter = ',', requires_all = ["tool", "version", "case"])]
+    pid: Vec<u32>,
     #[arg(long, requires = "pid")]
     tool: Option<String>,
     #[arg(long, requires = "pid")]
@@ -61,9 +65,10 @@ pub fn run(root: &Path, args: &Apps) -> Result<()> {
         warmup: Duration::from_secs(args.warmup),
         window: Duration::from_secs(args.window),
     };
-    let measured = match args.pid {
-        Some(pid) => vec![attached(pid, args, timing)?],
-        None => launched(root, &args.programs, timing, args.runs)?,
+    let measured = if args.pid.is_empty() {
+        launched(root, &args.programs, timing, args.runs)?
+    } else {
+        vec![attached(&args.pid, args, timing)?]
     };
     let path = root.join("site/src/data/bench/apps.json");
     let old = std::fs::read_to_string(&path)
@@ -73,18 +78,21 @@ pub fn run(root: &Path, args: &Apps) -> Result<()> {
     report::write(root, "apps", &suite)
 }
 
-fn attached(pid: u32, args: &Apps, timing: Timing) -> Result<Measurement> {
+fn attached(pids: &[u32], args: &Apps, timing: Timing) -> Result<Measurement> {
     let (Some(tool), Some(version), Some(receivers)) = (&args.tool, &args.version, args.case)
     else {
         bail!("--pid needs --tool, --version and --case");
     };
-    println!("sampling {tool} (pid {pid}), {}", merge::case_id(receivers));
-    sample::settle(pid, timing.warmup)?;
+    println!(
+        "sampling {tool} (pid {pids:?}), {}",
+        merge::case_id(receivers)
+    );
+    sample::settle(pids, timing.warmup)?;
     Ok(Measurement {
         tool: tool.clone(),
         version: version.clone(),
         receivers,
-        usage: sample::measure(pid, timing.window)?,
+        usage: sample::measure(pids, timing.window)?,
     })
 }
 
@@ -110,7 +118,7 @@ fn launched(
                         session(root, program, &signal, receivers, &work)?.measure(timing)?;
                     println!(
                         "  {:.1} % core, {:.1} MiB",
-                        usage.cpu_percent, usage.peak_rss_mib
+                        usage.cpu_percent, usage.peak_memory_mib
                     );
                     Ok(usage)
                 })
@@ -132,18 +140,20 @@ fn launched(
 
 struct Session {
     feeder: Option<Feeder>,
-    running: Running,
+    running: Vec<Running>,
 }
 
 impl Session {
     fn measure(mut self, timing: Timing) -> Result<Usage> {
-        let pid = self.running.pid();
-        sample::settle(pid, timing.warmup)?;
+        let pids: Vec<u32> = self.running.iter().map(Running::pid).collect();
+        sample::settle(&pids, timing.warmup)?;
         if let Some(feeder) = &self.feeder {
             feeder.reset_lag();
         }
-        let usage = sample::measure(pid, timing.window)?;
-        self.running.alive()?;
+        let usage = sample::measure(&pids, timing.window)?;
+        for running in &mut self.running {
+            running.alive()?;
+        }
         if let Some(feeder) = &self.feeder {
             ensure!(!feeder.failed(), "stopped reading the IQ feed");
             let lag = feeder.worst_lag();
@@ -166,18 +176,26 @@ fn session(
 ) -> Result<Session> {
     match program {
         Program::Sdrmm => Ok(Session {
-            running: sdrmm::launch(root, signal, receivers, work)?,
+            running: vec![sdrmm::launch(root, signal, receivers, work)?.running],
             feeder: None,
         }),
+        Program::SdrmmApp => {
+            let server = sdrmm::launch(root, signal, receivers, work)?;
+            let ui = browser::open(root, &server.url, receivers, work)?;
+            Ok(Session {
+                running: vec![ui, server.running],
+                feeder: None,
+            })
+        }
         Program::Sdrpp => {
             let feeder = Feeder::start(&signal.raw, signal::RATE)?;
             Ok(Session {
-                running: sdrpp::launch(root, &feeder, receivers, work)?,
+                running: vec![sdrpp::launch(root, &feeder, receivers, work)?],
                 feeder: Some(feeder),
             })
         }
         Program::Gqrx => Ok(Session {
-            running: gqrx::launch(signal, receivers, work)?,
+            running: vec![gqrx::launch(signal, receivers, work)?],
             feeder: None,
         }),
     }
@@ -187,7 +205,12 @@ fn prepare(root: &Path, program: Program) -> Result<(&'static str, String)> {
     match program {
         Program::Sdrmm => {
             sdrmm::build(root)?;
-            Ok((SELF, report::version(root)?))
+            Ok((sdrmm::HEADLESS, report::version(root)?))
+        }
+        Program::SdrmmApp => {
+            browser::install()?;
+            sdrmm::build(root)?;
+            Ok((sdrmm::APP, report::version(root)?))
         }
         Program::Sdrpp => {
             sdrpp::install(root)?;
@@ -203,7 +226,7 @@ fn prepare(root: &Path, program: Program) -> Result<(&'static str, String)> {
 fn cases(program: Program) -> Vec<usize> {
     match program {
         Program::Gqrx => vec![1],
-        Program::Sdrmm | Program::Sdrpp => RECEIVERS.to_vec(),
+        Program::Sdrmm | Program::SdrmmApp | Program::Sdrpp => RECEIVERS.to_vec(),
     }
 }
 

@@ -2,17 +2,17 @@ use std::{net::TcpListener, path::Path, process::Command, time::Duration};
 
 use anyhow::{Context, Result, ensure};
 use sdrmm_wire::{
-    ChannelParams, ChannelSettings, CreateChannelRequest, CreateDeviceSetRequest, CreatedId,
-    DeviceSetStatus, NfmParams, NoiseBlankerSettings, RECORDING_DRIVER_ID, Squelch, StateSnapshot,
+    CreateWorkspaceRequest, CreatedRowId, DeviceSetStatus, PatchApplyReport, StateSnapshot,
 };
 use serde::{Serialize, de::DeserializeOwned};
 
-use super::{
-    running::Running,
-    signal::{self, CENTER_HZ, Signal},
-};
+use super::{running::Running, signal::Signal, workspace};
+
+pub const HEADLESS: &str = "SDR-- headless";
+pub const APP: &str = "SDR-- app";
 
 pub fn build(root: &Path) -> Result<()> {
+    crate::web_build(root)?;
     let status = Command::new("cargo")
         .args(["build", "-p", "sdrmm", "--release"])
         .current_dir(root)
@@ -22,9 +22,14 @@ pub fn build(root: &Path) -> Result<()> {
     Ok(())
 }
 
-pub fn launch(root: &Path, signal: &Signal, receivers: usize, work: &Path) -> Result<Running> {
+pub struct Server {
+    pub running: Running,
+    pub url: String,
+}
+
+pub fn launch(root: &Path, signal: &Signal, receivers: usize, work: &Path) -> Result<Server> {
     let port = free_port()?;
-    let base = format!("http://127.0.0.1:{port}");
+    let url = format!("http://127.0.0.1:{port}");
     let mut command = Command::new(root.join("target/release/sdrmm"));
     command
         .arg("--bind")
@@ -35,42 +40,54 @@ pub fn launch(root: &Path, signal: &Signal, receivers: usize, work: &Path) -> Re
         .arg(&signal.dir);
     let mut running = Running::spawn(command, "sdrmm", &work.join("sdrmm.log"))?;
     running.wait_for("answer", Duration::from_secs(60), || {
-        get::<serde_json::Value>(&base, "/api/about").is_ok()
+        get::<serde_json::Value>(&url, "/api/about").is_ok()
     })?;
-    let device_id = format!("{RECORDING_DRIVER_ID}:{}", signal::STEM);
-    let set: CreatedId = post(
-        &base,
-        "/api/devicesets",
-        &CreateDeviceSetRequest { device_id },
-    )?;
-    for index in 0..receivers {
-        let request = CreateChannelRequest {
-            stream: 0,
-            settings: ChannelSettings {
-                frequency_hz: CENTER_HZ + signal::offset_hz(index),
-                squelch: Squelch::Off,
-                params: ChannelParams::Nfm(NfmParams::default()),
-                blanker: NoiseBlankerSettings::default(),
-            },
-        };
-        let _: CreatedId = post(
-            &base,
-            &format!("/api/devicesets/{}/channels", set.id),
-            &request,
-        )?;
-    }
+    open_workspace(&url, receivers)?;
     running.wait_for("start playing", Duration::from_secs(30), || {
-        playing(&base, set.id, receivers)
+        playing(&url, receivers)
     })?;
-    Ok(running)
+    Ok(Server { running, url })
 }
 
-fn playing(base: &str, set: u32, receivers: usize) -> bool {
+fn open_workspace(base: &str, receivers: usize) -> Result<()> {
+    let request = CreateWorkspaceRequest {
+        name: "Compare".to_owned(),
+        snapshot: Some(workspace::snapshot(receivers)),
+    };
+    let created: CreatedRowId = parse(&send(base, "POST", "/api/workspaces", &request)?)?;
+    let path = format!("/api/workspaces/{}", created.id);
+    for index in 0..receivers {
+        let node = workspace::channel(index);
+        send(
+            base,
+            "PUT",
+            &format!("{path}/channels/{node}"),
+            &workspace::settings(index),
+        )?;
+    }
+    send(
+        base,
+        "POST",
+        &format!("{path}/activate"),
+        &serde_json::json!({}),
+    )?;
+    let report: PatchApplyReport = parse(&send(
+        base,
+        "POST",
+        &format!("{path}/apply"),
+        &serde_json::json!({}),
+    )?)?;
+    ensure!(
+        report.refused.is_empty() && report.absent.is_empty(),
+        "the workspace did not come up: {report:?}"
+    );
+    Ok(())
+}
+
+fn playing(base: &str, receivers: usize) -> bool {
     get::<StateSnapshot>(base, "/api/state").is_ok_and(|state| {
         state.device_sets.iter().any(|device| {
-            device.id == set
-                && device.status == DeviceSetStatus::Running
-                && device.channels.len() == receivers
+            device.status == DeviceSetStatus::Running && device.channels.len() == receivers
         })
     })
 }
@@ -81,16 +98,16 @@ fn free_port() -> Result<u16> {
 }
 
 fn get<T: DeserializeOwned>(base: &str, path: &str) -> Result<T> {
-    curl(&["-sf", &format!("{base}{path}")])
+    parse(&curl(&["-sf", &format!("{base}{path}")])?)
 }
 
-fn post<T: DeserializeOwned>(base: &str, path: &str, body: &impl Serialize) -> Result<T> {
+fn send(base: &str, method: &str, path: &str, body: &impl Serialize) -> Result<Vec<u8>> {
     let body = serde_json::to_string(body)?;
     curl(&[
         "-sS",
         "--fail-with-body",
         "-X",
-        "POST",
+        method,
         "-H",
         "content-type: application/json",
         "-d",
@@ -99,7 +116,11 @@ fn post<T: DeserializeOwned>(base: &str, path: &str, body: &impl Serialize) -> R
     ])
 }
 
-fn curl<T: DeserializeOwned>(args: &[&str]) -> Result<T> {
+fn parse<T: DeserializeOwned>(body: &[u8]) -> Result<T> {
+    serde_json::from_slice(body).context("read the server answer")
+}
+
+fn curl(args: &[&str]) -> Result<Vec<u8>> {
     let out = Command::new("curl")
         .args(args)
         .output()
@@ -111,5 +132,5 @@ fn curl<T: DeserializeOwned>(args: &[&str]) -> Result<T> {
         String::from_utf8_lossy(&out.stdout),
         String::from_utf8_lossy(&out.stderr)
     );
-    serde_json::from_slice(&out.stdout).context("read the server answer")
+    Ok(out.stdout)
 }

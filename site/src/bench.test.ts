@@ -6,6 +6,7 @@ import {
   lead,
   machine,
   measured,
+  ours,
   ranked,
   SECTIONS,
   SELF,
@@ -66,6 +67,15 @@ describe("lead", () => {
     expect(lead(group("lower"))).toBe(0.25);
   });
 
+  it("uses our weakest variant", () => {
+    const results = [
+      { tool: `${SELF} app`, version: "1", value: 40 },
+      { tool: `${SELF} headless`, version: "1", value: 10 },
+      { tool: "other", version: "1", value: 20 },
+    ];
+    expect(lead({ ...group("lower"), results })).toBe(0.5);
+  });
+
   it("is zero without a rival", () => {
     expect(lead({ ...group("higher"), results: [{ tool: SELF, version: "1", value: 1 }] })).toBe(0);
   });
@@ -105,7 +115,7 @@ describe("published data", () => {
   it("has our result in every group", () => {
     for (const section of measured(SECTIONS)) {
       for (const result of section.suite.groups) {
-        expect(result.results.some((entry) => entry.tool === SELF)).toBe(true);
+        expect(result.results.some(ours)).toBe(true);
       }
     }
   });

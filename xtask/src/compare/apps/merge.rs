@@ -15,7 +15,7 @@ enum Kind {
     Memory,
 }
 
-const NOTE: &str = "SDR-- headless. Others include their GUI and audio.";
+const NOTE: &str = "GUI apps: 30 fps spectrum and audio. SDR-- app UI in Chrome.";
 
 pub fn case_id(receivers: usize) -> String {
     format!("nfm-{receivers}")
@@ -47,7 +47,7 @@ pub fn merge(old: Option<Suite>, machine: Machine, measured: &[Measurement]) -> 
 fn value(entry: &Measurement, kind: Kind) -> f64 {
     let raw = match kind {
         Kind::Cpu => entry.usage.cpu_percent,
-        Kind::Memory => entry.usage.peak_rss_mib,
+        Kind::Memory => entry.usage.peak_memory_mib,
     };
     (raw * 10.0).round() / 10.0
 }
@@ -102,7 +102,7 @@ mod tests {
             receivers,
             usage: Usage {
                 cpu_percent: cpu,
-                peak_rss_mib: 100.04,
+                peak_memory_mib: 100.04,
             },
         }
     }

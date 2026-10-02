@@ -1,5 +1,5 @@
 ---
-import { amount, type Group, ranked, SELF, width } from "../bench";
+import { amount, type Group, ours, ranked, width } from "../bench";
 
 interface Props {
   group: Group;
@@ -18,7 +18,7 @@ const { group } = Astro.props;
   <ol>
     {
       ranked(group).map((entry) => (
-        <li class:list={{ self: entry.tool === SELF }}>
+        <li class:list={{ self: ours(entry) }}>
           <span class="tool" title={entry.version}>
             {entry.tool}
           </span>
@@ -51,7 +51,7 @@ const { group } = Astro.props;
   ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
   li {
     display: grid;
-    grid-template-columns: 11ch 1fr 6ch;
+    grid-template-columns: 14ch 1fr 6ch;
     align-items: center;
     gap: 10px;
     font: 13px var(--mono);

@@ -8,6 +8,10 @@ use serde::{Deserialize, Serialize};
 
 pub const SELF: &str = "SDR--";
 
+pub fn ours(tool: &str) -> bool {
+    tool.starts_with(SELF)
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Suite {
     pub machine: Machine,
@@ -110,12 +114,12 @@ fn replace_ours(old: Suite, new: Suite) -> Result<Suite> {
             .iter()
             .find(|fresh| fresh.id == group.id)
             .with_context(|| format!("{} was not measured", group.id))?;
-        group.results.retain(|entry| entry.tool != SELF);
+        group.results.retain(|entry| !ours(&entry.tool));
         group.results.extend(
             fresh
                 .results
                 .iter()
-                .filter(|entry| entry.tool == SELF)
+                .filter(|entry| ours(&entry.tool))
                 .cloned(),
         );
         groups.push(group);
@@ -145,7 +149,7 @@ fn validate(suite: &Suite) -> Result<()> {
     for group in &suite.groups {
         ensure!(!group.results.is_empty(), "{} has no results", group.id);
         ensure!(
-            group.results.iter().any(|entry| entry.tool == SELF),
+            group.results.iter().any(|entry| ours(&entry.tool)),
             "{} has no {SELF} result",
             group.id
         );
@@ -240,6 +244,14 @@ mod tests {
         let mut empty = suite(SELF, 2.0);
         empty.groups.clear();
         assert!(replace_ours(suite(SELF, 1.0), empty).is_err());
+    }
+
+    #[test]
+    fn every_sdrmm_variant_is_ours() {
+        assert!(ours("SDR-- app"));
+        assert!(ours(SELF));
+        assert!(!ours("SDR++"));
+        assert!(validate(&suite("SDR-- headless", 1.0)).is_ok());
     }
 
     #[test]

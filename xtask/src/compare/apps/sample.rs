@@ -6,19 +6,23 @@ use std::{
 
 use anyhow::{Context, Result, bail, ensure};
 
+use super::footprint;
+
 const TICK: Duration = Duration::from_millis(250);
+const ATTEMPTS: usize = 3;
+const MIB: f64 = 1024.0 * 1024.0;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Usage {
     pub cpu_percent: f64,
-    pub peak_rss_mib: f64,
+    pub peak_memory_mib: f64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct Process {
     pid: u32,
     ppid: u32,
-    rss_kib: u64,
+    zombie: bool,
     cpu: Duration,
 }
 
@@ -26,24 +30,24 @@ struct Process {
 struct Tick {
     at: Instant,
     cpu: Duration,
-    rss_kib: u64,
+    memory_bytes: u64,
 }
 
-pub fn settle(pid: u32, warmup: Duration) -> Result<()> {
+pub fn settle(pids: &[u32], warmup: Duration) -> Result<()> {
     let end = Instant::now() + warmup;
     while Instant::now() < end {
-        tick(pid)?;
+        tick(pids)?;
         thread::sleep(TICK);
     }
     Ok(())
 }
 
-pub fn measure(pid: u32, window: Duration) -> Result<Usage> {
+pub fn measure(pids: &[u32], window: Duration) -> Result<Usage> {
     let start = Instant::now();
-    let mut ticks = vec![tick(pid)?];
+    let mut ticks = vec![tick(pids)?];
     while start.elapsed() < window {
         thread::sleep(TICK);
-        ticks.push(tick(pid)?);
+        ticks.push(tick(pids)?);
     }
     usage(&ticks)
 }
@@ -57,24 +61,55 @@ pub fn median(runs: &[Usage]) -> Result<Usage> {
     };
     Ok(Usage {
         cpu_percent: middle(|usage| usage.cpu_percent),
-        peak_rss_mib: middle(|usage| usage.peak_rss_mib),
+        peak_memory_mib: middle(|usage| usage.peak_memory_mib),
     })
 }
 
-fn tick(pid: u32) -> Result<Tick> {
+fn tick(pids: &[u32]) -> Result<Tick> {
+    let mut attempt = 1;
+    loop {
+        match read(pids) {
+            Err(_) if attempt < ATTEMPTS => {
+                attempt += 1;
+                thread::sleep(TICK);
+            }
+            done => return done,
+        }
+    }
+}
+
+fn read(pids: &[u32]) -> Result<Tick> {
     let out = Command::new("ps")
-        .args(["-A", "-o", "pid=,ppid=,rss=,time="])
+        .args(["-A", "-o", "pid=,ppid=,stat=,time="])
         .output()
         .context("run ps")?;
     ensure!(out.status.success(), "ps failed");
     let table = parse_table(&String::from_utf8(out.stdout)?)?;
-    let tree = tree(&table, pid);
-    ensure!(!tree.is_empty(), "process {pid} is gone");
+    let processes = forest(&table, pids)?;
+    let alive: Vec<u32> = processes
+        .iter()
+        .filter(|process| !process.zombie)
+        .map(|process| process.pid)
+        .collect();
     Ok(Tick {
         at: Instant::now(),
-        cpu: tree.iter().map(|process| process.cpu).sum(),
-        rss_kib: tree.iter().map(|process| process.rss_kib).sum(),
+        cpu: processes.iter().map(|process| process.cpu).sum(),
+        memory_bytes: footprint::bytes(&alive)?,
     })
+}
+
+fn forest(table: &[Process], roots: &[u32]) -> Result<Vec<Process>> {
+    let mut found: Vec<Process> = Vec::new();
+    for &root in roots {
+        let grown = tree(table, root);
+        ensure!(!grown.is_empty(), "process {root} is gone");
+        for process in grown {
+            if !found.contains(&process) {
+                found.push(process);
+            }
+        }
+    }
+    Ok(found)
 }
 
 fn usage(ticks: &[Tick]) -> Result<Usage> {
@@ -84,10 +119,14 @@ fn usage(ticks: &[Tick]) -> Result<Usage> {
     let wall = last.at.duration_since(first.at).as_secs_f64();
     ensure!(wall > 0.0, "the sampling window is empty");
     let cpu = last.cpu.saturating_sub(first.cpu).as_secs_f64();
-    let peak = ticks.iter().map(|tick| tick.rss_kib).max().unwrap_or(0);
+    let peak = ticks
+        .iter()
+        .map(|tick| tick.memory_bytes)
+        .max()
+        .unwrap_or(0);
     Ok(Usage {
         cpu_percent: 100.0 * cpu / wall,
-        peak_rss_mib: peak as f64 / 1024.0,
+        peak_memory_mib: peak as f64 / MIB,
     })
 }
 
@@ -114,13 +153,13 @@ fn parse_table(text: &str) -> Result<Vec<Process>> {
 
 fn parse_row(line: &str) -> Result<Process> {
     let fields: Vec<&str> = line.split_whitespace().collect();
-    let [pid, ppid, rss, time] = fields.as_slice() else {
+    let [pid, ppid, stat, time] = fields.as_slice() else {
         bail!("unexpected ps row `{line}`");
     };
     Ok(Process {
         pid: pid.parse().with_context(|| format!("pid in `{line}`"))?,
         ppid: ppid.parse().with_context(|| format!("ppid in `{line}`"))?,
-        rss_kib: rss.parse().with_context(|| format!("rss in `{line}`"))?,
+        zombie: stat.starts_with('Z'),
         cpu: parse_cpu_time(time)?,
     })
 }
@@ -162,12 +201,33 @@ mod tests {
     #[test]
     fn the_tree_holds_the_root_and_every_descendant() {
         let table = parse_table(
-            "  1     0  100  0:01.00\n 10     1  200  0:02.00\n 11    10  300  0:03.00\n 12     1  400  0:04.00\n",
+            "  1     0 Ss  0:01.00\n 10     1 S   0:02.00\n 11    10 Z   0:03.00\n 12     1 R+  0:04.00\n",
         )
         .unwrap();
         let pids: Vec<u32> = tree(&table, 10).iter().map(|process| process.pid).collect();
         assert_eq!(pids, [10, 11]);
+        assert!(
+            table
+                .iter()
+                .any(|process| process.pid == 11 && process.zombie)
+        );
+        assert!(!table[0].zombie);
         assert!(tree(&table, 99).is_empty());
+    }
+
+    #[test]
+    fn several_roots_count_each_process_once() {
+        let table = parse_table(
+            "  1     0 Ss  0:01.00\n 10     1 S   0:02.00\n 11    10 Z   0:03.00\n 12     1 R+  0:04.00\n",
+        )
+        .unwrap();
+        let pids: Vec<u32> = forest(&table, &[10, 11, 12])
+            .unwrap()
+            .iter()
+            .map(|process| process.pid)
+            .collect();
+        assert_eq!(pids, [10, 11, 12]);
+        assert!(forest(&table, &[10, 99]).is_err());
     }
 
     #[test]
@@ -177,29 +237,29 @@ mod tests {
             Tick {
                 at: start,
                 cpu: Duration::from_secs(10),
-                rss_kib: 2_048,
+                memory_bytes: 2 << 20,
             },
             Tick {
                 at: start + Duration::from_secs(2),
                 cpu: Duration::from_secs(11),
-                rss_kib: 4_096,
+                memory_bytes: 4 << 20,
             },
             Tick {
                 at: start + Duration::from_secs(4),
                 cpu: Duration::from_secs(12),
-                rss_kib: 3_072,
+                memory_bytes: 3 << 20,
             },
         ];
         let usage = usage(&ticks).unwrap();
         assert!((usage.cpu_percent - 50.0).abs() < 1e-9);
-        assert!((usage.peak_rss_mib - 4.0).abs() < 1e-9);
+        assert!((usage.peak_memory_mib - 4.0).abs() < 1e-9);
     }
 
     #[test]
     fn the_median_is_taken_per_metric() {
-        let run = |cpu, rss| Usage {
+        let run = |cpu, memory| Usage {
             cpu_percent: cpu,
-            peak_rss_mib: rss,
+            peak_memory_mib: memory,
         };
         let middle = median(&[run(30.0, 1.0), run(10.0, 3.0), run(20.0, 2.0)]).unwrap();
         assert_eq!(middle, run(20.0, 2.0));
@@ -211,7 +271,7 @@ mod tests {
         let tick = Tick {
             at: Instant::now(),
             cpu: Duration::ZERO,
-            rss_kib: 0,
+            memory_bytes: 0,
         };
         assert!(usage(&[tick]).is_err());
     }

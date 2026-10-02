@@ -109,9 +109,9 @@ fn core(contents: &Path, radios: &[String]) -> Value {
         "moduleInstances": instances,
         "streams": streams,
         "vfoOffsets": offsets,
-        "fftRate": 1,
-        "fftSize": 1024,
-        "showWaterfall": false,
+        "fftRate": signal::FFT_FPS,
+        "fftSize": signal::FFT_BINS,
+        "showWaterfall": true,
     })
 }
 
@@ -167,6 +167,8 @@ mod tests {
         assert_eq!(config["streams"]["Radio 1"]["sink"], "Audio");
         assert_eq!(config["vfoOffsets"]["Radio 2"], json!(signal::offset_hz(1)));
         assert_eq!(radio(&radios)["Radio 1"]["selectedDemodId"], 0);
+        assert_eq!(config["fftRate"], signal::FFT_FPS);
+        assert_eq!(config["showWaterfall"], true);
     }
 
     #[test]

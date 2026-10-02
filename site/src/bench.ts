@@ -72,12 +72,18 @@ export function measured(sections: readonly Section[]): Section[] {
   return sections.filter((section) => section.suite.groups.length > 0);
 }
 
+export function ours(entry: Entry): boolean {
+  return entry.tool.startsWith(SELF);
+}
+
 export function lead(group: Group): number {
-  const ours = group.results.find((entry) => entry.tool === SELF);
-  const others = group.results.filter((entry) => entry.tool !== SELF).map((entry) => entry.value);
-  if (ours === undefined || others.length === 0) return 0;
-  const best = group.better === "higher" ? Math.max(...others) : Math.min(...others);
-  const ratio = group.better === "higher" ? ours.value / best : best / ours.value;
+  const mine = group.results.filter(ours).map((entry) => entry.value);
+  const others = group.results.filter((entry) => !ours(entry)).map((entry) => entry.value);
+  if (mine.length === 0 || others.length === 0) return 0;
+  const higher = group.better === "higher";
+  const best = higher ? Math.max(...others) : Math.min(...others);
+  const weakest = higher ? Math.min(...mine) : Math.max(...mine);
+  const ratio = higher ? weakest / best : best / weakest;
   return Number.isFinite(ratio) ? ratio : 0;
 }
 

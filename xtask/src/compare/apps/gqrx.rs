@@ -74,11 +74,13 @@ fn settings(signal: &Signal) -> String {
         "[General]\nconfigversion=4\ncrashed=false\n\n\
          [input]\ndevice=\"{device}\"\nsample_rate={}\nfrequency={}\n\n\
          [receiver]\noffset={}\n\n\
-         [fft]\nfft_rate=1\nfft_size=1024\n\n\
+         [fft]\nfft_rate={}\nfft_size={}\n\n\
          [remote_control]\nenabled=true\nport={PORT}\nallowed_hosts=127.0.0.1, ::1, ::ffff:127.0.0.1\n",
         RATE as u64,
         CENTER_HZ as u64,
-        signal::offset_hz(0) as i64
+        signal::offset_hz(0) as i64,
+        signal::FFT_FPS,
+        signal::FFT_BINS
     )
 }
 
@@ -135,5 +137,6 @@ mod tests {
             "file=/iq/x.sigmf-data,rate=10000000,freq=100000000,repeat=true,throttle=true"
         ));
         assert!(text.contains("crashed=false"));
+        assert!(text.contains("fft_rate=30\nfft_size=1024"));
     }
 }
