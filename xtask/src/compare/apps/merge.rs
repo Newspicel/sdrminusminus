@@ -15,8 +15,6 @@ enum Kind {
     Memory,
 }
 
-const NOTE: &str = "GUI apps: 30 fps spectrum and audio. SDR-- app UI in Chrome.";
-
 pub fn case_id(receivers: usize) -> String {
     format!("nfm-{receivers}")
 }
@@ -59,7 +57,7 @@ fn blank(receivers: usize, kind: Kind) -> Group {
         format!("{receivers} NFM receivers")
     };
     let case = case_id(receivers);
-    let group = match kind {
+    match kind {
         Kind::Cpu => Group::new(
             &format!("{case}-cpu"),
             &format!("{what}, CPU"),
@@ -72,20 +70,13 @@ fn blank(receivers: usize, kind: Kind) -> Group {
             "MiB",
             Better::Lower,
         ),
-    };
-    group.with_note(NOTE)
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::compare::report::SELF;
-
-    #[test]
-    fn every_group_says_how_the_apps_differ() {
-        assert_eq!(blank(4, Kind::Cpu).note.as_deref(), Some(NOTE));
-        assert_eq!(blank(1, Kind::Memory).note.as_deref(), Some(NOTE));
-    }
 
     fn machine(cpu: &str) -> Machine {
         Machine {

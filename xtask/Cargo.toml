@@ -43,5 +43,9 @@ uniffi = { workspace = true, features = ["cli", "cargo-metadata"] }
 [target.'cfg(unix)'.dependencies]
 libc.workspace = true
 
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2-application-services.workspace = true
+objc2-core-foundation.workspace = true
+
 [dev-dependencies]
 tempfile.workspace = true

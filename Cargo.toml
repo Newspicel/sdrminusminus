@@ -211,6 +211,8 @@ sha2 = "0.11"
 # macOS scheduling: keeps App Nap from throttling the capture threads of a window that is not
 # frontmost. Already in the tree through Tauri; pinned here so the headless build shares it.
 objc2 = "0.6"
+objc2-application-services = { version = "0.3.2", default-features = false, features = ["std", "libc", "HIServices", "AXError", "AXUIElement"] }
+objc2-core-foundation = { version = "0.3.2", default-features = false, features = ["std", "CFArray", "CFNumber", "CFString"] }
 objc2-foundation = { version = "0.3", default-features = false, features = ["std"] }
 
 # Windows scheduling: threads there start at the priority of everything else on the machine, and

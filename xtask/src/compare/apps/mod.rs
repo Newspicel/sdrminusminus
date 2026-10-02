@@ -5,11 +5,14 @@ use clap::{Args, ValueEnum};
 
 use super::report::{self, Suite};
 
-mod browser;
+mod accessibility;
+mod desktop;
+mod disclaim;
 mod feeder;
 mod footprint;
 mod gqrx;
 mod merge;
+mod responsible;
 mod running;
 mod sample;
 mod sdrmm;
@@ -176,17 +179,13 @@ fn session(
 ) -> Result<Session> {
     match program {
         Program::Sdrmm => Ok(Session {
-            running: vec![sdrmm::launch(root, signal, receivers, work)?.running],
+            running: vec![sdrmm::launch(root, signal, receivers, work)?],
             feeder: None,
         }),
-        Program::SdrmmApp => {
-            let server = sdrmm::launch(root, signal, receivers, work)?;
-            let ui = browser::open(root, &server.url, receivers, work)?;
-            Ok(Session {
-                running: vec![ui, server.running],
-                feeder: None,
-            })
-        }
+        Program::SdrmmApp => Ok(Session {
+            running: vec![desktop::launch(root, signal, receivers, work)?],
+            feeder: None,
+        }),
         Program::Sdrpp => {
             let feeder = Feeder::start(&signal.raw, signal::RATE)?;
             Ok(Session {
@@ -208,9 +207,8 @@ fn prepare(root: &Path, program: Program) -> Result<(&'static str, String)> {
             Ok((sdrmm::HEADLESS, report::version(root)?))
         }
         Program::SdrmmApp => {
-            browser::install()?;
-            sdrmm::build(root)?;
-            Ok((sdrmm::APP, report::version(root)?))
+            desktop::build(root)?;
+            Ok((desktop::TOOL, report::version(root)?))
         }
         Program::Sdrpp => {
             sdrpp::install(root)?;

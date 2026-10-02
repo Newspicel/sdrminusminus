@@ -6,7 +6,7 @@ use std::{
 
 use anyhow::{Context, Result, bail, ensure};
 
-use super::footprint;
+use super::{footprint, responsible};
 
 const TICK: Duration = Duration::from_millis(250);
 const ATTEMPTS: usize = 3;
@@ -22,6 +22,7 @@ pub struct Usage {
 struct Process {
     pid: u32,
     ppid: u32,
+    responsible: Option<u32>,
     zombie: bool,
     cpu: Duration,
 }
@@ -84,7 +85,10 @@ fn read(pids: &[u32]) -> Result<Tick> {
         .output()
         .context("run ps")?;
     ensure!(out.status.success(), "ps failed");
-    let table = parse_table(&String::from_utf8(out.stdout)?)?;
+    let mut table = parse_table(&String::from_utf8(out.stdout)?)?;
+    for process in &mut table {
+        process.responsible = responsible::of(process.pid);
+    }
     let processes = forest(&table, pids)?;
     let alive: Vec<u32> = processes
         .iter()
@@ -138,10 +142,19 @@ fn tree(table: &[Process], root: u32) -> Vec<Process> {
         .collect();
     let mut next = 0;
     while let Some(parent) = found.get(next).map(|process| process.pid) {
-        found.extend(table.iter().filter(|process| process.ppid == parent));
+        let owned: Vec<Process> = table
+            .iter()
+            .filter(|process| owned_by(process, parent) && !found.contains(process))
+            .copied()
+            .collect();
+        found.extend(owned);
         next += 1;
     }
     found
+}
+
+fn owned_by(process: &Process, parent: u32) -> bool {
+    process.pid != parent && (process.ppid == parent || process.responsible == Some(parent))
 }
 
 fn parse_table(text: &str) -> Result<Vec<Process>> {
@@ -159,6 +172,7 @@ fn parse_row(line: &str) -> Result<Process> {
     Ok(Process {
         pid: pid.parse().with_context(|| format!("pid in `{line}`"))?,
         ppid: ppid.parse().with_context(|| format!("ppid in `{line}`"))?,
+        responsible: None,
         zombie: stat.starts_with('Z'),
         cpu: parse_cpu_time(time)?,
     })
@@ -213,6 +227,22 @@ mod tests {
         );
         assert!(!table[0].zombie);
         assert!(tree(&table, 99).is_empty());
+    }
+
+    #[test]
+    fn the_tree_holds_helpers_launchd_started_for_the_root() {
+        let mut table = parse_table(
+            "  1     0 Ss  0:01.00\n 10     1 S   0:02.00\n 20     1 S   0:03.00\n 21    20 S   0:04.00\n 30     1 S   0:05.00\n",
+        )
+        .unwrap();
+        for process in &mut table {
+            process.responsible = match process.pid {
+                10 | 20 | 21 => Some(10),
+                other => Some(other),
+            };
+        }
+        let pids: Vec<u32> = tree(&table, 10).iter().map(|process| process.pid).collect();
+        assert_eq!(pids, [10, 20, 21]);
     }
 
     #[test]

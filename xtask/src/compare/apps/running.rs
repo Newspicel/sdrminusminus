@@ -8,9 +8,16 @@ use std::{
 
 use anyhow::{Context, Result, bail};
 
+use super::disclaim::Disclaimed;
+
 pub struct Running {
-    child: Child,
+    handle: Handle,
     name: String,
+}
+
+enum Handle {
+    Child(Child),
+    Disclaimed(Disclaimed),
 }
 
 impl Running {
@@ -24,17 +31,27 @@ impl Running {
             .spawn()
             .with_context(|| format!("start {name}"))?;
         Ok(Self {
-            child,
+            handle: Handle::Child(child),
             name: name.to_owned(),
         })
     }
 
+    pub fn disclaimed(process: Disclaimed, name: &str) -> Self {
+        Self {
+            handle: Handle::Disclaimed(process),
+            name: name.to_owned(),
+        }
+    }
+
     pub fn pid(&self) -> u32 {
-        self.child.id()
+        match &self.handle {
+            Handle::Child(child) => child.id(),
+            Handle::Disclaimed(process) => process.id(),
+        }
     }
 
     pub fn alive(&mut self) -> Result<()> {
-        match self.child.try_wait()? {
+        match self.handle.exited()? {
             Some(status) => bail!("{} exited with {status}", self.name),
             None => Ok(()),
         }
@@ -62,15 +79,32 @@ impl Running {
     }
 }
 
+impl Handle {
+    fn exited(&mut self) -> Result<Option<String>> {
+        match self {
+            Self::Child(child) => Ok(child.try_wait()?.map(|status| status.to_string())),
+            Self::Disclaimed(process) => process.exited(),
+        }
+    }
+
+    fn stop(&mut self) -> Result<()> {
+        match self {
+            Self::Child(child) => {
+                child.kill().context("kill")?;
+                child.wait().context("reap")?;
+                Ok(())
+            }
+            Self::Disclaimed(process) => process.stop(),
+        }
+    }
+}
+
 impl Drop for Running {
     fn drop(&mut self) {
-        if self.child.try_wait().ok().flatten().is_none() {
-            if let Err(err) = self.child.kill() {
-                eprintln!("could not stop {}: {err}", self.name);
-            }
-            if let Err(err) = self.child.wait() {
-                eprintln!("could not reap {}: {err}", self.name);
-            }
+        if self.handle.exited().ok().flatten().is_none()
+            && let Err(err) = self.handle.stop()
+        {
+            eprintln!("could not stop {}: {err:#}", self.name);
         }
     }
 }

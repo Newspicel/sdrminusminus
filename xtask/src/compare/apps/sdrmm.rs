@@ -9,7 +9,6 @@ use serde::{Serialize, de::DeserializeOwned};
 use super::{running::Running, signal::Signal, workspace};
 
 pub const HEADLESS: &str = "SDR-- headless";
-pub const APP: &str = "SDR-- app";
 
 pub fn build(root: &Path) -> Result<()> {
     crate::web_build(root)?;
@@ -22,12 +21,7 @@ pub fn build(root: &Path) -> Result<()> {
     Ok(())
 }
 
-pub struct Server {
-    pub running: Running,
-    pub url: String,
-}
-
-pub fn launch(root: &Path, signal: &Signal, receivers: usize, work: &Path) -> Result<Server> {
+pub fn launch(root: &Path, signal: &Signal, receivers: usize, work: &Path) -> Result<Running> {
     let port = free_port()?;
     let url = format!("http://127.0.0.1:{port}");
     let mut command = Command::new(root.join("target/release/sdrmm"));
@@ -39,14 +33,18 @@ pub fn launch(root: &Path, signal: &Signal, receivers: usize, work: &Path) -> Re
         .arg("--recordings-dir")
         .arg(&signal.dir);
     let mut running = Running::spawn(command, "sdrmm", &work.join("sdrmm.log"))?;
+    bring_up(&mut running, &url, receivers)?;
+    Ok(running)
+}
+
+pub fn bring_up(running: &mut Running, url: &str, receivers: usize) -> Result<()> {
     running.wait_for("answer", Duration::from_secs(60), || {
-        get::<serde_json::Value>(&url, "/api/about").is_ok()
+        get::<serde_json::Value>(url, "/api/about").is_ok()
     })?;
-    open_workspace(&url, receivers)?;
+    open_workspace(url, receivers)?;
     running.wait_for("start playing", Duration::from_secs(30), || {
-        playing(&url, receivers)
-    })?;
-    Ok(Server { running, url })
+        playing(url, receivers)
+    })
 }
 
 fn open_workspace(base: &str, receivers: usize) -> Result<()> {

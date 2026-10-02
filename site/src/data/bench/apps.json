@@ -10,18 +10,7 @@
       "title": "1 NFM receiver, CPU",
       "unit": "% core",
       "better": "lower",
-      "note": "GUI apps: 30 fps spectrum and audio. SDR-- app UI in Chrome.",
       "results": [
-        {
-          "tool": "SDR-- app",
-          "version": "2.0.0-32-gad64c1fb-dirty",
-          "value": 26.7
-        },
-        {
-          "tool": "SDR-- headless",
-          "version": "1.9.0-112-g682f2dba",
-          "value": 8.7
-        },
         {
           "tool": "SDR++",
           "version": "1.3.0",
@@ -31,6 +20,16 @@
           "tool": "GQRX",
           "version": "2.17.7",
           "value": 18.1
+        },
+        {
+          "tool": "SDR-- headless",
+          "version": "2.0.0-37-g2b62c93d-dirty",
+          "value": 5.4
+        },
+        {
+          "tool": "SDR-- app",
+          "version": "2.0.0-37-g2b62c93d-dirty",
+          "value": 46.1
         }
       ]
     },
@@ -39,18 +38,7 @@
       "title": "1 NFM receiver, memory",
       "unit": "MiB",
       "better": "lower",
-      "note": "GUI apps: 30 fps spectrum and audio. SDR-- app UI in Chrome.",
       "results": [
-        {
-          "tool": "SDR-- app",
-          "version": "2.0.0-32-gad64c1fb-dirty",
-          "value": 1184.6
-        },
-        {
-          "tool": "SDR-- headless",
-          "version": "1.9.0-112-g682f2dba",
-          "value": 70.2
-        },
         {
           "tool": "SDR++",
           "version": "1.3.0",
@@ -60,6 +48,16 @@
           "tool": "GQRX",
           "version": "2.17.7",
           "value": 148.3
+        },
+        {
+          "tool": "SDR-- headless",
+          "version": "2.0.0-37-g2b62c93d-dirty",
+          "value": 46.1
+        },
+        {
+          "tool": "SDR-- app",
+          "version": "2.0.0-37-g2b62c93d-dirty",
+          "value": 644.6
         }
       ]
     },
@@ -68,22 +66,21 @@
       "title": "4 NFM receivers, CPU",
       "unit": "% core",
       "better": "lower",
-      "note": "GUI apps: 30 fps spectrum and audio. SDR-- app UI in Chrome.",
       "results": [
-        {
-          "tool": "SDR-- app",
-          "version": "2.0.0-32-gad64c1fb-dirty",
-          "value": 47.3
-        },
-        {
-          "tool": "SDR-- headless",
-          "version": "1.9.0-112-g682f2dba",
-          "value": 19.3
-        },
         {
           "tool": "SDR++",
           "version": "1.3.0",
           "value": 61.0
+        },
+        {
+          "tool": "SDR-- headless",
+          "version": "2.0.0-37-g2b62c93d-dirty",
+          "value": 11.0
+        },
+        {
+          "tool": "SDR-- app",
+          "version": "2.0.0-37-g2b62c93d-dirty",
+          "value": 91.2
         }
       ]
     },
@@ -92,22 +89,21 @@
       "title": "4 NFM receivers, memory",
       "unit": "MiB",
       "better": "lower",
-      "note": "GUI apps: 30 fps spectrum and audio. SDR-- app UI in Chrome.",
       "results": [
-        {
-          "tool": "SDR-- app",
-          "version": "2.0.0-32-gad64c1fb-dirty",
-          "value": 1307.8
-        },
-        {
-          "tool": "SDR-- headless",
-          "version": "1.9.0-112-g682f2dba",
-          "value": 81.7
-        },
         {
           "tool": "SDR++",
           "version": "1.3.0",
           "value": 625.4
+        },
+        {
+          "tool": "SDR-- headless",
+          "version": "2.0.0-37-g2b62c93d-dirty",
+          "value": 55.9
+        },
+        {
+          "tool": "SDR-- app",
+          "version": "2.0.0-37-g2b62c93d-dirty",
+          "value": 759.5
         }
       ]
     },
@@ -116,22 +112,21 @@
       "title": "16 NFM receivers, CPU",
       "unit": "% core",
       "better": "lower",
-      "note": "GUI apps: 30 fps spectrum and audio. SDR-- app UI in Chrome.",
       "results": [
-        {
-          "tool": "SDR-- app",
-          "version": "2.0.0-32-gad64c1fb-dirty",
-          "value": 121.7
-        },
-        {
-          "tool": "SDR-- headless",
-          "version": "1.9.0-112-g682f2dba",
-          "value": 47.6
-        },
         {
           "tool": "SDR++",
           "version": "1.3.0",
           "value": 130.4
+        },
+        {
+          "tool": "SDR-- headless",
+          "version": "2.0.0-37-g2b62c93d-dirty",
+          "value": 38.5
+        },
+        {
+          "tool": "SDR-- app",
+          "version": "2.0.0-37-g2b62c93d-dirty",
+          "value": 192.0
         }
       ]
     },
@@ -140,22 +135,21 @@
       "title": "16 NFM receivers, memory",
       "unit": "MiB",
       "better": "lower",
-      "note": "GUI apps: 30 fps spectrum and audio. SDR-- app UI in Chrome.",
       "results": [
-        {
-          "tool": "SDR-- app",
-          "version": "2.0.0-32-gad64c1fb-dirty",
-          "value": 1579.1
-        },
-        {
-          "tool": "SDR-- headless",
-          "version": "1.9.0-112-g682f2dba",
-          "value": 128.6
-        },
         {
           "tool": "SDR++",
           "version": "1.3.0",
           "value": 814.1
+        },
+        {
+          "tool": "SDR-- headless",
+          "version": "2.0.0-37-g2b62c93d-dirty",
+          "value": 101.9
+        },
+        {
+          "tool": "SDR-- app",
+          "version": "2.0.0-37-g2b62c93d-dirty",
+          "value": 948.6
         }
       ]
     }
