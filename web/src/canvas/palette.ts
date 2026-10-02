@@ -33,6 +33,7 @@ export const FAMILIES = {
   paging: "Paging and telemetry",
   video: "Pictures and video",
   broadcast: "Broadcast digital",
+  weather: "Weather and satellites",
   utility: "Utility",
 } satisfies Record<DecoderFamily, string>;
 

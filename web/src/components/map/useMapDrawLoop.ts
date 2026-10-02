@@ -8,11 +8,13 @@ import { drawHeat, type HeatScratch } from "../../lib/map/heat";
 import {
   DRAW_TICK_MS,
   type MapKind,
+  radiosondeTracks,
   sourceId,
   type Target,
   type TargetDetail,
   targetCollection,
   targetDetail,
+  trackSourceId,
 } from "../../lib/map/layers";
 import { POSITION_ROUTE_SOURCE, POSITION_SOURCE } from "../../lib/map/position";
 import { type PropagationOverlay, updatePropagationSources } from "../../lib/map/propagation";
@@ -27,7 +29,7 @@ import {
 } from "../../lib/map/sources";
 import { highlight } from "../../lib/map/targets";
 import { type PositionSample, usePositionStore } from "../../lib/position";
-import type { SurveyCell } from "../../lib/types";
+import type { DecodedRecordOf, SurveyCell } from "../../lib/types";
 import {
   type Counts,
   type MapCore,
@@ -41,10 +43,12 @@ import {
 const HEAT_COLORMAP = "inferno";
 const EMPTY_STATIONS: readonly Target[] = Object.freeze([]);
 const EMPTY_HISTORY: readonly PositionSample[] = Object.freeze([]);
+const EMPTY_FRAMES: readonly DecodedRecordOf<"radiosonde">[] = Object.freeze([]);
 
 interface Drawn {
   generation: number;
   targets: Partial<Record<MapKind, readonly Target[]>>;
+  sondeFrames: readonly DecodedRecordOf<"radiosonde">[] | null;
   position: string;
   signal: readonly SurveyCell[] | null;
   propagation: PropagationOverlay | null;
@@ -63,6 +67,7 @@ function freshDrawn(generation: number, counts: Counts, trails: FixTrails): Draw
   return {
     generation,
     targets: {},
+    sondeFrames: null,
     position: "",
     signal: null,
     propagation: null,
@@ -150,6 +155,21 @@ function drawTargets(core: MapCore, inputs: MapInputs, drawn: Drawn, sinks: MapS
   }
 }
 
+function drawTracks(core: MapCore, inputs: MapInputs, drawn: Drawn): void {
+  if (!inputs.kinds.includes("radiosonde")) {
+    return;
+  }
+  const frames = useDecodedStore.getState().frames.radiosonde ?? EMPTY_FRAMES;
+  if (frames === drawn.sondeFrames) {
+    return;
+  }
+  drawn.sondeFrames = frames;
+  setSourceData(
+    core.map.getSource<GeoJSONSource>(trackSourceId("radiosonde")),
+    radiosondeTracks(frames, Date.now()),
+  );
+}
+
 function followSelection(core: MapCore, inputs: MapInputs, sinks: MapSinks): void {
   const selected = core.selected;
   if (selected === null) {
@@ -177,6 +197,7 @@ function drawFrame(
   drawPositions(core, inputs, drawn, sinks);
   drawOverlays(core, inputs, drawn, painter);
   drawTargets(core, inputs, drawn, sinks);
+  drawTracks(core, inputs, drawn);
   followSelection(core, inputs, sinks);
 }
 

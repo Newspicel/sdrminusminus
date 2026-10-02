@@ -296,7 +296,12 @@ function stationId(event: DecoderEvent): string | null {
     case "hfdl":
     case "iridium":
     case "df_fix":
+    case "apt":
+    case "lrpt":
+    case "wefax":
       return null;
+    case "radiosonde":
+      return event.data.serial;
     case "dect":
       return event.data.identity?.rfpi ?? null;
     case "df":

@@ -26,6 +26,42 @@ describe("ModeChips", () => {
     expect(s2).toContain("Roll-off");
   });
 
+  it("offers Auto for the radiosonde type", () => {
+    expect(render({ type: "radiosonde", settings: {} })).toContain("Auto");
+    expect(render({ type: "radiosonde", settings: { sonde: "dfm" } })).toContain("DFM");
+  });
+
+  it("shows WEFAX timing and LRPT mode chips", () => {
+    const wefax = render({ type: "wefax", settings: {} });
+    expect(wefax).toContain('aria-label="Index of cooperation"');
+    expect(wefax).toContain('aria-label="Lines per minute"');
+    expect(render({ type: "lrpt", settings: {} })).toContain("OQPSK 72k");
+  });
+
+  it("shows the detected DAB mode next to Auto", () => {
+    const params: ChannelParams = { type: "dab", settings: { transmission_mode: "auto" } };
+    expect(render(params)).toContain("Auto");
+    const html = renderToStaticMarkup(
+      <ModeChips
+        params={params}
+        broadcast={{
+          system: "dab",
+          locked: true,
+          snr_db: 12,
+          frequency_error_hz: 0,
+          transmission_mode: "ii",
+        }}
+        limits={[]}
+        onParams={() => undefined}
+      />,
+    );
+    expect(html).toContain("Auto II");
+  });
+
+  it("offers a service picker for DRM", () => {
+    expect(render({ type: "drm", settings: {} })).toContain("Service");
+  });
+
   it("renders nothing for modes without settings", () => {
     expect(render({ type: "m17", settings: {} })).toBe("");
   });

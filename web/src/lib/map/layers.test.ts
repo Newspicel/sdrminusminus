@@ -1,20 +1,30 @@
 import { describe, expect, it } from "vitest";
-import type { AdsbMessage, AisMessage, AprsPacket, ChannelParams } from "../types";
+import type {
+  AdsbMessage,
+  AisMessage,
+  AprsPacket,
+  ChannelParams,
+  DecodedRecordOf,
+  RadiosondeFrame,
+} from "../types";
 import {
   isStale,
   layerId,
   MAP_KINDS,
   mapKindsOf,
+  radiosondeTracks,
   referenceCollection,
   referencePositions,
   sourceId,
   TARGET_MAX_AGE_MS,
   type Target,
+  TRACK_KINDS,
   targetCollection,
   targetDetail,
   targetFeature,
   targetHeading,
   targetLabel,
+  trackSourceId,
 } from "./layers";
 
 const NOW = Date.parse("2026-08-09T12:00:00Z");
@@ -49,6 +59,31 @@ function aprs(data: Partial<AprsPacket>, over: Partial<Target> = {}): Target {
   );
 }
 
+function sonde(data: Partial<RadiosondeFrame>, over: Partial<Target> = {}): Target {
+  return station(
+    {
+      kind: "radiosonde",
+      data: { sonde: "rs41", serial: "S1234567", errors_corrected: 0, ...data },
+    },
+    over,
+  );
+}
+
+function sondeRecord(
+  serial: string,
+  offsetMs: number,
+  lat: number | null,
+  lon: number | null,
+): DecodedRecordOf<"radiosonde"> {
+  return {
+    at: new Date(NOW + offsetMs).toISOString(),
+    device_set: 0,
+    channel: 0,
+    freq_hz: 403_000_000,
+    event: { kind: "radiosonde", data: { sonde: "rs41", serial, errors_corrected: 0, lat, lon } },
+  };
+}
+
 function station(event: Target["event"], over: Partial<Target>): Target {
   return {
     kind: event.kind,
@@ -72,6 +107,46 @@ describe("MAP_KINDS", () => {
       layerId(kind, "label"),
     ]);
     expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  it("gives track kinds their own source and layer", () => {
+    const ids = [
+      ...MAP_KINDS.map(sourceId),
+      ...TRACK_KINDS.flatMap((kind) => [trackSourceId(kind), layerId(kind, "track")]),
+    ];
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+});
+
+describe("radiosondeTracks", () => {
+  it("draws each sonde's positions oldest first", () => {
+    const records = [
+      sondeRecord("A", 2_000, 48.2, 11.2),
+      sondeRecord("B", 1_500, 50, 8),
+      sondeRecord("A", 1_000, null, null),
+      sondeRecord("A", 0, 48.1, 11.1),
+    ];
+    expect(radiosondeTracks(records, NOW + 2_000)).toEqual({
+      type: "FeatureCollection",
+      features: [
+        {
+          type: "Feature",
+          geometry: {
+            type: "LineString",
+            coordinates: [
+              [11.1, 48.1],
+              [11.2, 48.2],
+            ],
+          },
+          properties: { id: "A" },
+        },
+      ],
+    });
+  });
+
+  it("drops a sonde not heard within the horizon", () => {
+    const records = [sondeRecord("A", 1_000, 48.2, 11.2), sondeRecord("A", 0, 48.1, 11.1)];
+    expect(radiosondeTracks(records, NOW + TARGET_MAX_AGE_MS + 2_000).features).toEqual([]);
   });
 });
 
@@ -123,6 +198,7 @@ describe("targetLabel", () => {
     expect(targetLabel(ais({ call_sign: "DEAB" }))).toBe("DEAB");
     expect(targetLabel(ais({ name: "NORDIC", call_sign: "DEAB" }))).toBe("NORDIC");
     expect(targetLabel(aprs({}))).toBe("DL1ABC-9");
+    expect(targetLabel(sonde({}))).toBe("S1234567");
   });
 });
 
@@ -142,6 +218,11 @@ describe("targetHeading", () => {
     expect(targetHeading(aprs({ course_deg: -90 }))).toBe(270);
     expect(targetHeading(aprs({ course_deg: 450 }))).toBe(90);
     expect(targetHeading(aprs({ course_deg: Number.NaN }))).toBeNull();
+  });
+
+  it("reads a sonde's heading", () => {
+    expect(targetHeading(sonde({ heading_deg: 45 }))).toBe(45);
+    expect(targetHeading(sonde({}))).toBeNull();
   });
 });
 
@@ -216,6 +297,20 @@ describe("targetDetail", () => {
       ["Altitude", "37000 ft"],
       ["Track", "89°"],
       ["Frames", "12"],
+    ]);
+  });
+
+  it("shows a sonde's flight data with units", () => {
+    const detail = targetDetail(
+      sonde({ altitude_m: 15_234.4, climb_ms: 5.12, temperature_c: -60.25, pressure_hpa: 120 }),
+    );
+    expect(detail.rows).toEqual([
+      ["Serial", "S1234567"],
+      ["Altitude", "15234 m"],
+      ["Climb", "5.1 m/s"],
+      ["Temp", "-60.3 °C"],
+      ["Pressure", "120.0 hPa"],
+      ["Frames", "1"],
     ]);
   });
 

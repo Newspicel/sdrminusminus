@@ -1,20 +1,23 @@
-use std::sync::LazyLock;
+use std::{f64::consts::TAU, sync::LazyLock};
 
 use num_complex::Complex;
 use sdrmm_dsp::{Decimator, Soft, design_lowpass};
 use sdrmm_wire::{
     BroadcastService, BroadcastServiceKind, BroadcastStatus, BroadcastSystem, ChannelDescriptor,
-    ChannelParams, ChannelSettings, DabMode, DabParams, DecoderEvent, DecoderFamily,
+    ChannelParams, ChannelSettings, DabMode, DabParams, DabTransmissionMode, DecoderEvent,
+    DecoderFamily,
 };
 
 use super::{
     fic::{FIB_BYTES, FicDecoder},
     fig::{Audio, Ensemble, SubChannel},
-    mode::Mode,
+    mode::{Mode, TRANSMISSION_MODES},
     msc::{CIF_BITS, SubChannelDecoder, subchannel_range},
-    ofdm::{FrameSync, SymbolDemod, prefix_offset_for_mode},
+    ofdm::{FrameSync, SymbolDemod},
     pacer::Pacer,
+    prs::PrsProbe,
     superframe::{AccessUnits, SuperframeAssembler},
+    sync::{self, MIN_COHERENCE, SEARCH, Tracker},
 };
 use crate::{
     ChannelCtx, ChannelError, ChannelFilter, ChannelOutputs, ChannelRx,
@@ -25,9 +28,9 @@ use crate::{
 
 const INPUT_RATE_HZ: f64 = 2_048_000.0;
 const BANDWIDTH_HZ: f64 = 1_536_000.0;
-const SEARCH: usize = 96;
-const SEARCH_STRIDE: usize = 4;
+const MAX_OFFSET_HZ: f64 = 40_000.0;
 const REPORT_FRAMES: u32 = 5;
+const REDETECT_FRAMES: u32 = 40;
 const LOCK_QUALITY: f32 = 0.5;
 
 static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescriptor {
@@ -58,7 +61,7 @@ pub fn occupied_band() -> (f64, f64) {
 
 pub fn channel_filter() -> ChannelFilter {
     ChannelFilter::Symmetric(Decimator::new(
-        &design_lowpass(127, BANDWIDTH_HZ / 2.0 / INPUT_RATE_HZ),
+        &design_lowpass(127, (BANDWIDTH_HZ / 2.0 + MAX_OFFSET_HZ) / INPUT_RATE_HZ),
         1,
     ))
 }
@@ -72,16 +75,42 @@ struct Selection {
     packet: Option<super::packet::Config>,
 }
 
+struct Chain {
+    transmission: DabTransmissionMode,
+    demod: SymbolDemod,
+    probe: PrsProbe,
+    fic: FicDecoder,
+    window: Vec<Complex<f32>>,
+}
+
+impl Chain {
+    fn new(transmission: DabTransmissionMode) -> Self {
+        Self {
+            transmission,
+            demod: SymbolDemod::for_mode(transmission),
+            probe: PrsProbe::for_mode(transmission),
+            fic: FicDecoder::for_mode(transmission),
+            window: vec![Complex::new(0.0, 0.0); Mode::new(transmission).useful],
+        }
+    }
+}
+
 pub struct DabChannel {
     params: DabParams,
+    transmission: Option<DabTransmissionMode>,
+    active: DabTransmissionMode,
+    spares: Vec<Chain>,
     mode: Mode,
-    frame: Vec<Complex<f32>>,
     sync: FrameSync,
     demod: SymbolDemod,
+    probe: PrsProbe,
+    tracker: Tracker,
     fic: FicDecoder,
     ensemble: Ensemble,
     pending: Vec<Complex<f32>>,
-    frame_start: Option<usize>,
+    origin: u64,
+    search: Option<(usize, usize)>,
+    window: Vec<Complex<f32>>,
     symbols: Vec<Soft>,
     fibs: Vec<[u8; FIB_BYTES]>,
     logical: Vec<u8>,
@@ -97,6 +126,21 @@ pub struct DabChannel {
     last_format: Option<AccessUnits>,
     locked: bool,
     samples_without_frame: usize,
+    unlocked_frames: u32,
+}
+
+fn derotate(
+    source: &[Complex<f32>],
+    target: &mut [Complex<f32>],
+    offset: f64,
+    cycles_per_sample: f64,
+) {
+    let mut phase = Complex::<f64>::from_polar(1.0, -TAU * cycles_per_sample * offset);
+    let step = Complex::<f64>::from_polar(1.0, -TAU * cycles_per_sample);
+    for (out, &sample) in target.iter_mut().zip(source) {
+        *out = sample * Complex::new(phase.re as f32, phase.im as f32);
+        phase *= step;
+    }
 }
 
 impl DabChannel {
@@ -105,8 +149,10 @@ impl DabChannel {
         self.demod.reset();
         self.fic.reset();
         self.ensemble.clear();
-        self.pending.clear();
-        self.frame_start = None;
+        self.discard(self.pending.len());
+        self.search = None;
+        self.tracker.reset();
+        self.forget_mode();
         self.selection = None;
         self.stop_audio();
         self.frames = 0;
@@ -117,6 +163,43 @@ impl DabChannel {
         self.last_format = None;
         self.locked = false;
         self.samples_without_frame = 0;
+    }
+
+    fn adopt(&mut self, transmission: DabTransmissionMode) {
+        if let Some(spare) = self
+            .spares
+            .iter_mut()
+            .find(|spare| spare.transmission == transmission)
+            && transmission != self.active
+        {
+            std::mem::swap(&mut self.demod, &mut spare.demod);
+            std::mem::swap(&mut self.probe, &mut spare.probe);
+            std::mem::swap(&mut self.fic, &mut spare.fic);
+            std::mem::swap(&mut self.window, &mut spare.window);
+            spare.transmission = self.active;
+            self.active = transmission;
+        }
+        self.transmission = Some(self.active);
+        self.mode = Mode::new(self.active);
+        self.sync = FrameSync::for_mode(self.active);
+        self.demod.reset();
+        self.fic.reset();
+        self.unlocked_frames = 0;
+    }
+
+    fn forget_mode(&mut self) {
+        if self.params.transmission_mode == DabTransmissionMode::Auto {
+            self.transmission = None;
+            self.sync = FrameSync::any_mode();
+            self.tracker.forget();
+            self.unlocked_frames = 0;
+        }
+    }
+
+    fn discard(&mut self, count: usize) {
+        let count = count.min(self.pending.len());
+        self.pending.drain(..count);
+        self.origin += count as u64;
     }
 
     fn stop_audio(&mut self) {
@@ -132,79 +215,116 @@ impl DabChannel {
         self.pacer.take(out, from);
     }
 
-    fn align(&self, start: usize) -> usize {
-        let mut best = (0.0f32, start);
-        let limit = self.pending.len().saturating_sub(self.mode.symbol());
-        for coarse in (0..2 * SEARCH).step_by(SEARCH_STRIDE) {
-            let at = start + coarse;
-            if at > limit {
-                break;
-            }
-            if let Some((coherence, _)) = prefix_offset_for_mode(self.mode, &self.pending[at..])
-                && coherence > best.0
-            {
-                best = (coherence, at);
-            }
+    fn next_search(&self, null: Option<usize>) -> Option<(usize, usize)> {
+        if let Some(next) = self.tracker.next() {
+            let at = (next - self.origin as f64).round().max(0.0) as usize;
+            let half = self.mode.guard / 2;
+            return Some((at.saturating_sub(half), 2 * half));
         }
-        let low = best.1.saturating_sub(SEARCH_STRIDE);
-        for at in low..=best.1 + SEARCH_STRIDE {
-            if at > limit {
-                break;
-            }
-            if let Some((coherence, _)) = prefix_offset_for_mode(self.mode, &self.pending[at..])
-                && coherence > best.0
-            {
-                best = (coherence, at);
-            }
-        }
-        best.1
+        let at = self.pending.len().saturating_sub(null?);
+        Some((at.saturating_sub(SEARCH), 2 * SEARCH))
     }
 
-    fn derotate(frame: &mut [Complex<f32>], cycles_per_sample: f32) {
-        let mut phase = Complex::new(1.0f32, 0.0);
-        let step = Complex::from_polar(1.0, -2.0 * std::f32::consts::PI * cycles_per_sample);
-        for sample in frame {
-            *sample *= phase;
-            phase *= step;
-            phase /= phase.norm().max(f32::EPSILON);
+    fn detect(&mut self, from: usize, span: usize) -> bool {
+        if self.pending.len() < from + span + sync::detect_span() {
+            return false;
+        }
+        match sync::detect(&self.pending, from, span) {
+            Some(found) => {
+                self.adopt(found);
+                self.take_frame()
+            }
+            None => {
+                self.search = None;
+                self.discard(from + span);
+                false
+            }
         }
     }
 
     fn take_frame(&mut self) -> bool {
-        let Some(start) = self.frame_start else {
+        let Some((from, span)) = self.search else {
             return false;
         };
-        if self.pending.len() < start + 2 * SEARCH + self.mode.frame_samples() {
+        if self.transmission.is_none() {
+            return self.detect(from, span);
+        }
+        if self.pending.len() < from + span + self.mode.frame_samples() + self.mode.symbol() {
             return false;
         }
-        let aligned = self.align(start);
-        let Some((_, offset)) = prefix_offset_for_mode(self.mode, &self.pending[aligned..]) else {
-            return false;
-        };
-        self.frequency_error_hz = offset * INPUT_RATE_HZ as f32;
-        self.frame.clear();
-        self.frame
-            .extend_from_slice(&self.pending[aligned..aligned + self.mode.frame_samples()]);
-        Self::derotate(&mut self.frame, offset);
-        self.pending.drain(..aligned + self.mode.frame_samples());
-        self.frame_start = None;
-        true
+        self.search = None;
+        if let Some(useful) = self.acquire(from, span)
+            && self.demodulate(useful)
+        {
+            self.discard(useful - self.mode.guard + self.mode.frame_samples());
+            return true;
+        }
+        self.tracker.missed(self.mode);
+        self.discard(from + span);
+        false
     }
 
-    fn demodulate(&mut self) {
+    fn acquire(&mut self, from: usize, span: usize) -> Option<usize> {
+        let drift = self.tracker.drift;
+        let (coherence, at) = sync::align(self.mode, &self.pending, from, span, drift);
+        if coherence < MIN_COHERENCE {
+            return None;
+        }
+        let phase = sync::prefix_phase(self.mode, &self.pending, at, drift);
+        let frequency = self.tracker.refined(self.mode, phase);
+        let start = at + self.mode.guard - self.mode.backoff();
+        let source = self.pending.get(start..start + self.mode.useful)?;
+        derotate(source, &mut self.window, 0.0, frequency);
+        let shifts = sync::shifts(self.mode, frequency, MAX_OFFSET_HZ / INPUT_RATE_HZ);
+        let probe = self.probe.probe(&self.window, shifts)?;
+        let useful = usize::try_from(start as i64 + i64::from(probe.first_path)).ok()?;
+        if useful < self.mode.guard {
+            return None;
+        }
+        let frequency = frequency + f64::from(probe.shift) / self.mode.useful as f64;
+        let origin = self.origin as f64;
+        self.tracker.locked(
+            self.mode,
+            frequency,
+            origin + start as f64 - probe.mean_delay,
+            origin + (useful - self.mode.guard) as f64,
+        );
+        self.frequency_error_hz = (frequency * INPUT_RATE_HZ) as f32;
+        Some(useful)
+    }
+
+    fn demodulate(&mut self, useful: usize) -> bool {
         self.symbols.clear();
         self.demod.reset();
-        for symbol in self.frame.chunks_exact(self.mode.symbol()) {
-            self.demod.demodulate(symbol, &mut self.symbols);
+        let first = (useful - self.mode.backoff()) as f64;
+        for index in 0..self.mode.symbols {
+            let start = sync::symbol_start(self.mode, first, index, self.tracker.drift);
+            let whole = start.floor();
+            let at = whole as usize;
+            let Some(source) = self.pending.get(at..at + self.mode.useful) else {
+                return false;
+            };
+            derotate(
+                source,
+                &mut self.window,
+                whole - useful as f64,
+                self.tracker.frequency,
+            );
+            self.demod
+                .demodulate(&self.window, (start - whole) as f32, &mut self.symbols);
         }
         self.snr_db = self.demod.snr_db();
+        true
     }
 
     fn read_fic(&mut self) {
         let end = self.mode.fic_symbols * self.mode.symbol_bits();
+        let Some(fic) = self.symbols.get(..end) else {
+            return;
+        };
         self.fibs.clear();
         let mut fibs = std::mem::take(&mut self.fibs);
-        for block in self.symbols[..end].chunks(self.mode.fic_block_bits()) {
+        for block in fic.chunks(self.mode.fic_block_bits()) {
             self.fic.block(block, &mut fibs);
         }
         for fib in &fibs {
@@ -305,7 +425,8 @@ impl DabChannel {
                 self.superframes += 1;
                 self.units += units.units.len() as u32;
                 if units.dropped > 0 {
-                    self.media.audio_gap(units.dropped);
+                    self.media
+                        .audio_gap(units.dropped, "DAB+ access-unit CRC failure");
                 }
                 for unit in &units.units {
                     self.media
@@ -352,9 +473,41 @@ impl DabChannel {
             .collect()
     }
 
+    fn decode_frame(&mut self, out: &mut ChannelOutputs) {
+        self.samples_without_frame = 0;
+        self.read_fic();
+        self.choose();
+        self.read_msc();
+        self.collect_audio(out);
+        self.frames += 1;
+        if self.frames >= REPORT_FRAMES {
+            self.frames = 0;
+            self.report(out);
+            if self.unlocked_frames >= REDETECT_FRAMES {
+                self.forget_mode();
+            }
+        }
+    }
+
+    fn lose_signal(&mut self, out: &mut ChannelOutputs) {
+        self.fic.reset();
+        self.selection = None;
+        self.stop_audio();
+        self.snr_db = 0.0;
+        self.frequency_error_hz = 0.0;
+        self.report(out);
+        self.tracker.forget();
+        self.forget_mode();
+    }
+
     fn report(&mut self, out: &mut ChannelOutputs) {
         let quality = self.fic.quality();
         self.locked = quality >= LOCK_QUALITY;
+        self.unlocked_frames = if self.locked {
+            0
+        } else {
+            self.unlocked_frames.saturating_add(REPORT_FRAMES)
+        };
         let selected = self
             .selection
             .as_ref()
@@ -395,7 +548,10 @@ impl DabChannel {
                 .or_else(|| {
                     (self.pacer.dropped_frames > 0).then(|| "Audio buffer overflow".to_owned())
                 }),
-            symbol_rate: Some(INPUT_RATE_HZ / self.mode.useful as f64),
+            symbol_rate: self
+                .transmission
+                .map(|_| INPUT_RATE_HZ / self.mode.useful as f64),
+            transmission_mode: self.transmission,
             ensemble_id: self.ensemble.id.map(u32::from),
             ensemble_label: self.ensemble.label.clone(),
             service_id: selected.map(|service| service.id),
@@ -422,17 +578,29 @@ impl ChannelRx for DabChannel {
     fn new(ctx: ChannelCtx, settings: ChannelSettings) -> Result<Self, ChannelError> {
         check_input_rate(ctx, &DESCRIPTOR)?;
         let params = params(&settings)?;
+        let automatic = params.transmission_mode == DabTransmissionMode::Auto;
+        let transmission = (!automatic).then_some(params.transmission_mode);
         let mode = Mode::new(params.transmission_mode);
         Ok(Self {
             params,
+            transmission,
+            active: params.transmission_mode,
+            spares: if automatic {
+                TRANSMISSION_MODES.map(Chain::new).into()
+            } else {
+                Vec::new()
+            },
             mode,
-            frame: Vec::with_capacity(mode.frame_samples()),
-            sync: FrameSync::for_mode(params.transmission_mode),
+            sync: transmission.map_or_else(FrameSync::any_mode, FrameSync::for_mode),
             demod: SymbolDemod::for_mode(params.transmission_mode),
+            probe: PrsProbe::for_mode(params.transmission_mode),
+            tracker: Tracker::default(),
             fic: FicDecoder::for_mode(params.transmission_mode),
             ensemble: Ensemble::default(),
-            pending: Vec::with_capacity(2 * mode.frame()),
-            frame_start: None,
+            pending: Vec::with_capacity(2 * Mode::new(DabTransmissionMode::I).frame()),
+            origin: 0,
+            search: None,
+            window: vec![Complex::new(0.0, 0.0); mode.useful],
             symbols: Vec::with_capacity(mode.symbols * mode.symbol_bits()),
             fibs: Vec::new(),
             logical: Vec::new(),
@@ -448,6 +616,7 @@ impl ChannelRx for DabChannel {
             last_format: None,
             locked: false,
             samples_without_frame: 0,
+            unlocked_frames: 0,
         })
     }
 
@@ -480,35 +649,18 @@ impl ChannelRx for DabChannel {
         for &sample in iq {
             self.samples_without_frame = self.samples_without_frame.saturating_add(1);
             if self.samples_without_frame >= 3 * self.mode.frame() && self.locked {
-                self.fic.reset();
-                self.selection = None;
-                self.stop_audio();
-                self.snr_db = 0.0;
-                self.frequency_error_hz = 0.0;
-                self.report(out);
+                self.lose_signal(out);
             }
             self.pending.push(sample);
-            if let Some(carrier_run) = self.sync.push(sample)
-                && self.frame_start.is_none()
-            {
-                let at = self.pending.len().saturating_sub(carrier_run);
-                self.frame_start = Some(at.saturating_sub(SEARCH));
+            let null = self.sync.push(sample);
+            if self.search.is_none() {
+                self.search = self.next_search(null);
             }
-            if self.frame_start.is_none() && self.pending.len() > 2 * self.mode.frame() {
-                self.pending.drain(..self.mode.frame());
+            if self.search.is_none() && self.pending.len() > 2 * self.mode.frame() {
+                self.discard(self.mode.frame());
             }
             if self.take_frame() {
-                self.samples_without_frame = 0;
-                self.demodulate();
-                self.read_fic();
-                self.choose();
-                self.read_msc();
-                self.collect_audio(out);
-                self.frames += 1;
-                if self.frames >= REPORT_FRAMES {
-                    self.frames = 0;
-                    self.report(out);
-                }
+                self.decode_frame(out);
             }
         }
         self.collect_audio(out);
@@ -542,6 +694,45 @@ mod tests {
             settings(service_id),
         )
         .expect("a DAB channel at the descriptor rate")
+    }
+
+    fn automatic(service_id: Option<u32>) -> DabChannel {
+        let mut settings = settings(service_id);
+        if let ChannelParams::Dab(params) = &mut settings.params {
+            params.transmission_mode = DabTransmissionMode::Auto;
+        }
+        DabChannel::new(
+            ChannelCtx {
+                input_rate: INPUT_RATE_HZ,
+            },
+            settings,
+        )
+        .expect("an automatic DAB channel")
+    }
+
+    fn run(channel: &mut DabChannel, iq: &[Complex<f32>]) -> ChannelOutputs {
+        let mut out = ChannelOutputs::default();
+        for block in iq.chunks(16_384) {
+            channel.process(block, &mut out);
+        }
+        out
+    }
+
+    fn assert_audio(channel: &mut DabChannel, out: &mut ChannelOutputs) {
+        let until = std::time::Instant::now() + std::time::Duration::from_secs(2);
+        while channel.media.audio_frames == 0 && std::time::Instant::now() < until {
+            channel.media.drain(out);
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+        assert!(
+            channel.media.audio_frames > 0,
+            "{:?}",
+            channel.media.audio_error
+        );
+    }
+
+    fn cif_frames(transmission: DabTransmissionMode, cifs: usize) -> usize {
+        cifs / Mode::new(transmission).cifs
     }
 
     fn status(out: &ChannelOutputs) -> &BroadcastStatus {
@@ -675,10 +866,9 @@ mod tests {
         assert_eq!(status(&out).symbol_rate, Some(8000.0));
     }
 
-    #[test]
-    fn frozen_independent_waveforms_decode_the_expected_ensemble() {
+    fn frozen() -> [(DabTransmissionMode, Vec<Complex<f32>>); 3] {
         use sdrmm_wire::DabTransmissionMode::{Ii, Iii, Iv};
-        for (mode, bytes) in [
+        [
             (
                 Ii,
                 &include_bytes!("../../../../fixtures/dab/mode_ii_reference_2m048.sigmf-data")[..],
@@ -691,8 +881,9 @@ mod tests {
                 Iv,
                 &include_bytes!("../../../../fixtures/dab/mode_iv_reference_2m048.sigmf-data")[..],
             ),
-        ] {
-            let iq: Vec<Complex<f32>> = bytes
+        ]
+        .map(|(mode, bytes)| {
+            let frame: Vec<Complex<f32>> = bytes
                 .as_chunks::<8>()
                 .0
                 .iter()
@@ -703,6 +894,23 @@ mod tests {
                     )
                 })
                 .collect();
+            (mode, frame.repeat(7))
+        })
+    }
+
+    fn assert_reference_ensemble(mode: DabTransmissionMode, status: &BroadcastStatus) {
+        assert!(status.locked, "{mode:?}: {status:?}");
+        assert_eq!(status.ensemble_id, Some(0x4a2c));
+        assert_eq!(status.ensemble_label.as_deref(), Some("Reference DAB"));
+        assert_eq!(status.service_id, Some(0xc201));
+        assert_eq!(status.label.as_deref(), Some("Reference audio"));
+        assert_eq!(status.bitrate_kbps, Some(96));
+        assert_eq!(status.frames_bad, 0);
+    }
+
+    #[test]
+    fn frozen_independent_waveforms_decode_the_expected_ensemble() {
+        for (mode, iq) in frozen() {
             let mut channel = channel(None);
             let mut settings = settings(None);
             if let ChannelParams::Dab(params) = &mut settings.params {
@@ -710,19 +918,29 @@ mod tests {
             }
             channel.apply(settings).expect("mode change");
             let mut out = ChannelOutputs::default();
-            for _ in 0..7 {
-                for block in iq.chunks(1009) {
-                    channel.process(block, &mut out);
-                }
+            for block in iq.chunks(1009) {
+                channel.process(block, &mut out);
             }
+            assert_reference_ensemble(mode, status(&out));
+        }
+    }
+
+    #[test]
+    fn frozen_waveforms_off_frequency_are_detected_and_decoded() {
+        for ((mode, iq), offset_hz) in frozen().into_iter().zip([-27_310.0, 24_480.0, 31_905.0]) {
+            let mut channel = automatic(None);
+            let out = run(
+                &mut channel,
+                &crate::testutil::frequency_shift(&iq, offset_hz, INPUT_RATE_HZ),
+            );
             let status = status(&out);
-            assert!(status.locked, "{mode:?}: {status:?}");
-            assert_eq!(status.ensemble_id, Some(0x4a2c));
-            assert_eq!(status.ensemble_label.as_deref(), Some("Reference DAB"));
-            assert_eq!(status.service_id, Some(0xc201));
-            assert_eq!(status.label.as_deref(), Some("Reference audio"));
-            assert_eq!(status.bitrate_kbps, Some(96));
-            assert_eq!(status.frames_bad, 0);
+            assert_reference_ensemble(mode, status);
+            assert_eq!(status.transmission_mode, Some(mode));
+            assert!(
+                (f64::from(status.frequency_error_hz) - offset_hz).abs() < 2.0,
+                "{mode:?}: {} Hz for {offset_hz} Hz",
+                status.frequency_error_hz
+            );
         }
     }
 
@@ -922,5 +1140,117 @@ mod tests {
             "{} superframes",
             channel.superframes
         );
+    }
+
+    #[test]
+    fn every_mode_is_detected_and_decoded_through_a_large_tuner_offset() {
+        use sdrmm_wire::DabTransmissionMode::{I, Ii, Iii, Iv};
+        for (transmission, offset_hz) in [
+            (I, -31_234.5),
+            (Ii, 29_876.0),
+            (Iii, -30_150.0),
+            (Iv, 28_420.0),
+        ] {
+            let clean = synth::dab::ensemble_for_mode(transmission, cif_frames(transmission, 40));
+            let iq = crate::testutil::frequency_shift(&clean, offset_hz, INPUT_RATE_HZ);
+            let mut channel = automatic(Some(synth::dab::MUSIC_SERVICE));
+            let mut out = run(&mut channel, &iq);
+            let status = status(&out).clone();
+            assert!(status.locked, "{transmission:?}: {status:?}");
+            assert_eq!(status.transmission_mode, Some(transmission));
+            assert_eq!(status.frames_bad, 0, "{transmission:?}");
+            assert!(
+                (f64::from(status.frequency_error_hz) - offset_hz).abs() < 2.0,
+                "{transmission:?}: {} Hz for {offset_hz} Hz",
+                status.frequency_error_hz
+            );
+            assert!(channel.superframes > 0, "{transmission:?}");
+            assert_audio(&mut channel, &mut out);
+        }
+    }
+
+    #[test]
+    fn every_mode_survives_clock_drift_echoes_doppler_and_noise() {
+        use sdrmm_wire::DabTransmissionMode::{I, Ii, Iii, Iv};
+        for (transmission, offset_hz, ppm, doppler_hz) in [
+            (I, 12_345.0, 100.0, 20.0),
+            (Ii, -25_432.0, -100.0, 120.0),
+            (Iii, 21_098.0, 100.0, 200.0),
+            (Iv, -18_765.0, -100.0, 60.0),
+        ] {
+            let mode = Mode::new(transmission);
+            let clean = synth::dab::ensemble_for_mode(transmission, cif_frames(transmission, 48));
+            let echoes = crate::testutil::multipath(
+                &clean,
+                &[
+                    (0, 1.0, 0.0),
+                    (mode.guard / 4, 0.5, doppler_hz),
+                    (mode.guard / 2, 0.3, -doppler_hz),
+                ],
+                INPUT_RATE_HZ,
+            );
+            let drifted = crate::testutil::sample_clock_offset(&echoes, ppm);
+            let shifted = crate::testutil::frequency_shift(&drifted, offset_hz, INPUT_RATE_HZ);
+            let iq = crate::testutil::at_snr(&shifted, 15.0, 11);
+            let mut channel = automatic(Some(synth::dab::MUSIC_SERVICE));
+            let mut out = run(&mut channel, &iq);
+            let status = status(&out).clone();
+            assert!(status.locked, "{transmission:?}: {status:?}");
+            assert_eq!(status.transmission_mode, Some(transmission));
+            assert!(
+                (f64::from(status.frequency_error_hz) - offset_hz).abs()
+                    < 0.05 * INPUT_RATE_HZ / mode.useful as f64,
+                "{transmission:?}: {} Hz for {offset_hz} Hz",
+                status.frequency_error_hz
+            );
+            assert!(
+                (channel.tracker.drift * 1e6 - ppm).abs() < 10.0,
+                "{transmission:?}: {} ppm for {ppm} ppm",
+                channel.tracker.drift * 1e6
+            );
+            assert!(
+                status.frames_bad * 20 <= status.frames_ok,
+                "{transmission:?}: {status:?}"
+            );
+            assert!(channel.superframes > 0, "{transmission:?}");
+            assert_audio(&mut channel, &mut out);
+        }
+    }
+
+    #[test]
+    fn short_null_symbols_keep_frame_sync_at_low_snr() {
+        use sdrmm_wire::DabTransmissionMode::{Ii, Iii};
+        for transmission in [Ii, Iii] {
+            let mode = Mode::new(transmission);
+            let frames = 40;
+            let clean = synth::dab::ensemble_for_mode(transmission, frames);
+            let shifted = crate::testutil::frequency_shift(&clean, -9_870.0, INPUT_RATE_HZ);
+            let iq = crate::testutil::at_snr(&shifted, 5.0, 23);
+            let mut channel = automatic(None);
+            let out = run(&mut channel, &iq);
+            let status = status(&out);
+            assert!(status.locked, "{transmission:?}: {status:?}");
+            assert_eq!(status.transmission_mode, Some(transmission));
+            assert_eq!(status.ensemble_label.as_deref(), Some("SDR-- test"));
+            let blocks = channel.fic.blocks_ok + channel.fic.blocks_bad;
+            assert!(
+                blocks >= ((frames - 3) * mode.cifs * mode.fibs_per_block) as u32,
+                "{transmission:?}: {blocks} FIBs"
+            );
+        }
+    }
+
+    #[test]
+    fn automatic_mode_follows_a_retune_to_another_mode() {
+        use sdrmm_wire::DabTransmissionMode::{Ii, Iii};
+        let mut channel = automatic(None);
+        let out = run(&mut channel, &synth::dab::ensemble_for_mode(Ii, 8));
+        assert_eq!(status(&out).transmission_mode, Some(Ii));
+        channel.retuned();
+        let out = run(&mut channel, &synth::dab::ensemble_for_mode(Iii, 8));
+        let status = status(&out);
+        assert!(status.locked, "{status:?}");
+        assert_eq!(status.transmission_mode, Some(Iii));
+        assert_eq!(status.symbol_rate, Some(8000.0));
     }
 }

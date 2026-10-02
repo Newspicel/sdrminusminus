@@ -110,7 +110,7 @@ describe("mergeChannelSettings", () => {
   });
 
   it("keeps the DAB transmission mode and service when tuning", () => {
-    for (const transmission_mode of ["i", "ii", "iii", "iv"] as const) {
+    for (const transmission_mode of ["auto", "i", "ii", "iii", "iv"] as const) {
       const dab: ChannelSettings = {
         frequency_hz: 220_352_000,
         params: {

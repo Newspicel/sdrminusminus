@@ -1,5 +1,6 @@
 pub mod block;
 pub mod bptc;
+pub mod ccsds_rs;
 pub mod conv;
 pub mod conv7;
 pub mod conv_soft;

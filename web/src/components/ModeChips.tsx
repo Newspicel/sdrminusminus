@@ -36,6 +36,7 @@ import {
   ILS_COMPONENTS,
   INVERSION_DEFAULT_HZ,
   IRIDIUM_SPANS,
+  LRPT_MODES,
   NFM_SCRAMBLER_MODES,
   NFM_TONE_MODES,
   NXDN_WIDTHS,
@@ -47,8 +48,12 @@ import {
   RTTY_STOP_BITS,
   SELCALL_SYSTEMS,
   SIDEBANDS,
+  SONDE_AUTO,
+  SONDE_TYPES,
   SSTV_AUTO,
   SSTV_MODES,
+  WEFAX_IOCS,
+  WEFAX_LPMS,
 } from "./modeOptions";
 import { NumberField } from "./NumberField";
 import { Segmented } from "./Segmented";
@@ -143,7 +148,7 @@ export function ModeChips({
     case "dvbt":
       return <DvbtChips params={params} broadcast={broadcast} {...mode} />;
     case "drm":
-      return <DrmChips params={params} {...mode} />;
+      return <DrmChips params={params} broadcast={broadcast} {...mode} />;
     case "dmr":
       return <DmrChips params={params} {...mode} />;
     case "nxdn":
@@ -154,6 +159,14 @@ export function ModeChips({
       return <IdentChips params={params} {...mode} />;
     case "dect":
       return <DectChips params={params} {...mode} />;
+    case "apt":
+      return <AptChips params={params} {...mode} />;
+    case "lrpt":
+      return <LrptChips params={params} {...mode} />;
+    case "wefax":
+      return <WefaxChips params={params} {...mode} />;
+    case "radiosonde":
+      return <RadiosondeChips params={params} {...mode} />;
     case "dstar":
     case "ysf":
     case "p25":
@@ -858,6 +871,14 @@ function SstvChips({ params, onParams }: Mode<"sstv">) {
 function DabChips({ params, broadcast, onParams }: Mode<"dab"> & { broadcast?: BroadcastStatus }) {
   const settings = params.settings;
   const mode = settings.mode ?? "auto";
+  const transmissionMode = settings.transmission_mode ?? "i";
+  const detected = broadcast?.transmission_mode;
+  const transmissionModes =
+    detected == null
+      ? DAB_TRANSMISSION_MODES
+      : DAB_TRANSMISSION_MODES.map((option) =>
+          option.value === "auto" ? { ...option, label: `Auto ${detected.toUpperCase()}` } : option,
+        );
   return (
     <>
       <ChoiceChip
@@ -871,8 +892,9 @@ function DabChips({ params, broadcast, onParams }: Mode<"dab"> & { broadcast?: B
       <ChoiceChip
         label="Mode"
         title="DAB transmission mode"
-        value={settings.transmission_mode ?? "i"}
-        options={DAB_TRANSMISSION_MODES}
+        value={transmissionMode}
+        options={transmissionModes}
+        quiet={transmissionMode === "auto"}
         onChange={(transmission_mode) =>
           onParams({ type: "dab", settings: { ...settings, transmission_mode } })
         }
@@ -930,10 +952,34 @@ function DatvChips({
           />
           <ToggleChip
             label="Superframes"
-            title="Receive Annex E format 0 or 1 with the default reference and payload scrambling codes"
+            title="Receive DVB-S2X Annex E superframes, formats 0 to 7"
             on={settings.superframes ?? false}
             onChange={(superframes) => set({ ...settings, superframes })}
           />
+          {settings.superframes ? (
+            <>
+              <NumberChip
+                label="Ref code"
+                title="Superframe reference scrambling code n_Ref, 0 by default"
+                value={settings.superframe_reference ?? 0}
+                {...limitOf(limits, "superframe_reference")}
+                onCommit={(superframe_reference) => set({ ...settings, superframe_reference })}
+              />
+              <NumberChip
+                label="Data code"
+                title="Superframe payload scrambling code n_Pay, 0 by default"
+                value={settings.superframe_payload ?? 0}
+                {...limitOf(limits, "superframe_payload")}
+                onCommit={(superframe_payload) => set({ ...settings, superframe_payload })}
+              />
+              <ToggleChip
+                label="Code search"
+                title="Find unknown scrambling codes from the signal; needs a clean carrier"
+                on={settings.superframe_search ?? false}
+                onChange={(superframe_search) => set({ ...settings, superframe_search })}
+              />
+            </>
+          ) : null}
           <OptionalNumberChip
             label="Stream"
             title="Choose an input stream identifier on a multistream carrier"
@@ -1011,7 +1057,7 @@ function DvbtChips({
   );
 }
 
-function DrmChips({ params, onParams }: Mode<"drm">) {
+function DrmChips({ params, broadcast, onParams }: Mode<"drm"> & { broadcast?: BroadcastStatus }) {
   const settings = params.settings;
   const mode = settings.mode ?? "auto";
   return (
@@ -1040,6 +1086,12 @@ function DrmChips({ params, onParams }: Mode<"drm">) {
         onCommit={(bandwidth_hz) =>
           onParams({ type: "drm", settings: { ...settings, bandwidth_hz } })
         }
+      />
+      <ServiceChip
+        status={broadcast}
+        value={settings.service ?? null}
+        max={3}
+        onChange={(service) => onParams({ type: "drm", settings: { ...settings, service } })}
       />
     </>
   );
@@ -1145,6 +1197,82 @@ function DectChips({ params, onParams }: Mode<"dect">) {
         onChange={(sides) => onParams({ type: "dect", settings: { ...settings, sides } })}
       />
     </>
+  );
+}
+
+function AptChips({ params, onParams }: Mode<"apt">) {
+  const settings = params.settings;
+  return (
+    <ToggleChip
+      label="Partial"
+      title="Keep unfinished passes"
+      on={settings.keep_partial ?? true}
+      onChange={(keep_partial) =>
+        onParams({ type: "apt", settings: { ...settings, keep_partial } })
+      }
+    />
+  );
+}
+
+function LrptChips({ params, onParams }: Mode<"lrpt">) {
+  const settings = params.settings;
+  return (
+    <ChoiceChip
+      label="Mode"
+      title="Meteor-M downlink mode"
+      value={settings.mode ?? "oqpsk72"}
+      options={LRPT_MODES}
+      onChange={(mode) => onParams({ type: "lrpt", settings: { ...settings, mode } })}
+    />
+  );
+}
+
+function WefaxChips({ params, onParams }: Mode<"wefax">) {
+  const settings = params.settings;
+  const set = (next: typeof settings) => onParams({ type: "wefax", settings: next });
+  return (
+    <>
+      <ChoiceChip
+        label="IOC"
+        title="Index of cooperation"
+        value={settings.ioc ?? "ioc576"}
+        options={WEFAX_IOCS}
+        onChange={(ioc) => set({ ...settings, ioc })}
+      />
+      <ChoiceChip
+        label="LPM"
+        title="Lines per minute"
+        value={settings.lpm ?? "lpm120"}
+        options={WEFAX_LPMS}
+        onChange={(lpm) => set({ ...settings, lpm })}
+      />
+      <ToggleChip
+        label="Partial"
+        title="Keep unfinished charts"
+        on={settings.keep_partial ?? true}
+        onChange={(keep_partial) => set({ ...settings, keep_partial })}
+      />
+    </>
+  );
+}
+
+function RadiosondeChips({ params, onParams }: Mode<"radiosonde">) {
+  const settings = params.settings;
+  const sonde = settings.sonde ?? SONDE_AUTO;
+  return (
+    <ChoiceChip
+      label="Sonde"
+      title="Sonde type"
+      value={sonde}
+      options={SONDE_TYPES}
+      quiet={sonde === SONDE_AUTO}
+      onChange={(next) =>
+        onParams({
+          type: "radiosonde",
+          settings: { ...settings, sonde: next === SONDE_AUTO ? null : next },
+        })
+      }
+    />
   );
 }
 

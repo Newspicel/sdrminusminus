@@ -9,13 +9,14 @@ use sdrmm_device_recording::RecordingDriver;
 use sdrmm_engine::Engine;
 use sdrmm_recorder::SigmfWriter;
 use sdrmm_wire::{
-    AcarsParams, AdsbParams, AisChannel, AisParams, AprsMode, AprsParams, BroadcastSystem,
-    ChannelParams, ChannelSettings, CwSkimmerParams, DabParams, DatvParams, DatvStandard,
-    DecodedRecord, DecoderEvent, DectCapability, DectCipherState, DectParams, DmrParams, DrmMode,
-    DrmParams, DvFrameKind, DvMode, ErmesParams, FlexParams, FreeDvParams, GnssParams, IdentParams,
-    Modulation, MorseParams, NavtexParams, NfmParams, NfmToneMode, PipelineStage, PocsagBaud,
-    PocsagParams, PskBaud, PskParams, RdsUpdate, RttyParams, SelcallParams, SelcallSystem,
-    SymbolPlane, VorParams, WfmParams, WsjtParams, WsprParams, YsfParams,
+    AcarsParams, AdsbParams, AisChannel, AisParams, AprsMode, AprsParams, AptParams, AvhrrChannel,
+    BroadcastSystem, ChannelParams, ChannelSettings, CwSkimmerParams, DabParams, DatvParams,
+    DatvStandard, DecodedRecord, DecoderEvent, DectCapability, DectCipherState, DectParams,
+    DmrParams, DrmMode, DrmParams, DvFrameKind, DvMode, ErmesParams, FlexParams, FreeDvParams,
+    GnssParams, IdentParams, LrptMode, LrptParams, Modulation, MorseParams, NavtexParams,
+    NfmParams, NfmToneMode, PipelineStage, PocsagBaud, PocsagParams, PskBaud, PskParams,
+    RadiosondeParams, RdsUpdate, RttyParams, SelcallParams, SelcallSystem, SondeType, SymbolPlane,
+    VorParams, WefaxIoc, WefaxLpm, WefaxParams, WfmParams, WsjtParams, WsprParams, YsfParams,
 };
 use tempfile::TempDir;
 
@@ -1723,4 +1724,168 @@ async fn dab_pad_slideshow_crosses_the_virtual_receiver_and_decoded_event_stream
         data.bytes,
         include_bytes!("../../../fixtures/broadcast_audio/slideshow.png")
     );
+}
+
+#[tokio::test]
+async fn an_aprs_weather_report_reaches_the_decoded_stream() {
+    let dir = TempDir::new().unwrap();
+    let engine = engine_for(dir.path());
+    let frame = AprsTx::ui_frame(
+        "DL1WX-13",
+        "APRS",
+        &[],
+        "!4903.50N/07201.75W_220/004g005t077r000p000P000h50b09900",
+    );
+    let iq = synth::resample(
+        &aprs_burst(frame),
+        AprsTx::descriptor().input_rate_hz,
+        NARROW_DEVICE_RATE,
+    );
+    let device = plant(dir.path(), "aprs_wx", iq, NARROW_DEVICE_RATE);
+    let record = decode_first(
+        &engine,
+        &device,
+        ChannelSettings {
+            frequency_hz: CENTER_HZ,
+            squelch: sdrmm_wire::Squelch::Off,
+            params: ChannelParams::Aprs(AprsParams::default()),
+            blanker: Default::default(),
+        },
+        |event| matches!(event, DecoderEvent::Aprs(p) if p.weather.is_some()),
+    )
+    .await;
+    let DecoderEvent::Aprs(packet) = record.event else {
+        unreachable!("filtered above")
+    };
+    let weather = packet.weather.unwrap();
+    assert_eq!(weather.wind_dir_deg, Some(220));
+    assert_eq!(weather.humidity_pct, Some(50));
+}
+
+#[tokio::test]
+async fn an_rs41_radiosonde_survives_the_ddc_and_reports_its_position() {
+    let dir = TempDir::new().unwrap();
+    let engine = accelerated_engine_for(dir.path());
+    let offset_hz = 25_000.0;
+    let native = synth::radiosonde::transmission(SondeType::Rs41, 6, AUDIO_DEVICE_RATE);
+    let mut iq = synth::resample(&native, AUDIO_DEVICE_RATE, NARROW_DEVICE_RATE);
+    synth::shift(&mut iq, offset_hz, NARROW_DEVICE_RATE);
+    let device = plant(dir.path(), "rs41", iq, NARROW_DEVICE_RATE);
+    let record = decode_first(
+        &engine,
+        &device,
+        ChannelSettings {
+            frequency_hz: CENTER_HZ + offset_hz,
+            squelch: sdrmm_wire::Squelch::Off,
+            params: ChannelParams::Radiosonde(RadiosondeParams::default()),
+            blanker: Default::default(),
+        },
+        |event| matches!(event, DecoderEvent::Radiosonde(f) if f.lat.is_some()),
+    )
+    .await;
+    let DecoderEvent::Radiosonde(frame) = record.event.clone() else {
+        unreachable!("filtered above")
+    };
+    let truth = synth::radiosonde::flight(SondeType::Rs41);
+    assert_eq!(frame.sonde, SondeType::Rs41);
+    assert_eq!(frame.serial, truth.serial);
+    assert!(DecoderEvent::Radiosonde(frame).position().is_some());
+}
+
+#[tokio::test]
+async fn a_noaa_apt_pass_reaches_the_decoded_stream() {
+    let dir = TempDir::new().unwrap();
+    let engine = accelerated_engine_for(dir.path());
+    const APT_RATE: f64 = 60_000.0;
+    let offset_hz = 50_000.0;
+    let native = synth::apt::transmission(160, AvhrrChannel::Ch2, AvhrrChannel::Ch4, APT_RATE);
+    let mut iq = synth::resample(&native, APT_RATE, NARROW_DEVICE_RATE);
+    synth::shift(&mut iq, offset_hz, NARROW_DEVICE_RATE);
+    iq.extend(synth::silence((NARROW_DEVICE_RATE * 12.0) as usize));
+    let device = plant(dir.path(), "apt", iq, NARROW_DEVICE_RATE);
+    let record = decode_first(
+        &engine,
+        &device,
+        ChannelSettings {
+            frequency_hz: CENTER_HZ + offset_hz,
+            squelch: sdrmm_wire::Squelch::Off,
+            params: ChannelParams::Apt(AptParams::default()),
+            blanker: Default::default(),
+        },
+        |event| matches!(event, DecoderEvent::Apt(_)),
+    )
+    .await;
+    let DecoderEvent::Apt(image) = record.event else {
+        unreachable!("filtered above")
+    };
+    assert!(image.lines >= 150, "{} lines", image.lines);
+    assert_eq!(image.channel_a, Some(AvhrrChannel::Ch2));
+    assert_eq!(image.channel_b, Some(AvhrrChannel::Ch4));
+}
+
+#[tokio::test]
+async fn a_wefax_chart_reaches_the_decoded_stream() {
+    let dir = TempDir::new().unwrap();
+    let engine = accelerated_engine_for(dir.path());
+    const WEFAX_RATE: f64 = 12_000.0;
+    let offset_hz = 5_000.0;
+    let chart = synth::wefax::bars(WefaxIoc::Ioc576, 60);
+    let native = synth::wefax::transmission(WefaxIoc::Ioc576, WefaxLpm::Lpm240, &chart, WEFAX_RATE);
+    let mut iq = synth::resample(&native, WEFAX_RATE, AUDIO_DEVICE_RATE);
+    synth::shift(&mut iq, offset_hz, AUDIO_DEVICE_RATE);
+    let device = plant(dir.path(), "wefax", iq, AUDIO_DEVICE_RATE);
+    let record = decode_first(
+        &engine,
+        &device,
+        ChannelSettings {
+            frequency_hz: CENTER_HZ + offset_hz,
+            squelch: sdrmm_wire::Squelch::Off,
+            params: ChannelParams::Wefax(WefaxParams {
+                lpm: WefaxLpm::Lpm240,
+                ..WefaxParams::default()
+            }),
+            blanker: Default::default(),
+        },
+        |event| matches!(event, DecoderEvent::Wefax(_)),
+    )
+    .await;
+    let DecoderEvent::Wefax(picture) = record.event else {
+        unreachable!("filtered above")
+    };
+    assert!(picture.complete);
+    assert_eq!(picture.lines, 60);
+    assert_eq!(picture.width, 1_810);
+}
+
+#[tokio::test]
+async fn a_meteor_lrpt_pass_reaches_the_decoded_stream() {
+    let dir = TempDir::new().unwrap();
+    let engine = accelerated_engine_for(dir.path());
+    const LRPT_RATE: f64 = 288_000.0;
+    const LRPT_DEVICE_RATE: f64 = 576_000.0;
+    let offset_hz = 100_000.0;
+    let native = synth::lrpt::transmission(LrptMode::Oqpsk72, 4, LRPT_RATE);
+    let mut iq = synth::resample(&native, LRPT_RATE, LRPT_DEVICE_RATE);
+    synth::shift(&mut iq, offset_hz, LRPT_DEVICE_RATE);
+    iq.extend(synth::silence((LRPT_DEVICE_RATE * 4.0) as usize));
+    let device = plant(dir.path(), "lrpt", iq, LRPT_DEVICE_RATE);
+    let record = decode_first(
+        &engine,
+        &device,
+        ChannelSettings {
+            frequency_hz: CENTER_HZ + offset_hz,
+            squelch: sdrmm_wire::Squelch::Off,
+            params: ChannelParams::Lrpt(LrptParams::default()),
+            blanker: Default::default(),
+        },
+        |event| matches!(event, DecoderEvent::Lrpt(_)),
+    )
+    .await;
+    let DecoderEvent::Lrpt(image) = record.event else {
+        unreachable!("filtered above")
+    };
+    assert_eq!(image.width, 1_568);
+    assert_eq!(image.lines, 32);
+    assert_eq!(image.frames_failed, 0);
+    assert_eq!(image.packets_lost, 0);
 }

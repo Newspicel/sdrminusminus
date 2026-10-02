@@ -301,11 +301,11 @@ fn a_workspace_validates_structurally_and_against_the_registry() {
 #[test]
 fn an_unknown_channel_type_is_refused_only_against_the_registry() {
     let mut graph = workspace();
-    graph.nodes[2] = channel("ch", "wefax");
+    graph.nodes[2] = channel("ch", "telefax");
     graph.validate().expect("structure alone cannot know");
     assert_eq!(
         graph.validate_against(&descriptors()),
-        Err(PatchError::ChannelType("wefax".to_owned()))
+        Err(PatchError::ChannelType("telefax".to_owned()))
     );
 }
 
@@ -1693,8 +1693,8 @@ fn default_params_come_from_the_type_id() {
         ChannelSettings::default_for("ssb").expect("ssb is a channel type"),
         serde_json::from_str(r#"{"params":{"type":"ssb","settings":{}}}"#).unwrap()
     );
-    assert_eq!(ChannelParams::default_for("wefax"), None);
-    assert_eq!(ChannelSettings::default_for("wefax"), None);
+    assert_eq!(ChannelParams::default_for("telefax"), None);
+    assert_eq!(ChannelSettings::default_for("telefax"), None);
 }
 
 fn recording(id: &str, stem: Option<&str>) -> PatchNode {
