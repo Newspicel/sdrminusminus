@@ -31,6 +31,7 @@ import {
   sameGraph,
   unpin,
 } from "./graph";
+import { useGridStep } from "./grid";
 import { useConnections, useGraphChanges } from "./handlers";
 import { type MenuPlace, menuPlace } from "./menuPlace";
 import { NODE_TYPES } from "./nodes";
@@ -48,6 +49,7 @@ const DELETE_KEYS = ["Backspace", "Delete"];
 
 export function Canvas() {
   const workspace = useWorkspaceContext();
+  const grid = useGridStep();
   const [nodes, setNodes, onNodesChange] = useNodesState<Node<FlowData>>(
     toFlowNodes(workspace.graph),
   );
@@ -203,6 +205,8 @@ export function Canvas() {
         onPaneContextMenu={(event) => openMenu(event as React.MouseEvent, { kind: "pane" })}
         deleteKeyCode={workspace.expanded === null ? DELETE_KEYS : null}
         zoomOnDoubleClick={false}
+        snapToGrid
+        snapGrid={grid.snap}
         panOnScroll
         panOnScrollSpeed={1}
         minZoom={0.15}
@@ -210,7 +214,7 @@ export function Canvas() {
         proOptions={{ hideAttribution: true }}
         className="min-h-0 flex-1 bg-bg"
       >
-        <Background variant={BackgroundVariant.Dots} gap={24} size={1} className="!bg-bg" />
+        <Background variant={BackgroundVariant.Dots} gap={grid.step} size={1} className="!bg-bg" />
       </ReactFlow>
       {menu !== null && (
         <ContextMenu
