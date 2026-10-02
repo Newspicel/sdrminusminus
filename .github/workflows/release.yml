@@ -49,14 +49,13 @@ jobs:
           TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
           WINGET_TOKEN: ${{ secrets.WINGET_TOKEN }}
           AUR_SSH_KEY: ${{ secrets.AUR_SSH_KEY }}
-          PACKAGES_SSH_KEY: ${{ secrets.PACKAGES_SSH_KEY }}
           PACKAGES_GPG_KEY: ${{ secrets.PACKAGES_GPG_KEY }}
         run: |
           {
             echo "tap=${TAP_TOKEN:+true}"
             echo "winget=${WINGET_TOKEN:+true}"
             echo "aur=${AUR_SSH_KEY:+true}"
-            if [ -n "$PACKAGES_SSH_KEY" ] && [ -n "$PACKAGES_GPG_KEY" ]; then echo "packages=true"; fi
+            echo "packages=${PACKAGES_GPG_KEY:+true}"
           } >> "$GITHUB_OUTPUT"
           if [ "$GITHUB_REF_TYPE" = tag ]; then
             for name in tap winget aur packages; do

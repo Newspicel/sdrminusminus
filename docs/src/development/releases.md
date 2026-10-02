@@ -132,6 +132,9 @@ page) move to the new tag. AUR packages and the WinGet manifest point at the mir
 cask stays on GitHub.
 Nightlies stay on GitHub only.
 
+The signed APT and RPM repository lives under `packages/`. The `linux-repo` workflow rebuilds it
+from a release tag and needs `PACKAGES_GPG_KEY`.
+
 A tagged release fails without `CLOUDFLARE_API_TOKEN` (R2 write) and `CLOUDFLARE_ACCOUNT_ID`.
 
 Denoise models live under `denoise/v1/`. After `cargo xtask denoise-model`, upload them with:

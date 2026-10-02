@@ -17,7 +17,8 @@ for file in "$@"; do
   name=$(basename -- "$file")
   case "$name" in
     *.json) type=application/json ;;
-    *.txt | SHA256SUMS | latest) type="text/plain; charset=utf-8" ;;
+    *.txt | *.asc | *.repo | SHA256SUMS | latest | Packages | Release | InRelease) type="text/plain; charset=utf-8" ;;
+    *.xml) type=application/xml ;;
     *) type=application/octet-stream ;;
   esac
   echo "$prefix/$name"
